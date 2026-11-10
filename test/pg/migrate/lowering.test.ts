@@ -10,8 +10,8 @@
  * (`selection`, lowered), the same with Extra's nodes as a second arm (`union`) or without them (`negated`), each kept
  * by triggers, each a derived relation D; Doc itself (`doc`), a stored containment; or nothing (`none`), each version's
  * kind drawn apart; and rows of Doc, Extra and Use, stored after the first version, those of Use its law refuses left
- * out. Each later version is drafted from the snapshot before and applied by the real runner as `grizzle migrate`
- * applies it, the drift check and the installed-catalog checker admitting every apply; or the last two together, as one
+ * out. Each later version is drafted from the snapshot before, as a history drafts it (install-migrate.ts
+ * draftVersion), and applied by the real runner as `grizzle migrate` applies it, the drift check and the installed-catalog checker admitting every apply; or the last two together, as one
  * apply of two pending folders, Use renamed to Usage in the last, so the constraints of the first of them are named
  * otherwise in the target. The steered phase aims at each flip both ways under one law, applied and refused, at a
  * lowered rule's constant changed, and at each form added over rows that break it.
@@ -23,7 +23,7 @@
  * refusal of the target's own folder names the law; one of an earlier folder may refuse on a constraint the target no
  * longer holds, which names no law. After every apply:
  *
- * - the migrated catalog is a fresh install's of the version (sameCatalog);
+ * - the migrated catalog is a fresh install's of the version (install-migrate.ts expectFreshCatalog);
  * - a Use row naming a doc no Doc row holds is refused at COMMIT with 23503 by a constraint the target's
  *   constraint-to-law map reads as the law, a foreign key's or a trigger's, whichever holds it.
  */
@@ -33,36 +33,33 @@ import { required } from "@grizzle/testing/features"
 import { array, boolean, element, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Option } from "effect"
 import type { MigrateError } from "#adapter/migrate/errors.ts"
-import type { FolderSource } from "#adapter/migrate/input.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
-import { codebookOf, noWorkload } from "#compiler/deploy/snapshot/build.ts"
-import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { constraintLaw } from "#compiler/ir/products.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, derived, on, relation, schema } from "#compiler/public/schema.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
-import { apply, checkedAdmission, openMigrator, sameCatalog } from "#test/pg/migrate/support.ts"
+import { apply, checkedAdmission, openMigrator } from "#test/pg/migrate/support.ts"
 import { ambientOwner, ordinarySession } from "#test/support/ambient.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
-import { installationSql } from "#test/support/compile.ts"
+import { assert } from "#test/support/assert.ts"
+import {
+	type DraftedVersion,
+	draftVersion,
+	expectFreshCatalog
+} from "#test/support/install-migrate.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import {
-	draftCodes,
-	draftedAt,
 	fromEmpty,
 	fromSnapshot,
-	generate,
 	noDeclarations,
 	type Previous
 } from "#test/support/migrate/kit.ts"
-import { review } from "#test/support/migrate/review.ts"
-import { planRealInstall, type RealInstallPlan } from "#test/support/oracle/install/real.ts"
+import type { RealInstallPlan } from "#test/support/oracle/install/real.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import { attemptChecked } from "#test/support/substrate.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
@@ -334,47 +331,30 @@ const walk = (c: WalkCase, note: (feature: Feature) => void) =>
 			...c.rows,
 			uses: Arr.filter(c.rows.uses, (doc) => keeps(c.rows, [doc], first))
 		}
-		const folders: Array<FolderSource> = []
-		const drafted: Array<{ readonly plan: RealInstallPlan; readonly snapshot: DeploySnapshot }> = []
+		const drafted: Array<DraftedVersion> = []
 		let previous: Previous = fromEmpty
 		let applied: { readonly version: Version; readonly plan: RealInstallPlan } | undefined
 		for (const [step, version] of c.versions.entries()) {
-			const value = schemaOf(name, useName(c, step), version)
-			const declared = declaredAt(c, step)
-			const plan = succeeded(
-				planRealInstall(value, {
-					installation,
-					owner,
+			const draft = yield* draftVersion(
+				{
+					schema: schemaOf(name, useName(c, step), version),
 					logins: [],
-					extensions: [],
-					codes: succeeded(draftCodes(value, previous, declared)),
-					compile: compileInstallation
-				})
+					declarations: declaredAt(c, step)
+				},
+				{ installation, owner, previous, step },
+				{ extensions: [], compile: compileInstallation }
 			)
-			const g = succeeded(
-				generate({
-					previous,
-					installation: plan.installation,
-					name: `step_${step + 1}`,
-					timestamp: draftedAt(step + 1),
-					workload: noWorkload,
-					declared
-				})
-			)
-			const reviewed = review(g, {
-				losses: "written",
-				value: () => assert.fail("a lowering migration drafts no placeholder")
-			})
-			folders.push({ name: g.folder.name, metaText: g.folder.metaText, files: reviewed.files })
-			drafted.push({ plan, snapshot: g.snapshot })
-			previous = fromSnapshot(g.snapshot)
+			const plan = draft.plan
+			drafted.push(draft)
+			previous = fromSnapshot(draft.snapshot)
 			if (step === 1 && c.applied === "the last two together") {
 				continue
 			}
+			const folders = Arr.map(drafted, (d) => d.folder)
 			const outcome = yield* Effect.result(
 				apply(
 					migrator,
-					{ snapshot: g.snapshot, folders: [...folders] },
+					{ snapshot: draft.snapshot, folders },
 					checkedAdmission(plan.installation, substrate.admin)
 				)
 			)
@@ -391,12 +371,12 @@ const walk = (c: WalkCase, note: (feature: Feature) => void) =>
 					)
 				}
 				const at = breaking.value
-				const atPlan = Arr.getUnsafe(drafted, at).plan
+				const atDraft = Arr.getUnsafe(drafted, at)
+				const atPlan = atDraft.plan
 				const law = ruleLawOf(atPlan)
 				const named = namedLaw(failure)
-				const folderNamed = refusedFolder(failure)
 				assert.ok(
-					Option.exists(folderNamed, Str.endsWith(`step_${at + 1}`)),
+					Option.exists(refusedFolder(failure), (folder) => folder === atDraft.folder.name),
 					`the refusal names the folder of step ${at + 1}, the first whose rule the rows break: ${failure.message}`
 				)
 				assert.ok(
@@ -490,27 +470,7 @@ const walk = (c: WalkCase, note: (feature: Feature) => void) =>
 				}
 			}
 			applied = { version, plan }
-			yield* Effect.scoped(
-				Effect.gen(function* () {
-					const freshName = yield* substrate.schema({ create: false, label: "lowering_fresh" })
-					const fresh = succeeded(
-						planRealInstall(value, {
-							installation: identity.schema(parsedSchemaName(freshName)),
-							owner,
-							logins: [],
-							extensions: [],
-							codes: codebookOf(g.snapshot),
-							compile: compileInstallation
-						})
-					)
-					yield* transaction(substrate.admin, installationSql(fresh.installation))
-					yield* sameCatalog(
-						plan.installation,
-						fresh.installation,
-						`step ${step + 1} migrated against a fresh install`
-					)
-				})
-			)
+			yield* expectFreshCatalog(plan.installation, folders, draft.planned)
 			const law = ruleLawOf(plan)
 			if (Option.isSome(law)) {
 				const use = useName(c, step)
@@ -528,8 +488,11 @@ const walk = (c: WalkCase, note: (feature: Feature) => void) =>
 				const reported = refused.fields.constraint
 				assert.ok(
 					reported !== undefined &&
-						constraintLaw(g.snapshot.constraintToLaw, { kind: "table", name: table }, reported) ===
-							law.value,
+						constraintLaw(
+							draft.snapshot.constraintToLaw,
+							{ kind: "table", name: table },
+							reported
+						) === law.value,
 					`step ${step + 1}: the refusing constraint ${String(reported)} reads as the law ${law.value}`
 				)
 				note(

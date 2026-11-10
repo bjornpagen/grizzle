@@ -303,7 +303,7 @@ export const runsInstallScript = (
  * trigger events and view queries included, must be equal, the ledger aside, because the two paths must produce
  * identical catalogs. The fresh schema and its roles are dropped as soon as they are compared.
  */
-const expectFreshCatalog = (
+export const expectFreshCatalog = (
 	migrated: Installation,
 	folders: ReadonlyArray<FolderSource>,
 	planned: VersionPlanner
@@ -477,7 +477,7 @@ export interface HistoryOptions extends DraftOptions {
  * One version of a history, as its migration drafts it: its plan and its reviewed folder, the snapshot it reaches, and
  * its planner under another identity, for a fresh install of it (expectFreshCatalog).
  */
-interface DraftedVersion {
+export interface DraftedVersion {
 	readonly plan: RealInstallPlan
 	readonly planned: VersionPlanner
 	readonly folder: FolderSource
@@ -503,7 +503,7 @@ const noPlaceholder = (placeholder: Placeholder): string => {
  * before it (migrate/kit.ts draftCodes), its folder, drafted under the same declarations at its step's instant,
  * reviewed as a person reviews it with every loss written in (migrate/review.ts), and the snapshot it reaches.
  */
-const draftVersion = (
+export const draftVersion = (
 	version: InstallVersion,
 	at: DraftAt,
 	options: DraftOptions
