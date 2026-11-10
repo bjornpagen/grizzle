@@ -21,6 +21,12 @@ post-beta swarm's fixes for the next release.
 - **A migration's refusal names its law through the final target's map only:** adapter/migrate's law mapping
   (GENERATE) looks an intermediate folder's constraint up in the final target snapshot's constraintToLaw, since migrate
   holds no intermediate snapshot; a constraint the final map lacks names no law and shows PostgreSQL's own report.
+- **Every served statement is planned again on every call (CHUNK, 2026-11-10):** adapter/wire/session.ts
+  statementQuery sends served statements unnamed, so PostgreSQL parses and plans each on every call. On CHUNK's named
+  replica a 16 KB plan read spent 12.2 ms planning against 4.4 ms executing (EXPLAIN (ANALYZE, BUFFERS), 20
+  connections; ~/.cache/grizzle-release/CHUNK/load-N/explain-plan-counted-*.txt). Named statements would plan once per
+  connection, but PostgreSQL switches a named statement to a generic plan after five executions, which can lose a
+  skewed parameter's selectivity. The owner's call; measure both on the 1,000-children run before choosing.
 - **Qti content is not provably sealed per import:** pantry mints node ids on the host (pantry/src/import/write.ts
   crypto.randomUUID), so the certifier cannot see that one importWrite call writes a test's content whole. edullm's
   learner writes read no Qti (the rotation is the app's computation, checked by native FKs), so the goal does not need
