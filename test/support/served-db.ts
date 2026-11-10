@@ -1,14 +1,16 @@
-import { Array as Arr, Effect, type Layer, Option, type Scope } from "effect"
+import { Array as Arr, Effect, Layer, Option, type Scope } from "effect"
 import type { ServedDbContext } from "#adapter/db/context.ts"
 import { memberOps } from "#adapter/db/handles.ts"
 import type { ServedOps } from "#adapter/db/ops.ts"
 import { openServed } from "#adapter/db/served.ts"
-import type { OpenError } from "#adapter/errors/execution.ts"
+import type { ApplyError, OpenError } from "#adapter/errors/execution.ts"
 import { compileServed, type ServedRefusal } from "#adapter/public/compile.ts"
 import { DbLayer, served } from "#adapter/public/layer.ts"
 import { type LoadedMember, loadServed } from "#adapter/served/load.ts"
+import type { ApplyOutcome } from "#adapter/types/db.ts"
 import type { DbLayerOf, ServedLogin, ServedRole } from "#adapter/types/layer.ts"
 import type { Json } from "#compiler/core/canonical.ts"
+import type { ParamMap } from "#compiler/plan/common.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import type { AnyLogin, AnyLoginRole, AnyRole } from "#compiler/public/schema.ts"
 import { servedFile } from "#compiler/served/json.ts"
@@ -33,6 +35,8 @@ import { testVerify, tokenOf } from "#test/support/worlds.ts"
  * - withServedDb: one Db of a role per installation, opened through its login's served layer, whose `serve` compiles a
  *   test's drawn programs into members of the role's workload, each loaded and run on that Db's context: the same pool,
  *   prologue and claims, and the operations a workload handle runs (adapter/db/handles.ts memberOps).
+ * - servedOn: the same `load` and `serve` over a served Db's context a test opened itself.
+ * - appliedWith: a change member's call with its facts, whichever operations it was loaded with.
  *
  * The served file of `login` with `workloads` in place of its own, compiled under the snapshot the installation reached
  * and parsed: what an application imports. A program the compile refuses is its ServedRefusal, naming the role and the
@@ -93,6 +97,9 @@ export interface ServedDb {
 	) => Effect.Effect<ReadonlyMap<string, ServedOps<unknown>>, ServedRefusal | OpenError>
 }
 
+/** The operations `load` and `serve` give over one served Db's context (ServedDb). */
+export type ServedOn = Pick<ServedDb, "load" | "serve">
+
 /** The members of the role `role` of a loaded login, by its name in the login. */
 const roleMembers = (
 	members: ReadonlyArray<{ readonly name: string; readonly members: ReadonlyArray<LoadedMember> }>,
@@ -111,10 +118,32 @@ const servedRoleOf = (
 	defined(file.roles[role.role.name], `role ${role.role.name} of login ${file.name}'s served file`)
 
 /**
- * Opens `role`, a role reached through its login, over `installed`, with a token whose payload is `payload`, through the
- * login's served layer, and runs `body` with the Db (ServedDb) inside the layer's scope. Each `serve` compiles its
- * programs into one served file of the login (servedJson), the role's workload holding exactly them, loads it, and runs
- * its members on the opened Db's context, so a case's programs share its Db's pool and claims.
+ * Opens `role`, a role reached through its login, over `installed`, with a token whose payload is `payload`, through a
+ * served layer of its login of its own, built in the caller's scope, so each open is a Db with a pool of its own. Each
+ * `serve` compiles its programs into one served file of the login (servedJson), the role's workload holding exactly
+ * them, loads it, and runs its members on the opened Db's context, so a case's programs share its Db's pool and claims.
+ */
+export const openServedDb = (
+	installed: Installed,
+	role: AnyLoginRole,
+	payload: Json
+): Effect.Effect<ServedDb, ServedRefusal | OpenError, Scope.Scope> =>
+	Effect.gen(function* () {
+		const fixture = yield* servedFixture(installed, role.login)
+		const context = yield* Layer.build(fixture.layer)
+		const { ctx } = yield* Effect.provideContext(
+			openServed(servedRoleOf(fixture.login, role), { token: tokenOf(payload) }),
+			context
+		)
+		return {
+			ctx,
+			...servedOn(snapshotValue(installed.snapshot, installed.installation), role, ctx)
+		}
+	})
+
+/**
+ * `body` run with a Db of `role` opened over `installed` as openServedDb opens one, its login's served layer built for
+ * `body` alone and released when it ends.
  */
 export const withServedDb = <A, E, R>(
 	installed: Installed,
@@ -123,37 +152,69 @@ export const withServedDb = <A, E, R>(
 	body: (db: ServedDb) => Effect.Effect<A, E, R>
 ): Effect.Effect<A, E | ServedRefusal | OpenError, R | Scope.Scope> =>
 	Effect.gen(function* () {
-		const login = role.login
-		const fixture = yield* servedFixture(installed, login)
+		const fixture = yield* servedFixture(installed, role.login)
 		return yield* Effect.gen(function* () {
 			const { ctx } = yield* openServed(servedRoleOf(fixture.login, role), {
 				token: tokenOf(payload)
 			})
-			const load: ServedDb["load"] = (programs) =>
-				Effect.gen(function* () {
-					const json = yield* servedJson(installed, login, [workload(role.role, programs)])
-					const loaded = yield* Effect.fromResult(loadServed(servedFile(json), login.name))
-					return new Map(
-						Arr.map(
-							roleMembers(loaded.roles, role.role.name),
-							(m): readonly [string, LoadedMember] => [m.name, m]
-						)
-					)
-				})
-			const serve: ServedDb["serve"] = (programs) =>
-				Effect.map(
-					load(programs),
-					(loaded) =>
-						new Map(
-							Arr.map([...loaded], ([name, m]): readonly [string, ServedOps<unknown>] => [
-								name,
-								memberOps(ctx, m)
-							])
-						)
-				)
-			return yield* body({ ctx, load, serve })
+			return yield* body({
+				ctx,
+				...servedOn(snapshotValue(installed.snapshot, installed.installation), role, ctx)
+			})
 		}).pipe(withLayer(fixture.layer))
 	})
+
+/**
+ * `load` and `serve` over `ctx`, a Db of `role` a test opened through its login's served layer, whose file was compiled
+ * under `snapshot`, the JSON value of a snapshot.json: each call compiles its programs into one served file of the login
+ * under that snapshot (adapter/public/compile.ts compileServed), the role's workload holding exactly them, loads it, and
+ * gives each member loaded, or its operations run on `ctx`, by name.
+ */
+const servedOn = (snapshot: unknown, role: AnyLoginRole, ctx: ServedDbContext): ServedOn => {
+	const login = role.login
+	const load: ServedDb["load"] = (programs) =>
+		Effect.gen(function* () {
+			const json = yield* Effect.suspend(() =>
+				compileServed(login, snapshot, [workload(role.role, programs)])
+			)
+			const loaded = yield* Effect.fromResult(loadServed(servedFile(json), login.name))
+			return new Map(
+				Arr.map(roleMembers(loaded.roles, role.role.name), (m): readonly [string, LoadedMember] => [
+					m.name,
+					m
+				])
+			)
+		})
+	const serve: ServedDb["serve"] = (programs) =>
+		Effect.map(
+			load(programs),
+			(loaded) =>
+				new Map(
+					Arr.map([...loaded], ([name, m]): readonly [string, ServedOps<unknown>] => [
+						name,
+						memberOps(ctx, m)
+					])
+				)
+		)
+	return { load, serve }
+}
+
+/**
+ * A call's facts: under each op of a change member's array members, the rows of each, under its relation's name, as
+ * a facts handle's apply takes them (types/db FactsApply).
+ */
+export type CallFacts = Readonly<Record<string, Readonly<Record<string, ReadonlyArray<unknown>>>>>
+
+/**
+ * A change member's call with `params`: with `facts` where it was loaded as a facts handle, which its array members
+ * make it; a member with none takes its parameters alone, and is handed no facts.
+ */
+export const appliedWith = <A>(
+	served: ServedOps<A>,
+	facts: CallFacts,
+	params: ParamMap
+): Effect.Effect<ApplyOutcome<A>, ApplyError> =>
+	served.kind === "facts" ? served.ops.apply(facts, params) : served.ops.apply(params)
 
 /** The member under `name` of those `load` or `serve` gave: a name it did not give is a defect of the test. */
 export const member = <M>(served: ReadonlyMap<string, M>, name: string): M =>

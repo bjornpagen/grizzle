@@ -16,7 +16,7 @@ import { Cents, Instant } from "#test/support/fixtures/api/contracts.ts"
 import * as P from "#test/support/fixtures/api/payroll.ts"
 import { stateA } from "#test/support/fixtures/golden/payroll.ts"
 import type { SqlError } from "#test/support/pg.ts"
-import { member, withServedDb } from "#test/support/served-db.ts"
+import { type CallFacts, member, withServedDb } from "#test/support/served-db.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import type { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -33,12 +33,6 @@ export type PayrollWorlds = ReturnType<typeof P.reportingWorlds>
 export interface Attempt {
 	readonly outcome: Effect.Effect<ApplyOutcome<unknown>, ApplyError | OpenError | ServedRefusal>
 }
-
-/**
- * A call's facts: under the op of each array member of its ChangeSet (insert, put or delete), the rows of the relation
- * that member writes, a JavaScript caller's values as given.
- */
-export type CallFacts = Readonly<Record<string, Readonly<Record<string, ReadonlyArray<unknown>>>>>
 
 /** The facts of a call of a ChangeSet that holds no array member. */
 const noFacts: CallFacts = {}

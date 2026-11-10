@@ -20,7 +20,6 @@ import {
 import { str } from "#compiler/public/text.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
-import { changeSetOver } from "#compiler/write/changeset/value.ts"
 import { defined } from "#test/support/assert.ts"
 import { namedText } from "#test/support/closed/stored.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
@@ -48,9 +47,8 @@ import {
 	type HostOp,
 	type HostValue
 } from "#test/support/laws/model.ts"
-import { openWriter, type Session } from "#test/support/laws/support.ts"
+import { openWriter, servedApply, type Session } from "#test/support/laws/support.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
-import { applyRuntime } from "#test/support/runtime-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
@@ -630,7 +628,8 @@ const boxSession = (
 	Effect.gen(function* () {
 		const s = yield* Substrate
 		const value = boxSchema(p, installed.declared)
-		const { ctx } = yield* openWriter({ installed, schema: value })
+		const opened = yield* openWriter({ installed, schema: value })
+		const applied = servedApply(opened, p.point.values)
 		const host = hostOf(p)
 		const q = quoteIdent(installed.schema)
 		const table = (r: Rel) => `${q}.${quoteIdent(r.host.table)}`
@@ -641,23 +640,20 @@ const boxSession = (
 			}
 			return r.value
 		}
-		const apply = (ops: ReadonlyArray<HostOp>) => {
-			let c = changeSetOver.empty(value)
-			for (const o of ops) {
-				const relationValue = p.point.values[o.relation]
-				if (relationValue === undefined) {
-					throw new Error(`no relation value ${o.relation}`)
-				}
-				const r = relOf(o.relation)
-				const facts = Arr.map(o.facts, (f) =>
-					Rec.fromEntries(
-						Arr.map(Rec.toEntries(f), ([field, x]) => [field, encode(encodingOf(r, field), x)])
-					)
-				)
-				c = c[o.kind](relationValue, facts)
-			}
-			return applyRuntime(ctx, c, {})
-		}
+		const apply = (ops: ReadonlyArray<HostOp>) =>
+			applied(
+				Arr.map(ops, (o) => {
+					const r = relOf(o.relation)
+					return {
+						...o,
+						facts: Arr.map(o.facts, (f) =>
+							Rec.fromEntries(
+								Arr.map(Rec.toEntries(f), ([field, x]) => [field, encode(encodingOf(r, field), x)])
+							)
+						)
+					}
+				})
+			)
 		return {
 			host,
 			reset: s.admin.query(`TRUNCATE ${Arr.join(Arr.map(p.point.relations, table), ", ")}`, []),

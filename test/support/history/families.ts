@@ -2,7 +2,6 @@ import { Array as Arr, Effect, type Scope } from "effect"
 import type { OpenError } from "#adapter/errors/execution.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
-import { ChangeSet } from "#compiler/public/changeset.ts"
 import type { AnySchema } from "#compiler/public/schema.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import type { HistoryEnv } from "#test/support/history/run.ts"
@@ -38,9 +37,14 @@ import {
 	Work
 } from "#test/support/laws/boxes.ts"
 import type { HostSchema } from "#test/support/laws/model.ts"
-import { type Domains, familyWriters, openWriter } from "#test/support/laws/support.ts"
+import {
+	type Domains,
+	familyWriters,
+	openWriter,
+	servedWrite,
+	type StepWrite
+} from "#test/support/laws/support.ts"
 import type { SqlError } from "#test/support/pg.ts"
-import { type DbRuntime, dbRuntime } from "#test/support/runtime-db.ts"
 import { type GrizzleActor, grizzleActor } from "#test/support/schedules/actors.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import type { SubstrateWorld } from "#test/support/substrate/session.ts"
@@ -58,10 +62,10 @@ export interface HistoryRig {
 	/** The relation values by name. */
 	readonly relations: Readonly<Record<string, unknown>>
 	/**
-	 * Per grizzle writer, the runtime its opened Db dispatches to, which takes a ChangeSet built at run time
-	 *, and its actor, the one session its Db's pool holds.
+	 * Per grizzle writer, the served write of a ChangeSet built at run time on its opened Db (laws/support.ts
+	 * servedWrite), and its actor, the one session its Db's pool holds.
 	 */
-	readonly runtimes: Readonly<Record<GrizzleWriter, DbRuntime>>
+	readonly writes: Readonly<Record<GrizzleWriter, StepWrite>>
 	readonly actors: Readonly<Record<GrizzleWriter, GrizzleActor>>
 	/** The role `direct`, as the psql writers take it on. */
 	readonly direct: SubstrateWorld
@@ -83,7 +87,7 @@ export interface HistoryInstall<P> {
  *
  * Each history family is one of the law-bearing generated families: its drawn parameters, its schema, its host model
  * and its field domains are that family's, imported as they are. Every family schema's writers (familyWriters) are the
- * full role `app`, which two grizzle writers `g` and `h` open, each through a DbLayer of its own, so each holds one
+ * full role `app`, which two grizzle writers `g` and `h` open, each through a served layer of its own, so each holds one
  * session of its own, and the full role `direct` the psql writers take on, as any direct SQL writer takes on a role
  * through its login. What a history adds is the grizzle side it drives with several writers at once: the installation
  * opened twice as `app`, each writer's actor resolved as it opens, and the relation values by name, over which a writer
@@ -166,7 +170,7 @@ const historyInstall = <P>(
 
 /**
  * The history environment of an installation of `schema`: `app` opened as `g` and then as `h`, each writer's actor
- * the one session its Db's pool leases, beside the writers opened before it (grizzleActor).
+ * the one session its Db's pool leases and then holds idle, beside the writers opened before it (grizzleActor).
  */
 const historyEnv = <P>(
 	i: HistoryInstall<P>,
@@ -177,10 +181,9 @@ const historyEnv = <P>(
 		const writers = familyWriters(schema)
 		const login = i.installed.as(writers.server).role
 		const first = yield* openWriter({ installed: i.installed, schema })
-		const g = yield* grizzleActor("g", login, first.db.apply(ChangeSet.empty(schema), {}), [])
+		const g = yield* grizzleActor("g", login, Effect.scoped(first.ctx.pool.lease), [])
 		const second = yield* openWriter({ installed: i.installed, schema })
-		const h = yield* grizzleActor("h", login, second.db.apply(ChangeSet.empty(schema), {}), [g.pid])
-		const runtimes = { g: dbRuntime(first.ctx), h: dbRuntime(second.ctx) }
+		const h = yield* grizzleActor("h", login, Effect.scoped(second.ctx.pool.lease), [g.pid])
 		return {
 			host: i.host,
 			domains: i.domains,
@@ -188,7 +191,7 @@ const historyEnv = <P>(
 				installed: i.installed,
 				schema,
 				relations,
-				runtimes: { g: runtimes.g, h: runtimes.h },
+				writes: { g: servedWrite(first, relations), h: servedWrite(second, relations) },
 				actors: { g, h },
 				direct: i.installed.world(writers.direct)
 			},

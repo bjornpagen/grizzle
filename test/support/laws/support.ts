@@ -2,20 +2,11 @@ import type { Case } from "@grizzle/testing/explore"
 import { array, type Gen, int, weighted } from "@grizzle/testing/gen"
 import { agree } from "@grizzle/testing/oracle"
 import { type Swarm, swarm, swarmChoice } from "@grizzle/testing/swarm"
-import {
-	Array as Arr,
-	Effect,
-	Formatter,
-	Layer,
-	Option,
-	Record as Rec,
-	Result,
-	type Scope
-} from "effect"
-import type { DbContext } from "#adapter/db/context.ts"
-import { openDbContext } from "#adapter/db/open.ts"
-import type { ApplyError, OpenError } from "#adapter/errors/execution.ts"
-import { Db } from "#adapter/public/db.ts"
+import { Array as Arr, Effect, Formatter, Option, Record as Rec, Result, type Scope } from "effect"
+import type { ServedDbContext } from "#adapter/db/context.ts"
+import type { ServedOps } from "#adapter/db/ops.ts"
+import { type ApplyError, OpenError } from "#adapter/errors/execution.ts"
+import type { ServedRefusal } from "#adapter/public/compile.ts"
 import type { ApplyOutcome } from "#adapter/public/db.ts"
 import { appendAll, indices } from "#compiler/core/array.ts"
 import type { CompileError, CompileReason } from "#compiler/core/errors.ts"
@@ -73,10 +64,14 @@ import { CaseFailed } from "#test/support/oracle/write/harness.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { pickFrom, pickGen, pickOf, pickSpan } from "#test/support/pick.ts"
 import { refusedLaws } from "#test/support/refused.ts"
-import { dbRuntime } from "#test/support/runtime-db.ts"
+import {
+	appliedWith,
+	type CallFacts,
+	openServedDb,
+	type ServedOn
+} from "#test/support/served-db.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-import { loginLayerIn } from "#test/support/worlds.ts"
 
 /**
  * What a family case notes: each step's op kinds and its outcome, what a refusal notes (refusalFeatures), the schema it
@@ -371,8 +366,8 @@ const refusingLaws = (
 /**
  * The writers of a family schema: `app`, the grizzle writer, in the login `server`, and `direct`, the role its direct SQL
  * writers take on, in the login `psql`, each holding every relation of the schema whole and writing every ordinary
- * one. A second grizzle writer is `app` opened again through a DbLayer of its own (openWriter), so its session is its
- * own backend. The direct writers log in apart from the grizzle writers, so the backends of a login are the grizzle
+ * one. A second grizzle writer is `app` opened again through a served layer of its own (openWriter), so its session is
+ * its own backend. The direct writers log in apart from the grizzle writers, so the backends of a login are the grizzle
  * writers' alone (pg_stat_activity names the login, never the role a session took on), which the histories and the
  * schedules resolve a writer's backend by.
  */
@@ -388,15 +383,16 @@ export const familyWriters = (base: AnySchema) => {
 	const direct = role(base, "direct", relations, { write })
 	return { app, direct, server: login(base, "server", [app]), psql: login(base, "psql", [direct]) }
 }
-export type FamilyWriters = ReturnType<typeof familyWriters>
 
-/** An installed family schema, opened as its grizzle writer `app`. */
+/**
+ * An installed family schema, opened as its grizzle writer `app`: the Db's context, and the programs a step builds at
+ * run time served on it as members of `app`'s workload (served-db.ts servedOn).
+ */
 export interface Opened<S extends AnySchema> {
 	readonly installed: Installed
 	readonly schema: S
-	readonly db: Db<FamilyWriters["app"], unknown>
-	/** The context `db` reads, which the runtime applies through (test/support/runtime-db.ts). */
-	readonly ctx: DbContext
+	readonly ctx: ServedDbContext
+	readonly served: ServedOn
 }
 
 /**
@@ -422,30 +418,32 @@ export const installLaws = (
 }
 
 /**
- * Opens `app` on an installation of `opened.schema`, through a DbLayer of its own on the substrate's database: each
- * call is a writer with a pool of its own.
+ * Opens `app` on an installation of `opened.schema`, through a served layer of its own over the database it was
+ * installed in (served-db.ts openServedDb): each call is a writer with a pool of its own. The login serves no workload of
+ * its own; a step's ChangeSet is served on the writer when it runs (servedApply).
  */
 export const openWriter = <S extends AnySchema>(opened: {
 	readonly installed: Installed
 	readonly schema: S
-}): Effect.Effect<Opened<S>, OpenError, Substrate | Scope.Scope> =>
-	Effect.gen(function* () {
-		const s = yield* Substrate
-		const writers = familyWriters(opened.schema)
-		const context = yield* Layer.build(loginLayerIn(s.database, opened.installed, writers.server))
-		const { db, ctx } = yield* openDbContext(writers.server.roles.app, {}).pipe(
-			Effect.provideContext(context)
-		)
-		return { installed: opened.installed, schema: opened.schema, db, ctx }
-	})
+}): Effect.Effect<Opened<S>, OpenError, Scope.Scope> =>
+	Effect.map(
+		Effect.catchIf(
+			openServedDb(opened.installed, familyWriters(opened.schema).server.roles.app, {}),
+			(failure) => "place" in failure,
+			(refusal) => Effect.die(refusal)
+		),
+		(db) => ({ installed: opened.installed, schema: opened.schema, ctx: db.ctx, served: db })
+	)
 
 /** One installed family schema as the harness drives it. */
 export interface Session {
 	readonly host: HostSchema
 	/** Empties every table, as the owner. */
 	readonly reset: Effect.Effect<void, SqlError>
-	/** db.apply of the typed ChangeSet of `ops`. */
-	readonly apply: (ops: ReadonlyArray<HostOp>) => Effect.Effect<ApplyOutcome<unknown>, ApplyError>
+	/** The served apply of the ChangeSet of `ops` (servedApply): its outcome, or its refusal as it compiled. */
+	readonly apply: (
+		ops: ReadonlyArray<HostOp>
+	) => Effect.Effect<ApplyOutcome<unknown>, ApplyError | ServedRefusal>
 	/** The committed state, read as the owner, in stateRows' form. */
 	readonly read: Effect.Effect<StateRows, SqlError>
 	/** The LawId of the law an outcome names, read back through the installation's described laws. */
@@ -511,37 +509,119 @@ const sessionOf = (
 	}))
 
 /**
- * The ChangeSet of a step's host operations, built at run time over `schema` and its relation values by name as a
- * JavaScript caller passes members (packages/engine/src/write/changeset/value.ts): host facts are the members' facts, a span
- * field's value its endpoints.
+ * A step's host operations as a served change member: its ChangeSet, one array member per op and relation, in the
+ * order the operations first name them, built at run time over `schema` and its relation values by name as a JavaScript
+ * caller passes members (packages/engine/src/write/changeset/value.ts); the call's facts, each op's facts under its
+ * relation's name, an operation's facts after those of every earlier one of its op and relation, so one stratum writes
+ * them together as one member; and its shape, the op and relation of each member in order, which is all a member's
+ * compile reads of the step.
  */
-export const changeSetOf = (
+interface StepChange {
+	readonly changes: ChangeSetValue
+	readonly facts: CallFacts
+	readonly shape: string
+}
+
+/** A step's operation as its member is built: a host operation, its facts as the relation's carriers take them. */
+interface StepOp {
+	readonly relation: string
+	readonly kind: OpKind
+	readonly facts: ReadonlyArray<unknown>
+}
+
+const stepChangeOf = (
 	schema: unknown,
 	relations: Readonly<Record<string, unknown>>,
-	ops: ReadonlyArray<HostOp>
-): ChangeSetValue => {
-	let c = changeSetOver.empty(schema)
+	ops: ReadonlyArray<StepOp>
+): StepChange => {
+	let changes = changeSetOver.empty(schema)
+	const facts: Record<OpKind, Record<string, Array<unknown>>> = { insert: {}, put: {}, delete: {} }
+	const members: Array<string> = []
 	for (const o of ops) {
 		const relation = relations[o.relation]
 		if (relation === undefined) {
 			throw new Error(`no relation value ${o.relation}`)
 		}
-		c = c[o.kind](relation, o.facts)
+		const held = facts[o.kind][o.relation]
+		if (held === undefined) {
+			changes = changes[o.kind](relation, [])
+			members.push(`${o.kind} ${o.relation}`)
+			facts[o.kind][o.relation] = [...o.facts]
+		} else {
+			appendAll(held, o.facts)
+		}
 	}
-	return c
+	return {
+		changes,
+		facts: Rec.filter(facts, (byRelation) => !Rec.isEmptyRecord(byRelation)),
+		shape: Arr.join(members, ", ")
+	}
 }
 
-/** A session whose steps apply their ChangeSets (changeSetOf) through the opened Db's runtime. */
+/** A step's served apply: its outcome, or its ChangeSet's refusal as it compiled into a served member. */
+type StepApply = (
+	ops: ReadonlyArray<StepOp>
+) => Effect.Effect<ApplyOutcome<unknown>, ApplyError | ServedRefusal>
+
+/**
+ * A step's served write: its ChangeSet compiled into a served member, or its refusal as it compiled, then the call that
+ * applies it with the step's facts, which a writer may send again.
+ */
+export type StepWrite = (
+	ops: ReadonlyArray<StepOp>
+) => Effect.Effect<Effect.Effect<ApplyOutcome<unknown>, ApplyError>, ServedRefusal>
+
+/**
+ * The served write of each step on `opened`: the step's ChangeSet (stepChangeOf) compiled into a member of `app`'s
+ * workload and loaded on the writer's Db, as generate compiles a ChangeSet an application builds, then its call with the
+ * step's facts. A step compiles once per shape: the members compiled so far are kept by shape for the writer's life, an
+ * explicit cache of the test's own, since a member's compile reads only its shape and every call passes its own facts.
+ */
+export const servedWrite = <S extends AnySchema>(
+	opened: Opened<S>,
+	relations: Readonly<Record<string, unknown>>
+): StepWrite => {
+	const compiled = new Map<string, ServedOps<unknown>>()
+	const memberOf = (step: StepChange): Effect.Effect<ServedOps<unknown>, ServedRefusal> => {
+		const held = compiled.get(step.shape)
+		return held === undefined
+			? Effect.map(
+					Effect.catchIf(
+						opened.served.serve({ step: step.changes }),
+						(failure) => failure instanceof OpenError,
+						(failure) => Effect.die(failure)
+					),
+					(served) => {
+						const member = defined(served.get("step"), "the step's served member")
+						compiled.set(step.shape, member)
+						return member
+					}
+				)
+			: Effect.succeed(held)
+	}
+	return (ops) =>
+		Effect.suspend(() => {
+			const step = stepChangeOf(opened.schema, relations, ops)
+			return Effect.map(memberOf(step), (member) => appliedWith(member, step.facts, {}))
+		})
+}
+
+/** The served apply of each step on `opened`: its served write (servedWrite), compiled and called once. */
+export const servedApply = <S extends AnySchema>(
+	opened: Opened<S>,
+	relations: Readonly<Record<string, unknown>>
+): StepApply => {
+	const write = servedWrite(opened, relations)
+	return (ops) => Effect.flatten(write(ops))
+}
+
+/** A session whose steps apply their ChangeSets, built at run time, served on the opened writer (servedApply). */
 export const runtimeSession = <S extends AnySchema>(
 	host: HostSchema,
 	opened: Opened<S>,
 	relations: Readonly<Record<string, unknown>>
-): Effect.Effect<Session, never, Substrate> => {
-	const runtime = dbRuntime(opened.ctx)
-	return sessionOf(host, opened.installed, (ops) =>
-		runtime.methods.apply(changeSetOf(opened.schema, relations, ops), {})
-	)
-}
+): Effect.Effect<Session, never, Substrate> =>
+	sessionOf(host, opened.installed, servedApply(opened, relations))
 
 /**
  * Field domains of the generator: each field of each relation draws from a few values, a value listed twice drawn
@@ -1648,12 +1728,12 @@ type CycleWrite = Extract<CompileReason, { readonly _tag: "UnorderableStratum" }
  * order of its stratum's writes keeps every immediate key (UnorderableStratum); none for any other failure.
  */
 export const unorderableCycle = (
-	failure: ApplyError
+	failure: ApplyError | ServedRefusal
 ): Arr.NonEmptyReadonlyArray<CycleWrite> | undefined => {
-	if (failure._tag !== "ExecutionFailure" || failure.reason._tag !== "CompileError") {
+	if ("_tag" in failure || failure.error._tag !== "CompileError") {
 		return undefined
 	}
-	const reason = failure.reason.reason
+	const reason = failure.error.reason
 	return reason._tag === "UnorderableStratum" ? reason.cycle : undefined
 }
 
@@ -1667,7 +1747,7 @@ type StepOutcome =
 
 /** A step's apply as its outcome: an UnorderableStratum is the step's, any other failure a defect of the run. */
 const stepOutcome = (
-	applied: Effect.Effect<ApplyOutcome<unknown>, ApplyError>
+	applied: Effect.Effect<ApplyOutcome<unknown>, ApplyError | ServedRefusal>
 ): Effect.Effect<StepOutcome> =>
 	Effect.catch(applied, (failure): Effect.Effect<StepOutcome> => {
 		const cycle = unorderableCycle(failure)

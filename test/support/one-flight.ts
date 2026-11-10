@@ -1,5 +1,5 @@
 import { Effect, type Scope } from "effect"
-import type { DbContext } from "#adapter/db/context.ts"
+import type { ServedDbContext } from "#adapter/db/context.ts"
 import { defaultPool, poolFor, rowsOn } from "#test/pg/adapter/support.ts"
 import { assert } from "#test/support/assert.ts"
 import { testIdleTimeout } from "#test/support/limits.ts"
@@ -15,8 +15,8 @@ import { makeTap, queryTexts } from "#test/support/wire-tap.ts"
  * window, so a window holds one call's traffic alone. A call refused before any SQL, when its ChangeSet compiles or its
  * inputs are bound, sends nothing.
  */
-export interface OneFlight {
-	readonly context: DbContext
+export interface OneFlight<C extends ServedDbContext> {
+	readonly context: C
 	/** `effect`'s outcome, after asserting its traffic was one round trip, BEGIN and the transaction's end its only simple
 	 * queries, or no traffic at all. */
 	readonly judged: <A, E, R>(
@@ -25,11 +25,14 @@ export interface OneFlight {
 	) => Effect.Effect<A, E, R>
 }
 
-/** `context` with its pool replaced by one session through a tap, and the judge of each call's traffic on it. */
-export const oneFlight = (
-	context: DbContext,
+/**
+ * `context`, a Db's context, with its pool replaced by one session through a tap, and the judge of each call's traffic
+ * on it.
+ */
+export const oneFlight = <C extends ServedDbContext>(
+	context: C,
 	credentials: Credentials
-): Effect.Effect<OneFlight, never, Substrate | Scope.Scope> =>
+): Effect.Effect<OneFlight<C>, never, Substrate | Scope.Scope> =>
 	Effect.gen(function* () {
 		const substrate = yield* Substrate
 		const tap = makeTap(substrate.cluster)

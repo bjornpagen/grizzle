@@ -37,7 +37,6 @@ import type { Names } from "#test/support/kernel/naming.ts"
 import {
 	type CaseSketch,
 	caseSketchGen,
-	changeSetOf,
 	type Domains,
 	domainFacts,
 	plantedGroup,
@@ -805,9 +804,7 @@ export const runGrizzle = (
 	writer: GrizzleWriter,
 	ops: ReadonlyArray<HostOp>
 ): Effect.Effect<GrizzleRun> =>
-	untilAnswered(
-		env.rig.runtimes[writer].methods.apply(changeSetOf(env.rig.schema, env.rig.relations, ops), {})
-	).pipe(
+	Effect.flatMap(env.rig.writes[writer](ops), (call) => untilAnswered(call)).pipe(
 		Effect.flatMap((run) =>
 			Effect.map(grizzleOutcome(env.names, run.answered), (outcome) => ({
 				outcome,
