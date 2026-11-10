@@ -448,7 +448,7 @@ export const installedSchemas = (installation: Installation): Arr.NonEmptyReadon
  * carries, over that schema as declared, and the renames and drops its migration declares (`--rename`, `--drop`;
  * noDeclarations for none), which its codes are drafted under too.
  */
-interface InstallVersion {
+export interface InstallVersion {
 	readonly schema: unknown
 	readonly logins: ReadonlyArray<LoginSource>
 	readonly declarations: Declarations
@@ -468,7 +468,7 @@ interface DraftOptions {
  * What a history's installation takes beside its versions and how they are drafted: its label, and the ambient session
  * (test/support/ambient.ts) its owner sessions start under.
  */
-interface HistoryOptions extends DraftOptions {
+export interface HistoryOptions extends DraftOptions {
 	readonly label: string
 	readonly ambient: AmbientSession
 }
@@ -551,7 +551,7 @@ const draftVersion = (
  *
  * Every installation holds the installed-catalog posture, whatever the suite tests.
  */
-const installMigratedThrough = (
+export const installMigratedThrough = (
 	versions: Arr.NonEmptyReadonlyArray<InstallVersion>,
 	options: HistoryOptions
 ): Effect.Effect<
