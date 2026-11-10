@@ -142,27 +142,40 @@ export const isParam = (value: unknown): boolean =>
 export const predicateValue = (expr: OpenExpr): PredicateValue =>
 	registerPredicate(Object.freeze({ ...builtMark, predicate: true, expr }), expr)
 
-/** Queries: a query value carries its QueryDesc under `desc`, as every owned value does. */
+/**
+ * What the builder registers of each query value it made (query/build/query.ts): the schema or role value it is over,
+ * which role admission reads to refuse a query entry built over anything but its base or one of its levels, and its
+ * Description as the value's `desc` yields it. A value the builder did not make carries none.
+ */
+interface OwnedQuery {
+	readonly schema: object
+	readonly desc: () => QueryDesc
+}
+
+const ownedQueries = new WeakMap<object, OwnedQuery>()
+
+export const registerOwnedQuery = (query: object, schema: object, desc: () => QueryDesc): void => {
+	ownedQueries.set(query, { schema, desc })
+}
+
+export const querySchemaOf = (value: unknown): object | undefined =>
+	hasProperties(value) ? ownedQueries.get(value)?.schema : undefined
+
+/**
+ * Queries: a query value carries its QueryDesc under `desc`, as every owned value does. A query value the builder made
+ * yields the Description it registered, decoded where its parts were checked; any other value's `desc` is a
+ * JavaScript caller's, decoded here.
+ */
 export const queryDescOf = (value: unknown, label: string): QueryDesc => {
+	const owned = hasProperties(value) ? ownedQueries.get(value) : undefined
+	if (owned !== undefined) {
+		return owned.desc()
+	}
 	if (hasProperties(value) && hasProperties(value["desc"])) {
 		return orThrow(decodeDesc("query", value["desc"]))
 	}
 	throw malformed(label, "a query built by query(schema), carrying its description")
 }
-
-/**
- * The schema or role value each query value the builder made is over, registered by the builder
- * (query/build/query.ts): what role admission reads to refuse a query entry built over anything but its base or one of
- * its levels. A value the builder did not make carries none.
- */
-const querySchemas = new WeakMap<object, object>()
-
-export const registerQuerySchema = (query: object, schema: object): void => {
-	querySchemas.set(query, schema)
-}
-
-export const querySchemaOf = (value: unknown): object | undefined =>
-	hasProperties(value) ? querySchemas.get(value) : undefined
 
 /**
  * What the builder knows of one field of a query value's heading: its ScalarType and its carrier, or nothing for a field

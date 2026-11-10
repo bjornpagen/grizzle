@@ -4,14 +4,13 @@ import { parseNameCharacters } from "#compiler/core/identity.ts"
 import { captureLoc, childLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { type Built, builtMark } from "#compiler/core/phantom.ts"
-import { isList, isPlainRecord } from "#compiler/core/record.ts"
-import {
-	decodeDesc,
-	type FieldDesc,
-	type OrderDesc,
-	type QueryDesc,
-	type QueryStageDesc,
-	type TakeDesc
+import { deepFreeze, isList, isPlainRecord } from "#compiler/core/record.ts"
+import type {
+	FieldDesc,
+	OrderDesc,
+	QueryDesc,
+	QueryStageDesc,
+	TakeDesc
 } from "#compiler/ir/desc.ts"
 import type { BuilderScope, OpenBound, OpenExpr, VarScope } from "#compiler/ir/open.ts"
 
@@ -71,9 +70,8 @@ import { untypedLiteral } from "#compiler/schema/literal.ts"
 import {
 	fieldDescOf,
 	malformed,
-	orThrow,
 	ownedKind,
-	registerQuerySchema,
+	registerOwnedQuery,
 	requireName
 } from "#compiler/schema/protocol.ts"
 
@@ -137,8 +135,6 @@ interface QueryBuilderValue {
 interface SchemaMember {
 	readonly schema: unknown
 }
-
-const decodeStage = (stage: QueryStageDesc): QueryDesc => orThrow(decodeDesc("query", { stage }))
 
 /**
  * One heading group of a query's records: the arms that deliver one heading, the keys of its decoders' records, which
@@ -257,8 +253,9 @@ const unionRecords = <H1, I1, H2, I2>(
 }
 
 /**
- * The state of a stage the builder made: its Description, decoded through the Description shapes, and the attachment
- * children whose parent variables its top-level rules spell.
+ * The state of a stage the builder made: its Description, the stage around the parts the builder checked as it took
+ * them (see query below), frozen as a decoded Description is, and the attachment children whose parent variables its
+ * top-level rules spell.
  */
 const makeState = <C extends Carriers>(
 	schema: SchemaInfo,
@@ -266,7 +263,10 @@ const makeState = <C extends Carriers>(
 	pending: ReadonlySet<BuilderScope>,
 	heading: Heading,
 	carriers: QueryCarriers<C>
-): QueryState<C> => ({ desc: decodeStage(stage), heading, carriers, schema, pending })
+): QueryState<C> => {
+	const desc: QueryDesc = deepFreeze({ stage })
+	return { desc, heading, carriers, schema, pending }
+}
 
 /** The attachment children either side's top-level rules spell parent variables of. */
 const bothPending = (
@@ -280,7 +280,7 @@ const defineDesc = <T extends object>(value: T, state: QueryState, label: string
 		enumerable: false,
 		configurable: false
 	})
-	registerQuerySchema(value, state.schema.over.value)
+	registerOwnedQuery(value, state.schema.over.value, () => publicDesc(state, label))
 	return Object.freeze(registerQuery(value, state))
 }
 
@@ -640,9 +640,24 @@ const querySchema = (schema: unknown, extra: ReadonlyArray<unknown>): SchemaInfo
  *
  * `bind` closes an imported query's parameters with terms, outer parameters or literals, hygienically: each binding is
  * recorded on the match source that imports it. A relation parameter of the imported query
- * is bound to a relation parameter of the importing rule. Every stage is decoded through the Description shapes as it
- * is built, so a value the builder makes always holds an owned, valid Description, exposed as its non-enumerable
- * `desc` for the packages that compile, store or describe it.
+ * is bound to a relation parameter of the importing rule. Every stage is built from parts the builder checked as it
+ * took them, so a value the builder makes always holds an owned, valid Description, frozen, exposed as its
+ * non-enumerable `desc` for the packages that compile, store or describe it:
+ *
+ * - a stage applies only where its combinator exists: rule, attach, named, orderBy and approximateNearest on a Query,
+ *   take on an Ordered, so no stage but take reads an Ordered and take reads only one; Query.rule appends to a rules or
+ *   union stage and unions any other, so no union reads a rules stage, and a rules stage holds its first arm;
+ * - each argument is checked where it is taken: orderBy's fields of the heading, each once, with a direction (orderStage),
+ *   take's positive literal or parameter name (takeOf), approximateNearest's distance column and positive bound
+ *   (approximateStage), named's and recursive's names and row fields (requireName), recursive's nonempty row and arms,
+ *   bind's parameter names and terms (bindQuery), an attachment's name, which no field or earlier attachment holds
+ *   (attach.ts attachmentName);
+ * - a rule is finished by rule.ts: each variable spelled once (finishRule), each answer column named (r.find), each
+ *   match over a source the builder registered or a relation value, a Query and never an Ordered (state.ts sourceInfo),
+ *   bound over its heading's fields (bindingsDesc), each interior minted its own id, and every term built by terms.ts,
+ *   its literals admitted (schema/literal.ts untypedLiteral, scalar/registry.ts literalDescFor) and its connectives
+ *   with their unit (ir/desc.ts connectiveExpr);
+ * - every located node carries the location captured where its combinator was called (captureLoc).
  *
  * query(S), the public builder: QueryBuilder<S> over the schema.
  */
