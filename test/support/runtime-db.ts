@@ -60,10 +60,3 @@ export const dbRuntime = (ctx: DbContext): DbRuntime => {
 		}
 	}
 }
-
-/** db.apply. */
-export const applyRuntime = (
-	ctx: DbContext,
-	changes: unknown,
-	params: ParamMap
-): ReturnType<DbRuntime["methods"]["apply"]> => dbRuntime(ctx).methods.apply(changes, params)
