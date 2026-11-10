@@ -306,7 +306,7 @@ export type StatementLabel =
  * A family's statement of one kind (write/program/artifact.ts FamilyStep): its member's deletes, a tree's whole delete,
  * its owner's count update, its member's inserts, or its member's in-place updates, by the relation it writes.
  */
-export interface FamilyLabel {
+interface FamilyLabel {
 	readonly kind: "family"
 	readonly position: number
 	readonly relation: string
@@ -430,16 +430,8 @@ const observedStatement = (statement: ArtifactStatement): ObservedStatement => (
 	ast: statement.ast
 })
 
-/** The write labels of `relation` among `statements`, in position order. */
-/** The family statements of a compiled program that write `relation`, in position order. */
-export const familyWritesOf = (
-	statements: ReadonlyArray<ObservedStatement>,
-	relation: string
-): ReadonlyArray<FamilyLabel> =>
-	Arr.flatMap(statements, (s) =>
-		s.label.kind === "family" && s.label.relation === relation ? [s.label] : []
-	)
-
+/** The write labels of `relation` among `statements`, in position order: each write statement's, and each part of a
+ * single statement's or a family additions or removals statement's. */
 export const writesOf = (
 	statements: ReadonlyArray<ObservedStatement>,
 	relation: string
@@ -1094,19 +1086,23 @@ type ScanRow = readonly [
 ]
 
 /**
- * The scans and row changes this session's backend has counted and not yet reported on each table of `schema`, by table
- * name: pg_stat_xact_user_tables, which counts the work of an RI check the transaction's deferred events ran in this
- * backend as well as its own statements'. Since PostgreSQL 15 the counters are the backend's pending statistics, which
- * may still hold earlier transactions' counts until the backend reports them when idle, so a measurement reads them
- * twice inside one transaction and takes the difference (`scanDelta`); nothing is reported within a transaction. The
- * view lists every table of the schema, touched or not.
+ * The scans and row changes the backend of the session whose statements `rows` runs has counted and not yet reported on
+ * each table of `schema`, by table name: pg_stat_xact_user_tables, which counts the work of an RI check the
+ * transaction's deferred events ran in this backend as well as its own statements'. Since PostgreSQL 15 the counters
+ * are the backend's pending statistics, which may still hold earlier transactions' counts until the backend reports them
+ * when idle, so a reading is its transaction's alone as the difference of two readings inside it (`scanDelta`), or on
+ * a backend that changed no row before it, where an earlier transaction's count can only raise it; nothing is reported
+ * within a transaction. The view lists every table of the schema, touched or not.
  */
-const transactionScans = (
-	session: RawSession,
+export const transactionScans = <E>(
+	rows: (
+		sql: string,
+		params: ReadonlyArray<string>
+	) => Effect.Effect<ReadonlyArray<ReadonlyArray<unknown>>, E>,
 	schema: string
-): Effect.Effect<Readonly<Record<string, TableScans>>, SqlError> =>
+): Effect.Effect<Readonly<Record<string, TableScans>>, E> =>
 	Effect.map(
-		session.values(
+		rows(
 			"SELECT relname::text, seq_scan::text, COALESCE(idx_scan, 0)::text, n_tup_ins::text, n_tup_upd::text, n_tup_del::text FROM pg_catalog.pg_stat_xact_user_tables WHERE schemaname = $1::text",
 			[schema]
 		),
@@ -1141,7 +1137,7 @@ export const tableScans = (
 }
 
 /** The difference of two readings of `transactionScans`, by table. */
-const scanDelta = (
+export const scanDelta = (
 	before: Readonly<Record<string, TableScans>>,
 	after: Readonly<Record<string, TableScans>>
 ): Readonly<Record<string, TableScans>> =>
@@ -1175,11 +1171,11 @@ export const probeScans = Effect.fn("probeScans")(function* <S>(
 	yield* session.begin
 	return yield* Effect.gen(function* () {
 		yield* session.values("SET CONSTRAINTS ALL IMMEDIATE", [])
-		const before = yield* transactionScans(session, fixture.installed.schema)
+		const before = yield* transactionScans(session.values, fixture.installed.schema)
 		for (const sql of statements) {
 			yield* explain(session, sql, [], { wal: false, serialize: { kind: "off" } })
 		}
-		const after = yield* transactionScans(session, fixture.installed.schema)
+		const after = yield* transactionScans(session.values, fixture.installed.schema)
 		return scanDelta(before, after)
 	}).pipe(Effect.ensuring(Effect.orDie(session.values("ROLLBACK", []))))
 })

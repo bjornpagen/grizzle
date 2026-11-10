@@ -7,70 +7,150 @@ import {
 	mechanism,
 	type VerdictInput
 } from "#bench/harness/gate.ts"
-import { GateSetupError, settle } from "#bench/query/support/kit.ts"
+import { settle } from "#bench/query/support/kit.ts"
 import {
 	attemptLabel,
-	familyWritesOf,
 	installWrites,
 	loadedByOwner,
 	observedChange,
-	oneRow,
 	openFull,
+	scanDelta,
+	type TableScans,
+	tableScans,
 	timed,
-	writePhases,
-	writesOf
+	transactionScans,
+	writePhases
 } from "#bench/write/support/writes.ts"
 import { indices } from "#compiler/core/array.ts"
-import { trusted } from "#compiler/core/trusted.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { drawn, natural, pg } from "#compiler/public/fields.ts"
-import { fin, mutable, on, ordered, relation, schema } from "#compiler/public/schema.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { counted, fin, mutable, on, ordered, relation, schema } from "#compiler/public/schema.ts"
 
 /**
  * families (W5.BF): what a family's writes cost, by the family's length (fin.md §4.5, §5.3).
  *
- * The gate's text is the families entry of bench/harness/rules.ts. The mechanisms measured:
- * - a fresh family is written with its owner: the program inserts the owner once and its members by the family's
- *   INSERT alone (write/program/artifact.ts FamilyStep), with no count statement, since the count is drawn from the
- *   nested array and written with the owner (D4, D5);
- * - each count change rewrites the copy ‹n› on every sibling: an UPDATE of one owner's drawn count, by the owner, cascades
- *   over the owner axis's ON UPDATE CASCADE to exactly its n members, so a growth touches n member rows, O(n). The
- *   transaction is rolled back before COMMIT, so the deferred last-slot foreign key the bare UPDATE breaks is never
- *   checked: the reading is the cascade's work alone.
+ * The gate's text is the families entry of bench/harness/rules.ts. The mechanisms measured, each by what PostgreSQL
+ * counts in the write's own transaction (pg_stat_xact_user_tables), read on the session that applies it just before its
+ * COMMIT: the rows it changed, then the scans its deferred foreign key checks make when SET CONSTRAINTS ALL IMMEDIATE
+ * fires them there, one each:
+ * - a fresh family is written with its owner: its owner's one row and its members' rows inserted, and no row of either
+ *   updated, since an owner its stratum inserts carries its count in its own insert (runtime/write/bind.ts freshOwners).
+ *   The family is a sequence, written nested under its owner;
+ * - an append of k members to a stored family of n: its k members inserted and its owner's row updated once, by the one
+ *   recount of its stratum's family additions statement (write/family/additions.ts), whose new count the owner axis's
+ *   ON UPDATE CASCADE writes into the copy ‹n› of each of the n stored members, so the append updates n member rows,
+ *   O(n); and its deferred checks, each appended member's predecessor key and its owner's last-slot key, k + 1 scans of
+ *   the member table, O(k). The family is counted, the kind whose members a write appends to a stored owner; a sequence
+ *   is written whole with its owner.
  *
- * Every figure is recorded beside its check; times gate nothing until a full run of the gate on the build it runs on
- * has measured a ceiling for them.
+ * Each write is made twice at each length, on twin owners: counted, read by a probe that holds its COMMIT back and fires
+ * its deferred checks early; and timed, committing in the write's one flight as the served program sends it. Each goes
+ * through a Db of its own, whose sessions change no row before the write, so its rows read are its own or more
+ * (transactionScans), and every count is checked exactly. Every figure is recorded beside its check; times are
+ * recorded and gate nothing.
  */
 const Owner = relation("Owner", { id: pg.integer, members: drawn(natural) }, ["id"])
 const Item = relation("Item", { owner: pg.integer, at: drawn(natural), payload: pg.integer }, [
 	"owner",
 	"at"
 ])
-const items = ordered(on(Item, "owner", "at"), fin(Owner, "members"))
+const Group = relation("Group", { id: pg.integer, size: drawn(natural) }, ["id"])
+const Tag = relation("Tag", { id: pg.integer, grp: pg.integer, payload: pg.integer }, ["id"])
 
 const build = (name: string) =>
-	schema(name, { Owner, Item }, [items, mutable(Owner), mutable(Item)])
+	schema(name, { Owner, Item, Group, Tag }, [
+		ordered(on(Item, "owner", "at"), fin(Owner, "members")),
+		counted(on(Tag, "grp"), fin(Group, "size")),
+		mutable(Owner),
+		mutable(Item),
+		mutable(Group),
+		mutable(Tag)
+	])
 
 interface Options extends Readonly<Record<string, unknown>> {
-	/** The lengths of the families written, one owner each. */
+	/** The lengths of the families written, two owners of each kind each. */
 	readonly lengths: ReadonlyArray<number>
 }
 
-/** The ChangeSet inserting owner `id` with a family of `length` members, nested at its count field. */
+/** The ChangeSet inserting owner `id` with a sequence of `length` members, nested at its count field. */
 const freshFamily = (s: ReturnType<typeof build>, id: number, length: number) =>
 	ChangeSet.empty(s).insert(Owner, [
 		{ id, members: Arr.map(indices(length), (k) => ({ payload: k })) }
 	])
 
+/** A group and the ids of its counted members. */
+interface GroupTags {
+	readonly id: number
+	readonly tags: ReadonlyArray<number>
+}
+
+/** The ChangeSet inserting each group of `groups` with its counted members. */
+const storedGroups = (s: ReturnType<typeof build>, groups: ReadonlyArray<GroupTags>) =>
+	ChangeSet.empty(s)
+		.insert(
+			Group,
+			Arr.map(groups, (g) => ({ id: g.id }))
+		)
+		.insert(
+			Tag,
+			Arr.flatMap(groups, (g) => Arr.map(g.tags, (t) => ({ id: t, grp: g.id, payload: t })))
+		)
+
+/** The ChangeSet appending the members `tags` to the stored group `id`. */
+const append = (s: ReturnType<typeof build>, group: GroupTags) =>
+	ChangeSet.empty(s).insert(
+		Tag,
+		Arr.map(group.tags, (t) => ({ id: t, grp: group.id, payload: t }))
+	)
+
+/** A table as a counted write left it: the rows it inserted and updated, and the scans its deferred checks made. */
+interface TableWrite {
+	readonly inserted: number
+	readonly updated: number
+	readonly deferredChecks: number
+}
+
+/**
+ * A counted write: read, its owner and member tables as it left them; or unread, where a statement before its COMMIT
+ * failed, so no probe ran.
+ */
+type Counted =
+	| {
+			readonly kind: "read"
+			readonly applied: string
+			readonly owner: TableWrite
+			readonly member: TableWrite
+	  }
+	| { readonly kind: "unread"; readonly applied: string }
+
+/** A timed write: its outcome and the milliseconds its apply took. */
+interface Timed {
+	readonly applied: string
+	readonly ms: number
+}
+
+/** One length's write of one kind, made on twin owners: counted and timed. */
+interface Measured {
+	readonly length: number
+	readonly counted: Counted
+	readonly timed: Timed
+}
+
+/** The relations a write's family has: its owner's and its members'. */
+interface FamilyTables {
+	readonly owner: string
+	readonly member: string
+}
+
 export default defineGate({
 	name: "write-families",
 	gates: ["families"],
 	title:
-		"A family's writes: its fresh insert's statements, and the copy ‹n› a count change rewrites on every sibling",
+		"A family's writes: a fresh family updates no row; an append updates its owner once and ‹n› on every stored sibling, and defers a check per member",
 	scope:
-		"one owner with a family of each length written through a Db; then, by the owner, one UPDATE of each owner's drawn " +
-		"count, rolled back, and the member rows its cascade updated.",
+		"two owners per length with a sequence of that length written through a Db; two groups per length with a counted " +
+		"family of that length, then an append of as many members again to each, through a Db; one of each pair counted " +
+		"before its COMMIT, the other timed.",
 	phases: writePhases,
 	options: {
 		full: { lengths: [10, 1000, 100000] },
@@ -78,154 +158,228 @@ export default defineGate({
 	} satisfies { readonly full: Options; readonly quick: Options },
 	run: ({ options }) =>
 		Effect.gen(function* () {
-			const s = yield* Substrate
 			const fx = yield* installWrites(build("Families"), "benchfamilies", {
 				programs: {},
 				logins: []
 			})
 			const S = build(fx.installed.declared)
-			const O = fx.table("Owner")
-			const I = fx.table("Item")
-			const c = (rel: string, f: string) => fx.column(rel, f)
-			const fresh: Array<{
-				readonly length: number
-				readonly ownerInserts: number
-				readonly ownerUpdates: number
-				readonly itemWrites: number
-				readonly itemUpdates: number
-				readonly applied: string
-				readonly ms: number
-			}> = []
-			for (const [i, length] of options.lengths.entries()) {
-				const run = yield* Effect.scoped(
+			/** A table as a write's reading left it, from its counts after its statements and after its deferred checks. */
+			const tableWrite = (
+				written: Readonly<Record<string, TableScans>>,
+				checked: Readonly<Record<string, TableScans>>,
+				relation: string
+			): TableWrite => {
+				const table = fx.relationName(relation)
+				const rows = tableScans(written, table)
+				const checks = tableScans(scanDelta(written, checked), table)
+				return {
+					inserted: rows.inserted,
+					updated: rows.updated,
+					deferredChecks: checks.seq + checks.idx
+				}
+			}
+			/** A write through a Db of its own, read on its session just before its COMMIT (see the head of the file). */
+			const countedWrite = (change: unknown, tables: FamilyTables) =>
+				Effect.scoped(
 					Effect.gen(function* () {
 						const db = yield* openFull(fx, S)
-						const change = yield* observedChange(db, freshFamily(S, i + 1, length), attemptLabel, {
-							kind: "none"
+						const readings: Array<{ readonly owner: TableWrite; readonly member: TableWrite }> = []
+						const observed = yield* observedChange(db, change, attemptLabel, {
+							kind: "probe",
+							run: (session) =>
+								Effect.gen(function* () {
+									const written = yield* transactionScans(session.rows, fx.installed.schema)
+									yield* session.rows("SET CONSTRAINTS ALL IMMEDIATE", [])
+									const checked = yield* transactionScans(session.rows, fx.installed.schema)
+									readings.push({
+										owner: tableWrite(written, checked, tables.owner),
+										member: tableWrite(written, checked, tables.member)
+									})
+								})
 						})
-						const applied = yield* timed(change.apply({}))
-						return { statements: change.statements, applied: applied.value, ms: applied.ms }
+						const applied = (yield* observed.apply({})).value.kind
+						const [reading] = readings
+						return reading === undefined
+							? ({ kind: "unread", applied } satisfies Counted)
+							: ({ kind: "read", applied, ...reading } satisfies Counted)
 					})
 				)
-				const owner = writesOf(run.statements, "Owner")
-				const counts = Arr.filter(
-					familyWritesOf(run.statements, "Owner"),
-					(f) => f.statement === "count"
+			/** A write through a Db of its own, committed in its one flight, timed. */
+			const timedWrite = (change: unknown) =>
+				Effect.scoped(
+					Effect.gen(function* () {
+						const db = yield* openFull(fx, S)
+						const observed = yield* observedChange(db, change, attemptLabel, { kind: "none" })
+						const applied = yield* timed(observed.apply({}))
+						return { applied: applied.value.value.kind, ms: applied.ms } satisfies Timed
+					})
 				)
-				const item = familyWritesOf(run.statements, "Item")
-				fresh.push({
+			/**
+			 * Each length's twin owners, counted and timed, each with its two blocks of member ids, consecutive and disjoint
+			 * across the run: its group's stored members, and the members appended to it.
+			 */
+			const plan = Arr.map(options.lengths, (length, i) => {
+				const first = 1 + 4 * Arr.reduce(Arr.take(options.lengths, i), 0, (sum, n) => sum + n)
+				const block = (b: number) => Arr.map(indices(length), (k) => first + b * length + k)
+				return {
 					length,
-					ownerInserts: Arr.filter(owner, (w) => w.result.kind === "insert").length,
-					ownerUpdates: Arr.filter(owner, (w) => w.result.kind !== "insert").length + counts.length,
-					itemWrites: item.length,
-					itemUpdates: Arr.filter(item, (f) => f.statement !== "insert").length,
-					applied: run.applied.value.kind,
-					ms: run.ms
+					counted: { id: 2 * i + 1, stored: block(0), appended: block(2) },
+					timed: { id: 2 * i + 2, stored: block(1), appended: block(3) }
+				}
+			})
+			const fresh: Array<Measured> = []
+			for (const p of plan) {
+				fresh.push({
+					length: p.length,
+					counted: yield* countedWrite(freshFamily(S, p.counted.id, p.length), {
+						owner: "Owner",
+						member: "Item"
+					}),
+					timed: yield* timedWrite(freshFamily(S, p.timed.id, p.length))
 				})
 			}
-			yield* settle(fx)
-			/**
-			 * The member rows the session has updated, as pg_stat_xact_user_tables counts them: the counts of the session's
-			 * earlier transactions that PostgreSQL has not yet flushed among them, so only a difference of two readings in
-			 * one transaction is that transaction's.
-			 */
-			const memberUpdates = Effect.map(
-				s.admin.queryValues(
-					"SELECT n_tup_upd::text FROM pg_catalog.pg_stat_xact_user_tables WHERE relid = $1::regclass",
-					[I]
-				),
-				(rows) => Number(trusted<readonly [string]>(oneRow(rows))[0])
-			)
-			/**
-			 * One owner's count raised by one, by the owner, timed, its cascade's member updates read before the rollback.
-			 */
-			const cascaded = (id: number) =>
+			const stored = yield* Effect.scoped(
 				Effect.gen(function* () {
-					yield* s.admin.query("BEGIN", [])
-					return yield* Effect.gen(function* () {
-						const before = yield* memberUpdates
-						const update = yield* timed(
-							s.admin.query(
-								`UPDATE ${O} SET ${c("Owner", "members")} = ${c("Owner", "members")} + 1 WHERE ${c("Owner", "id")} = $1::int4`,
-								[String(id)]
-							)
-						)
-						const after = yield* memberUpdates
-						return { updated: after - before, ms: update.ms }
-					}).pipe(Effect.ensuring(Effect.orDie(s.admin.query("ROLLBACK", []))))
+					const db = yield* openFull(fx, S)
+					const groups = Arr.flatMap(plan, (p) => [
+						{ id: p.counted.id, tags: p.counted.stored },
+						{ id: p.timed.id, tags: p.timed.stored }
+					])
+					const observed = yield* observedChange(db, storedGroups(S, groups), attemptLabel, {
+						kind: "none"
+					})
+					return (yield* observed.apply({})).value.kind
 				})
-			const growth: Array<{
-				readonly length: number
-				readonly updated: number
-				readonly ms: number
-			}> = []
-			for (const [i, length] of options.lengths.entries()) {
-				const update = yield* cascaded(i + 1)
-				growth.push({ length, ...update })
+			)
+			yield* settle(fx)
+			const appended: Array<Measured> = []
+			for (const p of plan) {
+				appended.push({
+					length: p.length,
+					counted: yield* countedWrite(append(S, { id: p.counted.id, tags: p.counted.appended }), {
+						owner: "Group",
+						member: "Tag"
+					}),
+					timed: yield* timedWrite(append(S, { id: p.timed.id, tags: p.timed.appended }))
+				})
 			}
-			if (fresh.length !== options.lengths.length || growth.length !== options.lengths.length) {
-				throw new GateSetupError({ what: "a family length was not measured" })
-			}
-			/**
-			 * Each length's figures, and its two timings: the fresh family's apply through the Db, its operation, and the
-			 * count's UPDATE by the owner, the cascade's execution.
-			 */
-			const cases: Array<CaseRecord<"families">> = Arr.map(Arr.zip(fresh, growth), ([f, g]) => ({
-				name: `a family of ${f.length} members`,
+			/** A counted write's tables as measures: none where its probe read none. */
+			const countedMeasures = (c: Counted): Readonly<Record<string, number>> =>
+				c.kind === "unread"
+					? {}
+					: {
+							ownerInserted: c.owner.inserted,
+							ownerUpdated: c.owner.updated,
+							ownerDeferredChecks: c.owner.deferredChecks,
+							memberInserted: c.member.inserted,
+							memberUpdated: c.member.updated,
+							memberDeferredChecks: c.member.deferredChecks
+						}
+			const caseOf = (
+				m: Measured,
+				name: string,
+				workload: string,
+				parameters: Readonly<Record<string, number>>
+			): CaseRecord<"families"> => ({
+				name,
 				gates: ["families"],
 				conditions: {
-					workload: `one owner with ${f.length} nested members written through a Db; then one UPDATE of its count by the owner, rolled back`,
+					workload,
 					schemaState: loadedByOwner,
-					dataDistribution: `${options.lengths.length} owners, one family each`,
-					parameters: { length: f.length },
-					resultSemantics:
-						"the fresh family is lawful and commits; the count's UPDATE is rolled back unchecked",
-					cacheState: "a fresh Db per family; the UPDATE on the owner's warm session"
+					dataDistribution: `${2 * options.lengths.length} owners and ${2 * options.lengths.length} groups, one family each`,
+					parameters,
+					resultSemantics: "every write is lawful and commits",
+					cacheState: "a fresh Db per write"
 				},
-				phases: { operationMs: summarize([f.ms]), executeMs: summarize([g.ms]) },
+				phases: { operationMs: summarize([m.timed.ms]) },
 				variants: [],
 				comparisons: [],
 				transactions: {},
 				loads: {},
-				measures: {
-					ownerInserts: f.ownerInserts,
-					ownerUpdates: f.ownerUpdates,
-					itemWrites: f.itemWrites,
-					cascadedMemberUpdates: g.updated
-				}
-			}))
+				measures: countedMeasures(m.counted)
+			})
+			const cases: Array<CaseRecord<"families">> = [
+				...Arr.map(fresh, (m) =>
+					caseOf(
+						m,
+						`a sequence of ${m.length} members`,
+						`one owner with ${m.length} nested members written through a Db`,
+						{ length: m.length }
+					)
+				),
+				...Arr.map(appended, (m) =>
+					caseOf(
+						m,
+						`an append of ${m.length} members to a stored counted family of ${m.length}`,
+						`${m.length} members appended to a stored group's counted family of ${m.length}, written through a Db`,
+						{ length: m.length, appended: m.length }
+					)
+				)
+			]
+			/** A table's counts as text, for a check's evidence. */
+			const tableText = (t: TableWrite): string =>
+				`${t.inserted} inserted, ${t.updated} updated, ${t.deferredChecks} deferred checks`
+			const evidence = (ms: ReadonlyArray<Measured>): string =>
+				Arr.join(
+					Arr.map(ms, (m) =>
+						m.counted.kind === "unread"
+							? `${m.length}: unread (${m.counted.applied})`
+							: `${m.length}: owner ${tableText(m.counted.owner)}; members ${tableText(m.counted.member)}`
+					),
+					", "
+				)
 			const families: VerdictInput = {
 				checks: [
 					mechanism(
-						"a fresh family is its owner's one INSERT and its members' INSERTs: no owner or member UPDATE",
+						"a fresh family is its owner's one inserted row and its members' rows, with no row of either updated",
 						Arr.every(
 							fresh,
-							(f) => f.ownerInserts === 1 && f.ownerUpdates === 0 && f.itemUpdates === 0
+							(m) =>
+								m.length > 0 &&
+								m.counted.kind === "read" &&
+								m.counted.owner.inserted === 1 &&
+								m.counted.owner.updated === 0 &&
+								m.counted.member.inserted === m.length &&
+								m.counted.member.updated === 0
 						),
-						Arr.join(
-							Arr.map(
-								fresh,
-								(f) =>
-									`${f.length}: owner ${f.ownerInserts} insert, ${f.ownerUpdates} update; ${f.itemWrites} member writes`
-							),
-							", "
-						)
+						evidence(fresh)
 					),
 					mechanism(
-						"a count change rewrites ‹n› on every sibling: one owner UPDATE updates exactly its n members",
-						Arr.every(growth, (g) => g.updated === g.length),
-						Arr.join(
-							Arr.map(growth, (g) => `${g.updated} of ${g.length}`),
-							", "
-						)
+						"an append of k members to a stored family of n updates its owner's row once and ‹n› on its n stored members",
+						Arr.every(
+							appended,
+							(m) =>
+								m.length > 0 &&
+								m.counted.kind === "read" &&
+								m.counted.owner.inserted === 0 &&
+								m.counted.owner.updated === 1 &&
+								m.counted.member.inserted === m.length &&
+								m.counted.member.updated === m.length
+						),
+						evidence(appended)
+					),
+					mechanism(
+						"an append of k members defers k + 1 checks: each member's predecessor key and its owner's last-slot key",
+						Arr.every(
+							appended,
+							(m) =>
+								m.counted.kind === "read" &&
+								m.counted.owner.deferredChecks === 0 &&
+								m.counted.member.deferredChecks === m.length + 1
+						),
+						evidence(appended)
 					),
 					equivalence(
-						"every fresh family was accepted",
-						Arr.every(fresh, (f) => f.applied === "accepted"),
-						Arr.join(
-							Arr.map(fresh, (f) => f.applied),
+						"every write was accepted",
+						stored === "accepted" &&
+							Arr.every(
+								[...fresh, ...appended],
+								(m) => m.counted.applied === "accepted" && m.timed.applied === "accepted"
+							),
+						`stored groups ${stored}; ${Arr.join(
+							Arr.map([...fresh, ...appended], (m) => `${m.counted.applied}/${m.timed.applied}`),
 							", "
-						)
+						)}`
 					)
 				]
 			}

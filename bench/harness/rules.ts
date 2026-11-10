@@ -287,10 +287,11 @@ const statedGates: { readonly [K in GateId]: Omit<GateEntry, "id"> } = {
 		)
 	},
 	families: {
-		title: "A family's writes: one count update per plan, and ‹n› rewritten on every sibling",
+		title:
+			"A family's writes: a fresh family updates no row; an append updates its owner once and ‹n› on every stored sibling, and defers a check per member",
 		owner: "write",
 		gate: stated(
-			"an append of k members to a family is one UPDATE of its owner however many statements carry the rows; each count change rewrites the copy ‹n› on every sibling, so a growth of a family of n touches n member rows, O(n); a long family's writes queue its deferred last-slot and closure foreign keys' events, whose memory is read before COMMIT. Time each against the family's length, hold each to a ceiling measured by a full run of the gate on the build it runs on, and record a case no such run has measured."
+			"a fresh family is its owner's one inserted row and its members' rows, with no row of either updated; an append of k members to a stored counted family of n updates its owner's row once, its count change rewrites the copy ‹n› on each of the n stored members, so it updates n member rows, O(n), and it defers k + 1 foreign key checks, each appended member's predecessor key and its owner's last-slot key, O(k). Count each write's rows and deferred checks in its own transaction before its COMMIT, and time each against the family's length."
 		)
 	}
 }
