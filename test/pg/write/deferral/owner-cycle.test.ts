@@ -5,9 +5,7 @@ import { boolean, element, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { boundedShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Layer, pipe, String as Str } from "effect"
-import { apply } from "#adapter/apply/index.ts"
-import { openDbContext } from "#adapter/db/open.ts"
+import { Array as Arr, Effect, Formatter, pipe, Record as Rec, String as Str } from "effect"
 import type { LawId } from "#compiler/core/ids.ts"
 import { drawn as drawnField, natural, pg, uuid } from "#compiler/public/fields.ts"
 import { check, type RowScalars, schema, type Statement } from "#compiler/public/schema.ts"
@@ -31,9 +29,10 @@ import { installMigrated } from "#test/support/install-migrate.ts"
 import { lawIdOf, namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { refusedLaws } from "#test/support/refused.ts"
+import { member, withServedDb } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
-import { fullWorld, loginLayer } from "#test/support/worlds.ts"
+import { fullWorld } from "#test/support/worlds.ts"
 
 /**
  * A law's foreign key that closes a cycle with a family's owner axis is deferred, and a stratum's plain and family
@@ -54,7 +53,7 @@ import { fullWorld, loginLayer } from "#test/support/worlds.ts"
  * Each case installs such a schema and writes drawn owners with their members and R's facts, in one ChangeSet (counted
  * members by their group key, ordered ones nested), or the owners first and the rest after, in a second (counted
  * members inserted, ordered ones put at the end of their owner's family); then deletes every owner, member and fact of
- * R in one more. The oracle is a model of the laws over the facts written: a lawful write is accepted, and an unlawful
+ * R in one more. Each ChangeSet is a member of the full role's served workload, its facts each call's. The oracle is a model of the laws over the facts written: a lawful write is accepted, and an unlawful
  * one is refused with a law the model finds broken. The planted bug, a stratum's plain statements all run before its
  * family statements, refuses at the server an insert of R beside the members it names, and a deletion of owners beside
  * their members.
@@ -478,35 +477,39 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									x: r.x
 								})
 								const withReferrers = (changes: ReturnType<typeof ChangeSet.empty>) =>
-									c.spec.referrer
-										? changes.insert(built.R, Arr.map(c.referrers, referrerFact))
-										: changes
+									c.spec.referrer ? changes.insert(built.R, []) : changes
+								/** R's facts under its relation where the spec holds R, none otherwise. */
+								const referred = c.spec.referrer ? { R: Arr.map(c.referrers, referrerFact) } : {}
+								const owners = (nested: boolean) => Arr.map(c.owners, (o) => ownerFact(o, nested))
+								const members = Arr.map(c.members, memberFact)
 								const everything = {
 									owners: c.owners,
 									members: c.members,
 									referrers: c.referrers
 								}
-								/** Each step: the ChangeSet, and the state it leaves where it is lawful. */
+								/** Each step: the ChangeSet, its call's facts, and the state it leaves where it is lawful. */
 								const steps = [
 									...(c.separately
 										? [
 												{
 													state: { owners: c.owners, members: [], referrers: [] },
-													changes: ChangeSet.empty(value).insert(
-														built.O,
-														Arr.map(c.owners, (o) => ownerFact(o, false))
-													)
+													changes: ChangeSet.empty(value).insert(built.O, []),
+													facts: { insert: { O: owners(false) } }
 												},
 												{
 													state: everything,
 													changes: withReferrers(
 														c.spec.family === "counted"
-															? ChangeSet.empty(value).insert(
-																	built.M,
-																	Arr.map(c.members, memberFact)
-																)
-															: ChangeSet.empty(value).put(built.M, Arr.map(c.members, memberFact))
-													)
+															? ChangeSet.empty(value).insert(built.M, [])
+															: ChangeSet.empty(value).put(built.M, [])
+													),
+													facts:
+														c.spec.family === "counted"
+															? { insert: { M: members, ...referred } }
+															: {
+																	put: { M: members },
+																	...(c.spec.referrer ? { insert: referred } : {})
+																}
 												}
 											]
 										: [
@@ -514,93 +517,97 @@ layer(Substrate.layer, { excludeTestServices: true })(
 													state: everything,
 													changes: withReferrers(
 														c.spec.family === "counted"
-															? ChangeSet.empty(value)
-																	.insert(
-																		built.O,
-																		Arr.map(c.owners, (o) => ownerFact(o, false))
-																	)
-																	.insert(built.M, Arr.map(c.members, memberFact))
-															: ChangeSet.empty(value).insert(
-																	built.O,
-																	Arr.map(c.owners, (o) => ownerFact(o, true))
-																)
-													)
+															? ChangeSet.empty(value).insert(built.O, []).insert(built.M, [])
+															: ChangeSet.empty(value).insert(built.O, [])
+													),
+													facts: {
+														insert:
+															c.spec.family === "counted"
+																? { O: owners(false), M: members, ...referred }
+																: { O: owners(true), ...referred }
+													}
 												}
 											]),
 									{
 										state: { owners: [], members: [], referrers: [] },
 										changes: (() => {
-											const deleted = ChangeSet.empty(value)
-												.delete(
-													built.O,
-													Arr.map(c.owners, (o) => ({ id: uuidOf(o.id), x: o.x, flag: o.flag }))
-												)
-												.delete(built.M, Arr.map(c.members, memberFact))
-											return c.spec.referrer
-												? deleted.delete(built.R, Arr.map(c.referrers, referrerFact))
-												: deleted
-										})()
+											const deleted = ChangeSet.empty(value).delete(built.O, []).delete(built.M, [])
+											return c.spec.referrer ? deleted.delete(built.R, []) : deleted
+										})(),
+										facts: {
+											delete: {
+												O: Arr.map(c.owners, (o) => ({ id: uuidOf(o.id), x: o.x, flag: o.flag })),
+												M: members,
+												...referred
+											}
+										}
 									}
 								]
-								yield* Effect.gen(function* () {
-									const { ctx: context } = yield* openDbContext(world.server.roles.app, {})
-									let stored: ReadonlyArray<OwnerRow> = []
-									let size = 0
-									for (const [i, step] of steps.entries()) {
-										const broken = brokenBy(
-											c.spec,
-											built,
-											step.state.owners,
-											step.state.members,
-											step.state.referrers
-										)
-										const outcome = yield* apply(context, step.changes, step.changes.reads, {})
-										const label = `${Formatter.format(c)}, step ${String(i)}`
-										if (Arr.isReadonlyArrayNonEmpty(broken)) {
-											assert.equal(outcome.kind, "invariant-rejected", label)
-											if (outcome.kind === "invariant-rejected") {
-												const laws = Arr.map(broken, lawOf)
-												assert.ok(
-													Arr.some(refusedLaws(outcome.refused), (law) =>
-														laws.includes(names.reported(law))
-													),
-													`${label}: refused by ${Formatter.format(refusedLaws(outcome.refused))}, a law the model finds broken`
-												)
-											}
-											n.note("an unlawful write refused with a law it breaks")
-											return
-										}
-										const next =
-											step.state.owners.length +
-											step.state.members.length +
-											step.state.referrers.length
-										assert.equal(
-											outcome.kind,
-											step.state.owners === stored && next === size ? "no-change" : "accepted",
-											label
-										)
-										stored = step.state.owners
-										size = next
-									}
-									n.note("owners, members and referrers deleted together")
-									if (c.spec.referrer && Arr.isReadonlyArrayNonEmpty(c.referrers)) {
-										n.note("a plain relation keyed into members written beside them")
-									}
-									n.noteAll([
-										`${c.spec.family}: a lawful write accepted`,
-										`${c.spec.law}: a lawful write accepted`,
-										`${c.spec.owners}: a lawful write accepted`
+								/** Each step's ChangeSet, a member of the full role's workload under its index. */
+								const workload = Rec.fromEntries(
+									Arr.map(steps, (step, i): readonly [string, unknown] => [
+										`step${String(i)}`,
+										step.changes
 									])
-									if (c.separately) {
-										n.note("owners and members written separately")
-									}
-								}).pipe(
-									(body) =>
-										Effect.flatMap(Layer.build(loginLayer(done, world.server)), (scope) =>
-											Effect.provideContext(body, scope)
-										),
-									Effect.scoped
 								)
+								yield* withServedDb(done, world.server.roles.app, {}, ({ serve }) =>
+									Effect.gen(function* () {
+										const served = yield* serve(workload)
+										let stored: ReadonlyArray<OwnerRow> = []
+										let size = 0
+										for (const [i, step] of steps.entries()) {
+											const broken = brokenBy(
+												c.spec,
+												built,
+												step.state.owners,
+												step.state.members,
+												step.state.referrers
+											)
+											const ops = member(served, `step${String(i)}`)
+											const outcome = yield* ops.kind === "facts"
+												? ops.ops.apply(step.facts, {})
+												: ops.ops.apply({})
+											const label = `${Formatter.format(c)}, step ${String(i)}`
+											if (Arr.isReadonlyArrayNonEmpty(broken)) {
+												assert.equal(outcome.kind, "invariant-rejected", label)
+												if (outcome.kind === "invariant-rejected") {
+													const laws = Arr.map(broken, lawOf)
+													assert.ok(
+														Arr.some(refusedLaws(outcome.refused), (law) =>
+															laws.includes(names.reported(law))
+														),
+														`${label}: refused by ${Formatter.format(refusedLaws(outcome.refused))}, a law the model finds broken`
+													)
+												}
+												n.note("an unlawful write refused with a law it breaks")
+												return
+											}
+											const next =
+												step.state.owners.length +
+												step.state.members.length +
+												step.state.referrers.length
+											assert.equal(
+												outcome.kind,
+												step.state.owners === stored && next === size ? "no-change" : "accepted",
+												label
+											)
+											stored = step.state.owners
+											size = next
+										}
+										n.note("owners, members and referrers deleted together")
+										if (c.spec.referrer && Arr.isReadonlyArrayNonEmpty(c.referrers)) {
+											n.note("a plain relation keyed into members written beside them")
+										}
+										n.noteAll([
+											`${c.spec.family}: a lawful write accepted`,
+											`${c.spec.law}: a lawful write accepted`,
+											`${c.spec.owners}: a lawful write accepted`
+										])
+										if (c.separately) {
+											n.note("owners and members written separately")
+										}
+									})
+								).pipe(Effect.scoped)
 							}).pipe(Effect.scoped)
 					)
 				)
