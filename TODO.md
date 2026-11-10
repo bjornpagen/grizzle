@@ -45,27 +45,6 @@ post-beta swarm's fixes for the next release.
     The fix: a GiST index serves an equality-prefix range only when the prefix is empty or holds a column of many
     values, so a B-tree is created for a prefix of few-valued columns alone. Neither qti-pie's install nor edullm's
     holds a GiST index, and edullm's one range (Section(start)) has no prefix. The fix is held by GENERATE.
-  - test/schedules/fin/staged-imports.test.ts, "both commit in every interleaving", TEST_SEED=300901379, schedule
-    `gate | a | b | gate`: two nested imports of unrelated packages (pantry's shape, a fresh immutable Package with its
-    ordered Entry family nested) in overlapping SERIALIZABLE transactions, and the first answers SerializationFailure
-    (40001). The cause is a family owner's insert (write/insert/protocol.ts markedBody `conflicts`), the first
-    statement of every nested import: its branch of stored owners whose payload differs reads
-    `FROM <owner> s WHERE EXISTS (SELECT 1 FROM r1 WHERE <key equal> AND <payload differs>)`. The `<>` join qual keeps
-    PostgreSQL from unique-ifying r1 and probing the owner by key, so the branch is a hash semi-join over a sequential
-    scan of the whole owner table, which takes a relation-level SIRead lock: two imports whose transactions overlap
-    form an rw cycle, each one's insert meeting the other's relation lock and each one's scan the other's new row. It
-    also reads the whole owner table on every import. The diagnostics: with the role's enable_seqscan off every
-    interleaving passes; ANALYZE of Package and Entry after the preload changes nothing; EXPLAIN shows that hash
-    semi-join as the import's one sequential scan (the staged Entry statement probes by index); pg_locks after the
-    second import commits holds its relation SIRead lock on the owner; and an insert of a relation that owns no
-    family (no such branch, a containment into Package judged at COMMIT) beside an import, or beside another such
-    insert, gives no 40001 in any interleaving. Neither downstream reaches it: edullm's app.json holds no family
-    write, and pantry never imports concurrently. The fix, first in line after the repin: drive the branch from the
-    call's rows by key, `FROM r1 JOIN <owner> s ON <key equal> WHERE <payload differs>`, so each fact probes the
-    owner's key. This defect is the cause of pantry's `maxWorkers 1` workaround (packages/pantry/vite.config.ts:44,
-    whose config note says one-pool runs at 3 to 6 workers hit 40001): qti-pie's standing sweep deletes that
-    workaround in the pack that carries the fix. The file's plant (the carriers' ANALYZE dropped) fails as it should,
-    but proves nothing until then.
   - test/pg/world-model/rules.test.ts, TEST_SEED=665578811, the steered phase (seed 0x48e8b3db), case 14, replay
     TEST_REPLAY='pg/world-model/rules:72322:0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.1.1.0.0.1.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.1.1.0.0.0.1.0.0.0':
     an apply by role booker inserting into MyBooking fails with "grizzle internal invariant: the installation stores
@@ -80,6 +59,17 @@ post-beta swarm's fixes for the next release.
     unchecked. Neither downstream reaches it: edullm's learner and pantry's author write through no query entry (the
     `entries` of both served files' refusals are empty at main), and their whole entries keep each relation's name,
     which the tables hold (app.json 8 of 8, author_app.json 251).
+- **Family removals statements scan a whole stored member table (ONERTT-WRITE2, with its removals fixes):** the
+  defect the family owner's insert had (a stored relation read through a condition PostgreSQL cannot drive from the
+  call's rows, so a sequential scan and a relation-level SIRead lock, a false 40001 between overlapping writers of one
+  relation and a whole-table read per call). In write/family/removals.ts three statements read the member table
+  `FROM <member> s WHERE <an OR of EXISTS over the call's rows>`, which no semi-join plans: the removed members
+  (`removing`, a delete's key OR a put that moves the row out of its groups), the members a refill's ways reach
+  (`reached`, an OR over the ways, each a chain of EXISTS from the root facts through the owners), and the rows both
+  an edit and a refill reach (`holds(updated)` OR `holds(reached)`). Each should read its rows from the call's rows
+  joined to the member by key or group, one arm per way or per kind of change, under UNION where arms may meet. No
+  served write of qti-pie or edullm holds a family put or delete. Every other read of a stored relation in
+  write/insert, write/put, write/delete and write/family/additions is driven from the call's rows by key or group.
 - **Served explain chunks under the protocol's bound, not the session's (FORMAT, after the pin):**
   adapter/served/explain.ts explainChange cuts a statement's executions under `inForce(bindFrame)`, where an
   application (adapter/apply/run.ts) cuts under the leased session's `messageMaxBytes`. On a session whose bound is

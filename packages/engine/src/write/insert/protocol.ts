@@ -217,8 +217,9 @@ const storedAbsent = (
  *   meets its key, so a stored owner proposed again would meet a check over an end at that placeholder. For an
  *   insertion, each stored owner at a requested key whose payload differs is a verdict row of its own, the stored row
  *   unmarked, as DO SELECT would have returned it: the key law's conflict witness; an equal one is the exact repeat,
- *   and no row. For a put, the row at a requested key is the one the put's UPDATE wrote. The arbiter stays for a
- *   concurrent commit at the key.
+ *   and no row. Those rows are read from the requested facts, `FROM r1 JOIN <relation> s ON s.<key> = r1.<key> WHERE
+ *   <the payload differs>`, so each request probes the owner's key and no insertion scans the owner. For a put, the row
+ *   at a requested key is the one the put's UPDATE wrote. The arbiter stays for a concurrent commit at the key.
  * - Pure sets, whose primary key is the whole heading: ON CONFLICT (every key column) DO NOTHING RETURNING the key; a
  *   returned key was inserted.
  * - Generated additions, which omit the serial fields their class draws: a plain INSERT ... RETURNING of the complete
@@ -544,6 +545,15 @@ export const buildInsert = (
 				],
 				undefined
 			)
+			/**
+			 * The stored owners at a requested key whose payload differs, read from the requested facts joined to the
+			 * owner on its key: each request probes the owner's key, so the statement reads only the owners the call names
+			 * and holds SIRead locks on their keys alone. A semi-join from the owner whose condition held the payload's
+			 * inequality would be planned as a scan of the whole owner, and its relation-level SIRead lock made every two
+			 * concurrent insertions of one owner relation an rw cycle (40001). Each stored row is one verdict row: the
+			 * requests' keys are unique, by the input's proof or, where they are not, by the same-key gate, without which
+			 * the same-key refusal ranks first and the statement raises it whatever these rows are.
+			 */
 			const conflicts = (): SetCore => {
 				const s = supply.relation(internal(`conflicting stored ${relation.name}`))
 				const stored = (f: LawField): Expr => col(s, column(f))
@@ -555,22 +565,20 @@ export const buildInsert = (
 						...(c9 === undefined ? [] : [targetAs(lit.bool(false), c9)]),
 						...zero
 					],
-					[{ kind: "table", table: w.names.relation(relation.name), alias: s }],
-					exists(
-						simpleSelect(
-							[target(lit.int(1, types.integer))],
-							[cteRef(r1)],
-							and(
-								appendNonEmpty(
-									pk.map((f) => same(f, inCol(f), stored(f))),
-									rowNe(
-										{ fields: payload.payload, typeOf, left: stored, right: inCol },
-										w.names.vectorSchema
-									)
-								)
-							)
+					[
+						join(
+							cteRef(r1),
+							{ kind: "table", table: w.names.relation(relation.name), alias: s },
+							and(mapNonEmpty(pk, (f) => same(f, inCol(f), stored(f))))
 						)
-					)
+					],
+					conjunction([
+						rowNe(
+							{ fields: payload.payload, typeOf, left: stored, right: inCol },
+							w.names.vectorSchema
+						),
+						...(r4 === undefined ? [] : [noSharedKey(r4)])
+					])
 				)
 			}
 			const marked: NonEmptyReadonlyArray<SetCore> =
