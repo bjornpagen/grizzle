@@ -3917,12 +3917,53 @@ const digestKept: Arr.NonEmptyReadonlyArray<Extract<CaseSpec, { readonly kind: "
 	{ kind: "digest", operand: "text", target: lowerHex, cast: false }
 ]
 
-/** The digest root's kept cases as a stratum of the floor: every case, each tallied by what it reached. */
-const digestKeptStratum = (): Readonly<{
+/**
+ * One byte guard case per byte note, so the floor reaches each by construction, whatever its draws: a word, at most
+ * eight bytes, cast into eight bytes within its guard, which both admit; cast into one byte under a guard reaching
+ * nine, and a body cast into one byte unguarded, each a language the engine decides while the types admit it; and a
+ * word stored uncast, which both admit.
+ */
+const bytesKept: Arr.NonEmptyReadonlyArray<Extract<CaseSpec, { readonly kind: "bytes" }>> = [
+	{ kind: "bytes", text: "word", target: 8, guard: { kind: "within", low: 1, high: 8 } },
+	{ kind: "bytes", text: "word", target: 1, guard: { kind: "within", low: 1, high: 9 } },
+	{ kind: "bytes", text: "body", target: 1, guard: { kind: "none" } },
+	{ kind: "bytes", text: "word", target: 1, guard: { kind: "uncast" } }
+]
+
+/**
+ * The match the engine decides by its overlap, so the floor reaches it by construction, whatever its draws: a when
+ * guarded by a word, `^[a-z]{1,8}$`, matching digits, whose branch reads the word at both languages, which no text is
+ * in, while the types admit it, since they read a pattern's source as a string.
+ */
+const overlapKept: Arr.NonEmptyReadonlyArray<Extract<CaseSpec, { readonly kind: "term" }>> = [
+	{
+		kind: "term",
+		term: {
+			kind: "when",
+			guard: {
+				kind: "matches",
+				x: { kind: "field", field: "word" },
+				pattern: { kind: "literal", lit: { text: '"^[0-9]+$"', value: "^[0-9]+$" } }
+			},
+			body: { kind: "cast", x: { kind: "guarded" }, to: "word" },
+			otherwise: { kind: "field", field: "word" }
+		}
+	}
+]
+
+/**
+ * The floor's kept cases as a stratum of their own, each at its root's feature and tallied by what it reached: the
+ * notes a root's twelve draws could miss, and the floor is fixed per label, so a miss would fail every run.
+ */
+const keptStratum = (): Readonly<{
 	values: ReadonlyArray<ComputeCase>
 	tally: Tally<"floor">
 }> => {
-	const values = Arr.map(digestKept, (spec) => caseOf({ spec, reached: new Set(["digest"]) }))
+	const values = [
+		...Arr.map(digestKept, (spec) => caseOf({ spec, reached: new Set(["digest"]) })),
+		...Arr.map(bytesKept, (spec) => caseOf({ spec, reached: new Set(["byte guard"]) })),
+		...Arr.map(overlapKept, (spec) => caseOf({ spec, reached: new Set(["when", "matches"]) }))
+	]
 	const tally = tallyOf("floor")
 	for (const value of values) {
 		tally.add(new Set(Arr.map(reachedBy(value), keyOf)))
@@ -3933,8 +3974,9 @@ const digestKeptStratum = (): Readonly<{
 /**
  * The floor's witnesses: one stratum per construct, each drawn under its own label alone with the construct at its
  * root, so the floor is the same in every run and every construct is drawn often enough to meet both verdicts, and the
- * digest root's kept cases, which reach its four notes by construction; they are the only cases whose constructs and
- * verdicts meet the required situations (test/types/compute/compute.test.ts).
+ * kept cases (keptStratum), which reach the digest's and the byte guard's notes and a match's overlap by construction;
+ * they are the only cases whose constructs and verdicts meet the required situations
+ * (test/types/compute/compute.test.ts).
  */
 export const computeWitnesses = () => [
 	...Arr.map(roots, (root) =>
@@ -3945,7 +3987,7 @@ export const computeWitnesses = () => [
 			reachedBy
 		)
 	),
-	digestKeptStratum()
+	keptStratum()
 ]
 
 /**
