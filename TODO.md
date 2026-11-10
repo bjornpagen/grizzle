@@ -166,47 +166,48 @@ post-beta swarm's fixes for the next release.
   patterns held as data. #7 (row order for the regex cache) is performance machinery, ruled out.
 
 ### qti-pie's after-pin queue (qti-pie's sweep, relayed by edullm-30 2026-11-09)
-In qti-pie's priority order, each with its lane; each deletes code pantry or edullm keeps today. It lands after the
-owner's post-pin order (the staged-imports SSI fix, the compute test fix, the held fill-order, multi-hop and GiST
-fixes, LOADER's served matchers and admitted literals), items 1 to 6 first. A new feature still needs its correctness
-need named in its commit.
-1. A Db that holds only `workload`: db.get, execute, page, compile, apply, refresh and explain deleted (CULL, with
-   LOADER's share of the deletion split).
-2. The rowless ChangeSet builder (CULL, its builder series).
-3. A law's id exported from the schema, and lawKeyOf, so pantry drops its committed LawId dictionary; RefusedLaw names
-   no QTI law-table today (ARTIFACTS2).
-4. The quadratic commit cost of rules over queries (NEGATION).
-5. The cost of compiling the law model and building the Qti value (WORKLOAD2).
-6. A fixed target's UNIQUE reuses one index across column orders: qti-pie's `_init` holds 7 duplicate index groups
-   (GENERATE).
-7. A Compute text split (SHA256). No substring, split_part or pattern group exists, so pantry splits on the host and
-   writes the pieces as rows (IDREF, header and tolerance tokens, identifier leads and trails, href pieces, reading
-   segments, unordered pairs). It must be total under a matches guard, IMMUTABLE, and carry the byte bound. Repro:
-   ~/.cache/gr8des/lane-k/gap-split/repro.ts.
-8. Patterns as data: REGEX2's served matchers (LOADER, its (a)).
-9. regexMaxRepeat exported (LOADER).
-10. An installation map, and a ChangeSet host preview (FORMAT).
-11. Folds stepped by a closed relation (ONERTT-WRITE2).
-12. An opt-in role namespace, grizzle#10 (GENERATE).
-13. A generated term over a drawn field (SHA256).
-14. Type checking of a rule's nested sources (NEGATION). A derived relation a rule's side reads whose definition matches
-    or negates a query or derived relation that aggregates, orders and takes, attaches, approximates or recurses, or
-    negates one that negates in turn, type-checks and is refused only at runtime, UnsupportedLawFamily from
-    analysis/theory/query.ts's Flattener, because RuleRead (types/derived/derived.ts RuleReadOf) reads the definition's
-    own arms and never what they match or negate. The fix: r.match and r.not record in the rule's facts the refusals of
-    the source they read (a derived relation's own RuleRead, a query value's arms' refusals, and for r.not whether those
-    arms negate, which UnionArm would then carry), find carries their union into the arm it makes, and ArmRefusal adds
-    them with the engine's words, linear in the matches and filters; then the schema agreement's derivedProbe draws a
-    matched and a negated query that aggregates, and one that negates in turn, as faults.
-15. A stream over an ordered query (PORT-Q1).
-16. A family whose member side is a selection (ONERTT-WRITE2).
-17. A containment into a selection that a wider key holds (BIND).
-18. A counted family over a derived relation: a family reads stored tables only, which keeps pantry's isNcName name
-    rows (D27/D29) out of the database (CHUNK).
-19. collapse of an unbounded text inside a query, refused today without a length bound; it also blocks D27/D29
-    (PORT-Q1).
-20. A family that groups by a generated field: a family's group key is caller fields today, which keeps 3 of pantry's
-    13 copies host-written (CHUNK).
+In qti-pie's priority order, each with its lane and a stable label (a closed item is deleted, the others keep theirs);
+each deletes code pantry or edullm keeps today. It lands after the owner's post-pin order (the staged-imports SSI fix,
+the compute test fix, the held fill-order, multi-hop and GiST fixes, LOADER's served matchers and admitted literals),
+Q1 to Q6 first. A new feature still needs its correctness need named in its commit.
+- **Q1.** A Db that holds only `workload`: db.get, execute, page, compile, apply, refresh and explain deleted (CULL,
+  with LOADER's share of the deletion split).
+- **Q2.** The rowless ChangeSet builder (CULL, its builder series).
+- **Q3.** A law's id exported from the schema, and lawKeyOf, so pantry drops its committed LawId dictionary; RefusedLaw
+  names no QTI law-table today (ARTIFACTS2).
+- **Q4.** The quadratic commit cost of rules over queries (NEGATION).
+- **Q5.** The cost of compiling the law model and building the Qti value (WORKLOAD2).
+- **Q6.** A fixed target's UNIQUE reuses one index across column orders: qti-pie's `_init` holds 7 duplicate index
+  groups (GENERATE).
+- **Q7.** A Compute text split (SHA256). No substring, split_part or pattern group exists, so pantry splits on the host
+  and writes the pieces as rows (IDREF, header and tolerance tokens, identifier leads and trails, href pieces, reading
+  segments, unordered pairs). It must be total under a matches guard, IMMUTABLE, and carry the byte bound. Repro:
+  ~/.cache/gr8des/lane-k/gap-split/repro.ts.
+- **Q8.** Patterns as data: REGEX2's served matchers (LOADER, its (a)).
+- **Q9.** regexMaxRepeat exported (LOADER).
+- **Q10.** An installation map, and a ChangeSet host preview (FORMAT).
+- **Q11.** Folds stepped by a closed relation (ONERTT-WRITE2).
+- **Q12.** An opt-in role namespace, grizzle#10 (GENERATE).
+- **Q13.** A generated term over a drawn field (SHA256).
+- **Q14.** Type checking of a rule's nested sources (NEGATION). A derived relation a rule's side reads whose definition
+  matches or negates a query or derived relation that aggregates, orders and takes, attaches, approximates or recurses,
+  or negates one that negates in turn, type-checks and is refused only at runtime, UnsupportedLawFamily from
+  analysis/theory/query.ts's Flattener, because RuleRead (types/derived/derived.ts RuleReadOf) reads the definition's
+  own arms and never what they match or negate. The fix: r.match and r.not record in the rule's facts the refusals of
+  the source they read (a derived relation's own RuleRead, a query value's arms' refusals, and for r.not whether those
+  arms negate, which UnionArm would then carry), find carries their union into the arm it makes, and ArmRefusal adds
+  them with the engine's words, linear in the matches and filters; then the schema agreement's derivedProbe draws a
+  matched and a negated query that aggregates, and one that negates in turn, as faults.
+- **Q15.** A stream over an ordered query (PORT-Q1), waiting on the owner: every page in one snapshot transaction is n+1
+  round trips, the shape db.snapshot was deleted for, and a page per transaction gives no snapshot; built in neither
+  form until the owner rules.
+- **Q16.** A family whose member side is a selection (ONERTT-WRITE2).
+- **Q18.** A counted family over a derived relation: a family reads stored tables only, which keeps pantry's isNcName
+  name rows (D27/D29) out of the database (CHUNK).
+- **Q19.** collapse of an unbounded text inside a query, refused today without a length bound; it also blocks D27/D29
+  (PORT-Q1).
+- **Q20.** A family that groups by a generated field: a family's group key is caller fields today, which keeps 3 of
+  pantry's 13 copies host-written (CHUNK).
 
 ### Next
 - **PostgreSQL:** repin to 19rc2 when it is released on 2026-11-12 (pin.env, rebuild, re-init, delete the 19rc1
