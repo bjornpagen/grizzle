@@ -64,11 +64,15 @@ import {
 } from "#adapter/migrate/session.ts"
 import { type ApartAnswer, sentAnswer, type BatchStatement } from "#adapter/wire/batch.ts"
 import type { CatalogQuery } from "#adapter/wire/statement.ts"
+import { reportedOwner } from "#adapter/witness/keylaw.ts"
 import { C } from "#compiler/plan/catalog.ts"
 import {
+	constraintLaw,
 	emitCatalog,
 	type EmittedText,
+	type LawId,
 	type SchemaFingerprint,
+	sqlstateClass,
 	sqlstates
 } from "#compiler/plan/common.ts"
 import { textParam } from "#compiler/plan/read.ts"
@@ -430,7 +434,33 @@ const surveyAll = Effect.fn("surveyAll")(function* (
 })
 
 /**
- * Runs one file and records it.
+ * The law a refusal of a migration file breaks, by the target snapshot's constraint-to-law map, the installation's map
+ * a refused write's law is read from (witness/keylaw.ts): an integrity violation PostgreSQL reports on a constraint of
+ * a table or domain of one of the snapshot's levels (reportedOwner), such as a VALIDATE CONSTRAINT of a foreign key over
+ * stored rows, or a deferred one at COMMIT; none for any other failure, and none for a violation check, which raises
+ * under the law's identity itself.
+ */
+const brokenLaw = (
+	snapshot: DeploySnapshot
+): ((failure: StatementFailure) => LawId | undefined) => {
+	const schemas = new Set(Arr.map(snapshot.levels, (l) => l.schema))
+	return (failure) => {
+		if (
+			failure._tag !== "ServerError" ||
+			failure.constraint === undefined ||
+			sqlstateClass(failure.sqlstate) !== sqlstateClass(sqlstates.integrityConstraintViolation)
+		) {
+			return undefined
+		}
+		const owner = reportedOwner(failure, schemas)
+		return owner === undefined
+			? undefined
+			: constraintLaw(snapshot.constraintToLaw, owner, failure.constraint)
+	}
+}
+
+/**
+ * Runs one file and records it, a refusal naming the law it breaks (`broken`, brokenLaw).
  *
  * Each statement alone, in a step of its own: whether it runs depends on the one before it (see the header).
  */
@@ -440,7 +470,8 @@ const runFile = (
 	statements: LedgerStatements,
 	folder: ParsedFolder,
 	file: ParsedFile,
-	ledger: LedgerTable
+	ledger: LedgerTable,
+	broken: (failure: StatementFailure) => LawId | undefined
 ): Effect.Effect<void, MigrateError> => {
 	const at: RecordPlace = { kind: "file", folder: folder.name, file: file.name }
 	const fence = fenceOf(statements, ledger)
@@ -451,7 +482,8 @@ const runFile = (
 				folder: folder.name,
 				file: file.name,
 				statement: index + 1,
-				failure
+				failure,
+				law: broken(failure)
 			})
 		)
 	const recordFailed = (failure: StatementFailure) =>
@@ -466,7 +498,8 @@ const runFile = (
 						schema,
 						folder: folder.name,
 						file: file.name,
-						failure: failure.failure
+						failure: failure.failure,
+						law: broken(failure.failure)
 					})
 				: new FileCommitLost({ schema, at })
 		)
@@ -606,6 +639,7 @@ const runPlan = Effect.fn("runPlan")(function* (
 	planned: Planned
 ): Effect.fn.Return<SchemaApplyReport, MigrateError> {
 	const { plan, statements } = planned
+	const broken = brokenLaw(planned.snapshot)
 	/** The ledger exists once any transaction of the apply committed: the schema's first file creates it. */
 	let ledger = planned.ledger
 	for (const r of plan.runs) {
@@ -614,7 +648,7 @@ const runPlan = Effect.fn("runPlan")(function* (
 			ledger = "present"
 		}
 		for (const f of runFiles(r)) {
-			yield* runFile(session, plan.schema, statements, r.folder, f, ledger)
+			yield* runFile(session, plan.schema, statements, r.folder, f, ledger, broken)
 			ledger = "present"
 		}
 	}

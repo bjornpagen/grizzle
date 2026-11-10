@@ -9,7 +9,12 @@ import type {
 	ServerError,
 	UnreadableAnswer
 } from "#adapter/errors/failures.ts"
-import { type CompileError, compileReasonText, sqlstates } from "#compiler/plan/common.ts"
+import {
+	type CompileError,
+	compileReasonText,
+	type LawId,
+	sqlstates
+} from "#compiler/plan/common.ts"
 import type { findMarkers } from "#compiler/plan/migration.ts"
 
 /**
@@ -542,16 +547,24 @@ export class LossesUndecided extends Data.TaggedError("LossesUndecided")<{
 	}
 }
 
-/** Statement `statement` (1-based) of `folder`/`file` failed. */
+/** How a refusal of a migration file names the law its constraint reports (`brokenLaw` in apply.ts), when it does. */
+const lawText = (law: LawId | undefined): string =>
+	law === undefined ? "" : `, breaking law ${law}`
+
+/**
+ * Statement `statement` (1-based) of `folder`/`file` failed: `law` the law the refused constraint reports, by the target
+ * snapshot's constraint-to-law map, as a refused write names it (apply.ts brokenLaw).
+ */
 export class StatementFailed extends Data.TaggedError("StatementFailed")<{
 	readonly schema: string
 	readonly folder: string
 	readonly file: string
 	readonly statement: number
 	readonly failure: StatementFailure
+	readonly law: LawId | undefined
 }> {
 	override get message(): string {
-		return `${this.folder}/${this.file} statement ${this.statement} failed: ${failureText(this.failure)}`
+		return `${this.folder}/${this.file} statement ${this.statement} failed${lawText(this.law)}: ${failureText(this.failure)}`
 	}
 }
 
@@ -602,15 +615,19 @@ export class RecordFailed extends Data.TaggedError("RecordFailed")<{
 	}
 }
 
-/** The COMMIT of `folder`/`file` was refused, so the file rolled back with its ledger row. */
+/**
+ * The COMMIT of `folder`/`file` was refused, so the file rolled back with its ledger row: `law` the law a deferred
+ * constraint the COMMIT checked reports, by the target snapshot's constraint-to-law map (apply.ts brokenLaw).
+ */
 export class FileCommitRefused extends Data.TaggedError("FileCommitRefused")<{
 	readonly schema: string
 	readonly folder: string
 	readonly file: string
 	readonly failure: ServerError
+	readonly law: LawId | undefined
 }> {
 	override get message(): string {
-		return `the COMMIT of ${this.folder}/${this.file} failed: ${failureText(this.failure)}`
+		return `the COMMIT of ${this.folder}/${this.file} failed${lawText(this.law)}: ${failureText(this.failure)}`
 	}
 }
 
