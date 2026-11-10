@@ -5,11 +5,10 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
-import { checkQuery } from "#compiler/check/index.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import { assert, refused, succeeded } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { checking, checkOptions } from "#test/support/policy.ts"
+import { checkAuthored, checking, checkOptions } from "#test/support/policy.ts"
 import { schemaDescOf } from "#test/unit/check/drawn.ts"
 import {
 	caseDesc,
@@ -101,7 +100,7 @@ describe("a union of rules", () => {
 					(c, k) =>
 						Effect.sync(() => {
 							const v = verdictOf(c)
-							const result = checkQuery(
+							const result = checkAuthored(
 								checking(schemaDescOf(c.schema)),
 								caseDesc(c),
 								checkOptions("unions")

@@ -36,7 +36,7 @@ import { buildRoot, buildSchema } from "#test/support/oracle/public/build.ts"
 import { caseSketchGen, resolveCase } from "#test/support/oracle/public/generate.ts"
 import type { Param, ProgramRead, Rule } from "#test/support/oracle/public/program.ts"
 import { noBindings, Reference, unobserved } from "#test/support/oracle/reference/evaluate.ts"
-import { checking, checkMemberOf, checkOptions } from "#test/support/policy.ts"
+import { checkAuthored, checking, checkMemberOf, checkOptions } from "#test/support/policy.ts"
 import { kindOfType, schemaDescOf } from "#test/unit/check/drawn.ts"
 import {
 	imported,
@@ -363,7 +363,7 @@ describe("the checker's parameter, member and bound rules", () => {
 									k.pair(f, "admitted")
 								}
 							}
-							const result = checkQuery(
+							const result = checkAuthored(
 								checking(schemaDescOf(c.schema)),
 								paramCaseDesc(c),
 								checkOptions("params")
@@ -536,7 +536,7 @@ describe("the checker's parameter, member and bound rules", () => {
 									attach: []
 								})
 							)
-							const r = checkQuery(checking(Lab), importer, checkOptions("query"))
+							const r = checkAuthored(checking(Lab), importer, checkOptions("query"))
 							const within =
 								typeof bound === "number" &&
 								Number.isInteger(bound) &&
@@ -600,7 +600,7 @@ describe("the checker's parameter, member and bound rules", () => {
 								})
 							)
 							const q = succeeded(
-								checkQuery(checking(Tagged), importer, checkOptions("query")),
+								checkAuthored(checking(Tagged), importer, checkOptions("query")),
 								"the import"
 							)
 							const answer = Reference.of(q.dag, {

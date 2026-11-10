@@ -1,6 +1,6 @@
 import { pipelinedOverSearch } from "#compiler/check/approximate/attach.ts"
 import { Checker, type CheckOptions, type RootRole } from "#compiler/check/checker.ts"
-import { type StructureOptions, validateQueryStructure } from "#compiler/check/description.ts"
+import { validateQueryStructure } from "#compiler/check/description.ts"
 import { fail, rootLoc, unwrap } from "#compiler/check/fail.ts"
 import { checkMemberHeading } from "#compiler/check/member.ts"
 import { resolveQuery } from "#compiler/check/params.ts"
@@ -10,12 +10,7 @@ import { catchRefusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
-import {
-	decodeDesc,
-	type MemberDesc,
-	type QueryDesc,
-	type ReadBackDesc
-} from "#compiler/ir/desc.ts"
+import type { MemberDesc, QueryDesc, ReadBackDesc } from "#compiler/ir/desc.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import { admittedReads } from "#compiler/scalar/compute/lower.ts"
 import { queryPatternReads } from "#compiler/schema/walk.ts"
@@ -74,9 +69,6 @@ const run = (
 	return admit({ dag, params: resolved.params.decls(loc) }, loc)
 }
 
-const decoded = (desc: unknown, options: StructureOptions) =>
-	Result.flatMap(decodeDesc("query", desc), (q) => validateQueryStructure(q, options))
-
 /**
  * The checker's entry points: scope and type checking, with resolved variables, imports and overloads, exact headings and no nullable expressions.
  *
@@ -92,14 +84,15 @@ const decoded = (desc: unknown, options: StructureOptions) =>
  * The plug-in directories recursion/, approximate/ and refinement/ are dispatched from checker.ts at fixed paths
  * (context.ts). Every entry point returns a Result and never throws.
  *
- * A query description against a schema, as the checker reads it.
+ * A query description against a schema, as the checker reads it: a QueryDesc, decoded where it entered (ir/desc.ts
+ * decodeDesc), so only its structure is validated here (check/description.ts), never its shape again.
  */
 export const checkQuery = (
 	checked: SchemaReading,
-	desc: unknown,
+	desc: QueryDesc,
 	options: CheckOptions
 ): Result.Result<AdmittedQuery, CompileError> =>
-	Result.flatMap(decoded(desc, { read: options.read }), (q) =>
+	Result.flatMap(validateQueryStructure(desc, { read: options.read }), (q) =>
 		catchRefusal(() => run(checked, q, options, rootLoc(options.label), { kind: options.read }))
 	)
 
@@ -115,7 +108,7 @@ export const checkDefinition = (
 	query: QueryDesc
 ): Result.Result<AdmittedQuery, CompileError> => {
 	const options: CheckOptions = { read: "rows", label }
-	return Result.flatMap(decoded(query, { read: "rows" }), (q) =>
+	return Result.flatMap(validateQueryStructure(query, { read: "rows" }), (q) =>
 		catchRefusal(() => run(base, q, options, rootLoc(label), { kind: "definition" }))
 	)
 }
@@ -163,7 +156,12 @@ export const checkMember = (
 	options: Omit<CheckOptions, "read">
 ): Result.Result<AdmittedQuery, CompileError> =>
 	catchRefusal(() =>
-		memberQuery(checked, member, unwrap(decoded(member.query, { read: "rows" })), options)
+		memberQuery(
+			checked,
+			member,
+			unwrap(validateQueryStructure(member.query, { read: "rows" })),
+			options
+		)
 	)
 
 /**

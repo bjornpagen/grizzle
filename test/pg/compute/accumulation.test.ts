@@ -6,7 +6,6 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
-import { checkQuery } from "#compiler/check/index.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import * as N from "#compiler/scalar/compute/numeric.ts"
@@ -53,7 +52,7 @@ import {
 	type RunOptions,
 	runLabelledOracle
 } from "#test/support/oracle/runner.ts"
-import { checking, checkOptions } from "#test/support/policy.ts"
+import { checkAuthored, checking, checkOptions } from "#test/support/policy.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import * as D from "#test/unit/check/dsl.ts"
 
@@ -252,7 +251,7 @@ const ledgerCase = (
 	desc: QueryDesc,
 	entries: ReadonlyArray<Entry>
 ): LabelledCase => {
-	const checked = checkQuery(checking(schemaDesc(ledger)), desc, checkOptions("query"))
+	const checked = checkAuthored(checking(schemaDesc(ledger)), desc, checkOptions("query"))
 	if (!checked.ok) {
 		throw new Error(`${label} does not check: ${checked.error.message}`)
 	}

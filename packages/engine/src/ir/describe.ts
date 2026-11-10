@@ -1,7 +1,7 @@
 import type { Json } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import * as Result from "#compiler/core/result.ts"
-import { decodeDesc, descToJson, type QueryDesc } from "#compiler/ir/desc.ts"
+import { descToJson, type QueryDesc } from "#compiler/ir/desc.ts"
 
 /**
  * The QueryDescription codec.
@@ -14,6 +14,9 @@ import { decodeDesc, descToJson, type QueryDesc } from "#compiler/ir/desc.ts"
  * Nothing in a QueryDescription is executable, and no parameter value is part of it.
  */
 
-/** A Description to its QueryDescription. The Description is decoded first, so a malformed one never escapes. */
+/**
+ * A Description to its QueryDescription: a QueryDesc, decoded where it entered (ir/desc.ts decodeDesc), so a malformed
+ * one never reaches it.
+ */
 export const toQueryDescription = (desc: QueryDesc): Result.Result<Json, CompileError> =>
-	Result.flatMap(decodeDesc("query", desc), descToJson)
+	descToJson(desc)

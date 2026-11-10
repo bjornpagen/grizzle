@@ -8,7 +8,6 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
-import { checkQuery } from "#compiler/check/index.ts"
 import { guarantees, refinedConstants, refinement } from "#compiler/check/refinement/index.ts"
 import type { FieldDesc, LiteralDesc } from "#compiler/ir/desc.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
@@ -40,7 +39,7 @@ import {
 	value
 } from "#test/support/fixtures/ir/desc.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { checking, checkOptions } from "#test/support/policy.ts"
+import { checkAuthored, checking, checkOptions } from "#test/support/policy.ts"
 import {
 	lit,
 	match,
@@ -453,7 +452,7 @@ describe("union propagation", () => {
 							const met = meet(a.token, b.token)
 							const why = `${a.name} and ${b.name}`
 							c.note(featureOf(a, b, met))
-							const result = checkQuery(
+							const result = checkAuthored(
 								schemaChecked,
 								queryDesc(armOf(a), armOf(b)),
 								checkOptions("union propagation")

@@ -7,12 +7,11 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { hnswPolicy } from "#compiler/check/approximate/policy.ts"
 import { approximateMisuse, approximatePageMisuse } from "#compiler/check/approximate/provenance.ts"
-import { checkQuery } from "#compiler/check/index.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { NodeOf, RelDag } from "#compiler/ir/rel.ts"
 import { assert, defined, matchesObject, refused, succeeded } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { checking, checkOptions } from "#test/support/policy.ts"
+import { checkAuthored, checking, checkOptions } from "#test/support/policy.ts"
 import {
 	approximate,
 	type Composition,
@@ -116,7 +115,7 @@ describe("approximateNearest", () => {
 					(c, k) =>
 						Effect.sync(() => {
 							const v = searchVerdict(c)
-							const result = checkQuery(
+							const result = checkAuthored(
 								checking(searchSchema(c.dimensions)),
 								searchCaseDesc(c),
 								checkOptions("search")
@@ -180,7 +179,7 @@ describe("approximateNearest", () => {
 						Effect.sync(() => {
 							k.note(p.composition)
 							const q = succeeded(
-								checkQuery(
+								checkAuthored(
 									checking(searchSchema(p.search.dimensions)),
 									provenanceDesc(p),
 									checkOptions("provenance")

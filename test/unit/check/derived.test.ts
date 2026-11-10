@@ -39,7 +39,6 @@ import { requiredInSpace } from "@grizzle/testing/features"
 import { array, boolean, element, type Gen, int, subset } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec } from "effect"
-import { checkQuery } from "#compiler/check/index.ts"
 import type { GeneratedRule } from "#compiler/core/causes.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type * as Result from "#compiler/core/result.ts"
@@ -59,7 +58,7 @@ import {
 } from "#test/support/fixtures/ir/desc.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { checkedIn, checkOptions, checking } from "#test/support/policy.ts"
+import { checkAuthored, checkedIn, checking, checkOptions } from "#test/support/policy.ts"
 import {
 	eq,
 	match,
@@ -749,7 +748,7 @@ describe("a generated field's rule and where a closed read stands", () => {
 					(c, k) =>
 						Effect.sync(() => {
 							const why = Formatter.format(c)
-							const result = checkQuery(
+							const result = checkAuthored(
 								checking(positionsSchema),
 								positionQuery(c),
 								checkOptions("query")

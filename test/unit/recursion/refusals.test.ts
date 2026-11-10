@@ -33,7 +33,7 @@ import {
 
 import { caseHang } from "#test/support/limits.ts"
 import { argumentsOf } from "#test/support/list.ts"
-import { checking, checkOptions } from "#test/support/policy.ts"
+import { checkAuthored, checking, checkOptions } from "#test/support/policy.ts"
 import {
 	approximateNearest,
 	cast,
@@ -92,7 +92,7 @@ type Outcome =
 	| { readonly kind: "malformed"; readonly reason: CompileReasonTag }
 
 const outcomeOf = (desc: QueryDesc): Outcome => {
-	const r = checkQuery(checking(Graph), desc, checkOptions("query"))
+	const r = checkAuthored(checking(Graph), desc, checkOptions("query"))
 	if (r.ok) {
 		return { kind: "admitted", query: r.value }
 	}
@@ -1431,7 +1431,7 @@ describe("the seen-state estimate", () => {
 								return
 							}
 							c.note(seeded.kind === "data" ? "refused data" : "refused from bigint's least value")
-							const r = checkQuery(checking(Graph), desc, checkOptions("query"))
+							const r = checkAuthored(checking(Graph), desc, checkOptions("query"))
 							assert.ok(!r.ok, "the step over bigint's least value is refused")
 							const reason = r.error.reason
 							assert.ok(reason._tag === "PartialOperation", `refused as ${reason._tag}`)

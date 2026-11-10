@@ -6,7 +6,6 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec } from "effect"
-import { checkQuery } from "#compiler/check/index.ts"
 import type { CompileReason } from "#compiler/core/errors.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { RelNode } from "#compiler/ir/rel.ts"
@@ -25,7 +24,7 @@ import { canonicalFacts } from "#test/support/oracle/gen/facts.ts"
 import type { GenSchema } from "#test/support/oracle/gen/schema.ts"
 import { noBindings, Reference, unobserved } from "#test/support/oracle/reference/evaluate.ts"
 import type { Value } from "#test/support/oracle/reference/values.ts"
-import { checking, checkOptions } from "#test/support/policy.ts"
+import { checkAuthored, checking, checkOptions } from "#test/support/policy.ts"
 import {
 	attach,
 	count,
@@ -532,7 +531,7 @@ describe("a fold reads each fact it matches once, by a key", () => {
 					(c, k) =>
 						Effect.sync(() => {
 							const b = built(c)
-							const checked = checkQuery(checking(Blog), b.query, checkOptions("query"))
+							const checked = checkAuthored(checking(Blog), b.query, checkOptions("query"))
 							if (b.refusedAt !== undefined) {
 								assert.equal(checked.ok, false, "a fold over a projection is refused")
 								if (checked.ok) {

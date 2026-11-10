@@ -25,7 +25,6 @@ import {
 	Record as Rec,
 	String as Str
 } from "effect"
-import { checkQuery } from "#compiler/check/index.ts"
 import { indices, maxOf } from "#compiler/core/array.ts"
 import type { RecursionRefusal } from "#compiler/core/causes.ts"
 import { MoneyText } from "#compiler/ir/carriers.ts"
@@ -58,7 +57,7 @@ import {
 } from "#test/support/oracle/reference/evaluate.ts"
 import { valueIdentity } from "#test/support/oracle/reference/values.ts"
 import { pickFrom, pickIndex } from "#test/support/pick.ts"
-import { checking, checkOptions } from "#test/support/policy.ts"
+import { checkAuthored, checking, checkOptions } from "#test/support/policy.ts"
 import {
 	cast,
 	compute,
@@ -1454,7 +1453,7 @@ describe("generated recursions against the termination proof rules", () => {
 									has({ spec, verdict: expected }) ? [name] : []
 								)
 							)
-							const r = checkQuery(checking(Graph), descOfSpec(spec), checkOptions("query"))
+							const r = checkAuthored(checking(Graph), descOfSpec(spec), checkOptions("query"))
 							if (expected.kind === "refused") {
 								if (r.ok) {
 									throw new Error(`admitted, not refused for ${expected.refusal.kind}`)

@@ -24,7 +24,7 @@ import { WorkDesc } from "#test/support/fixtures/ir/work.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { buildRoot, buildSchema } from "#test/support/oracle/public/build.ts"
 import { caseSketchGen, resolveCase } from "#test/support/oracle/public/generate.ts"
-import { checking, checkOptions, checkReadBackOf } from "#test/support/policy.ts"
+import { checkAuthored, checking, checkOptions, checkReadBackOf } from "#test/support/policy.ts"
 import {
 	type ContractFeature,
 	contractCaseGen,
@@ -348,7 +348,7 @@ describe("a literal at a typed slot", () => {
 							const { query: q, located } = literalAt(slot, value)
 							const expected = expectedOf(slot, value, located)
 							answers(
-								checkQuery(
+								checkAuthored(
 									checking(slot === "Cents bound" ? WorkDesc : Lab),
 									q,
 									checkOptions("query")
@@ -405,7 +405,7 @@ describe("a query's contracts", () => {
 					(c, k) =>
 						Effect.sync(() => {
 							k.noteAll(contractFeatures(c))
-							const result = checkQuery(
+							const result = checkAuthored(
 								checking(contractSchema(c)),
 								contractQuery(c),
 								checkOptions("contracts")

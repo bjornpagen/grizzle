@@ -12,7 +12,6 @@ import {
 	type PlanNode,
 	planNodes
 } from "#bench/harness/explain.ts"
-import { checkQuery } from "#compiler/check/index.ts"
 import { identity } from "#compiler/core/identity.ts"
 import type { CodeSlot } from "#compiler/ir/cells.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
@@ -74,7 +73,7 @@ import {
 	type RunnerSide,
 	type RunOptions
 } from "#test/support/oracle/runner.ts"
-import { checking, checkOptions } from "#test/support/policy.ts"
+import { checkAuthored, checking, checkOptions } from "#test/support/policy.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import * as D from "#test/unit/check/dsl.ts"
 
@@ -413,7 +412,7 @@ const rowLiterals = (row: Row, id: number): ReadonlyArray<TypedLiteral> => [
 ]
 
 const ledgerCase = (label: string, desc: QueryDesc, rows: ReadonlyArray<Row>): LabelledCase => {
-	const checked = checkQuery(checking(schemaDesc(ledger)), desc, checkOptions("query"))
+	const checked = checkAuthored(checking(schemaDesc(ledger)), desc, checkOptions("query"))
 	if (!checked.ok) {
 		throw new Error(`${label} does not check: ${checked.error.message}`)
 	}

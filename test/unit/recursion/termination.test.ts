@@ -4,14 +4,13 @@ import { requiredInSpace } from "@grizzle/testing/features"
 import { boolean, element, int } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
-import { checkQuery } from "#compiler/check/index.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import { uuid } from "#compiler/public/fields.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { type HeadTermDesc, textDesc } from "#test/support/fixtures/ir/desc.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { checking, checkOptions } from "#test/support/policy.ts"
+import { checkAuthored, checking, checkOptions } from "#test/support/policy.ts"
 import {
 	compute,
 	eq,
@@ -113,7 +112,7 @@ describe("the seen-state estimate", () => {
 								? narrowed(compute("add", s("x"), s("y")), "integer")
 								: lit(0)
 							const q = succeeded(
-								checkQuery(
+								checkAuthored(
 									checking(Graph),
 									{
 										stage: {
@@ -226,7 +225,7 @@ describe("the seen-state estimate", () => {
 							const handles = Arr.map(Arr.range(1, n), (i) => `h${i}`)
 							const set: FieldDesc = { kind: "bits", roster: "Flag" }
 							const of = (members: ReadonlyArray<string>) => typedLit({ handles: members }, set)
-							const r = checkQuery(
+							const r = checkAuthored(
 								checking(setsOver(handles)),
 								{
 									stage: {

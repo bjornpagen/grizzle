@@ -1,8 +1,14 @@
 import { type CheckedSchema, checkedRoleOver, checkedSchema } from "#compiler/analysis/schema.ts"
-import { checkMember, type CheckOptions, checkReadBack } from "#compiler/check/index.ts"
+import {
+	type AdmittedQuery,
+	checkMember,
+	type CheckOptions,
+	checkQuery,
+	checkReadBack
+} from "#compiler/check/index.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import * as Result from "#compiler/core/result.ts"
-import type { SchemaDesc } from "#compiler/ir/desc.ts"
+import { decodeDesc, type SchemaDesc } from "#compiler/ir/desc.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import { parseSchemaInput, type SchemaInput } from "#compiler/program/schema.ts"
 import { type Owned, own, ownRole } from "#compiler/schema/own.ts"
@@ -11,6 +17,7 @@ import {
 	decodedMember,
 	decodedReadBack,
 	type MemberDesc,
+	type QueryDesc,
 	type ReadBackDesc
 } from "#test/support/fixtures/ir/desc.ts"
 
@@ -58,6 +65,18 @@ export const checkedIn = (schema: unknown): Result.Result<CheckedSchema, Compile
 	Result.flatMap(parseSchemaInput(schema), checkedInput)
 
 export const checking = (schema: unknown): CheckedSchema => orThrow(checkedIn(schema))
+
+/**
+ * An authored query description checked as a compilation checks a caller's Description: decoded at the boundary,
+ * where its unlocated nodes are located at their paths (ir/desc.ts decodeDesc), then checked (check/index.ts
+ * checkQuery); a description the decode refuses is that refusal.
+ */
+export const checkAuthored = (
+	checked: CheckedSchema,
+	desc: QueryDesc,
+	options: CheckOptions
+): Result.Result<AdmittedQuery, CompileError> =>
+	Result.flatMap(decodeDesc("query", desc), (decoded) => checkQuery(checked, decoded, options))
 
 /** The check options an entry point states for a query read as rows: the query's label. */
 export const checkOptions = (label: string): CheckOptions => ({

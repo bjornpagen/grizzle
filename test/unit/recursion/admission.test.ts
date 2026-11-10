@@ -4,12 +4,11 @@ import { requiredInSpace } from "@grizzle/testing/features"
 import { subarray } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
-import { checkQuery } from "#compiler/check/index.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import type { QueryDesc, RuleDesc } from "#test/support/fixtures/ir/desc.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { checking, checkOptions } from "#test/support/policy.ts"
+import { checkAuthored, checking, checkOptions } from "#test/support/policy.ts"
 import {
 	match,
 	param,
@@ -114,7 +113,9 @@ describe("factoring transition arms into one feedback scan", () => {
 							if (arms.length === 2) {
 								c.note("both")
 							}
-							const q = succeeded(checkQuery(checking(Graph), pairs(arms), checkOptions("query")))
+							const q = succeeded(
+								checkAuthored(checking(Graph), pairs(arms), checkOptions("query"))
+							)
 							assert.equal(reads(q, theRecursive(q).self), 1, "one feedback read")
 							assert.deepEqual(
 								Arr.map(q.params, (p) => p.name),

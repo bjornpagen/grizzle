@@ -1,6 +1,5 @@
 import { array, constant, type Gen, int, map, weighted } from "@grizzle/testing/gen"
 import { Array as Arr, Order } from "effect"
-import { checkQuery } from "#compiler/check/index.ts"
 import { catchRefusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -22,7 +21,7 @@ import { canonicalFacts } from "#test/support/oracle/gen/facts.ts"
 import { genParamDecls } from "#test/support/oracle/gen/query.ts"
 import { type GenSchema, schemaDesc } from "#test/support/oracle/gen/schema.ts"
 import type { LabelledCase, Lowering } from "#test/support/oracle/runner.ts"
-import { checking, checkOptions } from "#test/support/policy.ts"
+import { checkAuthored, checking, checkOptions } from "#test/support/policy.ts"
 
 const int4 = plainType("int4")
 const int8 = plainType("int8")
@@ -188,7 +187,7 @@ export const factsGen: Gen<Facts> = (source) => ({
 })
 
 export const checkedQuery = (desc: QueryDesc): LogicalQuery => {
-	const r = checkQuery(checking(schemaDesc(lab)), desc, checkOptions("query"))
+	const r = checkAuthored(checking(schemaDesc(lab)), desc, checkOptions("query"))
 	if (!r.ok) {
 		throw new Error(`the query does not check: ${r.error.message}`)
 	}
