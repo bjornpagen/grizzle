@@ -25,7 +25,7 @@ import { array, element, type Gen, int, oneOf } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Result } from "effect"
-import { compiledOpen } from "#adapter/db/open.ts"
+import { Db } from "#adapter/public/db.ts"
 import { ChangeSet, type Law } from "#compiler/public/changeset.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { closedId, date, generated, pg } from "#compiler/public/fields.ts"
@@ -40,7 +40,6 @@ import { refusedLaws } from "#test/support/refused.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
-import { loginLayer } from "#test/support/worlds.ts"
 
 const tiers = ["low", "mid", "high"] as const
 type TierHandle = (typeof tiers)[number]
@@ -79,6 +78,60 @@ const Spot = relation.generated("Spot", written, ["id"], (r) => ({
 const itemNumeral = key(on(Item, "k"))
 const spotNumeral = key(on(Spot, "k"))
 const Items = schema("Items", { Tier, Rate, Item, Spot }, [itemNumeral, spotNumeral, mutable(Spot)])
+
+/**
+ * The full world's workload: each relation's rows as grizzle reads them, generated fields included; each relation's
+ * seed, an insert of each call's rows; and the case's write, an insert or a put of each relation from a query over the
+ * relation parameter `rows`, delivered as they are.
+ */
+const programs = {
+	itemRows: query(Items).rule((r) => {
+		const { id, v: value, tier, k, day, copy, rate, parsed, when } = v(Item, "item")
+		return r
+			.match(Item, { id, v: value, tier, k, day, copy, rate, parsed, when })
+			.find({ id, v: value, tier, k, day, copy, rate, parsed, when })
+	}),
+	spotRows: query(Items).rule((r) => {
+		const { id, v: value, tier, k, day, copy, rate, parsed, when } = v(Spot, "spot")
+		return r
+			.match(Spot, { id, v: value, tier, k, day, copy, rate, parsed, when })
+			.find({ id, v: value, tier, k, day, copy, rate, parsed, when })
+	}),
+	seedItem: ChangeSet.empty(Items).insert(Item, []),
+	seedSpot: ChangeSet.empty(Items).insert(Spot, []),
+	insertItem: ChangeSet.empty(Items).insert(
+		Item,
+		query(Items).rule((r) => {
+			const rows = r.relation("rows", written)
+			const row = v(rows, "row")
+			return r.match(rows, row).find(row)
+		})
+	),
+	putItem: ChangeSet.empty(Items).put(
+		Item,
+		query(Items).rule((r) => {
+			const rows = r.relation("rows", written)
+			const row = v(rows, "row")
+			return r.match(rows, row).find(row)
+		})
+	),
+	insertSpot: ChangeSet.empty(Items).insert(
+		Spot,
+		query(Items).rule((r) => {
+			const rows = r.relation("rows", written)
+			const row = v(rows, "row")
+			return r.match(rows, row).find(row)
+		})
+	),
+	putSpot: ChangeSet.empty(Items).put(
+		Spot,
+		query(Items).rule((r) => {
+			const rows = r.relation("rows", written)
+			const row = v(rows, "row")
+			return r.match(rows, row).find(row)
+		})
+	)
+}
 
 /** A row as a case states it. */
 interface Row {
@@ -217,53 +270,31 @@ layer(Substrate.layer)(
 					ctx,
 					Effect.gen(function* () {
 						const s = yield* Substrate
-						const o = yield* installed(
-							Items,
-							{},
-							{ label: "genquery", extensions: [], programs: {} }
-						)
+						const o = yield* installed(Items, {}, { label: "genquery", extensions: [], programs })
 						const group = installationGroup(namesOf(o.installed))
 						return yield* Effect.gen(function* () {
-							const db = yield* compiledOpen(o.server.roles.app, {})
-							/** Each relation's rows as grizzle reads them, generated fields included, and the write's source,
-							 * the rows its relation parameter binds, delivered as they are. */
-							const rowsOf = {
-								Item: query(o.schema).rule((r) => {
-									const { id, v: value, tier, k, day, copy, rate, parsed, when } = v(Item, "item")
-									return r
-										.match(Item, { id, v: value, tier, k, day, copy, rate, parsed, when })
-										.find({ id, v: value, tier, k, day, copy, rate, parsed, when })
-								}),
-								Spot: query(o.schema).rule((r) => {
-									const { id, v: value, tier, k, day, copy, rate, parsed, when } = v(Spot, "spot")
-									return r
-										.match(Spot, { id, v: value, tier, k, day, copy, rate, parsed, when })
-										.find({ id, v: value, tier, k, day, copy, rate, parsed, when })
-								})
-							}
-							const sourceQuery = query(o.schema).rule((r) => {
-								const rows = r.relation("rows", written)
-								const row = v(rows, "row")
-								return r.match(rows, row).find(row)
-							})
+							const db = yield* Db.open(o.served.login.roles.app, {})
 							/** The rows of `target` as grizzle reads them. */
 							const read = (target: Target) =>
 								target === "Item"
-									? Effect.flatMap(db.execute(rowsOf.Item, {}), (r) => r.collect)
-									: Effect.flatMap(db.execute(rowsOf.Spot, {}), (r) => r.collect)
-							/** The ChangeSet inserting `rows` into `target`, or the write of the case from its query. */
+									? Effect.flatMap(db.workload.itemRows.execute({}), (r) => r.collect)
+									: Effect.flatMap(db.workload.spotRows.execute({}), (r) => r.collect)
+							/** `rows` inserted into `target`. */
 							const seed = (target: Target, rows: ReadonlyArray<Row>) =>
 								target === "Item"
-									? ChangeSet.empty(o.schema).insert(Item, Arr.map(rows, writtenOf))
-									: ChangeSet.empty(o.schema).insert(Spot, Arr.map(rows, writtenOf))
-							const write = (target: Target, op: Case["op"]) =>
-								target === "Item"
+									? db.workload.seedItem.apply({ insert: { Item: Arr.map(rows, writtenOf) } }, {})
+									: db.workload.seedSpot.apply({ insert: { Spot: Arr.map(rows, writtenOf) } }, {})
+							/** The write of the case into `target` from its query over `rows`. */
+							const write = (target: Target, op: Case["op"], rows: ReadonlyArray<Row>) => {
+								const params = { rows: Arr.map(rows, writtenOf) }
+								return target === "Item"
 									? op === "insert"
-										? ChangeSet.empty(o.schema).insert(Item, sourceQuery)
-										: ChangeSet.empty(o.schema).put(Item, sourceQuery)
+										? db.workload.insertItem.apply(params)
+										: db.workload.putItem.apply(params)
 									: op === "insert"
-										? ChangeSet.empty(o.schema).insert(Spot, sourceQuery)
-										: ChangeSet.empty(o.schema).put(Spot, sourceQuery)
+										? db.workload.insertSpot.apply(params)
+										: db.workload.putSpot.apply(params)
+							}
 							return yield* explore(
 								{
 									suite: "write/generated-source",
@@ -309,15 +340,13 @@ layer(Substrate.layer)(
 									Effect.gen(function* () {
 										yield* replaceRows(s.admin, group, [])
 										if (Arr.isReadonlyArrayNonEmpty(k.stored)) {
-											const seeded = yield* db.apply(seed(k.target, k.stored), {})
+											const seeded = yield* seed(k.target, k.stored)
 											assert.equal(seeded.kind, "accepted", "the stored rows are lawful")
 										}
 										const before: ReadonlyArray<Readonly<Record<string, unknown>>> = yield* read(
 											k.target
 										)
-										const applied = yield* Effect.result(
-											db.apply(write(k.target, k.op), { rows: Arr.map(k.source, writtenOf) })
-										)
+										const applied = yield* Effect.result(write(k.target, k.op, k.source))
 										if (Result.isFailure(applied)) {
 											return assert.fail(
 												`a lawful schema's write is an outcome: ${applied.failure._tag}`
@@ -362,7 +391,7 @@ layer(Substrate.layer)(
 										c.note(expected.changed ? `${k.target} ${k.op} applied` : "an unchanged write")
 									})
 							)
-						}).pipe(Effect.scoped, withLayer(loginLayer(o.installed, o.server)))
+						}).pipe(Effect.scoped, withLayer(o.served.layer))
 					}).pipe(Effect.scoped)
 				)
 		)
