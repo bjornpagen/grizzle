@@ -3,7 +3,17 @@ import { Array as Arr, Formatter, Option, Order } from "effect"
 import type { TransientTag } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 
-export const relationNames = ["Item", "Note", "Code", "Ticket", "Room", "Ref", "Zed"] as const
+export const relationNames = [
+	"Item",
+	"Note",
+	"Code",
+	"Ticket",
+	"Room",
+	"Ref",
+	"Zed",
+	"Badge",
+	"Gate"
+] as const
 export type Rel = (typeof relationNames)[number]
 
 export type Fact = ReadonlyArray<string>
@@ -16,7 +26,9 @@ export const columnsOf: Readonly<Record<Rel, ReadonlyArray<string>>> = {
 	Ticket: ["no", "label"],
 	Room: ["room", "start", "end", "label"],
 	Ref: ["id", "item"],
-	Zed: ["id"]
+	Zed: ["id"],
+	Badge: ["id", "code"],
+	Gate: ["id"]
 }
 
 /** Each relation's primary key, by column position: what a put displaces and a direct DELETE names. */
@@ -27,7 +39,9 @@ const primaryKeyOf: Readonly<Record<Rel, ReadonlyArray<number>>> = {
 	Ticket: [0],
 	Room: [0, 1, 2],
 	Ref: [0],
-	Zed: [0]
+	Zed: [0],
+	Badge: [0],
+	Gate: [0]
 }
 
 export type State = Readonly<Record<Rel, ReadonlyArray<Fact>>>
@@ -39,7 +53,9 @@ export const emptyState: State = {
 	Ticket: [],
 	Room: [],
 	Ref: [],
-	Zed: []
+	Zed: [],
+	Badge: [],
+	Gate: []
 }
 
 /**
@@ -116,18 +132,16 @@ const breaksWith = (
  * state holds each relation's facts as a set because its primary key's law refuses a second fact at one key, an exact
  * repeat of a stored fact included, so a model missing one would let a direct INSERT hold a fact twice.
  */
+/** Whether `law` is `relation`'s primary key's: a unique law over exactly its key's columns, or its span key. */
+const primaryKeyLaw = (law: LawSpec, relation: Rel): boolean =>
+	law.kind === "unique"
+		? law.relation === relation &&
+			law.columns.length === primaryKeyOf[relation].length &&
+			Arr.every(law.columns, (c, i) => c === primaryKeyOf[relation][i])
+		: law.kind === "spanKey" && law.relation === relation
+
 const unkeyedRelations = (laws: ReadonlyArray<LawSpec>): ReadonlyArray<Rel> =>
-	Arr.filter(
-		relationNames,
-		(relation) =>
-			!Arr.some(laws, (law) =>
-				law.kind === "unique"
-					? law.relation === relation &&
-						law.columns.length === primaryKeyOf[relation].length &&
-						Arr.every(law.columns, (c, i) => c === primaryKeyOf[relation][i])
-					: law.kind === "spanKey" && law.relation === relation
-			)
-	)
+	Arr.filter(relationNames, (relation) => !Arr.some(laws, (law) => primaryKeyLaw(law, relation)))
 
 /** The laws a state breaks. */
 const violated = (laws: ReadonlyArray<LawSpec>, state: State): ReadonlyArray<LawSpec> =>
@@ -291,12 +305,38 @@ type GrizzleMeaning =
 	| { readonly kind: "applied"; readonly changed: boolean; readonly state: State }
 	| { readonly kind: "refused"; readonly laws: ReadonlyArray<LawId> }
 
+/**
+ * The primary key laws a ChangeSet's deletions break before it runs: a delete naming two facts at one key is refused,
+ * where any stratum's deletions of one relation hold two facts that differ at a primary key, by that key's law
+ * (runtime/write/normalize.ts, the same-key checks, which run before any statement is sent).
+ */
+const deletionConflicts = (laws: ReadonlyArray<LawSpec>, op: GrizzleOp): ReadonlyArray<LawId> =>
+	Arr.flatMap(op.strata, (stratum) =>
+		Arr.flatMap(relationNames, (relation) => {
+			const deleted = Arr.flatMap(stratum, (m) =>
+				m.kind === "enumerated" && m.op === "delete" && m.relation === relation ? m.facts : []
+			)
+			const byKey = new Map<string, string>()
+			const conflict = Arr.some(deleted, (f) => {
+				const key = project(f, primaryKeyOf[relation])
+				const prior = byKey.get(key)
+				byKey.set(key, identity(f))
+				return prior !== undefined && prior !== identity(f)
+			})
+			return conflict ? Arr.flatMap(laws, (l) => (primaryKeyLaw(l, relation) ? [l.law] : [])) : []
+		})
+	)
+
 const grizzleMeaning = (
 	laws: ReadonlyArray<LawSpec>,
 	state: State,
 	op: GrizzleOp,
 	pins: Pins
 ): GrizzleMeaning => {
+	const conflicts = deletionConflicts(laws, op)
+	if (conflicts.length > 0) {
+		return { kind: "refused", laws: conflicts }
+	}
 	let next = state
 	for (const stratum of op.strata) {
 		next = applyStratum(next, stratum, pins)

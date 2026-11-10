@@ -8,6 +8,7 @@ import { type LoadedChange, type LoadedMember, loadServed } from "#adapter/serve
 import { builtLogin, ownLoginOver } from "#adapter/served/login.ts"
 import type { DbLayerOf } from "#adapter/types/layer.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
+import type { Isolation } from "#compiler/core/isolation.ts"
 import { ownBuilt, trustedJson } from "#compiler/plan/common.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg, span } from "#compiler/public/fields.ts"
@@ -76,13 +77,18 @@ export const Room = relation("Room", { room: pg.integer, during: span(pg.bigint)
 ])
 export const Ref = relation("Ref", { id: pg.integer, item: pg.integer }, ["id"])
 export const Zed = relation("Zed", { id: pg.integer }, ["id"])
+export const Badge = relation("Badge", { id: pg.integer, code: pg.integer }, ["id"])
+export const Gate = relation("Gate", { id: pg.integer }, ["id"])
 
 /** Code's and Ticket's candidate keys, and Ref's foreign key into Item: the laws a race names by these declarations. */
 export const codeKey = key(on(Code, "code"))
 export const ticketLabel = key(on(Ticket, "label"))
 export const refItem = contained(on(Ref, "item"), on(Item, "id"))
+/** Badge's candidate key: the unique object beside its arbiter that two certified READ COMMITTED inserts race at. */
+export const badgeCode = key(on(Badge, "code"))
 
-const relations = { Item, Note, Code, Ticket, Room, Ref, Zed } as const
+const shared = { Item, Note, Code, Ticket, Room, Ref, Zed } as const
+const relations = { ...shared, Badge, Gate } as const
 const written = ["Item", "Note", "Code", "Ticket", "Room", "Ref", "Zed"] as const
 const statements = [
 	mutable(Note),
@@ -91,16 +97,40 @@ const statements = [
 	mutable(Zed),
 	codeKey,
 	ticketLabel,
-	refItem
+	refItem,
+	badgeCode
 ] as const
+
+/**
+ * The role `inserter`'s one change: Badge's facts its call states, then Gate's, each an array member the call supplies.
+ * A call that states a Gate fact inserts it last, so an owner holding Gate in SHARE mode holds the call there with its
+ * Badge rows written and uncommitted; a call that states none skips that statement.
+ */
+export const addBadges = (inserter: Inserter) =>
+	ChangeSet.sequence(
+		ChangeSet.empty(inserter).insert(Badge, []),
+		ChangeSet.empty(inserter).insert(Gate, [])
+	)
+
+/** The role `inserter` of the schedule schema `base`: Badge and Gate whole, inserting only. */
+const inserterOf = (base: ReturnType<typeof schedSchema>) =>
+	role(base, "inserter", { Badge, Gate }, { insert: ["Badge", "Gate"] })
+type Inserter = ReturnType<typeof inserterOf>
+
+/** The schedule schema under `name`, over the relations and laws above. */
+const schedSchema = (name: string) => schema(name, relations, statements)
 
 /**
  * Shared setup for the grizzle write schedules.
  *
- * A small schema installs under a fresh schema name with two full roles, each writing every relation: `app`, which the
- * grizzle writers open through Db.open and a DbLayer of the served login `server` exactly as an application does (the
- * rig's `servedWriter`), its workload's `noop`, the empty ChangeSet, a writer's first call, and `direct`, which raw
- * pinned sessions take on through the login `psql` to play the concurrent direct SQL writer. Every table, column and law a schedule names comes from the installation (`names`).
+ * A small schema installs under a fresh schema name as generate drafts and serves it (openRig), with two full roles over
+ * its first seven relations, each writing every one of them: `app`, which the grizzle writers open through Db.open and
+ * a DbLayer of the served login `server` exactly as an application does (the rig's `servedWriter`), its workload's
+ * `noop`, the empty ChangeSet, a writer's first call, and `direct`, which raw pinned sessions take on through the login
+ * `psql` to play the concurrent direct SQL writer. Both are certified SERIALIZABLE, and every table they write keeps its
+ * guard. A third role of `server`, `inserter`, holds only Badge and Gate and inserts only (`insert`), its one change
+ * `addBadges`; no other role writes either, so generate certifies it READ COMMITTED and neither table keeps a guard.
+ * Every table, column and law a schedule names comes from the installation (`names`).
  *
  * The relations, each the shape of a put target or a transient reason:
  * - Item: immutable (the pinned default), keyed by id: the insert protocol, and a put's DELETE-then-insert pair;
@@ -114,20 +144,28 @@ const statements = [
  *   law at COMMIT beside the writes;
  * - Zed: a `mutable` pure set, the blocker: an apply whose later stratum inserts a Zed fact a direct writer holds waits
  *   there, holding everything its earlier statements did, so a race can act between two statements of one grizzle
- *   transaction; and a put of it is the pair for a pure set.
+ *   transaction; and a put of it is the pair for a pure set;
+ * - Badge: immutable, keyed by id, with the candidate key code (badgeCode): what two `inserter` calls race at;
+ * - Gate: immutable, keyed by id, the `inserter`'s blocker: the owner's SHARE lock on it holds a call that inserts a Gate
+ *   fact after its Badge rows, while writing nothing itself, so the role stays certified.
  *
  * The schedule schema under the name its installation gives it, over the same relation values, with its worlds.
  */
 const renamedSched = (name: string) => {
-	const base = schema(name, relations, statements)
-	const app = role(base, "app", relations, { write: written })
-	const direct = role(base, "direct", relations, { write: written })
+	const base = schedSchema(name)
+	const app = role(base, "app", shared, { write: written })
+	const direct = role(base, "direct", shared, { write: written })
+	const inserter = inserterOf(base)
 	return {
 		schema: base,
 		app,
 		direct,
-		server: login(base, "server", [app], {
-			workload: [workload(app, { noop: ChangeSet.empty(base) })]
+		inserter,
+		server: login(base, "server", [app, inserter], {
+			workload: [
+				workload(app, { noop: ChangeSet.empty(app) }),
+				workload(inserter, { addBadges: addBadges(inserter) })
+			]
 		}),
 		psql: login(base, "psql", [direct])
 	}
@@ -154,36 +192,56 @@ export const openApp =
 	(rig: Rig<SchedWorlds>) => (context: Context.Context<DbLayerOf<SchedWorlds["server"]>>) =>
 		openServed(rig.served.roles.app, {}).pipe(Effect.provideContext(context))
 
-/** A ChangeSet as the role `app` serves it: its member, whose operations a writer runs, and its loaded change. */
-export interface ServedChange {
+/** The rig's served writer `open`: the role `inserter`'s Db over the writer's DbLayer of the served login. */
+export const openInserter =
+	(rig: Rig<SchedWorlds>) => (context: Context.Context<DbLayerOf<SchedWorlds["server"]>>) =>
+		openServed(rig.served.roles.inserter, {}).pipe(Effect.provideContext(context))
+
+/** A role of the login `server` that runs ChangeSets. */
+export type Writing = "app" | "inserter"
+
+/** A ChangeSet as a role of `server` serves it: its member, whose operations a writer runs, and its loaded change. */
+export interface RoleChange {
 	readonly member: LoadedMember
 	readonly change: LoadedChange
 }
 
 /**
- * ChangeSets of a race as the role `app` serves them: each one by its name (`ServedChange`), and the put choices its
- * compile made for it (write/put/choose.ts PutChoice).
+ * ChangeSets of a race as a role serves them: each one by its name (`RoleChange`), and the put choices its compile made
+ * for it (write/put/choose.ts PutChoice).
  */
 export interface ServedChanges {
-	readonly changes: ReadonlyMap<string, ServedChange>
+	readonly changes: ReadonlyMap<string, RoleChange>
 	readonly choices: ReadonlyMap<string, ReadonlyArray<PutChoice>>
 }
 
-/** The one of `roles` that is the role `app`, by `nameOf`. */
-const appOf = <T>(roles: ReadonlyArray<T>, nameOf: (role: T) => string): T =>
+/** The one of `roles` that is the role `name`, by `nameOf`. */
+const roleNamed = <T>(roles: ReadonlyArray<T>, nameOf: (role: T) => string, name: Writing): T =>
 	defined(
-		Option.getOrUndefined(Arr.findFirst(roles, (r) => nameOf(r) === "app")),
-		"the role app of the served login"
+		Option.getOrUndefined(Arr.findFirst(roles, (r) => nameOf(r) === name)),
+		`the role ${name} of the served login`
+	)
+
+/** Each change member of `members` with its loaded change, by the member's name. */
+const changesOf = (members: ReadonlyArray<LoadedMember>): ReadonlyMap<string, RoleChange> =>
+	new Map(
+		Arr.flatMap(members, (member) =>
+			member.kind === "change" && member.variants.kind === "change"
+				? [[member.name, { member, change: member.variants.change }] as const]
+				: []
+		)
 	)
 
 /**
- * `programs` compiled into members of the role `app`'s workload of the login `server` under the snapshot the
- * installation reached, as generate compiles them (adapter/served/compile.ts snapshotCompiled), its served file loaded
- * as a layer loads it: each ChangeSet's loaded change, which a writer runs over its served Db's context, and its put
+ * `programs` compiled into members of `role`'s workload of the login `server` under the snapshot the installation
+ * reached, as an application's test compiles them (adapter/served/compile.ts snapshotCompiled), which projects every
+ * role's writes at SERIALIZABLE, since no certificate covers programs outside the committed workload, and loaded as a
+ * layer loads its file: each ChangeSet's loaded change, which a writer runs over its served Db's context, and its put
  * choices, read from the compile that made the file. A ChangeSet the compile refuses is its ServedRefusal.
  */
 export const servedChanges = (
 	o: Opened,
+	role: Writing,
 	programs: Readonly<Record<string, ChangeSetValue>>
 ): Effect.Effect<ServedChanges, ServedRefusal | CompileError | OpenError> =>
 	Effect.gen(function* () {
@@ -191,7 +249,7 @@ export const servedChanges = (
 		const base = yield* fromEngine(ownBuilt(built.base))
 		const owned = yield* fromEngine(ownLoginOver(built, base))
 		const compiled = yield* snapshotCompiled(
-			{ login: { ...built, workload: [workload(o.rig.worlds.app, programs)] }, owned },
+			{ login: { ...built, workload: [workload(o.rig.worlds[role], programs)] }, owned },
 			snapshotValue(o.rig.installed.snapshot, o.rig.installed.installation)
 		)
 		const entry = yield* servedEntryOf(compiled)
@@ -199,19 +257,29 @@ export const servedChanges = (
 			loadServed(servedFile(trustedJson<unknown>(entry.text)), entry.login)
 		)
 		return {
-			changes: new Map(
-				Arr.flatMap(appOf(loaded.roles, (r) => r.name).members, (member) =>
-					member.kind === "change" && member.variants.kind === "change"
-						? [[member.name, { member, change: member.variants.change }] as const]
-						: []
-				)
-			),
+			changes: changesOf(roleNamed(loaded.roles, (r) => r.name, role).members),
 			choices: new Map(
-				Arr.flatMap(appOf(compiled.roles, (r) => r.role.name).workload, (form) =>
+				Arr.flatMap(roleNamed(compiled.roles, (r) => r.role.name, role).workload, (form) =>
 					form.kind === "change" && form.variants.kind === "form"
 						? [[form.name, form.variants.form.entry.compiled.choices] as const]
 						: []
 				)
 			)
 		}
+	})
+
+/**
+ * `role`'s changes as the rig's served file holds them, projected by generate at the level it certified the role, and
+ * that level: what every writer of the role runs, and the level each of its calls begins at.
+ */
+export const committedChanges = (
+	o: Opened,
+	role: Writing
+): Effect.Effect<
+	{ readonly isolation: Isolation; readonly changes: ReadonlyMap<string, RoleChange> },
+	OpenError
+> =>
+	Effect.map(Effect.fromResult(loadServed(o.rig.served.file, o.rig.served.name)), (loaded) => {
+		const served = roleNamed(loaded.roles, (r) => r.name, role)
+		return { isolation: served.isolation, changes: changesOf(served.members) }
 	})

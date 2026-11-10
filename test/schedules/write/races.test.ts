@@ -21,7 +21,8 @@
  * (UnseenOccupant), a direct writer's deletion and insert beside a concurrent occupant of the key it inserts (a 23505
  * its snapshot cannot explain), two puts of one key, an exact repeat beside a deletion of it, generated serial values
  * beside explicit ones (GeneratedSerialUnique), a generated addition beside a deletion of its label's concurrent
- * occupant (UnseenOccupant), a span put overlapping another key, and an update beside a put in place (each in-place
+ * occupant (a serialization failure where its arbiter, label, meets that occupant unseen), a span put overlapping
+ * another key, and an update beside a put in place (each in-place
  * target).
  *
  * Features: each put target the served write runs (its statements' steps) and each pair reason the compile that
@@ -32,9 +33,10 @@
 
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
+import { noCoverage, required } from "@grizzle/testing/features"
 import {
 	array,
+	boolean,
 	constant,
 	element,
 	type Gen,
@@ -71,8 +73,12 @@ import type { ServedRefusal } from "#adapter/served/compile.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import type { CompileError, TransientTag } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
+import type { Isolation } from "#compiler/core/isolation.ts"
+import type { Refused, Witness } from "#compiler/plan/change.ts"
+import { servedSession } from "#compiler/program/served.ts"
 import { queryOver as query, varsOver as v } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
+import type { ServedSession } from "#compiler/served/forms.ts"
 import type { IdentifiedLaw } from "#compiler/types/changeset/changeset.ts"
 import type { ParamMap } from "#compiler/types/core/phantom.ts"
 import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
@@ -90,29 +96,37 @@ import {
 	type Observed,
 	type Rel,
 	relationNames,
+	type Span,
 	type State,
 	type Statement
 } from "#test/schedules/write/model.ts"
 
+import { defaultPool, poolFor, rowsOn } from "#test/pg/adapter/support.ts"
 import {
+	addBadges,
+	Badge,
+	badgeCode,
 	Code,
 	codeKey,
+	committedChanges,
+	Gate,
 	Item,
 	Note,
 	type Opened,
 	open,
 	openApp,
+	openInserter,
 	Ref,
 	Room,
 	refItem,
-	type ServedChange,
+	type RoleChange,
 	servedChanges,
 	Ticket,
 	ticketLabel,
 	Zed
 } from "#test/schedules/write/support.ts"
-import { defined } from "#test/support/assert.ts"
-import { caseHang } from "#test/support/limits.ts"
+import { assert, deepEquals, defined } from "#test/support/assert.ts"
+import { caseHang, testIdleTimeout } from "#test/support/limits.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { openActors } from "#test/support/schedules/actors.ts"
@@ -135,8 +149,9 @@ import {
 import { type StepOutcome } from "#test/support/schedules/types.ts"
 import { appliedWith, type CallFacts } from "#test/support/served-db.ts"
 import type { PsqlProcessError, TransactionRolledBack } from "#test/support/substrate/errors.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, type TextRows } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
+import { type FrontendMessage, makeTap } from "#test/support/wire-tap.ts"
 
 const ids = ["1", "2", "3"] as const
 const labels = ["a", "b", "c"] as const
@@ -164,7 +179,9 @@ const factGens: Readonly<Record<Rel, Gen<Fact>>> = {
 		return [room, start, end, source.draw(labelGen)]
 	},
 	Ref: (source) => [source.draw(idGen), source.draw(idGen)],
-	Zed: map(element(blockers), (z): Fact => [z])
+	Zed: map(element(blockers), (z): Fact => [z]),
+	Badge: (source) => [source.draw(idGen), source.draw(idGen)],
+	Gate: map(element(blockers), (g): Fact => [g])
 }
 
 /** Facts at the given keys, each with a drawn cell. */
@@ -326,11 +343,22 @@ const servingOf = (
 /** The relations a direct DELETE draws its key from: every one but Ticket, whose serial a direct writer never deletes. */
 const deletable: Arr.NonEmptyReadonlyArray<Rel> = ["Item", "Note", "Code", "Room", "Ref", "Zed"]
 
+/** The relations `app` and `direct` hold and write: every one but `inserter`'s Badge and Gate. */
+const shared: Arr.NonEmptyReadonlyArray<Rel> = [
+	"Item",
+	"Note",
+	"Code",
+	"Ticket",
+	"Room",
+	"Ref",
+	"Zed"
+]
+
 const statementGen: Gen<Statement> = weighted([
 	[
 		6,
 		(source): Statement => {
-			const relation = source.draw(element(relationNames))
+			const relation = source.draw(element(shared))
 			return { kind: "insert", relation, fact: source.draw(factGens[relation]) }
 		}
 	],
@@ -677,7 +705,7 @@ const raceCaseGen: Gen<RaceCase> = (source) => {
 	}
 }
 
-const relationOf = { Item, Note, Code, Ticket, Room, Ref, Zed } as const
+const relationOf = { Item, Note, Code, Ticket, Room, Ref, Zed, Badge, Gate } as const
 
 /** A fact as the record a ChangeSet member gives. */
 const recordOf = (relation: Rel, f: Fact): Readonly<Record<string, unknown>> => {
@@ -687,6 +715,7 @@ const recordOf = (relation: Rel, f: Fact): Readonly<Record<string, unknown>> => 
 		case "Note":
 			return { id: Number(cell(0)), label: cell(1) }
 		case "Code":
+		case "Badge":
 			return { id: Number(cell(0)), code: Number(cell(1)) }
 		case "Ticket":
 			return { no: BigInt(cell(0)), label: cell(1) }
@@ -699,6 +728,7 @@ const recordOf = (relation: Rel, f: Fact): Readonly<Record<string, unknown>> => 
 		case "Ref":
 			return { id: Number(cell(0)), item: Number(cell(1)) }
 		case "Zed":
+		case "Gate":
 			return { id: Number(cell(0)) }
 	}
 }
@@ -713,10 +743,12 @@ const valuesOf = (r: Rel, f: Fact): string => {
 			return `(${cell(0)}, '${cell(1)}')`
 		case "Code":
 		case "Ref":
+		case "Badge":
 			return `(${cell(0)}, ${cell(1)})`
 		case "Room":
 			return `(${cell(0)}, pg_catalog.int8range(${cell(1)}, ${cell(2)}), '${cell(3)}')`
 		case "Zed":
+		case "Gate":
 			return `(${cell(0)})`
 	}
 }
@@ -742,6 +774,10 @@ const sqlOf = (o: Opened) => {
 				return `${o.names.column(Ref, "id")}, ${o.names.column(Ref, "item")}`
 			case "Zed":
 				return o.names.column(Zed, "id")
+			case "Badge":
+				return `${o.names.column(Badge, "id")}, ${o.names.column(Badge, "code")}`
+			case "Gate":
+				return o.names.column(Gate, "id")
 		}
 	}
 	const insert = (r: Rel, f: Fact): string =>
@@ -779,7 +815,9 @@ const sqlOf = (o: Opened) => {
 			`SELECT 'Ticket', ${o.names.column(Ticket, "no")}::text, ${o.names.column(Ticket, "label")}::text, NULL, NULL FROM ${t("Ticket")}`,
 			`SELECT 'Room', ${o.names.column(Room, "room")}::text, pg_catalog.lower(${o.names.column(Room, "during")})::text, pg_catalog.upper(${o.names.column(Room, "during")})::text, ${o.names.column(Room, "label")}::text FROM ${t("Room")}`,
 			`SELECT 'Ref', ${o.names.column(Ref, "id")}::text, ${o.names.column(Ref, "item")}::text, NULL, NULL FROM ${t("Ref")}`,
-			`SELECT 'Zed', ${o.names.column(Zed, "id")}::text, NULL, NULL, NULL FROM ${t("Zed")}`
+			`SELECT 'Zed', ${o.names.column(Zed, "id")}::text, NULL, NULL, NULL FROM ${t("Zed")}`,
+			`SELECT 'Badge', ${o.names.column(Badge, "id")}::text, ${o.names.column(Badge, "code")}::text, NULL, NULL FROM ${t("Badge")}`,
+			`SELECT 'Gate', ${o.names.column(Gate, "id")}::text, NULL, NULL, NULL FROM ${t("Gate")}`
 		],
 		" UNION ALL "
 	)
@@ -810,29 +848,33 @@ const statementRelation = (s: Statement): Rel => {
 
 /** The laws of the schedule schema, by their declarations' meaning. */
 const lawsOf = (o: Opened): ReadonlyArray<LawSpec> => [
-	...Arr.map(["Item", "Note", "Code", "Ticket", "Ref", "Zed"] as const, (relation): LawSpec => ({
-		kind: "unique",
-		law: o.names.primaryKeyLaw(relationOf[relation]),
-		relation,
-		columns: [0]
-	})),
+	...Arr.map(
+		["Item", "Note", "Code", "Ticket", "Ref", "Zed", "Badge", "Gate"] as const,
+		(relation): LawSpec => ({
+			kind: "unique",
+			law: o.names.primaryKeyLaw(relationOf[relation]),
+			relation,
+			columns: [0]
+		})
+	),
 	{ kind: "unique", law: o.names.lawOf(codeKey), relation: "Code", columns: [1] },
+	{ kind: "unique", law: o.names.lawOf(badgeCode), relation: "Badge", columns: [1] },
 	{ kind: "unique", law: o.names.lawOf(ticketLabel), relation: "Ticket", columns: [1] },
 	{ kind: "spanKey", law: o.names.primaryKeyLaw(Room), relation: "Room" },
 	{ kind: "contained", law: o.names.lawOf(refItem), from: "Ref", column: 1, to: "Item", target: 0 }
 ]
 
-/** A grizzle op as a ChangeSet value over the installed schema, with its parameters. */
+/** A grizzle op as a ChangeSet value over the role app's view of the installed schema, with its parameters. */
 const changeSetOf = (
 	o: Opened,
 	op: GrizzleOp
 ): { readonly changes: ChangeSetValue; readonly params: ParamMap } => {
-	const schemaValue = o.rig.worlds.schema
+	const appRole = o.rig.worlds.app
 	const params: Record<string, ReadonlyArray<unknown>> = {}
 	const stratumOf = (members: ReadonlyArray<Member>): ChangeSetValue =>
 		Arr.reduce(
 			members,
-			ChangeSet.empty(schemaValue),
+			ChangeSet.empty(appRole),
 			(changes: ChangeSetValue, m, i): ChangeSetValue => {
 				switch (m.kind) {
 					case "enumerated": {
@@ -852,7 +894,7 @@ const changeSetOf = (
 					case "move":
 						return changes.put(
 							Note,
-							query(schemaValue).rule((r: RuleValue) =>
+							query(appRole).rule((r: RuleValue) =>
 								r.match(Note, { id: Number(m.id) }).find({ id: Number(m.id), label: m.label })
 							)
 						)
@@ -862,14 +904,14 @@ const changeSetOf = (
 						return changes
 							.put(
 								Note,
-								query(schemaValue).rule((r: RuleValue) => {
+								query(appRole).rule((r: RuleValue) => {
 									const { id, label } = v(Note, "note")
 									return r.match(r.relation(name, Note), { id, label }).find({ id, label })
 								})
 							)
 							.delete(
 								Note,
-								query(schemaValue).rule((r: RuleValue) => {
+								query(appRole).rule((r: RuleValue) => {
 									const { id, label } = v(Note, "note")
 									return r
 										.match(Note, { id, label })
@@ -882,7 +924,7 @@ const changeSetOf = (
 					case "copied":
 						return changes.put(
 							Note,
-							query(schemaValue).rule((r: RuleValue) => {
+							query(appRole).rule((r: RuleValue) => {
 								const { label } = v(Item, "item")
 								return r.match(Item, { id: Number(m.id), label }).find({ id: Number(m.id), label })
 							})
@@ -935,7 +977,7 @@ const factsOf = (op: GrizzleOp): CallFacts => {
  * upsert's ON CONFLICT DO UPDATE, an update in place's UPDATE ... FROM, a MERGE, and a DELETE of the occupants a put
  * displaces, the pair's first half.
  */
-const putTargetsOf = (change: ServedChange): ReadonlyArray<RaceFeature> =>
+const putTargetsOf = (change: RoleChange): ReadonlyArray<RaceFeature> =>
 	Arr.flatMap(
 		change.change.entry.program.flight.statements,
 		({ step }): ReadonlyArray<RaceFeature> => {
@@ -1033,7 +1075,7 @@ type RaceFeature =
 	| "a write held between its strata"
 	| "generated serial committed"
 	| "explicit serial committed"
-	| "a generated addition met an unseen occupant"
+	| "a generated addition met its label's occupant unseen"
 	| "a repeat across strata refused"
 	| "every order"
 	| "pct"
@@ -1062,7 +1104,7 @@ const situations: Arr.NonEmptyReadonlyArray<RaceFeature> = [
 	"a write held between its strata",
 	"generated serial committed",
 	"explicit serial committed",
-	"a generated addition met an unseen occupant",
+	"a generated addition met its label's occupant unseen",
 	"a repeat across strata refused",
 	"every order",
 	...Arr.map(plantedRaces, (name): RaceFeature => `planted ${name}`)
@@ -1139,6 +1181,11 @@ const stateOf = (run: Interleaving): State => {
 	if (run.state._tag !== "Read") {
 		throw new Error("the race read no state")
 	}
+	return stateOfRows(run.state.rows)
+}
+
+/** A state from the rows of the state's read (sqlOf read): each relation's name, then its columns, padded to four. */
+const stateOfRows = (rows: TextRows): State => {
 	const facts: Record<Rel, Array<Fact>> = {
 		Item: [],
 		Note: [],
@@ -1146,9 +1193,11 @@ const stateOf = (run: Interleaving): State => {
 		Ticket: [],
 		Room: [],
 		Ref: [],
-		Zed: []
+		Zed: [],
+		Badge: [],
+		Gate: []
 	}
-	for (const [relation, ...cells] of run.state.rows) {
+	for (const [relation, ...cells] of rows) {
 		const r = Option.getOrThrowWith(
 			Arr.findFirst(relationNames, (x) => x === relation),
 			() => new Error(`a state row of no relation: ${String(relation)}`)
@@ -1204,7 +1253,11 @@ const runRace = (
 					)
 				)
 				const served = yield* Effect.mapError(
-					servedChanges(o, Rec.fromEntries(Arr.map([...built], ([name, b]) => [name, b.changes]))),
+					servedChanges(
+						o,
+						"app",
+						Rec.fromEntries(Arr.map([...built], ([name, b]) => [name, b.changes]))
+					),
 					(refused) => report(`the race's ChangeSets do not serve: ${refusalText(refused)}`)
 				)
 				const txns: Array<Txn> = []
@@ -1359,7 +1412,7 @@ const runRace = (
 		for (const op of rc.refused) {
 			const expected = Arr.sort(servingOf(op).repeats, Order.String)
 			const served = yield* Effect.result(
-				servedChanges(o, { repeated: changeSetOf(o, op).changes })
+				servedChanges(o, "app", { repeated: changeSetOf(o, op).changes })
 			)
 			const refused =
 				Result.isFailure(served) &&
@@ -1421,8 +1474,11 @@ const runFeatures = (
 		return [
 			`grizzle ${x.answer.kind}`,
 			...Arr.map(x.refused, (reason): RaceFeature => `transient ${reason}`),
-			...(generates && x.refused.includes("UnseenOccupant")
-				? ["a generated addition met an unseen occupant" as const]
+			...(generates &&
+			x.refused.includes("SerializationFailure") &&
+			race.origin.kind === "planted" &&
+			race.origin.name === "generated beside a deletion of its label's occupant"
+				? ["a generated addition met its label's occupant unseen" as const]
 				: []),
 			...(Arr.some(members, (m) => m.kind === "generated")
 				? ["generated serial committed" as const]
@@ -1445,14 +1501,756 @@ const runFeatures = (
 }
 
 /**
+ * A call of the role `inserter`, which generate certifies READ COMMITTED: the Badge facts it states, then the Gate facts
+ * it inserts after them, none or one.
+ */
+interface InserterCall {
+	readonly badges: Arr.NonEmptyReadonlyArray<Fact>
+	readonly gates: ReadonlyArray<Fact>
+}
+
+/** An inserter call as the model reads it: Badge's insertion, then Gate's where it states a Gate fact. */
+const inserterOp = (call: InserterCall): GrizzleOp => ({
+	strata: [
+		[{ kind: "enumerated", op: "insert", relation: "Badge", facts: call.badges }],
+		...(Arr.isReadonlyArrayNonEmpty(call.gates)
+			? [
+					[
+						{
+							kind: "enumerated" as const,
+							op: "insert" as const,
+							relation: "Gate" as const,
+							facts: call.gates
+						}
+					]
+				]
+			: [])
+	]
+})
+
+/** An inserter call's facts as its served call gives them: both of addBadges' array members, each maybe empty. */
+const inserterFacts = (call: InserterCall): CallFacts => ({
+	insert: {
+		Badge: Arr.map(call.badges, (f) => recordOf("Badge", f)),
+		Gate: Arr.map(call.gates, (f) => recordOf("Gate", f))
+	}
+})
+
+/** Badge facts drawn over the small domains, one to two, of distinct ids, so a call's facts collide only at a code. */
+const badgesGen: Gen<Arr.NonEmptyReadonlyArray<Fact>> = (source) =>
+	nonEmptyList(
+		source.draw(uniqueArray(factGens.Badge, (f) => f[0] ?? "", { min: 1, max: 2 }, memberAttempts)),
+		"an inserter call's Badge facts"
+	)
+
+const inserterCallGen: Gen<InserterCall> = (source) => ({
+	badges: source.draw(badgesGen),
+	gates: Option.match(source.draw(option(element(blockers))), {
+		onNone: () => [],
+		onSome: (g) => [[g]]
+	})
+})
+
+/** A lawful Badge state: distinct ids, each with a distinct code. */
+const badgeStateGen: Gen<ReadonlyArray<Fact>> = (source) => {
+	const keys = source.draw(subarray(ids))
+	const codes = source.draw(shuffled(ids, { min: 3, max: 3 }))
+	return Arr.map(keys, (k, i): Fact => [k, codes[i] ?? k])
+}
+
+/**
+ * Two calls of `inserter`, `ins1`'s and `ins2`'s, over a stored Badge state, and whether the owner holds Gate in SHARE
+ * mode beside them: a call that inserts a Gate fact while the owner holds it waits there, its Badge rows written and
+ * uncommitted, which is how the other call meets them in flight.
+ */
+interface InserterCase {
+	readonly origin: "drawn" | "planted candidate key race" | "planted independent children"
+	readonly initial: ReadonlyArray<Fact>
+	readonly calls: readonly [InserterCall, InserterCall]
+	readonly held: boolean
+}
+
+/** The candidate key race: ins1 inserts a code held at its gate, ins2 another id at the same code. */
+const candidateKeyRaceGen: Gen<InserterCase> = (source) => {
+	const [k1, k2] = source.draw(shuffled(ids, { min: 2, max: 2 }))
+	const code = source.draw(idGen)
+	return {
+		origin: "planted candidate key race",
+		initial: [],
+		calls: [
+			{ badges: [[k1 ?? "1", code]], gates: [[source.draw(element(blockers))]] },
+			{ badges: [[k2 ?? "2", code]], gates: [] }
+		],
+		held: true
+	}
+}
+
+/** Independent children: ins1 held at its gate, ins2 at another id and another code, which runs while ins1 waits. */
+const independentChildrenGen: Gen<InserterCase> = (source) => {
+	const [k1, k2] = source.draw(shuffled(ids, { min: 2, max: 2 }))
+	const [c1, c2] = source.draw(shuffled(ids, { min: 2, max: 2 }))
+	return {
+		origin: "planted independent children",
+		initial: [],
+		calls: [
+			{ badges: [[k1 ?? "1", c1 ?? "1"]], gates: [[source.draw(element(blockers))]] },
+			{ badges: [[k2 ?? "2", c2 ?? "2"]], gates: [] }
+		],
+		held: true
+	}
+}
+
+const inserterCaseGen: Gen<InserterCase> = weighted([
+	[1, candidateKeyRaceGen],
+	[1, independentChildrenGen],
+	[
+		1,
+		(source) => ({
+			origin: "drawn",
+			initial: source.draw(badgeStateGen),
+			calls: [source.draw(inserterCallGen), source.draw(inserterCallGen)],
+			held: source.draw(boolean)
+		})
+	]
+])
+
+/** Whether two calls state no Badge id, no Badge code and no Gate fact in common: independent children. */
+const independent = (a: InserterCall, b: InserterCall): boolean => {
+	const cells = (call: InserterCall, i: number): ReadonlyArray<string> =>
+		Arr.map(call.badges, (f) => f[i] ?? "")
+	const meet = (x: ReadonlyArray<string>, y: ReadonlyArray<string>): boolean =>
+		Arr.some(x, (v) => y.includes(v))
+	return (
+		!meet(cells(a, 0), cells(b, 0)) &&
+		!meet(cells(a, 1), cells(b, 1)) &&
+		!meet(
+			Arr.map(a.gates, (f) => f[0] ?? ""),
+			Arr.map(b.gates, (f) => f[0] ?? "")
+		)
+	)
+}
+
+/**
+ * What an inserter call answered on its one try: the TransientFailure it met, if any, its answer as the model judges
+ * it, and, where it was refused, how its laws were decided and its witness.
+ */
+interface InserterAnswer {
+	readonly refused: ReadonlyArray<TransientTag>
+	readonly answer: GrizzleAnswer
+	readonly rejection: Option.Option<{
+		readonly decided: Refused["kind"]
+		readonly witness: Witness
+	}>
+}
+
+const inserterAnswerOf = (
+	reported: (refused: IdentifiedLaw) => LawId,
+	r: Result.Result<ApplyOutcome<unknown>, ApplyError>
+): InserterAnswer => {
+	if (Result.isFailure(r)) {
+		return r.failure._tag === "TransientFailure"
+			? {
+					refused: [r.failure.reason._tag],
+					answer: { kind: "failed", what: `TransientFailure ${r.failure.reason._tag}` },
+					rejection: Option.none()
+				}
+			: { refused: [], answer: { kind: "failed", what: r.failure._tag }, rejection: Option.none() }
+	}
+	const value = r.success
+	return {
+		refused: [],
+		answer: grizzleAnswer(reported, value),
+		rejection:
+			value.kind === "invariant-rejected"
+				? Option.some({ decided: value.refused.kind, witness: value.witness })
+				: Option.none()
+	}
+}
+
+/** A witness at Badge's code `code`, as a refusal at badgeCode reports it. */
+const codeWitness = (code: string): Witness => ({
+	kind: "key",
+	relation: "Badge",
+	values: { code: Number(code) }
+})
+
+/**
+ * Why a refusal at badgeCode's witness is not one the call's facts allow, or undefined. A requested fact whose code a
+ * visible row holds meets the probe, which witnesses that fact's own code; one whose code an in-flight insert holds
+ * meets a 23505 once that insert commits, witnessed at the code the statement states where it states one, else
+ * unreported (runtime/write/witness.ts uniqueJudgement). So a call stating one code is witnessed at it, and a call
+ * stating several is witnessed at a code it states that another fact holds in the final state, or unreported.
+ */
+const witnessProblem = (call: InserterCall, witness: Witness, final: State): string | undefined => {
+	const codes = Arr.dedupe(Arr.map(call.badges, (f) => f[1] ?? ""))
+	const [code, ...more] = codes
+	if (more.length === 0) {
+		return deepEquals<Witness>(witness, codeWitness(code))
+			? undefined
+			: `its witness is ${Formatter.format(witness)}, where its one code ${code} is`
+	}
+	return witness.kind === "unreported" ||
+		Arr.some(
+			codes,
+			(c) =>
+				deepEquals<Witness>(witness, codeWitness(c)) && Arr.some(final.Badge, (f) => f[1] === c)
+		)
+		? undefined
+		: `its witness is ${Formatter.format(witness)}, no code it states that another fact holds`
+}
+
+/**
+ * Why a certified READ COMMITTED call broke the owner's item 1, or undefined: it commits or is refused by a law on its
+ * one try, never refused transiently and never failed; and a refusal at badgeCode names it as decided, `every`, with a
+ * witness its facts allow (witnessProblem) over the state the run left, `final`.
+ */
+const firstTryProblem = (
+	label: string,
+	call: InserterCall,
+	answered: InserterAnswer,
+	codeLaw: LawId,
+	final: State
+): string | undefined => {
+	const [reason] = answered.refused
+	if (reason !== undefined) {
+		return `${label} was refused transiently with ${reason}, where a certified READ COMMITTED call commits or is refused by a law on its one try`
+	}
+	if (answered.answer.kind === "failed") {
+		return `${label} failed: ${answered.answer.what}`
+	}
+	if (answered.answer.kind !== "invariant-rejected" || answered.answer.law !== codeLaw) {
+		return undefined
+	}
+	return Option.match(answered.rejection, {
+		onNone: () => `${label} was refused at badgeCode with no refusal`,
+		onSome: (rejection) => {
+			if (rejection.decided !== "every") {
+				return `${label} was refused at badgeCode as ${rejection.decided}, where a unique object's refusal is decided, every`
+			}
+			const problem = witnessProblem(call, rejection.witness, final)
+			return problem === undefined ? undefined : `${label} was refused at badgeCode: ${problem}`
+		}
+	})
+}
+
+/** The inserter search's notes: each answer, each witness, and the waits that make a call's run a race. */
+type InserterFeature =
+	| `inserter ${GrizzleAnswer["kind"]}`
+	| "inserter witness reported"
+	| "inserter witness unreported"
+	| "an inserter waited on the other's insert"
+	| "an inserter held at its gate"
+	| "independent inserters ran at once"
+	| "planted candidate key race"
+	| "planted independent children"
+
+/** The inserters' writers, by the session each runs. */
+const inserterSessions = ["ins1", "ins2"] as const
+
+/**
+ * The inserter race: `inserter`'s change as `served` gives it (the served file's, or a plant's), run by two writers of
+ * the role over the case's Badge state, the owner holding Gate beside them where the case says, in every order. Each
+ * run is judged by the serial model, each call by the owner's item 1 (firstTryProblem), and two independent calls must
+ * never wait on each other.
+ */
+const runInserters = (
+	ic: InserterCase,
+	c: Case<InserterFeature>,
+	served: (o: Opened) => Effect.Effect<RoleChange, RaceFailed | RaceError, Substrate>
+): Effect.Effect<void, RaceFailed | RaceError, Substrate | Scope.Scope> =>
+	Effect.gen(function* () {
+		const s = yield* Substrate
+		const o = yield* open
+		const sql = sqlOf(o)
+		const laws = lawsOf(o)
+		const codeLaw = o.names.lawOf(badgeCode)
+		yield* certifiedInserter(o)
+		const change = yield* served(o)
+		const ins1 = yield* o.rig.servedWriter("ins1", openInserter(o.rig), (db) =>
+			db.workload.addBadges.apply({ insert: { Badge: [], Gate: [] } }, {})
+		)
+		const ins2 = yield* o.rig.servedWriter("ins2", openInserter(o.rig), (db) =>
+			db.workload.addBadges.apply({ insert: { Badge: [], Gate: [] } }, {})
+		)
+		const writers = { ins1, ins2 }
+		const actors = yield* openActors(s, {
+			gate: { kind: "raw", as: o.rig.installed.ambientOwner.credentials }
+		})
+		const initial: State = { ...emptyState, Badge: ic.initial }
+		const calls = Arr.zip(inserterSessions, ic.calls)
+		const describe = Arr.join(
+			[
+				`over Badge ${Formatter.format(ic.initial)}${ic.held ? ", Gate held by the owner" : ""}`,
+				...Arr.map(calls, ([actor, call]) => `${actor}: ${describeOp(inserterOp(call))}`)
+			],
+			"\n"
+		)
+		if (ic.origin !== "drawn") {
+			c.note(ic.origin)
+		}
+		const seen = new Map<string, InserterAnswer>()
+		const txns: ReadonlyArray<Txn> = [
+			...Arr.map(calls, ([actor, call]): Txn => ({
+				kind: "grizzle",
+				session: actor,
+				steps: [
+					{
+						label: describeOp(inserterOp(call)),
+						outcome: Effect.map(
+							Effect.result(
+								appliedWith(memberOps(writers[actor].ctx, change.member), inserterFacts(call), {})
+							),
+							(r) => {
+								seen.set(actor, inserterAnswerOf(o.names.reported, r))
+								return succeeded
+							}
+						),
+						footprint: reaches(["Badge", "Gate"])
+					}
+				],
+				after: undefined
+			})),
+			...(ic.held
+				? [
+						{
+							kind: "direct" as const,
+							session: "gate",
+							steps: [
+								interleaveStep(`LOCK TABLE ${o.names.table(Gate)} IN SHARE MODE`, reaches(["Gate"]))
+							],
+							end: "commit" as const,
+							after: undefined
+						}
+					]
+				: [])
+		]
+		const reached: Array<InserterFeature> = []
+		yield* exploreInterleavings(
+			o.rig.env,
+			{ direct: { gate: actors.gate }, grizzle: { ins1: ins1.actor, ins2: ins2.actor } },
+			{
+				name: `inserters ${ic.origin}`,
+				txns,
+				reset: Effect.andThen(
+					Effect.sync(() => {
+						seen.clear()
+					}),
+					o.rig.replace(sql.reset(initial))
+				),
+				state: { _tag: "Read", sql: sql.read },
+				model: (run) =>
+					Effect.sync(() => {
+						const observed = Arr.map(calls, ([actor, call]): Observed => {
+							const move = Option.getOrThrowWith(
+								Arr.findFirst(run.moves, (m) => m.session === actor),
+								() => new Error(`${actor}'s call made no move`)
+							)
+							if (move.result._tag === "Unfinished") {
+								throw new Error(`${actor}'s call did not finish in a run that ran every move`)
+							}
+							const answered = defined(seen.get(actor), `${actor}'s answer`)
+							return {
+								kind: "grizzle",
+								label: `${actor}'s call`,
+								session: actor,
+								op: inserterOp(call),
+								span: { start: move.issued, end: move.result.at },
+								refused: answered.refused,
+								answer: answered.answer
+							}
+						})
+						const final = stateOf(run)
+						for (const [actor, call] of calls) {
+							const problem = firstTryProblem(
+								`${actor}'s call`,
+								call,
+								defined(seen.get(actor), `${actor}'s answer`),
+								codeLaw,
+								final
+							)
+							if (problem !== undefined) {
+								return refusedJudgment(`${describe}\n${problem}`)
+							}
+						}
+						const waitedOn = (on: string): boolean =>
+							Arr.some(
+								run.moves,
+								(m) =>
+									m.observed._tag === "Waited" &&
+									m.session !== on &&
+									m.session !== "gate" &&
+									m.observed.on.includes(on)
+							)
+						const crossed = waitedOn("ins1") || waitedOn("ins2")
+						const [first, second] = ic.calls
+						if (crossed && independent(first, second)) {
+							return refusedJudgment(
+								`${describe}\none inserter waited on the other, where two calls stating no key, code or gate in common never wait`
+							)
+						}
+						const problem = judgeRun(laws, initial, observed, final)
+						if (problem !== undefined) {
+							return refusedJudgment(`${describe}\n${problem}`)
+						}
+						appendAll(reached, [
+							...Arr.flatMap([...seen.values()], (a): ReadonlyArray<InserterFeature> => [
+								`inserter ${a.answer.kind}`,
+								...Option.match(a.rejection, {
+									onNone: (): ReadonlyArray<InserterFeature> => [],
+									onSome: (r): ReadonlyArray<InserterFeature> => [
+										r.witness.kind === "key"
+											? "inserter witness reported"
+											: "inserter witness unreported"
+									]
+								})
+							]),
+							...(crossed ? ["an inserter waited on the other's insert" as const] : []),
+							...(waitedOn("gate") ? ["an inserter held at its gate" as const] : []),
+							...(independent(first, second) &&
+							Arr.some(observed, (x) =>
+								Arr.some(observed, (y) => x.session !== y.session && overlap(x.span, y.span))
+							)
+								? ["independent inserters ran at once" as const]
+								: [])
+						])
+						return allowed
+					}),
+				maxInterleavings: runawayInterleavings
+			},
+			every
+		).pipe(
+			Effect.catchTags({
+				InterleavingFailed: (e) => Effect.fail(new RaceFailed({ message: e.message })),
+				AfterCycle: (e) => Effect.fail(new RaceFailed({ message: e.message }))
+			})
+		)
+		c.noteAll(reached)
+	})
+
+/** Whether two spans of a run's clock overlap. */
+const overlap = (a: Span, b: Span): boolean => a.start < b.end && b.start < a.end
+
+/**
+ * The role `inserter`'s changes as the served file holds them, where generate certified the role READ COMMITTED; any
+ * other level fails the case, since an insert-only role writing tables no other role writes is certified READ COMMITTED.
+ */
+const certifiedInserter = (
+	o: Opened
+): Effect.Effect<ReadonlyMap<string, RoleChange>, RaceFailed | OpenError> =>
+	Effect.flatMap(committedChanges(o, "inserter"), (committed) =>
+		committed.isolation === "readCommitted"
+			? Effect.succeed(committed.changes)
+			: Effect.fail(
+					new RaceFailed({
+						message: `generate certified inserter ${committed.isolation}, where an insert-only role writing tables no other role writes runs READ COMMITTED`
+					})
+				)
+	)
+
+/** The served file's own `inserter` change: what every writer of the role runs. */
+const committedInserter = (
+	o: Opened
+): Effect.Effect<RoleChange, RaceFailed | RaceError, Substrate> =>
+	Effect.map(certifiedInserter(o), (changes) =>
+		defined(changes.get("addBadges"), "the served change addBadges")
+	)
+
+/**
+ * The plant: `inserter`'s change compiled as an application's test compiles it, its writes projected at SERIALIZABLE,
+ * run by writers that begin READ COMMITTED as the role's certificate says: a READ COMMITTED role served as SERIALIZABLE
+ * projects it, so a violation at badgeCode reaches the caller as UnseenOccupant.
+ */
+const serializableProjection = (
+	o: Opened
+): Effect.Effect<RoleChange, RaceFailed | RaceError, Substrate> =>
+	Effect.mapBoth(servedChanges(o, "inserter", { addBadges: addBadges(o.rig.worlds.inserter) }), {
+		onFailure: (refused) =>
+			new RaceFailed({ message: `the plant does not serve: ${refusalText(refused)}` }),
+		onSuccess: (served) => defined(served.changes.get("addBadges"), "the planted change addBadges")
+	})
+
+/** Each level's BEGIN as PostgreSQL reads a change's: the oracle's own spelling. */
+const beginTexts: { readonly [I in Isolation]: string } = {
+	serializable: "BEGIN ISOLATION LEVEL SERIALIZABLE",
+	readCommitted: "BEGIN ISOLATION LEVEL READ COMMITTED"
+}
+
+/**
+ * Why a call's one try sent other than at most one flight, opened by its level's BEGIN and closed by the next COMMIT
+ * with every message inside it, or undefined. A call refused before the wire sends no flight.
+ */
+const framingProblem = (
+	level: Isolation,
+	answered: InserterAnswer,
+	sent: ReadonlyArray<FrontendMessage>
+): string | undefined => {
+	const what = `it answered ${Formatter.format(answered.answer)} and sent ${Formatter.format(sent)}`
+	let open = false
+	let flights = 0
+	for (const message of sent) {
+		const begins = message.type === "Q" && Str.startsWith("BEGIN")(message.text)
+		if (open === begins || (begins && message.text !== beginTexts[level])) {
+			return `at ${level} ${Formatter.format(message)} came ${open ? "inside a flight, before its COMMIT" : `where a flight opens, with ${beginTexts[level]}`}; ${what}`
+		}
+		flights += begins ? 1 : 0
+		open = begins || !(message.type === "Q" && message.text === "COMMIT")
+	}
+	if (open || flights > 1) {
+		return `at ${level} its one try sent ${flights} flights${open ? ", the last never committed" : ""}; ${what}`
+	}
+	return undefined
+}
+
+/** The served session texts with each level's BEGIN sent for the other's: the planted framing. */
+const swappedBegins: ServedSession = {
+	...servedSession,
+	begin: {
+		serializable: servedSession.begin.readCommitted,
+		readCommitted: servedSession.begin.serializable
+	}
+}
+
+/** One `inserter` call over a stored Badge state, alone: the framing search's case. */
+interface InserterAlone {
+	readonly initial: ReadonlyArray<Fact>
+	readonly call: InserterCall
+}
+
+const inserterAloneGen: Gen<InserterAlone> = (source) => ({
+	initial: source.draw(badgeStateGen),
+	call: { badges: source.draw(badgesGen), gates: [] }
+})
+
+/** The framing search's notes: what the call answered. */
+type AloneFeature = `alone ${GrizzleAnswer["kind"]}`
+
+/**
+ * The framing search's case: `inserter`'s served change run once over the drawn Badge state by a writer of the role
+ * whose pool is tapped and sends `session`'s texts. Its one try must send one flight opened by READ COMMITTED's BEGIN, the
+ * level generate certified, and closed by COMMIT, answer on that try (firstTryProblem), and answer and leave the state
+ * the serial model says.
+ */
+const runInserterAlone = (
+	ac: InserterAlone,
+	c: Case<AloneFeature>,
+	session: ServedSession
+): Effect.Effect<void, RaceFailed | RaceError, Substrate | Scope.Scope> =>
+	Effect.gen(function* () {
+		const s = yield* Substrate
+		const o = yield* open
+		const sql = sqlOf(o)
+		const changes = yield* certifiedInserter(o)
+		const change = defined(changes.get("addBadges"), "the served change addBadges")
+		const writer = yield* o.rig.servedWriter("ins1", openInserter(o.rig), (db) =>
+			db.workload.addBadges.apply({ insert: { Badge: [], Gate: [] } }, {})
+		)
+		const tap = makeTap(s.cluster)
+		const pool = yield* poolFor(o.rig.installed.as(o.rig.worlds.server), {
+			...defaultPool,
+			transport: { kind: "given", transport: tap.transport },
+			pool: { idleTimeoutMs: testIdleTimeout.value, min: 1, max: 1 },
+			session
+		})
+		yield* Effect.orDie(
+			Effect.scoped(
+				Effect.flatMap(pool.lease, (leased) => rowsOn(leased, "SELECT 'warm'::text", []))
+			)
+		)
+		const initial: State = { ...emptyState, Badge: ac.initial }
+		yield* o.rig.replace(sql.reset(initial))
+		const op = inserterOp(ac.call)
+		const mark = tap.mark()
+		const result = yield* Effect.result(
+			appliedWith(memberOps({ ...writer.ctx, pool }, change.member), inserterFacts(ac.call), {})
+		)
+		const { frontend } = tap.since(mark)
+		const stored = yield* s.superuserRead((rows) => rows(sql.read))
+		const answered = inserterAnswerOf(o.names.reported, result)
+		const final = stateOfRows(stored)
+		const problem =
+			framingProblem("readCommitted", answered, frontend) ??
+			firstTryProblem("the call", ac.call, answered, o.names.lawOf(badgeCode), final) ??
+			judgeRun(
+				lawsOf(o),
+				initial,
+				[
+					{
+						kind: "grizzle",
+						label: "the call",
+						session: "ins1",
+						op,
+						span: { start: 0, end: 1 },
+						refused: answered.refused,
+						answer: answered.answer
+					}
+				],
+				final
+			)
+		if (problem !== undefined) {
+			return yield* new RaceFailed({
+				message: `${describeOp(op)} over Badge ${Formatter.format(ac.initial)}\n${problem}`
+			})
+		}
+		c.note(`alone ${answered.answer.kind}`)
+	})
+
+/** The cases of each inserter search: each installs its schema and opens its writers. */
+const inserterRuns = 12
+
+/**
  * The cases of each rotating stream: each installs its schema, opens four sessions and runs every planted race and one
  * drawn race in their orders.
  */
 const runs = 8
 
 layer(Substrate.layer, { excludeTestServices: true })(
-	"write races, all SERIALIZABLE, judged by a serial model",
+	"write races, judged by a serial model",
 	(it) => {
+		it.effect(
+			`${inserterRuns} cases of certified READ COMMITTED inserters racing at Badge: every run serial, every call answered on its one try, and independent calls never waiting on each other`,
+			(ctx) =>
+				searched(
+					ctx,
+					explore(
+						{
+							oracle: { kind: "unstated" },
+							suite: "schedules/write/inserters",
+							draw: drawn(inserterCaseGen),
+							literal: Formatter.format,
+							coverage: required<InserterFeature>(
+								[
+									"inserter accepted",
+									"inserter invariant-rejected",
+									"inserter witness reported",
+									"an inserter waited on the other's insert",
+									"an inserter held at its gate",
+									"independent inserters ran at once",
+									"planted candidate key race",
+									"planted independent children"
+								],
+								{ cases: inserterRuns, sense: notesOnly }
+							),
+							kept: [],
+							runs: inserterRuns,
+							shrink: { kind: "bounded", candidates: 20 },
+							concurrency: 1,
+							steerEvery: 4,
+							caseHang
+						},
+						(ic, c) =>
+							Effect.scoped(runInserters(ic, c, committedInserter)).pipe(
+								Effect.catchCause((cause) =>
+									Effect.fail(new RaceFailed({ message: Cause.pretty(cause) }))
+								)
+							)
+					)
+				)
+		)
+
+		it.effect(
+			"fails, planted with the inserter's change projected at SERIALIZABLE, by UnseenOccupant on its one try",
+			(ctx) =>
+				Effect.gen(function* () {
+					const failure = yield* Effect.flip(
+						searched(
+							ctx,
+							explore(
+								{
+									oracle: { kind: "unstated" },
+									suite: "schedules/write/inserters-planted",
+									draw: drawn(candidateKeyRaceGen),
+									literal: Formatter.format,
+									coverage: noCoverage,
+									kept: [],
+									runs: inserterRuns,
+									shrink: { kind: "bounded", candidates: 2 },
+									concurrency: 1,
+									steerEvery: 4,
+									caseHang
+								},
+								(ic, c) =>
+									Effect.scoped(runInserters(ic, c, serializableProjection)).pipe(
+										Effect.catchCause((cause) =>
+											Effect.fail(new RaceFailed({ message: Cause.pretty(cause) }))
+										)
+									)
+							)
+						)
+					)
+					assert.ok(
+						"_tag" in failure && failure._tag === "PropertyFalsified",
+						`the search catches the planted projection, not ${Formatter.format(failure)}`
+					)
+				})
+		)
+
+		it.effect(
+			`${inserterRuns} cases of an inserter call alone: one flight, begun READ COMMITTED as generate certified the role, answered as the serial model says`,
+			(ctx) =>
+				searched(
+					ctx,
+					explore(
+						{
+							oracle: { kind: "unstated" },
+							suite: "schedules/write/inserter-alone",
+							draw: drawn(inserterAloneGen),
+							literal: Formatter.format,
+							coverage: required<AloneFeature>(["alone accepted", "alone invariant-rejected"], {
+								cases: inserterRuns,
+								sense: notesOnly
+							}),
+							kept: [],
+							runs: inserterRuns,
+							shrink: { kind: "bounded", candidates: 20 },
+							concurrency: 1,
+							steerEvery: 4,
+							caseHang
+						},
+						(ac, c) =>
+							Effect.scoped(runInserterAlone(ac, c, servedSession)).pipe(
+								Effect.catchCause((cause) =>
+									Effect.fail(new RaceFailed({ message: Cause.pretty(cause) }))
+								)
+							)
+					)
+				)
+		)
+
+		it.effect("fails, planted with each level's BEGIN sent for the other's", (ctx) =>
+			Effect.gen(function* () {
+				const failure = yield* Effect.flip(
+					searched(
+						ctx,
+						explore(
+							{
+								oracle: { kind: "unstated" },
+								suite: "schedules/write/inserter-alone-planted",
+								draw: drawn(inserterAloneGen),
+								literal: Formatter.format,
+								coverage: noCoverage,
+								kept: [],
+								runs: inserterRuns,
+								shrink: { kind: "bounded", candidates: 2 },
+								concurrency: 1,
+								steerEvery: 4,
+								caseHang
+							},
+							(ac, c) =>
+								Effect.scoped(runInserterAlone(ac, c, swappedBegins)).pipe(
+									Effect.catchCause((cause) =>
+										Effect.fail(new RaceFailed({ message: Cause.pretty(cause) }))
+									)
+								)
+						)
+					)
+				)
+				assert.ok(
+					"_tag" in failure && failure._tag === "PropertyFalsified",
+					`the search catches the planted framing, not ${Formatter.format(failure)}`
+				)
+			})
+		)
+
 		it.effect(
 			`${runs} cases of planted and drawn races: every run is explained by a serial order`,
 			(ctx) =>

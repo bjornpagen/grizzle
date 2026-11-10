@@ -6,6 +6,7 @@ import type { ApartFailure } from "#adapter/wire/batch.ts"
 import { makePool, type Session, type SessionPool } from "#adapter/wire/session.ts"
 import { roleDefaultSettings } from "#compiler/physical/ddl/roles.ts"
 import { servedSession } from "#compiler/program/served.ts"
+import type { ServedSession } from "#compiler/served/forms.ts"
 import type { RoleSetting } from "#compiler/sql/ast.ts"
 import { printRoleSetting, quoteIdent } from "#compiler/sql/print.ts"
 import { testConnectTimeout } from "#test/support/limits.ts"
@@ -83,18 +84,21 @@ export interface PoolOptions {
 		| { readonly kind: "given"; readonly transport: Transport }
 	/** How long each connection attempt and each CancelRequest may take. */
 	readonly connectTimeoutMs: number
+	/** The startup options and control texts every session sends: a served file's, or ones a test plants. */
+	readonly session: ServedSession
 }
 
 /**
  * The adapter's own pool for the local cluster: the cluster's transport, the credentials' password, the test pool's
- * bounds and the cluster's connect timeout. A test spreads it and overrides what it means.
+ * bounds, the cluster's connect timeout and the served session texts. A test spreads it and overrides what it means.
  */
 export const defaultPool: PoolOptions = {
 	password: { kind: "credentials" },
 	pool: clusterPool,
 	attachPool: () => undefined,
 	transport: { kind: "cluster" },
-	connectTimeoutMs: testConnectTimeout.value
+	connectTimeoutMs: testConnectTimeout.value,
+	session: servedSession
 }
 
 /**
@@ -122,7 +126,7 @@ export const poolFor = (
 				},
 				credentials.role
 			),
-			session: servedSession,
+			session: options.session,
 			bounds: options.pool,
 			attachPool: options.attachPool
 		})
