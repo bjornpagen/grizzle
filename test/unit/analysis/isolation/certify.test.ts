@@ -8,7 +8,8 @@
  * into one relation and then copying the other's (by a scan, or at a whole key); a writer reading another's absence
  * beside a reader of both; a chain of SERIALIZABLE readers; a SERIALIZABLE pivot writing what an RC member reads
  * unsealed; a write after an outside read joined with no row of its call; an insert into a relation an update cascades
- * to; and NEGATION's four histories no serial order in real time explains, each reproduced on PostgreSQL: a reader of
+ * to; an inserter beside a SERIALIZABLE role that may insert too, whose guard would refuse its every write; and
+ * NEGATION's four histories no serial order in real time explains, each reproduced on PostgreSQL: a reader of
  * one point group lagging an in-flight SERIALIZABLE pivot, a reader of one group per own row, a copy whose foreign key
  * check misses that pivot's row, and a copy over many own rows whose deferred check reads at COMMIT.
  *
@@ -28,7 +29,8 @@
  * member certified; an arbitration of no whole key sealed; an arbitration of a relation a role deletes sealed; a
  * relation another role deletes written READ COMMITTED; 5c's exemption of sealed reads restored; a read of one group
  * per own row sealed; foreign key checks left out of 5c; the checks of rows that reference a changed one left out; a
- * cascading update left out of the writers; and a relation with no fact read as having no foreign key.
+ * cascading update left out of the writers; a relation with no fact read as having no foreign key; and a relation a
+ * SERIALIZABLE role writes too written READ COMMITTED.
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -139,6 +141,7 @@ type Shape =
 	| "deferredCopy"
 	| "lateWriter"
 	| "cascadedWriter"
+	| "sharedWriter"
 	| "triggered"
 
 /** A drawn installation, which may be one of the counterexamples or a fixed shape, and an extension of it. */
@@ -648,6 +651,22 @@ const cascadedWriter: Sketch = {
 	]
 }
 
+/**
+ * r0 inserts into A by its one member; r1 holds INSERT on A and has no member, so it runs SERIALIZABLE, and the guard
+ * keeps A's: r0 runs SERIALIZABLE too, every write of it refused at READ COMMITTED otherwise (LOADER's Badge).
+ */
+const sharedWriter: Sketch = {
+	relations: [clean([0]), clean([]), clean([]), clean([])],
+	roles: [
+		{
+			login: 0,
+			privileges: [{ relation: 0, privilege: "INSERT" }],
+			members: [[{ writes: [insertOf(0, [])], reads: [] }]]
+		},
+		{ login: 1, privileges: [{ relation: 0, privilege: "INSERT" }], members: [] }
+	]
+}
+
 const extensionGen =
 	(sketch: Sketch): Gen<Extension> =>
 	(s) => {
@@ -715,6 +734,8 @@ const shapeSketch = (s: Source, shape: Exclude<Shape, "triggered">): Sketch => {
 			return lateWriter
 		case "cascadedWriter":
 			return cascadedWriter
+		case "sharedWriter":
+			return sharedWriter
 		case "drawn":
 			return s.draw(sketchGen)
 	}
@@ -736,6 +757,7 @@ const caseGen: Gen<Case> = (s) => {
 			[1, () => "deferredCopy"],
 			[1, () => "lateWriter"],
 			[1, () => "cascadedWriter"],
+			[1, () => "sharedWriter"],
 			[1, () => "triggered"]
 		])
 	)
@@ -1154,7 +1176,7 @@ const oracle = (sketch: Sketch) => {
 			const pivot =
 				outsideReads(other).size > 0 ||
 				Arr.some([...writtenSet(other)], (x) => Arr.getUnsafe(relations, x).triggerLaws)
-			if (shared && pivot) {
+			if ((shared && pivot) || Arr.some([...writtenSet(other)], (x) => written.has(x))) {
 				out.add("writers")
 			}
 		}
@@ -1221,6 +1243,7 @@ const shapes: ReadonlyArray<Exclude<Shape, "drawn">> = [
 	"deferredCopy",
 	"lateWriter",
 	"cascadedWriter",
+	"sharedWriter",
 	"triggered"
 ]
 
@@ -1261,6 +1284,7 @@ const counterexampleRoles = (shape: Shape): ReadonlyArray<number> => {
 			return [0, 1]
 		case "deferredCopy":
 		case "lateWriter":
+		case "sharedWriter":
 			return [0]
 		case "cascadedWriter":
 			return [1]

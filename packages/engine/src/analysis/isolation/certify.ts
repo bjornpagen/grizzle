@@ -41,7 +41,10 @@ import type { TablePrivilege } from "#compiler/core/privilege.ts"
  *   foreign key check, has an outside read of its own or a law over a relation it writes held by triggers, so none is
  *   the pivot of a cycle through it. A sealed read is no exemption: a reader of one writer call's rows can miss an
  *   in-flight SERIALIZABLE writer whose read's writer committed before the reader began, which no serial order in real
- *   time explains.
+ *   time explains. No role that runs SERIALIZABLE writes a relation the role writes, by a privilege, a member or a
+ *   cascade: the installation's guard admits a READ COMMITTED write of a relation only where every role that writes it
+ *   runs READ COMMITTED, and refuses any other with 25000 (physical/ddl/isolation.ts readCommittedRelations), so a role
+ *   certified past it would have every write refused.
  *
  * The criterion is strict serializability: every history the roles can run is one call at a time, in real time. With
  * these, an RC member's outside reads behave as one snapshot, its writes commit at once, every write-write conflict is
@@ -827,11 +830,23 @@ const serializableReasons = (
 				)
 			)
 		)
+		const cowriters = [...other.written].flatMap((relation) =>
+			view.written.has(relation)
+				? [
+						reason(
+							"writers",
+							{ relation },
+							`${other.role.role} of ${other.role.login} runs SERIALIZABLE and writes it too, so the guard admits no READ COMMITTED write of it`
+						)
+					]
+				: []
+		)
 		const pivot = pivotCause(at, other)
 		return pivot === undefined
-			? readers
+			? [...readers, ...cowriters]
 			: [
 					...readers,
+					...cowriters,
 					...[...other.written].flatMap((relation) =>
 						view.outside.has(relation)
 							? [
