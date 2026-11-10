@@ -41,8 +41,13 @@ import type { TablePrivilege } from "#compiler/core/privilege.ts"
  *   a group it reads again is the same rows or none, since a sealed group is immutable and never extended. Each of its
  *   foreign key checks is sealed: a sealed check finds its row, immutable, or refuses the call whole;
  * - `writers`: no role that runs SERIALIZABLE and writes a relation the role reads from outside, by a statement or a
- *   foreign key check, has an outside read of its own or a law over a relation it writes held by triggers, so none is
- *   the pivot of a cycle through it. A sealed read is no exemption: a reader of one writer call's rows can miss an
+ *   foreign key check, can miss another call's write (pivotCauseOf), so none is the pivot of a cycle through it: no
+ *   statement of it reads from outside, none of its foreign key checks is unsealed or reads the rows that reference a
+ *   row it changes, and it writes no relation a trigger-held law reads. A sealed check of its own, of an insert-only
+ *   relation at a whole declared key or of one no role writes, finds an immutable row or refuses its call, which at
+ *   SERIALIZABLE then commits nothing, so it misses no write. The role's own checks are no such exemption: they are
+ *   outside reads 5c weighs against every role that runs SERIALIZABLE (the publication shape in
+ *   test/unit/analysis/isolation/certify.test.ts). A sealed read is no exemption: a reader of one writer call's rows can miss an
  *   in-flight SERIALIZABLE writer whose read's writer committed before the reader began, which no serial order in real
  *   time explains. No role that runs SERIALIZABLE writes a relation the role writes, by a privilege, a member or a
  *   cascade: the installation's guard admits a READ COMMITTED write of a relation only where every role that writes it
@@ -659,6 +664,7 @@ interface RoleView {
 	readonly written: ReadonlySet<string>
 	readonly outside: ReadonlySet<string>
 	readonly sites: ReadonlyMap<string, ReadonlyArray<ReadSite>>
+	readonly cause: string | undefined
 }
 
 const memberView = (at: Installation, member: MemberFacts): MemberView => {
@@ -669,6 +675,35 @@ const memberView = (at: Installation, member: MemberFacts): MemberView => {
 		outsides: reads.filter((p) => outside(p.seal)),
 		checks: checksOf(at, member)
 	}
+}
+
+/**
+ * Why a role, were it SERIALIZABLE, may be the pivot of a cycle, by a read that can miss another call's write: an outside
+ * read of a statement; a foreign key check that is unsealed, or that reads the rows referencing a row it changes; or a
+ * law over a relation it writes held by triggers. None where it has no such read: each of its checks, sealed, finds an
+ * immutable row or refuses its call whole.
+ */
+const pivotCauseOf = (
+	at: Installation,
+	members: ReadonlyArray<MemberView>,
+	written: ReadonlySet<string>
+): string | undefined => {
+	for (const v of members) {
+		const [read] = v.outsides
+		if (read !== undefined) {
+			return `it reads ${read.read.relation} from outside at SERIALIZABLE`
+		}
+		const check = v.checks.find(
+			(c) => outside(c.seal) && (c.side === "referenced" || c.seal.kind === "unsealed")
+		)
+		if (check !== undefined) {
+			return `its foreign key check of ${check.relation} may miss another call's row at SERIALIZABLE`
+		}
+	}
+	const [held] = [...written].filter(
+		(relation) => (at.input.relations.get(relation)?.triggerLaws ?? []).length > 0
+	)
+	return held === undefined ? undefined : `a law over ${held}, which it writes, is held by triggers`
 }
 
 const roleView = (at: Installation, role: RoleFacts): RoleView => {
@@ -687,10 +722,12 @@ const roleView = (at: Installation, role: RoleFacts): RoleView => {
 			site(c.relation, { member: v.member.name, statement: c.statement, by: "check" })
 		}
 	}
+	const written = writtenBy(at, role)
 	return {
 		role,
 		members,
-		written: writtenBy(at, role),
+		written,
+		cause: pivotCauseOf(at, members, written),
 		outside: new Set(
 			members.flatMap((v) => [
 				...v.outsides.map((p) => p.read.relation),
@@ -992,27 +1029,13 @@ const ownReasons = (
 	...pivotReasons(view)
 ]
 
-/** Why a role that runs SERIALIZABLE may be the pivot of a cycle: a relation it reads from outside, or a trigger-held
- * law over one it writes; none where it is neither. */
-const pivotCause = (at: Installation, view: RoleView): string | undefined => {
-	const [read] = view.outside
-	if (read !== undefined) {
-		return `it reads ${read} from outside at SERIALIZABLE`
-	}
-	const [held] = [...view.written].filter(
-		(relation) => (at.input.relations.get(relation)?.triggerLaws ?? []).length > 0
-	)
-	return held === undefined ? undefined : `a law over ${held}, which it writes, is held by triggers`
-}
-
 /**
  * The reasons the roles that run SERIALIZABLE give a role: condition 2's other half, a change member of one reading a
  * relation the role writes, by a statement or a foreign key check, one per site; and condition 5c, one writing a
- * relation the role's members read from outside, sealed or not, while it reads from outside itself or writes a relation
- * a trigger-held law reads, one per such relation.
+ * relation the role's members read from outside, sealed or not, while it may miss another call's write itself
+ * (RoleView.cause, pivotCauseOf), one per such relation.
  */
 const serializableReasons = (
-	at: Installation,
 	view: RoleView,
 	judges: ReadonlyArray<RoleView>
 ): ReadonlyArray<IsolationReason> =>
@@ -1039,7 +1062,7 @@ const serializableReasons = (
 					]
 				: []
 		)
-		const pivot = pivotCause(at, other)
+		const pivot = other.cause
 		return pivot === undefined
 			? [...readers, ...cowriters]
 			: [
@@ -1081,7 +1104,7 @@ export const certify = (input: IsolationInput): ReadonlyArray<RoleIsolation> => 
 		changed = false
 		const judges = [...serializable]
 		for (const view of views) {
-			if (!serializable.has(view) && serializableReasons(at, view, judges).length > 0) {
+			if (!serializable.has(view) && serializableReasons(view, judges).length > 0) {
 				serializable.add(view)
 				changed = true
 			}
@@ -1093,7 +1116,6 @@ export const certify = (input: IsolationInput): ReadonlyArray<RoleIsolation> => 
 			mine.length > 0 || !serializable.has(view)
 				? mine
 				: serializableReasons(
-						at,
 						view,
 						[...serializable].filter((other) => other !== view)
 					)

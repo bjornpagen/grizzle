@@ -35,7 +35,8 @@
  * unjoinedGate shape), or with no row path from its core (the fallbacks), one through a read beneath other probes (the
  * chainedPath shape), of another group or no positive one (the arbiterPath shape), through one UNION arm alone (the
  * unions at another key, another relation or the recursion's own rows), through no UNION or no core at all; and the
- * arbitrated read without its clean prefix.
+ * arbitrated read without its clean prefix; a SERIALIZABLE writer's sealed foreign key checks counted as a pivot cause;
+ * and that exemption extended to a role's own checks, the publication's publisher certified READ COMMITTED.
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -174,6 +175,7 @@ type Shape =
 	| "unionOtherRelation"
 	| "unionRecursion"
 	| "arbiterPath"
+	| "publication"
 	| "triggered"
 	| "droppedReference"
 
@@ -1164,6 +1166,55 @@ const arbitratedOf = (gated: boolean): Sketch => ({
 	]
 })
 
+/**
+ * The publication layer: r0 inserts Q where B's key is absent and inserts B, so it runs SERIALIZABLE and may miss
+ * another call's write; r1 publishes, inserting into P, whose foreign key references Q's key, so its check of Q is an
+ * outside read 5c weighs against r0 and it runs SERIALIZABLE; r2 inserts into L, referencing P's key, and reads P at
+ * its key. r1's own check of Q, sealed, finds an immutable row, so r1 is no pivot cause and r2 runs READ COMMITTED; r1
+ * forced READ COMMITTED would see r0's in-flight row of Q refused while r0 commits, which no serial order in real time
+ * explains.
+ */
+const publication: Sketch = {
+	relations: [
+		clean([0]),
+		{ ...clean([0]), references: [{ relation: 0, key: 0, onUpdate: "noAction" }] },
+		{ ...clean([0]), references: [{ relation: 1, key: 0, onUpdate: "noAction" }] },
+		clean([0])
+	],
+	roles: [
+		{
+			login: 0,
+			privileges: [
+				{ relation: 0, privilege: "INSERT" },
+				{ relation: 3, privilege: "INSERT" }
+			],
+			members: [
+				[{ writes: [insertOf(0, [])], reads: [readOf(3, "negated", 0)], probes: [], cores: [] }],
+				[{ writes: [insertOf(3, [])], reads: [], probes: [], cores: [] }]
+			]
+		},
+		{
+			login: 0,
+			privileges: [{ relation: 1, privilege: "INSERT" }],
+			members: [[{ writes: [insertOf(1, [])], reads: [], probes: [], cores: [] }]]
+		},
+		{
+			login: 1,
+			privileges: [{ relation: 2, privilege: "INSERT" }],
+			members: [
+				[
+					{
+						writes: [insertOf(2, [0])],
+						reads: [readOf(1, "positive", 0)],
+						probes: [],
+						cores: []
+					}
+				]
+			]
+		}
+	]
+}
+
 const extensionGen =
 	(sketch: Sketch): Gen<Extension> =>
 	(s) => {
@@ -1274,6 +1325,8 @@ const shapeSketch = (
 			return unionOf("recursion")
 		case "arbiterPath":
 			return arbiterPath
+		case "publication":
+			return publication
 		case "drawn":
 			return s.draw(sketchGen)
 	}
@@ -1310,6 +1363,7 @@ const caseGen: Gen<Case> = (s) => {
 			[1, () => "unionOtherRelation"],
 			[1, () => "unionRecursion"],
 			[1, () => "arbiterPath"],
+			[1, () => "publication"],
 			[1, () => "triggered"],
 			[1, () => "droppedReference"]
 		])
@@ -1839,7 +1893,15 @@ const oracle = (sketch: Sketch) => {
 			}
 			const shared = Arr.some([...writtenSet(other)], (x) => reads.has(x))
 			const pivot =
-				outsideReads(other).size > 0 ||
+				Arr.some(other.members, (statements) =>
+					Arr.some(placedOf(statements), (placed) => Arr.some(placed, (p) => isOutside(p.seal)))
+				) ||
+				Arr.some(other.members, (statements) =>
+					Arr.some(
+						checksOf(statements),
+						(c) => isOutside(c.seal) && (c.side === "referenced" || c.seal === "unsealed")
+					)
+				) ||
 				Arr.some([...writtenSet(other)], (x) => Arr.getUnsafe(relations, x).triggerLaws)
 			if ((shared && pivot) || Arr.some([...writtenSet(other)], (x) => written.has(x))) {
 				out.add("writers")
@@ -1900,7 +1962,8 @@ const everyCondition: ReadonlyArray<IsolationCondition> = ["facts", ...condition
  * search's label, which fixes the floor and steered streams whatever the run seed: with 300 runs and 200 steered cases
  * the stream never drew the absentGate among 20 of them; with 500 runs and 400 steered cases it drew it at case 118 and
  * every one by case 200; the two fallbacks added, it drew it at case 4 and all 22 by case 124; and, the unjoined gate,
- * the chained path, the four unions and the arbitration path added, draws it at case 20 and all 29 by case 254.
+ * the chained path, the four unions and the arbitration path added, it drew it at case 20 and all 29 by case 254; and,
+ * the publication added, draws it at case 38 and all 30 by case 258.
  */
 const shapes: ReadonlyArray<Exclude<Shape, "drawn">> = [
 	"copiers",
@@ -1930,6 +1993,7 @@ const shapes: ReadonlyArray<Exclude<Shape, "drawn">> = [
 	"unionOtherRelation",
 	"unionRecursion",
 	"arbiterPath",
+	"publication",
 	"triggered",
 	"droppedReference"
 ]
@@ -1959,6 +2023,7 @@ const counterexampleRoles = (shape: Shape): ReadonlyArray<number> => {
 	switch (shape) {
 		case "copiers":
 		case "pointCopiers":
+		case "publication":
 			return [0, 1]
 		case "absentThenInsert":
 			return [2]
