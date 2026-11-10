@@ -24,7 +24,7 @@ import { lexicalForm, type Pattern, str } from "#compiler/public/text.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
-import { guarded, typedTermOf } from "#compiler/scalar/compute/term.ts"
+import { guarded, type TypedTerm, typedTermOf } from "#compiler/scalar/compute/term.ts"
 import { meets } from "#compiler/scalar/compute/types.ts"
 import { carrierSql } from "#compiler/scalar/registry.ts"
 import { generatedField } from "#compiler/schema/relation.ts"
@@ -3217,8 +3217,7 @@ const guardSubject = (guard: unknown): unknown =>
 /**
  * The Refusal a when's branch states of its own, where it states one: the branch built over its guard's subject, the
  * case's values read as the types read them (standInsOf), refused for a Refusal where it is built, or else judged as
- * the when with a parameter of the branch's type as its otherwise (a field of Cell of the branch's SQL type, which an
- * exact value and a plain one of its family do not share). None
+ * the when with an otherwise of the branch's type (otherwiseAt). None
  * where the guard itself is refused, whose refusal is the case's, but for a branch that never reads its subject, which
  * the types judge apart from the guard: its own verdict as a case of its own.
  */
@@ -3240,7 +3239,7 @@ const branchRefusal = (
 				? standing.spec.term
 				: when
 	})
-	const met: Array<FieldName> = []
+	const others: Array<Operand> = []
 	const built = Result.try(() =>
 		queryOver(Cells).rule((r: RuleValue) => {
 			const cell = varsOver(Cell, "cell")
@@ -3253,15 +3252,8 @@ const branchRefusal = (
 					new Building(r, written, cell, head, guardSubject(guard.success)).term(read.body)
 				)
 				if (typed !== undefined) {
-					for (const field of allFields) {
-						const own = typedTermOf(cell[field])
-						if (
-							own !== undefined &&
-							meets(own.type, typed.type) &&
-							own.carrier.sql === typed.carrier.sql
-						) {
-							met.push(field)
-						}
+					for (const other of otherwiseAt(typed, cell)) {
+						others.push(other)
 					}
 				}
 			}
@@ -3277,16 +3269,37 @@ const branchRefusal = (
 				)
 			: Option.none()
 	}
-	return Option.flatMap(Arr.head(met), (field) => {
-		const branch = valueVerdict(
-			{ kind: "term", term: { ...read, otherwise: { kind: "param", name: "q", field } } },
-			fields,
-			uses
-		)
+	return Option.flatMap(Arr.head(others), (otherwise) => {
+		const branch = valueVerdict({ kind: "term", term: { ...read, otherwise } }, fields, uses)
 		return (branch.kind === "refused" || branch.kind === "contested") &&
 			branch.claim.kind === "refusal"
 			? Option.some({ kind: branch.kind, claim: branch.claim })
 			: Option.none()
+	})
+}
+
+/**
+ * The otherwise a when's branch is judged beside, of the branch's type, so the when's own operands meet and only the
+ * branch's refusal is left: a parameter at a field of Cell of the branch's type and SQL type, which an exact value and a
+ * plain one of its family do not share; and for an exact value, which no field carries, a literal of its family the
+ * engine reads at the branch's type, a bigint opposite an exact integer and a Money opposite exact money, each zero,
+ * which every digit bound holds.
+ */
+const otherwiseAt = (
+	typed: TypedTerm,
+	cell: Readonly<Record<string, unknown>>
+): ReadonlyArray<Operand> => {
+	if (typed.type.carrier === "exactInteger") {
+		return [{ kind: "literal", lit: { text: "0n", value: 0n } }]
+	}
+	if (typed.type.carrier === "exactMoney") {
+		return [{ kind: "literal", lit: { text: "Money.of(0n)", value: Money.of(0n) } }]
+	}
+	return Arr.flatMap(allFields, (field): ReadonlyArray<Operand> => {
+		const own = typedTermOf(cell[field])
+		return own !== undefined && meets(own.type, typed.type) && own.carrier.sql === typed.carrier.sql
+			? [{ kind: "param", name: "q", field }]
+			: []
 	})
 }
 
