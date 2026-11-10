@@ -6,7 +6,6 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, Option } from "effect"
-import { compiledOpen } from "#adapter/db/open.ts"
 import { Db } from "#adapter/public/db.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg, span, uuid } from "#compiler/public/fields.ts"
@@ -30,9 +29,8 @@ import { installationGroup, replaceRows } from "#test/support/substrate/replace.
 import { type StateRow, tableState } from "#test/support/substrate/state.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import type { FullWorld } from "#test/support/worlds.ts"
-import { loginLayer } from "#test/support/worlds.ts"
 
-/** Inserts and puts into span primary keys through db.apply, as a property against a host interval model.
+/** Inserts and puts into span primary keys through served ChangeSets, as a property against a host interval model.
  *
  * The insert names the span key as its DO NOTHING arbiter and a later statement classifies each requested fact it did
  * not insert: an equal stored fact is an exact repeat, a stored fact overlapping it at its scalar key the span key law
@@ -58,6 +56,49 @@ const Room = relation("Room", { room: uuid, during: span(pg.bigint), guest: uuid
 ])
 const Hold = relation("Hold", { room: uuid, during: span(pg.bigint), note }, ["room", "during"])
 const Spans = schema("SpanKeys", { Room, Hold }, [mutable(Hold)])
+
+/**
+ * The full world's workload: an insert and a put of each relation, enumerated from each call's facts, and described
+ * over the relation parameter `items`, which nobody normalized on the host.
+ */
+const programs = {
+	insertRoom: ChangeSet.empty(Spans).insert(Room, []),
+	putRoom: ChangeSet.empty(Spans).put(Room, []),
+	insertRoomItems: ChangeSet.empty(Spans).insert(
+		Room,
+		query(Spans).rule((r) => {
+			const x = v(Room, "room")
+			const all = { room: x.room, during: x.during, guest: x.guest }
+			return r.match(r.relation("items", Room), all).find(all)
+		})
+	),
+	putRoomItems: ChangeSet.empty(Spans).put(
+		Room,
+		query(Spans).rule((r) => {
+			const x = v(Room, "room")
+			const all = { room: x.room, during: x.during, guest: x.guest }
+			return r.match(r.relation("items", Room), all).find(all)
+		})
+	),
+	insertHold: ChangeSet.empty(Spans).insert(Hold, []),
+	putHold: ChangeSet.empty(Spans).put(Hold, []),
+	insertHoldItems: ChangeSet.empty(Spans).insert(
+		Hold,
+		query(Spans).rule((r) => {
+			const x = v(Hold, "hold")
+			const all = { room: x.room, during: x.during, note: x.note }
+			return r.match(r.relation("items", Hold), all).find(all)
+		})
+	),
+	putHoldItems: ChangeSet.empty(Spans).put(
+		Hold,
+		query(Spans).rule((r) => {
+			const x = v(Hold, "hold")
+			const all = { room: x.room, during: x.during, note: x.note }
+			return r.match(r.relation("items", Hold), all).find(all)
+		})
+	)
+}
 
 type SpansInstalled = Schema<
 	string,
@@ -247,10 +288,9 @@ const situations: Arr.NonEmptyReadonlyArray<SpanFeature> = [
 	"put over a stored overlap at another key"
 ]
 
-/** The case's ChangeSet over the installed schema, applied on `db`. */
+/** The case's write through its member of the full world's served workload, applied on `db`. */
 const applyCase = (
-	db: Db<FullWorld<SpansInstalled>["app"], unknown>,
-	s: SpansInstalled,
+	db: Db<FullWorld<SpansInstalled>["app"], typeof programs>,
 	c: SpanCase,
 	requested: ReadonlyArray<Fact>
 ) => {
@@ -265,41 +305,24 @@ const applyCase = (
 		during: during(f),
 		note: notes[f.payload]
 	}))
-	/** A relation parameter `items` inserted or put as a described member, which nobody normalized on the host. */
-	const roomItems = query(s).rule((r) => {
-		const x = v(Room, "room")
-		const all = { room: x.room, during: x.during, guest: x.guest }
-		return r.match(r.relation("items", Room), all).find(all)
-	})
-	const holdItems = query(s).rule((r) => {
-		const x = v(Hold, "hold")
-		const all = { room: x.room, during: x.during, note: x.note }
-		return r.match(r.relation("items", Hold), all).find(all)
-	})
-	const empty = ChangeSet.empty(s)
 	if (c.relation === "Room") {
 		if (c.form === "enumerated") {
-			return db.apply(
-				c.op === "insert" ? empty.insert(Room, roomFacts) : empty.put(Room, roomFacts),
-				{}
-			)
+			return c.op === "insert"
+				? db.workload.insertRoom.apply({ insert: { Room: roomFacts } }, {})
+				: db.workload.putRoom.apply({ put: { Room: roomFacts } }, {})
 		}
-		return db.apply(
-			c.op === "insert" ? empty.insert(Room, roomItems) : empty.put(Room, roomItems),
-			{
-				items: roomFacts
-			}
-		)
+		return c.op === "insert"
+			? db.workload.insertRoomItems.apply({ items: roomFacts })
+			: db.workload.putRoomItems.apply({ items: roomFacts })
 	}
 	if (c.form === "enumerated") {
-		return db.apply(
-			c.op === "insert" ? empty.insert(Hold, holdFacts) : empty.put(Hold, holdFacts),
-			{}
-		)
+		return c.op === "insert"
+			? db.workload.insertHold.apply({ insert: { Hold: holdFacts } }, {})
+			: db.workload.putHold.apply({ put: { Hold: holdFacts } }, {})
 	}
-	return db.apply(c.op === "insert" ? empty.insert(Hold, holdItems) : empty.put(Hold, holdItems), {
-		items: holdFacts
-	})
+	return c.op === "insert"
+		? db.workload.insertHoldItems.apply({ items: holdFacts })
+		: db.workload.putHoldItems.apply({ items: holdFacts })
 }
 
 layer(Substrate.layer, { excludeTestServices: true })(
@@ -311,7 +334,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 				searched(
 					ctx,
 					Effect.gen(function* () {
-						const o = yield* installed(Spans, {}, { label: "real", extensions: [], programs: {} })
+						const o = yield* installed(Spans, {}, { label: "real", extensions: [], programs })
 						const s = yield* Substrate
 						const names = namesOf(o.installed)
 						const keyOf = (f: Fact): Readonly<Record<string, KeyHost>> => ({
@@ -331,7 +354,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										note: notes[f.payload]
 									}
 						return yield* Effect.gen(function* () {
-							const db = yield* compiledOpen(o.server.roles.app, {})
+							const db = yield* Db.open(o.served.login.roles.app, {})
 							return yield* explore(
 								{
 									oracle: { kind: "unstated" },
@@ -369,7 +392,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 												]
 											}))
 										)
-										const outcome = yield* applyCase(db, o.schema, c, requested)
+										const outcome = yield* applyCase(db, c, requested)
 										const want = expected(c.op, stored, requested)
 										const state = yield* tableState(o.installed, R)
 										cx.note(`${c.op} ${c.relation}`)
@@ -446,7 +469,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							)
 						}).pipe(
 							(body) =>
-								Effect.flatMap(Layer.build(loginLayer(o.installed, o.server)), (context) =>
+								Effect.flatMap(Layer.build(o.served.layer), (context) =>
 									Effect.provideContext(body, context)
 								),
 							Effect.scoped
