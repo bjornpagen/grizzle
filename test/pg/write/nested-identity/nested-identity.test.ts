@@ -6,7 +6,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, Option, String as Str } from "effect"
-import { compiledOpen } from "#adapter/db/open.ts"
+import { Db } from "#adapter/public/db.ts"
 import { maxStringLength } from "#compiler/core/limits.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { drawn as drawnField, natural, uuid } from "#compiler/public/fields.ts"
@@ -19,7 +19,6 @@ import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-import { loginLayer } from "#test/support/worlds.ts"
 import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /**
@@ -45,6 +44,22 @@ const Member = relation(
 const Bodies = schema("NestedBodies", { Owner, Member }, [
 	ordered(on(Member, "owner", "at"), fin(Owner, "members"))
 ])
+
+/**
+ * The full world's workload: an owner inserted with its members nested, each call's facts; and the members and the
+ * owners read back.
+ */
+const programs = {
+	insertOwner: ChangeSet.empty(Bodies).insert(Owner, []),
+	members: query(Bodies).rule((r) => {
+		const { owner, at, body } = v(Member, "member")
+		return r.match(Member, { owner, at, body }).find({ owner, at, body })
+	}),
+	owners: query(Bodies).rule((r) => {
+		const { id, members: count } = v(Owner, "owner")
+		return r.match(Owner, { id, members: count }).find({ id, members: count })
+	})
+}
 
 /** `n` a's: the empty text, or an a and the rest, as the body's pattern types its texts. */
 const aOf = (n: number): "" | `a${string}` => (n === 0 ? "" : `a${Str.repeat(n - 1)("a")}`)
@@ -85,21 +100,12 @@ layer(Substrate.layer, { excludeTestServices: true })(
 						const o = yield* installed(
 							Bodies,
 							{},
-							{ label: "nestedbodies", extensions: [], programs: {} }
+							{ label: "nestedbodies", extensions: [], programs }
 						)
 						const s = yield* Substrate
 						const names = namesOf(o.installed)
 						return yield* Effect.gen(function* () {
-							const db = yield* compiledOpen(o.server.roles.app, {})
-							const empty = ChangeSet.empty(o.schema)
-							const members = query(o.schema).rule((r) => {
-								const { owner, at, body } = v(Member, "member")
-								return r.match(Member, { owner, at, body }).find({ owner, at, body })
-							})
-							const owners = query(o.schema).rule((r) => {
-								const { id, members: count } = v(Owner, "owner")
-								return r.match(Owner, { id, members: count }).find({ id, members: count })
-							})
+							const db = yield* Db.open(o.served.login.roles.app, {})
 							return yield* explore(
 								{
 									suite: "pg/write/nested-identity",
@@ -137,10 +143,9 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										const bodyOf = (n: number): "" | `a${string}` =>
 											defined(bodies.get(n), "a body's length")
 										const id = uuidOf(1)
-										const outcome = yield* db.apply(
-											empty.insert(Owner, [
-												{ id, members: Arr.map(c.lengths, (n) => ({ body: bodyOf(n) })) }
-											]),
+										const members = Arr.map(c.lengths, (n) => ({ body: bodyOf(n) }))
+										const outcome = yield* db.workload.insertOwner.apply(
+											{ insert: { Owner: [{ id, members }] } },
 											{}
 										)
 										if (outcome.kind !== "accepted") {
@@ -158,7 +163,10 @@ layer(Substrate.layer, { excludeTestServices: true })(
 												"each member is added once"
 											)
 										}
-										const read = yield* Effect.flatMap(db.execute(members, {}), (r) => r.collect)
+										const read = yield* Effect.flatMap(
+											db.workload.members.execute({}),
+											(r) => r.collect
+										)
 										assert.equal(read.length, c.lengths.length, "every member reads back")
 										for (const row of read) {
 											const at = Number(row.at)
@@ -167,7 +175,10 @@ layer(Substrate.layer, { excludeTestServices: true })(
 											assert.equal(row.body.length, length, "a body reads back at its length")
 											assert.ok(row.body === bodyOf(length), "a body reads back as written")
 										}
-										const [owner] = yield* Effect.flatMap(db.execute(owners, {}), (r) => r.collect)
+										const [owner] = yield* Effect.flatMap(
+											db.workload.owners.execute({}),
+											(r) => r.collect
+										)
 										assert.equal(
 											defined(owner, "the owner reads back").members,
 											BigInt(c.lengths.length),
@@ -188,7 +199,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							)
 						}).pipe(
 							(body) =>
-								Effect.flatMap(Layer.build(loginLayer(o.installed, o.server)), (context) =>
+								Effect.flatMap(Layer.build(o.served.layer), (context) =>
 									Effect.provideContext(body, context)
 								),
 							Effect.scoped
