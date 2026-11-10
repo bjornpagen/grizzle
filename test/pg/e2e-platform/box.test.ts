@@ -6,7 +6,7 @@
  * checked: each grant's amount (1 or 3,000 micro-dollars) and the end of its validity (C, or never), and each request's
  * start (the second before C, or C itself) and input tokens (1, or 1,001, which crosses the new card's first tier):
  * 16 grant pairs times 64 request triples. Each point's requests are priced and settled by the host billing model
- * (credits by earliest expiry, largest remainder across kinds) and recorded one ChangeSet each through db.apply, on
+ * (credits by earliest expiry, largest remainder across kinds) and recorded one call each of the workload's load, on
  * the static platform stored once:
  *
  * - every record is accepted: the laws (an event's kinds summing to its charge, its debits to its credited parts,
@@ -25,12 +25,7 @@ import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Order } from "effect"
 import type { ApplyError } from "#adapter/public/errors.ts"
-import {
-	applyFacts,
-	insertAll,
-	openPlatform,
-	type PlatformDb
-} from "#test/pg/e2e-platform/support.ts"
+import { applyFacts, openPlatform, type PlatformDb } from "#test/pg/e2e-platform/support.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import * as P from "#test/support/fixtures/api/platform.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -216,7 +211,7 @@ const recordFacts = (r: P.UsageRecord): PlatformFacts => ({
 })
 
 const decided = (db: PlatformDb, f: PlatformFacts): Effect.Effect<string, ApplyError> =>
-	Effect.map(db.apply(insertAll(f), {}), (o) =>
+	Effect.map(db.workload.load.apply({ insert: f }, {}), (o) =>
 		o.kind === "invariant-rejected" ? `refused by ${Formatter.format(o.refused.laws)}` : o.kind
 	)
 
@@ -305,7 +300,7 @@ layer(Substrate.layer)("tiny platforms, exhausted", (it) => {
 										const decision = yield* decided(db, f)
 										assert.equal(decision, "accepted", `${record.event.id} is recorded`)
 										/** Its tier pieces sum to what the model charged. */
-										const pieces = yield* (yield* db.execute(P.eventCost, {
+										const pieces = yield* (yield* db.workload.eventCost.execute({
 											event: record.event.id
 										})).collect
 										const charged = Arr.reduce(record.charges, 0n, (sum, c) => sum + c.amount)
@@ -325,7 +320,7 @@ layer(Substrate.layer)("tiny platforms, exhausted", (it) => {
 										}
 									}
 									for (const g of grants) {
-										const days = yield* (yield* db.execute(P.burnDown, {
+										const days = yield* (yield* db.workload.burnDown.execute({
 											grant: g.id
 										})).collect
 										const debited = Arr.filter(

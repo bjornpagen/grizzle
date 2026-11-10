@@ -1,10 +1,8 @@
 import { Array as Arr, Effect, Option, Result } from "effect"
-import type { DbContext, ServedDbContext } from "#adapter/db/context.ts"
+import type { ServedDbContext } from "#adapter/db/context.ts"
 import { memberOpsOn } from "#adapter/db/handles.ts"
 import type { MemberOps } from "#adapter/db/ops.ts"
-import type { ReadError } from "#adapter/errors/execution.ts"
 import { poolExecutor } from "#adapter/reader/executor.ts"
-import { makeReader, type QueryResultValue } from "#adapter/reader/reader.ts"
 import type { LoadedMember } from "#adapter/served/load.ts"
 import { type EstimatedNode, parsePlanTree, planNodes } from "#bench/harness/explain.ts"
 import { trusted } from "#compiler/core/trusted.ts"
@@ -302,23 +300,6 @@ export const createdIndexes = (schema: string) =>
 		)
 		return Arr.map(trusted<ReadonlyArray<readonly [name: string]>>(names), ([name]) => name)
 	})
-
-/**
- * The runtime's own reader of the Db of `ctx` over its pool, through an executor that records every statement it sends, and
- * its compile of a query with the decoder the caller names (db.compile's), which compiles a query's Description against
- * the Db's own world.
- */
-export const recordingReader = (ctx: DbContext) => {
-	const { executor, counts } = countingExecutor(poolExecutor(ctx))
-	const reader = makeReader(ctx, executor)
-	const reads: UntypedReads = reader
-	return Effect.succeed({ reader: reads, compileWith: reader.compileWith, counts })
-}
-
-/** A runtime reader's execute over any query value, its rows typed unknown, as the in-process recordingReader gives it. */
-interface UntypedReads {
-	execute(query: unknown, params: unknown): Effect.Effect<QueryResultValue, ReadError>
-}
 
 /**
  * The operations of any loaded member of the served Db of `ctx` (test/support/served-db.ts ServedDb.load), every read

@@ -4,33 +4,24 @@ import { required } from "@grizzle/testing/features"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import {
-	Array as Arr,
-	Effect,
-	Formatter,
-	Layer,
-	Option,
-	Order,
-	Record as Rec,
-	Result
-} from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec, Result } from "effect"
 import type { TestContext } from "vitest"
-import { openDbContext } from "#adapter/db/open.ts"
 /**
  * The platform's plans at volume: every workload read is planned through an index, and law maintenance never scans the
  * relation it counts.
  *
  * The file runs with the cluster to itself (`.exclusive`, vitest.network.config.ts): its load at volume holds SERIALIZABLE
- * transactions for tens of seconds (100,000-fact db.apply batches and db.refresh, 20 to 59 s each in a sampled
+ * transactions for tens of seconds (100,000-fact load batches and DailySpend's refresh, 20 to 59 s each in a sampled
  * default-tier run), and SSI retains every transaction that commits meanwhile, which summarizes other files' own.
  *
  * The platform installs with its workload's access paths, as its first migration drafts them, beside an org tenant's
- * login (tenantOf), and loads a volume platform (test/support/platform/generate.ts volumePlatform) through db.apply in
- * batches within the input limit, then VACUUM ANALYZE. Its sizes: a thousand organizations under resellers, five
+ * login (tenantOf), and loads a volume platform (test/support/platform/generate.ts volumePlatform) through the
+ * workload's load in batches within the input limit, then VACUUM ANALYZE. Its sizes: a thousand organizations under resellers, five
  * thousand workspaces with ten thousand keys, ten models on four providers repriced monthly, six months of calendar, and
  * 100,000 usage events (about half a million usage facts). Each case draws, per read, which of the platform's entities
- * and windows it reads (the busiest workspace, key, organization and grant, or another), runs every workload read
- * through the runtime with a counting executor twice, as billing, whose whole entries are plain views, and as the
+ * and windows it reads (the busiest workspace, key, organization and grant, or another), runs every workload read as a
+ * served member through a counting executor twice (test/support/plans.ts recordingMembers), as billing, whose whole
+ * entries are plain views, and as the
  * tenant, its Db opened with a token naming the drawn organization, so the read goes through the tenant's
  * security-barrier views of its own organization over relations under row-level security, and EXPLAINs each statement
  * the runtime sent with its parameters:
@@ -61,15 +52,14 @@ import { openDbContext } from "#adapter/db/open.ts"
  */
 import { parsePlanTree, planNodes } from "#bench/harness/explain.ts"
 import { appendAll } from "#compiler/core/array.ts"
-import type { RowDecoder } from "#compiler/core/decoder.ts"
+import type { Json } from "#compiler/core/canonical.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import type { QueryDesc, QueryStageDesc, RuleDesc } from "#compiler/ir/desc.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import { queryInput } from "#compiler/program/compile.ts"
 import { type Uuid, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { context, login, role } from "#compiler/public/schema.ts"
-import { isOrderedValue, isQueryValue } from "#compiler/query/build/index.ts"
+import { type AnyLoginRole, context, login, role } from "#compiler/public/schema.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import type { ParamMap } from "#compiler/types/core/phantom.ts"
 import {
@@ -86,7 +76,12 @@ import { has, shapeOf } from "#test/support/kernel/shape.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { messageOf } from "#test/support/message.ts"
 import { pickGen, pickIndex } from "#test/support/pick.ts"
-import { plannedIndexes, recordingReader, relationRows, sentProblems } from "#test/support/plans.ts"
+import {
+	plannedIndexes,
+	recordingMembers,
+	relationRows,
+	sentProblems
+} from "#test/support/plans.ts"
 import {
 	buildPlatform,
 	DAY,
@@ -100,8 +95,8 @@ import {
 } from "#test/support/platform/generate.ts"
 import type { DirectStatement, RelationName } from "#test/support/platform/laws.ts"
 import { platformSpan } from "#test/support/platform/model.ts"
+import { member, withServedDb } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-import { loginLayer, tokenOf } from "#test/support/worlds.ts"
 
 const volume = (events: number): VolumeSizes => ({
 	months: 6,
@@ -166,18 +161,6 @@ const statementsOf = (read: unknown): number => {
 	}
 	return 1 + declaredAttachments(input.value.desc)
 }
-
-/** A workload read's Description: what the tenant's Db compiles against the tenant's own world, by relation name. */
-const descriptionOf = (read: unknown): QueryDesc => {
-	const input = queryInput(read)
-	return input.ok ? input.value.desc : assert.fail("a workload read's query value")
-}
-
-/** A workload read's own rows decoder, which reads the tenant's rows of it: the tenant's relations keep every field. */
-const rowsOf = (read: unknown): RowDecoder<unknown> =>
-	isQueryValue(read) || isOrderedValue(read)
-		? read.rows
-		: assert.fail("a workload read's query value")
 
 const unit = (t: bigint) => ({ start: P.Instant(t), end: P.Instant(t + 1n) })
 
@@ -1057,10 +1040,7 @@ const planSuite = (events: number, runs: number) => (ctx: TestContext) =>
 			const { tenants } = tenantOf(o.schema)
 			const p = buildPlatform(volumePlatform(volume(events)))
 			yield* o.withDb((db) =>
-				Effect.andThen(
-					loadPlatform(db, p.facts, 100_000),
-					db.refresh(o.schema.Billing.relations.DailySpend)
-				)
+				Effect.andThen(loadPlatform(db, p.facts, 100_000), db.workload.refreshDailySpend.refresh)
 			)
 			for (const r of [...loadOrder, "DailySpend"]) {
 				yield* s.admin.query(`VACUUM (ANALYZE) ${o.table(r)}`, [])
@@ -1127,35 +1107,31 @@ const planSuite = (events: number, runs: number) => (ctx: TestContext) =>
 									used.add(index)
 								}
 							})
-						yield* o.withDb((...[, dbCtx]) =>
-							Effect.gen(function* () {
-								const { reader, counts } = yield* recordingReader(dbCtx)
-								for (const pr of probes(e, pick)) {
-									const before = counts.sent.length
-									yield* (yield* reader.execute(pr.query, pr.params)).collect
-									yield* review("billing", pr, counts.sent.slice(before))
-								}
-							})
-						)
-						yield* Effect.gen(function* () {
-							const { ctx: dbCtx } = yield* openDbContext(tenants.roles.tenant, {
-								token: tokenOf({ org: pickOf(e.orgs, pick, uid(0xdead, 2)) })
-							})
-							const { compileWith, counts } = yield* recordingReader(dbCtx)
-							for (const pr of probes(e, pick)) {
-								const before = counts.sent.length
-								const read = yield* compileWith(descriptionOf(pr.query), () => rowsOf(pr.query))
-								yield* (yield* read.execute(pr.params)).collect
-								yield* review("the tenant", pr, counts.sent.slice(before))
-							}
-						}).pipe(
-							Effect.scoped,
-							(body) =>
-								Effect.flatMap(Layer.build(loginLayer(o.installed, tenants)), (context) =>
-									Effect.provideContext(body, context)
-								),
-							Effect.scoped
-						)
+						const reads = probes(e, pick)
+						/**
+						 * Every probe read as `who`, through a Db of `role` opened with a token of `payload`: the probes
+						 * loaded as members of the role's workload, each run through the counting executor.
+						 */
+						const reviewAs = (who: string, role: AnyLoginRole, payload: Json) =>
+							Effect.scoped(
+								withServedDb(o.installed, role, payload, ({ ctx, load }) =>
+									Effect.gen(function* () {
+										const loaded = yield* load(
+											Rec.fromEntries(Arr.map(reads, (pr) => [pr.name, pr.query]))
+										)
+										const { ops, counts } = recordingMembers(ctx)
+										for (const pr of reads) {
+											const before = counts.sent.length
+											yield* (yield* ops(member(loaded, pr.name)).execute(pr.params)).collect
+											yield* review(who, pr, counts.sent.slice(before))
+										}
+									})
+								)
+							)
+						yield* reviewAs("billing", o.schema.server.roles.billing, {})
+						yield* reviewAs("the tenant", tenants.roles.tenant, {
+							org: pickOf(e.orgs, pick, uid(0xdead, 2))
+						})
 						assert.deepEqual(
 							problems,
 							[],

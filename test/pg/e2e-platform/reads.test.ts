@@ -4,17 +4,18 @@
  * The platform installs once with its workload (support.ts). Each case is a generated platform
  * (test/support/platform/generate.ts), small and drawn under a swarm, its instants from a dictionary of its own
  * boundaries, and billed: two or three months, each closed for every organization, with refunds on. The tables are
- * emptied, the platform's facts are stored by one db.apply, which the laws must accept (a lawful state by
- * construction), and DailySpend is refreshed by db.refresh. Then every read of the workload runs with parameters drawn
- * from the platform (an id it holds, or one it does not):
+ * emptied, the platform's facts are stored by one call of the workload's load, which the laws must accept (a lawful
+ * state by construction), and DailySpend is refreshed by the workload's refresh member. Then every read of the
+ * workload runs, as a member of billing's served workload, with parameters drawn from the platform (an id it holds, or
+ * one it does not):
  *
- * - db.execute's rows, flattened statement by statement, agree with the reference evaluator over the read's checked IR
- *   and the same facts: the root's rows and each attachment's children per parent, as sets, each column by its type's
- *   equality; an arm's child is delivered exactly where its parent's handle selects it;
- * - db.get of the reads proved at most one row answers the reference's row or none, at a workspace's month the platform
+ * - a member's execute's rows, flattened statement by statement, agree with the reference evaluator over the read's
+ *   checked IR and the same facts: the root's rows and each attachment's children per parent, as sets, each column by
+ *   its type's equality; an arm's child is delivered exactly where its parent's handle selects it;
+ * - get of the reads proved at most one row answers the reference's row or none, at a workspace's month the platform
  *   charged and at a drawn one;
- * - db.page of the ordered reads, page by page at a drawn size, concatenates to db.execute's rows, which are in the
- *   stated order;
+ * - page of the paged member invoices, page by page at a drawn size, concatenates to its execute's rows, which are in
+ *   the stated order;
  * - where the contract fully determines a number, it equals the host billing model's (test/support/platform/model.ts),
  *   a second implementation of the arithmetic: each tier piece of an event's charge and its sum per kind, which is what
  *   the model charged when the event was recorded, and a quote's price per kind.
@@ -143,7 +144,7 @@ const ids = (rows: ReadonlyArray<{ readonly id: Uuid }>) => Arr.map(rows, (r) =>
 
 /**
  * A read: its name, its query (what the reference evaluates), its parameters drawn from a platform, and its run through
- * db.execute with those parameters.
+ * its workload member's execute with those parameters.
  */
 interface ReadCase {
 	readonly name: string
@@ -179,7 +180,7 @@ const reads: ReadonlyArray<ReadCase> = [
 		"eventCost",
 		P.eventCost,
 		(k, p) => ({ event: liveOr(ids(p.facts.UsageEvent), absentId, k) }),
-		(db, a) => db.execute(P.eventCost, a)
+		(db, a) => db.workload.eventCost.execute(a)
 	),
 	read(
 		"quote",
@@ -195,7 +196,7 @@ const reads: ReadonlyArray<ReadCase> = [
 				(a, b) => a.kind === b.kind
 			)
 		}),
-		(db, a) => db.execute(P.quote, a)
+		(db, a) => db.workload.quote.execute(a)
 	),
 	read(
 		"ratesAt",
@@ -204,43 +205,43 @@ const reads: ReadonlyArray<ReadCase> = [
 			model: liveOr(ids(p.facts.Model), absentId, k),
 			now: unit(pickFrom(instantsOf(p), k))
 		}),
-		(db, a) => db.execute(P.ratesAt, a)
+		(db, a) => db.workload.ratesAt.execute(a)
 	),
 	read(
 		"rateHistory",
 		P.rateHistory,
 		(k, p) => ({ model: liveOr(ids(p.facts.Model), absentId, k), kind: kindOf(k) }),
-		(db, a) => db.execute(P.rateHistory, a)
+		(db, a) => db.workload.rateHistory.execute(a)
 	),
 	read(
 		"repricedInMonth",
 		P.repricedInMonth,
 		(k, p) => ({ workspace: liveOr(ids(p.facts.Workspace), absentId, k), month: monthOf(p, k) }),
-		(db, a) => db.execute(P.repricedInMonth, a)
+		(db, a) => db.workload.repricedInMonth.execute(a)
 	),
 	read(
 		"spendByDay",
 		P.spendByDay,
 		(k, p) => ({ workspace: liveOr(ids(p.facts.Workspace), absentId, k), window: windowOf(p, k) }),
-		(db, a) => db.execute(P.spendByDay, a)
+		(db, a) => db.workload.spendByDay.execute(a)
 	),
 	read(
 		"spendByMonth",
 		P.spendByMonth,
 		(k, p) => ({ workspace: liveOr(ids(p.facts.Workspace), absentId, k) }),
-		(db, a) => db.execute(P.spendByMonth, a)
+		(db, a) => db.workload.spendByMonth.execute(a)
 	),
 	read(
 		"workspaceMonth",
 		P.workspaceMonth,
 		(k, p) => ({ workspace: liveOr(ids(p.facts.Workspace), absentId, k), month: monthOf(p, k) }),
-		(db, a) => db.execute(P.workspaceMonth, a)
+		(db, a) => db.workload.workspaceMonth.execute(a)
 	),
 	read(
 		"nearCap",
 		P.nearCap,
 		(k, p) => ({ org: liveOr(ids(p.facts.Org), absentId, k), month: monthOf(p, k) }),
-		(db, a) => db.execute(P.nearCap, a)
+		(db, a) => db.workload.nearCap.execute(a)
 	),
 	read(
 		"topModels",
@@ -250,7 +251,7 @@ const reads: ReadonlyArray<ReadCase> = [
 			month: monthOf(p, k),
 			k: 1 + (k % 3)
 		}),
-		(db, a) => db.execute(P.topModels, a)
+		(db, a) => db.workload.topModels.execute(a)
 	),
 	read(
 		"topProviders",
@@ -260,19 +261,19 @@ const reads: ReadonlyArray<ReadCase> = [
 			month: monthOf(p, k),
 			k: 1 + (k % 2)
 		}),
-		(db, a) => db.execute(P.topProviders, a)
+		(db, a) => db.workload.topProviders.execute(a)
 	),
 	read(
 		"marginByProvider",
 		P.marginByProvider,
 		(k, p) => ({ org: liveOr(ids(p.facts.Org), absentId, k), month: monthOf(p, k) }),
-		(db, a) => db.execute(P.marginByProvider, a)
+		(db, a) => db.workload.marginByProvider.execute(a)
 	),
 	read(
 		"consolidatedSpend",
 		P.consolidatedSpend,
 		(k, p) => ({ root: liveOr(ids(p.facts.Org), absentId, k), month: monthOf(p, k) }),
-		(db, a) => db.execute(P.consolidatedSpend, a)
+		(db, a) => db.workload.consolidatedSpend.execute(a)
 	),
 	read(
 		"balanceAt",
@@ -281,49 +282,49 @@ const reads: ReadonlyArray<ReadCase> = [
 			org: liveOr(ids(p.facts.Org), absentId, k),
 			now: unit(pickFrom(instantsOf(p), k))
 		}),
-		(db, a) => db.execute(P.balanceAt, a)
+		(db, a) => db.workload.balanceAt.execute(a)
 	),
 	read(
 		"expiringGrants",
 		P.expiringGrants,
 		(k, p) => ({ org: liveOr(ids(p.facts.Org), absentId, k), window: windowOf(p, k) }),
-		(db, a) => db.execute(P.expiringGrants, a)
+		(db, a) => db.workload.expiringGrants.execute(a)
 	),
 	read(
 		"burnDown",
 		P.burnDown,
 		(k, p) => ({ grant: liveOr(ids(p.facts.CreditGrant), absentId, k) }),
-		(db, a) => db.execute(P.burnDown, a)
+		(db, a) => db.workload.burnDown.execute(a)
 	),
 	read(
 		"keyCard",
 		P.keyCard,
 		(k, p) => ({ key: liveOr(ids(p.facts.ApiKey), absentId, k) }),
-		(db, a) => db.execute(P.keyCard, a)
+		(db, a) => db.workload.keyCard.execute(a)
 	),
 	read(
 		"usageLog",
 		P.usageLog,
 		(k, p) => ({ key: liveOr(ids(p.facts.ApiKey), absentId, k) }),
-		(db, a) => db.execute(P.usageLog, a)
+		(db, a) => db.workload.usageLog.execute(a)
 	),
 	read(
 		"idleKeys",
 		P.idleKeys,
 		(k, p) => ({ workspace: liveOr(ids(p.facts.Workspace), absentId, k), window: windowOf(p, k) }),
-		(db, a) => db.execute(P.idleKeys, a)
+		(db, a) => db.workload.idleKeys.execute(a)
 	),
 	read(
 		"rollupVersusLive",
 		P.rollupVersusLive,
 		(k, p) => ({ workspace: liveOr(ids(p.facts.Workspace), absentId, k), window: windowOf(p, k) }),
-		(db, a) => db.execute(P.rollupVersusLive, a)
+		(db, a) => db.workload.rollupVersusLive.execute(a)
 	),
 	read(
 		"invoices",
 		P.invoices,
 		(k, p) => ({ org: liveOr(ids(p.facts.Org), absentId, k) }),
-		(db, a) => db.execute(P.invoices, a)
+		(db, a) => db.workload.invoices.execute(a)
 	),
 	read(
 		"invoiceAt",
@@ -332,7 +333,7 @@ const reads: ReadonlyArray<ReadCase> = [
 			org: liveOr(ids(p.facts.Org), absentId, k),
 			now: unit(pickFrom(instantsOf(p), k))
 		}),
-		(db, a) => db.execute(P.invoiceAt, a)
+		(db, a) => db.workload.invoiceAt.execute(a)
 	),
 	read(
 		"overdueInvoices",
@@ -341,31 +342,31 @@ const reads: ReadonlyArray<ReadCase> = [
 			org: liveOr(ids(p.facts.Org), absentId, k),
 			cutoff: P.Instant(pickFrom(instantsOf(p), k))
 		}),
-		(db, a) => db.execute(P.overdueInvoices, a)
+		(db, a) => db.workload.overdueInvoices.execute(a)
 	),
 	read(
 		"invoicePreview",
 		P.invoicePreview,
 		(k, p) => ({ invoice: liveOr(ids(p.facts.Invoice), absentId, k) }),
-		(db, a) => db.execute(P.invoicePreview, a)
+		(db, a) => db.workload.invoicePreview.execute(a)
 	),
 	read(
 		"refundable",
 		P.refundable,
 		(k, p) => ({ org: liveOr(ids(p.facts.Org), absentId, k) }),
-		(db, a) => db.execute(P.refundable, a)
+		(db, a) => db.workload.refundable.execute(a)
 	),
 	read(
 		"refundsByReason",
 		P.refundsByReason,
 		(k, p) => ({ org: liveOr(ids(p.facts.Org), absentId, k), window: windowOf(p, k) }),
-		(db, a) => db.execute(P.refundsByReason, a)
+		(db, a) => db.workload.refundsByReason.execute(a)
 	),
 	read(
 		"mostRefunded",
 		P.mostRefunded,
 		(k) => ({ k: 1 + (k % 3) }),
-		(db, a) => db.execute(P.mostRefunded, a)
+		(db, a) => db.workload.mostRefunded.execute(a)
 	),
 	read(
 		"segmentsAt",
@@ -374,13 +375,13 @@ const reads: ReadonlyArray<ReadCase> = [
 			subscription: liveOr(ids(p.facts.Subscription), absentId, k),
 			now: unit(pickFrom(instantsOf(p), k))
 		}),
-		(db, a) => db.execute(P.segmentsAt, a)
+		(db, a) => db.workload.segmentsAt.execute(a)
 	),
 	read(
 		"prorationFor",
 		P.prorationFor,
 		(k, p) => ({ invoice: liveOr(ids(p.facts.Invoice), absentId, k) }),
-		(db, a) => db.execute(P.prorationFor, a)
+		(db, a) => db.workload.prorationFor.execute(a)
 	),
 	read(
 		"mrrAt",
@@ -389,19 +390,19 @@ const reads: ReadonlyArray<ReadCase> = [
 			org: liveOr(ids(p.facts.Org), absentId, k),
 			now: unit(pickFrom(instantsOf(p), k))
 		}),
-		(db, a) => db.execute(P.mrrAt, a)
+		(db, a) => db.workload.mrrAt.execute(a)
 	),
 	read(
 		"recognizedIn",
 		P.recognizedIn,
 		(k, p) => ({ org: liveOr(ids(p.facts.Org), absentId, k), month: monthOf(p, k) }),
-		(db, a) => db.execute(P.recognizedIn, a)
+		(db, a) => db.workload.recognizedIn.execute(a)
 	),
 	read(
 		"allocationBreakdown",
 		P.allocationBreakdown,
 		(k, p) => ({ invoice: liveOr(ids(p.facts.Invoice), absentId, k) }),
-		(db, a) => db.execute(P.allocationBreakdown, a)
+		(db, a) => db.workload.allocationBreakdown.execute(a)
 	)
 ]
 
@@ -460,7 +461,7 @@ const checkArms = (readName: string, rows: ReadonlyArray<unknown>): void => {
 const pagedInvoices = (db: PlatformDb, org: Uuid, size: number) =>
 	Effect.gen(function* () {
 		const paged: Array<unknown> = []
-		let page = yield* db.page(P.invoices, { org }, { first: size })
+		let page = yield* db.workload.invoices.page({ org }, { first: size })
 		for (;;) {
 			appendAll(
 				paged,
@@ -470,7 +471,7 @@ const pagedInvoices = (db: PlatformDb, org: Uuid, size: number) =>
 			if (!page.pageInfo.hasNextPage || Option.isNone(next)) {
 				return paged
 			}
-			page = yield* db.page(P.invoices, { org }, { first: size, after: next.value })
+			page = yield* db.workload.invoices.page({ org }, { first: size, after: next.value })
 		}
 	})
 
@@ -692,7 +693,7 @@ layer(Substrate.layer)(
 								yield* platform.withDb((db) =>
 									Effect.gen(function* () {
 										yield* applyFacts(db, p.facts)
-										yield* db.refresh(platform.schema.Billing.relations.DailySpend)
+										yield* db.workload.refreshDailySpend.refresh
 										const facts = hostFacts(p.facts, dailySpendRows(p.facts))
 										for (const [i, r] of reads.entries()) {
 											const { params, execute } = r.at(p, picks[i] ?? 0)
@@ -731,8 +732,9 @@ layer(Substrate.layer)(
 											}
 										]
 										for (const at of asked) {
-											const got = yield* db.get(P.workspaceMonth, at)
-											const executed = yield* (yield* db.execute(P.workspaceMonth, at)).collect
+											const got = yield* db.workload.workspaceMonth.get(at)
+											const executed = yield* (yield* db.workload.workspaceMonth.execute(at))
+												.collect
 											assert.deepEqual(
 												[...Option.toArray(got)],
 												[...executed],
@@ -745,7 +747,7 @@ layer(Substrate.layer)(
 										 */
 										const size = 1 + (getPick % 3)
 										for (const org of ids(p.facts.Org).slice(0, 2)) {
-											const all = yield* (yield* db.execute(P.invoices, { org })).collect
+											const all = yield* (yield* db.workload.invoices.execute({ org })).collect
 											const paged = yield* pagedInvoices(db, org, size)
 											assert.deepEqual(paged, [...all], "the pages concatenate to the ordered rows")
 											assert.ok(

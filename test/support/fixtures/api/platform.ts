@@ -37,7 +37,7 @@ import {
 	wholeEntriesOf,
 	writableNamesOf
 } from "#compiler/public/schema.ts"
-import { workload } from "#compiler/public/workload.ts"
+import { paged, refresh, workload } from "#compiler/public/workload.ts"
 
 export const Instant = contract("Instant", pg.bigint)
 export const Micros = contract("Micros", pg.bigint, (x) => x.ge(0n))
@@ -618,7 +618,8 @@ export const Billing = schema.extend(Platform, billingOf("Platform"), { DailySpe
 /**
  * The platform and its Billing extension rebuilt under another name, as a test installs them, Billing under the
  * allocation's name for it (test/support/compile.ts levelNameAt), with Billing's world: a full role writing every
- * stored relation and refreshing DailySpend, in its login.
+ * stored relation and refreshing DailySpend, in its login, whose workload is the billing role's served programs
+ * (billingPrograms).
  */
 export const platformAt = (name: string) => {
 	const base = platformOf(name)
@@ -631,7 +632,7 @@ export const platformAt = (name: string) => {
 		Platform: base,
 		Billing: extended,
 		billing,
-		server: login(extended, "server", [billing])
+		server: login(extended, "server", [billing], { workload: [workload(billing, billingPrograms)] })
 	}
 }
 
@@ -1421,38 +1422,43 @@ export const voidInvoice = ChangeSet.empty(Platform)
 	)
 
 /**
- * An active key revoked at an instant: its state and revocation by query members, and its active span cut at the
- * instant, which the application read from the key's card. Usage after the cut is then outside every active span.
+ * An active key revoked at an instant: its state and revocation by query members over the parameters `key` and `at`,
+ * and its active span cut at the instant, which the application read from the key's card, the span deleted and its cut
+ * inserted as each call's facts (revokeFacts). Usage after the cut is then outside every active span.
  */
-export const revokeKey = (
+const revokeKey = ChangeSet.empty(Platform)
+	.put(
+		ApiKey,
+		query(Platform).rule((r) => {
+			const { workspace } = v(ApiKey, "apiKey")
+			return r
+				.match(ApiKey, { id: r.param("key", ApiKey.fields.id), workspace, state: "active" })
+				.find({ id: r.param("key", ApiKey.fields.id), workspace, state: "revoked" })
+		})
+	)
+	.insert(
+		Revocation,
+		query(Platform).rule((r) =>
+			r.match(ApiKey, { id: r.param("key", ApiKey.fields.id), state: "active" }).find({
+				key: r.param("key", Revocation.fields.key),
+				at: r.param("at", Revocation.fields.at)
+			})
+		)
+	)
+	.delete(ApiKeyActive, [])
+	.insert(ApiKeyActive, [])
+
+/** The facts of a key's revocation at `at`: its active span deleted, and the span's part before `at` inserted. */
+export const revokeFacts = (
 	key: Uuid,
 	at: Infer<typeof Instant>,
 	active: Span<Infer<typeof Instant>>
-) =>
-	ChangeSet.empty(Platform)
-		.put(
-			ApiKey,
-			query(Platform).rule((r) => {
-				const { workspace } = v(ApiKey, "apiKey")
-				return r
-					.match(ApiKey, { id: r.param("key", ApiKey.fields.id), workspace, state: "active" })
-					.find({ id: r.param("key", ApiKey.fields.id), workspace, state: "revoked" })
-			})
-		)
-		.insert(
-			Revocation,
-			query(Platform).rule((r) =>
-				r.match(ApiKey, { id: r.param("key", ApiKey.fields.id), state: "active" }).find({
-					key: r.param("key", Revocation.fields.key),
-					at: r.param("at", Revocation.fields.at)
-				})
-			)
-		)
-		.delete(ApiKeyActive, [{ key, during: active }])
-		.insert(
-			ApiKeyActive,
-			active.start < at ? [{ key, during: { start: active.start, end: at } }] : []
-		)
+) => ({
+	delete: { ApiKeyActive: [{ key, during: active }] },
+	insert: {
+		ApiKeyActive: active.start < at ? [{ key, during: { start: active.start, end: at } }] : []
+	}
+})
 
 /**
  * One usage event as the application records it: the event, its charge per kind with the part credits paid, its total
@@ -1468,17 +1474,30 @@ export interface UsageRecord {
 	readonly debits: ReadonlyArray<Addition<typeof CreditDebit>>
 }
 
-export const recordUsage = (u: UsageRecord) =>
-	ChangeSet.empty(Platform)
-		.insert(UsageEvent, [u.event])
-		.insert(UsageCharge, u.charges)
-		.insert(EventCharge, [u.total])
-		.insert(ProviderCost, [u.cost])
-		.insert(CreditDebit, u.debits)
+/** A usage record's insert, each call's facts one record's (usageFacts). */
+const recordUsage = ChangeSet.empty(Platform)
+	.insert(UsageEvent, [])
+	.insert(UsageCharge, [])
+	.insert(EventCharge, [])
+	.insert(ProviderCost, [])
+	.insert(CreditDebit, [])
 
-/** A workspace's cap for a month, set or changed in place: an owner's put leaves its family as it is. */
-export const setCap = (limits: ReadonlyArray<Addition<typeof WorkspaceLimit>>) =>
-	ChangeSet.empty(Platform).put(WorkspaceLimit, limits)
+/** The facts of one usage record (recordUsage): its event, charges, total, cost and debits, each inserted. */
+export const usageFacts = (u: UsageRecord) => ({
+	insert: {
+		UsageEvent: [u.event],
+		UsageCharge: u.charges,
+		EventCharge: [u.total],
+		ProviderCost: [u.cost],
+		CreditDebit: u.debits
+	}
+})
+
+/**
+ * A workspace's caps for months, set or changed in place, each call's facts: an owner's put leaves its family as it
+ * is.
+ */
+const setCap = ChangeSet.empty(Platform).put(WorkspaceLimit, [])
 
 /** The caps setCaps puts: a workspace limit as its caller writes it. */
 const capsGiven = {
@@ -1529,12 +1548,18 @@ export interface RateChange {
 	readonly tiers: ReadonlyArray<Fact<typeof RateTier>>
 }
 
-export const changeRate = (c: RateChange) =>
-	ChangeSet.empty(Platform)
-		.delete(RateTier, c.retired.tiers)
-		.delete(RateCard, [c.retired.card])
-		.insert(RateCard, c.cards)
-		.insert(RateTier, c.tiers)
+/** A rate change's write, each call's facts one change's (rateChangeFacts). */
+const changeRate = ChangeSet.empty(Platform)
+	.delete(RateTier, [])
+	.delete(RateCard, [])
+	.insert(RateCard, [])
+	.insert(RateTier, [])
+
+/** The facts of a rate change (changeRate): the retired card and its tiers deleted, the new cards and tiers inserted. */
+export const rateChangeFacts = (c: RateChange) => ({
+	delete: { RateTier: c.retired.tiers, RateCard: [c.retired.card] },
+	insert: { RateCard: c.cards, RateTier: c.tiers }
+})
 
 /**
  * A month closed for an organization: its invoice, the usage lines with their details, and the Team plan lines with
@@ -1548,9 +1573,8 @@ export interface MonthClose {
 	readonly allocations: ReadonlyArray<Addition<typeof Allocation>>
 }
 
-/** Refunds of invoices: members of each invoice's counted family of refunds, inserted directly. */
-export const refund = (refunds: ReadonlyArray<Addition<typeof Refund>>) =>
-	ChangeSet.empty(Platform).insert(Refund, refunds)
+/** Refunds of invoices, each call's facts: members of each invoice's counted family of refunds, inserted directly. */
+const refund = ChangeSet.empty(Platform).insert(Refund, [])
 
 /** The workload the platform's migrations are generated with: every read, and the writes whose query members read. */
 const platformPrograms = {
@@ -1592,3 +1616,74 @@ const platformPrograms = {
 	setCaps
 } as const
 export const platformWorkload = workload(Billing, platformPrograms)
+
+/**
+ * The platform's writes a served workload holds: the workload's own, and those whose array members take each call's
+ * facts by op and relation, a usage record (usageFacts), a rate change (rateChangeFacts), caps, refunds, a key's
+ * revocation (revokeFacts), a grant put, a rate card added, a subscription's segments replaced and an invoice put.
+ */
+export const platformWrites = {
+	payInvoice,
+	disputeInvoice,
+	voidInvoice,
+	setCaps,
+	recordUsage,
+	changeRate,
+	setCap,
+	refund,
+	revokeKey,
+	putGrant: ChangeSet.empty(Platform).put(CreditGrant, []),
+	addRateCard: ChangeSet.empty(Platform).insert(RateCard, []),
+	resegment: ChangeSet.empty(Platform).delete(Segment, []).insert(Segment, []),
+	putInvoice: ChangeSet.empty(Platform).put(Invoice, [])
+} as const
+
+/** A platform's facts inserted in one ChangeSet, each call's facts under `insert` by relation. */
+const load = ChangeSet.empty(Platform)
+	.insert(Month, [])
+	.insert(Day, [])
+	.insert(Org, [])
+	.insert(ParentOrg, [])
+	.insert(Workspace, [])
+	.insert(WorkspaceLimit, [])
+	.insert(ApiKey, [])
+	.insert(Revocation, [])
+	.insert(ApiKeyActive, [])
+	.insert(Provider, [])
+	.insert(Model, [])
+	.insert(Route, [])
+	.insert(ProviderPrice, [])
+	.insert(RateCard, [])
+	.insert(RateTier, [])
+	.insert(CreditGrant, [])
+	.insert(Subscription, [])
+	.insert(Segment, [])
+	.insert(UsageEvent, [])
+	.insert(EventCharge, [])
+	.insert(UsageCharge, [])
+	.insert(ProviderCost, [])
+	.insert(CreditDebit, [])
+	.insert(Invoice, [])
+	.insert(InvoiceLine, [])
+	.insert(UsageLine, [])
+	.insert(PlanLine, [])
+	.insert(Allocation, [])
+	.insert(Payment, [])
+	.insert(Voiding, [])
+	.insert(Dispute, [])
+	.insert(Refund, [])
+
+/**
+ * The billing role's served workload (platformAt): every read, invoices paged; the load of a platform's facts;
+ * DailySpend's refresh; and the platform's writes.
+ */
+const billingPrograms = {
+	...platformPrograms,
+	invoices: paged(invoices),
+	load,
+	refreshDailySpend: refresh([DailySpend]),
+	...platformWrites
+} as const
+
+/** The billing role's served programs, by name: what a Db of the role runs as `db.workload.<name>`. */
+export type BillingPrograms = typeof billingPrograms

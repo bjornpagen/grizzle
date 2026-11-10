@@ -10,7 +10,6 @@ import {
 	Array as Arr,
 	Effect,
 	Formatter,
-	Layer,
 	Option,
 	Order,
 	pipe,
@@ -35,6 +34,7 @@ import type { Family } from "#compiler/ir/family.ts"
 import type { NativeColumn } from "#compiler/ir/law.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { login, role, wholeEntriesOf, writableNamesOf } from "#compiler/public/schema.ts"
+import { workload } from "#compiler/public/workload.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { defined, nonEmpty } from "#test/support/assert.ts"
 import * as P from "#test/support/fixtures/api/platform.ts"
@@ -76,7 +76,6 @@ import {
 	type Actors,
 	type DirectActor,
 	type GrizzleActor,
-	grizzleActor,
 	openActors
 } from "#test/support/schedules/actors.ts"
 import {
@@ -99,10 +98,9 @@ import {
 import { openRig, type Rig } from "#test/support/schedules/rig.ts"
 import { type PsqlProcessError, reportedOwnerOf } from "#test/support/substrate/errors.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-import { loginLayer } from "#test/support/worlds.ts"
 
 import { regex } from "arkregex"
-import { compiledOpen } from "#adapter/db/open.ts"
+import { openServed } from "#adapter/db/served.ts"
 import { refusedLaws } from "#test/support/refused.ts"
 /**
  * The platform's concurrency races: the application's writes of the usage-billing platform, raced by grizzle writers
@@ -150,6 +148,16 @@ import { refusedLaws } from "#test/support/refused.ts"
  * `server`, and the full role `direct` the psql writers take on, in the login `psql`, each writing every stored
  * relation. The Dbs, their ChangeSets and reads are the platform's own.
  */
+/**
+ * The grizzle writers' workload: the empty ChangeSet a writer's first call applies, the fixture's quote, and the
+ * platform's writes, each call's facts by op and relation (P.platformWrites).
+ */
+const racesPrograms = {
+	noop: ChangeSet.empty(P.Platform),
+	quote: P.quote,
+	...P.platformWrites
+} as const
+
 export const racesAt = (name: string) => {
 	const base = P.platformAt(name).Platform
 	const app = role(base, "app", wholeEntriesOf(base), { write: writableNamesOf(base) })
@@ -158,12 +166,12 @@ export const racesAt = (name: string) => {
 		schema: base,
 		app,
 		direct,
-		server: login(base, "server", [app]),
+		server: login(base, "server", [app], { workload: [workload(app, racesPrograms)] }),
 		psql: login(base, "psql", [direct])
 	}
 }
 type RacesWorlds = ReturnType<typeof racesAt>
-export type RacesDb = DbOf<RacesWorlds["app"], unknown>
+export type RacesDb = DbOf<RacesWorlds["app"], typeof racesPrograms>
 
 /** The platform's stored relations, by name. */
 const platformRelations = {
@@ -555,34 +563,31 @@ interface Connected {
 }
 
 /**
- * A Db of `app` opened through its own DbLayer of the login `server`, as an application opens it, and its actor: the
- * one session of the login that is none of `beside`.
+ * A Db of `app` opened through its own DbLayer of the served login `server`, as an application opens it, and its actor:
+ * the one session of the login that no writer opened before it holds (the rig's servedWriter).
  */
 const openApp = (
 	i: RaceInstall,
-	name: GrizzleSession,
-	beside: ReadonlyArray<number>
+	name: GrizzleSession
 ): Effect.Effect<
 	{ readonly db: RacesDb; readonly actor: GrizzleActor },
 	OpenError,
 	Substrate | Scope.Scope
 > =>
-	Effect.gen(function* () {
-		const server = i.rig.worlds.server
-		const context = yield* Layer.build(loginLayer(i.rig.installed, server))
-		const db = yield* compiledOpen(server.roles.app, {}).pipe(Effect.provideContext(context))
-		const first = db.apply(ChangeSet.empty(P.Platform), {})
-		return { db, actor: yield* grizzleActor(name, i.rig.installed.as(server).role, first, beside) }
-	})
+	i.rig.servedWriter(
+		name,
+		(context) => openServed(i.rig.served.roles.app, {}).pipe(Effect.provideContext(context)),
+		(db) => db.workload.noop.apply({})
+	)
 
 const connect = (
 	i: RaceInstall
 ): Effect.Effect<Connected, OpenError | SqlError | PsqlProcessError, Substrate | Scope.Scope> =>
 	Effect.gen(function* () {
 		const s = yield* Substrate
-		const g = yield* openApp(i, "g", [])
-		const h = yield* openApp(i, "h", [g.actor.pid])
-		const k = yield* openApp(i, "i", [g.actor.pid, h.actor.pid])
+		const g = yield* openApp(i, "g")
+		const h = yield* openApp(i, "h")
+		const k = yield* openApp(i, "i")
 		const direct = i.rig.direct
 		return {
 			dbs: { g: g.db, h: h.db, i: k.db },

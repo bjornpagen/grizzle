@@ -9,11 +9,10 @@ import {
 	type Scope,
 	String as Str
 } from "effect"
-import type { DbContext } from "#adapter/db/context.ts"
-import { openDbContext } from "#adapter/db/open.ts"
 import type { OpenError } from "#adapter/errors/execution.ts"
+import type { ServedRefusal } from "#adapter/public/compile.ts"
+import { Db } from "#adapter/public/db.ts"
 import type { DbOf } from "#adapter/types/db.ts"
-import type { DbLayerOf } from "#adapter/types/layer.ts"
 import { appendAll, indices } from "#compiler/core/array.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { isRecord } from "#compiler/core/record.ts"
@@ -24,7 +23,6 @@ import type { LogicalQuery } from "#compiler/ir/products.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import { isSpanCarrier, type ScalarType } from "#compiler/ir/scalar.ts"
 import * as S from "#compiler/ir/shape.ts"
-import { ChangeSet } from "#compiler/public/changeset.ts"
 import { irLiteral } from "#compiler/scalar/compute/literal.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
@@ -47,14 +45,14 @@ import { distinctRows, equal, type Row, type Value } from "#test/support/oracle/
 import type { SqlError } from "#test/support/pg.ts"
 import { loadOrder, noFacts, type PlatformFacts } from "#test/support/platform/generate.ts"
 import { stateOf, withDrawn } from "#test/support/platform/laws.ts"
+import { type ServedFixture, servedFixture } from "#test/support/served-db.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-import { loginLayer } from "#test/support/worlds.ts"
 
 /** The platform rebuilt under an installed name, with its world. */
 type PlatformWorld = ReturnType<typeof P.platformAt>
 
-export type PlatformDb = DbOf<PlatformWorld["billing"], unknown>
+export type PlatformDb = DbOf<PlatformWorld["billing"], P.BillingPrograms>
 
 /** The platform's workload, installed compiled against the schema the installation installs. */
 const platformWorkload = workloadOver([{ login: "server", workloads: [P.platformWorkload] }])
@@ -62,17 +60,18 @@ const platformWorkload = workloadOver([{ login: "server", workloads: [P.platform
 export interface OpenedPlatform {
 	readonly installed: Installed
 	readonly schema: PlatformWorld
-	readonly layer: Layer.Layer<DbLayerOf<PlatformWorld["server"]>, OpenError>
+	/** The login `server` served as an application serves it: billing's workload (P.BillingPrograms). */
+	readonly served: ServedFixture<PlatformWorld["server"]>
 	/** A relation's table, schema-qualified and quoted. */
 	readonly table: (relation: string) => string
 	/** Every stored relation's rows deleted, as the owner: the next case starts from an empty platform. */
 	readonly clear: Effect.Effect<void, SqlError>
 	/**
-	 * Runs `body` on the platform opened as `billing`, and the context its Db reads, in a scope of its own, with whatever
+	 * Runs `body` on the platform opened as `billing` through the served login, in a scope of its own, with whatever
 	 * else it needs.
 	 */
 	readonly withDb: <A, E, R>(
-		body: (db: PlatformDb, ctx: DbContext) => Effect.Effect<A, E, R | Scope.Scope>
+		body: (db: PlatformDb) => Effect.Effect<A, E, R | Scope.Scope>
 	) => Effect.Effect<A, E | OpenError, R>
 }
 
@@ -81,12 +80,12 @@ export interface OpenedPlatform {
  *
  * The platform (test/support/fixtures/api/platform.ts) installs as a deployment installs it: its first migration,
  * drafted with its workload's access paths and applied by the real apply runner (test/support/install-migrate.ts), under a name
- * the substrate allocates, with its login. It is opened through Db.open as the full role `billing` of the schema
- * rebuilt under that name (platformAt), whose levels hold the declared schemas' types, so every workload read and write
- * runs on it unchanged.
+ * the substrate allocates, with its login. Its login is served from its own served file, and a Db is opened through
+ * Db.open as the full role `billing` of the schema rebuilt under that name (platformAt), whose levels hold the declared
+ * schemas' types, so every workload read and write runs on it unchanged, as a member of billing's served workload.
  *
- * Facts load through the public API only: db.apply of ChangeSets that insert them, within the input limit, each of
- * which the laws must accept. A generated platform is lawful by construction (test/support/platform/generate.ts), so a
+ * Facts load through the public API only: the workload's `load`, one ChangeSet inserting every relation's facts given
+ * with each call, within the input limit, each call of which the laws must accept. A generated platform is lawful by construction (test/support/platform/generate.ts), so a
  * refused load is a defect of the generator or of grizzle, reported with the law.
  *
  * The reference evaluator (test/support/oracle/reference) reads a workload read's checked IR, the compiler's own
@@ -100,7 +99,7 @@ export const openPlatform = (
 	label: string
 ): Effect.Effect<
 	OpenedPlatform,
-	CompileError | SqlError | TransactionRolledBack,
+	CompileError | SqlError | TransactionRolledBack | ServedRefusal,
 	Substrate | Scope.Scope
 > => openPlatformWith(label, () => [])
 
@@ -114,7 +113,7 @@ export const openPlatformWith = (
 	also: (world: PlatformWorld) => ReadonlyArray<AnyLogin>
 ): Effect.Effect<
 	OpenedPlatform,
-	CompileError | SqlError | TransactionRolledBack,
+	CompileError | SqlError | TransactionRolledBack | ServedRefusal,
 	Substrate | Scope.Scope
 > =>
 	Effect.gen(function* () {
@@ -127,7 +126,7 @@ export const openPlatformWith = (
 			extensions: [platformWorkload]
 		})
 		const schema = P.platformAt(installed.declared)
-		const layer = loginLayer(installed, schema.server)
+		const served = yield* servedFixture(installed, schema.server)
 		const table = (relation: string): string => {
 			const q = installed.names.relation(relation)
 			return `${quoteIdent(q.schema)}.${quoteIdent(q.name)}`
@@ -136,60 +135,20 @@ export const openPlatformWith = (
 		return {
 			installed,
 			schema,
-			layer,
+			served,
 			table,
 			clear: Effect.asVoid(clear),
 			withDb: (body) =>
 				Effect.scoped(
-					Effect.flatMap(Layer.build(layer), (context) =>
+					Effect.flatMap(Layer.build(served.layer), (context) =>
 						Effect.provideContext(
-							Effect.scoped(
-								Effect.flatMap(openDbContext(schema.server.roles.billing, {}), (opened) =>
-									body(opened.db, opened.ctx)
-								)
-							),
+							Effect.scoped(Effect.flatMap(Db.open(served.login.roles.billing, {}), body)),
 							context
 						)
 					)
 				)
 		}
 	})
-
-/** One ChangeSet inserting every relation's facts. */
-export const insertAll = (f: PlatformFacts) =>
-	ChangeSet.empty(P.Platform)
-		.insert(P.Month, f.Month)
-		.insert(P.Day, f.Day)
-		.insert(P.Org, f.Org)
-		.insert(P.ParentOrg, f.ParentOrg)
-		.insert(P.Workspace, f.Workspace)
-		.insert(P.WorkspaceLimit, f.WorkspaceLimit)
-		.insert(P.ApiKey, f.ApiKey)
-		.insert(P.Revocation, f.Revocation)
-		.insert(P.ApiKeyActive, f.ApiKeyActive)
-		.insert(P.Provider, f.Provider)
-		.insert(P.Model, f.Model)
-		.insert(P.Route, f.Route)
-		.insert(P.ProviderPrice, f.ProviderPrice)
-		.insert(P.RateCard, f.RateCard)
-		.insert(P.RateTier, f.RateTier)
-		.insert(P.CreditGrant, f.CreditGrant)
-		.insert(P.Subscription, f.Subscription)
-		.insert(P.Segment, f.Segment)
-		.insert(P.UsageEvent, f.UsageEvent)
-		.insert(P.EventCharge, f.EventCharge)
-		.insert(P.UsageCharge, f.UsageCharge)
-		.insert(P.ProviderCost, f.ProviderCost)
-		.insert(P.CreditDebit, f.CreditDebit)
-		.insert(P.Invoice, f.Invoice)
-		.insert(P.InvoiceLine, f.InvoiceLine)
-		.insert(P.UsageLine, f.UsageLine)
-		.insert(P.PlanLine, f.PlanLine)
-		.insert(P.Allocation, f.Allocation)
-		.insert(P.Payment, f.Payment)
-		.insert(P.Voiding, f.Voiding)
-		.insert(P.Dispute, f.Dispute)
-		.insert(P.Refund, f.Refund)
 
 const factCount = (f: PlatformFacts): number => Arr.reduce(loadOrder, 0, (n, r) => n + f[r].length)
 
@@ -200,13 +159,13 @@ class LoadRefused extends Data.TaggedError("LoadRefused")<{ readonly reason: str
 	}
 }
 
-/** Applies one ChangeSet of facts; it must be accepted. */
+/** Applies the facts `f` through the workload's load, one ChangeSet; it must be accepted. */
 export const applyFacts = (db: PlatformDb, f: PlatformFacts) =>
 	Effect.gen(function* () {
 		if (factCount(f) === 0) {
 			return
 		}
-		const outcome = yield* db.apply(insertAll(f), {})
+		const outcome = yield* db.workload.load.apply({ insert: f }, {})
 		if (outcome.kind === "invariant-rejected") {
 			return yield* Effect.die(
 				new LoadRefused({
@@ -429,7 +388,7 @@ const batches = (f: PlatformFacts, limit: number): ReadonlyArray<PlatformFacts> 
 	return out
 }
 
-/** Loads a platform's facts through db.apply in batches (see batches); every batch must be accepted. */
+/** Loads a platform's facts through the workload's load in batches (see batches); every batch must be accepted. */
 export const loadPlatform = (db: PlatformDb, f: PlatformFacts, limit: number) =>
 	Effect.forEach(batches(f, limit), (batch) => applyFacts(db, batch), { discard: true })
 

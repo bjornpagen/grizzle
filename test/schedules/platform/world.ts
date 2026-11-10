@@ -1,6 +1,6 @@
 import { Array as Arr, Effect, Option } from "effect"
 import type { ApplyError } from "#adapter/public/errors.ts"
-import { type Addition, ChangeSet } from "#compiler/public/changeset.ts"
+import type { Addition } from "#compiler/public/changeset.ts"
 import type { Uuid } from "#compiler/public/fields.ts"
 import type { Fact } from "#compiler/public/schema.ts"
 import {
@@ -200,7 +200,7 @@ const usageOps = (record: P.UsageRecord): ReadonlyArray<PlatformOp> => [
 ]
 
 const recordCall = (record: P.UsageRecord) => (db: RacesDb) =>
-	Effect.map(db.apply(P.recordUsage(record), {}), answerOf)
+	Effect.map(db.workload.recordUsage.apply(P.usageFacts(record), {}), answerOf)
 
 /**
  * One usage event recorded: the fixture's recordUsage, one ChangeSet; a direct writer inserts the same facts. A request
@@ -232,7 +232,7 @@ export const quotedUsageWrite = (priced: P.UsageRecord, tokens: bigint, label: s
 			read: (db) =>
 				Effect.map(
 					Effect.flatMap(
-						db.execute(P.quote, {
+						db.workload.quote.execute({
 							model: ids.model,
 							now: instants(pricedAt(window)),
 							usage: [{ kind: "input", tokens: P.Tokens(tokens) }]
@@ -273,7 +273,10 @@ const rateChangeWrite = (kind: string, label: string, change: P.RateChange): Wri
 	return {
 		kind,
 		label,
-		grizzle: stated((db) => Effect.map(db.apply(P.changeRate(change), {}), answerOf), ops),
+		grizzle: stated(
+			(db) => Effect.map(db.workload.changeRate.apply(P.rateChangeFacts(change), {}), answerOf),
+			ops
+		),
 		direct: statementsOf(ops)
 	}
 }
@@ -311,7 +314,11 @@ export const capWrite = (from: bigint, to: bigint): Write => ({
 	kind: from === to ? "cap put again" : "cap put",
 	label: `cap ${from} to ${to}`,
 	grizzle: stated(
-		(db) => Effect.map(db.apply(P.setCap([limitOf(to)]), {}), answerOf),
+		(db) =>
+			Effect.map(
+				db.workload.setCap.apply({ put: { WorkspaceLimit: [limitOf(to)] } }, {}),
+				answerOf
+			),
 		[putOp("WorkspaceLimit", [limitOf(to)])]
 	),
 	direct: statementsOf([putOp("WorkspaceLimit", [limitOf(to)])])
@@ -337,7 +344,7 @@ export const capsMergeWrite = (
 		", "
 	)}]`,
 	grizzle: program(
-		(db) => Effect.map(db.apply(P.setCaps, { caps, workspace: ids.workspace }), answerOf),
+		(db) => Effect.map(db.workload.setCaps.apply({ caps, workspace: ids.workspace }), answerOf),
 		(s: State) => [
 			putOp("WorkspaceLimit", caps),
 			{
@@ -370,8 +377,7 @@ export const grantWrite = (
 	kind,
 	label,
 	grizzle: stated(
-		(db) =>
-			Effect.map(db.apply(ChangeSet.empty(P.Platform).put(P.CreditGrant, [to]), {}), answerOf),
+		(db) => Effect.map(db.workload.putGrant.apply({ put: { CreditGrant: [to] } }, {}), answerOf),
 		[putOp("CreditGrant", [to])]
 	),
 	direct: statementsOf([putOp("CreditGrant", [to])])
@@ -418,7 +424,10 @@ export const refundWrite = (r: Fact<typeof P.Refund>, label: string): Write => {
 	return {
 		kind: "refund",
 		label,
-		grizzle: stated((db) => Effect.map(db.apply(P.refund([r]), {}), answerOf), ops),
+		grizzle: stated(
+			(db) => Effect.map(db.workload.refund.apply({ insert: { Refund: [r] } }, {}), answerOf),
+			ops
+		),
 		direct: statementsOf(ops)
 	}
 }
@@ -475,17 +484,17 @@ const settlementWrite = (
 
 export const payWrite = (amount: bigint): Write =>
 	settlementWrite("pay", amount, "open", "paid", (db) =>
-		Effect.map(db.apply(P.payInvoice, { invoice: ids.invoice, charge: ids.charge }), answerOf)
+		Effect.map(db.workload.payInvoice.apply({ invoice: ids.invoice, charge: ids.charge }), answerOf)
 	)
 
 export const disputeWrite = (amount: bigint): Write =>
 	settlementWrite("dispute", amount, "paid", "disputed", (db) =>
-		Effect.map(db.apply(P.disputeInvoice, { invoice: ids.invoice, at: settledAt }), answerOf)
+		Effect.map(db.workload.disputeInvoice.apply({ invoice: ids.invoice, at: settledAt }), answerOf)
 	)
 
 export const voidWrite = (amount: bigint): Write =>
 	settlementWrite("void", amount, "open", "void", (db) =>
-		Effect.map(db.apply(P.voidInvoice, { invoice: ids.invoice, at: settledAt }), answerOf)
+		Effect.map(db.workload.voidInvoice.apply({ invoice: ids.invoice, at: settledAt }), answerOf)
 	)
 
 /**
@@ -504,7 +513,7 @@ export const revokeWrite = (at: bigint, active: SpanV): Write => {
 		grizzle: program(
 			(db) =>
 				Effect.map(
-					db.apply(P.revokeKey(ids.key, P.Instant(at), instants(active)), {
+					db.workload.revokeKey.apply(P.revokeFacts(ids.key, P.Instant(at), instants(active)), {
 						key: ids.key,
 						at: P.Instant(at)
 					}),

@@ -1,13 +1,13 @@
 /**
  * The platform's laws refuse exactly what they forbid, each named through the naming door.
  *
- * A case is a generated platform, stored by one db.apply, and one write built from it as the application builds it
- * (priced, settled and attributed by the host billing model) with exactly one thing wrong, by a drawn margin of one
- * micro-dollar or second or more. The faulty write must be refused with `invariant-rejected` naming the one law it
- * breaks; then the same write without its fault must be accepted, so the refusal is the fault's and no other law's. The
- * host law model (test/support/platform/laws.ts) judges both writes on the stored platform too, as a second oracle: the
- * faulty write's state after breaks exactly the fault's law and the sound write's none, so the model refuses exactly
- * what grizzle refuses:
+ * A case is a generated platform, stored by one call of the workload's load, and one write built from it as the
+ * application builds it (priced, settled and attributed by the host billing model) with exactly one thing wrong, by a
+ * drawn margin of one micro-dollar or second or more. The faulty write must be refused with `invariant-rejected`
+ * naming the one law it breaks; then the same write without its fault must be accepted, so the refusal is the fault's
+ * and no other law's. The host law model (test/support/platform/laws.ts) judges both writes on the stored platform too,
+ * as a second oracle: the faulty write's state after breaks exactly the fault's law and the sound write's none, so the
+ * model refuses exactly what grizzle refuses:
  *
  * - spend past a workspace's monthly cap (spendWithinCap): a usage event in a month whose cap the workspace has spent
  *   exactly; without the fault, the same event with no tokens;
@@ -42,7 +42,7 @@ import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
 import type { ApplyOutcome } from "#adapter/public/db.ts"
 import type { ApplyError } from "#adapter/public/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
-import { type Addition, ChangeSet } from "#compiler/public/changeset.ts"
+import type { Addition } from "#compiler/public/changeset.ts"
 import type { Uuid } from "#compiler/public/fields.ts"
 import type { Fact } from "#compiler/public/schema.ts"
 import { applyFacts, openPlatform, type PlatformDb } from "#test/pg/e2e-platform/support.ts"
@@ -181,17 +181,17 @@ const usageOps = (r: P.UsageRecord): ReadonlyArray<PlatformOp> => [
 ]
 
 const usage = (r: P.UsageRecord): Attempt => ({
-	apply: (db) => Effect.map(db.apply(P.recordUsage(r), {}), decided),
+	apply: (db) => Effect.map(db.workload.recordUsage.apply(P.usageFacts(r), {}), decided),
 	ops: usageOps(r)
 })
 
 const refunding = (r: Fact<typeof P.Refund>): Attempt => ({
-	apply: (db) => Effect.map(db.apply(P.refund([r]), {}), decided),
+	apply: (db) => Effect.map(db.workload.refund.apply({ insert: { Refund: [r] } }, {}), decided),
 	ops: [insertOp("Refund", [r])]
 })
 
 const rateChange = (c: P.RateChange): Attempt => ({
-	apply: (db) => Effect.map(db.apply(P.changeRate(c), {}), decided),
+	apply: (db) => Effect.map(db.workload.changeRate.apply(P.rateChangeFacts(c), {}), decided),
 	ops: [
 		deleteOp("RateTier", c.retired.tiers),
 		deleteOp("RateCard", [c.retired.card]),
@@ -520,10 +520,7 @@ const plantRateInForce = (p: Platform, margin: bigint): Option.Option<Planted> =
 			}
 			return {
 				apply: (db) =>
-					Effect.map(
-						db.apply(ChangeSet.empty(P.Platform).insert(P.RateCard, [added]), {}),
-						decided
-					),
+					Effect.map(db.workload.addRateCard.apply({ insert: { RateCard: [added] } }, {}), decided),
 				ops: [insertOp("RateCard", [added])]
 			}
 		}
@@ -581,8 +578,8 @@ const plantAllocationCovered = (p: Platform, margin: bigint): Option.Option<Plan
 				const change = (by: ReadonlyArray<Fact<typeof P.Segment>>): Attempt => ({
 					apply: (db) =>
 						Effect.map(
-							db.apply(
-								ChangeSet.empty(P.Platform).delete(P.Segment, [segment]).insert(P.Segment, by),
+							db.workload.resegment.apply(
+								{ delete: { Segment: [segment] }, insert: { Segment: by } },
 								{}
 							),
 							decided
@@ -607,11 +604,12 @@ const plantPaidWithoutPayment = (p: Platform): Option.Option<Planted> =>
 			return {
 				faulty: {
 					apply: (db) =>
-						Effect.map(db.apply(ChangeSet.empty(P.Platform).put(P.Invoice, [paid]), {}), decided),
+						Effect.map(db.workload.putInvoice.apply({ put: { Invoice: [paid] } }, {}), decided),
 					ops: [putOp("Invoice", [paid])]
 				},
 				sound: {
-					apply: (db) => Effect.map(db.apply(P.payInvoice, { invoice: open.id, charge }), decided),
+					apply: (db) =>
+						Effect.map(db.workload.payInvoice.apply({ invoice: open.id, charge }), decided),
 					ops: [putOp("Invoice", [paid]), insertOp("Payment", [{ invoice: open.id, charge }])]
 				}
 			}
