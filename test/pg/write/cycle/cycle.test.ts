@@ -6,7 +6,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer } from "effect"
-import { compiledOpen } from "#adapter/db/open.ts"
+import { Db } from "#adapter/public/db.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { contained, mutable, on, relation, schema } from "#compiler/public/schema.ts"
@@ -18,10 +18,9 @@ import { refusedLaws } from "#test/support/refused.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { tableState } from "#test/support/substrate/state.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-import { loginLayer } from "#test/support/worlds.ts"
 
 /**
- * Plain foreign keys on a cycle, through db.apply, against a host model of containment: A's `b` is contained in B's
+ * Plain foreign keys on a cycle, through a served ChangeSet, against a host model of containment: A's `b` is in B's
  * key and B's `a` in A's, each target holding a field outside its key, so both foreign keys are deferred and judged at
  * COMMIT. A ChangeSet that inserts facts of both relations naming each other, in one stratum, commits; one whose final
  * state leaves a reference without its target, an insertion naming a fact nobody holds or a deletion of a fact still
@@ -37,6 +36,11 @@ const B = relation("B", { id: pg.integer, a: pg.integer }, ["id"])
 const intoB = contained(on(A, "b"), on(B, "id"))
 const intoA = contained(on(B, "a"), on(A, "id"))
 const Cycle = schema("Cycle", { A, B }, [intoB, intoA, mutable(A), mutable(B)])
+
+/** The full world's workload: one ChangeSet inserting and deleting facts of A and B, each call's facts by op. */
+const programs = {
+	change: ChangeSet.empty(Cycle).insert(A, []).insert(B, []).delete(A, []).delete(B, [])
+}
 
 /** A fact of either relation: its key and the key it references in the other. */
 interface Fact {
@@ -125,7 +129,7 @@ layer(Substrate.layer, { excludeTestServices: true })("plain foreign keys on a c
 			searched(
 				ctx,
 				Effect.gen(function* () {
-					const o = yield* installed(Cycle, {}, { label: "cycle", extensions: [], programs: {} })
+					const o = yield* installed(Cycle, {}, { label: "cycle", extensions: [], programs })
 					const s = yield* Substrate
 					const names = namesOf(o.installed)
 					const laws = {
@@ -133,7 +137,7 @@ layer(Substrate.layer, { excludeTestServices: true })("plain foreign keys on a c
 						b: names.described(names.lawOf(intoA))
 					}
 					return yield* Effect.gen(function* () {
-						const db = yield* compiledOpen(o.server.roles.app, {})
+						const db = yield* Db.open(o.served.login.roles.app, {})
 						return yield* explore(
 							{
 								suite: "pg/write/cycle",
@@ -172,24 +176,17 @@ layer(Substrate.layer, { excludeTestServices: true })("plain foreign keys on a c
 											insert(names.table(B), `${names.column(B, "id")}, ${names.column(B, "a")}`, f)
 										)
 									])
-									const outcome = yield* db.apply(
-										ChangeSet.empty(o.schema)
-											.insert(
-												A,
-												Arr.map(requested.insertA, (f) => ({ id: f.id, b: f.ref }))
-											)
-											.insert(
-												B,
-												Arr.map(requested.insertB, (f) => ({ id: f.id, a: f.ref }))
-											)
-											.delete(
-												A,
-												Arr.map(requested.deleteA, (f) => ({ id: f.id, b: f.ref }))
-											)
-											.delete(
-												B,
-												Arr.map(requested.deleteB, (f) => ({ id: f.id, a: f.ref }))
-											),
+									const outcome = yield* db.workload.change.apply(
+										{
+											insert: {
+												A: Arr.map(requested.insertA, (f) => ({ id: f.id, b: f.ref })),
+												B: Arr.map(requested.insertB, (f) => ({ id: f.id, a: f.ref }))
+											},
+											delete: {
+												A: Arr.map(requested.deleteA, (f) => ({ id: f.id, b: f.ref })),
+												B: Arr.map(requested.deleteB, (f) => ({ id: f.id, a: f.ref }))
+											}
+										},
 										{}
 									)
 									const finalA = [...minus(stored.a, requested.deleteA), ...requested.insertA]
@@ -265,7 +262,7 @@ layer(Substrate.layer, { excludeTestServices: true })("plain foreign keys on a c
 						)
 					}).pipe(
 						(body) =>
-							Effect.flatMap(Layer.build(loginLayer(o.installed, o.server)), (context) =>
+							Effect.flatMap(Layer.build(o.served.layer), (context) =>
 								Effect.provideContext(body, context)
 							),
 						Effect.scoped
