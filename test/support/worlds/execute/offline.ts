@@ -5,9 +5,11 @@ import type { CompileError, EncodingFailure } from "#compiler/core/errors.ts"
 import * as Engine from "#compiler/core/result.ts"
 import { type BindResult, bindWrite } from "#compiler/runtime/write/bind.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
+import type { UnservedMember } from "#compiler/served/unserved.ts"
 import { type ParsedChangeSet, parseChangeSet } from "#compiler/write/changeset/value.ts"
 import { runnableWrite } from "#compiler/write/program/bind.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
+import { servedMembers } from "#compiler/write/program/served-members.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
 import type { BuiltRole } from "#test/support/worlds/execute/build.ts"
@@ -40,6 +42,21 @@ export const offlineCompile = (
 		derived: artifacts.derived
 	})
 }
+
+/**
+ * The program of a ChangeSet as a served member of the role's workload compiles it, with no PostgreSQL: offlineCompile,
+ * then its array members as a call supplies them (write/program/served-members.ts servedMembers), as generate serves a
+ * ChangeSet (adapter/served/project.ts): two array members of one op and relation are its UnservedMember, which the
+ * served compile refuses.
+ */
+export const offlineServed = (
+	role: BuiltRole,
+	change: ParsedChangeSet,
+	claims: ReadonlySet<string>
+): Engine.Result<CompiledWrite, CompileError | UnservedMember> =>
+	Engine.flatMap(offlineCompile(role, change, claims), (compiled) =>
+		Engine.map(servedMembers(compiled.binding.members, change.values), () => compiled)
+	)
 
 /**
  * A bind's result, its failure the host's refusal of the facts: an encoder's, or a CompileError. No input a case draws

@@ -696,11 +696,12 @@ const without = (a: ReadonlyArray<HostFact>, b: ReadonlyArray<HostFact>): Readon
 	Arr.filter(a, (f) => !Arr.some(b, (g) => sameValues(f, g)))
 
 /**
- * Whether grizzle refuses a ChangeSet of these strata and read-backs through a role when it compiles (README "Writing
- * through a role", "Writes"): a relation outside the role's write list, a stratum that writes a query entry and also a
- * relation its filter reads, or a read-back of a relation the role does not hold or whose delta the change does not
- * determine. A ChangeSet's facts are values outside its Description, so no fact, generated or complete, and no
- * relation's serial fields, is a reason to refuse it there.
+ * Whether grizzle refuses a ChangeSet of these strata and read-backs through a role when it compiles into a served
+ * member (README "Writing through a role", "Writes", "db.workload"): a relation outside the role's write list, a stratum
+ * that writes a query entry and also a relation its filter reads, two strata that write one relation by one op, whose
+ * array members a call's facts cannot tell apart, or a read-back of a relation the role does not hold or whose delta the
+ * change does not determine. A ChangeSet's facts are a call's values outside its Description, so no fact, generated or
+ * complete, and no relation's serial fields, is a reason to refuse it there.
  */
 export const compileRefused = (
 	base: BaseSpec,
@@ -723,9 +724,20 @@ export const compileRefused = (
 				w.written?.kind !== "query" || !Arr.some([...filterReads(w.written)], (r) => targets.has(r))
 		)
 	})
+	/** Whether no op and relation is written by two strata. */
+	const once = Arr.every(strata, (ops, i) =>
+		Arr.every(
+			ops,
+			(op) =>
+				!Arr.some(Arr.drop(strata, i + 1), (later) =>
+					Arr.some(later, (o) => o.kind === op.kind && o.relation === op.relation)
+				)
+		)
+	)
 	return (
 		Arr.some(layers, (ops) => Arr.some(ops, (w) => w.written === undefined)) ||
 		!disjoint ||
+		!once ||
 		Arr.some(reads, (r) => roleEntryOf(role, r) === undefined) ||
 		Arr.some(reads, (relation) => deltaOf(base, role, relation, written).kind === "undetermined")
 	)

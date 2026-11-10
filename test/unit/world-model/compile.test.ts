@@ -7,13 +7,14 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec, Result } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type * as Engine from "#compiler/core/result.ts"
+import type { UnservedMember } from "#compiler/served/unserved.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { atDeclaredName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { messageOf } from "#test/support/message.ts"
 import { buildInstall } from "#test/support/worlds/execute/build.ts"
 import { namesOfBuilt } from "#test/support/worlds/execute/names.ts"
-import { offlineCompile, parsedChange } from "#test/support/worlds/execute/offline.ts"
+import { offlineServed, parsedChange } from "#test/support/worlds/execute/offline.ts"
 import { plannedWrite } from "#test/support/worlds/execute/session.ts"
 import { additionsOf } from "#test/support/worlds/features.ts"
 import { actionGen } from "#test/support/worlds/generate/action.ts"
@@ -45,10 +46,11 @@ import type {
 /**
  * The worlds model's oracle on a write's compile phase alone, with no PostgreSQL: over an installation of the documents
  * base built through the public builders, a lawful reality and a Db of one of its roles (a writing one where the
- * installation holds any), one `db.apply` the worlds suites draw for that Db (generate/action.ts actionGen, its kinds
+ * installation holds any), one apply the worlds suites draw for that Db (generate/action.ts actionGen, its kinds
  * cut to apply under drawn validity weights, so its stale and wild facts and relations come along). The ChangeSet is
- * the one the executor hands to db.apply (execute/session.ts plannedWrite), compiled with compileWrite against the
- * role's artifacts and the Db's claims as adapter/apply/compile.ts writeEntry compiles it. It compiles exactly where
+ * the one the executor serves (execute/session.ts plannedWrite), compiled with compileWrite against the role's
+ * artifacts and the Db's claims, and its array members served as a call supplies them (execute/offline.ts
+ * offlineServed), as the served compile compiles it. It compiles exactly where
  * the model's outcomes for the action exclude `compile-refused`, and the model refuses it when it compiles on every
  * branch or on none.
  *
@@ -118,7 +120,7 @@ const compiledAdditions = (
 		: []
 
 /** A compile's refusal; none when it compiles. */
-const refusalOf = <A>(compiled: Engine.Result<A, CompileError>): CompileError | undefined =>
+const refusalOf = <A, E>(compiled: Engine.Result<A, E>): E | undefined =>
 	compiled.ok ? undefined : compiled.error
 
 /** A run's weights cut to applies: every other kind off, its validity shares as drawn. */
@@ -217,10 +219,10 @@ describe("the worlds model's compile rules", () => {
 							action.strata,
 							action.reads
 						)
-						const refusal: CompileError | undefined = Result.isFailure(write)
+						const refusal: CompileError | UnservedMember | undefined = Result.isFailure(write)
 							? write.failure
 							: refusalOf(
-									offlineCompile(
+									offlineServed(
 										value,
 										parsedChange(write.success.changes),
 										new Set(Rec.keys(session.facts))

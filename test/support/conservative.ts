@@ -1,18 +1,9 @@
-import { Array as Arr, Effect, Result as EffectResult } from "effect"
+import { Array as Arr, Result as EffectResult } from "effect"
 import { readBacks } from "#adapter/apply/readback.ts"
 import type { DbContext } from "#adapter/db/context.ts"
 import { toResult } from "#adapter/engine.ts"
-import { ReadFailure } from "#adapter/errors/execution.ts"
 import type { PageRuntime } from "#adapter/page/template.ts"
-import type { ReadExecutor } from "#adapter/reader/executor.ts"
-import {
-	type CompiledReadValue,
-	makeReader,
-	type ReaderValue,
-	type ReadForm,
-	readHandle
-} from "#adapter/reader/reader.ts"
-import { type CompiledEntry, compiledPageRuntime, compileReadForm } from "#adapter/served/forms.ts"
+import { type CompiledEntry, compiledPageRuntime } from "#adapter/served/forms.ts"
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -46,7 +37,6 @@ import {
 } from "#compiler/lower/template.ts"
 import type { QueryTemplate } from "#compiler/program/compile.ts"
 import type { SchemaArtifacts } from "#compiler/program/schema.ts"
-import { isOrderedValue, isQueryValue } from "#compiler/query/build/query.ts"
 import { servedReadBacks, servedSpine } from "#compiler/served/spine.ts"
 import { StatementShare } from "#compiler/write/insert/statement.ts"
 import type { WriteArtifact } from "#compiler/write/program/artifact.ts"
@@ -165,71 +155,6 @@ export const conservativePageRuntime = (
 		)
 	)
 
-/** The Db context's compilation, every template running its conservative lowering in its optimized one's place. */
-const conservativeCompile =
-	(ctx: DbContext): DbContext["compile"] =>
-	(input, request) =>
-		Result.flatMap(ctx.compile(input, request), ({ compiled, artifacts }) =>
-			Result.map(withConservative(compiled.template, artifacts.reads), (oracle) => ({
-				compiled: { ...compiled, template: conservativeRunning(oracle) },
-				artifacts
-			}))
-		)
-
-/**
- * The reader of `ctx`'s Db that reads every query through its conservative lowering and every page through its
- * conservative page artifact, on `executor`: a reader of the Db as makeReader builds it, over the Db's compilation run
- * conservatively (conservativeCompile), each page's runtime template swapped for the page oracle's baseline
- * (conservativePageRuntime) where a page is compiled, for a direct page and a compiled handle's alike.
- */
-export const conservativeReader = (ctx: DbContext, executor: ReadExecutor): ReaderValue => {
-	const conservative: DbContext = { ...ctx, compile: conservativeCompile(ctx) }
-	const reader: ReaderValue = makeReader(conservative, executor)
-	const handleOf = (query: unknown): Effect.Effect<CompiledReadValue, CompileError> =>
-		Effect.suspend(() => {
-			if (!isQueryValue(query) && !isOrderedValue(query)) {
-				return Effect.die(new Error("a conservative read of a value no query builder made"))
-			}
-			const form = EffectResult.flatMap(
-				compileReadForm(conservative, query, () => query.rows),
-				(compiled): EffectResult.Result<ReadForm<unknown>, CompileError> => {
-					const source = compiled.page
-					if (source.kind === "query") {
-						return EffectResult.succeed(compiled)
-					}
-					const page = source.page
-					return EffectResult.flatMap(
-						toResult(ctx.programArtifacts({ kind: "query", query: page.compiled.desc })),
-						({ artifacts }) =>
-							EffectResult.map(
-								conservativePageRuntime(
-									page.runtime,
-									page.compiled.template,
-									page.compiled.desc,
-									artifacts
-								),
-								({ runtime }): ReadForm<unknown> => ({
-									...compiled,
-									page: { kind: "compiled", page: { ...page, runtime } }
-								})
-							)
-					)
-				}
-			)
-			return Effect.map(Effect.fromResult(form), (f): CompiledReadValue =>
-				readHandle(conservative, executor, f, () => true)
-			)
-		})
-	return {
-		...reader,
-		compile: handleOf,
-		page: (query, params, request) =>
-			Effect.flatMap(
-				Effect.mapError(handleOf(query), (reason) => new ReadFailure({ reason })),
-				(handle) => handle.page(params, request)
-			)
-	}
-}
 /**
  * The write oracle's baseline of a compiled ChangeSet: `entry` with its program's conservative realization
  * (write/program/compile.ts conservativeWrite) and that realization's read-backs in their place, which an application

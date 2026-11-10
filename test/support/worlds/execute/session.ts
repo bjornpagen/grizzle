@@ -1,21 +1,32 @@
 import { Array as Arr, Effect, Option, Predicate, Record as Rec, Result } from "effect"
-import type { DbContext } from "#adapter/db/context.ts"
-import { type ReadError } from "#adapter/errors/execution.ts"
-import type { Db } from "#adapter/public/db.ts"
-import type { ReaderValue } from "#adapter/reader/reader.ts"
+import type { ServedDbContext } from "#adapter/db/context.ts"
+import { memberOps } from "#adapter/db/handles.ts"
+import type { CompiledOps, ServedOps } from "#adapter/db/ops.ts"
+import type { ReadError } from "#adapter/errors/execution.ts"
+import { compileServed, type ServedRefusal } from "#adapter/public/compile.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import { type CompileError, type CursorError, isCompileError } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
+import { pagedMember, refreshMember, workload } from "#compiler/program/workload/value.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
 import { queryOver, type QueryValue, varsOver } from "#compiler/query/build/query.ts"
 import type { FinishedValue, RuleValue } from "#compiler/query/build/rule.ts"
+import type { ServedFile } from "#compiler/served/forms.ts"
+import { servedFile } from "#compiler/served/json.ts"
 import { regexField } from "#compiler/text/field.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
+import type { LoginRole } from "#compiler/types/schema/world.ts"
 import { changeSetOver, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
 import type { DeltaValue } from "#compiler/write/delta/source.ts"
+import { defined } from "#test/support/assert.ts"
+import type { TestCompileOptions } from "#test/support/compile.ts"
 import { argumentsOf } from "#test/support/list.ts"
-import { dbRuntime } from "#test/support/runtime-db.ts"
-import { artifactsAgree } from "#test/support/worlds/execute/artifacts.ts"
+import { appliedWith, type CallFacts } from "#test/support/served-db.ts"
+import {
+	artifactsAgree,
+	servedMembers,
+	sidedMembers
+} from "#test/support/worlds/execute/artifacts.ts"
 import type { BuiltRole } from "#test/support/worlds/execute/build.ts"
 import { headDomains } from "#test/support/worlds/execute/describe.ts"
 import { carrierOf, factOfRow } from "#test/support/worlds/execute/host.ts"
@@ -57,9 +68,12 @@ export const refusedWith = (observation: Observation, error: unknown): Seen => (
 
 /**
  * A Db's session: its login and role, the base of the version it was opened at, whose snapshot it holds, with that
- * version's described laws, which its refusals' laws are read back by, and the Db, which holds the pool of that
- * version's layer (test/support/runtime-db.ts contextOf), the pool that serves it after a migration made another
- * version current.
+ * version's described laws, which its refusals' laws are read back by, and the Db's context, which holds the pool of
+ * the layer it was opened on, the pool that serves it after a migration made another version current. Each program an
+ * action runs is a member of the role's workload, compiled as generate compiles it (adapter/public/compile.ts
+ * compileServed) into a served file of the login under `snapshot`, the snapshot its layer's file was compiled under,
+ * then loaded as a layer loads it and run on the Db's context (adapter/db/handles.ts memberOps); `compile` is the
+ * installation's allocation and codes, under which the read differential compiles a read again (artifacts.ts).
  */
 export interface DbSession {
 	readonly kind: "db"
@@ -68,10 +82,44 @@ export interface DbSession {
 	readonly base: BaseSpec
 	readonly described: ReadonlyMap<LawId, Law>
 	readonly value: BuiltRole
-	readonly db: Db<BuiltRole, unknown>
-	/** The context `db` reads, which the runtime reads and writes through (test/support/runtime-db.ts). */
-	readonly ctx: DbContext
+	/** The role reached through its login, whose served files the session's programs are compiled into. */
+	readonly reached: LoginRole<BuiltRole, unknown>
+	readonly snapshot: unknown
+	readonly compile: TestCompileOptions
+	readonly ctx: ServedDbContext
 }
+
+/**
+ * The served file of the session's login whose role's workload holds exactly `programs`, under the snapshot its layer's
+ * file was compiled under; a value workload(...) itself refuses is that refusal, as generate refuses it.
+ */
+const servedFileOf = (
+	session: DbSession,
+	programs: Readonly<Record<string, unknown>>
+): Effect.Effect<ServedFile, ServedRefusal | CompileError> =>
+	Effect.flatMap(
+		Effect.mapError(
+			attempt("the workload", () => workload(session.reached.role, programs)),
+			(refused) => refused.refusal
+		),
+		(served) =>
+			Effect.map(
+				Effect.suspend(() => compileServed(session.reached.login, session.snapshot, [served])),
+				servedFile
+			)
+	)
+
+/** A served member's operations as a read runs them: a read member loads as a program's, never as a facts handle. */
+const readOperations = (served: ServedOps<unknown>): CompiledOps<unknown> => {
+	if (served.kind !== "program") {
+		throw new Error("a read member loaded as a facts handle")
+	}
+	return served.ops
+}
+
+/** A served refusal as the action observes it: a compile's refusal of the program, every text of its error. */
+const servedRefused = (refusal: ServedRefusal | CompileError): Seen =>
+	refusedWith({ kind: "compile-refused" }, "place" in refusal ? refusal.error : refusal)
 
 /** The role a write or a read is built through: its spec, and its value as the builders made it. */
 export type WritingRole = Pick<DbSession, "role" | "value">
@@ -129,8 +177,7 @@ export const derivedFields = (
  * order too.
  */
 const allPages = (
-	reader: ReaderValue,
-	program: unknown,
+	ops: CompiledOps<unknown>,
 	size: number,
 	from: PageFrom
 ): Effect.Effect<ReadonlyArray<unknown>, ReadError | CursorError> =>
@@ -139,26 +186,18 @@ const allPages = (
 			Arr.map(page.edges, (e) => e.node)
 		if (from === "first") {
 			const rows: Array<unknown> = []
-			let page = yield* reader.page(program, {}, { first: size })
+			let page = yield* ops.page({}, { first: size })
 			appendAll(rows, nodes(page))
 			while (page.pageInfo.hasNextPage && Option.isSome(page.pageInfo.endCursor)) {
-				page = yield* reader.page(
-					program,
-					{},
-					{ first: size, after: page.pageInfo.endCursor.value }
-				)
+				page = yield* ops.page({}, { first: size, after: page.pageInfo.endCursor.value })
 				appendAll(rows, nodes(page))
 			}
 			return rows
 		}
-		let page = yield* reader.page(program, {}, { last: size })
+		let page = yield* ops.page({}, { last: size })
 		const backward: Array<ReadonlyArray<unknown>> = [nodes(page)]
 		while (page.pageInfo.hasPreviousPage && Option.isSome(page.pageInfo.startCursor)) {
-			page = yield* reader.page(
-				program,
-				{},
-				{ last: size, before: page.pageInfo.startCursor.value }
-			)
+			page = yield* ops.page({}, { last: size, before: page.pageInfo.startCursor.value })
 			backward.push(nodes(page))
 		}
 		return Arr.flatten(Arr.reverse(backward))
@@ -296,12 +335,9 @@ const reachRead = (
 const built = (what: string, build: () => QueryValue): Effect.Effect<QueryValue, CompileError> =>
 	Effect.mapError(attempt(what, build), (refused) => refused.refusal)
 
-/** Every row a read of a program delivers, executed. */
-const executed = (
-	reader: ReaderValue,
-	program: QueryValue
-): Effect.Effect<ReadonlyArray<unknown>, ReadError | CompileError> =>
-	Effect.flatMap(reader.execute(program, {}), (result) => result.collect)
+/** Every row a read's member delivers, executed. */
+const executed = (ops: CompiledOps<unknown>): Effect.Effect<ReadonlyArray<unknown>, ReadError> =>
+	Effect.flatMap(ops.execute({}), (result) => result.collect)
 
 /** Rows a read delivered, each read as a fact of exactly `fields`. */
 const factsOfRows = (
@@ -311,55 +347,76 @@ const factsOfRows = (
 ): Effect.Effect<ReadonlyArray<HostFact>> =>
 	Effect.forEach(rows, (row, i) => factOfRow(row, fields, `${what} row ${i}`))
 
+/** The name of a read's one member in the role's workload. */
+const readMember = "read"
+
 /**
- * The facts of a read of a role relation through `reader`, by the path `via` names: the program reading it whole,
- * executed or prepared; ordered by the drawn order, which grizzle completes with a key of the relation, and read page
- * by page from the first page or the last; a keyed query by get; the relation with another attached, each row
- * flattened with its children (model/reads.ts flattened); or the pairs a recursive query chains.
+ * A read as a Db serves it: its query, the member of the role's workload that runs it (the query itself, or paged(...)
+ * of it), and how its facts are read through that member's operations.
  */
-const factsVia = (
-	reader: ReaderValue,
+interface SessionRead {
+	readonly query: unknown
+	readonly member: unknown
+	readonly facts: (
+		ops: CompiledOps<unknown>
+	) => Effect.Effect<ReadonlyArray<HostFact>, ReadError | CursorError>
+}
+
+/**
+ * The read of a role relation by the path `via` names: the program reading it whole, executed (a compiled handle is the
+ * served member itself, so `compile` executes it too); ordered by the drawn order, which grizzle completes with a key of
+ * the relation, served paged and read page by page from the first page or the last; a keyed query by get; the relation
+ * with another attached, each row flattened with its children (model/reads.ts flattened); or the pairs a recursive
+ * query chains. The builder's refusal of a program is the read's CompileError.
+ */
+const readVia = (
 	session: DbSession,
 	relation: string,
 	program: QueryValue,
 	fields: ReadonlyArray<{ readonly field: string; readonly domain: FieldDomain }>,
 	via: ReadVia
-): Effect.Effect<ReadonlyArray<HostFact>, ReadError | CursorError | CompileError> => {
+): Effect.Effect<SessionRead, CompileError> => {
 	const names = Arr.map(fields, (f) => f.field)
 	const asFacts = (rows: ReadonlyArray<unknown>) => factsOfRows(rows, names, relation)
+	const executedRead = (query: QueryValue): SessionRead => ({
+		query,
+		member: query,
+		facts: (ops) => Effect.flatMap(executed(ops), asFacts)
+	})
 	switch (via.kind) {
 		case "execute":
-			return Effect.flatMap(executed(reader, program), asFacts)
+		case "compile":
+			return Effect.succeed(executedRead(program))
 		case "get":
-			return Effect.flatMap(
+			return Effect.map(
 				built(`the get of ${relation}`, () =>
 					relationRead(session, relation, itself, carriersOf(fields, via.key))
 				),
-				(query) =>
-					Effect.flatMap(reader.get(query, {}), (row) =>
-						asFacts(Option.match(row, { onNone: () => [], onSome: (r) => [r] }))
-					)
+				(query): SessionRead => ({
+					query,
+					member: query,
+					facts: (ops) =>
+						Effect.flatMap(ops.get({}), (row) =>
+							asFacts(Option.match(row, { onNone: () => [], onSome: (r) => [r] }))
+						)
+				})
 			)
 		case "page":
-			return Effect.flatMap(
-				Effect.mapError(
-					attempt(`the page of ${relation}`, () =>
-						program.orderBy(
-							...argumentsOf(Arr.map(via.order, (k) => [k.field, k.direction] as const))
-						)
-					),
-					(refused) => refused.refusal
-				),
-				(ordered) => Effect.flatMap(allPages(reader, ordered, via.size, via.from), asFacts)
-			)
-		case "compile":
-			return Effect.scoped(
-				Effect.flatMap(reader.compile(program), (compiled) =>
-					Effect.flatMap(
-						Effect.flatMap(compiled.execute({}), (result) => result.collect),
-						asFacts
+			return Effect.mapBoth(
+				attempt(`the page of ${relation}`, () => {
+					const ordered = program.orderBy(
+						...argumentsOf(Arr.map(via.order, (k) => [k.field, k.direction] as const))
 					)
-				)
+					return { ordered, paged: pagedMember(ordered) }
+				}),
+				{
+					onFailure: (refused) => refused.refusal,
+					onSuccess: ({ ordered, paged }): SessionRead => ({
+						query: ordered,
+						member: paged,
+						facts: (ops) => Effect.flatMap(allPages(ops, via.size, via.from), asFacts)
+					})
+				}
 			)
 		case "attach": {
 			const attached = attachedField(names)
@@ -370,29 +427,33 @@ const factsVia = (
 				),
 				(f) => f !== via.child
 			)
-			return Effect.flatMap(
+			return Effect.map(
 				built(`the attachment of ${via.relation} to ${relation}`, () =>
 					attachedRead(session, relation, via, attached)
 				),
-				(query) =>
-					Effect.flatMap(executed(reader, query), (rows) =>
-						Effect.map(
-							Effect.forEach(rows, (row, i) =>
-								Effect.gen(function* () {
-									const what = `${relation} row ${i}`
-									const parent = yield* factOfRow(row, names, what)
-									const nested: unknown = Predicate.hasProperty(row, attached)
-										? row[attached]
-										: undefined
-									const children = Arr.isArray(nested)
-										? yield* factsOfRows(nested, childFields, `${what}.${attached}`)
-										: yield* Effect.die(new Error(`${what} delivers no array under ${attached}`))
-									return flattened(parent, children, attached)
-								})
-							),
-							Arr.flatten
+				(query): SessionRead => ({
+					query,
+					member: query,
+					facts: (ops) =>
+						Effect.flatMap(executed(ops), (rows) =>
+							Effect.map(
+								Effect.forEach(rows, (row, i) =>
+									Effect.gen(function* () {
+										const what = `${relation} row ${i}`
+										const parent = yield* factOfRow(row, names, what)
+										const nested: unknown = Predicate.hasProperty(row, attached)
+											? row[attached]
+											: undefined
+										const children = Arr.isArray(nested)
+											? yield* factsOfRows(nested, childFields, `${what}.${attached}`)
+											: yield* Effect.die(new Error(`${what} delivers no array under ${attached}`))
+										return flattened(parent, children, attached)
+									})
+								),
+								Arr.flatten
+							)
 						)
-					)
+				})
 			)
 		}
 		case "reach": {
@@ -402,20 +463,27 @@ const factsVia = (
 				? Effect.die(
 						new Error(`a recursive read of ${relation} over ${via.from}, which it chains no way`)
 					)
-				: Effect.flatMap(
+				: Effect.map(
 						built(`the recursive read of ${relation}`, () =>
 							reachRead(session, relation, via, field.value)
 						),
-						(query) =>
-							Effect.flatMap(executed(reader, query), (rows) =>
-								factsOfRows(rows, [reachFields.origin, reachFields.reached], relation)
-							)
+						(query): SessionRead => ({
+							query,
+							member: query,
+							facts: (ops) =>
+								Effect.flatMap(executed(ops), (rows) =>
+									factsOfRows(rows, [reachFields.origin, reachFields.reached], relation)
+								)
+						})
 					)
 		}
 	}
 }
 
-/** A read of a role relation, through a program over the role, by the path `via` names. */
+/**
+ * A read of a role relation, through a program over the role, by the path `via` names, served as a member of the
+ * role's workload (servedFileOf) and run on the Db's context, then held to its conservative artifact (artifacts.ts).
+ */
 export const readSession = (
 	session: DbSession,
 	relation: string,
@@ -428,15 +496,36 @@ export const readSession = (
 		if (Result.isFailure(program)) {
 			return refusedWith({ kind: "compile-refused" }, program.failure.refusal)
 		}
-		const runtime = dbRuntime(session.ctx)
-		const read = (reader: ReaderValue) =>
-			factsVia(reader, session, relation, program.success, fields, via)
-		const facts = yield* Effect.result(read(runtime.reader))
+		const read = yield* Effect.result(readVia(session, relation, program.success, fields, via))
+		if (Result.isFailure(read)) {
+			return refusedWith({ kind: "compile-refused" }, read.failure)
+		}
+		const file = yield* Effect.result(servedFileOf(session, { [readMember]: read.success.member }))
+		if (Result.isFailure(file)) {
+			return servedRefused(file.failure)
+		}
+		const sided = sidedMembers(
+			file.success,
+			session.value.name,
+			new Map([[readMember, read.success.query]]),
+			session.value,
+			session.compile
+		)
+		if (Result.isFailure(sided)) {
+			return yield* Effect.die(
+				new Error("a read the served compile admits is refused by its conservative compile", {
+					cause: sided.failure
+				})
+			)
+		}
+		const served = memberOps(
+			session.ctx,
+			defined(sided.success.optimized.get(readMember), "the read's served member")
+		)
+		const facts = yield* Effect.result(read.success.facts(readOperations(served)))
 		if (Result.isFailure(facts)) {
 			const error = facts.failure
 			switch (error._tag) {
-				case "CompileError":
-					return refusedWith({ kind: "compile-refused" }, error)
 				case "CursorError":
 					return yield* Effect.die(
 						new Error("a page of a fresh read refused its own cursor", { cause: error })
@@ -449,7 +538,9 @@ export const readSession = (
 				}
 			}
 		}
-		const agree = yield* artifactsAgree(session.ctx, read)
+		const agree = yield* artifactsAgree(session.ctx, sided.success, (operations) =>
+			read.success.facts(readOperations(operations(readMember)))
+		)
 		return agree
 			? seen({ kind: "rows", rows: facts.success })
 			: seen({ kind: "artifacts-disagree" })
@@ -465,36 +556,66 @@ const carriersOf = (
 		return Option.isSome(domain) ? carrierOf(domain.value.domain, value) : value
 	})
 
-/** One stratum: the union of its writes, each through a role relation. */
+/** A write's facts as its call states them: under each op, each written role relation's facts by its name. */
+type FactsByOp = Record<EntryOp["kind"], Record<string, Array<unknown>>>
+
+/**
+ * One stratum: the union of its writes, each through a role relation, as array members of a served ChangeSet, one per
+ * op and relation, whose facts the call states (`facts`): a write of an op and relation the stratum already writes adds
+ * its facts to that member's, so the stratum writes them together, as their union.
+ */
 const stratumOf = (
 	base: BaseSpec,
 	session: WritingRole,
-	ops: ReadonlyArray<EntryOp>
-): ChangeSetValue =>
-	Arr.reduce(ops, changeSetOver.empty(session.value), (changes: ChangeSetValue, op) => {
+	ops: ReadonlyArray<EntryOp>,
+	facts: FactsByOp
+): ChangeSetValue => {
+	const members = new Set<string>()
+	return Arr.reduce(ops, changeSetOver.empty(session.value), (changes: ChangeSetValue, op) => {
 		const fields = Option.getOrElse(entryFields(base, session.role, op.relation), () => [])
-		return changes[op.kind](
-			relationValue(session, op.relation),
-			Arr.map(op.facts, (f) => carriersOf(fields, f))
-		)
+		const carried = Arr.map(op.facts, (f) => carriersOf(fields, f))
+		const held = facts[op.kind][op.relation]
+		if (held === undefined) {
+			facts[op.kind][op.relation] = carried
+		} else {
+			appendAll(held, carried)
+		}
+		const member = `${op.kind} ${op.relation}`
+		if (members.has(member)) {
+			return changes
+		}
+		members.add(member)
+		return changes[op.kind](relationValue(session, op.relation), [])
 	})
+}
 
-/** The ChangeSet of a write: its strata in ChangeSet.sequence order, built on the builder's runtime path. */
+/**
+ * The ChangeSet of a write, its strata in ChangeSet.sequence order, built on the builder's runtime path, and its call's
+ * facts. An op and relation two strata write are two array members of one op and relation, which the served compile
+ * refuses where the strata meet, as generate refuses them.
+ */
 const changesOf = (
 	base: BaseSpec,
 	session: WritingRole,
 	strata: Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<EntryOp>>
-): Effect.Effect<Result.Result<ChangeSetValue, unknown>> =>
+): Effect.Effect<
+	Result.Result<{ readonly changes: ChangeSetValue; readonly facts: CallFacts }, unknown>
+> =>
 	Effect.sync(() =>
 		Result.try({
 			try: () => {
+				const facts: FactsByOp = { insert: {}, put: {}, delete: {} }
 				const [first, ...rest] = strata
-				return Arr.reduce(
+				const changes = Arr.reduce(
 					rest,
-					stratumOf(base, session, first),
+					stratumOf(base, session, first, facts),
 					(changes: ChangeSetValue, stratum) =>
-						changeSetOver.sequence(changes, stratumOf(base, session, stratum))
+						changeSetOver.sequence(changes, stratumOf(base, session, stratum, facts))
 				)
+				return {
+					changes,
+					facts: Rec.filter(facts, (byRelation) => !Rec.isEmptyRecord(byRelation))
+				}
 			},
 			catch: (cause) => cause
 		})
@@ -504,9 +625,13 @@ const changesOf = (
 const builderRefused = (cause: unknown): Effect.Effect<Result.Result<never, CompileError>> =>
 	isCompileError(cause) ? Effect.succeed(Result.fail(cause)) : Effect.die(cause)
 
-/** A write as the executor hands it to db.apply: its ChangeSet with its read-backs, and how each read-back is read. */
+/**
+ * A write as the executor serves it: its ChangeSet with its read-backs, the member of the role's workload a call
+ * applies with `facts`, and how each read-back is read.
+ */
 export interface PlannedWrite {
 	readonly changes: ChangeSetValue
+	readonly facts: CallFacts
 	readonly planned: ReadonlyArray<ReadBackPlan>
 }
 
@@ -544,7 +669,7 @@ export const plannedWrite = (
 		}
 		const withReads = Result.try({
 			try: () =>
-				Arr.reduce(planned, changes.success, (acc: ChangeSetValue, p) => {
+				Arr.reduce(planned, changes.success.changes, (acc: ChangeSetValue, p) => {
 					const rows = acc.read(`rows${String(p.index)}`, () => p.program)
 					return p.delta === "unchanged"
 						? rows
@@ -561,10 +686,30 @@ export const plannedWrite = (
 		if (Result.isFailure(withReads)) {
 			return yield* builderRefused(withReads.failure)
 		}
-		return Result.succeed({ changes: withReads.success, planned })
+		return Result.succeed({
+			changes: withReads.success,
+			facts: changes.success.facts,
+			planned
+		})
 	})
 
-/** A write through role relations. */
+/** The name of a write's one member in the role's workload. */
+const writeMember = "write"
+
+/** The operations of the one member of `programs` served on the session's Db, or the served compile's refusal. */
+const servedOn = (
+	session: DbSession,
+	programs: Readonly<Record<string, unknown>>,
+	name: string
+): Effect.Effect<ServedOps<unknown>, ServedRefusal | CompileError> =>
+	Effect.map(servedFileOf(session, programs), (file) =>
+		memberOps(
+			session.ctx,
+			defined(servedMembers(file, session.value.name).get(name), `the served member ${name}`)
+		)
+	)
+
+/** A write through role relations, served as a member of the role's workload and applied with the write's facts. */
 export const applySession = (
 	session: DbSession,
 	strata: Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<EntryOp>>,
@@ -575,9 +720,12 @@ export const applySession = (
 		if (Result.isFailure(write)) {
 			return refusedWith({ kind: "compile-refused" }, write.failure)
 		}
-		const { changes, planned } = write.success
-		const runtime = dbRuntime(session.ctx)
-		const outcome = yield* Effect.result(runtime.methods.apply(changes, {}))
+		const { changes, facts, planned } = write.success
+		const served = yield* Effect.result(servedOn(session, { [writeMember]: changes }, writeMember))
+		if (Result.isFailure(served)) {
+			return servedRefused(served.failure)
+		}
+		const outcome = yield* Effect.result(appliedWith(served.success, facts, {}))
 		if (Result.isFailure(outcome)) {
 			const failed = yield* applyFailed(outcome.failure)
 			return refusedWith(failed, outcome.failure)
@@ -650,11 +798,17 @@ const readBackOf = (plan: ReadBackPlan, reads: unknown): Effect.Effect<ReadBack>
 		}
 	})
 
-/** A value handed to db.apply, whatever it is. */
+/**
+ * A value served as a member of the role's workload, whatever it is, and applied with no facts: a ChangeSet's member,
+ * as a JavaScript caller's workload(...) names it. The served compile's refusal is the action's.
+ */
 export const applyValue = (session: DbSession, changes: unknown): Effect.Effect<Seen> =>
 	Effect.gen(function* () {
-		const runtime = dbRuntime(session.ctx)
-		const outcome = yield* Effect.result(runtime.methods.apply(changes, {}))
+		const served = yield* Effect.result(servedOn(session, { [writeMember]: changes }, writeMember))
+		if (Result.isFailure(served)) {
+			return servedRefused(served.failure)
+		}
+		const outcome = yield* Effect.result(appliedWith(served.success, {}, {}))
 		if (Result.isFailure(outcome)) {
 			const failed = yield* applyFailed(outcome.failure)
 			return refusedWith(failed, outcome.failure)
@@ -663,13 +817,17 @@ export const applyValue = (session: DbSession, changes: unknown): Effect.Effect<
 		return seen(appliedSuccess)
 	})
 
-/** A value handed to db.execute, whatever it is: its rows are not compared, only whether grizzle refuses it. */
+/**
+ * A value served as a read member of the role's workload, whatever it is, and executed: its rows are not compared,
+ * only whether grizzle refuses it.
+ */
 export const executeValue = (session: DbSession, program: unknown): Effect.Effect<Seen> =>
 	Effect.gen(function* () {
-		const runtime = dbRuntime(session.ctx)
-		const rows = yield* Effect.result(
-			Effect.flatMap(runtime.reader.execute(program, {}), (r) => r.collect)
-		)
+		const served = yield* Effect.result(servedOn(session, { [readMember]: program }, readMember))
+		if (Result.isFailure(served)) {
+			return servedRefused(served.failure)
+		}
+		const rows = yield* Effect.result(executed(readOperations(served.success)))
 		if (Result.isFailure(rows)) {
 			const failed = yield* readFailed(rows.failure)
 			return refusedWith(failed, rows.failure)
@@ -677,11 +835,26 @@ export const executeValue = (session: DbSession, program: unknown): Effect.Effec
 		return seen({ kind: "rows", rows: [] })
 	})
 
-/** A refresh of a derived relation the role holds whole, by the value handed to db.refresh. */
+/** The name of a refresh's one member in the role's workload. */
+const refreshName = "refresh"
+
+/**
+ * A refresh of a derived relation the role holds whole, by the value a JavaScript caller names in refresh([relation]),
+ * served as a member of the role's workload and run: the builder's or the served compile's refusal is the action's.
+ */
 export const refreshValue = (session: DbSession, relation: unknown): Effect.Effect<Seen> =>
 	Effect.gen(function* () {
-		const runtime = dbRuntime(session.ctx)
-		const done = yield* Effect.result(runtime.methods.refresh([relation]))
+		const member = yield* Effect.result(attempt("the refresh", () => refreshMember([relation])))
+		if (Result.isFailure(member)) {
+			return servedRefused(member.failure.refusal)
+		}
+		const served = yield* Effect.result(
+			servedOn(session, { [refreshName]: member.success }, refreshName)
+		)
+		if (Result.isFailure(served)) {
+			return servedRefused(served.failure)
+		}
+		const done = yield* Effect.result(readOperations(served.success).refresh)
 		if (Result.isFailure(done)) {
 			const failed = yield* applyFailed(done.failure)
 			return refusedWith(failed, done.failure)

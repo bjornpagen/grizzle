@@ -1,31 +1,40 @@
-import { Array as Arr, Deferred, Effect, Exit, Option, Ref } from "effect"
-import { type DbContext, dbReadFrame } from "#adapter/db/context.ts"
+import { Array as Arr, Deferred, Effect, Exit, Option, Ref, Result } from "effect"
+import { dbReadFrame, type ServedDbContext } from "#adapter/db/context.ts"
+import { memberOpsOn } from "#adapter/db/handles.ts"
+import type { ServedOps } from "#adapter/db/ops.ts"
+import { toResult } from "#adapter/engine.ts"
 import { type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
 import type { ReadExecutor } from "#adapter/reader/executor.ts"
-import { makeReader, type ReaderValue } from "#adapter/reader/reader.ts"
+import { type LoadedMember, loadServed } from "#adapter/served/load.ts"
 import {
 	asReadFailure,
 	type BatchOutcome,
 	type BatchStatement,
 	runFramed
 } from "#adapter/wire/batch.ts"
-import { conservativeReader } from "#test/support/conservative.ts"
+import type { CompileError } from "#compiler/core/errors.ts"
+import { queryDescOf } from "#compiler/schema/protocol.ts"
+import type { ServedFile, ServedMember } from "#compiler/served/forms.ts"
+import { servedSource } from "#compiler/served/read.ts"
+import { defined } from "#test/support/assert.ts"
+import { compileTemplate, type TestCompileOptions, testArtifacts } from "#test/support/compile.ts"
+import { conservativePageRuntime } from "#test/support/conservative.ts"
 import { factKeySet } from "#test/support/worlds/model/host.ts"
 import type { HostFact } from "#test/support/worlds/model/types.ts"
 
 /**
- * The differential of one read's two artifacts. Every template a Db reads through is compiled for the `snapshot`
- * context: the optimized artifact, which the Db runs, beside which the oracle lowers the same query conservatively,
+ * The differential of one read's two artifacts. Every read a Db serves is compiled by generate's compile into its
+ * served file: the optimized artifact, which the Db runs, beside which the oracle lowers the same query conservatively,
  * resting on no evidence the context admits (test/support/conservative.ts). Both must deliver the same rows from the
  * same snapshot, each a keyed set; rows that differ, or that either artifact repeats, are `artifacts-disagree`, a defect
  * no model branch allows.
  *
- * The check reads through two readers over the Db's own context (adapter/reader/reader.ts makeReader), as the Db's own
- * reader is built. One keeps the Db's compilation, so it runs the very template and page the Db's read ran. The
- * other reads every query through its conservative lowering and every page through its conservative page artifact
- * (test/support/conservative.ts conservativeReader). Their flights meet: each pair of flights,
- * one per artifact, is sent as one flight in one READ ONLY transaction of the Db's role and claims on one leased
- * session, the optimized statements first. Every read path (execute, get, every page, a compiled handle) sends its
+ * The check reads through the members of two served files over the Db's own context (adapter/db/handles.ts
+ * memberOpsOn), as the Db runs a member. One is the file the Db's read was served from, so it runs the very statements
+ * and page the Db's read ran. The other is that file with every read's statements its conservative lowering and every
+ * page's artifact its conservative page artifact (conservativeServed), loaded as a layer loads a file. Their flights
+ * meet: each pair of flights, one per artifact, is sent as one flight in one READ ONLY transaction of the Db's role and
+ * claims on one leased session, the optimized statements first. Every read path (execute, get, every page) sends its
  * flights in turn, so the k-th flight of one artifact meets the k-th of the other. A flight left without a partner,
  * because the other artifact read through in fewer flights, is sent alone.
  */
@@ -70,7 +79,7 @@ const arrivalAt = (meeting: Meeting, mine: Waiting): readonly [Arrival, Meeting]
 
 /** One flight's statements sent on a session leased from the Db's pool, in one transaction of its read frame. */
 const flown = (
-	ctx: DbContext,
+	ctx: ServedDbContext,
 	statements: ReadonlyArray<BatchStatement>
 ): Effect.Effect<ReadonlyArray<BatchOutcome>, ReadError> =>
 	Effect.scoped(
@@ -82,7 +91,7 @@ const flown = (
 
 /** Two waiting flights sent as one, the optimized first; each side is delivered its own statements' outcomes. */
 const together = (
-	ctx: DbContext,
+	ctx: ServedDbContext,
 	mine: Waiting,
 	other: Waiting
 ): Effect.Effect<ReadonlyArray<BatchOutcome>, ReadError> => {
@@ -104,7 +113,7 @@ const together = (
 
 /** A side's flight arriving at the meeting: it waits for the other's, goes with it, or goes alone. */
 const arrive = (
-	ctx: DbContext,
+	ctx: ServedDbContext,
 	meeting: Ref.Ref<Meeting>,
 	side: Side,
 	statements: ReadonlyArray<BatchStatement>
@@ -132,7 +141,11 @@ const arrive = (
  * A side done reading, or interrupted: a flight of the other's still waiting goes alone, and so does every later one.
  * A side interrupted while its own flight waits leaves it unsent.
  */
-const finished = (ctx: DbContext, meeting: Ref.Ref<Meeting>, side: Side): Effect.Effect<void> =>
+const finished = (
+	ctx: ServedDbContext,
+	meeting: Ref.Ref<Meeting>,
+	side: Side
+): Effect.Effect<void> =>
 	Effect.flatMap(
 		Ref.modify(meeting, (m): readonly [Option.Option<Waiting>, Meeting] => {
 			switch (m.kind) {
@@ -156,7 +169,7 @@ const finished = (ctx: DbContext, meeting: Ref.Ref<Meeting>, side: Side): Effect
 			})
 	)
 
-const executorAt = (ctx: DbContext, meeting: Ref.Ref<Meeting>, side: Side): ReadExecutor => ({
+const executorAt = (ctx: ServedDbContext, meeting: Ref.Ref<Meeting>, side: Side): ReadExecutor => ({
 	run: (flight) =>
 		Effect.flatMap(arrive(ctx, meeting, side, flight.statements), (outcomes) =>
 			Effect.mapError(flight.read(outcomes), (reason) => new ReadFailure({ reason }))
@@ -178,27 +191,117 @@ const sameFacts = (left: ReadonlyArray<HostFact>, right: ReadonlyArray<HostFact>
 	)
 }
 
+/** A read's members, loaded from each artifact's served file, by name. */
+type SidedMembers = { readonly [S in Side]: ReadonlyMap<string, LoadedMember> }
+
 /**
- * Whether the Db's two artifacts of the read `read` makes deliver the same facts (see the header). `read` reads
- * through the reader it is handed exactly as the Db's read did. A read the Db answered that either artifact refuses
- * here is an answer no observation names, so it is raised as a defect of the run.
+ * The members of `role` in `file`, the served file the Db's read was served from, and in its conservative file
+ * (conservativeServed), each loaded as a layer loads a file, by name. `queries` holds each read member's query under
+ * its name, `schema` the role they read over, and `options` the installation's allocation and codes, which compile
+ * each query here as the served file's compile compiled it.
+ */
+export const sidedMembers = (
+	file: ServedFile,
+	role: string,
+	queries: ReadonlyMap<string, unknown>,
+	schema: unknown,
+	options: TestCompileOptions
+): Result.Result<SidedMembers, CompileError> =>
+	Result.flatMap(toResult(testArtifacts(schema, options)), (artifacts) => {
+		const optimized = servedMembers(file, role)
+		const conservativeOf = (member: ServedMember): Result.Result<ServedMember, CompileError> => {
+			const query = queries.get(member.name)
+			switch (member.kind) {
+				case "read":
+				case "key":
+					return Result.map(toResult(compileTemplate(query, undefined, options)), (oracle) => ({
+						...member,
+						read: { ...member.read, source: servedSource(oracle.runs.conservative) }
+					}))
+				case "paged":
+					return Result.gen(function* () {
+						const rows = yield* toResult(compileTemplate(query, undefined, options))
+						const page = yield* toResult(
+							compileTemplate(query, undefined, { ...options, read: "page" })
+						)
+						const loaded = optimized.get(member.name)
+						if (loaded?.kind !== "paged") {
+							throw new Error(`the paged member ${member.name} does not load as one`)
+						}
+						const baseline = yield* conservativePageRuntime(
+							loaded.page.runtime,
+							page,
+							queryDescOf(query, "the paged read's query"),
+							artifacts
+						)
+						return {
+							...member,
+							read: { ...member.read, source: servedSource(rows.runs.conservative) },
+							page: baseline.runtime.page
+						}
+					})
+				case "change":
+				case "refresh":
+					return Result.succeed(member)
+			}
+		}
+		return Result.map(
+			Result.all(
+				Arr.map(file.roles, (r) =>
+					r.name === role
+						? Result.map(Result.all(Arr.map(r.members, conservativeOf)), (members) => ({
+								...r,
+								members
+							}))
+						: Result.succeed(r)
+				)
+			),
+			(roles) => ({ optimized, conservative: servedMembers({ ...file, roles }, role) })
+		)
+	})
+
+/** The members of `role` in `file`, loaded, by name; a file its own compile wrote that does not load is a defect. */
+export const servedMembers = (
+	file: ServedFile,
+	role: string
+): ReadonlyMap<string, LoadedMember> => {
+	const loaded = loadServed(file, file.login)
+	if (Result.isFailure(loaded)) {
+		throw new Error("a served file its compile wrote does not load", { cause: loaded.failure })
+	}
+	const found = defined(
+		Option.getOrUndefined(Arr.findFirst(loaded.success.roles, (r) => r.name === role)),
+		`role ${role} of the served file`
+	)
+	return new Map(Arr.map(found.members, (m): readonly [string, LoadedMember] => [m.name, m]))
+}
+
+/**
+ * Whether the Db's two artifacts of the read `read` makes deliver the same facts (see the header). `read` reads through
+ * the operations of the members it names, exactly as the Db's read did, each side's run on its own executor over `ctx`
+ * (memberOpsOn). A read the Db answered that either artifact refuses here is an answer no observation names, so it is
+ * raised as a defect of the run.
  */
 export const artifactsAgree = <E>(
-	ctx: DbContext,
-	read: (reader: ReaderValue) => Effect.Effect<ReadonlyArray<HostFact>, E>
+	ctx: ServedDbContext,
+	members: SidedMembers,
+	read: (
+		operations: (name: string) => ServedOps<unknown>
+	) => Effect.Effect<ReadonlyArray<HostFact>, E>
 ): Effect.Effect<boolean> =>
 	Effect.gen(function* () {
 		const meeting = yield* Ref.make<Meeting>({ kind: "open" })
-		const sideRead = (side: Side, readerOf: (executor: ReadExecutor) => ReaderValue) =>
-			Effect.ensuring(read(readerOf(executorAt(ctx, meeting, side))), finished(ctx, meeting, side))
-		const [optimized, conservative] = yield* Effect.orDie(
-			Effect.all(
-				[
-					sideRead("optimized", (executor) => makeReader(ctx, executor)),
-					sideRead("conservative", (executor) => conservativeReader(ctx, executor))
-				],
-				{ concurrency: "unbounded" }
+		const sideRead = (side: Side) => {
+			const executor = executorAt(ctx, meeting, side)
+			return Effect.ensuring(
+				read((name) =>
+					memberOpsOn(executor, ctx, defined(members[side].get(name), `the ${side} member ${name}`))
+				),
+				finished(ctx, meeting, side)
 			)
+		}
+		const [optimized, conservative] = yield* Effect.orDie(
+			Effect.all([sideRead("optimized"), sideRead("conservative")], { concurrency: "unbounded" })
 		)
 		return sameFacts(optimized, conservative)
 	})

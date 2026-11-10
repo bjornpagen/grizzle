@@ -14,12 +14,14 @@ import {
 	Result,
 	Scope
 } from "effect"
-import { type OpenedDb, openDbContext } from "#adapter/db/open.ts"
+import type { ServedDbContext } from "#adapter/db/context.ts"
+import { openServed } from "#adapter/db/served.ts"
 import { fromEngine } from "#adapter/engine.ts"
 import { OpenError } from "#adapter/errors/execution.ts"
 import type { FolderSource } from "#adapter/migrate/input.ts"
-import { compiledDbLayer } from "#adapter/pool/registry.ts"
-import type { DbLayerOf } from "#adapter/types/layer.ts"
+import { compileServed, type ServedRefusal } from "#adapter/public/compile.ts"
+import { DbLayer, served } from "#adapter/public/layer.ts"
+import type { DbLayerOf, DbLayerService, ServedLogin, ServedRole } from "#adapter/types/layer.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { codebookOf, noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
@@ -31,6 +33,8 @@ import { roleDescOf, role as roleBuilder } from "#compiler/schema/world.ts"
 import { printObjectName, quoteIdent, quoteString } from "#compiler/sql/print.ts"
 import type { LoginRole } from "#compiler/types/schema/world.ts"
 import type { AmbientSession } from "#test/support/ambient.ts"
+import { defined } from "#test/support/assert.ts"
+import { installedCodes, type TestCompileOptions, testCompile } from "#test/support/compile.ts"
 import { installMigrated as install } from "#test/support/install-migrate.ts"
 import {
 	type InstalledAt,
@@ -182,7 +186,10 @@ type Session =
 	| DirectSession
 	| { readonly kind: "closed"; readonly was: "db" | "direct" }
 
-/** One installed version: its spec, its values under the installed schema name, its names, plan and snapshot. */
+/**
+ * One installed version: its spec, its values under the installed schema name, its names, plan and snapshot, the JSON
+ * value of its snapshot.json, which each login's served file is compiled under, and each login's layer.
+ */
 interface Version {
 	readonly spec: InstallSpec
 	readonly built: Built
@@ -190,8 +197,19 @@ interface Version {
 	readonly plan: RealInstallPlan
 	readonly installation: Installation
 	readonly snapshot: DeploySnapshot
+	readonly snapshotJson: { readonly fingerprint: string }
 	readonly credentials: Readonly<Record<string, Credentials>>
-	readonly layers: Readonly<Record<string, Context.Context<DbLayerOf<BuiltLogin>>>>
+	readonly layers: Readonly<Record<string, LoginLayer>>
+}
+
+/**
+ * A login's layer as an application builds it: the login's served file, compiled under a snapshot.json (`snapshot`, its
+ * JSON value) and served under its name (served(file, name)), and the context of DbLayer.make over it.
+ */
+interface LoginLayer {
+	readonly served: ServedLogin<BuiltLogin>
+	readonly snapshot: unknown
+	readonly context: Context.Context<DbLayerOf<BuiltLogin>>
 }
 
 /** A version a migration drafted: its spec, the plan it installs and the snapshot it reaches. */
@@ -243,14 +261,30 @@ interface Held {
 
 /**
  * What an open hands Db.open and runs under: the role value it names, that role reached through its login, the role the
- * installation holds it as (none for a role of no installed login), and its layers.
+ * installation holds it as (none for a role of no installed login), and its opening: the served role Db.open is handed,
+ * the snapshot its login's file was compiled under, and the layers it is opened under. A served file the compile
+ * refuses under the snapshot an open names is that open's refusal.
  */
 interface OpenTarget {
 	readonly value: BuiltRole
 	readonly reached: LoginRole<BuiltRole, unknown>
 	readonly held: Option.Option<Held>
-	readonly layers: Effect.Effect<Context.Context<DbLayerOf<BuiltLogin>>, OpenError, Scope.Scope>
+	readonly opening: Effect.Effect<Opening, OpenError | ServedRefusal, Scope.Scope>
 }
+
+/** An open's served role, the snapshot its file was compiled under, and the layers it is opened under. */
+interface Opening {
+	readonly role: ServedRole<BuiltRole, unknown>
+	readonly snapshot: unknown
+	readonly context: Context.Context<DbLayerOf<BuiltLogin>>
+}
+
+/** The role of a login's served file, by its name: a role its login holds, which its file serves. */
+const servedRoleOf = (
+	login: ServedLogin<BuiltLogin>,
+	role: string
+): ServedRole<BuiltRole, unknown> =>
+	defined(login.roles[role], `role ${role} of the served login ${login.name}`)
 
 const heldOf = (spec: InstallSpec, role: string, login: string): Option.Option<Held> =>
 	Option.map(Option.fromUndefinedOr(roleOf(spec, role)), (found) => ({ role: found, login }))
@@ -263,6 +297,20 @@ const get = <A>(record: Readonly<Record<string, A>>, key: string, what: string):
 		onNone: () => missing(`${what} ${key}`),
 		onSome: Effect.succeed
 	})
+
+/**
+ * `login`'s served file with its own workloads, compiled under `snapshot`, the JSON value of a snapshot.json, as
+ * generate compiles it (adapter/public/compile.ts compileServed), and served under its name, as an application serves
+ * the file it imports.
+ */
+const servedOver = (
+	login: BuiltLogin,
+	snapshot: unknown
+): Effect.Effect<ServedLogin<BuiltLogin>, ServedRefusal> =>
+	Effect.map(
+		Effect.suspend(() => compileServed(login, snapshot, login.workload)),
+		(json) => served<BuiltLogin>(json, login.name)
+	)
 
 const realizeWith = (
 	installSpec: InstallSpec,
@@ -300,42 +348,51 @@ const realizeWith = (
 		)
 
 		/**
-		 * A login's DbLayer, given `snapshot`: attachPool records, for a version's layer, the backend of each connection its
-		 * pool's leases take, and verify is given exactly when a role of the login reads a context, as README "Permissions"
-		 * requires it, so a login whose roles read none turns no token into claims.
+		 * A login's layer, its served file compiled under `snapshot` as generate compiles it (layerOver): attachPool records,
+		 * for a version's layer, the backend of each connection its pool's leases take, and verify is given exactly when a
+		 * role of the login reads a context, as README "Permissions" requires it, so a login whose roles read none turns no
+		 * token into claims.
 		 */
 		const layerOf = (
 			spec: InstallSpec,
 			built: Built,
 			login: string,
 			credentials: Credentials,
-			snapshot: { readonly fingerprint: string },
+			snapshot: unknown,
 			use: LayerUse
-		): Effect.Effect<Layer.Layer<DbLayerOf<BuiltLogin>, OpenError>> =>
-			Effect.map(get(built.logins, login, "login"), (value) =>
-				compiledDbLayer({
-					...clusterConnection(substrate.cluster, substrate.database, credentials.password),
-					pool: Option.match(poolSize, {
-						onNone: () => clusterPool,
-						onSome: (size) => ({ ...clusterPool, max: size })
-					}),
-					login: value,
-					snapshot,
-					...(loginVerifies(spec, login) ? { verify } : {}),
-					attachPool: (pool) => {
-						if (!isNativePool(pool)) {
-							throw new Error("a login's pool is not node-postgres's Pool")
+		): Effect.Effect<
+			{
+				readonly served: ServedLogin<BuiltLogin>
+				readonly layer: Layer.Layer<DbLayerOf<BuiltLogin>, OpenError>
+			},
+			ServedRefusal
+		> =>
+			Effect.flatMap(get(built.logins, login, "login"), (value) =>
+				Effect.map(servedOver(value, snapshot), (file) => ({
+					served: file,
+					layer: DbLayer.make({
+						...clusterConnection(substrate.cluster, substrate.database, credentials.password),
+						pool: Option.match(poolSize, {
+							onNone: () => clusterPool,
+							onSome: (size) => ({ ...clusterPool, max: size })
+						}),
+						login: file,
+						...(loginVerifies(spec, login) ? { verify } : {}),
+						attachPool: (pool) => {
+							if (!isNativePool(pool)) {
+								throw new Error("a login's pool is not node-postgres's Pool")
+							}
+							if (use === "version") {
+								pool.on("acquire", (client) => {
+									const pid = leasedBackend(client)
+									if (pid !== undefined) {
+										acquired.set(login, pid)
+									}
+								})
+							}
 						}
-						if (use === "version") {
-							pool.on("acquire", (client) => {
-								const pid = leasedBackend(client)
-								if (pid !== undefined) {
-									acquired.set(login, pid)
-								}
-							})
-						}
-					}
-				})
+					})
+				}))
 			)
 
 		const versionOf = (
@@ -352,21 +409,28 @@ const realizeWith = (
 					installation: identity.schema(parsedSchemaName(installed.declared))
 				}
 				const names = yield* namesOfBuiltAt(spec, built, at, codebookOf(snapshot))
-				/** Each login's layer, given the version's snapshot, built in the realization's scope. */
-				const layers: Record<string, Context.Context<DbLayerOf<BuiltLogin>>> = {}
+				/** Each login's layer, its served file compiled under the version's snapshot, built in the realization's scope. */
+				const json = snapshotValue(snapshot, installation)
+				const layers: Record<string, LoginLayer> = {}
 				for (const l of spec.logins) {
 					const loginCredentials = yield* get(credentials, l.name, "credentials of")
-					const layer = yield* layerOf(
-						spec,
-						built,
-						l.name,
-						loginCredentials,
-						snapshotValue(snapshot, installation),
-						"version"
+					const made = yield* Effect.orDie(
+						layerOf(spec, built, l.name, loginCredentials, json, "version")
 					)
-					layers[l.name] = yield* Effect.orDie(Scope.provide(Layer.build(layer), scope))
+					const context = yield* Effect.orDie(Scope.provide(Layer.build(made.layer), scope))
+					layers[l.name] = { served: made.served, snapshot: json, context }
 				}
-				return { spec, built, names, plan, installation, snapshot, credentials, layers }
+				return {
+					spec,
+					built,
+					names,
+					plan,
+					installation,
+					snapshot,
+					snapshotJson: json,
+					credentials,
+					layers
+				}
 			})
 
 		const loginEntries = yield* Effect.forEach(installSpec.logins, (l) =>
@@ -435,14 +499,14 @@ const realizeWith = (
 		const strangerLogin: BuiltLogin = yield* Effect.sync(() =>
 			loginBuilder(first.built.base, "executorStrangerLogin", [strangerRole])
 		)
+		const strangerServed = yield* Effect.orDie(servedOver(strangerLogin, first.snapshotJson))
 		const stranger = yield* Effect.orDie(
 			Scope.provide(
 				Layer.build(
-					compiledDbLayer({
+					DbLayer.make({
 						...clusterConnection(substrate.cluster, substrate.database, Redacted.make("")),
 						pool: clusterPool,
-						login: strangerLogin,
-						snapshot: snapshotValue(first.snapshot, first.installation)
+						login: strangerServed
 					})
 				),
 				scope
@@ -476,7 +540,7 @@ const realizeWith = (
 		const snapshotOf = (ref: SnapshotRef): Effect.Effect<{ readonly fingerprint: string }> => {
 			switch (ref) {
 				case "current":
-					return Effect.succeed(snapshotValue(state.current.snapshot, state.current.installation))
+					return Effect.succeed(state.current.snapshotJson)
 				case "stale":
 					return Effect.succeed(state.stale)
 				case "foreign":
@@ -499,7 +563,7 @@ const realizeWith = (
 				Arr.filter(Rec.toEntries(state.current.layers), ([login]) =>
 					Option.match(except, { onNone: () => true, onSome: (e) => e !== login })
 				),
-				([, layer]) => layer
+				([, layer]) => layer.context
 			)
 			const [firstLayer, ...rest] = layers
 			return Arr.reduce(rest, firstLayer ?? stranger, (ctx, layer) => Context.merge(ctx, layer))
@@ -512,18 +576,25 @@ const realizeWith = (
 		const reachedUnheld = (
 			base: Built["base"],
 			value: BuiltRole
-		): Effect.Effect<LoginRole<BuiltRole, unknown>> =>
+		): Effect.Effect<{
+			readonly login: BuiltLogin
+			readonly role: LoginRole<BuiltRole, unknown>
+		}> =>
 			Effect.flatMap(
 				Effect.sync(() => loginBuilder(base, unheldLogin, [value])),
-				(unserved) => get(unserved.roles, value.name, "role of the unheld login")
+				(unserved) =>
+					Effect.map(get(unserved.roles, value.name, "role of the unheld login"), (role) => ({
+						login: unserved,
+						role
+					}))
 			)
 
 		/**
 		 * A reference that is no installed role, as Db.open is handed it: a role value of its name over the current base
-		 * that no installed login holds, reached through a login no layer serves and opened under every login's layer. A
-		 * dropped role's is the value an application kept of a role a migration removed, a nonexistent one's a name no
-		 * installation gave, and the owner's the owner's own PostgreSQL name; none is a role of an installed login,
-		 * whatever its name.
+		 * that no installed login holds, reached through a login no layer serves, whose served file is compiled under the
+		 * current snapshot, and opened under every login's layer. A dropped role's is the value an application kept of a
+		 * role a migration removed, a nonexistent one's a name no installation gave, and the owner's the owner's own
+		 * PostgreSQL name; none is a role of an installed login, whatever its name.
 		 */
 		const unheld = (current: Version, name: string) =>
 			Effect.gen(function* () {
@@ -532,17 +603,21 @@ const realizeWith = (
 				const value: BuiltRole = yield* Effect.sync(() =>
 					roleBuilder(current.built.base, name, { [anyRelation.name]: whole })
 				)
+				const reached = yield* reachedUnheld(current.built.base, value)
+				const file = yield* Effect.orDie(servedOver(reached.login, current.snapshotJson))
 				return {
 					value,
-					reached: yield* reachedUnheld(current.built.base, value),
+					reached: reached.role,
 					held: Option.none<Held>(),
+					served: servedRoleOf(file, name),
+					snapshot: current.snapshotJson,
 					context: allLayers(Option.none())
 				}
 			})
 
 		/**
-		 * The role value an open names, the login role Db.open is handed (the role reached through its login), and the
-		 * version's layers it is opened under.
+		 * The role value an open names, that role reached through its login, the served role Db.open is handed, the
+		 * snapshot its login's file was compiled under, and the version's layers it is opened under.
 		 */
 		const roleFor = (ref: RoleRef) =>
 			Effect.gen(function* () {
@@ -557,14 +632,15 @@ const realizeWith = (
 						const value = yield* get(current.built.roles, ref.role, "role")
 						const name = login.value.name
 						const holder = yield* get(current.built.logins, name, "login")
+						const layer = yield* get(current.layers, name, "layer of")
+						const reached = yield* get(holder.roles, ref.role, "role of login")
 						return {
 							value,
-							reached: yield* get(holder.roles, ref.role, "role of login"),
+							reached,
 							held: heldOf(current.spec, ref.role, name),
-							context:
-								ref.kind === "own"
-									? yield* get(current.layers, name, "layer of")
-									: allLayers(Option.some(name))
+							served: servedRoleOf(layer.served, ref.role),
+							snapshot: layer.snapshot,
+							context: ref.kind === "own" ? layer.context : allLayers(Option.some(name))
 						}
 					}
 					case "dropped":
@@ -577,37 +653,74 @@ const realizeWith = (
 			})
 
 		/**
-		 * What an open hands Db.open and the layers it runs under, its login layer given the snapshot it names: the
-		 * version's layers for the current snapshot; for another, a layer of the role's login built for that open, in the
-		 * realization's scope, so the Db it opens keeps its pool, and whose refusal (a snapshot whose roles or programs
-		 * do not compile under its codes) is the open's. A reference that is no role of its own login meets the version's
+		 * What an open hands Db.open and the layers it runs under, its login's file compiled under the snapshot it names:
+		 * the version's file and layers for the current snapshot; for another, the role's login's file compiled under
+		 * that snapshot and a layer over it built for that open, in the realization's scope, so the Db it opens keeps its
+		 * pool, and whose refusal (a compile that refuses the login's roles or programs under that snapshot's codes, a
+		 * file the layer does not load) is the open's. A reference that is no role of its own login meets the version's
 		 * layers alone, whatever the snapshot, and is refused at role.
 		 */
 		const openTarget = (ref: RoleRef, snapshot: SnapshotRef): Effect.Effect<OpenTarget> =>
 			Effect.gen(function* () {
 				const target = yield* roleFor(ref)
-				if (snapshot === "current" || ref.kind !== "own" || Option.isNone(target.held)) {
-					return { ...target, layers: Effect.succeed(target.context) }
+				const { value, reached, held } = target
+				if (snapshot === "current" || ref.kind !== "own" || Option.isNone(held)) {
+					return {
+						value,
+						reached,
+						held,
+						opening: Effect.succeed({
+							role: target.served,
+							snapshot: target.snapshot,
+							context: target.context
+						})
+					}
 				}
 				const current = state.current
-				const login = target.held.value.login
+				const login = held.value.login
 				const credentials = yield* get(current.credentials, login, "credentials of")
 				const probeSnapshot = yield* snapshotOf(snapshot)
-				const layer = yield* layerOf(
-					current.spec,
-					current.built,
-					login,
-					credentials,
-					probeSnapshot,
-					"probe"
-				)
-				return { ...target, layers: Scope.provide(Layer.build(layer), scope) }
+				return {
+					value,
+					reached,
+					held,
+					opening: Effect.gen(function* () {
+						const made = yield* layerOf(
+							current.spec,
+							current.built,
+							login,
+							credentials,
+							probeSnapshot,
+							"probe"
+						)
+						const context = yield* Scope.provide(Layer.build(made.layer), scope)
+						return {
+							role: servedRoleOf(made.served, value.name),
+							snapshot: probeSnapshot,
+							context
+						}
+					})
+				}
 			})
 
+		/** The options a session's per-action compile of a read again runs under: the installation's allocation and codes. */
+		const compileOf = (v: Version): TestCompileOptions => ({
+			...testCompile,
+			installation: identity.schema(parsedSchemaName(installed.declared)),
+			codes: installedCodes(codebookOf(v.snapshot))
+		})
+
+		/**
+		 * An open's end: a refusal of Db.open at its stage, or a served compile's refusal of the login's file under the
+		 * snapshot the open names, which refuses the open at `schema` before any verify, as a layer refuses a file it
+		 * cannot serve; else the Db opened (openedDb).
+		 */
 		const opened = (
-			value: BuiltRole,
-			held: Option.Option<Held>,
-			exit: Exit.Exit<OpenedDb<BuiltRole, unknown>, OpenError>,
+			target: OpenTarget,
+			exit: Exit.Exit<
+				{ readonly ctx: ServedDbContext; readonly snapshot: unknown },
+				OpenError | ServedRefusal
+			>,
 			verifyCalls: 0 | 1
 		): Effect.Effect<Seen> =>
 			Exit.match(exit, {
@@ -615,11 +728,18 @@ const realizeWith = (
 					Result.match(Cause.findError(cause), {
 						onFailure: (rest) => Effect.failCause(rest),
 						onSuccess: (error) =>
-							Effect.map(openRefused(error, verifyCalls), (observation) =>
-								refusedWith(observation, error)
-							)
+							"place" in error
+								? Effect.succeed(
+										refusedWith(
+											{ kind: "open-refused", stage: "schema", verifyCalls: 0 },
+											error.error
+										)
+									)
+								: Effect.map(openRefused(error, verifyCalls), (observation) =>
+										refusedWith(observation, error)
+									)
 					}),
-				onSuccess: (o) => openedDb(value, held, o, verifyCalls)
+				onSuccess: (o) => openedDb(target, o.ctx, o.snapshot, verifyCalls)
 			})
 
 		/**
@@ -629,17 +749,17 @@ const realizeWith = (
 		 * connections are (model/session/open.ts), whatever the Db's first call meets.
 		 */
 		const openedDb = (
-			value: BuiltRole,
-			held: Option.Option<Held>,
-			o: OpenedDb<BuiltRole, unknown>,
+			target: Pick<OpenTarget, "value" | "reached" | "held">,
+			ctx: ServedDbContext,
+			snapshot: unknown,
 			verifyCalls: 0 | 1
 		): Effect.Effect<Seen> =>
-			Option.match(held, {
+			Option.match(target.held, {
 				onNone: () =>
 					Effect.die(new Error("a Db opened for a role the installation does not hold")),
 				onSome: ({ role, login }) =>
 					Effect.gen(function* () {
-						yield* Effect.orDie(Effect.scoped(o.ctx.pool.lease))
+						yield* Effect.orDie(Effect.scoped(ctx.pool.lease))
 						const current = state.current
 						const session = yield* mint({
 							kind: "db",
@@ -647,9 +767,11 @@ const realizeWith = (
 							role,
 							base: current.spec.base,
 							described: current.installation.described,
-							value,
-							db: o.db,
-							ctx: o.ctx
+							value: target.value,
+							reached: target.reached,
+							snapshot,
+							compile: compileOf(current),
+							ctx
 						})
 						return seen({ kind: "opened", session, verifyCalls })
 					})
@@ -666,16 +788,19 @@ const realizeWith = (
 				const before = verified.calls
 				const exit = yield* Effect.exit(
 					Effect.scoped(
-						Effect.flatMap(target.layers, (context) =>
-							handing(
-								handed,
-								Effect.provideContext(openDbContext(target.reached, options), context)
+						Effect.flatMap(target.opening, (opening) =>
+							Effect.map(
+								handing(
+									handed,
+									Effect.provideContext(openServed(opening.role, options), opening.context)
+								),
+								(o) => ({ ctx: o.ctx, snapshot: opening.snapshot })
 							)
 						)
 					)
 				)
 				const calls = yield* verifyCallsSince(before)
-				return yield* opened(target.value, target.held, exit, calls)
+				return yield* opened(target, exit, calls)
 			})
 
 		/** An open with the token it hands verify in flight, and none once it ends, however it ends. */
@@ -886,10 +1011,10 @@ const realizeWith = (
 					case "open-token": {
 						const target = yield* roleFor({ kind: "own", role: at.role })
 						return yield* openWild(
-							target.reached,
+							target.served,
 							Option.some(value),
 							target.context,
-							(opened, verifyCalls) => openedDb(target.value, target.held, opened, verifyCalls)
+							(opened, verifyCalls) => openedDb(target, opened.ctx, target.snapshot, verifyCalls)
 						)
 					}
 					case "session":
@@ -907,7 +1032,7 @@ const realizeWith = (
 			})
 
 		/**
-		 * Db.open handed a value its types refuse, as a JavaScript caller hands it, through openDbContext, the open Db.open
+		 * Db.open handed a value its types refuse, as a JavaScript caller hands it, through openServed, the open Db.open
 		 * keeps the Db of: a refusal is observed at its stage, and a Db it opens (a wild token it reads as no token, or as a
 		 * payload) is `onOpened`'s.
 		 */
@@ -915,14 +1040,17 @@ const realizeWith = (
 			role: unknown,
 			token: Option.Option<unknown>,
 			context: Context.Context<DbLayerOf<BuiltLogin>>,
-			onOpened: (opened: OpenedDb<BuiltRole, unknown>, verifyCalls: 0 | 1) => Effect.Effect<Seen>
+			onOpened: (
+				opened: { readonly ctx: ServedDbContext },
+				verifyCalls: 0 | 1
+			) => Effect.Effect<Seen>
 		): Effect.Effect<Seen> =>
 			Effect.gen(function* () {
 				const options = Option.match(token, {
 					onNone: () => ({}),
 					onSome: (t) => ({ token: t })
 				})
-				const opening: unknown = Reflect.apply(openDbContext, undefined, [role, options])
+				const opening: unknown = Reflect.apply(openServed, undefined, [role, options])
 				if (!isOpening(opening)) {
 					return yield* Effect.die(new Error("Db.open handed a wild value returned no Effect"))
 				}
@@ -1046,7 +1174,7 @@ const realizeWith = (
 					versionOf(next.spec, next.plan, next.plan.installation, next.snapshot, credentials)
 				)
 				if (version.snapshot.fingerprint !== state.current.snapshot.fingerprint) {
-					state.stale = snapshotValue(state.current.snapshot, state.current.installation)
+					state.stale = state.current.snapshotJson
 				}
 				state.current = version
 			})
@@ -1438,14 +1566,17 @@ const functionOf = (v: Version, fn: WorldFunction): Effect.Effect<string> =>
 const wildValue = (kind: WildKind): unknown => passed({ kind: "wild", wild: wildOf(kind) })
 
 /**
- * Whether openDbContext, handed a wild value, returned an Effect. It is read with its declared answer: a Db of the role
- * it was handed and its context, its failure an OpenError (which the caller still checks on the value), its requirement
- * the phantom DbLayer service, which no runtime value holds (adapter/types/layer.ts).
+ * Whether openServed, handed a wild value, returned an Effect. It is read with its declared answer: the context of a Db
+ * of the role it was handed, its failure an OpenError (which the caller still checks on the value), its requirement the
+ * phantom DbLayer service, which no runtime value holds (adapter/types/layer.ts).
  */
 const isOpening = (
 	value: unknown
-): value is Effect.Effect<OpenedDb<BuiltRole, unknown>, OpenError, DbLayerOf<BuiltLogin>> =>
-	Effect.isEffect(value)
+): value is Effect.Effect<
+	{ readonly ctx: ServedDbContext },
+	OpenError,
+	DbLayerService<BuiltRole>
+> => Effect.isEffect(value)
 
 /** Realizes an installation under the ambient session `ambient` (test/support/ambient.ts): see RealWorld. */
 export const realize = (
