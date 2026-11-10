@@ -5,8 +5,9 @@ import { int, oneOf, uniqueArray } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Layer, Option, pipe, String as Str } from "effect"
-import { compiledOpen } from "#adapter/db/open.ts"
+import { Array as Arr, Effect, Formatter, Option, pipe, String as Str } from "effect"
+import { variantOf } from "#adapter/db/handles.ts"
+import { explainMember } from "#adapter/served/explain.ts"
 import type { Plan } from "#adapter/types/db.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import {
@@ -22,17 +23,12 @@ import { relation, schema } from "#compiler/public/schema.ts"
 import { bindWrite } from "#compiler/runtime/write/bind.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import { printObjectName, quoteIdent } from "#compiler/sql/print.ts"
-import { changeSetDesc } from "#compiler/write/changeset/value.ts"
-import { runnableWrite } from "#compiler/write/program/bind.ts"
-import { compileWrite } from "#compiler/write/program/compile.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, succeeded, unorderedEqual } from "#test/support/assert.ts"
-import { installedCodes, realityWrite, testArtifacts } from "#test/support/compile.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
-import { checking } from "#test/support/policy.ts"
+import { member, withServedDb } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-import { loginLayer } from "#test/support/worlds.ts"
 
 /** A write's take over a relation parameter's rows chooses its form per application, by the same rule a query's does
  * (`runsLargeForm`, `sentForm`).
@@ -44,11 +40,11 @@ import { loginLayer } from "#test/support/worlds.ts"
  * pass. An application with at most the choice's threshold of distinct parents sends the LATERAL form, one with more
  * the whole-relation form.
  *
- * The schema is installed and loaded with many accounts of many entries each, and analyzed. Each drawn parent set is
- * bound through the program (`bindWrite`), and the form it sends is run under EXPLAIN ANALYZE in a
- * transaction that is rolled back. The plan's contract, not its text: for a small set, Entry is read by index only and
+ * The schema is installed and loaded with many accounts of many entries each, and analyzed. The ChangeSet is a served
+ * member of the app role's workload, and each drawn parent set is bound through its loaded program (`bindWrite`), as
+ * its apply binds it, and the form it sends is run under EXPLAIN ANALYZE in a transaction that is rolled back. The plan's contract, not its text: for a small set, Entry is read by index only and
  * at most k + 1 rows per parent; for a large one, in one scan, once. The rows the insert returns are, in both forms, the
- * first two entries of each named account, which the loaded facts fix. db.explain explains the form an application
+ * first two entries of each named account, which the loaded facts fix. explainMember explains the form an application
  * sends: the whole-relation form ranks Entry's rows (a WindowAgg node, row_number) and the LATERAL form does not. */
 const Account = relation("Account", { id: uuid }, ["id"])
 const Entry = relation("Entry", { account: uuid, seq: pg.bigint, amount: pg.bigint }, [
@@ -110,14 +106,6 @@ layer(Substrate.layer, { excludeTestServices: true })(
 						)
 						const S = o.schema
 						const names = o.installed.installation.names
-						const reality = realityWrite(
-							succeeded(
-								testArtifacts(S, {
-									installation: o.installed.installation.names.installation,
-									codes: installedCodes(names.codes)
-								})
-							)
-						)
 						const table = (r: string) => printObjectName(names.relation(r))
 						const column = (r: string, f: string) => quoteIdent(names.column(r, f))
 						yield* transaction(s.admin, [
@@ -155,154 +143,154 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									.find({ account, seq, amount })
 							})
 						)
-						const desc = changeSetDesc(latest)
-						if (desc === undefined) {
-							throw new Error("no ChangeSet")
-						}
-						const program = succeeded(
-							compileWrite(checking(S), desc, reality),
-							"the ChangeSet compiles"
-						)
-						const write = runnableWrite(program, program.frontend.codes)
-						const flight = write.flight
-						const found = Arr.findFirst(flight.statements, (st) => st.step.kind === "write")
-						if (Option.isNone(found)) {
-							throw new Error("no insert statement")
-						}
-						const insert = found.value
-						const forms = insert.forms
-						if (forms.kind !== "chosen") {
-							return assert.fail(`the insert's take is a per-execution choice, not ${forms.kind}`)
-						}
-						const threshold = Arr.reduce(
-							Arr.map(forms.choices, (c) => c.threshold),
-							Number.POSITIVE_INFINITY,
-							(least, x) => Math.min(least, x)
-						)
 						const entry = names.relation("Entry").name
 						const account = int(0, accounts - 1)
-						return yield* Effect.gen(function* () {
-							const db = yield* compiledOpen(o.server.roles.app, {})
-							return yield* explore(
-								{
-									oracle: { kind: "unstated" },
-									suite: "pg/write/take-form",
-									/** Few parents and more than the threshold, each half of the drawn cases. */
-									draw: drawn(
-										oneOf([
-											uniqueArray(account, (n) => n, { min: 1, max: 8 }, 10),
-											uniqueArray(
-												account,
-												(n) => n,
-												{ min: threshold + 1, max: threshold + 200 },
-												10
-											)
-										])
-									),
-									literal: Formatter.format,
-									coverage: required<FormFeature>(
-										[
-											"the LATERAL form for few parents",
-											"the whole-relation form for many parents"
-										],
-										{ cases: 12, sense: notesOnly }
-									),
-									kept: [],
-									runs: 12,
-									shrink: completeShrink,
-									concurrency: 1,
-									steerEvery: 16,
-									caseHang
-								},
-								(parents, c) =>
-									Effect.gen(function* () {
-										const bound = bindWrite(write, {
-											members: new Map(),
-											params: { accounts: Arr.map(parents, (n) => ({ id: uid(n) })) },
-											transport: inForce(bindFrame)
-										})
-										if (!bound.ok || bound.value.kind !== "bound") {
-											throw new Error("the parameters bind")
-										}
-										const sent = bound.value.form(insert)
-										const texts = succeeded(bound.value.values(insert), "the texts encode")
-										const ran = yield* Effect.scoped(
-											Effect.gen(function* () {
-												const pinned = yield* s.admin.pin
-												yield* pinned.query("BEGIN", [])
-												const explained = yield* pinned.queryValues(
-													explainStatementWith(sent.sql, {
-														serialize: { kind: "off" },
-														wal: false
-													}),
-													texts
+						return yield* withServedDb(o.installed, o.server.roles.app, {}, ({ ctx, load }) =>
+							Effect.gen(function* () {
+								const members = yield* load({ latest })
+								const loaded = member(members, "latest")
+								if (loaded.kind !== "change") {
+									throw new Error("no ChangeSet")
+								}
+								const write = variantOf(ctx, loaded.variants).entry.program
+								const found = Arr.findFirst(
+									write.flight.statements,
+									(st) => st.step.kind === "write"
+								)
+								if (Option.isNone(found)) {
+									throw new Error("no insert statement")
+								}
+								const insert = found.value
+								const forms = insert.forms
+								if (forms.kind !== "chosen") {
+									return assert.fail(
+										`the insert's take is a per-execution choice, not ${forms.kind}`
+									)
+								}
+								const threshold = Arr.reduce(
+									Arr.map(forms.choices, (c) => c.threshold),
+									Number.POSITIVE_INFINITY,
+									(least, x) => Math.min(least, x)
+								)
+								return yield* explore(
+									{
+										oracle: { kind: "unstated" },
+										suite: "pg/write/take-form",
+										/** Few parents and more than the threshold, each half of the drawn cases. */
+										draw: drawn(
+											oneOf([
+												uniqueArray(account, (n) => n, { min: 1, max: 8 }, 10),
+												uniqueArray(
+													account,
+													(n) => n,
+													{ min: threshold + 1, max: threshold + 200 },
+													10
 												)
-												yield* pinned.query("ROLLBACK", [])
-												yield* pinned.query("BEGIN", [])
-												const rows = yield* pinned.queryValues(sent.sql, texts)
-												yield* pinned.query("ROLLBACK", [])
-												return {
-													plan: succeeded(parsePlan(explained[0]?.[0]), "one plan").plan,
-													rows
-												}
+											])
+										),
+										literal: Formatter.format,
+										coverage: required<FormFeature>(
+											[
+												"the LATERAL form for few parents",
+												"the whole-relation form for many parents"
+											],
+											{ cases: 12, sense: notesOnly }
+										),
+										kept: [],
+										runs: 12,
+										shrink: completeShrink,
+										concurrency: 1,
+										steerEvery: 16,
+										caseHang
+									},
+									(parents, c) =>
+										Effect.gen(function* () {
+											const bound = bindWrite(write, {
+												members: new Map(),
+												params: { accounts: Arr.map(parents, (n) => ({ id: uid(n) })) },
+												transport: inForce(bindFrame)
 											})
-										)
-										/** The insert returns each fact it made present: the first two entries of each named account. */
-										const returned = Arr.map(ran.rows, (row) => [row[0], row[1]] as const)
-										unorderedEqual(
-											returned,
-											Arr.flatMap(parents, (n) => [[uid(n), "0"] as const, [uid(n), "1"] as const]),
-											"the first two entries of each named account"
-										)
-										const scans = scansOf(ran.plan, entry)
-										/** db.explain plans the insert as the application sends it. */
-										const explained = yield* db.explain(latest, {
-											accounts: Arr.map(parents, (n) => ({ id: uid(n) }))
+											if (!bound.ok || bound.value.kind !== "bound") {
+												throw new Error("the parameters bind")
+											}
+											const sent = bound.value.form(insert)
+											const texts = succeeded(bound.value.values(insert), "the texts encode")
+											const ran = yield* Effect.scoped(
+												Effect.gen(function* () {
+													const pinned = yield* s.admin.pin
+													yield* pinned.query("BEGIN", [])
+													const explained = yield* pinned.queryValues(
+														explainStatementWith(sent.sql, {
+															serialize: { kind: "off" },
+															wal: false
+														}),
+														texts
+													)
+													yield* pinned.query("ROLLBACK", [])
+													yield* pinned.query("BEGIN", [])
+													const rows = yield* pinned.queryValues(sent.sql, texts)
+													yield* pinned.query("ROLLBACK", [])
+													return {
+														plan: succeeded(parsePlan(explained[0]?.[0]), "one plan").plan,
+														rows
+													}
+												})
+											)
+											/** The insert returns each fact it made present: the first two entries of each named account. */
+											const returned = Arr.map(ran.rows, (row) => [row[0], row[1]] as const)
+											unorderedEqual(
+												returned,
+												Arr.flatMap(parents, (n) => [
+													[uid(n), "0"] as const,
+													[uid(n), "1"] as const
+												]),
+												"the first two entries of each named account"
+											)
+											const scans = scansOf(ran.plan, entry)
+											/** explainMember plans the insert as the application sends it. */
+											const explained = yield* explainMember(ctx, loaded, {
+												kind: "params",
+												params: { accounts: Arr.map(parents, (n) => ({ id: uid(n) })) }
+											})
+											const ranks = Arr.some(explained, (plan) => ranked(plan))
+											if (parents.length <= threshold) {
+												assert.equal(
+													ranks,
+													false,
+													"explainMember plans the LATERAL form for few parents"
+												)
+												assert.equal(sent.sql, insert.form.sql, "few parents send the LATERAL form")
+												assert.deepEqual(
+													Arr.filter(scans, (n) => n.nodeType === "Seq Scan"),
+													[],
+													"the LATERAL form reads Entry by index only"
+												)
+												assert.ok(
+													rowsReadOf(ran.plan, entry) <= 3 * parents.length,
+													`${rowsReadOf(ran.plan, entry)} entries read for ${parents.length} parents`
+												)
+												c.note("the LATERAL form for few parents")
+											} else {
+												assert.equal(
+													sent.sql,
+													forms.large.sql,
+													"many parents send the whole-relation form"
+												)
+												assert.equal(
+													ranks,
+													true,
+													"explainMember plans the whole-relation form for many parents"
+												)
+												assert.deepEqual(
+													Arr.map(scans, (n) => n.actualLoops),
+													[1],
+													"the whole-relation form reads Entry in one scan, once"
+												)
+												c.note("the whole-relation form for many parents")
+											}
 										})
-										const ranks = Arr.some(explained, (plan) => ranked(plan))
-										if (parents.length <= threshold) {
-											assert.equal(
-												ranks,
-												false,
-												"db.explain plans the LATERAL form for few parents"
-											)
-											assert.equal(sent.sql, insert.form.sql, "few parents send the LATERAL form")
-											assert.deepEqual(
-												Arr.filter(scans, (n) => n.nodeType === "Seq Scan"),
-												[],
-												"the LATERAL form reads Entry by index only"
-											)
-											assert.ok(
-												rowsReadOf(ran.plan, entry) <= 3 * parents.length,
-												`${rowsReadOf(ran.plan, entry)} entries read for ${parents.length} parents`
-											)
-											c.note("the LATERAL form for few parents")
-										} else {
-											assert.equal(
-												sent.sql,
-												forms.large.sql,
-												"many parents send the whole-relation form"
-											)
-											assert.equal(
-												ranks,
-												true,
-												"db.explain plans the whole-relation form for many parents"
-											)
-											assert.deepEqual(
-												Arr.map(scans, (n) => n.actualLoops),
-												[1],
-												"the whole-relation form reads Entry in one scan, once"
-											)
-											c.note("the whole-relation form for many parents")
-										}
-									})
-							)
-						}).pipe(
-							(body) =>
-								Effect.flatMap(Layer.build(loginLayer(o.installed, o.server)), (context) =>
-									Effect.provideContext(body, context)
-								),
-							Effect.scoped
+								)
+							})
 						)
 					})
 				)
