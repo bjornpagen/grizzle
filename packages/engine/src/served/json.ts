@@ -17,6 +17,7 @@ import { trusted } from "#compiler/core/trusted.ts"
 import { MoneyText, VectorText } from "#compiler/ir/carriers.ts"
 import type { RosterCodes } from "#compiler/ir/cells.ts"
 import { DecimalText } from "#compiler/ir/decimal.ts"
+import { internedRangeOp, rangeOpNamed } from "#compiler/ir/expr.ts"
 import { carriers, Roster, type ScalarType } from "#compiler/ir/scalar.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
@@ -37,6 +38,8 @@ import type { ServedFile } from "#compiler/served/forms.ts"
  *   whatever the slots that read it;
  * - a Roster `~roster:` and its declared name, rebuilt at load from the live handles of the codes the file holds for
  *   it (ServedFile rosters);
+ * - a range overload `~op:` and its code and carrier, read back as its one instance (ir/expr.ts rangeOp), which the
+ *   registry and the host evaluator know an overload by;
  * - a host Decimal `~decimal:`, a host Money `~money:`, and the IR's DecimalText, MoneyText and VectorText `~d:`, `~m:`
  *   and `~v:`, each with its canonical payload;
  * - a Map `{"~map": [[key, value], ...]}`, each key a primitive, and a Set `{"~set": [value, ...]}`, in insertion
@@ -61,6 +64,7 @@ const tags = {
 	bigint: "n",
 	type: "t",
 	roster: "roster",
+	rangeOp: "op",
 	decimal: "decimal",
 	money: "money",
 	decimalText: "d",
@@ -175,6 +179,10 @@ class ServedWriter {
 		}
 		if (Object.getOwnPropertySymbols(value).length > 0) {
 			return unserved(this.#path, "a record without symbol keys")
+		}
+		const op = internedRangeOp(value)
+		if (op !== undefined) {
+			return revived(tagged(tags.rangeOp, `${op.code}:${op.carrier}`))
 		}
 		return isScalarType(value)
 			? revived(tagged(tags.type, String(this.#typeIndex(value))))
@@ -384,6 +392,13 @@ class ServedReader {
 			}
 			case tags.roster:
 				return rosterOf(this.#rosters, payload)
+			case tags.rangeOp: {
+				const at = payload.lastIndexOf(":")
+				return (
+					rangeOpNamed(payload.slice(0, at), payload.slice(at + 1)) ??
+					defect(`a served range overload's code and carrier name one: ${payload}`)
+				)
+			}
 			case tags.decimal: {
 				const decimal = Decimal.fromCanonical(payload)
 				if (!decimal.ok) {

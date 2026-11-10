@@ -1,6 +1,7 @@
 import { Array as Arr, Order, Record as Rec } from "effect"
 import { taggedValueOf } from "#compiler/core/canonical.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
+import { internedRangeOp } from "#compiler/ir/expr.ts"
 
 /** A path's text, its members dotted, the root's named. */
 const pathText = (path: ReadonlyArray<string | number>): string =>
@@ -14,6 +15,9 @@ const differenceAt = (
 ): string | undefined => {
 	if (typeof a !== "object" || a === null || typeof b !== "object" || b === null) {
 		return Object.is(a, b) ? undefined : pathText(path)
+	}
+	if (isRecord(a) && internedRangeOp(a) !== undefined) {
+		return a === b ? undefined : pathText(path)
 	}
 	if (isList(a) || isList(b)) {
 		if (!isList(a) || !isList(b) || a.length !== b.length) {
@@ -70,7 +74,7 @@ const differenceAt = (
 
 /**
  * The first member at which two served values differ as the runtime reads them, its path dotted, or none: the same
- * primitive; arrays of equal length, element by element; Maps of the same entries in the same order and Sets of the same
+ * primitive; a range overload, the one instance the registry knows it by (ir/expr.ts rangeOp), as that very instance; arrays of equal length, element by element; Maps of the same entries in the same order and Sets of the same
  * members in the same order; canonical values (a Roster, a Decimal, a Money, an IR literal's text) of one class with one
  * canonical payload; records with the same members that are not undefined, whatever their prototypes, which the runtime
  * reads none of, a member left undefined being one left out.

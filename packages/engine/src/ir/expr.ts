@@ -35,6 +35,7 @@ import {
 	type ScalarType,
 	type SpanCarrier,
 	sameScalarType,
+	spanCarriers,
 	typeLabel
 } from "#compiler/ir/scalar.ts"
 import * as S from "#compiler/ir/shape.ts"
@@ -113,6 +114,28 @@ const rangeOps: { readonly [K in RangeOpCode]: { readonly [C in SpanCarrier]: Ra
 
 export const rangeOp = (code: RangeOpCode, carrier: SpanCarrier): RangeOpId =>
 	rangeOps[code][carrier]
+
+/** The range overload of `code` over `carrier` where both texts name one, none for any other: a range overload a served
+ * file names, read back as its one instance (served/json.ts). */
+export const rangeOpNamed = (code: string, carrier: string): RangeOpId | undefined => {
+	const named = rangeOpCodes.find((c) => c === code)
+	const over = spanCarriers.find((c) => c === carrier)
+	return named === undefined || over === undefined ? undefined : rangeOps[named][over]
+}
+
+/** `value` where it is one of the range overloads' instances, none for any other value, a record of the same parts
+ * among them: the one form a served file writes by name (served/json.ts). */
+export const internedRangeOp = (
+	value: Readonly<Record<string, unknown>>
+): RangeOpId | undefined => {
+	const code = value["code"]
+	const carrier = value["carrier"]
+	const op =
+		typeof code === "string" && typeof carrier === "string"
+			? rangeOpNamed(code, carrier)
+			: undefined
+	return op === value ? op : undefined
+}
 
 export type OpId = CatalogOpId | RangeOpId
 
