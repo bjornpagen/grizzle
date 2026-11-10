@@ -1,6 +1,7 @@
 import { canonicalTextOf, catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedArtifact, unsupported } from "#compiler/core/errors.ts"
 import { TemporaryCensus } from "#compiler/core/identity.ts"
+import type { LawId } from "#compiler/core/ids.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import { tableMaxColumns } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -8,7 +9,12 @@ import * as Result from "#compiler/core/result.ts"
 import { asidesOf, setAside } from "#compiler/deploy/diff/aside.ts"
 import { applyDeclarations } from "#compiler/deploy/diff/declared.ts"
 import { diff } from "#compiler/deploy/diff/diff.ts"
-import type { AbandonedSchema, Declarations, MigrationPlan } from "#compiler/deploy/diff/plan.ts"
+import type {
+	AbandonedSchema,
+	Declarations,
+	MigrationPlan,
+	Swap
+} from "#compiler/deploy/diff/plan.ts"
 import { planFiles } from "#compiler/deploy/phases/files.ts"
 import {
 	type CustomMeta,
@@ -110,11 +116,31 @@ const comparable = (s: Omit<DeploySnapshot, "fingerprint"> | DeploySnapshot): st
 	return canonicalTextOf(content)
 }
 
-/** The laws a refusal of a folder that installs `snapshot` names (FolderLaws): the snapshot's level schemas and its
- * constraint-to-law map. */
-const folderLaws = (snapshot: DeploySnapshot): FolderLaws => ({
+/** One table's constraint names to their laws, each also under every name `swaps` builds it under on `table`. */
+const builtUnder = (
+	table: string,
+	named: Readonly<Record<string, LawId>>,
+	swaps: ReadonlyArray<Swap>
+): Readonly<Record<string, LawId>> =>
+	Object.fromEntries(
+		Object.entries(named).flatMap(([name, law]): ReadonlyArray<readonly [string, LawId]> => [
+			[name, law],
+			...swaps.filter((s) => s.table === table && s.of === name).map((s) => [s.name, law] as const)
+		])
+	)
+
+/** The laws a refusal of a folder that installs `snapshot` names (FolderLaws): the snapshot's level schemas, and its
+ * constraint-to-law map with each table's constraint also under every name the folder's `swaps` build it under. */
+const folderLaws = (snapshot: DeploySnapshot, swaps: ReadonlyArray<Swap>): FolderLaws => ({
 	schemas: snapshot.levels.map((l) => l.schema),
-	constraintToLaw: snapshot.constraintToLaw
+	constraintToLaw: {
+		tables: Object.fromEntries(
+			Object.entries(snapshot.constraintToLaw.tables).map(
+				([table, named]) => [table, builtUnder(table, named, swaps)] as const
+			)
+		),
+		domains: snapshot.constraintToLaw.domains
+	}
 })
 
 /** A decision record that does not read, as the draft's refusal: two decisions spelled alike, which a review cannot
@@ -212,7 +238,7 @@ export const draftMigration = (input: DraftInput): Result.Result<MigrationDraft,
 			schema: snapshot.schema,
 			source: previous.fingerprint,
 			target: snapshot.fingerprint,
-			laws: folderLaws(snapshot),
+			laws: folderLaws(snapshot, plan.swaps),
 			declared: input.declared,
 			files: recorded
 		}
@@ -271,7 +297,7 @@ export const customMigration = (input: {
 			schema: input.snapshot.schema,
 			source: input.snapshot.fingerprint,
 			target: input.snapshot.fingerprint,
-			laws: folderLaws(input.snapshot)
+			laws: folderLaws(input.snapshot, [])
 		}
 		return { name, meta, metaText: unwrap(writeMeta(meta)), files: [] }
 	})

@@ -36,6 +36,7 @@ import {
 	type MigrationPlan,
 	type Slot,
 	type Step,
+	type Swap,
 	slots
 } from "#compiler/deploy/diff/plan.ts"
 import { ledgerPrivilegesIdent } from "#compiler/deploy/ledger/ledger.ts"
@@ -432,6 +433,8 @@ class Differ {
 	readonly removals: Array<Removal> = []
 	/** Keys of relations that may hold rows that this migration attaches in Validate. */
 	readonly attached = new Set<KeyAfter>()
+	/** Every index this migration builds under a temporary name, as swapName mints it. */
+	readonly swaps: Array<Swap> = []
 	/** The keys of tables both snapshots install whose index this migration drops in Validate beside a key the target
 	 * declares over the same columns, by identity (replacedKeysOf): each goes before the foreign keys over those columns
 	 * are added (replacedKey, unbind). */
@@ -763,11 +766,13 @@ class Differ {
 		return named.value
 	}
 
-	/** The temporary name an index, or a key's index, is built under before it is swapped in for `name`: the naming
-	 * door's (identity.swap), never a name of a live object, so the build's DROP INDEX ... IF EXISTS can never drop
-	 * one. */
-	swapName(name: string): string {
-		return this.temporary(identity.swap(name))
+	/** The temporary name an index, or a key's index, is built under on `table` before it is swapped in for `name`: the
+	 * naming door's (identity.swap), never a name of a live object, so the build's DROP INDEX ... IF EXISTS can never
+	 * drop one; recorded as the plan's Swap, which the folder's laws read a refusal of the build by. */
+	swapName(table: ObjectName, name: string): string {
+		const swap = this.temporary(identity.swap(name))
+		this.swaps.push({ table: table.name, name: swap, of: name })
+		return swap
 	}
 
 	/** Whether the target's relation `name` holds rows before this migration runs: it follows the previous one, which
@@ -834,7 +839,7 @@ class Differ {
 		this.defaults()
 		this.draftRemovals()
 		this.comments()
-		return { steps: this.orderedSteps() }
+		return { steps: this.orderedSteps(), swaps: this.swaps }
 	}
 
 	orderedSteps(): ReadonlyArray<Step> {
@@ -1753,7 +1758,7 @@ class Differ {
 			])
 			return
 		}
-		const index = replace ? this.swapName(c.name) : c.name
+		const index = replace ? this.swapName(t, c.name) : c.name
 		this.buildConcurrently({
 			kind: "createIndex",
 			name: index,
@@ -1969,7 +1974,7 @@ class Differ {
 			return
 		}
 		/** A changed index on a relation that may hold rows: built under a temporary name, then swapped in. */
-		const next = this.swapName(create.name)
+		const next = this.swapName(t, create.name)
 		this.buildConcurrently({ ...create, name: next })
 		this.sql("validate.attach", [
 			{

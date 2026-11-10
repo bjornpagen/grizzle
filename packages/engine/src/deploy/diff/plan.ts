@@ -216,7 +216,20 @@ export interface Step {
 	readonly draft: Draft
 }
 
-/** A migration plan: what the diff of two snapshots drafts, slot by slot, before the phases group it into files. */
+/**
+ * An index a migration builds under a temporary name (diff.ts swapName) before it swaps it in for the target's object
+ * `of` on the table `table`: a refusal of its build, such as a key's over stored rows that repeat it, reports `name`
+ * as its constraint, which the folder's laws read as the law of `of` (render/generate.ts folderLaws).
+ */
+export interface Swap {
+	readonly table: string
+	readonly name: string
+	readonly of: string
+}
+
+/** A migration plan: what the diff of two snapshots drafts, slot by slot, before the phases group it into files, and
+ * every index it builds under a temporary name, in the order the diff mints their names. */
 export interface MigrationPlan {
 	readonly steps: ReadonlyArray<Step>
+	readonly swaps: ReadonlyArray<Swap>
 }

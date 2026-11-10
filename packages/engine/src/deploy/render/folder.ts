@@ -74,8 +74,10 @@ export interface MetaFile {
  * The laws a refusal of a folder's statements names, as `grizzle generate` records them in its meta.json once, where it
  * drafts the folder, since `grizzle migrate` compiles nothing and holds only the last folder's snapshot: the PostgreSQL
  * schema of every level the folder's target installs, which a refused constraint's reported owner must lie in, and the
- * law of every constraint the folder's target installs, under its owner: the target snapshot's constraint-to-law map
- * (generate.ts folderLaws). A custom migration installs its snapshot again, so its laws are its snapshot's.
+ * law of every constraint the folder builds, under its owner, by each name it builds it under: the target snapshot's
+ * constraint-to-law map, each entry under its own name and under every name the diff builds an index under before it
+ * swaps it in for the entry's constraint (diff/plan.ts Swap; generate.ts folderLaws). A custom migration builds nothing,
+ * so its laws are its snapshot's.
  */
 export interface FolderLaws {
 	readonly schemas: ReadonlyArray<string>
