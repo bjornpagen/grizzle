@@ -1,11 +1,11 @@
-import { Array as Arr, Result } from "effect"
+import { Array as Arr, Record as Rec, Result } from "effect"
 import type { ChangeVariants, WorkloadForm } from "#adapter/db/workload.ts"
 import { toResult } from "#adapter/engine.ts"
 import type { RowsForm } from "#adapter/reader/reader.ts"
 import { refreshPlan } from "#adapter/refresh/statements.ts"
 import type { LayerRole } from "#adapter/served/login.ts"
 import { refusalsOf as servedRefusals } from "#adapter/served/refusals.ts"
-import { lawsAbove } from "#adapter/witness/keylaw.ts"
+import { type LawsAbove, lawsAbove } from "#adapter/witness/keylaw.ts"
 import { servedWrite } from "#compiler/plan/change.ts"
 import {
 	type CompileError,
@@ -26,6 +26,7 @@ import {
 import { servedRead, servedReadBacks } from "#compiler/plan/read.ts"
 import {
 	ledgerStatements,
+	type ServedAbove,
 	type ServedChange,
 	type ServedContext,
 	type ServedFile,
@@ -187,6 +188,34 @@ const roleOf = (role: LayerRole): Result.Result<ServedRoleForm, UnservedMember> 
 		members
 	}))
 
+/** One kind of owner's constraints above as a served file holds them: each one reporting a law of `laws`, under its
+ * owner, an owner none of whose constraints does left out. */
+const reportingAbove = (
+	owned: LawsAbove["constraints"]["tables"],
+	laws: LawsAbove["laws"]
+): LawsAbove["constraints"]["tables"] =>
+	Rec.fromEntries(
+		Arr.flatMap(Rec.toEntries(owned), ([owner, named]) => {
+			const reporting = Arr.filter(Rec.toEntries(named), ([, law]) => laws.has(law))
+			return reporting.length === 0 ? [] : [[owner, Rec.fromEntries(reporting)] as const]
+		})
+	)
+
+/**
+ * The laws above a login's base as its served file holds them: every level schema, the laws of the levels above, and
+ * the constraints above that report one of those laws. A violation reads the constraints above only where the role's
+ * own tables name none, and names by them only a law of a level above (witness/keylaw.ts keyLawsOf lawsOf), so a
+ * constraint reporting any other law is none a served Db reads.
+ */
+const servedAbove = (above: LawsAbove): ServedAbove => ({
+	schemas: above.schemas,
+	constraints: {
+		tables: reportingAbove(above.constraints.tables, above.laws),
+		domains: reportingAbove(above.constraints.domains, above.laws)
+	},
+	laws: above.laws
+})
+
 /**
  * The served file of a login's compile (see the header): the login, the snapshot fingerprint it compiled under, its
  * base and that level's index, its PostgreSQL role, its base's schema and the prologue's and session's texts, the codes
@@ -223,7 +252,7 @@ export const servedFileOf = (
 				)
 			),
 			matchers: servedMatchers(roles),
-			above: lawsAbove(snapshot),
+			above: servedAbove(lawsAbove(snapshot)),
 			roles
 		}
 	})
