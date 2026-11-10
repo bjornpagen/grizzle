@@ -306,9 +306,10 @@ as PostgreSQL's scanner reads it: whitespace, comments and the case of unquoted 
   `check` compiles every login again and holds each file to it byte for byte: the login's served file differs from
   what its workload compiles to under snapshot.json (an ungenerated change), naming the login and the first program
   where they part; run grizzle generate, which writes the served file again.
-- `meta.json`: it records the folder's place in the chain, the renames and drops it was drafted under, and every
+- `meta.json`: it records the folder's place in the chain, the renames and drops it was drafted under, every
   drafted statement of every file in its place, its confirmed groups and data losses among them, which `check` reads
-  every reviewed file against. `check` says: meta.json does not decode as a
+  every reviewed file against, and the law of each constraint the folder installs, by which `migrate` names the law a
+  refused statement of the folder breaks. `check` says: meta.json does not decode as a
   migration's meta.json, or names another schema; restore it from git, or broken chain: this migration does not start
   where the previous one ends; regenerate; never hand-edit meta.json.
 - An applied migration: the database ran exactly that text, and the ledger holds its digest. `migrate` says

@@ -30,7 +30,8 @@ import {
 } from "effect"
 import { decodeMeta, readMeta } from "#adapter/boundary/meta.ts"
 import type { Json } from "#compiler/core/canonical.ts"
-import { SchemaFingerprint } from "#compiler/core/ids.ts"
+import { admittedIdentifier } from "#compiler/core/identity.ts"
+import { type LawId, SchemaFingerprint } from "#compiler/core/ids.ts"
 import { jsonText, trusted } from "#compiler/core/trusted.ts"
 import type { Declarations, Named, Rename } from "#compiler/deploy/diff/plan.ts"
 import {
@@ -39,6 +40,7 @@ import {
 	type MetaFile,
 	type MetaStep,
 	type CustomMeta,
+	type FolderLaws,
 	type MigrationMeta,
 	maxMigrationNameLength,
 	metaFileName,
@@ -73,8 +75,9 @@ import { regex } from "arkregex"
  *   and folderName builds a folder name from a timestamp and a name it admits.
  * - A drafted file is `NN-<words>.sql`, NN two or more ASCII digits and positive; a folder holds such files beside
  *   meta.json, one per ordinal, applied in ordinal order.
- * - meta.json holds four nonempty strings and its kind, drafted or custom; a custom migration's source is its target. A
- *   drafted folder also holds the renames and drops it was drafted under, and its decisions, empty when it has none:
+ * - meta.json holds four nonempty strings, its kind, drafted or custom, and its laws, the level schemas and each table's
+ *   and domain's constraint names to the laws they report; a custom migration's source is its target. A drafted
+ *   folder also holds the renames and drops it was drafted under, and its decisions, empty when it has none:
  *   each drafted statement in its place, each group of statements it confirms, one at least, and each loss of stored
  *   data, what it loses and its statement. A value short of any of it is refused as malformed, a decision written as
  *   another recorded statement among it, and a valid one reads back as written, byte for byte when written again.
@@ -392,7 +395,15 @@ describe("migration folders, generated", () => {
 
 /** What a meta.json value is short of.
  * A key of meta.json, of either kind of folder. */
-type MetaKey = "schemaName" | "schema" | "source" | "target" | "kind" | "declared" | "files"
+type MetaKey =
+	| "schemaName"
+	| "schema"
+	| "source"
+	| "target"
+	| "laws"
+	| "kind"
+	| "declared"
+	| "files"
 
 /** A decision record short of its proof, refused: a statement whose presence decides something, a loss's or a
  * confirmed one, written as another recorded statement, which a review could not tell apart from it. */
@@ -474,12 +485,48 @@ const recordOf = (lossDrawn: boolean): ReadonlyArray<MetaFile> => {
 	]
 }
 
+/** An installed identifier's spelling: a PostgreSQL schema's, an owner's, a constraint's or a law's. */
+const identGen: Gen<string> = matching(regex("^[a-z][a-z0-9_]{0,8}$"))
+
+/** One kind of owner's constraint names, by owner, to the laws they report. */
+const ownedLawsGen: Gen<Readonly<Record<string, Readonly<Record<string, LawId>>>>> = (source) =>
+	Rec.fromEntries(
+		source.draw(
+			array(
+				(owner) =>
+					[
+						owner.draw(identGen),
+						Rec.fromEntries(
+							owner.draw(
+								array(
+									(named) =>
+										[
+											named.draw(identGen),
+											admittedIdentifier<"law">(named.draw(identGen))
+										] as const,
+									{ min: 0, max: 3 }
+								)
+							)
+						)
+					] as const,
+				{ min: 0, max: 3 }
+			)
+		)
+	)
+
+/** A folder's laws: its levels' schemas and its constraint-to-law map. */
+const lawsGen: Gen<FolderLaws> = (source) => ({
+	schemas: source.draw(array(identGen, { min: 1, max: 3 })),
+	constraintToLaw: { tables: source.draw(ownedLawsGen), domains: source.draw(ownedLawsGen) }
+})
+
 /** A custom migration's source and target are one snapshot, and it drafts nothing, so it records no files. */
 const metaGen: Gen<MigrationMeta> = (source) => {
 	const fields = {
 		schemaName: source.draw(matching(regex("^[A-Z][A-Za-z0-9]{0,8}$"))),
-		schema: source.draw(matching(regex("^[a-z][a-z0-9_]{0,8}$"))),
-		source: SchemaFingerprint(source.draw(fingerprintGen))
+		schema: source.draw(identGen),
+		source: SchemaFingerprint(source.draw(fingerprintGen)),
+		laws: source.draw(lawsGen)
 	}
 	const target = SchemaFingerprint(source.draw(fingerprintGen))
 	const custom = source.draw(boolean)
@@ -499,6 +546,7 @@ const wrong: Arr.NonEmptyReadonlyArray<{
 	{ key: "schema", values: ["", false, {}] },
 	{ key: "source", values: ["", 1, null] },
 	{ key: "target", values: ["", [], null] },
+	{ key: "laws", values: [null, {}, [], "laws"] },
 	{ key: "kind", values: ["Drafted", "", true, 0, null] },
 	{
 		key: "declared",
@@ -590,6 +638,7 @@ const twoSnapshots = (meta: MigrationMeta): CustomMeta => ({
 	schemaName: meta.schemaName,
 	schema: meta.schema,
 	source: meta.source,
+	laws: meta.laws,
 	target: SchemaFingerprint(
 		meta.source === Str.repeat(64)("0") ? Str.repeat(64)("1") : Str.repeat(64)("0")
 	)
@@ -655,6 +704,7 @@ describe("meta.json, generated", () => {
 									return
 								}
 								assertVariant(read, "kind", "drafted", "a drafted meta reads back drafted")
+								assert.deepEqual(read.laws, meta.laws, "the laws read back")
 								assert.deepEqual(read.declared, meta.declared, "the declarations read back")
 								if (meta.declared.renames.length + meta.declared.drops.length > 0) {
 									c.note("declarations, read")

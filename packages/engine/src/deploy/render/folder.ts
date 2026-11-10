@@ -23,6 +23,7 @@ import {
 	writtenAs
 } from "#compiler/deploy/render/markers.ts"
 import { writeJsonText } from "#compiler/deploy/snapshot/build.ts"
+import type { ConstraintLaws } from "#compiler/ir/products.ts"
 
 export const metaFileName = "meta.json"
 
@@ -69,12 +70,25 @@ export interface MetaFile {
 	readonly steps: ReadonlyArray<MetaStep>
 }
 
+/**
+ * The laws a refusal of a folder's statements names, as `grizzle generate` records them in its meta.json once, where it
+ * drafts the folder, since `grizzle migrate` compiles nothing and holds only the last folder's snapshot: the PostgreSQL
+ * schema of every level the folder's target installs, which a refused constraint's reported owner must lie in, and the
+ * law of every constraint the folder's target installs, under its owner: the target snapshot's constraint-to-law map
+ * (generate.ts folderLaws). A custom migration installs its snapshot again, so its laws are its snapshot's.
+ */
+export interface FolderLaws {
+	readonly schemas: ReadonlyArray<string>
+	readonly constraintToLaw: ConstraintLaws
+}
+
 interface MetaFields {
 	/** The declared schema name and its PostgreSQL schema. */
 	readonly schemaName: string
 	readonly schema: string
 	readonly source: SchemaFingerprint
 	readonly target: SchemaFingerprint
+	readonly laws: FolderLaws
 }
 
 /** The meta of a folder the generator drafted: the renames and drops it was drafted under, as `--rename` and `--drop`
@@ -278,7 +292,9 @@ interface MigrationFile {
  * the database's latest applied target before any statement runs, and records both in the ledger.
  * The CLI supplies the timestamp, since the compiler reads no clock: fourteen digits,
  * `YYYYMMDDHHMMSS` in UTC, so folders sort in creation order by name. meta.json also records the folder's kind:
- * drafted, or a custom migration, whose source and target are the same snapshot. A drafted folder records the renames
+ * drafted, or a custom migration, whose source and target are the same snapshot, and the laws its statements' refusals
+ * name (`laws`, FolderLaws), by which `grizzle migrate` names the law a refused constraint reports, each folder by its
+ * own. A drafted folder records the renames
  * and drops it was drafted under (`declared`) and its decision record in `files`: every drafted statement of every
  * file in draft order, each group of statements the reviewer confirms as one, and each statement that loses stored
  * data no declaration names, with what it loses. So `grizzle check` reads back that each group stands whole or is gone
@@ -496,6 +512,7 @@ export const readDecodedMeta = (meta: MigrationMeta): Result.Result<ReadMeta, Co
 					schema: meta.schema,
 					source: meta.source,
 					target: meta.target,
+					laws: meta.laws,
 					declared: meta.declared,
 					record
 				})

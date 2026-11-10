@@ -80,6 +80,7 @@ import {
 	sqlstateClass,
 	sqlstates
 } from "#compiler/plan/common.ts"
+import type { FolderLaws } from "#compiler/plan/migration.ts"
 import { textParam } from "#compiler/plan/read.ts"
 import type { DeploySnapshot, LedgerStatements } from "#compiler/plan/serve.ts"
 
@@ -439,16 +440,15 @@ const surveyAll = Effect.fn("surveyAll")(function* (
 })
 
 /**
- * The law a refusal of a migration file breaks, by the target snapshot's constraint-to-law map, the installation's map
- * a refused write's law is read from (witness/keylaw.ts): an integrity violation PostgreSQL reports on a constraint of
- * a table or domain of one of the snapshot's levels (reportedOwner), such as a VALIDATE CONSTRAINT of a foreign key over
- * stored rows, or a deferred one at COMMIT; none for any other failure, and none for a violation check, which raises
- * under the law's identity itself.
+ * The law a refusal of a file of a folder breaks, by that folder's own laws (`laws`, its meta.json's FolderLaws), which
+ * generate recorded from the snapshot the folder installs, as a refused write's law is read from the installation's
+ * map (witness/keylaw.ts): an integrity violation PostgreSQL reports on a constraint of a table or domain of one of the
+ * levels the folder installs (reportedOwner), such as a VALIDATE CONSTRAINT of a foreign key over stored rows, or a
+ * deferred one at COMMIT; none for any other failure, and none for a violation check, which raises under the law's
+ * identity itself.
  */
-const brokenLaw = (
-	snapshot: DeploySnapshot
-): ((failure: StatementFailure) => LawId | undefined) => {
-	const schemas = new Set(Arr.map(snapshot.levels, (l) => l.schema))
+const brokenLaw = (laws: FolderLaws): ((failure: StatementFailure) => LawId | undefined) => {
+	const schemas = new Set(laws.schemas)
 	return (failure) => {
 		if (
 			failure._tag !== "ServerError" ||
@@ -460,7 +460,7 @@ const brokenLaw = (
 		const owner = reportedOwner(failure, schemas)
 		return owner === undefined
 			? undefined
-			: constraintLaw(snapshot.constraintToLaw, owner, failure.constraint)
+			: constraintLaw(laws.constraintToLaw, owner, failure.constraint)
 	}
 }
 
@@ -644,7 +644,6 @@ const runPlan = Effect.fn("runPlan")(function* (
 	planned: Planned
 ): Effect.fn.Return<SchemaApplyReport, MigrateError> {
 	const { plan, statements } = planned
-	const broken = brokenLaw(planned.snapshot)
 	/** The ledger exists once any transaction of the apply committed: the schema's first file creates it. */
 	let ledger = planned.ledger
 	for (const r of plan.runs) {
@@ -652,6 +651,7 @@ const runPlan = Effect.fn("runPlan")(function* (
 			yield* recordFolderRow(session, plan.schema, statements, r.folder, ledger)
 			ledger = "present"
 		}
+		const broken = brokenLaw(r.folder.meta.laws)
 		for (const f of runFiles(r)) {
 			yield* runFile(session, plan.schema, statements, r.folder, f, ledger, broken)
 			ledger = "present"

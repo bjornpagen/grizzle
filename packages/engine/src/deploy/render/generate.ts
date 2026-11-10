@@ -16,6 +16,7 @@ import {
 	type DraftedFolder,
 	type DraftedMeta,
 	decisionRecord,
+	type FolderLaws,
 	type FolderNaming,
 	folderName,
 	type MigrationFolder,
@@ -108,6 +109,13 @@ const comparable = (s: Omit<DeploySnapshot, "fingerprint"> | DeploySnapshot): st
 	const { fingerprint, ...content } = s
 	return canonicalTextOf(content)
 }
+
+/** The laws a refusal of a folder that installs `snapshot` names (FolderLaws): the snapshot's level schemas and its
+ * constraint-to-law map. */
+const folderLaws = (snapshot: DeploySnapshot): FolderLaws => ({
+	schemas: snapshot.levels.map((l) => l.schema),
+	constraintToLaw: snapshot.constraintToLaw
+})
 
 /** A decision record that does not read, as the draft's refusal: two decisions spelled alike, which a review cannot
  * tell apart. */
@@ -204,6 +212,7 @@ export const draftMigration = (input: DraftInput): Result.Result<MigrationDraft,
 			schema: snapshot.schema,
 			source: previous.fingerprint,
 			target: snapshot.fingerprint,
+			laws: folderLaws(snapshot),
 			declared: input.declared,
 			files: recorded
 		}
@@ -261,7 +270,8 @@ export const customMigration = (input: {
 			schemaName: input.snapshot.schemaName,
 			schema: input.snapshot.schema,
 			source: input.snapshot.fingerprint,
-			target: input.snapshot.fingerprint
+			target: input.snapshot.fingerprint,
+			laws: folderLaws(input.snapshot)
 		}
 		return { name, meta, metaText: unwrap(writeMeta(meta)), files: [] }
 	})

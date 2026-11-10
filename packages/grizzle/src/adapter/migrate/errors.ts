@@ -552,8 +552,8 @@ const lawText = (law: LawId | undefined): string =>
 	law === undefined ? "" : `, breaking law ${law}`
 
 /**
- * Statement `statement` (1-based) of `folder`/`file` failed: `law` the law the refused constraint reports, by the target
- * snapshot's constraint-to-law map, as a refused write names it (apply.ts brokenLaw).
+ * Statement `statement` (1-based) of `folder`/`file` failed: `law` the law the refused constraint reports, by the laws
+ * of `folder` itself (its meta.json's FolderLaws), as a refused write names it (apply.ts brokenLaw).
  */
 export class StatementFailed extends Data.TaggedError("StatementFailed")<{
 	readonly schema: string
@@ -617,7 +617,8 @@ export class RecordFailed extends Data.TaggedError("RecordFailed")<{
 
 /**
  * The COMMIT of `folder`/`file` was refused, so the file rolled back with its ledger row: `law` the law a deferred
- * constraint the COMMIT checked reports, by the target snapshot's constraint-to-law map (apply.ts brokenLaw).
+ * constraint the COMMIT checked reports, by the laws of `folder` itself (its meta.json's FolderLaws, apply.ts
+ * brokenLaw).
  */
 export class FileCommitRefused extends Data.TaggedError("FileCommitRefused")<{
 	readonly schema: string

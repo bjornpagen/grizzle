@@ -17,11 +17,11 @@
  * lowered rule's constant changed, and at each form added over rows that break it.
  *
  * The oracle is the law restated over the stored rows. A migration applies exactly when the rows keep the law of every
- * version it reaches. A refused one names the folder of the first version whose law the rows break, and never a law but
- * that one: a foreign key's validation names it through the target's constraint-to-law map, as a refused write names it
- * (migrate's StatementFailed or FileCommitRefused `law`), and a rule's violation check by the law's own identity. A
- * refusal of the target's own folder names the law; one of an earlier folder may refuse on a constraint the target no
- * longer holds, which names no law. After every apply:
+ * version it reaches. A refused one names the folder of the first version whose law the rows break, and that version's
+ * law: a foreign key's validation names it through the refused folder's own laws (its meta.json's FolderLaws), as a
+ * refused write names it (migrate's StatementFailed or FileCommitRefused `law`), and a rule's violation check by the
+ * law's own identity. An earlier folder of two pending names its law by its own map though the last folder renames Use,
+ * so no constraint of Use stands in the target's. After every apply:
  *
  * - the migrated catalog is a fresh install's of the version (install-migrate.ts expectFreshCatalog);
  * - a Use row naming a doc no Doc row holds is refused at COMMIT with 23503 by a constraint the target's
@@ -277,19 +277,33 @@ const lowered = (plan: RealInstallPlan): boolean =>
 		Arr.every(plan.installation.laws.rules, (rule) => rule.law.id !== id)
 	)
 
-/** The law a migration's refusal names: migrate's own reading of the refused constraint, or a violation check's law. */
-const namedLaw = (failure: MigrateError): Option.Option<string> => {
+/**
+ * How a migration's refusal names its law: by migrate's own reading of the refused constraint through its folder's laws
+ * (`folder`), or by a violation check, which raises under the law's identity (`check`).
+ */
+type Naming = "folder" | "check"
+
+/** The law a migration's refusal names, and how it names it (Naming). */
+interface Named {
+	readonly law: string
+	readonly by: Naming
+}
+
+/** The law a migration's refusal names (Named), none for a refusal that names none. */
+const namedLaw = (failure: MigrateError): Option.Option<Named> => {
 	const reason = failure.reason
+	const named = (law: string | undefined, by: Naming): Option.Option<Named> =>
+		Option.map(Option.fromUndefinedOr(law), (l) => ({ law: l, by }))
 	if (reason._tag === "FileCommitRefused") {
-		return Option.fromUndefinedOr(reason.law)
+		return named(reason.law, "folder")
 	}
 	if (reason._tag !== "StatementFailed") {
 		return Option.none()
 	}
 	return reason.law !== undefined
-		? Option.some(reason.law)
+		? named(reason.law, "folder")
 		: reason.failure._tag === "ServerError" && reason.failure.sqlstate === "23000"
-			? Option.fromUndefinedOr(reason.failure.constraint)
+			? named(reason.failure.constraint, "check")
 			: Option.none()
 }
 
@@ -311,6 +325,7 @@ type Feature =
 	| "a stored containment added over stored rows that break it, refused naming its law"
 	| "a triggered rule added over stored rows that break it, refused naming its law"
 	| "an intermediate folder refused, two pending"
+	| "an intermediate folder's foreign key refused, two pending, named by its own laws"
 	| "a refused write names the law by its foreign key"
 	| "a refused write names the law by its trigger"
 
@@ -380,14 +395,10 @@ const walk = (c: WalkCase, note: (feature: Feature) => void) =>
 					`the refusal names the folder of step ${at + 1}, the first whose rule the rows break: ${failure.message}`
 				)
 				assert.ok(
-					Option.isNone(named) || Option.exists(law, (id) => Option.exists(named, (n) => n === id)),
-					`the refusal names no law but the one over Use: ${failure.message}`
+					Option.exists(law, (id) => Option.exists(named, (n) => n.law === id)),
+					`the refusal names the law over Use of the folder it refuses: ${failure.message}`
 				)
 				if (at === step) {
-					assert.ok(
-						Option.exists(law, (id) => Option.exists(named, (n) => n === id)),
-						`the refusal of the target's own folder names the law, not a constraint: ${failure.message}`
-					)
 					const before = at === 0 ? first : Arr.getUnsafe(c.versions, at - 1)
 					const beforePlan = Arr.getUnsafe(drafted, Math.max(0, at - 1)).plan
 					const flipped = Option.exists(ruleLawOf(beforePlan), (id) =>
@@ -420,6 +431,9 @@ const walk = (c: WalkCase, note: (feature: Feature) => void) =>
 					}
 				} else {
 					note("an intermediate folder refused, two pending")
+					if (Option.exists(named, (n) => n.by === "folder")) {
+						note("an intermediate folder's foreign key refused, two pending, named by its own laws")
+					}
 				}
 				return
 			}
@@ -607,6 +621,13 @@ const aims: ReadonlyArray<readonly [Feature, Gen<WalkCase>]> = [
 		})
 	],
 	[
+		"an intermediate folder's foreign key refused, two pending, named by its own laws",
+		(s) => ({
+			...s.draw(addedOver(s.draw(element(["selection", "doc"] as const)))),
+			applied: "the last two together"
+		})
+	],
+	[
 		"triggers to foreign keys over stored rows that break them, refused naming the law",
 		pathOver("union", "selection", "same kind", () => ({ docs: [], extras: [0], uses: [0] }))
 	]
@@ -648,6 +669,7 @@ layer(Substrate.layer)(
 									"a stored containment added over stored rows that break it, refused naming its law",
 									"a triggered rule added over stored rows that break it, refused naming its law",
 									"an intermediate folder refused, two pending",
+									"an intermediate folder's foreign key refused, two pending, named by its own laws",
 									"a refused write names the law by its foreign key",
 									"a refused write names the law by its trigger"
 								],

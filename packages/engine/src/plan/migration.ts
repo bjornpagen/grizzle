@@ -7,6 +7,7 @@
 export { type ManifestStatement, manifestStatements } from "#compiler/deploy/admission/manifest.ts"
 export type { AbandonedSchema, Declarations, Named, Rename } from "#compiler/deploy/diff/plan.ts"
 export {
+	type FolderLaws,
 	type FolderNaming,
 	folderTimestamp,
 	isFolderName,
