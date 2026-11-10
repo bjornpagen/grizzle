@@ -1113,7 +1113,8 @@ const pgSpellings = [
 ] as const
 type PgSpelling = (typeof pgSpellings)[number]
 
-const serialSpellings = [
+/** The integer serials' spellings, each drawn by an identity. */
+const integerSerialSpellings = [
 	"smallserial",
 	"serial2",
 	"serial",
@@ -1121,6 +1122,9 @@ const serialSpellings = [
 	"bigserial",
 	"serial8"
 ] as const
+
+/** Every serial's spelling: the integer serials', and pg.uuidv7, drawn by its `uuidv7()` default. */
+const serialSpellings = [...integerSerialSpellings, "uuidv7"] as const
 type SerialSpelling = (typeof serialSpellings)[number]
 
 /** The integer spellings a span's endpoint may be. */
@@ -1835,6 +1839,7 @@ const aggregatable = (t: FieldType, contracts: ReadonlyArray<ContractSpec>): boo
 		case "pg":
 			return !Arr.contains(["money", "boolean", "bool"] as const, t.spelling)
 		case "serial":
+			return t.spelling !== "uuidv7"
 		case "numeric":
 		case "floatOf":
 			return true
@@ -1923,7 +1928,7 @@ const typeText = (t: FieldType): string => {
 		case "pg":
 			return `pg ${pgCanonical[t.spelling]}`
 		case "serial":
-			return `pg ${serialCanonical[t.spelling]}`
+			return serialText[t.spelling]
 		case "uuid":
 		case "date":
 		case "natural":
@@ -1964,13 +1969,15 @@ const pgCanonical: { readonly [S in PgSpelling]: string } = {
 	bool: "boolean"
 }
 
-const serialCanonical: { readonly [S in SerialSpelling]: string } = {
-	smallserial: "smallint",
-	serial2: "smallint",
-	serial: "integer",
-	serial4: "integer",
-	bigserial: "bigint",
-	serial8: "bigint"
+/** A serial's type text, its value type's: an integer serial's integer, and pg.uuidv7's uuid. */
+const serialText: { readonly [S in SerialSpelling]: string } = {
+	smallserial: "pg smallint",
+	serial2: "pg smallint",
+	serial: "pg integer",
+	serial4: "pg integer",
+	bigserial: "pg bigint",
+	serial8: "pg bigint",
+	uuidv7: "uuid"
 }
 /**
  * A containment between two relations of the base: a field of one into the primary key of another, whose key is one
@@ -5121,7 +5128,7 @@ const fieldProbe = (d: Drawing, base: Base): Probe => {
 				kind: "span",
 				endpoint: d.from<FieldType>([
 					{ kind: "pg", spelling: "smallint" },
-					{ kind: "serial", spelling: d.from(serialSpellings) },
+					{ kind: "serial", spelling: d.from(integerSerialSpellings) },
 					{ kind: "pg", spelling: "money" },
 					{ kind: "numeric", spelling: "numeric", precision: 10, scale: 0 }
 				]),
@@ -7785,6 +7792,12 @@ const caseOf = ({ base, probes, reached }: Drawn): SchemaCase => {
 /** The cases the run's own stream draws. */
 const schemaCount = 48
 
+/**
+ * The floor's witnesses: every construct, fault and refusal schemaRequired names is first reached by the floor stream at
+ * case 71 at the latest, atSwapped there, since a serial is drawn among seven spellings, pg.uuidv7 the seventh.
+ */
+const floorCount = 72
+
 /** The label both populations are drawn under. */
 const schemaLabel = "types/schema agreement"
 
@@ -7795,7 +7808,7 @@ const caseGen: Gen<SchemaCase> = (source) => caseOf(drawnGen(source))
  * required situations (test/types/schema/agreement.test.ts).
  */
 export const schemaWitnesses = () =>
-	floorPopulation(schemaLabel, caseGen, schemaCount, (c): ReadonlyArray<Reached<SchemaNote>> => [
+	floorPopulation(schemaLabel, caseGen, floorCount, (c): ReadonlyArray<Reached<SchemaNote>> => [
 		...c.notes
 	])
 
