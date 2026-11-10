@@ -1,5 +1,6 @@
 import { Refusal } from "#compiler/core/canonical.ts"
 import { resourceBound } from "#compiler/core/errors.ts"
+import type { Isolation } from "#compiler/core/isolation.ts"
 import {
 	maxStringLength,
 	messageMaxBytes,
@@ -115,6 +116,12 @@ export const quoteIdent = (name: string): string => `"${name.replaceAll('"', '""
 
 export const printObjectName = (name: ObjectName): string =>
 	`${quoteIdent(name.schema)}.${quoteIdent(name.name)}`
+
+/** Each isolation level as BEGIN ISOLATION LEVEL spells it. */
+const isolationLevels: { readonly [I in Isolation]: string } = {
+	serializable: "SERIALIZABLE",
+	readCommitted: "READ COMMITTED"
+}
 
 /** A constraint trigger's row event as CREATE CONSTRAINT TRIGGER spells it. */
 const triggerEventText = (event: TriggerEvent): string => {
@@ -1692,7 +1699,9 @@ export const writeStatement = (out: Lines, statement: SqlStatement): void => {
 				`LOCK TABLE ${statement.tables.map(printObjectName).join(", ")} IN ${statement.mode} MODE${statement.wait === "nowait" ? " NOWAIT" : ""}`
 			)
 		case "begin":
-			return out.line(`BEGIN ISOLATION LEVEL SERIALIZABLE${statement.readOnly ? " READ ONLY" : ""}`)
+			return out.line(
+				`BEGIN ISOLATION LEVEL ${isolationLevels[statement.isolation]}${statement.readOnly ? " READ ONLY" : ""}`
+			)
 		case "commit":
 			return out.line("COMMIT")
 		case "rollback":

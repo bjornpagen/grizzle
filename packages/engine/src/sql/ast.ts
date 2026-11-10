@@ -1,4 +1,5 @@
 import type { IndexMethod } from "#compiler/core/identity.ts"
+import type { Isolation } from "#compiler/core/isolation.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { CarrierName, NameMap } from "#compiler/sql/naming.ts"
 
@@ -1738,11 +1739,11 @@ export interface CreateConstant {
 	readonly body: Expr
 }
 
-/** Every transaction is SERIALIZABLE. */
-/** Transaction control: BEGIN, COMMIT, ROLLBACK, and SET CONSTRAINTS ALL IMMEDIATE, under which every deferrable
- * constraint's check runs at the end of each statement, so no trigger event waits for the commit. */
+/** Transaction control: BEGIN at an isolation level, read-only or not, COMMIT, ROLLBACK, and SET CONSTRAINTS ALL
+ * IMMEDIATE, under which every deferrable constraint's check runs at the end of each statement, so no trigger event
+ * waits for the commit. */
 export type Txn =
-	| { readonly kind: "begin"; readonly readOnly: boolean }
+	| { readonly kind: "begin"; readonly isolation: Isolation; readonly readOnly: boolean }
 	| { readonly kind: "commit" }
 	| { readonly kind: "rollback" }
 	| { readonly kind: "setConstraintsImmediate" }

@@ -185,8 +185,10 @@ export const servedPage = (
 export const servedSession: ServedSession = {
 	startup: loginStartupOptions,
 	begin: {
-		readOnly: emitText({ kind: "begin", readOnly: true }, emptyNameMap).text,
-		readWrite: emitText({ kind: "begin", readOnly: false }, emptyNameMap).text
+		readOnly: emitText({ kind: "begin", isolation: "serializable", readOnly: true }, emptyNameMap)
+			.text,
+		readWrite: emitText({ kind: "begin", isolation: "serializable", readOnly: false }, emptyNameMap)
+			.text
 	},
 	commit: emitText({ kind: "commit" }, emptyNameMap).text,
 	rollback: emitText({ kind: "rollback" }, emptyNameMap).text
