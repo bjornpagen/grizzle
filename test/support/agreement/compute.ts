@@ -20,12 +20,13 @@ import { contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { Bits, bytes, Decimal, Money, uuid } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
-import { lexicalForm, type Pattern, str } from "#compiler/public/text.ts"
+import { lexicalForm, str } from "#compiler/public/text.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { guarded, type TypedTerm, typedTermOf } from "#compiler/scalar/compute/term.ts"
 import { meets } from "#compiler/scalar/compute/types.ts"
+import { Pattern } from "#compiler/scalar/regex/pattern.ts"
 import { carrierSql } from "#compiler/scalar/registry.ts"
 import { generatedField } from "#compiler/schema/relation.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
@@ -3348,9 +3349,10 @@ const valueVerdict = (
 /**
  * A value the engine may refuse where the types admit its type, at a field of Cell the value stands opposite, and the
  * stand-in the engine reads there, of the facts the types read: 1 for a fractional number at an integer, which the
- * types read as finite, nonzero and nonnegative; Decimal.of("1") for a string that spells no exact decimal at a
- * numeric, a value TypeScript sees no more than it sees that string; a date for a date's shape; and "x" for a string a
- * text's regex refinement refuses, whose membership the types do not read of a value.
+ * types read as finite, nonzero and nonnegative; Decimal.of("1") at a numeric for a string that spells no exact decimal,
+ * a value TypeScript sees no more than it sees that string, and for a Pattern, a match's lexical form opposite a numeric
+ * subject, which the engine reads as a decimal before it refuses the subject; a date for a date's shape; and "x" for a
+ * string a text's regex refinement refuses, whose membership the types do not read of a value.
  */
 const standInAt = (
 	l: Lit,
@@ -3368,7 +3370,10 @@ const standInAt = (
 	) {
 		return Option.some({ lit: { text: "1", value: 1 }, note: engineDecides.integral })
 	}
-	if (sql === "numeric" && typeof value === "string" && !Decimal.fromString(value).ok) {
+	if (
+		sql === "numeric" &&
+		((typeof value === "string" && !Decimal.fromString(value).ok) || value instanceof Pattern)
+	) {
 		return Option.some({
 			lit: { text: 'Decimal.of("1")', value: Decimal.of("1") },
 			note: engineDecides.digits
