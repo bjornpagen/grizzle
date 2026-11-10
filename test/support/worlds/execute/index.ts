@@ -3,6 +3,7 @@ import {
 	Array as Arr,
 	Cause,
 	Context,
+	Data,
 	Effect,
 	Exit,
 	Fiber,
@@ -260,16 +261,25 @@ interface Held {
 }
 
 /**
+ * A role of no installed login whose login's served file the compile refuses, a role a name breaking the declared-name
+ * rule names: no served file holds it, so no application holds a token of it to hand Db.open, and the compile's
+ * refusal is the open's.
+ */
+class UnservableRole extends Data.TaggedError("UnservableRole")<{
+	readonly refusal: ServedRefusal
+}> {}
+
+/**
  * What an open hands Db.open and runs under: the role value it names, that role reached through its login, the role the
  * installation holds it as (none for a role of no installed login), and its opening: the served role Db.open is handed,
  * the snapshot its login's file was compiled under, and the layers it is opened under. A served file the compile
- * refuses under the snapshot an open names is that open's refusal.
+ * refuses under the snapshot an open names is that open's refusal; a role no served file can hold is UnservableRole.
  */
 interface OpenTarget {
 	readonly value: BuiltRole
 	readonly reached: LoginRole<BuiltRole, unknown>
 	readonly held: Option.Option<Held>
-	readonly opening: Effect.Effect<Opening, OpenError | ServedRefusal, Scope.Scope>
+	readonly opening: Effect.Effect<Opening, OpenError | ServedRefusal | UnservableRole, Scope.Scope>
 }
 
 /** An open's served role, the snapshot its file was compiled under, and the layers it is opened under. */
@@ -604,12 +614,12 @@ const realizeWith = (
 					roleBuilder(current.built.base, name, { [anyRelation.name]: whole })
 				)
 				const reached = yield* reachedUnheld(current.built.base, value)
-				const file = yield* Effect.orDie(servedOver(reached.login, current.snapshotJson))
+				const file = yield* Effect.result(servedOver(reached.login, current.snapshotJson))
 				return {
 					value,
 					reached: reached.role,
 					held: Option.none<Held>(),
-					served: servedRoleOf(file, name),
+					served: Result.map(file, (served) => servedRoleOf(served, name)),
 					snapshot: current.snapshotJson,
 					context: allLayers(Option.none())
 				}
@@ -638,7 +648,7 @@ const realizeWith = (
 							value,
 							reached,
 							held: heldOf(current.spec, ref.role, name),
-							served: servedRoleOf(layer.served, ref.role),
+							served: Result.succeed(servedRoleOf(layer.served, ref.role)),
 							snapshot: layer.snapshot,
 							context: ref.kind === "own" ? layer.context : allLayers(Option.some(name))
 						}
@@ -669,10 +679,9 @@ const realizeWith = (
 						value,
 						reached,
 						held,
-						opening: Effect.succeed({
-							role: target.served,
-							snapshot: target.snapshot,
-							context: target.context
+						opening: Effect.mapBoth(Effect.fromResult(target.served), {
+							onFailure: (refusal) => new UnservableRole({ refusal }),
+							onSuccess: (role) => ({ role, snapshot: target.snapshot, context: target.context })
 						})
 					}
 				}
@@ -711,15 +720,16 @@ const realizeWith = (
 		})
 
 		/**
-		 * An open's end: a refusal of Db.open at its stage, or a served compile's refusal of the login's file under the
+		 * An open's end: a refusal of Db.open at its stage; a served compile's refusal of the login's file under the
 		 * snapshot the open names, which refuses the open at `schema` before any verify, as a layer refuses a file it
-		 * cannot serve; else the Db opened (openedDb).
+		 * cannot serve; the served compile's refusal of a role no served file can hold, compile-refused, since no
+		 * application reaches Db.open with it; else the Db opened (openedDb).
 		 */
 		const opened = (
 			target: OpenTarget,
 			exit: Exit.Exit<
 				{ readonly ctx: ServedDbContext; readonly snapshot: unknown },
-				OpenError | ServedRefusal
+				OpenError | ServedRefusal | UnservableRole
 			>,
 			verifyCalls: 0 | 1
 		): Effect.Effect<Seen> =>
@@ -728,16 +738,18 @@ const realizeWith = (
 					Result.match(Cause.findError(cause), {
 						onFailure: (rest) => Effect.failCause(rest),
 						onSuccess: (error) =>
-							"place" in error
-								? Effect.succeed(
-										refusedWith(
-											{ kind: "open-refused", stage: "schema", verifyCalls: 0 },
-											error.error
+							error instanceof UnservableRole
+								? Effect.succeed(refusedWith({ kind: "compile-refused" }, error.refusal.error))
+								: "place" in error
+									? Effect.succeed(
+											refusedWith(
+												{ kind: "open-refused", stage: "schema", verifyCalls: 0 },
+												error.error
+											)
 										)
-									)
-								: Effect.map(openRefused(error, verifyCalls), (observation) =>
-										refusedWith(observation, error)
-									)
+									: Effect.map(openRefused(error, verifyCalls), (observation) =>
+											refusedWith(observation, error)
+										)
 					}),
 				onSuccess: (o) => openedDb(target, o.ctx, o.snapshot, verifyCalls)
 			})
@@ -1010,8 +1022,9 @@ const realizeWith = (
 						)
 					case "open-token": {
 						const target = yield* roleFor({ kind: "own", role: at.role })
+						const served = yield* Effect.orDie(Effect.fromResult(target.served))
 						return yield* openWild(
-							target.served,
+							served,
 							Option.some(value),
 							target.context,
 							(opened, verifyCalls) => openedDb(target, opened.ctx, target.snapshot, verifyCalls)

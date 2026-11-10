@@ -1,4 +1,5 @@
 import type { WildKind } from "@grizzle/testing/lsw"
+import { regex } from "arkregex"
 import { Array as Arr, Option } from "effect"
 import {
 	payloadFacts,
@@ -96,9 +97,20 @@ const openedOrRefused = (
 const noFactsVerdict: TokenVerdict = { kind: "decoded", facts: {}, refinedRefused: false }
 
 /**
+ * Whether a name keeps the declared-name rule a role's name is served by (README "Names come from your code"): ASCII
+ * letters, digits and underscores, a letter first, at most 63 bytes, PostgreSQL's identifier bound. Every name the model
+ * draws is ASCII, so its length in characters is its length in bytes.
+ */
+const declaredNamePattern = regex("^[A-Za-z][A-Za-z0-9_]*$")
+
+const declaredName = (name: string): boolean => declaredNamePattern.test(name) && name.length <= 63
+
+/**
  * Db.open(Web.roles.member, { token }) on the layer of the role's login, given `snapshot` (README "Deploying",
  * "Permissions", "Security model"): a reference that is no installed role of a login meets no layer of its login, refused at
- * `role` whatever the snapshot; the layer compares nothing with the snapshot it is given, but may refuse an older
+ * `role` whatever the snapshot, but for one whose name breaks the declared-name rule (declaredName), which no served
+ * file can hold: the served compile of its login refuses it, so no application holds a role token of it to hand Db.open,
+ * and the open is compile-refused; the layer compares nothing with the snapshot it is given, but may refuse an older
  * version's or another schema's at `schema`, as the roles and programs compile under its codes (the model keeps no
  * record of the codes each was drafted with); a layer it builds leaves the token, as openedOrRefused orders it. The
  * role, its login's verify and the contexts the token decodes through are the current version's.
@@ -111,7 +123,9 @@ export const openBranches = (
 ): Arr.NonEmptyReadonlyArray<Branch> => {
 	const opened = openedRole(state.install, ref)
 	if (opened === undefined) {
-		return [refusedAt(state, "role", 0)]
+		return ref.kind === "nonexistent" && !declaredName(ref.name)
+			? [{ observation: { kind: "compile-refused" }, next: state }]
+			: [refusedAt(state, "role", 0)]
 	}
 	const verifies = loginVerifies(state.install, opened.login)
 	const verifyCalls: VerifyCalls = verifies && token.kind !== "none" ? 1 : 0
