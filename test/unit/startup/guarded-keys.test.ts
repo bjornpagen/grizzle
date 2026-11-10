@@ -4,7 +4,8 @@
  *
  * A relation T carrying k keys over selected sides, `key(on(select(T, kind = j), "a"))`, each a UNIQUE over law columns
  * guarded by its own predicate, beside a relation U with no law, and a login whose workload holds the ChangeSet that
- * inserts into both: `grizzle generate` and DbLayer.make, which compiles the ChangeSet as every db.apply does.
+ * inserts into both: `grizzle generate`, which compiles the ChangeSet into the login's served file, and DbLayer.make
+ * over that file, which loads it and compiles nothing, no law model among it.
  *
  * - Each relation's unique objects beyond its primary key are decided once, as its law model is built (uniques.ts
  *   beyondPrimary, RelationLaws.beyond), and the law model specializes the schema once: no write compile, role probe or
@@ -25,9 +26,9 @@ import { noCoverage } from "@grizzle/testing/features"
 import { int, map } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, FileSystem, Formatter, Layer, Record as Rec } from "effect"
-import { compiledDbLayer } from "#adapter/pool/registry.ts"
+import { DbLayer, served } from "#adapter/public/layer.ts"
 import { resolveConfig } from "#cli/config.ts"
-import { snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
+import { trustedJson } from "#compiler/core/trusted.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { login } from "#compiler/program/workload/login.ts"
 import { workload } from "#compiler/program/workload/value.ts"
@@ -35,6 +36,7 @@ import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
 import { key, on, relation, schema, select, type Statement } from "#compiler/public/schema.ts"
 import { role } from "#compiler/schema/world.ts"
+import { servedPath } from "#compiler/served/forms.ts"
 import { defineConfig } from "#index.ts"
 import {
 	cliClock,
@@ -49,7 +51,6 @@ import { type CallSite, callCounts } from "#test/support/kernel/calls.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { clusterPool } from "#test/support/pg.ts"
 import { ownedInput } from "#test/support/policy.ts"
-import { snapshotJson } from "#test/support/snapshot-json.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 /** The bound on growth from k to 2k: linear, with ε for the parts that do not grow. */
@@ -120,15 +121,15 @@ const stepsAt = (k: number) =>
 			assert.equal(generated.code, 0, generated.stderr)
 			const resolved = yield* resolveConfig(config, `${ws}/${configName}`)
 			const directory = defined(resolved.schemas[0], "the configured schema").directory
-			const text = yield* fs.readFileString(`${directory}/${snapshotFileName}`)
+			const text = yield* fs.readFileString(`${directory}/${servedPath("server")}`)
+			const file = served<typeof server>(trustedJson<unknown>(text), "server")
 			const [, built] = yield* callCounts(
 				Effect.scoped(
 					Layer.build(
-						compiledDbLayer({
+						DbLayer.make({
 							...offlineConnection,
 							pool: clusterPool,
-							login: server,
-							snapshot: snapshotJson(text)
+							login: file
 						})
 					)
 				),
@@ -140,6 +141,9 @@ const stepsAt = (k: number) =>
 	)
 
 const stepNames: ReadonlyArray<keyof Steps> = ["generate", "layer"]
+
+/** The law models each step compiles: generate's one, and none for the served layer, which loads and compiles nothing. */
+const lawModels: Readonly<Record<keyof Steps, number>> = { generate: 1, layer: 0 }
 
 /** The box of guarded keys: k even, from 6 to 10, each measured against twice it. */
 const keysGen = map(int(3, 5), (half) => 2 * half)
@@ -170,8 +174,8 @@ layer(NodeServices.layer, { excludeTestServices: true })("guarded keys at startu
 								for (const steps of [small, large]) {
 									assert.equal(
 										steps[step].compileLaws,
-										1,
-										`${at}: ${step} compiles the law model once`
+										lawModels[step],
+										`${at}: ${step} compiles the law model ${lawModels[step]} times`
 									)
 									assert.equal(
 										steps[step].specialize,
