@@ -1,29 +1,34 @@
 /**
  * The isolation certifier (analysis/isolation/certify.ts) over drawn installations: two logins' roles over four
- * relations, each relation with trigger-held laws or not, declared keys and counted groups, each role's privileges, and
- * its change members' statements, each reading relations, positively, negated, counted or as grizzle's key arbitration,
- * its own rows or not, by a group bound to a parameter or not, and writing relations, by insert, update or delete, with
- * each written row joined with some of its statement's reads. Some draws are counterexamples: two
- * copiers, each inserting into one relation and then copying the other's (by a scan, or at a whole key); a writer reading
- * another's absence beside a reader of both; a chain of SERIALIZABLE readers; a SERIALIZABLE pivot writing what an RC
- * member reads unsealed; and the sealed reads beside each other.
+ * relations, each relation with trigger-held laws or not, declared keys, counted groups and foreign keys (immediate or
+ * deferred alike, an update cascading or not), each role's privileges, and its change members' statements, each
+ * reading relations, positively, negated, counted or as grizzle's key arbitration, its own rows or not, by a group
+ * bound to one value or to one per own row, or none, and writing relations, by insert, update or delete, with each
+ * written row joined with some of its statement's reads. Some draws are counterexamples: two copiers, each inserting
+ * into one relation and then copying the other's (by a scan, or at a whole key); a writer reading another's absence
+ * beside a reader of both; a chain of SERIALIZABLE readers; a SERIALIZABLE pivot writing what an RC member reads
+ * unsealed; a write after an outside read joined with no row of its call; an insert into a relation an update cascades
+ * to; and NEGATION's four histories no serial order in real time explains, each reproduced on PostgreSQL: a reader of
+ * one point group lagging an in-flight SERIALIZABLE pivot, a reader of one group per own row, a copy whose foreign key
+ * check misses that pivot's row, and a copy over many own rows whose deferred check reads at COMMIT.
  *
  * The oracle restates every condition over the drawn facts, apart from the certifier's code: each role's own conditions,
- * then, of the roles that meet them, the greatest set none of whose members a role outside it gives a reason, found by
- * trying every subset. Every role's level is the oracle's, and every SERIALIZABLE role names exactly the conditions the
- * oracle finds it failing; a role with no change member is SERIALIZABLE by the members condition. Adding a capability
- * (a privilege, a read, a statement, a member, a role, an insert with no insert, a trigger-held law) never makes a
- * SERIALIZABLE role READ COMMITTED, nor does removing a relation's fact, but for the first change member of a role with
- * none, which the members condition alone held. An arbitration is sealed only where it binds a whole declared key of
- * an insert-only relation, and a role writes READ COMMITTED only relations no role updates or deletes.
- * Every counterexample comes out SERIALIZABLE.
+ * its foreign key checks among its reads, then, of the roles that meet them, the greatest set none of whose members a
+ * role outside it gives a reason, found by trying every subset. Every role's level is the oracle's, and every
+ * SERIALIZABLE role names exactly the conditions the oracle finds it failing; a role with no change member is
+ * SERIALIZABLE by the members condition. Adding a capability (a privilege, a read, a statement, a member, a role, an
+ * insert with no insert, a trigger-held law, a foreign key) never makes a SERIALIZABLE role READ COMMITTED, nor does
+ * removing a relation's fact, but for the first change member of a role with none, which the members condition alone
+ * held. Every counterexample comes out SERIALIZABLE.
  *
  * Planted in a scratch copy, each of these fails the search: condition 2's SERIALIZABLE readers left out; the fixpoint
  * run once; a pivot's write before a group read only later let through; a pivot's write after an outside read joined
  * with no row of its call let through; an unsealed read sharing a member with an outside read in another statement let
  * through; condition 5c left out; a read binding part of a declared key sealed as a point; a role with no change
- * member certified; an arbitration of no whole key sealed; an arbitration of a relation a role deletes sealed; and a
- * relation another role deletes written READ COMMITTED.
+ * member certified; an arbitration of no whole key sealed; an arbitration of a relation a role deletes sealed; a
+ * relation another role deletes written READ COMMITTED; 5c's exemption of sealed reads restored; a read of one group
+ * per own row sealed; foreign key checks left out of 5c; the checks of rows that reference a changed one left out; a
+ * cascading update left out of the writers; and a relation with no fact read as having no foreign key.
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -63,6 +68,7 @@ interface ReadSketch {
 	readonly own: boolean
 	readonly group: number | undefined
 	readonly binding: number
+	readonly rows: "one" | "many"
 }
 
 interface StatementSketch {
@@ -79,10 +85,18 @@ interface RoleSketch {
 	readonly members: ReadonlyArray<ReadonlyArray<StatementSketch>>
 }
 
+/** A foreign key: the relation it references, the referenced key among KEYS, and its update action. */
+interface ReferenceSketch {
+	readonly relation: number
+	readonly key: number
+	readonly onUpdate: "cascade" | "noAction"
+}
+
 interface RelationSketch {
 	readonly triggerLaws: boolean
 	readonly keys: ReadonlyArray<number>
 	readonly counted: ReadonlyArray<number>
+	readonly references: ReadonlyArray<ReferenceSketch>
 }
 
 interface Sketch {
@@ -108,6 +122,7 @@ type Extension =
 	| { readonly kind: "role"; readonly role: RoleSketch }
 	| { readonly kind: "insert"; readonly role: number; readonly relation: number }
 	| { readonly kind: "triggerLaw"; readonly relation: number }
+	| { readonly kind: "reference"; readonly relation: number; readonly reference: ReferenceSketch }
 	| { readonly kind: "dropFact"; readonly relation: number }
 
 type Shape =
@@ -118,6 +133,12 @@ type Shape =
 	| "chain"
 	| "seals"
 	| "pivotWriter"
+	| "laggingReader"
+	| "listReader"
+	| "refusedCopy"
+	| "deferredCopy"
+	| "lateWriter"
+	| "cascadedWriter"
 	| "triggered"
 
 /** A drawn installation, which may be one of the counterexamples or a fixed shape, and an extension of it. */
@@ -159,7 +180,13 @@ const readGen: Gen<ReadSketch> = (s) => ({
 			[1, () => undefined]
 		])
 	),
-	binding: s.draw(int(0, 1))
+	binding: s.draw(int(0, 1)),
+	rows: s.draw(
+		weighted<ReadSketch["rows"]>([
+			[3, () => "one"],
+			[1, () => "many"]
+		])
+	)
 })
 
 const writeGen =
@@ -197,6 +224,17 @@ const roleGen: Gen<RoleSketch> = (s) => ({
 	members: s.draw(array(array(statementGen, { min: 1, max: 3 }), { min: 0, max: 2 }))
 })
 
+const referenceGen: Gen<ReferenceSketch> = (s) => ({
+	relation: s.draw(relationGen),
+	key: s.draw(int(0, KEYS.length - 1)),
+	onUpdate: s.draw(
+		weighted<ReferenceSketch["onUpdate"]>([
+			[3, () => "noAction"],
+			[1, () => "cascade"]
+		])
+	)
+})
+
 const relationSketchGen: Gen<RelationSketch> = (s) => ({
 	triggerLaws: s.draw(
 		weighted<boolean>([
@@ -218,6 +256,12 @@ const relationSketchGen: Gen<RelationSketch> = (s) => ({
 			[1, () => [0]],
 			[1, () => [1]]
 		])
+	),
+	references: s.draw(
+		weighted<ReadonlyArray<ReferenceSketch>>([
+			[3, () => []],
+			[1, (t) => [t.draw(referenceGen)]]
+		])
 	)
 })
 
@@ -229,7 +273,8 @@ const sketchGen: Gen<Sketch> = (s) => ({
 const clean = (keys: ReadonlyArray<number>): RelationSketch => ({
 	triggerLaws: false,
 	keys,
-	counted: []
+	counted: [],
+	references: []
 })
 
 const insertOf = (relation: number, from: ReadonlyArray<number>): WriteSketch => ({
@@ -242,7 +287,7 @@ const readOf = (
 	relation: number,
 	mode: ReadSketch["mode"],
 	group: number | undefined
-): ReadSketch => ({ relation, mode, own: false, group, binding: 0 })
+): ReadSketch => ({ relation, mode, own: false, group, binding: 0, rows: "one" })
 
 /** Every privilege a role writing and reading every relation as INSERT and SELECT holds. */
 const insertSelectAll: RoleSketch["privileges"] = Arr.flatMap([0, 1, 2, 3], (relation) => [
@@ -339,8 +384,9 @@ const chainGen: Gen<Sketch> = (s) => {
 
 /**
  * r0 inserts into b and c; b's key is (k0, k1) and c's group by k0 is a family's counted members; r1 reads b at its
- * whole key and c by k0 in one statement and inserts into a joined with both, arbitrating a at its whole key: a point
- * read, a counted group read and an arbitration a unique check decides.
+ * whole key and c by k0 in one statement and inserts into a joined with both, arbitrating a at its whole key, and a's
+ * foreign key references b's key: a point read, a counted group read, an arbitration a unique check decides and a
+ * sealed foreign key check.
  */
 const sealsGen: Gen<Sketch> = (s) => {
 	const [a = 0, b = 1, c = 2] = s.draw(shuffled([0, 1, 2, 3], { min: 3, max: 3 }))
@@ -348,7 +394,8 @@ const sealsGen: Gen<Sketch> = (s) => {
 		relations: Arr.makeBy(RELATIONS, (i) => ({
 			triggerLaws: false,
 			keys: i === b || i === a ? [2] : [],
-			counted: i === c ? [0] : []
+			counted: i === c ? [0] : [],
+			references: i === a ? [{ relation: b, key: 2, onUpdate: "noAction" }] : []
 		})),
 		roles: [
 			{
@@ -417,7 +464,12 @@ const triggeredGen: Gen<Case> = (s) => {
 	const x = s.draw(relationGen)
 	return {
 		sketch: {
-			relations: Arr.makeBy(RELATIONS, (i) => ({ triggerLaws: i === x, keys: [], counted: [] })),
+			relations: Arr.makeBy(RELATIONS, (i) => ({
+				triggerLaws: i === x,
+				keys: [],
+				counted: [],
+				references: []
+			})),
 			roles: [
 				{
 					login: s.draw(int(0, 1)),
@@ -429,6 +481,171 @@ const triggeredGen: Gen<Case> = (s) => {
 		shape: "triggered",
 		extension: { kind: "dropFact", relation: x }
 	}
+}
+
+/**
+ * W's m1 inserts A(k) where B(k) is absent and its m2 inserts B(k), so W runs SERIALIZABLE by absence; C reads A at its
+ * key and copies it. C can miss m1 in flight while m2, whose B m1 missed, committed before C began: no serial order in
+ * real time explains it, whatever C's read is sealed by (NEGATION's case 1, REGEX's readers single).
+ */
+const laggingReader: Sketch = {
+	relations: [clean([0]), clean([0]), clean([]), clean([])],
+	roles: [
+		{
+			login: 0,
+			privileges: [
+				{ relation: 0, privilege: "INSERT" },
+				{ relation: 1, privilege: "INSERT" }
+			],
+			members: [
+				[{ writes: [insertOf(0, [])], reads: [readOf(1, "negated", 0)] }],
+				[{ writes: [insertOf(1, [])], reads: [] }]
+			]
+		},
+		{
+			login: 1,
+			privileges: [{ relation: 2, privilege: "INSERT" }],
+			members: [[{ writes: [insertOf(2, [0])], reads: [readOf(0, "positive", 0)] }]]
+		}
+	]
+}
+
+/**
+ * W as in the lagging reader, its m2 inserting B(1) and A(2) together; C copies A at a list of keys, one group per own
+ * row, and may see A(2) but miss A(1): no serial order at all (NEGATION's case 2).
+ */
+const listReader: Sketch = {
+	relations: [clean([0]), clean([0]), clean([]), clean([])],
+	roles: [
+		{
+			login: 0,
+			privileges: [
+				{ relation: 0, privilege: "INSERT" },
+				{ relation: 1, privilege: "INSERT" }
+			],
+			members: [
+				[{ writes: [insertOf(0, [])], reads: [readOf(1, "negated", 0)] }],
+				[{ writes: [insertOf(1, []), insertOf(0, [])], reads: [] }]
+			]
+		},
+		{
+			login: 1,
+			privileges: [{ relation: 2, privilege: "INSERT" }],
+			members: [
+				[{ writes: [insertOf(2, [0])], reads: [{ ...readOf(0, "positive", 0), rows: "many" }] }]
+			]
+		}
+	]
+}
+
+/**
+ * W as in the lagging reader; C inserts into C's relation, whose foreign key references A, reading nothing else: its
+ * check misses m1's A(k) in flight and refuses, after m2 committed (NEGATION's case 3).
+ */
+const refusedCopy: Sketch = {
+	relations: [
+		clean([0]),
+		clean([0]),
+		{ ...clean([0]), references: [{ relation: 0, key: 0, onUpdate: "noAction" }] },
+		clean([])
+	],
+	roles: [
+		{
+			login: 0,
+			privileges: [
+				{ relation: 0, privilege: "INSERT" },
+				{ relation: 1, privilege: "INSERT" }
+			],
+			members: [
+				[{ writes: [insertOf(0, [])], reads: [readOf(1, "negated", 0)] }],
+				[{ writes: [insertOf(1, [])], reads: [] }]
+			]
+		},
+		{
+			login: 1,
+			privileges: [{ relation: 2, privilege: "INSERT" }],
+			members: [[{ writes: [insertOf(2, [])], reads: [] }]]
+		}
+	]
+}
+
+/**
+ * Every role READ COMMITTED but for what the conditions find: R copies A at a list of keys into Copy, whose foreign key
+ * references Parent and is checked at COMMIT; m inserts A(2); p inserts Parent(1) where it finds A(2). R misses A(2)
+ * while its check finds Parent(1): no serial order at all (NEGATION's case 4).
+ */
+const deferredCopy: Sketch = {
+	relations: [
+		clean([0]),
+		clean([0]),
+		{ ...clean([0]), references: [{ relation: 1, key: 0, onUpdate: "noAction" }] },
+		clean([])
+	],
+	roles: [
+		{
+			login: 0,
+			privileges: [{ relation: 2, privilege: "INSERT" }],
+			members: [
+				[{ writes: [insertOf(2, [0])], reads: [{ ...readOf(0, "positive", 0), rows: "many" }] }]
+			]
+		},
+		{
+			login: 0,
+			privileges: [{ relation: 0, privilege: "INSERT" }],
+			members: [[{ writes: [insertOf(0, [])], reads: [] }]]
+		},
+		{
+			login: 1,
+			privileges: [{ relation: 1, privilege: "INSERT" }],
+			members: [[{ writes: [insertOf(1, [0])], reads: [readOf(0, "positive", 0)] }]]
+		}
+	]
+}
+
+/**
+ * r0 reads A at its key in one statement and inserts into B in the next, joined with nothing it wrote, so a row it
+ * writes reaches no group it read; r1 inserts into A. r0 fails the pivot condition by that alone.
+ */
+const lateWriter: Sketch = {
+	relations: [clean([0]), clean([]), clean([]), clean([])],
+	roles: [
+		{
+			login: 0,
+			privileges: [{ relation: 1, privilege: "INSERT" }],
+			members: [
+				[
+					{ writes: [], reads: [readOf(0, "positive", 0)] },
+					{ writes: [insertOf(1, [])], reads: [] }
+				]
+			]
+		},
+		{
+			login: 1,
+			privileges: [{ relation: 0, privilege: "INSERT" }],
+			members: [[{ writes: [insertOf(0, [])], reads: [] }]]
+		}
+	]
+}
+
+/**
+ * B's foreign key into A carries A's updates (ON UPDATE CASCADE); r0 holds UPDATE on A, so it updates B too; r1 inserts
+ * into B, which is then no insert-only relation, and its check of A reads a relation r0 updates.
+ */
+const cascadedWriter: Sketch = {
+	relations: [
+		clean([0]),
+		{ ...clean([]), references: [{ relation: 0, key: 0, onUpdate: "cascade" }] },
+		clean([]),
+		clean([])
+	],
+	roles: [
+		{ login: 0, privileges: [{ relation: 0, privilege: "UPDATE" }], members: [] },
+		{
+			login: 1,
+			privileges: [{ relation: 1, privilege: "INSERT" }],
+			members: [[{ writes: [insertOf(1, [])], reads: [] }]]
+		}
+	]
 }
 
 const extensionGen =
@@ -459,6 +676,14 @@ const extensionGen =
 				[1, (t) => ({ kind: "role", role: t.draw(roleGen) })],
 				[1, (t) => ({ kind: "insert", role, relation: t.draw(relationGen) })],
 				[1, (t) => ({ kind: "triggerLaw", relation: t.draw(relationGen) })],
+				[
+					1,
+					(t) => ({
+						kind: "reference",
+						relation: t.draw(relationGen),
+						reference: t.draw(referenceGen)
+					})
+				],
 				[1, (t) => ({ kind: "dropFact", relation: t.draw(relationGen) })]
 			])
 		)
@@ -478,6 +703,18 @@ const shapeSketch = (s: Source, shape: Exclude<Shape, "triggered">): Sketch => {
 			return s.draw(sealsGen)
 		case "pivotWriter":
 			return s.draw(pivotWriterGen)
+		case "laggingReader":
+			return laggingReader
+		case "listReader":
+			return listReader
+		case "refusedCopy":
+			return refusedCopy
+		case "deferredCopy":
+			return deferredCopy
+		case "lateWriter":
+			return lateWriter
+		case "cascadedWriter":
+			return cascadedWriter
 		case "drawn":
 			return s.draw(sketchGen)
 	}
@@ -493,6 +730,12 @@ const caseGen: Gen<Case> = (s) => {
 			[1, () => "chain"],
 			[1, () => "seals"],
 			[1, () => "pivotWriter"],
+			[1, () => "laggingReader"],
+			[1, () => "listReader"],
+			[1, () => "refusedCopy"],
+			[1, () => "deferredCopy"],
+			[1, () => "lateWriter"],
+			[1, () => "cascadedWriter"],
 			[1, () => "triggered"]
 		])
 	)
@@ -511,8 +754,10 @@ const readFact = (r: ReadSketch) => ({
 	relation: relationName(r.relation),
 	mode: r.mode,
 	own: r.own,
-	group: r.group === undefined ? undefined : keyOf(r.group),
-	binding: r.group === undefined ? undefined : `$p${r.binding}`
+	group:
+		r.group === undefined
+			? undefined
+			: { fields: keyOf(r.group), binding: `$p${r.binding}`, rows: r.rows }
 })
 
 /** The facts a sketch states, as the certifier reads them. */
@@ -523,7 +768,12 @@ const inputOf = (sketch: Sketch): IsolationInput => ({
 			{
 				triggerLaws: r.triggerLaws ? [lawId(i)] : [],
 				keys: Arr.map(r.keys, keyOf),
-				countedGroups: Arr.map(r.counted, keyOf)
+				countedGroups: Arr.map(r.counted, keyOf),
+				references: Arr.map(r.references, (ref) => ({
+					relation: relationName(ref.relation),
+					fields: keyOf(ref.key),
+					onUpdate: ref.onUpdate
+				}))
 			}
 		])
 	),
@@ -617,6 +867,11 @@ const extended = (sketch: Sketch, e: Extension): Sketch => {
 			}))
 		case "triggerLaw":
 			return withRelation(sketch, e.relation, (r) => ({ ...r, triggerLaws: true }))
+		case "reference":
+			return withRelation(sketch, e.relation, (r) => ({
+				...r,
+				references: [...r.references, e.reference]
+			}))
 		case "dropFact":
 			return sketch
 	}
@@ -634,6 +889,7 @@ const givesFirstMember = (sketch: Sketch, e: Extension): boolean => {
 		case "privilege":
 		case "role":
 		case "triggerLaw":
+		case "reference":
 		case "dropFact":
 			return false
 	}
@@ -656,14 +912,15 @@ const afterOf = (c: Case): IsolationInput => {
 const writesOfRole = (role: RoleSketch) =>
 	Arr.flatMap(role.members, (statements) => Arr.flatMap(statements, (st) => st.writes))
 
-/** The relations a role writes, by its privileges and its members' writes. */
-const writtenSet = (role: RoleSketch): ReadonlySet<number> =>
-	new Set([
-		...Arr.flatMap(role.privileges, (p) => (p.privilege === "SELECT" ? [] : [p.relation])),
-		...Arr.map(writesOfRole(role), (w) => w.relation)
-	])
-
 type OracleSeal = "arbiter" | "own" | "unwritten" | "sealed" | "unsealed"
+
+/** A foreign key check a statement's write makes, restated: the relation it reads, which side, and its seal. */
+interface OracleCheck {
+	readonly at: number
+	readonly relation: number
+	readonly side: "referencing" | "referenced"
+	readonly seal: OracleSeal
+}
 
 /**
  * The oracle: each condition stated over the sketch on its own, and the levels as the greatest set of roles that meet
@@ -671,6 +928,31 @@ type OracleSeal = "arbiter" | "own" | "unwritten" | "sealed" | "unsealed"
  */
 const oracle = (sketch: Sketch) => {
 	const roles = sketch.roles
+	const relations = sketch.relations
+	const reach = (from: ReadonlySet<number>): ReadonlySet<number> => {
+		const out = new Set(from)
+		for (let step = 0; step < RELATIONS; step += 1) {
+			for (const [i, r] of relations.entries()) {
+				if (Arr.some(r.references, (ref) => ref.onUpdate === "cascade" && out.has(ref.relation))) {
+					out.add(i)
+				}
+			}
+		}
+		return out
+	}
+	const updatedOf = (role: RoleSketch): ReadonlySet<number> =>
+		reach(
+			new Set([
+				...Arr.flatMap(role.privileges, (p) => (p.privilege === "UPDATE" ? [p.relation] : [])),
+				...Arr.flatMap(writesOfRole(role), (w) => (w.op === "update" ? [w.relation] : []))
+			])
+		)
+	const writtenSet = (role: RoleSketch): ReadonlySet<number> =>
+		new Set([
+			...Arr.flatMap(role.privileges, (p) => (p.privilege === "SELECT" ? [] : [p.relation])),
+			...Arr.map(writesOfRole(role), (w) => w.relation),
+			...updatedOf(role)
+		])
 	const anyWrites = (relation: number) => Arr.some(roles, (r) => writtenSet(r).has(relation))
 	const changes = (relation: number) =>
 		Arr.some(
@@ -679,7 +961,13 @@ const oracle = (sketch: Sketch) => {
 				Arr.some(
 					r.privileges,
 					(p) => p.relation === relation && (p.privilege === "UPDATE" || p.privilege === "DELETE")
-				) || Arr.some(writesOfRole(r), (w) => w.relation === relation && w.op !== "insert")
+				) ||
+				Arr.some(writesOfRole(r), (w) => w.relation === relation && w.op !== "insert") ||
+				updatedOf(r).has(relation)
+		)
+	const covers = (relation: number, fields: ReadonlyArray<string>) =>
+		Arr.some(Arr.getUnsafe(relations, relation).keys, (k) =>
+			Arr.every(keyOf(k), (f) => fields.includes(f))
 		)
 	const sealOfRead = (read: ReadSketch): OracleSeal => {
 		if (read.own) {
@@ -689,31 +977,57 @@ const oracle = (sketch: Sketch) => {
 			return "unwritten"
 		}
 		const group = read.group
-		const facts = Arr.getUnsafe(sketch.relations, read.relation)
-		const keyed =
-			group !== undefined &&
-			Arr.some(facts.keys, (k) => Arr.every(keyOf(k), (f) => keyOf(group).includes(f)))
+		const facts = Arr.getUnsafe(relations, read.relation)
+		const keyed = group !== undefined && covers(read.relation, keyOf(group))
 		if (read.mode === "arbiter") {
 			return keyed && !changes(read.relation) ? "arbiter" : "unsealed"
 		}
-		if (group === undefined || changes(read.relation)) {
+		if (group === undefined || read.rows === "many" || changes(read.relation)) {
 			return "unsealed"
 		}
 		return facts.counted.includes(group) || keyed ? "sealed" : "unsealed"
 	}
+	const checksOf = (statements: ReadonlyArray<StatementSketch>): ReadonlyArray<OracleCheck> =>
+		Arr.flatMap(statements, (st, at) =>
+			Arr.flatMap(st.writes, (w) => [
+				...Arr.map(
+					w.op === "delete" ? [] : Arr.getUnsafe(relations, w.relation).references,
+					(ref): OracleCheck => {
+						const seal: OracleSeal = !anyWrites(ref.relation)
+							? "unwritten"
+							: !changes(ref.relation) && covers(ref.relation, keyOf(ref.key))
+								? "sealed"
+								: "unsealed"
+						return { at, relation: ref.relation, side: "referencing", seal }
+					}
+				),
+				...(w.op === "insert"
+					? []
+					: Arr.flatMap([...relations.entries()], ([i, r]): ReadonlyArray<OracleCheck> =>
+							Arr.some(r.references, (ref) => ref.relation === w.relation)
+								? [
+										{
+											at,
+											relation: i,
+											side: "referenced",
+											seal: anyWrites(i) ? "unsealed" : "unwritten"
+										}
+									]
+								: []
+						))
+			])
+		)
 	const isOutside = (seal: OracleSeal) => seal === "sealed" || seal === "unsealed"
 	const groupName = (r: ReadSketch) =>
 		`${r.relation}/${r.group ?? "-"}/${r.group === undefined ? "-" : r.binding}`
-	const outsideReads = (role: RoleSketch, unsealedOnly: boolean): ReadonlySet<number> =>
+	const outsideReads = (role: RoleSketch): ReadonlySet<number> =>
 		new Set(
-			Arr.flatMap(role.members, (statements) =>
-				Arr.flatMap(statements, (st) =>
-					Arr.flatMap(st.reads, (r) => {
-						const seal = sealOfRead(r)
-						return isOutside(seal) && (!unsealedOnly || seal === "unsealed") ? [r.relation] : []
-					})
-				)
-			)
+			Arr.flatMap(role.members, (statements) => [
+				...Arr.flatMap(statements, (st) =>
+					Arr.flatMap(st.reads, (r) => (isOutside(sealOfRead(r)) ? [r.relation] : []))
+				),
+				...Arr.flatMap(checksOf(statements), (c) => (isOutside(c.seal) ? [c.relation] : []))
+			])
 		)
 	const own = (role: RoleSketch): ReadonlySet<IsolationCondition> => {
 		const failed = new Set<IsolationCondition>()
@@ -727,22 +1041,28 @@ const oracle = (sketch: Sketch) => {
 			failed.add("privileges")
 		}
 		for (const relation of writtenSet(role)) {
-			if (Arr.getUnsafe(sketch.relations, relation).triggerLaws) {
+			if (Arr.getUnsafe(relations, relation).triggerLaws) {
 				failed.add("laws")
 			}
 			if (
 				Arr.some(roles, (r) =>
-					Arr.some(r.members, (statements) =>
-						Arr.some(statements, (st) =>
+					Arr.some(
+						r.members,
+						(statements) =>
+							Arr.some(statements, (st) =>
+								Arr.some(
+									st.reads,
+									(read) =>
+										read.relation === relation &&
+										(read.mode === "negated" ||
+											read.mode === "counted" ||
+											(read.mode === "arbiter" && sealOfRead(read) === "unsealed"))
+								)
+							) ||
 							Arr.some(
-								st.reads,
-								(read) =>
-									read.relation === relation &&
-									(read.mode === "negated" ||
-										read.mode === "counted" ||
-										(read.mode === "arbiter" && sealOfRead(read) === "unsealed"))
+								checksOf(statements),
+								(c) => c.side === "referenced" && c.relation === relation
 							)
-						)
 					)
 				)
 			) {
@@ -756,8 +1076,23 @@ const oracle = (sketch: Sketch) => {
 					return isOutside(seal) ? [{ at, index, read, seal }] : []
 				})
 			)
-			if (Arr.some(outs, (p) => p.seal === "unsealed" && Arr.some(outs, (o) => o.at !== p.at))) {
+			const checks = Arr.filter(checksOf(statements), (c) => isOutside(c.seal))
+			if (
+				Arr.some(
+					outs,
+					(p) =>
+						p.seal === "unsealed" && (Arr.some(outs, (o) => o.at !== p.at) || checks.length > 0)
+				) ||
+				Arr.some(
+					checks,
+					(c, i) =>
+						c.seal === "unsealed" && (outs.length > 0 || Arr.some(checks, (_, j) => j !== i))
+				)
+			) {
 				failed.add("snapshot")
+			}
+			if (Arr.some(checks, (c) => c.seal === "unsealed")) {
+				failed.add("pivot")
 			}
 			const writes = Arr.flatMap(statements, (st, at) => Arr.map(st.writes, (w) => ({ at, w })))
 			if (outs.length > 0 && writes.length > 0) {
@@ -801,21 +1136,24 @@ const oracle = (sketch: Sketch) => {
 	const given = (outside: ReadonlySet<number>, i: number): ReadonlySet<IsolationCondition> => {
 		const role = Arr.getUnsafe(roles, i)
 		const written = writtenSet(role)
-		const unsealed = outsideReads(role, true)
+		const reads = outsideReads(role)
 		const out = new Set<IsolationCondition>()
 		for (const o of Arr.filter([...outside], (x) => x !== i)) {
 			const other = Arr.getUnsafe(roles, o)
 			if (
-				Arr.some(other.members, (statements) =>
-					Arr.some(statements, (st) => Arr.some(st.reads, (r) => written.has(r.relation)))
+				Arr.some(
+					other.members,
+					(statements) =>
+						Arr.some(statements, (st) => Arr.some(st.reads, (r) => written.has(r.relation))) ||
+						Arr.some(checksOf(statements), (c) => written.has(c.relation))
 				)
 			) {
 				out.add("laws")
 			}
-			const shared = Arr.some([...writtenSet(other)], (x) => unsealed.has(x))
+			const shared = Arr.some([...writtenSet(other)], (x) => reads.has(x))
 			const pivot =
-				outsideReads(other, false).size > 0 ||
-				Arr.some([...writtenSet(other)], (x) => Arr.getUnsafe(sketch.relations, x).triggerLaws)
+				outsideReads(other).size > 0 ||
+				Arr.some([...writtenSet(other)], (x) => Arr.getUnsafe(relations, x).triggerLaws)
 			if (shared && pivot) {
 				out.add("writers")
 			}
@@ -849,6 +1187,10 @@ type IsolationFeature =
 	| "an arbitration a unique check decides"
 	| "an arbitration of no whole declared key"
 	| "a first change member given to a role with none"
+	| "a read of one group per own row"
+	| "a foreign key check beside a READ COMMITTED role"
+	| "a check of the rows that reference a changed one"
+	| "an update carried by a cascading foreign key"
 	| `the ${Exclude<Shape, "drawn">}`
 	| "a fact dropped beside a READ COMMITTED role"
 	| "a dropped fact a SERIALIZABLE role's level rests on alone"
@@ -873,6 +1215,12 @@ const shapes: ReadonlyArray<Exclude<Shape, "drawn">> = [
 	"chain",
 	"seals",
 	"pivotWriter",
+	"laggingReader",
+	"listReader",
+	"refusedCopy",
+	"deferredCopy",
+	"lateWriter",
+	"cascadedWriter",
 	"triggered"
 ]
 
@@ -907,6 +1255,15 @@ const counterexampleRoles = (shape: Shape): ReadonlyArray<number> => {
 			return [1, 2]
 		case "pivotWriter":
 			return [1]
+		case "laggingReader":
+		case "listReader":
+		case "refusedCopy":
+			return [0, 1]
+		case "deferredCopy":
+		case "lateWriter":
+			return [0]
+		case "cascadedWriter":
+			return [1]
 		case "drawn":
 		case "seals":
 		case "triggered":
@@ -940,6 +1297,10 @@ describe("the isolation certifier", () => {
 								"an arbitration a unique check decides",
 								"an arbitration of no whole declared key",
 								"a first change member given to a role with none",
+								"a read of one group per own row",
+								"a foreign key check beside a READ COMMITTED role",
+								"a check of the rows that reference a changed one",
+								"an update carried by a cascading foreign key",
 								...Arr.map(shapes, (s) => `the ${s}` as const),
 								"a fact dropped beside a READ COMMITTED role",
 								"a dropped fact a SERIALIZABLE role's level rests on alone"
@@ -989,6 +1350,16 @@ describe("the isolation certifier", () => {
 													k.note(feature)
 												}
 											}
+											if (
+												Arr.some(
+													st.writes,
+													(w) =>
+														w.op !== "delete" &&
+														Arr.getUnsafe(c.sketch.relations, w.relation).references.length > 0
+												)
+											) {
+												k.note("a foreign key check beside a READ COMMITTED role")
+											}
 										}
 									}
 								}
@@ -1012,6 +1383,28 @@ describe("the isolation certifier", () => {
 												readSeal(input, readFact(read)).kind === "unsealed"
 											) {
 												k.note("an arbitration of no whole declared key")
+											}
+											if (read.group !== undefined && read.rows === "many" && !read.own) {
+												k.note("a read of one group per own row")
+											}
+										}
+										for (const w of st.writes) {
+											const referencing = Arr.filter(c.sketch.relations, (r) =>
+												Arr.some(r.references, (ref) => ref.relation === w.relation)
+											)
+											if (w.op !== "insert" && referencing.length > 0) {
+												k.note("a check of the rows that reference a changed one")
+											}
+											if (
+												w.op === "update" &&
+												Arr.some(referencing, (r) =>
+													Arr.some(
+														r.references,
+														(ref) => ref.relation === w.relation && ref.onUpdate === "cascade"
+													)
+												)
+											) {
+												k.note("an update carried by a cascading foreign key")
 											}
 										}
 									}

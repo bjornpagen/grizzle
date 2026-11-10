@@ -10,14 +10,29 @@ import type { TablePrivilege } from "#compiler/core/privilege.ts"
 /**
  * One relation of the installation: the laws the installation's law model still discharges by deferred constraint
  * triggers that read it (laws/model/model.ts triggerLawsOver), none where every law over it is native (a key, a CHECK, a
- * domain or a foreign key); its declared keys, its primary key and each UNIQUE, by their fields; and its counted
- * groups, each by its key's fields: the members, under one value of the key, of a family whose immutable owner holds
- * their count (a counted, ordered or fin family), a set the count law fixes once the owner is written.
+ * domain or a foreign key); its declared keys, its primary key and each UNIQUE, by their fields; its counted groups,
+ * each by its key's fields: the members, under one value of the key, of a family whose immutable owner holds their
+ * count (a counted, ordered or fin family), a set the count law fixes once the owner is written; and every foreign key
+ * it holds, native or a rule lowered to one, immediate or deferred.
  */
 export interface RelationFacts {
 	readonly triggerLaws: ReadonlyArray<LawId>
 	readonly keys: ReadonlyArray<ReadonlyArray<string>>
 	readonly countedGroups: ReadonlyArray<ReadonlyArray<string>>
+	readonly references: ReadonlyArray<Reference>
+}
+
+/**
+ * One foreign key of a relation: the relation it references, that relation's fields it references, a declared key of
+ * it, and what an update of the referenced key does to the rows that reference it: carried to them (ON UPDATE CASCADE,
+ * a family's owner axis), or refused while any references it (NO ACTION). PostgreSQL checks it by reads no statement
+ * shows: an insert or update of a referencing row reads the referenced row, and an update or delete of a referenced row
+ * reads the rows that reference it.
+ */
+export interface Reference {
+	readonly relation: string
+	readonly fields: ReadonlyArray<string>
+	readonly onUpdate: "cascade" | "noAction"
 }
 
 /**
@@ -39,11 +54,7 @@ export interface WriteFact {
  *   probe of it, an INSERT's ON CONFLICT, or a MERGE's NOT MATCHED), which PostgreSQL's unique check decides whatever
  *   the call read when its group binds a whole declared key;
  * - `own`: whether the read can see only rows the call's own earlier statements wrote;
- * - `group`: the fields the read binds to one value that comes from the call (a parameter, or a column of the call's
- *   own rows), an ON CONFLICT arbitration's its conflict columns' fields, or none where it reads the relation otherwise;
- * - `binding`: what the group's fields are bound to, as canonical text (a parameter's number, a column of the call's
- *   own rows, or EXCLUDED's column for the row an ON CONFLICT proposes), so two reads of one relation by the same
- *   fields and binding read one group, or none with no group.
+ * - `group`: the group it binds (Group), or none where it reads the relation otherwise.
  *
  * A read of a derived relation is the reads of the stored relations its definition reads, each in the mode it has
  * there composed with the outer one.
@@ -52,8 +63,21 @@ export interface ReadFact {
 	readonly relation: string
 	readonly mode: "positive" | "negated" | "counted" | "arbiter"
 	readonly own: boolean
-	readonly group: ReadonlyArray<string> | undefined
-	readonly binding: string | undefined
+	readonly group: Group | undefined
+}
+
+/**
+ * The fields a read binds to values that come from the call, an ON CONFLICT arbitration's its conflict columns';
+ * `binding`, what they are bound to, as canonical text (a parameter's number, a column of the call's own rows, or
+ * EXCLUDED's column for the row an ON CONFLICT proposes), so two reads of one relation by the same fields and binding
+ * read one group; and `rows`, how many groups that is: `one` where every field is bound to a parameter or to the
+ * session's context, a value the call holds once, and `many` where one is bound to a column of the call's own rows,
+ * one group per row, which another call's rows may split, some seen and some missed.
+ */
+export interface Group {
+	readonly fields: ReadonlyArray<string>
+	readonly binding: string
+	readonly rows: "one" | "many"
 }
 
 /** One statement of a change member's flight: what it writes and what it reads. */

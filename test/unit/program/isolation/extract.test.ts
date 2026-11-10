@@ -55,6 +55,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
+import type { ReadFact } from "#compiler/analysis/isolation/facts.ts"
 import { type ExtractNames, memberFacts } from "#compiler/program/isolation/extract.ts"
 import type {
 	Cte,
@@ -1071,7 +1072,18 @@ interface Expected {
 	readonly own: boolean
 	readonly group: ReadonlyArray<string> | undefined
 	readonly binding: string | undefined
+	readonly rows: "one" | "many" | undefined
 }
+
+/** A fact as the comparison reads it: its group's fields, binding and rows side by side. */
+const expectedOf = (r: ReadFact): Expected => ({
+	relation: r.relation,
+	mode: r.mode,
+	own: r.own,
+	group: r.group?.fields,
+	binding: r.group?.binding,
+	rows: r.group?.rows
+})
 
 /** Where a read stands: its polarity, whether a count stands over it, whether it is a probe's, the writes its rows
  * feed, and the own sources' aliases it sees. */
@@ -1180,7 +1192,8 @@ class Expect {
 			if (text !== undefined && field === undefined) {
 				this.shapes.add("a law column dropped from a group")
 			}
-			return text === undefined || field === undefined || rel === "X" ? [] : [{ field, text }]
+			const rows: "one" | "many" = b.other.kind === "param" ? "one" : "many"
+			return text === undefined || field === undefined || rel === "X" ? [] : [{ field, text, rows }]
 		})
 		const sorted = Arr.sort(
 			fields,
@@ -1197,6 +1210,11 @@ class Expect {
 							Arr.map(sorted, (b) => b.text),
 							","
 						)
+					: undefined,
+				rows: Arr.isReadonlyArrayNonEmpty(sorted)
+					? Arr.every(sorted, (b) => b.rows === "one")
+						? "one"
+						: "many"
 					: undefined
 			},
 			place.feeds,
@@ -1206,7 +1224,14 @@ class Expect {
 
 	opaque(relation: string, place: Place): void {
 		this.read(
-			{ relation, mode: "negated", own: false, group: undefined, binding: undefined },
+			{
+				relation,
+				mode: "negated",
+				own: false,
+				group: undefined,
+				binding: undefined,
+				rows: undefined
+			},
 			[],
 			place
 		)
@@ -1272,7 +1297,8 @@ class Expect {
 							mode: this.mode(here, relation, false),
 							own: true,
 							group: undefined,
-							binding: undefined
+							binding: undefined,
+							rows: undefined
 						},
 						here.feeds,
 						here
@@ -1412,7 +1438,8 @@ class Expect {
 									Arr.map(sorted, (b) => b.text),
 									","
 								)
-							: undefined
+							: undefined,
+						rows: Arr.isReadonlyArrayNonEmpty(sorted) ? "many" : undefined
 					})
 				}
 				return
@@ -1435,7 +1462,14 @@ class Expect {
 					this.shapes.add("a carrier read")
 					const relation = `carrier:${carrierName(9)}`
 					this.read(
-						{ relation, mode: "positive", own: true, group: undefined, binding: undefined },
+						{
+							relation,
+							mode: "positive",
+							own: true,
+							group: undefined,
+							binding: undefined,
+							rows: undefined
+						},
 						at,
 						place
 					)
@@ -1549,7 +1583,8 @@ const readKey = (r: Expected): string =>
 			r.mode,
 			`${r.own}`,
 			r.group === undefined ? "-" : Arr.join(r.group, ","),
-			r.binding ?? "-"
+			r.binding ?? "-",
+			r.rows ?? "-"
 		],
 		"|"
 	)
@@ -1631,12 +1666,12 @@ describe("a change member's facts", () => {
 									k.note(shape)
 								}
 								assert.deepEqual(
-									sortedKeys(got.reads),
+									sortedKeys(Arr.map(got.reads, expectedOf)),
 									sortedKeys([...x.reads, ...x.tail]),
 									`statement ${i}'s reads`
 								)
 								assert.deepEqual(
-									sortedKeys(Arr.takeRight(got.reads, x.tail.length)),
+									sortedKeys(Arr.map(Arr.takeRight(got.reads, x.tail.length), expectedOf)),
 									sortedKeys(x.tail),
 									`statement ${i}'s ON CONFLICT arbitrations follow every other read`
 								)
@@ -1651,7 +1686,7 @@ describe("a change member's facts", () => {
 												"positive",
 												`statement ${i}'s write of ${w.relation} names a positive read`
 											)
-											return read
+											return expectedOf(read)
 										})
 									)
 								)

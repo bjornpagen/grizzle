@@ -1,4 +1,5 @@
 import type {
+	Group,
 	MemberFacts,
 	ReadFact,
 	StatementFacts,
@@ -55,10 +56,17 @@ type Polarity = "positive" | "negated" | "both"
 
 /**
  * What a name a core sees is: a stored table's alias, whose values the statement reads, or an own source's, whose
- * values are the call's own: a carrier, a CTE, a relation input's arrays, a VALUES list, a function's or a derived
- * table's rows, a context.
+ * values are the call's own: the session's context, one row (`one`), or a carrier, a CTE, a relation input's arrays, a
+ * VALUES list, a function's or a derived table's rows, any number of rows (`many`).
  */
-type Scope = ReadonlyMap<string, "table" | "own">
+type Scope = ReadonlyMap<string, "table" | Group["rows"]>
+
+/** A column a read's conditions bind, with what it is bound to and how many values that takes for the call. */
+interface Bound {
+	readonly column: string
+	readonly by: string
+	readonly rows: Group["rows"]
+}
 
 /**
  * What a CTE name refers to: a query, read where a source names it, under the scope and the CTEs it was defined in; or
@@ -255,20 +263,21 @@ const sourcesOf = (
 			: [{ source: item, on: undefined }]
 	)
 
-/** What a source's alias names: a stored table's values, or the call's own. */
-const nameOf = (source: FromSource): readonly [string, "table" | "own"] => {
+/** What a source's alias names: a stored table's values, or the call's own, of one row or many. */
+const nameOf = (source: FromSource): readonly [string, "table" | Group["rows"]] => {
 	switch (source.kind) {
 		case "table":
-			return [source.alias, typeof source.table === "string" ? "own" : "table"]
+			return [source.alias, typeof source.table === "string" ? "many" : "table"]
 		case "cte":
-			return [source.alias ?? source.name, "own"]
+			return [source.alias ?? source.name, "many"]
+		case "context":
+			return [source.alias, "one"]
 		case "enclosing":
 		case "derived":
 		case "function":
 		case "arrays":
 		case "values":
-		case "context":
-			return [source.alias, "own"]
+			return [source.alias, "many"]
 	}
 }
 
@@ -704,55 +713,70 @@ class Walk {
 	}
 }
 
-const byField = (a: readonly [string, string], b: readonly [string, string]): number => {
-	if (a[0] < b[0]) {
+const byColumn = (a: Bound, b: Bound): number => {
+	if (a.column < b.column) {
 		return -1
 	}
-	return a[0] > b[0] ? 1 : 0
+	return a.column > b.column ? 1 : 0
 }
 
-/** A read's group and binding, from the fields it binds and what to, sorted by field; none where it binds none. */
-const boundGroup = (
-	bound: ReadonlyArray<readonly [string, string]>
-): Pick<ReadFact, "group" | "binding"> => {
-	const sorted = bound.toSorted(byField)
+/**
+ * A read's group, from the fields it binds (each Bound's column a field), sorted by field: one value for the call where
+ * every field takes one, else one group per own row; none where it binds none.
+ */
+const boundGroup = (bound: ReadonlyArray<Bound>): Group | undefined => {
+	const sorted = bound.toSorted(byColumn)
 	return sorted.length === 0
-		? { group: undefined, binding: undefined }
-		: { group: sorted.map(([field]) => field), binding: sorted.map(([, by]) => by).join(",") }
+		? undefined
+		: {
+				fields: sorted.map((b) => b.column),
+				binding: sorted.map((b) => b.by).join(","),
+				rows: sorted.every((b) => b.rows === "one") ? "one" : "many"
+			}
+}
+
+/** What a column of the call's own sources takes: one value or many, none for a stored table's or an unknown name. */
+const ownRowsOf = (scope: Scope, table: string): Group["rows"] | undefined => {
+	const named = scope.get(table)
+	return named === "table" ? undefined : named
 }
 
 /**
  * The columns of a table source its core's conditions bind, each by its first equality, in the conditions' order:
- * with a parameter, or with a column of a source the scope names the call's own. Each comes with the text of what it
- * is bound to.
+ * with a parameter, one value, or with a column of a source the scope names the call's own, one value or one per row.
+ * Each comes with the text of what it is bound to.
  */
 const bindingsOf = (
 	alias: string,
 	conditions: ReadonlyArray<Expr>,
 	scope: Scope
-): ReadonlyArray<readonly [string, string]> => {
-	const side = (mine: Expr, other: Expr): ReadonlyArray<readonly [string, string]> => {
+): ReadonlyArray<Bound> => {
+	const side = (mine: Expr, other: Expr): ReadonlyArray<Bound> => {
 		if (mine.kind !== "column" || mine.table !== alias) {
 			return []
 		}
 		if (other.kind === "param") {
-			return [[mine.column, `$${other.slot.number}`]]
+			return [{ column: mine.column, by: `$${other.slot.number}`, rows: "one" }]
 		}
-		return other.kind === "column" && other.table !== undefined && scope.get(other.table) === "own"
-			? [[mine.column, `${other.table}.${other.column}`]]
-			: []
+		if (other.kind !== "column" || other.table === undefined) {
+			return []
+		}
+		const rows = ownRowsOf(scope, other.table)
+		return rows === undefined
+			? []
+			: [{ column: mine.column, by: `${other.table}.${other.column}`, rows }]
 	}
-	const out = new Map<string, string>()
+	const out = new Map<string, Bound>()
 	for (const e of conditions) {
 		if (e.kind === "binary" && e.op === "=") {
-			for (const [column, by] of [...side(e.left, e.right), ...side(e.right, e.left)]) {
-				if (!out.has(column)) {
-					out.set(column, by)
+			for (const b of [...side(e.left, e.right), ...side(e.right, e.left)]) {
+				if (!out.has(b.column)) {
+					out.set(b.column, b)
 				}
 			}
 		}
 	}
-	return [...out]
+	return [...out.values()]
 }
 
 /** A read's mode: an arbitration, a probe of a table its statement writes; else by its polarity and its count. */
@@ -771,26 +795,17 @@ const statementFacts = (s: SqlStatement, names: ExtractNames): StatementFacts =>
 	const walk = new Walk(names)
 	walk.statement(s)
 	const relation = (t: ObjectName): string => names.relationOf(t) ?? `?${t.schema}.${t.name}`
-	const fields = (
-		rel: string,
-		bound: ReadonlyArray<readonly [string, string]>
-	): ReadonlyArray<readonly [string, string]> =>
-		bound.flatMap(([column, by]): ReadonlyArray<readonly [string, string]> => {
-			const field = names.fieldOf(rel, column)
-			return field === undefined ? [] : [[field, by]]
+	const fields = (rel: string, bound: ReadonlyArray<Bound>): ReadonlyArray<Bound> =>
+		bound.flatMap((b): ReadonlyArray<Bound> => {
+			const field = names.fieldOf(rel, b.column)
+			return field === undefined ? [] : [{ ...b, column: field }]
 		})
 	const written = new Set(walk.writes.map((w) => relation(w.table)))
 	const reads = walk.found.map(
 		(f): { readonly read: ReadFact; readonly feeds: ReadonlyArray<number> } => {
 			if (f.kind === "opaque") {
 				return {
-					read: {
-						relation: f.relation,
-						mode: "negated",
-						own: false,
-						group: undefined,
-						binding: undefined
-					},
+					read: { relation: f.relation, mode: "negated", own: false, group: undefined },
 					feeds: []
 				}
 			}
@@ -800,8 +815,7 @@ const statementFacts = (s: SqlStatement, names: ExtractNames): StatementFacts =>
 						relation: `carrier:${f.table}`,
 						mode: modeOf(f.context, false),
 						own: true,
-						group: undefined,
-						binding: undefined
+						group: undefined
 					},
 					feeds: f.feeds
 				}
@@ -812,7 +826,7 @@ const statementFacts = (s: SqlStatement, names: ExtractNames): StatementFacts =>
 					relation: rel,
 					mode: modeOf(f.context, f.context.probe && written.has(rel)),
 					own: false,
-					...boundGroup(fields(rel, bindingsOf(f.alias, f.conditions, f.context.scope)))
+					group: boundGroup(fields(rel, bindingsOf(f.alias, f.conditions, f.context.scope)))
 				},
 				feeds: f.feeds
 			}
@@ -824,13 +838,14 @@ const statementFacts = (s: SqlStatement, names: ExtractNames): StatementFacts =>
 			relation: rel,
 			mode: "arbiter",
 			own: false,
-			...boundGroup(
+			group: boundGroup(
 				fields(
 					rel,
-					(a.columns ?? []).map((column): readonly [string, string] => [
+					(a.columns ?? []).map((column): Bound => ({
 						column,
-						`excluded.${column}`
-					])
+						by: `excluded.${column}`,
+						rows: "many"
+					}))
 				)
 			)
 		}
@@ -860,8 +875,9 @@ const statementFacts = (s: SqlStatement, names: ExtractNames): StatementFacts =>
  *   transaction control as `?refresh:schema.name` or `?statement:<kind>`: the certifier refuses each as a relation it
  *   states no fact of.
  * - A table read's group is the fields its core's conditions bind to a parameter or to a column of a source in scope,
- *   the enclosing cores' included, that is the call's own; an ON CONFLICT's is its conflict columns', each bound to
- *   EXCLUDED's.
+ *   the enclosing cores' included, that is the call's own: one value for the call where each is a parameter or the
+ *   session's context's, else one group per own row. An ON CONFLICT's is its conflict columns', each bound to
+ *   EXCLUDED's, one per proposed row.
  * - A write's rows are fed by the positive reads beneath it: an INSERT's source, an UPDATE's or a DELETE's target and
  *   FROM, a MERGE's source and target, and the query CTEs any of them read.
  */

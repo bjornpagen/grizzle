@@ -16,6 +16,12 @@
  * - Counted groups: a second implementation over the specification's own names: each relation's are, for each family
  *   it is the member of whose owner is immutable (a tree's owner its own relation), the family's group field `o<f>`,
  *   and none for any other.
+ * - References: each relation's are, as a multiset, the foreign keys each family it is in holds, by the
+ *   specification's names, each target's fields without its law columns: an ordered or counted family's member
+ *   references its owner's last-axis target (`id`, `n<f>`) ON UPDATE CASCADE, and its own slot, which its owner's
+ *   last member references too, `o<f>` and `i<f>` for an ordered family and `o<f>` alone for a counted one, whose
+ *   index is a law column; a tree's relation references its own target (`id`, `n<f>`, `start`, `d<f>`) and twice its
+ *   own slot and end (`i<f>`, `end`); every reference but an owner axis NO ACTION.
  * - Roles: one fact for each role, in order, its privileges grantedPrivileges' answer for its own input, and its
  *   members memberFacts' answers for its members in order, every variant of each.
  */
@@ -78,6 +84,7 @@ type Feature =
 	| "a role with no change member"
 	| "a member of several variants"
 	| "a relation some trigger law reads"
+	| "a member's reference to its owner"
 
 /** What the recorders were handed and answered: each relation's laws, each role's privileges, each member's facts. */
 interface Recorded {
@@ -143,6 +150,39 @@ const keysOracle = (spec: FillSpec): ReadonlyMap<string, ReadonlyArray<ReadonlyA
 		}
 	}
 	return keys
+}
+
+/**
+ * The references of each relation as canonical lines `<target>(<fields>) <action>`, by the specification's names (see
+ * the header): what each family's foreign keys reference, a law column left out of a target's fields.
+ */
+const referencesOracle = (spec: FillSpec): ReadonlyMap<string, ReadonlyArray<string>> => {
+	const references = new Map<string, Array<string>>()
+	const add = (from: number, to: number, fields: ReadonlyArray<string>, action: string): void => {
+		const held = references.get(relationName(from)) ?? []
+		held.push(`${relationName(to)}(${Arr.join(fields, ",")}) ${action}`)
+		references.set(relationName(from), held)
+	}
+	for (const [f, family] of spec.families.entries()) {
+		switch (family.kind) {
+			case "ordered":
+				add(family.member, family.owner, ["id", `n${f}`], "cascade")
+				add(family.member, family.member, [`o${f}`, `i${f}`], "noAction")
+				add(family.owner, family.member, [`o${f}`, `i${f}`], "noAction")
+				break
+			case "counted":
+				add(family.member, family.owner, ["id", `n${f}`], "cascade")
+				add(family.member, family.member, [`o${f}`], "noAction")
+				add(family.owner, family.member, [`o${f}`], "noAction")
+				break
+			case "tree":
+				add(family.member, family.member, ["id", `n${f}`, "start", `d${f}`], "noAction")
+				add(family.member, family.member, [`i${f}`, "end"], "noAction")
+				add(family.member, family.member, [`i${f}`, "end"], "noAction")
+				break
+		}
+	}
+	return references
 }
 
 /** A statement that writes and reads nothing: the builder hands the extractor's facts on without reading them. */
@@ -218,6 +258,7 @@ const run = (c: Case, note: (feature: Feature) => void) =>
 		)
 		const counted = countedOracle(c.spec)
 		const keys = keysOracle(c.spec)
+		const references = referencesOracle(c.spec)
 		for (const [name, facts] of input.relations) {
 			const laws = defined(recorded.laws.get(name), `the laws of ${name}`)
 			assert.deepEqual(
@@ -238,6 +279,20 @@ const run = (c: Case, note: (feature: Feature) => void) =>
 				sorted(counted.get(name) ?? []),
 				`${name}'s counted groups`
 			)
+			assert.deepEqual(
+				Arr.sort(
+					Arr.map(
+						facts.references,
+						(r) => `${r.relation}(${Arr.join(r.fields, ",")}) ${r.onUpdate}`
+					),
+					Str.Order
+				),
+				Arr.sort(references.get(name) ?? [], Str.Order),
+				`${name}'s references are every foreign key it holds`
+			)
+			if (Arr.some(facts.references, (r) => r.onUpdate === "cascade")) {
+				note("a member's reference to its owner")
+			}
 		}
 		for (const family of c.spec.families) {
 			const owner = family.kind === "tree" ? family.member : family.owner
@@ -296,7 +351,8 @@ describe("isolation facts", () => {
 								"an immutable tree",
 								"a role with no change member",
 								"a member of several variants",
-								"a relation some trigger law reads"
+								"a relation some trigger law reads",
+								"a member's reference to its owner"
 							],
 							{ cases: 120, sense: notesOnly }
 						),
