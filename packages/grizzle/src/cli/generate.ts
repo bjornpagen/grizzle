@@ -164,6 +164,8 @@ export type SchemaGenerateReport = SchemaWritten & {
 	readonly served: ReadonlyArray<string>
 	/** The path of each served file removed, of a login the configuration no longer lists over the schema. */
 	readonly unserved: ReadonlyArray<string>
+	/** The certificate of every role of the schema's logins, its reasons with it (ServedBasis); none for a custom folder. */
+	readonly certification: ServedWorkloadPlan["certification"]
 }
 
 /** What writing a draft's folder and snapshot wrote (Written), with the folder's files, markers and losses. */
@@ -243,6 +245,8 @@ type SchemaDraft = (
 	/** The snapshot the schema's directory commits once the draft is written. */
 	readonly snapshot: DeploySnapshot
 	readonly served: ServedWrites
+	/** The certificate of every role of the schema's logins, which the served files record the levels of. */
+	readonly certification: ServedWorkloadPlan["certification"]
 }
 
 /**
@@ -544,6 +548,7 @@ const draftFor = Effect.fn("draftFor")(function* (
 			folder,
 			snapshot: previous,
 			served: noServedWrites,
+			certification: [],
 			kind: "custom"
 		} satisfies SchemaDraft
 	}
@@ -558,6 +563,7 @@ const draftFor = Effect.fn("draftFor")(function* (
 	)
 	const files = yield* servedFiles(compiled, generated.snapshotFiles, generated.served)
 	const served = servedWrites(files, tree.served)
+	const certification = generated.served.kind === "logins" ? generated.served.certification : []
 	if (generated.change === "none") {
 		return committed.kind === "files" && !derivedHolds(committed.derived, generated.derived)
 			? ({
@@ -565,9 +571,16 @@ const draftFor = Effect.fn("draftFor")(function* (
 					snapshot: previous,
 					snapshotFiles: generated.snapshotFiles,
 					served,
+					certification,
 					kind: "rederived"
 				} satisfies SchemaDraft)
-			: ({ schema, snapshot: previous, served, kind: "unchanged" } satisfies SchemaDraft)
+			: ({
+					schema,
+					snapshot: previous,
+					served,
+					certification,
+					kind: "unchanged"
+				} satisfies SchemaDraft)
 	}
 	return {
 		schema,
@@ -575,6 +588,7 @@ const draftFor = Effect.fn("draftFor")(function* (
 		snapshot: generated.snapshot,
 		snapshotFiles: generated.snapshotFiles,
 		served,
+		certification,
 		kind: "drafted"
 	} satisfies SchemaDraft
 })
@@ -634,7 +648,8 @@ const writeDraft = Effect.fn("writeDraft")(function* (
 		ident: schema.ident,
 		fingerprint: draft.snapshot.fingerprint,
 		served: served.written,
-		unserved: served.removed
+		unserved: served.removed,
+		certification: draft.certification
 	}
 })
 

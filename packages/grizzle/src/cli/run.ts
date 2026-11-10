@@ -80,11 +80,39 @@ export const markerLine = (
 const commitStep = (rederived: boolean, served: boolean): string =>
 	`next: commit ${rederived && served ? "snapshot.json and the served files" : rederived ? "snapshot.json" : "the served files"}, then run grizzle check`
 
+/** A role's level as generate prints it: read committed, or serializable with the count of each condition it failed. */
+const levelLine = (role: SchemaGenerateReport["certification"][number]): string => {
+	const head = `login ${role.login}, role ${role.role}`
+	if (role.certificate.level === "readCommitted") {
+		return `${head}: read committed`
+	}
+	const counts = new Map<string, number>()
+	for (const reason of role.certificate.reasons) {
+		counts.set(reason.condition, (counts.get(reason.condition) ?? 0) + 1)
+	}
+	return `${head}: serializable (${Arr.join(
+		Arr.map([...counts], ([condition, count]) => `${condition} ${count}`),
+		", "
+	)})`
+}
+
+/**
+ * The level of every role of every schema's logins, one line each (levelLine), then what generate wrote
+ * (renderWrites).
+ */
+const renderGenerate = (
+	reports: ReadonlyArray<SchemaGenerateReport>,
+	relative: (path: string) => string
+): ReadonlyArray<string> => [
+	...Arr.flatMap(reports, (r) => Arr.map(r.certification, levelLine)),
+	...renderWrites(reports, relative)
+]
+
 /**
  * Each written file, relative to `cwd`, each served file written and each removed; then each marker to resolve and each
  * loss to decide, with what to do; then the next step.
  */
-const renderGenerate = (
+const renderWrites = (
 	reports: ReadonlyArray<SchemaGenerateReport>,
 	relative: (path: string) => string
 ): ReadonlyArray<string> => {
