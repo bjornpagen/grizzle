@@ -44,7 +44,12 @@ import {
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
-import { decodeDesc, type FieldDesc, type SchemaDesc } from "#compiler/ir/desc.ts"
+import {
+	admitLoginRoles,
+	decodeRoleOver,
+	type FieldDesc,
+	type SchemaDesc
+} from "#compiler/ir/desc.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
 import { installationsOf } from "#compiler/schema/own.ts"
@@ -147,9 +152,8 @@ const installationOf = (owned: Owned, codes: Codebook): Installation => {
 	const base = owned.desc
 	const app = succeeded(fullRoleDesc(base, "app", loc))
 	const reader = succeeded(
-		decodeDesc("role", {
+		decodeRoleOver(base, {
 			name: "reader",
-			base,
 			relations: [{ kind: "whole", name: "Item", loc }],
 			write: [],
 			refresh: [],
@@ -158,9 +162,8 @@ const installationOf = (owned: Owned, codes: Codebook): Installation => {
 	)
 	/** A role whose only use of a roster is a set: it calls live() through the bits domain's CHECK, and no names constant. */
 	const tagger = succeeded(
-		decodeDesc("role", {
+		decodeRoleOver(base, {
 			name: "tagger",
-			base,
 			relations: [{ kind: "whole", name: "Tags", loc }],
 			write: ["Tags"],
 			refresh: [],
@@ -169,7 +172,7 @@ const installationOf = (owned: Owned, codes: Codebook): Installation => {
 	)
 	const login = succeeded(
 		Result.flatMap(
-			decodeDesc("login", { name: "desk", base, roles: [app, reader, tagger], loc }),
+			admitLoginRoles(base, { name: "desk", roles: [app, reader, tagger], loc }),
 			ownLogin
 		)
 	)

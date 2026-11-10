@@ -26,7 +26,12 @@ import { parseDeclaredName } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
-import { decodeDesc, type ExprDesc, type FieldDesc, type LiteralDesc } from "#compiler/ir/desc.ts"
+import {
+	admitLoginRoles,
+	type ExprDesc,
+	type FieldDesc,
+	type LiteralDesc
+} from "#compiler/ir/desc.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
 import { installationsOf } from "#compiler/schema/own.ts"
@@ -99,10 +104,7 @@ const installationOf = (p: Pair): Installation => {
 	)
 	const app = succeeded(fullRoleDesc(owned.desc, "app", loc))
 	const login = succeeded(
-		Result.flatMap(
-			decodeDesc("login", { name: "desk", base: owned.desc, roles: [app], loc }),
-			ownLogin
-		)
+		Result.flatMap(admitLoginRoles(owned.desc, { name: "desk", roles: [app], loc }), ownLogin)
 	)
 	return succeeded(
 		compileInstallation(

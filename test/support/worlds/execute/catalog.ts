@@ -26,7 +26,11 @@ import type { AmbientOwner } from "#test/support/ambient.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { draftedAt, fromSnapshot, generate, noDeclarations } from "#test/support/migrate/kit.ts"
 import { review } from "#test/support/migrate/review.ts"
-import { planRealInstall, type RealInstallPlan } from "#test/support/oracle/install/real.ts"
+import {
+	type LoginSource,
+	planRealInstall,
+	type RealInstallPlan
+} from "#test/support/oracle/install/real.ts"
 import { type PgConnection, runAlone, type SqlError, wireSession } from "#test/support/pg.ts"
 import { testSql } from "#test/support/sql.ts"
 import type { SubstrateShape } from "#test/support/substrate/substrate.ts"
@@ -846,7 +850,7 @@ const dropsOf = (
  */
 export const draftNext = (
 	declared: AnySchema,
-	logins: ReadonlyArray<unknown>,
+	logins: ReadonlyArray<LoginSource>,
 	schema: string,
 	owner: string,
 	previous: Continued

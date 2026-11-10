@@ -19,6 +19,7 @@ import { assertVariant } from "#test/support/assert.ts"
 import { type Installed, installMigrated as install } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { factStatements } from "#test/support/oracle/install/load.ts"
+import type { LoginSource } from "#test/support/oracle/install/real.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import {
 	complementOf,
@@ -127,7 +128,7 @@ export const installDerived = (
 	declared: unknown,
 	facts: Facts,
 	label: string,
-	logins: ReadonlyArray<unknown>
+	logins: ReadonlyArray<LoginSource>
 ): Effect.Effect<
 	Opened,
 	OracleFixtureFailed | CompileError | SqlError | TransactionRolledBack,

@@ -5,7 +5,6 @@ import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import {
 	type AdmittedClosedRelation,
-	admittedRelation,
 	decodeUnadmittedSchema,
 	type RelationDesc,
 	recordAdmitted,
@@ -89,15 +88,13 @@ const admitted = (r: ClosedRelationOf, env: ScalarEnv): AdmittedClosedRelation =
 }
 
 /**
- * A decoded schema level and the levels below it, each closed relation no admission made admitted (admitted): every
+ * A decoded schema level and the levels below it, each closed relation admitted (admitted): every
  * other part is as its decode made it, so the levels are built over them (ir/desc.ts schemaLevelDesc), read no further.
  */
 const admittedLevels = (desc: UnadmittedSchemaDesc, env: ScalarEnv): SchemaDesc =>
 	schemaLevelDesc({
 		name: desc.name,
-		relations: desc.relations.map((r) =>
-			r.kind === "closedRelation" ? (admittedRelation(r) ?? admitted(r, env)) : r
-		),
+		relations: desc.relations.map((r) => (r.kind === "closedRelation" ? admitted(r, env) : r)),
 		statements: desc.statements,
 		extends: desc.extends === undefined ? undefined : admittedLevels(desc.extends, env),
 		loc: desc.loc
@@ -107,8 +104,9 @@ const admittedLevels = (desc: UnadmittedSchemaDesc, env: ScalarEnv): SchemaDesc 
  * A schema description from outside the builders, decoded and admitted: the one door from `unknown` to a SchemaDesc
  * whose closed relations no builder admitted (a decoded description's, an authored fixture's). Each closed relation is
  * admitted once against the schema's rosters and its fields' base types, so every closed relation a SchemaDesc holds is
- * admitted (ir/desc.ts SchemaRelationDesc), and the levels are built over the decoded parts. A closed relation a builder
- * admitted is taken as it stands. A refusal is MalformedDescription at the first cell that is no value of its field.
+ * admitted (ir/desc.ts SchemaRelationDesc), and the levels are built over the decoded parts: a description that crosses
+ * this door is a caller's, a builder's own included, and is admitted here whole. A refusal is MalformedDescription at the
+ * first cell that is no value of its field.
  */
 export const admitSchemaDesc = (value: unknown): Result.Result<SchemaDesc, CompileError> =>
 	Result.flatMap(decodeUnadmittedSchema(value), (unadmitted) => {

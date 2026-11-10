@@ -7,7 +7,7 @@ import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import { type Codebook, codecOf, firstCodebook, type RosterCodec } from "#compiler/ir/codes.ts"
 import {
-	decodeDesc,
+	admitLoginRoles,
 	type LoginDesc,
 	type SchemaDesc as EngineSchemaDesc
 } from "#compiler/ir/desc.ts"
@@ -33,6 +33,7 @@ import {
 	rostersOf
 } from "#compiler/schema/own.ts"
 import { loginDescOf } from "#compiler/schema/world.ts"
+import type { AnyLogin } from "#compiler/types/schema/world.ts"
 import { allocatedDesc, installationSql } from "#test/support/compile.ts"
 import type { SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { foreignKeyColumns, parsedSchemaName } from "#test/support/kernel/naming.ts"
@@ -67,7 +68,7 @@ interface RealPlanOptions {
 	/** The migration identity, which owns the schema. */
 	readonly owner: string
 	/** The logins installed with it, each a login value or a LoginDesc over the schema as declared; [] for none. */
-	readonly logins: ReadonlyArray<unknown>
+	readonly logins: ReadonlyArray<LoginSource>
 	/**
 	 * The installer extensions besides the residual laws' and the derived relations', which every installation carries
 	 * (physical/complete.ts completeInstallOptions): a workload's index requests; [] for none.
@@ -108,7 +109,7 @@ export const oracleLogin = (desc: SchemaDesc): LoginDesc => {
 	const loc = SourceLoc(`the oracle login of ${desc.name}`, [])
 	const login = Result.flatMap(admitSchemaDesc(desc), (base) =>
 		Result.flatMap(fullRoleDesc(base, "app", loc), (app) =>
-			decodeDesc("login", { name: "server", base, roles: [app], loc })
+			admitLoginRoles(base, { name: "server", roles: [app], loc })
 		)
 	)
 	if (!login.ok) {
@@ -117,20 +118,28 @@ export const oracleLogin = (desc: SchemaDesc): LoginDesc => {
 	return login.value
 }
 
-/** A login value or a LoginDesc, owned with its base and its roles' read through `as`; anything else is refused as the
- * installer would refuse it. */
+/** A login an installation carries: a login value login(...) built, or a LoginDesc a typed door made (oracleLogin). */
+export type LoginSource = AnyLogin | LoginDesc
+
+/**
+ * A login value or a LoginDesc, owned with its base and its roles' read through `as`; a value login(...) did not build
+ * is refused as the installer would refuse it.
+ */
 const ownedLogin =
 	(as: (desc: EngineSchemaDesc) => EngineSchemaDesc) =>
-	(input: unknown): OwnedLogin => {
-		const desc = loginDescOf(input)
-		const decoded = desc === undefined ? decodeDesc("login", input) : Result.ok(desc)
-		const owned = Result.flatMap(decoded, (d) =>
-			ownLogin({
-				...d,
-				base: as(d.base),
-				roles: mapNonEmpty(d.roles, (r) => ({ ...r, base: as(r.base) }))
-			})
-		)
+	(input: LoginSource): OwnedLogin => {
+		const desc = "kind" in input ? loginDescOf(input) : input
+		if (desc === undefined) {
+			throw malformedDescription(
+				SourceLoc("the oracle's logins", []),
+				"a login value login(...) built, or a LoginDesc"
+			)
+		}
+		const owned = ownLogin({
+			...desc,
+			base: as(desc.base),
+			roles: mapNonEmpty(desc.roles, (r) => ({ ...r, base: as(r.base) }))
+		})
 		if (!owned.ok) {
 			throw owned.error
 		}
@@ -526,7 +535,7 @@ interface InstalledRealSchema {
  * the logins installed with the schema, the extensions, and the label of the allocated schema name, each stated.
  */
 export interface RealInstallOptions {
-	readonly logins: ReadonlyArray<unknown>
+	readonly logins: ReadonlyArray<LoginSource>
 	readonly extensions: ReadonlyArray<InstallExtension>
 	readonly label: string
 }

@@ -1939,13 +1939,6 @@ export type AdmittedClosedRelation = Extract<RelationDesc, { readonly kind: "clo
 	readonly [admittedBrand]: true
 }
 
-/**
- * Each admitted closed relation's description, by its identity: a handle registry, which a decode of a schema reads to
- * pass it through unchanged, the one closed relation a decoded schema holds. Only the brand's doors register one,
- * frozen, so a description a caller built or edited is no admitted one.
- */
-const admittedDescs = new WeakMap<object, AdmittedClosedRelation>()
-
 const mintAdmitted = nominal<
 	Extract<RelationDesc, { readonly kind: "closedRelation" }>,
 	AdmittedClosedRelation
@@ -1953,7 +1946,8 @@ const mintAdmitted = nominal<
 
 /**
  * The brand's one mint: a closed relation's description its caller admitted (closed.relation()'s admission, or its
- * schema's), registered and frozen with its rows.
+ * schema's), frozen with its rows. The brand is the type alone: a description that crosses a decode is a caller's,
+ * and its decode admits it again.
  */
 export const recordAdmitted = (
 	desc: Extract<RelationDesc, { readonly kind: "closedRelation" }>
@@ -1962,25 +1956,8 @@ export const recordAdmitted = (
 		Object.freeze(row)
 	}
 	Object.freeze(desc.rows)
-	const admitted = mintAdmitted(Object.freeze(desc))
-	admittedDescs.set(admitted, admitted)
-	return admitted
+	return mintAdmitted(Object.freeze(desc))
 }
-
-/** The admitted closed relation a description is, when an admission made it; none for any other value. */
-export const admittedRelation = (value: unknown): AdmittedClosedRelation | undefined =>
-	typeof value === "object" && value !== null ? admittedDescs.get(value) : undefined
-
-/** A relation description's shape, an admitted closed relation's description passed through as it stands. */
-const admittedOr = (shape: S.Shape<RelationDesc>): S.Shape<RelationDesc> =>
-	S.plain({
-		expected: shape.expected,
-		parse: function* (value, path) {
-			const admitted =
-				typeof value === "object" && value !== null ? admittedDescs.get(value) : undefined
-			return admitted ?? (yield* shape.parse(value, path))
-		}
-	})
 
 /** What a closed relation's fields must be: at least one, each one a closed relation admits (closedFieldAdmits). */
 const closedFieldsCapability =
@@ -2019,91 +1996,84 @@ const primaryKeyShape = S.nonEmptyUniqueStrings("primary key fields")
 const keyOverOwnFields =
 	"a primary key over the relation's own fields, each one its caller writes, its sequence draws or its family draws"
 
-const relationDescShape: S.Shape<RelationDesc> = admittedOr(
-	S.tagged("kind", {
-		relation: S.located(
-			S.refine(
-				S.structWith(
-					{
-						name,
-						fields: S.refine(
-							S.recordShape(fieldDeclShape, name),
-							(f) => Object.keys(f).length > 0,
-							atLeastOneField
-						),
-						primaryKey: primaryKeyShape
-					},
-					loc
-				),
-				(r) => r.primaryKey.every((f) => keyWriting(r.fields[f])),
-				keyOverOwnFields
-			)
-		),
-		closed: S.located(S.structWith({ name, handles: S.nonEmptyUniqueStrings("handles") }, loc)),
-		closedRelation: S.located(
-			S.refine(
-				S.structWith(
-					{
-						name,
-						fields: S.refine(
-							fieldMapShape,
-							(f) => Object.keys(f).length > 0 && Object.values(f).every(closedFieldAdmits),
-							closedFieldsCapability
-						),
-						key: closedKeyShape,
-						slots: keySlotsShape,
-						rows: S.array(S.recordShape(literalDescShape, name))
-					},
-					loc
-				),
-				(c) => {
-					if (!closedKeyHolds(c.key, c.slots, (f) => c.fields[f]?.kind === "closedId")) {
-						return false
-					}
-					const fields = Object.keys(c.fields).toSorted(compareStrings)
-					const keys = new TupleMap<ReadonlyArray<string>, Readonly<Record<string, LiteralDesc>>>()
-					for (const row of c.rows) {
-						const own = Object.keys(row).toSorted(compareStrings)
-						if (own.length !== fields.length || !own.every((f, i) => f === fields[i])) {
-							return false
-						}
-						const values = rowKeyValues(c.key, row)
-						if (values === undefined || keys.has(values)) {
-							return false
-						}
-						keys.set(values, row)
-					}
-					return true
-				},
-				closedRelationCapability
-			)
-		),
-		derived: S.located(
+const relationDescShape: S.Shape<RelationDesc> = S.tagged("kind", {
+	relation: S.located(
+		S.refine(
 			S.structWith(
 				{
 					name,
-					query: unorderedQueryShape,
-					level: S.positiveInteger,
-					storage: S.literalsShape(derivedStorages)
+					fields: S.refine(
+						S.recordShape(fieldDeclShape, name),
+						(f) => Object.keys(f).length > 0,
+						atLeastOneField
+					),
+					primaryKey: primaryKeyShape
 				},
 				loc
-			)
+			),
+			(r) => r.primaryKey.every((f) => keyWriting(r.fields[f])),
+			keyOverOwnFields
 		)
-	})
-)
+	),
+	closed: S.located(S.structWith({ name, handles: S.nonEmptyUniqueStrings("handles") }, loc)),
+	closedRelation: S.located(
+		S.refine(
+			S.structWith(
+				{
+					name,
+					fields: S.refine(
+						fieldMapShape,
+						(f) => Object.keys(f).length > 0 && Object.values(f).every(closedFieldAdmits),
+						closedFieldsCapability
+					),
+					key: closedKeyShape,
+					slots: keySlotsShape,
+					rows: S.array(S.recordShape(literalDescShape, name))
+				},
+				loc
+			),
+			(c) => {
+				if (!closedKeyHolds(c.key, c.slots, (f) => c.fields[f]?.kind === "closedId")) {
+					return false
+				}
+				const fields = Object.keys(c.fields).toSorted(compareStrings)
+				const keys = new TupleMap<ReadonlyArray<string>, Readonly<Record<string, LiteralDesc>>>()
+				for (const row of c.rows) {
+					const own = Object.keys(row).toSorted(compareStrings)
+					if (own.length !== fields.length || !own.every((f, i) => f === fields[i])) {
+						return false
+					}
+					const values = rowKeyValues(c.key, row)
+					if (values === undefined || keys.has(values)) {
+						return false
+					}
+					keys.set(values, row)
+				}
+				return true
+			},
+			closedRelationCapability
+		)
+	),
+	derived: S.located(
+		S.structWith(
+			{
+				name,
+				query: unorderedQueryShape,
+				level: S.positiveInteger,
+				storage: S.literalsShape(derivedStorages)
+			},
+			loc
+		)
+	)
+})
 
 /**
- * A decoded schema's relation: an admitted closed relation as it stands, any other relation decoded, and a closed
- * relation no admission made refused, since a schema holds only admitted ones (SchemaRelationDesc).
+ * A decoded schema's relation: any relation but a closed one decoded, and a closed relation refused, since a schema holds
+ * only admitted ones (SchemaRelationDesc), which a raw schema's admission makes (schema/admit.ts admitSchemaDesc).
  */
 const schemaRelationShape: S.Shape<SchemaRelationDesc> = S.plain({
 	expected: relationDescShape.expected,
 	parse: function* (value, path) {
-		const admitted =
-			typeof value === "object" && value !== null ? admittedDescs.get(value) : undefined
-		if (admitted !== undefined) {
-			return admitted
-		}
 		const decoded = yield* relationDescShape.parse(value, path)
 		if (decoded.kind === "closedRelation") {
 			return S.refuse(

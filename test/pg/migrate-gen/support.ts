@@ -18,16 +18,19 @@ import {
 	parseDeclaredName
 } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import * as Result from "#compiler/core/result.ts"
 import type { Declarations, Named, Rename } from "#compiler/deploy/diff/plan.ts"
 import type { CodeSlot } from "#compiler/ir/cells.ts"
 import { type Codebook, rosterCodec } from "#compiler/ir/codes.ts"
 import {
-	decodeDesc,
+	admitLoginRoles,
+	decodeRoleOver,
 	everyFact,
 	type FieldDecl,
 	type FieldDesc,
 	type LiteralDesc,
 	type LoginDesc,
+	type RoleEntryDesc,
 	type SchemaDesc,
 	type SideDesc
 } from "#compiler/ir/desc.ts"
@@ -839,22 +842,29 @@ const worldsOf = (
 		...Arr.filter(stored, (r) => !unread.has(r))
 	]
 	const whole = (names: ReadonlyArray<string>) =>
-		Arr.map(names, (name) => ({ kind: "whole", name, loc }))
-	const writer = {
-		name: "writer",
-		base: desc,
-		relations: whole(stored),
-		write: stored,
-		refresh: [],
-		loc
-	}
-	const reader = { name: "reader", base: desc, relations: whole(read), write: [], refresh: [], loc }
-	const login = decodeDesc("login", {
-		name: "server",
-		base: desc,
-		roles: read.length > 0 ? [writer, reader] : [writer],
-		loc
-	})
+		Arr.map(names, (name): RoleEntryDesc => ({ kind: "whole", name, loc }))
+	const login = Result.flatMap(
+		decodeRoleOver(desc, {
+			name: "writer",
+			relations: whole(stored),
+			write: stored,
+			refresh: [],
+			loc
+		}),
+		(writer) =>
+			read.length > 0
+				? Result.flatMap(
+						decodeRoleOver(desc, {
+							name: "reader",
+							relations: whole(read),
+							write: [],
+							refresh: [],
+							loc
+						}),
+						(reader) => admitLoginRoles(desc, { name: "server", roles: [writer, reader], loc })
+					)
+				: admitLoginRoles(desc, { name: "server", roles: [writer], loc })
+	)
 	if (!login.ok) {
 		throw new Error(login.error.message)
 	}
