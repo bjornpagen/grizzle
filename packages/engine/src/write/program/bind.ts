@@ -78,7 +78,6 @@ import {
 	textsOf,
 	type Unsendable
 } from "#compiler/write/family/order.ts"
-import { patternPositions } from "#compiler/write/family/pattern-order.ts"
 import {
 	cascade,
 	changedColumns,
@@ -150,10 +149,6 @@ export const legacyFlights =
 			const relations: Array<RelationPlanAt> = []
 			for (const [relation, rows] of nested) {
 				const layout = nestedLayout(stratum, relation)
-				const info = defined(
-					frontend.schema.relations.get(relation),
-					`the stored relation ${relation}, a nested write's`
-				)
 				const inserts = new TupleMap<MemberKey, Row>()
 				for (const [key, r] of rows) {
 					inserts.set(key, rowOfValues(planning.codes, layout, r.values))
@@ -166,8 +161,7 @@ export const legacyFlights =
 						updates: new TupleMap<MemberKey, Row>(),
 						inserts
 					},
-					applied.transport,
-					patternPositions(info, frontend.laws.natives, layout)
+					applied.transport
 				)
 				if (!planned.ok) {
 					return Result.err(rowBound(relation, planned.error))
@@ -745,11 +739,7 @@ export const legacyFlights =
 					layout: RowLayout,
 					write: Parameters<typeof encodedWrite>[2]
 				): Result.Result<void, FamilyRowBound> => {
-					const rowsPlan = planRelation(
-						encodedWrite(planning, layout, write),
-						applied.transport,
-						patternPositions(relation, frontend.laws.natives, layout)
-					)
+					const rowsPlan = planRelation(encodedWrite(planning, layout, write), applied.transport)
 					if (!rowsPlan.ok) {
 						return Result.err(rowBound(relation.name, rowsPlan.error))
 					}

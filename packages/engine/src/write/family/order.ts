@@ -33,13 +33,6 @@
  * longest string, and its Bind message within PostgreSQL's longest message. A bytes column's array is binary
  * (codec/bytea.ts), which no string bounds, so its values count in the Bind message alone. A family larger than one
  * statement goes as consecutive inserts after its one count update, in ascending slot order.
- *
- * Inside each update and insert statement, rows go ordered by their pattern input (pattern-order.ts): the values a
- * row CHECK's or a generated field's match reads its pattern from, so each pattern PostgreSQL compiles serves every row
- * of it in the statement, where rows cycling through more patterns than its cache of compiled ones holds would compile
- * one per row. Only a statement's own rows are reordered, after the cut, so the statements keep their order: a
- * statement's predecessor keys and owner axes are checked at its end, and no two of its rows hold one slot, so its rows
- * go in any order.
  */
 import { byteaElementBytes, byteaHeaderBytes } from "#compiler/codec/bytea.ts"
 import { literalAlone } from "#compiler/codec/recordset.ts"
@@ -61,7 +54,6 @@ import {
 	rowTexts
 } from "#compiler/runtime/write/draw.ts"
 import type { Transport } from "#compiler/runtime/write/transport.ts"
-import { byPatternInput } from "#compiler/write/family/pattern-order.ts"
 
 /**
  * One member relation's rows of a write, each kind a set by its key's texts, compared element by element
@@ -295,8 +287,7 @@ export type RelationPlan = readonly [
  */
 export const planRelation = (
 	write: RelationWrite,
-	transport: Transport,
-	input: ReadonlySet<number>
+	transport: Transport
 ): Result.Result<RelationPlan, Unsendable> => {
 	const { relation } = write
 	invariant(
@@ -323,15 +314,9 @@ export const planRelation = (
 	}
 	const planned: RelationPlan = [
 		deletes.value.map((rows) => ({ kind: "delete", relation, rows }) as const),
-		refills.value.map(
-			(rows) => ({ kind: "refill", relation, rows: byPatternInput(rows, rowTexts, input) }) as const
-		),
-		updates.value.map(
-			(rows) => ({ kind: "update", relation, rows: byPatternInput(rows, rowTexts, input) }) as const
-		),
-		inserts.value.map(
-			(rows) => ({ kind: "insert", relation, rows: byPatternInput(rows, rowTexts, input) }) as const
-		)
+		refills.value.map((rows) => ({ kind: "refill", relation, rows }) as const),
+		updates.value.map((rows) => ({ kind: "update", relation, rows }) as const),
+		inserts.value.map((rows) => ({ kind: "insert", relation, rows }) as const)
 	]
 	return Result.ok(planned)
 }

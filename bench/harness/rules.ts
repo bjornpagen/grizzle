@@ -47,13 +47,7 @@ const ruleIds = [
 
 export type RuleId = (typeof ruleIds)[number]
 
-const extraGateIds = [
-	"queue",
-	"refresh-lifetime",
-	"law-cost",
-	"families",
-	"family-patterns"
-] as const
+const extraGateIds = ["queue", "refresh-lifetime", "law-cost", "families"] as const
 
 export type ExtraGateId = (typeof extraGateIds)[number]
 
@@ -298,18 +292,11 @@ const statedGates: { readonly [K in GateId]: Omit<GateEntry, "id"> } = {
 		gate: stated(
 			"an append of k members to a family is one UPDATE of its owner however many statements carry the rows; each count change rewrites the copy ‹n› on every sibling, so a growth of a family of n touches n member rows, O(n); a long family's writes queue its deferred last-slot and closure foreign keys' events, whose memory is read before COMMIT. Time each against the family's length, hold each to a ceiling measured by a full run of the gate on the build it runs on, and record a case no such run has measured."
 		)
-	},
-	"family-patterns": {
-		title: "A family write matched against more patterns than PostgreSQL caches compiled",
-		owner: "write",
-		gate: stated(
-			"a family statement's rows go ordered by their pattern input, the values a row CHECK's match reads its pattern from, so in the member table's physical order a statement's rows run through each pattern at most once and PostgreSQL compiles each once per statement, however many patterns its cache of compiled regular expressions holds (regexCacheEntries); a family cycling through twice that many patterns in the order written would compile one per row. Time a family cycling through the dictionary against one of a single pattern, per member row, at each length, hold each to a ceiling measured by a full run of the gate on the build it runs on, and record a case no such run has measured."
-		)
 	}
 }
 
 /**
- * Every gate, in order: R01 to R42, then the queue, refresh-lifetime, law-cost, families and family-patterns gates.
+ * Every gate, in order: R01 to R42, then the queue, refresh-lifetime, law-cost and families gates.
  */
 export const gateCatalog: ReadonlyArray<GateEntry> = Arr.map(gateIds, (id) => ({
 	id,
