@@ -114,11 +114,12 @@ const grownInt = (buffer: Int32Array, factor: number) => {
  * Records every decision and span made against its chooser. Decisions are packed three numbers apiece (value, lowest,
  * highest) into one buffer, and spans three apiece (start, end, depth) into another, each doubling when full, so a
  * decision costs a few stores and a recording two allocations. A tape is copied out only when someone asks for it,
- * which a passing case never does. A value the chooser cannot give, because a replay ran out or its value no longer
- * fits the decision, becomes the decision's simplest value and marks the recording `overrun`: it still completes,
- * deterministically, and shrinking may still accept it. A decision with one possible value is no decision: it gives
- * that value and records nothing, so a choice among one option never lengthens a tape, and a kept case whose property
- * passes through one still draws nothing.
+ * which a passing case never does. A span still open when its tape is copied out, its case stopped inside a draw, ends
+ * where the tape ends, so every span of every tape lies within its decisions. A value the chooser cannot give, because
+ * a replay ran out or its value no longer fits the decision, becomes the decision's simplest value and marks the
+ * recording `overrun`: it still completes, deterministically, and shrinking may still accept it. A decision with one
+ * possible value is no decision: it gives that value and records nothing, so a choice among one option never lengthens
+ * a tape, and a kept case whose property passes through one still draws nothing.
  */
 export const recorder = (): Recorder => {
 	let chooser: Chooser = simplestChooser
@@ -218,6 +219,9 @@ export const recorder = (): Recorder => {
 				spanStart[at] = spans[at * 3] ?? 0
 				spanEnd[at] = spans[at * 3 + 1] ?? 0
 				spanDepth[at] = spans[at * 3 + 2] ?? 0
+			}
+			for (let level = 0; level < depth; level += 1) {
+				spanEnd[open[level] ?? 0] = length
 			}
 			return {
 				length,
