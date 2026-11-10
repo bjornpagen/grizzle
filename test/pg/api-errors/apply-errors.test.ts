@@ -6,19 +6,21 @@ import { passed, type Wild, WILD_KINDS, type WildKind, wild, wildOf } from "@gri
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Result, Stream } from "effect"
-import { isCompileError, type ValueFault } from "#compiler/core/errors.ts"
+import { Array as Arr, Effect, Formatter, Result } from "effect"
+import { memberOps } from "#adapter/db/handles.ts"
+import type { ValueFault } from "#compiler/core/errors.ts"
+import { trusted } from "#compiler/core/trusted.ts"
+import type { ParamMap } from "#compiler/plan/common.ts"
 import { changeSetOver } from "#compiler/write/changeset/value.ts"
 import { EncodingFailure, pg, query, relation, schema, span, str, uuid, v } from "#index.ts"
 
-import { openDbContext } from "#adapter/db/open.ts"
-import { tappedDb } from "#test/pg/api-errors/support.ts"
+import { tappedPool } from "#test/pg/api-errors/support.ts"
 import { installed } from "#test/pg/reads/support.ts"
-import { assert } from "#test/support/assert.ts"
+import { assert, assertVariant } from "#test/support/assert.ts"
 import { type Names, namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
-import { applyRuntime } from "#test/support/runtime-db.ts"
+import { member, withServedDb } from "#test/support/served-db.ts"
 import {
 	installationGroup,
 	replaceRows,
@@ -26,18 +28,16 @@ import {
 } from "#test/support/substrate/replace.ts"
 import { tableState } from "#test/support/substrate/state.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-import { withLayer } from "#test/support/with-layer.ts"
-import { loginLayer } from "#test/support/worlds.ts"
 
 /**
- * The public-API error matrix, the write side: each ApplyError that grizzle's own code decides, through db.apply, as
- * two properties.
+ * The public-API error matrix, the write side: each ApplyError that grizzle's own code decides, through a served
+ * change member's apply, as two properties.
  *
  * - EncodingFailure: a fact or parameter value its codec refuses is refused before any SQL, with the fault's word and
  *   the parameter or member it belongs to as its slot. Over drawn values, one field of an otherwise live fact at a time
  *   (an integer, a bigint, a boolean, a refined text, a uuid, a span), each a Wild value (@grizzle/testing/lsw)
- *   or one a codec documents refusing with a known fault (planted, since a wild draw rarely lands on one), passed as an
- *   array member, a Stream member, or a scalar parameter of a described member. A wild value the codec admits is
+ *   or one a codec documents refusing with a known fault (planted, since a wild draw rarely lands on one), passed as a
+ *   call's fact of an array member, or a scalar parameter of a described member. A wild value the codec admits is
  *   answered, never a defect (drawn as an arm of its own too, since a wild draw rarely lands on one either); a refused
  *   one is EncodingFailure, a planted one with its fault, a parameter's with the parameter as its slot, with no frontend
  *   message sent and nothing stored.
@@ -47,8 +47,8 @@ import { loginLayer } from "#test/support/worlds.ts"
  *
  * Covered elsewhere through the public API: ExecutionFailure{compiler, compile} for an unchecked ChangeSet outside the
  * role's write list (test/pg/transactions/suites/apply.ts) and for a refresh outside its refresh list, TransientFailure from
- * db.apply (test/schedules/write/races.test.ts, which interleaves concurrent writers) and from
- * db.refresh (test/pg/derived/refresh/refresh.test.ts).
+ * an apply (test/schedules/write/races.test.ts, which interleaves concurrent writers) and from a refresh member
+ * (test/pg/derived/refresh/refresh.test.ts).
  *
  * Not provoked: TransportFailure and CommitUnknown arise only from a lost connection or an unacknowledged COMMIT, which
  * are infrastructure faults out of the suite's scope. A read-back's rows are converted, not validated: every value
@@ -77,6 +77,13 @@ const seedRow = (names: Names): ReplacedStatement => ({
 	params: [seed]
 })
 const fresh = "00000000-0000-4000-8000-000000000003"
+
+/**
+ * A JavaScript caller's parameter argument, holding a value of any type, which the types refuse and the member's
+ * boundary judges: the test's own data.
+ */
+const callersParams = (params: Readonly<Record<string, unknown>>): ParamMap =>
+	trusted<ParamMap>(params)
 
 /**
  * The described member's parameters, every field but the key, which it reads from Seed, and a live value of each. A
@@ -108,30 +115,24 @@ const planted: { readonly [F in Field]: { readonly value: unknown; readonly faul
 		during: { value: { start: 5n, end: 1n }, fault: "spanOrder" }
 	}
 
-/** The forms a fact is planted in as a member's: an array or a Stream. */
-type MemberForm = "array" | "Stream"
-const memberForms: Arr.NonEmptyReadonlyArray<MemberForm> = ["array", "Stream"]
-type Form = MemberForm | "parameter"
-const forms: Arr.NonEmptyReadonlyArray<Form> = [...memberForms, "parameter"]
+/** The form a fact is planted in: a call's fact of an array member, or a parameter of the described member. */
+type Form = "array" | "parameter"
+const forms: Arr.NonEmptyReadonlyArray<Form> = ["array", "parameter"]
 
 type Drawn = { readonly kind: "planted" } | { readonly kind: "wild"; readonly wild: Wild }
 
 /** A field and the form it is planted in: any field of a member's fact, or a parameter of the described member. */
 type Pair =
-	| { readonly field: Field; readonly form: MemberForm }
+	| { readonly field: Field; readonly form: "array" }
 	| { readonly field: Param; readonly form: "parameter" }
 
 type EncodingCase = Pair & { readonly value: Drawn }
 
-type EncodingFeature =
-	| `planted ${Field} as ${Form}`
-	| `wild ${WildKind} refused`
-	| "wild admitted"
-	| "refused by the builder"
+type EncodingFeature = `planted ${Field} as ${Form}` | `wild ${WildKind} refused` | "wild admitted"
 
-/** The field and form pairs a case draws: every field in each member form, and every parameter. */
+/** The field and form pairs a case draws: every field of a call's fact, and every parameter. */
 const plantedPairs: Arr.NonEmptyReadonlyArray<Pair> = [
-	...Arr.flatMap(fields, (field) => Arr.map(memberForms, (form): Pair => ({ field, form }))),
+	...Arr.map(fields, (field): Pair => ({ field, form: "array" })),
 	...Arr.map(paramFields, (field): Pair => ({ field, form: "parameter" }))
 ]
 
@@ -207,7 +208,7 @@ const encodingKept: ReadonlyArray<Kept<EncodingCase, EncodingFeature>> = [
 		note: "a lone surrogate for a refined text",
 		sketch: {
 			field: "label",
-			form: "Stream",
+			form: "array",
 			value: { kind: "wild", wild: wildOf("lone-surrogate") }
 		},
 		draws: "",
@@ -231,101 +232,112 @@ layer(Substrate.layer, { excludeTestServices: true })("ApplyError through the pu
 					const o = yield* opened
 					const s = yield* Substrate
 					const names = namesOf(o.installed)
-					/** The described member: every field but the key a scalar parameter of its type. */
-					const described = query(o.schema).rule((r) => {
-						const { id } = v(Seed, "seed")
-						return r.match(Seed, { id }).find({
-							id,
-							n: r.param("n", Typed.fields.n),
-							b: r.param("b", Typed.fields.b),
-							flag: r.param("flag", Typed.fields.flag),
-							label: r.param("label", Typed.fields.label),
-							during: r.param("during", Typed.fields.during)
-						})
-					})
-					return yield* Effect.gen(function* () {
-						const untapped = yield* openDbContext(o.server.roles.app, {})
-						const { ctx: dbCtx, tap } = yield* tappedDb(untapped.ctx, o.installed.as(o.server))
-						return yield* explore(
-							{
-								oracle: { kind: "unstated" },
-								/**
-								 * A builder refuses what it cannot read with a CompileError: a typed refusal before any SQL.
-								 */
-								suite: "api-errors/apply encoding",
-								draw: drawn(encodingCaseGen),
-								literal: Formatter.format,
-								kept: encodingKept,
-								runs: 200,
-								shrink: completeShrink,
-								concurrency: 1,
-								steerEvery: 16,
-								caseHang,
-								coverage: required<EncodingFeature>(
-									[
-										...Arr.map(
-											plantedPairs,
-											({ field, form }): EncodingFeature => `planted ${field} as ${form}`
-										),
-										"wild admitted",
-										"wild null refused",
-										"wild proxy refused",
-										"wild lone-surrogate refused"
-									],
-									{ cases: 200, sense: notesOnly }
+					return yield* withServedDb(o.installed, o.server.roles.app, {}, ({ ctx, load }) =>
+						Effect.gen(function* () {
+							const members = yield* load({
+								array: changeSetOver.empty(o.schema).insert(Typed, []),
+								/** The described member: every field but the key a scalar parameter of its type. */
+								parameter: changeSetOver.empty(o.schema).insert(
+									Typed,
+									query(o.schema).rule((r) => {
+										const { id } = v(Seed, "seed")
+										return r.match(Seed, { id }).find({
+											id,
+											n: r.param("n", Typed.fields.n),
+											b: r.param("b", Typed.fields.b),
+											flag: r.param("flag", Typed.fields.flag),
+											label: r.param("label", Typed.fields.label),
+											during: r.param("during", Typed.fields.during)
+										})
+									})
 								)
-							},
-							(c, cx) =>
-								Effect.gen(function* () {
-									yield* replaceRows(s.admin, installationGroup(names), [seedRow(names)])
-									const value =
-										c.value.kind === "planted" ? planted[c.field].value : passed(c.value)
-									const fact: Record<string, unknown> = { ...live, [c.field]: value }
-									const built = Result.try(() => {
-										const empty = changeSetOver.empty(o.schema)
-										switch (c.form) {
-											case "array":
-												return empty.insert(Typed, [fact])
-											case "Stream":
-												return empty.insert(Typed, Stream.make(fact))
-											case "parameter":
-												return empty.insert(Typed, described)
+							})
+							const { pool, tap } = yield* tappedPool(o.installed.as(o.server))
+							const tapped = { ...ctx, pool }
+							return yield* explore(
+								{
+									oracle: { kind: "unstated" },
+									suite: "api-errors/apply encoding",
+									draw: drawn(encodingCaseGen),
+									literal: Formatter.format,
+									kept: encodingKept,
+									runs: 200,
+									shrink: completeShrink,
+									concurrency: 1,
+									steerEvery: 16,
+									caseHang,
+									coverage: required<EncodingFeature>(
+										[
+											...Arr.map(
+												plantedPairs,
+												({ field, form }): EncodingFeature => `planted ${field} as ${form}`
+											),
+											"wild admitted",
+											"wild null refused",
+											"wild proxy refused",
+											"wild lone-surrogate refused"
+										],
+										{ cases: 200, sense: notesOnly }
+									)
+								},
+								(c, cx) =>
+									Effect.gen(function* () {
+										yield* replaceRows(s.admin, installationGroup(names), [seedRow(names)])
+										const value =
+											c.value.kind === "planted" ? planted[c.field].value : passed(c.value)
+										const fact: Record<string, unknown> = { ...live, [c.field]: value }
+										const mark = tap.mark()
+										const change = memberOps(tapped, member(members, c.form))
+										const outcome = yield* Effect.result(
+											c.form === "parameter"
+												? Effect.suspend(() => {
+														assertVariant(
+															change,
+															"kind",
+															"program",
+															"the described member takes its parameters"
+														)
+														return change.ops.apply(
+															callersParams({ ...liveParams, [c.field]: value })
+														)
+													})
+												: Effect.suspend(() => {
+														assertVariant(
+															change,
+															"kind",
+															"facts",
+															"an array member takes its call's facts"
+														)
+														return change.ops.apply({ insert: { Typed: [fact] } }, {})
+													})
+										)
+										if (Result.isSuccess(outcome)) {
+											assert.ok(c.value.kind === "wild", `a planted ${c.field} is refused`)
+											cx.note("wild admitted")
+											return
+										}
+										const error = outcome.failure
+										assert.ok(error instanceof EncodingFailure, String(error))
+										assert.equal(
+											tap.since(mark).frontend.length,
+											0,
+											"no statement before the refusal"
+										)
+										const state = yield* tableState(o.installed, Typed)
+										assert.deepEqual(state, [])
+										if (c.form === "parameter") {
+											assert.deepEqual(error.place, { _tag: "Slot", name: c.field })
+										}
+										if (c.value.kind === "planted") {
+											assert.equal(error.reason._tag, planted[c.field].fault)
+											cx.note(`planted ${c.field} as ${c.form}`)
+										} else {
+											cx.note(`wild ${c.value.wild.kind} refused`)
 										}
 									})
-									if (Result.isFailure(built)) {
-										assert.ok(isCompileError(built.failure), String(built.failure))
-										cx.note("refused by the builder")
-										return
-									}
-									const params = c.form === "parameter" ? { ...liveParams, [c.field]: value } : {}
-									const mark = tap.mark()
-									const outcome = yield* Effect.result(applyRuntime(dbCtx, built.success, params))
-									if (Result.isSuccess(outcome)) {
-										assert.ok(c.value.kind === "wild", `a planted ${c.field} is refused`)
-										cx.note("wild admitted")
-										return
-									}
-									const error = outcome.failure
-									assert.ok(error instanceof EncodingFailure, String(error))
-									assert.equal(
-										tap.since(mark).frontend.length,
-										0,
-										"no statement before the refusal"
-									)
-									const state = yield* tableState(o.installed, Typed)
-									assert.deepEqual(state, [])
-									if (c.form === "parameter") {
-										assert.deepEqual(error.place, { _tag: "Slot", name: c.field })
-									}
-									if (c.value.kind === "planted") {
-										assert.equal(error.reason._tag, planted[c.field].fault)
-										cx.note(`planted ${c.field} as ${c.form}`)
-									} else {
-										cx.note(`wild ${c.value.wild.kind} refused`)
-									}
-								})
-						)
-					}).pipe(Effect.scoped, withLayer(loginLayer(o.installed, o.server)))
+							)
+						})
+					)
 				}).pipe(Effect.scoped)
 			)
 	)
