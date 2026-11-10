@@ -83,7 +83,7 @@ interface SpanParts {
  * included. Every other endpoint is refused with a capability diagnostic naming the endpoint type, the operation and
  * the missing capability: smallint (int4range plus endpoint bounds would be required), numeric, the
  * floats, money, and the serial family, a generation declaration and no value type, which is refused by its writing
- * (registry.ts serialNameOf) because its type is its integer's. There is no slow mode and no custom range type.
+ * (registry.ts serialNameOf) because its type is its value type's. There is no slow mode and no custom range type.
  *
  * The span lowers to int4range over an integer endpoint, int8range over a bigint one and daterange over a date; a
  * contract endpoint keeps the base range, and its endpoints are branded. The optional width fixes the extent's
@@ -108,14 +108,14 @@ export const spanParts = (endpoint: unknown, rest: ReadonlyArray<unknown>): Span
 	const loc = captureLoc(`span(${described.sql})`, [])
 	const base = baseOf(described.scalar).carrier
 	/**
-	 * The endpoint decides first, whatever width accompanies it: a serial by its writing, since its type is its
-	 * integer's, and a smallint or money endpoint by its capability.
+	 * The endpoint decides first, whatever width accompanies it: a serial by its writing, since its type is its value
+	 * type's, and a smallint or money endpoint by its capability.
 	 */
 	const serial = serialNameOf(described)
 	if (serial !== undefined) {
 		throw unsupported(
 			loc,
-			`spanEndpoint: ${serial} is a serial generation declaration, not a value type; spans are over integer, bigint and contracts over them`
+			`spanEndpoint: ${serial.serial} is a serial generation declaration, not a value type; spans are over integer, bigint and contracts over them`
 		)
 	}
 	const unchecked = spanType(described.scalar, undefined, loc)

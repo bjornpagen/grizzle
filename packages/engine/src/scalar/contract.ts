@@ -204,7 +204,7 @@ interface ContractParts {
  * base: none or an undefined predicate is contract(name, base), one predicate, which buildPredicate checks is a
  * callback, contract(name, base, predicate), the facts it proves after it contract(name, base, predicate, { proves }),
  * and more are refused. A serial base is refused UnsupportedOperation before the predicate runs, by its writing
- * (registry.ts serialNameOf), since its type is its integer's: it is a generation declaration, not a value domain.
+ * (registry.ts serialNameOf), since its type is its value type's: it is a generation declaration, not a value domain.
  * The predicate is read once, here.
  */
 export const contractParts = (
@@ -234,7 +234,7 @@ export const contractParts = (
 	if (serial !== undefined) {
 		throw unsupported(
 			loc,
-			`contractBase: a contract is a value domain; ${serial} is a serial generation declaration, so use its integer type, pg.${described.sql}`
+			`contractBase: a contract is a value domain; ${serial.serial} is a serial generation declaration, so use its value type, ${serial.value}`
 		)
 	}
 	const domain = contractType(contract, described.scalar, loc, undefined, [])

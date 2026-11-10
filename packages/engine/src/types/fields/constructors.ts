@@ -151,9 +151,9 @@ export type ContractBase<Name extends string, B> = Columned<
 
 export type NotSerialBase<B> =
 	B extends SerialField<unknown, SqlTag>
-		? Refusal<"a contract is a value domain; a serial is a generation declaration, so use its integer type">
+		? Refusal<"a contract is a value domain; a serial is a generation declaration, so use its value type">
 		: [NotSerialBases<B>] extends [never]
-			? Refusal<"a contract is a value domain; a serial is a generation declaration, so use its integer type">
+			? Refusal<"a contract is a value domain; a serial is a generation declaration, so use its value type">
 			: unknown
 
 /**

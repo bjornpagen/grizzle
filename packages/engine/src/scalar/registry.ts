@@ -407,21 +407,32 @@ export const describeFieldOrThrow = (value: unknown, loc: SourceLoc): Described 
 	return described.value
 }
 
-/** Each serial's name, by the carrier of the integer type it is written over. */
-const serialNames = { int2: "pg.smallserial", int4: "pg.serial", int8: "pg.bigserial" } as const
+/** A serial by its name, and the value type it is written over, which a contract's base or a span's endpoint takes. */
+export interface SerialName {
+	readonly serial: string
+	readonly value: string
+}
+
+/** Each serial by the carrier of the value type it is written over: an integer's, or the uuid pg.uuidv7 draws. */
+const serialNames = {
+	int2: { serial: "pg.smallserial", value: "pg.smallint" },
+	int4: { serial: "pg.serial", value: "pg.integer" },
+	int8: { serial: "pg.bigserial", value: "pg.bigint" },
+	uuid: { serial: "pg.uuidv7", value: "uuid" }
+} as const
 
 /**
- * The name of the serial a descriptor `describeField` read is (pg.serial), or undefined for a field its caller writes.
- * A serial's type and Description are its integer's (scalar/serial.ts), so only its writing tells it apart: the
- * descriptor's `writing` member, the one a relation reads a field's writing from (schema/relation.ts writingOf). It
+ * The serial a descriptor `describeField` read is (pg.serial, over pg.integer), or undefined for a field its caller
+ * writes. A serial's type and Description are its value type's (scalar/serial.ts), so only its writing tells it apart:
+ * the descriptor's `writing` member, the one a relation reads a field's writing from (schema/relation.ts writingOf). It
  * is a generation declaration, not a value type, so a contract's base and a span's endpoint are never one.
  */
-export const serialNameOf = (described: Described): string | undefined => {
+export const serialNameOf = (described: Described): SerialName | undefined => {
 	if (!("writing" in described) || described.writing !== "serial") {
 		return undefined
 	}
 	const { carrier } = described.scalar
-	if (carrier !== "int2" && carrier !== "int4" && carrier !== "int8") {
+	if (carrier !== "int2" && carrier !== "int4" && carrier !== "int8" && carrier !== "uuid") {
 		throw defect(`a serial descriptor of ${carrier}, which no serial is written over`)
 	}
 	return serialNames[carrier]

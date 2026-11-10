@@ -898,7 +898,7 @@ export const typeRefusals = [
 	"a closed relation's field is a closed id, or a value of a type that is no serial, span, set, vector or bytes",
 	"a compiled ChangeSet applies, and a compiled query reads",
 	"a concat fold names its (before, after) pair after its value: its law reads each member's running value",
-	"a contract is a value domain; a serial is a generation declaration, so use its integer type",
+	"a contract is a value domain; a serial is a generation declaration, so use its value type",
 	"a contract's name is one literal, the brand of its values",
 	"a counted family's side is its owner's key",
 	"a declared name: ASCII letters, digits and underscores, a letter first",

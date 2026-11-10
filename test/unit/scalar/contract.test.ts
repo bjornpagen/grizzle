@@ -159,7 +159,7 @@ describe("contract identity", () => {
 										thrown.reason._tag === "UnsupportedOperation" ? thrown.reason.capability : ""
 									containsText(capability, "contractBase: a contract is a value domain", serial)
 									containsText(capability, `${serial} is a serial generation declaration`, serial)
-									containsText(capability, `use its integer type, ${integer}`, serial)
+									containsText(capability, `use its value type, ${integer}`, serial)
 								}
 								return
 							}

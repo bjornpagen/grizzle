@@ -666,7 +666,7 @@ const refusals: { readonly [F in SchemaFault]: Refusing } = {
 		engine: { tag: "UnsupportedOperation" },
 		code: "TS2345",
 		claim: named(
-			"a contract is a value domain; a serial is a generation declaration, so use its integer type"
+			"a contract is a value domain; a serial is a generation declaration, so use its value type"
 		)
 	},
 	endpointType: {
@@ -800,7 +800,7 @@ const refusals: { readonly [F in SchemaFault]: Refusing } = {
 		engine: { tag: "UnsupportedOperation" },
 		code: "TS2345",
 		claim: named(
-			"a contract is a value domain; a serial is a generation declaration, so use its integer type"
+			"a contract is a value domain; a serial is a generation declaration, so use its value type"
 		)
 	},
 	spanOverSerialChain: {
@@ -6848,7 +6848,7 @@ const serialChainProbe = (d: Drawing): Probe => {
 		refused: fault,
 		text: (_ids, own) => ({
 			head: [
-				"// @ts-expect-error -- TS2345 refusal: a contract is a value domain; a serial is a generation declaration, so use its integer type",
+				"// @ts-expect-error -- TS2345 refusal: a contract is a value domain; a serial is a generation declaration, so use its value type",
 				`export const ${own}_inner = Fi.contract("Inner", Fi.pg.${serial})`
 			],
 			line:
