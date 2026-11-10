@@ -10,6 +10,37 @@ post-beta swarm's fixes for the next release.
 ### After the qti-pie and edullm repin (the owner, 2026-11-08: ship the repin first)
 - **The beta.2 gate (owner, hard):** one full suite run (check, unit, types, PostgreSQL, deep) and `bench:full`, with
   every performance gate passing, both perfect on the exact commit; then the owner's go.
+- **False 40001 between writers of disjoint keys at full width (reachable; first after the 26e3c15f pin,
+  ONERTT-WRITE2):** c4f77a3d (the staged-imports SSI fix) did not end it, though its message says so: qti-pie measured
+  964 SerializationFailures across about 18 files of pantry's database tier at maxWorkers 9 on 26e3c15f, each file
+  importing its own packages through the served author_app importWrite (evidence:
+  ~/.cache/gr8des/integration/ssi-fullwidth.md), so pantry keeps `maxWorkers: 1`. The cause as measured on the family
+  flights: a join of the call's rows with a stored table, c4f77a3d's included, is planned as a hash join over a seq scan
+  whenever the driving set's estimate is inflated (unanalyzed tables, a recursive CTE estimated at ten times its first
+  term), and the seq scan takes a relation-level SIRead lock. The fix: one lowering rule that probes a stored relation
+  per driving key (LATERAL … LIMIT 1, a group's own ORDER BY, `= ANY (ARRAY(...))` for targets) across insert, additions
+  and removals. It lands only with a run showing 0 false 40001s at full width on pantry's import and on edullm's learner
+  workload (20 children through startSitting, saveSelection and recordAnswer, no retry).
+- **The checker admits an exact integer sum into a plain numeric field (known red on 26e3c15f, a defect since before the
+  members model):** test/unit/check/semantics.test.ts,
+  TEST_REPLAY='unit/check/semantics-members:-:3.1.0.0.0.0.0.0.1.5.3.0.0.0.0.0.0.0.0.0.0.0.0.0.1.3.2.1.8.0.1.0.0'. An
+  insert into R0(id numeric(10,0)) whose head writes id as a sum over R1.id (int8) is admitted; the owner's rule
+  (4f41f971) makes an exact value written into a plain field a type error. scalar/aggregate.ts types the sum as a
+  computed numeric, and scalar/compute/types.ts compatible ignores typmods, so check/member.ts checkMemberHeading passes
+  it; PostgreSQL fails it closed with 22003 on overflow. Before the fix lands, compile both downstreams' served
+  workloads with it: a refused member makes it breaking.
+- **A program whose bound value holds a vector cannot be served (known red on 26e3c15f):** core/canonical.ts has no
+  canonical token for a Float32Array, so the served compile refuses such a binding as UnservedMember opaqueBinding
+  (test/pg/oracle/public/public.test.ts floor case 6, planted.test.ts). Neither downstream binds a vector. The fix: a
+  canonical vector token, with the served reader reviving it.
+- **The one-flight family additions don't order rows by pattern input (bench/gates family-patterns, a performance
+  regression since 3a122464):** write/family/pattern-order.ts runs only on bind's edit and refill path. Correctness
+  holds, and qti-pie's demo import shows no cost (24 value-domain patterns fit PostgreSQL's 32-entry regex cache); a
+  statement over more than 32 distinct patterns would pay a recompile per change. The gate also counts only `family`
+  steps, where the additions statement is `single`.
+- **test/pg/e2e-platform/plans.exclusive.test.ts (stale port, red on 26e3c15f):** the platform workload holds a program
+  over tenant, which the served compile refuses ("a program over tenant or a schema it extends, not over Platform"); the
+  test must build that program in the tenant login's workload.
 - **Known red tests, real defects no served write of qti-pie or edullm reaches (the owner, 2026-11-09: fixed after the
   repin, the tests left red until then; neither served file holds a removals statement):**
   - test/pg/physical/serving.test.ts, "every request a generated workload plans is served, and every index it creates
