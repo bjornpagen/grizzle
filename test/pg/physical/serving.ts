@@ -986,10 +986,28 @@ type Claim =
 type BoundedBy = "scan" | "statement"
 
 /**
+ * The closed keys of a GiST index before its first key of many values that `conditions` leave unbound: its scan descends
+ * into the entries of each of their values, which PostgreSQL counts as one search (physical/indexes/engine.ts, a GiST
+ * index's placement); none of any other index, whose descents PostgreSQL counts.
+ */
+const unboundBeforeLead = (
+	scanned: IndexFacts,
+	conditions: ReadonlyArray<KeyCondition>
+): ReadonlyArray<SearchedKey> =>
+	scanned.method === "gist"
+		? Arr.filter(
+				Arr.takeWhile(scanned.keys, (k) => k.values.kind === "closed"),
+				(k) => !Arr.some(conditions, (c) => searchedBy(k, c))
+			)
+		: []
+
+/**
  * Why a scan of `index` does not hold `claim`, none when it does: a stated condition the index does not search, unless
  * the index is unique and searches a condition on each of its keys, so it finds the rows of one key, on which a filter
- * rechecks the rest; and, under either claim, a row removed by a filter but the one entry a unique index finds per
- * descent, which a key probe's membership and a unique key's recheck read.
+ * rechecks the rest; a closed key of a GiST index before its first key of many values that the stated conditions leave
+ * unbound, so the scan descends once per value of it (unboundBeforeLead); and, under either claim, a row removed by a
+ * filter but the one entry a unique index finds per descent, which a key probe's membership and a unique key's recheck
+ * read.
  */
 const claimProblem = (
 	claim: Claim,
@@ -1018,6 +1036,7 @@ const claimProblem = (
 			const keyed =
 				scanned.unique &&
 				Arr.every(scanned.keys, (k) => Arr.some(claim.conditions, (c) => searchedBy(k, c)))
+			const unbound = unboundBeforeLead(scanned, claim.conditions)
 			return Arr.isReadonlyArrayNonEmpty(unsearched) && !keyed
 				? Option.some(
 						`a scan of ${index}, which does not search ${Arr.join(
@@ -1025,7 +1044,14 @@ const claimProblem = (
 							", "
 						)}, so a filter rechecks them`
 					)
-				: removed()
+				: Arr.isReadonlyArrayNonEmpty(unbound)
+					? Option.some(
+							`a scan of ${index}, which descends once per value of ${Arr.join(
+								Arr.map(unbound, (k) => k.field),
+								", "
+							)}, unbound before its first key of many values`
+						)
+					: removed()
 		}
 	}
 }
@@ -1289,6 +1315,14 @@ const pricingResidue = (scanned: IndexFacts, probe: Probe, past: Past): Option.O
  *   by overlap. The load makes each field of a key of two fields unique on its own, so a B-tree on (key, other, span)
  *   that a take seek creates finds the one row of a span predicate on (key, span), and its filter on the span removes
  *   none; it still does not serve the predicate, and the GiST index on (key, span) the predicate creates is needed;
+ * - through those indexes, a GiST index with every closed key before its first key of many values conditioned by the
+ *   probe: its scan descends into the entries of each value of one the probe leaves unbound, and PostgreSQL counts that
+ *   as one search, so such a scan is the skip scan over a leading key a B-tree's one descent excludes, whatever the
+ *   buffers its few values let it touch (physical/indexes/engine.ts; measured on PostgreSQL 19 at this volume, a lookup
+ *   on a uuid of 141 values touches 7 buffers of a GiST index on `(c, uuid, span)` with c of two or three values held
+ *   evenly unbound, 11 to 18 against a bound of 10 with four to eight, and 7 to 9 against 11 with two to eight when
+ *   nine rows in ten hold one of them, so its read alone cannot tell); so the needed check below, which holds every index
+ *   to the claim, finds no such index a stand-in for a created one;
  * - through those indexes, removing no row by a filter;
  * - with no sort above it, when the probe asks for an order;
  * - touching at most the buffers its result requires (shared hit and read, PostgreSQL's own count): the result's share of

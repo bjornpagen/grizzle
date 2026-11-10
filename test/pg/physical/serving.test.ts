@@ -1,7 +1,7 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore, type Kept } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { array, boolean, element, type Gen, shuffled, weighted } from "@grizzle/testing/gen"
+import { array, boolean, element, type Gen, int, shuffled, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Equal, Formatter, Order, Result, String as Str } from "effect"
@@ -29,6 +29,7 @@ import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { workloadOver } from "#test/support/compile.ts"
 import {
+	closed,
 	contained,
 	eq,
 	f,
@@ -90,17 +91,25 @@ import { upTo } from "#test/support/up-to.ts"
  *   needed still, since the B-tree does not search the span by overlap (serving.ts); a span predicate on a text
  *   field of a key, which the load fills with two ideographs, and a span, whose GiST index, led by that text, PostgreSQL
  *   19's btree_gist prices by its leading bytes, so its probe reads past its bound, a residue PostgreSQL 20 removes
- *   (serving.ts); and a join key planned on the B-tree a range creates, led by a column the join key fixes and holding a
+ *   (serving.ts); a join key planned on the B-tree a range creates, led by a column the join key fixes and holding a
  *   boolean it leaves unbound before its other column, which PostgreSQL reads by a skip scan over the boolean in two
- *   descents (serving.ts).
- * - Drawn requests. A fixed schema holds a plain table, a span key's GiST index (Booking, on room and during), a
- *   selected side's unique (at most one remainder deposit per line) beside a foreign key on its column, and the engine is
+ *   descents (serving.ts); and a range on a closed handle by equality and a numeric of many values by a range, beside
+ *   span predicates whose GiST index holds both, which places its entries by the numeric, so that its scan would read
+ *   the range across every handle, three times the range's share: a B-tree serves it (physical/indexes/engine.ts).
+ * - Drawn requests. A fixed schema holds a plain table, a span key's GiST index (Booking, on room and during), two span
+ *   keys' GiST indexes led by a column of few values, a boolean (Shift, on standby, worker and during, standby true on
+ *   one row in ten) and a closed id of a drawn roster of four to eight handles (Rota, on shade, worker and during, shade
+ *   its first handle on nine rows in ten), a selected side's unique (at most one remainder deposit per line) beside a foreign key on its column, and the engine is
  *   handed drawn requests on it: workload B-tree requests of every use, law probes, and GiST span predicates on during
  *   with any of Booking's scalars. Its kept cases plant the requests a planner is tempted to serve wrongly: an equality
- *   pair beside a range over the same two columns in the other order, which one index serves; and law probes on Event's
+ *   pair beside a range over the same two columns in the other order, which one index serves; law probes on Event's
  *   (tenant, account) and (tenant, account, id), the second planned on the primary key, which PostgreSQL reads through
  *   the index on (tenant, account) at the same cost, rechecking id on the rows of its sampled pair, its choice and not
- *   the engine's claim (serving.ts).
+ *   the engine's claim (serving.ts); and, on Shift and on Rota of five and of eight shades, whose GiST indexes place
+ *   their entries by worker, their first column of many values: a range on worker after the column of few values, and
+ *   a law probe and a range on that column alone, which the index holds in order but whose scan reads the range across
+ *   every value of that column, or every entry; and a lookup and a range on worker alone, which the index holds after
+ *   that column, unbound, so that its scan descends once per value of it: a B-tree serves each.
  * - Shared columns. Two to four equality lookups and seeks over the same three columns of Event, each column drawn in
  *   any position and direction, are planned in every order they can arrive in, and the plan must be one list of
  *   indexes: the engine plans in its canonical order, and chooses each created index's key order to serve every later
@@ -304,9 +313,10 @@ const workloadCase = (c: ProgramCase, note: (feature: ServingFeature | WorkloadF
 
 /**
  * Event: a plain table under its primary key. Booking: a span key, so a GiST index on (room, during) whose room column
- * btree_gist serves by equality. Line and Deposit: a foreign key on Deposit's line beside a unique over its remainder
- * deposits' lines (at most one per line), which its primary key (account, line) cannot serve. Each holds a boolean a
- * law's selection reads.
+ * btree_gist serves by equality. Shift: a span key led by a boolean, so a GiST index on (standby, worker, during) that
+ * places its entries by worker, its first column of many values. Line and Deposit: a foreign key on Deposit's line
+ * beside a unique over its remainder deposits' lines (at most one per line), which its primary key (account, line)
+ * cannot serve. Each holds a boolean a law's selection reads.
  */
 const Indexed: SchemaDesc = {
 	name: "Indexed",
@@ -328,6 +338,11 @@ const Indexed: SchemaDesc = {
 			{ room: f.uuid, during: f.span(f.integer, undefined), id: f.uuid, held: f.boolean },
 			["room", "during"]
 		),
+		relation(
+			"Shift",
+			{ standby: f.boolean, worker: f.uuid, during: f.span(f.integer, undefined) },
+			["standby", "worker", "during"]
+		),
 		relation("Line", { id: f.uuid }, ["id"]),
 		relation("Deposit", { line: f.uuid, account: f.uuid, remainder: f.boolean }, [
 			"account",
@@ -342,9 +357,11 @@ const Indexed: SchemaDesc = {
 }
 
 /**
- * Line first, so each deposit's line exists; one deposit per line, so at most one remainder per line; bookings never
- * overlap at all, so every room's spans are disjoint; a booking's id, which no key holds, spread like any other field,
- * so no index on it finds one row the schema does not promise.
+ * Line first, so each deposit's line exists; one deposit per line, so at most one remainder per line; bookings and
+ * shifts never overlap at all, so every room's spans and every worker's are disjoint; a booking's id, which no key
+ * holds, spread like any other field, so no index on it finds one row the schema does not promise; a shift on standby
+ * one row in ten, as a flag is, the middle row every probe samples among them (serving.ts), so btree_gist's split, which
+ * halves a page's entries in the column's order, never tells standby's values apart.
  */
 const indexedLoads: ReadonlyArray<VolumeLoad> = [
 	{ relation: "Line", fields: [["id", "md5('line:' || g)::uuid"]] },
@@ -375,15 +392,72 @@ const indexedLoads: ReadonlyArray<VolumeLoad> = [
 			["id", `md5('booking:' || ${spread(7, 141)})::uuid`],
 			["held", "(g % 2 = 0)"]
 		]
+	},
+	{
+		relation: "Shift",
+		fields: [
+			["standby", "(g % 10 = 0)"],
+			["worker", `md5('worker:' || ${spread(8, 141)})::uuid`],
+			["during", "int4range(g * 10, g * 10 + 5)"]
+		]
 	}
 ]
 
+/** Rota's roster, of `count` shades. */
+const shadesOf = (count: number): ReadonlyArray<string> => upTo(count, (at) => `shade${at}`)
+
+/**
+ * The drawn requests' schema: Indexed, and Rota, a span key led by a closed id of `shades` handles, so a GiST index on
+ * (shade, worker, during) that places its entries by worker, its first column of many values.
+ */
+const requestSchema = (shades: number): SchemaDesc => ({
+	...Indexed,
+	relations: [
+		...Indexed.relations,
+		closed("Shade", shadesOf(shades)),
+		relation(
+			"Rota",
+			{ shade: f.closedId("Shade"), worker: f.uuid, during: f.span(f.integer, undefined) },
+			["shade", "worker", "during"]
+		)
+	]
+})
+
+/**
+ * Rota's rows: on its first shade nine rows in ten, as a default is, and on the others in turn on the tenth, the middle
+ * row every probe samples among them (serving.ts), so btree_gist's split never tells the shades apart; a worker spread
+ * like any other field; rotas that never overlap, by the codes `plan` minted.
+ */
+const rotaLoad = (plan: RealInstallPlan, shades: number): VolumeLoad => {
+	const codec = defined(
+		plan.installation.names.codes.rosters.get(parsedName("Shade")),
+		"the installation's codes of Shade"
+	)
+	const codes = Arr.join(
+		Arr.map(shadesOf(shades), (h) => String(codeOf(codec, h))),
+		", "
+	)
+	return {
+		relation: "Rota",
+		fields: [
+			[
+				"shade",
+				`(ARRAY[${codes}]::int2[])[CASE WHEN g % 10 = 0 THEN 2 + (g / 10) % ${shades - 1} ELSE 1 END]::${rosterDomainSql(plan, "Shade")}`
+			],
+			["worker", `md5('rota:' || ${spread(9, 141)})::uuid`],
+			["during", "int4range(g * 10, g * 10 + 5)"]
+		]
+	}
+}
+
 /** The relations a drawn B-tree request keys, with the columns it may key. */
-const keyed = ["Event", "Booking", "Deposit"] as const
+const keyed = ["Event", "Booking", "Shift", "Rota", "Deposit"] as const
 type Keyed = (typeof keyed)[number]
 const columnsOf: Readonly<Record<Keyed, Arr.NonEmptyReadonlyArray<string>>> = {
 	Event: ["tenant", "account", "created", "unrelated", "id"],
 	Booking: ["room", "id"],
+	Shift: ["standby", "worker"],
+	Rota: ["shade", "worker"],
 	Deposit: ["line", "account"]
 }
 
@@ -471,6 +545,26 @@ const intentGen: Gen<Intent> = weighted<Intent>([
 ])
 const intentsGen = array(intentGen, { min: 1, max: 6 })
 
+/**
+ * The sizes of Rota's roster the drawn suite draws: from four shades, the fewest at which a GiST index's scan past one
+ * left unbound, its rows held evenly, reads more than one descent's buffers (physical/indexes/engine.ts), to eight.
+ * Rota's rows hold its first shade nine in ten (rotaLoad), where that read stays within one descent's buffers at each
+ * count, so only the claim (serving.ts unboundBeforeLead) finds such a scan unserved.
+ */
+const fewestShades = 4
+const mostShades = 8
+
+/** A drawn suite's case: Rota's roster, of `fewestShades` to `mostShades` shades, and the requests handed the engine. */
+interface RequestSketch {
+	readonly shades: number
+	readonly intents: ReadonlyArray<Intent>
+}
+
+const requestSketchGen: Gen<RequestSketch> = (source) => ({
+	shades: source.draw(int(fewestShades, mostShades)),
+	intents: source.draw(intentsGen)
+})
+
 /** A request's keys: the columns the sketch names, each once, in its order. */
 const keysFor = (
 	keys: Arr.NonEmptyReadonlyArray<KeySketch<string>>
@@ -538,58 +632,117 @@ const accessIntent = (
 	use
 })
 
-const requestKept: ReadonlyArray<Kept<ReadonlyArray<Intent>, RequestFeature>> = [
+/** A kept case's Rota, of `shades` shades, as the kept cases on a GiST index led by a column of few values name it. */
+const rotaOf = (shades: number) =>
+	({ target: "Rota", few: "shade", holds: `a closed id of ${shades} handles`, shades }) as const
+
+const requestKept: ReadonlyArray<Kept<RequestSketch, RequestFeature>> = [
 	{
 		note: "an equality pair on (account, created) beside a range on created then account",
-		sketch: [
-			accessIntent("Event", ["account", "created"], "equality lookup"),
-			accessIntent("Event", ["created", "account"], "range")
-		],
+		sketch: {
+			shades: fewestShades,
+			intents: [
+				accessIntent("Event", ["account", "created"], "equality lookup"),
+				accessIntent("Event", ["created", "account"], "range")
+			]
+		},
 		draws: "",
 		reaches: ["range probe served"]
 	},
 	{
 		note: "law probes on (tenant, account) and on (tenant, account, id), the second planned on the primary key, which PostgreSQL reads through the index on (tenant, account) at the same cost, rechecking id on the rows of its sampled pair",
-		sketch: Arr.map(
-			[
-				["tenant", "account"],
-				["tenant", "account", "id"]
-			] as const,
-			(columns): Intent => ({
-				kind: "law",
-				relation: "Event",
-				keys: Arr.map(columns, (column) => ({ column, desc: false }))
-			})
-		),
+		sketch: {
+			shades: fewestShades,
+			intents: Arr.map(
+				[
+					["tenant", "account"],
+					["tenant", "account", "id"]
+				] as const,
+				(columns): Intent => ({
+					kind: "law",
+					relation: "Event",
+					keys: Arr.map(columns, (column) => ({ column, desc: false }))
+				})
+			)
+		},
 		draws: "",
 		reaches: [
 			"served by a key or enforcement index",
 			"read through another planned index that does not search every condition of its probe",
 			"a created index needed"
 		]
-	}
+	},
+	...Arr.flatMap(
+		[
+			{ target: "Shift", few: "standby", holds: "a boolean", shades: fewestShades } as const,
+			rotaOf(fewestShades + 1),
+			rotaOf(mostShades)
+		],
+		({ target, few, holds, shades }): ReadonlyArray<Kept<RequestSketch, RequestFeature>> => [
+			{
+				note: `a range on ${target}'s worker after its ${few}, ${holds}, which ${target}'s GiST index holds in that order and places by worker, so that its scan reads the range across every value of ${few}, and a B-tree serves it`,
+				sketch: { shades, intents: [accessIntent(target, [few, "worker"], "range")] },
+				draws: "",
+				reaches: ["range probe served", "served by a created index", "a created index needed"]
+			},
+			{
+				note: `a law probe and a range on ${target}'s ${few} alone, ${holds}, which ${target}'s GiST index leads with and places by worker, so that its scan reads every entry, and a B-tree serves both`,
+				sketch: {
+					shades,
+					intents: [
+						{ kind: "law", relation: target, keys: [{ column: few, desc: false }] },
+						accessIntent(target, [few], "range")
+					]
+				},
+				draws: "",
+				reaches: [
+					"equality probe served",
+					"range probe served",
+					"served by a created index",
+					"a created index needed"
+				]
+			},
+			{
+				note: `an equality lookup and a range on ${target}'s worker alone, which ${target}'s GiST index holds after its ${few}, ${holds}, unbound, so that its scan descends once per value of ${few}, and a B-tree serves both`,
+				sketch: {
+					shades,
+					intents: [
+						accessIntent(target, ["worker"], "equality lookup"),
+						accessIntent(target, ["worker"], "range")
+					]
+				},
+				draws: "",
+				reaches: [
+					"equality probe served",
+					"range probe served",
+					"served by a created index",
+					"a created index needed"
+				]
+			}
+		]
+	)
 ]
 
-/** The drawn requests on Indexed, installed, loaded and judged. */
-const requestCase = (intents: ReadonlyArray<Intent>, note: (feature: RequestFeature) => void) =>
+/** The drawn requests on the drawn suite's schema (requestSchema), installed, loaded and judged. */
+const requestCase = (sketch: RequestSketch, note: (feature: RequestFeature) => void) =>
 	Effect.gen(function* () {
-		const specs = resolveIntents(intents)
+		const specs = resolveIntents(sketch.intents)
 		for (const spec of specs) {
 			if (spec.kind === "access" && spec.use === "span predicate" && spec.keys.length === 1) {
 				note("a span predicate on during alone")
 			}
 		}
-		const { plan } = yield* installRealSchema(Indexed, {
+		const { plan } = yield* installRealSchema(requestSchema(sketch.shades), {
 			label: "serving_requests",
 			logins: [],
 			extensions: [drawnRequests(specs)]
 		})
-		yield* loadAtVolume(plan, indexedLoads)
+		yield* loadAtVolume(plan, [...indexedLoads, rotaLoad(plan, sketch.shades)])
 		const problems = yield* judgeServing(plan, note)
 		assert.deepEqual(
 			problems,
 			[],
-			`PostgreSQL serves every request and needs every created index: ${Arr.join(Arr.map(specs, specText), "; ")}`
+			`PostgreSQL serves every request and needs every created index, Rota of ${sketch.shades} shades: ${Arr.join(Arr.map(specs, specText), "; ")}`
 		)
 	})
 
@@ -2395,6 +2548,728 @@ const workloadKept: ReadonlyArray<Kept<CaseSketch, ServingFeature | WorkloadFeat
 			"read by a skip scan over closed keys after a fixed lead",
 			"a created index needed"
 		]
+	},
+	{
+		note: "a range on Overlaps' JsonbPretty, a closed handle, by equality and its fixed0, a numeric of many values, by a range, beside span predicates whose GiST index holds both: GiST places its entries by fixed0, so its scan would read the range across every handle, and the range is planned on a B-tree of its own",
+		sketch: {
+			population: "forms",
+			swarm: {
+				"bind join": 2,
+				"bind existential": 3,
+				"bind param": 3,
+				"bind parent": 1,
+				where: 3,
+				"compare literal": 2,
+				"compare param": 3,
+				negation: 1,
+				union: 3,
+				"attached take": 3,
+				ordered: 2,
+				attach: 1,
+				nested: 1,
+				roster: 1,
+				dense: 3,
+				"candidate key": 1,
+				probe: 2,
+				spelled: 3,
+				"full head": 3,
+				"stated delivery": 1,
+				"plain child": 3,
+				"keyed child": 2,
+				"reflexive child": 1,
+				"arm child": 1,
+				"handle field": 3,
+				import: 3,
+				"import bound": 3,
+				interior: 3,
+				named: 3,
+				"computed head": 3,
+				"computed group key": 3,
+				between: 3,
+				"in set": 3,
+				connective: 3,
+				"relation param": 3,
+				recursive: 3,
+				"contract param": 3,
+				"typmod param": 3,
+				allen: 3,
+				"point in": 3,
+				"literal head": 3
+			},
+			perturbation: {
+				settings: [
+					"enable_hashjoin = off",
+					"enable_mergejoin = off",
+					"plan_cache_mode = force_generic_plan",
+					"parallel_tuple_cost = 0"
+				],
+				multiplier: 1
+			},
+			ambient: {
+				path: { kind: "grizzleFirst" },
+				settings: [
+					{ parameter: "extra_float_digits", value: "-15" },
+					{ parameter: "DateStyle", value: "SQL, DMY" },
+					{ parameter: "IntervalStyle", value: "postgres_verbose" },
+					{ parameter: "bytea_output", value: "hex" }
+				]
+			},
+			restorage: { shift: 20, respell: 307 },
+			roster: 16278,
+			span: 2405,
+			relations: [
+				{
+					name: 15808,
+					fields: [
+						{ name: 53523, kind: 43840, key: 64870 },
+						{ name: 59244, kind: 37327, key: 39640 }
+					],
+					candidate: 26278,
+					facts: []
+				}
+			],
+			reads: [
+				{
+					rule: {
+						matches: [
+							{
+								source: 0,
+								derived: 64291,
+								attached: 43767,
+								binds: [
+									{ how: 37555, pick: 27524, value: { cls: 49374, sp: 1516 } },
+									{ how: 7748, pick: 55268, value: { cls: 29927, sp: 33887 } },
+									{ how: 23298, pick: 2147, value: { cls: 53534, sp: 27584 } },
+									{ how: 3282, pick: 4937, value: { cls: 401, sp: 59876 } },
+									{ how: 59280, pick: 65449, value: { cls: 28168, sp: 64324 } },
+									{ how: 41436, pick: 10487, value: { cls: 60963, sp: 6 } },
+									{ how: 42788, pick: 24769, value: { cls: 20661, sp: 16578 } }
+								]
+							}
+						],
+						where: [{ left: 38686, op: 54038, pick: 37604, value: { cls: 51641, sp: 6774 } }],
+						between: [
+							{
+								left: 20701,
+								low: { pick: 57237, value: { cls: 44455, sp: 50277 } },
+								high: { pick: 65008, value: { cls: 6877, sp: 10560 } }
+							}
+						],
+						inSet: [{ left: 28509, values: [] }],
+						allen: [{ left: 2, mask: 6685, right: 60500 }],
+						pointIn: [{ span: 17455, point: 1609 }],
+						connective: [],
+						computed: [
+							{
+								kind: 49547,
+								reading: 19987,
+								arg: 47491,
+								op: 65535,
+								than: { cls: 38635, sp: 16730 },
+								otherwise: { cls: 48947, sp: 12925 },
+								scale: 27244,
+								padded: 29494
+							}
+						],
+						negation: { source: 61306, picks: [64484, 42170] },
+						head: {
+							vars: [],
+							names: [6, 43698, 3825, 36990, 27330, 14355],
+							folds: [
+								{ fn: 43802, arg: 33049, padded: 43049, scale: 12844 },
+								{ fn: 42686, arg: 50526, padded: 36686, scale: 44489 }
+							]
+						},
+						interior: {
+							matches: [
+								{
+									source: 65528,
+									derived: 53540,
+									attached: 55380,
+									binds: [
+										{ how: 42107, pick: 63020, value: { cls: 44792, sp: 3575 } },
+										{ how: 45640, pick: 27905, value: { cls: 9140, sp: 53039 } },
+										{ how: 55103, pick: 18831, value: { cls: 10, sp: 10026 } },
+										{ how: 9917, pick: 54, value: { cls: 51577, sp: 47191 } },
+										{ how: 18792, pick: 11639, value: { cls: 59982, sp: 42177 } },
+										{ how: 31067, pick: 6617, value: { cls: 6498, sp: 57374 } },
+										{ how: 55624, pick: 35662, value: { cls: 14127, sp: 44078 } }
+									]
+								}
+							],
+							where: [],
+							negation: { source: 8295, picks: [58239, 42972] },
+							head: {
+								vars: [150, 26312],
+								names: [9613, 65472, 45806, 7598, 5775, 52550],
+								folds: [{ fn: 55027, arg: 44895, padded: 31569, scale: 29906 }]
+							}
+						}
+					},
+					take: { rotate: 15542, dirs: [6911, 21951, 51802], size: 14930, ties: 64065 },
+					literalHead: { name: 22778, kind: 3930, arms: 14367, values: [12672, 22880, 2] },
+					importable: 5896,
+					bindImport: 13661,
+					named: 29646,
+					relationParam: {
+						relation: 3565,
+						facts: [
+							{
+								values: [
+									{ cls: 6893, sp: 11890 },
+									{ cls: 7067, sp: 45097 },
+									{ cls: 59260, sp: 59583 },
+									{ cls: 45588, sp: 37703 },
+									{ cls: 63952, sp: 55919 },
+									{ cls: 53303, sp: 31593 },
+									{ cls: 33578, sp: 14731 }
+								]
+							},
+							{
+								values: [
+									{ cls: 64650, sp: 60243 },
+									{ cls: 2918, sp: 53339 },
+									{ cls: 15093, sp: 2414 },
+									{ cls: 41693, sp: 65535 },
+									{ cls: 27867, sp: 18555 },
+									{ cls: 19663, sp: 23306 },
+									{ cls: 38221, sp: 409 }
+								]
+							}
+						]
+					},
+					closure: { relation: 40, pair: 60501, name: 63939 },
+					attachments: [],
+					order: { rotate: 65535, dirs: [65328, 36233, 19400], size: 61993 },
+					probe: { kind: 5300, pick: 63266 },
+					key: { relation: 11615, which: 60076, fact: 26252, absent: 36817, roster: 65495 }
+				},
+				{
+					rule: {
+						matches: [
+							{
+								source: 33795,
+								derived: 46284,
+								attached: 15579,
+								binds: [
+									{ how: 55758, pick: 65228, value: { cls: 470, sp: 65424 } },
+									{ how: 21578, pick: 63814, value: { cls: 27243, sp: 21433 } },
+									{ how: 43717, pick: 13525, value: { cls: 50827, sp: 52142 } },
+									{ how: 24749, pick: 47301, value: { cls: 65530, sp: 49558 } },
+									{ how: 30434, pick: 15852, value: { cls: 37047, sp: 53002 } },
+									{ how: 45225, pick: 50967, value: { cls: 65534, sp: 10 } },
+									{ how: 8910, pick: 64536, value: { cls: 7023, sp: 31678 } }
+								]
+							},
+							{
+								source: 28707,
+								derived: 28163,
+								attached: 20599,
+								binds: [
+									{ how: 52566, pick: 21932, value: { cls: 43059, sp: 24188 } },
+									{ how: 59929, pick: 1422, value: { cls: 9984, sp: 62679 } },
+									{ how: 45128, pick: 11180, value: { cls: 53628, sp: 64169 } },
+									{ how: 44296, pick: 34436, value: { cls: 7, sp: 39511 } },
+									{ how: 15207, pick: 130, value: { cls: 33400, sp: 32902 } },
+									{ how: 24101, pick: 31555, value: { cls: 48290, sp: 29718 } },
+									{ how: 38976, pick: 2473, value: { cls: 46365, sp: 1 } }
+								]
+							},
+							{
+								source: 4929,
+								derived: 6890,
+								attached: 51783,
+								binds: [
+									{ how: 27523, pick: 20795, value: { cls: 27898, sp: 13453 } },
+									{ how: 34359, pick: 58313, value: { cls: 47970, sp: 7999 } },
+									{ how: 1026, pick: 56211, value: { cls: 8480, sp: 59306 } },
+									{ how: 23449, pick: 13828, value: { cls: 6804, sp: 8992 } },
+									{ how: 36934, pick: 8492, value: { cls: 10172, sp: 62036 } },
+									{ how: 8741, pick: 7317, value: { cls: 62390, sp: 44343 } },
+									{ how: 37435, pick: 44234, value: { cls: 41300, sp: 39676 } }
+								]
+							}
+						],
+						where: [
+							{ left: 4957, op: 65276, pick: 41972, value: { cls: 15669, sp: 4711 } },
+							{ left: 34722, op: 39796, pick: 61341, value: { cls: 54036, sp: 16410 } }
+						],
+						between: [
+							{
+								left: 38157,
+								low: { pick: 39807, value: { cls: 36204, sp: 2926 } },
+								high: { pick: 1, value: { cls: 58527, sp: 45558 } }
+							}
+						],
+						inSet: [
+							{
+								left: 56975,
+								values: [
+									{ cls: 22987, sp: 13456 },
+									{ cls: 43120, sp: 5031 },
+									{ cls: 1, sp: 47337 }
+								]
+							}
+						],
+						allen: [{ left: 63981, mask: 44638, right: 24978 }],
+						pointIn: [],
+						connective: [],
+						computed: [],
+						negation: { source: 807, picks: [49805, 13148] },
+						head: {
+							vars: [12076, 58068],
+							names: [40519, 59648, 14875, 4699, 50758, 13710],
+							folds: [{ fn: 29398, arg: 4981, padded: 26, scale: 42669 }]
+						},
+						interior: {
+							matches: [
+								{
+									source: 11609,
+									derived: 26261,
+									attached: 65004,
+									binds: [
+										{ how: 46155, pick: 65519, value: { cls: 20776, sp: 65512 } },
+										{ how: 18520, pick: 50658, value: { cls: 46179, sp: 2051 } },
+										{ how: 2, pick: 20676, value: { cls: 2678, sp: 52107 } },
+										{ how: 40495, pick: 6695, value: { cls: 4492, sp: 16712 } },
+										{ how: 15796, pick: 20281, value: { cls: 30885, sp: 24516 } },
+										{ how: 51967, pick: 42409, value: { cls: 26366, sp: 61057 } },
+										{ how: 43296, pick: 1751, value: { cls: 20716, sp: 39849 } }
+									]
+								}
+							],
+							where: [],
+							negation: { source: 39781, picks: [30166, 50222] },
+							head: {
+								vars: [],
+								names: [55048, 80, 53261, 58492, 62245, 61226],
+								folds: [
+									{ fn: 23839, arg: 37792, padded: 30384, scale: 14369 },
+									{ fn: 55927, arg: 61996, padded: 16280, scale: 31622 }
+								]
+							}
+						}
+					},
+					take: { rotate: 6691, dirs: [45885, 37080, 25586], size: 16980, ties: 56 },
+					literalHead: { name: 19095, kind: 22339, arms: 40053, values: [44916, 7554, 42356] },
+					importable: 17128,
+					bindImport: 15077,
+					named: 58446,
+					relationParam: {
+						relation: 34448,
+						facts: [
+							{
+								values: [
+									{ cls: 48563, sp: 9989 },
+									{ cls: 65534, sp: 39352 },
+									{ cls: 19829, sp: 59493 },
+									{ cls: 5066, sp: 39093 },
+									{ cls: 37443, sp: 6807 },
+									{ cls: 50599, sp: 62102 },
+									{ cls: 13224, sp: 7139 }
+								]
+							},
+							{
+								values: [
+									{ cls: 58590, sp: 32921 },
+									{ cls: 53246, sp: 46721 },
+									{ cls: 25812, sp: 9726 },
+									{ cls: 1043, sp: 12847 },
+									{ cls: 36709, sp: 64910 },
+									{ cls: 54824, sp: 16268 },
+									{ cls: 45432, sp: 81 }
+								]
+							}
+						]
+					},
+					closure: { relation: 2538, pair: 28512, name: 56269 },
+					attachments: [
+						{
+							name: 18988,
+							link: 56656,
+							handle: 46238,
+							delivery: 19643,
+							rule: {
+								matches: [
+									{
+										source: 35018,
+										derived: 34625,
+										attached: 10223,
+										binds: [
+											{ how: 28678, pick: 30394, value: { cls: 44707, sp: 50560 } },
+											{ how: 18777, pick: 3525, value: { cls: 55575, sp: 54756 } },
+											{ how: 25897, pick: 31398, value: { cls: 29090, sp: 5720 } },
+											{ how: 3844, pick: 16776, value: { cls: 32658, sp: 59375 } },
+											{ how: 46986, pick: 57650, value: { cls: 13711, sp: 39138 } },
+											{ how: 18082, pick: 51992, value: { cls: 36091, sp: 26352 } },
+											{ how: 98, pick: 62129, value: { cls: 32532, sp: 28257 } }
+										]
+									},
+									{
+										source: 22750,
+										derived: 17643,
+										attached: 49131,
+										binds: [
+											{ how: 41696, pick: 65506, value: { cls: 10554, sp: 43297 } },
+											{ how: 34560, pick: 30943, value: { cls: 20997, sp: 6037 } },
+											{ how: 43696, pick: 59815, value: { cls: 23984, sp: 39730 } },
+											{ how: 835, pick: 64566, value: { cls: 21386, sp: 0 } },
+											{ how: 45531, pick: 19488, value: { cls: 59495, sp: 61478 } },
+											{ how: 21610, pick: 37590, value: { cls: 40187, sp: 9418 } },
+											{ how: 16558, pick: 282, value: { cls: 60177, sp: 53286 } }
+										]
+									}
+								],
+								where: [
+									{ left: 64389, op: 59666, pick: 61804, value: { cls: 52300, sp: 8007 } },
+									{ left: 96, op: 21887, pick: 20767, value: { cls: 63577, sp: 29717 } }
+								],
+								between: [],
+								inSet: [],
+								allen: [{ left: 16908, mask: 63596, right: 21266 }],
+								pointIn: [{ span: 14418, point: 63141 }],
+								connective: [],
+								computed: [],
+								negation: { source: 35479, picks: [0, 39455] },
+								head: {
+									vars: [],
+									names: [40546, 3974, 13917, 24228, 17778, 32587],
+									folds: [{ fn: 50749, arg: 8771, padded: 13907, scale: 23345 }]
+								},
+								interior: {
+									matches: [
+										{
+											source: 9037,
+											derived: 9592,
+											attached: 38168,
+											binds: [
+												{ how: 3979, pick: 1912, value: { cls: 32362, sp: 36897 } },
+												{ how: 8900, pick: 39860, value: { cls: 55871, sp: 30514 } },
+												{ how: 60910, pick: 60887, value: { cls: 65532, sp: 18583 } },
+												{ how: 5, pick: 34929, value: { cls: 47771, sp: 37847 } },
+												{ how: 9021, pick: 62163, value: { cls: 23525, sp: 57209 } },
+												{ how: 18295, pick: 22499, value: { cls: 7526, sp: 9906 } },
+												{ how: 53301, pick: 55068, value: { cls: 34379, sp: 64652 } }
+											]
+										}
+									],
+									where: [],
+									negation: { source: 34059, picks: [11940, 8172] },
+									head: {
+										vars: [63514, 57059],
+										names: [48607, 3154, 57611, 58642, 39642, 28723],
+										folds: [{ fn: 37352, arg: 10818, padded: 49953, scale: 19260 }]
+									}
+								}
+							},
+							take: { rotate: 33182, dirs: [31990, 35601, 149], size: 4061 },
+							nested: {
+								name: 37370,
+								link: 48915,
+								handle: 31134,
+								delivery: 927,
+								rule: {
+									matches: [
+										{
+											source: 65525,
+											derived: 62701,
+											attached: 16937,
+											binds: [
+												{ how: 12, pick: 33841, value: { cls: 19187, sp: 27097 } },
+												{ how: 51988, pick: 65375, value: { cls: 4028, sp: 17136 } },
+												{ how: 45479, pick: 56464, value: { cls: 3610, sp: 65306 } },
+												{ how: 64033, pick: 65509, value: { cls: 27098, sp: 53865 } },
+												{ how: 19417, pick: 48476, value: { cls: 36213, sp: 20846 } },
+												{ how: 53593, pick: 55351, value: { cls: 42263, sp: 45808 } },
+												{ how: 13411, pick: 63830, value: { cls: 31000, sp: 37738 } }
+											]
+										},
+										{
+											source: 61232,
+											derived: 46055,
+											attached: 30897,
+											binds: [
+												{ how: 45036, pick: 22928, value: { cls: 65534, sp: 34665 } },
+												{ how: 32166, pick: 58673, value: { cls: 60404, sp: 9252 } },
+												{ how: 63844, pick: 10586, value: { cls: 25374, sp: 0 } },
+												{ how: 55245, pick: 62267, value: { cls: 18217, sp: 52302 } },
+												{ how: 940, pick: 40046, value: { cls: 45338, sp: 46416 } },
+												{ how: 57367, pick: 6904, value: { cls: 28844, sp: 9816 } },
+												{ how: 47856, pick: 26229, value: { cls: 28071, sp: 19207 } }
+											]
+										}
+									],
+									where: [],
+									between: [
+										{
+											left: 61647,
+											low: { pick: 29210, value: { cls: 55861, sp: 4610 } },
+											high: { pick: 23507, value: { cls: 23853, sp: 2 } }
+										}
+									],
+									inSet: [{ left: 16625, values: [{ cls: 64789, sp: 39399 }] }],
+									allen: [],
+									pointIn: [{ span: 50967, point: 2865 }],
+									connective: [
+										{
+											kind: 16314,
+											args: [
+												{ left: 65529, op: 18653, pick: 48023, value: { cls: 53607, sp: 15238 } }
+											]
+										}
+									],
+									computed: [
+										{
+											kind: 35573,
+											reading: 3135,
+											arg: 29732,
+											op: 28659,
+											than: { cls: 52980, sp: 14033 },
+											otherwise: { cls: 20081, sp: 56831 },
+											scale: 1421,
+											padded: 6131
+										},
+										{
+											kind: 62554,
+											reading: 65523,
+											arg: 32084,
+											op: 29287,
+											than: { cls: 4404, sp: 47110 },
+											otherwise: { cls: 48706, sp: 33552 },
+											scale: 624,
+											padded: 8161
+										}
+									],
+									negation: { source: 61966, picks: [64805, 38729] },
+									head: {
+										vars: [39771, 59652],
+										names: [16271, 30683, 33446, 64977, 7810, 44984],
+										folds: [{ fn: 60543, arg: 5161, padded: 51469, scale: 25192 }]
+									},
+									interior: {
+										matches: [
+											{
+												source: 15392,
+												derived: 42574,
+												attached: 97,
+												binds: [
+													{ how: 21280, pick: 614, value: { cls: 7433, sp: 65526 } },
+													{ how: 39244, pick: 5343, value: { cls: 29427, sp: 2045 } },
+													{ how: 21251, pick: 45974, value: { cls: 19914, sp: 10026 } },
+													{ how: 20325, pick: 56821, value: { cls: 130, sp: 20828 } },
+													{ how: 24753, pick: 54204, value: { cls: 55342, sp: 50355 } },
+													{ how: 37980, pick: 50619, value: { cls: 3553, sp: 28487 } },
+													{ how: 38253, pick: 22347, value: { cls: 54833, sp: 56842 } }
+												]
+											},
+											{
+												source: 51127,
+												derived: 59033,
+												attached: 16468,
+												binds: [
+													{ how: 55666, pick: 47986, value: { cls: 38070, sp: 13132 } },
+													{ how: 50376, pick: 53647, value: { cls: 30471, sp: 7502 } },
+													{ how: 42, pick: 41160, value: { cls: 3997, sp: 1294 } },
+													{ how: 18747, pick: 15233, value: { cls: 2123, sp: 39198 } },
+													{ how: 56822, pick: 23104, value: { cls: 48262, sp: 58938 } },
+													{ how: 35690, pick: 30209, value: { cls: 38177, sp: 14766 } },
+													{ how: 57934, pick: 45343, value: { cls: 6000, sp: 53573 } }
+												]
+											}
+										],
+										where: [],
+										negation: { source: 416, picks: [62772, 27313] },
+										head: {
+											vars: [22018, 45740, 14504],
+											names: [4659, 15331, 33982, 3128, 34619, 36820],
+											folds: [
+												{ fn: 56148, arg: 21000, padded: 7814, scale: 46043 },
+												{ fn: 66, arg: 65386, padded: 51767, scale: 4939 }
+											]
+										}
+									}
+								},
+								take: { rotate: 64308, dirs: [15272, 65532, 18262], size: 65432 }
+							}
+						}
+					],
+					order: { rotate: 62903, dirs: [40024, 24403, 50043], size: 13851 },
+					probe: { kind: 43517, pick: 14120 },
+					key: { relation: 57070, which: 54075, fact: 54330, absent: 50620, roster: 50441 }
+				},
+				{
+					rule: {
+						matches: [
+							{
+								source: 46438,
+								derived: 29298,
+								attached: 26943,
+								binds: [
+									{ how: 43664, pick: 35459, value: { cls: 10804, sp: 52760 } },
+									{ how: 29259, pick: 65531, value: { cls: 48818, sp: 61784 } },
+									{ how: 54971, pick: 36671, value: { cls: 48055, sp: 61383 } },
+									{ how: 63024, pick: 9358, value: { cls: 27975, sp: 59650 } },
+									{ how: 86, pick: 17488, value: { cls: 7968, sp: 7690 } },
+									{ how: 64125, pick: 65388, value: { cls: 28489, sp: 45843 } },
+									{ how: 60797, pick: 59537, value: { cls: 35854, sp: 53519 } }
+								]
+							}
+						],
+						where: [{ left: 46923, op: 17420, pick: 8183, value: { cls: 5, sp: 35113 } }],
+						between: [],
+						inSet: [],
+						allen: [],
+						pointIn: [],
+						connective: [],
+						computed: [
+							{
+								kind: 46592,
+								reading: 27641,
+								arg: 57303,
+								op: 4668,
+								than: { cls: 63874, sp: 28257 },
+								otherwise: { cls: 45394, sp: 40468 },
+								scale: 16149,
+								padded: 6243
+							},
+							{
+								kind: 65411,
+								reading: 55006,
+								arg: 38089,
+								op: 43603,
+								than: { cls: 30419, sp: 52204 },
+								otherwise: { cls: 9835, sp: 16042 },
+								scale: 52502,
+								padded: 30990
+							}
+						],
+						negation: { source: 53463, picks: [6627, 59125] },
+						head: {
+							vars: [],
+							names: [24080, 64876, 56894, 38311, 19583, 52357],
+							folds: [{ fn: 8927, arg: 49110, padded: 65494, scale: 41492 }]
+						},
+						interior: {
+							matches: [
+								{
+									source: 63618,
+									derived: 18222,
+									attached: 38380,
+									binds: [
+										{ how: 4170, pick: 7356, value: { cls: 13720, sp: 5281 } },
+										{ how: 15665, pick: 65246, value: { cls: 45336, sp: 23019 } },
+										{ how: 2685, pick: 65506, value: { cls: 33550, sp: 65531 } },
+										{ how: 25058, pick: 41572, value: { cls: 53940, sp: 1 } },
+										{ how: 29803, pick: 21384, value: { cls: 29184, sp: 61081 } },
+										{ how: 2404, pick: 5714, value: { cls: 32624, sp: 15716 } },
+										{ how: 60775, pick: 45141, value: { cls: 65280, sp: 36320 } }
+									]
+								},
+								{
+									source: 65535,
+									derived: 41733,
+									attached: 58564,
+									binds: [
+										{ how: 4229, pick: 41073, value: { cls: 16774, sp: 5809 } },
+										{ how: 27488, pick: 27647, value: { cls: 61099, sp: 4603 } },
+										{ how: 60095, pick: 8723, value: { cls: 13984, sp: 45635 } },
+										{ how: 1, pick: 36747, value: { cls: 11136, sp: 21294 } },
+										{ how: 61284, pick: 33915, value: { cls: 13586, sp: 47991 } },
+										{ how: 23302, pick: 30472, value: { cls: 60213, sp: 61749 } },
+										{ how: 64535, pick: 48087, value: { cls: 17219, sp: 52099 } }
+									]
+								}
+							],
+							where: [
+								{ left: 51934, op: 36253, pick: 14959, value: { cls: 1843, sp: 103 } },
+								{ left: 32976, op: 21907, pick: 62779, value: { cls: 27914, sp: 9553 } }
+							],
+							negation: { source: 29773, picks: [36005, 6689] },
+							head: {
+								vars: [51374],
+								names: [59938, 54271, 9911, 38843, 13305, 64395],
+								folds: [
+									{ fn: 49788, arg: 60027, padded: 20211, scale: 10201 },
+									{ fn: 27, arg: 55592, padded: 16755, scale: 53585 }
+								]
+							}
+						}
+					},
+					take: { rotate: 4513, dirs: [50934, 34228, 61154], size: 40938, ties: 59358 },
+					literalHead: { name: 61486, kind: 28477, arms: 3334, values: [22119, 8833, 7781] },
+					importable: 44573,
+					bindImport: 58218,
+					named: 5070,
+					relationParam: {
+						relation: 51239,
+						facts: [
+							{
+								values: [
+									{ cls: 65532, sp: 21672 },
+									{ cls: 32210, sp: 33734 },
+									{ cls: 32989, sp: 16117 },
+									{ cls: 51441, sp: 7027 },
+									{ cls: 25453, sp: 9219 },
+									{ cls: 14891, sp: 42984 },
+									{ cls: 15938, sp: 1300 }
+								]
+							},
+							{
+								values: [
+									{ cls: 62107, sp: 47771 },
+									{ cls: 39236, sp: 26611 },
+									{ cls: 1469, sp: 439 },
+									{ cls: 31169, sp: 65535 },
+									{ cls: 452, sp: 3836 },
+									{ cls: 1568, sp: 64449 },
+									{ cls: 45912, sp: 29426 }
+								]
+							},
+							{
+								values: [
+									{ cls: 32503, sp: 61184 },
+									{ cls: 13031, sp: 18673 },
+									{ cls: 25444, sp: 12252 },
+									{ cls: 12087, sp: 39879 },
+									{ cls: 64270, sp: 23250 },
+									{ cls: 65207, sp: 65533 },
+									{ cls: 29208, sp: 31067 }
+								]
+							}
+						]
+					},
+					closure: { relation: 35804, pair: 57658, name: 65302 },
+					attachments: [],
+					order: { rotate: 3682, dirs: [59996, 24655, 60402], size: 35232 },
+					probe: { kind: 28557, pick: 64549 },
+					key: { relation: 20821, which: 64290, fact: 10257, absent: 22048, roster: 18947 }
+				}
+			],
+			planted: {
+				names: [
+					31612, 65534, 45808, 1895, 27447, 63840, 39833, 63613, 47232, 33539, 53512, 34930, 10103,
+					37925, 56611, 50608, 29882, 51345, 59825, 34819, 24190, 8017, 64199, 15524, 16221, 61708,
+					13366, 34354, 23101, 24731, 22749, 11984, 18283, 47835, 28235, 27419, 63512, 49862, 20699,
+					30893, 23354, 60872, 9728, 1265, 65072, 19084, 26014, 62225, 453, 0, 61090
+				],
+				value: { cls: 14609, sp: 15334 },
+				handle: 13571,
+				padding: 29156,
+				side: { kind: 15588, values: [28912, 21291, 0] }
+			}
+		},
+		draws:
+			"1.0.0.5.6.3.2.2.2.1.4.6.5.5.4.3.1.2.1.2.0.1.7.6.6.2.0.1.2.2.0.6.3.4.1.8.0.1.1.5.0.6.0.7.3.4.1.2.2.2.0.6.3.5.0.6.0.7.5.8.8.7.1.3.0.2.1.2.1.0.1.3.5.2.8.5.2.2.1.4.2.1.5.1.1.3.2.8.3.1.2.2.2",
+		reaches: [
+			"a workload installed",
+			"a workload's statistics installed as requested",
+			"equality probe served",
+			"served by a key or enforcement index",
+			"overlap probe served",
+			"served by a created index",
+			"range probe served",
+			"a created index needed"
+		]
 	}
 ]
 
@@ -2433,7 +3308,7 @@ const requestSuite = (runs: number) => (ctx: TestContext) =>
 			{
 				oracle: { kind: "unstated" },
 				suite: "pg/physical/serving-requests",
-				draw: drawn(intentsGen),
+				draw: drawn(requestSketchGen),
 				literal: Formatter.format,
 				coverage: required<RequestFeature>(
 					[
@@ -2456,7 +3331,7 @@ const requestSuite = (runs: number) => (ctx: TestContext) =>
 				steerEvery: 16,
 				caseHang
 			},
-			(intents, cx) => Effect.scoped(requestCase(intents, cx.note))
+			(sketch, cx) => Effect.scoped(requestCase(sketch, cx.note))
 		)
 	)
 
