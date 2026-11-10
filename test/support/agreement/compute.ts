@@ -26,6 +26,7 @@ import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { guarded, type TypedTerm, typedTermOf } from "#compiler/scalar/compute/term.ts"
 import { meets } from "#compiler/scalar/compute/types.ts"
+import { admitMatch } from "#compiler/scalar/regex/admit.ts"
 import { Pattern } from "#compiler/scalar/regex/pattern.ts"
 import { carrierSql } from "#compiler/scalar/registry.ts"
 import { generatedField } from "#compiler/schema/relation.ts"
@@ -3311,8 +3312,8 @@ const otherwiseAt = (
  * that is no date. Where the engine refuses a case that writes such a value, the types are held to its verdict on the
  * case with each a stand-in the engine reads, of the facts the types read (standInsOf): admitted, the refusal is the
  * value's, which the engine alone decides; refused, it is the refusal the types see. A range guard's bound the types
- * cannot see is read by them as no value the engine reads (neutralBound), so a case that writes one is judged by its
- * stand-ins whatever the engine says of it as written.
+ * cannot see is read by them as its type's stand-in (unseenBound), so a case that writes one is judged by its stand-ins
+ * whatever the engine says of it as written.
  */
 const valueVerdict = (
 	spec: CaseSpec,
@@ -3347,12 +3348,169 @@ const valueVerdict = (
 }
 
 /**
- * A value the engine may refuse where the types admit its type, at a field of Cell the value stands opposite, and the
- * stand-in the engine reads there, of the facts the types read: 1 for a fractional number at an integer, which the
- * types read as finite, nonzero and nonnegative; Decimal.of("1") at a numeric for a string that spells no exact decimal,
- * a value TypeScript sees no more than it sees that string, and for a Pattern, a match's lexical form opposite a numeric
- * subject, which the engine reads as a decimal before it refuses the subject; a date for a date's shape; and "x" for a
- * string a text's regex refinement refuses, whose membership the types do not read of a value.
+ * Why the engine may refuse a JavaScript value at a type whose class the types admit there, each the engine's alone: a
+ * fractional number where an integer is read, which the types read as finite, nonzero and nonnegative; a string that
+ * spells no exact decimal where a numeric is, a value TypeScript sees no more than it sees that string, and a Pattern,
+ * a match's lexical form opposite a numeric subject, which the engine reads as a decimal before it refuses the subject;
+ * a string of a date's shape that is no date; a string a text's regex refinement refuses, whose membership the types do
+ * not read of a value; and a string no pattern in the grammar spells, which the engine reads as a match's pattern where
+ * the types read a text term whatever the string.
+ */
+type ValueRefusal = "integral" | "digits" | "calendar" | "refinement" | "pattern"
+
+/** The decision each value refusal is, which no type states. */
+const valueRefusalNotes: { readonly [R in ValueRefusal]: DecidedNote } = {
+	integral: engineDecides.integral,
+	digits: engineDecides.digits,
+	calendar: engineDecides.literal,
+	refinement: engineDecides.literal,
+	pattern: engineDecides.pattern
+}
+
+/** Whether the engine refuses `value` at `field` for `refusal`. */
+const refuses = (refusal: ValueRefusal, field: FieldName, value: unknown): boolean => {
+	switch (refusal) {
+		case "integral":
+			return typeof value === "number" && !Number.isInteger(value)
+		case "digits":
+			return (
+				(typeof value === "string" && !Decimal.fromString(value).ok) || value instanceof Pattern
+			)
+		case "calendar":
+			return (
+				typeof value === "string" &&
+				Arr.length(Str.split(value, "-")) >= 3 &&
+				!toCalendarDate(value).ok
+			)
+		case "refinement":
+			return typeof value === "string" && literalRefused(written, field, value)
+		case "pattern":
+			return typeof value === "string" && admitMatch(value).kind === "refused"
+	}
+}
+
+/** An exact decimal's text as the types read one (scalar.ts DecimalSign): a sign, digits, and a point with digits. */
+const decimalText = regex("^[+-]?[0-9]+(\\.[0-9]+)?$")
+
+/**
+ * The range guard bounds whose value the types cannot see at a type, reading each as a residue (WithinFacts), every
+ * fact admitted at a low end and nothing proved at a high one, though the engine reads its value: at a numeric, a
+ * Decimal, a string-typed value and a string that spells no decimal the types read; at money, a Money.
+ */
+type UnseenBound = "decimal" | "money"
+
+/** Whether the types cannot see the range guard bound `l` for `unseen`. */
+const unseenBy = (unseen: UnseenBound, l: Lit): boolean => {
+	switch (unseen) {
+		case "decimal":
+			return (
+				l === widened ||
+				(typeof l.value === "string" && !decimalText.test(l.value)) ||
+				l.value instanceof Decimal
+			)
+		case "money":
+			return l.value instanceof Money
+	}
+}
+
+/**
+ * How a JavaScript value a case writes at a type is read. As written: the engine reads every value the types admit
+ * there. Stood in: the engine may refuse a value whose class the types admit, for one of `refusals`, or the types
+ * cannot see a range bound's value, for one of `unseen`, and either way the case is judged with the type's own
+ * stand-in in the value's place: a value inside the type's domain and its contract's that the engine reads, at a number
+ * above zero, so a range's low end at it proves every fact, and at a text a pattern in the grammar.
+ */
+type Reading =
+	| { readonly kind: "as written" }
+	| {
+			readonly kind: "stood in"
+			readonly standIn: Lit
+			readonly refusals: ReadonlyArray<ValueRefusal>
+			readonly unseen: ReadonlyArray<UnseenBound>
+	  }
+
+const asWritten: Reading = { kind: "as written" }
+
+const integerReading: Reading = {
+	kind: "stood in",
+	standIn: { text: "1", value: 1 },
+	refusals: ["integral"],
+	unseen: []
+}
+
+const numericReading: Reading = {
+	kind: "stood in",
+	standIn: { text: 'Decimal.of("1")', value: Decimal.of("1") },
+	refusals: ["digits"],
+	unseen: ["decimal"]
+}
+
+const moneyReading: Reading = {
+	kind: "stood in",
+	standIn: { text: "Money.of(1n)", value: Money.of(1n) },
+	refusals: [],
+	unseen: ["money"]
+}
+
+const dateReading: Reading = {
+	kind: "stood in",
+	standIn: { text: '"2024-01-31"', value: "2024-01-31" },
+	refusals: ["calendar"],
+	unseen: []
+}
+
+/** A refined text's reading: a string its refinement refuses or no pattern spells stands in as "x". */
+const refinedTextReading: Reading = {
+	kind: "stood in",
+	standIn: { text: '"x"', value: "x" },
+	refusals: ["refinement", "pattern"],
+	unseen: []
+}
+
+/**
+ * A contract over text's reading: a string no pattern spells stands in as "x", and one its predicate refuses stands as
+ * written, read over the contracts as the types read them instead (contractVerdict).
+ */
+const contractTextReading: Reading = {
+	kind: "stood in",
+	standIn: { text: '"x"', value: "x" },
+	refusals: ["pattern"],
+	unseen: []
+}
+
+/** Each field of Cell's reading, by its type: one entry per field, so no type's reading is left to a default. */
+const readings: { readonly [F in FieldName]: Reading } = {
+	id: asWritten,
+	small: integerReading,
+	int: integerReading,
+	big: asWritten,
+	real: asWritten,
+	dbl: asWritten,
+	dec: numericReading,
+	money: moneyReading,
+	flag: asWritten,
+	text: refinedTextReading,
+	word: refinedTextReading,
+	day: dateReading,
+	cents: asWritten,
+	epoch: asWritten,
+	rate: numericReading,
+	divisor: integerReading,
+	body: contractTextReading,
+	centsSpan: asWritten,
+	intSpan: asWritten,
+	daySpan: asWritten,
+	divisorSpan: asWritten,
+	vec: asWritten,
+	wide: asWritten,
+	tone: asWritten,
+	tones: asWritten,
+	shades: asWritten
+}
+
+/**
+ * The stand-in of a value at the field it stands opposite, where the engine may refuse it while the types admit its
+ * class (Reading), and the decision that refusal is: none where it stands opposite no field or is read as written.
  */
 const standInAt = (
 	l: Lit,
@@ -3361,96 +3519,47 @@ const standInAt = (
 	if (anchor === undefined) {
 		return Option.none()
 	}
-	const value = l.value
-	const sql = Cell.fields[anchor].sql
-	if (
-		(sql === "smallint" || sql === "integer") &&
-		typeof value === "number" &&
-		!Number.isInteger(value)
-	) {
-		return Option.some({ lit: { text: "1", value: 1 }, note: engineDecides.integral })
-	}
-	if (
-		sql === "numeric" &&
-		((typeof value === "string" && !Decimal.fromString(value).ok) || value instanceof Pattern)
-	) {
-		return Option.some({
-			lit: { text: 'Decimal.of("1")', value: Decimal.of("1") },
-			note: engineDecides.digits
-		})
-	}
-	if (
-		sql === "date" &&
-		typeof value === "string" &&
-		Arr.length(Str.split(value, "-")) >= 3 &&
-		!toCalendarDate(value).ok
-	) {
-		return Option.some({
-			lit: { text: '"2024-01-31"', value: "2024-01-31" },
-			note: engineDecides.literal
-		})
-	}
-	if (
-		sql === "text" &&
-		typeof value === "string" &&
-		!contractTyped.has(anchor) &&
-		literalRefused(written, anchor, value)
-	) {
-		return Option.some({ lit: { text: '"x"', value: "x" }, note: engineDecides.literal })
-	}
-	return Option.none()
+	const reading = readings[anchor]
+	return reading.kind === "as written"
+		? Option.none()
+		: Option.map(
+				Arr.findFirst(reading.refusals, (refusal) => refuses(refusal, anchor, l.value)),
+				(refusal) => ({ lit: reading.standIn, note: valueRefusalNotes[refusal] })
+			)
 }
 
-/** An exact decimal's text as the types read one (scalar.ts DecimalSign): a sign, digits, and a point with digits. */
-const decimalText = regex("^[+-]?[0-9]+(\\.[0-9]+)?$")
-
 /**
- * A range guard's bound the types cannot see, read as the types read it: a string that spells no decimal the types
- * read, a Decimal or a string-typed value at a numeric subject, a Money at a money subject. A low bound of them is a
- * residue (WithinFacts), every fact admitted, and a high one proves nothing, though the engine reads each value, so the
- * case is judged with a low end that proves every fact and a high end above zero, both inside every numeric field's
- * domain, Rate's included.
+ * The stand-in of a range guard's bound at its subject's field, where the types cannot see its value (UnseenBound):
+ * none where the subject reads no field, or the types see the bound.
  */
-const neutralBound = (
-	l: Lit,
-	anchor: FieldName | undefined,
-	end: "low" | "high"
-): Option.Option<Lit> => {
+const unseenBound = (l: Lit, anchor: FieldName | undefined): Option.Option<Lit> => {
 	if (anchor === undefined) {
 		return Option.none()
 	}
-	const value = l.value
-	const sql = Cell.fields[anchor].sql
-	if (
-		sql === "numeric" &&
-		(l === widened ||
-			(typeof value === "string" && !decimalText.test(value)) ||
-			value instanceof Decimal)
-	) {
-		return Option.some(
-			end === "low"
-				? { text: 'Decimal.of("0.5")', value: Decimal.of("0.5") }
-				: { text: 'Decimal.of("1")', value: Decimal.of("1") }
-		)
-	}
-	return sql === "money" && value instanceof Money
-		? Option.some(
-				end === "low"
-					? { text: "Money.of(1n)", value: Money.of(1n) }
-					: { text: "Money.of(100n)", value: Money.of(100n) }
-			)
+	const reading = readings[anchor]
+	return reading.kind === "stood in" && Arr.some(reading.unseen, (unseen) => unseenBy(unseen, l))
+		? Option.some(reading.standIn)
 		: Option.none()
 }
 
 /**
+ * The field a match's Pattern stands opposite, a literal source or a lexical form, the engine reading its source there:
+ * its subject's, read as a value of the subject's type before the engine refuses a subject of no text; none opposite a
+ * text, where both sides read the source as a pattern in the grammar (the types by PatternValidate). A text term
+ * pattern, a typed constant among them, is read at its own type wherever it stands.
+ */
+const sourceAnchor = (subject: Operand): FieldName | undefined => {
+	const at = fieldOf(subject)
+	return at !== undefined && Cell.fields[at].sql !== "text" ? at : undefined
+}
+
+/**
  * A case with every value the engine may refuse where the types admit its type read as its stand-in (standInAt), each
- * at the field it stands opposite: an operation's first operand's, a comparison's, a range's subject's, a typed
- * constant's own and a conditional's first branch's; a match's pattern constant of a string, which the types read as a
- * text term whatever the string, as "x", a pattern in the grammar; and a match's pattern, a lexical form among them,
- * opposite a subject of no text, which the engine reads as a value of the subject's type before it refuses the subject,
- * the refusal the types state whatever the pattern. None where nothing is replaced. A value a contract's predicate
- * refuses stands as written, whatever its sign: the case is read over the contracts as the types read them instead
- * (contractVerdict).
+ * at the field it stands opposite: an operation's first operand's, a comparison's, a range's subject's, a match's
+ * Pattern's (sourceAnchor), a typed constant's own and a conditional's first branch's; and every range bound the types
+ * cannot see (unseenBound), which makes the reading strict. None where nothing is replaced. A value a contract's
+ * predicate refuses stands as written, whatever its sign: the case is read over the contracts as the types read them
+ * instead (contractVerdict).
  */
 const standInsOf = (
 	spec: CaseSpec
@@ -3469,21 +3578,14 @@ const standInsOf = (
 				return standIn.lit
 			}
 		})
-	const bound = (l: Lit, anchor: FieldName | undefined, end: "low" | "high"): Lit =>
-		Option.match(neutralBound(l, anchor, end), {
+	const bound = (l: Lit, anchor: FieldName | undefined): Lit =>
+		Option.match(unseenBound(l, anchor), {
 			onNone: () => lit(l, anchor),
-			onSome: (neutral) => {
-				strict.push(neutral)
-				return neutral
+			onSome: (standIn) => {
+				strict.push(standIn)
+				return standIn
 			}
 		})
-	const patternLit = (l: Lit): Lit => {
-		if (typeof l.value !== "string" || l.value === "x") {
-			return l
-		}
-		notes.push(engineDecides.pattern)
-		return { text: '"x"', value: "x" }
-	}
 	const operand = (o: Operand, anchor: FieldName | undefined): Operand => {
 		switch (o.kind) {
 			case "literal":
@@ -3521,24 +3623,16 @@ const standInsOf = (
 				return {
 					kind: "within",
 					x: operand(g.x, undefined),
-					low: bound(g.low, at, "low"),
-					high: bound(g.high, at, "high")
+					low: bound(g.low, at),
+					high: bound(g.high, at)
 				}
 			}
-			case "matches": {
-				const at = fieldOf(g.x)
+			case "matches":
 				return {
 					kind: "matches",
 					x: operand(g.x, undefined),
-					pattern:
-						g.pattern.kind === "typed"
-							? { kind: "typed", field: g.pattern.field, lit: patternLit(g.pattern.lit) }
-							: operand(
-									g.pattern,
-									at !== undefined && Cell.fields[at].sql !== "text" ? at : undefined
-								)
+					pattern: operand(g.pattern, sourceAnchor(g.x))
 				}
-			}
 		}
 	}
 	const pred = (p: PredSpec): PredSpec => {
@@ -4034,11 +4128,46 @@ const arithmeticKept: ReadonlyArray<Extract<CaseSpec, { readonly kind: "term" }>
 	}
 ]
 
+/**
+ * The program the oracle once misread by standing a match's pattern constant in as "x" whatever its type, as it stood
+ * in one of a text: a conditional on whether Rate matches a constant of Rate that spells no decimal, drawn at
+ * TEST_SEED=1502858097. The engine refuses the constant's digits, and "x"'s too, so the oracle held the types to
+ * admitting it, a decimal's digits, while they refuse a match over a subject of no text. Read at its own type
+ * (readings), the constant stands in as Rate's Decimal.of("1"), and the case is refused on both sides, by the engine
+ * for its subject. Every run holds it.
+ */
+const patternKept: ReadonlyArray<Extract<CaseSpec, { readonly kind: "term" }>> = [
+	{
+		kind: "term",
+		term: {
+			kind: "cond",
+			p: {
+				kind: "guard",
+				guard: {
+					kind: "matches",
+					x: { kind: "field", field: "rate" },
+					pattern: {
+						kind: "typed",
+						field: "rate",
+						lit: {
+							text: '"00000000-0000-4000-8000-000000000001"',
+							value: "00000000-0000-4000-8000-000000000001"
+						}
+					}
+				}
+			},
+			whenTrue: { kind: "param", name: "p0", field: "divisor" },
+			otherwise: { kind: "literal", lit: { text: "0.5", value: 0.5 } }
+		}
+	}
+]
+
 /** Every case the program holds: the kept cases, the floor's witnesses, then the label's stream under the run's seed. */
 const computeCases = (seed: number): ReadonlyArray<ComputeCase> => [
 	...Arr.map(closedKept, (spec) => caseOf({ spec, reached: new Set(["closed read"]) })),
 	...Arr.map(domainKept, (spec) => caseOf({ spec, reached: new Set(["translate"]) })),
 	...Arr.map(arithmeticKept, (spec) => caseOf({ spec, reached: new Set(["add"]) })),
+	...Arr.map(patternKept, (spec) => caseOf({ spec, reached: new Set(["cond", "matches"]) })),
 	...Arr.flatMap(computeWitnesses(), (stratum) => stratum.values),
 	...sample(caseGen(Option.none()), rotatingSeed(seed, floorSeed(computeLabel)), computeCount)
 ]
