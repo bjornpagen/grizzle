@@ -11,6 +11,7 @@ import { identity } from "#compiler/core/identity.ts"
 import type { Direction } from "#compiler/core/order.ts"
 import { codeOf, emptyCodebook } from "#compiler/ir/codes.ts"
 import type { AccessUse } from "#compiler/ir/products.ts"
+import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import {
 	drawnRequests,
@@ -755,7 +756,8 @@ const sharedCase = (
 				owner: "serving_owner",
 				logins: [],
 				extensions: [drawnRequests(order)],
-				codes: emptyCodebook
+				codes: emptyCodebook,
+				compile: compileInstallation
 			})
 			return !plan.ok
 				? assert.fail(`the requests do not plan: ${plan.error.message}`)

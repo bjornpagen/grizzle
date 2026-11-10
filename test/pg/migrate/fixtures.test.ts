@@ -343,7 +343,7 @@ const migrates = (h: History) =>
 					extensions: []
 				})
 				assert.ok(
-					runsInstallScript(installed.folders[0], installed.installation),
+					runsInstallScript(installed.folders, installed.installation),
 					`${history.label}: the installer's migration runs the fresh-install script`
 				)
 				yield* sameCatalog(

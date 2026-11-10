@@ -41,6 +41,7 @@ import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import { codebookOf, noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { constraintLaw } from "#compiler/ir/products.ts"
+import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, derived, on, relation, schema } from "#compiler/public/schema.ts"
@@ -346,7 +347,8 @@ const walk = (c: WalkCase, note: (feature: Feature) => void) =>
 					owner,
 					logins: [],
 					extensions: [],
-					codes: succeeded(draftCodes(value, previous, declared))
+					codes: succeeded(draftCodes(value, previous, declared)),
+					compile: compileInstallation
 				})
 			)
 			const g = succeeded(
@@ -497,7 +499,8 @@ const walk = (c: WalkCase, note: (feature: Feature) => void) =>
 							owner,
 							logins: [],
 							extensions: [],
-							codes: codebookOf(g.snapshot)
+							codes: codebookOf(g.snapshot),
+							compile: compileInstallation
 						})
 					)
 					yield* transaction(substrate.admin, installationSql(fresh.installation))

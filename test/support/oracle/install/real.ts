@@ -21,12 +21,17 @@ import {
 } from "#compiler/ir/scalar.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { columnType, domainBase } from "#compiler/physical/ddl/names.ts"
-import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
+import {
+	compileInstallation,
+	type Installation,
+	type InstallOptions
+} from "#compiler/physical/install/compile.ts"
 import type { InstallExtension } from "#compiler/physical/install/extension.ts"
 import { admitSchemaDesc } from "#compiler/schema/admit.ts"
 import {
 	fullRoleDesc,
 	installationsOf,
+	type Owned,
 	type OwnedLogin,
 	own,
 	ownLogin,
@@ -79,7 +84,19 @@ interface RealPlanOptions {
 	 * holes included. Every code literal, set width and decoded code of the installation reads them.
 	 */
 	readonly codes: Codebook
+	/**
+	 * The installation's compile (physical/install/compile.ts): compileInstallation, which `grizzle generate` composes,
+	 * or conservativeInstallation, the same installation with every rule over a query discharged by triggers, a
+	 * lowering's oracle.
+	 */
+	readonly compile: InstallCompile
 }
+
+/** A compile of an owned schema's installation under its options (physical/install/compile.ts). */
+export type InstallCompile = (
+	owned: Owned,
+	options: InstallOptions
+) => Result.Result<Installation, CompileError>
 
 /** An installed role of a login: its theory role and its role schema. */
 export interface OracleWorld {
@@ -205,7 +222,7 @@ const build = (input: unknown, options: RealPlanOptions): RealInstallPlan => {
 		throw renamed.error
 	}
 	const declared = renamed.value
-	const compiled = compileInstallation(declared, {
+	const compiled = options.compile(declared, {
 		...completeInstallOptions(
 			declared,
 			installationsOf(declared),
@@ -508,7 +525,8 @@ export const oraclePlanUnder = (
 		owner,
 		logins: [oracleLogin(desc)],
 		extensions: [],
-		codes
+		codes,
+		compile: compileInstallation
 	})
 
 /**
@@ -596,7 +614,8 @@ export const installRealSchema = (
 				owner: substrate.owner.role,
 				logins: options.logins,
 				extensions: options.extensions,
-				codes: firstCodebook(rostersOf(owned))
+				codes: firstCodebook(rostersOf(owned)),
+				compile: compileInstallation
 			})
 		)
 		yield* installRealPlan(substrate.admin, plan)

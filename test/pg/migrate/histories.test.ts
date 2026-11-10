@@ -33,6 +33,7 @@ import type { CodeSlot, RosterCodes } from "#compiler/ir/cells.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
+import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
 import {
 	carry,
@@ -799,7 +800,8 @@ const planned = (built: Built, schema: string, owner: string): RealInstallPlan =
 			owner,
 			logins: Rec.values(built.logins),
 			extensions: [],
-			codes: firstCodebook(rostersOf(owning(built.base)))
+			codes: firstCodebook(rostersOf(owning(built.base))),
+			compile: compileInstallation
 		}),
 		"the installation of a version"
 	)

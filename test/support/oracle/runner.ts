@@ -46,6 +46,7 @@ import {
 	type ConservativeStatement,
 	flight
 } from "#compiler/lower/conservative/types.ts"
+import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { statementOutput } from "#compiler/runtime/lower/tree.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import { hexOfText, setText } from "#test/support/closed/bit-text.ts"
@@ -694,7 +695,8 @@ const runNamed = (
 			owner: substrate.owner.role,
 			logins: [oracleLogin(desc)],
 			extensions: [],
-			codes: schemaCodes(c.schema)
+			codes: schemaCodes(c.schema),
+			compile: compileInstallation
 		})
 		if (!planned.ok) {
 			return yield* failure("plan", "install", planned.error.message)

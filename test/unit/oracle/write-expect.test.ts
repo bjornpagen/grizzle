@@ -37,6 +37,7 @@ import { encodeFailure, slotPlace } from "#compiler/codec/fault.ts"
 import { identity } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
+import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { codebookFor, firstCodes, schemaInputOf } from "#test/support/compile.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
@@ -77,7 +78,8 @@ const writeLawNames = (schema: WSchema): WriteLawNames => {
 			owner: "grizzle_dev",
 			logins: [],
 			extensions: [],
-			codes: succeeded(codebookFor(schemaInputOf(value), firstCodes))
+			codes: succeeded(codebookFor(schemaInputOf(value), firstCodes)),
+			compile: compileInstallation
 		})
 	)
 	return lawNames(plan)

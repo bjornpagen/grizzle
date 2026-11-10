@@ -43,6 +43,7 @@ import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { draftCodebook, noRenames } from "#compiler/ir/codes.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
+import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { login } from "#compiler/program/workload/login.ts"
 import { bits, closedId, pg } from "#compiler/public/fields.ts"
 import {
@@ -591,7 +592,8 @@ const drafting = (sys: System, built: Built, declared: Declarations) =>
 				owner: substrate.owner.role,
 				logins: built.version.logins,
 				extensions: workload.extensions,
-				codes
+				codes,
+				compile: compileInstallation
 			}),
 			"the installation of the next version"
 		)

@@ -28,6 +28,7 @@ import { codebookOf, rosterFates } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { type Codebook, codecOf, draftCodebook, noRenames } from "#compiler/ir/codes.ts"
 import { Roster, type ScalarType } from "#compiler/ir/scalar.ts"
+import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { login } from "#compiler/program/workload/login.ts"
 import { bits, closedId, pg } from "#compiler/public/fields.ts"
 import {
@@ -315,7 +316,8 @@ const draftNext = (
 				owner: substrate.owner.role,
 				logins: version.logins,
 				extensions: workload.extensions,
-				codes
+				codes,
+				compile: compileInstallation
 			}),
 			"the installation of the next version"
 		)

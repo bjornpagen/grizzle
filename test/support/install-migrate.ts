@@ -1,6 +1,7 @@
 import { inspect } from "node:util"
 import {
 	Array as Arr,
+	DateTime,
 	Effect,
 	Option,
 	pipe,
@@ -13,37 +14,48 @@ import { applyOnSession, type SchemaApplyReport } from "#adapter/migrate/apply.t
 import type { MigrateError } from "#adapter/migrate/errors.ts"
 import type { FolderSource } from "#adapter/migrate/input.ts"
 import { migrationSession } from "#adapter/migrate/session.ts"
+import { formatTimestamp } from "#cli/clock.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { type Identity, identity } from "#compiler/core/identity.ts"
 import type * as Engine from "#compiler/core/result.ts"
+import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import { splitStatements } from "#compiler/deploy/render/markers.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
-import { firstCodebook } from "#compiler/ir/codes.ts"
-import type { LoginDesc, RoleDesc, SchemaDesc } from "#compiler/ir/desc.ts"
+import type { LoginDesc, RoleDesc } from "#compiler/ir/desc.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import { ledgerTableName } from "#compiler/physical/ddl/ledger.ts"
-import type { Installation } from "#compiler/physical/install/compile.ts"
-import { rostersOf } from "#compiler/schema/own.ts"
+import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
+import type { InstallExtension } from "#compiler/physical/install/extension.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import type { AnyLogin, AnyRole } from "#compiler/types/schema/world.ts"
-import { folderSource, installationAbstraction, sameCatalog } from "#test/pg/migrate/support.ts"
+import { installationAbstraction, sameCatalog } from "#test/pg/migrate/support.ts"
 import { type AmbientOwner, type AmbientSession, ambientOwner } from "#test/support/ambient.ts"
-import { assert, defined } from "#test/support/assert.ts"
+import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 import { checkInstallation } from "#test/support/catalog/installed.ts"
 import type { InitializedClusterShape } from "#test/support/cluster.ts"
 import { installationSql } from "#test/support/compile.ts"
 import { namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
-import { fromEmpty, generate, noDeclarations } from "#test/support/migrate/kit.ts"
+import {
+	draftCodes,
+	fromEmpty,
+	fromSnapshot,
+	generate,
+	noDeclarations,
+	type Previous
+} from "#test/support/migrate/kit.ts"
+import { type Placeholder, review } from "#test/support/migrate/review.ts"
 import { type FactSet, factStatements, loadFacts } from "#test/support/oracle/install/load.ts"
 import {
+	type InstallCompile,
+	type LoginSource,
 	planRealInstall,
 	type RealInstallOptions,
 	type RealInstallPlan
 } from "#test/support/oracle/install/real.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import { type SqlError, wireSession } from "#test/support/pg.ts"
-import { owning, schemaDescIn } from "#test/support/policy.ts"
+import { schemaDescIn } from "#test/support/policy.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import type { Credentials, SubstrateWorld } from "#test/support/substrate/session.ts"
@@ -70,7 +82,9 @@ import { regex } from "arkregex"
  *    login over verify-full TLS (a test helper's connection, see applyFolders), which acts as the substrate's owner
  *    under the ambient session the caller gives (test/support/ambient.ts AmbientOwner): the ledger is absent, so the
  *    database is at the empty snapshot, the first Prepare file creates the schema and its ledger, every file records its
- *    row in its own transaction, and the drift check after it refuses any drift.
+ *    row in its own transaction, and the drift check after it refuses any drift. A history of versions
+ *    (installMigratedThrough) drafts each later version's folder from the snapshot the one before it reached, and the
+ *    runner applies each in turn.
  * 4. The equality check. The migration must install the catalog the fresh-install compiler's script of the same
  *    installation installs, the ledger aside: the two paths must produce identical catalogs. An installation is
  *    certified from its statements when the migration runs the script's statements and otherwise only statements that
@@ -128,25 +142,26 @@ export interface Installed {
 	readonly world: (role: AnyRole | RoleDesc) => SubstrateWorld
 }
 
-/** The folders are drafted at one fixed time: the folder name only orders a schema's own migrations. */
-const installTimestamp = "20261013000000"
+/** 2026-10-13T00:00:00Z, the instant an installation's first folder is drafted at. */
+const installInstant = 1_791_849_600_000
+
+/**
+ * The time a history's folder `step`, from 0, is drafted at: `step` seconds after the first, as the CLI formats it, so
+ * its folders sort in drafting order; the folder name only orders a schema's own migrations.
+ */
+const installTimestamp = (step: number): string =>
+	formatTimestamp(DateTime.makeUnsafe(installInstant + step * 1000))
 const installName = "install"
 
-/** The plan of the complete installation under `installation` (oracle/install/real.ts), with the caller's logins and
- * extensions, and a fresh installation's codes, as the first migration from an empty directory drafts them. */
-const completePlan = (
-	desc: SchemaDesc,
+/**
+ * How a version's installation is planned under an identity the naming door mints from a substrate's allocated name,
+ * owned by a role: the complete installation (oracle/install/real.ts) with the codes its migration drafted, under the
+ * history's own identity or another, a fresh install's.
+ */
+type VersionPlanner = (
 	installation: Identity<"schema">,
-	owner: string,
-	options: RealInstallOptions
-): Engine.Result<RealInstallPlan, CompileError> =>
-	planRealInstall(desc, {
-		installation,
-		owner,
-		logins: options.logins,
-		extensions: options.extensions,
-		codes: firstCodebook(rostersOf(owning(desc)))
-	})
+	owner: string
+) => Engine.Result<RealInstallPlan, CompileError>
 
 /** The installation's script with every name minted under its schema's identity abstracted
  * (installationAbstraction): one key per installation shape. */
@@ -196,17 +211,20 @@ const isPrivilege = (statement: string): boolean => {
 }
 
 /**
- * Whether the migration provably installs the fresh-install script's catalog, the ledger aside: it runs every statement
+ * Whether the migrations, in order, provably install the fresh-install script's catalog, the ledger aside: they run every statement
  * of the script exactly once and otherwise only statements that leave no object; each object's grants and revokes, and
  * the default privileges, run in the script's order; and every default privilege runs after every object is created,
  * as in the script. Every other statement creates or alters an object of its own, so its position decides nothing a catalog
  * shows (a statement that needs an earlier one fails the apply instead).
  */
-export const runsInstallScript = (folder: FolderSource, installation: Installation): boolean => {
+export const runsInstallScript = (
+	folders: ReadonlyArray<FolderSource>,
+	installation: Installation
+): boolean => {
 	const schema = installation.names.schema
 	const script = Arr.map(installationSql(installation), normalized)
 	const migration = Arr.map(
-		Arr.flatMap(folder.files, (f) => splitStatements(f.text)),
+		Arr.flatMap(folders, (folder) => Arr.flatMap(folder.files, (f) => splitStatements(f.text))),
 		normalized
 	)
 	const pending = new Map<string, number>()
@@ -279,26 +297,25 @@ export const runsInstallScript = (folder: FolderSource, installation: Installati
 }
 
 /**
- * Asserts that the migrated schema holds the catalog the fresh-install script of the same installation produces. An
- * installation whose migration runsInstallScript cannot certify is compared in full: the fresh-install script runs
- * under another allocated name, and the two catalogs, function bodies, trigger events and view queries included, must
- * be equal, the ledger aside, because the two paths must produce identical catalogs. The fresh schema and its roles are
- * dropped as soon as they are compared.
+ * Asserts that the migrated schema holds the catalog the fresh-install script of the same installation, planned with
+ * the codes its migrations drafted, produces. An installation whose migrations runsInstallScript cannot certify is
+ * compared in full: the fresh-install script runs under another allocated name, and the two catalogs, function bodies,
+ * trigger events and view queries included, must be equal, the ledger aside, because the two paths must produce
+ * identical catalogs. The fresh schema and its roles are dropped as soon as they are compared.
  */
 const expectFreshCatalog = (
-	desc: SchemaDesc,
 	migrated: Installation,
-	folder: FolderSource,
-	options: RealInstallOptions
+	folders: ReadonlyArray<FolderSource>,
+	planned: VersionPlanner
 ): Effect.Effect<void, CompileError | SqlError | TransactionRolledBack, Substrate> =>
 	Effect.gen(function* () {
-		if (runsInstallScript(folder, migrated)) {
+		if (runsInstallScript(folders, migrated)) {
 			return
 		}
 		const substrate = yield* Substrate
 		const fresh = yield* substrate.schema({ create: false, label: "fresh" })
 		const plan = yield* fromEngine(
-			completePlan(desc, identity.schema(parsedSchemaName(fresh)), substrate.owner.role, options)
+			planned(identity.schema(parsedSchemaName(fresh)), substrate.owner.role)
 		)
 		assert.equal(
 			shapeKey(plan.installation),
@@ -427,12 +444,158 @@ export const installedSchemas = (installation: Installation): Arr.NonEmptyReadon
 ]
 
 /**
- * Installs `schema` (a schema value, a SchemaDesc or an owned schema) under a unique schema name in the scope, through
- * its first migration, as the header describes, as an owner login of its own whose sessions start under the ambient
- * session `options.ambient` (test/support/ambient.ts ambientOwner), made before the migration and dropped when the
- * scope closes.
+ * One version of a history: its schema (a schema value, a SchemaDesc or an owned schema), the logins its installation
+ * carries, over that schema as declared, and the renames and drops its migration declares (`--rename`, `--drop`;
+ * noDeclarations for none), which its codes are drafted under too.
+ */
+interface InstallVersion {
+	readonly schema: unknown
+	readonly logins: ReadonlyArray<LoginSource>
+	readonly declarations: Declarations
+}
+
+/**
+ * How every version of a history is drafted: with the caller's extensions, and by the compile of its installation,
+ * compileInstallation, as `grizzle generate` composes it, or another compile of the same schema a suite installs beside
+ * it, such as a lowering's trigger oracle (conservativeInstallation).
+ */
+interface DraftOptions {
+	readonly extensions: ReadonlyArray<InstallExtension>
+	readonly compile: InstallCompile
+}
+
+/**
+ * What a history's installation takes beside its versions and how they are drafted: its label, and the ambient session
+ * (test/support/ambient.ts) its owner sessions start under.
+ */
+interface HistoryOptions extends DraftOptions {
+	readonly label: string
+	readonly ambient: AmbientSession
+}
+
+/**
+ * One version of a history, as its migration drafts it: its plan and its reviewed folder, the snapshot it reaches, and
+ * its planner under another identity, for a fresh install of it (expectFreshCatalog).
+ */
+interface DraftedVersion {
+	readonly plan: RealInstallPlan
+	readonly planned: VersionPlanner
+	readonly folder: FolderSource
+	readonly snapshot: DeploySnapshot
+}
+
+/** Where a version is drafted: its installation identity, its owner, the snapshot before it, and its folder's step. */
+interface DraftAt {
+	readonly installation: Identity<"schema">
+	readonly owner: string
+	readonly previous: Previous
+	readonly step: number
+}
+
+/** A drafted folder's placeholder: a defect of the test, since a history's caller states every value in its schema. */
+const noPlaceholder = (placeholder: Placeholder): string => {
+	throw new Error(`a history drafted a placeholder of ${placeholder.table.name}`)
+}
+
+/**
+ * `version` as `grizzle generate` drafts it `at` its step, from 0, of a history: planned under the identity by
+ * `options.compile` with its logins, the caller's extensions and the codes its declarations draft from the snapshot
+ * before it (migrate/kit.ts draftCodes), its folder, drafted under the same declarations at its step's instant,
+ * reviewed as a person reviews it with every loss written in (migrate/review.ts), and the snapshot it reaches.
+ */
+const draftVersion = (
+	version: InstallVersion,
+	at: DraftAt,
+	options: DraftOptions
+): Effect.Effect<DraftedVersion, CompileError> =>
+	Effect.gen(function* () {
+		const desc = yield* fromEngine(schemaDescIn(version.schema))
+		const codes = yield* fromEngine(draftCodes(desc, at.previous, version.declarations))
+		const planned: VersionPlanner = (installation, owner) =>
+			planRealInstall(desc, {
+				installation,
+				owner,
+				logins: version.logins,
+				extensions: options.extensions,
+				codes,
+				compile: options.compile
+			})
+		const plan = yield* fromEngine(planned(at.installation, at.owner))
+		const g = yield* fromEngine(
+			generate({
+				installation: plan.installation,
+				name: installName,
+				timestamp: installTimestamp(at.step),
+				previous: at.previous,
+				workload: noWorkload,
+				declared: version.declarations
+			})
+		)
+		const reviewed = review(g, { losses: "written", value: noPlaceholder })
+		return {
+			plan,
+			planned,
+			folder: { name: g.folder.name, metaText: g.folder.metaText, files: reviewed.files },
+			snapshot: g.snapshot
+		}
+	})
+
+/**
+ * Installs the last of `versions` under a unique schema name in the scope through a history, as the header describes:
+ * the first version's migration from the empty snapshot, then each later version's from the snapshot the one before it
+ * reached, each drafted under that name (draftVersion) and applied in turn by the real runner, every one of which must
+ * apply, as an owner login of its own whose sessions start under the ambient session `options.ambient`
+ * (test/support/ambient.ts ambientOwner), made before the first migration and dropped when the scope closes. A history
+ * of one version is a first migration. The fresh install the history's catalog is compared with is the last version's,
+ * planned with the same codes.
  *
  * Every installation holds the installed-catalog posture, whatever the suite tests.
+ */
+const installMigratedThrough = (
+	versions: Arr.NonEmptyReadonlyArray<InstallVersion>,
+	options: HistoryOptions
+): Effect.Effect<
+	Installed,
+	CompileError | SqlError | TransactionRolledBack,
+	Substrate | Scope.Scope
+> =>
+	Effect.gen(function* () {
+		const substrate = yield* Substrate
+		const name = yield* substrate.schema({ create: false, label: options.label })
+		const installation = identity.schema(parsedSchemaName(name))
+		const drafts: Array<DraftedVersion> = []
+		let previous: Previous = fromEmpty
+		for (const [step, version] of versions.entries()) {
+			const drafted = yield* draftVersion(
+				version,
+				{ installation, owner: substrate.owner.role, previous, step },
+				options
+			)
+			drafts.push(drafted)
+			previous = fromSnapshot(drafted.snapshot)
+		}
+		const history = nonEmpty(drafts, "a history has its first version")
+		const last = Arr.lastNonEmpty(history)
+		const folders = Arr.map(history, (d) => d.folder)
+		const owner = yield* ambientOwner(options.ambient, installedSchemas(last.plan.installation))
+		for (const [step, draft] of history.entries()) {
+			yield* applyFolders(owner, substrate.database, draft.snapshot, Arr.take(folders, step + 1))
+		}
+		yield* expectFreshCatalog(last.plan.installation, folders, last.planned)
+		const installed = yield* installedOf({
+			plan: last.plan,
+			declared: name,
+			folders,
+			snapshot: last.snapshot,
+			ambientOwner: owner
+		})
+		yield* checkInstallation(installed)
+		return installed
+	})
+
+/**
+ * Installs `schema` through its first migration (installMigratedThrough), planned as `grizzle generate` composes it
+ * (compileInstallation), with the logins and extensions of `options`.
  */
 export const installMigrated = (
 	schema: unknown,
@@ -442,37 +605,11 @@ export const installMigrated = (
 	CompileError | SqlError | TransactionRolledBack,
 	Substrate | Scope.Scope
 > =>
-	Effect.gen(function* () {
-		const substrate = yield* Substrate
-		const desc = yield* fromEngine(schemaDescIn(schema))
-		const name = yield* substrate.schema({ create: false, label: options.label })
-		const plan = yield* fromEngine(
-			completePlan(desc, identity.schema(parsedSchemaName(name)), substrate.owner.role, options)
-		)
-		const installation = plan.installation
-		const g = yield* fromEngine(
-			generate({
-				installation,
-				name: installName,
-				timestamp: installTimestamp,
-				previous: fromEmpty,
-				workload: noWorkload,
-				declared: noDeclarations
-			})
-		)
-		const folder = folderSource(g.folder)
-		const owner = yield* ambientOwner(options.ambient, installedSchemas(installation))
-		yield* applyFolders(owner, substrate.database, g.snapshot, [folder])
-		yield* expectFreshCatalog(desc, installation, folder, options)
-		const installed = yield* installedOf({
-			plan,
-			declared: name,
-			folders: [folder],
-			snapshot: g.snapshot,
-			ambientOwner: owner
-		})
-		yield* checkInstallation(installed)
-		return installed
+	installMigratedThrough([{ schema, logins: options.logins, declarations: noDeclarations }], {
+		label: options.label,
+		extensions: options.extensions,
+		ambient: options.ambient,
+		compile: compileInstallation
 	})
 
 /**

@@ -15,7 +15,7 @@ import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { draftCodebook, noRenames, reorderRefusal } from "#compiler/ir/codes.ts"
 import { isolationGuardName } from "#compiler/physical/ddl/isolation.ts"
 import { roleIdentity, worldNames } from "#compiler/physical/ddl/names.ts"
-import type { Installation } from "#compiler/physical/install/compile.ts"
+import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
 import type { AnySchema } from "#compiler/public/schema.ts"
 import { type Owned, type OwnedRole, own, rostersOf } from "#compiler/schema/own.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
@@ -894,7 +894,8 @@ export const draftNext = (
 					owner,
 					logins,
 					extensions: [],
-					codes: drafted.value
+					codes: drafted.value,
+					compile: compileInstallation
 				})
 			)
 		)

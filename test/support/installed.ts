@@ -7,6 +7,7 @@ import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import { type DraftWorkload, noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
+import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import type { InstallExtension } from "#compiler/physical/install/extension.ts"
 import { compileWorkload } from "#compiler/program/workload/compile.ts"
 import {
@@ -272,7 +273,8 @@ export const migrated = (options: MigrateOptions) =>
 					owner,
 					logins: version.logins,
 					extensions: workload.extensions,
-					codes: draftedCodes(previous, version, options.declared(i))
+					codes: draftedCodes(previous, version, options.declared(i)),
+					compile: compileInstallation
 				})
 			)
 			const g = succeeded(

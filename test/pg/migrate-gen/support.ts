@@ -44,6 +44,7 @@ import {
 } from "#compiler/ir/scalar.ts"
 import { workloadExtension } from "#compiler/physical/access/extension.ts"
 import { noTextDomainUses } from "#compiler/physical/ddl/domains.ts"
+import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import type { InstallExtension } from "#compiler/physical/install/extension.ts"
 import {
 	type StatisticsRequest,
@@ -2904,7 +2905,8 @@ export const planOf = (v: Version, schema: string, owner: string): RealInstallPl
 		owner,
 		logins: versionLogins(v),
 		extensions: extensionsOf(v),
-		codes: versionCodes(v)
+		codes: versionCodes(v),
+		compile: compileInstallation
 	})
 	if (!planned.ok) {
 		throw new Error(planned.error.message)
