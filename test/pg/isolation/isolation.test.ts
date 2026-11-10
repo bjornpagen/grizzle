@@ -32,6 +32,7 @@ import {
 import {
 	carrierShape,
 	claimShape,
+	fallbackShape,
 	probeShape,
 	publishedShape,
 	skewShape,
@@ -467,6 +468,21 @@ const carrierRace: CounterRace = {
 	]
 }
 
+/**
+ * NEGATION's B-03c negative: the fallback reads G(1) absent and writes W(1) = 0; G(1) is inserted and committed; the
+ * observer, after both in real time, sees G(1) but not the fallback's W(1); then the fallback commits.
+ */
+const fallbackRace: CounterRace = {
+	shape: "fallback",
+	schedule: pivotThenReader,
+	initial: {},
+	calls: [
+		call("fallback", "fallback", { k: 1 }),
+		call("inserter", "insertG", { k: 1, x: 5 }),
+		call("observer", "observe", { k: 1 })
+	]
+}
+
 /** One race of each counterexample, every one of which a case runs. */
 type CounterRaces = Readonly<Record<CounterShape, CounterRace>>
 
@@ -480,7 +496,8 @@ const counterRaces: Gen<CounterRaces> = (source) => ({
 	listed: listedRace,
 	fk: fkRace,
 	deferred: deferredRace,
-	carrier: carrierRace
+	carrier: carrierRace,
+	fallback: fallbackRace
 })
 
 const counterShapes: Arr.NonEmptyReadonlyArray<CounterShape> = [
@@ -493,7 +510,8 @@ const counterShapes: Arr.NonEmptyReadonlyArray<CounterShape> = [
 	"listed",
 	"fk",
 	"deferred",
-	"carrier"
+	"carrier",
+	"fallback"
 ]
 
 /** The race of `sketch`: each call in a session of its own, s0, s1, ... */
@@ -635,17 +653,17 @@ const drawnFeatures = (
 
 const generate: Certifier = { kind: "generate" }
 
-/** `shape` installed holding the flawed certifier's certificates, and generate's own refusing every role it passes. */
+/** `shape` installed holding the flawed certifier's certificates, and generate's own refusing every role it wrongly passes. */
 const installedFlawed = (build: (name: string) => Shape, shape: CounterShape) =>
 	Effect.gen(function* () {
-		const { flaw, roles } = flawedCertificates(shape)
+		const { flaw, roles, passes } = flawedCertificates(shape)
 		const s = yield* installShape(build, { kind: "flawed", flaw, roles })
-		for (const passed of Arr.filter(roles, (r) => r.certificate.level === "readCommitted")) {
-			const own = s.generated.get(passed.role)
+		for (const passed of passes) {
+			const own = s.generated.get(passed)
 			if (own !== "serializable") {
 				return yield* Effect.die(
 					new Error(
-						`${shape}: generate certifies role ${passed.role} ${String(own)}, which ${flaw} passes`
+						`${shape}: generate certifies role ${passed} ${String(own)}, which ${flaw} passes`
 					)
 				)
 			}
@@ -1060,7 +1078,8 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								listed: yield* installedFlawed(listedShape, "listed"),
 								fk: yield* installedFlawed(fkShape, "fk"),
 								deferred: yield* installedFlawed(deferredShape, "deferred"),
-								carrier: yield* installedFlawed(carrierShape, "carrier")
+								carrier: yield* installedFlawed(carrierShape, "carrier"),
+								fallback: yield* installedFlawed(fallbackShape, "fallback")
 							}
 							return yield* explore(
 								{
@@ -1079,7 +1098,8 @@ layer(Substrate.layer, { excludeTestServices: true })(
 											"listed caught",
 											"fk caught",
 											"deferred caught",
-											"carrier caught"
+											"carrier caught",
+											"fallback caught"
 										],
 										{ cases: runs, sense: notesOnly }
 									),
@@ -1137,7 +1157,8 @@ layer(Substrate.layer, { excludeTestServices: true })(
 												listed: listedRace,
 												fk: fkRace,
 												deferred: deferredRace,
-												carrier: carrierRace
+												carrier: carrierRace,
+												fallback: fallbackRace
 											},
 											draws: "",
 											reaches: [
@@ -1150,7 +1171,8 @@ layer(Substrate.layer, { excludeTestServices: true })(
 												"listed caught",
 												"fk caught",
 												"deferred caught",
-												"carrier caught"
+												"carrier caught",
+												"fallback caught"
 											]
 										}
 									],

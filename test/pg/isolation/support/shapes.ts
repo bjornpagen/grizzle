@@ -1066,3 +1066,64 @@ export const claimShape = (name: string, gated: boolean) => {
 		login: login(base, "app", [claimer, publisher], { workload: workloads })
 	}
 }
+
+const FallbackG = relation("G", { k: pg.integer, x: pg.integer }, ["k"])
+const FallbackW = relation("W", { k: pg.integer, val: pg.integer }, ["k"])
+const FallbackZ = relation("Z", { k: pg.integer }, ["k"])
+
+/**
+ * NEGATION's B-03c negative under the name `name`: the `fallback`'s `fallback(k)` inserts W(k) from G(k)'s x where G
+ * holds k and 0 where it does not, two rules, the second reading G's absence; the `inserter`'s `insertG(k, x)` inserts
+ * G(k); the `observer`'s `observe(k)` inserts Z(k) where W(k) and G(k) are both there.
+ */
+export const fallbackShape = (name: string) => {
+	const relations = { G: FallbackG, W: FallbackW, Z: FallbackZ } as const
+	const base = schema(name, relations, [])
+	const fallbackRole = role(base, "fallback", relations, { insert: ["W"] })
+	const inserter = role(base, "inserter", relations, { insert: ["G"] })
+	const observer = role(base, "observer", relations, { insert: ["Z"] })
+	const f = fallbackRole.relations
+	const fallback = ChangeSet.empty(fallbackRole).insert(
+		f.W,
+		query(fallbackRole)
+			.rule((r) => {
+				const { x } = v(f.G, "g")
+				return r
+					.match(f.G, { k: r.param("k", pg.integer), x })
+					.find({ k: r.param("k", pg.integer), val: x })
+			})
+			.rule((r) =>
+				r
+					.where(r.not(f.G, { k: r.param("k", pg.integer) }))
+					.find({ k: r.param("k", pg.integer), val: 0 })
+			)
+	)
+	const insertG = ChangeSet.empty(inserter).insert(
+		inserter.relations.G,
+		query(inserter).rule((r) =>
+			r.find({ k: r.param("k", pg.integer), x: r.param("x", pg.integer) })
+		)
+	)
+	const o = observer.relations
+	const observe = ChangeSet.empty(observer).insert(
+		o.Z,
+		query(observer).rule((r) => {
+			const { val } = v(o.W, "w")
+			const { x } = v(o.G, "g")
+			return r
+				.match(o.W, { k: r.param("k", pg.integer), val })
+				.match(o.G, { k: r.param("k", pg.integer), x })
+				.find({ k: r.param("k", pg.integer) })
+		})
+	)
+	const workloads = [
+		workload(fallbackRole, { fallback }),
+		workload(inserter, { insertG }),
+		workload(observer, { observe })
+	] as const
+	return {
+		schema: base,
+		roles: { fallback: fallbackRole, inserter, observer },
+		login: login(base, "app", [fallbackRole, inserter, observer], { workload: workloads })
+	}
+}

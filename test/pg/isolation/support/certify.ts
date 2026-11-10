@@ -22,6 +22,7 @@ export type CounterShape =
 	| "fk"
 	| "deferred"
 	| "carrier"
+	| "fallback"
 
 const readCommitted: RoleCertificate = { level: "readCommitted" }
 
@@ -64,26 +65,40 @@ const app = (role: string, certificate: RoleCertificate): RoleIsolation => ({
  *   flight. deferred: a foreign key PostgreSQL checks at COMMIT, a second snapshot of a member counted as one. carrier:
  *   a later statement's join through the call's input rows taken as a join with a row its own call wrote, which B-02
  *   admits where those rows arrive by a carrier read (stated `own`) and refuses here, where they arrive inline as a
- *   relation parameter's arrays: the race shows the rule unsound, not B-02's verdict on this form.
+ *   relation parameter's arrays: the race shows the rule unsound, not B-02's verdict on this form. fallback:
+ *   NEGATION's B-03c negative, a W written from G's row where it holds k and from G's absence where it does not, read
+ *   beside G by an observer: a probe neutral in one rule and negated in its sibling, judged per statement.
  */
-export const flawedCertificates = (
-	shape: CounterShape
-): { readonly flaw: string; readonly roles: ReadonlyArray<RoleIsolation> } => {
+/**
+ * A flawed certifier over a counterexample shape: the flaw it stands for, every role's certificate under it, and the
+ * roles it wrongly passes, which generate must keep SERIALIZABLE; a role it admits READ COMMITTED that a sound
+ * certifier may admit too is no part of the flaw.
+ */
+export interface Flawed {
+	readonly flaw: string
+	readonly roles: ReadonlyArray<RoleIsolation>
+	readonly passes: ReadonlyArray<string>
+}
+
+export const flawedCertificates = (shape: CounterShape): Flawed => {
 	switch (shape) {
 		case "partial":
 			return {
 				flaw: "a seal admitting a read of part of a key under a no-change-able parent",
-				roles: [app("joiner", readCommitted)]
+				roles: [app("joiner", readCommitted)],
+				passes: ["joiner"]
 			}
 		case "copies":
 			return {
 				flaw: "condition 5 without the pivot rule: each copy's statement derives its writes from its read",
-				roles: [app("copier", readCommitted)]
+				roles: [app("copier", readCommitted)],
+				passes: ["copier"]
 			}
 		case "pointCopies":
 			return {
 				flaw: "seal (iii) with a per-statement derivation",
-				roles: [app("copier", readCommitted)]
+				roles: [app("copier", readCommitted)],
+				passes: ["copier"]
 			}
 		case "spanning":
 			return {
@@ -92,12 +107,14 @@ export const flawedCertificates = (
 					app("writer", writerAbsence),
 					app("single", readCommitted),
 					app("spanning", readCommitted)
-				]
+				],
+				passes: ["spanning", "single"]
 			}
 		case "extended":
 			return {
 				flaw: "a seal admitting a group another call extends",
-				roles: [app("learner", readCommitted), app("importer", readCommitted)]
+				roles: [app("learner", readCommitted), app("importer", readCommitted)],
+				passes: ["learner"]
 			}
 		case "single":
 			return {
@@ -106,17 +123,20 @@ export const flawedCertificates = (
 					app("writer", writerAbsence),
 					app("single", readCommitted),
 					app("spanning", readCommitted)
-				]
+				],
+				passes: ["single", "spanning"]
 			}
 		case "listed":
 			return {
 				flaw: "a read of several keys sealed as a point (B-02)",
-				roles: [app("writer", writerAbsence), app("listed", readCommitted)]
+				roles: [app("writer", writerAbsence), app("listed", readCommitted)],
+				passes: ["listed"]
 			}
 		case "fk":
 			return {
 				flaw: "a native foreign key's check counted as no read (B-02)",
-				roles: [app("writer", writerAbsence), app("checker", readCommitted)]
+				roles: [app("writer", writerAbsence), app("checker", readCommitted)],
+				passes: ["checker"]
 			}
 		case "deferred":
 			return {
@@ -125,12 +145,24 @@ export const flawedCertificates = (
 					app("copier", readCommitted),
 					app("adder", readCommitted),
 					app("holder", readCommitted)
-				]
+				],
+				passes: ["copier"]
+			}
+		case "fallback":
+			return {
+				flaw: "a probe judged neutral across rules: one rule reads G positively, another its absence, and W's write follows either (B-03c checked per statement, not per core)",
+				roles: [
+					app("fallback", readCommitted),
+					app("inserter", readCommitted),
+					app("observer", readCommitted)
+				],
+				passes: ["fallback"]
 			}
 		case "carrier":
 			return {
 				flaw: "5b's own-row clause met by a join with the call's input rows, a carrier's read stated as its own (B-02's facts); B-02 refuses this compiled form, whose input travels inline as arrays",
-				roles: [app("twice", readCommitted), app("grower", readCommitted)]
+				roles: [app("twice", readCommitted), app("grower", readCommitted)],
+				passes: ["twice"]
 			}
 	}
 }
