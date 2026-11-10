@@ -1528,6 +1528,39 @@ const writesOf = (
 			ownValue
 		])
 	}
+	/**
+	 * A re-inserted row's column `key`, `finalOf`'s but a counted family's count copy where this statement recounts the
+	 * row's group: the group's kept count, since the insert's foreign key is checked before the recount's cascade reaches
+	 * a row inserted in the same statement, where an update in place keeps its stored copy for the cascade to change.
+	 */
+	const reinsertedOf = (a: string, key: ColumnKey): Expr => {
+		const counted = own.find(
+			(x) => !isSequence(x.family) && columnKey({ kind: "law", column: x.family.copy }) === key
+		)
+		if (counted === undefined) {
+			return finalOf(a, key)
+		}
+		const g = supply.relation(internal("re-inserted group"))
+		return firstNonNull([
+			{
+				kind: "subquery",
+				query: simpleSelect(
+					[target(col(g, counted.groups.kept))],
+					[cteRefAs(counted.groups.name, g)],
+					and([
+						col(g, counted.groups.recounted),
+						...counted.family.group.map((pair, i) =>
+							eq(
+								col(g, defined(counted.groups.group[i], "a group column")),
+								col(a, columnAt(written_, fieldKey(pair.member.name)))
+							)
+						)
+					])
+				)
+			},
+			finalOf(a, key)
+		])
+	}
 	const out: Array<FamilyReturning> = []
 	/** Whether the written row `a` is one the statement re-places, where its relation re-places only some. */
 	const replacedAt = (a: string, scan: Shaped): Expr => {
@@ -1569,7 +1602,7 @@ const writesOf = (
 							"keyed",
 							columns.map((c) =>
 								targetAs(
-									written(w, finalOf(a, c.key), c.type),
+									written(w, reinsertedOf(a, c.key), c.type),
 									supply.column(internal("re-inserted column"))
 								)
 							),

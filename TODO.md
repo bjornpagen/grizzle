@@ -12,18 +12,6 @@ post-beta swarm's fixes for the next release.
   every performance gate passing, both perfect on the exact commit; then the owner's go.
 - **Known red tests, real defects no served write of qti-pie or edullm reaches (the owner, 2026-11-09: fixed after the
   repin, the tests left red until then; neither served file holds a removals statement):**
-  - test/pg/write/fill-order/fill-order.test.ts, TEST_SEED=252072110, the rotating stream (seed 0xb7f6fa7a), case 2:
-    a lawful delete is invariant-rejected. The minimal shape: a member relation in an ordered family and in a counted
-    family, each of a mutable owner, the counted family's owner axis immediate; a delete (or a re-placing put) of a
-    member re-places a later member of its ordered group whose counted group the same statement recounts. PostgreSQL
-    refuses the stratum's family removals statement with 23503 on the counted family's owner axis
-    (`__r_2_fk_o_1_copy_n_1`, Key (o_1, ‹n1›)=(the owner, 2) not present in r_1). The cause, in
-    write/family/removals.ts: the re-placed row is inserted again with the counted family's stored count copy (the
-    scan copies `groups.stored` for a counted family, and a row below its least changed slot keeps its own), while the
-    statement's recount of the owner changes the count; the insert's foreign-key check runs before the recount's
-    cascade reaches it. A sequence's own copy is the kept count where its group is recounted here, so it escapes. The
-    fix, held by ONERTT-WRITE2: a re-inserted row copies each counted family's kept count where the statement recounts
-    its group.
   - test/pg/write/swarm/families.test.ts, its kept case "a put of an owner whose v two owner axes carry, into an
     ordered family's members' copies and on into a counted family's members' copies, which its sum fold steps": the
     follow-up's put of the owner is invariant-rejected. The shape: R0 owns an ordered family of R1, whose members copy
