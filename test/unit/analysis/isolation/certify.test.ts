@@ -32,7 +32,8 @@ import {
 	type RoleIsolation,
 	readSeal
 } from "#compiler/analysis/isolation/certify.ts"
-import type { IsolationInput, Privilege, RoleFacts } from "#compiler/analysis/isolation/facts.ts"
+import type { IsolationInput, RoleFacts } from "#compiler/analysis/isolation/facts.ts"
+import type { TablePrivilege } from "#compiler/core/privilege.ts"
 import { assert } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 
@@ -60,7 +61,10 @@ interface StatementSketch {
 
 interface RoleSketch {
 	readonly login: number
-	readonly privileges: ReadonlyArray<{ readonly relation: number; readonly privilege: Privilege }>
+	readonly privileges: ReadonlyArray<{
+		readonly relation: number
+		readonly privilege: TablePrivilege
+	}>
 	readonly members: ReadonlyArray<ReadonlyArray<StatementSketch>>
 }
 
@@ -81,7 +85,7 @@ type Extension =
 			readonly kind: "privilege"
 			readonly role: number
 			readonly relation: number
-			readonly privilege: Privilege
+			readonly privilege: TablePrivilege
 	  }
 	| { readonly kind: "read"; readonly role: number; readonly read: ReadSketch }
 	| { readonly kind: "statement"; readonly role: number; readonly statement: StatementSketch }
@@ -103,7 +107,7 @@ interface Case {
 }
 
 const relationGen: Gen<number> = int(0, RELATIONS - 1)
-const privilegeGen: Gen<Privilege> = weighted<Privilege>([
+const privilegeGen: Gen<TablePrivilege> = weighted<TablePrivilege>([
 	[4, () => "SELECT"],
 	[4, () => "INSERT"],
 	[1, () => "UPDATE"],
@@ -360,9 +364,9 @@ const inputOf = (sketch: Sketch): IsolationInput => ({
 		])
 	),
 	roles: Arr.map(sketch.roles, (role, i): RoleFacts => {
-		const privileges = new Map<string, Set<Privilege>>()
+		const privileges = new Map<string, Set<TablePrivilege>>()
 		for (const p of role.privileges) {
-			const held = privileges.get(relationName(p.relation)) ?? new Set<Privilege>()
+			const held = privileges.get(relationName(p.relation)) ?? new Set<TablePrivilege>()
 			held.add(p.privilege)
 			privileges.set(relationName(p.relation), held)
 		}

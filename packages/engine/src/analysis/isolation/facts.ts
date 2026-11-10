@@ -3,9 +3,7 @@
  * those who own it (each role's grant plan, the law model's discharge of each relation's laws, each compiled change
  * member's statements), so the certifier reads no compiled artifact and a search can draw the facts themselves.
  */
-
-/** A table privilege a role's grant plan holds on a relation. */
-export type Privilege = "SELECT" | "INSERT" | "UPDATE" | "DELETE"
+import type { TablePrivilege } from "#compiler/core/privilege.ts"
 
 /**
  * One relation of the installation: whether every law over it is discharged natively (a CHECK, a primary key, a
@@ -72,7 +70,7 @@ export interface MemberFacts {
 export interface RoleFacts {
 	readonly login: string
 	readonly role: string
-	readonly privileges: ReadonlyMap<string, ReadonlySet<Privilege>>
+	readonly privileges: ReadonlyMap<string, ReadonlySet<TablePrivilege>>
 	readonly members: ReadonlyArray<MemberFacts>
 }
 

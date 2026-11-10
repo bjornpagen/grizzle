@@ -1,12 +1,12 @@
 import type {
 	IsolationInput,
 	MemberFacts,
-	Privilege,
 	ReadFact,
 	RoleFacts
 } from "#compiler/analysis/isolation/facts.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import type { TablePrivilege } from "#compiler/core/privilege.ts"
 
 /**
  * The conditions a role's change members must all meet to run READ COMMITTED, in the owner's order:
@@ -69,10 +69,10 @@ export type ReadSeal =
 	| { readonly kind: "unsealed"; readonly detail: string }
 
 /** The privileges a writer holds; a role holding none of them on a relation only reads it. */
-const writing: ReadonlySet<Privilege> = new Set(["INSERT", "UPDATE", "DELETE"])
+const writing: ReadonlySet<TablePrivilege> = new Set(["INSERT", "UPDATE", "DELETE"])
 
 /** The privileges a READ COMMITTED role may hold. */
-const insertAndSelect: ReadonlySet<Privilege> = new Set(["SELECT", "INSERT"])
+const insertAndSelect: ReadonlySet<TablePrivilege> = new Set(["SELECT", "INSERT"])
 
 /** Every statement of a role's members, each with its member and its place in the member's flight. */
 interface Placed {
