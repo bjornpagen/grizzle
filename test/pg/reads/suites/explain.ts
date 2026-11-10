@@ -7,18 +7,26 @@ import { set } from "@grizzle/testing/oracle"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
-import { memberOps } from "#adapter/db/handles.ts"
+import {
+	Array as Arr,
+	Effect,
+	Formatter,
+	Option,
+	Record as Rec,
+	Result as EffectResult
+} from "effect"
+import { memberOps, variantOf } from "#adapter/db/handles.ts"
 import { ReadFailure } from "#adapter/errors/execution.ts"
 import { explainMember } from "#adapter/served/explain.ts"
 import type { Plan } from "#adapter/types/db.ts"
 import type { Prologue } from "#adapter/wire/batch.ts"
+import type { Session, SessionPool } from "#adapter/wire/session.ts"
 import type { ParamMap } from "#compiler/plan/common.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { uuid } from "#compiler/public/fields.ts"
+import { bytes, drawn as drawnField, natural, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { schema } from "#compiler/public/schema.ts"
+import { fin, on, ordered, relation, schema } from "#compiler/public/schema.ts"
 import { defaultPool, poolFor, rowsOn } from "#test/pg/adapter/support.ts"
 import { Item, Seat, Shop, Stock, uuidOf } from "#test/pg/reads/shop.ts"
 import { installed } from "#test/pg/reads/support.ts"
@@ -35,6 +43,7 @@ import * as W from "#test/support/fixtures/api/work.ts"
 import { a1, a2, t2, t4, tMissing, workFacts } from "#test/support/fixtures/golden/work.ts"
 import { caseHang, testIdleTimeout } from "#test/support/limits.ts"
 import { member, withServedDb } from "#test/support/served-db.ts"
+import { explainedTextBound } from "#test/support/staged.ts"
 import type { Credentials } from "#test/support/substrate/session.ts"
 import { tableState } from "#test/support/substrate/state.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -233,6 +242,34 @@ const refusalOf = (c: RefusalCase): RefusalFeature =>
 			? "encode"
 			: "explained"
 
+/** A box, the owner of an ordered family of parts whose bodies are bytes, as pantry's import nests its entries. */
+const Box = relation("Box", { id: uuid, parts: drawnField(natural) }, ["id"])
+const Part = relation("Part", { box: uuid, at: drawnField(natural), body: bytes }, ["box", "at"])
+const Boxes = schema("Boxes", { Box, Part }, [ordered(on(Part, "box", "at"), fin(Box, "parts"))])
+
+/** A pool whose sessions hold the message bound `limit`, as a server whose bound is below the protocol's does. */
+const boundPool = (pool: SessionPool, limit: number): SessionPool => ({
+	...pool,
+	lease: Effect.map(pool.lease, (session): Session => ({ ...session, messageMaxBytes: limit }))
+})
+
+/** A part body's length as a share of the session's bound, in thousandths of `boundWhole`. */
+const boundWhole = 1_000
+
+type BoundFeature = "a body past the bound" | "bodies within the bound"
+
+/** A box's parts, each body's length a share of the session's bound: within it, or past it by up to the bound again. */
+interface BoundCase {
+	readonly shares: Arr.NonEmptyReadonlyArray<number>
+}
+
+const boundCaseGen: Gen<BoundCase> = (source) => ({
+	shares: nonEmpty(
+		source.draw(array(int(1, 2 * boundWhole), { min: 1, max: 4 })),
+		"a box holds a part"
+	)
+})
+
 /** Each search's budget beside its suite, draw and features. */
 const budget = {
 	literal: Formatter.format,
@@ -262,6 +299,11 @@ const budget = {
  *   relation parameters, is explained one plan per plannable statement its apply sends, in a transaction that is
  *   rolled back: no fact written, no identity sequence advanced, which EXPLAIN ANALYZE would have done; a read-back
  *   joining a delta carrier plans the empty, analyzed carrier at one row, as the apply does;
+ * - a served ChangeSet inserting a box with its parts nested, each part's body a drawn share of the session's message
+ *   bound, within it or past it, on a session whose bound is planted at the longest Parse message of the texts explain
+ *   sends of the write, each planned one as its EXPLAIN (test/support/staged.ts explainedTextBound), as a server whose
+ *   bound is below the protocol's holds it: explain plans it exactly where the application of the same call on the
+ *   same session writes it, each cutting its executions under the session's bound (apply/run.ts sessionTransport);
  * - every Plan is estimate-only: node type, costs, rows and width, nothing else;
  * - drawn notes over Work, or a ChangeSet over a schema no role of the Db holds, are refused as a model of the host's
  *   refusals says: a ChangeSet over no level of the role's schema where its workload is built, MalformedDescription, a
@@ -754,6 +796,92 @@ export const explainSuite = (): void => {
 						const after = yield* tableState(o.installed, W.TaskNote)
 						assert.deepEqual(set(valueHash, exactValue)(after, before), Option.none())
 						return explored
+					}).pipe(Effect.scoped)
+				)
+		)
+
+		it.effect(
+			"explains a served ChangeSet under its session's message bound, as its application cuts it",
+			(ctx) =>
+				searched(
+					ctx,
+					Effect.gen(function* () {
+						const o = yield* installed(Boxes, {}, { label: "boxes", extensions: [], programs: {} })
+						return yield* withServedDb(
+							o.installed,
+							o.server.roles.app,
+							{},
+							({ ctx: served, load }) =>
+								Effect.gen(function* () {
+									const members = yield* load({ boxes: ChangeSet.empty(o.schema).insert(Box, []) })
+									const boxes = member(members, "boxes")
+									if (boxes.kind !== "change") {
+										return assert.fail("a ChangeSet loads as a change member")
+									}
+									const limit = explainedTextBound(
+										variantOf(served, boxes.variants).entry.program.flight
+									)
+									const bound = { ...served, pool: boundPool(served.pool, limit) }
+									const handle = memberOps(bound, boxes)
+									if (handle.kind !== "facts") {
+										return assert.fail("a ChangeSet with array members loads as a facts handle")
+									}
+									let next = 0
+									return yield* explore(
+										{
+											oracle: {
+												kind: "second-implementation",
+												name: "the application of the same call on the same session, which cuts under its bound"
+											},
+											...budget,
+											suite: "reads/explain session bound",
+											draw: drawn(boundCaseGen),
+											kept: [],
+											runs: 12,
+											coverage: required<BoundFeature>(
+												["a body past the bound", "bodies within the bound"],
+												{ cases: 12, sense: notesOnly }
+											)
+										},
+										(c, notes) =>
+											Effect.gen(function* () {
+												next += 1
+												const lengths = Arr.map(c.shares, (share) =>
+													Math.floor((limit * share) / boundWhole)
+												)
+												notes.note(
+													Arr.some(lengths, (n) => n > limit)
+														? "a body past the bound"
+														: "bodies within the bound"
+												)
+												const facts = {
+													insert: {
+														Box: [
+															{
+																id: uuidOf(next),
+																parts: Arr.map(lengths, (n) => ({ body: new Uint8Array(n) }))
+															}
+														]
+													}
+												}
+												const explained = yield* Effect.result(
+													explainMember(bound, boxes, { kind: "facts", facts, params: {} })
+												)
+												const applied = yield* Effect.result(handle.ops.apply(facts, {}))
+												assert.equal(
+													EffectResult.isSuccess(explained),
+													EffectResult.isSuccess(applied),
+													`explain under a session bound of ${limit} bytes of bodies ${Formatter.format(lengths)} plans exactly where the application writes: ${Formatter.format(explained)} beside ${Formatter.format(applied)}`
+												)
+												if (EffectResult.isSuccess(explained)) {
+													for (const plan of explained.success) {
+														estimateOnly(plan)
+													}
+												}
+											})
+									)
+								})
+						)
 					}).pipe(Effect.scoped)
 				)
 		)

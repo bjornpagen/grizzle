@@ -255,6 +255,16 @@ export interface HostCall {
 }
 
 /**
+ * What one statement carries on `session`: the longest message its server reads, around the wire's frame (wire/batch.ts
+ * bindFrame). An application's writes are cut under it, and so are explain's (served/explain.ts), on the session each
+ * leases.
+ */
+export const sessionTransport = (session: Pick<Session, "messageMaxBytes">): Transport => ({
+	...inForce(bindFrame),
+	messageBytes: session.messageMaxBytes
+})
+
+/**
  * The first half of an application: everything before any SQL (see the header). A binding the WriteProgram refuses is
  * its CompileError, which each caller reports in its own error channel.
  */
@@ -463,8 +473,7 @@ export const runWrite = <R>(
 		let sent: ReadonlyArray<SentStatement> = []
 		/** How many statements precede the read-backs: the read flight's and the write statements. */
 		let written = 0
-		/** What one statement carries on the session: the longest message its server reads, around the wire's frame. */
-		const transport: Transport = { ...inForce(bindFrame), messageBytes: session.messageMaxBytes }
+		const transport = sessionTransport(session)
 		/** The write statements and the read-backs behind them, the flight that ends the transaction. */
 		const closing = (
 			chunks: Chunks,

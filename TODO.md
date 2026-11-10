@@ -50,11 +50,6 @@ post-beta swarm's fixes for the next release.
   joined to the member by key or group, one arm per way or per kind of change, under UNION where arms may meet. No
   served write of qti-pie or edullm holds a family put or delete. Every other read of a stored relation in
   write/insert, write/put, write/delete and write/family/additions is driven from the call's rows by key or group.
-- **Served explain chunks under the protocol's bound, not the session's (FORMAT, after the pin):**
-  adapter/served/explain.ts explainChange cuts a statement's executions under `inForce(bindFrame)`, where an
-  application (adapter/apply/run.ts) cuts under the leased session's `messageMaxBytes`. On a session whose bound is
-  below the protocol's, explain plans nested rows inline that an application stages, and the flight's builder refuses
-  the explain as InputTooLarge (message). Explain should cut under the session it leases, as an application does.
 - **Multi-schema follow-ups:** the guards, the planted bugs and every PostgreSQL suite's multi-level fixtures, landed
   after its first commit.
 - **Stopped 2026-11-08 to focus on speed, resume before the full verification run:**

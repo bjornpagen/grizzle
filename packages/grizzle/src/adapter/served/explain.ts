@@ -1,5 +1,5 @@
 import { Array as Arr, Effect, Result, type Scope } from "effect"
-import { type HostCall, hostInputs, valuesFailure } from "#adapter/apply/run.ts"
+import { type HostCall, hostInputs, sessionTransport, valuesFailure } from "#adapter/apply/run.ts"
 import type { ServedDbContext } from "#adapter/db/context.ts"
 import { variantOf } from "#adapter/db/handles.ts"
 import { type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
@@ -15,7 +15,6 @@ import {
 	type LoadedRead
 } from "#adapter/served/load.ts"
 import type { Plan } from "#adapter/types/db.ts"
-import { bindFrame } from "#adapter/wire/batch.ts"
 import {
 	type BatchOutcome,
 	type BatchStatement,
@@ -23,7 +22,8 @@ import {
 	runFramedTwice,
 	type Transaction
 } from "#adapter/wire/batch.ts"
-import { type Chunks, type ExecutionPart, inForce } from "#compiler/plan/change.ts"
+import type { Session } from "#adapter/wire/session.ts"
+import type { Chunks, ExecutionPart } from "#compiler/plan/change.ts"
 import {
 	type CompileError,
 	type EmittedText,
@@ -78,13 +78,17 @@ const decodedPlans = (
 	return Result.succeed(plans)
 }
 
-/** Sends `statements` in one flight on a session of the context's pool and decodes the Plan of each planned one. */
+/**
+ * Sends the statements `made` makes for the session it leases from the context's pool, in one flight on that session,
+ * and decodes the Plan of each planned one.
+ */
 const plansOf = Effect.fn("plansOf")(function* (
 	ctx: ServedDbContext,
 	frame: Transaction,
-	statements: ReadonlyArray<Explained>
+	made: (session: Session) => Result.Result<ReadonlyArray<Explained>, ReadFailure>
 ): Effect.fn.Return<ReadonlyArray<Plan>, ReadError, Scope.Scope> {
 	const session = yield* Effect.mapError(ctx.pool.lease, (reason) => new ReadFailure({ reason }))
+	const statements = yield* Effect.fromResult(made(session))
 	const outcomes = yield* Effect.mapError(
 		runFramed(
 			session,
@@ -97,14 +101,15 @@ const plansOf = Effect.fn("plansOf")(function* (
 }, Effect.scoped)
 
 /**
- * Sends `first`, then the statements `second` makes from `first`'s outcomes, in one transaction of two flights, and
- * decodes the Plan of each planned one across both.
+ * Sends `first`, then the statements `second` makes from `first`'s outcomes for the session it leases, in one
+ * transaction of two flights on that session, and decodes the Plan of each planned one across both.
  */
 const plansAfter = Effect.fn("plansAfter")(function* (
 	ctx: ServedDbContext,
 	frame: Transaction,
 	first: ReadonlyArray<Explained>,
 	second: (
+		session: Session,
 		outcomes: ReadonlyArray<BatchOutcome>
 	) => Result.Result<ReadonlyArray<Explained>, ReadFailure>
 ): Effect.fn.Return<ReadonlyArray<Plan>, ReadError, Scope.Scope> {
@@ -117,7 +122,7 @@ const plansAfter = Effect.fn("plansAfter")(function* (
 			Arr.map(first, (e) => e.statement),
 			(read) =>
 				Effect.fromResult(
-					Result.map(second(read), (made) => {
+					Result.map(second(session, read), (made) => {
 						explained = [...first, ...made]
 						return Arr.map(made, (e) => e.statement)
 					})
@@ -143,10 +148,8 @@ const explainRead = Effect.fn("explainRead")(function* (
 		programStatements(read.program, inputs),
 		(reason) => new ReadFailure({ reason })
 	)
-	return yield* plansOf(
-		ctx,
-		readFrame,
-		Arr.map(statements, (s) => planned(s.sql, s.params))
+	return yield* plansOf(ctx, readFrame, () =>
+		Result.succeed(Arr.map(statements, (s) => planned(s.sql, s.params)))
 	)
 })
 
@@ -208,13 +211,17 @@ const explainChange = Effect.fn("explainChange")(function* (
 		return yield* new ReadFailure({ reason: new LawRejected({ law: inputs.refused.law }) })
 	}
 	const skip = inputs.bound.skip
-	const explainedOf = (chunks: Chunks): Result.Result<ReadonlyArray<Explained>, ReadFailure> => {
+	const explainedOf = (
+		chunks: Chunks,
+		session: Session
+	): Result.Result<ReadonlyArray<Explained>, ReadFailure> => {
+		const transport = sessionTransport(session)
 		const statements: Array<Explained> = []
 		for (const s of entry.program.flight.statements) {
 			if (skip.has(s.index)) {
 				continue
 			}
-			const executions = chunks(s, inForce(bindFrame))
+			const executions = chunks(s, transport)
 			if (!executions.ok) {
 				return Result.fail(new ReadFailure({ reason: valuesFailure(executions.error) }))
 			}
@@ -234,18 +241,17 @@ const explainChange = Effect.fn("explainChange")(function* (
 	}
 	const flights = inputs.bound.flights
 	if (flights.kind === "write") {
-		const statements = yield* Effect.fromResult(explainedOf(flights.chunks))
-		return yield* plansOf(ctx, changeFrame, statements)
+		return yield* plansOf(ctx, changeFrame, (session) => explainedOf(flights.chunks, session))
 	}
 	const reads = Arr.flatMap(flights.reads, (r): ReadonlyArray<Explained> => [
 		planned(r.sql, r.params),
 		{ statement: { sql: r.sql, params: r.params }, planned: false, part: "statement" }
 	])
-	return yield* plansAfter(ctx, changeFrame, reads, (outcomes) => {
+	return yield* plansAfter(ctx, changeFrame, reads, (session, outcomes) => {
 		const rows = Arr.flatMap(outcomes, (outcome, at) => (at % 2 === 1 ? [outcome.rows] : []))
 		const filled = flights.writes(rows)
 		return filled.ok
-			? explainedOf(filled.value.chunks)
+			? explainedOf(filled.value.chunks, session)
 			: Result.fail(
 					new ReadFailure({
 						reason:
@@ -262,7 +268,9 @@ const explainChange = Effect.fn("explainChange")(function* (
  * EXPLAIN (FORMAT JSON), never ANALYZE, in one transaction of the Db's role that is rolled back. A read, a key and a paged
  * member plan their rows' statements; a ChangeSet plans the variant the Db's claims select, its carriers created and
  * analyzed empty at their places, and a plan that reads before it writes plans its reads, runs them, and plans the
- * writes it fills from their rows in a second flight of the same transaction.
+ * writes it fills from their rows in a second flight of the same transaction. Each planned statement is sent as its
+ * EXPLAIN, a longer text than the one the application sends, so a statement whose text fits the session's message bound
+ * only without EXPLAIN's prefix is refused here at stage resource, where the application sends it.
  */
 export const explainMember = (
 	ctx: ServedDbContext,
