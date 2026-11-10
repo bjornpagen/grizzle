@@ -2,7 +2,11 @@ import { refinedConstants } from "#compiler/check/refinement/index.ts"
 import * as Result from "#compiler/core/result.ts"
 import { constantValidationObjects } from "#compiler/lower/shapes/refined/index.ts"
 import { noTextDomainUses } from "#compiler/physical/ddl/domains.ts"
-import { type InstallExtension, noContribution } from "#compiler/physical/install/extension.ts"
+import {
+	type InstallExtension,
+	noCertificates,
+	noContribution
+} from "#compiler/physical/install/extension.ts"
 
 /** The installer extension that adds the closed payloads' validation object to an installation's Publish phase: every
  * closed text payload and contract payload with a nontrivial refinement is cast to its domain there, where the domain
@@ -26,5 +30,6 @@ export const refinedConstantsExtension: InstallExtension = {
 			}
 			return noContribution
 		}),
-	textDomainUses: noTextDomainUses
+	textDomainUses: noTextDomainUses,
+	certifies: noCertificates
 }

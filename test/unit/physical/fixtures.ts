@@ -2,7 +2,11 @@ import * as Result from "#compiler/core/result.ts"
 import type { ExprDesc, FieldDecl, FieldDesc, LiteralDesc } from "#compiler/ir/desc.ts"
 import type { IndexRequest } from "#compiler/ir/products.ts"
 import { noTextDomainUses } from "#compiler/physical/ddl/domains.ts"
-import { type InstallExtension, noContribution } from "#compiler/physical/install/extension.ts"
+import {
+	type InstallExtension,
+	noCertificates,
+	noContribution
+} from "#compiler/physical/install/extension.ts"
 import { eq, key, on, onWhere, type SchemaDesc, textDesc } from "#test/support/fixtures/ir/desc.ts"
 
 /** The local cluster's migration identity (scripts/pg/init.sh), which an installation names as its owner.
@@ -14,7 +18,8 @@ export const owner = "grizzle_dev"
  * programs' access paths. */
 export const requesting = (requests: ReadonlyArray<IndexRequest>): InstallExtension => ({
 	contribute: () => Result.ok({ ...noContribution, indexRequests: requests }),
-	textDomainUses: noTextDomainUses
+	textDomainUses: noTextDomainUses,
+	certifies: noCertificates
 })
 
 const value: ExprDesc = { kind: "value" }

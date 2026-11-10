@@ -6,7 +6,6 @@ import type {
 	RoleFacts
 } from "#compiler/analysis/isolation/facts.ts"
 import type { LawId } from "#compiler/core/ids.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { TablePrivilege } from "#compiler/core/privilege.ts"
 import type { NativeColumn } from "#compiler/ir/law.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
@@ -31,7 +30,8 @@ export interface RoleSource<Checked, Names, Compiled> {
  *
  * - `triggerLawsOver` (laws/model/model.ts): the laws a relation's rule-over-query triggers still discharge;
  * - `grantedPrivileges` (physical/ddl/roles.ts): a role's table privileges by relation, as its grant plan holds them;
- * - `memberFacts` (program/isolation/extract.ts): a change member's statements, one set per variant of it.
+ * - `memberFacts` (program/isolation/extract.ts): a change member's statements, one set per variant of it that sends
+ *   any.
  *
  * Each is required, so a fact no builder gives is a type error, never a default.
  */
@@ -47,7 +47,7 @@ export interface IsolationSources<Checked, Names, Compiled> {
 		name: string,
 		compiled: Compiled,
 		names: Names
-	) => NonEmptyReadonlyArray<MemberFacts>
+	) => ReadonlyArray<MemberFacts>
 }
 
 /** Values by the declared name of the relation each belongs to, each relation's in the order given. */

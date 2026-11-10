@@ -15,7 +15,11 @@ import type { IndexColumn } from "#compiler/physical/ddl/context.ts"
 import { noTextDomainUses } from "#compiler/physical/ddl/domains.ts"
 import type { PlannedIndex } from "#compiler/physical/indexes/engine.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
-import { type InstallExtension, noContribution } from "#compiler/physical/install/extension.ts"
+import {
+	type InstallExtension,
+	noCertificates,
+	noContribution
+} from "#compiler/physical/install/extension.ts"
 import { printObjectName, quoteIdent, quoteString } from "#compiler/sql/print.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { parsedName, wild } from "#test/support/kernel/naming.ts"
@@ -294,7 +298,8 @@ export const drawnRequests = (specs: ReadonlyArray<RequestSpec>): InstallExtensi
 			indexRequests: Arr.map(specs, (spec, at) => requestOf(spec, at, fieldOf))
 		})
 	},
-	textDomainUses: noTextDomainUses
+	textDomainUses: noTextDomainUses,
+	certifies: noCertificates
 })
 
 /**

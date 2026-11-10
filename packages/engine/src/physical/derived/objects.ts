@@ -35,6 +35,7 @@ import type { InstallOptions } from "#compiler/physical/install/compile.ts"
 import {
 	type InstallContribution,
 	type InstallExtension,
+	noCertificates,
 	noContribution
 } from "#compiler/physical/install/extension.ts"
 
@@ -274,7 +275,8 @@ const derivedRelationExtension = (): InstallExtension => {
 		})
 	return {
 		contribute: extension,
-		textDomainUses: (checked: CheckedSchema) => Result.ok(textColumnUses(derivedAnalysis(checked)))
+		textDomainUses: (checked: CheckedSchema) => Result.ok(textColumnUses(derivedAnalysis(checked))),
+		certifies: noCertificates
 	}
 }
 

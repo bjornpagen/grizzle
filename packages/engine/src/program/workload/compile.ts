@@ -1,3 +1,4 @@
+import type { RoleIsolation } from "#compiler/analysis/isolation/certify.ts"
 import { checkedRoleOver, type CheckedSchema } from "#compiler/analysis/schema.ts"
 import { checkQuery } from "#compiler/check/index.ts"
 import { appendAll } from "#compiler/core/array.ts"
@@ -33,6 +34,7 @@ import {
 	statisticsKinds
 } from "#compiler/physical/statistics/statistics.ts"
 
+import { certification } from "#compiler/program/isolation/certification.ts"
 import {
 	parseSchemaInput,
 	type SchemaArtifacts,
@@ -437,10 +439,12 @@ export interface ServedLogin extends ChangeLogin {
  * The plan of an installation's logins as generate compiles them: their workloads' plan (compileWorkload), and every
  * role of every login with the ChangeSets of the login's workloads that run on it compiled once over the artifacts its
  * login's served file compiles over (change.ts loginChanges), by the login's name, then the role's name in it: what each
- * login's served file projects.
+ * login's served file projects; and the certificate of each of those roles (program/isolation/certification.ts), the
+ * level its writes begin at, which the installation's guards follow (physical/install/compile.ts installationOver).
  */
 export interface ServedWorkloadPlan extends WorkloadPlan {
 	readonly changes: ReadonlyMap<string, ReadonlyMap<string, RoleChanges>>
+	readonly certification: ReadonlyArray<RoleIsolation>
 }
 
 /** The plan of the logins refused: a program of a workload the checker refuses, or a login's change compile. */
@@ -450,7 +454,7 @@ export type ServedWorkloadRefused =
 
 /**
  * The plan of `logins` over `schema` under the options' artifacts as generate compiles it (ServedWorkloadPlan): their
- * workloads' plan, then each login's change members, in the logins' order.
+ * workloads' plan, then each login's change members, in the logins' order, then every role's certificate over them.
  */
 export const servedWorkload = (
 	logins: ReadonlyArray<ServedLogin>,
@@ -473,7 +477,13 @@ export const servedWorkload = (
 		}
 		changes.set(login.name, roles.value)
 	}
-	return Result.ok({ ...planned.value, changes })
+	return Result.map(
+		Result.mapError(certification(options.artifacts, changes), (error): ServedWorkloadRefused => ({
+			kind: "workload",
+			error
+		})),
+		(certified): ServedWorkloadPlan => ({ ...planned.value, changes, certification: certified })
+	)
 }
 
 /**

@@ -1,3 +1,4 @@
+import type { RoleIsolation } from "#compiler/analysis/isolation/certify.ts"
 import { malformedDescription } from "#compiler/core/errors.ts"
 import type { SchemaFingerprint } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -10,6 +11,7 @@ import type { InstallOptions } from "#compiler/physical/install/compile.ts"
 import {
 	type InstallContribution,
 	type InstallExtension,
+	noCertificates,
 	noContribution
 } from "#compiler/physical/install/extension.ts"
 import type { StatisticsRequest } from "#compiler/physical/statistics/statistics.ts"
@@ -71,8 +73,17 @@ export const workloadExtension = (workload: WorkloadPhysical): InstallExtension 
 		}
 		return Result.ok(contribution)
 	},
-	textDomainUses: noTextDomainUses
+	textDomainUses: noTextDomainUses,
+	certifies: noCertificates
 })
+
+/**
+ * The served workload's extension: the workload's (workloadExtension), and the certificate of every role of every
+ * login its plan certified (program/workload/compile.ts servedWorkload), which the installation's guards follow.
+ */
+export const servedWorkloadExtension = (
+	workload: WorkloadPhysical & { readonly certification: ReadonlyArray<RoleIsolation> }
+): InstallExtension => ({ ...workloadExtension(workload), certifies: workload.certification })
 
 /** Installer options with the workload extension after the caller's extensions. */
 export const withWorkload = (

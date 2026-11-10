@@ -29,7 +29,7 @@ import { catalogLowerers } from "#compiler/lower/shapes/catalog/native.ts"
 import { workloadExtension } from "#compiler/physical/access/extension.ts"
 import { noTextDomainUses } from "#compiler/physical/ddl/domains.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
-import type { InstallExtension } from "#compiler/physical/install/extension.ts"
+import { type InstallExtension, noCertificates } from "#compiler/physical/install/extension.ts"
 import { installBasis } from "#compiler/physical/install/plan.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
 import { textOfParam } from "#test/support/wire.ts"
@@ -341,7 +341,8 @@ const workloadExtensionOver = (
 				(plan) => workloadExtension(plan).contribute(b)
 			)
 		),
-	textDomainUses: noTextDomainUses
+	textDomainUses: noTextDomainUses,
+	certifies: noCertificates
 })
 
 /** The workload of `logins` alone (compileTestWorkload), compiled against the schema the installation installs. */

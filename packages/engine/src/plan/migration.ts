@@ -40,7 +40,7 @@ export {
 	splitStatements
 } from "#compiler/deploy/render/markers.ts"
 export { derivedFacts } from "#compiler/deploy/snapshot/build.ts"
-export { workloadExtension } from "#compiler/physical/access/extension.ts"
+export { servedWorkloadExtension } from "#compiler/physical/access/extension.ts"
 export { completeInstallOptions } from "#compiler/physical/complete.ts"
 export { literalPackFault, type PackFault } from "#compiler/physical/ddl/literal.ts"
 export { type Installation, installationOver } from "#compiler/physical/install/compile.ts"
@@ -48,6 +48,7 @@ export {
 	accessDrift,
 	accessDriftText,
 	compileWorkload,
+	type ServedWorkloadPlan,
 	servedWorkload
 } from "#compiler/program/workload/compile.ts"
 export { servedRosters } from "#compiler/program/served.ts"

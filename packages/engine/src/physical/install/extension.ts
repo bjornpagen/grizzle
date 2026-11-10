@@ -1,3 +1,4 @@
+import type { RoleIsolation } from "#compiler/analysis/isolation/certify.ts"
 import type { CheckedSchema } from "#compiler/analysis/schema.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type * as Result from "#compiler/core/result.ts"
@@ -37,4 +38,14 @@ export interface InstallExtension {
 	readonly textDomainUses: (
 		checked: CheckedSchema
 	) => Result.Result<ReadonlyArray<TextColumnUse>, CompileError>
+	/**
+	 * The certificates of the roles it certifies (analysis/isolation/certify.ts), which the installation reads before
+	 * it builds anything, since each table's guard follows the levels of the roles that write it: the served
+	 * workload's, one for every role of its logins (physical/access/extension.ts servedWorkloadExtension); every other
+	 * extension's, none (`noCertificates`).
+	 */
+	readonly certifies: ReadonlyArray<RoleIsolation>
 }
+
+/** No certificate: what an extension that compiles no served workload certifies. */
+export const noCertificates: ReadonlyArray<RoleIsolation> = []

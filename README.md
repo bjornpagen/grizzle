@@ -2975,6 +2975,13 @@ by `name`, or a whole `Fact`. **`CursorError`**'s reason is its cursor fault wor
 
 - **Every transaction is SERIALIZABLE.** The first migration makes it the database's default, so every session gets
   it, psql included. A write below it on a grizzle table is refused with 25000, by the table's guard trigger.
+- **A role's writes run READ COMMITTED only where generate proves it.** `grizzle generate` certifies each role of each
+  login from the statements its workload's ChangeSets send, against every writer of the installation. A role is
+  certified READ COMMITTED when it states `insert`, so it holds only INSERT and SELECT on what it writes, and every
+  read its writes make is one no concurrent writer can change between its snapshot and its commit. Its served file
+  then begins its writes at READ COMMITTED. Every other role stays SERIALIZABLE, and so does a role whose workload
+  holds no ChangeSet. Reads are SERIALIZABLE READ ONLY whatever the role's level. A file `compileServed` compiles from
+  other programs than the committed workload serves every role SERIALIZABLE, since no certificate covers them.
 - **A table whose every writer is certified READ COMMITTED has no guard.** Such a table is one some role writes, and
   every role that holds INSERT, UPDATE or DELETE on it is certified to run its writes READ COMMITTED and holds only
   INSERT and SELECT there. The installation creates no guard trigger for it, so a write below SERIALIZABLE is admitted

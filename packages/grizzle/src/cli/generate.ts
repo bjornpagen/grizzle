@@ -42,6 +42,7 @@ import type { RoleChanges } from "#compiler/plan/change.ts"
 import {
 	type Codebook,
 	type CompileError,
+	type Isolation,
 	defect,
 	draftCodebook,
 	rostersOf,
@@ -66,8 +67,9 @@ import {
 	lossText,
 	type MigrationDraft,
 	type MigrationFolder,
+	type ServedWorkloadPlan,
 	servedWorkload,
-	workloadExtension
+	servedWorkloadExtension
 } from "#compiler/plan/migration.ts"
 import {
 	type DeploySnapshot,
@@ -245,21 +247,28 @@ type SchemaDraft = (
 
 /**
  * What one login's served file compiles over: its base's artifacts, compiled under the draft's codes over every
- * relation, and each of its roles with its ChangeSets compiled once over them by the draft's workload plan
- * (program/workload/compile.ts servedWorkload), by the role's name in the login.
+ * relation; each of its roles with its ChangeSets compiled once over them by the draft's workload plan
+ * (program/workload/compile.ts servedWorkload), by the role's name in the login; and the level each role's writes begin
+ * at, its certificate's in the plan, by the role's declared name.
  */
 export interface PlannedLogin {
 	readonly artifacts: SchemaArtifacts
 	readonly roles: ReadonlyMap<string, RoleChanges>
+	readonly levels: ReadonlyMap<string, Isolation>
 }
 
 /**
- * What every login of a schema's served file compiles over, by its declared name (PlannedLogin, draftInput); none for
- * a schema with no login, which compiles no served file.
+ * What every login of a schema's served file compiles over, by its declared name (PlannedLogin, draftInput), and the
+ * certificate of every role of every login, its reasons with it, which the plan certified each level from; none for a
+ * schema with no login, which compiles no served file.
  */
 export type ServedBasis =
 	| { readonly kind: "noLogin" }
-	| { readonly kind: "logins"; readonly logins: ReadonlyMap<string, PlannedLogin> }
+	| {
+			readonly kind: "logins"
+			readonly logins: ReadonlyMap<string, PlannedLogin>
+			readonly certification: ServedWorkloadPlan["certification"]
+	  }
 
 /**
  * The logins' workloads and their roles' write filters, planned under the configured schema's artifacts and the names
@@ -321,13 +330,19 @@ const plannedLogins = Effect.fn("plannedLogins")(function* (
 	)
 	const basisOf: ServedBasis = {
 		kind: "logins",
+		certification: plan.certification,
 		logins: new Map(
 			Arr.map(served, ({ login: l, artifacts }) => {
 				const roles = plan.changes.get(l.owned.name)
 				if (roles === undefined) {
 					throw defect(`the change compile of login ${l.owned.name}, a login of the plan`)
 				}
-				return [l.owned.name, { artifacts, roles }] as const
+				const levels = new Map(
+					Arr.flatMap(plan.certification, (c) =>
+						c.login === l.owned.name ? [[c.role, c.certificate.level] as const] : []
+					)
+				)
+				return [l.owned.name, { artifacts, roles, levels }] as const
 			})
 		)
 	}
@@ -387,7 +402,7 @@ const draftInput = Effect.fn("draftInput")(function* (
 		owned,
 		installationsOf(owned),
 		Arr.map(logins, (l) => l.owned),
-		planned === undefined ? [] : [workloadExtension(planned.plan)],
+		planned === undefined ? [] : [servedWorkloadExtension(planned.plan)],
 		codes
 	)
 	const installation = yield* Effect.mapError(
@@ -475,7 +490,13 @@ export const servedFiles = Effect.fn("servedFiles")(function* (
 			throw defect(`the plan of login ${login.owned.name}, a login of the configuration`)
 		}
 		return Effect.mapError(
-			servedEntry(login, snapshot, planned.artifacts, planned.roles),
+			servedEntry(login, snapshot, planned.artifacts, planned.roles, (role) => {
+				const level = planned.levels.get(role)
+				if (level === undefined) {
+					throw defect(`the certificate of role ${role} of login ${login.owned.name}`)
+				}
+				return level
+			}),
 			(refusal) =>
 				cliError(
 					new ServedRefused({

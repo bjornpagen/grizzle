@@ -9,7 +9,7 @@ import {
 	maxIdentifierBytes
 } from "#compiler/core/identity.ts"
 import type { IdentityKind } from "#compiler/core/ids.ts"
-import { defined } from "#compiler/core/invariant.ts"
+import { defect, defined } from "#compiler/core/invariant.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
@@ -112,16 +112,37 @@ export interface CertifiedRole {
 	readonly certificate: { readonly level: Isolation }
 }
 
-/** Every role of the plan's logins SERIALIZABLE, in login then role order: the certification an installation holds
- * until it certifies its roles from their workloads, so every table keeps its guard. */
-const uncertified = (plan: InstallPlan): ReadonlyArray<CertifiedRole> =>
-	plan.logins.flatMap(({ login, roles }) =>
-		roles.map(({ checked }): CertifiedRole => ({
-			login: login.name,
-			role: checked.world.role.name,
-			certificate: { level: "serializable" }
-		}))
+/**
+ * Each role of the plan's logins at the level its certificate states, in login then role order: the certificate the
+ * served workload's extension states for it (physical/access/extension.ts servedWorkloadExtension), which certified it
+ * over every login's change members (program/isolation/certification.ts), or SERIALIZABLE where no extension states
+ * one, as an installation with no served workload holds its roles, so their tables keep their guards. A certificate
+ * stated twice, or of a role the plan does not install, is a defect of the caller that compiled the workload over
+ * other logins than the installation's.
+ */
+const certificationOf = (
+	plan: InstallPlan,
+	extensions: ReadonlyArray<InstallExtension>
+): ReadonlyArray<CertifiedRole> => {
+	const stated = extensions.flatMap((e) => e.certifies)
+	const installed = plan.logins.flatMap(({ login, roles }) =>
+		roles.map(({ checked }) => ({ login: login.name, role: checked.world.role.name }))
 	)
+	for (const c of stated) {
+		const same = stated.filter((d) => d.login === c.login && d.role === c.role)
+		if (same.length > 1 || !installed.some((r) => r.login === c.login && r.role === c.role)) {
+			throw defect(`one certificate of role ${c.role} of login ${c.login}, a role it installs`)
+		}
+	}
+	return installed.map((r): CertifiedRole => ({
+		...r,
+		certificate: {
+			level:
+				stated.find((c) => c.login === r.login && c.role === r.role)?.certificate.level ??
+				"serializable"
+		}
+	}))
+}
 
 /**
  * A schema identifier the installation may create: a plain lowercase identifier, at most maxIdentifierBytes, outside
@@ -276,7 +297,7 @@ export const installationOver = (
 		Result.flatMap(planInstallation(basis, settings, options.extensions), (plan) =>
 			catchRefusal((): Installation => {
 				const { owned, model, planned } = basis
-				const certification = uncertified(plan)
+				const certification = certificationOf(plan, options.extensions)
 				const levelOf = (login: string, role: string) =>
 					defined(
 						certification.find((c) => c.login === login && c.role === role),

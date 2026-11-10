@@ -15,7 +15,11 @@ import type { OptimizedProgram } from "#compiler/lower/optimize/pipeline.ts"
 import { specifiedStatements } from "#compiler/lower/template.ts"
 import { workloadRequests as accessRequests } from "#compiler/physical/access/extension.ts"
 import { noTextDomainUses } from "#compiler/physical/ddl/domains.ts"
-import { type InstallExtension, noContribution } from "#compiler/physical/install/extension.ts"
+import {
+	type InstallExtension,
+	noCertificates,
+	noContribution
+} from "#compiler/physical/install/extension.ts"
 import { queryInput } from "#compiler/program/compile.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { Compute } from "#compiler/public/compute.ts"
@@ -375,7 +379,8 @@ const workloadRequests = (programs: Readonly<Record<string, unknown>>): InstallE
 				indexRequests: Arr.filter(accessRequests(plan, "vector_ext"), (r) => r.method === "hnsw")
 			})
 		),
-	textDomainUses: noTextDomainUses
+	textDomainUses: noTextDomainUses,
+	certifies: noCertificates
 })
 
 const checked = (q: unknown) =>
