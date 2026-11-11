@@ -6,8 +6,10 @@ import * as Option from "effect/Option"
 import * as Result from "effect/Result"
 import type * as Scope from "effect/Scope"
 import {
+	faultAt,
 	type ParsedConnection,
 	parseConnection,
+	type SettingPath,
 	servedLoginSettings
 } from "#adapter/connection/config.ts"
 import { startupVariableSet } from "#adapter/connection/environment.ts"
@@ -16,7 +18,8 @@ import { OpenError } from "#adapter/errors/execution.ts"
 import {
 	ConnectionEnvironmentRefused,
 	DbConfigRefused,
-	RoleOutsideLayers
+	RoleOutsideLayers,
+	type SettingFault
 } from "#adapter/errors/failures.ts"
 import { type LoadedLogin, type LoadedRole, loadServed } from "#adapter/served/load.ts"
 import type {
@@ -184,8 +187,11 @@ interface ParsedDbConfig extends ParsedConnection {
 /** The pool hook of a config that names none. */
 const attachNothing = (): void => undefined
 
-const refusedConfig = (detail: string): OpenError =>
-	new OpenError({ reason: new DbConfigRefused({ detail }) })
+const refusedConfig = (fault: SettingFault): OpenError =>
+	new OpenError({ reason: new DbConfigRefused(fault) })
+
+/** The block a DbConfig's settings sit in, as a refusal names their paths. */
+const dbConfig: SettingPath = ["DbConfig"]
 
 /**
  * The keys of a served login value the layer leaves unread when it reads the value: its file, which it takes once off
@@ -193,7 +199,7 @@ const refusedConfig = (detail: string): OpenError =>
  */
 const loginUnread: ReadonlySet<string> = new Set(["file", "roles"])
 
-const loginRefused = "DbConfig.login must be a served login built by served(...)"
+const loginRefused: SettingFault = faultAt(dbConfig, "login", { kind: "servedLogin" })
 
 /**
  * The config's own settings, read once at the boundary as the connection's are (core/host.ts readCaller): the served
@@ -203,57 +209,50 @@ const loginRefused = "DbConfig.login must be a served login built by served(...)
  */
 const ownSettings = <L extends AnyLogin>(
 	config: DbConfigShape<L>
-): Result.Result<Pick<ParsedDbConfig, "login" | "attachPool" | "token">, string> =>
-	readHost(
-		"DbConfig must be an object whose settings read as data: no getter, setter or refusing proxy",
-		() => {
-			const login = config.login
-			const hook = config.attachPool
-			const verify = config.verify
-			/** The same values as plain JavaScript passes them: a block written in JavaScript is checked all the same. */
-			const passedLogin: unknown = login
-			const passedHook: unknown = hook
-			const passedVerify: unknown = verify
-			if (typeof passedLogin !== "object" || passedLogin === null) {
-				return Result.fail(loginRefused)
-			}
-			const read = readCaller(passedLogin, loginUnread)
-			if (!read.ok) {
-				return Result.fail(loginRefused)
-			}
-			const { kind, name, base } = read.value.data
-			if (
-				kind !== "servedLogin" ||
-				typeof name !== "string" ||
-				typeof base !== "string" ||
-				!read.value.keys.includes("file")
-			) {
-				return Result.fail(loginRefused)
-			}
-			if (hook !== undefined && typeof passedHook !== "function") {
-				return Result.fail(
-					"DbConfig.attachPool must be a function, called with each pool the layer builds"
-				)
-			}
-			if (verify !== undefined && typeof passedVerify !== "function") {
-				return Result.fail(
-					"DbConfig.verify must be a function from a token to the payload its claims are read from"
-				)
-			}
-			return Result.succeed({
-				login: { name, base, file: login.file },
-				attachPool: hook ?? attachNothing,
-				token: verify === undefined ? { kind: "none" } : { kind: "verify", verify }
-			})
+): Result.Result<Pick<ParsedDbConfig, "login" | "attachPool" | "token">, SettingFault> =>
+	readHost({ setting: dbConfig, rule: { kind: "data" } }, () => {
+		const login = config.login
+		const hook = config.attachPool
+		const verify = config.verify
+		/** The same values as plain JavaScript passes them: a block written in JavaScript is checked all the same. */
+		const passedLogin: unknown = login
+		const passedHook: unknown = hook
+		const passedVerify: unknown = verify
+		if (typeof passedLogin !== "object" || passedLogin === null) {
+			return Result.fail(loginRefused)
 		}
-	)
+		const read = readCaller(passedLogin, loginUnread)
+		if (!read.ok) {
+			return Result.fail(loginRefused)
+		}
+		const { kind, name, base } = read.value.data
+		if (
+			kind !== "servedLogin" ||
+			typeof name !== "string" ||
+			typeof base !== "string" ||
+			!read.value.keys.includes("file")
+		) {
+			return Result.fail(loginRefused)
+		}
+		if (hook !== undefined && typeof passedHook !== "function") {
+			return Result.fail(faultAt(dbConfig, "attachPool", { kind: "function" }))
+		}
+		if (verify !== undefined && typeof passedVerify !== "function") {
+			return Result.fail(faultAt(dbConfig, "verify", { kind: "function" }))
+		}
+		return Result.succeed({
+			login: { name, base, file: login.file },
+			attachPool: hook ?? attachNothing,
+			token: verify === undefined ? { kind: "none" } : { kind: "verify", verify }
+		})
+	})
 
 /** The DbConfig given to DbLayer.make, parsed once (connection/config.ts); a refusal is OpenError{stage: "config"}. */
 export const parseServedConfig = <L extends AnyLogin>(
 	config: DbConfigShape<L>
 ): Result.Result<ParsedDbConfig, OpenError> =>
 	Result.mapError(
-		Result.flatMap(parseConnection(config, "DbConfig", servedLoginSettings), (parsed) =>
+		Result.flatMap(parseConnection(config, dbConfig, servedLoginSettings), (parsed) =>
 			Result.map(ownSettings(config), (settings) => ({ ...parsed, ...settings }))
 		),
 		refusedConfig
@@ -270,7 +269,11 @@ const makeServedSessions = Effect.fn("makeServedSessions")(function* (
 	const reading = Arr.findFirst(login.roles, (role) => role.contexts.length > 0)
 	if (config.token.kind === "none" && Option.isSome(reading)) {
 		return yield* refusedConfig(
-			`DbConfig.verify must be a function: role ${reading.value.name} of login ${login.login} reads a context`
+			faultAt(dbConfig, "verify", {
+				kind: "verifier",
+				role: reading.value.name,
+				login: login.login
+			})
 		)
 	}
 	const pool = yield* makePool({

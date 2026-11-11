@@ -1,4 +1,5 @@
 import net from "node:net"
+import { inspect } from "node:util"
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -37,6 +38,7 @@ import {
 	ClaimRefused,
 	ConnectionEnvironmentRefused,
 	DbConfigRefused,
+	type SettingRule,
 	TokenError
 } from "#adapter/errors/failures.ts"
 import { Db } from "#adapter/public/db.ts"
@@ -45,7 +47,7 @@ import type { DbConfigShape } from "#adapter/types/layer.ts"
 import { uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { context, login, relation, role, schema } from "#compiler/public/schema.ts"
-import { assert, nonEmpty } from "#test/support/assert.ts"
+import { assert, lacksText, nonEmpty } from "#test/support/assert.ts"
 import { compiledServedFile } from "#test/support/compiled-served.ts"
 import { caseHang, nodeTimerMax, nodeTimerMin } from "#test/support/limits.ts"
 import { memoryEndpoint, memoryTransport, tlsMaterial } from "#test/support/memory-tls.ts"
@@ -73,7 +75,8 @@ import { withLayer } from "#test/support/with-layer.ts"
  * key at the top, in the transport or in the pool, the settings the connection no longer has among them; a transport
  * no verify-full connection can use; a login no served(...) built; a pool hook or a verify that is no function; no
  * verify for a login one of whose roles reads a context), fails the layer with OpenError{stage: "config"} whose
- * DbConfigRefused names the faulty setting and never quotes the password. The migration connection's role-specific
+ * DbConfigRefused names the faulty setting by its path (SettingFault), the rule an unknown key and a host that is a path
+ * break, and never quotes the password. The migration connection's role-specific
  * faults are test/unit/cli/connection.test.ts's: one parser reads both blocks.
  *
  * The same valid configs under a drawn process environment, the one pg reads (connection/environment.ts): each startup
@@ -282,9 +285,25 @@ const pathHost = (host: string): Fault => ({
 const setting = (s: Setting): Named => ({ kind: "setting", setting: s })
 const unknownKey = (key: string): Named => ({ kind: "unknown", key })
 
-/** The text a refusal names `names` by. */
+/** The text a refusal names `names` by, for a failure's report. */
 const nameText = (names: Named): string =>
 	names.kind === "setting" ? `DbConfig.${names.setting}` : Formatter.format(names.key)
+
+/** The setting a fault's refusal must name, its path from the DbConfig: a setting's, or an unknown key's at its place. */
+const settingOf = (f: Fault): ReadonlyArray<string> =>
+	f.names.kind === "setting"
+		? ["DbConfig", ...Str.split(f.names.setting, ".")]
+		: f.place === "top"
+			? ["DbConfig", f.names.key]
+			: ["DbConfig", f.place, f.names.key]
+
+/** The rule a fault's refusal must name where the fault decides it: an unknown key's, and a host that is a path's. */
+const ruleOf = (f: Fault): Option.Option<SettingRule["kind"]> =>
+	f.names.kind === "unknown"
+		? Option.some("known")
+		: f.reaches === "refused a host that is a path"
+			? Option.some("networkHost")
+			: Option.none()
 
 /** A timer's delay no timer keeps: none, one fired at once, one past the longest, or no integer. */
 const badDelays: Arr.NonEmptyReadonlyArray<unknown> = [
@@ -687,12 +706,20 @@ describe("DbLayer.make", () => {
 								error.reason instanceof DbConfigRefused,
 								`the fault at ${names} has no DbConfigRefused reason`
 							)
-							const detail = error.reason.detail
-							assert.ok(Str.includes(names)(detail), `${detail} does not name ${names}`)
-							assert.ok(!Str.includes(d.password)(detail), `${detail} quotes the password`)
-							assert.ok(
-								!Str.includes(d.password)(error.message),
-								`${error.message} quotes the password`
+							const refused = error.reason
+							assert.deepEqual<ReadonlyArray<string>>(
+								refused.setting,
+								settingOf(f),
+								`the fault at ${names} names its setting`
+							)
+							Option.match(ruleOf(f), {
+								onNone: () => undefined,
+								onSome: (kind) => assert.equal(refused.rule.kind, kind, `the fault at ${names}`)
+							})
+							lacksText(
+								`${error.message}\n${inspect(refused, { depth: 12 })}`,
+								d.password,
+								`the refusal of the fault at ${names} quotes the password`
 							)
 							k.note(f.reaches)
 						})

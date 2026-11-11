@@ -5,7 +5,7 @@ import { array, element, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Option, Result, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Result } from "effect"
 import { rowOptions } from "#adapter/engine.ts"
 import { pageEdges } from "#adapter/page/execute.ts"
 import type { SentRuns } from "#adapter/reader/execution.ts"
@@ -14,6 +14,7 @@ import { compiledPageRuntime } from "#adapter/served/forms.ts"
 import {
 	attachment,
 	type BindContext,
+	type ChildLaw,
 	type Delivery,
 	type Layout,
 	licenses,
@@ -21,7 +22,8 @@ import {
 	type RecordField,
 	type Row,
 	someChild,
-	textColumn
+	textColumn,
+	UnlawfulDelivery
 } from "#compiler/core/decoder.ts"
 import { codeNames } from "#compiler/ir/codes.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
@@ -34,8 +36,9 @@ import { contained, on, relation, schema } from "#compiler/public/schema.ts"
  * statement's compiled proof says it can deliver it, never repaired on the host.
  *
  * - An attachment's delivery (core/decoder.ts): an array delivers its children, an Option at most one and the one child
- *   exactly one; a child more than its proof allows, or the child a proof requires missing, is a defect naming the
- *   attachment, never the first of several. Oracle: the specification of the deliveries, enumerated in a box of every
+ *   exactly one; a child more than its proof allows, or the child a proof requires missing, is the defect
+ *   UnlawfulDelivery, its fields the attachment, the law it breaks and the children the row held, never the first of
+ *   several. Oracle: the specification of the deliveries, enumerated in a box of every
  *   delivery, every proof that licenses it and every count of children up to three.
  * - A statement's rows (reader/execution.ts rowsOf): every statement grizzle delivers, an attachment's included, is a
  *   set, so its answer holding one row twice, under the column types' equality (1.5 and 1.50 alike), is
@@ -57,7 +60,7 @@ import { statementOutput } from "#compiler/runtime/lower/tree.ts"
 import { bindGroups, named, record } from "#compiler/schema/record.ts"
 import { servedSource } from "#compiler/served/read.ts"
 import { servedSpine } from "#compiler/served/spine.ts"
-import { assert, defined, succeeded, throwsDefect } from "#test/support/assert.ts"
+import { assert, defined, succeeded } from "#test/support/assert.ts"
 import {
 	codebookFor,
 	compileTemplate,
@@ -118,7 +121,7 @@ type Expected =
 	| { readonly kind: "children"; readonly n: number }
 	| { readonly kind: "option"; readonly child: Option.Option<{ readonly c: string }> }
 	| { readonly kind: "one"; readonly child: { readonly c: string } }
-	| { readonly kind: "defect" }
+	| { readonly kind: "defect"; readonly law: ChildLaw }
 
 const expected = (reader: Reader, n: number): Expected => {
 	switch (reader) {
@@ -129,12 +132,14 @@ const expected = (reader: Reader, n: number): Expected => {
 				? { kind: "option", child: Option.none() }
 				: n === 1
 					? { kind: "option", child: Option.some(childOf("c0")) }
-					: { kind: "defect" }
+					: { kind: "defect", law: "atMostOne" }
 		case "one":
 		case "a selected arm":
-			return n === 1 ? { kind: "one", child: childOf("c0") } : { kind: "defect" }
+			return n === 1
+				? { kind: "one", child: childOf("c0") }
+				: { kind: "defect", law: n === 0 ? "exactlyOne" : "atMostOne" }
 		case "an unselected arm":
-			return n === 0 ? { kind: "option", child: Option.none() } : { kind: "defect" }
+			return n === 0 ? { kind: "option", child: Option.none() } : { kind: "defect", law: "none" }
 	}
 }
 
@@ -221,10 +226,15 @@ describe("an attachment's delivery", () => {
 							switch (want.kind) {
 								case "defect": {
 									c.note("a defect")
-									const named = throwsDefect(() => read(row), `${reader} of ${n}`)
-									assert.ok(
-										Str.includes("kids")(named),
-										`the defect names the attachment: ${named}`
+									const died = Result.try(() => read(row))
+									if (Result.isSuccess(died) || !(died.failure instanceof UnlawfulDelivery)) {
+										return assert.fail(`${reader} of ${n} dies an UnlawfulDelivery`)
+									}
+									const defect = died.failure
+									assert.deepEqual(
+										{ attachment: defect.attachment, law: defect.law, children: defect.children },
+										{ attachment: "kids", law: want.law, children: n },
+										`${reader} of ${n}`
 									)
 									return
 								}

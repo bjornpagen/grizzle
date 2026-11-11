@@ -279,6 +279,53 @@ export interface BindContext {
 }
 
 /**
+ * What a row's law allows it to hold under an attachment: at most one child (an Option, or the one child before its
+ * count is read), exactly one (the one child, an alternatives arm its handle selects), or none (an alternatives arm its
+ * handle does not select).
+ */
+export type ChildLaw = "atMostOne" | "exactlyOne" | "none"
+
+/** How a defect states a child law. */
+const childLawText: { readonly [L in ChildLaw]: string } = {
+	atMostOne: "at most one child",
+	exactlyOne: "exactly one child",
+	none: "no child"
+}
+
+/**
+ * A row's children under an attachment that the law its delivery rests on excludes: the database holds a state the
+ * proof says it cannot, so it is a defect, never a refusal, and the read dies with it. It names the attachment, the law
+ * and how many children the row held, never a first of several taken silently.
+ */
+export class UnlawfulDelivery extends Error {
+	readonly _tag = "UnlawfulDelivery" as const
+	readonly attachment: string
+	readonly law: ChildLaw
+	readonly children: number
+
+	constructor(fields: {
+		readonly attachment: string
+		readonly law: ChildLaw
+		readonly children: number
+	}) {
+		super(
+			`grizzle internal invariant: a row holds ${fields.children} children under the attachment ${fields.attachment}, which its law allows ${childLawText[fields.law]}`
+		)
+		this.attachment = fields.attachment
+		this.law = fields.law
+		this.children = fields.children
+	}
+
+	static {
+		Object.defineProperty(this.prototype, "name", {
+			value: "UnlawfulDelivery",
+			writable: true,
+			configurable: true
+		})
+	}
+}
+
+/**
  * Whether a delivery the analysis proved licenses the stated one: an array always; an Option where at most one child
  * is proved; the one child only where exactly one is.
  */

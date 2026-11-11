@@ -2,13 +2,13 @@ import { createSecureContext, type SecureContext } from "node:tls"
 import * as Arr from "effect/Array"
 import * as Brand from "effect/Brand"
 import * as Effect from "effect/Effect"
-import * as Formatter from "effect/Formatter"
 import * as Option from "effect/Option"
 import * as Rec from "effect/Record"
 import * as Redacted from "effect/Redacted"
 import * as Result from "effect/Result"
 import * as Str from "effect/String"
 import { readHost } from "#adapter/engine.ts"
+import type { SettingFault, SettingRule } from "#adapter/errors/failures.ts"
 import type { PgDriver, PgSocket } from "#adapter/types/driver.ts"
 import type { DbConnection, PoolBounds, Transport } from "#adapter/types/layer.ts"
 import type { Limit } from "#compiler/plan/common.ts"
@@ -31,12 +31,21 @@ import {
  *
  * What a block holds besides its connection: its own settings' keys (`settings`), and what the parse of the block
  * returns of them beside the connection, `E`, read off the block's plain data where its connection's settings are read
- * (`parse`), or the refusal's text, which names the setting it refuses.
+ * (`parse`), or the setting it refuses and the rule it breaks (SettingFault).
  */
 export interface BlockSettings<E> {
 	readonly settings: ReadonlyArray<string>
-	readonly parse: (plain: CallerRecord, where: string) => Result.Result<E, string>
+	readonly parse: (plain: CallerRecord, where: SettingPath) => Result.Result<E, SettingFault>
 }
+
+/** Where a setting sits, its path from its block: `["DbConfig", "transport", "port"]`. */
+export type SettingPath = SettingFault["setting"]
+
+/** The fault of the setting `key` of `where`, which breaks `rule`. */
+export const faultAt = (where: SettingPath, key: string, rule: SettingRule): SettingFault => ({
+	setting: [...where, key],
+	rule
+})
 
 /** A migration connection's: its login role, a nonempty string, which the parse returns beside the connection. */
 export const roleSettings: BlockSettings<{ readonly role: string }> = {
@@ -45,7 +54,7 @@ export const roleSettings: BlockSettings<{ readonly role: string }> = {
 		const { role } = plain
 		return typeof role === "string" && role !== ""
 			? Result.succeed({ role })
-			: Result.fail(`${where}.role must be a nonempty string`)
+			: Result.fail(faultAt(where, "role", { kind: "nonemptyText" }))
 	}
 }
 
@@ -58,7 +67,7 @@ export const loginSettings: BlockSettings<{ readonly pool: PoolBounds }> = {
 	settings: ["login", "snapshot", "pool", "attachPool", "verify"],
 	parse: (plain, where) => {
 		const { pool } = plain
-		return Result.map(parsePool(pool, `${where}.pool`), (bounds) => ({ pool: bounds }))
+		return Result.map(parsePool(pool, [...where, "pool"]), (bounds) => ({ pool: bounds }))
 	}
 }
 
@@ -191,16 +200,23 @@ const integerIn = (v: number, least: number, most: number): boolean =>
 /** Whether `v` is a timer's delay: an integer number of milliseconds from 1 to the longest a timer keeps. */
 const timerDelay = (v: number): boolean => integerIn(v, 1, timerMaxMs.value)
 
-/** The refusal of the first of `keys` that is no setting of `where`, or none. */
+/** The rule a timer's delay keeps. */
+const timerRule: SettingRule = {
+	kind: "integer",
+	least: 1,
+	most: timerMaxMs.value,
+	unit: "milliseconds"
+}
+
+/** The fault of the first of `keys` that is no setting of `where`, or none. */
 const unknownKey = (
 	keys: ReadonlyArray<string>,
 	allowed: ReadonlyArray<string>,
-	where: string
-): Option.Option<string> =>
+	where: SettingPath
+): Option.Option<SettingFault> =>
 	Option.map(
 		Arr.findFirst(keys, (k) => !allowed.includes(k)),
-		(unknown) =>
-			`${where} has no setting ${Formatter.format(unknown)}; its settings are ${Arr.join(allowed, ", ")}`
+		(unknown) => faultAt(where, unknown, { kind: "known", settings: allowed })
 	)
 
 /**
@@ -285,12 +301,12 @@ const readTransport = (
 
 /**
  * A block's transport as its read left it (readTransport): parsed, its host minted a network host and its CA a bundle of
- * PEM texts, or the refusal's text.
+ * PEM texts, or the setting it refuses.
  */
 const parseTransport = (
 	read: TransportRead,
-	where: string
-): Result.Result<ParsedTransport, string> => {
+	where: SettingPath
+): Result.Result<ParsedTransport, SettingFault> => {
 	const extra = unknownKey(read.setting.keys, transportSettings, where)
 	if (Option.isSome(extra)) {
 		return Result.fail(extra.value)
@@ -299,38 +315,32 @@ const parseTransport = (
 	const open = read.open
 	const passedOpen: unknown = open
 	if (kind !== "sslRequest") {
-		return Result.fail(
-			`${where}.kind must be "sslRequest": an SSLRequest, then verify-full TLS over the socket`
-		)
+		return Result.fail(faultAt(where, "kind", { kind: "sslRequest" }))
 	}
 	if (typeof host !== "string" || host === "") {
-		return Result.fail(`${where}.host must be a nonempty string`)
+		return Result.fail(faultAt(where, "host", { kind: "nonemptyText" }))
 	}
 	if (Str.startsWith("/")(host)) {
-		return Result.fail(
-			`${where}.host must be a network host, a name or an IP address: node-postgres reads a host starting with / as a Unix socket's directory, and PostgreSQL offers no TLS over a Unix socket`
-		)
+		return Result.fail(faultAt(where, "host", { kind: "networkHost" }))
 	}
 	if (typeof port !== "number" || !integerIn(port, 1, portMax.value)) {
-		return Result.fail(`${where}.port must be an integer port number from 1 to ${portMax.value}`)
+		return Result.fail(
+			faultAt(where, "port", { kind: "integer", least: 1, most: portMax.value, unit: "port" })
+		)
 	}
 	if (typeof passedOpen !== "function") {
-		return Result.fail(`${where}.open must be a function returning a new, unconnected socket`)
+		return Result.fail(faultAt(where, "open", { kind: "socketOpener" }))
 	}
 	const ca = caBundle(caSetting)
 	if (Option.isNone(ca)) {
-		return Result.fail(
-			`${where}.ca must be PEM certificate text, or a nonempty list of them: TLS is always verify-full`
-		)
+		return Result.fail(faultAt(where, "ca", { kind: "certificates" }))
 	}
 	if (typeof servername !== "string" || servername === "") {
-		return Result.fail(
-			`${where}.servername must be a nonempty string: the name the server certificate must carry`
-		)
+		return Result.fail(faultAt(where, "servername", { kind: "nonemptyText" }))
 	}
 	const bundle = ca.value
 	return Result.map(
-		readHost(`${where}.ca must be PEM certificate text TLS reads as certificates`, () =>
+		readHost(faultAt(where, "ca", { kind: "readableCertificates" }), () =>
 			Result.succeed(createSecureContext({ ca: [...bundle] }))
 		),
 		(authority): ParsedTransport => ({
@@ -346,20 +356,21 @@ const parseTransport = (
 }
 
 /**
- * The block named `where`, which holds `extras` besides its connection: parsed, with what `extras` parses of it, or the
- * refusal's text, which names the setting it refuses.
+ * The block at `where`, which holds `extras` besides its connection: parsed, with what `extras` parses of it, or the
+ * setting it refuses and the rule it breaks.
  *
  * A DbConfig's login value, pool hook and verify are the layer's to read (pool/served.ts, pool/registry.ts), never plain
  * data.
  */
 export const parseConnection = <E>(
 	block: DbConnection,
-	where: string,
+	where: SettingPath,
 	extras: BlockSettings<E>
-): Result.Result<ParsedConnection & E, string> => {
+): Result.Result<ParsedConnection & E, SettingFault> => {
 	const value: unknown = block
+	const settings = [...connectionSettings, ...extras.settings]
 	if (!isObject(value)) {
-		return Result.fail(`${where} must be an object`)
+		return Result.fail({ setting: where, rule: { kind: "object", settings } })
 	}
 	/**
 	 * The caller's block, read once at the boundary (core/host.ts readCaller): each own setting once. The password, read
@@ -369,7 +380,7 @@ export const parseConnection = <E>(
 	 * the caller's `open` (readTransport). Every other setting is plain data, copied as the read finds it, and every
 	 * later read is of the copy, never of the caller's block.
 	 */
-	const unreadable = `${where} must be an object whose settings read as data: no getter, setter or refusing proxy`
+	const unreadable: SettingFault = { setting: where, rule: { kind: "data" } }
 	const read = readHost(unreadable, () => {
 		const own = readCaller(value, typedSettings)
 		if (!own.ok) {
@@ -393,42 +404,33 @@ export const parseConnection = <E>(
 		return Result.fail(read.failure)
 	}
 	const { keys, plain, password, driver, transport: transportRead } = read.success
-	const settings = [...connectionSettings, ...extras.settings]
 	const extra = unknownKey(keys, settings, where)
 	if (Option.isSome(extra)) {
 		return Result.fail(extra.value)
 	}
 	if (Option.isNone(driver)) {
-		return Result.fail(
-			`${where}.driver must be node-postgres as imported (import pg from "pg"): its Client, Pool and DatabaseError classes`
-		)
+		return Result.fail(faultAt(where, "driver", { kind: "driver" }))
 	}
 	const { database, connectTimeoutMs } = plain
 	if (Option.isNone(transportRead)) {
-		return Result.fail(
-			`${where}.transport must be an object: { kind: "sslRequest", host, port, open, ca, servername }`
-		)
+		return Result.fail(faultAt(where, "transport", { kind: "object", settings: transportSettings }))
 	}
-	const transport = parseTransport(transportRead.value, `${where}.transport`)
+	const transport = parseTransport(transportRead.value, [...where, "transport"])
 	if (Result.isFailure(transport)) {
 		return Result.fail(transport.failure)
 	}
 	if (typeof database !== "string" || database === "") {
-		return Result.fail(`${where}.database must be a nonempty string`)
+		return Result.fail(faultAt(where, "database", { kind: "nonemptyText" }))
 	}
 	const parsedExtras = extras.parse(plain, where)
 	if (Result.isFailure(parsedExtras)) {
 		return Result.fail(parsedExtras.failure)
 	}
 	if (Option.isNone(password)) {
-		return Result.fail(
-			`${where}.password must be a Redacted or an Effect yielding one, evaluated for each connection attempt`
-		)
+		return Result.fail(faultAt(where, "password", { kind: "password" }))
 	}
 	if (typeof connectTimeoutMs !== "number" || !timerDelay(connectTimeoutMs)) {
-		return Result.fail(
-			`${where}.connectTimeoutMs must be an integer number of milliseconds from 1 to ${timerMaxMs.value}`
-		)
+		return Result.fail(faultAt(where, "connectTimeoutMs", timerRule))
 	}
 	return Result.succeed({
 		driver: driver.value,
@@ -442,11 +444,14 @@ export const parseConnection = <E>(
 
 /**
  * A DbConfig's pool bounds, `setting` as its block's plain data holds them (parseConnection read it as data): parsed,
- * or the refusal's text, which names the bound it refuses.
+ * or the bound it refuses and the rule it breaks.
  */
-const parsePool = (setting: unknown, where: string): Result.Result<PoolBounds, string> => {
+const parsePool = (
+	setting: unknown,
+	where: SettingPath
+): Result.Result<PoolBounds, SettingFault> => {
 	if (!isObject(setting)) {
-		return Result.fail(`${where} must be an object: { max, min, idleTimeoutMs }`)
+		return Result.fail({ setting: where, rule: { kind: "object", settings: poolSettings } })
 	}
 	const extra = unknownKey(Rec.keys(setting), poolSettings, where)
 	if (Option.isSome(extra)) {
@@ -454,15 +459,15 @@ const parsePool = (setting: unknown, where: string): Result.Result<PoolBounds, s
 	}
 	const { max, min, idleTimeoutMs } = setting
 	if (typeof max !== "number" || !Number.isSafeInteger(max) || max < 1) {
-		return Result.fail(`${where}.max must be an integer from 1: the most sessions open at once`)
+		return Result.fail(faultAt(where, "max", { kind: "integerFrom", least: 1 }))
 	}
 	if (typeof min !== "number" || !integerIn(min, 0, max)) {
-		return Result.fail(`${where}.min must be an integer from 0 to max: the sessions kept open`)
+		return Result.fail(
+			faultAt(where, "min", { kind: "integer", least: 0, most: max, unit: "sessions" })
+		)
 	}
 	if (typeof idleTimeoutMs !== "number" || !timerDelay(idleTimeoutMs)) {
-		return Result.fail(
-			`${where}.idleTimeoutMs must be an integer number of milliseconds from 1 to ${timerMaxMs.value}`
-		)
+		return Result.fail(faultAt(where, "idleTimeoutMs", timerRule))
 	}
 	return Result.succeed({ max, min, idleTimeoutMs })
 }

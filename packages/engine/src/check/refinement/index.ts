@@ -133,19 +133,32 @@ export const hasConstraint = (t: ScalarType): boolean => {
 }
 
 /**
+ * Where a refined constant is declared: the closed relation, its payload field, and the key of its row, each key
+ * field's literal in the relation's key order. Its diagnostics' text is refinedSiteText's.
+ */
+export interface RefinedSite {
+	readonly relation: string
+	readonly field: string
+	readonly key: ReadonlyArray<TypedLiteral>
+}
+
+/**
  * A refined constant the compiler relies on: a closed relation's payload value of a type whose domain carries a CHECK.
  * PostgreSQL validates it at installation.
  */
 export interface RefinedConstant {
 	readonly literal: TypedLiteral
 	readonly type: ScalarType
-	/** Where the constant is declared, for diagnostics: `closed Tier.label at (pro)`, its row named by its key. */
-	readonly site: string
+	readonly site: RefinedSite
 }
 
 /** A key literal as a refinement site names its row: a handle by itself, any other by its canonical text. */
 const keyText = (literal: TypedLiteral): string =>
 	literal.kind === "handle" ? literal.handle : canonicalTextOf(literal)
+
+/** A site as diagnostics name it: `closed Tier.label at (pro)`, its row named by its key. */
+export const refinedSiteText = (site: RefinedSite): string =>
+	`closed ${site.relation}.${site.field} at (${site.key.map(keyText).join(", ")})`
 
 /**
  * The closed relations' payload values whose fields carry a nontrivial refinement, in relation, row and heading order.
@@ -156,12 +169,18 @@ export const refinedConstants = (schema: SchemaReading): ReadonlyArray<RefinedCo
 	[...schema.closed.values()].flatMap((info) => {
 		const keyed = info.relation.primaryFields.length
 		return info.rows.flatMap((row) => {
-			const site = `at (${row.slice(0, keyed).map(keyText).join(", ")})`
+			const key = row.slice(0, keyed)
 			return info.heading.flatMap((column, i): ReadonlyArray<RefinedConstant> => {
 				const literal = row[i]
 				return i < keyed || literal === undefined || !hasConstraint(column.type)
 					? []
-					: [{ literal, type: column.type, site: `closed ${info.name}.${column.name} ${site}` }]
+					: [
+							{
+								literal,
+								type: column.type,
+								site: { relation: info.name, field: column.name, key }
+							}
+						]
 			})
 		})
 	})

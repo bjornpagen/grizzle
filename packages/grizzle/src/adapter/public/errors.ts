@@ -51,6 +51,8 @@ export {
 	SerializationFailure,
 	ServedLoginRefused,
 	ServerError,
+	type SettingFault,
+	type SettingRule,
 	SocketFailed,
 	SpanKeyChange,
 	type StaleReason,

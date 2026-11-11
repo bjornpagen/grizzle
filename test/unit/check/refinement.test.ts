@@ -9,7 +9,8 @@
  *   type, the type itself; two languages, the wildcard; two typmods, numeric of no typmod whose bound holds both;
  *   anything else refused as MalformedDescription; and each arm guarantees the common type.
  * - **Refined constants:** over drawn closed relations, refinedConstants lists exactly the payload cells of a type
- *   whose domain carries a CHECK, each at its field's type, in row then heading order, as it documents.
+ *   whose domain carries a CHECK, each at its field's type and at its site, the relation, the field and its row's key
+ *   (RefinedSite), in row then heading order, as it documents.
  *
  * Oracles: each type's token (its carrier, identity, typmod and language), from which the guarantees rule and the meet
  * are restated; which payload kinds carry a CHECK.
@@ -722,19 +723,26 @@ describe("refined constants", () => {
 						Effect.sync(() => {
 							const checked = checking(closedSchema(c))
 							const heading = defined(checked.closed.get("Payloads"), "Payloads").heading
-							/** Each refined cell in row order, then heading order, as refinedConstants documents its order. */
+							/** Each refined cell by its site, its row's key and its field, in row then heading order. */
 							const expected = Arr.flatMap(c.rows, (row) =>
 								Arr.flatMap(c.fields, (x, i) => {
 									const cell = defined(row.values[i], "a row's value")
 									return x.payload.checked
-										? [{ literal: cell.literal, type: columnType(heading, x.name, x.name) }]
+										? [
+												{
+													literal: cell.literal,
+													type: columnType(heading, x.name, x.name),
+													site: {
+														relation: "Payloads",
+														field: x.name,
+														key: [{ kind: "handle" as const, handle: row.key }]
+													}
+												}
+											]
 										: []
 								})
 							)
-							assert.deepEqual(
-								Arr.map(refinedConstants(checked), (x) => ({ literal: x.literal, type: x.type })),
-								expected
-							)
+							assert.deepEqual(refinedConstants(checked), expected)
 							if (c.rows.length === 0) {
 								k.note("no row")
 							}

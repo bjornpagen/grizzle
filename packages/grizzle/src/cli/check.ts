@@ -46,9 +46,22 @@ import {
 	snapshotFileName
 } from "#compiler/plan/serve.ts"
 
-/** One finding: which refusal it is, where, what, and the fix. */
-interface CheckFinding {
-	readonly kind: keyof typeof refusalText
+/** A refusal a finding is of: any of the refusal table's but an edited literal pack's, which carries its own facts. */
+type PlainKind = Exclude<keyof typeof refusalText, "literalPack">
+
+/**
+ * What a finding is: a refusal of the table, or an edited literal pack, with the statement of its file that states it,
+ * counted from 1, and its fault (physical/ddl/literal.ts PackFault).
+ */
+type FindingOf =
+	| { readonly kind: PlainKind }
+	| { readonly kind: "literalPack"; readonly statement: number; readonly fault: PackFault }
+
+/**
+ * One finding: what it is, where, and its fix; `problem` is its text, rendered from what it is, which check prints and
+ * nothing reads back.
+ */
+export type CheckFinding = FindingOf & {
 	/** The declared schema. */
 	readonly schema: string
 	/** A path, `<path>:<line>` or the declared schema's name. */
@@ -134,7 +147,7 @@ interface CommittedCheck {
 /** A finding of `kind` about `schema` at `where`, with its fix. */
 const finding = (
 	schema: ConfiguredSchema,
-	kind: keyof typeof refusalText,
+	kind: PlainKind,
 	where: string,
 	problem: string
 ): CheckFinding => ({ schema: schema.declared, kind, where, problem, fix: refusalText[kind].fix })
@@ -150,7 +163,7 @@ const checkCommitted = Effect.fn("checkCommitted")(function* (
 	cwd: string
 ): Effect.fn.Return<CommittedCheck, never, FileSystem.FileSystem | Path.Path> {
 	const findings: Array<CheckFinding> = []
-	const at = (kind: keyof typeof refusalText, where: string, problem: string) =>
+	const at = (kind: PlainKind, where: string, problem: string) =>
 		findings.push(finding(schema, kind, where, problem))
 	const paths = yield* Path.Path
 	const path = (...parts: ReadonlyArray<string>) =>
@@ -262,12 +275,15 @@ const packFindings = (
 		return fault === undefined
 			? []
 			: [
-					finding(
-						schema,
-						"literalPack",
-						pack.where,
-						`statement ${pack.ordinal}: ${packFaultText(fault)}: ${refusalText.literalPack.problem}`
-					)
+					{
+						kind: "literalPack",
+						statement: pack.ordinal,
+						fault,
+						schema: schema.declared,
+						where: pack.where,
+						problem: `statement ${pack.ordinal}: ${packFaultText(fault)}: ${refusalText.literalPack.problem}`,
+						fix: refusalText.literalPack.fix
+					}
 				]
 	})
 
@@ -342,7 +358,7 @@ const checkSchema = Effect.fn("checkSchema")(function* (
 		...committed.findings,
 		...packFindings(schema, committed.packs, installation)
 	]
-	const at = (kind: keyof typeof refusalText, where: string, problem: string) =>
+	const at = (kind: PlainKind, where: string, problem: string) =>
 		findings.push(finding(schema, kind, where, problem))
 
 	if (Option.isSome(snapshot) && draft !== undefined) {

@@ -678,7 +678,7 @@ export const parsedConnection = (
 	role: string
 ): ParsedConnection & { readonly role: string } => {
 	const block: MigrationConnectionConfig = { ...connection, role }
-	return succeeded(parseConnection(block, "connection", roleSettings), "the test's connection")
+	return succeeded(parseConnection(block, ["connection"], roleSettings), "the test's connection")
 }
 
 /**

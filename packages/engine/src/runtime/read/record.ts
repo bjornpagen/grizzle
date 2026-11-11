@@ -16,7 +16,8 @@ import {
 	type OptionVocabulary,
 	type Row,
 	rowSlot,
-	rowText
+	rowText,
+	UnlawfulDelivery
 } from "#compiler/core/decoder.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { defect } from "#compiler/core/invariant.ts"
@@ -143,9 +144,7 @@ const cellConversion = (
  */
 const atMostOne = <A>(key: string, children: ReadonlyArray<A>): ReadonlyArray<A> => {
 	if (children.length > 1) {
-		throw defect(
-			`a row holds at most one child under the attachment ${key}, which the analysis proves delivers at most one`
-		)
+		throw new UnlawfulDelivery({ attachment: key, law: "atMostOne", children: children.length })
 	}
 	return children
 }
@@ -160,7 +159,7 @@ const atMostOne = <A>(key: string, children: ReadonlyArray<A>): ReadonlyArray<A>
 const provenChild = <A>(key: string, children: ReadonlyArray<A>): A => {
 	const [child] = atMostOne(key, children)
 	if (child === undefined) {
-		throw defect(`a row holds the child the attachment ${key} proves it holds`)
+		throw new UnlawfulDelivery({ attachment: key, law: "exactlyOne", children: 0 })
 	}
 	return child
 }
@@ -244,10 +243,9 @@ const fieldReader = (
 		case "none": {
 			const children = optionChildren(field.child, layout, key, context)
 			return (row) => {
-				if (isNonEmpty(children(row))) {
-					throw defect(
-						`a row holds no child under the attachment ${key} of an alternatives arm its handle does not select`
-					)
+				const held = children(row)
+				if (isNonEmpty(held)) {
+					throw new UnlawfulDelivery({ attachment: key, law: "none", children: held.length })
 				}
 				return context.options.none
 			}

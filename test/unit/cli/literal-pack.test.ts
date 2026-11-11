@@ -5,10 +5,10 @@
  *
  * - **A drafted folder passes:** check finds nothing in what generate drafted.
  * - **A changed digit is one finding at its file, by its fault:** one hex digit of either constant, its cells' or its
- *   key set's, changed to another is check's one finding, a literal pack at the file that holds it; and the
- *   statement's fault is the content the oracle reads off the two literals: the closed relation, the first cell where
- *   the literal parts from the declared rows and that cell's key, or, where the change sets a bit past the last cell,
- *   a layout fault at that padding bit.
+ *   key set's, changed to another is check's one finding, a literal pack at the file that holds it, at the statement
+ *   that states it, counted from 1, with its fault (cli/check.ts CheckFinding): the content the oracle reads off the
+ *   two literals, the closed relation, the first cell where the literal parts from the declared rows and that cell's
+ *   key, or, where the change sets a bit past the last cell, a layout fault at that padding bit.
  *
  * The grid: Row (3 codes) by Col (2), row-major, each cell holding no row or a row of a Mark (3 codes), so its cells
  * take 2 bits, 12 in all, three whole digits, and its key set 6 bits, padded with 2 to two digits.
@@ -39,12 +39,12 @@ import {
 	Order,
 	String as Str
 } from "effect"
-import { check } from "#cli/check.ts"
+import { type CheckFinding, check } from "#cli/check.ts"
 import { headNonEmpty } from "#compiler/core/nonempty.ts"
 import { metaFileName } from "#compiler/deploy/render/folder.ts"
 import { splitStatements } from "#compiler/deploy/render/markers.ts"
 import { manifestFileName, snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
-import { literalPackFault, type PackFault } from "#compiler/physical/ddl/literal.ts"
+import type { PackFault } from "#compiler/physical/ddl/literal.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { closedId } from "#compiler/public/fields.ts"
 import { closed, schema } from "#compiler/public/schema.ts"
@@ -128,6 +128,21 @@ const now = (s: number) =>
 		second: s,
 		millisecond: 0
 	})
+
+/** A finding as this file reads it: where it lies and what it is, a literal pack's statement and fault included. */
+type Found =
+	| { readonly kind: CheckFinding["kind"]; readonly where: string }
+	| {
+			readonly kind: "literalPack"
+			readonly where: string
+			readonly statement: number
+			readonly fault: PackFault
+	  }
+
+const foundOf = (f: CheckFinding): Found =>
+	f.kind === "literalPack"
+		? { kind: f.kind, where: f.where, statement: f.statement, fault: f.fault }
+		: { kind: f.kind, where: f.where }
 
 /** `hex` with its digit at `at` moved `offset` values on, modulo sixteen: another digit. */
 const changedDigit = (hex: string, at: number, offset: number): string =>
@@ -264,9 +279,7 @@ layer(NodeServices.layer, { excludeTestServices: true })(
 									const read = yield* resolvedConfig(config, `${ws}/${configName}`)
 									const resolved = succeeded(read)
 									const findings = Effect.map(Effect.orDie(check(resolved, ws)), (checks) =>
-										Arr.flatMap(checks, (x) =>
-											Arr.map(x.findings, (f) => ({ kind: f.kind, where: f.where }))
-										)
+										Arr.flatMap(checks, (x) => Arr.map(x.findings, foundOf))
 									)
 									const held = yield* cliOver(ws, config, ["check", configName], now(1))
 									assert.equal(held.code, 0, held.stderr)
@@ -281,14 +294,15 @@ layer(NodeServices.layer, { excludeTestServices: true })(
 											),
 											`the file generate drafted the ${constant} literal into`
 										)
-										const statement = defined(
-											Option.getOrUndefined(
-												Arr.findFirst(splitStatements(file.text), (s) =>
-													Str.includes(`X'${p.hex}'`)(s)
-												)
-											),
-											"the literal is one of the file's statements"
-										)
+										const statement =
+											defined(
+												Option.getOrUndefined(
+													Arr.findFirstIndex(splitStatements(file.text), (s) =>
+														Str.includes(`X'${p.hex}'`)(s)
+													)
+												),
+												"the literal is one of the file's statements"
+											) + 1
 										const change = d.changes[constant]
 										const after = changedDigit(p.hex, change.digit, change.offset)
 										const path = `${ws}/${folder}/${file.name}`
@@ -298,9 +312,6 @@ layer(NodeServices.layer, { excludeTestServices: true })(
 										const found = yield* findings
 										yield* fs.writeFileString(path, file.text)
 										assert.equal(tampered.code, 1, `X'${after}' for X'${p.hex}' is refused`)
-										assert.deepEqual(found, [
-											{ kind: "literalPack", where: `${folder}/${file.name}` }
-										])
 										const fault = faultOf(
 											printObjectName(p.function),
 											p.hex,
@@ -308,7 +319,9 @@ layer(NodeServices.layer, { excludeTestServices: true })(
 											Number(p.cells),
 											p.width
 										)
-										assert.deepEqual(literalPackFault(installation, tamper(statement)), fault)
+										assert.deepEqual(found, [
+											{ kind: "literalPack", where: `${folder}/${file.name}`, statement, fault }
+										])
 										c.note(
 											constant === "cells"
 												? "the cells' literal changed"

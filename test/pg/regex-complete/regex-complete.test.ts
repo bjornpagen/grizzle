@@ -1189,7 +1189,11 @@ layer(Substrate.layer)("refinement validation sites on PostgreSQL 19", (it) => {
 								const validation = ok(
 									constantValidationObjects(installation.names, [
 										...constants,
-										{ literal: { kind: "text", value: text }, type: constantType, site: "a test" }
+										{
+											literal: { kind: "text", value: text },
+											type: constantType,
+											site: { relation: "Drawn", field: "text", key: [] }
+										}
 									]),
 									"validation"
 								)

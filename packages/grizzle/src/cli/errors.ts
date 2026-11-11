@@ -1,6 +1,10 @@
 import { Array as Arr, Data, Formatter, Redacted, Result } from "effect"
 import { readHost } from "#adapter/engine.ts"
-import type { ConnectionEnvironmentRefused } from "#adapter/errors/failures.ts"
+import {
+	type ConnectionEnvironmentRefused,
+	type SettingFault as ConnectionSettingFault,
+	settingFaultText
+} from "#adapter/errors/failures.ts"
 import type { WorkloadPlace } from "#adapter/served/compile.ts"
 import type { DeclarationRefused } from "#cli/renames.ts"
 import type { FamilyId } from "#compiler/plan/change.ts"
@@ -426,14 +430,14 @@ export class LoginEntryRefused extends Data.TaggedError("LoginEntryRefused")<{
 }
 
 /**
- * The configuration's `connection` is refused, for `detail`: the connection parser's own refusal, naming the setting
- * (adapter/connection/config.ts parseConnection), as a DbConfig's is.
+ * The configuration's `connection` is refused: the setting the connection parser refuses and the rule it breaks
+ * (adapter/connection/config.ts parseConnection, SettingFault), as a DbConfig's is, never a value.
  */
-export class ConnectionRefused extends Data.TaggedError("ConnectionRefused")<{
-	readonly detail: string
-}> {
+export class ConnectionRefused extends Data.TaggedError(
+	"ConnectionRefused"
+)<ConnectionSettingFault> {
 	override get message(): string {
-		return this.detail
+		return settingFaultText(this)
 	}
 }
 

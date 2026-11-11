@@ -1,13 +1,15 @@
 import { Array as Arr, Context, Effect, Layer, Option, Result, type Scope } from "effect"
 import { parseSnapshot } from "#adapter/boundary/snapshot.ts"
 import {
+	faultAt,
 	loginSettings,
 	type ParsedConnection,
-	parseConnection
+	parseConnection,
+	type SettingPath
 } from "#adapter/connection/config.ts"
 import { fromEngine, readHost } from "#adapter/engine.ts"
 import { OpenError } from "#adapter/errors/execution.ts"
-import { DbConfigRefused, RoleOutsideLayers } from "#adapter/errors/failures.ts"
+import { DbConfigRefused, RoleOutsideLayers, type SettingFault } from "#adapter/errors/failures.ts"
 import { loginEnvironment, type TokenCheck } from "#adapter/pool/served.ts"
 import {
 	artifactsUnder,
@@ -120,8 +122,11 @@ interface ParsedDbConfig extends ParsedConnection {
 /** The pool hook of a config that names none. */
 const attachNothing = (): void => undefined
 
-const refusedConfig = (detail: string): OpenError =>
-	new OpenError({ reason: new DbConfigRefused({ detail }) })
+const refusedConfig = (fault: SettingFault): OpenError =>
+	new OpenError({ reason: new DbConfigRefused(fault) })
+
+/** The block a DbConfig's settings sit in, as a refusal names their paths. */
+const dbConfig: SettingPath = ["DbConfig"]
 
 /**
  * The config's own settings, read once at the boundary as the connection's are (core/host.ts hostRead): the login
@@ -130,57 +135,55 @@ const refusedConfig = (detail: string): OpenError =>
  */
 const ownSettings = <L extends AnyLogin>(
 	config: CompiledDbConfigShape<L>
-): Result.Result<Pick<ParsedDbConfig, "login" | "snapshot" | "attachPool" | "token">, string> =>
-	readHost(
-		"DbConfig must be an object whose settings read as data: no getter, setter or refusing proxy",
-		() => {
-			const built = builtLogin(config.login)
-			if (built === undefined) {
-				return Result.fail("DbConfig.login must be a login built by login(...)")
-			}
-			const login = built.desc
-			const hook = config.attachPool
-			const verify = config.verify
-			/** The same values as plain JavaScript passes them: a block written in JavaScript is checked all the same. */
-			const passedHook: unknown = hook
-			const passedVerify: unknown = verify
-			if (hook !== undefined && typeof passedHook !== "function") {
-				return Result.fail(
-					"DbConfig.attachPool must be a function, called with each pool the layer builds"
-				)
-			}
-			if (verify !== undefined && typeof passedVerify !== "function") {
-				return Result.fail(
-					"DbConfig.verify must be a function from a token to the payload its claims are read from"
-				)
-			}
-			const reading = Arr.findFirst(login.roles, roleReadsContext)
-			if (verify === undefined && Option.isSome(reading)) {
-				return Result.fail(
-					`DbConfig.verify must be a function: role ${reading.value.name} of login ${login.name} reads a context`
-				)
-			}
-			const snapshot: unknown = config.snapshot
-			if (typeof snapshot !== "object" || snapshot === null) {
-				return Result.fail(
-					"DbConfig.snapshot must be the committed snapshot.json, as an import of it yields"
-				)
-			}
-			return Result.succeed({
-				login: built,
-				snapshot,
-				attachPool: hook ?? attachNothing,
-				token: verify === undefined ? { kind: "none" } : { kind: "verify", verify }
-			})
+): Result.Result<
+	Pick<ParsedDbConfig, "login" | "snapshot" | "attachPool" | "token">,
+	SettingFault
+> =>
+	readHost({ setting: dbConfig, rule: { kind: "data" } }, () => {
+		const built = builtLogin(config.login)
+		if (built === undefined) {
+			return Result.fail(faultAt(dbConfig, "login", { kind: "builtLogin" }))
 		}
-	)
+		const login = built.desc
+		const hook = config.attachPool
+		const verify = config.verify
+		/** The same values as plain JavaScript passes them: a block written in JavaScript is checked all the same. */
+		const passedHook: unknown = hook
+		const passedVerify: unknown = verify
+		if (hook !== undefined && typeof passedHook !== "function") {
+			return Result.fail(faultAt(dbConfig, "attachPool", { kind: "function" }))
+		}
+		if (verify !== undefined && typeof passedVerify !== "function") {
+			return Result.fail(faultAt(dbConfig, "verify", { kind: "function" }))
+		}
+		const reading = Arr.findFirst(login.roles, roleReadsContext)
+		if (verify === undefined && Option.isSome(reading)) {
+			return Result.fail(
+				faultAt(dbConfig, "verify", {
+					kind: "verifier",
+					role: reading.value.name,
+					login: login.name
+				})
+			)
+		}
+		const snapshot: unknown = config.snapshot
+		if (typeof snapshot !== "object" || snapshot === null) {
+			return Result.fail(faultAt(dbConfig, "snapshot", { kind: "snapshot" }))
+		}
+		return Result.succeed({
+			login: built,
+			snapshot,
+			attachPool: hook ?? attachNothing,
+			token: verify === undefined ? { kind: "none" } : { kind: "verify", verify }
+		})
+	})
 
 /** The DbConfig given to DbLayer.make, parsed once (connection/config.ts); a refusal is OpenError{stage: "config"}. */
 const parseDbConfig = <L extends AnyLogin>(
 	config: CompiledDbConfigShape<L>
 ): Result.Result<ParsedDbConfig, OpenError> =>
 	Result.mapError(
-		Result.flatMap(parseConnection(config, "DbConfig", loginSettings), (parsed) =>
+		Result.flatMap(parseConnection(config, dbConfig, loginSettings), (parsed) =>
 			Result.map(ownSettings(config), (settings) => ({ ...parsed, ...settings }))
 		),
 		refusedConfig

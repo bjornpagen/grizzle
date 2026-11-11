@@ -24,8 +24,8 @@ import {
 export const resolveConnection = (
 	typed: MigrationConnectionConfig
 ): Result.Result<MigrationConnection, CliError> =>
-	Result.mapError(parseConnection(typed, "connection", roleSettings), (detail) =>
-		cliError(new ConnectionRefused({ detail }))
+	Result.mapError(parseConnection(typed, ["connection"], roleSettings), (fault) =>
+		cliError(new ConnectionRefused(fault))
 	)
 
 /**

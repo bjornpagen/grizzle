@@ -1,3 +1,4 @@
+import * as Arr from "effect/Array"
 import * as Data from "effect/Data"
 import type { StartupVariable } from "#adapter/connection/environment.ts"
 import type { ExecutionPart, FamilyRowBound, Law, Unsendable } from "#compiler/plan/change.ts"
@@ -238,12 +239,109 @@ export class HandleReleased extends Data.TaggedError("HandleReleased") {
  */
 export type AcquireRefusal = ConnectRefusal | LayerReleased
 
-/** A DbConfig no connection can use: `detail` names the setting it refuses, and never quotes a password. */
-export class DbConfigRefused extends Data.TaggedError("DbConfigRefused")<{
-	readonly detail: string
-}> {
+/**
+ * What a connection block's or a DbConfig's setting must be, as its parse holds it (connection/config.ts): the rule a
+ * refused setting breaks. A refusal never holds the value it refuses, which may be a credential.
+ *
+ * - `object`: an object holding `settings`; `data`: an object whose settings read as data, with no getter, setter or
+ *   refusing proxy; `known`: a setting of its block, one of `settings`;
+ * - `driver`: node-postgres as imported, its Client, Pool and DatabaseError classes; `sslRequest`: the transport kind
+ *   "sslRequest"; `socketOpener`: a function returning a new, unconnected socket;
+ * - `nonemptyText`; `networkHost`: a name or an IP address, never a path, which node-postgres reads as a Unix socket's
+ *   directory, over which PostgreSQL offers no TLS;
+ * - `integer`: an integer from `least` to `most`, a port number, milliseconds or sessions; `integerFrom`: an integer
+ *   from `least`;
+ * - `certificates`: PEM certificate text or a nonempty list of them; `readableCertificates`: PEM text TLS reads as
+ *   certificates;
+ * - `password`: a Redacted or an Effect yielding one;
+ * - `servedLogin`: a login served(...) built; `builtLogin`: a login login(...) built; `snapshot`: the committed
+ *   snapshot.json, as an import of it yields;
+ * - `function`; `verifier`: a function, since `role` of `login` reads a context.
+ */
+export type SettingRule =
+	| { readonly kind: "object"; readonly settings: ReadonlyArray<string> }
+	| { readonly kind: "data" }
+	| { readonly kind: "known"; readonly settings: ReadonlyArray<string> }
+	| { readonly kind: "driver" }
+	| { readonly kind: "sslRequest" }
+	| { readonly kind: "socketOpener" }
+	| { readonly kind: "nonemptyText" }
+	| { readonly kind: "networkHost" }
+	| {
+			readonly kind: "integer"
+			readonly least: number
+			readonly most: number
+			readonly unit: "port" | "milliseconds" | "sessions"
+	  }
+	| { readonly kind: "integerFrom"; readonly least: number }
+	| { readonly kind: "certificates" }
+	| { readonly kind: "readableCertificates" }
+	| { readonly kind: "password" }
+	| { readonly kind: "servedLogin" }
+	| { readonly kind: "builtLogin" }
+	| { readonly kind: "snapshot" }
+	| { readonly kind: "function" }
+	| { readonly kind: "verifier"; readonly role: string; readonly login: string }
+
+/**
+ * A setting a block's parse refuses: `setting`, its path from the block (`["DbConfig", "transport", "port"]`, an
+ * unknown key's ending with the key), and the rule it breaks.
+ */
+export interface SettingFault {
+	readonly setting: readonly [string, ...Array<string>]
+	readonly rule: SettingRule
+}
+
+/** What a setting rule asks, as a refusal's text states it. */
+const ruleText = (rule: SettingRule): string => {
+	switch (rule.kind) {
+		case "object":
+			return `must be an object: { ${Arr.join(rule.settings, ", ")} }`
+		case "data":
+			return "must be an object whose settings read as data: no getter, setter or refusing proxy"
+		case "known":
+			return `is no setting; the settings are ${Arr.join(rule.settings, ", ")}`
+		case "driver":
+			return 'must be node-postgres as imported (import pg from "pg"): its Client, Pool and DatabaseError classes'
+		case "sslRequest":
+			return 'must be "sslRequest": an SSLRequest, then verify-full TLS over the socket'
+		case "socketOpener":
+			return "must be a function returning a new, unconnected socket"
+		case "nonemptyText":
+			return "must be a nonempty string"
+		case "networkHost":
+			return "must be a network host, a name or an IP address: node-postgres reads a host starting with / as a Unix socket's directory, and PostgreSQL offers no TLS over a Unix socket"
+		case "integer":
+			return `must be an integer ${rule.unit === "port" ? "port number" : rule.unit === "milliseconds" ? "number of milliseconds" : "number of sessions"} from ${rule.least} to ${rule.most}`
+		case "integerFrom":
+			return `must be an integer from ${rule.least}`
+		case "certificates":
+			return "must be PEM certificate text, or a nonempty list of them: TLS is always verify-full"
+		case "readableCertificates":
+			return "must be PEM certificate text TLS reads as certificates"
+		case "password":
+			return "must be a Redacted or an Effect yielding one, evaluated for each connection attempt"
+		case "servedLogin":
+			return "must be a served login built by served(...)"
+		case "builtLogin":
+			return "must be a login built by login(...)"
+		case "snapshot":
+			return "must be the committed snapshot.json, as an import of it yields"
+		case "function":
+			return "must be a function"
+		case "verifier":
+			return `must be a function: role ${rule.role} of login ${rule.login} reads a context`
+	}
+}
+
+/** A setting fault as a refusal's text states it: the setting's path, then what its rule asks. */
+export const settingFaultText = (fault: SettingFault): string =>
+	`${Arr.join(fault.setting, ".")} ${ruleText(fault.rule)}`
+
+/** A DbConfig no connection can use: the setting it refuses and the rule it breaks (SettingFault), never a value. */
+export class DbConfigRefused extends Data.TaggedError("DbConfigRefused")<SettingFault> {
 	override get message(): string {
-		return this.detail
+		return settingFaultText(this)
 	}
 }
 

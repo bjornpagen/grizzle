@@ -48,7 +48,8 @@ import {
  *   it reads off the given module once (its Client, Pool and DatabaseError), never the module itself, so no getter of
  *   another member runs.
  * - The role, the one setting a migration connection adds: one that is not a nonempty string, or none, is refused at
- *   stage config, naming the configuration's `connection.role`, and no refusal holds the password.
+ *   stage config as a ConnectionRefused whose setting is `["connection", "role"]` and whose rule is a nonempty string
+ *   (SettingFault), and no refusal holds the password.
  * - A connection function that throws (an Error, an application's tagged error holding the password Redacted, a value
  *   that is no Error, an Error whose message throws when read), each holding the password, is refused at stage config
  *   as ConnectionThrew, which holds exactly what was thrown, Redacted, and states of it exactly an Error's name and
@@ -319,9 +320,13 @@ const faulty = (d: Drawn, f: RoleFault): MigrationConnectionConfig => {
 const roleRefusal = (r: Result.Result<MigrationConnection, CliError>, password: string): void => {
 	const refused = refusedAt(r, "stage", "config")
 	const reason = refused.reason
-	assert.ok(
-		reason._tag === "ConnectionRefused" && Str.includes("connection.role")(reason.detail),
-		`the role's refusal names connection.role: ${refused.message}`
+	if (reason._tag !== "ConnectionRefused") {
+		return assert.fail(`the role's refusal is a ConnectionRefused, not ${reason._tag}`)
+	}
+	assert.deepEqual(
+		{ setting: reason.setting, rule: reason.rule },
+		{ setting: ["connection", "role"], rule: { kind: "nonemptyText" } },
+		"the role's refusal names connection.role as no nonempty string"
 	)
 	lacksText(reported(refused), password, "the refusal holds the password")
 }

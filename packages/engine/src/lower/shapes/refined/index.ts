@@ -1,4 +1,8 @@
-import { hasConstraint, type RefinedConstant } from "#compiler/check/refinement/index.ts"
+import {
+	hasConstraint,
+	type RefinedConstant,
+	refinedSiteText
+} from "#compiler/check/refinement/index.ts"
 import {
 	canonicalEquals,
 	canonicalTextOf,
@@ -726,7 +730,7 @@ const constantValidations = (
 			if (!hasConstraint(c.type)) {
 				continue
 			}
-			const at = c.site
+			const at = refinedSiteText(c.site)
 			const domain = physicalTypeRef(names, c.type, at)
 			const group = groups.find((g) => sameTypeRef(g.domain, domain))
 			const value = lowerLiteral(names, c.literal, c.type)
