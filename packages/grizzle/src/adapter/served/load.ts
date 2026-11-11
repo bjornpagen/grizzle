@@ -29,14 +29,12 @@ import type {
 import type { PageVariant } from "#compiler/plan/read.ts"
 import {
 	codeNames,
-	getRefusal,
 	loadWrite,
 	memberFactsOf,
 	recordsReader,
 	rosterCodebook,
 	ServedPatterns,
-	servedRunnable,
-	SourceLoc
+	servedRunnable
 } from "#compiler/plan/runtime.ts"
 import type {
 	ServedChange,
@@ -59,14 +57,15 @@ import type {
  * codecs, all under the codebook of the file's own rosters. Nothing is compiled and no schema is evaluated.
  *
  * A read of a role's workload, loaded: its declared parameters and their codecs, its program, its rows' reader (its
- * decoder bound to the program's layouts), and whether get may read it, with get's refusal of one it may not.
+ * decoder bound to the program's layouts), and whether get may read it (served/forms.ts ServedRead getEligible), whose
+ * refusal of one it may not is built where get raises it (db/handles.ts).
  */
 export interface LoadedRead {
 	readonly params: ReadonlyArray<ParamDecl>
 	readonly codecs: ParamCodecs
 	readonly program: ReadProgram
 	readonly read: (row: Row) => unknown
-	readonly get: Result.Result<void, CompileError>
+	readonly getEligible: boolean
 }
 
 /** A paged member's page, loaded: its runtime template, and its decoder bound to each request variant's layouts. */
@@ -192,9 +191,6 @@ const servedReads = (
 	}))
 }
 
-/** Where get refuses a read of a query not proved at most one row per parameter binding. */
-const getLoc = SourceLoc("reader.get", [])
-
 /** A read, loaded under the codes `codes`, the bind context `bind` and the file's pattern table `patterns`. */
 const loadRead = (
 	read: ServedRead,
@@ -208,7 +204,7 @@ const loadRead = (
 		codecs: paramCodecs(read.params, codes, patterns),
 		program,
 		read: reader,
-		get: read.getEligible ? Result.void : Result.fail(getRefusal(getLoc))
+		getEligible: read.getEligible
 	}))
 }
 
@@ -376,7 +372,7 @@ export const loadServed = (file: ServedFile, name: string): Result.Result<Loaded
 				Result.fail
 			)
 		}
-		const codes = rosterCodebook([...file.rosters])
+		const codes = rosterCodebook(file.rosters)
 		const bind: BindContext = { options: rowOptions, names: codeNames(codes) }
 		const patterns = ServedPatterns.of(file.matchers)
 		const roles: Array<LoadedRole> = []

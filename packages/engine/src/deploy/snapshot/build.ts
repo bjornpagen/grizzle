@@ -22,6 +22,7 @@ import { headNonEmpty } from "#compiler/core/nonempty.ts"
 import { type Comparator, compareStrings, mapInput } from "#compiler/core/order.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
+import { trusted } from "#compiler/core/trusted.ts"
 import type { Declarations, MigrationPlan } from "#compiler/deploy/diff/plan.ts"
 import {
 	ledgerGuardObject,
@@ -304,12 +305,14 @@ const theoryOf = (installation: Installation, checks: LawChecks): SnapshotTheory
 	return { schema: owned.fingerprint, relations, laws }
 }
 
-/** The codebook a snapshot records: each roster's codes, by its declared name (served.ts rosterCodebook). The empty
- * snapshot holds none. */
+/**
+ * The codebook a snapshot records: each roster's codes, by its declared name (served.ts rosterCodebook), the closed
+ * relation's key in the snapshot's theory, which only a declared name ever is. The empty snapshot holds none.
+ */
 export const codebookOf = (snapshot: DeploySnapshot): Codebook =>
 	rosterCodebook(
 		Object.entries(snapshot.theory.relations).flatMap(([name, r]) =>
-			r.kind === "closed" ? [[name, r.codes] as const] : []
+			r.kind === "closed" ? [[trusted<DeclaredName>(name), r.codes] as const] : []
 		)
 	)
 

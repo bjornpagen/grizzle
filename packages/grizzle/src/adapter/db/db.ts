@@ -64,51 +64,54 @@ const notItsOperation = (): CompileError =>
 		"an operation of the compiled program: execute, get and page read a query, apply applies a ChangeSet"
 	)
 
-/** A compiled read's operations; it applies nothing. */
+/** A read of a program that reads nothing, refused when it runs: its refusal is built where it is raised. */
+const refusedRead: Effect.Effect<never, ReadError> = Effect.failSync(
+	() => new ReadFailure({ reason: notItsOperation() })
+)
 
+/** An apply or a refresh its program does not allow, refused when it runs: its refusal is built where it is raised. */
+const refusedApply: Effect.Effect<never, ApplyError> = Effect.suspend(() =>
+	compileFailure(notItsOperation())
+)
+
+/** A compiled read's operations; it applies nothing. */
 export const readOps = <A>(read: CompiledRead<A>): CompiledOps<A> => ({
 	execute: (params) => read.execute(params),
 	get: (params) => read.get(params),
 	page: (params, request) => read.page(params, request),
-	apply: () => compileFailure(notItsOperation()),
-	refresh: compileFailure(notItsOperation())
+	apply: () => refusedApply,
+	refresh: refusedApply
 })
 
 /** A read's operations but page, a workload member that does not page: it pages nothing and applies nothing. */
 export const rowsOps = <A>(read: RowsRead<A>): CompiledOps<A> => ({
 	execute: (params) => read.execute(params),
 	get: (params) => read.get(params),
-	page: () => Effect.fail(new ReadFailure({ reason: notItsOperation() })),
-	apply: () => compileFailure(notItsOperation()),
-	refresh: compileFailure(notItsOperation())
+	page: () => refusedRead,
+	apply: () => refusedApply,
+	refresh: refusedApply
 })
 
 /** A compiled ChangeSet's operations; it reads nothing. */
-export const changeOps = <A>(change: CompiledChangeValue<A>): CompiledOps<A> => {
-	const refused = Effect.fail(new ReadFailure({ reason: notItsOperation() }))
-	return {
-		execute: () => refused,
-		get: () => refused,
-		page: () => refused,
-		apply: (params) => change.apply(params),
-		refresh: compileFailure(notItsOperation())
-	}
-}
+export const changeOps = <A>(change: CompiledChangeValue<A>): CompiledOps<A> => ({
+	execute: () => refusedRead,
+	get: () => refusedRead,
+	page: () => refusedRead,
+	apply: (params) => change.apply(params),
+	refresh: refusedApply
+})
 
 /** A refresh member's operations: it refreshes its targets in one transaction of the Db's role, and reads nothing. */
 export const refreshOps = (
 	ctx: Pick<DbContext, "pool" | "prologue">,
 	targets: Arr.NonEmptyReadonlyArray<ServedRefreshTarget>
-): CompiledOps<unknown> => {
-	const refused = Effect.fail(new ReadFailure({ reason: notItsOperation() }))
-	return {
-		execute: () => refused,
-		get: () => refused,
-		page: () => refused,
-		apply: () => compileFailure(notItsOperation()),
-		refresh: Effect.asVoid(runRefresh(ctx, refreshPlan(targets)))
-	}
-}
+): CompiledOps<unknown> => ({
+	execute: () => refusedRead,
+	get: () => refusedRead,
+	page: () => refusedRead,
+	apply: () => refusedApply,
+	refresh: Effect.asVoid(runRefresh(ctx, refreshPlan(targets)))
+})
 
 /** The decoder of a program db.compile takes: a query's rows, or a ChangeSet's read-backs. */
 const programDecoder = <A>(program: ProgramDecoding<A>): RowDecoder<A> =>

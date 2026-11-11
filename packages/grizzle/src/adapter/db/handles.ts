@@ -51,7 +51,7 @@ import type {
 	Row
 } from "#compiler/plan/common.ts"
 import type { Page } from "#compiler/plan/read.ts"
-import { SourceLoc, malformedDescription } from "#compiler/plan/runtime.ts"
+import { getRefusal, malformedDescription, SourceLoc } from "#compiler/plan/runtime.ts"
 
 /**
  * A served Db's workload handles: each program its layer loaded for the Db's role (served/load.ts LoadedMember), run on
@@ -103,18 +103,26 @@ const collected = (rows: ReadonlyArray<unknown>): QueryResult<unknown> => ({
 const refusedRead = (): Effect.Effect<never, ReadFailure> =>
 	Effect.fail(new ReadFailure({ reason: notItsOperation() }))
 
-const refusedApply = (): Effect.Effect<never, ApplyError> => compileFailure(notItsOperation())
+/** An operation its program does not allow, refused when it runs: its refusal is built where it is raised. */
+const refusedOperation: Effect.Effect<never, ApplyError> = Effect.suspend(() =>
+	compileFailure(notItsOperation())
+)
+
+const refusedApply = (): Effect.Effect<never, ApplyError> => refusedOperation
+
+/** Where get refuses a read of a query not proved at most one row per parameter binding. */
+const getLoc = SourceLoc("reader.get", [])
 
 /** A loaded read's execute and get: get only of a query proved at most one row per parameter binding. */
 const readOps = (executor: ReadExecutor, read: LoadedRead): CompiledOps<unknown> => ({
 	execute: (params) => Effect.map(runRead(executor, read, params, programFlight), collected),
 	get: (params) =>
-		Result.isFailure(read.get)
-			? Effect.fail(new ReadFailure({ reason: read.get.failure }))
-			: runRead(executor, read, params, programGetFlight),
+		read.getEligible
+			? runRead(executor, read, params, programGetFlight)
+			: Effect.fail(new ReadFailure({ reason: getRefusal(getLoc) })),
 	page: refusedRead,
 	apply: refusedApply,
-	refresh: refusedApply()
+	refresh: refusedOperation
 })
 
 /**
@@ -242,7 +250,7 @@ export const memberOpsOn = (
 							get: refusedRead,
 							page: refusedRead,
 							apply: (params) => applyChange(ctx, change, Result.succeed(call.call(params))),
-							refresh: refusedApply()
+							refresh: refusedOperation
 						}
 					}
 				case "facts":
@@ -253,7 +261,7 @@ export const memberOpsOn = (
 							get: refusedRead,
 							page: refusedRead,
 							apply: (facts, params) => applyChange(ctx, change, call.call(facts, params)),
-							refresh: refusedApply()
+							refresh: refusedOperation
 						}
 					}
 			}

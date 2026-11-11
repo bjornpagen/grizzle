@@ -1,5 +1,6 @@
 import { fromJson, noRevivers, type Path } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedArtifact, within } from "#compiler/core/errors.ts"
+import type { DeclaredName } from "#compiler/core/identity.ts"
 import type { SchemaFingerprint } from "#compiler/core/ids.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -107,13 +108,13 @@ export const servedSnapshot = (
 	if (!constraintToLaw.ok) {
 		return constraintToLaw
 	}
-	const rosters: Array<readonly [string, RosterCodes]> = []
+	const rosters: Array<readonly [DeclaredName, RosterCodes]> = []
 	for (const [name, recorded] of Object.entries(served.rosters)) {
 		const codes = revived(recorded, ["rosters", name])
 		if (!codes.ok) {
 			return codes
 		}
-		rosters.push([name, trusted<RosterCodes>(codes.value)])
+		rosters.push([trusted<DeclaredName>(name), trusted<RosterCodes>(codes.value)])
 	}
 	return Result.ok({
 		fingerprint: served.fingerprint,
