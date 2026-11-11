@@ -1,3 +1,26 @@
+/**
+ * A closed relation's constants through the command line, over drawn grids: `grizzle generate` drafts each constant as
+ * its one hex literal, the installation's own, and `grizzle check` holds every literal to its content
+ * (physical/ddl/literal.ts literalPackFault).
+ *
+ * - **A drafted folder passes:** check finds nothing in what generate drafted.
+ * - **A changed digit is one finding at its file, by its fault:** one hex digit of either constant, its cells' or its
+ *   key set's, changed to another is check's one finding, a literal pack at the file that holds it; and the
+ *   statement's fault is the content the oracle reads off the two literals: the closed relation, the first cell where
+ *   the literal parts from the declared rows and that cell's key, or, where the change sets a bit past the last cell,
+ *   a layout fault at that padding bit.
+ *
+ * The grid: Row (3 codes) by Col (2), row-major, each cell holding no row or a row of a Mark (3 codes), so its cells
+ * take 2 bits, 12 in all, three whole digits, and its key set 6 bits, padded with 2 to two digits.
+ *
+ * Oracle: a second implementation of the fault, the grid's cells row-major read off the test oracle's bits of each
+ * literal (test/support/closed/bit-text.ts), sharing no code with the engine's decoder.
+ *
+ * Plants (~/.cache/grizzle-release/BR04/plants): literal-pack-later-cell.patch (where two literals hold different cells
+ * first, the later is named), literal-pack-unchecked.patch (check finds only a literal pack off its printed form).
+ *
+ * Features: either constant changed; a cell changed or a padding bit set.
+ */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
@@ -16,11 +39,12 @@ import {
 	Order,
 	String as Str
 } from "effect"
-import { refusalText } from "#cli/refusals.ts"
+import { check } from "#cli/check.ts"
 import { headNonEmpty } from "#compiler/core/nonempty.ts"
 import { metaFileName } from "#compiler/deploy/render/folder.ts"
 import { splitStatements } from "#compiler/deploy/render/markers.ts"
 import { manifestFileName, snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
+import { literalPackFault, type PackFault } from "#compiler/physical/ddl/literal.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { closedId } from "#compiler/public/fields.ts"
 import { closed, schema } from "#compiler/public/schema.ts"
@@ -28,24 +52,18 @@ import { servedDirectory } from "#compiler/served/forms.ts"
 import type { PackConstant } from "#compiler/sql/ast.ts"
 import { printObjectName, printStatement } from "#compiler/sql/print.ts"
 import { defineConfig } from "#index.ts"
-import { cliOver, configName, offlineOwner, workspace } from "#test/pg/cli/support.ts"
+import {
+	cliOver,
+	configName,
+	offlineOwner,
+	resolvedConfig,
+	workspace
+} from "#test/pg/cli/support.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { textOfHex } from "#test/support/closed/bit-text.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { owning } from "#test/support/policy.ts"
 
-/**
- * A closed relation's constants through the command line, over drawn grids: `grizzle generate` drafts each constant as
- * its one hex literal, the installation's own, and `grizzle check` holds every literal to its content
- * (physical/ddl/literal.ts literalPackFault), so the drafted folder passes, and one hex digit of either constant, its
- * cells' or its key set's, changed to another is refused at its file and statement: naming the closed relation, the
- * first cell where the literal parts from the declared rows and that cell's key, or, where the change sets a bit past
- * the last cell, that padding bit.
- *
- * The grid: Row (3 codes) by Col (2), row-major, each cell holding no row or a row of a Mark (3 codes), so its cells
- * take 2 bits, 12 in all, three whole digits, and its key set 6 bits, padded with 2 to two digits. Oracle: the grid's
- * cells by hand, row-major, read off the test oracle's bits of each literal (test/support/closed/bit-text.ts).
- */
 const Row = closed("Row", ["r0", "r1", "r2"])
 const Col = closed("Col", ["c0", "c1"])
 const Mark = closed("Mark", ["low", "high", "top"])
@@ -111,30 +129,30 @@ const now = (s: number) =>
 		millisecond: 0
 	})
 
-/** The lines of an output, each `<where>: <problem>; <fix>` for a finding. */
-const lines = (text: string): ReadonlyArray<string> =>
-	Arr.filter(Str.split(text, "\n"), (l) => l.length > 0)
-
 /** `hex` with its digit at `at` moved `offset` values on, modulo sixteen: another digit. */
 const changedDigit = (hex: string, at: number, offset: number): string =>
 	`${Str.slice(0, at)(hex)}${Str.toUpperCase(((Number.parseInt(defined(hex[at]), 16) + offset) % 16).toString(16))}${Str.slice(at + 1)(hex)}`
 
 /**
- * What check says of a literal changed from `before` to `after`, `cells` cells of `width` bits: the first bit past the
+ * The fault of a literal of `fn` changed from `before` to `after`, `cells` cells of `width` bits: the first bit past the
  * last cell it sets, or the first cell whose bits it changes, with that cell's key.
  */
-const faultText = (
+const faultOf = (
 	fn: string,
 	before: string,
 	after: string,
 	cells: number,
 	width: number
-): string => {
+): PackFault => {
 	const was = textOfHex(before)
 	const now = textOfHex(after)
 	const padding = Str.indexOf("1")(Str.slice(cells * width)(now))
 	if (Option.isSome(padding)) {
-		return `the literal of ${fn} sets bit ${cells * width + padding.value}, which pads it past its last cell`
+		return {
+			kind: "layout",
+			function: fn,
+			fault: { kind: "padding", at: cells * width + padding.value }
+		}
 	}
 	const cell = defined(
 		Option.getOrUndefined(
@@ -146,7 +164,12 @@ const faultText = (
 		),
 		"a changed cell"
 	)
-	return `the literal of ${fn} (closed relation Grid) differs from its declared rows, first at cell ${cell}, key (${rowAt(Math.floor(cell / 2))}, ${colAt(cell % 2)})`
+	return {
+		kind: "content",
+		function: fn,
+		relation: "Grid",
+		differs: { cell: BigInt(cell), key: [rowAt(Math.floor(cell / 2)), colAt(cell % 2)] }
+	}
 }
 
 layer(NodeServices.layer, { excludeTestServices: true })(
@@ -162,7 +185,7 @@ layer(NodeServices.layer, { excludeTestServices: true })(
 							suite: "unit/cli/literal-pack",
 							oracle: {
 								kind: "second-implementation",
-								name: "the grid's cells by hand, row-major, read off the oracle's bits of each literal"
+								name: "the grid's cells row-major, read off the oracle's bits of each literal"
 							},
 							draw: drawn(grids),
 							literal: Formatter.format,
@@ -238,9 +261,17 @@ layer(NodeServices.layer, { excludeTestServices: true })(
 											text
 										}))
 									)
+									const read = yield* resolvedConfig(config, `${ws}/${configName}`)
+									const resolved = succeeded(read)
+									const findings = Effect.map(Effect.orDie(check(resolved, ws)), (checks) =>
+										Arr.flatMap(checks, (x) =>
+											Arr.map(x.findings, (f) => ({ kind: f.kind, where: f.where }))
+										)
+									)
 									const held = yield* cliOver(ws, config, ["check", configName], now(1))
 									assert.equal(held.code, 0, held.stderr)
-									const refusal = `${refusalText.literalPack.problem}; ${refusalText.literalPack.fix}`
+									const drafts = yield* findings
+									assert.deepEqual(drafts, [], "the drafted folder holds every literal")
 									for (const constant of ["cells", "keys"] as const) {
 										const p = packs[constant]
 										const literalText = printStatement(p)
@@ -250,41 +281,40 @@ layer(NodeServices.layer, { excludeTestServices: true })(
 											),
 											`the file generate drafted the ${constant} literal into`
 										)
-										const ordinal =
-											defined(
-												Option.getOrUndefined(
-													Arr.findFirstIndex(splitStatements(file.text), (s) =>
-														Str.includes(`X'${p.hex}'`)(s)
-													)
-												),
-												"the literal is one of the file's statements"
-											) + 1
+										const statement = defined(
+											Option.getOrUndefined(
+												Arr.findFirst(splitStatements(file.text), (s) =>
+													Str.includes(`X'${p.hex}'`)(s)
+												)
+											),
+											"the literal is one of the file's statements"
+										)
 										const change = d.changes[constant]
 										const after = changedDigit(p.hex, change.digit, change.offset)
 										const path = `${ws}/${folder}/${file.name}`
-										yield* fs.writeFileString(
-											path,
-											Str.replace(`X'${p.hex}'`, `X'${after}'`)(file.text)
-										)
+										const tamper = Str.replace(`X'${p.hex}'`, `X'${after}'`)
+										yield* fs.writeFileString(path, tamper(file.text))
 										const tampered = yield* cliOver(ws, config, ["check", configName], now(2))
+										const found = yield* findings
 										yield* fs.writeFileString(path, file.text)
 										assert.equal(tampered.code, 1, `X'${after}' for X'${p.hex}' is refused`)
-										const fault = faultText(
+										assert.deepEqual(found, [
+											{ kind: "literalPack", where: `${folder}/${file.name}` }
+										])
+										const fault = faultOf(
 											printObjectName(p.function),
 											p.hex,
 											after,
 											Number(p.cells),
 											p.width
 										)
-										assert.deepEqual(lines(tampered.stderr), [
-											`${folder}/${file.name}: statement ${ordinal}: ${fault}: ${refusal}`
-										])
+										assert.deepEqual(literalPackFault(installation, tamper(statement)), fault)
 										c.note(
 											constant === "cells"
 												? "the cells' literal changed"
 												: "the key set's literal changed"
 										)
-										c.note(Str.includes("pads it")(fault) ? "a padding bit set" : "a cell changed")
+										c.note(fault.kind === "layout" ? "a padding bit set" : "a cell changed")
 									}
 								})
 							)

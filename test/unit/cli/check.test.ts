@@ -35,7 +35,7 @@ import {
 	resolvedConfig,
 	workspace
 } from "#test/pg/cli/support.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { assert, defined, succeeded, unorderedEqual } from "#test/support/assert.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 
@@ -52,6 +52,15 @@ import { caseHang } from "#test/support/limits.ts"
  *   walk stops at the first folder whose meta.json is not the schema's link, so a later folder off the chain is no
  *   finding of its own; and a stray entry leaves the directory unread, its one finding. check exits 1 exactly when
  *   it finds anything; that a clean directory passes is the project suite's (project.test.ts).
+ *
+ * Oracle: the specification of each planted fault's finding at its own entry, as the documented chain walk reaches it
+ * (findingsOf); the findings compared as a set of kinds at entries, each once.
+ *
+ * Plants (~/.cache/grizzle-release/BR04/plants): check-broken-chain-unread.patch (a folder off the chain is reported as
+ * an unreadable meta.json), check-no-markers.patch (check reports no marker left in a file).
+ *
+ * Features: each finding's kind, a stray entry alone, four findings at once, and a later folder off the chain the walk
+ * never reaches.
  */
 type MetaFault = "sound" | "unreadable" | "off the chain"
 
@@ -348,19 +357,12 @@ layer(NodeServices.layer, { excludeTestServices: true })("grizzle check", (it) =
 									const read = yield* resolvedConfig(config, `${ws}/${configName}`)
 									const resolved = succeeded(read)
 									const [checked] = yield* check(resolved, ws)
-									const byEntry = (findings: ReadonlyArray<Finding>) =>
-										Arr.sort(
-											Arr.map(findings, (f) => `${f.kind} ${f.entry}`),
-											Order.String
-										)
-									assert.deepEqual(
-										byEntry(
-											Arr.map(defined(checked, "the schema's check").findings, (f) => ({
-												kind: f.kind,
-												entry: entryOf(f.where)
-											}))
-										),
-										byEntry(expected),
+									unorderedEqual(
+										Arr.map(defined(checked, "the schema's check").findings, (f) => ({
+											kind: f.kind,
+											entry: entryOf(f.where)
+										})),
+										expected,
 										Formatter.format(p)
 									)
 								})

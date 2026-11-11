@@ -4,6 +4,13 @@
  * Every refusal the command line prints, every applied-edit refusal of migrate and every stage's fix is documented in
  * the skill, word for word, so an agent that reads a refusal finds its fix there (packages/grizzle/src/cli/refusals.ts).
  * The box is the refusal table itself, every text of it.
+ *
+ * Oracle: the refusal table (cli/refusals.ts), whose every text the shipped skill must quote.
+ *
+ * Plants (~/.cache/grizzle-release/BR04/plants): skill-fix-reworded.patch (a refusal's fix reworded where the skill is
+ * not).
+ *
+ * Features: none; the box is every text.
  */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"

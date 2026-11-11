@@ -4,6 +4,7 @@ import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import { array, constant, element, type Gen, int, map, oneOf, weighted } from "@grizzle/testing/gen"
+import { passed, type Wild, type WildKind, wild } from "@grizzle/testing/lsw"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -56,6 +57,15 @@ import {
  *   or at a text, a migration's is refused at stage environment exactly when one holds a text, with a
  *   ConnectionEnvironmentRefused naming the first of them and quoting no value, since an owner's session sets no
  *   options of its own and pg would send both at its startup.
+ *
+ * Oracles: the drawn connection itself, the role and password as given and the parse's fields (agreement); the
+ * specification of each refusal, its stage, reason and named setting, over the role faults, the thrown values and the
+ * environments drawn.
+ *
+ * Plants (~/.cache/grizzle-release/BR04/plants): connection-empty-role.patch (an empty role is admitted),
+ * connection-owner-options.patch (an owner's environment is refused only for PGREPLICATION).
+ *
+ * Features: the connection's tricky shapes, each role fault, each thrown value, and each environment's verdict.
  */
 const caText = "-----BEGIN CERTIFICATE-----\nMIIBconnection\n-----END CERTIFICATE-----\n"
 
@@ -258,32 +268,51 @@ const notes = (d: Drawn): ReadonlyArray<ConnectionFeature> =>
 const reported = (refused: CliError): string =>
 	`${refused.message}\n${inspect(refused, { depth: 12 })}`
 
-/** A role fault: what replaces the role, or none, the role left out. */
-type RoleFault = { readonly kind: "set"; readonly role: unknown } | { readonly kind: "unset" }
+/** A role fault: the empty role, a value of another kind (the library's wild values that are no text), or none. */
+type RoleFault =
+	| { readonly kind: "the empty role" }
+	| { readonly kind: "a role of another kind"; readonly wild: Wild }
+	| { readonly kind: "no role" }
 
-const roleFaultKinds = ["the empty role", "a role of another kind", "no role"] as const
-type RoleFaultKind = (typeof roleFaultKinds)[number]
+type RoleFaultKind = RoleFault["kind"]
+
+const roleFaultKinds: Arr.NonEmptyReadonlyArray<RoleFaultKind> = [
+	"the empty role",
+	"a role of another kind",
+	"no role"
+]
+
+/** The wild kinds that are no text and are read as data: a role of another kind than a string. */
+const otherKinds: Arr.NonEmptyReadonlyArray<WildKind> = [
+	"null",
+	"undefined",
+	"negative-zero",
+	"nan",
+	"infinity",
+	"bigint-for-number",
+	"number-for-bigint",
+	"symbol",
+	"function"
+]
 
 const roleFaultGen: Gen<RoleFault> = oneOf<RoleFault>([
-	constant({ kind: "set", role: "" }),
-	map(element<unknown>([1, null, undefined, ["owner"], { name: "owner" }]), (role) => ({
-		kind: "set",
-		role
-	})),
-	constant({ kind: "unset" })
+	constant({ kind: "the empty role" }),
+	map(wild(otherKinds), (drawnWild) => ({ kind: "a role of another kind", wild: drawnWild })),
+	constant({ kind: "no role" })
 ])
 
-const roleFaultKind = (f: RoleFault): RoleFaultKind =>
-	f.kind === "unset" ? "no role" : f.role === "" ? "the empty role" : "a role of another kind"
+/** The role a fault hands the parse, as JavaScript would. */
+const roleOf = (f: Exclude<RoleFault, { readonly kind: "no role" }>): unknown =>
+	f.kind === "the empty role" ? "" : passed({ kind: "wild", wild: f.wild })
 
 /** The configuration's connection of `d` with the role fault `f`, as JavaScript would hand it over. */
 const faulty = (d: Drawn, f: RoleFault): MigrationConnectionConfig => {
 	const typed = { ...typedOf(d) }
-	if (f.kind === "unset") {
+	if (f.kind === "no role") {
 		Reflect.deleteProperty(typed, "role")
 		return typed
 	}
-	return Object.assign(typed, { role: f.role })
+	return Object.assign(typed, { role: roleOf(f) })
 }
 
 /** The refusal of a role fault: at stage config, naming the configuration's connection.role, the password unquoted. */
@@ -352,7 +381,10 @@ describe("the configuration's connection, generated", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "specification",
+						name: "the drawn connection, its role and password as given and the parse's fields"
+					},
 					suite: "unit/cli/connection-agreement",
 					draw: drawn(drawnGen),
 					literal: Formatter.format,
@@ -385,7 +417,10 @@ describe("the configuration's connection, generated", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "a role that is no nonempty string is refused at stage config, naming connection.role"
+						},
 						suite: "unit/cli/connection-role-faults",
 						draw: drawn((source) => [source.draw(drawnGen), source.draw(roleFaultGen)] as const),
 						literal: Formatter.format,
@@ -399,7 +434,7 @@ describe("the configuration's connection, generated", () => {
 					},
 					([d, f], c) =>
 						Effect.sync(() => {
-							c.note(roleFaultKind(f))
+							c.note(f.kind)
 							roleRefusal(resolveConnection(faulty(d, f)), d.password)
 						})
 				)
@@ -413,7 +448,10 @@ describe("the configuration's connection, generated", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "what a refusal states of a thrown value (cli/errors.ts Said), and the value itself"
+						},
 						suite: "unit/cli/connection-threw",
 						draw: drawn(
 							(source) =>
@@ -484,7 +522,10 @@ describe("the migration's process environment, generated", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "the first startup variable an environment sets to a text is refused, none quoted"
+						},
 						suite: "unit/cli/owner-environment",
 						draw: drawn((source): OwnerEnvironment => ({
 							PGOPTIONS: source.draw(variableGen),

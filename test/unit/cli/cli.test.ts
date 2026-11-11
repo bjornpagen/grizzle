@@ -2,7 +2,7 @@ import { inspect } from "node:util"
 import { NodeServices } from "@effect/platform-node"
 import { describe, it, layer } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { noCoverage, required } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import {
 	array,
 	boolean,
@@ -89,6 +89,16 @@ import { upTo } from "#test/support/up-to.ts"
  *   missing, whose import throws, fails to parse, imports what does not exist or awaits a rejection, that exports no
  *   default, or whose default is any value but a configuration grizzle runs, built by defineConfig or not, is refused,
  *   writing nothing.
+ *
+ * Oracles: the grammar's meaning of each line and the fault each injection plants (specifications); day arithmetic of
+ * the proleptic Gregorian calendar (a second implementation); the configuration's documented settings resolved by hand;
+ * and the exit statuses run.ts documents.
+ *
+ * Plants (~/.cache/grizzle-release/BR04/plants): cli-help-first-only.patch (--help counts only as the command),
+ * cli-timestamp-repeats-newest.patch (a new folder's timestamp repeats the newest folder's when the clock reads it).
+ *
+ * Features: each line of the grammar and each fault, --help, -h and no argument, the timestamps' calendar edges, each
+ * configuration fault, and each way the bin's loading ends.
  */
 /** The commands that take no flag. */
 type PlainCommand = "check" | "migrate" | "drift" | "names"
@@ -516,6 +526,31 @@ const faultsOf = (s: Spelled): Gen<Fault> => {
 	])
 }
 
+/** How a line asks for the usage: no argument at all, or a line of the grammar or a fault with a help flag anywhere. */
+type HelpFeature = "--help" | "-h" | "no argument"
+
+type Help =
+	| { readonly kind: "no argument" }
+	| { readonly kind: "--help" | "-h"; readonly argv: ReadonlyArray<string> }
+
+const helpGen: Gen<Help> = weighted<Help>([
+	[1, constant({ kind: "no argument" })],
+	[
+		8,
+		(source) => {
+			const argv = source.draw(
+				oneOf<ReadonlyArray<string>>([
+					map(spelledGen, (s) => argvOf(s.line.command, s.units)),
+					(inner) => inner.draw(faultsOf(inner.draw(spelledGen))).argv
+				])
+			)
+			const at = source.draw(int(0, argv.length))
+			const flag = source.draw(element(["--help", "-h"] as const))
+			return { kind: flag, argv: [...argv.slice(0, at), flag, ...argv.slice(at)] }
+		}
+	]
+])
+
 describe("the command line, generated", () => {
 	it.effect(
 		"reads every line of the grammar as exactly what it says, its flags in any order and either spelling",
@@ -524,7 +559,10 @@ describe("the command line, generated", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "the grammar's meaning of each line, whatever its flags' order and spelling"
+						},
 						suite: "unit/cli/grammar",
 						draw: drawn(spelledGen),
 						literal: Formatter.format,
@@ -553,7 +591,10 @@ describe("the command line, generated", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "the fault each injection plants into a line of the grammar"
+						},
 						suite: "unit/cli/grammar-faults",
 						draw: drawn((source): Fault => source.draw(faultsOf(source.draw(spelledGen)))),
 						literal: Formatter.format,
@@ -587,20 +628,17 @@ describe("the command line, generated", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "specification",
+						name: "the usage for a line holding --help or -h anywhere, and for no argument"
+					},
 					suite: "unit/cli/grammar-help",
-					draw: drawn((source): ReadonlyArray<string> => {
-						const argv = source.draw(
-							oneOf<ReadonlyArray<string>>([
-								map(spelledGen, (s) => argvOf(s.line.command, s.units)),
-								(inner) => inner.draw(faultsOf(inner.draw(spelledGen))).argv
-							])
-						)
-						const at = source.draw(int(0, argv.length))
-						return [...argv.slice(0, at), source.draw(element(["--help", "-h"])), ...argv.slice(at)]
-					}),
+					draw: drawn(helpGen),
 					literal: Formatter.format,
-					coverage: noCoverage,
+					coverage: required<HelpFeature>(["--help", "-h", "no argument"], {
+						cases: 20,
+						sense: notesOnly
+					}),
 					kept: [],
 					runs: 100,
 					shrink: completeShrink,
@@ -608,10 +646,11 @@ describe("the command line, generated", () => {
 					steerEvery: 16,
 					caseHang
 				},
-				(argv) =>
+				(help, c) =>
 					Effect.sync(() => {
+						c.note(help.kind)
+						const argv = help.kind === "no argument" ? [] : help.argv
 						assert.deepEqual(succeeded(parseArgs(argv), Arr.join(argv, " ")), { kind: "help" })
-						assert.deepEqual(succeeded(parseArgs([])), { kind: "help" })
 					})
 			)
 		)

@@ -22,6 +22,15 @@
  * holds a side; command lines of up to three renames and two drops over a pool of three sides of one form, so swaps,
  * chains, repeats and merges arise, alike names among them; and handle renames to the schema's rosters, respelled
  * alike, or to a roster it may lack.
+ *
+ * Oracle: D9's grammar stated as a checker, sharing no code with the reader but the naming door's rule of a declared
+ * name and its reading of two names as one.
+ *
+ * Plants (~/.cache/grizzle-release/BR04/plants): renames-handle-roster-spelling.patch (a handle rename's two sides are
+ * one name only when their rosters are spelled alike byte for byte).
+ *
+ * Features: each side's form, admitted and refused, a split two ways, swaps, chains, repeats and merges, and a roster
+ * respelled alike or lacking.
  */
 import { describe, it } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"

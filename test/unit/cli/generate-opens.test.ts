@@ -45,6 +45,13 @@ import { upTo } from "#test/support/up-to.ts"
  * layer refuses the program and generate refuses with the CompileError the layer refuses it with, the draft's access
  * plan or the served file's compile naming the program. A case compiles a program of some 1,664 columns, so the box is
  * the bound and the entry past it alone.
+ *
+ * Oracle: a differential between generate and the login's compilation over its workload's slice, which must admit and
+ * refuse alike, with one CompileError; and the bound itself, which admits exactly the select lists within it.
+ *
+ * Plants (~/.cache/grizzle-release/BR04/plants): select-list-at-bound.patch (a select list at the bound is refused).
+ *
+ * Features: a head on the bound, and one past it.
  */
 
 /** A head around the select list's bound: its entries, and how many of them are the left relation's fields. */
