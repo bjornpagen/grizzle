@@ -295,10 +295,7 @@ export const admittedSchemaNames: Arr.NonEmptyReadonlyArray<Admitted> = nonEmpty
 	"an admitted schema name"
 )
 
-/** An admitted declared name a schema may take, drawn as dictionaryNameGen draws one. */
-export const schemaNameGen: Gen<Admitted> = weightedNameGen(evenWeights, admittedSchemaNames)
-
-/** An admitted declared name a schema may take that `excluded` does not hold, drawn as schemaNameGen draws one. */
+/** An admitted declared name a schema may take that `excluded` does not hold, drawn as dictionaryNameGen draws one. */
 export const schemaNameGenOtherThan = (excluded: ReadonlySet<string>): Gen<Admitted> =>
 	nameGenOtherThan(admittedSchemaNames, excluded)
 
