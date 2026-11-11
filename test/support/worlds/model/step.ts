@@ -33,6 +33,7 @@ import {
 	directBranches,
 	directEndBranches,
 	directInterruptBranches,
+	sentBy,
 	startedBranches,
 	startStatements
 } from "#test/support/worlds/model/session/direct.ts"
@@ -417,14 +418,6 @@ const refreshCall = (state: ModelState, session: DbSessionState, relation: strin
 			]
 		}
 	}
-}
-
-/** The state with what direct session `id` sent followed by `statement`, while the session is a direct one. */
-const sentBy = (state: ModelState, id: number, statement: DirectStatement): ModelState => {
-	const s = sessionAt(state, id)
-	return s?.kind === "direct"
-		? withSession(state, id, { ...s, sent: [...s.sent, statement] })
-		: state
 }
 
 /**

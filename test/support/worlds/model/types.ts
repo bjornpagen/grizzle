@@ -904,8 +904,9 @@ export interface DirectSessionState {
 	readonly prepared: Readonly<Record<string, PreparedRead>>
 	/**
 	 * Every statement its direct actions sent the transaction, in order (BEGIN's own take on a role and set claims, which
-	 * the session's world shows): what a refusal at COMMIT, which judges them, may quote (README "Errors and outcomes": the values a
-	 * statement was given).
+	 * the session's world shows): what a refusal at COMMIT, which judges them, may quote (README "Errors and outcomes": the
+	 * values a statement was given), and what the transaction sends again when it is begun again (drive/index.ts
+	 * answered).
 	 */
 	readonly sent: ReadonlyArray<DirectStatement>
 }

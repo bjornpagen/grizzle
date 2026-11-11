@@ -590,9 +590,16 @@ export const startStatements = (start: DirectStart): ReadonlyArray<DirectStateme
 	return [...role, ...claims]
 }
 
+/** The state with what direct session `id` sent followed by `statement`, while the session is a direct one. */
+export const sentBy = (state: ModelState, id: number, statement: DirectStatement): ModelState => {
+	const s = directSessionAt(state, id)
+	return s === undefined ? state : withSession(state, id, { ...s, sent: [...s.sent, statement] })
+}
+
 /**
- * A begun direct writer's start statements (startStatements), each as the writer's own statement at the session `id`:
- * opened once every one is ok; otherwise the first one's refusal, the transaction as that statement left it.
+ * A begun direct writer's start statements (startStatements), each as the writer's own statement at the session `id`,
+ * and sent by it: opened once every one is ok; otherwise the first one's refusal, the transaction as that statement left
+ * it.
  */
 export const startedBranches = (
 	state: ModelState,
@@ -607,9 +614,10 @@ export const startedBranches = (
 	if (session === undefined) {
 		throw new Error(`the direct writer begun at session ${id} is no open direct session`)
 	}
-	return Arr.flatMap(directBranches(state, id, session, first), (b) =>
-		b.observation.kind === "ok" ? startedBranches(b.next, id, rest) : [b]
-	)
+	return Arr.flatMap(directBranches(state, id, session, first), (b) => {
+		const next = sentBy(b.next, id, first)
+		return b.observation.kind === "ok" ? startedBranches(next, id, rest) : [{ ...b, next }]
+	})
 }
 
 /**
