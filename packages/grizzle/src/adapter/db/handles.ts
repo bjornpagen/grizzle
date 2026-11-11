@@ -1,186 +1,344 @@
 import * as Effect from "effect/Effect"
-import type * as Option from "effect/Option"
 import * as Result from "effect/Result"
-import {
-	compileFailure,
-	type HostCall,
-	hostInputs,
-	inputApplyError,
-	runWrite
-} from "#adapter/apply/run.ts"
+import * as Stream from "effect/Stream"
+import { type HostCall, hostInputs, inputApplyError, runWrite } from "#adapter/apply/run.ts"
 import { dbChangeFrame, type ServedDbContext } from "#adapter/db/context.ts"
-import {
-	type CompiledOps,
-	type ExplainOps,
-	explainsOf,
-	factsCompiled,
-	type MemberExplains,
-	refreshHandle,
-	type ServedOps,
-	typedCompiled
-} from "#adapter/db/ops.ts"
-import { fromEngine } from "#adapter/engine.ts"
+import { type CallInput, callInput, noFacts, windowedInput } from "#adapter/db/input.ts"
 import {
 	type ApplyError,
 	type ReadError,
 	ReadFailure,
 	TransportFailure
 } from "#adapter/errors/execution.ts"
-import type { InputTooLarge, UnreadableAnswer } from "#adapter/errors/failures.ts"
+import type { CallInputRefused } from "#adapter/errors/failures.ts"
+import { callErrorOf } from "#adapter/live/call-error.ts"
 import { applyOutcome } from "#adapter/outcomes/index.ts"
-import { pageOf } from "#adapter/page/edges.ts"
-import { type PageCall, pageFlight } from "#adapter/page/execute.ts"
-import { pageRequest } from "#adapter/page/request.ts"
+import { windowIntake, windowStatement } from "#adapter/page/execute.ts"
+import { windowCall } from "#adapter/page/window.ts"
 import type { ExecutionInputs } from "#adapter/reader/execution.ts"
-import { poolExecutor, type ReadExecutor } from "#adapter/reader/executor.ts"
-import { hostParams, readKeyValues, unreadableArguments } from "#adapter/reader/params.ts"
+import {
+	hostParams,
+	readKeyValues,
+	readParams,
+	unreadableArguments
+} from "#adapter/reader/params.ts"
 import { executionInputs } from "#adapter/reader/relations.ts"
-import { programFlight, programGetFlight, type ReadProgram } from "#adapter/reader/run.ts"
+import { programStatement, readIntake } from "#adapter/reader/run.ts"
+import {
+	type DecodedRow,
+	listEvents,
+	type ReadCall,
+	readStream,
+	type ShapeEvents,
+	setEvents
+} from "#adapter/reader/stream.ts"
 import { runRefresh } from "#adapter/refresh/run.ts"
 import { explainChange, explainRead, explainReadAnalyzed } from "#adapter/served/explain.ts"
-import {
-	type LoadedChange,
-	type LoadedMember,
-	type LoadedPage,
-	type LoadedRead,
-	type LoadedVariants
-} from "#adapter/served/load.ts"
-import type { ApplyOutcome, QueryResult } from "#adapter/types/db.ts"
-import type { Flight } from "#adapter/wire/batch.ts"
 import type {
-	CompileError,
-	CursorError,
-	EncodingFailure,
-	ParamMap,
-	Row
-} from "#compiler/plan/common.ts"
-import type { Page } from "#compiler/plan/read.ts"
-import { getRefusal, malformedDescription, SourceLoc } from "#compiler/plan/runtime.ts"
+	ChangeCall,
+	LoadedChange,
+	LoadedMember,
+	LoadedPage,
+	LoadedRead,
+	LoadedVariants
+} from "#adapter/served/load.ts"
+import type { ApplyOutcome } from "#adapter/types/db.ts"
+import { takenRows } from "#adapter/wire/batch.ts"
+import {
+	type CallError,
+	callError,
+	fold,
+	type Keyed,
+	type KeyedList,
+	type KeyedSet,
+	type ListEvent,
+	opening,
+	type ReadShape,
+	type ReadState,
+	type Refreshed,
+	type SetEvent,
+	type WriteEvent,
+	type WriteOutcome
+} from "#compiler/live/index.ts"
+import type { EncodingFailure } from "#compiler/plan/common.ts"
+import { defect, encodeFailure, factPlace } from "#compiler/plan/runtime.ts"
 import type { ServedTables } from "#compiler/plan/serve.ts"
 
 /**
- * A served Db's workload handles: each program its layer loaded for the Db's role (served/load.ts LoadedMember), run on
- * the Db's pool, under its name. A handle lives as long as the layer that loaded its program.
+ * A served Db's workload handles: each member its layer loaded for the Db's role (served/load.ts LoadedMember), run on
+ * the Db's pool, under its name. Every member offers exactly `once(input)` and `watch(input)` (ServedCalls), its input
+ * read once at this boundary (db/input.ts), and a read or change member its explains, which plan exactly the
+ * statements its once sends. A handle lives as long as the layer that loaded its program.
  *
- * The refusal of an operation a member's program does not allow, which its typed handle never offers: a JavaScript
- * caller meets it before any SQL.
+ * - A read, a key and a paged member read: `watch` is the read's events (reader/stream.ts readStream), reset, an
+ *   upsert per row as it decodes, provisional, then ready after its COMMIT; `once` is those events folded to ready
+ *   (live/fold.ts), the read's value, or the error that ended them. A key member's parameters are its key's values,
+ *   read off its input's params by the key's fields; a paged member's window selects its template and its anchor.
+ * - A change member writes: `once` is its outcome after its COMMIT, accepted with its counts and read-backs or
+ *   unchanged, and every refusal is its CallError, the laws' rejection and a fact outside the world included; `watch`
+ *   is that outcome, or that error, then end. Its facts are its array members' where its ChangeSet holds some, else `{}`.
+ * - A refresh member writes too: its outcome is `refreshed`, after its one transaction's COMMIT (refresh/run.ts).
+ *
+ * Every failure is classified once (live/call-error.ts callErrorOf), so an answer's error event and once's error are
+ * one CallError.
+ *
+ * A member's calls over JavaScript values, by the shape of its answer, so a call's events and its value are typed by
+ * its shape: what a typed handle views (types/db MemberHandle) and what the HTTP handler calls by name.
  */
-const notItsOperation = (): CompileError =>
-	malformedDescription(
-		SourceLoc("db.workload", []),
-		"an operation of the program: execute and get read a query, page pages a paged member, apply applies a ChangeSet, a key gets its row, refresh refreshes a refresh member's materialized derived relations"
+export type ServedCalls =
+	| {
+			readonly shape: "set"
+			readonly once: (input: unknown) => Effect.Effect<KeyedSet<DecodedRow>, CallError>
+			readonly watch: (input: unknown) => Stream.Stream<SetEvent<DecodedRow>>
+	  }
+	| {
+			readonly shape: "list"
+			readonly once: (input: unknown) => Effect.Effect<KeyedList<DecodedRow>, CallError>
+			readonly watch: (input: unknown) => Stream.Stream<ListEvent<DecodedRow>>
+	  }
+	| {
+			readonly shape: "write"
+			readonly once: (input: unknown) => Effect.Effect<WrittenOutcome, CallError>
+			readonly watch: (input: unknown) => Stream.Stream<WriteEvent<WrittenOutcome>>
+	  }
+
+/** What a write member's once answers: a ChangeSet's outcome over its read-backs, or a refresh's. */
+export type WrittenOutcome = WriteOutcome<unknown> | Refreshed
+
+/**
+ * A read member's call parsed from its input: its read call, and the execution inputs its statement binds, which its
+ * subscription routes by.
+ */
+interface ParsedRead {
+	readonly call: ReadCall
+	readonly inputs: ExecutionInputs
+}
+
+/** A read's execution inputs from the caller's parameters (reader/params.ts hostParams, reader/relations.ts). */
+const readInputs = (read: LoadedRead, params: unknown): Effect.Effect<ExecutionInputs, ReadError> =>
+	Effect.flatMap(hostParams(read.params, params), (values) =>
+		Effect.mapError(
+			Effect.fromResult(executionInputs(read.codecs, values)),
+			(reason) => new ReadFailure({ reason })
+		)
 	)
 
-/** How a read delivers its program's rows: every one, or the one row of a query proved at most one (run.ts). */
-type Delivery<X> = (
-	program: ReadProgram,
-	inputs: ExecutionInputs,
-	read: (row: Row) => unknown
-) => Effect.Effect<Flight<X, UnreadableAnswer>, InputTooLarge>
+/** A read member's call over `params`, each call's rows read by its program's intake (reader/run.ts readIntake). */
+const programCall = (read: LoadedRead, params: unknown): Effect.Effect<ParsedRead, ReadError> =>
+	Effect.map(readInputs(read, params), (inputs) => ({
+		inputs,
+		call: {
+			fields: read.key.fields,
+			decode: read.read,
+			open: (emit) => {
+				const intake = readIntake(read.program, inputs.params, emit)
+				return Effect.map(
+					programStatement(read.program, inputs, takenRows(intake.take)),
+					(statement) => ({ statement, end: intake.end })
+				)
+			}
+		}
+	}))
+
+/** The refusal of an input at the boundary, as a read's. */
+const refusedRead = (reason: CallInputRefused): ReadFailure => new ReadFailure({ reason })
+
+/** A read or key member's input: its parameters, and no facts. */
+const readInput = (input: unknown): Effect.Effect<CallInput, ReadError> =>
+	Effect.mapError(
+		Effect.fromResult(
+			Result.flatMap(callInput(input), (read) => Result.map(noFacts(read.facts), () => read))
+		),
+		refusedRead
+	)
+
+/** A read member's call (programCall) from its input. */
+const parseRead =
+	(read: LoadedRead) =>
+	(input: unknown): Effect.Effect<ParsedRead, ReadError> =>
+		Effect.flatMap(readInput(input), (given) => programCall(read, given.params))
+
+/** A key member's call from its input: its parameters are its key's values, read off its params by the key's fields. */
+const parseKey =
+	(read: LoadedRead, fields: ReadonlyArray<string>) =>
+	(input: unknown): Effect.Effect<ParsedRead, ReadError> =>
+		Effect.flatMap(readInput(input), (given) =>
+			Effect.flatMap(
+				Effect.fromResult(readKeyValues(fields, given.params, unreadableArguments())),
+				(values) => programCall(read, values)
+			)
+		)
 
 /**
- * One run of a loaded read with the caller's parameters, through `executor`: the parameters read once and every Stream
- * collected (reader/params.ts hostParams), the inputs encoded by the read's codecs, then its one flight, its rows read
- * by its bound decoder and delivered by `delivery`.
+ * A paged member's call from its input: its window read against the page's comparators (page/window.ts), its template
+ * the window's anchor selects, its rows read once its statement has answered (page/execute.ts windowIntake) and decoded
+ * by the decoder bound to that template.
  */
-const runRead = <X>(
-	executor: ReadExecutor,
-	read: LoadedRead,
-	params: ParamMap,
-	delivery: Delivery<X>
-): Effect.Effect<X, ReadError> =>
-	Effect.gen(function* () {
-		const values = yield* hostParams(read.params, params)
-		const flight = yield* Effect.mapError(
-			Effect.flatMap(Effect.fromResult(executionInputs(read.codecs, values)), (ready) =>
-				delivery(read.program, ready, read.read)
-			),
-			(reason) => new ReadFailure({ reason })
-		)
-		return yield* executor.run(flight)
-	})
-
-/** A read's complete result over its rows. */
-const collected = (rows: ReadonlyArray<unknown>): QueryResult<unknown> => ({
-	collect: Effect.succeed(rows)
-})
-
-const refusedRead = (): Effect.Effect<never, ReadFailure> =>
-	Effect.fail(new ReadFailure({ reason: notItsOperation() }))
-
-/** An operation its program does not allow, refused when it runs: its refusal is built where it is raised. */
-const refusedOperation: Effect.Effect<never, ApplyError> = Effect.suspend(() =>
-	compileFailure(notItsOperation())
-)
-
-const refusedApply = (): Effect.Effect<never, ApplyError> => refusedOperation
-
-/** Where get refuses a read of a query not proved at most one row per parameter binding. */
-const getLoc = SourceLoc("reader.get", [])
-
-/** A loaded read's execute and get: get only of a query proved at most one row per parameter binding. */
-const readOps = (executor: ReadExecutor, read: LoadedRead): CompiledOps<unknown> => ({
-	execute: (params) => Effect.map(runRead(executor, read, params, programFlight), collected),
-	get: (params) =>
-		read.getEligible
-			? runRead(executor, read, params, programGetFlight)
-			: Effect.fail(new ReadFailure({ reason: getRefusal(getLoc) })),
-	page: refusedRead,
-	apply: refusedApply,
-	refresh: refusedOperation
-})
-
-/**
- * One page of a paged member (page/page.ts): the request read first, then the parameters as a read's, an anchored
- * request's cursor decoded by the page's codec, the request variant's one flight, and each delivered edge's node read
- * by the decoder the layer bound to that variant's layouts, its cursor made by the codec.
- */
-const runPage = <Q>(
-	executor: ReadExecutor,
-	read: LoadedRead,
-	page: LoadedPage,
-	params: ParamMap,
-	request: unknown
-): Effect.Effect<Page<unknown, Q>, ReadError | CursorError> =>
-	Effect.gen(function* () {
-		const asked = yield* Effect.fromResult(pageRequest(request))
-		const values = yield* hostParams(read.params, params)
-		const inputs = yield* Effect.fromResult(
-			Result.mapError(executionInputs(read.codecs, values), (reason) => new ReadFailure({ reason }))
-		)
-		const call: PageCall =
-			asked.variant === "first" || asked.variant === "last"
-				? asked
-				: {
-						variant: asked.variant,
-						size: asked.size,
-						boundary: (yield* fromEngine(page.runtime.codec.decode(asked.cursor))).texts
+const parseWindow =
+	(read: LoadedRead, page: LoadedPage) =>
+	(input: unknown): Effect.Effect<ParsedRead, ReadError> =>
+		Effect.gen(function* () {
+			const given = yield* Effect.mapError(
+				Effect.fromResult(
+					Result.flatMap(windowedInput(input), (windowed) =>
+						Result.flatMap(noFacts(windowed.facts), () =>
+							Result.map(windowCall(windowed.window, page.runtime.anchors), (call) => ({
+								params: windowed.params,
+								call
+							}))
+						)
+					)
+				),
+				refusedRead
+			)
+			const inputs = yield* readInputs(read, given.params)
+			const window = given.call
+			return {
+				inputs,
+				call: {
+					fields: read.key.fields,
+					decode: page.reads[window.variant],
+					open: (emit) => {
+						const intake = windowIntake(
+							page.runtime.artifact.requests[window.variant],
+							window.size,
+							emit
+						)
+						return Effect.map(
+							windowStatement(page.runtime, inputs, window, takenRows(intake.take)),
+							(statement) => ({ statement, end: intake.end })
+						)
 					}
-		const flight = yield* Effect.mapError(
-			pageFlight(page.runtime, inputs, call),
-			(reason) => new ReadFailure({ reason })
-		)
-		const rows = yield* executor.run(flight)
-		return yield* Effect.fromResult(
-			pageOf<unknown, Q>(page.runtime, rows, page.reads[asked.variant])
-		)
-	})
+				}
+			}
+		})
 
 /**
- * One application of a loaded ChangeSet (apply/run.ts) for the call `call` reads (load.ts ChangeCall): its inputs
- * readied on the host, a same-key pair the host already refuses answered as invariant-rejected before any SQL, else its
- * one transaction on a session of the Db's pool, whose acquisition's refusal is a TransportFailure at stage acquire.
+ * How a read of shape S answers, beside how its events are made (reader/stream.ts ShapeEvents): its `end`, and its
+ * events folded from before its reset (live/fold.ts), which once settles.
+ */
+interface ShapeAnswer<S extends ReadShape, E> extends ShapeEvents<E> {
+	readonly end: E
+	readonly settle: (events: ReadonlyArray<E>) => ReadState<S, DecodedRow>
+}
+
+/** A set read's answer. */
+const setAnswer: ShapeAnswer<"set", SetEvent<DecodedRow>> = {
+	...setEvents,
+	end: { kind: "end" },
+	settle: (events) => fold(opening<"set", DecodedRow>("set"), events)
+}
+
+/** An ordered read's answer. */
+const listAnswer: ShapeAnswer<"list", ListEvent<DecodedRow>> = {
+	...listEvents,
+	end: { kind: "end" },
+	settle: (events) => fold(opening<"list", DecodedRow>("list"), events)
+}
+
+/**
+ * A read's calls of shape S (see the header): its input parsed by `parse`, a refusal of which is its one error event;
+ * watch its events then `end`; once its events settled to ready, the read's value, or the error that ended them.
+ */
+const readCalls = <S extends ReadShape, E>(
+	ctx: ServedDbContext,
+	answer: ShapeAnswer<S, E>,
+	parse: (input: unknown) => Effect.Effect<ParsedRead, ReadError>
+): {
+	readonly once: (input: unknown) => Effect.Effect<Keyed<S, DecodedRow>, CallError>
+	readonly watch: (input: unknown) => Stream.Stream<E>
+} => {
+	const events = (input: unknown): Stream.Stream<E> =>
+		Stream.unwrap(
+			Effect.match(parse(input), {
+				onFailure: (failure) => Stream.make(answer.error(callErrorOf(failure))),
+				onSuccess: (parsed) => readStream(ctx, parsed.call, answer)
+			})
+		)
+	return {
+		watch: (input) => Stream.concat(events(input), Stream.make(answer.end)),
+		once: (input) =>
+			Effect.flatMap(Stream.runCollect(events(input)), (collected) => {
+				const state = answer.settle(collected)
+				switch (state.kind) {
+					case "ready":
+						return Effect.succeed(state.value)
+					case "failed":
+						return Effect.fail(state.error)
+					case "opening":
+					case "provisional":
+						return Effect.die(defect("a read's events end at its ready or its error"))
+				}
+			})
+	}
+}
+
+/** A read's calls by the shape of its key (served/forms.ts ServedKey), its input parsed by `parse`. */
+const readMemberCalls = (
+	ctx: ServedDbContext,
+	read: LoadedRead,
+	parse: (input: unknown) => Effect.Effect<ParsedRead, ReadError>
+): ServedCalls => {
+	switch (read.key.kind) {
+		case "set":
+			return { shape: "set", ...readCalls(ctx, setAnswer, parse) }
+		case "list":
+			return { shape: "list", ...readCalls(ctx, listAnswer, parse) }
+	}
+}
+
+/**
+ * A write's once and watch from its one Effect: watch is its outcome, or its error, then end, each sent once the
+ * Effect settled.
+ */
+const writeCalls = (
+	write: (input: unknown) => Effect.Effect<WrittenOutcome, CallError>
+): ServedCalls => ({
+	shape: "write",
+	once: write,
+	watch: (input) =>
+		Stream.unwrap(
+			Effect.match(write(input), {
+				onFailure: (error): Stream.Stream<WriteEvent<WrittenOutcome>> =>
+					Stream.make({ kind: "error", error }, { kind: "end" }),
+				onSuccess: (outcome): Stream.Stream<WriteEvent<WrittenOutcome>> =>
+					Stream.make({ kind: "outcome", outcome }, { kind: "end" })
+			})
+		)
+})
+
+/** The host call of a change's input: its parameters, with its facts where its ChangeSet holds array members, else `{}`. */
+const hostCallOf = (
+	call: ChangeCall,
+	input: CallInput
+): Result.Result<HostCall, CallInputRefused | EncodingFailure> => {
+	switch (call.kind) {
+		case "params":
+			return Result.map(noFacts(input.facts), () => call.call(input.params))
+		case "facts":
+			return call.call(input.facts, input.params)
+	}
+}
+
+/** A change's host call from a caller's input (hostCallOf). */
+const changeInput = (
+	change: LoadedChange,
+	input: unknown
+): Result.Result<HostCall, CallInputRefused | EncodingFailure> =>
+	Result.flatMap(callInput(input), (given) => hostCallOf(change.call, given))
+
+/**
+ * One application of a loaded ChangeSet for `host`: its inputs readied on the host, a same-key pair the host already
+ * refuses answered as invariant-rejected before any SQL, else its one transaction on a session of the Db's pool, whose
+ * acquisition's refusal is a TransportFailure at stage acquire.
  */
 const applyChange = (
 	ctx: ServedDbContext,
 	change: LoadedChange,
-	call: Result.Result<HostCall, EncodingFailure>
+	host: HostCall
 ): Effect.Effect<ApplyOutcome<unknown>, ApplyError> =>
 	Effect.gen(function* () {
-		const inputs = yield* Effect.mapError(
-			Effect.flatMap(Effect.fromResult(call), (read) => hostInputs(change.entry, read)),
-			inputApplyError
-		)
+		const inputs = yield* Effect.mapError(hostInputs(change.entry, host), inputApplyError)
 		if (inputs.kind === "rejected") {
 			return applyOutcome.invariantRejected(
 				{ kind: "every", laws: [inputs.refused] },
@@ -195,6 +353,58 @@ const applyChange = (
 		)
 	})
 
+/**
+ * A committed application's outcome, or the refusal it is: accepted, with its counts and read-backs; unchanged, with
+ * its read-backs; the laws' rejection, with which laws refused it and the witness; a fact outside the world relation.
+ */
+const writtenOf = (outcome: ApplyOutcome<unknown>): Result.Result<WrittenOutcome, CallError> => {
+	switch (outcome.kind) {
+		case "accepted":
+			return Result.succeed({ kind: "accepted", counts: outcome.counts, reads: outcome.reads })
+		case "no-change":
+			return Result.succeed({ kind: "unchanged", reads: outcome.reads })
+		case "invariant-rejected":
+			return Result.fail(
+				callError("refused", {
+					message: "the schema's laws refused the write",
+					refused: outcome.refused,
+					witness: outcome.witness
+				})
+			)
+		case "outside-world":
+			return Result.fail(
+				callError("outsideWorld", {
+					message: `a fact the write adds lies outside the world relation ${outcome.relation}`,
+					relation: outcome.relation
+				})
+			)
+	}
+}
+
+/** A change member's write: its input read, its one application, its outcome or its error. */
+const changeWrite =
+	(ctx: ServedDbContext, change: LoadedChange) =>
+	(input: unknown): Effect.Effect<WrittenOutcome, CallError> =>
+		Effect.flatMap(
+			Effect.mapError(
+				Effect.flatMap(Effect.fromResult(changeInput(change, input)), (host) =>
+					applyChange(ctx, change, host)
+				),
+				callErrorOf
+			),
+			(outcome) => Effect.fromResult(writtenOf(outcome))
+		)
+
+const refreshed: Refreshed = { kind: "refreshed" }
+
+/** A refresh member's input: no parameters and no facts. */
+const refreshInput = (input: unknown): Result.Result<void, CallInputRefused | EncodingFailure> =>
+	Result.flatMap(callInput(input), (given) =>
+		Result.flatMap(readParams([], given.params, encodeFailure("factShape", factPlace)), () =>
+			noFacts(given.facts)
+		)
+	)
+
 /** The change a Db runs: the one compiled for the fill contexts its claims hold a fact of. */
 export const variantOf = (ctx: ServedDbContext, variants: LoadedVariants): LoadedChange => {
 	switch (variants.kind) {
@@ -205,162 +415,85 @@ export const variantOf = (ctx: ServedDbContext, variants: LoadedVariants): Loade
 	}
 }
 
-/**
- * A loaded member's operations over a Db's context (db/ops.ts ServedOps), those its program does not allow refused
- * before any SQL: a read executes and gets; a key gets by its values, read once at the boundary (reader/params.ts
- * readKeyValues); a paged member also pages; a ChangeSet applies its variant for the Db's claims, with each call's
- * facts where it holds array members (load.ts ChangeCall); a refresh refreshes its targets, already in refresh order,
- * in one transaction of the Db's role (refresh/run.ts runRefresh). Its reads run through `executor`, which sends each
- * flight.
- */
-export const memberOpsOn = (
-	executor: ReadExecutor,
-	ctx: ServedDbContext,
-	member: LoadedMember
-): ServedOps<unknown> => {
+/** A loaded member's calls over a Db's context (see the header). */
+export const memberCalls = (ctx: ServedDbContext, member: LoadedMember): ServedCalls => {
 	switch (member.kind) {
 		case "read":
-			return { kind: "program", ops: readOps(executor, member.read) }
-		case "key": {
-			const read = readOps(executor, member.read)
-			return {
-				kind: "program",
-				ops: {
-					...read,
-					get: (values: ParamMap): Effect.Effect<Option.Option<unknown>, ReadError> => {
-						const bound = readKeyValues(member.fields, values, unreadableArguments())
-						return Result.isFailure(bound) ? Effect.fail(bound.failure) : read.get(bound.success)
-					}
-				}
-			}
-		}
+			return readMemberCalls(ctx, member.read, parseRead(member.read))
+		case "key":
+			return readMemberCalls(ctx, member.read, parseKey(member.read, member.fields))
 		case "paged":
-			return {
-				kind: "program",
-				ops: {
-					...readOps(executor, member.read),
-					page: <Q>(params: ParamMap, request: unknown) =>
-						runPage<Q>(executor, member.read, member.page, params, request)
-				}
-			}
-		case "change": {
-			const change = variantOf(ctx, member.variants)
-			const call = change.call
-			switch (call.kind) {
-				case "params":
-					return {
-						kind: "program",
-						ops: {
-							execute: refusedRead,
-							get: refusedRead,
-							page: refusedRead,
-							apply: (params) => applyChange(ctx, change, Result.succeed(call.call(params))),
-							refresh: refusedOperation
-						}
-					}
-				case "facts":
-					return {
-						kind: "facts",
-						ops: {
-							execute: refusedRead,
-							get: refusedRead,
-							page: refusedRead,
-							apply: (facts, params) => applyChange(ctx, change, call.call(facts, params)),
-							refresh: refusedOperation
-						}
-					}
-			}
-		}
+			return readMemberCalls(ctx, member.read, parseWindow(member.read, member.page))
+		case "change":
+			return writeCalls(changeWrite(ctx, variantOf(ctx, member.variants)))
 		case "refresh": {
 			const refresh = member.refresh
-			return {
-				kind: "program",
-				ops: {
-					execute: refusedRead,
-					get: refusedRead,
-					page: refusedRead,
-					apply: refusedApply,
-					refresh: Effect.asVoid(runRefresh(ctx, refresh))
-				}
-			}
+			return writeCalls((input) =>
+				Effect.mapError(
+					Effect.as(
+						Effect.flatMap(Effect.fromResult(refreshInput(input)), () => runRefresh(ctx, refresh)),
+						refreshed
+					),
+					callErrorOf
+				)
+			)
 		}
 	}
 }
 
-/** A loaded member's operations over a Db's context (memberOpsOn), its reads run on the context's pool. */
-export const memberOps = (ctx: ServedDbContext, member: LoadedMember): ServedOps<unknown> =>
-	memberOpsOn(poolExecutor(ctx), ctx, member)
-
 /**
- * A read member's explains (types/db ReadExplain) for each call's parameters, a key's for its values, read once at the
- * boundary as its get reads them, its plans named by the login's served tables `installed`.
+ * A read member's explains, of the call its input parses to by `parse`, its plans named by the login's served tables
+ * `installed` (served/explain.ts).
  */
 const readExplains = (
 	ctx: ServedDbContext,
 	installed: ServedTables,
-	read: LoadedRead,
-	keyed: (values: ParamMap) => Result.Result<ParamMap, ReadFailure>
-): ExplainOps => ({
-	explain: (params) =>
-		Result.match(keyed(params), {
-			onFailure: Effect.fail,
-			onSuccess: (bound) => explainRead(ctx, installed, read, bound)
-		}),
-	explainAnalyze: (params) =>
-		Result.match(keyed(params), {
-			onFailure: Effect.fail,
-			onSuccess: (bound) => explainReadAnalyzed(ctx, installed, read, bound)
-		})
+	parse: (input: unknown) => Effect.Effect<ParsedRead, ReadError>
+): object => ({
+	explain: (input: unknown) =>
+		Effect.flatMap(parse(input), (parsed) => explainRead(ctx, installed, parsed.call)),
+	explainAnalyze: (input: unknown) =>
+		Effect.flatMap(parse(input), (parsed) => explainReadAnalyzed(ctx, installed, parsed.call))
 })
 
-/** A read's parameters, which its handle reads as they are. */
-const asParams = (params: ParamMap): Result.Result<ParamMap, ReadFailure> => Result.succeed(params)
-
 /**
- * A loaded member's explains over a Db's context, by its kind: a read's, a paged member's and a key's estimate and
- * analyze its rows' statement (readExplains); a change's estimates its variant for the Db's claims, with each call's
- * facts where it holds array members (served/explain.ts explainChange); a refresh, whose REFRESH has no plan, has none.
+ * A loaded member's explains over a Db's context, by its kind: a read's, a key's and a paged member's estimate and
+ * analyze the statement its once sends (readExplains); a change's estimates its variant for the Db's claims; a
+ * refresh, whose REFRESH has no plan, has none.
  */
-export const memberExplains = (
+const memberExplains = (
 	ctx: ServedDbContext,
 	installed: ServedTables,
 	member: LoadedMember
-): MemberExplains => {
+): object => {
 	switch (member.kind) {
 		case "read":
-		case "paged":
-			return { kind: "read", ops: readExplains(ctx, installed, member.read, asParams) }
+			return readExplains(ctx, installed, parseRead(member.read))
 		case "key":
-			return {
-				kind: "read",
-				ops: readExplains(ctx, installed, member.read, (values) =>
-					readKeyValues(member.fields, values, unreadableArguments())
-				)
-			}
+			return readExplains(ctx, installed, parseKey(member.read, member.fields))
+		case "paged":
+			return readExplains(ctx, installed, parseWindow(member.read, member.page))
 		case "change": {
 			const change = variantOf(ctx, member.variants)
-			return change.call.kind === "facts"
-				? {
-						kind: "facts",
-						explain: (facts, params) =>
-							explainChange(ctx, installed, member.name, change, { kind: "facts", facts, params })
-					}
-				: {
-						kind: "params",
-						explain: (params) =>
-							explainChange(ctx, installed, member.name, change, { kind: "params", params })
-					}
+			return {
+				explain: (input: unknown) =>
+					Effect.flatMap(
+						Effect.mapError(
+							Effect.fromResult(changeInput(change, input)),
+							(reason) => new ReadFailure({ reason })
+						),
+						(host) => explainChange(ctx, installed, member.name, change, host)
+					)
+			}
 		}
 		case "refresh":
-			return { kind: "none" }
+			return {}
 	}
 }
 
 /**
- * The record of a Db's workload handles: each member's operations (memberOps), typed, under its name, beside its
- * explains (memberExplains), named by the login's served tables `installed`: a refresh's its one operation
- * (refreshHandle), a change's that takes each call's facts its facts handle (factsCompiled), every other member's its
- * program's (typedCompiled).
+ * The record of a Db's workload handles: each member's once and watch (memberCalls) beside its explains
+ * (memberExplains), named by the login's served tables `installed`, under its name.
  */
 export const servedHandles = (
 	ctx: ServedDbContext,
@@ -369,14 +502,12 @@ export const servedHandles = (
 ): object => {
 	const handles: Record<string, object> = {}
 	for (const member of members) {
-		const served = memberOps(ctx, member)
-		const explains = memberExplains(ctx, installed, member)
-		handles[member.name] =
-			served.kind === "facts"
-				? Object.freeze({ ...factsCompiled(served.ops), ...explainsOf(explains) })
-				: member.kind === "refresh"
-					? refreshHandle(served.ops)
-					: Object.freeze({ ...typedCompiled(served.ops), ...explainsOf(explains) })
+		const calls = memberCalls(ctx, member)
+		handles[member.name] = Object.freeze({
+			once: calls.once,
+			watch: calls.watch,
+			...memberExplains(ctx, installed, member)
+		})
 	}
 	return Object.freeze(handles)
 }

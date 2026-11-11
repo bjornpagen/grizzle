@@ -10,6 +10,7 @@ import { ServedLoginRefused } from "#adapter/errors/failures.ts"
 import { type PageRuntime, pageRuntimeOf } from "#adapter/page/template.ts"
 import { type ParamCodecs, paramCodecs } from "#adapter/reader/relations.ts"
 import { type ReadProgram, readProgram } from "#adapter/reader/run.ts"
+import type { DecodedRow } from "#adapter/reader/stream.ts"
 import type { PrologueStatements } from "#adapter/wire/batch.ts"
 import { servedWitness } from "#adapter/witness/index.ts"
 import type { ArrayMember, ClosedTable } from "#compiler/plan/change.ts"
@@ -20,7 +21,6 @@ import type {
 	EncodingFailure,
 	Isolation,
 	ParamDecl,
-	ParamMap,
 	ParamValue,
 	PatternReads,
 	Row,
@@ -39,6 +39,8 @@ import {
 import type {
 	ServedChange,
 	ServedFile,
+	ServedFootprint,
+	ServedKey,
 	ServedMember,
 	ServedPage,
 	ServedRead,
@@ -58,21 +60,22 @@ import type {
  * codecs, all under the codebook of the file's own rosters. Nothing is compiled and no schema is evaluated.
  *
  * A read of a role's workload, loaded: its declared parameters and their codecs, its program, its rows' reader (its
- * decoder bound to the program's layouts), and whether get may read it (served/forms.ts ServedRead getEligible), whose
- * refusal of one it may not is built where get raises it (db/handles.ts).
+ * decoder bound to the program's layouts), its key, the shape of its answer and the head fields its rows are keyed by
+ * (served/forms.ts ServedKey), and its footprint, the tables a change of which its subscriptions route by.
  */
 export interface LoadedRead {
 	readonly params: ReadonlyArray<ParamDecl>
 	readonly codecs: ParamCodecs
 	readonly program: ReadProgram
-	readonly read: (row: Row) => unknown
-	readonly getEligible: boolean
+	readonly read: (row: Row) => DecodedRow
+	readonly key: ServedKey
+	readonly footprint: ServedFootprint
 }
 
-/** A paged member's page, loaded: its runtime template, and its decoder bound to each request variant's layouts. */
+/** A paged member's page, loaded: its runtime template, and its decoder bound to each template's layouts. */
 export interface LoadedPage {
 	readonly runtime: PageRuntime
-	readonly reads: { readonly [V in PageVariant]: (row: Row) => unknown }
+	readonly reads: { readonly [V in PageVariant]: (row: Row) => DecodedRow }
 }
 
 /**
@@ -85,10 +88,10 @@ export interface LoadedPage {
  * declaration bound.
  */
 export type ChangeCall =
-	| { readonly kind: "params"; readonly call: (params: ParamMap) => HostCall }
+	| { readonly kind: "params"; readonly call: (params: unknown) => HostCall }
 	| {
 			readonly kind: "facts"
-			readonly call: (facts: unknown, params: ParamMap) => Result.Result<HostCall, EncodingFailure>
+			readonly call: (facts: unknown, params: unknown) => Result.Result<HostCall, EncodingFailure>
 	  }
 
 /**
@@ -176,7 +179,7 @@ const boundReader = (
 	read: Pick<ServedRead, "decoder">,
 	layouts: Arr.NonEmptyReadonlyArray<ReadProgram["layouts"][number]>,
 	bind: BindContext
-): Result.Result<(row: Row) => unknown, CompileError> =>
+): Result.Result<(row: Row) => DecodedRow, CompileError> =>
 	toResult(recordsReader(read.decoder, layouts, bind))
 
 /**
@@ -207,7 +210,8 @@ const loadRead = (
 		codecs: paramCodecs(read.params, codes, patterns),
 		program,
 		read: reader,
-		getEligible: read.getEligible
+		key: read.key,
+		footprint: read.footprint
 	}))
 }
 
@@ -219,7 +223,7 @@ const loadPage = (
 	bind: BindContext
 ): Result.Result<LoadedPage, CompileError> =>
 	Result.gen(function* () {
-		const runtime = yield* pageRuntimeOf({ page, params: read.params, spine: read.spine, codes })
+		const runtime = pageRuntimeOf({ page, params: read.params, spine: read.spine, codes })
 		const variant = (v: PageVariant) =>
 			boundReader(read, runtime.artifact.requests[v].layouts, bind)
 		return {

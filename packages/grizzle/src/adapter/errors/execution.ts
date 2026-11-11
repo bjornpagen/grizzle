@@ -13,7 +13,7 @@ import {
 	HandleReleased,
 	InputTooLarge,
 	LawRejected,
-	PageRequestRefused,
+	CallInputRefused,
 	PutTargetConflict,
 	RoleOutsideLayers,
 	SerializationFailure,
@@ -120,7 +120,7 @@ export type ReadReason =
 	| LawRejected
 	| InputTooLarge
 	| TemporaryRefused
-	| PageRequestRefused
+	| CallInputRefused
 
 /** Where a read failed. */
 export type ReadStage =
@@ -131,7 +131,7 @@ export type ReadStage =
 	| "execute"
 	| "decode"
 	| "encode"
-	| "request"
+	| "input"
 	| "compile"
 
 /** The SQLSTATEs of a runtime resource failure, never a truncated result. */
@@ -171,8 +171,8 @@ const readStage = (reason: ReadReason): ReadStage => {
 			return "resource"
 		case "TemporaryRefused":
 			return "execute"
-		case "PageRequestRefused":
-			return "request"
+		case "CallInputRefused":
+			return "input"
 	}
 }
 
@@ -346,6 +346,7 @@ export class CommitUnknown extends Data.TaggedError("CommitUnknown") {
 
 /** The errors a write or refresh fails with. */
 export type ApplyError =
+	| CallInputRefused
 	| EncodingFailure
 	| TransientFailure
 	| TransportFailure

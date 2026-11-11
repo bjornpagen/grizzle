@@ -166,27 +166,6 @@ export interface ServedLogin<L> extends Phantom<{ readonly login: Invariant<L> }
 }
 
 /**
- * The config of a layer compiled in-process (pool/registry.ts compiledDbLayer): a connection for the login value L and
- * its snapshot. Only the tests still on that path build one; the deletion commit removes it.
- */
-export type CompiledDbConfigShape<L> = DbConnection & {
-	readonly login: L
-	/**
-	 * The login's base's committed migrations/<schema>/snapshot.json, as the JSON value an import of it yields: what
-	 * every Db's admission compares the catalog with, and what the login's workloads' access is checked against when
-	 * the layer is built. None is ever derived from the schema alone.
-	 */
-	readonly snapshot: { readonly fingerprint: string }
-	/** The login's one session pool, which serves every role of the login. */
-	readonly pool: PoolBounds
-	/**
-	 * Called once with each session pool the layer builds, when it is built: the platform's hook for idle connections
-	 * (on Vercel, `attachPool: attachDatabasePool`). Without it, nothing is attached.
-	 */
-	readonly attachPool?: (pool: ConnectionPool) => void
-} & VerifyOf<L>
-
-/**
  * DbLayer.make's config: a connection for the login L, whose PostgreSQL login role is the one its served file names
  * (roleNameOf), fixed for the connection's lifetime, and the login's served workload, the one thing the layer reads of
  * the login.

@@ -1,55 +1,9 @@
-import type { Array as Arr, Effect, Option, Scope } from "effect"
-import type { ApplyError, OpenError, ReadError } from "#adapter/errors/execution.ts"
+import type { Effect, Stream } from "effect"
+import type { OpenError, ReadError } from "#adapter/errors/execution.ts"
 import type { DbLayerService, ServedRole } from "#adapter/types/layer.ts"
-import type {
-	AnyChangeSet,
-	ArraysOf,
-	ChangeSet,
-	FactsCheck,
-	PlannedStrata,
-	Refused,
-	Witness,
-	WritesOf
-} from "#compiler/plan/change.ts"
-import type {
-	AnyClosed,
-	AnyRelation,
-	AnyRole,
-	CandidateKey,
-	Carriers,
-	CompileError,
-	CursorError,
-	Delivering,
-	Evidence,
-	Invariant,
-	KeyValues,
-	LevelsOf,
-	OnlyParams,
-	Paged,
-	Refresh,
-	ParamArg,
-	ParamValue,
-	Phantom,
-	ReadsContext,
-	RefreshListOf,
-	Refusal,
-	RowDecoder,
-	WithinRoleContexts,
-	WriteListOf
-} from "#compiler/plan/common.ts"
-import type {
-	ContextsOf,
-	EvidenceOfQuery,
-	Ordered,
-	OrderedBase,
-	Page,
-	PageOf,
-	PageRequest,
-	ParamsOf,
-	Query,
-	QueryBase,
-	UnionArms
-} from "#compiler/plan/read.ts"
+import type { CallError, EventOf, InputOf, ValueOf } from "#compiler/live/index.ts"
+import type { AnyChangeSet, Refused, Witness } from "#compiler/plan/change.ts"
+import type { AnyRole, Invariant, Phantom, ReadsContext, Refresh } from "#compiler/plan/common.ts"
 
 /**
  * Db.open's options with a token: what the layer's verify turns into the payload the role's contexts are decoded from,
@@ -83,356 +37,73 @@ export interface DbConstructor {
 	): Effect.Effect<DbOf<R, P>, OpenError, DbLayerService<R>>
 }
 
-/** A ChangeSet's writes lie within the role's write list. */
-type WithinWriteList<R, W> = [W] extends [WriteListOf<R>]
-	? unknown
-	: Refusal<"a ChangeSet writes only relations its role's write list names">
-
 /**
- * Reads, the opened database, and its write and refresh operations. packages/grizzle/src/adapter implements Db
- * (db/open.ts, db/db.ts, reader/); the declarations here are its types.
+ * The opened database: its workload handles. packages/grizzle/src/adapter implements Db (db/served.ts, db/handles.ts);
+ * the declarations here are its types.
  *
- * A program's parameters are inferred from the program alone: each `params` argument is NoInfer<P>, so P is the
- * query's or ChangeSet's own parameter map (types/query ParamsOf) and the argument is checked against it. Without it a
- * literal argument would take part in inferring the invariant P, widen ("Front" to string), and refuse a correct call.
- *
- * A Db is opened for a role R, a schema whose relations are defined over its base (types/schema/world.ts), reached
- * through its login, whose workloads' programs over R or a level of it are P (ProgramsOf): `workload` holds their
- * handles, compiled once when the layer was built. Every reader
- * accepts a query over R or over any level below it (AtLevel): Query is invariant in its schema, and a
- * full role holds its base among its levels, so a query written over the base is a query over the full role.
- * db.apply and compile accept a ChangeSet over any level the same way. Every program matches only the
- * contexts R's relations read (WithinRoleContexts), whose facts the Db's claims hold.
- *
- * Every read sees a lawful committed snapshot and delivers the query's heading: the records its decoder assembles
- * (query `rows`, a relation's `fact`), each bound once to the layout of the statements that deliver them.
+ * A Db is opened for a role R through its login, whose workloads' programs over R or a level of it are P: `workload`
+ * holds their handles, one per program, each loaded once by the layer from the login's served file (DbLayer.make).
+ * Every program runs as `grizzle generate` compiled it; a Db compiles none at the call.
  */
-export interface DbOf<R, P> extends QueryReader<R> {
-	/**
-	 * The programs of the login's workloads over R or a level of it, each compiled once at startup (DbLayer.make), by
-	 * name: a query's, ordered query's, key's or ChangeSet's handle, its operations db.compile's (Compiled).
-	 */
+export interface DbOf<R, P> {
 	readonly workload: WorkloadHandles<R, P>
-	/** Only ChangeSets whose writes lie within R's write list typecheck. */
-	apply<L, P, W extends string, Reads, Cx extends string, C, const Arg>(
-		changes: C &
-			ChangeSet<L, P, W, Reads, Cx> &
-			AtLevel<R, L> &
-			WithinWriteList<R, W> &
-			WithinRoleContexts<R, Cx> &
-			PlannedStrata<C>,
-		params: NoInfer<ParamArg<P>> & Arg & NoInfer<OnlyParams<Arg, P>>
-	): Effect.Effect<ApplyOutcome<Reads>, ApplyError>
-	/**
-	 * A query, ordered query or ChangeSet compiled once, run with each call's parameters through its handle: its
-	 * compiled form drops when the Scope ends.
-	 */
-	compile<X extends CompilableProgram, A>(
-		program: CompileTarget<R, X, A>
-	): Effect.Effect<Compiled<R, X, A>, CompileError, Scope.Scope>
-	/**
-	 * Brings derived relations to their definitions: one transaction, level order. Each must be in R's refresh list, and
-	 * a call names at least one.
-	 */
-	refresh(
-		...relations: Arr.NonEmptyReadonlyArray<RefreshListOf<R>>
-	): Effect.Effect<void, ApplyError>
-}
-
-/** The schema a query, ordered query or ChangeSet is over. */
-type ProgramSchema<X> = X extends Phantom<{ readonly schema: Invariant<infer L> }> ? L : never
-/**
- * Every reader and apply accept a program over S or over any level below it, L, and refuse one over any other schema
- * by name.
- */
-type AtLevel<S, L> = [L] extends [LevelsOf<S>]
-	? unknown
-	: Refusal<"a program over no level of the database's schema">
-type AtLevelOf<S, X> = AtLevel<S, ProgramSchema<X>>
-
-/**
- * What a reader's get reads: a query, or a key. A relation stands for its primary key, a Key from key() over a side of
- * its whole relation's fields for that candidate key.
- */
-export type KeyTarget = AnyRelation | AnyClosed | CandidateKey<AnyRelation>
-
-/**
- * What db.page reads: an ordered query Q over a level of S, whose rows decoder delivers A, matching only the contexts
- * S's relations read, and no bounded union of several headings (PageOf). A page and its cursors are Q's own.
- */
-export type PageTarget<S, Q, A> = Q & { readonly rows: RowDecoder<A> } & PageClaim<S, Q>
-
-/** What an ordered query claims of a page over S; a query no order closes is refused a page. */
-type PageClaim<S, Q> = Q extends OrderedBase
-	? AtLevelOf<S, Q> & WithinRoleContexts<S, ContextsOf<Q>> & PageOf<Q>
-	: Refusal<"page needs an ordered query">
-
-/** A query get reads is over a level of S and proved at most one row per parameter binding; a key always is. */
-export type AtMostOneRow<S, X> = X extends KeyTarget
-	? unknown
-	: EvidenceOfQuery<X> extends { readonly card: "atMostOne" | "one" }
-		? AtLevelOf<S, X>
-		: Refusal<"get needs a query proved at most one row per parameter binding">
-
-/**
- * get's second argument: a query's parameters, or a key's values.
- * A key's values are scalar parameters of the lookup, each a ParamValue, as ParamArg states for a program's.
- */
-export type GetArg<X> = X extends KeyTarget
-	? KeyValues<X> & { readonly [K in keyof KeyValues<X>]: ParamValue }
-	: ParamArg<ParamsOf<X>>
-
-/**
- * What decodes the row get delivers, whose records are A: a query's rows decoder, a relation's or closed relation's
- * fact decoder, or a key's, its side's relation's.
- */
-export type Decoding<A> =
-	| { readonly rows: RowDecoder<A> }
-	| { readonly fact: RowDecoder<A> }
-	| { readonly side: { readonly source: { readonly fact: RowDecoder<A> } } }
-
-/** get's target: a query or key X over S, whose decoder delivers A, matching only the contexts S's relations read. */
-export type GetTarget<S, X, A> = X &
-	Decoding<A> &
-	AtMostOneRow<S, X> &
-	WithinRoleContexts<S, ContextsOf<X>>
-
-export interface QueryReader<S> {
-	/**
-	 * Any query proved at most one row per parameter binding, with its parameters; or a keyed lookup, with the key's
-	 * values. The row is the target's decoder's: the query's heading, or the keyed relation's fact.
-	 */
-	get<X extends QueryBase | KeyTarget, A, const Arg>(
-		target: GetTarget<S, X, A>,
-		params: NoInfer<GetArg<X>> & Arg & NoInfer<OnlyArg<Arg, X>>
-	): Effect.Effect<Option.Option<A>, ReadError>
-	execute<
-		L,
-		Head,
-		Ev extends Evidence,
-		P,
-		IHead,
-		Hc extends Carriers,
-		Cx extends string,
-		Arms extends UnionArms,
-		const Arg
-	>(
-		query: (
-			| Query<L, Head, Ev, P, IHead, Hc, Cx, Arms>
-			| Ordered<L, Head, Ev, P, IHead, Hc, Cx, Arms>
-		) &
-			AtLevel<S, L> &
-			WithinRoleContexts<S, Cx>,
-		params: NoInfer<ParamArg<P>> & Arg & NoInfer<OnlyParams<Arg, P>>
-	): Effect.Effect<QueryResult<Head>, ReadError>
-	/**
-	 * A page of an ordered query Q over a level of S, with its parameters: its records are Q's, and its cursors are
-	 * Q's own, typed by the very query passed in.
-	 */
-	page<Q, A, const Arg>(
-		query: PageTarget<S, Q, A>,
-		params: NoInfer<ParamArg<ParamsOf<Q>>> & Arg & NoInfer<OnlyParams<Arg, ParamsOf<Q>>>,
-		request: PageRequest
-	): Effect.Effect<Page<A, Q>, ReadError | CursorError>
-}
-
-/** What db.compile compiles: a query, an ordered query or a ChangeSet. */
-export type CompilableProgram = QueryBase | OrderedBase | AnyChangeSet
-
-/** The records a compiled program delivers, A: a query's rows, or a ChangeSet's read-backs. */
-export type ProgramDecoding<A> =
-	| { readonly rows: RowDecoder<A> }
-	| { readonly reads: RowDecoder<A> }
-
-/** The contexts a program matches: a ChangeSet's, or a query's. */
-type ProgramContexts<X> = X extends AnyChangeSet
-	? X extends Phantom<{ readonly contexts: infer Cx }>
-		? Cx
-		: never
-	: ContextsOf<X>
-
-/**
- * A ChangeSet's writes lie within the role's write list, every member's where the program is a union of them; a query
- * writes nothing.
- */
-type CompiledWrites<R, X> = WithinWriteList<R, X extends AnyChangeSet ? WritesOf<X> : never>
-
-/**
- * db.compile's target: a program X over a level of S, whose decoder delivers A, matching only the contexts S's
- * relations read, and, for a ChangeSet, writing only what S's write list names.
- */
-export type CompileTarget<S, X, A> = X &
-	ProgramDecoding<A> &
-	AtLevelOf<S, X> &
-	WithinRoleContexts<S, ProgramContexts<X>> &
-	CompiledWrites<S, X> &
-	PlannedStrata<X>
-
-/**
- * The operations a compiled program allows: a query or ordered query reads, a ChangeSet applies, and a workload's key
- * gets.
- */
-type ReadOp<X> = X extends AnyChangeSet
-	? Refusal<"a compiled ChangeSet applies, and a compiled query reads">
-	: X extends KeyTarget
-		? Refusal<"a key gets its one row">
-		: unknown
-
-type ApplyOp<X> = X extends AnyChangeSet
-	? unknown
-	: Refusal<"a compiled ChangeSet applies, and a compiled query reads">
-type PageOp<X> = X extends OrderedBase ? PageOf<X> : Refusal<"page needs an ordered query">
-type GetOp<X> = X extends AnyChangeSet
-	? Refusal<"a compiled ChangeSet applies, and a compiled query reads">
-	: X extends KeyTarget
-		? unknown
-		: EvidenceOfQuery<X> extends { readonly card: "atMostOne" | "one" }
-			? unknown
-			: Refusal<"get needs a query proved at most one row per parameter binding">
-
-/** What a compiled program's operations take: a program's parameters, or a key's values. */
-type CompiledArg<X> = X extends KeyTarget ? GetArg<X> : ParamArg<ParamsOf<X>>
-
-/**
- * An argument Arg of program X names only X's parameters (OnlyParams), a variable of a wider type as well as a literal;
- * a key's values are read off by the key's fields, so a whole fact may hold them.
- */
-type OnlyArg<Arg, X> = X extends KeyTarget ? unknown : OnlyParams<Arg, ParamsOf<X>>
-
-/**
- * The operations of a program X compiled once, run with each call's parameters, over records A (its rows, its
- * read-backs, or a key's relation's facts), whatever role compiled it: none reads the role. Exactly the operations its
- * program allows typecheck: execute for a query or ordered query, get for one proved at most one row per parameter
- * binding and for a key, page for an ordered query, apply for a ChangeSet. A page's cursors are for the compiled query
- * X.
- */
-export interface ProgramHandle<X, A> {
-	execute<const Arg>(
-		params: NoInfer<CompiledArg<X>> & ReadOp<X> & Arg & NoInfer<OnlyArg<Arg, X>>
-	): Effect.Effect<QueryResult<A>, ReadError>
-	get<const Arg>(
-		params: NoInfer<CompiledArg<X>> & GetOp<X> & Arg & NoInfer<OnlyArg<Arg, X>>
-	): Effect.Effect<Option.Option<A>, ReadError>
-	page<const Arg>(
-		params: NoInfer<CompiledArg<X>> & PageOp<X> & Arg & NoInfer<OnlyArg<Arg, X>>,
-		request: PageRequest
-	): Effect.Effect<Page<A, X>, ReadError | CursorError>
-	apply<const Arg>(
-		params: NoInfer<CompiledArg<X>> & ApplyOp<X> & Arg & NoInfer<OnlyArg<Arg, X>>
-	): Effect.Effect<ApplyOutcome<A>, ApplyError>
 }
 
 /**
- * A program compiled once, by db.compile or at startup as a workload program (`db.workload`), for a Db of S: its
- * operations (ProgramHandle), and S, which makes a handle of one Db's program no handle of another schema's.
+ * A Db's workload handles: each program of P under its name, for R (MemberHandle), so a handle of one Db's program is
+ * no handle of another schema's.
  */
-export interface Compiled<S, X, A>
-	extends ProgramHandle<X, A>, Phantom<{ readonly schema: Invariant<S> }> {}
-
-/**
- * The records a program's handle delivers, as the program's own type states them (Delivering): a query's rows, a
- * ChangeSet's read-backs, a relation's or closed relation's facts, a candidate key's relation's facts.
- */
-type RecordsOf<X> = X extends Delivering<infer A> ? A : never
-
-/**
- * A served change member's apply, for a ChangeSet X that holds array members (ArraysOf): each call takes their facts,
- * under each array member's op and then its relation name one array, in place of the arrays X was built with, and X's
- * parameters. The facts are inferred from the argument alone, apart from their rows' types, so a call that maps them
- * inline infers them, and are checked after, as insert, delete and put check their own (FactsCheck).
- */
-export interface FactsApply<X, A> {
-	apply<const F, const Arg>(
-		facts: F & NoInfer<FactsCheck<F, ArraysOf<X>>>,
-		params: NoInfer<CompiledArg<X>> & ApplyOp<X> & Arg & NoInfer<OnlyArg<Arg, X>>
-	): Effect.Effect<ApplyOutcome<A>, ApplyError>
+export type WorkloadHandles<R, P> = {
+	readonly [K in keyof P]: MemberHandle<P[K]> & Phantom<{ readonly schema: Invariant<R> }>
 }
 
 /**
- * A served read member's plans, a query's, an ordered query's, a paged member's or a key's, for each call's parameters
- * or a key's values, as its execute and get take them: the statement its execute and get send (a paged member's pages
- * send others, which no explain plans), planned by PostgreSQL for those values in one SERIALIZABLE READ ONLY
+ * The calls of a served member of program X, whatever login serves X and whatever role it runs on: exactly `once` and
+ * `watch`, each taking the program's input (live/program.ts InputOf: `{ params, facts }`, a paged member's
+ * `{ params, facts, window }`), and a read's or a change's explains. X itself is in the type, so a handle of one program
+ * is no handle of another, whatever calls the two share, and a function over one served program takes any login's
+ * handle of it.
+ *
+ * - `watch(input)`: the call's events (live/events.ts), typed by the program's shape (EventOf). A read's are `reset`,
+ *   an `upsert` per row as it decodes, provisional, then `ready` after its COMMIT, then, live, an `upsert` or `remove`
+ *   per change; a write's are its `outcome` after its COMMIT. Every failure is one `error` with its CallError, then
+ *   `end`; the Stream itself never fails, and a read's runs until the consumer interrupts it.
+ * - `once(input)`: watch taken to `ready`, folded (live/fold.ts): a read's value (ValueOf: a set read's KeyedSet, an
+ *   ordered or paged read's KeyedList), or a write's outcome; the CallError that ended it is its error.
+ */
+export type MemberHandle<X> = MemberCalls<X> &
+	ExplainOf<X> &
+	Phantom<{ readonly program: Invariant<X> }>
+
+/** A served member's once and watch (MemberHandle). */
+export interface MemberCalls<X> {
+	once(input: InputOf<X>): Effect.Effect<ValueOf<X>, CallError>
+	watch(input: InputOf<X>): Stream.Stream<EventOf<X>>
+}
+
+/** A served member's explains by its program's kind: a read's, a change's, and a refresh's none. */
+type ExplainOf<X> =
+	X extends Refresh<unknown> ? unknown : X extends AnyChangeSet ? ChangeExplain<X> : ReadExplain<X>
+
+/**
+ * A served read member's plans for a call's input, as its once takes it: the one statement its once sends, a paged
+ * member's for its window's template and anchor, planned by PostgreSQL for those values in one SERIALIZABLE READ ONLY
  * transaction of the Db's role that is rolled back. `explain` asks for PostgreSQL's estimates alone and runs nothing;
  * `explainAnalyze` runs the statement under EXPLAIN ANALYZE and reports what each node did beside its estimates.
  */
 export interface ReadExplain<X> {
-	explain<const Arg>(
-		params: NoInfer<CompiledArg<X>> & Arg & NoInfer<OnlyArg<Arg, X>>
-	): Effect.Effect<ReadonlyArray<StatementPlan>, ReadError>
-	explainAnalyze<const Arg>(
-		params: NoInfer<CompiledArg<X>> & Arg & NoInfer<OnlyArg<Arg, X>>
-	): Effect.Effect<ReadonlyArray<ExecutedStatement>, ReadError>
+	explain(input: InputOf<X>): Effect.Effect<ReadonlyArray<StatementPlan>, ReadError>
+	explainAnalyze(input: InputOf<X>): Effect.Effect<ReadonlyArray<ExecutedStatement>, ReadError>
 }
 
 /**
- * A served change member's plans for each call's parameters, as its apply takes them: the estimates of every statement
- * its apply sends, in one transaction of the Db's role at SERIALIZABLE that is rolled back, so it writes nothing. A
- * ChangeSet's statements are never run under EXPLAIN ANALYZE: a write rolled back still advances its serial fields'
- * sequences, which no rollback undoes.
+ * A served change member's plans for a call's input, as its once takes it: the estimates of every statement its once
+ * sends, in one transaction of the Db's role at SERIALIZABLE that is rolled back, so it writes nothing. A ChangeSet's
+ * statements are never run under EXPLAIN ANALYZE: a write rolled back still advances its serial fields' sequences,
+ * which no rollback undoes.
  */
 export interface ChangeExplain<X> {
-	explain<const Arg>(
-		params: NoInfer<CompiledArg<X>> & Arg & NoInfer<OnlyArg<Arg, X>>
-	): Effect.Effect<ReadonlyArray<StatementPlan>, ReadError>
-}
-
-/**
- * A served change member's plans, for a ChangeSet X that holds array members (ArraysOf): each call's facts and
- * parameters, as its apply takes them (FactsApply), on which each statement's binding depends; otherwise ChangeExplain's.
- */
-export interface FactsExplain<X> {
-	explain<const F, const Arg>(
-		facts: F & NoInfer<FactsCheck<F, ArraysOf<X>>>,
-		params: NoInfer<CompiledArg<X>> & Arg & NoInfer<OnlyArg<Arg, X>>
-	): Effect.Effect<ReadonlyArray<StatementPlan>, ReadError>
-}
-
-/**
- * A Db's workload handles: each program of P under its name, compiled for R. A paged member's handle pages its ordered
- * query; any other member's has no page, since the layer compiled no page template for it. A change member whose
- * ChangeSet holds array members applies and explains with each call's facts and parameters (FactsApply, FactsExplain);
- * every other change member with its parameters alone (ChangeExplain). A read member explains its statement's
- * estimates or runs it under EXPLAIN ANALYZE (ReadExplain); a refresh member, whose REFRESH has no plan, explains none.
- */
-export type WorkloadHandles<R, P> = {
-	readonly [K in keyof P]: P[K] extends Refresh<unknown>
-		? RefreshHandle
-		: MemberHandle<P[K]> & Phantom<{ readonly schema: Invariant<R> }>
-}
-
-/**
- * The operations a served member of program X offers, whatever login serves X and whatever role it runs on: exactly
- * the operations a Db's workload handle of X gives (WorkloadHandles), without the role, which none of them reads, and
- * X itself, so a handle of one program is no handle of another, whatever operations the two share. Every
- * `db.workload.<name>` whose program is X is one, under any login whose workload serves X, a login over a level and one
- * over its extension alike, so a function over one served program takes any login's handle of it. A refresh member's
- * handle is its one operation (RefreshHandle), which every refresh member's is.
- */
-export type MemberHandle<X> =
-	X extends Refresh<unknown>
-		? RefreshHandle
-		: ProgramOperations<X> & Phantom<{ readonly program: Invariant<X> }>
-
-/** The operations of a served member of program X, no refresh, by its program's kind (MemberHandle). */
-type ProgramOperations<X> =
-	X extends Paged<infer O>
-		? ProgramHandle<O, RecordsOf<O>> & ReadExplain<O>
-		: X extends AnyChangeSet
-			? [keyof ArraysOf<X>] extends [never]
-				? Omit<ProgramHandle<X, RecordsOf<X>>, "page"> & ChangeExplain<X>
-				: Omit<ProgramHandle<X, RecordsOf<X>>, "page" | "apply"> &
-						FactsApply<X, RecordsOf<X>> &
-						FactsExplain<X>
-			: Omit<ProgramHandle<X, RecordsOf<X>>, "page"> & ReadExplain<X>
-
-/**
- * A refresh member's handle (refresh(relations) in a workload): its one operation brings its materialized derived relations to
- * their definitions, all in one transaction of the Db's role, lower levels first, each view refreshed CONCURRENTLY once
- * PostgreSQL holds it populated. A concurrent refresher's commit it meets is a TransientFailure (40001, 40P01,
- * ConcurrentRefresh), which the caller may run again; it writes only materialized views, which no law names.
- */
-export interface RefreshHandle {
-	readonly refresh: Effect.Effect<void, ApplyError>
+	explain(input: InputOf<X>): Effect.Effect<ReadonlyArray<StatementPlan>, ReadError>
 }
 
 /**
@@ -484,11 +155,6 @@ export interface ApplyOutcomeConstructor {
 	): Extract<ApplyOutcome<never>, { readonly kind: "invariant-rejected" }>
 	/** An application a query entry refused: a fact its addition requested lies outside the world `relation`. */
 	outsideWorld(relation: string): Extract<ApplyOutcome<never>, { readonly kind: "outside-world" }>
-}
-
-export interface QueryResult<Head> {
-	/** The rows, as an Effect: each run of it runs the query again. */
-	readonly collect: Effect.Effect<ReadonlyArray<Head>, ReadError>
 }
 
 /**

@@ -104,6 +104,12 @@ export type RowIntake =
 /** The intake of a statement whose rows its outcome holds. */
 export const keptRows: RowIntake = { kind: "kept" }
 
+/** The intake of a statement each of whose rows `take` takes as it arrives. */
+export const takenRows = (take: (row: OutputRows[number]) => void): RowIntake => ({
+	kind: "taken",
+	take
+})
+
 /**
  * SQL grizzle sends beside the served programs, admission's, a migration's, the ledger's, a catalog read and an
  * EXPLAIN: PostgreSQL's unnamed statement, parsed, planned, bound and executed in its own execution. It has no name,

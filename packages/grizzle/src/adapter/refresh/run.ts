@@ -1,7 +1,7 @@
 import * as Arr from "effect/Array"
 import * as Effect from "effect/Effect"
 import type * as Scope from "effect/Scope"
-import { type DbContext, dbRefreshFrame } from "#adapter/db/context.ts"
+import { dbRefreshFrame, type ServedDbContext } from "#adapter/db/context.ts"
 import {
 	type ApplyError,
 	CommitUnknown,
@@ -135,7 +135,7 @@ const refreshFailure =
  * statements it ran read from its outcomes.
  */
 const refreshFlight = (
-	ctx: Pick<DbContext, "prologue">,
+	ctx: Pick<ServedDbContext, "prologue">,
 	session: Session,
 	refresh: ServedRefresh
 ): Effect.Effect<ReadonlyArray<RefreshStatement>, FlightFailure> => {
@@ -168,7 +168,7 @@ const refreshFlight = (
 
 /** Runs the refresh call `refresh`, its targets already in refresh order, in one transaction of the Db's role. */
 export const runRefresh = Effect.fn("runRefresh")(function* (
-	ctx: Pick<DbContext, "pool" | "prologue">,
+	ctx: Pick<ServedDbContext, "pool" | "prologue">,
 	refresh: ServedRefresh
 ): Effect.fn.Return<RefreshReport, ApplyError, Scope.Scope> {
 	const session = yield* Effect.mapError(

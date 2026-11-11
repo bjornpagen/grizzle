@@ -323,7 +323,7 @@ const makeServedSessions = Effect.fn("makeServedSessions")(function* (
  * The process environment the layer's sessions would start in, read where pg reads it, which sets no startup variable
  * that reaches a login's session (connection/environment.ts): one it sets is OpenError{stage: "config"}.
  */
-export const loginEnvironment: Effect.Effect<void, OpenError> = Effect.flatMap(
+const loginEnvironment: Effect.Effect<void, OpenError> = Effect.flatMap(
 	Effect.sync(() => startupVariableSet("login")),
 	Option.match({
 		onNone: () => Effect.void,

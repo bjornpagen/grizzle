@@ -6,7 +6,7 @@ import * as Stream from "effect/Stream"
 import { readHost } from "#adapter/engine.ts"
 import { ReadFailure } from "#adapter/errors/execution.ts"
 import type { HostParams } from "#adapter/reader/execution.ts"
-import type { ParamDecl, ParamMap, ParamValue } from "#compiler/plan/common.ts"
+import type { ParamDecl } from "#compiler/plan/common.ts"
 import {
 	encodeFailure,
 	factPlace,
@@ -26,13 +26,10 @@ import {
  * encoding failure, never a defect.
  * Scalar parameters and arrays pass through unchanged.
  *
- * The parameters reach the runtime from the typed Db boundary (types/db Db, QueryReader and Compiled),
- * whose every params argument is ParamArg<P> for the program's own ParamsOf map P. ParamArg states that each value is
- * a ParamValue (types/core), so the runtime takes the parameters as a ParamMap by construction, the argument itself
- * checked to be a record (readParams), since a JavaScript caller may pass any value; and a value that is a
- * Stream is a Stream with no requirement channel: ParamsOf types a relation parameter
- * ReadonlyArray<Fact<H>> | Stream.Stream<Fact<H>>. Stream.isStream only tells the Stream member of
- * ParamValue from the others; no check claims the channels. A failure the Stream raises anyway is the read's encoding
+ * The parameters reach the runtime as a call's input holds them (db/input.ts), any value a caller passes: the map is
+ * read here once, by the program's declared names, and each value stays opaque until its own boundary reads it, a
+ * scalar by its codec's admitter, a relation's facts by the relation normalizer, a Stream by relationStreams.
+ * Stream.isStream only tells a Stream from the other values; a failure the Stream raises is the read's encoding
  * failure.
  *
  * The parameters argument refused as a whole (no record, or one whose reading throws): an EncodingFailure naming no
@@ -41,8 +38,8 @@ import {
 export const unreadableArguments = (): ReadFailure =>
 	new ReadFailure({ reason: encodeFailure("factShape", factPlace) })
 
-/** Parameter values by name, each a data property's value off the caller's map. */
-type ParamValues = Readonly<Record<string, ParamValue>>
+/** Parameter values by name, each a data property's value off the caller's map, opaque until its codec reads it. */
+type ParamValues = Readonly<Record<string, unknown>>
 
 /**
  * The values of the parameters `names` off a JavaScript caller's map of a program's parameters, read once at the
@@ -56,14 +53,14 @@ type ParamValues = Readonly<Record<string, ParamValue>>
  */
 export const readParams = <F>(
 	names: ReadonlyArray<string>,
-	params: ParamMap,
+	params: unknown,
 	fault: F
 ): Result.Result<ParamValues, F> =>
 	readHost(fault, () => {
 		if (typeof params !== "object" || !hasProperties(params) || isList(params)) {
 			return Result.fail(fault)
 		}
-		if (Arr.some(Rec.keys<string, ParamValue>(params), (key) => !names.includes(key))) {
+		if (Arr.some(Rec.keys(params), (key) => !names.includes(key))) {
 			return Result.fail(fault)
 		}
 		return Result.succeed(valuesAt(names, params))
@@ -76,7 +73,7 @@ export const readParams = <F>(
  */
 export const readKeyValues = <F>(
 	fields: ReadonlyArray<string>,
-	values: ParamMap,
+	values: unknown,
 	fault: F
 ): Result.Result<ParamValues, F> =>
 	readHost(fault, () =>
@@ -86,8 +83,11 @@ export const readKeyValues = <F>(
 	)
 
 /** The values of a record at `names`, each a data property's value or what its getter returns, absent ones left out. */
-const valuesAt = (names: ReadonlyArray<string>, record: ParamMap): ParamValues => {
-	const values: Record<string, ParamValue> = {}
+const valuesAt = (
+	names: ReadonlyArray<string>,
+	record: Readonly<Record<string, unknown>>
+): ParamValues => {
+	const values: Record<string, unknown> = {}
 	for (const name of names) {
 		const value = record[name]
 		if (value !== undefined) {
@@ -104,9 +104,17 @@ interface RelationStream {
 }
 
 /**
- * The declared relation parameters whose value is a Stream, each with its Stream, recognized by Stream.isStream at the
- * boundary (hostRead): a value whose reading throws is `fault`. Its facts are checked by the statement's encoder once
- * collected, and a failure that arrives anyway is mapped to the read's encoding failure.
+ * The one site of the fact that a Stream a call's parameters hold has no requirement: the typed handle types a
+ * relation parameter's Stream with none (live/program.ts InputOf, types/core ParamArg), and Stream.isStream reads the
+ * rest, a Stream, which no runtime check can read the requirement channel of.
+ */
+const isParamStream = (value: unknown): value is Stream.Stream<unknown, unknown> =>
+	Stream.isStream(value)
+
+/**
+ * The declared relation parameters whose value is a Stream, each with its Stream, recognized at the boundary
+ * (isParamStream, hostRead): a value whose reading throws is `fault`. Its facts are checked by the statement's encoder
+ * once collected, and a failure that arrives anyway is mapped to the read's encoding failure.
  */
 export const relationStreams = <F>(
 	declared: ReadonlyArray<ParamDecl>,
@@ -117,7 +125,7 @@ export const relationStreams = <F>(
 		Result.succeed(
 			Arr.flatMap(declared, (decl) => {
 				const value = params[decl.name]
-				return decl.kind === "relation" && value !== undefined && Stream.isStream(value)
+				return decl.kind === "relation" && value !== undefined && isParamStream(value)
 					? [{ decl, stream: value }]
 					: []
 			})
@@ -139,7 +147,7 @@ const collect = (
 /** The read's parameters, read once (readParams), with every Stream relation parameter collected. */
 export const hostParams = (
 	declared: ReadonlyArray<ParamDecl>,
-	params: ParamMap
+	params: unknown
 ): Effect.Effect<HostParams, ReadFailure> =>
 	Effect.suspend(() => {
 		const unreadable = unreadableArguments()

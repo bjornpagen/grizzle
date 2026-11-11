@@ -1,6 +1,4 @@
 import * as Arr from "effect/Array"
-import * as Result from "effect/Result"
-import { toResult } from "#adapter/engine.ts"
 import {
 	programRecords,
 	type RunStatement,
@@ -8,70 +6,48 @@ import {
 	type StatementRecord
 } from "#adapter/reader/execution.ts"
 import { type GroupOrder, groupOrder } from "#adapter/reader/run.ts"
-import type {
-	Carrier,
-	Cell,
-	Codebook,
-	CompileError,
-	Layout,
-	ParamDecl
-} from "#compiler/plan/common.ts"
+import type { Carrier, Cell, Codebook, Layout, ParamDecl } from "#compiler/plan/common.ts"
 import type { ScalarReader } from "#compiler/plan/decode.ts"
 import type {
 	CarrierHost,
 	ChoiceInput,
-	CursorCodec,
-	CursorGeneration,
 	Heading,
 	PageComparator,
 	PageDirection,
 	PageFill,
 	PageStatementSlot,
 	PageVariant,
-	ProbeKind,
+	ScalarCodec,
 	VariantFill
 } from "#compiler/plan/read.ts"
 import {
 	columnPosition,
 	compareValues,
-	cursorCodec,
-	cursorTokenMaxLength,
 	rowCell,
+	scalarCodec,
 	scalarReader
 } from "#compiler/plan/runtime.ts"
 import type {
 	ServedChoice,
 	ServedPage,
-	ServedPageProbe,
 	ServedPageProgram,
 	ServedPageRequest,
 	ServedSpine
 } from "#compiler/plan/serve.ts"
 
 /**
- * The page runtime template of an ordered query.
+ * The page runtime template of a paged member's ordered query.
  *
- * Compilation produces the source query, completed order, seek comparator, forward and reverse SQL templates,
- * page-info probes, cursor codecs, and execution requirements. The page compiler (lower/shapes/page/compile.ts)
- * produces the order, the comparators and the statements of every request variant and probe, and its served form
- * (engine program/served.ts servedPage) each statement's spec, its executable text with every delivered column cast to
- * text, and each per-execution variant's beside the statement it replaces, emitted when the page compiles; this module
- * adds what running them needs, once per template, from that served form alone:
+ * The page compiler (lower/shapes/page/compile.ts) produces the order, the comparators and the statements of every
+ * template, and its served form (engine program/served.ts servedPage) each statement's spec, its executable text with
+ * every delivered column cast to text, and each per-execution variant's beside the statement it replaces, emitted when
+ * the page compiles; this module adds what running them needs, once per template, from that served form alone:
  *
- * - each request's statement records (reader/execution.ts programRecords), so the query's decoder binds to the same
- *   layouts on every page of the request variant, and how its rows statements deliver: each one's comparison tuple read
+ * - each template's statement records (reader/execution.ts programRecords), so the query's decoder binds to the same
+ *   layouts on every window of the template, and how its rows statements deliver: each one's comparison tuple read
  *   from its texts by the comparators' value codecs, and a heterogeneous union's groups merged on the fetch order;
- * - the cursor codec (codec/cursor) of the completed comparator sequence, bound to the ordered query's semantic
- *   fingerprint and the semantic generation. The fingerprint is the page query fingerprint
- *   (program/workload/fingerprint.ts): the query's canonical Description and the schema fingerprint, independent of the
- *   evidence context, the request variant and the page size, so one token serves every Db of the schema and the
- *   compiled handles of the query. The generation is the schema fingerprint and the extensions the
- *   schema requires by name, at the version admission verified (physical/vector/admission.ts): a token of another
- *   schema or extension generation fails validation explicitly. Its tokens are bounded by the layout alone
- *   (cursorTokenMaxLength), and a completed order whose shortest token exceeds it is refused here with
- *   UnsupportedOperation;
- * - one value codec per comparator, which writes a delivered edge's boundary values as the texts its probe binds, the
- *   same canonical texts the edge's cursor carries.
+ * - one codec per comparator, which writes a window's anchor Key, one decoded value per comparator, as the boundary
+ *   texts its seek binds (window.ts).
  *
  * The statement of a page program as the runtime runs it: its page placeholders, each the page fill the runtime binds
  * (execute.ts), among its read ones, its per-execution form, when it has one, and how its rows divide into its parts.
@@ -142,30 +118,19 @@ const fetchComparison = (
 	}
 }
 
-/**
- * A probe: its served form, whose program's one part delivers one Boolean column, its statement as it runs, and the
- * column's codec, which reads its answer.
- */
-interface RunProbe<K extends ProbeKind = ProbeKind> {
-	readonly program: ServedPageProbe<K>
-	readonly statement: PageRunStatement
-	readonly answer: ScalarReader
-}
-
 interface RunArtifact {
 	readonly requests: { readonly [V in PageVariant]: RunProgram<V> }
-	readonly probes: { readonly [K in ProbeKind]: RunProbe<K> }
 }
 
+/**
+ * A served page as it runs: its served form, its read's parameters, each template's program (RunArtifact), and each
+ * comparator's codec, in comparator order, which writes an anchor's Key (window.ts windowCall).
+ */
 export interface PageRuntime {
 	readonly page: ServedPage
 	readonly params: ReadonlyArray<ParamDecl>
 	readonly artifact: RunArtifact
-	readonly codec: CursorCodec<ReadonlyArray<PageComparator>>
-	/** What the codec binds every token to: the ordered query's semantic fingerprint and the semantic generation. */
-	readonly identity: { readonly query: string; readonly generation: CursorGeneration }
-	/** One value reader per comparator, in order. */
-	readonly values: ReadonlyArray<ScalarReader>
+	readonly anchors: ReadonlyArray<ScalarCodec>
 }
 
 /** What a page's runtime is built from: its served form, its read's parameters and spine, and the installation's codes. */
@@ -261,62 +226,35 @@ const runArtifact = (page: ServedPage, parts: ArtifactParts): RunArtifact => {
 			fetch: fetchComparison(Arr.zip(parts.comparators, parts.values), program.direction)
 		}
 	}
-	const probe = <K extends ProbeKind>(program: ServedPageProbe<K>): RunProbe<K> => ({
-		program,
-		statement: pageRun(program.program),
-		answer: scalarReader(program.column.type, parts.codes)
-	})
 	return {
 		requests: {
 			first: request(page.requests.first),
 			after: request(page.requests.after),
 			last: request(page.requests.last),
 			before: request(page.requests.before)
-		},
-		probes: {
-			atOrBefore: probe(page.probes.atOrBefore),
-			atOrAfter: probe(page.probes.atOrAfter)
 		}
 	}
 }
 
 /**
- * The runtime template of a served page and what its statements and cursors need: its statements' records and
- * deliveries, its comparators' value codecs, and its cursor codec, bound to the page's query fingerprint and cursor
- * generation. A completed order whose shortest token exceeds cursorTokenMaxLength is refused with UnsupportedOperation.
+ * The runtime template of a served page: its templates' records and deliveries, its comparators' value codecs, which
+ * read a delivered row's comparison tuple, and their parameter codecs, which write an anchor's Key.
  */
-export const pageRuntimeOf = (parts: PageRuntimeParts): Result.Result<PageRuntime, CompileError> =>
-	Result.map(
-		toResult(
-			cursorCodec(
-				{
-					query: parts.page.query,
-					comparators: parts.page.comparators,
-					generation: parts.page.generation
-				},
-				cursorTokenMaxLength,
-				parts.codes
-			)
-		),
-		(codec): PageRuntime => {
-			const page = parts.page
-			const values: ReadonlyArray<ScalarReader> = Arr.map(page.comparators, (c) =>
-				scalarReader(c.type, parts.codes)
-			)
-			const artifact = runArtifact(page, {
-				heading: page.heading,
-				comparators: page.comparators,
-				values,
-				spine: parts.spine,
-				codes: parts.codes
-			})
-			return {
-				page,
-				params: parts.params,
-				artifact,
-				codec,
-				identity: { query: page.query, generation: page.generation },
-				values
-			}
-		}
+export const pageRuntimeOf = (parts: PageRuntimeParts): PageRuntime => {
+	const page = parts.page
+	const values: ReadonlyArray<ScalarReader> = Arr.map(page.comparators, (c) =>
+		scalarReader(c.type, parts.codes)
 	)
+	return {
+		page,
+		params: parts.params,
+		artifact: runArtifact(page, {
+			heading: page.heading,
+			comparators: page.comparators,
+			values,
+			spine: parts.spine,
+			codes: parts.codes
+		}),
+		anchors: Arr.map(page.comparators, (c) => scalarCodec(c.type, parts.codes))
+	}
+}

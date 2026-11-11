@@ -4,10 +4,14 @@ import type { ChangeForm } from "#adapter/apply/index.ts"
 import { readBacks } from "#adapter/apply/readback.ts"
 import type { BoundReads } from "#adapter/apply/run.ts"
 import { toResult } from "#adapter/engine.ts"
-import type { CompiledPage, PageSource } from "#adapter/page/page.ts"
 import { type PageRuntime, pageRuntimeOf } from "#adapter/page/template.ts"
-import { getEligibility } from "#adapter/reader/eligibility.ts"
-import type { Bound, ReadArtifacts, ReadForm, RowsForm } from "#adapter/reader/reader.ts"
+import type {
+	Bound,
+	CompiledPage,
+	ReadArtifacts,
+	ReadForm,
+	RowsForm
+} from "#adapter/reader/reader.ts"
 import { paramCodecs } from "#adapter/reader/relations.ts"
 import { readProgram } from "#adapter/reader/run.ts"
 import type { RoleContext } from "#adapter/served/role.ts"
@@ -39,7 +43,6 @@ import {
 import {
 	compilePageOf,
 	type CursorGeneration,
-	isOrderedValue,
 	type PageTemplate,
 	pageQueryFingerprint,
 	type QueryTemplate,
@@ -79,7 +82,7 @@ const context = "snapshot"
  * attachments the analysis describes (analysis.ts), with its parameters' codecs. The caller's value is parsed here, once
  * (program/compile.ts queryInput), and the compiler takes the parsed query.
  */
-export const compileArtifacts = (
+const compileArtifacts = (
 	role: RoleContext,
 	query: unknown
 ): Result.Result<ReadArtifacts, CompileError> =>
@@ -106,7 +109,7 @@ export const compileArtifacts = (
  * A decoder bound to a compiled read's layouts under `role`'s bind context, once per template and artifact. The decoder
  * is read once the query compiled, since a JavaScript caller's value may be no query.
  */
-export const bindArtifacts = <A>(
+const bindArtifacts = <A>(
 	role: RoleContext,
 	compiled: ReadArtifacts,
 	decoder: () => RowDecoder<A>
@@ -125,12 +128,12 @@ export const compileRowsForm = <A>(
 	Result.gen(function* () {
 		const compiled = yield* compileArtifacts(role, query)
 		const bound = yield* bindArtifacts(role, compiled, decoder)
-		return { query, decoder, bound, eligible: getEligibility(compiled.compiled.template) }
+		return { query, decoder, bound }
 	})
 
 /**
- * The read form of `query` for `role`, its rows read by `decoder` (compileRowsForm) and an ordered query's page
- * template compiled beside them: a query that does not compile is its CompileError.
+ * The read form of a paged member's ordered query for `role`, its rows read by `decoder` (compileRowsForm) and its
+ * page template compiled beside them (compiledPageTemplate): a query that does not compile is its CompileError.
  */
 export const compileReadForm = <A>(
 	role: RoleContext,
@@ -139,9 +142,7 @@ export const compileReadForm = <A>(
 ): Result.Result<ReadForm<A>, CompileError> =>
 	Result.gen(function* () {
 		const rows = yield* compileRowsForm(role, query, decoder)
-		const page: PageSource = isOrderedValue(query)
-			? { kind: "compiled", page: yield* compiledPageTemplate(role, query) }
-			: { kind: "query" }
+		const page = yield* compiledPageTemplate(role, query)
 		return { ...rows, page }
 	})
 
@@ -193,7 +194,7 @@ export const compiledPageTemplateFor = (
 			compilePageOf(template.programs, { stated, names: artifacts.reads })
 		)
 		const query = yield* toResult(pageQueryFingerprint(desc, artifacts.fingerprint))
-		const runtime = yield* compiledPageRuntime({
+		const runtime = compiledPageRuntime({
 			page: compiled,
 			params: template.params,
 			codes: artifacts.names.codes,
@@ -219,9 +220,7 @@ interface CompiledPageParts {
  * The runtime of a compiled page: served with its statements' specs emitted under its codes (engine program/served.ts
  * servedPage), then run as a served page runs (page/template.ts pageRuntimeOf).
  */
-export const compiledPageRuntime = (
-	parts: CompiledPageParts
-): Result.Result<PageRuntime, CompileError> =>
+export const compiledPageRuntime = (parts: CompiledPageParts): PageRuntime =>
 	pageRuntimeOf({
 		page: servedPage(parts.page, parts.codes, parts.query, parts.generation),
 		params: parts.params,
@@ -234,7 +233,7 @@ export const compiledPageRuntime = (
  * its CompileError: what a page compiles for its call, and what db.compile and the layer's workload hold for an
  * ordered query.
  */
-export const compiledPageTemplate = (
+const compiledPageTemplate = (
 	role: RoleContext,
 	query: unknown
 ): Result.Result<CompiledPage, CompileError> => {
@@ -340,17 +339,6 @@ export const compiledWrite = (
 ): Result.Result<CompiledEntry, CompileError> =>
 	Result.flatMap(toResult(parsedChange(role.schema, changes)), (change) =>
 		writeEntry(role, change, claims)
-	)
-
-/** The change form of `changes` for `role` under `claims`: a ChangeSet that does not compile is its CompileError. */
-export const compileChangeForm = <R>(
-	role: RoleContext,
-	changes: unknown,
-	decoder: RowDecoder<R>,
-	claims: ReadonlySet<string>
-): Result.Result<ChangeForm<R>, CompileError> =>
-	Result.flatMap(compiledWrite(role, changes, claims), (compiled) =>
-		boundChangeForm(compiled, decoder)
 	)
 
 /**

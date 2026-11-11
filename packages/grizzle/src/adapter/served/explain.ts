@@ -4,10 +4,9 @@ import type { ServedDbContext } from "#adapter/db/context.ts"
 import { type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
 import { LawRejected, UnreadableAnswer } from "#adapter/errors/failures.ts"
 import { decodeExecuted, decodePlan, explainFailure } from "#adapter/explain/plan.ts"
-import { hostParams } from "#adapter/reader/params.ts"
-import { executionInputs } from "#adapter/reader/relations.ts"
 import { programStatement } from "#adapter/reader/run.ts"
-import type { ChangeCall, LoadedChange, LoadedRead } from "#adapter/served/load.ts"
+import type { ReadCall } from "#adapter/reader/stream.ts"
+import type { LoadedChange } from "#adapter/served/load.ts"
 import type { ExecutedStatement, StatementPlan } from "#adapter/types/db.ts"
 import {
 	type BatchOutcome,
@@ -21,14 +20,7 @@ import {
 } from "#adapter/wire/batch.ts"
 import type { Session } from "#adapter/wire/session.ts"
 import type { Chunks, ExecutionPart } from "#compiler/plan/change.ts"
-import type { CompileError, EncodingFailure, ParamMap } from "#compiler/plan/common.ts"
-import {
-	defect,
-	explainAnalyzeOf,
-	explainOf,
-	malformedDescription,
-	SourceLoc
-} from "#compiler/plan/runtime.ts"
+import { defect, explainAnalyzeOf, explainOf } from "#compiler/plan/runtime.ts"
 import type { ServedTables } from "#compiler/plan/serve.ts"
 
 /**
@@ -118,36 +110,29 @@ const plansOf = Effect.fn("plansOf")(function* <P>(
 	return yield* Effect.fromResult(decodedPlans(statements, outcomes, decode))
 }, Effect.scoped)
 
-/** A read member's one statement for `params`, planned by `planning`, its inputs readied as its execute readies them. */
-const readStatement = (
-	read: LoadedRead,
-	params: ParamMap,
-	planning: Planning
-): Effect.Effect<Explained, ReadError> =>
-	Effect.gen(function* () {
-		const values = yield* hostParams(read.params, params)
-		const inputs = yield* Effect.mapError(
-			Effect.fromResult(executionInputs(read.codecs, values)),
-			(reason) => new ReadFailure({ reason })
-		)
-		const statement = yield* Effect.mapError(
-			programStatement(read.program, inputs, keptRows),
-			(reason) => new ReadFailure({ reason })
-		)
-		return planned(statement, planning)
+/**
+ * A read call's one statement, the one its once and watch send (reader/stream.ts ReadCall), planned by `planning`: its
+ * rows go to an intake no flight reads, since a plan answers its EXPLAIN alone.
+ */
+const readStatement = (call: ReadCall, planning: Planning): Effect.Effect<Explained, ReadError> =>
+	Effect.mapBoth(call.open(unread), {
+		onSuccess: (opened) => planned(opened.statement, planning),
+		onFailure: (reason) => new ReadFailure({ reason })
 	})
 
+/** What a planned read's rows are emitted to: nothing, since its EXPLAIN runs in place of it. */
+const unread = (): void => undefined
+
 /**
- * A read member's statement for `params`, the one its execute and get send, its estimates planned in one rolled-back
- * read-only transaction (see the header).
+ * A read call's statement, the one its once and watch send, its estimates planned in one rolled-back read-only
+ * transaction (see the header).
  */
 export const explainRead = (
 	ctx: ServedDbContext,
 	installed: ServedTables,
-	read: LoadedRead,
-	params: ParamMap
+	call: ReadCall
 ): Effect.Effect<ReadonlyArray<StatementPlan>, ReadError> =>
-	Effect.flatMap(readStatement(read, params, explainOf), (statement) =>
+	Effect.flatMap(readStatement(call, explainOf), (statement) =>
 		plansOf(
 			ctx,
 			readFrame,
@@ -157,16 +142,15 @@ export const explainRead = (
 	)
 
 /**
- * A read member's statement for `params` run under EXPLAIN ANALYZE in one rolled-back read-only transaction: what each
- * node did beside its estimates, and the statement's planning and execution times.
+ * A read call's statement run under EXPLAIN ANALYZE in one rolled-back read-only transaction: what each node did beside
+ * its estimates, and the statement's planning and execution times.
  */
 export const explainReadAnalyzed = (
 	ctx: ServedDbContext,
 	installed: ServedTables,
-	read: LoadedRead,
-	params: ParamMap
+	call: ReadCall
 ): Effect.Effect<ReadonlyArray<ExecutedStatement>, ReadError> =>
-	Effect.flatMap(readStatement(read, params, explainAnalyzeOf), (statement) =>
+	Effect.flatMap(readStatement(call, explainAnalyzeOf), (statement) =>
 		plansOf(
 			ctx,
 			readFrame,
@@ -180,46 +164,6 @@ export const explainReadAnalyzed = (
 	)
 
 /**
- * A member's call as explain plans it, as its handle takes it (types/db WorkloadHandles): its parameters, and, for a
- * ChangeSet that holds array members, each call's facts beside them (FactsApply), on which a chunk's binding depends.
- */
-export type MemberCall =
-	| { readonly kind: "params"; readonly params: ParamMap }
-	| { readonly kind: "facts"; readonly facts: unknown; readonly params: ParamMap }
-
-/**
- * The host call of `call` for the change member `name`, whose calls read as `reads` (load.ts ChangeCall); a call of the
- * other shape is refused as the member's handle never takes it.
- */
-const hostCallOf = (
-	name: string,
-	reads: ChangeCall,
-	call: MemberCall
-): Result.Result<HostCall, EncodingFailure | CompileError> => {
-	const at = SourceLoc("explain", [name])
-	switch (reads.kind) {
-		case "facts":
-			return call.kind === "facts"
-				? reads.call(call.facts, call.params)
-				: Result.fail(
-						malformedDescription(
-							at,
-							"a call's facts beside its parameters, for a ChangeSet with array members"
-						)
-					)
-		case "params":
-			return call.kind === "params"
-				? Result.succeed(reads.call(call.params))
-				: Result.fail(
-						malformedDescription(
-							at,
-							"a call's parameters alone, for a ChangeSet with no array member"
-						)
-					)
-	}
-}
-
-/**
  * A change member's program for `call`, each statement planned against empty carriers, rolled back: its write
  * statements, then its read-backs' (change.reads), each read-back's statement as apply's flight sends it behind the
  * writes (apply/readback.ts readBackFlight), over the same inputs, in the artifact's order; a riding read-back's is a
@@ -231,14 +175,12 @@ export const explainChange = (
 	installed: ServedTables,
 	name: string,
 	change: LoadedChange,
-	call: MemberCall
+	host: HostCall
 ): Effect.Effect<ReadonlyArray<StatementPlan>, ReadError> =>
 	Effect.gen(function* () {
 		const entry = change.entry
 		const inputs = yield* Effect.mapError(
-			Effect.flatMap(Effect.fromResult(hostCallOf(name, change.call, call)), (host) =>
-				hostInputs(entry, host)
-			),
+			hostInputs(entry, host),
 			(reason) => new ReadFailure({ reason })
 		)
 		if (inputs.kind === "rejected") {

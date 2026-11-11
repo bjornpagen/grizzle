@@ -193,11 +193,7 @@ const memberOf = (
 				read: readOf(member.form, footprint(), names, templateKey)
 			})
 		case "paged": {
-			const source = member.form.page
-			if (source.kind !== "compiled") {
-				throw defect("a paged member's page template is compiled with it")
-			}
-			const page = source.page.runtime.page
+			const page = member.form.page.runtime.page
 			return Result.succeed({
 				name,
 				kind: "paged",

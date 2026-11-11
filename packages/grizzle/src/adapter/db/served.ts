@@ -3,18 +3,17 @@ import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as Rec from "effect/Record"
 import * as Result from "effect/Result"
-import { compileFailure } from "#adapter/apply/run.ts"
 import { type Claims, claimsOf, noClaims, type TypedContext } from "#adapter/db/claims.ts"
 import type { ServedDbContext } from "#adapter/db/context.ts"
 import { servedHandles } from "#adapter/db/handles.ts"
-import { OpenError, ReadFailure } from "#adapter/errors/execution.ts"
+import { OpenError } from "#adapter/errors/execution.ts"
 import { TokenError } from "#adapter/errors/failures.ts"
 import { readServedRole, type ServedSessions, servedSessions } from "#adapter/pool/served.ts"
 import type { LoadedRole } from "#adapter/served/load.ts"
 import type { DbConstructor, DbOf, OpenOptions, WorkloadHandles } from "#adapter/types/db.ts"
 import type { DbLayerService, ServedRole, Verify } from "#adapter/types/layer.ts"
 import { prologueOf } from "#adapter/wire/batch.ts"
-import type { AnyRole, CompileError } from "#compiler/plan/common.ts"
+import type { AnyRole } from "#compiler/plan/common.ts"
 import { SourceLoc, defect, malformedDescription, readCaller } from "#compiler/plan/runtime.ts"
 
 const openLoc = SourceLoc("Db.open", [])
@@ -121,34 +120,6 @@ interface OpenedServed<R, P> {
 }
 
 /**
- * The refusal of a program outside the login's served workload: a served Db runs its workload's programs alone, which
- * `grizzle generate` compiled, and compiles none at the call.
- */
-const outsideWorkload = (): CompileError =>
-	malformedDescription(
-		SourceLoc("db", []),
-		"a program of the login's workloads, through db.workload: a served Db compiles no program at the call"
-	)
-
-/**
- * A served Db: its workload handles, and every other operation refused before any SQL (outsideWorkload), since no
- * program outside the login's served workload runs.
- */
-const servedDb = <R, P>(workload: WorkloadHandles<R, P>): DbOf<R, P> => {
-	const unread = () => Effect.fail(new ReadFailure({ reason: outsideWorkload() }))
-	const unapplied = () => compileFailure(outsideWorkload())
-	return {
-		workload,
-		get: unread,
-		execute: unread,
-		page: unread,
-		compile: () => Effect.fail(outsideWorkload()),
-		apply: unapplied,
-		refresh: unapplied
-	}
-}
-
-/**
  * Db.open(Web.roles.member, { token? }), and the context the Db reads.
  *
  * Opening builds a database handle for a role reached through its served login, on the host alone: it contacts
@@ -201,7 +172,7 @@ export const openServed = Effect.fn("openServed")(function* <R extends AnyRole, 
 			defect(`the workload handles of role ${held.name}: one per program of its layer`)
 		)
 	}
-	return { db: servedDb<R, P>(handles), ctx, sessions, role: held }
+	return { db: { workload: handles }, ctx, sessions, role: held }
 })
 
 /** Db.open: the Db openServed opens. The role is reached through its served login, whose layer provides the Effect. */

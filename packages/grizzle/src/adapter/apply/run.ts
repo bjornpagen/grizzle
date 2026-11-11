@@ -72,7 +72,6 @@ import type {
 	LiteralBound,
 	MessageBound,
 	ParamDecl,
-	ParamMap,
 	ParamValue,
 	Row
 } from "#compiler/plan/common.ts"
@@ -150,62 +149,6 @@ export const valuesFailure = (
 export const inputApplyError = (failure: InputFailure): EncodingFailure | ExecutionFailure =>
 	failure._tag === "EncodingFailure" ? failure : new ExecutionFailure({ reason: failure })
 
-/**
- * Running one application of a WriteProgram.
- *
- * One application is two halves.
- *
- * Before any SQL (`hostInputs`): the ChangeSet value's array and Stream members are collected, a Stream whole
- * (apply/collect.ts), and so is a Stream relation parameter; the WriteProgram binds them (write/program/bind.ts): host
- * normalization, which refuses a same-key pair among the enumerated additions as invariant-rejected with the key law
- * without sending any SQL, and each family's nested write planned under the wire's transport (wire/batch.ts bindFrame,
- * write/family/order.ts inForce), its statements cut to what one Bind message carries. No input is bounded by its
- * number of facts: its arrays are written per statement as the transaction is built, and one whose texts are past a
- * bound of their transport, a family's row no statement carries even alone among them, is InputTooLarge before the
- * flight is sent (wire/batch.ts). A caller that runs the apply again after a TransientFailure replays this half too, so a Stream
- * member must be repeatable.
- *
- * Then the transaction (`runWrite`), one transaction of the Db's role on one session, in one flight
- * (../wire/batch.ts runFramed), or in two when its plan reads before it writes (BoundWrite flights, rows-first.md §2):
- * a family's edit of a group that already exists reads the group's stored suffix and its owner's count and ends, one
- * batched SELECT per family, in a first flight behind BEGIN and the prologue, and the plan fills its write statements
- * from those rows, which the second flight sends with COMMIT (../wire/batch.ts runFramedTwice). Under SERIALIZABLE a
- * concurrent writer of a group the reads read meets 40001 at either flight or at COMMIT, a TransientFailure the caller
- * may run the apply again for; grizzle never retries. Each statement is counted across both flights, so a failure is
- * attributed to its statement, a family step's chunk, or the read of its family:
- *
- * 1. Every write, family, carrier and sequence-advance statement of the artifact, in the order its statements run, each
- *    with the placeholder texts binding gave it, goes in the flight, a family's once per statement its plan cuts, and
- *    none where its nested write writes no row of the statement's kind; a statement whose nested rows are past the
- *    session's message once, as its staged form, behind its carriers' creations, their fills, a chunk of the rows each,
- *    and their ANALYZE where it needs one (write/program/staged.ts), so it still runs once over every row; a statement whose enumerated
- *    member holds no fact is skipped, because it produces no statement. A temporary table the role holds no TEMPORARY
- *    privilege to create, a carrier of the program's own or a staged one, is TemporaryRefused (errors/failures.ts
- *    temporaryRefusal). A flight left with no statement still sends its frame, BEGIN, the
- *    prologue's fence and snapshot check, and COMMIT, so an all-empty application meets the check every transaction
- *    of the Db meets. No statement's rows decide whether a later one is sent: whatever
- *    refuses the write raises inside the statement that detects it (write/refusal.ts), and PostgreSQL then aborts the
- *    transaction, so nothing after it, COMMIT included, commits.
- * 2. The read-backs run after every write and before COMMIT, delivered as queries are (readback.ts): every statement
- *    of every read-back rides in the flight behind the writes, an attachment included, since it computes its parent's
- *    rows itself. COMMIT ends the flight, so a write and its read-backs are one round trip.
- * 3. A refused statement is classified (../outcomes) at its origin, the statement or the COMMIT: a refusal a write
- *    statement raised is invariant-rejected with its law or a TransientFailure of the concurrent change it met; an
- *    abort PostgreSQL raised is a TransientFailure, an integrity violation of a law invariant-rejected, a roster
- *    domain's refusal of a value grizzle wrote grizzle's defect, which the application dies with, anything else an
- *    operational failure. So is a refusal at COMMIT (a deferred law, 40001). COMMIT with no answer is CommitUnknown.
- * 4. The rows are read into the changes by the WriteProgram's own converters (runtime/write/outcome.ts interpretRows):
- *    each stratum's facts made present and absent, netted across strata into counts and the outcome kind. Rows carry
- *    no refusal. The read-backs' Rows are read by the ChangeSet's reads decoder, bound once to the artifact's reads
- *    layout (readback.ts). Only a committed outcome is ever reported.
- *
- * A compile failure where the error channel has no CompileError: a ChangeSet that does not compile for this Db, or a
- * value built outside the typed API, as the ExecutionFailure whose reason is the refusal, as a direct read refuses with
- * the ReadFailure whose reason it is.
- */
-export const compileFailure = (refusal: CompileError): Effect.Effect<never, ExecutionFailure> =>
-	Effect.fail(new ExecutionFailure({ reason: refusal }))
-
 /** A Stream relation parameter collected on the host, whole: one that fails encodes nothing. */
 const collectParam = (
 	decl: ParamDecl,
@@ -216,7 +159,7 @@ const collectParam = (
 /** The values of the declared parameters by name: a ChangeSet.bind value under its private name, else the caller's. */
 const declaredParams = (
 	declared: ReadonlyArray<ParamDecl>,
-	params: ParamMap,
+	params: unknown,
 	bindings: ReadonlyMap<string, ParamValue>
 ): Effect.Effect<HostParams, EncodingFailure> =>
 	Effect.suspend(() => {
@@ -233,7 +176,7 @@ const declaredParams = (
 		if (Result.isFailure(given)) {
 			return Effect.fail(given.failure)
 		}
-		const out: Record<string, ParamValue> = { ...given.success }
+		const out: Record<string, unknown> = { ...given.success }
 		for (const [name, value] of bindings) {
 			out[name] = value
 		}
@@ -262,7 +205,7 @@ const declaredParams = (
  * and the facts of each member slot (write/normalize/normalize.ts MemberFacts).
  */
 export interface HostCall {
-	readonly params: ParamMap
+	readonly params: unknown
 	readonly bound: ReadonlyMap<string, ParamValue>
 	readonly members: MemberFacts
 }

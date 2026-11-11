@@ -34,7 +34,7 @@ const startupVariables: {
  * The first of `kind`'s startup variables, in list order, that the process environment sets to a text: what pg would
  * send at the startup of each such session. pg takes the empty text for unset. It reads `process.env`, the very source
  * pg reads, never a ConfigProvider's view of it, which an application may set apart from it: this module is grizzle's
- * one reader of the environment (the no-environment gate). DbLayer.make refuses a login's (pool/registry.ts), the
+ * one reader of the environment (the no-environment gate). DbLayer.make refuses a login's (pool/served.ts), the
  * command line an owner's (cli/connection.ts).
  */
 export const startupVariableSet = (kind: SessionKind): Option.Option<StartupVariable> => {

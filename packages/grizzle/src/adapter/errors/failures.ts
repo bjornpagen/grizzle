@@ -698,20 +698,30 @@ export const literalBound = (bound: LiteralBound): InputTooLarge =>
 	})
 
 /**
- * Why a page request is refused: its shape (no record, one whose reading throws, a property that is no control
- * property of one direction, no size or both sizes, the other direction's anchor), or its size (no safe integer of
- * at least 1).
+ * Why a call's input is refused at the boundary that reads it, before any SQL: `envelope`, no record of exactly
+ * `params` and `facts` (and `window`, a paged member's), or one whose reading throws; `facts`, facts a member that
+ * takes none is given, any but `{}`; `window`, a window that is no record of exactly an anchor and a size; `size`, a
+ * size that is no safe integer of at least 1; `anchor`, an anchor that is no start, end, or after or before with a key
+ * of one value per comparator of the page's completed order, each admitted by its comparator column's codec.
  */
-export type RequestFault = "requestShape" | "requestSize"
+export type CallInputFault = "envelope" | "facts" | "window" | "size" | "anchor"
 
-/** A page request refused for `fault`, before any SQL. */
-export class PageRequestRefused extends Data.TaggedError("PageRequestRefused")<{
-	readonly fault: RequestFault
+/** What each input fault says. */
+const inputFaults: { readonly [F in CallInputFault]: string } = {
+	envelope: "the input is no record of exactly its params and facts, and a paged member's window",
+	facts: "the member takes no facts: its input's facts are {}",
+	window: "the window is no record of exactly an anchor and a size",
+	size: "the window's size is no safe integer of at least 1",
+	anchor:
+		"the anchor is no start, end, or after or before with one key value per column of the page's order, each its column's"
+}
+
+/** A call's input refused for `fault`, before any SQL. */
+export class CallInputRefused extends Data.TaggedError("CallInputRefused")<{
+	readonly fault: CallInputFault
 }> {
 	override get message(): string {
-		return this.fault === "requestShape"
-			? "the page request is no record of one direction's size and anchor"
-			: "the page size is no safe integer of at least 1"
+		return inputFaults[this.fault]
 	}
 }
 

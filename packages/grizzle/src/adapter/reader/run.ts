@@ -1,6 +1,5 @@
 import * as Arr from "effect/Array"
 import * as Effect from "effect/Effect"
-import * as Option from "effect/Option"
 import * as Result from "effect/Result"
 import { type InputTooLarge, UnreadableAnswer } from "#adapter/errors/failures.ts"
 import {
@@ -494,14 +493,6 @@ export const deliveredRows = (
 ): Result.Result<ReadonlyArray<Row>, UnreadableAnswer> =>
 	merged(program.delivery.merge, program.delivery.groups, sent, params, asRow)
 
-/** A delivered Row with the heading group whose statement delivered it. */
-interface Delivered {
-	readonly row: Row
-	readonly group: HeadingGroup
-}
-
-const withGroup: Emit<Delivered> = (row, group) => ({ row, group })
-
 /**
  * The statement of one execution of a read program (see the header), in its form for `inputs`, its rows going to
  * `intake`.
@@ -596,40 +587,4 @@ export const programFlight = <A>(
 					)
 				)
 			)
-	}))
-
-/**
- * The one delivered Row of a program proved at most one row per parameter binding, read through `read`, or none. The
- * rows are the server's answer, so a second one contradicts the proof: UnreadableAnswer at the statement that delivered
- * it, after the read's transaction committed.
- */
-const atMostOne = <A>(
-	delivered: ReadonlyArray<Delivered>,
-	read: (row: Row) => A
-): Result.Result<Option.Option<A>, UnreadableAnswer> => {
-	const [first, second] = delivered
-	if (second !== undefined) {
-		return Result.fail(new UnreadableAnswer({ index: 0, fate: "committed" }))
-	}
-	return Result.succeed(first === undefined ? Option.none() : Option.some(read(first.row)))
-}
-
-/** The one flight of a get: a read program proved at most one row per parameter binding, its row read by `read`. */
-export const programGetFlight = <A>(
-	program: ReadProgram,
-	inputs: ExecutionInputs,
-	read: (row: Row) => A
-): Effect.Effect<Flight<Option.Option<A>, UnreadableAnswer>, InputTooLarge> =>
-	Effect.map(programStatement(program, inputs, keptRows), (statement) => ({
-		statements: [statement],
-		read: (outcomes) =>
-			Effect.suspend(() => {
-				const { merge, groups } = program.delivery
-				return Effect.fromResult(
-					Result.flatMap(
-						merged(merge, groups, answerRuns(program, outcomes), inputs.params, withGroup),
-						(delivered) => atMostOne(delivered, read)
-					)
-				)
-			})
 	}))

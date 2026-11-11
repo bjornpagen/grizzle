@@ -39,7 +39,7 @@ export interface RoleContext {
 	/**
 	 * The artifacts a program of the role compiles against, with their witness decoding (witness/index.ts): the layer's,
 	 * when the slice the layer's law model serves holds the program's own (schema/reach.ts within), else the artifacts
-	 * of the program's own slice, compiled at the call (pool/registry.ts). Either reads, of each relation the program
+	 * of the program's own slice, compiled at the call (served/login.ts). Either reads, of each relation the program
 	 * names, exactly what the installation's law model states.
 	 */
 	readonly programArtifacts: (program: ProgramDesc) => Engine.Result<SliceArtifacts, CompileError>

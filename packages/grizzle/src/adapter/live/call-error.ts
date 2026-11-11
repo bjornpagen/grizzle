@@ -71,7 +71,7 @@ const readReading: Reading<ReadReason> = {
 	LawRejected: input,
 	InputTooLarge: input,
 	TemporaryRefused: failed,
-	PageRequestRefused: input
+	CallInputRefused: input
 }
 
 /**
@@ -120,6 +120,7 @@ export const callErrorOf = (error: OpenError | ReadError | ApplyError): CallErro
 		case "CommitUnknown":
 			return commitUnknown(error.message)
 		case "EncodingFailure":
+		case "CallInputRefused":
 			return input(error.message)
 	}
 }

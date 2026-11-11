@@ -62,12 +62,12 @@ export const roleSettings: BlockSettings<{ readonly role: string }> = {
 }
 
 /**
- * A DbConfig's: its login value, snapshot, pool bounds, pool hook and verify. The parse returns the pool bounds, plain
- * data parsed with the connection's (parsePool); the login value, the snapshot, the hook and verify are read off the
- * typed config by the layer (pool/registry.ts).
+ * A served DbConfig's: its served login, pool bounds, pool hook and verify. The parse returns the pool bounds, plain
+ * data parsed with the connection's (parsePool); the served login, the hook and verify are read off the typed config by
+ * the layer (pool/served.ts).
  */
-export const loginSettings: BlockSettings<{ readonly pool: PoolBounds }> = {
-	settings: ["login", "snapshot", "pool", "attachPool", "verify"],
+export const servedLoginSettings: BlockSettings<{ readonly pool: PoolBounds }> = {
+	settings: ["login", "pool", "attachPool", "verify"],
 	parse: (plain, where) => {
 		const { pool } = plain
 		return Result.map(parsePool(pool, [...where, "pool"]), (bounds) => ({ pool: bounds }))
@@ -75,20 +75,10 @@ export const loginSettings: BlockSettings<{ readonly pool: PoolBounds }> = {
 }
 
 /**
- * A served DbConfig's: its served login, pool bounds, pool hook and verify. The parse returns the pool bounds, plain
- * data parsed with the connection's (parsePool); the served login, the hook and verify are read off the typed config by
- * the layer (pool/served.ts).
- */
-export const servedLoginSettings: BlockSettings<{ readonly pool: PoolBounds }> = {
-	settings: ["login", "pool", "attachPool", "verify"],
-	parse: loginSettings.parse
-}
-
-/**
  * The settings the block's read leaves unread, each read once off the typed block instead: the driver, a module whose
  * members may be getters; the password; the transport, read by its own read (readTransport), whose `open` is the
  * caller's function; and a DbConfig's login value, its functions and its snapshot, which the layer reads (pool/served.ts,
- * pool/registry.ts), the snapshot by its own parser (boundary/snapshot.ts parseSnapshot).
+ * pool/served.ts), the snapshot by its own parser (boundary/snapshot.ts parseSnapshot).
  */
 const typedSettings: ReadonlySet<string> = new Set([
 	"driver",
@@ -365,7 +355,7 @@ const parseTransport = (
  * The block at `where`, which holds `extras` besides its connection: parsed, with what `extras` parses of it, or the
  * setting it refuses and the rule it breaks.
  *
- * A DbConfig's login value, pool hook and verify are the layer's to read (pool/served.ts, pool/registry.ts), never plain
+ * A DbConfig's login value, pool hook and verify are the layer's to read (pool/served.ts), never plain
  * data.
  */
 export const parseConnection = <E>(
