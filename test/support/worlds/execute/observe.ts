@@ -110,6 +110,8 @@ export const applyFailed = (error: ApplyError): Effect.Effect<Observation> => {
 					return Effect.succeed({ kind: "compile-refused" })
 				case "InputTooLarge":
 					return Effect.succeed({ kind: "resource-bound" })
+				case "ParamRejected":
+					return Effect.succeed({ kind: "encoding-refused" })
 				case "UnreadableAnswer":
 					return defect("an answer grizzle could not read", error)
 			}
@@ -135,7 +137,9 @@ export const readFailed = (error: ReadError): Effect.Effect<Observation> => {
 			return Effect.succeed({ kind: "compile-refused" })
 		case "EncodingFailure":
 		case "CallInputRefused":
+		case "InputRejected":
 		case "LawRejected":
+		case "ParamRejected":
 			return Effect.succeed({ kind: "encoding-refused" })
 		case "InputTooLarge":
 			return Effect.succeed({ kind: "resource-bound" })
