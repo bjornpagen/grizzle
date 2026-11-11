@@ -12,7 +12,9 @@
  *   window meets, exactly, a width past bigint's range among them; an empty or reversed window is refused by its codec.
  *
  * Plants (~/.cache/grizzle-release/BR13/plants): storage-shape-unbounded-above.patch (the shape CHECK admitting a span
- * unbounded above), storage-width-int4.patch (the width checked in integer, which overflows at the limits).
+ * unbounded above), storage-width-int4.patch (the width checked in integer, which overflows at the limits),
+ * laws-le-strict.patch (a contract's `le` lowered as `<`, so an endpoint at Tick's bound is refused),
+ * storage-param-open-lower.patch (a span parameter's text written with an exclusive lower bound).
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"

@@ -10,7 +10,8 @@
  *   the pair is in the mask, and each atom literal and its negation, PostgreSQL's operator, holds exactly where the
  *   host's transcription of it does.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): allen-atom-before-strict.patch (the `<<` atom's relations read as
+ * Plants (~/.cache/grizzle-release/BR13/plants): allen-canonical-upper-inclusive.patch (the host canonicalization
+ * leaving an inclusive upper bound where it is), allen-atom-before-strict.patch (the `<<` atom's relations read as
  * strictly before, without meets).
  */
 import { layer } from "@effect/vitest"

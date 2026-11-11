@@ -18,7 +18,8 @@
  * test/unit/text/lowering.test.ts's.
  *
  * Plants (~/.cache/grizzle-release/BR13/plants): differential-dollar-anchor.patch (the end anchor translated as
- * matching before a final newline).
+ * matching before a final newline), differential-states-undercounted.patch (the compile space's held states counted
+ * once, so a pattern past PostgreSQL's limit is admitted).
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore, sketched } from "@grizzle/testing/explore"

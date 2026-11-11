@@ -21,7 +21,8 @@
  *
  *
  * Plants (~/.cache/grizzle-release/BR13/plants): regex-complete-unchecked-param.patch (a parameter's refinement not
- * checked at bind).
+ * checked at bind), refinement-are-swapped.patch (a refinement's domain CHECK matching its pattern against the value,
+ * operands swapped).
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
