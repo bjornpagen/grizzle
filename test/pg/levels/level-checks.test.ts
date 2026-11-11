@@ -31,6 +31,8 @@
  *    row is stored. Oracle: the same host evaluation.
  *
  * Every constraint name is read through constraintNamesOf and every table and column through the installation's names.
+ * Each check's name starts with a drawn initial, so Base's and Media's CHECKs interleave in the order PostgreSQL tries
+ * them, and a row breaking both meets either first.
  *
  * Features: an unbounded text matched by a pattern in a level's check, a row such a match refuses, each login's
  * refusal by each kind of check, the author's own checks named beside Media's and Media's alone, two checks broken at
@@ -235,9 +237,25 @@ interface Stated {
 	readonly pred: Pred
 }
 
-/** Checks named `stem` and their position, one per predicate. */
-const named = (stem: string, preds: ReadonlyArray<Pred>): ReadonlyArray<Stated> =>
-	Arr.map(preds, (pred, i) => ({ name: `${stem}${i}`, pred }))
+/**
+ * The initial a check's name starts with, which orders its installed name among the table's others: PostgreSQL tries a
+ * table's CHECKs in the order of their names, so Base's and Media's interleave as the draws fall.
+ */
+const initials = ["A", "M", "Z"] as const
+
+/** A check as a case draws it: the initial of its name and its predicate. */
+interface Drawn {
+	readonly initial: (typeof initials)[number]
+	readonly pred: Pred
+}
+
+const drawnGen =
+	(pred: Gen<Pred>): Gen<Drawn> =>
+	(source) => ({ initial: source.draw(element(initials)), pred: source.draw(pred) })
+
+/** Checks named by their initial, `stem` and their position, one per drawn predicate. */
+const named = (stem: string, drawn: ReadonlyArray<Drawn>): ReadonlyArray<Stated> =>
+	Arr.map(drawn, (d, i) => ({ name: `${d.initial}${stem}${i}`, pred: d.pred }))
 
 const statementsOf = (checks: ReadonlyArray<Stated>): Array<Statement> =>
 	Arr.map(checks, (c) => check(c.name, Attribute, (a) => build(c.pred, a)))
@@ -298,15 +316,15 @@ const keyOf = (id: number): Witness => ({ kind: "key", relation: "Attribute", va
 /** A case of the logins' property: Base's own checks, Media's, and the rows inserted through both logins. */
 interface LoginsCase {
 	readonly family: number
-	readonly own: ReadonlyArray<Pred>
-	readonly level: Arr.NonEmptyReadonlyArray<Pred>
+	readonly own: ReadonlyArray<Drawn>
+	readonly level: Arr.NonEmptyReadonlyArray<Drawn>
 	readonly rows: ReadonlyArray<Row>
 }
 
 const loginsCase: Gen<LoginsCase> = (source) => {
 	const family = source.draw(familyGen)
 	const alphabet = alphabetOf(family)
-	const pred = predGen(alphabet, predDepth)
+	const pred = drawnGen(predGen(alphabet, predDepth))
 	return {
 		family,
 		own: source.draw(array(pred, { min: 0, max: 2 })),
@@ -328,7 +346,7 @@ type LoginsFeature =
 /** Media's checks over every row a migration case stores and probes. */
 interface MigrationCase {
 	readonly family: number
-	readonly level: Arr.NonEmptyReadonlyArray<Pred>
+	readonly level: Arr.NonEmptyReadonlyArray<Drawn>
 	readonly seeds: ReadonlyArray<Row>
 	readonly probes: Arr.NonEmptyReadonlyArray<Row>
 }
@@ -336,7 +354,7 @@ interface MigrationCase {
 const migrationCase: Gen<MigrationCase> = (source) => {
 	const family = source.draw(familyGen)
 	const alphabet = alphabetOf(family)
-	const pred = predGen(alphabet, predDepth)
+	const pred = drawnGen(predGen(alphabet, predDepth))
 	const row = rowGen(alphabet)
 	return {
 		family,
