@@ -8,7 +8,6 @@ import {
 } from "#compiler/core/canonical.ts"
 import { ownedDigest, type RosterDigest, rosterDigest } from "#compiler/core/fingerprint.ts"
 import type { DeclaredName } from "#compiler/core/identity.ts"
-import { derived, type Limit, postgresSource, published } from "#compiler/core/limits.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import type { ExprTable } from "#compiler/ir/expr.ts"
@@ -118,115 +117,6 @@ export type CapabilitySet = ReadonlyArray<Capability>
 
 export const capabilitySet = (caps: ReadonlyArray<Capability>): CapabilitySet =>
 	Object.freeze([...new Set(caps)].toSorted(compareStrings))
-
-const numericH = `${postgresSource}/src/include/utils/numeric.h`
-
-/** The greatest precision a numeric typmod declares. */
-export const numericMaxPrecision: Limit = published({
-	value: 1000,
-	owner: "PostgreSQL 19rc1",
-	unit: "decimal digits",
-	scope:
-		"the precision p of numeric(p, s): a field's, a cast's, a parameter's or a typed literal's",
-	constraint: "compile-time constant",
-	source: `${numericH}#L35`,
-	quote: "#define NUMERIC_MAX_PRECISION\t\t1000",
-	verified: "2026-11-05"
-})
-
-/** The least scale a numeric typmod declares: a negative scale rounds to a power of ten. */
-export const numericMinScale: Limit = published({
-	value: -1000,
-	owner: "PostgreSQL 19rc1",
-	unit: "decimal digits",
-	scope: "the scale s of numeric(p, s)",
-	constraint: "compile-time constant",
-	source: `${numericH}#L37`,
-	quote: "#define NUMERIC_MIN_SCALE\t\t\t(-1000)",
-	verified: "2026-11-05"
-})
-
-/** The greatest scale a numeric typmod declares. */
-export const numericMaxScale: Limit = published({
-	value: 1000,
-	owner: "PostgreSQL 19rc1",
-	unit: "decimal digits",
-	scope: "the scale s of numeric(p, s)",
-	constraint: "compile-time constant",
-	source: `${numericH}#L38`,
-	quote: "#define NUMERIC_MAX_SCALE\t\t\t1000",
-	verified: "2026-11-05"
-})
-
-const datatypeSgml = `${postgresSource}/doc/src/sgml/datatype.sgml`
-
-/**
- * The most integer digits a numeric value has, |x| < 10^numericMaxIntegerDigits: past it PostgreSQL's arithmetic raises
- * 22003 "value overflows numeric format", so a numeric expression whose bound passes it is ResourceBound.
- */
-export const numericMaxIntegerDigits: Limit = published({
-	value: 131072,
-	owner: "PostgreSQL 19rc1",
-	unit: "decimal digits",
-	scope: "the integer digits of every numeric value, a computed one's bound included",
-	constraint: "compile-time constant",
-	source: `${datatypeSgml}#L399`,
-	quote: "up to 131072 digits before the decimal point; up to 16383 digits after the decimal point",
-	verified: "2026-11-05"
-})
-
-/**
- * The most fraction digits a numeric value has: NUMERIC_DSCALE_MAX, past which numeric multiplication rounds
- * (numeric.c mul_var's caller) and a value's text is refused.
- */
-export const numericMaxFractionDigits: Limit = published({
-	value: 16383,
-	owner: "PostgreSQL 19rc1",
-	unit: "decimal digits",
-	scope: "the fraction digits of every numeric value, a computed one's bound included",
-	constraint: "compile-time constant",
-	source: `${datatypeSgml}#L399`,
-	quote: "up to 131072 digits before the decimal point; up to 16383 digits after the decimal point",
-	verified: "2026-11-05"
-})
-
-/**
- * The most fraction digits PostgreSQL gives a division's, a mean's, a square root's or a power's result,
- * NUMERIC_MAX_DISPLAY_SCALE: select_div_scale and its kin take a result scale no larger.
- */
-export const numericMaxDisplayScale: Limit = derived({
-	owner: "PostgreSQL 19rc1",
-	unit: "decimal digits",
-	scope: "the result scale of numeric division, avg, sqrt and power",
-	from: [numericMaxPrecision],
-	derivation: `numeric.h defines it as the greatest precision: "#define NUMERIC_MAX_DISPLAY_SCALE\tNUMERIC_MAX_PRECISION" (${numericH}#L43)`,
-	compute: ([p]) => p.value
-})
-
-/**
- * The significant digits PostgreSQL gives an inexact numeric result at least, NUMERIC_MIN_SIG_DIGITS: a division's,
- * a square root's and a power's result scale is chosen to give that many.
- */
-export const numericMinSigDigits: Limit = published({
-	value: 16,
-	owner: "PostgreSQL 19rc1",
-	unit: "decimal digits",
-	scope: "the significant digits select_div_scale and its kin choose a result scale for",
-	constraint: "compile-time constant",
-	source: `${numericH}#L53`,
-	quote: "#define NUMERIC_MIN_SIG_DIGITS\t\t16",
-	verified: "2026-11-05"
-})
-
-/** The internal limit on a calculation's result scale, NUMERIC_MAX_RESULT_SCALE. */
-export const numericMaxResultScale: Limit = derived({
-	owner: "PostgreSQL 19rc1",
-	unit: "decimal digits",
-	scope: "the scale of an intermediate numeric result, which exp_var's input bound is three times",
-	from: [numericMaxPrecision],
-	derivation: `numeric.h: "#define NUMERIC_MAX_RESULT_SCALE\t(NUMERIC_MAX_PRECISION * 2)" (${numericH}#L46)`,
-	compute: ([p]) => p.value * 2
-})
 
 /**
  * numeric(p, s): precision 1..numericMaxPrecision, scale numericMinScale..numericMaxScale, both always present, as every

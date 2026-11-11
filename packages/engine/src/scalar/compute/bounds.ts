@@ -1,5 +1,5 @@
+import { numericMaxFractionDigits, numericMaxIntegerDigits } from "#compiler/ir/carriers.ts"
 import type { Exact, Fact, FactSource, OperandPremise } from "#compiler/ir/proof.ts"
-import { numericMaxFractionDigits, numericMaxIntegerDigits } from "#compiler/ir/scalar.ts"
 import { doubleAtLeast, doubleParts, log2Of } from "#compiler/scalar/compute/cast.ts"
 import type { Decimal } from "#compiler/scalar/values/decimal.ts"
 

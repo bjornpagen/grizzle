@@ -4,7 +4,7 @@ import {
 	numericMaxDisplayScale,
 	numericMaxFractionDigits,
 	numericMinSigDigits
-} from "#compiler/ir/scalar.ts"
+} from "#compiler/ir/carriers.ts"
 import type { Undefined } from "#compiler/scalar/compute/registry.ts"
 import { Decimal, type FiniteParts, roundedUnits } from "#compiler/scalar/values/decimal.ts"
 

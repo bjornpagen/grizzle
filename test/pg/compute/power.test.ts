@@ -29,14 +29,12 @@ import { jsonText } from "#compiler/core/trusted.ts"
 import {
 	binary64MaxExponent,
 	binary64MinExponent,
-	binary64Precision
-} from "#compiler/ir/carriers.ts"
-import type { ExprDesc } from "#compiler/ir/desc.ts"
-import {
+	binary64Precision,
 	numericMaxFractionDigits,
 	numericMaxPrecision,
 	numericMaxScale
-} from "#compiler/ir/scalar.ts"
+} from "#compiler/ir/carriers.ts"
+import type { ExprDesc } from "#compiler/ir/desc.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import type { ScalarTerm } from "#compiler/scalar/compute/term.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"

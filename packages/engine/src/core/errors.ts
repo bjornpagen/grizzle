@@ -109,7 +109,7 @@ const regexSpaceText = (measure: RegexSpaceMeasure): string => {
  * - `statementParams`: a statement of `needed` placeholders, past the `limit` a Bind message counts (core/limits.ts
  *   statementMaxParams);
  * - `numericDigits`: a numeric expression whose value may need `needed` integer digits, past numeric's `limit`
- *   (ir/scalar.ts numericMaxIntegerDigits), where PostgreSQL's numeric arithmetic would raise;
+ *   (ir/carriers.ts numericMaxIntegerDigits), where PostgreSQL's numeric arithmetic would raise;
  * - `constantBits`: the constant of the closed relation or side `constant`, whose cells times their width come to
  *   `needed` bits, past PostgreSQL's longest bit string, `limit` (core/limits.ts constantMaxBits), refused before it is
  *   packed;

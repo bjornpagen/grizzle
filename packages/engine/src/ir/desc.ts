@@ -32,6 +32,9 @@ import {
 	isMoneyPayload,
 	isVectorPayload,
 	moneyTag,
+	numericMaxPrecision,
+	numericMaxScale,
+	numericMinScale,
 	vectorMaxDimensions,
 	vectorTag
 } from "#compiler/ir/carriers.ts"
@@ -40,13 +43,10 @@ import { decimalTag, isDecimalPayload } from "#compiler/ir/decimal.ts"
 import { type Fact, factNames, factsSorted } from "#compiler/ir/proof.ts"
 import { calendarDateShape, patternsShape, textLanguageShape } from "#compiler/ir/scalar-shape.ts"
 import {
-	languageOctets,
 	type NumericBound,
-	numericMaxPrecision,
-	numericMaxScale,
-	numericMinScale,
 	type Patterns,
-	type TextLanguage
+	type TextLanguage,
+	languageOctets
 } from "#compiler/ir/scalar.ts"
 import * as S from "#compiler/ir/shape.ts"
 import { reservedSlots } from "#compiler/ir/slots.ts"

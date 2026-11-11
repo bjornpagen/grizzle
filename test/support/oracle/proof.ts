@@ -1,5 +1,6 @@
 import { Array as Arr, Option } from "effect"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { numericMaxFractionDigits, numericMaxIntegerDigits } from "#compiler/ir/carriers.ts"
 import type { OpId } from "#compiler/ir/expr.ts"
 import type {
 	NativeProof,
@@ -8,15 +9,7 @@ import type {
 	Precondition,
 	PreconditionProof
 } from "#compiler/ir/proof.ts"
-import {
-	baseOf,
-	contractOf,
-	numericMaxFractionDigits,
-	numericMaxIntegerDigits,
-	octetsOf,
-	type ScalarType,
-	textOf
-} from "#compiler/ir/scalar.ts"
+import { type ScalarType, baseOf, contractOf, octetsOf, textOf } from "#compiler/ir/scalar.ts"
 import {
 	insideRange,
 	type IntervalPremise,

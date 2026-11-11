@@ -13,16 +13,16 @@ import {
 import { bigint } from "@grizzle/testing/values"
 import { Option } from "effect"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import { vectorMaxDimensions } from "#compiler/ir/carriers.ts"
-import { type FieldDesc, pgScalarNames } from "#compiler/ir/desc.ts"
 import {
 	numericMaxFractionDigits,
 	numericMaxIntegerDigits,
 	numericMaxPrecision,
 	numericMaxScale,
 	numericMinScale,
-	type ScalarType
-} from "#compiler/ir/scalar.ts"
+	vectorMaxDimensions
+} from "#compiler/ir/carriers.ts"
+import { type FieldDesc, pgScalarNames } from "#compiler/ir/desc.ts"
+import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { exactType } from "#compiler/scalar/compute/types.ts"
 import { naturalDescriptor } from "#compiler/scalar/natural.ts"
 import { numericValue } from "#compiler/scalar/registry.ts"

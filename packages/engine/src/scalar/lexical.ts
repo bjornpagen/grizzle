@@ -1,14 +1,14 @@
 import { derived, type Limit, regexMaxRepeat } from "#compiler/core/limits.ts"
-import { binary64DecimalDigits, binary64Digits, integerRanges } from "#compiler/ir/carriers.ts"
+import {
+	binary64DecimalDigits,
+	binary64Digits,
+	integerRanges,
+	numericMaxFractionDigits,
+	numericMaxIntegerDigits
+} from "#compiler/ir/carriers.ts"
 import { type CalendarDate, toCalendarDate } from "#compiler/ir/date.ts"
 import type { ParseForm } from "#compiler/ir/proof.ts"
-import {
-	contractOf,
-	type NumericTypmod,
-	numericMaxFractionDigits,
-	numericMaxIntegerDigits,
-	type ScalarType
-} from "#compiler/ir/scalar.ts"
+import { type NumericTypmod, type ScalarType, contractOf } from "#compiler/ir/scalar.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 
 /**

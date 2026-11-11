@@ -67,14 +67,14 @@ import { encode, everyProperty } from "#compiler/core/canonical.ts"
 import { isCompileError, type ValueFault } from "#compiler/core/errors.ts"
 import { int4Max } from "#compiler/core/limits.ts"
 import * as Result from "#compiler/core/result.ts"
-import { DecimalText, isDecimalPayload } from "#compiler/ir/decimal.ts"
 import {
 	numericMaxFractionDigits,
 	numericMaxIntegerDigits,
 	numericMaxPrecision,
 	numericMaxScale,
 	numericMinScale
-} from "#compiler/ir/scalar.ts"
+} from "#compiler/ir/carriers.ts"
+import { DecimalText, isDecimalPayload } from "#compiler/ir/decimal.ts"
 import { checkNumericTypmod, Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { assert, defined, faulted, succeeded } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"

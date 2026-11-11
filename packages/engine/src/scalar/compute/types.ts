@@ -1,24 +1,28 @@
 import type { DecimalParts } from "#compiler/core/decimal.ts"
-import { integerDigits, moneyDigits, moneyFractionDigits } from "#compiler/ir/carriers.ts"
+import {
+	integerDigits,
+	moneyDigits,
+	moneyFractionDigits,
+	numericMaxFractionDigits,
+	numericMaxIntegerDigits
+} from "#compiler/ir/carriers.ts"
 import type { DefinedOp } from "#compiler/ir/expr.ts"
 import {
-	baseOf,
 	type Capability,
 	type Carrier,
-	capabilitySet,
-	contractOf,
 	type ExactValueCarrier,
-	exactDigitsOf,
 	type NumericBound,
-	numericBoundOf,
-	numericMaxFractionDigits,
-	numericMaxIntegerDigits,
-	numericTypmodOf,
-	rosterOf,
 	type ScalarType,
 	type SpanInfo,
-	spanOf,
 	type TextInfo,
+	baseOf,
+	capabilitySet,
+	contractOf,
+	exactDigitsOf,
+	numericBoundOf,
+	numericTypmodOf,
+	rosterOf,
+	spanOf,
 	textOf,
 	vectorTypmodOf
 } from "#compiler/ir/scalar.ts"

@@ -42,7 +42,11 @@ import {
 	integerDigits,
 	integerRanges,
 	moneyDigits,
-	moneyFractionDigits
+	moneyFractionDigits,
+	numericMaxDisplayScale,
+	numericMaxFractionDigits,
+	numericMaxIntegerDigits,
+	numericMaxResultScale
 } from "#compiler/ir/carriers.ts"
 import { dayNumber, firstCalendarDate, lastCalendarDate } from "#compiler/ir/date.ts"
 import type {
@@ -76,29 +80,25 @@ import type {
 	PreconditionProof
 } from "#compiler/ir/proof.ts"
 import {
-	baseOf,
 	type Carrier,
-	contractOf,
 	type ContractInfo,
+	type PatternSource,
+	type Patterns,
+	type RegexRef,
+	type ScalarType,
+	type TextInfo,
+	baseOf,
+	contractOf,
 	exactDigitsOf,
 	isRefined,
 	languageOctets,
 	languageWithin,
 	numericBoundOf,
-	numericMaxDisplayScale,
-	numericMaxFractionDigits,
-	numericMaxIntegerDigits,
-	numericMaxResultScale,
 	numericTypmodOf,
 	octetsOf,
-	rosterOf,
-	type ScalarType,
-	spanOf,
-	type PatternSource,
-	type Patterns,
 	patternsText,
-	type RegexRef,
-	type TextInfo,
+	rosterOf,
+	spanOf,
 	textBounds,
 	textOf,
 	textPatterns,

@@ -30,15 +30,11 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Data, Effect, Formatter, Option, Result } from "effect"
 import { CompileError } from "#compiler/core/errors.ts"
 import { int2Max, int2Min, int4Max, int4Min, int8Max, int8Min } from "#compiler/core/limits.ts"
+import { numericMaxPrecision, numericMaxScale, numericMinScale } from "#compiler/ir/carriers.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
 import { predicateTree } from "#compiler/ir/expr.ts"
 import type { OpenExpr } from "#compiler/ir/open.ts"
-import {
-	contractOf,
-	numericMaxPrecision,
-	numericMaxScale,
-	numericMinScale
-} from "#compiler/ir/scalar.ts"
+import { contractOf } from "#compiler/ir/scalar.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
 import type { ScalarTerm } from "#compiler/scalar/compute/term.ts"

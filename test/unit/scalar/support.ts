@@ -13,8 +13,13 @@ import { matching } from "@grizzle/testing/pattern"
 import { bigint } from "@grizzle/testing/values"
 import { regex } from "arkregex"
 import { Array as Arr, Option, Record as Rec } from "effect"
-import { integerRanges, vectorMaxDimensions } from "#compiler/ir/carriers.ts"
-import { numericMaxPrecision, numericMaxScale, numericMinScale } from "#compiler/ir/scalar.ts"
+import {
+	integerRanges,
+	numericMaxPrecision,
+	numericMaxScale,
+	numericMinScale,
+	vectorMaxDimensions
+} from "#compiler/ir/carriers.ts"
 import { pgDescriptors } from "#compiler/scalar/pg.ts"
 import { isOwnedDescriptor } from "#compiler/scalar/registry.ts"
 import { uuidDescriptor } from "#compiler/scalar/uuid.ts"

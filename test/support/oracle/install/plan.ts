@@ -14,12 +14,17 @@ import {
 import { formatLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
-import { cosineNormMax, cosineNormMin } from "#compiler/ir/carriers.ts"
+import {
+	cosineNormMax,
+	cosineNormMin,
+	numericMaxPrecision,
+	numericMaxScale,
+	numericMinScale
+} from "#compiler/ir/carriers.ts"
 import { type CodeSlot, type RosterCodes } from "#compiler/ir/cells.ts"
 import { type RosterCodec, rosterCodec } from "#compiler/ir/codes.ts"
 import { candidateKeyFields, descText, type FieldDesc, serialDraw } from "#compiler/ir/desc.ts"
 import type { OwnedSchema } from "#compiler/ir/products.ts"
-import { numericMaxPrecision, numericMaxScale, numericMinScale } from "#compiler/ir/scalar.ts"
 import { ProgramPatterns } from "#compiler/scalar/regex/patterns.ts"
 import { admitSchemaDesc } from "#compiler/schema/admit.ts"
 

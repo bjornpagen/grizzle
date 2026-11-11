@@ -44,7 +44,7 @@ import type { VectorField } from "#compiler/types/vector/vector.ts"
 
 /**
  * numeric(p, s) and its decimal spelling, precision and scale both declared: no numeric field is without them.
- * PostgreSQL's numerictypmodin rule is checked at runtime (ir/scalar.ts numericMaxPrecision, numericMinScale and
+ * PostgreSQL's numerictypmodin rule is checked at runtime (ir/carriers.ts numericMaxPrecision, numericMinScale and
  * numericMaxScale).
  */
 type NumericConstructor = (precision: number, scale: number) => NumericTypmodField

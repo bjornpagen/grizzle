@@ -216,7 +216,7 @@ const numeric = (...args: ReadonlyArray<unknown>): NumericTypmodDescriptor => {
  *
  * - `pg.numeric(p, s)` is numeric with its typmod, precision and scale both declared: there is no numeric field
  *   without one, so every numeric value a field holds has the digits its typmod states. PostgreSQL's numerictypmodin
- *   rule is checked: precision 1-numericMaxPrecision and scale numericMinScale-numericMaxScale (ir/scalar.ts), both
+ *   rule is checked: precision 1-numericMaxPrecision and scale numericMinScale-numericMaxScale (ir/carriers.ts), both
  *   integers, a scale larger than the precision permitted. `pg.decimal` is the same function.
  * - `pg.float` is double precision, a value and a constructor at once, and `pg.float(p)` follows PostgreSQL: binary
  *   precision 1-floatRealPrecision selects real and past it through floatDoublePrecision double precision; every other

@@ -18,6 +18,7 @@ import type { LiteralDesc } from "#compiler/ir/desc.ts"
 import type { CatalogOpId, ExprSpec, TypedLiteral, ScalarExpr } from "#compiler/ir/expr.ts"
 import { headingColumns, type LawField, type TheoryRelation } from "#compiler/ir/law.ts"
 
+import { numericMaxIntegerDigits } from "#compiler/ir/carriers.ts"
 import {
 	type AggregateCallOver,
 	conservativeMeta,
@@ -29,11 +30,10 @@ import {
 	type VarDecl
 } from "#compiler/ir/rel.ts"
 import {
-	baseOf,
 	type NumericBound,
-	numericMaxIntegerDigits,
 	type ScalarType,
 	type SpanCarrier,
+	baseOf,
 	sameScalarType
 } from "#compiler/ir/scalar.ts"
 import { irLiteral } from "#compiler/scalar/compute/literal.ts"

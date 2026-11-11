@@ -7,14 +7,16 @@ import {
 } from "#compiler/core/errors.ts"
 import { bytesMaxLength } from "#compiler/core/limits.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
-import { cosineNormMax, cosineNormMin, vectorMaxDimensions } from "#compiler/ir/carriers.ts"
 import {
+	cosineNormMax,
+	cosineNormMin,
 	numericMaxFractionDigits,
 	numericMaxIntegerDigits,
 	numericMaxPrecision,
 	numericMaxScale,
-	numericMinScale
-} from "#compiler/ir/scalar.ts"
+	numericMinScale,
+	vectorMaxDimensions
+} from "#compiler/ir/carriers.ts"
 
 /**
  * The refusal vocabulary of the exact value carriers.

@@ -12,16 +12,16 @@ import { hostRead } from "#compiler/core/host.ts"
 import { derived, int4Max, type Limit } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
-import { moneyFractionDigits } from "#compiler/ir/carriers.ts"
-import { type DecimalValue, decimalPayload, decimalTag } from "#compiler/ir/decimal.ts"
 import {
+	moneyFractionDigits,
 	numericMaxFractionDigits,
 	numericMaxIntegerDigits,
 	numericMaxPrecision,
 	numericMaxScale,
-	numericMinScale,
-	type NumericTypmod
-} from "#compiler/ir/scalar.ts"
+	numericMinScale
+} from "#compiler/ir/carriers.ts"
+import { type DecimalValue, decimalPayload, decimalTag } from "#compiler/ir/decimal.ts"
+import type { NumericTypmod } from "#compiler/ir/scalar.ts"
 import { faultError } from "#compiler/scalar/values/fault.ts"
 
 export type { DecimalParts, FiniteParts, NumericTypmod }

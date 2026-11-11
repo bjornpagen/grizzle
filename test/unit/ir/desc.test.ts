@@ -62,7 +62,12 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import type * as Result from "#compiler/core/result.ts"
 import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
-import { binary32LeastExponent, MoneyText, VectorText } from "#compiler/ir/carriers.ts"
+import {
+	MoneyText,
+	VectorText,
+	binary32LeastExponent,
+	numericMaxPrecision
+} from "#compiler/ir/carriers.ts"
 import { DecimalText } from "#compiler/ir/decimal.ts"
 import {
 	type ComputeFn,
@@ -76,7 +81,6 @@ import {
 	type FieldDesc,
 	type LiteralDesc
 } from "#compiler/ir/desc.ts"
-import { numericMaxPrecision } from "#compiler/ir/scalar.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { predicateExpr } from "#compiler/scalar/compute/term.ts"
 import { Money } from "#compiler/scalar/values/money.ts"

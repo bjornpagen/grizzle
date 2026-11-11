@@ -33,8 +33,8 @@ import { identity } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Engine from "#compiler/core/result.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
+import { numericMaxFractionDigits } from "#compiler/ir/carriers.ts"
 import { predicateTable } from "#compiler/ir/expr.ts"
-import { numericMaxFractionDigits } from "#compiler/ir/scalar.ts"
 import {
 	compileInstallation,
 	type Installation,

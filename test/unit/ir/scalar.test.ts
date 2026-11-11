@@ -54,13 +54,14 @@ import { Array as Arr, Effect, Formatter, pipe, Record as Rec, String as Str } f
 import { canonicalTag, encode, everyProperty } from "#compiler/core/canonical.ts"
 import { ExprId, NodeId, ParamId } from "#compiler/core/ids.ts"
 import {
+	MoneyText,
+	VectorText,
 	cosineNormMax,
 	cosineNormMin,
 	isMoneyPayload,
 	isVectorPayload,
-	vectorMaxDimensions,
-	MoneyText,
-	VectorText
+	numericMaxPrecision,
+	vectorMaxDimensions
 } from "#compiler/ir/carriers.ts"
 import { toCalendarDate } from "#compiler/ir/date.ts"
 import { DecimalText, isDecimalLike, isDecimalPayload } from "#compiler/ir/decimal.ts"
@@ -72,13 +73,7 @@ import {
 	type TableExpr
 } from "#compiler/ir/expr.ts"
 import { decodeScalarType } from "#compiler/ir/scalar-shape.ts"
-import {
-	baseOf,
-	contractOf,
-	isRefined,
-	numericMaxPrecision,
-	type ScalarType
-} from "#compiler/ir/scalar.ts"
+import { type ScalarType, baseOf, contractOf, isRefined } from "#compiler/ir/scalar.ts"
 import { compareDecimal, Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"

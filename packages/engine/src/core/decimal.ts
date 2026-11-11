@@ -8,7 +8,7 @@ export interface FiniteParts {
 	readonly negative: boolean
 	/** Not a multiple of 10 when minScale > 0; 0n only at minScale 0. */
 	readonly coefficient: bigint
-	/** 0..numericMaxFractionDigits (ir/scalar.ts), NUMERIC_DSCALE_MAX: the most fraction digits a numeric value has. */
+	/** 0..numericMaxFractionDigits (ir/carriers.ts), NUMERIC_DSCALE_MAX: the most fraction digits a numeric value has. */
 	readonly minScale: number
 }
 

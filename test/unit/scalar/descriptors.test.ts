@@ -51,16 +51,14 @@ import {
 	binary32Precision,
 	binary64Precision,
 	integerRanges,
+	numericMaxPrecision,
+	numericMaxScale,
+	numericMinScale,
 	vectorMaxDimensions
 } from "#compiler/ir/carriers.ts"
 import { decodeDesc, type FieldDesc } from "#compiler/ir/desc.ts"
 import { decodeScalarType } from "#compiler/ir/scalar-shape.ts"
-import {
-	numericMaxPrecision,
-	numericMaxScale,
-	numericMinScale,
-	Roster
-} from "#compiler/ir/scalar.ts"
+import { Roster } from "#compiler/ir/scalar.ts"
 import {
 	contractOf,
 	rosterOf,

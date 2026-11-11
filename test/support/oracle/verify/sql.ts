@@ -6,8 +6,12 @@ import { maxIdentifierBytes } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import { isDecimal } from "#compiler/core/text.ts"
-import { integerRanges } from "#compiler/ir/carriers.ts"
-import { numericMaxPrecision, numericMaxScale, numericMinScale } from "#compiler/ir/scalar.ts"
+import {
+	integerRanges,
+	numericMaxPrecision,
+	numericMaxScale,
+	numericMinScale
+} from "#compiler/ir/carriers.ts"
 import { operandsAlias } from "#compiler/lower/conservative/expr/total.ts"
 import {
 	type Analyze,

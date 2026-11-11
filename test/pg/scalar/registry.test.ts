@@ -36,16 +36,14 @@ import { searched } from "@grizzle/testing/vitest"
 import { regex } from "arkregex"
 import { Array as Arr, Effect, Formatter, pipe, Result, String as Str } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
-import { vectorMaxDimensions } from "#compiler/ir/carriers.ts"
-import { serialDraw } from "#compiler/ir/desc.ts"
 import {
-	type Capability,
-	type Carrier,
-	carriers,
 	numericMaxPrecision,
 	numericMaxScale,
-	numericMinScale
-} from "#compiler/ir/scalar.ts"
+	numericMinScale,
+	vectorMaxDimensions
+} from "#compiler/ir/carriers.ts"
+import { serialDraw } from "#compiler/ir/desc.ts"
+import { type Capability, type Carrier, carriers } from "#compiler/ir/scalar.ts"
 import { nativeCapabilities } from "#compiler/scalar/native.ts"
 import { pgDescriptors } from "#compiler/scalar/pg.ts"
 import { fieldDescOf } from "#compiler/schema/protocol.ts"

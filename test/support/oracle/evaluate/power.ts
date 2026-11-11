@@ -1,7 +1,7 @@
 import { Array as Arr, Data, Option, Result, String as Str } from "effect"
 import { indices, maxOf } from "#compiler/core/array.ts"
 import { type Limit, measured } from "#compiler/core/limits.ts"
-import { numericMaxIntegerDigits } from "#compiler/ir/scalar.ts"
+import { numericMaxIntegerDigits } from "#compiler/ir/carriers.ts"
 import { Decimal, type DecimalParts, type FiniteParts } from "#compiler/scalar/values/decimal.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { isqrt } from "#test/support/oracle/evaluate/numeric.ts"

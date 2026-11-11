@@ -1,16 +1,19 @@
 import { type CompileError, resourceBound, unsupported } from "#compiler/core/errors.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
-import { int8Digits, int8ExactDigits } from "#compiler/ir/carriers.ts"
+import {
+	int8Digits,
+	int8ExactDigits,
+	numericMaxDisplayScale,
+	numericMaxIntegerDigits
+} from "#compiler/ir/carriers.ts"
 import { type CatalogOpId, OpId as opId } from "#compiler/ir/expr.ts"
 import type { AggregateCallOver, AggregateFn } from "#compiler/ir/rel.ts"
 import {
-	baseOf,
 	type Carrier,
 	type NumericBound,
-	numericMaxDisplayScale,
-	numericMaxIntegerDigits,
 	type ScalarType,
+	baseOf,
 	typeLabel
 } from "#compiler/ir/scalar.ts"
 import {
