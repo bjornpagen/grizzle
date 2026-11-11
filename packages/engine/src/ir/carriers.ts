@@ -56,19 +56,22 @@ export const moneyTag = "m"
 export { vectorTag }
 
 /** The decimal digits of the greatest magnitude in [min, max]: the least d with |x| < 10^d for every x of the range. */
+/* @__NO_SIDE_EFFECTS__ */
 const rangeDigits = (min: bigint, max: bigint): number =>
-	Math.max((-min).toString().length, max.toString().length)
+	Math.max((-min).toString().length, String(max).length)
 
 /**
  * The decimal digits of the greatest magnitude in [min, max] every integer of that many digits reaches: the greatest d
  * with 10^d - 1 within the range on both sides.
  */
+/* @__NO_SIDE_EFFECTS__ */
 const rangeExactDigits = (min: bigint, max: bigint): number =>
 	Math.min(exactDigits(-min), exactDigits(max))
 
 /** The greatest d with 10^d - 1 at most `bound`, a magnitude. */
+/* @__NO_SIDE_EFFECTS__ */
 const exactDigits = (bound: bigint): number => {
-	const digits = bound.toString().length
+	const digits = String(bound).length
 	return 10n ** BigInt(digits) - 1n <= bound ? digits : digits - 1
 }
 
@@ -394,6 +397,7 @@ export const binary64MinExponent: Limit = published({
  * decimal of that many digits round-trips through the format with (C17 5.2.4.2.2), which float4_numeric and
  * float8_numeric write a float to numeric with, "%.*g" (numeric.c).
  */
+/* @__NO_SIDE_EFFECTS__ */
 const decimalDigitsOf = (p: number): number => Math.floor((p - 1) * Math.log10(2))
 
 const numericC = `${postgresSource}/src/backend/utils/adt/numeric.c`
@@ -419,6 +423,7 @@ export const binary64DecimalDigits: Limit = derived({
 })
 
 /** The greatest finite value of a format of precision p and greatest exponent emax: (2 - 2^(1-p)) * 2^emax, exactly. */
+/* @__NO_SIDE_EFFECTS__ */
 const greatestFinite = (p: number, emax: number): bigint =>
 	2n ** BigInt(emax + 1) - 2n ** BigInt(emax + 1 - p)
 
@@ -449,7 +454,7 @@ export const binary32Digits: Limit = derived({
 	scope: "the integer digits of every finite real value",
 	from: [binary32Precision, binary32MaxExponent],
 	derivation: "the decimal length of the greatest finite value, an integer",
-	compute: ([p, emax]) => greatestFinite(p.value, emax.value).toString().length
+	compute: ([p, emax]) => String(greatestFinite(p.value, emax.value)).length
 })
 
 /**
@@ -472,7 +477,7 @@ export const binary64Digits: Limit = derived({
 	scope: "the integer digits of every finite double precision value",
 	from: [binary64Precision, binary64MaxExponent],
 	derivation: "the decimal length of the greatest finite value, an integer",
-	compute: ([p, emax]) => greatestFinite(p.value, emax.value).toString().length
+	compute: ([p, emax]) => String(greatestFinite(p.value, emax.value)).length
 })
 
 /** The fraction digits of every binary64 value: those of its least subnormal, 2^-(p - 1 - emin). */

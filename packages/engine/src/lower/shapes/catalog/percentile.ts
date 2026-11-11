@@ -119,7 +119,7 @@ const maxDyadicExponent = derived({
 	derivation:
 		"min(the largest j with 2^j × storedMaxRows ≤ 2^binary64Precision (2^53), which is 10; the largest j with 2^-j > 0.5 × 10^-(binary64DecimalDigits - 13), that is 2^j < 2 × 10^(15 - 13), which is 7) = 7",
 	compute: ([digits, precision, rows]) => {
-		const kept = digits.value - rows.value.toString().length
+		const kept = digits.value - String(rows.value).length
 		let rounding = 0
 		while (2n ** BigInt(rounding + 1) < 2n * 10n ** BigInt(kept)) {
 			rounding++

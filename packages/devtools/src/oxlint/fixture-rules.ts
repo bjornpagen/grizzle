@@ -55,9 +55,11 @@ export const FIXTURE_RULES: Readonly<{
 				file: "side-effect-free/clean.tsx",
 				specifiers: ["#fixture/proven.ts"],
 				functions: [
-					{ name: "brand", returns: "functions" },
-					{ name: "twice", returns: "values" }
-				]
+					{ name: "brand", returns: "functions", invokes: [] },
+					{ name: "twice", returns: "values", invokes: [] },
+					{ name: "derive", returns: "values", invokes: [{ parameter: 0, property: "compute" }] }
+				],
+				constants: ["limit"]
 			}
 		]
 	},

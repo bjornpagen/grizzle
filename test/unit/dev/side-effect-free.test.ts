@@ -1,20 +1,26 @@
 /**
  * The side-effect-free rule (packages/devtools/src/oxlint/rules/side-effect-free.ts), searched over programs drawn from
  * a grammar of its own contract: functions marked `@__NO_SIDE_EFFECTS__`, and unmarked ones, whose bodies hold sites
- * the contract proves (their own locals read, assigned and called, the language's constants and proven calls, a marked
- * or listed proven function, what a proven factory returns) beside sites it refuses (an outer read or write, a property
- * written, changed or deleted, a parameter or a method called, a global called, a value frozen it does not build, the
- * forbidden syntax), marks on no function, and a proof's own module that marks it or not. Every site carries the
- * number of reports the contract gives it inside a marked function, none inside an unmarked one, and oxlint's
- * RuleTester, run in the case, must find exactly that many.
+ * the contract proves (their own locals read, assigned and called, the language's constants, proven calls, Math's
+ * functions and conversions, `toString` on a primitive, a proven constant of the module or a listed one, a marked or
+ * listed proven function, what a proven factory returns, a parameter's property called as a callback, a call passing
+ * a proven callback) beside sites it refuses (an outer read or write, an unproven constant, a property written,
+ * changed or deleted, a parameter or a method of a value called, a global called, Math.random, a value frozen it does
+ * not build, a callback no proof covers, the forbidden syntax), marks on no function, and a proof's own module, each
+ * claim of the options kept or broken. Every site carries the number of reports the contract gives it inside a marked
+ * function, and a call passing a callback the number it gives it anywhere, and oxlint's RuleTester, run in the case,
+ * must find exactly that many.
  *
  * Oracle: the specification, the rule's JSDoc read over the lists its module exports (MARKS, BUILTIN_CALLS,
- * PURE_GLOBALS, FORBIDDEN), never a list written again here. Features: a proven site, a refused site, an unmarked
- * function, a misplaced mark, a proof's module, and a program of several functions.
+ * MATH_FUNCTIONS, CALLABLE_GLOBALS, PURE_GLOBALS, FORBIDDEN), never a list written again here. Features: a proven
+ * site, a refused site, an unmarked function, a misplaced mark, a proof's module, and a program of several functions.
  *
  * Plants (~/.cache/grizzle-release/LIVE-CLIENT/plants): side-effect-free-member-write-blind (a property assigned read
  * as no write), side-effect-free-parameter-call-admitted (a parameter called read as a function literal it declares),
- * side-effect-free-freeze-any (Object.freeze of a value it does not build admitted).
+ * side-effect-free-freeze-any (Object.freeze of a value it does not build admitted), side-effect-free-callable-any-global
+ * (any global called), side-effect-free-tostring-any-receiver (`toString` of any value), side-effect-free-constant-any-
+ * initializer (a module const read whatever its value) and side-effect-free-callback-unproven (a call site's callback
+ * left unproven).
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -27,8 +33,10 @@ import { Array as Arr, Effect, Formatter, Option, Result, String as Str } from "
 import { RuleTester } from "oxlint/plugins-dev"
 import {
 	BUILTIN_CALLS,
+	CALLABLE_GLOBALS,
 	FORBIDDEN,
 	MARKS,
+	MATH_FUNCTIONS,
 	PURE_GLOBALS,
 	sideEffectFree
 } from "#devtools/oxlint/rules/side-effect-free.ts"
@@ -42,36 +50,58 @@ const OWN = "§"
 const PROVEN_SPECIFIER = "#proven/module.ts"
 const PROVEN_FILE = "proven/module.ts"
 
-/** The options every case runs under: one module of other files, which proves a function and a factory. */
+/**
+ * The options every case runs under: one module of other files, which proves a function, a factory, a function that
+ * calls its argument's `compute`, and a constant.
+ */
 const OPTIONS = {
 	modules: [
 		{
 			file: PROVEN_FILE,
 			specifiers: [PROVEN_SPECIFIER],
 			functions: [
-				{ name: "proven", returns: "values" },
-				{ name: "provenFactory", returns: "functions" }
-			]
+				{ name: "proven", returns: "values", invokes: [] },
+				{ name: "provenFactory", returns: "functions", invokes: [] },
+				{
+					name: "provenHigher",
+					returns: "values",
+					invokes: [{ parameter: 0, property: "compute" }]
+				}
+			],
+			constants: ["provenConstant"]
 		}
 	]
 }
 
 /**
- * What every program starts from: the proven module's functions and one it does not list, a module variable, and a
- * marked function and factory of its own, which the drawn sites call.
+ * What every program starts from: the proven module's functions, constant and one it does not list; a module variable;
+ * module constants proven (a frozen literal, a primitive, a marked call's result) and one not (a literal unfrozen); and
+ * a marked function, factory and function calling its argument's callback, of its own, which the drawn sites call.
  */
-const HEADER = `import { proven, provenFactory, unlisted } from "${PROVEN_SPECIFIER}"
+const HEADER = `import { proven, provenConstant, provenFactory, provenHigher, unlisted } from "${PROVEN_SPECIFIER}"
 let outer = 0
 /* @__NO_SIDE_EFFECTS__ */
 const helper = (value: number): number => value + 1
 /* @__NO_SIDE_EFFECTS__ */
 const factory = () => (value: number): number => value * 2
+/* @__NO_SIDE_EFFECTS__ */
+const higher = (spec: { readonly f: (x: number) => number }): number => spec.f(1)
+const frozen = Object.freeze({ n: 1 })
+const text = "t"
+const made = helper(1)
+const loose = { n: 1 }
 `
 
-/** One statement of a function's body, with the reports the contract gives it inside a marked function. */
-type Site = Readonly<{ code: string; reports: number }>
+/**
+ * One statement of a function's body, with the reports the contract gives it inside a marked function, and the ones
+ * it gives it wherever it stands, which a call site of a function that calls a callback draws.
+ */
+type Site = Readonly<{ code: string; reports: number; always: number }>
 
-const site = (code: string, reports: number): Site => ({ code, reports })
+const site = (code: string, reports: number): Site => ({ code, reports, always: 0 })
+
+/** A call site of a function that calls a callback: the reports it draws in a marked function and in any other alike. */
+const callSite = (code: string, reports: number): Site => ({ code, reports, always: reports })
 
 /** One name of a list the rule exports. */
 const oneOf = (names: ReadonlyArray<string>): Gen<string> =>
@@ -121,7 +151,18 @@ const provenSites: Gen<Site> = weighted([
 	[2, () => site(`const r${OWN} = factory()(1)`, 0)],
 	[2, () => site(`const v${OWN} = proven(1) + provenFactory()(1)`, 0)],
 	[1, () => site(`const i${OWN} = ((x: number) => x)(1)`, 0)],
-	[1, () => site(`const j${OWN} = p${OWN}.n\nconst o${OWN} = j${OWN}`, 0)]
+	[1, () => site(`const j${OWN} = p${OWN}.n\nconst o${OWN} = j${OWN}`, 0)],
+	[2, (s) => site(`const ma${OWN} = Math.${s.draw(oneOf(MATH_FUNCTIONS))}(p${OWN}.n)`, 0)],
+	[2, (s) => site(`const cv${OWN} = ${s.draw(oneOf(CALLABLE_GLOBALS))}(p${OWN}.n)`, 0)],
+	[2, () => site(`const ts${OWN} = (p${OWN}.n + 1).toString() + (2n ** 3n).toString(16)`, 0)],
+	[2, () => site(`const rc${OWN} = frozen.n + text.length + made + provenConstant`, 0)],
+	[1, () => site(`const pc${OWN} = p${OWN}.toString()`, 0)],
+	[2, () => callSite(`const hc${OWN} = higher({ f: (x: number) => x + frozen.n })`, 0)],
+	[
+		2,
+		() => callSite(`const ph${OWN} = provenHigher({ compute: (x: number) => Math.max(x, 2) })`, 0)
+	],
+	[1, () => callSite(`const hp${OWN} = higher({ f: helper })`, 0)]
 ])
 
 /** Sites the contract refuses, each with its reports. */
@@ -133,11 +174,18 @@ const refusedSites: Gen<Site> = weighted([
 	[2, () => site(`p${OWN}.n++`, 1)],
 	[1, () => site(`delete p${OWN}.n`, 1)],
 	[2, () => site(`const c${OWN} = cb${OWN}()`, 1)],
-	[2, () => site(`const s${OWN} = p${OWN}.toString()`, 1)],
 	[2, () => site(`console.log(1)`, 2)],
 	[2, () => site(`const z${OWN} = Object.freeze(p${OWN})`, 1)],
 	[1, () => site(`const y${OWN} = Object.assign({}, {})`, 1)],
-	[2, () => site(`const x${OWN} = Number(p${OWN}.n)`, 1)],
+	[2, () => site(`const x${OWN} = parseInt("1")`, 2)],
+	[2, () => site(`const mr${OWN} = Math.random()`, 1)],
+	[2, () => site(`const ft${OWN} = frozen.toString()`, 1)],
+	[2, () => site(`const lo${OWN} = loose.n`, 1)],
+	[2, () => callSite(`const hb${OWN} = higher({ f: (x: number) => x + outer })`, 1)],
+	[1, () => callSite(`const hl${OWN} = higher(p${OWN})`, 1)],
+	[1, () => callSite(`const hh${OWN} = higher({ f: higher })`, 1)],
+	[1, () => callSite(`const hs${OWN} = higher({ ...frozen, f: helper })`, 1)],
+	[1, () => callSite(`const pb${OWN} = provenHigher({ compute: () => outer })`, 1)],
 	[2, () => site(`const q${OWN} = helper(1)(2)`, 1)],
 	[2, () => site(`const w${OWN} = unlisted(1)`, 1)],
 	[3, forbiddenSite]
@@ -184,7 +232,7 @@ const textOf = (drawnOne: Drawn, at: number): string => {
 		),
 		", "
 	)
-	return `${mark}export const fn${at} = (${named}): number => {\n${body}\nreturn 0\n}`
+	return `${mark}const fn${at} = (${named}): number => {\n${body}\nreturn 0\n}`
 }
 
 const programs: Gen<Program> = (source) => {
@@ -194,7 +242,7 @@ const programs: Gen<Program> = (source) => {
 		Arr.reduce(functions, 0, (sum, each) =>
 			Option.isSome(each.mark)
 				? sum + Arr.reduce(each.sites, 0, (inner, one) => inner + one.reports)
-				: sum
+				: sum + Arr.reduce(each.sites, 0, (inner, one) => inner + one.always)
 		) + (stray ? 1 : 0)
 	const code = Arr.join(
 		[
@@ -207,35 +255,54 @@ const programs: Gen<Program> = (source) => {
 	return { functions, stray, code, reports }
 }
 
-/** A proof's own module: the proven functions marked as the options claim them, or one claim broken. */
+/** A proof's own module: the proven functions and constant as the options claim them, or one claim broken. */
 type Home = Readonly<{ code: string; reports: number; broken: boolean }>
 
-const homes: Gen<Home> = weighted<Home>([
-	[
-		3,
-		() => ({
-			code: `/* ${MARKS[0] ?? ""} */\nexport const proven = (value: number): number => value\n/* ${MARKS[0] ?? ""} */\nexport const provenFactory = () => (value: number): number => value`,
-			reports: 0,
-			broken: false
-		})
+/** The proof's module's declarations, each as the options claim it or broken, by name. */
+const HOME_PARTS = {
+	proven: [
+		`/* ${MARKS[0] ?? ""} */\nexport const proven = (value: number): number => value`,
+		"export const proven = (value: number): number => value"
 	],
-	[
-		1,
-		() => ({
-			code: `export const proven = (value: number): number => value\n/* ${MARKS[0] ?? ""} */\nexport const provenFactory = () => (value: number): number => value`,
-			reports: 1,
-			broken: true
-		})
+	provenFactory: [
+		`/* ${MARKS[0] ?? ""} */\nexport const provenFactory = () => (value: number): number => value`,
+		`/* ${MARKS[0] ?? ""} */\nexport const provenFactory = (): number => 1`
 	],
-	[
-		1,
-		() => ({
-			code: `/* ${MARKS[0] ?? ""} */\nexport const proven = (value: number): number => value\n/* ${MARKS[0] ?? ""} */\nexport const provenFactory = (): number => 1`,
-			reports: 1,
-			broken: true
-		})
-	]
-])
+	provenHigher: [
+		`/* ${MARKS[0] ?? ""} */\nexport const provenHigher = (spec: { readonly compute: (x: number) => number }): number => spec.compute(1)`,
+		`/* ${MARKS[0] ?? ""} */\nexport const provenHigher = (spec: { readonly other: (x: number) => number }): number => spec.other(1)`
+	],
+	provenConstant: ["export const provenConstant = 3", "export const provenConstant = [3].length"]
+} as const
+
+const homes: Gen<Home> = (source) => {
+	const parts = Arr.map(
+		[
+			HOME_PARTS.proven,
+			HOME_PARTS.provenFactory,
+			HOME_PARTS.provenHigher,
+			HOME_PARTS.provenConstant
+		],
+		(choices) => {
+			const broken = source.draw(
+				weighted<boolean>([
+					[3, () => false],
+					[1, () => true]
+				])
+			)
+			return { code: broken ? choices[1] : choices[0], broken }
+		}
+	)
+	const broken = Arr.filter(parts, (part) => part.broken).length
+	return {
+		code: Arr.join(
+			Arr.map(parts, (part) => part.code),
+			"\n"
+		),
+		reports: broken,
+		broken: broken > 0
+	}
+}
 
 const tester = new RuleTester({
 	languageOptions: { sourceType: "module", parserOptions: { lang: "ts" } }

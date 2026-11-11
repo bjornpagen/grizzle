@@ -139,7 +139,29 @@ export default defineConfig(
 					{
 						file: "packages/engine/src/core/brand.ts",
 						specifiers: ["#compiler/core/brand.ts"],
-						functions: [{ name: "nominal", returns: "functions" }]
+						functions: [{ name: "nominal", returns: "functions", invokes: [] }],
+						constants: []
+					},
+					{
+						file: "packages/engine/src/core/limits.ts",
+						specifiers: ["#compiler/core/limits.ts"],
+						functions: [
+							{ name: "published", returns: "values", invokes: [] },
+							{ name: "measured", returns: "values", invokes: [] },
+							{
+								name: "derived",
+								returns: "values",
+								invokes: [{ parameter: 0, property: "compute" }]
+							},
+							{ name: "alignUp", returns: "values", invokes: [] }
+						],
+						constants: []
+					},
+					{
+						file: "packages/engine/src/core/seal.ts",
+						specifiers: ["#compiler/core/seal.ts"],
+						functions: [],
+						constants: ["sealNonceBytes", "sealTagBytes"]
 					}
 				]
 			},

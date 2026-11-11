@@ -45,3 +45,25 @@ export const unmarked = (): number => {
 }
 
 export const used = minted(2)
+
+/* @__NO_SIDE_EFFECTS__ */
+export const derive = (spec: {
+	readonly base: number
+	readonly compute: (base: number) => number
+}): number => spec.compute(spec.base)
+
+export const limit = Object.freeze({ value: 3 })
+
+const label = `n${1}`
+
+const step = 2
+
+const made = twice(4)
+
+/* @__NO_SIDE_EFFECTS__ */
+export const converted = (value: number): string =>
+	`${String(BigInt(Math.floor(value)))}${(1n + 2n).toString()}${(value * 2).toString(16)}${label}${step}${made}${limit.value}`
+
+export const derivedValue = derive({ base: 2, compute: (base) => Math.max(base, step) * 2 })
+
+export const derivedTwice = derive({ base: 2, compute: twice })

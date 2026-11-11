@@ -103,6 +103,7 @@ export const measured = <N extends number | bigint>(
  * of theirs, and `derivation` says why the arithmetic bounds the resource. A data length the computation reads (the
  * width of a format grizzle prints, a list's length) needs no limit of its own.
  */
+/* @__NO_SIDE_EFFECTS__ */
 export const derived = <
 	const From extends NonEmptyReadonlyArray<AnyLimit>,
 	N extends number | bigint
@@ -1154,6 +1155,7 @@ export const toastPointerBytes = published({
 })
 
 /** `n` rounded up to a multiple of the alignment `a`, as PostgreSQL's TYPEALIGN rounds a size. */
+/* @__NO_SIDE_EFFECTS__ */
 export const alignUp = (n: number, a: number): number => Math.ceil(n / a) * a
 
 /**

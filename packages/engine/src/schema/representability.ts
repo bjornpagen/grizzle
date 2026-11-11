@@ -165,6 +165,7 @@ const vectorHeaderBytes: Limit = derived({
 	compute: ([header, int16]) => header.value + int16.value * 2
 })
 
+/* @__NO_SIDE_EFFECTS__ */
 const alignDown = (n: number, a: number): number => Math.floor(n / a) * a
 
 /** The most bytes one B-tree entry takes: BTMaxItemSize, a third of a page, its pivot's heap tuple identifier left. */

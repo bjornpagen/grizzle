@@ -334,16 +334,26 @@ const allDigits = (text: string): boolean => {
  */
 export const timestampWidths = { year: 4, month: 2, day: 2, hour: 2, minute: 2, second: 2 } as const
 
+/** The digits of a timestamp's fields, summed: its length. */
+/* @__NO_SIDE_EFFECTS__ */
+const digitsOf = (widths: Readonly<Record<string, number>>): number => {
+	let digits = 0
+	for (const field in widths) {
+		digits += widths[field] ?? 0
+	}
+	return digits
+}
+
 /** A timestamp's length: the digits of all its fields. */
-export const timestampLength: number = Object.values(timestampWidths).reduce(
-	(length: number, width) => length + width,
-	0
-)
+export const timestampLength: number = digitsOf(timestampWidths)
 
 const isTimestamp = (text: string): boolean => text.length === timestampLength && allDigits(text)
 
-/** What a migration folder's name starts with: its timestamp, then `_`. */
-const folderPrefix = (timestamp: string): string => `${timestamp}_`
+/** What separates a migration folder's timestamp from its name. */
+const folderSeparator = "_"
+
+/** What a migration folder's name starts with: its timestamp, then the separator. */
+const folderPrefix = (timestamp: string): string => `${timestamp}${folderSeparator}`
 
 /**
  * The longest file name the operating system states, NAME_MAX: a migration folder is one directory entry, created where
@@ -373,8 +383,8 @@ export const maxMigrationNameLength = derived({
 	scope: "the name of one migration folder, after its `<timestamp>_` prefix",
 	from: [fileNameMaxBytes],
 	derivation:
-		"fileNameMaxBytes less the UTF-8 bytes of the prefix folderPrefix writes before every folder's name, written for a timestamp of timestampLength digits, as every timestamp is",
-	compute: ([name]) => name.value - utf8Length(folderPrefix("0".repeat(timestampLength)))
+		"fileNameMaxBytes less the UTF-8 bytes of the prefix folderPrefix writes before every folder's name: a timestamp's timestampLength ASCII digits and the separator, each one byte",
+	compute: ([name]) => name.value - timestampLength - folderSeparator.length
 })
 
 /**
