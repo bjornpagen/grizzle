@@ -1674,7 +1674,10 @@ export const raceSuite = <S>(suite: RaceSuite<S>): void => {
 					const installed = yield* installRaces
 					return yield* explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "second-implementation",
+								name: "the host billing model applying a serial order that respects real time explains every run"
+							},
 							suite: `platform-races/${Str.replaceAll(regex("[^a-z0-9]+", "g"), "-")(suite.label)}`,
 							draw: drawn(suite.sketch),
 							literal: Formatter.format,

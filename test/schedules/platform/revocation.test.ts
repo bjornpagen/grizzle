@@ -10,6 +10,9 @@
  * revocation commits exactly when no recorded request outlives the cut. What the explained order reached is the race's
  * own record: a request ending exactly at the instant recorded, one after it refused, and the revocation refused by
  * usage recorded first.
+ *
+ * Plants (~/.cache/grizzle-release/BR13/plants): revocation-usage-unchecked.patch (usageWhileActive's span coverage
+ * not installed).
  */
 
 import { array, element, type Gen, int } from "@grizzle/testing/gen"

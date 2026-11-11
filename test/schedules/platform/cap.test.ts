@@ -14,6 +14,8 @@
  * The swarm adds spend recorded before the race, a cap put, a caps MERGE (keeping both months, removing the second, or
  * removing the spent one), and a request submitted twice by two writers (its keys make the second no-change or refused,
  * never a second charge).
+ *
+ * Plants (~/.cache/grizzle-release/BR13/plants): laws-cap-off-by-one.patch.
  */
 
 import { array, element, type Gen, int, map, weighted } from "@grizzle/testing/gen"

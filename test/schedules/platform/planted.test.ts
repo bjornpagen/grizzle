@@ -20,6 +20,12 @@
  * The space is exhausted: both writers, every statement kind, every level below SERIALIZABLE, and a mutable and an
  * immutable relation, each drawn per run among the platform's tables of its mutability (the fixture's mutable
  * statements say which are mutable).
+ *
+ * Features: every point of the space.
+ *
+ * Plants (~/.cache/grizzle-release/BR13/plants): planted-guard-row-level.patch (the SERIALIZABLE guard a row-level
+ * trigger, which a statement touching no row never fires), planted-update-granted.patch (UPDATE granted on an immutable
+ * relation).
  */
 
 import { layer } from "@effect/vitest"
@@ -219,8 +225,11 @@ layer(Substrate.layer, { excludeTestServices: true })(
 					})
 					return yield* exhaust(
 						{
-							box: { kind: "unstated" },
-							oracle: { kind: "unstated" },
+							box: "both writers, every statement kind, every level below SERIALIZABLE, on a mutable and an immutable relation",
+							oracle: {
+								kind: "specification",
+								name: "privileges before triggers: 42501 for an ungranted statement, the guard's 25000 for every other"
+							},
 							suite: "platform/planted",
 							generator: pointGen,
 							literal: Formatter.format,

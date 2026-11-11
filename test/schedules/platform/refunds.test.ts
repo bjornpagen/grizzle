@@ -12,6 +12,8 @@
  *
  * The swarm adds refunds made before the race, the dispute, the voiding, and an open invoice whose payment races its
  * refunds.
+ *
+ * Plants (~/.cache/grizzle-release/BR13/plants): laws-refund-open.patch.
  */
 
 import { array, type Gen, int, shuffled, weighted } from "@grizzle/testing/gen"

@@ -20,6 +20,11 @@
  * The queue is the shared fixture with its facts (gpu seats 1-3, seat 1 held by kB's lease that expired at 50, seat 2
  * by kF's live lease, seat 3 free; kA and kG wanted and due). The kept races are the windows the races were first
  * planted for: two claimers of kG, two claimers of seat 3, and a late settlement of kB racing its reclaim.
+ *
+ * Features: a write waited, a write refused.
+ *
+ * Plants (~/.cache/grizzle-release/BR13/plants): queue-seat-key-dropped.patch (the Seat candidate key on (resource,
+ * seat) not installed).
  */
 
 import { layer } from "@effect/vitest"
@@ -313,7 +318,10 @@ layer(Substrate.layer, { excludeTestServices: true })("the work queue's races", 
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "specification",
+						name: "serializability: the race's writes run alone in a real-time order answer and leave what the run did"
+					},
 					suite: "schedules/queue/queue",
 					draw: drawn(raceGen),
 					literal: Formatter.format,

@@ -26,6 +26,11 @@
  * The kept races are the windows the races were first planted for: an identical insert, and an identical put,
  * committed by the direct writer while the apply waits at the span key, each a repeat, no-change; and an overlapping
  * fact committed while the apply waits at the span key, the span key's law.
+ *
+ * Features: the apply waited, the apply refused.
+ *
+ * Plants (~/.cache/grizzle-release/BR13/plants): candidate-key-repeat-refused.patch (an exact repeat at a span key
+ * reported as the key's law, not no-change).
  */
 
 import { layer } from "@effect/vitest"
@@ -336,7 +341,10 @@ layer(Substrate.layer, { excludeTestServices: true })(
 					ctx,
 					explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "specification",
+								name: "serializability: the apply and the direct transactions run alone in a real-time order show and leave what the run did"
+							},
 							suite: "schedules/spans/candidate-key-race",
 							draw: drawn(raceGen),
 							literal: Formatter.format,

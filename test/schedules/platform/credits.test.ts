@@ -14,6 +14,9 @@
  * The swarm adds a second grant expiring later, requests whose windows cross the first grant's expiry, credit spent
  * before the race, the first grant expiring mid-race (a put shortening its validity, by grizzle or a direct writer's
  * UPDATE in place, its debits kept), and a request submitted twice.
+ *
+ * Plants (~/.cache/grizzle-release/BR13/plants): credits-grant-overdraw.patch (grantWithinAmount's sum judged at the
+ * statement, not at COMMIT).
  */
 
 import { array, type Gen, int, shuffled, weighted } from "@grizzle/testing/gen"
