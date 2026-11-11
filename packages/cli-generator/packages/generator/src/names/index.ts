@@ -1,4 +1,15 @@
-import { Array as Arr, Effect, Option, Order, Predicate, Result, Schema } from "effect"
+import { jsonTextOf } from "@superstarter/json"
+import {
+	Array as Arr,
+	Effect,
+	Option,
+	Order,
+	Predicate,
+	Record,
+	Result,
+	Schema,
+	String as Str
+} from "effect"
 import type { AuthorConfig } from "#model/author-config.ts"
 import type { DocumentUri } from "#model/brands.ts"
 import { makeDiagnostic, sortDiagnostics } from "#model/diagnostic.ts"
@@ -79,8 +90,10 @@ export interface NamePlan {
 	readonly root: readonly PlannedCommand[]
 }
 
-// `tag` is the group's key: the tag name, or for a group from a naming extension its folded
-// segment names joined with `.`. `label` is the unfolded name the group-word drop compares.
+/**
+ * `tag` is the group's key: the tag name, or for a group from a naming extension its folded
+ * segment names joined with `.`. `label` is the unfolded name the group-word drop compares.
+ */
 interface GroupNode {
 	readonly label: string
 	readonly name: string
@@ -97,8 +110,10 @@ type ChainError =
 	| "TAG-06/parent-depth"
 	| "TAG-06/unknown-parent"
 
-// One command to plan: an operation's primary, or one of its aliases (`alias` is the index).
-// `namePointer` is where the command's name is declared; config hints name the primary only.
+/**
+ * One command to plan: an operation's primary, or one of its aliases (`alias` is the index).
+ * `namePointer` is where the command's name is declared; config hints name the primary only.
+ */
 interface Candidate {
 	readonly alias: number | undefined
 	readonly chain: readonly GroupNode[]
@@ -137,8 +152,10 @@ const push = <K, V>(map: Map<K, V[]>, key: K, value: V): void => {
 	}
 }
 
-// File segments the package always owns: `api/root.ts` for untagged commands, `api/servers.ts`
-// and `api/security.ts`.
+/**
+ * File segments the package always owns: `api/root.ts` for untagged commands, `api/servers.ts`
+ * and `api/security.ts`.
+ */
 const reservedSegments: ReadonlySet<string> = new Set(["root", "security", "servers"])
 
 const fixedFlagIdentifiers: ReadonlySet<string> = new Set([
@@ -152,10 +169,9 @@ const decodeDefs = Schema.decodeUnknownOption(
 	Schema.Struct({ $defs: Schema.Record(Schema.String, Schema.Json) })
 )
 
-const toIdentifier = (value: string): SafeIdentifierValue =>
-	Schema.decodeSync(SafeIdentifier)(value)
+const toIdentifier = (value: string): SafeIdentifierValue => SafeIdentifier.make(value)
 
-// Every input here is a non-empty kebab name, so the fold cannot be empty.
+/** Every input here is a non-empty kebab name, so the fold cannot be empty. */
 const identifierOf = (name: string, casing: "camel" | "pascal") =>
 	Result.getOrThrow(foldIdentifier(name, casing))
 
@@ -187,24 +203,29 @@ const toDiagnostic = (api: Api, finding: Finding): Effect.Effect<Diagnostic> => 
 	})
 }
 
-// Author-config entries: each operation's site, and every entry that names nothing (R16).
+/**
+ * Author-config entries: each operation's site, and every entry that names nothing (R16). The
+ * `security` block's `add` key is the added-scheme block, not a scheme name.
+ */
 const matchOverrides = (
 	api: Api,
 	config: AuthorConfig,
 	collector: Collector
 ): ReadonlyMap<Operation, OverrideSite> => {
 	const sites = new Map(
-		api.operations.map((operation) => [operation, overrideSite(config, operation)])
+		Arr.map(api.operations, (operation) => [operation, overrideSite(config, operation)] as const)
 	)
 	const used = new Set(
-		[...sites.values()].flatMap((site) => (site.override === undefined ? [] : [site.configPointer]))
+		Arr.flatMap([...sites.values()], (site) =>
+			site.override === undefined ? [] : [site.configPointer]
+		)
 	)
 	const entries = [
-		...Object.keys(config.naming?.operations ?? {}).map((id) => ({
+		...Arr.map(Record.keys(config.naming?.operations ?? {}), (id) => ({
 			message: "No operation has this operationId.",
 			pointer: `/naming/operations/${escapeToken(id)}`
 		})),
-		...Object.keys(config.naming?.byPointer ?? {}).map((key) => ({
+		...Arr.map(Record.keys(config.naming?.byPointer ?? {}), (key) => ({
 			message: "No operation without an operationId is at this pointer.",
 			pointer: `/naming/byPointer/${escapeToken(key)}`
 		}))
@@ -215,9 +236,8 @@ const matchOverrides = (
 		}
 	}
 
-	const schemes = new Set(api.securitySchemes.map((scheme) => scheme.name))
-	for (const name of Object.keys(config.security ?? {})) {
-		// `add` is the added-scheme block, not a scheme name.
+	const schemes = new Set(Arr.map(api.securitySchemes, (scheme) => scheme.name))
+	for (const name of Record.keys(config.security ?? {})) {
 		if (name !== "add" && !schemes.has(name)) {
 			collector.unmatched(`/security/${escapeToken(name)}`, "No security scheme has this name.")
 		}
@@ -259,7 +279,7 @@ const groupNode = (
  * and shared, so total work is bounded by 65 nodes per distinct tag.
  */
 const makeChains = (api: Api) => {
-	const declared = new Map(api.tags.map((tag) => [tag.name, tag.parent]))
+	const declared = new Map(Arr.map(api.tags, (tag) => [tag.name, tag.parent] as const))
 	const nodes = new Map<string, Result.Result<GroupNode, ChainError>>()
 	const nodeOf = (tag: string): Result.Result<GroupNode, ChainError> => {
 		const node = nodes.get(tag) ?? groupNode(tag, declared.get(tag))
@@ -373,18 +393,20 @@ const makeExtensionChains = (tagAt: (key: string) => GroupNode | undefined) => {
 	}
 }
 
-// Every tag group's folded key (its chain's names joined with `.`): the declared tags, each
-// operation's first tag and every author-config group. The first tag of a key wins; any other
-// tag of that key still collides with it.
+/**
+ * Every tag group's folded key (its chain's names joined with `.`): the declared tags, each
+ * operation's first tag and every author-config group. The first tag of a key wins; any other
+ * tag of that key still collides with it.
+ */
 const tagKeys = (
 	api: Api,
 	sites: Iterable<OverrideSite>,
 	tag: (tag: string) => Chain
 ): ReadonlyMap<string, GroupNode> => {
 	const names = [
-		...api.tags.map((declared) => declared.name),
-		...api.operations.flatMap((operation) => operation.tags.slice(0, 1)),
-		...[...sites].flatMap((site) =>
+		...Arr.map(api.tags, (declared) => declared.name),
+		...Arr.flatMap(api.operations, (operation) => Arr.take(operation.tags, 1)),
+		...Arr.flatMap([...sites], (site) =>
 			site.override?.group === undefined ? [] : [site.override.group]
 		)
 	]
@@ -393,7 +415,10 @@ const tagKeys = (
 		const chain = tag(name)
 		const node = Result.isSuccess(chain) ? chain.success.at(-1) : undefined
 		if (Result.isSuccess(chain) && node !== undefined) {
-			const key = chain.success.map((link) => link.name).join(".")
+			const key = Arr.join(
+				Arr.map(chain.success, (link) => link.name),
+				"."
+			)
 			if (!keys.has(key)) {
 				keys.set(key, node)
 			}
@@ -431,8 +456,10 @@ const extensionGroup = (
 				source
 			}
 
-// The primary command's group, per design 4.4: the author config, else Forge, else Fern, else the
-// first tag and its 3.2 `parent` chain, else the root.
+/**
+ * The primary command's group, per design 4.4: the author config, else Forge, else Fern, else the
+ * first tag and its 3.2 `parent` chain, else the root.
+ */
 const primaryGroup = (operation: Operation, site: OverrideSite, chains: Chains): GroupChoice => {
 	const configured = site.override?.group
 	if (configured !== undefined) {
@@ -484,10 +511,10 @@ const aliasesOf = (
 	if (configured !== undefined) {
 		const { pointer } = operation.origin
 
-		return configured.map((alias, index) => {
+		return Arr.map(configured, (alias, index) => {
 			const hint = `${site.configKey}.aliases[${index}]`
 			const { group } = alias
-			const segments = Predicate.isString(group) ? group.split(".") : group
+			const segments = Predicate.isString(group) ? Str.split(".")(group) : group
 
 			return {
 				alias: index,
@@ -503,7 +530,7 @@ const aliasesOf = (
 		})
 	}
 
-	return (operation.naming?.aliases ?? []).map((alias) => {
+	return Arr.map(operation.naming?.aliases ?? [], (alias) => {
 		const namePointer = `${operation.origin.pointer}/x-forge-aliases/${alias.index}`
 
 		return {
@@ -600,10 +627,10 @@ const groupNodesOf = (candidates: readonly Candidate[]): readonly GroupNode[] =>
 
 const makeFirstSite = (candidates: readonly Candidate[]) => {
 	const first = new Map(
-		[...firstUses(candidates)].map(([node, candidate]) => [
-			node.tag,
-			siteOf(candidate.operation, candidate.tagPointer)
-		])
+		Arr.map(
+			[...firstUses(candidates)],
+			([node, candidate]) => [node.tag, siteOf(candidate.operation, candidate.tagPointer)] as const
+		)
 	)
 
 	return (tag: string) => {
@@ -613,8 +640,10 @@ const makeFirstSite = (candidates: readonly Candidate[]) => {
 	}
 }
 
-// Group names: two tags folding to one name or file segment, reserved names, and the file
-// segments the package reserves.
+/**
+ * Group names: two tags folding to one name or file segment, reserved names, and the file
+ * segments the package reserves.
+ */
 const checkGroups = (
 	candidates: readonly Candidate[],
 	authorCommands: ReadonlySet<string>,
@@ -633,8 +662,8 @@ const checkGroups = (
 			return known
 		}
 
-		const others = (bySegment.get(node.segment) ?? []).filter((other) => other !== node)
-		const related = others.flatMap((other) => firstSite(other.tag))
+		const others = Arr.filter(bySegment.get(node.segment) ?? [], (other) => other !== node)
+		const related = Arr.flatMap(others, (other) => firstSite(other.tag))
 		relatedOf.set(node, related)
 
 		return related
@@ -669,7 +698,7 @@ const checkGroups = (
 					operation,
 					"TAG-02/reserved-segment",
 					"Tag",
-					`The group ${JSON.stringify(node.tag)} folds to the file segment ${JSON.stringify(node.segment)}, which api/${node.segment}.ts reserves.`,
+					`The group ${jsonTextOf(node.tag)} folds to the file segment ${jsonTextOf(node.segment)}, which api/${node.segment}.ts reserves.`,
 					withHint(hint, { pointer: tagPointer })
 				)
 			}
@@ -711,13 +740,13 @@ const nameCommand = (
 	return { ...candidate, commandSource: source, name: folded.name, notes: folded.notes }
 }
 
-// Command names: two commands folding equal in one group, and a command equal to a sibling group.
+/** Command names: two commands folding equal in one group, and a command equal to a sibling group. */
 const nameCommands = (
 	candidates: readonly Candidate[],
 	authorCommands: ReadonlySet<string>,
 	collector: Collector
 ): readonly Named[] => {
-	const named = candidates.flatMap((candidate) => {
+	const named = Arr.flatMap(candidates, (candidate) => {
 		const entry = nameCommand(candidate, authorCommands, collector)
 
 		return entry === undefined ? [] : [entry]
@@ -741,7 +770,8 @@ const nameCommands = (
 
 	for (const entry of named) {
 		const { commandHint: hint, namePointer: pointer } = entry
-		const twins = (byName.get(entry.container)?.get(entry.name) ?? []).filter(
+		const twins = Arr.filter(
+			byName.get(entry.container)?.get(entry.name) ?? [],
 			(other) => other !== entry
 		)
 		if (twins.length > 0) {
@@ -752,7 +782,7 @@ const nameCommands = (
 				"Two commands in one group fold to one name.",
 				withHint(hint, {
 					pointer,
-					related: twins.map((twin) => siteOf(twin.operation, twin.namePointer))
+					related: Arr.map(twins, (twin) => siteOf(twin.operation, twin.namePointer))
 				})
 			)
 		}
@@ -779,9 +809,11 @@ interface CredentialPlan {
 	readonly usesOf: (operation: Operation) => readonly SecurityScheme[]
 }
 
-// The schemes an operation uses, in `securitySchemes` order; settled once per operation.
+/** The schemes an operation uses, in `securitySchemes` order; settled once per operation. */
 const usesOfApi = (api: Api) => {
-	const index = new Map(api.securitySchemes.map((scheme, position) => [scheme.name, position]))
+	const index = new Map(
+		Arr.map(api.securitySchemes, (scheme, position) => [scheme.name, position] as const)
+	)
 	const memo = new Map<Operation, readonly SecurityScheme[]>()
 
 	return (operation: Operation): readonly SecurityScheme[] => {
@@ -791,15 +823,15 @@ const usesOfApi = (api: Api) => {
 		}
 
 		const positions = new Set(
-			operation.security.alternatives.flatMap((alternative) =>
-				alternative.uses.flatMap((use) => {
+			Arr.flatMap(operation.security.alternatives, (alternative) =>
+				Arr.flatMap(alternative.uses, (use) => {
 					const position = index.get(use.scheme)
 
 					return position === undefined ? [] : [position]
 				})
 			)
 		)
-		const uses = Arr.sort(positions, Order.Number).flatMap((position) => {
+		const uses = Arr.flatMap(Arr.sort(positions, Order.Number), (position: number) => {
 			const scheme = api.securitySchemes[position]
 
 			return scheme === undefined ? [] : [scheme]
@@ -824,16 +856,22 @@ const tally = (values: readonly string[]): ReadonlyMap<string, number> => {
 	return counts
 }
 
-// The environment names a credential takes: a token's one, a certificate's three.
+/** The environment names a credential takes: a token's one, a certificate's three. */
 const envsOf = (credential: CredentialNames): readonly string[] =>
 	credential._tag === "Token"
 		? [credential.env]
 		: [credential.certEnv, credential.keyEnv, credential.caEnv]
 
-// Credential names: `<scheme>-file` and `<PREFIX>_<SCHEME>` distinct across schemes and reserved names.
-// A `mutualTLS` scheme's certificate names (`_CERT`, `_KEY`, `_CA`) must differ from every other used
-// scheme's environment names and from the reserved suffix names; the design's reserved set holds
-// them too, so a token taking one is refused already.
+/**
+ * Credential names: `<scheme>-file` and `<PREFIX>_<SCHEME>` distinct across schemes and reserved
+ * names. A `mutualTLS` scheme's certificate names (`_CERT`, `_KEY`, `_CA`) must differ from every
+ * other used scheme's environment names and from the reserved suffix names; the design's reserved
+ * set holds them too, so a token taking one is refused already, and a certificate checks the
+ * suffixes only. An operation with aliases has several commands; its credentials are checked once.
+ * Certificate names have no override key (R87 B): a certificate's collision names the token that
+ * takes one of its names, since renaming the token frees both operations, or else the operation's
+ * skip. A token names its own override.
+ */
 const planCredentials = (
 	api: Api,
 	config: AuthorConfig,
@@ -844,21 +882,19 @@ const planCredentials = (
 	const envPrefix = envPrefixOf(config)
 	const reservedEnv = reservedEnvNames(envPrefix, reservedEnvSuffixes, api.securitySchemes)
 	const names = new Map<string, CredentialNames>()
-	// An operation with aliases has several commands; its credentials are checked once.
-	const operations = [...new Set(named.map((entry) => entry.operation))]
-	for (const scheme of operations.flatMap(usesOf)) {
+	const operations = [...new Set(Arr.map(named, (entry) => entry.operation))]
+	for (const scheme of Arr.flatMap(operations, usesOf)) {
 		const credential = credentialNames(config, envPrefix, scheme)
 		if (Option.isSome(credential)) {
 			names.set(scheme.name, credential.value)
 		}
 	}
 
-	const all = [...names.values()].flatMap((credential) =>
+	const all = Arr.flatMap([...names.values()], (credential) =>
 		credential._tag === "Token" ? [credential] : []
 	)
-	const envCounts = tally([...names.values()].flatMap(envsOf))
-	const flagCounts = tally(all.map((entry) => entry.flag))
-	// The certificate names are in `reservedEnv` themselves; a certificate checks the suffixes only.
+	const envCounts = tally(Arr.flatMap([...names.values()], envsOf))
+	const flagCounts = tally(Arr.map(all, (entry) => entry.flag))
 	const reservedSuffixEnv = reservedEnvNames(envPrefix, reservedEnvSuffixes, [])
 	const clashes = (credential: CredentialNames): boolean => {
 		if (credential.slug === "") {
@@ -866,7 +902,8 @@ const planCredentials = (
 		}
 
 		if (credential._tag === "Certificate") {
-			return envsOf(credential).some(
+			return Arr.some(
+				envsOf(credential),
 				(env) => (envCounts.get(env) ?? 0) > 1 || reservedSuffixEnv.has(env)
 			)
 		}
@@ -879,30 +916,29 @@ const planCredentials = (
 		)
 	}
 
-	// Certificate names have no override key (R87 B): a certificate's collision names the token
-	// that takes one of its names, since renaming the token frees both operations, or else the
-	// operation's skip. A token names its own override.
-	const sites = new Map(named.map((entry) => [entry.operation, entry.site]))
+	const sites = new Map(Arr.map(named, (entry) => [entry.operation, entry.site] as const))
 	const collisionHint = (scheme: string, operation: Operation): string => {
 		const credential = names.get(scheme)
 		if (credential?._tag !== "Certificate") {
-			return `security[${JSON.stringify(scheme)}].env`
+			return `security[${jsonTextOf(scheme)}].env`
 		}
 
 		const certificateEnvs = new Set(envsOf(credential))
-		const token = [...names].find(
-			([, other]) => other._tag === "Token" && certificateEnvs.has(other.env)
+		return Option.match(
+			Arr.findFirst(
+				[...names],
+				([, other]) => other._tag === "Token" && certificateEnvs.has(other.env)
+			),
+			{
+				onNone: () => skipHint(sites.get(operation) ?? overrideSite(config, operation)),
+				onSome: ([token]) => `security[${jsonTextOf(token)}].env`
+			}
 		)
-		if (token !== undefined) {
-			return `security[${JSON.stringify(token[0])}].env`
-		}
-
-		return skipHint(sites.get(operation) ?? overrideSite(config, operation))
 	}
 
 	for (const operation of operations) {
 		const uses = usesOf(operation)
-		const empty = uses.filter((scheme) => names.get(scheme.name)?.slug === "")
+		const empty = Arr.filter(uses, (scheme) => names.get(scheme.name)?.slug === "")
 		if (empty.length > 0) {
 			collector.report(
 				operation,
@@ -910,12 +946,12 @@ const planCredentials = (
 				"Security scheme",
 				"A scheme name folds to nothing.",
 				{
-					related: empty.map(schemeSite)
+					related: Arr.map(empty, schemeSite)
 				}
 			)
 		}
 
-		const clashing = uses.filter((scheme) => {
+		const clashing = Arr.filter(uses, (scheme) => {
 			const credential = names.get(scheme.name)
 
 			return credential !== undefined && clashes(credential)
@@ -929,28 +965,30 @@ const planCredentials = (
 				"Two credential names collide.",
 				{
 					hint: collisionHint(first.name, operation),
-					related: clashing.map(schemeSite)
+					related: Arr.map(clashing, schemeSite)
 				}
 			)
 		}
 	}
 
 	const flags = new Set(
-		all.flatMap((credential) => (credential.slug === "" ? [] : [credential.flag]))
+		Arr.flatMap(all, (credential) => (credential.slug === "" ? [] : [credential.flag]))
 	)
 
 	return { flags, names, usesOf }
 }
 
-// The domain names a module's commands import: the `domain` names of their json, form and
-// multipart bodies.
+/**
+ * The domain names a module's commands import: the `domain` names of their json, form and
+ * multipart bodies.
+ */
 const domainNames = (
 	entries: readonly Named[],
 	domain: ReadonlyMap<string, SafeIdentifierValue>
 ): ReadonlySet<string> =>
 	new Set(
-		entries.flatMap((entry) =>
-			(entry.operation.body?.alternatives ?? []).flatMap((alternative) => {
+		Arr.flatMap(entries, (entry) =>
+			Arr.flatMap(entry.operation.body?.alternatives ?? [], (alternative) => {
 				const key = alternative.schema?.key
 				if (
 					key === undefined ||
@@ -973,7 +1011,7 @@ const rowOf = (flag: DraftFlag) =>
 		? { element: "Parameter", row: "PRM-02" }
 		: { element: "Request body", row: "RQB-03" }
 
-// Flag and positional identifiers: one scope per command, renamed by suffix on a clash.
+/** Flag and positional identifiers: one scope per command, renamed by suffix on a clash. */
 const planFlags = (
 	entry: Named,
 	draft: Draft,
@@ -1005,7 +1043,7 @@ const planFlags = (
 		return identifier
 	}
 
-	const positionals = draft.positionals.map((positional) => {
+	const positionals = Arr.map(draft.positionals, (positional) => {
 		collector.folded(entry.operation, "PRM-02", "Parameter", positional.pointer, positional.notes)
 
 		return {
@@ -1016,19 +1054,19 @@ const planFlags = (
 		}
 	})
 	const identifiers = new Map<DraftFlag, SafeIdentifierValue>()
-	for (const flag of draft.flags.filter(isWholeBodyFlag)) {
+	for (const flag of Arr.filter(draft.flags, isWholeBodyFlag)) {
 		const identifier = identifierOf(flag.name, "camel").name
 		assigned.add(identifier)
 		identifiers.set(flag, identifier)
 	}
 
-	for (const flag of draft.flags.filter((candidate) => !isWholeBodyFlag(candidate))) {
+	for (const flag of Arr.filter(draft.flags, (candidate) => !isWholeBodyFlag(candidate))) {
 		const { element, row } = rowOf(flag)
 		collector.folded(entry.operation, row, element, flag.pointer, flag.notes)
 		identifiers.set(flag, take(flag.name, flag.pointer, row, element))
 	}
 
-	const flags = draft.flags.map((flag) => ({
+	const flags = Arr.map(draft.flags, (flag) => ({
 		boolean: flag.boolean,
 		identifier: identifiers.get(flag) ?? identifierOf(flag.name, "camel").name,
 		name: flag.name,
@@ -1051,13 +1089,14 @@ const planModule = (
 	flagPlans: FlagPlans,
 	collector: Collector
 ): readonly PlannedCommand[] => {
-	const bases = entries.map((entry) => identifierOf(entry.name, "camel"))
-	const taken = new Set(["group", ...reserved, ...bases.flatMap(({ name }) => familyOf(name))])
+	const bases = Arr.map(entries, (entry) => identifierOf(entry.name, "camel"))
+	const taken = new Set(["group", ...reserved, ...Arr.flatMap(bases, ({ name }) => familyOf(name))])
 	const assigned = new Set<string>()
 	const used = (candidate: string): boolean => taken.has(candidate) || assigned.has(candidate)
-	const clash = (candidate: string): boolean => used(candidate) || familyOf(candidate).some(used)
+	const clash = (candidate: string): boolean =>
+		used(candidate) || Arr.some(familyOf(candidate), used)
 
-	return entries.map((entry, index) => {
+	return Arr.map(entries, (entry, index) => {
 		const base = bases[index] ?? identifierOf(entry.name, "camel")
 		const { operation } = entry
 		collector.folded(operation, "OPR-06", "Operation", operation.origin.pointer, [
@@ -1107,8 +1146,10 @@ interface FlagPlans {
 	readonly of: (entry: Named, drafts: ReadonlyMap<Operation, Draft>) => CommandFlags
 }
 
-// Every command of one operation has the same flags and positionals; they are planned, with
-// their notices, once.
+/**
+ * Every command of one operation has the same flags and positionals; they are planned, with
+ * their notices, once.
+ */
 const makeFlagPlans = (collector: Collector): FlagPlans => {
 	const plans = new Map<Operation, CommandFlags>()
 
@@ -1133,8 +1174,10 @@ interface GroupNamespace {
 	readonly namespace: SafeIdentifierValue
 }
 
-// A group's api namespace alias: the Pascal fold of its name, suffixed past every name a cli
-// module that imports it already binds.
+/**
+ * A group's api namespace alias: the Pascal fold of its name, suffixed past every name a cli
+ * module that imports it already binds.
+ */
 const namespaceOf = (node: GroupNode, blocked: (candidate: string) => boolean): GroupNamespace => {
 	const base = identifierOf(node.name, "pascal")
 
@@ -1144,7 +1187,7 @@ const namespaceOf = (node: GroupNode, blocked: (candidate: string) => boolean): 
 	}
 }
 
-// The depth of a group in its chain: 0 for a top-level group.
+/** The depth of a group in its chain: 0 for a top-level group. */
 const depthOf = (node: GroupNode, byTag: ReadonlyMap<string, GroupNode>): number => {
 	let depth = 0
 	let { parent } = node
@@ -1168,7 +1211,7 @@ const planNamespaces = (
 	nodes: readonly GroupNode[],
 	blockedFor: (node: GroupNode) => (candidate: string) => boolean
 ): ReadonlyMap<GroupNode, GroupNamespace> => {
-	const byTag = new Map(nodes.map((node) => [node.tag, node]))
+	const byTag = new Map(Arr.map(nodes, (node) => [node.tag, node] as const))
 	const order = Order.combine(
 		Order.mapInput(Order.Number, (node: GroupNode) => depthOf(node, byTag)),
 		Order.mapInput(Order.String, (node: GroupNode) => node.tag)
@@ -1188,9 +1231,11 @@ const planNamespaces = (
 	return planned
 }
 
-// The modules (by container) an alias command calls into: an alias in one container calls its
-// primary's builder in the primary's container (design 4.4). `hosts` maps a primary container to
-// the containers holding its aliases, `targets` the reverse.
+/**
+ * The modules (by container) an alias command calls into: an alias in one container calls its
+ * primary's builder in the primary's container (design 4.4). `hosts` maps a primary container to
+ * the containers holding its aliases, `targets` the reverse.
+ */
 interface AliasLinks {
 	readonly hosts: ReadonlyMap<string, ReadonlySet<string>>
 	readonly targets: ReadonlyMap<string, ReadonlySet<string>>
@@ -1283,7 +1328,11 @@ const byScheme = Order.mapInput(
  * are refused at `operation` scope with both pointers and the config key that resolves them, never
  * renamed. Internal identifiers rename by a numeric suffix with a notice. Every check runs over all
  * candidate operations, so one refusal never hides another. An `UnresolvedBodyRef` or an
- * unfollowable `$ref` chain is a defect: earlier stages refuse every input that produces one.
+ * unfollowable `$ref` chain is a defect: earlier stages refuse every input that produces one. A
+ * group's namespace is also imported by every cli module holding one of its aliases, and
+ * `cli/root.ts` is offered every api namespace beside its own bindings, so no namespace may take
+ * one of the root module's names; a container's aliases also import the api namespaces they call
+ * into.
  */
 export const planNames = (api: Api, options: PlanOptions): Effect.Effect<NamePlan> =>
 	Effect.gen(function* plan() {
@@ -1309,12 +1358,13 @@ export const planNames = (api: Api, options: PlanOptions): Effect.Effect<NamePla
 		const drafts = new Map<Operation, Draft>()
 		for (const entry of named) {
 			if (!drafts.has(entry.operation)) {
-				drafts.set(entry.operation, yield* draftFlags(entry, context))
+				const draft = yield* draftFlags(entry, context)
+				drafts.set(entry.operation, draft)
 			}
 		}
 
-		const domain = domainIdentifiers(Object.keys(context.defs))
-		const finals = named.filter((entry) => !collector.refused.has(entry.operation))
+		const domain = domainIdentifiers(Record.keys(context.defs))
+		const finals = Arr.filter(named, (entry) => !collector.refused.has(entry.operation))
 		const byContainer = new Map<string, Named[]>()
 		for (const entry of finals) {
 			push(byContainer, entry.container, entry)
@@ -1325,26 +1375,24 @@ export const planNames = (api: Api, options: PlanOptions): Effect.Effect<NamePla
 				...domainNames(byContainer.get(container) ?? [], domain),
 				...(container === root ? rootModuleNames : [])
 			])
-		// A group's namespace is also imported by every cli module holding one of its aliases, and
-		// `cli/root.ts` is offered every api namespace beside its own bindings, so no namespace may
-		// take one of the root module's names.
 		const links = aliasLinks(finals)
 		const firsts = firstUses(finals)
 		const namespacesOf = planNamespaces([...firsts.keys()], (node) => {
-			const importers = [node.tag, root, ...(links.hosts.get(node.tag) ?? [])].map(imports)
+			const importers = Arr.map([node.tag, root, ...(links.hosts.get(node.tag) ?? [])], imports)
 
-			return (candidate) => importers.some((names) => names.has(candidate))
+			return (candidate) => Arr.some(importers, (names) => names.has(candidate))
 		})
-		const used = [...firsts].flatMap(([node, first]) => {
+		const used = Arr.flatMap([...firsts], ([node, first]) => {
 			const namespace = namespacesOf.get(node)
 
 			return namespace === undefined ? [] : [{ first, namespace, node }]
 		})
-		const namespaces = new Map(used.map(({ namespace, node }) => [node.tag, namespace.namespace]))
-		// The api namespaces a container's aliases call into.
+		const namespaces = new Map(
+			Arr.map(used, ({ namespace, node }) => [node.tag, namespace.namespace] as const)
+		)
 		const foreign = (container: string): ReadonlySet<string> =>
 			new Set(
-				[...(links.targets.get(container) ?? [])].flatMap((target) => {
+				Arr.flatMap([...(links.targets.get(container) ?? [])], (target) => {
 					const namespace = target === root ? rootNamespace : namespaces.get(target)
 
 					return namespace === undefined ? [] : [namespace]
@@ -1359,7 +1407,7 @@ export const planNames = (api: Api, options: PlanOptions): Effect.Effect<NamePla
 		])
 		const flagPlans = makeFlagPlans(collector)
 		const rootCommands = planModule(rootEntries, rootReserved, drafts, flagPlans, collector)
-		const groups = used.map(({ first, namespace, node }) =>
+		const groups = Arr.map(used, ({ first, namespace, node }) =>
 			planGroup(
 				node,
 				byContainer.get(node.tag) ?? [],
@@ -1373,19 +1421,21 @@ export const planNames = (api: Api, options: PlanOptions): Effect.Effect<NamePla
 			)
 		)
 		const planned = new Set(
-			finals.flatMap((entry) => credentials.usesOf(entry.operation).map((scheme) => scheme.name))
+			Arr.flatMap(finals, (entry) =>
+				Arr.map(credentials.usesOf(entry.operation), (scheme) => scheme.name)
+			)
 		)
-		const plannedNames = [...credentials.names].filter(([scheme]) => planned.has(scheme))
-		const plannedCredentials = plannedNames.flatMap(([scheme, names]) =>
+		const plannedNames = Arr.filter([...credentials.names], ([scheme]) => planned.has(scheme))
+		const plannedCredentials = Arr.flatMap(plannedNames, ([scheme, names]) =>
 			names._tag === "Token" ? [{ env: names.env, flag: names.flag, scheme }] : []
 		)
-		const plannedCertificates = plannedNames.flatMap(([scheme, names]) =>
+		const plannedCertificates = Arr.flatMap(plannedNames, ([scheme, names]) =>
 			names._tag === "Certificate"
 				? [{ caEnv: names.caEnv, certEnv: names.certEnv, keyEnv: names.keyEnv, scheme }]
 				: []
 		)
-		const diagnostics = yield* Effect.all(
-			collector.findings.map((finding) => toDiagnostic(api, finding))
+		const diagnostics = yield* Effect.forEach(collector.findings, (finding) =>
+			toDiagnostic(api, finding)
 		)
 
 		return {

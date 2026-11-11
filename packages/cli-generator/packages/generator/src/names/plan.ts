@@ -1,4 +1,16 @@
-import { Array as Arr, Data, Effect, Option, Order, Predicate, Result, Schema } from "effect"
+import { jsonTextOf } from "@superstarter/json"
+import { regex } from "arkregex"
+import {
+	Array as Arr,
+	Effect,
+	Option,
+	Order,
+	Predicate,
+	Record,
+	Result,
+	Schema,
+	String as Str
+} from "effect"
 import type { AuthorConfig } from "#model/author-config.ts"
 import { defsKeyOf, maxDefsRefHops } from "#model/defs-ref.ts"
 import type {
@@ -212,19 +224,19 @@ export interface OverrideSite {
 	readonly override: OperationOverride | undefined
 }
 
-// Keys come from untrusted documents: read own members only, never the prototype chain.
+/** Keys come from untrusted documents: read own members only, never the prototype chain. */
 const own = <Value>(
 	record: Readonly<Record<string, Value>> | undefined,
 	key: string
 ): Value | undefined =>
-	record !== undefined && Object.hasOwn(record, key) ? record[key] : undefined
+	record === undefined ? undefined : Option.getOrUndefined(Record.get(record, key))
 
 export const overrideSite = (config: AuthorConfig, operation: Operation): OverrideSite => {
 	if (operation.operationId !== undefined) {
 		const id = operation.operationId
 
 		return {
-			configKey: `naming.operations[${JSON.stringify(id)}]`,
+			configKey: `naming.operations[${jsonTextOf(id)}]`,
 			configPointer: `/naming/operations/${escapeToken(id)}`,
 			override: own(config.naming?.operations, id)
 		}
@@ -233,13 +245,13 @@ export const overrideSite = (config: AuthorConfig, operation: Operation): Overri
 	const { pointer } = operation.origin
 
 	return {
-		configKey: `naming.byPointer[${JSON.stringify(pointer)}]`,
+		configKey: `naming.byPointer[${jsonTextOf(pointer)}]`,
 		configPointer: `/naming/byPointer/${escapeToken(pointer)}`,
 		override: own(config.naming?.byPointer, pointer)
 	}
 }
 
-const templateExpression = /\{(?<name>[^{}]+)\}/gu
+const templateExpression = regex("\\{(?<name>[^{}]+)\\}", "gu")
 
 export type ConfigAlias = NonNullable<OperationOverride["aliases"]>[number]
 
@@ -266,29 +278,33 @@ const sourced = (
 		? Result.fail(folded.failure)
 		: Result.succeed({ folded: folded.success, source })
 
-// The `operationId` fold: a leading word run equal to the group's words is dropped, unless the
-// drop would leave nothing.
+/**
+ * The `operationId` fold: a leading word run equal to the group's words is dropped, unless the
+ * drop would leave nothing.
+ */
 const foldOperationId = (
 	operationId: string,
 	groupLabel: string | undefined
 ): Result.Result<Folded<string>, EmptyFold> => {
 	const idWords = words(operationId)
-	const group = groupLabel === undefined ? [] : words(groupLabel).map((word) => word.toLowerCase())
+	const group = groupLabel === undefined ? [] : Arr.map(words(groupLabel), Str.toLowerCase)
 	const leads =
 		group.length > 0 &&
 		idWords.length > group.length &&
-		group.every((word, index) => idWords[index]?.toLowerCase() === word)
+		Arr.every(group, (word, index) =>
+			Option.exists(Arr.get(idWords, index), (idWord) => Str.toLowerCase(idWord) === word)
+		)
 
-	return foldKebab(leads ? idWords.slice(group.length).join(" ") : operationId)
+	return foldKebab(leads ? Arr.join(Arr.drop(idWords, group.length), " ") : operationId)
 }
 
-// The name without a naming key: the `operationId` fold, else the route form.
+/** The name without a naming key: the `operationId` fold, else the route form. */
 const foldedDefault = (
 	operation: Operation,
 	groupLabel: string | undefined
 ): Result.Result<SourcedName, EmptyFold> => {
 	if (operation.operationId === undefined) {
-		const route = operation.key.path.replaceAll(templateExpression, " by $<name> ")
+		const route = Str.replaceAll(templateExpression, " by $<name> ")(operation.key.path)
 
 		return sourced(foldKebab(`${operation.key.method} ${route}`), "route")
 	}
@@ -318,7 +334,6 @@ export const commandName = (
 			return sourced(foldKebab(method), alias.forge?.method === undefined ? "x-fern" : "x-forge")
 		}
 
-		// A usable alias has a method name or its own operationId (m2-nmx1); an empty input refuses.
 		return sourced(foldOperationId(alias.operationId ?? "", groupLabel), "operationId")
 	}
 
@@ -350,28 +365,33 @@ export const commandName = (
 /**
  * The path parameter names of a template, in template order.
  */
-export const templateNames = (path: string): readonly string[] =>
-	Arr.map(Arr.fromIterable(path.matchAll(templateExpression)), (match) => match.groups?.name ?? "")
+const templateNames = (path: string): readonly string[] =>
+	Arr.map(
+		Arr.fromIterable(Str.matchAll(templateExpression)(path)),
+		(match) => match.groups?.["name"] ?? ""
+	)
 
 /**
  * The parameter overrides that name `parameter`: the exact `<in>:<name>` key, and for headers every
  * key equal ignoring case (design 2.2 compares header names case-insensitively).
  */
-export const overrideKeysFor = (
+const overrideKeysFor = (
 	override: OperationOverride | undefined,
 	parameter: Parameter
 ): readonly string[] => {
 	const exact = `${parameter.location}:${parameter.wireName}`
 
-	return Object.keys(override?.parameters ?? {}).filter((key) =>
-		parameter.location === "header" ? key.toLowerCase() === exact.toLowerCase() : key === exact
+	return Arr.filter(Record.keys(override?.parameters ?? {}), (key) =>
+		parameter.location === "header"
+			? Str.toLowerCase(key) === Str.toLowerCase(exact)
+			: key === exact
 	)
 }
 
 /**
  * The visible name of a parameter: its override `flag`, else its wire name, through the kebab fold.
  */
-export const parameterName = (
+const parameterName = (
 	override: OperationOverride | undefined,
 	key: string | undefined,
 	parameter: Parameter
@@ -385,9 +405,10 @@ export const parameterName = (
  * A `$ref` chain in the schema store could not be followed: the target is missing, the form is not
  * `#/$defs/<key>`, or it exceeds 64 hops. Earlier stages refuse such inputs, so this is a defect.
  */
-export class UnresolvedSchemaRef extends Data.TaggedError("UnresolvedSchemaRef")<{
-	readonly key: string
-}> {}
+class UnresolvedSchemaRef extends Schema.TaggedError<
+	UnresolvedSchemaRef,
+	{ readonly brand: unique symbol }
+>()("UnresolvedSchemaRef", { key: Schema.String }) {}
 
 const decodeTyped = Schema.decodeUnknownOption(
 	Schema.Struct({
@@ -423,9 +444,9 @@ export const isBooleanSchema = (
 
 		chain.push(current)
 
-		const node = Option.flatMap(Option.fromNullishOr(own(defs, current)), decodeTyped)
+		const node = Option.flatMap(Record.get(defs, current), decodeTyped)
 		if (Option.isNone(node)) {
-			return Result.fail(new UnresolvedSchemaRef({ key: current }))
+			return Result.fail(UnresolvedSchemaRef.make({ key: current }))
 		}
 
 		const { $ref: ref, type } = node.value
@@ -435,13 +456,13 @@ export const isBooleanSchema = (
 
 		const next = defsKeyOf(ref)
 		if (next === undefined) {
-			return Result.fail(new UnresolvedSchemaRef({ key: current }))
+			return Result.fail(UnresolvedSchemaRef.make({ key: current }))
 		}
 
 		current = next
 	}
 
-	return Result.fail(new UnresolvedSchemaRef({ key }))
+	return Result.fail(UnresolvedSchemaRef.make({ key }))
 }
 
 const runtimeScheme = (
@@ -469,11 +490,11 @@ const runtimeScheme = (
  * `_KEY` and `_CA` (design 4.4). The one derivation: the reserved names and the plan entry both
  * read it, and the runtime reads `Config` by the names the plan emits.
  */
-export const certificateEnvNames = (
+const certificateEnvNames = (
 	envPrefix: string,
 	scheme: string
 ): Omit<PlannedCertificate, "scheme"> => {
-	const stem = `${envPrefix}_${schemeSlug(scheme).toUpperCase().replaceAll("-", "_")}`
+	const stem = `${envPrefix}_${Str.replaceAll("-", "_")(Str.toUpperCase(schemeSlug(scheme)))}`
 
 	return { caEnv: `${stem}_CA`, certEnv: `${stem}_CERT`, keyEnv: `${stem}_KEY` }
 }
@@ -521,7 +542,7 @@ export const credentialNames = (
  * The environment prefix: `envPrefix`, else `binName` in SCREAMING_SNAKE (design D-AD11).
  */
 export const envPrefixOf = (config: AuthorConfig): string =>
-	config.envPrefix ?? config.binName.toUpperCase().replaceAll("-", "_")
+	config.envPrefix ?? Str.replaceAll("-", "_")(Str.toUpperCase(config.binName))
 
 /**
  * The reserved environment names after the prefix (design 4.4), including `<SCHEME>_CERT`,
@@ -533,14 +554,15 @@ export const reservedEnvNames = (
 	schemes: readonly SecurityScheme[]
 ): ReadonlySet<string> =>
 	new Set([
-		...suffixes.map((suffix) => `${envPrefix}_${suffix}`),
-		...schemes
-			.filter((scheme) => scheme.kind.type === "mutualTls")
-			.flatMap((scheme) => {
+		...Arr.map(suffixes, (suffix) => `${envPrefix}_${suffix}`),
+		...Arr.flatMap(
+			Arr.filter(schemes, (scheme) => scheme.kind.type === "mutualTls"),
+			(scheme: SecurityScheme) => {
 				const names = certificateEnvNames(envPrefix, scheme.name)
 
 				return [names.caEnv, names.certEnv, names.keyEnv]
-			})
+			}
+		)
 	])
 
 /**
@@ -551,7 +573,7 @@ export const familyOf = (identifier: string): readonly string[] => [
 	`${identifier}Meta`,
 	`${identifier}Media`,
 	`${identifier}Security`,
-	`${identifier.slice(0, 1).toUpperCase()}${identifier.slice(1)}Input`
+	`${Str.toUpperCase(Str.slice(0, 1)(identifier))}${Str.slice(1)(identifier)}Input`
 ]
 
 /**
@@ -566,7 +588,7 @@ export const suffixed = (base: string, taken: (candidate: string) => boolean): s
 	return `${base}${index}`
 }
 
-export const byName = Order.mapInput(Order.String, (flag: { readonly name: string }) => flag.name)
+const byName = Order.mapInput(Order.String, (flag: { readonly name: string }) => flag.name)
 
 export type Scope = "document" | "element" | "operation"
 
@@ -623,7 +645,7 @@ export interface Collector {
 		code: string,
 		element: string,
 		message: string,
-		options?: ReportOptions
+		options: ReportOptions
 	) => void
 	readonly unmatched: (pointer: string, message: string) => void
 }
@@ -637,9 +659,9 @@ const anchors: ReadonlyMap<string, string> = new Map([
 	["TAG", "tag-object"]
 ])
 
-export const siteOf = (operation: Operation, pointer?: string): Site => ({
+export const siteOf = (operation: Operation, pointer: string): Site => ({
 	document: operation.origin.document,
-	pointer: pointer ?? operation.origin.pointer
+	pointer
 })
 
 /**
@@ -649,7 +671,7 @@ export const siteOf = (operation: Operation, pointer?: string): Site => ({
 export const makeCollector = (configDocument: string, strict: boolean): Collector => {
 	const findings: Finding[] = []
 	const refused = new Set<Operation>()
-	const report: Collector["report"] = (operation, code, element, message, options = {}) => {
+	const report: Collector["report"] = (operation, code, element, message, options) => {
 		const severity = options.severity ?? "refusal"
 		const scope = options.scope ?? "operation"
 		if (severity === "refusal" && scope === "operation") {
@@ -666,7 +688,7 @@ export const makeCollector = (configDocument: string, strict: boolean): Collecto
 			scope,
 			severity
 		}
-		const anchor = anchors.get(code.slice(0, 3))
+		const anchor = anchors.get(Str.slice(0, 3)(code))
 		if (anchor !== undefined) {
 			finding.anchor = anchor
 		}
@@ -750,13 +772,15 @@ export interface Subject {
 	readonly site: OverrideSite
 }
 
-// `pointer` is the parameter or media alternative; `field` is a body flag's RFC 6901 pointer
-// relative to the body root. A positional owns its metavar: `--describe` keys positionals and flags
-// in one object, so a metavar equal to a flag name collides (design 4.4, FU:CF).
+/**
+ * `pointer` is the parameter or media alternative; `field` is a body flag's RFC 6901 pointer
+ * relative to the body root. A positional owns its metavar: `--describe` keys positionals and flags
+ * in one object, so a metavar equal to a flag name collides (design 4.4, FU:CF).
+ */
 interface Owner {
 	readonly field?: string
 	readonly hint: string
-	// Why no field rename can resolve this owner's collision; the refusal then hints only a skip.
+	/** Why no field rename can resolve this owner's collision; the refusal then hints only a skip. */
 	readonly split?: string
 	readonly kind: "body" | "parameter" | "positional"
 	readonly pointer: string
@@ -774,7 +798,7 @@ const addOwner = (owners: Owners, name: string, owner: Owner): void => {
 }
 
 const parameterHint = (site: OverrideSite, key: string): string =>
-	`${site.configKey}.parameters[${JSON.stringify(key)}].flag`
+	`${site.configKey}.parameters[${jsonTextOf(key)}].flag`
 
 const draftParameter = (
 	subject: Subject,
@@ -859,8 +883,7 @@ const draftParameters = (
 			const drafted = found.value
 			const hint = parameterHint(site, keys[0] ?? `${parameter.location}:${parameter.wireName}`)
 			if (isPositional(drafted)) {
-				// Two positionals sharing a metavar are `orderPositionals`' refusal; only the first owns it.
-				if (!positionals.some((known) => known.name === drafted.name)) {
+				if (!Arr.some(positionals, (known) => known.name === drafted.name)) {
 					addOwner(owners, drafted.name, { hint, kind: "positional", pointer: drafted.pointer })
 				}
 
@@ -877,7 +900,7 @@ const draftParameters = (
 			}
 		}
 
-		for (const key of Object.keys(site.override?.parameters ?? {})) {
+		for (const key of Record.keys(site.override?.parameters ?? {})) {
 			if (!usedKeys.has(key)) {
 				context.collector.unmatched(
 					`${site.configPointer}/parameters/${escapeToken(key)}`,
@@ -889,7 +912,7 @@ const draftParameters = (
 		return { flags, positionals }
 	})
 
-// A flattened body flag as the plan names it: its kind may be `secret-file`.
+/** A flattened body flag as the plan names it: its kind may be `secret-file`. */
 interface PlannedBodyFlag extends Omit<BodyFlag, "kind"> {
 	readonly kind: BodyKind
 }
@@ -903,137 +926,161 @@ interface Merged {
 const sameFlag = (left: PlannedBodyFlag, right: PlannedBodyFlag): boolean =>
 	left.pointer === right.pointer && left.kind === right.kind && left.repeated === right.repeated
 
-// `--part` is the whole input of a positional body (HT:B15), so it is never renamed.
+/** `--part` is the whole input of a positional body (HT:B15), so it is never renamed. */
 const isWholeBody = (kind: BodyKind): boolean =>
 	kind === "body" || kind === "body-file" || kind === "part"
 
 const maxSchemaVisits = 10_000
 
-interface JsonObject {
-	readonly [key: string]: Schema.Json
-}
+type JsonObject = Readonly<Record<string, Schema.Json>>
 
-const isJsonObject = (json: Schema.Json | undefined): json is JsonObject => Predicate.isObject(json)
+const isJsonObject = (json: Schema.Json): json is JsonObject => Predicate.isObject(json)
 
-const isJsonArray = (json: Schema.Json | undefined): json is readonly Schema.Json[] =>
-	Arr.isArray(json)
+const isJsonArray = (json: Schema.Json): json is readonly Schema.Json[] => Arr.isArray(json)
 
-// Follows a `$ref` chain into `defs`; a reference outside `#/$defs/`, a missing key or a chain
-// past the hop budget ends the search.
+/** A JSON object's own member `key`, never one its prototype chain answers. */
+const memberOf = (node: JsonObject, key: string): Option.Option<Schema.Json> =>
+	Record.get(node, key)
+
+/** The members a composition keyword lists; a keyword of another shape lists none. */
+const branchesOf = (
+	node: JsonObject,
+	keyword: "allOf" | "anyOf" | "oneOf"
+): readonly Schema.Json[] =>
+	Option.match(memberOf(node, keyword), {
+		onNone: () => [],
+		onSome: (value) => (isJsonArray(value) ? value : [])
+	})
+
+/** The store entry a node's `$ref` names: none without a `$ref` into `#/$defs/` or past a missing key. */
+const refTarget = (defs: DraftContext["defs"], node: JsonObject): Option.Option<Schema.Json> =>
+	Option.flatMap(memberOf(node, "$ref"), (ref) => {
+		const key = Predicate.isString(ref) ? defsKeyOf(ref) : undefined
+
+		return key === undefined ? Option.none() : Record.get(defs, key)
+	})
+
+/**
+ * Follows a `$ref` chain into `defs`; a reference outside `#/$defs/`, a missing key or a chain
+ * past the hop budget ends the search.
+ */
 const dereference = (
 	defs: DraftContext["defs"],
-	json: Schema.Json | undefined,
-	hops = 0
-): JsonObject | undefined => {
+	json: Schema.Json,
+	hops: number
+): Option.Option<JsonObject> => {
 	if (!isJsonObject(json) || hops > maxDefsRefHops) {
-		return undefined
+		return Option.none()
 	}
 
-	const { $ref } = json
-	if ($ref === undefined) {
-		return json
-	}
-
-	const key = Predicate.isString($ref) ? defsKeyOf($ref) : undefined
-
-	return key === undefined ? undefined : dereference(defs, own(defs, key), hops + 1)
+	return Option.isNone(memberOf(json, "$ref"))
+		? Option.some(json)
+		: Option.flatMap(refTarget(defs, json), (target) => dereference(defs, target, hops + 1))
 }
 
-// The schema of member `key` of an object schema, found the way the body walk merged it: through
-// `$ref`, own `properties`, then `allOf` members. `budget` counts the nodes a hostile `allOf`
-// graph may make the search visit.
+/**
+ * The schema of member `key` of an object schema, found the way the body walk merged it: through
+ * `$ref`, own `properties`, then `allOf` members. `budget` counts the nodes a hostile `allOf`
+ * graph may make the search visit; a schema the search could not locate counts one visit.
+ */
 const memberSchema = (
 	defs: DraftContext["defs"],
-	json: Schema.Json | undefined,
+	json: Option.Option<Schema.Json>,
 	key: string,
 	budget: { visits: number }
-): Schema.Json | undefined => {
+): Option.Option<Schema.Json> => {
 	budget.visits += 1
-	const node = dereference(defs, json)
-	if (node === undefined || budget.visits > maxSchemaVisits) {
-		return undefined
+	const node = Option.flatMap(json, (schema) => dereference(defs, schema, 0))
+	if (Option.isNone(node) || budget.visits > maxSchemaVisits) {
+		return Option.none()
 	}
 
-	const { allOf, properties } = node
-	const found = isJsonObject(properties) ? own(properties, key) : undefined
-	if (found !== undefined || !isJsonArray(allOf)) {
+	const found = Option.flatMap(memberOf(node.value, "properties"), (properties) =>
+		isJsonObject(properties) ? memberOf(properties, key) : Option.none()
+	)
+	if (Option.isSome(found)) {
 		return found
 	}
 
-	for (const member of allOf) {
-		const inMember = memberSchema(defs, member, key, budget)
-		if (inMember !== undefined) {
+	for (const member of branchesOf(node.value, "allOf")) {
+		const inMember = memberSchema(defs, Option.some(member), key, budget)
+		if (Option.isSome(inMember)) {
 			return inMember
 		}
 	}
 
-	return undefined
+	return Option.none()
 }
 
-const branchesOf = (json: Schema.Json | undefined): readonly Schema.Json[] =>
-	isJsonArray(json) ? json : []
+/** The nodes the password readings go on to from a node, in order: its `$ref` target, then every `allOf`, `anyOf` and `oneOf` branch. */
+const nextNodes = (
+	defs: DraftContext["defs"],
+	node: JsonObject
+): readonly Option.Option<Schema.Json>[] => [
+	refTarget(defs, node),
+	...Arr.map(
+		[...branchesOf(node, "allOf"), ...branchesOf(node, "anyOf"), ...branchesOf(node, "oneOf")],
+		(branch) => Option.some(branch)
+	)
+]
 
-// Whether a flag's own schema carries `format: password` on any node the flattener reads (each node
-// of a `$ref` chain with its sibling keywords, each `allOf` member) or in any `anyOf` or `oneOf`
-// branch. It never descends into `properties` or `items`. It fails closed: past the hop or visit
-// budget the answer is yes, so a secret never falls back to an argv flag (design invariant I4).
+/**
+ * Whether a flag's own schema carries `format: password` on any node the flattener reads (each node
+ * of a `$ref` chain with its sibling keywords, each `allOf` member) or in any `anyOf` or `oneOf`
+ * branch. It never descends into `properties` or `items`. It fails closed: past the hop or visit
+ * budget the answer is yes, so a secret never falls back to an argv flag (design invariant I4). A
+ * `$ref` that names no store entry still counts one visit.
+ */
 const isPassword = (
 	defs: DraftContext["defs"],
-	json: Schema.Json | undefined,
+	json: Option.Option<Schema.Json>,
 	budget: { visits: number },
-	hops = 0
+	hops: number
 ): boolean => {
 	budget.visits += 1
 	if (hops > maxDefsRefHops || budget.visits > maxSchemaVisits) {
 		return true
 	}
 
-	if (!isJsonObject(json)) {
+	if (Option.isNone(json) || !isJsonObject(json.value)) {
 		return false
 	}
 
-	if (json.format === "password") {
+	const node = json.value
+	if (node["format"] === "password") {
 		return true
 	}
 
-	const { $ref, allOf, anyOf, oneOf } = json
-	const key = Predicate.isString($ref) ? defsKeyOf($ref) : undefined
-	const target = key === undefined ? undefined : own(defs, key)
-
-	return [target, ...branchesOf(allOf), ...branchesOf(anyOf), ...branchesOf(oneOf)].some((branch) =>
-		isPassword(defs, branch, budget, hops + 1)
-	)
+	return Arr.some(nextNodes(defs, node), (next) => isPassword(defs, next, budget, hops + 1))
 }
 
-// Whether an array schema's `items` is a password string on any node the flattener reads: each
-// node of a `$ref` chain with its sibling keywords, each `allOf` member, and any `anyOf` or `oneOf`
-// branch. Like `isPassword`, it fails closed past the hop or visit budget.
+/**
+ * Whether an array schema's `items` is a password string on any node the flattener reads: each
+ * node of a `$ref` chain with its sibling keywords, each `allOf` member, and any `anyOf` or `oneOf`
+ * branch. Like `isPassword`, it fails closed past the hop or visit budget.
+ */
 const hasPasswordItems = (
 	defs: DraftContext["defs"],
-	json: Schema.Json | undefined,
+	json: Option.Option<Schema.Json>,
 	budget: { visits: number },
-	hops = 0
+	hops: number
 ): boolean => {
 	budget.visits += 1
 	if (hops > maxDefsRefHops || budget.visits > maxSchemaVisits) {
 		return true
 	}
 
-	if (!isJsonObject(json)) {
+	if (Option.isNone(json) || !isJsonObject(json.value)) {
 		return false
 	}
 
-	const { $ref, allOf, anyOf, items, oneOf } = json
-	if (items !== undefined && isPassword(defs, items, budget)) {
+	const node = json.value
+	const items = memberOf(node, "items")
+	if (Option.isSome(items) && isPassword(defs, items, budget, 0)) {
 		return true
 	}
 
-	const key = Predicate.isString($ref) ? defsKeyOf($ref) : undefined
-	const target = key === undefined ? undefined : own(defs, key)
-
-	return [target, ...branchesOf(allOf), ...branchesOf(anyOf), ...branchesOf(oneOf)].some((branch) =>
-		hasPasswordItems(defs, branch, budget, hops + 1)
-	)
+	return Arr.some(nextNodes(defs, node), (next) => hasPasswordItems(defs, next, budget, hops + 1))
 }
 
 /**
@@ -1044,19 +1091,21 @@ const hasPasswordItems = (
  */
 export const isPasswordSchema = (defs: DraftContext["defs"], key: string): boolean => {
 	const budget = { visits: 0 }
-	const schema = own(defs, key)
+	const schema = Record.get(defs, key)
 
-	return isPassword(defs, schema, budget) || hasPasswordItems(defs, schema, budget)
+	return isPassword(defs, schema, budget, 0) || hasPasswordItems(defs, schema, budget, 0)
 }
 
-// A `format: password` property of a JSON or form body is read from a file or stdin: its flag is
-// --<name>-file of kind `secret-file` instead of --<name> (design 13.1 R4). That holds for a
-// string flag and for a JSON flag whose own schema is a composition with a password branch; a
-// property inside a JSON-valued flag has no flag of its own and gets none (m3 open question 6). A
-// property whose array items are password strings, as a repeated flag or a JSON flag, has no flag
-// at all (`undefined`) and is reached through --body-file (design 4.5, FMT-05/password-array). A
-// property the walk cannot locate within the budget fails closed.
-// Multipart parts are unchanged (m3-pw1m).
+/**
+ * A `format: password` property of a JSON or form body is read from a file or stdin: its flag is
+ * --<name>-file of kind `secret-file` instead of --<name> (design 13.1 R4). That holds for a
+ * string flag and for a JSON flag whose own schema is a composition with a password branch; a
+ * property inside a JSON-valued flag has no flag of its own and gets none (m3 open question 6). A
+ * property whose array items are password strings, as a repeated flag or a JSON flag, has no flag
+ * at all (`undefined`) and is reached through --body-file (design 4.5, FMT-05/password-array). A
+ * property the walk cannot locate within the budget fails closed. Multipart parts are unchanged
+ * (m3-pw1m).
+ */
 const secretFile = (
 	defs: DraftContext["defs"],
 	alternative: Pick<MediaAlternative, "codec" | "schema">,
@@ -1071,20 +1120,22 @@ const secretFile = (
 		}
 
 		const budget = { visits: 0 }
-		let property = own(defs, key)
-		for (const token of yield* Effect.orDie(parsePointer(flag.pointer))) {
-			property = memberSchema(defs, property, token, budget)
-		}
+		const tokens = yield* Effect.orDie(parsePointer(flag.pointer))
+		const property = Arr.reduce(tokens, Record.get(defs, key), (schema, token) =>
+			memberSchema(defs, schema, token, budget)
+		)
 
-		if (!flag.repeated && (property === undefined || isPassword(defs, property, budget))) {
+		if (!flag.repeated && (Option.isNone(property) || isPassword(defs, property, budget, 0))) {
 			return { ...flag, kind: "secret-file", name: `${flag.name}-file` }
 		}
 
-		return property === undefined || hasPasswordItems(defs, property, budget) ? undefined : flag
+		return Option.isNone(property) || hasPasswordItems(defs, property, budget, 0) ? undefined : flag
 	})
 
-// A skipped property's notice. A multipart body has no whole-body flag, so a part whose name
-// folds to nothing is not reachable at all.
+/**
+ * A skipped property's notice. A multipart body has no whole-body flag, so a part whose name
+ * folds to nothing is not reachable at all.
+ */
 const skippedNotice = (skipped: SkippedProperty, multipart: boolean): string => {
 	if (skipped.reason === "UnsupportedPart") {
 		return `The multipart part at ${skipped.pointer} has no flag; its shape is not supported.`
@@ -1095,17 +1146,19 @@ const skippedNotice = (skipped: SkippedProperty, multipart: boolean): string => 
 		: `The property at ${skipped.pointer} has no flag; --body and --body-file reach it.`
 }
 
-// A body field flag collision is resolved by renaming the field's flag, or by skipping the operation.
+/** A body field flag collision is resolved by renaming the field's flag, or by skipping the operation. */
 const fieldHint = (site: OverrideSite, field: string): string =>
-	`Rename the flag with ${site.configKey}.fields[${JSON.stringify(field)}].flag, or skip the operation with ${site.configKey}.skip.`
+	`Rename the flag with ${site.configKey}.fields[${jsonTextOf(field)}].flag, or skip the operation with ${site.configKey}.skip.`
 
 const kindOf = (flag: PlannedBodyFlag): string =>
 	flag.repeated ? `repeated ${flag.kind}` : flag.kind
 
-// One body field that is a different kind of flag in two media alternatives (a plain value in one,
-// a file part in another) keeps one name: fields[...].flag renames it in every alternative.
+/**
+ * One body field that is a different kind of flag in two media alternatives (a plain value in one,
+ * a file part in another) keeps one name: fields[...].flag renames it in every alternative.
+ */
 const splitReason = (field: string, left: Merged, right: PlannedBodyFlag, media: string): string =>
-	` The body field ${field} is a ${kindOf(left.flag)} flag in ${left.media.join(", ")} and a ${kindOf(right)} flag in ${media}. A rename cannot separate them: fields[...].flag renames the field in every media type.`
+	` The body field ${field} is a ${kindOf(left.flag)} flag in ${Arr.join(left.media, ", ")} and a ${kindOf(right)} flag in ${media}. A rename cannot separate them: fields[...].flag renames the field in every media type.`
 
 /**
  * The hint for a collision that only skipping the operation resolves.
@@ -1113,8 +1166,10 @@ const splitReason = (field: string, left: Merged, right: PlannedBodyFlag, media:
 export const skipHint = (site: OverrideSite): string =>
 	`Skip the operation with ${site.configKey}.skip.`
 
-// A field flag takes its configured name, verbatim: the config decoder admits only fold-shaped
-// names. The config is never inferred.
+/**
+ * A field flag takes its configured name, verbatim: the config decoder admits only fold-shaped
+ * names. The config is never inferred.
+ */
 const renamed = (site: OverrideSite, flag: PlannedBodyFlag): PlannedBodyFlag => {
 	const configured = isWholeBody(flag.kind) ? undefined : own(site.override?.fields, flag.pointer)
 
@@ -1130,12 +1185,14 @@ interface DraftedOption {
 }
 
 const sameChoices = (left: readonly string[], right: readonly string[]): boolean =>
-	left.length === right.length && left.every((choice, index) => choice === right[index])
+	left.length === right.length && Arr.every(left, (choice, index) => choice === right[index])
 
-// The `--<part>-content-type` choice flag of each multipart part whose Encoding `contentType`
-// lists several concrete media types (design 6.3, ENC-10): named after the part flag, so renaming
-// the part flag renames it, and offered over the listed types with no default. Alternatives that
-// list the same types share it; a part listing other types elsewhere collides on the name.
+/**
+ * The `--<part>-content-type` choice flag of each multipart part whose Encoding `contentType`
+ * lists several concrete media types (design 6.3, ENC-10): named after the part flag, so renaming
+ * the part flag renames it, and offered over the listed types with no default. Alternatives that
+ * list the same types share it; a part listing other types elsewhere collides on the name.
+ */
 const draftContentTypes = (
 	subject: Subject,
 	parts: readonly Merged[],
@@ -1149,18 +1206,19 @@ const draftContentTypes = (
 				continue
 			}
 
-			const rule = alternative.encoding.find(
+			const found = Arr.findFirst(
+				alternative.encoding,
 				(candidate) =>
 					candidate.target.kind === "property" &&
 					formatPointer([candidate.target.name]) === flag.pointer
 			)
-			const choices = rule?.contentType ?? []
-			if (
-				rule === undefined ||
-				rule.nested !== undefined ||
-				choices.length < 2 ||
-				choices.some((choice) => choice.includes("*"))
-			) {
+			if (Option.isNone(found)) {
+				continue
+			}
+
+			const rule = found.value
+			const choices = rule.contentType
+			if (rule.nested !== undefined || choices.length < 2 || Arr.some(choices, Str.includes("*"))) {
 				continue
 			}
 
@@ -1186,7 +1244,7 @@ const draftContentTypes = (
 		}
 	}
 
-	return [...drafted].map(([name, option]): DraftFlag => ({
+	return Arr.map([...drafted], ([name, option]): DraftFlag => ({
 		boolean: false,
 		name,
 		notes: [],
@@ -1210,15 +1268,19 @@ interface DraftedHeader {
 	readonly rule: string
 }
 
-// A part header flag collision: the part flag's rename renames it. The config key for the Encoding
-// header itself is not settled yet, so the hint names the header's pointer.
+/**
+ * A part header flag collision: the part flag's rename renames it. The config key for the Encoding
+ * header itself is not settled yet, so the hint names the header's pointer.
+ */
 const headerHint = (site: OverrideSite, part: string, header: string): string =>
-	`Rename the part flag with ${site.configKey}.fields[${JSON.stringify(part)}].flag (no config key renames the Encoding header at ${header} yet), or skip the operation with ${site.configKey}.skip.`
+	`Rename the part flag with ${site.configKey}.fields[${jsonTextOf(part)}].flag (no config key renames the Encoding header at ${header} yet), or skip the operation with ${site.configKey}.skip.`
 
-// One `--<part>-<header>` flag per declared header of each multipart part's Encoding rule (design
-// 6.3, ENC-03): named after the part flag and the header name folded, typed as a header parameter
-// is, so a boolean header is negatable. Alternatives that declare the same header on the same part
-// share it; any other owner of the name collides.
+/**
+ * One `--<part>-<header>` flag per declared header of each multipart part's Encoding rule (design
+ * 6.3, ENC-03): named after the part flag and the header name folded, typed as a header parameter
+ * is, so a boolean header is negatable. Alternatives that declare the same header on the same part
+ * share it; any other owner of the name collides.
+ */
 const draftPartHeaders = (
 	subject: Subject,
 	context: DraftContext,
@@ -1234,19 +1296,25 @@ const draftPartHeaders = (
 					continue
 				}
 
-				const rule = alternative.encoding.find(
+				const found = Arr.findFirst(
+					alternative.encoding,
 					(candidate) =>
 						candidate.target.kind === "property" &&
 						formatPointer([candidate.target.name]) === flag.pointer
 				)
-				for (const header of rule === undefined || rule.nested !== undefined ? [] : rule.headers) {
+				if (Option.isNone(found) || found.value.nested !== undefined) {
+					continue
+				}
+
+				const rule = found.value
+				for (const header of rule.headers) {
 					const folded = foldKebab(header.name)
 					if (Result.isFailure(folded)) {
 						continue
 					}
 
 					const name = `${flag.name}-${folded.success.name}`
-					const at = `${rule?.origin.pointer ?? ""}/headers/${escapeToken(header.name)}`
+					const at = `${rule.origin.pointer}/headers/${escapeToken(header.name)}`
 					const { pointer } = alternative.origin
 					const owner: Owner = {
 						field: flag.pointer,
@@ -1287,7 +1355,7 @@ const draftPartHeaders = (
 			}
 		}
 
-		return [...drafted].map(([name, option]): DraftFlag => ({
+		return Arr.map([...drafted], ([name, option]): DraftFlag => ({
 			boolean: option.boolean,
 			name,
 			notes: [],
@@ -1302,6 +1370,12 @@ const draftPartHeaders = (
 		}))
 	})
 
+/**
+ * Every media alternative's body flags merged by name, with the part option and header flags of its
+ * multipart parts. A refused alternative's fields are unknown, so its operation's `fields` keys are
+ * not judged. `--part` is no reserved name, so a field or parameter flag of that name collides with
+ * it rather than shadowing it; the flag cannot be renamed, so only a skip resolves it.
+ */
 const draftBody = (
 	subject: Subject,
 	context: DraftContext,
@@ -1383,8 +1457,7 @@ const draftBody = (
 			}
 		}
 
-		// A refused alternative's fields are unknown, so its operation's keys are not judged.
-		for (const field of flattenedAll ? Object.keys(site.override?.fields ?? {}) : []) {
+		for (const field of flattenedAll ? Record.keys(site.override?.fields ?? {}) : []) {
 			if (!fields.has(field)) {
 				collector.unmatched(
 					`${site.configPointer}/fields/${escapeToken(field)}`,
@@ -1395,10 +1468,8 @@ const draftBody = (
 
 		const options = draftContentTypes(subject, [...merged.values()], owners)
 		const headers = yield* draftPartHeaders(subject, context, [...merged.values()], owners)
-		const fieldFlags = [...merged.values()].map(({ flag, media, pointer }): DraftFlag => {
+		const fieldFlags = Arr.map([...merged.values()], ({ flag, media, pointer }): DraftFlag => {
 			const boolean = flag.kind === "boolean" && !flag.repeated
-			// `--part` is no reserved name, so a field or parameter flag of that name collides with it
-			// here rather than shadowing it; the flag cannot be renamed, so only a skip resolves it.
 			if (flag.kind === "part") {
 				addOwner(owners, flag.name, { hint: skipHint(site), kind: "body", pointer })
 			}
@@ -1433,16 +1504,19 @@ const draftBody = (
 		return [...fieldFlags, ...options, ...headers]
 	})
 
-const ownerRank: Record<Owner["kind"], number> = { body: 2, parameter: 1, positional: 0 }
+const ownerRank: Readonly<Record<Owner["kind"], number>> = { body: 2, parameter: 1, positional: 0 }
 
 const positionalFirst = Order.mapInput(Order.Number, (owner: Owner) => ownerRank[owner.kind])
 
+/**
+ * Refuses each name more than one owner claims, and each reserved or credential name a flag takes:
+ * those are flags, so a positional alone may use one as its metavar.
+ */
 const checkFlags = (subject: Subject, context: DraftContext, owners: Owners): void => {
 	const { operation } = subject
 	for (const [name, list] of owners) {
-		// Reserved and credential names are flags; a positional alone may use one as its metavar.
 		const reserved =
-			list.some((owner) => owner.kind !== "positional") &&
+			Arr.some(list, (owner) => owner.kind !== "positional") &&
 			(reservedCliNames.has(name) || context.credentialFlags.has(name))
 		const [primary, ...rest] = Arr.sort(list, positionalFirst)
 		if (primary === undefined || (rest.length === 0 && !reserved)) {
@@ -1454,20 +1528,32 @@ const checkFlags = (subject: Subject, context: DraftContext, owners: Owners): vo
 			primary.kind === "positional"
 				? `The positional ${name} collides with the flag --${name}.`
 				: `The flag --${name} collides with another flag or a reserved name.`
-		const related = [...new Set(rest.map((owner) => owner.pointer))]
-			.filter((pointer) => pointer !== primary.pointer)
-			.map((pointer) => siteOf(operation, pointer))
+		const related = Arr.map(
+			Arr.filter(
+				[...new Set(Arr.map(rest, (owner) => owner.pointer))],
+				(pointer) => pointer !== primary.pointer
+			),
+			(pointer) => siteOf(operation, pointer)
+		)
 		const fields = [
-			...new Set(list.flatMap((owner) => (owner.field === undefined ? [] : [owner.field])))
+			...new Set(Arr.flatMap(list, (owner) => (owner.field === undefined ? [] : [owner.field])))
 		]
-		const named = fields.length === 0 ? "" : ` Body fields: ${fields.join(", ")}.`
-		const split = list.find((owner) => owner.split !== undefined)
+		const named = fields.length === 0 ? "" : ` Body fields: ${Arr.join(fields, ", ")}.`
+		const split = Arr.findFirst(list, (owner) =>
+			owner.split === undefined
+				? Option.none()
+				: Option.some({ hint: owner.hint, reason: owner.split })
+		)
 		context.collector.report(
 			operation,
 			`${isParameter ? "PRM-02" : "RQB-03"}/flag-collision`,
 			isParameter ? "Parameter" : "Request body",
-			`${summary}${named}${split?.split ?? ""}`,
-			{ hint: (split ?? primary).hint, pointer: primary.pointer, related }
+			`${summary}${named}${Option.match(split, { onNone: () => "", onSome: ({ reason }) => reason })}`,
+			{
+				hint: Option.match(split, { onNone: () => primary.hint, onSome: ({ hint }) => hint }),
+				pointer: primary.pointer,
+				related
+			}
 		)
 	}
 }
