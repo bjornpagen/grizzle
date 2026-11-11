@@ -17,7 +17,7 @@
  *
  * Db.open leases nothing: a lease's refusal is the refusal of a Db's call, at stage acquire. The logins a Db opens
  * through are the worlds model's (test/pg/world-model), and a Db's reads on databases with and without its schema are
- * reads/suites/open.ts's.
+ * test/pg/reads/open.test.ts's.
  *
  * Plants (~/.cache/grizzle-release/BR13/plants): connection-servername-host.patch (the verified name dropped for the
  * dialled host), connection-plaintext.patch (an `N` answer continuing without TLS), connection-password-cached.patch
