@@ -1,6 +1,28 @@
+/**
+ * Relation inputs: the host codec owns the set property and the null ban, deduplicating by fact identity after native
+ * coercion and encoding canonically as one array literal per column. The host collects a Stream member whole before it
+ * normalizes it (adapter/reader/params.ts). Deduplication and PostgreSQL's reading of the arrays are the pg relation
+ * suite's, against PostgreSQL's own DISTINCT and array_in on generated cases (test/pg/codec/relation.test.ts); here,
+ * the refusals, the canonical encoding and the literals' grammar, read back by array_in's rules (test/support/arrays.ts).
+ *
+ * - Refusals: a member planted among valid ones is refused as an EncodingFailure naming the slot and the field, never
+ *   the value; a span member is admitted exactly at its column's fixed width.
+ * - Canonical encoding: one set in any order, repeated or spelled otherwise (an id's case, a numeric's display scale),
+ *   gives byte-identical arrays, and the host's normalized facts write the raw input's arrays in any column order.
+ *   Oracle: the encoding of the set as first given, a differential.
+ * - Literals: each column's array literal reads back by array_in's rules as the column's texts, whatever they hold, the
+ *   longest literal refused past the string bound and written within it, and every type's canonical text carried.
+ *   Oracle: array_in's grammar restated (test/support/arrays.ts readArrayLiteral), a second implementation.
+ *
+ * Features: each planted refusal; a fixed and another width; an empty set and a set of several facts; a column of no
+ * row, and a row of an empty cell; the bound far within, at, one past and far past.
+ *
+ * Plants (~/.cache/grizzle-release/BR06/plants): recordset-order-kept (a set encoded in the order given, not its
+ * canonical order) and recordset-array-quote-unescaped (a quote inside an array element written bare).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore, type Kept, sketched } from "@grizzle/testing/explore"
-import { noCoverage, required } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import {
 	array,
 	codePoint,
@@ -46,14 +68,6 @@ import { caseHang } from "#test/support/limits.ts"
 import { paramText, textOfParam } from "#test/support/wire.ts"
 import { kindCodes, normalizedBy, types } from "#test/unit/codec/support.ts"
 import { asDecimal } from "#test/unit/codec/values.ts"
-
-/**
- * Relation inputs: the host codec owns the set property and the null ban, deduplicating by fact identity after native
- * coercion and encoding canonically as one array literal per column. The host collects a Stream member whole before it
- * normalizes it (adapter/reader/params.ts). Deduplication and PostgreSQL's reading of the arrays are the pg relation
- * suite's, against PostgreSQL's own DISTINCT and array_in on generated cases (test/pg/codec/relation.test.ts); here,
- * the refusals, the canonical encoding and the literals' grammar, read back by array_in's rules (test/support/arrays.ts).
- */
 
 const reading: RelationSpec = {
 	relation: "Reading",
@@ -167,7 +181,10 @@ describe("relation normalization", () => {
 					ctx,
 					explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "specification",
+								name: "README's Errors and outcomes: the slot and the field named, never the value"
+							},
 							suite: "unit/codec/recordset-refusals",
 							draw: drawn((source) => ({
 								facts: source.draw(uniqueArray(readingFact, (r) => r.id, { min: 0, max: 4 }, 20)),
@@ -249,7 +266,7 @@ describe("relation normalization", () => {
 					ctx,
 					explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: { kind: "specification", name: "a span column's fixed width" },
 							suite: "unit/codec/recordset-fixed-width",
 							/** A width of 15 is one draw in thirty, about ten times a run: planted, at a negative start. */
 							draw: sketched(
@@ -311,7 +328,10 @@ describe("relation normalization", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "universal",
+							name: "the encoding of the set as first given, against any order and repetition"
+						},
 						suite: "unit/codec/recordset-1919247219",
 						draw: drawn(
 							(source) =>
@@ -321,7 +341,10 @@ describe("relation normalization", () => {
 								] as const
 						),
 						literal: Formatter.format,
-						coverage: noCoverage,
+						coverage: required<"an empty set" | "a set of several facts">(
+							["an empty set", "a set of several facts"],
+							{ cases: 200, sense: notesOnly }
+						),
 						kept: [],
 						runs: 500,
 						shrink: completeShrink,
@@ -329,8 +352,9 @@ describe("relation normalization", () => {
 						steerEvery: 16,
 						caseHang
 					},
-					([facts, seed]) =>
+					([facts, seed], c) =>
 						Effect.sync(() => {
+							c.note(facts.length === 0 ? "an empty set" : "a set of several facts")
 							/** A code unit past the end reads as 0, as the native NaN does under `^`. */
 							const rank = (id: string): number =>
 								Option.getOrElse(Str.charCodeAt(id, seed % 36), () => 0) ^ seed
@@ -342,7 +366,7 @@ describe("relation normalization", () => {
 							const second = succeeded(encode([...shuffled, ...shuffled]))
 							assert.deepEqual(second, first)
 							assert.equal(first.count, facts.length)
-							assert.equal(first.arrays.length, 3)
+							assert.equal(first.arrays.length, fieldsOfReading.length)
 							for (const array of first.arrays) {
 								assert.equal(readArrayLiteral(array).length, facts.length)
 							}
@@ -400,11 +424,17 @@ describe("relation normalization", () => {
 					ctx,
 					explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "universal",
+								name: "the raw input's arrays, against the host's normalized facts in any column order"
+							},
 							suite: "unit/codec/recordset-1852797549",
 							draw: drawn(array(fact, { min: 0, max: 12 })),
 							literal: Formatter.format,
-							coverage: noCoverage,
+							coverage: required<"an empty set" | "a set of several facts">(
+								["an empty set", "a set of several facts"],
+								{ cases: 200, sense: notesOnly }
+							),
 							kept: [],
 							runs: 300,
 							shrink: completeShrink,
@@ -412,8 +442,9 @@ describe("relation normalization", () => {
 							steerEvery: 16,
 							caseHang
 						},
-						(facts) =>
+						(facts, c) =>
 							Effect.sync(() => {
+								c.note(facts.length === 0 ? "an empty set" : "a set of several facts")
 								const normal = succeeded(normalizedBy(normalize, facts))
 								const byIdentity = new TupleMap<
 									FactIdentity,
@@ -501,13 +532,19 @@ describe("relation normalization", () => {
 					ctx,
 					explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "universal",
+								name: "the encoding of the set as first spelled, against every other spelling"
+							},
 							suite: "unit/codec/recordset-1935892844",
 							draw: drawn(
 								(source) => [source.draw(caseGen), source.draw(int(0, 2 ** 31 - 1))] as const
 							),
 							literal: Formatter.format,
-							coverage: noCoverage,
+							coverage: required<"an empty set" | "a set of several facts">(
+								["an empty set", "a set of several facts"],
+								{ cases: 200, sense: notesOnly }
+							),
 							kept: [],
 							runs: 500,
 							shrink: completeShrink,
@@ -515,8 +552,9 @@ describe("relation normalization", () => {
 							steerEvery: 16,
 							caseHang
 						},
-						([{ facts, extra }, seed]) =>
+						([{ facts, extra }, seed], c) =>
 							Effect.sync(() => {
+								c.note(facts.length === 0 ? "an empty set" : "a set of several facts")
 								const all = [...facts, ...extra]
 								const shuffled = Arr.map(
 									Arr.sort(
@@ -549,14 +587,20 @@ describe("relation normalization", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "second-implementation",
+							name: "array_in's grammar restated (readArrayLiteral)"
+						},
 						suite: "unit/codec/arrays-literal",
 						draw: drawn((source) => {
 							const width = source.draw(int(0, 4))
 							return [width, source.draw(cellRows(width))] as const
 						}),
 						literal: Formatter.format,
-						coverage: noCoverage,
+						coverage: required<"a column of no row" | "an empty cell" | "a cell of array syntax">(
+							["a column of no row", "an empty cell", "a cell of array syntax"],
+							{ cases: 300, sense: notesOnly }
+						),
 						kept: [],
 						runs: 300,
 						shrink: completeShrink,
@@ -564,8 +608,19 @@ describe("relation normalization", () => {
 						steerEvery: 16,
 						caseHang
 					},
-					([width, rows]) =>
+					([width, rows], c) =>
 						Effect.sync(() => {
+							if (width > 0 && rows.length === 0) {
+								c.note("a column of no row")
+							}
+							for (const cell of Arr.flatten(rows)) {
+								if (cell === "") {
+									c.note("an empty cell")
+								}
+								if (Arr.some(['"', "\\", ",", "{", "}"], (syntax) => Str.includes(syntax)(cell))) {
+									c.note("a cell of array syntax")
+								}
+							}
 							const columns = Array.from({ length: width }, (_, i) => `f${i}`)
 							const params = Arr.map(rows, (row) => Arr.map(row, paramText))
 							const written = succeeded(arrayTexts("Input", columns, params, 2 ** 20))
@@ -739,11 +794,17 @@ describe("the arrays of every field type", () => {
 					ctx,
 					explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "second-implementation",
+								name: "array_in's grammar restated, and each value's canonical text"
+							},
 							suite: "unit/codec/arrays-every-type",
 							draw: drawn(array(factGen, { min: 0, max: 8 })),
 							literal: Formatter.format,
-							coverage: noCoverage,
+							coverage: required<"an empty set" | "a set of several facts">(
+								["an empty set", "a set of several facts"],
+								{ cases: 200, sense: notesOnly }
+							),
 							kept: [],
 							runs: 200,
 							shrink: completeShrink,
@@ -751,8 +812,9 @@ describe("the arrays of every field type", () => {
 							steerEvery: 16,
 							caseHang
 						},
-						(facts) =>
+						(facts, c) =>
 							Effect.sync(() => {
+								c.note(facts.length === 0 ? "an empty set" : "a set of several facts")
 								const normal = succeeded(normalizedBy(normalize, facts))
 								const { arrays, count } = succeeded(encode(facts))
 								assert.equal(count, normal.count)

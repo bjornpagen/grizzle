@@ -7,6 +7,8 @@
  *
  * Oracle: the array binary format read back by a second reader (array_recv's layout: dimensions, flags, element type,
  * then each dimension's length and lower bound, then each element's length and bytes), and the values as admitted.
+ *
+ * Plant (~/.cache/grizzle-release/BR06/plants): bytea-digest-unchecked (the copy written without its digest checked).
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"

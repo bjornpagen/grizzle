@@ -1,3 +1,37 @@
+/**
+ * What the encoders answer for anything JavaScript can pass (README "Errors and outcomes": an encoding failure is EncodingFailure
+ * with its word, before any SQL).
+ *
+ * Every descriptor of every carrier meets Live values of its own host type, values of every other carrier's host type,
+ * and Wild values (the testing library's lsw): proxies whose every trap throws, objects whose getter throws, bigint for
+ * number and number for bigint, lone surrogates, NUL, -0, NaN, the infinities, symbols, functions and any JSON value.
+ * The encoder answers each by refusing it with a word of the codec vocabulary, or by admitting it to a text that
+ * converts back to a value that encodes to the same text; a Live value is always admitted. It never throws: a value
+ * whose reading throws is refused as not of the carrier's host type. A template slot's refusal names the slot and the
+ * word, and never the value.
+ *
+ * A result row grizzle reads for itself is positional text, every cell a text (the session admits no NULL): it converts
+ * to a frozen tuple, positionally, each value the one the text encodes.
+ *
+ * A fact meets the same values as fields, and itself as a proxy, an array or anything else: factIdentity refuses with a
+ * word and the field, or admits every field. A getter is read exactly once, at admission: one that answers a valid
+ * value first and an invalid one after is admitted with its first answer, and encodes from what admission kept.
+ *
+ * Oracles: the round trip (encode, convert, encode again to the same text) for what an encoder admits; the codec's
+ * own vocabulary (CodecFault and ValueFault) for what it refuses; the template slot's marker, which the refusal must
+ * not hold; the value each row cell's text encodes.
+ *
+ * Features: a Live value and every wild kind; a fact admitted, refused at a field and refused whole; a row with a bytes
+ * column and one with a column of text. A template slot's refusal and an unstable getter each reach one situation,
+ * their generators' own, and require none.
+ *
+ * Plants (~/.cache/grizzle-release/BR06/plants): codec-span-empty-admitted (a span whose start is its end admitted) and
+ * codec-int8-leading-zero (the strict reading admitting an integer's leading zero).
+ *
+ * One descriptor, hand-written as a JavaScript caller or a stored snapshot states one, beside the Live values of its
+ * host type. The scalar type decoder is the boundary that admits it, so it stays
+ * `unknown` until decoded.
+ */
 import { inspect } from "node:util"
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -8,11 +42,9 @@ import {
 	bytes as byteValues,
 	codePoint,
 	element,
-	filter,
 	type Gen,
 	int,
 	map,
-	oneOf,
 	string,
 	weighted
 } from "@grizzle/testing/gen"
@@ -46,7 +78,7 @@ import { tupleConverter } from "#compiler/codec/row.ts"
 import { carrierSpecOf, paramEncoder, scalarCodec } from "#compiler/codec/scalar.ts"
 import type { CodecFault, ValueFault } from "#compiler/core/errors.ts"
 import { parseDeclaredName } from "#compiler/core/identity.ts"
-import { int8Max, int8Min } from "#compiler/core/limits.ts"
+import { int8Max, int8Min, int4Max, int4Min } from "#compiler/core/limits.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { OutputText, ParamText } from "#compiler/core/wire.ts"
 import { decodeScalarType } from "#compiler/ir/scalar-shape.ts"
@@ -72,29 +104,6 @@ const codecWords: ReadonlySet<string> = new Set<Exclude<CodecFault, ValueFault>>
 const isCodecFault = (value: unknown): value is CodecFault =>
 	isValueFault(value) || (typeof value === "string" && codecWords.has(value))
 
-/**
- * What the encoders answer for anything JavaScript can pass (README "Errors and outcomes": an encoding failure is EncodingFailure
- * with its word, before any SQL).
- *
- * Every descriptor of every carrier meets Live values of its own host type, values of every other carrier's host type,
- * and Wild values (the testing library's lsw): proxies whose every trap throws, objects whose getter throws, bigint for
- * number and number for bigint, lone surrogates, NUL, -0, NaN, the infinities, symbols, functions and any JSON value.
- * The encoder answers each by refusing it with a word of the codec vocabulary, or by admitting it to a text that
- * converts back to a value that encodes to the same text; a Live value is always admitted. It never throws: a value
- * whose reading throws is refused as not of the carrier's host type. A template slot's refusal names the slot and the
- * word, and never the value.
- *
- * A result row grizzle reads for itself is positional text, every cell a text (the session admits no NULL): it converts
- * to a frozen tuple, positionally, each value the one the text encodes.
- *
- * A fact meets the same values as fields, and itself as a proxy, an array or anything else: factIdentity refuses with a
- * word and the field, or admits every field. A getter is read exactly once, at admission: one that answers a valid
- * value first and an invalid one after is admitted with its first answer, and encodes from what admission kept.
- *
- * One descriptor, hand-written as a JavaScript caller or a stored snapshot states one, beside the Live values of its
- * host type. The scalar type decoder is the boundary that admits it, so it stays
- * `unknown` until decoded.
- */
 interface Written {
 	readonly label: string
 	readonly type: unknown
@@ -120,7 +129,7 @@ const decoded = (written: Written): Carried => {
 
 const caps = capabilitySet(["storage", "equality"])
 
-const int32 = int(-(2 ** 31), 2 ** 31 - 1)
+const int32 = int(int4Min.value, int4Max.value)
 const int64 = bigint(int8Min.value, int8Max.value)
 
 /** A decimal whose integer part has at most `digits` digits, with any fraction. */
@@ -135,16 +144,17 @@ const decimals = (digits: number): Gen<unknown> =>
 		([negative, whole, fraction]) => Decimal.of(`${negative ? "-" : ""}${whole}.${fraction}`)
 	)
 
-/** A span over endpoints of one width, its end past its start. */
-const spans = <E extends number | bigint>(endpoint: Gen<E>): Gen<unknown> =>
-	map(
-		filter(
-			(source) => [source.draw(endpoint), source.draw(endpoint)] as const,
-			([a, b]) => a !== b,
-			100
-		),
-		([a, b]) => (a < b ? { start: a, end: b } : { start: b, end: a })
-	)
+/** A span over int4 endpoints, built ordered: a start below int4's greatest, then an end past it. */
+const spans4: Gen<unknown> = (source) => {
+	const start = source.draw(int(int4Min.value, int4Max.value - 1))
+	return { start, end: source.draw(int(start + 1, int4Max.value)) }
+}
+
+/** A span over int8 endpoints, built ordered: a start below int8's greatest, then an end past it. */
+const spans8: Gen<unknown> = (source) => {
+	const start = source.draw(bigint(int8Min.value, int8Max.value - 1n))
+	return { start, end: source.draw(bigint(start + 1n, int8Max.value)) }
+}
 
 /**
  * A calendar date's ISO 8601 text: a day from 0001-01-01 to 9999-12-31, drawn as a count of days past the first, which
@@ -153,20 +163,18 @@ const spans = <E extends number | bigint>(endpoint: Gen<E>): Gen<unknown> =>
 const dateAt = (days: number): string =>
 	DateTime.formatIsoDateUtc(DateTime.makeUnsafe({ year: 1, month: 1, day: 1 + days }))
 
-/** The days past 0001-01-01 of the calendar's dates, the last 9999-12-31. */
-const days = int(0, 3_652_058)
+/** The days past 0001-01-01 of the calendar's last date, 9999-12-31. */
+const lastDay = 3_652_058
+
+const days = int(0, lastDay)
 
 const calendarDates: Gen<unknown> = map(days, dateAt)
 
-/** A span of days: two distinct days, the earlier its start, each its calendar date's text. */
-const dateSpans: Gen<unknown> = map(
-	filter(
-		(source) => [source.draw(days), source.draw(days)] as const,
-		([a, b]) => a !== b,
-		100
-	),
-	([a, b]) => ({ start: dateAt(Math.min(a, b)), end: dateAt(Math.max(a, b)) })
-)
+/** A span of days, built ordered: a start before the last day, then a later end, each its calendar date's text. */
+const dateSpans: Gen<unknown> = (source) => {
+	const start = source.draw(int(0, lastDay - 1))
+	return { start: dateAt(start), end: dateAt(source.draw(int(start + 1, lastDay))) }
+}
 
 const handles = ["Manual", "Automatic", "Ünïcode"] as const
 
@@ -250,7 +258,11 @@ const written: { readonly [C in Carrier]: Arr.NonEmptyReadonlyArray<Written> } =
 			label: "text",
 			type: { carrier: "text", text: { regex: "wildcard" }, caps },
 			live: string(
-				oneOf([codePoint(0x20, 0x7e), codePoint(0xa0, 0xd7_ff), codePoint(0xe0_00, 0x10_ffff)]),
+				weighted([
+					[1, codePoint(0x20, 0x7e)],
+					[1, codePoint(0xa0, 0xd7_ff)],
+					[1, codePoint(0xe0_00, 0x10_ffff)]
+				]),
 				{ min: 0, max: 10 }
 			)
 		}
@@ -283,7 +295,7 @@ const written: { readonly [C in Carrier]: Arr.NonEmptyReadonlyArray<Written> } =
 		{
 			label: "int4range",
 			type: { carrier: "range4", span: { endpoint: { carrier: "int4", caps } }, caps },
-			live: spans(int32)
+			live: spans4
 		},
 		{
 			label: "int4range of width 3",
@@ -295,7 +307,7 @@ const written: { readonly [C in Carrier]: Arr.NonEmptyReadonlyArray<Written> } =
 		{
 			label: "int8range",
 			type: { carrier: "range8", span: { endpoint: { carrier: "int8", caps } }, caps },
-			live: spans(int64)
+			live: spans8
 		},
 		{
 			label: "int8range of width 1",
@@ -399,7 +411,10 @@ describe("the encoders", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "universal",
+							name: "a word of the codec's vocabulary, or a text that converts back and encodes to itself"
+						},
 						suite: "unit/codec/wild",
 						draw: drawn(caseGen),
 						literal: Formatter.format,
@@ -470,7 +485,10 @@ describe("the encoders", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "specification",
+						name: "the slot and the word named, the value's marker absent"
+					},
 					suite: "unit/codec/wild-slot",
 					draw: drawn(
 						(source) =>
@@ -528,7 +546,10 @@ describe("admission reads a value once", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "specification",
+						name: "the getter's first answer, as admission kept it"
+					},
 					suite: "unit/codec/wild-unstable",
 					draw: drawn((source) => [source.draw(int32), source.draw(int32)] as const),
 					literal: Formatter.format,
@@ -542,7 +563,7 @@ describe("admission reads a value once", () => {
 				},
 				([first, then], c) =>
 					Effect.gen(function* () {
-						const end = 2 ** 31 - 1
+						const end = int4Max.value
 						yield* c.assume(first < end)
 						const range4 = decoded(written.range4[0]).type
 						const codec = scalarCodec(range4, kindCodes)
@@ -593,15 +614,18 @@ describe("fact identity", () => {
 				const fieldGen: Gen<ReadonlyArray<Drawn<unknown, StaleFrom>>> = (source) =>
 					Arr.map(descriptors, (d) => source.draw(drawnFor(d)))
 				/** The fact is built inside the property: a wild value reaches no generator. */
-				const factGen = oneOf([
-					map(fieldGen, (fields): DrawnFact => ({ kind: "fields", fields })),
-					map(wild(WILD_KINDS), (wild): DrawnFact => ({ kind: "wild", wild }))
+				const factGen = weighted([
+					[1, map(fieldGen, (fields): DrawnFact => ({ kind: "fields", fields }))],
+					[1, map(wild(WILD_KINDS), (wild): DrawnFact => ({ kind: "wild", wild }))]
 				])
 				yield* searched(
 					ctx,
 					explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "specification",
+								name: "a word and the field it refuses, or every field admitted"
+							},
 							suite: "unit/codec/wild-fact",
 							draw: drawn(factGen),
 							literal: Formatter.format,
@@ -671,11 +695,17 @@ describe("the tuple converter", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "universal",
+							name: "each cell's text encodes the value the tuple holds"
+						},
 						suite: "unit/codec/wild-rows",
 						draw: drawn(rowCaseGen),
 						literal: Formatter.format,
-						coverage: noCoverage,
+						coverage: required<"a bytes column" | "a column of text">(
+							["a bytes column", "a column of text"],
+							{ cases: 300, sense: notesOnly }
+						),
 						kept: [],
 						runs: 1000,
 						shrink: completeShrink,
@@ -683,8 +713,11 @@ describe("the tuple converter", () => {
 						steerEvery: 16,
 						caseHang
 					},
-					({ columns, values }) =>
+					({ columns, values }, c) =>
 						Effect.sync(() => {
+							for (const column of columns) {
+								c.note(column.type.carrier === "bytes" ? "a bytes column" : "a column of text")
+							}
 							const cells = Arr.map(columns, (column, i): RowCell => {
 								if (column.type.carrier === "bytes") {
 									const admitted = admitValue({ carrier: "bytes" }, values[i])

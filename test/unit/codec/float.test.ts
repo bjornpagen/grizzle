@@ -1,25 +1,41 @@
+/**
+ * Float text forms: the exact decimal-to-binary32 reading of real and vector component texts, which never double-rounds
+ * a float32 midpoint, both the library's trusting conversion (values/float.ts) and the kernel's strict reading
+ * (test/support/kernel/strict.ts), and the shortest round-trip writing.
+ *
+ * - Every finite nonzero binary32 value's shortest text, and its ECMAScript text, read back as the value, as a real and
+ *   as a vector component. Oracle: an independent exact reading (decimalToBinary32Reference), rational comparison
+ *   against the value's rounding interval.
+ * - A decimal at or beside a binary32 midpoint reads once, ties to even; random decimals agree with the rational reading,
+ *   and overflow and nonzero underflow are refused. Oracle: the decimal as an exact rational.
+ * - The grammar: exactly the texts it admits are read, and the specials for double and real, never for a vector
+ *   component; the strtod spellings beside it are named, refused cases.
+ * - Every double round-trips through its shortest text, -0 as +0, NaN as NaN. Oracle: the round trip.
+ *
+ * Features: a value's binade (normal, subnormal) and sign; above, below and either tie of a midpoint; every range of a
+ * random decimal; the grammar's admissions, refusals, specials and strtod spellings; a finite double, zero and a
+ * special.
+ *
+ * Plants (~/.cache/grizzle-release/BR06/plants): float-ties-away (a midpoint rounded away from zero, not to even),
+ * float-real-negative-infinity-lost (-Infinity read as Infinity) and float-text-sixteen-digits (a double written to
+ * sixteen significant digits, not its shortest).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { noCoverage, required } from "@grizzle/testing/features"
-import { boolean, element, filter, int, map, string, weighted } from "@grizzle/testing/gen"
+import { required } from "@grizzle/testing/features"
+import { boolean, element, int, map, string, weighted } from "@grizzle/testing/gen"
 import { matching } from "@grizzle/testing/pattern"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { double, float } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
+import { regex } from "arkregex"
 import { Array as Arr, Effect, Formatter, pipe, String as Str } from "effect"
 import { floatText } from "#compiler/scalar/values/float.ts"
 import { convertComponent, convertDouble, convertReal } from "#compiler/scalar/values/float.ts"
 import { assert, faulted, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { strictComponent, strictDouble, strictReal } from "#test/support/kernel/strict.ts"
 import { caseHang } from "#test/support/limits.ts"
-
-import { regex } from "arkregex"
-/**
- * Float text forms: the exact decimal-to-binary32 reading of real and vector component texts, which never double-rounds
- * a float32 midpoint, both the library's trusting conversion (values/float.ts) and the kernel's strict reading
- * (test/support/kernel/strict.ts), and the shortest round-trip writing.
- */
 const floatMax = 3.4028234663852886e38
 const minSubnormal = 2 ** -149
 
@@ -100,8 +116,13 @@ const decimalToBinary32Reference = (text: string): number => {
 	return candidate
 }
 
-/** A finite nonzero binary32 value. */
-const float32 = filter(float(-floatMax, floatMax), (f) => f !== 0, 100)
+/** A finite nonzero binary32 value: a magnitude from the least subnormal to the greatest finite value, and a sign. */
+const float32 = map(
+	(source) => [source.draw(float(minSubnormal, floatMax)), source.draw(boolean)] as const,
+	([magnitude, negative]) => (negative ? -magnitude : magnitude)
+)
+
+type Binary32Feature = "a normal value" | "a subnormal value" | "a negative value"
 
 type RangeFeature = "normal" | "subnormal" | "overflow" | "underflow" | "zero"
 
@@ -188,11 +209,17 @@ describe("exact binary32 reading", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "second-implementation",
+						name: "an exact rational reading against the value's rounding interval"
+					},
 					suite: "unit/codec/float-1714631201",
 					draw: drawn(float32),
 					literal: Formatter.format,
-					coverage: noCoverage,
+					coverage: required<Binary32Feature>(
+						["a normal value", "a subnormal value", "a negative value"],
+						{ cases: 500, sense: notesOnly }
+					),
 					kept: [],
 					runs: 5000,
 					shrink: completeShrink,
@@ -200,8 +227,12 @@ describe("exact binary32 reading", () => {
 					steerEvery: 16,
 					caseHang
 				},
-				(f) =>
+				(f, c) =>
 					Effect.sync(() => {
+						c.note(Math.abs(f) < 2 ** -126 ? "a subnormal value" : "a normal value")
+						if (f < 0) {
+							c.note("a negative value")
+						}
 						const text = shortestFloat32Text(f)
 						assert.equal(succeeded(strictReal(text)), f)
 						assert.equal(succeeded(strictReal(String(f))), f)
@@ -218,7 +249,10 @@ describe("exact binary32 reading", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "specification",
+						name: "the midpoint as an exact rational, ties to even"
+					},
 					suite: "unit/codec/float-midpoint",
 					draw: drawn((source) => ({
 						f: source.draw(float(minSubnormal, Math.fround(floatMax / 2))),
@@ -295,7 +329,10 @@ describe("exact binary32 reading", () => {
 					ctx,
 					explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "second-implementation",
+								name: "the decimal as an exact rational, rounded to nearest by hand"
+							},
 							suite: "unit/codec/float-1918989417",
 							draw: drawn(decimal),
 							literal: Formatter.format,
@@ -384,7 +421,10 @@ describe("the float text grammar, scanned without RegExp", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "the text grammar, and the specials each reader admits"
+						},
 						suite: "unit/codec/float-7497063",
 						draw: drawn(texts),
 						literal: Formatter.format,
@@ -441,17 +481,24 @@ describe("double precision text", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "universal",
+						name: "a double's shortest text reads back as the double, -0 as +0"
+					},
 					suite: "unit/codec/float-6578796",
-					/** Every finite double, and now and then NaN or an infinity. */
+					/** Every finite double, and now and then a zero of either sign, NaN or an infinity. */
 					draw: drawn(
 						weighted([
-							[9, double(-Number.MAX_VALUE, Number.MAX_VALUE)],
+							[8, double(-Number.MAX_VALUE, Number.MAX_VALUE)],
+							[1, element([0, -0])],
 							[1, element([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])]
 						])
 					),
 					literal: Formatter.format,
-					coverage: noCoverage,
+					coverage: required<"a finite double" | "zero" | "a special">(
+						["a finite double", "zero", "a special"],
+						{ cases: 500, sense: notesOnly }
+					),
 					kept: [],
 					runs: 10000,
 					shrink: completeShrink,
@@ -459,8 +506,9 @@ describe("double precision text", () => {
 					steerEvery: 16,
 					caseHang
 				},
-				(x) =>
+				(x, c) =>
 					Effect.sync(() => {
+						c.note(!Number.isFinite(x) ? "a special" : x === 0 ? "zero" : "a finite double")
 						const readsBack = (back: number) => {
 							if (Number.isNaN(x)) {
 								assert.equal(Number.isNaN(back), true)

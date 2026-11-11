@@ -1,18 +1,17 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { noCoverage, required } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import {
 	array,
 	boolean,
 	codePoint,
 	constant,
 	element,
-	filter,
 	type Gen,
 	int,
 	map,
-	oneOf,
 	string,
+	type Weighted,
 	weighted
 } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
@@ -21,7 +20,7 @@ import { bigint, float } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, DateTime, Effect, Formatter, pipe, String as Str } from "effect"
 import type { CodecFault } from "#compiler/core/errors.ts"
-import { int8Max, int8Min } from "#compiler/core/limits.ts"
+import { int4Max, int4Min, int8Max, int8Min } from "#compiler/core/limits.ts"
 import { type CalendarDate, toCalendarDate } from "#compiler/ir/date.ts"
 import type { Carrier, ScalarType } from "#compiler/ir/scalar.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
@@ -80,35 +79,28 @@ const writtenDecimal = (precisionDigits: number, scaleMax: number): Gen<Written>
 		}
 	)
 
-/** A span over drawn endpoints, its end past its start, and its half-open text. */
-const writtenSpan4 = (endpoint: Gen<number>): Gen<Written> =>
-	map(
-		filter(
-			(source) => [source.draw(endpoint), source.draw(endpoint)] as const,
-			([a, b]) => a !== b,
-			100
-		),
-		([a, b]): Written => {
-			const [start, end] = a < b ? [a, b] : [b, a]
-			return { value: { start, end }, text: `[${start},${end})` }
-		}
-	)
+/**
+ * A span of endpoints from `lo` to `hi`, built ordered: a start below `hi`, then an end past the start, and its half-open
+ * text.
+ */
+const writtenSpan4 =
+	(lo: number, hi: number): Gen<Written> =>
+	(source) => {
+		const start = source.draw(int(lo, hi - 1))
+		const end = source.draw(int(start + 1, hi))
+		return { value: { start, end }, text: `[${start},${end})` }
+	}
 
-const writtenSpan8 = (endpoint: Gen<bigint>): Gen<Written> =>
-	map(
-		filter(
-			(source) => [source.draw(endpoint), source.draw(endpoint)] as const,
-			([a, b]) => a !== b,
-			100
-		),
-		([a, b]): Written => {
-			const [start, end] = a < b ? [a, b] : [b, a]
-			return { value: { start, end }, text: `[${start},${end})` }
-		}
-	)
+const writtenSpan8 =
+	(lo: bigint, hi: bigint): Gen<Written> =>
+	(source) => {
+		const start = source.draw(bigint(lo, hi - 1n))
+		const end = source.draw(bigint(start + 1n, hi))
+		return { value: { start, end }, text: `[${start},${end})` }
+	}
 
-/** The days past 0001-01-01 of the calendar's dates, the last 9999-12-31. */
-const days = int(0, 3_652_058)
+/** The days past 0001-01-01 of the calendar's last date, 9999-12-31. */
+const lastDay = 3_652_058
 
 /** A calendar date's text at a count of days past 0001-01-01, by the proleptic Gregorian calendar. */
 const dateAt = (day: number): CalendarDate =>
@@ -119,22 +111,21 @@ const dateAt = (day: number): CalendarDate =>
 		"a calendar date's text"
 	)
 
-/** A span of two distinct days, the earlier its start, written as daterange_out writes it. */
-const writtenDateSpan: Gen<Written> = map(
-	filter(
-		(source) => [source.draw(days), source.draw(days)] as const,
-		([a, b]) => a !== b,
-		100
-	),
-	([a, b]): Written => {
-		const [start, end] = a < b ? [dateAt(a), dateAt(b)] : [dateAt(b), dateAt(a)]
-		return { value: { start, end }, text: `[${start},${end})` }
-	}
-)
+/** A span of two days, built ordered: a start before the last day, then a later end, as daterange_out writes it. */
+const writtenDateSpan: Gen<Written> = (source) => {
+	const first = source.draw(int(0, lastDay - 1))
+	const start = dateAt(first)
+	const end = dateAt(source.draw(int(first + 1, lastDay)))
+	return { value: { start, end }, text: `[${start},${end})` }
+}
 
 /** Text PostgreSQL stores: no NUL and no lone surrogate. */
 const storableText = string(
-	oneOf([codePoint(0x20, 0x7e), codePoint(0xa0, 0xd7_ff), codePoint(0xe0_00, 0x10_ffff)]),
+	weighted([
+		[1, codePoint(0x20, 0x7e)],
+		[1, codePoint(0xa0, 0xd7_ff)],
+		[1, codePoint(0xe0_00, 0x10_ffff)]
+	]),
 	{ min: 0, max: 12 }
 )
 
@@ -316,7 +307,7 @@ const carried = {
 	},
 	int4range: {
 		type: types.range4,
-		live: writtenSpan4(int(-(2 ** 31), 2 ** 31 - 1)),
+		live: writtenSpan4(int4Min.value, int4Max.value),
 		refusedValues: [
 			[{ start: 2, end: 2 }, "spanOrder"],
 			[{ start: 1n, end: 2n }, "spanEndpoint"]
@@ -328,7 +319,7 @@ const carried = {
 	},
 	int8range: {
 		type: types.range8,
-		live: writtenSpan8(bigint(int8Min.value, int8Max.value)),
+		live: writtenSpan8(int8Min.value, int8Max.value),
 		refusedValues: [[{ start: 1, end: 2 }, "spanEndpoint"]],
 		refusedTexts: []
 	},
@@ -469,9 +460,17 @@ const formCaseGen = (carrier: Carried): Gen<FormCase> => {
 			map(element(carrier.refusedTexts), (planted): FormCase => ({ kind: "text refused", planted }))
 		)
 	}
-	return oneOf([
-		map(carrier.live, (written): FormCase => ({ kind: "written", written })),
-		oneOf(nonEmpty(refusals, "a carrier's refusals"))
+	return weighted([
+		[1, map(carrier.live, (written): FormCase => ({ kind: "written", written }))],
+		[
+			1,
+			weighted(
+				Arr.map(nonEmpty(refusals, "a carrier's refusals"), (refusal): Weighted<FormCase> => [
+					1,
+					refusal
+				])
+			)
+		]
 	])
 }
 
@@ -483,7 +482,10 @@ describe("each carrier's codec", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "second-implementation",
+							name: "the kernel's strict reading of PostgreSQL's output text (test/support/kernel/strict.ts)"
+						},
 						suite: "unit/codec/scalar-forms",
 						draw: drawn((source) => {
 							const name = source.draw(element(carriedNames))
@@ -558,19 +560,25 @@ describe("integer and span text, scanned without RegExp", () => {
 	it.effect("reads int8 text exactly where the integer output grammar admits it", (ctx) =>
 		Effect.gen(function* () {
 			const int8 = codecOf(types.int8, kindCodes)
-			const texts = oneOf([
-				string(element(Str.split("0123456789-+. ", "")), { min: 0, max: 22 }),
-				map(bigint(int8Min.value * 2n, int8Max.value * 2n), String)
+			const texts = weighted([
+				[1, string(element(Str.split("0123456789-+. ", "")), { min: 0, max: 22 })],
+				[1, map(bigint(int8Min.value * 2n, int8Max.value * 2n), String)]
 			])
 			yield* searched(
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "int8out's grammar as a reference RegExp, and int8's range"
+						},
 						suite: "unit/codec/scalar-6909556",
 						draw: drawn(texts),
 						literal: Formatter.format,
-						coverage: noCoverage,
+						coverage: required<"integerSyntax" | "integerRange" | "an int8">(
+							["integerSyntax", "integerRange", "an int8"],
+							{ cases: 500, sense: notesOnly }
+						),
 						kept: [],
 						runs: 20000,
 						shrink: completeShrink,
@@ -578,17 +586,20 @@ describe("integer and span text, scanned without RegExp", () => {
 						steerEvery: 16,
 						caseHang
 					},
-					(text) =>
+					(text, c) =>
 						Effect.sync(() => {
 							const result = int8.read(text)
 							const syntax = integerGrammar.test(text) && text !== "-0"
 							if (!syntax) {
+								c.note("integerSyntax")
 								faulted(result, "integerSyntax")
 							} else {
 								const n = int8Text(text)
 								if (n === undefined) {
+									c.note("integerRange")
 									faulted(result, "integerRange")
 								} else {
+									c.note("an int8")
 									assert.equal(succeeded(result), n)
 									assert.equal(int8.convert(text), n)
 								}
@@ -602,26 +613,35 @@ describe("integer and span text, scanned without RegExp", () => {
 	it.effect("reads int8range text exactly where the span output grammar admits it", (ctx) =>
 		Effect.gen(function* () {
 			const r8 = codecOf(types.range8, kindCodes)
-			const texts = oneOf([
-				string(element(Str.split("[](),-0123456789", "")), { min: 0, max: 16 }),
-				map(
-					(source) =>
-						[
-							source.draw(bigint(int8Min.value, int8Max.value)),
-							source.draw(bigint(int8Min.value, int8Max.value))
-						] as const,
-					([a, b]) => `[${a},${b})`
-				)
+			const texts = weighted([
+				[1, string(element(Str.split("[](),-0123456789", "")), { min: 0, max: 16 })],
+				[
+					1,
+					map(
+						(source) =>
+							[
+								source.draw(bigint(int8Min.value, int8Max.value)),
+								source.draw(bigint(int8Min.value, int8Max.value))
+							] as const,
+						([a, b]) => `[${a},${b})`
+					)
+				]
 			])
 			yield* searched(
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "range_out's grammar as a reference RegExp, its ends int8s in order"
+						},
 						suite: "unit/codec/scalar-7565409",
 						draw: drawn(texts),
 						literal: Formatter.format,
-						coverage: noCoverage,
+						coverage: required<"spanSyntax" | "a span">(["spanSyntax", "a span"], {
+							cases: 500,
+							sense: notesOnly
+						}),
 						kept: [],
 						runs: 20000,
 						shrink: completeShrink,
@@ -629,15 +649,17 @@ describe("integer and span text, scanned without RegExp", () => {
 						steerEvery: 16,
 						caseHang
 					},
-					(text) =>
+					(text, c) =>
 						Effect.sync(() => {
 							const match = spanGrammar.exec(text)
 							const start = match === null ? undefined : int8Text(match[1])
 							const end = match === null ? undefined : int8Text(match[2])
 							const result = r8.read(text)
 							if (start === undefined || end === undefined || start >= end) {
+								c.note("spanSyntax")
 								faulted(result, "spanSyntax")
 							} else {
+								c.note("a span")
 								assert.deepEqual(succeeded(result), { start, end })
 								assert.deepEqual(r8.convert(text), { start, end })
 							}
@@ -661,11 +683,20 @@ describe("vectors", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: { kind: "universal", name: "a vector's text reads back as the vector" },
 						suite: "unit/codec/scalar-3",
 						draw: drawn(array(float(-bound, bound), { min: 3, max: 3 })),
 						literal: Formatter.format,
-						coverage: noCoverage,
+						coverage: required<
+							"a vector in the domain" | "a vector lifted into the domain" | "a subnormal component"
+						>(
+							[
+								"a vector in the domain",
+								"a vector lifted into the domain",
+								"a subnormal component"
+							],
+							{ cases: 500, sense: notesOnly }
+						),
 						kept: [],
 						runs: 2000,
 						shrink: completeShrink,
@@ -673,9 +704,17 @@ describe("vectors", () => {
 						steerEvery: 16,
 						caseHang
 					},
-					(xs) =>
+					(xs, c) =>
 						Effect.sync(() => {
 							const made = Vector.make(Float32Array.from(xs), 3)
+							c.note(
+								Vector.inCosineDomain(made)
+									? "a vector in the domain"
+									: "a vector lifted into the domain"
+							)
+							if (Arr.some(xs, (x) => x !== 0 && Math.abs(x) < 2 ** -126)) {
+								c.note("a subnormal component")
+							}
 							const v = Vector.inCosineDomain(made)
 								? made
 								: Vector.make(Float32Array.from([1, ...xs.slice(1)]), 3)

@@ -8,6 +8,9 @@
  * Oracle: the array binary format read back by a second reader (test/support/arrays.ts readArrayBinary, array_recv's
  * layout), each element decoded by a strict UTF-8 decoder, which refuses a malformed byte, a 0x00 left where a
  * character was not written among them, as textrecv refuses one.
+ *
+ * Plant (~/.cache/grizzle-release/BR06/plants): text-array-encode-into (each element written by
+ * TextEncoder.encodeInto into a destination of exactly its length, which Node underfills).
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -20,7 +23,6 @@ import {
 	type Gen,
 	int,
 	map,
-	oneOf,
 	weighted
 } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
@@ -35,7 +37,13 @@ import { caseHang } from "#test/support/limits.ts"
 /** One scalar of a text: an ASCII, Latin-1, two-byte, three-byte or astral one, or one of any plane but NUL. */
 const scalar: Gen<string> = weighted([
 	[3, element(["a", "é", "Ѐ", "ש", "ك", "߿", "漢", "\u{1F600}", "\u{10FFFF}"])],
-	[1, oneOf([codePoint(0x01, 0xd7_ff), codePoint(0xe0_00, 0x10_ff_ff)])]
+	[
+		1,
+		weighted([
+			[1, codePoint(0x01, 0xd7_ff)],
+			[1, codePoint(0xe0_00, 0x10_ff_ff)]
+		])
+	]
 ])
 
 /** A scalar whose presence let the encodeInto of nodejs/node#65994 underfill: U+0400 to U+07FF. */

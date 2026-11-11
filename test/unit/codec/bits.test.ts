@@ -7,6 +7,17 @@
  * most two zeros at each length beside a word's edges (0, 1, 31, 32, 33, 63, 64, 65), every string with one one or one
  * zero beside a Harley–Seal block's edges (255 to 257, 511 to 513, 543 to 545), and every one-hot string of three
  * words under every cell width. Random densities and lengths up to four blocks and a word are searched.
+ *
+ * Oracle: the model's Set algebra, a second implementation, and PostgreSQL's substring and int4 cast restated on the
+ * text for the cell read.
+ *
+ * Features: as each search names them: no bits, a partial last word, whole words, a bit at a word's last position, a
+ * dense string; one one and one zero past one and two blocks; each cell placement.
+ *
+ * Plants (~/.cache/grizzle-release/BR06/plants): bits-count-second-block (a count past one Harley–Seal block one
+ * short), bits-cell-shift-by-32 (a cell's second word shifted by 32, which is by 0), bits-and-not-low-bit (a difference
+ * that keeps the first word's last bit), bits-from-text-pad-start (a partial last word read right-aligned) and
+ * bits-add-at-length (a bit added at the string's length admitted).
  */
 import { describe, it } from "@effect/vitest"
 import { type Case, drawn, exhaust, explore } from "@grizzle/testing/explore"
@@ -18,7 +29,6 @@ import {
 	element,
 	type Gen,
 	int,
-	oneOf,
 	string,
 	weighted
 } from "@grizzle/testing/gen"
@@ -146,8 +156,8 @@ describe("bit strings at a word's edges", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "every string of at most two ones or two zeros at each length beside a word's edges",
+						oracle: { kind: "second-implementation", name: "the model's Set algebra" },
 						suite: "unit/codec/bits-edges",
 						generator: edges,
 						literal: Formatter.format,
@@ -195,8 +205,8 @@ describe("bit strings at a word's edges", () => {
 			ctx,
 			exhaust(
 				{
-					box: { kind: "unstated" },
-					oracle: { kind: "unstated" },
+					box: "every string of one one or one zero beside a Harley–Seal block's edges",
+					oracle: { kind: "second-implementation", name: "the model's count and members" },
 					suite: "unit/codec/bits-blocks",
 					generator: blocks,
 					literal: Formatter.format,
@@ -238,9 +248,9 @@ const bitAt: { readonly [D in Density]: Gen<string> } = {
  * Lengths at and beside the boundaries where a word or a Harley–Seal block of eight words starts or ends, or any up to
  * four blocks and a word.
  */
-const lengths: Gen<number> = oneOf([
-	element([0, 1, 31, 32, 33, 63, 64, 65, 255, 256, 257, 511, 512, 513, 543, 544, 545]),
-	int(0, 1056)
+const lengths: Gen<number> = weighted([
+	[1, element([0, 1, 31, 32, 33, 63, 64, 65, 255, 256, 257, 511, 512, 513, 543, 544, 545])],
+	[1, int(0, 1056)]
 ])
 
 /** The text of a string of `length` positions, each drawn at `density`. */
@@ -284,7 +294,7 @@ describe("bit strings on the host", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: { kind: "second-implementation", name: "the model of PostgreSQL's text" },
 						suite: "unit/codec/bits-read",
 						draw: drawn(texts),
 						literal: Formatter.format,
@@ -350,7 +360,7 @@ describe("bit strings on the host", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: { kind: "second-implementation", name: "the model's set union" },
 						suite: "unit/codec/bits-add",
 						draw: drawn((source): Additions => {
 							const text = source.draw(texts)
@@ -430,7 +440,10 @@ describe("bit strings on the host", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "second-implementation",
+							name: "the model's union, intersection and difference"
+						},
 						suite: "unit/codec/bits-combine",
 						draw: drawn((source): Combining => {
 							const combination = source.draw(element<Combination>(["or", "and", "andNot"]))
@@ -538,8 +551,11 @@ describe("bit strings on the host", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "every one-hot string of three words under every cell width",
+						oracle: {
+							kind: "specification",
+							name: "PostgreSQL's substring cast to int4, restated on the text"
+						},
 						suite: "unit/codec/bits-cell-placement",
 						generator: oneHots,
 						literal: Formatter.format,
@@ -580,10 +596,18 @@ describe("bit strings on the host", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "PostgreSQL's substring cast to int4, restated on the text"
+						},
 						suite: "unit/codec/bits-cell",
 						draw: drawn((source): Cells => {
-							const width = source.draw(oneOf([element([1, 2, 5, 8, 31, 32]), int(1, 32)]))
+							const width = source.draw(
+								weighted([
+									[1, element([1, 2, 5, 8, 31, 32])],
+									[1, int(1, 32)]
+								])
+							)
 							const cells = source.draw(int(0, 40))
 							return {
 								width,

@@ -13,6 +13,8 @@
  *
  * The box, exhausted: every hole pattern of a five-code roster that leaves a handle live, every subset of its live
  * handles, under every variant the pattern admits.
+ *
+ * Plant (~/.cache/grizzle-release/BR06/plants): codes-set-first-code-lost (a set's text read from its second code on).
  */
 import { describe, it } from "@effect/vitest"
 import { type Case, exhaust } from "@grizzle/testing/explore"

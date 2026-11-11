@@ -7,19 +7,22 @@
  * Delivery) with the platform's own base64url encoder, which shares no code with the assembly, then shuffled. The
  * chunk length is drawn small, so a case meets every boundary of a value of a few chunks, and the one in force
  * (core/limits.ts bytesChunkLength) in some cases.
+ *
+ * Plant (~/.cache/grizzle-release/BR06/plants): delivery-ord-reversed (the delivered rows assembled in the reverse of
+ * their numbers' order).
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import {
 	array,
+	codePoint,
 	constant,
 	element,
 	type Gen,
 	int,
 	shuffled,
 	string,
-	codePoint,
 	weighted
 } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
