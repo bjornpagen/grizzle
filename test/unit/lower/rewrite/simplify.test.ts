@@ -1,17 +1,37 @@
+/**
+ * Semantic simplification (lower/optimize/simplify): the host decides only comparisons and truth values, never
+ * arithmetic; finite folding decides a filter over declared facts; branch removal keeps every union's discriminant
+ * readable; equality propagation hands the region the filter's evidence; and every rewrite leaves the delivered result
+ * unchanged and the DAG one the strict re-reader admits. No evaluation raises (scalar/compute/registry.ts Totality), so
+ * folding drops, and merging moves, any evaluation.
+ *
+ * - Literal folding compares literals under PostgreSQL's equality and order: numeric by value whatever its scale,
+ *   float8's NaN above every number and equal to itself, -0 equal to 0, text by code points.
+ * - BETWEEN and IN over literals are decided; IN over vectors, which the host never orders, is left to PostgreSQL.
+ * - Arithmetic is never evaluated on the host; a connective's deciding literal decides it, dropping the other operand.
+ * - A filter over a roster's declared facts is the satisfying facts, as a set.
+ * - An empty input is removed, whatever evaluations it drops.
+ * - A filter every conjunct of which becomes a region equality gives the region its evidence, so an order total by it
+ *   stays so.
+ *
+ * Oracle: each rule's documented statement (simplify/rules.ts, boolean.ts) as a checker over every shape of a small
+ * space, the literal order computed independently of the compiler (a second implementation of PostgreSQL's order), the
+ * reference evaluator's delivery on every database of a few posting and account facts, and the strict DAG re-reader.
+ * The merges of filters and of projections are the rewrite population's (rewrite/generated.test.ts, which requires
+ * simplify.mergeFilters and plants simplify.mergeProjections), held to the same delivery.
+ *
+ * Features: each decision and each type compared; a vector membership left to PostgreSQL; facts satisfying and none;
+ * each kind of branch removed; every conjunct an equality, and a conjunct left.
+ *
+ * Plants, each failing its search: NaN equal to every number (simplify-nan-order); BETWEEN strict on both bounds
+ * (simplify-between-strict); a decided connective folding to the opposite value (simplify-connective-decider); finite
+ * folding keeping the rejected facts (simplify-finite-inverted); branch removal keeping empty arms
+ * (simplify-empty-arms); equality propagation leaving the region its own metadata (simplify-equality-meta).
+ */
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { noCoverage, requiredInSpace } from "@grizzle/testing/features"
-import {
-	array,
-	boolean,
-	element,
-	filter,
-	type Gen,
-	int,
-	map,
-	oneOf,
-	subarray
-} from "@grizzle/testing/gen"
+import { requiredInSpace } from "@grizzle/testing/features"
+import { array, boolean, element, type Gen, int, map, oneOf, subset } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import { VectorText } from "#compiler/ir/carriers.ts"
@@ -21,7 +41,7 @@ import type { ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
 import { conservativeMeta, type RelDag, type RelNode } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { simplifyPass } from "#compiler/lower/optimize/simplify/index.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { assert, defined, succeeded, unorderedEqual } from "#test/support/assert.ts"
 import {
 	Account,
 	asc,
@@ -34,6 +54,7 @@ import {
 
 import { canonicalZero } from "#compiler/ir/carriers.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { validateDag } from "#test/support/oracle/dag-validate.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import { upTo } from "#test/support/up-to.ts"
 import {
@@ -47,17 +68,6 @@ import {
 	rulesOf,
 	runPasses
 } from "#test/unit/lower/rewrite/support.ts"
-
-/**
- * Semantic simplification: the host decides only comparisons and truth values, never arithmetic; finite folding
- * decides a filter over declared facts; branch removal keeps every union's discriminant readable; and every rewrite
- * leaves the delivered result unchanged. No evaluation raises (scalar/compute/registry.ts Totality), so folding drops,
- * and merging moves, any evaluation.
- *
- * Each rule is held to its documented statement (lower/optimize/simplify/rules.ts, boolean.ts) as the oracle, over
- * every shape of a small space: the literals a comparison may meet, and the reference evaluator's delivery on every
- * database of a few posting and account facts.
- */
 
 const u = (n: number): TypedLiteral => ({ kind: "uuid", value: uuidOf(n) })
 const i8 = (n: number): TypedLiteral => ({ kind: "int", value: BigInt(n) })
@@ -96,6 +106,7 @@ const simplifiedJudged = (dag: RelDag, judged: Judged): Ran => {
 	const ran = succeeded(
 		runPasses(query, [simplifyPass], passContext({ catalog: ledgerCatalog, evidence: "snapshot" }))
 	)
+	validateDag(ran.query.dag)
 	if (judged === "by the reference") {
 		deliversAlikeOn(databases, [Posting, Account], [], query, ran.query)
 	}
@@ -283,8 +294,11 @@ describe("literal folding", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "every comparison between every two literals of one type of the dictionary: numerics either side of an integer, float8's NaN, infinities and signed zeros, text ordered by code points and by prefixes",
+						oracle: {
+							kind: "second-implementation",
+							name: "PostgreSQL's equality and order of each type, ranked independently of the compiler"
+						},
 						suite: "unit/lower/rewrite/simplify-literal-order",
 						literal: Formatter.format,
 						generator: (source) => [source.draw(literalPairs), source.draw(comparisons)] as const,
@@ -345,8 +359,11 @@ describe("literal folding", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "BETWEEN over three of 0..2, IN of one of 0..2 among one or two, and IN over a vector equal to the list's or not",
+						oracle: {
+							kind: "specification",
+							name: "BETWEEN and IN decided by their bounds and members; IN over vectors left to PostgreSQL"
+						},
 						suite: "unit/lower/rewrite/simplify-between-in",
 						literal: Formatter.format,
 						generator: forms,
@@ -450,8 +467,11 @@ describe("literal folding", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "each arithmetic operator over literals compared with 0..2, and each connective with a deciding literal on either side of a column predicate",
+						oracle: {
+							kind: "specification",
+							name: "no computed number folded; a connective's deciding literal decides it"
+						},
 						suite: "unit/lower/rewrite/simplify-frontier-folding",
 						literal: Formatter.format,
 						generator: shapes,
@@ -511,13 +531,16 @@ describe("finite folding", () => {
 			ctx,
 			exhaust(
 				{
-					box: { kind: "unstated" },
-					oracle: { kind: "unstated" },
+					box: "every non-empty set of the roster's facts under equality and inequality with each handle",
+					oracle: {
+						kind: "specification",
+						name: "the filter's satisfying facts, decided fact by fact"
+					},
 					suite: "unit/lower/rewrite/simplify-finite-fold",
 					literal: Formatter.format,
 					generator: (source) =>
 						[
-							source.draw(filter(subarray(roster), (facts) => facts.length > 0, 1)),
+							source.draw(subset(roster, { min: 1, max: roster.length })),
 							source.draw(element<"code:int2eq" | "code:int2ne">(["code:int2eq", "code:int2ne"])),
 							source.draw(element<Handle>(roster))
 						] as const,
@@ -547,7 +570,7 @@ describe("finite folding", () => {
 						const satisfying = Arr.filter(facts, (h) => (op === "code:int2eq") === (h === against))
 						c.note(satisfying.length > 0 ? "some facts satisfy" : "no fact satisfies")
 						assert.deepEqual(nodesOf(ran.query.dag, "Filter"), [])
-						assert.deepEqual(
+						unorderedEqual(
 							Arr.flatMap(nodesOf(ran.query.dag, "Closed"), (n) => n.rows),
 							Arr.map(satisfying, (h): ReadonlyArray<TypedLiteral> => [
 								{ kind: "handle", handle: h }
@@ -572,8 +595,11 @@ describe("branch removal", () => {
 			ctx,
 			exhaust(
 				{
-					box: { kind: "unstated" },
-					oracle: { kind: "unstated" },
+					box: "one to three arms, every subset of them empty, under an anti-join with an empty right side or not",
+					oracle: {
+						kind: "specification",
+						name: "every empty input removed, the empty relation where nothing is left"
+					},
 					suite: "unit/lower/rewrite/simplify-empty",
 					literal: Formatter.format,
 					/**
@@ -679,8 +705,11 @@ describe("normalization", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "an equality of the posting's account and the account's id, either way round, alone or beside another conjunct",
+						oracle: {
+							kind: "specification",
+							name: "every var = var conjunct a region equality, the region carrying the filter's evidence where none is left"
+						},
 						suite: "unit/lower/rewrite/simplify-equality",
 						literal: Formatter.format,
 						generator: (source) => [source.draw(boolean), source.draw(boolean)] as const,
@@ -720,86 +749,6 @@ describe("normalization", () => {
 							c.note(extra ? "a conjunct left" : "every conjunct an equality")
 							assert.equal(rulesOf(ran.certificates).includes("simplify.equality"), true)
 							assert.equal(nodesOf(ran.query.dag, "Filter").length, extra ? 1 : 0)
-						})
-				)
-			)
-	)
-})
-
-describe("merging", () => {
-	it.effect("an outer filter is merged into the filter below it", (ctx) =>
-		searched(
-			ctx,
-			exhaust(
-				{
-					box: { kind: "unstated" },
-					oracle: { kind: "unstated" },
-					suite: "unit/lower/rewrite/simplify-merge-filters",
-					literal: Formatter.format,
-					generator: boolean,
-					limit: 2,
-					coverage: noCoverage,
-					caseHang
-				},
-				(projected) =>
-					Effect.sync(() => {
-						const q = new Q()
-						const p = postings(q)
-						const inner = q.filter(p, predicate(q, p))
-						const outer = q.filter(inner, predicate(q, inner))
-						const root = projected ? q.project(outer, [["id", "id"]], conservativeMeta) : outer
-						const ran = simplified(q.build(root).dag)
-						assert.equal(rulesOf(ran.certificates).includes("simplify.mergeFilters"), true)
-						assert.equal(nodesOf(ran.query.dag, "Filter").length, 1)
-					})
-			)
-		)
-	)
-
-	it.effect(
-		"a projection of a projection is merged, whatever expressions the composition drops",
-		(ctx) =>
-			searched(
-				ctx,
-				exhaust(
-					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
-						suite: "unit/lower/rewrite/simplify-merge-projections",
-						literal: Formatter.format,
-						generator: (source) => [source.draw(boolean), source.draw(boolean)] as const,
-						limit: 4,
-						coverage: noCoverage,
-						caseHang
-					},
-					([computed, outerReads]) =>
-						Effect.sync(() => {
-							const q = new Q()
-							const p = postings(q)
-							const expr = computed
-								? q.op("int8pl", [q.col(p, "amount"), q.int(1, T.int8)], T.int8)
-								: q.col(p, "amount")
-							const inner = q.project(
-								p,
-								[
-									["id", "id"],
-									["bumped", [expr, T.int8]]
-								],
-								conservativeMeta
-							)
-							const outer = q.project(
-								inner,
-								outerReads
-									? [
-											["b", "bumped"],
-											["id", "id"]
-										]
-									: [["id", "id"]],
-								conservativeMeta
-							)
-							const ran = simplified(q.build(outer).dag)
-							assert.equal(rulesOf(ran.certificates).includes("simplify.mergeProjections"), true)
-							assert.equal(nodesOf(ran.query.dag, "ProjectSet").length, 1)
 						})
 				)
 			)

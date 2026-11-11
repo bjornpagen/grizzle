@@ -1,3 +1,23 @@
+/**
+ * The rewrite frame (lower/optimize/demand/frame.ts rewritePass): rewrites run only in the optimized lowering, every
+ * applied rewrite strictly lowers its pass's potential, a natural, or the pass fails (which every suite that runs a pass
+ * checks on every rewrite), and:
+ *
+ * - a root a rewrite replaces stays at its position among the DAG's roots, the query's root first;
+ * - the same input rewrites to the same DAG, certificates and SQL, run after run;
+ * - a pass given a DAG a frame settled delivers that very DAG where it changes nothing, and otherwise one whose content
+ *   differs, the DAG a fresh copy of the same content gives;
+ * - a pass computed cold from a fresh copy of a DAG equals the pass computed warm from the one a pass delivered.
+ *
+ * Oracle: the frame's statement over an exhaustive space of root positions (a specification); for the rest, universal
+ * laws over generated queries: determinism, and a pass's result a function of its input's content alone.
+ *
+ * Features: the query's root and a later root replaced; a pass that delivered the settled DAG; a pass that changed it.
+ *
+ * Plants, each failing its search: a rewritten DAG's roots reversed (frame-root-order); fresh identifiers skipping a
+ * random count (frame-random-labels); a pass that changes nothing delivering a rebuilt copy (frame-rebuild); a pass
+ * returning a DAG a pass delivered before unrewritten, a memo by object identity (frame-seen-memo).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
 import { noCoverage, required, requiredInSpace } from "@grizzle/testing/features"
@@ -25,11 +45,6 @@ import { existencePass } from "#compiler/lower/optimize/existence/index.ts"
 import { fusePass } from "#compiler/lower/optimize/fuse/index.ts"
 import { simplifyPass } from "#compiler/lower/optimize/simplify/index.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
-/**
- * The rewrite frame: rewrites run only in the optimized lowering, every applied rewrite strictly lowers its pass's
- * potential, a natural, or the pass fails (which every suite that runs a pass checks on every rewrite), and the same
- * input rewrites identically.
- */
 import { rebuildDag } from "#test/support/dag.ts"
 import { genCatalog } from "#test/support/evidence.ts"
 import { standInNames } from "#test/support/kernel/naming.ts"
@@ -58,8 +73,11 @@ describe("a DAG's roots", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "two or three roots, the one simplification replaces at each position",
+						oracle: {
+							kind: "specification",
+							name: "a replaced root stays at its position, every other root as built"
+						},
 						suite: "unit/lower/rewrite/frame-root-position",
 						literal: Formatter.format,
 						/** Two or three roots, the one a rewrite replaces at any position among them. */
@@ -131,7 +149,10 @@ describe("determinism", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "universal",
+							name: "one input rewrites to one DAG, one certificate list and one SQL text"
+						},
 						suite: "unit/lower/rewrite/frame-determinism",
 						literal: Formatter.format,
 						kept: [],
@@ -188,7 +209,10 @@ describe("determinism", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "universal",
+							name: "a pass that changes nothing delivers its input, and its result is its input's content's"
+						},
 						suite: "unit/lower/rewrite/frame-delivered",
 						literal: Formatter.format,
 						kept: [],
@@ -255,7 +279,10 @@ describe("determinism", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "universal",
+							name: "a pass's result is a function of its input's content: cold from a fresh copy equals warm"
+						},
 						suite: "unit/lower/rewrite/frame-cold",
 						literal: Formatter.format,
 						kept: [],

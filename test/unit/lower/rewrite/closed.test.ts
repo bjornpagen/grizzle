@@ -1,3 +1,22 @@
+/**
+ * R07 over a closed relation's installed constants (lower/optimize/closed): which occurrences of a declared closed
+ * relation become a membership test of its installed key set, and the simplifier's invariant that a Closed node holding
+ * fewer facts than its relation carries no declared name. The oracle is the rule's specification as a checker
+ * (membershipOf's doc comment): an occurrence is rewritten exactly when every key field is read as a variable another
+ * occurrence binds, a literal or a parameter, and no payload field is read. A rewritten occurrence of a sparse relation is
+ * read from its installed key set, one of a roster is the tautology its domain makes it and reads nothing, and a kept one
+ * is read from its facts. That the rewritten query delivers what the VALUES join delivers is
+ * test/pg/closed/membership.test.ts's, on PostgreSQL. A roster's occurrence whose source another occurrence reads
+ * laterally, through a constant, stays in its region, its reader's reference in scope; one read by no other occurrence,
+ * or beside a lateral read of another source, is its membership test. A Closed node the simplifier narrows holds the
+ * rows its filter keeps, as a set.
+ *
+ * Features: each verdict and each reason a kept occurrence is kept; a whole, a narrowed and an empty roster; rewritten
+ * and kept beside a lateral read.
+ *
+ * Plants, each failing its search: a payload read admitted as a membership (closed-payload); a narrowed Closed node
+ * keeping its declared name (closed-narrowed-name); an occurrence read laterally rewritten (closed-lateral).
+ */
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
@@ -11,7 +30,7 @@ import { simplifyPass } from "#compiler/lower/optimize/simplify/index.ts"
 import { closedId, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { assert, succeeded, unorderedEqual } from "#test/support/assert.ts"
 import { compileTemplate, programAsts, testCompile } from "#test/support/compile.ts"
 import { has, shapeOf } from "#test/support/kernel/shape.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -24,19 +43,6 @@ import {
 	queryOf,
 	runPasses
 } from "#test/unit/lower/rewrite/support.ts"
-
-/**
- * R07 over a closed relation's installed constants (lower/optimize/closed): which occurrences of a declared closed
- * relation become a membership test of its installed key set, and the simplifier's invariant that a Closed node holding
- * fewer facts than its relation carries no declared name. The oracle is the rule's specification as a checker
- * (membershipOf's doc comment): an occurrence is rewritten exactly when every key field is read as a variable another
- * occurrence binds, a literal or a parameter, and no payload field is read. A rewritten occurrence of a sparse relation is
- * read from its installed key set, one of a roster is the tautology its domain makes it and reads nothing, and a kept one
- * is read from its facts. That the rewritten query delivers what the VALUES join delivers is
- * test/pg/closed/membership.test.ts's, on PostgreSQL. A roster's occurrence whose source another occurrence reads
- * laterally, through a constant, stays in its region, its reader's reference in scope; one read by no other occurrence,
- * or beside a lateral read of another source, is its membership test.
- */
 
 /** How the query reads one key field of Grid. */
 const KEY_READS = ["item", "literal", "param", "free", "own"] as const
@@ -351,7 +357,7 @@ describe("R07 over closed constants", () => {
 							)
 							const [only, ...others] = nodesOf(ran.query.dag, "Closed")
 							assert.ok(only !== undefined && others.length === 0, "one Closed node")
-							assert.deepEqual(
+							unorderedEqual(
 								only.rows,
 								Arr.map(kept, (h) => [kindHandle(h)]),
 								"the Closed node holds the rows the predicate keeps"

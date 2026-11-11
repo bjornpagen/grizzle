@@ -1,3 +1,26 @@
+/**
+ * The rewrite pipeline preserves what every query of the small closed universe delivers, on every database the
+ * query's context may see.
+ *
+ * Every plan of the small-scope grammars (test/unit/analysis/small/plans.ts: the core grammar up to three operators,
+ * the extended one up to two), under every key and containment variant and every execution context it can be read in,
+ * is checked as a compilation checks it and run through the optimizer's rewrite pipeline (lower/optimize/pipeline.ts
+ * rewritePipeline: demand, semantic simplification, the relational rewrites, the compile-target catalog and graph
+ * specialization) under the context's own catalog, with the evidence contexts its installation gives. On every
+ * database of the universe the context may see, under every binding of the plan's parameters, the reference evaluator
+ * computes the same statements, headings and row sets for the rewritten query as for the checked one
+ * (rewrite/support.ts delivery). A database only a transaction may see (a containment broken until commit) is where a
+ * rewrite that trusted evidence the context does not hold delivers something else.
+ *
+ * A refusal by the pipeline is a failure: the checker admitted the query, so the compilation must lower it.
+ *
+ * Oracle: the reference evaluator's delivery of the checked query (a second implementation). Features: each plan's
+ * operators, the semi-join, elimination and pruning rules, the transaction context, a dangling reference a transaction
+ * sees.
+ *
+ * Plant, failing both searches: a deferred containment read as proving existence inside a transaction
+ * (eliminate-deferred).
+ */
 import { describe, it } from "@effect/vitest"
 import { type Case, exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
@@ -36,23 +59,6 @@ import {
 	variants
 } from "#test/unit/analysis/small/universe.ts"
 import { sameDelivery } from "#test/unit/lower/rewrite/support.ts"
-
-/**
- * The rewrite pipeline preserves what every query of the small closed universe delivers, on every database the
- * query's context may see.
- *
- * Every plan of the small-scope grammars (test/unit/analysis/small/plans.ts: the core grammar up to three operators,
- * the extended one up to two), under every key and containment variant and every execution context it can be read in,
- * is checked as a compilation checks it and run through the optimizer's rewrite pipeline (lower/optimize/pipeline.ts
- * rewritePipeline: demand, semantic simplification, the relational rewrites, the compile-target catalog and graph
- * specialization) under the context's own catalog, with the evidence contexts its installation gives. On every
- * database of the universe the context may see, under every binding of the plan's parameters, the reference evaluator
- * computes the same statements, headings and row sets for the rewritten query as for the checked one
- * (rewrite/support.ts delivery). A database only a transaction may see (a containment broken until commit) is where a
- * rewrite that trusted evidence the context does not hold delivers something else.
- *
- * A refusal by the pipeline is a failure: the checker admitted the query, so the compilation must lower it.
- */
 
 /**
  * What a plan of the universe reaches: its operators, the rules the pipeline fired, the context it ran in, and the
@@ -143,8 +149,11 @@ const exhaustUpTo = (
 	const installs = new Map(Arr.map(among, (variant) => [variant, installed(variant)] as const))
 	return exhaust(
 		{
-			box: { kind: "unstated" },
-			oracle: { kind: "unstated" },
+			box: `every plan of the ${grammar.name} grammar of up to ${operators} operators, under every key and containment variant, in every context it can be read in, on every database the context may see, under every binding of its parameters`,
+			oracle: {
+				kind: "second-implementation",
+				name: "the reference evaluator's delivery of the checked query"
+			},
 			suite: `unit/lower/rewrite/universe-${grammar.name}-${operators}`,
 			generator: (source) =>
 				[source.draw(element(among)), source.draw(plansUpTo(grammar, operators))] as const,

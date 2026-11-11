@@ -1,3 +1,22 @@
+/**
+ * R02 (lower/optimize/existence): express existence as existence. An occurrence whose every variable another occurrence
+ * binds contributes only existence and becomes a semi-join's right side, its constants with it, the reader's heading
+ * and a fold's bound tuple unchanged; a match binding a witness of its own is never touched. A set comparison becomes a
+ * semi- or anti-join only over a physically unique left input, its key's premises and context in the certificate. An
+ * occurrence over a correlated source, or whose source another occurrence reads laterally, stays in its region. Every
+ * rewritten query delivers what its original does, by the reference evaluator, on every database of the candidate
+ * facts, and lowers conservatively.
+ *
+ * Oracle: the rule's statement as a checker over exhaustive planted spaces (a specification), the reference evaluator's
+ * delivery (a second implementation); the scope search is the guard population's (rewrite/guarded.ts).
+ *
+ * Features: each Account occurrence under each reader, each posting source; each set comparison rewritten and kept; the
+ * scoped shapes and a scoped occurrence that stayed.
+ *
+ * Plants, each failing its search: an occurrence with a literal constant left a match (existence-constants); a set
+ * comparison rewritten over a unique right input (existence-right-unique); an occurrence over a correlated source moved
+ * into a semi-join (existence-correlated).
+ */
 import { describe, it } from "@effect/vitest"
 import { assertNone } from "@effect/vitest/utils"
 import { exhaust } from "@grizzle/testing/explore"
@@ -41,13 +60,6 @@ import {
 	rulesOf,
 	runPasses
 } from "#test/unit/lower/rewrite/support.ts"
-
-/**
- * R02: express existence as existence. An occurrence whose every variable another
- * occurrence binds contributes only existence and becomes a semi-join's right side; a match binding a witness of its
- * own is never touched ("a match binding a witness ID is different"), and a fold's bound tuple is unchanged.
- * A set comparison becomes a semi- or anti-join only over a physically unique left input.
- */
 
 const u = (n: number): TypedLiteral => ({ kind: "uuid", value: uuidOf(n) })
 const i8 = (n: number): TypedLiteral => ({ kind: "int", value: BigInt(n) })
@@ -193,8 +205,11 @@ describe("an existence-only match becomes a semi-join", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "each Account occurrence, existence only or with a constant, under each reader, over postings scanned or from a rule of their own",
+						oracle: {
+							kind: "specification",
+							name: "an existence-only occurrence becomes a semi-join, the bound tuple unchanged; the reference's delivery on every database"
+						},
 						suite: "unit/lower/rewrite/existence-semi-join",
 						literal: Formatter.format,
 						generator: shapes,
@@ -254,8 +269,11 @@ describe("set comparisons need a physically unique left input", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "an intersection or a difference of account ids and posting accounts, either on the left, in a snapshot or a transaction",
+						oracle: {
+							kind: "specification",
+							name: "a set comparison is rewritten exactly over a physically unique left input, certified by its key"
+						},
 						suite: "unit/lower/rewrite/existence-set-comparison",
 						literal: Formatter.format,
 						generator: (source) => ({

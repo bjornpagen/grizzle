@@ -1,3 +1,20 @@
+/**
+ * R01 fusion (lower/optimize/fuse): an imported stage written as a region under filters and renames is inlined into the
+ * region that matches it, preserving the complete bound tuple and every aggregate boundary, with the (account, amount)
+ * versus (id, account, amount) counterexample held to the reference; a boundary, a correlated stage, two constants on
+ * one inner variable, or a constant reading a column on a variable the stage's filter reads is never fused. Every
+ * fusion delivers what its original does, by the reference evaluator, on every database of the candidate facts, alone
+ * and composed with the rewrite phases, and lowers conservatively.
+ *
+ * Oracle: the rule's statement as a checker over exhaustive planted spaces (a specification), the reference evaluator's
+ * delivery (a second implementation); the boundary search is the guard population's (rewrite/guarded.ts).
+ *
+ * Features: each bound tuple under each reader; fused and refused fixed columns; the guard shapes, a group that kept its
+ * bound tuple and a scoped stage kept.
+ *
+ * Plants, each failing its search: a fused region delivering the variables its import hid (fuse-hidden-delivered); one
+ * inner variable two fixed columns carry fused (fuse-fixed-twice); a correlated stage fused (fuse-correlated).
+ */
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
@@ -33,13 +50,6 @@ import {
 	rulesOf,
 	runPasses
 } from "#test/unit/lower/rewrite/support.ts"
-
-/**
- * R01 fusion: an imported stage written as a region under filters and renames is inlined into the region that matches
- * it, preserving the complete bound tuple and every aggregate boundary, with the (account, amount) versus (id, account,
- * amount) counterexample held to the reference; a boundary, a correlated stage, two constants on one inner variable, or
- * a constant reading a column on a variable the stage's filter reads is never fused.
- */
 
 const u = (n: number): TypedLiteral => ({ kind: "uuid", value: uuidOf(n) })
 const i8 = (n: number): TypedLiteral => ({ kind: "int", value: BigInt(n) })
@@ -99,8 +109,11 @@ describe("the complete bound tuple survives fusion", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "an import of (account, amount) or (id, account, amount), read by the query or by a fold",
+						oracle: {
+							kind: "specification",
+							name: "R01 fuses the stage and the fold keeps its bound tuple; the reference's delivery on every database"
+						},
 						suite: "unit/lower/rewrite/fuse-bound-tuple",
 						literal: Formatter.format,
 						generator: (source) =>
@@ -190,8 +203,11 @@ describe("fixed columns in R01 fusion", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "every use of each of two columns carrying one inner variable, over a filtered or an unfiltered stage",
+						oracle: {
+							kind: "specification",
+							name: "fused unless one column is fixed and the other fixed or bound, or a read fixes a filtered one"
+						},
 						suite: "unit/lower/rewrite/fuse-fixed-columns",
 						literal: Formatter.format,
 						generator: (source) =>

@@ -1,3 +1,20 @@
+/**
+ * R03 (lower/optimize/eliminate): a relation is eliminated only with a complete proof. Exhausted over how the catalog
+ * states the containment Posting.account -> Account.id (absent, an immediate or a deferred foreign key), the evidence
+ * context, whether Account has a key, and what its occurrence does beyond the key match: the Account match goes exactly
+ * when an admitted containment and a key of its target prove it neither filters nor multiplies; its certificate names
+ * the context its evidence holds in and the installed constraints it rests on, as a set; and the rewritten query
+ * delivers what the original does, by the reference evaluator, on every database of the candidate facts the context may
+ * see under the installation (two postings of one account, a posting of no account, two accounts of one id).
+ *
+ * Oracle: the gate's statement as a checker (a specification), and the reference evaluator's delivery (a second
+ * implementation).
+ *
+ * Features: eliminated in each evidence context and on each kind of evidence; held back for each missing premise.
+ *
+ * Plant, failing the search: a deferred foreign key read as proving existence inside a transaction
+ * (eliminate-deferred).
+ */
 import { describe, it } from "@effect/vitest"
 import { assertNone } from "@effect/vitest/utils"
 import { exhaust } from "@grizzle/testing/explore"
@@ -32,13 +49,6 @@ import {
 	queryOf,
 	runPasses
 } from "#test/unit/lower/rewrite/support.ts"
-
-/**
- * R03: eliminate a relation only with a complete proof. The gate's counterexamples:
- * absent witnesses (no containment, no key of its target), duplicate referring facts, deferred laws inside a
- * transaction, a match that filters or delivers payload; and the certificate's premises, the installed constraints the
- * elimination rests on.
- */
 
 const u = (n: number): TypedLiteral => ({ kind: "uuid", value: uuidOf(n) })
 const i8 = (n: number): TypedLiteral => ({ kind: "int", value: BigInt(n) })
@@ -195,8 +205,11 @@ describe("the complete proof", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "every containment statement, evidence context, key and match of the ledger's Posting and Account",
+						oracle: {
+							kind: "specification",
+							name: "R03's complete proof, an admitted containment and a key of its target; the reference's delivery on every database the context may see"
+						},
 						suite: "unit/lower/rewrite/eliminate-proof",
 						literal: Formatter.format,
 						generator: (source) => ({

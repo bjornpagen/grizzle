@@ -1,3 +1,20 @@
+/**
+ * R06 (lower/optimize/late-fetch): delay expensive payload work explicitly when legal. A take over wide payload selects
+ * the narrow key and order tuple first and fetches the payload through the retained key in the same statement, its
+ * certificate naming the key it rests on; it is refused when the key does not determine the output ("if a query
+ * projects away the base key and collapses equal payloads, limiting base keys first changes the answer"), when the
+ * order reads the payload, when a reader reads the take or its stage laterally, and when the take is correlated, its
+ * rows selected per outer row. Every rewritten query delivers what its original does, by the reference evaluator, and
+ * lowers conservatively.
+ *
+ * Oracle: the rule's statement as a checker over an exhaustive planted space and over generated wide-payload cases (a
+ * specification), the reference evaluator's delivery (a second implementation).
+ *
+ * Features: fetched on each evidence; held back by each guard; a correlated take held back.
+ *
+ * Plants, each failing its search: a wide column the order reads fetched late (late-fetch-ordered-payload); a
+ * correlated take's payload fetched late (late-fetch-correlated).
+ */
 import { describe, it } from "@effect/vitest"
 import { assertNone } from "@effect/vitest/utils"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
@@ -43,13 +60,6 @@ import {
 	runPasses
 } from "#test/unit/lower/rewrite/support.ts"
 import { wideCaseGen } from "#test/unit/lower/rewrite/wide.ts"
-
-/**
- * R06: delay expensive payload work explicitly when legal. A take over wide payload
- * selects the narrow key and order tuple first and fetches the payload through the retained key in the same statement;
- * it is refused when the key does not determine the output ("if a query projects away the base key and collapses
- * equal payloads, limiting base keys first changes the answer"), and when the order reads the payload.
- */
 
 const u = (n: number): TypedLiteral => ({ kind: "uuid", value: uuidOf(n) })
 const i8 = (n: number): TypedLiteral => ({ kind: "int", value: BigInt(n) })
@@ -234,8 +244,11 @@ describe("late payload fetch", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "a take of one or two over a stage that carries Account's key or none, ordered by the key or reading the payload, read by the query, a join or a lateral join, in each evidence context",
+						oracle: {
+							kind: "specification",
+							name: "R06 fetches late exactly over a key the stage carries, an order free of the payload and no lateral reader"
+						},
 						suite: "unit/lower/rewrite/late-fetch-proof",
 						literal: Formatter.format,
 						generator: shapes,
@@ -294,7 +307,10 @@ describe("late payload fetch", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "specification",
+						name: "no correlated take is fetched late; the reference's delivery"
+					},
 					suite: "unit/lower/rewrite/late-fetch-correlated",
 					draw: drawn(wideCaseGen),
 					literal: Formatter.format,

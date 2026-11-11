@@ -1,10 +1,3 @@
-import { describe, it } from "@effect/vitest"
-import { searched } from "@grizzle/testing/vitest"
-import { nodesByLabel } from "#compiler/ir/dag.ts"
-import { pushdownPass } from "#compiler/lower/optimize/pushdown/index.ts"
-import { guardSearch, rowsAgreeAt } from "#test/unit/lower/rewrite/guarded.ts"
-import { nodesOf } from "#test/unit/lower/rewrite/support.ts"
-
 /**
  * Legal predicate movement, over generated queries (rewrite/guarded.ts): a filter moves through a projection, a union and
  * a group's key, below a semi-join's left side and onto a region's source, since no predicate raises on the rows it
@@ -12,7 +5,19 @@ import { nodesOf } from "#test/unit/lower/rewrite/support.ts"
  * source stay where they are, and below a take nothing moves at all. The query a move leaves delivers what the query it
  * was given delivers, by the reference evaluator, and every take the pass leaves in place delivers the rows it did, the
  * feature this notes: a filter moved below a take would rank other rows.
+ *
+ * Oracle: the reference evaluator's delivery of the query before the pass (the guard population's, rewrite/guarded.ts).
+ * Features: each pushdown rule, each guard shape, a take that kept its rows.
+ *
+ * Plant, failing the search: a filter moved below a take (pushdown-below-take).
  */
+import { describe, it } from "@effect/vitest"
+import { searched } from "@grizzle/testing/vitest"
+import { nodesByLabel } from "#compiler/ir/dag.ts"
+import { pushdownPass } from "#compiler/lower/optimize/pushdown/index.ts"
+import { guardSearch, rowsAgreeAt } from "#test/unit/lower/rewrite/guarded.ts"
+import { nodesOf } from "#test/unit/lower/rewrite/support.ts"
+
 const pushdownSites = guardSearch<"a take kept its rows">({
 	suite: "unit/lower/rewrite/pushdown-sites",
 	passes: [pushdownPass],

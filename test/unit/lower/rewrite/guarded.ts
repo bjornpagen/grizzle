@@ -212,7 +212,10 @@ export const guardSearch = <F extends string>(spec: {
 }) =>
 	explore(
 		{
-			oracle: { kind: "unstated" },
+			oracle: {
+				kind: "second-implementation",
+				name: "the reference evaluator's delivery of the query before the passes, and the pass's own guard"
+			},
 			suite: spec.suite,
 			draw: drawn(queryCaseSketchGen(guardPopulation)),
 			literal: Formatter.format,

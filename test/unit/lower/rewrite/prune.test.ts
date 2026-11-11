@@ -1,3 +1,18 @@
+/**
+ * Pruning (lower/optimize/prune): unused columns leave the nodes whose meaning allows it, "preserve the complete
+ * distinct binding input to aggregates, including bound variables omitted from the answer"; a dead witness becomes an
+ * existential; a root keeps its heading; a node on or read by a recursive step keeps its form, and its inputs keep every
+ * column that form reads. Every pruned query, and every query the relational rewrites compose over, delivers what its
+ * original does, by the reference evaluator, on every database of the candidate facts, and lowers conservatively.
+ *
+ * Oracle: the rule's statement as a checker over exhaustive planted spaces (a specification), the reference evaluator's
+ * delivery (a second implementation).
+ *
+ * Features: an aggregate dropped and every aggregate delivered; each reader over each stage.
+ *
+ * Plants, each failing its search: a fold demanding only its keys and its aggregates' arguments (prune-fold-bound); a
+ * node a recursive step reads pruned like any other (prune-step-unpinned).
+ */
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
@@ -36,13 +51,6 @@ import {
 	rulesOf,
 	runPasses
 } from "#test/unit/lower/rewrite/support.ts"
-
-/**
- * Pruning: unused columns leave the nodes whose meaning allows it, "preserve the complete distinct
- * binding input to aggregates, including bound variables omitted from the answer"; a dead witness becomes an
- * existential; a union keeps its literal discriminant; a root keeps its heading; a node on
- * or read by a recursive step keeps its form, and its inputs keep every column that form reads.
- */
 
 const u = (n: number): TypedLiteral => ({ kind: "uuid", value: uuidOf(n) })
 const i8 = (n: number): TypedLiteral => ({ kind: "int", value: BigInt(n) })
@@ -106,8 +114,11 @@ describe("demand pruning", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "a fold over every posting by its whole bound tuple, delivering every subset of its three aggregates",
+						oracle: {
+							kind: "specification",
+							name: "a fold keeps its whole bound tuple, and only undemanded aggregates leave it"
+						},
 						suite: "unit/lower/rewrite/prune-fold",
 						literal: Formatter.format,
 						/**
@@ -310,8 +321,11 @@ describe("a pinned node keeps its form, and its inputs every column that form re
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "a projection, a filter or a region read by a recursive step, a root region, or a region that is neither",
+						oracle: {
+							kind: "specification",
+							name: "a pinned node keeps its form and its inputs every column it reads; any other loses its dead binding"
+						},
 						suite: "unit/lower/rewrite/prune-pinned",
 						literal: Formatter.format,
 						generator: (source) =>
