@@ -18,19 +18,24 @@ import { caseHang } from "#test/support/limits.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 /**
- * A query's compiled statements grow with the query, never faster: a query attaching n relations, each its own, and the
- * same query attaching 2n, compiled as a Db compiles them, the 2n one at 200 attachments. Each artifact's statements,
- * counted as AST nodes (a structural property, never printed text), grow by at most 2 + ε from n to 2n: every
- * attachment statement computes its parent key's set again, so one that also computed its sibling attachments would grow
- * by 4 there. Every attachment over exact parents is a statement of its own in both artifacts (shapes/index.ts
- * rowsStatement), so the space is the children's own fields, one to three, which widen every statement alike.
+ * A query's compiled statements grow exactly linearly with its attachments: a root relation keyed by its id attaching n
+ * relations, each its own and each correlated on that id, compiled as a Db compiles it, each artifact's statements
+ * counted as AST nodes (a structural property, never printed text), f(n), at n, 2n and 3n: f(3n) − f(2n) = f(2n) − f(n),
+ * every attachment adding the same nodes.
+ *
+ * In the optimized artifact each attachment is one part of the one statement, which reads its parent key set from the
+ * root's rows the statement holds once: the root is keyed by the id each child correlates on, so the set is proved and
+ * read as it is (lower/conservative/keys.ts). In the conservative artifact each attachment is one statement of its own,
+ * which computes its parent's rows again. No attachment reads a sibling's rows, and the children's own fields, one to
+ * three, widen every attachment alike. Exact linearity at one n fails wherever any term grows faster than linearly, so
+ * the families are small.
+ *
+ * Plant: every part of a statement padded by one column per part (lower/parts.ts taggedParts), a part that grows with
+ * its siblings, fails it at every n.
  */
 
-/** The bound on growth from n to 2n: linear, with ε for the parts that do not grow. */
-const linear = 2.5
-
-/** How many relations the smaller query attaches; the larger attaches twice as many. */
-const attachments = 100
+/** A family's width, its children's own fields, and its size n: each one to three. */
+const extent = int(1, 3)
 
 /** A child's `width` own fields beside its key and its parent's. */
 const childFields = (width: number): ReadonlyArray<string> => upTo(width, (i) => `f${i}`)
@@ -140,34 +145,34 @@ const sizesOf = (n: number, width: number) => {
 
 describe("compiled size", () => {
 	it.effect(
-		"a query attaching 2n relations compiles to statements at most linearly larger than one attaching n",
+		"a query attaching n, 2n and 3n relations compiles to statements that grow by the same nodes from each to the next",
 		(ctx) =>
 			searched(
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "every width and size of one to three",
+						oracle: { kind: "universal", name: "f(3n) − f(2n) = f(2n) − f(n)" },
 						suite: "unit/program/size",
-						generator: int(1, 3),
+						generator: (source) => [source.draw(extent), source.draw(extent)] as const,
 						literal: Formatter.format,
-						limit: 3,
+						limit: 9,
 						coverage: noCoverage,
 						caseHang
 					},
-					(width) =>
+					([width, n]) =>
 						Effect.sync(() => {
-							const small = sizesOf(attachments, width)
-							const large = sizesOf(2 * attachments, width)
-							const at = `children of ${width} fields at ${attachments} against ${2 * attachments}`
-							assert.ok(
-								large.conservative <= linear * small.conservative,
-								`${at}: the conservative artifact grows from ${small.conservative} to ${large.conservative} nodes`
-							)
-							assert.ok(
-								large.optimized <= linear * small.optimized,
-								`${at}: the optimized artifact grows from ${small.optimized} to ${large.optimized} nodes`
-							)
+							const once = sizesOf(n, width)
+							const twice = sizesOf(2 * n, width)
+							const thrice = sizesOf(3 * n, width)
+							const at = `children of ${width} fields at ${n}, ${2 * n} and ${3 * n} attachments`
+							for (const artifact of ["conservative", "optimized"] as const) {
+								assert.equal(
+									thrice[artifact] - twice[artifact],
+									twice[artifact] - once[artifact],
+									`${at}: the ${artifact} artifact holds ${once[artifact]}, ${twice[artifact]} and ${thrice[artifact]} nodes`
+								)
+							}
 						})
 				)
 			)
