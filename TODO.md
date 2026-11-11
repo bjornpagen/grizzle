@@ -57,12 +57,9 @@ post-beta swarm's fixes for the next release.
   the int8 accumulator wraps past 2^63: more than 2^32 rows of the largest integer wrap silently. A false proof; reach
   unverified.
 - **A foreign key's selector re-types an authored typed literal at the column's typmod (SCALAR, 2026-11-10):**
-  analysis/theory/laws.ts #selector, through irLiteral. Reach unverified.
-- **A bound float8 parameter of NaN or an infinity cannot be served (VECTOR, 2026-11-10):** core/canonical.ts
-  canonicalOf reads a non-finite number as Outside, so generate refuses the ChangeSet as UnservedMember opaqueBinding.
-  test/pg/oracle/public/public.test.ts, whole, on 15336454 with VECTOR-01 met it at p1_20 and p1_23, both NaN (replay:
-  ~/.cache/grizzle-release/VECTOR/replay-nan.txt); not confirmed on main alone. The class VECTOR-01 fixed for a bound
-  vector. Downstream reach unverified.
+  analysis/theory/laws.ts #selector, through irLiteral. Reach none (2026-11-11): it needs a selection conjunct `field =
+  literal` whose literal carries its own type, which only Compute.literal gives; qti-pie's literals are all inside
+  generated-field expressions and edullm's statements select nothing.
 - **physical/serving's needed check can call a needed B-tree unneeded (GIST, 2026-11-10):** a generated span predicate
   binding a boolean whose name sorts first, with a range after it planned beside the GiST index it creates and nothing
   reordering that index, under a boolean loaded half and half: btree_gist splits the boolean cleanly, so the needed
