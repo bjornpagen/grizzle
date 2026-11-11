@@ -32,8 +32,8 @@
  *
  * Features: each fault refused by its law.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): laws-cap-off-by-one.patch (spendWithinCap admitting spend one past
- * the cap), laws-refund-open.patch (refundOnlyPaid dropped).
+ * Plants (~/.cache/grizzle-release/BR13/plants): laws-le-strict.patch (a check's `le` lowered as `<`, so spend exactly
+ * at the cap is refused).
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore, type Kept } from "@grizzle/testing/explore"

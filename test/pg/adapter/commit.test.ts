@@ -20,8 +20,7 @@
  *
  * Features: every subset by every end, and 40001 at COMMIT.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): commit-retry.patch (a CommitRefused 40001 retried inside the call),
- * commit-transient-tag.patch (a 40001 at COMMIT classified as a refusal, not a TransientFailure).
+ * Plants (~/.cache/grizzle-release/BR13/plants): commit-transient-tag.patch (a 40001 reported as a deadlock).
  */
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"

@@ -17,8 +17,8 @@
  * is test/unit/text/parse.test.ts's, and that the limits judge the printed ARE whatever its spelling is
  * test/unit/text/lowering.test.ts's.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): differential-dollar-anchor.patch (the ARE translation of `$` matching
- * before a final line terminator).
+ * Plants (~/.cache/grizzle-release/BR13/plants): differential-dollar-anchor.patch (the end anchor translated as
+ * matching before a final newline).
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore, sketched } from "@grizzle/testing/explore"

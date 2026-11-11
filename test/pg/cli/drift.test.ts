@@ -26,7 +26,7 @@
  *
  * Features: every operator planted, nothing planted, and several at once.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): workflow-drift-unchecked.patch (the drift check comparing nothing).
+ * Plants (~/.cache/grizzle-release/BR13/plants): workflow-drift-unchecked.patch.
  */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"

@@ -24,8 +24,8 @@
  * Features: each place a waiter waits by each ending; each place a lease is cut, a lease kept to its end, and more
  * leases than the pool holds.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): pool-permit-lost.patch (a lease interrupted while it asks keeping its
- * permit), pool-retired-reused.patch, pool-release-awaits.patch.
+ * Plants (~/.cache/grizzle-release/BR13/plants): pool-permit-lost.patch (a closed session's permit never handed back),
+ * pool-retired-reused.patch, pool-release-awaits.patch.
  */
 import { layer } from "@effect/vitest"
 import { drawn, exhaust, explore, type Kept } from "@grizzle/testing/explore"

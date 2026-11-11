@@ -25,8 +25,8 @@
  * Features: every field's invalid class in every form, a wild value admitted, and wild nulls, proxies and lone
  * surrogates refused.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): api-errors-nul-admitted.patch (the text codec admitting NUL),
- * api-errors-slot-lost.patch (a parameter's refusal placed at the member, not its slot).
+ * Plants (~/.cache/grizzle-release/BR13/plants): api-errors-nul-admitted.patch (the text codec admitting NUL past a
+ * text's first character), api-errors-slot-lost.patch (a parameter's refusal placed at another slot).
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore, type Kept } from "@grizzle/testing/explore"

@@ -11,7 +11,7 @@
  * Features: how two spans meet; no spans, spans merged and kept apart; each generated query shape and relation.
  *
  * Plants (~/.cache/grizzle-release/BR13/plants): reference-difference-closed.patch (the reference's difference keeping
- * the subtracted span's lower bound).
+ * one point of the subtracted span).
  */
 import { describe, it, layer } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"

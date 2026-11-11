@@ -20,8 +20,8 @@
  *   admission derives hold the same validation; a refined query literal is validated wherever it is delivered.
  *
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): regex-complete-unchecked-param.patch (a scalar parameter's refinement
- * not checked at bind).
+ * Plants (~/.cache/grizzle-release/BR13/plants): regex-complete-unchecked-param.patch (a parameter's refinement not
+ * checked at bind).
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"

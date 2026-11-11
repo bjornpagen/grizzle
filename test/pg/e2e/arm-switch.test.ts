@@ -24,8 +24,8 @@
  *
  * Features: each form over each kind of task, by its outcome.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): arm-switch-put-as-insert.patch (a put sent as an insert, so the
- * replaced Task is refused by its key), arm-switch-witness.patch (a native violation reported with a key witness).
+ * Plants (~/.cache/grizzle-release/BR13/plants): arm-switch-put-counted-added.patch (an accepted write's puts counted
+ * as additions).
  */
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"

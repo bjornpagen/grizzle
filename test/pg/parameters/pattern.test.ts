@@ -8,7 +8,8 @@
  * value of which is outside its pattern is refused at bind, EncodingFailure with reason refinedValue, before any SQL;
  * every other case delivers exactly the values it bound.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): regex-complete-unchecked-param.patch.
+ * Plants (~/.cache/grizzle-release/BR13/plants): regex-complete-unchecked-param.patch (a parameter's refinement not
+ * checked at bind).
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"

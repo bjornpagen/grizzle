@@ -17,9 +17,8 @@
  *
  * Features: each access in each surrounding.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): deadlines-statement-timeout.patch (a session's startup options setting
- * statement_timeout), deadlines-vercel-deadline.patch (a Vercel request's deadline set as the transaction's
- * transaction_timeout).
+ * Plants (~/.cache/grizzle-release/BR13/plants): deadlines-statement-timeout.patch (a login's startup options setting
+ * statement_timeout).
  */
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"

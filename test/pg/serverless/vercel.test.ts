@@ -20,7 +20,7 @@
  * served file.
  *
  * Plants (~/.cache/grizzle-release/BR13/plants): vercel-attach-per-lease.patch (the pool hook called on every lease),
- * vercel-pool-on-global.patch (the layer's pool kept on globalThis).
+ * vercel-unattached.patch (the pool never handed to the hook).
  */
 import { layer } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"

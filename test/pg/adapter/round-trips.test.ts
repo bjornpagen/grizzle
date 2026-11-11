@@ -22,9 +22,9 @@
  * Features: each read kind over one part or several, a page alone and with its probe; apply, explain, a read-back and
  * nothing to write; a refresh of an unpopulated and of a populated view; each first call and several Dbs opened.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): round-trips-read-write.patch (a read's transaction opened READ WRITE),
- * round-trips-commit-flight.patch (COMMIT sent in a flight of its own), round-trips-refresh-frame.patch (a refresh
- * opened READ ONLY).
+ * Plants (~/.cache/grizzle-release/BR13/plants): round-trips-read-write.patch (a read's transaction opened READ
+ * WRITE), round-trips-commit-flight.patch (a call's COMMIT sent in a flight of its own),
+ * round-trips-refresh-frame.patch (a refresh opened READ ONLY).
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"

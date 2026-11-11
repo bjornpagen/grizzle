@@ -17,9 +17,8 @@
  * Features: a missing or wrong configured password refused beside the login's own in PGPASSWORD or the password file,
  * the login's own admitted beside another, and admitted under a PGOPTIONS that is set.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): environment-falsy-password.patch (noPassword handed to pg as an
- * empty password, which pg replaces from PGPASSWORD), environment-pgoptions.patch (a session's startup options left
- * to pg, which reads PGOPTIONS).
+ * Plants (~/.cache/grizzle-release/BR13/plants): environment-pgoptions.patch (a login's startup options left out, so
+ * pg sends PGOPTIONS).
  */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"

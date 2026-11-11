@@ -17,9 +17,9 @@
  * Interruption of a flight is test/pg/adapter/flight.test.ts's and interrupt.test.ts's; a lease's wait for a pooled
  * session is test/pg/serverless/pool.test.ts's.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): batch-parity-split-flight.patch (a flight flushed statement by
- * statement), batch-parity-refused-index.patch (a refusal reported one statement late),
- * batch-parity-reparse.patch (a served statement parsed again on every flight).
+ * Plants (~/.cache/grizzle-release/BR13/plants): batch-parity-split-flight.patch (a flight's COMMIT sent in a second
+ * flight), batch-parity-refused-index.patch (a refusal reported one statement late), batch-parity-reparse.patch (a
+ * served statement sent unnamed, parsed on every flight).
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"

@@ -11,8 +11,7 @@
  * own record: a request ending exactly at the instant recorded, one after it refused, and the revocation refused by
  * usage recorded first.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): revocation-usage-unchecked.patch (usageWhileActive's span coverage
- * not installed).
+ * Plants (~/.cache/grizzle-release/BR13/plants): span-key-overlaps.patch.
  */
 
 import { array, element, type Gen, int } from "@grizzle/testing/gen"

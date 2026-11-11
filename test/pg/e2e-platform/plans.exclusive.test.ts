@@ -38,8 +38,8 @@
  *
  * Features: a read by the busiest entities and by another, a week's window and a whole month's.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): plans-access-index-dropped.patch (the index engine creating no access
- * index for a workload read), plans-probe-unindexed.patch (a law probe merged into no index).
+ * Plants (~/.cache/grizzle-release/BR13/plants): plans-access-index-dropped.patch (the index engine planning no access
+ * index), plans-probe-unindexed.patch (the index engine planning no law probe index).
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"

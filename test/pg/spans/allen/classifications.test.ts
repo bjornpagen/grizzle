@@ -14,8 +14,8 @@
  *
  * Features: every basic relation a mask includes; each point type in each artifact; each window type at each edge.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): allen-table-meets-swapped.patch, classifications-point-in-closed.patch
- * (pointIn lowered as a closed containment, lo <= p <= hi).
+ * Plants (~/.cache/grizzle-release/BR13/plants): allen-atom-before-strict.patch,
+ * classifications-point-in-doubled.patch (pointIn lowered over the point doubled).
  */
 import { layer } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"

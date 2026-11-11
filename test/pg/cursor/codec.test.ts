@@ -11,8 +11,8 @@
  * is skipped or repeated. The host order of the decoded values agrees with PostgreSQL's (scalar/values compareValues).
  *
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): cursor-negative-zero.patch (a cursor's double written without its
- * sign at -0).
+ * Plants (~/.cache/grizzle-release/BR13/plants): cursor-double-as-real.patch (a cursor's double decoded at single
+ * precision).
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"

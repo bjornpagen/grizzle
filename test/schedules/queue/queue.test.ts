@@ -23,8 +23,8 @@
  *
  * Features: a write waited, a write refused.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): queue-seat-key-dropped.patch (the Seat candidate key on (resource,
- * seat) not installed).
+ * Plants (~/.cache/grizzle-release/BR13/plants): queue-candidate-keys-unenforced.patch (candidate keys installed as no
+ * constraint).
  */
 
 import { layer } from "@effect/vitest"

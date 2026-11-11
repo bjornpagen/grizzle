@@ -10,8 +10,8 @@
  *   the pair is in the mask, and each atom literal and its negation, PostgreSQL's operator, holds exactly where the
  *   host's transcription of it does.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): allen-table-meets-swapped.patch (the meets and met-by atoms of the
- * table formula swapped).
+ * Plants (~/.cache/grizzle-release/BR13/plants): allen-atom-before-strict.patch (the `<<` atom's relations read as
+ * strictly before, without meets).
  */
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"

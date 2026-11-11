@@ -9,8 +9,8 @@
  * must measure, and each gate's own verdict on what it measured; the box is the bench files of the owner's directories
  * at quick scale.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): bench-gate-unmeasured.patch (a bench file of each owner that records no
- * verdict for one of its gates).
+ * Plants (~/.cache/grizzle-release/BR13/plants): plans-access-index-dropped.patch (the query gates),
+ * plans-probe-unindexed.patch (the write and law gates).
  */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"

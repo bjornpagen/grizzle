@@ -24,8 +24,8 @@
  * Every setting at every value it is drawn at is a required situation, beside the installation-first path, both pins,
  * a refused write and a later page.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): environment-pgoptions.patch (a session's pinned defaults left out of
- * its startup options).
+ * Plants (~/.cache/grizzle-release/BR13/plants): environment-pgoptions.patch (a login's startup options left out, so
+ * its pinned defaults are not sent).
  */
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore, type Kept } from "@grizzle/testing/explore"

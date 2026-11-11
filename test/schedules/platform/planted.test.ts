@@ -23,9 +23,8 @@
  *
  * Features: every point of the space.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): planted-guard-row-level.patch (the SERIALIZABLE guard a row-level
- * trigger, which a statement touching no row never fires), planted-update-granted.patch (UPDATE granted on an immutable
- * relation).
+ * Plants (~/.cache/grizzle-release/BR13/plants): planted-guard-no-delete.patch (the SERIALIZABLE guard trigger firing
+ * on no DELETE).
  */
 
 import { layer } from "@effect/vitest"

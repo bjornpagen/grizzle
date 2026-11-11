@@ -24,8 +24,8 @@
  * Features: each executor, several schemas, the ledger fixture, each connection, and the refusal of a role that does not
  * own the schemas.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): cli-ledger-shared.patch (migrate recording every schema's folders in
- * the first schema's ledger), cli-owner-unchecked.patch (migrate skipping its owner stage).
+ * Plants (~/.cache/grizzle-release/BR13/plants): cli-owner-unchecked.patch (migrate's owner stage passing a schema
+ * another role owns).
  */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"

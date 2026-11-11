@@ -15,8 +15,7 @@
  * before the race, the first grant expiring mid-race (a put shortening its validity, by grizzle or a direct writer's
  * UPDATE in place, its debits kept), and a request submitted twice.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): credits-grant-overdraw.patch (grantWithinAmount's sum judged at the
- * statement, not at COMMIT).
+ * Plants (~/.cache/grizzle-release/BR13/plants): laws-le-strict.patch.
  */
 
 import { array, type Gen, int, shuffled, weighted } from "@grizzle/testing/gen"

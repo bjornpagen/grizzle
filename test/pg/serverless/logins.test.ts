@@ -19,8 +19,8 @@
  * Features: two installations, two logins of one installation, two roles of one login, requests at once, a login no
  * request opened, and a Db per request at volume.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): logins-shared-pool.patch (every login's layer sharing the first
- * login's pool).
+ * Plants (~/.cache/grizzle-release/BR13/plants): logins-eager-session.patch (a login's layer opening a session when it
+ * is built).
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"

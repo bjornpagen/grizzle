@@ -17,9 +17,8 @@
  *
  * Features: every plant through each path.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): connect-classes-closed-as-socket.patch (a connection closed at once
- * classified as a socket failure), connect-classes-password-in-message.patch (a wrong password's message quoting the
- * password).
+ * Plants (~/.cache/grizzle-release/BR13/plants): connect-classes-closed-as-socket.patch (pg's report of a connection
+ * closed at once no longer recognized, so it is misclassified).
  */
 import { createServer, type Socket } from "node:net"
 import { inspect } from "node:util"

@@ -18,7 +18,8 @@
  * flight; every standing, a release before any answer and mid-answer.
  *
  * Plants (~/.cache/grizzle-release/BR13/plants): pool-retired-reused.patch (a retired session released without an
- * error, so pg's Pool keeps it), pool-release-awaits.patch (a layer's release ending its sessions gracefully).
+ * error, so pg's Pool keeps it), interrupt-session-kept.patch (an interrupted flight's session left undestroyed),
+ * pool-release-awaits.patch (a layer's release leaving its sessions' connections up).
  */
 import { layer } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"

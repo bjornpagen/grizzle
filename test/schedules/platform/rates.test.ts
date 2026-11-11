@@ -18,7 +18,7 @@
  * The swarm adds a second split at a later instant, priced from the same card, so the two splits race for it: the
  * second to commit finds the card it retires gone and its own first part colliding with the first split's.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): rates-overlap.patch (rateInForce's span key installed without WITHOUT
+ * Plants (~/.cache/grizzle-release/BR13/plants): span-key-overlaps.patch (span keys installed without WITHOUT
  * OVERLAPS).
  */
 

@@ -19,9 +19,9 @@
  * through are the worlds model's (test/pg/world-model), and a Db's reads on databases with and without its schema are
  * test/pg/reads/open.test.ts's.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): connection-servername-host.patch (the verified name dropped for the
- * dialled host), connection-plaintext.patch (an `N` answer continuing without TLS), connection-password-cached.patch
- * (the password Effect's first answer kept for every later connection).
+ * Plants (~/.cache/grizzle-release/BR13/plants): connection-servername-host.patch (the certificate checked against the
+ * dialled host, not the verified name), connection-plaintext.patch (an SSLRequest answered `N` reported as
+ * unanswered), connection-password-twice.patch (the password Effect evaluated twice per attempt).
  */
 import { createServer, type Socket } from "node:net"
 import { layer } from "@effect/vitest"

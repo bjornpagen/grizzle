@@ -44,8 +44,8 @@
  *
  * Features: every command kind of the loop, each scenario among them.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): workflow-markers-unchecked.patch (migrate applying a folder whose
- * markers are unresolved), cli-ledger-shared.patch, workflow-drift-unchecked.patch (migrate skipping its drift check).
+ * Plants (~/.cache/grizzle-release/BR13/plants): workflow-markers-unchecked.patch (check finding no unresolved
+ * marker), workflow-drift-unchecked.patch (the drift check comparing no catalog fact).
  */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"

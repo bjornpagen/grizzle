@@ -5,7 +5,7 @@
  *
  * Features: each query kind over each endpoint kind.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): allen-table-meets-swapped.patch.
+ * Plants (~/.cache/grizzle-release/BR13/plants): allen-atom-before-strict.patch.
  */
 import { layer } from "@effect/vitest"
 import { drawn } from "@grizzle/testing/explore"

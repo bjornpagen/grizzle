@@ -11,8 +11,8 @@
  * - Parameters: a span parameter binds as its canonical text, and lower, upper and width read every stored span the
  *   window meets, exactly, a width past bigint's range among them; an empty or reversed window is refused by its codec.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): storage-shape-allows-empty.patch (the shape CHECK dropping its
- * isempty clause), storage-width-int4.patch (the width checked in int4, which overflows at the limits).
+ * Plants (~/.cache/grizzle-release/BR13/plants): storage-shape-unbounded-above.patch (the shape CHECK admitting a span
+ * unbounded above), storage-width-int4.patch (the width checked in integer, which overflows at the limits).
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"

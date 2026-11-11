@@ -8,8 +8,7 @@
  *
  * Features: each correlated outcome; each producer kind and tuple shape, with rows.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): producers-difference-adjacent.patch (a difference's pieces merged
- * across an adjacent Right span).
+ * Plants (~/.cache/grizzle-release/BR13/plants): producers-difference-swapped.patch (a difference's operands swapped).
  */
 import { layer } from "@effect/vitest"
 import { drawn } from "@grizzle/testing/explore"

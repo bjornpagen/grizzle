@@ -29,8 +29,7 @@
  *
  * Features: the apply waited, the apply refused.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): candidate-key-repeat-refused.patch (an exact repeat at a span key
- * reported as the key's law, not no-change).
+ * Plants (~/.cache/grizzle-release/BR13/plants): span-key-overlaps.patch.
  */
 
 import { layer } from "@effect/vitest"

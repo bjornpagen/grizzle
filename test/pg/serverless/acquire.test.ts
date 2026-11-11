@@ -12,9 +12,8 @@
  *
  * Features: every call by every way its connection can't be had.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): acquire-write-as-read.patch (a write's acquire refusal reported as a
- * ReadFailure), acquire-credential-swallowed.patch (a failing password Effect's CredentialError replaced by a driver
- * refusal).
+ * Plants (~/.cache/grizzle-release/BR13/plants): acquire-credential-stage.patch (a CredentialError read at stage
+ * transport).
  */
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"

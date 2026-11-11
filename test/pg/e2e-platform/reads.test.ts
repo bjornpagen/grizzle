@@ -24,8 +24,8 @@
  * grant expiring exactly at an event's start and at its end, a cap hit exactly, zero-token and cache-only events, a
  * tier boundary crossed within one event, an event split across grants.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): reads-attachment-parent-dropped.patch (a pipelined attachment's child
- * rows keyed by the wrong parent column), reads-page-skips.patch (a page's after-cursor comparison made inclusive).
+ * Plants (~/.cache/grizzle-release/BR13/plants): reads-page-skips.patch (a forward page's seek made inclusive, so its
+ * anchor repeats).
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore, type Kept } from "@grizzle/testing/explore"

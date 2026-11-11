@@ -13,8 +13,8 @@
  *
  * Features: each type rewritten, and selecting every fact, none and some; each tree shape above.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): endpoints-upper-inclusive.patch (the normal form reading a span's
- * upper bound as inclusive).
+ * Plants (~/.cache/grizzle-release/BR13/plants): endpoints-upper-inclusive.patch (pointIn of an upper endpoint read as
+ * inclusive).
  */
 import { layer } from "@effect/vitest"
 import { drawn, exhaust } from "@grizzle/testing/explore"

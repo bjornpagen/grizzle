@@ -28,8 +28,7 @@
  * Features: a read-committed write frame, each interruption point, a CancelRequest sent, each refused ending, and a
  * write committed after an interruption.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): flight-cancel-after-commit.patch (a CancelRequest sent while COMMIT is
- * awaited), interrupt-no-cancel.patch.
+ * Plants (~/.cache/grizzle-release/BR13/plants): interrupt-no-cancel.patch.
  */
 import { layer } from "@effect/vitest"
 import { type Case, explore, type Kept, sketched } from "@grizzle/testing/explore"
