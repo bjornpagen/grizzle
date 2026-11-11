@@ -8,7 +8,8 @@ import {
 	ConfigMissing,
 	ConfigUnloaded,
 	cliError,
-	ExportRefused
+	ExportRefused,
+	thrownOf
 } from "#cli/errors.ts"
 import { runCli } from "#cli/run.ts"
 
@@ -21,7 +22,7 @@ const written = (
 const unloaded =
 	(file: string) =>
 	(cause: unknown): CliError =>
-		cliError(new ConfigUnloaded({ file, cause }))
+		cliError(new ConfigUnloaded({ file, thrown: thrownOf(cause) }))
 
 /**
  * The configuration file at `file`, the absolute path the command line names, imported once.

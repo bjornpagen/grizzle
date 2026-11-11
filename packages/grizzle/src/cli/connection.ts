@@ -1,12 +1,17 @@
 import { Effect, Option, Result } from "effect"
 import { parseConnection, roleSettings } from "#adapter/connection/config.ts"
 import { startupVariableSet } from "#adapter/connection/environment.ts"
-import { readHost } from "#adapter/engine.ts"
 import { ConnectionEnvironmentRefused } from "#adapter/errors/failures.ts"
 import type { MigrationConnection } from "#adapter/migrate/session.ts"
 import type { MigrationConnectionConfig } from "#adapter/types/config.ts"
 import type { ResolvedConfig } from "#cli/config.ts"
-import { type CliError, ConnectionRefused, cliError } from "#cli/errors.ts"
+import {
+	type CliError,
+	ConnectionRefused,
+	ConnectionThrew,
+	cliError,
+	thrownOf
+} from "#cli/errors.ts"
 
 /**
  * Where `grizzle migrate` and `grizzle drift` connect: the configuration's connection, and nothing else. The command
@@ -38,12 +43,20 @@ export const ownerEnvironment: Effect.Effect<void, CliError> = Effect.flatMap(
 	})
 )
 
-/** The configuration's connection function threw, a refusal that quotes nothing it threw, which may hold a credential. */
-const connectionThrew = (): CliError =>
-	cliError(
-		new ConnectionRefused({
-			detail: "connection threw: it must return where grizzle migrate and grizzle drift connect"
-		})
+/**
+ * The connection the configuration's `connection` function returns, called once, then parsed (resolveConnection): a
+ * function that throws is refused as ConnectionThrew, which holds what it threw, its cause Redacted, and states its name
+ * and message (errors.ts Thrown), so an application's own refusal reaches the person running the command.
+ */
+export const calledConnection = (
+	connect: () => MigrationConnectionConfig
+): Result.Result<MigrationConnection, CliError> =>
+	Result.flatMap(
+		Result.try({
+			try: connect,
+			catch: (thrown) => cliError(new ConnectionThrew({ thrown: thrownOf(thrown) }))
+		}),
+		resolveConnection
 	)
 
 /**
@@ -53,7 +66,4 @@ const connectionThrew = (): CliError =>
 export const migrationConnection = (
 	config: ResolvedConfig
 ): Effect.Effect<MigrationConnection, CliError> =>
-	Effect.andThen(
-		ownerEnvironment,
-		Effect.fromResult(readHost(connectionThrew(), () => resolveConnection(config.connection())))
-	)
+	Effect.andThen(ownerEnvironment, Effect.fromResult(calledConnection(() => config.connection())))

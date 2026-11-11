@@ -9,6 +9,7 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
+	Data,
 	Effect,
 	Formatter,
 	Option,
@@ -23,8 +24,8 @@ import { type StartupVariable, startupVariableNames } from "#adapter/connection/
 import { ConnectionEnvironmentRefused } from "#adapter/errors/failures.ts"
 import type { MigrationConnection } from "#adapter/migrate/session.ts"
 import type { MigrationConnectionConfig } from "#adapter/types/config.ts"
-import { ownerEnvironment, resolveConnection } from "#cli/connection.ts"
-import type { CliError } from "#cli/errors.ts"
+import { calledConnection, ownerEnvironment, resolveConnection } from "#cli/connection.ts"
+import type { CliError, Said } from "#cli/errors.ts"
 import { assert, lacksText, nonEmpty, refusedAt, succeeded } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import {
@@ -47,6 +48,10 @@ import {
  *   another member runs.
  * - The role, the one setting a migration connection adds: one that is not a nonempty string, or none, is refused at
  *   stage config, naming the configuration's `connection.role`, and no refusal holds the password.
+ * - A connection function that throws (an Error, an application's tagged error holding the password Redacted, a value
+ *   that is no Error, an Error whose message throws when read), each holding the password, is refused at stage config
+ *   as ConnectionThrew, which holds exactly what was thrown, Redacted, and states of it exactly an Error's name and
+ *   message, nothing of a value that is no Error, and an unreadable message as unreadable: so it states no password.
  * - The process environment, the one node-postgres reads: drawn with `PGOPTIONS` and `PGREPLICATION` each absent, empty
  *   or at a text, a migration's is refused at stage environment exactly when one holds a text, with a
  *   ConnectionEnvironmentRefused naming the first of them and quoting no value, since an owner's session sets no
@@ -292,6 +297,55 @@ const roleRefusal = (r: Result.Result<MigrationConnection, CliError>, password: 
 	lacksText(reported(refused), password, "the refusal holds the password")
 }
 
+/** What a connection function throws, each holding the password, as an application's code may. */
+const thrownKinds = [
+	"an Error",
+	"a tagged error",
+	"a value that is no Error",
+	"an Error whose message throws"
+] as const
+type ThrownKind = (typeof thrownKinds)[number]
+
+/** An application's own refusal, as Effect.runSync throws a failed Effect's error: its message, the password Redacted. */
+class SettingMissing extends Data.TaggedError("SettingMissing")<{
+	readonly said: string
+	readonly password: Redacted.Redacted
+}> {
+	override get message(): string {
+		return this.said
+	}
+}
+
+/** What a connection function of `kind` throws, saying `said` and holding `password`, and what a refusal states of it. */
+interface ThrownCase {
+	readonly value: unknown
+	readonly said: Said
+}
+
+const thrownCase = (kind: ThrownKind, said: string, password: string): ThrownCase => {
+	switch (kind) {
+		case "an Error": {
+			const error = Object.assign(new Error(said), { password })
+			return { value: error, said: { kind: "error", name: error.name, message: said } }
+		}
+		case "a tagged error": {
+			const error = new SettingMissing({ said, password: Redacted.make(password) })
+			return { value: error, said: { kind: "error", name: error.name, message: said } }
+		}
+		case "a value that is no Error":
+			return { value: { message: said, password }, said: { kind: "noError" } }
+		case "an Error whose message throws":
+			return {
+				value: Object.defineProperty(new Error(said), "message", {
+					get: () => {
+						throw new Error(password)
+					}
+				}),
+				said: { kind: "unreadable" }
+			}
+	}
+}
+
 describe("the configuration's connection, generated", () => {
 	it.effect("resolves to exactly the drawn role and connection", (ctx) =>
 		searched(
@@ -347,6 +401,65 @@ describe("the configuration's connection, generated", () => {
 						Effect.sync(() => {
 							c.note(roleFaultKind(f))
 							roleRefusal(resolveConnection(faulty(d, f)), d.password)
+						})
+				)
+			)
+	)
+
+	it.effect(
+		"refuses a connection that throws at stage config, holding what it threw, stating an Error's message and never the password",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						oracle: { kind: "unstated" },
+						suite: "unit/cli/connection-threw",
+						draw: drawn(
+							(source) =>
+								[
+									source.draw(element(thrownKinds)),
+									source.draw(textPart),
+									source.draw(drawnGen)
+								] as const
+						),
+						literal: Formatter.format,
+						coverage: required<ThrownKind>(thrownKinds, { cases: 100, sense: notesOnly }),
+						kept: [],
+						runs: 100,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang
+					},
+					([kind, said, d], c) =>
+						Effect.sync(() => {
+							c.note(kind)
+							const thrown = thrownCase(kind, said, d.password)
+							const refused = refusedAt(
+								calledConnection(() => {
+									throw thrown.value
+								}),
+								"stage",
+								"config"
+							)
+							const reason = refused.reason
+							if (reason._tag !== "ConnectionThrew") {
+								return assert.fail(`a ConnectionThrew, not ${reason._tag}`)
+							}
+							assert.ok(
+								Redacted.isRedacted(reason.thrown.cause),
+								"the refusal holds its cause Redacted"
+							)
+							assert.ok(
+								Redacted.value(reason.thrown.cause) === thrown.value,
+								"the refusal holds exactly what was thrown"
+							)
+							assert.deepEqual(
+								reason.thrown.said,
+								thrown.said,
+								"the refusal states exactly an Error's name and message"
+							)
 						})
 				)
 			)

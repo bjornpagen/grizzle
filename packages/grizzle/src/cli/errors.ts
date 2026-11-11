@@ -1,9 +1,15 @@
-import { Array as Arr, Data, Formatter } from "effect"
+import { Array as Arr, Data, Formatter, Redacted, Result } from "effect"
+import { readHost } from "#adapter/engine.ts"
 import type { ConnectionEnvironmentRefused } from "#adapter/errors/failures.ts"
 import type { WorkloadPlace } from "#adapter/served/compile.ts"
 import type { DeclarationRefused } from "#cli/renames.ts"
 import type { FamilyId } from "#compiler/plan/change.ts"
-import { type CompileError, compileReasonText, isCompileError } from "#compiler/plan/common.ts"
+import {
+	type CompileError,
+	compileReasonText,
+	isCompileError,
+	nominal
+} from "#compiler/plan/common.ts"
 import {
 	maxMigrationNameLength,
 	metaFileName,
@@ -38,11 +44,11 @@ import { manifestFileName, snapshotFileName } from "#compiler/plan/serve.ts"
  * Every refusal happens before anything is written: a generate writes no folder of any schema until every configured
  * schema has drafted, and an apply hands nothing to the runner until every schema's directory reads.
  *
- * A failure underneath is grizzle's own classified value where it is one (a CompileError); `cause` is only a foreign
- * value wrapped: what importing the configuration file threw, or the platform's file system failure. Nothing a
- * CliError reports carries a credential, a connection password or a stored value: the configuration is named by its
- * keys, its connection by the setting the connection parser refuses, and the compiler's diagnostics carry source
- * locations and capabilities only.
+ * A failure underneath is grizzle's own classified value where it is one (a CompileError); a foreign value is held as
+ * a Thrown: what importing the configuration file threw, or the platform's file system failure, and what the
+ * configuration's connection threw. Nothing a CliError reports carries a credential, a connection password or a stored
+ * value: the configuration is named by its keys, its connection by the setting the connection parser refuses, a thrown
+ * value by its name and message alone, and the compiler's diagnostics carry source locations and capabilities only.
  */
 export type CliStage =
 	| "usage"
@@ -63,19 +69,79 @@ const codeOf = (failure: Error): string => {
 	return Error.isError(os) && "code" in os && typeof os.code === "string" ? ` (${os.code})` : ""
 }
 
+declare const thrownBrand: unique symbol
+
 /**
- * The text of a thrown value. A CompileError a builder threw is named by its message (its reason, location and sentence); any
- * other error by its name and message; anything else by its formatting.
+ * What a refusal states of a thrown value, as values (saidOf): a CompileError a builder threw by its message (its reason,
+ * location and sentence); any other Error by its name and message; an Error whose name or message throws when read, or
+ * is no text, as unreadable; and a value that is no Error by nothing of its content, which is data, not a message, and
+ * may hold a credential. A Redacted value an Error's message interpolates reads as its own rendering, `<redacted>`.
  */
-const thrownText = (thrown: unknown): string => {
+export type Said =
+	| { readonly kind: "compileError"; readonly message: string }
+	| { readonly kind: "error"; readonly name: string; readonly message: string }
+	| { readonly kind: "unreadable" }
+	| { readonly kind: "noError" }
+
+/**
+ * What the application's code threw, read once where it was caught (thrownOf): the value itself, `cause`, held Redacted,
+ * so no rendering of a refusal (its message, Formatter, inspect, JSON) shows any of its data, and `said`, what a refusal
+ * states of it. Only thrownOf mints one, so a refusal never states what it did not read off its own cause.
+ */
+export interface Thrown {
+	readonly cause: Redacted.Redacted<unknown>
+	readonly said: Said
+	readonly [thrownBrand]: true
+}
+
+/** The parts of a Thrown, which thrownOf alone brands. */
+interface ThrownParts {
+	readonly cause: Redacted.Redacted<unknown>
+	readonly said: Said
+}
+
+const unreadable: Said = { kind: "unreadable" }
+
+/** What a refusal states of `thrown` (Said), its name and message read once each. */
+const saidOf = (thrown: unknown): Said => {
 	if (isCompileError(thrown)) {
-		return `CompileError ${thrown.message}`
+		const message: unknown = thrown.message
+		return typeof message === "string" ? { kind: "compileError", message } : unreadable
 	}
 	if (Error.isError(thrown)) {
-		return `${thrown.name}: ${thrown.message}`
+		const name: unknown = thrown.name
+		const message: unknown = thrown.message
+		return typeof name === "string" && typeof message === "string"
+			? { kind: "error", name, message }
+			: unreadable
 	}
-	return Formatter.format(thrown)
+	return { kind: "noError" }
 }
+
+/** A Said as a refusal's message states it. */
+const saidText = (said: Said): string => {
+	switch (said.kind) {
+		case "compileError":
+			return `CompileError ${said.message}`
+		case "error":
+			return `${said.name}: ${said.message}`
+		case "unreadable":
+			return "an Error whose name or message is no text, or throws when read"
+		case "noError":
+			return "a value that is no Error, whose content no refusal quotes"
+	}
+}
+
+/**
+ * The Thrown of `thrown`, read once at the boundary (adapter/engine.ts readHost): its name and message read now, once,
+ * so a getter that answers otherwise later, or throws, meets nothing that reads it again; an Error whose reading throws
+ * is said to be unreadable.
+ */
+export const thrownOf = (thrown: unknown): Thrown =>
+	nominal<ThrownParts, Thrown>()({
+		cause: Redacted.make(thrown),
+		said: Result.merge(readHost(unreadable, () => Result.succeed(saidOf(thrown))))
+	})
 
 /** A configured schema as a refusal names it: its declared name, with its PostgreSQL schema when the two differ. */
 type SchemaNames = { readonly declared: string; readonly ident: string }
@@ -202,13 +268,13 @@ export class ConfigMissing extends Data.TaggedError("ConfigMissing")<{
 	}
 }
 
-/** The configuration file `file` could not be imported: `cause` is what its import, or the file system, threw. */
+/** The configuration file `file` could not be imported: `thrown` is what its import, or the file system, threw. */
 export class ConfigUnloaded extends Data.TaggedError("ConfigUnloaded")<{
 	readonly file: string
-	readonly cause: unknown
+	readonly thrown: Thrown
 }> {
 	override get message(): string {
-		return `${this.file} failed to load: ${thrownText(this.cause)}`
+		return `${this.file} failed to load: ${saidText(this.thrown.said)}`
 	}
 }
 
@@ -368,6 +434,18 @@ export class ConnectionRefused extends Data.TaggedError("ConnectionRefused")<{
 }> {
 	override get message(): string {
 		return this.detail
+	}
+}
+
+/**
+ * The configuration's `connection` threw instead of returning where `grizzle migrate` and `grizzle drift` connect:
+ * `thrown` is what it threw, its cause held Redacted, and the refusal states its name and message (Thrown).
+ */
+export class ConnectionThrew extends Data.TaggedError("ConnectionThrew")<{
+	readonly thrown: Thrown
+}> {
+	override get message(): string {
+		return `connection threw ${saidText(this.thrown.said)}; it must return where grizzle migrate and grizzle drift connect`
 	}
 }
 
@@ -667,6 +745,7 @@ type CliReason =
 	| SchemaEntryRefused
 	| LoginEntryRefused
 	| ConnectionRefused
+	| ConnectionThrew
 	| ConnectionEnvironmentRefused
 	| TreeRefused
 	| TreeUnread
@@ -695,6 +774,7 @@ const stageOf: { readonly [Tag in CliReason["_tag"]]: CliStage } = {
 	SchemaEntryRefused: "config",
 	LoginEntryRefused: "config",
 	ConnectionRefused: "config",
+	ConnectionThrew: "config",
 	ConnectionEnvironmentRefused: "environment",
 	TreeRefused: "filesystem",
 	TreeUnread: "filesystem",
