@@ -157,17 +157,19 @@ export interface RealWorld {
 	readonly probe: (session: number) => Effect.Effect<Probe>
 	/**
 	 * Direct session `session`'s transaction begun again, as its writer runs a transaction again after PostgreSQL refused
-	 * it with 40001 (drive/index.ts answered): whatever the session holds is ended with its psql child and backend, and a
-	 * child of `login` begins a transaction at `isolation` and sends `sent` in order, the session's every statement, so the
-	 * session stands where it stood before the refused statement or COMMIT. Each statement answers as it answered, ok or
-	 * rows; one refused with 40001 begins the transaction again, and any other answer is a defect of the run.
+	 * it with 40001 for the cluster's load (drive/index.ts answered, schedules/worlds.ts): at `isolation`, on the
+	 * session's own connection while it is open, on a new one of `login` once its COMMIT closed it, then `sent` in order,
+	 * the session's every statement, so the session stands where it stood before the refused statement or COMMIT. It
+	 * answers what each statement answered this time, a draw an insert made shown anew: ok or rows, since no session the
+	 * caller drives touched what they read meanwhile; one refused with 40001 begins the transaction again, and any other
+	 * answer is a defect of the run.
 	 */
 	readonly rebegin: (
 		session: number,
 		login: string,
 		isolation: Isolation,
 		sent: ReadonlyArray<DirectStatement>
-	) => Effect.Effect<void>
+	) => Effect.Effect<ReadonlyArray<Observation>>
 	/**
 	 * A psql child logged in as a login of the current installation, as a direct writer's is, with no transaction
 	 * begun: the caller begins and ends its transactions, and its scope ends the child. A schedule holds a lock with it
@@ -971,19 +973,41 @@ const realizeWith = (
 				return yield* started(id, session, startStatements(action.start))
 			})
 
+		/**
+		 * The session at `id` with its transaction begun again: on its own connection while it is open, its aborted
+		 * transaction rolled back and the reads it prepared, which outlive a transaction, deallocated; on a connection of
+		 * its login's own once its COMMIT closed it. The backend serving an open session stays its own, so a schedule
+		 * watching it sees every wait of its later moves.
+		 */
+		const begunAgain = (
+			id: number,
+			login: string,
+			isolation: Isolation
+		): Effect.Effect<DirectSession> =>
+			Effect.gen(function* () {
+				const held = yield* directSession(id)
+				if (Option.isNone(held)) {
+					const session = yield* begun(login, isolation)
+					yield* setSession(id, session)
+					return session
+				}
+				const session = held.value
+				yield* Effect.orDie(session.writer.run("ROLLBACK"))
+				yield* Effect.orDie(session.writer.run("DEALLOCATE ALL"))
+				session.prepared.clear()
+				yield* Effect.orDie(session.writer.run(beginSql(isolation)))
+				return session
+			})
+
 		const rebegin = (
 			id: number,
 			login: string,
 			isolation: Isolation,
 			sent: ReadonlyArray<DirectStatement>
-		): Effect.Effect<void> =>
+		): Effect.Effect<ReadonlyArray<Observation>> =>
 			Effect.gen(function* () {
-				const held = yield* sessionAt(id)
-				if (Option.isSome(held) && held.value.kind === "direct") {
-					yield* Scope.close(held.value.scope, Exit.void)
-				}
-				const session = yield* begun(login, isolation)
-				yield* setSession(id, session)
+				const session = yield* begunAgain(id, login, isolation)
+				const answers: Array<Observation> = []
 				for (const statement of sent) {
 					const answered = (yield* runDirect(reading(), directNames(), session, statement))
 						.observation
@@ -997,7 +1021,9 @@ const realizeWith = (
 							)
 						)
 					}
+					answers.push(answered)
 				}
+				return answers
 			})
 
 		/**

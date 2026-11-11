@@ -33,6 +33,7 @@ import {
 	directBranches,
 	directEndBranches,
 	directInterruptBranches,
+	begunSession,
 	sentBy,
 	startedBranches,
 	startStatements
@@ -75,7 +76,6 @@ import type {
 	Probe,
 	ReadBack,
 	ReadVia,
-	ModelSession,
 	Source,
 	Allowed,
 	HostValue,
@@ -458,17 +458,7 @@ export const step = (state: ModelState, action: Action): Arr.NonEmptyReadonlyArr
 			if (loginOf(state.install, action.login) === undefined) {
 				return [{ observation: { kind: "refused", sqlstate: "other" }, next: state }]
 			}
-			const session: ModelSession = {
-				kind: "direct",
-				login: action.login,
-				current: { kind: "login" },
-				claims: { kind: "none" },
-				isolation: action.isolation,
-				transaction: "open",
-				view: state.reality,
-				prepared: {},
-				sent: []
-			}
+			const session = begunSession(action.login, action.isolation, state.reality)
 			return startedBranches(
 				{ ...state, sessions: [...state.sessions, session] },
 				state.sessions.length,

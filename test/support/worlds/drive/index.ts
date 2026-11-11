@@ -18,7 +18,8 @@ import { invalidKindsOf } from "#test/support/worlds/generate/classify.ts"
 import { factKey } from "#test/support/worlds/model/host.ts"
 import { invariantsOf } from "#test/support/worlds/model/invariants.ts"
 import { driftOf } from "#test/support/worlds/model/session/catalog.ts"
-import { loginGone, sessionAt } from "#test/support/worlds/model/session/state.ts"
+import { begunSession } from "#test/support/worlds/model/session/direct.ts"
+import { loginGone, sessionAt, withSession } from "#test/support/worlds/model/session/state.ts"
 import {
 	adoptStored,
 	expectedProbe,
@@ -30,6 +31,7 @@ import {
 
 import type {
 	Action,
+	Allowed,
 	ClaimsSetting,
 	Defect,
 	DirectStatement,
@@ -493,14 +495,58 @@ const defectDivergence = (defect: Defect): Divergence => {
 }
 
 /**
- * One action performed: what the real system answered, the index of the branch nature chose among the action's, and
- * the state the model enters.
+ * One action performed: the state it was judged in, what the real system answered, the index of the branch nature
+ * chose among the action's, and the state the model enters. The state judged in is the one the action ran in, or, after
+ * a direct writer's transaction was begun again (answered), that state with the transaction as it was begun again.
  */
 export interface Stepped {
+	readonly before: ModelState
 	readonly observation: ActionOutcome
 	readonly branch: number
 	readonly next: ModelState
 }
+
+/**
+ * The branch nature chose among `branches` for an answer, and the state it leads to: the first of the answer's kind
+ * whose outcome it is (step.ts observedNext), each identity draw the answer showed bound as shown. A landing completes
+ * under the executor's names for its current installation, the one it landed; a branch of another kind is never the one
+ * nature chose.
+ */
+const branchTaken = (
+	world: RealWorld,
+	branches: Arr.NonEmptyReadonlyArray<Allowed>,
+	observed: Observation
+): Option.Option<{ readonly branch: number; readonly next: ModelState }> =>
+	Arr.findFirst(branches, (b, branch) =>
+		b.observation.kind === observed.kind
+			? Option.map(
+					Option.fromUndefinedOr(
+						observedNext(
+							settle(b, () => world.names),
+							observed
+						)
+					),
+					(next) => ({ branch, next })
+				)
+			: Option.none()
+	)
+
+/** The observation divergence of an answer no branch allows. */
+const unallowed = (
+	where: Where,
+	branches: Arr.NonEmptyReadonlyArray<Allowed>,
+	observed: Observation,
+	because: ReadonlyArray<string>
+): ModelMismatch =>
+	new ModelMismatch({
+		where,
+		divergence: {
+			_tag: "observation",
+			allowed: Arr.map(branches, (b) => Formatter.format(b.observation)),
+			observed: Formatter.format(observed),
+			because
+		}
+	})
 
 /**
  * Every feature the driver notes of an action's outcome in the state it ran in: the invalid kinds its inputs are, and
@@ -540,35 +586,16 @@ export const judged = (
 		if (isDefect(observed)) {
 			return yield* new ModelMismatch({ where, divergence: defectDivergence(observed) })
 		}
-		/**
-		 * A landing whose outcome is the observed one's kind completes under the executor's names for its current
-		 * installation, the one it landed; one of another kind is never the branch nature chose.
-		 */
-		const taken = Arr.findFirst(branches, (b, branch) =>
-			b.observation.kind === observed.kind
-				? Option.map(
-						Option.fromUndefinedOr(
-							observedNext(
-								settle(b, () => world.names),
-								observed
-							)
-						),
-						(next) => ({ branch, next })
-					)
-				: Option.none()
-		)
+		const taken = branchTaken(world, branches, observed)
 		if (Option.isNone(taken)) {
-			return yield* new ModelMismatch({
-				where,
-				divergence: {
-					_tag: "observation",
-					allowed: Arr.map(branches, (b) => Formatter.format(b.observation)),
-					observed: Formatter.format(observed),
-					because
-				}
-			})
+			return yield* unallowed(where, branches, observed, because)
 		}
-		return { observation: observed, branch: taken.value.branch, next: taken.value.next }
+		return {
+			before: state,
+			observation: observed,
+			branch: taken.value.branch,
+			next: taken.value.next
+		}
 	})
 
 /**
@@ -615,11 +642,13 @@ const rerunOf = (state: ModelState, action: Action, observation: Observation): R
 
 /**
  * An action performed as a serial program's caller performs it, and judged (judged): an answer SSI decided by the
- * cluster's load (Rerun) is first held to the model as one of its branches, then the action runs again from the state
- * it ran in, a Db call once the real system is checked to stand where it stood, a direct writer's statement or COMMIT
- * once its transaction is begun again (RealWorld.rebegin), as test/support/transient.ts untilAnswered runs a call: no
- * count bounds it, and a refusal the load never stops hangs its case. A case's notes, the actions it draws after and the
- * seeds its steered phase mutates are then the answer's alone, the same on a quiet cluster and a loaded one.
+ * cluster's load (Rerun) is first held to the model as one of its branches, then the action runs again, as
+ * test/support/transient.ts untilAnswered runs a call: a Db call from the state it ran in, once the real system is checked
+ * to stand where it stood; a direct writer's statement or COMMIT once its transaction is begun again (RealWorld.rebegin),
+ * from the state with the transaction as it was begun again (rebegun), so the model holds the draws its inserts made
+ * this time, never those the refused transaction showed. No count bounds it, and a refusal the load never stops hangs
+ * its case. A case's notes, the actions it draws after and the seeds its steered phase mutates are then the answer's
+ * alone, the same on a quiet cluster and a loaded one.
  */
 const answered = (
 	world: RealWorld,
@@ -636,11 +665,54 @@ const answered = (
 			case "call":
 				yield* checkState(world, state, { _tag: "step", index, action: Formatter.format(action) })
 				return yield* answered(world, state, action, index)
-			case "transaction":
-				yield* world.rebegin(rerun.session, rerun.login, rerun.isolation, rerun.sent)
-				return yield* answered(world, state, action, index)
+			case "transaction": {
+				const answers = yield* world.rebegin(
+					rerun.session,
+					rerun.login,
+					rerun.isolation,
+					rerun.sent
+				)
+				const again = yield* rebegun(world, state, rerun, answers, index)
+				return yield* answered(world, again, action, index)
+			}
 		}
 	})
+
+/**
+ * The state with a direct writer's transaction as it was begun again (RealWorld.rebegin): the session begun anew over
+ * the state's reality, which no other session's write changed while the transaction was open (`serial`), and each
+ * statement it had sent judged by the model with what it answered this time, each identity draw an insert made bound
+ * as the answer showed it, never as the refused transaction's answers did. An answer no branch allows is the
+ * transaction's divergence, at the action that was refused.
+ */
+const rebegun = (
+	world: RealWorld,
+	state: ModelState,
+	rerun: Extract<Rerun, { readonly kind: "transaction" }>,
+	answers: ReadonlyArray<Observation>,
+	index: number
+): Effect.Effect<ModelState, ModelMismatch> =>
+	Effect.reduce(
+		Arr.zip(rerun.sent, answers),
+		() =>
+			withSession(state, rerun.session, begunSession(rerun.login, rerun.isolation, state.reality)),
+		(at, [statement, answer]) => {
+			const action: Action = { kind: "direct", session: rerun.session, statement }
+			const branches = step(at, action)
+			return Option.match(branchTaken(world, branches, answer), {
+				onNone: () =>
+					Effect.fail(
+						unallowed(
+							{ _tag: "step", index, action: Formatter.format(action) },
+							branches,
+							answer,
+							[]
+						)
+					),
+				onSome: (taken) => Effect.succeed(taken.next)
+			})
+		}
+	)
 
 /**
  * What the driver notes of a case: the features of each action it performs. A property's Case is one; setup the
@@ -676,6 +748,6 @@ export const runStep = (
 		}
 		const taken = yield* answered(world, state, action, index)
 		const next = yield* checkState(world, taken.next, where)
-		c.noteAll(notedOf(state, action, taken.observation))
+		c.noteAll(notedOf(taken.before, action, taken.observation))
 		return { ...taken, next }
 	})

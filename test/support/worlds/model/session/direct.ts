@@ -72,6 +72,7 @@ import type {
 	HostState,
 	InstallSpec,
 	InstalledNames,
+	Isolation,
 	ModelState,
 	RoleRef,
 	RoleSpec,
@@ -589,6 +590,26 @@ export const startStatements = (start: DirectStart): ReadonlyArray<DirectStateme
 		start.claims.kind === "set" ? [{ kind: "set-claims", setting: start.claims.setting }] : []
 	return [...role, ...claims]
 }
+
+/**
+ * A direct writer's session as its BEGIN leaves it, over `reality`: acting as its login, under no claims, its
+ * transaction open at `isolation`, having sent and prepared nothing. Its start statements follow (startedBranches).
+ */
+export const begunSession = (
+	login: string,
+	isolation: Isolation,
+	reality: HostState
+): DirectSessionState => ({
+	kind: "direct",
+	login,
+	current: { kind: "login" },
+	claims: { kind: "none" },
+	isolation,
+	transaction: "open",
+	view: reality,
+	prepared: {},
+	sent: []
+})
 
 /** The state with what direct session `id` sent followed by `statement`, while the session is a direct one. */
 export const sentBy = (state: ModelState, id: number, statement: DirectStatement): ModelState => {

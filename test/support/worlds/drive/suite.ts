@@ -1690,7 +1690,7 @@ export const driveProgram = <F extends string>(
 						const stepped = yield* runStep(staged.world, at.state, action, index, c)
 						const seen: Seen = {
 							index,
-							before: at.state,
+							before: stepped.before,
 							action,
 							observation: stepped.observation,
 							after: stepped.next
@@ -1701,7 +1701,7 @@ export const driveProgram = <F extends string>(
 							seen: [...at.seen, seen],
 							reached: new Set<string>([
 								...at.reached,
-								...notedOf(at.state, action, stepped.observation)
+								...notedOf(stepped.before, action, stepped.observation)
 							])
 						}
 					})
