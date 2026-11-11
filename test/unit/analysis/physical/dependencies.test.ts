@@ -40,7 +40,7 @@ import {
 	DependencyDraft,
 	hiddenIn,
 	justify,
-	row
+	rowAttribute as row
 } from "#compiler/analysis/physical/fds.ts"
 import type { PhysicalProps } from "#compiler/analysis/physical/props.ts"
 import { appendAll } from "#compiler/core/array.ts"
