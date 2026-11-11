@@ -18,6 +18,7 @@ import {
 	literal,
 	not,
 	notExists,
+	nullOf,
 	param,
 	query,
 	text
@@ -72,8 +73,8 @@ export const servedLiveOf = (root: string, source: LiveSource): ServedLive => {
 	const changes = fromFunction(
 		call("pg_logical_slot_peek_binary_changes", [
 			param(1, "name"),
-			param(2, "pg_lsn"),
-			param(3, "integer"),
+			nullOf("pg_lsn"),
+			nullOf("integer"),
 			text("proto_version"),
 			text(protocolVersion),
 			text("publication_names"),

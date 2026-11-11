@@ -141,6 +141,11 @@ export type CatalogExpr =
 			readonly type: CatalogCast
 	  }
 	| { readonly kind: "cast"; readonly expr: CatalogExpr; readonly type: CatalogCast }
+	| {
+			/** NULL of `type`: an argument a catalog function reads as none, as a decoding function's bound. */
+			readonly kind: "null"
+			readonly type: CatalogCast
+	  }
 	| CatalogCall
 	| { readonly kind: "countStar" }
 	| {
@@ -420,6 +425,12 @@ export const literal = (value: string | bigint | boolean, type: CatalogTypeName)
 
 /** A text literal. */
 export const text = (value: string): CatalogExpr => literal(value, "text")
+
+/** NULL of `type`. */
+export const nullOf = (type: CatalogTypeName): CatalogExpr => ({
+	kind: "null",
+	type: catalogType(type)
+})
 
 /** A "char" literal, a catalog's one-letter code. */
 export const letter = (value: string): CatalogExpr => literal(value, "char")

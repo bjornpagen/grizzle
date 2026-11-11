@@ -156,8 +156,8 @@ export interface ServedSession {
  * - `lock`: the session-level advisory lock of the leadership;
  * - `create`: the slot, permanent, of pgoutput, created where none of its name stands; no row where one does;
  * - `check`: whether the slot stands in the current database, not invalidated;
- * - `peek`: the slot's changes up to `$2::pg_lsn` and at most `$3::integer` of them, each NULL for none, as hex of
- *   pgoutput's protocol version 1 over the publication with its messages, without consuming them;
+ * - `peek`: every change the slot holds, as hex of pgoutput's protocol version 1 over the publication with its
+ *   messages, without consuming them;
  * - `visible`: for each transaction id of `$1::text[]`, whether the statement's snapshot holds its commit;
  * - `fanout`: a notification on the channel for each payload of `$1::text[]`;
  * - `advance`: the slot advanced to `$2::pg_lsn`, its new position as text;

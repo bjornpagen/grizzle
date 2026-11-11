@@ -1899,6 +1899,8 @@ export const catalogExpr = (e: CatalogExpr): Printed => {
 			return printed(catalogCall(e), "atom")
 		case "countStar":
 			return printed(`${inCatalog("count")}(*)`, "atom")
+		case "null":
+			return printed(`NULL::${printCatalogCast(e.type)}`, "cast")
 		case "joinedSet": {
 			const value = catalogExpr(e.value).text
 			return printed(
