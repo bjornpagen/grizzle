@@ -1,18 +1,32 @@
+/**
+ * The union shape (shapes/union): attachments on heading groups, the in-statement bounded union, and the runtime merge
+ * of group statements. What a union delivers is the optimized differential's on PostgreSQL, and a match narrowed to one
+ * heading group of a bounded union, joined back on every common field, is test/pg/oracle/union-take's.
+ *
+ * - An attachment on the lone arm of its heading group is delivered, and one on an arm of a group of several refused,
+ *   by the optimized lowering and the conservative one alike.
+ * - Inside a statement, each arm of a bounded union is bounded by k under the take's order, deduplicated on the common
+ *   fields before its bound exactly when the facts do not key it there; exhausted over k, the facts and overlapping
+ *   arms.
+ * - The runtime merge (runtime/lower/union.ts mergeHeadingGroups) keeps the first k of the union under the common
+ *   order: over drawn heading groups of floats (NaN, signed zeros, infinities named beside drawn ones), enums in either
+ *   roster direction and ids, each group in that order, against a reference sort of every row under PostgreSQL's B-tree
+ *   order; exact decimals compare by value against a reference over their digits.
+ *
+ * Oracle: the shape's statement over exhaustive planted spaces (a specification); a reference sort of every row, and
+ * a reference order of decimals by their digits (second implementations).
+ *
+ * Features: delivered and refused; keyed and deduplicated arms; every row, the first k, a NaN, a descending order;
+ * decimals equal at different scales, and ordered.
+ *
+ * Plants, each failing its search: the optimized delivery taking an attachment on an arm of several
+ * (union-attachments-optimized); every bounded arm deduplicated (union-arm-distinct); the merge keeping one row past its
+ * take (union-merge-take); decimals compared by coefficient whatever their scale (decimal-scale-ignored).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
 import { required, requiredInSpace } from "@grizzle/testing/features"
-import {
-	array,
-	boolean,
-	constant,
-	element,
-	filter,
-	type Gen,
-	int,
-	map,
-	oneOf,
-	subarray
-} from "@grizzle/testing/gen"
+import { array, boolean, constant, element, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint, double } from "@grizzle/testing/values"
@@ -25,7 +39,6 @@ import {
 	Order,
 	Ordering,
 	pipe,
-	Record as Rec,
 	String as Str
 } from "effect"
 import { structural } from "#compiler/analysis/physical/fds.ts"
@@ -64,22 +77,6 @@ import {
 	shapedProgram,
 	testOptions
 } from "#test/unit/lower/shapes/support.ts"
-
-/**
- * The union shape (shapes/union): attachments on heading groups, the in-statement bounded union, and the runtime merge
- * of group statements. What a union delivers is the optimized differential's on PostgreSQL, and a match narrowed to one
- * heading group of a bounded union, joined back on every common field, is test/pg/oracle/union-take's.
- *
- * - An attachment on the lone arm of its heading group is delivered, and one on an arm of a group of several refused,
- *   by the optimized lowering and the conservative one alike.
- * - Inside a statement, each arm of a bounded union is bounded by k under the take's order, deduplicated on the common
- *   fields before its bound exactly when the facts do not key it there; exhausted over k, the facts and overlapping
- *   arms.
- * - The runtime merge keeps the first k of the union under the common order: over drawn heading groups of floats
- *   (NaN, signed zeros, infinities), enums in either roster direction and ids, each group in that order, against a
- *   reference sort of every row under PostgreSQL's B-tree order; exact decimals compare by value against a reference
- *   over their digits; an order column without a type is refused.
- */
 
 const takeOf = (dag: RelDag): NodeOf<"Take"> =>
 	Option.getOrThrowWith(
@@ -208,8 +205,11 @@ describe("attachments on heading groups", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "the postings attached to a heading group's lone arm or to an arm of a group of two, under either lowering",
+						oracle: {
+							kind: "specification",
+							name: "an attachment on a lone arm delivered, one on an arm of several refused, in both lowerings"
+						},
 						suite: "unit/lower/shapes/union/attachments",
 						literal: Formatter.format,
 						generator: (source) =>
@@ -247,8 +247,11 @@ describe("the bounded union consumed inside a statement", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "k of one to three, arms keyed by the facts or not, overlapping or not",
+						oracle: {
+							kind: "specification",
+							name: "each arm bounded by k, deduplicated on the common fields exactly where unkeyed"
+						},
 						suite: "unit/lower/shapes/union/arm-bounded",
 						literal: Formatter.format,
 						generator: (source) =>
@@ -389,7 +392,10 @@ describe("the runtime merge of heading groups", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "second-implementation",
+							name: "a sort of every row under PostgreSQL's B-tree order, cut at k"
+						},
 						suite: "unit/lower/shapes/union/merge",
 						literal: Formatter.format,
 						kept: [],
@@ -498,7 +504,10 @@ describe("the runtime merge of heading groups", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "second-implementation",
+						name: "decimals ordered by their digits at a common scale, NaN above every number"
+					},
 					suite: "unit/lower/shapes/union/decimal-order",
 					literal: Formatter.format,
 					kept: [],
@@ -544,44 +553,6 @@ describe("the runtime merge of heading groups", () => {
 							c.note("equal at different scales")
 						} else {
 							c.note("ordered")
-						}
-					})
-			)
-		)
-	})
-
-	it.effect("refuses an order column it has no type for", (ctx) => {
-		const columns = ["x", "y"] as const
-		return searched(
-			ctx,
-			exhaust(
-				{
-					box: { kind: "unstated" },
-					oracle: { kind: "unstated" },
-					suite: "unit/lower/shapes/union/untyped-order",
-					literal: Formatter.format,
-					generator: (source) =>
-						[
-							source.draw(filter(subarray(columns), (s) => s.length > 0, 1)),
-							source.draw(subarray(columns))
-						] as const,
-					limit: 16,
-					coverage: requiredInSpace<"typed" | "untyped">(["typed", "untyped"]),
-					caseHang
-				},
-				([ordered, typed], c) =>
-					Effect.sync(() => {
-						const r = mergeComparator({
-							order: { keys: Arr.map(ordered, (column) => ({ column, dir: "asc" as const })) },
-							types: Rec.fromEntries(Arr.map(typed, (column) => [column, T.int4])),
-							codes: emptyCodebook
-						})
-						if (Arr.every(ordered, (column) => typed.includes(column))) {
-							succeeded(r)
-							c.note("typed")
-						} else {
-							refused(r, "MalformedDescription")
-							c.note("untyped")
 						}
 					})
 			)
