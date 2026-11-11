@@ -22,7 +22,6 @@ import {
 	fold,
 	type HeadOf,
 	type Infer,
-	type Page,
 	type KeysOf,
 	key,
 	login,
@@ -30,7 +29,6 @@ import {
 	mutable,
 	natural,
 	on,
-	type PageCursor,
 	paged,
 	type ParamsOf,
 	type ParamType,
@@ -62,7 +60,6 @@ import { verifyToken } from "@clerk/backend"
 import { attachDatabasePool } from "@vercel/functions/db-connections"
 import { Config, Effect, type Layer, ManagedRuntime, type Option, Redacted, Schema } from "effect"
 import pgDriver from "pg"
-import { oneOf, rowsOf } from "#test/support/calls.ts"
 
 type Equals<A, B> =
 	(<X>(x: X) => X extends A ? 1 : 2) extends <X>(x: X) => X extends B ? 1 : 2 ? true : false
@@ -161,12 +158,18 @@ export const Admin = role(Billing, "admin", wholeEntriesOf(Billing), {
 })
 
 /** An organization's subscription and its first post: one write, judged as a whole. */
-export const launch = (
-	db: Db<typeof Admin, unknown>,
+export const launch = ChangeSet.empty(Billing).insert(Subscription, []).insert(Post, [])
+export const onboarding = workload(Admin, { launch })
+
+export const launchOrg = (
+	db: Db<typeof Admin, typeof onboarding.programs>,
 	subscription: Fact<typeof Subscription>,
 	post: Fact<typeof Post>
 ) =>
-	db.apply(ChangeSet.empty(Billing).insert(Subscription, [subscription]).insert(Post, [post]), {})
+	db.workload.launch.once({
+		params: {},
+		facts: { insert: { Subscription: [subscription], Post: [post] } }
+	})
 
 /** README: "Hard in Drizzle, one declaration here", 1. Every organization sees only its own rows. */
 export const ApiKey = relation("ApiKey", { id: uuid, org: ClerkOrg, name: Title }, ["id"])
@@ -313,10 +316,16 @@ export const Credits = schema("Credits", { Grant, Debit }, [
 export const Metering = role(Credits, "metering", wholeEntriesOf(Credits), { write: ["Debit"] })
 
 /** Debit a grant for one call. Your code decides the retry; grizzle never retries. */
-export const spend = (db: Db<typeof Metering, unknown>, debit: Fact<typeof Debit>) =>
-	db
-		.apply(ChangeSet.empty(Credits).insert(Debit, [debit]), {})
-		.pipe(Effect.retry({ while: (e) => e._tag === "TransientFailure", times: 3 }))
+export const debitGrant = ChangeSet.empty(Credits).insert(Debit, [])
+export const metering = workload(Metering, { debitGrant })
+
+export const spend = (
+	db: Db<typeof Metering, typeof metering.programs>,
+	debit: Fact<typeof Debit>
+) =>
+	db.workload.debitGrant
+		.once({ params: {}, facts: { insert: { Debit: [debit] } } })
+		.pipe(Effect.retry({ while: (e) => e.kind === "transient", times: 3 }))
 
 /** README: "Hard in Drizzle, one declaration here", 6. Books that always balance. */
 const AccountCode = str.regex("^[a-z][a-z_]{0,63}$")
@@ -457,14 +466,21 @@ export const UsageApi = login(Reporting, "usage_api", [Analyst], { workload: [us
 
 type AnalystDb = Db<typeof Analyst, typeof usage.programs>
 
-/** The first 50 calls, and the 50 after a cursor the client sent back. */
+/** Where a window of the log starts: its first calls, or after a call's key the client sent back. */
+type CallAnchor = Parameters<AnalystDb["workload"]["callLog"]["once"]>[0]["window"]["anchor"]
+
+/** The first 50 calls, and the 50 after a key the client sent back. */
 export const firstCalls = (db: AnalystDb, workspace: Uuid) =>
-	db.workload.callLog.page({ workspace }, { first: 50 })
-export const moreCalls = (db: AnalystDb, workspace: Uuid, after: PageCursor<typeof callLog>) =>
-	db.workload.callLog.page({ workspace }, { first: 50, after })
+	db.workload.callLog.once({
+		params: { workspace },
+		facts: {},
+		window: { anchor: { kind: "start" }, size: 50 }
+	})
+export const moreCalls = (db: AnalystDb, workspace: Uuid, anchor: CallAnchor) =>
+	db.workload.callLog.once({ params: { workspace }, facts: {}, window: { anchor, size: 50 } })
 
 export const spendOn = (db: AnalystDb, workspace: Uuid, model: string) =>
-	oneOf(db.workload.modelSpend.once({ params: { workspace, model }, facts: {} }))
+	db.workload.modelSpend.once({ params: { workspace, model }, facts: {} })
 export const nightly = (db: AnalystDb) => db.workload.nightly.once({ params: {}, facts: {} })
 
 /** README: "Example", "Who is asking". */
@@ -550,13 +566,21 @@ export const memberFeed = query(MemberBlog).rule((r) => {
 	return r.match(MemberPost, { id, title }).find({ id, title })
 })
 
+/** A member's draft post: each call gives its fact, whose `author` and `org` the insert fills from the token. */
+export const draft = ChangeSet.empty(MemberBlog).insert(MyPost, [])
+
+/** The ETL job's view counts: each call gives the counts it puts. */
+export const recordViews = ChangeSet.empty(Etl).put(PostViews, [])
+
 export const anonReads = workload(AnonBlog, { anonFeed })
 export const memberReads = workload(MemberBlog, { memberFeed })
+export const memberWrites = workload(MemberBlog, { draft })
+export const etlWrites = workload(Etl, { recordViews })
 
 export const Web = login(Blog, "web", [AnonBlog, MemberBlog], {
-	workload: [anonReads, memberReads]
+	workload: [anonReads, memberReads, memberWrites]
 })
-export const EtlJob = login(Blog, "etl_job", [Etl])
+export const EtlJob = login(Blog, "etl_job", [Etl], { workload: [etlWrites] })
 
 /**
  * README: "Example", "Connecting". The README imports `webFile` and `etlJobFile` from
@@ -624,9 +648,6 @@ const PostId = Schema.TemplateLiteral([
 /** The client names a draft's id, so a POST sent twice inserts it once. */
 const Draft = Schema.Struct({ id: PostId, title: Schema.String, body: Schema.String })
 
-export const draft = (post: typeof Draft.Type) =>
-	ChangeSet.empty(MemberBlog).insert(MyPost, [{ ...post, status: "Draft" }])
-
 const web = ManagedRuntime.make(WebLayer)
 const bearer = (request: Request) =>
 	/^Bearer (.+)$/.exec(request.headers.get("authorization") ?? "")?.[1]
@@ -637,10 +658,10 @@ export const GET = (request: Request): Promise<Response> => {
 	const feed = Effect.gen(function* () {
 		if (token === undefined) {
 			const db = yield* Db.open(WebServed.roles.anon, {})
-			return yield* rowsOf(db.workload.anonFeed.once({ params: {}, facts: {} }))
+			return [...(yield* db.workload.anonFeed.once({ params: {}, facts: {} }))]
 		}
 		const db = yield* Db.open(WebServed.roles.member, { token })
-		return yield* rowsOf(db.workload.memberFeed.once({ params: {}, facts: {} }))
+		return [...(yield* db.workload.memberFeed.once({ params: {}, facts: {} }))]
 	})
 	return web.runPromise(Effect.map(feed, (rows) => Response.json(rows)))
 }
@@ -656,17 +677,15 @@ export const POST = (request: Request): Promise<Response> => {
 			Schema.decodeUnknownEffect(Draft)
 		)
 		const db = yield* Db.open(WebServed.roles.member, { token })
-		const outcome = yield* db.apply(draft(post), {})
-		switch (outcome.kind) {
-			case "accepted":
-				return 201
-			case "no-change":
-				return 200
-			case "outside-world":
-				return 403
-			case "invariant-rejected":
-				return 409
-		}
+		return yield* db.workload.draft
+			.once({ params: {}, facts: { insert: { MyPost: [{ ...post, status: "Draft" }] } } })
+			.pipe(
+				Effect.map((outcome) => (outcome.kind === "accepted" ? 201 : 200)),
+				Effect.catchIf(
+					(error) => error.kind === "outsideWorld" || error.kind === "refused",
+					(error) => Effect.succeed(error.kind === "outsideWorld" ? 403 : 409)
+				)
+			)
 	})
 	return web.runPromise(Effect.map(posted, (status) => new Response(null, { status })))
 }
@@ -690,8 +709,10 @@ export const loadViews = (views: ReadonlyArray<{ readonly post: Uuid; readonly v
 	etl.runPromise(
 		Effect.gen(function* () {
 			const db = yield* Db.open(EtlServed.roles.etl, {})
-			return yield* db.apply(ChangeSet.empty(Etl).put(PostViews, views), {})
-		}).pipe(Effect.retry({ while: (e) => e._tag === "TransientFailure", times: 4 }))
+			return yield* db.workload.recordViews
+				.once({ params: {}, facts: { put: { PostViews: views } } })
+				.pipe(Effect.retry({ while: (e) => e.kind === "transient", times: 4 }))
+		})
 	)
 
 /** README: "Rules", the box office. */
@@ -1004,17 +1025,20 @@ export type PostPageParams = Expect<
 	Equals<ParamsOf<typeof postPage>, { readonly id: ParamType<Uuid, "uuid"> }>
 >
 
-/** "grizzle knows postPage returns at most one row, so db.get accepts it": on a role holding the schema whole. */
-const Staff = role(Blog, "staff", wholeEntriesOf(Blog))
-declare const staff: Db<typeof Staff, unknown>
-export const onePage = staff.get(postPage, { id: "00000000-0000-0000-0000-000000000000" })
-export type OnePage = Expect<
-	Equals<Effect.Success<typeof onePage>, Option.Option<HeadOf<typeof postPage>>>
->
+/** The rows a read's value holds, in its order. */
+type RowsOf<V> = V extends Iterable<infer Row> ? Row : never
 
-/** "db.get on a query that can return several rows is a type error". */
-// @ts-expect-error -- refusal: get needs a query proved at most one row per parameter binding
-export const manyPages = staff.get(published, {})
+/** "a query over the schema runs on a role holding the schema whole": its value holds its rows. */
+const Staff = role(Blog, "staff", wholeEntriesOf(Blog))
+const staffReads = workload(Staff, { postPage, post: Post })
+declare const staff: Db<typeof Staff, typeof staffReads.programs>
+export const onePage = staff.workload.postPage.once({
+	params: { id: "00000000-0000-0000-0000-000000000000" },
+	facts: {}
+})
+export type OnePage = Expect<
+	Equals<RowsOf<Effect.Success<typeof onePage>>, HeadOf<typeof postPage>>
+>
 
 export type AnonFeedHead = Expect<
 	Equals<HeadOf<typeof anonFeed>, { readonly id: Uuid; readonly title: string }>
@@ -1055,9 +1079,12 @@ export type PlaceKeys = Expect<
 	Equals<KeysOf<typeof Waitlist, typeof Place>, readonly ["show", "at"]>
 >
 
-/** "db.get(Post, { id })": a table by its key. */
-export const byKey = staff.get(Post, { id: "00000000-0000-0000-0000-000000000000" })
-export type ByKey = Expect<Equals<Effect.Success<typeof byKey>, Option.Option<Fact<typeof Post>>>>
+/** "a workload's member Post reads a table by its key": its params are the key's values. */
+export const byKey = staff.workload.post.once({
+	params: { id: "00000000-0000-0000-0000-000000000000" },
+	facts: {}
+})
+export type ByKey = Expect<Equals<RowsOf<Effect.Success<typeof byKey>>, Fact<typeof Post>>>
 
 /** "Db.open(WebServed.roles.member, ...) does not typecheck without one": MemberBlog's relations read Session and Org. */
 // @ts-expect-error -- refused: MemberBlog reads a context, so Db.open requires a token
@@ -1114,8 +1141,8 @@ const post = {
 export const writePost = ChangeSet.empty(MemberBlog).insert(MemberPost, [post])
 
 /** "A query over the schema is a type error on a role that does not hold every table whole". */
-// @ts-expect-error -- refusal: a program over no level of the database's schema
-export const baseOnMember = (db: Db<typeof MemberBlog, unknown>) => db.execute(published, {})
+// @ts-expect-error -- refused: a workload over MemberBlog holds programs over its levels, and published is over Blog
+export const baseOnMember = workload(MemberBlog, { published })
 
 /** "requires verify exactly when a role of the login reads a context". */
 // @ts-expect-error -- refused: a role of the web login reads a context, so its layer needs verify
@@ -1204,15 +1231,12 @@ export type CallLogHead = Expect<
 	>
 >
 export type FirstCalls = Expect<
-	Equals<
-		Effect.Success<ReturnType<typeof firstCalls>>,
-		Page<HeadOf<typeof callLog>, typeof callLog>
-	>
+	Equals<RowsOf<Effect.Success<ReturnType<typeof firstCalls>>>, HeadOf<typeof callLog>>
 >
 export type SpendOn = Expect<
 	Equals<
-		Effect.Success<ReturnType<typeof spendOn>>,
-		Option.Option<{ readonly calls: bigint; readonly spend: Decimal }>
+		RowsOf<Effect.Success<ReturnType<typeof spendOn>>>,
+		{ readonly calls: bigint; readonly spend: Decimal }
 	>
 >
 
@@ -1227,8 +1251,9 @@ export type PublishParams = Expect<
 
 /** "the outcome's reads hold the count": on a role that writes Comment. */
 const Moderator = role(Blog, "moderator", wholeEntriesOf(Blog), { write: ["Comment"] })
-declare const moderator: Db<typeof Moderator, unknown>
-export const purged = moderator.apply(purge, { author: "user_1" })
+const moderation = workload(Moderator, { purge })
+declare const moderator: Db<typeof Moderator, typeof moderation.programs>
+export const purged = moderator.workload.purge.once({ params: { author: "user_1" }, facts: {} })
 export type PurgedReads = Expect<
 	Equals<
 		Extract<Effect.Success<typeof purged>, { readonly kind: "accepted" }>["reads"],
@@ -1245,11 +1270,20 @@ export type SubscriptionPlanHost = Expect<
 >
 export type SubscriptionSeatsHost = Expect<Equals<Fact<typeof Subscription>["seats"], bigint>>
 
-/** "db.apply answers with an outcome you match on: accepted, no-change, invariant-rejected or outside-world". */
+/**
+ * "once answers with an outcome you match on, accepted or unchanged; a rule's refusal is its error, refused, and a row
+ * the role may not write is outsideWorld".
+ */
 export type LaunchOutcomeKind = Expect<
+	Equals<Effect.Success<ReturnType<typeof launchOrg>>["kind"], "accepted" | "unchanged">
+>
+export type LaunchOutsideWorld = Expect<
 	Equals<
-		Effect.Success<ReturnType<typeof launch>>["kind"],
-		"accepted" | "no-change" | "invariant-rejected" | "outside-world"
+		Extract<
+			Effect.Error<ReturnType<typeof launchOrg>>,
+			{ readonly kind: "outsideWorld" }
+		>["relation"],
+		string
 	>
 >
 
@@ -1258,8 +1292,8 @@ export type LaunchOutcomeKind = Expect<
  * entry.law.name === "WithinPlan"".
  */
 type LaunchRefusal = Extract<
-	Effect.Success<ReturnType<typeof launch>>,
-	{ readonly kind: "invariant-rejected" }
+	Effect.Error<ReturnType<typeof launchOrg>>,
+	{ readonly kind: "refused" }
 >["refused"]["laws"][number]
 export const overPlan = (entry: LaunchRefusal): boolean =>
 	entry.law.kind === "check" && entry.law.name === "WithinPlan"

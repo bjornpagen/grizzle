@@ -141,7 +141,7 @@ const ruleBlock = (q: number, relations: number): string => {
 	return r.match(R${prev}, { id: p.parent, label }).find({ label })
 }), ${i > 0 ? '"one"' : '"option"'})
 export const w${q} = workload(Reader, { owned: owned${q} })
-export const read${q} = (db: DbOf<typeof Reader, typeof w${q}.programs>) => db.workload.owned.execute({})
+export const read${q} = (db: DbOf<typeof Reader, typeof w${q}.programs>) => db.workload.owned.once({ params: {}, facts: {} })
 `
 }
 
@@ -208,7 +208,7 @@ ${Arr.join(
 ])
 export const Reader = role(S, "reader", wholeEntriesOf(S))
 export const keyed = workload(Reader, { key: R0 })
-export const readAll = (db: DbOf<typeof Reader, typeof keyed.programs>) => db.workload.key.get({ id: "00000000-0000-4000-8000-000000000001" })
+export const readAll = (db: DbOf<typeof Reader, typeof keyed.programs>) => db.workload.key.once({ params: { id: "00000000-0000-4000-8000-000000000001" }, facts: {} })
 ${Arr.join(
 	Arr.map(indices(shape.rules), (q) => ruleBlock(q, shape.relations)),
 	""
@@ -229,7 +229,7 @@ ${Arr.join(
 	Arr.map(
 		indices(shape.contexts),
 		(j) =>
-			`export const wC${j} = workload(Ctx, { run: inC${j} })\nexport const runC${j} = (db: DbOf<typeof Ctx, typeof wC${j}.programs>) => db.workload.run.execute({})\n`
+			`export const wC${j} = workload(Ctx, { run: inC${j} })\nexport const runC${j} = (db: DbOf<typeof Ctx, typeof wC${j}.programs>) => db.workload.run.once({ params: {}, facts: {} })\n`
 	),
 	""
 )}`

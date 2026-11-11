@@ -151,21 +151,18 @@ const main = Effect.gen(function* () {
 		const params = { account: target.account }
 		let opened = 0
 		let finished = 0
-		/** The first execution of a read, then its warm executions, each collected to host values. */
-		const measure = <Row, E>(
-			name: string,
-			read: () => Effect.Effect<{ readonly collect: Effect.Effect<ReadonlyArray<Row>, E> }, E>
-		) =>
+		/** The first execution of a read, then its warm executions, each read once to its value of host values. */
+		const measure = <E>(name: string, read: () => Effect.Effect<{ readonly size: number }, E>) =>
 			Effect.gen(function* () {
 				let s = performance.now()
-				const rows = yield* Effect.flatMap(read(), (result) => result.collect)
+				const rows = yield* read()
 				const firstMs = since(s)
 				const warm: Array<number> = []
 				for (let i = 0; i < input.warmRepeats; i++) {
 					s = performance.now()
-					const again = yield* Effect.flatMap(read(), (result) => result.collect)
+					const again = yield* read()
 					warm.push(since(s))
-					if (again.length !== rows.length) {
+					if (again.size !== rows.size) {
 						throw new Error(`${name}: warm read ${i} differs`)
 					}
 				}
@@ -173,7 +170,7 @@ const main = Effect.gen(function* () {
 					firstExecuteMs: firstMs,
 					warmExecuteFirstMs: sampleAt(warm, 0),
 					warmExecuteP50Ms: median(warm),
-					rows: rows.length
+					rows: rows.size
 				}
 			})
 		const executions = Effect.gen(function* () {
@@ -181,10 +178,14 @@ const main = Effect.gen(function* () {
 			const db = yield* runtime.Db.open(login.roles.reader, {})
 			phases["openMs"] = since(opened)
 			const reads = db.workload
-			yield* measure("automaticTasksFor", () => reads.automaticTasksFor.execute(params))
-			yield* measure("automaticBudgetFor", () => reads.automaticBudgetFor.execute(params))
-			yield* measure("taskCards", () => reads.taskCards.execute(params))
-			yield* measure("largestPerAccount", () => reads.largestPerAccount.execute({}))
+			yield* measure("automaticTasksFor", () => reads.automaticTasksFor.once({ params, facts: {} }))
+			yield* measure("automaticBudgetFor", () =>
+				reads.automaticBudgetFor.once({ params, facts: {} })
+			)
+			yield* measure("taskCards", () => reads.taskCards.once({ params, facts: {} }))
+			yield* measure("largestPerAccount", () =>
+				reads.largestPerAccount.once({ params: {}, facts: {} })
+			)
 			finished = performance.now()
 		})
 		/** The layer is built in the read's own scope, which closes the session before the layer, as providing it would. */

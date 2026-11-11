@@ -207,7 +207,7 @@ type Named =
 	  }
 	| {
 			readonly tag: "TreeRefused"
-			readonly fault: Extract<TreeKind, "notDirectory" | "strayServed">
+			readonly fault: Extract<TreeKind, "notDirectory" | "strayServed" | "strayDocument">
 	  }
 	| { readonly tag: "another reason"; readonly reason: CliError["reason"]["_tag"] }
 
@@ -244,6 +244,7 @@ const strayAt = (fault: TreeRefused["fault"]): Named => {
 			return { tag: "TreeRefused", fault: fault.kind, folder: lastSegment(fault.folder) }
 		case "notDirectory":
 		case "strayServed":
+		case "strayDocument":
 			return { tag: "TreeRefused", fault: fault.kind }
 	}
 }

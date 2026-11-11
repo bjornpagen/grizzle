@@ -8,16 +8,18 @@ import {
 	Result,
 	type Scope
 } from "effect"
-import type { ServedDbContext } from "#adapter/db/context.ts"
-import { memberOps, variantOf } from "#adapter/db/handles.ts"
+import { hostInputs, inputApplyError, runWrite } from "#adapter/apply/run.ts"
+import { dbChangeFrame, type ServedDbContext } from "#adapter/db/context.ts"
+import { variantOf } from "#adapter/db/handles.ts"
 import { fromEngine, toResult } from "#adapter/engine.ts"
-import { type ApplyError, OpenError } from "#adapter/errors/execution.ts"
+import { type ApplyError, OpenError, TransportFailure } from "#adapter/errors/execution.ts"
+import { applyOutcome } from "#adapter/outcomes/index.ts"
 import type { ServedRefusal } from "#adapter/public/compile.ts"
-import type { ApplyOutcome } from "#adapter/public/db.ts"
 import { boundReads, type CompiledEntry, compiledWrite } from "#adapter/served/forms.ts"
-import type { LoadedMember } from "#adapter/served/load.ts"
+import type { LoadedChange } from "#adapter/served/load.ts"
 import { artifactsOver, builtLogin, loginRoles, ownLoginOver } from "#adapter/served/login.ts"
 import type { RoleContext } from "#adapter/served/role.ts"
+import type { ApplyOutcome } from "#adapter/types/db.ts"
 import { oneShotStatement } from "#adapter/wire/batch.ts"
 import {
 	type Answer,
@@ -62,13 +64,7 @@ import { conservativeChange } from "#test/support/conservative.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import type { SqlError } from "#test/support/pg.ts"
-import {
-	appliedWith,
-	type CallFacts,
-	member,
-	openServedDb,
-	type ServedDb
-} from "#test/support/served-db.ts"
+import { member, openServedDb, type ServedDb } from "#test/support/served-db.ts"
 import { snapshotValue } from "#test/support/snapshot-json.ts"
 import { testSql } from "#test/support/sql.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
@@ -76,7 +72,6 @@ import type { RawSession } from "#test/support/substrate/session.ts"
 import { freshSchema, Substrate } from "#test/support/substrate/substrate.ts"
 
 import { ConnectionLost, type ServerError, type TransientReason } from "#adapter/errors/failures.ts"
-import { answered, writeOnce } from "#test/support/calls.ts"
 import { paramText } from "#test/support/wire.ts"
 import { fullWorld } from "#test/support/worlds.ts"
 
@@ -95,12 +90,13 @@ const round = (x: number): number => Math.round(x * 1000) / 1000
  * - grizzle writers: a Db opened through its login's own served layer, as an application opens one, applying
  *   ChangeSets as members of a served workload. `observedChange` compiles a ChangeSet into a member of the Db's role's
  *   workload by the one compile `grizzle generate` commits, and runs each call of it through the runtime's own
- *   application of a served member (adapter/db/handles.ts memberOps: its SERIALIZABLE transaction, its flights and its
- *   classification, unchanged),
- *   one attempt per call, over the Db's session pool with every session it leases observed on the wire, so the
- *   attempt's failure is known by the statement (or COMMIT) that raised it, with its SQLSTATE and constraint. That is how a
- *   transient failure is attributed beyond its SQLSTATE (both 40001), and how a load retries and tallies a grizzle
- *   writer's attempts exactly as a hand-written writer's (bench/harness/load.ts withRetries);
+ *   application of a served change member (appliedChange: apply/run.ts hostInputs and runWrite, its SERIALIZABLE
+ *   transaction, its flights and its classification, unchanged), read before a call classifies it as a CallError, so
+ *   a TransientFailure keeps its reason, one attempt per call, over the Db's session pool with every session it
+ *   leases observed on the wire, so the attempt's failure is known by the statement (or COMMIT) that raised it, with
+ *   its SQLSTATE and constraint. That is how a transient failure is attributed beyond its SQLSTATE (both 40001), and
+ *   how a load retries and tallies a grizzle writer's attempts exactly as a hand-written writer's
+ *   (bench/harness/load.ts withRetries);
  * - direct SQL writers: raw sessions in the same world, logged in as its login and taking on its role ("Direct SQL
  *   writers", at SERIALIZABLE), measured
  *   by the harness's measured transaction (bench/harness/transaction.ts), which times the deferred checks, the commit
@@ -570,7 +566,7 @@ const observedReads = (reads: unknown): ObservedReads => {
 
 /** An outcome with its read-backs as the harness reads them. */
 const observedOutcome = (value: ApplyOutcome<unknown>): ApplyOutcome<ObservedReads> =>
-	value.kind === "refused" || value.kind === "outsideWorld"
+	value.kind === "invariant-rejected" || value.kind === "outside-world"
 		? value
 		: { ...value, reads: observedReads(value.reads) }
 
@@ -589,6 +585,9 @@ export interface ObservedApply {
 	readonly attempted: Attempted
 	readonly failure: FirstFailure
 }
+
+/** A call's facts: under each op of a ChangeSet's array members, the facts of each relation it writes. */
+type CallFacts = Readonly<Record<string, Readonly<Record<string, ReadonlyArray<unknown>>>>>
 
 export interface ObservedChange {
 	/** One attempt with `params`, its call giving the facts the ChangeSet value holds (callFactsOf). */
@@ -857,7 +856,7 @@ const attemptedOf = (
 	labelOf: (f: AttemptFailure) => string
 ): Attempted => {
 	const outcome: Outcome =
-		value.kind === "refused" || value.kind === "transient"
+		value.kind === "invariant-rejected" || value.kind === "transient"
 			? failure.kind === "none"
 				? { kind: "rolledBack" }
 				: failedOf(failure.failure)
@@ -934,25 +933,52 @@ export const observedConservative = (
 	observedArtifact(opened, changes, labelOf, { kind: "none" }, "conservative")
 
 /**
- * The served member `loaded` with its program replaced by `entry`, the conservative realization of the program it
- * serves, its read-backs bound by the ChangeSet's own reads decoder `decoder`, each call read as the served member
- * reads it (adapter/served/load.ts ChangeCall), for the claims of the Db `ctx`.
+ * The served change `served` with its program replaced by `entry`, the conservative realization of the program it
+ * serves, its read-backs bound by the ChangeSet's own reads decoder `decoder`, each call read as the served change
+ * reads it (adapter/served/load.ts ChangeCall).
  */
 const realized = (
-	ctx: ServedDbContext,
-	loaded: Extract<LoadedMember, { readonly kind: "change" }>,
+	served: LoadedChange,
 	entry: CompiledEntry,
 	decoder: RowDecoder<unknown>
-): Result.Result<LoadedMember, CompileError> =>
-	Result.map(boundReads(entry, decoder), (reads) => ({
-		name: loaded.name,
-		wire: loaded.wire,
-		kind: "change",
-		variants: {
-			kind: "change",
-			change: { entry, reads, call: variantOf(ctx, loaded.variants).call }
+): Result.Result<LoadedChange, CompileError> =>
+	Result.map(boundReads(entry, decoder), (reads) => ({ entry, reads, call: served.call }))
+
+/**
+ * One application of the loaded change `change` with `facts` and `params` on the Db `ctx`, as a served change member
+ * applies one (adapter/db/handles.ts) before its outcome is classified as a call's: its host call read as the served
+ * change reads it (adapter/served/load.ts ChangeCall), `facts` given only where its ChangeSet holds array members; its
+ * inputs readied on the host (apply/run.ts hostInputs), a same-key pair the host already refuses answered as
+ * invariant-rejected before any SQL; else its one transaction (apply/run.ts runWrite) on a session of the Db's pool.
+ * Its failure is the runtime's ApplyError, so a TransientFailure keeps its reason.
+ */
+const appliedChange = (
+	ctx: ServedDbContext,
+	change: LoadedChange,
+	facts: CallFacts,
+	params: ParamMap
+): Effect.Effect<ApplyOutcome<unknown>, ApplyError> =>
+	Effect.gen(function* () {
+		const call = change.call
+		const host =
+			call.kind === "facts" ? call.call(facts, params) : Result.succeed(call.call(params))
+		const inputs = yield* Effect.mapError(
+			Effect.flatMap(Effect.fromResult(host), (read) => hostInputs(change.entry, read)),
+			inputApplyError
+		)
+		if (inputs.kind === "rejected") {
+			return applyOutcome.invariantRejected(
+				{ kind: "every", laws: [inputs.refused] },
+				inputs.witness
+			)
 		}
-	}))
+		return yield* Effect.scoped(
+			Effect.flatMap(
+				Effect.mapError(ctx.pool.lease, (reason) => new TransportFailure({ reason })),
+				(session) => runWrite(session, dbChangeFrame(ctx), change.entry, inputs, change.reads)
+			)
+		)
+	})
 
 const observedArtifact = (
 	opened: OpenedDb,
@@ -981,10 +1007,11 @@ const observedArtifact = (
 					what: "observedChange: a ChangeSet served as no change"
 				})
 			}
+			const served = variantOf(opened.ctx, loaded.variants)
 			const running =
 				realization === "served"
-					? loaded
-					: yield* Effect.fromResult(realized(opened.ctx, loaded, entry, changes.reads))
+					? served
+					: yield* Effect.fromResult(realized(served, entry, changes.reads))
 			const statements = Arr.map(entry.compiled.artifact.statements, observedStatement)
 			const attribute = attributor(statements)
 			const applyWith = (facts: CallFacts, params: ParamMap) =>
@@ -1011,9 +1038,7 @@ const observedArtifact = (
 							attempted: attemptedOf(value, failure, labelOf)
 						})
 					}
-					return answered(
-						writeOnce(memberOps(observed, running))({ params: params, facts: facts })
-					).pipe(
+					return appliedChange(observed, running, facts, params).pipe(
 						Effect.map((value): ObservedValue => observedOutcome(value)),
 						Effect.catchTag("TransientFailure", (error) =>
 							Effect.succeed<ObservedValue>({ kind: "transient", reason: error.reason })

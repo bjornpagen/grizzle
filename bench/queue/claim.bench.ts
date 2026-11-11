@@ -1,5 +1,6 @@
 import {
 	Array as Arr,
+	Data,
 	Duration,
 	Effect,
 	Fiber,
@@ -83,11 +84,13 @@ import {
 } from "#bench/write/support/writes.ts"
 import { appendAll, indices } from "#compiler/core/array.ts"
 import { trusted } from "#compiler/core/trusted.ts"
+import type { CallError } from "#compiler/live/index.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import type { ParamMap } from "#compiler/types/core/phantom.ts"
+import { answered, writeOnce } from "#test/support/calls.ts"
 import { Instant } from "#test/support/fixtures/api/contracts.ts"
 import type { SqlError } from "#test/support/pg.ts"
-import { appliedWith, member } from "#test/support/served-db.ts"
+import { member } from "#test/support/served-db.ts"
 import { beginSerializable, type RawSession } from "#test/support/substrate/session.ts"
 import { connectionsPerLease } from "#test/support/substrate/shared.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
@@ -167,6 +170,16 @@ const lane = { kind: "render", slot: 0, resource: "gpu" } as const
 const now = 1_000_000n
 /** A lease that does not expire during a load. */
 const forever = 1_000_000_000_000n
+
+/**
+ * An enqueue beside the claimers that ended in a CallError neither a law's refusal nor transient, which fails the gate
+ * with it.
+ */
+class EnqueueFailed extends Data.TaggedError("EnqueueFailed")<{ readonly error: CallError }> {
+	override get message(): string {
+		return `${this.error.kind}: ${this.error.message}`
+	}
+}
 
 /** A claimed row of a claim's read-back. */
 interface Claimed {
@@ -610,7 +623,10 @@ export default defineGate({
 			/** What runs alongside the claimers: nothing, or the enqueue loop, told when they are done by `claimersDone`. */
 			type Beside =
 				| { readonly kind: "none" }
-				| { readonly kind: "alongside"; readonly run: Effect.Effect<void, ApplyError | SqlError> }
+				| {
+						readonly kind: "alongside"
+						readonly run: Effect.Effect<void, EnqueueFailed | SqlError>
+				  }
 			let claimersDone = false
 			const measureRun = Effect.fn("measureRun")(function* (
 				role: string,
@@ -745,19 +761,22 @@ export default defineGate({
 						}
 						const t = performance.now()
 						/**
-						 * Beside the claimers an enqueue can meet one of their commits: a TransientFailure, which the enqueuer retries as
-						 * a patient application does, by the gate's enqueueRetry policy. An enqueue whose every attempt failed is
-						 * tallied as `transient`.
+						 * Beside the claimers an enqueue can meet one of their commits: a transient CallError, which the enqueuer
+						 * retries as a patient application does, by the gate's enqueueRetry policy. An enqueue whose every attempt
+						 * failed is tallied as `transient`, one a law refused by its refusal's kind, and any other CallError fails the
+						 * gate (EnqueueFailed).
 						 */
-						const outcome = yield* appliedWith(enqueue, items, {}).pipe(
+						const outcome = yield* answered(writeOnce(enqueue)({ params: {}, facts: items })).pipe(
 							Effect.retry({
 								times: options.enqueueRetry.times,
 								schedule: backoffOf(options.enqueueRetry),
-								while: (e) => e._tag === "TransientFailure"
+								while: (e) => e.kind === "transient"
 							}),
-							Effect.catchTag("TransientFailure", () =>
-								Effect.succeed({ kind: "transient" } as const)
-							)
+							Effect.catchIf(
+								(e) => e.kind === "transient",
+								() => Effect.succeed({ kind: "transient" } as const)
+							),
+							Effect.mapError((error) => new EnqueueFailed({ error }))
 						)
 						enqueueMs.push(performance.now() - t)
 						return outcome

@@ -27,7 +27,7 @@ export const largestSkeletonSize = 200
 const relationDeclaration = (ns: string, i: number): string =>
 	`export const ${ns}R${i} = relation("R${i}", { id: uuid, parent: uuid, amount: ${ns}Cents, label: ${ns}Label, kind: closedId(${ns}Kind), qty: pg.integer }, ["id"])\n`
 
-/** One relation's queries, ChangeSet and apply, under the prefix `ns`, in a schema of `relations` relations. */
+/** One relation's queries, ChangeSet and its once, under the prefix `ns`, in a schema of `relations` relations. */
 const relationBlock = (ns: string, i: number, relations: number): string => {
 	const child = (i + 1) % relations
 	return `
@@ -50,7 +50,7 @@ export const ${ns}change${i} = ChangeSet.empty(${ns}S)
 	}))
 export const ${ns}w${i} = workload(${ns}Writer, { change: ${ns}change${i} })
 export const ${ns}run${i} = (db: DbOf<typeof ${ns}Writer, typeof ${ns}w${i}.programs>) =>
-	db.workload.change.apply({ insert: { R${i}: [{ id: "00000000-0000-4000-8000-000000000003", parent: "00000000-0000-4000-8000-000000000002", amount: ${ns}Cents(2n), label: "abd", kind: "B", qty: 2 }] } }, {})
+	db.workload.change.once({ params: {}, facts: { insert: { R${i}: [{ id: "00000000-0000-4000-8000-000000000003", parent: "00000000-0000-4000-8000-000000000002", amount: ${ns}Cents(2n), label: "abd", kind: "B", qty: 2 }] } } })
 `
 }
 

@@ -20,8 +20,8 @@ import {
  *
  * Beside it stands its twin (batch/twins.ts): the same declarations over the first and the last relation's
  * neighbourhoods alone, the relation before and after each. Every parameter, head, evidence and key inferred at the
- * first and the last relation is the twin's, and every refusal there raises what the twin's raises: a get of a query
- * the evidence does not prove at most one row, a parameter of another type, an order by a field one arm lacks.
+ * first and the last relation is the twin's, and every refusal there raises what the twin's raises: a parameter of
+ * another type, an order by a field one arm lacks.
  */
 export const largestQuerySize = 200
 
@@ -81,12 +81,12 @@ export const ${ns}w${i} = workload(${ns}Reader, {
 	top: ${ns}total${i}.orderBy(["kind", "asc"]).take(1)
 })
 export const ${ns}reads${i} = (db: DbOf<typeof ${ns}Reader, typeof ${ns}w${i}.programs>) => [
-	db.workload.byId.get({ id: "00000000-0000-4000-8000-000000000001" }),
-	db.workload.byFilter.get({ id: "00000000-0000-4000-8000-000000000001" }),
-	db.workload.key.get({ id: "00000000-0000-4000-8000-000000000001" }),
-	db.workload.byParent.execute({ parent: "00000000-0000-4000-8000-000000000002" }),
-	db.workload.arms.execute({}),
-	db.workload.top.execute({})
+	db.workload.byId.once({ params: { id: "00000000-0000-4000-8000-000000000001" }, facts: {} }),
+	db.workload.byFilter.once({ params: { id: "00000000-0000-4000-8000-000000000001" }, facts: {} }),
+	db.workload.key.once({ params: { id: "00000000-0000-4000-8000-000000000001" }, facts: {} }),
+	db.workload.byParent.once({ params: { parent: "00000000-0000-4000-8000-000000000002" }, facts: {} }),
+	db.workload.arms.once({ params: {}, facts: {} }),
+	db.workload.top.once({ params: {}, facts: {} })
 ] as const
 `
 }
@@ -159,16 +159,10 @@ const typeProbes = (i: number): ReadonlyArray<Over> => [
 /** Relation i's refusal probes, each one line at scale and over the twin. */
 const refusalProbes = (i: number): ReadonlyArray<RefusalProbe> => [
 	{
-		label: `q${i}-get`,
-		why: "a get of a query its evidence does not prove at most one row",
-		line: (ns) =>
-			`export const ${ns}getMany${i} = (db: DbOf<typeof ${ns}Reader, typeof ${ns}w${i}.programs>) => db.workload.byParent.get({ parent: "00000000-0000-4000-8000-000000000002" })`
-	},
-	{
 		label: `q${i}-param`,
 		why: "a parameter of another type than the one the query's uses inferred",
 		line: (ns) =>
-			`export const ${ns}wrongParam${i} = (db: DbOf<typeof ${ns}Reader, typeof ${ns}w${i}.programs>) => db.workload.byParent.execute({ parent: 1 })`
+			`export const ${ns}wrongParam${i} = (db: DbOf<typeof ${ns}Reader, typeof ${ns}w${i}.programs>) => db.workload.byParent.once({ params: { parent: 1 }, facts: {} })`
 	},
 	{
 		label: `q${i}-order`,

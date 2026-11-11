@@ -23,6 +23,7 @@ import { DatabaseError } from "pg"
 import { serializationRefusal, transientReason } from "#adapter/errors/execution.ts"
 import { literalBound, messageBound } from "#adapter/errors/failures.ts"
 import { applyOutcome, transientFailureOf } from "#adapter/outcomes/index.ts"
+import type { ApplyOutcome } from "#adapter/types/db.ts"
 import { type FenceStep, fenceReason } from "#adapter/wire/batch.ts"
 import { serverFailure } from "#adapter/wire/failure.ts"
 import { StoredRelationName } from "#compiler/core/ids.ts"
@@ -40,9 +41,11 @@ import { wild } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 
 /**
- * The failure and outcome values an application's test builds: every failure a Db call, Db.open, DbLayer.make, a page
- * or db.compile can fail with has a constructor in the public barrel, and it is the one the adapter builds that failure
- * with, so a test's value is exactly grizzle's, built with no cast and no object literal standing in for a class.
+ * The failure values an application's test builds: every failure a Db call, Db.open, DbLayer.make, a page or
+ * db.compile can fail with has a constructor in the public barrel, and it is the one the adapter builds that failure
+ * with, so a test's value is exactly grizzle's, built with no cast and no object literal standing in for a class. The
+ * outcome values are the adapter's own (adapter/outcomes applyOutcome), which a write call reads as its WriteOutcome or
+ * its refusal; they are built here with those constructors.
  *
  * The type tier: `Failure` is every failure reachable from the public error channels through what each carries (a
  * reason, a server's report, a nested failure), derived by the compiler from the classes themselves, so a reason added
@@ -51,11 +54,11 @@ import { caseHang } from "#test/support/limits.ts"
  *
  * The search: the facts each constructor that admits or converts takes (a server's report, a reason's relation and
  * constraint, an engine's transient reason and bound, an outcome's counts, read-backs, refusal and witness) are
- * drawn, built with the public constructor, and the value carries each fact as given, an empty report field saying
- * nothing as an absent one does (the README's contract). Where the adapter classifies the same facts from its own
- * input (pg's DatabaseError, a SQLSTATE SERIALIZABLE or the fence refuses with, a unique violation a statement lists
- * as an abort, an engine reason or bound), its value is deeply equal to the public construction, prototypes included,
- * and an instance of the public constructor for its tag.
+ * drawn, built with the public constructor (an outcome with the adapter's), and the value carries each fact as given,
+ * an empty report field saying nothing as an absent one does (the README's contract). Where the adapter classifies
+ * the same facts from its own input (pg's DatabaseError, a SQLSTATE SERIALIZABLE or the fence refuses with, a unique
+ * violation a statement lists as an abort, an engine reason or bound), its value is deeply equal to the public
+ * construction, prototypes included, and an instance of the public constructor for its tag.
  *
  * Oracle: the specification, each constructor's value carrying the facts as given, and the adapter's own
  * classification of the same facts, deeply equal to it.
@@ -96,6 +99,7 @@ const constructors: {
 		...args: never
 	) => Extract<Failure, { readonly _tag: T }>
 } = {
+	CallInputRefused: Public.CallInputRefused,
 	ClaimRefused: Public.ClaimRefused,
 	CommitLost: Public.CommitLost,
 	CommitUnknown: Public.CommitUnknown,
@@ -123,7 +127,6 @@ const constructors: {
 	Migrating: Public.Migrating,
 	NoCancelKey: Public.NoCancelKey,
 	OpenError: Public.OpenError,
-	PageRequestRefused: Public.PageRequestRefused,
 	PutTargetConflict: Public.PutTargetConflict,
 	ReadFailure: Public.ReadFailure,
 	RoleOutsideLayers: Public.RoleOutsideLayers,
@@ -747,8 +750,7 @@ describe("the public failure and outcome constructors", () => {
 									return
 								}
 								case "committed": {
-									assert.equal(Public.ApplyOutcome, applyOutcome, "the adapter's constructors")
-									const outcome: Public.ApplyOutcome<Reads> = Public.ApplyOutcome.committed(
+									const outcome: ApplyOutcome<Reads> = applyOutcome.committed(
 										drawnCase.counts,
 										drawnCase.reads
 									)
@@ -774,7 +776,7 @@ describe("the public failure and outcome constructors", () => {
 								}
 								case "rejected": {
 									c.note("outcome invariant-rejected")
-									const outcome: Public.ApplyOutcome<Reads> = Public.ApplyOutcome.invariantRejected(
+									const outcome: ApplyOutcome<Reads> = applyOutcome.invariantRejected(
 										drawnCase.refused,
 										drawnCase.witness
 									)
@@ -788,9 +790,7 @@ describe("the public failure and outcome constructors", () => {
 								}
 								case "outside": {
 									c.note("outcome outside-world")
-									const outcome: Public.ApplyOutcome<Reads> = Public.ApplyOutcome.outsideWorld(
-										drawnCase.relation
-									)
+									const outcome: ApplyOutcome<Reads> = applyOutcome.outsideWorld(drawnCase.relation)
 									assert.ok(Object.isFrozen(outcome))
 									assert.deepEqual(outcome, { kind: "outside-world", relation: drawnCase.relation })
 									return
