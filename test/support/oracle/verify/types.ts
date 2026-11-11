@@ -51,7 +51,7 @@ export interface Judged {
  * PostgreSQL refused a probe statement: the view over the statement judged at `where`, or the one read of every view's
  * columns, located at "the probes' columns".
  */
-export class ProbeRefused extends Data.TaggedError("ProbeRefused")<{
+class ProbeRefused extends Data.TaggedError("ProbeRefused")<{
 	readonly where: string
 	readonly sql: string
 	readonly error: SqlError

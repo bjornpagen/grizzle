@@ -287,8 +287,8 @@ const keysOf = (s: Sketch): ReadonlyArray<KeySketch> => [
 ]
 
 /** Whether the drawn key is over the whole relation at Tgt's primary key's set, id alone: a second key of one set. */
-const restatesPrimary = (s: Sketch): boolean =>
-	s.key !== undefined && s.key.selection.length === 0 && Arr.every(s.key.terms, (t) => t === "id")
+const restatesPrimary = ({ key }: Sketch): boolean =>
+	key?.selection.length === 0 && Arr.every(key.terms, (t) => t === "id")
 
 /** How a target holds a key: with the fields it fixes, by the key it is first held by; by its terms alone; or none. */
 type Held =

@@ -233,34 +233,32 @@ layer(Substrate.layer)("graph recognition and R37 against the conservative lower
 		searched(ctx, agreeOn(generalPopulation))
 	)
 
-	it.effect(
-		"seed every attached recursion from the parent keys and agree (R37)",
-		(ctx) =>
-			searched(
-				ctx,
-				agreeOn({
-					limits: {
-						...defaultRecursiveLimits,
-						consumers: ["attach"]
-					},
-					runs: attached,
-					suite: "recursion/graph-attach",
-					coverage: required<GraphFeature>(["seeded attachment"], {
-						cases: attached,
-						sense: notesOnly
-					}),
-					check: ({ program }) => {
-						const seeded = seededStatements(program)
-						const statements = Arr.filter(
-							flight(program.roots),
-							(s) => s.role.kind === "attachment"
-						).length
-						return statements === 1 && seeded === statements
-							? []
-							: [`${seeded} of ${statements} attachment statements seeded, expected ${statements}`]
-					}
-				})
-			)
+	it.effect("seed every attached recursion from the parent keys and agree (R37)", (ctx) =>
+		searched(
+			ctx,
+			agreeOn({
+				limits: {
+					...defaultRecursiveLimits,
+					consumers: ["attach"]
+				},
+				runs: attached,
+				suite: "recursion/graph-attach",
+				coverage: required<GraphFeature>(["seeded attachment"], {
+					cases: attached,
+					sense: notesOnly
+				}),
+				check: ({ program }) => {
+					const seeded = seededStatements(program)
+					const statements = Arr.filter(
+						flight(program.roots),
+						(s) => s.role.kind === "attachment"
+					).length
+					return statements === 1 && seeded === statements
+						? []
+						: [`${seeded} of ${statements} attachment statements seeded, expected ${statements}`]
+				}
+			})
+		)
 	)
 
 	it.effect("push origin filters into the seed", (ctx) =>

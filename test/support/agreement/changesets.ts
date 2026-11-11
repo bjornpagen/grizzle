@@ -3133,7 +3133,7 @@ export const changeSetRequired: ReadonlyArray<Reached<ChangeSetNote>> = [
 ]
 
 /** The cases the run's own stream draws. */
-export const changeSetCount = 160
+const changeSetCount = 160
 
 const changeSetLabel = "types/changeset agreement"
 

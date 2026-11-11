@@ -614,7 +614,7 @@ export const recursionRequired: Situations<RecursionNote> = [
 ]
 
 /** The recursions the run's own stream draws, beside the floor's witnesses. */
-export const recursionCount = 80
+const recursionCount = 80
 
 const recursionLabel = "types/api recursion agreement"
 

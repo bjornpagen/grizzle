@@ -279,12 +279,7 @@ export const treeShape = (
 	const t = ordinary(relations, s.member.relation, "member", loc)
 	const [key, ...more] = t.primaryFields
 	const [parentTerm, atTerm, ...extra] = s.member.terms
-	if (
-		s.slots.owner !== t.name ||
-		more.length > 0 ||
-		atTerm === undefined ||
-		extra.length > 0
-	) {
+	if (s.slots.owner !== t.name || more.length > 0 || atTerm === undefined || extra.length > 0) {
 		return refuseNamed(loc, familySides.tree)
 	}
 	const parent = fieldTerm(t, parentTerm, "a tree's side", loc)

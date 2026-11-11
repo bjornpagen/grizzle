@@ -99,7 +99,7 @@ export const vocabularyRequired: Situations<VocabularyNote> = [
 ]
 
 /** The cases the run's own stream draws, beside the floor's witnesses. */
-export const vocabularyCount = 60
+const vocabularyCount = 60
 
 const vocabularyLabel = "types/harness vocabulary"
 

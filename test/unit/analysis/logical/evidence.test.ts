@@ -788,43 +788,39 @@ describe("the logical analysis's claims hold on the facts", () => {
 			)
 	)
 
-	it.effect(
-		"delivered types over cases rooted at attachments, under every context",
-		(ctx) =>
-			holdsOn(
-				ctx,
-				"unit/analysis/logical/evidence-attachments",
-				sketchedCases({
-					...defaultGenConfig,
-					query: {
-						...defaultGenConfig.query,
-						roots: {
-							...defaultGenConfig.query.roots,
-							plain: 0,
-							attach: 1,
-							hetero: 0
-						}
+	it.effect("delivered types over cases rooted at attachments, under every context", (ctx) =>
+		holdsOn(
+			ctx,
+			"unit/analysis/logical/evidence-attachments",
+			sketchedCases({
+				...defaultGenConfig,
+				query: {
+					...defaultGenConfig.query,
+					roots: {
+						...defaultGenConfig.query.roots,
+						plain: 0,
+						attach: 1,
+						hetero: 0
 					}
-				}),
-				[],
-				[
-					"delivered option",
-					"committedSnapshot containment",
-					"an orphaned containment inside a transaction"
-				]
-			)
+				}
+			}),
+			[],
+			[
+				"delivered option",
+				"committedSnapshot containment",
+				"an orphaned containment inside a transaction"
+			]
+		)
 	)
 
-	it.effect(
-		"bare children along declared containments and filters over one fact",
-		(ctx) =>
-			holdsOn(
-				ctx,
-				"unit/analysis/logical/evidence-bare-children",
-				provingCases,
-				[sumParameterOfInfinity],
-				["delivered one", "a filter over one row", "an orphaned containment inside a transaction"]
-			)
+	it.effect("bare children along declared containments and filters over one fact", (ctx) =>
+		holdsOn(
+			ctx,
+			"unit/analysis/logical/evidence-bare-children",
+			provingCases,
+			[sumParameterOfInfinity],
+			["delivered one", "a filter over one row", "an orphaned containment inside a transaction"]
+		)
 	)
 })
 

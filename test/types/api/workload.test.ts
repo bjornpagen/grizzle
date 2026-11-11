@@ -2,10 +2,7 @@ import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
 import { unreachedOf } from "@grizzle/testing/features"
 import { Effect } from "effect"
-import {
-	workloadRequired,
-	workloadWitnesses
-} from "#test/support/agreement/workloads.ts"
+import { workloadRequired, workloadWitnesses } from "#test/support/agreement/workloads.ts"
 import { assert } from "#test/support/assert.ts"
 import { checked } from "#test/types/batch/batch.ts"
 

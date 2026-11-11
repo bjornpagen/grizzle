@@ -1338,7 +1338,7 @@ export const attachRefusals: Arr.NonEmptyReadonlyArray<Refused> = [
 ]
 
 /** The attachments the run's own stream draws, and the floor's witnesses. */
-export const attachCount = 200
+const attachCount = 200
 
 const attachLabel = "types/evidence attachments"
 

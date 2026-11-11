@@ -421,7 +421,7 @@ export const workloadRequired: Situations<WorkloadNote> = [
 ]
 
 /** The workloads the run's own stream draws, beside the floor's witnesses. */
-export const workloadCount = 120
+const workloadCount = 120
 
 const workloadLabel = "types/api workload agreement"
 

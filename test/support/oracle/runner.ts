@@ -269,7 +269,7 @@ export interface RunOptions {
 }
 
 /** Setting a case's schema up failed: its plan was refused, or PostgreSQL refused a statement installing it. */
-export class InstallationFailed extends Data.TaggedError("InstallationFailed")<{
+class InstallationFailed extends Data.TaggedError("InstallationFailed")<{
 	readonly stage: "plan" | "install"
 	readonly message: string
 }> {}
@@ -334,7 +334,7 @@ export const runStaged = <E>(
 	)
 
 /** A test's Installations, each of its schemas allocated under `label` in the test's scope. */
-export const installations = (
+const installations = (
 	label: string
 ): Effect.Effect<Installations, never, Scope.Scope | Substrate> =>
 	Effect.gen(function* () {

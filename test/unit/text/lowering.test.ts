@@ -495,11 +495,7 @@ describe("the enforcement of a finite language", () => {
 								assert.equal(ofLanguage(m), true, `${label} on ${m}`)
 							}
 							for (const s of strings) {
-								assert.equal(
-									ofLanguage(s),
-									members.has(s),
-									`${label} on ${s}`
-								)
+								assert.equal(ofLanguage(s), members.has(s), `${label} on ${s}`)
 							}
 						})
 				)

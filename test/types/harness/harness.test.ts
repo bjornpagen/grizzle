@@ -5,10 +5,7 @@ import { Effect } from "effect"
 import { assert } from "#test/support/assert.ts"
 import { checked } from "#test/types/batch/batch.ts"
 import { doorRequired, doorWitnesses } from "#test/types/harness/door.ts"
-import {
-	vocabularyRequired,
-	vocabularyWitnesses
-} from "#test/types/harness/vocabulary.ts"
+import { vocabularyRequired, vocabularyWitnesses } from "#test/types/harness/vocabulary.ts"
 
 layer(NodeServices.layer, { excludeTestServices: true })(
 	"the test harness's type contracts",

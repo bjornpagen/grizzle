@@ -63,96 +63,94 @@ const installEvery = (endpoint: SpanEndpointKind) =>
 const sameRowSet = set(structuralHash, ordered(exact))
 
 layer(Substrate.layer)("generated span queries against the reference", (it) => {
-	it.effect(
-		"agree with the reference in both artifacts on Allen and pointIn cases",
-		(ctx) =>
-			searched(
-				ctx,
-				Effect.gen(function* () {
-					const s = yield* Substrate
-					const db = yield* s.session({ ...ownerSession(), label: "owner" })
-					const installed = yield* Effect.all({
-						integer: installEvery("integer"),
-						bigint: installEvery("bigint"),
-						contract: installEvery("contract"),
-						date: installEvery("date")
-					})
-					return yield* oracleCheck(
-						drawn(spanCaseGen({ maxRows: 6, kinds, endpoints: spanEndpointKinds })),
-						{
-							suite: "spans/allen-oracle",
-							literal: Formatter.format,
-							coverage: required<AllenOracleFeature>(
-								Arr.flatMap(kinds, (k) =>
-									Arr.map(spanEndpointKinds, (e): AllenOracleFeature => `${k}:${e}`)
-								),
-								{ cases: cases, sense: notesOnly }
-							),
-							kept: [],
-							runs: cases,
-							shrink: completeShrink,
-							perturb: "none"
-						},
-						(sc, c) =>
-							Effect.gen(function* () {
-								const kind = sc.query.kind
-								if (kind !== "allenFilter" && kind !== "allenJoin" && kind !== "pointIn") {
-									return yield* new PropertyFailed({
-										report: `${printSpanCase(sc)}\na ${kind} case outside the drawn kinds`
-									})
-								}
-								c.note(`${kind}:${sc.schema.endpoint}`)
-								const target = byKeying(
-									byKeying(installed[sc.schema.endpoint], sc.schema.relations.Left.spanKeyed),
-									sc.schema.relations.Right.spanKeyed
-								)
-								const template = compileSpanDesc(
-									spanQueryDesc(sc),
-									spanSchemaDesc(sc.schema),
-									target.schema
-								)
-								const expected = referenceRows(sc)
-								const columns = spanQueryHeading(sc.query)
-								yield* db.begin
-								const outcome = yield* Effect.gen(function* () {
-									for (const name of spanRelationNames) {
-										if (sc.facts[name].length === 0) {
-											continue
-										}
-										const insert = spanInsert(target.schema, sc, name, sc.facts[name])
-										yield* db.query(insert.sql, insert.params)
-									}
-									const problems: Array<string> = []
-									for (const artifact of ["optimized", "conservative"] as const) {
-										const spec = template[artifact][0]
-										if (spec === undefined || template[artifact].length !== 1) {
-											return [`${artifact}: one statement`]
-										}
-										if (regex("\\b(lower|upper)\\(").test(spec.sql)) {
-											problems.push(`${artifact}: lower() or upper()`)
-										}
-										const [rows] = yield* runArtifact(db, template, artifact, spanQueryParams(sc))
-										const got = rowsAs(spec, rows ?? [], columns)
-										if (got.repeats > 0) {
-											problems.push(`${artifact}: ${got.repeats} repeated rows`)
-										}
-										const difference = sameRowSet(got.rows, expected)
-										if (Option.isSome(difference)) {
-											problems.push(
-												`${artifact}: ${difference.value}\n  reference  ${Formatter.format(expected)}\n  postgresql ${Formatter.format(got.rows)}`
-											)
-										}
-									}
-									return problems
-								}).pipe(Effect.ensuring(Effect.ignore(db.rollback)))
-								if (outcome.length > 0) {
-									return yield* new PropertyFailed({
-										report: `${printSpanCase(sc)}\n${Arr.join(outcome, "\n")}`
-									})
-								}
-							})
-					)
+	it.effect("agree with the reference in both artifacts on Allen and pointIn cases", (ctx) =>
+		searched(
+			ctx,
+			Effect.gen(function* () {
+				const s = yield* Substrate
+				const db = yield* s.session({ ...ownerSession(), label: "owner" })
+				const installed = yield* Effect.all({
+					integer: installEvery("integer"),
+					bigint: installEvery("bigint"),
+					contract: installEvery("contract"),
+					date: installEvery("date")
 				})
-			)
+				return yield* oracleCheck(
+					drawn(spanCaseGen({ maxRows: 6, kinds, endpoints: spanEndpointKinds })),
+					{
+						suite: "spans/allen-oracle",
+						literal: Formatter.format,
+						coverage: required<AllenOracleFeature>(
+							Arr.flatMap(kinds, (k) =>
+								Arr.map(spanEndpointKinds, (e): AllenOracleFeature => `${k}:${e}`)
+							),
+							{ cases: cases, sense: notesOnly }
+						),
+						kept: [],
+						runs: cases,
+						shrink: completeShrink,
+						perturb: "none"
+					},
+					(sc, c) =>
+						Effect.gen(function* () {
+							const kind = sc.query.kind
+							if (kind !== "allenFilter" && kind !== "allenJoin" && kind !== "pointIn") {
+								return yield* new PropertyFailed({
+									report: `${printSpanCase(sc)}\na ${kind} case outside the drawn kinds`
+								})
+							}
+							c.note(`${kind}:${sc.schema.endpoint}`)
+							const target = byKeying(
+								byKeying(installed[sc.schema.endpoint], sc.schema.relations.Left.spanKeyed),
+								sc.schema.relations.Right.spanKeyed
+							)
+							const template = compileSpanDesc(
+								spanQueryDesc(sc),
+								spanSchemaDesc(sc.schema),
+								target.schema
+							)
+							const expected = referenceRows(sc)
+							const columns = spanQueryHeading(sc.query)
+							yield* db.begin
+							const outcome = yield* Effect.gen(function* () {
+								for (const name of spanRelationNames) {
+									if (sc.facts[name].length === 0) {
+										continue
+									}
+									const insert = spanInsert(target.schema, sc, name, sc.facts[name])
+									yield* db.query(insert.sql, insert.params)
+								}
+								const problems: Array<string> = []
+								for (const artifact of ["optimized", "conservative"] as const) {
+									const spec = template[artifact][0]
+									if (spec === undefined || template[artifact].length !== 1) {
+										return [`${artifact}: one statement`]
+									}
+									if (regex("\\b(lower|upper)\\(").test(spec.sql)) {
+										problems.push(`${artifact}: lower() or upper()`)
+									}
+									const [rows] = yield* runArtifact(db, template, artifact, spanQueryParams(sc))
+									const got = rowsAs(spec, rows ?? [], columns)
+									if (got.repeats > 0) {
+										problems.push(`${artifact}: ${got.repeats} repeated rows`)
+									}
+									const difference = sameRowSet(got.rows, expected)
+									if (Option.isSome(difference)) {
+										problems.push(
+											`${artifact}: ${difference.value}\n  reference  ${Formatter.format(expected)}\n  postgresql ${Formatter.format(got.rows)}`
+										)
+									}
+								}
+								return problems
+							}).pipe(Effect.ensuring(Effect.ignore(db.rollback)))
+							if (outcome.length > 0) {
+								return yield* new PropertyFailed({
+									report: `${printSpanCase(sc)}\n${Arr.join(outcome, "\n")}`
+								})
+							}
+						})
+				)
+			})
+		)
 	)
 })

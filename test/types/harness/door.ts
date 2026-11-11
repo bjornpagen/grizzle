@@ -293,7 +293,7 @@ export const doorRequired: Situations<DoorNote> = [
 ]
 
 /** The cases the run's own stream draws, beside the floor's witnesses. */
-export const doorCount = 120
+const doorCount = 120
 
 const doorLabel = "types/harness door"
 

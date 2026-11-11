@@ -443,11 +443,7 @@ const agreeOn = (
 					assert.equal(truth(row[0]), expected, `${label} ARE ${r.members[0].are} on ${value}`)
 					assert.equal(truth(row[1]), expected, `${label} domain on ${value}`)
 				}
-				assert.equal(
-					Arr.every(own, ecma),
-					true,
-					`${label} witnesses are members`
-				)
+				assert.equal(Arr.every(own, ecma), true, `${label} witnesses are members`)
 				if (own.length > 0) {
 					note("own member accepted")
 				}
@@ -540,8 +536,7 @@ layer(Substrate.layer)(
 								steerEvery: 16,
 								caseHang
 							},
-							(c, k) =>
-								agreeOn(db, schema, fi, family, c.patterns, c.strings, (f) => k.note(f))
+							(c, k) => agreeOn(db, schema, fi, family, c.patterns, c.strings, (f) => k.note(f))
 						)
 					)
 				}

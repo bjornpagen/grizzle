@@ -866,7 +866,7 @@ export const accessRequired: Situations<AccessNote> = [
 ]
 
 /** The logins the run's own stream draws, beside the floor's witnesses. */
-export const accessCount = 60
+const accessCount = 60
 
 const accessLabel = "types/api access agreement"
 

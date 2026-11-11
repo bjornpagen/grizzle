@@ -4133,13 +4133,13 @@ const verdictText = (v: Verdict): string => {
 }
 
 /** The queries the run's own stream draws. */
-export const agreementCount = 240
+const agreementCount = 240
 
 /**
  * The faulted queries the run's own stream draws, and the floor's witnesses of them: eight per fault, so the floor's
  * draws of each fault meet it refused and, where its site may hold a valid value, admitted.
  */
-export const faultCount = 8 * agreementFaults.length
+const faultCount = 8 * agreementFaults.length
 
 /** The label both clean populations are drawn under. */
 const agreementLabel = "types/evidence agreement"
