@@ -56,6 +56,9 @@ import { typeRun } from "#test/types/batch/provided.ts"
  * constant, pinned by one of them and not by another, and every fault refused, each whose site may hold a valid value
  * admitted too, so the program is never vacuous on any seed; the admission matrix holds every position and kind by
  * construction.
+ *
+ * Plant (~/.cache/grizzle-release/BR14/plants): evidence-get-one-only.patch refuses db.get of a query its evidence
+ * proves at most one row, admitting only one proved exactly one.
  */
 const required: Situations<AgreementNote> = [
 	...agreementFeatures,

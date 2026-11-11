@@ -23,6 +23,9 @@ import { checked } from "#test/types/batch/batch.ts"
  * and reach every construct, every verdict and every Refusal of the write path, so the program is never vacuous on any
  * seed. Beside them every run draws the kept cases, each a case a run's own stream once drew failing, replayed by its
  * tape and checked to still draw what it was kept for.
+ *
+ * Plant (~/.cache/grizzle-release/BR14/plants): changeset-writable-world.patch lets a ChangeSet write a world relation
+ * its role's write list does not name.
  */
 const required: Situations<ChangeSetNote> = [
 	"admitted",

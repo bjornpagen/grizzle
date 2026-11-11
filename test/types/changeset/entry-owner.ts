@@ -21,7 +21,7 @@ import { type PreludeAt, preludeAt, preludeFrom, preludeProgram } from "#test/su
  */
 
 /** The declared cases: those whose entry's filter reads no family field, which the role builder refuses. */
-export const entryOwnerTyped: ReadonlyArray<EntryOwnerCase> = Arr.filter(
+const entryOwnerTyped: ReadonlyArray<EntryOwnerCase> = Arr.filter(
 	entryOwnerCases,
 	entryOwnerDeclared
 )

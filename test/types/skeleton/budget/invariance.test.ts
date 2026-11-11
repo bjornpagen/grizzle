@@ -9,9 +9,8 @@
  * relation, and a query's rows inserted into another relation, raise exactly the diagnostics, codes and refusals, they
  * raise over the twin. Oracle: the twin, a program at the smallest scale the probes read.
  *
- * Plant (~/.cache/grizzle-release/BR14/plants): scale-key-recursion.patch builds the schema's index of candidate
- * keys by a recursion over the statement tuple, one level per statement, which the twin's few statements survive and
- * the program at scale does not.
+ * Plant (~/.cache/grizzle-release/BR14/plants): scale-keys-past-hundred.patch drops a schema's declared candidate keys
+ * once it holds a hundred statements, which the twin never does and the program at scale does.
  */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"

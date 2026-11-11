@@ -14,8 +14,7 @@
  * cases, so neither program is vacuous on any seed.
  *
  * Plants (~/.cache/grizzle-release/BR14/plants): harness-open-situations.patch widens a required situation to any
- * string; harness-door-infers.patch drops NoInfer from assert.deepEqual's expected value, so a drifted value widens the
- * type instead of failing.
+ * string; harness-door-widened.patch widens assert.deepEqual's expected value to any string beside the actual's type.
  */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"

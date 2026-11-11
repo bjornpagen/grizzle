@@ -1,3 +1,13 @@
+/**
+ * str.regex's host types are sound (test/types/text/contained.ts), one program the type batch checks armed: every value
+ * ECMAScript accepts of an admitted pattern, drawn from each family's strings and walks of the pattern's own NFA,
+ * inhabits `Infer` of its str.regex, and of its str.and with the next pattern, the kept patterns among them; the
+ * program has no diagnostic. Oracle: ECMAScript's own matcher. Every family contributes a member from the draws its
+ * label fixes, so the program proves something of each on every seed.
+ *
+ * Plant (~/.cache/grizzle-release/BR14/plants): text-host-drops-empty.patch drops the empty string from every inferred
+ * host type.
+ */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
 import { unreachedOf } from "@grizzle/testing/features"

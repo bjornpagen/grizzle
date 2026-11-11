@@ -15,6 +15,7 @@ import { untypedEntriesFrom, untypedSource } from "#test/types/api/untyped.ts"
 import type { Group, UnitSpec } from "#test/types/batch/batch.ts"
 import { entryOwnerEntriesFrom, entryOwnerSource } from "#test/types/changeset/entry-owner.ts"
 import { nestingCases, nestingSource } from "#test/types/changeset/nesting.ts"
+import { parameterSource } from "#test/types/evidence/parameter.ts"
 import { doorEntriesFrom, doorModule } from "#test/types/harness/door.ts"
 import { vocabularyModule } from "#test/types/harness/vocabulary.ts"
 import {
@@ -208,6 +209,19 @@ const typeGroups: ReadonlyArray<Group> = [
 				source: (entry, seed) => [
 					{ file: "index.ts", source: attachModule(attachEntriesFrom(entry), seed) }
 				]
+			}
+		}
+	},
+	{
+		owner: "test/types/evidence/parameter.test.ts",
+		units: {
+			"evidence/parameter": {
+				kind: "program",
+				dir: "test/types/evidence",
+				prefix: ".parameter-",
+				disarm: true,
+				heavy: false,
+				source: () => [{ file: "index.ts", source: parameterSource() }]
 			}
 		}
 	},

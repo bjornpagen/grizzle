@@ -20,6 +20,9 @@ import { typeRun } from "#test/types/batch/provided.ts"
  * child's records. A read-back's delivery is one the engine proves in the transaction context, and the floor's
  * witnesses reach every delivery, refusal, proof and shape, a derived parent's and a nested attachment's among them,
  * and a child over no level of its parent's schema, which both refuse.
+ *
+ * Plant (~/.cache/grizzle-release/BR14/plants): attach-one-unproved.patch admits the one child where the evidence
+ * proves at most one per parent.
  */
 const required: Situations<AttachNote> = [
 	...Arr.map(attachRefusals, (refusal): AttachNote => `refused: ${refusal}`),

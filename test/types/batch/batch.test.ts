@@ -16,8 +16,9 @@
  *
  * Plants (~/.cache/grizzle-release/BR14/plants): batch-twin-blind.patch compares no twin's diagnostics, so a twin
  * label whose lines differ passes; batch-code-blind.patch accepts any code under a code claim; batch-unowned.patch
- * leaves a diagnostic in a file no unit owns unattributed instead of failing the batch; batch-stall-blind.patch never
- * judges a compiler stalled; batch-withheld-read.patch reads a unit's missing file as a unit with no diagnostic.
+ * attributes a diagnostic in a file no unit owns to some unit instead of failing the batch; batch-stall-blind.patch never
+ * judges a compiler stalled; batch-withheld-read.patch reads a unit's missing file as a unit with no diagnostic;
+ * batch-builder-silent.patch writes an empty batch for a builder that failed, naming no failure.
  */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"

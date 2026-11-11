@@ -1,3 +1,11 @@
+/**
+ * The workload agreement (test/support/agreement/workloads.ts), one program the type batch checks disarmed: over drawn
+ * workloads and the floor's, the types admit exactly what the engine builds, plans and compiles, and keep each
+ * program's type. Oracle: the engine's build, plan and compile of each drawn workload. The floor's witnesses reach every
+ * kind of program under both verdicts and every shape of workload, so the program is never vacuous on any seed.
+ *
+ * Plant (~/.cache/grizzle-release/BR14/plants): api-workload-paged.patch lets paged take a query no orderBy made.
+ */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
 import { unreachedOf } from "@grizzle/testing/features"

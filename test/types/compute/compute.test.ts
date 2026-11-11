@@ -22,6 +22,9 @@ import { checked } from "#test/types/batch/batch.ts"
  * The floor's witnesses, the same in every run, reach every construct admitted and, where the catalogue can refuse it,
  * refused, every Refusal the Compute catalogue names, and every inference the program asserts, so the program is never
  * vacuous on any seed.
+ *
+ * Plant (~/.cache/grizzle-release/BR14/plants): compute-literal-first.patch admits a literal as an operation's first
+ * operand.
  */
 const required: Situations<ComputeNote> = [
 	"admitted",

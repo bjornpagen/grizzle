@@ -1,8 +1,16 @@
+/**
+ * A builder's list or record holding a member typed any (test/types/api/untyped.ts), one program the type batch checks
+ * disarmed: over the box of every builder that captures a list or a record, by every typing of what it captures, and
+ * the kept Object.values leak, a call is refused exactly when a list or record it captures holds a member typed any, at
+ * the first argument that holds one, and every other call is admitted with a schema's nestings kept. Oracle: the box's
+ * own typing of each captured list and record.
+ *
+ * Plant (~/.cache/grizzle-release/BR14/plants): api-untyped-admitted.patch admits a member typed any.
+ */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Option } from "effect"
+import { Effect } from "effect"
 import { assert } from "#test/support/assert.ts"
-import { untypedRefusalAt, untypedCases } from "#test/types/api/untyped.ts"
 import { checked } from "#test/types/batch/batch.ts"
 
 layer(NodeServices.layer, { excludeTestServices: true })(
@@ -13,10 +21,6 @@ layer(NodeServices.layer, { excludeTestServices: true })(
 			() =>
 				Effect.gen(function* () {
 					const { expected, actual } = yield* checked("api/untyped")
-					assert.equal(
-						expected.length,
-						Arr.filter(untypedCases, (c) => Option.isSome(untypedRefusalAt(c))).length
-					)
 					assert.deepEqual(actual, expected)
 				})
 		)

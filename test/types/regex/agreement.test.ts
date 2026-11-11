@@ -1,3 +1,13 @@
+/**
+ * The regex agreement (test/types/regex/agreement.ts), one program the type batch checks disarmed: over drawn str.regex
+ * calls and the floor's, a literal call typechecks exactly when the engine admits its pattern, the declared classes
+ * apart; a finite language within the scan infers exactly its members, a long source string, and a cross product its
+ * union, or past the union limit string, never by expanding it. Oracle: the engine's admission (text/refinement.ts),
+ * and ECMAScript's acceptance of each member. The floor's witnesses reach every form, verdict, declared class and host
+ * claim.
+ *
+ * Plant (~/.cache/grizzle-release/BR14/plants): regex-infer-string.patch widens every inferred host type to string.
+ */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
 import { unreachedOf } from "@grizzle/testing/features"

@@ -120,7 +120,7 @@ const shapes: { readonly [B in BuilderName]: Shape } = {
  * One case: its builder, what its comment says of it, its call's parameters, and the parameters of the lists and
  * records that hold a member typed `any`.
  */
-export interface UntypedCase {
+interface UntypedCase {
 	readonly builder: BuilderName
 	readonly said: string
 	readonly params: (name: string) => ReadonlyArray<string>
@@ -164,10 +164,10 @@ const keptCase: UntypedCase = {
 }
 
 /** Every case: the box, and the kept case beside it. */
-export const untypedCases: ReadonlyArray<UntypedCase> = [...boxCases, keptCase]
+const untypedCases: ReadonlyArray<UntypedCase> = [...boxCases, keptCase]
 
 /** The parameter a case's call is refused at: the first argument that holds a member typed `any`, none if none does. */
-export const untypedRefusalAt = (c: UntypedCase): Option.Option<number> =>
+const untypedRefusalAt = (c: UntypedCase): Option.Option<number> =>
 	Arr.head(Arr.sort(c.holdingAny, Order.Number))
 
 const memberRefusal: Refused =

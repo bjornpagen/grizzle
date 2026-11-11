@@ -15,8 +15,8 @@
  *
  * Plants (~/.cache/grizzle-release/BR14/plants): families-scale-walk.patch finds a key's immutable owners by a pass
  * over every family of the schema for each key, a cost per key that grows with the families;
- * families-owner-recursion.patch builds the index of family owners by a recursion over the statement tuple, one level
- * per statement, which the twin's few statements survive and the program at scale does not.
+ * scale-owners-past-hundred.patch drops a schema's index of family owners once it holds a hundred statements, which the
+ * twin never does and the program at scale does.
  */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"

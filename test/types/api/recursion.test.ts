@@ -1,3 +1,11 @@
+/**
+ * The recursion agreement (test/support/agreement/recursion.ts), one program the type batch checks disarmed: over drawn
+ * recursions and the floor's, the types admit exactly what the engine compiles, name its refusal, and infer its records
+ * and parameters. Oracle: the engine's compile of each drawn recursion. The floor's witnesses reach every fault, both
+ * declared classes and every admitted shape, so the program is never vacuous on any seed.
+ *
+ * Plant (~/.cache/grizzle-release/BR14/plants): api-recursion-arms.patch admits a recursion with no base arm.
+ */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
 import { unreachedOf } from "@grizzle/testing/features"

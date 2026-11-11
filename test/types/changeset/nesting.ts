@@ -70,7 +70,7 @@ export const nestingCases: ReadonlyArray<NestingCase> = Arr.flatMap(forms, (form
 )
 
 /** Whether a case's insert is refused: one of its types states a field its nesting does not take. */
-export const nestingRefused = (c: NestingCase): boolean => c.excess.kind !== "none" || c.back === 0
+const nestingRefused = (c: NestingCase): boolean => c.excess.kind !== "none" || c.back === 0
 
 /** A member type of case `name`: its own fields, its nestings, and the fields beyond them it states. */
 const memberType = (
