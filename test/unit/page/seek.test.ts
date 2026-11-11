@@ -1,7 +1,34 @@
+/**
+ * The seek predicate and the request variants' probes (packages/engine/src/lower/shapes/page/seek.ts).
+ *
+ * The predicate is checked exhaustively against its definition, the declared lexicographic order: for every
+ * comparator sequence of one to three keys in every direction combination, every seek (strictly or inclusively after
+ * or before), and every tuple and boundary over a three-value domain, a direct evaluation of the emitted SQL
+ * expression agrees with the declared order, and so does the empty comparison tuple of the zero-column relation.
+ *
+ * The opposite flag's probe on the anchor is checked against the delivered edge it replaces: for generated sets of
+ * tuples, anchors and directions, "D holds a tuple before the page's first edge" is "D holds a tuple at or before the
+ * anchor", and its mirror for a before request, each side evaluated through the seek predicates the page compiler
+ * emits.
+ *
+ * A backward fetch reverses every direction of an order, and reversing twice is the order: checked on every order of
+ * one to four keys.
+ *
+ * Oracles: the declared lexicographic order, a specification, for the predicate; the delivered edge's flag, a second
+ * implementation over the same predicates, for the probes; each key's opposite direction for the reversal.
+ *
+ * Features: zero to three keys; for the probes, a set with no tuple, an after page that reaches none, and a flag
+ * raised and lowered on each side.
+ *
+ * Plants (~/.cache/grizzle-release/BR06/plants): seek-mixed-inclusive-strict (an inclusive seek over mixed directions
+ * missing its equal tuple), seek-probe-at-or-before-strict (the before probe strict) and seek-reverse-first-key-only
+ * (a reversal of the first key alone).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { noCoverage, requiredInSpace } from "@grizzle/testing/features"
-import { array, element, int, uniqueArray } from "@grizzle/testing/gen"
+import { noCoverage, required, requiredInSpace } from "@grizzle/testing/features"
+import { array, element, int, subset } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, type Order, String as Str } from "effect"
@@ -24,20 +51,6 @@ import { assert, nonEmpty } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { isList } from "#test/support/list.ts"
 import { testTypeSchema } from "#test/support/sql.ts"
-
-/**
- * The seek predicate and the request variants' probes (packages/engine/src/lower/shapes/page/seek.ts).
- *
- * The predicate is checked exhaustively against its definition, the declared lexicographic order: for every
- * comparator sequence of one to three keys in every direction combination, every seek (strictly or inclusively after
- * or before), and every tuple and boundary over a three-value domain, a direct evaluation of the emitted SQL
- * expression agrees with the declared order, and so does the empty comparison tuple of the zero-column relation.
- *
- * The opposite flag's probe on the anchor is checked against the delivered edge it replaces: for generated sets of
- * tuples, anchors and directions, "D holds a tuple before the page's first edge" is "D holds a tuple at or before the
- * anchor", and its mirror for a before request, each side evaluated through the seek predicates the page compiler
- * emits.
- */
 
 /** The seek keys of `dirs`: integer key i reads column r.ki against placeholder $(i + 1). */
 const keysOf = (dirs: ReadonlyArray<Direction>): ReadonlyArray<SeekKey> =>
@@ -184,6 +197,18 @@ const declared =
 const tuples = (m: number): ReadonlyArray<ReadonlyArray<number>> =>
 	m === 0 ? [[]] : Arr.flatMap(tuples(m - 1), (t) => Arr.map([0, 1, 2], (v) => [...t, v]))
 
+/** Every tuple of `m` values over the probes' domain, 0 to 3. */
+const domainTuples = (m: number): ReadonlyArray<ReadonlyArray<number>> =>
+	m === 0 ? [[]] : Arr.flatMap(domainTuples(m - 1), (t) => Arr.map([0, 1, 2, 3], (v) => [...t, v]))
+
+type ProbeFeature =
+	| "no tuple"
+	| "an after page of no tuple"
+	| "a previous page"
+	| "no previous page"
+	| "a next page"
+	| "no next page"
+
 const directionSets = (m: number): ReadonlyArray<ReadonlyArray<Direction>> =>
 	m === 0
 		? [[]]
@@ -223,8 +248,8 @@ describe("the seek predicate", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "every direction set of zero to three keys, each seek, every tuple and boundary over three values",
+						oracle: { kind: "specification", name: "the declared lexicographic order" },
 						suite: "unit/page/seek",
 						generator: (source) => {
 							const m = source.draw(element([0, 1, 2, 3]))
@@ -283,19 +308,17 @@ describe("variants and probes", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "second-implementation",
+						name: "the delivered edge's flag, over the seek predicates the page compiler emits"
+					},
 					suite: "unit/page/anchor-probe",
 					draw: drawn((source) =>
 						source.draw(
 							((m) => (source) => ({
 								dirs: source.draw(array(element(directions), { min: m, max: m })),
 								d: source.draw(
-									uniqueArray(
-										array(int(0, 3), { min: m, max: m }),
-										shownTuple,
-										{ min: 0, max: 12 },
-										20
-									)
+									subset(domainTuples(m), { min: 0, max: Math.min(12, domainTuples(m).length) })
 								),
 								anchor: source.draw(array(int(0, 3), { min: m, max: m })),
 								size: source.draw(int(1, 4))
@@ -303,7 +326,17 @@ describe("variants and probes", () => {
 						)
 					),
 					literal: Formatter.format,
-					coverage: noCoverage,
+					coverage: required<ProbeFeature>(
+						[
+							"no tuple",
+							"an after page of no tuple",
+							"a previous page",
+							"no previous page",
+							"a next page",
+							"no next page"
+						],
+						{ cases: 400, sense: notesOnly }
+					),
 					kept: [],
 					runs: 2_000,
 					shrink: completeShrink,
@@ -311,8 +344,11 @@ describe("variants and probes", () => {
 					steerEvery: 16,
 					caseHang
 				},
-				({ dirs, d, anchor, size }) =>
+				({ dirs, d, anchor, size }, c) =>
 					Effect.sync(() => {
+						if (d.length === 0) {
+							c.note("no tuple")
+						}
 						const inOrder = Arr.sort(d, declared(dirs))
 						/**
 						 * An after request: the page is the first `size` tuples after the anchor in the declared order, its
@@ -328,6 +364,10 @@ describe("variants and probes", () => {
 							first === undefined
 								? d.length > 0
 								: anyOn(dirs, d, { side: "precedes", inclusive: false }, first)
+						if (first === undefined && d.length > 0) {
+							c.note("an after page of no tuple")
+						}
+						c.note(edgeFlag ? "a previous page" : "no previous page")
 						assert.equal(anyOn(dirs, d, probeSeek("atOrBefore"), anchor), edgeFlag)
 						/**
 						 * A before request: the page is the last `size` tuples before the anchor, its last edge L the
@@ -343,6 +383,7 @@ describe("variants and probes", () => {
 							last === undefined
 								? d.length > 0
 								: anyOn(dirs, d, { side: "follows", inclusive: false }, last)
+						c.note(lastFlag ? "a next page" : "no next page")
 						assert.equal(anyOn(dirs, d, probeSeek("atOrAfter"), anchor), lastFlag)
 					})
 			)
@@ -354,18 +395,15 @@ describe("variants and probes", () => {
 		(ctx) =>
 			searched(
 				ctx,
-				explore(
+				exhaust(
 					{
-						oracle: { kind: "unstated" },
+						box: "every order of one to four keys",
+						oracle: { kind: "specification", name: "each key's opposite direction" },
 						suite: "unit/page/reverse",
-						draw: drawn(array(element(directions), { min: 1, max: 4 })),
+						generator: array(element(directions), { min: 1, max: 4 }),
 						literal: Formatter.format,
+						limit: 30,
 						coverage: noCoverage,
-						kept: [],
-						runs: 50,
-						shrink: completeShrink,
-						concurrency: 1,
-						steerEvery: 16,
 						caseHang
 					},
 					(dirs) =>

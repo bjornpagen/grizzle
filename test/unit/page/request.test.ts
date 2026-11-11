@@ -1,7 +1,25 @@
+/**
+ * Page request validation (packages/grizzle/src/adapter/page/request.ts).
+ *
+ * The accepted shapes are exactly { first }, { first, after }, { last } and { last, before }: mixed directions, both
+ * anchors, an anchor of the other direction, a missing size and any other property are refused as
+ * a ReadFailure whose reason is PageRequestRefused (stage request), and so is a size that is not a safe integer of at
+ * least 1, with no upper bound; an explicitly supplied null or undefined cursor, or any non-string, is CursorError
+ * `cursorType`, checked after the shape; an omitted control property is genuinely absent, so an inherited one is no
+ * anchor. The rule is restated here as the oracle, and requests are drawn over every property's presence, own or
+ * inherited, and every size and cursor kind, the largest safe integer and the first unsafe one among the sizes.
+ *
+ * Features: each accepted variant (first, after, last, before), each refusal (requestShape, requestSize, cursorType),
+ * and an inherited control.
+ *
+ * Plants (~/.cache/grizzle-release/BR06/plants): request-unsafe-size-admitted (an integer past the safe ones taken as a
+ * size), request-other-anchor-ignored (an anchor of the other direction ignored) and request-undefined-cursor-admitted
+ * (an explicit undefined cursor read as no anchor).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { codePoint, element, type Gen, int, string, weighted } from "@grizzle/testing/gen"
+import { codePoint, constant, element, type Gen, int, string, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -16,18 +34,6 @@ import { caseHang } from "#test/support/limits.ts"
 /** A page request refused for `fault`, as a read reports it. */
 const requestRefused = (fault: RequestFault): ReadFailure =>
 	new ReadFailure({ reason: new PageRequestRefused({ fault }) })
-
-/**
- * Page request validation (packages/grizzle/src/adapter/page/request.ts).
- *
- * The accepted shapes are exactly { first }, { first, after }, { last } and { last, before }: mixed directions, both
- * anchors, an anchor of the other direction, a missing size and any other property are refused as
- * a ReadFailure whose reason is PageRequestRefused (stage request), and so is a size that is not a safe integer of at
- * least 1, with no upper bound; an explicitly supplied null or undefined cursor, or any non-string, is CursorError
- * `cursorType`, checked after the shape; an omitted control property is genuinely absent, so an inherited one is no
- * anchor. The rule is restated here as the oracle, and requests are drawn over every property's presence, own or
- * inherited, and every size and cursor kind, the largest safe integer and the first unsafe one among the sizes.
- */
 
 type Control = "first" | "last" | "after" | "before"
 const controls: ReadonlyArray<Control> = ["first", "last", "after", "before"]
@@ -70,7 +76,11 @@ interface RequestCase {
 	readonly notObject: unknown
 }
 
-const presenceGen = element<Presence>(["absent", "absent", "own", "own", "inherited"])
+const presenceGen: Gen<Presence> = weighted<Presence>([
+	[2, constant("absent")],
+	[2, constant("own")],
+	[1, constant("inherited")]
+])
 
 const requestCaseGen: Gen<RequestCase> = (source) => ({
 	presence: {
@@ -86,10 +96,17 @@ const requestCaseGen: Gen<RequestCase> = (source) => ({
 		before: source.draw(cursorGen)
 	},
 	extra: source.draw(
-		element<RequestCase["extra"]>(["none", "none", "none", "a string key", "a symbol key"])
+		weighted<RequestCase["extra"]>([
+			[3, constant("none")],
+			[1, constant("a string key")],
+			[1, constant("a symbol key")]
+		])
 	),
 	shape: source.draw(
-		element<RequestCase["shape"]>(["an object", "an object", "an object", "no object"])
+		weighted<RequestCase["shape"]>([
+			[3, constant("an object")],
+			[1, constant("no object")]
+		])
 	),
 	notObject: source.draw(element<unknown>([null, undefined, 3, "first", [1]]))
 })
@@ -168,7 +185,7 @@ describe("page requests", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: { kind: "specification", name: "the request rule restated (expectedOf)" },
 						suite: "unit/page/request",
 						draw: drawn(requestCaseGen),
 						literal: Formatter.format,
