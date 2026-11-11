@@ -72,8 +72,9 @@ import type {
  * time, so its Dbs of every role share it, and then a direct writer with any current role of its login and any claims,
  * malformed ones among them, set for the transaction or the session; or a migration past the Dbs' snapshot, completed
  * or stopped half-applied, which leaves them stale and its drafted snapshot one an open may name; or a lead's moves,
- * which build a state one action before what it reaches: a transaction begun, a transaction one statement in, a
- * derived relation a Db left stale, or a Db opened (drive/suite.ts inductiveLeads)), brings the real system to it, and
+ * which build a state one action before what it reaches: a transaction begun in the shape a pending feature needs, one
+ * statement in or one delete in, a Db one apply in, a Db opened, or a derived relation a Db left stale (drive/suite.ts
+ * inductiveLeads)), brings the real system to it, and
  * then performs ONE action drawn there, valid or invalid, aimed at a required feature no case reached yet that the
  * state offers: every time while one is pending, half the time once all are reached or where the case may not steer
  * (drive/suite.ts aimsAt, steeredOnce).

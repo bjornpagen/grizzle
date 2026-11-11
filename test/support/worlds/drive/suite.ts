@@ -16,7 +16,7 @@ import {
 } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { type AmbientSession, ambientFeatures, ambientSessionGen } from "#test/support/ambient.ts"
-import { relationOf, sameValue, valueText } from "#test/support/laws/model.ts"
+import { isImmediate, relationOf, sameValue, valueText } from "#test/support/laws/model.ts"
 import { caseHang } from "#test/support/limits.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import type { Substrate } from "#test/support/substrate/substrate.ts"
@@ -30,7 +30,12 @@ import {
 import { type RealWorld, realize } from "#test/support/worlds/execute/index.ts"
 import { installedNames } from "#test/support/worlds/execute/names.ts"
 import type { RealizeRefused } from "#test/support/worlds/execute/refused.ts"
-import { claimRefusalsOf, requiredWorldFeatures } from "#test/support/worlds/features.ts"
+import {
+	claimRefusalsOf,
+	deletedBy,
+	requiredWorldFeatures,
+	staleDerived
+} from "#test/support/worlds/features.ts"
 import { actionGen, offeredOf, withOpener } from "#test/support/worlds/generate/action.ts"
 import { knownNonEmpty, pool } from "#test/support/worlds/generate/domain.ts"
 import {
@@ -68,8 +73,8 @@ import {
 	docsOneShareEditorInstall,
 	docsOneShareInstall
 } from "#test/support/worlds/model/bases/docs.ts"
-import { hostSchemaOf } from "#test/support/worlds/model/host.ts"
-import { relationSpecOf } from "#test/support/worlds/model/session/state.ts"
+import { classifyEntry, hostSchemaOf } from "#test/support/worlds/model/host.ts"
+import { entryContexts, relationSpecOf } from "#test/support/worlds/model/session/state.ts"
 import { writtenOf } from "#test/support/worlds/model/session/writes.ts"
 import { initialState, settle, step } from "#test/support/worlds/model/step.ts"
 import type {
@@ -78,6 +83,7 @@ import type {
 	Allowed,
 	BaseSpec,
 	Branch,
+	EntrySpec,
 	HostFact,
 	HostSchema,
 	HostState,
@@ -562,15 +568,18 @@ const staleDerivedMoves = (
 	weights: Weights,
 	targets: Arr.NonEmptyReadonlyArray<string>
 ): Arr.NonEmptyReadonlyArray<Weights> => [
-	{
-		...weights,
-		kinds: ["open-db"],
-		actions: { ...zeroWeights.actions, "open-db": 1 },
-		validity: liveOnly,
-		aims: everyDraw([dbRefreshingWritten], refreshesWrittenRead, (a) => a.kind === "open-db")
-	},
+	refreshingWrittenOpen(weights),
 	dbCall(weights, "apply", targets, afterApply)
 ]
+
+/** A live open of a Db of a role that refreshes a derived relation computed from one it writes, aimed on every draw. */
+const refreshingWrittenOpen = (weights: Weights): Weights => ({
+	...weights,
+	kinds: ["open-db"],
+	actions: { ...zeroWeights.actions, "open-db": 1 },
+	validity: liveOnly,
+	aims: everyDraw([dbRefreshingWritten], refreshesWrittenRead, (a) => a.kind === "open-db")
+})
 
 /** A direct writer's COMMIT a law refused: what a COMMIT-law lead reaches. */
 const atCommitRefusals = (feature: WorldFeature): boolean =>
@@ -1234,14 +1243,261 @@ export const steeredOnce = (weights: Weights, c: Pick<Case<WorldFeature>, "steer
 		: aimed
 }
 
+/** The claims a BEGIN starts its transaction under, as a direct op feature names them of the transaction. */
+type BegunClaims = "no claims" | "claims" | "malformed claims"
+
+/** A lead's own aim at a BEGIN's shape: the writer its transaction acts as and the claims it starts under. */
+type BegunAs =
+	| `lead:begun as ${"direct-role" | "direct-login"} under ${BegunClaims}`
+	| `lead:begun as a role seeing outside its writes under ${"no claims" | "claims"}`
+	| `lead:begun as a role writing past a law checked at COMMIT under ${"no claims" | "claims"}`
+
+/** Every shape a BEGIN takes: what a lead's BEGIN aims at while no pending feature names one. */
+const everyBegun: Arr.NonEmptyReadonlyArray<BegunAs> = [
+	"lead:begun as direct-role under no claims",
+	"lead:begun as direct-role under claims",
+	"lead:begun as direct-role under malformed claims",
+	"lead:begun as direct-login under no claims",
+	"lead:begun as direct-login under claims",
+	"lead:begun as direct-login under malformed claims",
+	"lead:begun as a role seeing outside its writes under no claims",
+	"lead:begun as a role seeing outside its writes under claims",
+	"lead:begun as a role writing past a law checked at COMMIT under no claims",
+	"lead:begun as a role writing past a law checked at COMMIT under claims"
+]
+
+/** The claims a BEGIN sets that a role's entries may hold facts under: none, or claims of its contexts. */
+type HoldingClaims = Exclude<BegunClaims, "malformed claims">
+
 /**
- * A state an inductive case builds past its planned Db sessions, one action before what it reaches: its first move, an
- * action of `kind` the box offers in the planned state, drawn evenly among them, and the moves after it (`after`), each
- * aimed on every draw at the required features still pending (`targets`). A lead looks past none of its moves: what
- * the case reaches from the state it builds is its one action's aim to decide, never a list of features.
+ * Whether an entry may hold facts of `relation` under `under` (features.ts holdsThrough): a whole entry of it; or a
+ * writable query entry over it, under claims whatever it reads, under none only one that reads no context.
+ */
+const holdsUnder = (
+	base: BaseSpec,
+	entry: EntrySpec,
+	relation: string,
+	under: HoldingClaims
+): boolean => {
+	if (entry.kind === "whole") {
+		return entry.relation === relation
+	}
+	const classified = classifyEntry(base, entry)
+	return (
+		classified.kind === "writable" &&
+		classified.target === relation &&
+		(under === "claims" || entryContexts(entry).size === 0)
+	)
+}
+
+/**
+ * Whether a role, under `under`, may hold through one of its entries facts of a relation it writes through another, so
+ * a statement through the entry it writes meets them outside its world yet visible (features.ts membershipOf).
+ */
+const seesOutside = (base: BaseSpec, role: RoleSpec, under: HoldingClaims): boolean =>
+	Arr.some(writtenOf(base, role), (written) =>
+		Arr.some(
+			Record.toEntries(role.entries),
+			([name, entry]) => name !== written.entry && holdsUnder(base, entry, written.target, under)
+		)
+	)
+
+/** The relations a law checked at COMMIT reads: each side of a containment or a coverage that is deferred. */
+const deferredRelations = (host: HostSchema): ReadonlySet<string> =>
+	new Set(
+		Arr.flatMap(host.laws, (law): ReadonlyArray<string> => {
+			switch (law.kind) {
+				case "key":
+				case "spanKey":
+				case "check":
+					return []
+				case "contained":
+				case "covered":
+					return isImmediate(host, law) ? [] : [law.source.relation, law.target.relation]
+			}
+		})
+	)
+
+/**
+ * Whether a role writes a relation a law checked at COMMIT reads, through an entry that may hold facts under the claims
+ * it begins with (holdsUnder): a statement of its transaction may then break the law, and its COMMIT is refused.
+ */
+const writesPastCommit = (state: ModelState, role: RoleSpec, under: HoldingClaims): boolean => {
+	const deferred = deferredRelations(state.host)
+	return Arr.some(writtenOf(state.install.base, role), (written) => {
+		const entry = role.entries[written.entry]
+		return (
+			deferred.has(written.target) &&
+			entry !== undefined &&
+			holdsUnder(state.install.base, entry, written.target, under)
+		)
+	})
+}
+
+/**
+ * The shapes of the transaction a BEGIN leaves open, read of its outcome: the writer it acts as and the claims it set;
+ * for a role under none or under claims, whether it may hold facts outside the entries it writes (seesOutside) and
+ * whether it writes a relation a law checked at COMMIT reads (writesPastCommit). It steps nothing past the BEGIN.
+ */
+const begunRead = (state: ModelState, action: Action, outcome: Allowed): ReadonlyArray<BegunAs> => {
+	if (action.kind !== "direct-begin") {
+		return []
+	}
+	const session = settled(outcome).next.sessions[state.sessions.length]
+	if (session?.kind !== "direct" || session.transaction !== "open") {
+		return []
+	}
+	const under: BegunClaims =
+		session.claims.kind === "none"
+			? "no claims"
+			: session.claims.setting.kind === "malformed"
+				? "malformed claims"
+				: "claims"
+	const current = session.current
+	switch (current.kind) {
+		case "login":
+			return [`lead:begun as direct-login under ${under}`]
+		case "role":
+			return Option.match(
+				Arr.findFirst(state.install.roles, (r) => r.name === current.role),
+				{
+					onNone: (): ReadonlyArray<BegunAs> => [`lead:begun as direct-role under ${under}`],
+					onSome: (role): ReadonlyArray<BegunAs> =>
+						under === "malformed claims"
+							? [`lead:begun as direct-role under ${under}`]
+							: [
+									`lead:begun as direct-role under ${under}`,
+									...(seesOutside(state.install.base, role, under)
+										? [`lead:begun as a role seeing outside its writes under ${under}` as const]
+										: []),
+									...(writesPastCommit(state, role, under)
+										? [
+												`lead:begun as a role writing past a law checked at COMMIT under ${under}` as const
+											]
+										: [])
+								]
+				}
+			)
+	}
+}
+
+/**
+ * The BEGIN shape a required feature needs its transaction begun in: a direct writer's statement or COMMIT names the
+ * writer and the claims it ran under (absent: none set; matching or not-matching: claims set; malformed); outside yet
+ * visible, a role that may hold facts outside the entries it writes (seesOutside); a COMMIT a law refuses, a role that
+ * writes a relation such a law reads (writesPastCommit); and a read of a transaction showing a fact it deleted gone, a
+ * role. Any other feature needs no shape.
+ */
+const begunFor = (feature: string): ReadonlyArray<BegunAs> => {
+	if (feature === "deletion:world-gone") {
+		return ["lead:begun as direct-role under no claims", "lead:begun as direct-role under claims"]
+	}
+	const [tag, kind, membership, claims, writer, observation] = Str.split(feature, ":")
+	if (
+		tag !== "op" ||
+		(kind !== "direct" && kind !== "direct-end") ||
+		(writer !== "direct-role" && writer !== "direct-login")
+	) {
+		return []
+	}
+	const under: BegunClaims =
+		claims === "absent" ? "no claims" : claims === "malformed" ? "malformed claims" : "claims"
+	if (writer === "direct-role" && under !== "malformed claims") {
+		if (membership === "outside-visible") {
+			return [`lead:begun as a role seeing outside its writes under ${under}`]
+		}
+		if (kind === "direct-end" && observation === "law-refused") {
+			return [`lead:begun as a role writing past a law checked at COMMIT under ${under}`]
+		}
+	}
+	return [`lead:begun as ${writer} under ${under}`]
+}
+
+/** The shapes a lead's BEGIN aims at: those the pending features need, or every shape where none needs one. */
+const begunTargetsOf = (targets: ReadonlyArray<string>): Arr.NonEmptyReadonlyArray<BegunAs> =>
+	Arr.match(Arr.dedupe(Arr.flatMap(targets, begunFor)), {
+		onEmpty: () => everyBegun,
+		onNonEmpty: (shapes) => shapes
+	})
+
+/**
+ * A live BEGIN aimed on every draw at the shapes the pending `targets` need it in (begunTargetsOf), read of the BEGIN
+ * alone (begunRead): who it acts as and the claims it sets decide which facts lie inside, outside and hidden from the
+ * world its statements meet, which no draw after it can change.
+ */
+const begunAimed = (weights: Weights, targets: Arr.NonEmptyReadonlyArray<string>): Weights => ({
+	...weights,
+	kinds: ["direct-begin"],
+	actions: { ...zeroWeights.actions, "direct-begin": 1 },
+	validity: liveOnly,
+	aims: everyDraw(begunTargetsOf(targets), begunRead, (a) => a.kind === "direct-begin")
+})
+
+/** A statement of a transaction that deleted a stored fact its view held: a lead's own move. */
+const factDeleted = "lead:a fact its transaction deleted" as const
+
+/**
+ * Whether a direct statement deleted a stored fact from its transaction's view, read of its outcome alone: a read of the
+ * transaction after it shows the fact gone (deletion:world-gone).
+ */
+const deletedRead = (
+	state: ModelState,
+	action: Action,
+	outcome: Allowed
+): ReadonlyArray<typeof factDeleted> => {
+	if (action.kind !== "direct") {
+		return []
+	}
+	const { next } = settled(outcome)
+	const before = state.sessions[action.session]
+	const after = next.sessions[action.session]
+	return before?.kind === "direct" &&
+		after?.kind === "direct" &&
+		deletedBy(next, after).length > deletedBy(state, before).length
+		? [factDeleted]
+		: []
+}
+
+/** An apply that left a derived relation stale, holding a fact computed from one since deleted: a lead's own move. */
+const derivedStale = "lead:a derived relation left stale" as const
+
+/**
+ * Whether an apply left some derived relation stale, read of its outcome alone: a read of it before a refresh shows the
+ * fact (deletion:derived-kept), and its refresh drops it (deletion:derived-refreshed).
+ */
+const staleRead = (
+	_state: ModelState,
+	action: Action,
+	outcome: Allowed
+): ReadonlyArray<typeof derivedStale> => {
+	if (action.kind !== "apply") {
+		return []
+	}
+	const { next } = settled(outcome)
+	return Arr.some(next.install.base.derived, (d) => staleDerived(next, d.name).length > 0)
+		? [derivedStale]
+		: []
+}
+
+/**
+ * A lead's first move past the planned state: one the box offers of a kind, drawn evenly among them; or one drawn
+ * under the weights the lead aims it with, from the required features still pending.
+ */
+type LeadFirst =
+	| { readonly kind: "offered"; readonly of: "open-db" }
+	| {
+			readonly kind: "aimed"
+			readonly weights: (weights: Weights, targets: Arr.NonEmptyReadonlyArray<string>) => Weights
+	  }
+
+/**
+ * A state an inductive case builds past its planned Db sessions, one action before what it reaches: its first move
+ * (LeadFirst), and the moves after it (`after`), each aimed on every draw at the required features still pending
+ * (`targets`) or at a lead's own move. No move looks past the next: what the case reaches from the state it builds is
+ * its one action's aim to decide, never a list of features.
  */
 interface InductiveLead {
-	readonly kind: "direct-begin" | "open-db" | "apply"
+	readonly first: LeadFirst
 	readonly after: (
 		weights: Weights,
 		targets: Arr.NonEmptyReadonlyArray<string>
@@ -1249,27 +1505,65 @@ interface InductiveLead {
 }
 
 /**
- * The inductive suite's leads, each a state one action before what it reaches:
- * - a transaction begun, one statement or its end from what it reaches: the role it took on and the claims it set,
+ * What the move after a direct statement reaches, read of the statement's outcome alone or its COMMIT after it: the
+ * features its COMMIT notes (commitAfter), and whether it deleted a fact of its transaction's view (deletedRead).
+ */
+const afterStatement = (
+	state: ModelState,
+	action: Action,
+	outcome: Allowed
+): ReadonlyArray<string> => [
+	...commitAfter(state, action, outcome),
+	...deletedRead(state, action, outcome)
+]
+
+/**
+ * What an apply reaches, read of its outcome alone: the features it notes, and whether it left a derived relation stale
+ * (staleRead).
+ */
+const applyRead = (state: ModelState, action: Action, outcome: Allowed): ReadonlyArray<string> => [
+	...noted(state, action, outcome),
+	...staleRead(state, action, outcome)
+]
+
+/**
+ * A live apply through a Db the state holds, aimed on every draw at `targets` and at leaving a derived relation stale
+ * (applyRead); a state holding no Db opens one instead (dbCall).
+ */
+const aimedApply = (weights: Weights, targets: Arr.NonEmptyReadonlyArray<string>): Weights =>
+	dbCall(weights, "apply", Arr.append(targets, derivedStale), applyRead)
+
+/**
+ * The inductive suite's leads, each a state one action before what it reaches. Every aimed move reads its own outcome
+ * alone, or its COMMIT after it at most (commitAfter): no move looks past the next.
+ * - a transaction begun in the shape a pending feature needs (begunAimed): the role it took on and the claims it set,
  *   none, some or malformed, decide which facts lie inside, outside and hidden from its world and which world function
  *   it may call;
- * - a transaction one statement in, the statement aimed so that its COMMIT reaches a feature (commitAfter, the one
- *   move past it the aim steps): a law checked at COMMIT that the statement broke; or, past a delete, a read of the
- *   transaction showing the fact gone from what it reads, which the case's one action aims at;
- * - a Db the planned state holds, one apply in, a read or refresh through it from what it reaches: a derived relation
- *   that shows a fact the apply deleted, or drops it;
+ * - a transaction so begun, one statement in, the statement aimed so that its COMMIT reaches a feature (commitAfter),
+ *   a law checked at COMMIT that the statement broke, or so that it deleted a fact of its view (deletedRead), which a
+ *   read of the transaction then shows gone: the case's one action aims at either;
+ * - a Db the planned state holds, one apply in, the apply aimed at what it reaches itself or at leaving a derived
+ *   relation stale (applyRead): a read of it then shows a fact computed from a deleted one, and its refresh drops it;
  * - a Db opened, one read or apply from what it reaches: the role it opens as and the claims its token carries decide
  *   which facts lie inside, outside and hidden from each entry it reads or writes, and an apply waits on a direct
- *   transaction the planned state holds (drive/index.ts serial), so a planned Db rarely offers the call a feature needs.
+ *   transaction the planned state holds (drive/index.ts serial), so a planned Db rarely offers the call a feature needs;
+ * - a Db of a role that refreshes a derived relation computed from one it writes (refreshingWrittenOpen), one apply in
+ *   that left a derived relation stale (staleRead), so the Db reads and refreshes what the apply left stale.
  */
 const inductiveLeads: Arr.NonEmptyReadonlyArray<InductiveLead> = [
-	{ kind: "direct-begin", after: () => [] },
+	{ first: { kind: "aimed", weights: begunAimed }, after: () => [] },
 	{
-		kind: "direct-begin",
-		after: (weights, targets) => [aimedStatement(weights, targets, commitAfter)]
+		first: { kind: "aimed", weights: begunAimed },
+		after: (weights, targets) => [
+			aimedStatement(weights, Arr.append(targets, factDeleted), afterStatement)
+		]
 	},
-	{ kind: "apply", after: () => [] },
-	{ kind: "open-db", after: () => [] }
+	{ first: { kind: "aimed", weights: aimedApply }, after: () => [] },
+	{ first: { kind: "offered", of: "open-db" }, after: () => [] },
+	{
+		first: { kind: "aimed", weights: refreshingWrittenOpen },
+		after: (weights) => [dbCall(weights, "apply", [derivedStale], staleRead)]
+	}
 ]
 
 /** A move of a lead past a planned state: the action its first move took there, or a draw under its weights. */
@@ -1289,11 +1583,12 @@ export const moveAction = (draw: CaseDraw, state: ModelState, move: LeadMove): A
 
 /**
  * The moves of a led inductive case past its planned state, while a required feature is pending where the case steers
- * and always where it may not: a lead drawn from its tape evenly among the leads, its first move drawn evenly among the
- * actions of its kind the box offers in the planned state (offeredOf), and its later moves steered toward what is
- * pending (steered). None where nothing is pending or the box offers the lead's kind nothing. The case's one action
- * aims at the required features as every case's does, so no draw of a case steps more than the box of the state it is
- * drawn in, each candidate once and its COMMIT after it at most (commitAfter): no box is listed past another's move.
+ * and always where it may not: a lead drawn from its tape evenly among the leads; its first move drawn evenly among the
+ * actions of its kind the box offers in the planned state (offeredOf), or under the weights the lead aims it with; and
+ * its later moves steered toward what is pending (steered). None where nothing is pending or the box offers an offered
+ * lead's kind nothing. The case's one action aims at the required features as every case's does, so no draw of a case
+ * steps more than the box of the state it is drawn in, each candidate once and its COMMIT after it at most
+ * (commitAfter): no box is listed past another's move.
  */
 export const leadOf = (
 	required: ReadonlyArray<Reached<WorldFeature>>,
@@ -1309,16 +1604,25 @@ export const leadOf = (
 		return []
 	}
 	const lead = c.draw(element(inductiveLeads))
-	return Arr.match(offeredOf(state, [lead.kind], weights.roles, aimScope), {
-		onEmpty: (): ReadonlyArray<LeadMove> => [],
-		onNonEmpty: (moves) => [
-			{ kind: "taken", action: c.draw(element(moves)) },
-			...Arr.map(lead.after(weights, [first, ...rest]), (w): LeadMove => ({
-				kind: "drawn",
-				weights: steered(w, pending, nothingReached)
-			}))
-		]
-	})
+	const after = Arr.map(lead.after(weights, [first, ...rest]), (w): LeadMove => ({
+		kind: "drawn",
+		weights: steered(w, pending, nothingReached)
+	}))
+	switch (lead.first.kind) {
+		case "offered":
+			return Arr.match(offeredOf(state, [lead.first.of], weights.roles, aimScope), {
+				onEmpty: (): ReadonlyArray<LeadMove> => [],
+				onNonEmpty: (moves) => [{ kind: "taken", action: c.draw(element(moves)) }, ...after]
+			})
+		case "aimed":
+			return [
+				{
+					kind: "drawn",
+					weights: steered(lead.first.weights(weights, [first, ...rest]), pending, nothingReached)
+				},
+				...after
+			]
+	}
 }
 
 /** What a suite sees of one action its program performed: the state it ran in, its answer and the state after it. */

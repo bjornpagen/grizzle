@@ -1187,7 +1187,7 @@ const invariantsOf = (
 }
 
 /** A derived relation's facts as of its last refresh that a refresh now drops: those computed from facts since deleted. */
-const staleDerived = (state: ModelState, relation: string): ReadonlyArray<HostFact> =>
+export const staleDerived = (state: ModelState, relation: string): ReadonlyArray<HostFact> =>
 	Option.match(
 		Arr.findFirst(state.install.base.derived, (d) => d.name === relation),
 		{
@@ -1205,7 +1205,7 @@ const staleDerived = (state: ModelState, relation: string): ReadonlyArray<HostFa
 	)
 
 /** The stored facts of reality a direct writer's transaction deleted: no fact of its view sits at their primary key. */
-const deletedBy = (state: ModelState, session: DirectSessionState): ReadonlyArray<Stored> =>
+export const deletedBy = (state: ModelState, session: DirectSessionState): ReadonlyArray<Stored> =>
 	Arr.flatMap(state.install.base.relations, (r) =>
 		Arr.flatMap(factsIn(state.reality, r.name), (fact): ReadonlyArray<Stored> => {
 			const kept = Arr.some(factsIn(session.view, r.name), (v) =>
