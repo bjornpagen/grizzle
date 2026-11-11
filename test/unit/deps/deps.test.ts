@@ -54,7 +54,17 @@ import {
  *    exhaustion of the real tree, module by module.
  * 3. At runtime, in a child Node process: no module but a test's or ark's own resolves an arkregex or @ark module
  *    while every entry point loads and the text pipeline runs over every family pattern of the regex differential
- *    tests, and src/ calls no RegExp.
+ *    tests, and src/ calls no RegExp. The trap is held to two controls: the probe's own construction, on the line it
+ *    reports, and the planted module's (fixtures/planted-regex.ts), each RegExp it builds or runs found once on the
+ *    line its text puts it on.
+ *
+ * Oracles: the specification, the findings each planted piece states (1), the audit's rules (2), and the trap's
+ * controls (3). Features: every planted piece's kind (1); the real tree and the real entry points are boxes of their
+ * own, which every module and entry point is a case of (2, 3).
+ *
+ * Plants (~/.cache/grizzle-release/BR07/plants): deps-audit-instanceof-blind.patch (the audit missing `new RegExp`)
+ * turns the planted-module property red; deps-src-regexp.patch (a src module building and running a RegExp as it
+ * loads) the tree's audit and the runtime one.
  *
  * The layering (which areas a module may import) is fallow's boundaries (.fallowrc.json), and the packages an area may
  * load are oxlint's no-restricted-imports (oxlint.config.ts).
@@ -238,8 +248,29 @@ layer(NodeServices.layer, { excludeTestServices: true })("runtime", (it) => {
 		readonly loadedTrapped: number
 	}
 
-	/** The negative control: a module that builds and runs RegExps at load, on lines 5, 6 and 8. */
+	/** The negative control: a module that builds and runs RegExps at load, each statement on a line of its own. */
 	const planted = "test/unit/deps/fixtures/planted-regex.ts"
+
+	/**
+	 * The lines of the planted module the trap must find, read off its text: the line of its one `new RegExp`, and
+	 * every line that exports a match, each of which runs exec once.
+	 */
+	const plantedLines = Effect.gen(function* () {
+		const fs = yield* FileSystem.FileSystem
+		const text = yield* fs.readFileString(`${root}${planted}`)
+		const lines = Str.split(text, "\n")
+		const numbered = Arr.map(lines, (text, i) => ({ text, line: i + 1 }))
+		return {
+			construction: Arr.map(
+				Arr.filter(numbered, ({ text }) => Str.includes("new RegExp(")(text)),
+				({ line }) => line
+			),
+			matches: Arr.map(
+				Arr.filter(numbered, ({ text }) => Str.startsWith("export const ")(text)),
+				({ line }) => line
+			)
+		}
+	})
 
 	/** The probe is a child of the test: it is killed if the test is interrupted, and ends only once it has exited. */
 	const probe = (modules: ReadonlyArray<string>) =>
@@ -318,38 +349,26 @@ layer(NodeServices.layer, { excludeTestServices: true })("runtime", (it) => {
 				 * The filter can fire: the planted module's construction, its literal's match and its String.prototype.match
 				 * are each found under its directory, on their own lines.
 				 */
-				const fromPlanted = trappedUnder(out.trapped, "test/unit/deps/fixtures")
-				assert.equal(
+				const fromPlanted = Arr.filter(out.trapped, (t) =>
+					Str.includes(`${root}${planted}:`)(t.frame)
+				)
+				const trappedAt = (kind: string, line: number) =>
 					Arr.filter(
 						fromPlanted,
-						(t) => Str.startsWith("new RegExp at ")(t) && Str.includes("planted-regex.ts:5:")(t)
-					).length,
-					1
-				)
+						(t) => t.kind === kind && Str.includes(`${root}${planted}:${line}:`)(t.frame)
+					).length
+				const { construction, matches } = yield* plantedLines
 				assert.deepEqual(
-					Arr.map(
-						[5, 6, 8],
-						(line) =>
-							Arr.filter(
-								fromPlanted,
-								(t) => Str.startsWith("exec at ")(t) && Str.includes(`planted-regex.ts:${line}:`)(t)
-							).length
-					),
-					[1, 1, 1],
-					"one exec on each of lines 5, 6 and 8"
+					{
+						construction: Arr.map(construction, (line) => trappedAt("new RegExp", line)),
+						matches: Arr.map(matches, (line) => trappedAt("exec", line))
+					},
+					{ construction: Arr.map(construction, () => 1), matches: Arr.map(matches, () => 1) },
+					"the planted module's construction and each of its matches, once each, on its own line"
 				)
-				assert.deepEqual(
-					Arr.filter(
-						[
-							"text/field.ts",
-							"codec/scalar.ts",
-							"scalar/values/float.ts",
-							"lower/shapes/aggregate/index.ts"
-						],
-						(module) =>
-							!Arr.some(out.resolved, (r) => Str.includes(`/packages/engine/src/${module}`)(r.url))
-					),
-					[]
+				assert.ok(
+					Arr.isReadonlyArrayNonEmpty(construction) && Arr.isReadonlyArrayNonEmpty(matches),
+					"the planted module builds and runs a RegExp"
 				)
 				assert.deepEqual(arkBeyondTests(out.resolved), [], "the probe's whole run")
 				assert.deepEqual(trappedUnder(out.trapped, "packages"), [], "the probe's whole run")

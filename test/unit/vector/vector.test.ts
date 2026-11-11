@@ -1,3 +1,23 @@
+/**
+ * The cosine domain of a vector field (scalar/values/vector.ts, ir/expr.ts): the float32 buffers of the field's
+ * dimensions, every component finite, whose norm lies in [cosineNormMin, cosineNormMax].
+ *
+ * - Values: Vector.from admits exactly those buffers, refusing each other by its reason (other dimensions, a component
+ *   not finite, a norm outside); every encode of a branded buffer checks it again; an admitted vector is a copy of the
+ *   caller's buffer, component for component, of its norm, written as pgvector's text with -0 as 0, so zeroing the
+ *   buffer after its check reaches none of it.
+ * - Literals: a query built over a vector literal outside the domain is refused when it is built; one inside is held as
+ *   it was then, whatever the caller writes to its buffer after.
+ *
+ * Components are drawn by kind with explicit, equal weights: the bounds and their float32 neighbours, values that
+ * underflow or overflow float32, the non-finite ones, -0, and any float; buffers drawn one component at a time, all
+ * equal, small, or one component at a bound. Oracle: the specification, the domain's verdict on the float32 buffer.
+ * Features: each verdict, a bound, an underflowing component, -0, and a buffer zeroed after its check.
+ *
+ * Plants (~/.cache/grizzle-release/BR07/plants): vector-max-norm-open.patch (the host's domain open at its greatest
+ * norm) turns the values property red; vector-literal-max-norm-open.patch (a literal's domain open there) the literal
+ * one.
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore, sketched } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -130,7 +150,10 @@ describe("the cosine domain", () => {
 					ctx,
 					explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "specification",
+								name: "the cosine domain's verdict on the float32 buffer: its dimensions, finite components, norm in the domain"
+							},
 							suite: "unit/vector/cosine-domain",
 							draw: sketched(bufferGen, (b) => b),
 							literal: Formatter.format,

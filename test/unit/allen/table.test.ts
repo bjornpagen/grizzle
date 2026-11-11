@@ -1,3 +1,31 @@
+/**
+ * The Allen table: every mask's formula over the eleven range-operator atoms (allen/table.generated.ts), and the
+ * verification universes it is checked against (test/support/oracle/allen.ts):
+ *
+ * - Committed: the committed table is the offline minimization's (scripts/gen/allen/generate.ts), regenerated, entry
+ *   for entry. Oracle: the specification, the generator.
+ * - Entries: every mask's formula denotes it exactly, in canonical form (each disjunct's literals ascending and naming
+ *   each atom once, the disjuncts ascending and distinct), no disjunct droppable, each with an unnegated indexable
+ *   atom. Oracle: the specification, the formula's meaning over the atoms' relation sets.
+ * - Exact cost: every nonempty mask's formula has the minimal atom count, against an exhaustive search over every
+ *   assignment of the atoms to a disjunct. Oracle: a second implementation.
+ * - Universe: every spelling of each universe stores one of its spans, reaching every window span, both type limits,
+ *   the whole range and every spelling; every pair classifies into exactly one relation. Oracle: the specification,
+ *   PostgreSQL's range canonicalization restated and the relations' endpoint conditions.
+ * - Converse: the swapped pair is the converse relation. Oracle: the specification.
+ * - Atom sets: each atom's relation set is PostgreSQL's operator, its truth on every pair evaluated by the operators
+ *   transcribed from rangetypes.c. Oracle: a second implementation.
+ * - Formulas over the universe: every mask's formula holds of exactly the pairs whose relation it holds. Oracle: the
+ *   specification, the pair's relation.
+ *
+ * Every box is exhausted: every mask, every ordered pair, every spelling. Features, required in each space, name the
+ * situations each check could silently stop reaching.
+ *
+ * Plants (~/.cache/grizzle-release/BR07/plants), one a property in this order: allen-generator-wrong-entry.patch,
+ * allen-formula-extra-literal.patch (a redundant literal: not canonical, one atom more), the same for the exact cost,
+ * allen-universe-lower-exclusive.patch (an exclusive lower bound moved two), allen-converse-starts.patch,
+ * allen-atom-equals-holds.patch (= given @>'s relations), allen-formula-wrong-entry.patch (mask 3 read as mask 1).
+ */
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
@@ -90,8 +118,11 @@ describe("the generated Allen table", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "every mask over the thirteen basic relations",
+						oracle: {
+							kind: "specification",
+							name: "the formula's meaning over the atoms' relation sets, and the table's canonical form"
+						},
 						suite: "unit/allen/table-entries",
 						generator: int(0, fullAllenMask),
 						literal: Formatter.format,
@@ -165,8 +196,11 @@ describe("the generated Allen table", () => {
 			ctx,
 			exhaust(
 				{
-					box: { kind: "unstated" },
-					oracle: { kind: "unstated" },
+					box: "every nonempty mask over the thirteen basic relations",
+					oracle: {
+						kind: "second-implementation",
+						name: "an exhaustive search over every assignment of the eleven atoms to a disjunct"
+					},
 					suite: "unit/allen/table-exact-cost",
 					generator: int(1, fullAllenMask),
 					literal: Formatter.format,
@@ -315,8 +349,11 @@ describe("the verification universe", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "every spelling and every ordered pair of both verification universes",
+						oracle: {
+							kind: "specification",
+							name: "PostgreSQL's range canonicalization restated, and the relations' endpoint conditions"
+						},
 						suite: "unit/allen/universe",
 						generator: items,
 						literal: Formatter.format,
@@ -368,8 +405,8 @@ describe("the verification universe", () => {
 			ctx,
 			exhaust(
 				{
-					box: { kind: "unstated" },
-					oracle: { kind: "unstated" },
+					box: "every ordered pair of both verification universes",
+					oracle: { kind: "specification", name: "the converse of the pair's relation" },
 					suite: "unit/allen/universe-converse",
 					generator: typedPairs,
 					literal: Formatter.format,
@@ -412,8 +449,11 @@ describe("the exhaustive check against the brute-force classifier", () => {
 			ctx,
 			exhaust(
 				{
-					box: { kind: "unstated" },
-					oracle: { kind: "unstated" },
+					box: "every ordered pair of both verification universes",
+					oracle: {
+						kind: "second-implementation",
+						name: "PostgreSQL's range operators transcribed from rangetypes.c, evaluated on every pair"
+					},
 					suite: "unit/allen/atom-sets",
 					generator: typedPairs,
 					literal: Formatter.format,
@@ -449,8 +489,8 @@ describe("the exhaustive check against the brute-force classifier", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "every mask of each range type, over every ordered pair of its universe",
+						oracle: { kind: "specification", name: "the relation of each pair of the universe" },
 						suite: "unit/allen/table-universe",
 						generator: (source) =>
 							[source.draw(element(rangeTypes)), source.draw(int(0, fullAllenMask))] as const,

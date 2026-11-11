@@ -5,13 +5,20 @@
  *   a `#…ts` specifier, with only the declared dependencies installed: an exhaustion of every export and bin the
  *   installed package.json files name. Each export's module exports exactly the names its source does, the oracle being
  *   the same specifier resolved in the repository under the grizzle-source condition, a second build of the same
- *   module; each bin runs from node_modules and prints its usage.
+ *   module; each bin runs from node_modules and answers `--help` exactly as its source does, run from the repository
+ *   under the same condition: its exit code and its output.
  * - The README's and SKILL.md's programs, mirrored line for line in test/types/examples/fixtures, typecheck as a
  *   consumer's against the published declarations alone, with no access to src's `#` imports: so the declarations are
  *   self-contained, and never `any`, since a refusal the README states by `@ts-expect-error` would leave its directive
  *   unused.
  *
  * That the built package opens a role against the cluster and reads is test/pg/package/consumer.test.ts's.
+ *
+ * Oracles: second implementations, the source of each entry point and bin; and TypeScript's own checker for the
+ * README's programs. Features, required in the space: an export and a bin.
+ *
+ * Plant: ~/.cache/grizzle-release/BR07/plants/package-extra-export.patch (the build emitting a name its source does
+ * not export) turns the entry-point property red.
  */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
@@ -74,7 +81,7 @@ const mirrors = {
 /** A published entry point: an export of a package, by the specifier a consumer imports, or a bin, by its path. */
 type Entry =
 	| Readonly<{ kind: "export"; specifier: string }>
-	| Readonly<{ kind: "bin"; name: string; path: string }>
+	| Readonly<{ kind: "bin"; name: string; path: string; source: string }>
 
 /** The fields of an installed package.json its entry points come from, a file the build copied from the repository. */
 type InstalledManifest = {
@@ -113,24 +120,35 @@ layer(Published.layer, { excludeTestServices: true })("the published package", (
 						const repository = trustedJson<InstalledManifest>(repositoryText)
 						const installed = path.join(project, "node_modules", repository.name)
 						const installedText = yield* fs.readFileString(path.join(installed, "package.json"))
-						return { installed, manifest: trustedJson<InstalledManifest>(installedText) }
+						return {
+							installed,
+							repository: path.join(root, "packages", directory),
+							manifest: trustedJson<InstalledManifest>(installedText)
+						}
 					})
 				)
-				const entries: ReadonlyArray<Entry> = Arr.flatMap(manifests, ({ installed, manifest }) => [
-					...Arr.filterMap(Record.keys(manifest.exports), (subpath) =>
-						subpath === "./package.json"
-							? Result.failVoid
-							: Result.succeed({
-									kind: "export" as const,
-									specifier: `${manifest.name}${Str.slice(1)(subpath)}`
-								})
-					),
-					...Arr.map(Record.toEntries(manifest.bin ?? {}), ([name, bin]) => ({
-						kind: "bin" as const,
-						name,
-						path: path.join(installed, bin)
-					}))
-				])
+				const entries: ReadonlyArray<Entry> = Arr.flatMap(
+					manifests,
+					({ installed, repository, manifest }) => [
+						...Arr.filterMap(Record.keys(manifest.exports), (subpath) =>
+							subpath === "./package.json"
+								? Result.failVoid
+								: Result.succeed({
+										kind: "export" as const,
+										specifier: `${manifest.name}${Str.slice(1)(subpath)}`
+									})
+						),
+						...Arr.map(Record.toEntries(manifest.bin ?? {}), ([name, bin]) => ({
+							kind: "bin" as const,
+							name,
+							path: path.join(installed, bin),
+							source: path.join(
+								repository,
+								Str.replace(".js", ".ts")(Str.replace("./dist/", "./src/")(bin))
+							)
+						}))
+					]
+				)
 				const specifiers = Arr.flatMap(entries, (entry) =>
 					entry.kind === "export" ? [entry.specifier] : []
 				)
@@ -165,7 +183,7 @@ layer(Published.layer, { excludeTestServices: true })("the published package", (
 							box: "every export and bin the published packages' package.json files name",
 							oracle: {
 								kind: "second-implementation",
-								name: "the same entry point resolved in the repository under the grizzle-source condition"
+								name: "the same entry point or bin, resolved and run from the repository under the grizzle-source condition"
 							},
 							caseHang
 						},
@@ -182,12 +200,21 @@ layer(Published.layer, { excludeTestServices: true })("the published package", (
 										return
 									case "bin": {
 										const help = yield* runChild(process.execPath, [entry.path, "--help"], project)
+										const own = yield* runChild(
+											process.execPath,
+											[sourceCondition, entry.source, "--help"],
+											project
+										)
 										assert.equal(
 											help.exitCode,
 											exitedCleanly,
 											`${entry.name} --help: ${help.stderr}`
 										)
-										assert.ok(Str.startsWith("Usage:")(help.stdout), help.stdout)
+										assert.deepEqual(
+											{ exitCode: help.exitCode, stdout: help.stdout },
+											{ exitCode: own.exitCode, stdout: own.stdout },
+											`${entry.name} --help answers as its source does`
+										)
 										return
 									}
 								}

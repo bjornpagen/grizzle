@@ -1,3 +1,31 @@
+/**
+ * The family generators and the model they are judged by (test/support/families): the oracle every family test runs
+ * against PostgreSQL is checked here first, because an oracle's failures are silent.
+ *
+ * The lowering's constraints are the theorem: over every state of one owner's first four slots, each holding no row,
+ * one or two, under no owner or an owner of count 0 to 3, the constraints hold exactly when the theorem does, and
+ * part by part, the key by the key, within by the copy and the bound, covers by the last slot and the closure below the
+ * copy, which leaves a gap above the count to the bound alone.
+ *
+ * Programs of mutations, as a state machine: every state drawn and every state a program reaches is one the theorem
+ * reads back as its families and no constraint refuses; a lawful mutation sends its statements in the order every
+ * change sends them and commits to the families it states, which the theorem also reads from the raw state its
+ * statements leave; a breaking one leaves a state with the breach it was drawn for and is refused; a misorder sends
+ * the lawful statements in another order, commits only to what the lawful order does, and a count it lowers before the
+ * rows above that count are gone is refused at that update or before, by the bound its cascade breaks. Every state
+ * any statement leaves on the way, the out-of-order ones included, satisfies the theorem when it breaks no constraint,
+ * and breaks none but the member key when the theorem holds and every copy is its owner's count.
+ *
+ * Oracles: the specification. The lowering is exhausted over its box against the theorem, part by part; the programs
+ * run as a state machine (commands.ts runProgram) whose judges restate every claim above. Features: the theorem
+ * holding, every breach and every violated constraint, a gap above the count; both shapes, every mutation form, each
+ * outcome and refusal, a misordered shrink and a misorder that commits, a successor inserted first, an empty and a
+ * long family, and the shapes paired with the forms and refusals that differ between them.
+ *
+ * Plants (~/.cache/grizzle-release/BR07/plants): families-closure-unchecked.patch (the closure missing a gap below the
+ * second slot) turns the lowering red; families-bound-uninstalled.patch (the count's bound never checked) the
+ * programs.
+ */
 import { describe, it } from "@effect/vitest"
 import { runProgram } from "@grizzle/testing/commands"
 import { type Case, drawn, exhaust, explore } from "@grizzle/testing/explore"
@@ -46,25 +74,6 @@ import {
 	theorem
 } from "#test/support/families/theorem.ts"
 import { caseHang } from "#test/support/limits.ts"
-
-/**
- * The family generators and the model they are judged by (test/support/families): the oracle every family test runs
- * against PostgreSQL is checked here first, because an oracle's failures are silent.
- *
- * The lowering's constraints are the theorem: over every state of one owner's first four slots, each holding no row,
- * one or two, under no owner or an owner of count 0 to 3, the constraints hold exactly when the theorem does, and
- * part by part, the key by the key, within by the copy and the bound, covers by the last slot and the closure below the
- * copy, which leaves a gap above the count to the bound alone.
- *
- * Programs of mutations, as a state machine: every state drawn and every state a program reaches is one the theorem
- * reads back as its families and no constraint refuses; a lawful mutation sends its statements in the order every
- * change sends them and commits to the families it states, which the theorem also reads from the raw state its
- * statements leave; a breaking one leaves a state with the breach it was drawn for and is refused; a misorder sends
- * the lawful statements in another order, commits only to what the lawful order does, and a count it lowers before the
- * rows above that count are gone is refused at that update or before, by the bound its cascade breaks. Every state
- * any statement leaves on the way, the out-of-order ones included, satisfies the theorem when it breaks no constraint,
- * and breaks none but the member key when the theorem holds and every copy is its owner's count.
- */
 
 /** A box's owner: none, or one of a count. */
 type BoxOwner = { readonly kind: "absent" } | { readonly kind: "counted"; readonly count: number }
@@ -119,8 +128,11 @@ describe("the family lowering", () => {
 			ctx,
 			exhaust(
 				{
-					box: { kind: "unstated" },
-					oracle: { kind: "unstated" },
+					box: "every state of one owner's first four slots, each holding no row, one or two, under no owner or one of count 0 to 3",
+					oracle: {
+						kind: "specification",
+						name: "the family theorem, part by part against the lowering's constraints"
+					},
 					suite: "unit/support/families/lowering",
 					generator: boxGen,
 					literal: Formatter.format,
@@ -406,7 +418,10 @@ describe("family programs", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "the theorem read from every state a program's statements leave, and each mutation form's claim"
+						},
 						suite: "unit/support/families/programs",
 						draw: drawn(programs),
 						literal: Formatter.format,

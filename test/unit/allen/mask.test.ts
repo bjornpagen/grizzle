@@ -1,3 +1,21 @@
+/**
+ * The Allen masks (allen/mask.ts):
+ *
+ * - Named masks: over every ordered pair of spans of a window, each named mask holds of the pair exactly when what it
+ *   names holds of the spans' points. Oracle: the specification, each name's meaning over points.
+ * - Entry points: every integer from one below the thirteen bits to one past them, the numbers that are no integer and
+ *   values of other kinds: parseAllenMask and checkedMask accept exactly the masks, -0 as the empty one; complement,
+ *   converse and r.allen refuse every other number as MalformedDescription; complement is the thirteen bits' complement
+ *   and converse each relation's converse, each its own inverse, and the two commute; r.allen records a nonempty mask
+ *   unchanged and refuses the empty one. Oracle: the specification, a mask's definition and those of complement and
+ *   converse.
+ *
+ * Features, required in the space: each named mask held and failed; a mask, the empty and the full one, below and past
+ * the thirteen bits, no integer, no number.
+ *
+ * Plants (~/.cache/grizzle-release/BR07/plants): allen-covers-without-equals.patch (covers missing equals) turns the
+ * named masks red; allen-mask-past-range.patch (a fourteenth bit admitted) the entry points.
+ */
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
@@ -181,8 +199,11 @@ describe("every entry point a mask reaches", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "every integer from -1 to two past the full mask, the named numbers that are no integer, and values of other kinds",
+						oracle: {
+							kind: "specification",
+							name: "a mask is an integer of thirteen bits; complement and converse as defined"
+						},
 						suite: "unit/allen/entry-points",
 						generator: given,
 						literal: Formatter.format,

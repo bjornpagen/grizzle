@@ -44,6 +44,13 @@ import { parseVerboseError } from "#test/support/substrate/psql.ts"
  *   line holds no report.
  * - An expectation judges its one attempt: the attempt runs once, and the expectation holds exactly for a PostgreSQL
  *   refusal of its SQLSTATE, and of its constraint where it names one.
+ *
+ * Every property states its oracle, the specification; invalid words, identifiers and allocations are named faults
+ * the generators plant, drawn by explicit weight beside the lawful ones. Features: each verdict of each property.
+ *
+ * Plants (~/.cache/grizzle-release/BR07/plants): substrate-limit-off-by-one.patch (an identifier one byte past the
+ * limit admitted) turns the names property red; substrate-first-report.patch (the first report read, not the last) the
+ * psql one; substrate-constraint-unchecked.patch (another constraint's refusal holding) the expectations.
  */
 const lowercase = nonEmpty(Arr.fromIterable("abcdefghijklmnopqrstuvwxyz"), "lowercase letters")
 

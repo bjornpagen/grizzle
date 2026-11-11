@@ -1,3 +1,29 @@
+/**
+ * The host claims decoder (packages/grizzle/src/adapter/db/claims.ts claimsOf) decodes a verified payload exactly as
+ * README "Permissions" and "Security model" say, over the shapes a `verify` can return that JSON cannot: a claim or a
+ * field on the payload's prototype chain rather than its own, a getter, a getter whose read throws, a non-object claim.
+ * The worlds model's host decoder (test/support/worlds/model/session/claims.ts payloadFacts) is the specification,
+ * written apart from the implementation; a payload whose reading does not throw must decode through grizzle to exactly
+ * the facts the model reads, and refuse exactly when the model does, and one whose reading by the model throws, at a
+ * claim field or at the claim object itself, must be refused as a ClaimRefused, never escaping as a defect.
+ *
+ * The attacker never holds a token's signature (the login is the boundary), so the hostile input here is the object
+ * `verify` returns, not a signed claim: the suite's value over the worlds errors suite, which drives only JSON-text
+ * tokens end to end, is the non-JSON object shapes and the own-versus-inherited placement the end-to-end suite never
+ * draws. A context reads its fields from the payload's own top level or own claim object, so an inherited claim or
+ * field is no fact; grizzle must read the same own properties the model reads, and no inherited one.
+ *
+ * The role is the documents base's `member`, whose relations read Session (a text subject at the top level) and Tenant
+ * (a uuid organization and an int8 seat count in the claim object `t`). A refined claim (the subject's pattern) is
+ * PostgreSQL's to judge after admission, so the host decoder admits it; the model marks it and the suite compares the
+ * decoded facts, which are the same whether or not PostgreSQL will later refuse the pattern.
+ *
+ * The oracle is a second implementation, the model's host decoder. Features: every placement, value kind and verdict
+ * the draw's modes reach (see `situations`).
+ *
+ * Plant: ~/.cache/grizzle-release/BR07/plants/claims-inherited-read.patch (the decoder reading inherited members as the
+ * payload's own) turns the property red.
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -28,27 +54,6 @@ import { buildInstall } from "#test/support/worlds/execute/build.ts"
 import { docsBase, docsInstall } from "#test/support/worlds/model/bases/docs.ts"
 import { claimsText, payloadFacts } from "#test/support/worlds/model/session/claims.ts"
 import type { ContextSpec, FieldSpec, RoleSpec } from "#test/support/worlds/model/types.ts"
-
-/**
- * The host claims decoder (packages/grizzle/src/adapter/db/claims.ts claimsOf) decodes a verified payload exactly as
- * README "Permissions" and "Security model" say, over the shapes a `verify` can return that JSON cannot: a claim or a
- * field on the payload's prototype chain rather than its own, a getter, a getter whose read throws, a non-object claim.
- * The worlds model's host decoder (test/support/worlds/model/session/claims.ts payloadFacts) is the specification,
- * written apart from the implementation; a payload whose reading does not throw must decode through grizzle to exactly
- * the facts the model reads, and refuse exactly when the model does, and one whose reading by the model throws, at a
- * claim field or at the claim object itself, must be refused as a ClaimRefused, never escaping as a defect.
- *
- * The attacker never holds a token's signature (the login is the boundary), so the hostile input here is the object
- * `verify` returns, not a signed claim: the suite's value over the worlds errors suite, which drives only JSON-text
- * tokens end to end, is the non-JSON object shapes and the own-versus-inherited placement the end-to-end suite never
- * draws. A context reads its fields from the payload's own top level or own claim object, so an inherited claim or
- * field is no fact; grizzle must read the same own properties the model reads, and no inherited one.
- *
- * The role is the documents base's `member`, whose relations read Session (a text subject at the top level) and Tenant
- * (a uuid organization and an int8 seat count in the claim object `t`). A refined claim (the subject's pattern) is
- * PostgreSQL's to judge after admission, so the host decoder admits it; the model marks it and the suite compares the
- * decoded facts, which are the same whether or not PostgreSQL will later refuse the pattern.
- */
 
 /** The member role's spec, whose contexts the model decodes through. */
 const memberSpec: RoleSpec = Option.getOrThrowWith(
@@ -528,7 +533,10 @@ describe("the host claims decoder", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "second-implementation",
+							name: "the worlds model's host decoder of a verified payload (model/session/claims.ts payloadFacts)"
+						},
 						suite: "unit/security/claims",
 						draw: drawn((source) => ({ mode: source.draw(modeGen), raw: source.draw(drawGen) })),
 						literal: Formatter.format,

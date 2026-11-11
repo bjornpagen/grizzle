@@ -27,6 +27,13 @@ import { caseHang } from "#test/support/limits.ts"
  * - Every mutant parses, so a run measures a fault and never a syntax error; changes its file, so no mutant is
  *   equivalent by construction; and has an id no other mutant of the files has, so a triage verdict names one mutant.
  * - Every mutant plants the fault its operator names, read off the text it replaces and the text it puts there.
+ *
+ * The oracle is the specification: each operator's fault, stated apart from the operator as a judgement of the text a
+ * mutant replaces and its replacement, and TypeScript's own parser. The box is the real tree. Features, required in
+ * the space: every operator of both families.
+ *
+ * Plant: ~/.cache/grizzle-release/BR07/plants/mutate-definer-text.patch (world-definer writing a replacement other than
+ * INVOKER) turns the property red.
  */
 type FamilyOperator = WorldOperator | "set-semantics"
 

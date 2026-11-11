@@ -1,3 +1,17 @@
+/**
+ * The endpoint view of the Allen relations (allen/mask.ts allenPlaces, allen/endpoints.ts), over every ordered pair of
+ * spans of both verification universes (test/support/oracle/allen.ts), each classified into its one basic relation:
+ *
+ * - Places: each relation's places of A's endpoints among B's are where the pair's endpoints lie by arithmetic.
+ * - Endpoint masks: every comparison of an endpoint of A with one of B, and every membership of an endpoint of A in B,
+ *   holds of the pair exactly when its mask holds the pair's relation.
+ *
+ * Oracle: the specification, the endpoints compared as integers. Features, required in the space: every relation of
+ * each type; every endpoint predicate held and failed.
+ *
+ * Plants (~/.cache/grizzle-release/BR07/plants): allen-place-meets.patch (meets placing A's upper end before B) turns
+ * the places red; allen-endpoint-le-strict.patch (≤ read as <) the masks.
+ */
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
@@ -84,8 +98,11 @@ describe("the relations' places", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "every ordered pair of spans of both verification universes",
+						oracle: {
+							kind: "specification",
+							name: "where each endpoint of A lies among B's bounds, by integer comparison"
+						},
 						suite: "unit/allen/places",
 						generator: typedPairs,
 						literal: Formatter.format,
@@ -135,8 +152,11 @@ describe("the endpoint masks", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "every ordered pair of spans of both verification universes",
+						oracle: {
+							kind: "specification",
+							name: "each endpoint predicate evaluated on the pair's bounds as integers"
+						},
 						suite: "unit/allen/endpoint-masks",
 						generator: typedPairs,
 						literal: Formatter.format,

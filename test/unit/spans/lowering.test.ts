@@ -1,13 +1,30 @@
+/**
+ * Span parameters and windows, as the builder records them and the compiler lowers them.
+ *
+ * - pointIn of two parameters: over every pair of a point's type and a window's endpoint (integer, bigint), the
+ *   builder and the compile of the same description both admit it exactly where the two are one type, compatibility
+ *   being nominal (scalar/compute/types.ts compatible); the compile refuses any other as MalformedDescription at
+ *   pointIn's point. Oracle: the specification, nominal compatibility.
+ * - Fixed-width spans: a window or an equated value of Shift's slot, a span of integer fixed at width 15, is bound at
+ *   its declared type, int4range, in every statement of both artifacts, and its encoder admits exactly the spans of
+ *   width 15, written as [start, end), refusing every other width at bind (spanWidth). Oracle: the specification.
+ *
+ * Features: admitted and refused pairs; the column's width and another width.
+ *
+ * Plants (~/.cache/grizzle-release/BR07/plants): spans-point-in-widened.patch (the compile admitting a point of any
+ * integer type) turns the pointIn property red; spans-width-off-by-one.patch (a fixed width admitting one more unit)
+ * the binding one.
+ */
 import { describe, it } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { noCoverage, required } from "@grizzle/testing/features"
-import { codePoint, constant, int, oneOf, string, uniqueArray } from "@grizzle/testing/gen"
+import { drawn, exhaust, explore } from "@grizzle/testing/explore"
+import { required, requiredInSpace } from "@grizzle/testing/features"
+import { constant, element, int, oneOf } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
+import { catchCompileError } from "#compiler/core/canonical.ts"
 import { identity } from "#compiler/core/identity.ts"
-import { formatLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
@@ -18,14 +35,7 @@ import { relation, schema } from "#compiler/public/schema.ts"
 import { pointIn } from "#compiler/query/build/terms.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
 import { types } from "#compiler/sql/build.ts"
-import {
-	assert,
-	containsText,
-	defined,
-	refusalLoc,
-	refused,
-	succeeded
-} from "#test/support/assert.ts"
+import { assert, placeOf, refusalLoc, refused, succeeded } from "#test/support/assert.ts"
 import { compileTemplate, programAsts, testCompile } from "#test/support/compile.ts"
 import type { OracleTemplate } from "#test/support/conservative.ts"
 import { decodedQuery } from "#test/support/fixtures/ir/desc.ts"
@@ -64,6 +74,43 @@ const Shift = relation("Shift", { id: pg.integer, slot: span(pg.integer, 15), at
 ])
 const Shifts = schema("Shifts", { Shift, Visit }, [])
 
+/** The endpoint types a span parameter is declared over, by the pg type its description names. */
+const endpoints = ["integer", "bigint"] as const
+type Endpoint = (typeof endpoints)[number]
+
+type PointInFeature = "admitted" | "refused"
+
+/** A query over Slot whose one predicate is pointIn of a point parameter and a window parameter, as a description. */
+const pointInDescription = (pointType: Endpoint, endpoint: Endpoint): QueryDesc =>
+	decodedQuery({
+		kind: "rules",
+		arms: [
+			{
+				vars: [{ id: "i", origin: { relation: "Slot", field: "id" } }],
+				matches: [
+					{
+						source: { kind: "relation", name: "Slot" },
+						bindings: { id: { kind: "var", var: "i" } }
+					}
+				],
+				where: [
+					{
+						kind: "pointIn",
+						point: { kind: "param", name: "point", type: { kind: "pg", type: pointType } },
+						span: {
+							kind: "param",
+							name: "window",
+							type: { kind: "span", endpoint: { kind: "pg", type: endpoint }, width: undefined }
+						}
+					}
+				],
+				head: { i: { kind: "var", var: "i" } },
+				interiors: [],
+				attach: []
+			}
+		]
+	})
+
 /** The encoder of a template's only parameter, in both artifacts. */
 const encoders = (t: OracleTemplate) =>
 	Arr.map([...t.optimized, ...t.conservative], (s) => {
@@ -76,89 +123,65 @@ const encoders = (t: OracleTemplate) =>
 
 describe("span parameters and windows", () => {
 	it.effect(
-		"admits a pointIn of two parameters at their declared types, and refuses one whose point misses the window's endpoint",
+		"admits a pointIn of two parameters exactly where the point's type is the window's endpoint, at the builder and at the compile",
 		(ctx) =>
 			searched(
 				ctx,
-				explore(
+				exhaust(
 					{
-						oracle: { kind: "unstated" },
 						suite: "unit/spans/point-in-params",
-						draw: drawn(
-							uniqueArray(
-								string(codePoint(0x61, 0x7a), { min: 1, max: 6 }),
-								(name) => name,
-								{ min: 2, max: 2 },
-								10
-							)
-						),
+						generator: (source) =>
+							[source.draw(element(endpoints)), source.draw(element(endpoints))] as const,
 						literal: Formatter.format,
-						coverage: noCoverage,
-						kept: [],
-						runs: 30,
-						shrink: completeShrink,
-						concurrency: 1,
-						steerEvery: 16,
+						limit: endpoints.length * endpoints.length,
+						coverage: requiredInSpace<PointInFeature>(["admitted", "refused"]),
+						box: "every pair of a point parameter's type and a window parameter's endpoint, of integer and bigint",
+						oracle: {
+							kind: "specification",
+							name: "nominal compatibility: a point meets a window exactly at the window's endpoint type"
+						},
 						caseHang
 					},
-					([point, window]) =>
+					([pointType, endpoint], c) =>
 						Effect.sync(() => {
-							const pointName = defined(point, "a parameter name")
-							const windowName = defined(window, "a parameter name")
-							query(Spans).rule((r) => {
-								const { id } = v(Slot, "slot")
-								return r
-									.match(Slot, { id })
-									.where(
-										pointIn(r.param(pointName, pg.integer), r.param(windowName, span(pg.integer)))
-									)
-									.find({ id })
+							const admits = pointType === endpoint
+							const built = catchCompileError(() =>
+								query(Spans).rule((r) => {
+									const { id } = v(Slot, "slot")
+									const point =
+										pointType === "integer"
+											? r.param("point", pg.integer)
+											: r.param("point", pg.bigint)
+									const window =
+										endpoint === "integer"
+											? r.param("window", span(pg.integer))
+											: r.param("window", span(pg.bigint))
+									return r.match(Slot, { id }).where(pointIn(point, window)).find({ id })
+								})
+							)
+							assert.equal(
+								built.ok,
+								admits,
+								`the builder over a ${pointType} point and a ${endpoint} window`
+							)
+							if (!built.ok) {
+								assert.equal(built.error.reason._tag, "MalformedDescription")
+							}
+							const compiled = compileTemplate(pointInDescription(pointType, endpoint), Spans, {
+								...testCompile,
+								installation: identity.schema(parsedSchemaName("spans"))
 							})
-							const described = (pointType: "integer" | "bigint"): QueryDesc =>
-								decodedQuery({
-									kind: "rules",
-									arms: [
-										{
-											vars: [{ id: "i", origin: { relation: "Slot", field: "id" } }],
-											matches: [
-												{
-													source: { kind: "relation", name: "Slot" },
-													bindings: { id: { kind: "var", var: "i" } }
-												}
-											],
-											where: [
-												{
-													kind: "pointIn",
-													point: {
-														kind: "param",
-														name: pointName,
-														type: { kind: "pg", type: pointType }
-													},
-													span: {
-														kind: "param",
-														name: windowName,
-														type: {
-															kind: "span",
-															endpoint: { kind: "pg", type: "integer" },
-															width: undefined
-														}
-													}
-												}
-											],
-											head: { i: { kind: "var", var: "i" } },
-											interiors: [],
-											attach: []
-										}
-									]
-								})
-							const compiled = (pointType: "integer" | "bigint") =>
-								compileTemplate(described(pointType), Spans, {
-									...testCompile,
-									installation: identity.schema(parsedSchemaName("spans"))
-								})
-							assert.ok(compiled("integer").ok, "two declared parameters meet in pointIn")
-							const failure = refused(compiled("bigint"), "MalformedDescription")
-							containsText(formatLoc(refusalLoc(failure)), "pointIn")
+							c.note(admits ? "admitted" : "refused")
+							if (admits) {
+								assert.ok(compiled.ok, "a point meets a window of its own endpoint type")
+								return
+							}
+							const failure = refused(compiled, "MalformedDescription")
+							assert.deepEqual(
+								Arr.takeRight(placeOf(refusalLoc(failure)).path, 2),
+								["pointIn", "point"],
+								"the refusal names pointIn's point"
+							)
 						})
 				)
 			)
@@ -198,7 +221,10 @@ describe("span parameters and windows", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "a fixed-width span parameter binds exactly the spans of its width, as [start, end)"
+						},
 						suite: "unit/spans/fixed-width-binding",
 						draw: drawn((source) => ({
 							start: source.draw(int(-1000, 1000)),
