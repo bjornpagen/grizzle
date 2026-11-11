@@ -53,7 +53,7 @@ export {
 	servedWorkload
 } from "#compiler/program/workload/compile.ts"
 export { servedRosters } from "#compiler/program/served.ts"
-export { servedDifference, type ServedPart, servedPartText } from "#compiler/served/difference.ts"
+export { servedDifference, servedPartingText } from "#compiler/served/difference.ts"
 export { servedText } from "#compiler/served/json.ts"
 export { type UnservedMember, type UnservedReason } from "#compiler/served/unserved.ts"
 export { lex, type Token } from "#compiler/sql/lexer.ts"

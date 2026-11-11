@@ -4,32 +4,24 @@ import {
 	type ServedCarried,
 	type ServedReadBack,
 	type ServedSpine,
-	type ServedSpineAttachment,
 	servedRiddenSource,
 	servedSource
 } from "#compiler/served/read.ts"
 import type { ReadBackCarried, ReadBackDelivery } from "#compiler/write/program/artifact.ts"
 
-/** A delivered spine as the walk builds it, its attachments merged by name. */
+/**
+ * A delivered spine as the walk builds it, its attachments merged by name in the order the walk met them: the served
+ * spine itself, which no one changes once the walk returns it.
+ */
 interface Gathering {
 	readonly under: Map<string, Gathering & { readonly heads: Set<string> }>
 }
 
-/** A gathered spine as the served form holds it, its attachments in the order the walk met them. */
-const gatheredSpine = (scope: Gathering): ServedSpine => ({
-	under: new Map(
-		[...scope.under].map(([name, attached]): readonly [string, ServedSpineAttachment] => [
-			name,
-			{ heads: new Set(attached.heads), under: gatheredSpine(attached).under }
-		])
-	)
-})
-
 /**
  * The delivered spine of a Description (ServedSpine), from its root: each delivered attachment's child's head keys,
  * nested ones under theirs. An attachment of a heading group's arm is on that group's path, the root's; one inside an
- * imported query or an interior stage is read as its parent and delivers nothing, so only the delivered spine is walked:
- * the root's stage chain and its arms. A child's head keys are read with the checker's own walk (check/scan.ts
+ * imported query or an interior stage is read as its parent and delivers nothing, so only the delivered spine is
+ * walked: the root's stage chain and its arms. A child's head keys are read with the checker's own walk (check/scan.ts
  * parentUse): a correlation column no head key delivers equals the parent's value and is not part of the delivered
  * child.
  */
@@ -79,12 +71,14 @@ export const servedSpine = (desc: QueryDesc): ServedSpine => {
 		}
 	}
 	stage(desc.stage, root)
-	return gatheredSpine(root)
+	return root
 }
 
-/** How a delivered read-back's statement reaches the server, as the runtime reads it: sent, its program served
+/**
+ * How a delivered read-back's statement reaches the server, as the runtime reads it: sent, its program served
  * (servedSource); or riding the write statement at its position, its part at its tag, its parts read only
- * (servedRiddenSource). */
+ * (servedRiddenSource).
+ */
 const servedCarried = (carried: ReadBackCarried): ServedCarried =>
 	carried.kind === "sent"
 		? { kind: "sent", source: servedSource(carried.run) }

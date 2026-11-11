@@ -1,7 +1,7 @@
 import { catchSignal, compareText, taggedValueOf } from "#compiler/core/canonical.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
 import { trusted, trustedJson } from "#compiler/core/trusted.ts"
-import { Roster } from "#compiler/ir/scalar.ts"
+import type { ServedFile } from "#compiler/served/forms.ts"
 import { servedFile } from "#compiler/served/json.ts"
 
 /**
@@ -13,7 +13,7 @@ import { servedFile } from "#compiler/served/json.ts"
  * layer reads it (served/json.ts servedFile), every type it names its own value, so a changed type parts the files at
  * the first program that names it.
  */
-export type ServedPart =
+export type ServedParting =
 	| { readonly kind: "unread" }
 	| { readonly kind: "member"; readonly member: string }
 	| { readonly kind: "role"; readonly role: string }
@@ -23,7 +23,7 @@ export type ServedPart =
 	| { readonly kind: "layout" }
 
 /** Where a committed served file parts from the compile's, in words. */
-export const servedPartText = (part: ServedPart): string => {
+export const servedPartingText = (part: ServedParting): string => {
 	switch (part.kind) {
 		case "unread":
 			return "which does not read as a served file"
@@ -51,23 +51,23 @@ const isObject = (value: unknown): value is Readonly<Record<string, unknown>> =>
 	isRecord(value) && !isList(value) && !(value instanceof Map) && !(value instanceof Set)
 
 /**
- * A served file's text read through the one reader of its JSON form (served/json.ts servedFile), every value JSON cannot
- * hold rebuilt; undefined for text that is no JSON record, or that no served file's reader reads. The committed text is
- * anyone's to have edited, so whatever it holds is read as values of any shape.
+ * A served file's text read through the one reader of its JSON form (served/json.ts servedFile), every value JSON
+ * cannot hold rebuilt; undefined for text that is no JSON record, or that no served file's reader reads. The committed
+ * text is anyone's to have edited, so whatever it holds is read as values of any shape.
  */
 const revived = (text: string): Readonly<Record<string, unknown>> | undefined => {
-	const read = catchSignal(Error, (): unknown => {
+	const read = catchSignal(Error, (): ServedFile | undefined => {
 		const json: unknown = JSON.parse(text)
 		return isObject(json) ? servedFile(json) : undefined
 	})
-	return read.ok && isObject(read.value) ? read.value : undefined
+	return read.ok ? read.value : undefined
 }
 
 /**
  * Whether two values a served file's reader rebuilt are one value: the same scalar; a canonical value of one tag and
- * payload; a Roster of one declared name, whose handles the files' rosters hold; lists, Maps and Sets of the same
- * members in order; records of the same members. The pairs still to compare wait on a stack on the heap, so no depth of
- * value deepens the call stack.
+ * payload, a Roster's its declared name and its handles' digest; lists, Maps and Sets of the same members in order;
+ * records of the same members. The pairs still to compare wait on a stack on the heap, so no depth of value deepens the
+ * call stack.
  */
 const sameServed = (a: unknown, b: unknown): boolean => {
 	const pending: Array<readonly [unknown, unknown]> = [[a, b]]
@@ -78,12 +78,6 @@ const sameServed = (a: unknown, b: unknown): boolean => {
 		}
 		if (typeof x !== "object" || typeof y !== "object" || x === null || y === null) {
 			return false
-		}
-		if (x instanceof Roster || y instanceof Roster) {
-			if (!(x instanceof Roster) || !(y instanceof Roster) || x.closed !== y.closed) {
-				return false
-			}
-			continue
 		}
 		const taggedX = taggedValueOf(x)
 		const taggedY = taggedValueOf(y)
@@ -160,10 +154,10 @@ interface Named {
 const firstParted = (
 	ours: ReadonlyArray<unknown>,
 	theirs: ReadonlyArray<unknown>,
-	parted: (ours: unknown, theirs: unknown, named: Named) => ServedPart | undefined,
-	missing: (named: Named) => ServedPart,
-	extra: ServedPart
-): ServedPart | undefined => {
+	parted: (ours: unknown, theirs: unknown, named: Named) => ServedParting | undefined,
+	missing: (named: Named) => ServedParting,
+	extra: ServedParting
+): ServedParting | undefined => {
 	for (const [i, item] of ours.entries()) {
 		const named = trusted<Named>(item)
 		const committed = theirs[i]
@@ -177,23 +171,23 @@ const firstParted = (
 
 /**
  * Where the committed served file's text `committed` first parts from `ours`, the text the compile writes, which it is
- * not (ServedPart). Both are read as a layer reads them (served/json.ts servedFile) and compared as the values read, so
- * a changed type parts the files at the first program that names it and nothing of the files' JSON form is read here;
- * the committed text is anyone's to have edited, and one no served file's reader reads is `unread`.
+ * not (ServedParting). Both are read as a layer reads them (served/json.ts servedFile) and compared as the values read,
+ * so a changed type parts the files at the first program that names it and nothing of the files' JSON form is read
+ * here; the committed text is anyone's to have edited, and one no served file's reader reads is `unread`.
  */
-export const servedDifference = (ours: string, committed: string): ServedPart => {
+export const servedDifference = (ours: string, committed: string): ServedParting => {
 	const theirs = revived(committed)
 	if (theirs === undefined) {
 		return { kind: "unread" }
 	}
-	const own = trusted<Readonly<Record<string, unknown>>>(servedFile(trustedJson<unknown>(ours)))
+	const own: Readonly<Record<string, unknown>> = servedFile(trustedJson<unknown>(ours))
 	const keys = [...new Set([...Object.keys(own), ...Object.keys(theirs)])].toSorted(compareText)
 	for (const key of keys) {
 		const found =
 			key !== rolesMember
 				? sameServed(own[key], theirs[key])
 					? undefined
-					: ({ kind: "member", member: key } satisfies ServedPart)
+					: ({ kind: "member", member: key } satisfies ServedParting)
 				: firstParted(
 						itemsOf(own, rolesMember),
 						itemsOf(theirs, rolesMember),

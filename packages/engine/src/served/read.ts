@@ -11,10 +11,10 @@ import type { EmittedText } from "#compiler/sql/ast.ts"
 
 /**
  * A compiled read as the runtime runs it: its statement with the text it sends, its parts in their tree, and its
- * delivered spine, data alone, which a served file carries and a read, a page and a write's read-back are rebuilt from. Every
- * projection here copies, member by member, exactly what the runtime reads of a compiled structure, its AST, IR nodes
- * and encoders left behind, and names each statement's text (core/prepared.ts); a compiled structure is assignable to
- * its served type over the spec it emitted (EmittedSpec), so the compile path serves it too.
+ * delivered spine, data alone, which a served file carries and a read, a page and a write's read-back are rebuilt
+ * from. Every projection here copies, member by member, exactly what the runtime reads of a compiled structure, its
+ * AST, IR nodes and encoders left behind, and names each statement's text (core/prepared.ts); a compiled structure is
+ * assignable to its served type over the spec it emitted (EmittedSpec), so the compile path serves it too.
  *
  * What the runtime reads of an attachment, the Attach node of the compiled program it holds no more: its name, the
  * child columns its correlation equates with the parent's, and the delivery the analysis judged.
@@ -122,8 +122,8 @@ export interface ServedSource<Spec = ServedSpec> extends ServedProgram<
 }
 
 /**
- * One read-back of a compiled ChangeSet as the runtime runs it: its name in the ChangeSet's reads, its query's delivered
- * spine, and its statements as they reach the server (`carried`).
+ * One read-back of a compiled ChangeSet as the runtime runs it: its name in the ChangeSet's reads, its query's
+ * delivered spine, and its statements as they reach the server (`carried`).
  */
 export interface ServedReadBack {
 	readonly name: string
@@ -166,6 +166,7 @@ export interface ServedSpine {
 	readonly under: ReadonlyMap<string, ServedSpineAttachment>
 }
 
+/** A delivered attachment of a spine: its child's head keys, and the delivered attachments under it. */
 export interface ServedSpineAttachment extends ServedSpine {
 	readonly heads: ReadonlySet<string>
 }
@@ -206,7 +207,9 @@ const servedRole = (role: StatementRole): StatementRole => {
 	}
 }
 
-/** A statement's spec as the runtime reads it: the text it sends, named here (core/prepared.ts), and its output heading. */
+/**
+ * A statement's spec as the runtime reads it: the text it sends, named here (core/prepared.ts), and its output heading.
+ */
 const servedSpec = (spec: EmittedSpec): ServedSpec => ({
 	text: prepared(spec.sql),
 	heading: servedHeading(spec.heading)

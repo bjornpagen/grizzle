@@ -56,7 +56,7 @@ import type { ParamValue } from "#compiler/types/core/phantom.ts"
  * table, every occurrence its index; its rosters' codes in their own form (served/json.ts RosterWire), each roster's
  * handles in code order, a hole `false`; and each Roster by its declared name, rebuilt over the file's own codes.
  */
-export interface ServedFile {
+export type ServedFile = {
 	/** The login's declared name, which names its file. */
 	readonly login: string
 	/** The snapshot fingerprint the file was compiled under; a layer refuses a file whose snapshot it does not serve. */

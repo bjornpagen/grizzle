@@ -243,20 +243,23 @@ const servedOf = (value: unknown): ServedValue => {
 	}
 }
 
-/** A value's JSON form, and whether a load revives it: whether it or a value it holds is no JSON value as it is. */
-interface Written<J extends Json = Json> {
-	readonly json: J
-	readonly revived: boolean
-}
-
 /** A record's JSON form. */
 type JsonRecord = { readonly [key: string]: Json }
 
-/** A JSON form read back as it is. */
-const plain = <J extends Json>(json: J): Written<J> => ({ json, revived: false })
-
-/** A JSON form a load revives. */
-const revived = <J extends Json>(json: J): Written<J> => ({ json, revived: true })
+/**
+ * Whether a load revives a JSON form the writer wrote (see the header): text beginning with `~`, or a record under a
+ * Map's, a Set's or a revived member's marker key. Every other form is read back as it is.
+ */
+const isRevived = (json: Json): boolean => {
+	if (typeof json === "string") {
+		return json.startsWith("~")
+	}
+	return (
+		typeof json === "object" &&
+		!isList(json) &&
+		(Object.hasOwn(json, revivedKey) || Object.hasOwn(json, mapKey) || Object.hasOwn(json, setKey))
+	)
+}
 
 /**
  * One walk of a served form into its JSON form, the types it meets interned into its table (see the header). Records
@@ -274,13 +277,13 @@ class ServedWriter {
 	 * A value's JSON form, by its served reading (servedOf): a JSON scalar as it is, and an object as #object writes it.
 	 * No served reading is a bigint, undefined, a function or a symbol, so those cases hold none (never).
 	 */
-	#value(value: unknown): Written {
+	#value(value: unknown): Json {
 		const served = servedOf(value)
 		switch (typeof served) {
 			case "string":
 			case "number":
 			case "boolean":
-				return plain(served)
+				return served
 			case "object":
 				return this.#object(served)
 			case "bigint":
@@ -298,14 +301,14 @@ class ServedWriter {
 		return out
 	}
 
-	#object(served: ServedObject): Written {
+	#object(served: ServedObject): Json {
 		switch (served.kind) {
 			case "tagged":
-				return revived(`~${served.tag}:${served.payload}`)
+				return `~${served.tag}:${served.payload}`
 			case "escaped":
-				return revived(served.text)
+				return served.text
 			case "type":
-				return revived(`~${tags.type}:${this.#typeIndex(served.type)}`)
+				return `~${tags.type}:${this.#typeIndex(served.type)}`
 			case "array":
 				return this.#array(served.items)
 			case "record":
@@ -320,50 +323,50 @@ class ServedWriter {
 	}
 
 	/** An array's items, and, where some are revived, the array's revived form listing their indices. */
-	#array(value: ReadonlyArray<unknown>): Written {
+	#array(value: ReadonlyArray<unknown>): Json {
 		const items: Array<Json> = []
 		const at: Array<number> = []
 		for (const [i, item] of value.entries()) {
-			const written = this.#at(i, () =>
+			const json = this.#at(i, () =>
 				item === undefined ? unserved(this.#path, "an element") : this.#value(item)
 			)
-			items.push(written.json)
-			if (written.revived) {
+			items.push(json)
+			if (isRevived(json)) {
 				at.push(i)
 			}
 		}
-		return at.length === 0 ? plain(items) : revived({ [listKey]: items, [revivedKey]: at })
+		return at.length === 0 ? items : { [listKey]: items, [revivedKey]: at }
 	}
 
 	/**
 	 * A Map's entries, each key a primitive: a record key reads back as a new object, which no lookup by another finds,
 	 * so a Map keyed by one is no served value.
 	 */
-	#map(value: ReadonlyMap<unknown, unknown>): Written {
+	#map(value: ReadonlyMap<unknown, unknown>): Json {
 		const entries: Array<Json> = []
 		for (const [k, v] of value) {
 			entries.push(
 				this.#at(entries.length, () => [
 					typeof k === "object" && k !== null
 						? unserved(this.#path, "a Map keyed by primitives")
-						: this.#value(k).json,
-					this.#value(v).json
+						: this.#value(k),
+					this.#value(v)
 				])
 			)
 		}
-		return revived({ [mapKey]: entries })
+		return { [mapKey]: entries }
 	}
 
-	#set(value: ReadonlySet<unknown>): Written {
+	#set(value: ReadonlySet<unknown>): Json {
 		const members: Array<Json> = []
 		for (const v of value) {
-			members.push(this.#at(members.length, () => this.#value(v).json))
+			members.push(this.#at(members.length, () => this.#value(v)))
 		}
-		return revived({ [setKey]: members })
+		return { [setKey]: members }
 	}
 
 	/** A record's members in key order, and, where some are revived, the keys of those under `~`. */
-	record(value: Readonly<Record<string, unknown>>): Written<JsonRecord> {
+	record(value: Readonly<Record<string, unknown>>): JsonRecord {
 		const out: Record<string, Json> = {}
 		const keys: Array<string> = []
 		for (const key of Object.keys(value).toSorted(compareText)) {
@@ -372,18 +375,17 @@ class ServedWriter {
 			}
 			const member = value[key]
 			if (member !== undefined) {
-				const written = this.#at(key, () => this.#value(member))
-				out[key] = written.json
-				if (written.revived) {
+				const json = this.#at(key, () => this.#value(member))
+				out[key] = json
+				if (isRevived(json)) {
 					keys.push(key)
 				}
 			}
 		}
-		if (keys.length === 0) {
-			return plain(out)
+		if (keys.length > 0) {
+			out[revivedKey] = keys
 		}
-		out[revivedKey] = keys
-		return revived(out)
+		return out
 	}
 
 	/** The index of `type` in the table, interned once by its canonical text: its parts first. */
@@ -392,7 +394,7 @@ class ServedWriter {
 		if (known !== undefined) {
 			return known
 		}
-		const index = this.#textIndex(this.record(type).json)
+		const index = this.#textIndex(this.record(type))
 		this.#byObject.set(type, index)
 		return index
 	}
@@ -442,7 +444,7 @@ export const servedText = (file: ServedFile): Result.Result<string, CompileError
 		catchRefusal(() => {
 			const writer = new ServedWriter()
 			const { rosters, ...members } = file
-			const { json } = writer.record(members)
+			const json = writer.record(members)
 			const wire: RostersWire = Object.fromEntries(
 				Array.from(rosters, ([roster, codes]) => [roster, rosterWire(codes)])
 			)

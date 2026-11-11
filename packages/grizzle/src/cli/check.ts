@@ -36,7 +36,7 @@ import {
 	orderFolderFiles,
 	type PackFault,
 	servedDifference,
-	servedPartText,
+	servedPartingText,
 	splitStatements
 } from "#compiler/plan/migration.ts"
 import {
@@ -304,7 +304,7 @@ const servedFindings = (
 							schema,
 							"servedStale",
 							where(file.login),
-							`login ${file.login}, ${servedPartText(servedDifference(file.text, text))}: ${refusalText.servedStale.problem}`
+							`login ${file.login}, ${servedPartingText(servedDifference(file.text, text))}: ${refusalText.servedStale.problem}`
 						)
 					]
 		}),
