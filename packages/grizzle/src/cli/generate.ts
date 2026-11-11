@@ -64,10 +64,10 @@ import {
 	type GenerateResult,
 	type Installation,
 	installationOver,
-	type LoginFootprints,
 	lossText,
 	type MigrationDraft,
 	type MigrationFolder,
+	type ProgramFootprints,
 	type ServedWorkloadPlan,
 	servedWorkload,
 	servedWorkloadExtension
@@ -254,12 +254,12 @@ type SchemaDraft = (
  * What one login's served file compiles over: its base's artifacts, compiled under the draft's codes over every
  * relation; each of its roles with its ChangeSets compiled over them by the draft's workload plan
  * (program/workload/compile.ts servedWorkload) at the level its certificate gives its writes, by the role's name in the
- * login; and the footprint of every read program on each of its roles, the plan's (loginFootprints).
+ * login; and the footprint of every query program of its workloads, by name, the plan's (WorkloadFootprints).
  */
 export interface PlannedLogin {
 	readonly artifacts: SchemaArtifacts
 	readonly roles: ReadonlyMap<string, RoleChanges>
-	readonly footprints: LoginFootprints
+	readonly footprints: ProgramFootprints
 }
 
 /**

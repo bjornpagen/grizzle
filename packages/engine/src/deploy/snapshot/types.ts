@@ -169,8 +169,9 @@ export interface DeploySnapshot extends Snapshot<SqlStatement> {
 	readonly workload: WorkloadAccess
 	/**
 	 * The installation's live plan (live/notify.ts LivePlan): every stored relation a login's read program reads, each with
-	 * every field some read program routes a change of it by (program/workload/compile.ts loginFootprints). snapshot.json
-	 * holds it, under the fingerprint: what the installation signals a change of is part of what it is.
+	 * every field some read program routes a change of it by, and every materialized derived relation one reads
+	 * (program/workload/compile.ts WorkloadPlan live). snapshot.json holds it, under the fingerprint: what the
+	 * installation signals a change of is part of what it is.
 	 */
 	readonly live: LivePlan
 }

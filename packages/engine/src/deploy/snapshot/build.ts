@@ -1153,9 +1153,11 @@ const contentForm = <S>(c: SnapshotContent, units: Units<S>): RecordOf<S> => ({
 	live: liveForm(c.live)
 })
 
-/** The JSON form of a live plan: each footprint table's relation and the fields it routes by. */
-const liveForm = (plan: LivePlan): FormOf<never> =>
-	plan.map((t): SnapshotForm => ({ relation: t.relation, routes: t.routes }))
+/** The JSON form of a live plan: each footprint table's relation and the fields it routes by, and each view's name. */
+const liveForm = (plan: LivePlan): SnapshotForm => ({
+	tables: plan.tables.map((t): SnapshotForm => ({ relation: t.relation, routes: t.routes })),
+	views: plan.views
+})
 
 /** snapshot.json's form: the members DbLayer.make reads (ServedSnapshot), its fingerprint, every level, the
  * constraint-to-law map, the live plan (`live`), each roster's codes (`rosters`), which manifest.json's theory records

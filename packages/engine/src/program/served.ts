@@ -49,8 +49,8 @@ import { emptyNameMap } from "#compiler/sql/naming.ts"
  * A query compiled for a role's rows, served (served/forms.ts ServedRead): its declared parameters, its artifact and
  * delivered spine (served/read.ts), its records' decoder, whether get may read it, its template's analyzed root proved
  * at most one row per parameter binding (analysis/logical/get.ts requireGet), the key its rows are delivered under
- * (`key`: its own, templateKey, or its page's, pageKey), and its footprint, the login's plan's (program/workload/
- * compile.ts loginFootprints), its tables named as installed.
+ * (`key`: its own, templateKey, or its page's, pageKey), and its footprint, the workload plan's
+ * (program/workload/compile.ts WorkloadFootprints), its tables named as installed (servedFootprint).
  */
 export const servedRead = (
 	template: QueryTemplate,

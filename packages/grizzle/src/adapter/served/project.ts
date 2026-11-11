@@ -28,7 +28,7 @@ import {
 } from "#compiler/plan/common.ts"
 import {
 	type Footprint,
-	type LoginFootprints,
+	type ProgramFootprints,
 	servedMatchers,
 	servedMembers,
 	servedRosters,
@@ -74,8 +74,8 @@ export interface CompiledLogin {
 	readonly roles: ReadonlyArray<LayerRole>
 	/** The declared names of the relations its programs read and write (served/compile.ts CompiledServed). */
 	readonly footprint: ReadonlySet<string>
-	/** Each read program's footprint on each role (served/compile.ts CompiledServed footprints). */
-	readonly footprints: LoginFootprints
+	/** Each query program's footprint, by name (served/compile.ts CompiledServed footprints). */
+	readonly footprints: ProgramFootprints
 }
 
 /**
@@ -163,18 +163,18 @@ const variantsOf = (variants: ChangeVariants): Result.Result<ServedVariants, Uns
 /**
  * One workload member of a role, served: a read's and a key's read, a paged read's read beside the page its runtime was
  * served from (served/forms.ts pageTemplateFor), its rows keyed by the page's order, and a ChangeSet's variants. A
- * read's footprint is the plan's for the member on the role, `footprints`, named as installed under `names`.
+ * read's footprint is the workload plan's for its program, among `footprints`, named as installed under `names`.
  */
 const memberOf = (
 	member: WorkloadForm,
-	footprints: ReadonlyMap<string, Footprint>,
+	footprints: ProgramFootprints,
 	names: SchemaArtifacts["names"]
 ): Result.Result<ServedMember, UnservedMember> => {
 	const { name } = member
 	const footprint = (): Footprint => {
 		const read = footprints.get(name)
 		if (read === undefined) {
-			throw defect(`the footprint of read program ${name}, a read of its role's plan`)
+			throw defect(`the footprint of query program ${name}, a query of its login's workload plan`)
 		}
 		return read
 	}
@@ -287,18 +287,16 @@ const refusalsOf = (role: LayerRole): ServedRefusals => {
 
 /**
  * One role of the login, served: its name, its PostgreSQL role, its level, its contexts, its classifier and its
- * members, each read with its footprint among the role's, `footprints`.
+ * members, each read with its footprint among the login's, `footprints`.
  */
 const roleOf = (
 	role: LayerRole,
-	footprints: LoginFootprints
-): Result.Result<ServedRoleForm, UnservedMember> => {
-	const reads = footprints.get(role.role.name)
-	if (reads === undefined) {
-		throw defect(`the footprints of role ${role.role.name}, a role of its login's plan`)
-	}
-	return Result.map(
-		Result.all(Arr.map(role.workload, (member) => memberOf(member, reads, role.artifacts.names))),
+	footprints: ProgramFootprints
+): Result.Result<ServedRoleForm, UnservedMember> =>
+	Result.map(
+		Result.all(
+			Arr.map(role.workload, (member) => memberOf(member, footprints, role.artifacts.names))
+		),
 		(members): ServedRoleForm => ({
 			name: role.role.name,
 			installed: role.theory,
@@ -308,7 +306,6 @@ const roleOf = (
 			members
 		})
 	)
-}
 
 /** One kind of owner's constraints above as a served file holds them: each one reporting a law of `laws`, under its
  * owner, an owner none of whose constraints does left out. */

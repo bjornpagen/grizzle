@@ -5,10 +5,9 @@ import { identity, parseSchemaName } from "#compiler/core/identity.ts"
 import type * as Result from "#compiler/core/result.ts"
 import { initMigrationName } from "#compiler/deploy/render/folder.ts"
 import { generateMigration } from "#compiler/deploy/render/generate.ts"
-import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
+import { emptySnapshot, noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { compileLaws } from "#compiler/laws/model/model.ts"
-import { noLive } from "#compiler/live/notify.ts"
 import { workloadRequests, withWorkload } from "#compiler/physical/access/extension.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
@@ -235,14 +234,20 @@ export const compilePhases = ({ fixture: f, timed, each }: PhasesInput) => {
 	const installation = timed(`${f.label} installation`, () =>
 		ok(compileInstallation(owned, options), "installation")
 	)
-	const access = plan === undefined ? {} : plan.access
-	const paths = plan === undefined ? [] : workloadRequests(plan, installation.settings.vectorSchema)
+	const drafted =
+		plan === undefined
+			? noWorkload
+			: {
+					access: plan.access,
+					accessPaths: workloadRequests(plan, installation.settings.vectorSchema),
+					live: plan.live
+				}
 	const generate = timed(`${f.label} migration`, () =>
 		ok(
 			generateMigration({
 				previous: emptySnapshot({ schemaName: owned.name, schema: installation.names.schema }),
 				installation,
-				workload: { access, accessPaths: paths, live: noLive },
+				workload: drafted,
 				naming: { kind: "named", name: initMigrationName },
 				timestamp: "20261012000001",
 				abandoned: [],

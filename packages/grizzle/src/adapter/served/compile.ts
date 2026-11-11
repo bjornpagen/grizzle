@@ -5,7 +5,6 @@ import {
 	type BuiltLogin,
 	type LayerRole,
 	loginChangesOver,
-	namedOver,
 	plannedLoginRoles,
 	workloadSlice
 } from "#adapter/served/login.ts"
@@ -14,6 +13,7 @@ import { lawsAbove } from "#adapter/witness/keylaw.ts"
 import type { ChangeRefused, RoleChanges } from "#compiler/plan/change.ts"
 import {
 	type CompileError,
+	defect,
 	Engine,
 	levelChain,
 	type LoginDesc,
@@ -21,8 +21,8 @@ import {
 	type SchemaArtifacts
 } from "#compiler/plan/common.ts"
 import {
-	type LoginFootprints,
-	loginFootprints,
+	compileWorkload,
+	type ProgramFootprints,
 	servedText,
 	type UnservedMember
 } from "#compiler/plan/migration.ts"
@@ -60,15 +60,16 @@ export interface ServedRefusal {
 /**
  * A login's workload compiled: the login, the snapshot it compiled under, read over the login's base's level, every
  * role of it with its programs, in the login's order, its footprint, the declared names of the relations its programs
- * read and write (schema/reach.ts Slice names, its writes among them, login.ts workloadSlice), and each read program's
- * footprint on each role (program/workload/compile.ts loginFootprints), which its served read routes changes by.
+ * read and write (schema/reach.ts Slice names, its writes among them, login.ts workloadSlice), and each query program's
+ * footprint, by name, as the workload plan read it (program/workload/compile.ts WorkloadFootprints), which its served
+ * read routes changes by on every role it runs on.
  */
 export interface CompiledServed {
 	readonly login: LoginDesc
 	readonly snapshot: ServedSnapshot
 	readonly roles: ReadonlyArray<LayerRole>
 	readonly footprint: ReadonlySet<string>
-	readonly footprints: LoginFootprints
+	readonly footprints: ProgramFootprints
 }
 
 const atLogin = (error: CompileError | UnservedMember): ServedRefusal => ({
@@ -108,7 +109,7 @@ const compileServed = Effect.fn("compileServed")(function* (
 	snapshot: unknown,
 	artifacts: SchemaArtifacts,
 	changes: ReadonlyMap<string, RoleChanges>,
-	footprints: LoginFootprints
+	footprints: ProgramFootprints
 ): Effect.fn.Return<CompiledServed, ServedRefusal> {
 	const served = yield* Effect.mapError(
 		fromEngine(servedSnapshot(snapshot, levelChain(login.login.base.desc).length - 1)),
@@ -158,7 +159,7 @@ export const servedEntry = (
 	snapshot: unknown,
 	artifacts: SchemaArtifacts,
 	changes: ReadonlyMap<string, RoleChanges>,
-	footprints: LoginFootprints
+	footprints: ProgramFootprints
 ): Effect.Effect<ServedEntry, ServedRefusal> =>
 	Effect.flatMap(compileServed(login, snapshot, artifacts, changes, footprints), servedEntryOf)
 
@@ -166,8 +167,9 @@ export const servedEntry = (
  * The compile of `login` under `snapshot` alone, no installation compiled beside it: the installation's artifacts
  * compiled from what the snapshot records (its codes, its closed relations' constant names, its text domains and its
  * foreign key graph's cycles) over every relation, the law model generate compiles from the schema, then the login over
- * them (compileServed): its roles, each with its workload's programs compiled and its read programs' footprints read,
- * which a test reads beside the file they project (a change form's compiled entry, its put choices among it).
+ * them (compileServed), its query programs' footprints its workload's plan's (compileWorkload): its roles, each with
+ * its workload's programs compiled, which a test reads beside the file they project (a change form's compiled entry,
+ * its put choices among it).
  */
 export const snapshotCompiled = Effect.fn("snapshotCompiled")(function* (
 	login: ServedInput,
@@ -186,18 +188,20 @@ export const snapshotCompiled = Effect.fn("snapshotCompiled")(function* (
 		loginChangesOver(login.login, login.owned, artifacts, "serializable"),
 		atRole
 	)
-	const named = yield* Effect.mapError(namedOver(login.owned, artifacts), atRole)
-	const footprints = yield* Effect.mapError(
+	const name = login.login.desc.name
+	const planned = yield* Effect.mapError(
 		fromEngine(
-			loginFootprints({
-				roles: login.login.roles,
-				workload: login.login.workload,
-				named,
-				artifacts
+			compileWorkload([{ login: name, workloads: login.login.workload }], login.login.base, {
+				artifacts,
+				roles: []
 			})
 		),
-		atRole
+		atLogin
 	)
+	const footprints = planned.footprints.get(name)
+	if (footprints === undefined) {
+		throw defect(`the footprints of login ${name}, the one login its workload plan plans`)
+	}
 	return yield* compileServed(login, snapshot, artifacts, changes, footprints)
 })
 

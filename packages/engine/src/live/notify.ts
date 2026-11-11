@@ -140,8 +140,16 @@ export interface LiveTable {
 	readonly routes: ReadonlyArray<string>
 }
 
-/** Each footprint table of an installation's served programs once, by relation in code point order. */
-export type LivePlan = ReadonlyArray<LiveTable>
+/**
+ * What an installation's served read programs read, which a committed change reaches them through: each stored relation
+ * as a footprint table, by relation in code point order (LiveTable), and each materialized derived relation, by its
+ * declared name in code point order, which no change of a row reaches: a refresh replaces its rows at once and says so
+ * itself. Both empty for an installation that serves no read.
+ */
+export interface LivePlan {
+	readonly tables: ReadonlyArray<LiveTable>
+	readonly views: ReadonlyArray<string>
+}
 
-/** The plan of an installation that serves no live program. */
-export const noLive: LivePlan = []
+/** The plan of an installation that serves no read. */
+export const noLive: LivePlan = { tables: [], views: [] }

@@ -49,10 +49,10 @@ export {
 	accessDrift,
 	accessDriftText,
 	compileWorkload,
-	type LoginFootprints,
-	loginFootprints,
+	type ProgramFootprints,
 	type ServedWorkloadPlan,
-	servedWorkload
+	servedWorkload,
+	type WorkloadFootprints
 } from "#compiler/program/workload/compile.ts"
 export type { Footprint, Routes } from "#compiler/logical/routes.ts"
 export { servedRosters } from "#compiler/program/served.ts"
