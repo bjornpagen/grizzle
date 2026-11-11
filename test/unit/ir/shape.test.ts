@@ -434,6 +434,15 @@ describe("shapes", () => {
 			element(["constructor", "toString", "a"]),
 			string(codePoint(0x20, 0x7e), { min: 1, max: 4 })
 		])
+		/**
+		 * A record's entries: up to five distinct keys, drawn alone, so uniqueArray moves a repeated key among keys alone,
+		 * and then each key's integer. A key drawn beside its value would have uniqueArray step through the value's 2^32
+		 * integers, which the key never reads, before it reached another key.
+		 */
+		const entriesGen: Gen<ReadonlyArray<readonly [string, number]>> = (source) => {
+			const keys = source.draw(uniqueArray(keyGen, (key) => key, { min: 0, max: 5 }))
+			return Arr.map(keys, (key) => [key, source.draw(integer)] as const)
+		}
 		return searched(
 			ctx,
 			explore(
@@ -444,13 +453,7 @@ describe("shapes", () => {
 					},
 					suite: "unit/ir/shape-record-keys",
 					literal: Formatter.format,
-					draw: drawn(
-						uniqueArray(
-							(source) => [source.draw(keyGen), source.draw(integer)] as const,
-							([key]) => key,
-							{ min: 0, max: 5 }
-						)
-					),
+					draw: drawn(entriesGen),
 					runs: 100,
 					shrink: completeShrink,
 					coverage: required<"an own __proto__ key">(["an own __proto__ key"], {
