@@ -286,7 +286,10 @@ layer(Substrate.layer, { excludeTestServices: true })(
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "a serial order of the insert and the direct writer's transaction, each run alone from stateA, explains every run"
+						},
 						suite: "schedules/laws/payroll",
 						draw: drawn(raceGen),
 						literal: Formatter.format,
