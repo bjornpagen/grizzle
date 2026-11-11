@@ -35,13 +35,35 @@ import {
 import { assert } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 
+/**
+ * The cursor token's byte-level primitives (codec/cursor/base64url.ts and bytes.ts), each against an outside
+ * implementation or its textbook definition:
+ *
+ * - base64url (RFC 4648 section 5) agrees with Node's unpadded base64url and round-trips every byte string, and decodes
+ *   only canonical tokens: every string it decodes re-encodes to itself.
+ * - Varints, unsigned LEB128 in minimal form, round-trip every admitted value in its minimal length; a reader reads
+ *   exactly the minimal encodings of at most four bytes, exhausted over every string of up to two bytes and searched
+ *   over longer ones; a writer writes the minimal encoding; a length-prefixed field is a view of exactly its bytes, a
+ *   skip leaves the reader past it, and a longer claim is refused unread.
+ * - Strict UTF-8 encodes as Node does and decodes its own output, and agrees with a fatal TextDecoder on arbitrary bytes,
+ *   overlong forms, surrogates, values past U+10FFFF and truncations planted beside the drawn bytes.
+ *
+ * Features: none required; each suite's input space is its own, the bytes and values drawn whole.
+ *
+ * Plants (~/.cache/grizzle-release/BR02/plants): cursor-varint-overlong, a reader admitting an overlong varint;
+ * cursor-utf8-surrogate, a decoder admitting an encoded surrogate.
+ */
+
 describe("base64url (RFC 4648 section 5)", () => {
 	it.effect("agrees with Node's unpadded base64url and round-trips every byte string", (ctx) =>
 		searched(
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "second-implementation",
+						name: "Node's unpadded base64url (Buffer), and decode ∘ encode = id"
+					},
 					suite: "unit/cursor/primitives-16",
 					draw: drawn(bytes({ min: 0, max: 300 })),
 					literal: Formatter.format,
@@ -69,7 +91,10 @@ describe("base64url (RFC 4648 section 5)", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "universal",
+						name: "encode ∘ decode = id wherever decode reads a string: only canonical tokens decode"
+					},
 					suite: "unit/cursor/primitives-17",
 					draw: drawn(
 						string(
@@ -124,7 +149,10 @@ describe("varints (unsigned LEB128, minimal form)", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "universal",
+						name: "read ∘ write = id, in the minimal length"
+					},
 					suite: "unit/cursor/primitives-18",
 					draw: drawn(int(0, varintMax)),
 					literal: Formatter.format,
@@ -195,8 +223,11 @@ describe("varints (unsigned LEB128, minimal form)", () => {
 					ctx,
 					exhaust(
 						{
-							box: { kind: "unstated" },
-							oracle: { kind: "unstated" },
+							box: "every string of up to two bytes",
+							oracle: {
+								kind: "second-implementation",
+								name: "the textbook minimal unsigned LEB128 encoding (minimal), read back"
+							},
 							suite: "unit/cursor/varint-short",
 							generator: short,
 							literal: Formatter.format,
@@ -211,7 +242,10 @@ describe("varints (unsigned LEB128, minimal form)", () => {
 					ctx,
 					explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "second-implementation",
+								name: "the textbook minimal unsigned LEB128 encoding (minimal), read back"
+							},
 							suite: "unit/cursor/varint-long",
 							draw: drawn(
 								array(oneOf([int(0, 255), element([0x80, 0xff, 0x00, 0x7f])]), { min: 3, max: 6 })
@@ -236,7 +270,10 @@ describe("varints (unsigned LEB128, minimal form)", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "second-implementation",
+						name: "the textbook minimal unsigned LEB128 encoding (minimal)"
+					},
 					suite: "unit/cursor/varint-write",
 					draw: drawn(int(0, varintMax)),
 					literal: Formatter.format,
@@ -268,7 +305,10 @@ describe("varints (unsigned LEB128, minimal form)", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "a length-prefixed field is a view of exactly its bytes, or the claim it makes past them"
+						},
 						suite: "unit/cursor/varint-field",
 						draw: drawn(
 							(source) =>
@@ -329,7 +369,10 @@ describe("strict UTF-8 (Unicode scalars, beyond the BMP included)", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "second-implementation",
+						name: "Node's UTF-8 encoder (Buffer), and decode ∘ encode = id"
+					},
 					suite: "unit/cursor/primitives-19",
 					draw: drawn(wellFormed),
 					literal: Formatter.format,
@@ -359,7 +402,10 @@ describe("strict UTF-8 (Unicode scalars, beyond the BMP included)", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "second-implementation",
+							name: "a fatal TextDecoder"
+						},
 						suite: "unit/cursor/primitives-20",
 						/**
 						 * Overlong forms, surrogate code points, values above U+10FFFF and truncations are planted beside the

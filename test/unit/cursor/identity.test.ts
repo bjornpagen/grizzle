@@ -1,7 +1,7 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { element, int, uniqueArray } from "@grizzle/testing/gen"
+import { array, element, type Gen, int, shuffled, string, codePoint } from "@grizzle/testing/gen"
 import { matching } from "@grizzle/testing/pattern"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
@@ -35,6 +35,17 @@ import { definedOpOf } from "#test/support/oracle/gen/ops.ts"
  *
  * A contract's predicate in normal form, VALUE >= 0 over int8 (as test/unit/ir/scalar.test.ts builds it): the
  * comparator digest ignores a contract's predicate (ir/scalar.ts sameScalarType).
+ *
+ * Oracles: specifications. The comparator digest changes with exactly what changes an order's meaning, a contract's
+ * predicate excepted; the query and generation digests separate their domains and depend on every component, an
+ * extension's order excepted. Each case is constructed where its rewrite applies: the rewrite first, then comparators
+ * of distinct fields whose rewritten one holds the type the rewrite changes, so no case is skipped; extension names are
+ * distinct by construction, each its drawn stem and its own place.
+ *
+ * Features: each comparator rewrite; each change of a generation.
+ *
+ * Plants (~/.cache/grizzle-release/BR02/plants): cursor-digest-direction-blind, a comparator digest that omits each
+ * comparator's direction; cursor-generation-ordered, a generation digest over its extensions in their given order.
  */
 const common = {
 	args: [],
@@ -107,40 +118,64 @@ const comparatorRewrites: Arr.NonEmptyReadonlyArray<ComparatorRewrite> = [
 	"two comparators swapped"
 ]
 
-/** The comparators with one rewritten at `at`, or undefined where the rewrite does not apply there. */
-const rewritten = (
-	cs: ReadonlyArray<CursorComparator>,
-	at: number,
-	rewrite: ComparatorRewrite
-): ReadonlyArray<CursorComparator> | undefined => {
-	const c = cs[at]
-	if (c === undefined) {
-		return undefined
+/** The types a comparator a rewrite changes may hold: the one type it rewrites, or any of the pool. */
+const rewrittenTypes: { readonly [R in ComparatorRewrite]: Arr.NonEmptyReadonlyArray<ScalarType> } =
+	{
+		"a contract's predicate stated": [cursorCodecTypes.cents],
+		"a roster's handles": [cursorCodecTypes.kind],
+		"a regex refinement": [cursorCodecTypes.text],
+		"a direction": comparatorPool,
+		"a field name": comparatorPool,
+		"two comparators swapped": comparatorPool
 	}
+
+/** How many comparators a rewrite reads from its place: two for a swap, one otherwise. */
+const reads = (rewrite: ComparatorRewrite): 1 | 2 => (rewrite === "two comparators swapped" ? 2 : 1)
+
+/** A case: comparators of distinct fields, each as an order states it, and one rewrite at a place where it applies. */
+interface DigestCase {
+	readonly comparators: ReadonlyArray<CursorComparator>
+	readonly at: number
+	readonly rewrite: ComparatorRewrite
+}
+
+/**
+ * The rewrite first, then the comparators: each field once, as many as the rewrite reads at least, and the one at its
+ * place of a type the rewrite changes.
+ */
+const digestCaseGen: Gen<DigestCase> = (source) => {
+	const rewrite = source.draw(element(comparatorRewrites))
+	const fields = source.draw(shuffled(["a", "b", "c", "d"], { min: reads(rewrite), max: 4 }))
+	const at = source.draw(int(0, fields.length - reads(rewrite)))
+	const comparators = Arr.map(fields, (field, i) => ({
+		field,
+		direction: source.draw(element(directions)),
+		type: source.draw(element(i === at ? rewrittenTypes[rewrite] : comparatorPool))
+	}))
+	return { comparators, at, rewrite }
+}
+
+/** The comparators with the one at `at` rewritten, where the case's construction makes the rewrite apply. */
+const rewritten = ({
+	comparators: cs,
+	at,
+	rewrite
+}: DigestCase): ReadonlyArray<CursorComparator> => {
+	const c = defined(cs[at], "the rewritten comparator")
 	const put = (next: CursorComparator) => cs.with(at, next)
 	switch (rewrite) {
 		case "a contract's predicate stated":
-			return c.type === cursorCodecTypes.cents ? put({ ...c, type: centsWithPredicate }) : undefined
+			return put({ ...c, type: centsWithPredicate })
 		case "a roster's handles":
-			return c.type === cursorCodecTypes.kind ? put({ ...c, type: kindEvolved }) : undefined
+			return put({ ...c, type: kindEvolved })
 		case "a regex refinement":
-			return c.type === cursorCodecTypes.text
-				? put({ ...c, type: cursorCodecTypes.title })
-				: undefined
+			return put({ ...c, type: cursorCodecTypes.title })
 		case "a direction":
 			return put({ ...c, direction: opposite(c.direction) })
 		case "a field name":
 			return put({ ...c, field: `${c.field}_renamed` })
-		case "two comparators swapped": {
-			const next = cs[at + 1]
-			if (
-				next === undefined ||
-				(next.field === c.field && next.direction === c.direction && next.type === c.type)
-			) {
-				return undefined
-			}
-			return cs.with(at, next).with(at + 1, c)
-		}
+		case "two comparators swapped":
+			return cs.with(at, defined(cs[at + 1], "the comparator after it")).with(at + 1, c)
 	}
 }
 
@@ -150,25 +185,12 @@ describe("the comparator digest", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "specification",
+						name: "the comparator digest changes with exactly what changes an order's meaning, a contract's predicate excepted"
+					},
 					suite: "unit/cursor/comparator-digest",
-					draw: drawn((source) => ({
-						/** Each field once, as an order states it. */
-						comparators: source.draw(
-							uniqueArray(
-								(source) => ({
-									field: source.draw(element(["a", "b", "c", "d"])),
-									direction: source.draw(element(directions)),
-									type: source.draw(element(comparatorPool))
-								}),
-								(c) => c.field,
-								{ min: 1, max: 4 },
-								20
-							)
-						),
-						at: source.draw(int(0, 3)),
-						rewrite: source.draw(element(comparatorRewrites))
-					})),
+					draw: drawn(digestCaseGen),
 					literal: Formatter.format,
 					coverage: required<ComparatorRewrite>(comparatorRewrites, {
 						cases: 600,
@@ -182,15 +204,12 @@ describe("the comparator digest", () => {
 					steerEvery: 16,
 					caseHang
 				},
-				({ comparators, at, rewrite }, c) =>
+				(digestCase, c) =>
 					Effect.sync(() => {
-						const next = rewritten(comparators, at, rewrite)
-						if (next === undefined) {
-							return
-						}
+						const { comparators, rewrite } = digestCase
 						c.note(rewrite)
 						const before = succeeded(comparatorDigest(comparators))
-						const after = succeeded(comparatorDigest(next))
+						const after = succeeded(comparatorDigest(rewritten(digestCase)))
 						if (rewrite === "a contract's predicate stated") {
 							assert.equal(after, before, rewrite)
 						} else {
@@ -208,22 +227,28 @@ describe("the query and generation digests", () => {
 		(ctx) =>
 			Effect.gen(function* () {
 				const name = matching(regex("^[a-z]{1,6}$"))
+				/** An extension name's stem, which its place in the list completes, so no two names are one. */
+				const stem = string(codePoint(0x61, 0x7a), { min: 0, max: 5 })
 				yield* searched(
 					ctx,
 					explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "specification",
+								name: "the query and generation digests separate their domains and depend on every component, an extension's order excepted"
+							},
 							suite: "unit/cursor/generation-digest",
 							draw: drawn((source) => ({
 								schema: source.draw(name),
-								extensions: source.draw(
-									uniqueArray(
-										(source) =>
-											[source.draw(name), source.draw(matching(regex("^\\d\\.\\d$")))] as const,
-										([n]) => n,
-										{ min: 2, max: 4 },
-										20
-									)
+								extensions: Arr.map(
+									source.draw(
+										array(
+											(source) =>
+												[source.draw(stem), source.draw(matching(regex("^\\d\\.\\d$")))] as const,
+											{ min: 2, max: 4 }
+										)
+									),
+									([s, version], i) => [`${s}${String(i)}`, version] as const
 								),
 								change: source.draw(
 									element(["reordered" as const, "a version" as const, "the schema" as const])

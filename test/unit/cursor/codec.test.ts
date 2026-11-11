@@ -8,14 +8,12 @@ import {
 	codePoint,
 	constant,
 	element,
-	filter,
 	type Gen,
 	int,
 	map,
 	oneOf,
 	string,
 	subarray,
-	unicodeScalar,
 	weighted
 } from "@grizzle/testing/gen"
 import { matching } from "@grizzle/testing/pattern"
@@ -89,6 +87,16 @@ import { paramText } from "#test/support/wire.ts"
  *
  * The codec is pure (packages/engine/src): decode returns before the adapter could issue a statement, so every refusal here
  * is "before any SQL" by construction; test/pg/page confirms it with the statement counter.
+ *
+ * Oracles: round trips (decode ∘ encode = id per carrier, write ∘ read = id per layout), the order-preservation
+ * relation, decode's totality, and the specifications of the validation order, the header, the size limits and each
+ * carrier's byte bounds; each suite states its own. Inputs are constructed: a non-empty int8 span by its start then its
+ * end past it, a stored string from every scalar but NUL.
+ *
+ * Features: each carrier case of the carriers suite; each validation fault; a header byte changed.
+ *
+ * Plants (~/.cache/grizzle-release/BR02/plants): cursor-query-before-generation, cursor-comparators-unchecked,
+ * cursor-range-end-from-start, cursor-bigint-truncated.
  */
 const single = <T extends ScalarType>(type: T): CursorCodec<readonly [CursorComparator<T>]> =>
 	succeeded(
@@ -141,17 +149,15 @@ type CarrierCase =
 	| { readonly kind: "empty tuple" }
 	| { readonly kind: "refused admission"; readonly tuple: unknown }
 
-const int8Span = map(
-	filter(
-		(source) =>
-			[
-				source.draw(bigint(int8Min.value, int8Max.value)),
-				source.draw(bigint(int8Min.value, int8Max.value))
-			] as const,
-		([a, b]) => a !== b,
-		100
-	),
-	([a, b]) => (a < b ? { start: a, end: b } : { start: b, end: a })
+/** A non-empty int8 span: its start below the top, its end past its start. */
+const int8Span: Gen<{ readonly start: bigint; readonly end: bigint }> = (source) => {
+	const start = source.draw(bigint(int8Min.value, int8Max.value - 1n))
+	return { start, end: source.draw(bigint(start + 1n, int8Max.value)) }
+}
+
+/** Every Unicode scalar but NUL, which no text holds, each as often as every other. */
+const storedScalar: Gen<string> = map(int(1, 0x10_ffff - 0x800), (index) =>
+	String.fromCodePoint(index < 0xd8_00 ? index : index + 0x800)
 )
 
 const caseOfUuid = map(
@@ -246,7 +252,10 @@ describe("boundary values round-trip exactly", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "universal",
+							name: "decode ∘ encode = id, bit for bit, -0 as the one zero"
+						},
 						suite: "unit/cursor/codec-1601",
 						/**
 						 * The doubles' and reals' edges are drawn beside the rest of their range: both zeros, NaN, the infinities,
@@ -332,7 +341,10 @@ describe("boundary values round-trip exactly", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "universal",
+							name: "decode ∘ encode = id, every digit at the int8 extremes"
+						},
 						suite: "unit/cursor/codec-1602",
 						draw: drawn(
 							(source) =>
@@ -379,7 +391,10 @@ describe("boundary values round-trip exactly", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "universal",
+							name: "decode ∘ encode = id, a Decimal in its one form and text"
+						},
 						suite: "unit/cursor/codec-1603",
 						draw: drawn(
 							oneOf([
@@ -433,7 +448,10 @@ describe("boundary values round-trip exactly", () => {
 					ctx,
 					explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "specification",
+								name: "the typmod's rounding before encoding, the text the rounded value's one text"
+							},
 							suite: "unit/cursor/codec-typmod",
 							draw: drawn((source) => ({
 								typmod: source.draw(element([0 as const, 1 as const])),
@@ -500,15 +518,15 @@ describe("boundary values round-trip exactly", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "universal",
+							name: "decode ∘ encode = id over every scalar sequence"
+						},
 						suite: "unit/cursor/codec-1604",
 						/** Supplementary-plane, noncharacter and decomposed scalars are drawn beside strings of any scalar. */
 						draw: drawn(
 							oneOf([
-								string(
-									filter(unicodeScalar, (c) => c !== "\u0000", 2),
-									{ min: 0, max: 60 }
-								),
+								string(storedScalar, { min: 0, max: 60 }),
 								element(["", "𝄞", "\u{10ffff}", "a\u{1f600}b", "￿", "é", "é"])
 							])
 						),
@@ -537,7 +555,10 @@ describe("boundary values round-trip exactly", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "universal",
+							name: "decode ∘ encode = id under one identity, and admission's refusals at creation"
+						},
 						suite: "unit/cursor/codec-carriers",
 						draw: drawn(carrierCaseGen),
 						literal: Formatter.format,
@@ -652,7 +673,10 @@ describe("boundary values round-trip exactly", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "universal",
+							name: "decoding preserves order: decoded values compare as the encoded ones"
+						},
 						suite: "unit/cursor/codec-1605",
 						draw: drawn((source) => [source.draw(decimalGen), source.draw(decimalGen)] as const),
 						literal: Formatter.format,
@@ -917,8 +941,11 @@ describe("validation before any SQL, in order", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "every subject, every set of the respects a token can be wrong in, and every layout and count defect of a set that holds one",
+						oracle: {
+							kind: "specification",
+							name: "the validation order: a token wrong in many respects reports the first"
+						},
 						suite: "unit/cursor/validation-order",
 						generator: plantings,
 						literal: Formatter.format,
@@ -1001,7 +1028,10 @@ describe("validation before any SQL, in order", () => {
 					ctx,
 					explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "universal",
+								name: "decode is total: a cursor that encodes again, or a vocabulary refusal, never a throw"
+							},
 							suite: "unit/cursor/codec-total",
 							draw: drawn(
 								oneOf([
@@ -1055,8 +1085,11 @@ describe("validation before any SQL, in order", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "every header byte of a valid token, changed by 1 and by 0x80",
+						oracle: {
+							kind: "specification",
+							name: "a token with a header byte changed is refused"
+						},
 						suite: "unit/cursor/header-bytes",
 						generator: (source) =>
 							[source.draw(int(0, headerBytes - 1)), source.draw(element([1, 0x80]))] as const,
@@ -1147,7 +1180,10 @@ describe("the layout over untrusted bytes", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "universal",
+							name: "write ∘ read = id over any bytes the layout reads, or a refusal"
+						},
 						suite: "unit/cursor/layout-untrusted",
 						draw: drawn(layoutCaseGen),
 						literal: Formatter.format,
@@ -1279,7 +1315,10 @@ describe("size limits (the codec's byte bound)", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "every token encode issues within the limit decodes, and exactly those past it are refused"
+						},
 						suite: "unit/cursor/codec-1607",
 						draw: drawn((source) => {
 							const maxBytes = source.draw(drawnBound)
@@ -1332,7 +1371,10 @@ describe("size limits (the codec's byte bound)", () => {
 					ctx,
 					explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "specification",
+								name: "an oversized tuple is refused before it is written"
+							},
 							suite: "unit/cursor/oversized-before-write",
 							draw: drawn(drawnBound),
 							literal: Formatter.format,
@@ -1384,7 +1426,10 @@ describe("size limits (the codec's byte bound)", () => {
 					ctx,
 					explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "specification",
+								name: "an order builds exactly when its shortest token fits the limit"
+							},
 							suite: "unit/cursor/build-limit",
 							draw: drawn((source) => ({
 								maxBytes: source.draw(int(16, drawnBoundMax)),
@@ -1461,7 +1506,10 @@ describe("per-value byte bounds behind the static token bound", () => {
 		assertNot(tokenMax, "unbounded")
 		return explore(
 			{
-				oracle: { kind: "unstated" },
+				oracle: {
+					kind: "specification",
+					name: "each value's text within its carrier's per-value byte bounds, each token within the codec's static bound"
+				},
 				suite: `unit/cursor/codec-bytes-${id}`,
 				/** Each carrier's extreme values, whose texts are its longest, are planted beside the drawn ones. */
 				draw: drawn(
@@ -1579,18 +1627,7 @@ describe("per-value byte bounds behind the static token bound", () => {
 				ctx,
 				within(
 					cursorCodecTypes.range8,
-					map(
-						filter(
-							(source) =>
-								[
-									source.draw(bigint(int8Min.value, int8Max.value)),
-									source.draw(bigint(int8Min.value, int8Max.value))
-								] as const,
-							([a, b]) => a !== b,
-							100
-						),
-						([a, b]) => (a < b ? { start: a, end: b } : { start: b, end: a })
-					),
+					int8Span,
 					[{ start: int8Min.value, end: int8Max.value }],
 					1622
 				)
