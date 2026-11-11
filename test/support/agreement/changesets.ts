@@ -2670,24 +2670,40 @@ type ArraySpec =
 	  }
 	| Extract<Part, { readonly kind: "family" }>
 
-/** A part an array member writes, with the level of the ChangeSet it is a member of, and that member. */
+/**
+ * A part an array member writes, with the level of the ChangeSet it is a member of, that member, and its stratum's
+ * position: one for each stratum before it.
+ */
 interface ArrayPart {
 	readonly level: Level
 	readonly member: MemberSpec
 	readonly part: ArraySpec
+	readonly position: number
 }
+
+/**
+ * Each built ChangeSet of c with its stratum's position, from `at`: a union aligns its arguments' strata, and a
+ * sequence puts the second's after every stratum of the first.
+ */
+const positionedBuilts = (c: ChangeSpec, at: number): ReadonlyArray<readonly [BuiltSpec, number]> =>
+	c.kind === "built"
+		? [[c, at]]
+		: [
+				...positionedBuilts(c.a, at),
+				...positionedBuilts(c.b, c.kind === "union" ? at : at + strataOf(c.a).length)
+			]
 
 /** The parts of a ChangeSet's array members in its members' order: an appended member's two, every other one's own. */
 const arrayPartsOf = (c: ChangeSpec): ReadonlyArray<ArrayPart> =>
-	Arr.flatMap(builtsOf(c), (b) =>
+	Arr.flatMap(positionedBuilts(c, 0), ([b, position]) =>
 		Arr.flatMap(b.members, (member) =>
 			Arr.flatMap(
 				member.kind === "appended" ? insertParts(member) : [member],
 				(part): ReadonlyArray<ArrayPart> =>
 					part.kind === "family"
-						? [{ level: b.level, member, part }]
+						? [{ level: b.level, member, part, position }]
 						: part.kind === "array" || part.kind === "widened"
-							? [{ level: b.level, member, part: { ...part, kind: part.kind } }]
+							? [{ level: b.level, member, part: { ...part, kind: part.kind }, position }]
 							: []
 			)
 		)
@@ -3273,16 +3289,28 @@ const blockOf = (c: ChangeSetCase, i: number): string => {
 		v.kind === "admitted"
 			? [
 					`export type F${i} = [Expect<Equals<keyof ArraysOf<typeof c${i}>, ${unionOf(Arr.dedupe(Arr.map(v.admitted.arrays, (a) => a.op)))}>>, Expect<Equals<Parameters<${servedHandle}["apply"]>["length"], ${Arr.isReadonlyArrayNonEmpty(v.admitted.arrays) ? 2 : 1}>>${Arr.join(
-						Arr.flatMap(c.served.length === 0 ? [] : arrayGroupsOf(c.spec.change), (g) =>
-							Arr.flatMap(g.relations, ([relation, parts]) => {
-								const { level } = Arr.headNonEmpty(parts)
-								return Arr.every(parts, (p) => p.level === level)
-									? [
-											`, Expect<Equals<ArraysOf<typeof c${i}>[${jsonText(g.op)}][${jsonText(relation)}]["row"], ${g.op === "insert" ? `AdditionIn<typeof ${level}, typeof ${relation}>` : `Written<typeof ${relation}>`}>>`
-										]
-									: []
+						Arr.flatMap(c.served.length === 0 ? [] : arrayGroupsOf(c.spec.change), (g) => [
+							`, Expect<Equals<keyof ArraysOf<typeof c${i}>[${jsonText(g.op)}], ${unionOf(Arr.map(g.relations, ([relation]) => relation))}>>`,
+							...Arr.flatMap(g.relations, ([relation, parts]) => {
+								const entry = `ArraysOf<typeof c${i}>[${jsonText(g.op)}][${jsonText(relation)}]`
+								const rows = Arr.dedupe(
+									Arr.map(parts, (p) =>
+										g.op === "insert"
+											? `AdditionIn<typeof ${p.level}, typeof ${relation}>`
+											: `Written<typeof ${relation}>`
+									)
+								)
+								const { position } = Arr.headNonEmpty(parts)
+								return [
+									`, Expect<Equals<keyof ${entry}, "relation" | "row" | "at">>`,
+									`, Expect<Equals<${entry}["relation"], typeof ${relation}>>`,
+									`, Expect<Equals<${entry}["row"], ${Arr.join(rows, " & ")}>>`,
+									...(Arr.every(parts, (p) => p.position === position)
+										? [`, Expect<Equals<${entry}["at"]["length"], ${position}>>`]
+										: [])
+								]
 							})
-						),
+						]),
 						""
 					)}]`,
 					...Arr.flatMap(c.served, (call, k) => [

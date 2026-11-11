@@ -81,7 +81,7 @@ export type StatementsBelow<Base extends AnySchema> = [Base] extends [never]
 type Spelling = "name" | "relation"
 
 /** R by name: its literal name, where the record holds R itself under it, and R otherwise. */
-type NameIn<R, Rs> = R extends { readonly name: infer N extends string }
+export type NameIn<R, Rs> = R extends { readonly name: infer N extends string }
 	? string extends N
 		? R
 		: Identical<R, UnderName<Rs, N>> extends true
@@ -90,7 +90,7 @@ type NameIn<R, Rs> = R extends { readonly name: infer N extends string }
 	: R
 
 /** N by relation: the record's relation under the name N, and N where N is no name of the record. */
-type RelationIn<N, Rs> = N extends keyof Rs ? Rs[N] : N
+export type RelationIn<N, Rs> = N extends keyof Rs ? Rs[N] : N
 
 type Spelled<R, Rs, To extends Spelling> = To extends "name" ? NameIn<R, Rs> : RelationIn<R, Rs>
 
