@@ -79,7 +79,7 @@ const paramRosters = (param: ParamDecl): ReadonlyArray<string> =>
 	param.kind === "relation" ? headingRosters(param.heading) : typeRosters(param.type)
 
 /** The rosters a decoder's columns read, a closed id's and a set's, through its attachments, arms and unions. */
-export const decoderRosters = (form: DecoderForm): ReadonlyArray<string> => {
+const decoderRosters = (form: DecoderForm): ReadonlyArray<string> => {
 	switch (form.kind) {
 		case "record":
 			return Arr.flatMap(form.fields, ([, field]) => {
@@ -201,7 +201,7 @@ export interface Raised {
 }
 
 /** Nothing raised: a role whose members write nothing. */
-export const raisedNothing: Raised = {
+const raisedNothing: Raised = {
 	relations: new Set(),
 	constraints: [],
 	theoryLaws: [],

@@ -53,18 +53,18 @@ import type {
  */
 
 /** Where a role's ChangeSet writes: a relation it holds whole, or its query entry `Mine`. */
-export type ChangeTarget =
+type ChangeTarget =
 	| { readonly kind: "whole"; readonly relation: Stored }
 	| { readonly kind: "entry" }
 
 /** One ChangeSet of a role's workload: an insert or a delete into its target, the facts the call's. */
-export interface ChangeShape {
+interface ChangeShape {
 	readonly target: ChangeTarget
 	readonly op: "insert" | "delete"
 }
 
 /** A field of a relation of the schema. */
-export interface FieldAt {
+interface FieldAt {
 	readonly relation: Stored
 	readonly field: ProgramField
 }
@@ -73,14 +73,14 @@ export interface FieldAt {
  * A role's query entry `Mine` over `target`: the target's facts whose field `key` is the context's `key` claim, the
  * context holding beside it the claim `held`, typed as the field `held` names.
  */
-export interface EntryShape {
+interface EntryShape {
 	readonly target: Stored
 	readonly key: ProgramField
 	readonly held: FieldAt
 }
 
 /** One of the case's queries a role's workload reads, by its place among the case's reads. */
-export interface ReadShape {
+interface ReadShape {
 	readonly place: number
 	readonly query: Root
 }
@@ -94,7 +94,7 @@ export interface RoleShape {
 }
 
 /** The name of the query entry a role writes through, and of the login every case draws. */
-export const entryName = "Mine"
+const entryName = "Mine"
 const loginName = "app"
 
 /** A role's name in the login, by its place. */
@@ -245,7 +245,7 @@ export const drawnLogin = (built: BuiltSchema, shapes: Arr.NonEmptyReadonlyArray
  * its roles, each with its artifacts and its compiled workload, the served file and its text, and the file read back
  * from the JSON value its text parses to, as a layer reads it (served/json.ts servedFile).
  */
-export interface CompiledLogin {
+interface CompiledLogin {
 	readonly compiled: CompiledServed
 	readonly entry: ServedEntry
 	readonly json: unknown
