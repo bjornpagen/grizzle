@@ -46,7 +46,7 @@ import type { SseEvent } from "#http/sse.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, defined, unorderedEqual } from "#test/support/assert.ts"
 import { holdsCount, openStream, readStream, type StreamEvent } from "#test/support/event-stream.ts"
-import { caseHang } from "#test/support/limits.ts"
+import { caseHang, nodeTimerMax, nodeTimerMin } from "#test/support/limits.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 
@@ -92,11 +92,15 @@ type Call =
 	| { readonly member: "item"; readonly input: { readonly params: { readonly id: number } } }
 	| { readonly member: "put"; readonly input: { readonly put: ReadonlyArray<ItemFact> } }
 
-/** A case: the stored items, one call, and the write committed while a read is live. */
+/**
+ * A case: the stored items, one call, the write committed while a read is live, and the heartbeat's interval its
+ * handler is built with.
+ */
 interface StreamCase {
 	readonly stored: ReadonlyArray<ItemFact>
 	readonly call: Call
 	readonly write: ReadonlyArray<ItemFact>
+	readonly heartbeatMs: number
 }
 
 type Feature =
@@ -151,9 +155,24 @@ const callGen =
 		}
 	}
 
+/**
+ * The heartbeat's interval a case's handler is built with: a Node timer's delay, from the least to the longest, its
+ * range's ends or one between. A heartbeat is a comment line, so no answer's events depend on it.
+ */
+const heartbeatGen: Gen<number> = oneOf<number>([
+	constant(nodeTimerMin.value),
+	constant(nodeTimerMax.value),
+	int(nodeTimerMin.value, nodeTimerMax.value)
+])
+
 const caseGen: Gen<StreamCase> = (source) => {
 	const stored = source.draw(itemsGen(0, 6))
-	return { stored, call: source.draw(callGen(stored)), write: source.draw(itemsGen(1, 3)) }
+	return {
+		stored,
+		call: source.draw(callGen(stored)),
+		write: source.draw(itemsGen(1, 3)),
+		heartbeatMs: source.draw(heartbeatGen)
+	}
 }
 
 /** A call's body, `{ params, facts }` and a window's, every member present, `{}` where none. */
@@ -266,9 +285,6 @@ const outcomeKind = (event: StreamEvent | undefined): unknown => {
 const memberNamed = (members: ReadonlyArray<LoadedMember>, name: string): LoadedMember =>
 	defined(Option.getOrUndefined(Arr.findFirst(members, (m) => m.name === name)), `member ${name}`)
 
-/** The interval of the heartbeat in the case's handler. */
-const heartbeatMs = 1_000
-
 const origin = "http://grizzle.invalid"
 
 layer(Substrate.layer, { excludeTestServices: true })("a call over HTTP", (it) => {
@@ -307,14 +323,14 @@ layer(Substrate.layer, { excludeTestServices: true })("a call over HTTP", (it) =
 						steerEvery: 4,
 						caseHang
 					},
-					({ stored, call, write }, notes) =>
+					({ stored, call, write, heartbeatMs }, notes) =>
 						Effect.gen(function* () {
 							const o = yield* installed(
 								Items,
 								{ Item: stored },
 								{ label: "http", extensions: [], programs }
 							)
-							const printed = () => Formatter.format({ stored, call, write })
+							const printed = () => Formatter.format({ stored, call, write, heartbeatMs })
 							const login = o.served.login
 							const role = login.roles.app
 							yield* Effect.gen(function* () {

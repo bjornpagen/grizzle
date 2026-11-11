@@ -26,7 +26,7 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { element, type Gen, int, string, characterOf } from "@grizzle/testing/gen"
+import { characterOf, constant, element, type Gen, int, oneOf, string } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -41,7 +41,7 @@ import { httpHandler, httpRoutes, type HttpHandler } from "#http/index.ts"
 import { offlineConnection } from "#test/pg/cli/support.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { readStream, type StreamRead } from "#test/support/event-stream.ts"
-import { caseHang } from "#test/support/limits.ts"
+import { caseHang, nodeTimerMax, nodeTimerMin } from "#test/support/limits.ts"
 import { caseSketchGen, resolveCase } from "#test/support/oracle/public/generate.ts"
 import { lawLevelGen } from "#test/support/oracle/public/laws.ts"
 import { printCase } from "#test/support/oracle/public/print.ts"
@@ -312,8 +312,15 @@ const answered = (handler: HttpHandler, request: Request) =>
 		return { response, read: yield* readStream(body, () => false) }
 	})
 
-/** The heartbeat's interval in the case's handler: no probe's answer waits on one. */
-const heartbeatMs = 60_000
+/**
+ * The heartbeat's interval a case's handler is built with: a Node timer's delay, from the least to the longest, its
+ * range's ends or one between. A heartbeat is a comment line, so no answer's events depend on it.
+ */
+const heartbeatGen: Gen<number> = oneOf<number>([
+	constant(nodeTimerMin.value),
+	constant(nodeTimerMax.value),
+	int(nodeTimerMin.value, nodeTimerMax.value)
+])
 
 describe("an HTTP handler's routes", () => {
 	it.effect(
@@ -385,7 +392,10 @@ describe("an HTTP handler's routes", () => {
 							}
 							const probes = notes.draw(probesGen(routes.length))
 							yield* Effect.gen(function* () {
-								const handler = yield* httpHandler({ logins: [login], heartbeatMs })
+								const handler = yield* httpHandler({
+									logins: [login],
+									heartbeatMs: notes.draw(heartbeatGen)
+								})
 								for (const probe of probes) {
 									const { request, expected } = probeRequest(routes, lines, probe, notes.note)
 									const { response, read } = yield* answered(handler, request)
