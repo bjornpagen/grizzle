@@ -51,22 +51,6 @@ post-beta swarm's fixes for the next release.
 ### After the qti-pie and edullm repin (the owner, 2026-11-08: ship the repin first)
 - **The beta.2 gate (owner, hard):** one full suite run (check, unit, types, PostgreSQL, deep) and `bench:full`, with
   every performance gate passing, both perfect on the exact commit; then the owner's go.
-- **False 40001 between writers of disjoint keys at full width (reachable; first after the 26e3c15f pin,
-  ONERTT-WRITE2):** c4f77a3d (the staged-imports SSI fix) did not end it, though its message says so: qti-pie measured
-  964 SerializationFailures across about 18 files of pantry's database tier at maxWorkers 9 on 26e3c15f, each file
-  importing its own packages through the served author_app importWrite (evidence:
-  ~/.cache/gr8des/integration/ssi-fullwidth.md), so pantry keeps `maxWorkers: 1`. The cause as measured on the family
-  flights: a join of the call's rows with a stored table, c4f77a3d's included, is planned as a hash join over a seq scan
-  whenever the driving set's estimate is inflated (unanalyzed tables, a recursive CTE estimated at ten times its first
-  term), and the seq scan takes a relation-level SIRead lock. The fix: one lowering rule that probes a stored relation
-  per driving key (LATERAL … LIMIT 1, a group's own ORDER BY, `= ANY (ARRAY(...))` for targets) across insert, additions
-  and removals. It lands only with a run showing 0 false 40001s at full width on pantry's import. edullm's learner
-  workload is the 1,000-children goal's: certified READ COMMITTED, it takes no SIRead lock.
-  Measured again on 698880ac (after SSISCAN-04's met-classification fences), qti-pie 3af5d647, pantry's database
-  project at maxWorkers 9 on an otherwise quiet cluster: 246 server 40001s in 199 s between imports that mint fresh
-  ids, 107 at COMMIT inside the deferred rule functions reading lom_* and resource_* tables, 114 at write statements
-  (64 the qti.node insert); reason codes pivot during conflict-in and conflict-out checking (evidence:
-  ~/.cache/gr8des/retry-run/). Logged, not started (edullm-77's ruling, 2026-11-11): author imports only.
 - **A sum over smallint or integer can wrap past its proved bound (SCALAR, 2026-11-10):** PostgreSQL 19's int4_sum adds
   without an overflow check (src/backend/utils/adt/numeric.c:6398), so scalar/aggregate.ts's typing of r.sum over
   smallint and integer as plain bigint, with rowDigits' proof that the sum stays below 10^(digits + 19), is false once
