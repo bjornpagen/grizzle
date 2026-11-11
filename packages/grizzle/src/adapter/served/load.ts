@@ -37,7 +37,6 @@ import {
 	servedRunnable
 } from "#compiler/plan/runtime.ts"
 import type {
-	InstalledNames,
 	ServedChange,
 	ServedFile,
 	ServedMember,
@@ -46,6 +45,7 @@ import type {
 	ServedRefresh,
 	ServedRoleForm,
 	ServedSession,
+	ServedTables,
 	ServedVariants
 } from "#compiler/plan/serve.ts"
 
@@ -168,7 +168,7 @@ export interface LoadedLogin {
 	readonly session: ServedSession
 	readonly roles: Arr.NonEmptyReadonlyArray<LoadedRole>
 	/** The installed tables its statements read and write, with their indexes, which its explains name plans by. */
-	readonly tables: InstalledNames
+	readonly tables: ServedTables
 }
 
 /** A read's decoder bound to `layouts` under `bind`, its refusal a defect of the compile that wrote the file. */

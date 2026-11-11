@@ -12,7 +12,7 @@ import type {
 } from "#compiler/deploy/snapshot/types.ts"
 import type { RosterCodes } from "#compiler/ir/cells.ts"
 import { rosterCodebook } from "#compiler/ir/codes.ts"
-import type { ConstraintLaws } from "#compiler/ir/products.ts"
+import type { ConstraintLaws, PhysicalReason } from "#compiler/ir/products.ts"
 import type { FkCycles } from "#compiler/laws/model/model.ts"
 import type { NamedClosed } from "#compiler/physical/ddl/constants.ts"
 import type { TextDomainNames } from "#compiler/physical/ddl/domains.ts"
@@ -134,4 +134,33 @@ export const servedSnapshot = (
 		codes: rosterCodebook(rosters),
 		derived: derived.value
 	})
+}
+
+/**
+ * Each index's reasons, by the declared name of the relation whose table or materialized view holds it, then by the
+ * index's name: the installation's own, as the manifest records them.
+ */
+export type IndexReasons = ReadonlyMap<string, ReadonlyMap<string, ReadonlyArray<PhysicalReason>>>
+
+/**
+ * The reasons snapshot.json records for each index the installation holds (IndexReasons), read from the JSON value an
+ * import of snapshot.json yields, its derived facts read as servedSnapshot reads them: refused where it records none, as
+ * one generate has not written since they joined it. An index's name is one within its table's schema, and a
+ * relation's table or view lives in one schema, so a relation and an index name name one index.
+ */
+export const snapshotIndexReasons = (json: unknown): Result.Result<IndexReasons, CompileError> => {
+	if (!isRecord(json)) {
+		return Result.err(underived(["derived"]))
+	}
+	const derived = servedDerived(json["derived"])
+	if (!derived.ok) {
+		return derived
+	}
+	const out = new Map<string, ReadonlyMap<string, ReadonlyArray<PhysicalReason>>>()
+	for (const tables of Object.values(derived.value.tables)) {
+		for (const table of Object.values(tables)) {
+			out.set(table.relation, new Map(Object.entries(table.indexes)))
+		}
+	}
+	return Result.ok(out)
 }

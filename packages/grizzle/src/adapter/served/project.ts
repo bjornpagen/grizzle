@@ -1,4 +1,4 @@
-import { Array as Arr, Record as Rec, Result } from "effect"
+import { Array as Arr, Order, Record as Rec, Result } from "effect"
 import type { ChangeVariants, WorkloadForm } from "#adapter/db/workload.ts"
 import { toResult } from "#adapter/engine.ts"
 import type { RowsForm } from "#adapter/reader/reader.ts"
@@ -34,7 +34,6 @@ import {
 import { servedRead, servedReadBacks } from "#compiler/plan/read.ts"
 import {
 	type InstalledNames,
-	type InstalledTable,
 	ledgerStatements,
 	type ServedAbove,
 	type ServedChange,
@@ -45,6 +44,8 @@ import {
 	type ServedRefusals,
 	type ServedRoleForm,
 	type ServedSnapshot,
+	type ServedTable,
+	type ServedTables,
 	type ServedVariants
 } from "#compiler/plan/serve.ts"
 
@@ -66,15 +67,23 @@ export interface CompiledLogin {
 
 /**
  * The installed tables and materialized views of the relations in `footprint` (deploy/snapshot/types.ts InstalledNames),
- * each with every index PostgreSQL holds on it, by schema and name: what an explain of the login's members names a plan
- * by. The planner may scan any of a footprint table's indexes, whatever level's law or access asked for it, and no
- * table outside the footprint: a relation the statements name, read through a role's views, stands for the base
- * relations its entry reads, and a derived one for what its definition reads (schema/reach.ts sliceOf).
+ * each with the name of every index PostgreSQL holds on it, in code-unit order, by schema and name (ServedTables): what
+ * an explain of the login's members names a plan by. The planner may scan any of a footprint table's indexes, whatever
+ * level's law or access asked for it, and no table outside the footprint: a relation the statements name, read through a
+ * role's views, stands for the base relations its entry reads, and a derived one for what its definition reads
+ * (schema/reach.ts sliceOf). Each index's reasons stay in snapshot.json, which generate reads and no layer loads.
  */
-const tablesOf = (installed: InstalledNames, footprint: ReadonlySet<string>): InstalledNames => {
-	const out: Record<string, Readonly<Record<string, InstalledTable>>> = {}
+const tablesOf = (installed: InstalledNames, footprint: ReadonlySet<string>): ServedTables => {
+	const out: Record<string, Readonly<Record<string, ServedTable>>> = {}
 	for (const [schema, tables] of Rec.toEntries(installed)) {
-		const kept = Arr.filter(Rec.toEntries(tables), ([, table]) => footprint.has(table.relation))
+		const kept = Arr.filterMap(Rec.toEntries(tables), ([name, table]) =>
+			footprint.has(table.relation)
+				? Result.succeed([
+						name,
+						{ relation: table.relation, indexes: Arr.sort(Rec.keys(table.indexes), Order.String) }
+					] as const)
+				: Result.failVoid
+		)
 		if (Arr.isReadonlyArrayNonEmpty(kept)) {
 			out[schema] = Rec.fromEntries(kept)
 		}

@@ -11,7 +11,7 @@ import type { ApplyOutcome } from "#adapter/types/db.ts"
 import type { DbLayerOf, ServedLogin, ServedRole } from "#adapter/types/layer.ts"
 import type { Json } from "#compiler/core/canonical.ts"
 import type { ParamMap } from "#compiler/plan/common.ts"
-import type { InstalledNames } from "#compiler/plan/serve.ts"
+import type { ServedTables } from "#compiler/plan/serve.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import type { AnyLogin, AnyLoginRole, AnyRole } from "#compiler/public/schema.ts"
 import { servedFile } from "#compiler/served/json.ts"
@@ -106,7 +106,7 @@ export interface ServedDb {
 	readonly loadWithTables: (programs: Readonly<Record<string, unknown>>) => Effect.Effect<
 		{
 			readonly members: ReadonlyMap<string, LoadedMember>
-			readonly tables: InstalledNames
+			readonly tables: ServedTables
 		},
 		ServedRefusal | OpenError
 	>

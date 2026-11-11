@@ -8,10 +8,10 @@ import { double } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec, Result } from "effect"
 import { decodePlan } from "#adapter/explain/plan.ts"
-import type { Plan, PlanIndex, PlanTarget } from "#adapter/types/db.ts"
+import type { Plan, PlanTarget } from "#adapter/types/db.ts"
 import type { Json } from "#compiler/core/canonical.ts"
 import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
-import type { InstalledNames } from "#compiler/plan/serve.ts"
+import type { ServedTables } from "#compiler/plan/serve.ts"
 import { assert } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 
@@ -22,15 +22,15 @@ import { caseHang } from "#test/support/limits.ts"
  * name is refused.
  *
  * Over drawn installed tables, two schemas holding tables of the same names, each a relation of its own with indexes of
- * the same names across tables, each index with drawn reasons, and drawn plan trees over them: each node of a type
+ * the same names across tables, and drawn plan trees over them: each node of a type
  * PostgreSQL names, its estimates drawn apart from each other so no two coincide by accident, reading nothing, a table
  * whole, a table through an index, a table by a bitmap whose Bitmap Index Scans name their index alone, or the
  * session's temporary schema, beside members PostgreSQL prints that the Plan drops. The answer's json text decodes to
  * the tree's projection onto the Plan's fields, or is refused exactly where some node names a table the file does not
  * hold or an index its table does not. The oracle is that projection, written from the documented mapping ("Node Type"
  * to node, "Startup Cost", "Total Cost", "Plan Rows" and "Plan Width" to the estimates, "Plans" to the children,
- * "Schema" and "Relation Name" to the relation the file names for that table, "Index Name" to that table's index and
- * its reasons, under a Bitmap Heap Scan the heap's table, and the temporary schema to the carrier).
+ * "Schema" and "Relation Name" to the relation the file names for that table, "Index Name" to that table's index by its
+ * name, under a Bitmap Heap Scan the heap's table, and the temporary schema to the carrier).
  *
  * Plants: ~/.cache/grizzle-release/BR04/plants/explain-children-reversed.patch (a node's children in reverse order);
  * ~/.cache/grizzle-release/EXPLAIN/plants/index-wrong-relation.patch (an index node naming the relation of another
@@ -46,26 +46,11 @@ const schemaNames = ["s0", "s1"] as const
 const tableNames = ["t0", "t1"] as const
 const indexNames = ["i0", "i1"] as const
 
-/** An index's reasons as the snapshot records them (ir/products.ts PhysicalReason). */
-type Reason =
-	| { readonly kind: "law"; readonly law: string }
-	| { readonly kind: "access" }
-	| { readonly kind: "proof"; readonly premises: ReadonlyArray<string> }
-
-const reasonGen: Gen<Reason> = oneOf<Reason>([
-	(source) => ({ kind: "law", law: `law_${source.draw(int(0, 3))}` }),
-	() => ({ kind: "access" }),
-	(source) => ({
-		kind: "proof",
-		premises: Arr.map(source.draw(subset([0, 1, 2], { min: 0, max: 3 })), (n) => `law_${n}`)
-	})
-])
-
-/** A table the served file names: its place, the relation it stores, and its indexes with their reasons. */
+/** A table the served file names: its place, the relation it stores, and its indexes. */
 interface TableDraw {
 	readonly schema: number
 	readonly table: number
-	readonly indexes: ReadonlyArray<{ readonly index: number; readonly reasons: ReadonlyArray<Reason> }>
+	readonly indexes: ReadonlyArray<number>
 }
 
 /** The relation the file names for the table at `schema`, `table`: one of its own. */
@@ -85,13 +70,10 @@ const tablesGen: Gen<ReadonlyArray<TableDraw>> = (source) =>
 	Arr.map(source.draw(placesGen), ([schema, table]) => ({
 		schema,
 		table,
-		indexes: Arr.map(source.draw(subset([0, 1], { min: 0, max: 2 })), (index) => ({
-			index,
-			reasons: source.draw(array(reasonGen, { min: 1, max: 3 }))
-		}))
+		indexes: source.draw(subset([0, 1], { min: 0, max: 2 }))
 	}))
 
-/** The served file's installed tables of `tables`, as its JSON holds them. */
+/** The served file's tables of `tables`, as its JSON holds them: each relation and its index names. */
 const installedJson = (tables: ReadonlyArray<TableDraw>): Json =>
 	Rec.fromEntries(
 		Arr.flatMap(schemaNames, (schemaName, schema) => {
@@ -106,9 +88,7 @@ const installedJson = (tables: ReadonlyArray<TableDraw>): Json =>
 									tableNames[t.table] ?? "",
 									{
 										relation: relationAt(t.schema, t.table),
-										indexes: Rec.fromEntries(
-											Arr.map(t.indexes, (i) => [indexNames[i.index] ?? "", i.reasons])
-										)
+										indexes: Arr.map(t.indexes, (i) => indexNames[i] ?? "")
 									}
 								])
 							)
@@ -304,19 +284,14 @@ const tableAt = (c: Case, schema: number, table: number): TableDraw | undefined 
 	Arr.findFirst(c.tables, (t) => t.schema === schema && t.table === table).pipe(Option.getOrUndefined)
 
 /** The index `index` of `table` as a target, if the table holds it. */
-const indexTarget = (table: TableDraw, index: number): PlanTarget | undefined => {
-	const held = Arr.findFirst(table.indexes, (i) => i.index === index).pipe(Option.getOrUndefined)
-	return held === undefined
-		? undefined
-		: {
+const indexTarget = (table: TableDraw, index: number): PlanTarget | undefined =>
+	Arr.contains(table.indexes, index)
+		? {
 				kind: "index",
 				relation: relationAt(table.schema, table.table),
-				index: {
-					name: indexNames[index] ?? "",
-					serves: trustedJson<PlanIndex["serves"]>(jsonText(held.reasons))
-				}
+				index: { name: indexNames[index] ?? "" }
 			}
-}
+		: undefined
 
 /** The target of a read, by the documented mapping, or none where the file names no such table or index. */
 const targetOf = (c: Case, read: Read): PlanTarget | undefined => {
@@ -430,7 +405,7 @@ describe("EXPLAIN (FORMAT JSON, VERBOSE) decoding", () => {
 					},
 					(c, k) =>
 						Effect.sync(() => {
-							const installed = trustedJson<InstalledNames>(jsonText(installedJson(c.tables)))
+							const installed = trustedJson<ServedTables>(jsonText(installedJson(c.tables)))
 							const decoded = decodePlan(jsonText([{ Plan: printed(c.root, c.bitmap) }]), installed)
 							const expected = projected(c, c.root)
 							if (expected === undefined) {

@@ -24,7 +24,11 @@ export {
 	rosterFates,
 	snapshotFingerprint
 } from "#compiler/deploy/snapshot/build.ts"
-export { servedSnapshot } from "#compiler/deploy/snapshot/served.ts"
+export {
+	type IndexReasons,
+	servedSnapshot,
+	snapshotIndexReasons
+} from "#compiler/deploy/snapshot/served.ts"
 export { rosterCodebook } from "#compiler/ir/codes.ts"
 export {
 	type CompileFacts,
@@ -75,6 +79,8 @@ export {
 	type ServedRefusals,
 	type ServedRoleForm,
 	type ServedSession,
+	type ServedTable,
+	type ServedTables,
 	type ServedVariants
 } from "#compiler/served/forms.ts"
 export { servedFile } from "#compiler/served/json.ts"

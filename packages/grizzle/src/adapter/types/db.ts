@@ -496,14 +496,15 @@ export interface QueryResult<Head> {
 /**
  * Why the installation holds an index, as its snapshot's manifest records it: a law it serves, by the law's identity
  * (LawId, a RefusedLaw's `id`); the workload's access, the login's programs' and the roles' write filters'; a derived
- * relation's key, by the laws the proof of that key rests on; or the enforcement of a declaration, in words.
+ * relation's key, by the laws the proof of that key rests on; or the enforcement of a declaration, in words. A plan
+ * names an index alone; `indexReasonsOf(snapshot)` on @bjornpagen/grizzle/compile reads each index's reasons from the
+ * snapshot.json a caller passes it.
  */
 export type IndexReason = PhysicalReason
 
-/** An index a plan node reads through: its PostgreSQL name, and every reason the installation holds it. */
+/** An index a plan node reads through, by its PostgreSQL name, one of its table's within its table's schema. */
 export interface PlanIndex {
 	readonly name: string
-	readonly serves: ReadonlyArray<IndexReason>
 }
 
 /**

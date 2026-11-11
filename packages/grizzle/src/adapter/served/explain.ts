@@ -30,7 +30,7 @@ import {
 	SourceLoc
 } from "#compiler/plan/common.ts"
 import { defect } from "#compiler/plan/runtime.ts"
-import type { InstalledNames } from "#compiler/plan/serve.ts"
+import type { ServedTables } from "#compiler/plan/serve.ts"
 
 /**
  * Explaining a served member: the statements it sends for one call, each planned by PostgreSQL over its served text and
@@ -144,7 +144,7 @@ const readStatement = (
  */
 export const explainRead = (
 	ctx: ServedDbContext,
-	installed: InstalledNames,
+	installed: ServedTables,
 	read: LoadedRead,
 	params: ParamMap
 ): Effect.Effect<ReadonlyArray<StatementPlan>, ReadError> =>
@@ -163,7 +163,7 @@ export const explainRead = (
  */
 export const explainReadAnalyzed = (
 	ctx: ServedDbContext,
-	installed: InstalledNames,
+	installed: ServedTables,
 	read: LoadedRead,
 	params: ParamMap
 ): Effect.Effect<ReadonlyArray<ExecutedStatement>, ReadError> =>
@@ -226,7 +226,7 @@ const hostCallOf = (
  */
 export const explainChange = (
 	ctx: ServedDbContext,
-	installed: InstalledNames,
+	installed: ServedTables,
 	name: string,
 	change: LoadedChange,
 	call: MemberCall

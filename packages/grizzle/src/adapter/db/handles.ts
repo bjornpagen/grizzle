@@ -56,7 +56,7 @@ import type {
 } from "#compiler/plan/common.ts"
 import type { Page } from "#compiler/plan/read.ts"
 import { getRefusal, malformedDescription, SourceLoc } from "#compiler/plan/runtime.ts"
-import type { InstalledNames } from "#compiler/plan/serve.ts"
+import type { ServedTables } from "#compiler/plan/serve.ts"
 
 /**
  * A served Db's workload handles: each program its layer loaded for the Db's role (served/load.ts LoadedMember), run on
@@ -297,7 +297,7 @@ export const memberOps = (ctx: ServedDbContext, member: LoadedMember): ServedOps
  */
 const readExplains = (
 	ctx: ServedDbContext,
-	installed: InstalledNames,
+	installed: ServedTables,
 	read: LoadedRead,
 	keyed: (values: ParamMap) => Result.Result<ParamMap, ReadFailure>
 ): ExplainOps => ({
@@ -323,7 +323,7 @@ const asParams = (params: ParamMap): Result.Result<ParamMap, ReadFailure> => Res
  */
 export const memberExplains = (
 	ctx: ServedDbContext,
-	installed: InstalledNames,
+	installed: ServedTables,
 	member: LoadedMember
 ): MemberExplains => {
 	switch (member.kind) {
@@ -365,7 +365,7 @@ export const memberExplains = (
 export const servedHandles = (
 	ctx: ServedDbContext,
 	members: ReadonlyArray<LoadedMember>,
-	installed: InstalledNames
+	installed: ServedTables
 ): object => {
 	const handles: Record<string, object> = {}
 	for (const member of members) {

@@ -15,7 +15,6 @@ import type { Isolation } from "#compiler/core/isolation.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { Prepared } from "#compiler/core/prepared.ts"
 import type { ParamText } from "#compiler/core/wire.ts"
-import type { InstalledNames } from "#compiler/deploy/snapshot/types.ts"
 import type { RosterCodes } from "#compiler/ir/cells.ts"
 import type { ConstraintLaws, PageFill, ParamDecl } from "#compiler/ir/products.ts"
 import type { CompletedOrder, Heading, HeadingColumn } from "#compiler/ir/rel.ts"
@@ -94,14 +93,27 @@ export type ServedFile = {
 	readonly above: ServedAbove
 	/**
 	 * The installed tables and materialized views of the relations the login's statements read and write, its
-	 * footprint (adapter served/compile.ts), each with every index PostgreSQL holds on it and the reasons the
-	 * installation holds each (deploy/snapshot/types.ts InstalledNames): what an explain names a plan's relations and
-	 * indexes by, cut by generate from the snapshot's.
+	 * footprint (adapter served/compile.ts), each with the name of every index PostgreSQL holds on it (ServedTables):
+	 * what an explain names a plan's relations and indexes by, cut by generate from the snapshot's, whose reasons for
+	 * each index stay in snapshot.json.
 	 */
-	readonly tables: InstalledNames
+	readonly tables: ServedTables
 	/** The login's roles, in the login's declared order. */
 	readonly roles: ReadonlyArray<ServedRoleForm>
 }
+
+/**
+ * An installed table or materialized view as a served file names it: the declared name of the relation it stores, and
+ * the names of the indexes PostgreSQL holds on it, in code-unit order (deploy/snapshot/types.ts InstalledTable, its
+ * reasons left in snapshot.json).
+ */
+export interface ServedTable {
+	readonly relation: string
+	readonly indexes: ReadonlyArray<string>
+}
+
+/** A login's installed tables, by their PostgreSQL schema, then by their own name (ServedTable). */
+export type ServedTables = Readonly<Record<string, Readonly<Record<string, ServedTable>>>>
 
 /**
  * The prologue texts of the installation's ledger (deploy/ledger/ledger.ts LedgerStatements fence and enter), each
