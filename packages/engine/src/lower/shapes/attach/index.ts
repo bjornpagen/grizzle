@@ -315,7 +315,7 @@ const foldedByCorrelation = (
 		: undefined
 
 /**
- * The pipelined attachment statement:
+ * The pipelined attachment's part:
  *
  *   SELECT [DISTINCT] r1.c1, r3.c5, r3.c6 FROM (<the parent key's values>) AS r1(c1),
  *     LATERAL (<child>) AS r3(c4, c5, c6) WHERE r3.c4 = r1.c1 [ORDER BY r1.c1, <child order>]

@@ -196,7 +196,7 @@ export interface LoweredTaggedPart extends TaggedPart {
 /**
  * How the rows of a program's statement divide into its parts: all of them its one part's, the statement its part
  * delivers as lowered (`delivered`, which an embedding reads, before its executable form casts its outputs to text);
- * or each behind its tag, the part's position in flight order, each as lowered (LoweredTaggedPart).
+ * or each behind its tag, the part's position in part order, each as lowered (LoweredTaggedPart).
  */
 export type StatementParts<Slot extends ConservativeParamSlot = DeclaredParamSlot> =
 	| { readonly kind: "one"; readonly delivered: FusedStatement<Slot> }
@@ -220,7 +220,7 @@ export type FormedStatement<
 
 /**
  * The one statement a program sends, in its forms, how its rows divide into parts, and each part's delivered relation,
- * in their tree, in flight order.
+ * in their tree, in part order.
  */
 export interface PartedStatement<
 	C = unknown,
@@ -816,9 +816,9 @@ export class OptimizedDelivery<
 		this.state = state
 	}
 
-	/** The parts of the statement being lowered, in flight order. */
+	/** The parts of the statement being lowered, in part order. */
 	#placed: Array<LoweredPart> = []
-	/** The attachments placed under each parent's rows in the statement being lowered, by those rows, in flight order. */
+	/** The attachments placed under each parent's rows in the statement being lowered, by those rows, in part order. */
 	#siblings = new Map<DeliveredRows<I>, Array<PlacedAttachment>>()
 
 	/** The part `part`, placed at the next position of the statement being lowered, as the runtime reads it. */

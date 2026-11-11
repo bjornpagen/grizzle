@@ -59,9 +59,9 @@ interface PagedRowsSpec {
  * A probe is the bounded existence test of the opposite flag: EXISTS (SELECT 1 FROM D WHERE seek),
  * which is duplicate-insensitive, so D needs no deduplication of its own under it.
  *
- * A page's attachment statement computes the rows the page delivers again, in the same snapshot: take(k) where the
- * rows statement takes k + 1, so the lookahead row gets no children. Over a heterogeneous union each group's
- * statement takes k + 1 and the runtime keeps the first k of their merge, so the group rows an attachment reads are
+ * A page's attachment part reads the rows the page delivers without the lookahead row: take(k) where the rows part
+ * takes k + 1, so the lookahead row gets no children. Over a heterogeneous union each group's part takes k + 1 and
+ * the runtime keeps the first k of their merge, so the group rows an attachment reads are
  * the group's first k whose place in the merge is within k (retainedGroupRows): fewer than k tuples of every group's
  * first k precede them in the fetch order. The first k of the union lie among the first k of each group, so a kept
  * tuple's predecessors are all counted, and an unkept one has at least k.

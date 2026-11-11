@@ -1158,7 +1158,7 @@ interface NeighborResult {
  * R27 keeps the LATERAL take(1) for a relation parameter, as R42 does for a bound parent set.
  * R27 itself has no parent-set condition: its target is LEAD over the window inside the parent statement.
  * The bound form realizes that, the window running over the parent occurrence's own source in the parent's
- * statement. The attached form cannot yet: an attachment statement receives only the delivered parents' heading
+ * statement. The attached form cannot yet: an attachment's part receives only the delivered parents' heading
  * columns (lower/conservative/deliver.ts), so the parent statement cannot hand it LEAD columns, and the
  * child would have to window all of Q itself, which for a bound parent set is the whole-relation cost R20 forbids.
  * So the attached successor takes R27 only where the parents are every row ("whole"), and keeps the LATERAL probe

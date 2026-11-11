@@ -59,11 +59,11 @@ import {
 	cteRef,
 	derived,
 	distinctCore,
-	distinctCoreWhen,
 	gt,
 	keyedSet,
 	lit,
 	notExists,
+	provedCore,
 	provedSelect,
 	select,
 	simpleSelect,
@@ -139,7 +139,8 @@ const groupMerge = (plan: HeterogeneousPlan): GroupMerge => {
  * - The root's set is one main statement: its query, read as a derived table, renamed to the public heading in the
  *   outermost SELECT only, with ORDER BY when the root is an ordered result.
  * - A heterogeneous union delivered to the host is one statement per heading group, each with the group's full
- *   heading, pipelined in one snapshot; never a padded single statement. A take over it takes k per group
+ *   heading, each a part of the program's one statement, never one relation of the union padded to every group's
+ *   columns. A take over it takes k per group
  *   in the completed common order, and the runtime merges the groups on that order and keeps k; the
  *   program's `merge` says how, the take's order apart from the delivery order. Attachments and filters above the union
  *   apply per group (heterogeneousPlan); any other node over it, which would deliver only the common heading, is
@@ -310,13 +311,12 @@ const keysOf = (
 	keys: RowKeys
 ): Select => {
 	const source = cx.wrap(query, heading, origin)
+	const targets = headingTargets(demand, source.map)
+	const proof = keys(demand.map((c) => c.name))
 	return select(
-		distinctCoreWhen(
-			keys(demand.map((c) => c.name)).kind === "unproved",
-			headingTargets(demand, source.map),
-			[source.item],
-			undefined
-		)
+		proof.kind === "proved"
+			? provedCore("certified", targets, [source.item], undefined)
+			: distinctCore(targets, [source.item], undefined)
 	)
 }
 

@@ -14,7 +14,7 @@ import { armCore, setOperation } from "#compiler/lower/conservative/union/arms.t
  * has the heading common to every group (valid DAG), so every arm is projected onto those columns: arms of
  * different groups carry different literal discriminants and so never collapse, and the group-specific columns are
  * invisible to the consumer. A heterogeneous union delivered to the host is one statement per heading group instead
- * (deliver.ts); a padded single statement is never emitted.
+ * (deliver.ts), each a part of the program's one statement, never one relation padded to every group's columns.
  */
 const lowerUnion: NodeLowerer<"Union"> = (node, cx, env) => {
 	const [first, ...rest] = mapNonEmpty(node.groups, (g) =>

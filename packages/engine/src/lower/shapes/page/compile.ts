@@ -156,8 +156,8 @@ export type PageRequestProgram<V extends PageVariant = PageVariant> = {
 }[V]
 
 /**
- * How the runtime delivers a request's rows: its one rows statement's, or a heterogeneous union's heading-group
- * statements, which it merges in `order`, the fetch order.
+ * How the runtime delivers a request's rows: its one rows part's, or a heterogeneous union's heading-group parts,
+ * which it merges in `order`, the fetch order.
  */
 type PageRequestDelivery =
 	| { readonly kind: "rows" }
