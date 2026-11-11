@@ -74,6 +74,12 @@ export type WireEvent =
 	| { readonly side: "frontend"; readonly messages: ReadonlyArray<FrontendMessage> }
 	| { readonly side: "backend"; readonly message: BackendMessage }
 
+/** A notification a session received: the channel it came on and its payload, as the server sent them. */
+export interface Notification {
+	readonly channel: string
+	readonly payload: string
+}
+
 /** The traffic between two marks. */
 export interface WireWindow {
 	readonly events: ReadonlyArray<WireEvent>
@@ -164,6 +170,21 @@ const bindParams = (type: string, body: Buffer): ReadonlyArray<string | null> =>
 		values.push(format === 1 ? `\\x${bytes.toString("hex")}` : bytes.toString("utf8"))
 	}
 	return values
+}
+
+/** The `user` a startup packet names: after its protocol version, its parameters as name and value C strings. */
+const startupUser = (body: Buffer): string => {
+	let offset = 4
+	while (offset < body.length && body[offset] !== 0) {
+		const name = cString(body, offset)
+		offset += Buffer.byteLength(name) + 1
+		const value = cString(body, offset)
+		offset += Buffer.byteLength(value) + 1
+		if (name === "user") {
+			return value
+		}
+	}
+	return ""
 }
 
 /** The SQL a frontend message carries: a simple Query's text, or a Parse's after its name. */
@@ -555,6 +576,10 @@ export interface Tap {
 	 * connection is no session.
 	 */
 	readonly sessions: () => ReadonlyArray<WireWindow>
+	/** Every notification (a NotificationResponse) any session received, in the order they arrived. */
+	readonly notifications: () => ReadonlyArray<Notification>
+	/** The role each session logged in as, in the order of `sessions`. */
+	readonly users: () => ReadonlyArray<string>
 	/** The connections opened for CancelRequests. */
 	readonly cancels: () => number
 	/** The CancelRequest connections that have ended: the server read each request and closed it, or it failed. */
@@ -568,6 +593,10 @@ export const makeTap = (cluster: InitializedClusterShape): Tap => {
 	const events: Array<WireEvent> = []
 	/** Every session's traffic, in the order the sessions connected, the gated one's `events` first. */
 	const logs: Array<Array<WireEvent>> = []
+	/** Every notification any session received, in the order they arrived. */
+	const notifications: Array<Notification> = []
+	/** The role each session's startup packet logs in as, by its place among the logs. */
+	const users: Array<string> = []
 	const gate = new MessageGate()
 	let recording = false
 	let cancels = 0
@@ -585,8 +614,11 @@ export const makeTap = (cluster: InitializedClusterShape): Tap => {
 			}
 			/** Where this connection's traffic is recorded: the gated session's events, a later session's own, or none. */
 			const log: Array<WireEvent> | undefined = cancel ? undefined : recorded ? events : []
+			/** This session's place among the logs, none for a CancelRequest's connection. */
+			const at = log === undefined ? undefined : logs.length
 			if (log !== undefined) {
 				logs.push(log)
+				users.push("")
 			}
 			if (cancel) {
 				cancels++
@@ -612,20 +644,27 @@ export const makeTap = (cluster: InitializedClusterShape): Tap => {
 			}
 			const carrier: Carrier = recorded ? gate : straight
 			let written: Array<FrontendMessage> = []
-			const frontend = framer(true, (type, body) =>
+			const frontend = framer(true, (type, body) => {
+				if (type === "startup" && at !== undefined) {
+					users[at] = startupUser(body)
+				}
 				written.push({
 					type,
 					name: statementName(type, body),
 					text: statementText(type, body),
 					params: bindParams(type, body)
 				})
-			)
-			const backend = framer(false, (type, body) =>
+			})
+			const backend = framer(false, (type, body) => {
 				log?.push({
 					side: "backend",
 					message: { type, status: type === "Z" ? cString(body, 0) : "" }
 				})
-			)
+				if (type === "A") {
+					const channel = cString(body, 4)
+					notifications.push({ channel, payload: cString(body, body.indexOf(0, 4) + 1) })
+				}
+			})
 			const server = upstream(
 				cluster.caPem,
 				(chunk) => {
@@ -658,6 +697,8 @@ export const makeTap = (cluster: InitializedClusterShape): Tap => {
 		mark: () => events.length,
 		since: (mark) => windowOf(events.slice(mark)),
 		sessions: () => Arr.map(logs, (log) => windowOf(log)),
+		notifications: () => [...notifications],
+		users: () => [...users],
 		cancels: () => cancels,
 		cancelsEnded: () => ended,
 		gate
@@ -701,6 +742,8 @@ export const tappedSession = (
 				mark: tap.mark,
 				since: tap.since,
 				sessions: tap.sessions,
+				notifications: tap.notifications,
+				users: tap.users,
 				cancels: tap.cancels,
 				cancelsEnded: tap.cancelsEnded,
 				gate: tap.gate
