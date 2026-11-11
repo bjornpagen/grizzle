@@ -25,6 +25,7 @@ import {
 	compileLaws,
 	conservativeLaws,
 	constraintLawMap,
+	constraintLawsOf,
 	type DomainUse,
 	type LawModel
 } from "#compiler/laws/model/model.ts"
@@ -232,9 +233,9 @@ const canonicalUse = (a: DomainUse, b: DomainUse): number =>
 	compareStrings(a.table, b.table) || compareStrings(a.column, b.column)
 
 /**
- * Each structural text domain's constraint, with the law of every stored field it types (fieldPatternLaws), each
- * described as its field spells its pattern and identified by patternLawId, and each field's column with that
- * law, which a violation on that column reports, in canonical use order (table identifier, then column identifier). The
+ * Each structural text domain's constraint, with each stored field's column it types and that field's law
+ * (fieldPatternLaws), described as its field spells its pattern and identified by patternLawId, which a violation on
+ * that column reports, in canonical use order (table identifier, then column identifier). The
  * law model plans no text domain, so the installation that names them lists them. A field's domain is the planned one
  * of its pattern's key (planTextDomains), which types its column: patterns of one membership share one, named by the
  * definition its CHECK spells, so a field whose pattern is spelled otherwise is that domain's too, and two keys of one
@@ -272,14 +273,12 @@ const textDomainConstraintLaws = (
 		if (!isNonEmpty(uses)) {
 			return []
 		}
-		const ordered = sortNonEmpty(uses, canonicalUse)
 		return [
 			{
 				kind: "domainConstraint",
 				name: domain.constraint,
 				owner: domain.name,
-				laws: mapNonEmpty(ordered, (u) => u.law),
-				uses: ordered
+				uses: sortNonEmpty(uses, canonicalUse)
 			}
 		]
 	})
@@ -299,10 +298,11 @@ const describedContract = (contract: DeclaredName): ConstraintLawOf => ({
 })
 
 /**
- * Each checked contract domain's constraint, a base contract's and a context contract's alike: the laws of every
- * contract whose definition the domain holds, in contract name order, since contracts of one definition share one
- * domain, and each column of a stored relation the domain checks, down its type's contract chain, with the law
- * of the contract that column's chain names it by, which a violation on that column reports, in canonical use order.
+ * Each checked contract domain's constraint, a base contract's and a context contract's alike: each column of a stored
+ * relation the domain checks, down its type's contract chain, with the law of the contract that column's chain names
+ * it by, which a violation on that column reports, in canonical use order; or, for a domain no stored column types,
+ * the laws of every contract whose definition it holds, in contract name order, since contracts of one definition
+ * share one domain.
  */
 const contractConstraintLaws = (
 	names: InstallNames,
@@ -311,7 +311,10 @@ const contractConstraintLaws = (
 ): ReadonlyArray<ConstraintLaw> => {
 	const byDomain = new Map<
 		string,
-		{ named: Identity<"contractDomain">; contracts: Array<DeclaredName> }
+		{
+			readonly named: Identity<"contractDomain">
+			readonly contracts: [DeclaredName, ...Array<DeclaredName>]
+		}
 	>()
 	for (const [contract, source] of [...contracts].toSorted(([a], [b]) => compareStrings(a, b))) {
 		if (source.check.kind !== "checked") {
@@ -325,12 +328,8 @@ const contractConstraintLaws = (
 			known.contracts.push(contract)
 		}
 	}
-	return [...byDomain.values()].flatMap(({ named, contracts: sharing }) => {
-		const laws = sharing.map(describedContract)
-		if (!isNonEmpty(laws)) {
-			return []
-		}
-		const uses = relations
+	return [...byDomain.values()].map(({ named, contracts: sharing }): ConstraintLaw => {
+		const uses: ReadonlyArray<DomainUse> = relations
 			.flatMap((r) =>
 				r.fields.flatMap((f) =>
 					contractChain(f.type)
@@ -343,15 +342,16 @@ const contractConstraintLaws = (
 				)
 			)
 			.toSorted(canonicalUse)
-		return [
-			{
-				kind: "domainConstraint",
-				name: identifierOf(identity.domainCheck(named)),
-				owner: identifierOf(named),
-				laws,
-				uses
-			} as const
-		]
+		const name = identifierOf(identity.domainCheck(named))
+		const owner = identifierOf(named)
+		return isNonEmpty(uses)
+			? { kind: "domainConstraint", name, owner, uses }
+			: {
+					kind: "unstoredDomainConstraint",
+					name,
+					owner,
+					laws: mapNonEmpty(sharing, describedContract)
+				}
 	})
 }
 
@@ -437,7 +437,7 @@ export const planInstallation = (
 		const stored = [...model.relations.values()].map((r) => r.relation)
 		const spans = spanColumns(model)
 		const constraintLaws: ReadonlyArray<ConstraintLaw> = [
-			...model.constraints.filter((c) => c.kind !== "domainConstraint"),
+			...model.constraints,
 			...textDomainConstraintLaws(textPlans, fieldPatternLaws(model)),
 			...contractConstraintLaws(names, contracts, stored),
 			...spanConstraintLaws(spans)
@@ -461,7 +461,7 @@ export const planInstallation = (
 			described: new Map<LawId, Law>([
 				...theoryLaws.map((l): readonly [LawId, Law] => [l.law, l.described]),
 				...constraintLaws.flatMap((c) =>
-					c.laws.map((l): readonly [LawId, Law] => [l.law, l.described])
+					constraintLawsOf(c).map((l): readonly [LawId, Law] => [l.law, l.described])
 				)
 			])
 		}

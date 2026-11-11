@@ -244,17 +244,14 @@ export interface DomainUse {
 }
 
 /**
- * One entry of the constraint-to-LawId map: the identifier a violation reports (a table constraint, a rule's constraint
- * trigger or a domain constraint), the table or domain that owns it, and every law it discharges with its description,
- * in its native's order (`NativeObject.lawIds`): the first is the one it reports when nothing narrows it, a key law's
- * where a key plans the object, and a merged family axis lists its former's law and every containment that rides it.
- * A rule's trigger is one per table the rule reads, each its one law, and no native object: its violation is the rule's
- * query, which no host judges. A domain constraint also lists each column its domain types with that use's law, since
- * PostgreSQL's report of a domain violation names no table or column: a text domain one law per stored field it types,
- * so its laws are its uses'. The law model emits table constraints and rule triggers; the installation, which names
- * each domain by its definition, emits the domain constraints.
+ * A table's entry of the constraint-to-LawId map: the identifier a violation reports (a table constraint or a rule's
+ * constraint trigger), the table that owns it, and every law it discharges with its description, in its native's order
+ * (`NativeObject.lawIds`): the first is the one it reports when nothing narrows it, a key law's where a key plans the
+ * object, and a merged family axis lists its former's law and every containment that rides it. A rule's trigger is one
+ * per table the rule reads, each its one law, and no native object: its violation is the rule's query, which no host
+ * judges. The law model emits these.
  */
-export type ConstraintLaw =
+export type TableConstraintLaw =
 	| {
 			readonly kind: "constraint"
 			readonly name: ConstraintName
@@ -267,13 +264,51 @@ export type ConstraintLaw =
 			readonly owner: RelationIdent
 			readonly laws: readonly [ConstraintLawOf]
 	  }
+
+/**
+ * A domain's entry of the constraint-to-LawId map: its CHECK's identifier and the domain that owns it. PostgreSQL's
+ * report of a domain violation names no table or column, so a domain that types stored columns lists each with that
+ * use's law, and its laws are exactly its uses' laws, each once, in use order: a text domain one law per stored field
+ * it types, a contract's domain the law each column's contract chain names it by. A domain no stored column types (a
+ * context field's or a parameter's contract) carries the laws of the contracts its definition holds. The installation,
+ * which names each domain by its definition, emits these.
+ */
+export type DomainConstraintLaw =
 	| {
 			readonly kind: "domainConstraint"
 			readonly name: ConstraintName
 			readonly owner: DomainName
-			readonly laws: NonEmptyReadonlyArray<ConstraintLawOf>
-			readonly uses: ReadonlyArray<DomainUse>
+			readonly uses: NonEmptyReadonlyArray<DomainUse>
 	  }
+	| {
+			readonly kind: "unstoredDomainConstraint"
+			readonly name: ConstraintName
+			readonly owner: DomainName
+			readonly laws: NonEmptyReadonlyArray<ConstraintLawOf>
+	  }
+
+/** One entry of the constraint-to-LawId map: a table's constraint or trigger, or a domain's CHECK. */
+export type ConstraintLaw = TableConstraintLaw | DomainConstraintLaw
+
+/**
+ * Every law a violation of `c` can report, with its description: a domain's that types stored columns its uses'
+ * laws, each once and in use order, and any other's its own.
+ */
+export const constraintLawsOf = (c: ConstraintLaw): NonEmptyReadonlyArray<ConstraintLawOf> => {
+	if (c.kind !== "domainConstraint") {
+		return c.laws
+	}
+	const [first, ...rest] = c.uses
+	const seen = new Set<LawId>([first.law.law])
+	const laws: [ConstraintLawOf, ...Array<ConstraintLawOf>] = [first.law]
+	for (const { law } of rest) {
+		if (!seen.has(law.law)) {
+			seen.add(law.law)
+			laws.push(law)
+		}
+	}
+	return laws
+}
 
 /** One kind of owner's constraint names to laws, frozen as the map holds them. */
 const frozenOwners = (
@@ -291,9 +326,9 @@ export const constraintLawMap = (entries: ReadonlyArray<ConstraintLaw>): Constra
 	const tables = new Map<string, Map<string, LawId>>()
 	const domains = new Map<string, Map<string, LawId>>()
 	for (const c of entries) {
-		const byOwner = c.kind === "domainConstraint" ? domains : tables
+		const byOwner = c.kind === "constraint" || c.kind === "trigger" ? tables : domains
 		const named = byOwner.get(c.owner) ?? new Map<string, LawId>()
-		named.set(c.name, c.laws[0].law)
+		named.set(c.name, constraintLawsOf(c)[0].law)
 		byOwner.set(c.owner, named)
 	}
 	return Object.freeze({ tables: frozenOwners(tables), domains: frozenOwners(domains) })
@@ -335,8 +370,8 @@ export interface LawModel {
 	 * the same identifier.
 	 */
 	readonly families: ReadonlyArray<Family>
-	/** Each table constraint's identifier with every law it discharges. */
-	readonly constraints: ReadonlyArray<ConstraintLaw>
+	/** Each table constraint's and rule trigger's identifier with every law it discharges. */
+	readonly constraints: ReadonlyArray<TableConstraintLaw>
 	readonly constraintToLaw: ConstraintLaws
 	/** Every identity the law model mints beyond ownership's: its laws', its natives' and its law columns'. */
 	readonly identities: ReadonlyArray<Identity<IdentityKind>>
@@ -1223,7 +1258,7 @@ class Specializer {
 		 * relation. */
 		const natives: Array<NamedNative> = []
 		const keyed: Array<KeyedRelation> = []
-		const constraints: Array<ConstraintLaw> = []
+		const constraints: Array<TableConstraintLaw> = []
 		for (const entry of byKey.values()) {
 			const described = lawDescription(entry.law)
 			const named = this.#nameMerged(entry, described, keyed)

@@ -290,9 +290,11 @@ export type ServedVariants =
 
 /**
  * The key-law tables of a role's installation as data (adapter witness/keylaw.ts KeyLaws), cut to what the role's
- * members may meet, the laws of the levels above the role's own the file's (ServedFile above): its levels' PostgreSQL
- * schemas; every installed constraint a member's statement may meet, with its owner and laws; every law of the theory under its identity; each stored relation's table; each roster's two
- * domains; and each generated field's law, with its identity, by its table and column.
+ * members' writes can raise (program/schema.ts raisableOf), the laws of the levels above the role's own the file's
+ * (ServedFile above): its levels' PostgreSQL schemas; every installed constraint a member's statement may meet, with
+ * its owner and laws, a domain's that types stored columns by the uses on the written tables; every law of the theory
+ * a write statement may raise, under its identity; each written relation's table; the two domains of each roster that
+ * types a written column; and each generated field's law, with its identity, by its table and column.
  */
 export interface ServedKeyLaws {
 	readonly schemas: ReadonlyArray<string>

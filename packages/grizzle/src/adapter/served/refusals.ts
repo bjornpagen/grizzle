@@ -5,6 +5,7 @@ import type { InstallNames } from "#compiler/plan/catalog.ts"
 import { generatedFieldLaws, type TableRelation } from "#compiler/plan/change.ts"
 import {
 	type CheckedEntry,
+	type DeclaredName,
 	identifierOf,
 	type Raisable,
 	type SchemaArtifacts,
@@ -18,8 +19,9 @@ import type { ServedEntryKey, ServedKeyLaws, ServedRefusals } from "#compiler/pl
  * Compile time only.
  *
  * What the key-law tables are drawn from: the installation's names (its schemas, each relation's table, each roster's
- * two domains, with the codes the installation holds), every installed constraint with its owner and law, every law of
- * the theory, and the stored relations, whose generated fields a NOT NULL violation names.
+ * two domains, with the codes the installation holds), the installed constraints with their owners and laws, the laws
+ * of the theory, the stored relations, whose generated fields a NOT NULL violation names, and the rosters whose
+ * domains a violation can report.
  */
 interface KeyLawInput {
 	readonly names: Pick<
@@ -29,9 +31,13 @@ interface KeyLawInput {
 	readonly constraintLaws: SchemaArtifacts["constraintLaws"]
 	readonly theoryLaws: SchemaArtifacts["theoryLaws"]
 	readonly relations: ReadonlyArray<TableRelation>
+	readonly rosters: ReadonlySet<DeclaredName>
 }
 
-/** The key-law tables of an installation (served/forms.ts ServedKeyLaws, which witness/keylaw.ts keyLawsOf reads), drawn from its compile. */
+/**
+ * The key-law tables of an installation (served/forms.ts ServedKeyLaws, which witness/keylaw.ts keyLawsOf reads), drawn
+ * from its compile: each of `rosters` with its two domains, in the codebook's order.
+ */
 export const keyLawsData = (input: KeyLawInput): ServedKeyLaws => ({
 	schemas: Arr.map(input.names.levels, identifierOf),
 	constraintLaws: input.constraintLaws,
@@ -39,11 +45,17 @@ export const keyLawsData = (input: KeyLawInput): ServedKeyLaws => ({
 	tables: new Map(
 		Arr.map(input.relations, (r) => [r.name, input.names.relation(r.name).name] as const)
 	),
-	rosterDomains: Arr.map([...input.names.codes.rosters.values()], (codec) => ({
-		roster: codec.roster,
-		code: input.names.rosterDomain(codec.roster).name,
-		bits: input.names.bitsDomain(codec.roster).name
-	})),
+	rosterDomains: Arr.flatMap([...input.names.codes.rosters.values()], (codec) =>
+		input.rosters.has(codec.roster)
+			? [
+					{
+						roster: codec.roster,
+						code: input.names.rosterDomain(codec.roster).name,
+						bits: input.names.bitsDomain(codec.roster).name
+					}
+				]
+			: []
+	),
 	generated: Arr.flatMap(input.relations, (r) =>
 		Arr.map(generatedFieldLaws([r]), (g) => ({
 			table: r.ident,
@@ -77,8 +89,8 @@ const entryKeyOf = (entry: CheckedEntry): ServedEntryKey => ({
 
 /**
  * The refusals of a role's artifacts as data (served ServedRefusals), cut to `raisable`, what its writes can raise
- * (program/schema.ts raisableOf): the key-law tables of those constraints and laws, each of those stored relations'
- * heading, which a refusal's key text decodes through, and the query entries the role writes through.
+ * (program/schema.ts raisableOf): the key-law tables of those constraints, laws and rosters, each of those stored
+ * relations' heading, which a refusal's key text decodes through, and the query entries the role writes through.
  */
 export const refusalsOf = (
 	artifacts: Pick<SchemaArtifacts, "names" | "world">,
@@ -90,7 +102,8 @@ export const refusalsOf = (
 			names: artifacts.names,
 			constraintLaws: raisable.constraintLaws,
 			theoryLaws: raisable.theoryLaws,
-			relations
+			relations,
+			rosters: raisable.rosters
 		}),
 		relations: new Map(Arr.map(relations, (r) => [r.name, r.heading] as const)),
 		entries: new Map(
@@ -102,14 +115,18 @@ export const refusalsOf = (
 	}
 }
 
-/** Every refusal a compiled installation's artifacts state, drawn as data (refusalsOf), cut to none. */
+/**
+ * Every refusal a compiled installation's artifacts state, drawn as data (refusalsOf), cut to none: every roster of its
+ * codebook among them.
+ */
 export const installationRefusals = (
 	artifacts: Pick<SchemaArtifacts, "names" | "constraintLaws" | "theoryLaws" | "world" | "derived">
 ): ServedRefusals =>
 	refusalsOf(artifacts, {
 		constraintLaws: artifacts.constraintLaws,
 		theoryLaws: artifacts.theoryLaws,
-		relations: [...artifacts.derived.schema.relations.values()]
+		relations: [...artifacts.derived.schema.relations.values()],
+		rosters: new Set(artifacts.names.codes.rosters.keys())
 	})
 
 /**

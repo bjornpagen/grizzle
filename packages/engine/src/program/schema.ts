@@ -7,9 +7,10 @@ import {
 } from "#compiler/analysis/schema.ts"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import { CompileError, malformedDescription } from "#compiler/core/errors.ts"
-import { type Identity, identifierOf } from "#compiler/core/identity.ts"
+import { type DeclaredName, type Identity, identifierOf } from "#compiler/core/identity.ts"
 import type { LawId, SchemaFingerprint } from "#compiler/core/ids.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
+import { isNonEmpty } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { RoleDesc, SchemaDesc } from "#compiler/ir/desc.ts"
@@ -17,7 +18,7 @@ import type { EvidenceCatalog } from "#compiler/ir/evidence.ts"
 import type { RelationInfo } from "#compiler/ir/law.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { ConstraintLaws } from "#compiler/ir/products.ts"
-import type { RegexRef } from "#compiler/ir/scalar.ts"
+import { type RegexRef, rosterOf } from "#compiler/ir/scalar.ts"
 import { derivedKeyConstraints, evidenceCatalog } from "#compiler/laws/model/catalog.ts"
 import type { ConstraintLaw, LawModel } from "#compiler/laws/model/model.ts"
 import { textDomainIdentity } from "#compiler/physical/ddl/domains.ts"
@@ -401,39 +402,40 @@ export const roleArtifacts = (
  * What the writes of a role can raise of its artifacts, `written` every relation they change (schema/reach.ts
  * writesOf): each table constraint and rule trigger on a written relation, which a write there breaks; each foreign
  * key or PERIOD foreign key into one, which a delete or a key's update there meets; each domain constraint with its uses
- * on the written relations' columns, which a value written there breaks, and each one no stored column uses, which a
- * context or a parameter of its type reads; each law of the theory reading a written relation, which a write
- * statement's refusal raises; and the written relations, whose generated fields a NOT NULL names and whose keys a
- * refusal's DETAIL decodes. A write of `written` meets no other constraint and raises no other law: no foreign key
- * cascades beyond what writesOf closes over, and a rule's trigger fires only on its own table.
+ * on the written relations' columns, which a value written there breaks, its laws theirs, and each one no stored column
+ * uses, which a context or a parameter of its type reads; each law of the theory reading a written relation, which a
+ * write statement's refusal raises; the written relations, whose generated fields a NOT NULL names and whose keys a
+ * refusal's DETAIL decodes; and the rosters typing a column of them, by declared name, whose code or bits domain a value
+ * written there meets. A write of `written` meets no other constraint and raises no other law: no foreign key cascades
+ * beyond what writesOf closes over, and a rule's trigger fires only on its own table.
  */
 export interface Raisable {
 	readonly constraintLaws: ReadonlyArray<ConstraintLaw>
 	readonly theoryLaws: SchemaArtifacts["theoryLaws"]
 	readonly relations: ReadonlyArray<RelationInfo>
+	readonly rosters: ReadonlySet<DeclaredName>
 }
-
-/** The constraint `name` of `owner`, by both: one installed object. */
-const constraintKey = (owner: string, name: string): string => `${owner}\u0000${name}`
 
 /**
  * Of the constraint law `c`, what a write of `tables` can raise: a table's constraint or trigger whose owner is one of
- * them or that is a foreign key `into` names, and a domain's CHECK with its uses narrowed to them, kept while one stays
- * or while it had none.
+ * them or that is a foreign key `into` names under its table, a domain's CHECK with its uses narrowed to them, kept
+ * while one stays, and a domain's no stored column types.
  */
 const raisableConstraint = (
 	c: ConstraintLaw,
 	tables: ReadonlySet<string>,
-	into: ReadonlySet<string>
+	into: ReadonlyMap<string, ReadonlySet<string>>
 ): ReadonlyArray<ConstraintLaw> => {
 	switch (c.kind) {
 		case "constraint":
 		case "trigger":
-			return tables.has(c.owner) || into.has(constraintKey(c.owner, c.name)) ? [c] : []
+			return tables.has(c.owner) || into.get(c.owner)?.has(c.name) === true ? [c] : []
 		case "domainConstraint": {
 			const uses = c.uses.filter((u) => tables.has(u.table))
-			return uses.length > 0 || c.uses.length === 0 ? [{ ...c, uses }] : []
+			return isNonEmpty(uses) ? [{ ...c, uses }] : []
 		}
+		case "unstoredDomainConstraint":
+			return [c]
 	}
 }
 
@@ -446,22 +448,29 @@ export const raisableOf = (
 		written.has(r.name)
 	)
 	const tables = new Set<string>(relations.map((r) => r.ident))
-	const into = new Set(
-		artifacts.laws.natives.flatMap((n) =>
-			n.namespace === "constraint" &&
-			(n.object.kind === "ForeignKey" || n.object.kind === "PeriodForeignKey") &&
-			written.has(n.object.target.name)
-				? [constraintKey(n.owner, identifierOf(n.named))]
-				: []
-		)
-	)
+	const into = new Map<string, Set<string>>()
+	for (const n of artifacts.laws.natives) {
+		if (
+			n.namespace !== "constraint" ||
+			(n.object.kind !== "ForeignKey" && n.object.kind !== "PeriodForeignKey") ||
+			!written.has(n.object.target.name)
+		) {
+			continue
+		}
+		const named = into.get(n.owner) ?? new Set<string>()
+		named.add(identifierOf(n.named))
+		into.set(n.owner, named)
+	}
 	const raised = new Set(
 		artifacts.laws.theory.laws.flatMap((l) => (l.reads.some((r) => written.has(r)) ? [l.id] : []))
 	)
 	return {
 		constraintLaws: artifacts.constraintLaws.flatMap((c) => raisableConstraint(c, tables, into)),
 		theoryLaws: artifacts.theoryLaws.filter((l) => raised.has(l.law)),
-		relations
+		relations,
+		rosters: new Set(
+			relations.flatMap((r) => r.fields.flatMap((f) => rosterOf(f.type)?.closed ?? []))
+		)
 	}
 }
 

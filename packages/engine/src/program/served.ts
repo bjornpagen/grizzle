@@ -173,7 +173,12 @@ const decoderRosters = (form: DecoderForm, out: Set<string>): void => {
 	}
 }
 
-/** Every Roster a served value holds, a type's among them, each container read once however many hold it. */
+/**
+ * Every Roster a served value holds, a type's among them, each container read once however many hold it. The walk is
+ * the file writer's own (served/json.ts ServedWriter), which writes each Roster it meets wherever a form holds it as a
+ * reference to the file's rosters, and a load revives each from them: so the rosters a load needs are exactly the ones
+ * this reaches, whichever form holds a type, and no form added later can hold one the file lacks.
+ */
 const heldRosters = (value: unknown, out: Set<string>, seen: Set<object>): void => {
 	if (typeof value !== "object" || value === null || seen.has(value)) {
 		return
@@ -203,8 +208,9 @@ const heldRosters = (value: unknown, out: Set<string>, seen: Set<object>): void 
 
 /**
  * The rosters a login's served roles read, by declared name: every Roster their forms hold (a closed id's or a set's
- * type), every closed id's and set's column their decoders read, and every roster a classifier names a domain of: the
- * rosters whose codes the file carries (served/forms.ts ServedFile rosters).
+ * type), every closed id's and set's column their decoders read, and every roster a classifier names a domain of, one
+ * typing a column its role's writes write (program/schema.ts raisableOf): the rosters whose codes the file carries
+ * (served/forms.ts ServedFile rosters).
  */
 export const servedRosters = (roles: ReadonlyArray<ServedRoleForm>): ReadonlySet<string> => {
 	const out = new Set<string>()

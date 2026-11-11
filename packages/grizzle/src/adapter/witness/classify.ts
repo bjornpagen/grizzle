@@ -230,24 +230,36 @@ const nativeObject = (constraint: ConstraintName, owner: ConstraintOwner): Refus
 		? { kind: "constraint", table: owner.name, name: constraint }
 		: { kind: "domain", domain: owner.name, name: constraint }
 
+/** The columns of the tables `written` a native violation's domain types: none for an object that types none. */
+const coercedUses = (native: NativeLaws, written: ReadonlySet<RelationIdent>) =>
+	native.kind === "domain" ? Arr.filter(native.uses, (use) => written.has(use.table)) : []
+
 /**
  * The laws a native violation can name (see the header), each refused by `by`, the object that reported it: a domain's,
- * of the columns it types in the tables `written`, when it types any there; every law the object discharges otherwise.
+ * of the columns it types in the tables `written`, when it types any there, and of every column it types otherwise,
+ * each law once; every law any other object discharges.
  */
 const nativeLaws = (
 	native: NativeLaws,
 	written: ReadonlySet<RelationIdent>,
 	by: RefusingObject
 ): Arr.NonEmptyReadonlyArray<RefusedLaw> => {
-	const coerced = new Set(
-		Arr.flatMap(native.uses, (use) => (written.has(use.table) ? [use.law.law] : []))
-	)
-	const broken = Arr.filter(native.laws, (l) => coerced.has(l.law))
-	return Arr.map(Arr.isReadonlyArrayNonEmpty(broken) ? broken : native.laws, (l) => ({
-		law: l.described,
-		id: l.law,
-		by
-	}))
+	const refused = (l: DescribedLaw): RefusedLaw => ({ law: l.described, id: l.law, by })
+	switch (native.kind) {
+		case "object":
+			return Arr.map(native.laws, refused)
+		case "domain": {
+			const coerced = coercedUses(native, written)
+			const uses = Arr.isReadonlyArrayNonEmpty(coerced) ? coerced : native.uses
+			return Arr.map(
+				Arr.dedupeWith(
+					Arr.map(uses, (use) => use.law),
+					(a, b) => a.law === b.law
+				),
+				refused
+			)
+		}
+	}
 }
 
 /**
@@ -286,7 +298,7 @@ const refusedBy = (laws: RefusedLaws, broken: Arr.NonEmptyReadonlyArray<RefusedL
  */
 const generatedViolation = (
 	laws: KeyLaws,
-	owner: ReturnType<typeof reportedOwner>,
+	owner: ConstraintOwner | undefined,
 	column: ViolationFields["column"],
 	written: WrittenAt
 ): Violation | undefined => {
@@ -375,7 +387,7 @@ export const violationClassifier =
 						kind: "domain",
 						domain: owner.name,
 						name: constraint,
-						uses: Arr.filter(native.uses, (use) => tables.has(use.table))
+						uses: coercedUses(native, tables)
 					}
 		)
 		return { kind: "rejected", refused: refusedBy(judged.laws, broken), witness: judged.witness }

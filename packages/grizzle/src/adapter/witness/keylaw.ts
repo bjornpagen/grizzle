@@ -114,15 +114,15 @@ export type HostRefusal =
 	| { readonly kind: "generated"; readonly relation: StoredRelationName; readonly field: string }
 
 /**
- * Every law one native constraint's violation can report, each described, in the order the installation lists them;
- * and, for a domain constraint, each column the domain types with its law (a text domain's one law per field), which
- * decide among a shared domain's laws by the table the violating statement wrote and, on the host, by the column of the
- * stated row that breaks it. A table constraint types no column: its uses are none.
+ * Every law one native constraint's violation can report: an object's that types no stored column (a table constraint,
+ * a domain no stored column types, a constraint of a level above), each described, in the order the installation lists
+ * them; or a domain's that types stored columns, each column with its law (a text domain's one law per field), its
+ * laws theirs, which decide among them by the table the violating statement wrote and, on the host, by the column of
+ * the stated row that breaks it.
  */
-export interface NativeLaws {
-	readonly laws: Arr.NonEmptyReadonlyArray<DescribedLaw>
-	readonly uses: ReadonlyArray<DomainUse>
-}
+export type NativeLaws =
+	| { readonly kind: "object"; readonly laws: Arr.NonEmptyReadonlyArray<DescribedLaw> }
+	| { readonly kind: "domain"; readonly uses: Arr.NonEmptyReadonlyArray<DomainUse> }
 
 /**
  * A domain the installation types a roster's values by: its code domain, a closed id's, or its bits domain, a set's,
@@ -174,21 +174,16 @@ export const lawsAbove = (
 	)
 })
 
-/** The laws of one kind of owner's constraint, under `owner`, created empty on its first constraint. */
-const ownedBy = <O>(
-	byOwner: Map<O, Map<ConstraintName, NativeLaws>>,
-	owner: O
-): Map<ConstraintName, NativeLaws> => {
+/** The entries under `owner` of an index by owner, created empty on its first entry. */
+const ownedBy = <O, K, V>(byOwner: Map<O, Map<K, V>>, owner: O): Map<K, V> => {
 	const found = byOwner.get(owner)
 	if (found !== undefined) {
 		return found
 	}
-	const named = new Map<ConstraintName, NativeLaws>()
+	const named = new Map<K, V>()
 	byOwner.set(owner, named)
 	return named
 }
-
-const noUses: ReadonlyArray<DomainUse> = Object.freeze([])
 
 /**
  * The key laws of an installation (KeyLaws) from its tables `data`, the laws of the levels above `above`, and the codes
@@ -198,14 +193,28 @@ const noUses: ReadonlyArray<DomainUse> = Object.freeze([])
 export const keyLawsOf = (data: ServedKeyLaws, above: LawsAbove, codes: Codebook): KeyLaws => {
 	const tables = new Map<RelationIdent, Map<ConstraintName, NativeLaws>>()
 	const domains = new Map<DomainName, Map<ConstraintName, NativeLaws>>()
+	/** Each table constraint's name by its table and each law it discharges, the first the installation lists. */
+	const discharging = new Map<RelationIdent, Map<LawId, ConstraintName>>()
 	for (const c of data.constraintLaws) {
 		switch (c.kind) {
-			case "constraint":
+			case "constraint": {
+				ownedBy(tables, c.owner).set(c.name, { kind: "object", laws: c.laws })
+				const byLaw = ownedBy(discharging, c.owner)
+				for (const { law } of c.laws) {
+					if (!byLaw.has(law)) {
+						byLaw.set(law, c.name)
+					}
+				}
+				break
+			}
 			case "trigger":
-				ownedBy(tables, c.owner).set(c.name, { laws: c.laws, uses: noUses })
+				ownedBy(tables, c.owner).set(c.name, { kind: "object", laws: c.laws })
 				break
 			case "domainConstraint":
-				ownedBy(domains, c.owner).set(c.name, { laws: c.laws, uses: c.uses })
+				ownedBy(domains, c.owner).set(c.name, { kind: "domain", uses: c.uses })
+				break
+			case "unstoredDomainConstraint":
+				ownedBy(domains, c.owner).set(c.name, { kind: "object", laws: c.laws })
 				break
 		}
 	}
@@ -222,31 +231,13 @@ export const keyLawsOf = (data: ServedKeyLaws, above: LawsAbove, codes: Codebook
 	const generatedFields = new Map<string, Map<string, RefusedLaw>>()
 	for (const { table, column, law, id } of data.generated) {
 		const refused: RefusedLaw = { law, id, by: { kind: "notNull", table, column } }
-		const columns = generated.get(table) ?? new Map<ColumnIdent, RefusedLaw>()
-		columns.set(column, refused)
-		generated.set(table, columns)
-		const fields = generatedFields.get(law.relation) ?? new Map<string, RefusedLaw>()
-		fields.set(law.field, refused)
-		generatedFields.set(law.relation, fields)
-	}
-	/** Each table constraint's name by its table and each law it discharges, the first the installation lists. */
-	const discharging = new Map<RelationIdent, Map<LawId, ConstraintName>>()
-	for (const c of data.constraintLaws) {
-		if (c.kind !== "constraint") {
-			continue
-		}
-		const byLaw = discharging.get(c.owner) ?? new Map<LawId, ConstraintName>()
-		for (const { law } of c.laws) {
-			if (!byLaw.has(law)) {
-				byLaw.set(law, c.name)
-			}
-		}
-		discharging.set(c.owner, byLaw)
+		ownedBy(generated, table).set(column, refused)
+		ownedBy(generatedFields, law.relation).set(law.field, refused)
 	}
 	/** A law above the Db's level, as its constraint's violation reports it: the law alone, which types no column. */
 	const aboveLaw = (id: LawId): NativeLaws | undefined => {
 		const law = above.laws.get(id)
-		return law === undefined ? undefined : { laws: [{ law: id, described: law }], uses: noUses }
+		return law === undefined ? undefined : { kind: "object", laws: [{ law: id, described: law }] }
 	}
 	const tableOf = (relation: StoredRelationName): RelationIdent => {
 		const table = data.tables.get(relation)
