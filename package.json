@@ -141,10 +141,6 @@
 					"alias": "CodecFault"
 				},
 				{
-					"module": "packages/engine/src/core/errors.ts",
-					"alias": "CursorFault"
-				},
-				{
 					"module": "test/support/error-tags.ts",
 					"alias": "GrizzleErrorTag"
 				},
