@@ -23,7 +23,11 @@ import {
 	parentColumnsOf,
 	parentKeysSource
 } from "#compiler/lower/conservative/deliver.ts"
-import { orderItemsOf } from "#compiler/lower/conservative/take/order.ts"
+import {
+	type OrderTotality,
+	orderItemsOf,
+	partialOrder
+} from "#compiler/lower/conservative/take/order.ts"
 import type { DeliveredBreach } from "#compiler/lower/conservative/types.ts"
 import { keyedGroup } from "#compiler/lower/shapes/aggregate/index.ts"
 import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
@@ -286,7 +290,7 @@ export interface PipelinedAttachment {
  * completed by the child's heading unless `total` (take/order.ts); none for an unordered attachment.
  */
 export const attachmentOrder =
-	(attach: NodeOf<"Attach">, parentColumns: Heading, total: boolean) =>
+	(attach: NodeOf<"Attach">, parentColumns: Heading, total: OrderTotality) =>
 	(parent: ColumnMap, child: ColumnMap): ReadonlyArray<OrderItem> =>
 		attach.order === undefined
 			? []
@@ -367,9 +371,9 @@ export const pipelinedAttachment = (
 	const order = attachmentOrder(
 		attach,
 		parentColumns,
-		!distinct &&
-			attach.order !== undefined &&
-			orderIsTotal(facts, attach.child, attach.order, child.heading)
+		distinct || attach.order === undefined
+			? partialOrder
+			: orderIsTotal(facts, attach.child, attach.order, child.heading)
 	)
 	const from = [parent.item, source.item]
 	const body = distinctCoreWhen(

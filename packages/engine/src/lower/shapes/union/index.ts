@@ -10,7 +10,7 @@ import {
 	type NodeLowerer,
 	nodeLabel
 } from "#compiler/lower/conservative/context.ts"
-import { orderItemsOf } from "#compiler/lower/conservative/take/order.ts"
+import { type OrderTotality, orderItemsOf } from "#compiler/lower/conservative/take/order.ts"
 import { armColumns, armTargets } from "#compiler/lower/conservative/union/arms.ts"
 import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
 import {
@@ -158,8 +158,8 @@ export const unionLowerer =
  * ORDER BY ... LIMIT k of its own, which an index on the arm's order serves as a seek that stops after k rows: each of
  * the work queue's claimable arms reads the workload index (kind, slot, key) from its start key. A column the arm fixes
  * to a literal, the queue's `wrap` and the discriminant, is a constant of the arm's sort, which PostgreSQL drops.
- * `total` is whether the order's own keys are total over the union, as the take's ORDER BY states it; otherwise the
- * heading completes each arm's order as it completes the take's. `limit` gives k, asked once the arms are lowered, so
+ * `total` is whether the order's own keys are total over the union, as the take's ORDER BY states it; where partial,
+ * the heading completes each arm's order as it completes the take's. `limit` gives k, asked once the arms are lowered, so
  * a parameter bound takes its placeholder after the arms' own, as it does over the plain union.
  */
 export const armBoundedUnion = (
@@ -167,7 +167,7 @@ export const armBoundedUnion = (
 	facts: ShapeFacts,
 	union: NodeOf<"Union">,
 	order: CompletedOrder,
-	total: boolean,
+	total: OrderTotality,
 	limit: () => Expr,
 	env: Env
 ): OperandSelect => {

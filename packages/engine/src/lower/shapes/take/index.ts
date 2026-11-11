@@ -29,7 +29,7 @@ import {
 	type InputSource
 } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
-import { orderItemsOf } from "#compiler/lower/conservative/take/order.ts"
+import { orderItemsOf, partialOrder } from "#compiler/lower/conservative/take/order.ts"
 import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
 import { orderIsTotal } from "#compiler/lower/shapes/take/order.ts"
 import { armBoundedUnion } from "#compiler/lower/shapes/union/index.ts"
@@ -607,7 +607,9 @@ export const takeLowerer =
 	(facts: ShapeFacts): NodeLowerer<"Take"> =>
 	(node, cx, env) => {
 		const distinct = !facts.unique(node.input) || facts.realization(node) === "distinct"
-		const total = !distinct && orderIsTotal(facts, node.input, node.order, node.heading)
+		const total = distinct
+			? partialOrder
+			: orderIsTotal(facts, node.input, node.order, node.heading)
 		const union = armBoundable(cx, node)
 		const { input, scope } =
 			union === undefined
@@ -712,7 +714,7 @@ const rowNumberPerGroup = (cx: LowerContext, facts: ShapeFacts, spec: PerGroupSp
 	const ranked = { ...spec, input }
 	const orderBy = orderItemsOf(node.order, node.heading, input.map, {
 		leading: [],
-		total: unique && orderIsTotal(facts, node.input, node.order, node.heading),
+		total: unique ? orderIsTotal(facts, node.input, node.order, node.heading) : partialOrder,
 		fixed: spec.partition
 	})
 	const rank = {

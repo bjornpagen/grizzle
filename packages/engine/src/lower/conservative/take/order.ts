@@ -1,15 +1,32 @@
+import type { Identification } from "#compiler/analysis/physical/fds.ts"
 import type { Direction } from "#compiler/core/order.ts"
 import type { CompletedOrder, Heading } from "#compiler/ir/rel.ts"
 import { type ColumnMap, columnIn } from "#compiler/lower/conservative/context.ts"
 import type { OrderItem } from "#compiler/sql/ast.ts"
 import { asc, desc } from "#compiler/sql/build.ts"
 
+/**
+ * Whether a completed order's own keys are total over the rows it orders, and why: the rows have no column, or the
+ * physical analysis keys them by the order's columns (ShapeFacts keyedBy); partial where nothing proves it.
+ */
+export type OrderTotality =
+	| {
+			readonly kind: "total"
+			readonly by:
+				| { readonly kind: "noColumn" }
+				| { readonly kind: "keyed"; readonly key: Identification }
+	  }
+	| { readonly kind: "partial" }
+
+/** An order nothing proves total: the heading completes it. */
+export const partialOrder: OrderTotality = Object.freeze({ kind: "partial" })
+
 /** How a completed order is written as ORDER BY items beyond its own keys. */
 export interface OrderOptions {
 	/** Columns ordered first, ascending: a partition or a parent key; none for a plain order. */
 	readonly leading: ReadonlyArray<string>
-	/** Whether the order's own keys are total over the rows; otherwise the heading completes it. */
-	readonly total: boolean
+	/** Whether the order's own keys are total over the rows; where partial, the heading completes it. */
+	readonly total: OrderTotality
 	/** Columns constant over the ordered rows, such as a window's partition: never sort keys; none for a plain order. */
 	readonly fixed: ReadonlyArray<string>
 }
@@ -40,7 +57,7 @@ export const orderItemsOf = (
 	for (const key of order.keys) {
 		push(key.column, key.dir)
 	}
-	if (!options.total) {
+	if (options.total.kind === "partial") {
 		for (const c of heading) {
 			push(c.name, "asc")
 		}
@@ -49,7 +66,7 @@ export const orderItemsOf = (
 }
 
 /** A plain order the reading context may not prove total: its keys, then every remaining heading column. */
-const baseline: OrderOptions = { leading: [], total: false, fixed: [] }
+const baseline: OrderOptions = { leading: [], total: partialOrder, fixed: [] }
 
 /**
  * Completed orders as ORDER BY items.

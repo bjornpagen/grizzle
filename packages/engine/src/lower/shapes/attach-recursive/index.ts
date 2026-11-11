@@ -10,6 +10,7 @@ import {
 	outputNames
 } from "#compiler/lower/conservative/context.ts"
 import { parentKeysSource } from "#compiler/lower/conservative/deliver.ts"
+import { partialOrder } from "#compiler/lower/conservative/take/order.ts"
 import { carriedFrom, positiveLinear } from "#compiler/lower/shapes/attach-recursive/carried.ts"
 import {
 	attachmentOrder,
@@ -220,7 +221,9 @@ export const seededAttachment = (
 	const order = attachmentOrder(
 		attach,
 		parentColumns,
-		attach.order !== undefined && orderIsTotal(facts, attach.child, attach.order, child.heading)
+		attach.order === undefined
+			? partialOrder
+			: orderIsTotal(facts, attach.child, attach.order, child.heading)
 	)
 	/** Each parent key column read as the origin column the decision delivers it from. */
 	const originMap: ColumnMap = new Map(decision.keys.map((k) => [k.parent.name, originOf(k)]))
