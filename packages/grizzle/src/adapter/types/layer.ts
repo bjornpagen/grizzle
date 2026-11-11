@@ -200,24 +200,42 @@ export interface LiveSourceService<in out B> {
 export type LoginBase<L> = L extends { readonly base: infer B } ? B : never
 
 /**
- * Whether a login's workloads serve a read: some member of one of them whose answer is a set's or a list's (engine
- * live/program.ts ShapeOf), a ChangeSet's or a refresh's being a write's.
+ * Whether a workload may serve a read, `false` only where its type proves none of its members does: each member's
+ * answer a write's (engine live/program.ts ShapeOf), a ChangeSet's or a refresh's. A workload whose type states no
+ * programs may.
  */
-type WorkloadsRead<Ws> = Ws extends readonly [infer W, ...infer Rest]
-	? W extends Workload<unknown, infer P>
+type WorkloadRead<W> =
+	W extends Workload<unknown, infer P>
 		? [Exclude<ShapeOf<P[keyof P]>, "write">] extends [never]
+			? false
+			: true
+		: true
+
+/**
+ * Whether a login's workloads may serve a read, `false` only where their type proves none does: a tuple, each of its
+ * workloads read-free, or an array whose every element is; anything else may.
+ */
+type WorkloadsRead<Ws> = Ws extends readonly []
+	? false
+	: Ws extends readonly [infer W, ...infer Rest]
+		? [WorkloadRead<W>] extends [false]
 			? WorkloadsRead<Rest>
 			: true
-		: WorkloadsRead<Rest>
-	: false
+		: Ws extends ReadonlyArray<infer W>
+			? [WorkloadRead<W>] extends [false]
+				? false
+				: true
+			: true
 
-/** Whether login L serves a read, every login of no known workloads among those that do. */
+/** Whether login L may serve a read: a login whose type states no workloads may. */
 type ServesRead<L> = L extends { readonly workload: infer Ws } ? WorkloadsRead<Ws> : true
 
 /**
- * What DbLayer.make of login L requires: its installation's live source where L serves a read, whose watches register
- * on it; nothing where its workloads are provably read-free. A generic L requires it: providing a source no layer uses
- * is legal, and leaving out one a layer uses is a type error where the program is run.
+ * What DbLayer.make of login L requires: its installation's live source unless L's type proves its workloads
+ * read-free, whose watches register on it. A login whose type erases its workloads, AnyLogin among them, and a generic
+ * L require it: providing a source no layer uses is legal, and leaving out one a layer uses is a type error where the
+ * program is run, so the runtime's refusal of a reading login without one (LiveSourceMissing) is unreachable from
+ * typed code.
  */
 export type LiveOf<L> = [ServesRead<L>] extends [false] ? never : LiveSourceService<LoginBase<L>>
 

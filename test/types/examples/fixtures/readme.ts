@@ -3,6 +3,8 @@ import { Signer } from "@aws-sdk/rds-signer"
 import {
 	accumulated,
 	alternatives,
+	type AnyLogin,
+	type AnySchema,
 	arm,
 	ChangeSet,
 	check,
@@ -53,6 +55,8 @@ import {
 	CredentialError,
 	DbLayer,
 	LiveSource,
+	type LiveOf,
+	type LiveSourceService,
 	roleNameOf,
 	served,
 	TokenError
@@ -1139,6 +1143,12 @@ export const twiceNamed = () => login(Blog, "twice", [twiceReader], { workload: 
 export type EtlOnWeb = Expect<
 	Equals<Extract<Layer.Success<typeof WebLayer>, DbLayer<typeof Etl>>, never>
 >
+
+/** "`EtlJob` serves no read, so its layer needs no live source". */
+export type EtlNeedsNoSource = Expect<Equals<Layer.Services<typeof EtlLayer>, never>>
+
+/** "A login whose type hides its workloads, `AnyLogin` among them, requires one too". */
+export type ErasedNeedsSource = Expect<Equals<LiveOf<AnyLogin>, LiveSourceService<AnySchema>>>
 
 /** "Only the write list is writable": MemberBlog's Post is read-only. */
 const post = {
