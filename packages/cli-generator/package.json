@@ -27,9 +27,9 @@
 		"oxlint": "oxlint oxlint.config.ts",
 		"format": "oxfmt --check .",
 		"dead-code": "node packages/generator/scripts/ratchet.ts dead-code",
-		"architecture": "node packages/generator/scripts/ratchet.ts architecture",
+		"architecture": "fallow architecture",
 		"dedupe": "pnpm dedupe --check",
-		"ratchet:lower": "pnpm --filter effect-openapi-cli-generator run ratchet:lower && node packages/generator/scripts/ratchet.ts dead-code --lower && node packages/generator/scripts/ratchet.ts architecture --lower"
+		"ratchet:lower": "pnpm --filter effect-openapi-cli-generator run ratchet:lower && node packages/generator/scripts/ratchet.ts dead-code --lower"
 	},
 	"devDependencies": {
 		"@effect/tsgo": "catalog:",

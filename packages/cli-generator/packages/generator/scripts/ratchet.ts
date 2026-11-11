@@ -25,7 +25,7 @@ import { ChildProcess, ChildProcessSpawner } from "effect/process"
  */
 
 /** The tools the ratchet holds, each by the gate task that runs it. */
-const TOOLS = ["typecheck", "superlint", "oxlint", "dead-code", "architecture"] as const
+const TOOLS = ["typecheck", "superlint", "oxlint", "dead-code"] as const
 
 type Tool = (typeof TOOLS)[number]
 
@@ -204,13 +204,6 @@ const RUNS: Readonly<Record<Tool, Run>> = {
 		arguments: ["dead-code", "--format", "json"],
 		foundExit: 1,
 		findings: fallowFindings("dead-code")
-	},
-	architecture: {
-		directory: ROOT,
-		command: "fallow",
-		arguments: ["architecture", "--format", "json"],
-		foundExit: 1,
-		findings: fallowFindings("architecture")
 	}
 }
 
