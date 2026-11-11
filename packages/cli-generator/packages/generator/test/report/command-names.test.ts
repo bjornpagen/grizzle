@@ -4,18 +4,11 @@ import { describe, expect, test } from "vitest"
 import { generate } from "#generate.ts"
 import { DocumentUri } from "#model/brands.ts"
 import type { Json } from "#model/pointer.ts"
-import generatorPackage from "#package.json" with { type: "json" }
 import { CommandName, GenerationReport } from "#report/index.ts"
-import generatorTsconfig from "#tsconfig.json" with { type: "json" }
 
 const document = Schema.decodeUnknownSync(DocumentUri)("file:///names/openapi.json")
 
 const configDocument = Schema.decodeUnknownSync(DocumentUri)("file:///names/author-config.json")
-
-const generator = {
-	packageJson: Schema.decodeUnknownSync(Schema.Json)(generatorPackage),
-	tsconfig: Schema.decodeUnknownSync(Schema.Json)(generatorTsconfig)
-}
 
 const layer = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer, NodeCrypto.layerDigest)
 
@@ -132,7 +125,6 @@ const reportText = (value: Json, config: Json): Promise<string> =>
 				yield* generate(
 					{
 						document,
-						generator,
 						outDir: out,
 						source: { _tag: "File", path: specPath },
 						strict: false

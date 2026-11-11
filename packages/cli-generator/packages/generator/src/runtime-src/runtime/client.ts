@@ -21,7 +21,6 @@ import {
 } from "effect"
 import { Flag, GlobalFlag } from "effect/cli"
 import {
-	FetchHttpClient,
 	Headers,
 	HttpBody,
 	HttpClient,
@@ -34,7 +33,6 @@ import {
 } from "effect/http"
 import { RedirectRefused, UsageError } from "../domain/errors.ts"
 import type { TransportError } from "../domain/errors.ts"
-import type { CertificateInit } from "./auth.ts"
 import { credentialHeaders, credentialLikeResponseName, isLoopbackHost } from "./auth.ts"
 import { Servers } from "./base-url.ts"
 import { asCliError, printStderr } from "./input.ts"
@@ -133,33 +131,56 @@ export type Attach = (
 ) => Effect.Effect<HttpClientRequest.HttpClientRequest, UsageError>
 
 /**
- * The request init a loopback hop executes with (design 6.5 Loopback hosts). The runtime owns the
- * value (`directRoute` below, probe SP5c) and `bin.ts` passes it in; this type keeps the keys
- * opaque to callers.
+ * The clients a hop is sent through, by the way it travels: `environment` routes it from the
+ * platform's proxy variables, and `direct` sends it straight to the host, which every loopback hop
+ * takes (design 6.5 Loopback hosts). `bin.ts` builds each over its own platform connection pool.
  */
-export type DirectRoute = FetchHttpClient.RequestInit["Service"]
+export type PathClients = Readonly<{
+	direct: HttpClient.HttpClient
+	environment: HttpClient.HttpClient
+}>
 
 /**
- * The direct-route value: `{ proxy: false }` routes a loopback hop around the proxy environment
- * (probe SP5c). The DOM `RequestInit` has no `proxy` key, so the one assertion below is the only
- * place the typing is bridged; Bun honors `proxy: false` at run time, which
- * `tests/contract/bun-proxy-false.test.ts` pins. This module still never names Bun.
+ * Every client this run's hops are sent through: `plain` presents no client certificate, and
+ * `certified` presents the certificate of the package's `mutualTLS` scheme, present exactly when
+ * the package has one and this run configured its files (design 6.5 `mutualTLS` row). No client
+ * presents a certificate to every host (I3): a hop takes `certified` only when its decision says
+ * so.
  */
-// SAFETY: every RequestInit property is optional, so the object is a valid init; `proxy` is a key the DOM type lacks and Bun reads.
-// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the DOM RequestInit has no proxy key (probe SP5c)
-export const directRoute: DirectRoute = { proxy: false } as RequestInit
+export class Transport extends Context.Service<
+	Transport,
+	Readonly<{
+		certified: Option.Option<PathClients>
+		plain: PathClients
+	}>
+>()("openapi-cli/runtime/Transport") {}
 
 /**
- * The per-hop client-certificate decision (design 6.5 `mutualTLS` row and Origin binding): the
- * certificate init for the hop's URL, or none. `send` binds `certificateInitFor` to the
- * operation's bound origins; a hop decided none is sent without the certificate, never refused.
+ * The per-hop client-certificate decision (design 6.5 `mutualTLS` row and Origin binding): whether
+ * the hop to `url` presents the certificate. `send` binds it to the operation's bound origins.
  */
-export type CertificateDecision = (url: string) => Effect.Effect<Option.Option<CertificateInit>>
+export type CertificateDecision = (url: string) => boolean
 
 /**
- * The decision that sends no hop with a client certificate, for callers that mean none.
+ * The client one hop is sent through. Both decisions read the hop's own URL and are made on every
+ * hop, never cached: a loopback hop goes direct, and a hop the certificate decision binds goes
+ * through the certified clients when this run has them. A URL that does not parse goes through
+ * the plain environment client, which refuses it.
  */
-export const noCertificate: CertificateDecision = () => Effect.succeedNone
+const clientFor =
+	(transport: Transport["Service"], certificate: CertificateDecision) =>
+	(request: HttpClientRequest.HttpClientRequest): HttpClient.HttpClient => {
+		const url = Url.make(request.url, request.urlParams, Option.getOrUndefined(request.hash))
+		if (Result.isFailure(url)) {
+			return transport.plain.environment
+		}
+
+		const clients = certificate(url.success.href)
+			? Option.getOrElse(transport.certified, () => transport.plain)
+			: transport.plain
+
+		return isLoopbackHost(url.success.hostname) ? clients.direct : clients.environment
+	}
 
 /**
  * The statuses the loop follows. Any other 3xx, and a 3xx without a usable `Location`, is the
@@ -181,38 +202,6 @@ const isOneShot = (body: HttpBody.HttpBody): boolean =>
 const becomesGet = (status: number, method: string): boolean =>
 	((status === 301 || status === 302) && method === "POST") ||
 	(status === 303 && method !== "GET" && method !== "HEAD")
-
-/**
- * The init a hop executes with. A loopback hop takes the direct-route init; a hop the certificate
- * decision binds takes the certificate init; a bound loopback hop takes one init holding both
- * sets of keys, which share none (design 6.5 Merge with the client certificate). Any other hop is
- * sent with no added init, so the platform routes it from the proxy environment and presents no
- * certificate. Both decisions read the hop's own URL and are made on every hop, never cached; no
- * `tls` key is ever set client-wide.
- */
-const routeHop = <A, E, R>(
-	attached: HttpClientRequest.HttpClientRequest,
-	direct: DirectRoute,
-	certificate: CertificateDecision,
-	send: Effect.Effect<A, E, R>
-): Effect.Effect<A, E, R> => {
-	const url = Url.make(attached.url, attached.urlParams, Option.getOrUndefined(attached.hash))
-	if (Result.isFailure(url)) {
-		return send
-	}
-
-	const loopback = isLoopbackHost(url.success.hostname)
-
-	return Effect.flatMap(certificate(url.success.href), (init) => {
-		if (Option.isSome(init)) {
-			const merged = loopback ? { ...init.value, ...direct } : init.value
-
-			return Effect.provideService(send, FetchHttpClient.RequestInit, merged)
-		}
-
-		return loopback ? Effect.provideService(send, FetchHttpClient.RequestInit, direct) : send
-	})
-}
 
 const asGet = (request: HttpClientRequest.HttpClientRequest): HttpClientRequest.HttpClientRequest =>
 	request.pipe(
@@ -382,13 +371,6 @@ class OwnedResponse implements HttpClientResponse.HttpClientResponse {
 	}
 }
 
-const assertMethod = (allowed: ReadonlySet<string>, request: HttpClientRequest.HttpClientRequest) =>
-	allowed.has(request.method)
-		? Effect.void
-		: Effect.die(
-				new Error(`request method ${JSON.stringify(request.method)} is not in the allowlist`)
-			)
-
 export const querySeparator = (url: string): string => {
 	if (/[?&]$/u.test(url)) {
 		return ""
@@ -442,24 +424,14 @@ const foldUrlParams = (
 /**
  * The runtime-owned redirect loop (design 6.5 Redirect loop; settled: spike S2), an
  * `HttpClient.transform` over the provided client. Each hop runs the attach step, then is sent
- * (with `direct` as its request init when the hop's host is loopback, design 6.5 Loopback hosts) in
- * its own scope, a child of the caller's `Scope`; a followed or refused 3xx closes that scope,
- * which aborts the response instead of reading its body. The final response owns its scope (see
- * `OwnedResponse`), so it stays readable and is aborted when its body ends or when the caller's
- * scope closes, whichever comes first. The send and the decision are one uninterruptible step
- * around the interruptible attach and send, so a discarded 3xx cannot escape its scope. Native
- * `followRedirects` is used nowhere.
- *
- * `certificate` is the per-hop client-certificate decision (design 6.5 `mutualTLS` row): asked
- * with each hop's URL, so on every hop of every retry attempt, its init is the hop's request init,
- * merged with `direct` on a loopback hop. It is required like `allowed`: a caller that means no
- * certificate passes `noCertificate`.
- *
- * `allowed` is the method allowlist `bin.ts` provides with the client layer (design 6.7), required
- * like `direct`. It is asserted on every attached hop before it is sent, including one a redirect
- * turned into `GET`: a miss is a defect (exit 70) and nothing is sent, because Bun's `fetch` sends
- * any token outside its own table as `GET`. The token is compared as given, with no case folding,
- * and the defect carries only the JSON-quoted token, never the URL.
+ * through the transport client its own URL selects (`clientFor`: direct for a loopback host, design
+ * 6.5 Loopback hosts; certified when `certificate` binds the hop, design 6.5 `mutualTLS` row),
+ * wrapped by `around`, in its own scope, a child of the caller's `Scope`; a followed or refused 3xx
+ * closes that scope, which aborts the response instead of reading its body. The final response owns
+ * its scope (see `OwnedResponse`), so it stays readable and is aborted when its body ends or when
+ * the caller's scope closes, whichever comes first. The send and the decision are one
+ * uninterruptible step around the interruptible attach and send, so a discarded 3xx cannot escape
+ * its scope. The platform client never follows a redirect itself.
  *
  * One run of the loop is one attempt, and `HttpClient.timeout` bounds it by the effective
  * `--timeout` (design D-AD7): the bound ends when the final hop's headers arrive, so the body is
@@ -469,68 +441,64 @@ const foldUrlParams = (
  * Expiry is an `HttpClientError` with a `TimeoutError` cause, which `mapClientError` reports as
  * `TransportError` `timeout`.
  */
-export const redirectLoop =
-	(
-		attach: Attach,
-		direct: DirectRoute,
-		allowed: ReadonlySet<string>,
-		certificate: CertificateDecision
-	) =>
-	<E, R>(
-		client: HttpClient.HttpClient.With<E, R>
-	): HttpClient.HttpClient.With<
-		E | HttpClientError.HttpClientError | RedirectRefused | UsageError,
-		R | Scope.Scope
-	> => {
-		const scoped = HttpClient.withScope(client)
-		const hop = (request: HttpClientRequest.HttpClientRequest, followed: number) =>
-			Effect.uninterruptibleMask((restore) =>
-				Effect.gen(function* sendHop() {
-					const attached = foldUrlParams(yield* restore(attach(request)))
-					yield* assertMethod(allowed, attached)
+export const redirectLoop = <R>(
+	attach: Attach,
+	transport: Transport["Service"],
+	certificate: CertificateDecision,
+	around: (
+		client: HttpClient.HttpClient
+	) => HttpClient.HttpClient.With<HttpClientError.HttpClientError, R>
+): HttpClient.HttpClient.With<
+	HttpClientError.HttpClientError | RedirectRefused | UsageError,
+	R | Scope.Scope
+> => {
+	const route = clientFor(transport, certificate)
+	const hop = (request: HttpClientRequest.HttpClientRequest, followed: number) =>
+		Effect.uninterruptibleMask((restore) =>
+			Effect.gen(function* sendHop() {
+				const attached = foldUrlParams(yield* restore(attach(request)))
+				const scoped = HttpClient.withScope(around(route(attached)))
+				const scope = yield* Scope.fork(yield* Scope.Scope)
+				const response = yield* restore(scoped.postprocess(Effect.succeed(attached))).pipe(
+					Scope.provide(scope),
+					Effect.onError((cause) => Scope.close(scope, Exit.failCause(cause)))
+				)
+				const next = yield* nextHop(request, response, followed).pipe(
+					Effect.onError(() => Scope.close(scope, Exit.void))
+				)
+				if (Option.isNone(next)) {
+					return { next, response: new OwnedResponse(response, Scope.close(scope, Exit.void)) }
+				}
 
-					const scope = yield* Scope.fork(yield* Scope.Scope)
-					const response = yield* restore(
-						routeHop(attached, direct, certificate, scoped.postprocess(Effect.succeed(attached)))
-					).pipe(
-						Scope.provide(scope),
-						Effect.onError((cause) => Scope.close(scope, Exit.failCause(cause)))
-					)
-					const next = yield* nextHop(request, response, followed).pipe(
-						Effect.onError(() => Scope.close(scope, Exit.void))
-					)
-					if (Option.isNone(next)) {
-						return { next, response: new OwnedResponse(response, Scope.close(scope, Exit.void)) }
-					}
+				yield* Scope.close(scope, Exit.void)
 
-					yield* Scope.close(scope, Exit.void)
-
-					return { next, response }
-				})
-			)
-		const loop = (
-			request: HttpClientRequest.HttpClientRequest,
-			followed: number
-		): Effect.Effect<
-			HttpClientResponse.HttpClientResponse,
-			E | RedirectRefused | UsageError,
-			R | Scope.Scope
-		> =>
-			Effect.flatMap(hop(request, followed), ({ next, response }) =>
-				Option.isNone(next) ? Effect.succeed(response) : loop(next.value, followed + 1)
-			)
-
-		const attempt = HttpClient.transform(client, (_unsent, request) => loop(request, 0))
-
-		const timed = (seconds: number) =>
-			seconds === 0 ? attempt : HttpClient.timeout(attempt, Duration.seconds(seconds))
-
-		return HttpClient.transform(client, (_unsent, request) =>
-			requestTimeoutSeconds.pipe(
-				Effect.flatMap((value) => timed(value).postprocess(Effect.succeed(request)))
-			)
+				return { next, response }
+			})
 		)
-	}
+	const loop = (
+		request: HttpClientRequest.HttpClientRequest,
+		followed: number
+	): Effect.Effect<
+		HttpClientResponse.HttpClientResponse,
+		HttpClientError.HttpClientError | RedirectRefused | UsageError,
+		R | Scope.Scope
+	> =>
+		Effect.flatMap(hop(request, followed), ({ next, response }) =>
+			Option.isNone(next) ? Effect.succeed(response) : loop(next.value, followed + 1)
+		)
+
+	const shell = transport.plain.environment
+	const attempt = HttpClient.transform(shell, (_unsent, request) => loop(request, 0))
+
+	const timed = (seconds: number) =>
+		seconds === 0 ? attempt : HttpClient.timeout(attempt, Duration.seconds(seconds))
+
+	return HttpClient.transform(shell, (_unsent, request) =>
+		requestTimeoutSeconds.pipe(
+			Effect.flatMap((value) => timed(value).postprocess(Effect.succeed(request)))
+		)
+	)
+}
 
 /**
  * Sets `User-Agent: <binName>/<version>` (design 6.2) on one request, replacing a caller-set
@@ -543,7 +511,7 @@ export const setUserAgent = (
 	HttpClientRequest.setHeader("user-agent", `${binName}/${version}`)
 
 /**
- * Sets `User-Agent` (`setUserAgent`) in place of Bun's implicit `Bun/<v>`. Apply it outermost:
+ * Sets `User-Agent` (`setUserAgent`) in place of the platform client's own. Apply it outermost:
  * every redirect hop starts from the caller's headers, so the value reaches each hop.
  */
 export const withUserAgent =

@@ -16,14 +16,13 @@ import { HttpClient, HttpClientResponse } from "effect/http"
 import { describe, expect, test } from "vitest"
 import { generate } from "#generate.ts"
 import { DocumentUri } from "#model/brands.ts"
-import generatorPackage from "#package.json" with { type: "json" }
 import * as Auth from "#runtime-src/runtime/auth.ts"
 import * as BaseUrl from "#runtime-src/runtime/base-url.ts"
+import { Transport } from "#runtime-src/runtime/client.ts"
 import * as Input from "#runtime-src/runtime/input.ts"
 import * as Output from "#runtime-src/runtime/output.ts"
 import { runCredentialsLayer } from "#runtime-src/runtime/redact.ts"
 import * as Serialize from "#runtime-src/runtime/serialize.ts"
-import generatorTsconfig from "#tsconfig.json" with { type: "json" }
 
 // Each operation's bound origin set comes from its own effective servers (operation, else path
 // item, else root). The bound sets below are read from what `generate` emits for this spec, so a
@@ -69,11 +68,6 @@ const config = {
 
 const decodeUri = Schema.decodeUnknownSync(DocumentUri)
 
-const generator = {
-	packageJson: Schema.decodeUnknownSync(Schema.Json)(generatorPackage),
-	tsconfig: Schema.decodeUnknownSync(Schema.Json)(generatorTsconfig)
-}
-
 // Generates the spec into a scoped temp directory and returns the emitted api modules.
 const emitted = await Effect.runPromise(
 	Effect.scoped(
@@ -89,7 +83,6 @@ const emitted = await Effect.runPromise(
 			yield* generate(
 				{
 					document: decodeUri("file:///servers/openapi.json"),
-					generator,
 					outDir: out,
 					source: { _tag: "File", path: specPath },
 					strict: false
@@ -192,11 +185,12 @@ const run = async (meta: Output.OperationMeta, world: World = {}) => {
 		Stdio.layerTest({ stderr: sink, stdout: sink, stdoutIsTerminal: Effect.succeed(false) }),
 		Input.stdinClaimLayer,
 		runCredentialsLayer,
-		Layer.succeed(HttpClient.HttpClient, client),
+		Layer.succeed(Transport, {
+			certified: Option.none(),
+			plain: { direct: client, environment: client }
+		}),
 		Layer.succeed(Output.ClientPolicy, {
-			allowed: new Set(["GET"]),
 			binName: "x",
-			direct: {},
 			version: "1.0.0"
 		}),
 		Layer.succeed(Output.OutputPath, Option.none()),

@@ -179,7 +179,7 @@ describe("emitCli: the emitted cli module against its api module and the runtime
 		const { apiFiles, cli, domain } = await run(
 			specOf({ "application/x-ndjson": { schema: item } })
 		)
-		const scaffold = await Effect.runPromise(emitPackageFiles(config, generator))
+		const scaffold = await Effect.runPromise(emitPackageFiles(config))
 		const files: readonly EmittedFile[] = [
 			domain,
 			...apiFiles,

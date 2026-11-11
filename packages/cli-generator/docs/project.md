@@ -1,6 +1,6 @@
 # Project direction
 
-`effect-openapi-cli-generator` reads an OpenAPI 3.0, 3.1 or 3.2 document and writes the source of a standalone command-line application built on Effect and Bun. Each API operation becomes a command. A later input adapter will read Effect `HttpApi` definitions into the same pipeline.
+`effect-openapi-cli-generator` reads an OpenAPI 3.0, 3.1 or 3.2 document and writes the source of a standalone command-line application built on Effect and Node. Each API operation becomes a command. A later input adapter will read Effect `HttpApi` definitions into the same pipeline.
 
 This file is the committed direction: what the generator does, how it is built, and what a generated CLI guarantees. The full design, with the alternatives, reasons and sources behind each item, is kept outside the repository. If code and this file disagree, correct one of them in the same change.
 
@@ -44,7 +44,7 @@ The later `HttpApi` adapter reads a definition with `HttpApi.reflect` and lowers
 
 Label: decided.
 
-Effect owns commands and flags (`effect/cli`), validation and typed errors (`Schema`), files and standard streams (`FileSystem`, `Stdio`), streams (`Stream`, `Sse.makeParser`), retries (`Schedule` and `HttpClient.transform`), timeouts, configuration and credentials (`Config`, `Redacted`), wiring (`Layer`) and the HTTP client (`effect/http` over `@effect/platform-bun`).
+Effect owns commands and flags (`effect/cli`), validation and typed errors (`Schema`), files and standard streams (`FileSystem`, `Stdio`), streams (`Stream`, `Sse.makeParser`), retries (`Schedule` and `HttpClient.transform`), timeouts, configuration and credentials (`Config`, `Redacted`), wiring (`Layer`) and the HTTP client (`effect/http` over `@effect/platform-node`'s undici client).
 
 The generated `runtime/` modules add only what Effect lacks, each with a written reason: OpenAPI parameter serialization, a streamed multipart writer, NDJSON line and JSON-seq record framing that never re-parses values, retries that respect idempotency, credentials bound to origins across redirects, standard input and bounded inputs, and the output, exit-code and error-rendering policy.
 
@@ -73,13 +73,13 @@ Emitted object keys are sorted, with no lint exception. Order that carries meani
 
 `domain/` is one module holding only the schemas a request can reach, with fields sorted and without `examples`, `example` or `default`. Response schemas join it with `--validate-response` (measured).
 
-Single-file bodies go through a `FileBody` service whose Bun implementation uses `Bun.file` (measured).
+Single-file bodies stream from the file system with their size as `Content-Length` (`HttpBody.file`).
 
 ## Runtime target
 
-Labels: decided for the client behavior; the operator confirms Bun-only.
+Labels: decided.
 
-Generated CLIs run on Bun. Their `dependencies` pin `effect` and `@effect/platform-bun` exactly to the generator's own versions, now `4.1.2`. `bin.ts` provides `BunHttpClient.layerOptions({ redirect: "manual" })`, turns trace propagation off and sends logs to stderr. A Node entry would be a later change confined to `bin.ts`, because nothing under `runtime/` names Bun. `@effect/platform-node` joins the dependencies only with that entry.
+Generated CLIs run on Node 26 and later, the Node versions the generator itself admits. Their `dependencies` pin `effect` and `@effect/platform-node` exactly to the versions the generator runs on, and their `devDependencies` pin `typescript` and `@types/node` to the versions it checks with. `bin.ts` is the only module that names the platform: it provides the runtime's `Transport`, one Effect undici client per way a hop travels, each over its own connection pool that never follows a redirect: `environment` (an undici `EnvHttpProxyAgent`, routed by the proxy variables) and `direct` (an undici `Agent`, for loopback hops), plus the same pair presenting the client certificate when the package has a `mutualTLS` scheme. It turns trace propagation off and sends logs to stderr. Nothing under `runtime/` names Node.
 
 ## Requests
 
@@ -93,10 +93,10 @@ Labels: decided; uploads, bodies on `GET`, `HEAD` and `DELETE`, and method token
 - The range of an integer outside the safe range is not checked client-side (see Schemas). The value passes as a digit string and is serialized as a bare JSON number.
 - A required body with no input is sent as an empty object (`{}`) or an empty multipart body. An optional body with no input is omitted.
 - Content type and `Accept` come from the declared media types. `--content-type` and `--accept` choose among them.
-- Bodies on `GET`, `HEAD` and `DELETE`: OpenAPI 3.0 ignores them. OpenAPI 3.1 and later send `DELETE` bodies and refuse `GET` and `HEAD` bodies at `element` scope, because Bun's `fetch` throws before connecting.
-- Fixed-field methods (`get` through `trace`, and the 3.2 `query`) are sent uppercase. A 3.2 `additionalOperations` key is sent as spelled. Bun sends 35 uppercase method tokens verbatim and silently sends `GET` for any other token, so an operation whose key is outside that set, lowercase and mixed-case keys included, is refused at `operation` scope, and the runtime checks the same allowlist before sending. The allowlist comes from Bun's own method table, is provided by `bin.ts`, and is checked again on every Bun upgrade. The 3.2 `query` method sends `QUERY`, with or without a body.
+- Bodies on `GET`, `HEAD`, `DELETE`, `OPTIONS` and `TRACE`: OpenAPI 3.0 ignores them, with a notice. OpenAPI 3.1 and later send them, since undici sends a body on any method.
+- Fixed-field methods (`get` through `trace`, and the 3.2 `query`) are sent uppercase. A 3.2 `additionalOperations` key is sent as spelled: undici sends every RFC 9110 method token verbatim. A key that is not a token, or is `CONNECT`, which asks for a tunnel instead of a response, is refused at `operation` scope. The 3.2 `query` method sends `QUERY`, with or without a body.
 - XML bodies are opaque: they come from a file or standard input and are sent byte for byte. XML serialization driven by a schema is refused.
-- Multipart bodies are streamed by the runtime's writer, never buffered through `FormData`. Names and filenames are escaped as Bun's `FormData` escapes them, and `filename` is the file's basename. Single-file bodies keep `Content-Length`.
+- Multipart bodies are streamed by the runtime's writer, never buffered through `FormData`. Names and filenames are escaped as the WHATWG `FormData` encoder escapes them, and `filename` is the file's basename. Single-file bodies keep `Content-Length`.
 
 ## Servers and credentials
 
@@ -180,7 +180,7 @@ Label: decided.
 Labels: decided; YAML and the validator are measured.
 
 - `@hyperjump/json-schema` 1.18.0, pinned exactly, for official-schema validation, with no result cache. It validates a copy of the document in which the 3.1 dialect identifier the specification text uses is replaced by the dated identifier. Its error locations are percent-decoded before they are compared with JSON Pointers.
-- `yaml` 2.9.1, pinned exactly, for YAML. JSON uses `JSON.parse` plus the duplicate-key scanner. `Bun.YAML` and Effect `Yaml` are not used.
+- `yaml` 2.9.1, pinned exactly, for YAML. JSON uses `JSON.parse` plus the duplicate-key scanner. Effect `Yaml` is not used.
 - The official OpenAPI schemas are vendored with their sha256.
 - Nothing else.
 
@@ -205,7 +205,6 @@ Label: operator default. These defaults apply until the project owner decides ot
 - OAuth token acquisition: the operator supplies tokens.
 - Static pass-through for other `http` schemes: refused.
 - YAML input and the reach of `$ref` resolution: to be confirmed.
-- A Bun-only generated runtime: to be confirmed.
 
 ## Clean break
 
@@ -216,42 +215,33 @@ The current line starts from `main`. An earlier implementation exists on another
 The generator itself has one directory per pipeline stage, a model directory, the generated runtime's source, a library entry and a generator CLI. The layout below is the target after the first milestone. Some paths do not exist yet.
 
 ```text
-.github/workflows/check.yml      # format, lint, type-check, Bun pin check, tests, corpus (with the coverage join)
-.agents/skills/                  # repository skills: conventional-commits, document-code
+.agents/skills/                  # repository skills
 AGENTS.md  README.md
 docs/
   project.md                     # this file
   printer.md                     # the deterministic printer's short spec
-package.json  bun.lock  bunfig.toml  tsconfig.json  tsconfig.build.json  vite.config.ts
-src/
-  index.ts                       # library entry: generate(input, config)
-  main.ts                        # generator CLI: generate, validate, verdict (effect/cli commands)
-  bin.ts                         # shebang, BunServices, BunRuntime.runMain
-  load/  validate/  resolve/  check/  normalize/  names/  emit/  write/  report/   # one per pipeline stage
-  model/                         # branded values, entities, diagnostic and verdict codecs, author config
-  runtime-src/                   # the generated runtime's source, emitted verbatim and tested directly
-    domain/errors.ts             #   the CLI's tagged error classes, which runtime/ imports
-    runtime/*.ts                 #   serialize, input, auth, client, output, multipart, describe,
-                                 #   file-body, base-url, negotiate, response
-tools/
-  check-bun.ts                   # the running Bun equals the packageManager pin
-  memguard.sh  run-test.sh       # memory ceiling; test runner that checks the Bun pin and fails on zero tests
-  embed-runtime.ts               # runtime-src/ to a git-ignored string module
-  lint-plugin.mjs  no-built-in-try-catch.mjs
-tests/
-  <stage>/*.test.ts  runtime/*.test.ts  security/*.test.ts  corpus/*.test.ts
-  support/generated-cli.ts       # generate, build and run a CLI under memory ceilings
-  fixtures/
-    capture-server.ts            # HTTP server that records the requests a generated CLI sends
-    golden/                      # checked-in expected generator output
-    seeds/                       # test cases carried over from the earlier implementation, as data
-    specs/  yaml/  resolve/      # synthetic specifications per feature
-corpus/
-  corpus.json                    # corpus pins, ci and extended tiers
-  config/                        # author configs for corpus specifications
-  verdicts/                      # one committed verdict file per pinned specification
-  fixtures/                      # synthetic specifications for constructs the real corpus lacks
-  tools/                         # fetch, run, coverage, walk
+package.json  pnpm-lock.yaml  pnpm-workspace.yaml  tsconfig.json  turbo.json  lefthook.yml
+oxlint.config.ts  .oxfmtrc.json  .fallowrc.json
+packages/
+  devtools/  testing/  json/     # superstarter's dev tools, testing library and JSON door, vendored
+  generator/
+    package.json  tsconfig.json  vitest.config.ts  ratchet.json
+    src/
+      index.ts                   # library entry: generate(input, config)
+      main.ts                    # generator CLI: generate, validate, verdict (effect/cli commands)
+      bin.ts                     # shebang, NodeServices, NodeRuntime.runMain
+      load/  validate/  resolve/  check/  normalize/  names/  emit/  write/  report/   # one per pipeline stage
+      model/                     # branded values, entities, diagnostic and verdict codecs, author config
+      runtime-src/               # the generated runtime's source, emitted verbatim and tested directly
+        domain/errors.ts         #   the CLI's tagged error classes, which runtime/ imports
+        runtime/*.ts             #   serialize, input, auth, client, output, multipart, describe,
+                                 #   base-url, negotiate, response, sequential, sse
+    scripts/
+      embed-runtime.ts           # runtime-src/ to a git-ignored string module
+      ratchet.ts                 # the gate's finding ratchet while the generator is cleaned
+      memguard.sh                # memory ceiling for the corpus run
+    test/                        # the suites, by the stage they cover
+    corpus/                      # pinned corpus specifications, configs, verdicts and tools
 ```
 
 `runtime-src/` mirrors the generated package's `src/` subtree, so relative imports hold in both places. `runtime/describe.ts` is the only home of the `--describe` codec; the coverage checker imports it from there, never from `model/`.

@@ -3,9 +3,7 @@ import { Array as Arr, Effect, FileSystem, Layer, Path, Schema } from "effect"
 import { generate } from "#generate.ts"
 import { DocumentUri } from "#model/brands.ts"
 import { Diagnostic } from "#model/diagnostic.ts"
-import generatorPackage from "#package.json" with { type: "json" }
 import { GenerationReport } from "#report/index.ts"
-import generatorTsconfig from "#tsconfig.json" with { type: "json" }
 import { sha256Hex } from "#write/manifest.ts"
 
 // The generation half of one corpus entry (design 8.2), run as its own process by `run.ts` so the
@@ -14,11 +12,6 @@ import { sha256Hex } from "#write/manifest.ts"
 // the YAML twin when one is pinned, and writes what the verdict needs from them as JSON.
 
 export const reportFile = "generation-report.json"
-
-const generator = {
-	packageJson: Schema.decodeUnknownSync(Schema.Json)(generatorPackage),
-	tsconfig: Schema.decodeUnknownSync(Schema.Json)(generatorTsconfig)
-}
 
 const Target = Schema.Struct({ outDir: Schema.String, specPath: Schema.String })
 
@@ -84,7 +77,6 @@ const generateBoth = (request: typeof GenerationRequest.Type) =>
 			generate(
 				{
 					document,
-					generator,
 					outDir: target.outDir,
 					source: { _tag: "File", path: target.specPath },
 					strict: false

@@ -16,6 +16,7 @@ import { FetchHttpClient, HttpClient, HttpClientError, HttpClientResponse } from
 import { describe, expect, test } from "vitest"
 import * as Auth from "#runtime-src/runtime/auth.ts"
 import * as BaseUrl from "#runtime-src/runtime/base-url.ts"
+import { Transport } from "#runtime-src/runtime/client.ts"
 import type * as Client from "#runtime-src/runtime/client.ts"
 import * as Input from "#runtime-src/runtime/input.ts"
 import * as Output from "#runtime-src/runtime/output.ts"
@@ -190,11 +191,12 @@ const run = async (world: World = {}) => {
 		}),
 		Input.stdinClaimLayer,
 		runCredentialsLayer,
-		Layer.succeed(HttpClient.HttpClient, client),
+		Layer.succeed(Transport, {
+			certified: Option.none(),
+			plain: { direct: client, environment: client }
+		}),
 		Layer.succeed(Output.ClientPolicy, {
-			allowed: new Set(["HEAD", "PATCH"]),
 			binName: "example",
-			direct: sentinel,
 			version: "1.2.3"
 		}),
 		Layer.succeed(Output.OutputPath, Option.none()),

@@ -12,12 +12,25 @@ import { planNames } from "#names/index.ts"
 import { normalize } from "#normalize/index.ts"
 import { boundOrigins } from "#normalize/servers.ts"
 import { resolve } from "#resolve/index.ts"
-import generatorTsconfig from "#tsconfig.json" with { type: "json" }
 import type { Line } from "#validate/index.ts"
 
 // One `oauth2` and one `openIdConnect` scheme, each used by an operation, carried from the spec to
 // the emitted `api/security.ts` (design 6.5, D-SEC1): the runtime kinds, the planned names, and the
 // flows, URLs, scopes and discovery URL as help-only data.
+
+const generatedCompilerOptions = {
+	allowImportingTsExtensions: true,
+	exactOptionalPropertyTypes: true,
+	lib: ["ESNext"],
+	module: "ESNext",
+	moduleResolution: "Bundler",
+	noEmit: true,
+	noUncheckedIndexedAccess: true,
+	skipLibCheck: true,
+	strict: true,
+	target: "ESNext",
+	types: ["node"]
+}
 
 const root = nodePath.resolve(import.meta.dirname, "../..")
 
@@ -131,7 +144,7 @@ const writePackage = (tables: Readonly<Record<string, string>>): string => {
 
 	nodeFs.writeFileSync(
 		nodePath.join(dir, "tsconfig.json"),
-		JSON.stringify({ compilerOptions: generatorTsconfig.compilerOptions, include: ["src"] })
+		JSON.stringify({ compilerOptions: generatedCompilerOptions, include: ["src"] })
 	)
 	nodeFs.symlinkSync(nodePath.join(root, "node_modules"), nodePath.join(dir, "node_modules"))
 

@@ -1,19 +1,17 @@
 import { Array as Arr, Effect, Order } from "effect"
+import type { FileSystem, Path } from "effect"
 import { emitEntryFiles } from "#emit/entry.ts"
 import { emitPackageFiles } from "#emit/package.ts"
-import type { EmittedFile, GeneratorSource, PackageEmitError } from "#emit/package.ts"
+import type { EmittedFile, PackageEmitError } from "#emit/package.ts"
 import type { PrinterError } from "#emit/printer.ts"
 import { emitReadme } from "#emit/readme.ts"
 import type { ReadmeInput } from "#emit/readme.ts"
 import { runtimeFiles } from "#emit/runtime-files.generated.ts"
 
 /**
- * What the scaffold is emitted from: the README input and the generator's own manifest and
- * compiler options.
+ * What the scaffold is emitted from: the README input.
  */
-export interface ScaffoldInput extends ReadmeInput {
-	readonly generator: GeneratorSource
-}
+export type ScaffoldInput = ReadmeInput
 
 const byPath = Order.mapInput(Order.String, (file: EmittedFile) => file.path)
 
@@ -31,9 +29,13 @@ const runtime: readonly EmittedFile[] = Object.entries(runtimeFiles).map(([key, 
  */
 export const emitScaffold = (
 	input: ScaffoldInput
-): Effect.Effect<readonly EmittedFile[], PackageEmitError | PrinterError> =>
+): Effect.Effect<
+	readonly EmittedFile[],
+	PackageEmitError | PrinterError,
+	FileSystem.FileSystem | Path.Path
+> =>
 	Effect.gen(function* emit() {
-		const packageFiles = yield* emitPackageFiles(input.config, input.generator)
+		const packageFiles = yield* emitPackageFiles(input.config)
 		const entryFiles = yield* emitEntryFiles(input.config, input.api.securitySchemes)
 
 		return Arr.sort([...packageFiles, ...entryFiles, emitReadme(input), ...runtime], byPath)

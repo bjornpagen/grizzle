@@ -1,7 +1,20 @@
 import { homedir } from "node:os"
 import { NodeCrypto, NodeRuntime, NodeServices } from "@effect/platform-node"
-import { Array as Arr, Data, Effect, FileSystem, Layer, Order, Path, Runtime, Schema } from "effect"
+import {
+	Array as Arr,
+	Data,
+	Duration,
+	Effect,
+	FileSystem,
+	Layer,
+	Order,
+	Path,
+	Runtime,
+	Schema,
+	Stream
+} from "effect"
 import { FetchHttpClient } from "effect/http"
+import { ChildProcess, ChildProcessSpawner } from "effect/process"
 import { coverageOf } from "#corpus/tools/coverage.ts"
 import type { Coverage, Invented, Missing } from "#corpus/tools/coverage.ts"
 import { Corpus, fetchPinned, githubSource } from "#corpus/tools/fetch.ts"
@@ -45,8 +58,6 @@ const decodeGeneration = Schema.decodeUnknownEffect(Schema.fromJsonString(Genera
 const encodeRequest = Schema.encodeEffect(Schema.fromJsonString(GenerationRequest))
 
 const generateEntry = new URL("generate.ts", import.meta.url).pathname
-
-const decoder = new TextDecoder()
 
 /**
  * A step of the run that cannot produce a verdict: a build step that exited non-zero, a bin that
@@ -124,33 +135,48 @@ interface Run {
 	readonly verdict: VerdictValue
 }
 
-// A blocking spawn, so heavy steps never overlap. `env` is the whole environment: proxy variables
-// never reach the generated CLI (design C6).
+// One step at a time, so heavy steps never overlap: each runs to its end before the next starts.
+// `env` is the whole environment: proxy variables never reach the generated CLI (design C6).
 const spawn = (
 	id: string,
 	step: string,
-	command: readonly string[],
+	command: readonly [string, ...string[]],
 	options: { readonly cwd: string; readonly env?: Record<string, string> }
-): Effect.Effect<string, CorpusRunFailed> =>
-	Effect.suspend(() => {
-		const result = Bun.spawnSync([...command], {
-			cwd: options.cwd,
-			env: options.env ?? { ...process.env },
-			stderr: "pipe",
-			stdout: "pipe",
-			timeout: 600_000
-		})
-		const stdout = decoder.decode(result.stdout)
-
-		return result.exitCode === 0
-			? Effect.succeed(stdout)
-			: Effect.fail(
-					new CorpusRunFailed({
-						id,
-						output: `exit ${String(result.exitCode)}\n${stdout}${decoder.decode(result.stderr)}`,
-						step
+): Effect.Effect<string, CorpusRunFailed, ChildProcessSpawner.ChildProcessSpawner> =>
+	Effect.gen(function* spawnStep() {
+		const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+		const [file, ...args] = command
+		const failed = (output: string) => new CorpusRunFailed({ id, output, step })
+		const [stdout, stderr, exitCode] = yield* Effect.scoped(
+			Effect.flatMap(
+				spawner.spawn(
+					ChildProcess.make(file, args, {
+						cwd: options.cwd,
+						env: options.env ?? {},
+						extendEnv: options.env === undefined
 					})
-				)
+				),
+				(handle) =>
+					Effect.all(
+						[
+							Stream.mkString(Stream.decodeText(handle.stdout)),
+							Stream.mkString(Stream.decodeText(handle.stderr)),
+							handle.exitCode
+						],
+						{ concurrency: "unbounded" }
+					)
+			)
+		).pipe(
+			Effect.timeoutOrElse({
+				duration: Duration.minutes(10),
+				orElse: () => Effect.fail(failed("timed out after 10 minutes"))
+			}),
+			Effect.mapError((cause) => (cause instanceof CorpusRunFailed ? cause : failed(String(cause))))
+		)
+
+		return exitCode === 0
+			? stdout
+			: yield* Effect.fail(failed(`exit ${String(exitCode)}\n${stdout}${stderr}`))
 	})
 
 const describeElement = (element: Missing): string => {
@@ -297,12 +323,18 @@ const twinState = (twin: Twin): string => {
 const generateApart = (id: string, request: typeof GenerationRequest.Type) =>
 	Effect.gen(function* generateRun() {
 		const fs = yield* FileSystem.FileSystem
-		const result = Bun.spawnSync(
-			[process.execPath, ...process.execArgv, generateEntry, yield* encodeRequest(request)],
-			{ env: { ...process.env }, stderr: "inherit", stdout: "inherit" }
-		)
-		if (result.exitCode !== 0 || !(yield* fs.exists(request.result))) {
-			return yield* new CorpusGenerateFailed({ exitCode: result.exitCode, id })
+		const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+		const exitCode = yield* spawner
+			.exitCode(
+				ChildProcess.make(
+					process.execPath,
+					[...process.execArgv, generateEntry, yield* encodeRequest(request)],
+					{ extendEnv: true, stdout: "inherit", stderr: "inherit" }
+				)
+			)
+			.pipe(Effect.mapError(() => new CorpusGenerateFailed({ exitCode: null, id })))
+		if (exitCode !== 0 || !(yield* fs.exists(request.result))) {
+			return yield* new CorpusGenerateFailed({ exitCode, id })
 		}
 
 		const generation = yield* decodeGeneration(yield* fs.readFileString(request.result))
@@ -356,16 +388,13 @@ const runEntry = (entry: Entry, corpusVersion: number, context: Context) =>
 		)
 		const { twin } = generated
 
-		const bun = process.execPath
 		yield* spawn(
 			entry.id,
 			"install",
-			[bun, "install", "--prefer-offline", "--no-save", "--ignore-scripts"],
-			{
-				cwd: jsonDir
-			}
+			["pnpm", "install", "--prefer-offline", "--ignore-scripts", "--ignore-workspace"],
+			{ cwd: jsonDir }
 		)
-		yield* spawn(entry.id, "build", [bun, "run", "build"], { cwd: jsonDir })
+		yield* spawn(entry.id, "build", ["pnpm", "run", "build"], { cwd: jsonDir })
 
 		const manifest = yield* fs.readFileString(path.join(jsonDir, "package.json"))
 		const { bin } = yield* Schema.decodeUnknownEffect(
@@ -394,7 +423,7 @@ const runEntry = (entry: Entry, corpusVersion: number, context: Context) =>
 		const describe = yield* spawn(
 			entry.id,
 			"describe",
-			[bun, path.join(jsonDir, ...binPath.split("/")), "--describe"],
+			[process.execPath, path.join(jsonDir, ...binPath.split("/")), "--describe"],
 			{ cwd: jsonDir, env: {} }
 		)
 		const report = yield* fs.readFileString(path.join(jsonDir, reportFile))

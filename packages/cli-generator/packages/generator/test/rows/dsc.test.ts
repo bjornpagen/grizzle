@@ -7,13 +7,11 @@ import { generate, GenerateRefused } from "#generate.ts"
 import { DocumentUri } from "#model/brands.ts"
 import type { Diagnostic } from "#model/diagnostic.ts"
 import type { Json } from "#model/pointer.ts"
-import generatorPackage from "#package.json" with { type: "json" }
 import { startCaptureServer } from "#test/fixtures/capture-server.ts"
 import type { RecordedRequest } from "#test/fixtures/capture-server.ts"
 import { setEnv } from "#test/support/env.ts"
 import { generateFixture, preparePackage, runBin } from "#test/support/generated-cli.ts"
 import type { GeneratedPackage } from "#test/support/generated-cli.ts"
-import generatorTsconfig from "#tsconfig.json" with { type: "json" }
 
 // The Milestone 2 witness for the Discriminator Object rows DSC-01 to DSC-11 and the XML Object
 // rows XML-01 to XML-08: one generated package per version line, built once, run against the
@@ -72,11 +70,6 @@ interface Generated {
 // The in-process generation of each line's fixture: the diagnostics its rows assert.
 const fixtureRuns = new Map<Line, Generated>()
 
-const generator = {
-	packageJson: Schema.decodeUnknownSync(Schema.Json)(generatorPackage),
-	tsconfig: Schema.decodeUnknownSync(Schema.Json)(generatorTsconfig)
-}
-
 const decodeDocument = Schema.decodeUnknownSync(DocumentUri)
 
 let counter = 0
@@ -97,7 +90,6 @@ const inProcess = async (document: Members): Promise<Generated> => {
 		generate(
 			{
 				document: decodeDocument("file:///fixture/openapi.json"),
-				generator,
 				outDir: nodePath.join(dir, "out"),
 				source: { _tag: "File", path: specPath },
 				strict: false

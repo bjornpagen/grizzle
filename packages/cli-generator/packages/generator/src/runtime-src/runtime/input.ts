@@ -16,7 +16,6 @@ import { Argument, CliError, Flag } from "effect/cli"
 import { Base64, Base64Url } from "effect/encoding"
 import { HttpBody } from "effect/http"
 import { UsageError } from "../domain/errors.ts"
-import { FileBody } from "./file-body.ts"
 import type { MediaDeclaration } from "./negotiate.ts"
 import * as Negotiate from "./negotiate.ts"
 import type { Secret } from "./redact.ts"
@@ -232,8 +231,8 @@ export const readBodyFile = (
 ): Effect.Effect<Uint8Array, UsageError, FileSystem.FileSystem | Stdio.Stdio | StdinClaim> =>
 	readFlagFile(path, bodyFileName)
 
-// A body stream that counts the bytes it yields, so a file that grows past its stat size, or a
-// `FileBody` that under-declares, still stops at the limit; the send step sees a `UsageError`.
+// A body stream that counts the bytes it yields, so a file that grows past its stat size still
+// stops at the limit; the send step sees a `UsageError`.
 const limited = (
 	body: HttpBody.HttpBody,
 	limit: number
@@ -259,14 +258,14 @@ const limited = (
 }
 
 // Only a regular file is accepted. It is opened once here, so a missing read permission fails at
-// flag time, then streamed through `FileBody` with its size. A directory is refused, and so is a
+// flag time, then streamed with its size as `Content-Length`. A directory is refused, and so is a
 // pipe or device (a FIFO, `<(cmd)`): it has no size to trust, and the platform file system reads
 // by position, which a pipe refuses. Such input goes through `-` instead. `limit` is the in-memory
 // ceiling the file is counted against; `undefined` streams it unguarded.
 const openFile = (
 	path: string,
 	limit?: number
-): Effect.Effect<HttpBody.HttpBody, UsageError, FileBody | FileSystem.FileSystem> =>
+): Effect.Effect<HttpBody.HttpBody, UsageError, FileSystem.FileSystem> =>
 	Effect.gen(function* open() {
 		const fs = yield* FileSystem.FileSystem
 		const info = yield* fs.stat(path).pipe(Effect.mapError(cannotRead))
@@ -281,9 +280,10 @@ const openFile = (
 
 		yield* fs.open(path, { flag: "r" }).pipe(Effect.scoped, Effect.mapError(cannotRead))
 
-		const fileBody = yield* FileBody
-
-		const opened = fileBody.open(path).pipe(Effect.mapError(cannotRead))
+		const opened = HttpBody.file(path).pipe(
+			Effect.provideService(FileSystem.FileSystem, fs),
+			Effect.mapError(cannotRead)
+		)
 
 		return yield* limit === undefined
 			? opened
@@ -301,7 +301,7 @@ const stdinBody: Effect.Effect<HttpBody.HttpBody, UsageError, Stdio.Stdio | Stdi
 
 /**
  * A binary request body from `--body-file` only (design 6.3 Binary). A regular file streams through
- * `FileBody` with its size; stdin (`-`) streams chunked under the one stdin claim, with no
+ * its size as `Content-Length`; stdin (`-`) streams chunked under the one stdin claim, with no
  * `Content-Length`. Both count their bytes against the limit as they stream, so an over-limit or
  * unreadable stdin fails the send with a `UsageError` naming `--body-file`. `--body` is refused,
  * and so is `--body` together with `--body-file`. With neither flag a required body is a
@@ -317,7 +317,7 @@ export const binaryBody = (options: {
 }): Effect.Effect<
 	HttpBody.HttpBody,
 	UsageError,
-	FileBody | FileSystem.FileSystem | Stdio.Stdio | StdinClaim
+	FileSystem.FileSystem | Stdio.Stdio | StdinClaim
 > => {
 	if (Option.isSome(options.body)) {
 		return Effect.fail(
@@ -346,7 +346,7 @@ export const binaryBody = (options: {
 /**
  * A sequential request body (NDJSON, JSON Lines, JSON-seq; design 6.3 Sequential uploads) or a text
  * body, exactly as the operator gives it: `--body` is the text as given; a `--body-file` regular
- * file streams through `FileBody` with its size; `-` streams stdin chunked under the one stdin
+ * file streams with its size as `Content-Length`; `-` streams stdin chunked under the one stdin
  * claim. The bytes are never parsed, re-framed, buffered whole, asserted against a schema or
  * counted against the in-memory read limit, which bounds only reads into memory (design I5). The
  * caller sets the declared media type as `Content-Type`. `--body` together with `--body-file` is
@@ -359,7 +359,7 @@ export const sequentialBody = (options: {
 }): Effect.Effect<
 	HttpBody.HttpBody,
 	UsageError,
-	FileBody | FileSystem.FileSystem | Stdio.Stdio | StdinClaim
+	FileSystem.FileSystem | Stdio.Stdio | StdinClaim
 > => {
 	if (Option.isSome(options.body)) {
 		return Option.isSome(options.bodyFile)
@@ -507,15 +507,15 @@ export interface RawJson {
 
 type Reviver = (key: string, value: JsonNode, context: { readonly source?: string }) => JsonNode
 
-// TypeScript 7.0.2 and @types/bun 1.4.2 declare no `JSON.rawJSON` and no reviver `context`, while
-// Bun provides both (measured, m1.md 3). One typed binding here, no global augmentation.
+// TypeScript 7.1 and @types/node 26 declare no `JSON.rawJSON` and no reviver `context`, while
+// Node 26 provides both. One typed binding here, no global augmentation.
 // oxlint-disable-next-line typescript/no-inferrable-types -- the wide type selects Reflect.get's untyped overload
 const jsonGlobal: string = "JSON"
 
 const jsonEngine: {
 	readonly parse: (text: string, reviver?: Reviver) => JsonNode
 	readonly rawJSON: (text: string) => RawJson
-	// oxlint-disable-next-line anti-slop/no-reflect-get, typescript/no-unsafe-assignment -- the one way to type Bun's JSON without a global augmentation
+	// oxlint-disable-next-line anti-slop/no-reflect-get, typescript/no-unsafe-assignment -- the one way to type Node's JSON without a global augmentation
 } = Reflect.get(globalThis, jsonGlobal)
 
 /**

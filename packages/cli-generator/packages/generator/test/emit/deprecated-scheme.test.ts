@@ -12,10 +12,23 @@ import { planNames } from "#names/index.ts"
 import { normalize } from "#normalize/index.ts"
 import { boundOrigins } from "#normalize/servers.ts"
 import { resolve } from "#resolve/index.ts"
-import generatorTsconfig from "#tsconfig.json" with { type: "json" }
 
 // The golden declares one scheme, `bearerAuth`. Each case decodes it again with the `deprecated`
 // flag the 3.2.1 document would have given it.
+
+const generatedCompilerOptions = {
+	allowImportingTsExtensions: true,
+	exactOptionalPropertyTypes: true,
+	lib: ["ESNext"],
+	module: "ESNext",
+	moduleResolution: "Bundler",
+	noEmit: true,
+	noUncheckedIndexedAccess: true,
+	skipLibCheck: true,
+	strict: true,
+	target: "ESNext",
+	types: ["node"]
+}
 
 const root = nodePath.resolve(import.meta.dirname, "../..")
 
@@ -111,7 +124,7 @@ describe("emitApi: the emitted security table against the runtime type", () => {
 		nodeFs.writeFileSync(nodePath.join(dir, "src/api/security.ts"), content)
 		nodeFs.writeFileSync(
 			nodePath.join(dir, "tsconfig.json"),
-			JSON.stringify({ compilerOptions: generatorTsconfig.compilerOptions, include: ["src"] })
+			JSON.stringify({ compilerOptions: generatedCompilerOptions, include: ["src"] })
 		)
 		nodeFs.symlinkSync(nodePath.join(root, "node_modules"), nodePath.join(dir, "node_modules"))
 

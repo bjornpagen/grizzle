@@ -12,10 +12,23 @@ import { planNames } from "#names/index.ts"
 import { normalize } from "#normalize/index.ts"
 import { boundOrigins } from "#normalize/servers.ts"
 import { resolve } from "#resolve/index.ts"
-import generatorTsconfig from "#tsconfig.json" with { type: "json" }
 
 // The golden operation `users-update` declares three responses (200, 404, default) and no response
 // header. Each fixture swaps in the response headers it needs, as encoded data decoded again.
+
+const generatedCompilerOptions = {
+	allowImportingTsExtensions: true,
+	exactOptionalPropertyTypes: true,
+	lib: ["ESNext"],
+	module: "ESNext",
+	moduleResolution: "Bundler",
+	noEmit: true,
+	noUncheckedIndexedAccess: true,
+	skipLibCheck: true,
+	strict: true,
+	target: "ESNext",
+	types: ["node"]
+}
 
 const root = nodePath.resolve(import.meta.dirname, "../..")
 
@@ -162,7 +175,7 @@ describe("emitApi: the emitted meta against the runtime type", () => {
 		)
 		nodeFs.writeFileSync(
 			nodePath.join(dir, "tsconfig.json"),
-			JSON.stringify({ compilerOptions: generatorTsconfig.compilerOptions, include: ["src"] })
+			JSON.stringify({ compilerOptions: generatedCompilerOptions, include: ["src"] })
 		)
 		nodeFs.symlinkSync(nodePath.join(root, "node_modules"), nodePath.join(dir, "node_modules"))
 

@@ -88,8 +88,8 @@ const rules = {
 	"PTH-23/method-not-allowed": {
 		anchor: "path-item-object",
 		element: "additionalOperations key",
-		hint: "Use a method token from the supported set, in its exact capitalization.",
-		message: "The additionalOperations key is not a supported HTTP method token.",
+		hint: "Use an RFC 9110 method token other than CONNECT, which opens a tunnel and sends no request.",
+		message: "The additionalOperations key is not a method token a request can be sent with.",
 		scope: "operation"
 	},
 	"PTH-24/fixed-method-key": {

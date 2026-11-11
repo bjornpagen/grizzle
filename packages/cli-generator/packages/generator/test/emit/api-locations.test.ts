@@ -14,10 +14,23 @@ import { normalize } from "#normalize/index.ts"
 import { boundOrigins } from "#normalize/servers.ts"
 import { resolve } from "#resolve/index.ts"
 import type { JsonNumber } from "#runtime-src/runtime/input.ts"
-import generatorTsconfig from "#tsconfig.json" with { type: "json" }
 
 // Normalize refuses cookie and querystring parameters and form-urlencoded bodies until m2-nz7 and
 // m2-nz8, so these fixtures start from a normalized operation and swap the construct in directly.
+
+const generatedCompilerOptions = {
+	allowImportingTsExtensions: true,
+	exactOptionalPropertyTypes: true,
+	lib: ["ESNext"],
+	module: "ESNext",
+	moduleResolution: "Bundler",
+	noEmit: true,
+	noUncheckedIndexedAccess: true,
+	skipLibCheck: true,
+	strict: true,
+	target: "ESNext",
+	types: ["node"]
+}
 
 const root = nodePath.resolve(import.meta.dirname, "../..")
 
@@ -351,7 +364,7 @@ const everyConstruct = async (): Promise<string> => {
 	nodeFs.writeFileSync(nodePath.join(dir, "src/api/users.ts"), content)
 	nodeFs.writeFileSync(
 		nodePath.join(dir, "tsconfig.json"),
-		JSON.stringify({ compilerOptions: generatorTsconfig.compilerOptions, include: ["src"] })
+		JSON.stringify({ compilerOptions: generatedCompilerOptions, include: ["src"] })
 	)
 	nodeFs.symlinkSync(nodePath.join(root, "node_modules"), nodePath.join(dir, "node_modules"))
 

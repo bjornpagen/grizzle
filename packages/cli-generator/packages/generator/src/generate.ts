@@ -11,7 +11,7 @@ import type { DomainEmitError } from "#emit/domain.ts"
 import { stringLiteral } from "#emit/escape.ts"
 import { emitScaffold } from "#emit/index.ts"
 import { PackageEmitError } from "#emit/package.ts"
-import type { EmittedFile, GeneratorSource } from "#emit/package.ts"
+import type { EmittedFile } from "#emit/package.ts"
 import type { PrinterError } from "#emit/printer.ts"
 import { readFileBounded, readStreamBounded } from "#load/budget.ts"
 import { duplicateUri } from "#load/document-set.ts"
@@ -35,6 +35,7 @@ import { distinctDiagnostics } from "#normalize/operations.ts"
 import { normalizeSchemas } from "#normalize/schemas.ts"
 import type { SchemaBudgetExceeded, SchemaImportDefect } from "#normalize/schemas.ts"
 import { boundOrigins } from "#normalize/servers.ts"
+import generatorManifest from "#package.json" with { type: "json" }
 import {
 	makeGenerationReport,
 	nonStandardEntries,
@@ -70,8 +71,7 @@ export type SpecSource =
 
 /**
  * One generator run: the specification, its retrieval URI, the other documents `$ref` may resolve
- * over, the output directory, `--strict`, and the generator's own `package.json` and
- * `tsconfig.json` (the emitted pins and the report's version), which the caller reads.
+ * over, the output directory and `--strict`.
  */
 export interface GenerateInput {
 	readonly document: Document
@@ -79,7 +79,6 @@ export interface GenerateInput {
 	 * The document set (`--document`, `--ref-root`; design 3.3). Absent, the set is the entry alone.
 	 */
 	readonly documents?: DocumentSet
-	readonly generator: GeneratorSource
 	readonly outDir: string
 	readonly source: SpecSource
 	readonly strict: boolean
@@ -143,8 +142,6 @@ const emitHints: Readonly<Record<CliRefusal["reason"], string | undefined>> = {
 	"unsupported-flag": undefined,
 	"unsupported-parameter": undefined
 }
-
-const GeneratorVersion = Schema.Struct({ version: Schema.String })
 
 const DeclaredOpenapi = Schema.Struct({ openapi: Schema.String })
 
@@ -597,12 +594,9 @@ export const generate = (
 			api,
 			config: author.value,
 			diagnostics,
-			generator: input.generator,
 			plan
 		})
-		const { version } = yield* Schema.decodeUnknownEffect(GeneratorVersion)(
-			input.generator.packageJson
-		).pipe(Effect.mapError(() => new PackageEmitError({ reason: "invalid-generator-source" })))
+		const { version } = generatorManifest
 		const documentSha256 = yield* sha256Hex(bytes)
 		const configSha256 = yield* sha256Hex(author.bytes)
 		const report = makeGenerationReport({

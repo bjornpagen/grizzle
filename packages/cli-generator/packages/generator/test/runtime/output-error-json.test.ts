@@ -31,6 +31,7 @@ import {
 } from "#runtime-src/domain/errors.ts"
 import * as Auth from "#runtime-src/runtime/auth.ts"
 import * as BaseUrl from "#runtime-src/runtime/base-url.ts"
+import { Transport } from "#runtime-src/runtime/client.ts"
 import type * as Client from "#runtime-src/runtime/client.ts"
 import * as Input from "#runtime-src/runtime/input.ts"
 import * as Output from "#runtime-src/runtime/output.ts"
@@ -107,9 +108,11 @@ const sendLayer = Layer.mergeAll(
 	FileSystem.layerNoop({}),
 	Path.layer,
 	Input.stdinClaimLayer,
-	Layer.succeed(HttpClient.HttpClient, client),
+	Layer.succeed(Transport, {
+		certified: Option.none(),
+		plain: { direct: client, environment: client }
+	}),
 	Layer.succeed(Output.ClientPolicy, {
-		allowed: new Set(["GET", "POST"]),
 		binName: "example",
 		direct,
 		version: "1.2.3"

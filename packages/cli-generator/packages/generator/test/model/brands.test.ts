@@ -14,7 +14,6 @@ import {
 	ServerTemplate,
 	WireName
 } from "#model/brands.ts"
-import { methodTokens } from "#model/method-tokens.ts"
 import { parsePointer } from "#model/pointer.ts"
 import hostile from "#test/fixtures/seeds/hostile.json" with { type: "json" }
 import paths from "#test/fixtures/seeds/paths.json" with { type: "json" }
@@ -74,7 +73,7 @@ const brands = [
 	["MediaRange", MediaRange, "image/*", "image"],
 	["PathTemplate", PathTemplate, "/users/{id}/posts", "users/{id}"],
 	["ServerTemplate", ServerTemplate, "https://{region}.example.com/v1", "https://a b/{"],
-	["MethodToken", MethodToken, "PROPFIND", "patch"],
+	["MethodToken", MethodToken, "PROPFIND", "CONNECT"],
 	["SafeText", SafeText, "Line one\nline\ttwo", "bell\u0007"],
 	["DocumentUri", DocumentUri, "file:///specs/api.yaml", "no scheme"],
 	["JsonPointer", JsonPointer, "/a~1b/0", "a/b"]
@@ -236,25 +235,6 @@ describe("branded codecs", () => {
 		}
 		for (const good of ["__proto__", "constructor", "prototype"]) {
 			expect(issueTag(HeaderName, good)).toBe("accepted")
-		}
-	})
-})
-
-describe("method-token allowlist", () => {
-	test("has 35 unique uppercase entries", () => {
-		expect(methodTokens.length).toBe(35)
-		expect(new Set(methodTokens).size).toBe(35)
-		for (const token of methodTokens) {
-			expect(token.toUpperCase()).toBe(token)
-		}
-	})
-
-	test("MethodToken accepts every allowlisted token and rejects others", () => {
-		for (const token of methodTokens) {
-			expect(issueTag(MethodToken, token)).toBe("accepted")
-		}
-		for (const bad of ["patch", "Query", "PTH-23", "BAD TOKEN", "", "FOO"]) {
-			expect(issueTag(MethodToken, bad)).toBe("rejected")
 		}
 	})
 })

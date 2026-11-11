@@ -11,9 +11,7 @@ import { decodeAuthorConfig } from "#model/author-config.ts"
 import { DocumentUri } from "#model/brands.ts"
 import { planNames } from "#names/index.ts"
 import { normalize } from "#normalize/index.ts"
-import generatorPackage from "#package.json" with { type: "json" }
 import { resolve } from "#resolve/index.ts"
-import generatorTsconfig from "#tsconfig.json" with { type: "json" }
 
 const root = nodePath.resolve(import.meta.dirname, "../..")
 
@@ -49,10 +47,6 @@ const scaffoldInput = Effect.gen(function* prepare() {
 		api,
 		config,
 		diagnostics: [...diagnostics, ...plan.diagnostics],
-		generator: {
-			packageJson: Schema.decodeUnknownSync(Schema.Json)(generatorPackage),
-			tsconfig: Schema.decodeUnknownSync(Schema.Json)(generatorTsconfig)
-		},
 		plan
 	}
 

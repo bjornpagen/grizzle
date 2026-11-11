@@ -2,7 +2,6 @@ import { NodeFileSystem } from "@effect/platform-node"
 import { Effect, Layer, Option, Schema, Sink, Stdio, Stream } from "effect"
 import { HttpBody } from "effect/http"
 import { describe, expect, test } from "vitest"
-import * as FileBodyModule from "#runtime-src/runtime/file-body.ts"
 import * as Input from "#runtime-src/runtime/input.ts"
 import * as Serialize from "#runtime-src/runtime/serialize.ts"
 
@@ -23,7 +22,7 @@ const stdinOf = (...chunks: readonly Uint8Array[]): Layer.Layer<Stdio.Stdio> =>
 
 const inputLayer = (...chunks: readonly Uint8Array[]) =>
 	Layer.mergeAll(
-		FileBodyModule.layer.pipe(Layer.provide(NodeFileSystem.layer)),
+		NodeFileSystem.layer,
 		NodeFileSystem.layer,
 		stdinOf(...chunks),
 		Input.stdinClaimLayer

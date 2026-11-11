@@ -10,7 +10,6 @@ import * as Library from "#index.ts"
 import { DocumentUri } from "#model/brands.ts"
 import generatorPackage from "#package.json" with { type: "json" }
 import { GenerationReport, generatorExitStatus } from "#report/index.ts"
-import generatorTsconfig from "#tsconfig.json" with { type: "json" }
 
 const root = nodePath.resolve(import.meta.dirname, "..")
 
@@ -34,11 +33,6 @@ const goldenConfig = readFixture("author-config.json")
 const document = Schema.decodeUnknownSync(DocumentUri)("file:///golden/openapi.json")
 
 const configDocument = Schema.decodeUnknownSync(DocumentUri)("file:///golden/author-config.json")
-
-const generator = {
-	packageJson: Schema.decodeUnknownSync(Schema.Json)(generatorPackage),
-	tsconfig: Schema.decodeUnknownSync(Schema.Json)(generatorTsconfig)
-}
 
 const layer = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer, NodeCrypto.layerDigest)
 
@@ -87,7 +81,6 @@ const run = <A>(
 					generate(
 						{
 							document,
-							generator,
 							outDir: out,
 							source: { _tag: "File", path: specPath },
 							strict: options.strict ?? false
@@ -437,7 +430,6 @@ describe("generate", () => {
 					generate(
 						{
 							document,
-							generator,
 							outDir: out,
 							source: { _tag: "File", path: path.join(dir, "absent.json") },
 							strict: false

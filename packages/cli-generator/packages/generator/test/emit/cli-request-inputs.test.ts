@@ -276,7 +276,7 @@ const generator = {
 
 const typeCheck = async (variant: Variant, name: string) => {
 	const { apiFiles, cli, domain } = await run(variant)
-	const scaffold = await Effect.runPromise(emitPackageFiles(config, generator))
+	const scaffold = await Effect.runPromise(emitPackageFiles(config))
 	const dir = nodePath.join(work, name)
 	const files: readonly EmittedFile[] = [
 		domain,

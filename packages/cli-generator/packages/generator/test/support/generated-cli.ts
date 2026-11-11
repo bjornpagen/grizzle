@@ -5,17 +5,10 @@ import type { PlatformError, Scope } from "effect"
 import { generate } from "#generate.ts"
 import type { GenerateError } from "#generate.ts"
 import { DocumentUri } from "#model/brands.ts"
-import generatorPackage from "#package.json" with { type: "json" }
-import generatorTsconfig from "#tsconfig.json" with { type: "json" }
 
 const memguard = nodePath.resolve(import.meta.dirname, "../../tools/memguard.sh")
 
 const ceilingMib = process.env.MEMGUARD_MIB ?? "4096"
-
-const generator = {
-	packageJson: Schema.decodeUnknownSync(Schema.Json)(generatorPackage),
-	tsconfig: Schema.decodeUnknownSync(Schema.Json)(generatorTsconfig)
-}
 
 const decodeDocument = Schema.decodeUnknownSync(DocumentUri)
 
@@ -102,7 +95,6 @@ export const generateFixture = (
 		yield* generate(
 			{
 				document: documentFor(fixture.specPath),
-				generator,
 				outDir: dir,
 				source: { _tag: "File", path: fixture.specPath },
 				strict: false

@@ -9,9 +9,7 @@ import type { Diagnostic } from "#model/diagnostic.ts"
 import type { Json } from "#model/pointer.ts"
 import { normalizeBody } from "#normalize/bodies.ts"
 import { normalizeResponses } from "#normalize/responses.ts"
-import generatorPackage from "#package.json" with { type: "json" }
 import { resolve } from "#resolve/index.ts"
-import generatorTsconfig from "#tsconfig.json" with { type: "json" }
 import type { Line } from "#validate/index.ts"
 
 // Media type fixes found by the body witness: MED-26 (array form-data body refused), MED-10
@@ -209,10 +207,6 @@ describe("MED-24 an invalid media type key is reported once", () => {
 			generate(
 				{
 					document: decode("file:///fixture/openapi.json"),
-					generator: {
-						packageJson: Schema.decodeUnknownSync(Schema.Json)(generatorPackage),
-						tsconfig: Schema.decodeUnknownSync(Schema.Json)(generatorTsconfig)
-					},
 					outDir: nodePath.join(work, "out"),
 					source: { _tag: "File", path: spec },
 					strict: false

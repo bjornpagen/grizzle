@@ -11,14 +11,12 @@ import type { DocumentPair } from "#load/document-set.ts"
 import { DocumentUri } from "#model/brands.ts"
 import type { Diagnostic } from "#model/diagnostic.ts"
 import type { Json } from "#model/pointer.ts"
-import generatorPackage from "#package.json" with { type: "json" }
 import { resolve, ResolveRefusal } from "#resolve/index.ts"
 import type { ResolveLimits, ResolveMember } from "#resolve/index.ts"
 import { startCaptureServer } from "#test/fixtures/capture-server.ts"
 import type { RecordedRequest } from "#test/fixtures/capture-server.ts"
 import { generateFixture, preparePackage, runBin } from "#test/support/generated-cli.ts"
 import type { GeneratedPackage } from "#test/support/generated-cli.ts"
-import generatorTsconfig from "#tsconfig.json" with { type: "json" }
 import type { Line as ResolveLine } from "#validate/index.ts"
 
 // The Milestone 2 witness for the Reference Object and $ref rows (REF-*): one generated package
@@ -965,11 +963,6 @@ interface Generated {
 
 let counter = 0
 
-const generator = {
-	packageJson: Schema.decodeUnknownSync(Schema.Json)(generatorPackage),
-	tsconfig: Schema.decodeUnknownSync(Schema.Json)(generatorTsconfig)
-}
-
 interface Case {
 	// The entry document, written at `api/openapi.json` under the case directory.
 	readonly entry: Members
@@ -1035,7 +1028,6 @@ const inProcess = async ({ entry, files = {}, links = {}, refRoot, set = {} }: C
 				{
 					document: decodeDocument(pathToFileURL(nodeFs.realpathSync(specPath)).href),
 					documents,
-					generator,
 					outDir: nodePath.join(dir, "out"),
 					source: { _tag: "File", path: specPath },
 					strict: false

@@ -2,8 +2,6 @@ import { NodeFileSystem } from "@effect/platform-node"
 import { Effect, FileSystem, Layer, Option, Schema, Sink, Stdio, Stream } from "effect"
 import type { HttpBody } from "effect/http"
 import { describe, expect, test } from "vitest"
-import { layer as fileBodyLayer } from "#runtime-src/runtime/file-body.ts"
-import type { FileBody } from "#runtime-src/runtime/file-body.ts"
 import * as Input from "#runtime-src/runtime/input.ts"
 
 // Five bytes whose base64 text uses both '+' and '/', so base64 and base64url differ.
@@ -27,12 +25,7 @@ const stdinOf = (...chunks: readonly Uint8Array[]): Layer.Layer<Stdio.Stdio> =>
 	)
 
 const layer = (...chunks: readonly Uint8Array[]) =>
-	Layer.mergeAll(
-		fileBodyLayer.pipe(Layer.provide(NodeFileSystem.layer)),
-		NodeFileSystem.layer,
-		stdinOf(...chunks),
-		Input.stdinClaimLayer
-	)
+	Layer.mergeAll(NodeFileSystem.layer, stdinOf(...chunks), Input.stdinClaimLayer)
 
 const withTempFile = <A, E, R>(
 	content: Uint8Array,
@@ -72,7 +65,7 @@ const merge = (options: {
 	})
 
 const run = <A, E>(
-	effect: Effect.Effect<A, E, FileBody | FileSystem.FileSystem | Stdio.Stdio | Input.StdinClaim>,
+	effect: Effect.Effect<A, E, FileSystem.FileSystem | Stdio.Stdio | Input.StdinClaim>,
 	stdin: Uint8Array = five
 ) => Effect.runPromise(effect.pipe(Effect.provide(layer(stdin))))
 

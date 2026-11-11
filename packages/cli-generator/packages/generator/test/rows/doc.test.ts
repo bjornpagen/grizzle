@@ -10,12 +10,10 @@ import { makeDocumentSet, parseDocumentPair } from "#load/document-set.ts"
 import { DocumentUri } from "#model/brands.ts"
 import type { Diagnostic } from "#model/diagnostic.ts"
 import type { Json } from "#model/pointer.ts"
-import generatorPackage from "#package.json" with { type: "json" }
 import { startCaptureServer } from "#test/fixtures/capture-server.ts"
 import type { RecordedRequest } from "#test/fixtures/capture-server.ts"
 import { generateFixture, preparePackage, runBin } from "#test/support/generated-cli.ts"
 import type { GeneratedPackage } from "#test/support/generated-cli.ts"
-import generatorTsconfig from "#tsconfig.json" with { type: "json" }
 import { manifestFileName } from "#write/manifest.ts"
 
 // The Milestone 2 witness for the Document root, Official schema validation and Components rows
@@ -325,11 +323,6 @@ interface Generated {
 
 let counter = 0
 
-const generator = {
-	packageJson: Schema.decodeUnknownSync(Schema.Json)(generatorPackage),
-	tsconfig: Schema.decodeUnknownSync(Schema.Json)(generatorTsconfig)
-}
-
 const decodeDocument = Schema.decodeUnknownSync(DocumentUri)
 
 interface Case {
@@ -373,7 +366,6 @@ const inProcess = async ({ entry, file, set = {} }: Case): Promise<Generated> =>
 				{
 					document: decodeDocument(pathToFileURL(nodeFs.realpathSync(specPath)).href),
 					documents,
-					generator,
 					outDir,
 					source: { _tag: "File", path: specPath },
 					strict: false

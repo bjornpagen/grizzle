@@ -24,7 +24,7 @@ import {
 } from "effect"
 import type { Command, HelpDoc } from "effect/cli"
 import { CliError, CliOutput, Flag, GlobalFlag } from "effect/cli"
-import { Headers, HttpClient, HttpClientRequest, Url, UrlParams } from "effect/http"
+import { Headers, HttpClientRequest, Url, UrlParams } from "effect/http"
 import type { HttpClientResponse } from "effect/http"
 import {
 	ApiResponseError,
@@ -41,12 +41,12 @@ import {
 	allowCredentialsForBaseUrl,
 	attach,
 	attachPlaceholders,
-	certificateInitFor,
 	cookiePairs,
 	credentialOrigins,
 	evaluate,
 	placeholder,
 	plaintextWarning,
+	presentsCertificate,
 	preview,
 	redactedNames,
 	Schemes,
@@ -63,7 +63,6 @@ import {
 	serverVariableSetting
 } from "./base-url.ts"
 import type { ServersTable } from "./base-url.ts"
-import type { DirectRoute } from "./client.ts"
 import {
 	decodedQueryName,
 	decodeWholeNumber,
@@ -73,6 +72,7 @@ import {
 	retryTransform,
 	sendOrder,
 	setUserAgent,
+	Transport,
 	verboseSetting,
 	verboseTransform,
 	withUserAgent,
@@ -1406,16 +1406,12 @@ export interface OperationMeta {
 }
 
 /**
- * The client policy inputs `bin.ts` provides: the method allowlist (design 6.7), the request
- * init a loopback hop executes with (design 6.5 Loopback hosts), and the `User-Agent` name and
- * version (design 6.2).
+ * The client policy input `bin.ts` provides: the `User-Agent` name and version (design 6.2).
  */
 export class ClientPolicy extends Context.Service<
 	ClientPolicy,
 	{
-		readonly allowed: ReadonlySet<string>
 		readonly binName: string
-		readonly direct: DirectRoute
 		readonly version: string
 	}
 >()("openapi-cli/runtime/ClientPolicy") {}
@@ -2163,11 +2159,11 @@ const printDryRun = (
  * record, and its secret-file values), and the server's `Retry-After` when retrying stopped at the
  * cap.
  *
- * The policy client, innermost first (design D-AD7; audit ad9f808b F5): `verboseTransform` on the
- * inner client the redirect loop receives, so `--verbose` sees each hop of each attempt as sent;
- * `redirectLoop` (per-hop attach gated by the base's provenance, method allowlist, direct route for
- * loopback hops, the per-hop client certificate for the operation's bound origins only, the
- * per-attempt `--timeout`); `retryTransform`, so one attempt is one run of the
+ * The policy client, innermost first (design D-AD7; audit ad9f808b F5): `verboseTransform` on each
+ * transport client the redirect loop sends a hop through, so `--verbose` sees each hop of each
+ * attempt as sent; `redirectLoop` (per-hop attach gated by the base's provenance, the direct client
+ * for loopback hops, the certified client for the operation's bound origins only, the per-attempt
+ * `--timeout`); `retryTransform`, so one attempt is one run of the
  * loop; `withUserAgent`. No transform wraps a response outside `retryTransform`, so the final
  * response is the one `send` reads the `RetryAfterCap` record for. `retryTransform` sees the
  * request before the attach step, so its `Idempotency-Key` test sees only a header parameter the
@@ -2275,22 +2271,15 @@ export const send =
 
 			const idleSeconds = yield* effectiveIdleTimeoutSeconds(envPrefix)
 			const scrub = (text: string): string => scrubbedAndSanitized(text, scrubbed)
-			const client = (yield* HttpClient.HttpClient).pipe(
-				verboseTransform(scrub, sensitive),
-				redirectLoop(
-					attach(security, { credentials, origins }),
-					policy.direct,
-					policy.allowed,
-					// Per hop, from the operation's bound origins: the flag never extends the certificate.
-					// An alternative without mutualTLS presents it on no hop.
-					(url) =>
-						certificateChosen
-							? certificateInitFor(url, servers.boundOrigins)
-							: Effect.succeed(Option.none())
-				),
-				retryTransform(scrub),
-				withUserAgent(policy.binName, policy.version)
-			)
+			const transport = yield* Transport
+			const client = redirectLoop(
+				attach(security, { credentials, origins }),
+				transport,
+				// Per hop, from the operation's bound origins: the flag never extends the certificate.
+				// An alternative without mutualTLS presents it on no hop.
+				(url) => certificateChosen && presentsCertificate(url, servers.boundOrigins),
+				verboseTransform(scrub, sensitive)
+			).pipe(retryTransform(scrub), withUserAgent(policy.binName, policy.version))
 			const cap = yield* Ref.make(Option.none<number>())
 			const table = {
 				operation,

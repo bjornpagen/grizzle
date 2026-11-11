@@ -1,5 +1,4 @@
 import { Schema } from "effect"
-import { methodTokens } from "#model/method-tokens.ts"
 import { pointerPattern } from "#model/pointer.ts"
 
 const token = "[!#$%&'*+.^_`|~0-9A-Za-z-]+"
@@ -103,9 +102,13 @@ export const PathTemplate = pattern(pathPattern).pipe(
 export const ServerTemplate = pattern(serverPattern).pipe(Schema.brand("ServerTemplate"))
 
 /**
- * An HTTP method token in the Bun allowlist.
+ * An RFC 9110 method token a request is sent with, exactly as spelled: any token but `CONNECT`,
+ * which asks for a tunnel instead of a response.
  */
-export const MethodToken = Schema.Literals(methodTokens).pipe(Schema.brand("MethodToken"))
+export const MethodToken = pattern(tokenPattern).pipe(
+	Schema.check(Schema.makeFilter((method: string) => method !== "CONNECT")),
+	Schema.brand("MethodToken")
+)
 
 /**
  * Help-safe plain text: no controls except LF and TAB, no format, separator or lone surrogate

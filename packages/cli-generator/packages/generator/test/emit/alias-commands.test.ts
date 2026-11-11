@@ -80,7 +80,7 @@ const emitted = Effect.gen(function* emit() {
 	const bound = (servers: readonly Server[]) => boundOrigins(servers, context).origins
 	const apiFiles = yield* emitApi({ api, boundOrigins: bound, plan })
 	const cli = yield* emitCli({ api, config, plan, validationEdits: [] })
-	const scaffold = yield* emitPackageFiles(config, generator)
+	const scaffold = yield* emitPackageFiles(config)
 
 	return { apiFiles, cli, plan, scaffold }
 })

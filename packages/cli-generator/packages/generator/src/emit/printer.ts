@@ -1047,7 +1047,7 @@ const printInterface = (statement: Extract<Statement, { readonly _tag: "Interfac
 	return succeedUnless(failure, () => withDoc(statement.doc, text))
 }
 
-// A top-level call, such as `BunRuntime.runMain(program);`. Other expressions are not statements
+// A top-level call, such as `NodeRuntime.runMain(program);`. Other expressions are not statements
 // the generator writes.
 const printExpression = (statement: Extract<Statement, { readonly _tag: "Expression" }>) => {
 	const { value } = statement

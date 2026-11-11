@@ -2,7 +2,6 @@ import { NodeFileSystem } from "@effect/platform-node"
 import { Effect, FileSystem, Layer, Option, Sink, Stdio, Stream } from "effect"
 import { FetchHttpClient, HttpBody, HttpClient, HttpClientRequest } from "effect/http"
 import { afterAll, describe, expect, test } from "vitest"
-import { FileBody } from "#runtime-src/runtime/file-body.ts"
 import * as Input from "#runtime-src/runtime/input.ts"
 import * as Serialize from "#runtime-src/runtime/serialize.ts"
 import { startCaptureServer } from "#test/fixtures/capture-server.ts"
@@ -30,11 +29,7 @@ const stdinOf = (...chunks: readonly Uint8Array[]): Layer.Layer<Stdio.Stdio> =>
 	)
 
 // The layer `bin.ts` provides: a file over `Bun.file`, which fetch sends with its `Content-Length`.
-const bunFileBody = Layer.succeed(FileBody, {
-	open: (path) => Effect.succeed(HttpBody.raw(Bun.file(path)))
-})
-
-const fileLayer = Layer.mergeAll(bunFileBody, NodeFileSystem.layer)
+const fileLayer = NodeFileSystem.layer
 
 const inputLayer = (...chunks: readonly Uint8Array[]) =>
 	Layer.mergeAll(fileLayer, stdinOf(...chunks), Input.stdinClaimLayer)

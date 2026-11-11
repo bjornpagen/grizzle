@@ -224,7 +224,7 @@ const generator = {
 describe("emitApi: the emitted base64 part entry against the runtime", () => {
 	test("the emitted modules type-check", async () => {
 		const emitted = await uploads("3.1", specOf("3.1", base64Part("3.1")))
-		const scaffold = await Effect.runPromise(emitPackageFiles(config, generator))
+		const scaffold = await Effect.runPromise(emitPackageFiles(config))
 		const files: readonly EmittedFile[] = [
 			emitted.domain,
 			...emitted.apiFiles,

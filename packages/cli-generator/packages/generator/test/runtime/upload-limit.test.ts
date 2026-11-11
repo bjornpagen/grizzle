@@ -5,7 +5,6 @@ import { Effect, Layer, Option, Sink, Stdio, Stream } from "effect"
 import { HttpBody } from "effect/http"
 import { afterAll, describe, expect, test } from "vitest"
 import { UsageError } from "#runtime-src/domain/errors.ts"
-import { FileBody } from "#runtime-src/runtime/file-body.ts"
 import * as Input from "#runtime-src/runtime/input.ts"
 
 // MED-21: a binary upload over its declared maxLength is refused with a UsageError naming the flag
@@ -30,7 +29,6 @@ nodeFs.writeFileSync(tenFile, ten)
 
 const inputLayer = (stdin: Stream.Stream<Uint8Array>) =>
 	Layer.mergeAll(
-		Layer.succeed(FileBody, { open: (path) => Effect.succeed(HttpBody.raw(Bun.file(path))) }),
 		NodeFileSystem.layer,
 		Layer.succeed(
 			Stdio.Stdio,

@@ -1,16 +1,11 @@
-import { Data, Effect, Schema } from "effect"
+import platformNodeManifest from "@effect/platform-node/package.json" with { type: "json" }
+import { Data, Effect, FileSystem, Path, Schema } from "effect"
+import effectManifest from "effect/package.json" with { type: "json" }
+import typescriptManifest from "typescript/package.json" with { type: "json" }
 import { printJson, printPackageJson } from "#emit/printer.ts"
 import type { AuthorConfig } from "#model/author-config.ts"
 import { JsonLiteral } from "#model/brands.ts"
-
-/**
- * The generator's own `package.json` and `tsconfig.json`, parsed JSON, read by the caller at build
- * time. They are the single source of the emitted pins and compiler options (design 4.2, X12).
- */
-export interface GeneratorSource {
-	readonly packageJson: Schema.Json
-	readonly tsconfig: Schema.Json
-}
+import generatorManifest from "#package.json" with { type: "json" }
 
 export interface EmittedFile {
 	readonly content: string
@@ -18,31 +13,47 @@ export interface EmittedFile {
 }
 
 /**
- * The generator's own manifest or compiler options lack a value the package needs, or the package
- * holds a value the printer refuses.
+ * The package holds a value the printer refuses.
  */
 export class PackageEmitError extends Data.TaggedError("PackageEmitError")<{
-	readonly reason: "invalid-generator-source" | "unprintable-package"
+	readonly reason: "unprintable-package"
 }> {}
 
-const GeneratorPackage = Schema.Struct({
-	dependencies: Schema.Struct({ "@effect/platform-bun": Schema.String, effect: Schema.String }),
-	devDependencies: Schema.Struct({ "@types/bun": Schema.String, typescript: Schema.String }),
-	engines: Schema.Struct({ bun: Schema.String }),
-	packageManager: Schema.String
-})
+const InstalledManifest = Schema.fromJsonString(Schema.Struct({ version: Schema.String }))
 
-const GeneratorTsconfig = Schema.Struct({
-	compilerOptions: Schema.Record(Schema.String, Schema.Json)
-})
+/**
+ * The installed `@types/node` version. TypeScript refuses an import of a `@types` package's
+ * manifest, so it is read from the file the module resolution names.
+ */
+const typesNodeVersion = Effect.gen(function* typesNode() {
+	const fs = yield* FileSystem.FileSystem
+	const path = yield* Path.Path
+	const manifest = yield* path.fromFileUrl(new URL(import.meta.resolve("@types/node/package.json")))
+	const text = yield* fs.readFileString(manifest)
+	const { version } = yield* Schema.decodeUnknownEffect(InstalledManifest)(text)
 
-const decodeGeneratorPackage = Schema.decodeUnknownEffect(GeneratorPackage)
+	return version
+}).pipe(Effect.orDie)
 
-const decodeGeneratorTsconfig = Schema.decodeUnknownEffect(GeneratorTsconfig)
+/**
+ * The generated package's compiler options: strict, with the index and optional-property checks
+ * the generator's own code is held to, resolving `.ts` imports, typed against Node only.
+ */
+const compilerOptions = {
+	allowImportingTsExtensions: true,
+	exactOptionalPropertyTypes: true,
+	lib: ["ESNext"],
+	module: "ESNext",
+	moduleResolution: "Bundler",
+	noEmit: true,
+	noUncheckedIndexedAccess: true,
+	skipLibCheck: true,
+	strict: true,
+	target: "ESNext",
+	types: ["node"]
+}
 
 const decodeJson = Schema.decodeUnknownEffect(JsonLiteral)
-
-const invalidSource = () => new PackageEmitError({ reason: "invalid-generator-source" })
 
 const buildOptions = {
 	allowImportingTsExtensions: false,
@@ -57,29 +68,27 @@ const unprintable = () => new PackageEmitError({ reason: "unprintable-package" }
 
 /**
  * Emits `package.json`, `tsconfig.json` and `tsconfig.build.json` (design 4.2, 4.3; X12), sorted by
- * path. The generated package types against Bun only, so `types` is `["bun"]` whatever the
- * generator lists. Both tsc scripts run one checker (`--checkers 1`): full checking at under half
- * the default peak memory.
+ * path. The package pins exactly the versions of the packages this generator runs and checks on,
+ * read from their installed manifests, and admits the Node versions the generator admits. Both tsc scripts run one checker (`--checkers 1`): full checking at under half the default
+ * peak memory.
  */
 export const emitPackageFiles = (
-	config: AuthorConfig,
-	generator: GeneratorSource
-): Effect.Effect<readonly EmittedFile[], PackageEmitError> =>
+	config: AuthorConfig
+): Effect.Effect<readonly EmittedFile[], PackageEmitError, FileSystem.FileSystem | Path.Path> =>
 	Effect.gen(function* emit() {
-		const pins = yield* decodeGeneratorPackage(generator.packageJson).pipe(
-			Effect.mapError(invalidSource)
-		)
-		const { compilerOptions } = yield* decodeGeneratorTsconfig(generator.tsconfig).pipe(
-			Effect.mapError(invalidSource)
-		)
 		const manifest = yield* decodeJson({
 			bin: { [config.binName]: "dist/src/bin.js" },
-			dependencies: pins.dependencies,
-			devDependencies: pins.devDependencies,
-			engines: pins.engines,
+			dependencies: {
+				"@effect/platform-node": platformNodeManifest.version,
+				effect: effectManifest.version
+			},
+			devDependencies: {
+				"@types/node": yield* typesNodeVersion,
+				typescript: typescriptManifest.version
+			},
+			engines: { node: generatorManifest.engines.node },
 			files: ["dist", "README.md"],
 			name: config.package.name,
-			packageManager: pins.packageManager,
 			scripts: {
 				build: "tsc -p tsconfig.build.json --checkers 1",
 				typecheck: "tsc --noEmit --checkers 1"
@@ -88,7 +97,7 @@ export const emitPackageFiles = (
 			version: config.package.version
 		}).pipe(Effect.mapError(unprintable))
 		const tsconfig = yield* decodeJson({
-			compilerOptions: { ...compilerOptions, noEmit: true, types: ["bun"] },
+			compilerOptions,
 			exclude: ["node_modules", "dist"],
 			include: ["src"]
 		}).pipe(Effect.mapError(unprintable))

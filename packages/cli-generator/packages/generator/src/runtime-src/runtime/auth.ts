@@ -13,7 +13,6 @@ import {
 	Terminal
 } from "effect"
 import { Flag, GlobalFlag, Prompt, TerminalCapabilities } from "effect/cli"
-import type { FetchHttpClient } from "effect/http"
 import { Headers, HttpClientRequest, Url, UrlParams } from "effect/http"
 import { CredentialMissing, UsageError } from "../domain/errors.ts"
 import type { Provenance } from "./base-url.ts"
@@ -658,34 +657,13 @@ const isBound = (url: string, origins: readonly string[]): boolean => {
 }
 
 /**
- * The client-certificate request init `bin.ts` builds from `clientCertificatePaths` (Bun's `tls`
- * option). Opaque to the runtime, which only decides which hop carries it.
+ * Whether a hop presents the client certificate (design 6.5 Origin binding; MIND): exactly when
+ * `url`'s origin is in the operation's bound origin set. It takes the bound origins alone, never
+ * `credentialOrigins`, because `--allow-credentials-for-base-url` never extends to the
+ * certificate. A hop decided no is sent without the certificate, not refused.
  */
-export type CertificateInit = FetchHttpClient.RequestInit["Service"]
-
-/**
- * The certificate init for this run, or none. `bin.ts` provides it when the package has a
- * `mutualTLS` scheme with its paths configured; otherwise it is none.
- */
-export const ClientCertificate = Context.Reference<Option.Option<CertificateInit>>(
-	"openapi-cli/runtime/ClientCertificate",
-	{ defaultValue: Option.none }
-)
-
-/**
- * The per-hop certificate decision (design 6.5 Origin binding; MIND): the `ClientCertificate`
- * init only when `url`'s origin is in the operation's bound origin set, none otherwise. It takes
- * the bound origins alone, never `credentialOrigins`, because `--allow-credentials-for-base-url`
- * never extends to the certificate. A request decided none is sent without the certificate, not
- * refused.
- */
-export const certificateInitFor = (
-	url: string,
-	boundOrigins: readonly string[]
-): Effect.Effect<Option.Option<CertificateInit>> =>
-	Effect.map(Effect.service(ClientCertificate), (init) =>
-		isBound(url, boundOrigins) ? init : Option.none()
-	)
+export const presentsCertificate = (url: string, boundOrigins: readonly string[]): boolean =>
+	isBound(url, boundOrigins)
 
 /**
  * The certificate clause of the R1 withheld notice (design 6.4; m3.md P19): it names
@@ -838,7 +816,7 @@ const attachOne = (
 	request: HttpClientRequest.HttpClientRequest,
 	{ definition, scheme, value }: Credential
 ): Effect.Effect<HttpClientRequest.HttpClientRequest, UsageError> => {
-	// The certificate is presented by the request init (`certificateInitFor`), never as a header.
+	// The certificate is presented by the hop's transport (`presentsCertificate`), never as a header.
 	if (definition.kind === "mutualTLS") {
 		return Effect.succeed(request)
 	}

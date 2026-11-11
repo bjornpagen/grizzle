@@ -25,7 +25,6 @@ import type { Expr, Import, Module, Param, PrinterError, Statement } from "#emit
 import { runtimeSettings } from "#model/author-config.ts"
 import type { AuthorConfig } from "#model/author-config.ts"
 import type { SecurityScheme } from "#model/entities.ts"
-import { methodTokens } from "#model/method-tokens.ts"
 import { envPrefixOf } from "#names/plan.ts"
 
 const I = Schema.decodeSync(Identifier)
@@ -164,12 +163,13 @@ const mainModule = (config: AuthorConfig): Module => {
  * more than `Auth.maxCertificateBytes` is a `UsageError` naming its environment variable and never
  * the path, exit 2, rendered once by `Output.finalCatch`, which reads `<PREFIX>_ERROR_FORMAT` as
  * for a parse-time error (design 7.4). The read itself stops at the bound, so a file swapped after
- * the `stat` cannot exceed it. It provides `{ tls: { cert, key, ca? } }` over those bytes as
- * `Auth.ClientCertificate`, the first configured scheme's. The runtime sets it per hop on bound
- * origins only; `layerOptions` never gets a `tls` key, because a client-wide one presents the
- * certificate to every host (I3).
+ * the `stat` cannot exceed it. Over the first configured scheme's PEM text it builds the
+ * certified clients: a direct pool that presents `{ cert, key, ca? }` to the host it connects to,
+ * and a proxy-environment pool that presents it to the host through the tunnel (`requestTls`) and
+ * never to the proxy. The runtime sends a hop through them only on the operation's bound origins,
+ * because a client that always presents the certificate presents it to every host (I3).
  */
-const clientCertificateStatements = (config: AuthorConfig): readonly Statement[] => {
+const clientCertificateStatements = (): readonly Statement[] => {
 	// `parts` are joined: the printer has no nested `+` (printer.ts `check`, `Plus`).
 	const unreadable = arrow(
 		[
@@ -199,7 +199,8 @@ const clientCertificateStatements = (config: AuthorConfig): readonly Statement[]
 				)
 			)
 		),
-		path("Stream.mkUint8Array")
+		path("Stream.decodeText"),
+		path("Stream.mkString")
 	)
 	const regularOnly = arrow(
 		[{ name: I("info") }],
@@ -243,20 +244,14 @@ const clientCertificateStatements = (config: AuthorConfig): readonly Statement[]
 	]
 	const init = arrow(
 		[{ name: I("files") }],
-		obj([
-			[
-				"tls",
-				fn(
-					"Option.match",
-					path("files.ca"),
-					obj([
-						["onNone", arrow([], obj(pair))],
-						["onSome", arrow([{ name: I("ca") }], obj([["ca", path("ca")], ...pair]))]
-					])
-				)
-			]
-		]),
-		typeRef(I("BunFetchRequestInit"))
+		fn(
+			"Option.match",
+			path("files.ca"),
+			obj([
+				["onNone", arrow([], obj(pair))],
+				["onSome", arrow([{ name: I("ca") }], obj([["ca", path("ca")], ...pair]))]
+			])
+		)
 	)
 	const certificateInit = arrow(
 		[{ name: I("scheme"), type: typeRef(I("Auth"), [M("MutualTlsScheme")]) }],
@@ -296,22 +291,35 @@ const clientCertificateStatements = (config: AuthorConfig): readonly Statement[]
 		fn("Object.values", path("security.schemes")),
 		perScheme
 	)
-	const clientCertificate = piped(
+	const certified = piped(
 		fn(
-			"Layer.effect",
-			path("Auth.ClientCertificate"),
-			piped(
-				fn(
-					"Effect.map",
-					path("certificateInits"),
-					arrow([{ name: I("all") }], fn("Option.firstSomeOf", path("all")))
-				),
-				fn("Output.finalCatch", arr([]), obj([["envPrefix", str(envPrefixOf(config))]]))
-			)
+			"Effect.map",
+			path("certificateInits"),
+			arrow([{ name: I("all") }], fn("Option.firstSomeOf", path("all")))
 		),
 		fn(
-			"Layer.provide",
-			fn("Layer.mergeAll", path("BunServices.layer"), path("Redact.runCredentialsLayer"))
+			"Effect.flatMap",
+			arrow(
+				[{ name: I("tls") }],
+				fn(
+					"Effect.transposeOption",
+					fn(
+						"Option.map",
+						path("tls"),
+						arrow(
+							[{ name: I("connect") }],
+							fn(
+								"pathClients",
+								obj([["connect", path("connect")]]),
+								obj([
+									["connect", path("connect")],
+									["requestTls", path("connect")]
+								])
+							)
+						)
+					)
+				)
+			)
 		)
 	)
 
@@ -320,61 +328,103 @@ const clientCertificateStatements = (config: AuthorConfig): readonly Statement[]
 		constant("certificateFile", certificateFile),
 		constant("certificateInit", certificateInit),
 		constant("certificateInits", certificateInits),
-		constant("clientCertificate", clientCertificate)
+		constant("certified", certified)
 	]
 }
 
 /**
- * `bin.ts` (design 4.1, 4.3): the only emitted module that names Bun. It composes the platform:
- * Bun services, the Bun HTTP client with manual redirects and no client timeout or `proxy` key,
- * the `FileBody` layer over `Bun.file` (spike S3), the client policy (the method allowlist of
- * design 6.7, the runtime's `Client.directRoute` for loopback hops of design 6.5, the
- * `User-Agent` name and version), the run-scoped `RunCredentials`, `RunRecord` (the error format
- * and retry-hint record) and `RunWarnings` (the once-per-run warnings) outside the final catch, the
- * runtime presenter with no second formatter, the runtime's built-in flags (`Output.builtIns`:
- * every effect default but `--wizard`, help and version without `-h`/`-v`), logs to stderr and
- * no trace propagation. `runMain` reports no error: the final catch already rendered it. With a
- * `mutualTLS` scheme it also provides the client certificate (`clientCertificateStatements`);
- * without one it has no client-certificate part.
+ * `bin.ts` (design 4.1, 4.3): the only emitted module that names the platform, Node. It composes
+ * Node's services and the runtime's `Transport`: one Effect undici client per way a hop travels,
+ * each over its own connection pool, which the run closes when it ends. `environment` routes a hop
+ * from the platform's proxy variables (`EnvHttpProxyAgent`) and `direct` sends it straight to the
+ * host, for the runtime's loopback hops (design 6.5 Loopback hosts). Neither pool follows
+ * redirects; the runtime's own loop does. With a `mutualTLS` scheme whose files this run
+ * configured it also builds the certified pair, whose pools present the certificate to the host and
+ * never to a proxy (`clientCertificateStatements`); without one the certified pair is none. Then
+ * the client policy (the `User-Agent` name and version), the run-scoped `RunCredentials`,
+ * `RunRecord` (the error format and retry-hint record) and `RunWarnings` (the once-per-run
+ * warnings) outside the final catch, the runtime presenter with no second formatter, the runtime's
+ * built-in flags (`Output.builtIns`: every effect default but `--wizard`, help and version without
+ * `-h`/`-v`), logs to stderr and no trace propagation. `runMain` reports no error: the final catch
+ * already rendered it.
  */
 const binModule = (config: AuthorConfig, mutualTls: boolean): Module => {
-	const fileBody = fn(
-		"Layer.succeed",
-		path("FileBody.FileBody"),
+	const pool = (constructor: string) =>
+		arrow(
+			[{ name: I("options"), type: typeRef(I(constructor), [M("Options")]) }],
+			fn(
+				"Effect.acquireRelease",
+				fn("Effect.sync", arrow([], newExpr(path(constructor), [path("options")]))),
+				arrow([{ name: I("pool") }], fn("Effect.promise", arrow([], fn("pool.close"))))
+			)
+		)
+	const clientOver = arrow(
+		[{ name: I("dispatcher"), type: typeRef(I("Dispatcher")) }],
+		fn(
+			"Effect.provideService",
+			path("NodeHttpClient.makeUndici"),
+			path("NodeHttpClient.Dispatcher"),
+			path("dispatcher")
+		)
+	)
+	const pathClients = arrow(
+		[
+			{ name: I("directOptions"), type: typeRef(I("Agent"), [M("Options")]) },
+			{
+				name: I("environmentOptions"),
+				type: typeRef(I("EnvHttpProxyAgent"), [M("Options")])
+			}
+		],
+		fn(
+			"Effect.all",
+			obj([
+				["direct", fn("Effect.flatMap", fn("direct", path("directOptions")), path("clientOver"))],
+				[
+					"environment",
+					fn("Effect.flatMap", fn("environment", path("environmentOptions")), path("clientOver"))
+				]
+			])
+		)
+	)
+	const clients = fn(
+		"Effect.all",
 		obj([
-			[
-				"open",
-				arrow(
-					[{ name: I("path") }],
-					fn("Effect.succeed", fn("HttpBody.raw", fn("Bun.file", path("path"))))
-				)
-			]
+			["certified", mutualTls ? path("certified") : path("Effect.succeedNone")],
+			["plain", fn("pathClients", obj([]), obj([]))]
 		])
 	)
-	const allowed = methodTokens.map((token) => str(token))
+	const transportLayer = fn(
+		"Layer.effect",
+		path("Client.Transport"),
+		mutualTls
+			? piped(
+					clients,
+					fn("Output.finalCatch", arr([]), obj([["envPrefix", str(envPrefixOf(config))]]))
+				)
+			: clients
+	)
+	const transport = mutualTls
+		? piped(
+				transportLayer,
+				fn(
+					"Layer.provide",
+					fn("Layer.mergeAll", path("NodeServices.layer"), path("Redact.runCredentialsLayer"))
+				)
+			)
+		: transportLayer
 	const clientPolicy = fn(
 		"Layer.succeed",
 		path("Output.ClientPolicy"),
 		obj([
-			["allowed", newExpr(path("Set"), [arr(allowed)])],
 			["binName", str(config.binName)],
-			["direct", path("Client.directRoute")],
 			["version", str(config.package.version)]
 		])
 	)
 	const entry = fn(
 		"Layer.mergeAll",
-		path("BunServices.layer"),
-		fn(
-			"BunHttpClient.layerOptions",
-			obj([
-				["redirect", str("manual")],
-				["timeout", num(0)]
-			])
-		),
+		path("NodeServices.layer"),
+		path("transport"),
 		path("clientPolicy"),
-		path("fileBody"),
-		...(mutualTls ? [path("clientCertificate")] : []),
 		path("Redact.runCredentialsLayer"),
 		path("Output.runRecordLayer"),
 		path("Output.runWarningsLayer"),
@@ -386,7 +436,9 @@ const binModule = (config: AuthorConfig, mutualTls: boolean): Module => {
 
 	return {
 		imports: [
-			named("@effect/platform-bun", ["BunHttpClient", "BunRuntime", "BunServices"]),
+			named("@effect/platform-node", ["NodeHttpClient", "NodeRuntime", "NodeServices"]),
+			named("@effect/platform-node/Undici", ["Agent", "EnvHttpProxyAgent"]),
+			named("@effect/platform-node/Undici", ["Dispatcher"], true),
 			named(
 				"effect",
 				mutualTls
@@ -394,27 +446,30 @@ const binModule = (config: AuthorConfig, mutualTls: boolean): Module => {
 					: ["Effect", "Layer", "References"]
 			),
 			named("effect/cli", ["CliConfig", "CliOutput"]),
-			named("effect/http", ["HttpBody", "HttpClient"]),
+			named("effect/http", ["HttpClient"]),
 			...(mutualTls
 				? [named("./api/security.ts", ["security"]), named("./domain/errors.ts", ["UsageError"])]
 				: []),
 			named("./main.ts", ["run"]),
 			...(mutualTls ? [namespace("./runtime/auth.ts", "Auth")] : []),
 			namespace("./runtime/client.ts", "Client"),
-			namespace("./runtime/file-body.ts", "FileBody"),
 			namespace("./runtime/output.ts", "Output"),
 			namespace("./runtime/redact.ts", "Redact")
 		],
-		shebang: Schema.decodeSync(Shebang)("/usr/bin/env bun"),
+		shebang: Schema.decodeSync(Shebang)("/usr/bin/env node"),
 		statements: [
-			constant("fileBody", fileBody),
+			constant("direct", pool("Agent")),
+			constant("environment", pool("EnvHttpProxyAgent")),
+			constant("clientOver", clientOver),
+			constant("pathClients", pathClients),
+			...(mutualTls ? clientCertificateStatements() : []),
+			constant("transport", transport),
 			constant("clientPolicy", clientPolicy),
-			...(mutualTls ? clientCertificateStatements(config) : []),
 			constant("entry", entry),
 			{
 				_tag: "Expression",
 				value: fn(
-					"BunRuntime.runMain",
+					"NodeRuntime.runMain",
 					fn("Effect.provide", path("run"), path("entry")),
 					obj([["disableErrorReporting", bool(true)]])
 				)

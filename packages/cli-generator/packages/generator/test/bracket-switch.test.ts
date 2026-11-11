@@ -6,9 +6,7 @@ import { describe, expect, test } from "vitest"
 import { generate } from "#generate.ts"
 import type { GenerateResult } from "#generate.ts"
 import { DocumentUri } from "#model/brands.ts"
-import generatorPackage from "#package.json" with { type: "json" }
 import { GenerationReport } from "#report/index.ts"
-import generatorTsconfig from "#tsconfig.json" with { type: "json" }
 
 // The author config switch `nonStandard.deepObjectBrackets` (design 6.1, PRM-27) end to end through
 // `generate`: on, a nested deepObject query parameter and a nested form deepObject property are
@@ -35,11 +33,6 @@ const goldenPaths = decodeRecord(golden.paths ?? {})
 const document = Schema.decodeUnknownSync(DocumentUri)("file:///golden/openapi.json")
 
 const configDocument = Schema.decodeUnknownSync(DocumentUri)("file:///golden/author-config.json")
-
-const generator = {
-	packageJson: Schema.decodeUnknownSync(Schema.Json)(generatorPackage),
-	tsconfig: Schema.decodeUnknownSync(Schema.Json)(generatorTsconfig)
-}
 
 const layer = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer, NodeCrypto.layerDigest)
 
@@ -121,7 +114,6 @@ const runWith = (deepObjectBrackets: boolean): Promise<Observed> =>
 					generate(
 						{
 							document,
-							generator,
 							outDir: out,
 							source: { _tag: "File", path: specPath },
 							strict: false

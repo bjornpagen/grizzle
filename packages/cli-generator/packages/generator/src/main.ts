@@ -23,6 +23,7 @@ import { DocumentUri } from "#model/brands.ts"
 import { isDocumentRefusal, sortDiagnostics } from "#model/diagnostic.ts"
 import type { Diagnostic } from "#model/diagnostic.ts"
 import { distinctDiagnostics } from "#normalize/operations.ts"
+import generatorManifest from "#package.json" with { type: "json" }
 import { humanLine, sanitizeField } from "#report/human.ts"
 import { generatorExitStatus, printGenerationReport } from "#report/index.ts"
 import { classifyVerdict } from "#report/verdict.ts"
@@ -44,13 +45,9 @@ export class GeneratorExit extends Data.TaggedError("GeneratorExit") {
 // The retrieval URI of a specification read from stdin; a file's is its `file:` URL (design 3.3).
 const stdinDocument = "stdin:"
 
-const GeneratorPackage = Schema.Struct({ version: Schema.String })
-
 const FailureReason = Schema.Struct({ reason: Schema.String })
 
 const FailureSubject = Schema.Struct({ subject: Schema.String })
-
-const decodeJsonText = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Json))
 
 const decodeDocument = Schema.decodeUnknownEffect(DocumentUri)
 
@@ -70,23 +67,6 @@ const printDiagnostics = (
 
 const exit = (lines: readonly string[]): Effect.Effect<never, GeneratorExit, Stdio.Stdio> =>
 	printLines(lines).pipe(Effect.andThen(Effect.fail(new GeneratorExit())))
-
-// Reads one of the generator's own JSON files next to the package root: `src/` in the source tree,
-// `dist/` once built.
-const readOwnJson = (file: string) =>
-	Effect.gen(function* readOwn() {
-		const fs = yield* FileSystem.FileSystem
-		const path = yield* Path.Path
-		const target = yield* path.fromFileUrl(new URL(`../${file}`, import.meta.url))
-
-		return yield* decodeJsonText(yield* fs.readFileString(target))
-	})
-
-// The generator's own `package.json` and `tsconfig.json`: the source of the emitted pins.
-const generatorSource = Effect.all({
-	packageJson: readOwnJson("package.json"),
-	tsconfig: readOwnJson("tsconfig.json")
-})
 
 interface Spec {
 	readonly document: Document
@@ -215,16 +195,9 @@ const documentSetOf = (
 	)
 
 const runGenerate = (
-	input: Omit<GenerateInput, "generator">,
+	input: GenerateInput,
 	config: { readonly document: Document; readonly path: string }
-) =>
-	Effect.gen(function* run() {
-		const generator = yield* generatorSource.pipe(
-			Effect.catch(setupFailed("the generator's own package files cannot be read"))
-		)
-
-		return yield* generate({ ...input, generator }, config)
-	})
+) => generate(input, config)
 
 /**
  * `generate <spec|->`: writes the package (design 3, 8.1). stderr gets one line per diagnostic;
@@ -393,12 +366,7 @@ const isShowHelp = (error: unknown): error is CliError.ShowHelp =>
  * error then exits 1 without being reported again.
  */
 export const main = Effect.gen(function* mainGen() {
-	const packageJson = yield* readOwnJson("package.json").pipe(
-		Effect.flatMap(Schema.decodeUnknownEffect(GeneratorPackage)),
-		Effect.catch(setupFailed("the generator's package.json cannot be read"))
-	)
-
-	return yield* Command.run(root, { version: packageJson.version }).pipe(
+	return yield* Command.run(root, { version: generatorManifest.version }).pipe(
 		Effect.catchIf(isShowHelp, (help) =>
 			help.errors.length === 0 ? Effect.void : Effect.fail(new GeneratorExit())
 		),

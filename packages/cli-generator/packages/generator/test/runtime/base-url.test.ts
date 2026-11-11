@@ -16,6 +16,7 @@ import { describe, expect, test } from "vitest"
 import type { UsageError } from "#runtime-src/domain/errors.ts"
 import * as BaseUrl from "#runtime-src/runtime/base-url.ts"
 import type { SelectionInput } from "#runtime-src/runtime/base-url.ts"
+import { Transport } from "#runtime-src/runtime/client.ts"
 
 const canary = "CANARY-7f3a9"
 
@@ -442,7 +443,13 @@ const counting = () => {
 		})
 	)
 
-	return { layer: Layer.succeed(HttpClient.HttpClient, client), urls }
+	return {
+		layer: Layer.succeed(Transport, {
+			certified: Option.none(),
+			plain: { direct: client, environment: client }
+		}),
+		urls
+	}
 }
 
 const sendThrough = (selection: BaseUrl.Selection, boundTable: BaseUrl.ServersTable) => {

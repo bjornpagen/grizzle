@@ -7,8 +7,6 @@ import { generate } from "#generate.ts"
 import type { GenerateResult } from "#generate.ts"
 import { DocumentUri } from "#model/brands.ts"
 import type { Json } from "#model/pointer.ts"
-import generatorPackage from "#package.json" with { type: "json" }
-import generatorTsconfig from "#tsconfig.json" with { type: "json" }
 
 // The fixes of m2-dscfx through generate(), with no package build: a discriminator with no
 // composition keyword is refused at element scope at the discriminator (DSC-05, D-OQ9); a partial
@@ -31,11 +29,6 @@ const work = nodeFs.mkdtempSync(nodePath.join(scratch, "dsc-fixes-"))
 afterAll(() => {
 	nodeFs.rmSync(work, { force: true, recursive: true })
 })
-
-const generator = {
-	packageJson: Schema.decodeUnknownSync(Schema.Json)(generatorPackage),
-	tsconfig: Schema.decodeUnknownSync(Schema.Json)(generatorTsconfig)
-}
 
 const config = {
 	allowInsecure: true,
@@ -129,7 +122,6 @@ const run = (name: string, value: Json): Promise<GenerateResult> => {
 		generate(
 			{
 				document,
-				generator,
 				outDir: nodePath.join(dir, "out"),
 				source: { _tag: "File", path: specPath },
 				strict: false

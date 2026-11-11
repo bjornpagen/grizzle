@@ -4,6 +4,7 @@ import { HttpClient, HttpClientResponse } from "effect/http"
 import { describe, expect, test } from "vitest"
 import * as Auth from "#runtime-src/runtime/auth.ts"
 import * as BaseUrl from "#runtime-src/runtime/base-url.ts"
+import { Transport } from "#runtime-src/runtime/client.ts"
 import * as Input from "#runtime-src/runtime/input.ts"
 import * as Output from "#runtime-src/runtime/output.ts"
 import { runCredentialsLayer } from "#runtime-src/runtime/redact.ts"
@@ -71,11 +72,12 @@ const run = async (
 		}),
 		Input.stdinClaimLayer,
 		runCredentialsLayer,
-		Layer.succeed(HttpClient.HttpClient, client),
+		Layer.succeed(Transport, {
+			certified: Option.none(),
+			plain: { direct: client, environment: client }
+		}),
 		Layer.succeed(Output.ClientPolicy, {
-			allowed: new Set(["GET"]),
 			binName: "x",
-			direct: {},
 			version: "1.0.0"
 		}),
 		Layer.succeed(Output.OutputPath, Option.none()),

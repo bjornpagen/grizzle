@@ -17,6 +17,7 @@ import { ApiResponseError } from "#runtime-src/domain/errors.ts"
 import * as Auth from "#runtime-src/runtime/auth.ts"
 import type { Credential } from "#runtime-src/runtime/auth.ts"
 import * as BaseUrl from "#runtime-src/runtime/base-url.ts"
+import { Transport } from "#runtime-src/runtime/client.ts"
 import * as Client from "#runtime-src/runtime/client.ts"
 import * as Input from "#runtime-src/runtime/input.ts"
 import * as Output from "#runtime-src/runtime/output.ts"
@@ -146,11 +147,12 @@ describe("Output.send scrubs the request id with the run's recorded values", () 
 			runCredentialsLayer,
 			Output.runWarningsLayer,
 			Layer.effect(Output.RunRecord)(Ref.make<Output.RunRecordState>({ format })),
-			Layer.succeed(HttpClient.HttpClient, client),
+			Layer.succeed(Transport, {
+				certified: Option.none(),
+				plain: { direct: client, environment: client }
+			}),
 			Layer.succeed(Output.ClientPolicy, {
-				allowed: new Set(["GET"]),
 				binName: "example",
-				direct: { cache: "no-store" },
 				version: "1.2.3"
 			}),
 			Layer.succeed(Output.OutputPath, Option.none()),

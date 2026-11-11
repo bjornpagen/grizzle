@@ -20,6 +20,7 @@ import type { HttpBody } from "effect/http"
 import { describe, expect, test } from "vitest"
 import * as Auth from "#runtime-src/runtime/auth.ts"
 import * as BaseUrl from "#runtime-src/runtime/base-url.ts"
+import { Transport } from "#runtime-src/runtime/client.ts"
 import * as Input from "#runtime-src/runtime/input.ts"
 import * as Output from "#runtime-src/runtime/output.ts"
 import { RunCredentials, runCredentialsLayer } from "#runtime-src/runtime/redact.ts"
@@ -296,11 +297,12 @@ describe("a secret recorded before send", () => {
 			stdioOf(SECRET, stderr),
 			Input.stdinClaimLayer,
 			runCredentialsLayer,
-			Layer.succeed(HttpClient.HttpClient, client),
+			Layer.succeed(Transport, {
+				certified: Option.none(),
+				plain: { direct: client, environment: client }
+			}),
 			Layer.succeed(Output.ClientPolicy, {
-				allowed: new Set(["POST"]),
 				binName: "example",
-				direct: {},
 				version: "1.2.3"
 			}),
 			Layer.succeed(Output.OutputPath, Option.none()),

@@ -1,6 +1,6 @@
 # effect-openapi-cli-generator
 
-Generate standalone command-line applications from OpenAPI 3.0, 3.1 and 3.2 specifications. Each API operation becomes a command. The generated code uses Effect's CLI, Schema and HTTP libraries and runs on Bun. Reading Effect `HttpApi` definitions is planned for later.
+Generate standalone command-line applications from OpenAPI 3.0, 3.1 and 3.2 specifications. Each API operation becomes a command. The generated code uses Effect's CLI, Schema and HTTP libraries and runs on Node. Reading Effect `HttpApi` definitions is planned for later.
 
 Inspired by [Cloudflare's Forge](https://github.com/cloudflare/forge) and its [cf CLI](https://github.com/cloudflare/cf). This is an independent project, unaffiliated with Cloudflare or the Effect maintainers.
 

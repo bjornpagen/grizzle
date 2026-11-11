@@ -29,7 +29,7 @@ the same commit.
   blank lines appear. A JSDoc block belongs to the statement after it, so the blank line goes above
   the JSDoc. The lint rule `@stylistic/padding-line-between-statements` requires these blank lines.
 - An executable module starts with one shebang line, `#!` and an absolute interpreter path with its
-  arguments, such as `#!/usr/bin/env bun`. One blank line follows it. The `Shebang` brand admits
+  arguments, such as `#!/usr/bin/env node`. One blank line follows it. The `Shebang` brand admits
   printable ASCII that starts with `/`, with single spaces between words. The formatter keeps the
   line and the blank line as written (measured).
 
@@ -170,7 +170,7 @@ is refused with `unbreakable-line`.
 - **New expression.** `new Path(args)` for a constructor path such as `Set`, `Map` or `Foo.Bar`.
   The arguments follow the call rule, hugging included: `new Set([` opens a broken array. No
   arguments print as `new Path()`. A regular expression is the new expression of Strings.
-- **Top-level call statement.** A call alone as a statement, such as `BunRuntime.runMain(program);`,
+- **Top-level call statement.** A call alone as a statement, such as `NodeRuntime.runMain(program);`,
   laid out by the call rule from column 0. No other expression is a statement.
 
 The subset is exactly the forms above plus: `export const`, unexported `const`, `export interface`,

@@ -5,8 +5,6 @@ import { generate } from "#generate.ts"
 import { DocumentUri } from "#model/brands.ts"
 import { isObject } from "#model/json-tree.ts"
 import type { Json } from "#model/pointer.ts"
-import generatorPackage from "#package.json" with { type: "json" }
-import generatorTsconfig from "#tsconfig.json" with { type: "json" }
 
 // Design 3.7: output is a function of the document's value and its semantic orders. Member order
 // of `paths`, path items, `components.schemas` and JSON `properties` maps is not semantic, so a
@@ -220,11 +218,6 @@ const document = Schema.decodeUnknownSync(DocumentUri)("file:///canon/openapi.js
 
 const configDocument = Schema.decodeUnknownSync(DocumentUri)("file:///canon/author-config.json")
 
-const generator = {
-	packageJson: Schema.decodeUnknownSync(Schema.Json)(generatorPackage),
-	tsconfig: Schema.decodeUnknownSync(Schema.Json)(generatorTsconfig)
-}
-
 const layer = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer, NodeCrypto.layerDigest)
 
 /**
@@ -245,7 +238,7 @@ const generateTree = (source: Json) =>
 		yield* fs.writeFileString(configPath, config)
 
 		const result = yield* generate(
-			{ document, generator, outDir: out, source: { _tag: "File", path: specPath }, strict: false },
+			{ document, outDir: out, source: { _tag: "File", path: specPath }, strict: false },
 			{ document: configDocument, path: configPath }
 		)
 		const kept = Arr.sort(

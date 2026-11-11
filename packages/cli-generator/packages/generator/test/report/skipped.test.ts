@@ -5,7 +5,6 @@ import { Effect, Exit, FileSystem, Layer, Path, Schema } from "effect"
 import { describe, expect, test } from "vitest"
 import { generate } from "#generate.ts"
 import { DocumentUri } from "#model/brands.ts"
-import generatorPackage from "#package.json" with { type: "json" }
 import {
 	GenerationReport,
 	SkippedOperation,
@@ -13,7 +12,6 @@ import {
 	printGenerationReport
 } from "#report/index.ts"
 import type { GenerationReportInput } from "#report/index.ts"
-import generatorTsconfig from "#tsconfig.json" with { type: "json" }
 
 const root = nodePath.resolve(import.meta.dirname, "../..")
 
@@ -90,10 +88,6 @@ const generateWith = (config: string) =>
 					generate(
 						{
 							document,
-							generator: {
-								packageJson: Schema.decodeUnknownSync(Schema.Json)(generatorPackage),
-								tsconfig: Schema.decodeUnknownSync(Schema.Json)(generatorTsconfig)
-							},
 							outDir: path.join(dir, "out"),
 							source: { _tag: "File", path: nodePath.join(fixture, "openapi.json") },
 							strict: false

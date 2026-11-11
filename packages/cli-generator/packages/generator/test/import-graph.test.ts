@@ -5,8 +5,6 @@ import { Array as Arr, Effect, FileSystem, Layer, Order, Path, Schema } from "ef
 import { describe, expect, test } from "vitest"
 import { generate } from "#generate.ts"
 import { DocumentUri } from "#model/brands.ts"
-import generatorPackage from "#package.json" with { type: "json" }
-import generatorTsconfig from "#tsconfig.json" with { type: "json" }
 
 const root = nodePath.resolve(import.meta.dirname, "..")
 
@@ -146,10 +144,6 @@ const generatedImports = (): Promise<ReadonlyMap<string, readonly string[]>> =>
 				yield* generate(
 					{
 						document: Schema.decodeUnknownSync(DocumentUri)("file:///golden/openapi.json"),
-						generator: {
-							packageJson: decodeJson(generatorPackage),
-							tsconfig: decodeJson(generatorTsconfig)
-						},
 						outDir: out,
 						source: { _tag: "File", path: specPath },
 						strict: false

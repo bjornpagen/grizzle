@@ -338,9 +338,15 @@ importers:
       '@hyperjump/json-schema':
         specifier: 'catalog:'
         version: 1.18.0(@hyperjump/browser@1.6.0)
+      '@types/node':
+        specifier: 26.6.6
+        version: 26.6.6
       effect:
         specifier: 'catalog:'
         version: 4.1.2
+      typescript:
+        specifier: 'catalog:'
+        version: 7.1.0-beta
       yaml:
         specifier: 'catalog:'
         version: 2.9.1
@@ -354,12 +360,6 @@ importers:
       '@superstarter/testing':
         specifier: workspace:*
         version: link:../testing
-      '@types/node':
-        specifier: 26.6.6
-        version: 26.6.6
-      typescript:
-        specifier: 'catalog:'
-        version: 7.1.0-beta
       vitest:
         specifier: 'catalog:'
         version: 5.1.0(@types/node@26.6.6)(vite@8.3.5(@types/node@26.6.6)(jiti@2.7.0)(yaml@2.9.1))

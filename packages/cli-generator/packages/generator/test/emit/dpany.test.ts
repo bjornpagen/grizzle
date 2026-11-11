@@ -7,10 +7,8 @@ import type { Flag } from "effect/cli"
 import { afterAll, describe, expect, test } from "vitest"
 import { generate } from "#generate.ts"
 import { DocumentUri } from "#model/brands.ts"
-import generatorPackage from "#package.json" with { type: "json" }
 import * as Input from "#runtime-src/runtime/input.ts"
 import * as Serialize from "#runtime-src/runtime/serialize.ts"
-import generatorTsconfig from "#tsconfig.json" with { type: "json" }
 
 // m2-dpany: Stripe's `created` query parameter is deepObject over `anyOf [object, integer]`. It
 // generated a string flag that the runtime refused for every value, `--created 5` and
@@ -111,10 +109,6 @@ const runWith = (nonStandard: Switches) =>
 			const result = yield* generate(
 				{
 					document: decodeUri("file:///dpany/openapi.json"),
-					generator: {
-						packageJson: Schema.decodeUnknownSync(Schema.Json)(generatorPackage),
-						tsconfig: Schema.decodeUnknownSync(Schema.Json)(generatorTsconfig)
-					},
 					outDir,
 					source: { _tag: "File", path: specPath },
 					strict: false

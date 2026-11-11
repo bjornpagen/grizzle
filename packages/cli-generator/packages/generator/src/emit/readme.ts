@@ -245,22 +245,16 @@ const output = (): string =>
 		'`--error-format json` writes each error to stderr as one JSON object, `{"error":{...}}`. The inner object always has `kind` and `message`, and has `operation`, `status`, `matched`, `body`, `retryAfter` and `requestId` only when they have a value. `retryAfter` is the server\'s `Retry-After` in seconds when retrying stopped at the `--timeout` cap.'
 	].join("\n\n")
 
-// Design 6.5 Proxy environment and Loopback hosts, D-SEC8 (operator ruling 71514c79): Bun routes
-// every hop but a loopback one from the platform's proxy variables, which carry no package prefix.
+// Design 6.5 Proxy environment and Loopback hosts, D-SEC8 (operator ruling 71514c79): undici's
+// `EnvHttpProxyAgent` routes every hop but a loopback one from the platform's proxy variables,
+// which carry no package prefix.
 const proxies = (): string =>
 	[
 		"## Proxies",
 		"Requests to loopback hosts (`127.0.0.0/8`, `::1`, `localhost` and names under `.localhost`) always go direct, never through a proxy, whatever `no_proxy` or any proxy variable says, so a request to a local server, credentials included, never passes through a proxy. On macOS only `127.0.0.1` answers on the loopback interface, so another `127.x` address that a proxy used to reach now times out.",
-		"Every other request is routed by the platform's proxy variables, which carry no package prefix. An `http:` URL uses `http_proxy`, else `HTTP_PROXY`, and an `https:` URL uses `https_proxy`, else `HTTPS_PROXY`. There is no fallback between the two pairs, and the lowercase name wins when both are set. When the URL scheme's pair is unset, `ALL_PROXY` or `all_proxy` proxies both schemes.",
-		"`no_proxy`, else `NO_PROXY`, exempts the hosts it lists: exact names, `*`, CIDR ranges, IPv6 literals, or a comma-separated list of them.",
-		"Every redirect hop is routed afresh from its own URL. The userinfo of a proxy URL goes only to the proxy, never to the API. Over plain `http:` the proxy receives the whole request, credentials included; over `https:` it sees only the host and port. The CLI has no proxy flag.",
-		"Untested on the pinned Bun:",
-		[
-			"- an `https://` proxy URL;",
-			"- a SOCKS proxy;",
-			"- `NO_PROXY` domain-suffix and `host:port` entries;",
-			"- which of `ALL_PROXY` and `all_proxy` wins when both are set."
-		].join("\n")
+		"Every other request is routed by the platform's proxy variables, which carry no package prefix. An `http:` URL uses `http_proxy`, else `HTTP_PROXY`. An `https:` URL uses `https_proxy`, else `HTTPS_PROXY`, else the `http:` proxy. The lowercase name wins when both are set. `ALL_PROXY` and `all_proxy` are not read. A proxy URL may be `http:`, `https:` or `socks5:`.",
+		"`no_proxy`, else `NO_PROXY`, exempts the hosts it lists, separated by commas or whitespace: a name exempts itself and every name under it, `*.name` exempts only the names under it, `*` exempts every host, and `host:port` or `[ipv6]:port` exempts that port alone. CIDR ranges are not read.",
+		"Every redirect hop is routed afresh from its own URL. The userinfo of a proxy URL goes only to the proxy, never to the API. Over plain `http:` the proxy receives the whole request, credentials included; over `https:` it sees only the host and port. A `mutualTLS` client certificate is presented to the API host through the tunnel, never to the proxy. The CLI has no proxy flag."
 	].join("\n\n")
 
 const exits = (): string =>

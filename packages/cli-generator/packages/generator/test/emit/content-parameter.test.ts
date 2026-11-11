@@ -6,9 +6,7 @@ import { afterAll, describe, expect, test } from "vitest"
 import { generate } from "#generate.ts"
 import type { GenerateResult } from "#generate.ts"
 import { DocumentUri } from "#model/brands.ts"
-import generatorPackage from "#package.json" with { type: "json" }
 import { GenerationReport } from "#report/index.ts"
-import generatorTsconfig from "#tsconfig.json" with { type: "json" }
 
 // A `content` parameter in `query`, `header` or `cookie` is serialized by its one media type
 // (PRM-15, PRM-23, PRM-24). Path content, and form-urlencoded content outside `querystring`, have
@@ -30,11 +28,6 @@ const goldenConfig = readFixture("author-config.json")
 const document = Schema.decodeUnknownSync(DocumentUri)("file:///golden/openapi.json")
 
 const configDocument = Schema.decodeUnknownSync(DocumentUri)("file:///golden/author-config.json")
-
-const generator = {
-	packageJson: Schema.decodeUnknownSync(Schema.Json)(generatorPackage),
-	tsconfig: Schema.decodeUnknownSync(Schema.Json)(generatorTsconfig)
-}
 
 const decodeReport = Schema.decodeUnknownSync(GenerationReport)
 
@@ -136,7 +129,7 @@ const run = (strict: boolean): Promise<Observed> =>
 
 			const exit = yield* Effect.exit(
 				generate(
-					{ document, generator, outDir: out, source: { _tag: "File", path: specPath }, strict },
+					{ document, outDir: out, source: { _tag: "File", path: specPath }, strict },
 					{ document: configDocument, path: configPath }
 				)
 			)

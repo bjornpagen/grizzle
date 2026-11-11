@@ -6,13 +6,11 @@ import { describe, expect, test } from "vitest"
 import { Corpus } from "#corpus/tools/fetch.ts"
 import { generate } from "#generate.ts"
 import { DocumentUri } from "#model/brands.ts"
-import generatorPackage from "#package.json" with { type: "json" }
 import { GenerationReport } from "#report/index.ts"
 import { Description } from "#runtime-src/runtime/describe.ts"
 import { generateFixture, preparePackage, runBin } from "#test/support/generated-cli.ts"
 import type { GeneratedPackage } from "#test/support/generated-cli.ts"
 import { pinnedSpec } from "#test/support/pinned-spec.ts"
-import generatorTsconfig from "#tsconfig.json" with { type: "json" }
 import { sha256Hex } from "#write/manifest.ts"
 
 // The Milestone 1 witness (CP-4): the pinned Resend spec generates a package that passes the
@@ -92,11 +90,6 @@ const layer = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer, NodeCrypto.la
 const hex = (content: string | Uint8Array) =>
 	Effect.runSync(sha256Hex(content).pipe(Effect.provide(NodeCrypto.layerDigest)))
 
-const generator = {
-	packageJson: Schema.decodeUnknownSync(Schema.Json)(generatorPackage),
-	tsconfig: Schema.decodeUnknownSync(Schema.Json)(generatorTsconfig)
-}
-
 const decodeReport = Schema.decodeUnknownEffect(Schema.fromJsonString(GenerationReport))
 
 const decodeDescription = Schema.decodeUnknownEffect(Schema.fromJsonString(Description))
@@ -166,7 +159,7 @@ const generateInto = (source: string, document: typeof DocumentUri.Type) =>
 		const path = yield* Path.Path
 		const dir = path.join(yield* fs.makeTempDirectoryScoped({ prefix: "resend-twin-" }), "out")
 		const result = yield* generate(
-			{ document, generator, outDir: dir, source: { _tag: "File", path: source }, strict: false },
+			{ document, outDir: dir, source: { _tag: "File", path: source }, strict: false },
 			{
 				document: Schema.decodeUnknownSync(DocumentUri)("file:///fixture/resend-config.json"),
 				path: configPath

@@ -284,14 +284,27 @@ const writeLedger = (ledger: Ledger) =>
 	})
 
 /** The files whose count rose above the ledger's, each with its committed and current count. */
-const risen = (committed: Count, current: Count): ReadonlyArray<string> =>
-	Arr.getSomes(
-		Arr.map(Record.toEntries(current.files), ([file, count]) => {
-			const held = Option.getOrElse(Record.get(committed.files, file), () => 0)
-			return count > held
-				? Option.some(`  ${file}: ${String(held)} -> ${String(count)}`)
-				: Option.none()
-		})
+const risen = (
+	committed: Count,
+	current: Count
+): ReadonlyArray<Readonly<{ file: string; held: number; count: number }>> =>
+	Arr.filter(
+		Arr.map(Record.toEntries(current.files), ([file, count]) => ({
+			file,
+			held: Option.getOrElse(Record.get(committed.files, file), () => 0),
+			count
+		})),
+		(entry) => entry.count > entry.held
+	)
+
+/** The lines of a tool's output that name one of the files, by its path inside the package or the repository. */
+const linesOfFiles = (output: string, files: ReadonlyArray<string>): ReadonlyArray<string> =>
+	Arr.filter(Arr.fromIterable(Str.linesIterator(output)), (line) =>
+		Arr.some(files, (file) =>
+			Str.includes(
+				Str.startsWith(`${PACKAGE}/`)(file) ? Str.slice(PACKAGE.length + 1)(file) : file
+			)(line)
+		)
 	)
 
 const main = Effect.gen(function* () {
@@ -308,12 +321,19 @@ const main = Effect.gen(function* () {
 	const { output, count } = yield* runTool(tool)
 	const shown = path.relative(ROOT, LEDGER)
 	if (count.total > committed.total) {
+		const rose = risen(committed, count)
 		yield* Console.error(
 			Arr.join(
 				[
-					output,
+					...linesOfFiles(
+						output,
+						Arr.map(rose, (entry) => entry.file)
+					),
 					`ratchet: ${tool} has ${String(count.total)} findings in the generator, above the ${String(committed.total)} ${shown} holds. The files that rose:`,
-					...risen(committed, count)
+					...Arr.map(
+						rose,
+						(entry) => `  ${entry.file}: ${String(entry.held)} -> ${String(entry.count)}`
+					)
 				],
 				"\n"
 			)

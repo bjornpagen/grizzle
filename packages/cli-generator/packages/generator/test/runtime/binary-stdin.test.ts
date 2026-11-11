@@ -5,7 +5,6 @@ import type { PlatformError } from "effect/PlatformError"
 import { systemError } from "effect/PlatformError"
 import { afterAll, describe, expect, test } from "vitest"
 import { UsageError } from "#runtime-src/domain/errors.ts"
-import { FileBody } from "#runtime-src/runtime/file-body.ts"
 import * as Input from "#runtime-src/runtime/input.ts"
 import { runCredentialsLayer } from "#runtime-src/runtime/redact.ts"
 import * as Serialize from "#runtime-src/runtime/serialize.ts"
@@ -37,12 +36,7 @@ const stdinLayer = (source: Stream.Stream<Uint8Array, PlatformError>): Layer.Lay
 	)
 
 const inputLayer = (source: Stream.Stream<Uint8Array, PlatformError>) =>
-	Layer.mergeAll(
-		Layer.succeed(FileBody, { open: (path) => Effect.succeed(HttpBody.raw(Bun.file(path))) }),
-		NodeFileSystem.layer,
-		stdinLayer(source),
-		Input.stdinClaimLayer
-	)
+	Layer.mergeAll(NodeFileSystem.layer, stdinLayer(source), Input.stdinClaimLayer)
 
 const header = (seen: RecordedRequest, name: string) =>
 	seen.headers.find(([candidate]) => candidate.toLowerCase() === name)?.[1]

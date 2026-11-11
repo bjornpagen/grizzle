@@ -116,14 +116,6 @@ const rules = {
 		scope: "element",
 		severity: "notice"
 	},
-	"OPR-10/body-refused": {
-		anchor: "operation-request-body",
-		element: "Request body",
-		hint: "Bun's fetch refuses a body on this method before connecting; remove the body.",
-		message: "A request body on this method cannot be sent.",
-		scope: "element",
-		severity: "refusal"
-	},
 	"SEC-06/no-satisfiable-alternative": {
 		anchor: "operation-security",
 		element: "Operation security",
@@ -176,9 +168,6 @@ const methodRows: ReadonlyMap<string, string> = new Map([
 
 // Methods whose request body 3.0 says consumers ignore and 3.1+ leaves undecided (OPR-10, OPR-11).
 const bodylessMethods: ReadonlySet<string> = new Set(["GET", "HEAD", "DELETE", "OPTIONS", "TRACE"])
-
-// Bun's fetch throws before connecting when one of these carries a body (design 6.3, probe SP11).
-const unsendableMethods: ReadonlySet<string> = new Set(["GET", "HEAD", "TRACE"])
 
 const nodeAt = (resolution: Resolution, pointer: string): Option.Option<Json> =>
 	nodeOption(resolution, { document: resolution.document, pointer })
@@ -527,15 +516,10 @@ const assembleBody = Effect.fnUntraced(function* assembleBody(
 
 	const pointer = childPointer(raw.pointer, "requestBody")
 	const operation = operationInfo(raw)
-	if (bodylessMethods.has(raw.method)) {
-		const ignored = shared.resolution.line === "3.0"
-		if (ignored || unsendableMethods.has(raw.method)) {
-			const code = ignored ? "OPR-10/body-ignored" : "OPR-10/body-refused"
-
-			return {
-				diagnostics: [yield* diagnose(shared, code, { operation, pointer })],
-				refusedRequired: false
-			}
+	if (bodylessMethods.has(raw.method) && shared.resolution.line === "3.0") {
+		return {
+			diagnostics: [yield* diagnose(shared, "OPR-10/body-ignored", { operation, pointer })],
+			refusedRequired: false
 		}
 	}
 

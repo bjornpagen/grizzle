@@ -7,9 +7,7 @@ import { Command } from "effect/cli"
 import { afterAll, describe, expect, test } from "vitest"
 import { generate } from "#generate.ts"
 import { DocumentUri } from "#model/brands.ts"
-import generatorPackage from "#package.json" with { type: "json" }
 import * as Output from "#runtime-src/runtime/output.ts"
-import generatorTsconfig from "#tsconfig.json" with { type: "json" }
 
 // A deprecated parameter (PRM-07) keeps its flag, piped through `Input.deprecated` outside its
 // presence wrapper, and its help annotation ends with `deprecated`. A parameter that is not
@@ -31,11 +29,6 @@ const goldenConfig = readFixture("author-config.json")
 const document = Schema.decodeUnknownSync(DocumentUri)("file:///golden/openapi.json")
 
 const configDocument = Schema.decodeUnknownSync(DocumentUri)("file:///golden/author-config.json")
-
-const generator = {
-	packageJson: Schema.decodeUnknownSync(Schema.Json)(generatorPackage),
-	tsconfig: Schema.decodeUnknownSync(Schema.Json)(generatorTsconfig)
-}
 
 // The golden author config names `./custom/commands.ts`, which the author owns: one `login` command.
 const authorCommands = `import { Command } from "effect/cli";\n\nexport const login = Command.make("login");\n`
@@ -94,7 +87,6 @@ const run = (): Promise<Observed> =>
 			yield* generate(
 				{
 					document,
-					generator,
 					outDir: out,
 					source: { _tag: "File", path: specPath },
 					strict: true

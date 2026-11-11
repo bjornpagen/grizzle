@@ -30,6 +30,7 @@ import {
 import * as Auth from "#runtime-src/runtime/auth.ts"
 import type { Credential } from "#runtime-src/runtime/auth.ts"
 import * as BaseUrl from "#runtime-src/runtime/base-url.ts"
+import { Transport } from "#runtime-src/runtime/client.ts"
 import * as Input from "#runtime-src/runtime/input.ts"
 import {
 	ClientPolicy,
@@ -964,7 +965,10 @@ const sendTo = async (
 		Stdio.layerTest({}),
 		Input.stdinClaimLayer,
 		runCredentialsLayer,
-		Layer.succeed(HttpClient.HttpClient, client),
+		Layer.succeed(Transport, {
+			certified: Option.none(),
+			plain: { direct: client, environment: client }
+		}),
 		Layer.succeed(ClientPolicy, {
 			allowed: new Set(["POST"]),
 			binName: "example",
