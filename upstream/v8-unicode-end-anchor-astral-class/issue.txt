@@ -1,0 +1,66 @@
+DRAFT: github.com/nodejs/node issue, using the Bug report template's fields (.github/ISSUE_TEMPLATE/1-bug-report.yml).
+Not filed.
+
+Title: RegExp: /[\u{10000}-\u{10FFFF}]$/u misses a supplementary code point at the end (backport V8 7d259d7c to v26.x)
+
+### Version
+
+v26.13.0 (V8 14.6.202.34-node.40)
+
+### Platform
+
+Darwin 27.0.0 arm64 (macOS 27.0.1)
+
+### Subsystem
+
+deps/v8 (irregexp)
+
+### What steps will reproduce the bug?
+
+```js
+console.log(/[\u{10000}-\u{10FFFF}]$/u.test("\u{1F600}"))  // false; ECMA-262: true
+console.log(/[\u{1F600}]$/u.test("\u{1F600}"))             // false; true
+console.log(/[^a]$/u.test("\u{1F600}"))                    // false; true
+console.log(/x[\u{1F600}]$/u.test("x\u{1F600}"))           // false; true
+console.log(/^[\u{10000}-\u{10FFFF}]$/u.test("\u{1F600}")) // true, anchored at the start
+console.log(/[\u{10000}-\u{10FFFF}]$/v.test("\u{1F600}"))  // true, the v flag
+console.log(/[\u{10000}-\u{10FFFF}]/u.test("\u{1F600}"))   // true, no $
+```
+
+The attached repro.js runs these and a table of variants and controls with plain `node repro.js`, and exits 1 while
+any case disagrees with ECMA-262.
+
+### How often does it reproduce? Is there a required condition?
+
+Always. The pattern is in unicode mode (u), ends in `$`, is not anchored at its start or sticky, its source is a
+one-byte string (the supplementary code points are named by escapes, not written literally), and a bracketed class in
+it can match a supplementary code point.
+
+### What is the expected behavior? Why is that the expected behavior?
+
+`true` for each line: under the u flag the class matches the surrogate pair as one code point, and the match ends at
+the end of the input (ECMA-262, RegExp.prototype.test over a pattern with the u flag).
+
+### What do you see instead?
+
+`false` for the first four lines. The same patterns written with the code points themselves in the source (a
+two-byte pattern), with the v flag, with `^`, with the y flag, or without `$` all answer `true`.
+
+### Additional information
+
+This is V8 issue 571871980, fixed on V8 main by 7d259d7c2090bb38af1fd9f6ca67c6dc8b6f88d8, "Reland "[regexp] Fix
+IS_CERTAINLY_ONE_CODE_POINT for unicode-mode classes"" (Cr-Commit-Position refs/heads/main@{#110562},
+https://chromium-review.googlesource.com/c/v8/v8/+/8556177), a reland of 2f7f93cf5c1035086dcdf9758b2e604adab44ca6.
+Its cause, in V8 14.6's src/regexp/regexp-parser.cc ParseCharacterClass: a class parsed from a one-byte source is
+flagged IS_CERTAINLY_ONE_CODE_POINT (`if (sizeof(CharT) == 1)`), though in unicode mode a one-byte source names
+supplementary code points by escape, so RegExpClassRanges::max_match() (src/regexp/regexp-ast.h) reports 1 for a class
+that consumes two code units, and RegExpImpl::Compile's end-anchor optimization (src/regexp/regexp.cc,
+SetCurrentPositionFromEnd(max_length)) starts the search one code unit before the end, inside the pair. The fix keys
+the flag on `!IsUnicodeMode()` and adds test/mjsunit/regress/regress-571871980.js.
+
+Could 7d259d7c be backported to v26.x's deps/v8 (and to any other release line on a V8 without it)? The V8 commit does
+not apply to v26.x-staging as is: V8 14.6 names the class RegExpClassRanges, returns it where main assigns `tree`, its
+condition is `sizeof(CharT) == 1` without main's `&& !is_negated`, and its mjsunit.status lacks the lines the skip is
+placed after. The attached 0001-deps-V8-backport-7d259d7c2090.patch resolves both to main's condition, comment and skip,
+carries the regress test, and bumps v8_embedder_string to -node.41. It applies to v26.x-staging at a5bbc7b880da; I have
+not built it.

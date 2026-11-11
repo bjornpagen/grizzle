@@ -1,0 +1,44 @@
+NOTES: v8-unicode-end-anchor-astral-class
+
+Status: ready to file, NOT filed. Nothing has been sent anywhere. The owner files it by hand.
+
+1. What this is.
+   - In Node 26.13.0 (V8 14.6.202.34-node.40), a unicode-mode RegExp that ends in `$`, is not anchored at its start,
+     and holds a bracketed class naming a code point past U+FFFF by an escape misses a match at the end of the input:
+     /[\u{10000}-\u{10FFFF}]$/u.test("\u{1F600}") is false; ECMA-262 says true.
+   - V8 has fixed it on main (issue 571871980, commit 7d259d7c, 2026-10-12; EVIDENCE.txt 3). The release lines of Node
+     on V8 14.6 carry the bug, so what is left is Node's backport of that commit, which issue.txt asks for.
+   - 0001-deps-V8-backport-7d259d7c2090.patch is that backport for v26.x: the V8 commit rebased onto 14.6's
+     ParseCharacterClass, its regress test, and the embedder string bump. It applies to v26.x-staging; it has not been
+     compiled (EVIDENCE.txt 4).
+
+2. What grizzle does about it now.
+   - On the live branch, a login's OpenAPI document (packages/engine/src/live/openapi.ts) states a refined text's
+     patterns as JSON Schema `pattern`s printed from their regex IR (packages/engine/src/scalar/regex/ecma.ts toEcma).
+     JSON Schema reads a pattern under the u flag, unanchored at both ends, and every validator of the document on V8
+     (Node, Chrome, the CLI generator, @hyperjump/json-schema) hits this bug for a pattern ending in `$`: a refined
+     text whose last code point is supplementary would be refused by the schema that grizzle and PostgreSQL admit.
+   - toEcma prints a pattern whose matches need not start at the value's start as `^[^]*?(?:...)`: the same language
+     (a match exists somewhere exactly when one exists after some prefix), which V8's start-anchored path reads right.
+     test/unit/live/ecma.test.ts keeps the counterexample /.$/su with U+10FFFF, from the live test phase at 729f76a6.
+
+3. When a Node release carries the fix.
+   - Run `node repro.js` on it. The fix is in when it exits 0, every case agreeing with ECMA-262.
+   - Then print the unanchored pattern as it is: in toEcma, return the folded body for every node, and delete
+     startsAtStart. The documents' patterns change (the prefix goes), so regenerate them. Keep the ecma.test.ts
+     counterexample: it then guards V8's fix. Delete this folder.
+
+4. Where it goes.
+   - github.com/nodejs/node, the Bug report issue form (.github/ISSUE_TEMPLATE/1-bug-report.yml): version, platform,
+     subsystem, steps, how often, expected, actual, additional information. issue.txt fills each field.
+   - V8 itself needs nothing: its issue 571871980 is fixed on main. Node backports V8 commits into deps/v8 for its
+     release lines (doc/contributing/maintaining/maintaining-V8.md), which is what the issue asks.
+
+5. Files.
+   - NOTES.txt      this file.
+   - issue.txt      the Node issue, its form's fields filled.
+   - repro.js       the reproduction, plain node, exit 1 while a case disagrees.
+   - EVIDENCE.txt   repro.js's output, and the cause in V8's source.
+   - 0001-deps-V8-backport-7d259d7c2090.patch
+                    the backport, for nodejs/node v26.x-staging.
+   - CHECKLIST.txt  Node's reporting gates, each checked.

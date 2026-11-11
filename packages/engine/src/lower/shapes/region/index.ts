@@ -1,7 +1,7 @@
 import { isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import { exprClosure, type ScalarExpr } from "#compiler/ir/expr.ts"
-import { exprsOf, inputsOf, type NodeOf } from "#compiler/ir/rel.ts"
+import { exprsOf, inputsOf, type NodeOf, type VarDecl } from "#compiler/ir/rel.ts"
 import { baseOf, type Carrier } from "#compiler/ir/scalar.ts"
 import { conjuncts } from "#compiler/logical/props.ts"
 import {
@@ -18,7 +18,7 @@ import {
 } from "#compiler/lower/conservative/match-region/index.ts"
 import { collapseLimit } from "#compiler/lower/optimize/existence/index.ts"
 import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
-import { nativeOp, operandCarriers } from "#compiler/scalar/compute/registry.ts"
+import { type NativeOp, nativeOp, operandCarriers } from "#compiler/scalar/compute/registry.ts"
 import type { Expr, FromItem, JoinStep, OperandBody } from "#compiler/sql/ast.ts"
 import { and, core, lit, operandSelect, target } from "#compiler/sql/build.ts"
 import { inertVisitor, visitSelect } from "#compiler/sql/transform.ts"
@@ -127,15 +127,17 @@ const chainOrder = (
 	first: PlacedOccurrence,
 	others: ReadonlyArray<PlacedOccurrence>,
 	terms: ReadonlyArray<Term>,
+	read: ReadonlyArray<RegionColumn>,
 	facts: ShapeFacts,
 	within: ReadonlySet<string>
 ): Chain => {
 	const fixed = (o: PlacedOccurrence): ReadonlySet<string> =>
-		new Set(
-			terms.flatMap((t) =>
+		new Set([
+			...terms.flatMap((t) =>
 				t.kind === "fixes" && t.fixes.alias === o.alias ? [t.fixes.column] : []
-			)
-		)
+			),
+			...read.flatMap((c) => (c.alias === o.alias ? [c.column] : []))
+		])
 	const determined = (o: PlacedOccurrence, chained: ReadonlySet<string>): ReadonlySet<string> => {
 		const out = new Set(fixed(o))
 		for (const t of terms) {
@@ -211,6 +213,9 @@ const orderedCarriers: ReadonlySet<Carrier> = new Set<Carrier>([
 
 const orderFns: ReadonlySet<string> = new Set(["lt", "le", "gt", "ge"])
 
+/** The equality, whose conjunct fixes the variable it compares. */
+const equalityFns: ReadonlySet<string> = new Set(["eq"])
+
 /**
  * The expression kinds a copied bound may read: the variable's column, and parameters and literals through operators
  * and casts.
@@ -224,18 +229,23 @@ const valueKinds: ReadonlySet<string> = new Set([
 	"domainCast"
 ])
 
+/** A conjunct of a region's reader comparing one of its variables, `v`, by the native operator `op`. */
+interface ReaderComparison {
+	readonly conjunct: ScalarExpr
+	readonly op: NativeOp
+	readonly v: VarDecl
+}
+
 /**
- * The copies of the bounds the region's only reader places on a variable several columns bind, each on one further
- * column (see the head of this file); none when anything else reads the region.
- *
- * The variable is one side of the comparison, the other side reads no relation.
+ * The conjuncts of the region's only reader, a filter, each of which compares one variable of the region by `fns` with a
+ * value read from no relation, a parameter or a literal through operators and casts, with that variable; none when
+ * anything else reads the region.
  */
-const impliedBounds = (
+const readerComparisons = (
 	node: NodeOf<"MatchRegion">,
 	cx: LowerContext,
-	env: Env,
-	parts: ReturnType<typeof regionParts>
-): ReadonlyArray<Expr> => {
+	fns: ReadonlySet<string>
+): ReadonlyArray<ReaderComparison> => {
 	const nodes = topoOrder(cx.dag)
 	const [filter, ...others] = nodes.filter((n) => inputsOf(n).includes(node))
 	if (filter === undefined || others.length > 0 || cx.dag.roots.includes(node)) {
@@ -250,39 +260,74 @@ const impliedBounds = (
 	if (!exprClosure(nodes.flatMap((n) => exprsOf(n))).every((e) => !readsRegion(e) || own.has(e))) {
 		return []
 	}
-	const out: Array<Expr> = []
-	for (const e of conjuncts(filter.pred)) {
+	return conjuncts(filter.pred).flatMap((e) => {
 		const fn = e.kind === "op" ? nativeOp(e.op) : undefined
-		if (e.kind !== "op" || fn === undefined || !orderFns.has(fn.fn) || e.args.length !== 2) {
-			continue
+		if (e.kind !== "op" || fn === undefined || !fns.has(fn.fn) || e.args.length !== 2) {
+			return []
 		}
 		const closure = exprClosure([e])
 		if (!closure.every((x) => valueKinds.has(x.kind))) {
-			continue
+			return []
 		}
 		const [ref, ...more] = closure.flatMap((x) => (x.kind === "column" ? [x.column] : []))
 		if (ref === undefined || more.length > 0 || ref.node !== node.id) {
-			continue
+			return []
 		}
 		if (!e.args.some((a) => a.kind === "column")) {
-			continue
+			return []
 		}
 		const v = node.vars.find((x) => x.name === ref.name)
-		if (v === undefined) {
-			continue
-		}
+		return v === undefined ? [] : [{ conjunct: e, op: fn, v }]
+	})
+}
+
+/** The region columns bound to `v`. */
+const columnsOf = (v: VarDecl, parts: ReturnType<typeof regionParts>): ReadonlyArray<Expr> =>
+	parts.occurrences.flatMap((o) =>
+		o.occurrence.bindings.flatMap((b) => {
+			const column = b.var === v ? o.map.get(b.column) : undefined
+			return column === undefined ? [] : [column]
+		})
+	)
+
+/**
+ * The region columns its only reader fixes: each column bound to a variable the reader equates with a value read from
+ * no relation, which the chain may start at as at a column the region's own conditions fix (chainOrder).
+ */
+const readerFixed = (
+	node: NodeOf<"MatchRegion">,
+	cx: LowerContext,
+	parts: ReturnType<typeof regionParts>,
+	within: ReadonlySet<string>
+): ReadonlyArray<RegionColumn> =>
+	readerComparisons(node, cx, equalityFns).flatMap(({ v }) =>
+		columnsOf(v, parts).flatMap((c) =>
+			c.kind === "column" && c.table !== undefined && within.has(c.table)
+				? [{ alias: c.table, column: c.column }]
+				: []
+		)
+	)
+
+/**
+ * The copies of the bounds the region's only reader places on a variable several columns bind, each on one further
+ * column (see the head of this file); none when anything else reads the region.
+ *
+ * The variable is one side of the comparison, the other side reads no relation.
+ */
+const impliedBounds = (
+	node: NodeOf<"MatchRegion">,
+	cx: LowerContext,
+	env: Env,
+	parts: ReturnType<typeof regionParts>
+): ReadonlyArray<Expr> => {
+	const out: Array<Expr> = []
+	for (const { conjunct: e, op, v } of readerComparisons(node, cx, orderFns)) {
 		const carrier = baseOf(v.type).carrier
-		if (!orderedCarriers.has(carrier) || operandCarriers(fn.operands).some((a) => a !== carrier)) {
+		if (!orderedCarriers.has(carrier) || operandCarriers(op.operands).some((a) => a !== carrier)) {
 			continue
 		}
 		const value = parts.columns.find((c) => c.column.name === v.name)?.value
-		const columns = parts.occurrences.flatMap((o) =>
-			o.occurrence.bindings.flatMap((b) => {
-				const column = b.var === v ? o.map.get(b.column) : undefined
-				return column === undefined || value === column ? [] : [column]
-			})
-		)
-		for (const column of columns) {
+		for (const column of columnsOf(v, parts).filter((c) => c !== value)) {
 			out.push(lowerExpr(cx, e, extendEnv(env, [[node.id, new Map([[v.name, column]])]])))
 		}
 	}
@@ -310,8 +355,11 @@ const impliedBounds = (
  *
  * - It starts at the occurrence the evidence makes most selective: one whose columns fixed by values from outside the
  *   region (constants, parameters, outer correlations) determine a physical key of its source, so it delivers at most
- *   one row; else one with any fixed column; else the first placed. An occurrence that reads another (LATERAL) never
- *   starts.
+ *   one row; else one with any fixed column; else the first placed. A column is fixed by a condition of the region, or
+ *   by its only reader, a filter, that equates the variable bound to it with a value read from no relation: the
+ *   parameter a rule's probe holds its row at reaches PostgreSQL there, and a chain that started elsewhere would plan
+ *   its first subproblem, every relation it holds, before the parameter met any of them. An occurrence that reads
+ *   another (LATERAL) never starts.
  * - It continues with an occurrence a condition joins to those already chained, preferring one whose fixed columns and
  *   columns equated to chained ones determine a key (no fan-out), then one with a fixed column, then the first placed,
  *   and only when none is joined, one the query itself leaves unconnected. A LATERAL occurrence follows everything it
@@ -351,7 +399,14 @@ export const regionLowerer =
 		}
 		const within = new Set(parts.occurrences.map((o) => o.alias))
 		const terms = parts.conditions.flatMap(sqlConjuncts).map((e) => termOf(e, within))
-		const { start, rest } = chainOrder(first, others, terms, facts, within)
+		const { start, rest } = chainOrder(
+			first,
+			others,
+			terms,
+			readerFixed(node, cx, lowered, within),
+			facts,
+			within
+		)
 		/**
 		 * Each term stands at the step of the chain that brings in the last occurrence it reads: in WHERE when that is
 		 * the first, in the ON of that step's join otherwise.

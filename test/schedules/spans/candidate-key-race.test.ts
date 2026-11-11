@@ -213,7 +213,9 @@ const spanText = (b: Booked) => `[${b.during.start},${b.during.end})`
 const values = (b: Booked) => `(${b.id}, ${b.room}, '${spanText(b)}', ${b.ref})`
 
 /** The features one explained run reached (see BookingFeature). */
-const featuresOf = (e: Explained<WriteAnswer<WriteOutcome<unknown>>>): ReadonlyArray<BookingFeature> => {
+const featuresOf = (
+	e: Explained<WriteAnswer<WriteOutcome<unknown>>>
+): ReadonlyArray<BookingFeature> => {
 	const waited = Arr.some(e.run.moves, (m) => m.session === "app" && m.observed._tag === "Waited")
 	return [
 		...(waited ? ["the apply waited" as const] : []),

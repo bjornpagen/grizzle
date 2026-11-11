@@ -88,8 +88,6 @@ post-beta swarm's fixes for the next release.
   - Building qti-pie's Qti schema value costs about 36 s, a third of it grizzle's construction: ir/shape parse,
     schema/relation closedRows and admitClosedRelation, core/canonical, protocol rosterHandlesOf. The profile is
     ~/.cache/gr8des/prof/CPU.20261108.180041.75112.0.001.cpuprofile; Qti is the benchmark.
-  - Rules over queries: commit time grows with the square of the rows written (8k rows × 5 tables ≈ 113 s against
-    0.33 s with native foreign keys), though each probe alone is index lookups.
   - Pattern admission repeated in every lowering (REGEX2, 2026-11-09; held by main, generate-only once the served
     cutover lands). On the kit's layer at c83f33ac (loaded machine, CPU): the law model's batch admits each closed
     payload value read as a Compute.matches pattern, 370 calls for 365 distinct, about 260 ms (lower.ts admittedReads),
@@ -188,7 +186,6 @@ Q1 to Q6 first. A new feature still needs its correctness need named in its comm
 - **Q2.** The rowless ChangeSet builder (CULL, its builder series).
 - **Q3.** A law's id exported from the schema, and lawKeyOf, so pantry drops its committed LawId dictionary; RefusedLaw
   names no QTI law-table today (ARTIFACTS2).
-- **Q4.** The quadratic commit cost of rules over queries (NEGATION).
 - **Q5.** The cost of compiling the law model and building the Qti value (WORKLOAD2).
 - **Q7.** A Compute text split (SHA256). No substring, split_part or pattern group exists, so pantry splits on the host
   and writes the pieces as rows (IDREF, header and tolerance tokens, identifier leads and trails, href pieces, reading
@@ -407,6 +404,14 @@ Q1 to Q6 first. A new feature still needs its correctness need named in its comm
   - **Parked** until the owner's go and a measurement of Start after that cache.
 
 ## Upstream, for the owner to file
+- upstream/v8-unicode-end-anchor-astral-class: V8 14.6 (Node 26.13) answers a unicode-mode pattern ending in `$`
+  over an astral class wrongly from an unanchored start; V8 fixed it on main (7d259d7c2090, issue 571871980). The
+  folder holds a Node backport patch and issue.txt asking nodejs/node to backport it to v26.x. Once a Node release
+  carries it (`node repro.js` exits 0), the live branch's toEcma (scalar/regex/ecma.ts) prints a pattern's body as it
+  is and startsAtStart is deleted, and the folder goes.
+- upstream/ssi-summarized-conflict-out: not carried in grizzle's build (the owner, 2026-11-11: local behaviour must
+  match stock PostgreSQL on RDS); the owner files it with pgsql-hackers after the archive and commitfest searches its
+  CHECKLIST.txt leaves open.
 - upstream/node: TextEncoder.encodeInto underfills an exactly sized destination for text holding U+0400 to U+07FF
   (nodejs/node#65994, fixed by #65997, unreleased). Once a Node release carries #65997 (repro.sh prints PASS on every
   line), restore encodeInto in packages/engine/src/codec/bytea.ts textArray, whose encode() per element is the interim

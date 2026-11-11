@@ -151,7 +151,9 @@ const raceGen: Gen<LeaveRace> = (source) => {
 const instantOf = (days: number) => Instant(t0 + BigInt(days) * day)
 
 /** The features one explained run reached (see LeaveFeature). */
-const featuresOf = (e: Explained<WriteAnswer<WriteOutcome<unknown>>>): ReadonlyArray<LeaveFeature> => {
+const featuresOf = (
+	e: Explained<WriteAnswer<WriteOutcome<unknown>>>
+): ReadonlyArray<LeaveFeature> => {
 	const waited = Arr.some(e.run.moves, (m) => m.session === "g" && m.observed._tag === "Waited")
 	return [
 		...(waited ? ["the insert waited" as const] : []),
