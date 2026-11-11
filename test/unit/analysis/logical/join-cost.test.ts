@@ -1,14 +1,3 @@
-import { describe, it } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { int } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter } from "effect"
-import { indices } from "#compiler/core/array.ts"
-import { makeIdSupply } from "#compiler/core/ids.ts"
-import { DagBuilder } from "#compiler/ir/builder.ts"
-import { conservativeMeta, type ValidDag, type VarDecl } from "#compiler/ir/rel.ts"
-import { analyzeLogical, checkerEvidence } from "#compiler/logical/annotate.ts"
 /**
  * The logical analysis of k relations matched in one region, each of two columns a and b, each its own declared key,
  * no variable shared: 2^k minimal keys, which one proof states over k independent factors (logical/props.ts finish).
@@ -26,7 +15,18 @@ import { analyzeLogical, checkerEvidence } from "#compiler/logical/annotate.ts"
  * per factor, k² of them).
  *
  * Features: from k = 4, from k = 6.
- */
+ */ import { describe, it } from "@effect/vitest"
+import { exhaust } from "@grizzle/testing/explore"
+import { requiredInSpace } from "@grizzle/testing/features"
+import { int } from "@grizzle/testing/gen"
+import { searched } from "@grizzle/testing/vitest"
+import { Array as Arr, Effect, Formatter } from "effect"
+import { indices } from "#compiler/core/array.ts"
+import { makeIdSupply } from "#compiler/core/ids.ts"
+import { DagBuilder } from "#compiler/ir/builder.ts"
+import { conservativeMeta, type ValidDag, type VarDecl } from "#compiler/ir/rel.ts"
+import { analyzeLogical, checkerEvidence } from "#compiler/logical/annotate.ts"
+
 import { plainType } from "#compiler/scalar/native.ts"
 import { defined, succeeded } from "#test/support/assert.ts"
 import { incrementsDoNotGrow } from "#test/support/growth.ts"

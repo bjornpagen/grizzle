@@ -1,4 +1,15 @@
-import { describe, it } from "@effect/vitest"
+/**
+ * The observed nodes (analysis/physical/consumers.ts observedNodes), against every observation path of each node
+ * enumerated by brute force: each path climbs preserving edges from the node and ends at the first edge that observes
+ * or ignores, or at a preserving edge into a node no consumer reads. A node is observed exactly when one of those ends
+ * observes.
+ *
+ * Property: over the differential oracle's generated queries, analyzed unplaced, every node is observed exactly when
+ * one of its observation paths ends at an edge that observes. Oracle: the paths enumerated by brute force, a second
+ * implementation. Plants (~/.cache/grizzle-release/BR03/plants): observed-preserving-unclimbed (a node is observed only
+ * by an edge into it that observes, never through a preserving edge). Features: an end that observes, an end that
+ * ignores.
+ */ import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import { notesOnly } from "@grizzle/testing/sense"
@@ -13,19 +24,6 @@ import { genCatalog } from "#test/support/evidence.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { defaultGenConfig, queryCaseGen } from "#test/support/oracle/gen/case.ts"
 import { physical } from "#test/unit/analysis/physical/support.ts"
-
-/**
- * The observed nodes (analysis/physical/consumers.ts observedNodes), against every observation path of each node
- * enumerated by brute force: each path climbs preserving edges from the node and ends at the first edge that observes
- * or ignores, or at a preserving edge into a node no consumer reads. A node is observed exactly when one of those ends
- * observes.
- *
- * Property: over the differential oracle's generated queries, analyzed unplaced, every node is observed exactly when
- * one of its observation paths ends at an edge that observes. Oracle: the paths enumerated by brute force, a second
- * implementation. Plants (~/.cache/grizzle-release/BR03/plants): observed-preserving-unclimbed (a node is observed only
- * by an edge into it that observes, never through a preserving edge). Features: an end that observes, an end that
- * ignores.
- */
 
 /** The last steps of every observation path from `node`, by brute force over the paths. */
 const pathEnds = (
