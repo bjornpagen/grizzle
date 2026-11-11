@@ -45,8 +45,9 @@ import { pickFrom, pickGen } from "#test/support/pick.ts"
  * A property over drawn sequences on a pool of a drawn maximum (1 to 3) whose idle timeout is short (pg closes idle
  * sessions above the floor while the sequence runs) or long. Each step leases a session and holds it, or releases a
  * held one; ends one of the server's connections, a leased session's or an idle one's; leases a second session where
- * the maximum allows and releases one above the floor, which a short timeout then closes; starves a saturated pool with
- * 1, 64 or 2,000 leases that wait for a permit until they are interrupted, then releases a session; abandons a lease,
+ * the maximum allows and releases one above the floor, which a short timeout then closes; leases at once, as many as
+ * one, the pool's size, one past it or more past it, those its free permits admit connecting and the rest waiting for a
+ * permit, until every one is interrupted, then releases a session; abandons a lease,
  * interrupted while pg connects it or hands it an idle session; cuts a lease, interrupted at a drawn turn of the
  * scheduler, which runs it a drawn few operations a turn, so the cut lands at every step of its acquisition and of its
  * hold; races such a cut, on a lease queued behind a saturated pool, with a release at another drawn turn, often a turn
@@ -65,10 +66,11 @@ import { pickFrom, pickGen } from "#test/support/pick.ts"
  * standing still.
  *
  * Plants (~/.cache/grizzle-release/BR04/plants): pool-abandoned-permit-lost.patch (a lease abandoned while pg connects
- * it never gives its permit back).
+ * it never gives its permit back), pool-interrupted-waiter-kept.patch (an interrupted waiter stays queued, so a permit
+ * goes to it and is lost).
  *
- * Features: each step's situation, a flood of waiters among them; the kept case reaches every abandonment, loss,
- * starvation and refusal on a pool of two.
+ * Features: each step's situation; of the leases taken at once, none waiting, one waiting for a permit, and one
+ * waiting behind another; the kept case reaches every abandonment, loss, starvation and refusal on a pool of two.
  */
 type Refusal = "refused" | "no key"
 type Startup = "ready" | Refusal
@@ -79,7 +81,7 @@ type StepSketch =
 	| { readonly kind: "release"; readonly pick: number }
 	| { readonly kind: "lose"; readonly pick: number }
 	| { readonly kind: "expire" }
-	| { readonly kind: "starve"; readonly waiters: number }
+	| { readonly kind: "starve"; readonly leases: Leases }
 	| { readonly kind: "abandon" }
 	| { readonly kind: "cut"; readonly at: number; readonly ops: number }
 	| {
@@ -96,6 +98,49 @@ interface Sequence {
 	readonly steps: ReadonlyArray<StepSketch>
 }
 
+/**
+ * How many leases a step takes at once, by the pool's size: one, exactly the size, one past it, or `by` past it, two
+ * or more, so a lease past the free permits waits, and one past it waits behind another.
+ */
+type Leases =
+	| { readonly kind: "one" }
+	| { readonly kind: "the size" }
+	| { readonly kind: "one past the size" }
+	| { readonly kind: "past the size"; readonly by: number }
+
+/** The leases `leases` takes on a pool of `max` sessions. */
+const leaseCount = (leases: Leases, max: number): number => {
+	switch (leases.kind) {
+		case "one":
+			return 1
+		case "the size":
+			return max
+		case "one past the size":
+			return max + 1
+		case "past the size":
+			return max + leases.by
+	}
+}
+
+/** The leases a step takes at once on a pool of `max`, a lease past it drawn up to the size past it again. */
+const leasesGen = (max: number): Gen<Leases> =>
+	oneOf<Leases>([
+		constant({ kind: "one" }),
+		constant({ kind: "the size" }),
+		constant({ kind: "one past the size" }),
+		map(int(2, max + 1), (by) => ({ kind: "past the size", by }))
+	])
+
+/** What the leases taken at once wait for, by how many the pool's free permits leave waiting. */
+type Waiting = "no waiter" | "a waiter queued" | "a waiter queued behind another waiter"
+
+const waitingOf = (waiters: number): Waiting =>
+	waiters === 0
+		? "no waiter"
+		: waiters === 1
+			? "a waiter queued"
+			: "a waiter queued behind another waiter"
+
 /** A scheduler turn at which a cut lands. */
 const turnGen: Gen<number> = int(0, 24)
 
@@ -111,31 +156,35 @@ const opsGen: Gen<number> = int(3, 8)
  */
 const leadGen: Gen<number> = int(1, 3)
 
-const stepGen: Gen<StepSketch> = oneOf<StepSketch>([
-	constant({ kind: "lease" }),
-	(source) => ({ kind: "release", pick: source.draw(pickGen) }),
-	(source) => ({ kind: "lose", pick: source.draw(pickGen) }),
-	constant({ kind: "expire" }),
-	(source) => ({ kind: "starve", waiters: source.draw(element([1, 64, 2_000])) }),
-	constant({ kind: "abandon" }),
-	(source) => ({ kind: "cut", at: source.draw(turnGen), ops: source.draw(opsGen) }),
-	(source) => {
-		const freeAt = source.draw(turnGen)
-		return {
-			kind: "race",
-			at: source.draw(oneOf([turnGen, map(leadGen, (lead) => freeAt + lead)])),
-			freeAt,
-			ops: source.draw(opsGen)
-		}
-	},
-	(source) => ({ kind: "refuse", startup: source.draw(element<Refusal>(["refused", "no key"])) })
-])
+const stepGen = (max: number): Gen<StepSketch> =>
+	oneOf<StepSketch>([
+		constant({ kind: "lease" }),
+		(source) => ({ kind: "release", pick: source.draw(pickGen) }),
+		(source) => ({ kind: "lose", pick: source.draw(pickGen) }),
+		constant({ kind: "expire" }),
+		(source) => ({ kind: "starve", leases: source.draw(leasesGen(max)) }),
+		constant({ kind: "abandon" }),
+		(source) => ({ kind: "cut", at: source.draw(turnGen), ops: source.draw(opsGen) }),
+		(source) => {
+			const freeAt = source.draw(turnGen)
+			return {
+				kind: "race",
+				at: source.draw(oneOf([turnGen, map(leadGen, (lead) => freeAt + lead)])),
+				freeAt,
+				ops: source.draw(opsGen)
+			}
+		},
+		(source) => ({ kind: "refuse", startup: source.draw(element<Refusal>(["refused", "no key"])) })
+	])
 
-const sequenceGen: Gen<Sequence> = (source) => ({
-	max: source.draw(int(1, 3)),
-	idle: source.draw(element<Sequence["idle"]>(["short", "long"])),
-	steps: source.draw(array(stepGen, { min: 1, max: 12 }))
-})
+const sequenceGen: Gen<Sequence> = (source) => {
+	const max = source.draw(int(1, 3))
+	return {
+		max,
+		idle: source.draw(element<Sequence["idle"]>(["short", "long"])),
+		steps: source.draw(array(stepGen(max), { min: 1, max: 12 }))
+	}
+}
 
 type PoolFeature =
 	| "leased a new session"
@@ -144,8 +193,7 @@ type PoolFeature =
 	| "lost a leased connection"
 	| "lost an idle connection"
 	| "idle churn closed a session"
-	| "waiters for a permit interrupted"
-	| "a flood of waiters"
+	| Waiting
 	| "abandoned while connecting"
 	| "abandoned while pg handed over an idle session"
 	| "cut mid-acquisition"
@@ -161,8 +209,9 @@ const situations: Arr.NonEmptyReadonlyArray<PoolFeature> = [
 	"lost a leased connection",
 	"lost an idle connection",
 	"idle churn closed a session",
-	"waiters for a permit interrupted",
-	"a flood of waiters",
+	"no waiter",
+	"a waiter queued",
+	"a waiter queued behind another waiter",
 	"abandoned while connecting",
 	"abandoned while pg handed over an idle session",
 	"cut mid-acquisition",
@@ -178,7 +227,7 @@ const situations: Arr.NonEmptyReadonlyArray<PoolFeature> = [
  */
 const poolKept: ReadonlyArray<Kept<Sequence, PoolFeature>> = [
 	{
-		note: "abandonments, losses, a flood and refusals on a pool of two",
+		note: "abandonments, losses, leases waiting behind one another, and refusals on a pool of two",
 		draws: "",
 		sketch: {
 			max: 2,
@@ -188,12 +237,12 @@ const poolKept: ReadonlyArray<Kept<Sequence, PoolFeature>> = [
 				{ kind: "abandon" },
 				{ kind: "abandon" },
 				{ kind: "lease" },
-				{ kind: "starve", waiters: 2_000 },
+				{ kind: "starve", leases: { kind: "past the size", by: 2 } },
 				{ kind: "lose", pick: 0 },
 				{ kind: "lose", pick: 0 },
 				{ kind: "refuse", startup: "refused" },
 				{ kind: "refuse", startup: "no key" },
-				{ kind: "starve", waiters: 1 }
+				{ kind: "starve", leases: { kind: "one" } }
 			]
 		},
 		reaches: [
@@ -202,8 +251,7 @@ const poolKept: ReadonlyArray<Kept<Sequence, PoolFeature>> = [
 			"released",
 			"abandoned while connecting",
 			"abandoned while pg handed over an idle session",
-			"waiters for a permit interrupted",
-			"a flood of waiters",
+			"a waiter queued behind another waiter",
 			"lost an idle connection",
 			"lost a leased connection",
 			"a refused connection",
@@ -632,25 +680,26 @@ describe("the session pool", () => {
 										yield* releaseOrLease(0)
 										break
 									case "starve": {
-										while (held.length < max) {
-											yield* lease
-										}
-										const waiters = yield* Effect.forEach(Arr.range(1, step.waiters), () =>
-											Effect.forkChild(Effect.scoped(pool.lease), { startImmediately: true })
+										const count = leaseCount(step.leases, max)
+										const waiters = Math.max(0, count - (max - held.length))
+										const leases = yield* Effect.forEach(Arr.range(1, count), () =>
+											Effect.forkChild(Effect.scoped(Effect.andThen(pool.lease, Effect.never)), {
+												startImmediately: true
+											})
 										)
 										assert.equal(
 											pool.native.waitingCount,
 											0,
 											"a lease waits for a permit, never in pg's queue"
 										)
-										yield* Fiber.interruptAll(waiters)
-										for (const exit of yield* Fiber.awaitAll(waiters)) {
-											assert.ok(Exit.hasInterrupts(exit), "the wait ends as an interruption")
+										yield* Fiber.interruptAll(leases)
+										for (const exit of yield* Fiber.awaitAll(leases)) {
+											assert.ok(
+												Exit.hasInterrupts(exit),
+												"a lease taken at once ends as an interruption"
+											)
 										}
-										c.note("waiters for a permit interrupted")
-										if (step.waiters >= 2_000) {
-											c.note("a flood of waiters")
-										}
+										c.note(waitingOf(waiters))
 										yield* releaseOrLease(0)
 										break
 									}
