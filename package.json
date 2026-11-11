@@ -662,8 +662,7 @@
 					"module": "packages/testing/src/gen.ts",
 					"names": [
 						"map",
-						"span",
-						"filter"
+						"span"
 					],
 					"draws": "each"
 				},

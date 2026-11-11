@@ -14,12 +14,6 @@ export declare const map: <A, B>(generator: Gen<A>, transform: (value: A) => B) 
 
 export declare const span: <A>(label: string, generator: Gen<A>) => Gen<A>
 
-export declare const filter: <A>(
-	generator: Gen<A>,
-	keep: (value: A) => boolean,
-	attempts: number
-) => Gen<A>
-
 export declare const oneOf: <A>(generators: ReadonlyArray<Gen<A>>) => Gen<A>
 
 export declare const weighted: <A>(

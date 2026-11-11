@@ -66,7 +66,7 @@ const propertyNameOf = (name: ts.PropertyName): Option.Option<string> =>
  *   its source declares); held by a constant, or computed from one by a call
  *   (`nonEmpty(cases)`, `Arr.filter(cases, …)`); an array literal of spreads alone writes nothing of its own;
  * - `constant`, one value, which is one case;
- * - a generator that draws one value for each of another's (`map`, `span`, `filter`, `drawn`, `sketched`) over a case
+ * - a generator that draws one value for each of another's (`map`, `span`, `drawn`, `sketched`) over a case
  *   list;
  * - a choice among generators (`oneOf`, `weighted`, `proportional`) whose every option is a case list.
  *

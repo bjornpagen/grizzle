@@ -274,7 +274,7 @@ suite's residual risk. A longer search is a fuzz run, `pnpm fuzz <suite>`.
   `draw` of an `explore` that is `element` over a list written in the tests (an array literal of a test file or of
   `test/`, held by a constant or computed from one by a call, outside the dictionary modules of
   `noCaseList.dictionaries`; a list any other module writes is a roster its source declares), `constant`'s one value,
-  a `map`, `span`, `filter`, `drawn` or `sketched` of one, or a choice among them alone. Whether a drawn record's field
+  a `map`, `span`, `drawn` or `sketched` of one, or a choice among them alone. Whether a drawn record's field
   is the verdict a case asserts takes the drawn value's flow through the generators and the property's branches,
   which no syntactic reading decides, so the rule refuses the written list itself: a space is a box its bounds define,
   a dictionary or a roster the source declares.
