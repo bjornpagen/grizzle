@@ -1,7 +1,17 @@
-import { Array as Arr, Effect, Option, pipe, Result, Schema, UndefinedOr } from "effect"
+import {
+	Array as Arr,
+	Effect,
+	Option,
+	pipe,
+	Record,
+	Result,
+	Schema,
+	String as Str,
+	UndefinedOr
+} from "effect"
 import { memoize } from "effect/Function"
 import type { AuthorConfig } from "#model/author-config.ts"
-import { CookieName, HeaderName } from "#model/brands.ts"
+import { CookieName, HeaderName, stripUnsafeText } from "#model/brands.ts"
 import type { DocumentUri } from "#model/brands.ts"
 import { makeDiagnostic } from "#model/diagnostic.ts"
 import type { Diagnostic } from "#model/diagnostic.ts"
@@ -9,12 +19,11 @@ import { SecurityPolicy, SecurityScheme } from "#model/entities.ts"
 import { childPointer, formatPointer, parsePointerResult } from "#model/pointer.ts"
 import type { Json } from "#model/pointer.ts"
 import { specSectionUrl } from "#model/spec-section.ts"
-import { sanitize } from "#normalize/docs.ts"
+import type { SpecLine } from "#model/spec-section.ts"
 import { follow, nodeOption } from "#normalize/document-set.ts"
 import type { Resolution } from "#resolve/index.ts"
 import { implicitComponent } from "#resolve/index.ts"
 import { declaredOpenapi } from "#validate/dispatch.ts"
-import type { Line } from "#validate/index.ts"
 
 /**
  * The declared schemes of a document. `unusable` names schemes that were declared but refused, so
@@ -192,7 +201,7 @@ const acquisitionFindings = (fields: SchemeFields, pointer: string): readonly Fi
 		]
 	}
 
-	return Object.keys(fields.flows ?? {}).flatMap((flow): readonly Finding[] => {
+	return Arr.flatMap(Record.keys(fields.flows ?? {}), (flow): readonly Finding[] => {
 		const rule = fields.type === "oauth2" ? flowRules.get(flow) : undefined
 
 		return rule === undefined
@@ -230,25 +239,25 @@ interface FlowHelp {
 
 const flowHelp = (kind: string, flow: typeof FlowNode.Type): FlowHelp => {
 	const help: FlowHelp = {
-		scopes: Object.entries(flow.scopes ?? {}).map(([name, description]) => ({
-			description: sanitize(description),
-			name: sanitize(name)
+		scopes: Arr.map(Record.toEntries(flow.scopes ?? {}), ([name, description]) => ({
+			description: stripUnsafeText(description),
+			name: stripUnsafeText(name)
 		}))
 	}
 	if (flow.authorizationUrl !== undefined) {
-		help.authorizationUrl = sanitize(flow.authorizationUrl)
+		help.authorizationUrl = stripUnsafeText(flow.authorizationUrl)
 	}
 
 	if (kind === "deviceAuthorization" && flow.deviceAuthorizationUrl !== undefined) {
-		help.deviceAuthorizationUrl = sanitize(flow.deviceAuthorizationUrl)
+		help.deviceAuthorizationUrl = stripUnsafeText(flow.deviceAuthorizationUrl)
 	}
 
 	if (flow.refreshUrl !== undefined) {
-		help.refreshUrl = sanitize(flow.refreshUrl)
+		help.refreshUrl = stripUnsafeText(flow.refreshUrl)
 	}
 
 	if (flow.tokenUrl !== undefined) {
-		help.tokenUrl = sanitize(flow.tokenUrl)
+		help.tokenUrl = stripUnsafeText(flow.tokenUrl)
 	}
 
 	return help
@@ -260,7 +269,7 @@ const flowHelp = (kind: string, flow: typeof FlowNode.Type): FlowHelp => {
  */
 const flowsOf = (fields: SchemeFields): Option.Option<Readonly<Record<string, FlowHelp>>> => {
 	const flows: Record<string, FlowHelp> = {}
-	for (const [kind, json] of Object.entries(fields.flows ?? {})) {
+	for (const [kind, json] of Record.toEntries(fields.flows ?? {})) {
 		if (!flowRules.has(kind)) {
 			continue
 		}
@@ -282,7 +291,7 @@ const flowsOf = (fields: SchemeFields): Option.Option<Readonly<Record<string, Fl
  */
 const kindOf = (
 	fields: SchemeFields,
-	line: Line
+	line: SpecLine
 ): { readonly kind: unknown; readonly row: string } | undefined => {
 	if (fields.type === "apiKey") {
 		return {
@@ -306,7 +315,7 @@ const kindOf = (
 
 		const metadata =
 			line === "3.2" && fields.oauth2MetadataUrl !== undefined
-				? { oauth2MetadataUrl: sanitize(fields.oauth2MetadataUrl) }
+				? { oauth2MetadataUrl: stripUnsafeText(fields.oauth2MetadataUrl) }
 				: {}
 
 		return Option.isNone(flows)
@@ -316,7 +325,7 @@ const kindOf = (
 
 	return fields.type === "openIdConnect" && fields.openIdConnectUrl !== undefined
 		? {
-				kind: { openIdConnectUrl: sanitize(fields.openIdConnectUrl), type: "oidcToken" },
+				kind: { openIdConnectUrl: stripUnsafeText(fields.openIdConnectUrl), type: "oidcToken" },
 				row: "SSC-19"
 			}
 		: undefined
@@ -329,7 +338,7 @@ const kindOf = (
  */
 interface Site {
 	readonly document: typeof DocumentUri.Type
-	readonly line: Line
+	readonly line: SpecLine
 	readonly pointer: string
 	readonly source: SecurityScheme["source"]
 }
@@ -427,7 +436,7 @@ const modelScheme = (name: string, site: Site, fields: Option.Option<SchemeField
 		? built
 		: {
 				...built,
-				findings: built.findings.map((finding) => ({ ...finding, document: site.document }))
+				findings: Arr.map(built.findings, (finding) => ({ ...finding, document: site.document }))
 			}
 }
 
@@ -475,10 +484,10 @@ interface Added {
 const addedSchemes = (
 	declared: ReadonlySet<string>,
 	author: AuthorSecurity | undefined,
-	line: Line
+	line: SpecLine
 ): Added => {
-	const entries = Object.entries(author?.config.security?.add?.schemes ?? {})
-	const built = entries.map(([name, node]): Built => {
+	const entries = Record.toEntries(author?.config.security?.add?.schemes ?? {})
+	const built = Arr.map(entries, ([name, node]): Built => {
 		if (author === undefined) {
 			return { findings: [] }
 		}
@@ -497,7 +506,7 @@ const addedSchemes = (
 				)
 	})
 
-	return { built, names: entries.map(([name]) => name) }
+	return { built, names: Arr.map(entries, ([name]) => name) }
 }
 
 /**
@@ -527,14 +536,18 @@ export const normalizeSecuritySchemes = Effect.fnUntraced(function* normalizeSec
 	const schemes = { document: resolution.document, pointer: "/components/securitySchemes" }
 	const names = nodeOption(resolution, schemes).pipe(
 		Option.flatMap((json) => decodeJsonMap(json)),
-		Option.match({ onNone: (): string[] => [], onSome: (map) => Object.keys(map) })
+		Option.match({ onNone: (): string[] => [], onSome: (map) => Record.keys(map) })
 	)
 	const refused = new Set<string>(
-		resolution.diagnostics
-			.filter((diagnostic) => diagnostic.code === "SEC-10/uri-like-name")
-			.map((diagnostic) => diagnostic.pointer)
+		Arr.map(
+			Arr.filter(
+				resolution.diagnostics,
+				(diagnostic) => diagnostic.code === "SEC-10/uri-like-name"
+			),
+			(diagnostic) => diagnostic.pointer
+		)
 	)
-	const built = names.map((name): Built => {
+	const built = Arr.map(names, (name): Built => {
 		const pointer = formatPointer(["components", "securitySchemes", name])
 
 		return refused.has(pointer) ? { findings: [] } : buildScheme(resolution, name, pointer)
@@ -542,7 +555,7 @@ export const normalizeSecuritySchemes = Effect.fnUntraced(function* normalizeSec
 	const extra = addedSchemes(new Set(names), author, resolution.line)
 	const all = [...built, ...extra.built]
 	const diagnostics = yield* Effect.forEach(
-		all.flatMap((one) => one.findings),
+		Arr.flatMap(all, (one) => one.findings),
 		(finding) => toDiagnostic(resolution, finding)
 	)
 
@@ -555,18 +568,21 @@ export const normalizeSecuritySchemes = Effect.fnUntraced(function* normalizeSec
 	return {
 		added: new Set(Arr.difference(extra.names, names)),
 		checkRefused: new Set(
-			checkFindings
-				.filter(
+			Arr.map(
+				Arr.filter(
+					checkFindings,
 					(finding) => finding.document === resolution.document && unresolvedCodes.has(finding.code)
-				)
-				.map((finding) => finding.pointer)
+				),
+				(finding) => finding.pointer
+			)
 		),
 		diagnostics,
-		schemes: Arr.getSomes(all.map((one) => Option.fromUndefinedOr(one.scheme))),
+		schemes: Arr.getSomes(Arr.map(all, (one) => Option.fromUndefinedOr(one.scheme))),
 		supplied,
 		unusable: [
-			...names.filter((_, index) => built[index]?.scheme === undefined),
-			...extra.names.filter(
+			...Arr.filter(names, (_, index) => built[index]?.scheme === undefined),
+			...Arr.filter(
+				extra.names,
 				(name, index) => !names.includes(name) && extra.built[index]?.scheme === undefined
 			)
 		]
@@ -592,16 +608,17 @@ interface Lookup {
  */
 const lookupOf = memoize((schemes: SchemeNormalization): Lookup => ({
 	author: {
-		declared: new Map(schemes.schemes.map((scheme) => [scheme.name, scheme])),
+		declared: new Map(Arr.map(schemes.schemes, (scheme) => [scheme.name, scheme])),
 		unusable: new Set(schemes.unusable)
 	},
 	spec: {
 		declared: new Map(
-			schemes.schemes
-				.filter((scheme) => scheme.source === "spec")
-				.map((scheme) => [scheme.name, scheme])
+			Arr.map(
+				Arr.filter(schemes.schemes, (scheme) => scheme.source === "spec"),
+				(scheme) => [scheme.name, scheme]
+			)
 		),
-		unusable: new Set(schemes.unusable.filter((name) => !schemes.added.has(name)))
+		unusable: new Set(Arr.filter(schemes.unusable, (name) => !schemes.added.has(name)))
 	}
 }))
 
@@ -711,7 +728,7 @@ const nameRefusal = (resolution: Resolution, named: Named): Option.Option<Findin
  */
 const setsAuthorization = ({ kind }: SecurityScheme): boolean => {
 	if (kind.type === "apiKey") {
-		return kind.in === "header" && kind.name.toLowerCase() === "authorization"
+		return kind.in === "header" && Str.toLowerCase(kind.name) === "authorization"
 	}
 
 	return kind.type === "http" || kind.type === "oauth2Token" || kind.type === "oidcToken"
@@ -725,7 +742,7 @@ const conflictRefusal = (
 	schemes: ReadonlyMap<string, SecurityScheme>,
 	pointer: string
 ): Finding | undefined => {
-	const writers = [...schemes.values()].filter(setsAuthorization)
+	const writers = Arr.filter([...schemes.values()], setsAuthorization)
 
 	return writers.length < 2
 		? undefined
@@ -736,7 +753,7 @@ const conflictRefusal = (
 				hint: "Each of these schemes sets the Authorization header, so one request cannot carry both. Use another alternative.",
 				message: "The alternative requires two schemes that both set the Authorization header.",
 				pointer,
-				related: writers.map((scheme) => ({
+				related: Arr.map(writers, (scheme) => ({
 					document: scheme.origin.document,
 					pointer: scheme.origin.pointer
 				}))
@@ -827,10 +844,10 @@ export const normalizeSecurityPolicy = Effect.fnUntraced(function* normalizeSecu
 			UndefinedOr.map((declared) => ({ ...declared, document: resolution.document }))
 		)
 	const source = effective?.source ?? { pointer: operation ?? "", rows: ["SEC-08"] }
-	const judged = (effective?.list ?? []).map((json, index) => {
+	const judged = Arr.map(effective?.list ?? [], (json, index) => {
 		const pointer = childPointer(source.pointer, String(index))
 		const entries = decodeRequirement(json).pipe(
-			Option.map((requirement) => Object.entries(requirement))
+			Option.map((requirement) => Record.toEntries(requirement))
 		)
 
 		return Option.isNone(entries)
@@ -848,7 +865,7 @@ export const normalizeSecurityPolicy = Effect.fnUntraced(function* normalizeSecu
 			: judge(resolution, schemes, entries.value, pointer, supplied !== undefined)
 	})
 	const diagnostics = yield* Effect.forEach(
-		judged.flatMap((one) => one.findings),
+		Arr.flatMap(judged, (one) => one.findings),
 		(finding) =>
 			toDiagnostic(
 				resolution,
@@ -857,7 +874,7 @@ export const normalizeSecurityPolicy = Effect.fnUntraced(function* normalizeSecu
 	)
 	const policy = yield* Schema.decodeUnknownEffect(SecurityPolicy)({
 		alternatives: Arr.getSomes(
-			judged.map((one) => Option.map(Option.fromUndefinedOr(one.use), (uses) => ({ uses })))
+			Arr.map(judged, (one) => Option.map(Option.fromUndefinedOr(one.use), (uses) => ({ uses })))
 		),
 		declared: effective !== undefined,
 		origin: { document: effective?.document ?? resolution.document, pointer: source.pointer },

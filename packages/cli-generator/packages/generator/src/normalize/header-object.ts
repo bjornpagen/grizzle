@@ -1,4 +1,4 @@
-import { Effect, Option, Schema } from "effect"
+import { Effect, Schema } from "effect"
 import { follow, nodeIn } from "#normalize/document-set.ts"
 import type { CanonicalKey } from "#resolve/canonical.ts"
 import type { Resolution } from "#resolve/index.ts"
@@ -15,7 +15,7 @@ export interface HeaderMarks {
  * A mark that is absent or not a boolean reads as false without discarding its sibling.
  */
 const Mark = Schema.Boolean.pipe(
-	Schema.catchDecoding(() => Effect.succeed(Option.some(false))),
+	Schema.catchDecoding(() => Effect.succeedSome(false)),
 	Schema.withDecodingDefaultKey(Effect.succeed(false))
 )
 

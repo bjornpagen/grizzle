@@ -14,6 +14,7 @@ import {
 	Result,
 	Schema,
 	SchemaRepresentation,
+	String as Str,
 	UndefinedOr
 } from "effect"
 import type { DocumentUri } from "#model/brands.ts"
@@ -26,13 +27,13 @@ import { methodMembers } from "#model/path-item.ts"
 import { evaluatePointerResult, formatPointer, parsePointerResult } from "#model/pointer.ts"
 import type { Json } from "#model/pointer.ts"
 import { specSectionUrl } from "#model/spec-section.ts"
+import type { SpecLine } from "#model/spec-section.ts"
 import { nodeIn, nodeOption, referenceIn } from "#normalize/document-set.ts"
 import { defsKey, keyOf } from "#resolve/canonical.ts"
 import type { CanonicalKey } from "#resolve/canonical.ts"
 import { defaultLimits } from "#resolve/index.ts"
 import type { ReferenceKind, Resolution, ResolveLimits } from "#resolve/index.ts"
 import { declaredOpenapi } from "#validate/dispatch.ts"
-import type { Line } from "#validate/index.ts"
 
 type Document = typeof DocumentUri.Type
 
@@ -86,7 +87,7 @@ export interface StoredSchemas {
  */
 export interface SchemaNormalization extends StoredSchemas {
 	readonly diagnostics: readonly Diagnostic[]
-	readonly line: Line
+	readonly line: SpecLine
 	readonly validation: ValidationCopy
 }
 
@@ -147,7 +148,7 @@ const member = (node: Record.ReadonlyRecord<string, Json>, key: string): Json | 
 	Option.getOrUndefined(Record.get(node, key))
 
 const strings = (value: Json | undefined): readonly string[] =>
-	isArray(value) ? value.filter(Predicate.isString) : []
+	isArray(value) ? Arr.filter(value, Predicate.isString) : []
 
 const isJson = Schema.is(Schema.Json)
 
@@ -257,7 +258,7 @@ const transformSchema = (
 		}
 
 		if (where.list.has(key) && isArray(value)) {
-			return value.map((item, index) => child(item, [key, String(index)]))
+			return Arr.map(value, (item, index) => child(item, [key, String(index)]))
 		}
 
 		if (where.map.has(key) && isObject(value)) {
@@ -340,7 +341,7 @@ const layoutFields = new Map<Kind, readonly Field[]>([
 		[
 			["additionalOperations", "operation", "map"],
 			["parameters", "header", "list"],
-			...methods.map((method): Field => [method, "operation", "one"])
+			...Arr.map(methods, (method): Field => [method, "operation", "one"])
 		]
 	],
 	["requestBody", [content]],
@@ -381,7 +382,7 @@ const walkLayout = (layout: Layout, kind: Kind | "schema", node: Json, pointer: 
 
 	layout.structural.add(pointer)
 	if (kind === "callback") {
-		for (const [expression, item] of Object.entries(node)) {
+		for (const [expression, item] of Record.toEntries(node)) {
 			walkLayout(layout, "pathItem", item, childPointer(pointer, expression))
 		}
 
@@ -400,7 +401,7 @@ const walkLayout = (layout: Layout, kind: Kind | "schema", node: Json, pointer: 
 			}
 		} else if (arity === "map" && isObject(value)) {
 			layout.structural.add(location)
-			for (const [entry, item] of Object.entries(value)) {
+			for (const [entry, item] of Record.toEntries(value)) {
 				walkLayout(layout, child, item, childPointer(location, entry))
 			}
 		}
@@ -486,12 +487,16 @@ const rewriteReferences = (
 	})
 }
 
-const fromOpenApi = (line: Line, node: JsonObject): JsonSchema.JsonSchema =>
+const fromOpenApi = (line: SpecLine, node: JsonObject): JsonSchema.JsonSchema =>
 	line === "3.0"
 		? JsonSchema.fromSchemaOpenApi3_0(node).schema
 		: JsonSchema.fromSchemaOpenApi3_1(node).schema
 
-const convert = (line: Line, key: string, node: Json): Effect.Effect<Json, SchemaImportDefect> => {
+const convert = (
+	line: SpecLine,
+	key: string,
+	node: Json
+): Effect.Effect<Json, SchemaImportDefect> => {
 	if (Predicate.isBoolean(node)) {
 		return Effect.succeed(node ? {} : { not: {} })
 	}
@@ -529,7 +534,7 @@ const factsOf = (node: Json): SchemaFacts => {
 		contentMediaType: stringMember(object, "contentMediaType"),
 		format: format === "binary" || format === "byte" ? format : undefined,
 		items: member(object, "items") !== undefined || member(object, "prefixItems") !== undefined,
-		properties: isObject(properties) ? Object.keys(properties) : [],
+		properties: isObject(properties) ? Record.keys(properties) : [],
 		reference: pipe(ref, UndefinedOr.map(referenceKey)),
 		required: strings(member(object, "required")),
 		types: typesOf(object)
@@ -546,12 +551,14 @@ const sitesOf = (budget: Budget, resolution: Resolution): ReadonlyMap<string, Ca
 	const layout = layoutOf(budget, resolution.value)
 	const members = memberLayouts(budget, resolution)
 	const roots = [
-		...layout.roots.map((pointer): CanonicalKey => ({ document: entry, pointer })),
-		...[...members].flatMap(([document, found]) =>
-			found.roots.map((pointer): CanonicalKey => ({ document, pointer }))
+		...Arr.map(layout.roots, (pointer): CanonicalKey => ({ document: entry, pointer })),
+		...Arr.flatMap([...members], ([document, found]) =>
+			Arr.map(found.roots, (pointer): CanonicalKey => ({ document, pointer }))
 		)
 	]
-	const sites = new Map(roots.map((root): [string, CanonicalKey] => [defsKey(entry, root), root]))
+	const sites = new Map(
+		Arr.map(roots, (root): [string, CanonicalKey] => [defsKey(entry, root), root])
+	)
 	for (const { defsKey: key, kind, target } of resolution.references.values()) {
 		const structural =
 			target.document === entry ? layout.structural : members.get(target.document)?.structural
@@ -584,7 +591,9 @@ const storeFrom = (
 		Effect.flatMap((entries) =>
 			within(budget, {
 				definitions: new Map(entries),
-				facts: new Map(entries.map(([key, node]): [string, SchemaFacts] => [key, factsOf(node)]))
+				facts: new Map(
+					Arr.map(entries, ([key, node]): [string, SchemaFacts] => [key, factsOf(node)])
+				)
 			})
 		)
 	)
@@ -646,7 +655,7 @@ export const schemaKeyAt = (resolution: Resolution, site: CanonicalKey): string 
 
 	const node = Option.getOrUndefined(nodeOption(resolution, site))
 
-	return isObject(node) && Object.keys(node).some(asserts) ? own : target
+	return isObject(node) && Arr.some(Record.keys(node), asserts) ? own : target
 }
 
 /**
@@ -673,7 +682,7 @@ const keywordRows = new Map<string, readonly [row30: string, row31: string]>([
 	["unevaluatedProperties", ["SCH-26", "SCH-26"]]
 ])
 
-const rowOf = (line: Line, keyword: string): string => {
+const rowOf = (line: SpecLine, keyword: string): string => {
 	const [row30, row31] = keywordRows.get(keyword) ?? ["SCO-01", "SCO-01"]
 
 	return line === "3.0" ? row30 : row31
@@ -721,7 +730,7 @@ const otherDialect = new Map([
 /**
  * The refusal code of a refused keyword (D-AD12), or `undefined`.
  */
-const refusedCode = (line: Line, keyword: string): string | undefined =>
+const refusedCode = (line: SpecLine, keyword: string): string | undefined =>
 	dynamicKeywords.get(keyword) ?? (line === "3.0" ? undefined : otherDialect.get(keyword))
 
 /**
@@ -742,7 +751,7 @@ const refusedInSource = (
 		const node = Option.getOrUndefined(nodeOption(resolution, site))
 		if (tokens !== undefined && node !== undefined) {
 			const visit = (current: JsonObject, path: readonly string[]): void => {
-				for (const keyword of Object.keys(current)) {
+				for (const keyword of Record.keys(current)) {
 					const code = refusedCode(resolution.line, keyword)
 					if (code !== undefined) {
 						found.push([code, { document: site.document, pointer: formatPointer(path) }])
@@ -784,7 +793,7 @@ const holdsDynamicKeyword = (
 		node,
 		where,
 		(current, path) => {
-			found ||= Object.keys(current).some((keyword) => dynamicKeywords.has(keyword))
+			found ||= Arr.some(Record.keys(current), (keyword) => dynamicKeywords.has(keyword))
 
 			const pointer = formatPointer(path)
 			const reference =
@@ -842,7 +851,7 @@ const annotationKeys: ReadonlySet<string> = new Set([
 const isStructured = (value: Json | undefined): boolean => isArray(value) || isObject(value)
 
 const isEmptySchema = (value: Json | undefined): boolean =>
-	isObject(value) && Object.keys(value).length === 0
+	isObject(value) && Record.keys(value).length === 0
 
 const inTypes = (types: readonly string[], value: Json): boolean => {
 	if (value === null) {
@@ -860,7 +869,8 @@ const inTypes = (types: readonly string[], value: Json): boolean => {
 }
 
 const isAnnotationOnly = (branch: JsonObject): boolean =>
-	Object.keys(branch).every(
+	Arr.every(
+		Record.keys(branch),
 		(key) => key === "const" || annotationKeys.has(key) || isSpecificationExtension(key)
 	)
 
@@ -891,7 +901,7 @@ const constValues = (branches: Json | undefined): readonly Json[] | undefined =>
 }
 
 const outsideSafeRange = (node: JsonObject): boolean =>
-	["exclusiveMaximum", "exclusiveMinimum", "maximum", "minimum"].some((keyword) => {
+	Arr.some(["exclusiveMaximum", "exclusiveMinimum", "maximum", "minimum"], (keyword) => {
 		const bound = member(node, keyword)
 
 		return Predicate.isNumber(bound) && Math.abs(bound) > Number.MAX_SAFE_INTEGER
@@ -905,7 +915,7 @@ interface Recorder {
 	readonly definitions: ReadonlyMap<string, Json>
 	readonly edits: SchemaEdit[]
 	readonly key: string
-	readonly line: Line
+	readonly line: SpecLine
 }
 
 const record = (
@@ -934,13 +944,13 @@ const filterEnum = (
 		return undefined
 	}
 
-	if (members.some(isStructured)) {
+	if (Arr.some(members, isStructured)) {
 		record(recorder, "remove", `${rowOf(recorder.line, "enum")}/not-asserted`, enumPath)
 
 		return undefined
 	}
 
-	const kept = members.filter((value, index) => {
+	const kept = Arr.filter(members, (value, index) => {
 		const inside = types.length === 0 || inTypes(types, value)
 		if (!inside) {
 			const code = `${rowOf(recorder.line, "enum")}/outside-type`
@@ -992,7 +1002,7 @@ const filterRequired = (
 	}
 
 	const code = recorder.line === "3.0" ? "S30-31/response-only" : "SCH-45/read-only-required"
-	const kept = names.filter((name, index) => {
+	const kept = Arr.filter(names, (name, index) => {
 		const readOnly =
 			Predicate.isString(name) && isReadOnly(recorder.definitions, member(properties, name))
 		if (readOnly) {
@@ -1026,7 +1036,7 @@ const conformsTo = (types: readonly string[], value: Json): boolean => {
  * element scope. In 3.1 and 3.2 `default` is an annotation (SCH-49) and stays.
  */
 const removalCode = (
-	line: Line,
+	line: SpecLine,
 	node: JsonObject,
 	keyword: string,
 	value: Json
@@ -1057,7 +1067,7 @@ const retype = (value: Json): Json => {
 		return "number"
 	}
 
-	return [...new Set(strings(value).map((type) => (type === "integer" ? "number" : type)))]
+	return [...new Set(Arr.map(strings(value), (type) => (type === "integer" ? "number" : type)))]
 }
 
 /**
@@ -1079,7 +1089,9 @@ const filterNode =
 			if (values !== undefined) {
 				rewritten.add(keyword)
 				enumValues =
-					enumValues === undefined ? values : enumValues.filter((item) => values.includes(item))
+					enumValues === undefined
+						? values
+						: Arr.filter(enumValues, (item) => values.includes(item))
 			}
 		}
 
@@ -1089,7 +1101,7 @@ const filterNode =
 
 		const patterned = member(node, "patternProperties") !== undefined
 		const kept: [string, Json][] = []
-		for (const [keyword, value] of Object.entries(node)) {
+		for (const [keyword, value] of Record.toEntries(node)) {
 			const code = removalCode(recorder.line, node, keyword, value)
 			if (code !== undefined) {
 				record(recorder, "remove", code, [...path, keyword])
@@ -1114,7 +1126,7 @@ const filterNode =
 			kept.push(["enum", enumValues])
 		}
 
-		return Object.fromEntries(kept)
+		return Record.fromEntries(kept)
 	}
 
 interface Edge {
@@ -1145,7 +1157,7 @@ const replaceAt = (node: Json, path: readonly string[]): Json => {
 	}
 
 	if (isArray(node)) {
-		return node.map((item, index) => (String(index) === token ? replaceAt(item, rest) : item))
+		return Arr.map(node, (item, index) => (String(index) === token ? replaceAt(item, rest) : item))
 	}
 
 	if (!isObject(node)) {
@@ -1226,7 +1238,7 @@ const breakAliasCycles = (budget: Budget, initial: ReadonlyMap<string, Json>): E
 /**
  * The importer's failure classes D-AD12 names (spike S7); any other class is a defect.
  */
-const importClasses: readonly (readonly [prefix: string, code: (line: Line) => string])[] = [
+const importClasses: readonly (readonly [prefix: string, code: (line: SpecLine) => string])[] = [
 	["Cannot intersect these", () => "SCO-09/union-not-asserted"],
 	[
 		'Cannot combine typed "additionalProperties"',
@@ -1245,12 +1257,12 @@ const pathToken = /\[(?<token>"(?:[^"\\]|\\.)*"|\d+)\]/gu
  * The importer's error path (a line `  at ["definitions"]["A"][0]`) as tokens.
  */
 const importPath = (message: string): readonly string[] => {
-	const [, location = ""] = message.split("\n  at ")
+	const [, location = ""] = Str.split(message, "\n  at ")
 
-	return [...location.matchAll(pathToken)].map((match) => {
+	return Arr.map([...location.matchAll(pathToken)], (match) => {
 		const token = match.groups?.token ?? ""
 
-		return token.startsWith('"') ? Option.getOrElse(quoted(token), () => token) : token
+		return Str.startsWith('"')(token) ? Option.getOrElse(quoted(token), () => token) : token
 	})
 }
 
@@ -1296,19 +1308,19 @@ const multiDocument = (
 	definitions: ReadonlyMap<string, Json>
 ): JsonSchema.MultiDocument<"draft-2020-12"> | undefined => {
 	const keys = sortedKeys(definitions)
-	const [first, ...rest] = keys.map((key) => ({ $ref: refFor(key) }))
+	const [first, ...rest] = Arr.map(keys, (key) => ({ $ref: refFor(key) }))
 	if (first === undefined) {
 		return undefined
 	}
 
-	const entries = keys.flatMap((key): [string, JsonObject][] => {
+	const entries = Arr.flatMap(keys, (key): [string, JsonObject][] => {
 		const node = definitions.get(key)
 
 		return isObject(node) ? [[key, node]] : []
 	})
 
 	return {
-		definitions: Object.fromEntries(entries),
+		definitions: Record.fromEntries(entries),
 		dialect: "draft-2020-12",
 		schemas: [first, ...rest]
 	}
@@ -1342,12 +1354,12 @@ const importOnce = (
  * progress (the located node is already `{}`).
  */
 const importEdit = (
-	line: Line,
+	line: SpecLine,
 	definitions: ReadonlyMap<string, Json>,
 	message: string
 ): SchemaEdit | undefined => {
-	const [first = ""] = message.split("\n")
-	const found = importClasses.find(([prefix]) => first.startsWith(prefix))
+	const [first = ""] = Str.split(message, "\n")
+	const found = importClasses.find(([prefix]) => Str.startsWith(prefix)(first))
 	const [root, name = "", ...tokens] = importPath(message)
 	const key = root === "schemas" ? (sortedKeys(definitions)[Number(name)] ?? "") : name
 	const node = definitions.get(key)
@@ -1370,7 +1382,7 @@ const importEdit = (
  */
 const importCopy = Effect.fnUntraced(function* importCopy(
 	budget: Budget,
-	line: Line,
+	line: SpecLine,
 	initial: ReadonlyMap<string, Json>
 ): Effect.fn.Return<EditedCopy, SchemaBudgetExceeded | SchemaImportDefect> {
 	const definitions = new Map(initial)
@@ -1408,14 +1420,14 @@ const importCopy = Effect.fnUntraced(function* importCopy(
  * class. The copy is the stored document minus `edits` (X10); it is recomputed, never edited.
  */
 export const validationCopy = Effect.fnUntraced(function* validationCopy(
-	line: Line,
+	line: SpecLine,
 	definitions: ReadonlyMap<string, Json>,
 	limits: SchemaLimits = {}
 ): Effect.fn.Return<ValidationCopy, SchemaBudgetExceeded | SchemaImportDefect> {
 	const budget = budgetOf(limits)
 	const edits: SchemaEdit[] = []
 	const filtered = new Map(
-		sortedKeys(definitions).map((key): [string, Json] => {
+		Arr.map(sortedKeys(definitions), (key): [string, Json] => {
 			const visit = filterNode({ definitions, edits, key, line })
 
 			return [key, transformSchema(budget, definitions.get(key) ?? {}, [], copyPositions, visit)]
@@ -1635,7 +1647,7 @@ const diagnosticsOf = (
 	 * A diagnostic's identity for deduplication: its code at its document and pointer.
 	 */
 	let seen = HashSet.fromIterable<readonly [code: string, document: string, pointer: string]>(
-		resolution.diagnostics.map((diagnostic) => [
+		Arr.map(resolution.diagnostics, (diagnostic) => [
 			diagnostic.code,
 			diagnostic.document,
 			diagnostic.pointer
@@ -1648,7 +1660,7 @@ const diagnosticsOf = (
 		rule: Rule | undefined,
 		keyword?: string
 	): void => {
-		const [, name = ""] = code.split("/")
+		const [, name = ""] = Str.split(code, "/")
 		const identity = [code, at.document, at.pointer] as const
 		if (rule !== undefined && !HashSet.has(seen, identity)) {
 			seen = HashSet.add(seen, identity)
@@ -1668,7 +1680,7 @@ const diagnosticsOf = (
 		}
 	}
 	for (const edit of edits) {
-		const rule = rules.get(edit.code.split("/")[1] ?? "")
+		const rule = rules.get(Str.split(edit.code, "/")[1] ?? "")
 		const site = sites.get(edit.key) ?? { document: resolution.document, pointer: "" }
 		const value = resolution.documents.get(site.document) ?? null
 		const pointer =
@@ -1682,7 +1694,7 @@ const diagnosticsOf = (
 	}
 
 	for (const [code, at] of refused) {
-		report(code, at, rules.get(code.split("/")[1] ?? ""))
+		report(code, at, rules.get(Str.split(code, "/")[1] ?? ""))
 	}
 
 	for (const reference of resolution.references.values()) {
@@ -1731,9 +1743,9 @@ const forCodeGeneration: Visit = (node) =>
 				return value
 			}
 
-			const names = Arr.sort(Object.keys(value), byString)
+			const names = Arr.sort(Record.keys(value), byString)
 
-			return Object.fromEntries(names.map((name) => [name, member(value, name) ?? {}]))
+			return Record.fromEntries(Arr.map(names, (name) => [name, member(value, name) ?? {}]))
 		}
 	)
 
@@ -1762,21 +1774,21 @@ export const codeGenerationCopy = (
 ): Effect.Effect<ReadonlyMap<string, Json>, SchemaBudgetExceeded> => {
 	const budget = budgetOf(limits)
 	const reached = new Set<string>()
-	const pending = roots.filter((root) => validation.has(root))
+	const pending = Arr.filter(roots, (root) => validation.has(root))
 	let key = pending.pop()
 	while (key !== undefined) {
 		if (!reached.has(key)) {
 			reached.add(key)
 
 			const refs = referencedKeys(budget, validation.get(key) ?? {})
-			pending.push(...refs.filter((ref) => validation.has(ref) && !reached.has(ref)))
+			pending.push(...Arr.filter(refs, (ref) => validation.has(ref) && !reached.has(ref)))
 		}
 
 		key = pending.pop()
 	}
 
 	const copy = new Map(
-		Arr.sort([...reached], byString).map((name): [string, Json] => [
+		Arr.map(Arr.sort([...reached], byString), (name): [string, Json] => [
 			name,
 			transformSchema(budget, validation.get(name) ?? {}, [], copyPositions, forCodeGeneration)
 		])

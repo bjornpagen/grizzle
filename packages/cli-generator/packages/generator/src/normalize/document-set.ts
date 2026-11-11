@@ -24,14 +24,14 @@ export const follow = (resolution: Resolution, site: CanonicalKey): CanonicalKey
  * The node at `key`, read from its own document of the set. A document outside the set has no
  * member for its URI.
  */
-export const nodeInResult = (
+const nodeInResult = (
 	resolution: Resolution,
 	key: CanonicalKey
 ): Result.Result<Json, PointerSyntaxError | PointerEvalError> => {
 	const value = resolution.documents.get(key.document)
 
 	return value === undefined
-		? Result.fail(new PointerMemberNotFound({ pointer: key.pointer, token: key.document }))
+		? Result.fail(PointerMemberNotFound.make({ pointer: key.pointer, token: key.document }))
 		: evaluatePointerResult(value, key.pointer)
 }
 

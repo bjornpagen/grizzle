@@ -5,10 +5,11 @@ import {
 	Equivalence,
 	Option,
 	Order,
-	Predicate,
 	Record,
 	Schema,
-	SchemaGetter
+	SchemaGetter,
+	String as Str,
+	Struct
 } from "effect"
 import type { Types } from "effect"
 import { sanitizeProse } from "#model/brands.ts"
@@ -39,7 +40,7 @@ import { normalizeSecurityPolicy } from "#normalize/security.ts"
 import type { SchemeNormalization } from "#normalize/security.ts"
 import { effectiveServers } from "#normalize/servers.ts"
 import type { ServerSource, ServersContext } from "#normalize/servers.ts"
-import { defaultLimits, referenceAt } from "#resolve/index.ts"
+import { referenceAt } from "#resolve/index.ts"
 import type { ResolveLimits, Resolution } from "#resolve/index.ts"
 
 /**
@@ -193,8 +194,7 @@ const locate = (resolution: Resolution, use: string): Option.Option<Located> => 
 const decodeOption = <A, I>(schema: Schema.Codec<A, I>, value: Json): Option.Option<A> =>
 	Schema.decodeUnknownOption(schema)(value)
 
-const jsonPointer = (text: string) =>
-	Schema.decodeUnknownEffect(JsonPointer)(text).pipe(Effect.orDie)
+const jsonPointer = (text: string) => Schema.decodeEffect(JsonPointer)(text).pipe(Effect.orDie)
 
 interface RawOperation {
 	readonly additional: boolean
@@ -215,16 +215,17 @@ const operationsOfItem = (
 	itemNode: Record<string, Json>
 ): readonly RawOperation[] => {
 	const members = new Set(methodMembers(resolution.line))
-	const fixed = Object.keys(itemNode)
-		.filter((name) => members.has(name))
-		.map((name) => ({ additional: false, name, token: name.toUpperCase() }))
-	const extra = Object.keys(itemFields.additionalOperations ?? {}).map((name) => ({
+	const fixed = Arr.map(
+		Arr.filter(Record.keys(itemNode), (name) => members.has(name)),
+		(name) => ({ additional: false, name, token: Str.toUpperCase(name) })
+	)
+	const extra = Arr.map(Record.keys(itemFields.additionalOperations ?? {}), (name) => ({
 		additional: true,
 		name,
 		token: name
 	}))
 
-	return [...fixed, ...extra].flatMap((entry): readonly RawOperation[] => {
+	return Arr.flatMap([...fixed, ...extra], (entry): readonly RawOperation[] => {
 		const pointer = entry.additional
 			? childPointer(childPointer(item.pointer, "additionalOperations"), entry.name)
 			: childPointer(item.pointer, entry.name)
@@ -258,7 +259,7 @@ const useSite = (key: string, raw: RawOperation): string => {
 
 	return raw.additional
 		? childPointer(childPointer(item, "additionalOperations"), raw.method)
-		: childPointer(item, raw.method.toLowerCase())
+		: childPointer(item, Str.toLowerCase(raw.method))
 }
 
 /**
@@ -268,10 +269,10 @@ const useSite = (key: string, raw: RawOperation): string => {
  */
 const rawOperations = (resolution: Resolution): readonly RawOperation[] => {
 	const keys = decodeOption(PathsRoot, resolution.value).pipe(
-		Option.map((root) => Object.keys(root.paths ?? {})),
+		Option.map((root) => Record.keys(root.paths ?? {})),
 		Option.getOrElse((): readonly string[] => [])
 	)
-	const sited = keys.flatMap((key) => {
+	const sited = Arr.flatMap(keys, (key) => {
 		const path = decodeOption(PathTemplate, key)
 		const item = locate(resolution, childPointer("/paths", key))
 		const fields = item.pipe(Option.flatMap((located) => decodeOption(ItemFields, located.node)))
@@ -285,15 +286,19 @@ const rawOperations = (resolution: Resolution): readonly RawOperation[] => {
 			return []
 		}
 
-		return operationsOfItem(resolution, path.value, item.value, fields.value, node.value).map(
+		return Arr.map(
+			operationsOfItem(resolution, path.value, item.value, fields.value, node.value),
 			(raw) => ({ raw, site: useSite(key, raw) })
 		)
 	})
 
-	return Arr.sort(
-		sited,
-		Order.mapInput(pointerOrder, (entry: { readonly site: string }) => entry.site)
-	).map((entry) => entry.raw)
+	return Arr.map(
+		Arr.sort(
+			sited,
+			Order.mapInput(pointerOrder, (entry: { readonly site: string }) => entry.site)
+		),
+		(entry) => entry.raw
+	)
 }
 
 /**
@@ -321,7 +326,7 @@ const parameterKey = (resolution: Resolution, pointer: string): ParameterKey => 
 		onNone: () => ({ unreadable: pointer }),
 		onSome: (found) => ({
 			in: found.in,
-			name: found.in === "header" ? found.name.toLowerCase() : found.name
+			name: found.in === "header" ? Str.toLowerCase(found.name) : found.name
 		})
 	})
 }
@@ -329,10 +334,10 @@ const parameterKey = (resolution: Resolution, pointer: string): ParameterKey => 
 const entriesOf = (
 	resolution: Resolution,
 	owner: string,
-	list: readonly Json[] | undefined,
+	list: readonly Json[],
 	level: Level
 ): readonly ParameterEntry[] =>
-	(list ?? []).map((_entry, index) => {
+	Arr.map(list, (_entry, index) => {
 		const pointer = childPointer(childPointer(owner, "parameters"), String(index))
 
 		return { key: parameterKey(resolution, pointer), level, pointer }
@@ -350,21 +355,30 @@ interface Merged {
 const mergeEntries = (
 	itemEntries: readonly ParameterEntry[],
 	operationEntries: readonly ParameterEntry[]
-): Merged => {
-	const merged = [...itemEntries]
-	let overridden = false
-	for (const entry of operationEntries) {
-		const index = merged.findIndex((existing) => Equal.equals(existing.key, entry.key))
-		if (index === -1) {
-			merged.push(entry)
-		} else {
-			overridden ||= merged[index]?.level === "pathItem"
-			merged[index] = entry
-		}
-	}
-
-	return { entries: merged, overridden }
-}
+): Merged =>
+	Arr.reduce(
+		operationEntries,
+		{ entries: itemEntries, overridden: false },
+		(merged: Merged, entry): Merged =>
+			Option.match(
+				Arr.findFirstIndex(merged.entries, (existing) => Equal.equals(existing.key, entry.key)),
+				{
+					onNone: () => ({
+						entries: Arr.append(merged.entries, entry),
+						overridden: merged.overridden
+					}),
+					onSome: (index) => ({
+						entries: Arr.map(merged.entries, (each, at) => (at === index ? entry : each)),
+						overridden:
+							merged.overridden ||
+							Option.exists(
+								Arr.get(merged.entries, index),
+								(existing) => existing.level === "pathItem"
+							)
+					})
+				}
+			)
+	)
 
 interface Assembled {
 	readonly diagnostics: readonly Diagnostic[]
@@ -426,11 +440,13 @@ const withFormRules = Effect.fnUntraced(function* withFormRules(
 		return ParameterOutcome.Refused({ diagnostics, required: parameter.required })
 	}
 
-	const filled = new ContentSerialization({ ...serialization, encoding: decided.encoding })
+	const filled = ContentSerialization.make(
+		Struct.evolve(serialization, { encoding: () => decided.encoding })
+	)
 
 	return ParameterOutcome.Implemented({
 		diagnostics,
-		parameter: new ParameterEntity({ ...parameter, serialization: filled })
+		parameter: ParameterEntity.make(Struct.evolve(parameter, { serialization: () => filled }))
 	})
 })
 
@@ -456,9 +472,13 @@ const parameterOutcome = Effect.fnUntraced(function* parameterOutcome(
 					openapi: shared.context.openapi,
 					pointer: entry.pointer
 				}
-	const outcome =
-		shared.cache.get(entry.pointer) ??
-		(yield* withFormRules(shared, site, yield* normalizeParameter(shared.resolution, site)))
+	const cached = shared.cache.get(entry.pointer)
+	if (cached !== undefined) {
+		return cached
+	}
+
+	const normalized = yield* normalizeParameter(shared.resolution, site)
+	const outcome = yield* withFormRules(shared, site, normalized)
 	shared.cache.set(entry.pointer, outcome)
 
 	return outcome
@@ -475,18 +495,18 @@ const assembleParameters = Effect.fnUntraced(function* assembleParameters(
 	const read = Arr.zip(merged.entries, outcomes)
 
 	return {
-		diagnostics: outcomes.flatMap((outcome) => outcome.diagnostics),
-		parameters: outcomes.flatMap((outcome) =>
+		diagnostics: Arr.flatMap(outcomes, (outcome) => outcome.diagnostics),
+		parameters: Arr.flatMap(outcomes, (outcome) =>
 			ParameterOutcome.$is("Implemented")(outcome) ? [outcome.parameter] : []
 		),
-		refusedRequired: read.flatMap(([entry, outcome]) =>
+		refusedRequired: Arr.flatMap(read, ([entry, outcome]) =>
 			ParameterOutcome.$is("Refused")(outcome) && outcome.required ? [entry.pointer] : []
 		)
 	}
 })
 
 interface BodyResult {
-	readonly body?: Body
+	readonly body: Option.Option<Body>
 	readonly diagnostics: readonly Diagnostic[]
 	readonly refusedRequired: boolean
 }
@@ -495,7 +515,7 @@ const diagnose = (
 	shared: Shared,
 	code: Code,
 	site: { readonly operation: DiagnosticOperationValue; readonly pointer: string },
-	related: readonly string[] = []
+	related: readonly string[]
 ): Effect.Effect<Diagnostic> => {
 	const rule: Rule = rules[code]
 
@@ -510,7 +530,7 @@ const diagnose = (
 		pointer: site.pointer,
 		related:
 			related.length > 0
-				? related.map((pointer) => ({ document: shared.resolution.document, pointer }))
+				? Arr.map(related, (pointer) => ({ document: shared.resolution.document, pointer }))
 				: undefined,
 		scope: rule.scope,
 		severity: rule.severity,
@@ -523,16 +543,15 @@ const assembleBody = Effect.fnUntraced(function* assembleBody(
 	raw: RawOperation
 ): Effect.fn.Return<BodyResult, BodyNodeBudget | BodyNotReadable> {
 	if (raw.fields.requestBody === undefined) {
-		return { diagnostics: [], refusedRequired: false }
+		return { body: Option.none(), diagnostics: [], refusedRequired: false }
 	}
 
 	const pointer = childPointer(raw.pointer, "requestBody")
 	const operation = operationInfo(raw)
 	if (bodylessMethods.has(raw.method) && shared.resolution.line === "3.0") {
-		return {
-			diagnostics: [yield* diagnose(shared, "OPR-10/body-ignored", { operation, pointer })],
-			refusedRequired: false
-		}
+		const ignored = yield* diagnose(shared, "OPR-10/body-ignored", { operation, pointer }, [])
+
+		return { body: Option.none(), diagnostics: [ignored], refusedRequired: false }
 	}
 
 	/**
@@ -546,38 +565,41 @@ const assembleBody = Effect.fnUntraced(function* assembleBody(
 
 	const outcome = yield* normalizeBody(shared.resolution, site, shared.limits)
 	if (BodyOutcome.$is("Refused")(outcome)) {
-		return { diagnostics: outcome.diagnostics, refusedRequired: outcome.required }
+		return {
+			body: Option.none(),
+			diagnostics: outcome.diagnostics,
+			refusedRequired: outcome.required
+		}
 	}
 
-	return {
-		body: yield* hintDiscriminators(shared.resolution, outcome.body, shared.checkFindings),
-		diagnostics: outcome.diagnostics,
-		refusedRequired: false
-	}
+	const hinted = yield* hintDiscriminators(shared.resolution, outcome.body, shared.checkFindings)
+
+	return { body: Option.some(hinted), diagnostics: outcome.diagnostics, refusedRequired: false }
 })
 
-const serverSource = (pointer: string, value: Json | undefined): Effect.Effect<ServerSource> =>
+const serverSource = (pointer: string, value: Option.Option<Json>): Effect.Effect<ServerSource> =>
 	jsonPointer(pointer).pipe(Effect.map((decoded): ServerSource => ({ pointer: decoded, value })))
 
 const effectiveServersOf = Effect.fnUntraced(function* effectiveServersOf(
 	shared: Shared,
 	raw: RawOperation
 ): Effect.fn.Return<{ diagnostics: readonly Diagnostic[]; servers: readonly Server[] }> {
-	const root = decodeOption(PathsRoot, shared.resolution.value).pipe(
-		Option.flatMap((fields) => Option.fromUndefinedOr(fields.servers))
+	const operation = yield* serverSource(
+		childPointer(raw.pointer, "servers"),
+		Option.fromUndefinedOr(raw.fields.servers)
+	)
+	const pathItem = yield* serverSource(
+		childPointer(raw.itemPointer, "servers"),
+		Option.fromUndefinedOr(raw.itemFields.servers)
+	)
+	const root = yield* serverSource(
+		"/servers",
+		decodeOption(PathsRoot, shared.resolution.value).pipe(
+			Option.flatMap((fields) => Option.fromUndefinedOr(fields.servers))
+		)
 	)
 
-	return effectiveServers(
-		{
-			operation: yield* serverSource(childPointer(raw.pointer, "servers"), raw.fields.servers),
-			pathItem: yield* serverSource(
-				childPointer(raw.itemPointer, "servers"),
-				raw.itemFields.servers
-			),
-			root: yield* serverSource("/servers", Option.getOrUndefined(root))
-		},
-		shared.context
-	)
+	return effectiveServers({ operation, pathItem, root }, shared.context)
 })
 
 const docsOf = (
@@ -599,9 +621,9 @@ const rowsOf = (
 	shared: Shared,
 	raw: RawOperation,
 	merged: Merged,
-	built: { readonly body: Body | undefined; readonly declared: boolean }
+	built: { readonly body: Option.Option<Body>; readonly declared: boolean }
 ): readonly string[] => {
-	const keptBody = built.body !== undefined && bodylessMethods.has(raw.method)
+	const keptBody = Option.isSome(built.body) && bodylessMethods.has(raw.method)
 	const rows = [
 		"OPR-01",
 		"OPR-12",
@@ -609,9 +631,9 @@ const rowsOf = (
 		...(raw.fields.operationId === undefined ? [] : ["OPR-06"]),
 		...(raw.fields.deprecated === undefined ? [] : ["OPR-14"]),
 		...(raw.fields.parameters === undefined ? [] : ["OPR-08"]),
-		...(merged.entries.some((entry) => entry.level === "pathItem") ? ["PTH-26"] : []),
+		...(Arr.some(merged.entries, (entry) => entry.level === "pathItem") ? ["PTH-26"] : []),
 		...(merged.overridden ? ["PTH-27"] : []),
-		...(built.body === undefined ? [] : ["OPR-09"]),
+		...(Option.isSome(built.body) ? ["OPR-09"] : []),
 		...(keptBody && shared.resolution.line !== "3.0" ? ["OPR-11"] : []),
 		...(built.declared ? ["OPR-15"] : [])
 	]
@@ -628,7 +650,7 @@ interface NamingNotice {
 
 interface NamingRead<A> {
 	readonly notices: readonly NamingNotice[]
-	readonly value: A | undefined
+	readonly value: Option.Option<A>
 }
 
 /**
@@ -659,7 +681,7 @@ const groupSegments = (value: Json): Option.Option<Arr.NonEmptyReadonlyArray<str
 	decodeOption(DottedGroup, value).pipe(
 		Option.orElse(() => decodeOption(Schema.Array(Schema.String), value)),
 		Option.filter(Arr.isReadonlyArrayNonEmpty),
-		Option.filter((segments) => segments.every((segment) => segment !== ""))
+		Option.filter((segments) => Arr.every(segments, (segment) => segment !== ""))
 	)
 
 const methodName = (value: Json): Option.Option<string> =>
@@ -675,38 +697,35 @@ const hintOf = (
 	holder: JsonObject,
 	pointer: string,
 	source: keyof typeof namingKeys
-): NamingRead<Types.Mutable<typeof NamingHint.Encoded>> => {
+): NamingRead<typeof NamingHint.Encoded> => {
 	const keys = namingKeys[source]
-	const notices: NamingNotice[] = []
-	const read = <A>(key: string, parse: (value: Json) => Option.Option<A>): A | undefined => {
-		const value = holder[key]
-		if (value === undefined) {
-			return undefined
-		}
+	const read = <A>(key: string, parse: (value: Json) => Option.Option<A>): NamingRead<A> =>
+		Option.match(Record.get(holder, key), {
+			onNone: () => ({ notices: [], value: Option.none() }),
+			onSome: (value) => {
+				const parsed = parse(value)
 
-		const parsed = parse(value)
-		if (Option.isNone(parsed)) {
-			notices.push(invalid(childPointer(pointer, key)))
-		}
-
-		return Option.getOrUndefined(parsed)
-	}
+				return {
+					notices: Option.isNone(parsed) ? [invalid(childPointer(pointer, key))] : [],
+					value: parsed
+				}
+			}
+		})
 	const group = read(keys.group, groupSegments)
 	const method = read(keys.method, methodName)
-	if (group === undefined && method === undefined) {
-		return { notices, value: undefined }
+	const notices = [...group.notices, ...method.notices]
+	if (Option.isNone(group.value) && Option.isNone(method.value)) {
+		return { notices, value: Option.none() }
 	}
 
-	const hint: Types.Mutable<typeof NamingHint.Encoded> = { pointer }
-	if (group !== undefined) {
-		hint.group = group
+	return {
+		notices,
+		value: Option.some({
+			...(Option.isSome(group.value) ? { group: group.value.value } : {}),
+			...(Option.isSome(method.value) ? { method: method.value.value } : {}),
+			pointer
+		})
 	}
-
-	if (method !== undefined) {
-		hint.method = method
-	}
-
-	return { notices, value: hint }
 }
 
 /**
@@ -718,40 +737,43 @@ const aliasOf = (
 	element: Json,
 	pointer: string,
 	index: number
-): NamingRead<Types.Mutable<typeof NamingAlias.Encoded>> => {
+): NamingRead<typeof NamingAlias.Encoded> => {
 	if (!isObject(element)) {
-		return { notices: [invalid(pointer)], value: undefined }
+		return { notices: [invalid(pointer)], value: Option.none() }
 	}
 
 	const forge = hintOf(element, pointer, "forge")
 	const fern = hintOf(element, pointer, "fern")
-	const notices = [...forge.notices, ...fern.notices]
-	const group = forge.value?.group ?? fern.value?.group
-	const method = forge.value?.method ?? fern.value?.method
-	const rawId = element.operationId
-	const operationId = rawId === undefined ? Option.none() : methodName(rawId)
-	if (rawId !== undefined && Option.isNone(operationId)) {
-		notices.push(invalid(childPointer(pointer, "operationId")))
+	const hints = [...Option.toArray(forge.value), ...Option.toArray(fern.value)]
+	const named =
+		Arr.some(hints, (hint) => hint.group !== undefined) &&
+		Arr.some(hints, (hint) => hint.method !== undefined)
+	const rawId = Record.get(element, "operationId")
+	const operationId = Option.flatMap(rawId, methodName)
+	const notices = [
+		...forge.notices,
+		...fern.notices,
+		...(Option.isSome(rawId) && Option.isNone(operationId)
+			? [invalid(childPointer(pointer, "operationId"))]
+			: [])
+	]
+
+	if (!named && Option.isNone(operationId)) {
+		return {
+			notices: [...notices, { code: "EXT-01/alias-unnamed", pointer }],
+			value: Option.none()
+		}
 	}
 
-	if ((group === undefined || method === undefined) && Option.isNone(operationId)) {
-		return { notices: [...notices, { code: "EXT-01/alias-unnamed", pointer }], value: undefined }
+	return {
+		notices,
+		value: Option.some({
+			...(Option.isSome(fern.value) ? { fern: fern.value.value } : {}),
+			...(Option.isSome(forge.value) ? { forge: forge.value.value } : {}),
+			index,
+			...(Option.isSome(operationId) ? { operationId: operationId.value } : {})
+		})
 	}
-
-	const alias: Types.Mutable<typeof NamingAlias.Encoded> = { index }
-	if (forge.value !== undefined) {
-		alias.forge = forge.value
-	}
-
-	if (fern.value !== undefined) {
-		alias.fern = fern.value
-	}
-
-	if (Option.isSome(operationId)) {
-		alias.operationId = operationId.value
-	}
-
-	return { notices, value: alias }
 }
 
 /**
@@ -761,54 +783,51 @@ const aliasOf = (
 const aliasesOf = (
 	holder: JsonObject,
 	pointer: string
-): NamingRead<Arr.NonEmptyReadonlyArray<Types.Mutable<typeof NamingAlias.Encoded>>> => {
-	const value = holder[aliasesKey]
-	if (value === undefined) {
-		return { notices: [], value: undefined }
-	}
+): NamingRead<Arr.NonEmptyReadonlyArray<typeof NamingAlias.Encoded>> =>
+	Option.match(Record.get(holder, aliasesKey), {
+		onNone: () => ({ notices: [], value: Option.none() }),
+		onSome: (value) => {
+			const arrayPointer = childPointer(pointer, aliasesKey)
+			const read = isArray(value)
+				? Arr.map(value, (element, index) =>
+						aliasOf(element, childPointer(arrayPointer, String(index)), index)
+					)
+				: []
+			const notices = Arr.flatMap(read, (one) => one.notices)
+			const aliases = Arr.getSomes(Arr.map(read, (one) => one.value))
 
-	const arrayPointer = childPointer(pointer, aliasesKey)
-	const read = isArray(value)
-		? value.map((element, index) =>
-				aliasOf(element, childPointer(arrayPointer, String(index)), index)
-			)
-		: []
-	const notices = read.flatMap((one) => one.notices)
-	const aliases = Arr.getSomes(read.map((one) => Option.fromUndefinedOr(one.value)))
-
-	return Arr.isReadonlyArrayNonEmpty(aliases)
-		? { notices, value: aliases }
-		: { notices: [invalid(arrayPointer), ...notices], value: undefined }
-}
+			return Arr.isReadonlyArrayNonEmpty(aliases)
+				? { notices, value: Option.some(aliases) }
+				: { notices: [invalid(arrayPointer), ...notices], value: Option.none() }
+		}
+	})
 
 /**
  * The naming extensions of an Operation Object (design 4.4, D-NAME4). Only the five naming keys
  * are read; every extension stays recorded as EXT-01 by `collectInformational`.
  */
-const namingOf = (raw: RawOperation): NamingRead<Types.Mutable<typeof Naming.Encoded>> => {
+const namingOf = (raw: RawOperation): NamingRead<typeof Naming.Encoded> => {
 	const forge = hintOf(raw.node, raw.pointer, "forge")
 	const fern = hintOf(raw.node, raw.pointer, "fern")
 	const aliases = aliasesOf(raw.node, raw.pointer)
 	const notices = [...forge.notices, ...fern.notices, ...aliases.notices]
-	const naming: Types.Mutable<typeof Naming.Encoded> = {}
-	if (aliases.value !== undefined) {
-		naming.aliases = aliases.value
+	if (Option.isNone(aliases.value) && Option.isNone(fern.value) && Option.isNone(forge.value)) {
+		return { notices, value: Option.none() }
 	}
 
-	if (fern.value !== undefined) {
-		naming.fern = fern.value
+	return {
+		notices,
+		value: Option.some({
+			...(Option.isSome(aliases.value) ? { aliases: aliases.value.value } : {}),
+			...(Option.isSome(fern.value) ? { fern: fern.value.value } : {}),
+			...(Option.isSome(forge.value) ? { forge: forge.value.value } : {})
+		})
 	}
-
-	if (forge.value !== undefined) {
-		naming.forge = forge.value
-	}
-
-	return { notices, value: Object.keys(naming).length === 0 ? undefined : naming }
 }
 
 interface Assembly {
 	readonly diagnostics: readonly Diagnostic[]
-	readonly operation?: Operation
+	readonly operation: Option.Option<Operation>
 }
 
 /**
@@ -817,7 +836,7 @@ interface Assembly {
  * refused form alternative's do in the body assembly. `nonStandard` reads generated operations only.
  */
 const withoutAuthorChoiceNotices = (diagnostics: readonly Diagnostic[]): readonly Diagnostic[] =>
-	diagnostics.filter((diagnostic) => !authorChoiceCodes.has(diagnostic.code))
+	Arr.filter(diagnostics, (diagnostic) => !authorChoiceCodes.has(diagnostic.code))
 
 const assembleOne = Effect.fnUntraced(function* assembleOne(
 	shared: Shared,
@@ -825,8 +844,8 @@ const assembleOne = Effect.fnUntraced(function* assembleOne(
 ): Effect.fn.Return<Assembly, OperationsError> {
 	const { resolution } = shared
 	const merged = mergeEntries(
-		entriesOf(resolution, raw.itemPointer, raw.itemFields.parameters, "pathItem"),
-		entriesOf(resolution, raw.pointer, raw.fields.parameters, "operation")
+		entriesOf(resolution, raw.itemPointer, raw.itemFields.parameters ?? [], "pathItem"),
+		entriesOf(resolution, raw.pointer, raw.fields.parameters ?? [], "operation")
 	)
 	const parameters = yield* assembleParameters(shared, raw, merged)
 	const body = yield* assembleBody(shared, raw)
@@ -840,7 +859,7 @@ const assembleOne = Effect.fnUntraced(function* assembleOne(
 	const site = { operation: operationInfo(raw), pointer: raw.pointer }
 	const naming = namingOf(raw)
 	const namingNotices = yield* Effect.forEach(naming.notices, (found) =>
-		diagnose(shared, found.code, { operation: site.operation, pointer: found.pointer })
+		diagnose(shared, found.code, { operation: site.operation, pointer: found.pointer }, [])
 	)
 	const raises = [
 		...(parameters.refusedRequired.length === 0
@@ -881,34 +900,30 @@ const assembleOne = Effect.fnUntraced(function* assembleOne(
 		raises.length > 0 ||
 		Arr.some(responses.diagnostics, (diagnostic) => diagnostic.scope === "operation")
 	) {
-		return { diagnostics: withoutAuthorChoiceNotices(diagnostics) }
+		return { diagnostics: withoutAuthorChoiceNotices(diagnostics), operation: Option.none() }
 	}
 
-	const fields: Record<string, unknown> = Record.filter(
-		{
-			body: body.body,
-			deprecated: raw.fields.deprecated ?? false,
-			docs: docsOf(raw.fields),
-			key: { method: raw.method, path: raw.path },
-			naming: naming.value,
-			origin: { document: resolution.document, pointer: raw.pointer },
-			parameters: parameters.parameters,
-			responses: responses.responses,
-			rows: rowsOf(shared, raw, merged, { body: body.body, declared: policy.policy.declared }),
-			security: policy.policy,
-			servers: servers.servers,
-			tags: (raw.fields.tags ?? []).map(sanitizeProse)
-		},
-		Predicate.isNotUndefined
+	const operationId = Option.filter(
+		Option.fromUndefinedOr(raw.fields.operationId),
+		(id) => id !== ""
 	)
+	const operation = yield* Schema.decodeEffect(Operation)({
+		...(Option.isSome(body.body) ? { body: body.body.value } : {}),
+		deprecated: raw.fields.deprecated ?? false,
+		docs: docsOf(raw.fields),
+		key: { method: raw.method, path: raw.path },
+		...(Option.isSome(naming.value) ? { naming: naming.value.value } : {}),
+		...(Option.isSome(operationId) ? { operationId: operationId.value } : {}),
+		origin: { document: resolution.document, pointer: raw.pointer },
+		parameters: parameters.parameters,
+		responses: responses.responses,
+		rows: rowsOf(shared, raw, merged, { body: body.body, declared: policy.policy.declared }),
+		security: policy.policy,
+		servers: servers.servers,
+		tags: Arr.map(raw.fields.tags ?? [], sanitizeProse)
+	}).pipe(Effect.orDie)
 
-	if (raw.fields.operationId !== undefined && raw.fields.operationId !== "") {
-		fields.operationId = raw.fields.operationId
-	}
-
-	const operation = yield* Schema.decodeUnknownEffect(Operation)(fields).pipe(Effect.orDie)
-
-	return { diagnostics, operation }
+	return { diagnostics, operation: Option.some(operation) }
 })
 
 /**
@@ -920,7 +935,7 @@ const identityKey = (diagnostic: Diagnostic) => [
 	diagnostic.pointer,
 	diagnostic.operation?.method,
 	diagnostic.operation?.path,
-	(diagnostic.related ?? []).map((site) => [site.document, site.pointer])
+	Arr.map(diagnostic.related ?? [], (site) => [site.document, site.pointer])
 ]
 
 /**
@@ -948,7 +963,7 @@ export const assembleOperations = Effect.fnUntraced(function* assembleOperations
 	schemes: SchemeNormalization,
 	context: ServersContext,
 	checkFindings: readonly Diagnostic[],
-	limits: ResolveLimits = defaultLimits
+	limits: ResolveLimits
 ): Effect.fn.Return<OperationAssembly, OperationsError> {
 	const shared: Shared = {
 		cache: new Map(),
@@ -963,7 +978,7 @@ export const assembleOperations = Effect.fnUntraced(function* assembleOperations
 	)
 
 	return {
-		diagnostics: distinctDiagnostics(assembled.flatMap((one) => one.diagnostics)),
-		operations: Arr.getSomes(assembled.map((one) => Option.fromUndefinedOr(one.operation)))
+		diagnostics: distinctDiagnostics(Arr.flatMap(assembled, (one) => one.diagnostics)),
+		operations: Arr.getSomes(Arr.map(assembled, (one) => one.operation))
 	}
 })

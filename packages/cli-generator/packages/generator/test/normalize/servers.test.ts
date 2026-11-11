@@ -1,4 +1,4 @@
-import { Schema } from "effect"
+import { Option, Schema } from "effect"
 import { describe, expect, test } from "vitest"
 import { AuthorConfig } from "#model/author-config.ts"
 import { DocumentUri, JsonPointer } from "#model/brands.ts"
@@ -27,16 +27,19 @@ const context = (extra: Record<string, Json> = {}, openapi = "3.1.0"): ServersCo
 
 const accepting = (...accepted: string[]) => ({ servers: { accepted } })
 
-const root = (value?: Json): ServerSource => ({ pointer: pointer("/servers"), value })
+const root = (value?: Json): ServerSource => ({
+	pointer: pointer("/servers"),
+	value: Option.fromUndefinedOr(value)
+})
 
 const operationSource = (value: Json | undefined): ServerSource => ({
 	pointer: pointer("/paths/~1a/get/servers"),
-	value
+	value: Option.fromUndefinedOr(value)
 })
 
 const pathItemSource = (value: Json | undefined): ServerSource => ({
 	pointer: pointer("/paths/~1a/servers"),
-	value
+	value: Option.fromUndefinedOr(value)
 })
 
 const see = (value: readonly unknown[] | string | boolean | undefined) => expect(value)

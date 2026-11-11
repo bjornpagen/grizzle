@@ -17,7 +17,7 @@ import { normalizeSecurityPolicy, normalizeSecuritySchemes } from "#normalize/se
 import { effectiveServers } from "#normalize/servers.ts"
 import type { ServersContext } from "#normalize/servers.ts"
 import { defaultLimits } from "#resolve/index.ts"
-import type { ResolveLimits, Resolution } from "#resolve/index.ts"
+import type { Resolution } from "#resolve/index.ts"
 
 /**
  * What normalization needs besides the resolution: the author config, the document it came from,
@@ -67,15 +67,13 @@ const decodeTag = Schema.decodeUnknownOption(Tag)
 
 const decodeRoot = Schema.decodeUnknownOption(Root)
 
-const docsOf = (
-	fields: typeof Described.Type | undefined
-): Types.Mutable<typeof Api.Encoded.info> => {
+const docsOf = (fields: typeof Described.Type): Types.Mutable<typeof Api.Encoded.info> => {
 	const docs: Types.Mutable<typeof Api.Encoded.info> = {}
-	if (fields?.description !== undefined) {
+	if (fields.description !== undefined) {
 		docs.description = sanitizeProse(fields.description)
 	}
 
-	if (fields?.summary !== undefined) {
+	if (fields.summary !== undefined) {
 		docs.summary = sanitizeProse(fields.summary)
 	}
 
@@ -107,16 +105,10 @@ const tagOf = (entry: Json): readonly PlainTag[] => {
 	return [tag]
 }
 
-/**
- * Tags in document order; an entry that is not a Tag Object with a name is not read here.
- */
-const tagsOf = (entries: readonly Json[] | undefined): readonly PlainTag[] =>
-	(entries ?? []).flatMap(tagOf)
-
 const storeOf = (definitions: ReadonlyMap<string, unknown>) => ({
-	$defs: Object.fromEntries(
+	$defs: Record.fromEntries(
 		Arr.sort(
-			[...definitions].map(([key, node]) => [key, node] as const),
+			Arr.fromIterable(definitions),
 			Order.mapInput(Order.String, ([key]: readonly [string, unknown]) => key)
 		)
 	)
@@ -131,12 +123,12 @@ const storeOf = (definitions: ReadonlyMap<string, unknown>) => ({
  */
 export const normalize = Effect.fn("normalize.normalize")(function* normalize(
 	resolution: Resolution,
-	context: NormalizeContext,
-	limits: ResolveLimits = defaultLimits
+	context: NormalizeContext
 ): Effect.fn.Return<Normalization, NormalizeError> {
 	const root = decodeRoot(resolution.value)
 	const openapi = Option.match(root, { onNone: () => resolution.line, onSome: (r) => r.openapi })
-	const fields = Option.getOrUndefined(root)
+	const member = <A>(read: (fields: typeof Root.Type) => A | undefined): Option.Option<A> =>
+		Option.flatMap(root, (fields) => Option.fromUndefinedOr(read(fields)))
 	const servers: ServersContext = {
 		config: context.config,
 		configDocument: context.configDocument,
@@ -148,29 +140,33 @@ export const normalize = Effect.fn("normalize.normalize")(function* normalize(
 		{ config: context.config, configDocument: context.configDocument },
 		context.checkFindings
 	)
-	const schemas = yield* normalizeSchemas(resolution, { maxNodes: limits.maxNodes })
+	const schemas = yield* normalizeSchemas(resolution, { maxNodes: defaultLimits.maxNodes })
 	const assembly = yield* assembleOperations(
 		resolution,
 		schemes,
 		servers,
 		context.checkFindings,
-		limits
+		defaultLimits
 	)
 	const policy = yield* normalizeSecurityPolicy(resolution, schemes)
 	const rootServers = effectiveServers(
 		{
 			root: {
 				pointer: serversPointer,
-				value: fields?.servers
+				value: member((fields) => fields.servers)
 			}
 		},
 		servers
 	)
+	const informational = yield* collectInformational(resolution)
 	const api = yield* Schema.decodeUnknownEffect(Api)({
-		documents: [...resolution.documents.keys()],
+		documents: Arr.fromIterable(resolution.documents.keys()),
 		entry: resolution.document,
-		info: docsOf(fields?.info),
-		informational: yield* collectInformational(resolution),
+		info: Option.match(
+			member((fields) => fields.info),
+			{ onNone: () => ({}), onSome: docsOf }
+		),
+		informational,
 		line: resolution.line,
 		openapi,
 		operations: assembly.operations,
@@ -183,7 +179,13 @@ export const normalize = Effect.fn("normalize.normalize")(function* normalize(
 		},
 		securitySchemes: schemes.schemes,
 		servers: rootServers.servers,
-		tags: tagsOf(fields?.tags)
+		tags: Arr.flatMap(
+			Option.getOrElse(
+				member((fields) => fields.tags),
+				() => []
+			),
+			tagOf
+		)
 	}).pipe(Effect.orDie)
 
 	return {

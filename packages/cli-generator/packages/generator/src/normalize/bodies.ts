@@ -9,17 +9,19 @@ import {
 	Predicate,
 	Record,
 	Schema,
+	String as Str,
 	Struct,
 	UndefinedOr
 } from "effect"
-import { HeaderName, MediaRange } from "#model/brands.ts"
+import { HeaderName, MediaRange, stripUnsafeText } from "#model/brands.ts"
 import { Diagnostic, diagnosticOf, makeDiagnostic } from "#model/diagnostic.ts"
 import type { DiagnosticOperation } from "#model/diagnostic.ts"
 import { Body, EncodingRule } from "#model/entities.ts"
 import type { DiscriminatorHint } from "#model/entities.ts"
 import { childPointer, formatPointer, isPointerWithin } from "#model/pointer.ts"
 import { specSectionUrl } from "#model/spec-section.ts"
-import { docsOf, sanitize } from "#normalize/docs.ts"
+import type { SpecLine } from "#model/spec-section.ts"
+import { docsOf } from "#normalize/docs.ts"
 import {
 	childKey,
 	follow,
@@ -51,7 +53,6 @@ import type { CanonicalKey } from "#resolve/canonical.ts"
 import { allOfReferrers, defaultLimits, implicitComponent } from "#resolve/index.ts"
 import type { ResolveLimits, Resolution, ResolvedReference } from "#resolve/index.ts"
 import { mediaEssence } from "#runtime-src/runtime/sequential.ts"
-import type { Line } from "#validate/index.ts"
 
 /**
  * Where a request body is read: its use site in the entry document, the operation it belongs to
@@ -216,7 +217,7 @@ const codecOf = (base: string): Codec => {
 		return "form"
 	}
 
-	if (base.startsWith("multipart/")) {
+	if (Str.startsWith("multipart/")(base)) {
 		return "multipart"
 	}
 
@@ -224,7 +225,7 @@ const codecOf = (base: string): Codec => {
 		return "sse"
 	}
 
-	if (base === "application/json-seq" || base.endsWith("+json-seq")) {
+	if (base === "application/json-seq" || Str.endsWith("+json-seq")(base)) {
 		return "jsonseq"
 	}
 
@@ -232,15 +233,15 @@ const codecOf = (base: string): Codec => {
 		return "ndjson"
 	}
 
-	if (base === "application/json" || base.endsWith("+json")) {
+	if (base === "application/json" || Str.endsWith("+json")(base)) {
 		return "json"
 	}
 
-	if (base === "application/xml" || base === "text/xml" || base.endsWith("+xml")) {
+	if (base === "application/xml" || base === "text/xml" || Str.endsWith("+xml")(base)) {
 		return "xml"
 	}
 
-	return base.startsWith("text/") ? "text" : "binary"
+	return Str.startsWith("text/")(base) ? "text" : "binary"
 }
 
 interface Finding {
@@ -297,7 +298,7 @@ const dropping = (finding: Finding): Finding => ({ ...finding, drops: true })
  * in `related`, so the report names what was dropped and coverage credits it.
  */
 const anchorDrops = (home: CanonicalKey, findings: readonly Finding[]): readonly Finding[] =>
-	findings.map((finding) =>
+	Arr.map(findings, (finding) =>
 		finding.drops === true
 			? { ...finding, at: home, related: [finding.at, ...(finding.related ?? [])] }
 			: finding
@@ -379,7 +380,7 @@ const flatten = Effect.fnUntraced(function* flatten(
 			const node = yield* nodeAt(walk.resolution, at)
 			found.push({ at, node })
 
-			const members = (node.allOf ?? []).map((_, index) => childKey(at, "allOf", String(index)))
+			const members = Arr.map(node.allOf ?? [], (_, index) => childKey(at, "allOf", String(index)))
 			pending.push(...Arr.reverse(members))
 		}
 
@@ -422,7 +423,7 @@ const membersOf = Effect.fnUntraced(function* membersOf(
 	const seen = new Set<string>()
 	const properties: (readonly [string, CanonicalKey])[] = []
 	for (const located of nodes) {
-		for (const name of Object.keys(located.node.properties ?? {})) {
+		for (const name of Record.keys(located.node.properties ?? {})) {
 			if (!seen.has(name)) {
 				seen.add(name)
 				properties.push([name, childKey(located.at, "properties", name)])
@@ -438,7 +439,7 @@ const membersOf = Effect.fnUntraced(function* membersOf(
 		prefixItems:
 			prefix === undefined
 				? []
-				: prefix.value.map((_, index) => childKey(prefix.at, "prefixItems", String(index))),
+				: Arr.map(prefix.value, (_, index) => childKey(prefix.at, "prefixItems", String(index))),
 		properties
 	}
 })
@@ -498,7 +499,7 @@ const requirementOf = Effect.fnUntraced(function* requirementOf(
 				names.add(name)
 			}
 
-			if (unresolved.some((keyword) => node[keyword] !== undefined)) {
+			if (Arr.some(unresolved, (keyword) => node[keyword] !== undefined)) {
 				sure = false
 			}
 
@@ -563,12 +564,12 @@ interface Default {
 	readonly type: string
 }
 
-const absentDefault = (line: Line): Default => ({
+const absentDefault = (line: SpecLine): Default => ({
 	row: line === "3.0" ? "ENC-26" : "ENC-17",
 	type: octetStream
 })
 
-const stringDefault = (line: Line, facts: Facts): Default => {
+const stringDefault = (line: SpecLine, facts: Facts): Default => {
 	if (line === "3.0" && (facts.format === "binary" || facts.format === "byte")) {
 		return { row: "ENC-18", type: octetStream }
 	}
@@ -580,7 +581,7 @@ const stringDefault = (line: Line, facts: Facts): Default => {
 	return { row: "ENC-20", type: "text/plain" }
 }
 
-const scalarDefault = (line: Line, name: string, facts: Facts): Default =>
+const scalarDefault = (line: SpecLine, name: string, facts: Facts): Default =>
 	Match.value(name).pipe(
 		Match.when("string", (): Default => stringDefault(line, facts)),
 		Match.whenOr("number", "integer", "boolean", (): Default => ({
@@ -592,17 +593,17 @@ const scalarDefault = (line: Line, name: string, facts: Facts): Default =>
 		Match.orElse((): Default => absentDefault(line))
 	)
 
-type ArrayDefault = (line: Line, facts: Facts) => Default
+type ArrayDefault = (line: SpecLine, facts: Facts) => Default
 
 /**
  * A type list ignores `null` unless it is the only member, and a list whose members disagree is
  * treated as untyped.
  */
-const defaultOfTypes = (line: Line, facts: Facts, arrayDefault: ArrayDefault): Default => {
-	const named = facts.type.filter((name) => name !== "null")
+const defaultOfTypes = (line: SpecLine, facts: Facts, arrayDefault: ArrayDefault): Default => {
+	const named = Arr.filter(facts.type, (name) => name !== "null")
 	const names = named.length === 0 ? facts.type : named
 	const decided = Arr.dedupeWith(
-		names.map((name) =>
+		Arr.map(names, (name) =>
 			name === "array" ? arrayDefault(line, facts) : scalarDefault(line, name, facts)
 		),
 		(left, right) => left.type === right.type
@@ -632,7 +633,7 @@ const arrayDefault =
 /**
  * ENC-17 to ENC-26: the default contentType of a part from the schema of its value.
  */
-const defaultFor = (line: Line, facts: Facts, input: RuleInput): Default =>
+const defaultFor = (line: SpecLine, facts: Facts, input: RuleInput): Default =>
 	defaultOfTypes(line, facts, arrayDefault(input.target.kind === "property" && input.depth === 0))
 
 type Target =
@@ -691,7 +692,7 @@ interface RuleInput {
 }
 
 interface Context {
-	readonly line: Line
+	readonly line: SpecLine
 	readonly reference: ResolvedReference | undefined
 	readonly resolution: Resolution
 	readonly site: BodySite
@@ -701,16 +702,16 @@ interface Context {
 /**
  * A label as a message quotes it: sanitized, then written as a JSON string.
  */
-const quoted = (text: string): string => pipe(text, sanitize, JSON.stringify)
+const quoted = (text: string): string => pipe(text, stripUnsafeText, JSON.stringify)
 
 const targetLabel = (target: Target): string =>
 	target.kind === "property" ? target.name : `position ${target.index}`
 
 const contentTypes = (text: string): Option.Option<readonly string[]> => {
-	const parts = text.split(",").map((part) => part.trim())
-	const decoded = parts.map((part) => decodeMediaRange(part))
+	const parts = Arr.map(Str.split(text, ","), (part) => Str.trim(part))
+	const decoded = Arr.map(parts, (part) => decodeMediaRange(part))
 
-	return decoded.every((part) => Option.isSome(part)) ? Option.some(parts) : Option.none()
+	return Arr.every(decoded, (part) => Option.isSome(part)) ? Option.some(parts) : Option.none()
 }
 
 const explicitStyle = (node: EncodingNode): PlainSerialization => {
@@ -850,7 +851,7 @@ const typingOf = Effect.fnUntraced(function* typingOf(
 	facts: Effect.Effect<Facts, BodyNodeBudget>
 ): Effect.fn.Return<Typing, BodyNodeBudget> {
 	const given = explicitStyle(node)
-	const hasStyle = Object.keys(given).length > 0
+	const hasStyle = Record.keys(given).length > 0
 	const findings: Finding[] = []
 	if (hasStyle && input.honorsStyle) {
 		if (node.contentType !== undefined) {
@@ -912,7 +913,7 @@ const partTypingOf = Effect.fnUntraced(function* partTypingOf(
 	facts: Facts
 ): Effect.fn.Return<Typing, BodyNodeBudget> {
 	const typing = yield* typingOf(ctx, input, node, Effect.succeed(facts))
-	const xml = typing.contentType.some(isXmlType)
+	const xml = Arr.some(typing.contentType, isXmlType)
 	if (typing.refused || !xml || !(yield* isObjectPart(ctx.walk, input.schema, facts))) {
 		return typing
 	}
@@ -942,7 +943,7 @@ const writerOwnedCode = "ENC-03/writer-owned-header"
  * `Content-Disposition`, with the part name RFC 7578 requires, under `multipart/form-data`.
  */
 const writerOwned = (name: string, formData: boolean): boolean => {
-	const folded = name.toLowerCase()
+	const folded = Str.toLowerCase(name)
 
 	return folded === "content-transfer-encoding" || (formData && folded === "content-disposition")
 }
@@ -961,9 +962,9 @@ const headersOf = Effect.fnUntraced(function* headersOf(
 	const findings: Finding[] = []
 	const kept: PlainHeader[] = []
 	let declares = false
-	for (const name of Object.keys(node.headers ?? {})) {
+	for (const name of Record.keys(node.headers ?? {})) {
 		const at = childKey(input.actual, "headers", name)
-		if (name.toLowerCase() === "content-type") {
+		if (Str.toLowerCase(name) === "content-type") {
 			findings.push(
 				notice(
 					"ENC-11/content-type-header-ignored",
@@ -1045,7 +1046,7 @@ interface NestedEntry {
 }
 
 const positionalEntries = (node: EncodingNode, actual: CanonicalKey): readonly NestedEntry[] =>
-	(node.prefixEncoding ?? []).map((child, index): NestedEntry => ({
+	Arr.map(node.prefixEncoding ?? [], (child, index): NestedEntry => ({
 		actual: childKey(actual, "prefixEncoding", String(index)),
 		node: child,
 		target: { index, kind: "position" }
@@ -1062,11 +1063,11 @@ const nestedEntries = (
 	members: Members
 ): readonly NestedEntry[] => {
 	const byName = node.encoding
-	const declared = new Set(members.properties.map(([name]) => name))
+	const declared = new Set(Arr.map(members.properties, ([name]) => name))
 	const properties =
 		byName === undefined
 			? []
-			: members.properties.map(([name, schema]): NestedEntry => {
+			: Arr.map(members.properties, ([name, schema]): NestedEntry => {
 					const explicit = Option.getOrUndefined(Record.get(byName, name))
 
 					return {
@@ -1075,13 +1076,14 @@ const nestedEntries = (
 						target: { kind: "property", name }
 					}
 				})
-	const undeclared = Object.entries(byName ?? {})
-		.filter(([name]) => !declared.has(name))
-		.map(([name, child]): NestedEntry => ({
+	const undeclared = Arr.map(
+		Arr.filter(Record.toEntries(byName ?? {}), ([name]) => !declared.has(name)),
+		([name, child]): NestedEntry => ({
 			actual: childKey(actual, "encoding", name),
 			node: child,
 			target: { kind: "property", name }
-		}))
+		})
+	)
 
 	return [...properties, ...undeclared, ...positionalEntries(node, actual)]
 }
@@ -1151,7 +1153,7 @@ const nestingOf = Effect.fnUntraced(function* nestingOf(
 	buildAll: BuildAll
 ): Effect.fn.Return<Nesting, BodyNodeBudget> {
 	const nests =
-		Object.keys(node.encoding ?? {}).length > 0 || (node.prefixEncoding ?? []).length > 0
+		Record.keys(node.encoding ?? {}).length > 0 || (node.prefixEncoding ?? []).length > 0
 	if (input.depth === 1 && (nests || node.itemEncoding !== undefined)) {
 		return refuseNesting(
 			nestingRefusal(
@@ -1169,7 +1171,7 @@ const nestingOf = Effect.fnUntraced(function* nestingOf(
 			? noMembers
 			: yield* membersOf(ctx.walk, input.schema)
 	const entries = nestedEntries(node, input.actual, children)
-	const inputs = entries.map((entry): RuleInput => ({
+	const inputs = Arr.map(entries, (entry): RuleInput => ({
 		actual: entry.actual,
 		depth: 1,
 		formData: false,
@@ -1193,7 +1195,7 @@ const nestingOf = Effect.fnUntraced(function* nestingOf(
 					}
 				]
 	const built = yield* buildAll(ctx, [...inputs, ...itemInput])
-	const rules = built.rules.map((rule) => toNested(rule))
+	const rules = Arr.map(built.rules, (rule) => toNested(rule))
 
 	return {
 		findings: built.findings,
@@ -1220,7 +1222,7 @@ const base64Transfer = (row: string): TransferResult => ({
 	row
 })
 
-const transferAnchor = (line: Line): string =>
+const transferAnchor = (line: SpecLine): string =>
 	line === "3.2"
 		? "content-transfer-encoding-and-contentencoding"
 		: "encoding-multipart-media-types"
@@ -1228,21 +1230,25 @@ const transferAnchor = (line: Line): string =>
 /**
  * Transfer encodings are case-insensitive tokens (RFC 2045 6.1).
  */
-const isBase64 = (value: string): boolean => value.toLowerCase() === "base64"
+const isBase64 = (value: string): boolean => Str.toLowerCase(value) === "base64"
 
 /**
  * The identity encodings of RFC 2045 6.2: the part is not transformed.
  */
 const identityEncodings: ReadonlySet<string> = new Set(["7bit", "8bit", "binary"])
 
-const isIdentity = (value: string): boolean => identityEncodings.has(value.toLowerCase())
+const isIdentity = (value: string): boolean => identityEncodings.has(Str.toLowerCase(value))
 
 /**
  * What one schema declares: 3.0 `format: byte` (ENC-38), 3.1+ `contentEncoding` (ENC-37). base64
  * has a writer; an identity encoding sends the part raw, as a 3.0 `format: binary` part is, with no
  * Content-Transfer-Encoding line of its own. Any other `contentEncoding` refuses the part.
  */
-const declaredTransfer = (line: Line, label: string, facts: Facts): TransferResult | undefined => {
+const declaredTransfer = (
+	line: SpecLine,
+	label: string,
+	facts: Facts
+): TransferResult | undefined => {
 	if (line === "3.0") {
 		return facts.format === "byte" ? base64Transfer("ENC-38") : undefined
 	}
@@ -1310,13 +1316,15 @@ const TransferHeaderSchema = Schema.Struct({
 })
 
 const transferHeaderOf = (node: EncodingNode): string | undefined =>
-	Object.keys(node.headers ?? {}).find((name) => name.toLowerCase() === "content-transfer-encoding")
+	Record.keys(node.headers ?? {}).find(
+		(name) => Str.toLowerCase(name) === "content-transfer-encoding"
+	)
 
 /**
  * A header schema keyword admits base64 when it is absent or lists it among its string values.
  */
 const admitsBase64 = (values: readonly string[] | undefined): boolean =>
-	values === undefined || values.some(isBase64)
+	values === undefined || Arr.some(values, isBase64)
 
 /**
  * ENC-39: a declared Content-Transfer-Encoding header whose schema rules out the part's base64.
@@ -1335,7 +1343,7 @@ const transferConflict = Effect.fnUntraced(function* transferConflict(
 	const declared = {
 		const: pipe(
 			schema.const,
-			UndefinedOr.map((value) => [value].filter(Predicate.isString))
+			UndefinedOr.map((value) => Arr.filter([value], Predicate.isString))
 		),
 		enum: schema.enum?.filter(Predicate.isString)
 	}
@@ -1399,7 +1407,7 @@ const buildRule = Effect.fnUntraced(function* buildRule(
 			? undefined
 			: yield* transferConflict(ctx, input, transferHeader)
 	if (conflict !== undefined) {
-		const kept = headers.findings.filter(({ code }) => code !== writerOwnedCode)
+		const kept = Arr.filter(headers.findings, ({ code }) => code !== writerOwnedCode)
 
 		return { findings: [...typing.findings, ...kept, conflict], rule: undefined }
 	}
@@ -1504,7 +1512,7 @@ const extraFieldsRefusal = (at: CanonicalKey): Finding =>
 		"D-ENC1 decides extra multipart fields; until then this map is refused and the declared parts stay"
 	)
 
-const encodingIgnored = (line: Line, at: CanonicalKey): Finding =>
+const encodingIgnored = (line: SpecLine, at: CanonicalKey): Finding =>
 	line === "3.2"
 		? notice(
 				"MED-14/encoding-ignored",
@@ -1551,7 +1559,7 @@ const arrayFormData = (at: CanonicalKey): Finding =>
  * MED-25: a multipart type other than form-data sends unnamed ordered parts, and correlating them
  * with an object's properties by a Content-Disposition name is a MAY this generator does not offer.
  */
-const unnamedParts = (line: Line, at: CanonicalKey): Finding =>
+const unnamedParts = (line: SpecLine, at: CanonicalKey): Finding =>
 	refusal(
 		"MED-25/unnamed-parts",
 		line === "3.2" ? "additional-encoding-approaches" : "encoding-multipart-media-types",
@@ -1586,7 +1594,7 @@ const readMedia = (
 }
 
 const alternativeRows = (
-	line: Line,
+	line: SpecLine,
 	codec: Codec,
 	node: MediaNode,
 	schema: boolean,
@@ -1652,7 +1660,7 @@ const extraFields = (
 /**
  * ENC-33 and MED-13: a multipart body this line cannot read at all.
  */
-const partsBlocker = (line: Line, media: Media): Finding | undefined => {
+const partsBlocker = (line: SpecLine, media: Media): Finding | undefined => {
 	const { home, node } = media
 	const positional = node.prefixEncoding !== undefined || node.itemEncoding !== undefined
 	if (node.schema === undefined && line !== "3.2") {
@@ -1684,10 +1692,10 @@ interface Keys {
 /**
  * MED-11 refuses an encoding key that names no property; MED-12 (3.2) ignores it with a notice.
  */
-const unknownKeys = (line: Line, media: Media, members: Members): Keys => {
-	const declared = new Set(members.properties.map(([name]) => name))
+const unknownKeys = (line: SpecLine, media: Media, members: Members): Keys => {
+	const declared = new Set(Arr.map(members.properties, ([name]) => name))
 	const findings: Finding[] = []
-	for (const name of Object.keys(media.node.encoding ?? {})) {
+	for (const name of Record.keys(media.node.encoding ?? {})) {
 		const actual = childKey(media.home, "encoding", name)
 		if (!declared.has(name) && line !== "3.2") {
 			return {
@@ -1733,7 +1741,7 @@ const propertyInputs = (
 ): readonly RuleInput[] => {
 	const byName = media.node.encoding ?? {}
 
-	return members.properties.map(([name, schema]): RuleInput => {
+	return Arr.map(members.properties, ([name, schema]): RuleInput => {
 		const explicit = Option.getOrUndefined(Record.get(byName, name))
 
 		return {
@@ -1764,7 +1772,7 @@ interface PartInputs {
  * `prefixEncoding` entries and `itemEncoding` become rules.
  */
 const partInputs = (
-	line: Line,
+	line: SpecLine,
 	media: Media,
 	members: Members,
 	options: { readonly formData: boolean; readonly honorsStyle: boolean; readonly mixed: boolean }
@@ -1876,25 +1884,25 @@ const partStyles = Effect.fnUntraced(function* partStyles(
 	findings: readonly Finding[]
 ): Effect.fn.Return<PartStyles, BodyNodeBudget> {
 	const named = new Map(
-		inputs.flatMap((input) =>
+		Arr.flatMap(inputs, (input) =>
 			input.target.kind === "property" ? [[keyOf(input.actual), input.target.name] as const] : []
 		)
 	)
 	const nameOf = (finding: Finding): string | undefined =>
 		finding.code === unsupportedPartStyleCode ? named.get(keyOf(finding.at)) : undefined
-	const refusedFields = findings.flatMap((finding) => nameOf(finding) ?? [])
+	const refusedFields = Arr.flatMap(findings, (finding) => nameOf(finding) ?? [])
 	if (schema === undefined || refusedFields.length === 0) {
 		return { drops: false, findings, refusedFields: [] }
 	}
 
 	const requirement = yield* requirementOf(ctx.walk, schema)
-	const drops = refusedFields.some((name) => isRequired(requirement, name))
+	const drops = Arr.some(refusedFields, (name) => isRequired(requirement, name))
 	const moved = (finding: Finding, name: string): Finding =>
 		drops ? dropping(finding) : fieldRefusal(finding.at, finding, name)
 
 	return {
 		drops,
-		findings: findings.map((finding) => {
+		findings: Arr.map(findings, (finding) => {
 			const name = nameOf(finding)
 
 			return name === undefined ? finding : moved(finding, name)
@@ -1927,7 +1935,7 @@ const multipartParts = Effect.fnUntraced(function* multipartParts(
 	if (
 		schema !== undefined &&
 		base !== "multipart/form-data" &&
-		!base.endsWith("/*") &&
+		!Str.endsWith("/*")(base) &&
 		(yield* isObjectBody(ctx.walk, schema, members))
 	) {
 		return refusedParts([dropping(unnamedParts(line, schema))])
@@ -2054,8 +2062,8 @@ const isNested = Effect.fnUntraced(function* isNested(
 		return true
 	}
 
-	const members = nodes.flatMap(({ at, node }) => [
-		...Object.keys(node.properties ?? {}).map((name) => childKey(at, "properties", name)),
+	const members = Arr.flatMap(nodes, ({ at, node }) => [
+		...Arr.map(Record.keys(node.properties ?? {}), (name) => childKey(at, "properties", name)),
 		...(isObjectValue(node.additionalProperties) ? [childKey(at, "additionalProperties")] : [])
 	])
 	for (const member of members) {
@@ -2147,7 +2155,7 @@ const styleRefusalOf = (
  * as STY-26 is for a parameter, with that row's notice text.
  */
 const deepObjectExplode = (
-	line: Line,
+	line: SpecLine,
 	serialization: PlainSerialization | undefined,
 	actual: CanonicalKey
 ): readonly Finding[] =>
@@ -2318,7 +2326,7 @@ const formPositional = (media: Media): readonly Finding[] => [
  * order of its properties.
  */
 const refusedFormParts = (findings: readonly Finding[]): Parts =>
-	refusedParts(findings.filter((finding) => !authorChoiceCodes.has(finding.code)))
+	refusedParts(Arr.filter(findings, (finding) => !authorChoiceCodes.has(finding.code)))
 
 /**
  * Form-urlencoded rules: one per declared property, by name (MED-11, MED-12 as for multipart).
@@ -2372,7 +2380,7 @@ const formParts = Effect.fnUntraced(function* formParts(
 	return {
 		...noParts,
 		encoding: rules,
-		findings: findings.map((finding) => {
+		findings: Arr.map(findings, (finding) => {
 			const entry = entries.get(finding)
 
 			return entry === undefined ? finding : fieldRefusal(entry.at, finding, entry.name)
@@ -2381,9 +2389,10 @@ const formParts = Effect.fnUntraced(function* formParts(
 	}
 })
 
-const ignoredParts = (line: Line, media: Media): Parts => {
+const ignoredParts = (line: SpecLine, media: Media): Parts => {
 	const { home, node } = media
-	const present = [node.encoding, node.prefixEncoding, node.itemEncoding].some(
+	const present = Arr.some(
+		[node.encoding, node.prefixEncoding, node.itemEncoding],
 		(member) => member !== undefined
 	)
 
@@ -2435,11 +2444,11 @@ const normalizeAlternative = Effect.fnUntraced(function* normalizeAlternative(
 	const opaque = codec === "xml"
 	const schemaSites = opaque
 		? []
-		: (["schema", "itemSchema"] as const).flatMap((field) =>
+		: Arr.flatMap(["schema", "itemSchema"] as const, (field) =>
 				node[field] === undefined ? [] : [childKey(home, field)]
 			)
 	const limits = { maxNodes: ctx.walk.budget.limit }
-	if (schemaSites.some((site) => appliesDynamicKeyword(resolution, site, limits))) {
+	if (Arr.some(schemaSites, (site) => appliesDynamicKeyword(resolution, site, limits))) {
 		return stopAlternative()
 	}
 
@@ -2503,7 +2512,7 @@ const underMediaSite = (
 
 	return {
 		document: mediaSite.document,
-		pointer: `${mediaSite.pointer}${at.pointer.slice(home.pointer.length)}`
+		pointer: `${mediaSite.pointer}${Str.slice(home.pointer.length)(at.pointer)}`
 	}
 }
 
@@ -2548,7 +2557,7 @@ const toDiagnostics = (
 		})
 	}).pipe(Effect.orDie)
 
-const emptyContent = (line: Line, at: CanonicalKey): Finding =>
+const emptyContent = (line: SpecLine, at: CanonicalKey): Finding =>
 	refusal(
 		"RQB-07/empty-content",
 		line === "3.0" ? "request-body-object" : "request-body-content",
@@ -2587,7 +2596,8 @@ type Branch = Hint["branches"][number]
 const discriminatorRefused = (findings: readonly Diagnostic[], root: CanonicalKey): boolean => {
 	const at = childPointer(root.pointer, "discriminator")
 
-	return findings.some(
+	return Arr.some(
+		findings,
 		(finding) =>
 			finding.severity === "refusal" &&
 			finding.scope === "element" &&
@@ -2607,10 +2617,10 @@ interface Component {
 const entrySchemas = (resolution: Resolution): readonly Component[] => {
 	const names = Option.match(decodeEntryComponents(resolution.value), {
 		onNone: (): readonly string[] => [],
-		onSome: (root) => Object.keys(root.components?.schemas ?? {})
+		onSome: (root) => Record.keys(root.components?.schemas ?? {})
 	})
 
-	return names.map((name) => ({
+	return Arr.map(names, (name) => ({
 		key: { document: resolution.document, pointer: formatPointer(["components", "schemas", name]) },
 		name
 	}))
@@ -2625,12 +2635,12 @@ const allOfChildren = (
 	root: CanonicalKey
 ): readonly CanonicalKey[] => {
 	const parents = new Set(
-		(allOfReferrers(resolution).get(keyOf(root)) ?? []).map((site) =>
+		Arr.map(allOfReferrers(resolution).get(keyOf(root)) ?? [], (site) =>
 			keyOf({ document: site.document, pointer: site.pointer.replace(/\/allOf\/\d+$/u, "") })
 		)
 	)
 
-	return components.flatMap((component) =>
+	return Arr.flatMap(components, (component) =>
 		parents.has(keyOf(component.key)) ? [component.key] : []
 	)
 }
@@ -2664,15 +2674,15 @@ const hintAt = (
 	}
 
 	const components = entrySchemas(resolution)
-	const names = new Map(components.map((component) => [keyOf(component.key), component.name]))
+	const names = new Map(Arr.map(components, (component) => [keyOf(component.key), component.name]))
 	const listed = listedKeyword(node)
 	const targets =
 		listed === undefined
 			? allOfChildren(resolution, components, root)
-			: (node[listed] ?? []).map((_, index) =>
+			: Arr.map(node[listed] ?? [], (_, index) =>
 					settle(resolution, childKey(root, listed, String(index)))
 				)
-	const mapped = Object.entries(node.discriminator.mapping ?? {}).flatMap(([label, value]) =>
+	const mapped = Arr.flatMap(Record.toEntries(node.discriminator.mapping ?? {}), ([label, value]) =>
 		Predicate.isString(value)
 			? Option.match(implicitComponent(resolution, "schemas", value), {
 					onNone: () => [],
@@ -2680,10 +2690,10 @@ const hintAt = (
 				})
 			: []
 	)
-	const branches = targets.map((target, index): Branch => {
+	const branches = Arr.map(targets, (target, index): Branch => {
 		const key = keyOf(target)
 		const component = names.get(key)
-		const labels = mapped.flatMap(([at, label]) => (at === key ? [label] : []))
+		const labels = Arr.flatMap(mapped, ([at, label]) => (at === key ? [label] : []))
 
 		return component === undefined
 			? { index, labels }
@@ -2717,12 +2727,12 @@ export const hintDiscriminators: (
 	body: Body,
 	checkFindings: readonly Diagnostic[]
 ): Effect.fn.Return<Body, Schema.SchemaError> {
-	const hints = body.alternatives.map((alternative) =>
+	const hints = Arr.map(body.alternatives, (alternative) =>
 		alternative.schema === undefined
 			? undefined
 			: hintAt(resolution, childKey(alternative.origin, "schema"), checkFindings)
 	)
-	if (hints.every((found) => found === undefined)) {
+	if (Arr.every(hints, (found) => found === undefined)) {
 		return body
 	}
 
@@ -2730,7 +2740,7 @@ export const hintDiscriminators: (
 
 	return yield* Schema.decodeUnknownEffect(Body)({
 		...plain,
-		alternatives: plain.alternatives.map((alternative, index) => {
+		alternatives: Arr.map(plain.alternatives, (alternative, index) => {
 			const found = hints[index]
 
 			return found === undefined ? alternative : { ...alternative, discriminator: found }
@@ -2761,7 +2771,7 @@ export const normalizeBody = Effect.fnUntraced(function* normalizeBody(
 	const walk: Walk = { budget: budgetOf({ maxNodes: limits.maxNodes }), resolution, site }
 	const ctx: Context = { line: resolution.line, reference, resolution, site, walk }
 	const required = node.required ?? false
-	const keys = Object.keys(node.content)
+	const keys = Record.keys(node.content)
 	if (keys.length === 0) {
 		const empty = emptyContent(resolution.line, childKey(target, "content"))
 
@@ -2774,7 +2784,7 @@ export const normalizeBody = Effect.fnUntraced(function* normalizeBody(
 	)
 	const diagnostics = placed.flat()
 	const alternatives = Arr.getSomes(
-		results.map((result) => Option.fromUndefinedOr(result.alternative))
+		Arr.map(results, (result) => Option.fromUndefinedOr(result.alternative))
 	)
 	if (alternatives.length === 0) {
 		return BodyOutcome.Refused({ diagnostics, required })

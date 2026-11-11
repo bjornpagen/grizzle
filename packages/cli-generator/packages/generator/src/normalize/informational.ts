@@ -1,4 +1,5 @@
-import { Array as Arr, Effect, Order, Predicate, Schema } from "effect"
+import { regex } from "arkregex"
+import { Array as Arr, Effect, Option, Order, Predicate, Record, Schema } from "effect"
 import { Informational } from "#model/entities.ts"
 import { isSpecificationExtension } from "#model/extension.ts"
 import { isObject, isArray } from "#model/json-tree.ts"
@@ -29,6 +30,8 @@ interface Finding {
 	readonly pointer: string
 	readonly row: Row
 }
+
+type Findings = readonly Finding[]
 
 /**
  * The Objects that can hold informational elements. An informational Object (example, link,
@@ -63,77 +66,70 @@ type Edge =
 	| readonly ["informative", string, Informative]
 	| readonly ["list" | "map" | "one", string, Walked]
 
-interface Holds {
-	readonly edges?: readonly Edge[]
-	readonly rest?: Walked
-	readonly row?: Row
+/**
+ * What a walked Object holds besides its specification extensions: edges to the Objects it
+ * contains, every other member as one kind of Object, or only a record of its own.
+ */
+type Holds =
+	| { readonly _tag: "Edges"; readonly edges: readonly Edge[] }
+	| { readonly _tag: "Members"; readonly kind: Walked }
+	| { readonly _tag: "Recorded"; readonly row: Row }
+
+const edges = (list: readonly Edge[]): Holds => ({ _tag: "Edges", edges: list })
+
+const members = (kind: Walked): Holds => ({ _tag: "Members", kind })
+
+const methodFields: readonly string[] = Arr.sort(methodMembers("3.2"), Order.String)
+
+const holds: Readonly<Record<Walked, Holds>> = {
+	encoding: edges([
+		["map", "headers", "header"],
+		["map", "encoding", "encoding"],
+		["list", "prefixEncoding", "encoding"],
+		["one", "itemEncoding", "encoding"]
+	]),
+	externalDocs: { _tag: "Recorded", row: "EXD-01" },
+	flow: edges([]),
+	flows: members("flow"),
+	header: edges([
+		["informative", "examples", "example"],
+		["map", "content", "mediaType"]
+	]),
+	mediaType: edges([
+		["informative", "examples", "example"],
+		["map", "encoding", "encoding"],
+		["list", "prefixEncoding", "encoding"],
+		["one", "itemEncoding", "encoding"]
+	]),
+	operation: edges([
+		["one", "externalDocs", "externalDocs"],
+		["informative", "callbacks", "callback"],
+		["list", "parameters", "parameter"],
+		["one", "requestBody", "requestBody"],
+		["one", "responses", "responses"],
+		["list", "servers", "server"]
+	]),
+	parameter: edges([
+		["informative", "examples", "example"],
+		["map", "content", "mediaType"]
+	]),
+	pathItem: edges([
+		["list", "servers", "server"],
+		["list", "parameters", "parameter"],
+		...Arr.map(methodFields, (method): Edge => ["one", method, "operation"]),
+		["map", "additionalOperations", "operation"]
+	]),
+	requestBody: edges([["map", "content", "mediaType"]]),
+	response: edges([
+		["map", "headers", "header"],
+		["map", "content", "mediaType"],
+		["informative", "links", "link"]
+	]),
+	responses: members("response"),
+	securityScheme: edges([["one", "flows", "flows"]]),
+	server: edges([["map", "variables", "variable"]]),
+	variable: edges([])
 }
-
-const methodFields = Arr.sort(methodMembers("3.2"), Order.String)
-
-const holds = {
-	encoding: {
-		edges: [
-			["map", "headers", "header"],
-			["map", "encoding", "encoding"],
-			["list", "prefixEncoding", "encoding"],
-			["one", "itemEncoding", "encoding"]
-		]
-	},
-	externalDocs: { row: "EXD-01" },
-	flow: {},
-	flows: { rest: "flow" },
-	header: {
-		edges: [
-			["informative", "examples", "example"],
-			["map", "content", "mediaType"]
-		]
-	},
-	mediaType: {
-		edges: [
-			["informative", "examples", "example"],
-			["map", "encoding", "encoding"],
-			["list", "prefixEncoding", "encoding"],
-			["one", "itemEncoding", "encoding"]
-		]
-	},
-	operation: {
-		edges: [
-			["one", "externalDocs", "externalDocs"],
-			["informative", "callbacks", "callback"],
-			["list", "parameters", "parameter"],
-			["one", "requestBody", "requestBody"],
-			["one", "responses", "responses"],
-			["list", "servers", "server"]
-		]
-	},
-	parameter: {
-		edges: [
-			["informative", "examples", "example"],
-			["map", "content", "mediaType"]
-		]
-	},
-	pathItem: {
-		edges: [
-			["list", "servers", "server"],
-			["list", "parameters", "parameter"],
-			...methodFields.map((method): Edge => ["one", method, "operation"]),
-			["map", "additionalOperations", "operation"]
-		]
-	},
-	requestBody: { edges: [["map", "content", "mediaType"]] },
-	response: {
-		edges: [
-			["map", "headers", "header"],
-			["map", "content", "mediaType"],
-			["informative", "links", "link"]
-		]
-	},
-	responses: { rest: "response" },
-	securityScheme: { edges: [["one", "flows", "flows"]] },
-	server: { edges: [["map", "variables", "variable"]] },
-	variable: {}
-} as const satisfies Record<Walked, Holds>
 
 const componentSections = {
 	callbacks: "callback",
@@ -148,171 +144,186 @@ const componentSections = {
 	securitySchemes: "securityScheme"
 } as const satisfies Record<string, Informative | Walked>
 
-const reservedExtension = /^x-o(?:ai|as)-/u
+const infoParts = [
+	["contact", "INF-09"],
+	["license", "INF-13"]
+] as const satisfies readonly (readonly [string, Row])[]
+
+const reservedExtension = regex("^x-o(?:ai|as)-", "u")
 
 const isInformative = (kind: string): kind is Informative => kind in informativeRow
 
-class Walk {
-	readonly found: Finding[] = []
+const isReference = (node: JsonObject): boolean =>
+	Option.exists(Record.get(node, "$ref"), Predicate.isString)
 
-	add(row: Row, pointer: string): void {
-		this.found.push({ pointer, row })
+/**
+ * The findings `read` makes of the member `name` of `node`, none when the member is absent.
+ */
+const atMember = (node: JsonObject, name: string, read: (value: Json) => Findings): Findings =>
+	Option.match(Record.get(node, name), { onNone: () => [], onSome: read })
+
+/**
+ * The members of an Object other than its specification extensions, in document order.
+ */
+const membersOf = (node: JsonObject): readonly (readonly [string, Json])[] =>
+	Arr.filter(Record.toEntries(node), ([key]) => !isSpecificationExtension(key))
+
+const extensionsOf = (node: JsonObject, pointer: string): Findings =>
+	Arr.map(Arr.filter(Record.keys(node), isSpecificationExtension), (key): Finding => ({
+		pointer: childPointer(pointer, key),
+		row: reservedExtension.test(key) ? "EXT-02" : "EXT-01"
+	}))
+
+/**
+ * A map of names to elements of one informational kind: one record per entry, or one record at the
+ * map when it is empty, so a declared but empty map is still accounted for.
+ */
+const informativeMap = (row: Row, value: Json, pointer: string): Findings => {
+	if (!isObject(value)) {
+		return []
 	}
 
-	extensions(node: JsonObject, pointer: string): void {
-		for (const key of Object.keys(node).filter(isSpecificationExtension)) {
-			this.add(reservedExtension.test(key) ? "EXT-02" : "EXT-01", childPointer(pointer, key))
-		}
-	}
+	const names = Record.keys(value)
 
-	/**
-	 * A map of names to elements of one informational kind: one record per entry, or one record at
-	 * the map when it is empty, so a declared but empty map is still accounted for.
-	 */
-	informativeMap(row: Row, value: Json | undefined, pointer: string): void {
-		if (!isObject(value)) {
-			return
-		}
+	return Arr.isReadonlyArrayNonEmpty(names)
+		? Arr.map(names, (name): Finding => ({ pointer: childPointer(pointer, name), row }))
+		: [{ pointer, row }]
+}
 
-		const names = Object.keys(value)
-		if (names.length === 0) {
-			this.add(row, pointer)
-		}
+const follow = (edge: Edge, node: JsonObject, pointer: string): Findings => {
+	const [how, name, target] = edge
+	const site = childPointer(pointer, name)
 
-		for (const name of names) {
-			this.add(row, childPointer(pointer, name))
-		}
-	}
-
-	follow(edge: Edge, node: JsonObject, pointer: string): void {
-		const [how, name, target] = edge
-		const value = node[name]
-		const site = childPointer(pointer, name)
+	return atMember(node, name, (value) => {
 		if (how === "informative") {
-			this.informativeMap(informativeRow[target], value, site)
-		} else if (how === "one") {
-			this.visit(target, value, site)
-		} else if (how === "list" && isArray(value)) {
-			for (const [index, item] of value.entries()) {
-				this.visit(target, item, childPointer(site, String(index)))
-			}
-		} else if (how === "map" && isObject(value)) {
-			for (const [key, entry] of Object.entries(value)) {
-				this.visit(target, entry, childPointer(site, key))
-			}
+			return informativeMap(informativeRow[target], value, site)
 		}
+
+		if (how === "one") {
+			return visit(target, value, site)
+		}
+
+		if (how === "list") {
+			return isArray(value)
+				? Arr.flatMap(value, (item, index) =>
+						visit(target, item, childPointer(site, String(index)))
+					)
+				: []
+		}
+
+		return isObject(value)
+			? Arr.flatMap(Record.toEntries(value), ([key, entry]) =>
+					visit(target, entry, childPointer(site, key))
+				)
+			: []
+	})
+}
+
+/**
+ * The findings of one walked Object. A Reference Object's other members are ignored (REF rows), so
+ * nothing below it is read here.
+ */
+const visit = (kind: Walked, value: Json, pointer: string): Findings => {
+	if (!isObject(value) || isReference(value)) {
+		return []
 	}
 
-	/**
-	 * A Reference Object's other members are ignored (REF rows), so nothing below it is read here.
-	 */
-	visit(kind: Walked, value: Json | undefined, pointer: string): void {
-		if (!isObject(value) || Predicate.isString(value.$ref)) {
-			return
+	const held = holds[kind]
+	const extensions = extensionsOf(value, pointer)
+	switch (held._tag) {
+		case "Recorded": {
+			return [{ pointer, row: held.row }, ...extensions]
 		}
-
-		const held: Holds = holds[kind]
-		if (held.row !== undefined) {
-			this.add(held.row, pointer)
+		case "Edges": {
+			return [...extensions, ...Arr.flatMap(held.edges, (edge) => follow(edge, value, pointer))]
 		}
-
-		this.extensions(value, pointer)
-		for (const edge of held.edges ?? []) {
-			this.follow(edge, value, pointer)
-		}
-
-		const { rest } = held
-		for (const [key, entry] of Object.entries(value)) {
-			if (rest !== undefined && !isSpecificationExtension(key)) {
-				this.visit(rest, entry, childPointer(pointer, key))
-			}
+		case "Members": {
+			return [
+				...extensions,
+				...Arr.flatMap(membersOf(value), ([key, entry]) =>
+					visit(held.kind, entry, childPointer(pointer, key))
+				)
+			]
 		}
 	}
+}
 
-	info(value: Json | undefined): void {
-		if (!isObject(value)) {
-			return
-		}
+const infoOf = (value: Json): Findings =>
+	isObject(value)
+		? [
+				{ pointer: "/info", row: "INF-01" },
+				...extensionsOf(value, "/info"),
+				...Arr.flatMap(infoParts, ([name, row]) =>
+					atMember(value, name, (part) =>
+						isObject(part)
+							? [
+									{ pointer: childPointer("/info", name), row },
+									...extensionsOf(part, childPointer("/info", name))
+								]
+							: []
+					)
+				)
+			]
+		: []
 
-		this.add("INF-01", "/info")
-		this.extensions(value, "/info")
-		for (const [name, row] of [
-			["contact", "INF-09"],
-			["license", "INF-13"]
-		] as const) {
-			const part = value[name]
-			if (isObject(part)) {
-				this.add(row, childPointer("/info", name))
-				this.extensions(part, childPointer("/info", name))
-			}
-		}
-	}
-
-	tags(value: Json | undefined): void {
-		for (const [index, tag] of (isArray(value) ? value : []).entries()) {
-			if (isObject(tag)) {
-				const pointer = childPointer("/tags", String(index))
-				this.add("TAG-01", pointer)
-				this.extensions(tag, pointer)
-				this.visit("externalDocs", tag.externalDocs, childPointer(pointer, "externalDocs"))
-			}
-		}
-	}
-
-	paths(value: Json | undefined): void {
-		if (!isObject(value)) {
-			return
-		}
-
-		for (const [key, item] of Object.entries(value)) {
-			if (!isSpecificationExtension(key)) {
-				this.visit("pathItem", item, childPointer("/paths", key))
-			}
-		}
-
-		this.extensions(value, "/paths")
-	}
-
-	components(value: Json | undefined): void {
-		if (!isObject(value)) {
-			return
-		}
-
-		this.extensions(value, "/components")
-		for (const [section, kind] of Object.entries(componentSections)) {
-			const map = value[section]
-			const pointer = childPointer("/components", section)
-			if (!isObject(map)) {
-				continue
-			}
-
-			if (isInformative(kind)) {
-				this.informativeMap(informativeRow[kind], map, pointer)
-			} else {
-				for (const [name, entry] of Object.entries(map)) {
-					this.visit(kind, entry, childPointer(pointer, name))
+const tagsOf = (value: Json): Findings =>
+	isArray(value)
+		? Arr.flatMap(value, (tag, index) => {
+				if (!isObject(tag)) {
+					return []
 				}
-			}
-		}
-	}
-}
 
-const findings = (root: JsonObject): readonly Finding[] => {
-	const walk = new Walk()
-	walk.info(root.info)
-	walk.extensions(root, "")
-	walk.visit("externalDocs", root.externalDocs, "/externalDocs")
-	walk.tags(root.tags)
-	for (const [index, server] of (isArray(root.servers) ? root.servers : []).entries()) {
-		walk.visit("server", server, childPointer("/servers", String(index)))
-	}
+				const pointer = childPointer("/tags", String(index))
 
-	walk.informativeMap("DOC-08", root.webhooks, "/webhooks")
-	walk.paths(root.paths)
-	walk.components(root.components)
+				return [
+					{ pointer, row: "TAG-01" },
+					...extensionsOf(tag, pointer),
+					...follow(["one", "externalDocs", "externalDocs"], tag, pointer)
+				]
+			})
+		: []
 
-	return walk.found
-}
+const pathsOf = (value: Json): Findings =>
+	isObject(value)
+		? [
+				...Arr.flatMap(membersOf(value), ([key, item]) =>
+					visit("pathItem", item, childPointer("/paths", key))
+				),
+				...extensionsOf(value, "/paths")
+			]
+		: []
+
+const componentsOf = (value: Json): Findings =>
+	isObject(value)
+		? [
+				...extensionsOf(value, "/components"),
+				...Arr.flatMap(Record.toEntries(componentSections), ([section, kind]) =>
+					atMember(value, section, (map) => {
+						const pointer = childPointer("/components", section)
+						if (!isObject(map)) {
+							return []
+						}
+
+						return isInformative(kind)
+							? informativeMap(informativeRow[kind], map, pointer)
+							: Arr.flatMap(Record.toEntries(map), ([name, entry]) =>
+									visit(kind, entry, childPointer(pointer, name))
+								)
+					})
+				)
+			]
+		: []
+
+const findings = (root: JsonObject): Findings => [
+	...atMember(root, "info", infoOf),
+	...extensionsOf(root, ""),
+	...follow(["one", "externalDocs", "externalDocs"], root, ""),
+	...atMember(root, "tags", tagsOf),
+	...follow(["list", "servers", "server"], root, ""),
+	...atMember(root, "webhooks", (value) => informativeMap("DOC-08", value, "/webhooks")),
+	...atMember(root, "paths", pathsOf),
+	...atMember(root, "components", componentsOf)
+]
 
 const decode = Schema.decodeUnknownEffect(Informational)
 

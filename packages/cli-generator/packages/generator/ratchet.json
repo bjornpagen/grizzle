@@ -1,6 +1,6 @@
 {
 	"typecheck": {
-		"total": 9687,
+		"total": 9438,
 		"files": {
 			"packages/generator/corpus/tools/coverage.ts": 63,
 			"packages/generator/corpus/tools/fetch.ts": 6,
@@ -24,18 +24,11 @@
 			"packages/generator/src/model/author-config.ts": 11,
 			"packages/generator/src/model/entities.ts": 14,
 			"packages/generator/src/names/reserved.ts": 1,
-			"packages/generator/src/normalize/bodies.ts": 92,
-			"packages/generator/src/normalize/docs.ts": 1,
-			"packages/generator/src/normalize/document-set.ts": 1,
-			"packages/generator/src/normalize/header-object.ts": 1,
-			"packages/generator/src/normalize/index.ts": 3,
-			"packages/generator/src/normalize/informational.ts": 19,
-			"packages/generator/src/normalize/operations.ts": 36,
-			"packages/generator/src/normalize/parameters.ts": 34,
+			"packages/generator/src/normalize/bodies.ts": 26,
+			"packages/generator/src/normalize/parameters.ts": 14,
 			"packages/generator/src/normalize/responses.ts": 19,
-			"packages/generator/src/normalize/schemas.ts": 60,
-			"packages/generator/src/normalize/security.ts": 35,
-			"packages/generator/src/normalize/servers.ts": 25,
+			"packages/generator/src/normalize/schemas.ts": 13,
+			"packages/generator/src/normalize/security.ts": 5,
 			"packages/generator/src/resolve/canonical.ts": 1,
 			"packages/generator/src/resolve/index.ts": 36,
 			"packages/generator/src/runtime-src/domain/errors.ts": 22,
@@ -312,7 +305,7 @@
 		}
 	},
 	"superlint": {
-		"total": 272,
+		"total": 261,
 		"files": {
 			"packages/generator/corpus/tools/run.ts": 3,
 			"packages/generator/corpus/tools/walk.ts": 11,
@@ -330,13 +323,9 @@
 			"packages/generator/src/emit/runtime.ts": 1,
 			"packages/generator/src/model/json-tree.ts": 3,
 			"packages/generator/src/normalize/bodies.ts": 4,
-			"packages/generator/src/normalize/docs.ts": 1,
-			"packages/generator/src/normalize/informational.ts": 7,
-			"packages/generator/src/normalize/operations.ts": 1,
 			"packages/generator/src/normalize/parameters.ts": 3,
 			"packages/generator/src/normalize/schemas.ts": 19,
 			"packages/generator/src/normalize/security.ts": 2,
-			"packages/generator/src/normalize/servers.ts": 2,
 			"packages/generator/src/resolve/index.ts": 5,
 			"packages/generator/src/runtime-src/runtime/auth.ts": 3,
 			"packages/generator/src/runtime-src/runtime/base-url.ts": 1,
@@ -410,7 +399,7 @@
 		}
 	},
 	"oxlint": {
-		"total": 5037,
+		"total": 5024,
 		"files": {
 			"packages/generator/corpus/tools/coverage.ts": 63,
 			"packages/generator/corpus/tools/fetch.ts": 1,
@@ -435,15 +424,10 @@
 			"packages/generator/src/model/entities.ts": 19,
 			"packages/generator/src/names/reserved.ts": 2,
 			"packages/generator/src/normalize/bodies.ts": 7,
-			"packages/generator/src/normalize/docs.ts": 1,
-			"packages/generator/src/normalize/index.ts": 1,
-			"packages/generator/src/normalize/informational.ts": 2,
-			"packages/generator/src/normalize/operations.ts": 4,
 			"packages/generator/src/normalize/parameters.ts": 8,
 			"packages/generator/src/normalize/responses.ts": 19,
-			"packages/generator/src/normalize/schemas.ts": 11,
+			"packages/generator/src/normalize/schemas.ts": 12,
 			"packages/generator/src/normalize/security.ts": 1,
-			"packages/generator/src/normalize/servers.ts": 6,
 			"packages/generator/src/resolve/index.ts": 77,
 			"packages/generator/src/runtime-src/domain/errors.ts": 3,
 			"packages/generator/src/runtime-src/runtime/auth.ts": 36,
@@ -701,14 +685,13 @@
 		}
 	},
 	"dead-code": {
-		"total": 18,
+		"total": 17,
 		"files": {
 			"packages/generator/src/emit/api.ts": 2,
 			"packages/generator/src/emit/printer.ts": 1,
 			"packages/generator/src/model/author-config.ts": 1,
 			"packages/generator/src/model/brands.ts": 1,
 			"packages/generator/src/model/entities.ts": 7,
-			"packages/generator/src/normalize/document-set.ts": 1,
 			"packages/generator/src/validate/index.ts": 1,
 			"packages/generator/src/validate/locations.ts": 1,
 			"packages/generator/src/write/index.ts": 1,

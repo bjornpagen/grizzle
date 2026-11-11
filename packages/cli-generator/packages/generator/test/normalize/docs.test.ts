@@ -1,7 +1,6 @@
 import { Schema } from "effect"
 import { describe, expect, test } from "vitest"
-import { SafeText } from "#model/brands.ts"
-import { sanitize } from "#normalize/docs.ts"
+import { SafeText, stripUnsafeText } from "#model/brands.ts"
 
 const isSafeText = Schema.is(SafeText)
 
@@ -22,11 +21,11 @@ describe("sanitize", () => {
 	test.each(characters)(
 		"sanitize removes exactly what SafeText rejects: %s",
 		(_label, character) => {
-			expect(sanitize(character) === "").toBe(!isSafeText(character))
+			expect(stripUnsafeText(character) === "").toBe(!isSafeText(character))
 		}
 	)
 
 	test("sanitize keeps LF, TAB and plain letters and removes the rest", () => {
-		expect(sanitize(characters.map(([, character]) => character).join(""))).toBe("\n\taZ")
+		expect(stripUnsafeText(characters.map(([, character]) => character).join(""))).toBe("\n\taZ")
 	})
 })

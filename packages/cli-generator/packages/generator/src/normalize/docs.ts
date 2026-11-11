@@ -1,14 +1,4 @@
-import { safeTextCategories } from "#model/brands.ts"
-
-/**
- * Controls, format characters, U+2028, U+2029 and lone surrogates; LF and TAB are kept.
- */
-const unsafeText = new RegExp(`(?![\\n\\t])[${safeTextCategories}]`, "gu")
-
-/**
- * Source text with every unsafe code point removed, for docs fields and diagnostic messages.
- */
-export const sanitize = (text: string): string => text.replaceAll(unsafeText, "")
+import { stripUnsafeText } from "#model/brands.ts"
 
 /**
  * The docs fields of a normalized body or parameter.
@@ -24,11 +14,11 @@ export interface Docs {
 export const docsOf = (description: string | undefined, summary: string | undefined): Docs => {
 	const docs: Docs = {}
 	if (description !== undefined) {
-		docs.description = sanitize(description)
+		docs.description = stripUnsafeText(description)
 	}
 
 	if (summary !== undefined) {
-		docs.summary = sanitize(summary)
+		docs.summary = stripUnsafeText(summary)
 	}
 
 	return docs
