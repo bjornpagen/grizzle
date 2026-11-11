@@ -2,7 +2,12 @@ import { refuse, refuseNamed } from "#compiler/analysis/theory/build.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import { compareText } from "#compiler/core/canonical.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
-import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import {
+	flatMapNonEmpty,
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "#compiler/core/nonempty.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
 import type {
 	FieldDesc,
@@ -36,8 +41,9 @@ import { guardedTerm } from "#compiler/scalar/natural.ts"
  *
  * Every side of such a rule, a side over a stored relation among them, is read as arms (`SideArm`), so one
  * construction writes the rule's violation query (`violationQuery`), which the migration that adds the rule runs
- * over the rows it finds, and its trigger probes (`newProbes`, `oldProbes`), which the rule's deferred constraint
- * triggers run at COMMIT for the rows a transaction touched. Each is a query description the checker reads as any
+ * over the rows it finds, the side its facts meet read whole, and its trigger probes (`newProbes`, `oldProbes`), which
+ * the rule's deferred constraint triggers run at COMMIT for the rows a transaction touched, that side read by arm, so
+ * each probe reads the rows of the keys its write reaches and never the whole side (`Reading`). Each is a query description the checker reads as any
  * query is, so grizzle's own query compiler types and lowers it. A relation a negated arm matches is read with the
  * negation's polarity: a row it gains withdraws the facts of the side that negates it, and a row it loses brings them
  * back.
@@ -914,30 +920,68 @@ const conditionsOf = (arm: LiveArm, loc: SourceLoc): ReadonlyArray<InferredExpr>
 	...arm.negated.map((n) => absentOf(n, loc))
 ]
 
-/** The tuples of a side's arms, each term under its pair's name: what a containment's other side meets. */
-const tuples = (side: RuleSide, loc: SourceLoc): InferredSource =>
-	imported(
-		mapNonEmpty(side.arms, (a) =>
-			ruleDesc(a.vars, a.matches.map(matchDesc), conditionsOf(a, loc), termHead(a.terms), loc)
-		),
-		loc
+/**
+ * How a rule's query reads the side its breaking side's facts meet, a containment's target or a key's other fact: whole,
+ * one imported query of every arm, as the migration's check over every row reads it; or by arm, an imported query of
+ * each arm alone, as a trigger's probe reads it. A probe's facts are the rows its write touched and those its chain
+ * reaches from them, and PostgreSQL reads a side at the terms such a fact meets it on only where the side is one
+ * select-project-join it can join at those terms: a union, whose duplicates it removes first, it builds whole before
+ * any term meets it, so a probe that met the whole side would read every fact of it at every call. Read by arm, a
+ * negation of the side is one negation per arm, since no tuple of a union agrees with the terms exactly when no tuple
+ * of any arm does, and a match of it is one rule per arm, since the facts that agree with some tuple of a union are
+ * those that agree with some tuple of one of its arms: a probe read by arm judges exactly what the whole check does.
+ */
+type Reading = "whole" | "byArm"
+
+/** The sources a side is read as under `reading`, each arm's rule delivering the row `head` gives it. */
+const readAs = (
+	side: RuleSide,
+	reading: Reading,
+	head: (arm: SideArm) => Readonly<Record<string, InferredExpr>>,
+	loc: SourceLoc
+): NonEmptyReadonlyArray<InferredSource> => {
+	const rules = mapNonEmpty(side.arms, (a) =>
+		ruleDesc(a.vars, a.matches.map(matchDesc), conditionsOf(a, loc), head(a), loc)
 	)
+	return reading === "whole"
+		? [imported(rules, loc)]
+		: mapNonEmpty(rules, (rule) => imported([rule], loc))
+}
+
+/** The tuples of a side's arms, each term under its pair's name: what a containment's other side meets. */
+const tuples = (
+	side: RuleSide,
+	reading: Reading,
+	loc: SourceLoc
+): NonEmptyReadonlyArray<InferredSource> => readAs(side, reading, (a) => termHead(a.terms), loc)
+
+/** That no tuple of a side read as `reading` agrees with `terms`: one negation of each source it is read as. */
+const lacks = (
+	side: RuleSide,
+	terms: ReadonlyArray<InferredExpr>,
+	reading: Reading,
+	loc: SourceLoc
+): NonEmptyReadonlyArray<InferredExpr> =>
+	mapNonEmpty(tuples(side, reading, loc), (source) => ({
+		kind: "absent",
+		source,
+		bindings: termHead(terms)
+	}))
 
 /** The facts of a key's side: each its terms under their pair names and its heading fields under their head names. */
-const facts = (side: RuleSide, heading: ReadonlyArray<string>, loc: SourceLoc): InferredSource =>
-	imported(
-		mapNonEmpty(side.arms, (a) =>
-			ruleDesc(
-				a.vars,
-				a.matches.map(matchDesc),
-				conditionsOf(a, loc),
-				{
-					...termHead(a.terms),
-					...Object.fromEntries(heading.map((f) => [headName(f), headOf(a, f, loc)] as const))
-				},
-				loc
-			)
-		),
+const facts = (
+	side: RuleSide,
+	heading: ReadonlyArray<string>,
+	reading: Reading,
+	loc: SourceLoc
+): NonEmptyReadonlyArray<InferredSource> =>
+	readAs(
+		side,
+		reading,
+		(a) => ({
+			...termHead(a.terms),
+			...Object.fromEntries(heading.map((f) => [headName(f), headOf(a, f, loc)] as const))
+		}),
 		loc
 	)
 
@@ -950,68 +994,77 @@ const headOf = (arm: ConjunctiveArm, field: string, loc: SourceLoc): InferredExp
 	)
 
 /**
- * The rule of a violation query an arm of the rule's breaking side states, the arm as a probe may restrict it: for a
- * containment, its tuples the target lacks; for a key, its facts another fact of the side agrees with on the key and
- * differs from elsewhere in the heading; for a check, its facts the condition refuses.
+ * The rules of a violation query an arm of the rule's breaking side states, the arm as a probe may restrict it, the
+ * side it meets read as `reading`: for a containment, its tuples the target lacks; for a key, its facts another fact of
+ * the side agrees with on the key and differs from elsewhere in the heading, a rule per source the side is read as;
+ * for a check, its facts the condition refuses.
  */
-const violating = (rule: QueryRule, arm: SideArm, loc: SourceLoc): InferredRule => {
+const violating = (
+	rule: QueryRule,
+	arm: SideArm,
+	reading: Reading,
+	loc: SourceLoc
+): NonEmptyReadonlyArray<InferredRule> => {
 	switch (rule.kind) {
 		case "contained":
-			return ruleDesc(
-				arm.vars,
-				arm.matches.map(matchDesc),
-				[
-					...conditionsOf(arm, loc),
-					{ kind: "absent", source: tuples(rule.to, loc), bindings: termHead(arm.terms) }
-				],
-				termHead(arm.terms),
-				loc
-			)
+			return [
+				ruleDesc(
+					arm.vars,
+					arm.matches.map(matchDesc),
+					[...conditionsOf(arm, loc), ...lacks(rule.to, arm.terms, reading, loc)],
+					termHead(arm.terms),
+					loc
+				)
+			]
 		case "key": {
 			const heading = armHeading(rule.side.arms)
 			const other: Record<string, InferredExpr> = { ...termHead(arm.terms) }
 			for (const f of heading) {
 				other[headName(f)] = varRef(otherId(f))
 			}
-			return ruleDesc(
-				[...arm.vars, ...heading.map((f) => ({ id: otherId(f), origin: undefined, loc }))],
-				[
-					...arm.matches.map(matchDesc),
-					{ source: facts(rule.side, heading, loc), bindings: other, loc }
-				],
-				[
-					...conditionsOf(arm, loc),
-					connectiveExpr(
-						"or",
-						heading.map((f): InferredExpr => ({
-							kind: "compare",
-							op: "ne",
-							left: headOf(arm, f, loc),
-							right: varRef(otherId(f))
-						}))
-					)
-				],
-				termHead(arm.terms),
-				loc
+			return mapNonEmpty(facts(rule.side, heading, reading, loc), (source) =>
+				ruleDesc(
+					[...arm.vars, ...heading.map((f) => ({ id: otherId(f), origin: undefined, loc }))],
+					[...arm.matches.map(matchDesc), { source, bindings: other, loc }],
+					[
+						...conditionsOf(arm, loc),
+						connectiveExpr(
+							"or",
+							heading.map((f): InferredExpr => ({
+								kind: "compare",
+								op: "ne",
+								left: headOf(arm, f, loc),
+								right: varRef(otherId(f))
+							}))
+						)
+					],
+					termHead(arm.terms),
+					loc
+				)
 			)
 		}
 		case "check": {
 			const leaves: Leaves = { var: () => undefined, field: (f) => headOf(arm, f, loc) }
-			return ruleDesc(
-				arm.vars,
-				arm.matches.map(matchDesc),
-				[...conditionsOf(arm, loc), { kind: "not", arg: mapLeaves(rule.predicate, leaves) }],
-				termHead(arm.terms),
-				loc
-			)
+			return [
+				ruleDesc(
+					arm.vars,
+					arm.matches.map(matchDesc),
+					[...conditionsOf(arm, loc), { kind: "not", arg: mapLeaves(rule.predicate, leaves) }],
+					termHead(arm.terms),
+					loc
+				)
+			]
 		}
 	}
 }
 
-/** The violation query of a rule over a query, which must be empty: every fact of its breaking side that breaks it. */
+/**
+ * The violation query of a rule over a query, which must be empty: every fact of its breaking side that breaks it, the
+ * side it meets read whole.
+ */
 export const violationQuery = (rule: QueryRule, loc: SourceLoc): InferredQuery =>
 	queryOf(
-		mapNonEmpty(breakingArms(rule), (arm) => violating(rule, arm, loc)),
+		flatMapNonEmpty(breakingArms(rule), (arm) => violating(rule, arm, "whole", loc)),
 		loc
 	)
 
@@ -1026,6 +1079,13 @@ export interface Probe {
 	readonly query: InferredQuery
 	readonly params: ReadonlyMap<string, ProbeParam>
 }
+
+/** A probe of each rule of a violation query read by arm, each reading `params`. */
+const probesOf = (
+	rules: NonEmptyReadonlyArray<InferredRule>,
+	params: ReadonlyMap<string, ProbeParam>,
+	loc: SourceLoc
+): ReadonlyArray<Probe> => rules.map((rule) => ({ query: queryOf([rule], loc), params }))
 
 /** A field of the touched relation, with the descriptor a parameter reading it is typed by. */
 export interface TouchedField {
@@ -1122,6 +1182,52 @@ const held = (
 	}
 }
 
+/** The matches a delete probe of one match of an arm reads as they stand, and those it drops (oldProbes). */
+interface Relaxed {
+	readonly kept: ReadonlyArray<ArmMatch>
+	readonly dropped: ReadonlyArray<ArmMatch>
+}
+
+/**
+ * The relaxation of the `at`-th of an arm's `matches`: the matches before it in the arm's relaxation order, read as
+ * they stand, and those after it, dropped. The order puts first the matches that bind a variable of `seeds`, what the
+ * probe is judged at (a target arm's terms, a breaking arm's variables), then in rounds each match that shares a
+ * variable with one already placed, then any other, each round in declared order. Every delete probe of the arm
+ * relaxes by the one order, so a tuple whose rows a transaction removes from several matches is withdrawn by the
+ * earliest of them in it, whose probe reads every earlier match as it stands: any one order is sound, and in this one
+ * a match's probe reaches the seeds through the matches before it wherever the arm's joins connect them, so it reads
+ * the rows its own row reaches and not the whole side. A probe whose seeds no earlier match reaches binds them to
+ * nothing, and judges every candidate, the whole check.
+ */
+const relaxation = (
+	matches: ReadonlyArray<ArmMatch>,
+	seeds: ReadonlySet<string>,
+	at: number
+): Relaxed => {
+	const reads = matches.map((m) =>
+		Object.values(m.bindings).reduce((into, e) => varsOf(e, into), new Set<string>())
+	)
+	const reached = new Set(seeds)
+	const order: Array<number> = []
+	const next = (): ReadonlyArray<{ readonly i: number; readonly vars: ReadonlySet<string> }> =>
+		reads.flatMap((vars, i) =>
+			!order.includes(i) && [...vars].some((v) => reached.has(v)) ? [{ i, vars }] : []
+		)
+	for (let round = next(); round.length > 0; round = next()) {
+		for (const { i, vars } of round) {
+			order.push(i)
+			for (const v of vars) {
+				reached.add(v)
+			}
+		}
+	}
+	const ordered = [...order, ...matches.flatMap((_, i) => (order.includes(i) ? [] : [i]))]
+	const place = ordered.indexOf(at)
+	const of = (is: ReadonlyArray<number>): ReadonlyArray<ArmMatch> =>
+		matches.flatMap((m, i) => (is.includes(i) ? [m] : []))
+	return { kept: of(ordered.slice(0, place)), dropped: of(ordered.slice(place + 1)) }
+}
+
 /**
  * A negated arm of `arm` opened into it: its matches and conditions joined to the terms of `arm` its negation binds
  * (`joined`), so a probe reads, positively, the facts of the negated arm that agree with a fact of `arm`.
@@ -1139,13 +1245,13 @@ const negatedProbes = <A extends LiveArm>(
 	arms: ReadonlyArray<A>,
 	relation: string,
 	loc: SourceLoc,
-	probe: (arm: A, open: Joined, touched: ArmMatch, at: number) => Probe
+	probe: (arm: A, open: Joined, touched: ArmMatch, at: number) => ReadonlyArray<Probe>
 ): ReadonlyArray<Probe> =>
 	arms.flatMap((arm) =>
 		arm.negated.flatMap((n) => {
 			const open = opened(n, loc)
 			return open.matches.flatMap((m, at) =>
-				m.relation === relation ? [probe(arm, open, m, at)] : []
+				m.relation === relation ? probe(arm, open, m, at) : []
 			)
 		})
 	)
@@ -1162,6 +1268,10 @@ const negatedProbes = <A extends LiveArm>(
  *   that reads NEW where they stood before. The target arm's negations are dropped: a tuple two inserts block at once,
  *   each through a negation of its own, is blocked by the other's too, and is a candidate all the same. The source
  *   tuples that need a candidate and that the target no longer holds are the violation.
+ *
+ * Every probe reads the side its facts meet by arm (`Reading`), each probe one rule of the violation: a probe per arm
+ * of a key's side its fact meets, and per arm of a containment's source its candidate meets, each beside a negation
+ * of every arm of the target.
  */
 export const newProbes = (
 	rule: QueryRule,
@@ -1193,14 +1303,14 @@ export const newProbes = (
 				matches: mapNonEmpty(arm.matches, (x, j) => (j === i ? { ...x, bindings } : x)),
 				where: [...arm.where, ...pinned]
 			}
-			return [{ query: queryOf([violating(rule, restricted, loc)], loc), params: keyed }]
+			return probesOf(violating(rule, restricted, "byArm", loc), keyed, loc)
 		})
 	)
 	if (rule.kind !== "contained") {
 		return added
 	}
 	const fieldOf = touchedField(fields, relation, loc)
-	const blocked = negatedProbes(rule.to.arms, relation, loc, (arm, open, touched, at): Probe => {
+	const blocked = negatedProbes(rule.to.arms, relation, loc, (arm, open, touched, at) => {
 		const params = new Map<string, ProbeParam>()
 		const h = held(
 			touched,
@@ -1212,29 +1322,23 @@ export const newProbes = (
 			fieldOf,
 			params
 		)
-		return {
-			query: queryOf(
-				[
-					ruleDesc(
-						[...arm.vars, ...open.vars.filter((v) => !h.replaced.has(v.id))],
-						[
-							{ source: tuples(rule.from, loc), bindings: termHead(arm.terms), loc },
-							...arm.matches.map(matchDesc),
-							...h.kept.map(matchDesc)
-						],
-						[
-							...arm.where,
-							...h.where,
-							{ kind: "absent", source: tuples(rule.to, loc), bindings: termHead(arm.terms) }
-						],
-						termHead(arm.terms),
-						loc
-					)
-				],
-				loc
+		return probesOf(
+			mapNonEmpty(tuples(rule.from, "byArm", loc), (source) =>
+				ruleDesc(
+					[...arm.vars, ...open.vars.filter((v) => !h.replaced.has(v.id))],
+					[
+						{ source, bindings: termHead(arm.terms), loc },
+						...arm.matches.map(matchDesc),
+						...h.kept.map(matchDesc)
+					],
+					[...arm.where, ...h.where, ...lacks(rule.to, arm.terms, "byArm", loc)],
+					termHead(arm.terms),
+					loc
+				)
 			),
-			params
-		}
+			params,
+			loc
+		)
 	})
 	return [...added, ...blocked]
 }
@@ -1243,9 +1347,10 @@ export const newProbes = (
  * The probes a DELETE or an UPDATE of `relation`'s row runs at COMMIT, OLD its values:
  *
  * - for the target tuples it withdraws: one per occurrence of the relation in an arm of a containment's target. The
- *   occurrence is replaced by OLD's values, the matches declared before it are read as they stand, and those after it
- *   are dropped, every term only they bind a wildcard: a tuple whose rows the transaction removes from several matches
- *   is still withdrawn by the first of them, whose probe reads none of the later ones. The arm's negations are dropped
+ *   occurrence is replaced by OLD's values, the matches before it in the arm's relaxation order (`relaxation`, seeded
+ *   at the arm's terms) are read as they stand, and those after it are dropped, every term only they bind a wildcard:
+ *   a tuple whose rows the transaction removes from several matches is still withdrawn by the first of them in that
+ *   order, whose probe reads none of the later ones. The arm's negations are dropped
  *   too: a tuple the transaction both withdraws and blocks, its row deleted and a row of a negated relation inserted,
  *   is withdrawn by the delete, whose probe reads no insert, where the insert's probe reads the row as it stands,
  *   deleted. The source tuples that agree with a candidate on its bound terms and that the target no longer holds are
@@ -1253,9 +1358,12 @@ export const newProbes = (
  *   all the same;
  * - for the facts it adds by no longer blocking them: one per occurrence of the relation in a negated arm of an arm of
  *   the rule's breaking side. The negated arm is opened into the arm (`opened`) and read as a target's arm is, its
- *   occurrence held to OLD's values, the matches declared before it read as they stand and those after it dropped, so
- *   the facts some fact of the negated arm that read OLD blocked are the candidates, however many of its rows the
- *   transaction removes; the rule's violation is read over them, the arm's negations as they stand at COMMIT.
+ *   occurrence held to OLD's values, the matches before it in the negated arm's relaxation order, seeded at the
+ *   breaking arm's variables, read as they stand and those after it dropped, so the facts some fact of the negated arm
+ *   that read OLD blocked are the candidates, however many of its rows the transaction removes; the rule's violation
+ *   is read over them, the arm's negations as they stand at COMMIT.
+ *
+ * Every probe reads the side its candidates meet by arm (`Reading`), as newProbes' do.
  */
 export const oldProbes = (
 	rule: QueryRule,
@@ -1268,81 +1376,60 @@ export const oldProbes = (
 		rule.kind === "contained"
 			? rule.to.arms.flatMap((arm) =>
 					arm.matches.flatMap((m, i): ReadonlyArray<Probe> =>
-						m.relation === relation ? [lostProbe(rule, arm, m, i, fieldOf, loc)] : []
+						m.relation === relation ? lostProbes(rule, arm, m, i, fieldOf, loc) : []
 					)
 				)
 			: []
-	const unblocked = negatedProbes(
-		breakingArms(rule),
-		relation,
-		loc,
-		(arm, open, touched, at): Probe => {
-			const params = new Map<string, ProbeParam>()
-			const h = held(
-				touched,
-				"OLD",
-				boundVars(arm.matches),
-				open.matches.slice(0, at),
-				open.matches.slice(at + 1),
-				open.where,
-				fieldOf,
-				params
-			)
-			const restricted: SideArm = {
-				...arm,
-				vars: [...arm.vars, ...open.vars.filter((v) => !h.replaced.has(v.id) && !h.free.has(v.id))],
-				matches: [...arm.matches, ...h.kept],
-				where: [...arm.where, ...h.where]
-			}
-			return { query: queryOf([violating(rule, restricted, loc)], loc), params }
+	const unblocked = negatedProbes(breakingArms(rule), relation, loc, (arm, open, touched, at) => {
+		const params = new Map<string, ProbeParam>()
+		const bound = boundVars(arm.matches)
+		const r = relaxation(open.matches, bound, at)
+		const h = held(touched, "OLD", bound, r.kept, r.dropped, open.where, fieldOf, params)
+		const restricted: SideArm = {
+			...arm,
+			vars: [...arm.vars, ...open.vars.filter((v) => !h.replaced.has(v.id) && !h.free.has(v.id))],
+			matches: [...arm.matches, ...h.kept],
+			where: [...arm.where, ...h.where]
 		}
-	)
+		return probesOf(violating(rule, restricted, "byArm", loc), params, loc)
+	})
 	return [...lost, ...unblocked]
 }
 
-/** The probe of `touched`, the `at`-th match of an arm of a containment's target, held to OLD's values (oldProbes). */
-const lostProbe = (
+/** The probes of `touched`, the `at`-th match of an arm of a containment's target, held to OLD's values (oldProbes). */
+const lostProbes = (
 	rule: Extract<QueryRule, { readonly kind: "contained" }>,
 	arm: SideArm,
 	touched: ArmMatch,
 	at: number,
 	fieldOf: (name: string) => TouchedField,
 	loc: SourceLoc
-): Probe => {
+): ReadonlyArray<Probe> => {
 	const params = new Map<string, ProbeParam>()
-	const h = held(
-		touched,
-		"OLD",
-		new Set(),
-		arm.matches.slice(0, at),
-		arm.matches.slice(at + 1),
-		arm.where,
-		fieldOf,
-		params
+	const r = relaxation(
+		arm.matches,
+		arm.terms.reduce((into, t) => varsOf(t, into), new Set<string>()),
+		at
 	)
+	const h = held(touched, "OLD", new Set(), r.kept, r.dropped, arm.where, fieldOf, params)
 	const mappedTerms = arm.terms.map((t) => mapLeaves(t, h.leaves))
 	const bound = mappedTerms.map((t, i): InferredExpr => (h.unbound(t) ? varRef(wildcardId(i)) : t))
 	const wilds = mappedTerms.flatMap((t, i) =>
 		h.unbound(t) ? [{ id: wildcardId(i), origin: undefined, loc }] : []
 	)
-	return {
-		query: queryOf(
-			[
-				ruleDesc(
-					[...arm.vars.filter((v) => !h.replaced.has(v.id) && !h.free.has(v.id)), ...wilds],
-					[
-						{ source: tuples(rule.from, loc), bindings: termHead(bound), loc },
-						...h.kept.map(matchDesc)
-					],
-					[...h.where, { kind: "absent", source: tuples(rule.to, loc), bindings: termHead(bound) }],
-					termHead(bound),
-					loc
-				)
-			],
-			loc
+	return probesOf(
+		mapNonEmpty(tuples(rule.from, "byArm", loc), (source) =>
+			ruleDesc(
+				[...arm.vars.filter((v) => !h.replaced.has(v.id) && !h.free.has(v.id)), ...wilds],
+				[{ source, bindings: termHead(bound), loc }, ...h.kept.map(matchDesc)],
+				[...h.where, ...lacks(rule.to, bound, "byArm", loc)],
+				termHead(bound),
+				loc
+			)
 		),
-		params
-	}
+		params,
+		loc
+	)
 }
 
 /**
