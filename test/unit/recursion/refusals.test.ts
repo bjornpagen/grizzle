@@ -1,7 +1,41 @@
+/**
+ * What recursion admission refuses, each with its typed cause (core/causes.ts RecursionRefusal), judged by planted
+ * bounded-exhaustive properties: each family's rule, as check/recursion states it, restated as a model over a small
+ * space of definitions that breaks it in every way the rule names and keeps it in the controls beside them. A refusal is
+ * compared by its cause, never its prose; where several rules refuse one definition, the cause is one of theirs, since
+ * admission states no priority among them.
+ *
+ * - an arm whose head misses or adds a state column, at that arm's head (scan.ts);
+ * - a state column an arm delivers at another identity, another numeric typmod or an unproved text refinement, and a
+ *   state column with no hashing (state.ts); an exact conversion is cast;
+ * - feedback read twice, self outside a recursive arm's own matches, r.not(self), an aggregate or r.pack over self,
+ *   an approximate stage below an arm (scan.ts); an aggregate in the base, and a recursive arm reading no self, are
+ *   admitted;
+ * - a state column computed from its own value with no admitted bound, directly, through a cycle of computed columns
+ *   or through an import whose bind map reads the state; a countdown seeded by data counts its carrier
+ *   (termination.ts).
+ *
+ * These definitions are built by hand because no generator draws them: the generated recursions
+ * (unit/recursion/certificates) seed literals over one integer counter, a tag and a mark, and never break a head, a
+ * type, the feedback's shape or an import. A refusal's place, its label and path, is the place of what it names in the
+ * description as decoded, never its printed text. A countdown's seen-state estimate is searched over seeds drawn near
+ * bigint's bounds and anywhere between.
+ *
+ * Oracle: each family's rule restated as a model (a specification); the countdown's states counted from its seed (a
+ * second implementation).
+ *
+ * Features: each verdict and each cause of each family, several rules refusing one definition, and the admitted controls.
+ *
+ * Plants, each failing its search: an arm head's extra column admitted (refusals-head-extra); a numeric typmod change
+ * converted (refusals-typmod); feedback read twice admitted (refusals-two-reads); r.pack over self admitted
+ * (refusals-pack); a counter bounded on the side it moves away from admitted (refusals-wrong-side); a cycle of computed
+ * columns admitted (refusals-cycle); an import's bind map read as reading no state (refusals-laundered); a countdown's
+ * estimate one short (refusals-estimate).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
 import { required, requiredInSpace } from "@grizzle/testing/features"
-import { boolean, constant, element, filter, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
+import { boolean, constant, element, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint as bigintIn } from "@grizzle/testing/values"
@@ -11,16 +45,23 @@ import { checkQuery } from "#compiler/check/index.ts"
 import type { RecursionRefusal } from "#compiler/core/causes.ts"
 import type { CompileReasonTag } from "#compiler/core/errors.ts"
 import { int8Max, int8Min } from "#compiler/core/limits.ts"
-import { formatLoc } from "#compiler/core/loc.ts"
+import { childLoc } from "#compiler/core/loc.ts"
 import { DecimalText } from "#compiler/ir/decimal.ts"
-import type { FieldDesc } from "#compiler/ir/desc.ts"
+import { decodeDesc, type FieldDesc } from "#compiler/ir/desc.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import { samePatterns } from "#compiler/ir/scalar.ts"
 import { pg, span, uuid } from "#compiler/public/fields.ts"
 import { type Rule, type SelfSource, v } from "#compiler/public/query.ts"
 import { schema, relation as table } from "#compiler/public/schema.ts"
 import { queryOver as untypedQuery } from "#compiler/query/build/query.ts"
-import { assert, containsEqual, containsText, defined, succeeded } from "#test/support/assert.ts"
+import {
+	assert,
+	containsEqual,
+	defined,
+	type Place,
+	placeOf,
+	succeeded
+} from "#test/support/assert.ts"
 import {
 	type AuthoredExprDesc as ExprDesc,
 	type HeadTermDesc,
@@ -61,34 +102,12 @@ import {
 import { descOf, Graph, lower, nodes, reads, theRecursive } from "#test/unit/recursion/fixtures.ts"
 
 /**
- * What recursion admission refuses, each with its typed cause (core/causes.ts RecursionRefusal), judged by planted
- * bounded-exhaustive properties: each family's rule, as check/recursion states it, restated as a model over a small
- * space of definitions that breaks it in every way the rule names and keeps it in the controls beside them. A refusal is
- * compared by its cause, never its prose; where several rules refuse one definition, the cause is one of theirs, since
- * admission states no priority among them.
- *
- * - an arm whose head misses or adds a state column, at that arm's head (scan.ts);
- * - a state column an arm delivers at another identity, another numeric typmod or an unproved text refinement, and a
- *   state column with no hashing (state.ts); an exact conversion is cast;
- * - feedback read twice, self outside a recursive arm's own matches, r.not(self), an aggregate or r.pack over self,
- *   an approximate stage below an arm (scan.ts); an aggregate in the base, and a recursive arm reading no self, are
- *   admitted;
- * - a state column computed from its own value with no admitted bound, directly, through a cycle of computed columns
- *   or through an import whose bind map reads the state; a countdown seeded by data counts its carrier
- *   (termination.ts).
- *
- * These definitions are built by hand because no generator draws them: the generated recursions
- * (unit/recursion/certificates) seed literals over one integer counter, a tag and a mark, and never break a head, a
- * type, the feedback's shape or an import.
- */
-
-/**
  * The outcome of checking a definition over Graph: admitted, refused by recursion admission with its
  * cause and where, or refused by another rule with its reason.
  */
 type Outcome =
 	| { readonly kind: "admitted"; readonly query: LogicalQuery }
-	| { readonly kind: "refused"; readonly cause: RecursionRefusal; readonly location: string }
+	| { readonly kind: "refused"; readonly cause: RecursionRefusal; readonly place: Place }
 	| { readonly kind: "malformed"; readonly reason: CompileReasonTag }
 
 const outcomeOf = (desc: QueryDesc): Outcome => {
@@ -97,7 +116,7 @@ const outcomeOf = (desc: QueryDesc): Outcome => {
 		return { kind: "admitted", query: r.value }
 	}
 	if (r.error.reason._tag === "RecursionRefused") {
-		return { kind: "refused", cause: r.error.reason.cause, location: formatLoc(r.error.reason.at) }
+		return { kind: "refused", cause: r.error.reason.cause, place: placeOf(r.error.reason.at) }
 	}
 	return { kind: "malformed", reason: r.error.reason._tag }
 }
@@ -107,13 +126,13 @@ const admitted = (o: Outcome): LogicalQuery => {
 		return o.query
 	}
 	return assert.fail(
-		o.kind === "refused" ? `refused: ${o.cause.kind} at ${o.location}` : `refused as ${o.reason}`
+		o.kind === "refused"
+			? `refused: ${o.cause.kind} at ${Formatter.format(o.place)}`
+			: `refused as ${o.reason}`
 	)
 }
 
-const refusedFor = (
-	o: Outcome
-): { readonly cause: RecursionRefusal; readonly location: string } => {
+const refusedFor = (o: Outcome): { readonly cause: RecursionRefusal; readonly place: Place } => {
 	if (o.kind === "refused") {
 		return o
 	}
@@ -123,6 +142,26 @@ const refusedFor = (
 			: `refused as ${o.reason}, not by recursion admission`
 	)
 }
+
+/** The recursive stage of `desc`, decoded and located as checkAuthored decodes it before the checker reads it. */
+const decodedStage = (desc: QueryDesc) => {
+	const stage = succeeded(decodeDesc("query", desc)).stage
+	return stage.kind === "recursive" ? stage : assert.fail("a recursive stage")
+}
+
+/** The place below the first arm of `arm`'s at `segments`, where admission reports a refusal of that arm. */
+const armPlace = (
+	desc: QueryDesc,
+	arm: "base" | "rec",
+	...segments: ReadonlyArray<string | number>
+): Place =>
+	placeOf(
+		childLoc(defined(decodedStage(desc).recursive[arm][0], `the first ${arm} arm`).loc, ...segments)
+	)
+
+/** The place of a declared state column, where admission reports a refusal of the column. */
+const rowPlace = (desc: QueryDesc, column: string): Place =>
+	placeOf(childLoc(decodedStage(desc).loc, "recursive", "row", column))
 
 /** A recursive definition as a JavaScript author states it, unlocated: the checker's entry point locates it. */
 const recursive = (
@@ -209,8 +248,11 @@ describe("arm heads", () => {
 					ctx,
 					exhaust(
 						{
-							box: { kind: "unstated" },
-							oracle: { kind: "unstated" },
+							box: "each arm's head exact, missing the counter, or adding a column",
+							oracle: {
+								kind: "specification",
+								name: "check/recursion/scan.ts: an arm whose head misses or adds a state column is refused at that arm's head, naming both"
+							},
 							suite: "unit/recursion/arm-heads",
 							generator: (source) => [source.draw(heads), source.draw(heads)] as const,
 							literal: Formatter.format,
@@ -265,7 +307,7 @@ describe("arm heads", () => {
 								if (broken.length === 2) {
 									c.note("both arms broken")
 								}
-								const { cause, location } = refusedFor(outcome)
+								const { cause, place } = refusedFor(outcome)
 								containsEqual(
 									Arr.map(broken, ([arm, head]): RecursionRefusal => ({
 										kind: "armHead",
@@ -278,7 +320,7 @@ describe("arm heads", () => {
 									cause
 								)
 								if (cause.kind === "armHead") {
-									containsText(location, `recursive.${cause.arm}[0].head`)
+									assert.deepEqual(place, armPlace(desc, cause.arm, "head"), "at the arm's head")
 								}
 							})
 					)
@@ -450,19 +492,23 @@ describe("the state heading", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "every declared type of nine against every delivered type of six, as delivered or cast by the author where the cast is total",
+						oracle: {
+							kind: "specification",
+							name: "check/recursion/state.ts: every state column hashes; a delivered column converts exactly, cast where its type changes, or is refused for the conversion"
+						},
 						suite: "unit/recursion/state-heading",
-						generator: filter(
-							(source) =>
-								[
-									source.draw(element(declared)),
-									source.draw(element(delivered)),
-									source.draw(element<Spelled>(["as delivered", "cast by the author"]))
-								] as const,
-							([d, a, spelled]) => spelled === "as delivered" || totalCast(d, a),
-							1
-						),
+						/** The author casts only where the cast is one and total. */
+						generator: (source) => {
+							const d = source.draw(element(declared))
+							const a = source.draw(element(delivered))
+							const spelled = source.draw(
+								element<Spelled>(
+									totalCast(d, a) ? ["as delivered", "cast by the author"] : ["as delivered"]
+								)
+							)
+							return [d, a, spelled] as const
+						},
 						literal: Formatter.format,
 						limit: 200,
 						coverage: requiredInSpace<StateFeature>([
@@ -494,14 +540,14 @@ describe("the state heading", () => {
 							switch (want.kind) {
 								case "unhashable": {
 									c.note("refused unhashable")
-									const { cause, location } = refusedFor(outcome)
+									const { cause, place } = refusedFor(outcome)
 									assert.deepEqual(cause, {
 										kind: "unhashableState",
 										recursion: "Labels",
 										column: "c",
 										type: "money"
 									})
-									containsText(location, "recursive.row.c")
+									assert.deepEqual(place, rowPlace(desc, "c"), "at the declared column")
 									return
 								}
 								case "inexact": {
@@ -769,8 +815,11 @@ describe("the feedback's shape", () => {
 					ctx,
 					exhaust(
 						{
-							box: { kind: "unstated" },
-							oracle: { kind: "unstated" },
+							box: "every base arm of four, every further arm of three, and every main arm reading self once or twice, negating, aggregating, nesting, approximating, negating a fixed relation or reading an importer's parameter",
+							oracle: {
+								kind: "specification",
+								name: "check/recursion/scan.ts: one feedback read, never negated, aggregated, misplaced or below an approximate stage; every admitted arm factored into one read"
+							},
 							suite: "unit/recursion/feedback-shape",
 							generator: (source) =>
 								[
@@ -920,8 +969,11 @@ describe("r.pack over a recursive arm", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "the step's span packed or delivered as read",
+						oracle: {
+							kind: "specification",
+							name: "check/recursion/scan.ts: r.pack over self is an aggregation over the feedback, refused at its head term"
+						},
 						suite: "unit/recursion/pack",
 						generator: boolean,
 						literal: Formatter.format,
@@ -946,7 +998,11 @@ describe("r.pack over a recursive arm", () => {
 								recursion: "Covered",
 								fold: "pack"
 							})
-							containsText(formatLoc(r.error.reason.at), "head.during")
+							assert.deepEqual(
+								placeOf(r.error.reason.at),
+								armPlace(descOf(covered(pack)), "rec", "head", "during"),
+								"at the packed head term"
+							)
 						})
 				)
 			)
@@ -978,8 +1034,11 @@ describe("unbounded computed state", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "an integer or numeric counter, bounded below, above, by either of two, or by its successor, advanced by one or doubled",
+						oracle: {
+							kind: "specification",
+							name: "check/recursion/termination.ts: only a counter over an integer carrier bounded on the side it moves towards"
+						},
 						suite: "unit/recursion/unbounded-counter",
 						generator: (source) =>
 							[
@@ -1067,8 +1126,11 @@ describe("unbounded computed state", () => {
 					ctx,
 					exhaust(
 						{
-							box: { kind: "unstated" },
-							oracle: { kind: "unstated" },
+							box: "every pairing of four step terms for two integer columns",
+							oracle: {
+								kind: "specification",
+								name: "check/recursion/termination.ts: a cycle of computed columns is unbounded, every acyclic pairing admitted"
+							},
 							suite: "unit/recursion/computed-cycle",
 							generator: (source) => [source.draw(terms), source.draw(terms)] as const,
 							literal: Formatter.format,
@@ -1188,8 +1250,11 @@ describe("unbounded computed state through a correlated import", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "Inc, Echo then Inc, or a counter beside Echo, bound to the hop count, the edge's cost or a parameter, at the state's node or the edge's end, guarded or not",
+						oracle: {
+							kind: "specification",
+							name: "check/recursion/termination.ts: the state columns an import's bind map reads are the columns its output is computed from"
+						},
 						suite: "unit/recursion/import-laundering",
 						generator: (source) =>
 							[

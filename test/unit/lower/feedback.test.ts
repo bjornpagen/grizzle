@@ -17,8 +17,8 @@
  * one with a money column.
  *
  * Oracle: the rule as a model of the step's sketch (a specification): how often the step scans the feedback, and whether
- * the feedback flows into an input that is not positive, decide lowered or refused; the two lowerings' refusals, reason,
- * location and message, are compared with each other (a differential).
+ * the feedback flows into an input that is not positive, decide lowered or refused; the two lowerings' refusals, reason
+ * and place, are compared with each other (a differential).
  *
  * Features: each verdict: lowered, refused for a block, for an unhashable state, for a second scan.
  *
@@ -32,7 +32,6 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
 import { catchRefusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import { formatLoc } from "#compiler/core/loc.ts"
 import type * as Result from "#compiler/core/result.ts"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
 import { conservativeMeta, type Heading, type NodeOf, type RelNode } from "#compiler/ir/rel.ts"
@@ -43,7 +42,7 @@ import { emptyCtePlan } from "#compiler/lower/optimize/cte-policy/index.ts"
 import { optimizedDispatch, ShapeState } from "#compiler/lower/shapes/index.ts"
 import { recursionLowerer } from "#compiler/lower/shapes/recursion/index.ts"
 import type { RelationInput } from "#compiler/lower/shapes/take/index.ts"
-import { assert, refusalLoc, refused, succeeded } from "#test/support/assert.ts"
+import { assert, placeOf, refusalLoc, refused, succeeded } from "#test/support/assert.ts"
 import { localVectorSchema, productionNames } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { argumentsOf } from "#test/support/list.ts"
@@ -340,11 +339,10 @@ const optimized = (b: Built): Result.Result<unknown, CompileError> => {
 	return catchRefusal(() => recursionLowerer(facts)(b.rec, cx, emptyEnv))
 }
 
-/** A refusal's contract shared by the two artifacts: its reason, where it is, and what is missing. */
+/** A refusal's contract shared by the two artifacts: its reason and its place, never its prose. */
 const located = (e: CompileError) => ({
 	reason: e.reason._tag,
-	location: formatLoc(refusalLoc(e)),
-	message: e.message
+	place: placeOf(refusalLoc(e))
 })
 
 describe("every lowering admits exactly positive linear feedback over a hashable state", () => {
