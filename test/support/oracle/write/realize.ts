@@ -18,6 +18,7 @@ import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import type { ConservativeProgram, DeltaRelation } from "#compiler/lower/conservative/types.ts"
 
 import type { CarrierCasts } from "#compiler/runtime/write/steps.ts"
+import { freshNames } from "#compiler/sql/naming.ts"
 import {
 	buildCreateCarrier,
 	buildFillCarrier,
@@ -364,7 +365,7 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 					kind: "readBack",
 					deltas: deltaSource,
 					breach: breachGuard(options.names.schema),
-					naming: { kind: "own" }
+					start: freshNames
 				}
 			}
 		)
