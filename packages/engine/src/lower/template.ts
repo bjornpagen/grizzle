@@ -1,9 +1,7 @@
 import { maxOf } from "#compiler/core/array.ts"
-import { canonicalTextOf, catchRefusal } from "#compiler/core/canonical.ts"
-import type { CompileError } from "#compiler/core/errors.ts"
+import { canonicalTextOf } from "#compiler/core/canonical.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import { bytesChunkLength } from "#compiler/core/limits.ts"
-import * as Result from "#compiler/core/result.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { StatementSpec } from "#compiler/ir/products.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
@@ -36,7 +34,6 @@ import { wildcardText } from "#compiler/scalar/compute/types.ts"
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import type { OperandBody, OrderItem, Select, SelectBody, Target } from "#compiler/sql/ast.ts"
 import { col, derived, mapTargets, provedCore, target, targetAs } from "#compiler/sql/build.ts"
-import { emit } from "#compiler/sql/emit.ts"
 import { freshNames, NameSupply, namesPast } from "#compiler/sql/naming.ts"
 
 /** One output column of a statement: its public name and how it is delivered (lower/delivery.ts). */
@@ -255,20 +252,3 @@ export const specifiedProgram = (
 		roots
 	}
 }
-
-/** The spec emitted from `statement`, each placeholder filled as `slotOf` says. */
-export const statementSpec = <Slot extends ConservativeParamSlot, P>(
-	statement: FusedStatement<Slot>,
-	slotOf: (slot: Slot) => P
-): Result.Result<StatementSpec<P>, CompileError> =>
-	Result.flatMap(
-		catchRefusal(() => executableQuery(statement)),
-		(query) =>
-			Result.map(emit(query, statement.sql.nameMap), (executable): StatementSpec<P> => ({
-				sql: executable.text,
-				paramSlots: statement.params.map(slotOf),
-				heading: statementOutput(statement.role, statement.heading, statement.fused).heading,
-				role: statement.role.kind,
-				dependsOn: []
-			}))
-	)
