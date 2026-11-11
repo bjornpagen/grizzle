@@ -46,6 +46,7 @@ import {
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "#compiler/core/nonempty.ts"
+import { operatorSchemaOf, typedEq } from "#compiler/ir/compare.ts"
 import { baseLiteral, type Family, isSequence } from "#compiler/ir/family.ts"
 import type { FillColumn } from "#compiler/ir/fill.ts"
 import { familyKey, type LawField, type NativeColumn, type RelationInfo } from "#compiler/ir/law.ts"
@@ -53,7 +54,6 @@ import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
 import { arraysSource, relationColumns, WriteParams } from "#compiler/lower/conservative/context.ts"
 import { lowerLiteral } from "#compiler/lower/conservative/expr/index.ts"
-import { isVectorType, typedEq } from "#compiler/lower/conservative/vector/equality.ts"
 import { type ColumnKey, columnKey, fieldKey } from "#compiler/runtime/write/fill.ts"
 import type { Assignment, Cte, Expr, FromItem, JoinStep, SetArm } from "#compiler/sql/ast.ts"
 import {
@@ -279,7 +279,7 @@ export const additionsSql = (
 				x.scans.push({ family, scan })
 				rows.set(
 					x,
-					withDrawn(supply, ctes, member, defined(rows.get(x), "a source's rows"), scan, columns)
+					withDrawn(w, supply, ctes, member, defined(rows.get(x), "a source's rows"), scan, columns)
 				)
 			}
 		}
@@ -355,6 +355,7 @@ const memberArbitrated = (w: WriteContext, member: AppendedMember): boolean =>
 
 /** `rows` with every column `scan` drew beside its own, by the member's key: what the next family's scan reads. */
 const withDrawn = (
+	w: WriteContext,
 	supply: NameSupply,
 	ctes: Array<Cte>,
 	member: AppendedMember,
@@ -383,9 +384,11 @@ const withDrawn = (
 							cteRefAs(scan.name, s),
 							and(
 								mapNonEmpty(member.relation.primaryFields, (f) =>
-									eq(
+									typedEq(
+										f.type,
 										col(s, columnAt(scan, fieldKey(f.name))),
-										col(a, columnAt(rows, fieldKey(f.name)))
+										col(a, columnAt(rows, fieldKey(f.name))),
+										w.names
 									)
 								)
 							)
@@ -433,7 +436,7 @@ const appendedOf = (
 				key: mapNonEmpty(compared, (c) => ({
 					column: installed(w, name, c.column),
 					value: col(a, columnAt(facts, c.key)),
-					schema: isVectorType(c.type) ? w.names.vectorSchema : undefined
+					schema: operatorSchemaOf(w.names, c.type)
 				})),
 				filter: () => [],
 				placed: mapNonEmpty(compared, (c) => installed(w, name, c.column))
@@ -816,9 +819,11 @@ const appendScan = (
 					[cteRefAs(owners.name, n)],
 					and(
 						mapNonEmpty(family.group, (g, i) =>
-							eq(
+							typedEq(
+								g.owner.type,
 								col(n, columnAt(owners, fieldKey(g.owner.name))),
-								defined(aGroup[i], "a group key")
+								defined(aGroup[i], "a group key"),
+								w.names
 							)
 						)
 					)
@@ -869,7 +874,7 @@ const appendScan = (
 						join(
 							cteRefAs(appended.name, a),
 							cteRefAs(groups.name, g2),
-							sameGroupExprs(aGroup, g2, groups.group)
+							sameGroupExprs(w.names, family, aGroup, g2, groups.group)
 						)
 					],
 					undefined
@@ -924,9 +929,11 @@ const insertOf = (
 		source: cteRefAs(s.scan.name, s.alias),
 		on: and(
 			mapNonEmpty(relation.primaryFields, (f, i) =>
-				eq(
+				typedEq(
+					f.type,
 					col(s.alias, columnAt(s.scan, fieldKey(f.name))),
-					defined(appendedKey[i], "a key column")
+					defined(appendedKey[i], "a key column"),
+					w.names
 				)
 			)
 		)
@@ -953,9 +960,11 @@ const insertOf = (
 		const at = (s: string): Expr =>
 			and([
 				...mapNonEmpty(family.group, (g, i) =>
-					eq(
+					typedEq(
+						g.owner.type,
 						col(s, defined(scan.group[i], "a scan group column")),
-						col(a, columnAt(d.appended, fieldKey(g.owner.name)))
+						col(a, columnAt(d.appended, fieldKey(g.owner.name))),
+						w.names
 					)
 				),
 				eq(col(s, scan.slot), binary("-", col(s, scan.count), lit.int(1, types.bigint)))
@@ -1154,7 +1163,7 @@ const metRefusal = (
 			key: mapNonEmpty(pk, (f) => ({
 				column: w.names.column(name, f.name),
 				from: proposedColumn(f),
-				schema: isVectorType(rowType(f)) ? w.names.vectorSchema : undefined
+				schema: operatorSchemaOf(w.names, rowType(f))
 			})),
 			filter: () => [],
 			placed: mapNonEmpty(pk, (f) => w.names.column(name, f.name))
@@ -1165,7 +1174,7 @@ const metRefusal = (
 					rowType(f),
 					col(inner, w.names.column(name, f.name)),
 					col(met.alias, proposedColumn(f)),
-					w.names.vectorSchema
+					w.names
 				)
 			)
 	)
@@ -1307,7 +1316,7 @@ const recountOf = (
 					simpleSelect(
 						[target(one)],
 						[cteRefAs(scan.name, sc)],
-						sameGroupExprs(putKey, sc, scan.group)
+						sameGroupExprs(w.names, family, putKey, sc, scan.group)
 					)
 				)
 			})
@@ -1388,7 +1397,7 @@ const recountOf = (
 		family.group.map((g) => col(o, w.names.column(name, g.owner.name)))
 	/** The recount source's row of the owner row's group, read as `l`. */
 	const at = (family: Family, last: PerGroup, l: string) =>
-		sameGroupExprs(ownerKey(family), l, last.group)
+		sameGroupExprs(w.names, family, ownerKey(family), l, last.group)
 	const hasGroup = (family: Family, last: PerGroup): Expr => {
 		const l = supply.relation(internal("recount source"))
 		return exists(simpleSelect([target(one)], [cteRefAs(last.name, l)], at(family, last, l)))
@@ -1418,7 +1427,7 @@ const recountOf = (
 			sets.push({ column: installedColumn, value: value() })
 			changed.push({
 				kind: "not",
-				expr: typedEq(field.type, col(o, installedColumn), value(), w.names.vectorSchema)
+				expr: typedEq(field.type, col(o, installedColumn), value(), w.names)
 			})
 		}
 		assign(family.count, last.count)

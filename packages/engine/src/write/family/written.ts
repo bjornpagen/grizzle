@@ -7,6 +7,7 @@ import { maxOf } from "#compiler/core/array.ts"
 import type { StoredRelationName } from "#compiler/core/ids.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { type OperatorNames, typedEq } from "#compiler/ir/compare.ts"
 import type { Family } from "#compiler/ir/family.ts"
 import type { LawField, NativeColumn, RelationInfo } from "#compiler/ir/law.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
@@ -39,7 +40,6 @@ import {
 	countStar,
 	cte,
 	cteRef,
-	eq,
 	lit,
 	operandSelect,
 	provedCore,
@@ -142,12 +142,24 @@ export const countOver = (partition: ReadonlyArray<Expr>): Expr => ({
 	over: windowOf(partition, [])
 })
 
-/** Whether `keys` name the group `alias`'s group columns hold. */
+/** Whether `keys` name the group of `family` that `alias`'s group columns hold, each at its group field's type. */
 export const sameGroupExprs = (
+	names: OperatorNames,
+	family: Family,
 	keys: ReadonlyArray<Expr>,
 	alias: string,
 	group: NonEmptyReadonlyArray<string>
-): Expr => and(mapNonEmpty(group, (c, i) => eq(defined(keys[i], "a group key"), col(alias, c))))
+): Expr =>
+	and(
+		mapNonEmpty(group, (c, i) =>
+			typedEq(
+				defined(family.group[i], "a group field").owner.type,
+				defined(keys[i], "a group key"),
+				col(alias, c),
+				names
+			)
+		)
+	)
 
 /** A CTE's name and one fresh column name per key. */
 export const shapedCte = (

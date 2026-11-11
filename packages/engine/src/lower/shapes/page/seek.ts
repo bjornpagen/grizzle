@@ -1,5 +1,6 @@
 import { appendNonEmpty, isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { type Direction, opposite } from "#compiler/core/order.ts"
+import { type OperatorNames, operatorSchemaOf, typedCompare } from "#compiler/ir/compare.ts"
 import type { PageFill, SizeFill } from "#compiler/ir/products.ts"
 import type { CompletedOrder, Heading, OrderKey } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
@@ -9,7 +10,6 @@ import {
 	type StatementParams
 } from "#compiler/lower/conservative/context.ts"
 import type { PageParamSlot } from "#compiler/lower/conservative/types.ts"
-import { isVectorType, typedCompare } from "#compiler/lower/conservative/vector/equality.ts"
 import { columnType } from "#compiler/runtime/lower/columns.ts"
 import type { Expr, OrderItem, TypeRef } from "#compiler/sql/ast.ts"
 import { and, asc, binary, desc, lit, or, row, slotParam, types } from "#compiler/sql/build.ts"
@@ -79,9 +79,9 @@ export type ProbeKind = (typeof probeKinds)[number]
  * expansion: a row comparison compares every member with one operator, so it cannot express them, and no
  * arithmetic negation fakes a reversed key.
  *
- * Over a vector key every comparison is the extension's qualified operator (vector/equality.ts typedCompare), since a
- * role's search_path never holds the extension schema. A row comparison resolves each member's operator by name, so a
- * tuple that holds a vector keeps the expansion.
+ * Every comparison is at the operator its key's type resolves (ir/compare.ts typedCompare): over a vector the
+ * extension's qualified operator, since a role's search_path never holds the extension schema. A row comparison
+ * resolves each member's operator by name, so a tuple that holds a key of a qualified operator keeps the expansion.
  *
  * The inclusive forms "at or after c" and "at or before c" serve the flags of an empty page: the strict
  * predicate or the whole tuple equal, as one native row comparison `>=` / `<=` when the directions agree. The
@@ -277,9 +277,12 @@ export interface SeekKey {
 export const comparatorColumn = (map: ColumnMap, comparator: PageComparator): Expr =>
 	columnIn(map, comparator.field)
 
-/** Whether a seek on these keys is one native row comparison: every key in one direction, and none a vector. */
-const isRowSeek = (keys: ReadonlyArray<SeekKey>): boolean =>
-	keys.every((k) => k.direction === keys[0]?.direction && !isVectorType(k.type))
+/** Whether a seek on these keys is one native row comparison: every key in one direction, and every key's operators
+ * builtin, which a row comparison resolves by name. */
+const isRowSeek = (keys: ReadonlyArray<SeekKey>, names: OperatorNames): boolean =>
+	keys.every(
+		(k) => k.direction === keys[0]?.direction && operatorSchemaOf(names, k.type) === undefined
+	)
 
 /** The operator by which a key on `side` of its boundary value compares, strictly or inclusively. */
 const operator = (direction: Direction, seek: Seek): ">" | "<" | ">=" | "<=" => {
@@ -294,18 +297,18 @@ const operator = (direction: Direction, seek: Seek): ">" | "<" | ">=" | "<=" => 
 export const seekPredicate = (
 	keys: ReadonlyArray<SeekKey>,
 	seek: Seek,
-	vectorSchema: string
+	names: OperatorNames
 ): Expr | undefined => {
 	if (!isNonEmpty(keys)) {
 		return seek.inclusive ? undefined : lit.bool(false)
 	}
 	const [first] = keys
 	const compare = (op: ">" | "<" | ">=" | "<=" | "=", k: SeekKey): Expr =>
-		typedCompare(op, k.type, k.column, k.boundary, vectorSchema)
+		typedCompare(op, k.type, k.column, k.boundary, names)
 	if (keys.length === 1) {
 		return compare(operator(first.direction, seek), first)
 	}
-	if (isRowSeek(keys)) {
+	if (isRowSeek(keys, names)) {
 		return binary(
 			operator(first.direction, seek),
 			row(mapNonEmpty(keys, (k) => k.column)),

@@ -34,11 +34,12 @@
  */
 import { Refusal } from "#compiler/core/canonical.ts"
 import { unsupported } from "#compiler/core/errors.ts"
-import { defect } from "#compiler/core/invariant.ts"
+import { defect, defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { nameKey } from "#compiler/deploy/snapshot/objects.ts"
 import type { SnapshotTheory } from "#compiler/deploy/snapshot/types.ts"
+import { compareAt, type OperatorNames, operatorSchemaOf, typedEq } from "#compiler/ir/compare.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { AxisKind, Family, FamilyFold, FoldPlane, TreeShape } from "#compiler/ir/family.ts"
 import type { NativeColumn, RelationInfo } from "#compiler/ir/law.ts"
@@ -60,6 +61,7 @@ import type {
 	SqlStatement,
 	Target,
 	TypeRef,
+	TypeSchema,
 	Update,
 	WindowSpec
 } from "#compiler/sql/ast.ts"
@@ -103,11 +105,14 @@ export interface BackfilledTable {
 export type Backfilled = ReadonlyMap<string, BackfilledTable>
 
 /** What the backfill of a migration reads besides its target: the previous snapshot's theory, which names the key the
- * stored rows of a relation are distinct by, whether a table of the target holds rows before the migration, and the
- * columns the migration adds under their placeholder defaults (DrawnColumns). */
+ * stored rows of a relation are distinct by; the schema of the operators comparing two values of a column of a previous
+ * table as the previous snapshot types it, which a column the migration drops at its end holds while the backfill runs;
+ * whether a table of the target holds rows before the migration; and the columns the migration adds under their
+ * placeholder defaults (DrawnColumns). */
 export interface BackfillInput {
 	readonly installation: Installation
 	readonly previous: SnapshotTheory
+	readonly previousOperators: (table: string, column: string) => TypeSchema | undefined
 	readonly mayHoldRows: (table: ObjectName) => boolean
 	readonly added: Backfilled
 }
@@ -340,37 +345,67 @@ const maskedStep = (
 /** Whether `columns` holds the column of a native column. */
 const holds = (columns: ReadonlySet<string>, c: NativeColumn): boolean => columns.has(columnOf(c))
 
+/** A column of a member key, with the schema of the operators that compare its values (ir/compare.ts operatorSchemaOf). */
+interface KeyColumn {
+	readonly column: string
+	readonly operators: TypeSchema | undefined
+}
+
 /**
  * The columns the backfill orders a family's stored members by and joins its rows back on: the member's primary key,
  * a key of its stored rows; or, when the migration adds a field of that key (an ordered family's index is often one),
- * the key the previous snapshot records, which the stored rows are distinct by.
+ * the key the previous snapshot records, which the stored rows are distinct by. Each column compares at the type it
+ * holds while the backfill runs: a field the member keeps at its type in the target, which the migration's Structure
+ * converted it to before the backfill, and a field the migration drops at the type the previous snapshot records, the
+ * column standing until the migration's removals at its end.
  */
 const memberKey = (
+	input: BackfillInput,
 	family: Family,
 	member: RelationInfo,
-	previous: SnapshotTheory,
 	added: ReadonlySet<string>
-): NonEmptyReadonlyArray<string> => {
-	const own = mapNonEmpty(member.primaryFields, (f) => f.column)
-	if (!own.some((c) => added.has(c))) {
+): NonEmptyReadonlyArray<KeyColumn> => {
+	const names = input.installation.names
+	const own = mapNonEmpty(member.primaryFields, (f) => ({
+		column: f.column,
+		operators: operatorSchemaOf(names, f.type)
+	}))
+	if (!own.some((c) => added.has(c.column))) {
 		return own
 	}
-	const was = previous.relations[member.name]
+	const was = input.previous.relations[member.name]
 	if (was?.kind !== "relation") {
 		return refuseBackfill(family, `${member.name}'s stored rows have no key the snapshot records`)
 	}
-	const columns = was.primaryKey.map((name) => {
+	const columns = was.primaryKey.map((name): KeyColumn => {
 		const field = was.fields.find((f) => f.name === name)
 		if (field === undefined) {
 			throw defect(`the snapshot's relation ${member.name} records its key field ${name}`)
 		}
-		return field.column
+		const kept = member.fields.find((f) => f.column === field.column)
+		return {
+			column: field.column,
+			operators:
+				kept === undefined
+					? input.previousOperators(was.ident, field.column)
+					: operatorSchemaOf(names, kept.type)
+		}
 	})
-	if (!isNonEmpty(columns) || columns.some((c) => added.has(c))) {
+	if (!isNonEmpty(columns) || columns.some((c) => added.has(c.column))) {
 		return refuseBackfill(family, `the key ${member.name}'s stored rows were distinct by is gone`)
 	}
 	return columns
 }
+
+/** Whether the rows `left` and `right` hold one member key, each column at its operators. */
+const sameKey = (key: NonEmptyReadonlyArray<KeyColumn>, left: string, right: string): Expr =>
+	and(
+		mapNonEmpty(key, (k) => compareAt("=", k.operators, col(left, k.column), col(right, k.column)))
+	)
+
+/** The type of a family's group field at `k`, its owner's side, which its member's side shares. */
+const groupType = (family: Family, k: number): ScalarType =>
+	defined(family.group[k], "a group field").owner.type
 
 /** A fold of a family by its place among the family's folds, which names its columns in the backfill's layers. */
 interface FoldAt {
@@ -501,7 +536,8 @@ const memberUpdate = (
 	if (!isNonEmpty(assignments)) {
 		return undefined
 	}
-	const key = memberKey(family, member, input.previous, added)
+	const keyed = memberKey(input, family, member, added)
+	const key = mapNonEmpty(keyed, (k) => k.column)
 	const group = mapNonEmpty(family.group, (g) => g.member.column)
 	const carried = [...new Set([...key, ...group])]
 	if (!isNonEmpty(carried)) {
@@ -532,7 +568,7 @@ const memberUpdate = (
 		alias: "t",
 		set: assignments,
 		from: [derived(rows, "b", [], false)],
-		where: and(mapNonEmpty(key, (k) => eq(col("t", k), col("b", k)))),
+		where: sameKey(keyed, "t", "b"),
 		returning: []
 	}
 }
@@ -573,7 +609,14 @@ const ownerUpdate = (
 		set: assignments,
 		from: [{ kind: "table", table: memberTable, alias: "m" }],
 		where: and([
-			...mapNonEmpty(family.group, (g) => eq(col("t", g.owner.column), col("m", g.member.column))),
+			...mapNonEmpty(family.group, (g) =>
+				typedEq(
+					g.owner.type,
+					col("t", g.owner.column),
+					col("m", g.member.column),
+					input.installation.names
+				)
+			),
 			last
 		]),
 		returning: []
@@ -631,12 +674,20 @@ const treeUpdate = (
 	const member = relationOf(installation, family.member.name)
 	const owner = mapNonEmpty(family.group, (g) => g.owner.column)
 	const parent = mapNonEmpty(family.group, (g) => g.member.column)
-	const key = memberKey(family, member, input.previous, added)
+	const keyed = memberKey(input, family, member, added)
+	const key = mapNonEmpty(keyed, (k) => k.column)
 	const folds: ReadonlyArray<FoldAt> = family.folds.map((fold, f) => ({ fold, f }))
 	const self = (alias: string): FromSource => ({ kind: "table", table, alias })
 	const rootOf = (alias: string): Expr =>
 		and(
-			mapNonEmpty(family.group, (g) => eq(col(alias, g.member.column), col(alias, g.owner.column)))
+			mapNonEmpty(family.group, (g) =>
+				typedEq(
+					g.owner.type,
+					col(alias, g.member.column),
+					col(alias, g.owner.column),
+					installation.names
+				)
+			)
 		)
 	const none = lit.int(0n, types.bigint)
 	const one = lit.int(1n, types.bigint)
@@ -665,7 +716,14 @@ const treeUpdate = (
 							cteRefAs(closureName, "c"),
 							self("t"),
 							and([
-								...mapNonEmpty(parent, (p, k) => eq(col("t", p), col("c", descendantName(k)))),
+								...mapNonEmpty(parent, (p, k) =>
+									typedEq(
+										groupType(family, k),
+										col("t", p),
+										col("c", descendantName(k)),
+										installation.names
+									)
+								),
 								not(rootOf("t"))
 							])
 						)
@@ -686,7 +744,14 @@ const treeUpdate = (
 					{
 						...countStar(),
 						filter: and([
-							...mapNonEmpty(parent, (p, k) => eq(col("t", p), col("c", ancestorName(k)))),
+							...mapNonEmpty(parent, (p, k) =>
+								typedEq(
+									groupType(family, k),
+									col("t", p),
+									col("c", ancestorName(k)),
+									installation.names
+								)
+							),
 							not(rootOf("t"))
 						])
 					},
@@ -697,7 +762,16 @@ const treeUpdate = (
 				join(
 					cteRefAs(closureName, "c"),
 					self("t"),
-					and(mapNonEmpty(owner, (c, k) => eq(col("t", c), col("c", descendantName(k)))))
+					and(
+						mapNonEmpty(owner, (c, k) =>
+							typedEq(
+								groupType(family, k),
+								col("t", c),
+								col("c", descendantName(k)),
+								installation.names
+							)
+						)
+					)
 				)
 			],
 			owner.map((_, k) => col("c", ancestorName(k)))
@@ -746,7 +820,16 @@ const treeUpdate = (
 					join(
 						self("t"),
 						cteRefAs(sizedName, "s"),
-						and(mapNonEmpty(owner, (c, k) => eq(col("t", c), col("s", ancestorName(k)))))
+						and(
+							mapNonEmpty(owner, (c, k) =>
+								typedEq(
+									groupType(family, k),
+									col("t", c),
+									col("s", ancestorName(k)),
+									installation.names
+								)
+							)
+						)
 					)
 				],
 				undefined
@@ -847,7 +930,16 @@ const treeUpdate = (
 				join(
 					cteRefAs(closureName, "c"),
 					cteRefAs(steppedName, "st"),
-					and(mapNonEmpty(owner, (c, k) => eq(col("st", c), col("c", ancestorName(k)))))
+					and(
+						mapNonEmpty(owner, (c, k) =>
+							typedEq(
+								groupType(family, k),
+								col("st", c),
+								col("c", ancestorName(k)),
+								installation.names
+							)
+						)
+					)
 				)
 			],
 			owner.map((_, k) => col("c", descendantName(k)))
@@ -885,19 +977,37 @@ const treeUpdate = (
 						{
 							kind: "on",
 							source: cteRefAs(startedName, "s"),
-							on: and(mapNonEmpty(owner, (c, k) => eq(col("s", descendantName(k)), col("st", c))))
+							on: and(
+								mapNonEmpty(owner, (c, k) =>
+									typedEq(
+										groupType(family, k),
+										col("s", descendantName(k)),
+										col("st", c),
+										installation.names
+									)
+								)
+							)
 						},
 						{
 							kind: "on",
 							source: cteRefAs(startedName, "ps"),
-							on: and(mapNonEmpty(parent, (p, k) => eq(col("ps", descendantName(k)), col("st", p))))
+							on: and(
+								mapNonEmpty(parent, (p, k) =>
+									typedEq(
+										groupType(family, k),
+										col("ps", descendantName(k)),
+										col("st", p),
+										installation.names
+									)
+								)
+							)
 						},
 						...(isNonEmpty(folds)
 							? [
 									{
 										kind: "on" as const,
 										source: cteRefAs(foldedName, "f"),
-										on: and(mapNonEmpty(key, (k) => eq(col("f", k), col("st", k))))
+										on: sameKey(keyed, "f", "st")
 									}
 								]
 							: [])
@@ -926,7 +1036,7 @@ const treeUpdate = (
 		alias: "t",
 		set,
 		from: [derived(drawn, "b", [], false)],
-		where: and(mapNonEmpty(key, (k) => eq(col("t", k), col("b", k)))),
+		where: sameKey(keyed, "t", "b"),
 		returning: []
 	}
 }
@@ -934,6 +1044,7 @@ const treeUpdate = (
 /** A tree's fold ends this migration adds: each row's end its last child's after, read off the backfilled rows; a
  * leaf keeps its placeholder, the identity, which an empty family's end is. */
 const treeEndUpdate = (
+	names: OperatorNames,
 	family: Family,
 	table: ObjectName,
 	added: ReadonlySet<string>
@@ -956,10 +1067,14 @@ const treeEndUpdate = (
 		set,
 		from: [{ kind: "table", table, alias: "c" }],
 		where: and([
-			...mapNonEmpty(family.group, (g) => eq(col("c", g.member.column), col("t", g.owner.column))),
+			...mapNonEmpty(family.group, (g) =>
+				typedEq(g.owner.type, col("c", g.member.column), col("t", g.owner.column), names)
+			),
 			not(
 				and(
-					mapNonEmpty(family.group, (g) => eq(col("c", g.member.column), col("c", g.owner.column)))
+					mapNonEmpty(family.group, (g) =>
+						typedEq(g.owner.type, col("c", g.member.column), col("c", g.owner.column), names)
+					)
 				)
 			),
 			eq(
@@ -1040,13 +1155,13 @@ const baseOf = (installation: Installation, c: NativeColumn): Expr | undefined =
 
 /** Whether every member of a tree but its root is the row a column reference names: a tree's family leaves the root
  * out, so the predecessor and last axes never name it. */
-const nonRoot = (family: Family, alias: string): ReadonlyArray<Expr> =>
+const nonRoot = (names: OperatorNames, family: Family, alias: string): ReadonlyArray<Expr> =>
 	family.members.kind === "tree"
 		? [
 				not(
 					and(
 						mapNonEmpty(family.group, (g) =>
-							eq(col(alias, g.member.column), col(alias, g.owner.column))
+							typedEq(g.owner.type, col(alias, g.member.column), col(alias, g.owner.column), names)
 						)
 					)
 				)
@@ -1055,7 +1170,7 @@ const nonRoot = (family: Family, alias: string): ReadonlyArray<Expr> =>
 
 /** A copy's UPDATE: its column set, on every source row, to `to` on the row its axis names, read as the table stood
  * before the statement; a source row whose axis names none keeps its base. */
-const copyUpdate = (copy: Copy): Update => {
+const copyUpdate = (names: OperatorNames, copy: Copy): Update => {
 	const { family, from, to } = copy
 	const index = columnOf(family.index)
 	const predecessorOf = (row: string, before: string): Expr =>
@@ -1064,23 +1179,23 @@ const copyUpdate = (copy: Copy): Update => {
 		switch (copy.axis) {
 			case "owner":
 				return mapNonEmpty(family.group, (g) =>
-					eq(col("t", g.member.column), col("a", g.owner.column))
+					typedEq(g.owner.type, col("t", g.member.column), col("a", g.owner.column), names)
 				)
 			case "predecessor":
 				return [
 					...mapNonEmpty(family.group, (g) =>
-						eq(col("t", g.member.column), col("a", g.member.column))
+						typedEq(g.owner.type, col("t", g.member.column), col("a", g.member.column), names)
 					),
-					...nonRoot(family, "t"),
-					...nonRoot(family, "a"),
+					...nonRoot(names, family, "t"),
+					...nonRoot(names, family, "a"),
 					predecessorOf("t", "a")
 				]
 			case "last":
 				return [
 					...mapNonEmpty(family.group, (g) =>
-						eq(col("a", g.member.column), col("t", g.owner.column))
+						typedEq(g.owner.type, col("a", g.member.column), col("t", g.owner.column), names)
 					),
-					...nonRoot(family, "a"),
+					...nonRoot(names, family, "a"),
 					eq(col("a", index), binary("-", col("a", family.copy), lit.int(1n, types.bigint)))
 				]
 		}
@@ -1226,7 +1341,7 @@ export const backfillOf = (input: BackfillInput): Backfill => {
 			if (drawn !== undefined) {
 				updates.push(drawn)
 			}
-			const ends = treeEndUpdate(family, memberTable, onMember)
+			const ends = treeEndUpdate(input.installation.names, family, memberTable, onMember)
 			if (ends !== undefined) {
 				updates.push(ends)
 			}
@@ -1260,7 +1375,7 @@ export const backfillOf = (input: BackfillInput): Backfill => {
 		}
 	}
 	for (const c of orderedCopies(drawnCopies)) {
-		updates.push(copyUpdate(c))
+		updates.push(copyUpdate(installation.names, c))
 	}
 	const dropDefaults = [...input.added.values()].flatMap(
 		({ table, columns }): ReadonlyArray<SqlStatement> => {

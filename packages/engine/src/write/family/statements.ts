@@ -24,6 +24,7 @@ import { bytesChunkLength } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
+import { typedEq } from "#compiler/ir/compare.ts"
 import type { Family } from "#compiler/ir/family.ts"
 import {
 	type FamilyId,
@@ -67,7 +68,6 @@ import {
 	cteRef,
 	cteRefAs,
 	distinctCore,
-	eq,
 	ge,
 	join,
 	lit,
@@ -433,7 +433,11 @@ export const rowStatement = (
 					table: w.names.relation(relation.name),
 					alias: target,
 					using: [input.from],
-					where: and(mapNonEmpty(layout.key, (c, i) => eq(stored(c.column), input.raw(i)))),
+					where: and(
+						mapNonEmpty(layout.key, (c, i) =>
+							typedEq(c.type, stored(c.column), input.raw(i), w.names)
+						)
+					),
 					returning: returned.map((f) =>
 						targetAs(stored({ kind: "field", field: f.field }), f.column)
 					)
@@ -479,7 +483,11 @@ export const rowStatement = (
 					alias: target,
 					set: sets,
 					from: [input.from],
-					where: and(mapNonEmpty(layout.key, (c, i) => eq(stored(c.column), input.raw(i)))),
+					where: and(
+						mapNonEmpty(layout.key, (c, i) =>
+							typedEq(c.type, stored(c.column), input.raw(i), w.names)
+						)
+					),
 					returning: newAndOld(w, relation, fresh, old)
 				},
 				[...fresh, ...old]
@@ -587,7 +595,9 @@ export const countStatement = (
 			})),
 			from: [input.from],
 			where: and(
-				mapNonEmpty(family.group, (g, i) => eq(col(target, column(g.owner)), input.raw(i)))
+				mapNonEmpty(family.group, (g, i) =>
+					typedEq(g.owner.type, col(target, column(g.owner)), input.raw(i), w.names)
+				)
 			),
 			returning: newAndOld(w, owner, fresh, old)
 		},
@@ -734,7 +744,11 @@ export const suffixReadSql = (
 				join(
 					table(memberTable.schema, memberTable.name, hm),
 					keys.from,
-					and(mapNonEmpty(layout.key, (c, i) => eq(mCol(hm, c.column), keys.raw(i))))
+					and(
+						mapNonEmpty(layout.key, (c, i) =>
+							typedEq(c.type, mCol(hm, c.column), keys.raw(i), w.names)
+						)
+					)
 				)
 			],
 			undefined
@@ -764,14 +778,22 @@ export const suffixReadSql = (
 					join(
 						table(ownerTable.schema, ownerTable.name, to),
 						groups.from,
-						and(mapNonEmpty(family.group, (pair, i) => eq(oCol(to, pair.owner), groups.raw(i))))
+						and(
+							mapNonEmpty(family.group, (pair, i) =>
+								typedEq(pair.owner.type, oCol(to, pair.owner), groups.raw(i), w.names)
+							)
+						)
 					)
 				],
 				notExists(
 					simpleSelect(
 						[targetAs(lit.int(1, types.integer), supply.column(internal("touched")))],
 						[cteRefAs(h, tx)],
-						and(mapNonEmpty(family.group, (pair, i) => eq(col(tx, g(i)), oCol(to, pair.owner))))
+						and(
+							mapNonEmpty(family.group, (pair, i) =>
+								typedEq(pair.owner.type, col(tx, g(i)), oCol(to, pair.owner), w.names)
+							)
+						)
 					)
 				)
 			)
@@ -799,7 +821,11 @@ export const suffixReadSql = (
 				join(
 					table(ownerTable.schema, ownerTable.name, o),
 					cteRefAs(t, ot),
-					and(mapNonEmpty(family.group, (pair, i) => eq(oCol(o, pair.owner), col(ot, g(i)))))
+					and(
+						mapNonEmpty(family.group, (pair, i) =>
+							typedEq(pair.owner.type, oCol(o, pair.owner), col(ot, g(i)), w.names)
+						)
+					)
 				)
 			],
 			where: undefined
@@ -825,7 +851,12 @@ export const suffixReadSql = (
 					cteRefAs(t, mt),
 					and(
 						mapNonEmpty(family.group, (pair, i) =>
-							eq(mCol(m, { kind: "field", field: pair.member }), col(mt, g(i)))
+							typedEq(
+								pair.member.type,
+								mCol(m, { kind: "field", field: pair.member }),
+								col(mt, g(i)),
+								w.names
+							)
 						)
 					)
 				)
@@ -951,7 +982,7 @@ export const chainReadSql = (
 	) =>
 		and(
 			mapNonEmpty(relation.primaryFields, (f, i) =>
-				eq(fieldOf(alias, relation, f), col(at, defined(keys[i], `key ${i}`)))
+				typedEq(f.type, fieldOf(alias, relation, f), col(at, defined(keys[i], `key ${i}`)), w.names)
 			)
 		)
 	/** The owner's key field a group field of `family` pairs with, as a position among the owner's key fields. */
@@ -1011,7 +1042,12 @@ export const chainReadSql = (
 											keys.from,
 											and(
 												mapNonEmpty(layout.key, (c, i) =>
-													eq(columnOf(m, family.member, c.column), keys.raw(i))
+													typedEq(
+														c.type,
+														columnOf(m, family.member, c.column),
+														keys.raw(i),
+														w.names
+													)
 												)
 											)
 										)
@@ -1109,12 +1145,14 @@ export const chainReadSql = (
 							cteRef(from.name),
 							and(
 								mapNonEmpty(family.group, (g) =>
-									eq(
+									typedEq(
+										g.member.type,
 										fieldOf(t, relation, g.member),
 										col(
 											from.name,
 											defined(from.keys[ownerPosition(family, g.owner)], "an owner key")
-										)
+										),
+										w.names
 									)
 								)
 							)
@@ -1132,9 +1170,11 @@ export const chainReadSql = (
 								rows.kind === "owners" && family.members.kind !== "tree"
 									? defined(family.group[i], "a group field").owner
 									: f
-							return eq(
+							return typedEq(
+								field.type,
 								fieldOf(t, relation, field),
-								col(from.name, defined(from.groups[i], "a group column"))
+								col(from.name, defined(from.groups[i], "a group column")),
+								w.names
 							)
 						})
 					)
@@ -1171,7 +1211,12 @@ export const chainReadSql = (
 		const m = supply.relation(internal("chain end member"))
 		const onGroups = and(
 			mapNonEmpty(groupFields(family), (f, i) =>
-				eq(fieldOf(m, member, f), col(g.name, defined(g.groups[i], "a group column")))
+				typedEq(
+					f.type,
+					fieldOf(m, member, f),
+					col(g.name, defined(g.groups[i], "a group column")),
+					w.names
+				)
 			)
 		)
 		if (family.members.kind === "tree") {
@@ -1199,7 +1244,12 @@ export const chainReadSql = (
 					cteRef(g.name),
 					and(
 						mapNonEmpty(family.group, (pair, i) =>
-							eq(fieldOf(o, owner, pair.owner), col(g.name, defined(g.groups[i], "a group column")))
+							typedEq(
+								pair.owner.type,
+								fieldOf(o, owner, pair.owner),
+								col(g.name, defined(g.groups[i], "a group column")),
+								w.names
+							)
 						)
 					)
 				)

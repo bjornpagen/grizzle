@@ -4,6 +4,7 @@ import type { NodeId, ParamId, StoredRelationName } from "#compiler/core/ids.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { typedEq } from "#compiler/ir/compare.ts"
 import { type NodeScope, nodeScopes, type OuterRefs } from "#compiler/ir/dag.ts"
 import { exprClosure } from "#compiler/ir/expr.ts"
 import type { Fold } from "#compiler/ir/fold.ts"
@@ -33,7 +34,6 @@ import type {
 	RelationParamSlot,
 	ScalarParamSlot
 } from "#compiler/lower/conservative/types.ts"
-import { typedEq } from "#compiler/lower/conservative/vector/equality.ts"
 import { columnType, namedColumn } from "#compiler/runtime/lower/columns.ts"
 import { unitColumn } from "#compiler/runtime/lower/tree.ts"
 import type {
@@ -668,12 +668,11 @@ export class LowerContext {
 	}
 
 	/**
-	 * `left = right` for two values of `type`: over a vector, the extension's operator qualified by the installation's
-	 * vector schema, which no role's search_path holds (vector/equality.ts); otherwise `=`. Every
-	 * binding, constant, equality, correlation and stitch a lowering emits compares through it.
+	 * `left = right` for two values of `type`, at the operator its type resolves (ir/compare.ts operatorSchemaOf). Every
+	 * binding, constant, equality, correlation, stitch and delivery check a lowering emits compares through it.
 	 */
 	equal(type: ScalarType, left: Expr, right: Expr): Expr {
-		return typedEq(type, left, right, this.names.vectorSchema)
+		return typedEq(type, left, right, this.names)
 	}
 
 	relationAlias(origin: NameOrigin): string {

@@ -17,6 +17,7 @@ import type { DeliveredRows, PipelinedAttachment } from "#compiler/lower/shapes/
 import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
 import type { ChoiceInput } from "#compiler/lower/shapes/take/index.ts"
 import { orderIsTotal } from "#compiler/lower/shapes/take/order.ts"
+import { columnType } from "#compiler/runtime/lower/columns.ts"
 import type { Expr, OrderItem, Select, SelectCore, With } from "#compiler/sql/ast.ts"
 import {
 	and,
@@ -26,7 +27,6 @@ import {
 	core,
 	cteRefAs,
 	distinctCore,
-	eq,
 	provedCore,
 	select,
 	target
@@ -207,7 +207,7 @@ export const seededAttachment = (
 	const base = terms.sourceAs(rec.base, env, true)
 	/** Every equation of the Attach, so a parent key equated with two origin columns restricts both. */
 	const restrict = mapNonEmpty(decision.origin, (c) =>
-		eq(columnIn(base.map, c.child), parent.column(c.parent))
+		cx.equal(columnType(rec.heading, c.child), columnIn(base.map, c.child), parent.column(c.parent))
 	)
 	const seed: SelectCore = core(stateTargets(base.map), [parent.item, base.item], and(restrict))
 	/** The step: uncorrelated to any parent, it reads only the feedback and the stored relations. */

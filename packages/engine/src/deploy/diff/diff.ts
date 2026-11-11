@@ -90,7 +90,8 @@ import type {
 	Revoke,
 	SqlStatement,
 	TableConstraint,
-	TypeRef
+	TypeRef,
+	TypeSchema
 } from "#compiler/sql/ast.ts"
 
 import {
@@ -1561,9 +1562,25 @@ class Differ {
 	/** The backfill of the families new to stored rows (backfill.ts), once every column it draws is added: its UPDATEs,
 	 * then each drawn column's DROP DEFAULT, before any constraint that reads them (structure.constraints). */
 	backfill(): void {
+		const previousTables = new Map(
+			this.input.previous.manifest.objects.flatMap((o) => {
+				const v = installed(o)
+				return v.kind === "table" ? [[nameKey(v.create.table), v.create] as const] : []
+			})
+		)
 		const { updates, dropDefaults } = backfillOf({
 			installation: this.input.installation,
 			previous: this.input.previous.theory,
+			previousOperators: (table, column) => {
+				const at = previousTables.get(nameKey(objectName(this.input.previous.schema, table)))
+				const c = at?.columns.find((x) => x.name === column)
+				if (c === undefined) {
+					throw defect(
+						`the previous snapshot installs the column ${column} its relation ${table} records`
+					)
+				}
+				return columnOperators(c.type, this.prevDomains)
+			},
 			mayHoldRows: (t) => this.mayHoldRows(t),
 			added: this.backfilled
 		})
@@ -2536,6 +2553,23 @@ const domainOf = (
 	domains: ReadonlyMap<string, DomainReading>
 ): DomainReading | undefined =>
 	type.kind === "named" ? domains.get(nameKey(objectName(type.schema, type.name))) : undefined
+
+/**
+ * The schema of the operators that compare two values of a column of `type`, read through each domain of `domains` to
+ * its base type: a named type no domain names is an extension's, whose own schema holds its operators (sql/ast.ts
+ * TypeSchema); a builtin type's operators are pg_catalog's, none (ir/compare.ts operatorSchemaOf).
+ */
+const columnOperators = (
+	type: TypeRef,
+	domains: ReadonlyMap<string, DomainReading>
+): TypeSchema | undefined => {
+	const domain = domainOf(type, domains)
+	return domain !== undefined
+		? columnOperators(domain.create.base, domains)
+		: type.kind === "named"
+			? type.schema
+			: undefined
+}
 
 /** Whether a previous roster's fate continues it as the target's roster `to`'s: an ended roster continues as none. */
 const continuesAs = (from: RosterFate, to: RosterFate): boolean =>

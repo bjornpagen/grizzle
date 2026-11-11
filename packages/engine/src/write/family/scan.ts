@@ -29,6 +29,7 @@
  */
 import { defect, defined } from "#compiler/core/invariant.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { type OperatorNames, typedEq } from "#compiler/ir/compare.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import type { Family, FamilyFold } from "#compiler/ir/family.ts"
 import type { FillColumn } from "#compiler/ir/fill.ts"
@@ -128,8 +129,10 @@ export const readAt =
 		return column === undefined ? undefined : col(alias, column)
 	}
 
-/** Whether two rows' group key columns name one group, column by column. */
+/** Whether two rows' group key columns name one group of `family`, column by column, each at its group field's type. */
 const sameGroup = (
+	names: OperatorNames,
+	family: Family,
 	a: string,
 	aGroup: NonEmptyReadonlyArray<string>,
 	b: string,
@@ -137,7 +140,12 @@ const sameGroup = (
 ): Expr =>
 	and(
 		mapNonEmpty(aGroup, (column, i) =>
-			eq(col(a, column), col(b, defined(bGroup[i], "a group key column of each side")))
+			typedEq(
+				defined(family.group[i], "a group field").owner.type,
+				col(a, column),
+				col(b, defined(bGroup[i], "a group key column of each side")),
+				names
+			)
 		)
 	)
 
@@ -377,7 +385,7 @@ export const scanOf = (w: WriteContext, supply: NameSupply, spec: ScanSpec): Sca
 				join(
 					cteRefAs(rows.name, r1),
 					cteRefAs(seed.name, d1),
-					sameGroup(r1, rows.group, d1, seed.group)
+					sameGroup(w.names, spec.family, r1, rows.group, d1, seed.group)
 				)
 			],
 			and([eq(col(r1, rows.slot), col(r1, rows.first)), gt(col(r1, rows.first), zero)])
@@ -389,7 +397,7 @@ export const scanOf = (w: WriteContext, supply: NameSupply, spec: ScanSpec): Sca
 		cteRefAs(name, p2),
 		cteRefAs(rows.name, r2),
 		and([
-			sameGroup(r2, rows.group, p2, group),
+			sameGroup(w.names, spec.family, r2, rows.group, p2, group),
 			eq(col(r2, rows.slot), binary("+", col(p2, slot), lit.int(1, types.bigint)))
 		])
 	)

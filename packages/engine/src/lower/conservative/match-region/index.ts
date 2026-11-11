@@ -248,8 +248,8 @@ interface RegionParts {
  *
  * Each occurrence reads its source as a derived table. A variable takes its value from the first column bound to it;
  * every further column bound to it, every equality between variables, every constant and every correlation becomes an
- * equality in WHERE, at the variable's or column's type, so two vectors compare through the extension's qualified
- * operator (vector/equality.ts). Unbound columns are existential witnesses and are simply not selected.
+ * equality in WHERE, at the variable's or column's type, at the operator its type resolves (ir/compare.ts
+ * operatorSchemaOf). Unbound columns are existential witnesses and are simply not selected.
  * The region's heading is its variables, and the bindings are a set: SELECT DISTINCT over the variables,
  * so a witness repeated by fanout or a key the baseline does not trust never repeats a binding.
  *

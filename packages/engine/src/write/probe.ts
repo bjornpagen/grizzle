@@ -7,11 +7,11 @@
  */
 import { defined } from "#compiler/core/invariant.ts"
 import { appendNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { operatorSchemaOf } from "#compiler/ir/compare.ts"
 import type { LawField } from "#compiler/ir/law.ts"
 import { columnReads, type UniqueObject } from "#compiler/laws/model/uniques.ts"
 import type { ColumnMap, Env, LowerContext } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
-import { isVectorType } from "#compiler/lower/conservative/vector/equality.ts"
 import type { DrivenColumn, Expr, FromSource, MetKey, ProbeColumn } from "#compiler/sql/ast.ts"
 import { binary, col, exists, lit, simpleSelect, target, types } from "#compiler/sql/build.ts"
 import type { NameSupply } from "#compiler/sql/naming.ts"
@@ -97,7 +97,7 @@ export const bound = (
 ): ProbeColumn => ({
 	column: w.names.column(relation, f.name),
 	value,
-	schema: isVectorType(rowType(f)) ? w.names.vectorSchema : undefined
+	schema: operatorSchemaOf(w.names, rowType(f))
 })
 
 /** `fields` of `relation` bound to their values (`bound`), with no further condition. */
@@ -225,7 +225,7 @@ export const metAtObject = (
 	key: u.equal.map((f) => ({
 		column: w.names.column(relation, f.name),
 		from: column(f),
-		schema: isVectorType(rowType(f)) ? w.names.vectorSchema : undefined
+		schema: operatorSchemaOf(w.names, rowType(f))
 	})),
 	filter: (inner) => {
 		const stored = (f: LawField): Expr => col(inner, w.names.column(relation, f.name))
@@ -302,7 +302,7 @@ export const metRowsOf = (
 			key: mapNonEmpty(spec.key, (k) => ({
 				column: k.column,
 				from: k.returned,
-				schema: isVectorType(rowType(k.field)) ? w.names.vectorSchema : undefined
+				schema: operatorSchemaOf(w.names, rowType(k.field))
 			})),
 			columns: spec.columns,
 			scan: supply.relation(internal("proposed row")),

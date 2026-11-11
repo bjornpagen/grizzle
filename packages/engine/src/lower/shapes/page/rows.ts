@@ -72,7 +72,7 @@ export const pagedRows = (cx: LowerContext, spec: PagedRowsSpec): Select => {
 	const where =
 		anchor === undefined
 			? undefined
-			: seekPredicate(anchor.boundaries.seekKeys(source.map), anchor.seek, cx.names.vectorSchema)
+			: seekPredicate(anchor.boundaries.seekKeys(source.map), anchor.seek, cx.names)
 	const declared = spec.order(source.map)
 	const orderBy = spec.direction === "backward" ? reversedOrder(declared) : declared
 	return {
@@ -97,7 +97,7 @@ export const probeTest = (cx: LowerContext, spec: ProbeSpec): Expr => {
 	const where = seekPredicate(
 		spec.anchor.boundaries.seekKeys(source.map),
 		spec.anchor.seek,
-		cx.names.vectorSchema
+		cx.names
 	)
 	return exists(simpleSelect([target(lit.int(1, types.integer))], [source.item], where))
 }
@@ -158,7 +158,7 @@ export const retainedGroupRows = (cx: LowerContext, spec: RetainedGroupSpec): Se
 			boundary: comparatorColumn(kept.map, c)
 		})),
 		{ side: spec.direction === "forward" ? "precedes" : "follows", inclusive: false },
-		cx.names.vectorSchema
+		cx.names
 	)
 	const predecessors: Expr = {
 		kind: "subquery",

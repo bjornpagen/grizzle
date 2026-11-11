@@ -58,7 +58,6 @@ import {
 	cteRef,
 	derived,
 	distinctCore,
-	eq,
 	gt,
 	keyedSet,
 	lit,
@@ -385,7 +384,7 @@ export const checkedAttachment = (
 	}
 	const none = (): DeliveredBreach => {
 		const parent = parentKeysSource(cx, rows, parentKey, origin)
-		const matches = keys.map((c) => eq(col(rv, c.kept), parent.column(c.name)))
+		const matches = keys.map((c) => cx.equal(c.type, col(rv, c.kept), parent.column(c.name)))
 		return {
 			from: parent.item,
 			when: notExists(

@@ -8,6 +8,7 @@ import {
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "#compiler/core/nonempty.ts"
+import { rowNe, typedEq } from "#compiler/ir/compare.ts"
 import { fieldNames, type LawField } from "#compiler/ir/law.ts"
 import type { StatementRole } from "#compiler/ir/products.ts"
 import type { KeySet } from "#compiler/ir/rel.ts"
@@ -21,7 +22,6 @@ import {
 } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
 import type { WriteParamSlot } from "#compiler/lower/conservative/types.ts"
-import { rowOrSingle } from "#compiler/lower/conservative/vector/equality.ts"
 import { textItself } from "#compiler/lower/delivery.ts"
 import { wildcardText } from "#compiler/scalar/compute/types.ts"
 import type {
@@ -313,6 +313,7 @@ const factColumns = (fields: ReadonlyArray<LawField>): Array<ResultColumn> =>
  * of the verdict heading's groups of fact columns, then the marker true. Every column is an input value, so none is
  * manufactured. */
 const sameKeyArm = (
+	w: WriteContext,
 	head: ReturnType<typeof putHead>,
 	r4: string,
 	prefix: ReadonlyArray<Target>,
@@ -327,7 +328,7 @@ const sameKeyArm = (
 			join(
 				cteRef(head.r1),
 				cteRef(r4),
-				and(mapNonEmpty(head.pk, (f) => eq(head.inCol(f), r4Col(f))))
+				and(mapNonEmpty(head.pk, (f) => typedEq(f.type, head.inCol(f), r4Col(f), w.names)))
 			)
 		],
 		undefined
@@ -432,11 +433,14 @@ export const buildUpsert = (w: WriteContext, spec: UpsertSpec): PutStatement => 
 						column: column(f),
 						value: { kind: "excluded", column: column(f) }
 					})),
-					where: ne(
-						rowOrSingle(mapNonEmpty(payload, (f) => col(r3, column(f)))),
-						rowOrSingle(
-							mapNonEmpty(payload, (f) => ({ kind: "excluded" as const, column: column(f) }))
-						)
+					where: rowNe(
+						{
+							fields: payload,
+							typeOf: (f) => f.type,
+							left: (f) => col(r3, column(f)),
+							right: (f) => ({ kind: "excluded", column: column(f) })
+						},
+						w.names
 					)
 				}
 			},
@@ -542,11 +546,16 @@ export const buildUpdateFrom = (w: WriteContext, spec: PutSpec): PutStatement =>
 			from: [cteRef(r1)],
 			where: and(
 				concatNonEmpty(
-					pk.map((f) => eq(col(r3, column(f)), inCol(f))),
+					pk.map((f) => typedEq(f.type, col(r3, column(f)), inCol(f), w.names)),
 					[
-						ne(
-							rowOrSingle(mapNonEmpty(payload, (f) => col(r3, column(f)))),
-							rowOrSingle(mapNonEmpty(payload, inCol))
+						rowNe(
+							{
+								fields: payload,
+								typeOf: (f) => f.type,
+								left: (f) => col(r3, column(f)),
+								right: inCol
+							},
+							w.names
 						),
 						...(gate === undefined ? [] : [gate])
 					]
@@ -605,7 +614,7 @@ export const buildUpdateFrom = (w: WriteContext, spec: PutSpec): PutStatement =>
 				[cteRef(r2)],
 				undefined
 			),
-			sameKeyArm(head, r4, [], [fresh, old])
+			sameKeyArm(w, head, r4, [], [fresh, old])
 		])
 		const ast = guardedPut(
 			w,
@@ -643,7 +652,11 @@ const scopePredicate = (w: WriteContext, spec: MergeSpec, r3: string): Expr | un
 	const parts: Array<Expr> = [
 		...scope.predicates.map((p) => lowerExpr(w.cx, p, env)),
 		...scope.constants.map((c) =>
-			eq(col(r3, w.names.column(relation.name, c.field)), lowerExpr(w.cx, c.expr, env))
+			w.cx.equal(
+				c.expr.pgType,
+				col(r3, w.names.column(relation.name, c.field)),
+				lowerExpr(w.cx, c.expr, env)
+			)
 		)
 	]
 	return isNonEmpty(parts) ? and(parts) : undefined
@@ -672,14 +685,19 @@ export const buildMerge = (w: WriteContext, spec: MergeSpec): PutStatement => {
 			table: w.names.relation(relation.name),
 			alias: r3,
 			using: cteRef(r1),
-			on: and(mapNonEmpty(pk, (f) => eq(col(r3, column(f)), inCol(f)))),
+			on: and(mapNonEmpty(pk, (f) => typedEq(f.type, col(r3, column(f)), inCol(f), w.names))),
 			whens: [
 				{
 					match: "MATCHED",
 					condition: gatedBy(
-						ne(
-							rowOrSingle(mapNonEmpty(payload, (f) => col(r3, column(f)))),
-							rowOrSingle(mapNonEmpty(payload, inCol))
+						rowNe(
+							{
+								fields: payload,
+								typeOf: (f) => f.type,
+								left: (f) => col(r3, column(f)),
+								right: inCol
+							},
+							w.names
 						)
 					),
 					action: {
@@ -755,7 +773,7 @@ export const buildMerge = (w: WriteContext, spec: MergeSpec): PutStatement => {
 				[cteRef(r2)],
 				undefined
 			),
-			sameKeyArm(head, r4, [target(lit.text("INSERT", types.text))], [returned])
+			sameKeyArm(w, head, r4, [target(lit.text("INSERT", types.text))], [returned])
 		])
 		const ast = guardedPut(
 			w,

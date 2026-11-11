@@ -6,6 +6,7 @@ import {
 	type NonEmptyReadonlyArray
 } from "#compiler/core/nonempty.ts"
 import * as Order from "#compiler/core/order.ts"
+import { rowNe, typedEq } from "#compiler/ir/compare.ts"
 import { fieldNames, type LawField, type RelationInfo } from "#compiler/ir/law.ts"
 import type { SerialClass } from "#compiler/ir/write.ts"
 import {
@@ -18,7 +19,6 @@ import {
 	type UniqueObjects,
 	witnessFields
 } from "#compiler/laws/model/uniques.ts"
-import { rowNe, typedEq } from "#compiler/lower/conservative/vector/equality.ts"
 import type { Cte, Expr, OrderItem, Select, SetCore, Target } from "#compiler/sql/ast.ts"
 import {
 	and,
@@ -417,9 +417,8 @@ export const buildProbe = (
 	if (!isNonEmpty(checks) || !isNonEmpty(fields)) {
 		return undefined
 	}
-	const vectorSchema = w.names.vectorSchema
 	const inCol = (alias: string, f: LawField): Expr => col(alias, inputs.of(f))
-	const same = (f: LawField, a: Expr, b: Expr): Expr => typedEq(rowType(f), a, b, vectorSchema)
+	const same = (f: LawField, a: Expr, b: Expr): Expr => typedEq(rowType(f), a, b, w.names)
 	const predicate = (check: UniqueObject, of: (f: LawField) => Expr): ReadonlyArray<Expr> =>
 		withinRow(w.cx, check, of)
 	/** `a` and `b` conflict at the object: equal compared fields, overlapping spans. */
@@ -483,7 +482,7 @@ export const buildProbe = (
 														left: otherCol,
 														right: (f) => inCol(input, f)
 													},
-													vectorSchema
+													w.names
 												)
 											)
 										)

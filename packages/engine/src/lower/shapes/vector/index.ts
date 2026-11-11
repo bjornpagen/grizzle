@@ -22,12 +22,12 @@ import {
 } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
 import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
+import { columnType } from "#compiler/runtime/lower/columns.ts"
 import type { Expr, OrderItem } from "#compiler/sql/ast.ts"
 import {
 	asc,
 	conjunction,
 	distinctCoreWhen,
-	eq,
 	exists,
 	lit,
 	notExists,
@@ -261,7 +261,13 @@ const eligibility = (
 		} else {
 			/** The right side is lowered inside its EXISTS. */
 			const right = cx.inSublink().source(u.right, scope)
-			const on = u.on.map((p) => eq(columnIn(right.map, p.right), columnIn(outputs, p.left)))
+			const on = u.on.map((p) =>
+				cx.equal(
+					columnType(u.heading, p.left),
+					columnIn(right.map, p.right),
+					columnIn(outputs, p.left)
+				)
+			)
 			const witness = simpleSelect(
 				[target(lit.int(1, types.integer))],
 				[right.item],

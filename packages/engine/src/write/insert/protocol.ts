@@ -8,10 +8,10 @@ import {
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "#compiler/core/nonempty.ts"
+import { rowEq, rowNe, typedEq } from "#compiler/ir/compare.ts"
 import { fieldNames, type LawField, type RelationInfo, type SpanField } from "#compiler/ir/law.ts"
 import type { SerialClass } from "#compiler/ir/write.ts"
 import { witnessFields } from "#compiler/laws/model/uniques.ts"
-import { rowEq, rowNe, typedEq } from "#compiler/lower/conservative/vector/equality.ts"
 import type { Cte, Expr, FromItem, Insert, Select, SetCore, Target } from "#compiler/sql/ast.ts"
 import type { NameSupply } from "#compiler/sql/naming.ts"
 
@@ -427,8 +427,7 @@ export const buildInsert = (
 	/** Every comparison is at its field's type: a vector, in the payload or in a small key, compares through the
 	 * extension's qualified operator, which a bare or row comparison would resolve through the search_path. */
 	const typeOf = rowType
-	const same = (f: LawField, a: Expr, b: Expr): Expr =>
-		typedEq(rowType(f), a, b, w.names.vectorSchema)
+	const same = (f: LawField, a: Expr, b: Expr): Expr => typedEq(rowType(f), a, b, w.names)
 	/** The requested facts the probe reads and the objects it probes (`buildProbe`): a generated addition is probed at every
 	 * object that reads no field it draws, complete facts at every object besides the arbiter. */
 	const probed: { readonly requested: Requested; readonly checks: ReadonlyArray<Probed> } =
@@ -685,7 +684,7 @@ export const buildInsert = (
 															left: (f) => col(r3, column(f)),
 															right: (f) => ({ kind: "excluded", column: column(f) })
 														},
-														w.names.vectorSchema
+														w.names
 													)
 												}
 								},
@@ -707,7 +706,7 @@ export const buildInsert = (
 		const markedBody = (payload: NonNullable<typeof marker>): Select["body"] => {
 			const inserted = rowEq(
 				{ fields: payload.payload, typeOf, left: (f) => col(r2, retCol(f)), right: inCol },
-				w.names.vectorSchema
+				w.names
 			)
 			const left: SetCore = provedCore(
 				"keyed",
@@ -752,10 +751,7 @@ export const buildInsert = (
 					],
 					[cteRef(r1), owner.source],
 					conjunction([
-						rowNe(
-							{ fields: payload.payload, typeOf, left: stored, right: inCol },
-							w.names.vectorSchema
-						),
+						rowNe({ fields: payload.payload, typeOf, left: stored, right: inCol }, w.names),
 						...(r4 === undefined ? [] : [noSharedKey(r4)])
 					])
 				)
@@ -936,7 +932,7 @@ export const buildInsert = (
 					],
 					[cteRef(r1), owner.source],
 					conjunction([
-						rowNe({ fields: compared, typeOf, left: stored, right: inCol }, w.names.vectorSchema),
+						rowNe({ fields: compared, typeOf, left: stored, right: inCol }, w.names),
 						...(r4 === undefined ? [] : [noSharedKey(r4)])
 					])
 				)
@@ -1137,7 +1133,6 @@ export const buildSpanClassify = (
 		throw defect(`a classification of ${relation.name} whose input carries none of its key`)
 	}
 	const scalars = pk.filter((f) => f !== span)
-	const vectorSchema = w.names.vectorSchema
 	const typeOf = rowType
 	const sharing = inputSharing(
 		w.share.classifications,
@@ -1165,7 +1160,7 @@ export const buildSpanClassify = (
 			at
 		)
 		const inCol = (alias: string, f: LawField): Expr => col(alias, inputs.of(f))
-		const same = (f: LawField, a: Expr, b: Expr): Expr => typedEq(rowType(f), a, b, vectorSchema)
+		const same = (f: LawField, a: Expr, b: Expr): Expr => typedEq(rowType(f), a, b, w.names)
 		/** A fact at `left` overlapping the requested fact at the same scalar key: equal scalars, overlapping spans. */
 		const overlapping = (left: (f: LawField) => Expr): Expr =>
 			and(
@@ -1205,7 +1200,7 @@ export const buildSpanClassify = (
 				overlapping((f) => inCol(other, f)),
 				rowNe(
 					{ fields: all, typeOf, left: (f) => inCol(other, f), right: (f) => inCol(r1, f) },
-					vectorSchema
+					w.names
 				)
 			])
 		)

@@ -1,10 +1,10 @@
 import type { ParamId } from "#compiler/core/ids.ts"
 import { appendNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { rowEq, rowNe, typedEq } from "#compiler/ir/compare.ts"
 import { fieldNames, type LawField, type RelationInfo } from "#compiler/ir/law.ts"
 import { emptyEnv, extendEnv } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
 import { regionParts } from "#compiler/lower/conservative/match-region/index.ts"
-import { rowEq, rowNe, typedEq } from "#compiler/lower/conservative/vector/equality.ts"
 import { columnType } from "#compiler/runtime/lower/columns.ts"
 import type { Cte, Delete, Expr, FromItem } from "#compiler/sql/ast.ts"
 import {
@@ -180,14 +180,13 @@ const buildDelete = (
 		/** Each comparison is at its fields' types: a row holding a vector is spelled column by column through the
 		 * extension's qualified operator, which a row comparison would resolve through the search_path. */
 		const typeOf = rowType
-		const vectorSchema = w.names.vectorSchema
 		const where =
 			mode.kind === "exact"
-				? rowEq({ fields: compared, typeOf, left: stored, right: inCol }, vectorSchema)
+				? rowEq({ fields: compared, typeOf, left: stored, right: inCol }, w.names)
 				: and(
 						appendNonEmpty(
-							pk.map((f) => typedEq(typeOf(f), stored(f), inCol(f), vectorSchema)),
-							rowNe({ fields: mode.payload, typeOf, left: stored, right: inCol }, vectorSchema)
+							pk.map((f) => typedEq(typeOf(f), stored(f), inCol(f), w.names)),
+							rowNe({ fields: mode.payload, typeOf, left: stored, right: inCol }, w.names)
 						)
 					)
 		return deletion(

@@ -34,6 +34,7 @@ import {
 } from "#compiler/core/nonempty.ts"
 import type { TablePrivilege } from "#compiler/core/privilege.ts"
 import * as Result from "#compiler/core/result.ts"
+import { typedEq } from "#compiler/ir/compare.ts"
 import { type FieldDesc, type RoleWritingKey, serialDraw } from "#compiler/ir/desc.ts"
 import type { EvidenceCatalog } from "#compiler/ir/evidence.ts"
 import type { Family } from "#compiler/ir/family.ts"
@@ -827,7 +828,7 @@ const writePlan = (
 										[
 											...within(probed, stored),
 											...within(probed, given),
-											...u.equal.map((f) => binary("=", stored(f), given(f))),
+											...u.equal.map((f) => typedEq(f.type, stored(f), given(f), b.names)),
 											...(u.kind === "span" ? [binary("&&", stored(u.span), given(u.span))] : [])
 										],
 										outside

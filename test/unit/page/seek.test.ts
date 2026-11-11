@@ -23,6 +23,7 @@ import { asc, col, desc, param, types } from "#compiler/sql/build.ts"
 import { assert, nonEmpty } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { isList } from "#test/support/list.ts"
+import { testTypeSchema } from "#test/support/sql.ts"
 
 /**
  * The seek predicate and the request variants' probes (packages/engine/src/lower/shapes/page/seek.ts).
@@ -47,8 +48,9 @@ const keysOf = (dirs: ReadonlyArray<Direction>): ReadonlyArray<SeekKey> =>
 		boundary: param(i + 1, types.integer)
 	}))
 
-/** The extension schema a vector key's operators would name; no key here is a vector. */
-const vectorSchema = "vector_ext"
+/** The installation's names a key's operators resolve through: the vector extension's schema; no key here is a
+ * vector. */
+const names = { vectorSchema: testTypeSchema("vector_ext") }
 
 /**
  * A direct evaluation of the predicate subset the seek emits: columns and placeholders over integers, the comparison
@@ -246,7 +248,7 @@ describe("the seek predicate", () => {
 					({ dirs, seek, m }, c) =>
 						Effect.sync(() => {
 							c.note(m === 0 ? "0 keys" : m === 1 ? "1 keys" : m === 2 ? "2 keys" : "3 keys")
-							const predicate = seekPredicate(keysOf(dirs), seek, vectorSchema)
+							const predicate = seekPredicate(keysOf(dirs), seek, names)
 							for (const t of tuples(m)) {
 								for (const bound of tuples(m)) {
 									const holds =
@@ -271,7 +273,7 @@ const anyOn = (
 	seek: Seek,
 	bound: ReadonlyArray<number>
 ): boolean => {
-	const predicate = seekPredicate(keysOf(dirs), seek, vectorSchema)
+	const predicate = seekPredicate(keysOf(dirs), seek, names)
 	return Arr.some(d, (t) => predicate === undefined || evaluate(predicate, t, bound) === true)
 }
 
