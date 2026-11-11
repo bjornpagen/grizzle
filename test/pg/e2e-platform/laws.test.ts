@@ -44,9 +44,8 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { fullSwarm } from "@grizzle/testing/swarm"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
-import type { ApplyOutcome } from "#adapter/public/db.ts"
-import type { ApplyError } from "#adapter/public/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
+import type { CallError, WriteOutcome } from "#compiler/live/index.ts"
 import type { Addition } from "#compiler/public/changeset.ts"
 import type { Uuid } from "#compiler/public/fields.ts"
 import type { Fact } from "#compiler/public/schema.ts"
@@ -69,7 +68,7 @@ import {
 	viewOf
 } from "#test/support/platform/generate.ts"
 
-import { answered } from "#test/support/calls.ts"
+import { type Answer, answered } from "#test/support/calls.ts"
 import { caseHang } from "#test/support/limits.ts"
 import {
 	decideSet,
@@ -150,7 +149,7 @@ type Decided =
 	| { readonly kind: "refused"; readonly laws: Arr.NonEmptyReadonlyArray<LawId> }
 	| { readonly kind: "outsideWorld"; readonly relation: string }
 
-const decided = (outcome: ApplyOutcome<unknown>): Decided => {
+const decided = (outcome: Answer<WriteOutcome<unknown>>): Decided => {
 	switch (outcome.kind) {
 		case "refused":
 			return {
@@ -167,7 +166,7 @@ const decided = (outcome: ApplyOutcome<unknown>): Decided => {
 
 /** A write of a planted case: its ChangeSet applied to the stored platform, and its operations on the host. */
 interface Attempt {
-	readonly apply: (db: PlatformDb) => Effect.Effect<Decided, ApplyError>
+	readonly apply: (db: PlatformDb) => Effect.Effect<Decided, CallError>
 	readonly ops: ReadonlyArray<PlatformOp>
 }
 

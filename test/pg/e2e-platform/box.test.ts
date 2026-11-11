@@ -27,7 +27,7 @@ import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Order } from "effect"
-import type { ApplyError } from "#adapter/public/errors.ts"
+import type { CallError } from "#compiler/live/index.ts"
 import { applyFacts, openPlatform, type PlatformDb } from "#test/pg/e2e-platform/support.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { answered, rowsOf } from "#test/support/calls.ts"
@@ -214,7 +214,7 @@ const recordFacts = (r: P.UsageRecord): PlatformFacts => ({
 	CreditDebit: r.debits
 })
 
-const decided = (db: PlatformDb, f: PlatformFacts): Effect.Effect<string, ApplyError> =>
+const decided = (db: PlatformDb, f: PlatformFacts): Effect.Effect<string, CallError> =>
 	Effect.map(answered(db.workload.load.once({ params: {}, facts: { insert: f } })), (o) =>
 		o.kind === "refused" ? `refused by ${Formatter.format(o.refused.laws)}` : o.kind
 	)

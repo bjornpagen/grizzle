@@ -68,8 +68,7 @@ import {
 	Record as Rec,
 	Result as EffectResult
 } from "effect"
-import { memberExplains, memberOps, variantOf } from "#adapter/db/handles.ts"
-import type { MemberExplains } from "#adapter/db/ops.ts"
+import { type MemberExplains, memberCalls, memberExplains, variantOf } from "#adapter/db/handles.ts"
 import { ReadFailure } from "#adapter/errors/execution.ts"
 import type { ExecutedPlan, Plan, PlanTarget, StatementPlan } from "#adapter/types/db.ts"
 import type { Prologue } from "#adapter/wire/batch.ts"
@@ -93,6 +92,7 @@ import {
 	throwsRefused,
 	unorderedEqual
 } from "#test/support/assert.ts"
+import { answered, readOnce } from "#test/support/calls.ts"
 import { exactValue, valueHash } from "#test/support/equivalence.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { a1, a2, t2, t4, tMissing, workFacts } from "#test/support/fixtures/golden/work.ts"
@@ -110,7 +110,6 @@ import { regex } from "arkregex"
  * A schema no Db of the suite opens, holding Work's TaskNote: a ChangeSet over it is over no level of any role here.
  */
 const Elsewhere = schema("Elsewhere", { TaskNote: W.TaskNote }, [])
-import { answered, readOnce, writeOnce } from "#test/support/calls.ts"
 
 /** Every node of a plan tree, depth first. */
 const nodes = <N extends { readonly children: ReadonlyArray<N> }>(plan: N): ReadonlyArray<N> => [
@@ -230,7 +229,7 @@ const footprintOf = (program: unknown): ReadonlySet<string> => {
 
 /** A read member's explains: a read's two (types/db ReadExplain). */
 const readExplains = (explains: MemberExplains) =>
-	explains.kind === "read" ? explains.ops : assert.fail("a read member explains as a read")
+	explains.kind === "read" ? explains : assert.fail("a read member explains as a read")
 
 /**
  * Each plan is of the statement the call sent at its place, under that statement's name, and explain sent an EXPLAIN of
@@ -597,11 +596,14 @@ layer(Substrate.layer)("workload explain", (it) => {
 											const params = read.params(c.pick)
 											const program = member(members, read.member)
 											const explains = readExplains(memberExplains(context, tables, program))
-											const plans = yield* observe(tap, explains.explain(params))
-											const analyzed = yield* observe(tap, explains.explainAnalyze(params))
+											const plans = yield* observe(tap, explains.explain({ params, facts: {} }))
+											const analyzed = yield* observe(
+												tap,
+												explains.explainAnalyze({ params, facts: {} })
+											)
 											const executed = yield* observe(
 												tap,
-												readOnce(memberOps(context, program))({ params: params, facts: {} })
+												readOnce(memberCalls(context, program))({ params, facts: {} })
 											)
 											const sent = plannedStatements(tap, executed.window, context.prologue)
 											ofTheServed(
@@ -835,11 +837,11 @@ layer(Substrate.layer)("workload explain", (it) => {
 											assertVariant(
 												explains,
 												"kind",
-												"facts",
+												"change",
 												"a ChangeSet of array members explains with its call's facts"
 											)
 											const before = yield* state()
-											const plans = yield* observe(tap, explains.explain(facts, params))
+											const plans = yield* observe(tap, explains.explain({ params, facts }))
 											const after = yield* state()
 											assert.deepEqual(
 												exactValue(after, before),
@@ -850,16 +852,16 @@ layer(Substrate.layer)("workload explain", (it) => {
 												estimateOnly(plan.plan)
 												readsWithin(plan.plan, footprint, tableOf, indexes)
 											}
-											const ops = memberOps(context, change)
+											const calls = memberCalls(context, change)
 											assertVariant(
-												ops,
-												"kind",
-												"facts",
+												calls,
+												"shape",
+												"write",
 												"a ChangeSet of array members takes its call's facts"
 											)
 											const applied = yield* observe(
 												tap,
-												Effect.result(answered(writeOnce(ops)({ params: params, facts: facts })))
+												Effect.result(answered(calls.once({ params, facts })))
 											)
 											ofTheServed(
 												plans.value,
@@ -929,7 +931,7 @@ layer(Substrate.layer)("workload explain", (it) => {
 									}
 								}
 								const notesExplains = memberExplains(counting, loaded.tables, notesMember)
-								if (notesExplains.kind !== "facts") {
+								if (notesExplains.kind !== "change") {
 									return assert.fail("a ChangeSet of array members explains with its call's facts")
 								}
 								const tasks = [t2, t4, tMissing] as const
@@ -974,7 +976,10 @@ layer(Substrate.layer)("workload explain", (it) => {
 												return
 											}
 											const explained = yield* Effect.result(
-												notesExplains.explain({ insert: { TaskNote: facts } }, {})
+												notesExplains.explain({
+													params: {},
+													facts: { insert: { TaskNote: facts } }
+												})
 											)
 											switch (expected) {
 												case "explained": {
@@ -1035,12 +1040,12 @@ layer(Substrate.layer)("workload explain", (it) => {
 									variantOf(served, boxes.variants).entry.program.flight
 								)
 								const bound = { ...served, pool: boundPool(served.pool, limit) }
-								const handle = memberOps(bound, boxes)
-								if (handle.kind !== "facts") {
-									return assert.fail("a ChangeSet with array members loads as a facts handle")
+								const handle = memberCalls(bound, boxes)
+								if (handle.shape !== "write") {
+									return assert.fail("a ChangeSet with array members loads as a write handle")
 								}
 								const explains = memberExplains(bound, loaded.tables, boxes)
-								if (explains.kind !== "facts") {
+								if (explains.kind !== "change") {
 									return assert.fail(
 										"a ChangeSet with array members explains with its call's facts"
 									)
@@ -1083,9 +1088,11 @@ layer(Substrate.layer)("workload explain", (it) => {
 													]
 												}
 											}
-											const explained = yield* Effect.result(explains.explain(facts, {}))
+											const explained = yield* Effect.result(
+												explains.explain({ params: {}, facts })
+											)
 											const applied = yield* Effect.result(
-												answered(writeOnce(handle)({ params: {}, facts: facts }))
+												answered(handle.once({ params: {}, facts }))
 											)
 											assert.equal(
 												EffectResult.isSuccess(explained),

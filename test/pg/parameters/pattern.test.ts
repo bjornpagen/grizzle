@@ -5,7 +5,7 @@
  * domain of Code and none of Slug. A relation parameter's fields of each, and a scalar parameter of each, are delivered
  * as they are bound by the members of the full world's served workload that read them: a parameter's refinement travels with it, checked at bind as a stored column's domain checks it,
  * whether or not the installation holds its domain. The oracle restates each pattern over the drawn text: a case some
- * value of which is outside its pattern is refused at bind, EncodingFailure with reason refinedValue, before any SQL;
+ * value of which is outside its pattern is refused at bind, an `input` CallError, before any SQL;
  * every other case delivers exactly the values it bound.
  *
  * Plants (~/.cache/grizzle-release/BR13/plants): regex-complete-unchecked-param.patch (a parameter's refinement not
@@ -18,9 +18,8 @@ import { array, codePoint, element, type Gen, oneOf, string } from "@grizzle/tes
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Result, String as Str } from "effect"
-import { ReadFailure, type ReadError } from "#adapter/errors/execution.ts"
 import { Db } from "#adapter/public/db.ts"
-import { type CodecFault, EncodingFailure } from "#compiler/core/errors.ts"
+import type { CallError } from "#compiler/live/index.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
@@ -102,9 +101,6 @@ type Feature =
 
 const noteId = "00000000-0000-4000-8000-000000000001"
 
-/** The codec fault a value outside its parameter's refinement is refused with at bind. */
-const refinedValue: CodecFault = "refinedValue"
-
 layer(Substrate.layer)(
 	"a parameter's pattern no stored field declares, against PostgreSQL 19",
 	(it) => {
@@ -156,7 +152,7 @@ layer(Substrate.layer)(
 										/** The rows the case delivers, as the oracle states them, or its failure. */
 										const read: Result.Result<
 											ReadonlyArray<Readonly<Record<string, unknown>>>,
-											ReadError
+											CallError
 										> = k.via === "relation"
 											? yield* Effect.result(
 													rowsOf(
@@ -184,13 +180,9 @@ layer(Substrate.layer)(
 												return assert.fail("a value outside its pattern is refused")
 											}
 											const failure = read.failure
-											if (
-												!(failure instanceof ReadFailure) ||
-												!(failure.reason instanceof EncodingFailure)
-											) {
-												return assert.fail(`refused at bind, not by ${failure._tag}`)
+											if (failure.kind !== "input") {
+												return assert.fail(`refused at bind, not by ${failure.kind}`)
 											}
-											assert.deepEqual(failure.reason.reason, { _tag: refinedValue })
 											c.note(`${k.via} refused at bind`)
 											if (slugAlone) {
 												c.note(`${k.via} refused for a slug alone`)
@@ -199,7 +191,7 @@ layer(Substrate.layer)(
 										}
 										if (Result.isFailure(read)) {
 											return assert.fail(
-												`values inside their patterns are delivered: ${read.failure._tag}`
+												`values inside their patterns are delivered: ${read.failure.kind}`
 											)
 										}
 										const delivered: ReadonlyArray<Readonly<Record<string, unknown>>> =

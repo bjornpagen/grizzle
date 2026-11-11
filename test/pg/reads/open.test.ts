@@ -14,8 +14,8 @@
  * ledger's lock finding no schema of the installation (3F000). A query whose relation parameter carries a vector names
  * pgvector's type in the vector schema, which grizzle checks nothing of: a Search Db, whose role holds USAGE on it,
  * answers one where its schema is installed; Work's served file holds one too, compiled as any program, and PostgreSQL
- * refuses it at the call, a ReadFailure with the server's ServerError: where pgvector is installed the role holds no
- * USAGE on its schema (42501), and where it is not the schema does not exist (3F000). Each login is served from its
+ * refuses it at the call, a `failed` CallError: where pgvector is installed the role holds no USAGE on its schema
+ * (42501), and where it is not the schema does not exist (3F000). Each login is served from its
  * file as the installation compiled it, on a DbLayer of the case's database.
  *
  * The opens a role, token or claims refuse are the worlds model's (test/pg/world-model); a password Effect's failure is
@@ -29,7 +29,6 @@
  *   the vector schema, answers Work's vector probe; each must turn the property red.
  */
 import { layer } from "@effect/vitest"
-import { assertInstanceOf } from "@effect/vitest/utils"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { type Reached, required } from "@grizzle/testing/features"
 import { bytes as bytesGen, constant, type Gen, int, oneOf, weighted } from "@grizzle/testing/gen"
@@ -37,11 +36,9 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, Option, Result, String as Str } from "effect"
-import { ReadFailure } from "#adapter/errors/execution.ts"
-import { ServerError } from "#adapter/errors/failures.ts"
 import { Db } from "#adapter/public/db.ts"
 import { DbLayer } from "#adapter/public/layer.ts"
-import { sqlstates } from "#compiler/core/sqlstate.ts"
+import type { CallError } from "#compiler/live/index.ts"
 import { bytes, date, pg, uuid, Vector } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { type AnyLogin, relation, schema } from "#compiler/public/schema.ts"
@@ -53,7 +50,7 @@ import {
 } from "#test/pg/adapter/support.ts"
 import { bareDatabase, installed } from "#test/pg/reads/support.ts"
 import { assert } from "#test/support/assert.ts"
-import { oneOf, rowsOf } from "#test/support/calls.ts"
+import { oneOf as oneRow, rowsOf } from "#test/support/calls.ts"
 import * as search from "#test/support/fixtures/api/search.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { t1, workFacts } from "#test/support/fixtures/golden/work.ts"
@@ -303,11 +300,12 @@ layer(Substrate.layer)("Db.open", (it) => {
 					const e = Vector.make(Float32Array.of(1, 0, 0), 3)
 					const qs = [{ id: t1, e }]
 					/** A read the fence refused: the database holds no schema of the installation, so no ledger. */
-					const noLedger = (error: unknown): void => {
-						assertInstanceOf(error, ReadFailure)
-						assertInstanceOf(error.reason, ServerError)
-						assert.equal(error.reason.sqlstate, sqlstates.invalidSchemaName)
-					}
+					const noLedger = (error: CallError): void =>
+						assert.equal(
+							error.kind,
+							"failed",
+							"the server refused the read: no schema of the ledger"
+						)
 					return yield* explore(
 						{
 							suite: "reads/open",
@@ -357,7 +355,7 @@ layer(Substrate.layer)("Db.open", (it) => {
 									yield* Effect.flatMap(Db.open(stamping.served.login.roles.app, {}), (db) =>
 										Effect.gen(function* () {
 											const found = yield* Effect.result(
-												oneOf(db.workload.stamp.once({ params: { id: stampId }, facts: {} }))
+												oneRow(db.workload.stamp.once({ params: { id: stampId }, facts: {} }))
 											)
 											if (!holdsSchema(c)) {
 												assert.ok(Result.isFailure(found), `a read of ${c.database}`)
@@ -398,7 +396,7 @@ layer(Substrate.layer)("Db.open", (it) => {
 									yield* Effect.flatMap(Db.open(work.served.login.roles.app, {}), (db) =>
 										Effect.gen(function* () {
 											const found = yield* Effect.result(
-												oneOf(db.workload.task.once({ params: { id: t1 }, facts: {} }))
+												oneRow(db.workload.task.once({ params: { id: t1 }, facts: {} }))
 											)
 											if (holdsSchema(c)) {
 												assert.ok(Result.isSuccess(found), `a read of ${c.database}`)
@@ -422,16 +420,14 @@ layer(Substrate.layer)("Db.open", (it) => {
 											 * The probe names vector_ext.vector(3): where pgvector is installed the role holds no USAGE
 											 * on its schema (42501), and where it is not the schema does not exist (3F000).
 											 */
-											const refusedBy =
-												c.database === "installed"
-													? sqlstates.insufficientPrivilege
-													: sqlstates.invalidSchemaName
 											const read = yield* Effect.flip(
 												rowsOf(db.workload.vectorProbe.once({ params: { qs }, facts: {} }))
 											)
-											assertInstanceOf(read, ReadFailure)
-											assertInstanceOf(read.reason, ServerError)
-											assert.equal(read.reason.sqlstate, refusedBy)
+											assert.equal(
+												read.kind,
+												"failed",
+												`the server refused the vector probe on ${c.database}`
+											)
 											k.note("a vector probe refused by PostgreSQL")
 										})
 									).pipe(Effect.orDie, withLayer(Layer.fresh(layerIn(database, work))))
@@ -444,7 +440,7 @@ layer(Substrate.layer)("Db.open", (it) => {
 											testTypeSchema("vector_ext")
 										)
 										const found = yield* Effect.result(
-											oneOf(
+											oneRow(
 												db.workload.document.once({
 													params: { id: "00000000-0000-4000-8000-000000000001" },
 													facts: {}

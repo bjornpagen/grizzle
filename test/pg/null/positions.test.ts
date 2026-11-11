@@ -60,14 +60,14 @@ import {
 	Record as Rec,
 	Result
 } from "effect"
-import type { ServedOps } from "#adapter/db/ops.ts"
-import { OpenError, type ReadError } from "#adapter/errors/execution.ts"
+import type { ServedCalls, WrittenOutcome } from "#adapter/db/handles.ts"
+import { OpenError } from "#adapter/errors/execution.ts"
 import type { ServedRefusal } from "#adapter/public/compile.ts"
-import type { ApplyOutcome } from "#adapter/types/db.ts"
 import { isCompileError } from "#compiler/core/errors.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { predicateTable, type ScalarExpr } from "#compiler/ir/expr.ts"
 import { compileLaws, type LawModel } from "#compiler/laws/model/model.ts"
+import type { CallError } from "#compiler/live/index.ts"
 import type { Law } from "#compiler/public/changeset.ts"
 import {
 	contained,
@@ -91,7 +91,7 @@ import { checkBuilder, selectBuilder } from "#compiler/schema/statements.ts"
 import { changeSetOver } from "#compiler/write/changeset/value.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, assertVariant, succeeded } from "#test/support/assert.ts"
-import { answered, readOnce, writeOnce } from "#test/support/calls.ts"
+import { type Answer, answered, readOnce } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import {
@@ -587,9 +587,9 @@ const lawName = (law: Law): string => {
  * those laws, every one the row breaks, never a defect.
  */
 /** A change member of array members, applied with the call's facts. */
-const appliedFacts = (change: ServedOps<unknown>, facts: unknown) => {
-	assertVariant(change, "kind", "facts", "a write's change member takes its call's facts")
-	return answered(writeOnce(change)({ params: {}, facts: facts }))
+const appliedFacts = (change: ServedCalls, facts: unknown) => {
+	assertVariant(change, "shape", "write", "a write's change member takes its call's facts")
+	return answered(change.once({ params: {}, facts }))
 }
 
 /**
@@ -598,10 +598,10 @@ const appliedFacts = (change: ServedOps<unknown>, facts: unknown) => {
  */
 type Head =
 	| { readonly kind: "refused"; readonly refusal: ServedRefusal | OpenError }
-	| { readonly kind: "read"; readonly rows: Result.Result<ReadonlyArray<unknown>, ReadError> }
+	| { readonly kind: "read"; readonly rows: Result.Result<ReadonlyArray<unknown>, CallError> }
 
 const verdict = (
-	applied: Result.Result<ApplyOutcome<unknown>, unknown>,
+	applied: Result.Result<Answer<WrittenOutcome>, unknown>,
 	broken: ReadonlyArray<string>,
 	where: string
 ): void => {
@@ -919,7 +919,7 @@ const nullCase = (drawnCase: NullCase, notes: Case<Feature>) =>
 							.find({ total: r.sum(x["n"]) })
 					)
 				})
-				const collect = (served: ReadonlyMap<string, ServedOps<unknown>>, name: string) =>
+				const collect = (served: ReadonlyMap<string, ServedCalls>, name: string) =>
 					readOnce(member(served, name))({ params: {}, facts: {} })
 				const filtered = yield* collect(reads, "filtered")
 				const grouped = yield* collect(reads, "grouped")

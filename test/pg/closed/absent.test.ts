@@ -90,8 +90,8 @@ import { boundedShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Order, Record as Rec, Result } from "effect"
 import { Db } from "#adapter/public/db.ts"
-import type { ApplyOutcome } from "#adapter/public/db.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import type { WriteOutcome } from "#compiler/live/index.ts"
 import { ChangeSet, type Law } from "#compiler/public/changeset.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import {
@@ -126,7 +126,7 @@ import type { Predicate } from "#compiler/types/core/phantom.ts"
 import type { RowScalars } from "#compiler/types/schema/statements.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert } from "#test/support/assert.ts"
-import { answered } from "#test/support/calls.ts"
+import { type Answer, answered } from "#test/support/calls.ts"
 import { setText } from "#test/support/closed/bit-text.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -1150,7 +1150,7 @@ const namesLaw = (law: Law, relation: string): boolean => {
  * one law `relation` holds, never a contract's or a pattern's domain, and never a defect.
  */
 const verdict = (
-	applied: Result.Result<ApplyOutcome<unknown>, unknown>,
+	applied: Result.Result<Answer<WriteOutcome<unknown>>, unknown>,
 	relation: string,
 	lawful: boolean,
 	where: string

@@ -51,8 +51,8 @@ import { boundedShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Result, String as Str } from "effect"
 import { Db } from "#adapter/public/db.ts"
-import type { ApplyOutcome } from "#adapter/public/db.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import type { WriteOutcome } from "#compiler/live/index.ts"
 import { ChangeSet, type Law } from "#compiler/public/changeset.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { closedId, generated, pg } from "#compiler/public/fields.ts"
@@ -70,7 +70,7 @@ import { str } from "#compiler/public/text.ts"
 import type { Predicate, Term } from "#compiler/types/core/phantom.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert } from "#test/support/assert.ts"
-import { answered } from "#test/support/calls.ts"
+import { type Answer, answered } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { refusedLaws } from "#test/support/refused.ts"
@@ -545,7 +545,7 @@ const namesLaw = (law: Law, relation: string): boolean => {
 
 /** Holds a write's outcome to the model's verdict: accepted where lawful, else refused by `relation`'s one law. */
 const verdict = (
-	applied: Result.Result<ApplyOutcome<unknown>, unknown>,
+	applied: Result.Result<Answer<WriteOutcome<unknown>>, unknown>,
 	relation: string,
 	lawful: boolean,
 	where: string

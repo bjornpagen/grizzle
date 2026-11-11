@@ -9,17 +9,21 @@ import {
 	String as Str
 } from "effect"
 import type { ServedDbContext } from "#adapter/db/context.ts"
-import { memberOpsOn } from "#adapter/db/handles.ts"
-import type { CompiledOps } from "#adapter/db/ops.ts"
-import type { ReadError } from "#adapter/errors/execution.ts"
-import { pageEdges } from "#adapter/page/execute.ts"
-import { type PageRequestValue, pageRequest } from "#adapter/page/request.ts"
+import { memberCalls, type ServedCalls } from "#adapter/db/handles.ts"
+import { windowIntake } from "#adapter/page/execute.ts"
 import type { PageRuntime } from "#adapter/page/template.ts"
-import { partRuns, type SentRuns, type StatementRecord } from "#adapter/reader/execution.ts"
-import { poolExecutor, type ReadExecutor } from "#adapter/reader/executor.ts"
+import { windowCall } from "#adapter/page/window.ts"
+import {
+	type HostParams,
+	partRuns,
+	type SentRuns,
+	type StatementRecord
+} from "#adapter/reader/execution.ts"
 import { deliveredRows, type ReadProgram } from "#adapter/reader/run.ts"
+import type { DecodedRow } from "#adapter/reader/stream.ts"
 import type { LoadedMember } from "#adapter/served/load.ts"
-import type { QueryResult } from "#adapter/types/db.ts"
+import { takenRows } from "#adapter/wire/batch.ts"
+import type { Session, WireQuery } from "#adapter/wire/session.ts"
 import { assembled, cellKindOf, deliveryOf } from "#compiler/codec/delivery.ts"
 import { scalarReader } from "#compiler/codec/read.ts"
 import { scalarCodec } from "#compiler/codec/scalar.ts"
@@ -27,18 +31,17 @@ import type { Layout, Row } from "#compiler/core/decoder.ts"
 import { bytesChunkLength } from "#compiler/core/limits.ts"
 import { sha256Hex } from "#compiler/core/sha256.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
-import type { Cell } from "#compiler/core/wire.ts"
+import type { Cell, OutputRows } from "#compiler/core/wire.ts"
 import { type Codebook, emptyCodebook, firstCodebook } from "#compiler/ir/codes.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import { rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
+import type { CallError, KeyedList, KeyedSet, Window } from "#compiler/live/index.ts"
 import type { PartDivision } from "#compiler/lower/parts.ts"
-import type { ParamMap } from "#compiler/plan/common.ts"
 import { type FusedLayout, fusedElement } from "#compiler/runtime/lower/fused.ts"
 import { statementOutput } from "#compiler/runtime/lower/tree.ts"
 import type { Bytes } from "#compiler/scalar/values/bytes.ts"
 import { isHostValue } from "#compiler/scalar/values/identity.ts"
 import type { ServedPart } from "#compiler/served/read.ts"
-import type { Page } from "#compiler/types/page/page.ts"
 import {
 	type StrictCell,
 	strictArrayText,
@@ -178,8 +181,6 @@ interface LaidOut {
 	readonly heading: Heading
 	readonly own: number
 }
-
-type Flight = { readonly kind: "awaiting" } | { readonly kind: "flown"; readonly sent: SentRuns }
 
 /**
  * Every answer of a flight read strictly by its statement's delivery (test/support/kernel/strict.ts strictDelivered),
@@ -404,7 +405,7 @@ const answering = (parts: ReadonlyArray<PartChecked>): ReadonlyArray<PartChecked
 
 /**
  * The runs of the parts of a program's statement, the first answer of its flight `sent`, divided as the runtime divides
- * them (partRuns); a page's probe answers after it.
+ * them (partRuns).
  */
 const programRuns = (parts: PartDivision, sent: SentRuns): SentRuns =>
 	partRuns(parts, defined(sent[0], "the answer of the program's statement"))
@@ -440,7 +441,7 @@ const sentRow = (row: Row, layout: Layout): SentRow => ({
 const checkRead = (
 	program: ReadProgram,
 	sent: SentRuns,
-	params: ParamMap,
+	params: HostParams,
 	records: ReadonlyArray<unknown>
 ): ReadonlyArray<SentRow> => {
 	if (sent.length !== 1) {
@@ -460,50 +461,40 @@ const checkRead = (
 	)
 }
 
-const probeOf = (
-	run: PageRuntime["artifact"],
-	request: PageRequestValue
-): ReadonlyArray<Pick<Checked, "heading" | "fused">> => {
-	switch (request.variant) {
-		case "first":
-		case "last":
-			return []
-		case "after":
-		case "before":
-			return [
-				run.probes[run.requests[request.variant].program.probe].program.program.roots[0].statement
-			]
-	}
-}
-
-const checkPage = <Q>(
+/**
+ * A window's flight checked: its one statement's cells read strictly by its template's parts, and its delivered
+ * records against the rows the library's window intake reads off the same answer (page/execute.ts windowIntake).
+ */
+const checkWindow = (
 	runtime: PageRuntime,
 	sent: SentRuns,
-	request: unknown,
-	page: Page<unknown, Q>
-): void => {
-	const parsed = pageRequest(request)
-	if (Result.isFailure(parsed)) {
-		throw new Error("a page that answered a request its runtime refuses")
+	window: unknown,
+	records: ReadonlyArray<unknown>
+): ReadonlyArray<SentRow> => {
+	const call = windowCall(window, runtime.anchors)
+	if (Result.isFailure(call)) {
+		throw new Error("a window that answered a window its runtime refuses")
 	}
-	const run = runtime.artifact
-	const program = run.requests[parsed.success.variant]
-	const probes = probeOf(run, parsed.success)
-	if (sent.length !== 1 + probes.length) {
-		disagree(`a flight of ${sent.length} answers for a request and ${probes.length} probes`)
+	const program = runtime.artifact.requests[call.success.variant]
+	if (sent.length !== 1) {
+		disagree(`a flight of ${sent.length} answers for a window's one statement`)
 	}
 	const statements = partsChecked(program.records)
-	const runs = programRuns(program.run.parts, sent)
-	checkCells(answering(statements), runs)
-	checkCells(probes, sent.slice(1))
-	checkRecords(
-		Arr.map(page.edges, (edge) => edge.node),
-		Arr.map(
-			Result.getOrThrow(pageEdges(program, runs, parsed.success.size)).edges,
-			(edge) => edge.row
-		),
-		program.layouts,
-		headingsOf(statements)
+	checkCells(answering(statements), programRuns(program.run.parts, sent))
+	const rows: Array<Row> = []
+	const intake = windowIntake(program, call.success.size, (row) => {
+		rows.push(row)
+	})
+	for (const row of defined(sent[0], "the answer of the window's statement")) {
+		intake.take(row)
+	}
+	const read = intake.end()
+	if (Result.isFailure(read)) {
+		throw new Error(`the rows PostgreSQL sent are unreadable: ${read.failure.message}`)
+	}
+	checkRecords(records, rows, program.layouts, headingsOf(statements))
+	return Arr.map(rows, (row) =>
+		sentRow(row, defined(program.layouts[row.group], `the layout of group ${row.group}`))
 	)
 }
 
@@ -514,18 +505,59 @@ const defined = <A>(value: A | undefined, what: string): A => {
 	return value
 }
 
+/** A read's value: a set read's keyed set, or an ordered read's keyed list (live/keyed.ts). */
+export type ReadValue = KeyedSet<DecodedRow> | KeyedList<DecodedRow>
+
 /**
- * A served Db's members, each read through an executor that keeps the rows PostgreSQL sent its last flight, and the rows
- * its last execute delivered as PostgreSQL sent them.
+ * A member's reads as a case runs them, each its once (adapter/db/handles.ts), each answering the read's value: `read`
+ * over its parameters, a paged member's over the window of its every row (everyRow), and `window` over a paged member's
+ * parameters and a window.
+ */
+export interface ReadCalls {
+	readonly read: (params: HostParams) => Effect.Effect<ReadValue, CallError>
+	readonly window: (params: HostParams, window: unknown) => Effect.Effect<ReadValue, CallError>
+}
+
+/** A read member's once, its value as it answers: a write member's is a defect of the test. */
+const valueOf =
+	(calls: ServedCalls) =>
+	(input: unknown): Effect.Effect<ReadValue, CallError> => {
+		switch (calls.shape) {
+			case "set":
+				return calls.once(input)
+			case "list":
+				return calls.once(input)
+			case "write":
+				return Effect.die(new Error("a read of a write member"))
+		}
+	}
+
+/** The window of a paged member's every row: from its start, as many rows as a window takes. */
+const everyRow: Window = { anchor: { kind: "start" }, size: Number.MAX_SAFE_INTEGER }
+
+/** A loaded member's reads over a Db's context `ctx` (ReadCalls). */
+export const readCalls = (ctx: ServedDbContext, member: LoadedMember): ReadCalls => {
+	const once = valueOf(memberCalls(ctx, member))
+	const windowed = (params: HostParams, window: unknown) => once({ params, facts: {}, window })
+	return {
+		read: (params) =>
+			member.kind === "paged" ? windowed(params, everyRow) : once({ params, facts: {} }),
+		window: windowed
+	}
+}
+
+/**
+ * A served Db's members, each read through a context whose sessions record the rows PostgreSQL sent each read's
+ * statement, and the rows its last read delivered as PostgreSQL sent them.
  */
 export interface StrictReader {
 	/**
-	 * The operations of `member` over the reader's context, every read checked strictly: each cell PostgreSQL sent read
-	 * by its column's strict reader and checked against the library's conversion, and every delivered field against its cell, by the
-	 * member's own loaded program (a read's statements and layouts, a page's runtime). A check that disagrees dies with
-	 * a CellDisagreement.
+	 * The reads of `member` over the reader's context, every read checked strictly: each cell PostgreSQL sent read by
+	 * its column's strict reader and checked against the library's conversion, and every delivered field against its
+	 * cell, by the member's own loaded program (a read's statements and layouts, a page's runtime). A check that
+	 * disagrees dies with a CellDisagreement.
 	 */
-	readonly ops: (member: LoadedMember) => Omit<CompiledOps<unknown>, "apply">
+	readonly calls: (member: LoadedMember) => ReadCalls
 	readonly sentRows: () => ReadonlyArray<SentRow>
 }
 
@@ -550,71 +582,93 @@ const pageRuntimeOf = (member: LoadedMember): PageRuntime => {
 	return member.page.runtime
 }
 
+/** One read statement's answer as it arrives: the rows its intake takes, recorded in arrival order. */
+type Recorded = Array<OutputRows[number]>
+
+/**
+ * `query`, a read statement whose intake takes its rows as they arrive (wire/batch.ts RowIntake), with each row handed
+ * to a run of its own that `record` is given, then to its own intake; every other query as it is.
+ */
+const recordedQuery = (query: WireQuery, record: (run: Recorded) => void): WireQuery => {
+	if (query._tag !== "prepared") {
+		return query
+	}
+	const intake = query.intake
+	if (intake.kind !== "taken") {
+		return query
+	}
+	const run: Recorded = []
+	record(run)
+	return {
+		...query,
+		intake: takenRows((row) => {
+			run.push(row)
+			intake.take(row)
+		})
+	}
+}
+
+/** `session`, each read statement of every pipeline it sends recorded (recordedQuery). */
+const recordingSession = (session: Session, record: (run: Recorded) => void): Session => ({
+	...session,
+	send: (pipeline, onAnswer, onEnd, onCut) => {
+		session.send(
+			Arr.map(pipeline, (query) => recordedQuery(query, record)),
+			onAnswer,
+			onEnd,
+			onCut
+		)
+	}
+})
+
 /** The strict reader of the served Db of `ctx` (StrictReader), its cells checked against the library's conversion. */
 export const strictReaderOf = (ctx: ServedDbContext): StrictReader => {
 	let lastSent: ReadonlyArray<SentRow> = []
-	let inProgress: Flight = { kind: "awaiting" }
-	const base = poolExecutor(ctx)
-	const executor: ReadExecutor = {
-		run: (flight) =>
-			base.run({
-				statements: flight.statements,
-				read: (outcomes) =>
-					Effect.map(flight.read(outcomes), (delivered) => {
-						inProgress = { kind: "flown", sent: Arr.map(outcomes, (o) => o.rows) }
-						return delivered
-					})
-			})
-	}
-
-	const checked = <A, E>(
-		answer: Effect.Effect<A, E>,
-		check: (a: A, sent: SentRuns) => Effect.Effect<void, E>
-	): Effect.Effect<A, E> =>
-		Effect.suspend(() => {
-			inProgress = { kind: "awaiting" }
-			lastSent = []
-			return Effect.flatMap(answer, (a) => {
-				const answered = inProgress
-				switch (answered.kind) {
-					case "awaiting":
-						return Effect.die(new Error("a read that answered without a flight"))
-					case "flown":
-						return Effect.as(check(a, answered.sent), a)
-				}
-			})
-		})
-	const collected =
-		(
-			program: ReadProgram,
-			params: ParamMap
-		): ((result: QueryResult<unknown>, sent: SentRuns) => Effect.Effect<void, ReadError>) =>
-		(result, sent) =>
-			Effect.flatMap(result.collect, (rows) =>
-				Effect.sync(() => {
-					lastSent = checkRead(program, sent, params, rows)
+	let flight: Array<Recorded> = []
+	const recording: ServedDbContext = {
+		...ctx,
+		pool: {
+			...ctx.pool,
+			lease: Effect.map(ctx.pool.lease, (session) =>
+				recordingSession(session, (run) => {
+					flight.push(run)
 				})
 			)
+		}
+	}
+	const checked = (
+		answer: Effect.Effect<ReadValue, CallError>,
+		check: (value: ReadValue, sent: SentRuns) => void
+	): Effect.Effect<ReadValue, CallError> =>
+		Effect.suspend(() => {
+			flight = []
+			lastSent = []
+			return Effect.flatMap(answer, (value) => {
+				const sent = flight
+				return sent.length === 0
+					? Effect.die(new Error("a read that answered without a flight"))
+					: Effect.sync(() => {
+							check(value, sent)
+							return value
+						})
+			})
+		})
 	return {
 		sentRows: () => lastSent,
-		ops: (member) => {
-			const { ops } = memberOpsOn(executor, ctx, member)
+		calls: (member) => {
+			const calls = readCalls(recording, member)
 			return {
-				refresh: ops.refresh,
-				execute: (params) =>
-					checked(ops.execute(params), collected(readOf(member).program, params)),
-				get: (params) =>
-					checked(ops.get(params), (got, sent) =>
-						Effect.sync(() => {
-							checkRead(readOf(member).program, sent, params, Option.isSome(got) ? [got.value] : [])
-						})
-					),
-				page: <Q>(params: ParamMap, request: unknown) =>
-					checked(ops.page<Q>(params, request), (page, sent) =>
-						Effect.sync(() => {
-							checkPage(pageRuntimeOf(member), sent, request, page)
-						})
-					)
+				read: (params) =>
+					checked(calls.read(params), (value, sent) => {
+						lastSent =
+							member.kind === "paged"
+								? checkWindow(member.page.runtime, sent, everyRow, [...value])
+								: checkRead(readOf(member).program, sent, params, [...value])
+					}),
+				window: (params, window) =>
+					checked(calls.window(params, window), (value, sent) => {
+						checkWindow(pageRuntimeOf(member), sent, window, [...value])
+					})
 			}
 		}
 	}

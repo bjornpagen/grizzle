@@ -755,9 +755,9 @@ layer(Substrate.layer)("vector equality as a world role", (it) => {
 										const found = yield* run(writer, spec, {})
 										assert.deepEqual(idsOf(found), expected.unmatched, "the unmatched")
 									}
-									const read: ReadonlyArray<unknown> = yield* (yield* rowsOf(
+									const read: ReadonlyArray<unknown> = yield* rowsOf(
 										db.workload.twins.once({ params: {}, facts: {} })
-									)).collect
+									)
 									const outcome = yield* answered(
 										db.workload.readBack.once({ params: {}, facts: {} })
 									)

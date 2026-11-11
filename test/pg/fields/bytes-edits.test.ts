@@ -252,7 +252,7 @@ const Stage = relation("Stage", { id: pg.integer, body: bytes }, ["id"])
 const Edits = schema("BytesEdits", { Blob, Held, Stage }, [mutable(Blob), mutable(Held)])
 
 /** Every row of `target`, with its value. */
-const rowsOf = (target: typeof Blob | typeof Held) =>
+const everyRowOf = (target: typeof Blob | typeof Held) =>
 	query(Edits).rule((r) => {
 		const { id, body } = v(target, "row")
 		return r.match(target, { id, body }).find({ id, body })
@@ -273,8 +273,8 @@ const programs = {
 		})
 	),
 	edit: ChangeSet.empty(Edits).put(Blob, []).delete(Blob, []),
-	blobRows: rowsOf(Blob),
-	heldRows: rowsOf(Held)
+	blobRows: everyRowOf(Blob),
+	heldRows: everyRowOf(Held)
 }
 
 const byId = Order.mapInput(Order.Number, (row: { readonly id: number }) => row.id)

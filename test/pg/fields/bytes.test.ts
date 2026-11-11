@@ -316,10 +316,9 @@ layer(Layer.merge(Substrate.layer, Digest.layerWebCrypto), { excludeTestServices
 											)
 											assert.equal(outcome.kind, "accepted", "every bytes value is written")
 										}
-										const executed = yield* rowsOf(
+										const collected = yield* rowsOf(
 											db.workload.blobs.once({ params: {}, facts: {} })
 										)
-										const collected = yield* executed.collect
 										const read = Arr.sort(collected, byId)
 										assert.deepEqual(
 											Arr.map(read, (row) => ({ id: row.id, body: row.body })),

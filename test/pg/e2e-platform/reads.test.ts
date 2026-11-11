@@ -9,13 +9,13 @@
  * workload runs, as a member of billing's served workload, with parameters drawn from the platform (an id it holds, or
  * one it does not):
  *
- * - a member's execute's rows, flattened statement by statement, agree with the reference evaluator over the read's
+ * - a member's once's rows, flattened statement by statement, agree with the reference evaluator over the read's
  *   checked IR and the same facts: the root's rows and each attachment's children per parent, as sets, each column by
  *   its type's equality; an arm's child is delivered exactly where its parent's handle selects it;
- * - get of the reads proved at most one row answers the reference's row or none, at a workspace's month the platform
- *   charged and at a drawn one;
- * - page of the paged member invoices, page by page at a drawn size, concatenates to its execute's rows, which are in
- *   the stated order;
+ * - the one row of the reads proved at most one row is the reference's row or none, at a workspace's month the
+ *   platform charged and at a drawn one;
+ * - windows of the paged member invoices, each anchored after the last row of the one before at a drawn size until one
+ *   answers no row, concatenate to its every row, which are in the stated order;
  * - where the contract fully determines a number, it equals the host billing model's (test/support/platform/model.ts),
  *   a second implementation of the arithmetic: each tier piece of an event's charge and its sum per kind, which is what
  *   the model charged when the event was recorded, and a quote's price per kind.
@@ -36,10 +36,9 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { fullSwarm } from "@grizzle/testing/swarm"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
-import type { ReadError, TransientFailure } from "#adapter/errors/execution.ts"
-import type { QueryResult } from "#adapter/types/db.ts"
-import { appendAll, indices } from "#compiler/core/array.ts"
+import { indices } from "#compiler/core/array.ts"
 import { isRecord } from "#compiler/core/record.ts"
+import type { Anchor, CallError, Window } from "#compiler/live/index.ts"
 import type { Uuid } from "#compiler/scalar/values/uuid.ts"
 import {
 	applyFacts,
@@ -147,9 +146,12 @@ const monthOf = (p: Platform, pick: number) =>
 	)
 const ids = (rows: ReadonlyArray<{ readonly id: Uuid }>) => Arr.map(rows, (r) => r.id)
 
+/** The window of a paged member's every row: from its start, as many rows as a window takes. */
+const everyRow: Window = { anchor: { kind: "start" }, size: Number.MAX_SAFE_INTEGER }
+
 /**
  * A read: its name, its query (what the reference evaluates), its parameters drawn from a platform, and its run through
- * its workload member's execute with those parameters.
+ * its workload member's once with those parameters, as its rows.
  */
 interface ReadCase {
 	readonly name: string
@@ -159,7 +161,7 @@ interface ReadCase {
 		pick: number
 	) => {
 		readonly params: Readonly<Record<string, unknown>>
-		readonly execute: (db: PlatformDb) => Effect.Effect<QueryResult<unknown>, ReadError>
+		readonly rows: (db: PlatformDb) => Effect.Effect<ReadonlyArray<unknown>, CallError>
 	}
 }
 
@@ -167,13 +169,13 @@ const read = <A extends Readonly<Record<string, unknown>>>(
 	name: string,
 	query: unknown,
 	params: (pick: number, p: Platform) => A,
-	execute: (db: PlatformDb, a: A) => Effect.Effect<QueryResult<unknown>, ReadError>
+	rows: (db: PlatformDb, a: A) => Effect.Effect<ReadonlyArray<unknown>, CallError>
 ): ReadCase => ({
 	name,
 	query,
 	at: (p, pick) => {
 		const a = params(pick, p)
-		return { params: a, execute: (db) => execute(db, a) }
+		return { params: a, rows: (db) => rows(db, a) }
 	}
 })
 
@@ -329,7 +331,7 @@ const reads: ReadonlyArray<ReadCase> = [
 		"invoices",
 		P.invoices,
 		(k, p) => ({ org: liveOr(ids(p.facts.Org), absentId, k) }),
-		(db, a) => rowsOf(db.workload.invoices.once({ params: a, facts: {} }))
+		(db, a) => rowsOf(db.workload.invoices.once({ params: a, facts: {}, window: everyRow }))
 	),
 	read(
 		"invoiceAt",
@@ -463,33 +465,36 @@ const checkArms = (readName: string, rows: ReadonlyArray<unknown>): void => {
 }
 
 /**
- * Every invoice of an organization, paged `size` at a time and concatenated, following each page's end cursor, each
- * page's call run again after a TransientFailure (untilAnswered), `refused` told of each.
+ * Every invoice of an organization, windowed `size` at a time and concatenated, each window anchored after the key of
+ * the last row of the one before, until a window answers no row; each window's call run again after a transient
+ * refusal (untilAnswered), `refused` told of each.
  */
 const pagedInvoices = (
 	db: PlatformDb,
 	org: Uuid,
 	size: number,
-	refused: (transient: TransientFailure) => void
-) =>
-	Effect.gen(function* () {
-		const paged: Array<unknown> = []
-		let page = yield* untilAnswered(db.workload.invoices.page({ org }, { first: size }), refused)
-		for (;;) {
-			appendAll(
-				paged,
-				Arr.map(page.edges, (e) => e.node)
-			)
-			const next = page.pageInfo.endCursor
-			if (!page.pageInfo.hasNextPage || Option.isNone(next)) {
-				return paged
-			}
-			page = yield* untilAnswered(
-				db.workload.invoices.page({ org }, { first: size, after: next.value }),
+	refused: () => void
+): Effect.Effect<ReadonlyArray<unknown>, CallError> => {
+	const from = (
+		anchor: Anchor,
+		paged: ReadonlyArray<unknown>
+	): Effect.Effect<ReadonlyArray<unknown>, CallError> =>
+		Effect.flatMap(
+			untilAnswered(
+				db.workload.invoices.once({ params: { org }, facts: {}, window: { anchor, size } }),
 				refused
-			)
-		}
-	})
+			),
+			(window) => {
+				const entries = [...window.entries()]
+				return Option.match(Arr.last(entries), {
+					onNone: () => Effect.succeed(paged),
+					onSome: (last) =>
+						from({ kind: "after", key: last.key }, [...paged, ...Arr.map(entries, (e) => e.row)])
+				})
+			}
+		)
+	return from({ kind: "start" }, [])
+}
 
 /** eventCost's pieces are the model's, and their sum per kind is what the model charged when the event was recorded. */
 const checkEventCost = (p: Platform, event: string, rows: ReadonlyArray<unknown>) => {
@@ -722,11 +727,8 @@ layer(Substrate.layer)(
 										)
 										const facts = hostFacts(p.facts, dailySpendRows(p.facts))
 										for (const [i, r] of reads.entries()) {
-											const { params, execute } = r.at(p, picks[i] ?? 0)
-											const rows = yield* untilAnswered(
-												Effect.flatMap(execute(db), (result) => result.collect),
-												refused
-											)
+											const { params, rows: rowsAt } = r.at(p, picks[i] ?? 0)
+											const rows = yield* untilAnswered(rowsAt(db), refused)
 											const expected = expectedOf(r.query, facts, params)
 											assert.deepEqual(
 												differences(expected, flattened(expected, rows)),
@@ -742,8 +744,8 @@ layer(Substrate.layer)(
 											}
 										}
 										/**
-										 * get over the reads proved at most one row: at a workspace's month the platform charged (or
-										 * one it does not hold), and at a drawn workspace and month.
+										 * The one row of the reads proved at most one row: at a workspace's month the platform charged
+										 * (or one it does not hold), and at a drawn workspace and month.
 										 */
 										const getPick = picks[0] ?? 0
 										const asked = [
@@ -772,21 +774,31 @@ layer(Substrate.layer)(
 											assert.deepEqual(
 												[...Option.toArray(got)],
 												[...executed],
-												"get answers execute's one row or none"
+												"the one row is once's one row or none"
 											)
 											cx.note(Option.isSome(got) ? "a get answered" : "a get answered none")
 										}
 										/**
-										 * page over the ordered reads, at a drawn size, concatenates to execute's ordered rows.
+										 * Windows over the ordered reads, at a drawn size, concatenate to their every row in order.
 										 */
 										const size = 1 + (getPick % 3)
 										for (const org of ids(p.facts.Org).slice(0, 2)) {
 											const all = yield* untilAnswered(
-												rowsOf(db.workload.invoices.once({ params: { org }, facts: {} })),
+												rowsOf(
+													db.workload.invoices.once({
+														params: { org },
+														facts: {},
+														window: everyRow
+													})
+												),
 												refused
 											)
 											const paged = yield* pagedInvoices(db, org, size, refused)
-											assert.deepEqual(paged, [...all], "the pages concatenate to the ordered rows")
+											assert.deepEqual(
+												paged,
+												[...all],
+												"the windows concatenate to the ordered rows"
+											)
 											assert.ok(
 												Arr.every(all, (row, j) => {
 													const next = all[j + 1]

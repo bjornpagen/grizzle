@@ -203,10 +203,10 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									Effect.gen(function* () {
 										const served = yield* serve({ top, ...imports })
 										for (const [i, b] of bindings.entries()) {
-											const direct = yield* (yield* readOnce(member(served, "top"))({
+											const direct = yield* readOnce(member(served, "top"))({
 												params: { ...b },
 												facts: {}
-											})).collect
+											})
 											const viaImport = yield* readOnce(member(served, `imported${i}`))({
 												params: {},
 												facts: {}

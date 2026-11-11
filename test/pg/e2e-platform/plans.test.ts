@@ -56,6 +56,7 @@ import type { ParamMap } from "#compiler/types/core/phantom.ts"
 import { applyFacts, type OpenedPlatform, openPlatformWith } from "#test/pg/e2e-platform/support.ts"
 import { directSql, literal } from "#test/schedules/platform/support.ts"
 import { assert } from "#test/support/assert.ts"
+import { readOnce } from "#test/support/calls.ts"
 import * as P from "#test/support/fixtures/api/platform.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -1729,10 +1730,13 @@ const planSuite = (ctx: TestContext) =>
 								withServedDb(o.installed, role, payload, ({ ctx, load }) =>
 									Effect.gen(function* () {
 										const loaded = yield* load(reads)
-										const { ops, counts } = recordingMembers(ctx)
+										const { calls, counts } = recordingMembers(ctx)
 										for (const pr of asked) {
 											const before = counts.sent.length
-											yield* (yield* ops(member(loaded, pr.name)).execute(pr.params)).collect
+											yield* readOnce(calls(member(loaded, pr.name)))({
+												params: pr.params,
+												facts: {}
+											})
 											yield* review(who, pr, counts.sent.slice(before))
 										}
 									})

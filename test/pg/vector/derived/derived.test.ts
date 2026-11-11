@@ -279,7 +279,7 @@ layer(Substrate.layer)("approximateNearest over a derived relation", (it) => {
 										textRows
 									)
 									assert.notDeepEqual(oracle, [], "the view holds the account's embedded documents")
-									const rows = yield* (yield* rowsOf(
+									const rows = yield* rowsOf(
 										db.workload.scored.once({
 											params: {
 												account,
@@ -287,7 +287,7 @@ layer(Substrate.layer)("approximateNearest over a derived relation", (it) => {
 											},
 											facts: {}
 										})
-									)).collect
+									)
 									const pairs: ReadonlyArray<ReadonlyArray<string | number>> = Arr.map(
 										rows,
 										(r) => [r.document, r.distance]

@@ -1,5 +1,4 @@
 import { layer } from "@effect/vitest"
-import { assertInstanceOf } from "@effect/vitest/utils"
 import {
 	accepting,
 	type Machine,
@@ -17,23 +16,15 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { fullSwarm } from "@grizzle/testing/swarm"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Cause, Effect, Exit, Formatter, Option, Scope, Struct } from "effect"
-import { memberOps } from "#adapter/db/handles.ts"
-import type { MemberOps } from "#adapter/db/ops.ts"
-import {
-	type ReadError,
-	ReadFailure,
-	type ReadStage,
-	TransientFailure
-} from "#adapter/errors/execution.ts"
+import { memberCalls, type ServedCalls } from "#adapter/db/handles.ts"
 import type { SessionPool } from "#adapter/wire/session.ts"
-import { CursorError } from "#compiler/core/errors.ts"
-import { trusted } from "#compiler/core/trusted.ts"
-import type { ParamMap } from "#compiler/plan/common.ts"
+import type { CallError, CallErrorKind, Key } from "#compiler/live/index.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { paged } from "#compiler/public/workload.ts"
 import { defaultPool, poolFor, rowsOn } from "#test/pg/adapter/support.ts"
 import { installed } from "#test/pg/reads/support.ts"
-import { assert, contains } from "#test/support/assert.ts"
+import { assert, assertVariant, contains } from "#test/support/assert.ts"
+import { readOnce } from "#test/support/calls.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { a1, t1, workFacts } from "#test/support/fixtures/golden/work.ts"
 import { caseHang, testIdleTimeout } from "#test/support/limits.ts"
@@ -42,27 +33,26 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 import { makeTap, type Tap } from "#test/support/wire-tap.ts"
 
 /**
- * Live, Stale and Wild values at a served Db's workload handles, as a state machine (the library's commands and lsw):
- * every call answers by its contract or with a typed refusal, never a defect or a hang; a refusal before any SQL sends
- * no frontend message; and no session stays leased.
+ * Live, foreign and wild values at a served Db's workload handles, as a state machine (the library's commands and lsw):
+ * every call answers by its contract or with its CallError, never a defect or a hang; a refusal before any SQL sends no
+ * frontend message; and no session stays leased.
  *
  * Each case runs the members of the worked example's workload, served through its login's served file, on a tapped pool
  * of one session (test/support/wire-tap.ts), warmed, so a window holds one call's traffic alone, and runs drawn
- * commands:
+ * commands, each a member's once:
  *
- * - execute of a read, get of a key and page of a paged member with live parameters: an answer, sent on the wire;
- * - the same with a wild parameter value: an answer where the codec admits the value, ReadError{stage: "encode"} naming
- *   the parameter otherwise; a wild page request: ReadError{stage: "request"} or a CursorError, or an answer for a
- *   value the request contract admits, whose exact verdict is the unit boundary suite's
- *   (test/unit/adapter/boundary.test.ts);
- * - a stale cursor, from a page of another paged member: a CursorError;
+ * - a read, a key member and a window of a paged member with live parameters: an answer, sent on the wire;
+ * - the same with a wild parameter value: an answer where the codec admits the value, an `input` CallError otherwise; a
+ *   wild window: an `input` CallError, or an answer for a value the window contract admits (adapter/page/window.ts);
+ * - a foreign anchor, the key of a row of another paged member, whose completed order has another length: an `input`
+ *   CallError;
  * - dispose: the pool's scope closes, as a DbLayer's does when its layer is released, and every live call is made at
- *   once. Every call that needs a session is then ReadError{stage: "acquire"}, and every refusal before SQL is still
- *   the same refusal.
+ *   once. Every call that needs a session is then `unavailable`, and every refusal before SQL is still the same
+ *   refusal.
  *
- * The model is whether the pool is disposed. Every refusal before SQL (the stages encode and request, and a
- * CursorError) is checked to send zero frontend messages, and after every command the pool holds no leased session. A
- * refusal is read from the error's typed fields, never from its text.
+ * The model is whether the pool is disposed. Every refusal before SQL (an `input` CallError) is checked to send zero
+ * frontend messages, and after every command the pool holds no leased session. A refusal is read from the error's
+ * kind, never from its text.
  *
  * - Oracle: the specification turned into a checker, each call's contract as its answer or typed refusal.
  * - Plant: ~/.cache/grizzle-release/BR08/plants/boundary-lease-never-released.patch, a lease whose end never gives its
@@ -72,30 +62,21 @@ interface Model {
 	readonly disposed: boolean
 }
 
-/** A typed refusal: a ReadError's stage, a transient failure, or a CursorError. */
-type Refusal = ReadStage | "TransientFailure" | "CursorError"
-
-const refusalOf = (error: unknown): Refusal | undefined =>
-	error instanceof CursorError
-		? "CursorError"
-		: error instanceof TransientFailure
-			? "TransientFailure"
-			: error instanceof ReadFailure
-				? error.stage
-				: undefined
+/** A refusal's CallError's kind, none for an answer. */
+const refusalOf = (error: CallError | undefined): CallErrorKind | undefined => error?.kind
 
 /** The refusals before any SQL. */
-const beforeSql: ReadonlyArray<Refusal> = ["CursorError", "encode", "request"]
+const beforeSql: ReadonlyArray<CallErrorKind> = ["input"]
 
 /** The calls a live and a wild value reach. */
-type LiveCall = "execute" | "get" | "page"
-type WildCall = "execute params" | "get values" | "page request"
+type LiveCall = "read" | "key" | "window"
+type WildCall = "read params" | "key values" | "window"
 
 type BoundaryFeature =
-	| `refused before SQL: ${Refusal}`
+	| `refused before SQL: ${CallErrorKind}`
 	| `${LiveCall} live`
 	| `${WildCall} wild`
-	| "page stale cursor"
+	| "window foreign anchor"
 	| "live after dispose"
 	| "disposed"
 
@@ -108,27 +89,27 @@ interface Subject {
 	readonly tap: Tap
 	readonly pool: SessionPool
 	readonly dispose: Effect.Effect<void>
-	/** A cursor of a page of another paged member. */
-	readonly staleCursor: string
+	/** The key of a row of another paged member, whose completed order has another length. */
+	readonly foreignKey: Key
 	readonly note: Case<BoundaryFeature>["note"]
 }
 
 /** The members a case's commands call, each over the tapped pool: a read by account, a key and a paged member. */
 interface Reads {
-	readonly live: MemberOps<unknown>
-	readonly task: MemberOps<unknown>
-	readonly ordered: MemberOps<unknown>
+	readonly live: ServedCalls
+	readonly task: ServedCalls
+	readonly ordered: ServedCalls
 }
 
 /**
  * What a call ended with, checked: never a defect; a refusal before SQL sent nothing; then the pool holds no lease.
- * Returns the typed error, or undefined for an answer.
+ * Returns the CallError, or undefined for an answer.
  */
-const called = <A, E>(
+const called = (
 	real: Subject,
 	what: string,
-	call: Effect.Effect<A, E>
-): Effect.Effect<unknown> =>
+	call: Effect.Effect<unknown, CallError>
+): Effect.Effect<CallError | undefined> =>
 	Effect.gen(function* () {
 		const mark = real.tap.mark()
 		const exit = yield* Effect.exit(call)
@@ -136,7 +117,7 @@ const called = <A, E>(
 		if (Exit.isFailure(exit) && Cause.hasDies(exit.cause)) {
 			return assert.fail(`${what} died: ${Cause.pretty(exit.cause)}`)
 		}
-		const error = Exit.isFailure(exit) ? Cause.squash(exit.cause) : undefined
+		const error = Option.getOrUndefined(Exit.findErrorOption(exit))
 		const refusal = refusalOf(error)
 		if (refusal !== undefined && beforeSql.includes(refusal)) {
 			assert.equal(window.frontend.length, 0, `${what} was refused (${refusal}) after sending SQL`)
@@ -147,12 +128,12 @@ const called = <A, E>(
 		return error
 	})
 
-/** After dispose, a call that needs a session is ReadError{stage: "acquire"}; before, a live call answers. */
-const expectLive = (model: Model, what: string, error: unknown): void => {
+/** After dispose, a call that needs a session is `unavailable`; before, a live call answers. */
+const expectLive = (model: Model, what: string, error: CallError | undefined): void => {
 	if (model.disposed) {
 		assert.equal(
 			refusalOf(error),
-			"acquire",
+			"unavailable",
 			`${what} on a disposed pool is ${error === undefined ? "an answer" : Formatter.format(error)}`
 		)
 	} else {
@@ -160,12 +141,16 @@ const expectLive = (model: Model, what: string, error: unknown): void => {
 	}
 }
 
-/** A wild value's call: an answer, where the boundary admits the value, or a typed refusal (checked by `called`). */
-const expectTyped = (what: string, error: unknown, refusals: ReadonlyArray<Refusal>): void => {
+/** A wild value's call: an answer, where the boundary admits the value, or one of `refusals` (checked by `called`). */
+const expectTyped = (
+	what: string,
+	error: CallError | undefined,
+	refusals: ReadonlyArray<CallErrorKind>
+): void => {
 	if (error === undefined) {
 		return
 	}
-	contains<Refusal | undefined>(
+	contains<CallErrorKind | undefined>(
 		refusals,
 		refusalOf(error),
 		`${what} is refused with ${Formatter.format(error)}, none of ${Arr.join(refusals, ", ")}`
@@ -174,13 +159,13 @@ const expectTyped = (what: string, error: unknown, refusals: ReadonlyArray<Refus
 
 /** The parameters each command draws: a wild value, or none. */
 type BoundaryParameters = Readonly<{
-	"execute(live)": undefined
-	"get(live)": undefined
-	"page(live)": undefined
-	"page(stale cursor)": undefined
-	"execute params(wild)": Wild
-	"get values(wild)": Wild
-	"page request(wild)": Wild
+	"read(live)": undefined
+	"key(live)": undefined
+	"window(live)": undefined
+	"window(foreign anchor)": undefined
+	"read params(wild)": Wild
+	"key values(wild)": Wild
+	"window(wild)": Wild
 	dispose: undefined
 }>
 
@@ -197,28 +182,28 @@ const unchanged = (model: Model): Model => model
 const boundaryMachine: Machine<Model, BoundaryParameters, never> = {
 	initial: { disposed: false },
 	commands: {
-		"execute(live)": { applies: always, parameters: none, weight: 1, judge: accepting(unchanged) },
-		"get(live)": { applies: always, parameters: none, weight: 1, judge: accepting(unchanged) },
-		"page(live)": { applies: always, parameters: none, weight: 1, judge: accepting(unchanged) },
-		"page(stale cursor)": {
+		"read(live)": { applies: always, parameters: none, weight: 1, judge: accepting(unchanged) },
+		"key(live)": { applies: always, parameters: none, weight: 1, judge: accepting(unchanged) },
+		"window(live)": { applies: always, parameters: none, weight: 1, judge: accepting(unchanged) },
+		"window(foreign anchor)": {
 			applies: always,
 			parameters: none,
 			weight: 1,
 			judge: accepting(unchanged)
 		},
-		"execute params(wild)": {
+		"read params(wild)": {
 			applies: always,
 			parameters: anyWild,
 			weight: 1,
 			judge: accepting(unchanged)
 		},
-		"get values(wild)": {
+		"key values(wild)": {
 			applies: always,
 			parameters: anyWild,
 			weight: 1,
 			judge: accepting(unchanged)
 		},
-		"page request(wild)": {
+		"window(wild)": {
 			applies: always,
 			parameters: anyWild,
 			weight: 1,
@@ -233,11 +218,11 @@ const boundaryMachine: Machine<Model, BoundaryParameters, never> = {
 	}
 }
 
-/** A live call: an answer, or ReadError{stage: "acquire"} once disposed. */
+/** A live call: an answer, or `unavailable` once disposed. */
 const live = (
 	real: Subject,
 	what: LiveCall,
-	call: Effect.Effect<unknown, ReadError | CursorError>,
+	call: Effect.Effect<unknown, CallError>,
 	model: Model
 ): Effect.Effect<void> =>
 	Effect.gen(function* () {
@@ -247,120 +232,87 @@ const live = (
 	})
 
 /**
- * A call with a wild value, passed whole to the boundary (`passed` is the only reader of a wild value): an answer, or
- * one of `refusals`, or ReadError{stage: "acquire"} once disposed. Returns the value passed and the typed error.
+ * A call with a wild value, a parameter's or a window, passed whole to the boundary (`passed` is the only reader of a
+ * wild value): an answer, or an `input` refusal (README "Errors and outcomes"), or `unavailable` once disposed.
  */
 const wildCall = (
 	real: Subject,
 	what: WildCall,
 	wildValue: Wild,
-	refusals: ReadonlyArray<Refusal>,
-	call: (value: unknown) => Effect.Effect<unknown, ReadError | CursorError>
-): Effect.Effect<{ readonly value: unknown; readonly error: unknown }> =>
-	Effect.gen(function* () {
-		const value = passed({ kind: "wild", wild: wildValue })
-		const error = yield* called(real, what, call(value))
-		expectTyped(what, error, [...refusals, "acquire"])
-		real.note(`${what} wild`)
-		return { value, error }
-	})
-
-/**
- * A wild value of the parameter `param`: an answer, or a refusal at encode by its codec whose EncodingFailure names the
- * parameter, as a write's names it (README "Errors and outcomes").
- */
-const wildParam = (
-	real: Subject,
-	what: WildCall,
-	param: string,
-	wildValue: Wild,
-	call: (value: unknown) => Effect.Effect<unknown, ReadError | CursorError>
+	call: (value: unknown) => Effect.Effect<unknown, CallError>
 ): Effect.Effect<void> =>
 	Effect.gen(function* () {
-		const { error } = yield* wildCall(real, what, wildValue, ["encode"], call)
-		if (!(error instanceof ReadFailure) || error.stage !== "encode") {
-			return
-		}
-		const reason = error.reason
-		if (reason._tag !== "EncodingFailure") {
-			return assert.fail(`${what}: refused at encode by the codec, not ${reason._tag}`)
-		}
-		assert.deepEqual(
-			reason.place,
-			{ _tag: "Slot", name: param },
-			`${what}: the refusal names the parameter`
-		)
+		const error = yield* called(real, what, call(passed({ kind: "wild", wild: wildValue })))
+		expectTyped(what, error, ["input", "unavailable"])
+		real.note(`${what} wild`)
 	})
 
-/**
- * A JavaScript caller's parameter argument, holding a value of any type, which the types refuse and the handle's
- * boundary judges: the test's own data.
- */
-const callersParams = (params: Readonly<Record<string, unknown>>): ParamMap =>
-	trusted<ParamMap>(params)
+/** The window of the first `size` rows of an ordered member. */
+const first = (size: number) => ({ anchor: { kind: "start" }, size })
 
-/** The live calls, each made once more after dispose: an answer before it, ReadError{stage: "acquire"} after. */
+/** The live calls, each made once more after dispose: an answer before it, `unavailable` after. */
 const liveCalls = (
 	real: Subject
-): ReadonlyArray<readonly [LiveCall, Effect.Effect<unknown, ReadError | CursorError>]> => [
-	["execute", Effect.flatMap(real.reads.live.execute({ account: a1 }), (r) => r.collect)],
-	["get", real.reads.task.get({ id: t1 })],
-	["page", real.reads.ordered.page({ account: a1 }, { first: 2 })]
+): ReadonlyArray<readonly [LiveCall, Effect.Effect<unknown, CallError>]> => [
+	["read", readOnce(real.reads.live)({ params: { account: a1 }, facts: {} })],
+	["key", readOnce(real.reads.task)({ params: { id: t1 }, facts: {} })],
+	["window", readOnce(real.reads.ordered)({ params: { account: a1 }, facts: {}, window: first(2) })]
 ]
 
 /** Each command run on the case's members and held to the model's state before it, or after it for dispose. */
 const stepsOf = (real: Subject): Real<Model, BoundaryParameters, never, never, never> => ({
-	"execute(live)": (_parameters, model) =>
+	"read(live)": (_parameters, model) =>
+		Effect.as(
+			live(real, "read", readOnce(real.reads.live)({ params: { account: a1 }, facts: {} }), model),
+			took
+		),
+	"key(live)": (_parameters, model) =>
+		Effect.as(
+			live(real, "key", readOnce(real.reads.task)({ params: { id: t1 }, facts: {} }), model),
+			took
+		),
+	"window(live)": (_parameters, model) =>
 		Effect.as(
 			live(
 				real,
-				"execute",
-				Effect.flatMap(real.reads.live.execute({ account: a1 }), (r) => r.collect),
+				"window",
+				readOnce(real.reads.ordered)({ params: { account: a1 }, facts: {}, window: first(2) }),
 				model
 			),
 			took
 		),
-	"get(live)": (_parameters, model) =>
-		Effect.as(live(real, "get", real.reads.task.get({ id: t1 }), model), took),
-	"page(live)": (_parameters, model) =>
-		Effect.as(
-			live(real, "page", real.reads.ordered.page({ account: a1 }, { first: 2 }), model),
-			took
-		),
-	"page(stale cursor)": () =>
+	"window(foreign anchor)": () =>
 		Effect.as(
 			Effect.gen(function* () {
-				const request = { first: 2, after: real.staleCursor }
+				const window = { anchor: { kind: "after", key: real.foreignKey }, size: 2 }
 				const error = yield* called(
 					real,
-					"a page",
-					real.reads.ordered.page({ account: a1 }, request)
+					"a window",
+					readOnce(real.reads.ordered)({ params: { account: a1 }, facts: {}, window })
 				)
-				assertInstanceOf(error, CursorError, "a stale cursor's page")
-				real.note("page stale cursor")
+				assert.equal(refusalOf(error), "input", "a foreign anchor's window")
+				real.note("window foreign anchor")
 			}),
 			took
 		),
-	"execute params(wild)": (w) =>
+	"read params(wild)": (w) =>
 		Effect.as(
-			wildParam(real, "execute params", "account", w, (value) =>
-				real.reads.live.execute(callersParams({ account: value }))
+			wildCall(real, "read params", w, (value) =>
+				readOnce(real.reads.live)({ params: { account: value }, facts: {} })
 			),
 			took
 		),
-	"get values(wild)": (w) =>
+	"key values(wild)": (w) =>
 		Effect.as(
-			wildParam(real, "get values", "id", w, (value) =>
-				real.reads.task.get(callersParams({ id: value }))
+			wildCall(real, "key values", w, (value) =>
+				readOnce(real.reads.task)({ params: { id: value }, facts: {} })
 			),
 			took
 		),
-	"page request(wild)": (w) =>
+	"window(wild)": (w) =>
 		Effect.as(
-			Effect.asVoid(
-				wildCall(real, "page request", w, ["request", "CursorError"], (value) =>
-					real.reads.ordered.page({ account: a1 }, value)
-				)
+			wildCall(real, "window", w, (value) =>
+				readOnce(real.reads.ordered)({ params: { account: a1 }, facts: {}, window: value })
 			),
 			took
 		),
@@ -379,15 +331,16 @@ const stepsOf = (real: Subject): Real<Model, BoundaryParameters, never, never, n
 		)
 })
 
-/** The cursor of the first page of the paged member `other`, read live. */
-const cursorOf = (other: MemberOps<unknown>) =>
-	Effect.flatMap(other.page({}, { first: 1 }), (page) =>
-		Option.match(page.pageInfo.endCursor, {
+/** The key of the first row of the paged member `other`, read live. */
+const foreignKeyOf = (other: ServedCalls): Effect.Effect<Key, CallError> => {
+	assertVariant(other, "shape", "list", "the other paged member reads a list")
+	return Effect.flatMap(other.once({ params: {}, facts: {}, window: first(1) }), (value) =>
+		Option.match(Arr.head(Arr.fromIterable(value.entries())), {
 			onNone: () => Effect.die(new Error("the other ordered query delivers no row")),
-			onSome: (cursor) =>
-				typeof cursor === "string" ? Effect.succeed(cursor) : Effect.die(new Error("no cursor"))
+			onSome: (entry) => Effect.succeed(entry.key)
 		})
 	)
+}
 
 layer(Substrate.layer, { excludeTestServices: true })(
 	"a served Db's handles at their boundary",
@@ -454,8 +407,8 @@ layer(Substrate.layer, { excludeTestServices: true })(
 											literal: Formatter.format,
 											coverage: required<BoundaryFeature>(
 												[
-													"refused before SQL: encode",
-													"refused before SQL: CursorError",
+													"refused before SQL: input",
+													"window foreign anchor",
 													"live after dispose",
 													"disposed"
 												],
@@ -486,18 +439,18 @@ layer(Substrate.layer, { excludeTestServices: true })(
 														)
 													)
 													const tapped = { ...context, pool }
-													const opsOf = (name: string) =>
-														memberOps(tapped, member(loaded, name)).ops
+													const callsOf = (name: string) =>
+														memberCalls(tapped, member(loaded, name))
 													const real: Subject = {
 														reads: {
-															live: opsOf("live"),
-															task: opsOf("task"),
-															ordered: opsOf("ordered")
+															live: callsOf("live"),
+															task: callsOf("task"),
+															ordered: callsOf("ordered")
 														},
 														tap,
 														pool,
 														dispose: Scope.close(poolScope, Exit.void),
-														staleCursor: yield* cursorOf(opsOf("other")),
+														foreignKey: yield* foreignKeyOf(callsOf("other")),
 														note: c.note
 													}
 													yield* runProgram(boundaryMachine, stepsOf(real), commands)

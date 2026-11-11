@@ -132,7 +132,7 @@ layer(Substrate.layer)("the HNSW search policy as login defaults", (it) => {
 							([label, n], c) =>
 								Effect.gen(function* () {
 									const account = accountOf[label]
-									const rows = yield* (yield* rowsOf(
+									const rows = yield* rowsOf(
 										db.workload.candidates.once({
 											params: {
 												account,
@@ -140,7 +140,7 @@ layer(Substrate.layer)("the HNSW search policy as login defaults", (it) => {
 											},
 											facts: {}
 										})
-									)).collect
+									)
 									assert.equal(
 										rows.length,
 										Math.min(candidatesTake, eligible(account)),

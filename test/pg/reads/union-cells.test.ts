@@ -18,7 +18,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec, Result } from "effect"
-import type { MemberOps } from "#adapter/db/ops.ts"
+import type { ServedCalls } from "#adapter/db/handles.ts"
 import { OpenError } from "#adapter/errors/execution.ts"
 import { isCompileError } from "#compiler/core/errors.ts"
 import { isRecord } from "#compiler/core/record.ts"
@@ -30,6 +30,7 @@ import { type QueryValue, queryOver, varsOver } from "#compiler/query/build/quer
 import type { FinishedValue, RuleValue } from "#compiler/query/build/rule.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, defined, nonEmpty } from "#test/support/assert.ts"
+import { readOnce } from "#test/support/calls.ts"
 import { namesOf, parsedName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { member, withServedDb } from "#test/support/served-db.ts"
@@ -512,8 +513,7 @@ const reached = (c: {
 }
 
 /** The rows a served member delivers, run without parameters. */
-const records = (ops: MemberOps<unknown>) =>
-	Effect.flatMap(ops.execute({}), (result) => result.collect)
+const records = (calls: ServedCalls) => readOnce(calls)({ params: {}, facts: {} })
 
 layer(Substrate.layer)("union cells", (it) => {
 	it.effect(
@@ -607,9 +607,9 @@ layer(Substrate.layer)("union cells", (it) => {
 											first: queryOver(Cells).rule(a),
 											second: queryOver(Cells).rule(b)
 										})
-										const delivered = yield* records(member(served, "planted").ops)
-										const first = yield* records(member(served, "first").ops)
-										const second = yield* records(member(served, "second").ops)
+										const delivered = yield* records(member(served, "planted"))
+										const first = yield* records(member(served, "first"))
+										const second = yield* records(member(served, "second"))
 										const alone = armsAlone([first, second])
 										assert.deepEqual(
 											set(structuralHash, sameRecord)(delivered, alone),
@@ -623,9 +623,9 @@ layer(Substrate.layer)("union cells", (it) => {
 										union: unionOf(arms),
 										...Rec.fromEntries(Arr.map(arms, (arm, j) => [`arm${j}`, unionOf([arm])]))
 									})
-									const union = yield* records(member(served, "union").ops)
+									const union = yield* records(member(served, "union"))
 									const armRecords = yield* Effect.forEach(arms, (_arm, j) =>
-										records(member(served, `arm${j}`).ops)
+										records(member(served, `arm${j}`))
 									)
 									const alone = armsAlone(armRecords)
 									assert.deepEqual(

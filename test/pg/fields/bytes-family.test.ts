@@ -210,10 +210,9 @@ layer(Substrate.layer, { excludeTestServices: true })("a family's bytes members"
 									)
 									const readBack = (expected: ReadonlyArray<(typeof members)[number]>) =>
 										Effect.gen(function* () {
-											const result = yield* rowsOf(
+											const collected = yield* rowsOf(
 												db.workload.members.once({ params: {}, facts: {} })
 											)
-											const collected = yield* result.collect
 											const rows = Arr.sort(collected, bySlot)
 											assert.equal(rows.length, expected.length, "every member reads back")
 											for (const [i, [row, member]] of Arr.zip(rows, expected).entries()) {

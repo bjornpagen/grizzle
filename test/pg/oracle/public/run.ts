@@ -8,39 +8,35 @@ import {
 	Exit,
 	Formatter,
 	Option,
+	Predicate,
 	Record as Rec,
 	Result,
 	type Scope
 } from "effect"
-import { memberOps } from "#adapter/db/handles.ts"
-import type { CompiledOps } from "#adapter/db/ops.ts"
+import { memberCalls, type WrittenOutcome } from "#adapter/db/handles.ts"
 import type { StatementRoots, StatementTree } from "#compiler/runtime/lower/tree.ts"
 import { type ValueIdentity, sameIdentity } from "#test/support/kernel/identity.ts"
 import { type ReferenceObserver, unobserved } from "#test/support/oracle/reference/evaluate.ts"
 import { valueIdentity } from "#test/support/oracle/reference/values.ts"
 
-import {
-	type ApplyError,
-	OpenError,
-	type ReadError,
-	ReadFailure,
-	StaleSnapshot,
-	TransientFailure
-} from "#adapter/errors/execution.ts"
-import type { ApplyOutcome } from "#adapter/public/db.ts"
-import { CursorError, isCompileError } from "#compiler/core/errors.ts"
+import { OpenError } from "#adapter/errors/execution.ts"
+import type { HostParams } from "#adapter/reader/execution.ts"
+import type { DecodedRow } from "#adapter/reader/stream.ts"
+import { isCompileError } from "#compiler/core/errors.ts"
 import { isRecord } from "#compiler/core/record.ts"
-import { trusted } from "#compiler/core/trusted.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { nativeEqualityKey } from "#compiler/ir/expr.ts"
 import { baseOf, numericTypmodOf, type ScalarType } from "#compiler/ir/scalar.ts"
-import type { ParamMap } from "#compiler/plan/common.ts"
+import type { Anchor, CallError, CallErrorKind, Entry } from "#compiler/live/index.ts"
 import { pagedMember } from "#compiler/program/workload/value.ts"
 import type { AnyRole } from "#compiler/types/schema/world.ts"
 import { changeSetOver } from "#compiler/write/changeset/value.ts"
 import {
 	CellDisagreement,
 	freshCodesOf,
+	type ReadCalls,
+	type ReadValue,
+	readCalls,
 	type SentRow,
 	strictReaderOf
 } from "#test/pg/oracle/public/cells.ts"
@@ -74,7 +70,7 @@ import {
 import { storedInput } from "#test/support/oracle/runner.ts"
 
 import { scalarReader } from "#compiler/codec/read.ts"
-import { answered, writeOnce } from "#test/support/calls.ts"
+import { rowsOf, writeOnce } from "#test/support/calls.ts"
 import {
 	type BuiltSchema,
 	buildMixed,
@@ -156,14 +152,11 @@ const sideExit = <A, E, R>(
 
 const describe = (error: unknown): string => {
 	if (
-		error instanceof ReadFailure ||
-		error instanceof TransientFailure ||
-		error instanceof StaleSnapshot
+		Predicate.hasProperty(error, "kind") &&
+		Predicate.hasProperty(error, "retry") &&
+		Predicate.hasProperty(error, "message")
 	) {
-		return `${error._tag}{${error.message}}`
-	}
-	if (error instanceof CursorError) {
-		return `CursorError{reason: ${error.reason._tag}}`
+		return `${String(error.kind)}{${String(error.message)}}`
 	}
 	if (error instanceof OpenError) {
 		return `${error._tag}{stage: ${error.stage}, reason: ${describe(error.reason)}}`
@@ -784,16 +777,10 @@ const noteRootTake = (q: Root, rows: ReadonlyArray<Nested>, note: Note): void =>
 }
 
 /**
- * The host values of a read's parameters: each scalar one's value, each relation parameter's rows as records, the
- * case's own data as a member's parameter map.
+ * The host values of a read's parameters, by name: each scalar one's value, each relation parameter's rows as records,
+ * the case's own data as a member's parameters.
  */
-const hostParams = (read: Extract<ProgramRead, { readonly kind: "query" }>): ParamMap =>
-	paramMapOf(hostRecord(read))
-
-/** The host values of a read's parameters, by name (hostParams). */
-const hostRecord = (
-	read: Extract<ProgramRead, { readonly kind: "query" }>
-): Readonly<Record<string, unknown>> =>
+const hostRecord = (read: Extract<ProgramRead, { readonly kind: "query" }>): HostParams =>
 	Rec.fromEntries([
 		...Arr.map(read.params, (p): readonly [string, unknown] => [
 			p.name,
@@ -805,21 +792,14 @@ const hostRecord = (
 		])
 	])
 
-/**
- * A record of host values as a member's parameter map: the case's own data, each value one its program's codec reads,
- * or one a JavaScript caller passes, which the types refuse and the member's boundary judges.
- */
-const paramMapOf = (record: Readonly<Record<string, unknown>>): ParamMap =>
-	trusted<ParamMap>(record)
-
-/** A refusal must be its typed error, and nothing else. */
+/** A refusal must be a CallError of its kind, and nothing else. */
 const refused = (
 	c: ProgramCase,
 	what: string,
-	exit: Exit.Exit<unknown, unknown>,
-	expected: (error: unknown) => boolean
+	exit: Exit.Exit<unknown, CallError>,
+	expected: CallErrorKind
 ): Effect.Effect<void, Disagreement> => {
-	if (Exit.isFailure(exit) && expected(Cause.squash(exit.cause))) {
+	if (Option.exists(Exit.findErrorOption(exit), (error) => error.kind === expected)) {
 		return Effect.void
 	}
 	const got = Exit.isSuccess(exit) ? "an answer" : Cause.pretty(exit.cause)
@@ -832,79 +812,73 @@ const refused = (
 }
 
 /**
- * What a get of a query read's member read: refused before any SQL as not proved at most one row, or an answer: its one
- * row or none, or the failure or defect it died with.
+ * What a query read's value says of its one row (live/keyed.ts): refused as not proved at most one row where its served
+ * key names a field, since a value keyed by no field is the value of at most one row (served/forms.ts ServedKey), or an
+ * answer: its one row or none, or the failure or defect it died with.
  */
 type Gotten =
 	| { readonly kind: "refused" }
 	| { readonly kind: "answered"; readonly output: Answer; readonly got: "some" | "none" | "failed" }
 
-const gotten = (shape: Shape, exit: Exit.Exit<Option.Option<unknown>, ReadError>): Gotten => {
-	if (Exit.isSuccess(exit)) {
-		const rows = Option.isSome(exit.value) ? [exit.value.value] : []
-		return {
-			kind: "answered",
-			output: publicRows(shape, rows),
-			got: rows.length > 0 ? "some" : "none"
-		}
+const gotten = (shape: Shape, exit: Exit.Exit<ReadValue, CallError>): Gotten => {
+	if (Exit.isFailure(exit)) {
+		return { kind: "answered", output: Result.fail(ended(exit.cause)), got: "failed" }
 	}
-	const error = Cause.squash(exit.cause)
-	return !Cause.hasDies(exit.cause) && error instanceof ReadFailure && error.stage === "compile"
-		? { kind: "refused" }
-		: { kind: "answered", output: Result.fail(ended(exit.cause)), got: "failed" }
+	if (exit.value.fields.length > 0) {
+		return { kind: "refused" }
+	}
+	const rows = [...exit.value]
+	return {
+		kind: "answered",
+		output: publicRows(shape, rows),
+		got: rows.length > 0 ? "some" : "none"
+	}
 }
 
 /**
- * Pages of an ordered root, walked by `page` with requests of `size` in one direction, concatenated in order. Every
- * page but the last holds `size` rows and says there is another; the last says there is none.
+ * Windows of an ordered root, walked by `window` `size` rows at a time in one direction, from its start forward or from
+ * its end backward, each anchored at the key of the last row the one before reached, until a window answers no row;
+ * concatenated in order. A window holds at most `size` rows, and one that holds fewer is the last that holds any.
  */
 const walk = (
-	page: (request: unknown) => Effect.Effect<unknown, ReadError | CursorError>,
+	window: (window: unknown) => Effect.Effect<ReadValue, CallError>,
 	size: number,
 	direction: "forward" | "backward",
 	shape: Shape,
 	bound: number
 ): Effect.Effect<Answer, Disagreement> =>
 	Effect.gen(function* () {
-		const pages: Array<ReadonlyArray<unknown>> = []
-		let cursor: Option.Option<string> = Option.none()
+		const windows: Array<ReadonlyArray<unknown>> = []
+		let anchor: Anchor = direction === "forward" ? { kind: "start" } : { kind: "end" }
+		let short = false
 		for (let n = 0; ; n++) {
 			if (n > bound) {
-				return Result.fail(`the ${direction} pages never end`)
+				return Result.fail(`the ${direction} windows never end`)
 			}
-			const request = Option.match(cursor, {
-				onNone: () => (direction === "forward" ? { first: size } : { last: size }),
-				onSome: (at) =>
-					direction === "forward" ? { first: size, after: at } : { last: size, before: at }
-			})
-			const got = yield* sideExit(page(request))
+			const got: Exit.Exit<ReadValue, CallError> = yield* sideExit(window({ anchor, size }))
 			if (Exit.isFailure(got)) {
 				return Result.fail(ended(got.cause))
 			}
-			const p = got.value
-			if (!isRecord(p) || !Arr.isArray(p["edges"]) || !isRecord(p["pageInfo"])) {
-				return Result.fail("a page that is no { edges, pageInfo }")
-			}
-			const nodes = Arr.map(p["edges"], (e: unknown) => (isRecord(e) ? e["node"] : undefined))
-			const more =
-				direction === "forward" ? p["pageInfo"]["hasNextPage"] : p["pageInfo"]["hasPreviousPage"]
-			const next =
-				direction === "forward" ? p["pageInfo"]["endCursor"] : p["pageInfo"]["startCursor"]
-			pages.push(nodes)
-			if (more !== true) {
+			const entries: ReadonlyArray<Entry<DecodedRow>> = [...got.value.entries()]
+			const edge: Option.Option<Entry<DecodedRow>> =
+				direction === "forward" ? Arr.last(entries) : Arr.head(entries)
+			if (Option.isNone(edge)) {
 				break
 			}
-			if (nodes.length !== size) {
-				return Result.fail(
-					`page ${n} holds ${nodes.length} rows of ${size} and says there are more`
-				)
+			if (entries.length > size) {
+				return Result.fail(`window ${n} holds ${entries.length} rows of ${size}`)
 			}
-			if (!Option.isOption(next) || Option.isNone(next) || typeof next.value !== "string") {
-				return Result.fail(`page ${n} says there are more and gives no cursor`)
+			if (short) {
+				return Result.fail(`window ${n} holds rows after a window of fewer than ${size}`)
 			}
-			cursor = Option.some(next.value)
+			short = entries.length < size
+			windows.push(Arr.map(entries, (entry) => entry.row))
+			anchor =
+				direction === "forward"
+					? { kind: "after", key: edge.value.key }
+					: { kind: "before", key: edge.value.key }
 		}
-		const ordered = direction === "forward" ? pages : Arr.reverse([...pages])
+		const ordered = direction === "forward" ? windows : Arr.reverse([...windows])
 		return publicRows(shape, ordered.flat())
 	})
 
@@ -931,7 +905,7 @@ const readBackChangeSet = (
  * its outcome in the delivery a read-back reads (readBackShape).
  */
 const readBackAnswer = (
-	back: Effect.Effect<ApplyOutcome<unknown>, ApplyError>,
+	back: Effect.Effect<WrittenOutcome, CallError>,
 	shape: Shape
 ): Effect.Effect<Answer, Disagreement> =>
 	Effect.map(sideExit(back), (exit): Answer => {
@@ -961,37 +935,31 @@ type Reading = Effect.Effect<void, Disagreement>
 type Again = () => Reading
 
 /**
- * A query read's second reading: its member's execute and the strict one's over the facts stored otherwise, each
- * exactly the first execute's answer, `first`.
+ * A query read's second reading: its member's once and the strict one's over the facts stored otherwise, each
+ * exactly the first once's answer, `first`.
  */
 const queryAgain = (
 	c: ProgramCase,
 	members: Members,
 	name: string,
 	read: Extract<ProgramRead, { readonly kind: "query" }>,
-	params: ParamMap,
+	params: HostParams,
 	label: string,
 	first: Answer
 ): Reading =>
 	Effect.gen(function* () {
 		const shape = shapeOf(read.query)
-		const plain = yield* answered(
-			Effect.flatMap(members.plain(name).execute(params), (r) => r.collect),
-			shape
-		)
-		const planned = yield* answered(
-			Effect.flatMap(members.strict(name).execute(params), (r) => r.collect),
-			shape
-		)
+		const plain = yield* answered(rowsOf(members.plain(name).read(params)), shape)
+		const planned = yield* answered(rowsOf(members.strict(name).read(params)), shape)
 		yield* agreeing(
 			c,
 			`${label}, read again over its facts stored otherwise`,
 			shape,
 			answerEquivalence(shape, Option.isSome(deliveredOrder(read.query))),
 			[
-				{ side: "execute", output: first },
-				{ side: "execute, read again", output: plain },
-				{ side: "execute under the planner perturbation, read again", output: planned }
+				{ side: "once", output: first },
+				{ side: "once, read again", output: plain },
+				{ side: "once under the planner perturbation, read again", output: planned }
 			]
 		)
 	})
@@ -1018,7 +986,7 @@ const queryRead = (
 		const name = readMember(index)
 		const plain = members.plain(name)
 		const strict = members.strict(name)
-		const params = hostParams(read)
+		const params = hostRecord(read)
 		const shape = shapeOf(read.query)
 		const inOrder = Option.isSome(deliveredOrder(read.query))
 		const expected = yield* Effect.try({
@@ -1044,56 +1012,42 @@ const queryRead = (
 		const probe = read.probe
 		switch (probe.kind) {
 			case "encode": {
-				const exit = yield* sideExit(
-					Effect.flatMap(
-						plain.execute(paramMapOf({ ...params, [probe.param.name]: { wild: true } })),
-						(r) => r.collect
-					)
-				)
-				yield* refused(
-					c,
-					`${label}: a parameter of another host type`,
-					exit,
-					(e) => e instanceof ReadFailure && e.stage === "encode"
-				)
+				const exit = yield* sideExit(plain.read({ ...params, [probe.param.name]: { wild: true } }))
+				yield* refused(c, `${label}: a parameter of another host type`, exit, "input")
 				note("refused encode")
 				break
 			}
 			case "page size": {
-				const exit = yield* sideExit(plain.page(params, { first: probe.size }))
-				yield* refused(
-					c,
-					`${label}: a page of ${probe.size} rows`,
-					exit,
-					(e) => e instanceof ReadFailure && e.stage === "request"
+				const exit = yield* sideExit(
+					plain.window(params, { anchor: { kind: "start" }, size: probe.size })
 				)
+				yield* refused(c, `${label}: a window of ${probe.size} rows`, exit, "input")
 				note("refused page size")
 				break
 			}
 			case "cursor": {
-				const first = yield* sideExit(plain.page(params, { first: 1 }))
-				const cursor =
-					Exit.isSuccess(first) && Option.isSome(first.value.pageInfo.endCursor)
-						? `${first.value.pageInfo.endCursor.value}~`
-						: "not a cursor"
-				const exit = yield* sideExit(plain.page(params, { first: 1, after: cursor }))
-				yield* refused(
-					c,
-					`${label}: a cursor its codec cannot read`,
-					exit,
-					(e) => e instanceof CursorError
+				const first = yield* sideExit(plain.window(params, { anchor: { kind: "start" }, size: 1 }))
+				const key: ReadonlyArray<unknown> = Exit.isSuccess(first)
+					? Option.match(Arr.head([...first.value.entries()]), {
+							onNone: () => [],
+							onSome: (entry) => [...entry.key, "~"]
+						})
+					: []
+				const exit = yield* sideExit(
+					plain.window(params, { anchor: { kind: "after", key }, size: 1 })
 				)
+				yield* refused(c, `${label}: an anchor of another length than its order's`, exit, "input")
 				note("refused cursor")
 				break
 			}
 			case "none":
 				break
 		}
-		const result = yield* sideExit(plain.execute(params))
+		const result = yield* sideExit(plain.read(params))
 		const execute = Exit.isSuccess(result)
-			? yield* answered(result.value.collect, shape)
+			? publicRows(shape, [...result.value])
 			: Result.fail(ended(result.cause))
-		const again = Exit.isSuccess(result) ? yield* answered(result.value.collect, shape) : execute
+		const again = Exit.isSuccess(result) ? publicRows(shape, [...result.value]) : execute
 		/**
 		 * The read's optimized and conservative artifacts, compiled as the served file's compile compiles its query, over
 		 * the installed schema and its codes: the order a root is delivered in is stated in its statements or nowhere.
@@ -1112,11 +1066,7 @@ const queryRead = (
 				report: `${label}: delivered in an order, its ${Arr.join(unordered, " and ")} statements state no ORDER BY\n${printCase(c)}`
 			})
 		}
-		const executed = (ops: ReadOps) =>
-			answered(
-				Effect.flatMap(ops.execute(params), (r) => r.collect),
-				shape
-			)
+		const executed = (calls: ReadCalls) => answered(rowsOf(calls.read(params)), shape)
 		const executedAgain = yield* executed(plain)
 		/**
 		 * The member over the Db's context with the case's planner settings set in every transaction it opens, every
@@ -1124,27 +1074,27 @@ const queryRead = (
 		 * another plan.
 		 */
 		const planned = yield* executed(strict)
-		/** The perturbed execute's rows as PostgreSQL sent them, row for row with its delivery. */
+		/** The perturbed once's rows as PostgreSQL sent them, row for row with its delivery. */
 		const sent = members.sentRows()
 		const readBack = yield* readBackAnswer(members.back(backMember(index)), shape)
 		const strictlyAgain = yield* executed(strict)
 		const answers: Array<Sided> = [
 			{ side: "reference", output: expected },
-			{ side: "execute", output: execute },
-			{ side: "execute, collected again", output: again },
-			{ side: "execute under the planner perturbation", output: planned },
-			{ side: "execute again", output: executedAgain },
-			{ side: "execute under the planner perturbation, again", output: strictlyAgain },
-			{ side: "the read-back member's apply", output: readBack }
+			{ side: "once", output: execute },
+			{ side: "once, its value read again", output: again },
+			{ side: "once under the planner perturbation", output: planned },
+			{ side: "once again", output: executedAgain },
+			{ side: "once under the planner perturbation, again", output: strictlyAgain },
+			{ side: "the read-back member's once", output: readBack }
 		]
 		/**
-		 * get answers where the query is proved at most one row, and is refused before any SQL where it is not; a second
-		 * row from a query proved to have at most one is a defect, which the comparison reports as get's answer. Both
-		 * readers answer or both refuse.
+		 * The one row of a value keyed by no field, a query proved at most one row, and none where its value is keyed by
+		 * a field (gotten); a second row from a query proved to have at most one is a defect, which the comparison
+		 * reports as the one row's answer. Both readers answer or both refuse.
 		 */
-		const plainExit = yield* sideExit(plain.get(params))
+		const plainExit = yield* sideExit(plain.read(params))
 		const plainGet = gotten(shape, plainExit)
-		const strictExit = yield* sideExit(strict.get(params))
+		const strictExit = yield* sideExit(strict.read(params))
 		const strictGet = gotten(shape, strictExit)
 		if (plainGet.kind === "refused") {
 			note("get refused: not proved at most one row")
@@ -1158,47 +1108,47 @@ const queryRead = (
 			})
 		}
 		if (plainGet.kind === "answered") {
-			answers.push({ side: "get", output: plainGet.output })
+			answers.push({ side: "the one row", output: plainGet.output })
 		}
 		if (strictGet.kind === "answered") {
-			answers.push({ side: "get under the planner perturbation", output: strictGet.output })
+			answers.push({ side: "the one row under the planner perturbation", output: strictGet.output })
 		}
 		if (read.query.delivery.kind === "ordered") {
 			const size = read.query.delivery.pageSize
 			const bound = (Result.isSuccess(expected) ? expected.success.length : 0) + 2
 			const forward = yield* walk(
-				(request) => plain.page(params, request),
+				(window) => plain.window(params, window),
 				size,
 				"forward",
 				shape,
 				bound
 			)
 			const backward = yield* walk(
-				(request) => plain.page(params, request),
+				(window) => plain.window(params, window),
 				size,
 				"backward",
 				shape,
 				bound
 			)
 			const strictForward = yield* walk(
-				(request) => strict.page(params, request),
+				(window) => strict.window(params, window),
 				size,
 				"forward",
 				shape,
 				bound
 			)
 			const strictBackward = yield* walk(
-				(request) => strict.page(params, request),
+				(window) => strict.window(params, window),
 				size,
 				"backward",
 				shape,
 				bound
 			)
 			answers.push(
-				{ side: "page forward", output: forward },
-				{ side: "page backward", output: backward },
-				{ side: "page forward under the planner perturbation", output: strictForward },
-				{ side: "page backward under the planner perturbation", output: strictBackward }
+				{ side: "windows forward", output: forward },
+				{ side: "windows backward", output: backward },
+				{ side: "windows forward under the planner perturbation", output: strictForward },
+				{ side: "windows backward under the planner perturbation", output: strictBackward }
 			)
 			note("page")
 			if (Result.isSuccess(expected) && expected.success.length > size) {
@@ -1213,7 +1163,7 @@ const queryRead = (
 		const sameValues = answerEquivalence(shape, inOrder)
 		yield* agreeing(c, label, shape, sameValues, answers)
 		/**
-		 * And against itself, with no reference in the judgment: every public side delivers exactly what execute delivers,
+		 * And against itself, with no reference in the judgment: every public side delivers exactly what once delivers,
 		 * the perturbed plans' among them, which judges every column the reference declines.
 		 */
 		const publicSides = Arr.filter(answers, (a) => a.side !== "reference")
@@ -1230,7 +1180,7 @@ const queryRead = (
 	}).pipe(Effect.scoped)
 
 /**
- * One mixed root, a union whose arms find different heads, read through its member's execute, twice, and the strict
+ * One mixed root, a union whose arms find different heads, read through its member's once, twice, and the strict
  * one's, against the reference per heading group: each delivered row is read strictly as a row of the group whose
  * columns are exactly its keys (answer.ts mixedRows), and each group's rows are judged as queryRead judges a query's.
  */
@@ -1259,15 +1209,15 @@ const mixedRead = (
 				(exit): Result.Result<ReadonlyArray<ReadonlyArray<Nested>>, string> =>
 					Exit.isSuccess(exit) ? mixedRows(read.root, exit.value) : Result.fail(ended(exit.cause))
 			)
-		const rows = (ops: ReadOps) => grouped(Effect.flatMap(ops.execute({}), (r) => r.collect))
+		const rows = (calls: ReadCalls) => calls.read({}).pipe(rowsOf, grouped)
 		const executed = yield* rows(members.plain(name))
 		const sides = [
-			{ side: "execute", output: executed },
+			{ side: "once", output: executed },
 			{
-				side: "execute under the planner perturbation",
+				side: "once under the planner perturbation",
 				output: yield* rows(members.strict(name))
 			},
-			{ side: "execute again", output: yield* rows(members.plain(name)) }
+			{ side: "once again", output: yield* rows(members.plain(name)) }
 		]
 		/** Each heading group's answers agree, `reference` first where it is given. */
 		const judged = (
@@ -1310,25 +1260,23 @@ const mixedRead = (
 		return () =>
 			Effect.gen(function* () {
 				yield* judged(", read again over its facts stored otherwise", Option.none(), [
-					{ side: "execute", output: executed },
-					{ side: "execute, read again", output: yield* rows(members.plain(name)) },
+					{ side: "once", output: executed },
+					{ side: "once, read again", output: yield* rows(members.plain(name)) },
 					{
-						side: "execute under the planner perturbation, read again",
+						side: "once under the planner perturbation, read again",
 						output: yield* rows(members.strict(name))
 					}
 				])
 			})
 	}).pipe(Effect.scoped)
 
-/** A keyed get's answer: its one fact or none, or the failure or defect it died with. */
-const keyed = (shape: Shape, exit: Exit.Exit<Option.Option<unknown>, ReadError>): Answer =>
-	Exit.isSuccess(exit)
-		? publicRows(shape, Option.isSome(exit.value) ? [exit.value.value] : [])
-		: Result.fail(ended(exit.cause))
+/** A key member's answer: its value's one fact or none, or the failure or defect it died with. */
+const keyed = (shape: Shape, exit: Exit.Exit<ReadValue, CallError>): Answer =>
+	Exit.isSuccess(exit) ? publicRows(shape, [...exit.value]) : Result.fail(ended(exit.cause))
 
 /**
- * A keyed read's second reading: its member's get and the strict one's over the facts stored otherwise, each exactly
- * the first get's answer, `first`.
+ * A keyed read's second reading: its key member's once and the strict one's over the facts stored otherwise, each
+ * exactly the first once's answer, `first`.
  */
 const getAgain = (
 	c: ProgramCase,
@@ -1337,12 +1285,12 @@ const getAgain = (
 	first: Answer,
 	members: Members,
 	name: string,
-	values: ParamMap
+	values: HostParams
 ): Reading =>
 	Effect.gen(function* () {
-		const plainExit = yield* sideExit(members.plain(name).get(values))
+		const plainExit = yield* sideExit(members.plain(name).read(values))
 		const plain = keyed(shape, plainExit)
-		const perturbedExit = yield* sideExit(members.strict(name).get(values))
+		const perturbedExit = yield* sideExit(members.strict(name).read(values))
 		const planned = keyed(shape, perturbedExit)
 		yield* agreeing(
 			c,
@@ -1350,9 +1298,9 @@ const getAgain = (
 			shape,
 			answerEquivalence(shape, false),
 			[
-				{ side: "get", output: first },
-				{ side: "get, read again", output: plain },
-				{ side: "get under the planner perturbation, read again", output: planned }
+				{ side: "once", output: first },
+				{ side: "once, read again", output: plain },
+				{ side: "once under the planner perturbation, read again", output: planned }
 			]
 		)
 	})
@@ -1369,7 +1317,7 @@ const keyTargetOf = (
 			])
 		: built.relation(read.relation)
 
-/** One keyed read: its key member's get over a primary key or a candidate key, against the facts, and its second reading. */
+/** One keyed read: its key member's once over a primary key or a candidate key, against the facts, and its second reading. */
 const keyRead = (
 	c: ProgramCase,
 	members: Members,
@@ -1388,18 +1336,18 @@ const keyRead = (
 			}
 			record[f.name] = hostValue(literal, f.type)
 		}
-		const values = paramMapOf(record)
-		const got = yield* sideExit(members.plain(name).get(values))
+		const values: HostParams = record
+		const got = yield* sideExit(members.plain(name).read(values))
 		if (Exit.isSuccess(got)) {
-			note(Option.isSome(got.value) ? "key get some" : "key get none")
+			note(got.value.size > 0 ? "key get some" : "key get none")
 		}
 		const first = keyed(shape, got)
-		const exit = yield* sideExit(members.strict(name).get(values))
+		const exit = yield* sideExit(members.strict(name).read(values))
 		yield* agreeing(c, `read ${index}`, shape, answerEquivalence(shape, false), [
 			{ side: "reference", output: expectedKey(c, read) },
-			{ side: "get", output: first },
+			{ side: "once", output: first },
 			{
-				side: "get under the planner perturbation",
+				side: "once under the planner perturbation",
 				output: keyed(shape, exit)
 			}
 		])
@@ -1407,8 +1355,8 @@ const keyRead = (
 	})
 
 /**
- * One read of the closed roster: its key member's get({ id }), which a closed relation's key ["id"] answers, and its
- * second reading, which no stored fact can move.
+ * One read of the closed roster: its key member's once with params { id }, which a closed relation's key ["id"]
+ * answers, and its second reading, which no stored fact can move.
  */
 const handleRead = (
 	c: ProgramCase,
@@ -1420,18 +1368,18 @@ const handleRead = (
 	Effect.gen(function* () {
 		const shape: Shape = { columns: [c.schema.roster.id], attachments: [] }
 		const name = readMember(index)
-		const values = paramMapOf({ id: read.handle })
-		const got = yield* sideExit(members.plain(name).get(values))
-		if (Exit.isSuccess(got) && Option.isSome(got.value)) {
+		const values: HostParams = { id: read.handle }
+		const got = yield* sideExit(members.plain(name).read(values))
+		if (Exit.isSuccess(got) && got.value.size > 0) {
 			note("key get closed some")
 		}
 		const first = keyed(shape, got)
-		const exit = yield* sideExit(members.strict(name).get(values))
+		const exit = yield* sideExit(members.strict(name).read(values))
 		yield* agreeing(c, `read ${index}`, shape, answerEquivalence(shape, false), [
 			{ side: "reference", output: expectedHandle(read) },
-			{ side: "get", output: first },
+			{ side: "once", output: first },
 			{
-				side: "get under the planner perturbation",
+				side: "once under the planner perturbation",
 				output: keyed(shape, exit)
 			}
 		])
@@ -1640,23 +1588,20 @@ const casePrograms = (
 
 /**
  * A case's members as its reads run them, each by its name: on the Db's pool, and through the strict reader under the
- * case's planner settings (cells.ts), whose last execute's rows as PostgreSQL sent them `sentRows` gives; and the store,
+ * case's planner settings (cells.ts), whose last read's rows as PostgreSQL sent them `sentRows` gives; and the store,
  * the member that stores the case's facts with each call's rows.
  */
 interface Members {
-	readonly plain: (name: string) => ReadOps
-	readonly strict: (name: string) => ReadOps
+	readonly plain: (name: string) => ReadCalls
+	readonly strict: (name: string) => ReadCalls
 	readonly sentRows: () => ReadonlyArray<SentRow>
-	/** The read-back member `name` applied, its parameters bound in its ChangeSet. */
-	readonly back: (name: string) => Effect.Effect<ApplyOutcome<unknown>, ApplyError>
+	/** The read-back member `name`'s once, its parameters bound in its ChangeSet. */
+	readonly back: (name: string) => Effect.Effect<WrittenOutcome, CallError>
 	readonly store: (
 		name: string,
 		facts: { readonly insert: Readonly<Record<string, ReadonlyArray<unknown>>> }
-	) => Effect.Effect<ApplyOutcome<unknown>, ApplyError>
+	) => Effect.Effect<WrittenOutcome, CallError>
 }
-
-/** A member's reads, whatever it applies: a read's, a key's, a paged member's. */
-type ReadOps = Omit<CompiledOps<unknown>, "apply">
 
 /**
  * One case through grizzle's public runtime, judged against the reference.
@@ -1674,24 +1619,25 @@ type ReadOps = Omit<CompiledOps<unknown>, "apply">
  * 3. The facts are stored by the store member, the ChangeSet that inserts them, each relation's rows the call's own,
  *    which must accept every one, or, where a fact holds a twin spelling, which a change member cannot store, by a
  *    direct SQL writer of the case's role at SERIALIZABLE, each value as its fact spells it.
- * 4. Every read runs through every operation of its member that answers it, each compared with the reference's
+ * 4. Every read runs through every call of its member that answers it, each compared with the reference's
  *    answer under the contract's equivalence (answer.ts):
- *    - a query: its member's execute, its result collected twice, and executed again, its get, which answers when the
- *      query is proved at most one row and is otherwise refused before any SQL, and, for an ordered root, a paged
- *      member's pages forward and backward, the pages concatenated, every page but the last full;
- *    - a keyed lookup: a key member's get over a relation's primary key or a key(...)'s candidate key, an Option of
- *      the fact;
+ *    - a query: its member's once (an ordered root's, a paged member's, the window of its every row), its value read
+ *      twice, and once again, its one row where its value is keyed by no field, a query proved at most one row, and,
+ *      for an ordered root, its windows forward and backward, concatenated, every window but the last that holds rows
+ *      full;
+ *    - a keyed lookup: a key member's once over a relation's primary key or a key(...)'s candidate key, its value of
+ *      the fact or none;
  *    - each of them again under the case's planner settings (perturb.ts, which reach every read that opens a
  *      transaction), through a reader that reads every cell text strictly and compares every field it delivers with
  *      its cell (cells.ts);
  *    - a query as a ChangeSet's read-back, a change member that writes nothing and reads the query back, in the
- *      delivery a read-back reads; its rows must also be spelled exactly as the strict reader's execute.
- *    A refusal probe runs first (program.ts Probe) and must be its typed error, and the reads after it answer as
+ *      delivery a read-back reads; its rows must also be spelled exactly as the strict reader's once.
+ *    A refusal probe runs first (program.ts Probe) and must be its CallError's kind, and the reads after it answer as
  *    before. Each attachment states a delivery its program proves (delivery.ts): the reference's children per parent
  *    must keep it, and every public form must deliver exactly it, an Option, the one child or an arm's Some and None
  *    as its parent's handle selects (answer.ts).
  * 5. Every read is judged against itself too, with no reference in the judgment, which judges every column the
- *    reference declines (answer.ts unstated): every public side exactly as its member's execute, under both plans
+ *    reference declines (answer.ts unstated): every public side exactly as its member's once, under both plans
  *    (the plan relation); and once every read has answered, the facts are stored again otherwise
  *    (ProgramCase.restorage: another storage order through a fresh load, one value in its next twin spelling) and
  *    every read is read again, plainly and strictly, exactly as it first answered (the storage-order and twin-spelling
@@ -1735,23 +1681,13 @@ export const runCase = (
 						refused("the case's workload did not compile")
 					)
 					const strict = strictReaderOf(perturbedContext(ctx, c.perturbation))
-					const served = (name: string) => memberOps(ctx, member(loaded, name))
+					const served = (name: string) => memberCalls(ctx, member(loaded, name))
 					const members: Members = {
-						plain: (name) => served(name).ops,
-						strict: (name) => strict.ops(member(loaded, name)),
+						plain: (name) => readCalls(ctx, member(loaded, name)),
+						strict: (name) => strict.calls(member(loaded, name)),
 						sentRows: strict.sentRows,
-						back: (name) => {
-							const back = served(name)
-							return back.kind === "program"
-								? answered(writeOnce(back)({ params: {}, facts: {} }))
-								: Effect.die(new Error(`the read-back member ${name} takes facts`))
-						},
-						store: (name, facts) => {
-							const stored = served(name)
-							return stored.kind === "facts"
-								? answered(writeOnce(stored)({ params: {}, facts: facts }))
-								: Effect.die(new Error(`the store member ${name} takes no facts`))
-						}
+						back: (name) => writeOnce(served(name))({ params: {}, facts: {} }),
+						store: (name, facts) => writeOnce(served(name))({ params: {}, facts })
 					}
 					/** A read through the members, first reading and second (Again). */
 					const readOf = (read: ProgramRead, i: number): Effect.Effect<Again, Disagreement> => {

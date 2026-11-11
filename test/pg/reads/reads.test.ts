@@ -529,10 +529,10 @@ layer(Substrate.layer)("reads through Db", (it) => {
 										yield* replace(opened.installed, facts)
 										const rows = payloadRows(facts)
 										const sorted = Arr.sort(rows, c.descending ? Order.flip(byIdText) : byIdText)
-										const got = yield* (yield* readOnce(member(unions, unionMember(c)))({
+										const got = yield* readOnce(member(unions, unionMember(c)))({
 											params: {},
 											facts: {}
-										})).collect
+										})
 										if (c.take.kind === "none") {
 											assert.deepEqual(Arr.map(got, plain), sorted)
 										} else {
