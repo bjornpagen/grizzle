@@ -229,11 +229,9 @@ export type PageStatementSlot<F extends PageFill = PageFill> = DeclaredParamSlot
 /** What fills one placeholder $n of a statement of any lowering. */
 export type ConservativeParamSlot = DeclaredParamSlot | OwnParamSlot
 
-export const noColumns: Heading = Object.freeze([])
-
 /**
  * A statement's role and the statements of its program that must run first: none. An attachment recomputes its
- * parent's rows in its own statement (deliver.ts), so every statement of a query program goes in one flight; only a
+ * parent key's set in its own statement (deliver.ts), so every statement of a query program goes in one flight; only a
  * write program's statements depend on earlier ones.
  */
 export interface StatementPlacement {

@@ -21,7 +21,7 @@ import { upTo } from "#test/support/up-to.ts"
  * A query's compiled statements grow with the query, never faster: a query attaching n relations, each its own, and the
  * same query attaching 2n, compiled as a Db compiles them, the 2n one at 200 attachments. Each artifact's statements,
  * counted as AST nodes (a structural property, never printed text), grow by at most 2 + ε from n to 2n: every
- * attachment statement computes its parent's rows again, so one that also computed its sibling attachments would grow
+ * attachment statement computes its parent key's set again, so one that also computed its sibling attachments would grow
  * by 4 there. Every attachment over exact parents is a statement of its own in both artifacts (shapes/index.ts
  * rowsStatement), so the space is the children's own fields, one to three, which widen every statement alike.
  */

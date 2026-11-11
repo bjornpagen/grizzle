@@ -46,14 +46,12 @@ import type { CtePlan, CteStrategy } from "#compiler/lower/optimize/cte-policy/i
 import { aggregateLowerer } from "#compiler/lower/shapes/aggregate/index.ts"
 import { seededAttachment } from "#compiler/lower/shapes/attach-recursive/index.ts"
 import {
-	attachmentRowsIdentity,
 	boundTimes,
 	type DeliveredRows,
 	fusedLayout,
 	type PipelinedAttachment,
 	pipelinedAttachment,
 	type RowsBound,
-	type RowsIdentity,
 	withFusedAttachments
 } from "#compiler/lower/shapes/attach/index.ts"
 import { catalogLowerers } from "#compiler/lower/shapes/catalog/native.ts"
@@ -323,9 +321,9 @@ export interface ShapeLog<I extends ChoiceInput> {
  * The delivery schedules a query's statements: the main statement, or one statement per heading group
  * of a heterogeneous union delivered to the host (R21), and the attachments, fused into their parent statement as
  * ARRAY(SELECT ...) where the R36 rule selects it and otherwise pipelined: a statement of their own in the same
- * flight, which computes the parent's rows again (conservative/deliver.ts). A take correlated to a relation parameter,
- * or in a page's attachment to the delivered page, chooses its form per execution by that input's size, known before
- * the flight is sent: the delivery lowers each statement in the small mode and, when that lowering made
+ * flight, which computes its parent key's set again (conservative/deliver.ts). A take correlated to a relation
+ * parameter, or in a page's attachment to the delivered page, chooses its form per execution by that input's size,
+ * known before the flight is sent: the delivery lowers each statement in the small mode and, when that lowering made
  * choices, again in the large mode (OptimizedDelivery.formed). A take correlated to the parent rows of any other
  * pipelined attachment takes the form the parent rows' bound fixes (parentsOf).
  */
@@ -663,8 +661,6 @@ interface RowsSpec<I extends ChoiceInput> {
 	readonly attachments: ReadonlyArray<DeliveredAttachment>
 	readonly order: CompletedOrder | undefined
 	readonly statement: StatementPlacement
-	/** What identifies a delivered row: a row of `origin`, or nothing the facts know for a heading group. */
-	readonly identity: RowsIdentity
 	/** How many rows the statement delivers at most. */
 	readonly bound: RowsBound<I>
 }
@@ -802,7 +798,6 @@ export class OptimizedDelivery<
 			attachments: spine.attachments.map((attach) => ({ attach, spine: spine.nodes })),
 			order,
 			statement: { role: { kind: "main" }, dependsOn: [] },
-			identity: { kind: "node", node: rows },
 			bound: rowsBoundOf(this.facts, rows)
 		})
 		const place = positions()
@@ -832,8 +827,8 @@ export class OptimizedDelivery<
 	 * chosen by the rule and never by the caller:
 	 *
 	 * - pipelined: one statement per attached query, in the parent statement's flight and snapshot, which computes the
-	 *   parent's rows again as a derived table of its own (conservative/deliver.ts parentRowsSource); the library
-	 *   stitches children onto parents by key;
+	 *   set of its parent key's values again as a derived table of its own (conservative/deliver.ts parentKeysSource);
+	 *   the library stitches children onto parents by key;
 	 * - fused: the child inside the parent statement as `ARRAY(SELECT ...)`, an empty array rather than NULL, directly
 	 *   for a single field and as `ARRAY(SELECT to_jsonb(...))` for several, decoded by the attachment's codec
 	 *   (runtime/lower/fused.ts), a child whose correlated columns the parent row supplies included.
@@ -844,9 +839,9 @@ export class OptimizedDelivery<
 	 * evaluated over the delivered page only.
 	 *
 	 * Every attachment is pipelined, its own statement in the same round trip, unless the statement's rows read an
-	 * approximate search: then every one is fused, since a pipelined statement computes its parent's rows again, which
-	 * would run the search a second time, and two HNSW searches in one snapshot need not retrieve the same set. A child
-	 * that must be a statement of its own (check/approximate/attach.ts pipelinedOnly: a recursive child, seeded once
+	 * approximate search: then every one is fused, since a pipelined statement computes its parent's key set again,
+	 * which would run the search a second time, and two HNSW searches in one snapshot need not retrieve the same set. A
+	 * child that must be a statement of its own (check/approximate/attach.ts pipelinedOnly: a recursive child, seeded once
 	 * from the parent keys (R37, attach-recursive), a child over an approximate source, evaluated once per execution,
 	 * and a child with attachments of its own, a heterogeneous union or a bytes column, whose values travel in chunks
 	 * (codec/delivery.ts), each delivering more than one array can carry) never sits under rows that read a search: the
@@ -893,8 +888,7 @@ export class OptimizedDelivery<
 			build: () => this.formed(lowered, spec.heading, spec.statement, columns),
 			attachments: (place) => {
 				const rows: DeliveredRows<I> = {
-					...statementRows(spec.heading, spec.rel),
-					identity: spec.identity,
+					...statementRows(cx, spec.heading, spec.origin, spec.rel),
 					bound: spec.bound
 				}
 				return pipelined.map((a) => this.pipelined(place, a.attach, a.spine, rows))
@@ -923,8 +917,8 @@ export class OptimizedDelivery<
 	}
 
 	/**
-	 * One pipelined attachment, a statement of its own in its parent's flight that computes the parent's rows again;
-	 * its child's own attachments are pipelined after it, over its rows. Those rows read no search: the query is
+	 * One pipelined attachment, a statement of its own in its parent's flight that computes its parent key's set again;
+	 * its child's own attachments are pipelined after it, over its key sets. Those rows read no search: the query is
 	 * admitted (check/index.ts AdmittedQuery).
 	 */
 	pipelined(
@@ -955,12 +949,9 @@ export class OptimizedDelivery<
 		)
 		const childSpine = this.spine(attach.child)
 		const childRows: DeliveredRows<I> = {
-			...attachmentRows(
-				parentKey,
-				child.heading,
-				() => this.pipelinedQuery(attach, spine, rows, parentKey).rows
+			...attachmentRows(child.heading, (demand) =>
+				this.pipelinedQuery(attach, spine, rows, parentKey).keys(demand)
 			),
-			identity: attachmentRowsIdentity(cx, attach, spine),
 			bound: boundTimes(rows.bound, this.facts.maxCard(attach.child))
 		}
 		const attachments = childSpine.attachments.map((nested) =>
@@ -1065,7 +1056,6 @@ export class OptimizedDelivery<
 			attachments,
 			order: groupOrder(plan),
 			statement: { role: { kind: "headingGroup", group: gi }, dependsOn: [] },
-			identity: { kind: "unkeyed" },
 			bound: rowsBoundOf(this.facts, union)
 		}
 	}

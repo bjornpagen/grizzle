@@ -60,7 +60,7 @@ import type {
 import { armCore, setOperation } from "#compiler/lower/conservative/union/arms.ts"
 import type { CtePlan } from "#compiler/lower/optimize/cte-policy/index.ts"
 import type { DedupPlan } from "#compiler/lower/optimize/dedup/plan.ts"
-import type { DeliveredRows, RowsIdentity } from "#compiler/lower/shapes/attach/index.ts"
+import type { DeliveredRows } from "#compiler/lower/shapes/attach/index.ts"
 import {
 	asDelivered,
 	type DeliveredStatement,
@@ -450,8 +450,6 @@ interface PageSource<F extends PageFill> {
 	readonly orderOrigin: RelNode
 	readonly orderHeading: Heading
 	readonly role: RowsRole
-	/** What identifies a delivered row: a row of `origin`, or nothing the facts know for a heading group. */
-	readonly identity: RowsIdentity
 	/** Places the statements of its attachments, over its placed statement's rows. */
 	readonly attachments: (
 		place: Place,
@@ -472,7 +470,6 @@ const sourcesOf = <F extends PageFill>(
 				orderOrigin: shape.rows,
 				orderHeading: shape.heading,
 				role: { kind: "main" },
-				identity: { kind: "node", node: shape.rows },
 				attachments: (place, rows) =>
 					kit.attach(place, rows, shape.spine.nodes, shape.spine.attachments)
 			}
@@ -489,7 +486,6 @@ const sourcesOf = <F extends PageFill>(
 		orderOrigin: union,
 		orderHeading: union.heading,
 		role: { kind: "headingGroup", group: gi },
-		identity: { kind: "unkeyed" },
 		attachments: (place: Place, rows: DeliveredRows<PageInput>) => {
 			const above = kit.attach(place, rows, scope, plan.attachments)
 			const [only, ...others] = g.arms
@@ -512,16 +508,16 @@ const sourcesOf = <F extends PageFill>(
 }
 
 /**
- * The delivered rows of a page's rows statement, which its attachments' statements compute again by `retained`: at
- * most the requested size of them.
+ * The delivered rows of a page's rows statement of `origin`, which its attachments' statements compute again by
+ * `retained`: at most the requested size of them.
  */
 const deliveredRowsOf = (
+	cx: LowerContext,
 	heading: Heading,
-	identity: RowsIdentity,
+	origin: RelNode,
 	retained: () => Select
 ): DeliveredRows<PageInput> => ({
-	...statementRows(heading, retained),
-	identity,
+	...statementRows(cx, heading, origin, retained),
 	bound: { kind: "input", source: { kind: "pageSize" }, factor: 1n }
 })
 
@@ -589,7 +585,7 @@ const requestStatements = <F extends PageFill>(
 		)
 		const attachments = source.attachments(
 			place,
-			deliveredRowsOf(source.heading, source.identity, () => retained(source))
+			deliveredRowsOf(cx, source.heading, source.origin, () => retained(source))
 		)
 		return { statement, attachments }
 	})

@@ -6,10 +6,11 @@ import {
 	type ColumnMap,
 	columnIn,
 	type Env,
+	headingTargets,
 	type LowerContext,
 	outputNames
 } from "#compiler/lower/conservative/context.ts"
-import { parentRowsSource } from "#compiler/lower/conservative/deliver.ts"
+import { parentKeysSource } from "#compiler/lower/conservative/deliver.ts"
 import { orderItemsOf } from "#compiler/lower/conservative/take/order.ts"
 import { carriedFrom, positiveLinear } from "#compiler/lower/shapes/attach-recursive/carried.ts"
 import type { DeliveredRows, PipelinedAttachment } from "#compiler/lower/shapes/attach/index.ts"
@@ -24,6 +25,7 @@ import {
 	col,
 	core,
 	cteRefAs,
+	distinctCore,
 	eq,
 	provedCore,
 	select,
@@ -128,11 +130,11 @@ const seedDecision = (
  * pipelined statement (shapes/attach) reads the child per delivered parent, LATERAL to the parent's rows, and
  * filters its states by the origin, so the recursion's seed is whatever the child's base delivers: every root of the
  * relation, not only the delivered parents. R37 instead lowers one recursive statement for the whole page whose seed
- * is the parent's rows, computed again in this statement (conservative/deliver.ts parentRowsSource):
+ * is the parent key's set, computed again in this statement (conservative/deliver.ts parentKeysSource):
  *
  *   WITH RECURSIVE r1(c1, c2) AS (
  *     SELECT r4.c5::uuid, r4.c6::uuid
- *     FROM (<the parent's rows>) AS r2(c3, c4),
+ *     FROM (<the parent key's values>) AS r2(c3),
  *       LATERAL (<base>) AS r4(c5, c6)
  *     WHERE r4.c5 = r2.c3
  *     UNION
@@ -159,9 +161,8 @@ const seedDecision = (
  *    seeded seed for p, base(p) restricted to C = p.P, is what the pipelined filter keeps of base(p)'s states.
  * 4. C's canonical cell text is the parent's key's (codec/read.ts cellText): C equals P natively, and equal values
  *    have one cell text, so C, delivered as the parent key, stitches as the parent's own key and the stitch by key is
- *    the pipelined one. The rows are distinct: the full
- *    state is delivered and the recursive UNION deduplicates it, so no DISTINCT is needed, and a
- *    parent key repeated in the parent's rows only repeats a seed, which the UNION collapses.
+ *    the pipelined one. The rows are distinct: the full state is delivered and the recursive UNION deduplicates
+ *    it, so no DISTINCT is needed.
  *
  * The step must read no parent column: it would then be correlated to one parent, and a seeded closure has none.
  * Where any condition fails the attachment is not seeded and the pipelined statement stands; both deliver the same
@@ -182,10 +183,10 @@ export const seededAttachment = (
 	const rec = decision.recursive
 
 	/**
-	 * The parent's rows, computed again in this statement as the pipelined statement reads them, before the recursion
+	 * The parent key's set, computed again in this statement as the pipelined statement reads it, before the recursion
 	 * is registered as feedback, so nothing of the parent's lowering can scan it.
 	 */
-	const parent = parentRowsSource(cx, rows, { kind: "node", node: attach.id })
+	const parent = parentKeysSource(cx, rows, parentColumns, { kind: "node", node: attach.id })
 	const parentMap: ColumnMap = new Map(
 		decision.keys.map((k) => [k.parent.name, parent.column(k.parent.name)])
 	)
@@ -244,7 +245,10 @@ export const seededAttachment = (
 		]
 	}
 	return {
-		rows: { ...select(scanned), with: recursion },
+		keys: (demand) => ({
+			...select(distinctCore(headingTargets(demand, stateMap), [cteRefAs(cte, scan)], undefined)),
+			with: recursion
+		}),
 		query: { ...select(scanned), with: recursion, orderBy }
 	}
 }

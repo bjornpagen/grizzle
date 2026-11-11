@@ -20,16 +20,15 @@ import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
 import { bindLaterally } from "#compiler/lower/conservative/expr/lateral.ts"
 import { refineConservative } from "#compiler/lower/conservative/refined.ts"
 import { completedOrderItems } from "#compiler/lower/conservative/take/order.ts"
-import {
-	type ConservativeProgram,
-	type ConservativeStatement,
-	type DeclaredParamSlot,
-	type DeliveredBreach,
-	type GroupMerge,
-	noColumns,
-	type PageParamSlot,
-	type ProgramDelivery,
-	type StatementPlacement
+import type {
+	ConservativeProgram,
+	ConservativeStatement,
+	DeclaredParamSlot,
+	DeliveredBreach,
+	GroupMerge,
+	PageParamSlot,
+	ProgramDelivery,
+	StatementPlacement
 } from "#compiler/lower/conservative/types.ts"
 import { armCore, setOperation } from "#compiler/lower/conservative/union/arms.ts"
 import {
@@ -145,16 +144,20 @@ const groupMerge = (plan: HeterogeneousPlan): GroupMerge => {
  *   apply per group (heterogeneousPlan); any other node over it, which would deliver only the common heading, is
  *   refused.
  * - Each attachment is one more statement, sent in the same flight as its parent's and run in the same snapshot. It
- *   computes its parent's rows again, as a derived table of its own (parentRowsSource), and selects, for every parent
- *   row, the child's facts correlated to it: the parent key columns first, then the child's heading. Attachments nest;
- *   a child's own attachments compute the child statement's rows again the same way, its parent's included.
+ *   computes the set of its parent key's values in its parent's rows again, as a derived table of its own
+ *   (parentKeysSource), and selects, for every parent key, the child's facts correlated to it: the parent key columns
+ *   first, then the child's heading. Attachments nest; a child's own attachments compute the child statement's key
+ *   set the same way, from its parent key's set, so a statement computes no column of any statement above it but the
+ *   keys that lead to its own.
  *
- * Why the recomputed parent rows are the delivered ones. Each recomputation is the parent's own query, lowered again
- * from the same nodes: every take in it bounds by a completed total order, so it keeps the same facts whatever the
- * plan, and every scalar is immutable or stable, so its values are those of the parent statement in the one snapshot
- * and transaction both run in. Only the delivery ORDER BY is left out, which never changes a set. The parent's rows
- * are read once per row, as the delivered rows were, so a DISTINCT the child statement omits on the facts' word omits
- * nothing the parent repeats. A parent that delivers no row gives the child statement no row, which is its answer.
+ * Why the recomputed key set is the delivered rows'. Each recomputation is the parent's own query, lowered again from
+ * the same nodes and projected to the parent key: every take in it bounds by a completed total order, so it keeps the
+ * same facts whatever the plan, and every scalar is immutable or stable, so its values are those of the parent
+ * statement in the one snapshot and transaction both run in. The child reads only the parent key (parentColumnsOf:
+ * its correlation and every parent column it reads), so the children of a parent row are those of its key, and the
+ * statement's rows, each parent key with each of its children, are the same over the key set as over the parent's
+ * rows. The key set holds each key once, so a DISTINCT the child statement omits on the facts' word omits nothing. A
+ * parent that delivers no row gives the child statement no row, which is its answer.
  *
  * The attachments a statement delivers are those of its rows' spine (dag.ts deliverySpine): the chain of nodes whose
  * rows are their input's rows under the same heading (keptRowsOf, a page and a law's violation query included, and a
@@ -223,23 +226,22 @@ const heterogeneousUnion = (spine: DeliverySpine): NodeOf<"Union"> | undefined =
 }
 
 /**
- * Delivered rows: the columns their statement puts before them, their heading, and how a later statement computes them
- * again.
+ * Delivered rows as a later statement reads them: their heading, and the set of values they hold of a few of its
+ * columns, computed again in that statement.
  */
 export interface ParentRows {
-	/** The output columns the statement's role puts before the delivered relation's (types.ts keyColumns). */
-	readonly key: Heading
 	/** The delivered relation's heading, whose columns an attachment correlates on. */
 	readonly heading: Heading
 	/**
-	 * The statement's rows lowered again inside the statement being lowered, without the delivery ORDER BY: the key
-	 * columns, then the delivered relation's (deliveredHeading).
+	 * The distinct values of the columns `demand` of the delivered rows, lowered inside the statement being lowered: one
+	 * output column per demanded one, in its order, the private unit column for none. Nothing else of the rows, nor
+	 * of the rows they are attached to, is computed.
 	 */
-	readonly recompute: () => OperandSelect
+	readonly keys: (demand: Heading) => OperandSelect
 }
 
 /** The parent columns a child reads itself: its outer references to a node of the delivered rows' spine. */
-export const parentColumnsRead = (
+const parentColumnsRead = (
 	cx: LowerContext,
 	attach: NodeOf<"Attach">,
 	spine: ReadonlyArray<RelNode>
@@ -275,29 +277,34 @@ export const parentColumnsOf = (
 }
 
 /**
- * The parent's rows recomputed as a derived table of the statement being lowered, with one fresh column per output
- * position, and each parent column's expression over it. This replaces the delivered parent keys an attachment once
- * took as a parameter, so the attachment needs no earlier statement's rows.
+ * The parent key `parentKey`'s values in the parent's rows, computed again as a derived table of the statement being
+ * lowered (ParentRows keys), and each parent key column's expression over it. This replaces the delivered parent keys
+ * an attachment once took as a parameter, so the attachment needs no earlier statement's rows.
  */
-export const parentRowsSource = (
+export const parentKeysSource = (
 	cx: LowerContext,
 	rows: ParentRows,
+	parentKey: Heading,
 	origin: NameOrigin
 ): { readonly item: FromItem; readonly column: (name: string) => Expr } => {
-	const query = rows.recompute()
-	const alias = cx.relationAlias(origin)
-	const key = cx.supply.columns(rows.key.map(() => origin))
-	const delivered = deliveredHeading(rows.heading).map((c): readonly [string, string] => [
-		c.name,
-		cx.supply.column(origin)
-	])
-	const item: FromItem = derived(query, alias, [...key, ...delivered.map(([, c]) => c)], false)
-	const map: ColumnMap = new Map(delivered.map(([name, c]) => [name, col(alias, c)]))
+	const source = cx.wrap(rows.keys(parentKey), parentKey, origin)
 	return {
-		item,
+		item: source.item,
 		/** A parent key column, which parentColumnsOf read from the delivered heading. */
-		column: (name) => columnIn(map, name)
+		column: (name) => columnIn(source.map, name)
 	}
+}
+
+/** The distinct values of `demand`'s columns of the rows `query` delivers under `heading` (ParentRows keys). */
+const keysOf = (
+	cx: LowerContext,
+	query: OperandSelect,
+	heading: Heading,
+	origin: NameOrigin,
+	demand: Heading
+): Select => {
+	const source = cx.wrap(query, heading, origin)
+	return distinctSelect(headingTargets(demand, source.map), [source.item], [])
 }
 
 /**
@@ -377,7 +384,7 @@ export const checkedAttachment = (
 		key: keys.map((c) => ({ field: c.name, expr: col(rv, c.kept), type: c.type }))
 	}
 	const none = (): DeliveredBreach => {
-		const parent = parentRowsSource(cx, rows, origin)
+		const parent = parentKeysSource(cx, rows, parentKey, origin)
 		const matches = keys.map((c) => eq(col(rv, c.kept), parent.column(c.name)))
 		return {
 			from: parent.item,
@@ -400,22 +407,25 @@ export const checkedAttachment = (
 	}
 }
 
-/** The parent rows of a rows statement delivering a relation of heading `heading`, recomputed by `recompute`. */
-export const statementRows = (heading: Heading, recompute: () => OperandSelect): ParentRows => ({
-	key: noColumns,
+/** The parent rows of a rows statement delivering `origin`'s rows of heading `heading`, lowered again by `rel`. */
+export const statementRows = (
+	cx: LowerContext,
+	heading: Heading,
+	origin: RelNode,
+	rel: () => OperandSelect
+): ParentRows => ({
 	heading,
-	recompute
+	keys: (demand) => keysOf(cx, rel(), heading, { kind: "node", node: origin.id }, demand)
 })
 
 /** One heading group of a heterogeneous union. */
 type HeadingGroup = NodeOf<"Union">["groups"][number]
 
-/** The parent rows of an attachment statement: its child's columns after the parent key columns. */
-export const attachmentRows = (
-	parentKey: Heading,
-	child: Heading,
-	recompute: () => Select
-): ParentRows => ({ key: parentKey, heading: child, recompute })
+/** The parent rows of an attachment statement, its child's, whose key sets `keys` lowers again. */
+export const attachmentRows = (child: Heading, keys: (demand: Heading) => Select): ParentRows => ({
+	heading: child,
+	keys
+})
 
 /**
  * Where a program's statements go, in flight order: `place` builds the next statement at the position it takes, which
@@ -430,12 +440,12 @@ export const positions = (): Place => {
 }
 
 /**
- * One attachment statement's rows, unordered for a recomputation and in its delivery order for its own statement: the
- * parent key columns, then the child's.
+ * One attachment statement's rows in its delivery order, the parent key columns then the child's, and the key sets of
+ * its rows, for a later statement that computes them again.
  */
 interface AttachmentQuery {
-	readonly rows: Select
 	readonly delivered: Select
+	readonly keys: (demand: Heading) => Select
 	readonly parentKey: ReadonlyArray<ParentKeyColumn>
 }
 
@@ -546,7 +556,10 @@ export class Delivery<Own extends PageParamSlot = never> {
 			role: { kind: "main" },
 			dependsOn: []
 		})
-		const attachments = this.attachments(this.spine(rows), statementRows(rows.heading, rel))
+		const attachments = this.attachments(
+			this.spine(rows),
+			statementRows(this.cx, rows.heading, rows, rel)
+		)
 		return { roots: [{ statement, attachments }], delivery: { kind: "rows" } }
 	}
 
@@ -650,7 +663,11 @@ export class Delivery<Own extends PageParamSlot = never> {
 			const built = this.groupStatement(plan, gi, group)
 			return {
 				statement: built.statement,
-				attachments: this.groupAttachments(plan, group, statementRows(group.heading, built.rel))
+				attachments: this.groupAttachments(
+					plan,
+					group,
+					statementRows(this.cx, group.heading, plan.union, built.rel)
+				)
 			}
 		})
 	}
@@ -791,29 +808,31 @@ export class Delivery<Own extends PageParamSlot = never> {
 		})
 		const attachments = this.attachments(
 			this.spine(attach.child),
-			attachmentRows(
-				built.parentKey,
-				child.heading,
-				() => this.attachmentQuery(attach, spine, rows).rows
+			attachmentRows(child.heading, (demand) =>
+				this.attachmentQuery(attach, spine, rows).keys(demand)
 			)
 		)
 		return { statement, attach, attachments }
 	}
 
 	/**
-	 * The query of one attachment statement in the statement being lowered: for every row of its parent, computed
-	 * again here (parentRowsSource), the child's facts correlated to it, the parent key columns first.
+	 * The query of one attachment statement in the statement being lowered: for every parent key of its parent's rows,
+	 * whose set is computed again here (parentKeysSource), the child's facts correlated to it, the parent key columns
+	 * first; and the key sets of its rows.
 	 */
 	attachmentQuery(attach: NodeOf<"Attach">, spine: Spine, rows: ParentRows): AttachmentQuery {
 		const cx = this.cx
 		const child = attach.child
 		const parentKey = parentColumnsOf(cx, attach, spine.nodes, rows.heading)
-		const parent = parentRowsSource(cx, rows, { kind: "node", node: attach.id })
+		const parent = parentKeysSource(cx, rows, parentKey, { kind: "node", node: attach.id })
 		const parentExprs = parentKey.map((c) => ({ name: c.name, expr: parent.column(c.name) }))
 		const parentMap = new Map<string, Expr>(parentExprs.map((p) => [p.name, p.expr]))
 		const env: Env = new Map<NodeId, ColumnMap>(spine.nodes.map((n) => [n.id, parentMap]))
 		const source = cx.sourceAs(attach.child, env, true)
-		const where = correlationEqualities(cx, attach, child.heading, source.map, parentMap)
+		const where = conjunction(
+			correlationEqualities(cx, attach, child.heading, source.map, parentMap)
+		)
+		const from = [parent.item, source.item]
 		const parentTargets = parentExprs.map((p) => target(p.expr))
 		const childTargets = headingTargets(child.heading, source.map)
 		const orderBy: ReadonlyArray<OrderItem> =
@@ -823,14 +842,12 @@ export class Delivery<Own extends PageParamSlot = never> {
 						...parentExprs.map((p) => asc(p.expr)),
 						...completedOrderItems(attach.order, child.heading, source.map)
 					]
-		const body = distinctCore(
-			concatNonEmpty(parentTargets, childTargets),
-			[parent.item, source.item],
-			conjunction(where)
-		)
 		return {
-			rows: select(body),
-			delivered: { ...select(body), orderBy },
+			delivered: {
+				...select(distinctCore(concatNonEmpty(parentTargets, childTargets), from, where)),
+				orderBy
+			},
+			keys: (demand) => select(distinctCore(headingTargets(demand, source.map), from, where)),
 			parentKey
 		}
 	}

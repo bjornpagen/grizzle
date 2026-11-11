@@ -21,8 +21,7 @@ import {
 import {
 	type ParentRows,
 	parentColumnsOf,
-	parentColumnsRead,
-	parentRowsSource
+	parentKeysSource
 } from "#compiler/lower/conservative/deliver.ts"
 import { orderItemsOf } from "#compiler/lower/conservative/take/order.ts"
 import type { DeliveredBreach } from "#compiler/lower/conservative/types.ts"
@@ -38,6 +37,7 @@ import {
 	cast,
 	conjunction,
 	countStar,
+	distinctCore,
 	distinctCoreWhen,
 	gt,
 	keyedSet,
@@ -266,74 +266,14 @@ export const boundTimes = <I extends ChoiceInput>(
 		: { kind: "input", source: bound.source, factor: bound.factor * max.rows }
 }
 
-/**
- * What identifies a delivered row, which decides whether an attachment's parent columns key the rows it reads:
- * - a row of `node`, for a statement delivering that node's rows;
- * - a child row of `attach`, for an attachment statement's rows, which pair each parent with each of its children (a
- *   set: the statement deduplicates them unless proved unique), where every parent column the child reads itself is
- *   one it correlates. The statement's parent columns are then all correlated, each equal to a child column, so a
- *   child row determines its whole row. The child is evaluated once per value of the parent columns it reads itself,
- *   `evaluation` (once in all where it reads none), and the facts key its rows within one evaluation only: the rows
- *   are keyed by columns that key the child and hold, for each column of `evaluation`, a child column correlated to it;
- * - nothing the facts know, for a heading group's rows, which are wider than their union's, and for an attachment
- *   statement's rows whose child reads a parent column it does not correlate, where one child row can pair with two
- *   parents.
- */
-export type RowsIdentity =
-	| { readonly kind: "node"; readonly node: RelNode }
-	| {
-			readonly kind: "child"
-			readonly attach: NodeOf<"Attach">
-			readonly evaluation: ReadonlyArray<string>
-	  }
-	| { readonly kind: "unkeyed" }
-
-/** What identifies the rows of the statement of an attachment whose parent's rows are those of `spine` (RowsIdentity). */
-export const attachmentRowsIdentity = (
-	cx: LowerContext,
-	attach: NodeOf<"Attach">,
-	spine: ReadonlyArray<RelNode>
-): RowsIdentity => {
-	const evaluation = [...parentColumnsRead(cx, attach, spine)]
-	return evaluation.every((p) => attach.correlation.some((c) => c.parent === p))
-		? { kind: "child", attach, evaluation }
-		: { kind: "unkeyed" }
-}
-
-/** Whether `columns` of delivered rows identified by `identity` key them. */
-const rowsKeyedBy = (
-	facts: ShapeFacts,
-	identity: RowsIdentity,
-	columns: ReadonlyArray<string>
-): boolean => {
-	switch (identity.kind) {
-		case "node":
-			return facts.keyedBy(identity.node, columns)
-		case "child": {
-			const { attach } = identity
-			return (
-				identity.evaluation.every((p) =>
-					attach.correlation.some((c) => c.parent === p && columns.includes(c.child))
-				) && facts.keyedBy(attach.child, columns)
-			)
-		}
-		case "unkeyed":
-			return false
-	}
-}
-
-/**
- * Delivered rows of a statement: its index, each column's output position, how a later statement computes them
- * again, what identifies them, and how many there are at most.
- */
+/** Delivered rows of a statement: their heading, their key sets (ParentRows), and how many there are at most. */
 export interface DeliveredRows<I extends ChoiceInput> extends ParentRows {
-	readonly identity: RowsIdentity
 	readonly bound: RowsBound<I>
 }
 
 export interface PipelinedAttachment {
-	/** The statement's rows, unordered, for a later statement that computes them again. */
-	readonly rows: Select
+	/** The statement's rows' key sets, for a later statement that computes them again (ParentRows keys). */
+	readonly keys: (demand: Heading) => Select
 	/** The statement as it delivers them, in its order: the parent key columns, then the child's (deliveredHeading). */
 	readonly query: Select
 }
@@ -352,12 +292,12 @@ const foldedByCorrelation = (
 /**
  * The pipelined attachment statement:
  *
- *   SELECT [DISTINCT] r1.c2, r3.c5, r3.c6 FROM (<the parent's rows>) AS r1(c1, c2),
- *     LATERAL (<child>) AS r3(c4, c5, c6) WHERE r3.c4 = r1.c2 [ORDER BY r1.c2, <child order>]
+ *   SELECT [DISTINCT] r1.c1, r3.c5, r3.c6 FROM (<the parent key's values>) AS r1(c1),
+ *     LATERAL (<child>) AS r3(c4, c5, c6) WHERE r3.c4 = r1.c1 [ORDER BY r1.c1, <child order>]
  *
- * The parent key columns `parentColumns` first (deliver.ts parentColumnsOf), then the child's heading. DISTINCT is
- * elided when the facts prove the child unique per parent binding and the parent columns key the delivered rows, so the
- * parent's rows hold each parent key once.
+ * The parent key columns `parentColumns` first (deliver.ts parentColumnsOf), then the child's heading. The parent's
+ * rows are read as the set of their parent key values (ParentRows keys), each once, so DISTINCT is elided when the
+ * facts prove the child unique per parent binding.
  *
  * A child that folds by every column the Attach correlates (a Group whose keys hold them) is the fold of its parent's
  * keys alone, `LATERAL (SELECT k, sum(…) FROM (<input>) WHERE k = r1.c2 GROUP BY k)` (aggregate/index.ts keyedGroup),
@@ -377,7 +317,7 @@ export const pipelinedAttachment = (
 	parentColumns: Heading
 ): PipelinedAttachment => {
 	const child = attach.child
-	const parent = parentRowsSource(cx, rows, { kind: "node", node: attach.id })
+	const parent = parentKeysSource(cx, rows, parentColumns, { kind: "node", node: attach.id })
 	/** Each parent key column with its expression over the parent's rows. */
 	const keys = parentColumns.map((c) => ({ name: c.name, expr: parent.column(c.name) }))
 	const parentMap: ColumnMap = new Map(keys.map((k) => [k.name, k.expr]))
@@ -402,13 +342,7 @@ export const pipelinedAttachment = (
 		folded === undefined
 			? correlationEqualities(cx, attach, child.heading, source.map, parentMap)
 			: []
-	const distinct =
-		!facts.childUniquePerParent(attach) ||
-		!rowsKeyedBy(
-			facts,
-			rows.identity,
-			parentColumns.map((c) => c.name)
-		)
+	const distinct = !facts.childUniquePerParent(attach)
 	const orderBy: ReadonlyArray<OrderItem> =
 		attach.order === undefined
 			? []
@@ -420,17 +354,19 @@ export const pipelinedAttachment = (
 						fixed: []
 					})
 				]
+	const from = [parent.item, source.item]
 	const body = distinctCoreWhen(
 		distinct,
 		concatNonEmpty(
 			keys.map((k) => target(k.expr)),
 			headingTargets(child.heading, source.map)
 		),
-		[parent.item, source.item],
+		from,
 		conjunction(where)
 	)
 	return {
-		rows: select(body),
+		keys: (demand) =>
+			select(distinctCore(headingTargets(demand, source.map), from, conjunction(where))),
 		query: { ...select(body), orderBy }
 	}
 }
