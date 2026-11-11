@@ -62,6 +62,11 @@ post-beta swarm's fixes for the next release.
   per driving key (LATERAL … LIMIT 1, a group's own ORDER BY, `= ANY (ARRAY(...))` for targets) across insert, additions
   and removals. It lands only with a run showing 0 false 40001s at full width on pantry's import. edullm's learner
   workload is the 1,000-children goal's: certified READ COMMITTED, it takes no SIRead lock.
+  Measured again on 698880ac (after SSISCAN-04's met-classification fences), qti-pie 3af5d647, pantry's database
+  project at maxWorkers 9 on an otherwise quiet cluster: 246 server 40001s in 199 s between imports that mint fresh
+  ids, 107 at COMMIT inside the deferred rule functions reading lom_* and resource_* tables, 114 at write statements
+  (64 the qti.node insert); reason codes pivot during conflict-in and conflict-out checking (evidence:
+  ~/.cache/gr8des/retry-run/). Logged, not started (edullm-77's ruling, 2026-11-11): author imports only.
 - **A sum over smallint or integer can wrap past its proved bound (SCALAR, 2026-11-10):** PostgreSQL 19's int4_sum adds
   without an overflow check (src/backend/utils/adt/numeric.c:6398), so scalar/aggregate.ts's typing of r.sum over
   smallint and integer as plain bigint, with rowDigits' proof that the sum stays below 10^(digits + 19), is false once
@@ -256,6 +261,14 @@ Q1 to Q6 first. A new feature still needs its correctness need named in its comm
   src/test/regress pass) and waits for the owner, low priority: production (AWS) runs stock PostgreSQL. Once the pin
   carries it (FOLDENDS-02), cut the worlds model's lone-session 40001 and README's "even with no other transaction in
   sight".
+  The same path failed e2e-platform/reads' one refresh under the candidate batch's load ("old pivot" and "pivot, during
+  write" reason codes, no prepared transaction, no slot); its caller now runs a call again after a TransientFailure,
+  as the platform races do (SSIDIAG-03). It also makes coverage verdicts depend on load: pg/world-model/deletion
+  (deletion:derived-refreshed, TEST_SEED=4164111326 on c0648dda) and pg/world-model/errors
+  (op:open-db:inside:matching:db:open-refused, TEST_SEED=4244721848 on 357133b6) spent every steered case without
+  reaching a feature they reach alone at the same seed, because a Db apply that commits alone came back transient
+  under load and changed which seeds the steered phase mutates. Fix the representation so a witness's notes cannot
+  depend on a transient the environment decides.
 - **Refilling a tree's values in the flight (the owner, 2026-11-09: refused for now, built later):** a change that
   reaches a stored tree's values (a node's copy of its parent's, a sibling's predecessor copy or fold, a parent's ends
   or last copy) is refused when it compiles (StaleDerivedRead, cause `tree`; write/frontend/refill.ts stratumRefill).
@@ -328,6 +341,19 @@ Q1 to Q6 first. A new feature still needs its correctness need named in its comm
 - **KEYLAW's remainder:** the positive path, a 42Z01 classified as outside-world for an entry the role writes through
   (adapter/witness/classify.ts ReportedNames), has no unit-level oracle, since no test installation writes through a
   query entry; the MemberAt and ArrayMember relation stays the caller's string spelling at the input boundary.
+- **A stratum that deletes a serial relation's facts, inserts into it and adds facts that reference it is refused as
+  UnorderableStratum whatever its rows (KEYLAW, 2026-11-11):** laws/the-law-family-box/immutable at
+  TEST_SEED=1113653230, write/oracle-3 at TEST_SEED=1069369552. An insert drafts a generated class beside the complete
+  one; the deletion excepts only complete additions, so it must precede the generated class, which precedes the
+  referencing additions, which precede the deletion. Fix: the deletion excepts the stratum's drawn facts too (the
+  generated insert's RETURNING into the stratum's carrier), so a deletion of a relation whose facts meet nowhere orders
+  nothing against any addition. Unreachable today: no served file holds a delete or a put.
+- **The substrate's lease waiters hold a snapshot while blocked (SSIDIAG, 2026-11-11):** takeLease waits in
+  `SELECT pg_advisory_lock` (test/support/substrate/shared.ts:148-151), pinning the cluster's vacuum horizon for up to
+  115 s under load (read committed: vacuum's horizon, not SSI's). The fix is a hard cutover to a snapshot-free
+  LOCK-based lease (a table per slot locked IN EXCLUSIVE MODE by an open transaction, NOWAIT first; holder and waiter
+  show backend_xmin and backend_xid NULL; ACCESS EXCLUSIVE would assign an xid), done when no lane runs an old tree.
+  Parked: ~/.cache/grizzle-release/SSIDIAG/SSIDIAG-04.parked.patch.
 
 ### Parked by the scope lock (the owner, 2026-11-10)
 - **UPSTREAM:** an audit of every upstream/ and scripts/pg/patches patch to maintainer quality (the owner's order,
