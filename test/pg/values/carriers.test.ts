@@ -1,3 +1,29 @@
+/**
+ * Spans and vectors against PostgreSQL 19 and the pinned pgvector: the host's carriers (scalar/values/span.ts,
+ * scalar/values/vector.ts) are PostgreSQL's, value for value.
+ *
+ * - Span order: PostgreSQL's positions of a batch of int4 spans, every span of bounds within -5..5, under
+ *   ORDER BY v::int4range (ties by position) are the host's under compareSpan.
+ * - Vector rounding: every binary64 component strictly inside binary32's range, rounding edges among them, rounds as
+ *   PostgreSQL's float8-to-real cast rounds it (Float32Array's rounding is the cast's), and pgvector reads the text the
+ *   codec writes (Vector.componentText) as exactly those binary32 components.
+ * - Vector input: every input, components across and past binary32's range, NaN and the infinities among them, its
+ *   length its own or about the storage limit, is refused by pgvector by text, and through real, with the SQLSTATE a
+ *   model of vector_in, array_to_vector and float8_to_float4's checks names; the host (Vector.from) refuses exactly
+ *   what the text input refuses; and an admitted input reads as each component's binary32 rounding.
+ * - Vector order: PostgreSQL's positions of a batch of vectors of up to three components under ORDER BY v::vector
+ *   (ties by position) are the host's under Vector.compare.
+ *
+ * Oracle: PostgreSQL itself: range_cmp, float8_to_float4, pgvector's vector_in, array_to_vector and vector_cmp.
+ *
+ * Plants: values-span-order-end-first (compareSpan compares the upper bounds first), values-vector-text-seven-digits
+ * (componentText writes seven significant digits), values-vector-infinity-admitted (the component check refuses NaN
+ * alone, so an infinity reaches the norm check), values-vector-order-length-first (Vector.compare orders by dimension
+ * count first).
+ *
+ * Features: the vector input's "admitted", "at the storage limit", "a component past binary32", "a non-finite
+ * component", "past the storage limit" and "an underflow read as zero".
+ */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { noCoverage, required } from "@grizzle/testing/features"
@@ -194,7 +220,7 @@ layer(Substrate.layer)("span and vector agreement with PostgreSQL", (it) => {
 				const span = map(element(spanBounds), ([a, b]) => succeeded(makeSpan("int4", a, b)))
 				return yield* explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: { kind: "postgresql", name: "range_cmp, int4range's ORDER BY" },
 						...spec,
 						suite: "pg/values/carriers/span-order",
 						draw: drawn(batchOf(span, 600))
@@ -245,7 +271,10 @@ layer(Substrate.layer)("span and vector agreement with PostgreSQL", (it) => {
 						pg.length === host.length && Arr.every(pg, (x, k) => x === host[k])
 					return yield* explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "postgresql",
+								name: "float8_to_float4 over float8[], and pgvector's vector_in of the codec's text"
+							},
 							...spec,
 							suite: "pg/values/carriers/vector-rounding",
 							draw: drawn(batchOf(components, 1000))
@@ -400,7 +429,7 @@ layer(Substrate.layer)("span and vector agreement with PostgreSQL", (it) => {
 				)
 				return yield* explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: { kind: "postgresql", name: "pgvector's vector_cmp, the vector's ORDER BY" },
 						...spec,
 						suite: "pg/values/carriers/vector-order",
 						draw: drawn(batchOf(vector, 400))

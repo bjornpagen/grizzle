@@ -1,3 +1,26 @@
+/**
+ * Numeric against PostgreSQL 19: the host's Decimal (scalar/values/decimal.ts) is PostgreSQL's numeric, value for
+ * value.
+ *
+ * - Parse: every literal, decimal digits with a sign, a point and an exponent, its digits weighted toward the 9s, 4s,
+ *   5s and 0s rounding turns on, reads as numeric_in reads it: the host's one text is PostgreSQL's trim_scale of it.
+ * - Coercion: every literal coerced to numeric(p, s), p and s drawn past their declarable ranges' interesting ends and
+ *   literals one digit past p nines at scale s among them, is what both of PostgreSQL's coercion paths make of it,
+ *   numeric_in under the typmod and the numeric(numeric, typmod) cast: the same trimmed value, or 22003 where the host
+ *   refuses it (normalizeNumeric's numericOverflow or numericInfinity).
+ * - Order: PostgreSQL's positions of a batch of numeric spellings, padded with trailing zeros and the special values
+ *   among them, under ORDER BY ascending and descending (ties by position) are the host's under Decimal.compare;
+ *   count(DISTINCT) and SELECT DISTINCT keep one value per host Decimal; and `<` and `=` over every value paired with
+ *   its mirror in the batch are the host's.
+ *
+ * Oracle: PostgreSQL itself: numeric_in, apply_typmod through both coercion paths, and numeric's comparison.
+ *
+ * Plants: values-numeric-parse-trailing-zeros (fromString drops a literal's trailing zeros without raising its
+ * exponent), values-numeric-overflow-inclusive (normalizeNumeric admits a rounded magnitude of exactly 10^(p - s)),
+ * values-numeric-nan-ties-infinity (compareDecimal ranks NaN with +Infinity).
+ *
+ * Features: "overflow by rounding", "negative scale" and "scale above precision", the coercions the typmod turns on.
+ */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { noCoverage, required } from "@grizzle/testing/features"
@@ -104,7 +127,7 @@ layer(Substrate.layer)("numeric agreement with PostgreSQL", (it) => {
 				const db = yield* session(ownerSession())
 				return yield* explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: { kind: "postgresql", name: "numeric_in, read back by trim_scale" },
 						suite: "pg/values/numeric/parse",
 						draw: drawn(caseBatch),
 						literal: Formatter.format,
@@ -143,7 +166,10 @@ layer(Substrate.layer)("numeric agreement with PostgreSQL", (it) => {
 					const db = yield* session(ownerSession())
 					return yield* explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "postgresql",
+								name: "numeric_in under a typmod and the numeric(numeric, typmod) cast"
+							},
 							suite: "pg/values/numeric/coercion",
 							draw: drawn(caseBatch),
 							literal: Formatter.format,
@@ -226,7 +252,10 @@ layer(Substrate.layer)("numeric agreement with PostgreSQL", (it) => {
 				])
 				return yield* explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "postgresql",
+							name: "numeric's ORDER BY, DISTINCT, < and ="
+						},
 						suite: "pg/values/numeric/order",
 						draw: drawn(array(value, { min: 1, max: 3000 })),
 						literal: Formatter.format,
@@ -284,12 +313,7 @@ const orderAgreement = (db: RawSession, spellings: ReadonlyArray<string>) =>
 			Arr.map(kept, (r) => String(r[0])),
 			identities
 		)
-		/** Pairwise comparison operators. */
-		const pairs = Arr.map(
-			values.slice(0, 1500),
-			(a, i) =>
-				[a, defined(values[values.length - 1 - i], `no value ${values.length - 1 - i}`)] as const
-		)
+		const pairs = Arr.zip(values, Arr.reverse(values))
 		const ops = yield* db.values(
 			"SELECT (c.a::numeric < c.b::numeric)::text, (c.a::numeric = c.b::numeric)::text FROM jsonb_to_recordset($1::text::jsonb) AS c(ord int4, a text, b text) ORDER BY c.ord",
 			[jsonText(Arr.map(pairs, ([a, b], ord) => ({ ord, a: a.toString(), b: b.toString() })))]

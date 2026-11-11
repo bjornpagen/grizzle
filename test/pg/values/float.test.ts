@@ -1,23 +1,50 @@
+/**
+ * Real and double precision against PostgreSQL 19: the host's floats (scalar/values/float.ts) are PostgreSQL's.
+ *
+ * - Rounding: every binary64 value the host admits as a real (toReal), binary32 midpoints, the edges of binary32's
+ *   range, NaN and the infinities among them, cast float8 to real in one recordset, is the host's real, which is
+ *   Math.fround's: the cast rounds once, to nearest even.
+ * - Refusal: every binary64 value, near binary32's overflow and underflow edges or anywhere, cast float8 to real alone,
+ *   is refused by PostgreSQL with 22003 exactly when the host refuses it, and is the host's real otherwise; a value the
+ *   host refuses rounds to an infinity from a finite value (an overflow) or to zero from a nonzero one (an underflow).
+ * - Order, for each of float8 and real: PostgreSQL's positions of a batch under ORDER BY ascending and descending (ties
+ *   by position) are the host's under compareFloat, NaN last and NaN = NaN, -0 = +0; count(DISTINCT) and SELECT
+ *   DISTINCT keep one value per host float text (floatText).
+ *
+ * Oracle: PostgreSQL itself: float8_to_float4, its refusals, and float8's and float4's comparison.
+ *
+ * Plants: values-float-fround-seven-digits (fround rounds through seven significant digits first),
+ * values-float-underflow-admitted (toReal admits a nonzero value that rounds to zero), values-float-nan-first
+ * (compareFloat orders NaN first).
+ *
+ * Features: "admitted"; "overflow" and "underflow", an edge value on each side PostgreSQL refuses; "NaN" and "signed
+ * zero" in an order batch.
+ */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { array, constant, element, filter, type Gen, map, weighted } from "@grizzle/testing/gen"
+import {
+	array,
+	boolean,
+	constant,
+	element,
+	filter,
+	type Gen,
+	int,
+	map,
+	weighted
+} from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { double, float } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter } from "effect"
+import { Array as Arr, Effect, Formatter, Result } from "effect"
 import { jsonText, trusted } from "#compiler/core/trusted.ts"
-import {
-	canonicalZero,
-	compareFloat,
-	floatText,
-	fround,
-	toReal
-} from "#compiler/scalar/values/float.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { canonicalZero, compareFloat, floatText, toReal } from "#compiler/scalar/values/float.ts"
+import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { expectSqlstate } from "#test/support/substrate/expect.ts"
+import { pgErrorFields } from "#test/support/substrate/errors.ts"
+import type { RawSession } from "#test/support/substrate/session.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { orderOf } from "#test/unit/values/support.ts"
 
@@ -83,6 +110,36 @@ const doubles = weighted([
 	]
 ])
 
+/** The binary64 midpoint between FLT_MAX and 2^128: nearest-even rounds it, and everything above it, to infinity. */
+const overflowTie = 2 ** 128 - 2 ** 103
+
+/** Half the least subnormal binary32, 2^-150: nearest-even rounds it, and everything below it, to zero. */
+const underflowTie = 2 ** -150
+
+/**
+ * A binary64 value at an edge of binary32's range, either sign: the overflow or the underflow tie, moved by up to a few
+ * binary64 units of the last place either way, so it lands on, below and above the value the cast refuses.
+ */
+const edge: Gen<number> = (source) => {
+	const tie = source.draw(element([overflowTie, underflowTie]))
+	const steps = source.draw(int(-4, 4))
+	const view = new DataView(new ArrayBuffer(8))
+	view.setFloat64(0, tie)
+	view.setBigUint64(0, view.getBigUint64(0) + BigInt(steps))
+	const x = view.getFloat64(0)
+	return source.draw(boolean) ? -x : x
+}
+
+/** PostgreSQL's answer to one value cast float8 to real alone: the real it stores, or the SQLSTATE it refused it. */
+const castAlone = (db: RawSession, x: number) =>
+	Effect.map(
+		Effect.result(db.values("SELECT ($1::text::float8::real)::float8::text", [float8Text(x)])),
+		(rows): number | string =>
+			Result.isSuccess(rows)
+				? fromPg(rows.success[0]?.[0])
+				: defined(pgErrorFields(rows.failure), "a server error").code
+	)
+
 /** A batch of up to `max` values, a case's one recordset. */
 const batchOf = <A>(values: Gen<A>, max: number): Gen<ReadonlyArray<A>> =>
 	array(values, { min: 1, max })
@@ -109,7 +166,7 @@ layer(Substrate.layer)("float agreement with PostgreSQL", (it) => {
 					const db = yield* session(ownerSession())
 					return yield* explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: { kind: "postgresql", name: "float8_to_float4, the float8-to-real cast" },
 							suite: "pg/values/float/rounding",
 							draw: drawn(batchOf(doubles, 10_000)),
 							literal: Formatter.format,
@@ -135,7 +192,7 @@ layer(Substrate.layer)("float agreement with PostgreSQL", (it) => {
 								const mismatches = Arr.flatMap(admitted, (x, i) => {
 									const pg = canonicalZero(fromPg(rows[i]?.[1]))
 									const host = succeeded(toReal(x))
-									const rounded = fround(x)
+									const rounded = canonicalZero(Math.fround(x))
 									return Object.is(pg, host) && Object.is(pg, rounded)
 										? []
 										: [{ x, pg, host, rounded }]
@@ -155,52 +212,50 @@ layer(Substrate.layer)("float agreement with PostgreSQL", (it) => {
 				const db = yield* session(ownerSession())
 				return yield* explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "postgresql",
+							name: "float8_to_float4's refusal, 22003, of each value cast alone"
+						},
 						suite: "pg/values/float/refusals",
-						draw: drawn(batchOf(doubles, 10_000)),
+						draw: drawn(
+							batchOf(
+								weighted([
+									[3, edge],
+									[1, doubles]
+								]),
+								8
+							)
+						),
 						literal: Formatter.format,
-						coverage: required<FloatFeature>(["overflow", "underflow"], {
-							cases: runs,
+						coverage: required<FloatFeature>(["admitted", "overflow", "underflow"], {
+							cases: 60,
 							sense: notesOnly
 						}),
 						kept: [],
-						runs,
+						runs: 60,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
-					(doubles, c) =>
+					(sample, c) =>
 						Effect.gen(function* () {
-							const refusedValues = Arr.filter(doubles, (x) => !toReal(x).ok)
-							const overflow = Arr.filter(refusedValues, (x) => Math.abs(x) > 1)
-							const underflow = Arr.filter(refusedValues, (x) => Math.abs(x) < 1)
-							if (overflow.length > 0) {
-								c.note("overflow")
-							}
-							if (underflow.length > 0) {
-								c.note("underflow")
-							}
-							assert.deepEqual(
-								Arr.filter(
-									overflow,
-									(x) =>
-										!Object.is(
-											fround(x),
-											x > 0 ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY
-										)
-								),
-								[]
-							)
-							assert.deepEqual(
-								Arr.filter(underflow, (x) => !Object.is(fround(x), 0)),
-								[]
-							)
-							for (const x of Arr.appendAll(overflow.slice(0, 40), underflow.slice(0, 40))) {
-								yield* expectSqlstate(
-									db.values("SELECT ($1::text::float8::real)::text", [float8Text(x)]),
-									"22003"
-								)
+							for (const x of sample) {
+								const host = toReal(x)
+								const pg = yield* castAlone(db, x)
+								if (host.ok) {
+									c.note("admitted")
+									assert.ok(
+										typeof pg === "number" && Object.is(canonicalZero(pg), host.value),
+										`${float8Text(x)}: PostgreSQL ${pg}, the host ${host.value}`
+									)
+								} else {
+									const overflow = Number.isFinite(x) && !Number.isFinite(Math.fround(x))
+									const underflow = x !== 0 && Math.fround(x) === 0
+									assert.ok(overflow !== underflow, `${float8Text(x)} is one refusal`)
+									c.note(overflow ? "overflow" : "underflow")
+									assert.equal(pg, "22003", float8Text(x))
+								}
 							}
 						})
 				)
@@ -228,7 +283,7 @@ layer(Substrate.layer)("float agreement with PostgreSQL", (it) => {
 						const source = "jsonb_to_recordset($1::text::jsonb) AS c(ord int4, v text)"
 						return yield* explore(
 							{
-								oracle: { kind: "unstated" },
+								oracle: { kind: "postgresql", name: `${type}'s ORDER BY and DISTINCT` },
 								suite: `pg/values/float/order-${type}`,
 								draw: drawn(batchOf(orderValue, 3000)),
 								literal: Formatter.format,
