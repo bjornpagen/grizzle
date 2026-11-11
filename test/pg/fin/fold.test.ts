@@ -26,9 +26,9 @@
  * committing a junk seed and a junk empty end respectively. Features are (monoid, axis, verdict).
  *
  * Each case's transaction runs on a seat with no rows and is checked as its COMMIT would check it and rolled back, or
- * ends by a real COMMIT whose rows are read and cleared, as its own text chooses (installed.ts End): every box requires
- * both ends, each meeting a refusal at commit, so the search itself shows a real COMMIT never decides otherwise than
- * the checked end.
+ * ends by a real COMMIT whose rows are read and cleared, as the case draws its end on its tape (installed.ts endGen):
+ * every box requires both ends, each meeting a refusal at commit, so the search itself shows a real COMMIT never
+ * decides otherwise than the checked end.
  *
  * Plant: ~/.cache/grizzle-release/BR08/plants/fin-fold-check-after-equals-before.patch, a fold's CHECK holding each
  * after to its before, refuses every lawful fold and must turn both properties red.
@@ -60,8 +60,10 @@ import {
 	type Catalogued,
 	cleared,
 	droppedSql,
-	type EndFeature,
 	endedBy,
+	type EndFeature,
+	endGen,
+	ends,
 	mutated,
 	refusedAtCommitBy,
 	type Seat,
@@ -388,8 +390,8 @@ layer(Substrate.layer)("folds through grizzle's lowering on PostgreSQL 19rc1", (
 								suite: `fin/fold ${spec.label}`,
 								generator: sketchGen(planes),
 								literal: Formatter.format,
-								limit: sketchCases(planes),
-								box: "owner 0 with every family of zero to four members over the seat's five step values, each written lawful, and every family of zero to three members with every single junk accumulator: a junk seed, one before, one after, one end",
+								limit: sketchCases(planes) * ends.length,
+								box: "owner 0 with every family of zero to four members over the seat's five step values, each written lawful, and every family of zero to three members with every single junk accumulator: a junk seed, one before, one after, one end, each case ended by a real COMMIT and by the checked end",
 								oracle: ORACLE,
 								coverage: requiredInSpace<FoldFeature>(
 									nonEmpty([
@@ -420,9 +422,10 @@ layer(Substrate.layer)("folds through grizzle's lowering on PostgreSQL 19rc1", (
 										}
 									}
 									/** Uninterruptible: a seat's transaction and its clearing run whole, so one seat's failure never leaves another's rows. */
+									const end = c.draw(endGen)
 									const judgedOn = (judging: Judging) =>
 										Effect.uninterruptible(
-											judgedFold(judging, { kind: "empty" }, foldWriteOf(stored), [])
+											judgedFold(judging, { kind: "empty" }, foldWriteOf(stored), [], end)
 										)
 									const [j, killed] = yield* Effect.all(
 										[

@@ -65,7 +65,6 @@ import {
 	constraintText,
 	type End,
 	ended,
-	endOf,
 	replaced,
 	type Seat,
 	type Start,
@@ -861,7 +860,7 @@ export const byMember = (s: FoldStored): FoldStored => ({
 /**
  * Sends `statements` as one transaction after `prefix` (statements the model does not see, such as a SET CONSTRAINTS)
  * from `start`, an empty seat or one whose rows are first replaced by the state before (installed.ts Start), ended as
- * its own text chooses (installed.ts endOf, by the seat's model), and judges PostgreSQL against the fold's model: the
+ * `end`, the case's drawn end (installed.ts endGen), and judges PostgreSQL against the fold's model: the
  * same verdict and moment; a refusal by an installed constraint whose role the model allows there, with its SQLSTATE,
  * reporting a law of the family or the fold; where an owner's ends fail the twos fold's at most one of K, a refusal at
  * that owner's statement by that check with 23514; a commit that reads back exactly.
@@ -870,7 +869,8 @@ export const judgedFold = (
 	j: Judging,
 	start: Start<FoldStored>,
 	statements: ReadonlyArray<FoldStatement>,
-	prefix: ReadonlyArray<string>
+	prefix: ReadonlyArray<string>,
+	end: End
 ): Effect.Effect<FoldJudged, SqlError | TransactionRolledBack | Disagreed> =>
 	Effect.gen(function* () {
 		const { seat, spec } = j.fold
@@ -878,10 +878,6 @@ export const judgedFold = (
 			Arr.map(s, (st) => foldStatementSql(j.fold, st))
 		const before = start.kind === "empty" ? emptyFold : start.before
 		const model = foldPredicted(spec.monoid, j.lowering, before, statements)
-		const end = endOf(
-			Formatter.format([before, prefix, statements]),
-			model.kind === "refused" && model.moment.kind === "commit"
-		)
 		const disagree = (why: string, real: Attempted | Checked<unknown>) =>
 			new Disagreed({
 				message: `${j.label}, its ${end} end: ${why}; the model predicts ${predictedText(model)}, PostgreSQL gave ${attemptedText(real)}, over ${Formatter.format(before)}, for ${Formatter.format(statements)}`

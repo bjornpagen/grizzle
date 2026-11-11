@@ -19,9 +19,9 @@
  *   key).
  *
  * Each case's transaction is checked as its COMMIT would check it and rolled back: SET CONSTRAINTS ALL IMMEDIATE runs
- * every deferred check at that statement, a refusal there is the commit's, and no row stays to clear. Half the cases
- * the model refuses at commit, and one case in 32 of the rest, which the case's own text chooses, end by a real COMMIT
- * instead, its rows read and then cleared: every box requires both ends, and, where it meets a refusal at commit, one
+ * every deferred check at that statement, a refusal there is the commit's, and no row stays to clear; or it ends by a
+ * real COMMIT instead, its rows read and then cleared, as the case draws its end on its tape (installed.ts endGen), so
+ * each box holds every case under both ends: every box requires both, and, where it meets a refusal at commit, one
  * through each end, so the search itself shows a real COMMIT never decides otherwise than the checked end.
  *
  * The boxes are GT's (test/pg/substrate/tree.ts), so there is one generator, each named in its test, every row's r over
@@ -58,10 +58,11 @@ import {
 	droppedPairsSql,
 	droppedSql,
 	type End,
-	type EndFeature,
 	ended,
 	endedBy,
-	endOf,
+	type EndFeature,
+	endGen,
+	ends,
 	mutated,
 	refusedAtCommitBy,
 	type Seat,
@@ -230,20 +231,6 @@ interface Judged {
 }
 
 /**
- * The end of a case, which its own text chooses (installed.ts endOf), by grizzle's model: each seat's transaction of
- * the case ends alike.
- */
-const endOfCase = (
-	statements: Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<TreeRow>>
-): End => {
-	const model = treePredicted(grizzleTree, [], statements)
-	return endOf(
-		Formatter.format(statements),
-		model.kind === "refused" && model.moment.kind === "commit"
-	)
-}
-
-/**
  * One transaction of INSERTs on a seat with no rows, ended as `end` says (installed.ts ended, which leaves the seat
  * with no rows, whatever the transaction did or failed), judged against the model: the same verdict; a refusal at the
  * same moment by an installed constraint whose role the model allows there, with its SQLSTATE and the law it reports;
@@ -367,6 +354,7 @@ type StateFeature =
 const judgeCase = (
 	seats: ReadonlyArray<TreeSeat>,
 	statements: Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<TreeRow>>,
+	end: End,
 	note: (feature: StateFeature) => void
 ): Effect.Effect<void, SqlError | TransactionRolledBack | Disagreed> => {
 	const rows = Arr.flatten(statements)
@@ -374,7 +362,6 @@ const judgeCase = (
 	const lawful = Option.isNone(breach)
 	const whole = statements.length === 1
 	const wrong = (committed: boolean) => (committed ? !lawful : whole && lawful)
-	const end = endOfCase(statements)
 	note(endedBy(end))
 	return Effect.forEach(
 		seats,
@@ -494,8 +481,8 @@ layer(Substrate.layer)(
 								suite: "fin/tree-states",
 								generator: fullGen(shapes),
 								literal: Formatter.format,
-								limit: fullCases(shapes),
-								box: "every state of one or two rows: every shape with at most two self-parented rows, every assignment of two root values up to swapping them, each row's at, children and start over [0, N] and end over [0, N + 1], the copies the host's",
+								limit: fullCases(shapes) * ends.length,
+								box: "every state of one or two rows: every shape with at most two self-parented rows, every assignment of two root values up to swapping them, each row's at, children and start over [0, N] and end over [0, N + 1], the copies the host's, each case ended by a real COMMIT and by the checked end",
 								oracle: THEOREM_ORACLE,
 								coverage: requiredInSpace<StateFeature>([
 									"a case ended by COMMIT",
@@ -524,7 +511,7 @@ layer(Substrate.layer)(
 								]),
 								caseHang
 							},
-							(rows, c) => judgeCase(seats, [rows], c.note)
+							(rows, c) => judgeCase(seats, [rows], c.draw(endGen), c.note)
 						)
 					})
 				)
@@ -543,8 +530,8 @@ layer(Substrate.layer)(
 								suite: "fin/tree-shapes",
 								generator: shapeGen(shapes),
 								literal: Formatter.format,
-								limit: shapeCases(shapes),
-								box: "every forest shape of one to three rows with at most two self-parented rows and every assignment of two root values, up to relabelling and swapping the values, each row's start in [0, N) and end in [1, N], the family and copies the host's",
+								limit: shapeCases(shapes) * ends.length,
+								box: "every forest shape of one to three rows with at most two self-parented rows and every assignment of two root values, up to relabelling and swapping the values, each row's start in [0, N) and end in [1, N], the family and copies the host's, each case ended by a real COMMIT and by the checked end",
 								oracle: THEOREM_ORACLE,
 								coverage: requiredInSpace<StateFeature>([
 									"a case ended by COMMIT",
@@ -570,7 +557,7 @@ layer(Substrate.layer)(
 								]),
 								caseHang
 							},
-							(rows, c) => judgeCase(seats, [rows], c.note)
+							(rows, c) => judgeCase(seats, [rows], c.draw(endGen), c.note)
 						)
 					})
 				)
@@ -598,8 +585,8 @@ layer(Substrate.layer)(
 								suite: "fin/tree-checked",
 								generator: checkedGen(placements),
 								literal: Formatter.format,
-								limit: Arr.reduce(placements, 0, (sum, p) => sum + checkedCases(p)),
-								box: "every shape of four and five rows with one or two self-parented rows and every assignment of two root values, and of six rows with one root value, up to relabelling, with every start placement T1, T2 and T3 pass and every end T6 passes, the family and copies the host's",
+								limit: Arr.reduce(placements, 0, (sum, p) => sum + checkedCases(p)) * ends.length,
+								box: "every shape of four and five rows with one or two self-parented rows and every assignment of two root values, and of six rows with one root value, up to relabelling, with every start placement T1, T2 and T3 pass and every end T6 passes, the family and copies the host's, each case ended by a real COMMIT and by the checked end",
 								oracle: THEOREM_ORACLE,
 								coverage: requiredInSpace<StateFeature>([
 									"a case ended by COMMIT",
@@ -623,7 +610,7 @@ layer(Substrate.layer)(
 								]),
 								caseHang
 							},
-							(rows, c) => judgeCase(seats, [rows], c.note)
+							(rows, c) => judgeCase(seats, [rows], c.draw(endGen), c.note)
 						)
 					})
 				)
@@ -645,8 +632,8 @@ layer(Substrate.layer)(
 								suite: "fin/tree-mutations",
 								generator: element(mutations),
 								literal: Formatter.format,
-								limit: mutations.length,
-								box: "every single mutation of every tree of at most six rows and of every forest of two trees of at most six rows in all, each named (test/pg/substrate/tree.ts mutationsOf), written from no rows in one INSERT",
+								limit: mutations.length * ends.length,
+								box: "every single mutation of every tree of at most six rows and of every forest of two trees of at most six rows in all, each named (test/pg/substrate/tree.ts mutationsOf), written from no rows in one INSERT, each case ended by a real COMMIT and by the checked end",
 								oracle: THEOREM_ORACLE,
 								coverage: requiredInSpace<StateFeature | MutationFeature>([
 									"a case ended by COMMIT",
@@ -679,7 +666,7 @@ layer(Substrate.layer)(
 							(m, c) =>
 								Effect.gen(function* () {
 									const kinds: Array<string> = []
-									yield* judgeCase(seats, [m.rows], (f: StateFeature) => {
+									yield* judgeCase(seats, [m.rows], c.draw(endGen), (f: StateFeature) => {
 										c.note(f)
 										kinds.push(f)
 									})
@@ -711,12 +698,13 @@ layer(Substrate.layer)(
 								suite: "fin/tree-writes",
 								generator: writeGen(forests),
 								literal: Formatter.format,
-								limit: Arr.reduce(
-									forests,
-									0,
-									(sum, f) => sum + factorial(f.length) + 2 * 2 ** (f.length - 1)
-								),
-								box: "every tree and forest of two trees of at most six rows: every order of its rows in one INSERT, and every split of its pre-order and of its reverse pre-order into consecutive INSERTs",
+								limit:
+									Arr.reduce(
+										forests,
+										0,
+										(sum, f) => sum + factorial(f.length) + 2 * 2 ** (f.length - 1)
+									) * ends.length,
+								box: "every tree and forest of two trees of at most six rows: every order of its rows in one INSERT, and every split of its pre-order and of its reverse pre-order into consecutive INSERTs, each case ended by a real COMMIT and by the checked end",
 								oracle: THEOREM_ORACLE,
 								coverage: requiredInSpace<StateFeature | WriteFeature>([
 									"a case ended by COMMIT",
@@ -733,7 +721,7 @@ layer(Substrate.layer)(
 								Effect.gen(function* () {
 									const statements = statementsOf(write)
 									const seen: Array<string> = []
-									yield* judgeCase(seats, statements, (f: StateFeature) => {
+									yield* judgeCase(seats, statements, c.draw(endGen), (f: StateFeature) => {
 										c.note(f)
 										seen.push(f)
 									})

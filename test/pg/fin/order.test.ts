@@ -14,8 +14,8 @@
  * INSERTs.
  *
  * Each case's transaction runs on a seat with no rows and is checked as its COMMIT would check it and rolled back, or
- * ends by a real COMMIT whose rows are read and cleared, as its own text chooses (installed.ts End): the box requires
- * both ends.
+ * ends by a real COMMIT whose rows are read and cleared, as the case draws its end on its tape (installed.ts endGen):
+ * the box requires both ends.
  *
  * Plant: ~/.cache/grizzle-release/BR08/plants/fin-predecessor-axis-deferral-swapped.patch, the ordered predecessor axis
  * installed deferred, commits a split the model refuses and must turn the property red.
@@ -27,7 +27,13 @@ import { element, type Gen, int, shuffled } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
 import { Disagreed, familySeat, judgedFamily } from "#test/pg/fin/family.ts"
-import { type EndFeature, endedBy, refusedAtCommitBy } from "#test/pg/fin/installed.ts"
+import {
+	endedBy,
+	type EndFeature,
+	endGen,
+	ends,
+	refusedAtCommitBy
+} from "#test/pg/fin/installed.ts"
 import { nonEmpty } from "#test/support/assert.ts"
 import { run, settledOf, type MutationStatement } from "#test/support/families/mutate.ts"
 import {
@@ -144,14 +150,15 @@ layer(Substrate.layer)("row order through grizzle's lowering on PostgreSQL 19rc1
 						Arr.reduce(FAMILIES, 0, (sum, f) => {
 							const n = rowsOf(f).length
 							return sum + (n < 2 ? 1 : factorial(n) + 2 * (n - 1))
-						})
+						}) *
+						ends.length
 					return yield* exhaust(
 						{
 							suite: "fin/row-order",
 							generator: sketchGen,
 							literal: Formatter.format,
 							limit,
-							box: "owners 0 and 1 with families of lengths summing to at most five, ordered and counted: every order of their rows in one INSERT, and every cut of their rows in descending and in ascending slot order into two INSERTs, after the owners",
+							box: "owners 0 and 1 with families of lengths summing to at most five, ordered and counted: every order of their rows in one INSERT, and every cut of their rows in descending and in ascending slot order into two INSERTs, after the owners, each case ended by a real COMMIT and by the checked end",
 							oracle: {
 								kind: "second-implementation",
 								name: "the families model of each transaction (test/support/families/mutate.ts run), each constraint at the RFC lowering's moment"
@@ -177,7 +184,8 @@ layer(Substrate.layer)("row order through grizzle's lowering on PostgreSQL 19rc1
 									seatOf(sketch.shape),
 									{ kind: "empty" },
 									statements,
-									settledOf(outcome)
+									settledOf(outcome),
+									c.draw(endGen)
 								)
 								c.note(endedBy(j.end))
 								if (Option.exists(j.moment, (m) => m.kind === "commit")) {

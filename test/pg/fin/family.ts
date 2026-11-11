@@ -19,7 +19,6 @@ import {
 	constraintText,
 	type End,
 	ended,
-	endOf,
 	replaced,
 	type Seat,
 	type Start,
@@ -236,7 +235,7 @@ const attemptedText = (real: Attempted | Checked<unknown>): string =>
 
 /**
  * Sends `statements` as one transaction from `start`, an empty seat or one whose rows are first replaced by the state
- * before (installed.ts Start), ended as its own text chooses (installed.ts endOf, by the model's outcome), and judges
+ * before (installed.ts Start), ended as `end`, the case's drawn end (installed.ts endGen), and judges
  * PostgreSQL against the model's settled outcome: the same verdict; a refusal at the model's moment by an installed
  * constraint that is one of the model's violations there, with its SQLSTATE and the family's law (the identity, the
  * member's primary key); a commit that reads back as the state the model commits to, lawless or not (a mutant's model
@@ -246,16 +245,13 @@ export const judgedFamily = (
 	f: FamilySeat,
 	start: Start<Stored>,
 	statements: ReadonlyArray<MutationStatement>,
-	outcome: Settled
+	outcome: Settled,
+	end: End
 ): Effect.Effect<FamilyJudged, SqlError | TransactionRolledBack | Disagreed> =>
 	Effect.gen(function* () {
 		const { seat } = f
 		const sql = (s: ReadonlyArray<MutationStatement>) => Arr.map(s, (st) => statementSql(f, st))
 		const before = start.kind === "empty" ? emptyStored : start.before
-		const end = endOf(
-			Formatter.format([before, statements]),
-			outcome.kind === "refused" && outcome.moment.kind === "commit"
-		)
 		const text = Arr.join(["BEGIN", ...sql(statements), "COMMIT"], ";\n")
 		const disagree = (why: string, real: Attempted | Checked<unknown>) =>
 			new Disagreed({

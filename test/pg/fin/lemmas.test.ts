@@ -22,8 +22,8 @@
  * breaking and misordered mutations (mutate.ts programGen), each step one transaction judged against the model over the
  * state before it, which one transaction replacing the seat's rows writes first.
  *
- * Each transaction judged is checked as its COMMIT would check it and rolled back, or ends by a real COMMIT, as its own
- * text chooses (installed.ts End): each box requires both ends, and the box of states, which meets refusals at commit,
+ * Each transaction judged is checked as its COMMIT would check it and rolled back, or ends by a real COMMIT, as the
+ * case draws its end on its tape (installed.ts endGen): each box requires both ends, and the box of states, which meets refusals at commit,
  * a refusal at commit through each, so the search itself shows a real COMMIT never decides otherwise than the checked
  * end.
  *
@@ -50,8 +50,10 @@ import {
 } from "#test/pg/fin/family.ts"
 import {
 	droppedSql,
-	type EndFeature,
 	endedBy,
+	type EndFeature,
+	endGen,
+	ends,
 	mutated,
 	refusedAtCommitBy
 } from "#test/pg/fin/installed.ts"
@@ -286,8 +288,10 @@ layer(Substrate.layer)("the fin lemmas through grizzle's lowering on PostgreSQL 
 							generator: stateGen,
 							literal: Formatter.format,
 							limit:
-								(box.counts.length + 1) ** box.owners.length * multisets(CELLS.length, box.rows),
-							box: "every state of owners 0 and 1, each absent or of count 0 to 3, with at most three rows over slots 0 to 4 of either owner, every copy its owner's count, written from no state in one transaction",
+								(box.counts.length + 1) ** box.owners.length *
+								multisets(CELLS.length, box.rows) *
+								ends.length,
+							box: "every state of owners 0 and 1, each absent or of count 0 to 3, with at most three rows over slots 0 to 4 of either owner, every copy its owner's count, written from no state in one transaction, each case ended by a real COMMIT and by the checked end",
 							oracle: ORACLE,
 							coverage: requiredInSpace<StateFeature>([
 								"a case ended by COMMIT",
@@ -312,8 +316,9 @@ layer(Substrate.layer)("the fin lemmas through grizzle's lowering on PostgreSQL 
 							]),
 							caseHang
 						},
-						(sketch, c) =>
-							Effect.forEach(
+						(sketch, c) => {
+							const end = c.draw(endGen)
+							return Effect.forEach(
 								seats,
 								(seat) =>
 									Effect.gen(function* () {
@@ -326,7 +331,8 @@ layer(Substrate.layer)("the fin lemmas through grizzle's lowering on PostgreSQL 
 												seat.family,
 												{ kind: "empty" },
 												statements,
-												settledOn(seat, emptyStored, statements)
+												settledOn(seat, emptyStored, statements),
+												end
 											)
 										)
 										c.note(`${seat.label} ${j.verdict}`)
@@ -347,6 +353,7 @@ layer(Substrate.layer)("the fin lemmas through grizzle's lowering on PostgreSQL 
 									}),
 								{ concurrency: "unbounded", discard: true }
 							)
+						}
 					)
 				})
 			)
@@ -415,7 +422,8 @@ layer(Substrate.layer)("the fin lemmas through grizzle's lowering on PostgreSQL 
 											f,
 											{ kind: "replaced", before: storedOf(before) },
 											statements,
-											settledOf(run(p.shape, before, statements))
+											settledOf(run(p.shape, before, statements)),
+											c.draw(endGen)
 										)
 										c.note(`${p.shape} ${form} ${j.committed ? "committed" : "refused"}`)
 										c.note(endedBy(j.end))

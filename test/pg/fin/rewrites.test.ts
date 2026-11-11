@@ -17,8 +17,8 @@
  * with its count update first, and with its inserts before its deletes.
  *
  * Each case writes its families by one transaction that replaces the seat's rows, then sends its rewrite as one
- * transaction checked as its COMMIT would check it and rolled back, or ended by a real COMMIT, as its own text chooses
- * (installed.ts End): the box requires both ends.
+ * transaction checked as its COMMIT would check it and rolled back, or ended by a real COMMIT, as the case draws its
+ * end on its tape (installed.ts endGen): the box holds every case under both ends.
  *
  * Plant: ~/.cache/grizzle-release/BR08/plants/fin-bound-check-at-most-count.patch, the bound CHECK admitting a row at
  * the count, commits a misordered shrink the model refuses and must turn the property red.
@@ -30,7 +30,13 @@ import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { constraintOf, Disagreed, familySeat, judgedFamily } from "#test/pg/fin/family.ts"
-import { type EndFeature, endedBy, refusedAtCommitBy } from "#test/pg/fin/installed.ts"
+import {
+	endedBy,
+	type EndFeature,
+	endGen,
+	ends,
+	refusedAtCommitBy
+} from "#test/pg/fin/installed.ts"
 import { deepEquals, nonEmpty } from "#test/support/assert.ts"
 import { run, settledOf, type MutationStatement } from "#test/support/families/mutate.ts"
 import { type Families, rowsOf, storedOf } from "#test/support/families/theorem.ts"
@@ -153,8 +159,8 @@ layer(Substrate.layer)(
 								suite: "fin/rewrites",
 								generator: rewriteGen,
 								literal: Formatter.format,
-								limit: REWRITES.length * SENDINGS.length,
-								box: "owner 0 with every ordered family of zero to four members, owner 1 with one: every removal, insertion of a new member at each slot, swap of two slots and append, each sent deletes-count-inserts, count first, and inserts before deletes",
+								limit: REWRITES.length * SENDINGS.length * ends.length,
+								box: "owner 0 with every ordered family of zero to four members, owner 1 with one: every removal, insertion of a new member at each slot, swap of two slots and append, each sent deletes-count-inserts, count first, and inserts before deletes, each case ended by a real COMMIT and by the checked end",
 								oracle: {
 									kind: "second-implementation",
 									name: "the families model of each transaction (test/support/families/mutate.ts run); the prescribed order's families as the rewrite states them"
@@ -182,7 +188,8 @@ layer(Substrate.layer)(
 										f,
 										{ kind: "replaced", before: storedOf(before(r.members)) },
 										statements,
-										settledOf(outcome)
+										settledOf(outcome),
+										c.draw(endGen)
 									)
 									c.note(`${r.form} ${r.sending} ${j.committed ? "committed" : "refused"}`)
 									c.note(endedBy(j.end))

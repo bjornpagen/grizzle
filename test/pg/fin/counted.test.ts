@@ -19,8 +19,8 @@
  * and in the prescribed order with the predecessor axis immediate.
  *
  * Each case writes its family by one transaction that replaces the seat's rows, then sends its removal as one
- * transaction checked as its COMMIT would check it and rolled back, or ended by a real COMMIT, as its own text chooses
- * (installed.ts End): the box requires both ends.
+ * transaction checked as its COMMIT would check it and rolled back, or ended by a real COMMIT, as the case draws its
+ * end on its tape (installed.ts endGen): the box holds every case under both ends.
  *
  * Plant: ~/.cache/grizzle-release/BR08/plants/fin-predecessor-axis-deferral-swapped.patch, the counted predecessor axis
  * installed immediate and the ordered one deferred, refuses the prescribed swap-with-last at its delete and must turn
@@ -44,7 +44,13 @@ import {
 	type Judging,
 	judgedFold
 } from "#test/pg/fin/folds.ts"
-import { type EndFeature, endedBy, refusedAtCommitBy } from "#test/pg/fin/installed.ts"
+import {
+	endedBy,
+	type EndFeature,
+	endGen,
+	ends,
+	refusedAtCommitBy
+} from "#test/pg/fin/installed.ts"
 import { assert, deepEquals, nonEmpty } from "#test/support/assert.ts"
 import { swapWithLast } from "#test/support/families/counted.ts"
 import {
@@ -149,8 +155,8 @@ layer(Substrate.layer)(
 									suite: `fin/swap-with-last ${spec.label}`,
 									generator: sketchGen,
 									literal: Formatter.format,
-									limit: sketchCases,
-									box: "owner 0 with every counted family of one to four members over the seat's five step values, each member removed by swap-with-last, sent prescribed, move first, count first, and prescribed with the predecessor axis immediate",
+									limit: sketchCases * ends.length,
+									box: "owner 0 with every counted family of one to four members over the seat's five step values, each member removed by swap-with-last, sent prescribed, move first, count first, and prescribed with the predecessor axis immediate, each case ended by a real COMMIT and by the checked end",
 									oracle: {
 										kind: "second-implementation",
 										name: "the reference fold of the families swap-with-last leaves (families/fold.ts), beside the fold's model of each installed native's moment (fold.ts foldPredicted)"
@@ -204,7 +210,8 @@ layer(Substrate.layer)(
 											judging,
 											{ kind: "replaced", before },
 											sent(change.statements, sketch.sending),
-											sketch.sending === "closure immediate" ? setImmediate : []
+											sketch.sending === "closure immediate" ? setImmediate : [],
+											c.draw(endGen)
 										)
 										const position: Position =
 											sketch.at === sketch.values.length - 1

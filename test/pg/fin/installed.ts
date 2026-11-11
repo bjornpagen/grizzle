@@ -11,7 +11,7 @@
  * its columns' roles in key order, a foreign key also by its target's, with its deferral and its update action as the
  * catalog states them, and the law the installation's constraint map says it reports.
  */
-import { fnv1a32 } from "@grizzle/testing/random"
+import { constant, type Gen, type Weight, weighted } from "@grizzle/testing/gen"
 import { Array as Arr, Effect, Option, type Scope, String as Str } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
@@ -440,12 +440,24 @@ export type EndFeature =
 	| "a case refused at its checked commit"
 
 /**
- * The end of a transaction, which its own text chooses, so an exhaustion replays the same choice: half the transactions
- * the model refuses at commit end by a real COMMIT and the other half by the checked end, so each end meets the
- * refusals at commit a box holds; of every other transaction one in 32 ends by a real COMMIT.
+ * How often a drawn case ends by each end: a search budget, never a claim. Both ends are a case's to take, so an
+ * exhaustion enumerates both for every case of its box, whatever the weights, and a sampled search draws them in this
+ * proportion; the checked end is first, so a failing case shrinks toward it.
  */
-export const endOf = (text: string, refusedAtCommit: boolean): End =>
-	(refusedAtCommit ? fnv1a32(text) % 2 : fnv1a32(text) % 32) === 0 ? "commit" : "checked"
+const endWeights = { checked: 1, commit: 1 } as const satisfies Readonly<Record<End, Weight>>
+
+/** Every end a case takes: an exhaustion's box holds each of its cases under each. */
+export const ends: Arr.NonEmptyReadonlyArray<End> = ["checked", "commit"]
+
+/**
+ * The end of a case's transaction, drawn on its tape (End), so a replay ends it as it ended: each end meets every
+ * transaction of a box, its refusals at commit among them, and the transactions that end by COMMIT show a real commit
+ * never decides otherwise than the checked end.
+ */
+export const endGen: Gen<End> = weighted([
+	[endWeights.checked, constant("checked")],
+	[endWeights.commit, constant("commit")]
+])
 
 /** The feature of the end a case took. */
 export const endedBy = (end: End): EndFeature =>
