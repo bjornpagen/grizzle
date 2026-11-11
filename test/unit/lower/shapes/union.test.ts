@@ -47,6 +47,7 @@ import type { RelationInput } from "#compiler/lower/shapes/take/index.ts"
 import { mergeHeadingGroups } from "#compiler/runtime/lower/union.ts"
 
 import { type Direction, directions } from "#compiler/core/order.ts"
+import { orderIsTotal } from "#compiler/lower/shapes/take/order.ts"
 import { armBoundedUnion } from "#compiler/lower/shapes/union/index.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import type { OperandBody, OperandSelect } from "#compiler/sql/ast.ts"
@@ -272,7 +273,15 @@ describe("the bounded union consumed inside a statement", () => {
 							const cx = context(built.dag, facts, testOptions("Ledger"))
 							const bound = lit.int(BigInt(k), types.bigint)
 							const arms = boundedArms(
-								armBoundedUnion(cx, facts, union, take.order, keyedArms, () => bound, new Map())
+								armBoundedUnion(
+									cx,
+									facts,
+									union,
+									take.order,
+									orderIsTotal(facts, union, take.order, union.heading),
+									() => bound,
+									new Map()
+								)
 							)
 							assert.equal(
 								arms.length,
