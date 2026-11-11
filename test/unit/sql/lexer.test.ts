@@ -1,3 +1,33 @@
+/**
+ * The PostgreSQL lexer the text audit and the migration file's statement splitter run on (sql/lexer.ts): it is the
+ * audit's eyes, so a token it misreads is a construct the audit cannot see. The oracle is PostgreSQL's own scanner,
+ * scan.l transcribed rule by rule apart from the lexer (test/unit/sql/scan.ts): the lexer reads every text as the
+ * scanner does, each lexeme's kind, content and offset, a refused run's extent among them, and the quote or comment it
+ * never closes, and where; each semicolon that ends a statement where psql's scanner ends one (psqlscan.l, transcribed
+ * beside scan.l), outside every parenthesis and every BEGIN block of a routine's body, is its terminator; and
+ * PostgreSQL accepts the tokens before the first refusal (lex), every semicolon punctuation to it.
+ *
+ * - Every text of up to three characters over the characters the scanner's rules branch on, and every run of up to
+ *   three tokens and separators written edge to edge, lex as the scanner reads them: the boundaries between tokens.
+ * - Generated token sequences of every kind, written apart by whitespace and comments (nested block comments
+ *   included), a string constant continued across newlines among them, its later segments read as its first, lex as
+ *   the scanner reads them and back to the tokens drawn, each at the offset it was written at; an
+ *   operator's run lexes as the scanner cuts it by its trailing + and - rule. A sequence whose last quoted token loses
+ *   its closing quote is reported unterminated at that token's offset.
+ * - Every statement the kernel's generator draws (sqlgen.ts statementGen), printed, lexes as the scanner reads it, with
+ *   no error.
+ * - Generated statements, CREATE [OR REPLACE] FUNCTION or PROCEDURE among them with BEGIN blocks, CASE expressions
+ *   and parentheses nested in their bodies, semicolons inside each, and stray tokens of each kind between, end where
+ *   psql's scanner ends them.
+ *
+ * Features: tokens, refused runs and what follows them, unclosed constructs, terminators and semicolons inside
+ * parentheses; every token and separator kind; each statement kind ended.
+ *
+ * Plants, each failing its search: block comments that no longer nest (lexer-unnested, the round trip); an unclosed
+ * construct reported one past its opening (lexer-unclosed-offset, the characters, the boundaries and the truncated
+ * sequences); `::` read as two colons (lexer-cast-split, the printed statements); a semicolon inside parentheses ending
+ * its statement (lexer-semicolon-parens, the statements).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
 import { required, requiredInSpace } from "@grizzle/testing/features"
@@ -36,29 +66,6 @@ import { statementGen } from "#test/support/kernel/sqlgen.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { sqlCatalog } from "#test/unit/sql/audit/catalog.ts"
 import { scan } from "#test/unit/sql/scan.ts"
-
-/**
- * The PostgreSQL lexer the text audit and the migration file's statement splitter run on (sql/lexer.ts): it is the
- * audit's eyes, so a token it misreads is a construct the audit cannot see. The oracle is PostgreSQL's own scanner,
- * scan.l transcribed rule by rule apart from the lexer (test/unit/sql/scan.ts): the lexer reads every text as the
- * scanner does, each lexeme's kind, content and offset, a refused run's extent among them, and the quote or comment it
- * never closes, and where; each semicolon that ends a statement where psql's scanner ends one (psqlscan.l, transcribed
- * beside scan.l), outside every parenthesis and every BEGIN block of a routine's body, is its terminator; and
- * PostgreSQL accepts the tokens before the first refusal (lex), every semicolon punctuation to it.
- *
- * - Every text of up to three characters over the characters the scanner's rules branch on, and every run of up to
- *   three tokens and separators written edge to edge, lex as the scanner reads them: the boundaries between tokens.
- * - Generated token sequences of every kind, written apart by whitespace and comments (nested block comments
- *   included), a string constant continued across newlines among them, its later segments read as its first, lex as
- *   the scanner reads them and back to the tokens drawn, each at the offset it was written at; an
- *   operator's run lexes as the scanner cuts it by its trailing + and - rule. A sequence whose last quoted token loses
- *   its closing quote is reported unterminated at that token's offset.
- * - Every statement the kernel's generator draws (sqlgen.ts statementGen), printed, lexes as the scanner reads it, with
- *   no error.
- * - Generated statements, CREATE [OR REPLACE] FUNCTION or PROCEDURE among them with BEGIN blocks, CASE expressions
- *   and parentheses nested in their bodies, semicolons inside each, and stray tokens of each kind between, end where
- *   psql's scanner ends them.
- */
 
 /** A text's lexemes, a refused run's message aside, and what it never closes: what the lexer and the scanner must
  * agree on. */

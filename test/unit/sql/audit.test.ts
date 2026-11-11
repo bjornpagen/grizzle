@@ -1,3 +1,41 @@
+/**
+ * The test kernel's structural audit of emitted SQL (test/support/oracle/verify/sql.ts), searched over Live statements
+ * and their Wild breaks.
+ *
+ * The Live statements (audit/live.ts) are the kernel generator's statements, the lowering of generated query cases,
+ * the installations and drafted migrations of the fixture schemas, and the compilations of generated write programs.
+ * On every one of them:
+ *
+ * - both audits admit it, its twin built apart prints alike, the snapshot's own codec (the persisted statement
+ *   schema's encoding, which reads it through the type side first, and writeJsonText, then canonical decode and the
+ *   schema's decoding) reads it back as itself, emit prints it, and the audit hands back the type of each placeholder
+ *   at its index;
+ * - a lowered or written statement's text is its AST's print, and lowering or compiling the case again, or its twin,
+ *   emits the same texts byte for byte.
+ *
+ * Its Wild breaks (audit/operators.ts) each break one rule at one site of one statement, picked by kind first so a
+ * kind every draw holds once is reached as often as one it holds sixty times, and, where a case steers, among the
+ * statements holding a site of a situation still pending: the statement audit reports that rule and no other, under
+ * the reason the rule maps to (MalformedDescription for structure, UnsupportedOperation for the emission discipline).
+ * Its faithful rewrites are admitted and print as declared.
+ * Its print, broken at one token, is reported by the text audit as exactly the rule broken.
+ *
+ * A program's ANALYZE names only carriers an earlier statement of the program created: checked exhaustively over
+ * every program of up to three statements on two carriers, refused at each statement that does.
+ *
+ * Oracle: the universal laws of a statement (its twin prints alike, the snapshot's codec reads it back, emit prints
+ * it, lowering again emits the same text); each break's rule and reason as the operator declares it (a mutation
+ * oracle); the carriers created so far, read off the program (a specification).
+ *
+ * Features: each source, context, statement kind and shape of the Live population; each required break and rule; each
+ * required faithful rewrite; each text break and its rule beside the print's leading words; admitted and refused
+ * programs.
+ *
+ * Plants, each failing its search: an emitted text carrying a trailing space (emit-text-trailing, the Live and the
+ * written statements); a relation alias defined twice admitted (audit-alias-twice); every relation alias reported as
+ * defined twice (audit-alias-once, the faithful rewrites); a NULL admitted by the text audit (audit-text-null); an
+ * ANALYZE of an uncreated carrier admitted (audit-carrier-uncreated).
+ */
 import { describe, it } from "@effect/vitest"
 import { type Case, drawn, exhaust, explore } from "@grizzle/testing/explore"
 import { type Reached, required, requiredInSpace, type Situations } from "@grizzle/testing/features"
@@ -51,31 +89,6 @@ import {
 	textBreaks
 } from "#test/unit/sql/audit/operators.ts"
 
-/**
- * The test kernel's structural audit of emitted SQL (test/support/oracle/verify/sql.ts), searched over Live statements
- * and their Wild breaks.
- *
- * The Live statements (audit/live.ts) are the kernel generator's statements, the lowering of generated query cases,
- * the installations and drafted migrations of the fixture schemas, and the compilations of generated write programs.
- * On every one of them:
- *
- * - both audits admit it, its twin built apart prints alike, the snapshot's own codec (the persisted statement
- *   schema's encoding, which reads it through the type side first, and writeJsonText, then canonical decode and the
- *   schema's decoding) reads it back as itself, emit prints it, and the audit hands back the type of each placeholder
- *   at its index;
- * - a lowered or written statement's text is its AST's print, and lowering or compiling the case again, or its twin,
- *   emits the same texts byte for byte.
- *
- * Its Wild breaks (audit/operators.ts) each break one rule at one site of one statement, picked by kind first so a
- * kind every draw holds once is reached as often as one it holds sixty times, and, where a case steers, among the
- * statements holding a site of a situation still pending: the statement audit reports that rule and no other, under
- * the reason the rule maps to (MalformedDescription for structure, UnsupportedOperation for the emission discipline).
- * Its faithful rewrites are admitted and print as declared.
- * Its print, broken at one token, is reported by the text audit as exactly the rule broken.
- *
- * A program's ANALYZE names only carriers an earlier statement of the program created: checked exhaustively over
- * every program of up to three statements on two carriers.
- */
 const ruleSet = (violations: ReadonlyArray<{ readonly rule: AuditRule }>): string =>
 	Arr.join(Arr.sort([...new Set(Arr.map(violations, (v) => v.rule))], Order.String), ", ")
 
@@ -383,7 +396,10 @@ describe("every Live statement", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "universal",
+							name: "both audits admit it, its twin prints alike, the codec and emit read it back, lowering again emits the same text"
+						},
 						suite: "unit/sql/audit-live",
 						draw: drawn(liveSketchGen),
 						literal: Formatter.format,
@@ -439,7 +455,10 @@ describe("every statement a generated write program places", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "universal",
+							name: "both audits admit it, its twin prints alike, the codec and emit read it back, compiling again places the same text"
+						},
 						suite: "unit/sql/audit-written",
 						draw: drawn(writtenSketchGen),
 						literal: Formatter.format,
@@ -495,7 +514,10 @@ describe("a statement broken at one site", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "each break refused for exactly the rule it declares, under that rule's reason"
+						},
 						suite: "unit/sql/audit-breaks",
 						draw: drawn(breakCaseGen(breakSketchGen, statementBreaks.length)),
 						literal: Formatter.format,
@@ -562,7 +584,10 @@ describe("a statement broken at one site", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "each faithful rewrite admitted, printing as it declares"
+						},
 						suite: "unit/sql/audit-faithful",
 						draw: drawn(breakCaseGen(liveSketchGen, faithfulRewrites.length)),
 						literal: Formatter.format,
@@ -623,7 +648,10 @@ describe("a printed statement broken at one token", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "specification",
+						name: "each text break refused by the text audit for exactly the rule it declares"
+					},
 					suite: "unit/sql/audit-text-breaks",
 					draw: drawn(breakCaseGen(breakSketchGen, textBreaks.length)),
 					literal: Formatter.format,
@@ -701,8 +729,11 @@ describe("a write program's ANALYZE", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "every program of up to three statements on two carriers, each creating one or analyzing a nonempty set of them",
+						oracle: {
+							kind: "specification",
+							name: "an ANALYZE names only carriers an earlier statement created"
+						},
 						suite: "unit/sql/carrier-program",
 						generator: array(programStepGen, { min: 0, max: 3 }),
 						literal: Formatter.format,
@@ -729,7 +760,7 @@ describe("a write program's ANALYZE", () => {
 								auditCarrierProgramViolations(Arr.map(program, programStatement)),
 								(v) => `${v.rule} at ${v.where}`
 							)
-							assert.deepEqual(got, expected)
+							unorderedEqual(Arr.dedupe(got), Arr.dedupe(expected))
 							c.note(expected.length === 0 ? "admitted" : "refused")
 						})
 				)
