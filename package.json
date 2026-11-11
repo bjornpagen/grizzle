@@ -17,6 +17,7 @@
 		"#compiler/*": "./packages/engine/src/*",
 		"#adapter/*": "./packages/grizzle/src/adapter/*",
 		"#cli/*": "./packages/grizzle/src/cli/*",
+		"#devtools/*": "./packages/devtools/src/*",
 		"#index.ts": "./packages/grizzle/src/index.ts"
 	},
 	"scripts": {

@@ -130,6 +130,15 @@ export default defineConfig(
 		effectFree: ["packages/engine/**"],
 		ceremony: ["test/**", "bench/**", "scripts/**", "packages/devtools/**"],
 		plugin: {
+			"side-effect-free": {
+				modules: [
+					{
+						file: "packages/engine/src/core/brand.ts",
+						specifiers: ["#compiler/core/brand.ts"],
+						functions: [{ name: "nominal", returns: "functions" }]
+					}
+				]
+			},
 			"import-doors": {
 				doors: [
 					{

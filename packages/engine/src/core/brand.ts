@@ -8,6 +8,7 @@ export type Mint<A, B extends A> = (value: A) => B
  * `nominal<Base, Branded>()` is a brand's minting function: unchecked, the caller asserts the value already is one of
  * that kind, and the value is returned as it is.
  */
+/* @__NO_SIDE_EFFECTS__ */
 export const nominal = <A, B extends A>(): Mint<A, B> => {
 	/** The claim behind the mint, unchecked: a value of the base already is one of the brand. */
 	const claim: (value: A) => asserts value is B = () => undefined

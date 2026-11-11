@@ -49,6 +49,18 @@ export const FIXTURE_RULES: Readonly<{
 	"no-try": null,
 	"no-useless-continue": null,
 	"prefer-early-return": null,
+	"side-effect-free": {
+		modules: [
+			{
+				file: "side-effect-free/clean.tsx",
+				specifiers: ["#fixture/proven.ts"],
+				functions: [
+					{ name: "brand", returns: "functions" },
+					{ name: "twice", returns: "values" }
+				]
+			}
+		]
+	},
 	"test-no-prose-search": {
 		fields: ["what"],
 		textHelpers: ["containsText", "lacksText"],

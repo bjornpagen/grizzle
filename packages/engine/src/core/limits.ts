@@ -80,19 +80,23 @@ export type Limit<N extends number | bigint = number> = Stated<N> &
 /** A limit of either carrier, as a derived limit's inputs are. */
 export type AnyLimit = Limit | Limit<bigint>
 
+/** The one mint of a Limit: a limit with its evidence, frozen by the constructor that built it, branded. */
+/* @__NO_SIDE_EFFECTS__ */
 const mint = <N extends number | bigint>(
-	limit: Stated<N> & (PublishedEvidence | MeasuredEvidence | DerivedEvidence)
-): Limit<N> => Object.freeze(nominal<typeof limit, Limit<N>>()(limit))
+	limit: Readonly<Stated<N> & (PublishedEvidence | MeasuredEvidence | DerivedEvidence)>
+): Limit<N> => nominal<typeof limit, Limit<N>>()(limit)
 
 /** A limit a source states. */
+/* @__NO_SIDE_EFFECTS__ */
 export const published = <N extends number | bigint>(
 	limit: Stated<N> & Omit<PublishedEvidence, "kind">
-): Limit<N> => mint({ ...limit, kind: "published" })
+): Limit<N> => mint(Object.freeze({ ...limit, kind: "published" }))
 
 /** An operating limit a measurement supports. */
+/* @__NO_SIDE_EFFECTS__ */
 export const measured = <N extends number | bigint>(
 	limit: Stated<N> & Omit<MeasuredEvidence, "kind">
-): Limit<N> => mint({ ...limit, kind: "measured" })
+): Limit<N> => mint(Object.freeze({ ...limit, kind: "measured" }))
 
 /**
  * A limit computed from other limits: `compute` reads their values, so the derived number is never a second spelling
@@ -110,15 +114,17 @@ export const derived = <
 	readonly derivation: string
 	readonly compute: (from: From) => N
 }): Limit<N> =>
-	mint({
-		value: limit.compute(limit.from),
-		owner: limit.owner,
-		unit: limit.unit,
-		scope: limit.scope,
-		kind: "derived",
-		from: limit.from,
-		derivation: limit.derivation
-	})
+	mint(
+		Object.freeze({
+			value: limit.compute(limit.from),
+			owner: limit.owner,
+			unit: limit.unit,
+			scope: limit.scope,
+			kind: "derived",
+			from: limit.from,
+			derivation: limit.derivation
+		})
+	)
 
 /**
  * A bound parent set at or below this size takes the correlated LATERAL form. A LATERAL probe of LIMIT k per parent and

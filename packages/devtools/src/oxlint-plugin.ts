@@ -16,6 +16,7 @@ import { noSwitchDefaultBailout } from "#oxlint/rules/no-switch-default-bailout.
 import { noTry } from "#oxlint/rules/no-try.ts"
 import { noUselessContinue } from "#oxlint/rules/no-useless-continue.ts"
 import { preferEarlyReturn } from "#oxlint/rules/prefer-early-return.ts"
+import { sideEffectFree } from "#oxlint/rules/side-effect-free.ts"
 import { testNoProseSearch } from "#oxlint/rules/test-no-prose-search.ts"
 import { testNoSpelledNames } from "#oxlint/rules/test-no-spelled-names.ts"
 
@@ -38,6 +39,7 @@ const PLUGIN_RULES = {
 	"no-try": noTry,
 	"no-useless-continue": noUselessContinue,
 	"prefer-early-return": preferEarlyReturn,
+	"side-effect-free": sideEffectFree,
 	"test-no-prose-search": testNoProseSearch,
 	"test-no-spelled-names": testNoSpelledNames
 } as const satisfies Readonly<Record<string, Rule>>
