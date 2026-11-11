@@ -77,6 +77,10 @@ import { upTo } from "#test/support/up-to.ts"
  *   outside the fragment the model evaluates (a contract's predicate) is taken to hold, a limit of the model.
  *   Each cell remembers where its value came from: a loaded fact, a value a reviewer wrote at a placeholder, or a
  *   value the column generates.
+ * - The database's privileges. A GRANT or REVOKE on the current database adds or takes away each privilege it names
+ *   from each role it names, ALL every privilege a database has; a role still holding one cannot be dropped (2BP01,
+ *   "privileges for database"), so a migration revokes it first, and a renamed role keeps it. PUBLIC's is the database
+ *   owner's, which the model does not keep.
  * - Data steps. A column added with a DEFAULT takes the default's value on every row; a family's backfill (deploy/diff
  *   backfill.ts) is an UPDATE … FROM a query, which the model runs exactly as PostgreSQL does (#update): every target
  *   row joined to the FROM rows its WHERE keeps, all rows assigned at once, each value stored as its column's type
@@ -253,6 +257,9 @@ export interface State {
 	 * (`view <schema>.<name>`) and each row security policy (`policy <table>.<name>`), with what it reads. */
 	readonly dependents: ReadonlyMap<string, View>
 	readonly functions: ReadonlyMap<string, Function>
+	/** Each role's own privileges on the current database, by the role's name: what the migrations grant it there and
+	 * have not revoked. */
+	readonly databasePrivileges: ReadonlyMap<string, ReadonlySet<string>>
 	/** The next index's place in creation order. */
 	readonly created: number
 }
@@ -268,8 +275,12 @@ export const emptyState: State = {
 	views: new Map(),
 	dependents: new Map(),
 	functions: new Map(),
+	databasePrivileges: new Map(),
 	created: 0
 }
+
+/** Every privilege PostgreSQL defines on a database, which a GRANT or REVOKE of ALL on it names. */
+const databasePrivilegeTypes = ["CREATE", "CONNECT", "TEMPORARY"] as const
 
 /** The SQLSTATEs the model refuses a statement with, each where PostgreSQL raises it. */
 export type ModelSqlstate =
@@ -1383,6 +1394,7 @@ class Model {
 	readonly #dependents = new Map<string, View>()
 	readonly #domains = new Map<string, Domain>()
 	readonly #functions = new Map<string, Function>()
+	readonly #databasePrivileges = new Map<string, ReadonlySet<string>>()
 	/** The columns this run converted, by `<table>.<column>` under their current names. */
 	readonly #converted = new Set<string>()
 	#created: number
@@ -1418,6 +1430,9 @@ class Model {
 		}
 		for (const [name, f] of state.functions) {
 			this.#functions.set(name, f)
+		}
+		for (const [role, held] of state.databasePrivileges) {
+			this.#databasePrivileges.set(role, held)
 		}
 		this.#created = state.created
 	}
@@ -3115,6 +3130,13 @@ class Model {
 
 	#drop(s: Extract<SqlStatement, { readonly kind: "drop" }>): void {
 		if (s.object === "ROLE") {
+			const held = this.#databasePrivileges.get(s.name)
+			if (held !== undefined) {
+				refuse(
+					"2BP01",
+					`the role ${s.name} is dropped while it holds ${Arr.join([...held], ", ")} on the database`
+				)
+			}
 			return
 		}
 		if (s.object === "SCHEMA") {
@@ -3233,8 +3255,37 @@ class Model {
 		}
 	}
 
-	/** What a GRANT or REVOKE names must exist, as PostgreSQL requires of it. */
-	#privilegesOn(on: Extract<SqlStatement, { readonly kind: "grant" }>["on"]): void {
+	/**
+	 * A GRANT or REVOKE on the current database, which always exists: each privilege it names, ALL every one a database
+	 * has, added to or taken from each role it names. PUBLIC's is the database owner's, which the model does not keep.
+	 */
+	#onDatabase(s: Extract<SqlStatement, { readonly kind: "grant" | "revoke" }>): void {
+		const privileges = Arr.flatMap(s.privileges, (p): ReadonlyArray<string> =>
+			p === "ALL" ? databasePrivilegeTypes : [p]
+		)
+		for (const g of s.kind === "grant" ? s.to : s.from) {
+			if (g.kind === "role") {
+				const held = new Set(this.#databasePrivileges.get(g.name))
+				for (const p of privileges) {
+					if (s.kind === "grant") {
+						held.add(p)
+					} else {
+						held.delete(p)
+					}
+				}
+				if (held.size === 0) {
+					this.#databasePrivileges.delete(g.name)
+				} else {
+					this.#databasePrivileges.set(g.name, held)
+				}
+			}
+		}
+	}
+
+	/** What a GRANT or REVOKE names must exist, as PostgreSQL requires of it; one on the current database changes its
+	 * privileges (`#onDatabase`). */
+	#privilegesOn(s: Extract<SqlStatement, { readonly kind: "grant" | "revoke" }>): void {
+		const on = s.on
 		switch (on.kind) {
 			case "TABLE":
 				for (const n of on.names) {
@@ -3261,6 +3312,9 @@ class Model {
 				}
 				return
 			case "SCHEMA":
+				return
+			case "DATABASE":
+				this.#onDatabase(s)
 				return
 		}
 	}
@@ -3315,7 +3369,13 @@ class Model {
 				}
 				return
 			case "rename":
-				if (s.object !== "ROLE" && s.object !== "SCHEMA" && this.#ours(s.name)) {
+				if (s.object === "ROLE") {
+					const held = this.#databasePrivileges.get(s.name)
+					if (held !== undefined) {
+						this.#databasePrivileges.delete(s.name)
+						this.#databasePrivileges.set(s.to, held)
+					}
+				} else if (s.object !== "SCHEMA" && this.#ours(s.name)) {
 					this.#rename(s)
 				}
 				return
@@ -3440,7 +3500,7 @@ class Model {
 				return
 			case "grant":
 			case "revoke":
-				this.#privilegesOn(s.on)
+				this.#privilegesOn(s)
 				return
 			case "createStatistics": {
 				if (!this.#ours(s.name)) {
@@ -3739,6 +3799,7 @@ class Model {
 			views: new Map(this.#views),
 			dependents: new Map(this.#dependents),
 			functions: new Map(this.#functions),
+			databasePrivileges: new Map(this.#databasePrivileges),
 			created: this.#created
 		}
 	}
