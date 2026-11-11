@@ -34,6 +34,7 @@ import {
 	call,
 	cast,
 	col,
+	conjunction,
 	core,
 	countStar,
 	cte,
@@ -337,7 +338,8 @@ export const taggedRows = (
 	supply: NameSupply,
 	ctes: Array<Cte>,
 	returnings: NonEmptyReadonlyArray<FamilyReturning>,
-	params: WriteParams
+	params: WriteParams,
+	refusals: ReadonlyArray<Expr>
 ): FamilyWriteSql => {
 	const width = maxOf(
 		returnings.map((r) => r.columns.length),
@@ -358,7 +360,7 @@ export const taggedRows = (
 				)
 			],
 			[cteRef(partName)],
-			undefined
+			conjunction(refusals)
 		)
 	})
 	const [firstCte, ...restCtes] = ctes

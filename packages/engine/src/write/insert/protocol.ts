@@ -31,7 +31,6 @@ import {
 	lit,
 	ne,
 	not,
-	notExists,
 	provedCore,
 	provedSelect,
 	select,
@@ -41,7 +40,7 @@ import {
 	types,
 	unionAll
 } from "#compiler/sql/build.ts"
-import { fieldColumns } from "#compiler/write/defined.ts"
+import { type FieldColumns, fieldColumns } from "#compiler/write/defined.ts"
 import { arbiterLaw, type WrittenRelation } from "#compiler/write/frontend/compile.ts"
 import { payloadOf, primaryKeyShape } from "#compiler/write/frontend/targets.ts"
 import {
@@ -81,6 +80,7 @@ import {
 
 import {
 	buildProbe,
+	type EveryObject,
 	generatedArbiter,
 	generatedChecks,
 	insertArbitered,
@@ -88,6 +88,18 @@ import {
 	type ProbeSql,
 	type Requested
 } from "#compiler/write/insert/unique.ts"
+import {
+	atFields,
+	atObject,
+	type MetAccess,
+	metAtObject,
+	metFound,
+	metNarrowed,
+	metRowsOf,
+	narrowed,
+	probeKey,
+	storedAt
+} from "#compiler/write/probe.ts"
 import type { KeyArbiter } from "#compiler/write/put/choose.ts"
 
 import type { ConcurrentChangeTag } from "#compiler/runtime/write/refusal.ts"
@@ -200,32 +212,45 @@ const insertedFields = (relation: RelationInfo, serial: SerialClass): ReadonlyAr
 const internal = (purpose: string) => ({ kind: "internal", purpose }) as const
 
 /** No stored row of `relation` holds the requested fact's value at `key`, its insert's arbiter key, read at `requested`:
- * NOT EXISTS (SELECT 1 FROM <relation> s WHERE s.<key> = <requested key>), each key field compared at its type. */
+ * NOT EXISTS over the probe of `relation` at that key (probe.ts storedAt), each key field compared at its type. */
 const storedAbsent = (
 	w: WriteContext,
 	supply: NameSupply,
 	relation: WrittenRelation,
 	key: NonEmptyReadonlyArray<LawField>,
 	requested: (f: LawField) => Expr
-): Expr => {
-	const stored = supply.relation(internal(`stored ${relation.name}`))
-	return notExists(
-		simpleSelect(
-			[target(lit.int(1, types.integer))],
-			[{ kind: "table", table: w.names.relation(relation.name), alias: stored }],
-			and(
-				mapNonEmpty(key, (f) =>
-					typedEq(
-						rowType(f),
-						col(stored, w.names.column(relation.name, f.name)),
-						requested(f),
-						w.names.vectorSchema
-					)
-				)
-			)
-		)
-	)
-}
+): Expr => not(storedAt(w, supply, relation.name, atFields(w, relation.name, key, requested)))
+
+/**
+ * How an insert's INSERT meets the stored rows its requested facts conflict with, by the level its role runs at
+ * (statement.ts WriteContext `level`) and the relation's objects, so every insert of a role takes one form:
+ * - `key`: ON CONFLICT at its arbiter's key, DO SELECT where the payload differs, so RETURNING yields each conflicting
+ *   stored row whatever the statement's snapshot, and every other unique object probed under the statement's snapshot
+ *   (unique.ts buildProbe): READ COMMITTED's form; at either level a generated addition's, whose drawn values a request
+ *   it does not insert never takes, so no object that reads one could classify it; and at either level an insert into
+ *   a relation one of whose native objects is no unique object (unique.ts EveryObject `unnamed`);
+ * - `every`: complete facts at SERIALIZABLE into a relation every native object of which is a unique object, ON CONFLICT
+ *   DO NOTHING with no target, so every unique and exclusion object arbitrates and a conflicting row in flight sends the
+ *   insert back to its pre-check, never to a 23505 or 23P01. A row its transaction snapshot cannot see raises 40001
+ *   (nodeModifyTable.c ExecCheckTupleVisible), so every stored row it met is visible. The INSERT proposes a CTE of its
+ *   own, every gate in it, and each row of it the INSERT did not return, a met row (sql/ast.ts FromSource `metRows`), is
+ *   classified by the stored rows its arbitration met (`met`) at the arbiter and then at each other object: a
+ *   complete proposal reads no stored row for a fact it inserts; a placeholder's gate is a probe at its key.
+ */
+type Arbitration =
+	| { readonly kind: "key" }
+	| { readonly kind: "every"; readonly objects: Extract<EveryObject, { readonly kind: "named" }> }
+
+const arbitrationOf = (
+	w: WriteContext,
+	relation: WrittenRelation,
+	serial: SerialClass
+): Arbitration =>
+	w.level === "serializable" &&
+	serial.kind === "complete" &&
+	relation.uniques.every.kind === "named"
+		? { kind: "every", objects: relation.uniques.every }
+		: { kind: "key" }
 
 /** The same-key check reports the least key that occurs twice, so the witness never depends on the plan.
  *
@@ -378,6 +403,7 @@ export const buildInsert = (
 	const sameKeyCheck = variant === "protocol" && !keyUniqueBy(guarantees.keyUnique)
 	const written = insertedFields(relation, serial)
 	const proposes = proposalOf(relation, serial, insertArbitered(relation.uniques, serial))
+	const arbitration = arbitrationOf(w, relation, serial)
 	/** The written fields the input carries, which the insert reads from it, the ones its facts state and the ones its
 	 * families draw that its slot carries (input.ts RelationInput), and the rest, each written at its start: a fresh
 	 * owner's counts and ends, which a nesting's input and an owner's plain insert carry and no other input does. */
@@ -430,11 +456,13 @@ export const buildInsert = (
 		const r4 = sameKeyCheck ? supply.relation(internal("same-key check")) : undefined
 		const inputs = fieldColumns(fields, () => supply.column(internal("input column")))
 		const returned = fieldColumns(all, () => supply.column(internal("returned column")))
-		/** The inserted marker, over the payload it compares. */
+		/** The inserted marker, over the payload it compares, which tells a row DO SELECT returned from one the INSERT
+		 * inserted; or, at `every`, the met class of a verdict row (`classified`), 0 for every row but a met row's. */
 		const marker =
-			shape.variant === "protocol"
+			shape.variant === "protocol" && arbitration.kind === "key"
 				? { column: supply.column(internal("inserted marker")), payload: shape.payload }
 				: undefined
+		const cM = arbitration.kind === "every" ? supply.column(internal("met class")) : undefined
 		const keys = fieldColumns(r4 === undefined ? [] : pk, () =>
 			supply.column(internal("same-key column"))
 		)
@@ -465,9 +493,14 @@ export const buildInsert = (
 		const probe = buildProbe(w, supply, {
 			relation,
 			...probed,
+			checks:
+				arbitration.kind === "every" && arbitration.objects.arbiter.kind === "span"
+					? [{ object: arbitration.objects.arbiter, pairs: "statement" }, ...probed.checks]
+					: probed.checks,
 			input: r1,
 			inputs,
-			normalized: input.kind === "relation"
+			normalized: input.kind === "relation",
+			occupants: arbitration.kind === "every" ? "met" : "probed"
 		})
 		if (probe !== undefined) {
 			appendAll(ctes, probe.ctes)
@@ -562,12 +595,55 @@ export const buildInsert = (
 				: [unique.kind === "gate" ? unique.guarded.guard : unique.probe.gate]),
 			...unstored
 		]
-		/** r1 already holds each value cast into its column's type (`into`), so the INSERT selects it as is. */
-		const values = [...fields.map((f) => target(inCol(f))), ...starts.map((s) => target(s.value))]
-		const source: Select = {
-			...provedSelect("keyed", values, [cteRef(r1)], conjunction(gates)),
-			orderBy: variant === "generated" ? [] : pk.map((f) => asc(inCol(f)))
+		/**
+		 * At `every`, the CTE the INSERT proposes alone (sql/ast.ts FromSource `metRows`): each requested fact the gates
+		 * pass, its value at every field, a generated one's included, so a met row is read at any object by its columns.
+		 */
+		const proposed =
+			arbitration.kind === "every"
+				? {
+						name: supply.relation(internal("proposed")),
+						columns: fieldColumns(all, () => supply.column(internal("proposed column")))
+					}
+				: undefined
+		if (proposed !== undefined) {
+			ctes.push(
+				cte(
+					proposed.name,
+					proposed.columns.columns,
+					provedSelect(
+						"keyed",
+						all.map((f) => targetAs(requested(f), proposed.columns.of(f))),
+						[cteRef(r1)],
+						conjunction(gates)
+					)
+				)
+			)
 		}
+		/** r1 already holds each value cast into its column's type (`into`), so the INSERT selects it as is; at `every`
+		 * it selects the proposed CTE's columns alone. */
+		const source: Select =
+			proposed === undefined
+				? {
+						...provedSelect(
+							"keyed",
+							[...fields.map((f) => target(inCol(f))), ...starts.map((s) => target(s.value))],
+							[cteRef(r1)],
+							conjunction(gates)
+						),
+						orderBy: variant === "generated" ? [] : pk.map((f) => asc(inCol(f)))
+					}
+				: {
+						...provedSelect(
+							"keyed",
+							[...fields, ...starts.map((s) => s.field)].map((f) =>
+								target(col(proposed.name, proposed.columns.of(f)))
+							),
+							[cteRef(proposed.name)],
+							undefined
+						),
+						orderBy: pk.map((f) => asc(col(proposed.name, proposed.columns.of(f))))
+					}
 		const insert: Insert = {
 			kind: "insert",
 			with: undefined,
@@ -577,33 +653,35 @@ export const buildInsert = (
 			overriding: explicitSerials(relation, serial).length > 0 ? "SYSTEM VALUE" : undefined,
 			source: { kind: "query", query: source },
 			onConflict:
-				shape.variant === "generated"
-					? undefined
-					: shape.variant === "spanKey"
-						? {
-								kind: "constraint",
-								constraint: w.names.primaryKey(relation.name),
-								action: { kind: "doNothing" }
-							}
-						: {
-								kind: "columns",
-								columns: mapNonEmpty(pk, column),
-								action:
-									shape.variant === "pureSet"
-										? { kind: "doNothing" }
-										: {
-												kind: "doSelect",
-												where: rowNe(
-													{
-														fields: shape.payload,
-														typeOf,
-														left: (f) => col(r3, column(f)),
-														right: (f) => ({ kind: "excluded", column: column(f) })
-													},
-													w.names.vectorSchema
-												)
-											}
-							},
+				arbitration.kind === "every"
+					? { kind: "every", action: { kind: "doNothing" } }
+					: shape.variant === "generated"
+						? undefined
+						: shape.variant === "spanKey"
+							? {
+									kind: "constraint",
+									constraint: w.names.primaryKey(relation.name),
+									action: { kind: "doNothing" }
+								}
+							: {
+									kind: "columns",
+									columns: mapNonEmpty(pk, column),
+									action:
+										shape.variant === "pureSet"
+											? { kind: "doNothing" }
+											: {
+													kind: "doSelect",
+													where: rowNe(
+														{
+															fields: shape.payload,
+															typeOf,
+															left: (f) => col(r3, column(f)),
+															right: (f) => ({ kind: "excluded", column: column(f) })
+														},
+														w.names.vectorSchema
+													)
+												}
+								},
 			returning: all.map((f) => targetAs(col(r3, column(f)), retCol(f)))
 		}
 		ctes.push(cte(r2, [], insert))
@@ -642,17 +720,21 @@ export const buildInsert = (
 				undefined
 			)
 			/**
-			 * The stored owners at a requested key whose payload differs, read from the requested facts joined to the
-			 * owner on its key: each request probes the owner's key, so the statement reads only the owners the call names
-			 * and holds SIRead locks on their keys alone. A semi-join from the owner whose condition held the payload's
-			 * inequality would be planned as a scan of the whole owner, and its relation-level SIRead lock made every two
-			 * concurrent insertions of one owner relation an rw cycle (40001). Each stored row is one verdict row: the
-			 * requests' keys are unique, by the input's proof or, where they are not, by the same-key gate, without which
-			 * the same-key refusal ranks first and the statement raises it whatever these rows are.
+			 * The stored owners at a requested key whose payload differs, each read by the probe of the owner at a
+			 * requested fact's key (probe.ts probeKey), so the statement reads only the owners the call names. Each stored
+			 * row is one verdict row: the requests' keys are unique, by the input's proof or, where they are not, by the
+			 * same-key gate, without which the same-key refusal ranks first and the statement raises it whatever these rows
+			 * are.
 			 */
 			const conflicts = (): SetCore => {
-				const s = supply.relation(internal(`conflicting stored ${relation.name}`))
-				const stored = (f: LawField): Expr => col(s, column(f))
+				const owner = probeKey(
+					w,
+					supply,
+					relation.name,
+					atFields(w, relation.name, pk, inCol),
+					mapNonEmpty(all, column)
+				)
+				const stored = (f: LawField): Expr => owner.at(column(f))
 				return provedCore(
 					"keyed",
 					[
@@ -661,13 +743,7 @@ export const buildInsert = (
 						...(c9 === undefined ? [] : [targetAs(lit.bool(false), c9)]),
 						...zero
 					],
-					[
-						join(
-							cteRef(r1),
-							{ kind: "table", table: w.names.relation(relation.name), alias: s },
-							and(mapNonEmpty(pk, (f) => same(f, inCol(f), stored(f))))
-						)
-					],
+					[cteRef(r1), owner.source],
 					conjunction([
 						rowNe(
 							{ fields: payload.payload, typeOf, left: stored, right: inCol },
@@ -702,10 +778,184 @@ export const buildInsert = (
 			)
 			return unionAll("disjoint", appendNonEmpty(marked, right))
 		}
+		/**
+		 * The met rows at `every` (Arbitration), each row of the proposed CTE r2 did not return (sql/ast.ts FromSource
+		 * `metRows`), and each one's met class, read from the stored rows the arbitration met at it (probe.ts metFound),
+		 * each object in order:
+		 * - 0: an exact repeat, the row met at the arbiter equal to it at every field it states, which changes nothing;
+		 * - 1: the arbiter's law, a stored row at its key with another payload, or overlapping it at a span key at another
+		 *   span; on a put's insert half at a span key only one at another span;
+		 * - 2: a concurrent change on a put's insert half, a stored row at its own key after its deletion,
+		 *   PutTargetConflict, or SpanKeyChange at a span key;
+		 * - 3 + i: the law of the i-th other unique object of the relation in law order, the first that met it.
+		 * Every native object of the relation is one of these objects or held by one (unique.ts EveryObject `named`;
+		 * laws/model/uniques.ts beyondPrimary), so the arbitration met each met row at one of them where the statement's
+		 * snapshot shows the occupant. A row an earlier INSERT of the same statement wrote is met with no wait and shown by
+		 * no snapshot: such a met row takes class -1, the statement's defect (refusal.ts ArmRefusal `defect`). Its CTE's
+		 * columns are every field's, by r2's returned names, then the class, `metClass`.
+		 */
+		const classifyMet = (
+			objects: Extract<EveryObject, { readonly kind: "named" }>,
+			from: { readonly name: string; readonly columns: FieldColumns<string> },
+			metClass: string
+		): string => {
+			const arbiter = objects.arbiter
+			const met = metRowsOf(w, supply, {
+				insert: r2,
+				proposed: from.name,
+				columns: mapNonEmpty(all, (f) => from.columns.of(f)),
+				key: mapNonEmpty(pk, (f) => ({ field: f, column: from.columns.of(f), returned: retCol(f) }))
+			})
+			const metValue = (f: LawField): Expr => col(met.alias, from.columns.of(f))
+			const found = (access: MetAccess): Expr => metFound(w, supply, relation.name, access)
+			const atArbiter = metAtObject(w, relation.name, arbiter, met.alias, from.columns.of)
+			const storedAt = (inner: string) => (f: LawField) => col(inner, column(f))
+			const stated = inputStated(input)
+			const compared = all.filter(
+				(f) => !arbiter.equal.includes(f) && stated.some((c) => c.name === f.name)
+			)
+			const integer = (n: number) => lit.int(n, types.integer)
+			const keyed: NonEmptyReadonlyArray<{ readonly when: Expr; readonly result: Expr }> =
+				spec.of === "put" && arbiter.kind === "span"
+					? [
+							{
+								when: found(
+									metNarrowed(atArbiter, (inner) => [
+										ne(storedAt(inner)(arbiter.span), metValue(arbiter.span))
+									])
+								),
+								result: integer(1)
+							},
+							{ when: found(atArbiter), result: integer(2) }
+						]
+					: [{ when: found(atArbiter), result: integer(spec.of === "put" ? 2 : 1) }]
+			const classes = [
+				{
+					when: found(
+						metNarrowed(atArbiter, (inner) =>
+							compared.map((f) => same(f, storedAt(inner)(f), metValue(f)))
+						)
+					),
+					result: integer(0)
+				},
+				...keyed,
+				...objects.others.map((u, i) => ({
+					when: found(metAtObject(w, relation.name, u, met.alias, from.columns.of)),
+					result: integer(3 + i)
+				}))
+			]
+			const [first, ...rest] = classes
+			const rk = supply.relation(internal("met classes"))
+			ctes.push(
+				cte(
+					rk,
+					[...outFields.map(retCol), metClass],
+					select(
+						provedCore(
+							"keyed",
+							[
+								...outFields.map((f) => target(metValue(f))),
+								target({
+									kind: "case",
+									operand: undefined,
+									whens: [defined(first, "a met row's first class"), ...rest],
+									else: integer(-1)
+								})
+							],
+							[met.source],
+							undefined
+						)
+					)
+				)
+			)
+			return rk
+		}
+		/**
+		 * The verdict rows at `every` (Arbitration): the rows r2 inserted, the same-key pair, and each met row that is no
+		 * exact repeat with its met class, read from the stored rows the arbitration met (`classified`).
+		 */
+		const metBody = (met: string, metClass: string): Select["body"] => {
+			const at = (alias: string) => (f: LawField) => col(alias, retCol(f))
+			const left: SetCore = provedCore(
+				"keyed",
+				[
+					...factOf(r2, retCol),
+					targetAs(lit.int(0, types.integer), metClass),
+					...(c9 === undefined ? [] : [targetAs(lit.bool(false), c9)]),
+					...zero
+				],
+				[cteRef(r2)],
+				undefined
+			)
+			const classified: SetCore = provedCore(
+				"keyed",
+				[
+					...outFields.map((f) => targetAs(at(met)(f), retCol(f))),
+					targetAs(col(met, metClass), metClass),
+					...(c9 === undefined ? [] : [targetAs(lit.bool(false), c9)]),
+					...zero
+				],
+				[cteRef(met)],
+				ne(col(met, metClass), lit.int(0, types.integer))
+			)
+			/**
+			 * An insertion's placeholder proposal withholds each requested fact stored at its key (statement.ts Proposal
+			 * `unstored`), so its INSERT never meets one: each one stored there at another stated field is the key law's
+			 * conflict witness, read by the probe at its key, as at READ COMMITTED.
+			 */
+			const stated = inputStated(input)
+			const payload = all.filter((f) => !pk.includes(f) && stated.some((c) => c.name === f.name))
+			const withheldConflicts = (compared: NonEmptyReadonlyArray<LawField>): SetCore => {
+				const owner = probeKey(
+					w,
+					supply,
+					relation.name,
+					atFields(w, relation.name, pk, inCol),
+					mapNonEmpty(all, column)
+				)
+				const stored = (f: LawField): Expr => owner.at(column(f))
+				return provedCore(
+					"keyed",
+					[
+						...outFields.map((f) => targetAs(stored(f), retCol(f))),
+						targetAs(lit.int(1, types.integer), metClass),
+						...(c9 === undefined ? [] : [targetAs(lit.bool(false), c9)]),
+						...zero
+					],
+					[cteRef(r1), owner.source],
+					conjunction([
+						rowNe({ fields: compared, typeOf, left: stored, right: inCol }, w.names.vectorSchema),
+						...(r4 === undefined ? [] : [noSharedKey(r4)])
+					])
+				)
+			}
+			const withheld: ReadonlyArray<SetCore> =
+				spec.of === "insert" && proposes === "unstored" && isNonEmpty(payload)
+					? [withheldConflicts(payload)]
+					: []
+			if (r4 === undefined || c9 === undefined) {
+				return unionAll("disjoint", [left, classified, ...withheld])
+			}
+			const r4Col = (f: LawField) => col(r4, keys.of(f))
+			const pair: SetCore = provedCore(
+				"keyed",
+				[
+					...outFields.map((f) => target(requested(f))),
+					target(lit.int(0, types.integer)),
+					target(lit.bool(true)),
+					...(cU === undefined ? [] : [target(lit.int(0, types.integer))])
+				],
+				[join(cteRef(r1), cteRef(r4), and(mapNonEmpty(pk, (f) => same(f, inCol(f), r4Col(f)))))],
+				undefined
+			)
+			return unionAll("disjoint", [left, classified, ...withheld, pair])
+		}
 		const verdicts: Select["body"] =
-			marker === undefined
-				? provedCore("keyed", [...factOf(r2, retCol), ...zero], [cteRef(r2)], undefined)
-				: markedBody(marker)
+			arbitration.kind === "every" && cM !== undefined && proposed !== undefined
+				? metBody(classifyMet(arbitration.objects, proposed, cM), cM)
+				: marker === undefined
+					? provedCore("keyed", [...factOf(r2, retCol), ...zero], [cteRef(r2)], undefined)
+					: markedBody(marker)
 		/** The verdict rows, and the probe's refusal after them when it is one of them. */
 		const withRefusal = (refused: SetCore): Select["body"] =>
 			continuedAll("disjoint", verdicts, refused)
@@ -718,6 +968,7 @@ export const buildInsert = (
 							[
 								...outFields.map((f) => target(unique.probe.refusalValue(f))),
 								...(marker === undefined ? [] : [target(lit.bool(false))]),
+								...(cM === undefined ? [] : [target(lit.int(0, types.integer))]),
 								...(c9 === undefined ? [] : [target(lit.bool(false))]),
 								target(unique.probe.ordinal)
 							],
@@ -729,6 +980,7 @@ export const buildInsert = (
 		const verdictColumns = [
 			...outFields.map(retCol),
 			...(marker === undefined ? [] : [marker.column]),
+			...(cM === undefined ? [] : [cM]),
 			...(c9 === undefined ? [] : [c9]),
 			...(cU === undefined ? [] : [cU])
 		]
@@ -773,6 +1025,36 @@ export const buildInsert = (
 				arms,
 				probeArms(unique.probe, verdict(unique.marker), (f) => verdict(retCol(f)))
 			)
+		}
+		if (arbitration.kind === "every" && cM !== undefined) {
+			const metClass = (n: number): Expr => eq(verdict(cM), lit.int(n, types.integer))
+			arms.push({ rank: refusalRank.conflict, when: metClass(1), refusal: keyLaw(pk, pkLaw) })
+			if (spec.of === "put") {
+				arms.push({
+					rank: refusalRank.change,
+					when: metClass(2),
+					refusal: change(
+						arbitration.objects.arbiter.kind === "span" ? "SpanKeyChange" : "PutTargetConflict"
+					)
+				})
+			}
+			for (const [i, u] of arbitration.objects.others.entries()) {
+				arms.push({
+					rank: refusalRank.uniqueStored,
+					when: metClass(3 + i),
+					refusal: keyLaw(witnessFields(u), u.law)
+				})
+			}
+			arms.push({
+				rank: refusalRank.defect,
+				when: metClass(-1),
+				refusal: {
+					kind: "defect",
+					relation: relation.name,
+					constraint: w.names.primaryKey(relation.name),
+					key: keyOf(pk)
+				}
+			})
 		}
 		if (marker !== undefined) {
 			arms.push({
@@ -853,8 +1135,6 @@ export const buildSpanClassify = (
 	return buildStatement(w, sharing, (supply) => {
 		const scan = supply.relation(internal("input scan"))
 		const r1 = supply.relation(internal("input"))
-		const stored = supply.relation(internal(`equal stored ${relation.name}`))
-		const occupant = supply.relation(internal(`overlapping stored ${relation.name}`))
 		const other = supply.relation(internal("overlapping requested fact"))
 		const inputs = fieldColumns(all, () => supply.column(internal("input column")))
 		const keys = fieldColumns(pk, () => supply.column(internal("requested key column")))
@@ -873,12 +1153,6 @@ export const buildSpanClassify = (
 			at
 		)
 		const inCol = (alias: string, f: LawField): Expr => col(alias, inputs.of(f))
-		const column = (f: LawField) => w.names.column(relation.name, f.name)
-		const table = (alias: string): FromItem => ({
-			kind: "table",
-			table: w.names.relation(relation.name),
-			alias
-		})
 		const same = (f: LawField, a: Expr, b: Expr): Expr => typedEq(rowType(f), a, b, vectorSchema)
 		/** A fact at `left` overlapping the requested fact at the same scalar key: equal scalars, overlapping spans. */
 		const overlapping = (left: (f: LawField) => Expr): Expr =>
@@ -890,26 +1164,27 @@ export const buildSpanClassify = (
 			)
 		const one = [target(lit.int(1, types.integer))]
 		const ctes: [Cte, ...Array<Cte>] = [cte(r1, inputs.columns, read.select)]
-		const equalStored = simpleSelect(
-			one,
-			[table(stored)],
-			rowEq(
-				{ fields: all, typeOf, left: (f) => col(stored, column(f)), right: (f) => inCol(r1, f) },
-				vectorSchema
-			)
+		const requested = (f: LawField): Expr => inCol(r1, f)
+		/** A stored fact equal to the requested one at every field it states, read by the probe at those fields. */
+		const equalStored = storedAt(
+			w,
+			supply,
+			relation.name,
+			atFields(w, relation.name, all, requested)
 		)
 		/** On a put's insert half, a stored fact at the requested key itself is no law: the put deleted the occupant at
 		 * that key, or an owner's put updated it to the requested fact, which the equal stored fact above accounts for, so
 		 * any other one there was committed after the put's own statement, a concurrent change that aborts the apply. */
-		const storedOverlap = simpleSelect(
-			one,
-			[table(occupant)],
+		const occupant = atObject(w, relation.name, relation.uniques.arbiter, requested)
+		const storedOverlap = storedAt(
+			w,
+			supply,
+			relation.name,
 			spec.of === "put"
-				? and([
-						overlapping((f) => col(occupant, column(f))),
-						ne(col(occupant, column(span)), inCol(r1, span))
+				? narrowed(occupant, (inner) => [
+						ne(col(inner, w.names.column(relation.name, span.name)), requested(span))
 					])
-				: overlapping((f) => col(occupant, column(f)))
+				: occupant
 		)
 		const requestedOverlap = simpleSelect(
 			one,
@@ -931,11 +1206,11 @@ export const buildSpanClassify = (
 			query: simpleSelect(
 				[
 					...keys.pairs.map((p) => targetAs(inCol(r1, p.field), p.column)),
-					targetAs(exists(storedOverlap), c8),
+					targetAs(storedOverlap, c8),
 					targetAs(exists(requestedOverlap), c9)
 				],
 				[cteRef(r1)],
-				notExists(equalStored)
+				not(equalStored)
 			)
 		})
 		const keyCol = (f: LawField): Expr => col(rv, keys.of(f))

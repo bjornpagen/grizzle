@@ -304,7 +304,8 @@ export const realityWrite = (artifacts: SchemaArtifacts): CompileWriteOptions =>
 	claims: { kind: "every" },
 	world: { kind: "reality" },
 	laws: artifacts.laws,
-	derived: artifacts.derived
+	derived: artifacts.derived,
+	level: "serializable"
 })
 
 /**

@@ -183,7 +183,8 @@ describe("a query over a derived relation", () => {
 										claims: { kind: "every" },
 										world: { kind: "reality" },
 										laws: artifacts.laws,
-										derived: artifacts.derived
+										derived: artifacts.derived,
+										level: "serializable"
 									}
 								)
 								if (!write.ok) {

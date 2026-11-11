@@ -17,7 +17,6 @@ import {
 import {
 	type CompileError,
 	defect,
-	type Isolation,
 	levelChain,
 	type LoginDesc,
 	loginRoleName,
@@ -58,14 +57,8 @@ import {
 export interface CompiledLogin {
 	readonly login: LoginDesc
 	readonly snapshot: ServedSnapshot
-	readonly roles: ReadonlyArray<LeveledRole>
+	readonly roles: ReadonlyArray<LayerRole>
 }
-
-/**
- * A role of a login's compile with the isolation level its writes begin at (served/compile.ts): what its served form
- * records and its writes are projected at.
- */
-export type LeveledRole = LayerRole & { readonly isolation: Isolation }
 
 /** A rows form's read, served: its template, its Description's spine, and its decoder's form. */
 const readOf = (form: RowsForm<unknown>): ServedRead => {
@@ -74,21 +67,18 @@ const readOf = (form: RowsForm<unknown>): ServedRead => {
 }
 
 /**
- * A ChangeSet's variants, served at its role's isolation level `isolation`: each compiled change its program, projected
- * at that level (write/program/served.ts servedWrite), its read-backs, its reads decoder's form, the values its
+ * A ChangeSet's variants, served: each compiled change its program, projected at the level it was compiled for, its
+ * role's (write/program/served.ts servedWrite), its read-backs, its reads decoder's form, the values its
  * declaration bound and the array members a call supplies (servedMembers), or every reason no call can serve it
  * (UnservedMember: a Stream member, a bound value with no canonical text, two array members of one relation).
  */
-const variantsOf = (
-	variants: ChangeVariants,
-	isolation: Isolation
-): Result.Result<ServedVariants, UnservedMember> => {
+const variantsOf = (variants: ChangeVariants): Result.Result<ServedVariants, UnservedMember> => {
 	switch (variants.kind) {
 		case "form": {
 			const { entry, decoder } = variants.form
 			const compiled = entry.compiled
 			return Result.gen(function* () {
-				const program = yield* toResult(servedWrite(compiled, isolation))
+				const program = yield* toResult(servedWrite(compiled))
 				const members = yield* toResult(
 					servedMembers(compiled.binding.members, entry.change.opaque)
 				)
@@ -104,21 +94,18 @@ const variantsOf = (
 		}
 		case "split":
 			return Result.gen(function* () {
-				const holding = yield* variantsOf(variants.holding, isolation)
-				const lacking = yield* variantsOf(variants.lacking, isolation)
+				const holding = yield* variantsOf(variants.holding)
+				const lacking = yield* variantsOf(variants.lacking)
 				return { kind: "split", context: variants.context, holding, lacking }
 			})
 	}
 }
 
 /**
- * One workload member of a role whose writes begin at `isolation`, served: a read's and a key's read, a paged read's
+ * One workload member of a role, served: a read's and a key's read, a paged read's
  * read beside the page its runtime was served from (served/forms.ts pageTemplateFor), and a ChangeSet's variants.
  */
-const memberOf = (
-	member: WorkloadForm,
-	isolation: Isolation
-): Result.Result<ServedMember, UnservedMember> => {
+const memberOf = (member: WorkloadForm): Result.Result<ServedMember, UnservedMember> => {
 	const { name } = member
 	switch (member.kind) {
 		case "read":
@@ -143,7 +130,7 @@ const memberOf = (
 			})
 		}
 		case "change":
-			return Result.map(variantsOf(member.variants, isolation), (variants): ServedMember => ({
+			return Result.map(variantsOf(member.variants), (variants): ServedMember => ({
 				name,
 				kind: "change",
 				variants
@@ -233,9 +220,9 @@ const refusalsOf = (role: LayerRole): ServedRefusals => {
 }
 
 /** One role of the login, served: its name, its PostgreSQL role, its level, its contexts, its classifier and its members. */
-const roleOf = (role: LeveledRole): Result.Result<ServedRoleForm, UnservedMember> =>
+const roleOf = (role: LayerRole): Result.Result<ServedRoleForm, UnservedMember> =>
 	Result.map(
-		Result.all(Arr.map(role.workload, (member) => memberOf(member, role.isolation))),
+		Result.all(Arr.map(role.workload, (member) => memberOf(member))),
 		(members): ServedRoleForm => ({
 			name: role.role.name,
 			installed: role.theory,

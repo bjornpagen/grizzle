@@ -50,6 +50,8 @@ import type {
 	PlBlock,
 	PlDeclaration,
 	PlStatement,
+	ProbeBy,
+	ProbeColumn,
 	QualifiedFunctionRef,
 	RaiseOption,
 	RenameObject,
@@ -430,6 +432,21 @@ export class Transform {
 				const table = this.table(item.table)
 				return table === item.table ? item : { ...item, table }
 			}
+			case "probe": {
+				const table = this.name(item.table, "relation")
+				const by = this.probeBy(item.by)
+				const filter = this.exprs(item.filter)
+				return table === item.table && by === item.by && filter === item.filter
+					? item
+					: { ...item, table, by, filter }
+			}
+			case "met": {
+				const table = this.name(item.table, "relation")
+				const filter = this.exprs(item.filter)
+				return table === item.table && filter === item.filter ? item : { ...item, table, filter }
+			}
+			case "metRows":
+				return item
 			case "cte":
 			case "enclosing":
 				return item
@@ -471,6 +488,18 @@ export class Transform {
 
 	fromItems(list: ReadonlyArray<FromItem>): ReadonlyArray<FromItem> {
 		return mapList(list, (item) => this.fromItem(item))
+	}
+
+	probeColumns(list: NonEmptyReadonlyArray<ProbeColumn>): NonEmptyReadonlyArray<ProbeColumn> {
+		return mapNonEmptyKept(list, (c) => {
+			const value = this.expr(c.value)
+			return value === c.value ? c : { ...c, value }
+		})
+	}
+
+	probeBy(by: ProbeBy): ProbeBy {
+		const columns = this.probeColumns(by.columns)
+		return columns === by.columns ? by : { ...by, columns }
 	}
 
 	core(c: SelectCore): SelectCore {
@@ -672,7 +701,7 @@ export class Transform {
 	}
 
 	onConflict(c: OnConflict): OnConflict {
-		if (c.kind === "constraint") {
+		if (c.kind === "constraint" || c.kind === "every") {
 			return c
 		}
 		const action = this.conflictAction(c.action)
@@ -1653,6 +1682,36 @@ class Visit {
 			case "arrays":
 			case "context":
 				return
+			case "probe": {
+				inKeyOrder(keys, [
+					[
+						"by",
+						() => {
+							this.probeColumns(item.by.columns)
+						}
+					],
+					[
+						"filter",
+						each(item.filter, (e) => {
+							this.expr(e)
+						})
+					]
+				])
+				return
+			}
+			case "met": {
+				inKeyOrder(keys, [
+					[
+						"filter",
+						each(item.filter, (e) => {
+							this.expr(e)
+						})
+					]
+				])
+				return
+			}
+			case "metRows":
+				return
 			case "derived": {
 				inKeyOrder(keys, [
 					[
@@ -2003,6 +2062,19 @@ class Visit {
 		return each(list, (i) => {
 			this.fromItem(i)
 		})
+	}
+
+	probeColumns(list: NonEmptyReadonlyArray<ProbeColumn>): undefined {
+		each(list, (c) => {
+			inKeyOrder(Object.keys(c), [
+				[
+					"value",
+					() => {
+						this.expr(c.value)
+					}
+				]
+			])
+		})()
 	}
 
 	conflictAction(a: ConflictAction): undefined {

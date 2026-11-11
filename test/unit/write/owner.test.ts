@@ -153,7 +153,8 @@ const compile = (value: unknown) =>
 		claims: { kind: "facts", present: new Set<string>() },
 		world: { kind: "reality" },
 		laws: artifacts.laws,
-		derived: artifacts.derived
+		derived: artifacts.derived,
+		level: "serializable"
 	})
 
 /** The first stratum whose owners a query may insert beside an insert or put of their members: the refusal's place,

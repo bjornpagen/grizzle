@@ -40,7 +40,8 @@ export const offlineCompile = (
 		claims: { kind: "facts", present: claims },
 		world: { kind: "role", names: world.names },
 		laws: artifacts.laws,
-		derived: artifacts.derived
+		derived: artifacts.derived,
+		level: "serializable"
 	})
 }
 

@@ -313,7 +313,7 @@ export const removalsSql = (
 	if (firstReturning === undefined) {
 		throw defect("a family write that removes returns its deletions")
 	}
-	return taggedRows(supply, ctes, [firstReturning, ...restReturnings], params)
+	return taggedRows(supply, ctes, [firstReturning, ...restReturnings], params, [])
 }
 
 /**
@@ -1339,7 +1339,7 @@ const redraw = (
 		member: member.relation,
 		drawn: drawnColumns,
 		rows,
-		seed
+		group: { kind: "stored", seed }
 	})
 	ctes.push(scan.cte)
 	return { family, member, groups, scan: scan.rows }

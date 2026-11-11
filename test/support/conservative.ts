@@ -313,7 +313,8 @@ export const conservativeWrite = (
 		realizeConservative(program.frontend, {
 			names: options.names,
 			reads: options.reads,
-			share: new StatementShare()
+			share: new StatementShare(),
+			level: program.level
 		}),
 		(write) =>
 			catchRefusal((): CompiledWrite => {

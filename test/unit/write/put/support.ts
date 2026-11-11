@@ -137,7 +137,8 @@ const shopWriter = (s: typeof Shop | typeof MutableCrewShop): ShopWriter => {
 				claims: options.claims,
 				world: { kind: "reality" },
 				laws: artifacts.laws,
-				derived: artifacts.derived
+				derived: artifacts.derived,
+				level: "serializable"
 			}),
 		/** The write oracle's baseline of a write of the Shop (write/program/compile.ts conservativeWrite). */
 		conservative: (program: CompiledWrite) => conservativeWrite(program, { names, reads: names })

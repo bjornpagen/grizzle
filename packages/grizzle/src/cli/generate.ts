@@ -42,7 +42,6 @@ import type { RoleChanges } from "#compiler/plan/change.ts"
 import {
 	type Codebook,
 	type CompileError,
-	type Isolation,
 	defect,
 	draftCodebook,
 	rostersOf,
@@ -251,14 +250,13 @@ type SchemaDraft = (
 
 /**
  * What one login's served file compiles over: its base's artifacts, compiled under the draft's codes over every
- * relation; each of its roles with its ChangeSets compiled once over them by the draft's workload plan
- * (program/workload/compile.ts servedWorkload), by the role's name in the login; and the level each role's writes begin
- * at, its certificate's in the plan, by the role's declared name.
+ * relation; and each of its roles with its ChangeSets compiled over them by the draft's workload plan
+ * (program/workload/compile.ts servedWorkload) at the level its certificate gives its writes, by the role's name in the
+ * login.
  */
 export interface PlannedLogin {
 	readonly artifacts: SchemaArtifacts
 	readonly roles: ReadonlyMap<string, RoleChanges>
-	readonly levels: ReadonlyMap<string, Isolation>
 }
 
 /**
@@ -341,12 +339,7 @@ const plannedLogins = Effect.fn("plannedLogins")(function* (
 				if (roles === undefined) {
 					throw defect(`the change compile of login ${l.owned.name}, a login of the plan`)
 				}
-				const levels = new Map(
-					Arr.flatMap(plan.certification, (c) =>
-						c.login === l.owned.name ? [[c.role, c.certificate.level] as const] : []
-					)
-				)
-				return [l.owned.name, { artifacts, roles, levels }] as const
+				return [l.owned.name, { artifacts, roles }] as const
 			})
 		)
 	}
@@ -494,13 +487,7 @@ export const servedFiles = Effect.fn("servedFiles")(function* (
 			throw defect(`the plan of login ${login.owned.name}, a login of the configuration`)
 		}
 		return Effect.mapError(
-			servedEntry(login, snapshot, planned.artifacts, planned.roles, (role) => {
-				const level = planned.levels.get(role)
-				if (level === undefined) {
-					throw defect(`the certificate of role ${role} of login ${login.owned.name}`)
-				}
-				return level
-			}),
+			servedEntry(login, snapshot, planned.artifacts, planned.roles),
 			(refusal) =>
 				cliError(
 					new ServedRefused({

@@ -153,6 +153,9 @@ class Agreement {
 			fromItem: (item) => {
 				switch (item.kind) {
 					case "table":
+					case "probe":
+					case "met":
+					case "metRows":
 					case "enclosing":
 					case "derived":
 					case "values":
@@ -381,6 +384,9 @@ class Agreement {
 			case "cte":
 				return this.#cte(item.name, column, active)
 			case "table":
+			case "probe":
+			case "met":
+			case "metRows":
 			case "enclosing":
 			case "function":
 			case "arrays":

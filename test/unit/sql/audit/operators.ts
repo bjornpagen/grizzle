@@ -213,6 +213,9 @@ const withLastArm = (arms: SetOperation["arms"], arm: SetOperand): SetOperation[
 const aliasesOf = (item: FromItem): ReadonlyArray<string> => {
 	switch (item.kind) {
 		case "table":
+		case "probe":
+		case "met":
+		case "metRows":
 		case "enclosing":
 		case "derived":
 		case "function":
@@ -1807,6 +1810,9 @@ const columnOfItem = (item: FromItem): Expr | undefined => {
 		case "derived":
 		case "function":
 		case "values":
+		case "probe":
+		case "met":
+		case "metRows":
 			return at(item.alias, item.columns[0])
 		case "arrays":
 			return at(

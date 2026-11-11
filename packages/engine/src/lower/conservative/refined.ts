@@ -54,6 +54,9 @@ const collectItems = (items: ReadonlyArray<FromItem>, into: Map<string, FromSour
 				into.set(item.alias ?? item.name, item)
 				continue
 			case "table":
+			case "probe":
+			case "met":
+			case "metRows":
 			case "enclosing":
 			case "derived":
 			case "function":
@@ -293,6 +296,13 @@ export class Tracer {
 						: this.#stored.get(storedKey(item.table, column))
 				return [stored !== undefined && guarantees(stored, claim.type) ? "proved" : "unproved"]
 			}
+			case "probe":
+			case "met": {
+				const stored = this.#stored.get(storedKey(item.table, column))
+				return [stored !== undefined && guarantees(stored, claim.type) ? "proved" : "unproved"]
+			}
+			case "metRows":
+				return ["unproved"]
 			case "derived": {
 				const position = item.columns.indexOf(column)
 				return position < 0 ? ["unproved"] : this.select(item.query, position, scope, claim)

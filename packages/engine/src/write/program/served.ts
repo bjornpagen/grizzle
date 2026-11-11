@@ -132,11 +132,11 @@ const servedStep = (step: OwnStep, isolation: Isolation): OwnStep => {
 }
 
 /**
- * The data an application of `compiled` by a role of `isolation` reads (`ServedWrite`): its declared parameters, its
- * binding, its statements but the read-backs', which the read-backs' own programs run, each step with the aborts it meets
- * at that level, and its written relations' headings. The compilation is the same at every level.
+ * The data an application of `compiled` reads (`ServedWrite`) at the level it was compiled for (CompiledWrite `level`):
+ * its declared parameters, its binding, its statements but the read-backs', which the read-backs' own programs run, each
+ * step with the aborts it meets at that level, and its written relations' headings.
  */
-export const projectWrite = (compiled: CompiledWrite, isolation: Isolation): ServedWrite =>
+export const projectWrite = (compiled: CompiledWrite): ServedWrite =>
 	Object.freeze({
 		params: compiled.params,
 		binding: compiled.binding,
@@ -147,7 +147,7 @@ export const projectWrite = (compiled: CompiledWrite, isolation: Isolation): Ser
 					? []
 					: [
 							Object.freeze({
-								step: servedStep(step, isolation),
+								step: servedStep(step, compiled.level),
 								form: servedWriteForm({ sql: s.spec.sql, params: s.spec.paramSlots }),
 								forms: servedForms(s.forms),
 								staged: preparedStaged(s.staged)
@@ -220,23 +220,18 @@ const unservedShapes = (compiled: CompiledWrite): ReadonlyArray<UnservedReason> 
 	]
 }
 
-/** `compiled` as a served file holds it for a role of `isolation`, or its refusal where the host plans some of its
- * family work from a read flight (`UnservedMember`). */
+/** `compiled` as a served file holds it at the level it was compiled for, or its refusal where the host plans some of
+ * its family work from a read flight (`UnservedMember`). */
 export const servedWrite = (
-	compiled: CompiledWrite,
-	isolation: Isolation
+	compiled: CompiledWrite
 ): Result.Result<ServedWrite, UnservedMember> => {
 	const reasons = unservedShapes(compiled)
 	return isNonEmpty(reasons)
 		? Result.err({ _tag: "UnservedMember", reasons })
-		: Result.ok(projectWrite(compiled, isolation))
+		: Result.ok(projectWrite(compiled))
 }
 
-/** A write compiled in process as an application runs it: projected at SERIALIZABLE and loaded, as a served one is. */
+/** A write compiled in process as an application runs it: projected at the level it was compiled for and loaded, as a
+ * served one is. */
 export const flightOf = (compiled: CompiledWrite, codes: Codebook): FlightWrite =>
-	loadWrite(
-		projectWrite(compiled, "serializable"),
-		codes,
-		closedTableOf(compiled.frontend),
-		new CompilePatterns()
-	)
+	loadWrite(projectWrite(compiled), codes, closedTableOf(compiled.frontend), new CompilePatterns())

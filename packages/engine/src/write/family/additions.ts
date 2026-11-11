@@ -1,3 +1,4 @@
+import type { LawId } from "#compiler/core/ids.ts"
 /**
  * A stratum's family additions as one statement: every member its edits append, inserted with the values its families
  * draw, and every owner those appends recount, computed by PostgreSQL from the groups as the statement finds them, so
@@ -40,6 +41,7 @@
 import { defect, defined } from "#compiler/core/invariant.ts"
 import {
 	appendNonEmpty,
+	extendNonEmpty,
 	isNonEmpty,
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
@@ -51,17 +53,17 @@ import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
 import { arraysSource, relationColumns, WriteParams } from "#compiler/lower/conservative/context.ts"
 import { lowerLiteral } from "#compiler/lower/conservative/expr/index.ts"
-import { typedEq } from "#compiler/lower/conservative/vector/equality.ts"
+import { isVectorType, typedEq } from "#compiler/lower/conservative/vector/equality.ts"
 import { type ColumnKey, columnKey, fieldKey } from "#compiler/runtime/write/fill.ts"
 import type { Assignment, Cte, Expr, FromItem, JoinStep, SetArm } from "#compiler/sql/ast.ts"
 import {
 	and,
 	arrays,
 	binary,
-	call,
 	cast,
 	col,
 	cte,
+	cteRef,
 	cteRefAs,
 	distinctCore,
 	eq,
@@ -69,6 +71,7 @@ import {
 	firstNonNull,
 	join,
 	lit,
+	not,
 	notExists,
 	provedCore,
 	select,
@@ -80,6 +83,7 @@ import {
 } from "#compiler/sql/build.ts"
 import { NameSupply } from "#compiler/sql/naming.ts"
 import {
+	type GroupState,
 	type PerGroup,
 	readAt,
 	type Scanned,
@@ -93,7 +97,6 @@ import {
 	columnAt,
 	countOver,
 	type FamilyWriteSql,
-	groupAggregate,
 	insertedResult,
 	installed,
 	internal,
@@ -105,7 +108,6 @@ import {
 	shapedCte,
 	type SlotReader,
 	slotReader,
-	tableAs,
 	taggedRows,
 	updatedResult,
 	updateReturning,
@@ -119,6 +121,16 @@ import {
 	startOf,
 	type WriteContext
 } from "#compiler/write/insert/statement.ts"
+import {
+	bound,
+	metFound,
+	metNarrowed,
+	metRowsOf,
+	probeGroup,
+	probeKey,
+	storedAt
+} from "#compiler/write/probe.ts"
+import { refusalGuard, refusalRank } from "#compiler/write/refusal.ts"
 
 /**
  * Where a member relation's appended rows come from:
@@ -148,6 +160,8 @@ export type OwnerRows =
 /** A member relation a stratum appends to, with where its rows come from and what draws them. */
 export interface AppendedMember {
 	readonly relation: RelationInfo
+	/** The law a stored row at its primary key with other stated fields raises (write/frontend/compile.ts arbiterLaw). */
+	readonly keyLaw: LawId
 	/** Every column its rows are written with (statements.ts rowLayout). */
 	readonly layout: RowLayout
 	readonly sources: NonEmptyReadonlyArray<RowSource>
@@ -217,10 +231,12 @@ export const additionsSql = (
 		)
 	/** Each member's scans, one per family, of the union of the sources the family draws. */
 	const scanned: Array<{ readonly family: Family; readonly scan: Scanned }> = []
+	const refusals: Array<Expr> = []
 	const drawn = members.flatMap((member): ReadonlyArray<Drawn> => {
+		const arbitrated = memberArbitrated(w, member)
 		const sources = member.sources.map((source) => ({
 			source,
-			appended: appendedOf(w, supply, ctes, member, source, slots, nested),
+			appended: appendedOf(w, supply, ctes, member, source, slots, nested, arbitrated),
 			scans: new Array<{ readonly family: Family; readonly scan: Scanned }>()
 		}))
 		/** Each source's rows with every column the families scanned so far drew. */
@@ -254,7 +270,8 @@ export const additionsSql = (
 						ownerCopies.find((c) => c.family === familyKey(family.id) && c.column === column),
 						`where ${member.relation.name}'s owner copy ${column} reads its owner`
 					).source,
-				() => ownerShapes(family.owner.name)
+				() => ownerShapes(family.owner.name),
+				arbitrated ? "base" : "stored"
 			)
 			scanned.push({ family, scan })
 			for (const x of read) {
@@ -277,7 +294,9 @@ export const additionsSql = (
 				? scanned.filter(
 						(x) => x.family.owner.name === d.member.relation.name && !isSequence(x.family)
 					)
-				: []
+				: [],
+			memberArbitrated(w, d.member),
+			refusals
 		)
 	)
 	/** Each mutable owner relation's recounted families, each with its appends' scan and the facts of its put, by owner
@@ -317,8 +336,21 @@ export const additionsSql = (
 	if (firstReturning === undefined) {
 		throw defect("a family additions statement appends or recounts a put owner")
 	}
-	return taggedRows(supply, ctes, [firstReturning, ...restReturnings], params)
+	return taggedRows(supply, ctes, [firstReturning, ...restReturnings], params, refusals)
 }
+
+/**
+ * Whether a member relation's appends meet stored rows by its insert's arbitration (`insertOf`), each family's group at
+ * its base (scan.ts GroupState): at SERIALIZABLE, where every family of it is immutable, written whole with its owner,
+ * and it is appended from no put slot, so the statement reads no stored row of a group for the members it inserts; a
+ * mutable family's group and a put's member are read where a probe reaches them.
+ */
+const memberArbitrated = (w: WriteContext, member: AppendedMember): boolean =>
+	w.level === "serializable" &&
+	member.families.every(({ family }) => !family.owner.mutable) &&
+	member.sources.every(
+		(source) => source.kind === "nestedRows" || source.slots.every(({ as }) => as === "inserts")
+	)
 
 /** `rows` with every column `scan` drew beside its own, by the member's key: what the next family's scan reads. */
 const withDrawn = (
@@ -378,10 +410,13 @@ const appendedOf = (
 	member: AppendedMember,
 	source: RowSource,
 	slots: SlotReader,
-	nested: NestedReader
+	nested: NestedReader,
+	arbitrated: boolean
 ): Shaped => {
 	const name = member.relation.name
-	/** The arm of `facts`' rows no stored row repeats at `compared`, each of the appended CTE's columns. */
+	/** The arm of `facts`' rows no stored row repeats at `compared`, each of the appended CTE's columns, read by the
+	 * probe of the member at those columns (probe.ts storedAt); every one of them where the member's insert is
+	 * arbitrated (`memberArbitrated`), which meets each stored repeat at its key. */
 	const unstored = (
 		facts: Shaped,
 		compared: NonEmptyReadonlyArray<{
@@ -392,24 +427,22 @@ const appendedOf = (
 		appended: Shaped
 	): SetArm => {
 		const a = supply.relation(internal("appended fact"))
-		const s = supply.relation(internal("stored at key"))
-		const stored = and(
-			mapNonEmpty(compared, (c) =>
-				typedEq(
-					c.type,
-					col(s, installed(w, name, c.column)),
-					col(a, columnAt(facts, c.key)),
-					w.names.vectorSchema
-				)
-			)
-		)
+		const repeated = (): Expr =>
+			storedAt(w, supply, name, {
+				key: mapNonEmpty(compared, (c) => ({
+					column: installed(w, name, c.column),
+					value: col(a, columnAt(facts, c.key)),
+					schema: isVectorType(c.type) ? w.names.vectorSchema : undefined
+				})),
+				filter: () => []
+			})
 		return provedCore(
 			"input",
 			[...appended.columns.keys()].map((k) =>
 				targetAs(col(a, columnAt(facts, k)), columnAt(appended, k))
 			),
 			[cteRefAs(facts.name, a)],
-			notExists(simpleSelect([target(one)], [tableAs(w, name, s)], stored))
+			arbitrated ? undefined : not(repeated())
 		)
 	}
 	const fieldOf = (field: { readonly name: string; readonly type: ScalarType }) => {
@@ -577,7 +610,8 @@ const appendScan = (
 	drawnColumns: ReadonlyArray<FillColumn>,
 	appended: Shaped,
 	copySource: (column: ColumnKey) => CopySource,
-	ownerShapes: () => ReadonlyArray<Shaped>
+	ownerShapes: () => ReadonlyArray<Shaped>,
+	state: GroupState["kind"]
 ): Scanned => {
 	const bigint = types.bigint
 	const name = member.relation.name
@@ -586,21 +620,38 @@ const appendScan = (
 	const memberGroup = (alias: string, shape: Shaped): ReadonlyArray<Expr> =>
 		groupKeys.map((k) => col(alias, columnAt(shape, k)))
 	const index = installed(w, name, family.index)
-	const storedGroup = (alias: string, keys: ReadonlyArray<Expr>): Expr =>
-		and(
-			mapNonEmpty(family.group, (g, i) =>
-				eq(col(alias, w.names.column(name, g.member.name)), defined(keys[i], "a group key"))
-			)
-		)
-	/** The groups the appends join, each with its kept count. */
+	/** The member's group columns bound to `keys`, a group's values in order. */
+	const groupAt = (keys: ReadonlyArray<Expr>) =>
+		mapNonEmpty(family.group, (g, i) => bound(w, name, g.member, defined(keys[i], "a group key")))
+	/** The groups the appends join, each with its kept count: 0 at `base`; else its stored last member's slot plus one,
+	 * read by the probe of its group's last member (probe.ts probeGroup `last`), 0 where it holds none. */
 	const groups = {
 		name: supply.relation(internal("appended group")),
 		group: mapNonEmpty(family.group, () => supply.column(internal("appended group key"))),
 		kept: supply.column(internal("kept count"))
 	}
 	const g0 = supply.relation(internal("appended group row"))
-	const m0 = supply.relation(internal("stored last member"))
 	const g0Keys = memberGroup(g0, appended)
+	const storedKept = (): Expr => {
+		const last = probeGroup(w, supply, name, "last", groupAt(g0Keys), [index], {
+			read: [index],
+			filter: () => []
+		})
+		return {
+			kind: "greatest",
+			args: [
+				lit.int(0, bigint),
+				{
+					kind: "subquery",
+					query: simpleSelect(
+						[target(binary("+", last.at(index), lit.int(1, bigint)))],
+						[last.source],
+						undefined
+					)
+				}
+			]
+		}
+	}
 	ctes.push(
 		cte(
 			groups.name,
@@ -610,21 +661,7 @@ const appendScan = (
 					[
 						...mapNonEmpty(groups.group, (c, i) => targetAs(defined(g0Keys[i], "a group key"), c)),
 						targetAs(
-							cast(
-								{
-									kind: "greatest",
-									args: [
-										lit.int(0, bigint),
-										groupAggregate(
-											binary("+", call("max", [col(m0, index)]), lit.int(1, bigint)),
-											[tableAs(w, name, m0)],
-											storedGroup(m0, g0Keys),
-											mapNonEmpty(family.group, (g) => col(m0, w.names.column(name, g.member.name)))
-										)
-									]
-								},
-								bigint
-							),
+							state === "base" ? lit.int(0, bigint) : cast(storedKept(), bigint),
 							groups.kept
 						)
 					],
@@ -634,54 +671,63 @@ const appendScan = (
 			)
 		)
 	)
-	/** Each group's seed: its stored member at the kept count less one, with every column a predecessor rule reads. */
+	/** Each group's seed at `stored`: its stored member at the kept count less one, with every column a predecessor rule
+	 * reads, read by the probe of the member at that slot of its group. */
 	const seedReads = new Map<ColumnKey, NativeColumn>(
 		drawnColumns.flatMap((c) =>
 			c.rule.kind === "predecessor" ? [[columnKey(c.rule.to), c.rule.to] as const] : []
 		)
 	)
-	const seed: PerGroup = {
-		name: supply.relation(internal("seed")),
-		group: mapNonEmpty(family.group, () => supply.column(internal("seed group key"))),
-		columns: new Map(
-			[...seedReads.keys()].map((k) => [k, supply.column(internal("seed column"))] as const)
+	const storedSeed = (): PerGroup => {
+		const seed: PerGroup = {
+			name: supply.relation(internal("seed")),
+			group: mapNonEmpty(family.group, () => supply.column(internal("seed group key"))),
+			columns: new Map(
+				[...seedReads.keys()].map((k) => [k, supply.column(internal("seed column"))] as const)
+			)
+		}
+		const g1 = supply.relation(internal("seeded group"))
+		const g1Keys = groups.group.map((c) => col(g1, c))
+		const reads = [...seedReads.values()].map((column) => installed(w, name, column))
+		const member = probeKey(
+			w,
+			supply,
+			name,
+			{
+				key: appendNonEmpty(groupAt(g1Keys), {
+					column: index,
+					value: binary("-", col(g1, groups.kept), lit.int(1, bigint)),
+					schema: undefined
+				}),
+				filter: () => []
+			},
+			[index, ...reads]
 		)
-	}
-	const g1 = supply.relation(internal("seeded group"))
-	const m1 = supply.relation(internal("seed member"))
-	ctes.push(
-		cte(
-			seed.name,
-			[...seed.group, ...seed.columns.values()],
-			select(
-				provedCore(
-					"keyed",
-					[
-						...mapNonEmpty(seed.group, (c, i) =>
-							targetAs(col(g1, defined(groups.group[i], "a group column")), c)
-						),
-						...[...seedReads].map(([k, column]) =>
-							targetAs(col(m1, installed(w, name, column)), columnAt(seed, k))
-						)
-					],
-					[
-						join(
-							cteRefAs(groups.name, g1),
-							tableAs(w, name, m1),
-							and([
-								storedGroup(
-									m1,
-									groups.group.map((c) => col(g1, c))
-								),
-								eq(col(m1, index), binary("-", col(g1, groups.kept), lit.int(1, bigint)))
-							])
-						)
-					],
-					undefined
+		ctes.push(
+			cte(
+				seed.name,
+				[...seed.group, ...seed.columns.values()],
+				select(
+					provedCore(
+						"keyed",
+						[
+							...mapNonEmpty(seed.group, (c, i) =>
+								targetAs(col(g1, defined(groups.group[i], "a group column")), c)
+							),
+							...[...seedReads].map(([k, column]) =>
+								targetAs(member.at(installed(w, name, column)), columnAt(seed, k))
+							)
+						],
+						[cteRefAs(groups.name, g1), member.source],
+						undefined
+					)
 				)
 			)
 		)
-	)
+		return seed
+	}
+	const group: GroupState =
+		state === "base" ? { kind: "base" } : { kind: "stored", seed: storedSeed() }
 	/** The appended rows at their slots, each with its group's first drawn slot, its new count and its owner's columns. */
 	const ownerReads = new Map(
 		drawnColumns.flatMap((c) =>
@@ -709,13 +755,6 @@ const appendScan = (
 	const aKey = member.relation.primaryFields.map((f) =>
 		col(a, columnAt(appended, fieldKey(f.name)))
 	)
-	/** The stored owner of an appended row's group, read as `o`. */
-	const ownerAt = (o: string): Expr =>
-		and(
-			mapNonEmpty(family.group, (g, i) =>
-				eq(col(o, w.names.column(owner.name, g.owner.name)), defined(aGroup[i], "a group key"))
-			)
-		)
 	/**
 	 * An appended row's copy of an owner column, from where the copy reads it (schedule.ts CopySource): a `held` copy the
 	 * owner's row among those the stratum inserts, which the statement's parameters hold, else the stored owner's; a
@@ -733,14 +772,34 @@ const appendScan = (
 			baseLiteral(family, read.from),
 			`the base of ${name}'s owner copy ${columnKey(read.from)}, an accumulated column`
 		)
-		const o = supply.relation(internal("row owner"))
-		const stored: Expr = {
-			kind: "subquery",
-			query: simpleSelect(
-				[target(cast(col(o, installed(w, owner.name, read.to)), w.cx.baseTypeRef(read.type)))],
-				[tableAs(w, owner.name, o)],
-				ownerAt(o)
+		/** The stored owner's column, read by the probe of the owner at the row's group: none at `base`, whose owner is
+		 * either among the rows the stratum inserts or stored or missing, and then the family's owner axis refuses the
+		 * row at the statement's end whatever its copies are. */
+		const stored = (): Expr => {
+			const ownerRow = probeKey(
+				w,
+				supply,
+				owner.name,
+				{
+					key: mapNonEmpty(family.group, (g, i) =>
+						bound(w, owner.name, g.owner, defined(aGroup[i], "a group key"))
+					),
+					filter: () => []
+				},
+				[installed(w, owner.name, read.to)]
 			)
+			return {
+				kind: "subquery",
+				query: simpleSelect(
+					[
+						target(
+							cast(ownerRow.at(installed(w, owner.name, read.to)), w.cx.baseTypeRef(read.type))
+						)
+					],
+					[ownerRow.source],
+					undefined
+				)
+			}
 		}
 		/** The owner among rows the stratum inserts, which the statement's parameters hold. */
 		const inserted = (owners: Shaped): Expr => {
@@ -763,7 +822,10 @@ const appendScan = (
 		}
 		const held = copySource(columnKey(read.from)) === "held" ? ownerShapes().map(inserted) : []
 		return firstNonNull(
-			appendNonEmpty(appendNonEmpty(held, stored), lowerLiteral(w.names, base, read.type))
+			appendNonEmpty(
+				state === "base" ? held : appendNonEmpty(held, stored()),
+				lowerLiteral(w.names, base, read.type)
+			)
 		)
 	}
 	const kept = col(g2, groups.kept)
@@ -814,7 +876,7 @@ const appendScan = (
 		member: member.relation,
 		drawn: drawnColumns,
 		rows,
-		seed
+		group
 	})
 	ctes.push(scan.cte)
 	return scan.rows
@@ -828,14 +890,20 @@ const keyFirstFields = (relation: RelationInfo): ReadonlyArray<LawField> => [
 
 /**
  * The insert of a member relation's appended rows, whole: each column its families draw from their scans, each field
- * its facts carry from them, and each count and end of a family the member owns at its start, the family empty.
+ * its facts carry from them, and each count and end of a family the member owns at its start, the family empty. Where
+ * it is arbitrated (`memberArbitrated`), ON CONFLICT at its primary key DO NOTHING, and each appended row it did not
+ * insert, a met row, is an exact repeat where the stored row the arbitration met at its key (probe.ts metFound) equals
+ * it at every field it states, and else its key's law, which the statement raises (`refusals`); a stored row at
+ * another unique object, its slot among them, is PostgreSQL's 23505 there, its law's.
  */
 const insertOf = (
 	w: WriteContext,
 	supply: NameSupply,
 	ctes: Array<Cte>,
 	d: Drawn,
-	owned: ReadonlyArray<{ readonly family: Family; readonly scan: Scanned }>
+	owned: ReadonlyArray<{ readonly family: Family; readonly scan: Scanned }>,
+	arbitrated: boolean,
+	refusals: Array<Expr>
 ): FamilyReturning => {
 	const relation = d.member.relation
 	const name = relation.name
@@ -932,40 +1000,88 @@ const insertOf = (
 	}))
 	const into = supply.relation(internal("inserted table"))
 	const insert = supply.relation(internal("family insert"))
-	ctes.push(
-		cte(insert, [], {
-			kind: "insert",
-			with: undefined,
-			table: w.names.relation(name),
-			alias: into,
-			overriding: undefined,
-			onConflict: undefined,
-			columns: columns.map((c) => installed(w, name, c.column)),
-			source: {
-				kind: "query",
-				query: select(
+	const values = columns.map((c) =>
+		written(w, valueOf(c.key, c.column.kind === "field" ? c.column.field : undefined), c.type)
+	)
+	const inserted = columns.map((c) => installed(w, name, c.column))
+	const returning = returned.map((r) =>
+		targetAs(col(into, w.names.column(name, r.field.name)), r.alias)
+	)
+	if (!arbitrated) {
+		ctes.push(
+			cte(insert, [], {
+				kind: "insert",
+				with: undefined,
+				table: w.names.relation(name),
+				alias: into,
+				overriding: undefined,
+				onConflict: undefined,
+				columns: inserted,
+				source: {
+					kind: "query",
+					query: select(
+						provedCore(
+							"keyed",
+							values.map((v) => targetAs(v, supply.column(internal("inserted column")))),
+							[from],
+							undefined
+						)
+					)
+				},
+				returning
+			})
+		)
+	} else {
+		/** The rows the arbitrated INSERT proposes, alone (sql/ast.ts FromSource `metRows`), by layout column. */
+		const proposed = supply.relation(internal("proposed member"))
+		const proposedColumns = columns.map(() => supply.column(internal("proposed member column")))
+		ctes.push(
+			cte(
+				proposed,
+				proposedColumns,
+				select(
 					provedCore(
 						"keyed",
-						columns.map((c) =>
-							targetAs(
-								written(
-									w,
-									valueOf(c.key, c.column.kind === "field" ? c.column.field : undefined),
-									c.type
-								),
-								supply.column(internal("inserted column"))
-							)
-						),
+						values.map((v, i) => targetAs(v, defined(proposedColumns[i], "a proposed column"))),
 						[from],
 						undefined
 					)
 				)
-			},
-			returning: returned.map((r) =>
-				targetAs(col(into, w.names.column(name, r.field.name)), r.alias)
 			)
-		})
-	)
+		)
+		ctes.push(
+			cte(insert, [], {
+				kind: "insert",
+				with: undefined,
+				table: w.names.relation(name),
+				alias: into,
+				overriding: undefined,
+				onConflict: {
+					kind: "columns",
+					columns: mapNonEmpty(relation.primaryFields, (f) => w.names.column(name, f.name)),
+					action: { kind: "doNothing" }
+				},
+				columns: inserted,
+				source: {
+					kind: "query",
+					query: select(
+						provedCore(
+							"keyed",
+							proposedColumns.map((c) => target(col(proposed, c))),
+							[cteRef(proposed)],
+							undefined
+						)
+					)
+				},
+				returning
+			})
+		)
+		const columnOf = (key: ColumnKey): string | undefined => {
+			const i = columns.findIndex((c) => c.key === key)
+			return i < 0 ? undefined : proposedColumns[i]
+		}
+		refusals.push(metRefusal(w, supply, ctes, d, { insert, proposed, columnOf }, returned))
+	}
 	return {
 		cte: insert,
 		columns: returned.map((r) => returnedColumn(col(insert, r.alias), rowType(r.field), r.alias)),
@@ -973,6 +1089,112 @@ const insertOf = (
 		result: insertedResult(relation),
 		rows: "facts"
 	}
+}
+
+/**
+ * The refusal of an arbitrated member insert's met rows (`insertOf`): the rows its INSERT `made.insert` proposed from
+ * `made.proposed` and did not return (sql/ast.ts FromSource `metRows`), each the stored row its arbitration met at its
+ * key unequal to it at some field `d`'s appended rows state, which raises its key's law; its guard, which the
+ * statement's rows read. Every stored row it met is visible (sql/ast.ts FromSource `met`).
+ */
+const metRefusal = (
+	w: WriteContext,
+	supply: NameSupply,
+	ctes: Array<Cte>,
+	d: Drawn,
+	made: {
+		readonly insert: string
+		readonly proposed: string
+		readonly columnOf: (key: ColumnKey) => string | undefined
+	},
+	returned: ReadonlyArray<{ readonly field: LawField; readonly alias: string }>
+): Expr => {
+	const relation = d.member.relation
+	const name = relation.name
+	const pk = relation.primaryFields
+	const columnAt = (f: LawField): string =>
+		defined(made.columnOf(fieldKey(f.name)), `the proposed column of ${name}.${f.name}`)
+	const stated = relation.fields.filter((f) => d.appended.columns.has(fieldKey(f.name)))
+	const met = metRowsOf(w, supply, {
+		insert: made.insert,
+		proposed: made.proposed,
+		columns: mapNonEmpty(
+			extendNonEmpty(
+				pk,
+				stated.filter((f) => !pk.includes(f))
+			),
+			columnAt
+		),
+		key: mapNonEmpty(pk, (f) => ({
+			field: f,
+			column: columnAt(f),
+			returned: defined(
+				returned.find((r) => r.field === f),
+				"a returned key column"
+			).alias
+		}))
+	})
+	const repeat = metNarrowed(
+		{
+			rows: met.alias,
+			key: mapNonEmpty(pk, (f) => ({
+				column: w.names.column(name, f.name),
+				from: columnAt(f),
+				schema: isVectorType(rowType(f)) ? w.names.vectorSchema : undefined
+			})),
+			filter: () => []
+		},
+		(inner) =>
+			stated.map((f) =>
+				typedEq(
+					rowType(f),
+					col(inner, w.names.column(name, f.name)),
+					col(met.alias, columnAt(f)),
+					w.names.vectorSchema
+				)
+			)
+	)
+	const refused = supply.relation(internal("met member"))
+	const refusedKeys = mapNonEmpty(pk, () => supply.column(internal("met member key")))
+	ctes.push(
+		cte(
+			refused,
+			refusedKeys,
+			select(
+				provedCore(
+					"keyed",
+					mapNonEmpty(pk, (f, i) =>
+						targetAs(col(met.alias, columnAt(f)), defined(refusedKeys[i], "a met key column"))
+					),
+					[met.source],
+					not(metFound(w, supply, name, repeat))
+				)
+			)
+		)
+	)
+	const guarded = refusalGuard({
+		supply,
+		schema: w.names.schema,
+		verdicts: refused,
+		arms: [
+			{
+				rank: refusalRank.conflict,
+				when: lit.bool(true),
+				refusal: {
+					kind: "law",
+					law: d.member.keyLaw,
+					relation: name,
+					key: pk.map((f, i) => ({
+						field: f.name,
+						expr: col(refused, defined(refusedKeys[i], "a met key column")),
+						type: rowType(f)
+					}))
+				}
+			}
+		]
+	})
+	ctes.push(guarded.cte)
+	return guarded.guard
 }
 
 /** A recounted family of an owner relation: the scans of its appends, and the facts of the owner's put. */
@@ -1045,44 +1267,34 @@ const recountOf = (
 					)
 				)
 			})
-			const m = supply.relation(internal("put owner's member"))
-			const inGroup = (alias: string): Expr =>
-				and(
+			/** The put owner's group's stored last member, read by the probe of its group's last member. */
+			const lastOf = () =>
+				probeGroup(
+					w,
+					supply,
+					memberName,
+					"last",
 					mapNonEmpty(family.group, (g, i) =>
-						eq(
-							col(alias, w.names.column(memberName, g.member.name)),
-							defined(putKey[i], "a group key")
-						)
-					)
+						bound(w, memberName, g.member, defined(putKey[i], "a group key"))
+					),
+					[index],
+					{ read: [index, ...ends.map((e) => installed(w, memberName, e.to))], filter: () => [] }
 				)
-			const m2 = supply.relation(internal("put owner's last"))
-			const lastIndex = groupAggregate(
-				call("max", [col(m2, index)]),
-				[tableAs(w, memberName, m2)],
-				inGroup(m2),
-				mapNonEmpty(family.group, (g) => col(m2, w.names.column(memberName, g.member.name)))
-			)
+			const stored = lastOf()
 			arms.push(
 				provedCore(
 					"keyed",
 					[
 						...mapNonEmpty(last.group, (c, i) => targetAs(defined(putKey[i], "a group key"), c)),
-						targetAs(cast(binary("+", col(m, index), lit.int(1, bigint)), bigint), last.count),
+						targetAs(cast(binary("+", stored.at(index), lit.int(1, bigint)), bigint), last.count),
 						...ends.map((e) =>
-							targetAs(col(m, installed(w, memberName, e.to)), columnAt(last, columnKey(e.from)))
+							targetAs(stored.at(installed(w, memberName, e.to)), columnAt(last, columnKey(e.from)))
 						)
 					],
-					[
-						join(
-							cteRefAs(facts.name, p),
-							tableAs(w, memberName, m),
-							and([inGroup(m), eq(col(m, index), lastIndex)])
-						)
-					],
+					[cteRefAs(facts.name, p), stored.source],
 					isNonEmpty(appended) ? and(appended) : undefined
 				)
 			)
-			const m3 = supply.relation(internal("put owner's any member"))
 			arms.push(
 				provedCore(
 					"keyed",
@@ -1110,10 +1322,7 @@ const recountOf = (
 						})
 					],
 					[cteRefAs(facts.name, p)],
-					and([
-						notExists(simpleSelect([target(one)], [tableAs(w, memberName, m3)], inGroup(m3))),
-						...appended
-					])
+					and([not(exists(simpleSelect([target(one)], [lastOf().source], undefined))), ...appended])
 				)
 			)
 		}

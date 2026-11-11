@@ -747,7 +747,8 @@ layer(Substrate.layer)("refinement validation sites on PostgreSQL 19", (it) => {
 						realizeConservative(frontend, {
 							names: reality.names,
 							reads: reality.reads,
-							share: new StatementShare()
+							share: new StatementShare(),
+							level: "serializable"
 						}),
 						"realize"
 					)

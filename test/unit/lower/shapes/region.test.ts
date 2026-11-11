@@ -137,6 +137,9 @@ const aliasOf = (item: FromSource): string => {
 		case "function":
 		case "arrays":
 		case "table":
+		case "probe":
+		case "met":
+		case "metRows":
 		case "values":
 		case "context":
 			return item.alias

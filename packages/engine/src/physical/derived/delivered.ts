@@ -65,6 +65,9 @@ class Delivered {
 			fromItem: (item) => {
 				switch (item.kind) {
 					case "table":
+					case "probe":
+					case "met":
+					case "metRows":
 					case "enclosing":
 					case "derived":
 					case "values":
@@ -162,6 +165,11 @@ class Delivered {
 				return typeof item.table === "string"
 					? undefined
 					: this.#installed.get(columnKey(item.table, column))
+			case "probe":
+			case "met":
+				return this.#installed.get(columnKey(item.table, column))
+			case "metRows":
+				return undefined
 			case "derived": {
 				const p = item.columns.indexOf(column)
 				return p < 0 ? undefined : this.body(item.query.body, p, active)

@@ -1,6 +1,7 @@
 import type { CheckedEntry } from "#compiler/analysis/schema.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import type { EntryName, StoredRelationName } from "#compiler/core/ids.ts"
+import type { Isolation } from "#compiler/core/isolation.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { LawField, RelationInfo, SpanField } from "#compiler/ir/law.ts"
 import { inputsOf, type RelNode } from "#compiler/ir/rel.ts"
@@ -380,7 +381,7 @@ const placedSteps = (
 
 /** The statements of one action, in order; a put's by the target its choice chose for it, then the sequence advance
  * every addition's explicit serial values oblige (see `planWrite`). */
-const opsOf = (action: ChosenAction): ReadonlyArray<DraftStep> => {
+const opsOf = (action: ChosenAction, level: Isolation): ReadonlyArray<DraftStep> => {
 	switch (action.op) {
 		case "delete":
 			return [{ op: "exactDelete" }]
@@ -388,11 +389,11 @@ const opsOf = (action: ChosenAction): ReadonlyArray<DraftStep> => {
 			return [
 				...precheckOf(action, action.serial),
 				{ op: "insert", serial: action.serial },
-				...classify(action.info.relation, action.serial, "insert"),
+				...classify(action.info.relation, action.serial, "insert", level),
 				...advanceOf(action.info.relation, action.serial)
 			]
 		case "put":
-			return [...putOps(action), ...advanceOf(action.info.relation, completeClass)]
+			return [...putOps(action, level), ...advanceOf(action.info.relation, completeClass)]
 	}
 }
 
@@ -410,18 +411,25 @@ const advanceOf = (relation: RelationInfo, serial: SerialClass): ReadonlyArray<D
 	return first === undefined ? [] : [{ op: "advance", fields: [first, ...rest] }]
 }
 
-/** The classification after an insert of `of` into a span primary key (`buildSpanClassify`). */
+/** The classification after an insert of `of` into a span primary key (`buildSpanClassify`), at READ COMMITTED: at
+ * SERIALIZABLE the insert classifies the requested facts it met itself (protocol.ts Arbitration `every`). */
 const classify = (
 	relation: RelationInfo,
 	serial: SerialClass,
-	of: InsertOf
+	of: InsertOf,
+	level: Isolation
 ): ReadonlyArray<DraftStep> => {
 	const shape = insertShape(relation, serial)
-	return shape.variant === "spanKey" ? [{ op: "classify", serial, span: shape.span, of }] : []
+	return shape.variant === "spanKey" && level === "readCommitted"
+		? [{ op: "classify", serial, span: shape.span, of }]
+		: []
 }
 
 /** The statements of a put's chosen target. */
-const putOps = (put: Extract<ChosenAction, { readonly op: "put" }>): ReadonlyArray<DraftStep> => {
+const putOps = (
+	put: Extract<ChosenAction, { readonly op: "put" }>,
+	level: Isolation
+): ReadonlyArray<DraftStep> => {
 	const { choice } = put
 	const relation = put.info.relation
 	switch (choice.target) {
@@ -433,7 +441,7 @@ const putOps = (put: Extract<ChosenAction, { readonly op: "put" }>): ReadonlyArr
 					: [{ op: "displace", payload: payload.fields } as const]),
 				...precheckOf(put, completeClass),
 				{ op: "putInsert" },
-				...classify(relation, completeClass, "put")
+				...classify(relation, completeClass, "put", level)
 			]
 		}
 		case "onConflictDoUpdate":
@@ -454,7 +462,7 @@ const putOps = (put: Extract<ChosenAction, { readonly op: "put" }>): ReadonlyArr
 					? []
 					: [{ op: "updateFrom", inPlace: choice.inPlace } as const]),
 				{ op: "putInsert" },
-				...classify(relation, completeClass, "put")
+				...classify(relation, completeClass, "put", level)
 			]
 		case "merge":
 			return [
@@ -466,6 +474,9 @@ const putOps = (put: Extract<ChosenAction, { readonly op: "put" }>): ReadonlyArr
 /** What the plan may rely on about a described member beyond the write DAG's own evidence: whether its rows, as the
  * artifact lowers them, are distinct (`distinctByEvidence`). */
 interface PlanEvidence {
+	/** The level the write runs at, which decides whether an insert into a span primary key classifies what it met
+	 * itself (`classify`). */
+	readonly level: Isolation
 	readonly distinct: (node: RelNode, relation: RelationInfo) => boolean
 	/** The sub-queries several of a stratum's member statements read, each statement rooted at one member's node, to be
 	 * carried across them (`planStatementShares`). */
@@ -912,7 +923,7 @@ export const planWrite = (
 						{
 							at: { stratum: s, index, dependsOn: action.dependsOn },
 							action,
-							steps: opsOf(action),
+							steps: opsOf(action, evidence.level),
 							excepts: exceptsOf(actions, action)
 						}
 					]

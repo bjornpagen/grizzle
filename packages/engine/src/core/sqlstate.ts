@@ -78,6 +78,9 @@ export const sqlstates = {
 	 */
 	insufficientPrivilege: brand("42501"),
 	serializationFailure: brand("40001"),
+	/** PostgreSQL's internal_error: a write statement's defect, a row its INSERT's arbitration met at no object it
+	 * classifies (write/refusal.ts ArmRefusal `defect`), which no classifier reads as a refusal. */
+	internalError: brand("XX000"),
 	deadlockDetected: brand("40P01"),
 	undefinedTable: brand("42P01"),
 	invalidSchemaName: brand("3F000"),

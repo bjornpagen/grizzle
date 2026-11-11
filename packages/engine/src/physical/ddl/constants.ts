@@ -1154,7 +1154,7 @@ export const planSides = (b: InstallBuilder): SidePlans => {
  * The guard is a RowGuard, the one representation of a selection over a row. An installed CHECK lowers it by the
  * persistent lowering (physical/ddl/expr.ts lowerPersistent), as every row CHECK and law column's guard is, so a
  * literal is typed by its base and never cast to a domain, whose later tightening would refuse every later insert;
- * only a probe's query, which runs once per statement, lowers a guard through write/insert/unique.ts withinRow.
+ * only a probe's query, which runs once per statement, lowers a guard through write/probe.ts withinRow.
  *
  * A side of no payload is a set, `substring(S(), i + 1, 1)::integer = 1`. A side whose payload fields are closed ids
  * compares its one cell, `substring(S(), i · w + 1, w)::integer = 1 + p`, p the mixed-radix code of the row's payload

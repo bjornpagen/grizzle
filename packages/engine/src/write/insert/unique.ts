@@ -1,7 +1,6 @@
 import { type Identity, identity } from "#compiler/core/identity.ts"
 import {
 	appendNonEmpty,
-	concatNonEmpty,
 	isNonEmpty,
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
@@ -19,8 +18,6 @@ import {
 	type UniqueObjects,
 	witnessFields
 } from "#compiler/laws/model/uniques.ts"
-import type { ColumnMap, Env, LowerContext } from "#compiler/lower/conservative/context.ts"
-import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
 import { rowNe, typedEq } from "#compiler/lower/conservative/vector/equality.ts"
 import type { Cte, Expr, OrderItem, Select, SetCore } from "#compiler/sql/ast.ts"
 import {
@@ -33,6 +30,7 @@ import {
 	cteRefAs,
 	exists,
 	lit,
+	not,
 	notExists,
 	provedCore,
 	provedSelect,
@@ -45,6 +43,7 @@ import {
 import type { NameSupply } from "#compiler/sql/naming.ts"
 import { type FieldColumns, fieldColumns } from "#compiler/write/defined.ts"
 import { requestedValue, rowType, type WriteContext } from "#compiler/write/insert/statement.ts"
+import { atObject, storedAt, withinRow } from "#compiler/write/probe.ts"
 import type { KeyArbiter } from "#compiler/write/put/choose.ts"
 
 /** The unique objects of a relation an insert meets: its arbiter, the primary key; every object
@@ -61,7 +60,23 @@ export interface RelationUniques {
 	/** The probes of a query entry over the relation: each declared key's, then each object's no declared key subsumes
 	 * (`beyondKeys`). */
 	readonly probes: ReadonlyArray<OutsideProbe>
+	/** The objects an INSERT arbitrating every object meets (EveryObject). */
+	readonly every: EveryObject
 }
+
+/**
+ * The objects an INSERT that arbitrates every object (ON CONFLICT DO NOTHING with no target) meets: every native unique
+ * and exclusion object of the relation, its arbiter and each other in law order, each one a met row is classified at
+ * (write/insert/protocol.ts Arbitration); or none, where some native object is no unique object, such as a family's slot
+ * over a drawn law column, which no compared field names, so no such INSERT is built (RelationLaws `named`).
+ */
+export type EveryObject =
+	| {
+			readonly kind: "named"
+			readonly arbiter: PrimaryKeyObject
+			readonly others: ReadonlyArray<UniqueObject>
+	  }
+	| { readonly kind: "unnamed" }
 
 /**
  * A probe of a query entry over a relation T: true where a fact of T outside the entry, which the role cannot see,
@@ -115,24 +130,6 @@ export const hostHeld = (field: Pick<LawField, "writing">): boolean =>
 
 /** Whether a unique object's guards select the rows it holds apart. */
 const predicated = (u: UniqueObject): boolean => u.kind === "guarded"
-
-/**
- * The guards a row, its fields read through `of`, meets to be held by a unique object: each of a `guarded` object's
- * guards, a conjunct of its law columns' guards, lowered over the row; none for an object over fields alone, which
- * holds every row.
- */
-export const withinRow = (
-	cx: LowerContext,
-	u: UniqueObject,
-	of: (f: LawField) => Expr
-): ReadonlyArray<Expr> =>
-	u.kind === "guarded"
-		? u.within.map((g) => {
-				const columns: ColumnMap = new Map(g.reads.map((f) => [f.name, of(f)] as const))
-				const env: Env = new Map(columnReads(g.predicate).map((c) => [c.node, columns] as const))
-				return lowerExpr(cx, g.predicate, env)
-			})
-		: []
 
 /** The fields an object compares, its span counted. */
 const width = (u: UniqueObject): number => witnessFields(u).length
@@ -272,6 +269,9 @@ export const relationUniques = (laws: RelationLaws): RelationUniques => {
 		arbiter: primary,
 		keys,
 		others,
+		every: laws.named
+			? Object.freeze({ kind: "named" as const, arbiter: primary, others })
+			: Object.freeze({ kind: "unnamed" as const }),
 		checks: probedAt(complete, complete),
 		probes: Object.freeze([
 			...keys.map((object): OutsideProbe => Object.freeze({ kind: "key", object })),
@@ -306,6 +306,12 @@ interface ProbeSpec {
 	/** Whether the input's facts were normalized on the host, which refuses a pair within the input at every object
 	 * whose pairs are the host's (`Probed`). */
 	readonly normalized: boolean
+	/**
+	 * Who meets a stored occupant of a probed object: the probe, under the statement's snapshot (`probed`), the insert
+	 * protocol's at READ COMMITTED; or the INSERT's arbitration of every object (`met`), the protocol's at SERIALIZABLE
+	 * (protocol.ts Arbitration), so the probe reads only the input, for the pairs within it.
+	 */
+	readonly occupants: "probed" | "met"
 }
 
 export interface ProbeSql {
@@ -405,9 +411,6 @@ export const buildProbe = (
 		return undefined
 	}
 	const vectorSchema = w.names.vectorSchema
-	const table = w.names.relation(relation.name)
-	const column = (f: LawField) => w.names.column(relation.name, f.name)
-	const stored = (alias: string) => (f: LawField) => col(alias, column(f))
 	const inCol = (alias: string, f: LawField): Expr => col(alias, inputs.of(f))
 	const same = (f: LawField, a: Expr, b: Expr): Expr => typedEq(rowType(f), a, b, vectorSchema)
 	const predicate = (check: UniqueObject, of: (f: LawField) => Expr): ReadonlyArray<Expr> =>
@@ -466,42 +469,36 @@ export const buildProbe = (
 				)
 			)
 		}
-		/** A visible occupant of the object, for a requested fact whose arbiter key is free (`Requested`). */
-		const occupant = supply.relation(internal(`occupant of ${check.name}`))
-		const free = (arbiter: UniqueObject): Expr => {
-			const holder = supply.relation(internal(`arbiter occupant of ${relation.name}`))
-			return notExists(
-				simpleSelect(
-					one,
-					[{ kind: "table", table, alias: holder }],
-					and(conflict(arbiter, stored(holder), fact))
+		if (spec.occupants === "probed") {
+			/** A visible occupant of the object, for a requested fact whose arbiter key is free (`Requested`). */
+			branches.push(
+				provedCore(
+					"keyed",
+					[...fields.map((f) => target(fact(f))), target(lit.int(ordinal, types.integer))],
+					[cteRef(input)],
+					and(
+						appendNonEmpty(
+							[
+								...own,
+								...(requested.kind === "generated"
+									? []
+									: [
+											not(
+												storedAt(
+													w,
+													supply,
+													relation.name,
+													atObject(w, relation.name, requested.arbiter, fact)
+												)
+											)
+										])
+							],
+							storedAt(w, supply, relation.name, atObject(w, relation.name, check, fact))
+						)
+					)
 				)
 			)
 		}
-		branches.push(
-			provedCore(
-				"keyed",
-				[...fields.map((f) => target(fact(f))), target(lit.int(ordinal, types.integer))],
-				[cteRef(input)],
-				and(
-					concatNonEmpty(own, [
-						exists(
-							simpleSelect(
-								one,
-								[{ kind: "table", table, alias: occupant }],
-								and(
-									concatNonEmpty(
-										predicate(check, stored(occupant)),
-										conflict(check, stored(occupant), fact)
-									)
-								)
-							)
-						),
-						...(requested.kind === "generated" ? [] : [free(requested.arbiter)])
-					])
-				)
-			)
-		)
 	}
 	const refusal = supply.relation(internal("unique refusal"))
 	const refused = fieldColumns(fields, () => supply.column(internal("refused fact column")))

@@ -1380,6 +1380,60 @@ class StatementAuditor {
 				this.tableName(item.table, "table")
 				this.defineRelation(item.alias, "alias")
 				return register(item.alias, { columns: undefined })
+			case "probe":
+			case "met": {
+				this.tableName(item.table, "table")
+				this.ident(item.inner, "probed row", "inner")
+				const probed = scopeOver(scope, [[item.inner, { columns: undefined }]])
+				const ctx = context("query", probed, ctes, plVars)
+				if (item.kind === "probe") {
+					this.at("by", () => {
+						for (const [i, c] of item.by.columns.entries()) {
+							this.at(i, () => {
+								this.ident(c.column, "probed column", "column")
+								this.expr(c.value, ctx)
+							})
+						}
+					})
+				} else {
+					this.ident(item.rows, "met rows", "rows")
+					this.at("key", () => {
+						for (const [i, k] of item.key.entries()) {
+							this.at(i, () => {
+								this.ident(k.column, "met column", "column")
+								this.ident(k.from, "met row column", "from")
+							})
+						}
+					})
+				}
+				this.at("filter", () => {
+					for (const [i, e] of item.filter.entries()) {
+						this.at(i, () => {
+							this.expr(e, ctx)
+						})
+					}
+				})
+				const columns = this.at("columns", () => this.columnList(item.columns, "probe", true))
+				this.defineRelation(item.alias, "alias")
+				return register(item.alias, { columns })
+			}
+			case "metRows": {
+				this.ident(item.insert, "met rows' INSERT", "insert")
+				this.ident(item.proposed, "met rows' proposal", "proposed")
+				this.ident(item.scan, "proposed row", "scan")
+				this.ident(item.returned, "returned row", "returned")
+				this.at("key", () => {
+					for (const [i, k] of item.key.entries()) {
+						this.at(i, () => {
+							this.ident(k.column, "proposed key column", "column")
+							this.ident(k.from, "returned key column", "from")
+						})
+					}
+				})
+				const columns = this.at("columns", () => this.columnList(item.columns, "met rows", true))
+				this.defineRelation(item.alias, "alias")
+				return register(item.alias, { columns })
+			}
 			case "cte": {
 				this.ident(item.name, "CTE reference", "name")
 				const cte = ctes?.resolve(item.name)
@@ -1643,6 +1697,9 @@ class StatementAuditor {
 			this.at("onConflict", () => {
 				if (conflict.kind === "constraint") {
 					this.ident(conflict.constraint, "arbiter constraint", "constraint")
+					return
+				}
+				if (conflict.kind === "every") {
 					return
 				}
 				this.at("columns", () => {

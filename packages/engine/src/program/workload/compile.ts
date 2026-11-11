@@ -471,7 +471,7 @@ export const servedWorkload = (
 	}
 	const changes = new Map<string, ReadonlyMap<string, RoleChanges>>()
 	for (const login of logins) {
-		const roles = loginChanges(login)
+		const roles = loginChanges(login, "readCommitted")
 		if (!roles.ok) {
 			return Result.err({ kind: "login", login: login.name, refused: roles.error })
 		}

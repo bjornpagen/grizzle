@@ -75,7 +75,8 @@ const program = succeeded(
 		claims: { kind: "every" },
 		world: { kind: "reality" },
 		laws: artifacts.laws,
-		derived: artifacts.derived
+		derived: artifacts.derived,
+		level: "serializable"
 	}),
 	"the put compiles"
 )

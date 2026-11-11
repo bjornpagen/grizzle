@@ -180,6 +180,9 @@ class Rewriter {
 			case "function":
 			case "arrays":
 			case "table":
+			case "probe":
+			case "met":
+			case "metRows":
 			case "values":
 			case "context":
 				return f
@@ -377,6 +380,15 @@ const fromReads = (f: FromItem, alias: string): boolean => {
 						fromReads(step.source, alias) || (step.kind === "on" && readsAlias(step.on, alias))
 				)
 			)
+		case "probe":
+			return (
+				Arr.some(f.by.columns, (c) => readsAlias(c.value, alias)) ||
+				Arr.some(f.filter, (e) => readsAlias(e, alias))
+			)
+		case "met":
+			return f.rows === alias || Arr.some(f.filter, (e) => readsAlias(e, alias))
+		case "metRows":
+			return false
 		case "cte":
 		case "enclosing":
 		case "table":

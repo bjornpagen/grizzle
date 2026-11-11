@@ -2410,7 +2410,8 @@ const roleWorldOf = (name: RoleName) => {
 			claims: { kind: "every" } as const,
 			world: { kind: "role", names: world.names } as const,
 			laws: artifacts.value.laws,
-			derived: artifacts.value.derived
+			derived: artifacts.value.derived,
+			level: "serializable" as const
 		}
 	}
 }

@@ -475,7 +475,8 @@ const guards = (spec: FillSpec, note: (situation: FillSituation) => void): void 
 						claims: { kind: "facts", present: new Set<string>() },
 						world: { kind: "role", names: world.names },
 						laws: roleArtifacts.laws,
-						derived: roleArtifacts.derived
+						derived: roleArtifacts.derived,
+						level: "serializable"
 					})
 				)
 				const label = `a ${op} of ${written} under a role leaving out ${left}`

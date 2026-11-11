@@ -243,6 +243,9 @@ const definedBy = (
 			return { aliases: item.alias === undefined ? [] : [item.alias], columns: [] }
 		case "derived":
 		case "function":
+		case "probe":
+		case "met":
+		case "metRows":
 		case "values":
 			return { aliases: [item.alias], columns: item.columns }
 		case "arrays":

@@ -171,7 +171,8 @@ const writeSteps = (
 	const realized = realizeConservative(frontend.value, {
 		names: reality.names,
 		reads: reality.reads,
-		share: new StatementShare()
+		share: new StatementShare(),
+		level: "serializable"
 	})
 	if (!realized.ok) {
 		throw new Error(realized.error.message)

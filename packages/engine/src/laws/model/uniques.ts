@@ -5,6 +5,7 @@ import { defect } from "#compiler/core/invariant.ts"
 import {
 	appendNonEmpty,
 	dedupeNonEmpty,
+	isNonEmpty,
 	type NonEmptyReadonlyArray
 } from "#compiler/core/nonempty.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
@@ -64,7 +65,7 @@ export type UniqueObject = Named &
 		  }
 		| {
 				readonly kind: "span"
-				readonly equal: ReadonlyArray<LawField>
+				readonly equal: NonEmptyReadonlyArray<LawField>
 				readonly span: SpanField
 				readonly within: ReadonlyArray<UniqueGuard>
 		  }
@@ -77,7 +78,7 @@ export type PrimaryKeyObject = Named &
 		| { readonly kind: "key"; readonly equal: NonEmptyReadonlyArray<LawField> }
 		| {
 				readonly kind: "span"
-				readonly equal: ReadonlyArray<LawField>
+				readonly equal: NonEmptyReadonlyArray<LawField>
 				readonly span: SpanField
 				/** A declared key holds every fact apart: no guard. */
 				readonly within: readonly []
@@ -203,8 +204,11 @@ const spanObject = (
 		return undefined
 	}
 	const [spanField, ...equal] = c.equal
-	if (!isSpanField(spanField) || equal.includes(spanField)) {
-		return missing(relation, "a span key's span column, a span field's values")
+	if (!isSpanField(spanField) || equal.includes(spanField) || !isNonEmpty(equal)) {
+		return missing(
+			relation,
+			"a span key's span column, a span field's values, beside a scalar column"
+		)
 	}
 	return { ...named, kind: "span", equal, span: spanField, within: c.within }
 }
@@ -316,6 +320,11 @@ export interface RelationLaws {
 	 * built: what a write's probes and a role's probe functions read.
 	 */
 	readonly beyond: ReadonlyArray<UniqueObject>
+	/**
+	 * Whether every native unique and exclusion object of the relation is a unique object here (`uniques`): none over a
+	 * drawn law column, such as a family's slot, whose conflicts no compared field names.
+	 */
+	readonly named: boolean
 }
 
 /**
@@ -379,12 +388,22 @@ export const relationLaws = (
 		lawColumns.set(n.object.relation.name, own)
 	}
 	const keyedNames = new Set(keyed.map((k) => k.relation.name))
+	const unnamed = new Set<string>()
 	const placed = Map.groupBy(
-		natives.flatMap((n) =>
-			n.namespace === "constraint" && keyedNames.has(n.object.relation.name)
-				? uniqueOf(n, lawColumns)
-				: []
-		),
+		natives.flatMap((n) => {
+			if (n.namespace !== "constraint" || !keyedNames.has(n.object.relation.name)) {
+				return []
+			}
+			const own = uniqueOf(n, lawColumns)
+			const o = n.object
+			if (
+				own.length === 0 &&
+				(o.kind === "Unique" || (o.kind === "WithoutOverlaps" && o.key.kind !== "primary"))
+			) {
+				unnamed.add(o.relation.name)
+			}
+			return own
+		}),
 		(p) => p.relation
 	)
 	return new Map(
@@ -401,7 +420,10 @@ export const relationLaws = (
 				keys: Object.freeze(keys)
 			})
 			const beyond = Object.freeze(beyondPrimary(uniques))
-			return [relation.name, Object.freeze({ relation, primaryKey, uniques, beyond })] as const
+			return [
+				relation.name,
+				Object.freeze({ relation, primaryKey, uniques, beyond, named: !unnamed.has(relation.name) })
+			] as const
 		})
 	)
 }

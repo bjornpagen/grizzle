@@ -2318,6 +2318,9 @@ class Model {
 			case "arrays":
 			case "values":
 			case "context":
+			case "probe":
+			case "met":
+			case "metRows":
 				return unevaluable(`a FROM source of kind ${source.kind}`)
 		}
 	}

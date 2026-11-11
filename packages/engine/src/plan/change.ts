@@ -35,6 +35,7 @@ export { entryKey, fillContexts } from "#compiler/write/frontend/entry.ts"
 export {
 	type ChangeEntry,
 	type ChangeRefused,
+	changesAt,
 	compileParsed,
 	type CompiledVariants,
 	loginChanges,

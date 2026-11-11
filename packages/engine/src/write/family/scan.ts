@@ -37,7 +37,7 @@ import { columnReads } from "#compiler/laws/model/uniques.ts"
 import type { ColumnMap, Env } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr, lowerLiteral } from "#compiler/lower/conservative/expr/index.ts"
 import { type ColumnKey, columnKey, fieldKey } from "#compiler/runtime/write/fill.ts"
-import type { Cte, Expr, FromItem, Target, TypeRef } from "#compiler/sql/ast.ts"
+import type { Cte, Expr, FromItem, SetCore, Target, TypeRef } from "#compiler/sql/ast.ts"
 import {
 	and,
 	binary,
@@ -93,9 +93,21 @@ export interface ScanSpec {
 	readonly member: LawRelation
 	readonly drawn: ReadonlyArray<FillColumn>
 	readonly rows: ScanRows
-	/** Each group's member before its first drawn slot, for every group drawn from past slot 0. */
-	readonly seed: PerGroup
+	readonly group: GroupState
 }
+
+/**
+ * What a scan's groups hold before the members it draws:
+ * - `base`: nothing, each group drawn from slot 0 and the family's base, and no stored member read: an immutable
+ *   family's at SERIALIZABLE, whose group is written whole with its owner, so a stored member a write sends again is met
+ *   by the arbiter at its key, and any write that appends to a stored group is refused by the family's owner axis or
+ *   at its slot, whatever the slots drawn (write/family/additions.ts);
+ * - `stored`: its stored members, `seed` each group's member before its first drawn slot, for every group drawn from
+ *   past slot 0, read by a probe of its group (write/probe.ts).
+ */
+export type GroupState =
+	| { readonly kind: "base" }
+	| { readonly kind: "stored"; readonly seed: PerGroup }
 
 /** A scan: its recursive CTE, and the CTE's rows as the scan shapes them, every column it carries or draws by key. */
 export interface Scan {
@@ -348,13 +360,29 @@ export const scanOf = (w: WriteContext, supply: NameSupply, spec: ScanSpec): Sca
 	}
 	const zero = lit.int(0, types.bigint)
 	const r0 = supply.relation(internal("scan base row"))
-	const r1 = supply.relation(internal("scan seeded row"))
-	const d1 = supply.relation(internal("scan seed"))
-	const seeded: FromItem = join(
-		cteRefAs(rows.name, r1),
-		cteRefAs(spec.seed.name, d1),
-		sameGroup(r1, rows.group, d1, spec.seed.group)
+	const based = provedCore(
+		"keyed",
+		term(r0, "base"),
+		[cteRefAs(rows.name, r0)],
+		and([eq(col(r0, rows.slot), col(r0, rows.first)), eq(col(r0, rows.first), zero)])
 	)
+	/** A group drawn past slot 0 from its stored member before its first drawn slot, its seed. */
+	const seededOf = (seed: PerGroup): SetCore => {
+		const r1 = supply.relation(internal("scan seeded row"))
+		const d1 = supply.relation(internal("scan seed"))
+		return provedCore(
+			"keyed",
+			term(r1, readAt(d1, seed)),
+			[
+				join(
+					cteRefAs(rows.name, r1),
+					cteRefAs(seed.name, d1),
+					sameGroup(r1, rows.group, d1, seed.group)
+				)
+			],
+			and([eq(col(r1, rows.slot), col(r1, rows.first)), gt(col(r1, rows.first), zero)])
+		)
+	}
 	const p2 = supply.relation(internal("scan previous row"))
 	const r2 = supply.relation(internal("scan next row"))
 	const next: FromItem = join(
@@ -365,22 +393,12 @@ export const scanOf = (w: WriteContext, supply: NameSupply, spec: ScanSpec): Sca
 			eq(col(r2, rows.slot), binary("+", col(p2, slot), lit.int(1, types.bigint)))
 		])
 	)
+	const stepped = provedCore("keyed", term(r2, readAt(p2, out)), [next], undefined)
 	const body = select(
-		unionAll("disjoint", [
-			provedCore(
-				"keyed",
-				term(r0, "base"),
-				[cteRefAs(rows.name, r0)],
-				and([eq(col(r0, rows.slot), col(r0, rows.first)), eq(col(r0, rows.first), zero)])
-			),
-			provedCore(
-				"keyed",
-				term(r1, readAt(d1, spec.seed)),
-				[seeded],
-				and([eq(col(r1, rows.slot), col(r1, rows.first)), gt(col(r1, rows.first), zero)])
-			),
-			provedCore("keyed", term(r2, readAt(p2, out)), [next], undefined)
-		])
+		unionAll(
+			"disjoint",
+			spec.group.kind === "base" ? [based, stepped] : [based, seededOf(spec.group.seed), stepped]
+		)
 	)
 	return {
 		cte: {

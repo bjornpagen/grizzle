@@ -461,7 +461,7 @@ const changeTrip = (
 		}
 		const program = compiled.value
 		const parsed = parsedOf(changes)
-		const write = servedWrite(program, "serializable")
+		const write = servedWrite(program)
 		const members = servedMembers(program.binding.members, parsed.opaque)
 		if (!write.ok || !members.ok) {
 			return
@@ -585,7 +585,7 @@ const boundTrip = (
 			note("a vector that is not finite refused")
 			return
 		}
-		const write = servedWrite(program, "serializable")
+		const write = servedWrite(program)
 		if (!members.ok || !write.ok) {
 			return assert.fail(`the bound vector's read-back serves\n${printed()}`)
 		}

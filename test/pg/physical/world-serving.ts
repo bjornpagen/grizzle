@@ -1191,7 +1191,8 @@ const precheck = (
 				claims: { kind: "facts", present: new Set(Arr.map(base.contexts, (c) => c.name)) },
 				world: { kind: "role", names: world.names },
 				laws: artifacts.laws,
-				derived: artifacts.derived
+				derived: artifacts.derived,
+				level: "serializable"
 			})
 		)
 		const members = yield* Effect.orDie(collectInputs(program.binding.groups, change.inputs))

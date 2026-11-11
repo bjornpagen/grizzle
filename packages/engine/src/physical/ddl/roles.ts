@@ -128,9 +128,9 @@ import {
 	type OutsideProbe,
 	probeIdentity,
 	probeParams,
-	relationUniques,
-	withinRow
+	relationUniques
 } from "#compiler/write/insert/unique.ts"
+import { withinRow } from "#compiler/write/probe.ts"
 import { refusalFunction } from "#compiler/write/refusal.ts"
 
 /**
@@ -779,7 +779,7 @@ const writePlan = (
 		{ names: b.names, params: [], subject: { kind: "query" } },
 		dispatchNode
 	)
-	/** A probed object's guards over one side's values (write/insert/unique.ts withinRow): a declared key's none, since
+	/** A probed object's guards over one side's values (write/probe.ts withinRow): a declared key's none, since
 	 * it holds every fact apart. */
 	const within = (probed: OutsideProbe, of: (field: LawField) => Expr): ReadonlyArray<Expr> =>
 		probed.kind === "unique" ? withinRow(guardCx, probed.object, of) : []

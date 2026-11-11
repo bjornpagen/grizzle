@@ -555,11 +555,105 @@ export type ArraysSource =
 	| { readonly kind: "count"; readonly count: ValuePlaceholder }
 
 /**
+ * One column of a probed table bound to a value of the row that drives the probe, a column of a source before it, and
+ * compared by equality: the builtin operator, or the extension's qualified one over a vector (`schema`, as Expr
+ * `binary` holds it).
+ */
+export interface ProbeColumn {
+	readonly column: string
+	readonly value: Expr
+	readonly schema: string | undefined
+}
+
+/**
+ * A column bound to a met row's column (FromSource `metRows`, `met`): a column of the bound side, `column`, equal to the
+ * met rows' column `from`, compared by the builtin operator or the extension's qualified one over a vector (`schema`).
+ */
+export interface MetKey {
+	readonly column: string
+	readonly from: string
+	readonly schema: string | undefined
+}
+
+/**
+ * How a probe reaches a stored table's rows from its driving row: at a key, at most one row; at a group, the group's
+ * rows in `order`, its columns of the table, never none; or at a group's last row in `order`, at most one.
+ */
+export type ProbeBy =
+	| { readonly kind: "key"; readonly columns: NonEmptyReadonlyArray<ProbeColumn> }
+	| {
+			readonly kind: "group" | "last"
+			readonly columns: NonEmptyReadonlyArray<ProbeColumn>
+			readonly order: NonEmptyReadonlyArray<string>
+	  }
+
+/**
  * A FROM item that is no join chain: a relation, a CTE reference, a derived table, a function's rows, a relation
- * input's arrays, a VALUES list or a context source. A join chain joins sources only, so its length is never a depth.
+ * input's arrays, a VALUES list, a context source, or a write's read of a stored table driven by its rows, a probe or
+ * the row an arbitration met. A join chain joins sources only, so its length is never a depth.
  */
 export type FromSource =
 	| { readonly kind: "table"; readonly table: TableName; readonly alias: string }
+	| {
+			/**
+			 * The stored rows of a table that one driving row reaches by a key or a group (ProbeBy), read once per driving
+			 * row: `LATERAL (SELECT "<inner>"."<column>", ... FROM <table> AS "<inner>" WHERE "<inner>"."<by column>" =
+			 * <value> AND ... AND <filter> <tail>) AS "<alias>"("<column>", ...)`, the tail a key's `LIMIT 1`, a group's
+			 * `ORDER BY <order>`, a group's last row's `ORDER BY <order> DESC LIMIT 1`. A subquery that sorts or limits is
+			 * never flattened into a join (prepjointree.c is_simple_subquery), and one in an EXISTS that reads the outer
+			 * row in its FROM is never a semi-join (subselect.c convert_EXISTS_sublink_to_join), so PostgreSQL plans it
+			 * apart, once per driving row with its values as parameters, and a driver of no row reads nothing. It stands
+			 * only as an inner FROM item beside its driver or in an EXISTS, never under an outer join. Every value and
+			 * filter reads the row that drives it or the probed row, `<inner>`. The one source a write statement reads a
+			 * stored table through besides `met`, so no write reads a relation whole.
+			 */
+			readonly kind: "probe"
+			readonly table: ObjectName
+			readonly inner: string
+			readonly by: ProbeBy
+			readonly filter: ReadonlyArray<Expr>
+			readonly columns: NonEmptyReadonlyArray<string>
+			readonly alias: string
+	  }
+	| {
+			/**
+			 * The requested rows an INSERT proposed and did not insert, its met rows: `(SELECT "<scan>"."<column>", ... FROM
+			 * "<proposed>" AS "<scan>" WHERE NOT EXISTS (SELECT 1 FROM "<insert>" AS "<returned>" WHERE
+			 * "<returned>"."<returned key>" = "<scan>"."<key column>" AND ...)) AS "<alias>"("<column>", ...)`. `insert` is
+			 * the statement's data-modifying CTE whose INSERT proposes `proposed` alone, every column of it, and arbitrates
+			 * by ON CONFLICT DO NOTHING, with no target or at its primary key, each key column paired with that INSERT's
+			 * RETURNING of it: every row it reads is a row the INSERT proposed and its arbitration met.
+			 */
+			readonly kind: "metRows"
+			readonly insert: string
+			readonly proposed: string
+			readonly key: NonEmptyReadonlyArray<MetKey>
+			readonly columns: NonEmptyReadonlyArray<string>
+			readonly scan: string
+			readonly returned: string
+			readonly alias: string
+	  }
+	| {
+			/**
+			 * The stored row an INSERT's arbitration met for a met row of `rows`, a `metRows` source in scope, at `key`, each
+			 * column of `table` bound to a column of `rows`: `LATERAL (SELECT "<inner>"."<column>", ... FROM <table> AS
+			 * "<inner>" WHERE "<inner>"."<key column>" = "<rows>"."<from>" AND ... AND <filter> LIMIT 1) AS
+			 * "<alias>"("<column>", ...)`, `filter` the object's own conditions over the stored row, a guard's or a span's
+			 * overlap. Under a transaction snapshot ON CONFLICT waits on a conflicting row in flight and raises 40001 on one
+			 * its snapshot cannot see (nodeModifyTable.c ExecCheckTupleVisible), so the row met is committed and visible to
+			 * the statement, and this read finds it. At READ COMMITTED the arbiter skips a row committed after the
+			 * statement's snapshot, which this read cannot see, so only the SERIALIZABLE lowering states it
+			 * (write/insert/protocol.ts Arbitration).
+			 */
+			readonly kind: "met"
+			readonly table: ObjectName
+			readonly inner: string
+			readonly rows: string
+			readonly key: NonEmptyReadonlyArray<MetKey>
+			readonly filter: ReadonlyArray<Expr>
+			readonly columns: NonEmptyReadonlyArray<string>
+			readonly alias: string
+	  }
 	| { readonly kind: "cte"; readonly name: string; readonly alias: string | undefined }
 	| { readonly kind: "enclosing"; readonly name: string; readonly alias: string }
 	| {
@@ -858,6 +952,16 @@ export type OnConflict =
 			readonly action: ConflictAction
 	  }
 	| { readonly kind: "constraint"; readonly constraint: string; readonly action: DoNothing }
+	| {
+			/**
+			 * ON CONFLICT DO NOTHING with no conflict target: every unique and exclusion object of the table arbitrates, each
+			 * checked speculatively (execIndexing.c ExecInsertIndexTuples, applyNoDupErr), so a row in flight at any of them
+			 * sends the insert back to its pre-check, never to a 23505 or 23P01; it arbitrates every declared key of the
+			 * table. Under a transaction snapshot a conflicting row the snapshot cannot see raises 40001.
+			 */
+			readonly kind: "every"
+			readonly action: DoNothing
+	  }
 
 /**
  * The columns an INSERT assigns and the source of their values, in order. A query's columns may be none, PostgreSQL's

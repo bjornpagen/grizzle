@@ -4,6 +4,7 @@ import { canonicalEquals, catchRefusal, everyProperty, Refusal } from "#compiler
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { ParamId } from "#compiler/core/ids.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
+import type { Isolation } from "#compiler/core/isolation.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type * as Result from "#compiler/core/result.ts"
 import type { Certificate } from "#compiler/ir/certificate.ts"
@@ -60,6 +61,7 @@ import {
 	carrierColumns,
 	memberRows
 } from "#compiler/write/carriers/carriers.ts"
+import { relationUniques } from "#compiler/write/insert/unique.ts"
 
 import {
 	buildAnchoredDelete,
@@ -204,9 +206,14 @@ export interface CompileWriteOptions {
 	/** The schema's law model and its base's derived analysis (`SchemaArtifacts.laws`, `.derived`). */
 	readonly laws: LawModel
 	readonly derived: DerivedAnalysis
+	/** The isolation the write runs at, which decides how its inserts meet stored rows (insert/protocol.ts
+	 * Arbitration): a role's level, SERIALIZABLE wherever none is proved. */
+	readonly level: Isolation
 }
 
 export interface CompiledWrite extends ProgramArtifacts<WriteParamSlot> {
+	/** The isolation its statements were built for (CompileWriteOptions `level`), the one it is served and run at. */
+	readonly level: Isolation
 	readonly frontend: WriteFrontend
 	/** Each stratum's edits of a family's member relation, with their reads, built once. */
 	readonly edits: ReadonlyArray<EditProgram>
@@ -574,7 +581,17 @@ const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram 
 								return []
 							}
 							const relation = info(name)
-							return [{ relation, layout: layoutOf(name), sources, families: familiesOf(relation) }]
+							return [
+								{
+									relation,
+									keyLaw: relationUniques(
+										defined(frontend.laws.relations.get(name), `the laws of ${name}`)
+									).arbiter.law,
+									layout: layoutOf(name),
+									sources,
+									families: familiesOf(relation)
+								}
+							]
 						}
 					)
 					const putOwners = ownerSlots("put").flatMap(
@@ -1764,10 +1781,12 @@ const compile = (
 			reads: options.reads,
 			params: frontend.params,
 			dispatch: sharing.dispatch,
-			share
+			share,
+			level: options.level
 		})
 	}
 	const plan = planWrite(restated, chosenIn(chosen, frontend.restate), {
+		level: options.level,
 		distinct: (node, relation) => distinctByEvidence(placed.facts, node, relation),
 		shares: (members) => unwrap(planStatementShares(sharing.index, members))
 	})
@@ -1775,6 +1794,7 @@ const compile = (
 	unwrap(insertOnly(schema, optimized.statements, options.names, options.laws))
 	const family = familyProgram(frontend, lowering.w)
 	const program: CompiledWrite = {
+		level: options.level,
 		edits: family.edits,
 		refills: family.refills,
 		kind: "write",

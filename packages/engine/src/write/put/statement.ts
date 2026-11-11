@@ -396,7 +396,8 @@ export const buildUpsert = (w: WriteContext, spec: UpsertSpec): PutStatement => 
 			checks: spec.relation.uniques.checks,
 			input: r1,
 			inputs: head.inputs,
-			normalized: true
+			normalized: true,
+			occupants: "probed"
 		})
 		if (probe !== undefined) {
 			appendAll(ctes, probe.ctes)

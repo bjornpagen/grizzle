@@ -1,4 +1,4 @@
-import { Array as Arr, Effect } from "effect"
+import { Effect } from "effect"
 import { fromEngine } from "#adapter/engine.ts"
 import {
 	artifactsUnder,
@@ -7,13 +7,12 @@ import {
 	loginChangesOver,
 	plannedLoginRoles
 } from "#adapter/served/login.ts"
-import { type LeveledRole, servedFileOf } from "#adapter/served/project.ts"
+import { servedFileOf } from "#adapter/served/project.ts"
 import { lawsAbove } from "#adapter/witness/keylaw.ts"
 import type { ChangeRefused, RoleChanges } from "#compiler/plan/change.ts"
 import {
 	type CompileError,
 	Engine,
-	type Isolation,
 	levelChain,
 	type LoginDesc,
 	type OwnedLogin,
@@ -58,22 +57,8 @@ export interface ServedRefusal {
 export interface CompiledServed {
 	readonly login: LoginDesc
 	readonly snapshot: ServedSnapshot
-	readonly roles: ReadonlyArray<LeveledRole>
+	readonly roles: ReadonlyArray<LayerRole>
 }
-
-/**
- * The isolation level each role of a login's compile begins its writes at, by the role's declared name: its certificate's
- * where the draft's workload plan certified it over the installation's writers (program/isolation/certification.ts),
- * and SERIALIZABLE for a compile of other programs than the installation certified (`uncertified`).
- */
-export type LevelOf = (role: string) => Isolation
-
-/** Every role SERIALIZABLE: the level of a compile no certificate covers, the snapshot-only compile's. */
-const uncertified: LevelOf = () => "serializable"
-
-/** Each role of a login's compile at the level `levelOf` gives it. */
-const leveled = (roles: ReadonlyArray<LayerRole>, levelOf: LevelOf): ReadonlyArray<LeveledRole> =>
-	Arr.map(roles, (role): LeveledRole => ({ ...role, isolation: levelOf(role.role.name) }))
 
 const atLogin = (error: CompileError | UnservedMember): ServedRefusal => ({
 	place: { kind: "login" },
@@ -100,8 +85,9 @@ export const atRole = (refused: ChangeRefused): ServedRefusal => ({
  * login compiles over `artifacts`, its base's, compiled under those codes over every relation (program/schema.ts
  * baseArtifacts), every program of the login's workloads that runs on the role once: a program compiles over the whole
  * installation's artifacts exactly as over its slice's, so no law model is compiled for the login. Its ChangeSets are
- * the login's change compile's, `changes`, compiled once over the same artifacts (program/workload/change.ts
- * loginChanges). A role's refusals are cut to what its programs' writes can raise (served/project.ts).
+ * the login's change compile's, `changes`, compiled once over the same artifacts at the level each role's writes run
+ * at, its certificate's (program/workload/change.ts loginChanges, program/isolation/certification.ts), which its
+ * served form records (login.ts LayerRole `isolation`). A role's refusals are cut to what its programs' writes can raise (served/project.ts).
  * generate and check both compile from the snapshot.json text the draft lays out, so the drafted snapshot and the
  * committed one are one input, and a login compiles to one served file.
  */
@@ -109,8 +95,7 @@ const compileServed = Effect.fn("compileServed")(function* (
 	login: ServedInput,
 	snapshot: unknown,
 	artifacts: SchemaArtifacts,
-	changes: ReadonlyMap<string, RoleChanges>,
-	levelOf: LevelOf
+	changes: ReadonlyMap<string, RoleChanges>
 ): Effect.fn.Return<CompiledServed, ServedRefusal> {
 	const served = yield* Effect.mapError(
 		fromEngine(servedSnapshot(snapshot, levelChain(login.login.base.desc).length - 1)),
@@ -121,7 +106,7 @@ const compileServed = Effect.fn("compileServed")(function* (
 		plannedLoginRoles(login.login, changes, layer, lawsAbove(served)),
 		atRole
 	)
-	return { login: login.login.desc, snapshot: served, roles: leveled(roles, levelOf) }
+	return { login: login.login.desc, snapshot: served, roles }
 })
 
 /**
@@ -144,17 +129,16 @@ export const servedEntryOf = Effect.fn("servedEntryOf")(function* (compiled: Com
 
 /**
  * The served file of `login` under `snapshot`, the JSON value of the snapshot.json beside it, compiled over its base's
- * artifacts `artifacts`, its ChangeSets as `changes` compiled them over those artifacts, each role at the level `levelOf`
- * gives it (compileServed, then `servedEntryOf`).
+ * artifacts `artifacts`, its ChangeSets as `changes` compiled them over those artifacts, each role's at the level its
+ * certificate gives it (compileServed, then `servedEntryOf`).
  */
 export const servedEntry = (
 	login: ServedInput,
 	snapshot: unknown,
 	artifacts: SchemaArtifacts,
-	changes: ReadonlyMap<string, RoleChanges>,
-	levelOf: LevelOf
+	changes: ReadonlyMap<string, RoleChanges>
 ): Effect.Effect<ServedEntry, ServedRefusal> =>
-	Effect.flatMap(compileServed(login, snapshot, artifacts, changes, levelOf), servedEntryOf)
+	Effect.flatMap(compileServed(login, snapshot, artifacts, changes), servedEntryOf)
 
 /**
  * The compile of `login` under `snapshot` alone, no installation compiled beside it: the installation's artifacts
@@ -177,10 +161,10 @@ export const snapshotCompiled = Effect.fn("snapshotCompiled")(function* (
 		atLogin
 	)
 	const changes = yield* Effect.mapError(
-		loginChangesOver(login.login, login.owned, artifacts),
+		loginChangesOver(login.login, login.owned, artifacts, "serializable"),
 		atRole
 	)
-	return yield* compileServed(login, snapshot, artifacts, changes, uncertified)
+	return yield* compileServed(login, snapshot, artifacts, changes)
 })
 
 /**

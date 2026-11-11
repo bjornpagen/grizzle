@@ -33,6 +33,7 @@ import {
 	type CompileError,
 	defect,
 	Engine,
+	type Isolation,
 	type LoginDesc,
 	malformedDescription,
 	ownBuiltLogin,
@@ -339,6 +340,9 @@ const typedContexts = (
  * and the programs of the login's workloads over it, compiled.
  */
 export interface LayerRole extends RoleContext {
+	/** The level its writes begin at, the one its change members were compiled for (program/workload/change.ts
+	 * RoleChanges `level`): its served form records it and its writes are projected at it. */
+	readonly isolation: Isolation
 	readonly value: object
 	readonly theory: string
 	readonly contexts: ReadonlyArray<TypedContext>
@@ -406,24 +410,27 @@ const layerRole = (
 		const forms = yield* Effect.fromResult(
 			compileRoleWorkload(name, role, changes, own.witness, workload)
 		)
-		return { ...role, value, theory, contexts, workload: forms }
+		return { ...role, isolation: changes.level, value, theory, contexts, workload: forms }
 	})
 
 /** A login's change compile refused, as its compile names a refusal (WorkloadRefused). */
 const changeRefused = (refused: ChangeRefused): WorkloadRefused => new WorkloadRefused(refused)
 
 /**
- * Every role of a login, each with its change members compiled over the login's artifacts `artifacts`
+ * Every role of a login, each with its change members compiled over the login's artifacts `artifacts` at `level`
  * (program/workload/change.ts loginChanges), by its name in the login: what the login's compile reads of each role
  * (plannedLoginRoles).
  */
-export const loginChangesOver = (
+export const loginChangesOver = <L extends Isolation>(
 	login: BuiltLogin,
 	owned: OwnedLogin,
-	artifacts: SchemaArtifacts
-): Effect.Effect<ReadonlyMap<string, RoleChanges>, WorkloadRefused> =>
+	artifacts: SchemaArtifacts,
+	level: L
+): Effect.Effect<ReadonlyMap<string, RoleChanges<L>>, WorkloadRefused> =>
 	Effect.mapError(
-		fromEngine(loginChanges({ roles: login.roles, workload: login.workload, owned, artifacts })),
+		fromEngine(
+			loginChanges({ roles: login.roles, workload: login.workload, owned, artifacts }, level)
+		),
 		changeRefused
 	)
 
@@ -453,7 +460,7 @@ export const plannedLoginRoles = (
 
 /**
  * Every role of a login compiled over the login's artifacts `layer` (plannedLoginRoles), its change members compiled
- * over them first (loginChangesOver).
+ * over them first at SERIALIZABLE (loginChangesOver), the level of a compile no certificate covers.
  */
 export const loginRoles = (
 	login: BuiltLogin,
@@ -461,6 +468,6 @@ export const loginRoles = (
 	layer: LayerArtifacts,
 	above: LawsAbove
 ): Effect.Effect<ReadonlyArray<LayerRole>, WorkloadRefused> =>
-	Effect.flatMap(loginChangesOver(login, owned, layer.artifacts), (changes) =>
+	Effect.flatMap(loginChangesOver(login, owned, layer.artifacts, "serializable"), (changes) =>
 		plannedLoginRoles(login, changes, layer, above)
 	)

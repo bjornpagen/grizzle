@@ -321,7 +321,7 @@ const writeEntry = (
 	Result.flatMap(
 		toResult(role.programArtifacts({ kind: "changeSet", changeSet: change.desc })),
 		({ artifacts, witness }) =>
-			Result.map(toResult(compileParsed(artifacts, change, claims)), (entry) =>
+			Result.map(toResult(compileParsed(artifacts, change, claims, "serializable")), (entry) =>
 				runtimeEntry(entry, artifacts.names.codes, witness, role.bind)
 			)
 	)

@@ -1,6 +1,6 @@
 import { resultTextCasts } from "#compiler/codec/scalar.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
-import type { ConstraintName, EntryName, LawId } from "#compiler/core/ids.ts"
+import type { ConstraintName, EntryName, LawId, StoredRelationName } from "#compiler/core/ids.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { type Sqlstate, sqlstates } from "#compiler/core/sqlstate.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
@@ -144,6 +144,18 @@ export type ArmRefusal =
 			readonly key: ReadonlyArray<RefusedValue>
 	  }
 	| { readonly kind: "outside"; readonly entry: EntryName }
+	| {
+			/**
+			 * A requested fact an INSERT's arbitration of every object met at none of the objects it classifies
+			 * (write/insert/protocol.ts Arbitration `every`): a row an earlier INSERT of the same statement wrote, which
+			 * neither the arbitration nor the statement's snapshot shows. The statement's defect, raised as
+			 * internal_error under its relation's primary key's name, never as a law.
+			 */
+			readonly kind: "defect"
+			readonly relation: StoredRelationName
+			readonly constraint: ConstraintName
+			readonly key: ReadonlyArray<RefusedValue>
+	  }
 
 /** The arms' precedence (see `refusalGuard`). A breach is a read-back's, alone among its statement's arms; a fact outside a
  * query entry and a key a fact outside it holds are its precheck's, alone among theirs. */
@@ -155,7 +167,8 @@ export const refusalRank = {
 	change: 4,
 	breach: 5,
 	outside: 6,
-	heldOutside: 7
+	heldOutside: 7,
+	defect: 8
 } as const
 
 /** One arm of a write statement: the verdict rows `when` holds of raise `refusal`. */
@@ -171,6 +184,9 @@ interface SourcedArm extends RefusalArm {
 }
 
 const breachTag = "d"
+
+/** The DETAIL tag of a write statement's defect (ArmRefusal `defect`). */
+const defectTag = "x"
 
 /** A value as the JSON string of the text its column's codec decodes: money through numeric (codec resultTextCasts). */
 const valueText = (v: RefusedValue): Expr => {
@@ -257,6 +273,12 @@ export const raised = (
 				state: sqlstates.grizzleOutsideWorld,
 				constraint: { kind: "entry", entry: refusal.entry },
 				detail: lit.text(outsideDetail(refusal.entry), types.text)
+			}
+		case "defect":
+			return {
+				state: sqlstates.internalError,
+				constraint: { kind: "constraint", name: refusal.constraint },
+				detail: detailExpr(defectTag, [refusal.relation], refusal.key)
 			}
 	}
 }

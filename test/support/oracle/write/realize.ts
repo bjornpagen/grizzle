@@ -1,6 +1,7 @@
 import { Array as Arr } from "effect"
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
+import type { Isolation } from "#compiler/core/isolation.ts"
 import { isNonEmpty } from "#compiler/core/nonempty.ts"
 import type * as Result from "#compiler/core/result.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
@@ -114,6 +115,8 @@ interface ConservativeWriteOptions {
 	readonly reads: PhysicalNames
 	/** The statements the compilation's optimized artifact built, which an equal request shares. */
 	readonly share: StatementShare
+	/** The level the write runs at, the compiled write's (write/program/compile.ts CompiledWrite `level`). */
+	readonly level: Isolation
 }
 
 const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): ConservativeWrite => {
@@ -122,6 +125,7 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 	const ownsFamily = (relation: string): boolean =>
 		Arr.some(frontend.laws.families, (f) => f.owner.name === relation)
 	const w: WriteContext = writeContext(ir.dag, {
+		level: options.level,
 		names: options.names,
 		reads: options.reads,
 		params: frontend.params,

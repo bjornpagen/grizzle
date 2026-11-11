@@ -1,6 +1,7 @@
 import type { RowDecoder } from "#compiler/core/decoder.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import type { SchemaFingerprint } from "#compiler/core/ids.ts"
+import type { Isolation } from "#compiler/core/isolation.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import {
@@ -72,13 +73,14 @@ export const parsedChange = (
 }
 
 /**
- * A parsed ChangeSet compiled against `artifacts`, a role's or reality's, for the contexts `claims` holds a fact of
- * (write/program/compile.ts compileWrite).
+ * A parsed ChangeSet compiled against `artifacts`, a role's or reality's, for the contexts `claims` holds a fact of, to
+ * run at `level` (write/program/compile.ts compileWrite).
  */
 export const compileParsed = (
 	artifacts: SchemaArtifacts,
 	change: ParsedChangeSet,
-	claims: ReadonlySet<string>
+	claims: ReadonlySet<string>,
+	level: Isolation
 ): Result.Result<ChangeEntry, CompileError> => {
 	const world = artifacts.world
 	return Result.map(
@@ -88,7 +90,8 @@ export const compileParsed = (
 			claims: { kind: "facts", present: claims },
 			world: world.kind === "role" ? { kind: "role", names: world.names } : { kind: "reality" },
 			laws: artifacts.laws,
-			derived: artifacts.derived
+			derived: artifacts.derived,
+			level
 		}),
 		(compiled): ChangeEntry => ({
 			compiled,
@@ -109,6 +112,7 @@ const changeVariants = (
 	role: ParsedRole,
 	artifacts: SchemaArtifacts,
 	changes: ChangeSetValue,
+	level: Isolation,
 	undecided: ReadonlyArray<string>,
 	holding: ReadonlyArray<string>
 ): Result.Result<CompiledVariants, CompileError> => {
@@ -116,17 +120,19 @@ const changeVariants = (
 	if (context === undefined) {
 		return Result.map(
 			Result.flatMap(parsedChange(role, changes), (change) =>
-				compileParsed(artifacts, change, new Set(holding))
+				compileParsed(artifacts, change, new Set(holding), level)
 			),
 			(entry): CompiledVariants => ({ kind: "form", entry, decoder: changes.reads })
 		)
 	}
 	const before = undecided.slice(0, -1)
-	return Result.flatMap(changeVariants(role, artifacts, changes, before, holding), (lacking) =>
-		Result.map(
-			changeVariants(role, artifacts, changes, before, [context, ...holding]),
-			(held): CompiledVariants => ({ kind: "split", context, holding: held, lacking })
-		)
+	return Result.flatMap(
+		changeVariants(role, artifacts, changes, level, before, holding),
+		(lacking) =>
+			Result.map(
+				changeVariants(role, artifacts, changes, level, before, [context, ...holding]),
+				(held): CompiledVariants => ({ kind: "split", context, holding: held, lacking })
+			)
 	)
 }
 
@@ -147,10 +153,13 @@ export interface ChangeLogin {
  * login's, and each ChangeSet of the login's workloads that runs on it, by the program's name, its variants compiled
  * once.
  */
-export interface RoleChanges {
+export interface RoleChanges<L extends Isolation = Isolation> {
 	readonly input: ParsedRole
 	readonly owned: OwnedRole
 	readonly artifacts: SchemaArtifacts
+	/** The level every member was compiled for (write/program/compile.ts CompiledWrite `level`), the one the role's
+	 * writes run at once served: one per role. */
+	readonly level: L
 	readonly members: ReadonlyMap<string, CompiledVariants>
 }
 
@@ -164,12 +173,13 @@ export interface ChangeRefused {
 	readonly error: CompileError
 }
 
-/** One role of `login`, its change members compiled (RoleChanges). */
-const roleChanges = (
+/** One role of `login`, its change members compiled at `level` (RoleChanges). */
+const roleChanges = <L extends Isolation>(
 	name: string,
 	value: unknown,
-	login: ChangeLogin
-): Result.Result<RoleChanges, ChangeRefused> => {
+	login: ChangeLogin,
+	level: L
+): Result.Result<RoleChanges<L>, ChangeRefused> => {
 	const refused = (error: CompileError): ChangeRefused => ({
 		role: name,
 		program: undefined,
@@ -194,26 +204,28 @@ const roleChanges = (
 			continue
 		}
 		const fill = fillContexts(owned.writes, program.desc.changeSet)
-		const variants = changeVariants(input, artifacts.value, program.value, fill, [])
+		const variants = changeVariants(input, artifacts.value, program.value, level, fill, [])
 		if (!variants.ok) {
 			return Result.err({ role: name, program: program.name, error: variants.error })
 		}
 		members.set(program.name, variants.value)
 	}
-	return Result.ok({ input, owned, artifacts: artifacts.value, members })
+	return Result.ok({ input, owned, artifacts: artifacts.value, level, members })
 }
 
 /**
  * Every role of a login, by its name in the login, in its order, each with the ChangeSets of the login's workloads that
- * run on it compiled once over its artifacts (RoleChanges): what the installation's certification reads and the
- * login's served file projects. A role or program that does not compile is ChangeRefused.
+ * run on it compiled once over its artifacts at `level` (RoleChanges): READ COMMITTED for what the installation's
+ * certification reads first and serves a role it certifies READ COMMITTED; SERIALIZABLE for a compile no certificate
+ * covers. A role or program that does not compile is ChangeRefused.
  */
-export const loginChanges = (
-	login: ChangeLogin
-): Result.Result<ReadonlyMap<string, RoleChanges>, ChangeRefused> => {
-	const roles = new Map<string, RoleChanges>()
+export const loginChanges = <L extends Isolation>(
+	login: ChangeLogin,
+	level: L
+): Result.Result<ReadonlyMap<string, RoleChanges<L>>, ChangeRefused> => {
+	const roles = new Map<string, RoleChanges<L>>()
 	for (const { name, value } of login.roles) {
-		const role = roleChanges(name, value, login)
+		const role = roleChanges(name, value, login, level)
 		if (!role.ok) {
 			return role
 		}
@@ -221,3 +233,60 @@ export const loginChanges = (
 	}
 	return Result.ok(roles)
 }
+
+/** `variants` compiled again at `level`, each form's ChangeSet for the contexts its split path holds a fact of. */
+const variantsAt = (
+	artifacts: SchemaArtifacts,
+	variants: CompiledVariants,
+	holding: ReadonlyArray<string>,
+	level: Isolation
+): Result.Result<CompiledVariants, CompileError> => {
+	switch (variants.kind) {
+		case "form":
+			return Result.map(
+				compileParsed(artifacts, variants.entry.change, new Set(holding), level),
+				(entry): CompiledVariants => ({ kind: "form", entry, decoder: variants.decoder })
+			)
+		case "split":
+			return Result.flatMap(
+				variantsAt(artifacts, variants.holding, [variants.context, ...holding], level),
+				(held) =>
+					Result.map(
+						variantsAt(artifacts, variants.lacking, holding, level),
+						(lacking): CompiledVariants => ({
+							kind: "split",
+							context: variants.context,
+							holding: held,
+							lacking
+						})
+					)
+			)
+	}
+}
+
+/**
+ * `role`, its change members compiled again at `level` (RoleChanges), each from the ChangeSet it parsed, for the contexts
+ * its variant holds a fact of.
+ */
+export const changesAt = <L extends Isolation>(
+	role: RoleChanges,
+	level: L
+): Result.Result<RoleChanges<L>, CompileError> => {
+	const members = new Map<string, CompiledVariants>()
+	for (const [name, variants] of role.members) {
+		const lowered = variantsAt(role.artifacts, variants, [], level)
+		if (!lowered.ok) {
+			return lowered
+		}
+		members.set(name, lowered.value)
+	}
+	return Result.ok({ ...role, level, members })
+}
+
+/**
+ * `role` compiled again for SERIALIZABLE (`changesAt`): what a login's served file projects for a role its certification
+ * leaves SERIALIZABLE, and what that certification then reads of it (program/isolation/certification.ts).
+ */
+export const serializableChanges = (
+	role: RoleChanges<"readCommitted">
+): Result.Result<RoleChanges<"serializable">, CompileError> => changesAt(role, "serializable")

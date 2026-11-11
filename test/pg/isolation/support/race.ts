@@ -8,6 +8,7 @@ import {
 	String as Str
 } from "effect"
 import { hostInputs, type InputFailure, valuesFailure } from "#adapter/apply/run.ts"
+import { fromEngine } from "#adapter/engine.ts"
 import type { OpenError } from "#adapter/errors/execution.ts"
 import { type LoadedChange, type LoadedLogin, loadServed } from "#adapter/served/load.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
@@ -23,6 +24,7 @@ import type { Param } from "#compiler/core/wire.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { noTextDomainUses } from "#compiler/physical/ddl/domains.ts"
 import { type InstallExtension, noContribution } from "#compiler/physical/install/extension.ts"
+import { changesAt } from "#compiler/program/workload/change.ts"
 import type { AnyLogin, AnyRole, AnySchema } from "#compiler/public/schema.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import { servedFile } from "#compiler/served/json.ts"
@@ -71,7 +73,8 @@ export interface Shape {
 
 /**
  * Whose certificates an installation holds: generate's, the ones its draft's workload plan certifies; a flawed
- * certifier's, stated by hand with the flaw it stands for; or generate's with some roles forced READ COMMITTED. The
+ * certifier's, stated by hand with the flaw it stands for; generate's with some roles forced READ COMMITTED; or every
+ * role at a level a race states, to run one shape's calls at each level (`stated`). The
  * installation holds any of them as it holds generate's, so every table its READ COMMITTED roles alone write keeps no
  * guard and their served writes begin at READ COMMITTED.
  */
@@ -79,6 +82,7 @@ export type Certifier =
 	| { readonly kind: "generate" }
 	| { readonly kind: "flawed"; readonly flaw: string; readonly roles: ReadonlyArray<RoleIsolation> }
 	| { readonly kind: "forced"; readonly flaw: string; readonly roles: ReadonlyArray<string> }
+	| { readonly kind: "stated"; readonly roles: ReadonlyArray<RoleIsolation> }
 
 /**
  * A shape installed: the installation, its names, the level generate certifies each role at, each role's ChangeSets as
@@ -228,7 +232,7 @@ export const installShape = (
 		const first = yield* draftOf(declared)
 		const generated = first.served.certification
 		const certified =
-			certifier.kind === "flawed"
+			certifier.kind === "flawed" || certifier.kind === "stated"
 				? certifier.roles
 				: Arr.map(generated, (r): RoleIsolation =>
 						certifier.roles.includes(r.role) ? { ...r, certificate: { level: "readCommitted" } } : r
@@ -252,12 +256,21 @@ export const installShape = (
 			}
 		}
 		const levels = levelsOf(certified)
+		const stated = yield* Effect.forEach([...served.logins], ([login, planned]) =>
+			Effect.map(
+				Effect.forEach([...planned.roles], ([name, role]) => {
+					const level = defined(levels.get(name), `the stated level of role ${name}`)
+					return level === role.level
+						? Effect.succeed([name, role] as const)
+						: Effect.map(fromEngine(changesAt(role, level)), (at) => [name, at] as const)
+				}),
+				(roles) => [login, { ...planned, roles: new Map(roles) }] as const
+			)
+		)
 		const entries = yield* servedFiles(compiled, draft.snapshotFiles, {
 			kind: "logins",
 			certification: certified,
-			logins: new Map(
-				Arr.map([...served.logins], ([login, planned]) => [login, { ...planned, levels }] as const)
-			)
+			logins: new Map(stated)
 		})
 		const entry = defined(
 			Option.getOrUndefined(Arr.findFirst(entries, (e) => e.login === shape.login.name)),
@@ -347,7 +360,7 @@ const inlined = (sql: string, params: ReadonlyArray<Param>): Effect.Effect<strin
  * not skip, each execution its own, every placeholder inlined. A write the host refuses before any SQL sends one
  * constant SELECT naming the refusal, which a serial run of it shows alike.
  */
-const callStatements = (
+export const callStatements = (
 	s: InstalledShape,
 	call: RaceCall
 ): Effect.Effect<Arr.NonEmptyReadonlyArray<string>, InputFailure> =>
@@ -412,9 +425,7 @@ const setLevel = (level: Isolation): RaceStatement => ({
 
 /**
  * A call's direct transaction: its first statement setting the level its role's served file records, then the call's
- * statements. The statements are the served file's,
- * the same at every level: a role's level projects only which unique violations abort its apply (write/program/served.ts
- * projectWrite), a classification of the SQLSTATE the oracle compares raw, so the level reaches the race at its BEGIN.
+ * statements, the served file's, compiled for that level (program/workload/change.ts RoleChanges `level`).
  */
 const txnOf = (s: InstalledShape, call: RaceCall): Effect.Effect<RaceTxn<never>, InputFailure> =>
 	Effect.map(callStatements(s, call), (statements) => {
@@ -432,7 +443,7 @@ export const raceMoves = (txns: ReadonlyArray<RaceTxn<never>>): number =>
 	Arr.reduce(txns, 0, (sum, t) => sum + (t.kind === "direct" ? t.statements.length + 1 : 1))
 
 /** Every stored table's rows as text: its name and each row's JSON, one row each. */
-const stateSql = (names: Names): string =>
+export const stateSql = (names: Names): string =>
 	Arr.join(
 		Arr.map(
 			names.storedTables,

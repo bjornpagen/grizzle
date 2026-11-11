@@ -9,7 +9,12 @@ import {
 } from "#compiler/core/limits.ts"
 import { BlockLines, CommentedLines, inlineText, type Lines, textOf } from "#compiler/core/lines.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import {
+	extendNonEmpty,
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "#compiler/core/nonempty.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import {
 	type AlterDomainAction,
@@ -52,6 +57,9 @@ import {
 	type PerformQuery,
 	type PlBlock,
 	type PlStatement,
+	type MetKey,
+	type ProbeBy,
+	type ProbeColumn,
 	type QualifiedFunctionRef,
 	type RoleSetting,
 	type OperandBody,
@@ -735,6 +743,43 @@ const printFromItem = (item: FromItem): string => {
 	switch (item.kind) {
 		case "table":
 			return `${printTableName(item.table)} AS ${quoteIdent(item.alias)}`
+		case "probe":
+			return printDriven(
+				item.table,
+				item.inner,
+				item.columns,
+				item.alias,
+				extendNonEmpty(
+					mapNonEmpty(item.by.columns, (c) => boundColumn(item.inner, c)),
+					item.filter.map(printExpr)
+				),
+				probeTail(item.inner, item.by)
+			)
+		case "met":
+			return printDriven(
+				item.table,
+				item.inner,
+				item.columns,
+				item.alias,
+				extendNonEmpty(
+					mapNonEmpty(item.key, (k) => metBound(item.inner, k, item.rows)),
+					item.filter.map(printExpr)
+				),
+				"LIMIT 1"
+			)
+		case "metRows": {
+			const read = item.columns.map((c) => `${quoteIdent(item.scan)}.${quoteIdent(c)}`).join(", ")
+			const unreturned = mapNonEmpty(item.key, (k) =>
+				printExpr({
+					kind: "binary",
+					op: "=",
+					left: { kind: "column", table: item.returned, column: k.from },
+					right: { kind: "column", table: item.scan, column: k.column },
+					schema: k.schema
+				})
+			).join(" AND ")
+			return `(SELECT ${read} FROM ${quoteIdent(item.proposed)} AS ${quoteIdent(item.scan)} WHERE NOT EXISTS (SELECT 1 FROM ${quoteIdent(item.insert)} AS ${quoteIdent(item.returned)} WHERE ${unreturned})) AS ${quoteIdent(item.alias)}(${printIdentList(item.columns)})`
+		}
 		case "cte":
 			return item.alias === undefined
 				? quoteIdent(item.name)
@@ -765,6 +810,59 @@ const printFromItem = (item: FromItem): string => {
 				)
 			].join(" ")
 	}
+}
+
+/** A probed column bound to its driving row's value: `"<inner>"."<column>" = <value>`, at its operator. */
+const boundColumn = (inner: string, c: ProbeColumn): string =>
+	printExpr({
+		kind: "binary",
+		op: "=",
+		left: { kind: "column", table: inner, column: c.column },
+		right: c.value,
+		schema: c.schema
+	})
+
+/** A met row's column bound to a stored one: `"<inner>"."<column>" = "<rows>"."<from>"`, at its operator. */
+const metBound = (inner: string, k: MetKey, rows: string): string =>
+	printExpr({
+		kind: "binary",
+		op: "=",
+		left: { kind: "column", table: inner, column: k.column },
+		right: { kind: "column", table: rows, column: k.from },
+		schema: k.schema
+	})
+
+/** What follows a probe's WHERE: a key's LIMIT 1, a group's ORDER BY over its order columns, a group's last row's
+ * ORDER BY them descending and LIMIT 1. */
+const probeTail = (inner: string, by: ProbeBy): string => {
+	const order = (direction: string) =>
+		by.kind === "key"
+			? ""
+			: `ORDER BY ${by.order.map((c) => `${quoteIdent(inner)}.${quoteIdent(c)}${direction}`).join(", ")}`
+	switch (by.kind) {
+		case "key":
+			return "LIMIT 1"
+		case "group":
+			return order("")
+		case "last":
+			return `${order(" DESC")} LIMIT 1`
+	}
+}
+
+/**
+ * A stored table's rows a driving row reaches (sql/ast.ts FromSource `probe` and `met`): `LATERAL (SELECT
+ * "<inner>"."<column>", ... FROM <table> AS "<inner>" WHERE <conditions> <tail>) AS "<alias>"("<column>", ...)`.
+ */
+const printDriven = (
+	table: ObjectName,
+	inner: string,
+	columns: NonEmptyReadonlyArray<string>,
+	alias: string,
+	conditions: NonEmptyReadonlyArray<string>,
+	tail: string
+): string => {
+	const read = columns.map((c) => `${quoteIdent(inner)}.${quoteIdent(c)}`).join(", ")
+	return `LATERAL (SELECT ${read} FROM ${printObjectName(table)} AS ${quoteIdent(inner)} WHERE ${conditions.join(" AND ")} ${tail}) AS ${quoteIdent(alias)}(${printIdentList(columns)})`
 }
 
 const printFrom = (items: ReadonlyArray<FromItem>): string => items.map(printFromItem).join(", ")
@@ -916,6 +1014,9 @@ const conflictWhere = (out: Lines, where: Expr | undefined): void => {
 const conflictLines = (out: Lines, conflict: OnConflict): void => {
 	if (conflict.kind === "constraint") {
 		return out.line(`ON CONFLICT ON CONSTRAINT ${quoteIdent(conflict.constraint)} DO NOTHING`)
+	}
+	if (conflict.kind === "every") {
+		return out.line("ON CONFLICT DO NOTHING")
 	}
 	const action = conflict.action
 	const head = `ON CONFLICT (${printIdentList(conflict.columns)})`
