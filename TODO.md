@@ -168,7 +168,6 @@ post-beta swarm's fixes for the next release.
     pantry's document scan as a child under its own parent instead.
   - `Compute.cast` refuses an aggregate, so a count reaches natural through a bound sub-query under
     `Compute.nonnegative`.
-  - `Db.open`'s own round trip: edullm asks that its checks travel in the first call's flight (owner deciding).
 - **qti-pie's asks, for the owner:** ~/.cache/gr8des/integration/fallback-scan.md #2–#13, and Compute.matches over
   patterns held as data. #7 (row order for the regex cache) is performance machinery, ruled out.
 
@@ -229,7 +228,6 @@ Q1 to Q6 first. A new feature still needs its correctness need named in its comm
   rebased and kept until a release includes it. Tell qti-pie first: its database lives in the cluster.
 - **`bench:full` on a quiet machine.**
 - **Test layout:** tests move into packages/*/test, with their mutate and fallow paths and the docs.
-- **RDS IAM** against a real RDS.
 - **The worlds' page:anchored feature (WCOVER, 2026-11-10):** WCOVER-01 compares anchored pages but requires no feature
   that reaches one. With page:anchored required, isolation reads at TEST_SEED=3971498375 held a led case past its hang
   limit: both reads leads take every required feature, and a pending one keeps directTransaction's afterBegin
