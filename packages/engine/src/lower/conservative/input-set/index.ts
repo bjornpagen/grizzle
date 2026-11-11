@@ -9,7 +9,8 @@ import {
 	type Lowerers,
 	type NodeLowerer,
 	nodeLabel,
-	relationColumns
+	relationColumns,
+	unchecked
 } from "#compiler/lower/conservative/context.ts"
 import type { ArraySlot, RelationColumn } from "#compiler/lower/conservative/types.ts"
 import type { Expr, FromSource } from "#compiler/sql/ast.ts"
@@ -96,7 +97,10 @@ const arraysOf = (
 		relationColumns(
 			node.heading,
 			() => cx.supply.column(origin),
-			(type) => cx.baseTypeRef(type)
+			(type) => cx.baseTypeRef(type),
+			input.kind === "declared"
+				? (column) => cx.arrayCheck(column.type, input.param, column.name)
+				: unchecked
 		)
 	)
 	const alias = cx.relationAlias(origin)
@@ -114,7 +118,8 @@ const rowSource = (node: NodeOf<"InputSet">, cx: LowerContext): InputSource => {
 	const columns = relationColumns(
 		node.heading,
 		() => cx.supply.column(origin),
-		(type) => cx.baseTypeRef(type)
+		(type) => cx.baseTypeRef(type),
+		unchecked
 	)
 	const alias = cx.relationAlias(origin)
 	return {

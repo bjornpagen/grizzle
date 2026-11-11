@@ -720,6 +720,17 @@ export interface IdentityValue {
  */
 export type KeyColumnName = string | Identity<"lawColumn">
 
+/**
+ * Where a parameter's value of a pattern stands: a scalar parameter, or a field of a relation parameter's facts.
+ */
+export type ParamPlace =
+	| { readonly kind: "scalar"; readonly param: string }
+	| { readonly kind: "field"; readonly param: string; readonly field: string }
+
+/** A parameter place as a refusal names it: the parameter, or `<parameter>.<field>`. */
+export const paramPlaceText = (place: ParamPlace): string =>
+	place.kind === "scalar" ? place.param : `${place.param}.${place.field}`
+
 /** A side of a foreign key: its relation and its columns in order. */
 export interface KeySide {
 	readonly relation: string
@@ -974,6 +985,23 @@ export const identity = Object.freeze({
 	/** A structural text domain, by the digest of its physical definition alone: equal definitions share it. */
 	textDomain: (definition: DomainDigest): Identity<"textDomain"> =>
 		mint("textDomain", [definition], ["text"], `text domain of definition ${definition}`, hashed),
+	/**
+	 * The pattern domain of a declared parameter, by the parameter's place, its name and, for a relation parameter's
+	 * field, the field's, and the digest of its pattern's physical definition: a placeholder of the parameter is cast to
+	 * it, so a refusal by it names exactly the parameter and its pattern, whatever stored field shares the pattern.
+	 */
+	paramDomain: (place: ParamPlace, definition: DomainDigest): Identity<"paramDomain"> =>
+		mint(
+			"paramDomain",
+			place.kind === "scalar"
+				? [place.kind, place.param, definition]
+				: [place.kind, place.param, place.field, definition],
+			place.kind === "scalar"
+				? ["param", ...nameSegments(place.param)]
+				: ["param", ...nameSegments(place.param), ...nameSegments(place.field)],
+			`pattern domain of parameter ${paramPlaceText(place)} of definition ${definition}`,
+			hashed
+		),
 	sequence: (relation: string, field: string): Identity<"sequence"> =>
 		mint(
 			"sequence",
@@ -1064,7 +1092,9 @@ export const identity = Object.freeze({
 		),
 	/** A contract's, text domain's, roster's or set's domain's CHECK, `check` in its domain's constraint namespace. */
 	domainCheck: (
-		domain: Identity<"contractDomain" | "textDomain" | "rosterDomain" | "bitsDomain">
+		domain: Identity<
+			"contractDomain" | "textDomain" | "paramDomain" | "rosterDomain" | "bitsDomain"
+		>
 	): Identity<"domainCheck"> =>
 		mint(
 			"domainCheck",

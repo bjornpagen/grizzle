@@ -70,8 +70,9 @@ import { codesOf, compiled, cs, parsedOf } from "#test/unit/write/changeset/fixt
  * Features: two and three strata, a Stream member, a refusal by a key and by a key two generated additions share, two
  * deletions at one key normalized, a later stratum restating an earlier one's key; each planted fault.
  *
- * Plants (~/.cache/grizzle-release/BR02/plants): normalize-deletions-unnetted, normalize-extra-field-admitted,
- * normalize-deletions-keyed (two deletions at one key refused by that key).
+ * Plants (~/.cache/grizzle-release/BR02/plants): normalize-deletions-unnetted, normalize-extra-field-admitted; and
+ * (~/.cache/grizzle-release/LIVE-PARSE/plants) normalize-deletions-keyed (two deletions at one key refused by that
+ * key).
  */
 const Pair = relation("Pair", { k: pg.integer, v: pg.integer, c: pg.integer }, ["k"])
 const Gen = relation("Gen", { id: pg.bigserial, k: pg.integer, w: pg.integer }, ["id"])

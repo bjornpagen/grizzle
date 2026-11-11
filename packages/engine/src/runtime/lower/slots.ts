@@ -23,7 +23,6 @@ import type {
 	SlotColumn,
 	WriteParamSlot
 } from "#compiler/lower/conservative/types.ts"
-import type { PatternReads } from "#compiler/scalar/regex/patterns.ts"
 
 /** The spec of a relation input's placeholders over `columns` under the installation's codes, its refusals naming
  * `label`. */
@@ -47,7 +46,7 @@ export const partIndex = (part: ArrayPart): number => (part.kind === "column" ? 
  * array at its part of the parameter's input, normalized once per execution.
  */
 export const declaredSlotOf =
-	(codes: Codebook, patterns: PatternReads) =>
+	(codes: Codebook) =>
 	(
 		slot: ServedSlot<DeclaredParamSlot>
 	): Extract<ParamSlot, { readonly kind: "scalar" | "relation" }> => {
@@ -56,7 +55,7 @@ export const declaredSlotOf =
 				return {
 					kind: "scalar",
 					param: slot.param,
-					encode: paramEncoder(slot.type, slot.param, codes, patterns)
+					encode: paramEncoder(slot.type, slot.param, codes)
 				}
 			case "relation":
 				return {
@@ -94,7 +93,7 @@ const pageSlotOf = (slot: PageParamSlot): Extract<ParamSlot, { readonly kind: "p
 /** What fills a write statement's placeholder under the installation's codes: a declared parameter's or a member
  * slot's, with its encoder, or a column of a stratum's nested rows, which the binding encodes. */
 export const writeSlotOf =
-	(codes: Codebook, patterns: PatternReads) =>
+	(codes: Codebook) =>
 	(slot: ServedSlot<WriteParamSlot>): WriteSlot => {
 		switch (slot.kind) {
 			case "member":
@@ -108,13 +107,13 @@ export const writeSlotOf =
 				}
 			case "scalar":
 			case "relation":
-				return declaredSlotOf(codes, patterns)(slot)
+				return declaredSlotOf(codes)(slot)
 		}
 	}
 
 /** What fills a page statement's placeholder under the installation's codes: a declared parameter's, with its
  * encoder, or a page fill. */
 export const pageStatementSlotOf =
-	(codes: Codebook, patterns: PatternReads) =>
+	(codes: Codebook) =>
 	(slot: PageStatementSlot): ParamSlot =>
-		slot.kind === "page" ? pageSlotOf(slot) : declaredSlotOf(codes, patterns)(slot)
+		slot.kind === "page" ? pageSlotOf(slot) : declaredSlotOf(codes)(slot)

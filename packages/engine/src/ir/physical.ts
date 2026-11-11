@@ -1,4 +1,4 @@
-import type { DeclaredName } from "#compiler/core/identity.ts"
+import type { DeclaredName, ParamPlace } from "#compiler/core/identity.ts"
 import type { ColumnIdent, DomainName, RelationIdent } from "#compiler/core/ids.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { int8ExactDigits } from "#compiler/ir/carriers.ts"
@@ -59,6 +59,16 @@ export interface PhysicalNames {
 	readonly textDomain: (
 		regex: RegexRef
 	) => { readonly schema: TypeSchema; readonly name: DomainName } | undefined
+	/**
+	 * The pattern domain of a declared parameter's place over `regex`: the naming door's (core/identity.ts
+	 * identity.paramDomain), by the place and the digest of the pattern's definition, which every placeholder of the
+	 * parameter is cast to, so PostgreSQL checks its value against the pattern as it binds it and a refusal names the
+	 * parameter. The installation creates it for every pattern its served workload's parameters name.
+	 */
+	readonly paramDomain: (
+		place: ParamPlace,
+		regex: RegexRef
+	) => { readonly schema: TypeSchema; readonly name: DomainName }
 	/** The schema the vector extension lives in (`vector_ext` on the local cluster), the schema of its vector type. */
 	readonly vectorSchema: TypeSchema
 	/**

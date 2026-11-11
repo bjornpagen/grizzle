@@ -1,9 +1,19 @@
 import { Effect, Queue, type Result, Stream } from "effect"
 import { type ServedDbContext, dbReadFrame } from "#adapter/db/context.ts"
 import { type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
-import type { InputTooLarge, UnreadableAnswer } from "#adapter/errors/failures.ts"
+import {
+	type InputTooLarge,
+	LawRejected,
+	ParamRejected,
+	type UnreadableAnswer
+} from "#adapter/errors/failures.ts"
 import { callErrorOf } from "#adapter/live/call-error.ts"
-import { asReadFailure, type PreparedStatement, runFramed } from "#adapter/wire/batch.ts"
+import {
+	asReadFailure,
+	type FlightFailure,
+	type PreparedStatement,
+	runFramed
+} from "#adapter/wire/batch.ts"
 import {
 	type CallError,
 	type KeyFields,
@@ -89,11 +99,35 @@ export const listEvents: ShapeEvents<ListEvent<DecodedRow>> = {
 }
 
 /**
+ * How a read surfaces its flight's failure (wire/batch.ts asReadFailure), the server's refusal by a domain the statement
+ * cast a value to read as what it refused (db/context.ts domain): a parameter's value outside its pattern as
+ * ParamRejected, a value a contract's or a pattern's domain refuses as LawRejected with the laws it discharges.
+ */
+const readFailureOf =
+	(ctx: Pick<ServedDbContext, "domain">) =>
+	(failure: FlightFailure): ReadError => {
+		const error = asReadFailure(failure)
+		if (error._tag !== "ReadFailure" || error.reason._tag !== "ServerError") {
+			return error
+		}
+		const refusal = ctx.domain(error.reason)
+		if (refusal === undefined) {
+			return error
+		}
+		return new ReadFailure({
+			reason:
+				refusal.kind === "param"
+					? new ParamRejected({ param: refusal.param, patterns: refusal.patterns })
+					: new LawRejected({ refused: refusal.refused })
+		})
+	}
+
+/**
  * The call's one flight on a session of the Db's pool, every delivered Row handed to `emit` as it is whole: the lease,
  * the statement, the flight in the Db's read frame, then the intake's end.
  */
 const runRead = (
-	ctx: Pick<ServedDbContext, "pool" | "prologue">,
+	ctx: Pick<ServedDbContext, "pool" | "prologue" | "domain">,
 	call: ReadCall,
 	emit: (row: Row) => void
 ): Effect.Effect<void, ReadError> =>
@@ -109,7 +143,7 @@ const runRead = (
 			)
 			yield* Effect.mapError(
 				runFramed(session, dbReadFrame(ctx), [opened.statement]),
-				asReadFailure
+				readFailureOf(ctx)
 			)
 			return yield* Effect.mapError(
 				Effect.fromResult(opened.end()),
@@ -120,7 +154,7 @@ const runRead = (
 
 /** The events of one read call through the Db's frame, each made by its shape's `events` (see the header). */
 export const readStream = <E>(
-	ctx: Pick<ServedDbContext, "pool" | "prologue">,
+	ctx: Pick<ServedDbContext, "pool" | "prologue" | "domain">,
 	call: ReadCall,
 	events: ShapeEvents<E>
 ): Stream.Stream<E> =>

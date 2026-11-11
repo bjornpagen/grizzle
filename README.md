@@ -1611,6 +1611,14 @@ schema.
 `pg.float(p)` is real for p up to 24 and double precision up to 53. `pg.int4`, `pg.float8`, `pg.decimal` and
 PostgreSQL's other spellings are the same fields.
 
+- **A value is parsed exactly, once.** Every value you pass, a fact's field, a parameter or a page's boundary, is read
+  as its field's type and never altered: a `Decimal` with more fractional digits than its `pg.numeric(p, s)` holds is
+  an `EncodingFailure` (`numericScale`), never rounded, so `1.005` at scale 2 is refused where PostgreSQL would store
+  `1.01`; a `number` for `pg.real` must be a binary32 value as it is, `Math.fround(x) === x`, or it is an
+  `EncodingFailure` (`realInexact`), never rounded to the nearest one. A uuid's case and a float's `-0` are spellings of
+  one value, and nothing else is changed. Everything else a field's type says, its pattern and contract, is
+  PostgreSQL's to check ([Errors and outcomes](#errors-and-outcomes)).
+
 - **Contracts.** `Cents(500n)` brands a value without checking it; the database checks it on every write. A fourth
   argument, `{ proves: [...] }`, declares facts the check implies ([Queries](#queries)).
 - **`natural`** is the builtin contract over `pg.bigint`, unbranded: a count, and the one type a rule's `pred` reads
@@ -2321,7 +2329,7 @@ Rows are typed from the query: `commentsPerAuthor` gives `{ author: string; comm
 - **A JavaScript value takes the type of what it meets:** its column, the term it is compared with, the field a write puts it in, or the type the query's other rules give its field. Meeting nothing, a string is text, a safe integer an integer, a bigint a bigint, a `Decimal` a numeric, a `Money` money and a boolean a boolean; any other value is refused. It never stands first in a comparison, and a list such as `r.inSet`'s holds only JavaScript values. Opposite a term, at a column, for a parameter or in a fact, it is a value of its type: in a pattern's language, a uuid's hyphenated spelling, a roster's names, so `"abc"` at a uuid column is a type error, and so is a plain `string` until `Uuid.parse` reads it.
 - **A typed term states its type** and stands wherever such a term does. `Status.handle("Published")` is a member of the `Status` roster, and `Compute.literal(F, x)` is `x` at the type of any other descriptor `F`. A head keeps a handle's member, so `find({ status: Status.handle("Published") })` delivers `status: "Published"`; `Compute.literal` delivers F's type.
 - **Terms that meet have one type:** one SQL type, one contract and one roster. A text term never meets a uuid column, and two rosters of the same members never meet. Texts of any two patterns meet: a pattern is no part of a text's type. The rules of one query deliver each field they share at one type.
-- **A value is only its value**, the same under every plan. A `Decimal` has no display scale: `1`, `1.0` and `1.00` are one value, delivered as `1`, and a `pg.numeric(10, 2)` field rounds what it stores to two places but delivers `12.5`, not `12.50`. `new Intl.NumberFormat(undefined, { minimumFractionDigits: 2 }).format(d.toString())` prints it at the field's scale, exactly. A float's zero is `0`, never `-0`. A numeric quotient, power, square root or mean is PostgreSQL's for the values alone, as if no operand had trailing zeros: `Compute.div(x, 3n)` is the same number whatever scale `x` was stored at.
+- **A value is only its value**, the same under every plan. A `Decimal` has no display scale: `1`, `1.0` and `1.00` are one value, delivered as `1`, and a `pg.numeric(10, 2)` field holds at most two places, refusing a value of more rather than rounding it, and delivers `12.5`, not `12.50`. `new Intl.NumberFormat(undefined, { minimumFractionDigits: 2 }).format(d.toString())` prints it at the field's scale, exactly. A float's zero is `0`, never `-0`. A numeric quotient, power, square root or mean is PostgreSQL's for the values alone, as if no operand had trailing zeros: `Compute.div(x, 3n)` is the same number whatever scale `x` was stored at.
 - **Float and money sums are exact.** A sum of `real` or `double precision` values is their exact total rounded once to the result type, and of `Money` values their exact total; a mean of floats is that total over the count, rounded once. The same rows give the same sum in any order, under any plan.
 - **Every answer is a function of the facts**, but for two exceptions, both pgvector's. `.approximateNearest` returns candidates from pgvector's index: which rows, and how many, depend on the index and the database owner's pgvector settings too. grizzle pins only `hnsw.iterative_scan = strict_order`, which keeps the candidates and their cursors in exact distance order; `hnsw.ef_search`, `hnsw.max_scan_tuples` and `hnsw.scan_mem_multiplier` are the owner's, and a scan that reaches their bounds returns fewer rows than asked. `Compute.cosineDistance` is pgvector's own float arithmetic: one server gives the same result for the same vectors on every evaluation, but pgvector builds or CPUs may differ in the last place.
 - **No read fails on a value.** Every Compute operation is defined on every value its operands' types admit, or its precondition is proved where it stands, so no query, role view or check raises an arithmetic error on any row.
@@ -2875,8 +2883,22 @@ ChangeSet or an ordered one, could be new or a stored one you insert again, whic
 names it only where it is the one row of the refused statement that can break the rule, and where two such rows can,
 the witness is `unreported`.
 
+**The parse, then PostgreSQL.** grizzle checks nothing on the host that PostgreSQL enforces. A value is parsed once, as
+its field's or parameter's type exactly ([Tables and types](#tables-and-types)), and a value no such type holds is an
+`EncodingFailure` before any SQL. Every law over the values is PostgreSQL's: keys, containments, checks, contracts,
+patterns and rosters, each refusal classified into the typed outcome or error below, one round trip in, never an
+earlier refusal of the host's. The one rule the host judges is a relation's rows as a set: two rows one stratum adds at
+one key that differ elsewhere are `invariant-rejected` on that key before any SQL, since the input is no set of its
+facts.
+
 **Contracts and patterns.** The encoder checks only the base type, so a value its contract or pattern refuses is refused
-by its domain's CHECK as the statement casts it, before the row's constraints and row-level security. The outcome names
+by its domain's CHECK as the statement casts it, before the row's constraints and row-level security. A parameter's
+value is cast as PostgreSQL binds it, to its contract's domain or to its own pattern domain, one per parameter and
+pattern, which `grizzle generate` installs for every pattern a served parameter names: a value outside them is refused
+there, before the statement reads a row. A contract's refusal of a parameter is a write's `invariant-rejected` on the
+contract's law, its witness `unreported`, and a read's `ReadFailure` with reason `LawRejected`; a pattern's refusal of a
+parameter is `ParamRejected`, naming the parameter, `<parameter>.<field>` for a field of a relation parameter's facts,
+and its pattern, a write's `ExecutionFailure` and a read's `ReadFailure`, both at stage `execute`. The outcome names
 the contract's rule or the field's pattern rule. Fields of one pattern share a domain, as do fields whose patterns
 grizzle proves match the same texts, and PostgreSQL reports the domain, never the column, so grizzle judges the row on
 the host to name the field, its rule spelled as that field spells its patterns:
@@ -3001,15 +3023,19 @@ throws `CompileError` for a rule that is no check of the schema.
 
 | Stage                 | Reason                                                                                                                 |
 | --------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `execute`, `resource` | the server's `ServerError` (`resource` for 53200 and 54001); `TemporaryRefused` (`execute`), from a ChangeSet member's `explain` |
+| `execute`, `resource` | the server's `ServerError` (`resource` for 53200 and 54001); `LawRejected` (`execute`), `refused` the laws a contract's or a pattern's domain discharges, which refused a value a statement cast to it, a parameter's among them; `ParamRejected` (`execute`), a parameter's value outside its pattern; `TemporaryRefused` (`execute`), from a ChangeSet member's `explain` |
 | `acquire`             | `CredentialError`; `TlsRefused`; `StartupRefused`, with the server's report; `ConnectTimedOut`, `SocketFailed`, `ConnectionClosed`, `DriverRefused`, `NoCancelKey`; `LayerReleased`, a layer whose scope has closed; `HandleReleased`, a `db.compile` handle used after its `Scope` ended |
 | `transport`           | `ConnectionLost`, `CommitLost`                                                                                         |
 | `driver`              | `DriverFailure`                                                                                                        |
 | `decode`              | `UnreadableAnswer`: rows grizzle cannot read, or rows its compiled proof says the query cannot deliver                 |
-| before any SQL        | `CompileError` (`compile`), `EncodingFailure` or `LawRejected` (`encode`), `InputTooLarge` (`resource`), `PageRequestRefused` (`request`) |
+| before any SQL        | `CompileError` (`compile`), `EncodingFailure` or `InputRejected` (`encode`), `InputTooLarge` (`resource`), `PageRequestRefused` (`request`) |
 
 **`TransportFailure`**: a connection's or the pool's refusal, `HandleReleased`, `ConnectionLost` or `DriverFailure`.
-**`ExecutionFailure`**: `ServerError`, `CompileError`, `InputTooLarge`, `TemporaryRefused` or `UnreadableAnswer`.
+**`ExecutionFailure`**: `ServerError`, `ParamRejected`, `CompileError`, `InputTooLarge`, `TemporaryRefused` or `UnreadableAnswer`.
+
+**`InputRejected`** is a ChangeSet member's `explain` of a call whose apply would be `invariant-rejected` before any
+SQL, by two rows one stratum adds at one key, or a nested row's generated field with no value: its `refused` and
+`witness` are that outcome's.
 
 **`TemporaryRefused`**: the write creates a temporary table, a carrier of its own or one its nested rows past one Bind
 message travel through, and the role holds no `TEMPORARY` privilege on the database, which `privilege` names; `error`
@@ -3064,8 +3090,9 @@ creates one, and `grizzle drift` reports a grant revoked since.
 | `UndeclaredDrop`                                | the name a migration would drop, which no `--drop` or `--rename` declares                                |
 | `MissingDiscriminant`, `AttachedParentUnbound`, `AttachedPage`, `DescribedHeadingMismatch`, `ContractLiteral` | a `capability` sentence |
 
-**`EncodingFailure`**'s reason is its codec's fault word, never the value; its `place` is the `Slot` the value fills,
-by `name`, or a whole `Fact`. **`CursorError`**'s reason is its cursor fault word.
+**`EncodingFailure`**'s reason is its codec's fault word, never the value, the word of the exact parse that refused it:
+`numericScale` for a `Decimal` past its field's scale and `realInexact` for a `number` no binary32 value is among them;
+its `place` is the `Slot` the value fills, by `name`, or a whole `Fact`. **`CursorError`**'s reason is its cursor fault word.
 
 </details>
 
@@ -3478,7 +3505,7 @@ grizzle fits applications that own their data end to end, with rules worth decla
   and colors. grizzle sets no time budget.
 - **The depth limit rests on `max_stack_depth` at its default, 2MB**, a superuser's setting: `grizzle migrate` refuses
   a server set lower at stage `server`.
-- **A parameter is checked against its contract and pattern at bind**, before any SQL (`EncodingFailure`, `refinedValue`), so a query delivers a parameter's value, or a relation parameter's field, as bound, whatever its pattern. A computed value not proved inside its pattern goes through the pattern's domain, which exists only for a pattern the installation declares: on a stored field, a closed relation's field, a derived table's column, a role's view column or a context field. Any other is `UnsupportedOperation` when the query compiles, naming the pattern.
+- **A parameter is checked against its contract and pattern by PostgreSQL as it binds it**, its placeholder cast to its contract's domain or its own pattern domain, which `grizzle generate` installs for every pattern a served parameter names, so a query delivers a parameter's value, or a relation parameter's field, as bound. A refusal there is one round trip in, not before any SQL. A computed value not proved inside its pattern goes through the pattern's domain, which exists only for a pattern the installation declares: on a stored field, a closed relation's field, a derived table's column, a role's view column or a context field. Any other is `UnsupportedOperation` when the query compiles, naming the pattern.
 - **PostgreSQL keeps a backend's last 32 compiled regular expressions** (`MAX_CACHED_RES`), so rows that cycle through a dictionary of more patterns compile one per row. On 19rc1 (an Apple M-series laptop under load; 200,000 rows; dictionaries of 1 to 178 patterns; median of three runs) a row costs 1.4 to 4.9 µs grouped by pattern or cycling through 32 patterns or fewer, and 80 to 102 µs cycling through 33, 64 or 178; the CASE that reads each source's translation adds about 1 µs a row at 178. Order bulk reads and writes by pattern where you can.
 - **A concatenation is at most 1 GB** (`MaxAllocSize`). A write whose check or generated field concatenates more with `Compute.concat` fails with "invalid memory alloc request size". No query concatenates, and folds and equations never build theirs.
 - **A translation or a regex reads at most 268,435,454 bytes**, four bytes per byte within `MaxAllocSize`. Past it, a write's check or generated field that translates fails with "requested length too large" (54000), and a check, selection or generated field that matches, a `str.regex` field's domain CHECK included, with "invalid memory alloc request size". A query translates or matches only a text its pattern bounds within the limit.

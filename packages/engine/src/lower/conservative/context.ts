@@ -1,5 +1,6 @@
 import { Refusal } from "#compiler/core/canonical.ts"
 import { CompileError, type ProseTag, prose } from "#compiler/core/errors.ts"
+import type { ParamPlace } from "#compiler/core/identity.ts"
 import type { NodeId, ParamId, StoredRelationName } from "#compiler/core/ids.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -12,6 +13,7 @@ import { baseTypeRef as physicalBaseType, type PhysicalNames } from "#compiler/i
 import {
 	exprsOf,
 	type Heading,
+	type HeadingColumn,
 	inputsOf,
 	type NodeOf,
 	type RelKind,
@@ -37,6 +39,7 @@ import type {
 import { columnType, namedColumn } from "#compiler/runtime/lower/columns.ts"
 import { unitColumn } from "#compiler/runtime/lower/tree.ts"
 import type {
+	ArrayCheck,
 	ArraysSource,
 	Cte,
 	Expr,
@@ -48,6 +51,7 @@ import type {
 	TypeRef
 } from "#compiler/sql/ast.ts"
 import {
+	baseCheck,
 	col,
 	columnDefinition,
 	conjunction,
@@ -130,18 +134,24 @@ export const queryInputs = (node: RelNode): ReadonlyArray<RelNode> =>
 
 /**
  * The columns of a relation input of `heading`, each traveling as the array column `key` allocates (a membership's row
- * as a VALUES column of that name), of its base type `base` gives.
+ * as a VALUES column of that name), of its base type `base` gives, its array checked as `check` gives (sql/ast.ts
+ * ArrayCheck): a declared relation parameter's refined column through its domain, every other by its base type alone.
  */
 export const relationColumns = (
 	heading: Heading,
 	key: () => string,
-	base: (type: ScalarType) => TypeRef
+	base: (type: ScalarType) => TypeRef,
+	check: (column: HeadingColumn) => ArrayCheck
 ): ReadonlyArray<RelationColumn> =>
 	heading.map((c) => ({
 		name: c.name,
 		type: c.type,
-		definition: columnDefinition(key(), base(c.type))
+		definition: columnDefinition(key(), base(c.type)),
+		check: check(c)
 	}))
+
+/** No array a member slot, a carrier or a membership row travels as is checked beyond its base type. */
+export const unchecked = (): ArrayCheck => baseCheck
 
 /**
  * The arrays one relation input over `columns` travels as, in placeholder order: one per column, or, for an input of no
@@ -166,6 +176,7 @@ export const arraysSource = (slots: NonEmptyReadonlyArray<ArraySlot>): ArraysSou
 		ordinal: undefined,
 		columns: mapNonEmpty(columns, (column, index) => ({
 			definition: column.definition,
+			check: column.check,
 			array: positionalValue(
 				defined(slots[index], `the placeholder of column ${index} of a relation input`).number
 			)
@@ -208,13 +219,6 @@ export class StatementParams<in out Own extends OwnParamSlot> {
 		return mapNonEmpty(arrayParts(columns), (part) =>
 			this.#allocate((number) => make(number, part))
 		)
-	}
-
-	/** The scalar slot `slot` cast as `sqlType` in place of the type its first use gave it, at its number. */
-	retype(slot: ScalarParamSlot, sqlType: TypeRef): ScalarParamSlot {
-		const retyped = { ...slot, sqlType }
-		this.#slots[slot.number - 1] = retyped
-		return retyped
 	}
 
 	/**
@@ -341,7 +345,6 @@ export class WriteParams extends StatementParams<MemberParamSlot | NestedRowsPar
  */
 export interface Placeholders {
 	readonly slots: ReadonlyArray<ConservativeParamSlot>
-	readonly retype: (slot: ScalarParamSlot, sqlType: TypeRef) => ScalarParamSlot
 	readonly scalar: (param: ParamId, type: ScalarType, sqlType: TypeRef) => Expr
 	readonly relation: (
 		param: ParamId,
@@ -773,13 +776,43 @@ export class LowerContext {
 	}
 
 	/**
-	 * The type a declared parameter's placeholder of `t` carries: its refinement's domain where the installation names
-	 * one, and otherwise, for a text pattern no stored field declares, its base. Every value of a declared parameter is
-	 * checked against its refinements at bind (codec/scalar.ts refinedMember), so its refinement travels with it.
+	 * The type a declared parameter's value of `t` at `place` is cast to as its placeholder is bound: a contract's domain,
+	 * a pattern's the parameter's own pattern domain (ir/physical.ts paramDomain), and otherwise its base. PostgreSQL
+	 * checks the value against the refinement as it binds it, before any row is read, and nothing on the host does, so
+	 * its refinement travels with it and a refusal names its law or its parameter.
 	 */
-	paramTypeRef(t: ScalarType): TypeRef {
-		const p = this.physicalType(t)
-		return p.kind === "type" ? p.ref : this.baseTypeRef(t)
+	paramTypeRef(t: ScalarType, place: ParamPlace): TypeRef {
+		const regex = paramPattern(t)
+		if (regex === undefined) {
+			const p = this.physicalType(t)
+			return p.kind === "type" ? p.ref : this.baseTypeRef(t)
+		}
+		const domain = this.names.paramDomain(place, regex)
+		return { kind: "named", schema: domain.schema, name: domain.name, typmod: [], array: false }
+	}
+
+	/**
+	 * The placeholder of the declared scalar parameter `param`, read as a value of `type`: cast to the type its declared
+	 * type's values are checked against as they are bound (paramTypeRef), whatever type the expression reading it has,
+	 * so every placeholder of a refined parameter is checked by PostgreSQL; an undeclared one is a malformed description.
+	 */
+	scalarParam(param: ParamId, type: ScalarType, at: string): Expr {
+		for (const p of this.options.params) {
+			if (p.id === param && p.kind === "scalar") {
+				return this.params.scalar(param, type, this.paramTypeRef(p.type, { kind: "scalar", param }))
+			}
+		}
+		return refuse("MalformedDescription", at, `a declared scalar parameter ${param}`)
+	}
+
+	/**
+	 * What checks a declared relation parameter's array of `t` at `field` as it is bound (sql/ast.ts ArrayCheck): its
+	 * refinement's domain, the one `paramTypeRef` casts a scalar parameter to, through which the array is cast before its
+	 * base type, so PostgreSQL checks every element; nothing beyond its base type for an unrefined one.
+	 */
+	arrayCheck(t: ScalarType, param: string, field: string): ArrayCheck {
+		const domain = this.paramTypeRef(t, { kind: "field", param, field })
+		return sameTypeRef(domain, this.baseTypeRef(t)) ? baseCheck : { kind: "domain", domain }
 	}
 
 	/**
@@ -812,6 +845,12 @@ export class LowerContext {
 		return bound.kind === "literal" ? lit.int(bound.k, types.bigint) : this.boundParam(bound)
 	}
 }
+
+/** The pattern a declared parameter's own pattern domain checks of a value of `t`: refined text outside any contract. */
+const paramPattern = (t: ScalarType): RegexRef | undefined =>
+	contractOf(t) === undefined && t.carrier === "text" && t.text.regex !== "wildcard"
+		? t.text.regex
+		: undefined
 
 /**
  * The PostgreSQL type of a value of `t`: a contract's domain, a regex refinement's __text_ domain, an extension's

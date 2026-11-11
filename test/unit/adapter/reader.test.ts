@@ -31,8 +31,7 @@ import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
-import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
-import { columnDefinition, types } from "#compiler/sql/build.ts"
+import { baseCheck, columnDefinition, types } from "#compiler/sql/build.ts"
 import type { ParamValue } from "#compiler/types/core/phantom.ts"
 import { readArrayLiteral } from "#test/support/arrays.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
@@ -210,13 +209,10 @@ describe("every declared parameter admitted at the read boundary", () => {
 									: "a parameter only an eliminated rule reads"
 							)
 							const valid = { p: kind.valid, q: 3 }
-							const refused = executionInputs(
-								paramCodecs(template.params, pinnedCodes, new CompilePatterns()),
-								{
-									...valid,
-									p: wrong
-								}
-							)
+							const refused = executionInputs(paramCodecs(template.params, pinnedCodes), {
+								...valid,
+								p: wrong
+							})
 							assert.ok(
 								Result.isFailure(refused),
 								`p declared ${kind.field}, given a value of another host type, is admitted`
@@ -229,10 +225,7 @@ describe("every declared parameter admitted at the read boundary", () => {
 							 * A valid value is admitted, and every declared scalar parameter is encoded, the eliminated one too.
 							 */
 							const admitted = Result.getOrThrow(
-								executionInputs(
-									paramCodecs(template.params, pinnedCodes, new CompilePatterns()),
-									valid
-								)
+								executionInputs(paramCodecs(template.params, pinnedCodes), valid)
 							)
 							assert.deepEqual(
 								new Set(admitted.scalars.keys()),
@@ -466,7 +459,8 @@ const refusedSlot = (c: InputCase): string | undefined => {
 const slotColumn = (name: string, column: string): RelationColumn => ({
 	name,
 	type: uuid,
-	definition: columnDefinition(column, types.uuid)
+	definition: columnDefinition(column, types.uuid),
+	check: baseCheck
 })
 
 type InputFeature =
@@ -541,10 +535,7 @@ describe("a read's relation input", () => {
 									: Effect.succeed({ ids: value.value, account })
 							)
 							const prepared = Exit.isSuccess(host)
-								? executionInputs(
-										paramCodecs(declared, emptyCodebook, new CompilePatterns()),
-										host.value
-									)
+								? executionInputs(paramCodecs(declared, emptyCodebook), host.value)
 								: undefined
 							if (c.fault.kind !== "no iterable") {
 								k.note(c.delivery)

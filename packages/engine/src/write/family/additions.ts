@@ -52,7 +52,12 @@ import type { FillColumn } from "#compiler/ir/fill.ts"
 import { familyKey, type LawField, type NativeColumn, type RelationInfo } from "#compiler/ir/law.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
-import { arraysSource, relationColumns, WriteParams } from "#compiler/lower/conservative/context.ts"
+import {
+	arraysSource,
+	relationColumns,
+	unchecked,
+	WriteParams
+} from "#compiler/lower/conservative/context.ts"
 import { lowerLiteral } from "#compiler/lower/conservative/expr/index.ts"
 import { type ColumnKey, columnKey, fieldKey } from "#compiler/runtime/write/fill.ts"
 import type { Assignment, Cte, Expr, FromItem, JoinStep, SetArm } from "#compiler/sql/ast.ts"
@@ -530,7 +535,8 @@ const nestedRowsOf = (
 			relationColumns(
 				columns.map((c) => ({ name: c.key, type: c.type })),
 				() => supply.column(origin),
-				(t) => w.cx.baseTypeRef(t)
+				(t) => w.cx.baseTypeRef(t),
+				unchecked
 			),
 		`a family write of ${relation.name}'s nested rows`
 	)

@@ -51,7 +51,7 @@ import { addSpanStorage } from "#compiler/physical/span/storage.ts"
 import { planStatistics, type StatisticsRequest } from "#compiler/physical/statistics/statistics.ts"
 import { type Owned, ownedIdentities, rostersOf } from "#compiler/schema/own.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
-import type { SqlStatement } from "#compiler/sql/ast.ts"
+import type { ObjectName, SqlStatement } from "#compiler/sql/ast.ts"
 
 /** The settings the installation runs under (`InstallSettings`: the owner a fresh-install script names, undefined for
  * a migration; the PostgreSQL schema; the vector extension's and btree_gist's schemas; the logins over the schema), the
@@ -380,6 +380,7 @@ export const installationOver = (
 				addSpanStorage(b, plan.spans)
 
 				const claimedDerived = new Set<string>()
+				const extensionDomains: Array<ObjectName> = []
 				const extensionRequests: Array<IndexRequest> = []
 				const statisticsRequests: Array<StatisticsRequest> = []
 				for (const extension of new Set([refinedConstantsExtension, ...options.extensions])) {
@@ -388,6 +389,7 @@ export const installationOver = (
 						throw new Refusal(contribution.error)
 					}
 					const c = contribution.value
+					appendAll(extensionDomains, c.domains)
 					appendAll(extensionRequests, c.indexRequests)
 					appendAll(statisticsRequests, c.statisticsRequests)
 					for (const d of c.derivedRelations) {
@@ -407,7 +409,7 @@ export const installationOver = (
 				const worlds = addWorlds(
 					b,
 					advance,
-					{ tables, sequences, domains },
+					{ tables, sequences, domains: [...domains, ...extensionDomains] },
 					plan.logins,
 					statedOnce(
 						installedRoles(plan),

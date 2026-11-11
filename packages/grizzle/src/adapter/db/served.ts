@@ -143,7 +143,8 @@ export const servedContext = (
 			expiry: claims.expiry,
 			subscriptions: held.sessions.subscriptions,
 			pool: held.sessions.pool,
-			isolation: held.role.isolation
+			isolation: held.role.isolation,
+			domain: held.role.domain
 		}
 	})
 

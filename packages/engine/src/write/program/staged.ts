@@ -188,7 +188,8 @@ const fillOf = (source: StagedSource): Insert => {
 	const alias = source.item.alias
 	const columns = mapNonEmpty(source.columns, (c, i) => ({
 		definition: c.definition,
-		array: positionalValue(i + 1)
+		array: positionalValue(i + 1),
+		check: c.check
 	}))
 	return {
 		kind: "insert",

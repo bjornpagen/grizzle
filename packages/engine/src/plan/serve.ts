@@ -78,6 +78,7 @@ export {
 	type ServedPageProbe,
 	type ServedPageRequest,
 	type ServedPageProgram,
+	type ServedParamDomain,
 	servedPath,
 	type ServedPrologue,
 	type ServedRead,

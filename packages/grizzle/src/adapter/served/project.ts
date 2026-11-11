@@ -20,6 +20,7 @@ import {
 	levelChain,
 	type LoginDesc,
 	loginStem,
+	type ParamDecl,
 	prepared,
 	raisableOf,
 	type SchemaArtifacts,
@@ -269,6 +270,7 @@ const refusalsOf = (role: LayerRole): ServedRefusals => {
 	const claims = Arr.flatMap(role.contexts, (context) =>
 		Arr.map(context.fields, (field) => field.type)
 	)
+	const params = Arr.flatMap(role.workload, memberParams)
 	return servedRefusals(
 		role.artifacts,
 		raisableOf(role.artifacts, {
@@ -276,12 +278,36 @@ const refusalsOf = (role: LayerRole): ServedRefusals => {
 				role.artifacts.owned,
 				Arr.flatMap(writes, (write) => Arr.map(write.frontend.written, (r) => r.name))
 			),
-			cast: Arr.flatMap(writes, (write) => [
-				...claims,
-				...Arr.flatMap(write.params, (param) => (param.kind === "scalar" ? [param.type] : []))
-			])
-		})
+			cast: [
+				...(writes.length === 0 ? [] : claims),
+				...Arr.flatMap(params, (param) =>
+					param.kind === "scalar" ? [param.type] : Arr.map(param.heading, (c) => c.type)
+				)
+			]
+		}),
+		params
 	)
+}
+
+/**
+ * The parameters a member declares, each of whose values PostgreSQL checks against its refinement's domain as it binds
+ * it: a read's, a page's, and every variant's of a ChangeSet; a refresh declares none.
+ */
+const memberParams = (member: WorkloadForm): ReadonlyArray<ParamDecl> => {
+	switch (member.kind) {
+		case "read":
+		case "key":
+			return member.form.bound.compiled.compiled.template.params
+		case "paged":
+			return [
+				...member.form.bound.compiled.compiled.template.params,
+				...member.form.page.compiled.template.params
+			]
+		case "change":
+			return Arr.flatMap(variantsWrites(member.variants), (write) => write.params)
+		case "refresh":
+			return []
+	}
 }
 
 /**

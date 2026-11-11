@@ -18,7 +18,7 @@ export {
 	roleExpectation,
 	type RoleExpectation
 } from "#compiler/deploy/admission/roles.ts"
-export { structuralRegex } from "#compiler/physical/ddl/domains.ts"
+export { paramDomainsOf, structuralRegex } from "#compiler/physical/ddl/domains.ts"
 export { type InstallNames, missing } from "#compiler/physical/ddl/names.ts"
 export { loginStartupOptions } from "#compiler/physical/ddl/roles.ts"
 export { refreshStatement } from "#compiler/physical/derived/objects.ts"

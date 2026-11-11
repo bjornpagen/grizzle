@@ -14,8 +14,10 @@ import {
 import { changeCall } from "#adapter/apply/collect.ts"
 import type { CompiledChange } from "#adapter/apply/compile.ts"
 import { type InputFailure, hostInputs } from "#adapter/apply/run.ts"
+import { ExecutionFailure } from "#adapter/errors/execution.ts"
+import { ParamRejected } from "#adapter/errors/failures.ts"
 import { appendAll } from "#compiler/core/array.ts"
-import { type CompileError, EncodingFailure } from "#compiler/core/errors.ts"
+import type { CompileError } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { type ReadonlyTupleSet, TupleMap } from "#compiler/core/tuple-map.ts"
 import { type FactIdentity, factIdentity } from "#compiler/scalar/values/identity.ts"
@@ -695,28 +697,31 @@ const countProblems = (
 }
 
 /**
- * The problems of an outcome against a refusal at bind: EncodingFailure refinedValue at the slot of one of `params`, a
- * scalar parameter's own slot or a field of a relation parameter's (`<param>.<field>`).
+ * The problems of an outcome against a parameter PostgreSQL refuses as it binds it: ExecutionFailure with reason
+ * ParamRejected at one of `params`, a scalar parameter or a field of a relation parameter's (`<param>.<field>`), or
+ * invariant-rejected by one of the stratum's laws `refusals`, which a statement before the parameter's met first.
  */
 const unboundProblems = (
-	params: ReadonlySet<string>,
-	outcome: Result.Result<unknown, unknown>
+	group: WGroup,
+	expected: Extract<Expected, { readonly kind: "unbound" }>,
+	outcome: Result.Result<WriteOutcome, unknown>
 ): ReadonlyArray<string> => {
-	const failure = Result.isFailure(outcome) ? outcome.failure : undefined
-	const slot =
-		failure instanceof EncodingFailure &&
-		failure.reason._tag === "refinedValue" &&
-		failure.place._tag === "Slot"
-			? failure.place.name
+	const params = [...expected.params]
+	if (Result.isSuccess(outcome)) {
+		return outcome.success.kind === "invariant-rejected" && expected.refusals.size > 0
+			? refusalProblems(group, expected.refusals, outcome.success)
+			: [`expected ParamRejected at one of ${Arr.join(params, ", ")}, got ${outcome.success.kind}`]
+	}
+	const failure = outcome.failure
+	const param =
+		failure instanceof ExecutionFailure && failure.reason instanceof ParamRejected
+			? failure.reason.param
 			: undefined
-	const refused =
-		slot !== undefined && Arr.some([...params], (p) => slot === p || Str.startsWith(`${p}.`)(slot))
-	return refused
+	return param !== undefined &&
+		Arr.some(params, (p) => param === p || Str.startsWith(`${p}.`)(param))
 		? []
 		: [
-				`expected a refusal at bind, EncodingFailure refinedValue at one of ${Arr.join([...params], ", ")}, got ${
-					Result.isFailure(outcome) ? Formatter.format(outcome.failure) : "no refusal at bind"
-				}`
+				`expected ParamRejected at one of ${Arr.join(params, ", ")}, got ${Formatter.format(failure)}`
 			]
 }
 
@@ -746,8 +751,8 @@ export const judgeWrite = (
 		}
 	}
 	if (expected.kind === "unbound") {
-		appendAll(problems, unboundProblems(expected.params, outcome))
-		stateIs(expected.initial, "after a refusal at bind the initial state stays:", noRenaming)
+		appendAll(problems, unboundProblems(group, expected, outcome))
+		stateIs(expected.initial, "after a parameter's refusal the initial state stays:", noRenaming)
 		return problems
 	}
 	if (expected.kind === "outsideDomain") {
@@ -1146,7 +1151,7 @@ const printExpected = (expected: Expected): string => {
 		case "outsideDomain":
 			return `invariant-rejected by a domain's law or one of ${lawsOf(expected.refusals)}`
 		case "unbound":
-			return `refused at bind, EncodingFailure refinedValue at one of ${Arr.join([...expected.params], ", ")}`
+			return `ParamRejected at one of ${Arr.join([...expected.params], ", ")}, or invariant-rejected by one of ${lawsOf(expected.refusals)}`
 	}
 }
 
@@ -1300,11 +1305,7 @@ export const runCase = (
 		}
 		const expected = expectChangeSet({ group, laws: t.laws }, facts, c, sequences)
 		const bound = yield* Effect.result(takesOf(entry.success, params))
-		if (expected.kind === "unbound") {
-			for (const p of unboundProblems(expected.params, bound)) {
-				problems.push(`the bind: ${p}`)
-			}
-		} else if (Result.isFailure(bound)) {
+		if (Result.isFailure(bound)) {
 			return yield* new CaseFailed({
 				report: `${header()}\nthe ChangeSet does not bind: ${bound.failure._tag}`
 			})

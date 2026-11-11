@@ -5,9 +5,10 @@
  * language-equivalent spelling of it, a contract bounding length with Compute.charLength over the wildcard, and a
  * closed relation whose payload is a slug. Against it:
  *
- * - a parameter is checked against its pattern or contract where the reader binds it (adapter/reader/relations.ts
- *   executionInputs): a value outside them is refused with the codec fault refinedValue before any SQL is sent, and a
- *   value inside them matches exactly its rows, under generic and custom plans and unprepared, in both artifacts, also
+ * - a parameter is checked against its pattern or contract by PostgreSQL as it binds it, its placeholder cast to its own
+ *   pattern domain or its contract's domain, which the installation creates for every pattern a parameter names: the
+ *   reader's bind (adapter/reader/relations.ts executionInputs) parses only its base carrier, a value outside its
+ *   refinement is refused with 23514 on that domain, and a value inside them matches exactly its rows, under generic and custom plans and unprepared, in both artifacts, also
  *   where the query emits the parameter, a fused attachment's child emits it inside its array, or a union's arm emits
  *   it beside an arm that stores it; each forced plan is checked against pg_prepared_statements;
  * - a scalar parameter's and a relation parameter's refined values alike, a relation parameter's refined column, which
@@ -20,8 +21,8 @@
  *   admission derives hold the same validation; a refined query literal is validated wherever it is delivered.
  *
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): regex-complete-unchecked-param.patch (a parameter's refinement not
- * checked at bind), refinement-are-swapped.patch (a refinement's domain CHECK matching its pattern against the value,
+ * Plants (~/.cache/grizzle-release/LIVE-PARSE/plants): param-domain-uncast (a parameter's placeholder cast to its base,
+ * so no domain checks it), refinement-are-swapped.patch (a refinement's domain CHECK matching its pattern against the value,
  * operands swapped).
  */
 import { layer } from "@effect/vitest"
@@ -58,6 +59,8 @@ import { firstCodebook } from "#compiler/ir/codes.ts"
 import { isRefined } from "#compiler/ir/scalar.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import { constantValidationObjects } from "#compiler/lower/shapes/refined/index.ts"
+import { paramDomainsExtension } from "#compiler/physical/access/extension.ts"
+import { paramDomainUses } from "#compiler/physical/ddl/domains.ts"
 import {
 	compileInstallation,
 	type Installation,
@@ -69,7 +72,6 @@ import { closedId, contract, pg, uuid, type Uuid } from "#compiler/public/fields
 import { query, v } from "#compiler/public/query.ts"
 import { closed, mutable, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
@@ -102,6 +104,7 @@ import { caseHang } from "#test/support/limits.ts"
 import { oracleOwnedLogin } from "#test/support/oracle/install/real.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import { realizeConservative } from "#test/support/oracle/write/realize.ts"
+import type { SqlError } from "#test/support/pg.ts"
 import { checking, owning } from "#test/support/policy.ts"
 import { expectConstraint, expectSqlstate, inTransaction } from "#test/support/substrate/expect.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
@@ -369,7 +372,21 @@ type Artifact = "optimized" | "conservative"
 
 const artifacts: Arr.NonEmptyReadonlyArray<Artifact> = ["optimized", "conservative"]
 
-/** What the reader's bind makes of a case's parameters: refused before any SQL, or bound, matching `count` rows. */
+/**
+ * The SQLSTATE of a statement's refusal by a domain, as its ErrorResponse reports it with the domain's data type, or
+ * undefined where it ran or another refused it.
+ */
+const domainRefusal = (ran: Exit.Exit<unknown, SqlError>): string | undefined => {
+	if (Exit.isSuccess(ran)) {
+		return undefined
+	}
+	const failure = Option.getOrUndefined(Exit.findErrorOption(ran))
+	return failure?.reason._tag === "ServerError" && Option.isSome(failure.reason.fields.dataType)
+		? failure.reason.fields.code
+		: undefined
+}
+
+/** What PostgreSQL makes of a case's parameters as it binds them: refused, or bound, matching `count` rows. */
 type Bound = Readonly<{ kind: "refused" }> | Readonly<{ kind: "rows"; count: number }>
 
 const refused: Bound = { kind: "refused" }
@@ -387,16 +404,14 @@ const bindRefusal = (
 	template: OracleTemplate,
 	params: Readonly<Record<string, unknown>>
 ): BindRefusal | undefined => {
-	const bound = executionInputs(
-		paramCodecs(template.params, contentCodes, new CompilePatterns()),
-		params
-	)
+	const bound = executionInputs(paramCodecs(template.params, contentCodes), params)
 	return bound._tag === "Success" ? undefined : bound.failure.reason._tag
 }
 
 /**
- * A case's parameters against the reader's bind and, where it binds them, the first statement of `artifact` run as
- * `run`: refused with refinedValue, or matching the rows `bound` states.
+ * A case's parameters against the reader's bind, which parses each as its base carrier and binds every value the case
+ * draws, and the first statement of `artifact` run as `run`: refused by PostgreSQL with 23514 on the parameter's own
+ * pattern domain or its contract's domain as it binds it, or matching the rows `bound` states.
  */
 const boundAgrees = (
 	session: RawSession,
@@ -408,35 +423,57 @@ const boundAgrees = (
 	what: string
 ) =>
 	Effect.gen(function* () {
-		const refusal = bindRefusal(template, params)
+		assert.equal(bindRefusal(template, params), undefined, what)
+		const spec = defined(template[artifact][0], "statement")
+		const ran = yield* Effect.exit(
+			runAs(session, spec.sql, paramValues(spec, params, declared(template)), run)
+		)
 		if (bound.kind === "refused") {
-			assert.equal(refusal, "refinedValue", what)
+			assert.equal(domainRefusal(ran), "23514", what)
 			return
 		}
-		assert.equal(refusal, undefined, what)
-		const spec = defined(template[artifact][0], "statement")
-		const matched = yield* runAs(
-			session,
-			spec.sql,
-			paramValues(spec, params, declared(template)),
-			run
-		)
-		assert.equal(matched.length, bound.count, what)
+		if (Exit.isFailure(ran)) {
+			return yield* Effect.failCause(ran.cause)
+		}
+		assert.equal(ran.value.length, bound.count, what)
 	})
 
 const changeSet = (value: unknown) => defined(changeSetDesc(value), "a ChangeSet value")
 
-/** The fresh installation, whose Validate phase carries the closed payloads' validation (physical/install). */
+/** The queries of these suites that declare parameters, whose pattern domains the installation creates. */
+const parameterized: ReadonlyArray<unknown> = [
+	bySlug,
+	echoSlug,
+	echoComments,
+	slugsOrEcho,
+	givenSlugs,
+	byAmount,
+	echoAmount,
+	echoRate
+]
+
+/**
+ * The fresh installation, whose Validate phase carries the closed payloads' validation (physical/install), with the
+ * pattern domain of every pattern a parameter of `parameterized` names (physical/access/extension.ts
+ * paramDomainsExtension), as a served workload's installation creates them.
+ */
 const install = () =>
 	Effect.gen(function* () {
 		const s = yield* Substrate
 		const name = yield* s.schema({ create: false, label: "refined" })
 		const owned = owning(Content)
+		const options = installOptions(owned, s.owner.role)
 		const installation: Installation = ok(
 			compileInstallation(owned, {
-				...installOptions(owned, s.owner.role),
+				...options,
 				levels: [identity.schema(parsedSchemaName(name))],
-				logins: [oracleOwnedLogin(owned.desc)]
+				logins: [oracleOwnedLogin(owned.desc)],
+				extensions: [
+					...options.extensions,
+					paramDomainsExtension(
+						Arr.flatMap(parameterized, (q) => paramDomainUses(compiled(q, name).params))
+					)
+				]
 			}),
 			"install"
 		)
@@ -1055,8 +1092,26 @@ layer(Substrate.layer)("refinement validation sites on PostgreSQL 19", (it) => {
 						({ comments, slug, plan }, c) =>
 							Effect.gen(function* () {
 								if (!slugAdmits(slug)) {
-									assert.equal(bindRefusal(attached, { slug }), "refinedValue", slug)
-									assert.equal(bindRefusal(union, { slug }), "refinedValue", slug)
+									assert.equal(bindRefusal(attached, { slug }), undefined, slug)
+									assert.equal(bindRefusal(union, { slug }), undefined, slug)
+									const refusedAttached = yield* Effect.exit(
+										runPlanned(
+											session,
+											spec.sql,
+											paramTexts(spec, { slug }, declared(attached)),
+											plan
+										)
+									)
+									const refusedUnion = yield* Effect.exit(
+										runPlanned(
+											session,
+											unionSpec.sql,
+											paramTexts(unionSpec, { slug }, declared(union)),
+											plan
+										)
+									)
+									assert.equal(domainRefusal(refusedAttached), "23514", slug)
+									assert.equal(domainRefusal(refusedUnion), "23514", slug)
 									c.note("refused at bind")
 									return
 								}

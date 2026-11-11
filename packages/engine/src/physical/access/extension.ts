@@ -7,7 +7,11 @@ import type { AccessIndexRequest, AccessPath } from "#compiler/ir/products.ts"
 import { type LivePlan, noLive } from "#compiler/live/notify.ts"
 import { pathRequest } from "#compiler/physical/access/paths.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
-import { noTextDomainUses } from "#compiler/physical/ddl/domains.ts"
+import {
+	addParamDomains,
+	noTextDomainUses,
+	type ParamDomainUse
+} from "#compiler/physical/ddl/domains.ts"
 import type { InstallOptions } from "#compiler/physical/install/compile.ts"
 import {
 	type InstallContribution,
@@ -83,22 +87,48 @@ export const workloadExtension = (workload: WorkloadPhysical): InstallExtension 
 })
 
 /**
- * The served workload's extension: the workload's (workloadExtension), the certificate of every role of every login
- * its plan certified (program/workload/compile.ts servedWorkload), which the installation's guards follow, and the
- * roles whose served ChangeSets create a carrier, which it grants TEMPORARY on the database.
+ * The pattern domains of the parameters `uses` names, as an extension: each created by addParamDomains
+ * (physical/ddl/domains.ts), which every placeholder of its parameter is cast to; what the served workload's extension
+ * contributes for its programs, and what an installation a test compiles programs over installs for them.
+ */
+export const paramDomainsExtension = (uses: ReadonlyArray<ParamDomainUse>): InstallExtension => ({
+	contribute: (b) => Result.ok({ ...noContribution, domains: addParamDomains(b, uses) }),
+	textDomainUses: noTextDomainUses,
+	certifies: noCertificates,
+	carriers: noCarriers,
+	live: noLive
+})
+
+/**
+ * The served workload's extension: the workload's (workloadExtension), with the pattern domain of every pattern its
+ * programs' declared parameters name (paramDomainsExtension); the certificate of every role of every login its plan
+ * certified (program/workload/compile.ts servedWorkload), which the installation's guards follow; and the roles whose
+ * served ChangeSets create a carrier, which it grants TEMPORARY on the database.
  */
 export const servedWorkloadExtension = (
 	workload: WorkloadPhysical & {
 		readonly certification: ReadonlyArray<RoleIsolation>
 		readonly carriers: ReadonlyArray<RoleOfLogin>
 		readonly live: LivePlan
+		readonly paramDomains: ReadonlyArray<ParamDomainUse>
 	}
-): InstallExtension => ({
-	...workloadExtension(workload),
-	certifies: workload.certification,
-	carriers: workload.carriers,
-	live: workload.live
-})
+): InstallExtension => {
+	const own = workloadExtension(workload)
+	const params = paramDomainsExtension(workload.paramDomains)
+	return {
+		...own,
+		contribute: (b) =>
+			Result.flatMap(own.contribute(b), (contribution) =>
+				Result.map(params.contribute(b), (domains) => ({
+					...contribution,
+					domains: domains.domains
+				}))
+			),
+		certifies: workload.certification,
+		carriers: workload.carriers,
+		live: workload.live
+	}
+}
 
 /** Installer options with the workload extension after the caller's extensions. */
 export const withWorkload = (

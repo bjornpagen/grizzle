@@ -8,13 +8,7 @@ import {
 	textArray as binaryTextArray
 } from "#compiler/codec/bytea.ts"
 import { encodeFailure, factPlace, slotPlace } from "#compiler/codec/fault.ts"
-import {
-	countParam,
-	refinedMember,
-	type ScalarCodec,
-	scalarCodec,
-	textParam
-} from "#compiler/codec/scalar.ts"
+import { countParam, type ScalarCodec, scalarCodec, textParam } from "#compiler/codec/scalar.ts"
 import { nominal } from "#compiler/core/brand.ts"
 import type { EncodingFailure, EncodingPlace } from "#compiler/core/errors.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
@@ -33,7 +27,6 @@ import type {
 	NormalFacts
 } from "#compiler/ir/products.ts"
 import type { Carrier, ScalarType } from "#compiler/ir/scalar.ts"
-import type { PatternReads } from "#compiler/scalar/regex/patterns.ts"
 import { AdmittedBytes, DigestBook } from "#compiler/scalar/values/bytes.ts"
 import {
 	admitted,
@@ -629,25 +622,16 @@ export const memberArray = (
 }
 
 /**
- * The normalizer of a relation parameter's input, a read's and a write's alike: the relation normalizer, then each value
- * of a refined column checked against its refinements (scalar.ts refinedMember), as a scalar parameter is, since the
- * input's array carries it as its base type, so a fact outside them is refused at bind (refinedValue) before any SQL;
- * and each fact's text row, its arrays' elements, every field's text its value's canonical text, so equal inputs give
- * equal rows whatever their order. No parameter is of bytes, the one carrier of no parameter text, so the book its
- * admission holds bytes values in is its own and holds none (scalar/values/bytes.ts DigestBook). A ChangeSet
- * member's facts are no parameter: one outside its column's domain is refused by the domain's law (relationNormalizer).
+ * The normalizer of a relation parameter's input, a read's and a write's alike: the relation normalizer, each value
+ * parsed exactly as its column's base carrier, and each fact's text row, its arrays' elements, every field's text its
+ * value's canonical text, so equal inputs give equal rows whatever their order. A refined column's contract and pattern
+ * are PostgreSQL's: its array is cast through the refinement's domain (sql/ast.ts ArrayColumn `through`), which checks
+ * every element as the parameter is bound. No parameter is of bytes, the one carrier of no parameter text, so the book
+ * its admission holds bytes values in is its own and holds none (scalar/values/bytes.ts DigestBook).
  */
-export const parameterNormalizer = (
-	spec: RelationSpec,
-	patterns: PatternReads
-): ParameterNormalizer => parameterNormalizerOf(buildSpec(spec), patterns)
-
-const parameterNormalizerOf = (built: BuiltSpec, patterns: PatternReads): ParameterNormalizer => {
+export const parameterNormalizer = (spec: RelationSpec): ParameterNormalizer => {
+	const built = buildSpec(spec)
 	const normalize = normalizerOf(built)
-	const refined = built.columns.flatMap((c) => {
-		const member = refinedMember(c.codec.type, patterns)
-		return member === undefined ? [] : [{ field: c.field, member }]
-	})
 	return (facts) => {
 		const read = normalize.read(facts)
 		if (!read.ok) {
@@ -656,13 +640,6 @@ const parameterNormalizerOf = (built: BuiltSpec, patterns: PatternReads): Parame
 		const normalized = normalize.admit(read.value, new DigestBook())
 		if (!normalized.ok) {
 			return normalized
-		}
-		for (const fact of normalized.value.facts) {
-			for (const { field, member } of refined) {
-				if (!member(fact[field])) {
-					return Result.err(encodeFailure("refinedValue", placeOf(built, field)))
-				}
-			}
 		}
 		return Result.ok(
 			Object.freeze({

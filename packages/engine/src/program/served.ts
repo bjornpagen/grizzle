@@ -25,7 +25,6 @@ import { loginStartupOptions } from "#compiler/physical/ddl/roles.ts"
 import type { QueryTemplate } from "#compiler/program/compile.ts"
 import { pageStatementSlotOf } from "#compiler/runtime/lower/slots.ts"
 import { unitColumn } from "#compiler/runtime/lower/tree.ts"
-import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import type {
 	ServedFootprint,
 	ServedKey,
@@ -133,7 +132,7 @@ const servedPageProgram = <F extends PageFill>(
 	program: PageProgram<F>,
 	codes: Codebook
 ): ServedPageProgram<F> => {
-	const slotOf = pageStatementSlotOf(codes, new CompilePatterns())
+	const slotOf = pageStatementSlotOf(codes)
 	const { statement, parts, roots } = program
 	const spec = (form: SentStatement<PageStatementSlot<F>>) => sentSpec(form, parts, roots, slotOf)
 	const forms = statement.forms

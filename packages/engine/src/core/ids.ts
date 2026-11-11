@@ -45,6 +45,7 @@ export type IdentityKind =
 	| "lawColumn"
 	| "contractDomain"
 	| "textDomain"
+	| "paramDomain"
 	| "rosterDomain"
 	| "rosterConstant"
 	| "rosterLive"
@@ -138,8 +139,13 @@ export type ConstraintName = Identifier<
 >
 /** A non-unique access index the index engine creates. */
 export type IndexName = Identifier<"accessIndex">
-/** A contract's domain, a structural text domain, a roster's domain, or a set's domain over a roster. */
-export type DomainName = Identifier<"contractDomain" | "textDomain" | "rosterDomain" | "bitsDomain">
+/**
+ * A contract's domain, a structural text domain, a parameter's pattern domain, a roster's domain, or a set's domain over
+ * a roster.
+ */
+export type DomainName = Identifier<
+	"contractDomain" | "textDomain" | "paramDomain" | "rosterDomain" | "bitsDomain"
+>
 export type ProgramFingerprint = string & { readonly [programFingerprintBrand]: true }
 export type SchemaFingerprint = string & { readonly [schemaFingerprintBrand]: true }
 

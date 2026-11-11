@@ -39,7 +39,7 @@ import {
 	sqlstates,
 	usesLaws
 } from "#compiler/plan/runtime.ts"
-import type { DescribedLaw } from "#compiler/plan/serve.ts"
+import type { DescribedLaw, ServedParamDomain } from "#compiler/plan/serve.ts"
 
 /**
  * The ErrorResponse fields a violation is classified by: the identity fields PostgreSQL reports and grizzle controls
@@ -143,6 +143,7 @@ export type Violation =
 	| { readonly kind: "outside"; readonly relation: EntryName }
 	| { readonly kind: "aborted"; readonly reason: ConcurrentChange }
 	| { readonly kind: "defect"; readonly domain: DomainName; readonly roster: RosterDomain }
+	| ({ readonly kind: "param" } & ServedParamDomain)
 
 /**
  * What the failing statement wrote: the stored relations it writes or casts its facts into, by declared name (none for
@@ -370,7 +371,47 @@ const generatedViolation = (
 export interface ReportedNames {
 	readonly stored: ReadonlySet<string>
 	readonly entries: ReadonlyMap<string, EntryName>
+	/** The pattern domains the role's parameters are cast to, by identifier, each with the parameter it checks. */
+	readonly params: ReadonlyMap<string, ServedParamDomain>
 }
+
+/**
+ * A refusal by a domain of the installation as a read meets it, never judged against a stated row: a parameter's
+ * pattern domain's, the parameter and its pattern; or a contract's or a pattern's domain's, the laws it discharges,
+ * each refused by the domain, `every` where it discharges one and `some` where several.
+ */
+export type DomainRefusal =
+	| ({ readonly kind: "param" } & ServedParamDomain)
+	| { readonly kind: "laws"; readonly refused: Refused }
+
+/**
+ * The refusal of a 23514 PostgreSQL reports on a domain of the installation in the schemas `laws` names (DomainRefusal):
+ * a parameter's pattern domain of `params`, or a domain whose laws `laws` holds; none for any other failure, a roster's
+ * domain among them, whose codes the parse admits only live.
+ */
+export const domainRefusal =
+	(laws: KeyLaws, params: ReadonlyMap<string, ServedParamDomain>) =>
+	(failure: ViolationFields): DomainRefusal | undefined => {
+		if (failure.sqlstate !== sqlstates.checkViolation) {
+			return undefined
+		}
+		const owner = reportedOwner(failure, laws.schemas)
+		if (owner?.kind !== "domain") {
+			return undefined
+		}
+		const param = params.get(owner.name)
+		if (param !== undefined) {
+			return { kind: "param", ...param }
+		}
+		const constraint = failure.constraint
+		const native = constraint === undefined ? undefined : laws.lawsOf(constraint, owner)
+		return constraint === undefined || native?.kind !== "domain"
+			? undefined
+			: {
+					kind: "laws",
+					refused: objectRefused(nativeLaws(native, new Set(), nativeObject(constraint, owner)))
+				}
+	}
 
 /** The classifier of one installation's violations (see the header), whose relations it names are `names`. */
 export const violationClassifier =
@@ -396,6 +437,10 @@ export const violationClassifier =
 			const roster = laws.rosterDomainOf(owner.name)
 			if (roster !== undefined) {
 				return { kind: "defect", domain: owner.name, roster }
+			}
+			const param = names.params.get(owner.name)
+			if (param !== undefined) {
+				return { kind: "param", ...param }
 			}
 		}
 		if (failure.sqlstate === sqlstates.notNullViolation) {

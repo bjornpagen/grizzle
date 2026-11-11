@@ -1,12 +1,13 @@
 import { Array as Arr } from "effect"
 import { type InstallationWitness, servedWitness } from "#adapter/witness/index.ts"
 import type { LawsAbove } from "#adapter/witness/keylaw.ts"
-import type { InstallNames } from "#compiler/plan/catalog.ts"
+import { type InstallNames, paramDomainsOf } from "#compiler/plan/catalog.ts"
 import { generatedFieldLaws, type TableRelation } from "#compiler/plan/change.ts"
 import {
 	type CheckedEntry,
 	type DeclaredName,
 	identifierOf,
+	type ParamDecl,
 	type Raisable,
 	type SchemaArtifacts,
 	type StoredRelationName
@@ -94,12 +95,13 @@ const entryKeyOf = (entry: CheckedEntry): ServedEntryKey => ({
 /**
  * The refusals of a role's artifacts as data (served ServedRefusals), cut to `raisable`, what its writes can raise
  * (program/schema.ts raisableOf): the key-law tables of those constraints, laws and rosters, each of those stored
- * relations' heading, which a refusal's key text decodes through, and the query entries the role writes through into
- * them.
+ * relations' heading, which a refusal's key text decodes through, the query entries the role writes through into
+ * them, and the pattern domains its members' parameters `params` are cast to (physical/ddl/domains.ts paramDomainsOf).
  */
 export const refusalsOf = (
 	artifacts: Pick<SchemaArtifacts, "names" | "world">,
-	raisable: Raisable
+	raisable: Raisable,
+	params: ReadonlyArray<ParamDecl>
 ): ServedRefusals => {
 	const relations = raisable.relations
 	return {
@@ -116,7 +118,8 @@ export const refusalsOf = (
 				[...writtenEntries(artifacts, new Set(Arr.map(relations, (r) => r.name)))],
 				([target, entry]) => [target, entryKeyOf(entry)] as const
 			)
-		)
+		),
+		params: paramDomainsOf(params)
 	}
 }
 
@@ -127,12 +130,16 @@ export const refusalsOf = (
 export const installationRefusals = (
 	artifacts: Pick<SchemaArtifacts, "names" | "constraintLaws" | "theoryLaws" | "world" | "derived">
 ): ServedRefusals =>
-	refusalsOf(artifacts, {
-		constraintLaws: artifacts.constraintLaws,
-		theoryLaws: artifacts.theoryLaws,
-		relations: [...artifacts.derived.schema.relations.values()],
-		rosters: new Set(artifacts.names.codes.rosters.keys())
-	})
+	refusalsOf(
+		artifacts,
+		{
+			constraintLaws: artifacts.constraintLaws,
+			theoryLaws: artifacts.theoryLaws,
+			relations: [...artifacts.derived.schema.relations.values()],
+			rosters: new Set(artifacts.names.codes.rosters.keys())
+		},
+		[]
+	)
 
 /**
  * The witness decoding of a compiled installation: its every refusal drawn as data (installationRefusals), rebuilt as a

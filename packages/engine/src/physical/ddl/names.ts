@@ -8,6 +8,7 @@ import {
 	type Identity,
 	identifierOf,
 	identity,
+	type ParamPlace,
 	parseDeclaredName,
 	roleIdentity
 } from "#compiler/core/identity.ts"
@@ -157,6 +158,8 @@ interface NamesInput {
 	readonly textDomains: ReadonlyMap<string, DomainDigest>
 	/** Each contract the installation gives a domain, a base one or a context field's, by its declared name. */
 	readonly contracts: ReadonlyMap<DeclaredName, ContractSource>
+	/** The pattern domain of a parameter's place over a pattern (physical/ddl/domains.ts paramDomainIdentity). */
+	readonly paramNamed: (place: ParamPlace, regex: RegexRef) => Identity<"paramDomain">
 	/** The digest of a contract's domain's definition over `names` (physical/ddl/domains.ts). */
 	readonly define: (
 		names: PhysicalNames,
@@ -461,6 +464,10 @@ export const installNames = (input: NamesInput): InstallNames => {
 			return named === undefined ? undefined : { schema: types, name: identifierOf(named) }
 		},
 		textNamed,
+		paramDomain: (place, regex) => ({
+			schema: types,
+			name: identifierOf(input.paramNamed(place, regex))
+		}),
 		rosterNamed,
 		bitsNamed,
 		sequence: (relation, field) => {

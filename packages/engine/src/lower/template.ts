@@ -31,7 +31,6 @@ import {
 	type StatementRoots
 } from "#compiler/runtime/lower/tree.ts"
 import { wildcardText } from "#compiler/scalar/compute/types.ts"
-import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import type { OperandBody, OrderItem, Select, SelectBody, Target } from "#compiler/sql/ast.ts"
 import { col, derived, mapTargets, provedCore, target, targetAs } from "#compiler/sql/build.ts"
 import { freshNames, NameSupply, namesPast } from "#compiler/sql/naming.ts"
@@ -228,7 +227,7 @@ export const specifiedProgram = (
 	program: OptimizedDeliveryProgram<RelationChoice>,
 	codes: Codebook
 ): SpecifiedArtifact => {
-	const slotOf = declaredSlotOf(codes, new CompilePatterns())
+	const slotOf = declaredSlotOf(codes)
 	const { statement, parts, roots } = program
 	const spec = sentSpec(statement, parts, roots, slotOf)
 	const forms = statement.forms

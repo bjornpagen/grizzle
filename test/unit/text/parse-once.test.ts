@@ -1,16 +1,16 @@
 /**
  * An admitted pattern is parsed where a program compiles, never where it runs (scalar/regex/patterns.ts): a law model's
  * compile parses each pattern once in each table it holds, so its parses are a function of the distinct patterns its
- * schema declares and matches, whatever reads them; and the host's per-row reads, a generated field's match over a row
- * and a refined parameter's bind check, parse none, reading the compiled table (LawModel.patterns, codec/scalar.ts
- * refinedMember).
+ * schema declares and matches, whatever reads them; and the host's per-row reads, a generated field's match over a row,
+ * parse none, reading the compiled table (LawModel.patterns). A parameter's pattern is PostgreSQL's to check, by its
+ * own pattern domain, so no bind reads one.
  *
  * The count is work, never time: V8's precise coverage counts each function's calls (kernel/calls.ts callCounts). Each
  * case draws the distinct patterns, relations whose text fields declare them and whose generated field matches a
  * pattern against the first, a closed relation's rows, and the texts the host reads. The schema compiles as drawn and
  * with every reader multiplied, each relation copied and every closed row held, and the two compiles' parses agree.
- * Then each relation's generated field is evaluated over every text and each refined field's bind check judges every
- * text, with no parse at all, each answer the reference's (oracle/reference/evaluate.ts patternMember).
+ * Then each relation's generated field is evaluated over every text, with no parse at all, each answer the reference's
+ * (oracle/reference/evaluate.ts patternMember).
  *
  * Features: one pattern and several, a relation of several texts, several closed rows, a dotall pattern, a match that
  * holds and one that fails.
@@ -25,7 +25,6 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
-import { paramEncoder } from "#compiler/codec/scalar.ts"
 import { indices } from "#compiler/core/array.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { predicateTable } from "#compiler/ir/expr.ts"
@@ -33,7 +32,6 @@ import { compileLaws } from "#compiler/laws/model/model.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
 import { closedLeaf, hostEvaluator } from "#compiler/runtime/write/fill.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
-import { ProgramPatterns, typePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
 import {
@@ -185,7 +183,6 @@ type ParseFeature =
 	| "a dotall pattern"
 	| "a match that holds"
 	| "a match that fails"
-	| "a refused bind"
 
 describe("an admitted pattern", () => {
 	it.effect(
@@ -197,7 +194,7 @@ describe("an admitted pattern", () => {
 					{
 						oracle: {
 							kind: "specification",
-							name: "no parse per row or bind; a compile's parses a function of its distinct patterns"
+							name: "no parse per row; a compile's parses a function of its distinct patterns"
 						},
 						suite: "unit/text/parse-once",
 						draw: drawn(caseGen),
@@ -210,8 +207,7 @@ describe("an admitted pattern", () => {
 								"several closed rows",
 								"a dotall pattern",
 								"a match that holds",
-								"a match that fails",
-								"a refused bind"
+								"a match that fails"
 							],
 							{ cases: 40, sense: notesOnly }
 						),
@@ -265,32 +261,21 @@ describe("an admitted pattern", () => {
 								const writing = fieldOf("m").writing
 								const generated =
 									writing.kind === "generated" ? writing.expr : assert.fail("m is generated")
-								const encoders = Arr.map(fields, (_, i) =>
-									paramEncoder(
-										fieldOf(`t${i}`).type,
-										`t${i}`,
-										codes,
-										ProgramPatterns.of(typePatterns(fieldOf(`t${i}`).type))
-									)
-								)
-								return { relation, fields, generated, encoders }
+								return { relation, fields, generated }
 							})
 							const [answers, rowCounts] = yield* callCounts(
 								Effect.sync(() =>
-									Arr.map(relations, ({ relation, generated, encoders }) => ({
+									Arr.map(relations, ({ relation, generated }) => ({
 										matched: Arr.map(c.texts, (text) =>
 											evaluate(relation, predicateTable(generated), (field) =>
 												field === "t0" ? text : undefined
 											)
-										),
-										bound: Arr.map(encoders, (encode) =>
-											Arr.map(c.texts, (text) => encode(text).ok)
 										)
 									}))
 								),
 								parseSites
 							)
-							assert.equal(rowCounts.parsed, 0, "no pattern is parsed per row or per bind")
+							assert.equal(rowCounts.parsed, 0, "no pattern is parsed per row")
 							Arr.forEach(relations, ({ fields, relation }, r) => {
 								const answer = defined(answers[r], "a relation's answers")
 								const match = patternAt(c, fields[0]).match
@@ -305,23 +290,6 @@ describe("an admitted pattern", () => {
 										matched.ok && matched.value === expected,
 										`${relation.name}.m over ${Formatter.format(text)}: ${Formatter.format(matched)}`
 									)
-								})
-								Arr.forEach(fields, (t, i) => {
-									const pattern = patternAt(c, t)
-									Arr.forEach(c.texts, (text, j) => {
-										const bound = defined(answer.bound[i]?.[j], "a bind")
-										if (!bound) {
-											k.note("a refused bind")
-										}
-										assert.equal(
-											bound,
-											patternMember(
-												{ patterns: [{ source: pattern.source, flags: pattern.flags }] },
-												text
-											),
-											`${relation.name}.t${i}'s bind of ${Formatter.format(text)}`
-										)
-									})
 								})
 							})
 							k.note(c.chosen.length === 1 ? "one pattern" : "several patterns")

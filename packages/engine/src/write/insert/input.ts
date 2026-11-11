@@ -10,7 +10,8 @@ import {
 	columnIn,
 	emptyEnv,
 	outputNames,
-	relationColumns
+	relationColumns,
+	unchecked
 } from "#compiler/lower/conservative/context.ts"
 import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
 import { columnType } from "#compiler/runtime/lower/columns.ts"
@@ -26,6 +27,7 @@ import type {
 import {
 	arrays,
 	asc,
+	baseCheck,
 	cast,
 	col,
 	columnDefinition,
@@ -319,7 +321,7 @@ const inputColumns = (
 			const origin = { kind: "param", param: input.slot } as const
 			const base = (type: ScalarType) => w.cx.baseTypeRef(type)
 			const fresh = (columns: Heading) =>
-				relationColumns(columns, () => w.cx.supply.column(origin), base)
+				relationColumns(columns, () => w.cx.supply.column(origin), base, unchecked)
 			const slots = w.cx.member(
 				input.slot,
 				input.relation,
@@ -331,7 +333,8 @@ const inputColumns = (
 									return {
 										name: p.field.name,
 										type,
-										definition: columnDefinition(p.column, base(type))
+										definition: columnDefinition(p.column, base(type)),
+										check: baseCheck
 									}
 								}),
 								...fresh(

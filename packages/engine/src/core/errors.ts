@@ -889,7 +889,7 @@ export const valueFaultWords = [
 ] as const
 export type ValueFault = (typeof valueFaultWords)[number]
 /** A codec's refusal words: the value faults and the null ban (codec/fault.ts). */
-export type CodecFault = ValueFault | "nullValue" | "refinedValue"
+export type CodecFault = ValueFault | "nullValue"
 /** A cursor token's refusal words, in the order validation checks them (codec/cursor/fault.ts). */
 const cursorFaultWords = [
 	"cursorType",

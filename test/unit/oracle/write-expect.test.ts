@@ -13,7 +13,8 @@
  * - a keyless refusal by the domain's laws, where a stored value lies outside its column's domain, as the adapter
  *   classifies the server's check violation by the domain it names: the law of each column the domain types in the
  *   refused relation, `every` where one and `some` where several;
- * - a refusal at bind, EncodingFailure refinedValue at the slot of a parameter passed outside its field.
+ * - a parameter passed outside its field refused by PostgreSQL as it binds it, ExecutionFailure with reason
+ *   ParamRejected naming the parameter.
  * Every mutant fails:
  * - a refusal by a law of the group that no acceptable refusal names;
  * - a witness naming another law than the outcome;
@@ -39,7 +40,7 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Record, Result } from "effect"
 import { ExecutionFailure } from "#adapter/errors/execution.ts"
-import { encodeFailure, slotPlace } from "#compiler/codec/fault.ts"
+import { ParamRejected } from "#adapter/errors/failures.ts"
 import { identity } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
@@ -184,7 +185,8 @@ const situations = [
 	"mutant: applied where domain-refused",
 	"mutant: a domain's violation unclassified",
 	"faithful refusal at bind",
-	"mutant: applied where refused at bind"
+	"mutant: applied where refused at bind",
+	"mutant: a parameter's refusal unclassified"
 ] as const
 
 type WriteExpectFeature = (typeof situations)[number]
@@ -324,16 +326,36 @@ describe("the write oracle's judgement", () => {
 							case "unbound": {
 								const [param] = [...expected.params]
 								if (param === undefined) {
-									throw new Error("a refusal at bind names no parameter")
+									throw new Error("a parameter's refusal names no parameter")
 								}
 								n.note("faithful refusal at bind")
 								assert.deepEqual(
-									verdict(Result.fail(encodeFailure("refinedValue", slotPlace(param)))),
+									verdict(
+										Result.fail(
+											new ExecutionFailure({
+												reason: new ParamRejected({
+													param,
+													patterns: [{ source: "^.{0,3}$", flags: "su" }]
+												})
+											})
+										)
+									),
 									[]
 								)
 								mutant(
 									"mutant: applied where refused at bind",
 									Result.succeed({ kind: "no-change", reads: {} })
+								)
+								mutant(
+									"mutant: a parameter's refusal unclassified",
+									Result.fail(
+										new ExecutionFailure({
+											reason: serverError({
+												...nothingReported,
+												sqlstate: sqlstates.checkViolation
+											})
+										})
+									)
 								)
 								return
 							}

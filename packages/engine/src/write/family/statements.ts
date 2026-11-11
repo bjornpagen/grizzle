@@ -59,6 +59,7 @@ import {
 	and,
 	arrays,
 	binary,
+	baseCheck,
 	call,
 	cast,
 	col,
@@ -278,7 +279,8 @@ const arraysOf = (
 	}))
 	const columns = mapNonEmpty(named, (n, i) => ({
 		definition: columnDefinition(n.name, w.cx.baseTypeRef(n.carried.type)),
-		array: positionalValue(i + 1)
+		array: positionalValue(i + 1),
+		check: baseCheck
 	}))
 	const at = (i: number) => defined(named[i], `column ${i} of a family statement's ${named.length}`)
 	const raw = (i: number): Expr => col(alias, at(i).name)
@@ -676,7 +678,8 @@ const arraysAt = (
 	}))
 	const columns = mapNonEmpty(named, (n, i) => ({
 		definition: columnDefinition(n.name, w.cx.baseTypeRef(n.carried.type)),
-		array: positionalValue(first + i)
+		array: positionalValue(first + i),
+		check: baseCheck
 	}))
 	return {
 		from: arrays({ kind: "columns", columns, ordinal: undefined }, alias),

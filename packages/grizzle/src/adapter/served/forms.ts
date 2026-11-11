@@ -30,7 +30,6 @@ import {
 	bindGroups,
 	type Codebook,
 	CompileError,
-	CompilePatterns,
 	Engine,
 	type ParamDecl,
 	prose,
@@ -97,11 +96,7 @@ const compileArtifacts = (
 				servedSpine(compiled.desc),
 				role.artifacts.names.codes
 			),
-			codecs: paramCodecs(
-				compiled.template.params,
-				role.artifacts.names.codes,
-				new CompilePatterns()
-			)
+			codecs: paramCodecs(compiled.template.params, role.artifacts.names.codes)
 		})
 	)
 
@@ -267,11 +262,7 @@ const compiledPageTemplate = (
 				(runtime): CompiledPage => ({
 					compiled,
 					runtime,
-					codecs: paramCodecs(
-						compiled.template.params,
-						role.artifacts.names.codes,
-						new CompilePatterns()
-					)
+					codecs: paramCodecs(compiled.template.params, role.artifacts.names.codes)
 				})
 			)
 	)
@@ -306,7 +297,7 @@ export const runtimeEntry = (
 		names: entry.names,
 		witness,
 		readBacks: readBacks(servedReadBacks(compiled.artifact.readBacks), codes),
-		codecs: paramCodecs(compiled.params, codes, new CompilePatterns()),
+		codecs: paramCodecs(compiled.params, codes),
 		bind,
 		change: entry.change
 	}

@@ -12,7 +12,6 @@ import type {
 	ParamDecl,
 	ParamId,
 	ParamText,
-	PatternReads,
 	RelationParamDecl,
 	ScalarType
 } from "#compiler/plan/common.ts"
@@ -73,13 +72,15 @@ const specOver = (
 	codes
 })
 
-/** The normalizer of a relation input over `columns`: a relation parameter's, which refuses a value outside its refinements. */
+/**
+ * The normalizer of a relation input over `columns`: a relation parameter's, which parses each value exactly as its
+ * column's base carrier; PostgreSQL checks a refined column's values as it binds the parameter.
+ */
 const normalizerOver = (
 	decl: RelationParamDecl,
 	columns: SlotColumns,
-	codes: Codebook,
-	patterns: PatternReads
-): ParameterNormalizer => parameterNormalizer(specOver(decl, columns, codes), patterns)
+	codes: Codebook
+): ParameterNormalizer => parameterNormalizer(specOver(decl, columns, codes))
 
 const sameColumns = (a: SlotColumns, b: SlotColumns): boolean =>
 	a.length === b.length &&
@@ -110,26 +111,21 @@ export type ParamCodec =
 
 /**
  * The codecs of a read's or write's declared parameters, in declaration order, built once where its template is
- * compiled or its served file is loaded, each refined value judged by `patterns`, the installation's table of the
- * patterns its types read: once per call for a direct read or apply, which compiles per call, and once for a handle,
- * whose every execution encodes with them.
+ * compiled or its served file is loaded: once per call for a direct read or apply, which compiles per call, and once
+ * for a handle, whose every execution encodes with them.
  */
 export type ParamCodecs = ReadonlyArray<ParamCodec>
 
-export const paramCodecs = (
-	declared: ReadonlyArray<ParamDecl>,
-	codes: Codebook,
-	patterns: PatternReads
-): ParamCodecs =>
+export const paramCodecs = (declared: ReadonlyArray<ParamDecl>, codes: Codebook): ParamCodecs =>
 	Arr.map(declared, (decl): ParamCodec =>
 		decl.kind === "relation"
 			? {
 					kind: "relation",
 					decl,
-					normalize: normalizerOver(decl, decl.heading, codes, patterns),
+					normalize: normalizerOver(decl, decl.heading, codes),
 					codes
 				}
-			: { kind: "scalar", decl, encode: paramEncoder(decl.type, decl.name, codes, patterns) }
+			: { kind: "scalar", decl, encode: paramEncoder(decl.type, decl.name, codes) }
 	)
 
 /**

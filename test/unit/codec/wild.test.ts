@@ -83,7 +83,6 @@ import * as Result from "#compiler/core/result.ts"
 import type { OutputText, ParamText } from "#compiler/core/wire.ts"
 import { decodeScalarType } from "#compiler/ir/scalar-shape.ts"
 import { type Carrier, capabilitySet, Roster, type ScalarType } from "#compiler/ir/scalar.ts"
-import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { digestOf } from "#compiler/scalar/values/bytes.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { isValueFault } from "#compiler/scalar/values/fault.ts"
@@ -95,10 +94,7 @@ import { echoed, outputText, paramText } from "#test/support/wire.ts"
 import { kindCodes } from "#test/unit/codec/support.ts"
 
 /** The codec's own refusal words beside the value carriers' ValueFault words (core/errors.ts CodecFault). */
-const codecWords: ReadonlySet<string> = new Set<Exclude<CodecFault, ValueFault>>([
-	"nullValue",
-	"refinedValue"
-])
+const codecWords: ReadonlySet<string> = new Set<Exclude<CodecFault, ValueFault>>(["nullValue"])
 
 /** Whether an encoder's refusal is a codec fault word, never a value or a thrown error. */
 const isCodecFault = (value: unknown): value is CodecFault =>
@@ -451,12 +447,7 @@ describe("the encoders", () => {
 									"live",
 									`${target.label}: a Live value was refused (${encoded.error})`
 								)
-								const slotted = paramEncoder(
-									target.type,
-									"slot",
-									kindCodes,
-									new CompilePatterns()
-								)(value)
+								const slotted = paramEncoder(target.type, "slot", kindCodes)(value)
 								assert.ok(
 									!slotted.ok,
 									`${target.label}: the slot's encoder admitted what the codec refused`
@@ -513,8 +504,7 @@ describe("the encoders", () => {
 						const encoded = paramEncoder(
 							target.type,
 							"slot",
-							kindCodes,
-							new CompilePatterns()
+							kindCodes
 						)(target.type.carrier === "text" ? `${text}\u0000` : text)
 						if (encoded.ok) {
 							return

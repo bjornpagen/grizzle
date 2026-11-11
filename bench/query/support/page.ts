@@ -17,7 +17,6 @@ import {
 } from "#bench/query/support/kit.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { PageArtifact } from "#compiler/lower/shapes/page/compile.ts"
-import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import type { Select } from "#compiler/sql/ast.ts"
 import { programAsts } from "#test/support/compile.ts"
 import { conservativePageRuntime } from "#test/support/conservative.ts"
@@ -94,10 +93,7 @@ export const deliverPage = Effect.fn("deliverPage")(
 		values: HostParams,
 		call: PageCall
 	): Effect.fn.Return<DeliveredPage, DeliveryFailed | ReadError | FlightFailure> {
-		const inputs = executionInputs(
-			paramCodecs(pages.params, pages.codes, new CompilePatterns()),
-			values
-		)
+		const inputs = executionInputs(paramCodecs(pages.params, pages.codes), values)
 		if (Result.isFailure(inputs)) {
 			return yield* deliveryFailed(new ReadFailure({ reason: inputs.failure }))
 		}

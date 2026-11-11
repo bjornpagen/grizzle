@@ -537,12 +537,24 @@ export interface ColumnDefinition {
 }
 
 /**
- * One column of a relation input read from arrays: its definition, whose type is the element type, and the value
- * placeholder of the array of its values, one element per fact, in the input's fact order.
+ * What a relation input's array is checked by as its parameter is bound, beyond its element type: nothing, or a
+ * refinement's domain, which the array is cast through before its element type, so PostgreSQL checks every element
+ * against the domain's CHECK and the column keeps its base type: a declared relation parameter's refined column, whose
+ * contract or pattern nothing on the host checks.
+ */
+export type ArrayCheck =
+	| { readonly kind: "base" }
+	| { readonly kind: "domain"; readonly domain: TypeRef }
+
+/**
+ * One column of a relation input read from arrays: its definition, whose type is the element type, the value
+ * placeholder of the array of its values, one element per fact, in the input's fact order, and what checks the array
+ * as it is bound.
  */
 export interface ArrayColumn {
 	readonly definition: ColumnDefinition
 	readonly array: ValuePlaceholder
+	readonly check: ArrayCheck
 }
 
 /**

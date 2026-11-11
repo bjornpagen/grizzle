@@ -12,10 +12,12 @@ import {
 	type ExpiryRefused,
 	GeneratedSerialUnique,
 	HandleReleased,
+	InputRejected,
 	InputTooLarge,
 	LawRejected,
 	type LiveSourceMissing,
 	CallInputRefused,
+	ParamRejected,
 	PutTargetConflict,
 	RoleOutsideLayers,
 	SerializationFailure,
@@ -112,13 +114,19 @@ export class OpenError extends Data.TaggedError("OpenError")<{
 }
 
 /**
- * Why a read failed: the server refused its statement (ServerError); its session was not acquired (AcquireRefusal), or
- * its db.compile handle's Scope had ended (HandleReleased); the session it ran on failed (the connection lost, before or after COMMIT was sent; the driver; rows grizzle cannot
- * read); the compiler refused it before any SQL, for a query that does not compile for this Db; the server refused a temporary table a change member's explain creates to a role without TEMPORARY on the database; or the host refused its input before any SQL: a codec's refusal, a ChangeSet's input a
- * law rejects (a change member's explain), parameters past a bound of their transport, or a page request.
+ * Why a read failed: the server refused its statement (ServerError), by a law of the schema (LawRejected) or a
+ * parameter's pattern (ParamRejected) as the statement bound or cast a value; its session was not acquired
+ * (AcquireRefusal), or its db.compile handle's Scope had ended (HandleReleased); the session it ran on failed (the
+ * connection lost, before or after COMMIT was sent; the driver; rows grizzle cannot read); the compiler refused it before
+ * any SQL, for a query that does not compile for this Db; the server refused a temporary table a change member's
+ * explain creates to a role without TEMPORARY on the database; or the host refused its input before any SQL: a codec's
+ * refusal, the exact parse's, a ChangeSet's input the host's parse into its keyed sets refuses (a change member's
+ * explain, InputRejected), parameters past a bound of their transport, or a page request.
  */
 export type ReadReason =
 	| ServerError
+	| LawRejected
+	| ParamRejected
 	| AcquireRefusal
 	| HandleReleased
 	| ConnectionLost
@@ -127,7 +135,7 @@ export type ReadReason =
 	| UnreadableAnswer
 	| CompileError
 	| EncodingFailure
-	| LawRejected
+	| InputRejected
 	| InputTooLarge
 	| TemporaryRefused
 	| CallInputRefused
@@ -174,8 +182,11 @@ const readStage = (reason: ReadReason): ReadStage => {
 			return "decode"
 		case "CompileError":
 			return "compile"
-		case "EncodingFailure":
 		case "LawRejected":
+		case "ParamRejected":
+			return "execute"
+		case "EncodingFailure":
+		case "InputRejected":
 			return "encode"
 		case "InputTooLarge":
 			return "resource"
@@ -324,12 +335,14 @@ export class TransportFailure extends Data.TaggedError("TransportFailure")<{
 
 /**
  * Why a write or refresh failed at execution, or was refused before any SQL: the server refused a statement
- * (ServerError); the compiler refused the program, which does not compile for this Db; a relation input is past the size limit; the server refused a temporary table the write creates to a role
+ * (ServerError), or a parameter's value outside its declared pattern as it bound it (ParamRejected); the compiler
+ * refused the program, which does not compile for this Db; a relation input is past the size limit; the server refused a temporary table the write creates to a role
  * without TEMPORARY on the database (TemporaryRefused); or a statement answered rows grizzle cannot read, with what
  * its transaction then did.
  */
 export type ExecutionReason =
 	| ServerError
+	| ParamRejected
 	| CompileError
 	| InputTooLarge
 	| TemporaryRefused

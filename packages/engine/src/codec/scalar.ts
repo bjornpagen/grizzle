@@ -6,10 +6,7 @@ import * as Result from "#compiler/core/result.ts"
 import type { ParamText } from "#compiler/core/wire.ts"
 import { type Codebook, codecOf as rosterCodecOf } from "#compiler/ir/codes.ts"
 import type { Encoder } from "#compiler/ir/products.ts"
-import { type Carrier, isRefined, type ScalarType } from "#compiler/ir/scalar.ts"
-import { admitLiteral } from "#compiler/scalar/compute/evaluate.ts"
-import { literalDescFor } from "#compiler/scalar/literal.ts"
-import type { PatternReads } from "#compiler/scalar/regex/patterns.ts"
+import type { Carrier, ScalarType } from "#compiler/ir/scalar.ts"
 import type { AdmittedBytes } from "#compiler/scalar/values/bytes.ts"
 import {
 	admitted,
@@ -56,7 +53,8 @@ import {
  *
  * Money never travels as its own locale-formatted text: it is written as numeric text and converted by the
  * statement. A contract column uses its base's codec: the brand has no runtime form, and the library evaluates no
- * contract predicate or regex on the host.
+ * contract predicate or regex on the host, a parameter's included: its placeholder is cast to its refinement's domain,
+ * so PostgreSQL checks it.
  */
 export interface ScalarCodec {
 	readonly type: ScalarType
@@ -184,47 +182,17 @@ export const scalarCodec = (type: ScalarType, codes: Codebook): ScalarCodec =>
 	codecOf(type, carrierSpecOf(type, codes))
 
 /**
- * Whether a value is one of a refined type's: every contract level's predicate and every regex holds of it, judged as a
- * literal at the type is (evaluate.ts admitLiteral), where a predicate the evaluator cannot decide at the value admits
- * nothing. Undefined for a type with no refinement. A parameter is checked so at bind, so every fact its type states,
- * a contract's declared facts among them, holds of the value its placeholder carries as its base type. Every value is
- * judged by the automata of `patterns`, the installation's table of the patterns its types read: a served file's, read
- * as generate built them (scalar/regex/matcher.ts ServedPatterns), or a compile's (patterns.ts CompilePatterns).
+ * The parameter encoder of a template slot (ir/products.ts Encoder, ParamSlot.encode): the codec's encode, the exact
+ * parse of the value as its base carrier's, with a refusal as EncodingFailure naming the slot. A refined type's contract
+ * and pattern are PostgreSQL's: the placeholder is cast to the refinement's domain, which checks the value as it is
+ * bound, and its refusal is classified into the law (errors/execution.ts LawRejected, witness/classify.ts).
  */
-export const refinedMember = (
-	type: ScalarType,
-	patterns: PatternReads
-): ((value: unknown) => boolean) | undefined => {
-	if (!isRefined(type)) {
-		return undefined
-	}
-	return (value) => {
-		const literal = literalDescFor(type, value)
-		return literal.ok && admitLiteral(literal.value, type, { kind: "refinements", patterns }).ok
-	}
-}
-
-/**
- * The parameter encoder of a template slot (ir/products.ts Encoder, ParamSlot.encode): the codec's encode, then the
- * value's refinements (refinedMember), judged by `patterns`, with a refusal as EncodingFailure naming the slot.
- */
-export const paramEncoder = (
-	type: ScalarType,
-	slot: string,
-	codes: Codebook,
-	patterns: PatternReads
-): Encoder => {
+export const paramEncoder = (type: ScalarType, slot: string, codes: Codebook): Encoder => {
 	const { encode } = scalarCodec(type, codes)
-	const member = refinedMember(type, patterns)
 	const place = slotPlace(slot)
 	const encoder: Encoder = (value) => {
 		const text = encode(value)
-		if (!text.ok) {
-			return Result.err(encodeFailure(text.error, place))
-		}
-		return member === undefined || member(value)
-			? Result.ok(text.value)
-			: Result.err(encodeFailure("refinedValue", place))
+		return text.ok ? Result.ok(text.value) : Result.err(encodeFailure(text.error, place))
 	}
 	return encoder
 }

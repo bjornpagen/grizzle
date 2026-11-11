@@ -282,8 +282,8 @@ interface ReadSketch {
  * - "wider deletion": a deletion from the narrow relation of the wide one's facts, which removes the stored narrow fact
  *   a stored wide fact equals, while a wide text past the narrow domain matches no fact;
  * - "refused at bind": an insert into the narrow relation of the wide one's keys and texts, its first text a parameter
- *   past the narrow domain, which the bind refuses before any SQL (EncodingFailure refinedValue at the parameter's
- *   slot);
+ *   past the narrow domain, which PostgreSQL refuses as it binds it, by the parameter's own pattern domain
+ *   (ParamRejected);
  * - "candidate repeated": the change adds a keyed fact at a stored fact's candidate key, refused by that key;
  * - "immediate violated": the change adds a member naming no fact of the pure set, refused at its statement by the
  *   immediate containment;

@@ -2,6 +2,7 @@ import { type DecimalParts, partsText } from "#compiler/core/decimal.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type {
+	ArrayCheck,
 	ArraysSource,
 	BinaryOperator,
 	BuiltinFunctionName,
@@ -178,6 +179,9 @@ export const cUtf8Collation: Collation = { schema: "pg_catalog", name: "pg_c_utf
  * A column of a relation input or a context source: builtin text names the fixed collation like a stored column, and
  * no other type takes one.
  */
+/** An array checked by nothing beyond its element type (sql/ast.ts ArrayCheck). */
+export const baseCheck: ArrayCheck = Object.freeze({ kind: "base" })
+
 export const columnDefinition = (name: string, type: TypeRef): ColumnDefinition => ({
 	name,
 	type,

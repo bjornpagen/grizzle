@@ -2,6 +2,7 @@ import type { Expiry } from "#adapter/db/claims.ts"
 import type { Subscriptions } from "#adapter/live/subscriptions.ts"
 import { type Frame, type Prologue, readFrame, writeFrame } from "#adapter/wire/batch.ts"
 import type { SessionPool } from "#adapter/wire/session.ts"
+import type { InstallationWitness } from "#adapter/witness/index.ts"
 import type { Isolation } from "#compiler/plan/common.ts"
 
 /**
@@ -27,6 +28,11 @@ export interface ServedDbContext {
 	readonly expiry: Expiry
 	/** The layer's live reads' registry, which each watch of the Db registers on (live/subscriptions.ts). */
 	readonly subscriptions: Subscriptions
+	/**
+	 * A read's refusal by a domain its statement cast a value to: a parameter's pattern domain's, or a contract's or a
+	 * pattern's laws (witness/classify.ts domainRefusal), which the read fails with as ParamRejected or LawRejected.
+	 */
+	readonly domain: InstallationWitness["domain"]
 }
 
 /** The frame of every read of the Db: SERIALIZABLE READ ONLY. */

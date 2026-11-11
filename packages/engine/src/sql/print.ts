@@ -702,15 +702,19 @@ const hasTypmod = (type: TypeRef): boolean =>
 const arrayOf = (type: TypeRef): string => (type.array ? printType(type) : `${printType(type)}[]`)
 
 /**
- * One column of a relation input's arrays: the unnest of its array, the column's element type made an array and
- * collated as the column is, so the output column carries the collation a stored column has (the result of unnest
+ * One column of a relation input's arrays: the unnest of its array, cast through its refinement's domain array where
+ * its check is one (sql/ast.ts ArrayCheck), so PostgreSQL checks every element as it binds the parameter, then the
+ * column's element type made an array and collated as the column is, so the output column carries the collation a stored column has (the result of unnest
  * takes its argument's collation, parse_collate.c). unnest keeps no typmod (parse_relation.c: a function's column has
  * its expression's typmod, -1 for a call that is no length coercion), so a column whose type has one, numeric(p, s)
  * or vector(n), is cast back to it, which a recursive CTE seeded from the input needs (parse_cte.c compares typmods,
  * 42804 otherwise).
  */
-const printArrayColumn = ({ definition, array }: ArrayColumn): string => {
-	const elements = `$${array.number}::${arrayOf(definition.type)}`
+const printArrayColumn = ({ definition, array, check }: ArrayColumn): string => {
+	const elements =
+		check.kind === "domain"
+			? `$${array.number}::${arrayOf(check.domain)}::${arrayOf(definition.type)}`
+			: `$${array.number}::${arrayOf(definition.type)}`
 	const collated =
 		definition.collation === undefined
 			? elements

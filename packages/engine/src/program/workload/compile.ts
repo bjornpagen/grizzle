@@ -36,6 +36,7 @@ import { allenNormalDag } from "#compiler/lower/optimize/simplify/allen.ts"
 import { type WorkloadPhysical, workloadRequests } from "#compiler/physical/access/extension.ts"
 import { extractAccess } from "#compiler/physical/access/extract.ts"
 import { uniquePaths } from "#compiler/physical/access/paths.ts"
+import { type ParamDomainUse, paramDomainUses } from "#compiler/physical/ddl/domains.ts"
 import { namedRole, type WorldNames, worldNames } from "#compiler/physical/ddl/names.ts"
 import type { RoleOfLogin } from "#compiler/physical/install/extension.ts"
 import {
@@ -91,6 +92,9 @@ export interface WorkloadPlan extends WorkloadPhysical {
 	readonly footprints: WorkloadFootprints
 	/** The live plan of every footprint (livePlanOf), which snapshot.json records as `live`. */
 	readonly live: LivePlan
+	/** The pattern domain of every pattern its programs' declared parameters name (physical/ddl/domains.ts
+	 * paramDomainUses), which the served workload's extension installs. */
+	readonly paramDomains: ReadonlyArray<ParamDomainUse>
 }
 
 /**
@@ -105,6 +109,8 @@ export type ProgramFootprints = ReadonlyMap<string, Footprint>
 interface ProgramIr {
 	/** The program's roots: a query's root, or a ChangeSet's read-backs and laws. */
 	readonly roots: ReadonlyArray<RelNode>
+	/** The parameters it declares, whose patterns the installation gives a pattern domain each. */
+	readonly params: ReadonlyArray<ParamDecl>
 	/** The roots a page may read: an Ordered query's ordered result. */
 	readonly pageable: ReadonlyArray<RelNode>
 	/** The write targets of a ChangeSet: each written relation's primary key. */
@@ -116,9 +122,10 @@ interface ProgramIr {
  * read from its one checked IR (queryRead); a ChangeSet's access alone, since no read subscribes to a write. A ChangeSet
  * over a role is the role's, whose statements write the base's tables.
  */
-type ProgramPlan =
+type ProgramPlan = { readonly params: ReadonlyArray<ParamDecl> } & (
 	| { readonly kind: "query"; readonly access: ProgramAccess; readonly footprint: Footprint }
 	| { readonly kind: "changeSet"; readonly access: ProgramAccess }
+)
 
 const programPlan = (
 	program: ProgramDesc,
@@ -128,6 +135,7 @@ const programPlan = (
 		const ordered = isOrderedQuery(program.query)
 		return Result.map(queryRead(program.query, reads), (read): ProgramPlan => ({
 			kind: "query",
+			params: read.params,
 			access: irAccess(rowsIr(read, ordered)),
 			footprint: footprintOf(read.dag, read.analysis, read.params)
 		}))
@@ -139,7 +147,7 @@ const programPlan = (
 			world.kind === "role" ? world.checked : reads.artifacts.derived.schema,
 			reads
 		),
-		(ir): ProgramPlan => ({ kind: "changeSet", access: irAccess(ir) })
+		(ir): ProgramPlan => ({ kind: "changeSet", params: ir.params, access: irAccess(ir) })
 	)
 }
 
@@ -226,6 +234,7 @@ const rowsIr = (analyzed: AnalyzedQuery, ordered: boolean): ProgramIr => {
 	const root = withLogicalMeta(analyzed.dag, analyzed.analysis, (node) => node).roots[0]
 	return {
 		roots: [root],
+		params: analyzed.params,
 		pageable: ordered && root.kind === "OrderedResult" ? [root] : [],
 		targets: []
 	}
@@ -306,6 +315,7 @@ const changeSetIr = (
 				}))
 			return {
 				roots: frontend.ir.dag.roots,
+				params: frontend.params,
 				pageable: [],
 				targets
 			}
@@ -502,6 +512,7 @@ export const compileWorkload = (
 	const { artifacts } = options
 	const access: Record<string, Readonly<Record<string, ProgramAccess>>> = {}
 	const footprints = new Map<string, ReadonlyMap<string, Footprint>>()
+	const paramDomains: Array<ParamDomainUse> = []
 	for (const login of [...logins].toSorted((a, b) => compareText(a.login, b.login))) {
 		const programs = loginPlans(login.workloads, schema, artifacts)
 		if (!programs.ok) {
@@ -510,6 +521,9 @@ export const compileWorkload = (
 		access[login.login] = Object.fromEntries(
 			programs.value.map(([name, planned]) => [name, planned.access] as const)
 		)
+		for (const [, planned] of programs.value) {
+			appendAll(paramDomains, paramDomainUses(planned.params))
+		}
 		footprints.set(
 			login.login,
 			new Map(
@@ -547,7 +561,8 @@ export const compileWorkload = (
 		access,
 		requests: workloadRequests(physical, artifacts.names.vectorSchema),
 		footprints,
-		live: livePlanOf(footprints)
+		live: livePlanOf(footprints),
+		paramDomains
 	})
 }
 

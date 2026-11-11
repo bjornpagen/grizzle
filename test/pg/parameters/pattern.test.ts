@@ -1,15 +1,16 @@
 /**
- * A parameter's value of a pattern no stored field declares, delivered against PostgreSQL 19.
+ * A parameter's value of a pattern, delivered against PostgreSQL 19.
  *
- * Notes declares Code, ^[a-z]{1,4}$, on a stored field and no field of Slug, ^[a-z]{1,8}$, so its installation holds a
- * domain of Code and none of Slug. A relation parameter's fields of each, and a scalar parameter of each, are delivered
- * as they are bound by the members of the full world's served workload that read them: a parameter's refinement travels with it, checked at bind as a stored column's domain checks it,
- * whether or not the installation holds its domain. The oracle restates each pattern over the drawn text: a case some
- * value of which is outside its pattern is refused at bind, an `input` CallError, before any SQL;
- * every other case delivers exactly the values it bound.
+ * Notes declares Code, ^[a-z]{1,4}$, on a stored field and no field of Slug, ^[a-z]{1,8}$. A relation parameter's
+ * fields of each, and a scalar parameter of each, are delivered as they are bound by the members of the full world's
+ * served workload that read them: each is cast to its own pattern domain, which the installation creates for every
+ * pattern a served parameter names, whether or not a stored field declares it, so PostgreSQL checks the value as it
+ * binds it and nothing on the host does. The oracle restates each pattern over the drawn text: a case some value of
+ * which is outside its pattern is refused by PostgreSQL, ReadFailure ParamRejected at stage execute, which a call
+ * answers as an `input` CallError; every other case delivers exactly the values it bound.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): regex-complete-unchecked-param.patch (a parameter's refinement not
- * checked at bind).
+ * Plants (~/.cache/grizzle-release/LIVE-PARSE/plants): param-domain-uncast (a parameter's placeholder cast to its base,
+ * so no domain checks it).
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"

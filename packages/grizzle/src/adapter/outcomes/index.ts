@@ -7,7 +7,7 @@ import {
 	TransientFailure,
 	transientReason
 } from "#adapter/errors/execution.ts"
-import type { ServerError } from "#adapter/errors/failures.ts"
+import { ParamRejected, type ServerError } from "#adapter/errors/failures.ts"
 import type { ApplyOutcome, ApplyOutcomeConstructor } from "#adapter/types/db.ts"
 import {
 	rosterDomainDefect,
@@ -284,6 +284,13 @@ export const classifyServerError = (failure: ServerError, context: ClassifyConte
 			}
 		case "defect":
 			return { kind: "defect", defect: rosterDomainDefect(violation, originText(context.origin)) }
+		case "param":
+			return {
+				kind: "failed",
+				error: new ExecutionFailure({
+					reason: new ParamRejected({ param: violation.param, patterns: violation.patterns })
+				})
+			}
 	}
 }
 

@@ -48,6 +48,7 @@ import {
 	type TextColumnUse,
 	type TextDomain,
 	type TextDomainNames,
+	paramDomainIdentity,
 	textDomainNames,
 	type TextDomainPlan
 } from "#compiler/physical/ddl/domains.ts"
@@ -433,6 +434,7 @@ export const planInstallation = (
 			vectorSchema: settings.vectorSchema,
 			textDomains: new Map([...textDomainNames(textPlans), ...basis.textDomains]),
 			contracts,
+			paramNamed: paramDomainIdentity,
 			define: contractDigest,
 			codes,
 			closed: qualifiedClosed(identifierOf(headNonEmpty(settings.levels)), closed),

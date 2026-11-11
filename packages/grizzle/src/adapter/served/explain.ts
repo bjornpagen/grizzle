@@ -2,7 +2,7 @@ import { Array as Arr, Effect, Result, type Scope } from "effect"
 import { type HostCall, hostInputs, sessionTransport, valuesFailure } from "#adapter/apply/run.ts"
 import type { ServedDbContext } from "#adapter/db/context.ts"
 import { type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
-import { LawRejected, UnreadableAnswer } from "#adapter/errors/failures.ts"
+import { InputRejected, UnreadableAnswer } from "#adapter/errors/failures.ts"
 import { decodeExecuted, decodePlan, explainFailure } from "#adapter/explain/plan.ts"
 import { programStatement } from "#adapter/reader/run.ts"
 import type { ReadCall } from "#adapter/reader/stream.ts"
@@ -184,7 +184,12 @@ export const explainChange = (
 			(reason) => new ReadFailure({ reason })
 		)
 		if (inputs.kind === "rejected") {
-			return yield* new ReadFailure({ reason: new LawRejected({ law: inputs.refused.law }) })
+			return yield* new ReadFailure({
+				reason: new InputRejected({
+					refused: { kind: "every", laws: [inputs.refused] },
+					witness: inputs.witness
+				})
+			})
 		}
 		const readBacks = yield* Effect.mapError(
 			Effect.forEach(

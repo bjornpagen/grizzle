@@ -29,7 +29,6 @@ import { lateralParentMax } from "#compiler/core/limits.ts"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
 import { queryInput } from "#compiler/program/compile.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { servedSource } from "#compiler/served/read.ts"
 import { servedSpine } from "#compiler/served/spine.ts"
 import { assert, nonEmpty, succeeded } from "#test/support/assert.ts"
@@ -105,10 +104,7 @@ describe("a read's per-execution choice", () => {
 							const facts = accounts(count)
 							/** The template declares the relation parameter alone: firstTwo's `acct` is bound to the account variable. */
 							const inputs = Result.getOrThrow(
-								executionInputs(
-									paramCodecs(template.params, emptyCodebook, new CompilePatterns()),
-									{ [name]: facts }
-								)
+								executionInputs(paramCodecs(template.params, emptyCodebook), { [name]: facts })
 							)
 							const forms = program.run.forms
 							assert.ok(forms.kind === "chosen", name)

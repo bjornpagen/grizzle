@@ -15,6 +15,7 @@ import { completeClass } from "#compiler/ir/write.ts"
 import {
 	arraysSource,
 	relationColumns,
+	unchecked,
 	type WriteParams
 } from "#compiler/lower/conservative/context.ts"
 import type { WriteParamSlot } from "#compiler/lower/conservative/types.ts"
@@ -309,7 +310,8 @@ const slotFacts = (
 			relationColumns(
 				heading,
 				() => supply.column(origin),
-				(t) => w.cx.baseTypeRef(t)
+				(t) => w.cx.baseTypeRef(t),
+				unchecked
 			),
 		`a family write of ${relation}`
 	)

@@ -3,7 +3,7 @@ import { topoOrder } from "#compiler/ir/dag.ts"
 import type { Heading, HeadingColumn } from "#compiler/ir/rel.ts"
 import { isRefined, refinementText, type ScalarType } from "#compiler/ir/scalar.ts"
 import { type LowerContext, refuse } from "#compiler/lower/conservative/context.ts"
-import type { ConservativeParamSlot, ScalarParamSlot } from "#compiler/lower/conservative/types.ts"
+import type { ConservativeParamSlot } from "#compiler/lower/conservative/types.ts"
 import { CompilePatterns, type PatternReads } from "#compiler/scalar/regex/patterns.ts"
 import type {
 	Cte,
@@ -21,7 +21,6 @@ import type {
 	With
 } from "#compiler/sql/ast.ts"
 import { cast, mapTargets, sameTypeRef, setBodyOf, withArms } from "#compiler/sql/build.ts"
-import { identityHooks, transformSelect } from "#compiler/sql/transform.ts"
 
 /**
  * What the trace finds of one definition of a delivered value: proved inside its refinement; unproved; or a declared
@@ -122,8 +121,8 @@ interface Claim {
 }
 
 /** A declared parameter's value as its placeholder carries it: the name the query declares it by, a relation
- * parameter's field as `<parameter>.<field>`, and the type its bind checks every value against (codec/scalar.ts
- * refinedMember), which is what its value is proved to be. */
+ * parameter's field as `<parameter>.<field>`, and the type PostgreSQL checks every value against as it binds it
+ * (context.ts paramTypeRef, arrayCheck), which is what its value is proved to be. */
 interface Supplied {
 	readonly name: string
 	readonly type: ScalarType
@@ -374,24 +373,6 @@ export class Tracer {
 	}
 }
 
-/** `query` with each placeholder of a retyped slot, by number, cast to the slot's new type. */
-export const retypePlaceholders = (
-	query: Select,
-	retyped: ReadonlyMap<number, ScalarParamSlot>
-): Select =>
-	retyped.size === 0
-		? query
-		: transformSelect(query, {
-				...identityHooks,
-				expr: (e) => {
-					if (e.kind !== "param") {
-						return e
-					}
-					const slot = retyped.get(e.slot.number)
-					return slot === undefined ? e : { ...e, type: slot.sqlType }
-				}
-			})
-
 /** The declared type of every stored column of a non-derived relation the DAG reads, by its installed table and column. */
 export const storedColumns = (cx: LowerContext): ReadonlyMap<string, ScalarType> => {
 	const out = new Map<string, ScalarType>()
@@ -412,7 +393,7 @@ export const storedColumns = (cx: LowerContext): ReadonlyMap<string, ScalarType>
  * domain the installation does not name, which the conservative context's own typeRef refuses. Every other failure
  * of the type mapping propagates.
  */
-export const domainOf = (cx: LowerContext, t: ScalarType): TypeRef | undefined => {
+const domainOf = (cx: LowerContext, t: ScalarType): TypeRef | undefined => {
 	const p = cx.physicalType(t)
 	return p.kind === "type" && p.ref.kind === "named" ? p.ref : undefined
 }
@@ -506,9 +487,10 @@ export const castDomain = (
  * - proved: a stored column of a non-derived relation whose declared type guarantees the refinement (the domain's
  *   validated CHECK is immediate evidence), a placeholder or literal typed by the domain, a text literal the
  *   pattern's automaton admits on the host, or a cast into it; and a declared parameter's value, a scalar parameter's
- *   placeholder or a relation parameter's field array, whose declared type guarantees the refinement: its bind checks
- *   every value against its type's contract and pattern before any SQL (codec/scalar.ts refinedMember), as a stored
- *   column's domain checks it, so its refinement travels with it whether or not the installation names a domain of it.
+ *   placeholder or a relation parameter's field array, whose declared type guarantees the refinement: PostgreSQL checks
+ *   every value against its type's contract and pattern as it binds the parameter, its placeholder typed by the
+ *   refinement's domain and its array cast through it (context.ts paramTypeRef, arrayCheck), as a stored column's
+ *   domain checks it, so its refinement travels with it.
  *   A core whose WHERE is false delivers nothing and defines no value. min, max, LEAST, GREATEST and CASE deliver one
  *   of their operands' values, and a cast to the base type relabels without changing the value, so each is proved
  *   when its operands are;
@@ -516,23 +498,19 @@ export const castDomain = (
  *   placeholder or literal of no declared parameter, a base-typed recursive state column, a derived relation's column,
  *   or a definition the trace does not follow.
  *
- * Both deliveries use it: the optimized one in shapes/refined, and the conservative one here (refineConservative), in
- * two steps before emission.
- *
- * 1. Every placeholder typed by a refinement's domain, which in a delivered statement is an emitted refined parameter
- *    (expr/index.ts types a written or emitted one by its domain, and a query writes nothing), is retyped to its base,
- *    its slot with it. PostgreSQL validates a domain-typed placeholder when it binds it, before any row
- *    exists, so an empty result would fail on a value it never delivers; bound as its base, the value
- *    is validated by step 2 for every delivered row and only then. The conservative lowering casts every refined column
- *    of a set operation's arms to its base (union/arms.ts), so a retyped value agrees with the other arms.
- * 2. Every refined delivered column some definition of which is unproved is cast to its domain in the outermost target
- *    list, and an ORDER BY item that is the cast column is cast alike, which SELECT DISTINCT needs of an ORDER BY
- *    expression. A refined output whose domain the installation does not name cannot be validated and is refused.
+ * Both deliveries use it: the optimized one in shapes/refined, and the conservative one here (refineConservative),
+ * before emission. A declared parameter's placeholder stays typed by its refinement's domain, so PostgreSQL validates
+ * it as it binds it, before any row exists, which is the parameter's one check: a value outside its refinement is
+ * refused whatever the result delivers. The conservative lowering casts every refined column of a set operation's arms
+ * to its base (union/arms.ts). Every refined delivered column some definition of which is unproved is cast to its domain
+ * in the outermost target list, and an ORDER BY item that is the cast column is cast alike, which SELECT DISTINCT needs
+ * of an ORDER BY expression. A refined output whose domain the installation does not name cannot be validated and is
+ * refused.
  *
  * A law's violation probe (deploy/diff), the migration's check of a law over closed relations alone, delivers to no
  * host: its rows are declared values, which already satisfy their refinements, and the migration reads only whether one
- * exists. It claims nothing of its outputs, so step 2 casts none of them, a contract's base pattern no domain names
- * among them.
+ * exists. It claims nothing of its outputs, so it casts none of them, a contract's base pattern no domain names among
+ * them.
  */
 export const refineConservative = (
 	cx: LowerContext,
@@ -540,18 +518,7 @@ export const refineConservative = (
 	delivered: Heading,
 	unit: boolean
 ): Select => {
-	const retyped = new Map<number, ScalarParamSlot>()
-	for (const slot of cx.params.slots) {
-		if (slot.kind !== "scalar" || !isRefined(slot.type) || slot.sqlType.kind !== "named") {
-			continue
-		}
-		const base = cx.baseTypeRef(slot.type)
-		if (sameTypeRef(base, slot.sqlType)) {
-			continue
-		}
-		retyped.set(slot.number, cx.params.retype(slot, base))
-	}
-	const relabeled = retypePlaceholders(query, retyped)
+	const relabeled = query
 	if (
 		unit ||
 		cx.options.subject.kind === "violationProbe" ||

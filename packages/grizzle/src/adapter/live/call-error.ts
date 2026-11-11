@@ -14,6 +14,7 @@ import type {
 	ReadReason,
 	TransportReason
 } from "#adapter/errors/execution.ts"
+import type { InputRejected, LawRejected } from "#adapter/errors/failures.ts"
 import { type CallError, callError } from "#compiler/plan/runtime.ts"
 
 /** The call errors grizzle's failures read as, each carrying the failure's own message. */
@@ -25,6 +26,9 @@ const transport = (message: string): CallError => callError("transport", { messa
 const unavailable = (message: string): CallError => callError("unavailable", { message })
 const stale = (message: string): CallError => callError("stale", { message })
 const commitUnknown = (message: string): CallError => callError("commitUnknown", { message })
+
+/** The witness of a refusal PostgreSQL raised by a domain, which states no row. */
+const unreported = { kind: "unreported" } as const
 
 /** A failure's reasons by tag, each with the call error it reads as. */
 type Reading<R extends { readonly _tag: string }> = {
@@ -51,10 +55,14 @@ const openReading: Reading<OpenReason> = {
 
 /**
  * Why a read failed: a session refused before anything was sent is `unavailable`; a connection broken while it ran is
- * `transport`, since a read commits nothing; the host's refusal of its input is `input`; the rest is the server's.
+ * `transport`, since a read commits nothing; the host's refusal of its input is `input`, and so is PostgreSQL's
+ * refusal of a parameter's value by its pattern as it binds it; a refusal by laws, PostgreSQL's by a contract's or a
+ * pattern's domain (LawRejected) or an explain's of the host's key parse (InputRejected), is `refused` with its laws,
+ * read before this table (callErrorOf); the rest is the server's.
  */
-const readReading: Reading<ReadReason> = {
+const readReading: Reading<Exclude<ReadReason, LawRejected | InputRejected>> = {
 	ServerError: failed,
+	ParamRejected: input,
 	CredentialError: unavailable,
 	TlsRefused: unavailable,
 	StartupRefused: unavailable,
@@ -71,7 +79,6 @@ const readReading: Reading<ReadReason> = {
 	UnreadableAnswer: failed,
 	CompileError: failed,
 	EncodingFailure: input,
-	LawRejected: input,
 	InputTooLarge: input,
 	TemporaryRefused: failed,
 	CallInputRefused: input
@@ -96,9 +103,13 @@ const transportReading: Reading<TransportReason> = {
 	DriverFailure: transport
 }
 
-/** Why a write failed at execution: a relation input past its bound is `input`; the rest is the server's. */
+/**
+ * Why a write failed at execution: a relation input past its bound, or a parameter's value PostgreSQL refused by its
+ * pattern as it bound it, is `input`; the rest is the server's.
+ */
 const executionReading: Reading<ExecutionReason> = {
 	ServerError: failed,
+	ParamRejected: input,
 	CompileError: failed,
 	InputTooLarge: input,
 	TemporaryRefused: failed,
@@ -110,8 +121,24 @@ export const callErrorOf = (error: OpenError | ReadError | ApplyError): CallErro
 	switch (error._tag) {
 		case "OpenError":
 			return openReading[error.reason._tag](error.message)
-		case "ReadFailure":
-			return readReading[error.reason._tag](error.message)
+		case "ReadFailure": {
+			const reason = error.reason
+			if (reason._tag === "LawRejected") {
+				return callError("refused", {
+					message: error.message,
+					refused: reason.refused,
+					witness: unreported
+				})
+			}
+			if (reason._tag === "InputRejected") {
+				return callError("refused", {
+					message: error.message,
+					refused: reason.refused,
+					witness: reason.witness
+				})
+			}
+			return readReading[reason._tag](error.message)
+		}
 		case "TransportFailure":
 			return transportReading[error.reason._tag](error.message)
 		case "ExecutionFailure":

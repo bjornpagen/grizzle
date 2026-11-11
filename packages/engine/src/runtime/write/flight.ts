@@ -88,15 +88,14 @@ export interface FlightStatement {
 
 /**
  * A ServedWrite loaded under the installation's codes: its declared parameters, its binding and the binding's closures
- * (binding.ts prepareBinding), the codes its values are admitted and encoded under and the patterns its refined values
- * are judged by, its statements with their encoders, and what reads its rows.
+ * (binding.ts prepareBinding), the codes its values are parsed and encoded under, its statements with their encoders,
+ * and what reads its rows.
  */
 export interface FlightWrite {
 	readonly params: ReadonlyArray<ParamDecl>
 	readonly binding: Binding
 	readonly prepared: PreparedBinding
 	readonly codes: Codebook
-	readonly patterns: PatternReads
 	readonly statements: ReadonlyArray<FlightStatement>
 	readonly outcome: OutcomeContext
 }
@@ -110,7 +109,7 @@ export const loadWrite = (
 	closed: ClosedTable,
 	patterns: PatternReads
 ): FlightWrite => {
-	const slotOf = writeSlotOf(codes, patterns)
+	const slotOf = writeSlotOf(codes)
 	const loaded = (form: ServedWriteForm): FlightForm =>
 		Object.freeze({ text: form.text, paramSlots: Object.freeze(form.params.map(slotOf)) })
 	return Object.freeze({
@@ -118,7 +117,6 @@ export const loadWrite = (
 		binding: served.binding,
 		prepared: prepareBinding(served.binding, codes, closed, patterns),
 		codes,
-		patterns,
 		statements: Object.freeze(
 			served.statements.map((s, index): FlightStatement =>
 				Object.freeze({

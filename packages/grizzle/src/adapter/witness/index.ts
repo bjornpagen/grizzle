@@ -1,4 +1,10 @@
-import { type ViolationClassifier, violationClassifier } from "#adapter/witness/classify.ts"
+import type { ServerError } from "#adapter/errors/failures.ts"
+import {
+	type DomainRefusal,
+	domainRefusal,
+	type ViolationClassifier,
+	violationClassifier
+} from "#adapter/witness/classify.ts"
 import { type KeyLaws, keyLawsOf, type LawsAbove } from "#adapter/witness/keylaw.ts"
 import type { KeyHost, KeyWitness } from "#compiler/plan/change.ts"
 import type { Codebook, EntryName, StoredRelationName } from "#compiler/plan/common.ts"
@@ -29,6 +35,8 @@ import type { ServedEntryKey, ServedRefusals } from "#compiler/plan/serve.ts"
 export interface InstallationWitness {
 	readonly laws: KeyLaws
 	readonly classify: ViolationClassifier
+	/** A read's refusal by a domain (classify.ts domainRefusal): a parameter's pattern's, or a contract's laws. */
+	readonly domain: (failure: ServerError) => DomainRefusal | undefined
 }
 
 /** A query entry's key, from the key values of its target `values`: each head field's, the target field's it writes. */
@@ -92,7 +100,9 @@ export const servedWitness = (
 					e.entry,
 					e.entry
 				])
-			)
-		})
+			),
+			params: refusals.params
+		}),
+		domain: domainRefusal(laws, refusals.params)
 	}
 }

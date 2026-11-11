@@ -182,8 +182,9 @@ interface ContractParts {
  * checks nothing, ever. The public contract (public/fields.ts) is an unchecked brand constructor to Effect's type-level
  * brand (core/brand.ts nominal), with the contract's members, which this admission core decides, defined onto it.
  * PostgreSQL evaluates the predicate on writes into the domain and on an explicit domain cast; the library evaluates it
- * for a literal that adopts the contract, the ContractLiteral check at compilation, and for a parameter its uses type
- * by the contract, at bind (codec/scalar.ts paramEncoder).
+ * for a literal that adopts the contract, the ContractLiteral check at compilation. A parameter its uses type by the
+ * contract is PostgreSQL's to check, its placeholder typed by the contract's domain (lower/conservative/context.ts
+ * paramTypeRef).
  *
  * The predicate callback runs once, at construction, over the domain's VALUE, and records an ExprDesc (callbacks
  * build descriptions; they never run per row). Its value scalar offers the comparisons of a Scalar:

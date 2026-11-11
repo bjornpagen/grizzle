@@ -18,6 +18,7 @@ import type { ParamText } from "#compiler/core/wire.ts"
 import type { RosterCodes } from "#compiler/ir/cells.ts"
 import type { ConstraintLaws, PageFill, ParamDecl } from "#compiler/ir/products.ts"
 import type { CompletedOrder, Heading, HeadingColumn } from "#compiler/ir/rel.ts"
+import type { Patterns } from "#compiler/ir/scalar.ts"
 import type { ConstraintLaw } from "#compiler/laws/model/model.ts"
 import type { ServedWire } from "#compiler/live/member.ts"
 import type { PageStatementSlot } from "#compiler/lower/conservative/types.ts"
@@ -422,11 +423,23 @@ export interface ServedEntryKey {
 }
 
 /**
+ * A parameter's pattern domain as a refusal by it names the parameter (physical/ddl/domains.ts paramDomainsOf): the
+ * parameter, or `<parameter>.<field>` of a relation parameter's facts, and its pattern as its type spells it.
+ */
+export interface ServedParamDomain {
+	readonly param: string
+	readonly patterns: Patterns
+}
+
+/**
  * The classifier of a role's refusals as data (adapter witness/index.ts InstallationWitness): its key laws, each stored
- * relation's heading, which a refusal's key text decodes through, and the query entries the role writes through.
+ * relation's heading, which a refusal's key text decodes through, the query entries the role writes through, and the
+ * pattern domains its members' parameters are cast to, by identifier, which generate names (paramDomainsOf), so a
+ * refusal by one names its parameter with no compile at load.
  */
 export interface ServedRefusals {
 	readonly laws: ServedKeyLaws
 	readonly relations: ReadonlyMap<StoredRelationName, Heading>
 	readonly entries: ReadonlyMap<StoredRelationName, ServedEntryKey>
+	readonly params: ReadonlyMap<string, ServedParamDomain>
 }

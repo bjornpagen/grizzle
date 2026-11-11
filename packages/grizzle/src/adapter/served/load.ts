@@ -12,7 +12,7 @@ import { type ParamCodecs, paramCodecs } from "#adapter/reader/relations.ts"
 import { type ReadProgram, readProgram } from "#adapter/reader/run.ts"
 import type { DecodedRow } from "#adapter/reader/stream.ts"
 import type { PrologueStatements } from "#adapter/wire/batch.ts"
-import { servedWitness } from "#adapter/witness/index.ts"
+import { type InstallationWitness, servedWitness } from "#adapter/witness/index.ts"
 import type { ArrayMember, ClosedTable } from "#compiler/plan/change.ts"
 import type {
 	BindContext,
@@ -157,6 +157,8 @@ export interface LoadedRole {
 	readonly installed: string
 	readonly contexts: ReadonlyArray<TypedContext>
 	readonly members: ReadonlyArray<LoadedMember>
+	/** A read's refusal by a domain its statements cast a value to (witness/classify.ts domainRefusal). */
+	readonly domain: InstallationWitness["domain"]
 	/** The level its changes begin at (served/forms.ts ServedRoleForm isolation). */
 	readonly isolation: Isolation
 }
@@ -204,17 +206,16 @@ const servedReads = (
 	}))
 }
 
-/** A read, loaded under the codes `codes`, the bind context `bind` and the file's pattern table `patterns`. */
+/** A read, loaded under the codes `codes` and the bind context `bind`. */
 const loadRead = (
 	read: ServedRead,
 	codes: Codebook,
-	bind: BindContext,
-	patterns: PatternReads
+	bind: BindContext
 ): Result.Result<LoadedRead, CompileError> => {
 	const program = readProgram(read.source, read.spine, codes)
 	return Result.map(boundReader(read, program.layouts, bind), (reader) => ({
 		params: read.params,
-		codecs: paramCodecs(read.params, codes, patterns),
+		codecs: paramCodecs(read.params, codes),
 		program,
 		read: reader,
 		key: read.key,
@@ -259,7 +260,7 @@ const loadChange = (
 		program: servedRunnable(loadWrite(program, codes, closed, patterns)),
 		witness,
 		readBacks: readBacks(change.readBacks, codes),
-		codecs: paramCodecs(program.params, codes, patterns),
+		codecs: paramCodecs(program.params, codes),
 		bind
 	}
 	return Result.map(servedReads(entry, change.decoder), (reads) => ({
@@ -318,14 +319,14 @@ const loadMember = (
 ): Result.Result<LoadedMember, CompileError> => {
 	switch (member.kind) {
 		case "read":
-			return Result.map(loadRead(member.read, codes, bind, patterns), (read): LoadedMember => ({
+			return Result.map(loadRead(member.read, codes, bind), (read): LoadedMember => ({
 				name: member.name,
 				wire: member.wire,
 				kind: "read",
 				read
 			}))
 		case "key":
-			return Result.map(loadRead(member.read, codes, bind, patterns), (read): LoadedMember => ({
+			return Result.map(loadRead(member.read, codes, bind), (read): LoadedMember => ({
 				name: member.name,
 				wire: member.wire,
 				kind: "key",
@@ -334,7 +335,7 @@ const loadMember = (
 			}))
 		case "paged":
 			return Result.gen(function* () {
-				const read = yield* loadRead(member.read, codes, bind, patterns)
+				const read = yield* loadRead(member.read, codes, bind)
 				const page = yield* loadPage(member.page, member.read, codes, bind)
 				return { name: member.name, wire: member.wire, kind: "paged", read, page }
 			})
@@ -377,6 +378,7 @@ const loadRole = (
 			installed: role.installed,
 			contexts: Arr.map(role.contexts, (context) => contextOver(context, context.fields, codes)),
 			members,
+			domain: witness.domain,
 			isolation: role.isolation
 		}
 	})

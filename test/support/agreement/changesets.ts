@@ -8,7 +8,6 @@ import { Array as Arr, Effect, Option, Record as Rec, Result, Stream, String as 
 import { collectInputs } from "#adapter/apply/collect.ts"
 import { readParams } from "#adapter/reader/params.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
-import { refinedMember } from "#compiler/codec/scalar.ts"
 import { CompileError, type CompileReason } from "#compiler/core/errors.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { isSequence, isTreeOf } from "#compiler/ir/family.ts"
@@ -63,6 +62,7 @@ import {
 } from "#test/support/agreement/changeset-schema.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { messageOf } from "#test/support/message.ts"
+import { refinedMember } from "#test/support/oracle/refinement.ts"
 import { checking } from "#test/support/policy.ts"
 import { type PreludeAt, preludeAt, preludeFrom, preludeProgram } from "#test/support/prelude.ts"
 
@@ -2350,8 +2350,8 @@ const bound = (
 }
 
 /**
- * Whether a member fact holds a value outside its column's refinements (codec/scalar.ts refinedMember): no parameter, so
- * bind passes it, and its column's domain refuses it when the ChangeSet applies.
+ * Whether a member fact holds a value outside its column's refinements (oracle/refinement.ts refinedMember): no host
+ * check refuses it, and its column's domain refuses it when the ChangeSet applies.
  */
 const outsideItsDomain = (laws: ReturnType<typeof realityWrite>["laws"], c: ChangeSpec): boolean =>
 	Arr.some(builtsOf(c), (b) =>

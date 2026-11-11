@@ -1923,8 +1923,8 @@ class Lowering<R extends Refs> {
 
 	/**
 	 * A coercion into `to`'s contract or regex refinement, which PostgreSQL validates: admitted with the proof that the
-	 * value satisfies it, a literal judged before any SQL (ContractLiteral), a parameter checked at bind
-	 * (codec/scalar.ts paramEncoder), or a value whose bounds satisfy each contract level's predicate; else
+	 * value satisfies it, a literal judged before any SQL (ContractLiteral), a parameter PostgreSQL checks as it binds it
+	 * (lower/conservative/context.ts paramTypeRef), or a value whose bounds satisfy each contract level's predicate; else
 	 * PartialOperation.
 	 */
 	domainCast(
@@ -2036,10 +2036,10 @@ class Lowering<R extends Refs> {
 	}
 
 	/**
-	 * A parameter, of its declared type: a term like any other, its serial its integer. The placeholder is bound as the
-	 * type's base, never a refined domain, which is the node's actual type even where the declared type is a contract or a
-	 * regex refinement: its binding checks the value against them before any SQL (codec/scalar.ts paramEncoder), so the
-	 * parameter has its type's bounds and facts, a contract's declared ones among them.
+	 * A parameter, of its declared type: a term like any other, its serial its integer. Its placeholder is typed by its
+	 * refinement's domain where its declared type is a contract or a pattern (lower/conservative/context.ts
+	 * paramTypeRef), which PostgreSQL checks the value against as it binds it, so the parameter has its type's bounds and
+	 * facts, a contract's declared ones among them.
 	 */
 	param(param: ParamRef<R>, at: SourceLoc): Lowered {
 		const params = this.env.params

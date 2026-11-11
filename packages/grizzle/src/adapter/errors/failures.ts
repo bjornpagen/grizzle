@@ -1,7 +1,14 @@
 import * as Arr from "effect/Array"
 import * as Data from "effect/Data"
 import type { StartupVariable } from "#adapter/connection/environment.ts"
-import type { ExecutionPart, FamilyRowBound, Law, Unsendable } from "#compiler/plan/change.ts"
+import type {
+	ExecutionPart,
+	FamilyRowBound,
+	Law,
+	Refused,
+	Unsendable,
+	Witness
+} from "#compiler/plan/change.ts"
 import type {
 	ColumnIdent,
 	ConstraintName,
@@ -610,12 +617,47 @@ export class UnreadableAnswer extends Data.TaggedError("UnreadableAnswer")<{
 }
 
 /**
- * A change member's explain of a call whose input `law` rejects before any SQL: two facts of one relation input share a key and
- * differ in payload.
+ * A change member's explain of a call whose input the host refuses before any SQL, as the call's apply answers
+ * `invariant-rejected`: two facts one stratum adds at one key that differ elsewhere, the parse of a relation's facts into
+ * the set its keys hold, or a nested write's generated field with no value at a row its fill reads; `refused` and
+ * `witness` as the apply's outcome names them.
  */
-export class LawRejected extends Data.TaggedError("LawRejected")<{ readonly law: Law }> {
+export class InputRejected extends Data.TaggedError("InputRejected")<{
+	readonly refused: Refused
+	readonly witness: Witness
+}> {
 	override get message(): string {
-		return `the ChangeSet's input breaks a ${this.law.kind} law before any SQL`
+		return `the ChangeSet's input breaks ${this.refused.kind} of its ${this.refused.laws.length} named laws before any SQL`
+	}
+}
+
+/**
+ * PostgreSQL refused a read by laws of the schema: a value a refinement's domain refuses as a statement casts it, a
+ * parameter's value outside its contract as PostgreSQL binds it among them, which nothing on the host checks.
+ * `refused` names the laws the domain discharges as a write's outcome names them, each refused by the domain:
+ * `every` where it discharges one, `some` where several, at least one of which the value breaks.
+ */
+export class LawRejected extends Data.TaggedError("LawRejected")<{ readonly refused: Refused }> {
+	override get message(): string {
+		return `PostgreSQL refused a value by ${this.refused.kind} of ${this.refused.laws.length} laws`
+	}
+}
+
+/**
+ * PostgreSQL refused a parameter's value outside its declared pattern as it bound it, by the parameter's own pattern
+ * domain: `param`, the parameter, or `<parameter>.<field>` for a field of a relation parameter's facts, and `patterns`,
+ * the pattern as the parameter's type spells it. Nothing on the host checks a pattern, so a call is refused here, one
+ * round trip in, whatever the rest of its input holds.
+ */
+export class ParamRejected extends Data.TaggedError("ParamRejected")<{
+	readonly param: string
+	readonly patterns: Extract<Law, { readonly kind: "pattern" }>["patterns"]
+}> {
+	override get message(): string {
+		return `the value of parameter ${this.param} is outside its pattern ${Arr.join(
+			Arr.map(this.patterns, (p) => `/${p.source}/${p.flags}`),
+			" & "
+		)}`
 	}
 }
 

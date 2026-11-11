@@ -59,7 +59,6 @@ import type { Row as DeliveredRow } from "#compiler/plan/common.ts"
 import { columnPosition, rowCell, scalarReader } from "#compiler/plan/runtime.ts"
 import { keyColumns, statementOutput } from "#compiler/runtime/lower/tree.ts"
 import { mergeHeadingGroups } from "#compiler/runtime/lower/union.ts"
-import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { hasCapability } from "#compiler/scalar/registry.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { storedValue } from "#compiler/scalar/values/identity.ts"
@@ -919,7 +918,7 @@ const windowReader = (
 		Effect.gen(function* () {
 			const inputs = yield* Effect.fromResult(
 				Result.mapError(
-					executionInputs(paramCodecs(runtime.params, codes, new CompilePatterns()), params),
+					executionInputs(paramCodecs(runtime.params, codes), params),
 					(reason) => new ReadFailure({ reason })
 				)
 			)

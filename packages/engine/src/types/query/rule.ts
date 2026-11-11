@@ -367,7 +367,8 @@ type SpanOperand<Sp> = Meets<Sp, "range">
  * A scalar parameter of a descriptor of values H, SQL type Sql, domain D and facts F: an input term the caller binds by
  * name to one of the values, whose map entry is the descriptor's type (ParamType), which a term binding it meets and
  * whose language the caller's value is in. It has its descriptor's facts, a contract's declared ones among them, which
- * the binding checks of every value (codec/scalar.ts refinedValue), so a partial operation over it stands unguarded.
+ * PostgreSQL checks of every value as it binds it, its placeholder typed by the refinement's domain (lower/conservative
+ * context.ts paramTypeRef), so a partial operation over it stands unguarded.
  */
 type ParamTerm<Name extends string, H, Sql extends SqlTag, D, F extends ProvedFacts> = Term<
 	D,

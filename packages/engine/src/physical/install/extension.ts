@@ -7,6 +7,7 @@ import type { LivePlan } from "#compiler/live/notify.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import type { TextColumnUse } from "#compiler/physical/ddl/domains.ts"
 import type { StatisticsRequest } from "#compiler/physical/statistics/statistics.ts"
+import type { ObjectName } from "#compiler/sql/ast.ts"
 
 /** What an extension contributes to the installation it runs in beyond the objects it adds to the builder: an
  * extension spreads `noContribution` and states what it contributes. */
@@ -15,12 +16,16 @@ export interface InstallContribution {
 	readonly statisticsRequests: ReadonlyArray<StatisticsRequest>
 	/** The derived relations whose materialized views it installs. */
 	readonly derivedRelations: ReadonlyArray<string>
+	/** The domains it creates, which PUBLIC is revoked from as from the installation's own: the served workload's
+	 * parameters' pattern domains (physical/ddl/domains.ts addParamDomains). */
+	readonly domains: ReadonlyArray<ObjectName>
 }
 
 export const noContribution: InstallContribution = {
 	indexRequests: [],
 	statisticsRequests: [],
-	derivedRelations: []
+	derivedRelations: [],
+	domains: []
 }
 
 /** What another package installs, plugged into an installation: the materialized views of derived relations, the

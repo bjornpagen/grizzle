@@ -118,6 +118,7 @@ import {
 	and,
 	arrays,
 	asc,
+	baseCheck,
 	call,
 	cast,
 	col,
@@ -1164,7 +1165,8 @@ const fromSource = (
 							columns: [
 								{
 									definition: columnDefinition(OWN_COLUMN, types.integer),
-									array: positionalValue(1)
+									array: positionalValue(1),
+									check: baseCheck
 								}
 							],
 							ordinal: undefined

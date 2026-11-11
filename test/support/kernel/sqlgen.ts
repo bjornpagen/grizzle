@@ -43,6 +43,7 @@ import type {
 import {
 	arrays,
 	asc,
+	baseCheck,
 	binary,
 	call,
 	cast,
@@ -1018,7 +1019,8 @@ const arraysEntry = (d: Draw): Entry => {
 							ordinal: undefined,
 							columns: Arr.map(named, (c) => ({
 								definition: columnDefinition(c.name, typeRefs[c.type]),
-								array: d.arrayParam()
+								array: d.arrayParam(),
+								check: baseCheck
 							}))
 						},
 				alias

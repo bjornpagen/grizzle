@@ -56,7 +56,11 @@ import {
 	type TableConstraintLaw
 } from "#compiler/laws/model/model.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
-import { type TextDomain, textDomainIdentity } from "#compiler/physical/ddl/domains.ts"
+import {
+	paramDomainIdentity,
+	type TextDomain,
+	textDomainIdentity
+} from "#compiler/physical/ddl/domains.ts"
 import {
 	installationTypes,
 	namedRole,
@@ -181,6 +185,10 @@ export const productionNames = (
 			)
 		},
 		textDomain: () => undefined,
+		paramDomain: (place, regex) => ({
+			schema: types,
+			name: identifierOf(paramDomainIdentity(place, regex))
+		}),
 		selectionKeys: () => [],
 		vectorSchema: vectorTypes(vectorSchema),
 		codes,

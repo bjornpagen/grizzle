@@ -8,7 +8,9 @@ import {
 	DeclaredNamespace,
 	type Identity,
 	identifierOf,
-	identity
+	identity,
+	type ParamPlace,
+	paramPlaceText
 } from "#compiler/core/identity.ts"
 import type { ConstraintName, DomainName, Identifier } from "#compiler/core/ids.ts"
 import { defined } from "#compiler/core/invariant.ts"
@@ -24,11 +26,12 @@ import { descText, type FieldDesc } from "#compiler/ir/desc.ts"
 import { predicateTree } from "#compiler/ir/expr.ts"
 import type { DomainCheck, DomainCheckTerm, LawField, TableRelation } from "#compiler/ir/law.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
-import type { PhysicalReason } from "#compiler/ir/products.ts"
+import type { ParamDecl, PhysicalReason } from "#compiler/ir/products.ts"
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
 import {
 	type ContractInfo,
 	contractOf,
+	type Patterns,
 	patternsText,
 	type RegexRef,
 	type ScalarType,
@@ -241,6 +244,102 @@ export const textDomainIdentity = (regex: RegexRef): Identity<"textDomain"> =>
 	identity.textDomain(
 		definitionDigest(textDomainDdl(regex.check, { schema: "", name: "", constraint: "" }))
 	)
+
+/**
+ * The pattern domain of a declared parameter's place over `regex`: named by the place and the digest of the
+ * definition the pattern's structural text domain is named by, so its CHECK is that domain's, and a refusal by it names
+ * the parameter alone, whatever stored field shares the pattern.
+ */
+export const paramDomainIdentity = (place: ParamPlace, regex: RegexRef): Identity<"paramDomain"> =>
+	identity.paramDomain(
+		place,
+		definitionDigest(textDomainDdl(regex.check, { schema: "", name: "", constraint: "" }))
+	)
+
+/** A pattern a served workload's parameter names, at its place: what the installation creates its domain for. */
+export interface ParamDomainUse {
+	readonly place: ParamPlace
+	readonly regex: RegexRef
+}
+
+/** The patterns a pattern domain checks of a value of `t` at `place`: its pattern where it is refined text outside any
+ * contract (structuralRegex), none otherwise, a contract's being its domain's. */
+const placeUses = (place: ParamPlace, t: ScalarType): ReadonlyArray<ParamDomainUse> => {
+	const regex = structuralRegex(t)
+	return regex === undefined ? [] : [{ place, regex }]
+}
+
+/**
+ * The pattern domains declared parameters `params` name: a scalar parameter's of a pattern, and each field of a pattern
+ * of a relation parameter's facts, by the parameter's id, the name a placeholder of it is lowered under.
+ */
+export const paramDomainUses = (params: ReadonlyArray<ParamDecl>): ReadonlyArray<ParamDomainUse> =>
+	params.flatMap((p) =>
+		p.kind === "scalar"
+			? placeUses({ kind: "scalar", param: p.id }, p.type)
+			: p.heading.flatMap((c) => placeUses({ kind: "field", param: p.id, field: c.name }, c.type))
+	)
+
+/** A parameter's pattern domain as a refusal by it names the parameter: its place's text and its patterns. */
+export interface ParamDomain {
+	readonly param: string
+	readonly patterns: Patterns
+}
+
+/**
+ * Each pattern domain the declared parameters `params` name (paramDomainUses), by its identifier, the data type
+ * PostgreSQL reports a refusal by it under, with the parameter it checks.
+ */
+export const paramDomainsOf = (
+	params: ReadonlyArray<ParamDecl>
+): ReadonlyMap<string, ParamDomain> =>
+	new Map(
+		paramDomainUses(params).map(({ place, regex }) => [
+			identifierOf(paramDomainIdentity(place, regex)),
+			{ param: paramPlaceText(place), patterns: regex.patterns }
+		])
+	)
+
+/**
+ * The pattern domains of `uses` as objects in Setup, each after the schema, each identity once: `CREATE DOMAIN
+ * <schema>.<domain> AS text COLLATE pg_catalog.pg_c_utf8 CONSTRAINT <check> CHECK (...)`, the CHECK the pattern's
+ * structural text domain holds. Every placeholder of the parameter is cast to it (ir/physical.ts paramDomain), so
+ * PostgreSQL checks the value as it binds it, and a refusal by it is the parameter's (adapter ParamRejected). Their
+ * names, in order.
+ */
+export const addParamDomains = (
+	b: InstallBuilder,
+	uses: ReadonlyArray<ParamDomainUse>
+): ReadonlyArray<ObjectName> => {
+	const seen = new Set<string>()
+	return uses.flatMap(({ place, regex }) => {
+		const named = paramDomainIdentity(place, regex)
+		if (seen.has(named.canonical)) {
+			return []
+		}
+		seen.add(named.canonical)
+		const ddl = textDomainDdl(regex.check, {
+			schema: b.schema,
+			name: b.name(named),
+			constraint: b.name(identity.domainCheck(named))
+		})
+		b.addType(
+			"domain",
+			b.names.installation,
+			named,
+			{
+				ddl: [ddl],
+				reasons: [
+					enforcement(
+						`pattern ${patternsText(regex.patterns)} of parameter ${paramPlaceText(place)}`
+					)
+				]
+			},
+			[b.schemaNode]
+		)
+		return [ddl.name]
+	})
+}
 
 /**
  * A structural text domain of the installation: the digest of its physical definition, its identity at the naming door

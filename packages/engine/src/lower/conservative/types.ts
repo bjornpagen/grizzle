@@ -7,6 +7,7 @@ import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
 import type { StatementRole, StatementRoots, StatementTree } from "#compiler/runtime/lower/tree.ts"
 import type {
+	ArrayCheck,
 	ColumnDefinition,
 	Cte,
 	EmittedSql,
@@ -123,12 +124,13 @@ export const conservativeInput = (query: Pick<LogicalQuery, "dag">): Conservativ
 })
 
 /**
- * One column of a relation input: the heading column, and the column of the input's arrays it travels as, given at
+ * One column of a relation input: the heading column, the column of the input's arrays it travels as, given at
  * allocation, whose name is the column the input's rows deliver it under and whose type is its base type, the
- * element type of its array.
+ * element type of its array, and what checks its array as it is bound (sql/ast.ts ArrayCheck).
  */
 export interface RelationColumn extends SlotColumn {
 	readonly definition: ColumnDefinition
+	readonly check: ArrayCheck
 }
 
 /** A relation input's column as its placeholder's encoder reads it: the column its arrays travel as, and its type. */
