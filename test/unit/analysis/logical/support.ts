@@ -15,17 +15,9 @@ import { classMembers, type KeyProof, keyWith } from "#compiler/ir/keys.ts"
 import { type TheoryViolations, theoryViolations } from "#compiler/laws/model/violations.ts"
 
 import type { Case } from "@grizzle/testing/explore"
-import type {
-	Heading,
-	KeySet,
-	NodeOf,
-	RelDag,
-	RelKind,
-	RelNode,
-	ValidDag
-} from "#compiler/ir/rel.ts"
+import type { Heading, KeySet, NodeOf, RelDag, RelKind, RelNode } from "#compiler/ir/rel.ts"
 import * as S from "#compiler/ir/shape.ts"
-import { analyzeLogical, checkerEvidence, type LogicalEnv } from "#compiler/logical/annotate.ts"
+import { checkerEvidence, type LogicalEnv } from "#compiler/logical/annotate.ts"
 import { irLiteral } from "#compiler/scalar/compute/literal.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
@@ -165,10 +157,6 @@ export const logicalEnv = (t: EvidencedTheory): LogicalEnv => ({
 	...checkerEvidence,
 	containments: t.evidence.containments
 })
-
-/** The DAG annotated under `env` (checkerEvidence, the checker's own evidence). */
-export const analyze = (dag: ValidDag, env: LogicalEnv): ValidDag =>
-	succeeded(analyzeLogical(dag, env)).dag
 
 /** A row's identity on `key`'s columns, interned in `identities`, so rows equal on the key share it. */
 const keyOf = (identities: Identities, heading: Heading, row: Row, key: KeySet): Interned =>
