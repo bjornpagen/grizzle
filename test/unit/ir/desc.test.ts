@@ -1,13 +1,41 @@
+/**
+ * Descriptions (ir/desc.ts), the boundary every artifact a JavaScript author writes is decoded at, over the samples of
+ * every kind, a corpus of them and generated expressions.
+ *
+ * - Locations: every node an author leaves unlocated is located by its path, and a stated location is kept.
+ * - Combinators: a query keeps the order of its combinators; two chains are one description exactly when they are one
+ *   chain, and each round-trips JSON.
+ * - Ordered: an Ordered is admitted exactly where a whole query stands.
+ * - Arms: a scale and an aggregate's argument decode exactly where their arm states them, refused at their own path
+ *   anywhere else.
+ * - Corruptions: a description broken at one part or one rule is refused, and every other decodes.
+ * - Nesting: an in-memory description of any depth decodes without deepening the stack, a cyclic one is refused, and a
+ *   shared value is no cycle.
+ * - Literals: bigint, Decimal, Money and Vector travel as tagged strings and a leading tilde is escaped; generated
+ *   expressions round-trip JSON to one canonical text; an empty and or or is its builder's constant.
+ *
+ * Oracles: each rule of the boundary as a checker, the round trip through JSON, and the builders' own constants.
+ *
+ * Features: as each search names them: every kind located and stated, chains told apart and alike, every position of
+ * an Ordered, each arm decoded and refused, live and every corruption, each nesting, each tag, each empty connective in
+ * each place.
+ *
+ * Plants: ir-desc-located-parent (an unlocated node located at its parent's path), ir-desc-text-drops-take (the
+ * identity text drops a take's count), ir-desc-ordered-under-named (named admitted over an Ordered), ir-desc-scale-on-add
+ * (add takes a scale), ir-desc-order-column-twice (an order naming a column twice decoded), ir-shape-deferred-inline (a
+ * recursive part read on the call stack), ir-canonical-tilde-unescaped (a leading tilde written as is),
+ * ir-canonical-tilde-unrestored (a doubled tilde read back doubled), ir-desc-connective-unit-swapped (an empty and
+ * decoded as false).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { noCoverage, required, requiredInSpace } from "@grizzle/testing/features"
+import { required, requiredInSpace } from "@grizzle/testing/features"
 import {
 	array,
 	boolean,
 	codePoint,
 	constant,
 	element,
-	filter,
 	type Gen,
 	int,
 	map,
@@ -30,11 +58,11 @@ import { Array as Arr, Effect, Formatter, Option, pipe, Record as Rec, String as
 import { indices } from "#compiler/core/array.ts"
 import { type Canonicalizable, canonicalTag, type Json } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import { formatLoc, SourceLoc } from "#compiler/core/loc.ts"
+import { SourceLoc } from "#compiler/core/loc.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import type * as Result from "#compiler/core/result.ts"
 import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
-import { MoneyText, VectorText } from "#compiler/ir/carriers.ts"
+import { binary32LeastExponent, MoneyText, VectorText } from "#compiler/ir/carriers.ts"
 import { DecimalText } from "#compiler/ir/decimal.ts"
 import {
 	type ComputeFn,
@@ -899,7 +927,10 @@ describe("Descriptions", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "two chains of combinators are one description exactly when they are one chain"
+						},
 						suite: "unit/ir/desc-combinator-order",
 						literal: Formatter.format,
 						draw: drawn(
@@ -1205,7 +1236,10 @@ describe("Descriptions", () => {
 									}
 									n.note("scale refused")
 									assert.equal(decoded.error.reason._tag, "MalformedDescription")
-									containsText(formatLoc(refusalLoc(decoded.error)), "scale")
+									assert.ok(
+										refusalLoc(decoded.error).path.includes("scale"),
+										`${c.fn}: refused at its scale`
+									)
 									return
 								}
 								case "aggregate": {
@@ -1541,8 +1575,11 @@ describe("Descriptions", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "chains of r.not 0, 1, 2 and 100,000 deep, every cycle of 1 to 4 parts back to any of them, an array cycle, and a value shared 0 to 3 levels",
+						oracle: {
+							kind: "specification",
+							name: "any depth decodes as its text does, a cycle is MalformedDescription, and a shared value is no cycle"
+						},
 						suite: "unit/ir/desc-nesting",
 						literal: Formatter.format,
 						generator: oneOf<Nesting>([
@@ -1757,16 +1794,15 @@ describe("Descriptions", () => {
 	 * The owned Money and a Vector's canonical snapshot are literals too: decoding keeps them as they are, and they carry
 	 * the same text as their payload texts.
 	 */
+	/** A component of no zero: a float32 of either sign, at least the least subnormal. */
+	const leastFloat32 = 2 ** binary32LeastExponent.value
+	const nonzeroComponent: Gen<number> = oneOf([float(-4, -leastFloat32), float(leastFloat32, 4)])
 	const ownedGen: Gen<ExprDesc> = map(
-		filter(
-			(source) =>
-				[
-					source.draw(bigint(-(2n ** 63n), 2n ** 63n - 1n)),
-					source.draw(array(float(-4, 4), { min: 1, max: 4 }))
-				] as const,
-			([, xs]) => Arr.some(xs, (x) => x !== 0),
-			10
-		),
+		(source) =>
+			[
+				source.draw(bigint(-(2n ** 63n), 2n ** 63n - 1n)),
+				[source.draw(nonzeroComponent), ...source.draw(array(float(-4, 4), { min: 0, max: 3 }))]
+			] as const,
 		([units, xs]): ExprDesc => {
 			const vector = succeeded(Vector.canonical(Vector.make(Float32Array.from(xs), xs.length)))
 			return { kind: "in", arg: { kind: "var", var: "v" }, values: [Money.of(units), vector] }
@@ -1779,7 +1815,10 @@ describe("Descriptions", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "the canonical text's tags, ~n, ~d, ~m and ~v, and a leading tilde doubled"
+						},
 						suite: "unit/ir/desc-tagged-literals",
 						literal: Formatter.format,
 						draw: drawn(
@@ -1830,20 +1869,32 @@ describe("Descriptions", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "universal",
+						name: "descFromJson ∘ JSON = decodeDesc, one canonical text"
+					},
 					suite: "unit/ir/desc-19",
 					literal: Formatter.format,
 					draw: drawn(exprsGen),
 					runs: 300,
 					shrink: completeShrink,
-					coverage: noCoverage,
+					coverage: required<TagFeature>(["~n", "~d", "an escaped tilde"], {
+						cases: 300,
+						sense: notesOnly
+					}),
 					kept: [],
 					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},
-				(e) =>
+				(e, c) =>
 					Effect.sync(() => {
+						for (const literal of literalsOf(e)) {
+							const tagged = tagOf(literal)
+							if (tagged !== "untagged") {
+								c.note(tagged[0])
+							}
+						}
 						const back = succeeded(descFromJson("expr", throughJson(e)))
 						assert.deepEqual(back, succeeded(decodeDesc("expr", e)))
 						assert.equal(succeeded(descText(back)), succeeded(descText(e)))
@@ -1906,7 +1957,10 @@ describe("Descriptions", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "the constant the builder builds of no predicate: true for and, false for or"
+						},
 						suite: "unit/ir/desc-empty-connective",
 						literal: Formatter.format,
 						draw: drawn(emptiedGen),

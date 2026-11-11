@@ -41,7 +41,7 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { codePoints } from "#compiler/core/text.ts"
+import { codePoints, codePointsText } from "#compiler/core/text.ts"
 import { buildNfa } from "#compiler/scalar/regex/nfa.ts"
 import { parsePattern } from "#compiler/scalar/regex/parse.ts"
 import { analyzeText, type TextRefinement } from "#compiler/text/refinement.ts"
@@ -406,7 +406,7 @@ const oneCodePointChanged =
 		const points = codePoints(pattern)
 		const at = source.draw(int(0, Math.max(points.length - 1, 0)))
 		const replacement = source.draw(element(alphabet))
-		return String.fromCodePoint(...Arr.map(points, (point, i) => (i === at ? replacement : point)))
+		return codePointsText(Arr.map(points, (point, i) => (i === at ? replacement : point)))
 	}
 
 describe("every claimed fact holds on the samples", () => {
