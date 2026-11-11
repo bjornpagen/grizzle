@@ -1802,9 +1802,7 @@ export const writeStatement = (out: Lines, statement: SqlStatement): void => {
 			if (first !== undefined) {
 				clauses.line(`FOR TABLE ${[first, ...rest].map(printPublishedTable).join(", ")}`)
 			}
-			return clauses.line(
-				"WITH (publish = 'insert, update, delete, truncate', publish_generated_columns = stored)"
-			)
+			return clauses.line("WITH (publish_generated_columns = stored)")
 		}
 		case "dropPublication":
 			return out.line(`DROP PUBLICATION ${quoteIdent(statement.name)}`)

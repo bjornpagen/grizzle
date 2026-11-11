@@ -235,7 +235,9 @@ const isPrivilege = (statement: string): boolean => {
  * the default privileges, run in the script's order; and every default privilege runs after every object is created,
  * as in the script. Every other statement creates or alters an object of its own, so its position decides nothing a catalog
  * shows (a statement that needs an earlier one fails the apply instead). Both are read as migrate sends them into
- * `database` (filledSql), each variable filled.
+ * `database` (filledSql), each variable filled, and split as migrate splits a file (render/markers.ts splitStatements):
+ * a statement the printer writes as two, a grant on the database behind the database privilege's lock, is two on both
+ * sides.
  */
 export const runsInstallScript = (
 	folders: ReadonlyArray<FolderSource>,
@@ -243,7 +245,13 @@ export const runsInstallScript = (
 	database: string
 ): boolean => {
 	const schema = installation.names.schema
-	const script = Arr.map(filledSql(draftedSql(installation), database), normalized)
+	const script = Arr.map(
+		filledSql(
+			{ statements: Arr.flatMap(draftedSql(installation).statements, splitStatements) },
+			database
+		),
+		normalized
+	)
 	const migration = Arr.map(
 		filledSql(
 			{

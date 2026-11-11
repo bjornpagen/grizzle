@@ -1538,10 +1538,11 @@ export interface PublishedTable {
 }
 
 /**
- * CREATE PUBLICATION <name> [FOR TABLE <table> [(<columns>)], ...] WITH (publish = 'insert, update, delete,
- * truncate', publish_generated_columns = stored): the installation's live source's publication, of every footprint
- * table, every kind of change, and a stored generated column of a table published whole, as REPLICA IDENTITY FULL asks;
- * none, a publication of no table, where the live plan reads only materialized views.
+ * CREATE PUBLICATION <name> [FOR TABLE <table> [(<columns>)], ...] WITH (publish_generated_columns = stored): the
+ * installation's live source's publication, of every footprint table, every kind of change (publish's default, insert,
+ * update, delete and truncate, stated by its omission, since a definition element takes a bare string constant and no
+ * typed literal), and a stored generated column of a table published whole, as REPLICA IDENTITY FULL asks; none, a
+ * publication of no table, where the live plan reads only materialized views.
  */
 export interface CreatePublication {
 	readonly kind: "createPublication"

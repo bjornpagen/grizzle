@@ -356,10 +356,29 @@ export const installedScope = (
 			closedConstants: Arr.some(
 				Rec.values(installation.owned.relations),
 				(r) => r.kind === "closedRelation"
-			)
+			),
+			liveSource: liveSourceOf(snapshot)
 		},
 		roles: Arr.map(scoped, (s) => s.scope)
 	}
+}
+
+/**
+ * The live source a snapshot installs (physical/ddl/live.ts): its secret's table, by its CREATE TABLE ... AS, and its
+ * decoder login, by its CREATE ROLE; none where its manifest holds neither.
+ */
+const liveSourceOf = (snapshot: DeploySnapshot): ErasureExpectation["liveSource"] => {
+	const secret = Arr.findFirst(
+		Arr.flatMap(snapshot.manifest.objects, (o) => (o.kind === "liveSecret" ? o.ddl : [])),
+		(s) => (s.kind === "createLiveSecret" ? Option.some(s.table.name) : Option.none())
+	)
+	const decoder = Arr.findFirst(
+		Arr.flatMap(snapshot.manifest.objects, (o) => (o.kind === "decoder" ? o.ddl : [])),
+		(s) => (s.kind === "createRole" ? Option.some(s.name) : Option.none())
+	)
+	return Option.isSome(secret) && Option.isSome(decoder)
+		? { kind: "source", secret: secret.value, decoder: decoder.value }
+		: { kind: "none" }
 }
 
 /** A type of the schema a role's USAGE is judged on: a domain, the one kind of type grizzle installs. */

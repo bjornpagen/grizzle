@@ -66,6 +66,13 @@ export interface ErasureExpectation {
 	 * the installation holds besides the rosters'.
 	 */
 	readonly closedConstants: boolean
+	/**
+	 * The installation's live source (physical/ddl/live.ts): none, or its secret's table, which every login and the
+	 * decoder login read and nothing else, and the decoder login, which holds SELECT on the secret and nothing else.
+	 */
+	readonly liveSource:
+		| { readonly kind: "none" }
+		| { readonly kind: "source"; readonly secret: string; readonly decoder: string }
 }
 
 /** An object of the installation a problem names: a relation is a table or a materialized view of the schema. */
@@ -119,6 +126,7 @@ export type ErasureProblem =
 	| { readonly kind: "undeclaredView"; readonly view: string }
 	| { readonly kind: "foreignRelation"; readonly relation: string; readonly relkind: string }
 	| { readonly kind: "unexpectedTable"; readonly table: string }
+	| { readonly kind: "decoderLacks"; readonly table: string }
 	| { readonly kind: "guardCount"; readonly table: string; readonly count: number }
 	| { readonly kind: "misowned"; readonly object: CatalogObject; readonly owner: string }
 	| { readonly kind: "rowSecurityUnneeded"; readonly table: string }
@@ -393,7 +401,7 @@ const standingProblems = (j: Judging, t: Table): ReadonlyArray<ErasureProblem> =
 	if (t.kind !== "r") {
 		return [{ kind: "foreignRelation", relation: t.name, relkind: t.kind }]
 	}
-	if (!j.expect.tables.has(t.name) && t.name !== j.expect.ledger) {
+	if (!j.expect.tables.has(t.name) && t.name !== j.expect.ledger && !isSecret(j, t)) {
 		return [{ kind: "unexpectedTable", table: t.name }]
 	}
 	const count = Arr.filter(
@@ -432,10 +440,22 @@ const conferredProblems = (j: Judging, t: Table, g: HeldGrant): ReadonlyArray<Er
 	return []
 }
 
+/** Whether `t` is the live source's secret table. */
+const isSecret = (j: Judging, t: Table): boolean =>
+	j.expect.liveSource.kind === "source" && t.kind === "r" && t.name === j.expect.liveSource.secret
+
+/** Whether `g` is the decoder login's SELECT on the secret, the one grant it holds. */
+const decoderReads = (j: Judging, t: Table, g: HeldGrant): boolean =>
+	isSecret(j, t) &&
+	j.expect.liveSource.kind === "source" &&
+	g.grantee === j.expect.liveSource.decoder &&
+	g.privilege === "SELECT"
+
 const tableProblems = (j: Judging, t: Table): ReadonlyArray<ErasureProblem> => {
 	const relation: CatalogObject = { kind: "relation", name: t.name }
-	const ledger = t.kind === "r" && t.name === j.expect.ledger
-	const own = on(relation, t.grants)
+	const ledger = (t.kind === "r" && t.name === j.expect.ledger) || isSecret(j, t)
+	const held = on(relation, t.grants)
+	const own = Arr.filter(held, (g) => !decoderReads(j, t, g))
 	const columns = columnGrants(t)
 	return [
 		...standingProblems(j, t),
@@ -455,6 +475,10 @@ const tableProblems = (j: Judging, t: Table): ReadonlyArray<ErasureProblem> => {
 		),
 		...grantProblems(j, columns, allowed.column, allowed.none),
 		...(ledger ? loginLacks(j, relation, t.grants, "SELECT") : []),
+		...unless(!isSecret(j, t) || Arr.some(held, (g) => decoderReads(j, t, g)), {
+			kind: "decoderLacks",
+			table: t.name
+		}),
 		...Arr.flatMap([...own, ...columns], (g) => conferredProblems(j, t, g))
 	]
 }

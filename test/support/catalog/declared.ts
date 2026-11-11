@@ -146,6 +146,7 @@ export const declaredErasure = (schema: unknown): ErasureExpectation => {
 		logins: new Map(),
 		refreshes: new Map(),
 		barrierViews: new Set(),
-		closedConstants: Arr.some(relations, (r) => r.kind === "closedRelation")
+		closedConstants: Arr.some(relations, (r) => r.kind === "closedRelation"),
+		liveSource: { kind: "none" }
 	}
 }
