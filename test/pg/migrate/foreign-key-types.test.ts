@@ -1,9 +1,34 @@
+/**
+ * The migration model's foreign key rule (test/support/migrate/interpret.ts `comparable`) against PostgreSQL.
+ *
+ * PostgreSQL implements a foreign key by an equality of the operator family of the referenced key's index, and refuses
+ * a key whose columns have none (42804, "cannot be implemented"): when the key is added, and when a column on either
+ * side changes type, after which it adds the key again at the end of the statement. The model refuses at the same
+ * statements, so a drafted migration that converts a column under a foreign key whose sides then do not compare fails
+ * in the unit box as it does on PostgreSQL.
+ *
+ * - **Property:** for every case of the box, the model and PostgreSQL, run over the same statements after the same
+ *   setup, reach one verdict: both implement the key, or both refuse it with 42804 at the same statement. The model's
+ *   verdict is its typed refusal (InterpretFailure `refusal`), never its words.
+ * - **Oracle:** PostgreSQL itself, each case in a transaction it rolls back.
+ * - **Box, exhausted:** every ordered pair of column types from the types a column can have (each builtin with an
+ *   index, two rosters' domains over smallint, as two rosters' closed ids are, and a domain over bigint), and a key from
+ *   a column of the first to a key of the second made three ways: with the two tables; over the second type with the
+ *   referencing column then converted to the first; over the first type with the referenced column then converted to
+ *   the second.
+ * - **Features:** each way's two verdicts, implemented and refused.
+ *
+ * Plants (~/.cache/grizzle-release/BR11/plants): fk-types-implicit-casts (the model forgets PostgreSQL's implicit casts,
+ * so it refuses a smallint column referencing a numeric key that PostgreSQL implements).
+ *
+ * The test's own tables, columns, constraints and types live in a schema of its own, under names no installation has.
+ */
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Result, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Result } from "effect"
 import type {
 	ColumnDef,
 	ForeignKey,
@@ -24,22 +49,6 @@ import { pgErrorFields } from "#test/support/substrate/errors.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
-/** The test's own tables, columns, constraints and types, in a schema of its own: names no installation has.
- *
- * The migration model's foreign key rule (`comparable`) against PostgreSQL.
- *
- * PostgreSQL implements a foreign key by an equality of the operator family of the referenced key's index, and refuses
- * a key whose columns have none (42804, "cannot be implemented"): when the key is added, and when a column on either
- * side changes type, after which it adds the key again at the end of the statement. The model refuses at the same
- * statements, so a drafted migration that converts a column under a foreign key whose sides then do not compare fails
- * in the unit box as it does on PostgreSQL.
- *
- * The space is exhaustive: every ordered pair of column types from the types a column can have (each builtin with an
- * index, two rosters' domains over smallint, as two rosters' closed ids are, and a domain over bigint), and a key from a column of the first to a key of the
- * second made three ways: with the two tables; over the second type with the referencing column then converted to
- * the first; over the first type with the referenced column then converted to the second. PostgreSQL, each case in a
- * transaction it rolls back, and the model, from the same statements, implement the key or refuse it with 42804 at the
- * same statement, each verdict of each way a required feature. */
 const referencedTable = "referenced"
 const referencingTable = "referencing"
 const keyColumn = "k"
@@ -234,9 +243,10 @@ const modelVerdict = (schema: string, statements: ReadonlyArray<SqlStatement>): 
 		return { kind: "implemented" }
 	}
 	const failure = ran.failure
-	if (failure.file !== "case" || !Str.includes("(42804)")(failure.reason)) {
+	const refusal = failure.refusal
+	if (failure.file !== "case" || refusal.kind !== "sqlstate" || refusal.code !== "42804") {
 		return assert.fail(
-			`the model refuses otherwise: ${failure.file}, action ${failure.action}: ${failure.reason}`
+			`the model refuses otherwise: ${failure.file}, action ${failure.action}, ${Formatter.format(refusal)}: ${failure.reason}`
 		)
 	}
 	return { kind: "refused", at: failure.action }
@@ -280,13 +290,15 @@ layer(Substrate.layer)("the migration model's foreign key types", (it) => {
 					const session = yield* s.session({ ...ownerSession(), label: "foreign key types" })
 					return yield* exhaust(
 						{
-							box: { kind: "unstated" },
-							oracle: { kind: "unstated" },
+							box: "every ordered pair of the column types a column can have, each key created, its referencing column converted, or its referenced column converted",
+							oracle: {
+								kind: "postgresql",
+								name: "PostgreSQL implements the key or refuses it with 42804 at the statement the model refuses"
+							},
 							suite: "pg/migrate/foreign-key-types",
 							generator: keyCaseGen,
 							literal: ([way, from, to]) => `${way}: ${from.name} → ${to.name}`,
-							/** 3 ways × 13 × 13 types; the limit is the cap against a space grown by mistake. */
-							limit: 507,
+							limit: ways.length * columnTypes.length * columnTypes.length,
 							coverage: requiredInSpace<KeyFeature>(
 								Arr.flatMap(ways, (way) => [
 									`${way}: implemented` as const,

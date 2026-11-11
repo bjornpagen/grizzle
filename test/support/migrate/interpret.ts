@@ -271,10 +271,45 @@ export const emptyState: State = {
 	created: 0
 }
 
-/** Where a reviewed migration fails, as PostgreSQL would. */
+/** The SQLSTATEs the model refuses a statement with, each where PostgreSQL raises it. */
+export type ModelSqlstate =
+	| "0A000"
+	| "22003"
+	| "22026"
+	| "23502"
+	| "23514"
+	| "2BP01"
+	| "42601"
+	| "42611"
+	| "42701"
+	| "42703"
+	| "42704"
+	| "42710"
+	| "42723"
+	| "42804"
+	| "42830"
+	| "42883"
+	| "428C9"
+	| "42P01"
+	| "42P07"
+	| "42P16"
+	| "55000"
+
+/**
+ * Why the model stops a reviewed migration at a statement: PostgreSQL refuses it, with the SQLSTATE it raises there; it
+ * converts a column a second time in one run, which the draft's own rule forbids and PostgreSQL would allow; or it
+ * converts a column holding rows by an expression the model does not evaluate, where a reviewer's value is needed.
+ */
+export type Refusal =
+	| Readonly<{ kind: "sqlstate"; code: ModelSqlstate }>
+	| Readonly<{ kind: "converted twice" }>
+	| Readonly<{ kind: "unknown conversion" }>
+
+/** Where a reviewed migration fails, as PostgreSQL would, and why (`refusal`), with the reason in words. */
 export interface InterpretFailure {
 	readonly file: string
 	readonly action: number
+	readonly refusal: Refusal
 	readonly reason: string
 }
 
@@ -287,12 +322,20 @@ interface Live {
 	rows: Array<Map<string, Cell>>
 }
 
-/** A statement the model refuses, as PostgreSQL would refuse it, with the reason. */
-class Refused extends Data.TaggedError("Refused")<{ readonly reason: string }> {}
+/** A statement the model refuses, and why, with the reason in words. */
+class Refused extends Data.TaggedError("Refused")<{
+	readonly refusal: Refusal
+	readonly reason: string
+}> {}
 
-/** A function declaration, so that control flow knows a call never returns. */
-function refuse(reason: string): never {
-	throw new Refused({ reason })
+/** A statement PostgreSQL refuses with `code`; a function declaration, so that control flow knows a call never returns. */
+function refuse(code: ModelSqlstate, reason: string): never {
+	throw new Refused({ refusal: { kind: "sqlstate", code }, reason })
+}
+
+/** A statement the model stops at for a reason of its own, which PostgreSQL would not refuse. */
+function stop(refusal: Exclude<Refusal, { readonly kind: "sqlstate" }>, reason: string): never {
+	throw new Refused({ refusal, reason })
 }
 
 /** Indexes in creation order. */
@@ -592,7 +635,7 @@ const integerRanges: ReadonlyMap<string, readonly [bigint, bigint]> = new Map([
 const inRange = (name: string, value: bigint): SqlValue => {
 	const range = integerRanges.get(name)
 	if (range !== undefined && (value < range[0] || value > range[1])) {
-		refuse(`${name} out of range (22003)`)
+		refuse("22003", `${name} out of range`)
 	}
 	return { kind: "int", value }
 }
@@ -687,7 +730,7 @@ const equal = (a: SqlValue, b: SqlValue): SqlValue => {
 /** Two bit strings combined bit by bit; PostgreSQL refuses two of different lengths (22026). */
 const bitwise = (op: "&" | "|", a: string, b: string): string => {
 	if (a.length !== b.length) {
-		refuse(`cannot ${op === "&" ? "AND" : "OR"} bit strings of different sizes (22026)`)
+		refuse("22026", `cannot ${op === "&" ? "AND" : "OR"} bit strings of different sizes`)
 	}
 	return Arr.join(
 		Arr.map(
@@ -1402,17 +1445,17 @@ class Model {
 	/** A name a new relation with a row type takes in both namespaces. */
 	#claimRelation(name: string, what: string): void {
 		if (this.#relationTaken(name)) {
-			refuse(`the relation ${name} already exists (42P07), so ${what} cannot take it`)
+			refuse("42P07", `the relation ${name} already exists, so ${what} cannot take it`)
 		}
 		if (this.#typeTaken(name)) {
-			refuse(`the type ${name} already exists (42710), so ${what} cannot take it`)
+			refuse("42710", `the type ${name} already exists, so ${what} cannot take it`)
 		}
 	}
 
 	#table(name: ObjectName): Live {
 		const t = this.#tables.get(name.name)
 		if (t === undefined) {
-			return refuse(`the table ${printObjectName(name)} does not exist (42P01)`)
+			return refuse("42P01", `the table ${printObjectName(name)} does not exist`)
 		}
 		return t
 	}
@@ -1420,7 +1463,7 @@ class Model {
 	#column(t: Live, table: ObjectName, column: string): Column {
 		const c = Option.getOrUndefined(Arr.findFirst(t.columns, (x) => x.name === column))
 		if (c === undefined) {
-			return refuse(`the column ${column} of ${printObjectName(table)} does not exist (42703)`)
+			return refuse("42703", `the column ${column} of ${printObjectName(table)} does not exist`)
 		}
 		return c
 	}
@@ -1430,7 +1473,7 @@ class Model {
 		const at = Arr.findFirstIndex(t.columns, (c) => c.name === column)
 		return Option.isSome(at)
 			? at.value
-			: refuse(`the ${what} column ${column} of ${printObjectName(table)} does not exist (42703)`)
+			: refuse("42703", `the ${what} column ${column} of ${printObjectName(table)} does not exist`)
 	}
 
 	/** The columns of a table or a view. */
@@ -1440,13 +1483,13 @@ class Model {
 			return Arr.map(t.columns, (c) => c.name)
 		}
 		const v = this.#views.get(name)
-		return v === undefined ? refuse(`the relation ${name} does not exist (42P01)`) : v.columns
+		return v === undefined ? refuse("42P01", `the relation ${name} does not exist`) : v.columns
 	}
 
 	/** A table or a view the statement names, which must be there. */
 	#relation(name: ObjectName): void {
 		if (this.#ours(name) && !this.#tables.has(name.name) && !this.#views.has(name.name)) {
-			refuse(`the relation ${printObjectName(name)} does not exist (42P01)`)
+			refuse("42P01", `the relation ${printObjectName(name)} does not exist`)
 		}
 	}
 
@@ -1459,7 +1502,7 @@ class Model {
 	/** A table holds at most one primary key: a second is refused while the first stands. */
 	#secondPrimaryKey(table: ObjectName, of: ReadonlyMap<string, Constraint>): void {
 		if (Arr.some([...of.values()], (c) => c.kind === "primaryKey")) {
-			refuse(`multiple primary keys for table ${printObjectName(table)} are not allowed (42P16)`)
+			refuse("42P16", `multiple primary keys for table ${printObjectName(table)} are not allowed`)
 		}
 	}
 
@@ -1502,7 +1545,7 @@ class Model {
 		}
 		const [bound] = this.#boundTo(name)
 		if (bound !== undefined) {
-			refuse(`${by} drops the index ${name}, which the foreign key ${bound} depends on (2BP01)`)
+			refuse("2BP01", `${by} drops the index ${name}, which the foreign key ${bound} depends on`)
 		}
 		this.#indexes.delete(name)
 	}
@@ -1512,7 +1555,7 @@ class Model {
 		const of = this.#constraints.get(table)
 		const c = of?.get(name)
 		if (of === undefined || c === undefined) {
-			refuse(`the constraint ${name} of ${table} does not exist (42704)`)
+			refuse("42704", `the constraint ${name} of ${table} does not exist`)
 		}
 		if (c.kind === "primaryKey" || c.kind === "unique" || c.kind === "exclude") {
 			this.#dropIndex(c.index, by)
@@ -1523,12 +1566,13 @@ class Model {
 	#addColumn(table: ObjectName, column: Column, value: () => Cell | undefined): void {
 		const t = this.#table(table)
 		if (Arr.some(t.columns, (c) => c.name === column.name)) {
-			refuse(`the column ${column.name} of ${printObjectName(table)} already exists (42701)`)
+			refuse("42701", `the column ${column.name} of ${printObjectName(table)} already exists`)
 		}
 		const cell = t.rows.length === 0 ? undefined : value()
 		if (t.rows.length > 0 && cell === undefined) {
 			refuse(
-				`the NOT NULL column ${column.name} is added to ${printObjectName(table)}, which holds rows, without a value (23502)`
+				"23502",
+				`the NOT NULL column ${column.name} is added to ${printObjectName(table)}, which holds rows, without a value`
 			)
 		}
 		if (column.generation.kind === "identity") {
@@ -1546,7 +1590,8 @@ class Model {
 	#claimSequence(name: string, table: string, column: string): void {
 		if (this.#relationTaken(name)) {
 			refuse(
-				`the relation ${name} already exists (42P07), so the identity sequence of ${table}.${column} cannot take it`
+				"42P07",
+				`the relation ${name} already exists, so the identity sequence of ${table}.${column} cannot take it`
 			)
 		}
 		this.#sequences.set(name, { kind: "identity", table, column })
@@ -1558,13 +1603,15 @@ class Model {
 		const c = t.columns[at]
 		if (c === undefined) {
 			return refuse(
-				`the dropped column ${column} of ${printObjectName(table)} does not exist (42703)`
+				"42703",
+				`the dropped column ${column} of ${printObjectName(table)} does not exist`
 			)
 		}
 		const [pinned] = this.#pinning(table.name, column)
 		if (pinned !== undefined) {
 			refuse(
-				`the column ${column} of ${printObjectName(table)} is dropped while ${pinned} depends on it (2BP01)`
+				"2BP01",
+				`the column ${column} of ${printObjectName(table)} is dropped while ${pinned} depends on it`
 			)
 		}
 		const by = `dropping the column ${column} of ${printObjectName(table)}`
@@ -1603,7 +1650,8 @@ class Model {
 	#convertOnce(table: string, column: string): void {
 		const key = `${table}.${column}`
 		if (this.#converted.has(key)) {
-			refuse(
+			stop(
+				{ kind: "converted twice" },
 				`the column ${column} of ${table} is converted twice in one migration, where a draft converts it once`
 			)
 		}
@@ -1620,19 +1668,22 @@ class Model {
 		const at = this.#columnAt(t, table, column, "retyped")
 		if (t.columns[at]?.generation.kind === "uuidv7" && !this.#ofBase(type, "text")) {
 			refuse(
-				`default for column "${column}" cannot be cast automatically to type ${printType(type)} (42804)`
+				"42804",
+				`default for column "${column}" cannot be cast automatically to type ${printType(type)}`
 			)
 		}
 		this.#convertOnce(table.name, column)
 		const [pinned] = this.#pinning(table.name, column)
 		if (pinned !== undefined) {
 			refuse(
-				`the type of ${printObjectName(table)}.${column} is changed while ${pinned} depends on it (0A000)`
+				"0A000",
+				`the type of ${printObjectName(table)}.${column} is changed while ${pinned} depends on it`
 			)
 		}
 		const cell = conversion.kind === "kept" || t.rows.length === 0 ? undefined : conversion.value()
 		if (conversion.kind === "given" && t.rows.length > 0 && cell === undefined) {
-			refuse(
+			stop(
+				{ kind: "unknown conversion" },
 				`the column ${column} of ${printObjectName(table)}, which holds rows, is converted by an expression the model does not know`
 			)
 		}
@@ -1710,7 +1761,8 @@ class Model {
 					const to = this.#column(u, target, referenced).type
 					if (!comparable(this.#base(from), this.#base(to))) {
 						refuse(
-							`the foreign key ${name} of ${source} cannot be implemented (42804): ${source}.${column} of type ${printType(from)} and ${c.references}.${referenced} of type ${printType(to)} do not compare`
+							"42804",
+							`the foreign key ${name} of ${source} cannot be implemented: ${source}.${column} of type ${printType(from)} and ${c.references}.${referenced} of type ${printType(to)} do not compare`
 						)
 					}
 				}
@@ -1730,7 +1782,8 @@ class Model {
 		)
 		if (first === undefined) {
 			return refuse(
-				`there is no unique constraint matching the keys (${Arr.join(columns, ", ")}) of the referenced table ${table} (42830)`
+				"42830",
+				`there is no unique constraint matching the keys (${Arr.join(columns, ", ")}) of the referenced table ${table}`
 			)
 		}
 		return first[0]
@@ -1738,7 +1791,7 @@ class Model {
 
 	#addIndex(name: string, index: Omit<Index, "order">): void {
 		if (this.#relationTaken(name)) {
-			refuse(`the relation ${name} already exists (42P07), so an index cannot take it`)
+			refuse("42P07", `the relation ${name} already exists, so an index cannot take it`)
 		}
 		this.#indexes.set(name, { ...index, order: this.#created++ })
 	}
@@ -1747,7 +1800,7 @@ class Model {
 		const t = this.#table(table)
 		const of = this.#constraintsOf(table.name)
 		if (of.has(c.name)) {
-			refuse(`the constraint ${c.name} of ${printObjectName(table)} already exists (42710)`)
+			refuse("42710", `the constraint ${c.name} of ${printObjectName(table)} already exists`)
 		}
 		switch (c.kind) {
 			case "primaryKey":
@@ -1950,10 +2003,10 @@ class Model {
 	#renameIndex(from: string, to: string): void {
 		const x = this.#indexes.get(from)
 		if (x === undefined) {
-			refuse(`the index ${from} does not exist (42P01)`)
+			refuse("42P01", `the index ${from} does not exist`)
 		}
 		if (this.#relationTaken(to)) {
-			refuse(`the relation ${to} already exists (42P07), so the index ${from} cannot take it`)
+			refuse("42P07", `the relation ${to} already exists, so the index ${from} cannot take it`)
 		}
 		this.#indexes.delete(from)
 		const owner: IndexOwner =
@@ -1999,7 +2052,8 @@ class Model {
 		const [pinned] = this.#pinning(table.name, column)
 		if (pinned !== undefined) {
 			refuse(
-				`the type of ${printObjectName(table)}.${column} is changed while ${pinned} depends on it (0A000)`
+				"0A000",
+				`the type of ${printObjectName(table)}.${column} is changed while ${pinned} depends on it`
 			)
 		}
 		for (const row of t.rows) {
@@ -2025,17 +2079,17 @@ class Model {
 	/** A named type of the schema a column or a domain is declared with, which must be there. */
 	#typeExists(type: TypeRef): void {
 		if (type.kind === "named" && type.schema === this.#schema && !this.#domains.has(type.name)) {
-			refuse(`the type ${printType(type)} does not exist (42704)`)
+			refuse("42704", `the type ${printType(type)} does not exist`)
 		}
 	}
 
 	#renameType(name: ObjectName, to: string): void {
 		const d = this.#domains.get(name.name)
 		if (d === undefined) {
-			refuse(`the domain ${printObjectName(name)} does not exist (42704)`)
+			refuse("42704", `the domain ${printObjectName(name)} does not exist`)
 		}
 		if (this.#typeTaken(to)) {
-			refuse(`the type ${to} already exists (42710)`)
+			refuse("42710", `the type ${to} already exists`)
 		}
 		this.#domains.delete(name.name)
 		this.#domains.set(to, d)
@@ -2059,7 +2113,7 @@ class Model {
 	#dropType(name: ObjectName, ifExists: boolean): void {
 		if (!this.#domains.has(name.name)) {
 			if (!ifExists) {
-				refuse(`the domain ${printObjectName(name)} does not exist (42704)`)
+				refuse("42704", `the domain ${printObjectName(name)} does not exist`)
 			}
 			return
 		}
@@ -2069,7 +2123,8 @@ class Model {
 			for (const c of t.columns) {
 				if (isOf(c.type)) {
 					refuse(
-						`the type ${printObjectName(name)} is dropped while ${table}.${c.name} still uses it (2BP01)`
+						"2BP01",
+						`the type ${printObjectName(name)} is dropped while ${table}.${c.name} still uses it`
 					)
 				}
 			}
@@ -2077,7 +2132,8 @@ class Model {
 		for (const [domain, d] of this.#domains) {
 			if (isOf(d.base)) {
 				refuse(
-					`the type ${printObjectName(name)} is dropped while the domain ${domain} is of it (2BP01)`
+					"2BP01",
+					`the type ${printObjectName(name)} is dropped while the domain ${domain} is of it`
 				)
 			}
 		}
@@ -2085,7 +2141,8 @@ class Model {
 			for (const [trigger, t] of of) {
 				if (Arr.some(t.types, isOf)) {
 					refuse(
-						`the type ${printObjectName(name)} is dropped while the trigger ${trigger} of ${table} casts to it (2BP01)`
+						"2BP01",
+						`the type ${printObjectName(name)} is dropped while the trigger ${trigger} of ${table} casts to it`
 					)
 				}
 			}
@@ -2097,7 +2154,10 @@ class Model {
 	#callable(calls: ReadonlyArray<string>, what: string): void {
 		for (const name of calls) {
 			if (!this.#functions.has(name)) {
-				refuse(`${what} calls the function ${this.#schema}.${name}(), which does not exist (42883)`)
+				refuse(
+					"42883",
+					`${what} calls the function ${this.#schema}.${name}(), which does not exist`
+				)
 			}
 		}
 	}
@@ -2106,7 +2166,7 @@ class Model {
 	#constant(name: string, seen: ReadonlySet<string>): SqlValue {
 		const f = this.#functions.get(name)
 		if (f === undefined) {
-			return refuse(`the function ${this.#schema}.${name}() does not exist (42883)`)
+			return refuse("42883", `the function ${this.#schema}.${name}() does not exist`)
 		}
 		if (seen.has(name)) {
 			return unevaluable(`the constant ${name}, which calls itself`)
@@ -2211,7 +2271,8 @@ class Model {
 			}
 			if (this.#admits(check.predicate, value, new Map()) === false) {
 				refuse(
-					`column ${column} of table ${table} contains values that violate the new constraint ${name} (23514)`
+					"23514",
+					`column ${column} of table ${table} contains values that violate the new constraint ${name}`
 				)
 			}
 		}
@@ -2251,7 +2312,8 @@ class Model {
 				for (const [name, check] of this.#checksOfType(type)) {
 					if (this.#admits(check.predicate, value, new Map()) === false) {
 						refuse(
-							`value for domain ${printType(type)} violates check constraint "${name}" (23514)`
+							"23514",
+							`value for domain ${printType(type)} violates check constraint "${name}"`
 						)
 					}
 				}
@@ -2309,7 +2371,7 @@ class Model {
 			case "cte": {
 				const r = ctes.get(source.name)
 				if (r === undefined) {
-					return refuse(`relation "${source.name}" does not exist (42P01)`)
+					return refuse("42P01", `relation "${source.name}" does not exist`)
 				}
 				return Arr.map(r.rows, (row) => bound(source.alias ?? source.name, row))
 			}
@@ -2552,7 +2614,8 @@ class Model {
 	#stored(v: SqlValue, column: Column, table: ObjectName): Cell {
 		if (v === undefined) {
 			return refuse(
-				`null value in column "${column.name}" of relation "${table.name}" violates not-null constraint (23502)`
+				"23502",
+				`null value in column "${column.name}" of relation "${table.name}" violates not-null constraint`
 			)
 		}
 		const base = this.#base(column.type)
@@ -2562,7 +2625,7 @@ class Model {
 			v.kind === "bits" &&
 			v.value.length !== base.length
 		) {
-			refuse(`bit string length ${v.value.length} does not match type bit(${base.length}) (22026)`)
+			refuse("22026", `bit string length ${v.value.length} does not match type bit(${base.length})`)
 		}
 		const value = castTo(v, column.type, this.#scope(new Map()))
 		switch (value?.kind) {
@@ -2611,10 +2674,10 @@ class Model {
 		for (const a of s.set) {
 			const c = columns.get(a.column)
 			if (c === undefined) {
-				refuse(`column "${a.column}" of relation "${s.table.name}" does not exist (42703)`)
+				refuse("42703", `column "${a.column}" of relation "${s.table.name}" does not exist`)
 			}
 			if (c.generation.kind !== "none" && c.generation.kind !== "uuidv7") {
-				refuse(`column "${a.column}" can only be updated to DEFAULT (428C9)`)
+				refuse("428C9", `column "${a.column}" can only be updated to DEFAULT`)
 			}
 		}
 		const from = this.#fromRows(s.from, ctes)
@@ -2660,7 +2723,8 @@ class Model {
 				const bound = this.#checkColumns(t, row)
 				if (bound !== undefined && this.#admits(c.predicate, undefined, bound) === false) {
 					refuse(
-						`new row for relation "${s.table.name}" violates check constraint "${name}" (23514)`
+						"23514",
+						`new row for relation "${s.table.name}" violates check constraint "${name}"`
 					)
 				}
 			}
@@ -2689,7 +2753,7 @@ class Model {
 				throw error
 			}
 			if (this.#admits(predicate, undefined, columns) === false) {
-				refuse(`check constraint ${name} of relation ${table} is violated by some row (23514)`)
+				refuse("23514", `check constraint ${name} of relation ${table} is violated by some row`)
 			}
 		}
 	}
@@ -2739,7 +2803,8 @@ class Model {
 		}
 		if (this.#functions.has(name.name)) {
 			refuse(
-				`the function ${printObjectName(name)}() already exists with the same argument types (42723)`
+				"42723",
+				`the function ${printObjectName(name)}() already exists with the same argument types`
 			)
 		}
 		this.#callable(f.calls, `the function ${printObjectName(name)}`)
@@ -2755,14 +2820,14 @@ class Model {
 	): void {
 		const t = this.#table(table)
 		if (this.#ours(fn) && !this.#functions.has(fn.name)) {
-			refuse(`the function ${printObjectName(fn)} does not exist (42883)`)
+			refuse("42883", `the function ${printObjectName(fn)} does not exist`)
 		}
 		for (const c of columns) {
 			this.#column(t, table, c)
 		}
 		const of = this.#triggersOf(table.name)
 		if (of.has(name)) {
-			refuse(`the trigger ${name} of ${printObjectName(table)} already exists (42710)`)
+			refuse("42710", `the trigger ${name} of ${printObjectName(table)} already exists`)
 		}
 		of.set(name, { function: fn.name, columns, types })
 	}
@@ -2779,7 +2844,8 @@ class Model {
 					this.#typeExists(a.column.type)
 					if (a.column.generated !== undefined) {
 						refuse(
-							`both default and generation expression specified for column "${a.column.name}" of table "${s.table.name}" (42601)`
+							"42601",
+							`both default and generation expression specified for column "${a.column.name}" of table "${s.table.name}"`
 						)
 					}
 					const column = columnOf(a.column, this.#schema)
@@ -2818,15 +2884,18 @@ class Model {
 					const c = t.columns[at]
 					if (c?.generation.kind === "identity") {
 						refuse(
-							`column "${a.column}" of relation "${s.table.name}" is an identity column (42601)`
+							"42601",
+							`column "${a.column}" of relation "${s.table.name}" is an identity column`
 						)
 					} else if (c?.generation.kind === "stored" || c?.generation.kind === "partial") {
 						refuse(
-							`column "${a.column}" of relation "${s.table.name}" is a generated column (42601)`
+							"42601",
+							`column "${a.column}" of relation "${s.table.name}" is a generated column`
 						)
 					} else if (c !== undefined && !this.#ofBase(c.type, "uuid")) {
 						refuse(
-							`column "${a.column}" is of type ${printType(c.type)} but default expression is of type uuid (42804)`
+							"42804",
+							`column "${a.column}" is of type ${printType(c.type)} but default expression is of type uuid`
 						)
 					} else if (c !== undefined) {
 						t.columns[at] = { ...c, generation: { kind: "uuidv7" } }
@@ -2839,7 +2908,8 @@ class Model {
 					const c = t.columns[at]
 					if (c?.generation.kind !== "none") {
 						refuse(
-							`the column ${a.column} of ${printObjectName(s.table)} is already generated (42611)`
+							"42611",
+							`the column ${a.column} of ${printObjectName(s.table)} is already generated`
 						)
 					} else {
 						this.#claimSequence(a.sequence.name, s.table.name, a.column)
@@ -2853,7 +2923,8 @@ class Model {
 					const c = t.columns[at]
 					if (c?.generation.kind !== "identity") {
 						refuse(
-							`the column ${a.column} of ${printObjectName(s.table)} is not an identity column (55000)`
+							"55000",
+							`the column ${a.column} of ${printObjectName(s.table)} is not an identity column`
 						)
 					} else {
 						this.#sequences.delete(c.generation.sequence)
@@ -2891,16 +2962,20 @@ class Model {
 					this.#table(s.table)
 					const x = this.#indexes.get(a.index)
 					if (x === undefined) {
-						refuse(`the index ${a.index} does not exist (42704)`)
+						refuse("42704", `the index ${a.index} does not exist`)
 					}
 					if (x.on !== s.table.name || !x.bindable || x.owner.kind !== "free") {
 						refuse(
-							`the index ${a.index} cannot implement the key ${a.name} of ${printObjectName(s.table)} (55000)`
+							"55000",
+							`the index ${a.index} cannot implement the key ${a.name} of ${printObjectName(s.table)}`
 						)
 					}
 					const of = this.#constraintsOf(s.table.name)
 					if (of.has(a.name)) {
-						refuse(`the constraint ${a.name} of ${printObjectName(s.table)} already exists (42710)`)
+						refuse(
+							"42710",
+							`the constraint ${a.name} of ${printObjectName(s.table)} already exists`
+						)
 					}
 					if (a.constraint === "PRIMARY KEY") {
 						this.#secondPrimaryKey(s.table, of)
@@ -2925,7 +3000,10 @@ class Model {
 					const of = this.#constraintsOf(s.table.name)
 					const c = of.get(a.name)
 					if (c === undefined) {
-						refuse(`the constraint ${a.name} of ${printObjectName(s.table)} does not exist (42704)`)
+						refuse(
+							"42704",
+							`the constraint ${a.name} of ${printObjectName(s.table)} does not exist`
+						)
 					}
 					if (c.kind === "check" && !c.valid) {
 						this.#validateCheck(s.table.name, a.name, c.predicate)
@@ -2939,7 +3017,8 @@ class Model {
 					const c = t.columns[at]
 					if (c?.generation.kind !== "stored") {
 						refuse(
-							`the column ${a.column} of ${printObjectName(s.table)} is not a stored generated column (42611)`
+							"42611",
+							`the column ${a.column} of ${printObjectName(s.table)} is not a stored generated column`
 						)
 					}
 					const calls = callsOf([a.expr], this.#schema)
@@ -2982,7 +3061,7 @@ class Model {
 			case "MATERIALIZED VIEW": {
 				const v = this.#views.get(s.name.name)
 				if (v === undefined) {
-					refuse(`the view ${printObjectName(s.name)} does not exist (42P01)`)
+					refuse("42P01", `the view ${printObjectName(s.name)} does not exist`)
 				}
 				this.#claimRelation(s.to, `the view ${printObjectName(s.name)}`)
 				this.#views.delete(s.name.name)
@@ -2999,11 +3078,12 @@ class Model {
 			case "SEQUENCE": {
 				const q = this.#sequences.get(s.name.name)
 				if (q === undefined) {
-					refuse(`the sequence ${printObjectName(s.name)} does not exist (42P01)`)
+					refuse("42P01", `the sequence ${printObjectName(s.name)} does not exist`)
 				}
 				if (this.#relationTaken(s.to)) {
 					refuse(
-						`the relation ${s.to} already exists (42P07), so the sequence ${printObjectName(s.name)} cannot take it`
+						"42P07",
+						`the relation ${s.to} already exists, so the sequence ${printObjectName(s.name)} cannot take it`
 					)
 				}
 				this.#sequences.delete(s.name.name)
@@ -3021,10 +3101,10 @@ class Model {
 			case "STATISTICS": {
 				const x = this.#statistics.get(s.name.name)
 				if (x === undefined) {
-					refuse(`the statistics object ${printObjectName(s.name)} does not exist (42704)`)
+					refuse("42704", `the statistics object ${printObjectName(s.name)} does not exist`)
 				}
 				if (this.#statistics.has(s.to)) {
-					refuse(`the statistics object ${s.to} already exists (42710)`)
+					refuse("42710", `the statistics object ${s.to} already exists`)
 				}
 				this.#statistics.delete(s.name.name)
 				this.#statistics.set(s.to, x)
@@ -3040,7 +3120,7 @@ class Model {
 		if (s.object === "SCHEMA") {
 			for (const key of this.#dependents.keys()) {
 				if (Str.startsWith(`view ${s.name}.`)(key)) {
-					refuse(`the schema ${s.name} is dropped while it holds the ${key} (2BP01)`)
+					refuse("2BP01", `the schema ${s.name} is dropped while it holds the ${key}`)
 				}
 			}
 			return
@@ -3048,7 +3128,7 @@ class Model {
 		if (s.object === "VIEW") {
 			const key = `view ${s.name.schema}.${s.name.name}`
 			if (!this.#dependents.delete(key) && !s.ifExists) {
-				refuse(`the dropped view ${printObjectName(s.name)} does not exist (42P01)`)
+				refuse("42P01", `the dropped view ${printObjectName(s.name)} does not exist`)
 			}
 			return
 		}
@@ -3060,7 +3140,7 @@ class Model {
 			case "TABLE": {
 				if (!this.#tables.has(name)) {
 					if (!s.ifExists) {
-						refuse(`the dropped table ${printObjectName(s.name)} does not exist (42P01)`)
+						refuse("42P01", `the dropped table ${printObjectName(s.name)} does not exist`)
 					}
 					return
 				}
@@ -3068,7 +3148,8 @@ class Model {
 					for (const [constraint, c] of of) {
 						if (source !== name && c.kind === "foreignKey" && c.references === name) {
 							refuse(
-								`the table ${name} is dropped while the foreign key ${source}.${constraint} references it (2BP01)`
+								"2BP01",
+								`the table ${name} is dropped while the foreign key ${source}.${constraint} references it`
 							)
 						}
 					}
@@ -3088,7 +3169,7 @@ class Model {
 			case "MATERIALIZED VIEW":
 				if (!this.#views.has(name)) {
 					if (!s.ifExists) {
-						refuse(`the dropped view ${printObjectName(s.name)} does not exist (42P01)`)
+						refuse("42P01", `the dropped view ${printObjectName(s.name)} does not exist`)
 					}
 					return
 				}
@@ -3103,13 +3184,14 @@ class Model {
 				const q = this.#sequences.get(name)
 				if (q === undefined) {
 					if (!s.ifExists) {
-						refuse(`the dropped sequence ${printObjectName(s.name)} does not exist (42P01)`)
+						refuse("42P01", `the dropped sequence ${printObjectName(s.name)} does not exist`)
 					}
 					return
 				}
 				if (q.kind === "identity") {
 					refuse(
-						`the sequence ${name} is dropped while the column ${q.table}.${q.column} owns it (2BP01)`
+						"2BP01",
+						`the sequence ${name} is dropped while the column ${q.table}.${q.column} owns it`
 					)
 				}
 				this.#sequences.delete(name)
@@ -3122,12 +3204,12 @@ class Model {
 	#readBy(relation: string, what: string): void {
 		for (const [view, v] of this.#views) {
 			if (view !== relation && v.reads.has(relation)) {
-				refuse(`${what} is dropped while the materialized view ${view} reads it (2BP01)`)
+				refuse("2BP01", `${what} is dropped while the materialized view ${view} reads it`)
 			}
 		}
 		for (const [key, v] of this.#dependents) {
 			if (Str.startsWith("view ")(key) && v.reads.has(relation)) {
-				refuse(`${what} is dropped while the ${key} reads it (2BP01)`)
+				refuse("2BP01", `${what} is dropped while the ${key} reads it`)
 			}
 		}
 	}
@@ -3162,7 +3244,7 @@ class Model {
 			case "SEQUENCE":
 				for (const n of on.names) {
 					if (this.#ours(n) && !this.#sequences.has(n.name)) {
-						refuse(`the sequence ${printObjectName(n)} does not exist (42P01)`)
+						refuse("42P01", `the sequence ${printObjectName(n)} does not exist`)
 					}
 				}
 				return
@@ -3174,7 +3256,7 @@ class Model {
 			case "FUNCTION":
 				for (const n of on.names) {
 					if (this.#ours(n) && !this.#functions.has(n.name)) {
-						refuse(`the function ${printObjectName(n)} does not exist (42883)`)
+						refuse("42883", `the function ${printObjectName(n)} does not exist`)
 					}
 				}
 				return
@@ -3205,7 +3287,7 @@ class Model {
 							i
 						)
 					) {
-						refuse(`the column ${c.name} of ${printObjectName(s.table)} is declared twice (42701)`)
+						refuse("42701", `the column ${c.name} of ${printObjectName(s.table)} is declared twice`)
 					}
 				}
 				for (const c of s.columns) {
@@ -3244,7 +3326,7 @@ class Model {
 				const t = this.#table(s.table)
 				const at = this.#columnAt(t, s.table, s.from, "renamed")
 				if (Arr.some(t.columns, (c) => c.name === s.to)) {
-					refuse(`the column ${s.to} of ${printObjectName(s.table)} already exists (42701)`)
+					refuse("42701", `the column ${s.to} of ${printObjectName(s.table)} already exists`)
 				}
 				const c = t.columns[at]
 				if (c !== undefined) {
@@ -3268,10 +3350,10 @@ class Model {
 				const of = this.#constraintsOf(s.table.name)
 				const c = of.get(s.from)
 				if (c === undefined) {
-					refuse(`the constraint ${s.from} of ${printObjectName(s.table)} does not exist (42704)`)
+					refuse("42704", `the constraint ${s.from} of ${printObjectName(s.table)} does not exist`)
 				}
 				if (of.has(s.to)) {
-					refuse(`the constraint ${s.to} of ${printObjectName(s.table)} already exists (42710)`)
+					refuse("42710", `the constraint ${s.to} of ${printObjectName(s.table)} already exists`)
 				}
 				if (c.kind === "primaryKey" || c.kind === "unique" || c.kind === "exclude") {
 					this.#renameIndex(c.index, s.to)
@@ -3309,7 +3391,7 @@ class Model {
 				this.#table(s.table)
 				const of = this.#triggersOf(s.table.name)
 				if (!of.delete(s.name) && !s.ifExists) {
-					refuse(`the trigger ${s.name} of ${printObjectName(s.table)} does not exist (42704)`)
+					refuse("42704", `the trigger ${s.name} of ${printObjectName(s.table)} does not exist`)
 				}
 				return
 			}
@@ -3327,7 +3409,7 @@ class Model {
 				]
 				for (const c of reads) {
 					if (!columns.includes(c)) {
-						refuse(`the column ${c} of ${printObjectName(s.table)} does not exist (42703)`)
+						refuse("42703", `the column ${c} of ${printObjectName(s.table)} does not exist`)
 					}
 				}
 				this.#addIndex(s.name, {
@@ -3369,7 +3451,7 @@ class Model {
 					this.#column(t, s.table, c)
 				}
 				if (this.#statistics.has(s.name.name)) {
-					refuse(`the statistics object ${s.name.name} already exists (42710)`)
+					refuse("42710", `the statistics object ${s.name.name} already exists`)
 				}
 				this.#statistics.set(s.name.name, { table: s.table.name, columns: s.columns })
 				return
@@ -3381,13 +3463,14 @@ class Model {
 				const x = this.#indexes.get(s.name.name)
 				if (x === undefined) {
 					if (!s.ifExists) {
-						refuse(`the dropped index ${printObjectName(s.name)} does not exist (42704)`)
+						refuse("42704", `the dropped index ${printObjectName(s.name)} does not exist`)
 					}
 					return
 				}
 				if (x.owner.kind === "constraint") {
 					refuse(
-						`the index ${s.name.name} is dropped while the constraint ${x.owner.name} requires it (2BP01)`
+						"2BP01",
+						`the index ${s.name.name} is dropped while the constraint ${x.owner.name} requires it`
 					)
 				}
 				this.#dropIndex(s.name.name, `dropping the index ${s.name.name}`)
@@ -3398,7 +3481,7 @@ class Model {
 					return
 				}
 				if (this.#typeTaken(s.name.name)) {
-					refuse(`the type ${printObjectName(s.name)} already exists (42710)`)
+					refuse("42710", `the type ${printObjectName(s.name)} already exists`)
 				}
 				this.#typeExists(s.base)
 				this.#domains.set(s.name.name, {
@@ -3418,7 +3501,7 @@ class Model {
 				}
 				const d = this.#domains.get(s.name.name)
 				if (d === undefined) {
-					refuse(`the domain ${printObjectName(s.name)} does not exist (42704)`)
+					refuse("42704", `the domain ${printObjectName(s.name)} does not exist`)
 				}
 				const constraints = new Map(d.constraints)
 				const a = s.action
@@ -3426,7 +3509,8 @@ class Model {
 					case "addConstraint": {
 						if (constraints.has(a.constraint.name)) {
 							refuse(
-								`the constraint ${a.constraint.name} of the domain ${s.name.name} already exists (42710)`
+								"42710",
+								`the constraint ${a.constraint.name} of the domain ${s.name.name} already exists`
 							)
 						}
 						const calls = callsOf([a.constraint.predicate], this.#schema)
@@ -3444,7 +3528,10 @@ class Model {
 					case "validateConstraint": {
 						const check = constraints.get(a.name)
 						if (check === undefined) {
-							refuse(`the constraint ${a.name} of the domain ${s.name.name} does not exist (42704)`)
+							refuse(
+								"42704",
+								`the constraint ${a.name} of the domain ${s.name.name} does not exist`
+							)
 						}
 						if (!check.valid) {
 							this.#validateDomain(s.name.name, a.name, check)
@@ -3454,7 +3541,10 @@ class Model {
 					}
 					case "dropConstraint":
 						if (!constraints.delete(a.name)) {
-							refuse(`the constraint ${a.name} of the domain ${s.name.name} does not exist (42704)`)
+							refuse(
+								"42704",
+								`the constraint ${a.name} of the domain ${s.name.name} does not exist`
+							)
 						}
 						break
 				}
@@ -3479,13 +3569,13 @@ class Model {
 				}
 				if (!this.#functions.has(s.name.name)) {
 					if (!s.ifExists) {
-						refuse(`the dropped function ${printObjectName(s.name)} does not exist (42883)`)
+						refuse("42883", `the dropped function ${printObjectName(s.name)} does not exist`)
 					}
 					return
 				}
 				const [caller] = this.#callersOf(s.name.name)
 				if (caller !== undefined) {
-					refuse(`cannot drop the function ${s.name.name} because ${caller} depends on it (2BP01)`)
+					refuse("2BP01", `cannot drop the function ${s.name.name} because ${caller} depends on it`)
 				}
 				this.#functions.delete(s.name.name)
 				return
@@ -3496,7 +3586,7 @@ class Model {
 			case "createView": {
 				const key = `view ${s.name.schema}.${s.name.name}`
 				if (this.#dependents.has(key)) {
-					refuse(`the ${key} already exists (42P07)`)
+					refuse("42P07", `the ${key} already exists`)
 				}
 				const calls = queryCalls(s.query, this.#schema)
 				this.#callable(calls, `the ${key}`)
@@ -3514,7 +3604,7 @@ class Model {
 				const t = this.#table(s.table)
 				const key = `policy ${s.table.name}.${s.name}`
 				if (this.#dependents.has(key)) {
-					refuse(`the ${key} already exists (42710)`)
+					refuse("42710", `the ${key} already exists`)
 				}
 				const named = columnsOf(s.filter)
 				this.#dependents.set(key, {
@@ -3540,7 +3630,8 @@ class Model {
 				}
 				if (!this.#dependents.delete(`policy ${s.table.name}.${s.name}`)) {
 					refuse(
-						`the dropped policy ${s.name} on ${printObjectName(s.table)} does not exist (42704)`
+						"42704",
+						`the dropped policy ${s.name} on ${printObjectName(s.table)} does not exist`
 					)
 				}
 				return
@@ -3625,7 +3716,7 @@ class Model {
 					return
 				}
 				if (!this.#statistics.delete(a.name.name)) {
-					refuse(`the statistics object ${printObjectName(a.name)} does not exist (42704)`)
+					refuse("42704", `the statistics object ${printObjectName(a.name)} does not exist`)
 				}
 				return
 		}
@@ -3673,7 +3764,12 @@ export const interpret = (
 				s.action(a, placeholder)
 			} catch (error) {
 				if (error instanceof Refused) {
-					return Result.fail({ file: f.draft.name, action: k + 1, reason: error.reason })
+					return Result.fail({
+						file: f.draft.name,
+						action: k + 1,
+						refusal: error.refusal,
+						reason: error.reason
+					})
 				}
 				throw error
 			}
