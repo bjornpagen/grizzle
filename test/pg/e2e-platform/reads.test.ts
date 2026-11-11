@@ -23,6 +23,9 @@
  * The planted platforms reach the features the population must keep reaching: an event exactly at a rate change, a
  * grant expiring exactly at an event's start and at its end, a cap hit exactly, zero-token and cache-only events, a
  * tier boundary crossed within one event, an event split across grants.
+ *
+ * Plants (~/.cache/grizzle-release/BR13/plants): reads-attachment-parent-dropped.patch (a pipelined attachment's child
+ * rows keyed by the wrong parent column), reads-page-skips.patch (a page's after-cursor comparison made inclusive).
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore, type Kept } from "@grizzle/testing/explore"
@@ -669,7 +672,10 @@ layer(Substrate.layer)(
 					const platform = yield* openPlatform("platform_reads")
 					return yield* explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "second-implementation",
+								name: "the reference evaluator over each read's checked IR, and the host billing model's arithmetic"
+							},
 							suite: "pg/e2e-platform/reads",
 							draw: drawn(readsSketchGen),
 							literal: Formatter.format,

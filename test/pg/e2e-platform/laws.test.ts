@@ -29,6 +29,11 @@
  *
  * Every fault is planted at its boundary on a platform rich enough for all of them, then searched on drawn platforms,
  * where a fault with no place to go (no paid invoice, no revoked key) is noted as such.
+ *
+ * Features: each fault refused by its law.
+ *
+ * Plants (~/.cache/grizzle-release/BR13/plants): laws-cap-off-by-one.patch (spendWithinCap admitting spend one past
+ * the cap), laws-refund-open.patch (refundOnlyPaid dropped).
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore, type Kept } from "@grizzle/testing/explore"
@@ -849,7 +854,10 @@ layer(Substrate.layer)("the platform's laws refuse exactly what they forbid", (i
 					const platform = yield* openPlatform("platform_laws")
 					return yield* explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "second-implementation",
+								name: "the host law model: the faulty write breaks exactly its fault's law, the sound one none"
+							},
 							suite: "pg/e2e-platform/laws",
 							draw: drawn(lawSketchGen),
 							literal: Formatter.format,

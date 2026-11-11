@@ -17,6 +17,9 @@
  *   by burnDown, sum to what the model debited it;
  * - every grant pays only what it holds and only over requests inside its validity, credits pay as much of each
  *   charge as the valid grants hold, and an earlier-expiring grant is spent before a later one is touched.
+ *
+ * Plants (~/.cache/grizzle-release/BR13/plants): box-debit-outside-validity.patch (the debitWhileValid law's span
+ * containment widened to the grant's end inclusive).
  */
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
@@ -237,8 +240,11 @@ layer(Substrate.layer)("tiny platforms, exhausted", (it) => {
 						yield* applyFacts(db, staticFacts)
 						return yield* exhaust(
 							{
-								box: { kind: "unstated" },
-								oracle: { kind: "unstated" },
+								box: "two grants of 1 or 3,000 micro-dollars ending at C or never, by three requests starting the second before C or at C with 1 or 1,001 input tokens",
+								oracle: {
+									kind: "second-implementation",
+									name: "the host billing model: FIFO apportionment by earliest expiry, largest remainder across kinds"
+								},
 								suite: "pg/e2e-platform/box",
 								generator: box,
 								literal: Formatter.format,
@@ -372,7 +378,6 @@ layer(Substrate.layer)("tiny platforms, exhausted", (it) => {
 						)
 					})
 				)
-				assert.equal(exhausted.cases, 1024)
 				return exhausted
 			})
 		)

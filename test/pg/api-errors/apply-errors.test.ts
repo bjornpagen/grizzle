@@ -1,12 +1,53 @@
+/**
+ * The public-API error matrix, the write side: each ApplyError that grizzle's own code decides, through a served
+ * change member's apply.
+ *
+ * - EncodingFailure: a value its codec refuses is refused before any SQL, with the fault the codec's vocabulary names
+ *   for its class and the parameter or member it belongs to as its slot. One field of an otherwise live fact at a time
+ *   (an integer, a bigint, a boolean, a refined text, a uuid, a span) is drawn a value of its field's invalid class,
+ *   constructed, never filtered (a string that holds a non-hex letter, an integer past its type's range, a non-boolean,
+ *   a text holding NUL, a span whose end is not past its start), or a Wild value (@grizzle/testing/lsw), passed as a
+ *   call's fact of an array member, or a scalar parameter of a described member. The oracle is the codecs' fault
+ *   vocabulary (scalar/values/fault.ts), each class's one fault: a value of a class is refused with that fault, a
+ *   parameter's with the parameter as its slot, with no frontend message sent and nothing stored; a wild value the
+ *   codec admits is answered, never a defect (drawn as an arm of its own too, since a wild draw rarely lands on one).
+ * - No Compute operation in a described member raises on a value: every one is total or stands with its proof, and a
+ *   narrowing into a column without one is refused at compilation (PartialOperation, test/unit/compute/totality.test.ts),
+ *   so a member's computed value is never an ExecutionFailure.
+ *
+ * Covered elsewhere through the public API: ExecutionFailure{compiler, compile} for an unchecked ChangeSet outside the
+ * role's write list (test/pg/transactions/suites/apply.ts) and for a refresh outside its refresh list, TransientFailure
+ * from an apply (test/schedules/write/races.test.ts) and from a refresh member (test/pg/derived/refresh/refresh.test.ts).
+ * Not provoked: TransportFailure and CommitUnknown arise only from a lost connection or an unacknowledged COMMIT, which
+ * are infrastructure faults out of the suite's scope. A read-back's rows are converted, not validated (the public-boundary
+ * differential reads each read-back as strictly as a read, test/pg/oracle/public/run.ts).
+ *
+ * Features: every field's invalid class in every form, a wild value admitted, and wild nulls, proxies and lone
+ * surrogates refused.
+ *
+ * Plants (~/.cache/grizzle-release/BR13/plants): api-errors-nul-admitted.patch (the text codec admitting NUL),
+ * api-errors-slot-lost.patch (a parameter's refusal placed at the member, not its slot).
+ */
 import { layer } from "@effect/vitest"
 import { drawn, explore, type Kept } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { constant, element, type Gen, map, weighted } from "@grizzle/testing/gen"
+import {
+	boolean,
+	characterOf,
+	codePoint,
+	element,
+	type Gen,
+	int,
+	map,
+	oneOf,
+	string,
+	weighted
+} from "@grizzle/testing/gen"
 import { passed, type Wild, WILD_KINDS, type WildKind, wild, wildOf } from "@grizzle/testing/lsw"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Result } from "effect"
+import { Array as Arr, Effect, Formatter, Result, String as Str } from "effect"
 import { memberOps } from "#adapter/db/handles.ts"
 import type { ValueFault } from "#compiler/core/errors.ts"
 import { trusted } from "#compiler/core/trusted.ts"
@@ -29,32 +70,6 @@ import {
 import { tableState } from "#test/support/substrate/state.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
-/**
- * The public-API error matrix, the write side: each ApplyError that grizzle's own code decides, through a served
- * change member's apply, as two properties.
- *
- * - EncodingFailure: a fact or parameter value its codec refuses is refused before any SQL, with the fault's word and
- *   the parameter or member it belongs to as its slot. Over drawn values, one field of an otherwise live fact at a time
- *   (an integer, a bigint, a boolean, a refined text, a uuid, a span), each a Wild value (@grizzle/testing/lsw)
- *   or one a codec documents refusing with a known fault (planted, since a wild draw rarely lands on one), passed as a
- *   call's fact of an array member, or a scalar parameter of a described member. A wild value the codec admits is
- *   answered, never a defect (drawn as an arm of its own too, since a wild draw rarely lands on one either); a refused
- *   one is EncodingFailure, a planted one with its fault, a parameter's with the parameter as its slot, with no frontend
- *   message sent and nothing stored.
- * - No Compute operation in a described member raises on a value: every one is total or stands with its proof, and a
- *   narrowing into a column without one is refused at compilation (PartialOperation, test/unit/compute/totality.test.ts),
- *   so a member's computed value is never an ExecutionFailure.
- *
- * Covered elsewhere through the public API: ExecutionFailure{compiler, compile} for an unchecked ChangeSet outside the
- * role's write list (test/pg/transactions/suites/apply.ts) and for a refresh outside its refresh list, TransientFailure from
- * an apply (test/schedules/write/races.test.ts, which interleaves concurrent writers) and from a refresh member
- * (test/pg/derived/refresh/refresh.test.ts).
- *
- * Not provoked: TransportFailure and CommitUnknown arise only from a lost connection or an unacknowledged COMMIT, which
- * are infrastructure faults out of the suite's scope. A read-back's rows are converted, not validated: every value
- * PostgreSQL returns for a grizzle statement is one its column's constraints admitted, in its type's output form, and
- * the public-boundary differential reads each read-back as strictly as a read (test/pg/oracle/public/run.ts).
- */
 const Typed = relation(
 	"Typed",
 	{
@@ -104,22 +119,60 @@ const live = { id: fresh, ...liveParams } as const
 type Field = keyof typeof live
 const fields: Arr.NonEmptyReadonlyArray<Field> = ["id", ...paramFields]
 
-/** A value each field's codec documents refusing, with its fault (scalar/values/fault.ts). */
-const planted: { readonly [F in Field]: { readonly value: unknown; readonly fault: ValueFault } } =
-	{
-		id: { value: "not a uuid", fault: "uuidSyntax" },
-		n: { value: 2 ** 40, fault: "integerRange" },
-		b: { value: 2n ** 70n, fault: "integerRange" },
-		flag: { value: "yes", fault: "boolType" },
-		label: { value: "a\u0000b", fault: "textNul" },
-		during: { value: { start: 5n, end: 1n }, fault: "spanOrder" }
+/** `inserted` placed at a drawn position of `text`. */
+const insertedIn = (text: string, at: number, inserted: string): string =>
+	`${Str.slice(0, at)(text)}${inserted}${Str.slice(at)(text)}`
+
+/** How far past a type's range an out-of-range integer is drawn. */
+const beyond = int(0, 2 ** 20)
+
+/**
+ * Each field's invalid class, constructed, never filtered: a string holding a letter no uuid's hexadecimal holds; an
+ * integer past int4's range, either side; a bigint past int8's; a value of no boolean type; a text of the label's
+ * letters holding NUL; a span of bigint endpoints whose end is not past its start.
+ */
+const refusedValues: { readonly [F in Field]: Gen<unknown> } = {
+	id: (source) => {
+		const hex = source.draw(
+			string(characterOf(Str.split("0123456789abcdef-", "")), { min: 0, max: 36 })
+		)
+		return insertedIn(hex, source.draw(int(0, hex.length)), "g")
+	},
+	n: (source) =>
+		source.draw(boolean) ? 2 ** 31 + source.draw(beyond) : -(2 ** 31) - 1 - source.draw(beyond),
+	b: (source) => {
+		const past = BigInt(source.draw(beyond))
+		return source.draw(boolean) ? 2n ** 63n + past : -(2n ** 63n) - 1n - past
+	},
+	flag: oneOf<unknown>([string(codePoint(0x61, 0x7a), { min: 0, max: 5 }), int(-2, 2)]),
+	label: (source) => {
+		const text = source.draw(string(codePoint(0x61, 0x7a), { min: 0, max: 7 }))
+		return insertedIn(text, source.draw(int(0, text.length)), "\u0000")
+	},
+	during: (source) => {
+		const start = BigInt(source.draw(int(-(2 ** 40), 2 ** 40)))
+		return { start, end: start - BigInt(source.draw(beyond)) }
 	}
+}
+
+/** The fault the codecs' vocabulary names for each field's invalid class (scalar/values/fault.ts): the oracle. */
+const classFault: { readonly [F in Field]: ValueFault } = {
+	id: "uuidSyntax",
+	n: "integerRange",
+	b: "integerRange",
+	flag: "boolType",
+	label: "textNul",
+	during: "spanOrder"
+}
 
 /** The form a fact is planted in: a call's fact of an array member, or a parameter of the described member. */
 type Form = "array" | "parameter"
 const forms: Arr.NonEmptyReadonlyArray<Form> = ["array", "parameter"]
 
-type Drawn = { readonly kind: "planted" } | { readonly kind: "wild"; readonly wild: Wild }
+/** A field's value: one of its invalid class, or a Wild value. */
+type Drawn =
+	| { readonly kind: "refused"; readonly value: unknown }
+	| { readonly kind: "wild"; readonly wild: Wild }
 
 /** A field and the form it is planted in: any field of a member's fact, or a parameter of the described member. */
 type Pair =
@@ -128,7 +181,7 @@ type Pair =
 
 type EncodingCase = Pair & { readonly value: Drawn }
 
-type EncodingFeature = `planted ${Field} as ${Form}` | `wild ${WildKind} refused` | "wild admitted"
+type EncodingFeature = `refused ${Field} as ${Form}` | `wild ${WildKind} refused` | "wild admitted"
 
 /** The field and form pairs a case draws: every field of a call's fact, and every parameter. */
 const plantedPairs: Arr.NonEmptyReadonlyArray<Pair> = [
@@ -137,15 +190,19 @@ const plantedPairs: Arr.NonEmptyReadonlyArray<Pair> = [
 ]
 
 /**
- * One of the field and form pairs, each equally often, with a value `value` draws. A parameter of the described member
- * carries every field but the key, which the member reads from Seed.
+ * One of the field and form pairs, each equally often, with a value `value` draws for its field. A parameter of the
+ * described member carries every field but the key, which the member reads from Seed.
  */
 const pairCase =
-	(value: Gen<Drawn>): Gen<EncodingCase> =>
-	(source) => ({
-		...source.draw(element(nonEmptyList(plantedPairs, "the field and form pairs"))),
-		value: source.draw(value)
-	})
+	(value: (field: Field) => Gen<Drawn>): Gen<EncodingCase> =>
+	(source) => {
+		const pair = source.draw(element(nonEmptyList(plantedPairs, "the field and form pairs")))
+		return { ...pair, value: source.draw(value(pair.field)) }
+	}
+
+/** A value of a field's invalid class. */
+const refusedOf = (field: Field): Gen<Drawn> =>
+	map(refusedValues[field], (value): Drawn => ({ kind: "refused", value }))
 
 /** A wild value of any kind. */
 const anyWild: Gen<Drawn> = map(wild(WILD_KINDS), (drawn): Drawn => ({ kind: "wild", wild: drawn }))
@@ -164,24 +221,15 @@ const admittedCase: Gen<EncodingCase> = (source) => ({
 	}
 })
 
-/** A case: half a pair's planted value, and the rest a pair's wild value, but one in sixteen an admitted wild value. */
+/** A case: half a pair's invalid class, and the rest a pair's wild value, but one in sixteen an admitted wild value. */
 const encodingCaseGen: Gen<EncodingCase> = weighted([
-	[8, pairCase(constant({ kind: "planted" }))],
-	[7, pairCase(anyWild)],
+	[8, pairCase(refusedOf)],
+	[7, pairCase(() => anyWild)],
 	[1, admittedCase]
 ])
 
-/**
- * Planted: every field's refused value in every form, which half of the cases spread over seventeen pairs reach a few
- * times a run, and a wild value the codec admits and each required wild refusal.
- */
+/** The seeds the steered phase grows from: a wild value the codec admits, and each required wild refusal. */
 const encodingKept: ReadonlyArray<Kept<EncodingCase, EncodingFeature>> = [
-	...Arr.map(plantedPairs, (pair): Kept<EncodingCase, EncodingFeature> => ({
-		note: `the refused ${pair.field} as ${pair.form}`,
-		sketch: { ...pair, value: { kind: "planted" } },
-		draws: "",
-		reaches: [`planted ${pair.field} as ${pair.form}`]
-	})),
 	{
 		note: "a number for an integer",
 		sketch: {
@@ -256,7 +304,10 @@ layer(Substrate.layer, { excludeTestServices: true })("ApplyError through the pu
 							const tapped = { ...ctx, pool }
 							return yield* explore(
 								{
-									oracle: { kind: "unstated" },
+									oracle: {
+										kind: "specification",
+										name: "the codecs' fault vocabulary: each invalid class's one fault, a parameter's at its slot"
+									},
 									suite: "api-errors/apply encoding",
 									draw: drawn(encodingCaseGen),
 									literal: Formatter.format,
@@ -270,7 +321,7 @@ layer(Substrate.layer, { excludeTestServices: true })("ApplyError through the pu
 										[
 											...Arr.map(
 												plantedPairs,
-												({ field, form }): EncodingFeature => `planted ${field} as ${form}`
+												({ field, form }): EncodingFeature => `refused ${field} as ${form}`
 											),
 											"wild admitted",
 											"wild null refused",
@@ -283,8 +334,7 @@ layer(Substrate.layer, { excludeTestServices: true })("ApplyError through the pu
 								(c, cx) =>
 									Effect.gen(function* () {
 										yield* replaceRows(s.admin, installationGroup(names), [seedRow(names)])
-										const value =
-											c.value.kind === "planted" ? planted[c.field].value : passed(c.value)
+										const value = c.value.kind === "refused" ? c.value.value : passed(c.value)
 										const fact: Record<string, unknown> = { ...live, [c.field]: value }
 										const mark = tap.mark()
 										const change = memberOps(tapped, member(members, c.form))
@@ -312,7 +362,10 @@ layer(Substrate.layer, { excludeTestServices: true })("ApplyError through the pu
 													})
 										)
 										if (Result.isSuccess(outcome)) {
-											assert.ok(c.value.kind === "wild", `a planted ${c.field} is refused`)
+											assert.ok(
+												c.value.kind === "wild",
+												`a ${c.field} of its invalid class is refused`
+											)
 											cx.note("wild admitted")
 											return
 										}
@@ -328,9 +381,9 @@ layer(Substrate.layer, { excludeTestServices: true })("ApplyError through the pu
 										if (c.form === "parameter") {
 											assert.deepEqual(error.place, { _tag: "Slot", name: c.field })
 										}
-										if (c.value.kind === "planted") {
-											assert.equal(error.reason._tag, planted[c.field].fault)
-											cx.note(`planted ${c.field} as ${c.form}`)
+										if (c.value.kind === "refused") {
+											assert.equal(error.reason._tag, classFault[c.field])
+											cx.note(`refused ${c.field} as ${c.form}`)
 										} else {
 											cx.note(`wild ${c.value.wild.kind} refused`)
 										}
