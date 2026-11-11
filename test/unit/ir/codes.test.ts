@@ -13,6 +13,10 @@
  *
  * The box, exhausted: two rosters over the names a to d, each first declared as `a`, then every history of up to five
  * commands.
+ *
+ * Features: a growth, a removal, a re-add, a rename, a reorder, a hole between live codes, both rosters changed.
+ *
+ * Plants: ir-codes-size-live-only (a codec counts its live codes alone, not every code minted).
  */
 import { describe, it } from "@effect/vitest"
 import { type Case, exhaust } from "@grizzle/testing/explore"

@@ -12,6 +12,15 @@
  *
  * Where a space is small it is enumerated whole (exhaust), and the bound is in each generator's documentation; where it
  * is not (16-bit codes, payload spaces past 2^53, declaration histories), it is searched (explore).
+ *
+ * Features: each search names the shapes, relations, statements, rosters, sides and edits it must reach.
+ *
+ * Plants: ir-cells-alias-digit (a digit at its radix accepted), ir-cells-fin-past-count (a slot at its owner's count
+ * accepted), ir-cells-dependent-shifted (a dependent key's slot read one place on), ir-cells-absent-payload (a cell
+ * written as its payload code, so code 0 reads absent), ir-cells-collision-overwrites (two payloads at one key kept as
+ * the later), ir-cells-width-short (a cell one bit short at a power of two), ir-cells-hole-reused (a new handle minted at
+ * a hole's code), ir-cells-reorder-admitted (a reorder of kept codes admitted), ir-cells-side-largest-key (a side keyed
+ * by its largest contained key), ir-cells-digest-no-payload (a digest blind to payloads).
  */
 import { describe, it } from "@effect/vitest"
 import { type Case, drawn, exhaust, explore } from "@grizzle/testing/explore"
@@ -239,8 +248,11 @@ describe("the row-major index", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "every key shape of one to three coordinates of 0 to 5 codes, at every point, each digit moved just outside its range",
+						oracle: {
+							kind: "second-implementation",
+							name: "the odometer: every point counted in row-major order"
+						},
 						suite: "unit/ir/cells-index",
 						generator: shapes,
 						literal: Formatter.format,
@@ -600,8 +612,11 @@ describe("a relation's string of cells", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "every closed relation over a key of at most 4 points and a payload of none, one coordinate of 0 to 3 codes, or two of 2",
+						oracle: {
+							kind: "second-implementation",
+							name: "the naive tuple-set model, its bit text read cell by cell as PostgreSQL's substring reads it"
+						},
 						suite: "unit/ir/cells-relations",
 						generator: box,
 						literal: Formatter.format,
@@ -730,7 +745,10 @@ describe("a relation's string of cells", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "universal",
+							name: "a relation is a set of rows: any order and any repetition encode alike, two payloads at one key refused"
+						},
 						suite: "unit/ir/cells-rows",
 						draw: drawn(statement),
 						literal: Formatter.format,
@@ -784,7 +802,10 @@ describe("a cell's width", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "specification",
+						name: "the binary length of 1 + the largest payload code, in bigint arithmetic"
+					},
 					suite: "unit/ir/cells-width",
 					draw: drawn(
 						array(
@@ -904,8 +925,11 @@ describe("a roster's codes", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "every roster of 1 to 5 codes under every hole pattern that leaves a handle live, grown by 0 to 2 handles",
+						oracle: {
+							kind: "specification",
+							name: "the intent the roster's declarations were drawn with"
+						},
 						suite: "unit/ir/cells-roster-holes",
 						generator: patterns,
 						literal: Formatter.format,
@@ -1103,7 +1127,10 @@ describe("a roster's codes", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "the intent a roster's declaration history was drawn with: renames keep codes, new handles are minted past every code"
+						},
 						suite: "unit/ir/cells-roster",
 						draw: drawn(history),
 						literal: Formatter.format,
@@ -1254,8 +1281,11 @@ describe("a side", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "every heading of one to three fields with zero to two declared keys, each key and the side's terms any ordered choice of its fields",
+						oracle: {
+							kind: "specification",
+							name: "a side's key restated: the smallest declared key its terms contain, else all its fields"
+						},
 						suite: "unit/ir/cells-side",
 						generator: headings,
 						literal: Formatter.format,
@@ -1393,8 +1423,11 @@ describe("a constant's digest", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "every closed relation over a key of at most 3 points and a payload of none, 2 or 3 codes, under every edit of one cell, a move and a swap of two",
+						oracle: {
+							kind: "universal",
+							name: "a digest of the constant's content alone: equal content one digest, every edit another"
+						},
 						suite: "unit/ir/cells-digest",
 						generator: small,
 						literal: Formatter.format,
