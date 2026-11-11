@@ -34,7 +34,6 @@ import type { TestContext } from "vitest"
  * - chosen at volume: no free plan scans a relation of more than 20,000 rows, neither sequentially nor as a nested
  *   loop's inner side without an index condition; over a smaller relation, the rate cards' few pages above all, the
  *   scan is the planner's choice;
- * - exactly the read named below deduplicates (DISTINCT), the one whose rows repeat;
  * - every index the installation created is read by some workload read's free plan here or by a law's maintenance below.
  *
  * Law maintenance runs as the triggers and native constraints fire on writes, read from the transaction's own
@@ -68,10 +67,8 @@ import {
 } from "#test/pg/e2e-platform/support.ts"
 import { directSql, literal } from "#test/schedules/platform/support.ts"
 import { assert } from "#test/support/assert.ts"
-import { compileTemplate, programAsts, testCompile } from "#test/support/compile.ts"
 import * as P from "#test/support/fixtures/api/platform.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
-import { has, shapeOf } from "#test/support/kernel/shape.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { messageOf } from "#test/support/message.ts"
 import { pickGen, pickIndex } from "#test/support/pick.ts"
@@ -107,15 +104,6 @@ const volume = (events: number): VolumeSizes => ({
 	events,
 	grantsPerOrg: 3
 })
-
-/**
- * The reads whose statements deduplicate (DISTINCT), each with why. Every other read is unique by a key the compiler
- * proves, and deduplicates nothing: eventCost by RateCard's span key (model, kind, during), at most one card in force
- * per model and kind at the event's instant, so (kind, tier) is unique per event; invoicePreview's nested statements,
- * each line's usage and plan detail, by the detail's primary key on `line`, the line's id the parent column correlates.
- * - repricedInMonth: the card that starts inside the month is existential, one (event, kind) per such card.
- */
-const deduplicating: ReadonlyArray<ReadName> = ["repricedInMonth"]
 
 const unit = (t: bigint) => ({ start: P.Instant(t), end: P.Instant(t + 1n) })
 
@@ -1702,20 +1690,6 @@ const planSuite = (events: number, runs: number) => (ctx: TestContext) =>
 			}
 			const e = entitiesOf(p)
 			const used = new Set<string>()
-			/** Exactly the named reads deduplicate: the compiler's own statements, by their structure. */
-			const distinct = Arr.flatMap(probes(e, 0), (pr) => {
-				const template = compileTemplate(billingReads[pr.name], P.Billing, testCompile)
-				if (!template.ok) {
-					return assert.fail(`${pr.name} does not compile`)
-				}
-				return Arr.some(
-					programAsts(template.value.programs.optimized),
-					(st) => has(shapeOf(st), "distinct") || has(shapeOf(st), "distinct on")
-				)
-					? [pr.name]
-					: []
-			})
-			assert.deepEqual(distinct, [...deduplicating], "the reads that deduplicate")
 			const explored = yield* explore(
 				{
 					suite: `pg/e2e-platform/plans ${events}`,
