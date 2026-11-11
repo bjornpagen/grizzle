@@ -1,3 +1,32 @@
+/**
+ * A lease's wait for a pooled session (adapter/wire/session.ts makePool), which has no deadline of grizzle's: it holds
+ * nothing, and an interruption, the caller's own timeout among them, ends it.
+ *
+ * - The waiter, as one finite space exhausted: the pool's maximum (1 to 3) by the sessions already leased (none up to
+ *   the maximum) by what ends the wait. With fewer sessions leased than the maximum the waiter's own connection is being
+ *   established, held at its password Effect until the case lets it through; with all of them leased it waits for one
+ *   of the pool's permits, and nothing ever waits in pg's queue. The waiter interrupted, with the clock standing still,
+ *   ends at once; a leased session released goes to a queued waiter, and one whose connection is being established gets
+ *   a session; the layer released first closes the pool's scope at once, awaiting neither the leases nor the network,
+ *   and a lease then fails with LayerReleased, pg never asked for a client and no connection attempted. In every case
+ *   the waiter holds nothing afterwards, and then every session up to the maximum is leased at once. The oracle is the
+ *   pool's own counts and the waiter's exit, against this specification; the clock stands still, so a wait that needed
+ *   it to move would never end, which the case's hang bound reports.
+ * - Cut leases, over drawn interleavings of up to eight leases started at once on a pool of one to three, each kept to
+ *   its end or cut: after a drawn number of the scheduler's turns, once its own connection asks for its password, once
+ *   it holds its session, or while its statement waits on a lock the case holds. Every cut point is reached by what the
+ *   case observes, never by the clock. Once every lease has settled and pg has answered every connection, the pool is at
+ *   its baseline (nothing leased, no client checked out of pg's Pool, nothing queued, no lease left asking), every kept
+ *   lease succeeded and every cut one ended as an interruption, the pool opens at most its maximum, and a further lease
+ *   of the maximum at once succeeds, none of them a session a cut destroyed mid-statement, on a backend none of those
+ *   ran on. The oracle is the pool's counts against that baseline.
+ *
+ * Features: each place a waiter waits by each ending; each place a lease is cut, a lease kept to its end, and more
+ * leases than the pool holds.
+ *
+ * Plants (~/.cache/grizzle-release/BR13/plants): pool-permit-lost.patch (a lease interrupted while it asks keeping its
+ * permit), pool-retired-reused.patch, pool-release-awaits.patch.
+ */
 import { layer } from "@effect/vitest"
 import { drawn, exhaust, explore, type Kept } from "@grizzle/testing/explore"
 import { required, requiredInSpace } from "@grizzle/testing/features"
@@ -21,7 +50,6 @@ import {
 	Scheduler,
 	Scope
 } from "effect"
-import { ReadFailure } from "#adapter/errors/execution.ts"
 import { LayerReleased } from "#adapter/errors/failures.ts"
 import type { Session, SessionPool } from "#adapter/wire/session.ts"
 import { appendAll } from "#compiler/core/array.ts"
@@ -37,32 +65,9 @@ import {
 import { roleBackends } from "#test/pg/serverless/support.ts"
 import { assert, lacks } from "#test/support/assert.ts"
 import { caseHang, testIdleTimeout } from "#test/support/limits.ts"
-import { freshSchema, Substrate } from "#test/support/substrate/substrate.ts"
+import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
-/**
- * A lease's wait for a pooled session, which has no deadline of grizzle's (packages/grizzle/src/adapter/wire/session.ts
- * makePool): it holds nothing, and an interruption, the caller's own timeout among them, ends it.
- *
- * The waiter, as one finite space exhausted: the pool's maximum (1 to 3) × the sessions already leased (none up to the
- * maximum) × what ends the wait. With fewer sessions leased than the maximum the waiter's own connection is being
- * established, held at its password Effect until the case lets it through; with all of them leased it waits for one of
- * the pool's permits, and nothing ever waits in pg's queue. The wait ends one of two ways, or never begins:
- *
- * - the waiter is interrupted, with the clock standing still: the interruption completes at once;
- * - a leased session is released: a waiter in the queue gets that very session, and one whose connection is being
- *   established gets a session;
- * - the layer is released first: the pool's scope closes with the leases still held, at once, awaiting neither them nor
- *   the network, so pg's Pool is ending, and a lease then fails at once with LayerReleased, at stage released; pg is
- *   never asked for a client (where a waiter would have queued or opened a connection of its own), no connection is
- *   attempted, and the held leases' releases leave the ended pool holding no session.
- *
- * In every case the waiter holds nothing afterwards: a connection established for an abandoned wait joins the pool
- * idle, the leases taken before are the only ones, and then every session up to the maximum is leased at once. The
- * oracle is the pool's own counts (open and leased sessions) and the waiter's exit. The clock stands still, so a wait
- * that needed it to move would never end, which the case's hang bound reports.
- *
- * What ends the wait, or keeps it from beginning.
- */
+/** What ends the wait, or keeps it from beginning. */
 type Ending = "interrupted" | "released" | "layer released"
 
 /** Where the waiter waits: in the queue of a saturated pool, or for its own connection. */
@@ -167,19 +172,19 @@ const gatedPassword = (secret: Redacted.Redacted) =>
 
 /**
  * Where a drawn lease is cut: after a drawn number of the scheduler's turns, the lease run a drawn few operations a
- * turn, so the cut lands at every step of its acquisition on the fiber's side; after a drawn number of milliseconds of
- * real time, so it lands while pg connects, while TLS and the startup run, or once the session is held; or once its
- * own connection asks for its password, which waits at the lease's gate until the cut has landed, so the cut lands
- * while that connection is being established, wherever the network's timing puts the rest.
+ * turn, so the cut lands at every step of its acquisition on the fiber's side; once its own connection asks for its
+ * password, which waits at the lease's gate until the cut has landed, so the cut lands while that connection is being
+ * established; or once the lease holds its session.
  */
 type CutAt =
 	| { readonly kind: "turns"; readonly turns: number; readonly ops: number }
-	| { readonly kind: "millis"; readonly millis: number }
 	| { readonly kind: "establishing" }
+	| { readonly kind: "held" }
 
 /**
  * One lease of an interleaving: kept to its end or cut where CutAt says, holding its session idle or running a
- * statement on it; or a statement's lease cut once its statement runs, which the statement's length outlasts.
+ * statement on it; or a statement's lease cut once its statement runs, which waits on a lock the case holds until the
+ * cut's CancelRequest stops it.
  */
 type LeasePlan =
 	| {
@@ -199,8 +204,8 @@ interface Interleaving {
  */
 const cutAtGen: Gen<CutAt> = oneOf<CutAt>([
 	(source) => ({ kind: "turns", turns: source.draw(int(0, 24)), ops: source.draw(int(3, 8)) }),
-	(source) => ({ kind: "millis", millis: source.draw(int(0, 30)) }),
-	() => ({ kind: "establishing" })
+	() => ({ kind: "establishing" }),
+	() => ({ kind: "held" })
 ])
 
 const leasePlanGen: Gen<LeasePlan> = oneOf<LeasePlan>([
@@ -256,8 +261,8 @@ const interleavingSituations: Arr.NonEmptyReadonlyArray<InterleavingFeature> = [
 
 /**
  * Planted: on a pool of one, a lease held across a statement while three more wait for its one permit: one cut at once
- * on the fiber's side and one after a few milliseconds of real time, while pg connects the holder's session, both cut
- * asking with no connection of their own, and one kept to its end once the statement's lease is cut too.
+ * on the fiber's side and one a few turns later, both cut asking with no connection of their own, and one kept to its
+ * end once the statement's lease is cut while its statement waits.
  */
 const interleavingKept: ReadonlyArray<Kept<Interleaving, InterleavingFeature>> = [
 	{
@@ -265,10 +270,10 @@ const interleavingKept: ReadonlyArray<Kept<Interleaving, InterleavingFeature>> =
 		sketch: {
 			max: 1,
 			leases: [
-				{ cut: { kind: "cut", at: { kind: "millis", millis: 30 } }, work: "statement" },
+				{ cut: { kind: "running" }, work: "statement" },
 				{ cut: { kind: "cut", at: { kind: "turns", turns: 0, ops: 3 } }, work: "idle" },
 				{ cut: { kind: "kept" }, work: "idle" },
-				{ cut: { kind: "cut", at: { kind: "millis", millis: 2 } }, work: "idle" }
+				{ cut: { kind: "cut", at: { kind: "turns", turns: 2, ops: 3 } }, work: "idle" }
 			]
 		},
 		draws: "",
@@ -276,34 +281,29 @@ const interleavingKept: ReadonlyArray<Kept<Interleaving, InterleavingFeature>> =
 	}
 ]
 
-/** Real time passing, whatever the test's clock. */
-const wallClock = (millis: number): Effect.Effect<void> =>
-	Effect.suspend(() => Clock.Clock.defaultValue().sleep(Duration.millis(millis)))
+/** One turn of the event loop, whatever the test's clock: the fibers the loop's last answers woke have run. */
+const eventLoopTurn: Effect.Effect<void> = Effect.suspend(() =>
+	Clock.Clock.defaultValue().sleep(Duration.zero)
+)
 
-/** A statement that runs long enough for a cut to land while it runs, and which a CancelRequest stops. */
-const running = "SELECT pg_catalog.pg_sleep(0.05)::text"
+/** The advisory lock a case holds while any of its leases is cut running a statement, which no other test takes. */
+const statementLock = "7366231908012114002"
+
+/** The statement of a lease cut while it runs: it waits on the case's lock until the cut's CancelRequest stops it. */
+const lockWait = "SELECT pg_catalog.pg_advisory_lock($1::int8)::text"
+
+/** The statement of every other lease: it answers at once. */
+const instant = "SELECT 'ran'::text"
 
 /**
- * Leases cut at arbitrary points lose nothing, against the cluster: a property over drawn interleavings of up to
- * eight leases started at once on a pool of one to three, each kept to its end or cut, after a drawn number of the
- * scheduler's turns or of real milliseconds, once its own connection asks for its password, or once its statement
- * runs: while it asks (queued for a permit, while pg connects it over TLS, or once pg answered and before the lease
- * took the client), while it holds its session, or while a statement runs on it. A lease cut while it asks was
- * establishing a connection exactly when the pool had started one for it: its connection's password ran under its own
- * services (AskingLease), whatever connections other leases were establishing; a lease cut once its connection asks
- * for its password is cut there, its password held at its gate until the cut has landed. A client that arrives for an
- * ask whose lease was cut goes straight back to the pool with its permit; a session cut mid-statement sends its
- * CancelRequest, is destroyed and is counted out of the pool.
- *
- * The case settles first, waiting on nothing a lost permit or client would hold back: the drawn cuts land, and the
- * leases end, or are cut where every lease still running asks while no session is leased and pg has answered every
- * connection, which a pool that hands its permits on never stays in. Once pg has answered every connection the pool is
- * back at its baseline, read from its counts: it leases nothing, pg's Pool has no client checked out and queues
- * nothing, and no lease was left asking, so a permit or client lost to a lease that left fails the case that loses it at
- * once. Then every kept lease succeeded and every cut one ended as an interruption; the pool opens at most its maximum;
- * the role's backends fall to at most the maximum; and a further lease of the maximum at once succeeds, each with a
- * session of its own, none of them a session cut mid-statement, on a backend none of those ran on: a destroyed session
- * is never handed out again.
+ * Leases cut at arbitrary points lose nothing (see the header). A lease cut while it asks was establishing a connection
+ * exactly when the pool had started one for it: its connection's password ran under its own services (AskingLease); a
+ * lease cut once its connection asks for its password is cut there, its password held at its gate until the cut has
+ * landed. A client that arrives for an ask whose lease was cut goes straight back to the pool with its permit; a session
+ * cut mid-statement sends its CancelRequest, is destroyed and is counted out of the pool. The case settles first,
+ * waiting on nothing a lost permit or client would hold back: the drawn cuts land, and the leases end, or are cut where
+ * every lease still running asks while no session is leased and pg has answered every connection, which a pool that
+ * hands its permits on never stays in.
  */
 const cutLeases = Effect.gen(function* () {
 	const s = yield* Substrate
@@ -311,7 +311,10 @@ const cutLeases = Effect.gen(function* () {
 	const reader = yield* substrateLogin(schema, "server", roleDefaults)
 	return yield* explore(
 		{
-			oracle: { kind: "unstated" },
+			oracle: {
+				kind: "specification",
+				name: "the pool back at its baseline once every lease settled: no permit or client lost"
+			},
 			suite: "serverless/pool interleavings",
 			draw: drawn(interleavingGen),
 			literal: Formatter.format,
@@ -345,6 +348,10 @@ const cutLeases = Effect.gen(function* () {
 						? Effect.as(Deferred.await(gate), reader.password)
 						: Effect.succeed(reader.password)
 				})
+				if (Arr.some(leases, (plan) => plan.cut.kind === "running")) {
+					const holder = yield* s.session({ ...ownerSession(), label: "statement lock" })
+					yield* holder.query("SELECT pg_catalog.pg_advisory_lock($1::int8)", [statementLock])
+				}
 				const pool = yield* poolFor(reader, {
 					...defaultPool,
 					password: { kind: "given", password },
@@ -371,7 +378,9 @@ const cutLeases = Effect.gen(function* () {
 								const pid = yield* backendPidOf(session)
 								backends.set(session, pid)
 								progress[index] = "running"
-								yield* rowsOn(session, running, [])
+								yield* plan.cut.kind === "running"
+									? rowsOn(session, lockWait, [statementLock])
+									: rowsOn(session, instant, [])
 								progress[index] = "holding"
 							}
 							if (plan.cut.kind !== "kept") {
@@ -413,7 +422,7 @@ const cutLeases = Effect.gen(function* () {
 					if (!(yield* starvedNow)) {
 						return false
 					}
-					yield* wallClock(0)
+					yield* eventLoopTurn
 					return yield* starvedNow
 				})
 				yield* Effect.forEach(
@@ -435,8 +444,10 @@ const cutLeases = Effect.gen(function* () {
 											yield* Effect.yieldNow
 										}
 										break
-									case "millis":
-										yield* wallClock(at.millis)
+									case "held":
+										yield* until(
+											Effect.map(starved, (stuck) => stuck || progress[index] !== "asking")
+										)
 										break
 									case "establishing":
 										yield* until(
@@ -566,8 +577,11 @@ layer(Substrate.layer)("a lease's wait for a pooled session", (it) => {
 					const reader = yield* substrateLogin(schema, "server", roleDefaults)
 					return yield* exhaust(
 						{
-							box: { kind: "unstated" },
-							oracle: { kind: "unstated" },
+							box: "every maximum of 1 to 3, by the sessions already leased, by what ends the wait",
+							oracle: {
+								kind: "specification",
+								name: "a lease's wait holds nothing and has no deadline: the pool's counts and the waiter's exit"
+							},
 							suite: "serverless/pool waiter",
 							generator: waiters,
 							literal: Formatter.format,
@@ -615,7 +629,6 @@ layer(Substrate.layer)("a lease's wait for a pooled session", (it) => {
 									assert.ok(Result.isSuccess(error), "the lease fails")
 									const failure = error.success
 									assert.ok(failure instanceof LayerReleased, String(failure))
-									assert.equal(new ReadFailure({ reason: failure }).stage, "acquire")
 									assert.equal(asked(), 0, "pg is never asked for a client")
 									assert.equal(gate.state.attempts, attempts, "no connection is attempted")
 									assert.equal(pool.native.waitingCount, 0, "nothing waits in pg's queue")

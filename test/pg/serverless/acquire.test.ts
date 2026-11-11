@@ -1,3 +1,21 @@
+/**
+ * A connection that can't be had, for a Db already open (README "Errors and outcomes"): a failing `password` Effect or
+ * a released layer fails a read with ReadFailure at stage `acquire`, and a write with TransportFailure at stage
+ * `acquire`, each carrying the refusal as its reason.
+ *
+ * The box, exhausted: each call that needs a session, a read through execute, get and page and a write through apply,
+ * against each way its connection can't be had: the password Effect failing for every connection after the Db opened,
+ * once the pool's one session closed for idleness, or the Db's layer released. The oracle is the README's sentence,
+ * restated per call: a read's ReadFailure or a write's TransportFailure, at stage acquire, its reason the
+ * CredentialError the password Effect failed with or the pool's LayerReleased.
+ *
+ *
+ * Features: every call by every way its connection can't be had.
+ *
+ * Plants (~/.cache/grizzle-release/BR13/plants): acquire-write-as-read.patch (a write's acquire refusal reported as a
+ * ReadFailure), acquire-credential-swallowed.patch (a failing password Effect's CredentialError replaced by a driver
+ * refusal).
+ */
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
@@ -22,17 +40,6 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 import { testVerify } from "#test/support/worlds.ts"
 
-/**
- * A connection that can't be had, for a Db already open (README "Errors and outcomes"): a failing `password` Effect or
- * a released layer fails a read with ReadFailure at stage `acquire`, and a write with TransportFailure at stage
- * `acquire`, each carrying the refusal as its reason.
- *
- * The box, exhausted: each call that needs a session, a read through execute, get and page and a write through apply,
- * against each way its connection can't be had: the password Effect failing for every connection after the Db opened,
- * once the pool's one session closed for idleness, or the Db's layer released. The oracle is the README's sentence,
- * restated per call: a read's ReadFailure or a write's TransportFailure, at stage acquire, its reason the
- * CredentialError the password Effect failed with or the pool's LayerReleased.
- */
 type Call = "execute" | "get" | "page" | "apply"
 type Unhad = "the password fails" | "the layer released"
 

@@ -1,3 +1,26 @@
+/**
+ * No server-side deadlines (README "No server-side timeouts"): grizzle sets no statement_timeout or lock_timeout, nor
+ * PostgreSQL 19's other server-side deadlines, idle_in_transaction_session_timeout and transaction_timeout, per
+ * statement, per transaction, per session or per role.
+ *
+ * Exhausted over the box of every access a transaction grizzle opens (read-only or read-write, always SERIALIZABLE) by
+ * its surroundings (a plain process, or a Vercel function whose request carries a deadline, its pool built as a Vercel
+ * application builds it, with Vercel's own attachDatabasePool as its hook): every session of a login's pool, its
+ * maximum leased at once, runs its transaction under exactly the deadline settings, value and source, that a plain
+ * session of the same login, opened by the test without grizzle, runs under. PostgreSQL is the oracle: a deadline
+ * grizzle set, by a startup option, a SET or a SET LOCAL, shows as another value or another source. A role default is
+ * one the plain session shares, so the login's stored defaults hold no deadline setting either, read from
+ * pg_db_role_setting.
+ *
+ * Vercel's attachDatabasePool adds its releases to the request context's waits, so a pool another file builds meanwhile
+ * with that hook would add its own: the file runs alone.
+ *
+ * Features: each access in each surrounding.
+ *
+ * Plants (~/.cache/grizzle-release/BR13/plants): deadlines-statement-timeout.patch (a session's startup options setting
+ * statement_timeout), deadlines-vercel-deadline.patch (a Vercel request's deadline set as the transaction's
+ * transaction_timeout).
+ */
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
@@ -12,24 +35,10 @@ import { backendPid, onVercel, vercelRuntime } from "#test/pg/serverless/support
 import { assert } from "#test/support/assert.ts"
 import { caseHang, testIdleTimeout } from "#test/support/limits.ts"
 import { testSql } from "#test/support/sql.ts"
-import { freshSchema, Substrate } from "#test/support/substrate/substrate.ts"
+import { freshSchema, roleSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { outputRows, paramText } from "#test/support/wire.ts"
 
-/**
- * No server-side deadlines.
- *
- * grizzle sets no server-side statement_timeout or lock_timeout, per statement, per transaction, or per role. Each
- * session the pool hands out is asked through pg_settings, in a transaction read-only or not (grizzle opens both, always
- * SERIALIZABLE) and with or without a Vercel request context carrying a deadline, which never becomes a timeout. The
- * other server-side deadlines PostgreSQL 19 has (idle_in_transaction_session_timeout, transaction_timeout) are checked
- * as well: none is set by anything grizzle does.
- *
- * The Vercel case installs the request context on globalThis and sets VERCEL_URL and VERCEL_REGION, and builds the pool
- * as a Vercel application does, with Vercel's own attachDatabasePool as its hook (DbConfig.attachPool): a pool another
- * file builds meanwhile with that hook would add its releases to the waits counted here, so the file runs alone.
- *
- * Every access a transaction grizzle opens has.
- */
+/** Every access a transaction grizzle opens has. */
 type Access = Transaction["access"]
 const accesses = ["readOnly", "readWrite"] as const satisfies ReadonlyArray<Access>
 
@@ -42,8 +51,6 @@ const deadlineSettings = [
 
 const settingsQuery = `SELECT name::text, setting::text, source::text FROM pg_catalog.pg_settings
 WHERE name = ANY ($1::text[]) ORDER BY name`
-
-const untouched = Arr.map(deadlineSettings, (name) => [name, "0", "default"])
 
 /**
  * The wall clock's time in milliseconds, whatever the test's clock: a Vercel deadline is wall-clock time. It only
@@ -72,16 +79,20 @@ layer(Substrate.layer)("no server-side deadlines", (it) => {
 					const s = yield* Substrate
 					const schema = yield* s.schema(freshSchema)
 					const writer = yield* substrateLogin(schema, "server", roleDefaults)
-					/**
-					 * Vercel saw every release, its deadline capping the wait; the database saw nothing of it.
-					 *
-					 * Every session of the pool at once, so each one is asked, not only the floor.
-					 */
+					const deadlineList = `{${Arr.join(deadlineSettings, ",")}}`
+					/** The deadline settings a plain session of the login runs under, opened without grizzle. */
+					const plain = yield* s.session({ ...roleSession(writer), label: "plain" })
+					const plainRows = yield* plain.values(settingsQuery, [deadlineList])
+					const reference = Arr.map(plainRows, (row) => Arr.map(row, String))
+					/** Every session of the pool at once, so each one is asked, not only the floor. */
 					const max = 3
 					const exhausted = yield* exhaust(
 						{
-							box: { kind: "unstated" },
-							oracle: { kind: "unstated" },
+							box: "every access a transaction grizzle opens, in a plain process and under a Vercel request's deadline",
+							oracle: {
+								kind: "postgresql",
+								name: "the deadline settings, value and source, of a plain session of the same login"
+							},
 							suite: "serverless/deadlines",
 							generator: modes,
 							literal: Formatter.format,
@@ -117,22 +128,21 @@ layer(Substrate.layer)("no server-side deadlines", (it) => {
 											const [settings, pid] = yield* runTransaction(
 												session,
 												[
-													oneShotStatement(testSql(settingsQuery), [
-														paramText(`{${Arr.join(deadlineSettings, ",")}}`)
-													]),
+													oneShotStatement(testSql(settingsQuery), [paramText(deadlineList)]),
 													oneShotStatement(testSql(backendPid), [])
 												],
 												{ access, isolation: "serializable", end: "COMMIT" }
 											)
-											assert.deepEqual(settings?.rows, outputRows(untouched))
+											assert.deepEqual(
+												settings?.rows,
+												outputRows(reference),
+												"a pooled session's deadlines are a plain session's"
+											)
 											backends.add(String(pid?.rows[0]?.[0]))
 										}
 									})
 								)
-								assert.equal(backends.size, max)
-								if (Option.isSome(vercel)) {
-									assert.equal(vercel.value.waits.length, max)
-								}
+								assert.equal(backends.size, max, "every session of the pool is asked")
 								c.note(`${access} ${context}`)
 							})
 					)
@@ -142,7 +152,7 @@ layer(Substrate.layer)("no server-side deadlines", (it) => {
 					CROSS JOIN LATERAL pg_catalog.unnest(d.setconfig) AS c(setting)
 					WHERE d.setrole = (SELECT oid FROM pg_catalog.pg_roles WHERE rolname = $1::text)
 					AND pg_catalog.split_part(c.setting, '=', 1) = ANY ($2::text[])`,
-						[writer.role, `{${Arr.join(deadlineSettings, ",")}}`]
+						[writer.role, deadlineList]
 					)
 					assert.deepEqual(settings, [[0]])
 					return exhausted

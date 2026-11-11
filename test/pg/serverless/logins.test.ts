@@ -1,3 +1,27 @@
+/**
+ * Logins in one process (README "Logins and roles"): every login is its own PostgreSQL user with its own pool, and a Db
+ * opens on the layer of its role's login alone.
+ *
+ * Two installations of the worked example, each with two logins: `web`, holding the roles `reader` and `auditor`, and
+ * `ops`, holding `operator`; every role reads Account whole, and each login's workload holds, for each of its roles,
+ * the read of every account over that role. All four logins are served from their own served files and their layers
+ * built in one scope, as one process builds them, and each case runs a drawn program of requests, each opening a Db per
+ * request for a drawn role of a drawn login of a drawn installation and reading every account through its workload,
+ * some at once; or one installation's web login at volume, a Db per request alternating its two roles, many at once on
+ * its one pool.
+ *
+ * The oracle is the README's contract of logins: every request answers its installation's accounts, whichever role
+ * and however many run at once; while the layers live, each login's sessions log in as its own PostgreSQL role, a login
+ * no request opened holds no backend, and none holds more than its pool's maximum; and once the layers' scope closes,
+ * every login's pool is released, no backend left.
+ *
+ *
+ * Features: two installations, two logins of one installation, two roles of one login, requests at once, a login no
+ * request opened, and a Db per request at volume.
+ *
+ * Plants (~/.cache/grizzle-release/BR13/plants): logins-shared-pool.patch (every login's layer sharing the first
+ * login's pool).
+ */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -24,23 +48,6 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 
-/**
- * Logins in one process (README "Logins and roles"): every login is its own PostgreSQL user with its own pool, and a Db
- * opens on the layer of its role's login alone.
- *
- * Two installations of the worked example, each with two logins: `web`, holding the roles `reader` and `auditor`, and
- * `ops`, holding `operator`; every role reads Account whole, and each login's workload holds, for each of its roles,
- * the read of every account over that role. All four logins are served from their own served files and their layers
- * built in one scope, as one process builds them, and each case runs a drawn program of requests, each opening a Db per
- * request for a drawn role of a drawn login of a drawn installation and reading every account through its workload,
- * some at once; or one installation's web login at volume, a Db per request alternating its two roles, many at once on
- * its one pool.
- *
- * The oracle is the README's contract of logins: every request answers its installation's accounts, whichever role
- * and however many run at once; while the layers live, each login's sessions log in as its own PostgreSQL role, a login
- * no request opened holds no backend, and none holds more than its pool's maximum; and once the layers' scope closes,
- * every login's pool is released, no backend left.
- */
 type Login = "web" | "ops"
 type RoleName = "reader" | "auditor" | "operator"
 

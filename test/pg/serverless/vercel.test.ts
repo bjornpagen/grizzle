@@ -1,3 +1,27 @@
+/**
+ * The session pool on Vercel Fluid compute.
+ *
+ * A Vercel application passes attachDatabasePool from @vercel/functions/db-connections as DbConfig.attachPool; grizzle
+ * depends on no Vercel package. Here it is the real @vercel/functions function, behind a hook that records each pool it
+ * is handed and calls through, so the pool grizzle hands it, pg's own Pool, is checked by the integration itself (it
+ * throws "Unsupported database pool type" for a pool it does not recognize). The Vercel runtime is played by
+ * VERCEL_URL, VERCEL_REGION and the request context Vercel's runtime installs (support.ts).
+ *
+ * No verdict rests on how long anything took. Vercel's keep-alive is judged by what the pool holds when it ends: the
+ * idle sessions above the floor already closed, so the instance outlived the pool's idle timeout; and by the idle
+ * timeout pg's Pool carries, the one value Vercel derives its wait from.
+ *
+ * Three searches: the environment that turns the keep-alive on, the box of the two variables; drawn pools on Vercel,
+ * each hands Vercel pg's own Pool once, when it is constructed, and every release a wait that outlasts the pool's idle
+ * timeout, over drawn bounds and bursts of leases held at once; and a serverless function's module, its layer built once
+ * per instance, over a drawn number of warm invocations that reuse one pool, attached once and never put on globalThis.
+ *
+ * A login named `worker`, holding one role: the DbLayer a serverless function builds once is the layer of the login's
+ * served file.
+ *
+ * Plants (~/.cache/grizzle-release/BR13/plants): vercel-attach-per-lease.patch (the pool hook called on every lease),
+ * vercel-pool-on-global.patch (the layer's pool kept on globalThis).
+ */
 import { layer } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
 import { required, requiredInSpace } from "@grizzle/testing/features"
@@ -38,27 +62,6 @@ import { snapshotJson } from "#test/support/snapshot-json.ts"
 import { freshSchema, Substrate } from "#test/support/substrate/substrate.ts"
 import { isNativePool } from "#test/support/worlds/execute/pool.ts"
 
-/**
- * The session pool on Vercel Fluid compute.
- *
- * A Vercel application passes attachDatabasePool from @vercel/functions/db-connections as DbConfig.attachPool; grizzle
- * depends on no Vercel package. Here it is the real @vercel/functions function, behind a hook that records each pool it
- * is handed and calls through, so the pool grizzle hands it, pg's own Pool, is checked by the integration itself (it
- * throws "Unsupported database pool type" for a pool it does not recognize). The Vercel runtime is played by
- * VERCEL_URL, VERCEL_REGION and the request context Vercel's runtime installs (support.ts).
- *
- * No verdict rests on how long anything took. Vercel's keep-alive is judged by what the pool holds when it ends: the
- * idle sessions above the floor already closed, so the instance outlived the pool's idle timeout; and by the idle
- * timeout pg's Pool carries, the one value Vercel derives its wait from.
- *
- * Three searches: the environment that turns the keep-alive on, the box of the two variables; drawn pools on Vercel,
- * each hands Vercel pg's own Pool once, when it is constructed, and every release a wait that outlasts the pool's idle
- * timeout, over drawn bounds and bursts of leases held at once; and a serverless function's module, its layer built once
- * per instance, over a drawn number of warm invocations that reuse one pool, attached once and never put on globalThis.
- *
- * A login named `worker`, holding one role: the DbLayer a serverless function builds once is the layer of the login's
- * served file.
- */
 /**
  * A shop under the schema `name`, its role `app` and the login `worker` that holds it, and the shop's snapshot.json: a
  * layer of the login logs in as `<name>__worker`, the role the substrate creates for the schema.
@@ -140,8 +143,11 @@ layer(Substrate.layer, { excludeTestServices: true })("the session pool on Verce
 					})
 					const exhausted = yield* exhaust(
 						{
-							box: { kind: "unstated" },
-							oracle: { kind: "unstated" },
+							box: "VERCEL_URL and VERCEL_REGION, each set or unset",
+							oracle: {
+								kind: "specification",
+								name: "attachDatabasePool's keep-alive: a release's wait exactly when both variables are set"
+							},
 							/**
 							 * Vercel warns ("Pool release event triggered outside of request scope") only where both variables are set and the
 							 * request context offers no waitUntil; the runtime played here always offers one, so the one wait handed over
@@ -399,7 +405,12 @@ layer(Substrate.layer, { excludeTestServices: true })("the session pool on Verce
 							assert.equal(attached.length, 1)
 							assert.equal(attached[0], first.pool.native)
 							const backends = yield* roleBackends(worker.role)
-							assert.equal(backends, 1)
+							const opened = yield* first.pool.size
+							assert.equal(
+								backends,
+								opened,
+								"the login's backends are the one pool's sessions alone"
+							)
 							/**
 							 * Nothing was added to globalThis, and nothing on it, or one level below it, is the pool, pg's Pool or the
 							 * layer's service (a pool shared through a global can cross bundle copies of effect).
