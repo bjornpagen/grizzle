@@ -1,3 +1,31 @@
+/**
+ * The scalar registry against the PostgreSQL 19 catalog: every descriptor names what PostgreSQL stores, and every
+ * capability the registry claims is one PostgreSQL offers.
+ *
+ * - Spellings: every spelling of the pg namespace, the serials among them, declares a column PostgreSQL stores as the
+ *   type the descriptor names.
+ * - float(p): for every precision from -4 to 59, the registry admits float(p) exactly when PostgreSQL does, and names
+ *   the type, real or double precision, PostgreSQL selects.
+ * - numeric(p, s): for drawn typmods near and past numerictypmodin's bounds, the registry admits exactly what
+ *   PostgreSQL admits, and names the typmod it stores.
+ * - vector(n): for every dimension count within two of 1 and of the storage limit, the registry admits exactly what
+ *   pgvector admits.
+ * - Carriers: for every carrier, the capabilities the registry claims are, as a set, the catalog's (its operators,
+ *   operator classes and aggregates over the carrier's type) less the documented exclusions, each of which the catalog
+ *   offers; and a carrier is a span endpoint exactly where PostgreSQL has a discrete range over its type that the
+ *   README does not name as a limit.
+ *
+ * Oracle: PostgreSQL itself, its catalog and the type a column's declaration stores.
+ *
+ * Plants: scalar-registry-boolean-spelled-bool (the boolean descriptor names bool), scalar-registry-float-25-real
+ * (float(25) selects real), scalar-registry-numeric-scale-past (numerictypmodin's rule admits a scale one past its
+ * bound), scalar-registry-vector-dims-past (pg.vector admits one dimension past the limit), and
+ * scalar-registry-bits-ordering (a set claims an ordering).
+ *
+ * Features: "a serial" and "a type"; float(p)'s "refused below", "real", "double precision" and "refused above";
+ * numeric's "admitted" and "refused"; vector's "refused below", "admitted" and "refused above"; and the carriers' "a
+ * native capability excluded", "a spannable carrier", "a discrete range named as a limit" and "no discrete range".
+ */
 import { layer } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
 import { required, requiredInSpace } from "@grizzle/testing/features"
@@ -5,8 +33,11 @@ import { array, element, type Gen, int, oneOf } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
+import { regex } from "arkregex"
 import { Array as Arr, Effect, Formatter, pipe, Result, String as Str } from "effect"
+import { jsonText } from "#compiler/core/trusted.ts"
 import { vectorMaxDimensions } from "#compiler/ir/carriers.ts"
+import { serialDraw } from "#compiler/ir/desc.ts"
 import {
 	type Capability,
 	type Carrier,
@@ -17,17 +48,13 @@ import {
 } from "#compiler/ir/scalar.ts"
 import { nativeCapabilities } from "#compiler/scalar/native.ts"
 import { pgDescriptors } from "#compiler/scalar/pg.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
-import { assert, contains, defined } from "#test/support/assert.ts"
+import { fieldDescOf } from "#compiler/schema/protocol.ts"
+import { vectorSchemaOf } from "#test/pg/codec/support.ts"
+import { assert, contains, defined, unorderedEqual } from "#test/support/assert.ts"
 import { floatOf } from "#test/support/descriptors.ts"
+import { caseHang } from "#test/support/limits.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
-
-import { regex } from "arkregex"
-import { jsonText } from "#compiler/core/trusted.ts"
-import { serialDraw } from "#compiler/ir/desc.ts"
-import { fieldDescOf } from "#compiler/schema/protocol.ts"
-import { caseHang } from "#test/support/limits.ts"
 import { isSerial, type Spelling, spelled, spellings } from "#test/unit/scalar/support.ts"
 /**
  * The catalog type of each carrier; a closed id is probed through smallint, the type of its code under its roster's
@@ -134,15 +161,6 @@ const storedAt = (stored: ReadonlyArray<string>, i: number): string => {
 	}
 	return s
 }
-
-const vectorSchemaOf = (db: RawSession) =>
-	Effect.map(
-		db.values(
-			"SELECT n.nspname::text FROM pg_catalog.pg_extension e JOIN pg_catalog.pg_namespace n ON n.oid = e.extnamespace WHERE e.extname = 'vector'",
-			[]
-		),
-		(rows) => quoteIdent(String(rows[0]?.[0]))
-	)
 
 /** What the catalog offers on one type, over the capability vocabulary. */
 const nativeOf = (db: RawSession, type: string, poly: string | undefined) =>
@@ -466,7 +484,7 @@ layer(Substrate.layer)("descriptors against the PostgreSQL 19 catalog", (it) => 
 								const native = yield* nativeOf(db, types[carrier], polymorphic[carrier])
 								const claimed = Arr.filter(claimedBy(carrier), (cap) => catalogNames.includes(cap))
 								const excluded = exclusions[carrier] ?? []
-								assert.deepEqual(
+								unorderedEqual(
 									claimed,
 									Arr.filter(native, (cap) => !excluded.includes(cap)),
 									carrier

@@ -1,3 +1,26 @@
+/**
+ * PostgreSQL as the second oracle of the SQL generator and of the structural audit (test/support/oracle/verify/sql.ts).
+ *
+ * Every statement the kernel's generator draws (sqlgen.ts statementGen) passes both audits by construction; here
+ * PostgreSQL 19 plans it too, with EXPLAIN (GENERIC_PLAN), over the generator's catalog installed from the same AST
+ * (a table's first column its key). A statement the audit admits and PostgreSQL refuses is a bug in the generator, the
+ * printer or the audit.
+ *
+ * The audit rules that mirror PostgreSQL's own (scope, the visibility of ON, LATERAL, a write's target and a MERGE
+ * WHEN, a data-modifying CTE's placement, clauses merged across a parenthesized body, a set operation's widths) are
+ * checked from the other side: each Wild operator of such a rule (test/unit/sql/audit/operators.ts), at a drawn site,
+ * is refused by PostgreSQL as well, with a SQLSTATE of the expected class; and the faithful rewrite that makes a
+ * derived table LATERAL is planned. The lists SQL requires to be nonempty are NonEmpty by type (sql/ast.ts), and the
+ * zero-width forms PostgreSQL spells by absence, which the generator draws, are each required to plan here.
+ *
+ * Oracle: PostgreSQL itself, EXPLAIN (GENERIC_PLAN) of each statement.
+ *
+ * Plants: sql-print-lateral-dropped (the printer drops a derived table's LATERAL, so a generated statement that reads
+ * an outer relation inside one is refused).
+ *
+ * Features: each statement kind it plans, each Wild operator of a mirrored rule PostgreSQL refuses, the LATERAL
+ * rewrite planned, each zero-width form planned, and the shape of every statement it plans.
+ */
 import { layer } from "@effect/vitest"
 import { explore, drawn, type Kept } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -33,24 +56,6 @@ import {
 	type StatementBreakName
 } from "#test/unit/sql/audit/operators.ts"
 
-/**
- * PostgreSQL as the second oracle of the SQL generator and of the structural audit (test/support/oracle/verify/sql.ts).
- *
- * Every statement the kernel's generator draws (sqlgen.ts statementGen) passes both audits by construction; here
- * PostgreSQL 19 plans it too, with EXPLAIN (GENERIC_PLAN), over the generator's catalog installed from the same AST
- * (a table's first column its key). A statement the audit admits and PostgreSQL refuses is a bug in the generator, the
- * printer or the audit.
- *
- * The audit rules that mirror PostgreSQL's own (scope, the visibility of ON, LATERAL, a write's target and a MERGE
- * WHEN, a data-modifying CTE's placement, clauses merged across a parenthesized body, a set operation's widths) are
- * checked from the other side: each Wild operator of such a rule (test/unit/sql/audit/operators.ts), at a drawn site,
- * is refused by PostgreSQL as well, with a SQLSTATE of the expected class; and the faithful rewrite that makes a
- * derived table LATERAL is planned. The lists SQL requires to be nonempty are NonEmpty by type (sql/ast.ts), and the
- * zero-width forms PostgreSQL spells by absence, which the generator draws, are each required to plan here.
- *
- * What a case reaches: each statement kind it plans, each Wild operator of a mirrored rule PostgreSQL refuses, the
- * LATERAL rewrite planned, each zero-width form planned, and the shape of every statement it plans.
- */
 type AuditFeature =
 	| `statement ${SqlStatement["kind"]}`
 	| "lateral planned"
@@ -209,7 +214,7 @@ layer(Substrate.layer)("generated SQL on PostgreSQL 19", (it) => {
 					}
 					return yield* explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: { kind: "postgresql", name: "EXPLAIN (GENERIC_PLAN) of each statement" },
 							suite: "pg/sql/generated",
 							draw: drawn(auditCaseGen(catalog)),
 							literal: Formatter.format,

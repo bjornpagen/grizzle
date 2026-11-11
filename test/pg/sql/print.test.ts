@@ -1,3 +1,37 @@
+/**
+ * The printed SQL on PostgreSQL 19 (packages/engine/src/sql): the text means what the AST says. Every statement this
+ * file sends is one the audit accepts, the printer's output, never hand-edited.
+ *
+ * - Catalog reads: a catalog read of drawn arms is the set union of their rows, a row two arms share once.
+ * - Relational: generated CROSS JOINs, IN and NOT IN over a subquery, and windows over drawn ROWS frames evaluate as
+ *   the host computes them (test/pg/sql/evaluated.ts).
+ * - Default privileges: a reset of PUBLIC's default privilege, in one schema and in the global form, of each kind
+ *   PostgreSQL grants PUBLIC by default, leaves PUBLIC its privilege on a new function or type under the schema's form
+ *   and takes it under the global one.
+ * - Expressions: generated expressions of bigint, boolean and text evaluate as the host evaluates them, so the
+ *   printer's parentheses are PostgreSQL's precedence.
+ * - Set trees: generated set-operation trees, arms and whole levels parenthesized with their own ORDER BY and LIMIT,
+ *   evaluate as SQL's set semantics say.
+ * - Aggregates: generated aggregates keep their DISTINCT, their own ORDER BY and count(*)'s FILTER, group by group.
+ * - RAISE: a generated RAISE, with any subset of its USING options, raises its SQLSTATE, message and DETAIL.
+ * - Literals: every drawn typed literal arrives exactly: text of every plane, a text domain's, numerics as spelled
+ *   (negative zero as zero), doubles and reals bit for bit, booleans, int4 ranges, and integers of every type at any
+ *   value, its bounds among them, each of the type it is printed as.
+ *
+ * Oracle: the host's evaluation (evaluated.ts) for expressions, relational reads, set trees and aggregates; SQL's
+ * specification of a catalog read, a RAISE and a literal; PostgreSQL itself for the default privileges.
+ *
+ * Plants: sql-print-catalog-union-all (a catalog read's arms joined by UNION ALL), sql-print-frame-range (a window
+ * frame printed as RANGE), sql-print-default-privileges-scope-dropped (IN SCHEMA dropped from a reset),
+ * sql-print-right-operand-unwrapped (a right operand of equal precedence printed bare), sql-print-nested-select-bare (a
+ * nested set-operation level printed without its parentheses), sql-print-count-filter-dropped (count(*)'s FILTER
+ * dropped), sql-print-raise-detail-dropped (a RAISE's DETAIL dropped), sql-print-float-fifteen-digits (a double
+ * literal printed to fifteen significant digits), sql-print-negative-int4-bare (a negative int4 literal printed
+ * without its cast, so the least one reads as a bigint).
+ *
+ * Features: the relational reads' joins, subqueries and frames; the expressions' types and a collated BETWEEN bound;
+ * the catalog read's shared and apart arms; each privilege outcome; and a literal at an integer type's bound.
+ */
 import { layer } from "@effect/vitest"
 import { drawn, exhaust, explore, sketched } from "@grizzle/testing/explore"
 import { noCoverage, required, requiredInSpace } from "@grizzle/testing/features"
@@ -27,9 +61,9 @@ import type {
 	Expr,
 	PlFunction,
 	RaiseOption,
-	SqlStatement
+	SqlStatement,
+	TypeRef
 } from "#compiler/sql/ast.ts"
-
 import {
 	cast,
 	cUtf8Collation,
@@ -59,20 +93,6 @@ import { testTypeSchema } from "#test/support/sql.ts"
 import { expectSqlstate } from "#test/support/substrate/expect.ts"
 import { freshSchema, roleSession, Substrate } from "#test/support/substrate/substrate.ts"
 
-/**
- * The printed SQL on PostgreSQL 19 (packages/engine/src/sql): the text means what the AST says.
- *
- * Generated expressions of bigint, boolean and text evaluate as the host evaluates them, so the printer's parentheses
- * are PostgreSQL's precedence; generated set-operation trees, arms and whole levels parenthesized with their own
- * ORDER BY and LIMIT, evaluate as SQL's set semantics say; generated aggregates keep their DISTINCT, their own ORDER BY
- * and count(*)'s FILTER; a generated RAISE, with any subset of its USING options, raises its SQLSTATE, message and
- * DETAIL; typed literals arrive exactly; and generated CROSS JOINs, IN and NOT IN over a subquery and windows over
- * drawn ROWS frames evaluate as the host computes them. The generators are test/pg/sql/evaluated.ts. Beside them, a
- * default-privilege reset in each scope and of each kind PostgreSQL grants PUBLIC by default: PUBLIC keeps its
- * privilege on a new function or type under a reset in one schema, and loses it under the global form's.
- *
- * Every statement this file sends is one the audit accepts: the printer's output, never hand-edited.
- */
 const sql = (statement: SqlStatement): string => {
 	assert.deepEqual(auditStatementViolations(statement), [])
 	const text = printStatement(statement)
@@ -184,14 +204,6 @@ const anyReal: Gen<number> = weighted([
 	[1, constant(Number.NEGATIVE_INFINITY)]
 ])
 
-const literalsGen = (source: Source) => ({
-	texts: source.draw(array(textGen, { min: 0, max: 24 })),
-	decimals: source.draw(array(decimalGen, { min: 0, max: 24 })),
-	doubles: source.draw(array(anyDouble, { min: 0, max: 24 })),
-	reals: source.draw(array(anyReal, { min: 1, max: 24 }))
-})
-
-/** The edge values every case carries besides its drawn ones. */
 /** A numeric literal spelled `text`, built as the AST holds it: lit.decimal spells only a value's parts. */
 const decimalSpelled = (text: string): Expr => ({
 	kind: "literal",
@@ -199,6 +211,7 @@ const decimalSpelled = (text: string): Expr => ({
 	type: types.numeric
 })
 
+/** Numeric spellings a printed literal trips on: the special values, negative zeros, display scale, a long negative. */
 const edgeDecimals = [
 	"NaN",
 	"Infinity",
@@ -207,8 +220,9 @@ const edgeDecimals = [
 	"-0.000",
 	"0.10",
 	"-170141183460469231731687303715884105728"
-]
+] as const
 
+/** Doubles a printed literal trips on: the signed zeros, NaN, the infinities, the least and the greatest. */
 const edgeDoubles = [
 	-0,
 	0,
@@ -217,8 +231,90 @@ const edgeDoubles = [
 	Number.NEGATIVE_INFINITY,
 	5e-324,
 	1.7976931348623157e308
+] as const
+/** Texts a printed literal trips on: empty, a quote, non-ASCII, a double quote, astral, a backslash, NULL's spelling. */
+const edgeTexts = [
+	"",
+	"it's",
+	"\u00dcn\u00efc\u00f6d\u00e9",
+	'a"b',
+	"\u{1f600}",
+	"\\",
+	"NULL"
+] as const
+
+/** An integer type a literal is printed as, PostgreSQL's name of it, and its least and greatest values. */
+interface IntType {
+	readonly type: TypeRef
+	readonly name: string
+	readonly least: bigint
+	readonly greatest: bigint
+}
+
+/** The integer types an integer literal is printed as; numeric's bounds are a wide range, numeric has none. */
+const intTypes: Arr.NonEmptyReadonlyArray<IntType> = [
+	{ type: types.smallint, name: "smallint", least: -(2n ** 15n), greatest: 2n ** 15n - 1n },
+	{ type: types.integer, name: "integer", least: -(2n ** 31n), greatest: 2n ** 31n - 1n },
+	{ type: types.bigint, name: "bigint", least: -(2n ** 63n), greatest: 2n ** 63n - 1n },
+	{ type: types.numeric, name: "numeric", least: -(2n ** 127n), greatest: 2n ** 127n }
 ]
-const edgeTexts = ["", "it's", "\u00dcn\u00efc\u00f6d\u00e9", 'a"b', "\u{1f600}", "\\", "NULL"]
+
+/** An integer literal: a type, and a value of it, its bounds, zero and minus one weighted beside any value. */
+const intLiteralGen: Gen<readonly [IntType, bigint]> = (source) => {
+	const t = source.draw(element(intTypes))
+	return [
+		t,
+		source.draw(
+			weighted([
+				[3, bigint(t.least, t.greatest)],
+				[1, element([t.least, t.greatest, 0n, -1n])]
+			])
+		)
+	] as const
+}
+
+/** An int4 span's text: a lower bound and a greater upper one, half-open, its canonical form. */
+const spanTextGen: Gen<string> = (source) => {
+	const lower = source.draw(bigint(-(2n ** 31n), 2n ** 31n - 2n))
+	const upper = lower + 1n + source.draw(bigint(0n, 2n ** 31n - 1n - (lower + 1n)))
+	return `[${lower},${upper})`
+}
+
+/** A drawn sample of every typed literal, each list one SELECT, the dictionaries' edges weighted beside the rest. */
+const literalsGen = (source: Source) => ({
+	texts: source.draw(
+		array(
+			weighted<string>([
+				[1, element(edgeTexts)],
+				[6, textGen]
+			]),
+			{ min: 1, max: 24 }
+		)
+	),
+	labels: source.draw(array(textGen, { min: 1, max: 8 })),
+	decimals: source.draw(
+		array(
+			weighted<string>([
+				[1, element(edgeDecimals)],
+				[6, decimalGen]
+			]),
+			{ min: 1, max: 24 }
+		)
+	),
+	doubles: source.draw(
+		array(
+			weighted<number>([
+				[1, element(edgeDoubles)],
+				[6, anyDouble]
+			]),
+			{ min: 1, max: 24 }
+		)
+	),
+	reals: source.draw(array(anyReal, { min: 1, max: 24 })),
+	ints: source.draw(array(intLiteralGen, { min: 1, max: 24 })),
+	bools: source.draw(array(boolean, { min: 1, max: 4 })),
+	spans: source.draw(array(spanTextGen, { min: 1, max: 4 }))
+})
 
 const casesPerTest = 60
 
@@ -294,7 +390,10 @@ layer(Substrate.layer)("printed SQL on PostgreSQL 19", (it) => {
 					const s = yield* Substrate
 					return yield* explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "second-implementation",
+								name: "the host's evaluation of the relational read (evaluated.ts)"
+							},
 							suite: "pg/sql/relational",
 							draw: sketched(relationalSketchGen, resolveRelational),
 							literal: Formatter.format,
@@ -432,7 +531,10 @@ layer(Substrate.layer)("printed SQL on PostgreSQL 19", (it) => {
 					const s = yield* Substrate
 					return yield* explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "second-implementation",
+								name: "the host's evaluation of each expression (evaluated.ts)"
+							},
 							suite: "pg/sql/evaluated",
 							draw: drawn(array(evaluatedGen, { min: 1, max: 40 })),
 							literal: Formatter.format,
@@ -483,7 +585,10 @@ layer(Substrate.layer)("printed SQL on PostgreSQL 19", (it) => {
 					const s = yield* Substrate
 					return yield* explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "second-implementation",
+								name: "SQL's set semantics over the tree's arms (evaluated.ts)"
+							},
 							suite: "pg/sql/set-trees",
 							draw: drawn(setCaseGen),
 							literal: Formatter.format,
@@ -519,7 +624,10 @@ layer(Substrate.layer)("printed SQL on PostgreSQL 19", (it) => {
 					const s = yield* Substrate
 					return yield* explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "second-implementation",
+								name: "the host's aggregation group by group (evaluated.ts)"
+							},
 							suite: "pg/sql/aggregates",
 							draw: drawn(aggregateCaseGen),
 							literal: Formatter.format,
@@ -556,7 +664,10 @@ layer(Substrate.layer)("printed SQL on PostgreSQL 19", (it) => {
 					let made = 0
 					return yield* explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "specification",
+								name: "RAISE ... USING: the SQLSTATE of ERRCODE or P0001, the message and DETAIL given"
+							},
 							suite: "pg/sql/raise",
 							draw: drawn(raiseGen),
 							literal: Formatter.format,
@@ -625,7 +736,6 @@ layer(Substrate.layer)("printed SQL on PostgreSQL 19", (it) => {
 			Effect.gen(function* () {
 				const s = yield* Substrate
 				const schema = yield* s.schema(freshSchema)
-				const labels = ["it's", "\u00dcn\u00efc\u00f6d\u00e9", 'a"b', "\u{1f600}"]
 				yield* run([
 					{
 						kind: "createDomain",
@@ -635,53 +745,28 @@ layer(Substrate.layer)("printed SQL on PostgreSQL 19", (it) => {
 						constraints: []
 					}
 				])
+				const label = namedType(testTypeSchema(schema), "label", [])
 				const asText = (e: Expr) => printExpr(cast(e, types.text))
 				const values = (exprs: ReadonlyArray<string>) =>
-					Effect.map(s.admin.queryValues(`SELECT ${Arr.join(exprs, ", ")}`, []), ([row]) =>
-						Arr.map(defined(row, "the SELECT's one row"), String)
+					Effect.map(
+						s.admin.queryValues(`SELECT ${Arr.join(exprs, ", ")}`, []),
+						([row]): ReadonlyArray<string> => Arr.map(defined(row, "the SELECT's one row"), String)
 					)
-
-				const rows = yield* values(
-					Arr.map(labels, (l) =>
-						asText(lit.text(l, namedType(testTypeSchema(schema), "label", [])))
-					)
-				)
-				assert.deepEqual(rows, labels)
-				const ints: ReadonlyArray<readonly [bigint, typeof types.smallint]> = [
-					[-32768n, types.smallint],
-					[32767n, types.smallint],
-					[-2147483648n, types.integer],
-					[2147483647n, types.integer],
-					[-9223372036854775808n, types.bigint],
-					[9223372036854775807n, types.bigint],
-					[0n, types.numeric],
-					[-170141183460469231731687303715884105728n, types.numeric]
-				]
-				const printedInts = yield* values(Arr.map(ints, ([n, type]) => asText(lit.int(n, type))))
-				assert.deepEqual(
-					printedInts,
-					Arr.map(ints, ([n]) => n.toString())
-				)
-				const minimumType = yield* values([
-					`pg_typeof(${printExpr(lit.int(-2147483648n, types.integer))})::text`
-				])
-				assert.deepEqual(minimumType, ["integer"])
-				const printedLiterals = yield* values([
-					asText(lit.bool(true)),
-					asText(lit.bool(false)),
-					asText(lit.text("[1,5)", types.int4range))
-				])
-				assert.deepEqual(printedLiterals, ["true", "false", "[1,5)"])
-
 				const zero = (d: string) =>
 					Arr.every(Arr.fromIterable(d), (c) => c === "0" || c === "-" || c === ".")
 				return yield* explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "each literal's own value, read back as text, and the type it is printed as"
+						},
 						suite: "pg/sql/literals",
 						draw: drawn(literalsGen),
 						literal: Formatter.format,
-						coverage: noCoverage,
+						coverage: required<"an integer type's bound">(["an integer type's bound"], {
+							cases: casesPerTest,
+							sense: notesOnly
+						}),
 						kept: [],
 						runs: casesPerTest,
 						shrink: completeShrink,
@@ -689,38 +774,63 @@ layer(Substrate.layer)("printed SQL on PostgreSQL 19", (it) => {
 						steerEvery: 16,
 						caseHang
 					},
-					(sample) =>
+					(sample, c) =>
 						Effect.gen(function* () {
-							const texts = [...edgeTexts, ...sample.texts]
-							const rows = yield* values(Arr.map(texts, (x) => printExpr(lit.text(x, types.text))))
-							assert.deepEqual(rows, texts)
-							const decimals = [...edgeDecimals, ...sample.decimals]
-							const printedDecimals = yield* values(
-								Arr.map(decimals, (d) => asText(decimalSpelled(d)))
+							const texts = yield* values(
+								Arr.map(sample.texts, (x) => printExpr(lit.text(x, types.text)))
+							)
+							assert.deepEqual(texts, sample.texts)
+							const labels = yield* values(
+								Arr.map(sample.labels, (l) => asText(lit.text(l, label)))
+							)
+							assert.deepEqual(labels, sample.labels)
+							const decimals = yield* values(
+								Arr.map(sample.decimals, (d) => asText(decimalSpelled(d)))
 							)
 							assert.deepEqual(
-								printedDecimals,
-								Arr.map(decimals, (d) => (zero(d) && Str.startsWith("-")(d) ? Str.slice(1)(d) : d))
+								decimals,
+								Arr.map(sample.decimals, (d) =>
+									zero(d) && Str.startsWith("-")(d) ? Str.slice(1)(d) : d
+								)
 							)
-							const doubles = [...edgeDoubles, ...sample.doubles]
-							const doubleTexts = yield* values(
-								Arr.map(doubles, (d) => asText(lit.float(d, types.double)))
+							const doubles = yield* values(
+								Arr.map(sample.doubles, (d) => asText(lit.float(d, types.double)))
 							)
-							for (const [i, d] of doubles.entries()) {
+							for (const [i, d] of sample.doubles.entries()) {
 								assert.ok(
-									Object.is(Number(doubleTexts[i]), d),
-									`${Formatter.format(d)} came back as ${doubleTexts[i]}`
+									Object.is(Number(doubles[i]), d),
+									`${Formatter.format(d)} came back as ${doubles[i]}`
 								)
 							}
-							const realTexts = yield* values(
+							const reals = yield* values(
 								Arr.map(sample.reals, (r) => asText(cast(lit.float(r, types.real), types.double)))
 							)
 							for (const [i, r] of sample.reals.entries()) {
 								assert.ok(
-									Object.is(Number(realTexts[i]), r),
-									`${Formatter.format(r)} came back as ${realTexts[i]}`
+									Object.is(Number(reals[i]), r),
+									`${Formatter.format(r)} came back as ${reals[i]}`
 								)
 							}
+							const ints = yield* values(
+								Arr.flatMap(sample.ints, ([t, n]) => {
+									const printed = printExpr(lit.int(n, t.type))
+									return [asText(lit.int(n, t.type)), `pg_typeof(${printed})::text`]
+								})
+							)
+							assert.deepEqual(
+								ints,
+								Arr.flatMap(sample.ints, ([t, n]) => [n.toString(), t.name])
+							)
+							if (Arr.some(sample.ints, ([t, n]) => n === t.least || n === t.greatest)) {
+								c.note("an integer type's bound")
+							}
+							const others = yield* values(
+								Arr.appendAll(
+									Arr.map(sample.bools, (b) => asText(lit.bool(b))),
+									Arr.map(sample.spans, (span) => asText(lit.text(span, types.int4range)))
+								)
+							)
+							assert.deepEqual(others, Arr.appendAll(Arr.map(sample.bools, String), sample.spans))
 						})
 				)
 			})

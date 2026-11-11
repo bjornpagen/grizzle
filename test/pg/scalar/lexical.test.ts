@@ -1,3 +1,28 @@
+/**
+ * The parse on PostgreSQL 19rc1: for every candidate text (test/support/lexical.ts), the host and the database agree on
+ * whether the text is a member of its target's lexical form and on the value it names.
+ *
+ * - **Membership:** PostgreSQL's verdict on the form's ARE, the translation the text analysis gives str.regex domains
+ *   and Compute.matches (text/refinement.ts), and on its octet_length within the form's byte bound where it has one,
+ *   equals the host scan's (scalar/lexical.ts lexicalValue), which the unit suite holds to the form's pattern and to
+ *   the specification.
+ * - **Value:** where PostgreSQL finds a member, the parse grizzle prints (the cast `t::T`, numeric's typmod included,
+ *   plain numeric for a decimal text, and for a date make_date over the text's parts, sql/lexical.ts) reads to the
+ *   host's value: an integer, a decimal by equality, a double exactly (PostgreSQL's float8in against the host's
+ *   rational rounding, half to even), a boolean, and a date by its day number after 0001-01-01, so no DateStyle enters
+ *   the comparison.
+ * - **No DateStyle:** the session runs under DateStyle `SQL, DMY`, so a parse that read the session's date order
+ *   (date_in, text::date) would read 2024-03-04 as another day; make_date reads none.
+ * - **No raise:** every member parses without an error, which a raise would make the batch's statement fail; the
+ *   parse runs only under its membership's CASE, as a guarded law column or Compute.when runs it.
+ *
+ * Oracle: PostgreSQL itself, the form's ARE and the printed parse. Bound: batches of up to 160 candidates of every
+ * target, 300 batches a run.
+ *
+ * Plants: scalar-lexical-boolean-one (the host's boolean parse reads "1" as no member).
+ *
+ * Features: every candidate shape of test/support/lexical.ts.
+ */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -34,26 +59,6 @@ import {
 import { caseHang } from "#test/support/limits.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
-/**
- * The parse on PostgreSQL 19rc1: for every candidate text (test/support/lexical.ts), the host and the database agree on
- * whether the text is a member of its target's lexical form and on the value it names.
- *
- * - **Membership:** PostgreSQL's verdict on the form's ARE, the translation the text analysis gives str.regex domains
- *   and Compute.matches (text/refinement.ts), and on its octet_length within the form's byte bound where it has one,
- *   equals the host scan's (scalar/lexical.ts lexicalValue), which the unit suite holds to the form's pattern and to
- *   the specification.
- * - **Value:** where PostgreSQL finds a member, the parse grizzle prints (the cast `t::T`, numeric's typmod included,
- *   plain numeric for a decimal text, and for a date make_date over the text's parts, sql/lexical.ts) reads to the
- *   host's value: an integer, a decimal by equality, a double exactly (PostgreSQL's float8in against the host's
- *   rational rounding, half to even), a boolean, and a date by its day number after 0001-01-01, so no DateStyle enters
- *   the comparison.
- * - **No DateStyle:** the session runs under DateStyle `SQL, DMY`, so a parse that read the session's date order
- *   (date_in, text::date) would read 2024-03-04 as another day; make_date reads none.
- * - **No raise:** every member parses without an error, which a raise would make the batch's statement fail; the
- *   parse runs only under its membership's CASE, as a guarded law column or Compute.when runs it.
- *
- * The oracle is PostgreSQL. Bound: batches of up to 160 candidates of every target, 300 batches a run.
- */
 const roundDouble = (negative: boolean, num: bigint, den: bigint): number =>
 	toFloat(negative, num, den, "float8")
 
