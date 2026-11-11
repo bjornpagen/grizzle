@@ -40,7 +40,8 @@ import {
 	type ServerError,
 	SocketFailed,
 	StartupRefused,
-	TlsRefused
+	TlsRefused,
+	UnreadableAnswer
 } from "#adapter/errors/failures.ts"
 import type {
 	PgClient,
@@ -995,20 +996,49 @@ const replicationFailure = (
 
 /**
  * The live leader's replication connection (adapter/live/leader.ts): a walsender of the database, which reads only
- * simple Queries, SQL or a replication command, each sent alone and waited for (`run`), whose rows none of the leader's
- * reads, a slot's creation answering a NULL snapshot name among them; then the one stream START_REPLICATION opens
- * (`stream`), each CopyData of which is handed to `data` the moment it arrives, as the bytes it carries, and which ends
- * only in failure, the server's refusal, the session's end, or the server ending the stream; and the replies the
- * stream takes, each one CopyData (`reply`), written by pg's own writer of one (copyWriterOf).
+ * simple Queries, SQL or a replication command, each sent alone and waited for, either for its completion alone
+ * (`run`), whose rows none of the leader's reads, a slot's creation answering a NULL snapshot name among them, or for
+ * its rows (`read`), a row it cannot read its failure; then the one stream START_REPLICATION opens (`stream`), each
+ * CopyData of which is handed to `data` the moment it arrives, as the bytes it carries, and which ends only in failure,
+ * the server's refusal, the session's end, or the server ending the stream; and the replies the stream takes, each one
+ * CopyData (`reply`), written by pg's own writer of one (copyWriterOf).
  */
 export interface ReplicationSession {
 	readonly run: (text: EmittedText | ReplicationCommand) => Effect.Effect<void, ReplicationFailure>
+	readonly read: (
+		text: ReplicationCommand
+	) => Effect.Effect<OutputRows, ReplicationFailure | UnreadableAnswer>
 	readonly stream: (
 		start: ReplicationCommand,
 		data: (chunk: Uint8Array) => void
 	) => Effect.Effect<never, ReplicationFailure | ReplicationEnded>
 	readonly reply: (chunk: Uint8Array) => void
 }
+
+/**
+ * One simple Query on a replication connection, sent alone, as it completed: its rows, or rows it could not read; its
+ * refusal or the session's end its failure. A query outside a transaction block runs in its own, which its completion
+ * committed.
+ */
+const completed = (
+	client: PgClient,
+	spec: SessionSpec,
+	text: EmittedText | ReplicationCommand
+): Effect.Effect<Extract<Answer, { readonly _tag: "result" | "unreadable" }>, ReplicationFailure> =>
+	Effect.callback((resume) => {
+		submitConfig(client, spec, controlQuery(text), undefined, (answer) => {
+			switch (answer._tag) {
+				case "result":
+				case "unreadable":
+					resume(Effect.succeed(answer))
+					return
+				case "refused":
+				case "terminated":
+				case "failed":
+					resume(Effect.fail(replicationFailure(answer)))
+			}
+		})
+	})
 
 /**
  * The writer of one CopyData message on a client's connection, pg 8.23's `sendCopyFromChunk` (lib/connection.js), which
@@ -1044,21 +1074,13 @@ const replicationOf = (
 	spec: SessionSpec,
 	write: (chunk: Uint8Array) => void
 ): ReplicationSession => ({
-	run: (text) =>
-		Effect.callback<void, ReplicationFailure>((resume) => {
-			submitConfig(client, spec, controlQuery(text), undefined, (answer) => {
-				switch (answer._tag) {
-					case "result":
-					case "unreadable":
-						resume(Effect.void)
-						return
-					case "refused":
-					case "terminated":
-					case "failed":
-						resume(Effect.fail(replicationFailure(answer)))
-				}
-			})
-		}),
+	run: (text) => Effect.asVoid(completed(client, spec, text)),
+	read: (text) =>
+		Effect.flatMap(completed(client, spec, text), (answer) =>
+			answer._tag === "result"
+				? Effect.succeed(answer.outcome.rows)
+				: Effect.fail(new UnreadableAnswer({ index: 0, fate: "committed" }))
+		),
 	stream: (start, data) =>
 		Effect.callback<never, ReplicationFailure | ReplicationEnded>((resume) => {
 			const finished = (): void => {

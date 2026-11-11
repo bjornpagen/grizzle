@@ -1,4 +1,4 @@
-import { Array as Arr, Clock, Data, Deferred, Effect, Result } from "effect"
+import { Array as Arr, Clock, Data, Deferred, Duration, Effect, Result } from "effect"
 import { SecureRandom } from "effect/crypto"
 import type {
 	BatchFailure,
@@ -35,7 +35,7 @@ import {
 	type ReplicationSession,
 	type Session
 } from "#adapter/wire/session.ts"
-import type { EmittedText, Param, Prepared } from "#compiler/plan/common.ts"
+import type { EmittedText, OutputRows, Param, Prepared } from "#compiler/plan/common.ts"
 import {
 	batchesOf,
 	createSlotCommand,
@@ -43,9 +43,12 @@ import {
 	type LiveSecret,
 	type Notification,
 	parseLiveSecret,
+	parseSenderDeadline,
 	sealBatch,
 	sealNonce,
 	sealNonceBytes,
+	type SenderDeadline,
+	senderTimeoutQuery,
 	startCommand,
 	textArrayParam,
 	textParam
@@ -75,8 +78,12 @@ import type { ServedLive, ServedSession } from "#compiler/plan/serve.ts"
  *    live program reads is not held; one that asks a reply is answered by the next round.
  *
  * A stream the server refuses checks the slot: one that no longer stands, invalidated or dropped, is fanned out as
- * `invalidated`, which ends every live read of the installation. A candidacy ends at its first failure, of a
- * connection, a session, the server, the stream or a round, which it answers with; it never runs again by itself.
+ * `invalidated`, which ends every live read of the installation. A stream's deadline is the server's own, its
+ * replication session's wal_sender_timeout, read before START_REPLICATION (engine live/replication.ts SenderDeadline):
+ * a stream that hears nothing, a change or a keepalive, for that long is no longer connected, though no socket said so,
+ * so the candidacy ends, and its replication connection with it, and the next process's candidacy takes the lock; a
+ * timeout of 0 sets none, and grizzle sets none of its own. A candidacy ends at its first failure, of a connection, a
+ * session, the server, the stream, its deadline or a round, which it answers with; it never runs again by itself.
  *
  * Why a candidacy failed.
  */
@@ -91,6 +98,8 @@ export type LeaderReason =
 	| MessageUnreadable
 	| ChangesUnroutable
 	| SecretUnreadable
+	| SenderTimeoutUnreadable
+	| ReplicationSilent
 
 /** The process's candidacy for the installation's leader failed for `reason`, so its live reads end. */
 export class LeaderFailed extends Data.TaggedError("LeaderFailed")<{
@@ -105,6 +114,22 @@ export class LeaderFailed extends Data.TaggedError("LeaderFailed")<{
 export class SecretUnreadable extends Data.TaggedError("SecretUnreadable") {
 	override get message(): string {
 		return "the installation's live secret is no AES-256 key"
+	}
+}
+
+/** The replication session's wal_sender_timeout answers no count of milliseconds in the one unit it reads. */
+class SenderTimeoutUnreadable extends Data.TaggedError("SenderTimeoutUnreadable") {
+	override get message(): string {
+		return "the replication session's wal_sender_timeout is no count of milliseconds"
+	}
+}
+
+/** The replication stream heard nothing, a change or a keepalive, for its deadline, `millis` (SenderDeadline). */
+export class ReplicationSilent extends Data.TaggedError("ReplicationSilent")<{
+	readonly millis: number
+}> {
+	override get message(): string {
+		return `the installation's replication stream sent nothing for ${this.millis} ms, its session's wal_sender_timeout, within which a connected walsender sends a keepalive`
 	}
 }
 
@@ -155,6 +180,51 @@ export const secretOf = (
 	const cell = onlyCell(rows)
 	const secret = cell === undefined ? undefined : parseLiveSecret(cell)
 	return secret?.ok === true ? Effect.succeed(secret.value) : Effect.fail(new SecretUnreadable())
+}
+
+/** The deadline senderTimeoutQuery's answer states. */
+const deadlineOf = (rows: OutputRows): Effect.Effect<SenderDeadline, SenderTimeoutUnreadable> => {
+	const cell = onlyCell(rows)
+	const deadline = cell === undefined ? undefined : parseSenderDeadline(cell)
+	return deadline?.ok === true
+		? Effect.succeed(deadline.value)
+		: Effect.fail(new SenderTimeoutUnreadable())
+}
+
+const unheard = (): void => undefined
+
+/**
+ * `body` under a stream's deadline (SenderDeadline): `body` is given `heard`, which it calls on each message the stream
+ * delivers, and it ends with ReplicationSilent once the Clock's monotonic time passes the deadline since the last call,
+ * or since it began where none came; under `none` it is `body` alone.
+ */
+export const deadlined = <E>(
+	deadline: SenderDeadline,
+	body: (heard: () => void) => Effect.Effect<never, E>
+): Effect.Effect<never, E | ReplicationSilent> => {
+	switch (deadline.kind) {
+		case "none":
+			return body(unheard)
+		case "after":
+			return Effect.clockWith((clock) => {
+				const span = Duration.millis(deadline.millis)
+				const last = { at: clock.monotonicTimeNanosUnsafe() }
+				const silence: Effect.Effect<never, ReplicationSilent> = Effect.forever(
+					Effect.suspend(() => {
+						const quiet = Duration.nanos(clock.monotonicTimeNanosUnsafe() - last.at)
+						return Duration.isGreaterThanOrEqualTo(quiet, span)
+							? Effect.fail(new ReplicationSilent({ millis: deadline.millis }))
+							: clock.sleep(Duration.subtract(span, quiet))
+					})
+				)
+				return Effect.raceFirst(
+					body(() => {
+						last.at = clock.monotonicTimeNanosUnsafe()
+					}),
+					silence
+				)
+			})
+	}
 }
 
 /** A fresh random nonce for one sealed payload. */
@@ -259,13 +329,14 @@ const awaitDue = (delivered: Delivered): Effect.Effect<void> =>
 	})
 
 /**
- * Each CopyData of the stream, read the moment it arrives (see the header): an XLogData's message read into the
- * stream's transactions, a keepalive's position kept and its reply owed where it asks one; a CopyData no format reads
- * fails the stream.
+ * Each CopyData of the stream, read the moment it arrives (see the header): heard, for the stream's deadline, then an
+ * XLogData's message read into the stream's transactions, a keepalive's position kept and its reply owed where it asks
+ * one; a CopyData no format reads fails the stream.
  */
 const receiver =
-	(delivered: Delivered, reader: ReturnType<typeof transactionReader>) =>
+	(delivered: Delivered, reader: ReturnType<typeof transactionReader>, heard: () => void) =>
 	(chunk: Uint8Array): void => {
+		heard()
 		if (delivered.failure !== undefined) {
 			return
 		}
@@ -357,20 +428,21 @@ const rounds = (
 }
 
 /**
- * The slot streamed from the position it last confirmed; a stream the server refuses checks the slot, and one that no
- * longer stands is fanned out as `invalidated` before the refusal ends the candidacy.
+ * The slot streamed from the position it last confirmed, each message `heard`; a stream the server refuses checks the
+ * slot, and one that no longer stands is fanned out as `invalidated` before the refusal ends the candidacy.
  */
 const streamed = (
 	leading: Leading,
 	replication: ReplicationSession,
-	delivered: Delivered
+	delivered: Delivered,
+	heard: () => void
 ): Effect.Effect<never, LeaderReason> => {
 	const { candidacy } = leading
 	const reader = transactionReader(candidacy.tables, candidacy.views, candidacy.source.publication)
 	return Effect.catchTag(
 		replication.stream(
 			startCommand(candidacy.slot, candidacy.source.publication, 0n),
-			receiver(delivered, reader)
+			receiver(delivered, reader, heard)
 		),
 		"ServerError",
 		(refused) =>
@@ -385,9 +457,9 @@ const streamed = (
 }
 
 /**
- * One candidacy (see the header): its two sessions, the lock waited for on the replication connection, the slot made
- * where none stands and `invalidated` fanned out for it, the secret read, then the stream and its rounds, until either
- * fails.
+ * One candidacy (see the header): its two sessions, the lock waited for on the replication connection and its
+ * deadline read there, the slot made where none stands and `invalidated` fanned out for it, the secret read, then the
+ * stream and its rounds under the deadline, until either fails or the deadline passes.
  */
 export const candidacy = (running: Candidacy): Effect.Effect<never, LeaderReason> =>
 	Effect.scoped(
@@ -396,6 +468,7 @@ export const candidacy = (running: Candidacy): Effect.Effect<never, LeaderReason
 			const replication = yield* connectReplication(connection)
 			const session = yield* connectSession(connection)
 			yield* replication.run(running.source.lock)
+			const deadline = yield* Effect.flatMap(replication.read(senderTimeoutQuery), deadlineOf)
 			const slot = textParam(running.slot)
 			const checked = yield* alone(session, statement(running.source.check, [slot]))
 			const standing = onlyCell(checked)
@@ -416,9 +489,11 @@ export const candidacy = (running: Candidacy): Effect.Effect<never, LeaderReason
 				failure: undefined,
 				waiting: undefined
 			}
-			return yield* Effect.raceFirst(
-				streamed(leading, replication, delivered),
-				rounds(leading, replication, delivered)
+			return yield* deadlined(deadline, (heard) =>
+				Effect.raceFirst(
+					streamed(leading, replication, delivered, heard),
+					rounds(leading, replication, delivered)
+				)
 			)
 		})
 	)

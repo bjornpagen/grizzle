@@ -74,7 +74,10 @@ export {
 } from "#compiler/live/notify.ts"
 export {
 	createSlotCommand,
+	parseSenderDeadline,
 	type ReplicationCommand,
+	type SenderDeadline,
+	senderTimeoutQuery,
 	startCommand
 } from "#compiler/live/replication.ts"
 export { sealNonceBytes } from "#compiler/core/seal.ts"
