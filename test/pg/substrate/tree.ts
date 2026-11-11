@@ -279,30 +279,6 @@ export const insertSql = (schema: string, rows: Arr.NonEmptyReadonlyArray<TreeRo
 		", "
 	)}`
 
-/**
- * One INSERT of many rows in `schema` from nine array parameters, one per column, in the order the arrays hold them:
- * the statement of a batch too long for a VALUES list.
- */
-export const batchInsertSql = (schema: string): string =>
-	`INSERT INTO ${qualified(schema, "node")} (${COLUMNS}) SELECT * FROM ROWS FROM (${Arr.join(
-		Arr.map(
-			["int4", "int4", "int4", "int8", "int8", "int8", "int8", "int8", "int8"],
-			(type, i) => `pg_catalog.unnest($${i + 1}::${type}[])`
-		),
-		", "
-	)})`
-
-/** The nine array parameters of batchInsertSql, each an array literal. */
-export const batchParams = (rows: ReadonlyArray<TreeRow>): ReadonlyArray<string> =>
-	Arr.map(
-		Arr.makeBy(9, (column) => column),
-		(column) =>
-			`{${Arr.join(
-				Arr.map(rows, (r) => String(Arr.getUnsafe(valuesOf(r), column))),
-				","
-			)}}`
-	)
-
 /** The read of a lowering's stored rows, every value an int4. */
 export const readSql = (schema: string): string =>
 	`SELECT id, root, parent, at::int4, children::int4, start::int4, "end"::int4, copy::int4, parent_start::int4 FROM ${qualified(schema, "node")}`

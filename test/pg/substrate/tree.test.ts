@@ -24,7 +24,7 @@
  * every assignment of them to rows up to swapping the two, and a state holds at most two self-parented rows, one root
  * per value. The operator's bound, every state of at most six rows with every field over its range, is out of reach (a
  * row of six ranges over 6⁴ · 7 · 2 values), and so is every forest shape with every start and end beyond three rows
- * (11,599,872 cases at four). The proof is five boxes, each named in its test, beside the plans of T1's scans:
+ * (11,599,872 cases at four). The proof is five boxes, each named in its test:
  *
  * - every state of at most two rows: every shape and root assignment, every `at`, `children` and `start` over its range
  *   and one past it, every `end` over [0, N + 1];
@@ -37,26 +37,12 @@
  *   of its reverse pre-order into consecutive INSERTs.
  */
 import { layer } from "@effect/vitest"
-import { type Case, drawn, exhaust, explore, type Oracle } from "@grizzle/testing/explore"
-import { required, requiredInSpace } from "@grizzle/testing/features"
-import { boolean, constant, element, type Gen, weighted } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
+import { type Case, exhaust, type Oracle } from "@grizzle/testing/explore"
+import { requiredInSpace } from "@grizzle/testing/features"
+import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Data, Effect, Formatter, Option } from "effect"
 import {
-	explain,
-	type ExplainOptions,
-	explainServerStatement,
-	findNodes,
-	indexAccesses,
-	type PlanMode,
-	type PlanNode,
-	rowsRead
-} from "#bench/harness/explain.ts"
-import {
-	batchInsertSql,
-	batchParams,
 	type TreeBreach,
 	breachOf,
 	canonical,
@@ -73,7 +59,6 @@ import {
 	isP3,
 	LAWS,
 	type Law,
-	loadTree,
 	type Lowering,
 	MUTATION_KINDS,
 	type MutationKind,
@@ -83,7 +68,6 @@ import {
 	predicted,
 	RFC,
 	readSql,
-	rowsByDepth,
 	rowsOfRead,
 	shapeCases,
 	shapeGen,
@@ -94,16 +78,14 @@ import {
 	upToTwoRoots,
 	writeGen
 } from "#test/pg/substrate/tree.ts"
-import { assert, deepEquals, defined, nonEmpty } from "#test/support/assert.ts"
+import { deepEquals, nonEmpty } from "#test/support/assert.ts"
 import type { Moment } from "#test/support/families/mutate.ts"
 import { caseHang } from "#test/support/limits.ts"
 import type { SqlError } from "#test/support/pg.ts"
-import { pickFrom, pickGen } from "#test/support/pick.ts"
 import {
 	type Attempted,
 	attempt,
 	momentText,
-	qualified,
 	refusalText,
 	sameMoment
 } from "#test/support/substrate.ts"
@@ -409,92 +391,10 @@ type MutationFeature =
 	| `${MutationKind} ${"committed" | "refused"}`
 	| `${Mutant} killed by ${MutationKind}`
 
-/** One transaction that writes `rows` in one statement, as the planner writes a tree, and must commit. */
-const loaded = (
-	session: RawSession,
-	schema: string,
-	rows: ReadonlyArray<TreeRow>
-): Effect.Effect<void, SqlError | TransactionRolledBack> =>
-	Effect.gen(function* () {
-		yield* session.begin
-		yield* session.query(batchInsertSql(schema), batchParams(rows))
-		yield* session.commit
-		yield* session.resetStatements
-	})
-
 const THEOREM_ORACLE: Oracle = {
 	kind: "specification",
 	name: "trees.md §2's theorem as a checker, per root value: one tree rooted at its self-parented row, every row reached through its own value's rows, its slots gapless, its copies its parent's, and [start, end) a naive depth-first walk's pre-order intervals; beside it, the model of each constraint's moment (tree.ts predicted)"
 }
-
-/** The EXPLAIN options of the plan readings: no WAL, no SERIALIZE. */
-const planned: ExplainOptions = { wal: false, serialize: { kind: "off" } }
-
-/** The plan readings' load: one tree of 20,000 rows, each with up to four children. */
-const planLoad = { rows: 20_000, fanout: 4 } as const
-
-/** A plan's indexes, its sorts, its sequential scans, and the rows it reads from stored relations. */
-const planFacts = (plan: PlanNode) => ({
-	indexes: Arr.dedupe(Arr.map(indexAccesses(plan), (a) => a.index)),
-	sorts: findNodes(plan, "Sort").length,
-	seqScans: findNodes(plan, "Seq Scan").length,
-	read: rowsRead(plan)
-})
-
-/**
- * What a row whose descendants a plan reading scans heads: one of the root's children, a subtree of 100 rows or more
- * below them, a subtree under 100 rows, or a leaf.
- */
-const subtrees = [
-	"a quarter of the tree",
-	"a subtree of 100 rows or more",
-	"a subtree under 100 rows",
-	"a leaf"
-] as const
-type Subtree = (typeof subtrees)[number]
-
-const subtreeOf = (row: TreeRow, depth: number): Subtree =>
-	depth === 1
-		? "a quarter of the tree"
-		: row.children === 0
-			? "a leaf"
-			: row.end - row.start < 100
-				? "a subtree under 100 rows"
-				: "a subtree of 100 rows or more"
-
-/** What a plan reading reads: the export, or the descendants of a row below the root, drawn as its depth and a pick. */
-type PlanRead =
-	| Readonly<{ kind: "the export" }>
-	| Readonly<{ kind: "descendants"; depth: number; pick: number }>
-
-/** A plan reading, planned generic or custom. */
-interface PlanSketch {
-	readonly generic: boolean
-	readonly read: PlanRead
-}
-
-/** Every depth below the root alike, to `deepest`, and a pick among its rows. */
-const planSketchGen = (deepest: number): Gen<PlanSketch> => {
-	const depths = nonEmpty(Arr.range(1, deepest), "a depth below the root")
-	return (source) => ({
-		generic: source.draw(boolean),
-		read: source.draw(
-			weighted<PlanRead>([
-				[1, constant<PlanRead>({ kind: "the export" })],
-				[
-					4,
-					(inner) => ({
-						kind: "descendants",
-						depth: inner.draw(element(depths)),
-						pick: inner.draw(pickGen)
-					})
-				]
-			])
-		)
-	})
-}
-
-type PlanFeature = `${"the export" | `the descendants of ${Subtree}`}, ${PlanMode} plan`
 
 layer(Substrate.layer)("trees.md's theorem on PostgreSQL 19rc1", (it) => {
 	it.effect(
@@ -775,92 +675,6 @@ layer(Substrate.layer)("trees.md's theorem on PostgreSQL 19rc1", (it) => {
 										break
 									}
 								}
-							})
-					)
-				})
-			)
-	)
-
-	it.effect(
-		"read a tree of 20,000 rows in document order by one scan of T1's index with no sort, and the descendants of every row below the root by a range scan of it that reads exactly them",
-		(ctx) =>
-			searched(
-				ctx,
-				Effect.gen(function* () {
-					const s = yield* Substrate
-					const [seat] = yield* Effect.map(seatsOf(loweringsOf(["tree"])), nonEmpty)
-					const rows = loadTree(planLoad.rows, planLoad.fanout)
-					const byDepth = rowsByDepth(rows)
-					yield* loaded(seat.session, seat.schema, rows)
-					const node = qualified(seat.schema, "node")
-					yield* s.admin.query(`ANALYZE ${node}`, [])
-					const modes: ReadonlyArray<PlanMode> = ["custom", "generic"]
-					const reads = [
-						"the export",
-						...Arr.map(subtrees, (subtree) => `the descendants of ${subtree}` as const)
-					] as const
-					return yield* explore(
-						{
-							suite: "substrate/tree-plans",
-							draw: drawn(planSketchGen(byDepth.length - 1)),
-							literal: Formatter.format,
-							oracle: {
-								kind: "postgresql",
-								name: "EXPLAIN's plan: T1's index alone, no Seq Scan, the export unsorted reading each row once, a range scan reading exactly the descendants the pre-order interval holds"
-							},
-							coverage: required<PlanFeature>(
-								nonEmpty(
-									Arr.flatMap(reads, (read) =>
-										Arr.map(modes, (mode): PlanFeature => `${read}, ${mode} plan`)
-									)
-								),
-								{ cases: 48, sense: notesOnly }
-							),
-							kept: [],
-							runs: 24,
-							shrink: completeShrink,
-							concurrency: 1,
-							steerEvery: 16,
-							caseHang
-						},
-						(sketch, c) =>
-							Effect.gen(function* () {
-								const mode: PlanMode = sketch.generic ? "generic" : "custom"
-								const subject =
-									sketch.read.kind === "the export"
-										? Option.none()
-										: Option.some({
-												depth: sketch.read.depth,
-												row: pickFrom(defined(byDepth[sketch.read.depth]), sketch.read.pick)
-											})
-								const sql = Option.isNone(subject)
-									? `SELECT * FROM ${node} WHERE root = $1::int4 ORDER BY start`
-									: `SELECT * FROM ${node} WHERE root = $1::int4 AND start > $2::int8 AND start < $3::int8`
-								const params = Option.match(subject, {
-									onNone: () => ["0"],
-									onSome: ({ row }) => ["0", String(row.start), String(row.end)]
-								})
-								const e =
-									mode === "custom"
-										? yield* explain(seat.session, sql, params, planned)
-										: yield* explainServerStatement(seat.session, sql, params, "generic", planned)
-								const facts = planFacts(e.plan)
-								const name: PlanFeature = Option.match(subject, {
-									onNone: (): PlanFeature => `the export, ${mode} plan`,
-									onSome: ({ row, depth }): PlanFeature =>
-										`the descendants of ${subtreeOf(row, depth)}, ${mode} plan`
-								})
-								assert.deepEqual(facts.indexes, ["node_order"], `${name} reads T1's index alone`)
-								assert.equal(facts.seqScans, 0, `${name} scans nothing sequentially`)
-								Option.match(subject, {
-									onNone: () => {
-										assert.equal(facts.sorts, 0, `${name} sorts nothing`)
-										assert.equal(facts.read, planLoad.rows, `${name} reads each row once`)
-									},
-									onSome: ({ row }) =>
-										assert.equal(facts.read, row.end - row.start - 1, `${name} reads exactly them`)
-								})
-								c.note(name)
 							})
 					)
 				})

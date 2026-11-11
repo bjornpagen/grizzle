@@ -9,6 +9,11 @@
  * `start <= n.start AND end > n.start` reads every row before it in pre-order, so for a row late in it the planner
  * rightly scans the table, and no index grizzle installs serves it.
  *
+ * Both plans are a served read's: every statement of a served workload is a named prepared statement
+ * (core/prepared.ts), which PostgreSQL plans custom for its first five executions on a session and may plan generic from
+ * its sixth (PostgreSQL 19 plancache.c choose_custom_plan), so an application's read of a tree or a family runs on
+ * either.
+ *
  * - **the export**, `WHERE doc = $1 ORDER BY start`: one scan of T1's UNIQUE (r, start), reading each row once;
  * - **descendants** of a row, `start > n.start AND start < n.end`: a range scan of T1 reading exactly them;
  * - **an ordered family's members**, `WHERE g = $1 ORDER BY at`: a scan of the family key UNIQUE (g, at) reading exactly
