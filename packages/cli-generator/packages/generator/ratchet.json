@@ -1,6 +1,6 @@
 {
 	"typecheck": {
-		"total": 8029,
+		"total": 7991,
 		"files": {
 			"packages/generator/src/emit/api.ts": 125,
 			"packages/generator/src/emit/cli.ts": 123,
@@ -88,7 +88,6 @@
 			"packages/generator/test/generated/auth.test.ts": 60,
 			"packages/generator/test/generated/credential-like-redaction.test.ts": 32,
 			"packages/generator/test/generated/credential-redaction.test.ts": 15,
-			"packages/generator/test/generated/mtls.test.ts": 38,
 			"packages/generator/test/generated/output-modes.test.ts": 65,
 			"packages/generator/test/generated/proxy-loopback.test.ts": 47,
 			"packages/generator/test/generated/proxy-mtls.test.ts": 15,
@@ -315,7 +314,7 @@
 		}
 	},
 	"oxlint": {
-		"total": 4222,
+		"total": 4210,
 		"files": {
 			"packages/generator/src/emit/api.ts": 110,
 			"packages/generator/src/emit/cli.ts": 149,
@@ -393,7 +392,6 @@
 			"packages/generator/test/generated/auth.test.ts": 58,
 			"packages/generator/test/generated/credential-like-redaction.test.ts": 21,
 			"packages/generator/test/generated/credential-redaction.test.ts": 3,
-			"packages/generator/test/generated/mtls.test.ts": 12,
 			"packages/generator/test/generated/output-modes.test.ts": 26,
 			"packages/generator/test/generated/proxy-loopback.test.ts": 32,
 			"packages/generator/test/generated/proxy-mtls.test.ts": 20,

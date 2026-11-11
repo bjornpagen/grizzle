@@ -6,8 +6,9 @@
  *   whose keys hold every token symbol once, in either case, each with an optional binary body. Bodies:
  *   none, a file's bytes (`--body-file <path>`) or stdin's (`--body-file -`), of any byte values. Oracle: the
  *   document and the invocation: the method as spelled, the path, the body's bytes, and for a body with bytes,
- *   `Content-Length` for a file and `Transfer-Encoding: chunked` for stdin; an empty body's framing is no part of the
- *   contract.
+ *   `Content-Length` for a file and `Transfer-Encoding: chunked` for stdin. An empty body's framing is no part of the
+ *   contract: no framing, `Content-Length: 0` and a chunked body with no chunk all frame a zero-length body (RFC 9112
+ *   6.3), so asserting one would pin an implementation detail.
  *
  * Plants (local only, reverted): input.ts stdinBody announcing a length of zero; normalize/operations.ts upper-casing
  * an additional operation's method.

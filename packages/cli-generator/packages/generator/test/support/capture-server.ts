@@ -101,7 +101,7 @@ export type CaptureServer = Observer<PlainOrigin, PlainConnection<PlainOrigin>> 
  * The TLS capture server: each origin's URL (`https://127.0.0.1:<port>`), the certificates its origins present and a
  * client may present, and its observer.
  */
-type TlsCaptureServer = Observer<TlsOrigin, TlsConnection> &
+export type TlsCaptureServer = Observer<TlsOrigin, TlsConnection> &
 	Readonly<{ origins: Readonly<Record<TlsOrigin, string>>; certificates: Certificates }>
 
 /** The path a target names: everything before its query. */
