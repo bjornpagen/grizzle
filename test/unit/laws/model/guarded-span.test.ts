@@ -76,7 +76,6 @@ describe("a span key", () => {
 						suite: "unit/laws/model/guarded-span",
 						generator: spanKeyGen,
 						literal: Formatter.format,
-						limit: 10,
 						box: "a span key of T over every fact or over a selection, beside every ordered choice of its two scalars",
 						oracle: {
 							kind: "specification",

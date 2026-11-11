@@ -107,7 +107,7 @@ const variableGen =
 
 const draftingGen: Gen<Drafting> = (source) => ({
 	schema: source.draw(wordsGen),
-	prefix: source.draw(option(wordsGen)),
+	prefix: Option.map(source.draw(option(wordsGen)), Str.toLowerCase),
 	database: source.draw(string(codePoint(0x61, 0x7a), { min: 1, max: 12 })),
 	variable: source.draw(
 		variableGen(source.draw(element<VariableKind>(["stem", "database", "drawn"])))

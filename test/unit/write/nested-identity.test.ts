@@ -133,13 +133,9 @@ const sameFact = (a: StatedFact, b: StatedFact): boolean =>
 	a.bodies.length === b.bodies.length &&
 	Arr.every(a.bodies, (x, i) => x === b.bodies[i])
 
-/** The program of the case's one ChangeSet shape, an insert of owners: its Description names its member slot, never
- * its facts, so it is compiled once and every case binds its own facts. */
-let shaped: CompiledWrite | undefined
-const programOf = (value: unknown): CompiledWrite => {
-	shaped ??= succeeded(compileWrite(checking(Bodies), descOf(value), reality))
-	return shaped
-}
+/** The program of a case's ChangeSet, an insert of owners. */
+const programOf = (value: unknown): CompiledWrite =>
+	succeeded(compileWrite(checking(Bodies), descOf(value), reality))
 
 /** The program's nested input: its nesting and its one member slot. */
 const nestedInput = (program: CompiledWrite) => {

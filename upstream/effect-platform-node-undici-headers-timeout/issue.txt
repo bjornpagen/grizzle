@@ -1,0 +1,14 @@
+DRAFT: pull request description for github.com/Effect-TS/effect. Not filed.
+
+Title: fix(platform-node): leave the undici headers wait to Effect, as the body wait already is
+
+makeUndici sends every request with `headersTimeout: 60 * 60 * 1000` and `bodyTimeout: 0`, under the comment "leave
+timeouts to Effect.timeout etc". The body timer is off, but the one-hour headers timer still ends a request whose
+response headers come later with UND_ERR_HEADERS_TIMEOUT. A caller cannot lift it: `UndiciOptions` is spread before
+the fixed values, and the docs say dispatcher timeouts are overridden.
+
+This sets `headersTimeout: 0`, which disables undici's headers timer the way `bodyTimeout: 0` disables its body
+timer, so the caller's `Effect.timeout` alone decides how long a request waits.
+
+Test: an undici Agent composed with an interceptor records the `headersTimeout` each dispatch carries; a request
+through `layerUndiciNoDispatcher` must carry 0 (it carries 3600000 before the change).

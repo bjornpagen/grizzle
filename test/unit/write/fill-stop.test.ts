@@ -217,11 +217,13 @@ const shapeOf = (
 }
 
 /** Each selection's paths, without the weight fold and with it. */
-const everyPaths = Arr.map(selections, (selection) => ({
-	selection,
-	plain: pathsOf(selection, false),
-	weighed: pathsOf(selection, true)
-}))
+const everyPaths = Object.freeze(
+	Arr.map(selections, (selection) => ({
+		selection,
+		plain: pathsOf(selection, false),
+		weighed: pathsOf(selection, true)
+	}))
+)
 
 const pathsAt = (selection: Selection, weighed: boolean): Paths => {
 	const paths = defined(
@@ -248,9 +250,6 @@ const caseGen: Gen<StopCase> = (source) => ({
 	weighed: source.draw(element([false, true] as const)),
 	members: source.draw(array(memberGen, { min: 0, max: 3 }))
 })
-
-/** The box: each selection, with and without the weight fold, and every family of up to three of six member shapes. */
-const boxCases = selections.length * 2 * (1 + 6 + 36 + 216)
 
 /** What a write comes to: accepted, refused on a law with its witness, or anything else, by what it is. */
 type Outcome =
@@ -354,7 +353,6 @@ describe("a generated field with no value", () => {
 						suite: "unit/write/fill-stop",
 						generator: caseGen,
 						literal: Formatter.format,
-						limit: boxCases,
 						box: "every selection of the quantity fold, with and without the weight fold, over every family of up to three members, each of three kinds and two quantities",
 						oracle: {
 							kind: "specification",

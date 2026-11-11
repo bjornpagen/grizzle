@@ -232,7 +232,6 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							suite: "platform/planted",
 							generator: pointGen,
 							literal: Formatter.format,
-							limit: everyPoint.length,
 							coverage: requiredInSpace<PlantedFeature>(Arr.map(everyPoint, featureOf)),
 							caseHang
 						},

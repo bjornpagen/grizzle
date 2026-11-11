@@ -1,0 +1,126 @@
+From 72d4648f22040b79ddfabb1f02c4efdff72eaf2b Mon Sep 17 00:00:00 2001
+From: Bjorn Pagen <11238136+bjornpagen@users.noreply.github.com>
+Date: Wed, 11 Nov 2026 14:57:36 -0600
+Subject: [PATCH] fix(platform-node-shared): remove an empty directory without
+ recursive
+
+FileSystem.remove documents "Remove a file or directory", but the Node
+implementation calls fs.rm, which refuses every directory unless recursive
+is set, so an empty directory could only be removed recursively, and a
+recursive removal deletes whatever another writer placed inside it. A
+writer that cleans up the directories it created had no safe way to do it.
+
+Without recursive, remove now lstats the path and removes a directory with
+rmdir, which takes it only while it is empty and fails otherwise, and
+anything else with rm as before; force still ignores a missing path. The
+shared FileSystem test utilities hold every platform to it (Bun reuses this
+implementation).
+---
+ .changeset/remove-empty-directory.md          |  6 ++++
+ packages/effect/src/FileSystem.ts             |  3 +-
+ packages/effect/test/FileSystem.test-utils.ts | 21 ++++++++++++++
+ .../node-shared/src/NodeFileSystem.ts         | 28 ++++++++++++++++---
+ 4 files changed, 53 insertions(+), 5 deletions(-)
+ create mode 100644 .changeset/remove-empty-directory.md
+
+diff --git a/.changeset/remove-empty-directory.md b/.changeset/remove-empty-directory.md
+new file mode 100644
+index 0000000..c298a5d
+--- /dev/null
++++ b/.changeset/remove-empty-directory.md
+@@ -0,0 +1,6 @@
++---
++"effect": patch
++"@effect/platform-node-shared": patch
++---
++
++`FileSystem.remove` without `recursive` removes a directory while it is empty, as `rmdir(2)` does, and fails on one that holds anything. Before, it refused every directory, so the only way to remove an empty one was `recursive`, which deletes whatever another writer placed inside it.
+diff --git a/packages/effect/src/FileSystem.ts b/packages/effect/src/FileSystem.ts
+index 964c11f..94b0509 100644
+--- a/packages/effect/src/FileSystem.ts
++++ b/packages/effect/src/FileSystem.ts
+@@ -320,7 +320,8 @@ export interface FileSystem {
+     path: string
+   ) => Effect.Effect<string, PlatformError>
+   /**
+-   * Remove a file or directory.
++   * Remove a file or directory. Without `recursive`, a directory is removed only while it is empty, and removing one
++   * that holds anything fails.
+    */
+   readonly remove: (
+     path: string,
+diff --git a/packages/effect/test/FileSystem.test-utils.ts b/packages/effect/test/FileSystem.test-utils.ts
+index 664a59d..d7f269b 100644
+--- a/packages/effect/test/FileSystem.test-utils.ts
++++ b/packages/effect/test/FileSystem.test-utils.ts
+@@ -734,6 +734,27 @@ export const testLayer = <E>(layer: Layer.Layer<Fs.FileSystem, E>, options: Test
+       }).pipe(Effect.scoped)
+     ))
+ 
++  it("remove takes an empty directory without recursive and keeps one that holds anything", () =>
++    runPromise(
++      Effect.gen(function*() {
++        const fs = yield* Fs.FileSystem
++        const root = yield* fs.makeTempDirectoryScoped()
++        const empty = `${root}/empty`
++        const held = `${root}/held`
++        yield* fs.makeDirectory(empty)
++        yield* fs.makeDirectory(held)
++        yield* fs.writeFileString(`${held}/theirs`, "content")
++
++        yield* fs.remove(empty)
++        assert.isFalse(yield* fs.exists(empty))
++
++        expect(yield* Effect.flip(fs.remove(held))).toMatchObject({
++          reason: { method: "remove", pathOrDescriptor: held }
++        })
++        assert.strictEqual(yield* fs.readFileString(`${held}/theirs`), "content")
++      }).pipe(Effect.scoped)
++    ))
++
+   it("copy duplicates directory trees and replaces files when overwrite is true", () =>
+     runPromise(
+       Effect.gen(function*() {
+diff --git a/packages/platform/node-shared/src/NodeFileSystem.ts b/packages/platform/node-shared/src/NodeFileSystem.ts
+index 1eb9cc5..8272e2e 100644
+--- a/packages/platform/node-shared/src/NodeFileSystem.ts
++++ b/packages/platform/node-shared/src/NodeFileSystem.ts
+@@ -183,11 +183,31 @@ const removeFactory = (method: string): FileSystem.FileSystem["remove"] => {
+     handleErrnoException("FileSystem", method),
+     handleBadArgument(method)
+   )
+-  return (path, options) =>
+-    nodeRm(
+-      path,
+-      { recursive: options?.recursive ?? false, force: options?.force ?? false }
++  const nodeRmdir = effectify(
++    NFS.rmdir,
++    handleErrnoException("FileSystem", method),
++    handleBadArgument(method)
++  )
++  const nodeLstat = effectify(
++    NFS.lstat,
++    handleErrnoException("FileSystem", method),
++    handleBadArgument(method)
++  )
++  return (path, options) => {
++    const force = options?.force ?? false
++    if (options?.recursive === true) {
++      return nodeRm(path, { recursive: true, force })
++    }
++    // Without `recursive`, a directory is removed only while it is empty, as `rmdir(2)` does: `rm` refuses every
++    // directory, and `recursive` would delete whatever another writer placed inside it.
++    return nodeLstat(path).pipe(
++      Effect.flatMap((info) => info.isDirectory() ? nodeRmdir(path) : nodeRm(path, { recursive: false, force })),
++      Effect.catchIf(
++        (error) => force && error.reason._tag === "NotFound",
++        () => Effect.void
++      )
+     )
++  }
+ }
+ const remove = removeFactory("remove")
+ 
+-- 
+2.54.0 (Apple Git-157)
+

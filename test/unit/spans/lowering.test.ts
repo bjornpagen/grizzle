@@ -133,7 +133,6 @@ describe("span parameters and windows", () => {
 						generator: (source) =>
 							[source.draw(element(endpoints)), source.draw(element(endpoints))] as const,
 						literal: Formatter.format,
-						limit: endpoints.length * endpoints.length,
 						coverage: requiredInSpace<PointInFeature>(["admitted", "refused"]),
 						box: "every pair of a point parameter's type and a window parameter's endpoint, of integer and bigint",
 						oracle: {

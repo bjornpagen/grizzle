@@ -727,7 +727,6 @@ layer(Substrate.layer)("closed ids as codes on PostgreSQL 19rc1", (it) => {
 								suite: "pg/closed/codes/domain",
 								generator: codeCaseGen,
 								literal: Formatter.format,
-								limit: patterns.length * (patternSize + 3),
 								coverage: requiredInSpace<CodeFeature>([
 									"below",
 									"past",
@@ -804,7 +803,6 @@ layer(Substrate.layer)("closed ids as codes on PostgreSQL 19rc1", (it) => {
 								suite: "pg/closed/codes/decode",
 								generator: element(patterns),
 								literal: (state: RosterState) => state.closed,
-								limit: patterns.length,
 								box: "every hole pattern of a 5-code roster",
 								oracle: {
 									kind: "second-implementation",
@@ -1036,7 +1034,6 @@ layer(Substrate.layer)("closed ids as codes on PostgreSQL 19rc1", (it) => {
 									grantee: source.draw(element(grantees))
 								}),
 								literal: Formatter.format,
-								limit: states.length * grantees.length,
 								coverage: requiredInSpace<Grantee>(["writer", "reader"]),
 								caseHang,
 								box: "every roster of every hole pattern's installation, and both roles that use its codes",

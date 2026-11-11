@@ -91,7 +91,7 @@ import type { AnySchema } from "#compiler/types/schema/schema.ts"
 import type { Statement } from "#compiler/types/schema/statements.ts"
 import { changeSetDesc, changeSetOver } from "#compiler/write/changeset/value.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
-import { assert, defined } from "#test/support/assert.ts"
+import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 import {
 	compileTemplate,
 	inputArtifacts,
@@ -1431,13 +1431,17 @@ const contractsOf = (
 		return []
 	}
 	const count = 1 + d.upTo(2)
-	return Arr.reduce(Arr.range(0, count - 1), [], (made: ReadonlyArray<ContractSpec>, i) => [
-		...made,
-		{
-			name: defined(contractNames[i], "a contract name"),
-			base: contractBaseOf(d, d.from(rosters), made)
-		}
-	])
+	return Arr.reduce(
+		upTo(count, (i) => i),
+		[],
+		(made: ReadonlyArray<ContractSpec>, i) => [
+			...made,
+			{
+				name: defined(contractNames[i], "a contract name"),
+				base: contractBaseOf(d, d.from(rosters), made)
+			}
+		]
+	)
 }
 
 /** Whether a contract's chain ends at an integer or a bigint: a span's endpoint, never a serial. */
@@ -1652,7 +1656,7 @@ const extrasOf = (
 		(f) => f.writing.kind === "caller" && aggregatable(f.type, contracts)
 	)
 	const aggregates: ReadonlyArray<DerivedExtra> = Arr.isReadonlyArrayNonEmpty(numbers)
-		? Arr.map(Arr.range(0, d.upTo(2)), (i) => ({
+		? upTo(d.upTo(2) + 1, (i) => ({
 				name: `x${i}`,
 				kind: d.from(["sum", "mean", "min", "max"] as const),
 				field: d.from(numbers).name
@@ -2101,7 +2105,10 @@ const baseOf = (d: Drawing): Base => {
 								Arr.lastNonEmpty(rosterPool),
 								...(closedArity === 3 ? [d.from(rosterPool)] : [])
 							]
-						: Arr.map(Arr.range(1, closedArity), () => sameRoster),
+						: nonEmpty(
+								upTo(closedArity, () => sameRoster),
+								"a closed key holds a roster for each of its arity's places"
+							),
 					payload: d.from(["smallint", "bigint", "text"] as const),
 					generated: d.keep("generated")
 				}
@@ -6060,7 +6067,11 @@ const vectorProbe = (d: Drawing): Probe => {
 		{ fault: "vectorFromBuffer", call: "from", buffer: d.from(["f64", "array"] as const) },
 		{ fault: "vectorFromOther", call: "from", buffer: "vector" }
 	])
-	const components = (k: number) => Arr.map(Arr.range(1, k), (i) => i % 2)
+	const components = (k: number) =>
+		Arr.map(
+			upTo(k, (i) => i + 1),
+			(i) => i % 2
+		)
 	const bufferSource = (buffer: "f32" | "f64" | "array" | "vector"): string => {
 		switch (buffer) {
 			case "f32":
@@ -7476,10 +7487,13 @@ const drawnGen: Gen<Drawn> = (source) => {
 	const d = new Drawing(source, source.draw(swarm(schemaConstructs)))
 	const base = baseOf(d)
 	const probes = Arr.flatMap(probeMakers, ([, make]) =>
-		Arr.flatMap(Arr.range(0, 1 + d.upTo(1)), () => {
-			const probe = make(d, base)
-			return probe === undefined ? [] : [probe]
-		})
+		Arr.flatMap(
+			upTo(d.upTo(1) + 2, (i) => i),
+			() => {
+				const probe = make(d, base)
+				return probe === undefined ? [] : [probe]
+			}
+		)
 	)
 	return { base, probes, reached: d.reached }
 }

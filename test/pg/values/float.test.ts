@@ -28,7 +28,6 @@ import {
 	boolean,
 	constant,
 	element,
-	filter,
 	type Gen,
 	int,
 	map,
@@ -59,18 +58,14 @@ const fromPg = (text: unknown): number => Number(text)
 
 /**
  * Midpoints between adjacent binary32 values are binary64-exact; ties round to even, which a decimal string read
- * by strtof would not reproduce.
+ * by strtof would not reproduce. Every value within ±3e38 has a finite neighbour, so every midpoint is finite.
  */
-const midpoint = filter(
-	map(float(Math.fround(-3e38), Math.fround(3e38)), (f) => {
-		const buffer = new DataView(new ArrayBuffer(4))
-		buffer.setFloat32(0, f)
-		buffer.setUint32(0, buffer.getUint32(0) + 1)
-		return (f + buffer.getFloat32(0)) / 2
-	}),
-	(x) => Number.isFinite(x),
-	10
-)
+const midpoint = map(float(Math.fround(-3e38), Math.fround(3e38)), (f) => {
+	const buffer = new DataView(new ArrayBuffer(4))
+	buffer.setFloat32(0, f)
+	buffer.setUint32(0, buffer.getUint32(0) + 1)
+	return (f + buffer.getFloat32(0)) / 2
+})
 
 /** A double between `min` and `max`, and now and then NaN, as a bounded draw that does not rule NaN out. */
 const doubleOrNaN = (min: number, max: number): Gen<number> =>

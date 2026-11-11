@@ -78,6 +78,7 @@ import { refusedLaws } from "#test/support/refused.ts"
 import { member, withServedDb } from "#test/support/served-db.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /** The uuid of the `n`th key of a kind: stores 0x0, items 0xa0 and shelves 0xb0. */
 const uuidAt = (base: number, n: number): Uuid =>
@@ -529,11 +530,14 @@ layer(Substrate.layer)("a member writer's hold on its family's owner", (it) => {
 					)
 					const applyGen: Gen<Apply> = (source) => {
 						const stores = nonEmpty(
-							Arr.map(Arr.range(1, source.draw(int(1, 3))), (n) => ({
-								id: uuidAt(0, n),
-								region: source.draw(regionGen),
-								label: "a"
-							})),
+							Arr.map(
+								upTo(source.draw(int(1, 3)), (i) => i + 1),
+								(n) => ({
+									id: uuidAt(0, n),
+									region: source.draw(regionGen),
+									label: "a"
+								})
+							),
 							"a store"
 						)
 						const writeGen = oneOf<ItemWrite>([

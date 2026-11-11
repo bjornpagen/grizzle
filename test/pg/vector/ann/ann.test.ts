@@ -359,7 +359,6 @@ layer(Substrate.layer)("approximateNearest on PostgreSQL 19", (it) => {
 							suite: "vector/ann/shapes",
 							generator: element(names),
 							literal: Formatter.format,
-							limit: names.length,
 							box: "every program of the fixture that is one approximate search over a stored source",
 							oracle: {
 								kind: "specification",

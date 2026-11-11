@@ -90,12 +90,10 @@ import {
 	BOX_RULES,
 	type BoxCase,
 	boxGen,
-	SPAN_BOX_CASES,
 	SPAN_BOX_RULES,
 	spanBoxGen,
 	type Explored,
 	exploredGen,
-	FIN_BOX_CASES,
 	finBoxGen,
 	PAIR_KINDS,
 	type Pair,
@@ -473,9 +471,6 @@ type RuleFeature = RuleKind | Verdict
 const boxLiteral = (b: BoxCase<RuleEntry>): string =>
 	`${ruleText(b.entry.rule)}: ${Formatter.format(b.state)}`
 
-/** The box's size, counted by the library's own enumeration. */
-const BOX_CASES = 15_016
-
 /** The oracle of the state and transaction suites: the laws' meaning, read from each statement by the host. */
 const HOST_ORACLE: Oracle = {
 	kind: "second-implementation",
@@ -645,17 +640,11 @@ interface FamilyInstalled {
 	readonly copy: string
 }
 
-const familyInstallations = new Map<Shape, FamilyInstalled>()
-
 /**
  * grizzle's own family, ordered or counted: Owner(id, n) counts its members Member(id, g), ordered(on(Member, g, at),
  * fin(Owner, n)) or counted(on(Member, g), fin(Owner, n)), n and an ordered member's at drawn naturals.
  */
 const familyInstalled = (shape: Shape): FamilyInstalled => {
-	const known = familyInstallations.get(shape)
-	if (known !== undefined) {
-		return known
-	}
 	const desc: SchemaDesc = {
 		name: "Natives",
 		relations: [
@@ -686,14 +675,20 @@ const familyInstalled = (shape: Shape): FamilyInstalled => {
 	if (family === undefined || more.length > 0) {
 		throw new Error(`the ${shape} family's schema holds one family, not ${model.families.length}`)
 	}
-	const made = {
+	return {
 		installation: installation.success,
 		index: family.index.kind === "field" ? family.index.field.name : family.index.column,
 		copy: family.copy
 	}
-	familyInstallations.set(shape, made)
-	return made
 }
+
+/** Each family shape's installation, which a search compiles once before its cases run. */
+type FamiliesInstalled = { readonly [S in Shape]: FamilyInstalled }
+
+const familiesInstalled = (): FamiliesInstalled => ({
+	ordered: familyInstalled("ordered"),
+	counted: familyInstalled("counted")
+})
 
 const int = (n: number): bigint => BigInt(n)
 
@@ -896,12 +891,12 @@ const judgeBroken = (
  * commit, to one state, or both refuse at one statement or at COMMIT, with one set of constraints broken there.
  */
 const judgeFamilyTransaction = (
+	fam: FamilyInstalled,
 	shape: Shape,
 	before: Families,
 	statements: ReadonlyArray<FamilyStatement>,
 	c: Case<FamilyFeature>
 ): void => {
-	const fam = familyInstalled(shape)
 	const expected = run(shape, before, statements)
 	const verdict = transact(
 		fam.installation,
@@ -961,8 +956,12 @@ const judgeFamilyTransaction = (
  * A family state judged on grizzle's installation: the constraints it breaks are exactly the family model's, and,
  * where every copy is its owner's count, it is accepted exactly when the theorem holds.
  */
-const judgeFamilyState = (shape: Shape, stored: Stored, c: Case<FamilyFeature>): void => {
-	const fam = familyInstalled(shape)
+const judgeFamilyState = (
+	fam: FamilyInstalled,
+	shape: Shape,
+	stored: Stored,
+	c: Case<FamilyFeature>
+): void => {
 	const broken = stateViolations(fam.installation, familyNative(fam, stored))
 	judgeBroken(
 		fam,
@@ -1161,7 +1160,6 @@ describe("the native constraints grizzle installs", () => {
 								Arr.map(BOX_RULES, (rule): RuleEntry => ({ rule, installed: installRules([rule]) }))
 							),
 							literal: boxLiteral,
-							limit: BOX_CASES,
 							box: "every rule of the partial-projection lowering with each of its selections, over every state of at most two Owner rows and three of every other relation, each varying the fields its laws read over two or three values",
 							oracle: HOST_ORACLE,
 							coverage: requiredInSpace<RuleFeature>([...RULE_KINDS, ...VERDICTS, "a put"]),
@@ -1249,7 +1247,6 @@ describe("the native constraints grizzle installs", () => {
 							suite: "unit/laws/native/fin-box",
 							generator: finBoxGen,
 							literal: Formatter.format,
-							limit: FIN_BOX_CASES,
 							box: "no owner or an owner of count 0 to 3, over its first four slots, each holding no row, one or two, every copy the count",
 							oracle: FAMILY_ORACLE,
 							coverage: requiredInSpace<FinFeature>([
@@ -1342,15 +1339,15 @@ describe("the native constraints grizzle installs", () => {
 	)
 	it.effect(
 		"hold grizzle's own families, ordered and counted, as the family theorem's constraints, over every state of one owner's first four slots",
-		(ctx) =>
-			searched(
+		(ctx) => {
+			const installed = familiesInstalled()
+			return searched(
 				ctx,
 				exhaust(
 					{
 						suite: "unit/laws/native/family-box",
 						generator: familyBoxGen,
 						literal: Formatter.format,
-						limit: SHAPES.length * FIN_BOX_CASES,
 						box: "each shape, ordered and counted, with no owner or an owner of count 0 to 3, over its first four slots, each holding no row, one or two, every copy the count",
 						oracle: LEMMA_ORACLE,
 						coverage: requiredInSpace<FamilyFeature>([
@@ -1365,15 +1362,18 @@ describe("the native constraints grizzle installs", () => {
 						]),
 						caseHang
 					},
-					([shape, stored], c) => Effect.sync(() => judgeFamilyState(shape, stored, c))
+					([shape, stored], c) =>
+						Effect.sync(() => judgeFamilyState(installed[shape], shape, stored, c))
 				)
 			)
+		}
 	)
 
 	it.effect(
 		"run every family program's transactions on grizzle's own families as the family model runs them: drawn copies, the count's cascade and each axis's deferral",
-		(ctx) =>
-			searched(
+		(ctx) => {
+			const installed = familiesInstalled()
+			return searched(
 				ctx,
 				explore(
 					{
@@ -1412,9 +1412,9 @@ describe("the native constraints grizzle installs", () => {
 					(p, c) => {
 						const every = (before: Families, statements: ReadonlyArray<FamilyStatement>) =>
 							Effect.sync(() => {
-								judgeFamilyTransaction(p.shape, before, statements, c)
+								judgeFamilyTransaction(installed[p.shape], p.shape, before, statements, c)
 								for (const stored of Arr.scan(statements, storedOf(before), applied)) {
-									judgeFamilyState(p.shape, stored, c)
+									judgeFamilyState(installed[p.shape], p.shape, stored, c)
 								}
 							})
 						return runProgram(
@@ -1429,6 +1429,7 @@ describe("the native constraints grizzle installs", () => {
 					}
 				)
 			)
+		}
 	)
 	it.effect(
 		"accept every state of a span rule's box exactly when its laws hold: keys WITHOUT OVERLAPS over fields and law columns, and PERIOD foreign keys from and into selected sides",
@@ -1446,7 +1447,6 @@ describe("the native constraints grizzle installs", () => {
 								}))
 							),
 							literal: spanLiteral,
-							limit: SPAN_BOX_CASES,
 							box: "every span rule over at most two rows of Visit and of Shift, each varying the fields its laws read, its owner over two values and its span over two adjacent halves and their whole",
 							oracle: HOST_ORACLE,
 							coverage: requiredInSpace<SpanFeature>([

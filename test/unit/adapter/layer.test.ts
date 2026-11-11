@@ -115,7 +115,7 @@ const tricky: Arr.NonEmptyReadonlyArray<string> = [
 	"語",
 	"😀"
 ]
-const plainCharacters = Str.split("abcxyz019_-.", "")
+const plainCharacters = Object.freeze(Str.split("abcxyz019_-.", ""))
 const textCharacter: Gen<string> = weighted([
 	[3, element(plainCharacters)],
 	[1, element(tricky)]

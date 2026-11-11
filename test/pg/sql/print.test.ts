@@ -41,13 +41,11 @@ import {
 	codePoint,
 	constant,
 	element,
-	filter,
 	type Gen,
 	map,
 	oneOf,
 	option,
 	string,
-	unicodeScalar,
 	weighted
 } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
@@ -151,7 +149,7 @@ const raiseGen = (source: Source) => ({
 })
 
 /** A code point PostgreSQL stores as it is: any Unicode scalar value but NUL, as a binary string draws them. */
-const storedCodePoint: Gen<string> = filter(unicodeScalar, (c) => c !== "\u0000", 2)
+const storedCodePoint: Gen<string> = oneOf([codePoint(0x01, 0xd7ff), codePoint(0xe000, 0x10_ffff)])
 
 /**
  * A grapheme a person writes: printable ASCII, a Latin letter, a letter with a combining mark, or an emoji, a joined
@@ -449,7 +447,6 @@ layer(Substrate.layer)("printed SQL on PostgreSQL 19", (it) => {
 						generator: (source) =>
 							[source.draw(element(resetScopes)), source.draw(element(publicDefaults))] as const,
 						literal: Formatter.format,
-						limit: resetScopes.length * publicDefaults.length,
 						box: "a reset in one schema and in the global form, of each kind PostgreSQL grants PUBLIC by default",
 						oracle: {
 							kind: "postgresql",

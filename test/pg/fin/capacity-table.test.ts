@@ -410,7 +410,6 @@ layer(Substrate.layer)(
 								suite: "fin/capacity-table",
 								generator: sketchGen,
 								literal: Formatter.format,
-								limit: 2000,
 								box: "every row of §6's table, under every state of club 1 with up to four seats by their lead flags, a count of seats and a count needed of 0 to 5, up to three weights of -1 to 6 or shifts of 1 to 6, and a seat's club and home of 1 to 3",
 								oracle: {
 									kind: "specification",

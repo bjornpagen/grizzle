@@ -286,25 +286,87 @@ export const parseSchemaName = (name: string): Result.Result<SchemaName, string>
 
 declare const rolePrefixBrand: unique symbol
 
-/** An installation's role prefix, its declared name's conversion: minted only by `parseRolePrefix`. */
+/** An installation's role prefix, verbatim as its connection gives it: minted only by `parseRolePrefix`. */
 export type RolePrefix = string & { readonly [rolePrefixBrand]: true }
 
 const rolePrefixOf = nominal<string, RolePrefix>()
 
 /**
- * The rule a role prefix keeps: a schema's declared name's (`parseSchemaName`), since it leads each role of its
- * installation as a schema's conversion leads them under none, where PostgreSQL reserves `pg_`. The prefix, as its
- * conversion, or the reason it breaks the rule.
+ * Why a text is no role prefix: not a string; empty; a character outside lowercase ASCII letters, digits and `_`; a
+ * digit first; a `__`, the separator a prefix must not forge; `pg_` first, which PostgreSQL reserves for its own roles;
+ * or longer than maxIdentifierBytes, past which no role it leads fits.
  */
-export const parseRolePrefix = (prefix: string): Result.Result<RolePrefix, string> =>
-	Result.map(parseSchemaName(prefix), (name) => rolePrefixOf(conversionOf(name)))
+export type RolePrefixFault =
+	| { readonly kind: "notText" }
+	| { readonly kind: "empty" }
+	| { readonly kind: "character"; readonly at: number; readonly character: string }
+	| { readonly kind: "digitFirst" }
+	| { readonly kind: "separator" }
+	| { readonly kind: "reserved" }
+	| { readonly kind: "length"; readonly bytes: number; readonly limit: number }
+
+/** What a role prefix fault asks of the prefix, as a refusal states it. */
+export const rolePrefixFaultText = (fault: RolePrefixFault): string => {
+	switch (fault.kind) {
+		case "notText":
+			return "a string"
+		case "empty":
+			return "at least one character"
+		case "character":
+			return `lowercase ASCII letters, digits and _ alone, not ${JSON.stringify(fault.character)} at ${fault.at}`
+		case "digitFirst":
+			return "a letter or _ first, not a digit"
+		case "separator":
+			return "no __, the separator of a prefix and its role's stem"
+		case "reserved":
+			return "a first segment other than pg_, which PostgreSQL reserves for its own roles"
+		case "length":
+			return `at most ${fault.limit} bytes, not ${fault.bytes}`
+	}
+}
+
+/** Whether `code` is a lowercase ASCII letter, a digit or `_`: a character of a lowercase PostgreSQL identifier. */
+const isPrefixUnit = (code: number): boolean =>
+	(code >= 0x61 && code <= 0x7a) || (code >= 0x30 && code <= 0x39) || code === 0x5f
+
+/**
+ * The rule a role prefix keeps, used verbatim, never converted: a lowercase PostgreSQL identifier segment,
+ * `[a-z_][a-z0-9_]*`, holding no `__`, so `<prefix>__<stem>` parts at its first `__` past the prefix, not starting with
+ * `pg_`, and within maxIdentifierBytes. Each role it leads is held to maxIdentifierBytes with its stem
+ * (roleInSpace). The prefix, as given, or the fault it breaks the rule by.
+ */
+export const parseRolePrefix = (prefix: string): Result.Result<RolePrefix, RolePrefixFault> => {
+	if (prefix === "") {
+		return Result.err({ kind: "empty" })
+	}
+	for (let at = 0; at < prefix.length; at++) {
+		const code = prefix.charCodeAt(at)
+		if (!isPrefixUnit(code)) {
+			return Result.err({ kind: "character", at, character: prefix.charAt(at) })
+		}
+	}
+	const first = prefix.charCodeAt(0)
+	if (first >= 0x30 && first <= 0x39) {
+		return Result.err({ kind: "digitFirst" })
+	}
+	if (prefix.includes("__")) {
+		return Result.err({ kind: "separator" })
+	}
+	if (prefix.startsWith("pg_")) {
+		return Result.err({ kind: "reserved" })
+	}
+	const bytes = utf8Length(prefix)
+	return bytes > maxIdentifierBytes.value
+		? Result.err({ kind: "length", bytes, limit: maxIdentifierBytes.value })
+		: Result.ok(rolePrefixOf(prefix))
+}
 
 /**
  * Where an installation's roles live in the cluster, whose roles every database shares: at their stems, the names a
  * login's or role's identity spells (`identity.login`, `identity.role`), which `grizzle generate` commits; or each under
- * the installation's role prefix, `<prefix>__<stem>`. A conversion holds no `__`, so a stem holds exactly one, a
- * prefixed name exactly two, and two prefixes of distinct conversions part before the first: the roles of two
- * installations of distinct role spaces are disjoint.
+ * the installation's role prefix, verbatim, `<prefix>__<stem>`. A stem is two conversions joined by its one `__`, a
+ * letter first, and a prefix holds no `__`, so two prefixes part before the first `__` of either name and no prefixed
+ * name is a stem: the roles of two installations of distinct role spaces are disjoint.
  */
 export type RoleSpace =
 	| { readonly kind: "stems" }
@@ -322,7 +384,9 @@ export interface RoleInstallation {
 
 /** A role space of the installation's role prefix, or of its stems with none: the one reading of an installation's
  * `rolePrefix`, refused as parseRolePrefix refuses it. */
-export const roleSpaceOf = (rolePrefix: string | undefined): Result.Result<RoleSpace, string> =>
+export const roleSpaceOf = (
+	rolePrefix: string | undefined
+): Result.Result<RoleSpace, RolePrefixFault> =>
 	rolePrefix === undefined
 		? Result.ok({ kind: "stems" })
 		: Result.map(parseRolePrefix(rolePrefix), (prefix) => ({ kind: "prefixed", prefix }))

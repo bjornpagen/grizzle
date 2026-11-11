@@ -601,8 +601,6 @@ describe("a family's natives are §2.1's three axes", () => {
 						suite: "unit/laws/model/fin",
 						generator: shapeGen,
 						literal: Formatter.format,
-						/** The space: 2 widths × 4³ copy sets ordered, and 2 widths × 4 owner copy sets counted. */
-						limit: 136,
 						coverage: requiredInSpace<Feature>(features),
 						caseHang,
 						box: "every family of group width 1 or 2, ordered or counted, with a caller copy or none and an accumulated copy or none on each axis it admits",
@@ -648,8 +646,6 @@ describe("a family's natives are §2.1's three axes", () => {
 						suite: "unit/laws/model/fin-restated",
 						generator: restatedGen,
 						literal: Formatter.format,
-						/** The space: an ordered family's three axes and a counted family's owner axis, at either width. */
-						limit: 8,
 						coverage: requiredInSpace<RestatedFeature>([
 							"owner",
 							"predecessor",
@@ -714,8 +710,6 @@ describe("a family's natives are §2.1's three axes", () => {
 						suite: "unit/laws/model/fin-disjoint",
 						generator: disjointGen,
 						literal: Formatter.format,
-						/** The space: 1 to 3 counted families, each folded by a sum or not: 2 + 4 + 8. */
-						limit: 14,
 						coverage: requiredInSpace<DisjointFeature>(disjointFeatures),
 						caseHang,
 						box: "a member in 1 to 3 counted families, each folded by a sum or not",

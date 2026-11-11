@@ -875,7 +875,6 @@ describe("a containment into a key-shaped conjunction of stored relations", () =
 						suite: "unit/laws/lowered-rules/levels",
 						generator: levelGen,
 						literal: Formatter.format,
-						limit: 200,
 						box: "every target side of R0 over one to three of its fields, selected by constants on any of the others, from S on the level above R0 and on the level below it",
 						oracle: {
 							kind: "specification",

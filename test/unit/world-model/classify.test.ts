@@ -426,7 +426,6 @@ describe("the writable-entry rule", () => {
 						suite: "unit/world-model/classify",
 						generator: shapes,
 						literal: Formatter.format,
-						limit: 6000,
 						coverage: requiredInSpace(situations),
 						caseHang
 					},

@@ -134,7 +134,7 @@ interface ApplyCase {
 type ApplyFeature = Change | "both tasks noted" | "a wanted task no Task holds" | "an empty note"
 
 /** A note's text: letters, a space, a line feed, a Latin-1 and a supplementary code point, the empty text among them. */
-const noteText: Gen<string> = stringsOver([0x61, 0x7a, 0x20, 0x0a, 0xe9, 0x1f600], 6)
+const noteText: Gen<string> = stringsOver(element([0x61, 0x7a, 0x20, 0x0a, 0xe9, 0x1f600]), 6)
 
 const applyCase: Gen<ApplyCase> = (source) => {
 	const tasks = source.draw(element<Arr.NonEmptyReadonlyArray<Uuid>>([[t3], [t4], [t3, t4]]))

@@ -355,8 +355,9 @@ const fieldKindGen: Gen<FieldKind> = element(["int4", "bool", "uuid", "code"])
 const schemaChangeGen = (m: Model, i: number): Gen<Change> => {
 	const s = defined(m.schemas[i], "an edited schema").current
 	const relations = s.relations.length
-	const withFields = Arr.filter(Arr.range(0, relations - 1), (r) =>
-		Option.exists(Arr.get(s.relations, r), (x) => x.fields.length > 0)
+	const withFields = Arr.filter(
+		upTo(relations, (i) => i),
+		(r) => Option.exists(Arr.get(s.relations, r), (x) => x.fields.length > 0)
 	)
 	const fieldEdit =
 		(kind: "drop a field" | "rename a field"): Gen<Change> =>
@@ -616,7 +617,7 @@ const generateGen =
 const selectedOf = (m: Model, flag: SchemaFlag): ReadonlyArray<number> =>
 	flag.kind === "declared" || flag.kind === "ident"
 		? [flag.schema]
-		: Arr.range(0, m.schemas.length - 1)
+		: upTo(m.schemas.length, (i) => i)
 
 /** The declarations a generate's command line gives: every selected schema's needed ones, when it declares any. */
 const declarationsOf = (m: Model, p: GenerateParameters): ReadonlyArray<string> =>
@@ -767,7 +768,10 @@ const decided = (m: Model, i: number): Model =>
 
 /** The schemas, by index, whose state `holds` says something of. */
 const schemasWhere = (m: Model, holds: (s: SchemaState) => boolean): ReadonlyArray<number> =>
-	Arr.filter(Arr.range(0, m.schemas.length - 1), (i) => Option.exists(Arr.get(m.schemas, i), holds))
+	Arr.filter(
+		upTo(m.schemas.length, (i) => i),
+		(i) => Option.exists(Arr.get(m.schemas, i), holds)
+	)
 
 const anyWhere =
 	(holds: (s: SchemaState) => boolean) =>
@@ -1276,10 +1280,13 @@ const runGenerate = (
 			Arr.sort(Arr.map(before.abandoned, identOf), Order.String),
 			(ident) => ({ schema: ident, directory: `migrations/${ident}` })
 		)
-		const written = Arr.filter(Arr.range(0, after.schemas.length - 1), (i) => {
-			const was = defined(before.schemas[i], "a schema before")
-			return defined(after.schemas[i], "a schema after").folders.length > was.folders.length
-		})
+		const written = Arr.filter(
+			upTo(after.schemas.length, (i) => i),
+			(i) => {
+				const was = defined(before.schemas[i], "a schema before")
+				return defined(after.schemas[i], "a schema after").folders.length > was.folders.length
+			}
+		)
 		if (written.length === 0) {
 			r.c.note("nothing to draft")
 		}

@@ -293,7 +293,6 @@ layer(Substrate.layer)("coverage's temporal lowering of fin.md §7 on PostgreSQL
 							suite: "substrate/temporal-key",
 							generator: keyGen,
 							literal: Formatter.format,
-							limit: Arr.reduce([0, 1, 2, 3], 0, (n, size) => n + ROW_KINDS.length ** size),
 							coverage: requiredInSpace<KeyFeature>([
 								"refused by an overlap",
 								"refused by an empty span",
@@ -374,7 +373,6 @@ layer(Substrate.layer)("coverage's temporal lowering of fin.md §7 on PostgreSQL
 							suite: "substrate/temporal-cover",
 							generator: coverGen,
 							literal: Formatter.format,
-							limit: DISJOINT.length * DISJOINT.length * 2 * ROW_KINDS.length,
 							coverage: requiredInSpace<CoverFeature>([
 								"deferred committed a source sent before its targets",
 								...Arr.flatMap(
@@ -468,7 +466,6 @@ layer(Substrate.layer)("coverage's temporal lowering of fin.md §7 on PostgreSQL
 							suite: "substrate/temporal-change",
 							generator: changeGen,
 							literal: Formatter.format,
-							limit: Arr.reduce(COVERING, 0, (n, [targets]) => n + changesOf(targets).length),
 							coverage: requiredInSpace<ChangeFeature>([
 								"immediate delete committed",
 								"immediate delete refused 23503",

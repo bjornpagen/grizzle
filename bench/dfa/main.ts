@@ -15,6 +15,7 @@ import type { Nfa } from "#compiler/scalar/regex/match.ts"
 import { buildNfa } from "#compiler/scalar/regex/nfa.ts"
 import { parsePattern, type RegexFlags } from "#compiler/scalar/regex/parse.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /**
  * The subset-construction benchmark, `pnpm bench dfa`: scalar/regex/dfa.ts minimalDfa under the two limits that bound it
@@ -61,7 +62,7 @@ const distinctChain = (n: number): Pattern => ({
 	family: "distinct-sets",
 	label: `/<${n} distinct code points>/u`,
 	source: Arr.join(
-		Arr.makeBy(n, (i) => String.fromCodePoint(0x4e00 + i)),
+		upTo(n, (i) => String.fromCodePoint(0x4e00 + i)),
 		""
 	),
 	flags: "u"
@@ -74,13 +75,13 @@ const distinctChain = (n: number): Pattern => ({
 const scatteredChain = (n: number, width: number): Pattern => {
 	const classOf = (i: number): string =>
 		`[${Arr.join(
-			Arr.makeBy(width, (j) => String.fromCodePoint(0x20000 + 2 * (i * width + j))),
+			upTo(width, (j) => String.fromCodePoint(0x20000 + 2 * (i * width + j))),
 			""
 		)}]`
 	return {
 		family: "scattered-sets",
 		label: `/<${n} classes of ${width} scattered code points>/u`,
-		source: Arr.join(Arr.makeBy(n, classOf), ""),
+		source: Arr.join(upTo(n, classOf), ""),
 		flags: "u"
 	}
 }

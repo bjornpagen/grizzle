@@ -203,7 +203,6 @@ layer(Substrate.layer, { excludeTestServices: true })("a program's parameter arg
 									generator: (source) =>
 										[source.draw(element(calls)), source.draw(element(argumentKinds))] as const,
 									literal: Formatter.format,
-									limit: calls.length * argumentKinds.length,
 									coverage: requiredInSpace<ArgumentFeature>([
 										...Arr.flatMap(calls, (call): Arr.NonEmptyReadonlyArray<ArgumentFeature> => [
 											`${call}: a record answered`,

@@ -165,15 +165,6 @@ const packGen: Gen<PackCase> = (source) => {
 	}
 }
 
-/** Every relation of the box: Σ over layouts of (1 + payloads)^cells. */
-const packSpace = Arr.reduce(KEYS, 0, (total, key) =>
-	Arr.reduce(
-		PAYLOADS,
-		total,
-		(sum, payload) => sum + (1 + Number(spaceSize(payload))) ** Number(spaceSize(key))
-	)
-)
-
 /** A relation's tuples, as the host encoder takes them, and its rows of codes, as the migration writes them. */
 const tuplesOf = (c: PackCase): ReadonlyArray<Tuple> =>
 	Arr.flatMap(c.cells, (payload, index) =>
@@ -223,13 +214,6 @@ const keyLawGen: Gen<KeyLawCase> = (source) => {
 		cells: Arr.map(indices(Number(spaceSize(layout.key))), () => source.draw(element(choices)))
 	}
 }
-
-const keyLawSpace = Arr.reduce(
-	KEY_LAW_LAYOUTS,
-	0,
-	(n, layout) =>
-		n + holdings(Number(spaceSize(layout.payload))).length ** Number(spaceSize(layout.key))
-)
 
 type KeyLawFeature = "refused by its key" | "packed"
 
@@ -456,7 +440,6 @@ layer(Substrate.layer)("the law of erasure's templates of fin.md §17 on Postgre
 							suite: "substrate/cells-pack",
 							generator: packGen,
 							literal: Formatter.format,
-							limit: packSpace,
 							coverage: requiredInSpace<PackFeature>([
 								"a set",
 								"a function",
@@ -512,7 +495,6 @@ layer(Substrate.layer)("the law of erasure's templates of fin.md §17 on Postgre
 							suite: "substrate/cells-key-law",
 							generator: keyLawGen,
 							literal: Formatter.format,
-							limit: keyLawSpace,
 							coverage: requiredInSpace<KeyLawFeature>(["refused by its key", "packed"]),
 							caseHang
 						},
@@ -593,7 +575,6 @@ layer(Substrate.layer)("the law of erasure's templates of fin.md §17 on Postgre
 							suite: "substrate/cells-domain",
 							generator: digitGen,
 							literal: Formatter.format,
-							limit: (sizes[0] + 3) * (sizes[1] + 3) * (sizes[2] + 3),
 							coverage: requiredInSpace<DigitFeature>([
 								"typed admits a member",
 								"typed refuses a hole",
@@ -710,7 +691,6 @@ layer(Substrate.layer)("the law of erasure's templates of fin.md §17 on Postgre
 							suite: "substrate/cells-application",
 							generator: readGen,
 							literal: Formatter.format,
-							limit: F_CELLS.length + 4 + F_CELLS.length * S_SIZES[1],
 							coverage: requiredInSpace<ReadFeature>([
 								"applied to a present cell",
 								"applied to an absent cell",
@@ -799,12 +779,6 @@ layer(Substrate.layer)("the law of erasure's templates of fin.md §17 on Postgre
 							suite: "substrate/cells-repoint",
 							generator: repointGen,
 							literal: Formatter.format,
-							limit: Arr.reduce([1, 2, 3], 0, (n, length) =>
-								Arr.reduce(indices(2 ** length), n, (m, pattern) => {
-									const live = Arr.filter(indices(length), (b) => (pattern >> b) % 2 === 1).length
-									return m + 2 ** live * 2 * 2 ** live * 2 ** live
-								})
-							),
 							coverage: requiredInSpace<RepointFeature>([
 								"validated",
 								"validate names a row holding a removed code",
@@ -934,7 +908,6 @@ layer(Substrate.layer)("the law of erasure's templates of fin.md §17 on Postgre
 							suite: "substrate/cells-restrict",
 							generator: restrictGen,
 							literal: Formatter.format,
-							limit: 3 ** DEPENDENTS.length,
 							coverage: requiredInSpace<RestrictFeature>([
 								"dropped",
 								...Arr.map(DEPENDENTS, (d): RestrictFeature => `refused naming a missed ${d}`)
@@ -1001,7 +974,6 @@ layer(Substrate.layer)("the law of erasure's templates of fin.md §17 on Postgre
 								code: source.draw(element([0, 1, 3] as const))
 							}),
 							literal: Formatter.format,
-							limit: 2 * 2 * 2 * 3,
 							coverage: requiredInSpace<CachedCheckFeature>([
 								"plain, warm, swapped",
 								"plain, warm, added",

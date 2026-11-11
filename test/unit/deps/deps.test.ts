@@ -197,7 +197,6 @@ layer(NodeServices.layer, { excludeTestServices: true })(
 								suite: "unit/deps/src",
 								generator: element(files),
 								literal: (f: SourceModule) => f.file,
-								limit: files.length,
 								coverage: noCoverage,
 								box: "every TypeScript module under packages/engine/src and packages/grizzle/src",
 								oracle: {
@@ -380,7 +379,6 @@ layer(NodeServices.layer, { excludeTestServices: true })("runtime", (it) => {
 							suite: "unit/deps/entry points",
 							generator: element(nonEmpty(entries, "the packages' entry points")),
 							literal: Formatter.format,
-							limit: entries.length,
 							coverage: noCoverage,
 							box: "every entry point the packages' package.json exports and bins name",
 							oracle: {

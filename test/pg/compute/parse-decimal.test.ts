@@ -288,6 +288,7 @@ interface StoredRow {
 /** Installs the relation on the pinned session in a transaction, stores `pairs`, reads each row back, rolls back. */
 const storedRows = (
 	pinned: PgConnection,
+	database: string,
 	installation: Installation,
 	pairs: ReadonlyArray<Pair>
 ): Effect.Effect<ReadonlyArray<StoredRow>, SqlError> =>
@@ -297,7 +298,7 @@ const storedRows = (
 			const column = (name: "id" | "low" | "high" | "below" | "same" | "stored") =>
 				names.column(Ranges, name)
 			yield* pinned.query("BEGIN", [])
-			for (const statement of installationSql(installation)) {
+			for (const statement of installationSql(installation, database)) {
 				yield* pinned.query(statement, [])
 			}
 			yield* pinned.query(
@@ -403,7 +404,7 @@ layer(Substrate.layer)("Compute.parseDecimal on PostgreSQL 19", (it) => {
 									}
 									const installation = yield* installationOf
 									const pinned = yield* substrate.admin.pin
-									const rows = yield* storedRows(pinned, installation, pairs)
+									const rows = yield* storedRows(pinned, substrate.database, installation, pairs)
 									assert.equal(rows.length, pairs.length, "a row per pair")
 									for (const [i, pair] of pairs.entries()) {
 										const row = defined(rows[i], "its stored row")

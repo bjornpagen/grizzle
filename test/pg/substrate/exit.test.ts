@@ -37,16 +37,23 @@ const caseGen: Gen<ExitCase> = (source) => {
 }
 
 /** The kinds of resource that hold a process open and that a closed scope must have ended. */
-const leaked = ["TCPSocketWrap", "TCPWrap", "TCPConnectWrap", "ConnectWrap", "Timeout", "Immediate"]
+const leaked = Object.freeze([
+	"TCPSocketWrap",
+	"TCPWrap",
+	"TCPConnectWrap",
+	"ConnectWrap",
+	"Timeout",
+	"Immediate"
+])
 
 /** The test flags a child runs under, as the network tests' own process does (package.json test:network). */
-const flags = [
+const flags = Object.freeze([
 	"--conditions=grizzle-source",
 	"--disable-proto=delete",
 	"--disable-sigusr1",
 	"--throw-deprecation",
 	"--unhandled-rejections=strict"
-]
+])
 
 const childPath = new URL("../../support/substrate/exit-child.ts", import.meta.url).pathname
 
@@ -69,7 +76,6 @@ layer(spawner, { excludeTestServices: true })(
 							suite: "substrate/exit",
 							generator: caseGen,
 							literal: Formatter.format,
-							limit: 5,
 							coverage: requiredInSpace<Feature>([
 								"0 Dbs",
 								"1 Dbs",

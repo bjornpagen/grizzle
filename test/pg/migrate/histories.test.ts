@@ -98,6 +98,7 @@ import {
 	sameCatalog
 } from "#test/pg/migrate/support.ts"
 import { assert, defined, refusalLoc, refused, succeeded } from "#test/support/assert.ts"
+import { filledSql } from "#test/support/compile.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import {
@@ -1171,7 +1172,7 @@ const step = (h: History, before: Model, after: Model, note: (f: Feature) => voi
 			h.rows = model.expected
 			const fresh = yield* substrate.schema({ create: false, label: "histories_fresh" })
 			const freshPlan = planned(built, fresh, h.owner)
-			yield* transaction(substrate.admin, freshPlan.sql)
+			yield* transaction(substrate.admin, filledSql(freshPlan.sql, substrate.database))
 			yield* sameCatalog(plan.installation, freshPlan.installation, `step ${h.steps}`)
 			const loaded = factStatements(freshPlan, factSetOf(v, model.expected))
 			if (!loaded.ok) {

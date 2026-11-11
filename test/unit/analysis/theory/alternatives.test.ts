@@ -151,8 +151,6 @@ describe("alternatives (fin.md §7)", () => {
 						suite: "unit/analysis/theory/alternatives",
 						generator: assignment,
 						literal: Formatter.format,
-						/** The space: 2 + 8 + 26 + 80 armed assignments of 1 to 4 handles, each restated or not. */
-						limit: 232,
 						box: "every roster of 1 to 4 handles, each handle the arm of A, B or none, restated or not",
 						oracle: { kind: "specification", name: "fin.md §7's expansion as a checker" },
 						coverage: requiredInSpace<Feature>([

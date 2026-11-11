@@ -149,7 +149,6 @@ describe("a concat fold", () => {
 					suite: "unit/analysis/theory/concat-fold",
 					generator: concatState,
 					literal: Formatter.format,
-					limit: 10_000,
 					box: "one owner's ordered family of 0 to 2 members, each step '', 'a' or 'b', accumulators and total '', 'a', 'b' or 'ab'",
 					oracle: { kind: "second-implementation", name: "a naive left fold of the slots' texts" },
 					coverage: requiredInSpace<ConcatFault>([
@@ -209,7 +208,6 @@ describe("a concat fold", () => {
 						pair: element([true, false] as const)(source)
 					}),
 					literal: Formatter.format,
-					limit: 4,
 					box: "an ordered or counted family, its pair named or hidden",
 					oracle: {
 						kind: "specification",

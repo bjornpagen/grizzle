@@ -729,7 +729,10 @@ export const shapesBetween = (
 	selfParented: Roots,
 	values: 1 | 2
 ): ReadonlyArray<ForestShape> =>
-	Arr.flatMap(Arr.range(from, to), (n) => shapesOf(n, selfParented, values))
+	Arr.flatMap(
+		upTo(to - from + 1, (i) => from + i),
+		(n) => shapesOf(n, selfParented, values)
+	)
 
 /** A row without its copies, which withCopies draws from its parent's row. */
 type Bare = Omit<TreeRow, "copy" | "parentStart">
@@ -964,10 +967,14 @@ const depthsOf = (most: number): ReadonlyArray<Arr.NonEmptyReadonlyArray<number>
 	): ReadonlyArray<Arr.NonEmptyReadonlyArray<number>> =>
 		prefix.length === n
 			? [prefix]
-			: Arr.flatMap(Arr.range(1, Arr.lastNonEmpty(prefix) + 1), (d) =>
-					sequences(Arr.append(prefix, d), n)
+			: Arr.flatMap(
+					upTo(Arr.lastNonEmpty(prefix) + 1, (i) => i + 1),
+					(d) => sequences(Arr.append(prefix, d), n)
 				)
-	return Arr.flatMap(Arr.range(1, most), (n) => sequences([0], n))
+	return Arr.flatMap(
+		upTo(most, (i) => i + 1),
+		(n) => sequences([0], n)
+	)
 }
 
 /**
@@ -1145,15 +1152,25 @@ export const mutationsOf = (
 		...of(
 			"a wrong start",
 			Arr.flatMap(forest, (x) =>
-				Arr.map(except(Arr.range(0, n), x.start), (start) =>
-					withCopies(patched(forest, x.id, { start }))
+				Arr.map(
+					except(
+						upTo(n + 1, (i) => i),
+						x.start
+					),
+					(start) => withCopies(patched(forest, x.id, { start }))
 				)
 			)
 		),
 		...of(
 			"a wrong end",
 			Arr.flatMap(forest, (x) =>
-				Arr.map(except(Arr.range(0, n + 1), x.end), (end) => patched(forest, x.id, { end }))
+				Arr.map(
+					except(
+						upTo(n + 2, (i) => i),
+						x.end
+					),
+					(end) => patched(forest, x.id, { end })
+				)
 			)
 		),
 		...of(
@@ -1164,13 +1181,22 @@ export const mutationsOf = (
 		),
 		...of(
 			"a root's at",
-			Arr.flatMap(roots, (x) => Arr.map(Arr.range(1, n), (at) => patched(forest, x.id, { at })))
+			Arr.flatMap(roots, (x) =>
+				Arr.map(
+					upTo(n, (i) => i + 1),
+					(at) => patched(forest, x.id, { at })
+				)
+			)
 		),
 		...of(
 			"a wrong count",
 			Arr.flatMap(forest, (x) =>
-				Arr.map(except(Arr.range(0, n), x.children), (children) =>
-					withCopies(patched(forest, x.id, { children }))
+				Arr.map(
+					except(
+						upTo(n + 1, (i) => i),
+						x.children
+					),
+					(children) => withCopies(patched(forest, x.id, { children }))
 				)
 			)
 		),
@@ -1328,7 +1354,10 @@ export const writeGen =
 export const loadTree = (rows: number, fanout: number): Arr.NonEmptyReadonlyArray<TreeRow> => {
 	const parentOf = (i: number) => (i === 0 ? 0 : Math.floor((i - 1) / fanout))
 	const kidsOf = (i: number) =>
-		Arr.filter(Arr.range(i * fanout + 1, i * fanout + fanout), (k) => k < rows)
+		Arr.filter(
+			upTo(fanout, (k) => i * fanout + 1 + k),
+			(k) => k < rows
+		)
 	const sizes = upTo(rows, () => 1)
 	for (let i = rows - 1; i > 0; i -= 1) {
 		sizes[parentOf(i)] = defined(sizes[parentOf(i)]) + defined(sizes[i])
@@ -1343,17 +1372,20 @@ export const loadTree = (rows: number, fanout: number): Arr.NonEmptyReadonlyArra
 		}
 	}
 	return withCopies(
-		Arr.sort(
-			Arr.map(Arr.range(0, rows - 1), (i): Bare => ({
-				id: i,
-				root: 0,
-				parent: parentOf(i),
-				at: i === 0 ? 0 : (i - 1) % fanout,
-				children: kidsOf(i).length,
-				start: defined(starts[i]),
-				end: defined(starts[i]) + defined(sizes[i])
-			})),
-			Order.mapInput(Order.Number, (r: Bare) => r.start)
+		nonEmpty(
+			Arr.sort(
+				upTo(rows, (i): Bare => ({
+					id: i,
+					root: 0,
+					parent: parentOf(i),
+					at: i === 0 ? 0 : (i - 1) % fanout,
+					children: kidsOf(i).length,
+					start: defined(starts[i]),
+					end: defined(starts[i]) + defined(sizes[i])
+				})),
+				Order.mapInput(Order.Number, (r: Bare) => r.start)
+			),
+			"a tree holds its root"
 		)
 	)
 }
@@ -1371,7 +1403,7 @@ export const rowsByDepth = (
 	}
 	const deepest = maxOf(depths.values(), 0)
 	return nonEmpty(
-		Arr.map(Arr.range(0, deepest), (depth) =>
+		upTo(deepest + 1, (depth) =>
 			nonEmpty(
 				Arr.filter(rows, (r) => depths.get(r.id) === depth),
 				`a row at depth ${depth}`

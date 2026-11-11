@@ -100,7 +100,14 @@ const labelState = stateOf("Label", liveRun("x", 2))
 const payloadState = stateOf("Payload", liveRun("w", 16))
 const idState = stateOf("Id", liveRun("i", 36))
 
-const states = [versionState, kindState, positionState, labelState, payloadState, idState]
+const states = Object.freeze([
+	versionState,
+	kindState,
+	positionState,
+	labelState,
+	payloadState,
+	idState
+])
 const codes: Codebook = codebookOfStates(states)
 
 const Version = closed("Version", ["v0", "v1"])
@@ -623,7 +630,6 @@ layer(Substrate.layer, { excludeTestServices: true })("dependent keys on Postgre
 						box: "3 shapes, each of 4 live owners (a hole among Kind's codes) holding no row or counting 1 or 2 slots, every key of the live codes' product",
 						generator: cases,
 						literal: Formatter.format,
-						limit: 243,
 						coverage: requiredInSpace<FinFeature>([
 							"an aliasing slot digit",
 							"an owner with no row",
@@ -649,7 +655,7 @@ layer(Substrate.layer, { excludeTestServices: true })("dependent keys on Postgre
 									owner: s.owner.role
 								})
 							)
-							yield* transaction(s.admin, installationSql(compiled))
+							yield* transaction(s.admin, installationSql(compiled, s.database))
 							const names = compiled.names
 							const lawNames = installationNamesOf(compiled)
 							const rejected = (law: Law): Option.Option<Refusal> =>

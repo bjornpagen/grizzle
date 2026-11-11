@@ -1,7 +1,7 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { array, element, type Gen, map, oneOf } from "@grizzle/testing/gen"
+import { array, element, type Gen, map, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -122,16 +122,18 @@ interface Arm {
 	readonly spelling: "value" | "handle"
 }
 
-const deliveryGen: Gen<Delivery> = oneOf<Delivery>([
-	map(element(fields), (field): Delivery => ({ kind: "field", field })),
-	map(element(["A", "B"] as const), (member): Delivery => ({ kind: "handle", member })),
-	map(element(["integer", "bigint"] as const), (type): Delivery => ({ kind: "typed", type })),
-	map(element<Plain>(plainValues), (value): Delivery => ({ kind: "plain", value })),
-	map(element<Plain>(plainValues), (value): Delivery => ({ kind: "plain", value })),
-	element<Delivery>([
-		{ kind: "field", field: "s" },
-		{ kind: "plain", value: "lengthy" }
-	])
+const deliveryGen: Gen<Delivery> = weighted<Delivery>([
+	[1, map(element(fields), (field): Delivery => ({ kind: "field", field }))],
+	[1, map(element(["A", "B"] as const), (member): Delivery => ({ kind: "handle", member }))],
+	[1, map(element(["integer", "bigint"] as const), (type): Delivery => ({ kind: "typed", type }))],
+	[2, map(element<Plain>(plainValues), (value): Delivery => ({ kind: "plain", value }))],
+	[
+		1,
+		element<Delivery>([
+			{ kind: "field", field: "s" },
+			{ kind: "plain", value: "lengthy" }
+		])
+	]
 ])
 
 const armGen: Gen<Arm> = (source) => ({

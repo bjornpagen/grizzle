@@ -415,7 +415,6 @@ describe("nesting", () => {
 						nesting: source.draw(element(nestings)),
 						depth: source.draw(element([1, 1_000, 100_000]))
 					}),
-					limit: 12,
 					coverage: requiredInSpace<Nesting>(nestings),
 					caseHang
 				},

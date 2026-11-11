@@ -1230,7 +1230,7 @@ const runStages = Effect.fn("runStages")(function* (
 	const reportPath = path.resolve(workspace.repo, settings.report)
 	const logDir = path.join(workspace.repo, "test/support/mutation/logs")
 	const trees = yield* Effect.forEach(
-		Arr.makeBy(settings.workers, (i) => i),
+		Array.from({ length: settings.workers }, (_, i) => i),
 		(i) => cloneTree(workspace.base, path.join(workspace.runDir, `w${i}`))
 	)
 	const free = yield* Queue.unbounded<string>()

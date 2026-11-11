@@ -66,7 +66,13 @@ const NumeralText = str.regex("^[0-9]{1,6}$", "u")
 /** Days of 2024 whose text is a date's in every month: the 10th to the 19th of January to September. */
 const DayText = str.regex("^2024-0[1-9]-1[0-9]$", "u")
 
-const written = { id: pg.integer, v: pg.bigint, tier: closedId(Tier), k: NumeralText, day: DayText }
+const written = Object.freeze({
+	id: pg.integer,
+	v: pg.bigint,
+	tier: closedId(Tier),
+	k: NumeralText,
+	day: DayText
+})
 
 const Item = relation.generated("Item", written, ["id"], (r) => ({
 	copy: generated(pg.bigint, r.v),
@@ -89,7 +95,7 @@ const Items = schema("Items", { Tier, Rate, Item, Spot }, [itemNumeral, spotNume
  * seed, an insert of each call's rows; and the case's write, an insert or a put of each relation from a query over the
  * relation parameter `rows`, delivered as they are.
  */
-const programs = {
+const programs = Object.freeze({
 	itemRows: query(Items).rule((r) => {
 		const { id, v: value, tier, k, day, copy, rate, parsed, when } = v(Item, "item")
 		return r
@@ -136,7 +142,7 @@ const programs = {
 			return r.match(rows, row).find(row)
 		})
 	)
-}
+})
 
 /** A row as a case states it. */
 interface Row {

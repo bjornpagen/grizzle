@@ -517,8 +517,6 @@ describe("a fold's natives are §2.3's: its copies on two axes, its combine and 
 						suite: "unit/laws/model/fold-names",
 						generator: removalGen,
 						literal: Formatter.format,
-						/** The space: 6 orders of two folds with 2 removals, and 6 of three with 3. */
-						limit: 30,
 						coverage: requiredInSpace<NamesFeature>([
 							"count removed",
 							"sum removed",
@@ -576,8 +574,6 @@ describe("a fold's natives are §2.3's: its copies on two axes, its combine and 
 					suite: "unit/laws/model/fold",
 					generator: shapeGen,
 					literal: Formatter.format,
-					/** The space: 15 (monoid, carrier) pairs, 3 family and accumulator shapes, and 2 step selections. */
-					limit: 90,
 					coverage: requiredInSpace<Feature>(features),
 					caseHang,
 					box: "every monoid on every admitted carrier, ordered named, ordered hidden or counted hidden, selected or not",

@@ -247,7 +247,7 @@ layer(Substrate.layer)("compiled templates on PostgreSQL 19", (it) => {
 			return yield* Effect.die(new Error(installation.error.message))
 		}
 		yield* transaction(s.admin, [
-			...installationSql(installation.value),
+			...installationSql(installation.value, s.database),
 			...facts(installation.value.names)
 		])
 		return { schema, names: installation.value.names }

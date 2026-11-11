@@ -218,7 +218,6 @@ describe("the kind table", () => {
 								),
 								source.draw(element<Subject>(["query", "readBack"]))
 							] as const,
-						limit: 128,
 						coverage: requiredInSpace<`${KindOutcome} ${Subject}`>([
 							"lowered query",
 							"lowered readBack",
@@ -407,7 +406,6 @@ describe("heterogeneous unions", () => {
 						suite: "unit/lower/conservative/heterogeneous",
 						literal: Formatter.format,
 						generator: consumers,
-						limit: 16,
 						coverage: requiredInSpace<Consumer["kind"]>([
 							"delivered",
 							"filtered",
@@ -508,7 +506,6 @@ describe("heterogeneous unions", () => {
 							const arms = source.draw(int(1, 3))
 							return { arms, attached: source.draw(int(0, 2 ** arms - 1)) }
 						},
-						limit: 14,
 						coverage: requiredInSpace<ArmFeature>([
 							"a lone arm attached",
 							"an arm of several attached",
@@ -612,7 +609,6 @@ describe("regions", () => {
 							read: source.draw(int(0, count - 2))
 						}
 					},
-					limit: 20,
 					coverage: requiredInSpace<Resolution>(["resolved", "refused"]),
 					caseHang
 				},

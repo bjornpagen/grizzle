@@ -88,6 +88,7 @@ import {
 	statisticsOverRetyped,
 	type Version
 } from "#test/pg/migrate-gen/support.ts"
+import { filledSql } from "#test/support/compile.ts"
 
 import {
 	apply,
@@ -248,7 +249,7 @@ const property = (p: RenamedPath, notes: Case<Feature>) =>
 					Effect.gen(function* () {
 						const f = yield* substrate.schema({ create: false, label: "paths_fresh" })
 						const freshPlan = planOf(v, f, owner)
-						yield* transaction(substrate.admin, freshPlan.sql)
+						yield* transaction(substrate.admin, filledSql(freshPlan.sql, substrate.database))
 						yield* sameCatalog(
 							planOf(v, migrated, owner).installation,
 							freshPlan.installation,

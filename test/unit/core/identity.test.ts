@@ -177,7 +177,6 @@ describe("the naming door", () => {
 									source.draw(element(nonEmpty(pairs, "pairs of schema names")))
 								] as const,
 							literal: Formatter.format,
-							limit: 2 * pairs.length,
 							coverage: requiredInSpace<InstallFeature>([
 								"two plain names",
 								"one name a prefix of the other",
@@ -199,8 +198,8 @@ describe("the naming door", () => {
 									installed(owned, server, identity.schema(parsedSchemaName(b)))
 								]
 								assert.equal(
-									installationAbstraction(x)(Arr.join(installationSql(x), "\n")),
-									installationAbstraction(y)(Arr.join(installationSql(y), "\n")),
+									installationAbstraction(x)(Arr.join(installationSql(x, "abstracted"), "\n")),
+									installationAbstraction(y)(Arr.join(installationSql(y, "abstracted"), "\n")),
 									`${fixture} under ${a} and ${b}`
 								)
 								const commented = (i: typeof x) => {
@@ -277,7 +276,6 @@ describe("the naming door", () => {
 								)
 							),
 							literal: Formatter.format,
-							limit: 2 * (alike.length + refusedNames.length),
 							coverage: requiredInSpace<RuleFeature>([
 								"relations alike",
 								"fields alike",

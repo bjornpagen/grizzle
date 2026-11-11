@@ -55,7 +55,7 @@ import { caseHang } from "#test/support/limits.ts"
 import { physical, propsOf, snapshotOver } from "#test/unit/analysis/physical/support.ts"
 
 const columnsPool = ["a", "b", "c", "d", "e", "f"] as const
-const hiddenPool = [hiddenIn("t", "h1"), hiddenIn("t", "h2")]
+const hiddenPool = Object.freeze([hiddenIn("t", "h1"), hiddenIn("t", "h2")])
 
 type Context = Extract<EvidenceContext, "queryLocal" | "immediate">
 const contexts: readonly [Context, Context] = ["queryLocal", "immediate"]
@@ -511,8 +511,6 @@ describe("a rule region's dependency table", () => {
 							)
 						}),
 						literal: Formatter.format,
-						/** The space: 8 sets of bound columns, by 27 assignments of no constant, a literal or a parameter. */
-						limit: 216,
 						coverage: requiredInSpace<RegionFeature>([
 							"a bound column's constant fixes its variable",
 							"an unbound column's constant",

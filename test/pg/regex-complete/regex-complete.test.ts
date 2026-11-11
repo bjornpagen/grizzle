@@ -307,13 +307,12 @@ const literal = (text: string): string => `'${Str.replaceAll("'", "''")(text)}'`
 
 type Plan = "generic" | "custom"
 
-let prepared = 0
-
 /**
  * Runs one statement under a forced plan, through PREPARE and EXECUTE, and checks in pg_prepared_statements that
  * PostgreSQL used that plan, whether the execution succeeded or failed: PostgreSQL counts the plan it chose before
  * it runs it. A statement with no bound value is never given a custom plan, so the check also refuses a case that
- * could not exercise one. The execution's own outcome is returned.
+ * could not exercise one. The execution's own outcome is returned. The plan mode and the prepared statement are held in
+ * the call's scope, so both are released however the call ends, and one name serves every call.
  */
 const runPlanned = (
 	session: RawSession,
@@ -322,9 +321,14 @@ const runPlanned = (
 	plan: Plan
 ) =>
 	Effect.gen(function* () {
-		const name = `m14a_${++prepared}`
-		yield* session.query(`SET plan_cache_mode = force_${plan}_plan`, [])
-		yield* session.query(`PREPARE ${name} AS ${sql}`, [])
+		const name = "m14a_planned"
+		yield* Effect.acquireRelease(
+			session.query(`SET plan_cache_mode = force_${plan}_plan`, []),
+			() => Effect.orDie(session.query("RESET plan_cache_mode", []))
+		)
+		yield* Effect.acquireRelease(session.query(`PREPARE ${name} AS ${sql}`, []), () =>
+			Effect.orDie(session.query(`DEALLOCATE ${name}`, []))
+		)
 		const run = yield* Effect.exit(
 			session.values(
 				values.length === 0
@@ -340,8 +344,6 @@ const runPlanned = (
 			`SELECT generic_plans::text, custom_plans::text FROM pg_catalog.pg_prepared_statements WHERE name = '${name}'`,
 			[]
 		)
-		yield* session.query(`DEALLOCATE ${name}`, [])
-		yield* session.query("RESET plan_cache_mode", [])
 		assert.deepEqual(
 			counts[0],
 			plan === "generic" ? ["1", "0"] : ["0", "1"],
@@ -351,7 +353,7 @@ const runPlanned = (
 			return yield* Effect.failCause(run.cause)
 		}
 		return run.value
-	})
+	}).pipe(Effect.scoped)
 
 const plans: Arr.NonEmptyReadonlyArray<Plan> = ["generic", "custom"]
 
@@ -478,7 +480,7 @@ const install = () =>
 			}),
 			"install"
 		)
-		yield* transaction(s.admin, installationSql(installation))
+		yield* transaction(s.admin, installationSql(installation, s.database))
 		return { schema: name, installation }
 	})
 

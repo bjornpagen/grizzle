@@ -37,7 +37,7 @@
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { array, constant, element, type Gen, int } from "@grizzle/testing/gen"
+import { array, constant, element, type Gen, int, weighted } from "@grizzle/testing/gen"
 import { pctSchedule } from "@grizzle/testing/interleave"
 import { agree, type Equivalence, exact, ordered } from "@grizzle/testing/oracle"
 import { notesOnly } from "@grizzle/testing/sense"
@@ -218,7 +218,14 @@ const postedOff =
 	}
 
 /** A post whose amount is its Lines' sum, or, drawn, one off it, which the CHECK refuses. */
-const posted = (id: number): Gen<CallSketch> => postedOff(id, element([0, 0, 0, 1]))
+const posted = (id: number): Gen<CallSketch> =>
+	postedOff(
+		id,
+		weighted([
+			[3, constant(0)],
+			[1, constant(1)]
+		])
+	)
 
 /** A race of disjoint keys: two or three calls, the i-th at keys no other names, Docs only or any. */
 interface DisjointRace {

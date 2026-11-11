@@ -156,7 +156,6 @@ describe("a Closed source's refined payload", () => {
 						suite: "unit/lower/conservative/closed-refined",
 						generator: caseGen,
 						literal: Formatter.format,
-						limit: 24,
 						box: "zero to two payload values over one in the pattern and one outside, with and without the pattern's domain, projected whole or filtered",
 						oracle: {
 							kind: "specification",

@@ -85,7 +85,6 @@ describe("a relation parameter two members read", () => {
 						suite: "unit/write/changeset/params",
 						generator: caseGen,
 						literal: Formatter.format,
-						limit: declaredList.length ** 2,
 						box: "R and S inserted from `rows`, each member declaring it under b, c and d; b and c; c, b and d; or b, c and d with d a bigint",
 						oracle: {
 							kind: "specification",

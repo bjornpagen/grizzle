@@ -1,5 +1,5 @@
 import { floorPopulation } from "@grizzle/testing/features"
-import { element, type Gen } from "@grizzle/testing/gen"
+import { constant, element, type Gen, int, weighted } from "@grizzle/testing/gen"
 import { floorSeed, rotatingSeed } from "@grizzle/testing/random"
 import { sample, type Source } from "@grizzle/testing/source"
 import { Array as Arr, Effect, Option, Record as Rec, String as Str } from "effect"
@@ -266,18 +266,16 @@ type Intent = (typeof intents)[number]
  * The intents a case draws, an arm's, the containments' and a reflexive count's more often, whose refusals and proofs
  * need the most draws.
  */
-const drawnIntents: Arr.NonEmptyReadonlyArray<Intent> = [
-	...intents,
-	"containment",
-	"closed",
-	"composite",
-	"composite",
-	"reflexive",
-	"arm",
-	"arm",
-	"arm",
-	"arm"
-]
+const intentGen: Gen<Intent> = weighted<Intent>([
+	[2, constant("containment")],
+	[2, constant("closed")],
+	[3, constant("composite")],
+	[2, constant("reflexive")],
+	[1, constant("keyed")],
+	[5, constant("arm")],
+	[1, constant("derived")],
+	[1, constant("free")]
+])
 
 /** For each intent, the parent relation, the parent fields it heads, the child relation and its bindings to them. */
 interface Plan {
@@ -388,8 +386,7 @@ const nestedPlanOf = (source: Source, parent: Parent): readonly [Intent, Plan] =
 }
 
 /** A coin that lands 1 one time in `odds`. */
-const coin = (source: Source, odds: number): boolean =>
-	source.draw(element(Arr.range(1, odds))) === 1
+const coin = (source: Source, odds: number): boolean => source.draw(int(1, odds)) === 1
 
 /**
  * The parent of a plan: its relation, maybe a second scope joined on a field, and a head of the plan's fields of the
@@ -622,7 +619,7 @@ const nestedOf = (source: Source, parent: Parent): Attachment => {
  * a child that may hold one, sometimes a nested attachment.
  */
 const specGen: Gen<AttachSpec> = (source) => {
-	const intent = source.draw(element(drawnIntents))
+	const intent = source.draw(intentGen)
 	const plan = planOf(source, intent)
 	const parent = parentOf(source, plan)
 	const child = childOf(source, plan, parent, intent)

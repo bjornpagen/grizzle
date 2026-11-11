@@ -148,8 +148,6 @@ describe("R24 conditional aggregates", () => {
 									] as const
 							]),
 							literal: Formatter.format,
-							/** The space: 2 shapes over 4 × 4 integer branches and 2 × 2 numeric ones. */
-							limit: 40,
 							coverage: requiredInSpace<"counted by FILTER" | "left composed">([
 								"counted by FILTER",
 								"left composed"
@@ -244,8 +242,6 @@ describe("the overload registry", () => {
 						suite: "unit/compute/registry-vocabulary",
 						generator: words,
 						literal: Formatter.format,
-						/** The space is the vocabulary, each word once. */
-						limit: functionWords.length + Record.values(comparisons).length + 4,
 						coverage: requiredInSpace<`word ${VocabularyWord["kind"]}`>([
 							"word function",
 							"word comparison",
@@ -334,8 +330,6 @@ describe("min, max, LEAST and GREATEST", () => {
 							source.draw(element(readings))
 						] as const,
 					literal: Formatter.format,
-					/** The space: every contract, under each of the four, read each way. */
-					limit: kept.length * returnings.length * readings.length,
 					coverage: requiredInSpace<`${Returning} over a ${Reading}`>(
 						nonEmpty(
 							Arr.flatMap(returnings, (f) => Arr.map(readings, (g) => `${f} over a ${g}` as const)),
@@ -404,7 +398,6 @@ describe("a numeric mean's result bound", () => {
 						suite: "unit/compute/mean-bound",
 						generator: argumentBoundGen,
 						literal: Formatter.format,
-						limit: 80,
 						box: "a computed numeric argument of integer digits -1002 to -998 or -2 to 2 and scale 0 to 2 or 998 to 1002",
 						oracle: {
 							kind: "second-implementation",

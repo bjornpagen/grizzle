@@ -280,7 +280,6 @@ layer(Substrate.layer, { excludeTestServices: true })("a refresh member", (it) =
 									suite: "derived/refresh",
 									generator: calls,
 									literal: Formatter.format,
-									limit: 600,
 									caseHang,
 									coverage: requiredInSpace<RefreshFeature>([
 										"refused: outside the scope",

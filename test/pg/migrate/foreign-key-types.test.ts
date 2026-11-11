@@ -298,7 +298,6 @@ layer(Substrate.layer)("the migration model's foreign key types", (it) => {
 							suite: "pg/migrate/foreign-key-types",
 							generator: keyCaseGen,
 							literal: ([way, from, to]) => `${way}: ${from.name} → ${to.name}`,
-							limit: ways.length * columnTypes.length * columnTypes.length,
 							coverage: requiredInSpace<KeyFeature>(
 								Arr.flatMap(ways, (way) => [
 									`${way}: implemented` as const,

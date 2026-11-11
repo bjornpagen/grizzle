@@ -429,8 +429,6 @@ describe("a tree's natives are §2.2's: the family on three axes, T0 to T6, and 
 					suite: "unit/laws/model/tree",
 					generator: shapeGen,
 					literal: Formatter.format,
-					/** The space: 4 copy sets, mutable or not, with a fold or none. */
-					limit: 16,
 					coverage: requiredInSpace<Feature>(features),
 					caseHang,
 					box: "every tree with 0 to 2 parent copies, mutable or not, with a count fold or none; its CHECK on 8,192 rows",

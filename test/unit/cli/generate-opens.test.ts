@@ -122,7 +122,6 @@ layer(NodeServices.layer, { excludeTestServices: true })("generate and DbLayer.m
 						suite: "unit/cli/generate-opens",
 						generator: headGen,
 						literal: Formatter.format,
-						limit: 2,
 						coverage: requiredInSpace<Width>([
 							"within the bound",
 							"at the bound",

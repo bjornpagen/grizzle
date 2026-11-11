@@ -531,7 +531,6 @@ layer(Substrate.layer, { excludeTestServices: true })("the worlds model: roles",
 								suite: "pg/world-model/roles",
 								generator: shapes,
 								literal: Formatter.format,
-								limit: 2000,
 								coverage: requiredInSpace(situations),
 								caseHang,
 								oracle: {

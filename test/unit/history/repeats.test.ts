@@ -178,11 +178,6 @@ describe("the host write models judge a repeated fact by its key", () => {
 						suite: "unit/history/repeats",
 						generator: caseGen,
 						literal: Formatter.format,
-						/**
-						 * The space holds 15,120 cases (2 writers, 2 hosts, 9 states, 420 writes); the limit is the cap against a
-						 * space grown by mistake.
-						 */
-						limit: 16_000,
 						box: "every write of one or two members of one or two Worker facts over two ids and two names, from every state the key admits, through each writer, under each host",
 						oracle: {
 							kind: "specification",

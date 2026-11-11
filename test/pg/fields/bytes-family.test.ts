@@ -122,7 +122,7 @@ const Files = schema("BytesFamily", { Owner, Member }, [
  * The full world's workload: an owner written with its members nested, the owners and the members read back, and a
  * member deleted, each with the facts each call gives.
  */
-const programs = {
+const programs = Object.freeze({
 	insertOwner: ChangeSet.empty(Files).insert(Owner, []),
 	owners: query(Files).rule((r) => {
 		const { id, badge } = v(Owner, "o")
@@ -133,7 +133,7 @@ const programs = {
 		return r.match(Member, { id, owner, at, body }).find({ id, at, body })
 	}),
 	deleteMember: ChangeSet.empty(Files).delete(Member, [])
-}
+})
 
 /** Whether two bytes values hold the same bytes. */
 const sameBytes = (x: Uint8Array, y: Uint8Array): boolean =>

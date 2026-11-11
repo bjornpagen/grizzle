@@ -4,6 +4,7 @@ import { floorSeed, rotatingSeed } from "@grizzle/testing/random"
 import { sample, type Source } from "@grizzle/testing/source"
 import { Array as Arr } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /**
  * The testing library's vocabulary contract (@grizzle/testing features and explore): a suite's situations are a closed
@@ -50,7 +51,10 @@ const coin = (source: Source, odds: number): boolean => source.draw(int(1, odds)
 
 const caseGen: Gen<VocabularyCase> = (source) => {
 	const first = source.draw(member)
-	const rest = Arr.map(Arr.range(1, source.draw(int(1, 3))), () => source.draw(member))
+	const rest = Arr.map(
+		upTo(source.draw(int(1, 3)), (i) => i + 1),
+		() => source.draw(member)
+	)
 	const members: Arr.NonEmptyReadonlyArray<string> = [
 		first,
 		...Arr.filter(Arr.dedupe(rest), (m) => m !== first)
@@ -60,7 +64,10 @@ const caseGen: Gen<VocabularyCase> = (source) => {
 	const fault = coin(source, 3) ? source.draw(element(faults)) : undefined
 	const situation = (): string | readonly [string, string] =>
 		coin(source, 3) ? [pick(), pick()] : pick()
-	const required = Arr.map(Arr.range(1, source.draw(int(1, 3))), situation)
+	const required = Arr.map(
+		upTo(source.draw(int(1, 3)), (i) => i + 1),
+		situation
+	)
 	const at = source.draw(int(0, required.length))
 	return {
 		members,

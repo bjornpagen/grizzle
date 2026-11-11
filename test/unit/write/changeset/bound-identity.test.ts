@@ -97,7 +97,6 @@ describe("a ChangeSet's bound values", () => {
 							order: source.draw(element(["a-ending first", "b-ending first"] as const))
 						}),
 						literal: Formatter.format,
-						limit: 8,
 						coverage: requiredInSpace<BoundFeature>([
 							"past the longest string",
 							"equal values",

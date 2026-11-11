@@ -463,7 +463,6 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								suite: "laws/rule-query-shapes",
 								generator: sketchGen,
 								literal: Formatter.format,
-								limit: 2000,
 								box: "every state of a typed href over one resource, two paths and two types, of titles over two records, of a held type over one setter with up to two expressions under two nodes, and of probe rows over two items and two keys",
 								oracle: {
 									kind: "specification",

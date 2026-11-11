@@ -170,10 +170,10 @@ const schemaOf = (c: ParseCase, copies: number, rows: number) => {
 	return schema("Parsed", { Kind, Labels, ...Rec.fromEntries(relations) }, [], [])
 }
 
-const parseSites = {
+const parseSites = Object.freeze({
 	admitted: { file: "packages/engine/src/scalar/regex/patterns.ts", name: "admittedParse" },
 	parsed: { file: "packages/engine/src/scalar/regex/parse.ts", name: "parsePattern" }
-}
+})
 
 type ParseFeature =
 	| "one pattern"

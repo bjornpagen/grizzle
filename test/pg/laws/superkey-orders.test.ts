@@ -537,7 +537,7 @@ const walkCase = (
 				Effect.gen(function* () {
 					const schema = yield* substrate.schema({ create: false, label: "superkey_fresh" })
 					const fresh = compile(step, { ...over, schema: atName(schema) })
-					yield* transaction(substrate.admin, installationSql(fresh))
+					yield* transaction(substrate.admin, installationSql(fresh, substrate.database))
 					yield* sameCatalog(
 						installation,
 						fresh,
@@ -596,7 +596,6 @@ layer(Substrate.layer)("references into one relation's superkeys in different or
 						suite: "laws/superkey-moves",
 						generator: secondGen,
 						literal: Formatter.format,
-						limit: 10,
 						box: "S0's reference over S1's columns (k, a, b) in every order, a superkey or a fixed target fixing a or b, added and dropped again",
 						oracle: {
 							kind: "specification",

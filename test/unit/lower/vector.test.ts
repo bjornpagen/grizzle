@@ -333,7 +333,6 @@ describe("attachments: one search per execution, never one per parent", () => {
 							again: source.draw(boolean)
 						}),
 						literal: Formatter.format,
-						limit: 20,
 						coverage: requiredInSpace<PlacementFeature>([
 							["a search the parent delivers", "admitted"],
 							["a search only the child reads", "admitted"],
@@ -482,7 +481,6 @@ describe("refusals in the lowering", () => {
 								)
 							] as const,
 						literal: Formatter.format,
-						limit: 4,
 						coverage: requiredInSpace<"admitted" | "refused">(["admitted", "refused"]),
 						caseHang
 					},

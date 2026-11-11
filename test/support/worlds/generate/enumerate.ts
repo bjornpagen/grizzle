@@ -11,6 +11,7 @@ import {
 	valueText,
 	violations
 } from "#test/support/laws/model.ts"
+import { upTo } from "#test/support/up-to.ts"
 import { installedNames } from "#test/support/worlds/execute/names.ts"
 import { canonicalForms } from "#test/support/worlds/generate/canonical.ts"
 import { invalidKindsOf } from "#test/support/worlds/generate/classify.ts"
@@ -1750,7 +1751,10 @@ export const enumerateRealities = (
 		)
 	const subsets: ReadonlyArray<
 		ReadonlyArray<{ readonly relation: RelationSpec; readonly fact: HostFact }>
-	> = Arr.flatMap(Arr.range(0, scope.facts), (size: number) => combinations(candidates, size))
+	> = Arr.flatMap(
+		upTo(scope.facts + 1, (i) => i),
+		(size: number) => combinations(candidates, size)
+	)
 	const states: ReadonlyArray<HostState> = Arr.map(Arr.filter(subsets, keyed), stateOf)
 	const lawful = Arr.filter(states, (state: HostState) => violations(host, state).length === 0)
 	const domainOf = (relation: string, field: string): Option.Option<FieldDomain> =>

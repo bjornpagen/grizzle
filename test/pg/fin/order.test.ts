@@ -27,13 +27,7 @@ import { element, type Gen, int, shuffled } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
 import { Disagreed, familySeat, judgedFamily } from "#test/pg/fin/family.ts"
-import {
-	endedBy,
-	type EndFeature,
-	endGen,
-	ends,
-	refusedAtCommitBy
-} from "#test/pg/fin/installed.ts"
+import { endedBy, type EndFeature, endGen, refusedAtCommitBy } from "#test/pg/fin/installed.ts"
 import { nonEmpty } from "#test/support/assert.ts"
 import { run, settledOf, type MutationStatement } from "#test/support/families/mutate.ts"
 import {
@@ -45,13 +39,14 @@ import {
 } from "#test/support/families/theorem.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /** Every pair of families of owners 0 and 1, members numbered in slot order across both, lengths summing to ≤ 5. */
 const FAMILIES: Arr.NonEmptyReadonlyArray<Families> = nonEmpty(
 	Arr.flatMap(Arr.range(0, 5), (a) =>
-		Arr.map(Arr.range(0, 5 - a), (b): Families => [
-			{ owner: 0, members: Arr.range(0, a - 1).slice(0, a) },
-			{ owner: 1, members: Arr.map(Arr.range(0, b - 1).slice(0, b), (m) => a + m) }
+		upTo(5 - a + 1, (b): Families => [
+			{ owner: 0, members: upTo(a, (i) => i) },
+			{ owner: 1, members: upTo(b, (m) => a + m) }
 		])
 	),
 	"a family pair"
@@ -145,19 +140,11 @@ layer(Substrate.layer)("row order through grizzle's lowering on PostgreSQL 19rc1
 							Arr.filter(seats, (s) => s.shape === shape),
 							0
 						)
-					const limit =
-						SHAPES.length *
-						Arr.reduce(FAMILIES, 0, (sum, f) => {
-							const n = rowsOf(f).length
-							return sum + (n < 2 ? 1 : factorial(n) + 2 * (n - 1))
-						}) *
-						ends.length
 					return yield* exhaust(
 						{
 							suite: "fin/row-order",
 							generator: sketchGen,
 							literal: Formatter.format,
-							limit,
 							box: "owners 0 and 1 with families of lengths summing to at most five, ordered and counted: every order of their rows in one INSERT, and every cut of their rows in descending and in ascending slot order into two INSERTs, after the owners, each case ended by a real COMMIT and by the checked end",
 							oracle: {
 								kind: "second-implementation",

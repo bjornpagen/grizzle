@@ -90,6 +90,7 @@ import { lawNamesOf, parsedName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { noBindings, Reference, unobserved } from "#test/support/oracle/reference/evaluate.ts"
 import { owning } from "#test/support/policy.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /** The handles the roster may ever declare: the box's bound of four. */
 const universe = ["a", "b", "c", "d"] as const
@@ -322,11 +323,20 @@ const descOf = (d: Declaration): SchemaDesc => ({
 
 const roster = parsedName("R")
 
-/** The closed-only law's identity, as the law model names it, read once. */
-let pairLawId: LawId | undefined
-const lawOfPair = (): LawId => {
-	pairLawId ??= lawNamesOf(descOf(declarationOf(initial))).lawOfDesc(pairLaw)
-	return pairLawId
+/** The closed-only law's identity, as the law model names it. */
+const lawOfPair = (): LawId => lawNamesOf(descOf(declarationOf(initial))).lawOfDesc(pairLaw)
+
+/**
+ * What the search reads in every case, computed once before it runs: the closed law's identity, the first state's
+ * snapshot and every reached state; and its own caches, each of the search alone, of the fresh snapshot of each
+ * declaration and of each transition it has judged, keyed by their canonical text.
+ */
+interface Prepared {
+	readonly pairLaw: LawId
+	readonly first: DeploySnapshot
+	readonly reached: Arr.NonEmptyReadonlyArray<Reached>
+	readonly fresh: Map<string, DeploySnapshot>
+	readonly transitions: Map<string, Stepped>
 }
 
 /** The names the roster's codes hold in code order, a hole the empty name. */
@@ -515,6 +525,7 @@ const constantsRule = (
 
 /** The model's prediction of an accepted step's words, by slot, from its states before and after. */
 const predicted = (
+	prepared: Prepared,
 	before: Model,
 	after: Model,
 	rowsChanged: boolean
@@ -522,7 +533,7 @@ const predicted = (
 	const out: Array<readonly [Spoken, string]> = []
 	if (rowsChanged) {
 		out.push(
-			["setup", `check law ${lawOfPair()}`],
+			["setup", `check law ${prepared.pairLaw}`],
 			["structure", `set expression ${table}.${generatedColumn}`]
 		)
 	}
@@ -709,10 +720,9 @@ const drafting = (
 const emptyOf = (): DeploySnapshot => emptySnapshot({ schemaName: "Codes", schema: "codes" })
 
 /** A fresh installation's snapshot of a declaration: drafted from the empty snapshot under the first codebook. */
-const freshMemo = new Map<string, DeploySnapshot>()
-const freshOfDeclaration = (d: Declaration): DeploySnapshot => {
+const freshOfDeclaration = (prepared: Prepared, d: Declaration): DeploySnapshot => {
 	const key = canonicalTextOf(d)
-	const known = freshMemo.get(key)
+	const known = prepared.fresh.get(key)
 	if (known !== undefined) {
 		return known
 	}
@@ -733,17 +743,17 @@ const freshOfDeclaration = (d: Declaration): DeploySnapshot => {
 	if (!draft.ok) {
 		return assert.fail(`a fresh installation drafts: ${draft.error.message}`)
 	}
-	freshMemo.set(key, draft.value.snapshot)
+	prepared.fresh.set(key, draft.value.snapshot)
 	return draft.value.snapshot
 }
 
 /** Whether the law's violation query has a row over the target's closed rows, by the reference evaluator, a second
  * implementation of the query's meaning. */
-const lawBroken = (installation: Installation): boolean => {
+const lawBroken = (pairLawId: LawId, installation: Installation): boolean => {
 	const violations = succeeded(
 		theoryViolations(installation.laws.checked, installation.laws.theory)
 	)
-	const forbid = violations.forbids.get(lawOfPair())
+	const forbid = violations.forbids.get(pairLawId)
 	if (forbid?.kind !== "Forbid") {
 		return assert.fail("the theory's violation queries hold the closed law's Forbid")
 	}
@@ -756,12 +766,11 @@ const lawBroken = (installation: Installation): boolean => {
 	return reference.eval(forbid.violation, noBindings).rows.length > 0
 }
 
-/** Each distinct transition is drafted and judged once: the real snapshot before it, the model before it, and the
- * step. */
-const transitions = new Map<string, Stepped>()
-
 /** One step of the real system from the snapshot it stands at, checked against the model's claim. */
+/** Each distinct transition is drafted and judged once in a search: the real snapshot before it, the model before it,
+ * and the step. */
 const stepOf = (
+	prepared: Prepared,
 	previous: DeploySnapshot,
 	before: Model,
 	after: Model,
@@ -770,16 +779,17 @@ const stepOf = (
 	at: string
 ): Stepped => {
 	const key = canonicalTextOf([previous.fingerprint, before, after, declared, refusing ?? ""])
-	const known = transitions.get(key)
+	const known = prepared.transitions.get(key)
 	if (known !== undefined) {
 		return known
 	}
-	const result = judged(previous, before, after, declared, at)
-	transitions.set(key, result)
+	const result = judged(prepared, previous, before, after, declared, at)
+	prepared.transitions.set(key, result)
 	return result
 }
 
 const judged = (
+	prepared: Prepared,
 	previous: DeploySnapshot,
 	before: Model,
 	after: Model,
@@ -803,14 +813,14 @@ const judged = (
 	const rowsChanged = declared.rows !== before.rows
 	const checked = Arr.some(
 		draft.plan.steps,
-		(s) => s.slot === "setup" && s.draft.kind === "violation" && s.draft.law === lawOfPair()
+		(s) => s.slot === "setup" && s.draft.kind === "violation" && s.draft.law === prepared.pairLaw
 	)
 	assert.equal(
 		checked,
 		rowsChanged,
 		`${at}: the closed law is checked exactly when its rows change`
 	)
-	if (rowsChanged && lawBroken(installation)) {
+	if (rowsChanged && lawBroken(prepared.pairLaw, installation)) {
 		return { answer: refused("closed law broken"), snapshot: previous }
 	}
 	if (declared.rows === "broken") {
@@ -824,7 +834,7 @@ const judged = (
 		})
 	)
 	const expected = bySlot([
-		...predicted(before, after, rowsChanged),
+		...predicted(prepared, before, after, rowsChanged),
 		...constantsRule(previous, draft.snapshot, named)
 	])
 	assert.deepEqual(sortedSeen(seen), sortedSeen(expected), `${at}: the draft's statements by slot`)
@@ -848,7 +858,7 @@ const judged = (
 	)
 	const holed = Arr.some(after.codes, (c) => !c.live)
 	assert.equal(
-		freshOfDeclaration(declared).fingerprint === draft.snapshot.fingerprint,
+		freshOfDeclaration(prepared, declared).fingerprint === draft.snapshot.fingerprint,
 		!holed,
 		`${at}: a fresh installation is the migrated one's snapshot exactly when no code is a hole`
 	)
@@ -865,23 +875,18 @@ const readBack = (files: SnapshotFiles, at: string): DeploySnapshot => {
 }
 
 /** The installed first state: the model's initial declaration drafted from the empty snapshot, once. */
-let first: DeploySnapshot | undefined
+/** The first state's snapshot, drafted from the empty snapshot and read back. */
 const firstSnapshot = (): DeploySnapshot => {
-	if (first !== undefined) {
-		return first
-	}
 	const drafted = drafting(emptyOf(), declarationOf(initial))
 	if (Result.isFailure(drafted)) {
 		return assert.fail(`the first state drafts: ${drafted.failure.message}`)
 	}
-	const snapshot = readBack(drafted.success.draft.snapshotFiles, "the first state")
-	first = snapshot
-	return snapshot
+	return readBack(drafted.success.draft.snapshotFiles, "the first state")
 }
 
 /** The real system: the snapshot each step continues, advanced by every step it takes. */
-const realOf = (start: DeploySnapshot): Real<Model, Params, Refusal, never, never> => {
-	let snapshot = start
+const realOf = (prepared: Prepared): Real<Model, Params, Refusal, never, never> => {
+	let snapshot = prepared.first
 	let at = 0
 	const step = (
 		before: Model,
@@ -891,7 +896,7 @@ const realOf = (start: DeploySnapshot): Real<Model, Params, Refusal, never, neve
 	) =>
 		Effect.sync(() => {
 			at += 1
-			const stepped = stepOf(snapshot, before, after, declared, refusing, `step ${at}`)
+			const stepped = stepOf(prepared, snapshot, before, after, declared, refusing, `step ${at}`)
 			snapshot = stepped.snapshot
 			return stepped.answer
 		})
@@ -925,7 +930,7 @@ const stepsFrom = (m: Model): ReadonlyArray<CommandStep<Params>> => {
 		...Arr.map(removedOf(m), (h) => ({ command: "re-add", parameters: h }) as const),
 		...(handles.length >= 2
 			? Arr.map(
-					Arr.range(0, handles.length - 2),
+					upTo(handles.length - 1, (i) => i),
 					(i) => ({ command: "reorder", parameters: i }) as const
 				)
 			: []),
@@ -971,12 +976,6 @@ interface Reached {
 }
 
 /** Every state at most DEPTH steps reach, breadth first, read once. */
-let reached: Arr.NonEmptyReadonlyArray<Reached> | undefined
-const reachedStates = (): Arr.NonEmptyReadonlyArray<Reached> => {
-	reached ??= explored()
-	return reached
-}
-
 const explored = (): Arr.NonEmptyReadonlyArray<Reached> => {
 	const seen = new Map<string, Reached>([[canonicalTextOf(initial), { model: initial, path: [] }]])
 	let frontier: ReadonlyArray<Reached> = [{ model: initial, path: [] }]
@@ -1000,24 +999,32 @@ const explored = (): Arr.NonEmptyReadonlyArray<Reached> => {
 }
 
 /** The box: a reached state's path, then one step it can take. */
-const boxGen: Gen<Program<Params>> = (source) => {
-	const state = source.draw(element(reachedStates()))
-	const step = source.draw(element(nonEmpty(stepsFrom(state.model))))
-	return [...state.path, step]
-}
+const boxOf =
+	(reached: Arr.NonEmptyReadonlyArray<Reached>): Gen<Program<Params>> =>
+	(source) => {
+		const state = source.draw(element(reached))
+		const step = source.draw(element(nonEmpty(stepsFrom(state.model))))
+		return [...state.path, step]
+	}
 
 describe("roster migrations", () => {
 	it.effect(
 		"draft exactly the model's statements, slot by slot, for every program of at most six roster commands over four handles, refusing a reorder and a broken closed law",
-		(ctx) =>
-			searched(
+		(ctx) => {
+			const prepared: Prepared = {
+				pairLaw: lawOfPair(),
+				first: firstSnapshot(),
+				reached: explored(),
+				fresh: new Map(),
+				transitions: new Map()
+			}
+			return searched(
 				ctx,
 				exhaust(
 					{
 						suite: "unit/deploy/rosters",
-						generator: boxGen,
+						generator: boxOf(prepared.reached),
 						literal: Formatter.format,
-						limit: 4_000,
 						box: "every state a program of at most five commands (grow, remove, re-add, reorder, add a set, regenerate, change the closed rows) reaches over a roster of at most four handles, from a roster of one handle with no set, with every step it can take next",
 						oracle: {
 							kind: "second-implementation",
@@ -1028,12 +1035,13 @@ describe("roster migrations", () => {
 					},
 					(steps, c) =>
 						Effect.gen(function* () {
-							const ran = yield* runProgram(machine, realOf(firstSnapshot()), steps)
+							const ran = yield* runProgram(machine, realOf(prepared), steps)
 							for (const verdict of ran.verdicts) {
 								c.note(verdict)
 							}
 						})
 				)
 			)
+		}
 	)
 })

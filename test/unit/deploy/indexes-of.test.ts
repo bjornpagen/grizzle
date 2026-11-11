@@ -320,7 +320,6 @@ describe("indexesOf", () => {
 						suite: "unit/deploy/indexes-of",
 						generator: caseGen,
 						literal: Formatter.format,
-						limit: placements.length * containments.length * 4,
 						box: "R at the root or a level, with or without a two-column candidate key, no containment, a whole one or a selected one out of it, and with or without a materialized derived relation over it",
 						oracle: {
 							kind: "second-implementation",

@@ -62,7 +62,7 @@ import type { ObjectName, SqlStatement } from "#compiler/sql/ast.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { judged, probe, textProbes, type Verdict } from "#test/pg/physical/checks.ts"
 import { assert } from "#test/support/assert.ts"
-import { installationSql } from "#test/support/compile.ts"
+import { filledSql, installationSql } from "#test/support/compile.ts"
 import {
 	installationNamesOf,
 	type NamedRelation,
@@ -599,7 +599,7 @@ layer(Substrate.layer)("the predicate CHECKs of the real installer", (it) => {
 									const pinned = yield* substrate.admin.pin
 									const intact = yield* inInstallation(
 										pinned,
-										installationSql(installation),
+										installationSql(installation, substrate.database),
 										judgeCase(pinned, installation, s, p)
 									)
 									c.noteAll(intact.reached)
@@ -611,7 +611,7 @@ layer(Substrate.layer)("the predicate CHECKs of the real installer", (it) => {
 									const dropped = checksOf(installation, s)[p.dropped]
 									const mutant = yield* inInstallation(
 										pinned,
-										withoutCheck(installation.statements, dropped),
+										filledSql(withoutCheck(installation.statements, dropped), substrate.database),
 										judgeCase(pinned, installation, s, p)
 									)
 									assert.ok(

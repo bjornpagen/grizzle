@@ -124,10 +124,14 @@ const declaredOf = (m: Model, c: Command): Declarations => {
 			}
 }
 
-/** Each distinct draft is made once: by its previous snapshot and its target. */
-const drafts = new Map<string, MigrationDraft>()
-
-const draft = (previous: DeploySnapshot, m: Model, declared: Declarations): MigrationDraft => {
+/** A draft from its previous snapshot to its target, made once in a search: `drafts` is the search's own cache of them,
+ * keyed by both. */
+const draft = (
+	drafts: Map<string, MigrationDraft>,
+	previous: DeploySnapshot,
+	m: Model,
+	declared: Declarations
+): MigrationDraft => {
 	const key = canonicalTextOf([previous.fingerprint, m.fields, declared])
 	const known = drafts.get(key)
 	if (known !== undefined) {
@@ -165,12 +169,17 @@ const attnumsOf = (s: DeploySnapshot): number => {
 	return t?.kind === "relation" ? t.attnums : assert.fail("the snapshot records T")
 }
 
-const judge = (box: Box, note: (f: Feature) => void): void => {
+const judge = (drafts: Map<string, MigrationDraft>, box: Box, note: (f: Feature) => void): void => {
 	let model = initial
-	let snapshot = draft(emptySnapshot({ schemaName: "Attnums", schema: "attnums" }), initial, {
-		renames: [],
-		drops: []
-	}).snapshot
+	let snapshot = draft(
+		drafts,
+		emptySnapshot({ schemaName: "Attnums", schema: "attnums" }),
+		initial,
+		{
+			renames: [],
+			drops: []
+		}
+	).snapshot
 	assert.equal(attnumsOf(snapshot), initial.attnums, "a new table uses one number per column")
 	for (const c of box.commands) {
 		if (!applies(model, c)) {
@@ -178,7 +187,7 @@ const judge = (box: Box, note: (f: Feature) => void): void => {
 		}
 		note(c)
 		const next = step(model, c)
-		const drafted = draft(snapshot, next, declaredOf(model, c))
+		const drafted = draft(drafts, snapshot, next, declaredOf(model, c))
 		const at = `${Formatter.format(box)} at ${c}`
 		assert.equal(
 			attnumsOf(drafted.snapshot),
@@ -213,15 +222,15 @@ const judge = (box: Box, note: (f: Feature) => void): void => {
 describe("a table's attribute numbers", () => {
 	it.effect(
 		"grow by one per added column and never shrink, every program of at most six adds, drops and renames, an addition past a small bound refused",
-		(ctx) =>
-			searched(
+		(ctx) => {
+			const drafts = new Map<string, MigrationDraft>()
+			return searched(
 				ctx,
 				exhaust(
 					{
 						suite: "unit/deploy/attnums",
 						generator: boxGen,
 						literal: Formatter.format,
-						limit: 6_000,
 						box: "every program of one to six commands (add a field, drop the first, rename the first), each under a column bound from 2 to 6",
 						oracle: {
 							kind: "second-implementation",
@@ -230,8 +239,9 @@ describe("a table's attribute numbers", () => {
 						coverage: requiredInSpace<Feature>(FEATURES),
 						caseHang
 					},
-					(box, c) => Effect.sync(() => judge(box, (feature) => c.note(feature)))
+					(box, c) => Effect.sync(() => judge(drafts, box, (feature) => c.note(feature)))
 				)
 			)
+		}
 	)
 })

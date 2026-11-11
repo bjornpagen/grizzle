@@ -9,7 +9,6 @@ import {
 	characterOf,
 	constant,
 	element,
-	filter,
 	type Gen,
 	int,
 	map,
@@ -400,11 +399,22 @@ const lettersGen: Gen<string> = string(characterOf(["a", "e", "m", "n", "r", "s"
 	max: 6
 })
 
+/** A token broken by a capital after its leading dashes, a letter no flag is spelled with. */
+const brokenOption = (token: string): string => {
+	const at = Option.getOrElse(
+		Arr.findFirstIndex(Str.split(token, ""), (ch) => ch !== "-"),
+		() => token.length
+	)
+	return `${Str.slice(0, at)(token)}X${Str.slice(at)(token)}`
+}
+
 /**
  * An option no command takes: a flag broken once (capitalized, a letter more or less, a dash more or less, a switch
- * given a value), a word after two dashes, a letter after one but the help's, or a lone dash.
+ * given a value), a word after two dashes, a letter after one but the help's, or a lone dash. A drawn token a command
+ * does take (a letter more that spells another flag, a word that is one) is broken again by a capital after its dashes,
+ * which no flag holds, so every draw is unknown by construction.
  */
-const unknownOptionGen: Gen<string> = filter(
+const unknownOptionGen: Gen<string> = map(
 	oneOf<string>([
 		(source) => {
 			const f = source.draw(element(flagNames))
@@ -423,15 +433,15 @@ const unknownOptionGen: Gen<string> = filter(
 		map(characterOf(["x", "n", "s", "c"]), (letter) => `-${letter}`),
 		constant("-")
 	]),
-	(token) => !knownOption(token),
-	8
+	(token) => (knownOption(token) ? brokenOption(token) : token)
 )
 
 /**
  * A word that is no command: a command broken once (capitalized, a letter more or less, two dashes before it), a word
- * of letters, or the empty word.
+ * of letters, or the empty word. A drawn word that is a command is capitalized, which no command is, so every draw is
+ * unknown by construction.
  */
-const unknownCommandGen: Gen<string> = filter(
+const unknownCommandGen: Gen<string> = map(
 	oneOf<string>([
 		(source) => {
 			const command = source.draw(element(nonEmpty(commands, "a command")))
@@ -447,8 +457,7 @@ const unknownCommandGen: Gen<string> = filter(
 		lettersGen,
 		constant("")
 	]),
-	(word) => !Arr.contains(commands, word),
-	8
+	(word) => (Arr.contains(commands, word) ? Str.capitalize(word) : word)
 )
 
 const faultsOf = (s: Spelled): Gen<Fault> => {
@@ -1068,7 +1077,10 @@ const sketchGen: Gen<ConfigSketch> = (source) => {
 	const names = source.draw(shuffled(schemaNames, { min: 1, max: schemaNames.length }))
 	const schemas = Arr.map(names, (name) => ({ name, ...source.draw(entryGen) }))
 	const logins = source.draw(
-		shuffled(Arr.range(0, schemas.length - 1), { min: 0, max: schemas.length })
+		shuffled(
+			upTo(schemas.length, (i) => i),
+			{ min: 0, max: schemas.length }
+		)
 	)
 	return {
 		schemas,

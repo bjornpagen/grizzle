@@ -285,8 +285,6 @@ describe("a counted family's natives admit grizzle's plans and refuse every lawl
 						suite: "unit/laws/model/counted",
 						generator: element(cases),
 						literal: Formatter.format,
-						/** The space: 10 swaps, 15 appends, and 5 family sizes × 7 variants, but the 2 an empty family cannot carry. */
-						limit: cases.length,
 						coverage: requiredInSpace<Feature>(features),
 						caseHang,
 						box: "one owner of 0 to 4 members beside one of one: every swap-with-last, every append of 1 or 2 in every order, every named lawless variant its family can carry",

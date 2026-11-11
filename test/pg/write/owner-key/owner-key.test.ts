@@ -65,7 +65,7 @@ const Owners = schema("OwnerKeys", { Owner, Member }, [
  * requested owners' insert, enumerated from each call's facts; and the same insert described over the relation
  * parameter `items`.
  */
-const programs = {
+const programs = Object.freeze({
 	load: ChangeSet.empty(Owners).insert(Owner, []).insert(Member, []),
 	insertEnumerated: ChangeSet.empty(Owners).insert(Owner, []),
 	insertDescribed: ChangeSet.empty(Owners).insert(
@@ -76,7 +76,7 @@ const programs = {
 			return r.match(given, { id, cap }).find({ id, cap })
 		})
 	)
-}
+})
 
 /** A stored owner as the model holds it: its key, its payload, which its members sum to, and their step values. */
 interface StoredOwner {

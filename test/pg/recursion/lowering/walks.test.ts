@@ -35,6 +35,7 @@ import {
 } from "#test/support/oracle/runner.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /**
  * The Walks example through the optimized lowering on PostgreSQL 19 (V6).
@@ -113,7 +114,7 @@ interface Graph {
 
 const graphGen: Gen<Graph> = (source) => {
 	const people = source.draw(int(1, 6))
-	const each = Arr.range(0, people - 1)
+	const each = upTo(people, (i) => i)
 	return {
 		people,
 		follows: source.draw(subarray(Arr.flatMap(each, (a) => Arr.map(each, (b) => [a, b] as const))))
@@ -163,7 +164,7 @@ const row = (
 	})
 
 const factsOf = (graph: Graph) => ({
-	Person: Arr.map(Arr.range(0, graph.people - 1), (i) =>
+	Person: upTo(graph.people, (i) =>
 		row("Person", { id: vertexId(i), name: { kind: "text", value: `p${i}` } })
 	),
 	Follows: Arr.map(graph.follows, ([a, b]) =>

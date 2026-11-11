@@ -60,6 +60,7 @@ import {
 	schemaArtifacts
 } from "#compiler/program/schema.ts"
 
+import { resolveVariables } from "#compiler/deploy/render/variables.ts"
 import { noLive } from "#compiler/live/notify.ts"
 import {
 	compileWorkload,
@@ -587,9 +588,35 @@ export const paramTexts = (
 		typeof param === "string" ? param : textOfParam(param)
 	)
 
-/** An installation's script as the driver sends it: each statement's text, in install order. */
-export const installationSql = (installation: Installation): ReadonlyArray<string> =>
+/**
+ * An installation's script as `grizzle generate` drafts it, in install order: each statement printed, each role of the
+ * installation named by its variable and the database by DBNAME (deploy/render/variables.ts), which filledSql fills.
+ */
+export const draftedSql = (installation: Installation): ReadonlyArray<string> =>
 	Arr.map(installation.statements, (statement) => printStatement(statement))
+
+/**
+ * Drafted statements as `grizzle migrate` sends them into `database`: each one's variables filled through the product's
+ * one door (deploy/render/variables.ts resolveVariables) under the stems role space, every harness installation's. A
+ * drafted statement whose variables do not fill is a defect.
+ */
+export const filledSql = (
+	statements: ReadonlyArray<string>,
+	database: string
+): ReadonlyArray<string> =>
+	Arr.map(statements, (statement) => {
+		const filled = resolveVariables(statement, { database, roles: { kind: "stems" } })
+		if (!filled.ok) {
+			throw new Error(`a drafted statement's variable does not fill: ${filled.error.kind}`)
+		}
+		return filled.value
+	})
+
+/** An installation's script as `grizzle migrate` sends it into `database` (draftedSql, filledSql). */
+export const installationSql = (
+	installation: Installation,
+	database: string
+): ReadonlyArray<string> => filledSql(draftedSql(installation), database)
 
 /** The catalog kind table's entry at a node's kind, which the table's mapped type gives that kind's node. */
 const catalogLowerer = <K extends RelKind>(

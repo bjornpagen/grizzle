@@ -49,8 +49,10 @@ const comparisons: Arr.NonEmptyReadonlyArray<EndpointComparison> = [
 	"ge"
 ]
 /** Every endpoint predicate: an endpoint of A, a comparison, an endpoint of B. */
-const predicates = Arr.flatMap(ends, (x) =>
-	Arr.flatMap(comparisons, (cmp) => Arr.map(ends, (y) => [x, cmp, y] as const))
+const predicates = Object.freeze(
+	Arr.flatMap(ends, (x) =>
+		Arr.flatMap(comparisons, (cmp) => Arr.map(ends, (y) => [x, cmp, y] as const))
+	)
 )
 
 /** Every ordered pair of both universes, with its type. */
@@ -62,8 +64,6 @@ const typedPairs: Gen<{ readonly type: RangeType; readonly pair: PairFacts }> = 
 		}))
 	)
 )
-/** The pairs of both universes number some 17,000; the limit guards only against their growth. */
-const pairLimit = 100_000
 
 /** A span's endpoint, its bound as PostgreSQL's lower() and upper() return it for the stored half-open value. */
 const bound = (span: HalfOpen, endpoint: SpanEndpoint): bigint =>
@@ -106,7 +106,6 @@ describe("the relations' places", () => {
 						suite: "unit/allen/places",
 						generator: typedPairs,
 						literal: Formatter.format,
-						limit: pairLimit,
 						coverage: requiredInSpace<PlaceFeature>(
 							Arr.flatMap(rangeTypes, (type) =>
 								Arr.map(allenRelations, (r): PlaceFeature => `${type} ${r}`)
@@ -160,7 +159,6 @@ describe("the endpoint masks", () => {
 						suite: "unit/allen/endpoint-masks",
 						generator: typedPairs,
 						literal: Formatter.format,
-						limit: pairLimit,
 						coverage: requiredInSpace<PredicateFeature>(situations),
 						caseHang
 					},

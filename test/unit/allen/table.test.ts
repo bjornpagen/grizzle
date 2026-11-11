@@ -65,7 +65,7 @@ import {
 	windowSpans
 } from "#test/support/oracle/allen.ts"
 
-const pairsOf = new Map(
+const pairsOf: ReadonlyMap<RangeType, ReturnType<typeof universePairs>> = new Map(
 	Arr.map(rangeTypes, (type) => [type, universePairs(universe(type))] as const)
 )
 /** The element at an index the test knows is in range, failing the test where it is not. */
@@ -85,7 +85,6 @@ describe("the committed Allen table", () => {
 					suite: "unit/allen/table-generated",
 					generator: int(0, fullAllenMask),
 					literal: Formatter.format,
-					limit: fullAllenMask + 1,
 					box: "every mask over the thirteen basic relations, the empty and the full one included",
 					oracle: {
 						kind: "specification",
@@ -126,7 +125,6 @@ describe("the generated Allen table", () => {
 						suite: "unit/allen/table-entries",
 						generator: int(0, fullAllenMask),
 						literal: Formatter.format,
-						limit: fullAllenMask + 1,
 						coverage: requiredInSpace<EntryFeature>([
 							"the empty mask",
 							"one disjunct",
@@ -204,7 +202,6 @@ describe("the generated Allen table", () => {
 					suite: "unit/allen/table-exact-cost",
 					generator: int(1, fullAllenMask),
 					literal: Formatter.format,
-					limit: fullAllenMask,
 					coverage: requiredInSpace<CostFeature>([
 						"cost at most three",
 						"cost four",
@@ -357,11 +354,6 @@ describe("the verification universe", () => {
 						suite: "unit/allen/universe",
 						generator: items,
 						literal: Formatter.format,
-						/**
-						 * The space holds 17,028 values, each type's spellings and ordered pairs; the limit guards only against
-						 * its growth.
-						 */
-						limit: 100_000,
 						coverage: requiredInSpace<UniverseFeature>(situations),
 						caseHang
 					},
@@ -410,7 +402,6 @@ describe("the verification universe", () => {
 					suite: "unit/allen/universe-converse",
 					generator: typedPairs,
 					literal: Formatter.format,
-					limit: pairLimit,
 					coverage: requiredInSpace<`${RangeType} ${AllenRelation}`>(
 						Arr.flatMap(rangeTypes, (type) =>
 							Arr.map(allenRelations, (r): `${RangeType} ${AllenRelation}` => `${type} ${r}`)
@@ -437,8 +428,6 @@ const typedPairs: Gen<{ readonly type: RangeType; readonly pair: PairFacts }> = 
 		map(element(nonEmpty(pairs(type), `the ${type} pairs`)), (pair) => ({ type, pair }))
 	)
 )
-/** The pairs of both universes number some 17,000; the limit guards only against their growth. */
-const pairLimit = 100_000
 
 /** What an atom's truth on a pair reaches: each atom true and false. */
 type AtomFeature = `${string} held` | `${string} failed`
@@ -457,7 +446,6 @@ describe("the exhaustive check against the brute-force classifier", () => {
 					suite: "unit/allen/atom-sets",
 					generator: typedPairs,
 					literal: Formatter.format,
-					limit: pairLimit,
 					coverage: requiredInSpace<AtomFeature>(
 						Arr.flatMap(allenAtoms, (atom): Arr.NonEmptyReadonlyArray<AtomFeature> => [
 							`${atom.text} held`,
@@ -495,7 +483,6 @@ describe("the exhaustive check against the brute-force classifier", () => {
 						generator: (source) =>
 							[source.draw(element(rangeTypes)), source.draw(int(0, fullAllenMask))] as const,
 						literal: Formatter.format,
-						limit: rangeTypes.length * (fullAllenMask + 1),
 						coverage:
 							requiredInSpace<`${RangeType} ${"the empty mask" | "the full mask" | "a mask"}`>(
 								Arr.flatMap(rangeTypes, (type) => [

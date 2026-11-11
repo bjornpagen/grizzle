@@ -242,10 +242,13 @@ const writable = (
 	if (steps === 0) {
 		return 1
 	}
-	const pushes = Arr.map(Arr.range(0, values - 1), (value): Program<QueueParameters>[number] => ({
-		command: "push",
-		parameters: value
-	}))
+	const pushes = Arr.map(
+		Array.from({ length: values }, (_, i) => i),
+		(value): Program<QueueParameters>[number] => ({
+			command: "push",
+			parameters: value
+		})
+	)
 	const peeks = Arr.map(Arr.fromIterable(model.keys()), (at): Program<QueueParameters>[number] => ({
 		command: "peek",
 		parameters: at
@@ -295,7 +298,6 @@ describe("a state machine", () => {
 							box: "every program of up to 3 steps, pushes of 0 or 1",
 							generator: program(twoValued, { min: 0, max: 3 }, fullSwarm(COMMANDS)),
 							literal: Formatter.format,
-							limit: 2000,
 							coverage: noCoverage,
 							caseHang: Duration.minutes(1)
 						},

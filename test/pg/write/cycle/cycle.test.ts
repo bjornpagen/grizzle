@@ -43,9 +43,9 @@ const intoA = contained(on(B, "a"), on(A, "id"))
 const Cycle = schema("Cycle", { A, B }, [intoB, intoA, mutable(A), mutable(B)])
 
 /** The full world's workload: one ChangeSet inserting and deleting facts of A and B, each call's facts by op. */
-const programs = {
+const programs = Object.freeze({
 	change: ChangeSet.empty(Cycle).insert(A, []).insert(B, []).delete(A, []).delete(B, [])
-}
+})
 
 /** A fact of either relation: its key and the key it references in the other. */
 interface Fact {

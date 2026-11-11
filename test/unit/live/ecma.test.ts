@@ -63,7 +63,7 @@ const caseGen: Gen<Case> = (source) => {
 		source: source.draw(patternOver(family.alphabet)),
 		flags: source.draw(flagsGen),
 		alphabet: family.alphabet,
-		texts: source.draw(array(stringsOver(family.alphabet, 8), { min: 1, max: 12 }))
+		texts: source.draw(array(stringsOver(element(family.alphabet), 8), { min: 1, max: 12 }))
 	}
 }
 

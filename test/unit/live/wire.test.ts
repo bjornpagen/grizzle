@@ -77,6 +77,7 @@ import { Vector } from "#compiler/scalar/values/vector.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { schemaAdmits } from "#test/support/openapi/validator.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 type Feature =
 	| `the carrier ${Carrier}`
@@ -92,8 +93,10 @@ type Feature =
 	| "a JSON the schema admits and the parse refuses as a gap"
 
 /** The handles a roster of a drawn spec holds, in code order: distinct names. */
-const handlesGen: Gen<Arr.NonEmptyReadonlyArray<string>> = (source) =>
-	Arr.map(Arr.range(0, source.draw(int(0, 4))), (i) => `h${i}`)
+const handlesGen: Gen<Arr.NonEmptyReadonlyArray<string>> = (source) => [
+	"h0",
+	...upTo(source.draw(int(0, 4)), (i) => `h${i + 1}`)
+]
 
 /** A span's width: free, or a fixed count of its endpoint's units. */
 const widthGen: Gen<WireWidth> = oneOf<WireWidth>([

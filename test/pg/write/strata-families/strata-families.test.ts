@@ -66,7 +66,7 @@ const nested = () => ChangeSet.empty(Strata).insert(Doc, [])
  * The full world's workload: the clubs and their stored members, seeded; the edit beside the nested insert in each
  * placement; and the members, clubs, docs and lines read back.
  */
-const programs = {
+const programs = Object.freeze({
 	seed: ChangeSet.sequence(
 		ChangeSet.empty(Strata).insert(Club, []),
 		ChangeSet.empty(Strata).insert(Member, [])
@@ -90,7 +90,7 @@ const programs = {
 		const { id, doc, at, qty } = v(Line, "line")
 		return r.match(Line, { id, doc, at, qty }).find({ id, doc, at, qty })
 	})
-}
+})
 
 type Placement = "the edit first" | "the nested insert first" | "one stratum"
 

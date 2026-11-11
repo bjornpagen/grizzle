@@ -121,37 +121,57 @@ const reachesLeast = (shape: ShapeName, predicate: Predicate): boolean => {
 /** A shrink problem: a shape, and a predicate with its threshold drawn where some case of the shape can reach it. */
 type Problem = Readonly<{ shape: ShapeName; predicate: Predicate; k: number }>
 
-const problems: Gen<Problem> = (source) => {
-	const shape = source.draw(element(SHAPE_NAMES))
-	const predicate = source.draw(element(PREDICATES))
-	const { top, items } = SHAPES[shape]
-	const k = source.draw(
-		int(
-			1,
-			predicate === "at least k items"
-				? items
-				: predicate === "a sum at least k"
-					? top * items
-					: top
+/**
+ * The problems of a shape whose space holds a failing case: every predicate, with each k from 1 to the most its shape
+ * allows, that some case of the space fails. A problem is drawn among them, so every problem has a case to shrink, by
+ * construction.
+ */
+const failingProblemsOf = (shape: ShapeName): Arr.NonEmptyReadonlyArray<Problem> => {
+	const { top, items, generator } = SHAPES[shape]
+	const cases = everyCase(generator)
+	const problems = Arr.flatMap(PREDICATES, (predicate) =>
+		Arr.filter(
+			Array.from(
+				{
+					length:
+						predicate === "at least k items"
+							? items
+							: predicate === "a sum at least k"
+								? top * items
+								: top
+				},
+				(_, i): Problem => ({ shape, predicate, k: i + 1 })
+			),
+			(problem) =>
+				Arr.some(cases, (generated) => failsBy(problem.predicate, problem.k)(generated.value))
 		)
 	)
-	return { shape, predicate, k }
+	if (!Arr.isReadonlyArrayNonEmpty(problems)) {
+		throw new Error(`${shape}: a shape whose space no predicate fails`)
+	}
+	return problems
 }
+
+const problems: Gen<Problem> = (source) =>
+	source.draw(element(failingProblemsOf(source.draw(element(SHAPE_NAMES)))))
 
 /** The failing cases of a problem's space, in enumeration order, and the one a property draws to begin shrinking at. */
 const failingOf = (
 	problem: Problem
 ): Readonly<{
 	fails: (items: ReadonlyArray<number>) => boolean
-	failing: ReadonlyArray<Generated<ReadonlyArray<number>>>
+	failing: Arr.NonEmptyReadonlyArray<Generated<ReadonlyArray<number>>>
 }> => {
 	const fails = failsBy(problem.predicate, problem.k)
-	return {
-		fails,
-		failing: Arr.filter(everyCase(SHAPES[problem.shape].generator), (generated) =>
-			fails(generated.value)
+	const failing = Arr.filter(everyCase(SHAPES[problem.shape].generator), (generated) =>
+		fails(generated.value)
+	)
+	if (!Arr.isReadonlyArrayNonEmpty(failing)) {
+		throw new Error(
+			`${problem.shape} by ${problem.predicate} of ${problem.k}: a problem drawn with no failing case`
 		)
 	}
+	return { fails, failing }
 }
 
 /**
@@ -443,9 +463,6 @@ describe("shrinking", () => {
 							const { shape, predicate } = problem
 							const { generator } = SHAPES[shape]
 							const { fails, failing } = failingOf(problem)
-							if (!Arr.isReadonlyArrayNonEmpty(failing)) {
-								return yield* c.assume(false)
-							}
 							c.note(shape)
 							c.note(predicate)
 							const begun = Arr.getUnsafe(failing, c.draw(int(0, failing.length - 1)))
@@ -464,7 +481,6 @@ describe("shrinking", () => {
 										box: "the shape's whole space",
 										generator,
 										literal: Formatter.format,
-										limit: 1000,
 										coverage: noCoverage,
 										caseHang: Duration.minutes(1)
 									},
@@ -520,10 +536,13 @@ describe("shrinking", () => {
 						},
 						draw: drawn(formedProblems),
 						literal: Formatter.format,
-						coverage: required<Found | Predicate>([...FOUND, ...PREDICATES], {
-							cases: 200,
-							sense: notesOnly
-						}),
+						coverage: required<Found | Predicate | "a whole that holds">(
+							[...FOUND, ...PREDICATES],
+							{
+								cases: 200,
+								sense: notesOnly
+							}
+						),
 						kept: [],
 						runs: 300,
 						shrink: completeShrink,
@@ -551,7 +570,8 @@ describe("shrinking", () => {
 							)
 							const begun = yield* attempt(whole.tape.values)
 							if (begun.kind === "holds") {
-								return yield* c.assume(false)
+								c.note("a whole that holds")
+								return
 							}
 							c.note(found)
 							c.note(predicate)
@@ -641,9 +661,6 @@ describe("shrinking", () => {
 						Effect.gen(function* () {
 							const { generator } = SHAPES[problem.shape]
 							const { fails, failing } = failingOf(problem)
-							if (!Arr.isReadonlyArrayNonEmpty(failing)) {
-								return yield* c.assume(false)
-							}
 							const begun = Arr.getUnsafe(failing, c.draw(int(0, failing.length - 1)))
 							const check = (items: ReadonlyArray<number>) => Effect.succeed(fails(items))
 							const bounded = yield* shrink(generator, begun, check, boundedShrink(budget))

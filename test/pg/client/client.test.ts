@@ -64,7 +64,7 @@ const Items = schema("Items", { Item }, [mutable(Item)])
 type ItemFact = Readonly<{ id: number; big: bigint; amount: Decimal; cash: Money; flag: boolean }>
 
 /** The login's members: a set read by an int8 floor, an ordered read by its windows, a key, and a put. */
-const programs = {
+const programs = Object.freeze({
 	atLeast: query(Items).rule((r) => {
 		const { id, big, amount, cash, flag } = v(Item, "item")
 		return r
@@ -82,7 +82,7 @@ const programs = {
 	),
 	item: Item,
 	put: ChangeSet.empty(Items).put(Item, [])
-}
+})
 
 /** One call of a member, with the input its program takes. */
 type Call =
@@ -108,7 +108,7 @@ type Feature =
 	| "a write unchanged"
 	| "a live change reaching the client"
 
-const ids = Arr.range(1, 10)
+const ids = Object.freeze(Arr.range(1, 10))
 
 /** An int8 around zero or past 2^53 in either direction, where a number holds no integer exactly. */
 const bigGen: Gen<bigint> = (source) => {

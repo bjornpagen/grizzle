@@ -112,7 +112,7 @@ type CheckFeature =
 	| Exclude<Finding["kind"], "strayEntry">
 	| "strayEntry"
 
-const shop = shopV1("ChkAll", "none")
+const shop = Object.freeze(shopV1("ChkAll", "none"))
 const ident = identifierOf(identity.schema(parsedSchemaName("ChkAll")))
 const schemaDir = `migrations/${ident}`
 const init = "20261012120000_init"

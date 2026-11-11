@@ -118,7 +118,6 @@ describe("the span reference on the host", () => {
 						generator: (source) =>
 							[source.draw(element(spans)), source.draw(element(spans))] as const,
 						literal: Formatter.format,
-						limit: spans.length * spans.length,
 						coverage: requiredInSpace<PairFeature>([
 							"apart",
 							"split by b",

@@ -85,7 +85,6 @@ describe("a DAG's roots", () => {
 							const roots = source.draw(int(2, 3))
 							return { roots, at: source.draw(int(0, roots - 1)) }
 						},
-						limit: 5,
 						coverage: requiredInSpace<RootPosition>(["the query's root", "a later root"]),
 						caseHang
 					},

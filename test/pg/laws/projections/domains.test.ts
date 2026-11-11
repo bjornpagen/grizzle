@@ -487,7 +487,7 @@ layer(Substrate.layer)("natural and pred against PostgreSQL", (it) => {
 									const problems: Array<string> = []
 									yield* inInstallation(
 										pinned,
-										installationSql(installation),
+										installationSql(installation, substrate.database),
 										Effect.gen(function* () {
 											for (const state of drawnStates) {
 												const verdict = yield* probe(pinned, writer.state(state))

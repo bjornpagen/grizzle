@@ -131,7 +131,7 @@ const indexFieldsGen: Gen<KeyFields> = element([["k"], ["t", "k"]] as const)
 const modelKey = (fields: KeyFields, spec: Spec): string =>
 	fields.includes("v") ? `${spec.i}/${spec.p}` : `${spec.i}`
 
-const keyIndices = upTo(keyValues.length, (i) => i)
+const keyIndices = Object.freeze(upTo(keyValues.length, (i) => i))
 
 const payloadGen: Gen<number> = int(0, payloads.length - 1)
 
@@ -826,7 +826,6 @@ describe("the live model's values", () => {
 						right: int(0, forms.length - 1)(source)
 					}),
 					literal: Formatter.format,
-					limit: forms.length * forms.length,
 					box: "every pair of the key forms' makers",
 					oracle: {
 						kind: "specification",

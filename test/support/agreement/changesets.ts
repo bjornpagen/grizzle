@@ -60,11 +60,13 @@ import {
 	Work,
 	Writer
 } from "#test/support/agreement/changeset-schema.ts"
+import { nonEmpty } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { messageOf } from "#test/support/message.ts"
 import { refinedMember } from "#test/support/oracle/refinement.ts"
 import { checking } from "#test/support/policy.ts"
 import { type PreludeAt, preludeAt, preludeFrom, preludeProgram } from "#test/support/prelude.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /**
  * The ChangeSet population: ChangeSets drawn over Work (./changeset-schema.ts), each read twice, as TypeScript source
@@ -1009,8 +1011,7 @@ const familyValue = (lit: Lit): FamilyValue => ({ kind: "value", lit })
 const nestedRows = (rows: ReadonlyArray<FamilyFact>): FamilyValue => ({ kind: "rows", rows })
 
 /** The ordinals 1 to `count`, none when it is 0. */
-const ordinals = (count: number): ReadonlyArray<number> =>
-	Arr.filter(Arr.range(1, Math.max(count, 1)), (i) => i <= count)
+const ordinals = (count: number): ReadonlyArray<number> => upTo(count, (i) => i + 1)
 const labels: Arr.NonEmptyReadonlyArray<Lit> = [
 	{ text: "0", value: 0 },
 	{ text: "1", value: 1 }
@@ -1219,15 +1220,21 @@ const familyMemberOf = (d: Drawing, clean: boolean): MemberSpec => {
 				: (["insert", "delete", "put"] as const)
 	)
 	const owner = d.from(uuids)
-	const facts = Arr.map(Arr.range(1, d.from([1, 2])), (i): FamilyFact => {
-		if (relation === "Item" || relation === "Chip") {
-			d.note("a counted member")
-			return countedFact(owner, i - 1)
-		}
-		return (relation === "Order" || relation === "Cart") && op === "insert"
-			? orderOf(d, i - 1, undefined)
-			: [["id", familyValue(Arr.getUnsafe(uuids, (i - 1) % uuids.length))]]
-	})
+	const facts = nonEmpty(
+		Arr.map(
+			upTo(d.from([1, 2]), (i) => i + 1),
+			(i): FamilyFact => {
+				if (relation === "Item" || relation === "Chip") {
+					d.note("a counted member")
+					return countedFact(owner, i - 1)
+				}
+				return (relation === "Order" || relation === "Cart") && op === "insert"
+					? orderOf(d, i - 1, undefined)
+					: [["id", familyValue(Arr.getUnsafe(uuids, (i - 1) % uuids.length))]]
+			}
+		),
+		"a write holds one or two facts"
+	)
 	const written: Arr.NonEmptyReadonlyArray<FamilyFact> = [
 		Arr.headNonEmpty(facts),
 		...facts.slice(1)
@@ -2583,24 +2590,40 @@ type ArraySpec =
 	  }
 	| Extract<Part, { readonly kind: "family" }>
 
-/** A part an array member writes, with the level of the ChangeSet it is a member of, and that member. */
+/**
+ * A part an array member writes, with the level of the ChangeSet it is a member of, that member, and its stratum's
+ * position: one for each stratum before it.
+ */
 interface ArrayPart {
 	readonly level: Level
 	readonly member: MemberSpec
 	readonly part: ArraySpec
+	readonly position: number
 }
+
+/**
+ * Each built ChangeSet of c with its stratum's position, from `at`: a union aligns its arguments' strata, and a
+ * sequence puts the second's after every stratum of the first.
+ */
+const positionedBuilts = (c: ChangeSpec, at: number): ReadonlyArray<readonly [BuiltSpec, number]> =>
+	c.kind === "built"
+		? [[c, at]]
+		: [
+				...positionedBuilts(c.a, at),
+				...positionedBuilts(c.b, c.kind === "union" ? at : at + strataOf(c.a).length)
+			]
 
 /** The parts of a ChangeSet's array members in its members' order: an appended member's two, every other one's own. */
 const arrayPartsOf = (c: ChangeSpec): ReadonlyArray<ArrayPart> =>
-	Arr.flatMap(builtsOf(c), (b) =>
+	Arr.flatMap(positionedBuilts(c, 0), ([b, position]) =>
 		Arr.flatMap(b.members, (member) =>
 			Arr.flatMap(
 				member.kind === "appended" ? insertParts(member) : [member],
 				(part): ReadonlyArray<ArrayPart> =>
 					part.kind === "family"
-						? [{ level: b.level, member, part }]
+						? [{ level: b.level, member, part, position }]
 						: part.kind === "array" || part.kind === "widened"
-							? [{ level: b.level, member, part: { ...part, kind: part.kind } }]
+							? [{ level: b.level, member, part: { ...part, kind: part.kind }, position }]
 							: []
 			)
 		)
@@ -3190,16 +3213,28 @@ const blockOf = (c: ChangeSetCase, i: number): string => {
 		v.kind === "admitted"
 			? [
 					`export type F${i} = [Expect<Equals<keyof ArraysOf<typeof c${i}>, ${unionOf(Arr.dedupe(Arr.map(v.admitted.arrays, (a) => a.op)))}>>, Expect<Equals<keyof InputOf<typeof c${i}>["facts"], ${unionOf(Arr.dedupe(Arr.map(v.admitted.arrays, (a) => a.op)))}>>${Arr.join(
-						Arr.flatMap(c.served.length === 0 ? [] : arrayGroupsOf(c.spec.change), (g) =>
-							Arr.flatMap(g.relations, ([relation, parts]) => {
-								const { level } = Arr.headNonEmpty(parts)
-								return Arr.every(parts, (p) => p.level === level)
-									? [
-											`, Expect<Equals<ArraysOf<typeof c${i}>[${jsonText(g.op)}][${jsonText(relation)}]["row"], ${g.op === "insert" ? `AdditionIn<typeof ${level}, typeof ${relation}>` : `Written<typeof ${relation}>`}>>`
-										]
-									: []
+						Arr.flatMap(c.served.length === 0 ? [] : arrayGroupsOf(c.spec.change), (g) => [
+							`, Expect<Equals<keyof ArraysOf<typeof c${i}>[${jsonText(g.op)}], ${unionOf(Arr.map(g.relations, ([relation]) => relation))}>>`,
+							...Arr.flatMap(g.relations, ([relation, parts]) => {
+								const entry = `ArraysOf<typeof c${i}>[${jsonText(g.op)}][${jsonText(relation)}]`
+								const rows = Arr.dedupe(
+									Arr.map(parts, (p) =>
+										g.op === "insert"
+											? `AdditionIn<typeof ${p.level}, typeof ${relation}>`
+											: `Written<typeof ${relation}>`
+									)
+								)
+								const { position } = Arr.headNonEmpty(parts)
+								return [
+									`, Expect<Equals<keyof ${entry}, "relation" | "row" | "at">>`,
+									`, Expect<Equals<${entry}["relation"], typeof ${relation}>>`,
+									`, Expect<Equals<${entry}["row"], ${Arr.join(rows, " & ")}>>`,
+									...(Arr.every(parts, (p) => p.position === position)
+										? [`, Expect<Equals<${entry}["at"]["length"], ${position}>>`]
+										: [])
+								]
 							})
-						),
+						]),
 						""
 					)}]`,
 					...Arr.flatMap(c.served, (call, k) => [

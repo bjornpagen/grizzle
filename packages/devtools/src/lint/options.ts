@@ -90,8 +90,7 @@ const SearchSpace = Schema.Struct({
 
 /**
  * What a generator draws, for no-case-list: the members of the list it is handed (`element`), the one value it is
- * handed (`constant`), one value for each value of the generator it is handed (`map`, `span`, `filter`, `drawn`,
- * `sketched`), or a value of one of the generators it is handed (`oneOf`, `weighted`, `proportional`).
+ * handed (`constant`), one value for each value of the generator it is handed (`map`, `span`, `drawn`, `sketched`), or a value of one of the generators it is handed (`oneOf`, `weighted`, `proportional`).
  */
 const Draws = Schema.Literals(["list", "value", "each", "union"])
 
@@ -444,7 +443,7 @@ export const FIXTURE_OPTIONS: SuperlintOptions = {
 			{ module: "no-case-list/testing.ts", names: ["constant"], draws: "value" },
 			{
 				module: "no-case-list/testing.ts",
-				names: ["map", "span", "filter", "drawn", "sketched"],
+				names: ["map", "span", "drawn", "sketched"],
 				draws: "each"
 			},
 			{ module: "no-case-list/testing.ts", names: ["oneOf", "weighted"], draws: "union" }

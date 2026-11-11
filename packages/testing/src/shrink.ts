@@ -22,7 +22,7 @@ export type Failing<X> = Readonly<{ tape: Tape; failure: X }>
 
 /**
  * One run of a candidate, with the tape it really drew: it still fails, with what the caller reports of the failure,
- * or it holds. A candidate that gave itself up never ran its property, so it holds. A candidate is cut when its
+ * or it holds. A candidate is cut when its
  * caller's deadline arrived before it ended, so shrinking ends there with the smallest failing case so far.
  */
 export type Attempt<X> =
@@ -371,13 +371,11 @@ export const shrink = <A, R>(
 			{ tape: failing.tape, failure: failing.value },
 			(values): Effect.Effect<Attempt<A>, never, R> => {
 				const candidate = generate(recorded, generator, forcedChooser(values, values.length))
-				return candidate.tape.status === "discarded"
-					? Effect.succeed({ kind: "holds", tape: candidate.tape })
-					: Effect.map(stillFails(candidate.value), (fails): Attempt<A> =>
-							fails
-								? { kind: "fails", tape: candidate.tape, failure: candidate.value }
-								: { kind: "holds", tape: candidate.tape }
-						)
+				return Effect.map(stillFails(candidate.value), (fails): Attempt<A> =>
+					fails
+						? { kind: "fails", tape: candidate.tape, failure: candidate.value }
+						: { kind: "holds", tape: candidate.tape }
+				)
 			},
 			budget
 		)

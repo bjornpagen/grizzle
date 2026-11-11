@@ -76,7 +76,7 @@ const Guarded = schema("Guarded", { Team, Member, Note, Tag }, [
 ])
 
 /** The full world every write of the writer runs in: its role holds every relation whole and writes them. */
-const world = fullWorld(Guarded, {})
+const world = Object.freeze(fullWorld(Guarded, {}))
 
 /**
  * A table of the box: its relation, whether it is mutable, whether a law reads it, its fields in heading order, the
@@ -167,7 +167,7 @@ const statements = [
 	"select"
 ] as const
 type Statement = (typeof statements)[number]
-const writes = Arr.filter(statements, (s) => s !== "select")
+const writes = Object.freeze(Arr.filter(statements, (s) => s !== "select"))
 
 /**
  * A point of the box: a level, an actor and a statement, over a table, the level outermost, and for a write whether its
@@ -402,7 +402,6 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 								suite: "pg/direct-writers/isolation",
 								generator: box,
 								literal: Formatter.format,
-								limit: levels.length * actors.length * (2 * writes.length + 1) * tables.length,
 								coverage: requiredInSpace<IsolationFeature>(situations),
 								caseHang
 							},

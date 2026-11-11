@@ -144,7 +144,6 @@ describe("sub-queries carried across a stratum's statements", () => {
 						suite: "unit/lower/shapes/share-statements/carried",
 						literal: Formatter.format,
 						generator: int(1, 4),
-						limit: 4,
 						coverage: requiredInSpace<"carried" | "inline">(["carried", "inline"]),
 						caseHang
 					},
@@ -183,7 +182,6 @@ describe("sub-queries repeated inside one statement", () => {
 					suite: "unit/lower/shapes/share-statements/ctes",
 					literal: Formatter.format,
 					generator: int(1, 4),
-					limit: 4,
 					coverage: requiredInSpace<"shared" | "inline">(["shared", "inline"]),
 					caseHang
 				},
@@ -289,7 +287,6 @@ describe("attachment parts fed from an earlier one", () => {
 							const count = source.draw(int(1, 3))
 							return upTo(count, () => source.draw(int(0, 2)))
 						},
-						limit: 39,
 						coverage: requiredInSpace<"fed" | "sent">(["fed", "sent"]),
 						caseHang
 					},

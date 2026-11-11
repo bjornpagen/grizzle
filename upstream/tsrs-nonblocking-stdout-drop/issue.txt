@@ -1,0 +1,18 @@
+DRAFT: issue for github.com/oxc-project/tsrs. Not filed.
+
+Title: Diagnostics are dropped when stdout is a non-blocking pipe (tsc waits)
+
+tsrs prints diagnostics through a BufWriter over std::io::Stdout (crates/tsrs_execute/src/sys.rs). When stdout's open
+file description is O_NONBLOCK, a write into a full pipe fails with WouldBlock, and OsSys::write ignores every error
+but EPIPE, so the rest of the output is lost. tsc does not lose it: Go's os.Stdout waits on a non-blocking descriptor
+through the runtime poller.
+
+A child inherits O_NONBLOCK from a parent that set it before exec, for example a Node launcher that read
+process.stdout and then called process.execve (Node keeps piped stdio non-blocking on macOS).
+
+Reproduction (needs a tsrs binary and python3): repro.sh writes a project with 4,000 errors and checks it with stdout
+set O_NONBLOCK into a reader that starts a second late. On main (7148fb4): 3,204, 2,804 and 3,227 of 4,000 lines on
+three runs; into a plain pipe, 4,000. The exit status is 2 in every run.
+
+A fix that keeps tsc's behaviour: write through a Write that, on WouldBlock, polls the descriptor for POLLOUT and
+retries (patch attached, 0001-fix-execute-wait-on-a-non-blocking-stdout-instead-of.patch, fmt and clippy clean).

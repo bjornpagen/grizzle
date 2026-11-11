@@ -729,7 +729,6 @@ describe("a rule over a query", () => {
 						suite: "unit/analysis/theory/rule-query",
 						generator: ruleCase,
 						literal: Formatter.format,
-						limit: 500,
 						box: "every containment into, containment out of and check over a derived relation of Item, the check named apart or as a check of Item, read itself or through a semijoin binding its id by a variable or a literal, whose definition binds kind, a joined Mark's id and on, and a negated Mark's on each by a variable or a literal",
 						oracle: {
 							kind: "specification",
@@ -792,7 +791,6 @@ describe("a rule over a query", () => {
 						suite: "unit/analysis/theory/rule-query/text",
 						generator: textCase,
 						literal: Formatter.format,
-						limit: 100,
 						box: "every containment into and out of Doc's paths, read itself or through a semijoin, against a Ref path of Doc's, a narrower or a wider pattern, the paths negating a Note path of each pattern or none",
 						oracle: {
 							kind: "specification",
@@ -838,7 +836,6 @@ describe("a rule over a query", () => {
 						suite: "unit/analysis/theory/rule-query/head",
 						generator: tagCase,
 						literal: Formatter.format,
-						limit: tagLiterals.length * taggings.length * tagReads.length * tagRules.length,
 						box: "every check, key and selection over, and containment into, on its pair or its id alone, a derived relation of Item whose two arms deliver a text or Decimal head literal, the Decimal finite, NaN, an infinity, or one past numeric(p, s)'s greatest precision or scale, one in both or a discriminant, and over its semijoin binding it by a variable a stored match binds, a literal, or a variable only its head literal defines",
 						oracle: {
 							kind: "specification",
@@ -894,7 +891,6 @@ describe("a rule over a query", () => {
 						suite: "unit/analysis/theory/rule-query/negated",
 						generator: negationCase,
 						literal: Formatter.format,
-						limit: 500,
 						box: "every containment into and out of, check over and key over a derived relation of Item, read itself or through a semijoin, whose definition negates Mark, a join of Mark and Note, their union, the join derived, a query that aggregates or one that negates, alone, in a conjunction or in a conjunction nested in one, binding Mark's on by a literal or not at all",
 						oracle: {
 							kind: "specification",

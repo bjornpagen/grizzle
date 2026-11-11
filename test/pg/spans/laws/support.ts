@@ -59,7 +59,7 @@ export const installSpans = (
 			return yield* Effect.die(new Error(`compile: ${compiled.error.message}`))
 		}
 		const installation = compiled.value
-		yield* transaction(substrate.admin, installationSql(installation))
+		yield* transaction(substrate.admin, installationSql(installation, substrate.database))
 		const writer = yield* oracleWorld(installation)
 		const names = installationNamesOf(installation)
 		const q = quoteIdent(schema)

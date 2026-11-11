@@ -352,7 +352,6 @@ describe("a slotted closed relation's planned constants", () => {
 					box: "every count relation of 4 owners, each holding no row or counting 0 to 2 slots, under 3 slotted shapes",
 					generator: declarations,
 					literal: Formatter.format,
-					limit: 768,
 					coverage: requiredInSpace<Planned>([
 						"an owner with no row",
 						"an owner counting no slot",

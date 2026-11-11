@@ -7,9 +7,12 @@
  * linearly, exactly (test/support/growth.ts incrementsDoNotGrow): the second step adds no more than the first, so no
  * unit costs more for the units before it. Oracle: the compiler's own counts, compared step against step.
  *
- * Plant (~/.cache/grizzle-release/BR14/plants): query-scale-quadratic.patch finds a match's relation among its
+ * Plants (~/.cache/grizzle-release/BR14/plants): query-scale-quadratic.patch finds a match's relation among its
  * schema's by mapping over every relation of the schema for each relation matched, a cost per rule that grows with the
- * relations.
+ * relations. (~/.cache/grizzle-release/TYPECOST/plants): match-schema-union.patch holds a matched relation against the
+ * union of every relation of its schema, which the source's intersection distributes over; arrays-relation-held.patch
+ * holds a ChangeSet's array member by its relation rather than its name, and arrays-member-deferred.patch builds the
+ * member as a type reference the checker defers, each of which every later call of the chain instantiates again.
  */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"

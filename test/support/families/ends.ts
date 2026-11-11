@@ -59,6 +59,7 @@ import {
 import type { FieldBase, GeneratedField } from "#compiler/types/fields/field.ts"
 import type { AnyRelation, AnyRoster } from "#compiler/types/schema/relation.ts"
 import { assert, defined, nonEmpty } from "#test/support/assert.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /** The family kinds a fold folds. */
 export type FamilyKind = "counted" | "ordered" | "tree"
@@ -100,7 +101,7 @@ const planeKinds: Arr.NonEmptyReadonlyArray<PlaneKind> = [
 
 /** The handles of the roster of `width` codes, h0 to h(width - 1). */
 const setHandles = (width: number): Arr.NonEmptyReadonlyArray<string> =>
-	nonEmpty(Arr.map(Arr.range(0, width - 1), (c) => `h${c}`))
+	nonEmpty(upTo(width, (c) => `h${c}`))
 
 /** The handles of the closed id's roster, k0 to k3, in code order. */
 const codeHandles: Arr.NonEmptyReadonlyArray<string> = ["k0", "k1", "k2", "k3"]
@@ -271,7 +272,7 @@ const cellsOf = (kind: FamilyKind): ReadonlyArray<Arr.NonEmptyReadonlyArray<Cell
 				Arr.map(refines(monoid, p) ? [false, true] : [false], (refined): Cell => {
 					const key = refined ? `${planeLabel(p)}_refined` : planeLabel(p)
 					const label = `${monoid}_${key}`
-					const planes = Arr.range(0, spec.planes - 1)
+					const planes = upTo(spec.planes, (i) => i)
 					return {
 						monoid,
 						plane: p,

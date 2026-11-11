@@ -277,8 +277,6 @@ describe("Compute builders", () => {
 						})
 					]),
 					literal: Formatter.format,
-					limit:
-						4 * operands.length * operands.length + firsts.length * others.length + 3 * 3 * 2 * 2,
 					coverage: requiredInSpace<BuilderFeature>([
 						"binary add typed",
 						"binary add refused",

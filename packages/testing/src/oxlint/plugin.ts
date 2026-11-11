@@ -6,6 +6,7 @@ import { noClampedCount } from "#oxlint/rules/no-clamped-count.ts"
 import { noErrorProse } from "#oxlint/rules/no-error-prose.ts"
 import { noExampleTable } from "#oxlint/rules/no-example-table.ts"
 import { noFixedSeed } from "#oxlint/rules/no-fixed-seed.ts"
+import { noImplicitWeight } from "#oxlint/rules/no-implicit-weight.ts"
 import { noOrderedUnordered } from "#oxlint/rules/no-ordered-unordered.ts"
 import { noRetryOrConcurrency } from "#oxlint/rules/no-retry-or-concurrency.ts"
 import { noSerializedComparison } from "#oxlint/rules/no-serialized-comparison.ts"
@@ -19,6 +20,7 @@ const RULES = {
 	"no-error-prose": noErrorProse,
 	"no-example-table": noExampleTable,
 	"no-fixed-seed": noFixedSeed,
+	"no-implicit-weight": noImplicitWeight,
 	"no-ordered-unordered": noOrderedUnordered,
 	"no-retry-or-concurrency": noRetryOrConcurrency,
 	"no-serialized-comparison": noSerializedComparison,
@@ -102,6 +104,21 @@ export const TEST_RULES: DummyRuleMap = {
 	),
 	...VITEST_RULES
 }
+
+/**
+ * The plugin's rules whose shape is wrong wherever it is written, so every file of a repository is held to them, not
+ * its tests alone: its test support, its testing library, its scripts and its product code. A clamped count builds one
+ * item where a count says none in product code as in a test, and a repeated option is an unstated weight in any draw.
+ */
+const EVERY_FILE: ReadonlyArray<keyof typeof RULES> = ["no-clamped-count", "no-implicit-weight"]
+
+/** What a repository holds every file to: the plugin's every-file rules at error, under the name the plugin loads as. */
+export const EVERY_FILE_RULES: DummyRuleMap = Record.fromEntries(
+	Arr.map(EVERY_FILE, (rule): readonly [string, "error"] => [
+		`${plugin.meta.name}/${rule}`,
+		"error"
+	])
+)
 
 /** The plugin's rule that refuses a read of the current time. */
 const CLOCK_RULE: keyof typeof RULES = "no-wall-clock-verdict"

@@ -144,7 +144,6 @@ describe("snapshot.json", () => {
 						suite: "unit/deploy/snapshot-levels",
 						generator: caseGen,
 						literal: Formatter.format,
-						limit: literals.length * placements.length,
 						box: "a key over a side selected by a literal of each field kind, stated at the root or at a level above it",
 						oracle: {
 							kind: "specification",

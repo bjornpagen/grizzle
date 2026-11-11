@@ -62,7 +62,6 @@ import {
 	endedBy,
 	type EndFeature,
 	endGen,
-	ends,
 	mutated,
 	refusedAtCommitBy,
 	type Seat,
@@ -79,11 +78,9 @@ import {
 	Trees
 } from "#test/pg/fin/tree.ts"
 import {
-	checkedCases,
 	checkedGen,
 	forestBox,
 	forestsOf,
-	fullCases,
 	fullGen,
 	isP3,
 	type MutationKind,
@@ -92,7 +89,6 @@ import {
 	canonical,
 	predicted as gtPredicted,
 	RFC,
-	shapeCases,
 	shapeGen,
 	shapesBetween,
 	statementsOf,
@@ -481,7 +477,6 @@ layer(Substrate.layer)(
 								suite: "fin/tree-states",
 								generator: fullGen(shapes),
 								literal: Formatter.format,
-								limit: fullCases(shapes) * ends.length,
 								box: "every state of one or two rows: every shape with at most two self-parented rows, every assignment of two root values up to swapping them, each row's at, children and start over [0, N] and end over [0, N + 1], the copies the host's, each case ended by a real COMMIT and by the checked end",
 								oracle: THEOREM_ORACLE,
 								coverage: requiredInSpace<StateFeature>([
@@ -530,7 +525,6 @@ layer(Substrate.layer)(
 								suite: "fin/tree-shapes",
 								generator: shapeGen(shapes),
 								literal: Formatter.format,
-								limit: shapeCases(shapes) * ends.length,
 								box: "every forest shape of one to three rows with at most two self-parented rows and every assignment of two root values, up to relabelling and swapping the values, each row's start in [0, N) and end in [1, N], the family and copies the host's, each case ended by a real COMMIT and by the checked end",
 								oracle: THEOREM_ORACLE,
 								coverage: requiredInSpace<StateFeature>([
@@ -585,7 +579,6 @@ layer(Substrate.layer)(
 								suite: "fin/tree-checked",
 								generator: checkedGen(placements),
 								literal: Formatter.format,
-								limit: Arr.reduce(placements, 0, (sum, p) => sum + checkedCases(p)) * ends.length,
 								box: "every shape of four and five rows with one or two self-parented rows and every assignment of two root values, and of six rows with one root value, up to relabelling, with every start placement T1, T2 and T3 pass and every end T6 passes, the family and copies the host's, each case ended by a real COMMIT and by the checked end",
 								oracle: THEOREM_ORACLE,
 								coverage: requiredInSpace<StateFeature>([
@@ -632,7 +625,6 @@ layer(Substrate.layer)(
 								suite: "fin/tree-mutations",
 								generator: element(mutations),
 								literal: Formatter.format,
-								limit: mutations.length * ends.length,
 								box: "every single mutation of every tree of at most six rows and of every forest of two trees of at most six rows in all, each named (test/pg/substrate/tree.ts mutationsOf), written from no rows in one INSERT, each case ended by a real COMMIT and by the checked end",
 								oracle: THEOREM_ORACLE,
 								coverage: requiredInSpace<StateFeature | MutationFeature>([
@@ -698,12 +690,6 @@ layer(Substrate.layer)(
 								suite: "fin/tree-writes",
 								generator: writeGen(forests),
 								literal: Formatter.format,
-								limit:
-									Arr.reduce(
-										forests,
-										0,
-										(sum, f) => sum + factorial(f.length) + 2 * 2 ** (f.length - 1)
-									) * ends.length,
 								box: "every tree and forest of two trees of at most six rows: every order of its rows in one INSERT, and every split of its pre-order and of its reverse pre-order into consecutive INSERTs, each case ended by a real COMMIT and by the checked end",
 								oracle: THEOREM_ORACLE,
 								coverage: requiredInSpace<StateFeature | WriteFeature>([

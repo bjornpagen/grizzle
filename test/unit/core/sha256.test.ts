@@ -96,7 +96,7 @@ const utf16: Gen<string> = map(
 	(units) => Arr.join(units, "")
 )
 
-const steered = { cases: 200, sense: notesOnly }
+const steered = Object.freeze({ cases: 200, sense: notesOnly })
 
 describe("utf8", () => {
 	it.effect(

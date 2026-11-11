@@ -192,7 +192,7 @@ const blobs = query(Blobs).rule((r) => {
  * The full world's workload: shelves and bytes values written with the facts each call gives; every value read back,
  * and in descending id order; each shelf with its values attached; and a shelf's values deleted, the shelf a parameter.
  */
-const programs = {
+const programs = Object.freeze({
 	shelve: ChangeSet.empty(Blobs).insert(Shelf, []),
 	store: ChangeSet.empty(Blobs).insert(Blob, []),
 	blobs,
@@ -221,7 +221,7 @@ const programs = {
 				.find({ id, shelf, body })
 		})
 	)
-}
+})
 
 /** Whether two bytes values hold the same bytes. */
 const sameBytes = (x: Uint8Array, y: Uint8Array): boolean =>
