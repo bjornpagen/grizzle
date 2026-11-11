@@ -101,7 +101,12 @@ const installedJson = (tables: ReadonlyArray<TableDraw>): Json =>
 type Read =
 	| { readonly kind: "none" }
 	| { readonly kind: "scan"; readonly schema: number; readonly table: number }
-	| { readonly kind: "index"; readonly schema: number; readonly table: number; readonly index: number }
+	| {
+			readonly kind: "index"
+			readonly schema: number
+			readonly table: number
+			readonly index: number
+	  }
 	| {
 			readonly kind: "heap"
 			readonly schema: number
@@ -269,7 +274,10 @@ const bitmapsJson = (read: Read, bitmap: Estimates): ReadonlyArray<Json> =>
 
 /** The node as PostgreSQL prints it: its members, the dropped ones among them, "Plans" only when it has children. */
 const printed = (node: Node, bitmap: Estimates): Json => {
-	const plans = [...bitmapsJson(node.read, bitmap), ...Arr.map(node.children, (c) => printed(c, bitmap))]
+	const plans = [
+		...bitmapsJson(node.read, bitmap),
+		...Arr.map(node.children, (c) => printed(c, bitmap))
+	]
 	return {
 		...Rec.fromEntries(node.dropped),
 		...estimatesJson(node),
@@ -281,7 +289,9 @@ const printed = (node: Node, bitmap: Estimates): Json => {
 
 /** The table at `schema`, `table` the file names, if it names one. */
 const tableAt = (c: Case, schema: number, table: number): TableDraw | undefined =>
-	Arr.findFirst(c.tables, (t) => t.schema === schema && t.table === table).pipe(Option.getOrUndefined)
+	Arr.findFirst(c.tables, (t) => t.schema === schema && t.table === table).pipe(
+		Option.getOrUndefined
+	)
 
 /** The index `index` of `table` as a target, if the table holds it. */
 const indexTarget = (table: TableDraw, index: number): PlanTarget | undefined =>
@@ -422,7 +432,10 @@ describe("EXPLAIN (FORMAT JSON, VERBOSE) decoding", () => {
 									k.note("a table read whole")
 								}
 								if (
-									Arr.some(plans(expected), (p) => p.node !== "Bitmap Index Scan" && p.on.kind === "index")
+									Arr.some(
+										plans(expected),
+										(p) => p.node !== "Bitmap Index Scan" && p.on.kind === "index"
+									)
 								) {
 									k.note("an index scan")
 								}

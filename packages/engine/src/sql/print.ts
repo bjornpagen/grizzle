@@ -11,6 +11,7 @@ import { BlockLines, CommentedLines, inlineText, type Lines, textOf } from "#com
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
+import { temporarySchema } from "#compiler/core/temporary.ts"
 import {
 	type AlterDomainAction,
 	type AlterRoleAction,
@@ -69,7 +70,6 @@ import {
 	type TriggerEvent,
 	type TypeRef,
 	tableConstraints,
-	temporarySchema,
 	type Update,
 	type Using,
 	type WindowSpec,

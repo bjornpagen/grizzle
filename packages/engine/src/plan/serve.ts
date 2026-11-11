@@ -25,22 +25,25 @@ export {
 	snapshotFingerprint
 } from "#compiler/deploy/snapshot/build.ts"
 export {
-	type IndexReasons,
+	type InstalledIndexes,
 	servedSnapshot,
-	snapshotIndexReasons
+	snapshotIndexes
 } from "#compiler/deploy/snapshot/served.ts"
 export { rosterCodebook } from "#compiler/ir/codes.ts"
 export {
 	type CompileFacts,
 	type DeploySnapshot,
-	type InstalledNames,
-	type InstalledTable,
+	type IndexKeyColumn,
+	type LawColumnHolds,
 	manifestFileName,
 	type ServedSnapshot,
 	type SnapshotDerived,
 	type SnapshotFiles,
+	snapshotFileName,
+	type SnapshotIndex,
 	type SnapshotLevel,
-	snapshotFileName
+	type SnapshotTable,
+	type SnapshotTables
 } from "#compiler/deploy/snapshot/types.ts"
 export { ledgerTableName } from "#compiler/physical/ddl/ledger.ts"
 export {

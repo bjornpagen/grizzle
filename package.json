@@ -580,6 +580,7 @@
 					"files": [
 						"test/types/api/access.test.ts",
 						"test/types/api/config.test.ts",
+						"test/types/api/handle.test.ts",
 						"test/types/api/recursion.test.ts",
 						"test/types/api/surface.test.ts",
 						"test/types/api/untyped.test.ts",

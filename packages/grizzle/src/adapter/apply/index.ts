@@ -54,7 +54,7 @@ export type { CompiledChange } from "#adapter/apply/compile.ts"
  * layout of the read-backs' Row (readback.ts); a binding it refuses fails the apply as a ChangeSet that does not
  * compile.
  */
-export { compileFailure, hostInputs, valuesFailure } from "#adapter/apply/run.ts"
+export { compileFailure } from "#adapter/apply/run.ts"
 
 /**
  * A compiled ChangeSet handle, which the public Compiled<S, X, Reads> wraps (types/db): its apply takes the parameters

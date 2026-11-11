@@ -91,10 +91,13 @@ const unservedExplain = (): Effect.Effect<never, ReadError> =>
 	)
 
 /** A read's explains on a layer compiled in process: each refused (unservedExplain). */
-const unservedReadExplains = { explain: unservedExplain, explainAnalyze: unservedExplain }
+const unservedReadExplains = Object.freeze({
+	explain: unservedExplain,
+	explainAnalyze: unservedExplain
+})
 
 /** A change's explain on a layer compiled in process: refused (unservedExplain). */
-const unservedChangeExplain = { explain: unservedExplain }
+const unservedChangeExplain = Object.freeze({ explain: unservedExplain })
 
 /**
  * The record of a Db's workload handles: each program the layer compiled for the Db's role, under its name, its

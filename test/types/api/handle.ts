@@ -123,7 +123,10 @@ export const level = role(Root, "level", wholeEntriesOf(Root))
 export const extension = role(Wider, "extension", wholeEntriesOf(Wider))
 ${Arr.join(
 	Arr.flatMap(kinds, (kind) =>
-		Arr.map([0, 1] as const, (which) => `export const ${memberOf(kind, which)} = ${programsOf[kind][which]}`)
+		Arr.map(
+			[0, 1] as const,
+			(which) => `export const ${memberOf(kind, which)} = ${programsOf[kind][which]}`
+		)
 	),
 	"\n"
 )}

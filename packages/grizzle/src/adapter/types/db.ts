@@ -30,7 +30,6 @@ import type {
 	ParamArg,
 	ParamValue,
 	Phantom,
-	PhysicalReason,
 	ReadsContext,
 	RefreshListOf,
 	Refusal,
@@ -328,8 +327,7 @@ export interface ProgramHandle<X, A> {
  * operations (ProgramHandle), and S, which makes a handle of one Db's program no handle of another schema's.
  */
 export interface Compiled<S, X, A>
-	extends ProgramHandle<X, A>,
-		Phantom<{ readonly schema: Invariant<S> }> {}
+	extends ProgramHandle<X, A>, Phantom<{ readonly schema: Invariant<S> }> {}
 
 /**
  * The records a program's handle delivers, as the program's own type states them (Delivering): a query's rows, a
@@ -494,15 +492,10 @@ export interface QueryResult<Head> {
 }
 
 /**
- * Why the installation holds an index, as its snapshot's manifest records it: a law it serves, by the law's identity
- * (LawId, a RefusedLaw's `id`); the workload's access, the login's programs' and the roles' write filters'; a derived
- * relation's key, by the laws the proof of that key rests on; or the enforcement of a declaration, in words. A plan
- * names an index alone; `indexReasonsOf(snapshot)` on @bjornpagen/grizzle/compile reads each index's reasons from the
- * snapshot.json a caller passes it.
+ * An index a plan node reads through, by its PostgreSQL name, one of its table's within its table's schema. A plan names
+ * an index alone; `indexesOf(snapshot)` on @bjornpagen/grizzle/compile reads its key columns and why the installation
+ * holds it from the snapshot.json a caller passes it.
  */
-export type IndexReason = PhysicalReason
-
-/** An index a plan node reads through, by its PostgreSQL name, one of its table's within its table's schema. */
 export interface PlanIndex {
 	readonly name: string
 }

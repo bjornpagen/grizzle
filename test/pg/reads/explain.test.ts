@@ -503,134 +503,140 @@ const budget = {
 } as const
 
 layer(Substrate.layer)("workload explain", (it) => {
-	it.effect("explains and analyzes a drawn read: its execute's statements, by name and text, read within its footprint", (ctx) =>
-		searched(
-			ctx,
-			Effect.gen(function* () {
-				const o = yield* installed(W.Work, workFacts, {
-					label: "real",
-					extensions: [],
-					programs: {}
-				})
-				const accountTasks = query(W.Work)
-					.rule((r) => {
-						const { id, name } = v(W.Account, "account")
-						return r
-							.match(W.Account, { id, name })
-							.where(r.eq(id, r.param("account", uuid)))
-							.find({ id, name })
+	it.effect(
+		"explains and analyzes a drawn read: its execute's statements, by name and text, read within its footprint",
+		(ctx) =>
+			searched(
+				ctx,
+				Effect.gen(function* () {
+					const o = yield* installed(W.Work, workFacts, {
+						label: "real",
+						extensions: [],
+						programs: {}
 					})
-					.attach(
-						"tasks",
-						(a) =>
-							query(W.Work)
-								.rule((r) => {
-									const { id, kind } = v(W.Task, "task")
-									return r.match(W.Task, { id, account: a.id, kind }).find({ id, kind })
-								})
-								.attach(
-									"note",
-									(t) =>
-										query(W.Work).rule((r) => {
-											const { note } = v(W.TaskNote, "taskNote")
-											return r.match(W.TaskNote, { task: t.id, note }).find({ note })
-										}),
-									"option"
-								),
-						"array"
-					)
-				const indexes = yield* catalogIndexes
-				const tableOf = (relation: string) => o.installed.installation.names.relation(relation)
-				return yield* withServedDb(o.installed, o.server.roles.app, {}, ({ ctx, loadWithTables }) =>
-					Effect.gen(function* () {
-						const { pool, tap } = yield* tappedPool(o.installed.as(o.server))
-						const context = { ...ctx, pool }
-						const programs = {
-							plainRead: W.automaticBudget,
-							union: W.taskPayloads,
-							fused: W.taskCards,
-							nested: accountTasks,
-							relationParameter: W.tasksById
-						}
-						const { members, tables } = yield* loadWithTables(programs)
-						const reads = {
-							"a plain read": { member: "plainRead", params: () => ({}) },
-							"a union": { member: "union", params: () => ({}) },
-							"fused attachments": {
-								member: "fused",
-								params: (pick: number) => ({ account: pick % 2 === 0 ? a1 : a2 })
-							},
-							"nested attachments": {
-								member: "nested",
-								params: (pick: number) => ({ account: pick % 2 === 0 ? a1 : a2 })
-							},
-							"a relation parameter": {
-								member: "relationParameter",
-								params: (pick: number) => ({
-									ids: Arr.map([t2, t4, tMissing].slice(0, pick % 4), (id) => ({ id }))
-								})
-							}
-						} as const
-						return yield* explore(
-							{
-								oracle: {
-									kind: "second-implementation",
-									name: "the execution of the same call on a tapped session: one plan per plannable statement it sent, under its name, over its text; and the catalog's indexes of the footprint's tables"
-								},
-								...budget,
-								suite: "reads/explain queries",
-								draw: drawn(queryCaseGen),
-								kept: [],
-								runs: 20,
-								coverage: required<QueryFeature>(queryFeatures, { cases: 20, sense: notesOnly })
-							},
-							(c, notes) =>
-								Effect.gen(function* () {
-									const read = reads[c.read]
-									const params = read.params(c.pick)
-									const program = member(members, read.member)
-									const explains = readExplains(memberExplains(context, tables, program))
-									const plans = yield* observe(tap, explains.explain(params))
-									const analyzed = yield* observe(tap, explains.explainAnalyze(params))
-									const executed = yield* observe(
-										tap,
-										Effect.flatMap(
-											memberOps(context, program).ops.execute(params),
-											(result) => result.collect
-										)
-									)
-									const sent = plannedStatements(tap, executed.window, context.prologue)
-									ofTheServed(
-										plans.value,
-										sent,
-										plannedStatements(tap, plans.window, context.prologue),
-										estimating
-									)
-									ofTheServed(
-										analyzed.value,
-										sent,
-										plannedStatements(tap, analyzed.window, context.prologue),
-										analyzing
-									)
-									const footprint = footprintOf(programs[read.member])
-									for (const plan of plans.value) {
-										estimateOnly(plan.plan)
-										readsWithin(plan.plan, footprint, tableOf, indexes)
-									}
-									for (const plan of analyzed.value) {
-										executedShape(plan.plan)
-										assert.ok(
-											Number.isFinite(plan.planningMs) && Number.isFinite(plan.executionMs),
-											"an analyzed statement's times"
-										)
-									}
-									notes.note(c.read)
-								})
+					const accountTasks = query(W.Work)
+						.rule((r) => {
+							const { id, name } = v(W.Account, "account")
+							return r
+								.match(W.Account, { id, name })
+								.where(r.eq(id, r.param("account", uuid)))
+								.find({ id, name })
+						})
+						.attach(
+							"tasks",
+							(a) =>
+								query(W.Work)
+									.rule((r) => {
+										const { id, kind } = v(W.Task, "task")
+										return r.match(W.Task, { id, account: a.id, kind }).find({ id, kind })
+									})
+									.attach(
+										"note",
+										(t) =>
+											query(W.Work).rule((r) => {
+												const { note } = v(W.TaskNote, "taskNote")
+												return r.match(W.TaskNote, { task: t.id, note }).find({ note })
+											}),
+										"option"
+									),
+							"array"
 						)
-					})
-				)
-			}).pipe(Effect.scoped)
-		)
+					const indexes = yield* catalogIndexes
+					const tableOf = (relation: string) => o.installed.installation.names.relation(relation)
+					return yield* withServedDb(
+						o.installed,
+						o.server.roles.app,
+						{},
+						({ ctx, loadWithTables }) =>
+							Effect.gen(function* () {
+								const { pool, tap } = yield* tappedPool(o.installed.as(o.server))
+								const context = { ...ctx, pool }
+								const programs = {
+									plainRead: W.automaticBudget,
+									union: W.taskPayloads,
+									fused: W.taskCards,
+									nested: accountTasks,
+									relationParameter: W.tasksById
+								}
+								const { members, tables } = yield* loadWithTables(programs)
+								const reads = {
+									"a plain read": { member: "plainRead", params: () => ({}) },
+									"a union": { member: "union", params: () => ({}) },
+									"fused attachments": {
+										member: "fused",
+										params: (pick: number) => ({ account: pick % 2 === 0 ? a1 : a2 })
+									},
+									"nested attachments": {
+										member: "nested",
+										params: (pick: number) => ({ account: pick % 2 === 0 ? a1 : a2 })
+									},
+									"a relation parameter": {
+										member: "relationParameter",
+										params: (pick: number) => ({
+											ids: Arr.map([t2, t4, tMissing].slice(0, pick % 4), (id) => ({ id }))
+										})
+									}
+								} as const
+								return yield* explore(
+									{
+										oracle: {
+											kind: "second-implementation",
+											name: "the execution of the same call on a tapped session: one plan per plannable statement it sent, under its name, over its text; and the catalog's indexes of the footprint's tables"
+										},
+										...budget,
+										suite: "reads/explain queries",
+										draw: drawn(queryCaseGen),
+										kept: [],
+										runs: 20,
+										coverage: required<QueryFeature>(queryFeatures, { cases: 20, sense: notesOnly })
+									},
+									(c, notes) =>
+										Effect.gen(function* () {
+											const read = reads[c.read]
+											const params = read.params(c.pick)
+											const program = member(members, read.member)
+											const explains = readExplains(memberExplains(context, tables, program))
+											const plans = yield* observe(tap, explains.explain(params))
+											const analyzed = yield* observe(tap, explains.explainAnalyze(params))
+											const executed = yield* observe(
+												tap,
+												Effect.flatMap(
+													memberOps(context, program).ops.execute(params),
+													(result) => result.collect
+												)
+											)
+											const sent = plannedStatements(tap, executed.window, context.prologue)
+											ofTheServed(
+												plans.value,
+												sent,
+												plannedStatements(tap, plans.window, context.prologue),
+												estimating
+											)
+											ofTheServed(
+												analyzed.value,
+												sent,
+												plannedStatements(tap, analyzed.window, context.prologue),
+												analyzing
+											)
+											const footprint = footprintOf(programs[read.member])
+											for (const plan of plans.value) {
+												estimateOnly(plan.plan)
+												readsWithin(plan.plan, footprint, tableOf, indexes)
+											}
+											for (const plan of analyzed.value) {
+												executedShape(plan.plan)
+												assert.ok(
+													Number.isFinite(plan.planningMs) && Number.isFinite(plan.executionMs),
+													"an analyzed statement's times"
+												)
+											}
+											notes.note(c.read)
+										})
+								)
+							})
+					)
+				}).pipe(Effect.scoped)
+			)
 	)
 
 	it.effect(
@@ -686,197 +692,204 @@ layer(Substrate.layer)("workload explain", (it) => {
 					const tableOf = (relation: string) => o.installed.installation.names.relation(relation)
 					/** The relations every drawn ChangeSet writes and reads back. */
 					const footprint: ReadonlySet<string> = new Set(["Seat", "Item", "Stock"])
-					return yield* withServedDb(o.installed, o.server.roles.app, {}, ({ ctx, loadWithTables }) =>
-						Effect.gen(function* () {
-							const { pool, tap } = yield* tappedPool(o.installed.as(o.server))
-							const context = { ...ctx, pool }
-							return yield* explore(
-								{
-									oracle: {
-										kind: "second-implementation",
-										name: "the application of the same call on a tapped session: one plan per plannable statement it sent, under its name, over its text, and the state before it unchanged by the explain; and the catalog's indexes of the footprint's tables"
+					return yield* withServedDb(
+						o.installed,
+						o.server.roles.app,
+						{},
+						({ ctx, loadWithTables }) =>
+							Effect.gen(function* () {
+								const { pool, tap } = yield* tappedPool(o.installed.as(o.server))
+								const context = { ...ctx, pool }
+								return yield* explore(
+									{
+										oracle: {
+											kind: "second-implementation",
+											name: "the application of the same call on a tapped session: one plan per plannable statement it sent, under its name, over its text, and the state before it unchanged by the explain; and the catalog's indexes of the footprint's tables"
+										},
+										...budget,
+										/** Nothing executed: no fact written, the sequence not advanced. */
+										suite: "reads/explain changesets",
+										draw: drawn(changeCaseGen),
+										kept: [],
+										runs: 40,
+										coverage: required<ChangeFeature>(
+											[
+												"a generated addition",
+												"an insert",
+												"a put",
+												"a delete",
+												"two strata",
+												"a read-back",
+												"a read-back joining a stored relation"
+											],
+											{ cases: 40, sense: notesOnly }
+										)
 									},
-									...budget,
-									/** Nothing executed: no fact written, the sequence not advanced. */
-									suite: "reads/explain changesets",
-									draw: drawn(changeCaseGen),
-									kept: [],
-									runs: 40,
-									coverage: required<ChangeFeature>(
-										[
-											"a generated addition",
-											"an insert",
-											"a put",
-											"a delete",
-											"two strata",
-											"a read-back",
-											"a read-back joining a stored relation"
-										],
-										{ cases: 40, sense: notesOnly }
-									)
-								},
-								(c, notes) =>
-									Effect.gen(function* () {
-										/** A stratum's operations, each kind's facts together. */
-										const strata = Arr.map(c.strata, (ops) => {
-											const seats = Arr.flatMap(ops, (op) =>
-												op.kind === "seat" ? [{ label: defined(labels[op.label]) }] : []
-											)
-											const items = Arr.flatMap(ops, (op) =>
-												op.kind === "item"
-													? [{ id: uuidOf(op.id), label: "bin", qty: BigInt(op.qty) }]
-													: []
-											)
-											const puts = Arr.flatMap(ops, (op) =>
-												op.kind === "put stock"
-													? [
-															{
-																id: uuidOf(op.id),
-																label: defined(labels[op.label]),
-																qty: BigInt(op.qty)
-															}
-														]
-													: []
-											)
-											const deletes = Arr.flatMap(ops, (op) =>
-												op.kind === "delete stock"
-													? [{ id: uuidOf(op.id), label: "old", qty: 0n }]
-													: []
-											)
-											if (seats.length > 0) {
-												notes.note("a generated addition")
+									(c, notes) =>
+										Effect.gen(function* () {
+											/** A stratum's operations, each kind's facts together. */
+											const strata = Arr.map(c.strata, (ops) => {
+												const seats = Arr.flatMap(ops, (op) =>
+													op.kind === "seat" ? [{ label: defined(labels[op.label]) }] : []
+												)
+												const items = Arr.flatMap(ops, (op) =>
+													op.kind === "item"
+														? [{ id: uuidOf(op.id), label: "bin", qty: BigInt(op.qty) }]
+														: []
+												)
+												const puts = Arr.flatMap(ops, (op) =>
+													op.kind === "put stock"
+														? [
+																{
+																	id: uuidOf(op.id),
+																	label: defined(labels[op.label]),
+																	qty: BigInt(op.qty)
+																}
+															]
+														: []
+												)
+												const deletes = Arr.flatMap(ops, (op) =>
+													op.kind === "delete stock"
+														? [{ id: uuidOf(op.id), label: "old", qty: 0n }]
+														: []
+												)
+												if (seats.length > 0) {
+													notes.note("a generated addition")
+												}
+												if (items.length > 0) {
+													notes.note("an insert")
+												}
+												if (puts.length > 0) {
+													notes.note("a put")
+												}
+												if (deletes.length > 0) {
+													notes.note("a delete")
+												}
+												return { seats, items, puts, deletes }
+											})
+											const [first, second] = strata
+											const written = defined(first, "a first stratum")
+											/** The first stratum's array members, each a call's facts. */
+											const firstStratum = ChangeSet.empty(o.schema)
+												.insert(Seat, [])
+												.insert(Item, [])
+												.put(Stock, [])
+												.delete(Stock, [])
+											const sequenced =
+												second === undefined
+													? firstStratum
+													: ChangeSet.sequence(
+															firstStratum,
+															ChangeSet.empty(o.schema)
+																.insert(Seat, seatsFrom)
+																.insert(Item, itemsFrom)
+																.put(Stock, stockFrom("puts"))
+																.delete(Stock, stockFrom("deletes"))
+														)
+											if (second !== undefined) {
+												notes.note("two strata")
 											}
-											if (items.length > 0) {
-												notes.note("an insert")
+											const changes =
+												c.readBack === "none"
+													? sequenced
+													: c.readBack === "stock joined"
+														? sequenced.read("stock", (d) =>
+																query(o.schema).rule((r) => {
+																	const { id, label, qty } = v(Stock, "stock")
+																	return r
+																		.match(d.added(Stock), { id })
+																		.match(Stock, { id, label, qty })
+																		.find({ id, label, qty })
+																})
+															)
+														: sequenced.read("seats", (d) =>
+																query(o.schema)
+																	.rule((r) => {
+																		const { no, label } = v(Seat, "seat")
+																		return r
+																			.match(d.added(Seat), { no, label })
+																			.find({ side: "added", no, label })
+																	})
+																	.rule((r) => {
+																		const { no, label } = v(Seat, "seat")
+																		return r
+																			.match(d.removed(Seat), { no, label })
+																			.find({ side: "removed", no, label })
+																	})
+															)
+											const facts = {
+												insert: { Seat: written.seats, Item: written.items },
+												put: { Stock: written.puts },
+												delete: { Stock: written.deletes }
 											}
-											if (puts.length > 0) {
-												notes.note("a put")
+											const params: ParamMap =
+												second === undefined
+													? {}
+													: {
+															seats: second.seats,
+															items: second.items,
+															puts: second.puts,
+															deletes: second.deletes
+														}
+											const loaded = yield* loadWithTables({ changes })
+											const change = member(loaded.members, "changes")
+											const explains = memberExplains(context, loaded.tables, change)
+											assertVariant(
+												explains,
+												"kind",
+												"facts",
+												"a ChangeSet of array members explains with its call's facts"
+											)
+											const before = yield* state()
+											const plans = yield* observe(tap, explains.explain(facts, params))
+											const after = yield* state()
+											assert.deepEqual(
+												exactValue(after, before),
+												Option.none(),
+												"explain executes nothing"
+											)
+											for (const plan of plans.value) {
+												estimateOnly(plan.plan)
+												readsWithin(plan.plan, footprint, tableOf, indexes)
 											}
-											if (deletes.length > 0) {
-												notes.note("a delete")
+											const ops = memberOps(context, change)
+											assertVariant(
+												ops,
+												"kind",
+												"facts",
+												"a ChangeSet of array members takes its call's facts"
+											)
+											const applied = yield* observe(
+												tap,
+												Effect.result(ops.ops.apply(facts, params))
+											)
+											ofTheServed(
+												plans.value,
+												plannedStatements(tap, applied.window, context.prologue),
+												plannedStatements(tap, plans.window, context.prologue),
+												estimating
+											)
+											if (applied.value._tag === "Failure") {
+												notes.note("a refused apply")
 											}
-											return { seats, items, puts, deletes }
+											if (c.readBack !== "none") {
+												notes.note("a read-back")
+											}
+											if (c.readBack === "stock joined") {
+												/** The empty, analyzed carrier, planned at one row as the apply plans it. */
+												const readBack = defined(plans.value.at(-1), "a read-back plan")
+												nonEmpty(
+													Arr.filter(
+														nodes(readBack.plan),
+														(n) => n.node === "Seq Scan" && n.on.kind === "carrier" && n.rows === 1
+													),
+													"the read-back plans its carrier at one row"
+												)
+												notes.note("a read-back joining a stored relation")
+											}
 										})
-										const [first, second] = strata
-										const written = defined(first, "a first stratum")
-										/** The first stratum's array members, each a call's facts. */
-										const firstStratum = ChangeSet.empty(o.schema)
-											.insert(Seat, [])
-											.insert(Item, [])
-											.put(Stock, [])
-											.delete(Stock, [])
-										const sequenced =
-											second === undefined
-												? firstStratum
-												: ChangeSet.sequence(
-														firstStratum,
-														ChangeSet.empty(o.schema)
-															.insert(Seat, seatsFrom)
-															.insert(Item, itemsFrom)
-															.put(Stock, stockFrom("puts"))
-															.delete(Stock, stockFrom("deletes"))
-													)
-										if (second !== undefined) {
-											notes.note("two strata")
-										}
-										const changes =
-											c.readBack === "none"
-												? sequenced
-												: c.readBack === "stock joined"
-													? sequenced.read("stock", (d) =>
-															query(o.schema).rule((r) => {
-																const { id, label, qty } = v(Stock, "stock")
-																return r
-																	.match(d.added(Stock), { id })
-																	.match(Stock, { id, label, qty })
-																	.find({ id, label, qty })
-															})
-														)
-													: sequenced.read("seats", (d) =>
-															query(o.schema)
-																.rule((r) => {
-																	const { no, label } = v(Seat, "seat")
-																	return r
-																		.match(d.added(Seat), { no, label })
-																		.find({ side: "added", no, label })
-																})
-																.rule((r) => {
-																	const { no, label } = v(Seat, "seat")
-																	return r
-																		.match(d.removed(Seat), { no, label })
-																		.find({ side: "removed", no, label })
-																})
-														)
-										const facts = {
-											insert: { Seat: written.seats, Item: written.items },
-											put: { Stock: written.puts },
-											delete: { Stock: written.deletes }
-										}
-										const params: ParamMap =
-											second === undefined
-												? {}
-												: {
-														seats: second.seats,
-														items: second.items,
-														puts: second.puts,
-														deletes: second.deletes
-													}
-										const loaded = yield* loadWithTables({ changes })
-										const change = member(loaded.members, "changes")
-										const explains = memberExplains(context, loaded.tables, change)
-										assertVariant(
-											explains,
-											"kind",
-											"facts",
-											"a ChangeSet of array members explains with its call's facts"
-										)
-										const before = yield* state()
-										const plans = yield* observe(tap, explains.explain(facts, params))
-										const after = yield* state()
-										assert.deepEqual(
-											exactValue(after, before),
-											Option.none(),
-											"explain executes nothing"
-										)
-										for (const plan of plans.value) {
-											estimateOnly(plan.plan)
-											readsWithin(plan.plan, footprint, tableOf, indexes)
-										}
-										const ops = memberOps(context, change)
-										assertVariant(
-											ops,
-											"kind",
-											"facts",
-											"a ChangeSet of array members takes its call's facts"
-										)
-										const applied = yield* observe(tap, Effect.result(ops.ops.apply(facts, params)))
-										ofTheServed(
-											plans.value,
-											plannedStatements(tap, applied.window, context.prologue),
-											plannedStatements(tap, plans.window, context.prologue),
-											estimating
-										)
-										if (applied.value._tag === "Failure") {
-											notes.note("a refused apply")
-										}
-										if (c.readBack !== "none") {
-											notes.note("a read-back")
-										}
-										if (c.readBack === "stock joined") {
-											/** The empty, analyzed carrier, planned at one row as the apply plans it. */
-											const readBack = defined(plans.value.at(-1), "a read-back plan")
-											nonEmpty(
-												Arr.filter(
-													nodes(readBack.plan),
-													(n) => n.node === "Seq Scan" && n.on.kind === "carrier" && n.rows === 1
-												),
-												"the read-back plans its carrier at one row"
-											)
-											notes.note("a read-back joining a stored relation")
-										}
-									})
-							)
-						})
+								)
+							})
 					)
 				}).pipe(Effect.scoped)
 			)
@@ -1007,80 +1020,86 @@ layer(Substrate.layer)("workload explain", (it) => {
 				ctx,
 				Effect.gen(function* () {
 					const o = yield* installed(Boxes, {}, { label: "boxes", extensions: [], programs: {} })
-					return yield* withServedDb(o.installed, o.server.roles.app, {}, ({ ctx: served, loadWithTables }) =>
-						Effect.gen(function* () {
-							const loaded = yield* loadWithTables({
-								boxes: ChangeSet.empty(o.schema).insert(Box, [])
-							})
-							const boxes = member(loaded.members, "boxes")
-							if (boxes.kind !== "change") {
-								return assert.fail("a ChangeSet loads as a change member")
-							}
-							const limit = explainedTextBound(
-								variantOf(served, boxes.variants).entry.program.flight
-							)
-							const bound = { ...served, pool: boundPool(served.pool, limit) }
-							const handle = memberOps(bound, boxes)
-							if (handle.kind !== "facts") {
-								return assert.fail("a ChangeSet with array members loads as a facts handle")
-							}
-							const explains = memberExplains(bound, loaded.tables, boxes)
-							if (explains.kind !== "facts") {
-								return assert.fail("a ChangeSet with array members explains with its call's facts")
-							}
-							let next = 0
-							return yield* explore(
-								{
-									oracle: {
-										kind: "second-implementation",
-										name: "the application of the same call on the same session, which cuts under its bound"
-									},
-									...budget,
-									suite: "reads/explain session bound",
-									draw: drawn(boundCaseGen),
-									kept: [],
-									runs: 12,
-									coverage: required<BoundFeature>(
-										["a body past the bound", "bodies within the bound"],
-										{ cases: 12, sense: notesOnly }
+					return yield* withServedDb(
+						o.installed,
+						o.server.roles.app,
+						{},
+						({ ctx: served, loadWithTables }) =>
+							Effect.gen(function* () {
+								const loaded = yield* loadWithTables({
+									boxes: ChangeSet.empty(o.schema).insert(Box, [])
+								})
+								const boxes = member(loaded.members, "boxes")
+								if (boxes.kind !== "change") {
+									return assert.fail("a ChangeSet loads as a change member")
+								}
+								const limit = explainedTextBound(
+									variantOf(served, boxes.variants).entry.program.flight
+								)
+								const bound = { ...served, pool: boundPool(served.pool, limit) }
+								const handle = memberOps(bound, boxes)
+								if (handle.kind !== "facts") {
+									return assert.fail("a ChangeSet with array members loads as a facts handle")
+								}
+								const explains = memberExplains(bound, loaded.tables, boxes)
+								if (explains.kind !== "facts") {
+									return assert.fail(
+										"a ChangeSet with array members explains with its call's facts"
 									)
-								},
-								(c, notes) =>
-									Effect.gen(function* () {
-										next += 1
-										const lengths = Arr.map(c.shares, (share) =>
-											Math.floor((limit * share) / boundWhole)
+								}
+								let next = 0
+								return yield* explore(
+									{
+										oracle: {
+											kind: "second-implementation",
+											name: "the application of the same call on the same session, which cuts under its bound"
+										},
+										...budget,
+										suite: "reads/explain session bound",
+										draw: drawn(boundCaseGen),
+										kept: [],
+										runs: 12,
+										coverage: required<BoundFeature>(
+											["a body past the bound", "bodies within the bound"],
+											{ cases: 12, sense: notesOnly }
 										)
-										notes.note(
-											Arr.some(lengths, (n) => n > limit)
-												? "a body past the bound"
-												: "bodies within the bound"
-										)
-										const facts = {
-											insert: {
-												Box: [
-													{
-														id: uuidOf(next),
-														parts: Arr.map(lengths, (n) => ({ body: new Uint8Array(n) }))
-													}
-												]
+									},
+									(c, notes) =>
+										Effect.gen(function* () {
+											next += 1
+											const lengths = Arr.map(c.shares, (share) =>
+												Math.floor((limit * share) / boundWhole)
+											)
+											notes.note(
+												Arr.some(lengths, (n) => n > limit)
+													? "a body past the bound"
+													: "bodies within the bound"
+											)
+											const facts = {
+												insert: {
+													Box: [
+														{
+															id: uuidOf(next),
+															parts: Arr.map(lengths, (n) => ({ body: new Uint8Array(n) }))
+														}
+													]
+												}
 											}
-										}
-										const explained = yield* Effect.result(explains.explain(facts, {}))
-										const applied = yield* Effect.result(handle.ops.apply(facts, {}))
-										assert.equal(
-											EffectResult.isSuccess(explained),
-											EffectResult.isSuccess(applied),
-											`explain under a session bound of ${limit} bytes of bodies ${Formatter.format(lengths)} plans exactly where the application writes: ${Formatter.format(explained)} beside ${Formatter.format(applied)}`
-										)
-										if (EffectResult.isSuccess(explained)) {
-											for (const plan of explained.success) {
-												estimateOnly(plan.plan)
+											const explained = yield* Effect.result(explains.explain(facts, {}))
+											const applied = yield* Effect.result(handle.ops.apply(facts, {}))
+											assert.equal(
+												EffectResult.isSuccess(explained),
+												EffectResult.isSuccess(applied),
+												`explain under a session bound of ${limit} bytes of bodies ${Formatter.format(lengths)} plans exactly where the application writes: ${Formatter.format(explained)} beside ${Formatter.format(applied)}`
+											)
+											if (EffectResult.isSuccess(explained)) {
+												for (const plan of explained.success) {
+													estimateOnly(plan.plan)
+												}
 											}
-										}
-									})
-							)
-						})
+										})
+								)
+							})
 					)
 				}).pipe(Effect.scoped)
 			)

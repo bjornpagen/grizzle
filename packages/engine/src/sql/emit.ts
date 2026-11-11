@@ -35,24 +35,9 @@ export const emitCatalog = (statement: CatalogStatement): EmittedText =>
 	emitted(printCatalogStatement(statement))
 
 /**
- * The estimate-only plan request of an emitted statement: EXPLAIN (FORMAT JSON, VERBOSE) before its text, one of the two
- * texts composed of another. VERBOSE has PostgreSQL name the schema of every relation a node scans or writes, which
- * the relation's own name alone leaves ambiguous across an installation's levels.
- */
-export const explainOf = (statement: EmittedText): EmittedText =>
-	emitted(`EXPLAIN (FORMAT JSON, VERBOSE) ${statement}`)
-
-/**
- * The executed plan request of an emitted statement: EXPLAIN (ANALYZE, FORMAT JSON, VERBOSE) before its text, which runs
- * the statement and reports each node's actual times, rows, loops and buffers beside its estimates (explainOf).
- */
-export const explainAnalyzeOf = (statement: EmittedText): EmittedText =>
-	emitted(`EXPLAIN (ANALYZE, FORMAT JSON, VERBOSE) ${statement}`)
-
-/**
  * An emitted statement's text with its variables filled by `fill` (deploy/render/variables.ts resolveVariables), or
  * what `fill` refuses: the text the drift check's replay and an uninstall send, one text composed of another, as
- * explainOf composes one.
+ * runtime/explain.ts composes an EXPLAIN.
  */
 export const filledText = <E>(
 	statement: EmittedText,

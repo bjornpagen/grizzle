@@ -118,7 +118,9 @@ const derivedFixture = (name: string) => {
 
 /** A read member's estimate-only explain of `params` (types/db ReadExplain): a member of another kind is a defect of the test. */
 const readExplained = (explains: MemberExplains, params: ParamMap) =>
-	explains.kind === "read" ? explains.ops.explain(params) : assert.fail("a read member explains as a read")
+	explains.kind === "read"
+		? explains.ops.explain(params)
+		: assert.fail("a read member explains as a read")
 
 const readCallKinds = ["execute", "get", "explain", "page"] as const
 
@@ -334,122 +336,128 @@ layer(Substrate.layer, { excludeTestServices: true })("one round trip per public
 							parts: "several parts"
 						}
 					} as const
-					return yield* withServedDb(o.installed, o.server.roles.app, {}, ({ ctx, loadWithTables }) =>
-						Effect.gen(function* () {
-							const { members: loaded, tables } = yield* loadWithTables({
-								oneRelation: reads.automaticTasksFor,
-								headingGroups: payloads,
-								fusedAttachments: reads.taskCards,
-								pipelinedAttachment: accountTaskNotes,
-								task: W.Task,
-								budgets: paged(budgets),
-								noted: paged(noted)
-							})
-							const { pool, tap } = yield* tappedPool(o.installed.as(o.server))
-							const context = { ...ctx, pool }
-							const ops = (name: string) => memberOps(context, member(loaded, name)).ops
-							return yield* explore(
-								{
-									oracle: {
-										kind: "specification",
-										name: "README: one call, one SERIALIZABLE READ ONLY transaction, one round trip"
+					return yield* withServedDb(
+						o.installed,
+						o.server.roles.app,
+						{},
+						({ ctx, loadWithTables }) =>
+							Effect.gen(function* () {
+								const { members: loaded, tables } = yield* loadWithTables({
+									oneRelation: reads.automaticTasksFor,
+									headingGroups: payloads,
+									fusedAttachments: reads.taskCards,
+									pipelinedAttachment: accountTaskNotes,
+									task: W.Task,
+									budgets: paged(budgets),
+									noted: paged(noted)
+								})
+								const { pool, tap } = yield* tappedPool(o.installed.as(o.server))
+								const context = { ...ctx, pool }
+								const ops = (name: string) => memberOps(context, member(loaded, name)).ops
+								return yield* explore(
+									{
+										oracle: {
+											kind: "specification",
+											name: "README: one call, one SERIALIZABLE READ ONLY transaction, one round trip"
+										},
+										suite: "adapter/round-trips reads",
+										draw: drawn(readCallsGen),
+										literal: Formatter.format,
+										kept: [],
+										runs: 40,
+										shrink: completeShrink,
+										concurrency: 1,
+										steerEvery: 16,
+										coverage: required<ReadCallFeature>(
+											[
+												"execute one part",
+												"execute several parts",
+												"explain one part",
+												"explain several parts",
+												"get one part",
+												"page alone",
+												"page with its probe"
+											],
+											{ cases: 40, sense: notesOnly }
+										),
+										caseHang
 									},
-									suite: "adapter/round-trips reads",
-									draw: drawn(readCallsGen),
-									literal: Formatter.format,
-									kept: [],
-									runs: 40,
-									shrink: completeShrink,
-									concurrency: 1,
-									steerEvery: 16,
-									coverage: required<ReadCallFeature>(
-										[
-											"execute one part",
-											"execute several parts",
-											"explain one part",
-											"explain several parts",
-											"get one part",
-											"page alone",
-											"page with its probe"
-										],
-										{ cases: 40, sense: notesOnly }
-									),
-									caseHang
-								},
-								(calls, notes) =>
-									Effect.gen(function* () {
-										/**
-										 * The cursors each ordered query's pages delivered: a cursor continues only its own query.
-										 *
-										 * The handle's compilation is outside the call's window.
-										 */
-										const delivered: Readonly<Record<"budgets" | "noted", Array<string>>> = {
-											budgets: [],
-											noted: []
-										}
-										for (const call of calls) {
-											const target = queries[call.query]
-											const edges = delivered[call.page]
-											const anchor =
-												edges.length === 0
-													? Option.none<string>()
-													: Option.some(defined(edges[pickIndex(call.anchor, edges.length)]))
-											const effect: Effect.Effect<unknown, ReadError | CursorError> =
-												call.kind === "execute"
-													? Effect.flatMap(
-															ops(target.member).execute(target.params),
-															(r) => r.collect
-														)
-													: call.kind === "get"
-														? ops("task").get({ id: call.present ? t1 : tMissing })
-														: call.kind === "explain"
-															? readExplained(
-																	memberExplains(context, tables, member(loaded, target.member)),
-																	target.params
-																)
-															: ops(call.page).page(
-																	{ account: a1 },
-																	Option.match(anchor, {
-																		onNone: () =>
-																			call.forward ? { first: call.size } : { last: call.size },
-																		onSome: (cursor) =>
-																			call.forward
-																				? { first: call.size, after: cursor }
-																				: { last: call.size, before: cursor }
-																	})
-																)
-											const seen = yield* observe(tap, effect)
-											const probed = call.kind === "page" && Option.isSome(anchor)
-											assertFlight(
-												call.kind,
-												seen.window,
-												call.kind === "explain" ? serializable("read only", "rollback") : readFrame
-											)
-											notes.note(
-												call.kind === "page"
-													? probed
-														? "page with its probe"
-														: "page alone"
-													: call.kind === "get"
-														? "get one part"
-														: `${call.kind} ${target.parts}`
-											)
-											if (
-												call.kind === "page" &&
-												isRecord(seen.value) &&
-												Arr.isArray(seen.value["edges"])
-											) {
-												for (const edge of seen.value["edges"]) {
-													if (isRecord(edge) && typeof edge["cursor"] === "string") {
-														edges.push(edge["cursor"])
+									(calls, notes) =>
+										Effect.gen(function* () {
+											/**
+											 * The cursors each ordered query's pages delivered: a cursor continues only its own query.
+											 *
+											 * The handle's compilation is outside the call's window.
+											 */
+											const delivered: Readonly<Record<"budgets" | "noted", Array<string>>> = {
+												budgets: [],
+												noted: []
+											}
+											for (const call of calls) {
+												const target = queries[call.query]
+												const edges = delivered[call.page]
+												const anchor =
+													edges.length === 0
+														? Option.none<string>()
+														: Option.some(defined(edges[pickIndex(call.anchor, edges.length)]))
+												const effect: Effect.Effect<unknown, ReadError | CursorError> =
+													call.kind === "execute"
+														? Effect.flatMap(
+																ops(target.member).execute(target.params),
+																(r) => r.collect
+															)
+														: call.kind === "get"
+															? ops("task").get({ id: call.present ? t1 : tMissing })
+															: call.kind === "explain"
+																? readExplained(
+																		memberExplains(context, tables, member(loaded, target.member)),
+																		target.params
+																	)
+																: ops(call.page).page(
+																		{ account: a1 },
+																		Option.match(anchor, {
+																			onNone: () =>
+																				call.forward ? { first: call.size } : { last: call.size },
+																			onSome: (cursor) =>
+																				call.forward
+																					? { first: call.size, after: cursor }
+																					: { last: call.size, before: cursor }
+																		})
+																	)
+												const seen = yield* observe(tap, effect)
+												const probed = call.kind === "page" && Option.isSome(anchor)
+												assertFlight(
+													call.kind,
+													seen.window,
+													call.kind === "explain"
+														? serializable("read only", "rollback")
+														: readFrame
+												)
+												notes.note(
+													call.kind === "page"
+														? probed
+															? "page with its probe"
+															: "page alone"
+														: call.kind === "get"
+															? "get one part"
+															: `${call.kind} ${target.parts}`
+												)
+												if (
+													call.kind === "page" &&
+													isRecord(seen.value) &&
+													Arr.isArray(seen.value["edges"])
+												) {
+													for (const edge of seen.value["edges"]) {
+														if (isRecord(edge) && typeof edge["cursor"] === "string") {
+															edges.push(edge["cursor"])
+														}
 													}
 												}
 											}
-										}
-										assert.equal(tap.cancels(), 0)
-									})
-							)
-						})
+											assert.equal(tap.cancels(), 0)
+										})
+								)
+							})
 					)
 				}).pipe(Effect.scoped)
 			)
@@ -472,94 +480,108 @@ layer(Substrate.layer, { excludeTestServices: true })("one round trip per public
 						.insert(W.TaskNote, [])
 						.put(W.TaskNote, [])
 						.delete(W.TaskNote, [])
-					return yield* withServedDb(o.installed, o.server.roles.app, {}, ({ ctx, loadWithTables }) =>
-						Effect.gen(function* () {
-							const { members: loaded, tables } = yield* loadWithTables({
-								plain,
-								/**
-								 * A read-back that attaches an alternatives arm, computing its parents' rows after the writes.
-								 */
-								readBack: plain.read("cards", () =>
-									query(s)
-										.rule((r) => {
-											const { id, kind } = v(W.Task, "task")
-											return r.match(W.Task, { id, kind }).find({ id, kind })
+					return yield* withServedDb(
+						o.installed,
+						o.server.roles.app,
+						{},
+						({ ctx, loadWithTables }) =>
+							Effect.gen(function* () {
+								const { members: loaded, tables } = yield* loadWithTables({
+									plain,
+									/**
+									 * A read-back that attaches an alternatives arm, computing its parents' rows after the writes.
+									 */
+									readBack: plain.read("cards", () =>
+										query(s)
+											.rule((r) => {
+												const { id, kind } = v(W.Task, "task")
+												return r.match(W.Task, { id, kind }).find({ id, kind })
+											})
+											.attach(
+												"automatic",
+												(t) =>
+													query(s).rule((r) => {
+														const { budget } = v(W.AutomaticTask, "automaticTask")
+														return r.match(W.AutomaticTask, { task: t.id, budget }).find({ budget })
+													}),
+												arm("kind", "Automatic")
+											)
+									)
+								})
+								const { pool, tap } = yield* tappedPool(o.installed.as(o.server))
+								const context = { ...ctx, pool }
+								const tasks = [t1, t4, t5] as const
+								return yield* explore(
+									{
+										oracle: {
+											kind: "specification",
+											name: "README: one call, one SERIALIZABLE transaction, one round trip"
+										},
+										suite: "adapter/round-trips writes",
+										draw: drawn(writeCallsGen),
+										literal: Formatter.format,
+										kept: [],
+										runs: 30,
+										shrink: completeShrink,
+										concurrency: 1,
+										steerEvery: 16,
+										coverage: required<WriteCallFeature>(
+											["apply", "explain", "a read-back that attaches", "nothing to write"],
+											{ cases: 30, sense: notesOnly }
+										),
+										caseHang
+									},
+									(calls, notes) =>
+										Effect.gen(function* () {
+											for (const call of calls) {
+												const facts = Arr.map(call.notes, (n) => ({
+													task: defined(tasks[n.task]),
+													note: `note ${n.text}`
+												}))
+												/** The call's facts: the drawn notes under the op it writes, every other op's none. */
+												const called = {
+													insert: { TaskNote: call.op === "insert" ? facts : [] },
+													put: { TaskNote: call.op === "put" ? facts : [] },
+													delete: { TaskNote: call.op === "delete" ? facts : [] }
+												}
+												const change = member(loaded, call.readBack ? "readBack" : "plain")
+												if (call.readBack) {
+													notes.note("a read-back that attaches")
+												}
+												if (call.notes.length === 0) {
+													notes.note("nothing to write")
+												}
+												if (call.kind === "explain") {
+													const explains = memberExplains(context, tables, change)
+													assertVariant(
+														explains,
+														"kind",
+														"facts",
+														"a write member explains with its call's facts"
+													)
+													const seen = yield* observe(tap, explains.explain(called, {}))
+													assertFlight(
+														"explain of a change member",
+														seen.window,
+														serializable("read write", "rollback")
+													)
+												} else {
+													const ops = memberOps(context, change)
+													assertVariant(
+														ops,
+														"kind",
+														"facts",
+														"a write member takes its call's facts"
+													)
+													const seen = yield* observe(tap, Effect.result(ops.ops.apply(called, {})))
+													assertFlight(call.kind, seen.window, writeFrame)
+												}
+												notes.note(call.kind)
+											}
+											assert.equal(tap.cancels(), 0)
 										})
-										.attach(
-											"automatic",
-											(t) =>
-												query(s).rule((r) => {
-													const { budget } = v(W.AutomaticTask, "automaticTask")
-													return r.match(W.AutomaticTask, { task: t.id, budget }).find({ budget })
-												}),
-											arm("kind", "Automatic")
-										)
 								)
 							})
-							const { pool, tap } = yield* tappedPool(o.installed.as(o.server))
-							const context = { ...ctx, pool }
-							const tasks = [t1, t4, t5] as const
-							return yield* explore(
-								{
-									oracle: {
-										kind: "specification",
-										name: "README: one call, one SERIALIZABLE transaction, one round trip"
-									},
-									suite: "adapter/round-trips writes",
-									draw: drawn(writeCallsGen),
-									literal: Formatter.format,
-									kept: [],
-									runs: 30,
-									shrink: completeShrink,
-									concurrency: 1,
-									steerEvery: 16,
-									coverage: required<WriteCallFeature>(
-										["apply", "explain", "a read-back that attaches", "nothing to write"],
-										{ cases: 30, sense: notesOnly }
-									),
-									caseHang
-								},
-								(calls, notes) =>
-									Effect.gen(function* () {
-										for (const call of calls) {
-											const facts = Arr.map(call.notes, (n) => ({
-												task: defined(tasks[n.task]),
-												note: `note ${n.text}`
-											}))
-											/** The call's facts: the drawn notes under the op it writes, every other op's none. */
-											const called = {
-												insert: { TaskNote: call.op === "insert" ? facts : [] },
-												put: { TaskNote: call.op === "put" ? facts : [] },
-												delete: { TaskNote: call.op === "delete" ? facts : [] }
-											}
-											const change = member(loaded, call.readBack ? "readBack" : "plain")
-											if (call.readBack) {
-												notes.note("a read-back that attaches")
-											}
-											if (call.notes.length === 0) {
-												notes.note("nothing to write")
-											}
-											if (call.kind === "explain") {
-												const explains = memberExplains(context, tables, change)
-												assertVariant(explains, "kind", "facts", "a write member explains with its call's facts")
-												const seen = yield* observe(tap, explains.explain(called, {}))
-												assertFlight(
-													"explain of a change member",
-													seen.window,
-													serializable("read write", "rollback")
-												)
-											} else {
-												const ops = memberOps(context, change)
-												assertVariant(ops, "kind", "facts", "a write member takes its call's facts")
-												const seen = yield* observe(tap, Effect.result(ops.ops.apply(called, {})))
-												assertFlight(call.kind, seen.window, writeFrame)
-											}
-											notes.note(call.kind)
-										}
-										assert.equal(tap.cancels(), 0)
-									})
-							)
-						})
 					)
 				}).pipe(Effect.scoped)
 			)

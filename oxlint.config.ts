@@ -173,6 +173,7 @@ export default defineConfig(
 						brands: ["EmittedText"]
 					},
 					{ doors: ["packages/grizzle/src/adapter/migrate/input.ts"], brands: ["MigrationText"] },
+					{ doors: ["packages/engine/src/runtime/explain.ts"], brands: ["ExplainText"] },
 					{ doors: ["packages/engine/src/core/fingerprint.ts"], brands: ["ConstantDigest"] },
 					{ doors: ["packages/engine/src/codec/recordset.ts"], brands: ["NormalFacts"] },
 					{ doors: ["packages/engine/src/ir/desc.ts"], brands: ["AdmittedClosedRelation"] },

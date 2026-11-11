@@ -4,7 +4,7 @@ import { temporaryRefusal } from "#adapter/errors/failures.ts"
 import type { ExecutedPlan, ExecutedStatement, Plan, PlanTarget } from "#adapter/types/db.ts"
 import { asReadFailure, type FlightFailure } from "#adapter/wire/batch.ts"
 import type { ExecutionPart } from "#compiler/plan/change.ts"
-import { temporarySchema, trustedJson } from "#compiler/plan/common.ts"
+import { temporarySchema, trustedJson } from "#compiler/plan/runtime.ts"
 import type { ServedTable, ServedTables } from "#compiler/plan/serve.ts"
 
 /**

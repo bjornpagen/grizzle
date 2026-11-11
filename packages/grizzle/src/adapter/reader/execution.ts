@@ -232,7 +232,7 @@ export const readBinding = (
 }
 
 /** The text and placeholder texts of one execution of `form`, each placeholder bound by `bind`. */
-export const executionOf = <Slot, E>(
+const executionOf = <Slot, E>(
 	form: StatementForm<Slot>,
 	bind: (slot: Slot) => Result.Result<Param, E>
 ): Result.Result<PreparedStatement, E> => {

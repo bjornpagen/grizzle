@@ -41,7 +41,6 @@ export type {
 	ExecutedStatement,
 	FactsApply,
 	FactsExplain,
-	IndexReason,
 	MemberHandle,
 	Plan,
 	PlanIndex,

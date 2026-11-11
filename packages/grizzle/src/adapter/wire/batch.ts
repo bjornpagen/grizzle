@@ -15,6 +15,7 @@ import * as Result from "effect/Result"
  */
 import {
 	defect,
+	type ExplainText,
 	type Prepared,
 	sqlstates,
 	type StatementName,
@@ -66,10 +67,10 @@ import type {
 export type MigrationText = string & Brand.Brand<"MigrationText">
 
 /**
- * SQL grizzle sends: printed from an AST by the engine (sql/emit.ts), or a reviewed migration file's own statement.
- * Hand-written SQL is no SentText, so it never reaches the wire.
+ * SQL grizzle sends: printed from an AST by the engine (sql/emit.ts), an emitted statement's EXPLAIN (runtime/explain.ts),
+ * or a reviewed migration file's own statement. Hand-written SQL is no SentText, so it never reaches the wire.
  */
-export type SentText = EmittedText | MigrationText
+export type SentText = EmittedText | ExplainText | MigrationText
 
 /**
  * One statement of a flight and its parameters, each a text or a binary value, in placeholder order: a statement of a

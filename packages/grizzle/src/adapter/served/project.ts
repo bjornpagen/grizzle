@@ -33,7 +33,6 @@ import {
 } from "#compiler/plan/migration.ts"
 import { servedRead, servedReadBacks } from "#compiler/plan/read.ts"
 import {
-	type InstalledNames,
 	ledgerStatements,
 	type ServedAbove,
 	type ServedChange,
@@ -46,7 +45,8 @@ import {
 	type ServedSnapshot,
 	type ServedTable,
 	type ServedTables,
-	type ServedVariants
+	type ServedVariants,
+	type SnapshotTables
 } from "#compiler/plan/serve.ts"
 
 /**
@@ -66,14 +66,14 @@ export interface CompiledLogin {
 }
 
 /**
- * The installed tables and materialized views of the relations in `footprint` (deploy/snapshot/types.ts InstalledNames),
+ * The installed tables and materialized views of the relations in `footprint` (deploy/snapshot/types.ts SnapshotTables),
  * each with the name of every index PostgreSQL holds on it, in code-unit order, by schema and name (ServedTables): what
  * an explain of the login's members names a plan by. The planner may scan any of a footprint table's indexes, whatever
  * level's law or access asked for it, and no table outside the footprint: a relation the statements name, read through a
  * role's views, stands for the base relations its entry reads, and a derived one for what its definition reads
  * (schema/reach.ts sliceOf). Each index's reasons stay in snapshot.json, which generate reads and no layer loads.
  */
-const tablesOf = (installed: InstalledNames, footprint: ReadonlySet<string>): ServedTables => {
+const tablesOf = (installed: SnapshotTables, footprint: ReadonlySet<string>): ServedTables => {
 	const out: Record<string, Readonly<Record<string, ServedTable>>> = {}
 	for (const [schema, tables] of Rec.toEntries(installed)) {
 		const kept = Arr.filterMap(Rec.toEntries(tables), ([name, table]) =>

@@ -41,7 +41,7 @@ import { type FusedAttachment, fusedElement } from "#compiler/runtime/lower/fuse
 
 import { canonicalTextOf } from "#compiler/core/canonical.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
-import { explainOf } from "#compiler/sql/emit.ts"
+import { explainOf } from "#compiler/runtime/explain.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import { admitGenerated } from "#test/support/compile.ts"
 import { installedCatalog } from "#test/support/evidence.ts"

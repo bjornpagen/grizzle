@@ -20,16 +20,14 @@ import {
 } from "#adapter/wire/batch.ts"
 import type { Session } from "#adapter/wire/session.ts"
 import type { Chunks, ExecutionPart } from "#compiler/plan/change.ts"
+import type { CompileError, EncodingFailure, ParamMap } from "#compiler/plan/common.ts"
 import {
-	type CompileError,
-	type EncodingFailure,
+	defect,
 	explainAnalyzeOf,
 	explainOf,
 	malformedDescription,
-	type ParamMap,
 	SourceLoc
-} from "#compiler/plan/common.ts"
-import { defect } from "#compiler/plan/runtime.ts"
+} from "#compiler/plan/runtime.ts"
 import type { ServedTables } from "#compiler/plan/serve.ts"
 
 /**
@@ -173,7 +171,10 @@ export const explainReadAnalyzed = (
 			readFrame,
 			() => Result.succeed([statement]),
 			(name, cell) =>
-				Result.map(decodeExecuted(cell, installed), (executed) => ({ statement: name, ...executed }))
+				Result.map(decodeExecuted(cell, installed), (executed) => ({
+					statement: name,
+					...executed
+				}))
 		)
 	)
 
@@ -254,7 +255,9 @@ export const explainChange = (
 		const flights = inputs.bound.flights
 		if (flights.kind === "read") {
 			return yield* Effect.die(
-				defect(`a served write ${name} whose flight reads before it writes, which no served file holds`)
+				defect(
+					`a served write ${name} whose flight reads before it writes, which no served file holds`
+				)
 			)
 		}
 		const explainedOf = (

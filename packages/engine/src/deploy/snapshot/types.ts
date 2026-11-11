@@ -1,4 +1,5 @@
-import type { ColumnIdent, RelationIdent, SchemaFingerprint } from "#compiler/core/ids.ts"
+import type { ColumnIdent, LawId, RelationIdent, SchemaFingerprint } from "#compiler/core/ids.ts"
+import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { RosterCodes } from "#compiler/ir/cells.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type {
@@ -217,22 +218,55 @@ export interface CompileFacts {
 }
 
 /**
- * An installed table or materialized view as a plan names it: the declared name of the relation it stores, a stored
- * relation's or a materialized derived relation's, and each index PostgreSQL holds on it, by the index's name, with the
- * reasons the installation's manifest records for it (ir/products.ts PhysicalReason). A primary key's, a unique key's
- * and an exclusion constraint's index is named by its constraint, which PostgreSQL names the index after, and a created
- * index by its CREATE INDEX.
+ * What a law column holds, as the law model planned it (laws/model/plan.ts LawColumnPlan), by the field whose values it
+ * holds: a term's, its relation's own field where the law's selection holds; a constant's, the value a target fixes its
+ * field to; a family's drawn index's or count's; or the predecessor of a drawn index of its family.
  */
-export interface InstalledTable {
+export type LawColumnHolds =
+	| { readonly kind: "term"; readonly field: string }
+	| { readonly kind: "constant"; readonly target: string; readonly field: string }
+	| { readonly kind: "drawn"; readonly field: string }
+	| { readonly kind: "predecessor"; readonly field: string }
+
+/**
+ * One key column of an index, in the index's key order: a field of the relation, by its declared name, or a law column
+ * the law model adds to the relation, by what it holds and the laws the manifest records it for; with its direction, a
+ * B-tree's ascending or descending, or none for an index that orders nothing (GiST, HNSW, hash).
+ */
+export type IndexKeyColumn = { readonly direction: "asc" | "desc" | "none" } & (
+	| { readonly kind: "field"; readonly field: string }
+	| {
+			readonly kind: "law"
+			readonly holds: LawColumnHolds
+			readonly laws: ReadonlyArray<LawId>
+	  }
+)
+
+/**
+ * An index the installation holds: its key columns in order (IndexKeyColumn), and the reasons its manifest records for it
+ * (ir/products.ts PhysicalReason).
+ */
+export interface SnapshotIndex {
+	readonly columns: NonEmptyReadonlyArray<IndexKeyColumn>
+	readonly reasons: ReadonlyArray<PhysicalReason>
+}
+
+/**
+ * An installed table or materialized view as a plan names it: the declared name of the relation it stores, a stored
+ * relation's or a materialized derived relation's, and each index PostgreSQL holds on it, by the index's name
+ * (SnapshotIndex). A primary key's, a unique key's and an exclusion constraint's index is named by its constraint,
+ * which PostgreSQL names the index after, and a created index by its CREATE INDEX.
+ */
+export interface SnapshotTable {
 	readonly relation: string
-	readonly indexes: Readonly<Record<string, ReadonlyArray<PhysicalReason>>>
+	readonly indexes: Readonly<Record<string, SnapshotIndex>>
 }
 
 /**
  * Tables and materialized views of an installation as EXPLAIN (VERBOSE) names them, by their PostgreSQL schema, then by
- * their own name (InstalledTable).
+ * their own name (SnapshotTable).
  */
-export type InstalledNames = Readonly<Record<string, Readonly<Record<string, InstalledTable>>>>
+export type SnapshotTables = Readonly<Record<string, Readonly<Record<string, SnapshotTable>>>>
 
 /**
  * The facts snapshot.json records beside the snapshot's content for DbLayer.make, derived from the installation's
@@ -243,7 +277,7 @@ export type InstalledNames = Readonly<Record<string, Readonly<Record<string, Ins
  * own statements' (adapter/served/project.ts) and an explain names a plan's relations and indexes by.
  */
 export interface SnapshotDerived extends CompileFacts {
-	readonly tables: InstalledNames
+	readonly tables: SnapshotTables
 }
 
 /** A snapshot without its fingerprint: what the fingerprint is computed over. */

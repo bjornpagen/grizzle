@@ -18,7 +18,7 @@ import { defect, defined } from "#compiler/core/invariant.ts"
 import { maxStringLength } from "#compiler/core/limits.ts"
 import { type Lines, textOf } from "#compiler/core/lines.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { headNonEmpty } from "#compiler/core/nonempty.ts"
+import { headNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { type Comparator, compareStrings, mapInput } from "#compiler/core/order.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -33,16 +33,19 @@ import { installed, type ManifestObject } from "#compiler/deploy/snapshot/object
 import {
 	type CompileFacts,
 	type DeploySnapshot,
-	type InstalledNames,
+	type IndexKeyColumn,
+	type LawColumnHolds,
 	manifestFileName,
 	type SnapshotContent,
 	type SnapshotDerived,
 	type SnapshotFiles,
 	snapshotFileName,
 	type SnapshotField,
+	type SnapshotIndex,
 	type SnapshotLaw,
 	type SnapshotLevel,
 	type SnapshotRelation,
+	type SnapshotTables,
 	type SnapshotTheory,
 	type SnapshotWriting
 } from "#compiler/deploy/snapshot/types.ts"
@@ -65,6 +68,7 @@ import {
 import { Roster, rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { type Filler, type FillSpelling, fillersOf, ownFill } from "#compiler/laws/model/fillers.ts"
 import { type LawModel, statedTheory } from "#compiler/laws/model/model.ts"
+import type { LawColumnPlan } from "#compiler/laws/model/plan.ts"
 import type { ClosedNames, NamedClosed } from "#compiler/physical/ddl/constants.ts"
 import { storedTextDomains } from "#compiler/physical/ddl/domains.ts"
 import { isolationFunctionIdent } from "#compiler/physical/ddl/isolation.ts"
@@ -73,7 +77,14 @@ import type { DescribedLaw } from "#compiler/physical/install/plan.ts"
 import { namedIdent } from "#compiler/physical/obligations/graph.ts"
 import { levelChain, own, type Owned } from "#compiler/schema/own.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
-import type { ObjectName, SqlStatement } from "#compiler/sql/ast.ts"
+import {
+	type CreateIndex,
+	type CreateTable,
+	type ObjectName,
+	type SqlStatement,
+	tableConstraints,
+	type TableConstraint
+} from "#compiler/sql/ast.ts"
 import type { OwnerFunction } from "#compiler/sql/constants.ts"
 
 /** Entries in the code-unit order of their keys. */
@@ -521,10 +532,17 @@ const unwrapCompiled = <A>(result: Result.Result<A, CompileError>): A => {
 	return result.value
 }
 
-/** An installed table's indexes as installedNamesOf gathers them, by name. */
+/** An installed table as snapshotTablesOf gathers it: its relation, each field by its column, and its indexes. */
 interface GatheredTable {
 	readonly relation: string
-	readonly indexes: Map<string, ReadonlyArray<PhysicalReason>>
+	readonly fields: ReadonlyMap<string, string>
+	readonly indexes: Map<string, SnapshotIndex>
+}
+
+/** A key column of an index's statement: the column it names and its direction (IndexKeyColumn). */
+interface KeyAt {
+	readonly column: string
+	readonly direction: IndexKeyColumn["direction"]
 }
 
 /** The record of `entries` in code-unit order of their keys, each value mapped by `value`. */
@@ -533,18 +551,85 @@ const keyOrdered = <A, B>(
 	value: (a: A) => B
 ): Readonly<Record<string, B>> =>
 	Object.fromEntries(
-		[...entries].toSorted(([a], [b]) => compareStrings(a, b)).map(([k, a]) => [k, value(a)] as const)
+		[...entries]
+			.toSorted(([a], [b]) => compareStrings(a, b))
+			.map(([k, a]) => [k, value(a)] as const)
 	)
 
+/** A two-level map's value at `outer`, then `inner`. */
+const valueAt = <V>(
+	map: ReadonlyMap<string, ReadonlyMap<string, V>>,
+	outer: string,
+	inner: string
+): V | undefined => map.get(outer)?.get(inner)
+
+/** `value` set at `outer`, then `inner`, of a two-level map. */
+const setAt = <V>(
+	map: Map<string, Map<string, V>>,
+	outer: string,
+	inner: string,
+	value: V
+): void => {
+	const within = map.get(outer) ?? new Map<string, V>()
+	within.set(inner, value)
+	map.set(outer, within)
+}
+
+/** What a law column the law model planned holds (LawColumnHolds), by the field whose values it holds. */
+const holdsOf = (plan: LawColumnPlan, field: string): LawColumnHolds => {
+	switch (plan.kind) {
+		case "term":
+			return { kind: "term", field }
+		case "constant":
+			return { kind: "constant", target: plan.target.name, field: plan.field.name }
+		case "drawn":
+			return { kind: "drawn", field: plan.field.name }
+		case "indexPred":
+			return { kind: "predecessor", field: plan.field.name }
+	}
+}
+
+/** The key columns of a primary key's, a unique key's or a span key's constraint, a B-tree's ascending, a GiST's none. */
+const constraintKeys = (constraint: TableConstraint): NonEmptyReadonlyArray<KeyAt> => {
+	switch (constraint.kind) {
+		case "primaryKey":
+		case "unique": {
+			const direction = constraint.columns.some((c) => c.withoutOverlaps) ? "none" : "asc"
+			return mapNonEmpty(constraint.columns, (c) => ({ column: c.column, direction }))
+		}
+		case "exclude":
+			return mapNonEmpty(constraint.elements, (e) => ({ column: e.column, direction: "none" }))
+		case "check":
+		case "foreignKey":
+			throw defect(`the constraint ${constraint.name}, which installs no index`)
+	}
+}
+
+/** The key columns of a CREATE INDEX, each a column it names, a B-tree's with its direction, any other's with none. */
+const createdKeys = (create: CreateIndex): NonEmptyReadonlyArray<KeyAt> =>
+	mapNonEmpty(create.keys, (k) => {
+		if (k.key.kind !== "column") {
+			throw defect(`the index ${create.name} over an expression, which no installation creates`)
+		}
+		return {
+			column: k.key.column,
+			direction: create.method !== "btree" ? "none" : k.direction === "ASC" ? "asc" : "desc"
+		}
+	})
+
 /**
- * Every table and materialized view the installation installs, as a plan names it (InstalledNames): each stored
+ * Every table and materialized view the installation installs, as a plan names it (SnapshotTables): each stored
  * relation's table and each materialized derived relation's view, under its declared name, by the installation's names
  * (physical/ddl/names.ts InstallNames relation), and on each, every index its manifest installs, read through the one
  * view of a manifest object (objects.ts installed): a created index by its CREATE INDEX, a primary key's, a unique
- * key's and an exclusion constraint's by its constraint, each with the reasons the manifest records. An index on any
- * other table is a defect of the installation's compile.
+ * key's and an exclusion constraint's by its constraint, as its table declares it or its own ALTER TABLE adds it. Each
+ * index has the reasons the manifest records and its key columns in order, each read from the statement's own column
+ * and resolved, never parsed: a field of the relation, a stored relation's own or a derived relation's heading's, by
+ * the column the installation's names give it, or a law column by what the law model planned it to hold and the laws
+ * its manifest object records. An index on any other table, or over a column neither resolves, is a defect of the
+ * installation's compile.
  */
-const installedNamesOf = (installation: Installation): InstalledNames => {
+const snapshotTablesOf = (installation: Installation): SnapshotTables => {
 	const schemas = new Map<string, Map<string, GatheredTable>>()
 	const relations = [
 		...Object.values(installation.laws.theory.relations).flatMap((t) =>
@@ -554,46 +639,139 @@ const installedNamesOf = (installation: Installation): InstalledNames => {
 			o.kind === "derived" && o.view.kind !== "live" ? [o.name] : []
 		)
 	]
+	const derivedHeadings = new Map(
+		installation.checked.derived.map((a) => [a.name, a.heading.map((c) => c.name)] as const)
+	)
 	for (const relation of relations) {
 		const table = installation.names.relation(relation)
-		const tables = schemas.get(table.schema) ?? new Map<string, GatheredTable>()
-		tables.set(table.name, { relation, indexes: new Map() })
-		schemas.set(table.schema, tables)
+		const fieldNames =
+			derivedHeadings.get(relation) ??
+			Object.keys(installation.owned.relations[relation]?.fields ?? {})
+		const fields = new Map(
+			fieldNames.map((field) => [installation.names.column(relation, field), field] as const)
+		)
+		setAt(schemas, table.schema, table.name, { relation, fields, indexes: new Map() })
 	}
-	const index = (table: ObjectName, name: string, reasons: ReadonlyArray<PhysicalReason>): void => {
-		const on = schemas.get(table.schema)?.get(table.name)
-		if (on === undefined) {
-			throw defect(`the index ${name} is on a relation's table or materialized view, not ${table.name}`)
+	const holds = new Map<string, Map<string, LawColumnHolds>>()
+	for (const n of installation.laws.natives) {
+		if (n.namespace === "column") {
+			setAt(holds, n.object.relation.name, n.object.column, holdsOf(n.plan, n.object.field.name))
 		}
-		on.indexes.set(name, reasons)
+	}
+	const creates = new Map<string, Map<string, CreateTable>>()
+	const lawColumns = new Map<string, Map<string, ReadonlyArray<LawId>>>()
+	for (const o of installation.manifest.objects) {
+		const v = installed(o)
+		if (v.kind === "table") {
+			setAt(creates, v.create.table.schema, v.create.table.name, v.create)
+		}
+		if (v.kind === "lawColumn") {
+			setAt(
+				lawColumns,
+				`${v.table.schema}.${v.table.name}`,
+				v.column,
+				o.reasons.flatMap((r) => (r.kind === "law" ? [r.law] : []))
+			)
+		}
+	}
+	const index = (
+		table: ObjectName,
+		name: string,
+		keys: NonEmptyReadonlyArray<KeyAt>,
+		reasons: ReadonlyArray<PhysicalReason>
+	): void => {
+		const on = valueAt(schemas, table.schema, table.name)
+		if (on === undefined) {
+			throw defect(
+				`the index ${name} is on a relation's table or materialized view, not ${table.name}`
+			)
+		}
+		const columns = mapNonEmpty(keys, (k): IndexKeyColumn => {
+			const field = on.fields.get(k.column)
+			if (field !== undefined) {
+				return { kind: "field", field, direction: k.direction }
+			}
+			const held = valueAt(holds, on.relation, k.column)
+			const laws = valueAt(lawColumns, `${table.schema}.${table.name}`, k.column)
+			if (held === undefined || laws === undefined) {
+				throw defect(
+					`the column ${k.column} of index ${name}: a field or a law column of ${on.relation}`
+				)
+			}
+			return { kind: "law", holds: held, laws, direction: k.direction }
+		})
+		on.indexes.set(name, { columns, reasons })
+	}
+	const declared = (table: ObjectName, name: string): TableConstraint => {
+		const create = valueAt(creates, table.schema, table.name)
+		const constraint =
+			create === undefined ? undefined : tableConstraints(create).find((c) => c.name === name)
+		if (constraint === undefined) {
+			throw defect(`the constraint ${name}, which its table ${table.name} declares`)
+		}
+		return constraint
 	}
 	for (const o of installation.manifest.objects) {
 		const v = installed(o)
 		switch (v.kind) {
 			case "index":
 			case "uniqueIndex":
-				index(v.create.table, v.create.name, o.reasons)
+				index(v.create.table, v.create.name, createdKeys(v.create), o.reasons)
 				break
 			case "primaryKey":
 			case "unique":
-				index(v.table, v.name, o.reasons)
+				index(
+					v.table,
+					v.name,
+					constraintKeys(
+						v.placement.kind === "own" ? v.placement.constraint : declared(v.table, v.name)
+					),
+					o.reasons
+				)
 				break
-			default:
+			case "table":
+			case "constant":
+			case "domain":
+			case "materializedView":
+			case "statistics":
+			case "isolationTrigger":
+			case "lawTrigger":
+			case "refusalFunction":
+			case "advanceFunction":
+			case "isolationFunction":
+			case "snapshotGuard":
+			case "lawFunction":
+			case "worldFunction":
+			case "role":
+			case "membership":
+			case "privileges":
+			case "roleSchema":
+			case "view":
+			case "policy":
+			case "rowSecurity":
+			case "lawColumn":
+			case "check":
+			case "foreignKey":
+			case "ledger":
+			case "schema":
+			case "extension":
+			case "validation":
+			case "databaseDefault":
 				break
 		}
 	}
 	return keyOrdered(schemas, (tables) =>
-		keyOrdered(tables, (t) => ({ relation: t.relation, indexes: keyOrdered(t.indexes, (r) => r) }))
+		keyOrdered(tables, (t) => ({ relation: t.relation, indexes: keyOrdered(t.indexes, (i) => i) }))
 	)
 }
 
 /** The installation's derived runtime facts, which snapshot.json records beside the snapshot's content (SnapshotDerived):
  * each closed relation's constants as readers address them, the installation's plan's, the foreign key graph's
  * cycles, its law model's, which planned them from every law, and every table and materialized view it installs with
- * its indexes (installedNamesOf). */
+ * its indexes (snapshotTablesOf). */
 export const derivedOf = (installation: Installation): SnapshotDerived => ({
 	...derivedFacts(installation.owned, installation.closed, installation.laws),
-	tables: installedNamesOf(installation)
+	tables: snapshotTablesOf(installation)
 })
 
 /**
@@ -911,7 +1089,22 @@ const derivedForm = (d: SnapshotDerived): SnapshotForm => ({
 			Object.fromEntries(
 				Object.entries(tables).map(([name, t]) => [
 					name,
-					{ relation: t.relation, indexes: Object.fromEntries(Object.entries(t.indexes)) }
+					{
+						relation: t.relation,
+						indexes: Object.fromEntries(
+							Object.entries(t.indexes).map(([n, i]) => [
+								n,
+								{
+									columns: i.columns.map((c) =>
+										c.kind === "field"
+											? { kind: c.kind, field: c.field, direction: c.direction }
+											: { kind: c.kind, holds: c.holds, laws: c.laws, direction: c.direction }
+									),
+									reasons: i.reasons
+								}
+							])
+						)
+					}
 				])
 			)
 		])

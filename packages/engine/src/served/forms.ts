@@ -104,7 +104,7 @@ export type ServedFile = {
 
 /**
  * An installed table or materialized view as a served file names it: the declared name of the relation it stores, and
- * the names of the indexes PostgreSQL holds on it, in code-unit order (deploy/snapshot/types.ts InstalledTable, its
+ * the names of the indexes PostgreSQL holds on it, in code-unit order (deploy/snapshot/types.ts SnapshotTable, its
  * reasons left in snapshot.json).
  */
 export interface ServedTable {

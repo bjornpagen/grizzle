@@ -68,6 +68,7 @@
 					"packages/grizzle/src/adapter/engine.ts",
 					"packages/grizzle/src/adapter/errors/execution.ts",
 					"packages/grizzle/src/adapter/errors/failures.ts",
+					"packages/grizzle/src/adapter/explain/plan.ts",
 					"packages/grizzle/src/adapter/outcomes/index.ts",
 					"packages/grizzle/src/adapter/page/edges.ts",
 					"packages/grizzle/src/adapter/page/request.ts",
@@ -81,6 +82,7 @@
 					"packages/grizzle/src/adapter/reader/relations.ts",
 					"packages/grizzle/src/adapter/refresh/detail.ts",
 					"packages/grizzle/src/adapter/refresh/run.ts",
+					"packages/grizzle/src/adapter/served/explain.ts",
 					"packages/grizzle/src/adapter/served/load.ts",
 					"packages/grizzle/src/adapter/served/served.ts",
 					"packages/grizzle/src/adapter/wire/batch.ts",
@@ -142,7 +144,6 @@
 					"packages/grizzle/src/adapter/migrate/**",
 					"packages/grizzle/src/adapter/public/compile.ts",
 					"packages/grizzle/src/adapter/served/compile.ts",
-					"packages/grizzle/src/adapter/served/explain.ts",
 					"packages/grizzle/src/adapter/served/project.ts",
 					"packages/grizzle/src/compile.ts"
 				]

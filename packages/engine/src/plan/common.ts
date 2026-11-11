@@ -176,9 +176,9 @@ export { schemaDescOf } from "#compiler/schema/schema.ts"
 export { queryUses } from "#compiler/schema/walk.ts"
 export { loginDescOf, loginRoleOf } from "#compiler/schema/world.ts"
 export type { EmittedText, Expr, ObjectName, SqlStatement, TypeSchema } from "#compiler/sql/ast.ts"
-export { temporarySchema } from "#compiler/sql/ast.ts"
 export { lit, types } from "#compiler/sql/build.ts"
-export { emit, emitCatalog, emitText, explainAnalyzeOf, explainOf } from "#compiler/sql/emit.ts"
+export { explainAnalyzeOf, explainOf } from "#compiler/runtime/explain.ts"
+export { emit, emitCatalog, emitText } from "#compiler/sql/emit.ts"
 export {
 	looksLikeLiteralPack,
 	printCommentTarget,

@@ -12,10 +12,16 @@ import {
 	SourceLoc,
 	trustedJson
 } from "#compiler/plan/common.ts"
-import { type IndexReasons, snapshotIndexReasons } from "#compiler/plan/serve.ts"
+import { type InstalledIndexes, snapshotIndexes } from "#compiler/plan/serve.ts"
 
 export type { ServedRefusal, WorkloadPlace } from "#adapter/served/compile.ts"
-export type { IndexReasons } from "#compiler/plan/serve.ts"
+export type { PhysicalReason as IndexReason } from "#compiler/plan/common.ts"
+export type {
+	IndexKeyColumn,
+	InstalledIndexes,
+	LawColumnHolds,
+	SnapshotIndex
+} from "#compiler/plan/serve.ts"
 
 /** The refusal of the login's compile itself, at the login. */
 const atLogin = (error: ServedRefusal["error"]): ServedRefusal => ({
@@ -57,16 +63,24 @@ export const compileServed = (
 	})
 
 /**
- * indexReasonsOf(snapshot): why the installation holds each index, by the declared name of the relation whose table or
- * materialized view holds it, then by the index's name (a plan node's `on.relation` and `on.index.name`), each the
- * reasons its snapshot's manifest records (types/db IndexReason), read from `snapshot`, the JSON value an import of the
- * snapshot.json the login's served file was generated beside yields. A served file names an index alone, so a plan
- * carries no reason a running application pays for at startup; a caller that wants them passes the snapshot it holds,
- * and nothing is read from a file or kept. A value whose reading throws, or a snapshot.json `grizzle generate` has not
- * written since the reasons joined it, is refused.
+ * indexesOf(snapshot): every index the installation holds, by the declared name of the relation whose table or
+ * materialized view holds it, then by the index's name (a plan node's `on.relation` and `on.index.name`), read from
+ * `snapshot`, the JSON value an import of the snapshot.json the login's served file was generated beside yields. Each
+ * index is its key columns in key order and the reasons the snapshot's manifest records for it (SnapshotIndex): a
+ * column is a field of the relation, by its declared name, or a law column, by what it holds (LawColumnHolds) and the
+ * laws it is added for, each with its direction, a B-tree's ascending or descending, or none; a reason is a law the
+ * index serves by its identity, a RefusedLaw's `id`, the workload's access, a derived relation's key by the laws its
+ * proof rests on, or the enforcement of a declaration, in words (IndexReason). A served file names an index alone, so
+ * a plan carries none of this and a running application pays nothing for it at startup; a caller that wants it passes
+ * the snapshot it holds, and nothing is read from a file or kept. A value whose reading throws, or a snapshot.json
+ * `grizzle generate` has not written since its indexes joined it, is refused.
  */
-export const indexReasonsOf = (snapshot: unknown): Result.Result<IndexReasons, CompileError> =>
+export const indexesOf = (snapshot: unknown): Result.Result<InstalledIndexes, CompileError> =>
 	readHost(
-		malformedArtifact("snapshot", [], "a snapshot read as data, as an import of snapshot.json yields it"),
-		() => toResult(snapshotIndexReasons(snapshot))
+		malformedArtifact(
+			"snapshot",
+			[],
+			"a snapshot read as data, as an import of snapshot.json yields it"
+		),
+		() => toResult(snapshotIndexes(snapshot))
 	)
