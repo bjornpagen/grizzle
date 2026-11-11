@@ -1,5 +1,5 @@
 import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
+import { drawn, explore, sketched } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import {
 	array,
@@ -34,6 +34,7 @@ import { analyzeText, type TextRefinement, textDomainDdl } from "#compiler/text/
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { accepts, analyzeLanguage } from "#test/support/fixtures/ir/scalar.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { pickGen } from "#test/support/pick.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
@@ -42,11 +43,14 @@ import {
 	type Flags,
 	families,
 	flagsGen,
-	jsAccepts,
+	jsMatcher,
 	nestedPattern,
 	patternOver,
 	stringsOver,
-	walkGen
+	walk,
+	walkGen,
+	walkLength,
+	walkTape
 } from "#test/unit/text/generators.ts"
 
 /**
@@ -298,35 +302,65 @@ type DifferentialFeature =
 	| "member refused"
 	| "empty language"
 
-/**
- * The walks a case draws for a refinement: accepting walks over its NFA, or none where its members are finite or it
- * has none.
- */
+/** Whether a refinement's own members are walked over its NFA: none where its members are finite or it has none. */
+const walked = (r: TextRefinement | "empty" | "bound"): r is TextRefinement =>
+	r !== "empty" && r !== "bound" && r.check.kind !== "finite"
+
+/** The walks a case draws for a handwritten pattern's refinement: accepting walks over its NFA, where it is walked. */
 const walksFor = (r: TextRefinement | "empty" | "bound"): Gen<ReadonlyArray<string | undefined>> =>
-	r === "empty" || r === "bound" || r.check.kind === "finite"
-		? constant([])
-		: array(walkGen(buildNfa(r.members[0].ir)), { min: 0, max: walksPerPattern })
+	walked(r)
+		? array(walkGen(buildNfa(r.members[0].ir)), { min: 0, max: walksPerPattern })
+		: constant([])
+
+/** The tapes of a generated pattern's walks, drawn before its refinement is known, each a walk's choices. */
+const walkTapes: Gen<ReadonlyArray<ReadonlyArray<number>>> = array(
+	array(pickGen, { min: 0, max: walkTape }),
+	{ min: 0, max: walksPerPattern }
+)
+
+/** A generated pattern's walks: its tapes walked over its NFA, built once, where its refinement is walked. */
+const walksOf = (
+	r: TextRefinement | "empty" | "bound",
+	tapes: ReadonlyArray<ReadonlyArray<number>>
+): ReadonlyArray<string | undefined> => {
+	if (!walked(r)) {
+		return []
+	}
+	const nfa = buildNfa(r.members[0].ir)
+	return Arr.map(tapes, (tape) => walk(nfa, tape, walkLength))
+}
 
 /**
- * One drawn case of a family: the strings, the walks of each handwritten pattern, and generated patterns with theirs.
+ * One drawn case of a family: the strings, the walks of each handwritten pattern, and generated patterns with the
+ * tapes of their walks.
  */
-interface FamilyCase {
+interface FamilySketch {
 	readonly strings: ReadonlyArray<string>
 	readonly handwritten: ReadonlyArray<ReadonlyArray<string | undefined>>
 	readonly generated: ReadonlyArray<{
 		readonly source: string
 		readonly flags: Flags
-		readonly walks: ReadonlyArray<string | undefined>
+		readonly tapes: ReadonlyArray<ReadonlyArray<number>>
 	}>
 }
 
-/** One pattern of a case: its text, whether a person wrote it, its refinement and its drawn walks. */
+/**
+ * One pattern of a case: its text, whether a person wrote it, its refinement, its drawn walks, and its ECMAScript
+ * membership, compiled once.
+ */
 interface CasePattern {
 	readonly source: string
 	readonly flags: Flags
 	readonly handwritten: boolean
 	readonly r: TextRefinement | "empty" | "bound"
 	readonly walks: ReadonlyArray<string | undefined>
+	readonly ecma: (value: string) => boolean
+}
+
+/** A resolved case of a family: its strings, and every pattern it asks about them. */
+interface FamilyCase {
+	readonly strings: ReadonlyArray<string>
+	readonly patterns: ReadonlyArray<CasePattern>
 }
 
 /**
@@ -345,7 +379,7 @@ const agreeOn = (
 	Effect.gen(function* () {
 		yield* db.begin
 		yield* Effect.gen(function* () {
-			for (const [pi, { source, flags, handwritten, r, walks }] of patterns.entries()) {
+			for (const [pi, { source, flags, handwritten, r, walks, ecma }] of patterns.entries()) {
 				const label = `${family.name} /${source}/${flags}`
 				if (r === "bound") {
 					assert.equal(handwritten, false, `${label} exceeds the limits`)
@@ -365,7 +399,7 @@ const agreeOn = (
 							? [...r.check.members]
 							: [...new Set(Arr.flatMap(walks, (w) => (w === undefined ? [] : [w])))]
 				const all = ["", ...strings, ...own]
-				const js = Arr.map(all, (v) => jsAccepts(source, flags, v))
+				const js = Arr.map(all, ecma)
 				if (r === "empty") {
 					note("empty language")
 					assert.equal(
@@ -410,7 +444,7 @@ const agreeOn = (
 					assert.equal(truth(row[1]), expected, `${label} domain on ${value}`)
 				}
 				assert.equal(
-					Arr.every(own, (v) => jsAccepts(source, flags, v)),
+					Arr.every(own, ecma),
 					true,
 					`${label} witnesses are members`
 				)
@@ -427,39 +461,60 @@ const agreeOn = (
 layer(Substrate.layer)(
 	"regex membership: ECMAScript, host NFA, PostgreSQL ARE and installed domain",
 	(it) => {
-		it.effect(`agree on batches of up to ${stringsPerCase} randomized strings per family`, (ctx) =>
+		it.effect("agree on batches of randomized strings per family", (ctx) =>
 			Effect.gen(function* () {
 				const s = yield* Substrate
 				const schema = yield* s.schema(freshSchema)
 				const db = yield* s.session(ownerSession())
 				for (const [fi, family] of families.entries()) {
-					/** The family's own patterns, refined once: a handwritten pattern past the limits fails the test. */
+					/**
+					 * The family's own patterns, refined and compiled once: a handwritten pattern past the limits fails the
+					 * test.
+					 */
 					const written = Arr.map(family.patterns, ([source, flags], pi) => {
 						const r = refine(source, flags, loc(family.name, pi))
 						if (r === "bound") {
 							throw new Error(`${family.name} /${source}/${flags} exceeds the limits`)
 						}
-						return { source, flags, r }
+						return { source, flags, r, ecma: jsMatcher(source, flags) }
 					})
-					const familyCase: Gen<FamilyCase> = (source) => ({
+					const familySketch: Gen<FamilySketch> = (source) => ({
 						strings: source.draw(
 							array(stringsOver(family.alphabet, 8), { min: 1, max: stringsPerCase })
 						),
 						handwritten: Arr.map(written, (w) => source.draw(walksFor(w.r))),
 						generated: source.draw(
 							array(
-								(inner) => {
-									const pattern = inner.draw(patternOver(family.alphabet))
-									const flags = inner.draw(flagsGen)
-									return {
-										source: pattern,
-										flags,
-										walks: inner.draw(walksFor(refine(pattern, flags, loc(family.name, -1))))
-									}
-								},
+								(inner) => ({
+									source: inner.draw(patternOver(family.alphabet)),
+									flags: inner.draw(flagsGen),
+									tapes: inner.draw(walkTapes)
+								}),
 								{ min: 0, max: generatedPerFamily }
 							)
 						)
+					})
+					/** A sketch's case: each generated pattern refined once, its tapes walked over its NFA where it is walked. */
+					const familyCase = (sketch: FamilySketch): FamilyCase => ({
+						strings: sketch.strings,
+						patterns: [
+							...Arr.map(written, (w, pi) => ({
+								...w,
+								handwritten: true,
+								walks: defined(sketch.handwritten[pi], `the walks of handwritten pattern ${pi}`)
+							})),
+							...Arr.map(sketch.generated, (g, gi) => {
+								const r = refine(g.source, g.flags, loc(family.name, written.length + gi))
+								return {
+									source: g.source,
+									flags: g.flags,
+									handwritten: false,
+									r,
+									walks: walksOf(r, g.tapes),
+									ecma: jsMatcher(g.source, g.flags)
+								}
+							})
+						]
 					})
 					yield* searched(
 						ctx,
@@ -467,7 +522,7 @@ layer(Substrate.layer)(
 							{
 								oracle: { kind: "unstated" },
 								suite: `text/differential/${family.name}`,
-								draw: drawn(familyCase),
+								draw: sketched(familySketch, familyCase),
 								literal: Formatter.format,
 								coverage: required<DifferentialFeature>(
 									[
@@ -479,30 +534,14 @@ layer(Substrate.layer)(
 									{ cases: 10, sense: notesOnly }
 								),
 								kept: [],
-								/** The floor's 3 and the rotating 10 batches of up to 500 strings each. */
 								runs: 10,
 								shrink: completeShrink,
 								concurrency: 1,
 								steerEvery: 16,
 								caseHang
 							},
-							(c, k) => {
-								const patterns: ReadonlyArray<CasePattern> = [
-									...Arr.map(written, (w, pi) => ({
-										...w,
-										handwritten: true,
-										walks: defined(c.handwritten[pi], `the walks of handwritten pattern ${pi}`)
-									})),
-									...Arr.map(c.generated, (g, gi) => ({
-										source: g.source,
-										flags: g.flags,
-										handwritten: false,
-										r: refine(g.source, g.flags, loc(family.name, written.length + gi)),
-										walks: g.walks
-									}))
-								]
-								return agreeOn(db, schema, fi, family, patterns, c.strings, (f) => k.note(f))
-							}
+							(c, k) =>
+								agreeOn(db, schema, fi, family, c.patterns, c.strings, (f) => k.note(f))
 						)
 					)
 				}
@@ -588,7 +627,6 @@ layer(Substrate.layer)(
 								sense: notesOnly
 							}),
 							kept: [],
-							/** The floor's 1,200 and the rotating 4,800. */
 							runs: 4800,
 							shrink: completeShrink,
 							concurrency: 1,

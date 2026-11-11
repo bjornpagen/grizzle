@@ -40,7 +40,7 @@ import {
 	renderSql,
 	testPg
 } from "#test/unit/compute/support.ts"
-import { families, jsAccepts, patternOver, stringsOver } from "#test/unit/text/generators.ts"
+import { families, jsMatcher, patternOver, stringsOver } from "#test/unit/text/generators.ts"
 
 /**
  * Compute's text terms on PostgreSQL 19, against the host.
@@ -263,6 +263,8 @@ layer(Substrate.layer)("Compute's text terms on PostgreSQL", (it) => {
 									[jsonText(Arr.map(c.rows, (r, ord) => ({ ord, ...r })))]
 								)
 								assert.equal(rows.length, c.rows.length, "a row per input")
+								const ofFirst = jsMatcher(first, "u")
+								const ofSecond = second === undefined ? ofFirst : jsMatcher(second, "u")
 								for (const [i, row] of rows.entries()) {
 									const input = defined(c.rows[i])
 									const columns = new Map<string, unknown>([
@@ -293,7 +295,7 @@ layer(Substrate.layer)("Compute's text terms on PostgreSQL", (it) => {
 										)
 									}
 									const chosen = second === undefined || input.p ? first : second
-									const js = jsAccepts(chosen, "u", input.v)
+									const js = (input.p ? ofFirst : ofSecond)(input.v)
 									assert.equal(
 										row[0],
 										printed(js),
@@ -429,11 +431,13 @@ layer(Substrate.layer)("Compute's text terms on PostgreSQL", (it) => {
 			const literalCheck = names.constraintOf(names.lawOf(s.literal), "TableCheck")
 			const problems: Array<string> = []
 			const reached = new Set<DictionaryFeature>()
+			const ofPatterns = Arr.map(d.patterns, (pattern) => jsMatcher(pattern, "u"))
+			const ofLiteral = jsMatcher(d.literal, "u")
 			let id = 0
 			for (const p of d.probes) {
 				const domain = p.domain % d.patterns.length
 				const pattern = defined(d.patterns[domain])
-				const holds = jsAccepts(pattern, "u", p.lexical)
+				const holds = defined(ofPatterns[domain])(p.lexical)
 				id += 1
 				const verdict = yield* probe(
 					pinned,
@@ -450,7 +454,7 @@ layer(Substrate.layer)("Compute's text terms on PostgreSQL", (it) => {
 					)
 				)
 				reached.add(holds ? "dictionary admits" : "dictionary refuses")
-				const tagged = jsAccepts(d.literal, "u", p.lexical)
+				const tagged = ofLiteral(p.lexical)
 				const literalVerdict = yield* probe(
 					pinned,
 					`INSERT INTO ${names.table(s.Tagged)} (${names.column(s.Tagged, "id")}, ${names.column(s.Tagged, "code")}) VALUES ($1, $2)`,

@@ -42,7 +42,7 @@ import { caseHang } from "#test/support/limits.ts"
 import { asDrafted, compile } from "#test/support/migrate/kit.ts"
 import { checkedIn } from "#test/support/policy.ts"
 import { upTo } from "#test/support/up-to.ts"
-import { jsAccepts, patternOver } from "#test/unit/text/generators.ts"
+import { jsMatcher, patternOver } from "#test/unit/text/generators.ts"
 
 /**
  * A guard over a transformed text proves what its language allows: `Compute.when(Compute.matches(T(t), P), (x) =>
@@ -1179,7 +1179,7 @@ describe("a transformed text's byte bound", () => {
 								)
 								if (checked.ok) {
 									assert.ok(
-										bytesOf(image) <= bytes && jsAccepts(target.source, target.flags, image),
+										bytesOf(image) <= bytes && jsMatcher(target.source, target.flags)(image),
 										`${label}: ${Formatter.format(image)} is of the target`
 									)
 								}

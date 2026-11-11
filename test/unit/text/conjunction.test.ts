@@ -41,7 +41,7 @@ import { checkedIn } from "#test/support/policy.ts"
 /**
  * A conjunction of patterns (str.and), whose language is the intersection of its members', as the text analysis keys,
  * bounds, matches, compares and enforces it. Each search draws its patterns from the generated grammar and finite
- * languages over a small alphabet, ECMAScript's own membership of every member (generators.ts jsAccepts) the oracle of
+ * languages over a small alphabet, ECMAScript's own membership of every member (generators.ts jsMatcher) the oracle of
  * the intersection:
  *
  * - **its language:** the host's membership of a drawn text (scalar/regex/patterns.ts) and the intersection's canonical
@@ -62,7 +62,7 @@ import { refinementBounds } from "#test/support/text.ts"
 import {
 	finiteLanguageOver,
 	flagsGen,
-	jsAccepts,
+	jsMatcher,
 	patternOver,
 	stringsOver,
 	walkGen
@@ -94,9 +94,14 @@ const conjunctionGen =
 		...source.draw(array(memberGen(alphabet), { min: Math.max(0, min - 1), max: max - 1 }))
 	]
 
-/** Whether ECMAScript finds every member of a conjunction in `text`: the oracle of the conjunction's membership. */
-const jsAll = (patterns: ReadonlyArray<PatternSource>, text: string): boolean =>
-	Arr.every(patterns, (p) => jsAccepts(p.source, p.flags, text))
+/**
+ * Whether ECMAScript finds every member of a conjunction in a text: the oracle of the conjunction's membership, each
+ * member compiled once.
+ */
+const jsAll = (patterns: ReadonlyArray<PatternSource>): ((text: string) => boolean) => {
+	const matchers = Arr.map(patterns, (p) => jsMatcher(p.source, p.flags))
+	return (text) => Arr.every(matchers, (m) => m(text))
+}
 
 /** A member's NFA, or none for a member the parser refuses. */
 const nfaOf = (p: PatternSource): Option.Option<Nfa> => {
@@ -172,7 +177,7 @@ describe("a conjunction's language", () => {
 					{
 						oracle: {
 							kind: "second-implementation",
-							name: "ECMAScript's membership of every member (generators.ts jsAccepts)"
+							name: "ECMAScript's membership of every member (generators.ts jsMatcher)"
 						},
 						suite: "unit/text/conjunction-language",
 						draw: drawn((source) => {
@@ -211,12 +216,13 @@ describe("a conjunction's language", () => {
 							const analyzed = analyzeText(patterns, loc)
 							k.note(patterns.length === 2 ? "a pair" : "a triple")
 							const members = Arr.map(patterns, (p) => analyzeText([p], loc))
+							const ofAll = jsAll(patterns)
 							if (!analyzed.ok) {
 								if (Arr.every(members, (m) => m.ok)) {
 									k.note("refused as matching no text")
 									assert.equal(analyzed.error.reason._tag, "UnsupportedOperation", label)
 									assert.ok(
-										Arr.every(texts, (t) => !jsAll(patterns, t)),
+										Arr.every(texts, (t) => !ofAll(t)),
 										`${label} is refused as empty, and holds no drawn text`
 									)
 								}
@@ -232,12 +238,13 @@ describe("a conjunction's language", () => {
 							) {
 								k.note("bounded where a member alone is not")
 							}
+							const ofFirst = jsAll([patterns[0]])
 							for (const t of texts) {
-								const expected = jsAll(patterns, t)
+								const expected = ofAll(t)
 								const where = `${label} on ${Formatter.format(t)}`
 								if (expected) {
 									k.note("a text of the conjunction")
-								} else if (jsAll([patterns[0]], t)) {
+								} else if (ofFirst(t)) {
 									k.note("a text the first member holds and the conjunction does not")
 								}
 								assert.equal(
@@ -363,7 +370,9 @@ describe("a conjunction's inclusion", () => {
 							const label = `${Formatter.format(inner)} in ${Formatter.format(outer)}`
 							const verdict = inclusion(innerNfas, outerNfas)
 							k.note(verdict.kind)
-							const outside = (t: string): boolean => jsAll(inner, t) && !jsAll(outer, t)
+							const ofInner = jsAll(inner)
+							const ofOuter = jsAll(outer)
+							const outside = (t: string): boolean => ofInner(t) && !ofOuter(t)
 							switch (verdict.kind) {
 								case "included": {
 									const counter = Arr.findFirst([...shortTexts, ...walks], outside)

@@ -498,7 +498,6 @@ const build = Effect.fnUntraced(function* (
 			})
 			if (Option.isSome(options.role)) {
 				yield* raw.query(`SET ROLE ${quoteIdent(options.role.value)}`, [])
-				yield* raw.resetStatements
 			}
 			return raw
 		})
@@ -525,7 +524,6 @@ const build = Effect.fnUntraced(function* (
 			started.backend = Option.some(writer.backend)
 			if (Option.isSome(options.role)) {
 				yield* Effect.orDie(writer.run(`SET ROLE ${quoteIdent(options.role.value)}`))
-				yield* writer.resetStatements
 			}
 			return writer
 		})

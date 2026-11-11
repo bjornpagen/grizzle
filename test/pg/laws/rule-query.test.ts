@@ -1214,7 +1214,6 @@ layer(Substrate.layer, { excludeTestServices: true })(
 											continue
 										}
 										const verdict = yield* attempt(seat.session, t.statements)
-										yield* seat.session.resetStatements
 										if (verdict.kind === "committed") {
 											if (breaks.length > 0) {
 												return yield* new Disagreed({
@@ -1299,8 +1298,6 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									if (Option.isSome(openB)) {
 										yield* second.rollback
 									}
-									yield* seat.session.resetStatements
-									yield* second.resetStatements
 									const now = yield* readState((sql) => seat.session.values(sql, []), seat.table)
 									const after = broken(now)
 									if (after.length > 0) {

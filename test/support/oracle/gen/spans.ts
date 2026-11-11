@@ -1,5 +1,5 @@
 import { array, boolean, element, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
-import { Array as Arr, Option, String as Str } from "effect"
+import { Array as Arr, Effect, Option, type Scope, String as Str } from "effect"
 import { ALLEN, fullAllenMask } from "#compiler/allen/mask.ts"
 import type { FieldDesc, QueryDesc } from "#compiler/ir/desc.ts"
 import {
@@ -29,6 +29,9 @@ import {
 	type SpanLimits
 } from "#test/support/oracle/allen.ts"
 import { cyclicAt, elementAt } from "#test/support/oracle/pick.ts"
+import type { SqlError } from "#test/support/pg.ts"
+import type { RawSession } from "#test/support/substrate/session.ts"
+import { freshSchema, Substrate } from "#test/support/substrate/substrate.ts"
 
 export const spanEndpointKinds = ["integer", "bigint", "contract", "date"] as const
 export type SpanEndpointKind = (typeof spanEndpointKinds)[number]
@@ -442,7 +445,7 @@ const resolveQuery = (
  * - the expected rows by brute force (`referenceRows`), from the endpoints alone: the Allen relation of a pair from
  *   the endpoint classifier of test/support/oracle/allen.ts, never from the shipped mask table, and the producers by
  *   endpoint arithmetic that the pg suite cross-checks against point sets;
- * - an independent handwritten SQL evaluation (`spanInstallStatements`, `referenceSql`), which classifies Allen
+ * - an independent handwritten SQL evaluation (`inSpanCase`, `referenceSql`), which classifies Allen
  *   relations from lower() and upper() and uses PostgreSQL's own range operators and functions for the producers, so
  *   the reference is checked against PostgreSQL itself (test/pg/spans/oracle).
  *
@@ -820,31 +823,23 @@ const table = (schema: string, relation: SpanRelationName): string =>
 	`${q(schema)}.${q(spanTableName(relation))}`
 
 /**
- * The statements a schema needs once before any case: btree_gist for the scalar components of a span key
- * and the Tick domain with its constraint. The reference names its own objects, without the naming rule's markers:
- * nothing compares them with grizzle's.
+ * The statements a span schema's PostgreSQL schema holds: the Tick domain with its constraint, and the tables of its two
+ * relations: NOT NULL columns, the span shape CHECK, the Tick endpoint checks with lower() and upper() substituted for
+ * VALUE, and the primary key, WITHOUT OVERLAPS on the span of a span key. The reference names its own objects, without
+ * the naming rule's markers: nothing compares them with grizzle's.
  */
-export const spanSetupStatements = (schema: string): ReadonlyArray<string> => [
-	"CREATE EXTENSION IF NOT EXISTS btree_gist",
-	`CREATE DOMAIN ${q(schema)}.${q("tick")} AS int8 CONSTRAINT ${q("tick_check")} CHECK ((VALUE >= '${tickContract.low}'::int8) IS TRUE)`
-]
-
-/**
- * The tables of a case, replacing those of the previous case: NOT NULL columns, the span shape CHECK,
- * the Tick endpoint checks with lower() and upper() substituted for VALUE, and the primary key, WITHOUT
- * OVERLAPS on the span of a span key.
- */
-export const spanInstallStatements = (schema: string, c: SpanCase): ReadonlyArray<string> =>
-	Arr.flatMap(spanRelationNames, (name) => {
-		const relation = c.schema.relations[name]
+const spanSchemaStatements = (schema: string, spans: SpanSchema): ReadonlyArray<string> => [
+	`CREATE DOMAIN ${q(schema)}.${q("tick")} AS int8 CONSTRAINT ${q("tick_check")} CHECK ((VALUE >= '${tickContract.low}'::int8) IS TRUE)`,
+	...Arr.map(spanRelationNames, (name) => {
+		const relation = spans.relations[name]
 		const t = spanTableName(name)
-		const range = rangeTypeOf(c.schema.endpoint)
+		const range = rangeTypeOf(spans.endpoint)
 		const columns = [
 			...(relation.spanKeyed ? [] : [`${q("id")} int4 NOT NULL`]),
 			`${q("group")} int4 NOT NULL`,
 			`${q("during")} ${range} NOT NULL`,
 			`CONSTRAINT ${q(`${t}_during_shape`)} CHECK ((NOT isempty(${q("during")}) AND NOT lower_inf(${q("during")}) AND NOT upper_inf(${q("during")}) AND lower_inc(${q("during")}) AND NOT upper_inc(${q("during")})) IS TRUE)`,
-			...(c.schema.endpoint === "contract"
+			...(spans.endpoint === "contract"
 				? [
 						`CONSTRAINT ${q(`${t}_during_tick`)} CHECK ((lower(${q("during")}) >= '${tickContract.low}'::int8 AND upper(${q("during")}) >= '${tickContract.low}'::int8) IS TRUE)`
 					]
@@ -853,10 +848,62 @@ export const spanInstallStatements = (schema: string, c: SpanCase): ReadonlyArra
 				? `CONSTRAINT ${q(`${t}_key`)} PRIMARY KEY (${q("group")}, ${q("during")} WITHOUT OVERLAPS)`
 				: `CONSTRAINT ${q(`${t}_key`)} PRIMARY KEY (${q("id")})`
 		]
-		return [
-			`DROP TABLE IF EXISTS ${table(schema, name)}`,
-			`CREATE TABLE ${table(schema, name)} (${Arr.join(columns, ", ")})`
-		]
+		return `CREATE TABLE ${table(schema, name)} (${Arr.join(columns, ", ")})`
+	})
+]
+
+/** A value for each keying of a relation: span-keyed, or keyed by an integer id. */
+interface ByKeying<A> {
+	readonly spanKeyed: A
+	readonly idKeyed: A
+}
+
+const keyingOf = (relation: SpanRelation): keyof ByKeying<unknown> =>
+	relation.spanKeyed ? "spanKeyed" : "idKeyed"
+
+/**
+ * The PostgreSQL schema each span schema is installed under, by its endpoint and the keying of Left and then Right:
+ * every span schema a case can have, each installed and committed once.
+ */
+type SpanInstallations = Readonly<Record<SpanEndpointKind, ByKeying<ByKeying<string>>>>
+
+/**
+ * Installs every span schema once, each under a schema of its own that the test's scope drops, after btree_gist,
+ * which supplies the scalar components of a span key.
+ */
+export const installSpanSchemas = (
+	db: RawSession,
+	label: string
+): Effect.Effect<SpanInstallations, SqlError, Scope.Scope | Substrate> =>
+	Effect.gen(function* () {
+		const s = yield* Substrate
+		yield* db.query("CREATE EXTENSION IF NOT EXISTS btree_gist", [])
+		const installed = (endpoint: SpanEndpointKind, left: boolean, right: boolean) =>
+			Effect.gen(function* () {
+				const schema = yield* s.schema({ ...freshSchema, label })
+				const spans: SpanSchema = {
+					endpoint,
+					relations: {
+						Left: { name: "Left", spanKeyed: left },
+						Right: { name: "Right", spanKeyed: right }
+					}
+				}
+				for (const statement of spanSchemaStatements(schema, spans)) {
+					yield* db.query(statement, [])
+				}
+				return schema
+			})
+		const byKeying = <A, E, R>(
+			f: (spanKeyed: boolean) => Effect.Effect<A, E, R>
+		): Effect.Effect<ByKeying<A>, E, R> => Effect.all({ spanKeyed: f(true), idKeyed: f(false) })
+		const ofEndpoint = (endpoint: SpanEndpointKind) =>
+			byKeying((left) => byKeying((right) => installed(endpoint, left, right)))
+		return yield* Effect.all({
+			integer: ofEndpoint("integer"),
+			bigint: ofEndpoint("bigint"),
+			contract: ofEndpoint("contract"),
+			date: ofEndpoint("date")
+		} satisfies Record<SpanEndpointKind, unknown>)
 	})
 
 /** One INSERT of a list of facts through jsonb_to_recordset, with its one parameter. */
@@ -882,6 +929,34 @@ export const spanInsert = (
 			)
 		]
 	}
+}
+
+/**
+ * `body` run on `db` with the PostgreSQL schema the case's span schema is installed under, inside one transaction that
+ * stores the case's facts and is rolled back however `body` ends, so every case starts from empty tables.
+ */
+export const inSpanCase = <A, E, R>(
+	db: RawSession,
+	installations: SpanInstallations,
+	c: SpanCase,
+	body: (schema: string) => Effect.Effect<A, E, R>
+): Effect.Effect<A, E | SqlError, R> => {
+	const schema =
+		installations[c.schema.endpoint][keyingOf(c.schema.relations.Left)][
+			keyingOf(c.schema.relations.Right)
+		]
+	return Effect.gen(function* () {
+		yield* db.begin
+		return yield* Effect.gen(function* () {
+			for (const name of spanRelationNames) {
+				if (c.facts[name].length > 0) {
+					const insert = spanInsert(schema, c, name, c.facts[name])
+					yield* db.query(insert.sql, insert.params)
+				}
+			}
+			return yield* body(schema)
+		}).pipe(Effect.ensuring(Effect.ignore(db.rollback)))
+	})
 }
 
 /**

@@ -604,7 +604,6 @@ layer(Substrate.layer)("the law of erasure's templates of fin.md §17 on Postgre
 								const bare = yield* refusalOf(
 									db.query(`INSERT INTO ${name("bare")} (x, y, z) VALUES ${values}`, [])
 								)
-								yield* db.resetStatements
 								const inRange = (code: number, size: number) => code >= 0 && code < size
 								const ranged =
 									inRange(c.x, sizes[0]) && inRange(c.y, sizes[1]) && inRange(c.z, sizes[2])
@@ -877,8 +876,6 @@ layer(Substrate.layer)("the law of erasure's templates of fin.md §17 on Postgre
 										}
 									}
 								}
-								yield* writer.resetStatements
-								yield* migrator.resetStatements
 								yield* s.admin.query(`DROP TABLE ${name("t1")}, ${name("t2")}`, [])
 								yield* s.admin.query(`DROP DOMAIN ${name("roster")}`, [])
 								yield* s.admin.query(
@@ -1054,7 +1051,6 @@ layer(Substrate.layer)("the law of erasure's templates of fin.md §17 on Postgre
 										assert.equal(fields.code, "23514")
 										assert.ok(Option.isSome(fields.dataType), "the refusal is the domain's")
 									}
-									yield* writer.resetStatements
 								})
 							)
 					)

@@ -26,10 +26,7 @@ import {
 	type RawRow,
 	rowSet,
 	type SpanCase,
-	spanInsert,
-	spanInstallStatements,
 	spanQueryDesc,
-	spanRelationNames,
 	spanSchemaDesc
 } from "#test/support/oracle/gen/spans.ts"
 import type { SqlError } from "#test/support/pg.ts"
@@ -73,28 +70,11 @@ export const onlySql = (
 }
 
 /**
- * What the span producer suites share: compiling a span case's query into both artifacts, installing a case's
- * facts, running SQL as raw text rows, and lowering a hand-built DAG node to one audited statement.
+ * What the span producer suites share: compiling a span case's query into both artifacts, running SQL as raw text
+ * rows, and lowering a hand-built DAG node to one audited statement.
+ *
+ * The rows of a statement as raw text.
  */
-export const installSpanCase = (
-	db: RawSession,
-	schema: string,
-	c: SpanCase
-): Effect.Effect<void, SqlError> =>
-	Effect.gen(function* () {
-		for (const statement of spanInstallStatements(schema, c)) {
-			yield* db.query(statement, [])
-		}
-		for (const name of spanRelationNames) {
-			if (c.facts[name].length === 0) {
-				continue
-			}
-			const insert = spanInsert(schema, c, name, c.facts[name])
-			yield* db.query(insert.sql, insert.params)
-		}
-	})
-
-/** The rows of a statement as raw text. */
 export const rawRows = (
 	db: RawSession,
 	sql: string,

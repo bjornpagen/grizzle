@@ -21,7 +21,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 /**
  * The recursion equivalence suite.
  *
- * 3,200 seeded graph-shaped recursive queries over chains, trees, diamonds, self-loops, dense cycles, random graphs,
+ * Seeded graph-shaped recursive queries over chains, trees, diamonds, self-loops, dense cycles, random graphs,
  * parallel edges and multiple roots carrying origin, each run on PostgreSQL 19 through the conservative lowering and
  * computed by definition through the reference evaluator, compared statement by statement as raw text sets with
  * no repeated row on the lowering's side (every statement delivers a set). The population covers every
@@ -100,7 +100,6 @@ const situations = [
 	"relation roots over text"
 ] as const satisfies ReadonlyArray<RecursionOracleFeature>
 
-/** One exploration of twice the cases: its floor and rotating streams are what the two fixed seeds were. */
 const explored = recursiveEquivalence(
 	recursiveCaseGen(defaultRecursiveLimits),
 	conservative,
@@ -123,7 +122,7 @@ layer(Substrate.layer)(
 	"recursive queries: the conservative lowering against the reference evaluator",
 	(it) => {
 		it.effect(
-			`agree on ${2 * cases} seeded graph-shaped recursive queries of every shape, family, binding and consumer, with no repeated row`,
+			"agree on seeded graph-shaped recursive queries of every shape, family, binding and consumer, with no repeated row",
 			(ctx) => searched(ctx, explored)
 		)
 	}

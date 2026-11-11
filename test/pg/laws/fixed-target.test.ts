@@ -162,7 +162,6 @@ layer(Substrate.layer)(
 												])
 									]
 									const real = yield* attempt(seat.session, statements)
-									yield* seat.session.resetStatements
 									const missed = Arr.flatMap(s.documents, (id) => missedOf(s, id))
 									if (real.kind === "committed") {
 										yield* cleared(seat, RELATIONS)

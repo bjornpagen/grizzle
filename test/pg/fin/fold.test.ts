@@ -519,7 +519,6 @@ layer(Substrate.layer)("folds through grizzle's lowering on PostgreSQL 19rc1", (
 											", "
 										)}`
 									])
-									yield* seat.session.resetStatements
 									if (real.kind === "committed") {
 										committed.push(candidate)
 										yield* cleared(seat, ["Node"])

@@ -26,7 +26,7 @@ import {
 	families,
 	finiteLanguageOver,
 	flagsGen,
-	jsAccepts,
+	jsMatcher,
 	nestedPattern,
 	patternOver,
 	stringsOver
@@ -490,12 +490,13 @@ describe("the enforcement of a finite language", () => {
 									assert.equal(members.has(m), true, `${label} lists ${Formatter.format(m)}`)
 								}
 							}
+							const ofLanguage = jsMatcher(language.source, flags)
 							for (const m of language.members) {
-								assert.equal(jsAccepts(language.source, flags, m), true, `${label} on ${m}`)
+								assert.equal(ofLanguage(m), true, `${label} on ${m}`)
 							}
 							for (const s of strings) {
 								assert.equal(
-									jsAccepts(language.source, flags, s),
+									ofLanguage(s),
 									members.has(s),
 									`${label} on ${s}`
 								)

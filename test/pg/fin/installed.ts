@@ -387,7 +387,6 @@ export const cleared = (
 			Effect.ignore(seat.session.rollback)
 		)
 		yield* seat.session.commit
-		yield* seat.session.resetStatements
 	})
 
 /**

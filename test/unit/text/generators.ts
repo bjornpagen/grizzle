@@ -499,7 +499,7 @@ const NESTED_FIRST = [1, 1, 3] as const
  * Patterns that probe PostgreSQL's regex compile space: counted repetitions nested up to three deep,
  * with counts up to 255, over atoms that are nullable, anchored, alternations with an empty arm, or wide classes. These
  * are the shapes PostgreSQL's NFA optimizer grows on (empty-arc removal, constraint elimination), unlike patternOver,
- * whose star height is one. Most exceed the compiler's budgets; the ones it admits must compile on PostgreSQL quickly.
+ * whose star height is one. Most exceed the compiler's budgets; the ones it admits must compile on PostgreSQL.
  */
 export const nestedPattern: Gen<string> = (() => {
 	const atom = element([
@@ -607,14 +607,17 @@ const withoutComplements = (source: string): string => {
 }
 
 /**
- * The development oracle: ECMAScript's own membership test, on the source with its negated classes
- * spelled without an engine complement. The search is spelled as an anchored match after a lazy prefix, which accepts
- * exactly the strings an unanchored `test` does: V8 in Node 26.11 misses an unanchored match of a class that reaches
- * the supplementary planes followed by `$` under the u flag (`/[\s\S]$/u.test("\u{1F600}")` is false), which a
- * rotating seed of the membership suite found as /[^]$/u refusing U+10FFFF.
+ * The development oracle: ECMAScript's own membership test of a pattern, compiled once, on the source with its negated
+ * classes spelled without an engine complement. The search is spelled as an anchored match after a lazy prefix, which
+ * accepts exactly the strings an unanchored `test` does: V8 in Node 26.11 misses an unanchored match of a class that
+ * reaches the supplementary planes followed by `$` under the u flag (`/[\s\S]$/u.test("\u{1F600}")` is false), which
+ * a rotating seed of the membership suite found as /[^]$/u refusing U+10FFFF. The flags hold neither g nor y, so a
+ * test reads no lastIndex and the one RegExp answers every value alike.
  */
-export const jsAccepts = (source: string, flags: Flags, value: string): boolean =>
-	regex.as(`^[\\s\\S]*?(?:${withoutComplements(source)})`, flags).test(value)
+export const jsMatcher = (source: string, flags: Flags): ((value: string) => boolean) => {
+	const compiled = regex.as(`^[\\s\\S]*?(?:${withoutComplements(source)})`, flags)
+	return (value) => compiled.test(value)
+}
 
 /**
  * One code point of a set, from three picks: an interval endpoint half the time, which reaches the edges of ranges,

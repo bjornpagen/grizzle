@@ -1,4 +1,4 @@
-import { Effect, Formatter, Option, type Redacted, Ref, type Scope, String as Str } from "effect"
+import { Effect, Formatter, Option, type Redacted, type Scope, String as Str } from "effect"
 import type { InitializedClusterShape } from "#test/support/cluster.ts"
 import { pgPin } from "#test/support/env.ts"
 import { type ClientBackend, ownBackendOf, ownBackendQuery } from "#test/support/kernel/sanitize.ts"
@@ -61,10 +61,6 @@ export interface RawSession {
 	/** COMMIT, failing with TransactionRolledBack when PostgreSQL answers it with ROLLBACK (an aborted transaction). */
 	readonly commit: Effect.Effect<void, SqlError | TransactionRolledBack>
 	readonly rollback: Effect.Effect<void, SqlError>
-	/** Every statement sent through this session, BEGIN and COMMIT included, whether or not it succeeded. */
-	readonly statements: Effect.Effect<number>
-	readonly log: Effect.Effect<ReadonlyArray<string>>
-	readonly resetStatements: Effect.Effect<void>
 }
 
 /** A substrate connection: the database, the login and the session's name in reports. */
@@ -90,13 +86,12 @@ export const connect = (
 	})
 
 /**
- * Raw pinned sessions: one backend each, explicit BEGIN, and a per-session statement counter.
+ * Raw pinned sessions: one backend each, and explicit BEGIN.
  *
  * A raw session is a direct SQL client, not grizzle: schedules use it to play a concurrent writer, as direct SQL
  * writers need. Every transaction it begins is SERIALIZABLE, as every transaction grizzle's guard admits; a planted
  * below-SERIALIZABLE BEGIN exists only to be refused. It connects as the adapter does, over TCP with verify-full TLS and
- * a SCRAM password, through the one connection helper the TLS tests exercise (test/support/pg.ts). Statements are
- * counted by this wrapper; pg_stat_statements is not used.
+ * a SCRAM password, through the one connection helper the TLS tests exercise (test/support/pg.ts).
  *
  * Opens a session as `credentials.role` and pins its backend until the scope closes.
  */
@@ -107,13 +102,8 @@ export const openSession = Effect.fnUntraced(function* (
 	const label = options.label
 	const connection = yield* connect(cluster, options)
 	const pinned = yield* connection.pin
-	const log = yield* Ref.make<ReadonlyArray<string>>([])
-	const record = (sql: string) => Ref.update(log, (entries) => [...entries, sql])
-
-	const query = (sql: string, params: ReadonlyArray<unknown>) =>
-		Effect.andThen(record(sql), pinned.query(sql, params))
-	const values = (sql: string, params: ReadonlyArray<unknown>) =>
-		Effect.andThen(record(sql), pinned.queryValues(sql, params))
+	const query = (sql: string, params: ReadonlyArray<unknown>) => pinned.query(sql, params)
+	const values = (sql: string, params: ReadonlyArray<unknown>) => pinned.queryValues(sql, params)
 	const answered = yield* pinned.queryValues(ownBackendQuery, [])
 	const own = ownBackendOf(answered)
 	if (Option.isNone(own)) {
@@ -138,9 +128,6 @@ export const openSession = Effect.fnUntraced(function* (
 				? Effect.void
 				: Effect.fail(new TransactionRolledBack({ label, command: result.command }))
 		),
-		rollback: Effect.asVoid(query("ROLLBACK", [])),
-		statements: Effect.map(Ref.get(log), (entries) => entries.length),
-		log: Ref.get(log),
-		resetStatements: Ref.set(log, [])
+		rollback: Effect.asVoid(query("ROLLBACK", []))
 	}
 })

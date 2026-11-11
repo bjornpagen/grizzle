@@ -226,7 +226,6 @@ layer(Substrate.layer)("the bit algebra of fin.md §16 on PostgreSQL 19rc1", (it
 									`SELECT (a & b)::text, (a | b)::text, (a # b)::text, (~a)::text, bit_count(a)::int4, substring(a FROM ${c.from} FOR ${c.length})::text, bit_count(a & ~b) = 0, bit_count(a & b) = 0, bit_count(a & k) <> 0, bit_count(a & k) <= 1, ${read}, ${ones}::text, ${twos}::text, ${onesBack}::text, ${twosBack}::text, bit_count(${twos} & k) = 0 FROM (SELECT ${literalOf(c.a)} AS a, ${literalOf(c.b)} AS b, ${literalOf(c.k)} AS k) AS v`,
 									[]
 								)
-								yield* db.resetStatements
 								const counts = Arr.map(
 									indices(n),
 									(i) => Arr.filter(c.folded, (set) => set[i] === true).length

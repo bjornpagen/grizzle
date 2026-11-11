@@ -7,7 +7,7 @@
  * one UTF-8 width, 1 to 4 bytes a code point; its values are the texts of N - 1, N and N + 1 bytes in that script, the
  * script's code points then ASCII to make up the bytes. A run installs a batch of cases as one schema through its first
  * migration, each a relation of an integer key and a str.bytes field, and inserts each value as the migration identity,
- * a direct writer. A value is stored exactly when it is a member of the pattern, by ECMAScript (jsAccepts), and of
+ * a direct writer. A value is stored exactly when it is a member of the pattern, by ECMAScript (jsMatcher), and of
  * at most N bytes, by TextEncoder; otherwise the domain's CHECK refuses it with SQLSTATE 23514. The analysis agrees:
  * the field's type bounds its bytes at the lesser of the pattern's bound and N and its code points at the lesser of
  * the pattern's and N, and the host's membership (scalar/regex/patterns.ts ProgramPatterns) answers as PostgreSQL does.
@@ -35,7 +35,7 @@ import { installMigrated as install } from "#test/support/install-migrate.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { pgErrorFields } from "#test/support/substrate/errors.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
-import { jsAccepts } from "#test/unit/text/generators.ts"
+import { jsMatcher } from "#test/unit/text/generators.ts"
 
 /** A case's pattern: every text, at most so many code points, or letters of every width of no bound. */
 type Pattern =
@@ -102,9 +102,10 @@ const valuesOf = (c: BytesCase): ReadonlyArray<string> =>
 	)
 
 /** Whether a value is a member of the case's language: its pattern's, by ECMAScript, within its bytes. */
-const member = (c: BytesCase, value: string): boolean => {
+const memberOf = (c: BytesCase): ((value: string) => boolean) => {
 	const { source, flags } = sourceOf(c.pattern)
-	return utf8Bytes(value) <= c.bytes && jsAccepts(source, flags, value)
+	const ofPattern = jsMatcher(source, flags)
+	return (value) => utf8Bytes(value) <= c.bytes && ofPattern(value)
 }
 
 type BytesFeature =
@@ -201,8 +202,9 @@ const checkBatch = (batch: ReadonlyArray<BytesCase>, note: SearchCase<BytesFeatu
 				Arr.map(["id", "t"], (f) => quoteIdent(installed.names.column(`R${i}`, f))),
 				", "
 			)
+			const member = memberOf(c)
 			for (const [j, value] of valuesOf(c).entries()) {
-				const lawful = member(c, value)
+				const lawful = member(value)
 				const bytes = utf8Bytes(value)
 				const at = `${where}, a value of ${bytes} bytes`
 				const regex = text.regex

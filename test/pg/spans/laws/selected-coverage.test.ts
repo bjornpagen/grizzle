@@ -8,7 +8,7 @@
  * values as bigints (a date as its day number, the order of dates). The box is an endpoint, bigint or date, a cover cut
  * at distinct points of its `points` (pointsAround: the domain's limits and the points beside them, and an inside value
  * and the points beside it: int8's limits and zero, a date's 0001-01-01, 9999-12-31 and leap day), each piece dropped
- * one time in four, and a nonempty visit between two of the points, 60 runs, required to reach, over each endpoint, a
+ * one time in four, and a nonempty visit between two of the points, required to reach, over each endpoint, a
  * covered and a refused visit from the lower limit, to the upper limit and inside them.
  *
  * These edges stay a suite of their own rather than kept cases of the span-coverage box (test/support/laws/boxes.ts

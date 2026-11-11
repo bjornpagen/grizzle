@@ -51,9 +51,6 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * That the seeded statement delivers exactly the pipelined closures is the graph suite's (equivalence.test.ts, the
  * attachment population against the conservative lowering) and the recursion oracle's (consumer:attach against the
  * reference evaluator).
- *
- * Measured alone, its suites hold the event loop for up to 18 s at a time, which starves the driver timers of
- * other files in a shared job, so the file is a CPU-bound job of its own.
  */
 
 const V = relation("V", { id: pg.integer }, ["id"])

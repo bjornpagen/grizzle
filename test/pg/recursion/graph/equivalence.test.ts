@@ -229,12 +229,12 @@ const optimizedAt = (note: Note, which: 0 | 1): Lowering => ({
 })
 
 layer(Substrate.layer)("graph recognition and R37 against the conservative lowering", (it) => {
-	it.effect(`agree on ${general} seeded recursive queries of every family and consumer`, (ctx) =>
+	it.effect("agree on seeded recursive queries of every family and consumer", (ctx) =>
 		searched(ctx, agreeOn(generalPopulation))
 	)
 
 	it.effect(
-		`seed every attached recursion from the parent keys and agree on ${attached} cases (R37)`,
+		"seed every attached recursion from the parent keys and agree (R37)",
 		(ctx) =>
 			searched(
 				ctx,
@@ -263,7 +263,7 @@ layer(Substrate.layer)("graph recognition and R37 against the conservative lower
 			)
 	)
 
-	it.effect(`push origin filters into the seed on ${filtered / 2} cases`, (ctx) =>
+	it.effect("push origin filters into the seed", (ctx) =>
 		searched(
 			ctx,
 			agreeOn({
@@ -282,7 +282,7 @@ layer(Substrate.layer)("graph recognition and R37 against the conservative lower
 		)
 	)
 
-	it.effect(`move no end-vertex filter or final inequality on ${filtered / 2} cases`, (ctx) =>
+	it.effect("move no end-vertex filter or final inequality", (ctx) =>
 		searched(
 			ctx,
 			agreeOn({
@@ -302,7 +302,7 @@ layer(Substrate.layer)("graph recognition and R37 against the conservative lower
 	)
 
 	it.effect(
-		`give fixed-length connected matches the same set through joins and recursive CTEs on ${fixedLength} graphs`,
+		"give fixed-length connected matches the same set through joins and recursive CTEs",
 		(ctx) =>
 			searched(
 				ctx,

@@ -59,7 +59,7 @@ const situations = [
 
 layer(Substrate.layer)("fixed-length connected matches: joins against recursive CTEs", (it) => {
 	it.effect(
-		`give the same set on ${cases} generated graphs, and the recursive form equals the joins by definition`,
+		"give the same set on generated graphs, and the recursive form equals the joins by definition",
 		(ctx) =>
 			searched(
 				ctx,

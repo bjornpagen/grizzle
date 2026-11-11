@@ -25,7 +25,7 @@ import {
 	finiteLanguageOver,
 	type Flags,
 	flagsGen,
-	jsAccepts,
+	jsMatcher,
 	patternOver
 } from "#test/unit/text/generators.ts"
 
@@ -320,18 +320,19 @@ describe("a pattern no text matches", () => {
 							const ir = succeeded(parsePattern(source, flags), label)
 							const nfa = patternNfa(source, flags)
 							const { member, broken } = searchOf(nfa)
+							const ofPattern = jsMatcher(source, flags)
 							const empty = member === undefined
 							assert.equal(ir.kind === "never", empty, `${label} is never exactly when it is empty`)
 							if (member !== undefined) {
 								assert.equal(
-									jsAccepts(source, flags, member),
+									ofPattern(member),
 									true,
 									`${label} matches ${Formatter.format(member)}`
 								)
 							}
 							if (empty && broken !== undefined) {
 								assert.equal(
-									jsAccepts(source, flags, broken),
+									ofPattern(broken),
 									false,
 									`${label} rejects ${Formatter.format(broken)}`
 								)

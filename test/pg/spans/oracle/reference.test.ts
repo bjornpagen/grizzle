@@ -24,6 +24,8 @@ import {
 	defaultSpanCaseLimits,
 	endpointLimits,
 	endpointMaskPredicate,
+	inSpanCase,
+	installSpanSchemas,
 	type MaskPredicate,
 	overlaps,
 	printSpanCase,
@@ -37,10 +39,8 @@ import {
 	spanCaseGen,
 	spanDifference,
 	spanInsert,
-	spanInstallStatements,
 	spanIntersection,
 	spanPack,
-	spanSetupStatements,
 	spanQueryDesc,
 	spanQueryKinds,
 	spanRelationNames,
@@ -50,7 +50,7 @@ import {
 import { oracleCheck, PropertyFailed } from "#test/support/oracle/runner.ts"
 import { ownedInput } from "#test/support/policy.ts"
 import { expectSqlstate } from "#test/support/substrate/expect.ts"
-import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
+import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
 const points = (span: HalfOpen): ReadonlyArray<bigint> => {
 	const out: Array<bigint> = []
@@ -382,23 +382,13 @@ const assertLawful = (
 }
 
 layer(Substrate.layer)("the span reference against PostgreSQL 19", (it) => {
-	it.effect(`agrees with handwritten SQL on ${cases} generated span cases`, (ctx) =>
+	it.effect("agrees with handwritten SQL on generated span cases", (ctx) =>
 		searched(
 			ctx,
 			Effect.gen(function* () {
 				const s = yield* Substrate
-				const schema = yield* s.schema({ ...freshSchema, label: "spans" })
 				const db = yield* s.session(ownerSession())
-				for (const statement of spanSetupStatements(schema)) {
-					yield* db.query(statement, [])
-				}
-				/** btree_gist is installed and supplies the scalar components of a span key. */
-				const gist = yield* db.values(
-					"SELECT extversion::text FROM pg_catalog.pg_extension WHERE extname = 'btree_gist'",
-					[]
-				)
-				assert.equal(gist.length, 1)
-
+				const installations = yield* installSpanSchemas(db, "spans")
 				return yield* oracleCheck(
 					drawn(spanCaseGen(defaultSpanCaseLimits)),
 					{
@@ -411,45 +401,41 @@ layer(Substrate.layer)("the span reference against PostgreSQL 19", (it) => {
 						perturb: "none"
 					},
 					(sc, c) =>
-						Effect.gen(function* () {
-							c.noteAll(caseFeatures(sc))
-							const fail = (message: string) =>
-								Effect.fail(new PropertyFailed({ report: `${printSpanCase(sc)}\n${message}` }))
-							for (const statement of spanInstallStatements(schema, sc)) {
-								yield* db.query(statement, [])
-							}
-							for (const name of spanRelationNames) {
-								if (sc.facts[name].length === 0) {
-									continue
+						inSpanCase(db, installations, sc, (schema) =>
+							Effect.gen(function* () {
+								c.noteAll(caseFeatures(sc))
+								const fail = (message: string) =>
+									Effect.fail(new PropertyFailed({ report: `${printSpanCase(sc)}\n${message}` }))
+								for (const dropped of sc.dropped) {
+									const insert = spanInsert(schema, sc, dropped.relation, [dropped.fact])
+									yield* db.query("SAVEPOINT refused", [])
+									yield* expectSqlstate(db.query(insert.sql, insert.params), "23P01")
+									yield* db.query("ROLLBACK TO SAVEPOINT refused", [])
 								}
-								const insert = spanInsert(schema, sc, name, sc.facts[name])
-								yield* db.query(insert.sql, insert.params)
-							}
-							for (const dropped of sc.dropped) {
-								const insert = spanInsert(schema, sc, dropped.relation, [dropped.fact])
-								yield* expectSqlstate(db.query(insert.sql, insert.params), "23P01")
-							}
-							const expected = referenceRows(sc)
-							const byClassifier = referenceSql(schema, sc, endpointMaskPredicate)
-							const rows = yield* db.values(byClassifier.sql, byClassifier.params)
-							const classified = Arr.map(rows, (row) => Arr.map(row, String))
-							const first = sameRows("endpoint classifier", expected, classified)
-							if (first !== undefined) {
-								return yield* fail(first)
-							}
-							if (sc.query.kind === "allenFilter" || sc.query.kind === "allenJoin") {
-								const byTable = referenceSql(schema, sc, tableMaskPredicate)
-								if (regex("\\b(lower|upper)\\(").test(byTable.sql)) {
-									return yield* fail(`the shipped formula uses lower() or upper(): ${byTable.sql}`)
+								const expected = referenceRows(sc)
+								const byClassifier = referenceSql(schema, sc, endpointMaskPredicate)
+								const rows = yield* db.values(byClassifier.sql, byClassifier.params)
+								const classified = Arr.map(rows, (row) => Arr.map(row, String))
+								const first = sameRows("endpoint classifier", expected, classified)
+								if (first !== undefined) {
+									return yield* fail(first)
 								}
-								const rows = yield* db.values(byTable.sql, byTable.params)
-								const tabled = Arr.map(rows, (row) => Arr.map(row, String))
-								const second = sameRows("shipped mask table", expected, tabled)
-								if (second !== undefined) {
-									return yield* fail(second)
+								if (sc.query.kind === "allenFilter" || sc.query.kind === "allenJoin") {
+									const byTable = referenceSql(schema, sc, tableMaskPredicate)
+									if (regex("\\b(lower|upper)\\(").test(byTable.sql)) {
+										return yield* fail(
+											`the shipped formula uses lower() or upper(): ${byTable.sql}`
+										)
+									}
+									const rows = yield* db.values(byTable.sql, byTable.params)
+									const tabled = Arr.map(rows, (row) => Arr.map(row, String))
+									const second = sameRows("shipped mask table", expected, tabled)
+									if (second !== undefined) {
+										return yield* fail(second)
+									}
 								}
-							}
-						})
+							})
+						)
 				)
 			})
 		)

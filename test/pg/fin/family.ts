@@ -275,7 +275,6 @@ export const judgedFamily = (
 			end,
 			seat.session.values(storedSql(f), [])
 		)
-		yield* seat.session.resetStatements
 		if (outcome.kind === "committed" && real.kind === "committed") {
 			const read = familyStoredOf(real.read)
 			if (!deepEquals(canonical(read), canonical(outcome.stored))) {

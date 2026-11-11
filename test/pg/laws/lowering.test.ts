@@ -1303,7 +1303,6 @@ const property = (pair: Pair) => (lc: LoweringCase, c: Case<Feature>) =>
 					oracle.session,
 					Arr.map(servedOps(facts), (op) => statementOf(oracle, op))
 				)
-				yield* oracle.session.resetStatements
 				const oracleLaw =
 					verdict.kind === "refused" ? lawOf(oracle.installed, verdict.fields) : undefined
 				const broken = brokenKeysOf(oracle.installed, state, facts)
@@ -1360,7 +1359,6 @@ const property = (pair: Pair) => (lc: LoweringCase, c: Case<Feature>) =>
 				oracle.session,
 				Arr.map(ops, (op) => statementOf(oracle, op))
 			)
-			yield* oracle.session.resetStatements
 			const lawOracle =
 				onOracle.kind === "refused" ? lawOf(oracle.installed, onOracle.fields) : undefined
 			for (const [order, low] of pair.lows) {
@@ -1369,7 +1367,6 @@ const property = (pair: Pair) => (lc: LoweringCase, c: Case<Feature>) =>
 					seat.session,
 					Arr.map(ops, (op) => statementOf(seat, op))
 				)
-				yield* seat.session.resetStatements
 				const lawLow = onLow.kind === "refused" ? lawOf(seat.installed, onLow.fields) : undefined
 				if (onLow.kind === "refused" && onLow.fields.code === "23505") {
 					const judged = keyJudgement(seat, state, ops, onLow)

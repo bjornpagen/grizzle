@@ -750,10 +750,8 @@ layer(Substrate.layer)("which containment targets hold a key on PostgreSQL 19rc1
 										if (sharesTerms(s, state)) {
 											c.note("committed two target rows equal at its terms")
 										}
-										yield* seat.session.resetStatements
 										continue
 									}
-									yield* seat.session.resetStatements
 									const named = seat.refusedBy(real.fields)
 									const byKey =
 										brokeKey &&

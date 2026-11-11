@@ -11,7 +11,7 @@ import {
 	regexPattern,
 	regexSchemaPatterns
 } from "#test/types/regex/schema.ts"
-import { jsAccepts } from "#test/unit/text/generators.ts"
+import { jsMatcher } from "#test/unit/text/generators.ts"
 
 layer(NodeServices.layer, { excludeTestServices: true })("the growing regex schema", (it) => {
 	it("admits every generated pattern, each distinct, with sound members and outside values", () => {
@@ -23,13 +23,14 @@ layer(NodeServices.layer, { excludeTestServices: true })("the growing regex sche
 				p.source
 			)
 			keys.add(analyzed.key)
-			assert.equal(jsAccepts(p.source, p.flags, p.member), true)
+			const ofPattern = jsMatcher(p.source, p.flags)
+			assert.equal(ofPattern(p.member), true)
 			assert.equal(accepts(analyzed, p.member), true)
 			if (p.domain.kind === "wide") {
 				assert.equal(p.host, "string")
 			} else {
 				assert.notEqual(p.host, "string")
-				assert.equal(jsAccepts(p.source, p.flags, p.domain.outside), false)
+				assert.equal(ofPattern(p.domain.outside), false)
 				assert.equal(accepts(analyzed, p.domain.outside), false)
 			}
 		}

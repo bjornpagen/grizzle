@@ -16,7 +16,6 @@ import {
 	compileSpanCase,
 	compileSpanQuery,
 	emitWith,
-	installSpanCase,
 	onlySql,
 	rawRows,
 	repeats,
@@ -31,6 +30,8 @@ import {
 } from "#test/support/fixtures/ir/desc.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import {
+	inSpanCase,
+	installSpanSchemas,
 	printSpanCase,
 	type RawRow,
 	referenceRows,
@@ -43,13 +44,12 @@ import {
 	spanEndpointKinds,
 	spanIntersection,
 	spanPack,
-	spanSetupStatements,
 	spanSchemaDesc,
 	spanTextOf,
 	tickContract
 } from "#test/support/oracle/gen/spans.ts"
 import { oracleCheck, PropertyFailed } from "#test/support/oracle/runner.ts"
-import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
+import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { plainRegion, Q, type RelationSpec, T } from "#test/unit/lower/conservative/fixtures.ts"
 
 /** The scalar type of a span field of the case's endpoint, as the checker types it: the registry's. */
@@ -229,17 +229,14 @@ layer(Substrate.layer)("span producers on PostgreSQL 19", (it) => {
 		(outcome): ProducerFeature => `correlated:${outcome}`
 	)
 	it.effect(
-		`lower a producer correlated to an outer binding inside a LATERAL source, on ${correlatedCases} drawn fact sets`,
+		"lower a producer correlated to an outer binding inside a LATERAL source, on drawn fact sets",
 		(ctx) =>
 			searched(
 				ctx,
 				Effect.gen(function* () {
 					const s = yield* Substrate
-					const schema = yield* s.schema({ ...freshSchema, label: "producers" })
 					const db = yield* s.session(ownerSession())
-					for (const statement of spanSetupStatements(schema)) {
-						yield* db.query(statement, [])
-					}
+					const installations = yield* installSpanSchemas(db, "producers")
 					return yield* oracleCheck(
 						drawn(spanCaseGen({ maxRows: 6, kinds: ["difference"], endpoints: ["bigint"] })),
 						{
@@ -255,88 +252,89 @@ layer(Substrate.layer)("span producers on PostgreSQL 19", (it) => {
 							perturb: "none"
 						},
 						(c, k) =>
-							Effect.gen(function* () {
-								yield* installSpanCase(db, schema, c)
-								/**
-								 * For each Left fact (g, a): the pieces of a minus each Right span of its group, the Right
-								 * side a region whose `a` is the outer binding's span (correlated inputs use a lateral
-								 * FROM producer, retaining the complete bound-variable tuple).
-								 */
-								const q = new Q()
-								const during = spanType("bigint")
-								const left = q.base(relationSpec(c, "Left"), conservativeMeta)
-								const right = q.base(relationSpec(c, "Right"), conservativeMeta)
-								const inner = q.regionWith(
-									[{ source: right, bind: { group: "g2", during: "b" }, constants: {} }],
-									{
-										...plainRegion,
-										correlated: [{ name: "a", type: during, expr: q.col(left, "during") }]
+							inSpanCase(db, installations, c, (schema) =>
+								Effect.gen(function* () {
+									/**
+									 * For each Left fact (g, a): the pieces of a minus each Right span of its group, the Right
+									 * side a region whose `a` is the outer binding's span (correlated inputs use a lateral
+									 * FROM producer, retaining the complete bound-variable tuple).
+									 */
+									const q = new Q()
+									const during = spanType("bigint")
+									const left = q.base(relationSpec(c, "Left"), conservativeMeta)
+									const right = q.base(relationSpec(c, "Right"), conservativeMeta)
+									const inner = q.regionWith(
+										[{ source: right, bind: { group: "g2", during: "b" }, constants: {} }],
+										{
+											...plainRegion,
+											correlated: [{ name: "a", type: during, expr: q.col(left, "during") }]
+										}
+									)
+									const produce = q.node({
+										kind: "Produce",
+										meta: conservativeMeta,
+										loc: undefined,
+										input: inner,
+										producer: "spanDifference",
+										args: [q.col(inner, "a"), q.col(inner, "b")],
+										carried: ["g2", "a"],
+										out: "piece",
+										heading: [
+											{ name: "g2", type: T.int4 },
+											{ name: "a", type: during },
+											{ name: "piece", type: during }
+										]
+									})
+									const outer = q.region([
+										{ source: left, bind: { group: "g", during: "a" }, constants: {} },
+										{ source: produce, bind: { g2: "g", a: "a", piece: "piece" }, constants: {} }
+									])
+									const built = q.build(outer)
+									/**
+									 * The baseline delivers the region; the statement casts its columns to text for the raw
+									 * comparison.
+									 */
+									const program = lowerConservative(conservativeInput(built), {
+										names: spanNames(schema),
+										params: [],
+										subject: { kind: "query" }
+									})
+									if (!program.ok) {
+										throw new Error(program.error.message)
 									}
-								)
-								const produce = q.node({
-									kind: "Produce",
-									meta: conservativeMeta,
-									loc: undefined,
-									input: inner,
-									producer: "spanDifference",
-									args: [q.col(inner, "a"), q.col(inner, "b")],
-									carried: ["g2", "a"],
-									out: "piece",
-									heading: [
-										{ name: "g2", type: T.int4 },
-										{ name: "a", type: during },
-										{ name: "piece", type: during }
-									]
-								})
-								const outer = q.region([
-									{ source: left, bind: { group: "g", during: "a" }, constants: {} },
-									{ source: produce, bind: { g2: "g", a: "a", piece: "piece" }, constants: {} }
-								])
-								const built = q.build(outer)
-								/**
-								 * The baseline delivers the region; the statement casts its columns to text for the raw
-								 * comparison.
-								 */
-								const program = lowerConservative(conservativeInput(built), {
-									names: spanNames(schema),
-									params: [],
-									subject: { kind: "query" }
-								})
-								if (!program.ok) {
-									throw new Error(program.error.message)
-								}
-								const sql = emitWith(
-									built.dag,
-									spanNames(schema),
-									[
-										{ name: "g", type: T.int4 },
-										{ name: "a", type: during },
-										{ name: "piece", type: during }
-									],
-									outer,
-									(cx) => cx.lower(outer, emptyEnv)
-								).sql
-								const expected: Array<RawRow> = []
-								const spanText = spanTextOf(c.schema.endpoint)
-								for (const l of c.facts.Left) {
-									for (const r of c.facts.Right) {
-										if (l.group === r.group) {
-											for (const p of spanDifference(l.during, r.during)) {
-												expected.push([String(l.group), spanText(l.during), spanText(p)])
+									const sql = emitWith(
+										built.dag,
+										spanNames(schema),
+										[
+											{ name: "g", type: T.int4 },
+											{ name: "a", type: during },
+											{ name: "piece", type: during }
+										],
+										outer,
+										(cx) => cx.lower(outer, emptyEnv)
+									).sql
+									const expected: Array<RawRow> = []
+									const spanText = spanTextOf(c.schema.endpoint)
+									for (const l of c.facts.Left) {
+										for (const r of c.facts.Right) {
+											if (l.group === r.group) {
+												for (const p of spanDifference(l.during, r.during)) {
+													expected.push([String(l.group), spanText(l.during), spanText(p)])
+												}
 											}
 										}
 									}
-								}
-								const want = rowSet(expected)
-								k.note(`correlated:${outcomeOf(want)}`)
-								const rows = yield* rawRows(db, sql, [])
-								const problem = sameSet("correlated", want, rows)
-								if (problem !== undefined) {
-									return yield* new PropertyFailed({
-										report: `${printSpanCase(c)}\n${problem}\n${sql}`
-									})
-								}
-							})
+									const want = rowSet(expected)
+									k.note(`correlated:${outcomeOf(want)}`)
+									const rows = yield* rawRows(db, sql, [])
+									const problem = sameSet("correlated", want, rows)
+									if (problem !== undefined) {
+										return yield* new PropertyFailed({
+											report: `${printSpanCase(c)}\n${problem}\n${sql}`
+										})
+									}
+								})
+							)
 					)
 				})
 			)
@@ -360,16 +358,13 @@ layer(Substrate.layer)("span producers on PostgreSQL 19", (it) => {
 	]
 	const sameRowSet = set(structuralHash, ordered(exact))
 
-	it.effect(`agree with each other and the reference on ${cases} generated span queries`, (ctx) =>
+	it.effect("agree with each other and the reference on generated span queries", (ctx) =>
 		searched(
 			ctx,
 			Effect.gen(function* () {
 				const s = yield* Substrate
-				const schema = yield* s.schema({ ...freshSchema, label: "producers" })
 				const db = yield* s.session(ownerSession())
-				for (const statement of spanSetupStatements(schema)) {
-					yield* db.query(statement, [])
-				}
+				const installations = yield* installSpanSchemas(db, "producers")
 				return yield* oracleCheck(
 					drawn(spanCaseGen({ maxRows: 6, kinds, endpoints: spanEndpointKinds })),
 					{
@@ -382,78 +377,83 @@ layer(Substrate.layer)("span producers on PostgreSQL 19", (it) => {
 						perturb: "none"
 					},
 					(sc, c) =>
-						Effect.gen(function* () {
-							const fail = (message: string) =>
-								Effect.fail(new PropertyFailed({ report: `${printSpanCase(sc)}\n${message}` }))
-							yield* installSpanCase(db, schema, sc)
-							const expected = referenceRows(sc)
-							c.note(`${sc.query.kind}:${outcomeOf(expected)}`)
-							c.note(`endpoint:${sc.schema.endpoint}`)
-							/**
-							 * Both artifacts of a template against the expected set: the optimized one delivers no
-							 * repeated row and agrees with the conservative one, which agrees
-							 * with the reference. Yields the optimized SQL.
-							 */
-							const agree = (
-								label: string,
-								template: OracleTemplate,
-								want: ReadonlyArray<RawRow>
-							) =>
-								Effect.gen(function* () {
-									const optimizedSql = onlySql(template, "optimized")
-									const conservativeSql = onlySql(template, "conservative")
-									const optimized = yield* rawRows(db, optimizedSql, [])
-									const conservative = yield* rawRows(db, conservativeSql, [])
-									if (repeats(optimized) > 0) {
-										return yield* fail(
-											`${label}: optimized repeats a row\n${optimizedSql}\n${Formatter.format(optimized)}`
+						inSpanCase(db, installations, sc, (schema) =>
+							Effect.gen(function* () {
+								const fail = (message: string) =>
+									Effect.fail(new PropertyFailed({ report: `${printSpanCase(sc)}\n${message}` }))
+								const expected = referenceRows(sc)
+								c.note(`${sc.query.kind}:${outcomeOf(expected)}`)
+								c.note(`endpoint:${sc.schema.endpoint}`)
+								/**
+								 * Both artifacts of a template against the expected set: the optimized one delivers no
+								 * repeated row and agrees with the conservative one, which agrees
+								 * with the reference. Yields the optimized SQL.
+								 */
+								const agree = (
+									label: string,
+									template: OracleTemplate,
+									want: ReadonlyArray<RawRow>
+								) =>
+									Effect.gen(function* () {
+										const optimizedSql = onlySql(template, "optimized")
+										const conservativeSql = onlySql(template, "conservative")
+										const optimized = yield* rawRows(db, optimizedSql, [])
+										const conservative = yield* rawRows(db, conservativeSql, [])
+										if (repeats(optimized) > 0) {
+											return yield* fail(
+												`${label}: optimized repeats a row\n${optimizedSql}\n${Formatter.format(optimized)}`
+											)
+										}
+										const difference = sameRowSet(rowSet(optimized), rowSet(conservative))
+										if (Option.isSome(difference)) {
+											return yield* fail(
+												`${label}: optimized and conservative differ: ${difference.value}\n${Formatter.format(rowSet(optimized))}\n${Formatter.format(rowSet(conservative))}\n${optimizedSql}`
+											)
+										}
+										const problem = sameSet(
+											`${label}: conservative vs reference`,
+											want,
+											conservative
 										)
-									}
-									const difference = sameRowSet(rowSet(optimized), rowSet(conservative))
-									if (Option.isSome(difference)) {
-										return yield* fail(
-											`${label}: optimized and conservative differ: ${difference.value}\n${Formatter.format(rowSet(optimized))}\n${Formatter.format(rowSet(conservative))}\n${optimizedSql}`
-										)
-									}
-									const problem = sameSet(`${label}: conservative vs reference`, want, conservative)
-									if (problem !== undefined) {
-										return yield* fail(`${problem}\n${conservativeSql}`)
-									}
-									return optimizedSql
-								})
-							yield* agree(sc.query.kind, compileSpanCase(sc, schema), expected)
-							const schemaDesc = spanSchemaDesc(sc.schema)
-							if (sc.query.kind === "pack") {
-								/** The same relation packed under a head of the pack term alone, across groups. */
-								const want = ungroupedPackReference(sc, sc.query.relation)
-								c.note(`ungroupedPack:${outcomeOf(want)}`)
+										if (problem !== undefined) {
+											return yield* fail(`${problem}\n${conservativeSql}`)
+										}
+										return optimizedSql
+									})
+								yield* agree(sc.query.kind, compileSpanCase(sc, schema), expected)
+								const schemaDesc = spanSchemaDesc(sc.schema)
+								if (sc.query.kind === "pack") {
+									/** The same relation packed under a head of the pack term alone, across groups. */
+									const want = ungroupedPackReference(sc, sc.query.relation)
+									c.note(`ungroupedPack:${outcomeOf(want)}`)
+									yield* agree(
+										"ungrouped pack",
+										compileSpanQuery(schemaDesc, ungroupedPackQuery(sc.query.relation), schema),
+										want
+									)
+									return
+								}
+								/**
+								 * The bound-tuple head: the piece uniqueness proof drops the DISTINCT exactly when both
+								 * relations are span-keyed; otherwise distinct bindings may produce identical
+								 * rows and the DISTINCT collapses them.
+								 */
+								const kind = sc.query.kind
+								if (kind !== "intersection" && kind !== "difference") {
+									return yield* fail(`a ${kind} case outside the producer kinds`)
+								}
+								const { expected: want, duplicates } = tupleReference(sc, kind)
+								const proved =
+									sc.schema.relations.Left.spanKeyed && sc.schema.relations.Right.spanKeyed
 								yield* agree(
-									"ungrouped pack",
-									compileSpanQuery(schemaDesc, ungroupedPackQuery(sc.query.relation), schema),
+									`${kind} bound tuple`,
+									compileSpanQuery(schemaDesc, tupleQuery(kind), schema),
 									want
 								)
-								return
-							}
-							/**
-							 * The bound-tuple head: the piece uniqueness proof drops the DISTINCT exactly when both
-							 * relations are span-keyed; otherwise distinct bindings may produce identical
-							 * rows and the DISTINCT collapses them.
-							 */
-							const kind = sc.query.kind
-							if (kind !== "intersection" && kind !== "difference") {
-								return yield* fail(`a ${kind} case outside the producer kinds`)
-							}
-							const { expected: want, duplicates } = tupleReference(sc, kind)
-							const proved =
-								sc.schema.relations.Left.spanKeyed && sc.schema.relations.Right.spanKeyed
-							yield* agree(
-								`${kind} bound tuple`,
-								compileSpanQuery(schemaDesc, tupleQuery(kind), schema),
-								want
-							)
-							const shape = proved ? "proved" : duplicates > 0 ? "duplicates" : "unproved"
-							c.note(`tuple:${kind}:${shape}:${outcomeOf(want)}`)
-						})
+								const shape = proved ? "proved" : duplicates > 0 ? "duplicates" : "unproved"
+								c.note(`tuple:${kind}:${shape}:${outcomeOf(want)}`)
+							})
+						)
 				)
 			})
 		)

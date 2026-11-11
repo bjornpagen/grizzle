@@ -304,7 +304,6 @@ layer(Substrate.layer)("coverage's temporal lowering of fin.md §7 on PostgreSQL
 									seat.session,
 									Arr.isReadonlyArrayNonEmpty(c.rows) ? [insertSql(target, c.rows, 0)] : []
 								)
-								yield* seat.session.resetStatements
 								const model: Verdict = Option.match(keyRefusal(c.rows), {
 									onNone: (): Verdict => ({ kind: "committed" }),
 									onSome: (code): Verdict => ({
@@ -399,7 +398,6 @@ layer(Substrate.layer)("coverage's temporal lowering of fin.md §7 on PostgreSQL
 												? [sourceInsert, ...targetInsert]
 												: [...targetInsert, sourceInsert]
 										const real = yield* attempt(seat.session, statements)
-										yield* seat.session.resetStatements
 										const ok = covered(targets, c.source)
 										const model: Verdict = ok
 											? { kind: "committed" }
@@ -499,7 +497,6 @@ layer(Substrate.layer)("coverage's temporal lowering of fin.md §7 on PostgreSQL
 													? `UPDATE ${target} SET phi = false WHERE id = ${change.at}`
 													: `UPDATE ${target} SET lo = ${change.span.lo}, hi = ${change.span.hi}, phi = true WHERE id = ${change.at}`
 										const real = yield* attempt(seat.session, [changed])
-										yield* seat.session.resetStatements
 										/** The changed row is checked against the others first, then the source against what is left. */
 										const keyCode =
 											change.kind === "respan"

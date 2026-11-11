@@ -30,7 +30,7 @@ import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/su
  * every regex family, on texts drawn over the family's alphabet and walked over each member's own automaton, five
  * answers agree on every text:
  *
- * 1. ECMAScript's membership of every member (generators.ts jsAccepts), the oracle;
+ * 1. ECMAScript's membership of every member (generators.ts jsMatcher), the oracle;
  * 2. the host's membership of the conjunction (scalar/regex/patterns.ts), which the evaluator and the witness read;
  * 3. the canonical DFA of the members' intersection, where the analysis builds one, which keys the conjunction;
  * 4. PostgreSQL's own CHECK verdict: the domain the analysis's enforcement installs (an IN list, `VALUE ~ p AND VALUE ~
@@ -46,7 +46,7 @@ import {
 	families,
 	finiteLanguageOver,
 	flagsGen,
-	jsAccepts,
+	jsMatcher,
 	patternOver,
 	stringsOver,
 	walkGen
@@ -102,9 +102,11 @@ const caseGen: Gen<ConjunctionCase> = (source) => {
 	}
 }
 
-/** Whether ECMAScript finds every member of a conjunction in `text`. */
-const jsAll = (patterns: ReadonlyArray<PatternSource>, text: string): boolean =>
-	Arr.every(patterns, (p) => jsAccepts(p.source, p.flags, text))
+/** Whether ECMAScript finds every member of a conjunction in a text, each member compiled once. */
+const jsAll = (patterns: ReadonlyArray<PatternSource>): ((text: string) => boolean) => {
+	const matchers = Arr.map(patterns, (p) => jsMatcher(p.source, p.flags))
+	return (text) => Arr.every(matchers, (m) => m(text))
+}
 
 /** Whether a canonical DFA, which reads whole values, accepts `text`. */
 const dfaAccepts = (dfa: CanonicalDfa, text: string): boolean =>
@@ -185,6 +187,7 @@ layer(Substrate.layer)(
 								k.note(patterns.length === 2 ? "a pair" : "a triple")
 								const loc = SourceLoc("str.and", [family])
 								const analyzed = analyzeText(patterns, loc)
+								const ofAll = jsAll(patterns)
 								if (!analyzed.ok) {
 									if (
 										Arr.every(patterns, (p) => analyzeText([p], loc).ok) &&
@@ -192,7 +195,7 @@ layer(Substrate.layer)(
 									) {
 										k.note("refused as matching no text")
 										assert.ok(
-											Arr.every(texts, (t) => !jsAll(patterns, t)),
+											Arr.every(texts, (t) => !ofAll(t)),
 											`${label} is refused as empty, and holds no drawn text`
 										)
 									}
@@ -238,13 +241,14 @@ layer(Substrate.layer)(
 										]
 									)
 									assert.equal(rows.length, all.length, label)
+									const ofFirst = jsAll([patterns[0]])
 									for (const [i, row] of rows.entries()) {
 										const t = defined(all[i], "a drawn text")
 										const where = `${label} on ${Formatter.format(t)}`
-										const expected = jsAll(patterns, t)
+										const expected = ofAll(t)
 										if (expected) {
 											k.note("a text of the conjunction")
-										} else if (jsAll([patterns[0]], t)) {
+										} else if (ofFirst(t)) {
 											k.note("a text the first member holds and the conjunction does not")
 										}
 										assert.equal(

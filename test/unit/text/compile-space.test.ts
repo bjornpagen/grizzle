@@ -46,7 +46,7 @@ import { upTo } from "#test/support/up-to.ts"
 import {
 	families,
 	flagsGen,
-	jsAccepts,
+	jsMatcher,
 	nestedPattern,
 	patternOver,
 	walkGen
@@ -487,6 +487,7 @@ const relativePart = `(?://${authority}${pathAbempty}|${pathAbsolute}|${pathNosc
 const uri = `${scheme}:${hierPart}(?:\\?${query})?(?:#${fragment})?`
 const relativeRef = `${relativePart}(?:\\?${query})?(?:#${fragment})?`
 const uriReference = `^(?:${uri}|${relativeRef})$`
+const ofUriReference = jsMatcher(uriReference, "u")
 
 /** The code points a URI-reference is spelled in, the delimiters that make one malformed, and percent signs. */
 const uriAlphabet = "aZ09-._~!$&'()*+,;=:@/?#[]%vF "
@@ -532,7 +533,7 @@ describe("the RFC 3986 URI-reference grammar as one pattern", () => {
 							if (value === undefined) {
 								return
 							}
-							const member = jsAccepts(uriReference, "u", value)
+							const member = ofUriReference(value)
 							n.note(member ? "a member" : "no member")
 							if (isWalk) {
 								assert.equal(member, true, `a walk spells a member: ${Formatter.format(value)}`)

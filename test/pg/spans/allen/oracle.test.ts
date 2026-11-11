@@ -64,7 +64,7 @@ const sameRowSet = set(structuralHash, ordered(exact))
 
 layer(Substrate.layer)("generated span queries against the reference", (it) => {
 	it.effect(
-		`agree with the reference in both artifacts on ${cases} Allen and pointIn cases`,
+		"agree with the reference in both artifacts on Allen and pointIn cases",
 		(ctx) =>
 			searched(
 				ctx,

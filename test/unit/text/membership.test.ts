@@ -30,7 +30,7 @@ import {
 	families,
 	finiteLanguageOver,
 	flagsGen,
-	jsAccepts,
+	jsMatcher,
 	patternOver,
 	stringsOver,
 	walk,
@@ -135,7 +135,7 @@ const patternSketchGen: Gen<PatternSketch> = (source) => {
 
 const kept: ReadonlyArray<Kept<PatternSketch, GeneratedFeature>> = [
 	{
-		note: "V8 in Node 26.11 misses an unanchored match of a class reaching the supplementary planes followed by $ under the u flag, so the ECMAScript development oracle (jsAccepts) refused U+10FFFF for /[^]$/u; jsAccepts spells the search as ^[\\s\\S]*?(?:source)",
+		note: "V8 in Node 26.11 misses an unanchored match of a class reaching the supplementary planes followed by $ under the u flag, so the ECMAScript development oracle (jsMatcher) refused U+10FFFF for /[^]$/u; jsMatcher spells the search as ^[\\s\\S]*?(?:source)",
 		sketch: { source: "[^]$", flags: "u", strings: ["\u{10FFFF}"], walks: [] },
 		draws: "",
 		reaches: ["admitted"]
@@ -174,6 +174,7 @@ describe("host NFA membership equals ECMAScript", () => {
 				(p): Kept<FamilyCase, FamilyFeature> => {
 					const points = Arr.map(p.family.alphabet, (c) => String.fromCodePoint(c))
 					const pairs = Arr.flatMap(points, (a) => Arr.map(points, (b) => `${a}${b}`))
+					const ofPattern = jsMatcher(p.source, p.flags)
 					const found = Arr.findFirst(
 						[
 							"",
@@ -183,7 +184,7 @@ describe("host NFA membership equals ECMAScript", () => {
 							String.fromCodePoint(0xe000),
 							String.fromCodePoint(0x10ffff)
 						],
-						(x) => !jsAccepts(p.source, p.flags, x)
+						(x) => !ofPattern(x)
 					)
 					if (Option.isNone(found)) {
 						throw new Error(`${p.label} refuses no planted candidate`)
@@ -254,7 +255,7 @@ describe("host NFA membership equals ECMAScript", () => {
 							if (subject.s === undefined) {
 								return
 							}
-							const js = jsAccepts(p.source, p.flags, subject.s)
+							const js = jsMatcher(p.source, p.flags)(subject.s)
 							const label = `${p.label} on ${Formatter.format(subject.s)}`
 							assert.equal(accepts(p.r, subject.s), js, label)
 							if (subject.witness) {
@@ -267,7 +268,7 @@ describe("host NFA membership equals ECMAScript", () => {
 		}
 	)
 
-	it.effect("on 2,000 generated patterns", (ctx) =>
+	it.effect("on generated patterns", (ctx) =>
 		searched(
 			ctx,
 			explore(
@@ -294,8 +295,9 @@ describe("host NFA membership equals ECMAScript", () => {
 							return
 						}
 						c.note(r === "empty" ? "empty" : "admitted")
+						const ofPattern = jsMatcher(source, flags)
 						for (const s of strings) {
-							const expected = jsAccepts(source, flags, s)
+							const expected = ofPattern(s)
 							if (r === "empty") {
 								assert.equal(expected, false)
 							} else {
@@ -311,7 +313,7 @@ describe("host NFA membership equals ECMAScript", () => {
 								continue
 							}
 							c.note("witness")
-							assert.equal(jsAccepts(source, flags, w), true)
+							assert.equal(ofPattern(w), true)
 							assert.equal(accepts(r, w), true)
 						}
 					})
@@ -399,19 +401,20 @@ describe("every claimed fact holds on the samples", () => {
 							return
 						}
 						const check = r.check
+						const ofPattern = jsMatcher(source, flags)
 						if (check.kind === "tautology") {
 							c.note("tautology")
 							for (const s of strings) {
-								assert.equal(jsAccepts(source, flags, s), true)
+								assert.equal(ofPattern(s), true)
 							}
 						}
 						if (check.kind === "finite") {
 							c.note("finite")
 							for (const m of check.members) {
-								assert.equal(jsAccepts(source, flags, m), true)
+								assert.equal(ofPattern(m), true)
 							}
 							for (const s of strings) {
-								assert.equal(check.members.includes(s), jsAccepts(source, flags, s))
+								assert.equal(check.members.includes(s), ofPattern(s))
 							}
 							assert.equal(new Set(check.members).size, check.members.length)
 						}
@@ -419,7 +422,7 @@ describe("every claimed fact holds on the samples", () => {
 						if (bounds !== undefined) {
 							c.note("bounded")
 							for (const s of strings) {
-								if (jsAccepts(source, flags, s)) {
+								if (ofPattern(s)) {
 									assert.ok(codePointLength(s) <= bounds.length)
 									assert.ok(utf8Bytes(s) <= bounds.bytes)
 								}
@@ -469,8 +472,10 @@ describe("every claimed fact holds on the samples", () => {
 							return
 						}
 						assert.equal(x.digest, y.digest)
+						const ofA = jsMatcher(a, flags)
+						const ofB = jsMatcher(b, flags)
 						for (const s of strings) {
-							assert.equal(jsAccepts(a, flags, s), jsAccepts(b, flags, s))
+							assert.equal(ofA(s), ofB(s))
 						}
 					})
 			)

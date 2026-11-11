@@ -9,7 +9,7 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
 import { type PreludeAt, preludeAt, preludeFrom, preludeProgram } from "#test/support/prelude.ts"
-import { families, type Flags, jsAccepts, patternOver } from "#test/unit/text/generators.ts"
+import { families, type Flags, jsMatcher, patternOver } from "#test/unit/text/generators.ts"
 
 /**
  * The regex agreement: str.regex calls drawn from the regex generators and from dictionaries of the constructs the
@@ -314,8 +314,9 @@ const finiteGen =
 			Arr.map(words, (w) => Arr.join(Arr.map(w, spell), "")),
 			"|"
 		)})$`
+		const ofPattern = jsMatcher(pattern, flags)
 		for (const member of members) {
-			if (!jsAccepts(pattern, flags, member)) {
+			if (!ofPattern(member)) {
 				throw new Error(
 					`ECMAScript refuses ${member} of /${pattern}/${flags}, a defect of the generator`
 				)
@@ -401,8 +402,9 @@ const caseGen: Gen<RegexCase> = (source) => {
 			const members = Arr.map(Arr.range(lo, Str.includes(",")(counted) ? hi : lo), (n) =>
 				Str.repeat(n)(word)
 			)
+			const ofPattern = jsMatcher(pattern, flags)
 			for (const member of members) {
-				if (!jsAccepts(pattern, flags, member)) {
+				if (!ofPattern(member)) {
 					throw new Error(
 						`ECMAScript refuses ${member} of /${pattern}/${flags}, a defect of the generator`
 					)

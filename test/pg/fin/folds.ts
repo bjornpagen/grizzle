@@ -903,7 +903,6 @@ export const judgedFold = (
 			end,
 			foldRead(j.fold)
 		)
-		yield* seat.session.resetStatements
 		/** The moment the model reads, the prefix's statements out. */
 		const real: Checked<FoldStored> =
 			sent.kind === "refused" && sent.moment.kind === "statement"

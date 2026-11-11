@@ -205,7 +205,6 @@ layer(Substrate.layer)("coverage through grizzle's lowering on PostgreSQL 19rc1"
 									insertSql(seat, "Source", [sketch.source], 100)
 								]
 								const real: Attempted = yield* attempt(seat.session, statements)
-								yield* seat.session.resetStatements
 								const disagree = (why: string) =>
 									new Disagreed({
 										message: `${why}: the model predicts ${Formatter.format(model)}, PostgreSQL gave ${real.kind === "committed" ? "commit" : `refusal ${momentText(real.moment)}: ${refusalText(real.fields)}`}, for ${Formatter.format(sketch)}`

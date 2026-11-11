@@ -210,7 +210,6 @@ const judged = <L extends string>(
 			seat.session,
 			Arr.map(statements, (rows) => insertSql(seat.schema, rows))
 		)
-		yield* seat.session.resetStatements
 		const disagree = (why: string) =>
 			Effect.fail(
 				new Disagreed({

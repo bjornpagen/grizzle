@@ -59,7 +59,7 @@ import {
 	families,
 	finiteLanguageOver,
 	type Flags,
-	jsAccepts,
+	jsMatcher,
 	patternOver,
 	stringsOver
 } from "#test/unit/text/generators.ts"
@@ -443,10 +443,11 @@ describe("Compute's translate and lowerAscii", () => {
 						if (!exact) {
 							k.note("an exact image past the measures")
 						}
-						const accepts = (value: string): boolean =>
-							Arr.every(textPatterns(image.regex), (p) => jsAccepts(p.source, p.flags, value))
+						const ofImage = Arr.map(textPatterns(image.regex), (p) => jsMatcher(p.source, p.flags))
+						const accepts = (value: string): boolean => Arr.every(ofImage, (m) => m(value))
+						const ofOperand = jsMatcher(c.source, c.flags)
 						for (const t of c.texts) {
-							const member = Arr.some(preimages(t, c.map), (p) => jsAccepts(c.source, c.flags, p))
+							const member = Arr.some(preimages(t, c.map), ofOperand)
 							const where = `${Formatter.format(t)} under /${c.source}/${c.flags} mapped by ${Formatter.format(c.map)}`
 							if (exact) {
 								assert.equal(accepts(t), member, where)
@@ -454,10 +455,10 @@ describe("Compute's translate and lowerAscii", () => {
 								assert.ok(accepts(t), where)
 							}
 							k.note(member ? "an image member" : "a non-member")
-							if (member && !jsAccepts(c.source, c.flags, t)) {
+							if (member && !ofOperand(t)) {
 								k.note("a member through a moved character")
 							}
-							if (!member && jsAccepts(c.source, c.flags, t)) {
+							if (!member && ofOperand(t)) {
 								k.note("a match of the operand outside the image")
 							}
 						}
@@ -1023,7 +1024,7 @@ describe("Compute's translate and lowerAscii", () => {
 							if (image === undefined) {
 								return
 							}
-							const inside = Arr.every(image, (m) => jsAccepts(target.source, "u", m))
+							const inside = Arr.every(image, jsMatcher(target.source, "u"))
 							if (operand.kind === "a collapsed language") {
 								if (cast.ok) {
 									assert.equal(inside, true, `${label}: a proved collapse lies in its target`)
@@ -1245,9 +1246,10 @@ describe("Compute's translate and lowerAscii", () => {
 								"collapse never lengthens, so the operand's bound holds"
 							)
 						}
-						const accepts = (value: string): boolean =>
-							Arr.every(textPatterns(image.regex), (p) => jsAccepts(p.source, p.flags, value))
-						const members = Arr.filter(c.texts, (t) => jsAccepts(c.source, c.flags, t))
+						const ofImage = Arr.map(textPatterns(image.regex), (p) => jsMatcher(p.source, p.flags))
+						const accepts = (value: string): boolean => Arr.every(ofImage, (m) => m(value))
+						const ofOperand = jsMatcher(c.source, c.flags)
+						const members = Arr.filter(c.texts, ofOperand)
 						for (const m of members) {
 							assert.ok(
 								accepts(collapsed(m)),
@@ -1270,7 +1272,7 @@ describe("Compute's translate and lowerAscii", () => {
 								: collapsed(t) === t &&
 									Arr.some(
 										[t, ...Arr.map(["\t", "\n", "\r"], (w) => Str.replaceAll(" ", w)(t))],
-										(p) => jsAccepts(c.source, c.flags, p)
+										ofOperand
 									)
 						for (const t of [...c.texts, ...Arr.map(members, collapsed)]) {
 							const held = accepts(t)

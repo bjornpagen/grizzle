@@ -193,7 +193,6 @@ const judged = <L extends string>(
 					message: `${seat.label}: ${why}; the model predicts ${predictedText(model)}, PostgreSQL gave ${attemptedText(real)}, for ${Formatter.format(mutations)} over ${Formatter.format(canonical(before))}`
 				})
 			)
-		yield* seat.session.resetStatements
 		if (model.kind === "committed" && real.kind === "committed") {
 			const rows = yield* seat.session.values(readSql(seat.schema), [])
 			const read = storedOfRows(rows)
@@ -1212,7 +1211,6 @@ layer(Substrate.layer)("the fin lemmas of fin.md §5.2 on PostgreSQL 19rc1", (it
 								yield* seat.session.query(measured, [])
 								const [heapAfter, keyAfter] = yield* scans
 								yield* seat.session.rollback
-								yield* seat.session.resetStatements
 								assert.equal(
 									defined(heapAfter) - defined(heapBefore),
 									0,

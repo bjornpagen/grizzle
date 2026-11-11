@@ -153,7 +153,6 @@ layer(Substrate.layer)("shared domains on PostgreSQL 19rc1", (it) => {
 								["b", p.b, p.a.least, p.b.least - p.below]
 							] as const) {
 								const real = yield* write(a, b)
-								yield* seat.session.resetStatements
 								const domain =
 									real.kind === "refused" ? Option.getOrUndefined(real.fields.dataType) : undefined
 								const law =

@@ -49,7 +49,7 @@ import {
 	type FiniteLanguage,
 	families,
 	finiteLanguageOver,
-	jsAccepts,
+	jsMatcher,
 	patternOver,
 	stringsOver
 } from "#test/unit/text/generators.ts"
@@ -277,8 +277,9 @@ describe("Compute's text terms", () => {
 							k.note("dictionary of two")
 						}
 						const chosen = c.pick || c.sources.length === 1 ? c.sources[0] : defined(c.sources[1])
+						const ofChosen = jsMatcher(chosen, "u")
 						for (const s of c.strings) {
-							const expected = jsAccepts(chosen, "u", s)
+							const expected = ofChosen(s)
 							const { host, reference } = values(
 								node,
 								new Map<string, CarrierValue>([

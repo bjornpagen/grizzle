@@ -10,7 +10,7 @@ import { analyzeText } from "#compiler/text/refinement.ts"
 import {
 	type Flags,
 	families,
-	jsAccepts,
+	jsMatcher,
 	patternOver,
 	stringsOver,
 	walkGen
@@ -78,7 +78,7 @@ export interface Contained {
 
 /** The distinct members of a pattern among drawn values, in the order they were drawn. */
 const acceptedOf = (source: string, flags: Flags, values: ReadonlyArray<string>) =>
-	Arr.dedupe(Arr.filter(values, (v) => jsAccepts(source, flags, v)))
+	Arr.dedupe(Arr.filter(values, jsMatcher(source, flags)))
 
 /** The first twelve distinct walks of a host NFA, a walk that got stuck none. */
 const ownOf = (walks: ReadonlyArray<string | undefined>): ReadonlyArray<string> =>
@@ -154,10 +154,12 @@ export const containedProgram = (seed: number): Contained => {
 			if (b === undefined) {
 				continue
 			}
+			const ofA = jsMatcher(a.source, a.flags)
+			const ofB = jsMatcher(b.source, b.flags)
 			const both = Arr.take(
 				Arr.filter(
 					Arr.dedupe([...a.members, ...b.members, ...floorStrings]),
-					(v) => jsAccepts(a.source, a.flags, v) && jsAccepts(b.source, b.flags, v)
+					(v) => ofA(v) && ofB(v)
 				),
 				12
 			)
@@ -170,8 +172,9 @@ export const containedProgram = (seed: number): Contained => {
 		witnesses.add(new Set(witnessed ? [family.name] : []))
 	}
 	for (const [ki, { source, flags, members }] of kept.entries()) {
+		const ofKept = jsMatcher(source, flags)
 		for (const v of members) {
-			if (!jsAccepts(source, flags, v)) {
+			if (!ofKept(v)) {
 				throw new Error(`${source} does not accept ${v}`)
 			}
 		}

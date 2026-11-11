@@ -259,7 +259,6 @@ const judged = (
 			end,
 			seat.session.values(nodeReadSql(seat), [])
 		)
-		yield* seat.session.resetStatements
 		const disagree = (why: string) =>
 			Effect.fail(
 				new Disagreed({

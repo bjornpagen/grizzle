@@ -405,7 +405,6 @@ const referencesCase = (d: Drawn, note: (feature: Feature) => void) =>
 			`INSERT INTO ${t} (${col("T", "k")}, ${col("T", "a")}, ${col("T", "b")}, ${col("T", "c")}) VALUES (1, ${held}, ${held}, ${held})`,
 			...Arr.map(refs, (_, i) => row(sourceName(i), 1, 1))
 		])
-		yield* seat.session.resetStatements
 		assert.equal(
 			meeting.kind,
 			"committed",
@@ -414,7 +413,6 @@ const referencesCase = (d: Drawn, note: (feature: Feature) => void) =>
 		note("a source row meeting T committed")
 		for (const [i] of refs.entries()) {
 			const naming = yield* attempt(seat.session, [row(sourceName(i), 2, 2)])
-			yield* seat.session.resetStatements
 			if (naming.kind !== "refused") {
 				return assert.fail(`${sourceName(i)}'s row naming no row of T commits`)
 			}

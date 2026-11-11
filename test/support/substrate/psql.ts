@@ -13,7 +13,6 @@ import {
 	Queue,
 	Record as Rec,
 	Redacted,
-	Ref,
 	type Scope,
 	Stream,
 	String as Str
@@ -78,10 +77,6 @@ export interface PsqlWriter {
 		PsqlStatementError | PsqlProcessError | TransactionRolledBack
 	>
 	readonly rollback: Effect.Effect<void, PsqlStatementError | PsqlProcessError>
-	/** Every statement sent through this writer, whether or not it succeeded. The startup identity read is not counted. */
-	readonly statements: Effect.Effect<number>
-	readonly log: Effect.Effect<ReadonlyArray<string>>
-	readonly resetStatements: Effect.Effect<void>
 }
 
 export interface PsqlOptions {
@@ -930,18 +925,14 @@ export const openPsql = Effect.fnUntraced(function* (
 		})
 	}
 	const backend: Canceler = { _tag: "Backend", pid: own.value.pid }
-	const log = yield* Ref.make<ReadonlyArray<string>>([])
-
-	const record = (sql: string) => Ref.update(log, (entries) => [...entries, sql])
 
 	/** A meta-command line would break the marker protocol: it is a defect in the test, not a statement outcome. */
 	const run = (sql: string) =>
 		Arr.some(Str.split(sql, "\n"), (line) => pipe(Str.trimStart(line), Str.startsWith("\\")))
 			? Effect.die(new Error(`psql writers run SQL statements, not meta-commands: ${sql}`))
-			: Effect.andThen(record(sql), execute(sql, backend))
+			: execute(sql, backend)
 
 	const commit = Effect.gen(function* () {
-		yield* record("COMMIT")
 		const completed = yield* complete("COMMIT", "tag", backend)
 		const command = Str.trim(completed.output)
 		if (command !== "COMMIT") {
@@ -958,9 +949,6 @@ export const openPsql = Effect.fnUntraced(function* (
 		begin: Effect.asVoid(run(beginSerializable)),
 		beginBelow: (level) => Effect.asVoid(run(beginBelowStatement(level))),
 		commit,
-		rollback: Effect.asVoid(run("ROLLBACK")),
-		statements: Effect.map(Ref.get(log), (entries) => entries.length),
-		log: Ref.get(log),
-		resetStatements: Ref.set(log, [])
+		rollback: Effect.asVoid(run("ROLLBACK"))
 	}
 })

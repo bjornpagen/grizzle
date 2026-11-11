@@ -427,7 +427,6 @@ layer(Substrate.layer)(
 									const seat = defined(seated.get(sketch.row), `the seat of ${sketch.row}`)
 									yield* cleared(seat, schemas[sketch.row].relations)
 									const real = yield* attempt(seat.session, statementsOf(seat, sketch))
-									yield* seat.session.resetStatements
 									const expected = refusalOf(sketch)
 									if (Option.isNone(expected)) {
 										assert.equal(

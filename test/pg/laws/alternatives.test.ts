@@ -136,7 +136,6 @@ layer(Substrate.layer)("alternatives through grizzle's lowering on PostgreSQL 19
 									})
 								]
 								const real = yield* attempt(seat.session, statements)
-								yield* seat.session.resetStatements
 								const broken = brokenOf(s)
 								if (real.kind === "committed") {
 									yield* cleared(seat, RELATIONS)
