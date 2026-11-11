@@ -1369,7 +1369,10 @@ const register = (it: Vitest.MethodsNonLive<Substrate>, spec: EducationSuite): v
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "second-implementation",
+							name: "the worlds model (test/support/worlds/model) at every action, and each suite's education property: a world shows its role's own records, a witness only what its caller submitted or holds whole"
+						},
 						suite: spec.suite,
 						draw: drawn(
 							programCaseGen(

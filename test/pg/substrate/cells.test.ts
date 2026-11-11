@@ -446,8 +446,11 @@ layer(Substrate.layer)("the law of erasure's templates of fin.md §17 on Postgre
 					const fn = qualified(schema, "packed")
 					return yield* exhaust(
 						{
-							box: { kind: "unstated" },
-							oracle: { kind: "unstated" },
+							box: "every relation over a key layout of at most four cells and a payload layout of at most four codes, each key cell absent or holding one payload code",
+							oracle: {
+								kind: "second-implementation",
+								name: "the host encoder (packages/engine/src/ir/cells.ts constantOf) and bitText, bit for bit"
+							},
 							suite: "substrate/cells-pack",
 							generator: packGen,
 							literal: Formatter.format,
@@ -502,8 +505,8 @@ layer(Substrate.layer)("the law of erasure's templates of fin.md §17 on Postgre
 					const fn = qualified(schema, "packed")
 					return yield* exhaust(
 						{
-							box: { kind: "unstated" },
-							oracle: { kind: "unstated" },
+							box: "every key layout of the key law's box with each key cell absent, holding one payload code or two different ones",
+							oracle: { kind: "second-implementation", name: "the host encoder's key collision" },
 							suite: "substrate/cells-key-law",
 							generator: keyLawGen,
 							literal: Formatter.format,
@@ -580,8 +583,11 @@ layer(Substrate.layer)("the law of erasure's templates of fin.md §17 on Postgre
 					const db = yield* s.session({ ...ownerSession(), label: "writer" })
 					return yield* exhaust(
 						{
-							box: { kind: "unstated" },
-							oracle: { kind: "unstated" },
+							box: "every digit tuple of three rosters of two or three codes, each digit from one below its roster to two past its last code",
+							oracle: {
+								kind: "specification",
+								name: "a tuple admitted exactly when each digit is a live code of its roster and the tuple is in the set, and a model of the template's int8 arithmetic over bare int2 digits"
+							},
 							suite: "substrate/cells-domain",
 							generator: digitGen,
 							literal: Formatter.format,
@@ -694,8 +700,11 @@ layer(Substrate.layer)("the law of erasure's templates of fin.md §17 on Postgre
 					const bits = fromText(fText)
 					return yield* exhaust(
 						{
-							box: { kind: "unstated" },
-							oracle: { kind: "unstated" },
+							box: "every application of f at each index from two below its first cell to two past its last, and every lookup through a cell of f into s",
+							oracle: {
+								kind: "second-implementation",
+								name: "the host reader (packages/engine/src/codec/bits.ts cell) over the host encoder's string"
+							},
 							suite: "substrate/cells-application",
 							generator: readGen,
 							literal: Formatter.format,
@@ -780,8 +789,11 @@ layer(Substrate.layer)("the law of erasure's templates of fin.md §17 on Postgre
 						`CREATE FUNCTION ${name(fn)}() RETURNS bit varying LANGUAGE sql IMMUTABLE PARALLEL SAFE RETURN B'${rosterBits(live)}'::bit varying`
 					return yield* exhaust(
 						{
-							box: { kind: "unstated" },
-							oracle: { kind: "unstated" },
+							box: "every roster of one to three codes with every hole pattern, every removal of its live codes, one appended code or none, and every two rows of its live codes",
+							oracle: {
+								kind: "second-implementation",
+								name: "a model of the migration: which rows VALIDATE refuses, and which codes the writer's session admits after the swap"
+							},
 							suite: "substrate/cells-repoint",
 							generator: repointGen,
 							literal: Formatter.format,
@@ -912,8 +924,11 @@ layer(Substrate.layer)("the law of erasure's templates of fin.md §17 on Postgre
 					}
 					return yield* exhaust(
 						{
-							box: { kind: "unstated" },
-							oracle: { kind: "unstated" },
+							box: "every set of installed dependents of the four kinds, and every subset of them a migration handled",
+							oracle: {
+								kind: "second-implementation",
+								name: "a model of the migration: RESTRICT drops the constant exactly when no dependent is left, and names each one left"
+							},
 							suite: "substrate/cells-restrict",
 							generator: restrictGen,
 							literal: Formatter.format,

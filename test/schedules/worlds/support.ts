@@ -160,7 +160,10 @@ export const worldRaceSuite = <C>(spec: {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "second-implementation",
+							name: "the worlds model, stepped through every serial order of the race's actions: each run's observations and what it committed, read back as the owner"
+						},
 						suite: `worlds/${spec.file}`,
 						draw: drawn(spec.draw),
 						literal: Formatter.format,

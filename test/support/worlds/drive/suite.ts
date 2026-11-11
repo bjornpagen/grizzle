@@ -1814,7 +1814,10 @@ export const programTests = (it: Vitest.MethodsNonLive<Substrate>, spec: Program
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "second-implementation",
+						name: "the worlds model (test/support/worlds/model), stepped beside every action: its allowed observations, its stored relations and every open session's probe"
+					},
 					suite: spec.suite,
 					draw: drawn(programCaseGen(spec.installs, worldDraws(spec), spec.steps)),
 					literal: Formatter.format,

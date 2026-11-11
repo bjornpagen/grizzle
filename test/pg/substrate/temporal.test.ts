@@ -283,8 +283,11 @@ layer(Substrate.layer)("coverage's temporal lowering of fin.md §7 on PostgreSQL
 					const target = qualified(seat.schema, "target")
 					return yield* exhaust(
 						{
-							box: { kind: "unstated" },
-							oracle: { kind: "unstated" },
+							box: "every sequence of at most three target rows over keys 0 and 1, each span one of the six non-empty intervals over points 0 to 3, the empty one or NULL",
+							oracle: {
+								kind: "specification",
+								name: "a model of interval-union coverage on the host: its verdict, and the SQLSTATE it names at the moment the deferral puts it"
+							},
 							suite: "substrate/temporal-key",
 							generator: keyGen,
 							literal: Formatter.format,
@@ -361,8 +364,11 @@ layer(Substrate.layer)("coverage's temporal lowering of fin.md §7 on PostgreSQL
 					const seats = [yield* seatOf("immediate"), yield* seatOf("deferred")]
 					return yield* exhaust(
 						{
-							box: { kind: "unstated" },
-							oracle: { kind: "unstated" },
+							box: "every two sets of pairwise disjoint target spans of the box, with a NULL target row beside them or none, and every source row",
+							oracle: {
+								kind: "specification",
+								name: "a model of interval-union coverage on the host: its verdict, and the SQLSTATE it names at the moment the deferral puts it"
+							},
 							suite: "substrate/temporal-cover",
 							generator: coverGen,
 							literal: Formatter.format,
@@ -452,8 +458,11 @@ layer(Substrate.layer)("coverage's temporal lowering of fin.md §7 on PostgreSQL
 					const seats = [yield* seatOf("immediate"), yield* seatOf("deferred")]
 					return yield* exhaust(
 						{
-							box: { kind: "unstated" },
-							oracle: { kind: "unstated" },
+							box: "every change of one target row of every covering state of the box",
+							oracle: {
+								kind: "specification",
+								name: "a model of interval-union coverage on the host: its verdict, and the SQLSTATE it names at the moment the deferral puts it"
+							},
 							suite: "substrate/temporal-change",
 							generator: changeGen,
 							literal: Formatter.format,

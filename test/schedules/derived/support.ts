@@ -655,7 +655,10 @@ export const derivedRaceSuite = (spec: {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "the race's serial reference (test/support/schedules/serial.ts): each transaction run alone, in an order that respects real time, shows what the run showed and leaves its state"
+						},
 						suite: spec.suite,
 						draw: drawn(spec.draw),
 						literal: Formatter.format,

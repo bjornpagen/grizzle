@@ -184,8 +184,11 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 						})
 					const exhausted = yield* exhaust(
 						{
-							box: { kind: "unstated" },
-							oracle: { kind: "unstated" },
+							box: "every transition of the teams base's small scope (two relations, two rules, one context, two subjects, three facts, three actions deep), one per class of what the model tells apart of its outcomes",
+							oracle: {
+								kind: "second-implementation",
+								name: "the worlds model (test/support/worlds/model): each transition's allowed observations, its stored relations and every open session's probe"
+							},
 							suite: "pg/world-model/exhaustive",
 							generator: element(knownNonEmpty(box, "the small box's transitions")),
 							literal: Formatter.format,

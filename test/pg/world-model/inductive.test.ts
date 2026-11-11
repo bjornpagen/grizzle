@@ -512,7 +512,10 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "second-implementation",
+							name: "the worlds model (test/support/worlds/model) over a drawn state: the one action's allowed observations, the stored relations, every open session's probe and every invariant"
+						},
 						suite: "pg/world-model/inductive",
 						draw: drawn(caseGen),
 						literal: Formatter.format,

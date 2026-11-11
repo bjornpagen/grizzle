@@ -864,8 +864,11 @@ layer(Substrate.layer)("the fin lemmas of fin.md §5.2 on PostgreSQL 19rc1", (it
 					]
 					return yield* exhaust(
 						{
-							box: { kind: "unstated" },
-							oracle: { kind: "unstated" },
+							box: "every state of two owners, each absent or counting 0 to 3 rows, with at most four rows at indices 0 to 4, under each direction's lowering",
+							oracle: {
+								kind: "specification",
+								name: "the families theorem per direction (test/support/families/theorem.ts), and the model of each transaction (fin.ts predicted)"
+							},
 							suite: "substrate/fin-states",
 							generator: stateGen,
 							literal: Formatter.format,
@@ -937,8 +940,11 @@ layer(Substrate.layer)("the fin lemmas of fin.md §5.2 on PostgreSQL 19rc1", (it
 					)
 					return yield* exhaust(
 						{
-							box: { kind: "unstated" },
-							oracle: { kind: "unstated" },
+							box: "every single mutation of every family state of the box, each named",
+							oracle: {
+								kind: "second-implementation",
+								name: "the model of each transaction (fin.ts predicted): its verdict, its moment, its SQLSTATE and a constraint it allows, and the theorem over the state it leaves"
+							},
 							suite: "substrate/fin-mutations",
 							generator: mutationGen,
 							literal: Formatter.format,
@@ -982,8 +988,11 @@ layer(Substrate.layer)("the fin lemmas of fin.md §5.2 on PostgreSQL 19rc1", (it
 					)
 					return yield* exhaust(
 						{
-							box: { kind: "unstated" },
-							oracle: { kind: "unstated" },
+							box: "every family state of the box with every order of its rows in one insert",
+							oracle: {
+								kind: "second-implementation",
+								name: "the model of each transaction (fin.ts predicted)"
+							},
 							suite: "substrate/fin-row-order",
 							generator: orderGen,
 							literal: Formatter.format,
@@ -1030,8 +1039,11 @@ layer(Substrate.layer)("the fin lemmas of fin.md §5.2 on PostgreSQL 19rc1", (it
 					const seats = yield* seatsOf(REWRITE_LOWERINGS)
 					return yield* exhaust(
 						{
-							box: { kind: "unstated" },
-							oracle: { kind: "unstated" },
+							box: "each member of each non-empty family of the box, both rewrites, every order of their statements",
+							oracle: {
+								kind: "second-implementation",
+								name: "the model of each transaction (fin.ts predicted) under the RFC's lowering and its controls"
+							},
 							suite: "substrate/fin-rewrites",
 							generator: rewriteGen,
 							literal: Formatter.format,
@@ -1093,8 +1105,11 @@ layer(Substrate.layer)("the fin lemmas of fin.md §5.2 on PostgreSQL 19rc1", (it
 					const seats = yield* seatsOf(CYCLE_LOWERINGS)
 					return yield* exhaust(
 						{
-							box: { kind: "unstated" },
-							oracle: { kind: "unstated" },
+							box: "every family state of the box with a non-empty family, created from nothing or dropped rows first or owners first",
+							oracle: {
+								kind: "second-implementation",
+								name: "the model of each transaction (fin.ts predicted) under the RFC's lowering, the copy deferred too, and the control with nothing deferred"
+							},
 							suite: "substrate/fin-cycle",
 							generator: cycleGen,
 							literal: Formatter.format,
@@ -1258,7 +1273,10 @@ layer(Substrate.layer)("the fin lemmas of fin.md §5.2 on PostgreSQL 19rc1", (it
 							)
 					return yield* explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "second-implementation",
+								name: "the families model of each step (fin.ts predicted): where it refuses, and the families it commits"
+							},
 							suite: "substrate/fin-programs",
 							draw: drawn(programsGen),
 							literal: Formatter.format,

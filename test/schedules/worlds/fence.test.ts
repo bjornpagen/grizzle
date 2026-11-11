@@ -274,7 +274,10 @@ layer(Substrate.layer, { excludeTestServices: true })(
 					ctx,
 					explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "second-implementation",
+								name: "the worlds model in the state a running migration leaves, every call answered while the migration waits behind the transaction in flight"
+							},
 							suite: "worlds/fence",
 							draw: drawn(caseGen),
 							literal: Formatter.format,

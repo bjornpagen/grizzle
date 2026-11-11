@@ -267,8 +267,11 @@ layer(Substrate.layer, { excludeTestServices: true })("a refresh member", (it) =
 							const model = new Set<View>()
 							return yield* exhaust(
 								{
-									box: { kind: "unstated" },
-									oracle: { kind: "unstated" },
+									box: "every member naming one to three of the two in-scope relations, the relation outside the scope, the base relation, another definition under an in-scope name, a string and two look-alikes, in every order, on one installation",
+									oracle: {
+										kind: "specification",
+										name: "refresh(...)'s stated rules: refused where it is built or compiled unless it names in-scope derived relations, else one statement per relation in level order, plain until populated, against a model of the populated views"
+									},
 									suite: "derived/refresh",
 									generator: calls,
 									literal: Formatter.format,

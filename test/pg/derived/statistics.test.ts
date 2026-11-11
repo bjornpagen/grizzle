@@ -215,7 +215,10 @@ layer(Substrate.layer)("extended statistics on derived relations", (it) => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "second-implementation",
+							name: "the login's workload plan (planOf): the statistics it justifies, as PostgreSQL's catalog holds them, and the drift check's verdict on one dropped"
+						},
 						suite: "derived/statistics",
 						draw: drawn(sketchGen),
 						literal: Formatter.format,

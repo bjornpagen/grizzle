@@ -185,7 +185,10 @@ layer(Substrate.layer)("the bit algebra of fin.md §16 on PostgreSQL 19rc1", (it
 					const db = yield* s.session({ ...ownerSession(), label: "bits" })
 					return yield* explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "second-implementation",
+								name: "a Set<number> of positions, and the host bitsets (packages/engine/src/codec/bits.ts) wherever the host has the operation"
+							},
 							suite: "substrate/bits",
 							draw: drawn(caseGen),
 							literal: Formatter.format,

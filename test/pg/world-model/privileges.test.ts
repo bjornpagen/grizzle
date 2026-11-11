@@ -555,7 +555,10 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: 'README "Security model" derived from the InstallSpec (worlds/privileges.ts expectedPrivileges) against PostgreSQL\'s own judgment of every privilege, and 42501 for an operation one it lacks governs'
+						},
 						suite: "pg/world-model/privileges",
 						draw: drawn(installs),
 						literal: Formatter.format,
