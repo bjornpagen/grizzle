@@ -1,20 +1,25 @@
 /**
- * A CLI generated from an OpenAPI 3.2 document whose streamed responses name their events, run against a local server
- * that sends `text/event-stream` bodies, writes exactly the events the server sent, one JSON line each, and ends as the
- * stream's contract says: after the first `ready` event by default, after `end` under `--follow`, with exit 130 when a
- * followed stream is interrupted, and with exit 1 after an `error` event, which is retried, as a fresh call, only when
- * the event says retrying is safe and the caller gave `--retries`.
+ * A CLI generated from an OpenAPI 3.2 document shaped as grizzle writes one per login (a read and a write, each a
+ * `POST` whose streamed response names its events, each with a `grizzle-wire` header whose schema admits one value),
+ * run against a local server that sends `text/event-stream` bodies, writes exactly the events the server sent, one
+ * JSON line each, and ends as the stream's contract says: after the first `ready` event by default, after `end` under
+ * `--follow`, with exit 130 when a followed stream is interrupted, and with exit 1 after an `error` event, which is
+ * retried, as a fresh call, only when the event says retrying is safe and the caller gave `--retries`. Every request
+ * carries its operation's `grizzle-wire` value, which no flag reads.
  *
- * Generated event lists: items (`reset`, `upsert`, `remove`) whose JSON data is written with whitespace between its
- * tokens and across `data` lines, a `ready` event, live items after it and an `end`, comments between events, sent in
- * one or several writes. Oracle: the events' own lines, through the stop point the command's flags name. The failure
- * and retry behaviour is exhausted over every pairing of the error event's verdict, `--retries` and the method.
+ * Generated event lists: items (`reset`, `upsert`, `remove`) whose JSON data, spelled as grizzle spells int8, money,
+ * bytes and codes, is written with whitespace between its tokens and across `data` lines, a `ready` event, live items
+ * after it and an `end`, comments between events, sent in one or several writes. Oracle: the events' own lines,
+ * through the stop point the command's flags name. The failure and retry behaviour is exhausted over every pairing of
+ * the error event's verdict, `--retries` and the read or the write; the oracle there is the contract's: the lines
+ * printed, the exit code, the calls made and the header each carried.
  *
  * Features: a stop at ready, a stream followed to its end, an interrupted stream, data across lines, a comment, a write
  * that splits an event; each failure verdict with and without a budget, on the read and on the write.
  *
  * Plants (~/.cache/effect-openapi-cli-generator/plants): sse-stops-before-ready.patch (the stream stops one event before
- * its stop point), event-retry-without-budget.patch (a retry-safe error event retries with no `--retries`).
+ * its stop point), event-retry-without-budget.patch (a retry-safe error event retries with no `--retries`),
+ * constant-not-sent.patch (a constant parameter is sent empty).
  */
 import { NodeChildProcessSpawner, NodeHttpServer } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
@@ -35,19 +40,21 @@ import {
 	Layer,
 	Option,
 	Path,
+	Record as Rec,
 	Ref,
 	Schema,
 	Stream,
 	String as Str
 } from "effect"
-import { HttpServer, HttpServerResponse } from "effect/http"
+import { Headers, HttpServer, HttpServerRequest, HttpServerResponse } from "effect/http"
 import { ChildProcess, ChildProcessSpawner } from "effect/process"
 import { generateFixture } from "#test/support/generated-cli.ts"
 
 /** The generated package: its directory and its built entry. */
-class Site extends Context.Service<Site, { readonly bin: string; readonly dir: string }>()(
-	"effect-openapi-cli-generator/test/generated/event-stream.test/Site"
-) {}
+class Site extends Context.Service<
+	Site,
+	{ readonly bin: string; readonly dir: string; readonly wire: Readonly<Record<string, string>> }
+>()("effect-openapi-cli-generator/test/generated/event-stream.test/Site") {}
 
 /**
  * The fixture's package, generated into a scoped temp directory and built by its own `tsconfig.build.json` with the
@@ -63,10 +70,8 @@ const siteLayer = Layer.effect(Site)(
 			configPath,
 			'{"binName":"site","envPrefix":"SITE","package":{"name":"site-cli","version":"0.1.0"}}\n'
 		)
-		const generated = yield* generateFixture({
-			configPath,
-			specPath: path.resolve(import.meta.dirname, "../fixtures/specs/event-stream.json")
-		})
+		const specPath = path.resolve(import.meta.dirname, "../fixtures/specs/event-stream.json")
+		const generated = yield* generateFixture({ configPath, specPath })
 		const installed = path.resolve(import.meta.dirname, "../../../../node_modules")
 		yield* fs.symlink(installed, path.join(generated.dir, "node_modules"))
 		const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
@@ -83,7 +88,34 @@ const siteLayer = Layer.effect(Site)(
 		if (built !== 0) {
 			return yield* Effect.die(`the generated package does not build: tsc exited ${built}`)
 		}
-		return { bin: path.join(generated.dir, "dist", "src", "bin.js"), dir: generated.dir }
+		const spec = yield* fs.readFileString(specPath)
+		const declared = yield* Schema.decodeEffect(WireDigests)(spec)
+		return {
+			bin: path.join(generated.dir, "dist", "src", "bin.js"),
+			dir: generated.dir,
+			wire: Rec.map(declared.paths, (item) =>
+				Arr.join(
+					Arr.map(item.post.parameters, (parameter) => parameter.schema.const),
+					""
+				)
+			)
+		}
+	})
+)
+
+/** The `grizzle-wire` digest each operation of the fixture declares as its one header value. */
+const WireDigests = Schema.fromJsonString(
+	Schema.Struct({
+		paths: Schema.Record(
+			Schema.String,
+			Schema.Struct({
+				post: Schema.Struct({
+					parameters: Schema.Array(
+						Schema.Struct({ schema: Schema.Struct({ const: Schema.String }) })
+					)
+				})
+			})
+		)
 	})
 )
 
@@ -97,6 +129,7 @@ class Server extends Context.Service<
 		readonly origin: string
 		readonly script: (responses: ReadonlyArray<Scripted>) => Effect.Effect<void>
 		readonly requests: Effect.Effect<number>
+		readonly wire: Effect.Effect<ReadonlyArray<string>>
 	}
 >()("effect-openapi-cli-generator/test/generated/event-stream.test/Server") {}
 
@@ -108,10 +141,16 @@ const serverLayer = Layer.effect(Server)(
 	Effect.gen(function* () {
 		const queue = yield* Ref.make<ReadonlyArray<Scripted>>([])
 		const count = yield* Ref.make(0)
+		const wire = yield* Ref.make<ReadonlyArray<string>>([])
 		const encoder = new TextEncoder()
 		yield* HttpServer.serveEffect()(
 			Effect.gen(function* () {
+				const request = yield* HttpServerRequest.HttpServerRequest
 				yield* Ref.update(count, (seen) => seen + 1)
+				yield* Ref.update(wire, (seen) => [
+					...seen,
+					...Option.toArray(Headers.get(request.headers, "grizzle-wire"))
+				])
 				const next = yield* Ref.modify(
 					queue,
 					(responses) => [Arr.head(responses), Arr.drop(responses, 1)] as const
@@ -134,7 +173,12 @@ const serverLayer = Layer.effect(Server)(
 		return {
 			origin: `http://127.0.0.1:${port}`,
 			requests: Ref.get(count),
-			script: (responses) => Effect.andThen(Ref.set(queue, responses), Ref.set(count, 0))
+			script: (responses) =>
+				Effect.andThen(
+					Ref.set(queue, responses),
+					Effect.andThen(Ref.set(count, 0), Ref.set(wire, []))
+				),
+			wire: Ref.get(wire)
 		}
 	})
 )
@@ -195,10 +239,57 @@ type Feed = Readonly<{
 	follow: boolean
 }>
 
+/**
+ * Event data as grizzle spells it on the wire: a reset's key fields; a row whose uuid, int8, money and bytes are
+ * strings, whose code is an enum member, and whose int4 is a number; a removed row's key.
+ */
 const tokenSets: Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<string>> = [
 	["{", '"key"', ":", "[", '"id"', "]", "}"],
-	["{", '"row"', ":", "{", '"id"', ":", "9007199254740993", ",", '"title"', ":", '"a b"', "}", "}"],
-	["{", '"key"', ":", "[", "1.50", "]", "}"]
+	[
+		"{",
+		'"row"',
+		":",
+		"{",
+		'"id"',
+		":",
+		'"6f1c2a4e-0b7d-4c1e-9a3f-2d5e8b7c1a90"',
+		",",
+		'"title"',
+		":",
+		'"a b"',
+		",",
+		'"body"',
+		":",
+		'"x"',
+		",",
+		'"comments"',
+		":",
+		"[",
+		"]",
+		",",
+		'"views"',
+		":",
+		'"9007199254740993"',
+		",",
+		'"price"',
+		":",
+		'"12.50"',
+		",",
+		'"avatar"',
+		":",
+		'"AAECAw=="',
+		",",
+		'"status"',
+		":",
+		'"active"',
+		",",
+		'"rank"',
+		":",
+		"7",
+		"}",
+		"}"
+	],
+	["{", '"key"', ":", "[", '"6f1c2a4e-0b7d-4c1e-9a3f-2d5e8b7c1a90"', "]", "}"]
 ]
 
 const sentEvent: Gen<SentEvent> = (source) => ({
@@ -210,7 +301,7 @@ const feed: Gen<Feed> = (source) => ({
 	before: array(sentEvent, { min: 0, max: 3 })(source),
 	after: array(sentEvent, { min: 0, max: 2 })(source),
 	ends: boolean(source),
-	gaps: array(element(["", " ", "\n", "\t "]), { min: 12, max: 12 })(source),
+	gaps: array(element(["", " ", "\n", "\t "]), { min: 40, max: 40 })(source),
 	comments: boolean(source),
 	writes: int(1, 3)(source),
 	follow: boolean(source)
@@ -300,6 +391,13 @@ const feedFeatures = (sent: Feed): ReadonlyArray<FeedFeature> => {
 	return Arr.flatMap(features, ([feature, reached]) => (reached ? [feature] : []))
 }
 
+/** A read's request body: the post it reads, no facts. */
+const readBody = '{"params":{"id":"6f1c2a4e-0b7d-4c1e-9a3f-2d5e8b7c1a90"},"facts":{}}'
+
+/** A write's request body: one comment inserted. */
+const writeBody =
+	'{"params":{},"facts":{"insert":{"Comment":[{"author":"user_a","body":"hi","id":"0d1e2f3a-4b5c-4d6e-8f70-112233445566","post":"6f1c2a4e-0b7d-4c1e-9a3f-2d5e8b7c1a90"}]}}}'
+
 /** The arguments of one read call, with `--follow` when the case follows. */
 const readArgs = (origin: string, follow: boolean): ReadonlyArray<string> => [
 	"--base-url",
@@ -309,7 +407,7 @@ const readArgs = (origin: string, follow: boolean): ReadonlyArray<string> => [
 	"reader",
 	"post-page",
 	"--body",
-	'{"params":{},"facts":{}}',
+	readBody,
 	...(follow ? ["--follow"] : [])
 ]
 
@@ -341,7 +439,7 @@ const errorText = (verdict: string): string =>
 const firstItem = (command: FailureCase["command"]): readonly [string, string] =>
 	command === "post-page"
 		? ["reset", 'event: reset\ndata: {"key":["id"]}\n\n']
-		: ["outcome", 'event: outcome\ndata: {"outcome":{"kind":"accepted"}}\n\n']
+		: ["outcome", 'event: outcome\ndata: {"outcome":{"kind":"unchanged","reads":[]}}\n\n']
 
 const ErrorLine = Schema.fromJsonString(
 	Schema.Struct({ error: Schema.Struct({ kind: Schema.String }) })
@@ -460,7 +558,7 @@ layer(environment, { timeout: Duration.minutes(5) })(
 										"reader",
 										failure.command,
 										"--body",
-										'{"params":{},"facts":{}}'
+										failure.command === "post-page" ? readBody : writeBody
 									],
 									Option.none()
 								)
@@ -468,7 +566,22 @@ layer(environment, { timeout: Duration.minutes(5) })(
 									itemType,
 									failure.command === "post-page"
 										? ["{", '"key"', ":", "[", '"id"', "]", "}"]
-										: ["{", '"outcome"', ":", "{", '"kind"', ":", '"accepted"', "}", "}"]
+										: [
+												"{",
+												'"outcome"',
+												":",
+												"{",
+												'"kind"',
+												":",
+												'"unchanged"',
+												",",
+												'"reads"',
+												":",
+												"[",
+												"]",
+												"}",
+												"}"
+											]
 								)
 								const error = yield* lineOf("error", [
 									"{",
@@ -501,11 +614,19 @@ layer(environment, { timeout: Duration.minutes(5) })(
 									Schema.decodeOption(ErrorLine)(lastError),
 									(line) => line.error.kind
 								)
+								const site = yield* Site
+								const digest = Rec.get(
+									site.wire,
+									failure.command === "post-page" ? "/site/reader/postPage" : "/site/reader/comment"
+								)
+								const requests = yield* server.requests
+								const wire = yield* server.wire
 								c.note(failureFeature(failure))
+								deepStrictEqual(wire, Arr.getSomes(Arr.replicate(digest, requests)))
 								deepStrictEqual(
 									{
 										exitCode: run.exitCode,
-										requests: yield* server.requests,
+										requests,
 										stdout: run.stdout,
 										kind
 									},

@@ -48,7 +48,6 @@ const intBetween = (min: number, max: number) =>
 // the per-attempt timeout. The decoded config keeps only what the author wrote, so it round-trips;
 // `runtimeSettings` applies `runtimeDefaults`, the one place the defaults live.
 const RuntimeConfig = Schema.Struct({
-	idleTimeoutSeconds: Schema.optionalKey(intBetween(1, 86_400)),
 	timeoutSeconds: Schema.optionalKey(intBetween(0, 3600))
 })
 
@@ -346,12 +345,10 @@ export const decodeAuthorConfig = Effect.fnUntraced(function* decodeAuthorConfig
  * The runtime settings a generated CLI starts from, every field resolved.
  */
 export interface RuntimeSettings {
-	readonly idleTimeoutSeconds: number
 	readonly timeoutSeconds: number
 }
 
 const runtimeDefaults: RuntimeSettings = {
-	idleTimeoutSeconds: 300,
 	timeoutSeconds: 30
 }
 

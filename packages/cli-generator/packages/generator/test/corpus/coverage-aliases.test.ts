@@ -29,6 +29,7 @@ const spec: Json = {
 }
 
 const carrying = (path: readonly string[], fields: Partial<Command> = {}): Command => ({
+	constants: [],
 	document: "openapi.json",
 	flags: [{ location: "query", name: "limit", pointer: parameter, wireName: "limit" }],
 	method: "GET",

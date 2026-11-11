@@ -1,6 +1,7 @@
 {
   "commands": [
     {
+      "constants": [],
       "document": "openapi.json",
       "flags": [
         {
@@ -32,6 +33,7 @@
       ]
     },
     {
+      "constants": [],
       "document": "openapi.json",
       "flags": [
         {
@@ -63,6 +65,7 @@
       ]
     },
     {
+      "constants": [],
       "document": "openapi.json",
       "flags": [
         {
@@ -95,6 +98,7 @@
       ]
     },
     {
+      "constants": [],
       "document": "openapi.json",
       "flags": [],
       "method": "GET",
@@ -119,6 +123,7 @@
       ]
     },
     {
+      "constants": [],
       "document": "openapi.json",
       "flags": [],
       "method": "GET",

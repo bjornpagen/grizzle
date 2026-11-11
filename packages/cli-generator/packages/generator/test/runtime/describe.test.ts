@@ -143,6 +143,7 @@ describe("--describe", () => {
 			"users set-avatar"
 		])
 		expect(decoded.commands[0]).toEqual({
+			constants: [],
 			document: "openapi.json",
 			flags: [
 				{

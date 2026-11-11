@@ -131,15 +131,15 @@ Label: decided.
 
 ## Retries and timeouts
 
-Labels: decided; the operator confirms the timeout defaults.
+Labels: decided; the operator confirms the header timeout default.
 
 - A generated CLI never retries on its own initiative. `--retries <n>`, any whole number, is the one door: no environment variable, author default or built-in count stands in for it, and without it nothing is retried. One run's retries share that budget, whatever failed.
 - Within the budget, idempotent methods and `QUERY` retry transient failures with jittered backoff and `Retry-After`. Transient failures are connection, DNS and timeout failures (never TLS failures or interrupts) and the statuses 408, 429, 500, 502, 503 and 504. `Retry-After` is not waited beyond the timeout: retrying stops and the error reports the server's value.
 - Unsafe methods retry only with `--retry-unsafe` or an operator-supplied declared `Idempotency-Key`.
 - A streamed response whose event contract names an error event with a `retryWhen` rule is retried, whatever the method, when the event's data holds the rule's value: the server reports that nothing took effect. The stream's SSE reconnection time, when it set one, is the wait, capped by the timeout as `Retry-After` is. Every other error event fails at once.
 - Bodies read from standard input never retry and are never re-sent on a redirect. File bodies are read again.
-- A timeout per attempt applies to response headers, and an idle timeout applies to streams.
-- The author config sets defaults for timeouts. A flag beats its environment variable (`<PREFIX>_TIMEOUT`, `<PREFIX>_IDLE_TIMEOUT`), which beats the author default.
+- A timeout per attempt applies to response headers. The author config sets its default, and `--timeout` beats `<PREFIX>_TIMEOUT`, which beats the author default.
+- An idle timeout bounds the wait for a body's next chunk only when the operator sets one, with `--idle-timeout <seconds>` or `<PREFIX>_IDLE_TIMEOUT`: it is a fact of the operator's network path, so no author default or built-in number stands in for it. Without one, a body waits as long as its server takes, and a followed stream lives on the server's heartbeats.
 
 ## Schemas
 
@@ -161,6 +161,7 @@ Label: decided.
 
 - Commands are grouped by tag and named from `operationId` by one ASCII fold.
 - Path parameters are positionals. The operator may choose flags instead.
+- A required parameter whose schema admits exactly one value (`const`, or a one-member `enum`, a string, number or boolean) is a constant of the operation, not an input: the request sends that value and no flag reads one. Help lists it under CONSTANTS, `--describe` under `constants`, and the generation report notes it. An optional one stays a flag, since sending it or not is the operator's choice.
 - Booleans have three states: `--x`, `--no-x` and absent.
 - Body fields flatten to depth 2 as dotted flags such as `--address.city`, which `effect/cli` parses (measured). `--body` and `--body-file` pass the whole body instead. At most one input reads standard input per invocation.
 - Collisions of visible names (flags and their `no-` negations, commands, file segments, credential names) are refused at `operation` scope with an override hint, never renamed. Colliding internal identifiers are renamed deterministically with a notice.

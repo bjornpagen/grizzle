@@ -7,7 +7,7 @@ import type { Diagnostic, DiagnosticOperation } from "#model/diagnostic.ts"
 import { ResponseCase } from "#model/entities.ts"
 import type { MediaAlternative } from "#model/entities.ts"
 import { isSpecificationExtension } from "#model/extension.ts"
-import { specSectionUrl } from "#model/spec-section.ts"
+import { declaredOpenapi, specSectionUrl } from "#model/spec-section.ts"
 import { childKey, follow, nodeIn, referenceIn } from "#normalize/document-set.ts"
 import { readEventContract } from "#normalize/event-stream.ts"
 import { headerMarks } from "#normalize/header-object.ts"
@@ -16,7 +16,6 @@ import { defsKey } from "#resolve/canonical.ts"
 import type { CanonicalKey } from "#resolve/canonical.ts"
 import type { Resolution, ResolvedReference } from "#resolve/index.ts"
 import { mediaEssence, sequentialCodecOf } from "#runtime-src/runtime/sequential.ts"
-import { declaredOpenapi } from "#validate/dispatch.ts"
 
 /**
  * The response cases of one Responses Object and the diagnostics found while building them.

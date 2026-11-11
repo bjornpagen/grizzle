@@ -168,7 +168,7 @@ const settings = (config: AuthorConfig): string => {
 	const builtIn = runtimeSettings(
 		new AuthorConfig({ binName: config.binName, package: config.package })
 	)
-	const authored = (key: "idleTimeoutSeconds" | "timeoutSeconds"): string => {
+	const authored = (key: "timeoutSeconds"): string => {
 		const value = config.runtime?.[key]
 
 		return value === undefined
@@ -184,12 +184,7 @@ const settings = (config: AuthorConfig): string => {
 			`${builtIn.timeoutSeconds}`
 		],
 		["`--retries`", "none", "none", "`0`"],
-		[
-			"none",
-			`\`${prefix}_IDLE_TIMEOUT\``,
-			authored("idleTimeoutSeconds"),
-			`${builtIn.idleTimeoutSeconds}`
-		],
+		["`--idle-timeout`", `\`${prefix}_IDLE_TIMEOUT\``, "none", "none"],
 		["`--error-format`", `\`${prefix}_ERROR_FORMAT\``, "none", "`text`"]
 	]
 	const header = ["Flag", "Environment", "Author default (config key)", "Built-in default"]
@@ -230,7 +225,7 @@ const timeouts = (config: AuthorConfig): string => {
 	return [
 		"## Timeouts",
 		`\`--timeout <seconds>\` (\`${prefix}_TIMEOUT\`) bounds each attempt's wait for the response headers; \`0\` waits forever. A timeout exits with code 4.`,
-		`\`${prefix}_IDLE_TIMEOUT\` bounds the wait for each next chunk of a response body, streamed or not. A body that stalls longer exits with code 5. It has no flag. Settings lists the defaults, including those this package was generated with.`
+		`\`--idle-timeout <seconds>\` (\`${prefix}_IDLE_TIMEOUT\`) bounds the wait for each next chunk of a response body, streamed or not, and a body that stalls longer exits with code 5. Without either, a body waits as long as its server takes: a followed stream lives on the server's heartbeats. Settings lists the defaults, including those this package was generated with.`
 	].join("\n\n")
 }
 

@@ -320,14 +320,14 @@ describe("emitReadme, Milestone 3 runtime sections", () => {
 			["`--base-url`", `\`${prefix}_BASE_URL\``],
 			["`--timeout`", `\`${prefix}_TIMEOUT\``],
 			["`--retries`", "none"],
-			["none", `\`${prefix}_IDLE_TIMEOUT\``],
+			["`--idle-timeout`", `\`${prefix}_IDLE_TIMEOUT\``],
 			["`--error-format`", `\`${prefix}_ERROR_FORMAT\``]
 		])
-		expect(rows.map((row) => row[3])).toEqual(["none", "30", "`0`", "300", "`text`"])
+		expect(rows.map((row) => row[3])).toEqual(["none", "30", "`0`", "none", "`text`"])
 		expect(rows[1]?.[2]).toContain("`runtime.timeoutSeconds`")
 		expect(rows[1]?.[2]).toContain("60")
 		expect(rows[2]?.[2]).toBe("none")
-		expect(rows[3]?.[2]).toContain("`runtime.idleTimeoutSeconds`")
+		expect(rows[3]?.[2]).toBe("none")
 		expect(rows[4]?.[2]).toBe("none")
 	})
 })

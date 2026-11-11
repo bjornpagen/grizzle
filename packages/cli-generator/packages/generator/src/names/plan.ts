@@ -22,6 +22,7 @@ import type {
 } from "#model/entities.ts"
 import { escapeToken, formatPointer, parsePointer } from "#model/pointer.ts"
 import type { SpecLine } from "#model/spec-section.ts"
+import { constantOf } from "#names/constant.ts"
 import { flattenBody } from "#names/flatten.ts"
 import type { BodyFlag, BodyFlagKind, SkippedProperty } from "#names/flatten.ts"
 import type {
@@ -873,6 +874,17 @@ const draftParameters = (
 			const keys = overrideKeysFor(site.override, parameter)
 			for (const key of keys) {
 				usedKeys.add(key)
+			}
+
+			if (Option.isSome(constantOf(context.defs, parameter))) {
+				context.collector.report(
+					operation,
+					"PRM-01/constant",
+					"Parameter",
+					"The parameter admits one value, so the request sends it and no flag reads one.",
+					{ pointer: parameter.origin.pointer, scope: "element", severity: "notice" }
+				)
+				continue
 			}
 
 			const found = yield* draftParameter(subject, context, parameter, keys)

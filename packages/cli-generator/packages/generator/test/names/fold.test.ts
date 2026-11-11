@@ -239,7 +239,8 @@ describe("reserved sets", () => {
 		"allow-credentials-for-base-url",
 		"max-record-bytes",
 		"max-error-bytes",
-		"follow"
+		"follow",
+		"idle-timeout"
 	]
 	const builtIns = ["help", "h", "version", "v", "completions", "log-level"]
 	const negations = [

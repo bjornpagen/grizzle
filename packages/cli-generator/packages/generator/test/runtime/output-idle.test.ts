@@ -74,8 +74,8 @@ const trickle = (every: Duration.Input, count = 5): Stream.Stream<Uint8Array> =>
 
 interface World {
 	readonly body: () => Stream.Stream<Uint8Array>
-	readonly defaults?: Readonly<Record<string, number>>
 	readonly env?: Record<string, string>
+	readonly flag?: number
 	readonly output?: string
 	readonly status?: number
 }
@@ -115,12 +115,8 @@ const run = async (world: World) => {
 	const environment = Layer.mergeAll(
 		BaseUrl.layer(servers, prefix),
 		Auth.layer({ schemes: {} }, prefix),
-		ConfigProvider.layer(
-			ConfigProvider.orElse(
-				ConfigProvider.fromEnv({ env: world.env ?? {} }),
-				ConfigProvider.fromUnknown(world.defaults ?? {})
-			)
-		),
+		ConfigProvider.layer(ConfigProvider.fromEnv({ env: world.env ?? {} })),
+		Layer.succeed(Output.idleTimeoutSetting, Option.fromNullishOr(world.flag)),
 		NodeFileSystem.layer,
 		NodePath.layer,
 		Stdio.layerTest({
@@ -198,8 +194,10 @@ const listing = (fs: FileSystem.FileSystem, dir: string) =>
 	Effect.runPromise(fs.readDirectory(dir).pipe(Effect.provide(NodeFileSystem.layer)))
 
 describe("stream idle timeout on response bodies", () => {
+	const bound = { [`${prefix}_IDLE_TIMEOUT`]: "300" }
+
 	test("a stalled raw body to stdout fails idleTimeout, exit 5, keeping the bytes written", async () => {
-		const result = await run({ body: stalled })
+		const result = await run({ body: stalled, env: bound })
 
 		expect(result.failure).toMatchObject(idleTimeout)
 		expect(result.failure).not.toHaveProperty("itemIndex")
@@ -210,7 +208,7 @@ describe("stream idle timeout on response bodies", () => {
 	test("a stalled --output body leaves neither the target nor a temp file", async () => {
 		await inDir(async (dir, fs, path) => {
 			const target = path.join(dir, "out.json")
-			const result = await run({ body: stalled, output: target })
+			const result = await run({ body: stalled, env: bound, output: target })
 
 			expect(result.failure).toMatchObject(idleTimeout)
 			expect(result.exitCode).toBe(5)
@@ -219,7 +217,7 @@ describe("stream idle timeout on response bodies", () => {
 	})
 
 	test("a stalled 500 error body fails idleTimeout during the excerpt read", async () => {
-		const result = await run({ body: stalled, status: 500 })
+		const result = await run({ body: stalled, env: bound, status: 500 })
 
 		expect(result.failure).toMatchObject(idleTimeout)
 		expect(result.exitCode).toBe(5)
@@ -227,38 +225,37 @@ describe("stream idle timeout on response bodies", () => {
 	})
 
 	test("a body that keeps sending within the bound completes past it in total", async () => {
-		const result = await run({ body: () => trickle("200 seconds") })
+		const result = await run({ body: () => trickle("200 seconds"), env: bound })
 
 		expect(result.succeeded).toBe(true)
 		expect(result.stdout).toBe("12345")
 	})
 
-	test("the built-in bound is 300 seconds: a 290 second gap completes", async () => {
-		const result = await run({ body: () => trickle("290 seconds", 2) })
+	test("without an idle timeout a stalled body waits as long as its server takes", async () => {
+		const result = await run({ body: stalled })
+
+		expect(result.failure).toBeUndefined()
+		expect(result.succeeded).toBe(false)
+		expect(result.stdout).toBe(head)
+	})
+
+	test("without an idle timeout a long gap completes", async () => {
+		const result = await run({ body: () => trickle("1000 seconds", 2) })
 
 		expect(result.succeeded).toBe(true)
 	})
 
-	test("the built-in bound is 300 seconds: a 310 second gap fails", async () => {
-		const result = await run({ body: () => trickle("310 seconds", 2) })
+	test("--idle-timeout sets the bound", async () => {
+		const result = await run({ body: () => trickle("20 seconds", 2), flag: 10 })
 
 		expect(result.failure).toMatchObject(idleTimeout)
 	})
 
-	test("the author default replaces the built-in bound", async () => {
+	test("--idle-timeout beats the environment", async () => {
 		const result = await run({
 			body: () => trickle("20 seconds", 2),
-			defaults: { [`${prefix}_IDLE_TIMEOUT`]: 10 }
-		})
-
-		expect(result.failure).toMatchObject(idleTimeout)
-	})
-
-	test("the environment beats the author default", async () => {
-		const result = await run({
-			body: () => trickle("20 seconds", 2),
-			defaults: { [`${prefix}_IDLE_TIMEOUT`]: 10 },
-			env: { [`${prefix}_IDLE_TIMEOUT`]: "30" }
+			env: { [`${prefix}_IDLE_TIMEOUT`]: "10" },
+			flag: 30
 		})
 
 		expect(result.succeeded).toBe(true)

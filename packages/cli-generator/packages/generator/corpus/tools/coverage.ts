@@ -249,7 +249,10 @@ interface Offer {
 
 const commandOffer = (command: Command): Offer => ({
 	media: new Set(command.requestMedia),
-	parameters: new Set(command.flags.map((flag) => flag.pointer)),
+	parameters: new Set([
+		...Arr.map(command.flags, (flag) => flag.pointer),
+		...Arr.map(command.constants, (constant) => constant.pointer)
+	]),
 	responses: new Set(command.responses),
 	security: new Set(command.security.map(schemeSet)),
 	servers: new Set(command.servers)

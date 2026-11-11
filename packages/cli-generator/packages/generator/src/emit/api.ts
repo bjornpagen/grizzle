@@ -53,6 +53,8 @@ import type {
 	Server
 } from "#model/entities.ts"
 import { formatPointer } from "#model/pointer.ts"
+import { constantOf } from "#names/constant.ts"
+import type { ConstantValue } from "#names/constant.ts"
 import { isPositionalBody } from "#names/flatten.ts"
 import { foldIdentifier } from "#names/fold.ts"
 import type {
@@ -417,9 +419,13 @@ const scalars = (
 ): readonly (readonly [string, Expr])[] =>
 	marker === "deepObjectScalars" ? [["scalars", bool(true)]] : []
 
+/**
+ * What one parameter adds to its operation's builder: the input field it reads, none for a
+ * constant, and the serializer call of its location.
+ */
 interface ParameterParts {
 	readonly cookie?: Expr
-	readonly field: Field
+	readonly field: Option.Option<Field>
 	readonly header?: Expr
 	readonly path?: Expr
 	readonly query?: Expr
@@ -566,7 +572,7 @@ const querystringParts = (
 		const value = member(ident(I("input")), yield* memberName(key))
 
 		return {
-			field,
+			field: Option.some(field),
 			query: fn("querystring", [str(parameter.wireName), str(mediaType), value, obj(options)])
 		}
 	})
@@ -596,11 +602,20 @@ const contentParts = (entry: InputKey): Effect.Effect<ParameterParts, ApiEmitErr
 			obj([["required", bool(parameter.required)]])
 		])
 		if (location === "query") {
-			return { field, query: built }
+			return { field: Option.some(field), query: built }
 		}
 
-		return location === "header" ? { field, header: built } : { cookie: built, field }
+		return location === "header"
+			? { field: Option.some(field), header: built }
+			: { cookie: built, field: Option.some(field) }
 	})
+
+/**
+ * A constant parameter's value as the builder passes it: a boolean as itself, any other value as
+ * the text the operator would have typed.
+ */
+const constantExpr = (value: ConstantValue): Expr =>
+	typeof value === "boolean" ? bool(value) : str(typeof value === "number" ? String(value) : value)
 
 const parameterParts = (
 	entry: InputKey,
@@ -643,12 +658,17 @@ const parameterParts = (
 			valueType = typeReadonlyArray(typeKeyword("string"))
 		}
 
-		const field: Field = {
-			key,
-			optional: !parameter.required,
-			type: parameter.required ? valueType : optionalOf(valueType)
-		}
-		const value = member(ident(I("input")), yield* memberName(key))
+		const constant = constantOf(defs, parameter)
+		const field: Option.Option<Field> = Option.isSome(constant)
+			? Option.none()
+			: Option.some({
+					key,
+					optional: !parameter.required,
+					type: parameter.required ? valueType : optionalOf(valueType)
+				})
+		const value = Option.isSome(constant)
+			? constantExpr(constant.value)
+			: member(ident(I("input")), yield* memberName(key))
 		const { allowReserved, explode, style } = serialization
 		const wire = str(parameter.wireName)
 		const required = bool(parameter.required)
@@ -1858,7 +1878,7 @@ const commandStatements = (
 			parts.push(["cookies", arr(cookies)])
 		}
 
-		const fields = [...body.fields, ...parameters.map((part) => part.field)]
+		const fields = [...body.fields, ...Arr.getSomes(Arr.map(parameters, (part) => part.field))]
 		// An operation with no input takes no argument: an empty interface and an unused parameter
 		// fail the package's own lint.
 		const builder = arrow(

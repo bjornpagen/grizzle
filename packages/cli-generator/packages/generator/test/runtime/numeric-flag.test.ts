@@ -280,7 +280,7 @@ const flagRefused = async (
 }
 
 const envRefused = async (
-	read: Effect.Effect<number, unknown>,
+	read: Effect.Effect<unknown, unknown>,
 	env: Record<string, string>,
 	message: string
 ): Promise<void> => {

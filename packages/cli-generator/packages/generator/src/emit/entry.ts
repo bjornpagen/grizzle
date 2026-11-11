@@ -75,7 +75,7 @@ const constant = (name: string, value: Expr, exported = false): Statement => ({
 /**
  * The fallback object of the `ConfigProvider` `main.ts` composes (design D-AD7): each runtime
  * setting `runtimeSettings` resolves, keyed by the explicit prefixed env name its runtime resolver
- * reads (`<PREFIX>_IDLE_TIMEOUT`, `<PREFIX>_TIMEOUT`; memo 6f21e261), in key
+ * reads (`<PREFIX>_TIMEOUT`; memo 6f21e261), in key
  * order. Nothing is nested, so an environment value of the same name wins.
  */
 export const runtimeFallback = (config: AuthorConfig) => {
@@ -83,7 +83,6 @@ export const runtimeFallback = (config: AuthorConfig) => {
 	const settings = runtimeSettings(config)
 
 	return {
-		[`${prefix}_IDLE_TIMEOUT`]: settings.idleTimeoutSeconds,
 		[`${prefix}_TIMEOUT`]: settings.timeoutSeconds
 	}
 }

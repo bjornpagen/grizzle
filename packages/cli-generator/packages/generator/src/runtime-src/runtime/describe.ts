@@ -25,10 +25,25 @@ export interface ParameterBinding {
 }
 
 /**
+ * A constant parameter a generated command sends without a flag: where its value goes, its use
+ * site, and the value as JSON text.
+ */
+export interface ConstantBinding {
+	readonly location: typeof Location.Type
+	readonly pointer: string
+	readonly value: string
+	readonly wireName: string
+}
+
+/**
  * The structural subset of a command's operation binding that `--describe` reads. The generated
  * operation metadata satisfies it and carries more.
  */
 export interface CommandBinding {
+	/**
+	 * Present only when the operation has a constant parameter.
+	 */
+	readonly constants?: readonly ConstantBinding[]
 	readonly operation: {
 		readonly media: MediaDeclaration
 		readonly method: string
@@ -56,11 +71,20 @@ export class Binding extends Context.Service<Binding, CommandBinding>()(
  * effective requirement's alternatives; `servers` are the effective server URLs (the operation's or
  * path item's override, else the root's from `Servers`, empty when that service is absent).
  * `refusedFields` are the body properties refused at `field` scope, in request media then property
- * order; it is present on every command, empty when none is refused.
+ * order; it is present on every command, empty when none is refused. `constants` are the parameters
+ * the command sends as their one value without a flag, in parameter order, empty when there is none.
  */
 export const Description = Schema.Struct({
 	commands: Schema.Array(
 		Schema.Struct({
+			constants: Schema.Array(
+				Schema.Struct({
+					location: Location,
+					pointer: Schema.String,
+					value: Schema.String,
+					wireName: Schema.String
+				})
+			),
 			document: Schema.String,
 			flags: Schema.Array(
 				Schema.Struct({
@@ -107,6 +131,7 @@ const entryOf = (
 	binding: CommandBinding,
 	rootServers: readonly string[]
 ): Entry => ({
+	constants: binding.constants ?? [],
 	document: binding.operation.origin.document,
 	flags: Arr.sort(
 		Arr.map(Rec.toEntries(binding.parameters), ([name, parameter]) => ({

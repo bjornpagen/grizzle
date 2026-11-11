@@ -82,7 +82,7 @@ import {
 	withUserAgent,
 	wouldRetry
 } from "#runtime/client.ts"
-import { printStderr } from "#runtime/input.ts"
+import { asCliError, printStderr } from "#runtime/input.ts"
 import type { MediaDeclaration } from "#runtime/negotiate.ts"
 import { accept as acceptValue, dispatchResponse } from "#runtime/negotiate.ts"
 import type { ScrubEntry } from "#runtime/redact.ts"
@@ -1478,54 +1478,104 @@ const withheldNotice = (headers: readonly Credential[], certificate: boolean): s
 }
 
 /**
- * The built-in stream idle timeout in seconds (design D-AD7), used when neither
- * `<PREFIX>_IDLE_TIMEOUT` nor an author default sets one.
+ * The refusal of an idle timeout that is not whole seconds, 1 or more, naming where it came from
+ * and never the value.
  */
-export const defaultIdleTimeoutSeconds = 300
-
-/**
- * The effective stream idle timeout in seconds: `<envPrefix>_IDLE_TIMEOUT` read by that explicit
- * name (as `base-url.ts` reads `<PREFIX>_BASE_URL`), then `defaultIdleTimeoutSeconds`. The author
- * default reaches the env read through the `ConfigProvider` `main.ts` provides (design D-AD7);
- * there is no flag. The value is whole seconds, 1 or more; anything else is a `UsageError` naming
- * the variable, never the value. An unprefixed `IDLE_TIMEOUT` is never read.
- */
-export const effectiveIdleTimeoutSeconds = (envPrefix: string): Effect.Effect<number, UsageError> =>
-	Effect.gen(function* resolveIdleTimeout() {
-		const name = `${envPrefix}_IDLE_TIMEOUT`
-		const invalid = new UsageError({
-			flag: name,
-			message: `${name} must be a whole number of seconds, 1 or more`
-		})
-		const env = yield* Config.option(Config.String(name)).pipe(Effect.mapError(() => invalid))
-		if (Option.isNone(env)) {
-			return defaultIdleTimeoutSeconds
-		}
-
-		const seconds = yield* decodeWholeNumber(env.value).pipe(Effect.mapError(() => invalid))
-
-		return seconds >= 1 ? seconds : yield* invalid
+const invalidIdleTimeout = (source: string): UsageError =>
+	UsageError.make({
+		flag: source,
+		message: `${source} must be a whole number of seconds, 1 or more`
 	})
 
 /**
- * A response body read that fails part-way is a truncated body (exit 5). A read that waits longer
- * than `idleSeconds` for its next chunk fails `idleTimeout` (exit 5; design 9 I5): the only bound
- * on a raw stream. `Stream.timeoutOrElse` with a failure, because `Stream.timeout` ends a stalled
- * stream successfully. A bodiless response (`isBodiless`) is the empty body and is never read.
+ * Whole seconds, 1 or more, from the text `source` gave.
+ */
+const parseIdleTimeout = (raw: string, source: string): Effect.Effect<number, UsageError> =>
+	decodeWholeNumber(raw).pipe(
+		Effect.mapError(() => invalidIdleTimeout(source)),
+		Effect.filterOrFail(
+			(seconds) => seconds >= 1,
+			() => invalidIdleTimeout(source)
+		)
+	)
+
+/**
+ * `--idle-timeout <seconds>`: the longest wait for a response body's next chunk. An idle timeout is
+ * a fact of the operator's network path and its proxies, so only the operator sets it; the flag
+ * holds only the operator's value and `effectiveIdleTimeoutSeconds` reads the environment after it.
+ */
+export const idleTimeoutSetting = GlobalFlag.Setting("idle-timeout")({
+	flag: Flag.String("idle-timeout").pipe(
+		Flag.withMetavar("seconds"),
+		Flag.withDescription("Longest wait for a response body's next chunk; none when absent"),
+		Flag.mapEffect((raw) =>
+			parseIdleTimeout(raw, "--idle-timeout").pipe(Effect.mapError(asCliError))
+		),
+		Flag.optional
+	)
+})
+
+/**
+ * The effective stream idle timeout in seconds: `--idle-timeout`, then `<envPrefix>_IDLE_TIMEOUT`
+ * read by that explicit name (as `base-url.ts` reads `<PREFIX>_BASE_URL`), else none, so a body
+ * waits as long as its server takes and a followed stream lives on the server's heartbeats. No
+ * author default or built-in number stands in for the operator's. The value is whole seconds, 1 or
+ * more; anything else is a `UsageError` naming the flag or the variable, never the value. An
+ * unprefixed `IDLE_TIMEOUT` is never read.
+ */
+export const effectiveIdleTimeoutSeconds = (
+	envPrefix: string
+): Effect.Effect<Option.Option<number>, UsageError> =>
+	Effect.gen(function* resolveIdleTimeout() {
+		const setting = yield* Effect.serviceOption(idleTimeoutSetting)
+		const flag = Option.flatten(setting)
+		if (Option.isSome(flag)) {
+			return flag
+		}
+
+		const name = `${envPrefix}_IDLE_TIMEOUT`
+		const env = yield* Config.option(Config.String(name)).pipe(
+			Effect.mapError(() => invalidIdleTimeout(name))
+		)
+
+		if (Option.isNone(env)) {
+			return Option.none()
+		}
+
+		const seconds = yield* parseIdleTimeout(env.value, name)
+
+		return Option.some(seconds)
+	})
+
+/**
+ * A response body read that fails part-way is a truncated body (exit 5). Under an idle timeout, a
+ * read that waits longer than `idleSeconds` for its next chunk fails `idleTimeout` (exit 5; design
+ * 9 I5). `Stream.timeoutOrElse` with a failure, because `Stream.timeout` ends a stalled stream
+ * successfully. A bodiless response (`isBodiless`) is the empty body and is never read.
  */
 const bodyOf = (
 	response: HttpClientResponse.HttpClientResponse,
-	idleSeconds: number
-): Stream.Stream<Uint8Array, ResponseStreamError> =>
-	isBodiless(response)
-		? Stream.empty
-		: response.stream.pipe(
-				Stream.mapError(() => new ResponseStreamError({ reason: "truncated" })),
+	idleSeconds: Option.Option<number>
+): Stream.Stream<Uint8Array, ResponseStreamError> => {
+	if (isBodiless(response)) {
+		return Stream.empty
+	}
+
+	const body = response.stream.pipe(
+		Stream.mapError(() => ResponseStreamError.make({ reason: "truncated" }))
+	)
+
+	return Option.match(idleSeconds, {
+		onNone: () => body,
+		onSome: (seconds) =>
+			body.pipe(
 				Stream.timeoutOrElse({
-					duration: Duration.seconds(idleSeconds),
+					duration: Duration.seconds(seconds),
 					orElse: () => Stream.fail(new ResponseStreamError({ reason: "idleTimeout" }))
 				})
 			)
+	})
+}
 
 /**
  * The event plan of a 2xx response: the contract the operation's meta names for its response key

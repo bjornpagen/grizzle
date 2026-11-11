@@ -32,11 +32,10 @@ describe("author config runtime settings", () => {
 	test("a valid runtime object decodes to its values", () => {
 		const config = decode({
 			...base,
-			runtime: { idleTimeoutSeconds: 86_400, timeoutSeconds: 0 }
+			runtime: { timeoutSeconds: 0 }
 		})
 
 		expect(runtimeSettings(config)).toEqual({
-			idleTimeoutSeconds: 86_400,
 			timeoutSeconds: 0
 		})
 	})
@@ -44,32 +43,28 @@ describe("author config runtime settings", () => {
 	test("the lower bounds decode", () => {
 		const config = decode({
 			...base,
-			runtime: { idleTimeoutSeconds: 1, timeoutSeconds: 3600 }
+			runtime: { timeoutSeconds: 3600 }
 		})
 
 		expect(runtimeSettings(config)).toEqual({
-			idleTimeoutSeconds: 1,
 			timeoutSeconds: 3600
 		})
 	})
 
 	test("an absent runtime object gives the defaults", () => {
 		expect(runtimeSettings(decode(base))).toEqual({
-			idleTimeoutSeconds: 300,
 			timeoutSeconds: 30
 		})
 	})
 
 	test("an empty runtime object gives the defaults", () => {
 		expect(runtimeSettings(decode({ ...base, runtime: {} }))).toEqual({
-			idleTimeoutSeconds: 300,
 			timeoutSeconds: 30
 		})
 	})
 
 	test("an absent field gives its default", () => {
 		expect(runtimeSettings(decode({ ...base, runtime: { timeoutSeconds: 5 } }))).toEqual({
-			idleTimeoutSeconds: 300,
 			timeoutSeconds: 5
 		})
 	})
@@ -84,19 +79,9 @@ describe("author config runtime settings", () => {
 		["timeout above 3600", { timeoutSeconds: 3601 }, "/runtime/timeoutSeconds|CFG-1/invalid-value"],
 		["fractional timeout", { timeoutSeconds: 2.5 }, "/runtime/timeoutSeconds|CFG-1/invalid-value"],
 		[
-			"zero idle timeout",
-			{ idleTimeoutSeconds: 0 },
-			"/runtime/idleTimeoutSeconds|CFG-1/invalid-value"
-		],
-		[
-			"idle timeout above 86400",
-			{ idleTimeoutSeconds: 86_401 },
-			"/runtime/idleTimeoutSeconds|CFG-1/invalid-value"
-		],
-		[
-			"fractional idle timeout",
-			{ idleTimeoutSeconds: 1.5 },
-			"/runtime/idleTimeoutSeconds|CFG-1/invalid-value"
+			"an idle timeout, which only the operator gives",
+			{ idleTimeoutSeconds: 300 },
+			"/runtime/idleTimeoutSeconds|CFG-1/unknown-key"
 		],
 		["an unknown key", { foo: 1 }, "/runtime/foo|CFG-1/unknown-key"]
 	])("%s is refused", (_name, runtime, expected) => {
@@ -115,7 +100,7 @@ describe("author config runtime settings", () => {
 	})
 
 	test("a config with a full runtime round-trips unchanged", () => {
-		const input = { ...base, runtime: { idleTimeoutSeconds: 300, timeoutSeconds: 30 } }
+		const input = { ...base, runtime: { timeoutSeconds: 30 } }
 
 		expect(encode(input)).toEqual(input)
 	})

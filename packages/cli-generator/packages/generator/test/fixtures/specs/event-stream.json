@@ -1,320 +1,1656 @@
 {
-	"openapi": "3.2.0",
-	"info": {
-		"title": "site",
-		"version": "1"
-	},
-	"paths": {
-		"/site/reader/postPage": {
-			"post": {
-				"operationId": "postPage",
-				"tags": [
-					"reader"
-				],
-				"requestBody": {
-					"required": true,
-					"content": {
-						"application/json": {
-							"schema": {
-								"type": "object",
-								"properties": {
-									"params": {
-										"type": "object"
-									},
-									"facts": {
-										"type": "object"
-									}
-								},
-								"required": [
-									"params",
-									"facts"
-								]
-							}
-						}
-					}
-				},
-				"responses": {
-					"200": {
-						"description": "events",
-						"content": {
-							"text/event-stream": {
-								"itemSchema": {
-									"oneOf": [
-										{
-											"$ref": "#/components/schemas/read.reset"
-										},
-										{
-											"$ref": "#/components/schemas/read.upsert"
-										},
-										{
-											"$ref": "#/components/schemas/read.remove"
-										},
-										{
-											"$ref": "#/components/schemas/read.ready"
-										},
-										{
-											"$ref": "#/components/schemas/read.error"
-										},
-										{
-											"$ref": "#/components/schemas/read.end"
-										}
-									]
-								}
-							}
-						}
-					}
-				}
-			}
-		},
-		"/site/reader/comment": {
-			"post": {
-				"operationId": "comment",
-				"tags": [
-					"reader"
-				],
-				"requestBody": {
-					"required": true,
-					"content": {
-						"application/json": {
-							"schema": {
-								"type": "object",
-								"properties": {
-									"params": {
-										"type": "object"
-									},
-									"facts": {
-										"type": "object"
-									}
-								},
-								"required": [
-									"params",
-									"facts"
-								]
-							}
-						}
-					}
-				},
-				"responses": {
-					"200": {
-						"description": "events",
-						"content": {
-							"text/event-stream": {
-								"itemSchema": {
-									"oneOf": [
-										{
-											"$ref": "#/components/schemas/write.outcome"
-										},
-										{
-											"$ref": "#/components/schemas/write.error"
-										},
-										{
-											"$ref": "#/components/schemas/write.end"
-										}
-									]
-								}
-							}
-						}
-					}
-				}
-			}
-		}
-	},
 	"components": {
 		"schemas": {
-			"read.reset": {
-				"type": "object",
-				"required": [
-					"event",
-					"data"
-				],
+			"reader.comment.end": {
+				"additionalProperties": false,
 				"properties": {
-					"event": {
-						"const": "reset"
-					},
 					"data": {
-						"type": "string",
 						"contentMediaType": "application/json",
 						"contentSchema": {
+							"additionalProperties": false,
+							"properties": {},
+							"required": [],
 							"type": "object"
-						}
-					}
-				}
-			},
-			"read.upsert": {
-				"type": "object",
-				"required": [
-					"event",
-					"data"
-				],
-				"properties": {
-					"event": {
-						"const": "upsert"
+						},
+						"type": "string"
 					},
-					"data": {
-						"type": "string",
-						"contentMediaType": "application/json",
-						"contentSchema": {
-							"type": "object"
-						}
-					}
-				}
-			},
-			"read.remove": {
-				"type": "object",
-				"required": [
-					"event",
-					"data"
-				],
-				"properties": {
 					"event": {
-						"const": "remove"
-					},
-					"data": {
-						"type": "string",
-						"contentMediaType": "application/json",
-						"contentSchema": {
-							"type": "object"
-						}
-					}
-				}
-			},
-			"read.ready": {
-				"type": "object",
-				"required": [
-					"event",
-					"data"
-				],
-				"properties": {
-					"event": {
-						"const": "ready"
-					},
-					"data": {
-						"type": "string",
-						"contentMediaType": "application/json",
-						"contentSchema": {
-							"type": "object"
-						}
+						"const": "end"
 					}
 				},
+				"required": [
+					"event",
+					"data"
+				],
+				"type": "object",
+				"x-stream": {
+					"role": "end"
+				}
+			},
+			"reader.comment.error": {
+				"additionalProperties": false,
+				"properties": {
+					"data": {
+						"contentMediaType": "application/json",
+						"contentSchema": {
+							"additionalProperties": false,
+							"properties": {
+								"error": {
+									"oneOf": [
+										{
+											"additionalProperties": false,
+											"properties": {
+												"kind": {
+													"const": "route"
+												},
+												"message": {
+													"type": "string"
+												},
+												"retry": {
+													"const": "never"
+												}
+											},
+											"required": [
+												"kind",
+												"retry",
+												"message"
+											],
+											"type": "object"
+										},
+										{
+											"additionalProperties": false,
+											"properties": {
+												"kind": {
+													"const": "input"
+												},
+												"message": {
+													"type": "string"
+												},
+												"retry": {
+													"const": "never"
+												}
+											},
+											"required": [
+												"kind",
+												"retry",
+												"message"
+											],
+											"type": "object"
+										},
+										{
+											"additionalProperties": false,
+											"properties": {
+												"kind": {
+													"const": "tokenRefused"
+												},
+												"message": {
+													"type": "string"
+												},
+												"retry": {
+													"const": "never"
+												}
+											},
+											"required": [
+												"kind",
+												"retry",
+												"message"
+											],
+											"type": "object"
+										},
+										{
+											"additionalProperties": false,
+											"properties": {
+												"kind": {
+													"const": "tokenExpired"
+												},
+												"message": {
+													"type": "string"
+												},
+												"retry": {
+													"const": "safe"
+												}
+											},
+											"required": [
+												"kind",
+												"retry",
+												"message"
+											],
+											"type": "object"
+										},
+										{
+											"additionalProperties": false,
+											"properties": {
+												"kind": {
+													"const": "refused"
+												},
+												"message": {
+													"type": "string"
+												},
+												"refused": {
+													"additionalProperties": false,
+													"properties": {
+														"kind": {
+															"enum": [
+																"every",
+																"first",
+																"some",
+																"above"
+															]
+														},
+														"laws": {
+															"items": {
+																"additionalProperties": false,
+																"properties": {
+																	"by": {
+																		"type": "object"
+																	},
+																	"id": {
+																		"type": "string"
+																	},
+																	"law": {
+																		"type": "object"
+																	}
+																},
+																"required": [
+																	"law",
+																	"id",
+																	"by"
+																],
+																"type": "object"
+															},
+															"minItems": 1,
+															"type": "array"
+														},
+														"own": {
+															"enum": [
+																"every",
+																"none",
+																"unjudged"
+															]
+														}
+													},
+													"required": [
+														"kind",
+														"laws"
+													],
+													"type": "object",
+													"x-grizzle-gaps": [
+														"lawShape"
+													]
+												},
+												"retry": {
+													"const": "never"
+												},
+												"witness": {
+													"oneOf": [
+														{
+															"additionalProperties": false,
+															"properties": {
+																"kind": {
+																	"const": "unreported"
+																}
+															},
+															"required": [
+																"kind"
+															],
+															"type": "object"
+														},
+														{
+															"additionalProperties": false,
+															"properties": {
+																"kind": {
+																	"const": "key"
+																},
+																"relation": {
+																	"const": "Comment"
+																},
+																"values": {
+																	"additionalProperties": false,
+																	"properties": {
+																		"author": {
+																			"allOf": [
+																				{
+																					"pattern": "^user\\u{5F}[0-9A-Za-z]{1,64}$"
+																				}
+																			],
+																			"pattern": "^[\\u{1}-\\u{D7FF}\\u{E000}-\\u{10FFFF}]*$",
+																			"type": "string"
+																		},
+																		"body": {
+																			"pattern": "^[\\u{1}-\\u{D7FF}\\u{E000}-\\u{10FFFF}]*$",
+																			"type": "string"
+																		},
+																		"id": {
+																			"format": "uuid",
+																			"pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+																			"type": "string"
+																		},
+																		"post": {
+																			"format": "uuid",
+																			"pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+																			"type": "string"
+																		}
+																	},
+																	"type": "object",
+																	"x-grizzle-gaps": [
+																		"witnessKey"
+																	]
+																}
+															},
+															"required": [
+																"kind",
+																"relation",
+																"values"
+															],
+															"type": "object"
+														}
+													]
+												}
+											},
+											"required": [
+												"kind",
+												"retry",
+												"message",
+												"refused",
+												"witness"
+											],
+											"type": "object"
+										},
+										{
+											"additionalProperties": false,
+											"properties": {
+												"kind": {
+													"const": "outsideWorld"
+												},
+												"message": {
+													"type": "string"
+												},
+												"relation": {
+													"type": "string"
+												},
+												"retry": {
+													"const": "never"
+												}
+											},
+											"required": [
+												"kind",
+												"retry",
+												"message",
+												"relation"
+											],
+											"type": "object"
+										},
+										{
+											"additionalProperties": false,
+											"properties": {
+												"kind": {
+													"const": "transient"
+												},
+												"message": {
+													"type": "string"
+												},
+												"retry": {
+													"const": "safe"
+												}
+											},
+											"required": [
+												"kind",
+												"retry",
+												"message"
+											],
+											"type": "object"
+										},
+										{
+											"additionalProperties": false,
+											"properties": {
+												"kind": {
+													"const": "unavailable"
+												},
+												"message": {
+													"type": "string"
+												},
+												"retry": {
+													"const": "safe"
+												}
+											},
+											"required": [
+												"kind",
+												"retry",
+												"message"
+											],
+											"type": "object"
+										},
+										{
+											"additionalProperties": false,
+											"properties": {
+												"kind": {
+													"const": "transport"
+												},
+												"message": {
+													"type": "string"
+												},
+												"retry": {
+													"const": "safe"
+												}
+											},
+											"required": [
+												"kind",
+												"retry",
+												"message"
+											],
+											"type": "object"
+										},
+										{
+											"additionalProperties": false,
+											"properties": {
+												"kind": {
+													"const": "stale"
+												},
+												"message": {
+													"type": "string"
+												},
+												"retry": {
+													"const": "never"
+												}
+											},
+											"required": [
+												"kind",
+												"retry",
+												"message"
+											],
+											"type": "object"
+										},
+										{
+											"additionalProperties": false,
+											"properties": {
+												"kind": {
+													"const": "commitUnknown"
+												},
+												"message": {
+													"type": "string"
+												},
+												"retry": {
+													"const": "never"
+												}
+											},
+											"required": [
+												"kind",
+												"retry",
+												"message"
+											],
+											"type": "object"
+										},
+										{
+											"additionalProperties": false,
+											"properties": {
+												"kind": {
+													"const": "failed"
+												},
+												"message": {
+													"type": "string"
+												},
+												"retry": {
+													"const": "never"
+												}
+											},
+											"required": [
+												"kind",
+												"retry",
+												"message"
+											],
+											"type": "object"
+										}
+									]
+								}
+							},
+							"required": [
+								"error"
+							],
+							"type": "object"
+						},
+						"type": "string"
+					},
+					"event": {
+						"const": "error"
+					}
+				},
+				"required": [
+					"event",
+					"data"
+				],
+				"type": "object",
+				"x-stream": {
+					"retryWhen": {
+						"equals": "safe",
+						"pointer": "/error/retry"
+					},
+					"role": "error"
+				}
+			},
+			"reader.comment.outcome": {
+				"additionalProperties": false,
+				"properties": {
+					"data": {
+						"contentMediaType": "application/json",
+						"contentSchema": {
+							"additionalProperties": false,
+							"properties": {
+								"outcome": {
+									"oneOf": [
+										{
+											"additionalProperties": false,
+											"properties": {
+												"counts": {
+													"items": {
+														"additionalProperties": false,
+														"properties": {
+															"added": {
+																"pattern": "^(?:0|(?:[1-9]|[1-9][0-9]{1,17}|(?:[1-8][0-9]{18}|9(?:[0-1][0-9]{17}|2(?:[0-1][0-9]{16}|2(?:[0-2][0-9]{15}|3(?:[0-2][0-9]{14}|3(?:[0-6][0-9]{13}|7(?:[0-1][0-9]{12}|20(?:[0-2][0-9]{10}|3(?:[0-5][0-9]{9}|6(?:[0-7][0-9]{8}|8(?:[0-4][0-9]{7}|5(?:[0-3][0-9]{6}|4(?:[0-6][0-9]{5}|7(?:[0-6][0-9]{4}|7(?:[0-4][0-9]{3}|5(?:[0-7][0-9]{2}|80[0-7]))))))))))))))))))$",
+																"type": "string"
+															},
+															"deleted": {
+																"pattern": "^(?:0|(?:[1-9]|[1-9][0-9]{1,17}|(?:[1-8][0-9]{18}|9(?:[0-1][0-9]{17}|2(?:[0-1][0-9]{16}|2(?:[0-2][0-9]{15}|3(?:[0-2][0-9]{14}|3(?:[0-6][0-9]{13}|7(?:[0-1][0-9]{12}|20(?:[0-2][0-9]{10}|3(?:[0-5][0-9]{9}|6(?:[0-7][0-9]{8}|8(?:[0-4][0-9]{7}|5(?:[0-3][0-9]{6}|4(?:[0-6][0-9]{5}|7(?:[0-6][0-9]{4}|7(?:[0-4][0-9]{3}|5(?:[0-7][0-9]{2}|80[0-7]))))))))))))))))))$",
+																"type": "string"
+															},
+															"put": {
+																"pattern": "^(?:0|(?:[1-9]|[1-9][0-9]{1,17}|(?:[1-8][0-9]{18}|9(?:[0-1][0-9]{17}|2(?:[0-1][0-9]{16}|2(?:[0-2][0-9]{15}|3(?:[0-2][0-9]{14}|3(?:[0-6][0-9]{13}|7(?:[0-1][0-9]{12}|20(?:[0-2][0-9]{10}|3(?:[0-5][0-9]{9}|6(?:[0-7][0-9]{8}|8(?:[0-4][0-9]{7}|5(?:[0-3][0-9]{6}|4(?:[0-6][0-9]{5}|7(?:[0-6][0-9]{4}|7(?:[0-4][0-9]{3}|5(?:[0-7][0-9]{2}|80[0-7]))))))))))))))))))$",
+																"type": "string"
+															},
+															"relation": {
+																"enum": [
+																	"Comment"
+																],
+																"type": "string"
+															}
+														},
+														"required": [
+															"relation",
+															"added",
+															"deleted",
+															"put"
+														],
+														"type": "object"
+													},
+													"type": "array"
+												},
+												"kind": {
+													"const": "accepted"
+												},
+												"reads": {
+													"additionalProperties": false,
+													"properties": {},
+													"required": [],
+													"type": "object"
+												}
+											},
+											"required": [
+												"kind",
+												"counts",
+												"reads"
+											],
+											"type": "object"
+										},
+										{
+											"additionalProperties": false,
+											"properties": {
+												"kind": {
+													"const": "unchanged"
+												},
+												"reads": {
+													"additionalProperties": false,
+													"properties": {},
+													"required": [],
+													"type": "object"
+												}
+											},
+											"required": [
+												"kind",
+												"reads"
+											],
+											"type": "object"
+										}
+									]
+								}
+							},
+							"required": [
+								"outcome"
+							],
+							"type": "object"
+						},
+						"type": "string"
+					},
+					"event": {
+						"const": "outcome"
+					}
+				},
+				"required": [
+					"event",
+					"data"
+				],
+				"type": "object"
+			},
+			"reader.postPage.end": {
+				"additionalProperties": false,
+				"properties": {
+					"data": {
+						"contentMediaType": "application/json",
+						"contentSchema": {
+							"additionalProperties": false,
+							"properties": {},
+							"required": [],
+							"type": "object"
+						},
+						"type": "string"
+					},
+					"event": {
+						"const": "end"
+					}
+				},
+				"required": [
+					"event",
+					"data"
+				],
+				"type": "object",
+				"x-stream": {
+					"role": "end"
+				}
+			},
+			"reader.postPage.error": {
+				"additionalProperties": false,
+				"properties": {
+					"data": {
+						"contentMediaType": "application/json",
+						"contentSchema": {
+							"additionalProperties": false,
+							"properties": {
+								"error": {
+									"oneOf": [
+										{
+											"additionalProperties": false,
+											"properties": {
+												"kind": {
+													"const": "route"
+												},
+												"message": {
+													"type": "string"
+												},
+												"retry": {
+													"const": "never"
+												}
+											},
+											"required": [
+												"kind",
+												"retry",
+												"message"
+											],
+											"type": "object"
+										},
+										{
+											"additionalProperties": false,
+											"properties": {
+												"kind": {
+													"const": "input"
+												},
+												"message": {
+													"type": "string"
+												},
+												"retry": {
+													"const": "never"
+												}
+											},
+											"required": [
+												"kind",
+												"retry",
+												"message"
+											],
+											"type": "object"
+										},
+										{
+											"additionalProperties": false,
+											"properties": {
+												"kind": {
+													"const": "tokenRefused"
+												},
+												"message": {
+													"type": "string"
+												},
+												"retry": {
+													"const": "never"
+												}
+											},
+											"required": [
+												"kind",
+												"retry",
+												"message"
+											],
+											"type": "object"
+										},
+										{
+											"additionalProperties": false,
+											"properties": {
+												"kind": {
+													"const": "tokenExpired"
+												},
+												"message": {
+													"type": "string"
+												},
+												"retry": {
+													"const": "safe"
+												}
+											},
+											"required": [
+												"kind",
+												"retry",
+												"message"
+											],
+											"type": "object"
+										},
+										{
+											"additionalProperties": false,
+											"properties": {
+												"kind": {
+													"const": "refused"
+												},
+												"message": {
+													"type": "string"
+												},
+												"refused": {
+													"additionalProperties": false,
+													"properties": {
+														"kind": {
+															"enum": [
+																"every",
+																"first",
+																"some",
+																"above"
+															]
+														},
+														"laws": {
+															"items": {
+																"additionalProperties": false,
+																"properties": {
+																	"by": {
+																		"type": "object"
+																	},
+																	"id": {
+																		"type": "string"
+																	},
+																	"law": {
+																		"type": "object"
+																	}
+																},
+																"required": [
+																	"law",
+																	"id",
+																	"by"
+																],
+																"type": "object"
+															},
+															"minItems": 1,
+															"type": "array"
+														},
+														"own": {
+															"enum": [
+																"every",
+																"none",
+																"unjudged"
+															]
+														}
+													},
+													"required": [
+														"kind",
+														"laws"
+													],
+													"type": "object",
+													"x-grizzle-gaps": [
+														"lawShape"
+													]
+												},
+												"retry": {
+													"const": "never"
+												},
+												"witness": {
+													"oneOf": [
+														{
+															"additionalProperties": false,
+															"properties": {
+																"kind": {
+																	"const": "unreported"
+																}
+															},
+															"required": [
+																"kind"
+															],
+															"type": "object"
+														},
+														{
+															"additionalProperties": false,
+															"properties": {
+																"kind": {
+																	"const": "key"
+																},
+																"relation": {
+																	"const": "Comment"
+																},
+																"values": {
+																	"additionalProperties": false,
+																	"properties": {
+																		"author": {
+																			"allOf": [
+																				{
+																					"pattern": "^user\\u{5F}[0-9A-Za-z]{1,64}$"
+																				}
+																			],
+																			"pattern": "^[\\u{1}-\\u{D7FF}\\u{E000}-\\u{10FFFF}]*$",
+																			"type": "string"
+																		},
+																		"body": {
+																			"pattern": "^[\\u{1}-\\u{D7FF}\\u{E000}-\\u{10FFFF}]*$",
+																			"type": "string"
+																		},
+																		"id": {
+																			"format": "uuid",
+																			"pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+																			"type": "string"
+																		},
+																		"post": {
+																			"format": "uuid",
+																			"pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+																			"type": "string"
+																		}
+																	},
+																	"type": "object",
+																	"x-grizzle-gaps": [
+																		"witnessKey"
+																	]
+																}
+															},
+															"required": [
+																"kind",
+																"relation",
+																"values"
+															],
+															"type": "object"
+														}
+													]
+												}
+											},
+											"required": [
+												"kind",
+												"retry",
+												"message",
+												"refused",
+												"witness"
+											],
+											"type": "object"
+										},
+										{
+											"additionalProperties": false,
+											"properties": {
+												"kind": {
+													"const": "outsideWorld"
+												},
+												"message": {
+													"type": "string"
+												},
+												"relation": {
+													"type": "string"
+												},
+												"retry": {
+													"const": "never"
+												}
+											},
+											"required": [
+												"kind",
+												"retry",
+												"message",
+												"relation"
+											],
+											"type": "object"
+										},
+										{
+											"additionalProperties": false,
+											"properties": {
+												"kind": {
+													"const": "transient"
+												},
+												"message": {
+													"type": "string"
+												},
+												"retry": {
+													"const": "safe"
+												}
+											},
+											"required": [
+												"kind",
+												"retry",
+												"message"
+											],
+											"type": "object"
+										},
+										{
+											"additionalProperties": false,
+											"properties": {
+												"kind": {
+													"const": "unavailable"
+												},
+												"message": {
+													"type": "string"
+												},
+												"retry": {
+													"const": "safe"
+												}
+											},
+											"required": [
+												"kind",
+												"retry",
+												"message"
+											],
+											"type": "object"
+										},
+										{
+											"additionalProperties": false,
+											"properties": {
+												"kind": {
+													"const": "transport"
+												},
+												"message": {
+													"type": "string"
+												},
+												"retry": {
+													"const": "safe"
+												}
+											},
+											"required": [
+												"kind",
+												"retry",
+												"message"
+											],
+											"type": "object"
+										},
+										{
+											"additionalProperties": false,
+											"properties": {
+												"kind": {
+													"const": "stale"
+												},
+												"message": {
+													"type": "string"
+												},
+												"retry": {
+													"const": "never"
+												}
+											},
+											"required": [
+												"kind",
+												"retry",
+												"message"
+											],
+											"type": "object"
+										},
+										{
+											"additionalProperties": false,
+											"properties": {
+												"kind": {
+													"const": "commitUnknown"
+												},
+												"message": {
+													"type": "string"
+												},
+												"retry": {
+													"const": "never"
+												}
+											},
+											"required": [
+												"kind",
+												"retry",
+												"message"
+											],
+											"type": "object"
+										},
+										{
+											"additionalProperties": false,
+											"properties": {
+												"kind": {
+													"const": "failed"
+												},
+												"message": {
+													"type": "string"
+												},
+												"retry": {
+													"const": "never"
+												}
+											},
+											"required": [
+												"kind",
+												"retry",
+												"message"
+											],
+											"type": "object"
+										}
+									]
+								}
+							},
+							"required": [
+								"error"
+							],
+							"type": "object"
+						},
+						"type": "string"
+					},
+					"event": {
+						"const": "error"
+					}
+				},
+				"required": [
+					"event",
+					"data"
+				],
+				"type": "object",
+				"x-stream": {
+					"retryWhen": {
+						"equals": "safe",
+						"pointer": "/error/retry"
+					},
+					"role": "error"
+				}
+			},
+			"reader.postPage.ready": {
+				"additionalProperties": false,
+				"properties": {
+					"data": {
+						"contentMediaType": "application/json",
+						"contentSchema": {
+							"additionalProperties": false,
+							"properties": {},
+							"required": [],
+							"type": "object"
+						},
+						"type": "string"
+					},
+					"event": {
+						"const": "ready"
+					}
+				},
+				"required": [
+					"event",
+					"data"
+				],
+				"type": "object",
 				"x-stream": {
 					"role": "ready"
 				}
 			},
-			"read.error": {
-				"type": "object",
-				"required": [
-					"event",
-					"data"
-				],
+			"reader.postPage.remove": {
+				"additionalProperties": false,
 				"properties": {
-					"event": {
-						"const": "error"
-					},
 					"data": {
-						"type": "string",
 						"contentMediaType": "application/json",
 						"contentSchema": {
+							"additionalProperties": false,
+							"properties": {
+								"key": {
+									"maxItems": 0,
+									"type": "array"
+								}
+							},
+							"required": [
+								"key"
+							],
 							"type": "object"
-						}
+						},
+						"type": "string"
+					},
+					"event": {
+						"const": "remove"
 					}
 				},
-				"x-stream": {
-					"role": "error",
-					"retryWhen": {
-						"pointer": "/error/retry",
-						"equals": "safe"
-					}
-				}
-			},
-			"read.end": {
-				"type": "object",
 				"required": [
 					"event",
 					"data"
 				],
+				"type": "object"
+			},
+			"reader.postPage.reset": {
+				"additionalProperties": false,
 				"properties": {
-					"event": {
-						"const": "end"
-					},
 					"data": {
-						"type": "string",
 						"contentMediaType": "application/json",
 						"contentSchema": {
+							"additionalProperties": false,
+							"properties": {
+								"key": {
+									"const": []
+								}
+							},
+							"required": [
+								"key"
+							],
 							"type": "object"
-						}
+						},
+						"type": "string"
+					},
+					"event": {
+						"const": "reset"
 					}
 				},
-				"x-stream": {
-					"role": "end"
-				}
-			},
-			"write.outcome": {
-				"type": "object",
 				"required": [
 					"event",
 					"data"
 				],
-				"properties": {
-					"event": {
-						"const": "outcome"
-					},
-					"data": {
-						"type": "string",
-						"contentMediaType": "application/json",
-						"contentSchema": {
-							"type": "object"
-						}
-					}
-				}
+				"type": "object"
 			},
-			"write.error": {
-				"type": "object",
-				"required": [
-					"event",
-					"data"
-				],
+			"reader.postPage.upsert": {
+				"additionalProperties": false,
 				"properties": {
-					"event": {
-						"const": "error"
-					},
 					"data": {
-						"type": "string",
 						"contentMediaType": "application/json",
 						"contentSchema": {
+							"additionalProperties": false,
+							"properties": {
+								"row": {
+									"additionalProperties": false,
+									"properties": {
+										"body": {
+											"pattern": "^[\\u{1}-\\u{D7FF}\\u{E000}-\\u{10FFFF}]*$",
+											"type": "string"
+										},
+										"comments": {
+											"items": {
+												"additionalProperties": false,
+												"properties": {
+													"author": {
+														"allOf": [
+															{
+																"pattern": "^user\\u{5F}[0-9A-Za-z]{1,64}$"
+															}
+														],
+														"pattern": "^[\\u{1}-\\u{D7FF}\\u{E000}-\\u{10FFFF}]*$",
+														"type": "string"
+													},
+													"body": {
+														"pattern": "^[\\u{1}-\\u{D7FF}\\u{E000}-\\u{10FFFF}]*$",
+														"type": "string"
+													},
+													"id": {
+														"format": "uuid",
+														"pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+														"type": "string"
+													}
+												},
+												"required": [
+													"id",
+													"author",
+													"body"
+												],
+												"type": "object"
+											},
+											"type": "array"
+										},
+										"id": {
+											"format": "uuid",
+											"pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+											"type": "string"
+										},
+										"title": {
+											"allOf": [
+												{
+													"pattern": "^[\\u{1}-\\u{10FFFF}]{1,200}$"
+												}
+											],
+											"pattern": "^[\\u{1}-\\u{D7FF}\\u{E000}-\\u{10FFFF}]*$",
+											"type": "string"
+										},
+										"views": {
+											"type": "string",
+											"pattern": "^-?(?:0|[1-9][0-9]{0,18})$"
+										},
+										"price": {
+											"type": "string",
+											"pattern": "^-?(?:0|[1-9][0-9]*)\\.[0-9]{2}$"
+										},
+										"avatar": {
+											"type": "string",
+											"contentEncoding": "base64"
+										},
+										"status": {
+											"enum": [
+												"active",
+												"archived"
+											]
+										},
+										"rank": {
+											"type": "integer",
+											"minimum": -2147483648,
+											"maximum": 2147483647
+										}
+									},
+									"required": [
+										"id",
+										"title",
+										"body",
+										"comments",
+										"views",
+										"price",
+										"avatar",
+										"status",
+										"rank"
+									],
+									"type": "object"
+								}
+							},
+							"required": [
+								"row"
+							],
 							"type": "object"
-						}
+						},
+						"type": "string"
+					},
+					"event": {
+						"const": "upsert"
 					}
 				},
-				"x-stream": {
-					"role": "error",
-					"retryWhen": {
-						"pointer": "/error/retry",
-						"equals": "safe"
-					}
-				}
-			},
-			"write.end": {
-				"type": "object",
 				"required": [
 					"event",
 					"data"
 				],
-				"properties": {
-					"event": {
-						"const": "end"
-					},
-					"data": {
-						"type": "string",
-						"contentMediaType": "application/json",
-						"contentSchema": {
-							"type": "object"
+				"type": "object"
+			}
+		},
+		"securitySchemes": {
+			"bearer": {
+				"scheme": "bearer",
+				"type": "http"
+			}
+		}
+	},
+	"info": {
+		"title": "site",
+		"version": "527a7c8604debd651bc6c4ca18e4bed382a4f9b2ab4dab963f70eccda436cd87",
+		"x-grizzle-login": "site"
+	},
+	"openapi": "3.2.0",
+	"paths": {
+		"/site/reader/comment": {
+			"post": {
+				"operationId": "reader.comment",
+				"parameters": [
+					{
+						"in": "header",
+						"name": "grizzle-wire",
+						"required": true,
+						"schema": {
+							"const": "1c1b1e2781b3f9c39166f67dc6a3732906cbeeb6dae9de899ccca8fccc722db2",
+							"type": "string"
 						}
 					}
+				],
+				"requestBody": {
+					"content": {
+						"application/json": {
+							"schema": {
+								"additionalProperties": false,
+								"properties": {
+									"facts": {
+										"additionalProperties": false,
+										"properties": {
+											"insert": {
+												"additionalProperties": false,
+												"properties": {
+													"Comment": {
+														"items": {
+															"additionalProperties": false,
+															"properties": {
+																"author": {
+																	"allOf": [
+																		{
+																			"pattern": "^user\\u{5F}[0-9A-Za-z]{1,64}$"
+																		}
+																	],
+																	"pattern": "^[\\u{1}-\\u{D7FF}\\u{E000}-\\u{10FFFF}]*$",
+																	"type": "string"
+																},
+																"body": {
+																	"pattern": "^[\\u{1}-\\u{D7FF}\\u{E000}-\\u{10FFFF}]*$",
+																	"type": "string"
+																},
+																"id": {
+																	"format": "uuid",
+																	"pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+																	"type": "string"
+																},
+																"post": {
+																	"format": "uuid",
+																	"pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+																	"type": "string"
+																}
+															},
+															"required": [
+																"author",
+																"body",
+																"id",
+																"post"
+															],
+															"type": "object"
+														},
+														"type": "array"
+													}
+												},
+												"required": [
+													"Comment"
+												],
+												"type": "object"
+											}
+										},
+										"required": [
+											"insert"
+										],
+										"type": "object"
+									},
+									"params": {
+										"additionalProperties": false,
+										"properties": {},
+										"required": [],
+										"type": "object"
+									}
+								},
+								"required": [
+									"params",
+									"facts"
+								],
+								"type": "object"
+							}
+						}
+					},
+					"required": true
 				},
-				"x-stream": {
-					"role": "end"
+				"responses": {
+					"200": {
+						"content": {
+							"text/event-stream": {
+								"itemSchema": {
+									"discriminator": {
+										"mapping": {
+											"end": "#/components/schemas/reader.comment.end",
+											"error": "#/components/schemas/reader.comment.error",
+											"outcome": "#/components/schemas/reader.comment.outcome"
+										},
+										"propertyName": "event"
+									},
+									"oneOf": [
+										{
+											"$ref": "#/components/schemas/reader.comment.outcome"
+										},
+										{
+											"$ref": "#/components/schemas/reader.comment.error"
+										},
+										{
+											"$ref": "#/components/schemas/reader.comment.end"
+										}
+									]
+								}
+							}
+						},
+						"description": "The write answer of reader.comment: its events, then its end"
+					}
+				},
+				"security": [],
+				"tags": [
+					"reader"
+				],
+				"x-grizzle-wire": {
+					"digest": "1c1b1e2781b3f9c39166f67dc6a3732906cbeeb6dae9de899ccca8fccc722db2",
+					"member": {
+						"input": {
+							"facts": [
+								{
+									"levels": [
+										{
+											"families": [],
+											"headings": [
+												[
+													{
+														"field": {
+															"kind": "scalar",
+															"scalar": {
+																"carrier": "text"
+															}
+														},
+														"name": "author"
+													},
+													{
+														"field": {
+															"kind": "scalar",
+															"scalar": {
+																"carrier": "text"
+															}
+														},
+														"name": "body"
+													},
+													{
+														"field": {
+															"kind": "scalar",
+															"scalar": {
+																"carrier": "uuid"
+															}
+														},
+														"name": "id"
+													},
+													{
+														"field": {
+															"kind": "scalar",
+															"scalar": {
+																"carrier": "uuid"
+															}
+														},
+														"name": "post"
+													}
+												]
+											]
+										}
+									],
+									"op": "insert",
+									"relation": "Comment"
+								}
+							],
+							"kind": "call",
+							"params": []
+						},
+						"outcome": {
+							"kind": "change",
+							"reads": [
+								[]
+							],
+							"relations": [
+								"Comment"
+							]
+						},
+						"shape": "write",
+						"witness": [
+							{
+								"fields": [
+									{
+										"field": {
+											"kind": "scalar",
+											"scalar": {
+												"carrier": "text"
+											}
+										},
+										"name": "author"
+									},
+									{
+										"field": {
+											"kind": "scalar",
+											"scalar": {
+												"carrier": "text"
+											}
+										},
+										"name": "body"
+									},
+									{
+										"field": {
+											"kind": "scalar",
+											"scalar": {
+												"carrier": "uuid"
+											}
+										},
+										"name": "id"
+									},
+									{
+										"field": {
+											"kind": "scalar",
+											"scalar": {
+												"carrier": "uuid"
+											}
+										},
+										"name": "post"
+									}
+								],
+								"relation": "Comment"
+							}
+						]
+					}
+				}
+			}
+		},
+		"/site/reader/postPage": {
+			"post": {
+				"operationId": "reader.postPage",
+				"parameters": [
+					{
+						"in": "header",
+						"name": "grizzle-wire",
+						"required": true,
+						"schema": {
+							"const": "404c10359f39560b6e317afbd12b788eea8c1eb3d33fb2e139f9c46cb03f0add",
+							"type": "string"
+						}
+					}
+				],
+				"requestBody": {
+					"content": {
+						"application/json": {
+							"schema": {
+								"additionalProperties": false,
+								"properties": {
+									"facts": {
+										"additionalProperties": false,
+										"properties": {},
+										"required": [],
+										"type": "object"
+									},
+									"params": {
+										"additionalProperties": false,
+										"properties": {
+											"id": {
+												"format": "uuid",
+												"pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+												"type": "string"
+											}
+										},
+										"required": [
+											"id"
+										],
+										"type": "object"
+									}
+								},
+								"required": [
+									"params",
+									"facts"
+								],
+								"type": "object"
+							}
+						}
+					},
+					"required": true
+				},
+				"responses": {
+					"200": {
+						"content": {
+							"text/event-stream": {
+								"itemSchema": {
+									"discriminator": {
+										"mapping": {
+											"end": "#/components/schemas/reader.postPage.end",
+											"error": "#/components/schemas/reader.postPage.error",
+											"ready": "#/components/schemas/reader.postPage.ready",
+											"remove": "#/components/schemas/reader.postPage.remove",
+											"reset": "#/components/schemas/reader.postPage.reset",
+											"upsert": "#/components/schemas/reader.postPage.upsert"
+										},
+										"propertyName": "event"
+									},
+									"oneOf": [
+										{
+											"$ref": "#/components/schemas/reader.postPage.reset"
+										},
+										{
+											"$ref": "#/components/schemas/reader.postPage.upsert"
+										},
+										{
+											"$ref": "#/components/schemas/reader.postPage.remove"
+										},
+										{
+											"$ref": "#/components/schemas/reader.postPage.ready"
+										},
+										{
+											"$ref": "#/components/schemas/reader.postPage.error"
+										},
+										{
+											"$ref": "#/components/schemas/reader.postPage.end"
+										}
+									]
+								}
+							}
+						},
+						"description": "The set answer of reader.postPage: its events, then its end"
+					}
+				},
+				"security": [],
+				"tags": [
+					"reader"
+				],
+				"x-grizzle-wire": {
+					"digest": "404c10359f39560b6e317afbd12b788eea8c1eb3d33fb2e139f9c46cb03f0add",
+					"member": {
+						"fields": [],
+						"input": {
+							"facts": [],
+							"kind": "call",
+							"params": [
+								{
+									"name": "id",
+									"param": {
+										"kind": "scalar",
+										"scalar": {
+											"carrier": "uuid"
+										}
+									}
+								}
+							]
+						},
+						"key": [],
+						"record": [
+							[
+								{
+									"field": {
+										"kind": "scalar",
+										"scalar": {
+											"carrier": "uuid"
+										}
+									},
+									"name": "id"
+								},
+								{
+									"field": {
+										"kind": "scalar",
+										"scalar": {
+											"carrier": "text"
+										}
+									},
+									"name": "title"
+								},
+								{
+									"field": {
+										"kind": "scalar",
+										"scalar": {
+											"carrier": "text"
+										}
+									},
+									"name": "body"
+								},
+								{
+									"field": {
+										"child": [
+											[
+												{
+													"field": {
+														"kind": "scalar",
+														"scalar": {
+															"carrier": "uuid"
+														}
+													},
+													"name": "id"
+												},
+												{
+													"field": {
+														"kind": "scalar",
+														"scalar": {
+															"carrier": "text"
+														}
+													},
+													"name": "author"
+												},
+												{
+													"field": {
+														"kind": "scalar",
+														"scalar": {
+															"carrier": "text"
+														}
+													},
+													"name": "body"
+												}
+											]
+										],
+										"delivery": "array",
+										"kind": "attachment"
+									},
+									"name": "comments"
+								}
+							]
+						],
+						"shape": "set",
+						"witness": [
+							{
+								"fields": [
+									{
+										"field": {
+											"kind": "scalar",
+											"scalar": {
+												"carrier": "text"
+											}
+										},
+										"name": "author"
+									},
+									{
+										"field": {
+											"kind": "scalar",
+											"scalar": {
+												"carrier": "text"
+											}
+										},
+										"name": "body"
+									},
+									{
+										"field": {
+											"kind": "scalar",
+											"scalar": {
+												"carrier": "uuid"
+											}
+										},
+										"name": "id"
+									},
+									{
+										"field": {
+											"kind": "scalar",
+											"scalar": {
+												"carrier": "uuid"
+											}
+										},
+										"name": "post"
+									}
+								],
+								"relation": "Comment"
+							}
+						]
+					}
 				}
 			}
 		}
-	}
+	},
+	"tags": [
+		{
+			"name": "reader"
+		}
+	]
 }

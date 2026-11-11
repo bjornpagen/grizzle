@@ -4,7 +4,6 @@ import { runtimeFallback } from "#emit/entry.ts"
 import { AuthorConfig } from "#model/author-config.ts"
 import type { UsageError } from "#runtime-src/domain/errors.ts"
 import * as Client from "#runtime-src/runtime/client.ts"
-import { effectiveIdleTimeoutSeconds } from "#runtime-src/runtime/output.ts"
 
 // Design D-AD7: the author defaults reach the runtime's own resolvers through the provider the
 // emitted `main.ts` composes, `ConfigProvider.orElse(<env>, ConfigProvider.fromUnknown(<fallback>))`.
@@ -19,7 +18,7 @@ const bare = Schema.decodeUnknownSync(AuthorConfig)(base)
 
 const authored = Schema.decodeUnknownSync(AuthorConfig)({
 	...base,
-	runtime: { idleTimeoutSeconds: 11, timeoutSeconds: 7 }
+	runtime: { timeoutSeconds: 7 }
 })
 
 const resolve = (
@@ -44,27 +43,18 @@ const settings = [
 		name: "timeout",
 		resolver: Client.effectiveTimeoutSeconds(prefix),
 		variable: `${prefix}_TIMEOUT`
-	},
-	{
-		authored: 11,
-		builtIn: 300,
-		name: "idle timeout",
-		resolver: effectiveIdleTimeoutSeconds(prefix),
-		variable: `${prefix}_IDLE_TIMEOUT`
 	}
 ] as const
 
 describe("runtimeFallback", () => {
 	test("keys each author default by its prefixed env name, nothing nested", () => {
 		expect(runtimeFallback(authored)).toEqual({
-			ACME_IDLE_TIMEOUT: 11,
 			ACME_TIMEOUT: 7
 		})
 	})
 
 	test("without an author runtime object the built-in values fill every key", () => {
 		expect(runtimeFallback(bare)).toEqual({
-			ACME_IDLE_TIMEOUT: 300,
 			ACME_TIMEOUT: 30
 		})
 	})
@@ -75,10 +65,7 @@ describe("runtimeFallback", () => {
 			package: { name: "example-cli", version: "1.0.0" }
 		})
 
-		expect(Object.keys(runtimeFallback(config))).toEqual([
-			"EXAMPLE_CLI_IDLE_TIMEOUT",
-			"EXAMPLE_CLI_TIMEOUT"
-		])
+		expect(Object.keys(runtimeFallback(config))).toEqual(["EXAMPLE_CLI_TIMEOUT"])
 	})
 
 	for (const setting of settings) {

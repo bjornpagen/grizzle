@@ -220,6 +220,7 @@ describe("coverage check", () => {
 	test("a describe output with an extra command fails with that command invented", () => {
 		const description = goldenDescription()
 		const extra: Command = {
+			constants: [],
 			document: "openapi.json",
 			flags: [],
 			method: "DELETE",
@@ -402,6 +403,7 @@ describe("coverage check", () => {
 })
 
 const command = (fields: Partial<Command>): Command => ({
+	constants: [],
 	document: "openapi.json",
 	flags: [],
 	method: "GET",

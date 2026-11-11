@@ -1,3 +1,4 @@
+import { jsonTextOf } from "@superstarter/json"
 import {
 	Array as Arr,
 	Data,
@@ -48,6 +49,8 @@ import { sanitizeProse } from "#model/brands.ts"
 import type { Api, MediaAlternative, Operation, Parameter } from "#model/entities.ts"
 import { formatPointer } from "#model/pointer.ts"
 import type { SpecLine } from "#model/spec-section.ts"
+import { constantOf } from "#names/constant.ts"
+import type { ConstantValue } from "#names/constant.ts"
 import { packageImports, rootNamespaceImports, runtimeNamespaces } from "#names/domain.ts"
 import { isPositionalBody } from "#names/flatten.ts"
 import { foldIdentifier } from "#names/fold.ts"
@@ -1602,6 +1605,55 @@ const helpFlags = (command: PlannedCommand, store: FieldStore): readonly HelpFla
 const record = (entries: Readonly<Record<string, string>>): Expr =>
 	obj(Object.entries(entries).map(([key, value]) => [key, str(value)] as const))
 
+/**
+ * The operation's constant parameters, each with the value the request sends (`constantOf`), in
+ * parameter order.
+ */
+const constantsOf = (
+	command: PlannedCommand,
+	defs: Defs
+): ReadonlyArray<readonly [Parameter, ConstantValue]> =>
+	Arr.flatMap(command.operation.parameters, (parameter) =>
+		Option.match(constantOf(defs, parameter), {
+			onNone: () => [],
+			onSome: (value) => [[parameter, value] as const]
+		})
+	)
+
+/**
+ * The `--describe` binding of each constant parameter: where it goes, its name and use site, and
+ * its value as JSON text.
+ */
+const describeConstants = (command: PlannedCommand, defs: Defs): Expr =>
+	arr(
+		Arr.map(constantsOf(command, defs), ([parameter, value]) =>
+			obj([
+				["location", str(parameter.location)],
+				["pointer", str(parameter.origin.pointer)],
+				["value", str(jsonTextOf(value))],
+				["wireName", str(parameter.wireName)]
+			])
+		)
+	)
+
+/**
+ * The help line of the constant parameters: each one's location, name and value, in parameter
+ * order.
+ */
+const constantsHelp = (
+	command: PlannedCommand,
+	defs: Defs
+): Option.Option<readonly [string, string]> => {
+	const lines = Arr.map(
+		constantsOf(command, defs),
+		([parameter, value]) => `${parameter.location} ${parameter.wireName} = ${jsonTextOf(value)}`
+	)
+
+	return Arr.isReadonlyArrayNonEmpty(lines)
+		? Option.some(["CONSTANTS", Arr.join(lines, "; ")] as const)
+		: Option.none()
+}
+
 const describeParameters = (command: PlannedCommand): Expr =>
 	obj([
 		...command.positionals.map(
@@ -1701,6 +1753,10 @@ const parameterInputs = (command: PlannedCommand, context: CommandContext) =>
 	Effect.gen(function* inputs() {
 		const entries: Entry[] = []
 		for (const { key, parameter } of inputKeys(command.operation)) {
+			if (Option.isSome(constantOf(context.defs, parameter))) {
+				continue
+			}
+
 			const owner =
 				parameter.location === "path"
 					? command.positionals.find((candidate) => candidate.wireName === parameter.wireName)
@@ -1738,6 +1794,9 @@ const annotationsOf = (command: PlannedCommand, meta: Expr, context: CommandCont
 			"Command.annotate",
 			path("Describe.Binding"),
 			obj([
+				...(Arr.isReadonlyArrayNonEmpty(constantsOf(command, context.defs))
+					? ([["constants", describeConstants(command, context.defs)]] as const)
+					: []),
 				["operation", meta],
 				["parameters", describeParameters(command)]
 			])
@@ -1748,7 +1807,15 @@ const annotationsOf = (command: PlannedCommand, meta: Expr, context: CommandCont
 			obj([
 				["arguments", record(help.arguments)],
 				["flags", record(help.flags)],
-				["sections", arr(help.sections.map(([label, text]) => arr([str(label), str(text)])))]
+				[
+					"sections",
+					arr(
+						Arr.map(
+							[...help.sections, ...Option.toArray(constantsHelp(command, context.defs))],
+							([label, text]) => arr([str(label), str(text)])
+						)
+					)
+				]
 			])
 		)
 	]
@@ -2131,6 +2198,7 @@ const globalSettings: readonly string[] = [
 	"Output.MaxErrorBytes",
 	"Describe.describeFlag",
 	"Client.timeoutSetting",
+	"Output.idleTimeoutSetting",
 	"Client.retriesSetting",
 	"Client.retryUnsafeSetting",
 	"Client.verboseSetting",

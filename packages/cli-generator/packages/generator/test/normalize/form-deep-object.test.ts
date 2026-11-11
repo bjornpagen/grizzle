@@ -319,6 +319,7 @@ const joined = (resolution: ReturnType<typeof resolutionOf>, settings = config) 
 		const alternatives = operation.body?.alternatives ?? []
 
 		return {
+			constants: [],
 			document: "openapi.json",
 			flags: [],
 			method: operation.key.method,
