@@ -17,6 +17,10 @@
  * The box (doctrine rule 9): owner 0 with every counted family of one to four members over the five step values of
  * each counted fold seat (folds.ts), each member's removal, sent in the prescribed order, move first and count first,
  * and in the prescribed order with the predecessor axis immediate.
+ *
+ * Each case writes its family by one transaction that replaces the seat's rows, then sends its removal as one
+ * transaction checked as its COMMIT would check it and rolled back, or ended by a real COMMIT, as its own text chooses
+ * (installed.ts End): the box requires both ends.
  */
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
@@ -36,6 +40,7 @@ import {
 	type Judging,
 	judgedFold
 } from "#test/pg/fin/folds.ts"
+import { type EndFeature, endedBy, refusedAtCommitBy } from "#test/pg/fin/installed.ts"
 import { assert, deepEquals, nonEmpty } from "#test/support/assert.ts"
 import { swapWithLast } from "#test/support/families/counted.ts"
 import {
@@ -98,7 +103,7 @@ const sent = (
 
 type Position = "the last slot" | "a slot before the last"
 
-type CountedFeature = `${string} ${Position} ${Sending} ${FoldVerdict}`
+type CountedFeature = `${string} ${Position} ${Sending} ${FoldVerdict}` | EndFeature
 
 const COUNTED = Arr.filter(FOLD_SPECS, (s) => s.shape === "counted")
 
@@ -147,6 +152,8 @@ layer(Substrate.layer)(
 										name: "the reference fold of the families swap-with-last leaves (families/fold.ts), beside the fold's model of each installed native's moment (fold.ts foldPredicted)"
 									},
 									coverage: requiredInSpace<CountedFeature>([
+										"a case ended by COMMIT",
+										"a case ended by SET CONSTRAINTS and ROLLBACK",
 										`${l} the last slot prescribed committed`,
 										`${l} a slot before the last prescribed committed`,
 										`${l} a slot before the last move first refused key`,
@@ -189,9 +196,9 @@ layer(Substrate.layer)(
 											})
 										}
 										const judging = sketch.sending === "closure immediate" ? immediate : grizzle
-										const verdict = yield* judgedFold(
+										const j = yield* judgedFold(
 											judging,
-											before,
+											{ kind: "replaced", before },
 											sent(change.statements, sketch.sending),
 											sketch.sending === "closure immediate" ? setImmediate : []
 										)
@@ -199,10 +206,14 @@ layer(Substrate.layer)(
 											sketch.at === sketch.values.length - 1
 												? "the last slot"
 												: "a slot before the last"
-										c.note(`${l} ${position} ${sketch.sending} ${verdict}`)
-										if (sketch.sending === "prescribed" && verdict !== "committed") {
+										c.note(`${l} ${position} ${sketch.sending} ${j.verdict}`)
+										c.note(endedBy(j.end))
+										if (Option.exists(j.moment, (m) => m.kind === "commit")) {
+											c.note(refusedAtCommitBy(j.end))
+										}
+										if (sketch.sending === "prescribed" && j.verdict !== "committed") {
 											return yield* new Disagreed({
-												message: `${l}: the prescribed swap-with-last of slot ${sketch.at} was ${verdict}: ${Formatter.format(sketch)}`
+												message: `${l}: the prescribed swap-with-last of slot ${sketch.at} was ${j.verdict}: ${Formatter.format(sketch)}`
 											})
 										}
 									})

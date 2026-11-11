@@ -62,9 +62,13 @@ import {
 import { hostFillOf } from "#compiler/write/program/decide.ts"
 import {
 	type Catalogued,
-	cleared,
 	constraintText,
+	type End,
+	ended,
+	endOf,
+	replaced,
 	type Seat,
+	type Start,
 	seatOf
 } from "#test/pg/fin/installed.ts"
 import { deepEquals } from "#test/support/assert.ts"
@@ -85,11 +89,12 @@ import {
 	foldSqlstate,
 	type Planes
 } from "#test/support/families/fold.ts"
+import type { Moment } from "#test/support/families/mutate.ts"
 import type { Shape } from "#test/support/families/theorem.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import {
 	type Attempted,
-	attempt,
+	type Checked,
 	momentText,
 	refusalText,
 	sameMoment
@@ -762,6 +767,19 @@ export interface Judging {
 /** A verdict as a feature: committed, refused naming a fold native, or refused by the twos fold's check. */
 export type FoldVerdict = "committed" | `refused ${FoldNative}` | "refused at most one of K"
 
+/** What PostgreSQL did with a transaction the model agreed with: its verdict, a refusal's moment, and its end. */
+export interface FoldJudged {
+	readonly verdict: FoldVerdict
+	readonly moment: Option.Option<Moment>
+	readonly end: End
+}
+
+/** The relations of a fold seat, which a replacement truncates and an empty seat's real COMMIT clears. */
+const FOLD_RELATIONS = ["Owner", "Member"] as const
+
+/** No owner and no row: the state of an empty seat. */
+const emptyFold: FoldStored = { owners: [], rows: [] }
+
 const predictedText = (model: FoldPredicted): string =>
 	model.kind === "committed"
 		? "commit"
@@ -770,7 +788,7 @@ const predictedText = (model: FoldPredicted): string =>
 				", "
 			)}`
 
-export const attemptedText = (real: Attempted): string =>
+export const attemptedText = (real: Attempted | Checked<unknown>): string =>
 	real.kind === "committed"
 		? "commit"
 		: `refusal ${momentText(real.moment)}: ${refusalText(real.fields)}`
@@ -841,38 +859,56 @@ export const byMember = (s: FoldStored): FoldStored => ({
 })
 
 /**
- * Writes `before` (which must commit), sends `statements` as one transaction after `prefix` (statements the model does
- * not see, such as a SET CONSTRAINTS), and judges PostgreSQL against the fold's model: the same verdict and moment; a
- * refusal by an installed constraint whose role the model allows there, with its SQLSTATE, reporting a law of the family
- * or the fold; where an owner's ends fail the twos fold's at most one of K, a refusal at that owner's statement by that
- * check with 23514; a commit that reads back exactly. Both relations are cleared after.
+ * Sends `statements` as one transaction after `prefix` (statements the model does not see, such as a SET CONSTRAINTS)
+ * from `start`, an empty seat or one whose rows are first replaced by the state before (installed.ts Start), ended as
+ * its own text chooses (installed.ts endOf, by the seat's model), and judges PostgreSQL against the fold's model: the
+ * same verdict and moment; a refusal by an installed constraint whose role the model allows there, with its SQLSTATE,
+ * reporting a law of the family or the fold; where an owner's ends fail the twos fold's at most one of K, a refusal at
+ * that owner's statement by that check with 23514; a commit that reads back exactly.
  */
 export const judgedFold = (
 	j: Judging,
-	before: FoldStored,
+	start: Start<FoldStored>,
 	statements: ReadonlyArray<FoldStatement>,
 	prefix: ReadonlyArray<string>
-): Effect.Effect<FoldVerdict, SqlError | TransactionRolledBack | Disagreed> =>
+): Effect.Effect<FoldJudged, SqlError | TransactionRolledBack | Disagreed> =>
 	Effect.gen(function* () {
 		const { seat, spec } = j.fold
 		const sql = (s: ReadonlyArray<FoldStatement>) =>
 			Arr.map(s, (st) => foldStatementSql(j.fold, st))
-		const setup = yield* attempt(seat.session, sql(foldWriteOf(before)))
+		const before = start.kind === "empty" ? emptyFold : start.before
 		const model = foldPredicted(spec.monoid, j.lowering, before, statements)
-		const sent = yield* attempt(seat.session, [...prefix, ...sql(statements)])
+		const end = endOf(
+			Formatter.format([before, prefix, statements]),
+			model.kind === "refused" && model.moment.kind === "commit"
+		)
+		const disagree = (why: string, real: Attempted | Checked<unknown>) =>
+			new Disagreed({
+				message: `${j.label}, its ${end} end: ${why}; the model predicts ${predictedText(model)}, PostgreSQL gave ${attemptedText(real)}, over ${Formatter.format(before)}, for ${Formatter.format(statements)}`
+			})
+		if (start.kind === "replaced") {
+			const setup = yield* replaced(seat, FOLD_RELATIONS, sql(foldWriteOf(start.before)))
+			if (setup.kind !== "committed") {
+				return yield* disagree(
+					`writing the state before was refused: ${attemptedText(setup)}`,
+					setup
+				)
+			}
+		}
+		const sent = yield* ended(
+			seat,
+			FOLD_RELATIONS,
+			start.kind,
+			[...prefix, ...sql(statements)],
+			end,
+			foldRead(j.fold)
+		)
 		yield* seat.session.resetStatements
 		/** The moment the model reads, the prefix's statements out. */
-		const real: Attempted =
+		const real: Checked<FoldStored> =
 			sent.kind === "refused" && sent.moment.kind === "statement"
 				? { ...sent, moment: { kind: "statement", index: sent.moment.index - prefix.length } }
 				: sent
-		const disagree = (why: string) =>
-			new Disagreed({
-				message: `${j.label}: ${why}; the model predicts ${predictedText(model)}, PostgreSQL gave ${attemptedText(real)}, over ${Formatter.format(before)}, for ${Formatter.format(statements)}`
-			})
-		if (setup.kind !== "committed") {
-			return yield* disagree(`writing the state before was refused: ${attemptedText(setup)}`)
-		}
 		const after = Arr.reduce(statements, before, foldApplied)
 		const checkAt = Arr.findFirstIndex(
 			statements,
@@ -881,19 +917,24 @@ export const judgedFold = (
 				Option.exists(spec.check, (k) => !k.holds(s.owner.end, j.fold.k))
 		)
 		if (real.kind === "committed") {
-			const read = yield* foldRead(j.fold)
-			yield* cleared(seat, ["Owner", "Member"])
 			if (model.kind !== "committed" || Option.isSome(checkAt)) {
-				return yield* disagree("PostgreSQL committed")
+				return yield* disagree("PostgreSQL committed", real)
 			}
-			if (!deepEquals(read, byMember(after))) {
-				return yield* disagree(`the committed state reads back as ${Formatter.format(read)}`)
+			if (!deepEquals(real.read, byMember(after))) {
+				return yield* disagree(
+					`the committed state reads back as ${Formatter.format(real.read)}`,
+					real
+				)
 			}
-			return "committed" satisfies FoldVerdict
+			return { verdict: "committed", moment: Option.none(), end } satisfies FoldJudged
 		}
-		yield* cleared(seat, ["Owner", "Member"])
 		const named = seat.refusedBy(real.fields)
 		const native = Option.flatMap(named, (c) => foldNativeOf(j.fold, c))
+		const refused = (verdict: FoldVerdict): FoldJudged => ({
+			verdict,
+			moment: Option.some(real.moment),
+			end
+		})
 		if (
 			Option.isSome(checkAt) &&
 			Option.isSome(named) &&
@@ -905,23 +946,25 @@ export const judgedFold = (
 				!(real.moment.kind === "statement" && real.moment.index === checkAt.value)
 			) {
 				return yield* disagree(
-					"at most one of K refused otherwise than at the owner's statement with 23514"
+					"at most one of K refused otherwise than at the owner's statement with 23514",
+					real
 				)
 			}
-			return "refused at most one of K" satisfies FoldVerdict
+			return refused("refused at most one of K")
 		}
 		if (model.kind === "committed") {
-			return yield* disagree("PostgreSQL refused")
+			return yield* disagree("PostgreSQL refused", real)
 		}
 		if (!sameMoment(model.moment, real.moment)) {
-			return yield* disagree("the moments differ")
+			return yield* disagree("the moments differ", real)
 		}
 		if (Option.isNone(named) || Option.isNone(native)) {
 			return yield* disagree(
 				`PostgreSQL names ${Option.match(named, {
 					onNone: () => "no installed constraint",
 					onSome: (c) => `${constraintText(c)}, no fold native`
-				})}`
+				})}`,
+				real
 			)
 		}
 		/**
@@ -935,7 +978,8 @@ export const judgedFold = (
 			(pins && n === "combine" && Arr.some(violated, (v) => v.native === "first slot"))
 		if (!allowed(native.value) || real.fields.code !== foldSqlstate(native.value)) {
 			return yield* disagree(
-				`PostgreSQL names the ${native.value}, which the model does not allow there`
+				`PostgreSQL names the ${native.value}, which the model does not allow there`,
+				real
 			)
 		}
 		if (
@@ -943,7 +987,8 @@ export const judgedFold = (
 			!Option.exists(named.value.law, (l) => j.fold.laws.includes(l))
 		) {
 			return yield* disagree(
-				`the ${native.value} reports ${Formatter.format(named.value.law)}, no law of the family or the fold`
+				`the ${native.value} reports ${Formatter.format(named.value.law)}, no law of the family or the fold`,
+				real
 			)
 		}
 		/** The merged CHECK's refusal is the first slot's where the model breaks only the pin there, and the combine's otherwise. */
@@ -951,8 +996,7 @@ export const judgedFold = (
 			pins &&
 			!Arr.some(violated, (v) => v.native === "combine") &&
 			Arr.some(violated, (v) => v.native === "first slot")
-		const verdict: FoldVerdict = `refused ${pinOnly ? "first slot" : native.value}`
-		return verdict
+		return refused(`refused ${pinOnly ? "first slot" : native.value}`)
 	})
 
 /**

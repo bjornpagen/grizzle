@@ -21,8 +21,13 @@
  * The junk kinds (doctrine rule 6), each a named variant: the whole fold seeded from a junk identity, every before,
  * after and end consistent with it (the fold accumulator unconstrained at slot 0); one before; one after; one end; an
  * empty family's end. **Mutation rediscovery:** the int4 sum's installation with its first-slot pin dropped, and with
- * its empty-family pin dropped, each a schema of its own; each must be killed, committing a junk seed and a junk empty
- * end respectively. Features are (monoid, axis, verdict).
+ * its empty-family pin dropped, each a schema of its own and judged beside grizzle's at once; each must be killed,
+ * committing a junk seed and a junk empty end respectively. Features are (monoid, axis, verdict).
+ *
+ * Each case's transaction runs on a seat with no rows and is checked as its COMMIT would check it and rolled back, or
+ * ends by a real COMMIT whose rows are read and cleared, as its own text chooses (installed.ts End): every box requires
+ * both ends, each meeting a refusal at commit, so the search itself shows a real COMMIT never decides otherwise than
+ * the checked end.
  */
 import { layer } from "@effect/vitest"
 import { exhaust, type Oracle } from "@grizzle/testing/explore"
@@ -51,7 +56,10 @@ import {
 	type Catalogued,
 	cleared,
 	droppedSql,
+	type EndFeature,
+	endedBy,
 	mutated,
+	refusedAtCommitBy,
 	type Seat,
 	seatOf
 } from "#test/pg/fin/installed.ts"
@@ -72,9 +80,6 @@ import {
 import { caseHang } from "#test/support/limits.ts"
 import { attempt } from "#test/support/substrate.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-
-/** No owner and no row: every case is written from it. */
-const emptyFold: FoldStored = { owners: [], rows: [] }
 
 /** A single junk accumulator of a family (the header's kinds), at a slot and a plane where it names one. */
 type Junk =
@@ -234,17 +239,27 @@ const storedOf = (spec: FoldSpec, sketch: Sketch): FoldStored => {
 
 type Mutant = "first pin dropped" | "empty pin dropped"
 
-type FoldFeature = `${string} ${JunkAxis} ${FoldVerdict}` | `${Mutant} killed by ${JunkAxis}`
+type FoldFeature =
+	| `${string} ${JunkAxis} ${FoldVerdict}`
+	| `${Mutant} killed by ${JunkAxis}`
+	| EndFeature
 
 const ORACLE: Oracle = {
 	kind: "second-implementation",
 	name: "the reference fold (test/support/families/fold.ts folded), exact, beside the fold's model of each installed native's moment (fold.ts foldPredicted)"
 }
 
-/** The features a seat must reach: lawful commits and each junk refused by the native that owns its axis. */
+/**
+ * The features a seat must reach: lawful commits, each junk refused by the native that owns its axis, and each end of a
+ * case, each meeting a refusal at the commit (installed.ts End).
+ */
 const requiredOf = (spec: FoldSpec): ReadonlyArray<FoldFeature> => {
 	const l = spec.label
 	return [
+		"a case ended by COMMIT",
+		"a case ended by SET CONSTRAINTS and ROLLBACK",
+		"a case refused at a real COMMIT",
+		"a case refused at its checked commit",
 		`${l} lawful committed`,
 		`${l} a junk seed refused first slot`,
 		`${l} a junk end of an empty family refused empty family`,
@@ -400,18 +415,39 @@ layer(Substrate.layer)("folds through grizzle's lowering on PostgreSQL 19rc1", (
 											})
 										}
 									}
-									const verdict = yield* judgedFold(grizzle, emptyFold, foldWriteOf(stored), [])
-									c.note(`${spec.label} ${axis} ${verdict}`)
-									if (sketch.junk.kind !== "none" && verdict === "committed") {
+									/** Uninterruptible: a seat's transaction and its clearing run whole, so one seat's failure never leaves another's rows. */
+									const judgedOn = (judging: Judging) =>
+										Effect.uninterruptible(
+											judgedFold(judging, { kind: "empty" }, foldWriteOf(stored), [])
+										)
+									const [j, killed] = yield* Effect.all(
+										[
+											judgedOn(grizzle),
+											Effect.forEach(
+												mutants,
+												(m) =>
+													Effect.map(judgedOn(m), (v) =>
+														v.verdict === "committed" && sketch.junk.kind !== "none"
+															? [m.mutant]
+															: []
+													),
+												{ concurrency: "unbounded" }
+											)
+										],
+										{ concurrency: "unbounded" }
+									)
+									c.note(`${spec.label} ${axis} ${j.verdict}`)
+									c.note(endedBy(j.end))
+									if (Option.exists(j.moment, (m) => m.kind === "commit")) {
+										c.note(refusedAtCommitBy(j.end))
+									}
+									if (sketch.junk.kind !== "none" && j.verdict === "committed") {
 										return yield* new Disagreed({
 											message: `${spec.label}: ${axis} committed: ${Formatter.format(stored)}`
 										})
 									}
-									for (const m of mutants) {
-										const v = yield* judgedFold(m, emptyFold, foldWriteOf(stored), [])
-										if (v === "committed" && sketch.junk.kind !== "none") {
-											c.note(`${m.mutant} killed by ${axis}`)
-										}
+									for (const mutant of Arr.flatten(killed)) {
+										c.note(`${mutant} killed by ${axis}`)
 									}
 								})
 						)

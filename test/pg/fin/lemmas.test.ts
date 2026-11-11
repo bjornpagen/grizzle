@@ -19,7 +19,13 @@
  *
  * Boxes: every state of owners 0 and 1, each absent or of count 0 to 3, with at most three rows at slots 0 to 4, every
  * copy its owner's count, written from no state (doctrine rule 9); and random programs of the families model's lawful,
- * breaking and misordered mutations (mutate.ts programGen), each step one transaction judged against the model.
+ * breaking and misordered mutations (mutate.ts programGen), each step one transaction judged against the model over the
+ * state before it, which one transaction replacing the seat's rows writes first.
+ *
+ * Each transaction judged is checked as its COMMIT would check it and rolled back, or ends by a real COMMIT, as its own
+ * text chooses (installed.ts End): each box requires both ends, and the box of states, which meets refusals at commit,
+ * a refusal at commit through each, so the search itself shows a real COMMIT never decides otherwise than the checked
+ * end.
  */
 import { layer } from "@effect/vitest"
 import { runProgram } from "@grizzle/testing/commands"
@@ -39,7 +45,13 @@ import {
 	installedOf,
 	judgedFamily
 } from "#test/pg/fin/family.ts"
-import { droppedSql, mutated } from "#test/pg/fin/installed.ts"
+import {
+	droppedSql,
+	type EndFeature,
+	endedBy,
+	mutated,
+	refusedAtCommitBy
+} from "#test/pg/fin/installed.ts"
 import { emptyStored, predicted as substratePredicted } from "#test/pg/substrate/fin.ts"
 import { nonEmpty } from "#test/support/assert.ts"
 import {
@@ -250,6 +262,7 @@ const settledOn = (
 type StateFeature =
 	| `${LemmaSeat["label"]} ${"committed" | `refused ${Constraint}`}`
 	| `${Shape} ${Mutant} killed`
+	| EndFeature
 
 const ORACLE: Oracle = {
 	kind: "specification",
@@ -274,6 +287,10 @@ layer(Substrate.layer)("the fin lemmas through grizzle's lowering on PostgreSQL 
 							box: "every state of owners 0 and 1, each absent or of count 0 to 3, with at most three rows over slots 0 to 4 of either owner, every copy its owner's count, written from no state in one transaction",
 							oracle: ORACLE,
 							coverage: requiredInSpace<StateFeature>([
+								"a case ended by COMMIT",
+								"a case ended by SET CONSTRAINTS and ROLLBACK",
+								"a case refused at a real COMMIT",
+								"a case refused at its checked commit",
 								"ordered committed",
 								"ordered refused key",
 								"ordered refused bound",
@@ -300,13 +317,22 @@ layer(Substrate.layer)("the fin lemmas through grizzle's lowering on PostgreSQL 
 										const stored = storedOfSketch(sketch)
 										const statements = writeStatements(stored)
 										const lawful = Result.isSuccess(theorem(stored))
-										const j = yield* judgedFamily(
-											seat.family,
-											emptyStored,
-											statements,
-											settledOn(seat, emptyStored, statements)
+										/** Uninterruptible: a seat's transaction and its clearing run whole, so one seat's failure never leaves another's rows. */
+										const j = yield* Effect.uninterruptible(
+											judgedFamily(
+												seat.family,
+												{ kind: "empty" },
+												statements,
+												settledOn(seat, emptyStored, statements)
+											)
 										)
 										c.note(`${seat.label} ${j.verdict}`)
+										if (Option.isNone(seat.mutant)) {
+											c.note(endedBy(j.end))
+											if (Option.exists(j.moment, (m) => m.kind === "commit")) {
+												c.note(refusedAtCommitBy(j.end))
+											}
+										}
 										if (j.committed !== lawful) {
 											if (Option.isNone(seat.mutant)) {
 												return yield* new Disagreed({
@@ -340,15 +366,17 @@ layer(Substrate.layer)("the fin lemmas through grizzle's lowering on PostgreSQL 
 					}
 					const programs: Gen<Program> = (source) =>
 						source.draw(programGen(source.draw(element(SHAPES)), space))
-					type ProgramFeature = `${Shape} ${Form} ${"committed" | "refused"}`
+					type ProgramFeature = `${Shape} ${Form} ${"committed" | "refused"}` | EndFeature
 					return yield* explore(
 						{
 							suite: "fin/lemma-programs",
 							draw: drawnCase(programs),
 							literal: Formatter.format,
 							coverage: required<ProgramFeature>(
-								nonEmpty(
-									Arr.flatMap(SHAPES, (shape): ReadonlyArray<ProgramFeature> => [
+								nonEmpty([
+									"a case ended by COMMIT",
+									"a case ended by SET CONSTRAINTS and ROLLBACK",
+									...Arr.flatMap(SHAPES, (shape): ReadonlyArray<ProgramFeature> => [
 										...Arr.map(
 											Arr.filter(
 												LAWFUL_FORMS,
@@ -360,7 +388,7 @@ layer(Substrate.layer)("the fin lemmas through grizzle's lowering on PostgreSQL 
 										`${shape} misorder committed`,
 										`${shape} misorder refused`
 									])
-								),
+								]),
 								{ cases: 400, sense: notesOnly }
 							),
 							kept: [],
@@ -382,11 +410,15 @@ layer(Substrate.layer)("the fin lemmas through grizzle's lowering on PostgreSQL 
 									Effect.gen(function* () {
 										const j = yield* judgedFamily(
 											f,
-											storedOf(before),
+											{ kind: "replaced", before: storedOf(before) },
 											statements,
 											settledOf(run(p.shape, before, statements))
 										)
 										c.note(`${p.shape} ${form} ${j.committed ? "committed" : "refused"}`)
+										c.note(endedBy(j.end))
+										if (Option.exists(j.moment, (m) => m.kind === "commit")) {
+											c.note(refusedAtCommitBy(j.end))
+										}
 									})
 								const judges: Judges<SqlError | TransactionRolledBack | Disagreed, never> = {
 									lawful: (form, m, before) => step(form, m.statements, before),

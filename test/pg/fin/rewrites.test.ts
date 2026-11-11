@@ -15,6 +15,10 @@
  * The box (doctrine rule 9): owner 0 with every ordered family of zero to four members beside owner 1 with one, every
  * removal, insertion of one new member at each slot, swap of two slots and append, each sent in the prescribed order,
  * with its count update first, and with its inserts before its deletes.
+ *
+ * Each case writes its families by one transaction that replaces the seat's rows, then sends its rewrite as one
+ * transaction checked as its COMMIT would check it and rolled back, or ended by a real COMMIT, as its own text chooses
+ * (installed.ts End): the box requires both ends.
  */
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
@@ -23,6 +27,7 @@ import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { constraintOf, Disagreed, familySeat, judgedFamily } from "#test/pg/fin/family.ts"
+import { type EndFeature, endedBy, refusedAtCommitBy } from "#test/pg/fin/installed.ts"
 import { deepEquals, nonEmpty } from "#test/support/assert.ts"
 import { run, settledOf, type MutationStatement } from "#test/support/families/mutate.ts"
 import { type Families, rowsOf, storedOf } from "#test/support/families/theorem.ts"
@@ -126,6 +131,7 @@ const statementsOf = (
 const shrinks = (r: Rewrite): boolean => r.at + r.suffix.length < r.members.length
 
 type RewriteFeature =
+	| EndFeature
 	| `${Form} ${Sending} ${"committed" | "refused"}`
 	| "a shrink sent count first refused at its count by the bound, 23514, reporting the family's law"
 
@@ -151,6 +157,8 @@ layer(Substrate.layer)(
 									name: "the families model of each transaction (test/support/families/mutate.ts run); the prescribed order's families as the rewrite states them"
 								},
 								coverage: requiredInSpace<RewriteFeature>([
+									"a case ended by COMMIT",
+									"a case ended by SET CONSTRAINTS and ROLLBACK",
 									"remove prescribed committed",
 									"insert-at prescribed committed",
 									"swap prescribed committed",
@@ -169,11 +177,15 @@ layer(Substrate.layer)(
 									const outcome = run("ordered", before(r.members), statements)
 									const j = yield* judgedFamily(
 										f,
-										storedOf(before(r.members)),
+										{ kind: "replaced", before: storedOf(before(r.members)) },
 										statements,
 										settledOf(outcome)
 									)
 									c.note(`${r.form} ${r.sending} ${j.committed ? "committed" : "refused"}`)
+									c.note(endedBy(j.end))
+									if (Option.exists(j.moment, (m) => m.kind === "commit")) {
+										c.note(refusedAtCommitBy(j.end))
+									}
 									if (
 										r.sending === "prescribed" &&
 										(!j.committed ||

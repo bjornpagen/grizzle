@@ -11,7 +11,8 @@
  *   committed.
  *
  * The box (doctrine rule 9): owner 0 with every counted family of one to four members over the int4 sum seat's five
- * values (folds.ts), stored as the reference writes it; each member's delete, and each member's put to every other value.
+ * values (folds.ts), stored as the reference writes it by one transaction that replaces the seat's rows; each member's
+ * delete, and each member's put to every other value.
  *
  * An owner keyed by an id and a span WITHOUT OVERLAPS is put in place: its row updated, never deleted and inserted
  * again, which its members' foreign key and its drawn count and fold end would refuse. Drawn span-keyed owners
@@ -49,14 +50,13 @@ import {
 	foldStatementSql,
 	foldWriteOf
 } from "#test/pg/fin/folds.ts"
-import { cleared, seatOfInstalled } from "#test/pg/fin/installed.ts"
+import { cleared, replaced, seatOfInstalled } from "#test/pg/fin/installed.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, deepEquals, defined, nonEmpty, unorderedEqual } from "#test/support/assert.ts"
 import { stepPut, swapWithLast } from "#test/support/families/counted.ts"
 import { foldStoredOf } from "#test/support/families/fold.ts"
 import { type SpanKeyedOwner, spanOwnersGen } from "#test/support/families/generate.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { attempt } from "#test/support/substrate.ts"
 import { tableState } from "#test/support/substrate/state.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -230,15 +230,15 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								},
 								(sketch, c) =>
 									Effect.gen(function* () {
-										yield* cleared(seat, ["Owner", "Member"])
 										const members = Arr.map(sketch.values, (i, member) => ({
 											member,
 											x: Arr.getUnsafe(SPEC.domain, i),
 											selected: true
 										}))
 										const before = foldStoredOf(m, [{ owner: 0, members }])
-										const written = yield* attempt(
-											seat.session,
+										const written = yield* replaced(
+											seat,
+											["Owner", "Member"],
 											Arr.map(foldWriteOf(before), (s) => foldStatementSql(f, s))
 										)
 										if (written.kind !== "committed") {

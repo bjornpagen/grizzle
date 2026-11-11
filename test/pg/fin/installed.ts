@@ -11,6 +11,7 @@
  * its columns' roles in key order, a foreign key also by its target's, with its deferral and its update action as the
  * catalog states them, and the law the installation's constraint map says it reports.
  */
+import { fnv1a32 } from "@grizzle/testing/random"
 import { Array as Arr, Effect, Option, type Scope, String as Str } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
@@ -20,6 +21,7 @@ import { printObjectName, quoteIdent } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { type Installed, installMigrated } from "#test/support/install-migrate.ts"
 import type { SqlError } from "#test/support/pg.ts"
+import { type Attempted, attempt, attemptChecked, type Checked } from "#test/support/substrate.ts"
 import type { PgErrorFields, TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
@@ -370,6 +372,10 @@ export const mutated = (
 		return yield* seatOfInstalled(seat.installed, relations, label)
 	})
 
+/** The TRUNCATE of every row of the relations, in one statement. */
+const truncateSql = (seat: Seat, relations: Arr.NonEmptyReadonlyArray<string>): string =>
+	`TRUNCATE ${Arr.join(Arr.map(relations, seat.table), ", ")}`
+
 /** Removes every row of the relations in one SERIALIZABLE transaction, as the guard requires, so a case starts empty. */
 export const cleared = (
 	seat: Seat,
@@ -377,10 +383,107 @@ export const cleared = (
 ): Effect.Effect<void, SqlError | TransactionRolledBack> =>
 	Effect.gen(function* () {
 		yield* seat.session.begin
-		yield* Effect.onError(
-			seat.session.query(`TRUNCATE ${Arr.join(Arr.map(relations, seat.table), ", ")}`, []),
-			() => Effect.ignore(seat.session.rollback)
+		yield* Effect.onError(seat.session.query(truncateSql(seat, relations), []), () =>
+			Effect.ignore(seat.session.rollback)
 		)
 		yield* seat.session.commit
 		yield* seat.session.resetStatements
 	})
+
+/**
+ * Replaces every row of the relations with what `statements` write, in one SERIALIZABLE transaction whose first
+ * statement truncates them (substrate/replace.ts replaceRows: it reads no version another transaction wrote, so it is
+ * never an SSI pivot), so the case it starts meets only its own state and leaves its rows for the next replacement:
+ * its verdict, a refusal's moment counted over `statements`. The TRUNCATE's own refusal is the suite's defect.
+ */
+export const replaced = (
+	seat: Seat,
+	relations: Arr.NonEmptyReadonlyArray<string>,
+	statements: ReadonlyArray<string>
+): Effect.Effect<Attempted, SqlError | TransactionRolledBack> =>
+	Effect.flatMap(
+		attempt(seat.session, [truncateSql(seat, relations), ...statements]),
+		(real): Effect.Effect<Attempted> => {
+			if (real.kind === "committed" || real.moment.kind === "commit") {
+				return Effect.succeed(real)
+			}
+			const index = real.moment.index - 1
+			return index < 0
+				? Effect.die(
+						new Error(`${seat.label}: the replacing TRUNCATE was refused: ${real.fields.message}`)
+					)
+				: Effect.succeed({ ...real, moment: { kind: "statement", index } })
+		}
+	)
+
+/**
+ * How a case's transaction ends: `checked`, its commit's checks run by SET CONSTRAINTS ALL IMMEDIATE, what it left
+ * read, and rolled back (substrate.ts attemptChecked); or `commit`, a real COMMIT, what it committed read. In a session
+ * of its own every deferred check fires at SET CONSTRAINTS ALL IMMEDIATE as it would at COMMIT, so the model's verdict
+ * is the same for both, and the transactions that end by COMMIT show a real commit never decides otherwise than the
+ * checked end.
+ */
+export type End = "checked" | "commit"
+
+/** What a case's end reached: the end it took, and the end that met a refusal at the commit. */
+export type EndFeature =
+	| "a case ended by COMMIT"
+	| "a case ended by SET CONSTRAINTS and ROLLBACK"
+	| "a case refused at a real COMMIT"
+	| "a case refused at its checked commit"
+
+/**
+ * The end of a transaction, which its own text chooses, so an exhaustion replays the same choice: half the transactions
+ * the model refuses at commit end by a real COMMIT and the other half by the checked end, so each end meets the
+ * refusals at commit a box holds; of every other transaction one in 32 ends by a real COMMIT.
+ */
+export const endOf = (text: string, refusedAtCommit: boolean): End =>
+	(refusedAtCommit ? fnv1a32(text) % 2 : fnv1a32(text) % 32) === 0 ? "commit" : "checked"
+
+/** The feature of the end a case took. */
+export const endedBy = (end: End): EndFeature =>
+	end === "commit" ? "a case ended by COMMIT" : "a case ended by SET CONSTRAINTS and ROLLBACK"
+
+/** The feature of a refusal at the commit, by the end that met it. */
+export const refusedAtCommitBy = (end: End): EndFeature =>
+	end === "commit" ? "a case refused at a real COMMIT" : "a case refused at its checked commit"
+
+/**
+ * Where a case's transaction starts on its seat: `empty`, the seat holding no row, as every case of its suite leaves it
+ * (ended); or `replaced`, its rows first replaced by the state `before` (replaced), whose rows, and whatever the case
+ * commits over them, the next case's replacement truncates.
+ */
+export type Start<S> =
+	| { readonly kind: "empty" }
+	| { readonly kind: "replaced"; readonly before: S }
+
+/**
+ * One transaction of `statements` on a seat, ended as `end` says (End), with `read` of what it left or committed. From
+ * an empty seat a real COMMIT's rows are cleared once read, and a checked end or a refusal rolls back, so the seat is
+ * empty again for the next case; and a failure clears it before it goes on, so the candidates a shrink runs meet none
+ * of its rows, whatever its transaction left. From a replaced seat its rows stay for the next replacement.
+ */
+export const ended = <A>(
+	seat: Seat,
+	relations: Arr.NonEmptyReadonlyArray<string>,
+	start: Start<unknown>["kind"],
+	statements: ReadonlyArray<string>,
+	end: End,
+	read: Effect.Effect<A, SqlError>
+): Effect.Effect<Checked<A>, SqlError | TransactionRolledBack> => {
+	const committed = Effect.gen(function* () {
+		const real = yield* attempt(seat.session, statements)
+		if (real.kind === "refused") {
+			return real
+		}
+		const found = yield* read
+		if (start === "empty") {
+			yield* cleared(seat, relations)
+		}
+		return { kind: "committed", read: found } satisfies Checked<A>
+	})
+	const sent = end === "checked" ? attemptChecked(seat.session, statements, read) : committed
+	return start === "empty"
+		? Effect.onError(sent, () => Effect.ignore(cleared(seat, relations)))
+		: sent
+}

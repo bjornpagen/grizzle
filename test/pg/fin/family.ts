@@ -16,20 +16,24 @@ import { drawn, natural, pg } from "#compiler/public/fields.ts"
 import { counted, fin, on, ordered, relation, schema } from "#compiler/public/schema.ts"
 import {
 	type Catalogued,
-	cleared,
 	constraintText,
+	type End,
+	ended,
+	endOf,
+	replaced,
 	type Seat,
+	type Start,
 	sameRoles,
 	seatOf
 } from "#test/pg/fin/installed.ts"
-import { canonical, sqlstateOf } from "#test/pg/substrate/fin.ts"
+import { canonical, emptyStored, sqlstateOf } from "#test/pg/substrate/fin.ts"
 import { deepEquals } from "#test/support/assert.ts"
 import type { Moment, Settled, MutationStatement } from "#test/support/families/mutate.ts"
 import type { Constraint, FamilyRow, Shape, Stored } from "#test/support/families/theorem.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import {
 	type Attempted,
-	attempt,
+	type Checked,
 	momentText,
 	refusalText,
 	sameMoment
@@ -207,13 +211,14 @@ export class Disagreed extends Data.TaggedError("Disagreed")<{ readonly message:
 /** A verdict as a feature: committed, or refused naming the model's constraint PostgreSQL named. */
 export type FamilyVerdict = "committed" | `refused ${Constraint}`
 
-/** What PostgreSQL did with a transaction the model agreed with. */
+/** What PostgreSQL did with a transaction the model agreed with, and how the transaction ended. */
 export interface FamilyJudged {
 	readonly verdict: FamilyVerdict
 	readonly committed: boolean
 	readonly moment: Option.Option<Moment>
 	/** The installed constraint PostgreSQL named, when it refused. */
 	readonly refusedBy: Option.Option<Catalogued>
+	readonly end: End
 }
 
 const outcomeText = (outcome: Settled): string =>
@@ -224,43 +229,55 @@ const outcomeText = (outcome: Settled): string =>
 				", "
 			)}`
 
-const attemptedText = (real: Attempted): string =>
+const attemptedText = (real: Attempted | Checked<unknown>): string =>
 	real.kind === "committed"
 		? "commit"
 		: `refusal ${momentText(real.moment)}: ${refusalText(real.fields)}`
 
 /**
- * Writes `before` (which must commit), then sends `statements` as one transaction, and judges PostgreSQL against the
- * model's settled outcome: the same verdict; a refusal at the model's moment by an installed constraint that is one of
- * the model's violations there, with its SQLSTATE and the family's law (the identity, the member's primary key); a
- * commit that reads back as the state the model commits to, lawless or not (a mutant's model may commit a breach).
- * Both relations are cleared after.
+ * Sends `statements` as one transaction from `start`, an empty seat or one whose rows are first replaced by the state
+ * before (installed.ts Start), ended as its own text chooses (installed.ts endOf, by the model's outcome), and judges
+ * PostgreSQL against the model's settled outcome: the same verdict; a refusal at the model's moment by an installed
+ * constraint that is one of the model's violations there, with its SQLSTATE and the family's law (the identity, the
+ * member's primary key); a commit that reads back as the state the model commits to, lawless or not (a mutant's model
+ * may commit a breach).
  */
 export const judgedFamily = (
 	f: FamilySeat,
-	before: Stored,
+	start: Start<Stored>,
 	statements: ReadonlyArray<MutationStatement>,
 	outcome: Settled
 ): Effect.Effect<FamilyJudged, SqlError | TransactionRolledBack | Disagreed> =>
 	Effect.gen(function* () {
 		const { seat } = f
 		const sql = (s: ReadonlyArray<MutationStatement>) => Arr.map(s, (st) => statementSql(f, st))
+		const before = start.kind === "empty" ? emptyStored : start.before
+		const end = endOf(
+			Formatter.format([before, statements]),
+			outcome.kind === "refused" && outcome.moment.kind === "commit"
+		)
 		const text = Arr.join(["BEGIN", ...sql(statements), "COMMIT"], ";\n")
-		const disagree = (why: string, real: Attempted) =>
+		const disagree = (why: string, real: Attempted | Checked<unknown>) =>
 			new Disagreed({
-				message: `${seat.label}: ${why}; the model predicts ${outcomeText(outcome)}, PostgreSQL gave ${attemptedText(real)}, over ${Formatter.format(before)}, for\n${text}`
+				message: `${seat.label}, its ${end} end: ${why}; the model predicts ${outcomeText(outcome)}, PostgreSQL gave ${attemptedText(real)}, over ${Formatter.format(before)}, for\n${text}`
 			})
-		const setup = yield* attempt(seat.session, sql(writeOf(before)))
-		if (setup.kind !== "committed") {
-			return yield* disagree("writing the state before was refused", setup)
+		if (start.kind === "replaced") {
+			const setup = yield* replaced(seat, FAMILY_RELATIONS, sql(writeOf(start.before)))
+			if (setup.kind !== "committed") {
+				return yield* disagree("writing the state before was refused", setup)
+			}
 		}
-		const real = yield* attempt(seat.session, sql(statements))
+		const real = yield* ended(
+			seat,
+			FAMILY_RELATIONS,
+			start.kind,
+			sql(statements),
+			end,
+			seat.session.values(storedSql(f), [])
+		)
 		yield* seat.session.resetStatements
-		const finish = cleared(seat, FAMILY_RELATIONS)
 		if (outcome.kind === "committed" && real.kind === "committed") {
-			const values = yield* seat.session.values(storedSql(f), [])
-			yield* finish
-			const read = familyStoredOf(values)
+			const read = familyStoredOf(real.read)
 			if (!deepEquals(canonical(read), canonical(outcome.stored))) {
 				return yield* disagree(`the committed state reads back as ${Formatter.format(read)}`, real)
 			}
@@ -268,10 +285,10 @@ export const judgedFamily = (
 				verdict: "committed",
 				committed: true,
 				moment: Option.none(),
-				refusedBy: Option.none()
+				refusedBy: Option.none(),
+				end
 			}
 		}
-		yield* finish
 		if (outcome.kind === "refused" && real.kind === "refused") {
 			if (!sameMoment(outcome.moment, real.moment)) {
 				return yield* disagree("the moments differ", real)
@@ -306,7 +323,8 @@ export const judgedFamily = (
 				verdict: `refused ${constraint.value}`,
 				committed: false,
 				moment: Option.some(real.moment),
-				refusedBy: named
+				refusedBy: named,
+				end
 			}
 		}
 		return yield* disagree("the verdicts differ", real)

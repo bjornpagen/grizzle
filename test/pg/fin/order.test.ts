@@ -11,15 +11,19 @@
  *
  * The box (doctrine rule 9): owners 0 and 1 with families whose lengths sum to at most five, for each shape every order
  * of all their rows in one INSERT, and every cut of the rows in descending and in ascending slot order into two INSERTs.
+ *
+ * Each case's transaction runs on a seat with no rows and is checked as its COMMIT would check it and rolled back, or
+ * ends by a real COMMIT whose rows are read and cleared, as its own text chooses (installed.ts End): the box requires
+ * both ends.
  */
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen, int, shuffled } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Order } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
 import { Disagreed, familySeat, judgedFamily } from "#test/pg/fin/family.ts"
-import { emptyStored } from "#test/pg/substrate/fin.ts"
+import { type EndFeature, endedBy, refusedAtCommitBy } from "#test/pg/fin/installed.ts"
 import { nonEmpty } from "#test/support/assert.ts"
 import { run, settledOf, type MutationStatement } from "#test/support/families/mutate.ts"
 import {
@@ -111,6 +115,7 @@ const successorFirst = (rows: ReadonlyArray<FamilyRow>): boolean =>
 	)
 
 type OrderFeature =
+	| EndFeature
 	| `${Shape} one insert committed`
 	| `${Shape} one insert with a successor first committed`
 	| `${Shape} ${"descending" | "ascending"} cut ${"committed" | "refused"}`
@@ -148,6 +153,8 @@ layer(Substrate.layer)("row order through grizzle's lowering on PostgreSQL 19rc1
 								name: "the families model of each transaction (test/support/families/mutate.ts run), each constraint at the RFC lowering's moment"
 							},
 							coverage: requiredInSpace<OrderFeature>([
+								"a case ended by COMMIT",
+								"a case ended by SET CONSTRAINTS and ROLLBACK",
 								"ordered one insert committed",
 								"ordered one insert with a successor first committed",
 								"counted one insert with a successor first committed",
@@ -164,10 +171,14 @@ layer(Substrate.layer)("row order through grizzle's lowering on PostgreSQL 19rc1
 								const outcome = run(sketch.shape, [], statements)
 								const j = yield* judgedFamily(
 									seatOf(sketch.shape),
-									emptyStored,
+									{ kind: "empty" },
 									statements,
 									settledOf(outcome)
 								)
+								c.note(endedBy(j.end))
+								if (Option.exists(j.moment, (m) => m.kind === "commit")) {
+									c.note(refusedAtCommitBy(j.end))
+								}
 								if (sketch.sent.kind === "one insert") {
 									if (!j.committed) {
 										return yield* new Disagreed({

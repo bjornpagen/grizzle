@@ -42,17 +42,21 @@ import { layer } from "@effect/vitest"
 import { exhaust, type Oracle } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
-import { fnv1a32 } from "@grizzle/testing/random"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Data, Effect, Formatter, Option, type Scope } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import {
 	type Catalogued,
-	cleared,
 	constraintText,
 	droppedPairsSql,
 	droppedSql,
+	type End,
+	type EndFeature,
+	ended,
+	endedBy,
+	endOf,
 	mutated,
+	refusedAtCommitBy,
 	type Seat,
 	seatOf,
 	theConstraint
@@ -103,15 +107,7 @@ import {
 } from "#test/support/families/tree.ts"
 import { caseHang } from "#test/support/limits.ts"
 import type { SqlError } from "#test/support/pg.ts"
-import {
-	type Attempted,
-	attempt,
-	attemptChecked,
-	type Checked,
-	momentText,
-	refusalText,
-	sameMoment
-} from "#test/support/substrate.ts"
+import { type Attempted, momentText, refusalText, sameMoment } from "#test/support/substrate.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -227,61 +223,26 @@ interface Judged {
 }
 
 /**
- * How a case's transaction ends: `checked`, its commit's checks run by SET CONSTRAINTS ALL IMMEDIATE, what it left read,
- * and rolled back (substrate.ts attemptChecked), so no row stays and no seat needs clearing; or `commit`, a real COMMIT,
- * whose rows are read and then cleared by a TRUNCATE. The model's verdict is the same for both, so the cases that end
- * by COMMIT show a real commit never decides otherwise than the checked end.
+ * The end of a case, which its own text chooses (installed.ts endOf), by grizzle's model: each seat's transaction of the
+ * case ends alike.
  */
-type End = "checked" | "commit"
-
-/**
- * The end of a case, which its own text chooses, so an exhaustion replays the same choice: half the cases grizzle's
- * model refuses at commit end by a real COMMIT, which a refusal leaves nothing to clear, and the other half by the
- * checked end, so each end meets the refusals at commit a box holds; of every other case one in 32 ends by a real
- * COMMIT, whose clearing TRUNCATE costs about six checked cases, a fifth more of a box's time.
- */
-const endOf = (statements: Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<TreeRow>>): End => {
-	const digest = fnv1a32(Formatter.format(statements))
+const endOfCase = (
+	statements: Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<TreeRow>>
+): End => {
 	const model = treePredicted(grizzleTree, [], statements)
-	return (model.kind === "refused" && model.moment.kind === "commit" ? digest % 2 : digest % 32) ===
-		0
-		? "commit"
-		: "checked"
+	return endOf(
+		Formatter.format(statements),
+		model.kind === "refused" && model.moment.kind === "commit"
+	)
 }
 
-/** A transaction ended by a real COMMIT, its rows read and then cleared, as a checked one reports it. */
-const committedOf = (
-	seat: Seat,
-	statements: ReadonlyArray<string>
-): Effect.Effect<
-	Checked<ReadonlyArray<ReadonlyArray<unknown>>>,
-	SqlError | TransactionRolledBack
-> =>
-	Effect.gen(function* () {
-		const real = yield* attempt(seat.session, statements)
-		if (real.kind === "refused") {
-			return real
-		}
-		const values = yield* seat.session.values(nodeReadSql(seat), [])
-		yield* cleared(seat, ["Node"])
-		return { kind: "committed", read: values }
-	})
-
 /**
- * One transaction of INSERTs on a seat with no rows, ended as `end` says, judged against the model: the same verdict; a
- * refusal at the same moment by an installed constraint whose role the model allows there, with its SQLSTATE and the
- * law it reports; an accepted one that reads back as written. A case that fails anywhere clears its seat before its
- * failure goes on, so the candidates its shrink runs meet none of its rows, whatever its transaction left.
+ * One transaction of INSERTs on a seat with no rows, ended as `end` says (installed.ts ended, which leaves the seat
+ * with no rows, whatever the transaction did or failed), judged against the model: the same verdict; a refusal at the
+ * same moment by an installed constraint whose role the model allows there, with its SQLSTATE and the law it reports;
+ * an accepted one that reads back as written.
  */
 const judged = (
-	t: TreeSeat,
-	statements: Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<TreeRow>>,
-	end: End
-): Effect.Effect<Judged, SqlError | TransactionRolledBack | Disagreed> =>
-	Effect.onError(judgedOnce(t, statements, end), () => Effect.ignore(cleared(t.seat, ["Node"])))
-
-/** One transaction of INSERTs on a seat with no rows, judged against the model (`judged`). */
-const judgedOnce = (
 	t: TreeSeat,
 	statements: Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<TreeRow>>,
 	end: End
@@ -290,10 +251,14 @@ const judgedOnce = (
 		const { seat } = t
 		const model = treePredicted(t.lowering, [], statements)
 		const inserts = Arr.map(statements, (rows) => nodeInsertSql(seat, rows))
-		const real =
-			end === "checked"
-				? yield* attemptChecked(seat.session, inserts, seat.session.values(nodeReadSql(seat), []))
-				: yield* committedOf(seat, inserts)
+		const real = yield* ended(
+			seat,
+			["Node"],
+			"empty",
+			inserts,
+			end,
+			seat.session.values(nodeReadSql(seat), [])
+		)
 		yield* seat.session.resetStatements
 		const disagree = (why: string) =>
 			Effect.fail(
@@ -385,10 +350,7 @@ type StateFeature =
 	| "root unpinned commits a root off slot 0"
 	| "P3's counterexample refused by grizzle"
 	| "P3's counterexample committed without r's copy"
-	| "a case ended by COMMIT"
-	| "a case ended by SET CONSTRAINTS and ROLLBACK"
-	| "a case refused at a real COMMIT"
-	| "a case refused at its checked commit"
+	| EndFeature
 
 /**
  * Judges one case on every seat at once: each against the model; grizzle's against the theorem, where a commit of a
@@ -406,8 +368,8 @@ const judgeCase = (
 	const lawful = Option.isNone(breach)
 	const whole = statements.length === 1
 	const wrong = (committed: boolean) => (committed ? !lawful : whole && lawful)
-	const end = endOf(statements)
-	note(end === "commit" ? "a case ended by COMMIT" : "a case ended by SET CONSTRAINTS and ROLLBACK")
+	const end = endOfCase(statements)
+	note(endedBy(end))
 	return Effect.forEach(
 		seats,
 		(t) =>
@@ -475,11 +437,7 @@ const judgeCase = (
 				}
 				if (Option.exists(j.moment, (m) => m.kind === "commit")) {
 					note("grizzle refused at commit")
-					note(
-						end === "commit"
-							? "a case refused at a real COMMIT"
-							: "a case refused at its checked commit"
-					)
+					note(refusedAtCommitBy(end))
 				}
 				if (j.committed && Arr.dedupe(Arr.map(rows, (r) => r.root)).length > 1) {
 					note("grizzle committed a forest of two trees")

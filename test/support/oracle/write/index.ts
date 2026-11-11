@@ -406,9 +406,8 @@ const keptRuns: ReadonlyArray<
  *
  * Explores a write suite (see the header), every run under its perturbation, each case noting its features through its
  * own Case; the suite must reach its required features, and a failure fails. Runs go one at a time, since every run
- * installs a schema on the file's database. Shrinking stops after shrinkCandidates candidates, about twenty minutes at
- * four seconds a candidate alone: each candidate is a whole write run on PostgreSQL, a schema installed and up to
- * twelve cases applied two ways.
+ * installs a schema on the file's database. Shrinking stops after shrinkCandidates candidates, each a whole write run
+ * on PostgreSQL: a schema installed and its cases applied.
  */
 export const exploreWrite = (
 	s: WriteSuite
