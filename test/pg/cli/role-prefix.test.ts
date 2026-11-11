@@ -12,7 +12,7 @@
  *
  * Properties, each against its oracle:
  * - Disjoint: `grizzle roles` of each installation is exactly roleNameOf of the login and its roles under its
- *   connection (oracle: the stem each value carries under core/identity.ts installedRole, which is the naming door's
+ *   connection (oracle: the stem each value carries under core/identity.ts roleInSpace, which is the naming door's
  *   for no prefix), and the two lists share no name.
  * - Its own database only: each installation's writer inserts a customer through its layer, over its database under
  *   its prefix, and its reader reads it back; the other installation reads no such customer; a layer of one

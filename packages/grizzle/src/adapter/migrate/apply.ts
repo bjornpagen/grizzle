@@ -58,7 +58,7 @@ import {
 	apartRow,
 	apartRows,
 	decidingFailure,
-	installationOf,
+	connectionInstallation,
 	type MigrationConnection,
 	type MigrationSession,
 	openMigrationSession
@@ -810,7 +810,9 @@ export const applyMigrations = Effect.fn("applyMigrations")(function* (input: {
 	readonly targets: ReadonlyArray<MigrationTarget>
 }): Effect.fn.Return<ReadonlyArray<SchemaApplyReport>, MigrateError, Scope.Scope> {
 	for (const t of input.targets) {
-		yield* Effect.asVoid(Effect.fromResult(parseTarget(t, installationOf(input.connection))))
+		yield* Effect.asVoid(
+			Effect.fromResult(parseTarget(t, connectionInstallation(input.connection)))
+		)
 	}
 	const session = yield* openMigrationSession(input.connection)
 	return yield* applyOnSession(session, input.targets)

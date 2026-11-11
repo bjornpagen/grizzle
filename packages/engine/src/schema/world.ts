@@ -25,7 +25,6 @@ import {
 	type StatementDesc
 } from "#compiler/ir/desc.ts"
 import { writableEntry } from "#compiler/schema/entry.ts"
-import { loginStem, roleStem } from "#compiler/schema/stem.ts"
 import {
 	isLevelOf,
 	levelRelations,
@@ -50,6 +49,7 @@ import {
 import { record, roleRelations, wholeEntries } from "#compiler/schema/record.ts"
 import { derivedDraftOf, relationDescOf, writingOf } from "#compiler/schema/relation.ts"
 import { expansionDescOf, statementDescOf } from "#compiler/schema/statements.ts"
+import { loginStem, roleStem } from "#compiler/schema/stem.ts"
 import { approximates, attachesHeading, queryUses } from "#compiler/schema/walk.ts"
 import type { InsertableNameOf } from "#compiler/types/changeset/changeset.ts"
 import type { AnyWorkload } from "#compiler/types/db/workload.ts"

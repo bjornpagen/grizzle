@@ -15,7 +15,7 @@ import type { Limit } from "#compiler/plan/common.ts"
 import {
 	type CallerObject,
 	type CallerRecord,
-	installedRole,
+	roleInSpace,
 	published,
 	type RoleSpace,
 	readCaller,
@@ -469,7 +469,7 @@ const parseRoleSpace = (
 }
 
 /**
- * The PostgreSQL role a block's role space installs for the role stem `stem` (core/identity.ts installedRole), or the
+ * The PostgreSQL role a block's role space installs for the role stem `stem` (core/identity.ts roleInSpace), or the
  * block's rolePrefix refused when the role is past PostgreSQL's longest identifier.
  */
 const spaceRole = (
@@ -477,7 +477,7 @@ const spaceRole = (
 	where: SettingPath,
 	stem: string
 ): Result.Result<string, SettingFault> => {
-	const role = installedRole(space, stem)
+	const role = roleInSpace(space, stem)
 	return role.ok
 		? Result.succeed(role.value)
 		: Result.fail(

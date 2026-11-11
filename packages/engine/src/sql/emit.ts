@@ -1,7 +1,7 @@
 import { nominal } from "#compiler/core/brand.ts"
 import { catchRefusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import type * as Result from "#compiler/core/result.ts"
+import * as Result from "#compiler/core/result.ts"
 import type { EmittedSql, EmittedText, SqlStatement } from "#compiler/sql/ast.ts"
 import type { CatalogStatement } from "#compiler/sql/catalog.ts"
 import type { NameMap } from "#compiler/sql/naming.ts"
@@ -48,6 +48,16 @@ export const explainOf = (statement: EmittedText): EmittedText =>
  */
 export const explainAnalyzeOf = (statement: EmittedText): EmittedText =>
 	emitted(`EXPLAIN (ANALYZE, FORMAT JSON, VERBOSE) ${statement}`)
+
+/**
+ * An emitted statement's text with its variables filled by `fill` (deploy/render/variables.ts resolveVariables), or
+ * what `fill` refuses: the text the drift check's replay and an uninstall send, one text composed of another, as
+ * explainOf composes one.
+ */
+export const filledText = <E>(
+	statement: EmittedText,
+	fill: (text: string) => Result.Result<string, E>
+): Result.Result<EmittedText, E> => Result.map(fill(statement), emitted)
 
 /** `nameMap` is the statement's generated-name map, from its NameSupply (naming.ts emptyNameMap when it has none). */
 export const emit = (

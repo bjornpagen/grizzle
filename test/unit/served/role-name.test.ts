@@ -40,7 +40,7 @@ import {
 	conversionOf,
 	identifierOf,
 	identity,
-	installedRole,
+	roleInSpace,
 	maxIdentifierBytes,
 	type RoleInstallation,
 	roleSpaceOf
@@ -208,7 +208,7 @@ const nameCase = (n: Names, c: Case<NameFeature>) =>
 			})
 			for (const r of compiled.success.back.roles) {
 				const parsed = roleSpaceOf(Option.getOrUndefined(space))
-				const stemmed = parsed.ok ? installedRole(parsed.value, r.installed) : parsed
+				const stemmed = parsed.ok ? roleInSpace(parsed.value, r.installed) : parsed
 				assert.ok(
 					stemmed.ok && roleNames.includes(stemmed.value),
 					`the served role ${r.name} takes on the role roleNameOf names`

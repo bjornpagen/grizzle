@@ -124,17 +124,17 @@ export const quoteIdent = (name: string): string => `"${name.replaceAll('"', '""
 /**
  * A role of the installation where a statement names it: psql's identifier variable `:"<stem>"`, the role's stem, which
  * `grizzle generate` commits, the one way a statement prints an installation's role. Migrate fills it with the role the
- * installation's role space installs (sql/variables.ts resolveVariables), so one drafted file installs under every
+ * installation's role space installs (deploy/render/variables.ts resolveVariables), so one drafted file installs under every
  * role space, and one never filled is a syntax error, never another role.
  */
-export const printRole = (stem: string): string => `:${quoteIdent(stem)}`
+const printRole = (stem: string): string => `:${quoteIdent(stem)}`
 
 /** The name of the variable that stands for the current database, psql's own: a name of no role stem, all of which
  * hold `__`. */
 export const databaseVariable = "DBNAME"
 
 /** The current database where a GRANT or REVOKE on it names it, `:"DBNAME"`: an installation's statements name no
- * database, and migrate fills it with its connection's (sql/variables.ts resolveVariables). */
+ * database, and migrate fills it with its connection's (deploy/render/variables.ts resolveVariables). */
 const printDatabase = (): string => `:${quoteIdent(databaseVariable)}`
 
 export const printObjectName = (name: ObjectName): string =>

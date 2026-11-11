@@ -51,7 +51,7 @@ import type { InstallationNames } from "#compiler/plan/migration.ts"
  */
 export interface MigrationSession {
 	/**
-	 * What the session's installation names a statement's variables (compiler/sql/variables.ts): the database it is
+	 * What the session's installation names a statement's variables (compiler/deploy/render/variables.ts): the database it is
 	 * connected to and the role space of its connection.
 	 */
 	readonly installation: InstallationNames
@@ -137,7 +137,7 @@ export interface MigrationConnection extends ParsedConnection {
 }
 
 /** What a migration connection's installation names a statement's variables: its database, and its role space. */
-export const installationOf = (connection: MigrationConnection): InstallationNames => ({
+export const connectionInstallation = (connection: MigrationConnection): InstallationNames => ({
 	database: connection.database,
 	roles: connection.roles
 })
@@ -160,5 +160,5 @@ export const openMigrationSession = (
 					refusal
 				})
 			),
-		onSuccess: (session) => migrationSession(session, installationOf(spec))
+		onSuccess: (session) => migrationSession(session, connectionInstallation(spec))
 	})

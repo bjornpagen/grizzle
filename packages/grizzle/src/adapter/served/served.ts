@@ -11,7 +11,7 @@ import {
 	builtMark,
 	CompileError,
 	defect,
-	installedRole,
+	roleInSpace,
 	malformedDescription,
 	type RoleInstallation,
 	roleSpaceOf,
@@ -102,7 +102,7 @@ const stemmed = <L>(named: AnyLogin | AnyRole | ServedLogin<L>): Stemmed => {
  * roleNameOf(named, installation): the PostgreSQL role an installation installs for a login, a role or a served login,
  * the one function that names one: the stem the value carries (a login's or a role's, computed as login(...) or
  * role(...) built it; a served login's, its file's), under the installation's role prefix (core/identity.ts
- * installedRole), as migrate creates it and a layer's pool logs in. A login's is the one that logs in: the role a
+ * roleInSpace), as migrate creates it and a layer's pool logs in. A login's is the one that logs in: the role a
  * password is set on, `rds_iam` is granted to and an IAM signer names. A role's is the one a direct SQL writer's
  * `SET ROLE` names. The installation is the connection, or any part of it (`{}` for one without a role prefix). It
  * reads the stem and evaluates no schema, so the runtime entry loads none of the compiler. It throws CompileError for a
@@ -121,7 +121,7 @@ export const roleNameOf = <L>(
 			`the role prefix ${Formatter.format(installation.rolePrefix)} as ${space.error}`
 		)
 	}
-	const role = installedRole(space.value, stem)
+	const role = roleInSpace(space.value, stem)
 	if (!role.ok) {
 		throw CompileError.make({ _tag: "RoleNameTooLong", at, of, ...role.error })
 	}

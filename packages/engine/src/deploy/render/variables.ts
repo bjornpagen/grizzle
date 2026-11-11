@@ -1,4 +1,4 @@
-import { installedRole, isConversion, type RoleSpace } from "#compiler/core/identity.ts"
+import { roleInSpace, isConversion, type RoleSpace } from "#compiler/core/identity.ts"
 import * as Result from "#compiler/core/result.ts"
 import { type Lexeme, lexemesOf } from "#compiler/sql/lexer.ts"
 import { databaseVariable, quoteIdent } from "#compiler/sql/print.ts"
@@ -65,7 +65,7 @@ const filled = (name: string, names: InstallationNames): Result.Result<string, V
 		return Result.ok(quoteIdent(names.database))
 	}
 	return Result.mapError(
-		Result.map(installedRole(names.roles, variable.stem), quoteIdent),
+		Result.map(roleInSpace(names.roles, variable.stem), quoteIdent),
 		(tooLong): VariableFault => ({ kind: "roleTooLong", stem: variable.stem, ...tooLong })
 	)
 }

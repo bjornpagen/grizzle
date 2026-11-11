@@ -1,20 +1,20 @@
 import { nominal } from "#compiler/core/brand.ts"
 import { catchCompileError, Refusal } from "#compiler/core/canonical.ts"
-import { CompileError, malformedDescription } from "#compiler/core/errors.ts"
+import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import type { DomainDigest } from "#compiler/core/fingerprint.ts"
 import {
 	type DeclaredName,
+	type Fitted,
 	type Identity,
 	identifierOf,
 	identity,
-	maxIdentifierBytes,
-	parseDeclaredName
+	parseDeclaredName,
+	roleIdentity
 } from "#compiler/core/identity.ts"
 import type { ConstraintName, RelationIdent } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type * as Result from "#compiler/core/result.ts"
-import { utf8Length } from "#compiler/core/sha256.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { DomainCheck } from "#compiler/ir/law.ts"
 import {
@@ -170,49 +170,6 @@ interface NamesInput {
 	/** Each stored relation's selection keys' law columns, by its declared name (`selectionKeysOf`). */
 	readonly selectionKeys: ReadonlyMap<string, ReadonlyArray<SelectionKey>>
 }
-
-declare const fittedBrand: unique symbol
-
-/** A login's or role's PostgreSQL role that fits PostgreSQL's maxIdentifierBytes with its schema's name: minted only by
- * `fitted`, which refuses one that does not. */
-export type Fitted<K extends "login" | "role"> = Identity<K> & { readonly [fittedBrand]: true }
-
-/** `named` as the Fitted role it is, once its length is checked. */
-const fittedOf = <K extends "login" | "role">(named: Identity<K>): Fitted<K> =>
-	nominal<Identity<K>, Fitted<K>>()(named)
-
-/** A login's or role's PostgreSQL role, `<schema>__<name>`, refused at `loc` as RoleNameTooLong when it does not fit
- * PostgreSQL's maxIdentifierBytes with its schema's name. */
-const fitted = <K extends "login" | "role">(named: Identity<K>, loc: SourceLoc): Fitted<K> => {
-	if (utf8Length(named.identifier) > maxIdentifierBytes.value) {
-		throw new Refusal(
-			CompileError.make({
-				_tag: "RoleNameTooLong",
-				at: loc,
-				of: named.kind,
-				role: named.identifier,
-				limit: maxIdentifierBytes.value
-			})
-		)
-	}
-	return fittedOf(named)
-}
-
-/** A login's PostgreSQL role, under the installation (roles are cluster-wide), by the name its ownership declared
- * (schema/own.ts ownLogin), or its refusal at `loc` (fitted). */
-export const loginIdentity = (
-	installation: Identity<"schema">,
-	name: DeclaredName,
-	loc: SourceLoc
-): Fitted<"login"> => fitted(identity.login(installation, name), loc)
-
-/** A role's PostgreSQL role, its theory role, under the installation, by the name its ownership declared
- * (schema/own.ts ownRole). */
-export const roleIdentity = (
-	installation: Identity<"schema">,
-	name: DeclaredName,
-	loc: SourceLoc
-): Fitted<"role"> => fitted(identity.role(installation, name), loc)
 
 /** A role of an installation named under its levels: the owned role and its PostgreSQL role, fitted once, here, before
  * anything is compiled for it, so every world name read from it (worldNames) is a name the installation can create. */

@@ -62,14 +62,15 @@ import {
 	type TypeSchema
 } from "#compiler/plan/common.ts"
 import {
+	filledText,
 	type InstallationNames,
+	type InstalledRoleTooLong,
 	type ManifestStatement,
 	manifestStatements,
 	resolveVariables,
 	type VariableFault
 } from "#compiler/plan/migration.ts"
 import { textParam } from "#compiler/plan/read.ts"
-import type { InstalledRoleTooLong } from "#compiler/plan/runtime.ts"
 import type { DeploySnapshot, LedgerState } from "#compiler/plan/serve.ts"
 
 /**
@@ -747,9 +748,6 @@ const inScratch = (
 	}
 }
 
-/** A replayed statement's text with its variables filled (compiler/sql/variables.ts): what the replay sends. */
-const filledText = nominal<string, EmittedText>()
-
 /** A role of `of`'s past PostgreSQL's longest identifier under the installation's role prefix, as the snapshot's
  * refusal. */
 const roleTooLong = (of: "login" | "role", fault: InstalledRoleTooLong): CompileError =>
@@ -783,11 +781,11 @@ const scratchStatements = (
 		if (!e.ok) {
 			return Result.fail(e.error)
 		}
-		const filled = resolveVariables(e.value.text, installation)
+		const filled = filledText(e.value.text, (text) => resolveVariables(text, installation))
 		if (!filled.ok) {
 			return Result.fail(unfilled(filled.error))
 		}
-		texts.push(filledText(filled.value))
+		texts.push(filled.value)
 	}
 	return Result.succeed(texts)
 }

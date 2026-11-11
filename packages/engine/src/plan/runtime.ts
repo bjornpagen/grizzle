@@ -29,9 +29,7 @@ export { CompileError, malformedDescription } from "#compiler/core/errors.ts"
 export { type CallerObject, type CallerRecord, readCaller } from "#compiler/core/host.ts"
 export {
 	admittedIdentifier,
-	type InstalledRoleTooLong,
-	installedRole,
-	namespaceStem,
+	roleInSpace,
 	type RoleInstallation,
 	type RoleSpace,
 	roleSpaceOf

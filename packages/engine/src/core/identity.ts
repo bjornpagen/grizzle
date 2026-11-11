@@ -1,4 +1,5 @@
 import { nominal } from "#compiler/core/brand.ts"
+import { Refusal } from "#compiler/core/canonical.ts"
 import { CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import type { ConstantDigest, DomainDigest } from "#compiler/core/fingerprint.ts"
 import type { Identifier, IdentityKind } from "#compiler/core/ids.ts"
@@ -335,9 +336,9 @@ export interface InstalledRoleTooLong {
 /**
  * The PostgreSQL role the installation of role space `space` installs for the role stem `stem`, or its refusal past
  * maxIdentifierBytes: the one place a cluster role's name is made from a stem. A stem fits by its identity's minting
- * (physical/ddl/names.ts fitted), so only a prefix lengthens it.
+ * (fitted), so only a prefix lengthens it.
  */
-export const installedRole = (
+export const roleInSpace = (
 	space: RoleSpace,
 	stem: string
 ): Result.Result<string, InstalledRoleTooLong> => {
@@ -356,7 +357,7 @@ export const isConversion = (text: string): boolean =>
 
 /**
  * The stem of the cluster role `role` when it lies in the namespace of an installation of role space `space` whose
- * levels' PostgreSQL schemas are `levels`: `<level>__<conversion>` under the space (installedRole), the names its
+ * levels' PostgreSQL schemas are `levels`: `<level>__<conversion>` under the space (roleInSpace), the names its
  * migrations can create, a login's or a role's of any of its snapshots; undefined for every other role, another
  * installation's, another space's or none's. A conversion holds no `__`, so the parts are read without guessing.
  */
@@ -1285,3 +1286,47 @@ export const identity = Object.freeze({
 			hashed
 		)
 })
+
+declare const fittedBrand: unique symbol
+
+/** A login's or role's PostgreSQL role that fits PostgreSQL's maxIdentifierBytes with its schema's name: minted only by
+ * `fitted`, which refuses one that does not. */
+export type Fitted<K extends "login" | "role"> = Identity<K> & { readonly [fittedBrand]: true }
+
+/** `named` as the Fitted role it is, once its length is checked. */
+const fittedOf = <K extends "login" | "role">(named: Identity<K>): Fitted<K> =>
+	nominal<Identity<K>, Fitted<K>>()(named)
+
+/** A login's or role's PostgreSQL role, `<schema>__<name>`, refused at `loc` as RoleNameTooLong when it does not fit
+ * PostgreSQL's maxIdentifierBytes with its schema's name. */
+const fitted = <K extends "login" | "role">(named: Identity<K>, loc: SourceLoc): Fitted<K> => {
+	if (utf8Length(named.identifier) > maxIdentifierBytes.value) {
+		throw new Refusal(
+			CompileError.make({
+				_tag: "RoleNameTooLong",
+				at: loc,
+				of: named.kind,
+				role: named.identifier,
+				limit: maxIdentifierBytes.value
+			})
+		)
+	}
+	return fittedOf(named)
+}
+
+/** A login's PostgreSQL role, its stem, under the installation (roles are cluster-wide), by the name its ownership
+ * declared (schema/own.ts ownLogin), or its refusal at `loc` (fitted): what login(...) carries as its stem
+ * (schema/stem.ts) and the installer creates (physical/ddl/roles.ts). */
+export const loginIdentity = (
+	installation: Identity<"schema">,
+	name: DeclaredName,
+	loc: SourceLoc
+): Fitted<"login"> => fitted(identity.login(installation, name), loc)
+
+/** A role's PostgreSQL role, its theory role and its stem, under the installation, by the name its ownership declared
+ * (schema/own.ts ownRole). */
+export const roleIdentity = (
+	installation: Identity<"schema">,
+	name: DeclaredName,
+	loc: SourceLoc
+): Fitted<"role"> => fitted(identity.role(installation, name), loc)

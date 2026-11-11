@@ -16,10 +16,14 @@ import {
 } from "#adapter/migrate/session.ts"
 import { type BatchStatement, oneShotStatement, sentAnswer } from "#adapter/wire/batch.ts"
 import type { CatalogQuery } from "#adapter/wire/statement.ts"
-import { C, emptyNameMap } from "#compiler/plan/catalog.ts"
-import { defect, emit, emitCatalog, type EmittedText, nominal } from "#compiler/plan/common.ts"
-import { resolveVariables } from "#compiler/plan/migration.ts"
-import { namespaceStem } from "#compiler/plan/runtime.ts"
+import {
+	C,
+	databasePrivilegeLock,
+	emptyNameMap,
+	type UninstallStatement
+} from "#compiler/plan/catalog.ts"
+import { defect, emit, emitCatalog } from "#compiler/plan/common.ts"
+import { filledText, namespaceStem, resolveVariables } from "#compiler/plan/migration.ts"
 
 /**
  * `grizzle roles` and `grizzle uninstall`: an installation's roles in the cluster, and its removal from its database
@@ -40,7 +44,7 @@ import { namespaceStem } from "#compiler/plan/runtime.ts"
  * database's ACL takes it. PostgreSQL refuses DROP ROLE (2BP01) while anything of another database depends on a role,
  * its DETAIL naming that database: the transaction rolls back whole, nothing is dropped, and the refusal carries
  * PostgreSQL's message and detail (UninstallRefused). Each role is its variable, filled under the connection's role
- * space as migrate fills a drafted file's (sql/variables.ts), so the role dropped is the role listed.
+ * space as migrate fills a drafted file's (deploy/render/variables.ts), so the role dropped is the role listed.
  */
 
 /** An installation's namespace: its levels' PostgreSQL schemas, every configured schema's, and its connection. */
@@ -87,9 +91,6 @@ const schemasNamed: CatalogQuery<string> = {
 	row: ([name]) => name
 }
 
-/** A statement's text with its variables filled under the session's installation: what uninstall sends. */
-const filledText = nominal<string, EmittedText>()
-
 /** The rows of `query`, read alone on the session, or the namespace unread. */
 const readAlone = <Row>(
 	session: MigrationSession,
@@ -128,22 +129,21 @@ const namespaceOf = (
 })
 
 /** A catalog statement as uninstall sends it: printed, each role variable filled under the session's installation. */
-const sent = (
-	session: MigrationSession,
-	statement: C.UninstallStatement | C.CatalogSelect
-): BatchStatement => {
-	const filled = resolveVariables(emitCatalog(statement), session.installation)
+const sent = (session: MigrationSession, statement: UninstallStatement): BatchStatement => {
+	const filled = filledText(emitCatalog(statement), (text) =>
+		resolveVariables(text, session.installation)
+	)
 	if (!filled.ok) {
 		throw defect(
 			`uninstall's statement names the role of a stem namespaceStem read off a role the cluster holds: ${filled.error.kind}`
 		)
 	}
-	return oneShotStatement(filledText(filled.value), [])
+	return oneShotStatement(filled.value, [])
 }
 
 /** The database privilege's lock, as a statement of uninstall's transaction (sql/catalog.ts databasePrivilegeLock). */
 const privilegeLock = (): BatchStatement => {
-	const lock = emit(C.databasePrivilegeLock, emptyNameMap)
+	const lock = emit(databasePrivilegeLock, emptyNameMap)
 	if (!lock.ok) {
 		throw defect("the database privilege's lock prints")
 	}

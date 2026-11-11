@@ -21,6 +21,7 @@ import {
 	type Identity,
 	identifierOf,
 	identity,
+	loginIdentity,
 	parseDeclaredName
 } from "#compiler/core/identity.ts"
 import { defined } from "#compiler/core/invariant.ts"
@@ -65,13 +66,7 @@ import {
 	usedNodes
 } from "#compiler/physical/ddl/domains.ts"
 import { snapshotGuardFunction } from "#compiler/physical/ddl/ledger.ts"
-import {
-	levelIn,
-	loginIdentity,
-	missing,
-	type NamedRole,
-	roleView
-} from "#compiler/physical/ddl/names.ts"
+import { levelIn, missing, type NamedRole, roleView } from "#compiler/physical/ddl/names.ts"
 import {
 	derivedReading,
 	type LoweredDefinition,
@@ -1486,9 +1481,7 @@ const addLogin = (
 				r,
 				{ role, object: roleObject },
 				advance,
-				carriers.some(
-					(c) => c.login === login.name && c.role === r.checked.world.role.name
-				)
+				carriers.some((c) => c.login === login.name && c.role === r.checked.world.role.name)
 			)
 		)
 	return {

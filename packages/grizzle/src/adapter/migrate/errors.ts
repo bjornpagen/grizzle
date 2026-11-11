@@ -391,8 +391,8 @@ export type InputFault =
 			readonly fault: VariableFault
 	  }
 
-/** What a statement's variable that no installation fills is, as a refusal states it (compiler/sql/variables.ts). */
-export const variableFaultText = (fault: VariableFault): string => {
+/** What a statement's variable that no installation fills is, as a refusal states it (deploy/render/variables.ts). */
+const variableFaultText = (fault: VariableFault): string => {
 	switch (fault.kind) {
 		case "unknownVariable":
 			return `names the variable :${quoteIdent(fault.name)}, which is neither :"DBNAME" nor a role's stem <schema>__<name>; write a slice with a space after its colon`

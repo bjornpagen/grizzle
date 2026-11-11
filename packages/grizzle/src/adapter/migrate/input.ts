@@ -39,7 +39,7 @@ import type { DeploySnapshot } from "#compiler/plan/serve.ts"
  *   ABORT, PREPARE TRANSACTION) is refused: a file runs as one transaction, or each of its statements alone, and its
  *   ledger row is inserted inside its own transaction, which a file that commits
  *   or opens a transaction itself would break;
- * - each statement's variables, its installation's roles by their stems and its database (compiler/sql/variables.ts),
+ * - each statement's variables, its installation's roles by their stems and its database (compiler/deploy/render/variables.ts),
  *   are filled with what the installation names them, and a variable none fills is refused: what is sent is the filled
  *   statement, what the ledger records the digest of the file as written, the same in every installation.
  *

@@ -2,13 +2,18 @@ import { Array as Arr, Effect, Record as Rec } from "effect"
 import { fromEngine } from "#adapter/engine.ts"
 import { everyProperty } from "#compiler/core/canonical.ts"
 import { constantDigest } from "#compiler/core/fingerprint.ts"
-import { conversionOf, identifierOf, identity } from "#compiler/core/identity.ts"
+import {
+	conversionOf,
+	identifierOf,
+	identity,
+	loginIdentity,
+	roleIdentity
+} from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { type Codebook, firstCodebook } from "#compiler/ir/codes.ts"
 import { type ConstraintOwner, constraintLaw } from "#compiler/ir/products.ts"
 import type { TextDomain } from "#compiler/physical/ddl/domains.ts"
-import { loginIdentity, roleIdentity } from "#compiler/physical/ddl/names.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import type { Statement } from "#compiler/public/schema.ts"
 import { ownLogin, rostersOf } from "#compiler/schema/own.ts"

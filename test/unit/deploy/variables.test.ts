@@ -1,5 +1,5 @@
 /**
- * The variables of a drafted migration and their filling (sql/variables.ts resolveVariables), over every statement
+ * The variables of a drafted migration and their filling (deploy/render/variables.ts resolveVariables), over every statement
  * `grizzle generate` drafts, with no database.
  *
  * A case draws the shop's declared schema name (test/pg/cli/fixture.ts shopV1: the login `server` and its roles
@@ -21,8 +21,8 @@
  *
  * Features: a prefix and none, a capitalized schema spelling, an unknown variable, a stem variable.
  *
- * Plants (~/.cache/grizzle-release/ROLESPACE/plants): role-printed-plain.patch (a CREATE ROLE prints its role by its
- * stem), prefix-applied-twice.patch (a role variable filled with the prefix twice), database-variable-misfilled.patch
+ * Plants (~/.cache/grizzle-release/ROLESPACE/plants): create-role-printed-plain.patch (a CREATE ROLE prints its role by
+ * its stem), prefix-applied-twice.patch (a role variable filled with the prefix twice), database-variable-misfilled.patch
  * (the database variable filled with a role's name).
  */
 import { NodeServices } from "@effect/platform-node"
@@ -46,8 +46,8 @@ import {
 import { roleNameOf } from "#adapter/served/served.ts"
 import { conversionOf, parseRolePrefix, type RoleSpace } from "#compiler/core/identity.ts"
 import { splitStatements } from "#compiler/deploy/render/markers.ts"
+import { resolveVariables } from "#compiler/deploy/render/variables.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
-import { resolveVariables } from "#compiler/sql/variables.ts"
 import { defineConfig } from "#index.ts"
 import { shopV1 } from "#test/pg/cli/fixture.ts"
 import { cliOver, configName, offlineOwner, workspace } from "#test/pg/cli/support.ts"
@@ -190,7 +190,9 @@ const draftCase = (d: Drafting, c: Case<DraftFeature>) =>
 				const files = yield* fs.readDirectory(`${root}/${folder}`)
 				for (const file of Arr.filter(files, Str.endsWith(".sql"))) {
 					const text = yield* fs.readFileString(`${root}/${folder}/${file}`)
-					statements.push(...splitStatements(text))
+					for (const statement of splitStatements(text)) {
+						statements.push(statement)
+					}
 				}
 			}
 			assert.ok(statements.length > 0, "the folder holds statements")
@@ -269,7 +271,7 @@ layer(NodeServices.layer)("the variables of a drafted migration", (it) => {
 				ctx,
 				explore(
 					{
-						suite: "unit/sql/variables",
+						suite: "unit/deploy/variables",
 						draw: drawn(draftingGen),
 						literal: Formatter.format,
 						oracle: {

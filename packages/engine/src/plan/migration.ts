@@ -56,13 +56,15 @@ export { servedRosters } from "#compiler/program/served.ts"
 export { servedDifference, servedPartingText } from "#compiler/served/difference.ts"
 export { servedText } from "#compiler/served/json.ts"
 export { type UnservedMember, type UnservedReason } from "#compiler/served/unserved.ts"
+export { filledText } from "#compiler/sql/emit.ts"
 export { lex, type Token } from "#compiler/sql/lexer.ts"
+export { type InstalledRoleTooLong, namespaceStem } from "#compiler/core/identity.ts"
 export {
 	type InstallationNames,
 	resolveVariables,
 	type Variable,
 	type VariableFault,
 	variableOf
-} from "#compiler/sql/variables.ts"
+} from "#compiler/deploy/render/variables.ts"
 export { servedMembers } from "#compiler/write/program/served-members.ts"
 export { servedMatchers } from "#compiler/served/matchers.ts"
