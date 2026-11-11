@@ -18,7 +18,7 @@ import type { EvidenceCatalog } from "#compiler/ir/evidence.ts"
 import type { RelationInfo } from "#compiler/ir/law.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { ConstraintLaws } from "#compiler/ir/products.ts"
-import { type RegexRef, rosterOf } from "#compiler/ir/scalar.ts"
+import { type RegexRef, rosterOf, type ScalarType, textOf } from "#compiler/ir/scalar.ts"
 import { derivedKeyConstraints, evidenceCatalog } from "#compiler/laws/model/catalog.ts"
 import type { ConstraintLaw, LawModel } from "#compiler/laws/model/model.ts"
 import { textDomainIdentity } from "#compiler/physical/ddl/domains.ts"
@@ -37,6 +37,7 @@ import {
 	worldTextDomainUses
 } from "#compiler/physical/ddl/roles.ts"
 import {
+	contractChain,
 	freshPlanSettings,
 	installBasis,
 	type InstallPlan,
@@ -399,15 +400,28 @@ export const roleArtifacts = (
 }
 
 /**
- * What the writes of a role can raise of its artifacts, `written` every relation they change (schema/reach.ts
- * writesOf): each table constraint and rule trigger on a written relation, which a write there breaks; each foreign
- * key or PERIOD foreign key into one, which a delete or a key's update there meets; each domain constraint with its uses
- * on the written relations' columns, which a value written there breaks, its laws theirs, and each one no stored column
- * uses, which a context or a parameter of its type reads; each law of the theory reading a written relation, which a
- * write statement's refusal raises; the written relations, whose generated fields a NOT NULL names and whose keys a
- * refusal's DETAIL decodes; and the rosters typing a column of them, by declared name, whose code or bits domain a value
- * written there meets. A write of `written` meets no other constraint and raises no other law: no foreign key cascades
- * beyond what writesOf closes over, and a rule's trigger fires only on its own table.
+ * What a role's write statements judge a value by, the one input of what they can raise (raisableOf): `written`, every
+ * relation they change (schema/reach.ts writesOf), whose column types judge each value written there; and `cast`, the
+ * type of every other value a statement casts to its type wherever it runs, which judges it whole: each claim of a
+ * context the role reads (sql/print.ts contextClaims) and each scalar parameter its writes declare (lower/conservative
+ * paramTypeRef).
+ */
+export interface Judged {
+	readonly written: ReadonlySet<string>
+	readonly cast: ReadonlyArray<ScalarType>
+}
+
+/**
+ * What the writes of a role can raise of its artifacts, by what they judge (Judged): each table constraint and rule
+ * trigger on a written relation, which a write there breaks; each foreign key or PERIOD foreign key into one, which a
+ * delete or a key's update there meets; each domain constraint whole whose domain a cast value's type meets (its
+ * contract chain's domains and its pattern's), and otherwise with its uses narrowed to the written relations' columns,
+ * which a value written there breaks, kept while one stays, its laws theirs; each law of the theory reading a written
+ * relation, which a write statement's refusal raises; the written relations, whose generated fields a NOT NULL names
+ * and whose keys a refusal's DETAIL decodes; and the rosters typing a column of them or a cast value, by declared name,
+ * whose code or bits domain such a value meets. A write meets no other constraint and raises no other law: no foreign
+ * key cascades beyond what writesOf closes over, a rule's trigger fires only on its own table, and every literal is
+ * judged by its type before it is served.
  */
 export interface Raisable {
 	readonly constraintLaws: ReadonlyArray<ConstraintLaw>
@@ -418,32 +432,48 @@ export interface Raisable {
 
 /**
  * Of the constraint law `c`, what a write of `tables` can raise: a table's constraint or trigger whose owner is one of
- * them or that is a foreign key `into` names under its table, a domain's CHECK with its uses narrowed to them, kept
- * while one stays, and a domain's no stored column types.
+ * them or that is a foreign key `into` names under its table; a domain's CHECK whole where its domain is one of `cast`,
+ * and otherwise with its uses narrowed to `tables`, kept while one stays.
  */
 const raisableConstraint = (
 	c: ConstraintLaw,
 	tables: ReadonlySet<string>,
-	into: ReadonlyMap<string, ReadonlySet<string>>
+	into: ReadonlyMap<string, ReadonlySet<string>>,
+	cast: ReadonlySet<string>
 ): ReadonlyArray<ConstraintLaw> => {
 	switch (c.kind) {
 		case "constraint":
 		case "trigger":
 			return tables.has(c.owner) || into.get(c.owner)?.has(c.name) === true ? [c] : []
 		case "domainConstraint": {
+			if (cast.has(c.owner)) {
+				return [c]
+			}
 			const uses = c.uses.filter((u) => tables.has(u.table))
 			return isNonEmpty(uses) ? [{ ...c, uses }] : []
 		}
 		case "unstoredDomainConstraint":
-			return [c]
+			return cast.has(c.owner) ? [c] : []
 	}
 }
 
-/** What writes changing `written` can raise of `artifacts` (`Raisable`). */
+/** The domains a value cast to `t` meets under `names`: each contract's of its chain, outermost first, and its pattern's. */
+const castDomains = (names: InstallNames, t: ScalarType): ReadonlyArray<string> => {
+	const text = textOf(t)
+	const pattern =
+		text === undefined || text.regex === "wildcard" ? undefined : names.textDomain(text.regex)
+	return [
+		...contractChain(t).map((contract) => names.contractDomain(contract).name),
+		...(pattern === undefined ? [] : [pattern.name])
+	]
+}
+
+/** What writes judging `judged` can raise of `artifacts` (`Raisable`). */
 export const raisableOf = (
-	artifacts: Pick<SchemaArtifacts, "constraintLaws" | "theoryLaws" | "laws" | "derived">,
-	written: ReadonlySet<string>
+	artifacts: Pick<SchemaArtifacts, "constraintLaws" | "theoryLaws" | "laws" | "derived" | "names">,
+	judged: Judged
 ): Raisable => {
+	const { written } = judged
 	const relations = [...artifacts.derived.schema.relations.values()].filter((r) =>
 		written.has(r.name)
 	)
@@ -461,16 +491,18 @@ export const raisableOf = (
 		named.add(identifierOf(n.named))
 		into.set(n.owner, named)
 	}
+	const cast = new Set(judged.cast.flatMap((t) => castDomains(artifacts.names, t)))
 	const raised = new Set(
 		artifacts.laws.theory.laws.flatMap((l) => (l.reads.some((r) => written.has(r)) ? [l.id] : []))
 	)
+	const typed = [...relations.flatMap((r) => r.fields.map((f) => f.type)), ...judged.cast]
 	return {
-		constraintLaws: artifacts.constraintLaws.flatMap((c) => raisableConstraint(c, tables, into)),
+		constraintLaws: artifacts.constraintLaws.flatMap((c) =>
+			raisableConstraint(c, tables, into, cast)
+		),
 		theoryLaws: artifacts.theoryLaws.filter((l) => raised.has(l.law)),
 		relations,
-		rosters: new Set(
-			relations.flatMap((r) => r.fields.flatMap((f) => rosterOf(f.type)?.closed ?? []))
-		)
+		rosters: new Set(typed.flatMap((t) => rosterOf(t)?.closed ?? []))
 	}
 }
 

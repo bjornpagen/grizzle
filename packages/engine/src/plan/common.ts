@@ -132,6 +132,7 @@ export {
 	type Roster,
 	type ScalarType
 } from "#compiler/ir/scalar.ts"
+export type { DomainUse } from "#compiler/laws/model/model.ts"
 export {
 	type NamedLogin,
 	type NamedRole,

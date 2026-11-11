@@ -269,7 +269,8 @@ export type TableConstraintLaw =
  * A domain's entry of the constraint-to-LawId map: its CHECK's identifier and the domain that owns it. PostgreSQL's
  * report of a domain violation names no table or column, so a domain that types stored columns lists each with that
  * use's law, and its laws are exactly its uses' laws, each once, in use order: a text domain one law per stored field
- * it types, a contract's domain the law each column's contract chain names it by. A domain no stored column types (a
+ * it types, a contract's domain the law each column's contract chain names it by (runtime/write/laws.ts
+ * constraintLawsOf). A domain no stored column types (a
  * context field's or a parameter's contract) carries the laws of the contracts its definition holds. The installation,
  * which names each domain by its definition, emits these.
  */
@@ -291,24 +292,11 @@ export type DomainConstraintLaw =
 export type ConstraintLaw = TableConstraintLaw | DomainConstraintLaw
 
 /**
- * Every law a violation of `c` can report, with its description: a domain's that types stored columns its uses'
- * laws, each once and in use order, and any other's its own.
+ * The law a violation of `c` reports when nothing narrows it: its first, a domain's that types stored columns its first
+ * use's (runtime/write/laws.ts constraintLawsOf lists them all).
  */
-export const constraintLawsOf = (c: ConstraintLaw): NonEmptyReadonlyArray<ConstraintLawOf> => {
-	if (c.kind !== "domainConstraint") {
-		return c.laws
-	}
-	const [first, ...rest] = c.uses
-	const seen = new Set<LawId>([first.law.law])
-	const laws: [ConstraintLawOf, ...Array<ConstraintLawOf>] = [first.law]
-	for (const { law } of rest) {
-		if (!seen.has(law.law)) {
-			seen.add(law.law)
-			laws.push(law)
-		}
-	}
-	return laws
-}
+const reportedLaw = (c: ConstraintLaw): LawId =>
+	c.kind === "domainConstraint" ? c.uses[0].law.law : c.laws[0].law
 
 /** One kind of owner's constraint names to laws, frozen as the map holds them. */
 const frozenOwners = (
@@ -328,7 +316,7 @@ export const constraintLawMap = (entries: ReadonlyArray<ConstraintLaw>): Constra
 	for (const c of entries) {
 		const byOwner = c.kind === "constraint" || c.kind === "trigger" ? tables : domains
 		const named = byOwner.get(c.owner) ?? new Map<string, LawId>()
-		named.set(c.name, constraintLawsOf(c)[0].law)
+		named.set(c.name, reportedLaw(c))
 		byOwner.set(c.owner, named)
 	}
 	return Object.freeze({ tables: frozenOwners(tables), domains: frozenOwners(domains) })

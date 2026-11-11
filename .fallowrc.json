@@ -533,7 +533,8 @@
 					"sql",
 					"types",
 					"write"
-				]
+				],
+				"allowTypeOnly": ["laws"]
 			},
 			{
 				"from": "adapter-runtime",

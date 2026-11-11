@@ -25,7 +25,6 @@ import {
 	compileLaws,
 	conservativeLaws,
 	constraintLawMap,
-	constraintLawsOf,
 	type DomainUse,
 	type LawModel
 } from "#compiler/laws/model/model.ts"
@@ -71,6 +70,7 @@ import {
 	spanColumns,
 	spanConstraintLaws
 } from "#compiler/physical/span/storage.ts"
+import { constraintLawsOf } from "#compiler/runtime/write/laws.ts"
 import { installationsOf, type Owned } from "#compiler/schema/own.ts"
 import type { Slice } from "#compiler/schema/reach.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
@@ -286,7 +286,7 @@ const textDomainConstraintLaws = (
 
 /** The contracts a value of `t` is checked under, outermost first: its contract and every contract its base chain
  * names. */
-const contractChain = (t: ScalarType): ReadonlyArray<DeclaredName> => {
+export const contractChain = (t: ScalarType): ReadonlyArray<DeclaredName> => {
 	const contract = contractOf(t)
 	return contract === undefined ? [] : [contract.name, ...contractChain(contract.base)]
 }

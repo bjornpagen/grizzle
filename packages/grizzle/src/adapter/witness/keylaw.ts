@@ -7,20 +7,14 @@ import type {
 	ConstraintName,
 	ConstraintOwner,
 	DomainName,
+	DomainUse,
 	LawId,
 	RelationIdent,
 	RosterCodec,
-	SchemaArtifacts,
 	StoredRelationName
 } from "#compiler/plan/common.ts"
 import { constraintLaw, defect } from "#compiler/plan/runtime.ts"
 import type { DescribedLaw, ServedKeyLaws, ServedSnapshot } from "#compiler/plan/serve.ts"
-
-/** One column a domain types in a table, with the law that column's use of the domain discharges. */
-type DomainUse = Extract<
-	SchemaArtifacts["constraintLaws"][number],
-	{ readonly kind: "domainConstraint" }
->["uses"][number]
 
 /** The names a violation reports, as the wire admitted them (wire/failure.ts serverFailure). */
 interface ReportedNames {

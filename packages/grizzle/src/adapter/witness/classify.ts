@@ -32,7 +32,8 @@ import {
 	readChangeDetail,
 	readLawDetail,
 	sqlstateClass,
-	sqlstates
+	sqlstates,
+	usesLaws
 } from "#compiler/plan/runtime.ts"
 import type { DescribedLaw } from "#compiler/plan/serve.ts"
 
@@ -250,12 +251,8 @@ const nativeLaws = (
 			return Arr.map(native.laws, refused)
 		case "domain": {
 			const coerced = coercedUses(native, written)
-			const uses = Arr.isReadonlyArrayNonEmpty(coerced) ? coerced : native.uses
 			return Arr.map(
-				Arr.dedupeWith(
-					Arr.map(uses, (use) => use.law),
-					(a, b) => a.law === b.law
-				),
+				usesLaws(Arr.isReadonlyArrayNonEmpty(coerced) ? coerced : native.uses),
 				refused
 			)
 		}
