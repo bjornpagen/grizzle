@@ -18,6 +18,14 @@
  *
  * The kept race is the window the race was first planted for: the span key's exact repeat, the insert waiting on an
  * identical Leave in flight, which commits, so the insert's retry finds the repeat, no-change.
+ *
+ * Oracle: the serial reference, timing drawn from the case (every order of the race's moves). Features: the insert
+ * waited, and the insert refused. Plant: ~/.cache/grizzle-release/BR09/plants/payroll-race-span-abort-not-transient.patch,
+ * a span key's exclusion violation on a constraint the insert lists among its in-flight aborts read as the key's
+ * refusal instead of a TransientFailure. Only an interleaving reaches it: the 23P01 is raised by a Leave in flight
+ * when the insert's probe ran, which commits while the insert waits, and alone the probe finds the stored Leave
+ * instead. So the kept race's insert answers refused where its serial reference, the writer's Leave and then the
+ * insert alone, answers no-change.
  */
 
 import { layer } from "@effect/vitest"
