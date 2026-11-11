@@ -15,6 +15,12 @@
  * and at the worst padding from the first varlena on, against nbtree.h's BTMaxItemSize, the indexes checked in the
  * order compilation meets them: A's and B's primary keys, then the target's UNIQUE where one is planned. The first that
  * fails is the refusal, by its columns and its fault.
+ *
+ * Plants (~/.cache/grizzle-release/BR03/plants): btree-entry-at-bound-refused (an entry of exactly BTMaxItemSize is
+ * refused).
+ *
+ * Features: the target the declared key or a superkey; admitted; the declared key refused; the target's UNIQUE refused
+ * as unbounded or over the limit, or admitted at the limit; a referencing run no B-tree entry holds, admitted.
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -279,7 +285,10 @@ describe("the law model's planned B-tree indexes", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "index_form_tuple's layout of each planned index's columns against nbtree.h's BTMaxItemSize, the first that fails in compile order refused"
+						},
 						suite: "unit/laws/model/planned-entries",
 						draw: drawn(sketchGen),
 						literal: Formatter.format,

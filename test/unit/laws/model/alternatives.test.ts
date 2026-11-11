@@ -1,29 +1,3 @@
-import { describe, it } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { array, element, filter, type Gen } from "@grizzle/testing/gen"
-import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Order, Record as Rec } from "effect"
-import type { LawRelation, NativeColumn } from "#compiler/ir/law.ts"
-import type { LawModel } from "#compiler/laws/model/model.ts"
-import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
-import { assert, defined } from "#test/support/assert.ts"
-import {
-	alternatives,
-	closed,
-	f,
-	relation,
-	type SchemaDesc
-} from "#test/support/fixtures/ir/desc.ts"
-import { caseHang } from "#test/support/limits.ts"
-import {
-	assertWellFormed,
-	generatedOn,
-	lawColumnsOf,
-	modelOf,
-	nativesOf
-} from "#test/unit/laws/model/natives.ts"
-
 /**
  * An alternatives statement lowers to plain containments' natives (fin.md §7, w4-w7 §2.5), with no residual law and no
  * head: the discriminator's roster domain types it. The oracle is fin.md §7 turned into a checker:
@@ -39,21 +13,61 @@ import {
  * A law column is told by what it holds, read by the reference evaluator on a parent of every tag: the handles whose
  * parents it is defined for, or the one handle a constant holds.
  *
- * Bound: every roster of 1 to 3 handles, each handle unarmed or armed by one of two arm relations, at least one armed:
- * 2 + 8 + 26 = 36 assignments, exhausted.
+ * Box: every roster of 1 to 3 handles, each handle unarmed or armed by one of two arm relations, at least one armed,
+ * constructed by its first armed handle: 2 + 8 + 26 = 36 assignments, exhausted.
+ *
+ * Plants (~/.cache/grizzle-release/BR03/plants): alternatives-forward-first-handle (an arm of several handles is
+ * contained in its first handle's parents alone).
+ *
+ * Features: an arm of one handle, an arm of several handles, an unarmed handle, two arm relations.
  */
+
+import { describe, it } from "@effect/vitest"
+import { exhaust } from "@grizzle/testing/explore"
+import { requiredInSpace } from "@grizzle/testing/features"
+import { array, element, type Gen, int } from "@grizzle/testing/gen"
+import { searched } from "@grizzle/testing/vitest"
+import { Array as Arr, Effect, Formatter, Order, Record as Rec } from "effect"
+import type { LawRelation, NativeColumn } from "#compiler/ir/law.ts"
+import type { LawModel } from "#compiler/laws/model/model.ts"
+import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
+import { assert, defined } from "#test/support/assert.ts"
+import {
+	alternatives,
+	closed,
+	f,
+	relation,
+	type SchemaDesc
+} from "#test/support/fixtures/ir/desc.ts"
+import { caseHang } from "#test/support/limits.ts"
+import { upTo } from "#test/support/up-to.ts"
+import {
+	assertWellFormed,
+	generatedOn,
+	lawColumnsOf,
+	modelOf,
+	nativesOf
+} from "#test/unit/laws/model/natives.ts"
 
 type Arm = "none" | "A" | "B"
 type Assignment = ReadonlyArray<Arm>
 
 const handleNames = ["h0", "h1", "h2"] as const
 
-/** The box: a roster of 1 to 3 handles, each unarmed or armed by A or B, at least one of them armed. */
-const assignmentGen: Gen<Assignment> = filter(
-	array(element(["none", "A", "B"] as const), { min: 1, max: 3 }),
-	(a) => Arr.some(a, (x) => x !== "none"),
-	1
-)
+/**
+ * The box: a roster of 1 to 3 handles, each unarmed or armed by A or B, at least one of them armed, built by its first
+ * armed handle: the handles before it unarmed, it armed by A or B, and every one after it any of the three.
+ */
+const assignmentGen: Gen<Assignment> = (source) => {
+	const handles = source.draw(int(1, 3))
+	const first = source.draw(int(0, handles - 1))
+	const after = handles - first - 1
+	return [
+		...upTo(first, (): Arm => "none"),
+		source.draw(element(["A", "B"] as const)),
+		...source.draw(array(element(["none", "A", "B"] as const), { min: after, max: after }))
+	]
+}
 
 type Feature =
 	| "an arm of one handle"

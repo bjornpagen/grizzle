@@ -14,6 +14,12 @@
  * guard carried its canonical text; no two of a relation's unique objects hold each other, since two that would are
  * one key (ir/law.ts KeyColumnSet); and a containment's law is immediate, in the specialized model and in its
  * evidence, exactly when it is into K.
+ *
+ * Plants (~/.cache/grizzle-release/BR03/plants): beyond-primary-guards-alike (laws/model/uniques.ts subsumes finds any
+ * two guards one guard).
+ *
+ * Features: a guarded key subsumed, two keys over one set in two orders as one object, a key beyond the primary, an
+ * immediate containment, a deferred containment.
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -219,7 +225,10 @@ describe("the objects beyond a primary key and the immediate laws", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "second-implementation",
+							name: "the decision restated, two guards compared by encoding both; a containment immediate exactly when it is into K"
+						},
 						suite: "unit/laws/model/beyond-primary",
 						draw: drawn(caseGen),
 						literal: Formatter.format,

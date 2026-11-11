@@ -1,4 +1,40 @@
-import { describe, it } from "@effect/vitest"
+/**
+ * A tree's natives are exactly w4-w7 §2.2's table over trees.md's T0 to T6, read from the law model's native objects.
+ * The oracle is the specification turned into a checker: the three axes with the tree's pairs on them (T0's root copy
+ * r → r and T3's ‹ps› → start on the owner axis, T4's start → end on the predecessor, T5's end → end on the last), T1's
+ * `UNIQUE (r, start)` and the family key over ‹parent₀›, and one CHECK, whose verdict on every row is the conjunction
+ * of trees.md's predicates as the test states them:
+ *
+ * - the family bound, start = 0 or at < ‹n›;
+ * - T2, (parent = id) = (start = 0);
+ * - the root pin, start > 0 or at = 0;
+ * - T3, start = 0 or at > 0 or start = ‹ps› + 1;
+ * - T6, end > start and (children > 0 or end = start + 1).
+ *
+ * ‹parent₀› is the parent where start > 0 and NULL at the root, the one guarded group column, which the family key and
+ * the predecessor and last axes read. The owner axis reads the plain parent, NO ACTION and immediate, mutable or not:
+ * PostgreSQL refuses a cascade over a generated column (42601), and a tree is written whole and rewritten by deletion.
+ * Its root references itself, so the axis holds the root's ‹n›, ‹ps› and every parent copy at the root's own values,
+ * and no copy states a pin of its own.
+ *
+ * A count fold over the tree rides the predecessor and last axes, and its first-slot pin is `at > 0 OR before = ι`, the
+ * root at slot 0 included, as the root pin holds it there: the root's before is no free value.
+ *
+ * Bound: every tree with a caller field's parent copy or none and an accumulated one or none, mutable or not, with a
+ * hidden count fold or none, 16 schemas; the CHECK on every row with parent = id or not and at, children, start, end,
+ * ‹ps› and ‹n› in 0 … 3 (8,192 rows), and the owner axis on every root of children, ‹n›, ‹ps› and copies in 0 … 1. The
+ * mutants it refuses: a cascading owner axis over ‹parent₀› (refused by PostgreSQL), the root's copies left free of
+ * the axis (an owner axis from ‹parent₀›), the root pin dropped (the unpinned sentinel: a root at slot 1 accepted), T0's
+ * root copy dropped (the owner axis without r → r) and T5's end dropped (the last axis without end → end), and the
+ * root's before left unpinned (a first-slot pin exempting start 0: the root at slot 0 with a before of 1 accepted),
+ * each a different set of natives or verdicts this box refuses.
+ *
+ * Plants (~/.cache/grizzle-release/BR03/plants): tree-root-pin-dropped (the root pin, start > 0 or at = 0, left out of
+ * the tree's CHECK).
+ *
+ * Features: an immutable tree, a mutable tree, a parent copy, an accumulated parent copy, two copies, a fold over the
+ * tree.
+ */ import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { boolean, type Gen, subarray } from "@grizzle/testing/gen"
@@ -39,38 +75,6 @@ import {
 	onRelation,
 	ridingLaws
 } from "#test/unit/laws/model/natives.ts"
-
-/**
- * A tree's natives are exactly w4-w7 §2.2's table over trees.md's T0 to T6, read from the law model's native objects.
- * The oracle is the specification turned into a checker: the three axes with the tree's pairs on them (T0's root copy
- * r → r and T3's ‹ps› → start on the owner axis, T4's start → end on the predecessor, T5's end → end on the last), T1's
- * `UNIQUE (r, start)` and the family key over ‹parent₀›, and one CHECK, whose verdict on every row is the conjunction
- * of trees.md's predicates as the test states them:
- *
- * - the family bound, start = 0 or at < ‹n›;
- * - T2, (parent = id) = (start = 0);
- * - the root pin, start > 0 or at = 0;
- * - T3, start = 0 or at > 0 or start = ‹ps› + 1;
- * - T6, end > start and (children > 0 or end = start + 1).
- *
- * ‹parent₀› is the parent where start > 0 and NULL at the root, the one guarded group column, which the family key and
- * the predecessor and last axes read. The owner axis reads the plain parent, NO ACTION and immediate, mutable or not:
- * PostgreSQL refuses a cascade over a generated column (42601), and a tree is written whole and rewritten by deletion.
- * Its root references itself, so the axis holds the root's ‹n›, ‹ps› and every parent copy at the root's own values,
- * and no copy states a pin of its own.
- *
- * A count fold over the tree rides the predecessor and last axes, and its first-slot pin is `at > 0 OR before = ι`, the
- * root at slot 0 included, as the root pin holds it there: the root's before is no free value.
- *
- * Bound: every tree with a caller field's parent copy or none and an accumulated one or none, mutable or not, with a
- * hidden count fold or none, 16 schemas; the CHECK on every row with parent = id or not and at, children, start, end,
- * ‹ps› and ‹n› in 0 … 3 (8,192 rows), and the owner axis on every root of children, ‹n›, ‹ps› and copies in 0 … 1. The
- * named mutants: a cascading owner axis over ‹parent₀› (refused by PostgreSQL), the root's copies left free of the axis
- * (an owner axis from ‹parent₀›), the root pin dropped (the unpinned sentinel: a root at slot 1 accepted), T0's root copy
- * dropped (the owner axis without r → r) and T5's end dropped (the last axis without end → end), and the root's before
- * left unpinned (a first-slot pin exempting start 0: the root at slot 0 with a before of 1 accepted), each a different
- * set of natives or verdicts this box refuses.
- */
 
 type Copy = "caller" | "accumulated"
 interface Shape {

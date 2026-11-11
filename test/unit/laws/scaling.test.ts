@@ -1,3 +1,32 @@
+/**
+ * No installation, and no snapshot, grows faster than the schema facts it serves: a size relation over AST nodes, the
+ * size oracle every outcome oracle lacks. A product of two dimensions, a function whose body is tables × handles, a law
+ * compiled once per trigger into every table's text, a role's grants listing every other role, increments by more over
+ * each later step of its dimension, at every size, far below any size a clock would notice.
+ *
+ * Property: for each scalable dimension of a schema and of its worlds, the installation at 2h, 4h and 6h of that
+ * dimension alone, h from 2 to 4: the total of its objects' statements, role defaults, revokes and comments, counted as
+ * AST nodes (as snapshot.json holds them, a structural property, never printed text), and its snapshot.json and
+ * manifest.json read back and counted as JSON nodes, each increments no more from 4h to 6h than from 2h to 4h
+ * (test/support/growth.ts incrementsDoNotGrow). Every size is even, so the dimension that pairs its handles up, ⌈n / 2⌉
+ * arm relations for n handles, is affine there too. The largest object is no measure of its own: a size above linear
+ * in one object makes the total's increments grow.
+ *
+ * The schema dimensions are drawn as Descriptions, installed with the full role of the oracle login; the worlds
+ * dimensions (roles, whole entries per role, world views, context fields) as the worlds suites' install descriptions
+ * (worlds model/types.ts InstallSpec), built through the public builders as those suites build them and installed with
+ * their logins.
+ *
+ * Box: every dimension at every h, exhausted. Oracle: universal, the increments of a size that grows no faster than
+ * linearly. Assumptions: no dimension's installation changes shape above some size of it (an object that appears only
+ * past a threshold would land in one increment alone), and a key of 24 fields, the parent key at its largest, stays
+ * within INDEX_MAX_KEYS beside the columns its laws add.
+ *
+ * Plants (~/.cache/grizzle-release/BR03/plants): scaling-reverse-per-handle-pair (an alternatives statement states a
+ * reverse containment for every pair of a handle and an arm, its laws quadratic in the roster).
+ *
+ * Features: each dimension.
+ */
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
@@ -5,6 +34,7 @@ import { element, type Gen, int } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
 import { isList, isRecord } from "#compiler/core/record.ts"
+import { trustedJson } from "#compiler/core/trusted.ts"
 import {
 	derivedOf,
 	finishSnapshot,
@@ -19,7 +49,7 @@ import { compileInstallation, type Installation } from "#compiler/physical/insta
 import { installationsOf } from "#compiler/schema/own.ts"
 import { ownLogin, rostersOf } from "#compiler/schema/own.ts"
 import { loginDescOf } from "#compiler/schema/world.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { defined, succeeded } from "#test/support/assert.ts"
 import {
 	alternatives,
 	type AuthoredRelationDesc,
@@ -42,6 +72,7 @@ import {
 	relation,
 	type SchemaDesc
 } from "#test/support/fixtures/ir/desc.ts"
+import { incrementsDoNotGrow } from "#test/support/growth.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { oracleLogin } from "#test/support/oracle/install/real.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
@@ -59,27 +90,6 @@ import type {
 	RoleSpec,
 	Term
 } from "#test/support/worlds/model/types.ts"
-
-/**
- * No installed object, and no installation, grows faster than the schema facts it serves: a scaling relation over AST
- * node counts, the size oracle every outcome oracle lacks.
- *
- * For each scalable dimension of a schema and of its worlds, the installation at size n and at 2n of that dimension
- * alone: every installed object's statements, counted as AST nodes (as snapshot.json holds them, a structural property,
- * never printed text), the installation's total with its role defaults, revokes and comments, and the snapshot's encoded
- * size each grow by at most 2 + ε from n to 2n. A product of two dimensions, a function whose body is tables × handles,
- * a law compiled once per trigger into every table's text, a role's grants listing every other role, grows by 4 there,
- * and shows at n = 4 against 8, far below any size a clock would notice. The box is exhausted: every dimension at every
- * n from 3 to 8.
- *
- * The schema dimensions are drawn as Descriptions, installed with the full role of the oracle login; the worlds
- * dimensions (roles, whole entries per role, world views, context fields) as the worlds suites' install descriptions
- * (worlds model/types.ts InstallSpec), built through the public builders as those suites build them and installed with
- * their logins.
- */
-
-/** The bound on growth from n to 2n: linear, with ε for the parts that do not grow. */
-const linear = 2.5
 
 type Dimension =
 	| "roster handles"
@@ -112,14 +122,15 @@ const dimensions: Arr.NonEmptyReadonlyArray<Dimension> = [
 	"context fields"
 ]
 
+/** A dimension, and half the least of the three sizes it is installed at: 2·half, 4·half and 6·half. */
 interface Point {
 	readonly dimension: Dimension
-	readonly n: number
+	readonly half: number
 }
 
 const pointGen: Gen<Point> = (s) => ({
 	dimension: s.draw(element(dimensions)),
-	n: s.draw(int(3, 8))
+	half: s.draw(int(2, 4))
 })
 
 const schemaOf = (
@@ -231,8 +242,8 @@ const worldsAt = (base: BaseSpec, roles: Arr.NonEmptyReadonlyArray<RoleSpec>): S
 	spec: worldsOf(base, roles)
 })
 
-/** The installation of one dimension at size `n`. */
-const scaled = ({ dimension, n }: Point): Scaled => {
+/** The installation of `dimension` at size `n`. */
+const scaled = (dimension: Dimension, n: number): Scaled => {
 	switch (dimension) {
 		case "roster handles":
 			return schemaAt(roster(n, 1, (i) => i, false))
@@ -455,8 +466,8 @@ const nodes = (v: unknown): number =>
 				: 1
 
 /**
- * An installation's sizes in AST nodes: each object's statements, and each role default, public
- * revoke and comment, the largest of them and their total; and snapshot.json's length.
+ * An installation's sizes in AST nodes: the total of each object's statements and each role default, public revoke and
+ * comment; and snapshot.json's and manifest.json's, read back as the JSON values they hold.
  */
 const sizesOf = (installation: Installation) => {
 	const manifest = installation.manifest
@@ -475,48 +486,50 @@ const sizesOf = (installation: Installation) => {
 	)
 	const files = succeeded(writeSnapshot(snapshot, derivedOf(installation)))
 	return {
-		largest: Arr.reduce(sizes, 0, (m, x) => Math.max(m, x)),
 		total: Arr.reduce(sizes, 0, (n, x) => n + x),
-		snapshot: files.snapshot.length + files.manifest.length
+		snapshot:
+			nodes(trustedJson<unknown>(files.snapshot)) + nodes(trustedJson<unknown>(files.manifest))
 	}
 }
 
 describe("installation size", () => {
 	it.effect(
-		"no object, installation or snapshot grows faster than one dimension of its schema or worlds",
+		"no installation or snapshot grows faster than one dimension of its schema or worlds",
 		(ctx) =>
 			searched(
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
 						suite: "unit/laws/scaling",
 						generator: pointGen,
 						literal: Formatter.format,
-						limit: dimensions.length * 6,
+						limit: dimensions.length * 3,
+						box: "every dimension of a schema and of its worlds, installed at 2h, 4h and 6h for every h from 2 to 4",
+						oracle: {
+							kind: "universal",
+							name: "a size that grows no faster than linearly increments no more over its second equal step than over its first"
+						},
 						coverage: requiredInSpace<Dimension>(dimensions),
 						caseHang
 					},
 					(point, c) =>
 						Effect.gen(function* () {
 							c.note(point.dimension)
-							const smallInstallation = yield* installationOf(scaled(point))
-							const small = sizesOf(smallInstallation)
-							const largeInstallation = yield* installationOf(scaled({ ...point, n: 2 * point.n }))
-							const large = sizesOf(largeInstallation)
-							const at = `${point.dimension} at ${point.n} against ${2 * point.n}`
-							assert.ok(
-								large.largest <= linear * small.largest,
-								`${at}: the largest object grows from ${small.largest} to ${large.largest} nodes`
+							const measured = new Map<number, ReturnType<typeof sizesOf>>()
+							for (const size of [2 * point.half, 4 * point.half, 6 * point.half]) {
+								const installation = yield* installationOf(scaled(point.dimension, size))
+								measured.set(size, sizesOf(installation))
+							}
+							const at = (size: number) => defined(measured.get(size), `the sizes at ${size}`)
+							incrementsDoNotGrow(
+								(size) => at(size).total,
+								point.half,
+								`${point.dimension}: the installation's AST nodes`
 							)
-							assert.ok(
-								large.total <= linear * small.total,
-								`${at}: the installation grows from ${small.total} to ${large.total} nodes`
-							)
-							assert.ok(
-								large.snapshot <= linear * small.snapshot,
-								`${at}: snapshot.json grows from ${small.snapshot} to ${large.snapshot} characters`
+							incrementsDoNotGrow(
+								(size) => at(size).snapshot,
+								point.half,
+								`${point.dimension}: snapshot.json's and manifest.json's JSON nodes`
 							)
 						})
 				)

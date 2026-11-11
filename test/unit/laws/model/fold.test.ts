@@ -1,3 +1,36 @@
+/**
+ * A fold's natives are w4-w7 §2.3's: per plane a before copied from the predecessor's after on the predecessor axis and
+ * an end copied from the last member's after on the last axis, each a field the step side names or a drawn law column
+ * when it names none, and the fold's own CHECKs, judged on every row of the box by the reference evaluator:
+ *
+ * - on the member, every after is `combine(before, x)` where the step side's selection holds and its before where it
+ *   does not, compared in exact arithmetic, and at the first slot every before is the monoid's identity
+ *   (`i > 0 OR before = ι`);
+ * - on the owner, an empty family's every end is the identity (`n > 0 OR end = ι`).
+ *
+ * The oracles: NP's reference combine (test/support/families/fold.ts `combined`, exact bigint arithmetic), a second
+ * implementation of each monoid's step; and the specification's pins.
+ *
+ * Bound: every monoid on every carrier it admits (count on natural; sum on int2, int4, int8, natural, numeric(4, 1)
+ * and money; or and twos on a two-handle roster's sets; max on int2, int4, int8, natural, a closed id and money), over
+ * an ordered family with named accumulators or hidden ones and a counted family with hidden ones, stepping over every
+ * member or a selected one: 90 folds. A sum over money is refused at the fold's typing (the monoid admits no money):
+ * its combine has no exact CHECK, as money's exact arithmetic is through its STABLE cast to numeric and its own
+ * addition raises on overflow, so its six cases assert the refusal. Each CHECK is judged on every row of three values a plane (four for a set, the
+ * identity among them), every after the combine gives or another, both selections and both first slots. The named
+ * mutant, the first-slot pin dropped (the fold accumulator unconstrained at slot 0), is a row at slot 0 whose before
+ * is no identity and whose after is its combine, which the box refuses.
+ *
+ * The names: a hidden accumulator is named by its fold's law, so over every order of two or three folds of one family
+ * and every fold removed, every other fold's hidden accumulators keep their identifiers (a metamorphic oracle).
+ *
+ * Plants (~/.cache/grizzle-release/BR03/plants): fold-first-slot-unpinned (the predecessor axis's base pin, and so the
+ * first-slot identity pin, dropped) for the natives; fold-names-by-first-law (every fold's hidden accumulators named by
+ * the family's first fold's law) for the names.
+ *
+ * Features: each monoid and carrier, named and hidden, ordered and counted, selected or not; each hidden fold removed,
+ * a fold before the removed one and one after it.
+ */
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
@@ -45,30 +78,6 @@ import {
 	onRelation,
 	type Row
 } from "#test/unit/laws/model/natives.ts"
-
-/**
- * A fold's natives are w4-w7 §2.3's: per plane a before copied from the predecessor's after on the predecessor axis and
- * an end copied from the last member's after on the last axis, each a field the step side names or a drawn law column
- * when it names none, and the fold's own CHECKs, judged on every row of the box by the reference evaluator:
- *
- * - on the member, every after is `combine(before, x)` where the step side's selection holds and its before where it
- *   does not, compared in exact arithmetic, and at the first slot every before is the monoid's identity
- *   (`i > 0 OR before = ι`);
- * - on the owner, an empty family's every end is the identity (`n > 0 OR end = ι`).
- *
- * The oracles: NP's reference combine (test/support/families/fold.ts `combined`, exact bigint arithmetic), a second
- * implementation of each monoid's step; and the specification's pins.
- *
- * Bound: every monoid on every carrier it admits (count on natural; sum on int2, int4, int8, natural, numeric(4, 1)
- * and money; or and twos on a two-handle roster's sets; max on int2, int4, int8, natural, a closed id and money), over
- * an ordered family with named accumulators or hidden ones and a counted family with hidden ones, stepping over every
- * member or a selected one: 90 folds. A sum over money is refused at the fold's typing (the monoid admits no money):
- * its combine has no exact CHECK, as money's exact arithmetic is through its STABLE cast to numeric and its own
- * addition raises on overflow, so its six cases assert the refusal. Each CHECK is judged on every row of three values a plane (four for a set, the
- * identity among them), every after the combine gives or another, both selections and both first slots. The named
- * mutant, the first-slot pin dropped (the fold accumulator unconstrained at slot 0), is a row at slot 0 whose before
- * is no identity and whose after is its combine, which the box refuses.
- */
 
 type Carrier = "int2" | "int4" | "int8" | "natural" | "numeric" | "money" | "set" | "code"
 type Accumulators = "named" | "hidden"

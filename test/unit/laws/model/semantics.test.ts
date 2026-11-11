@@ -1,3 +1,20 @@
+/**
+ * A schema of rosters and closed relations states no law: it compiles to the empty law model (no law, native object,
+ * constraint or law the migration discharges), and installs.
+ *
+ * The oracle is the specification: a roster's handles and a closed relation's rows are immutable finite facts the
+ * description boundary checks (ir/desc.ts: one row per key, each of every field, keyed by closed ids), so no law
+ * remains to discharge, whatever the rosters, their sizes and the closed relations over them, none at all included.
+ *
+ * Inputs: zero to three rosters of one to three handles, each alone or with a closed relation of a bigint payload over
+ * every handle.
+ *
+ * Plants (~/.cache/grizzle-release/BR03/plants): no-law-closed-relation-keyed (the theory states a closed relation's
+ * primary key as a law).
+ *
+ * Features: no relation, a roster alone, a closed relation.
+ */
+
 import { describe, it } from "@effect/vitest"
 import { sketched, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -14,15 +31,6 @@ import { caseHang } from "#test/support/limits.ts"
 import { owning } from "#test/support/policy.ts"
 import { modelOf, schemaOf } from "#test/unit/laws/model/support.ts"
 
-/**
- * A schema of rosters and closed relations states no law: it compiles to the empty law model (no law, native object,
- * constraint or law the migration discharges), and installs.
- *
- * The oracle is the specification: a roster's handles and a closed relation's rows are immutable finite facts the
- * description boundary checks (ir/desc.ts: one row per key, each of every field, keyed by closed ids), so no law
- * remains to discharge, whatever the rosters, their sizes and the closed relations over them, none at all included.
- */
-
 /** A closed relation over a roster: none, or one value of a bigint payload per handle that has a row. */
 type Payload =
 	| { readonly kind: "none" }
@@ -36,7 +44,10 @@ describe("a schema that states no law", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "rosters and closed relations are immutable facts the description checks: no law, native or constraint remains"
+						},
 						suite: "unit/laws/model/no-law",
 						draw: sketched(
 							array(

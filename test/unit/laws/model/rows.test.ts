@@ -1,3 +1,23 @@
+/**
+ * A relation's rows must fit one heap tuple (MaxHeapTupleSize): its fields and law columns are refused exactly when a
+ * row of them, every variable-length value moved out of line, takes more. The oracle is PostgreSQL's layout turned
+ * into a checker, written from heaptuple.c and pg_type's catalog alone, never from the engine's datum bounds: a row is
+ * its header, SizeofHeapTupleHeader (23) and a null bitmap of a bit per column when one may be NULL, MAXALIGNed (8);
+ * then each fixed-width column at its pg_type typlen and typalign, widest alignment first, and each unbounded text at
+ * its TOAST pointer's 18 bytes, unaligned.
+ *
+ * The limit is drawn small (rule 10): each case's limit is its own row's size, so the refusal is judged at the exact
+ * boundary, accepted at it and refused one byte under it. Bound: rows of 0 to 12 columns drawn from int2, int4, int8,
+ * bool, uuid, a closed id and an unbounded text, each NULL-able or not, 300 runs. The law model applies it at the
+ * real MaxHeapTupleSize, drawn on both sides of it: a relation of a uuid key, up to six drawn fields and k bigint fields
+ * compiles at the largest k whose row fits and the one before it, and is refused at the next.
+ *
+ * Plants (~/.cache/grizzle-release/BR03/plants): rows-bitmap-dropped (a row's null bitmap uncounted) for the layout,
+ * rows-at-limit-refused (a row of exactly the limit refused) for the law model at MaxHeapTupleSize.
+ *
+ * Features: a NULL-able column, a varlena, mixed alignments and no column for the layout; within, at and past the
+ * bound, a varlena and mixed alignments for the law model.
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -14,21 +34,6 @@ import { f, relation } from "#test/support/fixtures/ir/desc.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { compiledModel, modelOf } from "#test/unit/laws/model/natives.ts"
-
-/**
- * A relation's rows must fit one heap tuple (MaxHeapTupleSize): its fields and law columns are refused exactly when a
- * row of them, every variable-length value moved out of line, takes more. The oracle is PostgreSQL's layout turned
- * into a checker, written from heaptuple.c and pg_type's catalog alone, never from the engine's datum bounds: a row is
- * its header, SizeofHeapTupleHeader (23) and a null bitmap of a bit per column when one may be NULL, MAXALIGNed (8);
- * then each fixed-width column at its pg_type typlen and typalign, widest alignment first, and each unbounded text at
- * its TOAST pointer's 18 bytes, unaligned.
- *
- * The limit is drawn small (rule 10): each case's limit is its own row's size, so the refusal is judged at the exact
- * boundary, accepted at it and refused one byte under it. Bound: rows of 0 to 12 columns drawn from int2, int4, int8,
- * bool, uuid, a closed id and an unbounded text, each NULL-able or not, 300 runs. The law model applies it at the
- * real MaxHeapTupleSize, drawn on both sides of it: a relation of a uuid key, up to six drawn fields and k bigint fields
- * compiles at the largest k whose row fits and the one before it, and is refused at the next.
- */
 
 /** A column kind with its pg_type storage: typlen and typalign in bytes, or a varlena held as a TOAST pointer. */
 interface Kind {

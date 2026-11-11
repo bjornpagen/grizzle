@@ -1,3 +1,29 @@
+/**
+ * A coverage law, a containment pairing a span field of each side, lowers natively (fin.md §7, w4-w7 §2.5): each
+ * selected side's terms are law columns; the target is keyed WITHOUT OVERLAPS over exactly its terms, by its declared
+ * span key or by a key over its projected side; and the law is `FOREIGN KEY (f…, PERIOD s) REFERENCES B (g…, PERIOD t)`
+ * with the index over its referencing columns, and always deferred: it references the target's span as a period, so
+ * one ChangeSet may replace the facts covering a source's span by others that still cover it, a span cut or split,
+ * which the target's WITHOUT OVERLAPS key admits only once the facts they overlap are deleted, after the reference is
+ * checked if it were immediate. A target whose spans may overlap within a key, one keyed
+ * WITHOUT OVERLAPS over no such terms, is refused with fin.md §7's sentence.
+ *
+ * Every installation holds a span key's law columns before the key names them, so a key over a selected side is its own
+ * ALTER TABLE ... ADD CONSTRAINT after them (42703 otherwise).
+ *
+ * The oracle is fin.md §7 turned into a checker, over the natives' structure: PostgreSQL's PERIOD references are no
+ * part of the host model of the natives, so their semantics are NP's (test/pg/laws/coverage.test.ts), judged by
+ * PostgreSQL.
+ *
+ * Bound: every coverage of a source selected or not into five targets: unselected and keyed by its span key, with a
+ * payload field or none; unselected and unkeyed; selected and keyed by a key over its side; selected and unkeyed. Ten
+ * shapes, exhausted.
+ *
+ * Plants (~/.cache/grizzle-release/BR03/plants): coverage-unkeyed-target-admitted (a coverage into a target keyed
+ * WITHOUT OVERLAPS over none of its terms lowers instead of being refused).
+ *
+ * Features: a selected source, a selected target, an unkeyed target, a replaceable target, an irreplaceable target.
+ */
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
@@ -30,28 +56,6 @@ import {
 	nativesOf
 } from "#test/unit/laws/model/natives.ts"
 import { owner } from "#test/unit/physical/fixtures.ts"
-
-/**
- * A coverage law, a containment pairing a span field of each side, lowers natively (fin.md §7, w4-w7 §2.5): each
- * selected side's terms are law columns; the target is keyed WITHOUT OVERLAPS over exactly its terms, by its declared
- * span key or by a key over its projected side; and the law is `FOREIGN KEY (f…, PERIOD s) REFERENCES B (g…, PERIOD t)`
- * with the index over its referencing columns, and always deferred: it references the target's span as a period, so
- * one ChangeSet may replace the facts covering a source's span by others that still cover it, a span cut or split,
- * which the target's WITHOUT OVERLAPS key admits only once the facts they overlap are deleted, after the reference is
- * checked if it were immediate. A target whose spans may overlap within a key, one keyed
- * WITHOUT OVERLAPS over no such terms, is refused with fin.md §7's sentence.
- *
- * Every installation holds a span key's law columns before the key names them, so a key over a selected side is its own
- * ALTER TABLE ... ADD CONSTRAINT after them (42703 otherwise).
- *
- * The oracle is fin.md §7 turned into a checker, over the natives' structure: PostgreSQL's PERIOD references are no
- * part of the host model of the natives, so their semantics are NP's (test/pg/laws/coverage.test.ts), judged by
- * PostgreSQL.
- *
- * Bound: every coverage of a source selected or not into five targets: unselected and keyed by its span key, with a
- * payload field or none; unselected and unkeyed; selected and keyed by a key over its side; selected and unkeyed. Ten
- * shapes, exhausted.
- */
 
 interface Shape {
 	readonly source: "every" | "selected"

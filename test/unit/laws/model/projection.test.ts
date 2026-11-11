@@ -1,3 +1,39 @@
+/**
+ * Sides are partial projections, and fin.md §5.1 lowers every law over them by one set of rules, each read here from
+ * the installation's DDL by structure, never by its text:
+ *
+ * - every term of a selected side, and every pred term, is a law column of its own, `GENERATED ALWAYS AS (CASE WHEN φ
+ *   THEN t END) STORED`: its WHEN reads exactly the selection's fields, and for pred(x) x as well (x > 0), and its THEN
+ *   reads exactly the term's field (x - 1 for pred). A field term of a side over every fact is its field's own column;
+ * - a law column is typed by its field's base type, never a domain;
+ * - a key is one UNIQUE over exactly its side's columns;
+ * - a containment is one FOREIGN KEY from its left side's columns to its right side's, in term order, into a key over
+ *   exactly the referenced columns, and an index leads with its referencing columns;
+ * - a target selection that fixes a field to a constant is a constant law column on the source, NOT NULL and reading no
+ *   field, which the reference carries after its terms into the target's superkey over its terms and that field: one
+ *   such UNIQUE however many constants reference it, so the target needs no index per constant;
+ * - a foreign key is DEFERRABLE INITIALLY DEFERRED exactly when it lies on a cycle of the references or its target
+ *   holds a field beside the referenced ones, which a write can replace at the key; otherwise it is NOT DEFERRABLE;
+ * - mirrors(a, b) is sugar: it installs exactly what contained(a, b) and contained(b, a) install.
+ *
+ * The search draws one law over five relations: a key over Item's owner and its code or pred(at), a containment of
+ * Item's owner, and its code into a superkey, into Owner's id and rank, a set of references among three relations of
+ * their keys and fields, or mirrors of Owner or Item with Profile. Every Item side is over every fact or a drawn
+ * selection, a boolean field fixed, a code compared, or both; every Owner side over every fact, a drawn comparison or
+ * range of rank, or a fixed live, beside a second constant selection from Note or none. The oracle is §5.1 turned into
+ * a checker of the drawn law's DDL.
+ *
+ * `NULLS DISTINCT` and `MATCH SIMPLE` are the printer's spelling of every UNIQUE and FOREIGN KEY node, so no structure
+ * here holds them. A containment whose target a cascade feeds is deferred too, which no law of this box does.
+ *
+ * Plants (~/.cache/grizzle-release/BR03/plants): projection-rule-never-defers (a foreign key the schema-wide rule
+ * decides is never deferred, though its target holds a field beside the referenced ones).
+ *
+ * Features: a key over fields, a selected side, a pred term or a selected pred term; a containment, into a superkey,
+ * from or into a selected side, into a constant selection; two constant selections of one target; a reference on a
+ * cycle, into a replaceable target, or off every cycle into a key no write replaces; mirrors over whole relations or a
+ * selected side; and each Item selection.
+ */
 import { describe, it } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -42,35 +78,6 @@ import { installationNamesOf, type Names } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { owning } from "#test/support/policy.ts"
 import { owner } from "#test/unit/physical/fixtures.ts"
-
-/**
- * Sides are partial projections, and fin.md §5.1 lowers every law over them by one set of rules, each read here from
- * the installation's DDL by structure, never by its text:
- *
- * - every term of a selected side, and every pred term, is a law column of its own, `GENERATED ALWAYS AS (CASE WHEN φ
- *   THEN t END) STORED`: its WHEN reads exactly the selection's fields, and for pred(x) x as well (x > 0), and its THEN
- *   reads exactly the term's field (x - 1 for pred). A field term of a side over every fact is its field's own column;
- * - a law column is typed by its field's base type, never a domain;
- * - a key is one UNIQUE over exactly its side's columns;
- * - a containment is one FOREIGN KEY from its left side's columns to its right side's, in term order, into a key over
- *   exactly the referenced columns, and an index leads with its referencing columns;
- * - a target selection that fixes a field to a constant is a constant law column on the source, NOT NULL and reading no
- *   field, which the reference carries after its terms into the target's superkey over its terms and that field: one
- *   such UNIQUE however many constants reference it, so the target needs no index per constant;
- * - a foreign key is DEFERRABLE INITIALLY DEFERRED exactly when it lies on a cycle of the references or its target
- *   holds a field beside the referenced ones, which a write can replace at the key; otherwise it is NOT DEFERRABLE;
- * - mirrors(a, b) is sugar: it installs exactly what contained(a, b) and contained(b, a) install.
- *
- * The search draws one law over five relations: a key over Item's owner and its code or pred(at), a containment of
- * Item's owner, and its code into a superkey, into Owner's id and rank, a set of references among three relations of
- * their keys and fields, or mirrors of Owner or Item with Profile. Every Item side is over every fact or a drawn
- * selection, a boolean field fixed, a code compared, or both; every Owner side over every fact, a drawn comparison or
- * range of rank, or a fixed live, beside a second constant selection from Note or none. The oracle is §5.1 turned into
- * a checker of the drawn law's DDL.
- *
- * `NULLS DISTINCT` and `MATCH SIMPLE` are the printer's spelling of every UNIQUE and FOREIGN KEY node, so no structure
- * here holds them. A containment whose target a cascade feeds is deferred too, which no law of this box does.
- */
 
 const Owner = relation("Owner", { id: uuid, rank: pg.int4, live: pg.boolean, slots: natural }, [
 	"id"

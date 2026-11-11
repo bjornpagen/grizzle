@@ -1,3 +1,22 @@
+/**
+ * Merging is exact (w4-w7 §2.1, fin.md §15 rule 3): a family axis's one foreign key, carrying every containment that
+ * rides it, holds in a state exactly when every one of those containments holds there. The oracle is metamorphic: the
+ * merged lowering's verdict against each containment's own meaning as a partial projection, a source side's every
+ * defined tuple among the target side's tuples, computed directly from the state. It is exact because the axis's key
+ * terms are a key of its target side, so a source row meets at most one target row; the host model of the foreign key's
+ * PostgreSQL semantics (natives.ts `breaks`, MATCH SIMPLE) is the judge.
+ *
+ * Bound: an owner's family of two members at slots 0 and 1, with two copies riding one axis: the owner axis (o₀ → f₀
+ * and o₁ → f₁ from each member to its owner), the predecessor axis (a₀ → b₀ and a₁ → b₁ between neighbours) or the last
+ * axis (e₀ → l₀ and e₁ → l₁ from the owner to its last member), every carried column over the three values 0, 1 and 2:
+ * 3⁶, 3⁸ and 3⁶ states, exhausted. Every state holds the family itself, so the axis's key part holds and each verdict
+ * turns on the copies.
+ *
+ * Plants (~/.cache/grizzle-release/BR03/plants): axis-carries-first-copy-only (an axis's foreign key carries only the
+ * first copy riding it).
+ *
+ * Features: each axis, and each copy's verdict.
+ */
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
@@ -30,21 +49,6 @@ import {
 	type Row,
 	type State
 } from "#test/unit/laws/model/natives.ts"
-
-/**
- * Merging is exact (w4-w7 §2.1, fin.md §15 rule 3): a family axis's one foreign key, carrying every containment that
- * rides it, holds in a state exactly when every one of those containments holds there. The oracle is metamorphic: the
- * merged lowering's verdict against each containment's own meaning as a partial projection, a source side's every
- * defined tuple among the target side's tuples, computed directly from the state. It is exact because the axis's key
- * terms are a key of its target side, so a source row meets at most one target row; the host model of the foreign key's
- * PostgreSQL semantics (natives.ts `breaks`, MATCH SIMPLE) is the judge.
- *
- * Bound: an owner's family of two members at slots 0 and 1, with two copies riding one axis: the owner axis (o₀ → f₀
- * and o₁ → f₁ from each member to its owner), the predecessor axis (a₀ → b₀ and a₁ → b₁ between neighbours) or the last
- * axis (e₀ → l₀ and e₁ → l₁ from the owner to its last member), every carried column over the three values 0, 1 and 2:
- * 3⁶, 3⁸ and 3⁶ states, exhausted. Every state holds the family itself, so the axis's key part holds and each verdict
- * turns on the copies.
- */
 
 /** The fields an axis's two copies carry on the owner and on each member, in the order the box draws their values: copy
  * j's source and target among them. */

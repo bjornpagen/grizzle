@@ -1,3 +1,28 @@
+/**
+ * A counted family's natives admit exactly grizzle's plans and refuse every lawless state (fin.md §4.2, §4.5, w4-w7
+ * §2.1): its index ‹i› is a drawn law column in no heading, ‹p› is pred of it, and its predecessor axis is deferred, so
+ * swap-with-last, which leaves the freed slot's successor without a predecessor until the last member moves in, passes
+ * every immediate native at each statement's end.
+ *
+ * The oracle is NP's model of a counted family's writes (test/support/families/counted.ts `swapWithLast`, `appended`),
+ * the planner's statements in the order every change sends them, and the family law itself for the lawless states: a
+ * state is lawful exactly when each owner's members are indexed 0 … n − 1 with n its count, each member's copy of the
+ * count is n, and the hidden count fold's accumulators and end are the reference fold's. The judge is a host model of
+ * the natives' PostgreSQL semantics (natives.ts `brokenBy`): every immediate native holds at each statement's end, and
+ * every native at COMMIT.
+ *
+ * Bound: one owner of 0 to 4 members beside another of one; every swap-with-last at every slot, and every append of 1
+ * or 2 members in every arrival order; and every lawful family of 0 to 4 members under each named lawless variant (a
+ * duplicate slot, a gap, a count off by one, a stale copy, a member at slot −1, a junk accumulator at slot 0, a junk
+ * end).
+ *
+ * Plants (~/.cache/grizzle-release/BR03/plants): counted-predecessor-immediate (an immediate predecessor axis, which
+ * swap-with-last breaks mid-plan) and counted-bound-no-floor (the counted bound without `‹i› >= 0`, so a member at slot
+ * −1 is accepted).
+ *
+ * Features: swap with last, append, an arrival out of order, and each named lawless variant.
+ */
+
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
@@ -35,26 +60,6 @@ import {
 	type Row,
 	type State
 } from "#test/unit/laws/model/natives.ts"
-
-/**
- * A counted family's natives admit exactly grizzle's plans and refuse every lawless state (fin.md §4.2, §4.5, w4-w7
- * §2.1): its index ‹i› is a drawn law column in no heading, ‹p› is pred of it, and its predecessor axis is deferred, so
- * swap-with-last, which leaves the freed slot's successor without a predecessor until the last member moves in, passes
- * every immediate native at each statement's end.
- *
- * The oracle is NP's model of a counted family's writes (test/support/families/counted.ts `swapWithLast`, `appended`),
- * the planner's statements in the order every change sends them, and the family law itself for the lawless states: a
- * state is lawful exactly when each owner's members are indexed 0 … n − 1 with n its count, each member's copy of the
- * count is n, and the hidden count fold's accumulators and end are the reference fold's. The judge is a host model of
- * the natives' PostgreSQL semantics (natives.ts `brokenBy`): every immediate native holds at each statement's end, and
- * every native at COMMIT.
- *
- * Bound: one owner of 0 to 4 members beside another of one; every swap-with-last at every slot, and every append of 1
- * or 2 members in every arrival order; and every lawful family of 0 to 4 members under each named lawless variant (a
- * duplicate slot, a gap, a count off by one, a stale copy, a member at slot −1, a junk accumulator at slot 0, a junk
- * end). The mutants this box kills: an immediate predecessor axis (swap-with-last breaks it mid-plan) and the counted
- * bound without `‹i› >= 0` (a member at slot −1 accepted).
- */
 
 const count: FoldMonoid = { name: "count", least: 0n }
 

@@ -32,6 +32,13 @@
  * Planted in a scratch copy, each of these fails the first box: a lowering that drops a match's constant column; one
  * whose superkey plans no UNIQUE; and one that ignores condition 4, lowering a definition whose matches share a
  * variable of their own.
+ *
+ * Plants (~/.cache/grizzle-release/BR03/plants): rule-lowering-shared-existential (condition 4 ignored for a variable
+ * of their own two matches share) for the lowering; level-target-selection-admitted (a source on the level below
+ * admitted into a selected target) for the level rule.
+ *
+ * Features: each condition met or broken, one match or two, constants, S and R1 on either level, lowered and kept for
+ * the lowering; each target side's key and selection, from above and below, for the level rule.
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"

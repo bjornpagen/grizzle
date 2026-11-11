@@ -1,3 +1,45 @@
+/**
+ * The native constraints grizzle installs mean what its laws mean. Three readings of one schema meet here: an oracle
+ * of the laws' meaning; the native model (test/support/native/model.ts), which evaluates the native objects the law
+ * model installs with PostgreSQL's semantics (UNIQUE NULLS DISTINCT and WITHOUT OVERLAPS, FOREIGN KEY … MATCH SIMPLE
+ * and PERIOD, immediate or deferred, ON UPDATE CASCADE, CHECK, generated and drawn law columns, contract domains); and
+ * PostgreSQL itself, at the pg tier. The oracle is never the compiler: the host law model (test/support/laws/model.ts)
+ * for partial projections, keys, containments, span keys and coverage, and for a family the family model
+ * (test/support/families), which states when PostgreSQL checks each of the lemma's constraints, and the theorem.
+ *
+ * Over every state, every law the host model finds broken is refused by a constraint that discharges it, and every
+ * constraint the state breaks discharges a law it breaks, so the installation accepts a state exactly when every law
+ * holds. Over every transaction from a committed state, each order a writer may send its statements in (one per table
+ * and change, a table's removals before its additions, and each immediate reference's target added before and removed
+ * after its source) commits exactly when the state it leaves is lawful, and a refusal names a law broken at that
+ * moment. A family's transactions, its count's update cascading into its members' drawn copies, commit or are refused
+ * where the family model says, at the same statement or at COMMIT, reporting the laws of the constraints it finds broken.
+ *
+ * - Box: every rule of the partial-projection lowering with each of its selections, over every state of at most two
+ *   Owner rows and three of every other relation, and every order a writer sends. Plant: selected-side-unguarded (a
+ *   selected side's field term lowers to its field, so its law holds over every fact).
+ * - Explored: drawn schemas over selections of the whole predicate language, puts included, their states and
+ *   transactions drawn. Plant: selected-side-unguarded.
+ * - Fin box: the fin lemma stated as plain laws, no owner or an owner of count 0 to 3 over its first four slots, each
+ *   holding no row, one or two, every copy the count, against the family theorem's constraints. Plant:
+ *   selected-side-unguarded (the closure's selected side lowers to its fields).
+ * - Fin programs: every state a family program's statements leave, lawful, breaking and misordered, refused at the
+ *   statement or at COMMIT where the family model says. Plant: cycle-never-defers (a foreign key on a cycle of the
+ *   references installed immediate, so a lawful program is refused at its statement).
+ * - Family box: grizzle's own families, each shape ordered and counted, over the fin box's states. Plant:
+ *   fin-bound-inclusive.
+ * - Family programs: grizzle's own families' transactions, drawn copies, the count's cascade and each axis's deferral,
+ *   as the family model runs them. Plant: counted-predecessor-immediate (a counted family's predecessor axis
+ *   immediate, which swap-with-last breaks mid-plan).
+ * - Span box: every span rule over at most two rows of Visit and of Shift, keys WITHOUT OVERLAPS over fields and law
+ *   columns and PERIOD foreign keys from and into selected sides. Plant: selected-side-unguarded.
+ * - Pairs: two laws over selections of one relation kept apart, each refused by its own constraint, and a rule stated
+ *   in both orientations installed as one law. Plant: selected-side-unguarded.
+ *
+ * Plants are patches in ~/.cache/grizzle-release/BR03/plants. Features: each suite's rule kinds, verdicts and
+ * variants (RuleFeature, ExploredFeature, FinFeature, FamilyFeature, SpanFeature, PairFeature), the vocabularies its
+ * coverage requires.
+ */
 import { describe, it } from "@effect/vitest"
 import { runProgram } from "@grizzle/testing/commands"
 import { type Case, drawn, exhaust, explore, type Oracle } from "@grizzle/testing/explore"
@@ -105,24 +147,6 @@ import {
 	spanRuleText,
 	type State
 } from "#test/support/native/schemas.ts"
-
-/**
- * The native constraints grizzle installs mean what its laws mean. Three readings of one schema meet here: an oracle
- * of the laws' meaning; the native model (test/support/native/model.ts), which evaluates the native objects the law
- * model installs with PostgreSQL's semantics (UNIQUE NULLS DISTINCT and WITHOUT OVERLAPS, FOREIGN KEY … MATCH SIMPLE
- * and PERIOD, immediate or deferred, ON UPDATE CASCADE, CHECK, generated and drawn law columns, contract domains); and
- * PostgreSQL itself, at the pg tier. The oracle is never the compiler: the host law model (test/support/laws/model.ts)
- * for partial projections, keys, containments, span keys and coverage, and for a family the family model
- * (test/support/families), which states when PostgreSQL checks each of the lemma's constraints, and the theorem.
- *
- * Over every state, every law the host model finds broken is refused by a constraint that discharges it, and every
- * constraint the state breaks discharges a law it breaks, so the installation accepts a state exactly when every law
- * holds. Over every transaction from a committed state, each order a writer may send its statements in (one per table
- * and change, a table's removals before its additions, and each immediate reference's target added before and removed
- * after its source) commits exactly when the state it leaves is lawful, and a refusal names a law broken at that
- * moment. A family's transactions, its count's update cascading into its members' drawn copies, commit or are refused
- * where the family model says, at the same statement or at COMMIT, reporting the laws of the constraints it finds broken.
- */
 
 const relations = RELATIONS
 

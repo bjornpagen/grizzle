@@ -1,3 +1,25 @@
+/**
+ * The keys a family axis references fit a B-tree entry for every value their columns admit, or the schema is refused
+ * when it compiles with UnrepresentableKey, where PostgreSQL would refuse the first write that outgrew them (54000).
+ *
+ * - A concat fold's axis key: the UNIQUE its predecessor and last axes reference, Line's (doc, at, after) for a concat
+ *   fold that carries its running text `after` along them (laws/model/plan.ts #axis). The box: the fold's text, its
+ *   pieces and accumulators one type, of no bound, or bounded by a contract to at most n bytes, or to at most n code
+ *   points of 4 bytes each, with n every bound whose entry lies within one MAXALIGN step of BTMaxItemSize on either
+ *   side, exhausted. The oracle: the B-tree entry nbtree.h bounds, counted by hand from the columns' layouts as
+ *   schema/representability.ts documents the count (entryBytes), refused exactly past BTMaxItemSize at the fold, over
+ *   that UNIQUE, and an unbounded text refused whatever its entry. Plant: btree-entry-at-bound-refused (an entry at
+ *   BTMaxItemSize is refused). Features: unbounded, and each bound's kind with each verdict.
+ * - A carried set's key: a set an axis carries is its roster's bit(n), n every code the roster has minted, holes
+ *   included, sized exactly by the installation's codes (physical/ddl/tables.ts setUniqueBound), so a roster pruned of
+ *   many handles refuses the UNIQUE when it is compiled rather than at an insert. The box: Tag's codes its two live
+ *   handles, then every count of holes whose codes lie within a MAXALIGN step's worth of bytes of the most that fit,
+ *   exhausted. The oracle: the entry counted by hand, a bit(n)'s varlena header, its 4-byte bit count and a byte per
+ *   eight codes after Line's (order, at) at their exact offsets. Plant: set-unique-bound-undercounted (a set's datum
+ *   counted a byte short). Features: an entry at the bound, an entry past it.
+ *
+ * Plants are patches in ~/.cache/grizzle-release/BR03/plants.
+ */
 import { describe, it } from "@effect/vitest"
 import { type Case, exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
@@ -41,18 +63,6 @@ import { caseHang } from "#test/support/limits.ts"
 import { ownedInput } from "#test/support/policy.ts"
 import { upTo } from "#test/support/up-to.ts"
 
-/**
- * A family axis's key is a key like any declared one (laws/model/plan.ts #axis): the UNIQUE its predecessor and last
- * axes reference, Line's (doc, at, after) for a concat fold that carries its running text `after` along them, fits a
- * B-tree entry for every value its columns admit, or the schema is refused when it compiles with UnrepresentableKey at
- * the fold, over that UNIQUE, where PostgreSQL would refuse the first write that outgrew it (54000).
- *
- * The box: the fold's text, its pieces and accumulators one type, of no bound, or bounded by a contract to at most n
- * bytes, or to at most n code points of 4 bytes each, with n every bound whose entry lies within one MAXALIGN step of
- * BTMaxItemSize on either side. The oracle: the B-tree entry nbtree.h bounds, counted by hand from the columns' layouts
- * as schema/representability.ts documents the count (entryBytes), refused exactly past BTMaxItemSize, and an unbounded
- * text refused whatever its entry.
- */
 type TextType =
 	| Readonly<{ kind: "unbounded" }>
 	| Readonly<{ kind: "octets"; n: number }>

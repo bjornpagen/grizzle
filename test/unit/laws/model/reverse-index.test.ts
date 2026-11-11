@@ -10,6 +10,12 @@
  * GiST index. A selected source's reverse index holds law columns, each its field's where the selection holds, so its
  * width is checked; a whole source's holds the fields themselves, so its columns are. PostgreSQL's plan of the probe is
  * test/pg/laws/reverse-probe.test.ts's.
+ *
+ * Plants (~/.cache/grizzle-release/BR03/plants): reverse-shortest-run (the B-tree over the shortest leading run that
+ * fits, its first column alone).
+ *
+ * Features: free text first, between or last, or only free text; a run cut short by width; a B-tree; a hash index;
+ * covered by a declared key; a selected source; into a superkey.
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -44,7 +50,10 @@ describe("a containment's reverse index", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "test/support/laws/reverse.ts's rule: the B-tree over the longest leading bounded run that fits, else the hash index on the first hashable column"
+						},
 						suite: "unit/laws/model/reverse-index",
 						draw: drawn(reverseCaseGen),
 						literal: Formatter.format,

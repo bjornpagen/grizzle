@@ -1,3 +1,37 @@
+/**
+ * A family's natives are exactly fin.md §5.2's lemmas on w4-w7 §2.1's three axes, read from the law model's native
+ * objects, never from SQL text. The oracle is the specification turned into a checker: §2.1's table states, for each
+ * shape, the foreign keys (their pairs as a set, their update action and their deferral), the keys and the CHECKs, and
+ * the checker builds that expectation from the shape alone.
+ *
+ * - **owner:** Member(g…, ‹n›, carried…) → Owner(k…, n, carried…), ON UPDATE CASCADE, immediate (the owner is
+ *   immutable, so no cascade feeds its target);
+ * - **predecessor:** Member(g…, ‹p›, carried…) → Member(g…, i, carried…), immediate when ordered and deferred when
+ *   counted;
+ * - **last:** Owner(k…, ‹pn›, carried…) → Member(g…, i, carried…), deferred (the owner ↔ family cycle);
+ * - **keys:** `UNIQUE (g…, i)`, a superkey per distinct carried set on each target, and no other;
+ * - **merging:** every containment that rides an axis has no native of its own: its pairs are the axis's, its law is
+ *   among the axis's laws after the family's, and its lowering lists the axis's foreign key;
+ * - **the bound:** the family's CHECK accepts exactly the rows where `i < ‹n›`, and for a counted index `0 ≤ i < ‹n›`,
+ *   since a law column has no natural domain;
+ * - **the pins:** an accumulated copy's containment states the base pin `base > 0 OR f = start` on its source, the
+ *   index on the predecessor axis and the count on the last; the owner axis of a family over every fact has no base;
+ * - **the generated columns:** ‹p› is pred of the index and ‹pn› pred of the count, NULL at 0.
+ *
+ * Bound: every family of group width 1 or 2, ordered or counted, with a caller copy or none and an accumulated copy or
+ * none on each axis it admits: 2 × 4³ ordered and 2 × 4 counted, 136 schemas, exhausted. A CHECK is judged on every
+ * index and count in 0 … 3, the index from −1 when counted, and a pin on every base in 0 … 2 against its start and
+ * another value. A lemma restated on an axis is judged on every family of either order and width, on each axis its
+ * sides can name.
+ *
+ * Plants (~/.cache/grizzle-release/BR03/plants): fin-ordered-predecessor-deferred (an ordered family's predecessor
+ * axis deferred) for the axis table; ride-needs-carried-pair (a containment rides an axis only beside a carried pair,
+ * so a restated lemma lowers to its own foreign key) for the restated lemmas; fin-copy-as-index-column (a counted
+ * family's copy drawn as its index column) for the disjoint families.
+ *
+ * Features: the shapes' orders, widths and copies on each axis; each axis a lemma is restated on; one to three counted
+ * families, folded and unfolded.
+ */
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
@@ -43,33 +77,6 @@ import {
 	ridingLaws
 } from "#test/unit/laws/model/natives.ts"
 import { owner } from "#test/unit/physical/fixtures.ts"
-
-/**
- * A family's natives are exactly fin.md §5.2's lemmas on w4-w7 §2.1's three axes, read from the law model's native
- * objects, never from SQL text. The oracle is the specification turned into a checker: §2.1's table states, for each
- * shape, the foreign keys (their pairs as a set, their update action and their deferral), the keys and the CHECKs, and
- * the checker builds that expectation from the shape alone.
- *
- * - **owner:** Member(g…, ‹n›, carried…) → Owner(k…, n, carried…), ON UPDATE CASCADE, immediate (the owner is
- *   immutable, so no cascade feeds its target);
- * - **predecessor:** Member(g…, ‹p›, carried…) → Member(g…, i, carried…), immediate when ordered and deferred when
- *   counted;
- * - **last:** Owner(k…, ‹pn›, carried…) → Member(g…, i, carried…), deferred (the owner ↔ family cycle);
- * - **keys:** `UNIQUE (g…, i)`, a superkey per distinct carried set on each target, and no other;
- * - **merging:** every containment that rides an axis has no native of its own: its pairs are the axis's, its law is
- *   among the axis's laws after the family's, and its lowering lists the axis's foreign key;
- * - **the bound:** the family's CHECK accepts exactly the rows where `i < ‹n›`, and for a counted index `0 ≤ i < ‹n›`,
- *   since a law column has no natural domain;
- * - **the pins:** an accumulated copy's containment states the base pin `base > 0 OR f = start` on its source, the
- *   index on the predecessor axis and the count on the last; the owner axis of a family over every fact has no base;
- * - **the generated columns:** ‹p› is pred of the index and ‹pn› pred of the count, NULL at 0.
- *
- * Bound: every family of group width 1 or 2, ordered or counted, with a caller copy or none and an accumulated copy or
- * none on each axis it admits: 2 × 4³ ordered and 2 × 4 counted, 136 schemas, exhausted. A CHECK is judged on every
- * index and count in 0 … 3, the index from −1 when counted, and a pin on every base in 0 … 2 against its start and
- * another value. A lemma restated on an axis is judged on every family of either order and width, on each axis its
- * sides can name.
- */
 
 type Copy = "caller" | "accumulated"
 type Copies = ReadonlyArray<Copy>
