@@ -9,12 +9,14 @@
  * and the rollup's refresh. Each case draws a member, the rows its statement answers, and one fault: none; its
  * statement refused with 40001, 40P01 or another SQLSTATE; the server ending the session (FATAL) or the connection lost
  * at its statement; COMMIT refused with 40001 or its answer lost; the fence refused by a migration running; or no
- * session to be had. It runs the member's watch and its once on a Db context over the scripted pool.
+ * session to be had. It runs the member's watch and its once on a Db context over the scripted pool, whose registry is
+ * the layer's own (live/subscriptions.ts makeSubscriptions) over a change source that reports no change, so a read's
+ * watch is its first run's answer and then waits: it is read to its first `ready`, or to its `end`.
  *
  * Properties:
  *
- * - a read's answer is reset, its rows' upserts, then `ready` exactly when no fault came, and else its one error event
- *   in place of `ready`, then end; never a `ready` its COMMIT did not answer;
+ * - a read's watch answers reset, its rows' upserts, then `ready` exactly when no fault came, and else its one error
+ *   event in place of `ready`, then end; never a `ready` its COMMIT did not answer;
  * - a write's answer is its outcome exactly when no fault came, and else its one error, then end;
  * - once's error is the answer's error;
  * - the error's class and retry are the fault's meaning: SERIALIZABLE's refusal (40001, 40P01) at a statement or at
@@ -42,6 +44,8 @@ import { Array as Arr, Effect, Exit, Formatter, Option, Stream } from "effect"
 import type { ServedDbContext } from "#adapter/db/context.ts"
 import { memberCalls, type ServedCalls } from "#adapter/db/handles.ts"
 import { LayerReleased } from "#adapter/errors/failures.ts"
+import type { ChangeSource } from "#adapter/live/source.ts"
+import { makeSubscriptions } from "#adapter/live/subscriptions.ts"
 import { loadServed } from "#adapter/served/load.ts"
 import { prologueOf } from "#adapter/wire/batch.ts"
 import { type CallError, type CallErrorKind, callErrors } from "#compiler/live/index.ts"
@@ -237,20 +241,27 @@ const sessionOf = (c: Case, ctx: Pick<ServedDbContext, "prologue">) => {
 	)
 }
 
+/** A change source that opens and reports no change, so a registered read is never marked. */
+const silent: ChangeSource = { open: () => Effect.void }
+
 /** One event of an answer as the properties read it: its kind, and an error event's CallError. */
 interface Answered {
 	readonly kind: string
 	readonly error: CallError | undefined
 }
 
-/** A member's watch, run to its end, each event read as Answered, whatever the answer's shape. */
+/**
+ * A member's watch, run to its first `ready` or its `end`, each event read as Answered, whatever the answer's shape: a
+ * write's answer ends at its outcome's `end`, and a read's, live, waits after its `ready` for a change none reports.
+ */
 const answerOf = (calls: ServedCalls, input: unknown): Effect.Effect<ReadonlyArray<Answered>> => {
 	const read = <E extends { readonly kind: string }>(
 		events: Stream.Stream<E>,
 		errorOf: (event: E) => CallError | undefined
 	) =>
-		Effect.map(Stream.runCollect(events), (all) =>
-			Arr.map(all, (e): Answered => ({ kind: e.kind, error: errorOf(e) }))
+		Effect.map(
+			Stream.runCollect(Stream.takeUntil(events, (e) => e.kind === "ready" || e.kind === "end")),
+			(all) => Arr.map(all, (e): Answered => ({ kind: e.kind, error: errorOf(e) }))
 		)
 	switch (calls.shape) {
 		case "set":
@@ -317,104 +328,108 @@ describe("a live answer over the protocol's results", () => {
 						caseHang
 					},
 					(c, notes) =>
-						Effect.gen(function* () {
-							notes.note(c.member)
-							notes.note(c.fault.kind)
-							const prologue = prologueOf(
-								loaded.prologue,
-								loadedApp.installed,
-								"",
-								loaded.fingerprint
-							)
-							const session = sessionOf(c, { prologue })
-							const context: ServedDbContext = {
-								prologue,
-								claims: new Set(),
-								isolation: loadedApp.isolation,
-								expiry: { kind: "never" },
-								subscriptions: { register: () => Effect.die("a flight registers no live read") },
-								domain: loadedApp.domain,
-								pool: scriptedPool({
-									lease:
-										c.fault.kind === "no session"
-											? Effect.fail(new LayerReleased())
-											: Effect.succeed(session)
-								})
-							}
-							const member = defined(
-								Option.getOrUndefined(Arr.findFirst(loadedApp.members, (m) => m.name === c.member)),
-								`the member ${c.member}`
-							)
-							const calls = memberCalls(context, member)
-							const input =
-								c.member === "rebuild"
-									? { params: {}, facts: {} }
-									: { params: { student: 1 }, facts: {} }
-							const events = yield* answerOf(calls, input)
-							const kinds = Arr.map(events, (e) => e.kind)
-							const fault = c.fault
-							if (fault.kind === "none") {
-								if (calls.shape === "write") {
-									assert.deepEqual(
-										kinds,
-										["outcome", "end"],
-										"a write's answer is its outcome, then end"
-									)
-								} else {
-									notes.note(c.rows > 0 ? "a read of rows" : "a read of none")
-									assert.deepEqual(
-										kinds,
-										[
-											"reset",
-											...Arr.map(Arr.range(1, c.rows), () => "upsert" as const),
-											"ready",
-											"end"
-										],
-										"a read's answer is reset, its rows, ready, then end"
-									)
+						Effect.scoped(
+							Effect.gen(function* () {
+								notes.note(c.member)
+								notes.note(c.fault.kind)
+								const prologue = prologueOf(
+									loaded.prologue,
+									loadedApp.installed,
+									"",
+									loaded.fingerprint
+								)
+								const session = sessionOf(c, { prologue })
+								const subscriptions = yield* makeSubscriptions(silent)
+								const context: ServedDbContext = {
+									prologue,
+									claims: new Set(),
+									isolation: loadedApp.isolation,
+									expiry: { kind: "never" },
+									subscriptions,
+									domain: loadedApp.domain,
+									pool: scriptedPool({
+										lease:
+											c.fault.kind === "no session"
+												? Effect.fail(new LayerReleased())
+												: Effect.succeed(session)
+									})
 								}
-								return
-							}
-							const expected = meaningOf(c.member, fault)
-							assert.ok(
-								!kinds.includes("ready"),
-								`no ready before its COMMIT answered: ${Formatter.format(kinds)}`
-							)
-							assert.ok(
-								!kinds.includes("outcome"),
-								`no outcome of a write that failed: ${Formatter.format(kinds)}`
-							)
-							assert.deepEqual(
-								Arr.filter(kinds, (k) => k === "error" || k === "end"),
-								["error", "end"],
-								"a failed answer ends with its one error, then end"
-							)
-							const error = defined(
-								Option.getOrUndefined(
-									Arr.findFirst(events, (e) =>
-										e.error === undefined ? Option.none() : Option.some(e.error)
-									)
-								),
-								"the answer's error"
-							)
-							assert.equal(error.kind, expected, `${fault.kind} at ${c.member} ends as ${expected}`)
-							assert.equal(
-								error.retry,
-								retryOf(expected),
-								`${expected} is retried ${retryOf(expected)}`
-							)
-							assert.equal(
-								callErrors[expected].retry,
-								retryOf(expected),
-								`the classification retries ${expected} ${retryOf(expected)}`
-							)
-							const once = yield* onceOf(calls, input)
-							assert.ok(Exit.isFailure(once), "once fails as its answer did")
-							const onceError = Exit.isFailure(once)
-								? Option.getOrUndefined(Exit.findErrorOption(once))
-								: undefined
-							assert.equal(onceError?.kind, expected, "once's error is the answer's")
-						})
+								const member = defined(
+									Option.getOrUndefined(
+										Arr.findFirst(loadedApp.members, (m) => m.name === c.member)
+									),
+									`the member ${c.member}`
+								)
+								const calls = memberCalls(context, member)
+								const input =
+									c.member === "rebuild"
+										? { params: {}, facts: {} }
+										: { params: { student: 1 }, facts: {} }
+								const events = yield* answerOf(calls, input)
+								const kinds = Arr.map(events, (e) => e.kind)
+								const fault = c.fault
+								if (fault.kind === "none") {
+									if (calls.shape === "write") {
+										assert.deepEqual(
+											kinds,
+											["outcome", "end"],
+											"a write's answer is its outcome, then end"
+										)
+									} else {
+										notes.note(c.rows > 0 ? "a read of rows" : "a read of none")
+										assert.deepEqual(
+											kinds,
+											["reset", ...Arr.map(Arr.range(1, c.rows), () => "upsert" as const), "ready"],
+											"a read's watch answers reset, its rows, then ready"
+										)
+									}
+									return
+								}
+								const expected = meaningOf(c.member, fault)
+								assert.ok(
+									!kinds.includes("ready"),
+									`no ready before its COMMIT answered: ${Formatter.format(kinds)}`
+								)
+								assert.ok(
+									!kinds.includes("outcome"),
+									`no outcome of a write that failed: ${Formatter.format(kinds)}`
+								)
+								assert.deepEqual(
+									Arr.filter(kinds, (k) => k === "error" || k === "end"),
+									["error", "end"],
+									"a failed answer ends with its one error, then end"
+								)
+								const error = defined(
+									Option.getOrUndefined(
+										Arr.findFirst(events, (e) =>
+											e.error === undefined ? Option.none() : Option.some(e.error)
+										)
+									),
+									"the answer's error"
+								)
+								assert.equal(
+									error.kind,
+									expected,
+									`${fault.kind} at ${c.member} ends as ${expected}`
+								)
+								assert.equal(
+									error.retry,
+									retryOf(expected),
+									`${expected} is retried ${retryOf(expected)}`
+								)
+								assert.equal(
+									callErrors[expected].retry,
+									retryOf(expected),
+									`the classification retries ${expected} ${retryOf(expected)}`
+								)
+								const once = yield* onceOf(calls, input)
+								assert.ok(Exit.isFailure(once), "once fails as its answer did")
+								const onceError = Exit.isFailure(once)
+									? Option.getOrUndefined(Exit.findErrorOption(once))
+									: undefined
+								assert.equal(onceError?.kind, expected, "once's error is the answer's")
+							})
+						)
 				)
 			)
 	)
