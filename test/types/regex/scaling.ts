@@ -1,4 +1,4 @@
-import { Array as Arr } from "effect"
+import { Array as Arr, String as Str } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { type PreludeAt, preludeProgram } from "#test/support/prelude.ts"
 import { type EqualSteps, equalSteps } from "#test/types/batch/measured.ts"
@@ -10,9 +10,10 @@ import { literal } from "#test/types/regex/agreement.ts"
  * 81 and 1,024 members, and cross products past TypeScript's union limit, which infer string from the count alone
  * (types/fields/source.ts LanguageCount), never by expanding them. Each call's host type is read, so its inference
  * runs; the program has no diagnostic. scaling.test.ts checks it at three sizes an equal step apart, each step a whole
- * number of the shapes' period, six.
+ * number of the shapes' period, six. Each pattern holds its index at one width, the digits of the largest size: the
+ * scan reads a source a code unit at a time, so a longer index would cost a later pattern more than an earlier one.
  */
-const shapes: Arr.NonEmptyReadonlyArray<(i: number) => string> = [
+const shapes: Arr.NonEmptyReadonlyArray<(i: string) => string> = [
 	(i) => `^k${i}(?:draft|published|archived)$`,
 	(i) => `^v${i}\\d{2}-\\d{3}$`,
 	(i) => `^k${i}[abc]{4}$`,
@@ -21,10 +22,11 @@ const shapes: Arr.NonEmptyReadonlyArray<(i: number) => string> = [
 	(i) => `^k${i}(?:[abc]|xy){12,14}$`
 ]
 
-/** The pattern of call i. */
+/** The pattern of call i, its index written at the width of the largest size's digits. */
 const patternOf = (i: number): string => {
 	const shape = Arr.getUnsafe(shapes, i % shapes.length)
-	return shape(i)
+	const [, , largest] = regexScaleSizes.sizes
+	return shape(Str.padStart(`${largest}`.length, "0")(`${i}`))
 }
 
 export const regexScaleSource = (patterns: number, entries: PreludeAt): string =>

@@ -10,8 +10,11 @@ import { type EqualSteps, equalSteps } from "#test/types/batch/measured.ts"
  * shape writes `relations` relations R0 … over P, each with its id, its parent and `fields` uuid fields f0 …, and
  * `laws` laws: the first contains its parent in P's ids, as issue #9's schema does; then, field by field, a key on the
  * field and a containment of the field in P's ids, in turn. Beside them stand a roster K of `handles` handles H0 …, the
- * set of its first `members` handles (Bits.of), and `closed` closed relations C0 … over it, which no role holds; a
- * roster and a set each list their handles once, which the type reads for a repeat. Over that schema it writes `roles`
+ * set of its first `members` handles (Bits.of), and `closed` closed relations C0 … over it, which no role holds, each
+ * holding one row of weight 0: a weight of its own index would bring each closed relation a number literal the program
+ * may already hold, so the count of new literal types would follow the program's other numbers rather than the closed
+ * relations. A roster and a set each list their handles once, which the type reads for a repeat. Over that schema it
+ * writes `roles`
  * full roles, each its base's whole entries
  * (wholeEntriesOf) beside a query entry of its own, writing every relation it may, spelled as `writes` says:
  * writableNamesOf(S), or a literal list of their names, which role reads for a repeat; each read as issue #9 reads
@@ -238,7 +241,7 @@ ${Arr.join(
 	Arr.map(
 		indices(shape.closed),
 		(c) =>
-			`export const C${c} = closed.relation("C${c}", { k: closedId(K), weight: pg.integer }, ["k"], [{ k: "H0", weight: ${c} }])\n`
+			`export const C${c} = closed.relation("C${c}", { k: closedId(K), weight: pg.integer }, ["k"], [{ k: "H0", weight: 0 }])\n`
 	),
 	""
 )}${Arr.join(

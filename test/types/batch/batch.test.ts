@@ -116,8 +116,8 @@ type Planted = Readonly<{
 }>
 
 /**
- * A line's directive in a unit of twins, whose directed lines are all twins, so its labels meet one another; and in
- * any other unit.
+ * A line's directive in a unit of twins, whose directed lines are all twins, so its labels meet one another; and in a
+ * unit of single directives.
  */
 const twinOver: Gen<Over> = oneOf<Over>([
 	constant<Over>({ kind: "none" }),
@@ -137,9 +137,19 @@ const lineGen =
 		over: source.draw(over)
 	})
 
+/** A line's directive in a unit of no directive at all, which a disarmed unit's checks must refuse as vacuous. */
+const bareOver: Gen<Over> = constant<Over>({ kind: "none" })
+
+/** How a unit's lines are directed: none of them, each alone, or as twins, each arm as often as the others. */
+const unitOver: Gen<Gen<Over>> = oneOf<Gen<Over>>([
+	constant(bareOver),
+	constant(singleOver),
+	constant(twinOver)
+])
+
 const plantedUnit: Gen<PlantedUnit> = (source) => {
 	const kind = source.draw(element(UNIT_KINDS))
-	const lines = array(lineGen(source.draw(boolean) ? twinOver : singleOver), { min: 1, max: 3 })
+	const lines = array(lineGen(source.draw(unitOver)), { min: 1, max: 3 })
 	return {
 		kind,
 		modules: Arr.prepend(source.draw(array(lines, { min: 0, max: 1 })), source.draw(lines))
@@ -152,8 +162,12 @@ const isProgram = (unit: PlantedUnit): boolean =>
 const isDisarmed = (unit: PlantedUnit): boolean =>
 	unit.kind === "disarmed" || unit.kind === "disarmed program"
 
+/**
+ * A planted batch: several units, since one tsgo run checks them all at about the cost of one, so each case reaches
+ * several of the situations the search requires.
+ */
 const plantedBatch: Gen<Planted> = (source) => {
-	const units = source.draw(array(plantedUnit, { min: 1, max: 3 }))
+	const units = source.draw(array(plantedUnit, { min: 2, max: 8 }))
 	const programs = Arr.flatMap(units, (unit, at) => (isProgram(unit) ? [at] : []))
 	const unowned =
 		Arr.isReadonlyArrayNonEmpty(programs) && source.draw(boolean)
