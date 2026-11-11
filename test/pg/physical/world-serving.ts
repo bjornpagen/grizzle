@@ -1,5 +1,5 @@
 /**
- * Every world function judged at volume by PostgreSQL's serving judge (serving.ts): the filter functions, key and unique
+ * Every world function judged by PostgreSQL's serving judge (serving.ts): the filter functions, key and unique
  * probes, policy predicates and write prechecks a writable query entry installs (physical/ddl/roles.ts writePlan,
  * write/entry/precheck.ts) are existence tests bound to their arguments, each relation they read read by an index at the
  * values the arguments fix (write/entry/render.ts renderMembership), never scanned or deduplicated whole.
@@ -8,7 +8,7 @@
  * draws (worlds/generate/install.ts installGen), beside witness roles, each writing one query entry over a relation T
  * whose filter reads another source through a link, so every call the judgment asks for exists by construction. It
  * installs through its first migration, as `grizzle generate` drafts it with its roles' write filters planned
- * (installed.ts workloadOf), and the owner loads every relation at volume (docsLoads).
+ * (installed.ts workloadOf), and the owner loads every relation at the case's size (docsLoads).
  *
  * Every world function of every writable query entry is called three ways, each a statement PostgreSQL plans and runs
  * twice under EXPLAIN (ANALYZE, BUFFERS) with sequential and bitmap scans disabled, the second run judged:
@@ -41,9 +41,8 @@
  *   at its call: a body that joins two relations reads their index ends for the join's selectivity, 12 buffers a call,
  *   36 of the 42 a precheck of three such calls touched, where their bodies read 6.
  *
- * Volume makes a scan plain: a world function whose lowering deduplicated each relation it read, which PostgreSQL could
- * not pull into its join, read every entry of the relation's index on every call, thousands of buffers over a bound of
- * a few.
+ * A world function whose lowering deduplicated each relation it read, which PostgreSQL could not pull into its join,
+ * reads the relation's index with no index condition on every call, which the judge names at any size.
  */
 import { Array as Arr, Effect, Option, Record as Rec, Result, type Scope } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
@@ -1449,9 +1448,6 @@ const callFeatures = (
 			)
 	}
 }
-
-/** The rows each relation holds in the drawn population's cases. */
-export const populationRows = 20_000
 
 /**
  * Judges a case at `rows` facts per relation (see the header): installs it, loads it, and judges every call of every

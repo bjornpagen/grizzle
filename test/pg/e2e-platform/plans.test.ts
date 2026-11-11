@@ -1,42 +1,34 @@
 /**
- * The platform's plans at volume: every workload read is planned through an index, and law maintenance never scans the
- * relation it counts.
- *
- * The file runs with the cluster to itself (`.exclusive`, vitest.network.config.ts): its load at volume holds SERIALIZABLE
- * transactions for tens of seconds (100,000-fact load batches and DailySpend's refresh, 20 to 59 s each in a sampled
- * default-tier run), and SSI retains every transaction that commits meanwhile, which summarizes other files' own.
+ * The platform's plans: every workload read is planned through an index, and law maintenance and every law's probe
+ * read through an index, judged by PostgreSQL's planner with the scans that need no index disabled, which no data size
+ * moves.
  *
  * The platform installs with its workload's access paths, as its first migration drafts them, beside an org tenant's
- * login (tenantOf), and loads a volume platform (test/support/platform/generate.ts volumePlatform) through the
- * workload's load in batches within the input limit, then VACUUM ANALYZE. Its sizes: a thousand organizations under resellers, five
- * thousand workspaces with ten thousand keys, ten models on four providers repriced monthly, six months of calendar, and
- * 100,000 usage events (about half a million usage facts). Each case draws, per read, which of the platform's entities
- * and windows it reads (the busiest workspace, key, organization and grant, or another), runs every workload read as a
- * served member through a counting executor twice (test/support/plans.ts recordingMembers): as billing, whose whole
- * entries are plain views, and as the tenant, its Db opened with a token naming the drawn organization, the read written
- * over the tenant's own entries (tenantOf), so it goes through the tenant's security-barrier views of its own
- * organization over relations under row-level security; and EXPLAINs each statement the runtime sent with its
- * parameters:
+ * login (tenantOf). Each case draws a small volume platform's sizes (test/support/platform/generate.ts volumePlatform),
+ * empties the tables, stores the platform through the workload's load, refreshes DailySpend and ANALYZEs every table;
+ * and draws which of its entities and windows the reads ask about (the busiest workspace, key, organization and grant,
+ * or another). Then:
  *
- * - served: planned with sequential and index scans disabled, so that a bitmap scan, which reads only by an index
- *   condition, is the one scan left, every scan of a relation a statement restricts reads by an index condition on an
- *   index the installation planned (test/support/plans.ts);
- * - every index the installation created is read by some workload read's free plan here or by a law's maintenance below.
+ * - served: every workload read runs as a served member through a counting executor (test/support/plans.ts
+ *   recordingMembers), as billing, whose whole entries are plain views, and as the tenant, its Db opened with a token
+ *   naming the drawn organization, through the tenant's security-barrier views over relations under row-level
+ *   security; each statement the runtime sent, planned with its parameters and with sequential and index scans
+ *   disabled, so that a bitmap scan, which reads only by an index condition, is the one scan left, reads every relation
+ *   it restricts by an index condition on an index the installation planned;
+ * - law maintenance: each write that fires the platform's laws on the drawn entities (a usage event with its charges
+ *   and debits, a refund, a month closed with a plan line and its allocation, an invoice paid, a key revoked with its
+ *   span cut, and a delete of each relation another references) runs in one rolled-back transaction with sequential
+ *   scans disabled, is accepted or refused as the laws say, and scans no relation its laws count sequentially, read
+ *   from the transaction's own statistics (pg_stat_xact_user_tables).
  *
- * Law maintenance runs as the triggers and native constraints fire on writes, read from the transaction's own
- * statistics (pg_stat_xact_user_tables and each index's pg_stat_get_xact_numscans) in one rolled-back transaction per
- * write, planned with sequential scans disabled (runLawWrite): a usage event with its charges and a debit, a refund, a
- * month closed with a plan line and its allocations, an invoice paid, a key revoked with its span cut, and a delete of
- * each relation another references (organizations, months, models, providers, routes, subscriptions, plan lines,
- * workspaces, grants, usage charges), whose reverse checks probe the referencing relations. No such write scans a
- * relation its laws count sequentially, and the indexes they read count as used. A refused write stops at its first
- * refusing law, so every law's probe is also EXPLAINed as the index engine states it, generically, with sequential and
- * bitmap scans disabled: PostgreSQL itself judges whether the installation serves it, and it must read through an index
- * scan with an index condition on an index the installation planned (the one the engine merged it into, or another
- * PostgreSQL finds cheaper), which counts as used. The engine's own serving rule is never consulted: a copy of it would
- * agree with it. The oracle is PostgreSQL's planner and its transaction statistics.
+ * After the cases every law's probe, as the index engine states it, is EXPLAINed generically with sequential and bitmap
+ * scans disabled, and reads through an index scan with an index condition on an index the installation planned. The
+ * engine's own serving rule is never consulted: a copy of it would agree with it. The oracle is PostgreSQL's planner and
+ * its transaction statistics. That every created index is needed is test/pg/physical/serving.test.ts's: a free plan's
+ * choice of index is the cost model's, which only volume decides, so it is judged nowhere here.
  *
- * Features: a read by the busiest entities and by another, a week's window and a whole month's.
+ * Features: a read by the busiest entities and by another, a week's window and a whole month's, and a usage event with
+ * its charges and debits written.
  *
  * Plants (~/.cache/grizzle-release/BR13/plants): plans-access-index-dropped.patch (the index engine planning no access
  * index), plans-probe-unindexed.patch (the index engine planning no law probe index).
@@ -44,6 +36,7 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
+import { type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -60,11 +53,7 @@ import { query, v } from "#compiler/public/query.ts"
 import { type AnyLoginRole, context, login, role } from "#compiler/public/schema.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import type { ParamMap } from "#compiler/types/core/phantom.ts"
-import {
-	loadPlatform,
-	type OpenedPlatform,
-	openPlatformWith
-} from "#test/pg/e2e-platform/support.ts"
+import { applyFacts, type OpenedPlatform, openPlatformWith } from "#test/pg/e2e-platform/support.ts"
 import { directSql, literal } from "#test/schedules/platform/support.ts"
 import { assert } from "#test/support/assert.ts"
 import * as P from "#test/support/fixtures/api/platform.ts"
@@ -88,17 +77,7 @@ import type { DirectStatement, RelationName } from "#test/support/platform/laws.
 import { platformSpan } from "#test/support/platform/model.ts"
 import { member, withServedDb } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-
-const volume = (events: number): VolumeSizes => ({
-	months: 6,
-	orgs: 1000,
-	workspacesPerOrg: 5,
-	keysPerWorkspace: 2,
-	models: 10,
-	providers: 4,
-	events,
-	grantsPerOrg: 3
-})
+import { untilAnswered } from "#test/support/transient.ts"
 
 const unit = (t: bigint) => ({ start: P.Instant(t), end: P.Instant(t + 1n) })
 
@@ -1551,21 +1530,12 @@ const runLawWrite = (o: OpenedPlatform, w: LawWrite) =>
 		 * PostgreSQL has no per-transaction view of index statistics: an index's scans in this transaction are
 		 * pg_stat_get_xact_numscans of the index, the counter pg_stat_xact_user_tables sums into idx_scan.
 		 */
-		const indexRows = yield* admin.queryValues(
-			"SELECT indexrelname::text, relname::text, pg_catalog.pg_stat_get_xact_numscans(indexrelid)::text FROM pg_catalog.pg_stat_user_indexes WHERE schemaname = $1::text",
-			[o.installed.schema]
-		)
-		const indexes = trusted<ReadonlyArray<XactRow>>(indexRows)
 		yield* admin.query("ROLLBACK", [])
 		return {
 			accepted: Result.isSuccess(applied),
 			/** Why the laws refused it, read off PostgreSQL's error; none for an accepted write. */
 			refusal: Result.isFailure(applied) ? messageOf(applied.failure) : undefined,
-			seqScans: new Map(Arr.map(tables, ([t, seq]) => [t, Number(seq)])),
-			usedIndexes: Arr.map(
-				Arr.filter(indexes, ([, , n]) => Number(n) > 0),
-				([i]) => i
-			)
+			seqScans: new Map(Arr.map(tables, ([t, seq]) => [t, Number(seq)]))
 		}
 	})
 
@@ -1664,32 +1634,50 @@ type PlanFeature =
 	| "a read by another"
 	| "a whole month's window"
 	| "a week's window"
+	| "a usage event with its charges and debits written"
 
-const planSuite = (events: number, runs: number) => (ctx: TestContext) =>
+/** The rotating stream's cases; the floor runs a quarter of them. */
+const runs = 8
+
+/**
+ * A small volume platform's sizes, drawn: at least three months, for the law writes that close the third, and at least
+ * one of every entity a law write names. Every property here is PostgreSQL's planner under disabled scans, which no
+ * size moves, so the platform is as small as the writes allow.
+ */
+const sizesGen: Gen<VolumeSizes> = (source) => ({
+	months: source.draw(int(3, 4)),
+	orgs: source.draw(int(1, 4)),
+	workspacesPerOrg: source.draw(int(1, 2)),
+	keysPerWorkspace: source.draw(int(1, 2)),
+	models: source.draw(int(1, 3)),
+	providers: source.draw(int(1, 2)),
+	events: source.draw(int(1, 40)),
+	grantsPerOrg: source.draw(int(1, 2))
+})
+
+/** A case: the platform's sizes, and the pick of the entities and windows its reads ask about. */
+const caseGen: Gen<{ readonly sizes: VolumeSizes; readonly pick: number }> = (source) => ({
+	sizes: source.draw(sizesGen),
+	pick: source.draw(pickGen)
+})
+
+const planSuite = (ctx: TestContext) =>
 	searched(
 		ctx,
 		Effect.gen(function* () {
 			const s = yield* Substrate
 			const o = yield* openPlatformWith("platform_plans", (world) => [tenantOf(world).tenants])
 			const { tenants, reads: tenantReads } = tenantOf(o.schema)
-			const p = buildPlatform(volumePlatform(volume(events)))
-			yield* o.withDb((db) =>
-				Effect.andThen(loadPlatform(db, p.facts, 100_000), db.workload.refreshDailySpend.refresh)
-			)
-			for (const r of [...loadOrder, "DailySpend"]) {
-				yield* s.admin.query(`VACUUM (ANALYZE) ${o.table(r)}`, [])
-			}
 			const planned = plannedIndexes(o.installed.installation)
-			const e = entitiesOf(p)
-			const used = new Set<string>()
+			const refused = (): void => undefined
 			const explored = yield* explore(
 				{
-					suite: `pg/e2e-platform/plans ${events}`,
+					suite: "pg/e2e-platform/plans",
 					oracle: {
 						kind: "postgresql",
 						name: "PostgreSQL's plans with sequential and index scans disabled, and its transaction statistics"
 					},
-					draw: drawn(pickGen),
+					draw: drawn(caseGen),
 					literal: Formatter.format,
 					kept: [],
 					runs,
@@ -1702,27 +1690,36 @@ const planSuite = (events: number, runs: number) => (ctx: TestContext) =>
 							"a read by the busiest entities",
 							"a read by another",
 							"a whole month's window",
-							"a week's window"
+							"a week's window",
+							"a usage event with its charges and debits written"
 						],
 						{ cases: runs, sense: notesOnly }
 					)
 				},
-				(pick, cx) =>
+				({ sizes, pick }, cx) =>
 					Effect.gen(function* () {
 						cx.note(
 							pickIndex(pick, 3) === 0 ? "a read by the busiest entities" : "a read by another"
 						)
 						cx.note(pickIndex(pick, 2) === 0 ? "a week's window" : "a whole month's window")
+						const p = buildPlatform(volumePlatform(sizes))
+						yield* o.clear
+						yield* o.withDb((db) =>
+							Effect.andThen(
+								untilAnswered(applyFacts(db, p.facts), refused),
+								untilAnswered(db.workload.refreshDailySpend.refresh, refused)
+							)
+						)
+						for (const r of [...loadOrder, "DailySpend"]) {
+							yield* s.admin.query(`ANALYZE ${o.table(r)}`, [])
+						}
+						const e = entitiesOf(p)
 						const problems: Array<string> = []
-						/** One read's statements as `who` sent them, judged, the indexes their free plans read used. */
+						/** One read's statements as `who` sent them, judged under disabled scans. */
 						const review = (who: string, pr: Probe, sent: Parameters<typeof sentProblems>[2]) =>
-							Effect.gen(function* () {
-								const judged = yield* sentProblems(s.admin, `${pr.name} as ${who}`, sent, planned)
-								appendAll(problems, judged.problems)
-								for (const index of judged.read) {
-									used.add(index)
-								}
-							})
+							Effect.map(sentProblems(s.admin, `${pr.name} as ${who}`, sent, planned), (judged) =>
+								appendAll(problems, judged)
+							)
 						const asked = probes(e, pick)
 						/**
 						 * Every probe read as `who`, through a Db of `role` opened with a token of `payload`: the role's
@@ -1749,53 +1746,45 @@ const planSuite = (events: number, runs: number) => (ctx: TestContext) =>
 							{ org: pickOf(e.orgs, pick, uid(0xdead, 2)) },
 							tenantReads
 						)
+						for (const w of lawWrites(o, p, e)) {
+							if (w.name === "a usage event with its charges and debits") {
+								cx.note("a usage event with its charges and debits written")
+							}
+							const ran = yield* runLawWrite(o, w)
+							if (ran.accepted !== w.accepted) {
+								problems.push(
+									`${w.name}: ${ran.refusal === undefined ? "accepted" : `refused: ${ran.refusal}`}`
+								)
+							}
+							appendAll(
+								problems,
+								Arr.map(
+									Arr.filter(
+										Arr.map(w.counted, (c) => o.installed.names.relation(c).name),
+										(table) => (ran.seqScans.get(table) ?? 0) > 0
+									),
+									(table) => `${w.name}: a sequential scan of ${table}`
+								)
+							)
+						}
 						assert.deepEqual(
 							problems,
 							[],
-							"every read is planned through its indexes, as billing and as the tenant"
+							"every read is planned through its indexes as billing and as the tenant, and law maintenance reads every counted relation by an index"
 						)
 					})
 			)
-			/** Law maintenance. */
-			const lawProblems: Array<string> = []
-			for (const w of lawWrites(o, p, e)) {
-				const ran = yield* runLawWrite(o, w)
-				if (ran.accepted !== w.accepted) {
-					lawProblems.push(
-						`${w.name}: ${ran.refusal === undefined ? "accepted" : `refused: ${ran.refusal}`}`
-					)
-				}
-				appendAll(
-					lawProblems,
-					Arr.map(
-						Arr.filter(
-							Arr.map(w.counted, (c) => o.installed.names.relation(c).name),
-							(table) => (ran.seqScans.get(table) ?? 0) > 0
-						),
-						(table) => `${w.name}: a sequential scan of ${table}`
-					)
-				)
-				for (const i of ran.usedIndexes) {
-					used.add(i)
-				}
-			}
-			assert.deepEqual(lawProblems, [], "law maintenance reads every counted relation by an index")
 			/**
 			 * Every law's probe, whichever writes reach it: a refused write stops at its first refusing law, so the writes
 			 * above probe only the relations up to it. PostgreSQL may read a probe through another index than the one the
-			 * engine merged it into when several serve it; the one it reads must be one the installation planned, and a
-			 * created index no probe or read chooses fails below.
+			 * engine merged it into when several serve it; the one it reads must be one the installation planned.
 			 */
 			const probeProblems: Array<string> = []
 			for (const probe of lawProbes(o)) {
 				const index = yield* probeIndex(probe)
 				if (Option.isNone(index)) {
 					probeProblems.push(`${probe.label}: no index scan`)
-					continue
-				}
-				if (planned.has(index.value)) {
-					used.add(index.value)
-				} else {
+				} else if (!planned.has(index.value)) {
 					probeProblems.push(
 						`${probe.label}: read through ${index.value}, which the installation did not plan`
 					)
@@ -1806,22 +1795,13 @@ const planSuite = (events: number, runs: number) => (ctx: TestContext) =>
 				[],
 				"every law's probe reads through an index the installation planned"
 			)
-			/** Every index the installation created is read. */
-			const created = Arr.flatMap(o.installed.installation.indexes, (i) =>
-				i.index.kind === "created" ? [i.index.name] : []
-			)
-			assert.deepEqual(
-				Arr.filter(created, (i) => !used.has(i)),
-				[],
-				"every created index is read by a workload read or a law"
-			)
 			return explored
 		})
 	)
 
-layer(Substrate.layer)("the platform's plans at volume", (it) => {
+layer(Substrate.layer)("the platform's plans", (it) => {
 	it.effect(
-		"100,000 usage events: every read through its indexes, every index read",
-		planSuite(100_000, 6)
+		"every read through its indexes, and every law's maintenance and probe through an index, on drawn small platforms",
+		planSuite
 	)
 })

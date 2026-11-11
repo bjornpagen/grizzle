@@ -1,9 +1,6 @@
 /**
- * Every world function is index-served at volume: an existence test bound to its arguments, judged by PostgreSQL's
- * serving judge (world-serving.ts, serving.ts), over generated role schemas.
- *
- * The file runs with the cluster to itself (`.exclusive`, vitest.network.config.ts): each case's load is one
- * SERIALIZABLE transaction judged at COMMIT, and SSI retains every transaction that commits meanwhile.
+ * Every world function is index-served: an existence test bound to its arguments, judged by PostgreSQL's serving judge
+ * (world-serving.ts, serving.ts), over generated role schemas, each case's population of a drawn small size.
  *
  * A case draws a documents base, the roles the worlds model's generator draws over it (installGen), and one or two
  * witnesses, each a role writing a query entry over a relation T filtered by a link into another source (world-serving.ts
@@ -25,13 +22,14 @@
  * index of both fields rather than read by one and rechecked on the other. Every world function of the drawn roles'
  * writable entries is judged beside them, at T's middle row and at no row.
  *
- * The drawn population holds 20,000 facts per relation, where a scan of a relation reads its index's hundred pages and
- * more against a bound of a few: a lowering that deduplicates each relation a filter reads, which PostgreSQL cannot
- * pull into its join, fails here, the judge naming the scan. The judge's bound is relative to what a probe needs, so the
- * README-shaped worlds over the one-share key, which installGen draws among the documents bases' roles, are judged
- * here at the population's volume.
+ * Each case draws how many facts each relation holds, few, so its load, one SERIALIZABLE transaction, holds nothing its
+ * neighbours' transactions would be summarized for. With sequential and bitmap scans disabled the judge's structural
+ * verdicts stand at any size: a lowering that deduplicates each relation a filter reads, which PostgreSQL cannot pull
+ * into its join, reads that relation's index with no index condition, and the judge names the scan. What only volume
+ * shows, a scan's buffers far past its bound and an index PostgreSQL prefers by its cost, is no property here; that
+ * every created index is needed is test/pg/physical/serving.test.ts's.
  *
- * Its kept cases: a negated link from Doc into OrgDocs, joined to Share by Doc's owner, whose precheck calls three world
+ * Its kept cases, restated at the drawn range's largest population: a negated link from Doc into OrgDocs, joined to Share by Doc's owner, whose precheck calls three world
  * functions that PostgreSQL plans at their calls, a role session's first, each reading the index ends of the join of
  * OrgDocs and Share for its selectivity (world-serving.ts callBound); and a link from Note's doc into Doc's org bound
  * by the tenant's claim, whose read by key through the role's view PostgreSQL drives from the claimed Doc into Note's
@@ -47,7 +45,7 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore, type Kept } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { array, boolean, element, type Gen } from "@grizzle/testing/gen"
+import { array, boolean, element, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
@@ -56,7 +54,6 @@ import {
 	joinedOf,
 	judgeCase,
 	linksOf,
-	populationRows,
 	type Second,
 	secondsOf,
 	type LinkWitness,
@@ -153,7 +150,7 @@ const witnessGen =
  * A case: its first witness's arm, then a documents base that admits it, the witness, perhaps a second of any arm the
  * base admits, and the roles the worlds model draws over the base.
  */
-const caseGen: Gen<WorldCase> = (source) => {
+const worldGen: Gen<WorldCase> = (source) => {
 	const arm = source.draw(element(arms))
 	const base = source.draw(
 		element(
@@ -174,45 +171,62 @@ const caseGen: Gen<WorldCase> = (source) => {
 	return { install: source.draw(installGen(base)), witnesses: [first, ...more] }
 }
 
+/** A case: its world, and how many facts each relation of its base holds. */
+interface PopulationCase {
+	readonly world: WorldCase
+	readonly rows: number
+}
+
+/** The most facts a relation holds in a case: the bound of the drawn population, whose size no property depends on. */
+const mostRows = 400
+
+const caseGen: Gen<PopulationCase> = (source) => ({
+	world: source.draw(worldGen),
+	rows: source.draw(int(1, mostRows))
+})
+
 /** The cases kept from failure reports, each replayed first by value (see the header). */
-const kept: ReadonlyArray<Kept<WorldCase, WorldServingFeature>> = [
+const kept: ReadonlyArray<Kept<PopulationCase, WorldServingFeature>> = [
 	{
 		note: "a negated link from Doc into OrgDocs, joined to Share by Doc's owner, whose filter function plans a join of OrgDocs and Share: a precheck's three calls, its role session's first, plan each body at its call and read 12 buffers of index ends apiece",
 		sketch: {
-			install: {
-				base: docsBase,
-				roles: [
-					{
-						name: "alpha",
-						entries: { Org: { kind: "whole", relation: "Org" } },
-						write: [],
-						refresh: []
-					}
-				],
-				logins: [{ name: "web", roles: ["alpha"] }]
-			},
-			witnesses: [
-				{
-					target: "Org",
-					source: "Doc",
-					link: { from: "id", to: "id" },
-					second: { kind: "none" },
-					negated: false
+			rows: mostRows,
+			world: {
+				install: {
+					base: docsBase,
+					roles: [
+						{
+							name: "alpha",
+							entries: { Org: { kind: "whole", relation: "Org" } },
+							write: [],
+							refresh: []
+						}
+					],
+					logins: [{ name: "web", roles: ["alpha"] }]
 				},
-				{
-					target: "Doc",
-					source: "OrgDocs",
-					link: { from: "org", to: "org" },
-					second: {
-						kind: "joined",
-						to: "doc",
-						source: "Share",
-						link: { from: "owner", to: "user" },
-						field: "doc"
+				witnesses: [
+					{
+						target: "Org",
+						source: "Doc",
+						link: { from: "id", to: "id" },
+						second: { kind: "none" },
+						negated: false
 					},
-					negated: true
-				}
-			]
+					{
+						target: "Doc",
+						source: "OrgDocs",
+						link: { from: "org", to: "org" },
+						second: {
+							kind: "joined",
+							to: "doc",
+							source: "Share",
+							link: { from: "owner", to: "user" },
+							field: "doc"
+						},
+						negated: true
+					}
+				]
+			}
 		},
 		draws: "",
 		reaches: [
@@ -224,27 +238,30 @@ const kept: ReadonlyArray<Kept<WorldCase, WorldServingFeature>> = [
 	{
 		note: "a link from Note's doc into Doc's org, Doc's id the tenant's claim: a read by key through the view joins the claimed Doc to Note, and PostgreSQL reads Note through its index on doc at the Doc's org, rechecking no on the note's 54 neighbours, rather than through Note's primary key, which serves the read alone",
 		sketch: {
-			install: {
-				base: docsBase,
-				roles: [
+			rows: mostRows,
+			world: {
+				install: {
+					base: docsBase,
+					roles: [
+						{
+							name: "alpha",
+							entries: { Org: { kind: "whole", relation: "Org" } },
+							write: [],
+							refresh: []
+						}
+					],
+					logins: [{ name: "web", roles: ["alpha"] }]
+				},
+				witnesses: [
 					{
-						name: "alpha",
-						entries: { Org: { kind: "whole", relation: "Org" } },
-						write: [],
-						refresh: []
+						target: "Note",
+						source: "Doc",
+						link: { from: "doc", to: "org" },
+						second: { kind: "claim", to: "id", context: "Tenant", field: "org" },
+						negated: false
 					}
-				],
-				logins: [{ name: "web", roles: ["alpha"] }]
-			},
-			witnesses: [
-				{
-					target: "Note",
-					source: "Doc",
-					link: { from: "doc", to: "org" },
-					second: { kind: "claim", to: "id", context: "Tenant", field: "org" },
-					negated: false
-				}
-			]
+				]
+			}
 		},
 		draws: "",
 		reaches: [
@@ -255,54 +272,57 @@ const kept: ReadonlyArray<Kept<WorldCase, WorldServingFeature>> = [
 	{
 		note: "an entry over Share whose rule fixes user by the session's subject and whose head is doc alone: its view holds no column user, and a read by key through it names doc",
 		sketch: {
-			install: {
-				base: docsBase,
-				roles: [
-					{
-						name: "alpha",
-						entries: {
-							Doc: { kind: "whole", relation: "Doc" },
-							OrgDocs: { kind: "whole", relation: "OrgDocs" },
-							View0: {
-								kind: "query",
-								rules: [
-									{
-										matches: [
-											{
-												source: { kind: "ordinary", name: "Share" },
-												fields: {
-													doc: { kind: "var", name: "v_doc" },
-													user: { kind: "var", name: "c_Session_sub" }
+			rows: mostRows,
+			world: {
+				install: {
+					base: docsBase,
+					roles: [
+						{
+							name: "alpha",
+							entries: {
+								Doc: { kind: "whole", relation: "Doc" },
+								OrgDocs: { kind: "whole", relation: "OrgDocs" },
+								View0: {
+									kind: "query",
+									rules: [
+										{
+											matches: [
+												{
+													source: { kind: "ordinary", name: "Share" },
+													fields: {
+														doc: { kind: "var", name: "v_doc" },
+														user: { kind: "var", name: "c_Session_sub" }
+													}
+												},
+												{
+													source: { kind: "context", name: "Session" },
+													fields: { sub: { kind: "var", name: "c_Session_sub" } }
 												}
-											},
-											{
-												source: { kind: "context", name: "Session" },
-												fields: { sub: { kind: "var", name: "c_Session_sub" } }
-											}
-										],
-										negations: [],
-										comparisons: [],
-										head: { doc: { kind: "var", name: "v_doc" } }
-									}
-								]
+											],
+											negations: [],
+											comparisons: [],
+											head: { doc: { kind: "var", name: "v_doc" } }
+										}
+									]
+								},
+								Share: { kind: "whole", relation: "Share" }
 							},
-							Share: { kind: "whole", relation: "Share" }
-						},
-						write: ["Doc", "View0"],
-						refresh: []
+							write: ["Doc", "View0"],
+							refresh: []
+						}
+					],
+					logins: [{ name: "web", roles: ["alpha"] }]
+				},
+				witnesses: [
+					{
+						target: "Doc",
+						source: "OrgDocs",
+						link: { from: "org", to: "org" },
+						second: { kind: "none" },
+						negated: false
 					}
-				],
-				logins: [{ name: "web", roles: ["alpha"] }]
-			},
-			witnesses: [
-				{
-					target: "Doc",
-					source: "OrgDocs",
-					link: { from: "org", to: "org" },
-					second: { kind: "none" },
-					negated: false
-				}
-			]
+				]
+			}
 		},
 		draws: "",
 		reaches: [
@@ -335,7 +355,7 @@ const populationSuite = (runs: number) => (ctx: TestContext) =>
 			{
 				oracle: {
 					kind: "postgresql",
-					name: "PostgreSQL's serving judge: each world function call reads by its indexes at volume"
+					name: "PostgreSQL's serving judge: each world function call reads by its indexes"
 				},
 				suite: "pg/physical/world-serving",
 				draw: drawn(caseGen),
@@ -354,16 +374,16 @@ const populationSuite = (runs: number) => (ctx: TestContext) =>
 			(c, cx) =>
 				Effect.scoped(
 					Effect.gen(function* () {
-						const problems = yield* judgeCase(c, populationRows, cx.note)
+						const problems = yield* judgeCase(c.world, c.rows, cx.note)
 						assert.deepEqual(problems, [], "every world function call reads by its indexes")
 					})
 				)
 		)
 	)
 
-layer(Substrate.layer)("world functions, judged by PostgreSQL at volume", (it) => {
+layer(Substrate.layer)("world functions, judged by PostgreSQL", (it) => {
 	it.effect(
-		"every world function of generated roles reads by its indexes at 20,000 facts per relation",
+		"every world function of generated roles reads by its indexes, over drawn small populations",
 		populationSuite(24)
 	)
 })

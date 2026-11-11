@@ -17,7 +17,7 @@ import { type RoleDefault, Substrate } from "#test/support/substrate/substrate.t
  * Db's, start under no drawn default: Db.open refuses a login any default in one database alone
  * (adapter/admission/roles.ts roleDifferences). A login's own defaults pin its search path and its print settings, which
  * outrank a database's: the one suite that draws an ambient session as a database's defaults, and holds a login's every
- * answer to its answer under none, runs with the cluster to itself (test/pg/adapter/login-ambient.exclusive.test.ts).
+ * answer to its answer under none, runs in a database of its own (test/pg/adapter/login-ambient.test.ts).
  *
  * The harness's own sessions pin every one of these (test/support/pg.ts), so an oracle never reads under the drawn one.
  */

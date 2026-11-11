@@ -5,29 +5,25 @@ import type { MemberOps } from "#adapter/db/ops.ts"
 import { poolExecutor } from "#adapter/reader/executor.ts"
 import type { LoadedMember } from "#adapter/served/load.ts"
 import { type EstimatedNode, parsePlanTree, planNodes } from "#bench/harness/explain.ts"
-import { trusted } from "#compiler/core/trusted.ts"
 import type { Param } from "#compiler/core/wire.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { type Counts, countingExecutor } from "#test/pg/page/support.ts"
 import { assert } from "#test/support/assert.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
- * The plan property of a workload read at volume, as the plans suites judge every statement a read sends
- * (test/pg/e2e-platform/plans.exclusive.test.ts, test/pg/e2e-work/plans.exclusive.test.ts), and the doors they read the
- * runtime and the catalog through. The property is PostgreSQL's own judgment of the statement as the runtime sent it,
- * served: with sequential and index scans disabled (enable_indexscan disables index-only scans too), every scan of a
- * relation the statement restricts, by a filter of its own or by the join condition of the nested loop it is the inner
- * side of, reads by an index condition on an index the installation planned. The one scan left enabled is a bitmap
- * scan, which reads a relation only by an index condition, so a scan that still applies its restriction without one, a
- * sequential scan that survives above all, is an access no planned index serves. With sequential scans alone disabled,
- * an index walked whole was still an enabled scan, and PostgreSQL walks one for its order: at a million usage events,
- * spendByDay read a week of Day by walking Day's primary key, in the day order its grouping wants, filtering the window
- * that Day's GiST serves, and that was its free plan too. The serving rule is never restated: PostgreSQL finds the
- * index, in its own plan (EXPLAIN FORMAT JSON through the tree's one decoder, bench/harness/explain.ts). Which scan a
- * free plan chooses is PostgreSQL's cost model's, never judged; the indexes it reads are reported, so a suite holds
- * every index the installation created to some read.
+ * The plan property of a workload read, as the plans suites judge every statement a read sends
+ * (test/pg/e2e-platform/plans.test.ts, test/pg/e2e-work/plans.test.ts), and the doors they read the runtime and the
+ * catalog through. The property is PostgreSQL's own judgment of the statement as the runtime sent it, served: with
+ * sequential and index scans disabled (enable_indexscan disables index-only scans too), every scan of a relation the
+ * statement restricts, by a filter of its own or by the join condition of the nested loop it is the inner side of,
+ * reads by an index condition on an index the installation planned. The one scan left enabled is a bitmap scan, which
+ * reads a relation only by an index condition, so a scan that still applies its restriction without one, a sequential
+ * scan that survives above all, is an access no planned index serves; no data size moves that verdict. With sequential
+ * scans alone disabled, an index walked whole was still an enabled scan, and PostgreSQL walks one for its order: at a
+ * million usage events, spendByDay read a week of Day by walking Day's primary key, in the day order its grouping
+ * wants, filtering the window that Day's GiST serves. The serving rule is never restated: PostgreSQL finds the index,
+ * in its own plan (EXPLAIN FORMAT JSON through the tree's one decoder, bench/harness/explain.ts).
  *
  * A load's series `g` spread over `distinct` values by PostgreSQL's 64-bit hash seeded with `salt`: two spread columns of
  * different salts are independent, and one alone holds each of its values on about 1 / distinct of the rows. (A salt
@@ -167,71 +163,38 @@ const explained = (admin: PgConnection, name: string, st: Sent) =>
 
 /**
  * The served property of the statements a read named `name` sent, each problem named by the read, judged against
- * `planned`, the names of the indexes the installation planned (plannedIndexes), and the indexes the free plans read.
- * Each statement is EXPLAINed with its parameters on `admin` twice: freely, for the indexes it reads, then in one
- * transaction rolled back with sequential and index scans disabled.
+ * `planned`, the names of the indexes the installation planned (plannedIndexes): each statement EXPLAINed with its
+ * parameters on `admin` in one transaction rolled back, with sequential and index scans disabled.
  */
 export const sentProblems = (
 	admin: PgConnection,
 	name: string,
 	sent: ReadonlyArray<Sent>,
 	planned: ReadonlySet<string>
-): Effect.Effect<{ problems: Array<string>; read: Set<string> }, SqlError> =>
-	Effect.gen(function* () {
-		const problems: Array<string> = []
-		const read = new Set<string>()
-		for (const st of sent) {
-			const plan = yield* explained(admin, name, st)
-			for (const n of planNodes(plan)) {
-				for (const index of Option.toArray(n.index)) {
-					read.add(index)
-				}
-			}
-		}
-		yield* Effect.acquireUseRelease(
-			admin.query("BEGIN", []),
-			() =>
+): Effect.Effect<ReadonlyArray<string>, SqlError> =>
+	Effect.acquireUseRelease(
+		admin.query("BEGIN", []),
+		() =>
+			Effect.andThen(
 				Effect.andThen(
-					Effect.andThen(
-						admin.query("SET LOCAL enable_seqscan = off", []),
-						admin.query("SET LOCAL enable_indexscan = off", [])
-					),
-					Effect.forEach(
-						sent,
-						(st) =>
-							Effect.map(explained(admin, name, st), (plan) => {
-								for (const problem of servedProblems(plan, planned)) {
-									problems.push(`${name}: ${problem}`)
-								}
-							}),
-						{ discard: true }
-					)
+					admin.query("SET LOCAL enable_seqscan = off", []),
+					admin.query("SET LOCAL enable_indexscan = off", [])
 				),
-			() => Effect.ignore(admin.query("ROLLBACK", []))
-		)
-		return { problems, read }
-	})
+				Effect.map(
+					Effect.forEach(sent, (st) =>
+						Effect.map(explained(admin, name, st), (plan) =>
+							Arr.map(servedProblems(plan, planned), (problem) => `${name}: ${problem}`)
+						)
+					),
+					Arr.flatten
+				)
+			),
+		() => Effect.ignore(admin.query("ROLLBACK", []))
+	)
 
 /** The names of every index the installation planned: each key and enforcement index, and each it created. */
 export const plannedIndexes = (installation: Installation): ReadonlySet<string> =>
 	new Set(Arr.map(installation.indexes, (i) => i.index.name))
-
-/**
- * Every index of `schema` that backs no constraint and enforces no uniqueness: the access and law-probe indexes the
- * index engine creates, as PostgreSQL holds them.
- */
-export const createdIndexes = (schema: string) =>
-	Effect.gen(function* () {
-		const { admin } = yield* Substrate
-		const names = yield* admin.queryValues(
-			"SELECT c.relname::text FROM pg_catalog.pg_index AS i JOIN pg_catalog.pg_class AS c ON c.oid = i.indexrelid " +
-				"JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace WHERE n.nspname = $1::text " +
-				"AND NOT i.indisunique AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint AS k WHERE k.conindid = i.indexrelid) " +
-				"ORDER BY 1",
-			[schema]
-		)
-		return Arr.map(trusted<ReadonlyArray<readonly [name: string]>>(names), ([name]) => name)
-	})
 
 /**
  * The operations of any loaded member of the served Db of `ctx` (test/support/served-db.ts ServedDb.load), every read

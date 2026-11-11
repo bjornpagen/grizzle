@@ -3,9 +3,9 @@
  * and print values under, and every session of its pool sends them again as startup options, so a login whose
  * search_path pin is gone answers the same.
  *
- * The file runs with the cluster to itself (`.exclusive`, vitest.network.config.ts): a case sets its database's own
- * defaults (ALTER DATABASE ... SET), which every session that starts in the database while they stand starts under, and
- * resets each once its run ends. Its cases run one at a time.
+ * The file runs in a database of its own (Substrate.isolatedLayer), because a case sets that database's own defaults
+ * (ALTER DATABASE ... SET), which every session that starts in the database while they stand starts under, and resets
+ * each once its run ends: no other file's session starts there. Its cases run one at a time.
  *
  * The installation names its relations as PostgreSQL names its types, `Text`, `Uuid` and `Money`, so each relation's
  * row type shadows the builtin type of its name wherever the installation's schema comes first on a path. A case draws
@@ -394,7 +394,7 @@ const pinReset = (role: string) =>
 		)
 	})
 
-layer(Substrate.layer)("a login under hostile database defaults", (it) => {
+layer(Substrate.isolatedLayer)("a login under hostile database defaults", (it) => {
 	it.effect(
 		"answers exactly as under the database's own defaults, with its search_path pin or without it",
 		(ctx) =>

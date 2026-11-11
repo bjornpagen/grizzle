@@ -1,29 +1,22 @@
 /**
- * The worked example's plans at volume, read as a tenant through its world: every selective workload read is planned
- * through its indexes, and every index the workload creates is read.
- *
- * The file runs with the cluster to itself (`.exclusive`, vitest.network.config.ts): its load at volume is one SERIALIZABLE
- * transaction judged at COMMIT, and SSI retains every transaction that commits meanwhile, which summarizes other files'
- * own.
+ * The worked example's plans, read as a tenant through its world: every selective workload read is planned through
+ * its indexes, judged by PostgreSQL's planner with the scans that need no index disabled, which no data size moves.
  *
  * Work installs through its first migration with one login holding a tenant role, as `grizzle generate` drafts it, the
  * access paths planned from the tenant's workload (test/support/installed.ts migrated). The tenant reads every relation
  * through a query entry its token's account claim filters (tenantWorld): the accounts it is, their tasks, and each
  * task's automatic, manual and note facts through the task's account, so every view of its world is a security-barrier
  * view, and it writes every relation but Account through those entries, so each of them is under row-level security,
- * a policy filtering it for the tenant. The owner loads Work at volume in one SERIALIZABLE transaction, every law judged
- * at COMMIT: accounts, tasks alternating automatic and manual over them, each automatic task's budget and each manual
- * task's operator, and a note on every third task; then VACUUM ANALYZE. Each case draws which account, which tasks and
- * which range of names the selective reads ask about, opens the tenant's Db with a token naming that account through its
- * login's served file, runs every selective read of its workload as a served member through a counting executor, and
- * EXPLAINs each statement it sent with its parameters (test/support/plans.ts): planned with sequential and index scans disabled, so that a bitmap scan,
- * which reads only by an index condition, is the one scan left, every scan of a relation a statement restricts reads by
- * an index condition on an index the installation planned.
- * Every index the workload's access paths created must be read by some free plan of some case. An index only a law's
- * maintenance asked for is no read's: the reverse reference of each alternatives arm's containment
- * from Task's rows of its handle, over Task's law column of that handle, is read by the foreign key's own check when an
- * arm's row goes, and the serving suites (test/pg/physical/serving.ts, world-serving.ts) hold every law's probe and
- * every world function to the index planned for it. The oracle is PostgreSQL's planner.
+ * a policy filtering it for the tenant. Each case draws small sizes and loads Work at them over emptied tables in one
+ * SERIALIZABLE transaction, every law judged at COMMIT: accounts, tasks alternating automatic and manual over them,
+ * each automatic task's budget and each manual task's operator, and a note on every third task; then ANALYZE. It draws
+ * which account, which tasks and which range of names the selective reads ask about, opens the tenant's Db with a token
+ * naming that account through its login's served file, runs every selective read of its workload as a served member
+ * through a counting executor, and EXPLAINs each statement it sent with its parameters (test/support/plans.ts): planned
+ * with sequential and index scans disabled, so that a bitmap scan, which reads only by an index condition, is the one
+ * scan left, every scan of a relation a statement restricts reads by an index condition on an index the installation
+ * planned. The oracle is PostgreSQL's planner. That every created index is needed is test/pg/physical/serving.test.ts's:
+ * a free plan's choice of index is the cost model's, which only volume decides, so it is judged nowhere here.
  *
  * Features: a read by a busy account and by another.
  *
@@ -32,6 +25,7 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
+import { type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -53,13 +47,7 @@ import { parsedName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import { pickGen, pickIndex } from "#test/support/pick.ts"
-import {
-	createdIndexes,
-	plannedIndexes,
-	recordingMembers,
-	sentProblems,
-	spread
-} from "#test/support/plans.ts"
+import { plannedIndexes, recordingMembers, sentProblems, spread } from "#test/support/plans.ts"
 import { member, withServedDb } from "#test/support/served-db.ts"
 import { beginSerializable } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -69,6 +57,21 @@ interface Sizes {
 	/** Even; each task's kind alternates, and every third task has a note. */
 	readonly tasks: number
 }
+
+/**
+ * A case's sizes, drawn small: the property is PostgreSQL's planner with the scans that need no index disabled, which no
+ * size moves.
+ */
+const sizesGen: Gen<Sizes> = (source) => ({
+	accounts: source.draw(int(1, 30)),
+	tasks: 2 * source.draw(int(1, 40))
+})
+
+/** A case: its sizes, and the pick of the account, tasks and names its reads ask about. */
+const caseGen: Gen<{ readonly sizes: Sizes; readonly pick: number }> = (source) => ({
+	sizes: source.draw(sizesGen),
+	pick: source.draw(pickGen)
+})
 
 /** The entities a case asks about: accounts busiest first, and task ids. */
 interface Entities {
@@ -253,7 +256,7 @@ const selectiveReads = (
 	account: string
 ): ReadonlyArray<SelectiveRead> => {
 	const first = pickIndex(pick, Math.max(1, e.tasks.length - 8))
-	const range = pickIndex(pick, Math.floor(sizes.accounts / 10))
+	const range = pickIndex(pick, Math.max(1, Math.ceil(sizes.accounts / 10)))
 	return [
 		{ name: "automaticTasksFor", params: { account } },
 		{ name: "automaticBudgetFor", params: { account } },
@@ -270,7 +273,10 @@ const selectiveReads = (
 	]
 }
 
-const planSuite = (sizes: Sizes, runs: number) => (ctx: TestContext) =>
+/** The rotating stream's cases; the floor runs a quarter of them. */
+const runs = 8
+
+const planSuite = (ctx: TestContext) =>
 	searched(
 		ctx,
 		Effect.gen(function* () {
@@ -297,76 +303,81 @@ const planSuite = (sizes: Sizes, runs: number) => (ctx: TestContext) =>
 					Arr.map(fields, (f) => quoteIdent(names.column(relation, f))),
 					", "
 				)
-			const kind = defined(names.codes.rosters.get(parsedName("Kind")), "the codes of Kind")
-			const load = [
-				`INSERT INTO ${table("Account")} (${columns("Account", ["id", "name"])}) ` +
-					`SELECT md5('account:' || g)::uuid, 'account ' || lpad(g::text, 6, '0') ${series(sizes.accounts)}`,
-				`INSERT INTO ${table("Task")} (${columns("Task", ["id", "account", "kind"])}) ` +
-					`SELECT md5('task:' || g)::uuid, md5('account:' || ${spread(1, sizes.accounts)})::uuid, ` +
-					`(CASE WHEN g % 2 = 0 THEN ${codeOf(kind, "Automatic")} ELSE ${codeOf(kind, "Manual")} END)::smallint ${series(sizes.tasks)}`,
-				`INSERT INTO ${table("AutomaticTask")} (${columns("AutomaticTask", ["task", "budget"])}) ` +
-					`SELECT md5('task:' || (2 * g))::uuid, ${spread(2, 10_000)} ${series(sizes.tasks / 2)}`,
-				`INSERT INTO ${table("ManualTask")} (${columns("ManualTask", ["task", "operator"])}) ` +
-					`SELECT md5('task:' || (2 * g + 1))::uuid, 'operator ' || g ${series(sizes.tasks / 2)}`,
-				`INSERT INTO ${table("TaskNote")} (${columns("TaskNote", ["task", "note"])}) ` +
-					`SELECT md5('task:' || (3 * g))::uuid, 'note ' || g ${series(Math.floor((sizes.tasks - 1) / 3) + 1)}`
-			]
-			yield* Effect.onError(
-				Effect.gen(function* () {
-					yield* s.admin.query(beginSerializable, [])
-					for (const statement of load) {
-						yield* s.admin.query(statement, [])
-					}
-					yield* s.admin.query("COMMIT", [])
-				}),
-				() => Effect.ignore(s.admin.query("ROLLBACK", []))
-			)
-			for (const r of ["Account", "Task", "AutomaticTask", "ManualTask", "TaskNote"]) {
-				yield* s.admin.query(`VACUUM (ANALYZE) ${table(r)}`, [])
-			}
-			const planned = plannedIndexes(m.installation)
 			const column = (relation: string, field: string): string =>
 				quoteIdent(names.column(relation, field))
-			const busiest = yield* s.admin.queryValues(
-				`SELECT ${column("Task", "account")}::text FROM ${table("Task")} GROUP BY 1 ORDER BY count(*) DESC, 1 LIMIT 200`,
-				[]
-			)
-			const tasks = yield* s.admin.queryValues(
-				`SELECT ${column("Task", "id")}::text FROM ${table("Task")} ORDER BY 1 LIMIT 400`,
-				[]
-			)
-			const e: Entities = {
-				accounts: Arr.map(trusted<ReadonlyArray<readonly [string]>>(busiest), ([a]) => a),
-				tasks: Arr.map(trusted<ReadonlyArray<readonly [string]>>(tasks), ([id]) => id)
-			}
-			const used = new Set<string>()
-			const explored = yield* explore(
+			const kind = defined(names.codes.rosters.get(parsedName("Kind")), "the codes of Kind")
+			const relations = ["Account", "Task", "AutomaticTask", "ManualTask", "TaskNote"] as const
+			/** Work at `sizes`, written whole in one SERIALIZABLE transaction over emptied tables, then analyzed. */
+			const loadAt = (sizes: Sizes) =>
+				Effect.gen(function* () {
+					const load = [
+						`TRUNCATE ${Arr.join(Arr.map(relations, table), ", ")}`,
+						`INSERT INTO ${table("Account")} (${columns("Account", ["id", "name"])}) ` +
+							`SELECT md5('account:' || g)::uuid, 'account ' || lpad(g::text, 6, '0') ${series(sizes.accounts)}`,
+						`INSERT INTO ${table("Task")} (${columns("Task", ["id", "account", "kind"])}) ` +
+							`SELECT md5('task:' || g)::uuid, md5('account:' || ${spread(1, sizes.accounts)})::uuid, ` +
+							`(CASE WHEN g % 2 = 0 THEN ${codeOf(kind, "Automatic")} ELSE ${codeOf(kind, "Manual")} END)::smallint ${series(sizes.tasks)}`,
+						`INSERT INTO ${table("AutomaticTask")} (${columns("AutomaticTask", ["task", "budget"])}) ` +
+							`SELECT md5('task:' || (2 * g))::uuid, ${spread(2, 10_000)} ${series(sizes.tasks / 2)}`,
+						`INSERT INTO ${table("ManualTask")} (${columns("ManualTask", ["task", "operator"])}) ` +
+							`SELECT md5('task:' || (2 * g + 1))::uuid, 'operator ' || g ${series(sizes.tasks / 2)}`,
+						`INSERT INTO ${table("TaskNote")} (${columns("TaskNote", ["task", "note"])}) ` +
+							`SELECT md5('task:' || (3 * g))::uuid, 'note ' || g ${series(Math.floor((sizes.tasks - 1) / 3) + 1)}`
+					]
+					yield* Effect.onError(
+						Effect.gen(function* () {
+							yield* s.admin.query(beginSerializable, [])
+							for (const statement of load) {
+								yield* s.admin.query(statement, [])
+							}
+							yield* s.admin.query("COMMIT", [])
+						}),
+						() => Effect.ignore(s.admin.query("ROLLBACK", []))
+					)
+					for (const r of relations) {
+						yield* s.admin.query(`ANALYZE ${table(r)}`, [])
+					}
+					const busiest = yield* s.admin.queryValues(
+						`SELECT ${column("Task", "account")}::text FROM ${table("Task")} GROUP BY 1 ORDER BY count(*) DESC, 1`,
+						[]
+					)
+					const tasks = yield* s.admin.queryValues(
+						`SELECT ${column("Task", "id")}::text FROM ${table("Task")} ORDER BY 1`,
+						[]
+					)
+					const e: Entities = {
+						accounts: Arr.map(trusted<ReadonlyArray<readonly [string]>>(busiest), ([a]) => a),
+						tasks: Arr.map(trusted<ReadonlyArray<readonly [string]>>(tasks), ([id]) => id)
+					}
+					return e
+				})
+			const planned = plannedIndexes(m.installation)
+			return yield* explore(
 				{
 					oracle: {
 						kind: "postgresql",
 						name: "PostgreSQL's plans with sequential and index scans disabled"
 					},
-					suite: `pg/e2e-work/plans ${sizes.tasks}`,
-					draw: drawn(pickGen),
+					suite: "pg/e2e-work/plans",
+					draw: drawn(caseGen),
 					literal: Formatter.format,
 					coverage: required<WorkFeature>(
 						["a read by a busy account", "a read by another account"],
-						{ cases: 10 * runs, sense: notesOnly }
+						{ cases: runs, sense: notesOnly }
 					),
 					kept: [],
 					runs,
 					shrink: completeShrink,
 					concurrency: 1,
-					/** Windows of four cases, so the steered phase stops within four cases of reaching both reads: every case
-					 * plans its reads at volume. */
-					steerEvery: 4,
+					steerEvery: 16,
 					caseHang
 				},
-				(pick, cx) =>
+				({ sizes, pick }, cx) =>
 					Effect.gen(function* () {
 						cx.note(
 							pickIndex(pick, 4) === 0 ? "a read by a busy account" : "a read by another account"
 						)
+						const e = yield* loadAt(sizes)
 						const account = accountOf(e, pick)
 						yield* withServedDb(m, world.server.roles.tenant, { account }, ({ ctx, load }) =>
 							Effect.gen(function* () {
@@ -382,10 +393,7 @@ const planSuite = (sizes: Sizes, runs: number) => (ctx: TestContext) =>
 										counts.sent.slice(before),
 										planned
 									)
-									appendAll(problems, judged.problems)
-									for (const index of judged.read) {
-										used.add(index)
-									}
+									appendAll(problems, judged)
 								}
 								assert.deepEqual(
 									problems,
@@ -396,27 +404,9 @@ const planSuite = (sizes: Sizes, runs: number) => (ctx: TestContext) =>
 						)
 					}).pipe(Effect.scoped)
 			)
-			/** The indexes no access path asked for: each serves only a law's maintenance. */
-			const lawOnly = new Set<string>(
-				Arr.flatMap(m.installation.indexes, (i) =>
-					i.index.kind === "created" && Arr.every(i.requests, (r) => r.role === "lawMaintenance")
-						? [i.index.name]
-						: []
-				)
-			)
-			const created = yield* createdIndexes(m.schema)
-			assert.deepEqual(
-				Arr.filter(created, (i) => !used.has(i) && !lawOnly.has(i)),
-				[],
-				"every index the workload creates is read by a selective read"
-			)
-			return explored
 		})
 	)
 
-layer(Substrate.layer)("the worked example's plans at volume", (it) => {
-	it.effect(
-		"60,000 tasks: every selective read through its indexes, every index the workload created read",
-		planSuite({ accounts: 25_000, tasks: 60_000 }, 8)
-	)
+layer(Substrate.layer)("the worked example's plans", (it) => {
+	it.effect("every selective read through its indexes, on drawn small loads", planSuite)
 })
