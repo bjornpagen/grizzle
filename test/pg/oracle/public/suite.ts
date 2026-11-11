@@ -3,16 +3,14 @@ import {
 	type Explored,
 	explore,
 	type Kept,
-	type PropertyFalsified,
 	type Run,
 	type SearchFailure
 } from "@grizzle/testing/explore"
 import { rating, required } from "@grizzle/testing/features"
 import { notesOnly } from "@grizzle/testing/sense"
-import { Array as Arr, Effect, Formatter, Option } from "effect"
+import { Array as Arr, type Effect, Formatter } from "effect"
 import { indices } from "#compiler/core/array.ts"
-import type { Conversion, Stitch } from "#test/pg/oracle/public/planted.ts"
-import { type Disagreement, runCase } from "#test/pg/oracle/public/run.ts"
+import { runCase } from "#test/pg/oracle/public/run.ts"
 import { declineFeatures } from "#test/pg/oracle/support.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -38,16 +36,6 @@ import type {
 } from "#test/support/oracle/public/program.ts"
 import type { DeclineReason } from "#test/support/oracle/reference/values.ts"
 import type { Substrate } from "#test/support/substrate/substrate.ts"
-
-/**
- * The explorations of the public differential, each its own suite (its own floor seed): the real one, and the three
- * planted defects (planted.test.ts).
- */
-export type PublicSuite =
-	| "public"
-	| "public/planted-stitch"
-	| "public/planted-conversion"
-	| "public/planted-order"
 
 /**
  * The cases of the rotating stream; every case installs a schema through its migration, so the population is small and
@@ -254,79 +242,30 @@ const planted: ReadonlyArray<Kept<CaseSketch, PublicFeature>> = [
  * The identifier kinds and every shape the program took are noted too, so the residual-risk line says how much of that
  * space the run likely missed.
  *
- * Explores `suite`, the adapter's delivery read through `stitch` and its cell texts checked against `conversion`
- * (planted.ts): as delivered and converted, or through a planted defect the suite must catch, each disagreement a case
- * fails with handed to `failed`. A case draws its sketch, then resolves it on its own decisions. The Dbs connect to the
- * substrate's target, so cases run one at a time. Shrinking stops after 150 candidates: each candidate installs a
+ * Explores the public-boundary differential: the adapter's delivery as delivered, its cell texts checked against the
+ * library's conversion (cells.ts). A case draws its sketch, then resolves it on its own decisions. The Dbs connect to
+ * the substrate's target, so cases run one at a time. Shrinking stops after 150 candidates: each candidate installs a
  * schema, and a shrunk sketch past that is already the size of one a person reads.
  */
-const exploration = (
-	suite: PublicSuite,
-	stitch: Stitch,
-	conversion: Conversion,
-	failed: (disagreement: Disagreement) => void
-): Effect.Effect<Explored, SearchFailure, Substrate | Run> =>
-	explore(
-		{
-			oracle: { kind: "unstated" },
-			suite,
-			draw: drawn(caseSketchGen),
-			literal: Formatter.format,
-			coverage: rating(
-				required<PublicFeature>(situations, { cases: cases, sense: notesOnly }),
-				declineFeatures
-			),
-			kept: planted,
-			runs: cases,
-			shrink: { kind: "bounded", candidates: 150 },
-			concurrency: 1,
-			steerEvery: 16,
-			caseHang
+export const explorePublic: Effect.Effect<Explored, SearchFailure, Substrate | Run> = explore(
+	{
+		oracle: {
+			kind: "second-implementation",
+			name: "the reference evaluator's per-parent delivery, and the read itself under another storage"
 		},
-		(sketch, c) =>
-			runCase(c.draw(resolveCase(sketch)), c.note, stitch, conversion).pipe(
-				Effect.tapError((disagreement) => Effect.sync(() => failed(disagreement)))
-			)
-	)
-
-/** The public-boundary differential, the adapter's delivery read through `stitch` and its cells through `conversion`. */
-export const explorePublic = (
-	stitch: Stitch,
-	conversion: Conversion
-): Effect.Effect<Explored, SearchFailure, Substrate | Run> =>
-	exploration("public", stitch, conversion, () => undefined)
-
-/**
- * What a planted defect's exploration ends with: every case passed, or a case failed, with the exploration's report
- * and the disagreement of the last case that failed. Shrinking runs failing cases until the shrunk one, so the last is
- * the shrunk case's unless a later candidate failed without drawing fewer decisions.
- */
-export type Caught =
-	| { readonly kind: "passed" }
-	| {
-			readonly kind: "falsified"
-			readonly report: string
-			readonly last: Option.Option<Disagreement>
-	  }
-
-/**
- * The public-boundary differential through a planted defect, which must fail: a failing case is the result rather
- * than the exploration's failure, so the suite can judge which check caught it. Every other way the exploration fails
- * (a hang, a stall, an unreached feature, a stale kept case) fails it still.
- */
-export const catchPlanted = (
-	suite: Exclude<PublicSuite, "public">,
-	stitch: Stitch,
-	conversion: Conversion
-): Effect.Effect<Caught, Exclude<SearchFailure, PropertyFalsified>, Substrate | Run> =>
-	Effect.suspend(() => {
-		let last: Option.Option<Disagreement> = Option.none()
-		return exploration(suite, stitch, conversion, (disagreement) => {
-			last = Option.some(disagreement)
-		}).pipe(
-			Effect.map((): Caught => ({ kind: "passed" })),
-			Effect.catchTag("PropertyFalsified", (falsified) =>
-				Effect.succeed<Caught>({ kind: "falsified", report: falsified.message, last })
-			)
-		)
-	})
+		suite: "public",
+		draw: drawn(caseSketchGen),
+		literal: Formatter.format,
+		coverage: rating(
+			required<PublicFeature>(situations, { cases: cases, sense: notesOnly }),
+			declineFeatures
+		),
+		kept: planted,
+		runs: cases,
+		shrink: { kind: "bounded", candidates: 150 },
+		concurrency: 1,
+		steerEvery: 16,
+		caseHang
+	},
+	(sketch, c) => runCase(c.draw(resolveCase(sketch)), c.note)
+)

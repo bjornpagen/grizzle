@@ -21,14 +21,16 @@ import { deliveredRows, type ReadProgram } from "#adapter/reader/run.ts"
 import type { LoadedMember } from "#adapter/served/load.ts"
 import type { QueryResult } from "#adapter/types/db.ts"
 import { assembled, cellKindOf, deliveryOf } from "#compiler/codec/delivery.ts"
+import { scalarReader } from "#compiler/codec/read.ts"
 import { scalarCodec } from "#compiler/codec/scalar.ts"
 import type { Layout, Row } from "#compiler/core/decoder.ts"
 import { bytesChunkLength } from "#compiler/core/limits.ts"
 import { sha256Hex } from "#compiler/core/sha256.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import type { Cell } from "#compiler/core/wire.ts"
+import { type Codebook, emptyCodebook, firstCodebook } from "#compiler/ir/codes.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
-import type { ScalarType } from "#compiler/ir/scalar.ts"
+import { rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { PartDivision } from "#compiler/lower/parts.ts"
 import type { ParamMap } from "#compiler/plan/common.ts"
 import { type FusedLayout, fusedElement } from "#compiler/runtime/lower/fused.ts"
@@ -37,13 +39,29 @@ import type { Bytes } from "#compiler/scalar/values/bytes.ts"
 import { isHostValue } from "#compiler/scalar/values/identity.ts"
 import type { ServedPart } from "#compiler/served/read.ts"
 import type { Page } from "#compiler/types/page/page.ts"
-import { type Conversion, freshCodesOf } from "#test/pg/oracle/public/planted.ts"
 import {
 	type StrictCell,
 	strictArrayText,
 	strictDelivered,
 	strictReader as strictCellReader
 } from "#test/support/kernel/strict.ts"
+import { outputText } from "#test/support/wire.ts"
+
+/**
+ * The codes a column of `type` is read under in a public-oracle case: every case installs its schema fresh, from no
+ * codes (oracle/install/real.ts oraclePlan), so a roster's handles hold the codes of their declared positions, and a
+ * type over no roster reads none.
+ */
+export const freshCodesOf = (type: ScalarType): Codebook => {
+	const roster = rosterOf(type)
+	return roster === undefined ? emptyCodebook : firstCodebook([roster])
+}
+
+/** The library's trusting conversion of a column type's output text into its host value (scalar/values/convert.ts). */
+const converted = (type: ScalarType): ((text: string) => unknown) => {
+	const reader = scalarReader(type, freshCodesOf(type))
+	return (text) => reader.convert(outputText(text))
+}
 
 /** Whether a value has the bytes host type: a Uint8Array over an ArrayBuffer. */
 const isBytes = (value: unknown): value is Bytes =>
@@ -85,7 +103,7 @@ const textCell = (cell: StrictCell, what: string): string =>
  * A cell's check under its column: a text column's conversion against its strict reading; a bytes column's cell is
  * the value its strict assembly read (checkCells), which no text spells.
  */
-const cellCheck = (type: ScalarType, conversion: Conversion): ((cell: StrictCell) => void) => {
+const cellCheck = (type: ScalarType): ((cell: StrictCell) => void) => {
 	if (type.carrier === "bytes") {
 		return (cell) => {
 			if (typeof cell === "string") {
@@ -93,7 +111,7 @@ const cellCheck = (type: ScalarType, conversion: Conversion): ((cell: StrictCell
 			}
 		}
 	}
-	const convert = conversion(type)
+	const convert = converted(type)
 	return (cell) => {
 		const text = textCell(cell, `a ${type.carrier} cell`)
 		readsAs(type, text, convert(text), "its conversion differs from its strict reading")
@@ -106,8 +124,8 @@ const sameCell = (a: StrictCell | Cell, b: StrictCell | Cell): boolean =>
 		? a === b
 		: a.length === b.length && a.every((byte, at) => byte === b[at])
 
-const fusedCheck = (element: Heading, conversion: Conversion): ((cell: StrictCell) => void) => {
-	const checks = Arr.map(element, (c) => cellCheck(c.type, conversion))
+const fusedCheck = (element: Heading): ((cell: StrictCell) => void) => {
+	const checks = Arr.map(element, (c) => cellCheck(c.type))
 	const [only] = checks
 
 	const checkObject = (e: string): void => {
@@ -169,16 +187,15 @@ type Flight = { readonly kind: "awaiting" } | { readonly kind: "flown"; readonly
  */
 const checkCells = (
 	statements: ReadonlyArray<Pick<Checked, "heading" | "fused">>,
-	sent: SentRuns,
-	conversion: Conversion
+	sent: SentRuns
 ): void => {
 	if (statements.length !== sent.length) {
 		disagree(`a flight of ${sent.length} answers for ${statements.length} statements`)
 	}
 	for (const [i, s] of statements.entries()) {
 		const checks = [
-			...Arr.map(s.heading, (c) => cellCheck(c.type, conversion)),
-			...Arr.map(s.fused, (f) => fusedCheck(fusedElement(f.layout), conversion))
+			...Arr.map(s.heading, (c) => cellCheck(c.type)),
+			...Arr.map(s.fused, (f) => fusedCheck(fusedElement(f.layout)))
 		]
 		const answer = defined(sent[i], `the answer of statement ${i}`)
 		const delivery = deliveryOf([
@@ -420,30 +437,28 @@ const sentRow = (row: Row, layout: Layout): SentRow => ({
 	)
 })
 
-const checkRead =
-	(conversion: Conversion) =>
-	(
-		program: ReadProgram,
-		sent: SentRuns,
-		params: ParamMap,
-		records: ReadonlyArray<unknown>
-	): ReadonlyArray<SentRow> => {
-		if (sent.length !== 1) {
-			disagree(`a flight of ${sent.length} answers for a read's one statement`)
-		}
-		const statements = partsChecked(program.records)
-		const runs = programRuns(program.run.parts, sent)
-		checkCells(answering(statements), runs, conversion)
-		const delivered = deliveredRows(program, runs, params)
-		if (Result.isFailure(delivered)) {
-			throw new Error(`the rows PostgreSQL sent are unreadable: ${delivered.failure.message}`)
-		}
-		const rows = delivered.success
-		checkRecords(records, rows, program.layouts, headingsOf(statements))
-		return Arr.map(rows, (row) =>
-			sentRow(row, defined(program.layouts[row.group], `the layout of group ${row.group}`))
-		)
+const checkRead = (
+	program: ReadProgram,
+	sent: SentRuns,
+	params: ParamMap,
+	records: ReadonlyArray<unknown>
+): ReadonlyArray<SentRow> => {
+	if (sent.length !== 1) {
+		disagree(`a flight of ${sent.length} answers for a read's one statement`)
 	}
+	const statements = partsChecked(program.records)
+	const runs = programRuns(program.run.parts, sent)
+	checkCells(answering(statements), runs)
+	const delivered = deliveredRows(program, runs, params)
+	if (Result.isFailure(delivered)) {
+		throw new Error(`the rows PostgreSQL sent are unreadable: ${delivered.failure.message}`)
+	}
+	const rows = delivered.success
+	checkRecords(records, rows, program.layouts, headingsOf(statements))
+	return Arr.map(rows, (row) =>
+		sentRow(row, defined(program.layouts[row.group], `the layout of group ${row.group}`))
+	)
+}
 
 const probeOf = (
 	run: PageRuntime["artifact"],
@@ -461,33 +476,36 @@ const probeOf = (
 	}
 }
 
-const checkPage =
-	(conversion: Conversion) =>
-	<Q>(runtime: PageRuntime, sent: SentRuns, request: unknown, page: Page<unknown, Q>): void => {
-		const parsed = pageRequest(request)
-		if (Result.isFailure(parsed)) {
-			throw new Error("a page that answered a request its runtime refuses")
-		}
-		const run = runtime.artifact
-		const program = run.requests[parsed.success.variant]
-		const probes = probeOf(run, parsed.success)
-		if (sent.length !== 1 + probes.length) {
-			disagree(`a flight of ${sent.length} answers for a request and ${probes.length} probes`)
-		}
-		const statements = partsChecked(program.records)
-		const runs = programRuns(program.run.parts, sent)
-		checkCells(answering(statements), runs, conversion)
-		checkCells(probes, sent.slice(1), conversion)
-		checkRecords(
-			Arr.map(page.edges, (edge) => edge.node),
-			Arr.map(
-				Result.getOrThrow(pageEdges(program, runs, parsed.success.size)).edges,
-				(edge) => edge.row
-			),
-			program.layouts,
-			headingsOf(statements)
-		)
+const checkPage = <Q>(
+	runtime: PageRuntime,
+	sent: SentRuns,
+	request: unknown,
+	page: Page<unknown, Q>
+): void => {
+	const parsed = pageRequest(request)
+	if (Result.isFailure(parsed)) {
+		throw new Error("a page that answered a request its runtime refuses")
 	}
+	const run = runtime.artifact
+	const program = run.requests[parsed.success.variant]
+	const probes = probeOf(run, parsed.success)
+	if (sent.length !== 1 + probes.length) {
+		disagree(`a flight of ${sent.length} answers for a request and ${probes.length} probes`)
+	}
+	const statements = partsChecked(program.records)
+	const runs = programRuns(program.run.parts, sent)
+	checkCells(answering(statements), runs)
+	checkCells(probes, sent.slice(1))
+	checkRecords(
+		Arr.map(page.edges, (edge) => edge.node),
+		Arr.map(
+			Result.getOrThrow(pageEdges(program, runs, parsed.success.size)).edges,
+			(edge) => edge.row
+		),
+		program.layouts,
+		headingsOf(statements)
+	)
+}
 
 const defined = <A>(value: A | undefined, what: string): A => {
 	if (value === undefined) {
@@ -503,7 +521,7 @@ const defined = <A>(value: A | undefined, what: string): A => {
 export interface StrictReader {
 	/**
 	 * The operations of `member` over the reader's context, every read checked strictly: each cell PostgreSQL sent read
-	 * by its column's strict reader and checked against `conversion`, and every delivered field against its cell, by the
+	 * by its column's strict reader and checked against the library's conversion, and every delivered field against its cell, by the
 	 * member's own loaded program (a read's statements and layouts, a page's runtime). A check that disagrees dies with
 	 * a CellDisagreement.
 	 */
@@ -532,8 +550,8 @@ const pageRuntimeOf = (member: LoadedMember): PageRuntime => {
 	return member.page.runtime
 }
 
-/** The strict reader of the served Db of `ctx` (StrictReader), its cells checked against `conversion`. */
-export const strictReaderOf = (ctx: ServedDbContext, conversion: Conversion): StrictReader => {
+/** The strict reader of the served Db of `ctx` (StrictReader), its cells checked against the library's conversion. */
+export const strictReaderOf = (ctx: ServedDbContext): StrictReader => {
 	let lastSent: ReadonlyArray<SentRow> = []
 	let inProgress: Flight = { kind: "awaiting" }
 	const base = poolExecutor(ctx)
@@ -548,8 +566,6 @@ export const strictReaderOf = (ctx: ServedDbContext, conversion: Conversion): St
 					})
 			})
 	}
-	const read = checkRead(conversion)
-	const paged = checkPage(conversion)
 
 	const checked = <A, E>(
 		answer: Effect.Effect<A, E>,
@@ -576,7 +592,7 @@ export const strictReaderOf = (ctx: ServedDbContext, conversion: Conversion): St
 		(result, sent) =>
 			Effect.flatMap(result.collect, (rows) =>
 				Effect.sync(() => {
-					lastSent = read(program, sent, params, rows)
+					lastSent = checkRead(program, sent, params, rows)
 				})
 			)
 	return {
@@ -590,13 +606,13 @@ export const strictReaderOf = (ctx: ServedDbContext, conversion: Conversion): St
 				get: (params) =>
 					checked(ops.get(params), (got, sent) =>
 						Effect.sync(() => {
-							read(readOf(member).program, sent, params, Option.isSome(got) ? [got.value] : [])
+							checkRead(readOf(member).program, sent, params, Option.isSome(got) ? [got.value] : [])
 						})
 					),
 				page: <Q>(params: ParamMap, request: unknown) =>
 					checked(ops.page<Q>(params, request), (page, sent) =>
 						Effect.sync(() => {
-							paged(pageRuntimeOf(member), sent, request, page)
+							checkPage(pageRuntimeOf(member), sent, request, page)
 						})
 					)
 			}

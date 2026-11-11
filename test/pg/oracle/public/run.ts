@@ -38,8 +38,12 @@ import type { ParamMap } from "#compiler/plan/common.ts"
 import { pagedMember } from "#compiler/program/workload/value.ts"
 import type { AnyRole } from "#compiler/types/schema/world.ts"
 import { changeSetOver } from "#compiler/write/changeset/value.ts"
-import { CellDisagreement, type SentRow, strictReaderOf } from "#test/pg/oracle/public/cells.ts"
-import { type Conversion, freshCodesOf, type Stitch } from "#test/pg/oracle/public/planted.ts"
+import {
+	CellDisagreement,
+	freshCodesOf,
+	type SentRow,
+	strictReaderOf
+} from "#test/pg/oracle/public/cells.ts"
 import type { PublicFeature } from "#test/pg/oracle/public/suite.ts"
 import { defined, succeeded } from "#test/support/assert.ts"
 import { compileTemplate, installedCodes, testCompile } from "#test/support/compile.ts"
@@ -966,8 +970,7 @@ const queryAgain = (
 	read: Extract<ProgramRead, { readonly kind: "query" }>,
 	params: ParamMap,
 	label: string,
-	first: Answer,
-	stitch: Stitch
+	first: Answer
 ): Reading =>
 	Effect.gen(function* () {
 		const shape = shapeOf(read.query)
@@ -979,7 +982,6 @@ const queryAgain = (
 			Effect.flatMap(members.strict(name).execute(params), (r) => r.collect),
 			shape
 		)
-		const sent = members.sentRows()
 		yield* agreeing(
 			c,
 			`${label}, read again over its facts stored otherwise`,
@@ -988,10 +990,7 @@ const queryAgain = (
 			[
 				{ side: "execute", output: first },
 				{ side: "execute, read again", output: plain },
-				{
-					side: "execute under the planner perturbation, read again",
-					output: Result.map(planned, (rows) => stitch(rows, read.query, sent))
-				}
+				{ side: "execute under the planner perturbation, read again", output: planned }
 			]
 		)
 	})
@@ -1011,8 +1010,7 @@ const queryRead = (
 	value: SchemaValue,
 	read: Extract<ProgramRead, { readonly kind: "query" }>,
 	index: number,
-	note: Note,
-	stitch: Stitch
+	note: Note
 ): Effect.Effect<Again, Disagreement> =>
 	Effect.gen(function* () {
 		const label = `read ${index}`
@@ -1133,10 +1131,7 @@ const queryRead = (
 			{ side: "reference", output: expected },
 			{ side: "execute", output: execute },
 			{ side: "execute, collected again", output: again },
-			{
-				side: "execute under the planner perturbation",
-				output: Result.map(planned, (rows) => stitch(rows, read.query, sent))
-			},
+			{ side: "execute under the planner perturbation", output: planned },
 			{ side: "execute again", output: executedAgain },
 			{ side: "execute under the planner perturbation, again", output: strictlyAgain },
 			{ side: "the read-back member's apply", output: readBack }
@@ -1230,7 +1225,7 @@ const queryRead = (
 			}
 			noteSpellings(read.query, sent, forms, "", note)
 		}
-		return () => queryAgain(c, members, name, read, params, label, execute, stitch)
+		return () => queryAgain(c, members, name, read, params, label, execute)
 	}).pipe(Effect.scoped)
 
 /**
@@ -1706,14 +1701,12 @@ type ReadOps = Omit<CompiledOps<unknown>, "apply">
  * spellings among each attachment's parent keys, and every refusal.
  *
  * Runs one case, noting its features, its Db connecting to the server. The perturbed reader checks every cell text
- * against `conversion`, and every delivered field against its cell (cells.ts). The case's scope holds its installation
+ * against the library's conversion, and every delivered field against its cell (cells.ts). The case's scope holds its installation
  * and its Db.
  */
 export const runCase = (
 	c: ProgramCase,
-	note: Note,
-	stitch: Stitch,
-	conversion: Conversion
+	note: Note
 ): Effect.Effect<void, Disagreement, Substrate | Scope.Scope> =>
 	Effect.gen(function* () {
 		noteProgram(c, note)
@@ -1740,7 +1733,7 @@ export const runCase = (
 						load(casePrograms(c, built, value)),
 						refused("the case's workload did not compile")
 					)
-					const strict = strictReaderOf(perturbedContext(ctx, c.perturbation), conversion)
+					const strict = strictReaderOf(perturbedContext(ctx, c.perturbation))
 					const served = (name: string) => memberOps(ctx, member(loaded, name))
 					const members: Members = {
 						plain: (name) => served(name).ops,
@@ -1769,7 +1762,7 @@ export const runCase = (
 							case "mixed":
 								return mixedRead(c, members, read, i, note)
 							case "query":
-								return queryRead(c, members, done.names.codes, built, value, read, i, note, stitch)
+								return queryRead(c, members, done.names.codes, built, value, read, i, note)
 						}
 					}
 					if (spelledFacts(c)) {
