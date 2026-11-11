@@ -687,6 +687,7 @@ describe("the session pool", () => {
 												startImmediately: true
 											})
 										)
+										yield* settle
 										assert.equal(
 											pool.native.waitingCount,
 											0,
