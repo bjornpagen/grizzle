@@ -63,7 +63,7 @@ describe("foldJson", () => {
 			'{"z": 1, "a": [true, {"y": null, "b": "x"}], "m": []}'
 		)
 
-		expect(foldJson(value, visits)).toEqual([
+		expect(foldJson(value, visits, [])).toEqual([
 			"key z",
 			"leaf /z 1",
 			"key a",

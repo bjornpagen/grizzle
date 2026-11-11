@@ -23,14 +23,8 @@ import {
 } from "#model/pointer.ts"
 import type { Json } from "#model/pointer.ts"
 import { specSectionUrl } from "#model/spec-section.ts"
-import {
-	documentBase,
-	resolveUri,
-	retrievalBase,
-	schemaBase,
-	splitFragment,
-	stripFragment
-} from "#resolve/base-uri.ts"
+import { resolveUri, retrievalBase, splitFragment, stripFragment } from "#model/uri.ts"
+import { documentBase, schemaBase } from "#resolve/base-uri.ts"
 import { defsKey, keyOf } from "#resolve/canonical.ts"
 import type { CanonicalKey } from "#resolve/canonical.ts"
 import { declaredOpenapi } from "#validate/dispatch.ts"

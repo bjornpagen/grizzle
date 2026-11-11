@@ -1,5 +1,15 @@
-/* oxlint-disable unicorn/throw-new-error -- Schema.TaggedError<Self>()(tag, fields) declares a class; nothing is thrown */
-import { Effect, JsonPointer, Option, Predicate, Record, Result, Schema } from "effect"
+import { regex } from "arkregex"
+import {
+	Array as Arr,
+	Effect,
+	JsonPointer,
+	Option,
+	Predicate,
+	Record,
+	Result,
+	Schema,
+	String as Str
+} from "effect"
 
 /**
  * A JSON value.
@@ -15,42 +25,42 @@ export type Json =
 /**
  * The pointer or fragment text is not valid RFC 6901 syntax.
  */
-export class PointerSyntaxError extends Schema.TaggedError<PointerSyntaxError>()(
-	"PointerSyntaxError",
-	{
-		pointer: Schema.String,
-		reason: Schema.Literals([
-			"missing-leading-slash",
-			"invalid-escape",
-			"invalid-percent-escape",
-			"missing-hash"
-		])
-	}
-) {}
+export class PointerSyntaxError extends Schema.TaggedError<
+	PointerSyntaxError,
+	{ readonly brand: unique symbol }
+>()("PointerSyntaxError", {
+	pointer: Schema.String,
+	reason: Schema.Literals([
+		"missing-leading-slash",
+		"invalid-escape",
+		"invalid-percent-escape",
+		"missing-hash"
+	])
+}) {}
 
 /**
  * An object has no own member for a pointer token.
  */
-export class PointerMemberNotFound extends Schema.TaggedError<PointerMemberNotFound>()(
-	"PointerMemberNotFound",
-	{ pointer: Schema.String, token: Schema.String }
-) {}
+export class PointerMemberNotFound extends Schema.TaggedError<
+	PointerMemberNotFound,
+	{ readonly brand: unique symbol }
+>()("PointerMemberNotFound", { pointer: Schema.String, token: Schema.String }) {}
 
 /**
  * An array index token is not a valid index into the array.
  */
-export class PointerIndexOutOfRange extends Schema.TaggedError<PointerIndexOutOfRange>()(
-	"PointerIndexOutOfRange",
-	{ pointer: Schema.String, token: Schema.String }
-) {}
+export class PointerIndexOutOfRange extends Schema.TaggedError<
+	PointerIndexOutOfRange,
+	{ readonly brand: unique symbol }
+>()("PointerIndexOutOfRange", { pointer: Schema.String, token: Schema.String }) {}
 
 /**
  * A token tried to descend into a scalar.
  */
-export class PointerNotContainer extends Schema.TaggedError<PointerNotContainer>()(
-	"PointerNotContainer",
-	{ pointer: Schema.String, token: Schema.String }
-) {}
+export class PointerNotContainer extends Schema.TaggedError<
+	PointerNotContainer,
+	{ readonly brand: unique symbol }
+>()("PointerNotContainer", { pointer: Schema.String, token: Schema.String }) {}
 
 export type PointerEvalError = PointerMemberNotFound | PointerIndexOutOfRange | PointerNotContainer
 
@@ -59,25 +69,25 @@ export type PointerEvalError = PointerMemberNotFound | PointerIndexOutOfRange | 
  */
 export const escapeToken = (token: string): string => JsonPointer.escapeToken(token)
 
-// One token grammar: any characters but `/` and `~`, or the escapes `~0` and `~1`.
-const tokenGrammar = String.raw`(?:[^/~]|~[01])*`
-
 /**
- * What `parsePointer` accepts: the empty pointer or `/`-led reference tokens.
+ * What `parsePointer` accepts: the empty pointer or `/`-led reference tokens, each token any
+ * characters but `/` and `~`, or the escapes `~0` and `~1`.
  */
-export const pointerPattern = new RegExp(String.raw`^(?:\/${tokenGrammar})*$`, "u")
+export const pointerPattern = regex("^(?:/(?:[^/~]|~[01])*)*$", "u")
 
 /**
  * What `parsePointer` accepts, less the empty pointer.
  */
-export const nonEmptyPointerPattern = new RegExp(String.raw`^(?:\/${tokenGrammar})+$`, "u")
+export const nonEmptyPointerPattern = regex("^(?:/(?:[^/~]|~[01])*)+$", "u")
+
+const invalidEscape = regex("~(?![01])", "u")
 
 /**
  * Unescapes one reference token; a `~` not followed by `0` or `1` fails.
  */
 export const unescapeTokenResult = (token: string): Result.Result<string, PointerSyntaxError> =>
-	/~(?![01])/u.test(token)
-		? Result.fail(new PointerSyntaxError({ pointer: token, reason: "invalid-escape" }))
+	invalidEscape.test(token)
+		? Result.fail(PointerSyntaxError.make({ pointer: token, reason: "invalid-escape" }))
 		: Result.succeed(JsonPointer.unescapeToken(token))
 
 /**
@@ -86,31 +96,25 @@ export const unescapeTokenResult = (token: string): Result.Result<string, Pointe
 export const unescapeToken = (token: string): Effect.Effect<string, PointerSyntaxError> =>
 	Effect.suspend(() => Effect.fromResult(unescapeTokenResult(token)))
 
+const tokensAfterSlash = (pointer: string): Result.Result<readonly string[], PointerSyntaxError> =>
+	Result.mapError(
+		Result.all(Arr.map(Str.split(Str.slice(1)(pointer), "/"), unescapeTokenResult)),
+		() => PointerSyntaxError.make({ pointer, reason: "invalid-escape" })
+	)
+
 /**
  * Parses a pointer string into unescaped tokens.
  */
 export const parsePointerResult = (
 	pointer: string
 ): Result.Result<readonly string[], PointerSyntaxError> => {
-	if (pointer === "") {
+	if (Str.isEmpty(pointer)) {
 		return Result.succeed([])
 	}
 
-	if (!pointer.startsWith("/")) {
-		return Result.fail(new PointerSyntaxError({ pointer, reason: "missing-leading-slash" }))
-	}
-
-	const tokens: string[] = []
-	for (const raw of pointer.slice(1).split("/")) {
-		const token = unescapeTokenResult(raw)
-		if (Result.isFailure(token)) {
-			return Result.fail(new PointerSyntaxError({ pointer, reason: "invalid-escape" }))
-		}
-
-		tokens.push(token.success)
-	}
-
-	return Result.succeed(tokens)
+	return Str.startsWith("/")(pointer)
+		? tokensAfterSlash(pointer)
+		: Result.fail(PointerSyntaxError.make({ pointer, reason: "missing-leading-slash" }))
 }
 
 /**
@@ -131,13 +135,16 @@ export const childPointer = (pointer: string, token: string): string =>
  * Whether `pointer` is `ancestor` or lies below it, by string prefix at a `/` boundary.
  */
 export const isPointerWithin = (ancestor: string, pointer: string): boolean =>
-	pointer === ancestor || pointer.startsWith(`${ancestor}/`)
+	pointer === ancestor || Str.startsWith(`${ancestor}/`)(pointer)
 
 /**
  * Formats tokens as a pointer string.
  */
 export const formatPointer = (tokens: readonly string[]): string =>
-	tokens.map((token) => `/${escapeToken(token)}`).join("")
+	Arr.join(
+		Arr.map(tokens, (token) => `/${escapeToken(token)}`),
+		""
+	)
 
 /**
  * Parses a URI-fragment pointer (`#/a%25b`) into unescaped tokens.
@@ -145,18 +152,17 @@ export const formatPointer = (tokens: readonly string[]): string =>
 export const parseFragmentResult = (
 	fragment: string
 ): Result.Result<readonly string[], PointerSyntaxError> => {
-	if (!fragment.startsWith("#")) {
-		return Result.fail(new PointerSyntaxError({ pointer: fragment, reason: "missing-hash" }))
+	if (!Str.startsWith("#")(fragment)) {
+		return Result.fail(PointerSyntaxError.make({ pointer: fragment, reason: "missing-hash" }))
 	}
 
 	return Result.try({
-		catch: () => new PointerSyntaxError({ pointer: fragment, reason: "invalid-percent-escape" }),
-		try: () => decodeURIComponent(fragment.slice(1))
+		catch: () => PointerSyntaxError.make({ pointer: fragment, reason: "invalid-percent-escape" }),
+		try: () => decodeURIComponent(Str.slice(1)(fragment))
 	}).pipe(
 		Result.flatMap((decoded) =>
-			Result.mapError(
-				parsePointerResult(decoded),
-				(failure) => new PointerSyntaxError({ pointer: fragment, reason: failure.reason })
+			Result.mapError(parsePointerResult(decoded), (failure) =>
+				PointerSyntaxError.make({ pointer: fragment, reason: failure.reason })
 			)
 		)
 	)
@@ -170,9 +176,30 @@ export const parseFragment = (
 ): Effect.Effect<readonly string[], PointerSyntaxError> =>
 	Effect.suspend(() => Effect.fromResult(parseFragmentResult(fragment)))
 
-const isJsonArray = (value: Json): value is readonly Json[] => Array.isArray(value)
+const arrayIndex = regex("^(?:0|[1-9][0-9]*)$", "u")
 
-const arrayIndex = /^(?:0|[1-9][0-9]*)$/u
+/**
+ * The member `token` names in `current`, the node at `pointer`'s parent: an array item by its
+ * canonical decimal index, an object's own member, and nothing inside a scalar.
+ */
+const stepResult = (
+	current: Json,
+	token: string,
+	pointer: string
+): Result.Result<Json, PointerEvalError> => {
+	if (Arr.isArray<Json>(current)) {
+		return Result.fromOption(
+			arrayIndex.test(token) ? Arr.get(current, Number(token)) : Option.none(),
+			() => PointerIndexOutOfRange.make({ pointer, token })
+		)
+	}
+
+	return Predicate.isObject(current)
+		? Result.fromOption(Record.get(current, token), () =>
+				PointerMemberNotFound.make({ pointer, token })
+			)
+		: Result.fail(PointerNotContainer.make({ pointer, token }))
+}
 
 /**
  * Evaluates tokens against a JSON value through own members only.
@@ -180,31 +207,15 @@ const arrayIndex = /^(?:0|[1-9][0-9]*)$/u
 export const evaluateTokensResult = (
 	value: Json,
 	tokens: readonly string[]
-): Result.Result<Json, PointerEvalError> => {
-	let current = value
-	for (const [index, token] of tokens.entries()) {
-		const pointer = formatPointer(tokens.slice(0, index + 1))
-		if (isJsonArray(current)) {
-			const item = arrayIndex.test(token) ? current[Number(token)] : undefined
-			if (item === undefined) {
-				return Result.fail(new PointerIndexOutOfRange({ pointer, token }))
-			}
-
-			current = item
-		} else if (Predicate.isObject(current)) {
-			const member = Record.get(current, token)
-			if (Option.isNone(member)) {
-				return Result.fail(new PointerMemberNotFound({ pointer, token }))
-			}
-
-			current = member.value
-		} else {
-			return Result.fail(new PointerNotContainer({ pointer, token }))
-		}
-	}
-
-	return Result.succeed(current)
-}
+): Result.Result<Json, PointerEvalError> =>
+	Arr.reduce(
+		tokens,
+		Result.succeed<Json>(value),
+		(reached: Result.Result<Json, PointerEvalError>, token, index) =>
+			Result.flatMap(reached, (current) =>
+				stepResult(current, token, formatPointer(Arr.take(tokens, index + 1)))
+			)
+	)
 
 /**
  * Evaluates tokens against a JSON value through own members only.

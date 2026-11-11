@@ -1,12 +1,13 @@
-import { Option, Predicate, Record, Result } from "effect"
-import type { Schema } from "effect"
+import { Array as Arr, Option, Predicate, Record, Result } from "effect"
 import { evaluatePointerResult } from "#model/pointer.ts"
 import type { Json } from "#model/pointer.ts"
 
 /**
  * A JSON object value.
  */
-export type JsonObject = Schema.JsonObject
+export interface JsonObject {
+	readonly [key: string]: Json
+}
 
 /**
  * Whether a JSON value is an object (not an array, not null).
@@ -16,7 +17,8 @@ export const isObject = (value: Json | undefined): value is JsonObject => Predic
 /**
  * Whether a JSON value is an array.
  */
-export const isArray = (value: Json | undefined): value is readonly Json[] => Array.isArray(value)
+export const isArray = (value: Json | undefined): value is readonly Json[] =>
+	Arr.isArray<Json | undefined>(value)
 
 /**
  * The node at `pointer`, or undefined when the pointer is malformed or names no node.
@@ -52,19 +54,20 @@ export interface JsonFold<A> {
 
 /**
  * Folds a JSON value bottom up in document order: each item is folded with its index appended to
- * `tokens`, each object member (in insertion order) with its key appended.
+ * `tokens`, each object member (in insertion order) with its key appended. `tokens` are the tokens
+ * of `value` itself, empty at a document root.
  */
-export const foldJson = <A>(value: Json, fold: JsonFold<A>, tokens: readonly string[] = []): A => {
+export const foldJson = <A>(value: Json, fold: JsonFold<A>, tokens: readonly string[]): A => {
 	if (isArray(value)) {
 		return fold.array(
-			value.map((item, index) => foldJson(item, fold, [...tokens, String(index)])),
+			Arr.map(value, (item, index) => foldJson(item, fold, [...tokens, `${index}`])),
 			tokens
 		)
 	}
 
 	return isObject(value)
 		? fold.object(
-				Record.toEntries(value).map(([key, member]) => ({
+				Arr.map(Record.toEntries(value), ([key, member]) => ({
 					folded: foldJson(member, fold, [...tokens, key]),
 					key,
 					value: member

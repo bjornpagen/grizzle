@@ -1,3 +1,4 @@
+import { Array as Arr } from "effect"
 import type { Origin, Serialization } from "#model/entities.ts"
 
 /**
@@ -45,5 +46,5 @@ export const nonStandardUses = (
 	serialization: typeof Serialization.Type
 ): readonly NonStandardUse[] =>
 	serialization.kind === "content"
-		? serialization.encoding.flatMap(markedUses)
+		? Arr.flatMap(serialization.encoding, markedUses)
 		: markedUses(serialization)

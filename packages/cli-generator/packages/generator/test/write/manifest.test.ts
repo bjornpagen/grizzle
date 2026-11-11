@@ -3,8 +3,9 @@ import nodePath from "node:path"
 import { NodeCrypto } from "@effect/platform-node"
 import { Array as Arr, Effect, Exit, Option } from "effect"
 import { describe, expect, test } from "vitest"
+import { sha256Hex } from "#model/digest.ts"
 import type { ManifestError } from "#write/manifest.ts"
-import { decodeManifest, manifestFileName, printManifest, sha256Hex } from "#write/manifest.ts"
+import { decodeManifest, manifestFileName, printManifest } from "#write/manifest.ts"
 
 const root = nodePath.resolve(import.meta.dirname, "../..")
 

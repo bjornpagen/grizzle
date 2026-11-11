@@ -15,10 +15,11 @@ import {
 } from "effect"
 import type { Digest } from "effect/crypto"
 import type { PlatformError } from "effect/PlatformError"
+import { sha256Hex } from "#model/digest.ts"
 import { acquireRunLock, runLockFileName } from "#write/lock.ts"
 import type { RunLock, RunLockHeld, RunLockUnavailable } from "#write/lock.ts"
 import type { ManifestEntry } from "#write/manifest.ts"
-import { decodeManifest, manifestFileName, printManifest, sha256Hex } from "#write/manifest.ts"
+import { decodeManifest, manifestFileName, printManifest } from "#write/manifest.ts"
 
 /**
  * One generated file: a relative `/`-separated path inside the output directory and its text

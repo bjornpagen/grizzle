@@ -1,6 +1,6 @@
 {
 	"typecheck": {
-		"total": 9988,
+		"total": 9948,
 		"files": {
 			"packages/generator/corpus/tools/coverage.ts": 63,
 			"packages/generator/corpus/tools/fetch.ts": 6,
@@ -30,14 +30,7 @@
 			"packages/generator/src/load/yaml.ts": 4,
 			"packages/generator/src/main.ts": 15,
 			"packages/generator/src/model/author-config.ts": 11,
-			"packages/generator/src/model/brands.ts": 3,
-			"packages/generator/src/model/defs-ref.ts": 2,
-			"packages/generator/src/model/diagnostic.ts": 3,
 			"packages/generator/src/model/entities.ts": 14,
-			"packages/generator/src/model/extension.ts": 1,
-			"packages/generator/src/model/json-tree.ts": 3,
-			"packages/generator/src/model/non-standard.ts": 1,
-			"packages/generator/src/model/pointer.ts": 22,
 			"packages/generator/src/names/domain.ts": 4,
 			"packages/generator/src/names/flatten.ts": 31,
 			"packages/generator/src/names/fold.ts": 24,
@@ -59,7 +52,6 @@
 			"packages/generator/src/report/human.ts": 4,
 			"packages/generator/src/report/index.ts": 14,
 			"packages/generator/src/report/verdict.ts": 7,
-			"packages/generator/src/resolve/base-uri.ts": 5,
 			"packages/generator/src/resolve/canonical.ts": 1,
 			"packages/generator/src/resolve/index.ts": 36,
 			"packages/generator/src/runtime-src/domain/errors.ts": 22,
@@ -336,7 +328,7 @@
 		}
 	},
 	"superlint": {
-		"total": 312,
+		"total": 293,
 		"files": {
 			"packages/generator/corpus/tools/run.ts": 3,
 			"packages/generator/corpus/tools/walk.ts": 11,
@@ -353,10 +345,7 @@
 			"packages/generator/src/emit/readme.ts": 2,
 			"packages/generator/src/emit/runtime.ts": 1,
 			"packages/generator/src/load/yaml.ts": 1,
-			"packages/generator/src/model/brands.ts": 8,
 			"packages/generator/src/model/json-tree.ts": 3,
-			"packages/generator/src/model/pointer.ts": 2,
-			"packages/generator/src/model/verdict.ts": 9,
 			"packages/generator/src/names/flatten.ts": 7,
 			"packages/generator/src/names/plan.ts": 10,
 			"packages/generator/src/normalize/bodies.ts": 4,
@@ -442,7 +431,7 @@
 		}
 	},
 	"oxlint": {
-		"total": 5267,
+		"total": 5238,
 		"files": {
 			"packages/generator/corpus/tools/coverage.ts": 63,
 			"packages/generator/corpus/tools/fetch.ts": 1,
@@ -469,13 +458,7 @@
 			"packages/generator/src/load/yaml.ts": 3,
 			"packages/generator/src/main.ts": 11,
 			"packages/generator/src/model/author-config.ts": 32,
-			"packages/generator/src/model/brands.ts": 11,
-			"packages/generator/src/model/diagnostic.ts": 4,
 			"packages/generator/src/model/entities.ts": 19,
-			"packages/generator/src/model/json-tree.ts": 2,
-			"packages/generator/src/model/pointer.ts": 7,
-			"packages/generator/src/model/spec-section.ts": 2,
-			"packages/generator/src/model/verdict.ts": 3,
 			"packages/generator/src/names/domain.ts": 4,
 			"packages/generator/src/names/flatten.ts": 18,
 			"packages/generator/src/names/fold.ts": 6,
@@ -753,14 +736,15 @@
 		}
 	},
 	"dead-code": {
-		"total": 49,
+		"total": 47,
 		"files": {
 			"packages/generator/src/emit/api.ts": 2,
+			"packages/generator/src/emit/help.ts": 1,
 			"packages/generator/src/emit/printer.ts": 1,
 			"packages/generator/src/load/budget.ts": 1,
-			"packages/generator/src/load/document-set.ts": 2,
 			"packages/generator/src/main.ts": 5,
 			"packages/generator/src/model/author-config.ts": 1,
+			"packages/generator/src/model/brands.ts": 1,
 			"packages/generator/src/model/entities.ts": 7,
 			"packages/generator/src/names/flatten.ts": 2,
 			"packages/generator/src/names/fold.ts": 2,
@@ -771,22 +755,19 @@
 			"packages/generator/src/normalize/operations.ts": 1,
 			"packages/generator/src/normalize/responses.ts": 1,
 			"packages/generator/src/report/index.ts": 3,
-			"packages/generator/src/validate/index.ts": 2,
+			"packages/generator/src/validate/index.ts": 1,
 			"packages/generator/src/validate/locations.ts": 1,
-			"packages/generator/src/validate/schemas/manifest.ts": 1,
 			"packages/generator/src/write/index.ts": 1,
 			"packages/generator/test/support/generated-cli.ts": 1,
 			"packages/generator/test/tools/memguard.test.ts": 1
 		}
 	},
 	"architecture": {
-		"total": 6,
+		"total": 3,
 		"files": {
-			"packages/generator/src/load/document-set.ts": 2,
 			"packages/generator/src/normalize/index.ts": 1,
 			"packages/generator/src/normalize/operations.ts": 1,
-			"packages/generator/src/normalize/responses.ts": 1,
-			"packages/generator/src/validate/index.ts": 1
+			"packages/generator/src/normalize/responses.ts": 1
 		}
 	}
 }

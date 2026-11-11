@@ -23,9 +23,11 @@ import type { AuthorConfig } from "#model/author-config.ts"
 import type { DocumentUri } from "#model/brands.ts"
 import type { Diagnostic } from "#model/diagnostic.ts"
 import { isDocumentRefusal, isRefusal, makeDiagnostic, sortDiagnostics } from "#model/diagnostic.ts"
+import { sha256Hex } from "#model/digest.ts"
 import { Api } from "#model/entities.ts"
 import type { Operation } from "#model/entities.ts"
 import { patchVersion, specSectionUrl } from "#model/spec-section.ts"
+import { retrievalBase } from "#model/uri.ts"
 import { planNames } from "#names/index.ts"
 import type { NamePlan, PlannedCommand, PlannedGroup } from "#names/index.ts"
 import { overrideSite } from "#names/plan.ts"
@@ -43,7 +45,6 @@ import {
 	skippedEntries
 } from "#report/index.ts"
 import type { GenerationReportValue } from "#report/index.ts"
-import { retrievalBase } from "#resolve/base-uri.ts"
 import { resolve } from "#resolve/index.ts"
 import type { Resolution, ResolveMember } from "#resolve/index.ts"
 import { lineOf, versionRefusal } from "#validate/dispatch.ts"
@@ -54,7 +55,6 @@ import type { InvalidInstanceLocation } from "#validate/locations.ts"
 import { writeFiles } from "#write/index.ts"
 import type { WriteNotice, WriteRefused } from "#write/index.ts"
 import type { RunLockHeld, RunLockUnavailable } from "#write/lock.ts"
-import { sha256Hex } from "#write/manifest.ts"
 
 type Document = typeof DocumentUri.Type
 

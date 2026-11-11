@@ -1,13 +1,7 @@
 import { Option } from "effect"
 import { describe, expect, test } from "vitest"
-import {
-	documentBase,
-	resolveUri,
-	retrievalBase,
-	schemaBase,
-	splitFragment,
-	stripFragment
-} from "#resolve/base-uri.ts"
+import { resolveUri, retrievalBase, splitFragment, stripFragment } from "#model/uri.ts"
+import { documentBase, schemaBase } from "#resolve/base-uri.ts"
 
 const retrieval = "file:///spec/openapi.json#/info"
 

@@ -12,8 +12,8 @@ import { loadBytes } from "#load/index.ts"
 import type { Loaded } from "#load/index.ts"
 import { DocumentUri } from "#model/brands.ts"
 import { Diagnostic, makeDiagnostic } from "#model/diagnostic.ts"
-import { retrievalBase } from "#resolve/base-uri.ts"
-import { sha256Hex } from "#write/manifest.ts"
+import { sha256Hex } from "#model/digest.ts"
+import { retrievalBase } from "#model/uri.ts"
 
 type Document = typeof DocumentUri.Type
 

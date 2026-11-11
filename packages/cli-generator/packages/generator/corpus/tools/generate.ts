@@ -3,8 +3,8 @@ import { Array as Arr, Effect, FileSystem, Layer, Path, Schema } from "effect"
 import { generate } from "#generate.ts"
 import { DocumentUri } from "#model/brands.ts"
 import { Diagnostic } from "#model/diagnostic.ts"
+import { sha256Hex } from "#model/digest.ts"
 import { GenerationReport } from "#report/index.ts"
-import { sha256Hex } from "#write/manifest.ts"
 
 // The generation half of one corpus entry (design 8.2), run as its own process by `run.ts` so the
 // memory generation holds is returned to the system before the package build starts: the guarded

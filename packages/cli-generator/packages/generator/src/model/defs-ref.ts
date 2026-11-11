@@ -1,4 +1,4 @@
-import { JsonPointer } from "effect"
+import { JsonPointer, String as Str } from "effect"
 
 /**
  * The only `$ref` form the schema store resolves: a key of the document-level `$defs` map.
@@ -16,6 +16,6 @@ export const maxDefsRefHops = 64
  * percent-decoded.
  */
 export const defsKeyOf = (ref: string): string | undefined =>
-	ref.startsWith(defsRefPrefix)
-		? JsonPointer.unescapeToken(ref.slice(defsRefPrefix.length))
+	Str.startsWith(defsRefPrefix)(ref)
+		? JsonPointer.unescapeToken(Str.slice(defsRefPrefix.length)(ref))
 		: undefined

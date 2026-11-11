@@ -1,15 +1,25 @@
-import { Array as Arr, Effect, Option, Order, Predicate, Record, Schema } from "effect"
+import { regex } from "arkregex"
+import {
+	Array as Arr,
+	Effect,
+	Option,
+	Order,
+	Predicate,
+	Record,
+	Schema,
+	String as Str
+} from "effect"
 import { DocumentUri, JsonPointer } from "#model/brands.ts"
 import { Origin, RowId } from "#model/entities.ts"
 
-const codePattern = /^(?<row>[A-Z][A-Z0-9]*-[0-9]+)\/[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/u
+const codePattern = regex("^(?<row>[A-Z][A-Z0-9]*-[0-9]+)/[a-z][a-z0-9]*(?:-[a-z0-9]+)*$", "u")
 
 const Code = Schema.String.pipe(Schema.check(Schema.isPattern(codePattern)))
 
 const Position = Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(1)))
 
 const rowOfCode = (code: string): Option.Option<string> =>
-	Option.fromUndefinedOr(codePattern.exec(code)?.groups?.row)
+	Option.fromUndefinedOr(codePattern.exec(code)?.groups.row)
 
 /**
  * The use site or target of a diagnostic: a document and an RFC 6901 pointer, the entity `Origin`.
@@ -34,7 +44,9 @@ export const DiagnosticOperation = Schema.Struct({
 /**
  * One refusal or notice, shared by the report, the verdict file and `--describe` (design 8.1).
  */
-export class Diagnostic extends Schema.Class<Diagnostic>("Diagnostic")(
+export class Diagnostic extends Schema.Class<Diagnostic, { readonly brand: unique symbol }>(
+	"Diagnostic"
+)(
 	Schema.Struct({
 		code: Code,
 		column: Schema.optionalKey(Position),
@@ -64,22 +76,26 @@ export class Diagnostic extends Schema.Class<Diagnostic>("Diagnostic")(
 type EncodedWithoutRow = Omit<typeof Diagnostic.Encoded, "row">
 
 /**
+ * The keys of `EncodedWithoutRow` a value may leave out.
+ */
+type OptionalKey = {
+	readonly [Key in keyof EncodedWithoutRow]-?: Partial<Pick<EncodedWithoutRow, Key>> extends Pick<
+		EncodedWithoutRow,
+		Key
+	>
+		? Key
+		: never
+}[keyof EncodedWithoutRow]
+
+/**
  * The encoded `Diagnostic` fields except `row`, which the factory derives from the code. Every
  * optional key also accepts `undefined`, so a caller can pass a maybe-absent value without a
  * branch.
  */
 export type DiagnosticInput = {
-	readonly [
-		Key in keyof EncodedWithoutRow as Record<never, never> extends Pick<EncodedWithoutRow, Key>
-			? never
-			: Key
-	]: EncodedWithoutRow[Key]
+	readonly [Key in Exclude<keyof EncodedWithoutRow, OptionalKey>]: EncodedWithoutRow[Key]
 } & {
-	readonly [
-		Key in keyof EncodedWithoutRow as Record<never, never> extends Pick<EncodedWithoutRow, Key>
-			? Key
-			: never
-	]?: EncodedWithoutRow[Key] | undefined
+	readonly [Key in OptionalKey]?: EncodedWithoutRow[Key] | undefined
 }
 
 /**
@@ -101,7 +117,9 @@ export const diagnosticOf = (
 export const makeDiagnostic = (input: DiagnosticInput): Effect.Effect<Diagnostic> =>
 	diagnosticOf(input).pipe(Effect.orDie)
 
-const isIndex = (token: string): boolean => /^(?:0|[1-9][0-9]*)$/u.test(token)
+const indexToken = regex("^(?:0|[1-9][0-9]*)$", "u")
+
+const isIndex = (token: string): boolean => indexToken.test(token)
 
 const tokenOrder = Order.make<string>((left, right) =>
 	isIndex(left) && isIndex(right)
@@ -128,7 +146,7 @@ export const isDocumentRefusal: (diagnostic: Diagnostic) => boolean = Predicate.
  */
 export const pointerOrder: Order.Order<string> = Order.mapInput(
 	Order.Array(tokenOrder),
-	(pointer: string): readonly string[] => pointer.split("/").slice(1)
+	(pointer: string): readonly string[] => Arr.drop(Str.split(pointer, "/"), 1)
 )
 
 /**

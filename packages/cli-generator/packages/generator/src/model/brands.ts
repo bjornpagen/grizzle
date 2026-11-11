@@ -1,4 +1,5 @@
-import { Schema } from "effect"
+import { regex } from "arkregex"
+import { Array as Arr, Schema, String as Str } from "effect"
 import { pointerPattern } from "#model/pointer.ts"
 
 const token = "[!#$%&'*+.^_`|~0-9A-Za-z-]+"
@@ -16,39 +17,40 @@ const serverChar = "(?:[A-Za-z0-9\\-._~:/?#[\\]@!$&'()*+,;=]|%[0-9A-Fa-f]{2}|\\{
 
 const uriChar = "(?:[A-Za-z0-9\\-._~:/?#[\\]@!$&'()*+,;=]|%[0-9A-Fa-f]{2})"
 
-const tokenPattern = new RegExp(`^${token}$`, "u")
+const tokenPattern = regex(`^${token}$`, "u")
 
-const mediaTypePattern = new RegExp(`^${concrete}/${concrete}${parameters}$`, "u")
+const mediaTypePattern = regex(`^${concrete}/${concrete}${parameters}$`, "u")
 
-const mediaRangePattern = new RegExp(
+const mediaRangePattern = regex(
 	`^(?:\\*/\\*|${concrete}/\\*|${concrete}/${concrete})${parameters}$`,
 	"u"
 )
 
-const pathPattern = new RegExp(`^(?:/${pathSegment})+$`, "u")
+const pathPattern = regex(`^(?:/${pathSegment})+$`, "u")
 
-const encodedDot = /%2e/giu
+const encodedDot = regex("%2e", "giu")
 
-const isDotSegment = (segment: string) => {
-	const decoded = segment.replaceAll(encodedDot, ".")
+const isDotSegment = (segment: string): boolean => {
+	const decoded = Str.replaceAll(encodedDot, ".")(segment)
 
 	return decoded === "." || decoded === ".."
 }
 
-const hasValidSegments = (value: string) => {
-	const segments = value.split("/").slice(1)
+const hasValidSegments = (value: string): boolean => {
+	const segments = Arr.drop(Str.split(value, "/"), 1)
 	const last = segments.length - 1
 
-	return segments.every(
-		(segment, index) => (segment !== "" || index === last) && !isDotSegment(segment)
+	return Arr.every(
+		segments,
+		(segment, index) => (!Str.isEmpty(segment) || index === last) && !isDotSegment(segment)
 	)
 }
 
-const serverPattern = new RegExp(`^${serverChar}+$`, "u")
+const serverPattern = regex(`^${serverChar}+$`, "u")
 
-const uriPattern = new RegExp(`^[A-Za-z][A-Za-z0-9+.-]*:${uriChar}*$`, "u")
+const uriPattern = regex(`^[A-Za-z][A-Za-z0-9+.-]*:${uriChar}*$`, "u")
 
-const wireNamePattern = /^[^\p{Cc}\p{Cs}]+$/u
+const wireNamePattern = regex("^[^\\p{Cc}\\p{Cs}]+$", "u")
 
 /**
  * The Unicode categories that safe text excludes, as a regular expression class body.
@@ -58,7 +60,9 @@ const wireNamePattern = /^[^\p{Cc}\p{Cs}]+$/u
  */
 export const safeTextCategories = "\\p{Cc}\\p{Cf}\\p{Zl}\\p{Zp}\\p{Cs}"
 
-const safeTextPattern = new RegExp(`^(?:[^${safeTextCategories}]|[\\n\\t])*$`, "u")
+const safeTextPattern = regex(`^(?:[^${safeTextCategories}]|[\\n\\t])*$`, "u")
+
+const unsafeCharacter = regex(`(?![\\n\\t])[${safeTextCategories}]`, "gu")
 
 const pattern = (regExp: RegExp) => Schema.String.pipe(Schema.check(Schema.isPattern(regExp)))
 
@@ -117,6 +121,23 @@ export const MethodToken = pattern(tokenPattern).pipe(
 export const SafeText = pattern(safeTextPattern).pipe(Schema.brand("SafeText"))
 
 /**
+ * The most code points one piece of source prose keeps in help and the report.
+ */
+const maxProseLength = 2000
+
+/**
+ * Source prose made help-safe: removes exactly the characters of the categories `SafeText` rejects,
+ * then keeps the first `maxProseLength` code points, so the result is always `SafeText`.
+ */
+export const sanitizeProse = (text: string): typeof SafeText.Type =>
+	SafeText.make(
+		Arr.join(
+			Arr.take(Arr.fromIterable(Str.replaceAll(unsafeCharacter, "")(text)), maxProseLength),
+			""
+		)
+	)
+
+/**
  * An absolute URI with ASCII characters only.
  */
 export const DocumentUri = pattern(uriPattern).pipe(Schema.brand("DocumentUri"))
@@ -137,12 +158,12 @@ export const JsonLiteral = Schema.Json.pipe(Schema.brand("JsonLiteral"))
 /**
  * A SHA-256 digest as 64 lowercase hexadecimal digits.
  */
-export const Sha256Hex = pattern(/^[0-9a-f]{64}$/u)
+export const Sha256Hex = pattern(regex("^[0-9a-f]{64}$", "u"))
 
 /**
  * The OpenAPI component-name pattern: the key grammar every Components Object map shares.
  */
-export const componentNamePattern = /^[a-zA-Z0-9.\-_]+$/u
+export const componentNamePattern = regex("^[a-zA-Z0-9.\\-_]+$", "u")
 
 /**
  * A Components Object key that matches the component-name pattern.

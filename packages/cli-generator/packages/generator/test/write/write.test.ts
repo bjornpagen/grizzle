@@ -13,10 +13,11 @@ import {
 import type { Digest } from "effect/crypto"
 import * as PlatformError from "effect/PlatformError"
 import { describe, expect, test } from "vitest"
+import { sha256Hex } from "#model/digest.ts"
 import { writeFiles } from "#write/index.ts"
 import type { GeneratedFile } from "#write/index.ts"
 import { runLockFileName } from "#write/lock.ts"
-import { decodeManifest, manifestFileName, sha256Hex } from "#write/manifest.ts"
+import { decodeManifest, manifestFileName } from "#write/manifest.ts"
 
 const layer = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer, NodeCrypto.layerDigest)
 

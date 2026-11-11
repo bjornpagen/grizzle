@@ -1,5 +1,4 @@
-import { Array as Arr, Data, Effect, Order, Predicate, Schema } from "effect"
-import { Digest } from "effect/crypto"
+import { Array as Arr, Data, Effect, Order, Schema } from "effect"
 import { printJson } from "#emit/printer.ts"
 import { JsonLiteral } from "#model/brands.ts"
 
@@ -37,19 +36,6 @@ const decodeFile = Schema.decodeUnknownEffect(Schema.fromJsonString(ManifestFile
 const encodeJson = Schema.decodeUnknownEffect(JsonLiteral)
 
 const byPath = Order.mapInput(Order.String, (entry: ManifestEntry) => entry.path)
-
-const encoder = new TextEncoder()
-
-/**
- * The sha256 of `content` as 64 lowercase hex digits, through the `Digest` service. Text is hashed
- * as its UTF-8 bytes, so a lone surrogate counts as U+FFFD.
- */
-export const sha256Hex = Effect.fnUntraced(function* sha256Hex(content: string | Uint8Array) {
-	const digest = yield* Digest.Digest
-	const bytes = Predicate.isString(content) ? encoder.encode(content) : content
-
-	return yield* digest.digestHex(Digest.sha256, bytes)
-})
 
 const duplicatePath = (sorted: readonly ManifestEntry[]): string | undefined =>
 	sorted.find((entry, index) => index > 0 && sorted[index - 1]?.path === entry.path)?.path

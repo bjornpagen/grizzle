@@ -16,6 +16,7 @@ import type { PlatformError } from "effect"
 import type { Digest } from "effect/crypto"
 import type { DocumentUri } from "#model/brands.ts"
 import type { Diagnostic } from "#model/diagnostic.ts"
+import { sha256Hex } from "#model/digest.ts"
 import type { Json } from "#model/pointer.ts"
 import { rewriteDialect } from "#validate/dialect.ts"
 import {
@@ -31,7 +32,6 @@ import { groupErrors } from "#validate/locations.ts"
 import type { ErrorGroup, InvalidInstanceLocation } from "#validate/locations.ts"
 import { manifest } from "#validate/schemas/manifest.ts"
 import { surrogateRefusal, surrogateSites } from "#validate/surrogates.ts"
-import { sha256Hex } from "#write/manifest.ts"
 
 type ValidatorInput = Parameters<Validator>[0]
 

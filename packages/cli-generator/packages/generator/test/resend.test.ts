@@ -6,12 +6,12 @@ import { describe, expect, test } from "vitest"
 import { Corpus } from "#corpus/tools/fetch.ts"
 import { generate } from "#generate.ts"
 import { DocumentUri } from "#model/brands.ts"
+import { sha256Hex } from "#model/digest.ts"
 import { GenerationReport } from "#report/index.ts"
 import { Description } from "#runtime-src/runtime/describe.ts"
 import { generateFixture, preparePackage, runBin } from "#test/support/generated-cli.ts"
 import type { GeneratedPackage } from "#test/support/generated-cli.ts"
 import { pinnedSpec } from "#test/support/pinned-spec.ts"
-import { sha256Hex } from "#write/manifest.ts"
 
 // The Milestone 1 witness (CP-4): the pinned Resend spec generates a package that passes the
 // static proof, builds and runs, and whose commands plus refusals account for every operation.

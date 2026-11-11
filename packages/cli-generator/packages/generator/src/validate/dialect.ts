@@ -59,8 +59,8 @@ export const rewriteDialect = (
 ): Effect.Effect<DialectRewrite, UnsupportedOpenApiVersion> =>
 	lineOf(document).pipe(
 		Effect.map((line): DialectRewrite => {
-			const occurrences = line === "3.1" ? foldJson(document, sites) : []
+			const occurrences = line === "3.1" ? foldJson(document, sites, []) : []
 
-			return { copy: foldJson(document, rewriting(line === "3.1")), occurrences }
+			return { copy: foldJson(document, rewriting(line === "3.1"), []), occurrences }
 		})
 	)

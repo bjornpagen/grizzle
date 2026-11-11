@@ -24,6 +24,7 @@ import { walk } from "#corpus/tools/walk.ts"
 import { GenerateRefused } from "#generate.ts"
 import { loadBytes } from "#load/index.ts"
 import { DocumentUri } from "#model/brands.ts"
+import { sha256Hex } from "#model/digest.ts"
 import { VerdictCoverage } from "#model/verdict.ts"
 import { collectInformational } from "#normalize/informational.ts"
 import generatorPackage from "#package.json" with { type: "json" }
@@ -32,7 +33,6 @@ import type { VerdictValue } from "#report/verdict.ts"
 import { resolve } from "#resolve/index.ts"
 import { Description } from "#runtime-src/runtime/describe.ts"
 import { lineOf } from "#validate/dispatch.ts"
-import { sha256Hex } from "#write/manifest.ts"
 
 // The corpus run (design 8.2, CP-2): for each `ci` spec with an author config, generate from the
 // pinned bytes, compare the YAML twin, build, run `--describe`, join coverage and print the
