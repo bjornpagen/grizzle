@@ -5,7 +5,7 @@ import { int, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Option } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import { pg } from "#compiler/public/fields.ts"
@@ -123,7 +123,10 @@ describe("a write's enumerated members", () => {
 									)
 								}
 							}
-							assert.ok(arraysSent >= 4, `${arraysSent} member arrays sent, one per column`)
+							assert.ok(
+								arraysSent >= Rec.keys(Item.fields).length,
+								`${arraysSent} member arrays sent, one per column`
+							)
 						})
 				)
 			)

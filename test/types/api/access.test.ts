@@ -2,13 +2,13 @@ import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
 import { unreachedOf } from "@grizzle/testing/features"
 import { Effect } from "effect"
-import { accessCount, accessRequired, accessWitnesses } from "#test/support/agreement/access.ts"
+import { accessRequired, accessWitnesses } from "#test/support/agreement/access.ts"
 import { assert } from "#test/support/assert.ts"
 import { checked } from "#test/types/batch/batch.ts"
 
 layer(NodeServices.layer, { excludeTestServices: true })("the access agreement", (it) => {
 	it.effect(
-		`over ${accessCount} drawn logins and the floor's, Db.open needs a token, DbLayer.make a verify, a workload over a role its contexts and its refresh member its refresh list exactly as the engine reads the role`,
+		`over drawn logins and the floor's, Db.open needs a token, DbLayer.make a verify, a workload over a role its contexts and its refresh member its refresh list exactly as the engine reads the role`,
 		() =>
 			Effect.gen(function* () {
 				const { expected, actual } = yield* checked("api/access")

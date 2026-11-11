@@ -761,7 +761,7 @@ const holdsOn = <S>(
 	)
 
 describe("the logical analysis's claims hold on the facts", () => {
-	it.effect(`keys and cardinality bounds over ${runs} generated cases`, (ctx) =>
+	it.effect("keys and cardinality bounds over generated cases", (ctx) =>
 		holdsOn(
 			ctx,
 			"unit/analysis/logical/evidence-keys",
@@ -772,7 +772,7 @@ describe("the logical analysis's claims hold on the facts", () => {
 	)
 
 	it.effect(
-		`keys, cardinality and determinism over ${runs} cases with lateral sources, shared nodes, windows and approximate searches`,
+		"keys, cardinality and determinism over cases with lateral sources, shared nodes, windows and approximate searches",
 		(ctx) =>
 			holdsOn(
 				ctx,
@@ -789,7 +789,7 @@ describe("the logical analysis's claims hold on the facts", () => {
 	)
 
 	it.effect(
-		`delivered types over ${runs} cases rooted at attachments, under every context`,
+		"delivered types over cases rooted at attachments, under every context",
 		(ctx) =>
 			holdsOn(
 				ctx,
@@ -816,7 +816,7 @@ describe("the logical analysis's claims hold on the facts", () => {
 	)
 
 	it.effect(
-		`bare children along declared containments and filters over one fact, over ${runs} cases`,
+		"bare children along declared containments and filters over one fact",
 		(ctx) =>
 			holdsOn(
 				ctx,
@@ -893,7 +893,7 @@ const idempotentOn = <S>(
 
 describe("the logical analysis is idempotent", () => {
 	it.effect(
-		`annotating twice states what annotating once states, over ${runs} cases rooted at plain rows, attachments and unions, and the proving shapes`,
+		"annotating twice states what annotating once states, over cases rooted at plain rows, attachments and unions, and the proving shapes",
 		(ctx) =>
 			Effect.andThen(
 				idempotentOn(

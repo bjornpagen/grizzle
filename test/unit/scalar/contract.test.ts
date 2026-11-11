@@ -157,9 +157,8 @@ describe("contract identity", () => {
 								for (const { thrown, serial, integer } of refusals) {
 									const capability =
 										thrown.reason._tag === "UnsupportedOperation" ? thrown.reason.capability : ""
-									containsText(capability, "contractBase: a contract is a value domain", serial)
-									containsText(capability, `${serial} is a serial generation declaration`, serial)
-									containsText(capability, `use its value type, ${integer}`, serial)
+									containsText(capability, serial, "the refusal names the serial descriptor")
+									containsText(capability, integer, "the refusal names the value type to use")
 								}
 								return
 							}

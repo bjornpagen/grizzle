@@ -4,7 +4,6 @@ import { type Situations, unreachedOf } from "@grizzle/testing/features"
 import { Array as Arr, Effect } from "effect"
 import {
 	type ChangeSetNote,
-	changeSetCount,
 	changeSetKept,
 	changeSetRefusals,
 	changeSetRequired,
@@ -37,7 +36,7 @@ layer(NodeServices.layer, { excludeTestServices: true })(
 	"the ChangeSet type/engine agreement",
 	(it) => {
 		it.effect(
-			`over ${changeSetCount} drawn ChangeSets and the floor's, the types admit exactly what the engine builds, compiles and binds, name its refusal, and infer its parameters, writes, read-backs and channels`,
+			`over drawn ChangeSets and the floor's, the types admit exactly what the engine builds, compiles and binds, name its refusal, and infer its parameters, writes, read-backs and channels`,
 			() =>
 				Effect.gen(function* () {
 					const { expected, actual } = yield* checked("changeset/agreement")

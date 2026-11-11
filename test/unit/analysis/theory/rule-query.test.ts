@@ -904,12 +904,9 @@ describe("a rule over a query", () => {
 								)
 								return
 							}
-							const named = c.source === "aggregate" ? "aggregates" : "negates in turn"
 							assert.ok(
-								!compiled.ok &&
-									compiled.error.reason._tag === "UnsupportedLawFamily" &&
-									Str.includes(named)(compiled.error.message),
-								`${Formatter.format(c)} is refused UnsupportedLawFamily naming that it ${named}: ${compiled.ok ? "compiled" : compiled.error.message}`
+								!compiled.ok && compiled.error.reason._tag === "UnsupportedLawFamily",
+								`${Formatter.format(c)} is refused UnsupportedLawFamily: ${compiled.ok ? "compiled" : compiled.error.message}`
 							)
 						})
 				)

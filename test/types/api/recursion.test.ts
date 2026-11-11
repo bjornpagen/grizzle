@@ -3,7 +3,6 @@ import { layer } from "@effect/vitest"
 import { unreachedOf } from "@grizzle/testing/features"
 import { Effect } from "effect"
 import {
-	recursionCount,
 	recursionRequired,
 	recursionWitnesses
 } from "#test/support/agreement/recursion.ts"
@@ -12,7 +11,7 @@ import { checked } from "#test/types/batch/batch.ts"
 
 layer(NodeServices.layer, { excludeTestServices: true })("the recursion agreement", (it) => {
 	it.effect(
-		`over ${recursionCount} drawn recursions and the floor's, the types admit exactly what the engine compiles, name its refusal, and infer its records and parameters`,
+		`over drawn recursions and the floor's, the types admit exactly what the engine compiles, name its refusal, and infer its records and parameters`,
 		() =>
 			Effect.gen(function* () {
 				const { expected, actual } = yield* checked("api/recursion")

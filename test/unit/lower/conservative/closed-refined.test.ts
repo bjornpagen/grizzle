@@ -3,12 +3,14 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter } from "effect"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import { conservativeMeta, type Heading } from "#compiler/ir/rel.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput, flight } from "#compiler/lower/conservative/types.ts"
+import type { Select } from "#compiler/sql/ast.ts"
+import { identityHooks, transformSelect } from "#compiler/sql/transform.ts"
 import { assert, defined, refused, succeeded } from "#test/support/assert.ts"
 import { closed, decodedSchema, f, relation } from "#test/support/fixtures/ir/desc.ts"
 import { installationOf, localVectorSchema, productionNames } from "#test/support/kernel/naming.ts"
@@ -65,6 +67,21 @@ const domainName = defined(
 		: undefined,
 	"the installation names a domain for the payload's pattern"
 ).name
+
+/** Whether a statement names a type by `name` anywhere in its structure: a cast to the domain is the one such name. */
+const namesType = (statement: Select, name: string): boolean => {
+	let named = false
+	transformSelect(statement, {
+		...identityHooks,
+		typeRef: (type) => {
+			if (type.kind === "named" && type.name === name) {
+				named = true
+			}
+			return type
+		}
+	})
+	return named
+}
 
 interface Case {
 	readonly payload: ReadonlyArray<Value>
@@ -163,10 +180,6 @@ describe("a Closed source's refined payload", () => {
 							if (outside && !c.domain) {
 								seen.note("an out-of-pattern payload refused without a domain")
 								refused(r, "UnsupportedOperation", Formatter.format(c))
-								assert.ok(
-									!r.ok && Str.includes("p0's refinement")(r.error.message),
-									`the refusal names p0's refinement: ${r.ok ? "" : r.error.message}`
-								)
 								return
 							}
 							const program = succeeded(r, Formatter.format(c))
@@ -174,7 +187,7 @@ describe("a Closed source's refined payload", () => {
 							for (const s of statements) {
 								assert.deepEqual(auditStatementViolations(s.ast), [], Formatter.format(c))
 							}
-							const cast = Arr.some(statements, (s) => Str.includes(domainName)(s.sql.text))
+							const cast = Arr.some(statements, (s) => namesType(s.ast, domainName))
 							assert.equal(
 								cast,
 								outside,

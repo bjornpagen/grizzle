@@ -4,9 +4,8 @@ import { unreachedOf } from "@grizzle/testing/features"
 import { Effect } from "effect"
 import { assert } from "#test/support/assert.ts"
 import { checked } from "#test/types/batch/batch.ts"
-import { doorCount, doorRequired, doorWitnesses } from "#test/types/harness/door.ts"
+import { doorRequired, doorWitnesses } from "#test/types/harness/door.ts"
 import {
-	vocabularyCount,
 	vocabularyRequired,
 	vocabularyWitnesses
 } from "#test/types/harness/vocabulary.ts"
@@ -15,7 +14,7 @@ layer(NodeServices.layer, { excludeTestServices: true })(
 	"the test harness's type contracts",
 	(it) => {
 		it.effect(
-			`over ${vocabularyCount} drawn vocabularies and the floor's, a required situation, a note, a pair and a kept case's reaches typecheck exactly when every name is of the closed vocabulary`,
+			`over drawn vocabularies and the floor's, a required situation, a note, a pair and a kept case's reaches typecheck exactly when every name is of the closed vocabulary`,
 			() =>
 				Effect.gen(function* () {
 					const { expected, actual } = yield* checked("harness/vocabulary")
@@ -24,7 +23,7 @@ layer(NodeServices.layer, { excludeTestServices: true })(
 		)
 
 		it.effect(
-			`over ${doorCount} drawn types and values and the floor's, assert.equal and assert.deepEqual typecheck exactly when the expected value conforms to the actual's type`,
+			`over drawn types and values and the floor's, assert.equal and assert.deepEqual typecheck exactly when the expected value conforms to the actual's type`,
 			() =>
 				Effect.gen(function* () {
 					const { expected, actual } = yield* checked("harness/door")

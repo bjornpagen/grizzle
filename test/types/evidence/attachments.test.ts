@@ -4,7 +4,6 @@ import { type Situations, unreachedOf } from "@grizzle/testing/features"
 import { Array as Arr, Effect } from "effect"
 import {
 	type AttachNote,
-	attachCount,
 	attachRefusals,
 	attachWitnesses,
 	transactionFaults
@@ -45,7 +44,7 @@ const required: Situations<AttachNote> = [
 
 layer(NodeServices.layer, { excludeTestServices: true })("the attachment agreement", (it) => {
 	it.effect(
-		`over ${attachCount} drawn attachments and their witnesses, the types admit a stated delivery exactly as the engine proves it, and infer the engine's records under it`,
+		`over drawn attachments and their witnesses, the types admit a stated delivery exactly as the engine proves it, and infer the engine's records under it`,
 		() =>
 			Effect.gen(function* () {
 				const { expected, actual } = yield* checked("evidence/attachments")

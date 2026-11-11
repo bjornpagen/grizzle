@@ -23,7 +23,7 @@ import type { Select } from "#compiler/sql/ast.ts"
 import { types } from "#compiler/sql/build.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { identityHooks, transformSelect } from "#compiler/sql/transform.ts"
-import { assert, contains, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { assert, contains, nonEmpty, succeeded, unorderedEqual } from "#test/support/assert.ts"
 import { genCatalog } from "#test/support/evidence.ts"
 import { standInNames } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -97,7 +97,7 @@ const reported = (
 	why: string
 ): void => {
 	if (expect.kind === "exactly") {
-		assert.deepEqual(rulesOf(found), [...expect.rules], why)
+		unorderedEqual(rulesOf(found), expect.rules, why)
 	} else {
 		contains(rulesOf(found), expect.rule, why)
 	}

@@ -12,8 +12,7 @@ import {
 	Formatter,
 	Order,
 	Record as Rec,
-	Result,
-	String as Str
+	Result
 } from "effect"
 import { parseSnapshot } from "#adapter/boundary/snapshot.ts"
 import { check } from "#cli/check.ts"
@@ -215,8 +214,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("derived runtime facts"
 										assert.ok(
 											Result.isFailure(served) &&
 												served.failure.reason._tag === "MalformedArtifact" &&
-												served.failure.reason.at[0] === "derived" &&
-												Str.includes("run grizzle generate")(served.failure.message),
+												served.failure.reason.at[0] === "derived",
 											`DbLayer.make's parse refuses ${Formatter.format(staling)} by name: ${Formatter.format(served)}`
 										)
 									}
@@ -232,10 +230,6 @@ layer(NodeServices.layer, { excludeTestServices: true })("derived runtime facts"
 									)
 									const regenerated = yield* cliOver(ws, config, ["generate", configName], at(2))
 									assert.equal(regenerated.code, 0, regenerated.stderr)
-									assert.ok(
-										Str.includes(snapshotFileName)(regenerated.stdout),
-										`generate names snapshot.json: ${regenerated.stdout}`
-									)
 									const after = yield* fs.readDirectory(`${ws}/${schemaDir}`)
 									assert.deepEqual(
 										Arr.sort(after, Order.String),

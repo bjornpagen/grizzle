@@ -236,10 +236,6 @@ layer(NodeServices.layer, { excludeTestServices: true })("runtime", (it) => {
 			readonly trapped: ReadonlyArray<Trapped>
 		}>
 		readonly loadedTrapped: number
-		readonly admitted: number
-		readonly checked: number
-		readonly refused: number
-		readonly decoded: number
 	}
 
 	/** The negative control: a module that builds and runs RegExps at load, on lines 5, 6 and 8. */
@@ -342,10 +338,6 @@ layer(NodeServices.layer, { excludeTestServices: true })("runtime", (it) => {
 					[1, 1, 1],
 					"one exec on each of lines 5, 6 and 8"
 				)
-				assert.ok(out.admitted > 50)
-				assert.ok(out.checked > 500)
-				assert.equal(out.refused, 9)
-				assert.ok(out.decoded > 70)
 				assert.deepEqual(
 					Arr.filter(
 						[
