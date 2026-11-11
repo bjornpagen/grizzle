@@ -91,6 +91,12 @@
 					"test/types/examples/fixtures/readme.ts",
 					"test/types/examples/fixtures/skill.ts"
 				]
+			},
+			{
+				"rule": "ts-only-extensions",
+				"files": [
+					"upstream/v8-unicode-end-anchor-astral-class/repro.js"
+				]
 			}
 		],
 		"sqlTextAssertion": {
