@@ -3,7 +3,6 @@ import { Array as Arr, Formatter, Option, Record as Rec } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import type { FieldDesc, QueryDesc } from "#compiler/ir/desc.ts"
 import {
-	type AttachDesc,
 	type QueryDesc as AuthoredQueryDesc,
 	type BindingsDesc,
 	decodedQuery,
@@ -27,11 +26,27 @@ import {
 	subsetsOf
 } from "#test/unit/analysis/small/universe.ts"
 
+/** An attachment of a plan: a scan of a source, or the root's ordinal. */
+export type Child =
+	| {
+			readonly kind: "scan"
+			readonly name: string
+			readonly source: RelationName | typeof closedName
+			readonly links: number
+	  }
+	| { readonly kind: "ordinal"; readonly name: string; readonly source: RelationName }
+
 /** What a match reads: a stored relation of the universe, the closed relation or the relation parameter. */
 export type SourceName = RelationName | typeof closedName | typeof relationParam
 
 /** What a plan starts from: a source, or the recursive closure of R imported as a query. */
-type ScanName = SourceName | "reach"
+type ScanName = SourceName | "reach" | typeof selectedS
+
+/**
+ * S's facts whose a is 1: the scan of S under the filter a = 1, which reads its fields from one fact a selection on a
+ * holds of in one operator, where a scan and a filter would take two.
+ */
+const selectedS = "S where a = 1"
 
 /** A column's type: an integer field's, a bigint (a count, a sum, a widened integer) or the closed roster's handle. */
 type ColumnType = "int4" | "int8" | "handle"
@@ -61,9 +76,21 @@ export type Step =
 	| {
 			readonly op: "attach"
 			readonly source: RelationName | typeof closedName
-			readonly column: number
-			readonly field: FieldName
+			readonly links: Arr.NonEmptyReadonlyArray<Link>
 	  }
+	| {
+			readonly op: "ordinal"
+			readonly source: RelationName
+			readonly field: FieldName
+			readonly inclusive: boolean
+			readonly conjunct: boolean
+	  }
+
+/** A parent column an attached child's field is bound to. */
+export interface Link {
+	readonly column: number
+	readonly field: FieldName
+}
 
 /** Which sources, scans and operators a space draws from. */
 export interface Grammar {
@@ -76,7 +103,7 @@ export interface Grammar {
 
 export const coreGrammar: Grammar = {
 	name: "core",
-	scans: relationNames,
+	scans: [...relationNames, selectedS],
 	sources: relationNames,
 	extended: false
 }
@@ -119,7 +146,7 @@ interface SealedColumn {
 	readonly type: ColumnType
 }
 
-/** A query sealed by a step: only take and attach wrap it now. */
+/** A query sealed by a step: only take, attach and ordinal wrap it now. */
 interface Sealed {
 	readonly kind: "sealed"
 	readonly stage: QueryStageDesc
@@ -142,11 +169,11 @@ export interface Plan {
 	 * the root's. The closure reads R in its base and again in its step.
 	 */
 	readonly reads: ReadonlyArray<VariedRead>
-	/** The sources attachments match, by attachment name. */
-	readonly children: ReadonlyArray<{
-		readonly name: string
-		readonly source: RelationName | typeof closedName
-	}>
+	/**
+	 * The attachments, by name: a scan of the source each matches, its fields bound to parent columns, or the ordinal of
+	 * the root's own fact, a count of the facts of the root's scan in its group at or before it.
+	 */
+	readonly children: ReadonlyArray<Child>
 	readonly params: ParamsRead
 	readonly union: boolean
 	/** A union of arms of different headings, whose order may not complete. */
@@ -340,7 +367,8 @@ const scan = (name: ScanName): Plan => {
 			params: noParams
 		}
 	}
-	const fields = fieldsOf(name)
+	const source = name === selectedS ? "S" : name
+	const fields = fieldsOf(source)
 	const bindings: BindingsDesc = Rec.fromEntries(
 		Arr.map(fields, (f) => [f.field, variable(`${f.field}0`)])
 	)
@@ -348,9 +376,19 @@ const scan = (name: ScanName): Plan => {
 		...base,
 		state: {
 			kind: "open",
-			vars: Arr.map(fields, (f) => fieldVar(name, f.field, `${f.field}0`)),
-			matches: [{ source: sourceDesc(name), bindings }],
-			where: [],
+			vars: Arr.map(fields, (f) => fieldVar(source, f.field, `${f.field}0`)),
+			matches: [{ source: sourceDesc(source), bindings }],
+			where:
+				name === selectedS
+					? [
+							{
+								kind: "compare",
+								op: "eq",
+								left: variable("a0"),
+								right: { kind: "literal", value: 1, type: integer }
+							}
+						]
+					: [],
 			head: Arr.map(fields, (f) => ({
 				key: `${f.field}0`,
 				term: variable(`${f.field}0`),
@@ -358,10 +396,30 @@ const scan = (name: ScanName): Plan => {
 				type: f.type
 			}))
 		},
-		reads: variedRead(name),
-		params: { scalar: false, relation: name === relationParam }
+		reads: variedRead(source),
+		params: { scalar: false, relation: source === relationParam }
 	}
 }
+
+/** c <> 0: a conjunct beside the ordinal's comparison, unknown where c is read as the root's own value. */
+const nonzero: ExprDesc = {
+	kind: "compare",
+	op: "ne",
+	left: variable("c"),
+	right: { kind: "literal", value: 0, type: integer }
+}
+
+/** The scan's own column of `field` among a head's keys, `<field>0`: where it stands, or none. */
+const ownColumn = (keys: ReadonlyArray<string>, field: FieldName): Option.Option<number> =>
+	Arr.findFirstIndex(keys, (key) => key === `${field}0`)
+
+/** The index of the scan's own column of `field`, which the step's offer guaranteed to stand in the head. */
+const columnOf = (keys: ReadonlyArray<string>, field: FieldName): number =>
+	Option.getOrThrowWith(
+		ownColumn(keys, field),
+		() =>
+			new Error(`the plan offered an ordinal over ${field}, whose own column is not in the head`)
+	)
 
 /** The key a step names, which the step's offer guaranteed to exist. */
 const keyAt = (keys: ReadonlyArray<string>, i: number): string => {
@@ -431,41 +489,95 @@ const extend = (plan: Plan, step: Step): Plan => {
 			})
 		case "attach": {
 			const name = `child${plan.children.length}`
-			const parentColumn = keyAt(keysOf(state), step.column)
-			const other = otherOf(step.source, step.field)
-			const child: AttachDesc = {
-				name,
-				child: {
-					stage: {
-						kind: "rules",
-						arms: [
-							{
-								vars: [fieldVar(step.source, other, "c")],
-								matches: [
-									{
-										source: sourceDesc(step.source),
-										bindings: {
-											[step.field]: { kind: "parent", column: parentColumn },
-											[other]: variable("c")
-										}
-									}
-								],
-								where: [],
-								head: { c: variable("c") },
-								interiors: [],
-								attach: []
-							}
-						]
+			const keys = keysOf(state)
+			const parent = (link: Link): ExprDesc => ({
+				kind: "parent",
+				column: keyAt(keys, link.column)
+			})
+			const [first, ...more] = step.links
+			const bound = Rec.fromEntries(
+				Arr.map(step.links, (link) => [link.field, parent(link)] as const)
+			)
+			/** One field bound to the parent leaves the other the child's head; both bound deliver the first parent column. */
+			const arm: RuleDesc = Arr.isReadonlyArrayNonEmpty(more)
+				? {
+						vars: [],
+						matches: [{ source: sourceDesc(step.source), bindings: bound }],
+						where: [],
+						head: { c: parent(first) },
+						interiors: [],
+						attach: []
 					}
-				}
+				: {
+						vars: [fieldVar(step.source, otherOf(step.source, first.field), "c")],
+						matches: [
+							{
+								source: sourceDesc(step.source),
+								bindings: { ...bound, [otherOf(step.source, first.field)]: variable("c") }
+							}
+						],
+						where: [],
+						head: { c: variable("c") },
+						interiors: [],
+						attach: []
+					}
+			return next({
+				state: {
+					kind: "sealed",
+					stage: {
+						kind: "attach",
+						input: stageOf(state),
+						attach: { name, child: { stage: { kind: "rules", arms: [arm] } } }
+					},
+					head: columnsOf(state)
+				},
+				children: [
+					...plan.children,
+					{ kind: "scan", name, source: step.source, links: step.links.length }
+				]
+			})
+		}
+		case "ordinal": {
+			const name = `child${plan.children.length}`
+			const source = step.source
+			const keys = keysOf(state)
+			const other = otherOf(source, step.field)
+			const parent = (field: FieldName): ExprDesc => ({
+				kind: "parent",
+				column: keyAt(keys, columnOf(keys, field))
+			})
+			const arm: RuleDesc = {
+				vars: [fieldVar(source, other, "c")],
+				matches: [
+					{
+						source: sourceDesc(source),
+						bindings: { [step.field]: parent(step.field), [other]: variable("c") }
+					}
+				],
+				where: [
+					{
+						kind: "compare",
+						op: step.inclusive ? "le" : "lt",
+						left: variable("c"),
+						right: parent(other)
+					},
+					...(step.conjunct ? [nonzero] : [])
+				],
+				head: { n: { kind: "aggregate", fn: "count" } },
+				interiors: [],
+				attach: []
 			}
 			return next({
 				state: {
 					kind: "sealed",
-					stage: { kind: "attach", input: stageOf(state), attach: child },
+					stage: {
+						kind: "attach",
+						input: stageOf(state),
+						attach: { name, child: { stage: { kind: "rules", arms: [arm] } } }
+					},
 					head: columnsOf(state)
 				},
-				children: [...plan.children, { name, source: step.source }]
+				children: [...plan.children, { kind: "ordinal", name, source }]
 			})
 		}
 		case "compute":
@@ -661,11 +773,53 @@ const stepsAfter = (plan: Plan, grammar: Grammar): ReadonlyArray<Step> => {
 		(s): ReadonlyArray<RelationName | typeof closedName> =>
 			s === "R" || s === "S" || s === "C" ? [s] : []
 	)
+	const keys = Arr.map(columns, (c) => c.key)
+	/** The root's ordinal stands where the root scans a stored relation and its head holds both of its own columns. */
+	const ordinals: ReadonlyArray<RelationName> =
+		(plan.scan === "R" || plan.scan === "S") &&
+		Arr.every(fieldNames, (field) => Option.isSome(ownColumn(keys, field)))
+			? [plan.scan]
+			: []
 	const wrapping: ReadonlyArray<Step> = [
 		...(columns.length > 0 && !plan.heterogeneous ? [{ op: "take" } as const] : []),
-		...Arr.flatMap(attachable, (source) =>
-			Arr.flatMap(integerColumns, (column) =>
-				Arr.map(integerFields(source), (field): Step => ({ op: "attach", source, column, field }))
+		...Arr.flatMap(attachable, (source) => [
+			...Arr.flatMap(integerColumns, (column) =>
+				Arr.map(integerFields(source), (field): Step => ({
+					op: "attach",
+					source,
+					links: [{ column, field }]
+				}))
+			),
+			...(integerFields(source).length === 2
+				? Arr.flatMap(integerColumns, (first) =>
+						Arr.flatMap(integerColumns, (second): ReadonlyArray<Step> =>
+							first === second
+								? []
+								: [
+										{
+											op: "attach",
+											source,
+											links: [
+												{ column: first, field: "a" },
+												{ column: second, field: "b" }
+											]
+										}
+									]
+						)
+					)
+				: [])
+		]),
+		...Arr.flatMap(ordinals, (source) =>
+			Arr.flatMap(fieldNames, (field) =>
+				Arr.flatMap([true, false], (inclusive) =>
+					Arr.map([false, true], (conjunct): Step => ({
+						op: "ordinal",
+						source,
+						field,
+						inclusive,
+						conjunct
+					}))
+				)
 			)
 		)
 	]
@@ -764,7 +918,12 @@ const plansOf = (grammar: Grammar, operators: number): Gen<Plan> =>
  * - take: the first row in the order of the head's first column, completed by the checker;
  * - union: a second arm scanning a relation into the same head, untagged or with a literal tag column telling the arms
  *   apart;
- * - attach: a child query matching a source whose field equals a parent column.
+ * - attach: a child query matching a source whose field equals a parent column, or both of whose fields equal two
+ *   parent columns;
+ * - ordinal: of a root scanning R or S whose head holds both of the scan's own columns, the count of the scanned
+ *   relation's facts in the root fact's group by one field whose other field is at or before the root fact's
+ *   (inclusive) or before it (strict), beside a conjunct that it is not 0 or none: a group the root's own fact keeps
+ *   nonempty exactly when inclusive with no further conjunct.
  *
  * The extended grammar adds the sources and operators the remaining claims turn on:
  *
@@ -777,9 +936,9 @@ const plansOf = (grammar: Grammar, operators: number): Gen<Plan> =>
  * - hunion: a second arm of another heading, the two told apart by a literal tag, a heterogeneous union.
  *
  * Filter, project, join, negate, count, sum, compute and the unions edit the rule, so they apply only before a step
- * seals it; take and attach wrap the query and apply anywhere, take only where the order completes (not over a union
- * of different headings, whose common columns may hold no key). Each step offers exactly the parameters valid where it
- * stands, so every plan the space yields is one the checker admits. Every column carries its type, and a step
+ * seals it; take, attach and ordinal wrap the query and apply anywhere, take only where the order completes (not over
+ * a union of different headings, whose common columns may hold no key). Each step offers exactly the parameters valid
+ * where it stands, so every plan the space yields is one the checker admits. Every column carries its type, and a step
  * comparing or correlating columns offers only integer ones.
  */
 export const plansUpTo = (grammar: Grammar, operators: number): Gen<Plan> =>
@@ -803,30 +962,41 @@ export type PlanFeature =
 	| `union ${"tagged" | "untagged"}`
 	| `compute ${Extract<Step, { readonly op: "compute" }>["fn"]}`
 	| `attach ${Extract<Step, { readonly op: "attach" }>["source"]}`
-	| Exclude<Step["op"], "filter" | "join" | "negate" | "union" | "compute" | "attach">
+	| `attach ${Extract<Step, { readonly op: "attach" }>["source"]} by both fields`
+	| `ordinal ${"inclusive" | "strict"}`
+	| "ordinal beside a conjunct"
+	| Exclude<Step["op"], "filter" | "join" | "negate" | "union" | "compute" | "attach" | "ordinal">
+
+/** A step's feature: its operator, with what distinguishes its forms. */
+const stepOp = (s: Step): PlanFeature => {
+	switch (s.op) {
+		case "filter":
+			return `filter ${s.value}`
+		case "join":
+			return `join ${s.source} ${s.other}`
+		case "negate":
+			return `negate ${s.source}`
+		case "union":
+			return `union ${s.tagged ? "tagged" : "untagged"}`
+		case "compute":
+			return `compute ${s.fn}`
+		case "attach":
+			return s.links.length === 1 ? `attach ${s.source}` : `attach ${s.source} by both fields`
+		case "ordinal":
+			return `ordinal ${s.inclusive ? "inclusive" : "strict"}`
+		case "count":
+		case "hunion":
+		case "project":
+		case "sum":
+		case "take":
+			return s.op
+	}
+}
 
 export const planOps = (plan: Plan): Arr.NonEmptyReadonlyArray<PlanFeature> => [
 	`scan ${plan.scan}`,
-	...Arr.map(plan.steps, (s): PlanFeature => {
-		switch (s.op) {
-			case "filter":
-				return `filter ${s.value}`
-			case "join":
-				return `join ${s.source} ${s.other}`
-			case "negate":
-				return `negate ${s.source}`
-			case "union":
-				return `union ${s.tagged ? "tagged" : "untagged"}`
-			case "compute":
-				return `compute ${s.fn}`
-			case "attach":
-				return `attach ${s.source}`
-			case "count":
-			case "hunion":
-			case "project":
-			case "sum":
-			case "take":
-				return s.op
-		}
-	})
+	...Arr.map(plan.steps, stepOp),
+	...Arr.flatMap(plan.steps, (s): ReadonlyArray<PlanFeature> =>
+		s.op === "ordinal" && s.conjunct ? ["ordinal beside a conjunct"] : []
+	)
 ]

@@ -24,14 +24,22 @@
  * relation then bound one side of a self-join only), no computed column the universe's two values collapse to one, no
  * union for get eligibility, nor, for any of the four, a negation: excluding one of the universe's two values leaves
  * one, where a third value shows a second row, a second child or a repeated row (precise states a witness of each);
- * and for the bare child a stored child relation the root does not read (reading it proves existence by itself, which
- * no containment states; C's declared facts cover the universe's values by accident). A root or a child no database
- * gives a row owes nothing.
+ * and for the bare child a scanned child relation the root does not read (reading it proves existence by itself, which
+ * no containment states; C's declared facts cover the universe's values by accident), or the root's ordinal, whose
+ * group its own fact keeps nonempty. A root or a child no database gives a row owes nothing.
+ *
+ * The bare child is judged over every shape a rule proves it by: a containment of one field, of two fields into a
+ * whole-heading key (correlated by both, an attachment by both fields), and of a selected source (the scan of S's facts
+ * whose a is 1, where a scan of every fact of S owes an Option); and the root's ordinal, inclusive and with no further
+ * conjunct, where a strict ordinal or one beside a conjunct owes an Option, so a claim of one there is unsound.
  *
  * Plants (~/.cache/grizzle-release/BR03/plants): filter-keeps-exactly-one (a filter over an input of exactly one row
  * claims exactly one) and closed-distinct-column-guessed (a closed relation's column of one repeated value claimed a
  * key), each unsound on some database of the universe; bare-child-source-selection-ignored (a bare child proved from a
- * containment whose source selection the parent's fact need not satisfy) for the extended grammar's delivered types.
+ * containment whose source selection the parent's fact need not satisfy), unsound for the scan of every fact of S under
+ * the selected containment; reflexive-filters-unread (a filter the root's own fact leaves unknown counts as
+ * satisfied), unsound for an ordinal beside a conjunct; bare-child-one-field-containments (a containment of two fields
+ * proves no child), imprecise for the attachment by both fields.
  *
  * Features: every claim checked, every precision situation each grammar must reach, and each elision reason
  * (ClaimFeature).
@@ -74,6 +82,7 @@ import {
 	uniqueOn
 } from "#test/unit/analysis/physical/support.ts"
 import {
+	type Child,
 	coreGrammar,
 	descOf,
 	extendedGrammar,
@@ -87,6 +96,7 @@ import {
 
 import { caseHang } from "#test/support/limits.ts"
 import {
+	closedName,
 	contextsOf,
 	databases,
 	type Installed,
@@ -168,7 +178,9 @@ type ClaimFeature =
 	| `placement ${Placement}`
 	| `context ${TemplateContext}`
 	| "a dangling reference seen in a transaction"
-	| `precision: ${"get" | "elision" | "obligation" | "option" | "bare child"}`
+	| `precision: ${"get" | "elision" | "obligation" | "option" | "bare child" | "bare ordinal"}`
+	| "precision: bare child of two fields"
+	| "precision: bare child of a selected source"
 
 /** The features the analyses' claims reached, by name. */
 const claimFeatures = (
@@ -311,12 +323,13 @@ const judge = (inst: Installed, plan: Plan, c: Case<ClaimFeature>): void => {
 				}
 			}
 		}
-		precise(plan, dag, root, physicals, truth, c, at)
+		precise(inst.variant, plan, dag, root, physicals, truth, c, at)
 	}
 }
 
 /** The precision half: what the universe proved, the claims state. */
 const precise = (
+	variant: Variant,
 	plan: Plan,
 	dag: RelDag,
 	root: RelNode,
@@ -377,25 +390,47 @@ const precise = (
 				`every parent of ${a.name} receives at most one child, and it delivers an array\n${at}`
 			)
 		}
-		const stored = Option.flatMap(
-			Arr.findFirst(plan.children, (child) => child.name === a.name),
-			(child) =>
-				child.source === "R" || child.source === "S" ? Option.some(child.source) : Option.none()
-		)
-		if (
-			!shown.atLeastOne ||
-			plan.union ||
-			Option.isNone(stored) ||
-			plan.reads.includes(stored.value)
-		) {
+		const child = Arr.findFirst(plan.children, (x) => x.name === a.name)
+		if (!shown.atLeastOne || plan.union || Option.isNone(child) || !bareOwed(plan, child.value)) {
 			continue
 		}
-		c.note("precision: bare child")
+		c.noteAll(bareFeatures(variant, child.value))
 		if (a.delivered !== "one") {
 			throw new Error(
 				`every parent of ${a.name} receives exactly one child, and it delivers ${a.delivered}\n${at}`
 			)
 		}
+	}
+}
+
+/**
+ * Whether a child every parent receives exactly one of is owed the bare type: a scan of a stored relation the root does
+ * not read, which only a containment proves exactly one of, or the root's ordinal, whose group the root's own fact
+ * keeps nonempty. A scan of the closed relation, or of a relation the root reads, is exactly one by the universe's
+ * values alone where no rule proves it (R(a) S(a): scan S, attach S by a gives each parent its own fact).
+ */
+const bareOwed = (plan: Plan, child: Child): boolean => {
+	switch (child.kind) {
+		case "scan":
+			return child.source !== closedName && !plan.reads.includes(child.source)
+		case "ordinal":
+			return true
+	}
+}
+
+/** What a bare child judged reached: its shape, and the containment that proves a scan of a selected source. */
+const bareFeatures = (variant: Variant, child: Child): ReadonlyArray<ClaimFeature> => {
+	switch (child.kind) {
+		case "scan":
+			return [
+				"precision: bare child",
+				...(child.links === 2 ? (["precision: bare child of two fields"] as const) : []),
+				...(Arr.some(variant.containments, (k) => k.selected.length > 0)
+					? (["precision: bare child of a selected source"] as const)
+					: [])
+			]
+		case "ordinal":
+			return ["precision: bare ordinal"]
 	}
 }
 
@@ -419,7 +454,10 @@ const coreSnapshotRequired: Arr.NonEmptyReadonlyArray<ClaimFeature> = [
 	"precision: elision",
 	"precision: obligation",
 	"precision: option",
-	"precision: bare child"
+	"precision: bare child",
+	"precision: bare ordinal",
+	"ordinal strict",
+	"ordinal beside a conjunct"
 ]
 
 /** What the core grammar's population must reach in a transaction context, which only evidence held at commit opens. */
@@ -428,9 +466,18 @@ const transactionRequired: Arr.NonEmptyReadonlyArray<ClaimFeature> = [
 	"a dangling reference seen in a transaction"
 ]
 
+/**
+ * What the core grammar's population must reach over the variants the extended one is not read under: a bare child
+ * proved by a containment of two fields, and by one of a selected source.
+ */
+const coreVariantsRequired: Arr.NonEmptyReadonlyArray<ClaimFeature> = [
+	"precision: bare child of two fields",
+	"precision: bare child of a selected source"
+]
+
 const coreRequired: Situations<ClaimFeature> = Arr.appendAll(
-	coreSnapshotRequired,
-	transactionRequired
+	Arr.appendAll(coreSnapshotRequired, transactionRequired),
+	coreVariantsRequired
 )
 
 /** What the extended grammar adds: its sources, scans and operators, and the rules they turn on. */
@@ -522,14 +569,20 @@ const extendedRequired: Situations<ClaimFeature> = Arr.appendAll(
 	extendedAdded
 )
 
+/** The core space: the core grammar's 172 plans of up to two operators (enumerate.ts count) under each variant. */
+const coreSpace = 172 * variants.length
+
+/** The extended space: the extended grammar's 411 plans of up to two operators under each of its variants. */
+const extendedSpace = 411 * extendedVariants.length
+
 describe("the analyses over a small closed universe", () => {
 	it.effect(
 		"every core query of up to two operators: sound on every database, precise where the universe proves",
-		(ctx) => exhaustUpTo(ctx, coreGrammar, variants, 2, 1_000, coreRequired)
+		(ctx) => exhaustUpTo(ctx, coreGrammar, variants, 2, coreSpace, coreRequired)
 	)
 
 	it.effect(
 		"every extended query of up to two operators over single keys, with a containment and without",
-		(ctx) => exhaustUpTo(ctx, extendedGrammar, extendedVariants, 2, 1_000, extendedRequired)
+		(ctx) => exhaustUpTo(ctx, extendedGrammar, extendedVariants, 2, extendedSpace, extendedRequired)
 	)
 })

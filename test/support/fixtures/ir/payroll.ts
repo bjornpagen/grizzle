@@ -1,12 +1,6 @@
-/**
- * The payroll ledger fixture in IR form: the Payroll schema and its Reporting extension as SchemaDescs, the
- * workload queries and the query members of its ChangeSets as checked relational IR, and the declarations the compiler
- * refuses.
- */
+/** The payroll ledger fixture as a SchemaDesc: the Payroll schema, its relations, rosters, contracts and laws. */
 import type { SchemaDesc } from "#compiler/ir/desc.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
-import { ownedFixture } from "#test/support/evidence.ts"
-import { SchemaModel } from "#test/support/fixtures/ir/build.ts"
 import {
 	type AuthoredStatementDesc,
 	alternatives,
@@ -17,7 +11,6 @@ import {
 	closedRelation,
 	contained,
 	counted,
-	decodedQuery,
 	decodedSchema,
 	eq,
 	f,
@@ -358,58 +351,3 @@ export const PayrollDesc: SchemaDesc = decodedSchema({
 	statements: payrollStatements,
 	extends: undefined
 })
-
-/** The Reporting level. RunTotal's definition is the runTotals IR below; the level carries it as its rules stage. */
-const RunTotalDefinition = decodedQuery({
-	kind: "rules",
-	arms: [
-		{
-			vars: [
-				{ id: "id", origin: { relation: "PayLine", field: "id" } },
-				{ id: "run", origin: { relation: "PayLine", field: "run" } },
-				{ id: "gross", origin: { relation: "PayLine", field: "gross" } },
-				{ id: "net", origin: { relation: "PayLine", field: "net" } }
-			],
-			matches: [
-				{
-					source: { kind: "relation", name: "PayLine" },
-					bindings: {
-						id: { kind: "var", var: "id" },
-						run: { kind: "var", var: "run" },
-						gross: { kind: "var", var: "gross" },
-						net: { kind: "var", var: "net" }
-					}
-				}
-			],
-			where: [],
-			head: {
-				run: { kind: "var", var: "run" },
-				lines: { kind: "aggregate", fn: "count" },
-				gross: { kind: "aggregate", fn: "sum", arg: { kind: "var", var: "gross" } },
-				net: { kind: "aggregate", fn: "sum", arg: { kind: "var", var: "net" } }
-			},
-			interiors: [],
-			attach: []
-		}
-	]
-})
-
-export const ReportingDesc: SchemaDesc = decodedSchema({
-	name: "Reporting",
-	extends: PayrollDesc,
-	relations: [
-		{
-			kind: "derived",
-			name: "RunTotal",
-			level: 1,
-			storage: "materialized",
-			query: RunTotalDefinition
-		}
-	],
-	statements: []
-})
-
-/** The fixture schemas owned, their law models compiled and their catalogs built, with this module. */
-const payrollFixture = ownedFixture(PayrollDesc)
-
-export const payrollModel = (): SchemaModel => new SchemaModel(payrollFixture, {})
