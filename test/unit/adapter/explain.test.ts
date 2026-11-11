@@ -24,21 +24,23 @@ import { caseHang } from "#test/support/limits.ts"
  * Over drawn installed tables, two schemas holding tables of the same names, each a relation of its own with indexes of
  * the same names across tables, and drawn plan trees over them: each node of a type
  * PostgreSQL names, its estimates drawn apart from each other so no two coincide by accident, reading nothing, a table
- * whole, a table through an index, a table by a bitmap whose Bitmap Index Scans name their index alone, or the
- * session's temporary schema, beside members PostgreSQL prints that the Plan drops. The answer's json text decodes to
+ * whole, a table through an index, a table by a bitmap whose Bitmap Index Scans name their index alone, or a carrier,
+ * a table of the session's temporary schema, read whole, through its key or by a bitmap of its key, beside members
+ * PostgreSQL prints that the Plan drops. The answer's json text decodes to
  * the tree's projection onto the Plan's fields, or is refused exactly where some node names a table the file does not
  * hold or an index its table does not. The oracle is that projection, written from the documented mapping ("Node Type"
  * to node, "Startup Cost", "Total Cost", "Plan Rows" and "Plan Width" to the estimates, "Plans" to the children,
  * "Schema" and "Relation Name" to the relation the file names for that table, "Index Name" to that table's index by its
- * name, under a Bitmap Heap Scan the heap's table, and the temporary schema to the carrier).
+ * name, under a Bitmap Heap Scan the heap's table, and the temporary schema to the carrier, its key's index too).
  *
  * Plants: ~/.cache/grizzle-release/BR04/plants/explain-children-reversed.patch (a node's children in reverse order);
  * ~/.cache/grizzle-release/EXPLAIN/plants/index-wrong-relation.patch (an index node naming the relation of another
- * table of its schema).
+ * table of its schema); ~/.cache/grizzle-release/EXPLAINRB/plants/carrier-index-refused.patch (a carrier's key index
+ * refused as an index the file does not name).
  *
  * Features: a leaf, a node with several children, a tree nested three deep, members the Plan drops, a table read
- * whole, an index scan, a bitmap index scan under its heap, a carrier, and a plan refused for a table or an index the
- * file does not name.
+ * whole, an index scan, a bitmap index scan under its heap, a carrier, a carrier through its key, a carrier by a bitmap,
+ * and a plan refused for a table or an index the file does not name.
  */
 
 /** The schemas, tables and indexes a case names, each name shared across its owners so a lookup must take its owner. */
@@ -97,6 +99,9 @@ const installedJson = (tables: ReadonlyArray<TableDraw>): Json =>
 		})
 	)
 
+/** How a node reads a carrier: whole, through its key's index, or by a bitmap of its key's index. */
+type CarrierAccess = "whole" | "key" | "bitmap"
+
 /** What a drawn node reads: nothing, a table whole, a table through an index, a bitmap of a table, or a carrier. */
 type Read =
 	| { readonly kind: "none" }
@@ -113,7 +118,7 @@ type Read =
 			readonly table: number
 			readonly bitmaps: ReadonlyArray<number>
 	  }
-	| { readonly kind: "carrier" }
+	| { readonly kind: "carrier"; readonly access: CarrierAccess }
 
 interface Estimates {
 	readonly startup: number
@@ -180,8 +185,18 @@ const readGen: Gen<Read> = oneOf<Read>([
 		table: source.draw(place),
 		bitmaps: source.draw(array(place, { min: 1, max: 2 }))
 	}),
-	() => ({ kind: "carrier" })
+	(source) => ({
+		kind: "carrier",
+		access: source.draw(element(["whole", "key", "bitmap"] as const))
+	})
 ])
+
+/** The types PostgreSQL names a node reading a carrier by, by how it reads it. */
+const carrierTypes: { readonly [A in CarrierAccess]: Gen<string> } = {
+	whole: element(["Seq Scan", "Insert", "Delete"] as const),
+	key: element(["Index Scan", "Index Only Scan"] as const),
+	bitmap: element(["Bitmap Heap Scan"] as const)
+}
 
 /** The type PostgreSQL names a node of `read` by. */
 const typeOf = (read: Read): Gen<string> => {
@@ -189,12 +204,13 @@ const typeOf = (read: Read): Gen<string> => {
 		case "none":
 			return element(nodeTypes)
 		case "scan":
-		case "carrier":
 			return element(["Seq Scan", "Insert"] as const)
 		case "index":
 			return element(["Index Scan", "Index Only Scan"] as const)
 		case "heap":
 			return element(["Bitmap Heap Scan"] as const)
+		case "carrier":
+			return carrierTypes[read.access]
 	}
 }
 
@@ -240,6 +256,10 @@ const estimatesJson = (e: Estimates): Readonly<Record<string, Json>> => ({
 	"Plan Width": e.width
 })
 
+/** A carrier's table, and the index of its key, as PostgreSQL names a PRIMARY KEY's index. */
+const carrierName = "__carrier_1"
+const carrierKey = `${carrierName}_pkey`
+
 /** What PostgreSQL prints of what a node reads under VERBOSE: its table and schema, and its index. */
 const readJson = (read: Read): Readonly<Record<string, Json>> => {
 	switch (read.kind) {
@@ -258,19 +278,29 @@ const readJson = (read: Read): Readonly<Record<string, Json>> => {
 				"Index Name": indexNames[read.index] ?? ""
 			}
 		case "carrier":
-			return { "Relation Name": "__carrier_1", Schema: "pg_temp" }
+			return {
+				"Relation Name": carrierName,
+				Schema: "pg_temp",
+				...(read.access === "key" ? { "Index Name": carrierKey } : {})
+			}
 	}
 }
 
+/** The index names a node's Bitmap Index Scans print: a table's drawn ones, a carrier's key, or none. */
+const bitmapIndexes = (read: Read): ReadonlyArray<string> =>
+	read.kind === "heap"
+		? Arr.map(read.bitmaps, (index) => indexNames[index] ?? "")
+		: read.kind === "carrier" && read.access === "bitmap"
+			? [carrierKey]
+			: []
+
 /** A Bitmap Heap Scan's Bitmap Index Scans, which name their index alone. */
 const bitmapsJson = (read: Read, bitmap: Estimates): ReadonlyArray<Json> =>
-	read.kind === "heap"
-		? Arr.map(read.bitmaps, (index) => ({
-				...estimatesJson(bitmap),
-				"Node Type": "Bitmap Index Scan",
-				"Index Name": indexNames[index] ?? ""
-			}))
-		: []
+	Arr.map(bitmapIndexes(read), (index) => ({
+		...estimatesJson(bitmap),
+		"Node Type": "Bitmap Index Scan",
+		"Index Name": index
+	}))
 
 /** The node as PostgreSQL prints it: its members, the dropped ones among them, "Plans" only when it has children. */
 const printed = (node: Node, bitmap: Estimates): Json => {
@@ -324,28 +354,34 @@ const targetOf = (c: Case, read: Read): PlanTarget | undefined => {
 	}
 }
 
+/** The targets of a node's Bitmap Index Scans: its table's index each, or none the file does not name; a carrier. */
+const bitmapTargets = (c: Case, read: Read): ReadonlyArray<PlanTarget | undefined> => {
+	if (read.kind === "heap") {
+		const table = tableAt(c, read.schema, read.table)
+		return Arr.map(read.bitmaps, (index) =>
+			table === undefined ? undefined : indexTarget(table, index)
+		)
+	}
+	return read.kind === "carrier" && read.access === "bitmap" ? [{ kind: "carrier" }] : []
+}
+
 /** The documented mapping onto the Plan, or none where some node reads what the file does not name. */
 const projected = (c: Case, node: Node): Plan | undefined => {
 	const read = node.read
 	const on = targetOf(c, read)
-	const bitmaps =
-		read.kind === "heap"
-			? Arr.map(read.bitmaps, (index) => {
-					const table = tableAt(c, read.schema, read.table)
-					const target = table === undefined ? undefined : indexTarget(table, index)
-					return target === undefined
-						? undefined
-						: {
-								node: "Bitmap Index Scan",
-								on: target,
-								startupCost: c.bitmap.startup,
-								totalCost: c.bitmap.total,
-								rows: c.bitmap.rows,
-								width: c.bitmap.width,
-								children: []
-							}
-				})
-			: []
+	const bitmaps = Arr.map(bitmapTargets(c, read), (target) =>
+		target === undefined
+			? undefined
+			: {
+					node: "Bitmap Index Scan",
+					on: target,
+					startupCost: c.bitmap.startup,
+					totalCost: c.bitmap.total,
+					rows: c.bitmap.rows,
+					width: c.bitmap.width,
+					children: []
+				}
+	)
 	const children = [...bitmaps, ...Arr.map(node.children, (child) => projected(c, child))]
 	const kept = Arr.flatMap(children, (child) => (child === undefined ? [] : [child]))
 	return on === undefined || kept.length !== children.length
@@ -375,6 +411,8 @@ type PlanFeature =
 	| "an index scan"
 	| "a bitmap index scan under its heap"
 	| "a carrier"
+	| "a carrier through its key"
+	| "a carrier by a bitmap"
 	| "a plan refused"
 
 describe("EXPLAIN (FORMAT JSON, VERBOSE) decoding", () => {
@@ -402,6 +440,8 @@ describe("EXPLAIN (FORMAT JSON, VERBOSE) decoding", () => {
 								"an index scan",
 								"a bitmap index scan under its heap",
 								"a carrier",
+								"a carrier through its key",
+								"a carrier by a bitmap",
 								"a plan refused"
 							],
 							{ cases: 300, sense: notesOnly }
@@ -444,6 +484,24 @@ describe("EXPLAIN (FORMAT JSON, VERBOSE) decoding", () => {
 								}
 								if (Arr.some(targets, (t) => t.kind === "carrier")) {
 									k.note("a carrier")
+								}
+								if (
+									Arr.some(
+										plans(expected),
+										(p) =>
+											p.on.kind === "carrier" &&
+											Arr.contains(["Index Scan", "Index Only Scan"], p.node)
+									)
+								) {
+									k.note("a carrier through its key")
+								}
+								if (
+									Arr.some(
+										plans(expected),
+										(p) => p.on.kind === "carrier" && p.node === "Bitmap Index Scan"
+									)
+								) {
+									k.note("a carrier by a bitmap")
 								}
 							}
 							const nodes = all(c.root)
