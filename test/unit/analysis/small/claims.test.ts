@@ -39,17 +39,26 @@
  * containment whose source selection the parent's fact need not satisfy), unsound for the scan of every fact of S under
  * the selected containment; reflexive-filters-unread (a filter the root's own fact leaves unknown counts as
  * satisfied), unsound for an ordinal beside a conjunct; bare-child-one-field-containments (a containment of two fields
- * proves no child), imprecise for the attachment by both fields.
+ * proves no child), imprecise for the attachment by both fields; shared-child-keys-widened (a child read twice claims
+ * its whole heading as its key), inexact for every shared child.
+ *
+ * Shared children: each plan whose attachment scans a source is annotated again with that child read twice, as the
+ * attachment's child and as a root of its own, and the child claims exactly the universe's minimal keys of its own
+ * rows: the column sets of its heading no two of its rows agree on on any database, neither a sound superset nor the
+ * attachment's relative evidence.
+ *
+ * Each exhaustion's limit is its space's own size, counted by enumerating its generator (casesOf).
  *
  * Features: every claim checked, every precision situation each grammar must reach, and each elision reason
  * (ClaimFeature).
  */
 import { describe, it } from "@effect/vitest"
+import { count } from "@grizzle/testing/enumerate"
 import { type Case, exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace, type Situations } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Option } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order, String as Str } from "effect"
 import type { TestContext } from "vitest"
 import {
 	analyzePhysical,
@@ -62,7 +71,7 @@ import { keyedBy } from "#compiler/analysis/physical/props.ts"
 import { checkQuery } from "#compiler/check/index.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import type { ElisionReason } from "#compiler/ir/certificate.ts"
-import { topoOrder } from "#compiler/ir/dag.ts"
+import { assembledDag, topoOrder } from "#compiler/ir/dag.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
 import type { Card, NodeOf, RelDag, RelNode } from "#compiler/ir/rel.ts"
 import { analyzeLogical } from "#compiler/logical/annotate.ts"
@@ -74,7 +83,11 @@ import {
 } from "#test/support/oracle/reference/evaluate.ts"
 import { equal } from "#test/support/oracle/reference/values.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
-import { type LogicalFeature, logicalUnsound } from "#test/unit/analysis/logical/support.ts"
+import {
+	claimedVariants,
+	type LogicalFeature,
+	logicalUnsound
+} from "#test/unit/analysis/logical/support.ts"
 import {
 	FragmentReference,
 	propsOf,
@@ -94,6 +107,7 @@ import {
 	printPlan
 } from "#test/unit/analysis/small/plans.ts"
 
+import { unorderedEqual } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import {
 	closedName,
@@ -103,6 +117,7 @@ import {
 	installed,
 	parameterValues,
 	seen,
+	subsetsOf,
 	type Variant,
 	variants
 } from "#test/unit/analysis/small/universe.ts"
@@ -181,6 +196,8 @@ type ClaimFeature =
 	| `precision: ${"get" | "elision" | "obligation" | "option" | "bare child" | "bare ordinal"}`
 	| "precision: bare child of two fields"
 	| "precision: bare child of a selected source"
+	| "a shared child"
+	| "a shared child of several minimal keys"
 
 /** The features the analyses' claims reached, by name. */
 const claimFeatures = (
@@ -219,6 +236,105 @@ const placementsOf = (
 			]
 		: [["unplaced", unplaced]]
 
+/** A column set of a shared child's heading, and whether no two of its rows have agreed on it on any database yet. */
+interface Candidate {
+	readonly columns: ReadonlyArray<string>
+	holds: boolean
+}
+
+/** An attachment whose child the shared DAG reads twice, as the attachment's child and as a root of its own. */
+interface SharedChild {
+	readonly attach: NodeOf<"Attach">
+	readonly candidates: ReadonlyArray<Candidate>
+}
+
+/** The plan's DAG with each scan child also a root, annotated, and its shared children. */
+interface Sharing {
+	readonly dag: RelDag
+	readonly children: ReadonlyArray<SharedChild>
+}
+
+/**
+ * The plan's checked DAG with the child of each attachment that scans a source also a root of its own, so the child is
+ * read twice, as the old fixture's notes were (an attachment's child the result reads too), annotated in `context`: a
+ * shared child, which keeps its own evidence, never the attachment's relative one. An ordinal's child reads its parent's
+ * columns, so it is no root and is left alone. None where the plan attaches no scan.
+ */
+const sharingOf = (
+	inst: Installed,
+	plan: Plan,
+	dag: RelDag,
+	context: TemplateContext,
+	at: string
+): Option.Option<Sharing> => {
+	const scans = Arr.filter(attachmentsOf(dag), (a) =>
+		Arr.some(plan.children, (child) => child.kind === "scan" && child.name === a.name)
+	)
+	const [root] = dag.roots
+	if (root === undefined || !Arr.isReadonlyArrayNonEmpty(scans)) {
+		return Option.none()
+	}
+	const annotated = analyzeLogical(
+		assembledDag([root, ...Arr.map(scans, (a) => a.child)]),
+		inst.logical(context)
+	)
+	if (!annotated.ok) {
+		throw new Error(
+			`the logical analysis refuses the plan with its children shared: ${annotated.error.message}\n${at}`
+		)
+	}
+	return Option.some({
+		dag: annotated.value.dag,
+		children: Arr.flatMap(attachmentsOf(annotated.value.dag), (attach) =>
+			Arr.some(scans, (a) => a.id === attach.id)
+				? [
+						{
+							attach,
+							candidates: Arr.map(
+								subsetsOf(Arr.map(attach.child.heading, (h) => h.name)),
+								(columns): Candidate => ({ columns, holds: true })
+							)
+						}
+					]
+				: []
+		)
+	})
+}
+
+/** The minimal sets of `sets`, each sorted, each once: those no other set of them is a proper subset of. */
+const minimalSets = (
+	sets: ReadonlyArray<ReadonlyArray<string>>
+): ReadonlyArray<ReadonlyArray<string>> =>
+	Arr.dedupeWith(
+		Arr.map(
+			Arr.filter(
+				sets,
+				(k) => !Arr.some(sets, (o) => o.length < k.length && Arr.every(o, (c) => k.includes(c)))
+			),
+			(k) => Arr.sort(k, Order.String)
+		),
+		Arr.makeEquivalence(Str.Equivalence)
+	)
+
+/**
+ * A shared child's claimed keys are exactly the universe's: the minimal column sets of its heading no two of its rows
+ * agreed on on any database, its own rows read whole as a root reads them. A key widened past the minimal one, or one
+ * the attachment's relative evidence states, is no claim of the child's own.
+ */
+const keysExact = (shared: SharedChild, c: Case<ClaimFeature>, at: string): void => {
+	const truth = minimalSets(Arr.flatMap(shared.candidates, (k) => (k.holds ? [k.columns] : [])))
+	const claimed = minimalSets(Arr.flatMap(shared.attach.child.meta.logicalKeys, claimedVariants))
+	c.note("a shared child")
+	if (truth.length > 1) {
+		c.note("a shared child of several minimal keys")
+	}
+	unorderedEqual(
+		claimed,
+		truth,
+		`the shared child of ${shared.attach.name} claims exactly the minimal keys the universe shows\n${at}`
+	)
+}
+
 /** One plan under one installed variant, in every context it can be read in. */
 const judge = (inst: Installed, plan: Plan, c: Case<ClaimFeature>): void => {
 	const where = `${inst.variant.name}: ${printPlan(plan)}`
@@ -244,6 +360,7 @@ const judge = (inst: Installed, plan: Plan, c: Case<ClaimFeature>): void => {
 			return { analysis: analyzed, placement, rootSet: true, witnessed: new Map() }
 		})
 		c.note(`context ${context}`)
+		const sharing = sharingOf(inst, plan, checked.value.dag, context, at)
 		const truth: Truth = { rootAtMostOne: true, rootSeen: false, children: new Map() }
 		for (const db of databases(inst.variant)) {
 			if (!seen(db, context)) {
@@ -300,6 +417,17 @@ const judge = (inst: Installed, plan: Plan, c: Case<ClaimFeature>): void => {
 				if (claims.kind === "unsound") {
 					throw new Error(`unsound logical claim: ${claims.why}\n${at}${facts()}`)
 				}
+				for (const shared of Option.toArray(sharing)) {
+					const reference = Reference.of(shared.dag, input)
+					for (const child of shared.children) {
+						const rows = reference.eval(child.attach.child, noBindings)
+						for (const k of child.candidates) {
+							if (k.holds && !uniqueOn(rows.heading, rows.rows, k.columns)) {
+								k.holds = false
+							}
+						}
+					}
+				}
 				const ref = Reference.of(dag, input)
 				const rows = ref.eval(root, noBindings).rows.length
 				if (rows > 1) {
@@ -324,6 +452,11 @@ const judge = (inst: Installed, plan: Plan, c: Case<ClaimFeature>): void => {
 			}
 		}
 		precise(inst.variant, plan, dag, root, physicals, truth, c, at)
+		for (const shared of Option.toArray(sharing)) {
+			for (const child of shared.children) {
+				keysExact(child, c, at)
+			}
+		}
 	}
 }
 
@@ -456,6 +589,7 @@ const coreSnapshotRequired: Arr.NonEmptyReadonlyArray<ClaimFeature> = [
 	"precision: option",
 	"precision: bare child",
 	"precision: bare ordinal",
+	"a shared child",
 	"ordinal strict",
 	"ordinal beside a conjunct"
 ]
@@ -472,7 +606,8 @@ const transactionRequired: Arr.NonEmptyReadonlyArray<ClaimFeature> = [
  */
 const coreVariantsRequired: Arr.NonEmptyReadonlyArray<ClaimFeature> = [
 	"precision: bare child of two fields",
-	"precision: bare child of a selected source"
+	"precision: bare child of a selected source",
+	"a shared child of several minimal keys"
 ]
 
 const coreRequired: Situations<ClaimFeature> = Arr.appendAll(
@@ -513,15 +648,24 @@ const space = (
 	return (source) => [source.draw(element(installations)), source.draw(plans)] as const
 }
 
+/**
+ * How many cases a generator has, counted by enumerating it alone (enumerate.ts count) under no bound but the largest
+ * safe count: an exhaustion's limit is its space's own size, so no change of the grammar or the variants leaves it stale.
+ */
+const casesOf = (generator: Gen<unknown>): number => {
+	const counted = count(generator, Number.MAX_SAFE_INTEGER)
+	return counted.kind === "within" ? counted.cases : counted.limit
+}
+
 const exhaustUpTo = (
 	ctx: TestContext,
 	grammar: Grammar,
 	among: Arr.NonEmptyReadonlyArray<Variant>,
 	operators: number,
-	limit: number,
 	situations: Situations<ClaimFeature>
-) =>
-	searched(
+) => {
+	const generator = space(grammar, among, operators)
+	return searched(
 		ctx,
 		exhaust(
 			{
@@ -531,10 +675,10 @@ const exhaustUpTo = (
 					name: "the reference evaluator on every database of the small universe"
 				},
 				suite: `unit/analysis/small/claims-${grammar.name}-${among.length}-${operators}`,
-				generator: space(grammar, among, operators),
+				generator,
 				literal: ([inst, plan]) =>
 					Formatter.format({ variant: inst.variant.name, scan: plan.scan, steps: plan.steps }),
-				limit,
+				limit: casesOf(generator),
 				coverage: requiredInSpace<ClaimFeature>(situations),
 				caseHang
 			},
@@ -544,6 +688,7 @@ const exhaustUpTo = (
 				})
 		)
 	)
+}
 
 const variantNamed = (name: string): Variant =>
 	Option.getOrThrowWith(
@@ -569,20 +714,14 @@ const extendedRequired: Situations<ClaimFeature> = Arr.appendAll(
 	extendedAdded
 )
 
-/** The core space: the core grammar's 172 plans of up to two operators (enumerate.ts count) under each variant. */
-const coreSpace = 172 * variants.length
-
-/** The extended space: the extended grammar's 411 plans of up to two operators under each of its variants. */
-const extendedSpace = 411 * extendedVariants.length
-
 describe("the analyses over a small closed universe", () => {
 	it.effect(
 		"every core query of up to two operators: sound on every database, precise where the universe proves",
-		(ctx) => exhaustUpTo(ctx, coreGrammar, variants, 2, coreSpace, coreRequired)
+		(ctx) => exhaustUpTo(ctx, coreGrammar, variants, 2, coreRequired)
 	)
 
 	it.effect(
 		"every extended query of up to two operators over single keys, with a containment and without",
-		(ctx) => exhaustUpTo(ctx, extendedGrammar, extendedVariants, 2, extendedSpace, extendedRequired)
+		(ctx) => exhaustUpTo(ctx, extendedGrammar, extendedVariants, 2, extendedRequired)
 	)
 })

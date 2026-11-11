@@ -219,7 +219,7 @@ const unsound = (why: string): Soundness => ({ kind: "unsound", why })
  * columns. Every other key it states is such steps taken together, each sound when every step is, which the key
  * kernel checks of each.
  */
-const claimedVariants = (k: KeyProof): ReadonlyArray<KeySet> => {
+export const claimedVariants = (k: KeyProof): ReadonlyArray<KeySet> => {
 	const swapped = (columns: KeySet) =>
 		Arr.flatMap(classMembers(k), (m) =>
 			columns.includes(m.of) ? [Arr.map(columns, (c) => (c === m.of ? m.column : c))] : []
