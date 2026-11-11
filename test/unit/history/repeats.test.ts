@@ -15,6 +15,11 @@
  *   included, is refused by the key's law, as PostgreSQL's unique index refuses it;
  * - a host that states no law for Worker's primary key is refused by both models before they judge anything, so no
  *   state holding a fact twice ever passes its laws.
+ *
+ * Features: each writer under each host, a repeat in one member and across two, a fact at a stored fact's key.
+ *
+ * Plants (~/.cache/grizzle-release/BR02/plants): repeats-direct-repeat-admitted, the direct writer's model letting an
+ * exact repeat through.
  */
 
 import { describe, it } from "@effect/vitest"

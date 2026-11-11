@@ -59,6 +59,10 @@ import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
  * values (three a plane, four a set), each member selected or not. A sum over money is refused at the fold's typing,
  * so it has no fill. The named mutant, the base seeded from the first member, is a first before that is no identity,
  * which the identity assertion refuses wherever the first member's value is not the identity.
+ *
+ * Features: each monoid, an empty family, a member stepped over, hidden accumulators, a counted family.
+ *
+ * Plants (~/.cache/grizzle-release/BR02/plants): family-fold-twos-union, family-fold-max-first.
  */
 
 type Carrier = "int2" | "int4" | "int8" | "natural" | "numeric" | "money" | "set" | "code"

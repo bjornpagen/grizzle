@@ -58,6 +58,11 @@ import { descOf, parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts
  *   longest text the write states, and the set keys by exactly as many texts at the case's content length as at
  *   length 1. A key joined from texts is longer than each of them, and one spelled per character grows with the
  *   content; neither holds the gate.
+ *
+ * Features: a fact stated twice, two facts at one id differing in their title alone or in their members, two bodies of
+ * one length that differ, an owner with no members.
+ *
+ * Plants (~/.cache/grizzle-release/BR02/plants): nested-identity-joined-signature, nested-signature-own-row-only.
  */
 const Owner = relation(
 	"Owner",

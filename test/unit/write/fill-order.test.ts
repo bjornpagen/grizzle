@@ -98,6 +98,8 @@ import { descOf, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
  *
  * The planted bug: a copy's source read with no regard to when its row fills it (analysis/theory/fill.ts `ownerLater`
  * and `readLater` admitting every source) admits schemas the model refuses, which the witnesses reach on every seed.
+ *
+ * Plants (~/.cache/grizzle-release/BR02/plants): fill-order-read-later-admitted, the planted bug above as a patch.
  */
 
 type FillSituation =

@@ -27,6 +27,12 @@
  * interval of a clock of seven ticks; each outcome its writer can report, with each discarded attempt's reason of
  * either kind, and each refusal's witness the written fact's key, a key outside the box, or none; and the committed
  * state any set of the box's facts, one breaking the key among them, or the state some order of the operations reaches.
+ *
+ * Features: explained and unexplained histories, aborts, refusals and discarded attempts; a wrong witness; three
+ * operations explained; intervals that touch; an unorderable outcome its model orders.
+ *
+ * Plants (~/.cache/grizzle-release/BR02/plants): history-overlap-touching, operations that only touch counted as
+ * overlapping.
  */
 
 import { describe, it } from "@effect/vitest"

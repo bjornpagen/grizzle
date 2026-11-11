@@ -70,6 +70,11 @@ import { descOf, parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts
  * Planted bugs: an edit whose selection cannot evaluate a missing weight refused as integerRange, or one reading a
  * step's missing weight as no value, refuses where the specification does not say so; an edit that witnesses the row
  * its fill stopped at names a later member than the first of a missing weight where an earlier one no fill reads.
+ *
+ * Features: each selection, the weight fold or not, a missing weight at each place a fill reads it.
+ *
+ * Plants (~/.cache/grizzle-release/BR02/plants): fill-stop-null-as-range, a generated field with no value refused as
+ * integerRange.
  */
 
 const weighedKinds = ["light", "heavy"] as const

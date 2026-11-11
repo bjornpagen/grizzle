@@ -42,6 +42,11 @@ import { descOf, parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts
  * array, a Stream or a query, has the Description, the inputs and the bound values of the same ChangeSet given one
  * insert of each key's members in any order; so it compiles to the same plan, statement by statement, or is refused
  * for the same reason. The oracle is the specification: inserts within one stratum are one set.
+ *
+ * Features: one key, four keys or more, a Stream member, a query member, a nested member, a world entry's key, a
+ * stratum before, a bound parameter yielding, another order, a plan compiled, a compile refused.
+ *
+ * Plants (~/.cache/grizzle-release/BR02/plants): insert-all-last-key-dropped.
  */
 
 /** Manual tasks, a world entry over Task whose head leaves out the kind its selection fixes. */

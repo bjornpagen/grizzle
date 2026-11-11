@@ -47,6 +47,12 @@ import { descOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
  * (test/pg/write/swarm/families.test.ts) runs.
  *
  * The oracle is that rule over generated ChangeSets of one or two strata over a ledger whose entries sum to its total.
+ *
+ * Features: each refused write of given ledgers beside each member write, and each kind of compiled write
+ * (compiledFeatures).
+ *
+ * Plants (~/.cache/grizzle-release/BR02/plants): owner-append-put-allowed, a put of queried owners beside an append
+ * compiled.
  */
 const Ledger = relation(
 	"Ledger",

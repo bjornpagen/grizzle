@@ -23,11 +23,18 @@ import {
 	stockFromParam
 } from "#test/unit/write/put/support.ts"
 
-/** A parameter takes any name its declaration gives it: no name is a slot source the runtime reads otherwise. A
+/**
+ * A parameter takes any name its declaration gives it: no name is a slot source the runtime reads otherwise. A
  * relation parameter under a name drawn from the parameter-name dictionary (kernel/dict.ts parameterNames: a page's own
  * input names, spellings like a source the runtime might read or a page's reserved placeholder identity, then the
  * identifier dictionary's names) binds exactly as one named "items" does: every statement's placeholder texts, the
- * oracle being the program's invariance under renaming its parameter. */
+ * oracle being the program's invariance under renaming its parameter.
+ *
+ * Features: none required; the name is the whole draw.
+ *
+ * Plants (~/.cache/grizzle-release/BR02/plants): names-param-lowercased, a parameter's value read under its name
+ * lowercased.
+ */
 const membersOf = (program: CompiledWrite, value: unknown) =>
 	collectInputs(program.binding.groups, parsedOf(value).inputs)
 

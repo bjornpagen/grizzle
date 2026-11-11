@@ -20,6 +20,11 @@
  *
  * Planted: a statement with no staged form (`staged` none) sends its rows inline past the bound, and the search fails
  * on the kept case past it, which the second test requires.
+ *
+ * Features: the inline statement, several fills, a carrier's ANALYZE, a row past the bound.
+ *
+ * Plants (~/.cache/grizzle-release/BR02/plants): staged-cut-ignores-parameters, staged-analyze-dropped; and the planted
+ * statement with no staged form the second test runs.
  */
 import { describe, it } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"

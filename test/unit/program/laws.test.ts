@@ -47,6 +47,8 @@
  *
  * lawIdsOf(schema) lists lawsOf's laws in its order, each with an id of its own, and every law the installation's map
  * reports, under every id it reports it by, is one of them with that id: a refusal's RefusedLaw.id finds its law there.
+ *
+ * Plants (~/.cache/grizzle-release/BR02/plants): laws-listed-twice, laws-first-dropped.
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"

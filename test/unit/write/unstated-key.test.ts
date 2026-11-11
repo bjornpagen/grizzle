@@ -36,6 +36,11 @@ import { descOf, parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts
  * index and `y`. The oracle is the rule itself: the primary key, then each declared key for a put, and the write is
  * refused naming the first that holds the index, the primary key where it does and otherwise one of the declared keys
  * that do, with the index as the field no fact states; with none, the ChangeSet compiles and binds.
+ *
+ * Features: each primary key and declared key that holds the index, each write, a generated key that refuses nothing.
+ *
+ * Plants (~/.cache/grizzle-release/BR02/plants): unstated-key-primary-only, a put's same-key checks reading its primary
+ * key alone.
  */
 const Owner = relation("Owner", { id: uuid, n: drawn(natural) }, ["id"])
 

@@ -42,6 +42,11 @@ import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
  * the member is selected and its before elsewhere, the end the last after, the empty text for no member. The box,
  * exhausted: families of up to three members, each piece the empty text, an ASCII letter or a supplementary-plane
  * character, each selected or not, under a fold that selects and one that does not.
+ *
+ * Features: an empty family, a member stepped over, a supplementary character joined.
+ *
+ * Plants (~/.cache/grizzle-release/BR02/plants): concat-fill-prepends, a step that puts its piece before the running
+ * text.
  */
 
 const pieces = ["", "a", "\u{1F600}"] as const

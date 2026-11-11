@@ -49,6 +49,11 @@ import { descOf, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
  * - **A served write binds without its front end as the planner binds it with it**: a write a served file holds
  *   (write/program/served.ts servedWrite), bound from its flight alone, sends what the read-flight planner over its
  *   compiled front end sends, or refuses alike (runtime/write/bind.ts RunnableWrite).
+ *
+ * Features: a nested write, a fresh owner's counts drawn, a write with no family.
+ *
+ * Plants (~/.cache/grizzle-release/BR02/plants): binding-fill-without-fresh, a fill that misses the layouts a fresh
+ * owner's fill meets.
  */
 
 /** The situations a drawn write reaches. */

@@ -30,6 +30,12 @@ import { offlineBind, offlineCompile, parsedChange } from "#test/support/worlds/
  * stating the entry's own fields compile and bind, a put being the owner's put in place, which sets the entry's free
  * label alone and never deletes the owner from under its members; and a fact stating the count is refused, at bind, as
  * no fact of the entry.
+ *
+ * Features: refused when declared at each family field; each op of each fact through a declared role; a put of the
+ * owner in place.
+ *
+ * Plants (~/.cache/grizzle-release/BR02/plants): entry-owner-family-filter-admitted, an entry whose filter reads a
+ * family field declared.
  */
 const built = shopOf("Shop")
 

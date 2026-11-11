@@ -40,6 +40,10 @@ import { descOf } from "#test/unit/write/changeset/fixtures.ts"
  * And what its statement reads its input as: an enumerated put's facts are distinct and unique at R's key by the codec's
  * normalization, and a put of R's own facts is unique at R's key by the key its member proves, so neither statement
  * deduplicates its input or checks it for two facts of one key.
+ *
+ * Features: each statement and reason a put lowers to.
+ *
+ * Plants (~/.cache/grizzle-release/BR02/plants): put-choose-unique-outside-key-ignored, put-choose-netting-ignored.
  */
 
 /** The unique objects of R beside its primary key. */

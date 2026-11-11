@@ -48,6 +48,11 @@ import { descOf, parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts
  * Bound: one or two owners of zero to two lines each, of quantities 0 or 1; one or two trees of one to four nodes;
  * the transport in force and one that holds one row per statement. The program depends on the ChangeSet's shape alone,
  * so it is compiled once for each count of owners and trees, and each case binds its own facts.
+ *
+ * Features: each box's shapes (owners, trees, the transport), a set's repeated facts and keys, each tree depth and
+ * shape.
+ *
+ * Plants (~/.cache/grizzle-release/BR02/plants): nested-tree-interval-unsized, nested-signature-own-row-only.
  */
 
 const Doc = relation(

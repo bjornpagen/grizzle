@@ -69,6 +69,9 @@
  * CONFLICT with no target read as an arbitration at READ COMMITTED; the row met as a row source, a probe as none, met
  * rows that skip their proposed CTE, an ON CONFLICT with no target arbitrating one object alone, and a probe's
  * equalities dropped.
+ *
+ * Plants (~/.cache/grizzle-release/BR02/plants): extract-not-exists-positive, extract-except-unflipped (two of the
+ * scratch-copy plants above, as patches).
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"

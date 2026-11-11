@@ -56,6 +56,11 @@ type FamilyNode = Exclude<AnyFamilyNode, { readonly kind: "additions" | "removal
  *   refuses it (UnorderableStratum) where it used to drop an edge and fail at the server. A pure set's actions are
  *   tried in every order: no fact one adds meets a fact another removes but itself, save a drawn fact, which a deletion
  *   run after the draw removes at an id it names.
+ *
+ * Features: the schedule orders a stratum, no order keeps one, a pure set's deletion after its addition, both put
+ * under either name order, a generated insertion beside a deletion; each stratum shape of the generated strata.
+ *
+ * Plants (~/.cache/grizzle-release/BR02/plants): schedule-generated-before-deletion, schedule-phase-free.
  */
 
 /** An operation of a stratum's action on C, or an explicit one on P. */

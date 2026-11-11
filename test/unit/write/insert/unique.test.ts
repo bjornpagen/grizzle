@@ -23,11 +23,18 @@ import { checking } from "#test/support/policy.ts"
 import { descOf, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
 import { writeNamesOf } from "#test/unit/write/insert/support.ts"
 
-/** The host's refusal of overlapping additions under a span candidate key, against a host interval model: enumerated
+/**
+ * The host's refusal of overlapping additions under a span candidate key, against a host interval model: enumerated
  * additions, each a booking of a room over a half-open span, are refused before any SQL with the span key's law exactly
  * when two of them hold one room over overlapping spans, the witness one of those facts' key at the span key's fields;
  * adjacent spans, and overlapping spans in other rooms, are admitted. Every booking has an id and a reference of its
- * own, so the primary key and the plain candidate key never decide. */
+ * own, so the primary key and the plain candidate key never decide.
+ *
+ * Features: overlapping spans in one room refused, adjacent spans in one room admitted, overlapping spans in two rooms
+ * admitted.
+ *
+ * Plants (~/.cache/grizzle-release/BR02/plants): unique-span-adjacent-overlap, unique-span-reach-first.
+ */
 const Booking = relation(
 	"Booking",
 	{ id: pg.integer, room: pg.integer, during: span(pg.integer), ref: pg.integer },
