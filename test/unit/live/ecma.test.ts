@@ -12,7 +12,11 @@
  *
  * Features: a pattern under u, a pattern under su, a text matched, a text refused, a pattern of an astral code point.
  *
- * Plants (~/.cache/grizzle-release/LIVE-OPENAPI/plants): ecma-anchor-multiline (`$` printed as `(?=\n|$)`).
+ * Kept: the live test phase's counterexample at 729f76a6, `/.$/su` and the text U+10FFFF, which V8's search judged
+ * unmatched while the pattern was printed unanchored at its start (scalar/regex/ecma.ts toEcma).
+ *
+ * Plants (~/.cache/grizzle-release/LIVE-OPENAPI/plants): ecma-anchor-multiline (`$` printed as `(?=\n|$)`),
+ * ecma-unanchored-start (a pattern whose matches may start anywhere printed with no start anchor).
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -91,7 +95,27 @@ describe("a refined text's ECMA-262 pattern", () => {
 							],
 							{ cases: 800, sense: notesOnly }
 						),
-						kept: [],
+						kept: [
+							{
+								note: "/.$/su beside an astral code point, which V8 judged unmatched where the pattern was printed with no start anchor (live test phase 729f76a6)",
+								sketch: {
+									source: ".$",
+									flags: "su",
+									alphabet: [
+										48, 49, 50, 57, 45, 46, 95, 97, 90, 1632, 1641, 1780, 2406, 3665, 65296, 65305,
+										120782, 120831, 178, 9312
+									],
+									texts: [""]
+								},
+								draws: "1.3.0.pa8.cn4",
+								reaches: [
+									"a pattern under su",
+									"a pattern of an astral code point",
+									"a text refused",
+									"a text matched"
+								]
+							}
+						],
 						runs: 800,
 						shrink: completeShrink,
 						concurrency: 1,

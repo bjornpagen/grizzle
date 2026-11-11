@@ -2,24 +2,28 @@
  * The wire's one table (live/wire.ts carrierWire): each carrier's JSON Schema, encode, exact parse and trusting decode
  * agree, over drawn specs of every carrier and drawn values of each spec's type.
  *
- * - Codec output: every value of a spec's type encodes to JSON its schema admits, which the parse reads back as the
- *   value and the decode converts back to it. Oracle: the schema, judged by the validator the CLI generator pins
- *   (test/support/openapi/validator.ts), and the value itself, compared by its one form (live/key.ts sameValue).
+ * - Codec output: every value of a spec's type encodes to JSON its schema admits, as its one form does (a float's and a
+ *   vector component's one zero, -0 as 0, ir/carriers.ts canonicalZero), which the parse reads back as that one form and
+ *   the decode converts back to it. Oracle: the schema, judged by the validator the CLI generator pins
+ *   (test/support/openapi/validator.ts), and the value's one form, compared by live/key.ts sameValue (Object.is).
  * - Exactness: over JSON near a value's spelling (one edit of its encoding, or a JSON value of another kind), the parse
  *   reads nothing its schema refuses, and every JSON its schema admits that the parse refuses is refused as one of the
  *   gaps that schema lists (`x-grizzle-gaps`), each named as its fault is (wireFaults, schemaGaps). Oracle: the schema
  *   and its enumerated gaps, the specification of what the wire's parse takes.
- *
  * - The host door: the wire's parse reads exactly what the host door (scalar/values/identity.ts parseValue, every
- *   caller's value's one door) reads: every value of a type the host door reads unchanged, the wire reads back from its
- *   JSON, and every JSON the wire reads, the host door reads unchanged. Oracle: a differential with parseValue.
+ *   caller's value's one door) reads: every value of a type the host door reads, its one form unchanged, the wire reads
+ *   back from its JSON as that one form, and every JSON the wire reads, the host door reads, its one form unchanged.
+ *   Oracle: a differential with parseValue.
  *
  * Features: every carrier, a numeric under a typmod and a computed numeric, a negative scale, a scale past the
- * precision, NaN and the infinities of a float, a fixed-width span, a set of handles, a JSON refused by schema and
- * parse alike, a JSON a schema admits and the parse refuses as a gap.
+ * precision, NaN and the infinities of a float, a fixed-width span, a set of handles, a negative zero, a JSON refused by
+ * schema and parse alike, a JSON a schema admits and the parse refuses as a gap.
+ *
+ * Kept: the live test phase's counterexamples at 729f76a6, a vector holding a -0 component, which the oracle compared
+ * by Object.is to the 0 the wire spells it as.
  *
  * Plants (~/.cache/grizzle-release/LIVE-OPENAPI/plants): wire-bigint-number (int8's schema a JSON integer, its values
- * still strings).
+ * still strings), wire-vector-negative-zero (a vector's -0 component spelled as -0).
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -47,7 +51,7 @@ import { parseDeclaredName } from "#compiler/core/identity.ts"
 import { int2Max, int2Min, int4Max, int4Min, int8Max, int8Min } from "#compiler/core/limits.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
 import { trusted } from "#compiler/core/trusted.ts"
-import { binary32Max, moneyFractionDigits } from "#compiler/ir/carriers.ts"
+import { binary32Max, canonicalZero, moneyFractionDigits } from "#compiler/ir/carriers.ts"
 import { codecOf, firstCodebook } from "#compiler/ir/codes.ts"
 import { type CalendarDate, dateOfDayNumber, dayNumber } from "#compiler/ir/date.ts"
 import { type Carrier, carriers, Roster } from "#compiler/ir/scalar.ts"
@@ -83,6 +87,7 @@ type Feature =
 	| "a float's NaN or infinity"
 	| "a fixed-width span"
 	| "a set of handles"
+	| "a negative zero"
 	| "a JSON refused by schema and parse alike"
 	| "a JSON the schema admits and the parse refuses as a gap"
 
@@ -163,8 +168,14 @@ const decimalsGen = (integerDigits: number, scale: number): Gen<Decimal> => {
 /** A binary32 number from -binary32Max to binary32Max, or a word naming a float JSON numbers cannot hold. */
 const realGen: Gen<number> = oneOf<number>([
 	(source) => Math.fround(source.draw(double(-binary32Max.value, binary32Max.value))),
-	constant(0),
+	element([0, -0]),
 	element([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])
+])
+
+/** A vector's component: a binary32 number of a vector's scale, or either zero. */
+const componentGen: Gen<number> = oneOf<number>([
+	(source) => Math.fround(source.draw(double(-1000, 1000))),
+	element([0, -0])
 ])
 
 /** The days of the calendar a date holds, as day numbers. */
@@ -218,7 +229,7 @@ const valueOf =
 				return source.draw(
 					oneOf<number>([
 						double(-Number.MAX_VALUE, Number.MAX_VALUE),
-						element([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, 0])
+						element([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, 0, -0])
 					])
 				)
 			case "money":
@@ -265,7 +276,7 @@ const valueOf =
 			}
 			case "vector": {
 				const components = source.draw(
-					array((s) => Math.fround(s.draw(double(-1000, 1000))), {
+					array(componentGen, {
 						min: spec.dimensions,
 						max: spec.dimensions
 					})
@@ -316,8 +327,26 @@ const featuresOf = (c: Case): ReadonlyArray<Feature> => {
 	if (spec.carrier === "bits") {
 		own.push("a set of handles")
 	}
+	if (holdsNegativeZero(c.value)) {
+		own.push("a negative zero")
+	}
 	return own
 }
+
+/** Whether a value is a float's -0 or a vector holding one. */
+const holdsNegativeZero = (value: unknown): boolean =>
+	Object.is(value, -0) || (value instanceof Float32Array && value.some((x) => Object.is(x, -0)))
+
+/**
+ * A value in its one form: a float's and each vector component's one zero, -0 as 0 (ir/carriers.ts canonicalZero), the
+ * value grizzle stores and delivers for either zero, which the wire spells as the one number 0.
+ */
+const oneForm = (value: unknown): unknown =>
+	typeof value === "number"
+		? canonicalZero(value)
+		: value instanceof Float32Array
+			? Vector.branded(Float32Array.from(value, canonicalZero))
+			: value
 
 /** Whether a value is a gap schemaGaps enumerates. */
 const isSchemaGap = (value: unknown): value is SchemaGap =>
@@ -497,11 +526,22 @@ describe("the wire's one table", () => {
 								"a scale past the precision",
 								"a float's NaN or infinity",
 								"a fixed-width span",
-								"a set of handles"
+								"a set of handles",
+								"a negative zero"
 							],
 							{ cases: 1500, sense: notesOnly }
 						),
-						kept: [],
+						kept: [
+							{
+								note: "a vector holding a -0 component, spelled and read back as 0 (wire-codec, live test phase 729f76a6)",
+								sketch: {
+									spec: { carrier: "vector", dimensions: 6 },
+									value: Vector.branded(Float32Array.from([1, -0, 0, 0, 0, 0]))
+								},
+								draws: "",
+								reaches: ["the carrier vector", "a negative zero"]
+							}
+						],
 						runs: 1500,
 						shrink: completeShrink,
 						concurrency: 1,
@@ -522,10 +562,17 @@ describe("the wire's one table", () => {
 								parseScalar(c.spec, json),
 								`the parse reads ${Formatter.format(json)}`
 							)
-							assert.ok(sameValue(parsed, c.value), "the parse reads back the value")
 							assert.ok(
-								sameValue(decodeScalar(c.spec, json), c.value),
-								"the decode converts back the value"
+								sameValue(json, encodeScalar(c.spec, oneForm(c.value))),
+								"the value encodes as its one form does, -0 as 0"
+							)
+							assert.ok(
+								sameValue(parsed, oneForm(c.value)),
+								"the parse reads back the value's one form"
+							)
+							assert.ok(
+								sameValue(decodeScalar(c.spec, json), oneForm(c.value)),
+								"the decode converts back the value's one form"
 							)
 						})
 				)
@@ -616,7 +663,18 @@ describe("the wire's one table", () => {
 							Arr.map(carriers, (carrier): Feature => `the carrier ${carrier}`),
 							{ cases: 2000, sense: notesOnly }
 						),
-						kept: [],
+						kept: [
+							{
+								note: "a vector holding a -0 component, which the wire reads back as 0 (wire-host-door, live test phase 729f76a6)",
+								sketch: {
+									spec: { carrier: "vector", dimensions: 3 },
+									value: Vector.branded(Float32Array.from([1, -0, 0])),
+									near: null
+								},
+								draws: "",
+								reaches: ["the carrier vector"]
+							}
+						],
 						runs: 2000,
 						shrink: completeShrink,
 						concurrency: 1,
@@ -632,16 +690,16 @@ describe("the wire's one table", () => {
 								"the host door reads a value of the type"
 							)
 							assert.ok(
-								sameValue(hostForm(own), c.value),
-								"the host door reads the value unchanged"
+								sameValue(oneForm(hostForm(own)), oneForm(c.value)),
+								"the host door reads the value, its one form unchanged"
 							)
 							const back = succeeded(
 								parseScalar(c.spec, encodeScalar(c.spec, c.value)),
 								"the wire reads its JSON"
 							)
 							assert.ok(
-								sameValue(back, c.value),
-								"the wire reads back the value the host door reads"
+								sameValue(back, oneForm(hostForm(own))),
+								"the wire reads back the one form of the value the host door reads"
 							)
 							const parsed = parseScalar(c.spec, c.near)
 							if (!parsed.ok) {
@@ -651,7 +709,10 @@ describe("the wire's one table", () => {
 								parseValue(door, parsed.value),
 								`the host door reads what the wire read of ${Formatter.format(c.near)}`
 							)
-							assert.ok(sameValue(hostForm(host), parsed.value), "the host door reads it unchanged")
+							assert.ok(
+								sameValue(oneForm(hostForm(host)), parsed.value),
+								"the host door reads it, its one form unchanged"
+							)
 						})
 				)
 			)

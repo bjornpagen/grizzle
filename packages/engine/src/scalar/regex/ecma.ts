@@ -64,9 +64,20 @@ const printed = (node: LiveNode, of: (child: LiveNode) => string): string => {
  * - Quantifiers are greedy and keep their bounds.
  * - Characters: ASCII letters and digits print as themselves; every other code point as `\u{...}`.
  *
+ * - A pattern whose matches do not all start at the value's start is printed from it, `^[^]*?(?:...)`: some match exists
+ *   anywhere exactly when one exists after some prefix, and V8 (Node 26.13.0's, as Chrome's) answers `test` wrongly for
+ *   a pattern that ends in `$` and starts unanchored over an astral class, `/[\u{10000}-\u{10FFFF}]$/u.test("\u{1F600}")`
+ *   false, which a start anchor keeps it from reaching.
+ *
  * The translation is total over the IR, so every pattern grizzle admits has its ECMA-262 spelling by construction; the
  * empty language has none, and no admitted text type holds it (text/refinement.ts languageOf). The printer folds the IR
  * children first (ir.ts folded), so a pattern of any depth prints without recursing.
  */
-export const toEcma = (node: LiveNode): string =>
-	folded(new Map<RegexNode, string>(), node, printed)
+export const toEcma = (node: LiveNode): string => {
+	const body = folded(new Map<RegexNode, string>(), node, printed)
+	return startsAtStart(node) ? body : `^[^]*?(?:${body})`
+}
+
+/** Whether every match of a node starts at the value's start: a `^`, or a sequence that begins with one. */
+const startsAtStart = (node: LiveNode): boolean =>
+	node.kind === "start" || (node.kind === "seq" && node.items[0]?.kind === "start")
