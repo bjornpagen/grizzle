@@ -28,6 +28,7 @@ import { quoteIdent } from "#compiler/sql/print.ts"
 import type { AnyLogin } from "#compiler/types/schema/world.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { answered } from "#test/support/calls.ts"
 import { compileTemplate, testCompile, workloadOver } from "#test/support/compile.ts"
 import * as P from "#test/support/fixtures/api/platform.ts"
 import { type Installed, installMigrated as install } from "#test/support/install-migrate.ts"
@@ -164,15 +165,15 @@ export const applyFacts = (db: PlatformDb, f: PlatformFacts) =>
 		if (factCount(f) === 0) {
 			return
 		}
-		const outcome = yield* db.workload.load.apply({ insert: f }, {})
-		if (outcome.kind === "invariant-rejected") {
+		const outcome = yield* answered(db.workload.load.once({ params: {}, facts: { insert: f } }))
+		if (outcome.kind === "refused") {
 			return yield* Effect.die(
 				new LoadRefused({
 					reason: `the load was refused by ${Formatter.format(outcome.refused.laws)}: ${Formatter.format(outcome.witness)}`
 				})
 			)
 		}
-		if (outcome.kind === "no-change") {
+		if (outcome.kind === "unchanged") {
 			return yield* Effect.die(new LoadRefused({ reason: "the load changed nothing" }))
 		}
 	})

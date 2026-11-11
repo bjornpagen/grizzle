@@ -33,6 +33,7 @@ import { query, v } from "#compiler/public/query.ts"
 import { counted, fin, mutable, on, ordered, relation, schema } from "#compiler/public/schema.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, unorderedEqual } from "#test/support/assert.ts"
+import { answered, rowsOf } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
@@ -217,9 +218,13 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							(c, notes) =>
 								Effect.gen(function* () {
 									yield* replaceRows(s.admin, group, [])
-									const seeded = yield* db.workload.seed.apply(
-										{ insert: { Club: Arr.map(clubs, (id) => ({ id })), Member: c.stored } },
-										{}
+									const seeded = yield* answered(
+										db.workload.seed.once({
+											params: {},
+											facts: {
+												insert: { Club: Arr.map(clubs, (id) => ({ id })), Member: c.stored }
+											}
+										})
 									)
 									assert.equal(seeded.kind, "accepted", "the clubs and their members are stored")
 									const facts = {
@@ -227,24 +232,26 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										insert: { Member: c.inserted, Doc: c.docs }
 									}
 									const outcome = yield* c.placement === "the edit first"
-										? db.workload.editFirst.apply(facts, {})
+										? answered(db.workload.editFirst.once({ params: {}, facts: facts }))
 										: c.placement === "the nested insert first"
-											? db.workload.nestedFirst.apply(facts, {})
-											: db.workload.together.apply(facts, {})
+											? answered(db.workload.nestedFirst.once({ params: {}, facts: facts }))
+											: answered(db.workload.together.once({ params: {}, facts: facts }))
 									const changes = c.deleted.length + c.inserted.length + c.docs.length
 									assert.equal(
 										outcome.kind,
-										changes === 0 ? "no-change" : "accepted",
+										changes === 0 ? "unchanged" : "accepted",
 										`${Formatter.format(c)}: the outcome`
 									)
 									const members = [
 										...Arr.filter(c.stored, (m) => !Arr.some(c.deleted, (d) => sameMember(d, m))),
 										...c.inserted
 									]
-									const memberRows = yield* (yield* db.workload.members.execute({})).collect
-									const clubRows = yield* (yield* db.workload.clubs.execute({})).collect
-									const docRows = yield* (yield* db.workload.docs.execute({})).collect
-									const lineRows = yield* (yield* db.workload.lines.execute({})).collect
+									const memberRows = yield* rowsOf(
+										db.workload.members.once({ params: {}, facts: {} })
+									)
+									const clubRows = yield* rowsOf(db.workload.clubs.once({ params: {}, facts: {} }))
+									const docRows = yield* rowsOf(db.workload.docs.once({ params: {}, facts: {} }))
+									const lineRows = yield* rowsOf(db.workload.lines.once({ params: {}, facts: {} }))
 									unorderedEqual(
 										Arr.map(memberRows, (row) => ({ m: row.m, club: row.club })),
 										members

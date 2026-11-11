@@ -38,6 +38,7 @@ import { workload } from "#compiler/public/workload.ts"
 import { roleBackends } from "#test/pg/serverless/support.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined } from "#test/support/assert.ts"
+import { rowsOf } from "#test/support/calls.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { workFacts } from "#test/support/fixtures/golden/work.ts"
 import { installMigrated as install, loadMigrated as load } from "#test/support/install-migrate.ts"
@@ -133,17 +134,17 @@ type Worlds = ReturnType<typeof worldsOver>
 const readsOf = (web: ServedLogin<Worlds["web"]>, ops: ServedLogin<Worlds["ops"]>) => ({
 	reader: Effect.gen(function* () {
 		const db = yield* Db.open(web.roles.reader, {})
-		const rows = yield* (yield* db.workload.readerAccounts.execute({})).collect
+		const rows = yield* rowsOf(db.workload.readerAccounts.once({ params: {}, facts: {} }))
 		return Arr.map(rows, (row) => row.id)
 	}),
 	auditor: Effect.gen(function* () {
 		const db = yield* Db.open(web.roles.auditor, {})
-		const rows = yield* (yield* db.workload.auditorAccounts.execute({})).collect
+		const rows = yield* rowsOf(db.workload.auditorAccounts.once({ params: {}, facts: {} }))
 		return Arr.map(rows, (row) => row.id)
 	}),
 	operator: Effect.gen(function* () {
 		const db = yield* Db.open(ops.roles.operator, {})
-		const rows = yield* (yield* db.workload.operatorAccounts.execute({})).collect
+		const rows = yield* rowsOf(db.workload.operatorAccounts.once({ params: {}, facts: {} }))
 		return Arr.map(rows, (row) => row.id)
 	})
 })

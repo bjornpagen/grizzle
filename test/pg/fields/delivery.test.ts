@@ -48,6 +48,7 @@ import { emitText } from "#compiler/sql/emit.ts"
 import { NameSupply } from "#compiler/sql/naming.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert } from "#test/support/assert.ts"
+import { answered } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { strictDelivered } from "#test/support/kernel/strict.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -249,7 +250,9 @@ layer(Substrate.layer, { excludeTestServices: true })("a delivery at chunk bound
 								if (d.rows.length > 0) {
 									yield* Effect.gen(function* () {
 										const db = yield* Db.open(o.served.login.roles.app, {})
-										const outcome = yield* db.workload.write.apply({ insert: { Blob: d.rows } }, {})
+										const outcome = yield* answered(
+											db.workload.write.once({ params: {}, facts: { insert: { Blob: d.rows } } })
+										)
 										assert.equal(outcome.kind, "accepted", "every row is written")
 									}).pipe(
 										(body) =>

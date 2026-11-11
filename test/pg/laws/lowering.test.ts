@@ -88,6 +88,7 @@ import {
 } from "#test/pg/laws/lowering-support.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { deepEquals, defined } from "#test/support/assert.ts"
+import { answered } from "#test/support/calls.ts"
 import {
 	type Installed,
 	type InstallVersion,
@@ -1180,21 +1181,24 @@ const loweredInstall = (
 		const low: LoweredInstall = {
 			seat: yield* seatOfInstalled(installed, RELATIONS, `lowering_${order}`),
 			write: (facts) =>
-				Effect.map(db.workload.write.apply(facts, {}), (outcome): ServedOutcome => {
-					switch (outcome.kind) {
-						case "accepted":
-						case "no-change":
-							return { kind: "accepted" }
-						case "invariant-rejected":
-							return {
-								kind: "refused",
-								laws: Arr.map(outcome.refused.laws, (r) => r.id),
-								witness: outcome.witness
-							}
-						case "outside-world":
-							return { kind: "other", text: Formatter.format(outcome) }
+				Effect.map(
+					answered(db.workload.write.once({ params: {}, facts: facts })),
+					(outcome): ServedOutcome => {
+						switch (outcome.kind) {
+							case "accepted":
+							case "unchanged":
+								return { kind: "accepted" }
+							case "refused":
+								return {
+									kind: "refused",
+									laws: Arr.map(outcome.refused.laws, (r) => r.id),
+									witness: outcome.witness
+								}
+							case "outsideWorld":
+								return { kind: "other", text: Formatter.format(outcome) }
+						}
 					}
-				})
+				)
 		}
 		return low
 	})

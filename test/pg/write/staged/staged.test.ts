@@ -87,6 +87,7 @@ import {
 import { keyTextBytes, str } from "#compiler/public/text.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert } from "#test/support/assert.ts"
+import { answered, writeOnce } from "#test/support/calls.ts"
 import { sentSql } from "#test/support/flight/scripted.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -287,7 +288,7 @@ const changeOf = (loaded: LoadedMember): LoadedChange => {
 const appliedOn = (ctx: ServedDbContext, loaded: LoadedMember, facts: unknown) => {
 	const ops = memberOps(ctx, loaded)
 	return ops.kind === "facts"
-		? ops.ops.apply(facts, {})
+		? answered(writeOnce(ops)({ params: {}, facts: facts }))
 		: Effect.die(new Error(`${loaded.name} applies with each call's facts`))
 }
 
@@ -490,7 +491,7 @@ const searchOn = <A, E, R>(
 						if (Result.isSuccess(staged) && staged.success.kind === "accepted") {
 							c.note("a stored mutable shelf recounted")
 						}
-						if (Result.isSuccess(staged) && staged.success.kind === "invariant-rejected") {
+						if (Result.isSuccess(staged) && staged.success.kind === "refused") {
 							c.note("a refusal the staged statement judges")
 						}
 						if (

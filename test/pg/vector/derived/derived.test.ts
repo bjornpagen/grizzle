@@ -46,6 +46,7 @@ import {
 } from "#test/pg/vector/ann/support.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, refused } from "#test/support/assert.ts"
+import { rowsOf } from "#test/support/calls.ts"
 import { type Installed, installMigrated as install } from "#test/support/install-migrate.ts"
 import { roleNamesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -178,7 +179,7 @@ const opened = Effect.gen(function* () {
 	const served = yield* servedFixture(installed, fixture.server)
 	yield* Effect.gen(function* () {
 		const db = yield* Db.open(served.login.roles.refresher, {})
-		yield* db.workload.embeddings.refresh
+		yield* db.workload.embeddings.once({ params: {}, facts: {} })
 	}).pipe(Effect.scoped, withLayer(served.layer))
 	return { installed, fixture, served, table, probe } satisfies Opened
 })
@@ -278,10 +279,15 @@ layer(Substrate.layer)("approximateNearest over a derived relation", (it) => {
 										textRows
 									)
 									assert.notDeepEqual(oracle, [], "the view holds the account's embedded documents")
-									const rows = yield* (yield* db.workload.scored.execute({
-										account,
-										vector: vectorParam(vector)
-									})).collect
+									const rows = yield* (yield* rowsOf(
+										db.workload.scored.once({
+											params: {
+												account,
+												vector: vectorParam(vector)
+											},
+											facts: {}
+										})
+									)).collect
 									const pairs: ReadonlyArray<ReadonlyArray<string | number>> = Arr.map(
 										rows,
 										(r) => [r.document, r.distance]

@@ -36,6 +36,7 @@ import { fin, key, login, on, ordered, relation, role, schema } from "#compiler/
 import { keyTextBytes, str } from "#compiler/public/text.ts"
 import { workload } from "#compiler/public/workload.ts"
 import { assert, defined } from "#test/support/assert.ts"
+import { answered, writeOnce } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { openActors } from "#test/support/schedules/actors.ts"
 import {
@@ -166,7 +167,7 @@ const explored = Effect.gen(function* () {
 					}
 					return opened
 				}).pipe(Effect.provideContext(context)),
-			(db) => db.workload.noop.apply({})
+			(db) => answered(db.workload.noop.once({ params: {}, facts: {} }))
 		)
 	const a = yield* open("a")
 	const b = yield* open("b")
@@ -178,7 +179,7 @@ const explored = Effect.gen(function* () {
 		Effect.suspend(() => {
 			const served = memberOps({ ...writer.ctx, pool: plantedPool(writer.ctx.pool, limit) }, member)
 			return served.kind === "facts"
-				? served.ops.apply(facts, {})
+				? answered(writeOnce(served)({ params: {}, facts: facts }))
 				: Effect.die(new Error("importPackage applies with each call's facts"))
 		})
 	const direct = yield* openActors(s, { gate: { kind: "raw", as: rig.direct } })
@@ -246,7 +247,9 @@ const explored = Effect.gen(function* () {
 	const reset = Effect.gen(function* () {
 		ran.clear()
 		yield* rig.replace([])
-		const preloaded = yield* loader.db.workload.importPackage.apply(preload, {})
+		const preloaded = yield* answered(
+			loader.db.workload.importPackage.once({ params: {}, facts: preload })
+		)
 		assert.equal(preloaded.kind, "accepted", "the stored packages are stored")
 	}).pipe(Effect.orDie)
 	const judge = (run: Interleaving): Judgment => {

@@ -12,6 +12,7 @@ import { pg } from "#compiler/public/fields.ts"
 import { contained, mutable, on, relation, schema } from "#compiler/public/schema.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, deepEquals, unorderedEqual } from "#test/support/assert.ts"
+import { answered } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { refusedLaws } from "#test/support/refused.ts"
@@ -120,7 +121,7 @@ const dangling = (from: ReadonlyArray<Fact>, to: ReadonlyArray<Fact>): boolean =
 
 type CycleFeature =
 	| "accepted"
-	| "no-change"
+	| "unchanged"
 	| "a cycle inserted in one ChangeSet"
 	| "refused by A's reference"
 	| "refused by B's reference"
@@ -150,7 +151,7 @@ layer(Substrate.layer, { excludeTestServices: true })("plain foreign keys on a c
 								coverage: required<CycleFeature>(
 									[
 										"accepted",
-										"no-change",
+										"unchanged",
 										"a cycle inserted in one ChangeSet",
 										"refused by A's reference",
 										"refused by B's reference",
@@ -180,18 +181,20 @@ layer(Substrate.layer, { excludeTestServices: true })("plain foreign keys on a c
 											insert(names.table(B), `${names.column(B, "id")}, ${names.column(B, "a")}`, f)
 										)
 									])
-									const outcome = yield* db.workload.change.apply(
-										{
-											insert: {
-												A: Arr.map(requested.insertA, (f) => ({ id: f.id, b: f.ref })),
-												B: Arr.map(requested.insertB, (f) => ({ id: f.id, a: f.ref }))
-											},
-											delete: {
-												A: Arr.map(requested.deleteA, (f) => ({ id: f.id, b: f.ref })),
-												B: Arr.map(requested.deleteB, (f) => ({ id: f.id, a: f.ref }))
+									const outcome = yield* answered(
+										db.workload.change.once({
+											params: {},
+											facts: {
+												insert: {
+													A: Arr.map(requested.insertA, (f) => ({ id: f.id, b: f.ref })),
+													B: Arr.map(requested.insertB, (f) => ({ id: f.id, a: f.ref }))
+												},
+												delete: {
+													A: Arr.map(requested.deleteA, (f) => ({ id: f.id, b: f.ref })),
+													B: Arr.map(requested.deleteB, (f) => ({ id: f.id, a: f.ref }))
+												}
 											}
-										},
-										{}
+										})
 									)
 									const finalA = [...minus(stored.a, requested.deleteA), ...requested.insertA]
 									const finalB = [...minus(stored.b, requested.deleteB), ...requested.insertB]
@@ -200,7 +203,7 @@ layer(Substrate.layer, { excludeTestServices: true })("plain foreign keys on a c
 									const stateA = yield* tableState(o.installed, A)
 									const stateB = yield* tableState(o.installed, B)
 									if (brokenA || brokenB) {
-										if (outcome.kind !== "invariant-rejected") {
+										if (outcome.kind !== "refused") {
 											return assert.fail(`a refusal by a reference, not ${outcome.kind}`)
 										}
 										assert.ok(
@@ -247,8 +250,8 @@ layer(Substrate.layer, { excludeTestServices: true })("plain foreign keys on a c
 										requested.deleteA.length +
 										requested.deleteB.length
 									if (changed === 0) {
-										assert.equal(outcome.kind, "no-change")
-										c.note("no-change")
+										assert.equal(outcome.kind, "unchanged")
+										c.note("unchanged")
 										return
 									}
 									if (outcome.kind !== "accepted") {

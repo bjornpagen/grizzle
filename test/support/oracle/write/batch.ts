@@ -1,6 +1,6 @@
 import { Array as Arr, Option, Result } from "effect"
 import type { ApplyError } from "#adapter/errors/execution.ts"
-import type { ApplyOutcome } from "#adapter/public/db.ts"
+import type { ApplyOutcome } from "#adapter/types/db.ts"
 
 /**
  * One flight an attempt's session sent: how many statements it carried besides BEGIN, COMMIT and ROLLBACK, how it ended

@@ -76,6 +76,7 @@ import type { RawSession } from "#test/support/substrate/session.ts"
 import { freshSchema, Substrate } from "#test/support/substrate/substrate.ts"
 
 import { ConnectionLost, type ServerError, type TransientReason } from "#adapter/errors/failures.ts"
+import { answered, writeOnce } from "#test/support/calls.ts"
 import { paramText } from "#test/support/wire.ts"
 import { fullWorld } from "#test/support/worlds.ts"
 
@@ -569,7 +570,7 @@ const observedReads = (reads: unknown): ObservedReads => {
 
 /** An outcome with its read-backs as the harness reads them. */
 const observedOutcome = (value: ApplyOutcome<unknown>): ApplyOutcome<ObservedReads> =>
-	value.kind === "invariant-rejected" || value.kind === "outside-world"
+	value.kind === "refused" || value.kind === "outsideWorld"
 		? value
 		: { ...value, reads: observedReads(value.reads) }
 
@@ -856,7 +857,7 @@ const attemptedOf = (
 	labelOf: (f: AttemptFailure) => string
 ): Attempted => {
 	const outcome: Outcome =
-		value.kind === "invariant-rejected" || value.kind === "transient"
+		value.kind === "refused" || value.kind === "transient"
 			? failure.kind === "none"
 				? { kind: "rolledBack" }
 				: failedOf(failure.failure)
@@ -1009,7 +1010,9 @@ const observedArtifact = (
 							attempted: attemptedOf(value, failure, labelOf)
 						})
 					}
-					return appliedWith(memberOps(observed, running), facts, params).pipe(
+					return answered(
+						writeOnce(memberOps(observed, running))({ params: params, facts: facts })
+					).pipe(
 						Effect.map((value): ObservedValue => observedOutcome(value)),
 						Effect.catchTag("TransientFailure", (error) =>
 							Effect.succeed<ObservedValue>({ kind: "transient", reason: error.reason })

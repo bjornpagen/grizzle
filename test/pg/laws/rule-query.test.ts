@@ -93,6 +93,7 @@ import type { Law } from "#compiler/types/changeset/changeset.ts"
 import { cleared, seatOfInstalled } from "#test/pg/fin/installed.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { defined } from "#test/support/assert.ts"
+import { answered } from "#test/support/calls.ts"
 import { installMigrated } from "#test/support/install-migrate.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { refusedLaws } from "#test/support/refused.ts"
@@ -1081,7 +1082,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 						const installation = seat.installed.installation
 						/** The ChangeSet taking `before` to `after`, applied by its served member as the application's login. */
 						const write = (before: State, after: State) =>
-							db.workload.write.apply(factsOf(before, after), {})
+							answered(db.workload.write.once({ params: {}, facts: factsOf(before, after) }))
 						/** The rule a refusal's trigger reports, through the installation's constraint map. */
 						const refusedRule = (fields: {
 							readonly table: Option.Option<string>
@@ -1169,10 +1170,10 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										)
 										if (tx.writer === "grizzle") {
 											const outcome = yield* write(state, t.after)
-											if (outcome.kind === "accepted" || outcome.kind === "no-change") {
+											if (outcome.kind === "accepted" || outcome.kind === "unchanged") {
 												if (
 													breaks.length > 0 ||
-													(outcome.kind === "no-change") !== unchanged(state, t.after)
+													(outcome.kind === "unchanged") !== unchanged(state, t.after)
 												) {
 													return yield* new Disagreed({
 														message: `grizzle's write answered ${outcome.kind} where the state it leaves breaks ${Arr.join(breaks, ", ") || "nothing"}: ${Formatter.format(tx.ops)}`
@@ -1183,13 +1184,13 @@ layer(Substrate.layer, { excludeTestServices: true })(
 												continue
 											}
 											const named =
-												outcome.kind === "invariant-rejected"
+												outcome.kind === "refused"
 													? Arr.map(refusedLaws(outcome.refused), ruleOf)
 													: []
 											const broke = (r: Rule | undefined): boolean =>
 												r !== undefined && breaks.includes(r)
 											if (
-												outcome.kind !== "invariant-rejected" ||
+												outcome.kind !== "refused" ||
 												outcome.witness.kind !== "unreported" ||
 												!(outcome.refused.kind === "some"
 													? Arr.some(named, broke)
@@ -1283,7 +1284,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									const snapB = yield* run(second, opening)
 									const grizzle = yield* write(state, g.after).pipe(
 										Effect.map((outcome) =>
-											outcome.kind === "accepted" || outcome.kind === "no-change"
+											outcome.kind === "accepted" || outcome.kind === "unchanged"
 												? "committed"
 												: "refused"
 										),

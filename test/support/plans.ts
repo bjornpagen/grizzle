@@ -1,13 +1,11 @@
 import { Array as Arr, Effect, Option, Result } from "effect"
 import type { ServedDbContext } from "#adapter/db/context.ts"
-import { memberOpsOn } from "#adapter/db/handles.ts"
-import type { MemberOps } from "#adapter/db/ops.ts"
-import { poolExecutor } from "#adapter/reader/executor.ts"
+import { memberCalls, type ServedCalls } from "#adapter/db/handles.ts"
 import type { LoadedMember } from "#adapter/served/load.ts"
+import type { Session } from "#adapter/wire/session.ts"
 import { type EstimatedNode, parsePlanTree, planNodes } from "#bench/harness/explain.ts"
 import type { Param } from "#compiler/core/wire.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
-import { type Counts, countingExecutor } from "#test/pg/page/support.ts"
 import { assert } from "#test/support/assert.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 
@@ -197,16 +195,73 @@ export const plannedIndexes = (installation: Installation): ReadonlySet<string> 
 	new Set(Arr.map(installation.indexes, (i) => i.index.name))
 
 /**
- * The operations of any loaded member of the served Db of `ctx` (test/support/served-db.ts ServedDb.load), every read
- * of them through one executor over the Db's pool that records every statement it sends (adapter/db/handles.ts
- * memberOpsOn), and the counts it records into, which every member's reads share.
+ * What a Db's reads sent, as a recording context counts it (recordingContext): the flights its sessions wrote, one
+ * round trip each, and every statement of a program among them, its text and its parameters, a text or a binary value
+ * each (core/wire.ts Param), in order; a transaction's controls and the Db's prologue are no statement of a program.
+ */
+export interface Counts {
+	flights: number
+	statements: number
+	readonly sent: Array<{ readonly sql: string; readonly params: ReadonlyArray<Param> }>
+}
+
+/** `session`, every flight it writes counted into `counts` (Counts) before it is written. */
+const recordingSession = (
+	session: Session,
+	counts: Counts,
+	prologue: ReadonlySet<string>
+): Session => ({
+	...session,
+	send: (pipeline, onAnswer, onEnd, onCut) => {
+		counts.flights++
+		for (const query of pipeline) {
+			if (
+				query._tag === "control" ||
+				(query._tag === "prepared" && prologue.has(query.text.name))
+			) {
+				continue
+			}
+			counts.statements++
+			counts.sent.push({
+				sql: query._tag === "prepared" ? query.text.sql : query.sql,
+				params: query.params
+			})
+		}
+		session.send(pipeline, onAnswer, onEnd, onCut)
+	}
+})
+
+/** The Db context `ctx` with every session its pool leases recording what it sends into `counts` (Counts). */
+export const recordingContext = (
+	ctx: ServedDbContext
+): { readonly ctx: ServedDbContext; readonly counts: Counts } => {
+	const counts: Counts = { flights: 0, statements: 0, sent: [] }
+	const prologue: ReadonlySet<string> = new Set([
+		ctx.prologue.fence.text.name,
+		ctx.prologue.enter.text.name
+	])
+	return {
+		ctx: {
+			...ctx,
+			pool: {
+				...ctx.pool,
+				lease: Effect.map(ctx.pool.lease, (session) => recordingSession(session, counts, prologue))
+			}
+		},
+		counts
+	}
+}
+
+/**
+ * The calls of any loaded member of the served Db of `ctx` (test/support/served-db.ts ServedDb.load, adapter/db/handles.ts
+ * memberCalls), every statement they send recorded (recordingContext), and the counts every member's calls share.
  */
 export const recordingMembers = (
 	ctx: ServedDbContext
 ): {
-	readonly ops: (member: LoadedMember) => MemberOps<unknown>
+	readonly calls: (member: LoadedMember) => ServedCalls
 	readonly counts: Counts
 } => {
-	const { executor, counts } = countingExecutor(poolExecutor(ctx))
-	return { ops: (member) => memberOpsOn(executor, ctx, member).ops, counts }
+	const recording = recordingContext(ctx)
+	return { calls: (member) => memberCalls(recording.ctx, member), counts: recording.counts }
 }

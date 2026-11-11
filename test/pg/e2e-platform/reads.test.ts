@@ -69,6 +69,7 @@ import {
 	viewOf
 } from "#test/support/platform/generate.ts"
 
+import { oneOf, rowsOf } from "#test/support/calls.ts"
 import { caseHang } from "#test/support/limits.ts"
 import {
 	cardAt,
@@ -184,7 +185,7 @@ const reads: ReadonlyArray<ReadCase> = [
 		"eventCost",
 		P.eventCost,
 		(k, p) => ({ event: liveOr(ids(p.facts.UsageEvent), absentId, k) }),
-		(db, a) => db.workload.eventCost.execute(a)
+		(db, a) => rowsOf(db.workload.eventCost.once({ params: a, facts: {} }))
 	),
 	read(
 		"quote",
@@ -200,7 +201,7 @@ const reads: ReadonlyArray<ReadCase> = [
 				(a, b) => a.kind === b.kind
 			)
 		}),
-		(db, a) => db.workload.quote.execute(a)
+		(db, a) => rowsOf(db.workload.quote.once({ params: a, facts: {} }))
 	),
 	read(
 		"ratesAt",
@@ -209,43 +210,43 @@ const reads: ReadonlyArray<ReadCase> = [
 			model: liveOr(ids(p.facts.Model), absentId, k),
 			now: unit(pickFrom(instantsOf(p), k))
 		}),
-		(db, a) => db.workload.ratesAt.execute(a)
+		(db, a) => rowsOf(db.workload.ratesAt.once({ params: a, facts: {} }))
 	),
 	read(
 		"rateHistory",
 		P.rateHistory,
 		(k, p) => ({ model: liveOr(ids(p.facts.Model), absentId, k), kind: kindOf(k) }),
-		(db, a) => db.workload.rateHistory.execute(a)
+		(db, a) => rowsOf(db.workload.rateHistory.once({ params: a, facts: {} }))
 	),
 	read(
 		"repricedInMonth",
 		P.repricedInMonth,
 		(k, p) => ({ workspace: liveOr(ids(p.facts.Workspace), absentId, k), month: monthOf(p, k) }),
-		(db, a) => db.workload.repricedInMonth.execute(a)
+		(db, a) => rowsOf(db.workload.repricedInMonth.once({ params: a, facts: {} }))
 	),
 	read(
 		"spendByDay",
 		P.spendByDay,
 		(k, p) => ({ workspace: liveOr(ids(p.facts.Workspace), absentId, k), window: windowOf(p, k) }),
-		(db, a) => db.workload.spendByDay.execute(a)
+		(db, a) => rowsOf(db.workload.spendByDay.once({ params: a, facts: {} }))
 	),
 	read(
 		"spendByMonth",
 		P.spendByMonth,
 		(k, p) => ({ workspace: liveOr(ids(p.facts.Workspace), absentId, k) }),
-		(db, a) => db.workload.spendByMonth.execute(a)
+		(db, a) => rowsOf(db.workload.spendByMonth.once({ params: a, facts: {} }))
 	),
 	read(
 		"workspaceMonth",
 		P.workspaceMonth,
 		(k, p) => ({ workspace: liveOr(ids(p.facts.Workspace), absentId, k), month: monthOf(p, k) }),
-		(db, a) => db.workload.workspaceMonth.execute(a)
+		(db, a) => rowsOf(db.workload.workspaceMonth.once({ params: a, facts: {} }))
 	),
 	read(
 		"nearCap",
 		P.nearCap,
 		(k, p) => ({ org: liveOr(ids(p.facts.Org), absentId, k), month: monthOf(p, k) }),
-		(db, a) => db.workload.nearCap.execute(a)
+		(db, a) => rowsOf(db.workload.nearCap.once({ params: a, facts: {} }))
 	),
 	read(
 		"topModels",
@@ -255,7 +256,7 @@ const reads: ReadonlyArray<ReadCase> = [
 			month: monthOf(p, k),
 			k: 1 + (k % 3)
 		}),
-		(db, a) => db.workload.topModels.execute(a)
+		(db, a) => rowsOf(db.workload.topModels.once({ params: a, facts: {} }))
 	),
 	read(
 		"topProviders",
@@ -265,19 +266,19 @@ const reads: ReadonlyArray<ReadCase> = [
 			month: monthOf(p, k),
 			k: 1 + (k % 2)
 		}),
-		(db, a) => db.workload.topProviders.execute(a)
+		(db, a) => rowsOf(db.workload.topProviders.once({ params: a, facts: {} }))
 	),
 	read(
 		"marginByProvider",
 		P.marginByProvider,
 		(k, p) => ({ org: liveOr(ids(p.facts.Org), absentId, k), month: monthOf(p, k) }),
-		(db, a) => db.workload.marginByProvider.execute(a)
+		(db, a) => rowsOf(db.workload.marginByProvider.once({ params: a, facts: {} }))
 	),
 	read(
 		"consolidatedSpend",
 		P.consolidatedSpend,
 		(k, p) => ({ root: liveOr(ids(p.facts.Org), absentId, k), month: monthOf(p, k) }),
-		(db, a) => db.workload.consolidatedSpend.execute(a)
+		(db, a) => rowsOf(db.workload.consolidatedSpend.once({ params: a, facts: {} }))
 	),
 	read(
 		"balanceAt",
@@ -286,49 +287,49 @@ const reads: ReadonlyArray<ReadCase> = [
 			org: liveOr(ids(p.facts.Org), absentId, k),
 			now: unit(pickFrom(instantsOf(p), k))
 		}),
-		(db, a) => db.workload.balanceAt.execute(a)
+		(db, a) => rowsOf(db.workload.balanceAt.once({ params: a, facts: {} }))
 	),
 	read(
 		"expiringGrants",
 		P.expiringGrants,
 		(k, p) => ({ org: liveOr(ids(p.facts.Org), absentId, k), window: windowOf(p, k) }),
-		(db, a) => db.workload.expiringGrants.execute(a)
+		(db, a) => rowsOf(db.workload.expiringGrants.once({ params: a, facts: {} }))
 	),
 	read(
 		"burnDown",
 		P.burnDown,
 		(k, p) => ({ grant: liveOr(ids(p.facts.CreditGrant), absentId, k) }),
-		(db, a) => db.workload.burnDown.execute(a)
+		(db, a) => rowsOf(db.workload.burnDown.once({ params: a, facts: {} }))
 	),
 	read(
 		"keyCard",
 		P.keyCard,
 		(k, p) => ({ key: liveOr(ids(p.facts.ApiKey), absentId, k) }),
-		(db, a) => db.workload.keyCard.execute(a)
+		(db, a) => rowsOf(db.workload.keyCard.once({ params: a, facts: {} }))
 	),
 	read(
 		"usageLog",
 		P.usageLog,
 		(k, p) => ({ key: liveOr(ids(p.facts.ApiKey), absentId, k) }),
-		(db, a) => db.workload.usageLog.execute(a)
+		(db, a) => rowsOf(db.workload.usageLog.once({ params: a, facts: {} }))
 	),
 	read(
 		"idleKeys",
 		P.idleKeys,
 		(k, p) => ({ workspace: liveOr(ids(p.facts.Workspace), absentId, k), window: windowOf(p, k) }),
-		(db, a) => db.workload.idleKeys.execute(a)
+		(db, a) => rowsOf(db.workload.idleKeys.once({ params: a, facts: {} }))
 	),
 	read(
 		"rollupVersusLive",
 		P.rollupVersusLive,
 		(k, p) => ({ workspace: liveOr(ids(p.facts.Workspace), absentId, k), window: windowOf(p, k) }),
-		(db, a) => db.workload.rollupVersusLive.execute(a)
+		(db, a) => rowsOf(db.workload.rollupVersusLive.once({ params: a, facts: {} }))
 	),
 	read(
 		"invoices",
 		P.invoices,
 		(k, p) => ({ org: liveOr(ids(p.facts.Org), absentId, k) }),
-		(db, a) => db.workload.invoices.execute(a)
+		(db, a) => rowsOf(db.workload.invoices.once({ params: a, facts: {} }))
 	),
 	read(
 		"invoiceAt",
@@ -337,7 +338,7 @@ const reads: ReadonlyArray<ReadCase> = [
 			org: liveOr(ids(p.facts.Org), absentId, k),
 			now: unit(pickFrom(instantsOf(p), k))
 		}),
-		(db, a) => db.workload.invoiceAt.execute(a)
+		(db, a) => rowsOf(db.workload.invoiceAt.once({ params: a, facts: {} }))
 	),
 	read(
 		"overdueInvoices",
@@ -346,31 +347,31 @@ const reads: ReadonlyArray<ReadCase> = [
 			org: liveOr(ids(p.facts.Org), absentId, k),
 			cutoff: P.Instant(pickFrom(instantsOf(p), k))
 		}),
-		(db, a) => db.workload.overdueInvoices.execute(a)
+		(db, a) => rowsOf(db.workload.overdueInvoices.once({ params: a, facts: {} }))
 	),
 	read(
 		"invoicePreview",
 		P.invoicePreview,
 		(k, p) => ({ invoice: liveOr(ids(p.facts.Invoice), absentId, k) }),
-		(db, a) => db.workload.invoicePreview.execute(a)
+		(db, a) => rowsOf(db.workload.invoicePreview.once({ params: a, facts: {} }))
 	),
 	read(
 		"refundable",
 		P.refundable,
 		(k, p) => ({ org: liveOr(ids(p.facts.Org), absentId, k) }),
-		(db, a) => db.workload.refundable.execute(a)
+		(db, a) => rowsOf(db.workload.refundable.once({ params: a, facts: {} }))
 	),
 	read(
 		"refundsByReason",
 		P.refundsByReason,
 		(k, p) => ({ org: liveOr(ids(p.facts.Org), absentId, k), window: windowOf(p, k) }),
-		(db, a) => db.workload.refundsByReason.execute(a)
+		(db, a) => rowsOf(db.workload.refundsByReason.once({ params: a, facts: {} }))
 	),
 	read(
 		"mostRefunded",
 		P.mostRefunded,
 		(k) => ({ k: 1 + (k % 3) }),
-		(db, a) => db.workload.mostRefunded.execute(a)
+		(db, a) => rowsOf(db.workload.mostRefunded.once({ params: a, facts: {} }))
 	),
 	read(
 		"segmentsAt",
@@ -379,13 +380,13 @@ const reads: ReadonlyArray<ReadCase> = [
 			subscription: liveOr(ids(p.facts.Subscription), absentId, k),
 			now: unit(pickFrom(instantsOf(p), k))
 		}),
-		(db, a) => db.workload.segmentsAt.execute(a)
+		(db, a) => rowsOf(db.workload.segmentsAt.once({ params: a, facts: {} }))
 	),
 	read(
 		"prorationFor",
 		P.prorationFor,
 		(k, p) => ({ invoice: liveOr(ids(p.facts.Invoice), absentId, k) }),
-		(db, a) => db.workload.prorationFor.execute(a)
+		(db, a) => rowsOf(db.workload.prorationFor.once({ params: a, facts: {} }))
 	),
 	read(
 		"mrrAt",
@@ -394,19 +395,19 @@ const reads: ReadonlyArray<ReadCase> = [
 			org: liveOr(ids(p.facts.Org), absentId, k),
 			now: unit(pickFrom(instantsOf(p), k))
 		}),
-		(db, a) => db.workload.mrrAt.execute(a)
+		(db, a) => rowsOf(db.workload.mrrAt.once({ params: a, facts: {} }))
 	),
 	read(
 		"recognizedIn",
 		P.recognizedIn,
 		(k, p) => ({ org: liveOr(ids(p.facts.Org), absentId, k), month: monthOf(p, k) }),
-		(db, a) => db.workload.recognizedIn.execute(a)
+		(db, a) => rowsOf(db.workload.recognizedIn.once({ params: a, facts: {} }))
 	),
 	read(
 		"allocationBreakdown",
 		P.allocationBreakdown,
 		(k, p) => ({ invoice: liveOr(ids(p.facts.Invoice), absentId, k) }),
-		(db, a) => db.workload.allocationBreakdown.execute(a)
+		(db, a) => rowsOf(db.workload.allocationBreakdown.once({ params: a, facts: {} }))
 	)
 ]
 
@@ -715,7 +716,10 @@ layer(Substrate.layer)(
 								yield* platform.withDb((db) =>
 									Effect.gen(function* () {
 										yield* untilAnswered(applyFacts(db, p.facts), refused)
-										yield* untilAnswered(db.workload.refreshDailySpend.refresh, refused)
+										yield* untilAnswered(
+											db.workload.refreshDailySpend.once({ params: {}, facts: {} }),
+											refused
+										)
 										const facts = hostFacts(p.facts, dailySpendRows(p.facts))
 										for (const [i, r] of reads.entries()) {
 											const { params, execute } = r.at(p, picks[i] ?? 0)
@@ -757,12 +761,12 @@ layer(Substrate.layer)(
 											}
 										]
 										for (const at of asked) {
-											const got = yield* untilAnswered(db.workload.workspaceMonth.get(at), refused)
+											const got = yield* untilAnswered(
+												oneOf(db.workload.workspaceMonth.once({ params: at, facts: {} })),
+												refused
+											)
 											const executed = yield* untilAnswered(
-												Effect.flatMap(
-													db.workload.workspaceMonth.execute(at),
-													(result) => result.collect
-												),
+												rowsOf(db.workload.workspaceMonth.once({ params: at, facts: {} })),
 												refused
 											)
 											assert.deepEqual(
@@ -778,10 +782,7 @@ layer(Substrate.layer)(
 										const size = 1 + (getPick % 3)
 										for (const org of ids(p.facts.Org).slice(0, 2)) {
 											const all = yield* untilAnswered(
-												Effect.flatMap(
-													db.workload.invoices.execute({ org }),
-													(result) => result.collect
-												),
+												rowsOf(db.workload.invoices.once({ params: { org }, facts: {} })),
 												refused
 											)
 											const paged = yield* pagedInvoices(db, org, size, refused)

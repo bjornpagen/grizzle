@@ -59,6 +59,7 @@ import { str } from "#compiler/public/text.ts"
 import type { Predicate, Term } from "#compiler/types/core/phantom.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert } from "#test/support/assert.ts"
+import { answered, rowsOf } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { refusedLaws } from "#test/support/refused.ts"
@@ -629,7 +630,7 @@ const verdict = (
 	if (lawful) {
 		return assert.equal(outcome.kind, "accepted", `${where} is lawful`)
 	}
-	if (outcome.kind !== "invariant-rejected") {
+	if (outcome.kind !== "refused") {
 		return assert.fail(`${where} is unlawful, so refused, not ${outcome.kind}`)
 	}
 	assert.ok(
@@ -721,19 +722,34 @@ const rewriteCase = (drawnCase: RewriteCase, notes: Case<Feature>) =>
 			const selected: Array<number> = []
 			for (const [id, item] of c.items.entries()) {
 				const checked = yield* Effect.result(
-					db.workload.insertChecked.apply({ insert: { Checked: [fact(item, id)] } }, {})
+					answered(
+						db.workload.insertChecked.once({
+							params: {},
+							facts: { insert: { Checked: [fact(item, id)] } }
+						})
+					)
 				)
 				verdict(checked, "Checked", truth(c, item, c.checked) === "true", where("Checked", id))
 				met("a check", c.checked, item)
 				const gen = yield* Effect.result(
-					db.workload.insertGenCond.apply({ insert: { GenCond: [fact(item, id)] } }, {})
+					answered(
+						db.workload.insertGenCond.once({
+							params: {},
+							facts: { insert: { GenCond: [fact(item, id)] } }
+						})
+					)
 				)
 				verdict(gen, "GenCond", true, where("GenCond", id))
 				conds.push(`${id} ${truth(c, item, c.generated) === "true" ? item.n : item.m}`)
 				met("a generated field", c.generated, item)
 				const inside = c.allowed[item.kind] === true
 				const containedRow = yield* Effect.result(
-					db.workload.insertContained.apply({ insert: { Contained: [fact(item, id)] } }, {})
+					answered(
+						db.workload.insertContained.once({
+							params: {},
+							facts: { insert: { Contained: [fact(item, id)] } }
+						})
+					)
 				)
 				verdict(
 					containedRow,
@@ -745,7 +761,12 @@ const rewriteCase = (drawnCase: RewriteCase, notes: Case<Feature>) =>
 				const k = truth(c, item, c.keyed)
 				const taken = k === "true" && selected.includes(item.n)
 				const keyed = yield* Effect.result(
-					db.workload.insertKeyed.apply({ insert: { Keyed: [fact(item, id)] } }, {})
+					answered(
+						db.workload.insertKeyed.once({
+							params: {},
+							facts: { insert: { Keyed: [fact(item, id)] } }
+						})
+					)
 				)
 				verdict(keyed, "Keyed", !taken, where("Keyed", id))
 				if (k === "true" && !taken) {
@@ -753,12 +774,17 @@ const rewriteCase = (drawnCase: RewriteCase, notes: Case<Feature>) =>
 				}
 				met("a key's selection", c.keyed, item)
 				const queried = yield* Effect.result(
-					db.workload.insertQueried.apply({ insert: { Queried: [fact(item, id)] } }, {})
+					answered(
+						db.workload.insertQueried.once({
+							params: {},
+							facts: { insert: { Queried: [fact(item, id)] } }
+						})
+					)
 				)
 				verdict(queried, "Queried", true, where("Queried", id))
 				met("a query's filter", c.queried, item)
 			}
-			const rows = yield* (yield* db.workload.filtered.execute({})).collect
+			const rows = yield* rowsOf(db.workload.filtered.once({ params: {}, facts: {} }))
 			return { conds, ids: Arr.map(rows, (row) => row.id) }
 		}).pipe(Effect.scoped, withLayer(o.served.layer))
 		assert.deepEqual(

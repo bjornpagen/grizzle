@@ -13,6 +13,7 @@ import { closed, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, defined, unorderedEqual } from "#test/support/assert.ts"
+import { rowsOf } from "#test/support/calls.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -126,12 +127,12 @@ layer(Substrate.layer, { excludeTestServices: true })("a schema of closed relati
 						)
 						yield* Effect.gen(function* () {
 							const db = yield* Db.open(opened.served.login.roles.app, {})
-							const all = yield* (yield* db.workload.tiers.execute({})).collect
+							const all = yield* rowsOf(db.workload.tiers.once({ params: {}, facts: {} }))
 							unorderedEqual(
 								Arr.map(all, (row) => row.id),
 								[...c.tiers]
 							)
-							const rs = yield* (yield* db.workload.regions.execute({})).collect
+							const rs = yield* rowsOf(db.workload.regions.once({ params: {}, facts: {} }))
 							unorderedEqual(
 								Arr.map(rs, (row) => row.id),
 								[...c.regions]

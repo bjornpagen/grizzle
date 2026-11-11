@@ -66,6 +66,7 @@ import {
 	workspace
 } from "#test/pg/cli/support.ts"
 import { assert } from "#test/support/assert.ts"
+import { answered, oneOf } from "#test/support/calls.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { clusterConnection, clusterPool, freshDatabase } from "#test/support/pg.ts"
 import { uniqueSchemaName } from "#test/support/substrate/names.ts"
@@ -217,9 +218,11 @@ const spaceCase = (s: Spaces, c: Case<SpaceFeature>) =>
 				Effect.flatMap(layerOver(i, i.database), (l) =>
 					Effect.scoped(
 						Effect.flatMap(Db.open(served.roles.writer, {}), (db) =>
-							db.workload.addCustomer.apply(
-								{ insert: { Customer: [{ id: idOf(n), name: "ada" }] } },
-								{}
+							answered(
+								db.workload.addCustomer.once({
+									params: {},
+									facts: { insert: { Customer: [{ id: idOf(n), name: "ada" }] } }
+								})
 							)
 						)
 					).pipe(withLayer(l))
@@ -228,7 +231,7 @@ const spaceCase = (s: Spaces, c: Case<SpaceFeature>) =>
 				Effect.flatMap(layerOver(i, over), (l) =>
 					Effect.scoped(
 						Effect.flatMap(Db.open(served.roles.reader, {}), (db) =>
-							db.workload.customer.get({ id: idOf(n) })
+							oneOf(db.workload.customer.once({ params: { id: idOf(n) }, facts: {} }))
 						)
 					).pipe(withLayer(l))
 				)

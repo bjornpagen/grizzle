@@ -27,6 +27,7 @@ import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, bareRecord, nonEmpty, unorderedEqual } from "#test/support/assert.ts"
+import { rowsOf } from "#test/support/calls.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
@@ -158,20 +159,24 @@ layer(Substrate.layer)(
 											ReadError
 										> = k.via === "relation"
 											? yield* Effect.result(
-													Effect.flatMap(
-														db.workload.echoed.execute({
-															rows: Arr.map(rows, (b, n) => ({ slug: b.slug, code: b.code, n }))
-														}),
-														(result) => result.collect
+													rowsOf(
+														db.workload.echoed.once({
+															params: {
+																rows: Arr.map(rows, (b, n) => ({ slug: b.slug, code: b.code, n }))
+															},
+															facts: {}
+														})
 													)
 												)
 											: yield* Effect.result(
-													Effect.flatMap(
-														db.workload.tagged.execute({
-															slug: Arr.headNonEmpty(nonEmpty(rows, "a bound row")).slug,
-															code: Arr.headNonEmpty(nonEmpty(rows, "a bound row")).code
-														}),
-														(result) => result.collect
+													rowsOf(
+														db.workload.tagged.once({
+															params: {
+																slug: Arr.headNonEmpty(nonEmpty(rows, "a bound row")).slug,
+																code: Arr.headNonEmpty(nonEmpty(rows, "a bound row")).code
+															},
+															facts: {}
+														})
 													)
 												)
 										if (!inside) {

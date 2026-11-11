@@ -31,6 +31,7 @@ import type { Law } from "#compiler/types/changeset/changeset.ts"
 import { cleared, seatOfInstalled } from "#test/pg/fin/installed.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { nonEmpty } from "#test/support/assert.ts"
+import { answered } from "#test/support/calls.ts"
 import { installMigrated } from "#test/support/install-migrate.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { refusedLaws } from "#test/support/refused.ts"
@@ -485,9 +486,11 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								Effect.gen(function* () {
 									yield* cleared(seat, RELATIONS)
 									const rows = rowsOf(sketch)
-									const outcome = yield* db.workload.insertAll.apply({ insert: rows }, {})
+									const outcome = yield* answered(
+										db.workload.insertAll.once({ params: {}, facts: { insert: rows } })
+									)
 									const breaks = brokenOf(sketch)
-									if (outcome.kind === "accepted" || outcome.kind === "no-change") {
+									if (outcome.kind === "accepted" || outcome.kind === "unchanged") {
 										if (breaks.length > 0) {
 											return yield* new Disagreed({
 												message: `accepted a state breaking ${Arr.join(breaks, ", ")}: ${Formatter.format(sketch)}`
@@ -507,13 +510,11 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										return
 									}
 									const named =
-										outcome.kind === "invariant-rejected"
-											? Arr.map(refusedLaws(outcome.refused), ruleOf)
-											: []
+										outcome.kind === "refused" ? Arr.map(refusedLaws(outcome.refused), ruleOf) : []
 									const broke = (r: Rule | undefined): r is Rule =>
 										r !== undefined && breaks.includes(r)
 									if (
-										outcome.kind !== "invariant-rejected" ||
+										outcome.kind !== "refused" ||
 										outcome.witness.kind !== "unreported" ||
 										!(outcome.refused.kind === "some"
 											? Arr.some(named, broke)

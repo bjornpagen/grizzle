@@ -3,12 +3,10 @@ import { element, type Gen, int } from "@grizzle/testing/gen"
 import { floorSeed, rotatingSeed } from "@grizzle/testing/random"
 import { sample, type Source } from "@grizzle/testing/source"
 import { Array as Arr, Effect, Record as Rec, String as Str } from "effect"
-import { requireGet } from "#compiler/analysis/logical/get.ts"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import type { RecursionRefusal } from "#compiler/core/causes.ts"
 import { headingsOf } from "#compiler/core/decoder.ts"
 import type { CompileReason, CompileReasonTag } from "#compiler/core/errors.ts"
-import { SourceLoc } from "#compiler/core/loc.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
 import * as Result from "#compiler/core/result.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
@@ -459,9 +457,8 @@ const builtRecursion = (spec: RecursionSpec): QueryValue =>
 		rec: Arr.map(spec.rec, (arm) => (r: RuleValue, self: unknown) => builtArm(arm, r, self))
 	})
 
-/** What the engine proves of a recursion it compiles: whether get may read it, its records and its parameters. */
+/** What the engine proves of a recursion it compiles: its records and its parameters. */
 interface Proved {
-	readonly get: boolean
 	readonly head: string
 	readonly params: string
 }
@@ -480,12 +477,10 @@ const verdictOf = (spec: RecursionSpec): Verdict => {
 		}
 		return { kind: "refused", key: reasonKey(error.reason), message: messageOf(error) }
 	}
-	const root = defined(template.value.analyzed.roots[0], "the compiled recursion's root")
 	const q = built.value
 	return {
 		kind: "admitted",
 		proved: {
-			get: requireGet(root, SourceLoc("agreement", [])).ok,
 			head: recordType(
 				groupFields(
 					defined(headingsOf(q.rows)[0], "a recursion's one heading group"),
@@ -551,9 +546,6 @@ const caseGen: Gen<RecursionCase> = (source) => {
 const indentOf = (line: string): string =>
 	Str.slice(0, line.length - Str.trimStart(line).length)(line)
 
-/** The refusal a workload handle's get names for a query the engine does not prove at most one row per binding. */
-const getRefusal: Refused = "get needs a query proved at most one row per parameter binding"
-
 /** One case's statements: the recursion, under its fault's directive at its site, or its verdict asserted. */
 const blockOf = (c: RecursionCase, i: number): ReadonlyArray<string> => {
 	const lines = linesOf(c.spec, i)
@@ -579,7 +571,7 @@ const blockOf = (c: RecursionCase, i: number): ReadonlyArray<string> => {
 			""
 		]
 	}
-	const { get, head, params } = c.verdict.proved
+	const { head, params } = c.verdict.proved
 	return [
 		...Arr.map(lines, (l) => l.text),
 		`export type h${i} = Expect<Equals<HeadOf<typeof q${i}>, ${head}>>`,
@@ -587,9 +579,8 @@ const blockOf = (c: RecursionCase, i: number): ReadonlyArray<string> => {
 			? `export type p${i} = Expect<Equals<keyof ParamsOf<typeof q${i}>, never>>`
 			: `export type p${i} = Expect<Equals<ParamsOf<typeof q${i}>, ${params}>>`,
 		`export type e${i} = Expect<Equals<EvidenceOfQuery<typeof q${i}>, Evidence.Unknown>>`,
-		`export const g${i} = (h: WorkloadHandles<typeof Reader, { readonly m: typeof q${i} }>["m"]) => (args: GetArg<typeof q${i}>) =>`,
-		...(get ? [] : [`\t// @ts-expect-error -- refusal: ${getRefusal}`]),
-		`\th.get(args)`,
+		`export const g${i} = (h: WorkloadHandles<typeof Reader, { readonly m: typeof q${i} }>["m"]) => (input: InputOf<typeof q${i}>) =>`,
+		`\th.once(input)`,
 		""
 	]
 }

@@ -15,6 +15,7 @@ import { context, key, login, on, relation, role, schema, select } from "#compil
 import { str } from "#compiler/public/text.ts"
 import { workload } from "#compiler/public/workload.ts"
 import { assert, defined } from "#test/support/assert.ts"
+import { answered } from "#test/support/calls.ts"
 import { migrated, noObservation } from "#test/support/installed.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -328,7 +329,12 @@ layer(Substrate.layer)("a query entry's write meets every unique object of its t
 											[]
 										)
 										const applied = yield* Effect.result(
-											db.workload.insertSeat.apply({ insert: { MySeat: [c.submitted] } }, {})
+											answered(
+												db.workload.insertSeat.once({
+													params: {},
+													facts: { insert: { MySeat: [c.submitted] } }
+												})
+											)
 										)
 										if (Result.isFailure(applied)) {
 											return assert.fail(
@@ -352,7 +358,7 @@ layer(Substrate.layer)("a query entry's write meets every unique object of its t
 										const repeat = Option.exists(c.inside, (s) => same(s, c.submitted))
 										if (met.length === 0) {
 											cx.note(repeat ? "an exact repeat" : "accepted")
-											assert.equal(outcome.kind, repeat ? "no-change" : "accepted", "the outcome")
+											assert.equal(outcome.kind, repeat ? "unchanged" : "accepted", "the outcome")
 											const { id, code, grp, lead, team } = c.submitted
 											assert.deepEqual(
 												after,
@@ -368,7 +374,7 @@ layer(Substrate.layer)("a query entry's write meets every unique object of its t
 											)
 											return
 										}
-										if (outcome.kind !== "invariant-rejected") {
+										if (outcome.kind !== "refused") {
 											return assert.fail(
 												`ann's insert of ${Formatter.format(c.submitted)} met ${Arr.join(
 													Arr.map(met, (o) => o.name),

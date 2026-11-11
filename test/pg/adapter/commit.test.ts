@@ -34,6 +34,7 @@ import { ChangeSet } from "#compiler/public/changeset.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert } from "#test/support/assert.ts"
+import { answered } from "#test/support/calls.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { t1, t3, workFacts } from "#test/support/fixtures/golden/work.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
@@ -154,7 +155,9 @@ layer(Substrate.layer, { excludeTestServices: true })(
 											label: "concurrent"
 										})
 										const applying = yield* Effect.forkChild(
-											db.workload.copy.apply({ source: t1, target: t3 })
+											answered(
+												db.workload.copy.once({ params: { source: t1, target: t3 }, facts: {} })
+											)
 										)
 										/**
 										 * The apply read t1's note and wrote t3's, and its COMMIT waits on the deferred reference's
@@ -228,7 +231,9 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										}
 										const refusedNote = yield* noteOf(t3)
 										assert.deepEqual(refusedNote, [])
-										const again = yield* db.workload.copy.apply({ source: t1, target: t3 })
+										const again = yield* answered(
+											db.workload.copy.once({ params: { source: t1, target: t3 }, facts: {} })
+										)
 										assert.equal(again.kind, "accepted")
 										const retriedNote = yield* noteOf(t3)
 										assert.deepEqual(retriedNote, [read])

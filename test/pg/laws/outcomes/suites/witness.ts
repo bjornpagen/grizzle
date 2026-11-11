@@ -40,6 +40,7 @@ import { caseHang } from "#test/support/limits.ts"
 import { refusedLaws } from "#test/support/refused.ts"
 const member = (n: number): Uuid =>
 	`00000000-0000-4000-8000-${pipe((0x6000 + n).toString(16), Str.padStart(12, "0"))}`
+import { answered } from "#test/support/calls.ts"
 
 /** One lawful club with two members, the first its captain. */
 const clubFacts = {
@@ -348,7 +349,12 @@ export const witnessSuite = (): void => {
 															values: { region: "North", number: 1n, code: "alpha" }
 														}
 											),
-											applied: db.workload.insertMember.apply({ insert: { Member: [fact] } }, {})
+											applied: answered(
+												db.workload.insertMember.once({
+													params: {},
+													facts: { insert: { Member: [fact] } }
+												})
+											)
 										}
 									}
 									case "a selected side's UNIQUE within one input": {
@@ -378,17 +384,19 @@ export const witnessSuite = (): void => {
 												relation: "Member",
 												values: { region: k.club.region, number: k.club.number, code: k.club.code }
 											}),
-											applied: db.workload.insertClubMembers.apply(
-												{
-													insert: {
-														Club: [{ ...k.club, seats: Seats(10) }],
-														Member: [
-															captainOf(k.ids[0], k.emails[0]),
-															captainOf(k.ids[1], k.emails[1])
-														]
+											applied: answered(
+												db.workload.insertClubMembers.once({
+													params: {},
+													facts: {
+														insert: {
+															Club: [{ ...k.club, seats: Seats(10) }],
+															Member: [
+																captainOf(k.ids[0], k.emails[0]),
+																captainOf(k.ids[1], k.emails[1])
+															]
+														}
 													}
-												},
-												{}
+												})
 											)
 										}
 									}
@@ -413,7 +421,12 @@ export const witnessSuite = (): void => {
 												relation: "Member",
 												values: { id: k.id }
 											}),
-											applied: db.workload.insertMember.apply({ insert: { Member: [fact] } }, {})
+											applied: answered(
+												db.workload.insertMember.once({
+													params: {},
+													facts: { insert: { Member: [fact] } }
+												})
+											)
 										}
 									}
 									case "a table CHECK":
@@ -447,9 +460,11 @@ export const witnessSuite = (): void => {
 											 * Outside the contract or the refinement through the unchecked brand constructor, or a
 											 * code of this language read as any string: only PostgreSQL checks them.
 											 */
-											applied: db.workload.insertClub.apply(
-												{ insert: { Club: [{ ...k.club, seats: Seats(seatsValue) }] } },
-												{}
+											applied: answered(
+												db.workload.insertClub.once({
+													params: {},
+													facts: { insert: { Club: [{ ...k.club, seats: Seats(seatsValue) }] } }
+												})
 											)
 										}
 									}
@@ -507,7 +522,7 @@ export const witnessSuite = (): void => {
 										const applied = yield* Effect.result(p.applied)
 										assert.ok(Result.isSuccess(applied), k.kind)
 										const outcome = applied.success
-										assert.ok(outcome.kind === "invariant-rejected", `${k.kind}: ${outcome.kind}`)
+										assert.ok(outcome.kind === "refused", `${k.kind}: ${outcome.kind}`)
 										assert.equal(outcome.refused.kind, "every", k.kind)
 										assert.deepEqual(refusedLaws(outcome.refused), p.expected.laws, k.kind)
 										assert.deepEqual(outcome.witness, p.expected.witness, k.kind)

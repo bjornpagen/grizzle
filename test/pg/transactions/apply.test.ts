@@ -52,6 +52,7 @@ import {
 	throwsRefused,
 	unorderedEqual
 } from "#test/support/assert.ts"
+import { answered, writeOnce } from "#test/support/calls.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { t3, t4, tMissing, workFacts } from "#test/support/fixtures/golden/work.ts"
 import { installMigrated as install, loadMigrated as load } from "#test/support/install-migrate.ts"
@@ -148,7 +149,7 @@ const applyCase: Gen<ApplyCase> = (source) => {
 /** A change member of array members, applied with the call's facts. */
 const applied = (change: ServedOps<unknown>, facts: unknown) => {
 	assertVariant(change, "kind", "facts", "a change member of array members takes its call's facts")
-	return change.ops.apply(facts, {})
+	return answered(writeOnce(change)({ params: {}, facts: facts }))
 }
 
 /** A change member of no array member, applied with `params`. */
@@ -159,7 +160,7 @@ const appliedWith = (change: ServedOps<unknown>, params: ParamMap) => {
 		"program",
 		"a change member of no array member takes its parameters alone"
 	)
-	return change.ops.apply(params)
+	return answered(writeOnce(change)({ params: params, facts: {} }))
 }
 
 layer(Substrate.layer)("a change member's apply", (it) => {
@@ -296,7 +297,7 @@ layer(Substrate.layer)("a change member's apply", (it) => {
 											switch (change) {
 												case "empty": {
 													const outcome = yield* appliedWith(run("empty"), {})
-													assert.ok(outcome.kind === "no-change", outcome.kind)
+													assert.ok(outcome.kind === "unchanged", outcome.kind)
 													assert.deepEqual(outcome.reads, bareRecord({}))
 													const after = yield* state
 													unorderedEqual(after.notes, before.notes)

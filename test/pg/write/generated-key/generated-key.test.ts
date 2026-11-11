@@ -83,6 +83,7 @@ import type { ParamMap } from "#compiler/types/core/phantom.ts"
 import { changeSetOver } from "#compiler/write/changeset/value.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, defined } from "#test/support/assert.ts"
+import { answered, rowsOf, writeOnce } from "#test/support/calls.ts"
 import { migrated, noObservation } from "#test/support/installed.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import {
@@ -754,7 +755,7 @@ type Feature =
 	| "a typed key freed and taken again"
 	| "a key broken by deletions and additions alike"
 	| "accepted"
-	| "no-change"
+	| "unchanged"
 
 /** The situations a drawn case reaches rarely, each with a case aimed at it. */
 const aims: ReadonlyArray<readonly [Feature, Gen<Case>]> = [
@@ -849,7 +850,7 @@ const appliedNotes = (c: Case, after: HostState, changed: boolean): ReadonlyArra
 		)
 	)
 	return [
-		changed ? "accepted" : "no-change",
+		changed ? "accepted" : "unchanged",
 		...(signs ? (["two signs of zero held apart"] as const) : []),
 		...(retaken ? (["a typed key freed and taken again"] as const) : [])
 	]
@@ -1018,20 +1019,11 @@ layer(Substrate.layer)("keys over generated fields, against PostgreSQL 19", (it)
 							const texts = (row: ReadonlyArray<unknown>): ReadonlyArray<string> =>
 								Arr.map(row, (x) => String(x))
 							const readState = Effect.gen(function* () {
-								const mapKeys = yield* Effect.flatMap(
-									db.workload.mapKeys.execute({}),
-									(r) => r.collect
-								)
-								const uses = yield* Effect.flatMap(db.workload.uses.execute({}), (r) => r.collect)
-								const tags = yield* Effect.flatMap(db.workload.tags.execute({}), (r) => r.collect)
-								const mappings = yield* Effect.flatMap(
-									db.workload.mappings.execute({}),
-									(r) => r.collect
-								)
-								const entryRows = yield* Effect.flatMap(
-									db.workload.entries.execute({}),
-									(r) => r.collect
-								)
+								const mapKeys = yield* rowsOf(db.workload.mapKeys.once({ params: {}, facts: {} }))
+								const uses = yield* rowsOf(db.workload.uses.once({ params: {}, facts: {} }))
+								const tags = yield* rowsOf(db.workload.tags.once({ params: {}, facts: {} }))
+								const mappings = yield* rowsOf(db.workload.mappings.once({ params: {}, facts: {} }))
+								const entryRows = yield* rowsOf(db.workload.entries.once({ params: {}, facts: {} }))
 								const rows: ReadRows = Arr.map(
 									[
 										Arr.map(mapKeys, (k) => texts([k.mapping, k.text, k.value, k.negative])),
@@ -1265,7 +1257,7 @@ layer(Substrate.layer)("keys over generated fields, against PostgreSQL 19", (it)
 											"a typed key freed and taken again",
 											"a key broken by deletions and additions alike",
 											"accepted",
-											"no-change"
+											"unchanged"
 										],
 										{ cases: 120, sense: notesOnly }
 									),
@@ -1275,19 +1267,21 @@ layer(Substrate.layer)("keys over generated fields, against PostgreSQL 19", (it)
 									Effect.gen(function* () {
 										const k = aimedCase(drawnCase, c)
 										yield* replaceRows(s.admin, group, [])
-										const seeded = yield* db.workload.seed.apply(
-											{
-												insert: {
-													MapKey: k.stored.mapKeys,
-													Use: k.stored.uses,
-													Tag: k.stored.tags,
-													Mapping: Arr.map(k.stored.mappings, (m) => ({
-														id: m.id,
-														n: Arr.map(m.entries, (text) => ({ text }))
-													}))
+										const seeded = yield* answered(
+											db.workload.seed.once({
+												params: {},
+												facts: {
+													insert: {
+														MapKey: k.stored.mapKeys,
+														Use: k.stored.uses,
+														Tag: k.stored.tags,
+														Mapping: Arr.map(k.stored.mappings, (m) => ({
+															id: m.id,
+															n: Arr.map(m.entries, (text) => ({ text }))
+														}))
+													}
 												}
-											},
-											{}
+											})
 										)
 										const none =
 											k.stored.mapKeys.length +
@@ -1297,7 +1291,7 @@ layer(Substrate.layer)("keys over generated fields, against PostgreSQL 19", (it)
 											0
 										assert.equal(
 											seeded.kind,
-											none ? "no-change" : "accepted",
+											none ? "unchanged" : "accepted",
 											"the stored rows are lawful"
 										)
 										const before = storedState(k.stored)
@@ -1312,8 +1306,8 @@ layer(Substrate.layer)("keys over generated fields, against PostgreSQL 19", (it)
 										const ops = member(served, "stratum")
 										const applied = yield* Effect.result(
 											ops.kind === "facts"
-												? ops.ops.apply(stratum.facts, stratum.params)
-												: ops.ops.apply(stratum.params)
+												? answered(writeOnce(ops)({ params: stratum.params, facts: stratum.facts }))
+												: answered(writeOnce(ops)({ params: stratum.params, facts: {} }))
 										)
 										if (Result.isFailure(applied)) {
 											return assert.fail(
@@ -1324,7 +1318,7 @@ layer(Substrate.layer)("keys over generated fields, against PostgreSQL 19", (it)
 										const afterRows = yield* readState
 										const expected = expectedOf(host, before, opsOf(k.writes))
 										if (expected.kind === "refused") {
-											if (outcome.kind !== "invariant-rejected") {
+											if (outcome.kind !== "refused") {
 												return assert.fail(
 													`a write breaking ${Arr.join(
 														Arr.map(expected.violations, (v) => v.law),
@@ -1368,7 +1362,7 @@ layer(Substrate.layer)("keys over generated fields, against PostgreSQL 19", (it)
 										}
 										assert.equal(
 											outcome.kind,
-											expected.changed ? "accepted" : "no-change",
+											expected.changed ? "accepted" : "unchanged",
 											"accepted where the write changed a row"
 										)
 										assert.deepEqual(
@@ -1475,7 +1469,9 @@ layer(Substrate.layer)("keys over generated fields, against PostgreSQL 19", (it)
 											const ops = member(served, c.edit)
 											const facts = { [c.edit]: { Low: [sentOf(c)] } }
 											const applied = yield* Effect.result(
-												ops.kind === "facts" ? ops.ops.apply(facts, {}) : ops.ops.apply({})
+												ops.kind === "facts"
+													? answered(writeOnce(ops)({ params: {}, facts: facts }))
+													: answered(writeOnce(ops)({ params: {}, facts: {} }))
 											)
 											if (Result.isFailure(applied)) {
 												return assert.fail(
@@ -1488,8 +1484,8 @@ layer(Substrate.layer)("keys over generated fields, against PostgreSQL 19", (it)
 											switch (expected.kind) {
 												case "outsideOrPattern": {
 													assert.ok(
-														outcome.kind === "outside-world" ||
-															(outcome.kind === "invariant-rejected" &&
+														outcome.kind === "outsideWorld" ||
+															(outcome.kind === "refused" &&
 																Arr.every(
 																	refusedLaws(outcome.refused),
 																	(l) => l.kind === "pattern"
@@ -1501,13 +1497,13 @@ layer(Substrate.layer)("keys over generated fields, against PostgreSQL 19", (it)
 													return
 												}
 												case "outside": {
-													assert.equal(outcome.kind, "outside-world", "a label outside Low")
+													assert.equal(outcome.kind, "outsideWorld", "a label outside Low")
 													assert.deepEqual(after, before, "outside the world, nothing is written")
 													cx.note("outside Low")
 													return
 												}
 												case "pattern": {
-													if (outcome.kind !== "invariant-rejected") {
+													if (outcome.kind !== "refused") {
 														return assert.fail(`an unmatched text is refused, not ${outcome.kind}`)
 													}
 													assert.deepEqual(
@@ -1520,7 +1516,7 @@ layer(Substrate.layer)("keys over generated fields, against PostgreSQL 19", (it)
 													return
 												}
 												case "unchanged": {
-													assert.equal(outcome.kind, "no-change", "an exact repeat")
+													assert.equal(outcome.kind, "unchanged", "an exact repeat")
 													assert.deepEqual(after, before, "an exact repeat writes nothing")
 													cx.note("an exact repeat")
 													return
@@ -1542,7 +1538,7 @@ layer(Substrate.layer)("keys over generated fields, against PostgreSQL 19", (it)
 													return
 												}
 												case "refused": {
-													if (outcome.kind !== "invariant-rejected") {
+													if (outcome.kind !== "refused") {
 														return assert.fail(
 															`a label breaking ${Arr.join(expected.laws, ", ")} is refused, not ${outcome.kind}`
 														)

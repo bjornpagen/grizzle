@@ -31,6 +31,7 @@ import { paged } from "#compiler/public/workload.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { roleBackends } from "#test/pg/serverless/support.ts"
 import { assert } from "#test/support/assert.ts"
+import { answered, oneOf, rowsOf } from "#test/support/calls.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { a1, t1, t3, workFacts } from "#test/support/fixtures/golden/work.ts"
 import { caseHang, nodeTimerMin } from "#test/support/limits.ts"
@@ -140,20 +141,26 @@ layer(Substrate.layer)("a connection that can't be had", (it) => {
 										switch (call) {
 											case "execute":
 												return failureOf(
-													Effect.flatMap(
-														db.workload.automaticTasksFor.execute({ account: a1 }),
-														(r) => r.collect
+													rowsOf(
+														db.workload.automaticTasksFor.once({
+															params: { account: a1 },
+															facts: {}
+														})
 													)
 												)
 											case "get":
-												return failureOf(db.workload.task.get({ id: t1 }))
+												return failureOf(
+													oneOf(db.workload.task.once({ params: { id: t1 }, facts: {} }))
+												)
 											case "page":
 												return failureOf(db.workload.tasks.page({}, { first: 2 }))
 											case "apply":
 												return failureOf(
-													db.workload.note.apply(
-														{ insert: { TaskNote: [{ task: t3, note: "acquired" }] } },
-														{}
+													answered(
+														db.workload.note.once({
+															params: {},
+															facts: { insert: { TaskNote: [{ task: t3, note: "acquired" }] } }
+														})
 													)
 												)
 										}

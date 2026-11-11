@@ -36,6 +36,7 @@ import { query, v } from "#compiler/public/query.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert } from "#test/support/assert.ts"
+import { answered, rowsOf } from "#test/support/calls.ts"
 import { setText, wholeDigits } from "#test/support/closed/bit-text.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -212,25 +213,27 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									})
 									yield* Effect.gen(function* () {
 										const db = yield* Db.open(o.served.login.roles.app, {})
-										const outcome = yield* db.workload.write.apply(
-											{
-												insert: {
-													R: Arr.map(d.rows, (row, id) => ({
-														id,
-														k: handleOf(row.k),
-														a: Bits.of(S, Arr.map(row.a, handleOf)),
-														b: Bits.of(S, Arr.map(row.b, handleOf))
-													}))
+										const outcome = yield* answered(
+											db.workload.write.once({
+												params: {},
+												facts: {
+													insert: {
+														R: Arr.map(d.rows, (row, id) => ({
+															id,
+															k: handleOf(row.k),
+															a: Bits.of(S, Arr.map(row.a, handleOf)),
+															b: Bits.of(S, Arr.map(row.b, handleOf))
+														}))
+													}
 												}
-											},
-											{}
+											})
 										)
 										assert.equal(
 											outcome.kind,
 											"accepted",
 											`every computed set meets the domain: ${Formatter.format(d)}`
 										)
-										const read = yield* (yield* db.workload.sets.execute({})).collect
+										const read = yield* rowsOf(db.workload.sets.once({ params: {}, facts: {} }))
 										assert.deepEqual(
 											Arr.sort(
 												Arr.map(read, (row) => ({

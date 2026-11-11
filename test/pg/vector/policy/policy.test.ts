@@ -38,6 +38,7 @@ import {
 	vectorParam
 } from "#test/pg/vector/ann/support.ts"
 import { assert, nonEmpty } from "#test/support/assert.ts"
+import { rowsOf } from "#test/support/calls.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
@@ -131,10 +132,15 @@ layer(Substrate.layer)("the HNSW search policy as login defaults", (it) => {
 							([label, n], c) =>
 								Effect.gen(function* () {
 									const account = accountOf[label]
-									const rows = yield* (yield* db.workload.candidates.execute({
-										account,
-										vector: vectorParam(fx.probe(n))
-									})).collect
+									const rows = yield* (yield* rowsOf(
+										db.workload.candidates.once({
+											params: {
+												account,
+												vector: vectorParam(fx.probe(n))
+											},
+											facts: {}
+										})
+									)).collect
 									assert.equal(
 										rows.length,
 										Math.min(candidatesTake, eligible(account)),

@@ -51,6 +51,7 @@ import { key, login, on, relation, role, schema } from "#compiler/public/schema.
 import { workload } from "#compiler/public/workload.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { threeKeys, twoKeys } from "#test/schedules/write/support.ts"
+import { answered } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import type { SqlError } from "#test/support/pg.ts"
@@ -263,7 +264,7 @@ const runRace = (
 		const app = yield* rig.servedWriter(
 			"app",
 			(context) => openServed(rig.served.roles.app, {}).pipe(Effect.provideContext(context)),
-			(db) => db.workload.noop.apply({})
+			(db) => answered(db.workload.noop.once({ params: {}, facts: {} }))
 		)
 		const direct = yield* openActors(s, {
 			direct: { kind: "raw", as: rig.direct },
@@ -291,8 +292,18 @@ const runRace = (
 			label: `apply ${race.how}`,
 			call:
 				race.how === "insert"
-					? app.db.workload.insertBooking.apply({ insert: { Booking: [race.requested] } }, {})
-					: app.db.workload.putBooking.apply({ put: { Booking: [race.requested] } }, {}),
+					? answered(
+							app.db.workload.insertBooking.once({
+								params: {},
+								facts: { insert: { Booking: [race.requested] } }
+							})
+						)
+					: answered(
+							app.db.workload.putBooking.once({
+								params: {},
+								facts: { put: { Booking: [race.requested] } }
+							})
+						),
 			footprint: everyRelation
 		}
 		yield* runSerialRace(

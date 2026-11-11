@@ -31,6 +31,7 @@ import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { unorderedEqual } from "#test/support/assert.ts"
+import { readOnce } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { member, withServedDb } from "#test/support/served-db.ts"
@@ -202,11 +203,14 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									Effect.gen(function* () {
 										const served = yield* serve({ top, ...imports })
 										for (const [i, b] of bindings.entries()) {
-											const direct = yield* (yield* member(served, "top").ops.execute({ ...b }))
-												.collect
-											const viaImport = yield* (yield* member(served, `imported${i}`).ops.execute(
-												{}
-											)).collect
+											const direct = yield* (yield* readOnce(member(served, "top"))({
+												params: { ...b },
+												facts: {}
+											})).collect
+											const viaImport = yield* readOnce(member(served, `imported${i}`))({
+												params: {},
+												facts: {}
+											})
 											unorderedEqual(
 												viaImport,
 												direct,

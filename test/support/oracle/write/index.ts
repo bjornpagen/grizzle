@@ -161,7 +161,6 @@ export const writeSituations = [
 	"stream member",
 	"parameters bound",
 	"parameters bound as streams",
-	"through compile",
 	"described member wider than its field",
 	"a deletion described wider than its field",
 	"outcome outside a domain",
@@ -334,7 +333,6 @@ const keptRuns: ReadonlyArray<
 			"deferred containment",
 			"stream member",
 			"parameters bound as streams",
-			"through compile",
 			"sequential stratum of several writes",
 			"flight logged",
 			"facts reordered on a second reading",
@@ -343,7 +341,6 @@ const keptRuns: ReadonlyArray<
 			"outcome no-change",
 			"delete array",
 			"parameters passed",
-			"through apply",
 			"insert array",
 			"two members of one relation in one stratum",
 			"immediate containment",
@@ -366,7 +363,6 @@ const keptRuns: ReadonlyArray<
 			"delete array",
 			"two members of one relation in one stratum",
 			"parameters passed",
-			"through apply",
 			"outcome refused at bind"
 		]
 	),

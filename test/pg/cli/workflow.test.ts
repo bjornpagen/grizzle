@@ -115,6 +115,7 @@ import {
 } from "#test/pg/cli/support.ts"
 import { openMigrator } from "#test/pg/migrate/support.ts"
 import { assert, defined, lacksText, succeeded } from "#test/support/assert.ts"
+import { oneOf } from "#test/support/calls.ts"
 import type { InitializedClusterShape } from "#test/support/cluster.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { readLedger } from "#test/support/migrate/ledger.ts"
@@ -750,7 +751,7 @@ const runOpen = (r: Workspace, model: Model) =>
 				? withLayer(
 						Effect.scoped(
 							Effect.flatMap(Db.open(servedV2.roles.reader, {}), (db) =>
-								db.workload.customer.get({ id: id(1) })
+								oneOf(db.workload.customer.once({ params: { id: id(1) }, facts: {} }))
 							)
 						),
 						DbLayer.make({ ...connection, login: servedV2 })
@@ -758,7 +759,7 @@ const runOpen = (r: Workspace, model: Model) =>
 				: withLayer(
 						Effect.scoped(
 							Effect.flatMap(Db.open(servedV1.roles.reader, {}), (db) =>
-								db.workload.customer.get({ id: id(1) })
+								oneOf(db.workload.customer.once({ params: { id: id(1) }, facts: {} }))
 							)
 						),
 						DbLayer.make({ ...connection, login: servedV1 })

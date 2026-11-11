@@ -7,7 +7,6 @@ import {
 	type MemberFacts,
 	memberSlots
 } from "#compiler/plan/change.ts"
-import type { ParamMap } from "#compiler/plan/common.ts"
 
 /**
  * Each member slot the compiled ChangeSet reads with the ChangeSet value's input for it, in slot order. The program was
@@ -45,7 +44,7 @@ export const collectInputs = (
 
 /** The call of a ChangeSet value compiled in process (run.ts HostCall): the caller's parameters, the value's bound
  * values, and its members' facts, a Stream member's collected whole (`collectInputs`). */
-export const changeCall = (compiled: CompiledChange, params: ParamMap): Effect.Effect<HostCall> =>
+export const changeCall = (compiled: CompiledChange, params: unknown): Effect.Effect<HostCall> =>
 	Effect.map(
 		collectInputs(compiled.program.flight.binding.groups, compiled.change.inputs),
 		(members): HostCall => ({ params, bound: compiled.change.values, members })

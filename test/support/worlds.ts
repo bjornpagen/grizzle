@@ -1,8 +1,5 @@
-import { Array as Arr, Effect, type Layer, Record as Rec, type Scope } from "effect"
-import type { OpenError } from "#adapter/errors/execution.ts"
+import { Array as Arr, Effect, Record as Rec, type Scope } from "effect"
 import { TokenError } from "#adapter/errors/failures.ts"
-import { compiledDbLayer } from "#adapter/pool/registry.ts"
-import type { DbLayerOf } from "#adapter/types/layer.ts"
 import { base64urlDecode, base64urlEncode } from "#compiler/codec/cursor/base64url.ts"
 import type { Json } from "#compiler/core/canonical.ts"
 import { jsonText, trusted, trustedJson } from "#compiler/core/trusted.ts"
@@ -18,11 +15,9 @@ import {
 	role
 } from "#compiler/public/schema.ts"
 import { login } from "#compiler/schema/world.ts"
-import type { AnyLogin, EntryContexts, RoleRelations } from "#compiler/types/schema/world.ts"
-import type { Installed } from "#test/support/install-migrate.ts"
+import type { EntryContexts, RoleRelations } from "#compiler/types/schema/world.ts"
 import { soleWorldOf } from "#test/support/kernel/naming.ts"
-import { clusterConnection, clusterPool, type SqlError } from "#test/support/pg.ts"
-import { snapshotValue } from "#test/support/snapshot-json.ts"
+import type { SqlError } from "#test/support/pg.ts"
 import type { SubstrateWorld } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -137,29 +132,6 @@ export const testVerify = (token: string): Effect.Effect<unknown, TokenError> =>
 				catch: (cause) => new TokenError({ cause })
 			})
 }
-
-/**
- * The DbLayer of `login` over `installed`, in `database`: the snapshot its migrations reached, the cluster's connection
- * with the login's password (test/support/pg.ts clusterConnection), the test pool, and testVerify.
- */
-const loginLayerIn = <L extends AnyLogin>(
-	database: string,
-	installed: Installed,
-	account: L
-): Layer.Layer<DbLayerOf<L>, OpenError> =>
-	compiledDbLayer({
-		...clusterConnection(installed.cluster, database, installed.as(account).password),
-		pool: clusterPool,
-		login: account,
-		snapshot: snapshotValue(installed.snapshot, installed.installation),
-		verify: testVerify
-	})
-
-/** The DbLayer of `login` over `installed`, in the database it was migrated in. */
-export const loginLayer = <L extends AnyLogin>(
-	installed: Installed,
-	account: L
-): Layer.Layer<DbLayerOf<L>, OpenError> => loginLayerIn(installed.database, installed, account)
 
 /**
  * The one world of an installation compiled with oracleOwnedLogin (oracle/install/real.ts), as a direct SQL writer

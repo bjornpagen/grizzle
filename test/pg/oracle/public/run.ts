@@ -74,6 +74,7 @@ import {
 import { storedInput } from "#test/support/oracle/runner.ts"
 
 import { scalarReader } from "#compiler/codec/read.ts"
+import { answered, writeOnce } from "#test/support/calls.ts"
 import {
 	type BuiltSchema,
 	buildMixed,
@@ -938,7 +939,7 @@ const readBackAnswer = (
 			return Result.fail(ended(exit.cause))
 		}
 		const outcome = exit.value
-		if (outcome.kind !== "accepted" && outcome.kind !== "no-change") {
+		if (outcome.kind !== "accepted" && outcome.kind !== "unchanged") {
 			return Result.fail(`the read-back's apply was ${outcome.kind}`)
 		}
 		const rows = isRecord(outcome.reads) ? outcome.reads[readBackName] : undefined
@@ -1742,13 +1743,13 @@ export const runCase = (
 						back: (name) => {
 							const back = served(name)
 							return back.kind === "program"
-								? back.ops.apply({})
+								? answered(writeOnce(back)({ params: {}, facts: {} }))
 								: Effect.die(new Error(`the read-back member ${name} takes facts`))
 						},
 						store: (name, facts) => {
 							const stored = served(name)
 							return stored.kind === "facts"
-								? stored.ops.apply(facts, {})
+								? answered(writeOnce(stored)({ params: {}, facts: facts }))
 								: Effect.die(new Error(`the store member ${name} takes no facts`))
 						}
 					}

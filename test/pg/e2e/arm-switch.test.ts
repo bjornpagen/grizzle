@@ -41,6 +41,7 @@ import { alternatives } from "#compiler/public/schema.ts"
 import { quoteString } from "#compiler/sql/print.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, bareRecord, unorderedEqual } from "#test/support/assert.ts"
+import { answered } from "#test/support/calls.ts"
 import { Cents } from "#test/support/fixtures/api/contracts.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { a1, t1, t2, t4, t7, tMissing, workFacts } from "#test/support/fixtures/golden/work.ts"
@@ -153,7 +154,7 @@ const switches: Gen<Switch> = (source) => {
 	return { task, form, budget, operator }
 }
 
-type SwitchFeature = `${Form} ${TaskKind} ${"accepted" | "no-change" | "rejected"}`
+type SwitchFeature = `${Form} ${TaskKind} ${"accepted" | "unchanged" | "rejected"}`
 
 /** The stored facts of one task: its Task fact and its arm, as workFacts holds them. */
 const taskFact = (id: string) => Arr.findFirst(workFacts.Task, (t) => t.id === id)
@@ -286,17 +287,24 @@ layer(Substrate.layer, { excludeTestServices: true })(
 											onSome: (held) => (w.budget === "stored" ? held.budget : held.budget + 100n)
 										})
 										const outcome = yield* w.form === "enumerated"
-											? db.workload.enumerated.apply(
-													{
-														put: { Task: [{ id: w.task, account, kind: "Manual" }] },
-														delete: {
-															AutomaticTask: [{ task: w.task, budget: Cents(previousBudget) }]
-														},
-														insert: { ManualTask: [{ task: w.task, operator: w.operator }] }
-													},
-													{}
+											? answered(
+													db.workload.enumerated.once({
+														params: {},
+														facts: {
+															put: { Task: [{ id: w.task, account, kind: "Manual" }] },
+															delete: {
+																AutomaticTask: [{ task: w.task, budget: Cents(previousBudget) }]
+															},
+															insert: { ManualTask: [{ task: w.task, operator: w.operator }] }
+														}
+													})
 												)
-											: db.workload.described.apply({ task: w.task, operator: w.operator })
+											: answered(
+													db.workload.described.once({
+														params: { task: w.task, operator: w.operator },
+														facts: {}
+													})
+												)
 										const after = yield* state
 										/** The facts with the switched task's rows replaced. */
 										const switched = {
@@ -351,7 +359,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 											return
 										}
 										if (kind === "automatic") {
-											assert.ok(outcome.kind === "invariant-rejected", outcome.kind)
+											assert.ok(outcome.kind === "refused", outcome.kind)
 											const refused = refusedLaws(outcome.refused)
 											assert.ok(
 												refused.length === 1 &&
@@ -364,7 +372,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 											return
 										}
 										if (w.form === "described") {
-											assert.ok(outcome.kind === "no-change", outcome.kind)
+											assert.ok(outcome.kind === "unchanged", outcome.kind)
 											assert.deepEqual(outcome.reads.previous, [])
 											assert.deepEqual(outcome.reads.tasks, [])
 											assert.deepEqual(outcome.reads.manual, [])
@@ -393,12 +401,12 @@ layer(Substrate.layer, { excludeTestServices: true })(
 											return
 										}
 										if (Option.exists(manualOf(w.task), (held) => held.operator === w.operator)) {
-											assert.ok(outcome.kind === "no-change", outcome.kind)
+											assert.ok(outcome.kind === "unchanged", outcome.kind)
 											unchanged()
 											c.note(`${w.form} ${kind} no-change`)
 											return
 										}
-										assert.ok(outcome.kind === "invariant-rejected", outcome.kind)
+										assert.ok(outcome.kind === "refused", outcome.kind)
 										assert.deepEqual(refusedLaws(outcome.refused), [
 											{
 												kind: "primaryKey",

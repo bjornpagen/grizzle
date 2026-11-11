@@ -4,10 +4,10 @@ import { agree } from "@grizzle/testing/oracle"
 import { type Swarm, swarm, swarmChoice } from "@grizzle/testing/swarm"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec, Result, type Scope } from "effect"
 import type { ServedDbContext } from "#adapter/db/context.ts"
-import type { ServedOps } from "#adapter/db/ops.ts"
 import { type ApplyError, OpenError } from "#adapter/errors/execution.ts"
 import type { ServedRefusal } from "#adapter/public/compile.ts"
-import type { ApplyOutcome } from "#adapter/public/db.ts"
+import type { LoadedMember } from "#adapter/served/load.ts"
+import type { ApplyOutcome } from "#adapter/types/db.ts"
 import { appendAll, indices } from "#compiler/core/array.ts"
 import type { CompileError, CompileReason } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
@@ -63,12 +63,7 @@ import {
 import { CaseFailed } from "#test/support/oracle/write/harness.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { pickFrom, pickGen, pickOf, pickSpan } from "#test/support/pick.ts"
-import {
-	appliedWith,
-	type CallFacts,
-	openServedDb,
-	type ServedOn
-} from "#test/support/served-db.ts"
+import { applicationOf, openServedDb, type ServedOn } from "#test/support/served-db.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -517,9 +512,12 @@ const sessionOf = (
  */
 interface StepChange {
 	readonly changes: ChangeSetValue
-	readonly facts: CallFacts
+	readonly facts: StepFacts
 	readonly shape: string
 }
+
+/** A call's facts: under each op of a change member's array members, the rows of each, under its relation's name. */
+type StepFacts = Readonly<Record<string, Readonly<Record<string, ReadonlyArray<unknown>>>>>
 
 /** A step's operation as its member is built: a host operation, its facts as the relation's carriers take them. */
 interface StepOp {
@@ -580,13 +578,13 @@ export const servedWrite = <S extends AnySchema>(
 	opened: Opened<S>,
 	relations: Readonly<Record<string, unknown>>
 ): StepWrite => {
-	const compiled = new Map<string, ServedOps<unknown>>()
-	const memberOf = (step: StepChange): Effect.Effect<ServedOps<unknown>, ServedRefusal> => {
+	const compiled = new Map<string, LoadedMember>()
+	const memberOf = (step: StepChange): Effect.Effect<LoadedMember, ServedRefusal> => {
 		const held = compiled.get(step.shape)
 		return held === undefined
 			? Effect.map(
 					Effect.catchIf(
-						opened.served.serve({ step: step.changes }),
+						opened.served.load({ step: step.changes }),
 						(failure) => failure instanceof OpenError,
 						(failure) => Effect.die(failure)
 					),
@@ -601,7 +599,9 @@ export const servedWrite = <S extends AnySchema>(
 	return (ops) =>
 		Effect.suspend(() => {
 			const step = stepChangeOf(opened.schema, relations, ops)
-			return Effect.map(memberOf(step), (member) => appliedWith(member, step.facts, {}))
+			return Effect.map(memberOf(step), (member) =>
+				applicationOf(opened.ctx, member)({ params: {}, facts: step.facts })
+			)
 		})
 }
 

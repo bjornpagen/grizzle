@@ -1,11 +1,13 @@
 import { Array as Arr, Effect, Option, Predicate, Record as Rec, type Ref, Result } from "effect"
 import type { ServedDbContext } from "#adapter/db/context.ts"
-import { memberOps } from "#adapter/db/handles.ts"
-import type { CompiledOps, ServedOps } from "#adapter/db/ops.ts"
 import type { ReadError } from "#adapter/errors/execution.ts"
 import { compileServed, type ServedRefusal } from "#adapter/public/compile.ts"
+import type { DecodedRow } from "#adapter/reader/stream.ts"
+import { runRefresh } from "#adapter/refresh/run.ts"
+import type { LoadedMember } from "#adapter/served/load.ts"
 import { appendAll } from "#compiler/core/array.ts"
-import { type CompileError, type CursorError, isCompileError } from "#compiler/core/errors.ts"
+import { type CompileError, isCompileError } from "#compiler/core/errors.ts"
+import { type Anchor, type KeyFields, keyOf } from "#compiler/live/index.ts"
 import { pagedMember, refreshMember, workload } from "#compiler/program/workload/value.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
 import { queryOver, type QueryValue, varsOver } from "#compiler/query/build/query.ts"
@@ -13,18 +15,19 @@ import type { FinishedValue, RuleValue } from "#compiler/query/build/rule.ts"
 import type { ServedFile } from "#compiler/served/forms.ts"
 import { servedFile } from "#compiler/served/json.ts"
 import { regexField } from "#compiler/text/field.ts"
-import type { Page, PageCursor, PageRequest } from "#compiler/types/page/page.ts"
 import type { LoginRole } from "#compiler/types/schema/world.ts"
 import { changeSetOver, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
 import type { DeltaValue } from "#compiler/write/delta/source.ts"
 import { defined } from "#test/support/assert.ts"
 import type { TestCompileOptions } from "#test/support/compile.ts"
 import { argumentsOf } from "#test/support/list.ts"
-import { appliedWith, type CallFacts } from "#test/support/served-db.ts"
+import { flown } from "#test/support/read-calls.ts"
+import { applicationOf } from "#test/support/served-db.ts"
 import {
 	artifactsAgree,
-	type DeliveredPage,
 	type Delivery,
+	type MemberReader,
+	readerOf,
 	servedMembers,
 	sidedMembers
 } from "#test/support/worlds/execute/artifacts.ts"
@@ -79,7 +82,7 @@ export const refusedWith = (observation: Observation, error: unknown): Seen => (
  * Each program an action runs is a member of the role's workload, compiled as generate compiles it
  * (adapter/public/compile.ts compileServed) into a served file of the login under `snapshot`, the snapshot its layer's
  * file was compiled under, then loaded as a layer loads it and run on the Db's context (adapter/db/handles.ts
- * memberOps); `compile` is the installation's allocation and codes, under which the read differential compiles a read
+ * memberCalls); `compile` is the installation's allocation and codes, under which the read differential compiles a read
  * again (artifacts.ts).
  */
 export interface DbSession {
@@ -121,14 +124,6 @@ const servedFileOf = (
 				servedFile
 			)
 	)
-
-/** A served member's operations as a read runs them: a read member loads as a program's, never as a facts handle. */
-const readOperations = (served: ServedOps<unknown>): CompiledOps<unknown> => {
-	if (served.kind !== "program") {
-		throw new Error("a read member loaded as a facts handle")
-	}
-	return served.ops
-}
 
 /** A served refusal as the action observes it: a compile's refusal of the program, every text of its error. */
 const servedRefused = (refusal: ServedRefusal | CompileError): Seen =>
@@ -183,104 +178,100 @@ export const derivedFields = (
 		domain: Option.getOrElse(domain, () => literalDomain)
 	}))
 
-/** A page a read's member delivers, of its rows and the cursors of their boundaries. */
-type ReadPage = Page<unknown, unknown>
+/** A call's input of no parameters and no facts: every read a session's action draws takes none. */
+const noInput = { params: {}, facts: {} } as const
+
+/** A paged read's window: no parameters, no facts, `size` rows from `anchor`. */
+const windowInput = (anchor: Anchor, size: number) => ({
+	params: {},
+	facts: {},
+	window: { anchor, size }
+})
 
 /**
- * How a paged read walks its pages from one end: its opening request, the request after a page when there is one, and
- * its pages in the order that presents their rows (a backward page delivers its rows in the presentation order too).
+ * How a paged read walks its windows from one end: its opening anchor, the anchor of the window beyond a window's far
+ * row, none past an empty window, which says no row lies beyond, and its windows in the order that presents their rows
+ * (a window from the end delivers its rows in the presentation order too).
  */
 interface Walk {
-	readonly open: (size: number) => PageRequest
-	readonly next: (page: ReadPage, size: number) => Option.Option<PageRequest>
-	readonly presented: (pages: ReadonlyArray<ReadPage>) => ReadonlyArray<ReadPage>
+	readonly open: Anchor
+	readonly next: (rows: ReadonlyArray<DecodedRow>, fields: KeyFields) => Option.Option<Anchor>
+	readonly presented: (
+		windows: ReadonlyArray<ReadonlyArray<DecodedRow>>
+	) => ReadonlyArray<ReadonlyArray<DecodedRow>>
 }
 
 /**
- * The walk from each end: from the first page, each page after the last one's end cursor while there is a next; from
- * the last, each page before the first one's start cursor while there is a previous, its pages presented last first.
+ * The walk from each end: from the start, each window after the last one's last row until a window is empty; from the
+ * end, each window before the first one's first row until a window is empty, its windows presented last first.
  */
 const walks: Readonly<Record<PageFrom, Walk>> = {
 	first: {
-		open: (size) => ({ first: size }),
-		next: (page, size) =>
-			page.pageInfo.hasNextPage
-				? Option.map(page.pageInfo.endCursor, (after) => ({ first: size, after }))
-				: Option.none(),
-		presented: (pages) => pages
+		open: { kind: "start" },
+		next: (rows, fields) =>
+			Option.map(Arr.last(rows), (row): Anchor => ({ kind: "after", key: keyOf(fields, row) })),
+		presented: (windows) => windows
 	},
 	last: {
-		open: (size) => ({ last: size }),
-		next: (page, size) =>
-			page.pageInfo.hasPreviousPage
-				? Option.map(page.pageInfo.startCursor, (before) => ({ last: size, before }))
-				: Option.none(),
+		open: { kind: "end" },
+		next: (rows, fields) =>
+			Option.map(Arr.head(rows), (row): Anchor => ({ kind: "before", key: keyOf(fields, row) })),
 		presented: Arr.reverse
 	}
 }
 
-/** Every page a paged read reaches walking from `from`, in the order it requested them. */
-const reachedPages = (
-	ops: CompiledOps<unknown>,
+/** Every window a paged read reaches walking from `from`, in the order it requested them, the empty last included. */
+const reachedWindows = (
+	reader: MemberReader,
 	size: number,
 	from: PageFrom
-): Effect.Effect<ReadonlyArray<ReadPage>, ReadError | CursorError> => {
+): Effect.Effect<ReadonlyArray<ReadonlyArray<DecodedRow>>, ReadError> => {
 	const walk = walks[from]
-	const pagesFrom = (
-		request: PageRequest
-	): Effect.Effect<ReadonlyArray<ReadPage>, ReadError | CursorError> =>
-		Effect.flatMap(ops.page({}, request), (page) =>
-			Option.match(walk.next(page, size), {
-				onNone: () => Effect.succeed([page]),
-				onSome: (next) => Effect.map(pagesFrom(next), (rest) => [page, ...rest])
+	const windowsFrom = (
+		anchor: Anchor
+	): Effect.Effect<ReadonlyArray<ReadonlyArray<DecodedRow>>, ReadError> =>
+		Effect.flatMap(reader.read(windowInput(anchor, size)), (rows) =>
+			Option.match(walk.next(rows, reader.fields), {
+				onNone: () => Effect.succeed([rows]),
+				onSome: (next) => Effect.map(windowsFrom(next), (rest) => [rows, ...rest])
 			})
 		)
-	return pagesFrom(walk.open(size))
+	return windowsFrom(walk.open)
 }
 
-/** Every row of a paged read's pages, in the order its pages present them. */
-const pagedRows = (pages: ReadonlyArray<ReadPage>, from: PageFrom): ReadonlyArray<unknown> =>
-	Arr.flatMap(walks[from].presented(pages), (page) => Arr.map(page.edges, (e) => e.node))
+/** Every row of a paged read's windows, in the order its windows present them. */
+const pagedRows = (
+	windows: ReadonlyArray<ReadonlyArray<DecodedRow>>,
+	from: PageFrom
+): ReadonlyArray<DecodedRow> => Arr.flatten(walks[from].presented(windows))
 
-/** The requests anchored at a cursor a read reached: the page after it, and the page before it, each of `size` rows. */
-const anchoredAt = (cursor: PageCursor<unknown>, size: number): ReadonlyArray<PageRequest> => [
-	{ first: size, after: cursor },
-	{ last: size, before: cursor }
+/** The anchors at a row a read reached: the window after it, and the window before it. */
+const anchoredAt = (row: DecodedRow, fields: KeyFields): ReadonlyArray<Anchor> => [
+	{ kind: "after", key: keyOf(fields, row) },
+	{ kind: "before", key: keyOf(fields, row) }
 ]
 
 /**
- * Every page a paged read delivers to the differential: each page it reaches from `from`, then the pages anchored at
- * every cursor those pages delivered (anchoredAt), each page's edges read as facts of exactly `fields`.
+ * Every window a paged read delivers to the differential: each window it reaches from `from`, then the windows anchored
+ * at every row those windows delivered (anchoredAt), each window's rows read as facts of exactly `fields`.
  */
-const deliveredPages = (
-	ops: CompiledOps<unknown>,
+const deliveredWindows = (
+	reader: MemberReader,
 	size: number,
 	from: PageFrom,
 	fields: ReadonlyArray<string>,
 	what: string
-): Effect.Effect<Delivery, ReadError | CursorError> =>
+): Effect.Effect<Delivery, ReadError> =>
 	Effect.gen(function* () {
-		const reached = yield* reachedPages(ops, size, from)
+		const reached = yield* reachedWindows(reader, size, from)
 		const anchored = yield* Effect.forEach(
-			Arr.flatMap(reached, (page) => Arr.flatMap(page.edges, (e) => anchoredAt(e.cursor, size))),
-			(request) => ops.page({}, request)
+			Arr.flatMap(reached, (rows) => Arr.flatMap(rows, (row) => anchoredAt(row, reader.fields))),
+			(anchor) => reader.read(windowInput(anchor, size))
 		)
-		const pages = yield* Effect.forEach([...reached, ...anchored], (page, i) =>
-			Effect.map(
-				Effect.forEach(page.edges, (e, j) =>
-					Effect.map(factOfRow(e.node, fields, `${what} page ${i} edge ${j}`), (fact) => ({
-						fact,
-						cursor: e.cursor
-					}))
-				),
-				(edges): DeliveredPage => ({
-					edges,
-					hasNextPage: page.pageInfo.hasNextPage,
-					hasPreviousPage: page.pageInfo.hasPreviousPage
-				})
-			)
+		const windows = yield* Effect.forEach([...reached, ...anchored], (rows, i) =>
+			Effect.forEach(rows, (row, j) => factOfRow(row, fields, `${what} window ${i} row ${j}`))
 		)
-		return { kind: "pages", pages }
+		return { kind: "windows", windows }
 	})
 
 /**
@@ -415,9 +406,9 @@ const reachRead = (
 const built = (what: string, build: () => QueryValue): Effect.Effect<QueryValue, CompileError> =>
 	Effect.mapError(attempt(what, build), (refused) => refused.refusal)
 
-/** Every row a read's member delivers, executed. */
-const executed = (ops: CompiledOps<unknown>): Effect.Effect<ReadonlyArray<unknown>, ReadError> =>
-	Effect.flatMap(ops.execute({}), (result) => result.collect)
+/** Every row a read's member delivers. */
+const executed = (reader: MemberReader): Effect.Effect<ReadonlyArray<DecodedRow>, ReadError> =>
+	reader.read(noInput)
 
 /** Rows a read delivered, each read as a fact of exactly `fields`. */
 const factsOfRows = (
@@ -438,23 +429,19 @@ const readMember = "read"
 interface SessionRead {
 	readonly query: unknown
 	readonly member: unknown
-	readonly facts: (
-		ops: CompiledOps<unknown>
-	) => Effect.Effect<ReadonlyArray<HostFact>, ReadError | CursorError>
-	readonly delivered: (
-		ops: CompiledOps<unknown>
-	) => Effect.Effect<Delivery, ReadError | CursorError>
+	readonly facts: (reader: MemberReader) => Effect.Effect<ReadonlyArray<HostFact>, ReadError>
+	readonly delivered: (reader: MemberReader) => Effect.Effect<Delivery, ReadError>
 }
 
 /** A read whose member delivers its facts as one keyed set, to the Db and to the differential alike. */
 const setRead = (
 	query: unknown,
-	facts: (ops: CompiledOps<unknown>) => Effect.Effect<ReadonlyArray<HostFact>, ReadError>
+	facts: (reader: MemberReader) => Effect.Effect<ReadonlyArray<HostFact>, ReadError>
 ): SessionRead => ({
 	query,
 	member: query,
 	facts,
-	delivered: (ops) => Effect.map(facts(ops), (f): Delivery => ({ kind: "facts", facts: f }))
+	delivered: (reader) => Effect.map(facts(reader), (f): Delivery => ({ kind: "facts", facts: f }))
 })
 
 /**
@@ -474,7 +461,7 @@ const readVia = (
 	const names = Arr.map(fields, (f) => f.field)
 	const asFacts = (rows: ReadonlyArray<unknown>) => factsOfRows(rows, names, relation)
 	const executedRead = (query: QueryValue): SessionRead =>
-		setRead(query, (ops) => Effect.flatMap(executed(ops), asFacts))
+		setRead(query, (reader) => Effect.flatMap(executed(reader), asFacts))
 	switch (via.kind) {
 		case "execute":
 		case "compile":
@@ -485,11 +472,7 @@ const readVia = (
 					relationRead(session, relation, itself, carriersOf(fields, via.key))
 				),
 				(query): SessionRead =>
-					setRead(query, (ops) =>
-						Effect.flatMap(ops.get({}), (row) =>
-							asFacts(Option.match(row, { onNone: () => [], onSome: (r) => [r] }))
-						)
-					)
+					setRead(query, (reader) => Effect.flatMap(executed(reader), asFacts))
 			)
 		case "page":
 			return Effect.mapBoth(
@@ -504,11 +487,11 @@ const readVia = (
 					onSuccess: ({ ordered, paged }): SessionRead => ({
 						query: ordered,
 						member: paged,
-						facts: (ops) =>
-							Effect.flatMap(reachedPages(ops, via.size, via.from), (pages) =>
-								asFacts(pagedRows(pages, via.from))
+						facts: (reader) =>
+							Effect.flatMap(reachedWindows(reader, via.size, via.from), (windows) =>
+								asFacts(pagedRows(windows, via.from))
 							),
-						delivered: (ops) => deliveredPages(ops, via.size, via.from, names, relation)
+						delivered: (reader) => deliveredWindows(reader, via.size, via.from, names, relation)
 					})
 				}
 			)
@@ -526,8 +509,8 @@ const readVia = (
 					attachedRead(session, relation, via, attached)
 				),
 				(query): SessionRead =>
-					setRead(query, (ops) =>
-						Effect.flatMap(executed(ops), (rows) =>
+					setRead(query, (reader) =>
+						Effect.flatMap(executed(reader), (rows) =>
 							Effect.map(
 								Effect.forEach(rows, (row, i) =>
 									Effect.gen(function* () {
@@ -560,8 +543,8 @@ const readVia = (
 							reachRead(session, relation, via, field.value)
 						),
 						(query): SessionRead =>
-							setRead(query, (ops) =>
-								Effect.flatMap(executed(ops), (rows) =>
+							setRead(query, (reader) =>
+								Effect.flatMap(executed(reader), (rows) =>
 									factsOfRows(rows, [reachFields.origin, reachFields.reached], relation)
 								)
 							)
@@ -608,28 +591,18 @@ export const readSession = (
 				})
 			)
 		}
-		const served = memberOps(
-			session.ctx,
-			defined(sided.success.optimized.get(readMember), "the read's served member")
+		const served = readerOf(
+			defined(sided.success.optimized.get(readMember), "the read's served member"),
+			(statements) => flown(session.ctx, statements)
 		)
-		const facts = yield* Effect.result(read.success.facts(readOperations(served)))
+		const facts = yield* Effect.result(read.success.facts(served))
 		if (Result.isFailure(facts)) {
 			const error = facts.failure
-			switch (error._tag) {
-				case "CursorError":
-					return yield* Effect.die(
-						new Error("a page of a fresh read refused its own cursor", { cause: error })
-					)
-				case "ReadFailure":
-				case "TransientFailure":
-				case "StaleSnapshot": {
-					const failed = yield* readFailed(error)
-					return refusedWith(failed, error)
-				}
-			}
+			const failed = yield* readFailed(error)
+			return refusedWith(failed, error)
 		}
-		const agree = yield* artifactsAgree(session.ctx, sided.success, (operations) =>
-			read.success.delivered(readOperations(operations(readMember)))
+		const agree = yield* artifactsAgree(session.ctx, sided.success, (reader) =>
+			read.success.delivered(reader(readMember))
 		)
 		return agree
 			? seen({ kind: "rows", rows: facts.success })
@@ -648,6 +621,9 @@ const carriersOf = (
 
 /** A write's facts as its call states them: under each op, each written role relation's facts by its name. */
 type FactsByOp = Record<EntryOp["kind"], Record<string, Array<unknown>>>
+
+/** A call's facts: under each op of a change member's array members, the rows of each, under its relation's name. */
+type CallFacts = Readonly<Record<string, Readonly<Record<string, ReadonlyArray<unknown>>>>>
 
 /**
  * One stratum: the union of its writes, each through a role relation, as array members of a served ChangeSet, one per
@@ -786,17 +762,14 @@ export const plannedWrite = (
 /** The name of a write's one member in the role's workload. */
 const writeMember = "write"
 
-/** The operations of the one member of `programs` served on the session's Db, or the served compile's refusal. */
+/** The one member of `programs` served on the session's Db, loaded, or the served compile's refusal. */
 const servedOn = (
 	session: DbSession,
 	programs: Readonly<Record<string, unknown>>,
 	name: string
-): Effect.Effect<ServedOps<unknown>, ServedRefusal | CompileError> =>
+): Effect.Effect<LoadedMember, ServedRefusal | CompileError> =>
 	Effect.map(servedFileOf(session, programs), (file) =>
-		memberOps(
-			session.ctx,
-			defined(servedMembers(file, session.value.name).get(name), `the served member ${name}`)
-		)
+		defined(servedMembers(file, session.value.name).get(name), `the served member ${name}`)
 	)
 
 /** A write through role relations, served as a member of the role's workload and applied with the write's facts. */
@@ -815,7 +788,9 @@ export const applySession = (
 		if (Result.isFailure(served)) {
 			return servedRefused(served.failure)
 		}
-		const outcome = yield* Effect.result(appliedWith(served.success, facts, {}))
+		const outcome = yield* Effect.result(
+			applicationOf(session.ctx, served.success)({ params: {}, facts })
+		)
 		if (Result.isFailure(outcome)) {
 			const failed = yield* applyFailed(outcome.failure)
 			return refusedWith(failed, outcome.failure)
@@ -898,7 +873,9 @@ export const applyValue = (session: DbSession, changes: unknown): Effect.Effect<
 		if (Result.isFailure(served)) {
 			return servedRefused(served.failure)
 		}
-		const outcome = yield* Effect.result(appliedWith(served.success, {}, {}))
+		const outcome = yield* Effect.result(
+			applicationOf(session.ctx, served.success)({ params: {}, facts: {} })
+		)
 		if (Result.isFailure(outcome)) {
 			const failed = yield* applyFailed(outcome.failure)
 			return refusedWith(failed, outcome.failure)
@@ -917,7 +894,9 @@ export const executeValue = (session: DbSession, program: unknown): Effect.Effec
 		if (Result.isFailure(served)) {
 			return servedRefused(served.failure)
 		}
-		const rows = yield* Effect.result(executed(readOperations(served.success)))
+		const rows = yield* Effect.result(
+			executed(readerOf(served.success, (statements) => flown(session.ctx, statements)))
+		)
 		if (Result.isFailure(rows)) {
 			const failed = yield* readFailed(rows.failure)
 			return refusedWith(failed, rows.failure)
@@ -944,7 +923,11 @@ export const refreshValue = (session: DbSession, relation: unknown): Effect.Effe
 		if (Result.isFailure(served)) {
 			return servedRefused(served.failure)
 		}
-		const done = yield* Effect.result(readOperations(served.success).refresh)
+		const refreshed = served.success
+		if (refreshed.kind !== "refresh") {
+			return yield* Effect.die(new Error("a refresh member loaded as another kind"))
+		}
+		const done = yield* Effect.result(runRefresh(session.ctx, refreshed.refresh))
 		if (Result.isFailure(done)) {
 			const failed = yield* applyFailed(done.failure)
 			return refusedWith(failed, done.failure)

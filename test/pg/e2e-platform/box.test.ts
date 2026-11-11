@@ -30,6 +30,7 @@ import { Array as Arr, Effect, Formatter, Order } from "effect"
 import type { ApplyError } from "#adapter/public/errors.ts"
 import { applyFacts, openPlatform, type PlatformDb } from "#test/pg/e2e-platform/support.ts"
 import { assert, defined } from "#test/support/assert.ts"
+import { answered, rowsOf } from "#test/support/calls.ts"
 import * as P from "#test/support/fixtures/api/platform.ts"
 import { caseHang } from "#test/support/limits.ts"
 import {
@@ -214,8 +215,8 @@ const recordFacts = (r: P.UsageRecord): PlatformFacts => ({
 })
 
 const decided = (db: PlatformDb, f: PlatformFacts): Effect.Effect<string, ApplyError> =>
-	Effect.map(db.workload.load.apply({ insert: f }, {}), (o) =>
-		o.kind === "invariant-rejected" ? `refused by ${Formatter.format(o.refused.laws)}` : o.kind
+	Effect.map(answered(db.workload.load.once({ params: {}, facts: { insert: f } })), (o) =>
+		o.kind === "refused" ? `refused by ${Formatter.format(o.refused.laws)}` : o.kind
 	)
 
 layer(Substrate.layer)("tiny platforms, exhausted", (it) => {
@@ -306,9 +307,14 @@ layer(Substrate.layer)("tiny platforms, exhausted", (it) => {
 										const decision = yield* decided(db, f)
 										assert.equal(decision, "accepted", `${record.event.id} is recorded`)
 										/** Its tier pieces sum to what the model charged. */
-										const pieces = yield* (yield* db.workload.eventCost.execute({
-											event: record.event.id
-										})).collect
+										const pieces = yield* rowsOf(
+											db.workload.eventCost.once({
+												params: {
+													event: record.event.id
+												},
+												facts: {}
+											})
+										)
 										const charged = Arr.reduce(record.charges, 0n, (sum, c) => sum + c.amount)
 										assert.equal(
 											Arr.reduce(pieces, 0n, (sum, piece) => sum + piece.amount),
@@ -326,9 +332,14 @@ layer(Substrate.layer)("tiny platforms, exhausted", (it) => {
 										}
 									}
 									for (const g of grants) {
-										const days = yield* (yield* db.workload.burnDown.execute({
-											grant: g.id
-										})).collect
+										const days = yield* rowsOf(
+											db.workload.burnDown.once({
+												params: {
+													grant: g.id
+												},
+												facts: {}
+											})
+										)
 										const debited = Arr.filter(
 											Arr.flatMap(settled.records, (r) => r.debits),
 											(d) => d.grant === g.id

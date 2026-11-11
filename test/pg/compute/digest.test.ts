@@ -60,6 +60,7 @@ import { textCell } from "#test/pg/compute/support.ts"
 import { probe } from "#test/pg/physical/checks.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { answered, rowsOf } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
@@ -421,12 +422,16 @@ layer(Substrate.layer, { excludeTestServices: true })("Compute.sha256 on Postgre
 								const stating = defined(facts[0], "an entry whose digest a direct writer states")
 								yield* Effect.gen(function* () {
 									const db = yield* Db.open(o.served.login.roles.app, {})
-									const inserted = yield* db.workload.insertEntries.apply(
-										{ insert: { Entry: facts } },
-										{}
+									const inserted = yield* answered(
+										db.workload.insertEntries.once({
+											params: {},
+											facts: { insert: { Entry: facts } }
+										})
 									)
 									assert.equal(inserted.kind, "accepted", "every entry and its pages are written")
-									const readEntries = yield* db.workload.entries.execute({})
+									const readEntries = yield* rowsOf(
+										db.workload.entries.once({ params: {}, facts: {} })
+									)
 									const entryRows = yield* readEntries.collect
 									const entries = Arr.sort(entryRows, byId)
 									assert.deepEqual(
@@ -437,7 +442,9 @@ layer(Substrate.layer, { excludeTestServices: true })("Compute.sha256 on Postgre
 										}),
 										"each entry reads back the host's digest of its bytes, uncast and cast"
 									)
-									const readComputed = yield* db.workload.computed.execute({})
+									const readComputed = yield* rowsOf(
+										db.workload.computed.once({ params: {}, facts: {} })
+									)
 									const computedRows = yield* readComputed.collect
 									const computed = Arr.sort(computedRows, byId)
 									assert.deepEqual(
@@ -445,7 +452,7 @@ layer(Substrate.layer, { excludeTestServices: true })("Compute.sha256 on Postgre
 										Arr.map(entries, (e) => [e.id, e.digest]),
 										"a query's head computes each entry's digest from a read of its bytes"
 									)
-									const readPages = yield* db.workload.pages.execute({})
+									const readPages = yield* rowsOf(db.workload.pages.once({ params: {}, facts: {} }))
 									const pages = yield* readPages.collect
 									assert.equal(
 										pages.length,

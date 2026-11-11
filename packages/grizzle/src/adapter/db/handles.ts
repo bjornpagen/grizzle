@@ -1,4 +1,5 @@
 import * as Effect from "effect/Effect"
+import * as Option from "effect/Option"
 import * as Result from "effect/Result"
 import * as Stream from "effect/Stream"
 import { type HostCall, hostInputs, inputApplyError, runWrite } from "#adapter/apply/run.ts"
@@ -109,7 +110,7 @@ export type WrittenOutcome = WriteOutcome<unknown> | Refreshed
  * A read member's call parsed from its input: its read call, and the execution inputs its statement binds, which its
  * subscription routes by.
  */
-interface ParsedRead {
+export interface ParsedRead {
 	readonly call: ReadCall
 	readonly inputs: ExecutionInputs
 }
@@ -381,18 +382,24 @@ const writtenOf = (outcome: ApplyOutcome<unknown>): Result.Result<WrittenOutcome
 	}
 }
 
-/** A change member's write: its input read, its one application, its outcome or its error. */
+/**
+ * A change's one application for a caller's input (changeInput, applyChange), its outcome and its failure as the
+ * runtime meets them, before a change member's once reads them as the call's (changeWrite): what a suite of the write
+ * runtime itself judges, a TransientFailure's reason and a refused stratum's CompileError among them.
+ */
+export const changeApplication =
+	(ctx: ServedDbContext, change: LoadedChange) =>
+	(input: unknown): Effect.Effect<ApplyOutcome<unknown>, ApplyError> =>
+		Effect.flatMap(Effect.fromResult(changeInput(change, input)), (host) =>
+			applyChange(ctx, change, host)
+		)
+
+/** A change member's write: its one application (changeApplication), its outcome or its error. */
 const changeWrite =
 	(ctx: ServedDbContext, change: LoadedChange) =>
 	(input: unknown): Effect.Effect<WrittenOutcome, CallError> =>
-		Effect.flatMap(
-			Effect.mapError(
-				Effect.flatMap(Effect.fromResult(changeInput(change, input)), (host) =>
-					applyChange(ctx, change, host)
-				),
-				callErrorOf
-			),
-			(outcome) => Effect.fromResult(writtenOf(outcome))
+		Effect.flatMap(Effect.mapError(changeApplication(ctx, change)(input), callErrorOf), (outcome) =>
+			Effect.fromResult(writtenOf(outcome))
 		)
 
 const refreshed: Refreshed = { kind: "refreshed" }
@@ -412,6 +419,27 @@ export const variantOf = (ctx: ServedDbContext, variants: LoadedVariants): Loade
 			return variants.change
 		case "split":
 			return variantOf(ctx, ctx.claims.has(variants.context) ? variants.holding : variants.lacking)
+	}
+}
+
+/**
+ * The parse of a read member's input into its call (ParsedRead), by the member's kind: a read's, a key's and a paged
+ * member's; a write member has none. What a suite reads a member's statement and rows through when it runs flights of
+ * its own beside the read's (two artifacts in one snapshot, a flight's statements counted).
+ */
+export const readCallOf = (
+	member: LoadedMember
+): Option.Option<(input: unknown) => Effect.Effect<ParsedRead, ReadError>> => {
+	switch (member.kind) {
+		case "read":
+			return Option.some(parseRead(member.read))
+		case "key":
+			return Option.some(parseKey(member.read, member.fields))
+		case "paged":
+			return Option.some(parseWindow(member.read, member.page))
+		case "change":
+		case "refresh":
+			return Option.none()
 	}
 }
 

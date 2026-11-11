@@ -22,6 +22,7 @@ import {
 } from "#compiler/public/schema.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, defined, nonEmpty } from "#test/support/assert.ts"
+import { answered } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { refusedLaws } from "#test/support/refused.ts"
@@ -455,9 +456,11 @@ export const everyLawSuite = (): void => {
 														partsOf(st.id, st.cell.parts)
 													)
 													const storing = yield* Effect.result(
-														db.workload.write.apply(
-															{ insert: { Cell: storedCells, Part: storedParts } },
-															{}
+														answered(
+															db.workload.write.once({
+																params: {},
+																facts: { insert: { Cell: storedCells, Part: storedParts } }
+															})
 														)
 													)
 													assert.ok(
@@ -472,7 +475,12 @@ export const everyLawSuite = (): void => {
 													)
 												]
 												const applied = yield* Effect.result(
-													db.workload.write.apply({ insert: { Cell: cells, Part: parts } }, {})
+													answered(
+														db.workload.write.once({
+															params: {},
+															facts: { insert: { Cell: cells, Part: parts } }
+														})
+													)
 												)
 												assert.ok(Result.isSuccess(applied), "the write is an outcome")
 												return applied.success
@@ -482,7 +490,7 @@ export const everyLawSuite = (): void => {
 												c.note("accepted")
 												continue
 											}
-											if (outcome.kind !== "invariant-rejected") {
+											if (outcome.kind !== "refused") {
 												return assert.fail(
 													`a cell breaking ${Arr.join(broken, ", ")} is refused, not ${outcome.kind}`
 												)

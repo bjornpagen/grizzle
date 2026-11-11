@@ -34,6 +34,7 @@ import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, defined } from "#test/support/assert.ts"
+import { answered, rowsOf } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
@@ -301,20 +302,23 @@ layer(Layer.merge(Substrate.layer, Digest.layerWebCrypto), { excludeTestServices
 									const kept = Arr.filter(facts, (f) => f.shelf !== shelf)
 									yield* Effect.gen(function* () {
 										const db = yield* Db.open(o.served.login.roles.app, {})
-										const shelved = yield* db.workload.shelve.apply(
-											{ insert: { Shelf: upTo(d.shelves, (id) => ({ id })) } },
-											{}
+										const shelved = yield* answered(
+											db.workload.shelve.once({
+												params: {},
+												facts: { insert: { Shelf: upTo(d.shelves, (id) => ({ id })) } }
+											})
 										)
 										assert.equal(shelved.kind, "accepted", "every shelf is written")
 										const batches = d.batched ? [facts] : Arr.map(facts, (fact) => [fact])
 										for (const batch of batches) {
-											const outcome = yield* db.workload.store.apply(
-												{ insert: { Blob: batch } },
-												{}
+											const outcome = yield* answered(
+												db.workload.store.once({ params: {}, facts: { insert: { Blob: batch } } })
 											)
 											assert.equal(outcome.kind, "accepted", "every bytes value is written")
 										}
-										const executed = yield* db.workload.blobs.execute({})
+										const executed = yield* rowsOf(
+											db.workload.blobs.once({ params: {}, facts: {} })
+										)
 										const collected = yield* executed.collect
 										const read = Arr.sort(collected, byId)
 										assert.deepEqual(
@@ -326,7 +330,9 @@ layer(Layer.merge(Substrate.layer, Digest.layerWebCrypto), { excludeTestServices
 											ownBuffers(Arr.map(read, (row) => row.body)),
 											"every value read back is an array over a buffer of its own"
 										)
-										const ordered = yield* (yield* db.workload.descending.execute({})).collect
+										const ordered = yield* rowsOf(
+											db.workload.descending.once({ params: {}, facts: {} })
+										)
 										assert.deepEqual(
 											Arr.map(ordered, (row) => row.id),
 											Arr.reverse(Arr.map(facts, (f) => f.id)),
@@ -338,7 +344,9 @@ layer(Layer.merge(Substrate.layer, Digest.layerWebCrypto), { excludeTestServices
 											),
 											"the ordered read delivers each value whole"
 										)
-										const onShelves = yield* (yield* db.workload.onShelf.execute({})).collect
+										const onShelves = yield* rowsOf(
+											db.workload.onShelf.once({ params: {}, facts: {} })
+										)
 										for (const row of onShelves) {
 											const own = Arr.filter(facts, (f) => f.shelf === row.id)
 											const attached = Arr.sort(row.blobs, byId)
@@ -351,7 +359,9 @@ layer(Layer.merge(Substrate.layer, Digest.layerWebCrypto), { excludeTestServices
 												"each attached value reads back whole"
 											)
 										}
-										const deleted = yield* db.workload.clearShelf.apply({ shelf })
+										const deleted = yield* answered(
+											db.workload.clearShelf.once({ params: { shelf }, facts: {} })
+										)
 										if (deleted.kind !== "accepted") {
 											return assert.fail(`the shelf's values are deleted, not ${deleted.kind}`)
 										}

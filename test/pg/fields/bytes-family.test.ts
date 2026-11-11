@@ -30,6 +30,7 @@ import { query, v } from "#compiler/public/query.ts"
 import { fin, mutable, on, ordered, relation, schema } from "#compiler/public/schema.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, defined } from "#test/support/assert.ts"
+import { answered, rowsOf } from "#test/support/calls.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
@@ -191,12 +192,14 @@ layer(Substrate.layer, { excludeTestServices: true })("a family's bytes members"
 										body: streamBytes(x.length, x.seed)
 									}))
 									const badge = streamBytes(d.values.length + 3, 7)
-									const inserted = yield* db.workload.insertOwner.apply(
-										{ insert: { Owner: [{ id: owner, badge, members }] } },
-										{}
+									const inserted = yield* answered(
+										db.workload.insertOwner.once({
+											params: {},
+											facts: { insert: { Owner: [{ id: owner, badge, members }] } }
+										})
 									)
 									assert.equal(inserted.kind, "accepted", "the owner and its members are written")
-									const owners = yield* (yield* db.workload.owners.execute({})).collect
+									const owners = yield* rowsOf(db.workload.owners.once({ params: {}, facts: {} }))
 									assert.ok(
 										owners.length === 1 && sameBytes(defined(owners[0], "the owner").badge, badge),
 										"the owner's own bytes, admitted with its nested members, read back whole"
@@ -207,7 +210,9 @@ layer(Substrate.layer, { excludeTestServices: true })("a family's bytes members"
 									)
 									const readBack = (expected: ReadonlyArray<(typeof members)[number]>) =>
 										Effect.gen(function* () {
-											const result = yield* db.workload.members.execute({})
+											const result = yield* rowsOf(
+												db.workload.members.once({ params: {}, facts: {} })
+											)
 											const collected = yield* result.collect
 											const rows = Arr.sort(collected, bySlot)
 											assert.equal(rows.length, expected.length, "every member reads back")
@@ -222,9 +227,11 @@ layer(Substrate.layer, { excludeTestServices: true })("a family's bytes members"
 										})
 									yield* readBack(members)
 									const cut = defined(members[d.cut], "the member deleted")
-									const deleted = yield* db.workload.deleteMember.apply(
-										{ delete: { Member: [{ id: cut.id, owner, body: cut.body }] } },
-										{}
+									const deleted = yield* answered(
+										db.workload.deleteMember.once({
+											params: {},
+											facts: { delete: { Member: [{ id: cut.id, owner, body: cut.body }] } }
+										})
 									)
 									assert.equal(deleted.kind, "accepted", "the member is deleted")
 									yield* readBack(Arr.filter(members, (m) => m.id !== cut.id))

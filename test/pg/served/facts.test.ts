@@ -15,6 +15,7 @@ import { mutable, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, deepEquals, unorderedEqual } from "#test/support/assert.ts"
+import { answered, readOnce, writeOnce } from "#test/support/calls.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { member, withServedDb } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -238,16 +239,16 @@ layer(Substrate.layer, { excludeTestServices: true })(
 												)
 											}
 											const applied = yield* Effect.result(
-												handle.ops.apply(plantedFacts(facts, plant), {})
+												answered(
+													writeOnce(handle)({ params: {}, facts: plantedFacts(facts, plant) })
+												)
 											)
-											const storedItems = yield* (yield* memberOps(
-												db,
-												member(loaded, "items")
-											).ops.execute({})).collect
-											const storedLabels = yield* (yield* memberOps(
-												db,
-												member(loaded, "labels")
-											).ops.execute({})).collect
+											const storedItems = yield* (yield* readOnce(
+												memberOps(db, member(loaded, "items"))
+											)({ params: {}, facts: {} })).collect
+											const storedLabels = yield* (yield* readOnce(
+												memberOps(db, member(loaded, "labels"))
+											)({ params: {}, facts: {} })).collect
 											const expectedItems = itemsAfter(stored, facts)
 											const agrees =
 												Result.isSuccess(applied) &&

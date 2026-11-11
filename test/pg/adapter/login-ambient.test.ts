@@ -64,6 +64,7 @@ import {
 	ambientSettingValues
 } from "#test/support/ambient.ts"
 import { assert, nonEmpty, unorderedEqual } from "#test/support/assert.ts"
+import { answered, oneOf, rowsOf } from "#test/support/calls.ts"
 import { installedSchemas, replaceMigrated } from "#test/support/install-migrate.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { pickFrom, pickGen, pickOf } from "#test/support/pick.ts"
@@ -466,19 +467,41 @@ layer(Substrate.isolatedLayer)("a login under hostile database defaults", (it) =
 								...(p.dangling ? [{ id: danglingLink, text: absentText }] : [])
 							]
 							const writes = [
-								yield* db.workload.addTexts.apply({ insert: { Text: texts } }, {}),
-								yield* db.workload.addTexts.apply({ insert: { Text: texts } }, {}),
-								yield* db.workload.addLinks.apply({ insert: { Uuid: links } }, {}),
-								yield* db.workload.putAmounts.apply({ put: { Money: amountFacts(p.amounts) } }, {}),
-								yield* db.workload.putAmounts.apply({ put: { Money: amountFacts(p.revised) } }, {})
+								yield* answered(
+									db.workload.addTexts.once({ params: {}, facts: { insert: { Text: texts } } })
+								),
+								yield* answered(
+									db.workload.addTexts.once({ params: {}, facts: { insert: { Text: texts } } })
+								),
+								yield* answered(
+									db.workload.addLinks.once({ params: {}, facts: { insert: { Uuid: links } } })
+								),
+								yield* answered(
+									db.workload.putAmounts.once({
+										params: {},
+										facts: { put: { Money: amountFacts(p.amounts) } }
+									})
+								),
+								yield* answered(
+									db.workload.putAmounts.once({
+										params: {},
+										facts: { put: { Money: amountFacts(p.revised) } }
+									})
+								)
 							]
 							return {
 								writes,
-								linked: yield* (yield* db.workload.linkedNotes.execute({})).collect,
-								amounts: yield* (yield* db.workload.everyAmount.execute({})).collect,
-								at: yield* (yield* db.workload.atAmount.execute({ at: Money.of(p.at) })).collect,
-								from: yield* (yield* db.workload.fromExact.execute({ from: p.from })).collect,
-								probed: yield* db.workload.amount.get({ id: p.probe }),
+								linked: yield* rowsOf(db.workload.linkedNotes.once({ params: {}, facts: {} })),
+								amounts: yield* rowsOf(db.workload.everyAmount.once({ params: {}, facts: {} })),
+								at: yield* (yield* rowsOf(
+									db.workload.atAmount.once({ params: { at: Money.of(p.at) }, facts: {} })
+								)).collect,
+								from: yield* rowsOf(
+									db.workload.fromExact.once({ params: { from: p.from }, facts: {} })
+								),
+								probed: yield* oneOf(
+									db.workload.amount.once({ params: { id: p.probe }, facts: {} })
+								),
 								pages: yield* walk(
 									(after) =>
 										Option.match(after, {
@@ -542,7 +565,7 @@ layer(Substrate.isolatedLayer)("a login under hostile database defaults", (it) =
 									})),
 									amountFacts([...byId(c.program.revised), ...byId(c.program.amounts)])
 								)
-								if (Arr.some(ordinary.writes, (w) => w.kind === "invariant-rejected")) {
+								if (Arr.some(ordinary.writes, (w) => w.kind === "refused")) {
 									cx.note("a write refused by a law")
 								}
 								if (ordinary.pages.length > 1) {

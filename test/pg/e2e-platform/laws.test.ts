@@ -69,6 +69,7 @@ import {
 	viewOf
 } from "#test/support/platform/generate.ts"
 
+import { answered } from "#test/support/calls.ts"
 import { caseHang } from "#test/support/limits.ts"
 import {
 	decideSet,
@@ -145,21 +146,21 @@ const platformNames = installationNamesOf(installationOf(P.Billing, { kind: "dec
  * role writes every stored relation, so an outside-world outcome fails every expectation.
  */
 type Decided =
-	| { readonly kind: "accepted" | "no-change" }
-	| { readonly kind: "invariant-rejected"; readonly laws: Arr.NonEmptyReadonlyArray<LawId> }
-	| { readonly kind: "outside-world"; readonly relation: string }
+	| { readonly kind: "accepted" | "unchanged" }
+	| { readonly kind: "refused"; readonly laws: Arr.NonEmptyReadonlyArray<LawId> }
+	| { readonly kind: "outsideWorld"; readonly relation: string }
 
 const decided = (outcome: ApplyOutcome<unknown>): Decided => {
 	switch (outcome.kind) {
-		case "invariant-rejected":
+		case "refused":
 			return {
 				kind: outcome.kind,
 				laws: Arr.map(outcome.refused.laws, (law) => platformNames.reported(law))
 			}
-		case "outside-world":
+		case "outsideWorld":
 			return { kind: outcome.kind, relation: outcome.relation }
 		case "accepted":
-		case "no-change":
+		case "unchanged":
 			return { kind: outcome.kind }
 	}
 }
@@ -185,17 +186,29 @@ const usageOps = (r: P.UsageRecord): ReadonlyArray<PlatformOp> => [
 ]
 
 const usage = (r: P.UsageRecord): Attempt => ({
-	apply: (db) => Effect.map(db.workload.recordUsage.apply(P.usageFacts(r), {}), decided),
+	apply: (db) =>
+		Effect.map(
+			answered(db.workload.recordUsage.once({ params: {}, facts: P.usageFacts(r) })),
+			decided
+		),
 	ops: usageOps(r)
 })
 
 const refunding = (r: Fact<typeof P.Refund>): Attempt => ({
-	apply: (db) => Effect.map(db.workload.refund.apply({ insert: { Refund: [r] } }, {}), decided),
+	apply: (db) =>
+		Effect.map(
+			answered(db.workload.refund.once({ params: {}, facts: { insert: { Refund: [r] } } })),
+			decided
+		),
 	ops: [insertOp("Refund", [r])]
 })
 
 const rateChange = (c: P.RateChange): Attempt => ({
-	apply: (db) => Effect.map(db.workload.changeRate.apply(P.rateChangeFacts(c), {}), decided),
+	apply: (db) =>
+		Effect.map(
+			answered(db.workload.changeRate.once({ params: {}, facts: P.rateChangeFacts(c) })),
+			decided
+		),
 	ops: [
 		deleteOp("RateTier", c.retired.tiers),
 		deleteOp("RateCard", [c.retired.card]),
@@ -524,7 +537,12 @@ const plantRateInForce = (p: Platform, margin: bigint): Option.Option<Planted> =
 			}
 			return {
 				apply: (db) =>
-					Effect.map(db.workload.addRateCard.apply({ insert: { RateCard: [added] } }, {}), decided),
+					Effect.map(
+						answered(
+							db.workload.addRateCard.once({ params: {}, facts: { insert: { RateCard: [added] } } })
+						),
+						decided
+					),
 				ops: [insertOp("RateCard", [added])]
 			}
 		}
@@ -582,9 +600,11 @@ const plantAllocationCovered = (p: Platform, margin: bigint): Option.Option<Plan
 				const change = (by: ReadonlyArray<Fact<typeof P.Segment>>): Attempt => ({
 					apply: (db) =>
 						Effect.map(
-							db.workload.resegment.apply(
-								{ delete: { Segment: [segment] }, insert: { Segment: by } },
-								{}
+							answered(
+								db.workload.resegment.once({
+									params: {},
+									facts: { delete: { Segment: [segment] }, insert: { Segment: by } }
+								})
 							),
 							decided
 						),
@@ -608,12 +628,22 @@ const plantPaidWithoutPayment = (p: Platform): Option.Option<Planted> =>
 			return {
 				faulty: {
 					apply: (db) =>
-						Effect.map(db.workload.putInvoice.apply({ put: { Invoice: [paid] } }, {}), decided),
+						Effect.map(
+							answered(
+								db.workload.putInvoice.once({ params: {}, facts: { put: { Invoice: [paid] } } })
+							),
+							decided
+						),
 					ops: [putOp("Invoice", [paid])]
 				},
 				sound: {
 					apply: (db) =>
-						Effect.map(db.workload.payInvoice.apply({ invoice: open.id, charge }), decided),
+						Effect.map(
+							answered(
+								db.workload.payInvoice.once({ params: { invoice: open.id, charge }, facts: {} })
+							),
+							decided
+						),
 					ops: [putOp("Invoice", [paid]), insertOp("Payment", [{ invoice: open.id, charge }])]
 				}
 			}
@@ -913,7 +943,7 @@ layer(Substrate.layer)("the platform's laws refuse exactly what they forbid", (i
 										const faulty = yield* planted.faulty.apply(db)
 										assert.deepEqual(
 											faulty,
-											{ kind: "invariant-rejected", laws: [broken] },
+											{ kind: "refused", laws: [broken] },
 											`${c.fault} by ${c.margin}`
 										)
 										cx.note(`refused by ${c.fault}`)

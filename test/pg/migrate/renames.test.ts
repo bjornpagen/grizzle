@@ -59,6 +59,7 @@ import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { assert, defined, nonEmpty } from "#test/support/assert.ts"
+import { readOnce } from "#test/support/calls.ts"
 import { migrated } from "#test/support/installed.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -508,7 +509,7 @@ const renamesCase = (p: Plan, c: Case<RenameFeature>) =>
 				return yield* Effect.forEach(p.relations, (_, i) => {
 					const read = member(served, `read${i}`)
 					return read.kind === "program"
-						? Effect.flatMap(read.ops.execute({}), (result) => result.collect)
+						? readOnce(read)({ params: {}, facts: {} })
 						: Effect.die(new Error(`read${i} is served as a query`))
 				})
 			})

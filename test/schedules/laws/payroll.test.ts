@@ -40,6 +40,7 @@ import type { ServedRefusal } from "#adapter/public/compile.ts"
 import { type ApplyOutcome, Db } from "#adapter/public/db.ts"
 import type { CompileError, TransientTag } from "#compiler/core/errors.ts"
 import { defined } from "#test/support/assert.ts"
+import { answered } from "#test/support/calls.ts"
 import { closedField } from "#test/support/closed/stored.ts"
 import { Instant } from "#test/support/fixtures/api/contracts.ts"
 import * as P from "#test/support/fixtures/api/payroll.ts"
@@ -204,7 +205,7 @@ const runRace = (
 		const g = yield* grizzleActor(
 			"g",
 			f.installed.as(worlds.server).role,
-			hr.workload.noop.apply({}),
+			answered(hr.workload.noop.once({ params: {}, facts: {} })),
 			[psqlPid]
 		)
 		const env = yield* exploreEnv(substrate)
@@ -225,22 +226,24 @@ const runRace = (
 						kind: "grizzle",
 						session: "g",
 						label: "insert ada's leave",
-						call: hr.workload.insertLeave.apply(
-							{
-								insert: {
-									Leave: [
-										{
-											employee: ada,
-											during: {
-												start: instantOf(race.requested.start),
-												end: instantOf(race.requested.end)
-											},
-											reason: race.requested.reason
-										}
-									]
+						call: answered(
+							hr.workload.insertLeave.once({
+								params: {},
+								facts: {
+									insert: {
+										Leave: [
+											{
+												employee: ada,
+												during: {
+													start: instantOf(race.requested.start),
+													end: instantOf(race.requested.end)
+												},
+												reason: race.requested.reason
+											}
+										]
+									}
 								}
-							},
-							{}
+							})
 						),
 						footprint: everyRelation
 					},

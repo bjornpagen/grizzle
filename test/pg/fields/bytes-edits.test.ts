@@ -33,6 +33,7 @@ import { query, v } from "#compiler/public/query.ts"
 import { mutable, relation, schema } from "#compiler/public/schema.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, defined } from "#test/support/assert.ts"
+import { answered, rowsOf } from "#test/support/calls.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -333,19 +334,21 @@ layer(Substrate.layer, { excludeTestServices: true })("bytes edited by their dig
 										const stage = Arr.flatMap(d.staged, (st, id) =>
 											st.as === "unstaged" ? [] : [{ id, body: bodyBytes(st.body) }]
 										)
-										const stored = yield* db.workload.store.apply(
-											{ insert: { Blob: rows, Held: rows, Stage: stage } },
-											{}
+										const stored = yield* answered(
+											db.workload.store.once({
+												params: {},
+												facts: { insert: { Blob: rows, Held: rows, Stage: stage } }
+											})
 										)
 										assert.equal(stored.kind, "accepted", "every stored row is written")
 									}
-									const staging = yield* db.workload.stage.apply({})
+									const staging = yield* answered(db.workload.stage.once({ params: {}, facts: {} }))
 									const staged = Arr.filter(
 										d.staged,
 										(st) => st.as === "one byte off" || st.as === "resized"
 									).length
 									if (staged === 0) {
-										assert.equal(staging.kind, "no-change", "no staged value changes a row")
+										assert.equal(staging.kind, "unchanged", "no staged value changes a row")
 									} else {
 										if (staging.kind !== "accepted") {
 											return assert.fail(`the staged values are put, not ${staging.kind}`)
@@ -361,7 +364,9 @@ layer(Substrate.layer, { excludeTestServices: true })("bytes edited by their dig
 											"a described put counts each row whose value its digest says changed"
 										)
 									}
-									const heldRows = yield* (yield* db.workload.heldRows.execute({})).collect
+									const heldRows = yield* rowsOf(
+										db.workload.heldRows.once({ params: {}, facts: {} })
+									)
 									const held = Arr.sort(heldRows, byId)
 									assert.deepEqual(
 										Arr.map(held, (row) => row.id),
@@ -395,14 +400,16 @@ layer(Substrate.layer, { excludeTestServices: true })("bytes edited by their dig
 									const deletes = Arr.flatMap(d.edits, (e) =>
 										e.kind === "delete" ? [{ id: e.id, body: bodyBytes(e.body) }] : []
 									)
-									const outcome = yield* db.workload.edit.apply(
-										{ put: { Blob: stated }, delete: { Blob: deletes } },
-										{}
+									const outcome = yield* answered(
+										db.workload.edit.once({
+											params: {},
+											facts: { put: { Blob: stated }, delete: { Blob: deletes } }
+										})
 									)
 									if (again !== undefined && d.again === "one byte off") {
 										assert.equal(
 											outcome.kind,
-											"invariant-rejected",
+											"refused",
 											"two facts at one key one byte apart are refused on the key"
 										)
 										return
@@ -410,7 +417,7 @@ layer(Substrate.layer, { excludeTestServices: true })("bytes edited by their dig
 									const put = Arr.filter(d.edits, (e) => e.kind === "put" && e.as !== "same").length
 									const deleted = Arr.filter(d.edits, (e) => e.kind === "delete" && e.exact).length
 									if (put + deleted === 0) {
-										assert.equal(outcome.kind, "no-change", "no edit changes a row")
+										assert.equal(outcome.kind, "unchanged", "no edit changes a row")
 									} else {
 										if (outcome.kind !== "accepted") {
 											return assert.fail(`the edits are accepted, not ${outcome.kind}`)
@@ -440,7 +447,9 @@ layer(Substrate.layer, { excludeTestServices: true })("bytes edited by their dig
 										}),
 										byId
 									)
-									const blobRows = yield* (yield* db.workload.blobRows.execute({})).collect
+									const blobRows = yield* rowsOf(
+										db.workload.blobRows.once({ params: {}, facts: {} })
+									)
 									const blobs = Arr.sort(blobRows, byId)
 									assert.deepEqual(
 										Arr.map(blobs, (row) => row.id),

@@ -25,6 +25,7 @@ import { mutable, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, defined } from "#test/support/assert.ts"
+import { answered, rowsOf } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
@@ -214,11 +215,11 @@ layer(Substrate.layer, { excludeTestServices: true })("a text column's array par
 					return yield* Effect.gen(function* () {
 						const db = yield* Db.open(o.served.login.roles.app, {})
 						const bodies = Effect.map(
-							Effect.flatMap(db.workload.notes.execute({}), (r) => r.collect),
+							rowsOf(db.workload.notes.once({ params: {}, facts: {} })),
 							(rows) => sorted(Arr.map(rows, (row) => row.body))
 						)
 						const values = Effect.map(
-							Effect.flatMap(db.workload.recorded.execute({}), (r) => r.collect),
+							rowsOf(db.workload.recorded.once({ params: {}, facts: {} })),
 							(rows) => sorted(Arr.map(rows, (row) => row.value))
 						)
 						return yield* explore(
@@ -281,18 +282,19 @@ layer(Substrate.layer, { excludeTestServices: true })("a text column's array par
 												)
 										)
 									const rows = Arr.map(texts, (body, i) => ({ id: uuidOf(i + 1), body }))
-									const inserted = yield* db.workload.insertNote.apply(
-										{ insert: { Note: rows } },
-										{}
+									const inserted = yield* answered(
+										db.workload.insertNote.once({ params: {}, facts: { insert: { Note: rows } } })
 									)
 									assert.equal(inserted.kind, "accepted", "the insert is accepted")
 									const afterInsert = yield* bodies
 									const insertedLiteral = yield* literal(texts)
 									assert.deepEqual(afterInsert, insertedLiteral, "the inserted texts read back")
 									const put = Arr.map(rows, (row) => ({ id: row.id, body: reversed(row.body) }))
-									const putOutcome = yield* db.workload.putNote.apply({ put: { Note: put } }, {})
+									const putOutcome = yield* answered(
+										db.workload.putNote.once({ params: {}, facts: { put: { Note: put } } })
+									)
 									assert.ok(
-										putOutcome.kind === "accepted" || putOutcome.kind === "no-change",
+										putOutcome.kind === "accepted" || putOutcome.kind === "unchanged",
 										`the put is lawful, not ${putOutcome.kind}`
 									)
 									const afterPut = yield* bodies
@@ -300,12 +302,14 @@ layer(Substrate.layer, { excludeTestServices: true })("a text column's array par
 									assert.deepEqual(afterPut, putLiteral, "the put texts read back")
 									const deleted = Arr.filter(put, (_, i) => i % 2 === 1)
 									const kept = Arr.filter(put, (_, i) => i % 2 === 0)
-									const deletedOutcome = yield* db.workload.deleteNote.apply(
-										{ delete: { Note: deleted } },
-										{}
+									const deletedOutcome = yield* answered(
+										db.workload.deleteNote.once({
+											params: {},
+											facts: { delete: { Note: deleted } }
+										})
 									)
 									assert.ok(
-										deletedOutcome.kind === "accepted" || deletedOutcome.kind === "no-change",
+										deletedOutcome.kind === "accepted" || deletedOutcome.kind === "unchanged",
 										`the delete is lawful, not ${deletedOutcome.kind}`
 									)
 									const afterDelete = yield* bodies
@@ -316,9 +320,8 @@ layer(Substrate.layer, { excludeTestServices: true })("a text column's array par
 										"the delete removes exactly the facts it names"
 									)
 									const echoRows = Arr.map(texts, (body) => ({ body }))
-									const echoes = yield* Effect.flatMap(
-										db.workload.echoed.execute({ rows: echoRows }),
-										(r) => r.collect
+									const echoes = yield* rowsOf(
+										db.workload.echoed.once({ params: { rows: echoRows }, facts: {} })
 									)
 									const echoedLiteral = yield* literal(Arr.dedupe(texts))
 									assert.deepEqual(
@@ -327,7 +330,9 @@ layer(Substrate.layer, { excludeTestServices: true })("a text column's array par
 										"a relation parameter's texts read back"
 									)
 									const responses = Arr.map(texts, (value, i) => ({ id: uuidOf(i + 1), value }))
-									const answeredOutcome = yield* db.workload.answer.apply({ responses })
+									const answeredOutcome = yield* answered(
+										db.workload.answer.once({ params: { responses }, facts: {} })
+									)
 									assert.equal(
 										answeredOutcome.kind,
 										"accepted",

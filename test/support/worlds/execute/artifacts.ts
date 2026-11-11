@@ -1,18 +1,13 @@
 import { Array as Arr, Deferred, Effect, Exit, Option, Ref, Result } from "effect"
-import { dbReadFrame, type ServedDbContext } from "#adapter/db/context.ts"
-import { memberOpsOn } from "#adapter/db/handles.ts"
-import type { ServedOps } from "#adapter/db/ops.ts"
+import type { ServedDbContext } from "#adapter/db/context.ts"
+import { readCallOf } from "#adapter/db/handles.ts"
 import { toResult } from "#adapter/engine.ts"
-import { type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
-import type { ReadExecutor } from "#adapter/reader/executor.ts"
+import type { ReadError } from "#adapter/errors/execution.ts"
+import type { DecodedRow } from "#adapter/reader/stream.ts"
 import { type LoadedMember, loadServed } from "#adapter/served/load.ts"
-import {
-	asReadFailure,
-	type BatchOutcome,
-	type BatchStatement,
-	runFramed
-} from "#adapter/wire/batch.ts"
+import type { BatchOutcome, BatchStatement } from "#adapter/wire/batch.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
+import type { KeyFields } from "#compiler/live/index.ts"
 import { queryDescOf } from "#compiler/schema/protocol.ts"
 import type { ServedFile, ServedMember } from "#compiler/served/forms.ts"
 import { servedSource } from "#compiler/served/read.ts"
@@ -24,6 +19,7 @@ import {
 	testArtifacts
 } from "#test/support/compile.ts"
 import { conservativePageRuntime } from "#test/support/conservative.ts"
+import { flown, readThrough } from "#test/support/read-calls.ts"
 import { factKeySet, sameFact } from "#test/support/worlds/model/host.ts"
 import type { HostFact } from "#test/support/worlds/model/types.ts"
 
@@ -31,18 +27,18 @@ import type { HostFact } from "#test/support/worlds/model/types.ts"
  * The differential of one read's two artifacts. Every read a Db serves is compiled by generate's compile into its
  * served file: the optimized artifact, which the Db runs, beside which the oracle lowers the same query conservatively,
  * resting on no evidence the context admits (test/support/conservative.ts). Both must deliver the same from the same
- * snapshot (Delivery): a read's rows as one keyed set, and a paged read's pages one by one, each page's edges in order
- * with their cursors and its flags, over every page it reaches from the first or the last and the pages after and
- * before every cursor those pages delivered. Rows that differ, or that either artifact repeats, are
- * `artifacts-disagree`, a defect no model branch allows.
+ * snapshot (Delivery): a read's rows as one keyed set, and a paged read's windows one by one, each window's rows in
+ * order, over every window it reaches from the start or the end and the windows after and before every row those
+ * windows delivered. Rows that differ, or that either artifact repeats, are `artifacts-disagree`, a defect no model
+ * branch allows.
  *
  * The check reads through the members of two served files over the Db's own context (adapter/db/handles.ts
- * memberOpsOn), as the Db runs a member. One is the file the Db's read was served from, so it runs the very statements
- * and page the Db's read ran. The other is that file with every read's statements its conservative lowering and every
+ * readCallOf), as the Db runs a member. One is the file the Db's read was served from, so it runs the very statements
+ * and windows the Db's read ran. The other is that file with every read's statements its conservative lowering and every
  * page's artifact its conservative page artifact (conservativeServed), loaded as a layer loads a file. Their flights
  * meet: each pair of flights, one per artifact, is sent as one flight in one READ ONLY transaction of the Db's role and
- * claims on one leased session, the optimized statements first. Every read path (execute, get, every page, every
- * anchored page) sends its flights in turn, so the k-th flight of one artifact meets the k-th of the other. A flight left
+ * claims on one leased session, the optimized statements first. Every read path (a read, every window, every anchored
+ * window) sends its flights in turn, so the k-th flight of one artifact meets the k-th of the other. A flight left
  * without a partner, because the other artifact read through in fewer flights, is sent alone.
  */
 type Side = "optimized" | "conservative"
@@ -83,18 +79,6 @@ const arrivalAt = (meeting: Meeting, mine: Waiting): readonly [Arrival, Meeting]
 				: [{ kind: "out-of-turn" }, meeting]
 	}
 }
-
-/** One flight's statements sent on a session leased from the Db's pool, in one transaction of its read frame. */
-const flown = (
-	ctx: ServedDbContext,
-	statements: ReadonlyArray<BatchStatement>
-): Effect.Effect<ReadonlyArray<BatchOutcome>, ReadError> =>
-	Effect.scoped(
-		Effect.flatMap(
-			Effect.mapError(ctx.pool.lease, (reason) => new ReadFailure({ reason })),
-			(session) => Effect.mapError(runFramed(session, dbReadFrame(ctx), statements), asReadFailure)
-		)
-	)
 
 /** Two waiting flights sent as one, the optimized first; each side is delivered its own statements' outcomes. */
 const together = (
@@ -176,28 +160,38 @@ const finished = (
 			})
 	)
 
-const executorAt = (ctx: ServedDbContext, meeting: Ref.Ref<Meeting>, side: Side): ReadExecutor => ({
-	run: (flight) =>
-		Effect.flatMap(arrive(ctx, meeting, side, flight.statements), (outcomes) =>
-			Effect.mapError(flight.read(outcomes), (reason) => new ReadFailure({ reason }))
-		)
-})
+/**
+ * A read member as one side reads it: the key fields its rows are keyed by (a paged member's, its completed order's),
+ * and a call's rows, decoded in delivery order, its statement sent through the side's meeting.
+ */
+export interface MemberReader {
+	readonly fields: KeyFields
+	readonly read: (input: unknown) => Effect.Effect<ReadonlyArray<DecodedRow>, ReadError>
+}
 
-/** One page a paged read requested, as two artifacts' pages are held to each other: its edges in order, and its flags. */
-export interface DeliveredPage {
-	readonly edges: ReadonlyArray<{ readonly fact: HostFact; readonly cursor: string }>
-	readonly hasNextPage: boolean
-	readonly hasPreviousPage: boolean
+/** `member` read on one side, its flights sent by `send`: a member that is no read is a defect of the run. */
+export const readerOf = (
+	member: LoadedMember,
+	send: (statements: ReadonlyArray<BatchStatement>) => Effect.Effect<unknown, ReadError>
+): MemberReader => {
+	const parse = readCallOf(member)
+	if (Option.isNone(parse) || member.kind === "change" || member.kind === "refresh") {
+		throw new Error(`the read member ${member.name} loads as no read`)
+	}
+	return {
+		fields: member.read.key.fields,
+		read: (input) => Effect.flatMap(parse.value(input), (parsed) => readThrough(parsed.call, send))
+	}
 }
 
 /**
  * What a read delivers, as the differential holds the two artifacts' deliveries to each other: a keyed set of facts
- * (execute, get, an attachment, a recursive read), or every page a paged read requested, in the order it requested
- * them.
+ * (a read, a key's, an attachment, a recursive read), or every window a paged read requested, in the order it
+ * requested them, each its rows' facts in order.
  */
 export type Delivery =
 	| { readonly kind: "facts"; readonly facts: ReadonlyArray<HostFact> }
-	| { readonly kind: "pages"; readonly pages: ReadonlyArray<DeliveredPage> }
+	| { readonly kind: "windows"; readonly windows: ReadonlyArray<ReadonlyArray<HostFact>> }
 
 /**
  * Whether two sets of facts are one keyed set: neither holds a fact twice, and each fact of one is a fact of the other,
@@ -214,32 +208,23 @@ const sameSet = (left: ReadonlyArray<HostFact>, right: ReadonlyArray<HostFact>):
 	)
 }
 
-/**
- * Whether two pages are one: the same edges in the same order, each the same fact at the same cursor (one codec
- * serves both artifacts, so a boundary's cursor is one token), and the same flags.
- */
-const samePage = (left: DeliveredPage, right: DeliveredPage): boolean =>
-	left.hasNextPage === right.hasNextPage &&
-	left.hasPreviousPage === right.hasPreviousPage &&
-	left.edges.length === right.edges.length &&
-	Arr.every(
-		Arr.zip(left.edges, right.edges),
-		([l, r]) => l.cursor === r.cursor && sameFact(l.fact, r.fact)
-	)
+/** Whether two windows are one: the same facts in the same order. */
+const sameWindow = (left: ReadonlyArray<HostFact>, right: ReadonlyArray<HostFact>): boolean =>
+	left.length === right.length && Arr.every(Arr.zip(left, right), ([l, r]) => sameFact(l, r))
 
 /**
- * Whether two deliveries agree: two keyed sets that are one set (sameSet), or two requests' pages that are, request by
- * request, one page (samePage).
+ * Whether two deliveries agree: two keyed sets that are one set (sameSet), or two requests' windows that are, request
+ * by request, one window (sameWindow).
  */
 const sameDelivery = (left: Delivery, right: Delivery): boolean => {
 	switch (left.kind) {
 		case "facts":
 			return right.kind === "facts" && sameSet(left.facts, right.facts)
-		case "pages":
+		case "windows":
 			return (
-				right.kind === "pages" &&
-				left.pages.length === right.pages.length &&
-				Arr.every(Arr.zip(left.pages, right.pages), ([l, r]) => samePage(l, r))
+				right.kind === "windows" &&
+				left.windows.length === right.windows.length &&
+				Arr.every(Arr.zip(left.windows, right.windows), ([l, r]) => sameWindow(l, r))
 			)
 	}
 }
@@ -331,23 +316,24 @@ export const servedMembers = (
 
 /**
  * Whether the Db's two artifacts of the read `read` makes deliver the same (see the header, and sameDelivery). `read`
- * reads through the operations of the members it names as the Db's read did, a paged read also requesting the pages
- * after and before every cursor its pages reached, each side's run on its own executor over `ctx` (memberOpsOn). A read
- * the Db answered that either artifact refuses here is an answer no observation names, so it is raised as a defect of
- * the run.
+ * reads through the members it names as the Db's read did, a paged read also requesting the windows after and before
+ * every row its windows reached, each side's flights sent through the meeting over `ctx` (readerOf). A read the Db
+ * answered that either artifact refuses here is an answer no observation names, so it is raised as a defect of the
+ * run.
  */
 export const artifactsAgree = <E>(
 	ctx: ServedDbContext,
 	members: SidedMembers,
-	read: (operations: (name: string) => ServedOps<unknown>) => Effect.Effect<Delivery, E>
+	read: (reader: (name: string) => MemberReader) => Effect.Effect<Delivery, E>
 ): Effect.Effect<boolean> =>
 	Effect.gen(function* () {
 		const meeting = yield* Ref.make<Meeting>({ kind: "open" })
 		const sideRead = (side: Side) => {
-			const executor = executorAt(ctx, meeting, side)
+			const send = (statements: ReadonlyArray<BatchStatement>) =>
+				arrive(ctx, meeting, side, statements)
 			return Effect.ensuring(
 				read((name) =>
-					memberOpsOn(executor, ctx, defined(members[side].get(name), `the ${side} member ${name}`))
+					readerOf(defined(members[side].get(name), `the ${side} member ${name}`), send)
 				),
 				finished(ctx, meeting, side)
 			)

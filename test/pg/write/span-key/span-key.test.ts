@@ -21,6 +21,7 @@ import { str } from "#compiler/public/text.ts"
 import type { KeyHost } from "#compiler/types/changeset/changeset.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, containsEqual, unorderedEqual } from "#test/support/assert.ts"
+import { answered } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
@@ -269,7 +270,7 @@ const expected = (
 type SpanFeature =
 	| `${Op} ${Relation}`
 	| `${Op} ${Form}`
-	| `${Op} ${"accepted" | "no-change" | "within the ChangeSet" | "over a stored fact"}`
+	| `${Op} ${"accepted" | "unchanged" | "within the ChangeSet" | "over a stored fact"}`
 	| "insert of an adjacent span accepted"
 	| "put replaces a stored payload"
 	| "put over a stored overlap at another key"
@@ -316,21 +317,25 @@ const applyCase = (
 	if (c.relation === "Room") {
 		if (c.form === "enumerated") {
 			return c.op === "insert"
-				? db.workload.insertRoom.apply({ insert: { Room: roomFacts } }, {})
-				: db.workload.putRoom.apply({ put: { Room: roomFacts } }, {})
+				? answered(
+						db.workload.insertRoom.once({ params: {}, facts: { insert: { Room: roomFacts } } })
+					)
+				: answered(db.workload.putRoom.once({ params: {}, facts: { put: { Room: roomFacts } } }))
 		}
 		return c.op === "insert"
-			? db.workload.insertRoomItems.apply({ items: roomFacts })
-			: db.workload.putRoomItems.apply({ items: roomFacts })
+			? answered(db.workload.insertRoomItems.once({ params: { items: roomFacts }, facts: {} }))
+			: answered(db.workload.putRoomItems.once({ params: { items: roomFacts }, facts: {} }))
 	}
 	if (c.form === "enumerated") {
 		return c.op === "insert"
-			? db.workload.insertHold.apply({ insert: { Hold: holdFacts } }, {})
-			: db.workload.putHold.apply({ put: { Hold: holdFacts } }, {})
+			? answered(
+					db.workload.insertHold.once({ params: {}, facts: { insert: { Hold: holdFacts } } })
+				)
+			: answered(db.workload.putHold.once({ params: {}, facts: { put: { Hold: holdFacts } } }))
 	}
 	return c.op === "insert"
-		? db.workload.insertHoldItems.apply({ items: holdFacts })
-		: db.workload.putHoldItems.apply({ items: holdFacts })
+		? answered(db.workload.insertHoldItems.once({ params: { items: holdFacts }, facts: {} }))
+		: answered(db.workload.putHoldItems.once({ params: { items: holdFacts }, facts: {} }))
 }
 
 layer(Substrate.layer, { excludeTestServices: true })(
@@ -409,7 +414,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										cx.note(`${c.op} ${c.relation}`)
 										cx.note(`${c.op} ${c.form}`)
 										if (want.kind === "refused") {
-											if (outcome.kind !== "invariant-rejected") {
+											if (outcome.kind !== "refused") {
 												return assert.fail(`a refusal by the span key, not ${outcome.kind}`)
 											}
 											assert.deepEqual(refusedLaws(outcome.refused), [
@@ -438,7 +443,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 											Arr.map(want.final, (f) => rowOf(c.relation, f))
 										)
 										if (want.changed === 0) {
-											assert.equal(outcome.kind, "no-change")
+											assert.equal(outcome.kind, "unchanged")
 											cx.note(`${c.op} no-change`)
 											return
 										}

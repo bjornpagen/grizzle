@@ -10,6 +10,7 @@ import { memberOps } from "#adapter/db/handles.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, unorderedEqual } from "#test/support/assert.ts"
+import { answered, writeOnce } from "#test/support/calls.ts"
 import {
 	admittedFillSpecGen,
 	besides,
@@ -877,14 +878,19 @@ layer(Substrate.layer, { excludeTestServices: true })("the fill order on the clu
 								const loaded = yield* db.load(programs)
 								/** A member applied on the tapped context with its call's facts. */
 								const applied = (name: string, callFacts: CallFacts) =>
-									appliedWith(memberOps(flight.context, member(loaded, name)), callFacts, {})
+									answered(
+										writeOnce(memberOps(flight.context, member(loaded, name)))({
+											params: {},
+											facts: callFacts
+										})
+									)
 								const outcome = yield* flight.judged(
 									"the instance's first insert",
 									applied("first", firstFacts)
 								)
 								assert.equal(
 									outcome.kind,
-									rows.length === 0 ? "no-change" : "accepted",
+									rows.length === 0 ? "unchanged" : "accepted",
 									`the instance's first insert of ${Formatter.format(spec)}`
 								)
 								const stores = (instance: ReadonlyArray<InstanceRow>, after: string) =>

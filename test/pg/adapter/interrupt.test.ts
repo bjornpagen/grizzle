@@ -48,6 +48,7 @@ import { Uuid } from "#compiler/public/fields.ts"
 import { defaultPool, poolFor, rowsOn, until } from "#test/pg/adapter/support.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, assertVariant, succeeded } from "#test/support/assert.ts"
+import { answered, oneOf, readOnce, writeOnce } from "#test/support/calls.ts"
 import { exactValue } from "#test/support/equivalence.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { a1, t1, workFacts } from "#test/support/fixtures/golden/work.ts"
@@ -306,7 +307,7 @@ const aimedSketch = (sketch: CaseSketch, cx: Case<InterruptFeature>): CaseSketch
 /** A change member of array members, applied with the call's facts. */
 const applyFacts = (change: ServedOps<unknown>, facts: unknown) => {
 	assertVariant(change, "kind", "facts", "the write's member takes its call's facts")
-	return change.ops.apply(facts, {})
+	return answered(writeOnce(change)({ params: {}, facts: facts }))
 }
 
 /** The search: the Work installed once, a Db opened on it whose context and members every case's tapped pools reuse,
@@ -401,9 +402,7 @@ const interruptCases = Effect.gen(function* () {
 									)
 								)
 							: Effect.orDie(
-									Effect.asVoid(
-										Effect.flatMap(on(pool, "cards").ops.execute({ account: a1 }), (r) => r.collect)
-									)
+									Effect.asVoid(readOnce(on(pool, "cards"))({ params: { account: a1 }, facts: {} }))
 								)
 					/** A tapped pool of one fresh session, warmed, so a window holds one call's traffic alone. */
 					const tappedDb = Effect.gen(function* () {
@@ -576,7 +575,7 @@ const interruptCases = Effect.gen(function* () {
 					}
 					const leased = yield* pool.leased
 					assert.equal(leased, 0, "the pool has no session leased")
-					const probe = yield* on(pool, "task").ops.get({ id: t1 })
+					const probe = yield* oneOf(readOnce(on(pool, "task"))({ params: { id: t1 }, facts: {} }))
 					assert.ok(Option.isSome(probe), "the next call succeeds")
 				})
 			)

@@ -135,9 +135,6 @@ interface WRead {
  */
 export type WBinding = "passed" | "bound" | "bound as streams"
 
-/** Which entry point applies the ChangeSet. */
-export type Entry = "apply" | "compile"
-
 /**
  * Generated ChangeSets of one group.
  *
@@ -196,7 +193,6 @@ export interface WChangeSet {
 	/** Scalar parameters by name, and relation parameters as arrays of facts. */
 	readonly params: ParamMap
 	readonly binding: WBinding
-	readonly entry: Entry
 }
 
 /** Whether a fact of `relation` omits its serial fields: a generated addition. */
@@ -738,8 +734,7 @@ export const plantedChangeSet = (group: WGroup, arm: PlantedArm, stored: WFacts)
 		strata: [members],
 		reads,
 		params,
-		binding: "passed",
-		entry: "apply"
+		binding: "passed"
 	})
 	/**
 	 * A put of the relation parameter rp0 on the mutable relation beside the deletion of its facts whose b is p1 and whose
@@ -1390,8 +1385,7 @@ export const resolveChangeSet =
 			strata,
 			reads,
 			params,
-			binding,
-			entry: kept("compiled") ? "compile" : "apply"
+			binding
 		}
 	}
 
@@ -1837,7 +1831,7 @@ export const printChangeSet = (c: WChangeSet): string =>
 				),
 				", "
 			)} }`,
-			`parameters ${c.binding}, through ${c.entry}`
+			`parameters ${c.binding}`
 		],
 		"\n"
 	)

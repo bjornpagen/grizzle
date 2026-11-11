@@ -6,7 +6,6 @@ import { keep, type Swarm, swarm, swarmChoice } from "@grizzle/testing/swarm"
 import { valuesFromToken } from "@grizzle/testing/tape"
 import { Array as Arr, Effect, Option, Record as Rec, Result, Stream, String as Str } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
-import { changeOps } from "#adapter/db/db.ts"
 import { readParams } from "#adapter/reader/params.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import { refinedMember } from "#compiler/codec/scalar.ts"
@@ -338,8 +337,6 @@ const changeSetFaults = [
 	"ChangeSets over unrelated schemas",
 	"a role that does not write the relation",
 	"a parameter left unbound",
-	"a compiled ChangeSet read by execute",
-	"a compiled ChangeSet read by get",
 	"an argument naming no parameter",
 	"a parameter map of a wider type",
 	"a bind of a value that is no record"
@@ -599,7 +596,7 @@ type ChangeSpec =
  */
 interface ApplySpec {
 	readonly role: RoleName
-	readonly entry: "apply" | "compile" | "execute" | "get" | "compiled apply"
+	readonly entry: "apply" | "compile" | "compiled apply"
 	readonly args: Argument
 	/**
 	 * Where db.apply or db.compile is given a choice of two ChangeSets, `flip ? c : ChangeSet.sequence(c, choice)`, the
@@ -1552,12 +1549,6 @@ const describedWithParam = (d: Drawing): MemberSpec => {
 	}
 }
 
-/** The faults that read a compiled ChangeSet as a compiled query is read. */
-const compiledReadFaults: ReadonlyArray<ChangeSetFault> = [
-	"a compiled ChangeSet read by execute",
-	"a compiled ChangeSet read by get"
-]
-
 /** A case's ChangeSet: one built over Work or its extension, or a union or sequence of two. */
 const changeOf = (d: Drawing, fault: ChangeSetFault | undefined): ChangeSpec => {
 	const clean = fault === undefined
@@ -1566,8 +1557,7 @@ const changeOf = (d: Drawing, fault: ChangeSetFault | undefined): ChangeSpec => 
 		fault === "a parameter left unbound" ||
 		fault === "an append to an owner its stratum does not insert" ||
 		fault === "an argument naming no parameter" ||
-		fault === "a parameter map of a wider type" ||
-		(fault !== undefined && Arr.contains(compiledReadFaults, fault))
+		fault === "a parameter map of a wider type"
 	const derivedFault =
 		fault === "a derived relation written" || fault === "a derived relation's delta read"
 	const level = (): Level =>
@@ -1636,8 +1626,6 @@ const freeParams = (c: ChangeSpec): ReadonlyArray<readonly [string, Lit]> =>
 /** The faults planted in a case's application rather than in its ChangeSet, whatever ChangeSet it applies. */
 const applicationFaults: ReadonlyArray<ChangeSetFault> = [
 	"a role that does not write the relation",
-	"a compiled ChangeSet read by execute",
-	"a compiled ChangeSet read by get",
 	"an argument naming no parameter",
 	"a parameter map of a wider type"
 ]
@@ -1678,8 +1666,7 @@ const caseOver = (d: Drawing): CaseSpec => {
 		fault === "a parameter left unbound" ||
 		fault === "an append to an owner its stratum does not insert" ||
 		fault === "an argument naming no parameter" ||
-		fault === "a parameter map of a wider type" ||
-		(fault !== undefined && Arr.contains(compiledReadFaults, fault))
+		fault === "a parameter map of a wider type"
 	const applies = forced || d.keep("applied")
 	if (!applies || levelOf(change) !== "Work" || (fault !== undefined && !forced)) {
 		return { change, apply: undefined, fault }
@@ -1691,18 +1678,13 @@ const caseOver = (d: Drawing): CaseSpec => {
 	const entry =
 		fault === "a parameter left unbound"
 			? "apply"
-			: fault === "a compiled ChangeSet read by execute"
-				? "execute"
-				: fault === "a compiled ChangeSet read by get"
-					? "get"
-					: fault === "an argument naming no parameter" ||
-						  fault === "a parameter map of a wider type"
-						? d.from(["apply", "compiled apply"] as const)
-						: d.aimed("a choice of two ChangeSets compiled")
-							? "compile"
-							: d.aimed("a choice of two ChangeSets applied")
-								? "apply"
-								: d.from(["apply", "apply", "compile"] as const)
+			: fault === "an argument naming no parameter" || fault === "a parameter map of a wider type"
+				? d.from(["apply", "compiled apply"] as const)
+				: d.aimed("a choice of two ChangeSets compiled")
+					? "compile"
+					: d.aimed("a choice of two ChangeSets applied")
+						? "apply"
+						: d.from(["apply", "apply", "compile"] as const)
 	const roleFault =
 		fault === "a role that does not write the relation" && Arr.isReadonlyArrayNonEmpty(writes)
 	const chosen =
@@ -2450,17 +2432,6 @@ const outsideItsDomain = (laws: ReturnType<typeof realityWrite>["laws"], c: Chan
 	)
 
 /**
- * The operations db.compile's handle of a compiled ChangeSet over `level` offers (changeOps), the shell's oracle of what
- * a compiled ChangeSet does when read as a query: a read refuses before it reads its parameters or reaches the compiled
- * value's apply.
- */
-const compiledChange = (level: Level) =>
-	changeOps({
-		schema: levels[level],
-		apply: () => Effect.die(new Error("a compiled ChangeSet read as a query never applies"))
-	})
-
-/**
  * The engine's verdict on a case: its own ChangeSet's, and, where its application is given a choice, refused where
  * either branch is, at the call that is given both.
  */
@@ -2567,14 +2538,6 @@ const verdictOfOne = (spec: CaseSpec): Verdict => {
 		const applied = compileWrite(world.checked, desc, world.options)
 		if (!applied.ok) {
 			return refusedAt("apply", applied.error, spec)
-		}
-		if (spec.apply.entry === "execute" || spec.apply.entry === "get") {
-			const ops = compiledChange(levelOf(spec.change))
-			const failure =
-				spec.apply.entry === "execute"
-					? Effect.runSync(Effect.flip(ops.execute({})))
-					: Effect.runSync(Effect.flip(ops.get({})))
-			return refusedAt("apply", failure._tag === "ReadFailure" ? failure.reason : failure, spec)
 		}
 	}
 	if (spec.fault === "a value missing its brand") {
@@ -3297,9 +3260,7 @@ const blockOf = (c: ChangeSetCase, i: number): string => {
 			? `db.apply(${given}, ${passed})`
 			: apply.entry === "compile"
 				? `db.compile(${given})`
-				: apply.entry === "compiled apply"
-					? `h.apply(${passed})`
-					: `h.${apply.entry}(${passed})`
+				: `h.apply(${passed})`
 	const handle =
 		apply.entry === "apply" || apply.entry === "compile"
 			? `db: DbOf<typeof ${apply.role}, unknown>`

@@ -2,7 +2,7 @@ import { array, constant, element, type Gen, int, weighted } from "@grizzle/test
 import type { PctSchedule } from "@grizzle/testing/interleave"
 import { keep, type Swarm, swarm, swarmChoice } from "@grizzle/testing/swarm"
 import { Array as Arr, Effect, Option, Record, String as Str } from "effect"
-import type { ApplyOutcome } from "#adapter/public/db.ts"
+import type { ApplyOutcome } from "#adapter/types/db.ts"
 import type { TransientTag } from "#compiler/core/errors.ts"
 import {
 	emptyState,

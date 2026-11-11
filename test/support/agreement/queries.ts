@@ -7,15 +7,12 @@ import { valuesFromToken } from "@grizzle/testing/tape"
 import {
 	Array as Arr,
 	Effect,
-	Result as EffectResult,
 	Option,
 	pipe,
 	Record as Rec,
 	String as Str
 } from "effect"
-import { pageRequest } from "#adapter/page/request.ts"
 import { requireGet } from "#compiler/analysis/logical/get.ts"
-import { cursorCodec, cursorTokenMaxLength } from "#compiler/codec/cursor/codec.ts"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import { headingsOf } from "#compiler/core/decoder.ts"
 import type { CompileReason } from "#compiler/core/errors.ts"
@@ -29,7 +26,6 @@ import type { Card } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { compilePage, statedOrderOf } from "#compiler/lower/shapes/page/compile.ts"
 import { type QueryTemplate, queryInput } from "#compiler/program/compile.ts"
-import { parseSchemaInput } from "#compiler/program/schema.ts"
 import { ALLEN } from "#compiler/public/allen.ts"
 import { date, pg, uuid, Vector } from "#compiler/public/fields.ts"
 import { keyLookup } from "#compiler/query/build/key.ts"
@@ -74,7 +70,6 @@ import {
 } from "#test/support/agreement/schema.ts"
 import { defined, succeeded } from "#test/support/assert.ts"
 import {
-	codebookFor,
 	compileTemplateOver,
 	type FixtureSchema,
 	testArtifacts,
@@ -161,22 +156,17 @@ import { upTo } from "#test/support/up-to.ts"
  * relations, keyed as their definitions prove; a query matching or negating a derived relation is over Rollup
  * (schemaOf). Each case reads through the Db of a full role, Reader over Agree or Reporter over Rollup, which reads its
  * query exactly where the runtime's compilation against the role does (readsThrough): Reporter reads queries over Agree,
- * and Reader refuses one over Rollup, its get and execute under their directives. Each clean case also states a keyed
- * get (keyedOf): through a relation's primary key, Item's candidate key, the closed relation's key or the roster's id,
- * its values named exactly the key's fields, those and one more, all but one, or all but one and one more in its
- * place, admitted exactly where the names hold the engine's key fields (query/build/key.ts keyLookup), as the runtime
- * reads them, its row the keyed relation's decoded fact.
+ * and Reader refuses one over Rollup, its once under its directive, its value a KeyedSet of the query's records with
+ * the error channel CallError. Each clean case also states a keyed read (keyedOf): through a relation's primary key,
+ * Item's candidate key, the closed relation's key or the roster's id, its values named exactly the key's fields, those
+ * and one more, all but one, or all but one and one more in its place, admitted exactly where the names hold the
+ * engine's key fields (query/build/key.ts keyLookup), as the runtime reads them, its value a KeyedSet of the keyed
+ * relation's decoded fact.
  *
  * A query no take closes and of one heading is also paged (pageOf): ordered by its first head field, a paged member
- * of the role's workload (paged(...)), its page is of that very ordered query (Page<records, typeof ordered>, whatever
- * the types infer of its parameters on the way), its error channel ReadError | CursorError, the query unordered is
- * refused by paged(...) as the engine reads no stated order of it, and a page request drawn valid, of a shape the runtime refuses, or with an anchor
- * null, undefined or a plain string is admitted exactly where the runtime admits it: its shape where its request reader
- * does (adapter/page/request.ts pageRequest), and a plain string's anchor where the page's cursor codec decodes it
- * (adapter/page/template.ts pageRuntimeOf). Each page is also read through a compiled handle of the ordered query,
- * its type and verdict the same. A cursor anchor is another query's, a module's PageCursor<unknown>, which the types and
- * the request reader admit and the page's codec refuses by the query it was made for: a declared class, the request's
- * shape admitted. An approximate search is no page's.
+ * of the role's workload (paged(...)), its first window's value a KeyedList of that very ordered query's records with the
+ * error channel CallError, and the query unordered refused by paged(...) as the engine reads no stated order of it. An
+ * approximate search is no page's.
  *
  * The clean program is emitted twice, in the drawn order and in a second drawn order, as two modules, and a third
  * asserts every query's head and keys equal across the two: TypeScript's evaluation of the evidence must not depend on
@@ -291,8 +281,6 @@ export type AgreementNote =
 	| "a variable two filters fix"
 	| "a flag whose readings each prove more than both state"
 	| "a contract in the head"
-	| "a page request admitted"
-	| "a page request refused"
 	| "an unordered page refused"
 	| "a span parameter opposite r.allen"
 	| "a span parameter opposite r.pointIn"
@@ -699,15 +687,6 @@ interface RuleSpec {
 	readonly spellings: ReadonlyArray<readonly [string, Spelling]>
 }
 
-/**
- * A page request a case states over its ordered query: each control property it holds, by its value. A size is 2; an
- * anchor is a cursor, null, undefined or a plain string, a `string` no cursor codec made. Each request plants at most
- * one fault: a shape the runtime refuses (both sizes, no size, both anchors, an anchor of the other direction), or an
- * anchor that is no cursor.
- */
-type RequestValue = "size" | "cursor" | "null" | "undefined" | "string"
-type PageRequestSpec = ReadonlyArray<readonly ["first" | "last" | "after" | "before", RequestValue]>
-
 /** One query: its arms (a union when two), the take that closes it, if any, and the fault it plants. */
 interface QuerySpec {
 	readonly arms: Arr.NonEmptyReadonlyArray<RuleSpec>
@@ -719,10 +698,10 @@ interface QuerySpec {
 	readonly hidden: string | undefined
 	readonly fault: Planted
 	/**
-	 * The request a page of the query states, where the query is no take's, which a page reads no further, and no union
-	 * of two headings, which shares no field a page could order by.
+	 * Whether a page of the query is stated: where the query is no take's, which a window reads no further, and no union
+	 * of two headings, which shares no field a window could order by.
 	 */
-	readonly request: PageRequestSpec | undefined
+	readonly paged: boolean
 	/** The approximate search that closes the query's arm, before its take, where the query states one. */
 	readonly nearest: Nearest | undefined
 	/** The role whose Db the query's reads go through: the full role over Agree, or over Rollup. */
@@ -2237,7 +2216,7 @@ const drawQuery = (d: Drawing): QuerySpec => {
 				: d.from(["id", "owner", "nope"] as const)
 			: undefined,
 		fault: d.fault,
-		request: take === undefined && !heterogeneous && !search ? requestOf(d) : undefined,
+		paged: take === undefined && !heterogeneous && !search,
 		nearest: search ? nearestOf(d, first) : undefined,
 		db: d.keep("reporterDb") ? "Reporter" : "Reader",
 		keyed:
@@ -2263,49 +2242,6 @@ const nearestOf = (d: Drawing, rule: RuleSpec): Nearest => {
 				? d.from(names)
 				: distance.value[0],
 		take: d.from([1, 3] as const)
-	}
-}
-
-/**
- * A page request: a valid one, one of a shape the runtime refuses, or one whose anchor is null or undefined, each a
- * direction's size with its anchor or none.
- */
-const requestOf = (d: Drawing): PageRequestSpec => {
-	const [size, anchor] = d.from([
-		["first", "after"],
-		["last", "before"]
-	] as const)
-	const anchored = (value: RequestValue): PageRequestSpec => [
-		[size, "size"],
-		[anchor, value]
-	]
-	switch (d.from(["valid", "valid", "shape", "null", "undefined", "string"] as const)) {
-		case "valid":
-			return d.from([[[size, "size"]], anchored("cursor")] as const)
-		case "null":
-			return anchored("null")
-		case "undefined":
-			return anchored("undefined")
-		case "string":
-			return anchored("string")
-		case "shape":
-			return d.from<PageRequestSpec>([
-				[
-					["first", "size"],
-					["last", "size"]
-				],
-				[],
-				[[anchor, "cursor"]],
-				[
-					[size, "size"],
-					["after", "cursor"],
-					["before", "cursor"]
-				],
-				[
-					[size, "size"],
-					[anchor === "after" ? "before" : "after", "cursor"]
-				]
-			])
 	}
 }
 
@@ -3148,7 +3084,7 @@ interface Proved {
 	readonly keys: Arr.NonEmptyReadonlyArray<ReadonlyArray<ReadonlyArray<ReadonlyArray<string>>>>
 	readonly head: string
 	readonly params: string
-	/** Its page's verdicts, where the query is no take's: the order it pages by, and its request's refusal, if any. */
+	/** Its page's verdicts, where the query is no take's: the order its windows read by. */
 	readonly page: PageVerdict | undefined
 	/**
 	 * The facts a variable read from each column of its heading has, by the column's type (./heading.ts columnFacts),
@@ -3162,11 +3098,9 @@ interface Proved {
 	readonly reads: boolean
 }
 
-/** The engine's verdicts on a page of a query: the field it orders by, and the runtime's verdict on its request. */
+/** The engine's verdicts on a page of a query: the field it orders by. */
 interface PageVerdict {
 	readonly by: string
-	readonly request: PageRequestSpec
-	readonly refused: RefusedQuery | undefined
 	/** Whether the query itself states no order, which the engine reads none of, so paged(...) refuses it. */
 	readonly unordered: boolean
 }
@@ -3354,54 +3288,11 @@ const headOf = (spec: QuerySpec): string =>
 		" | "
 	)
 
-/** The plain string a request's anchor is, which no cursor codec made. */
-const plainToken = "not a cursor"
-
-/** A request's value as the runtime reads it: a size, a cursor's token, null, undefined or a plain string. */
-const requestValue = (value: RequestValue): unknown => {
-	switch (value) {
-		case "size":
-			return 2
-		case "cursor":
-			return "token"
-		case "null":
-			return null
-		case "undefined":
-			return undefined
-		case "string":
-			return plainToken
-	}
-}
-
-/**
- * The refusal the types state of a page request the runtime refuses: of its shape (adapter/page/request.ts
- * pageRequest), an anchor that is null or no string, which an anchor's property refuses, an explicitly undefined one
- * under exactOptionalPropertyTypes, and any other shape the request's argument refuses; and of a shape it admits, a
- * plain string's anchor the page's cursor codec refuses (`decodes`).
- */
-const requestRefusal = (
-	request: PageRequestSpec,
-	decodes: (token: string) => boolean
-): RefusedQuery | undefined => {
-	const value = Rec.fromEntries(Arr.map(request, ([k, v]) => [k, requestValue(v)] as const))
-	if (EffectResult.isSuccess(pageRequest(value))) {
-		return Arr.some(request, ([, v]) => v === "string") && !decodes(plainToken)
-			? prose("a plain string is no cursor")
-			: undefined
-	}
-	const values = Arr.map(request, ([, v]) => v)
-	return Arr.contains(values, "null")
-		? prose("an explicitly supplied null cursor")
-		: Arr.contains(values, "undefined")
-			? prose("an explicitly supplied undefined cursor")
-			: prose("a request shape the runtime refuses")
-}
-
 /**
  * A page of the query ordered by its first head field, as a paged member's page compiles (adapter/page/template.ts):
  * the page compiler over the template compiled for a page and its stated order, against the schema's names.
  */
-const pageOf = (spec: QuerySpec, request: PageRequestSpec): PageVerdict => {
+const pageOf = (spec: QuerySpec): PageVerdict => {
 	const by = orderedBy(spec)
 	const paged = Result.flatMap(
 		catchCompileError(() => built(spec).orderBy([by, "asc"])),
@@ -3422,35 +3313,12 @@ const pageOf = (spec: QuerySpec, request: PageRequestSpec): PageVerdict => {
 	if (!paged.ok) {
 		throw new Error(`the engine refuses a page of a drawn query: ${messageOf(paged.error)}`)
 	}
-	const codec = Result.flatMap(
-		Result.flatMap(parseSchemaInput(schemaValue(spec)), (input) =>
-			codebookFor(input, testCompile.codes)
-		),
-		(codes) =>
-			cursorCodec(
-				{
-					query: "the drawn query",
-					comparators: paged.value.comparators,
-					generation: { schema: "the agreement schema", extensions: {} }
-				},
-				cursorTokenMaxLength,
-				codes
-			)
-	)
-	if (!codec.ok) {
-		throw new Error(`the engine makes no cursor codec of a drawn page: ${messageOf(codec.error)}`)
-	}
 	const unordered = Result.flatMap(
 		catchCompileError(() => built(spec)),
 		(q) =>
 			Result.flatMap(queryInput(q), (input) => statedOrderOf(input.desc, SourceLoc("query", [])))
 	)
-	return {
-		by,
-		request,
-		refused: requestRefusal(request, (token) => codec.value.decode(token).ok),
-		unordered: !unordered.ok
-	}
+	return { by, unordered: !unordered.ok }
 }
 
 /** The cardinality both readings of a flagged rule hold: the one they share, else at most one where each is, else many. */
@@ -3544,7 +3412,7 @@ const verdictOf = (spec: QuerySpec, source: string): Verdict => {
 				? recordType(Arr.map(first.heading, (c) => [c.name, columnFacts(c.type)] as const))
 				: undefined,
 			params: paramsType(params),
-			page: spec.request === undefined ? undefined : pageOf(variants[0], spec.request),
+			page: spec.paged ? pageOf(variants[0]) : undefined,
 			reads: readsThrough(spec, failed)
 		}
 	}
@@ -3887,7 +3755,6 @@ const caseOf = ({ spec, reached }: Drawn): AgreementCase => {
 		}
 		const page = verdict.proved.page
 		if (page !== undefined) {
-			notes.add(page.refused === undefined ? "a page request admitted" : "a page request refused")
 			if (page.unordered) {
 				notes.add("an unordered page refused")
 			}
@@ -4245,12 +4112,6 @@ export const reorderedVerdicts = (seed: number): ReadonlyArray<string> =>
 			: [`${c.source}\n  as written: ${verdictText(c.verdict)}\n  reordered: ${verdictText(moved)}`]
 	})
 
-/**
- * The refusal a workload handle's get names for a query not proved at most one row per binding (adapter/types/db.ts
- * Compiled).
- */
-const getRefusal: Refused = "get needs a query proved at most one row per parameter binding"
-
 /** The evidence program's prelude (test/support/programs/evidence.ts), every name its modules read. */
 const prelude = await Effect.runPromise(preludeAt("test/support/programs/evidence.ts"))
 
@@ -4381,23 +4242,15 @@ const blockOf = (c: AgreementCase, i: number, paged: boolean): ReadonlyArray<str
 			]
 		}
 		case "admitted": {
-			const { get, card, readings, keys, head, facts, params, page, reads } = c.verdict.proved
+			const { card, readings, keys, head, facts, params, page, reads } = c.verdict.proved
 			const keyed = Arr.map(keys, keysType)
-			const handle = `(h: WorkloadHandles<typeof ${c.spec.db}, (typeof wl${i})["programs"]>["m"]) => (args: GetArg<typeof q${i}>) =>`
+			const handle = `(h: WorkloadHandles<typeof ${c.spec.db}, (typeof wl${i})["programs"]>["m"]) => (input: InputOf<typeof q${i}>) =>`
 			return [
-				`/** The engine ${get ? "proves" : "refuses"} get; its card: ${card}${readings === card ? "" : `, and ${readings} under each reading of its flag alone`}; its keys: ${Arr.join(keyed, "; under the other flag, ")}; ${c.spec.db}'s workload ${reads ? "holds" : "refuses"} it. */`,
+				`/** Its card: ${card}${readings === card ? "" : `, and ${readings} under each reading of its flag alone`}; its keys: ${Arr.join(keyed, "; under the other flag, ")}; ${c.spec.db}'s workload ${reads ? "holds" : "refuses"} it. */`,
 				...Arr.map(lines, (l) => l.text),
 				...(reads ? [] : [levelDirective]),
 				`export const wl${i} = workload(${c.spec.db}, { m: q${i} })`,
-				...(reads
-					? [
-							`export const g${i} = ${handle}`,
-							...(get ? [] : [`\t// @ts-expect-error -- refusal: ${getRefusal}`]),
-							"\th.get(args)",
-							`export const e${i} = ${handle}`,
-							"\th.execute(args)"
-						]
-					: []),
+				...(reads ? [`export const e${i} = ${handle}`, "\th.once(input)"] : []),
 				...Arr.map(
 					keyed,
 					(k, j) => `export type k${i}_${j} = Expect<Equals<Unproved<typeof q${i}, ${k}>, never>>`
@@ -4412,12 +4265,7 @@ const blockOf = (c: AgreementCase, i: number, paged: boolean): ReadonlyArray<str
 				`export type c${i} = Expect<Equals<EvidenceOfQuery<typeof q${i}>["card"], ${jsonText(card)}>>`,
 				...(reads
 					? [
-							`export type x${i} = Expect<Equals<ReturnType<ReturnType<typeof e${i}>>, Effect.Effect<QueryResult<${head}>, ReadError>>>`,
-							...(get
-								? [
-										`export type y${i} = Expect<Equals<ReturnType<ReturnType<typeof g${i}>>, Effect.Effect<Option.Option<${head}>, ReadError>>>`
-									]
-								: []),
+							`export type x${i} = Expect<Equals<ReturnType<ReturnType<typeof e${i}>>, Effect.Effect<KeyedSet<${head}>, CallError>>>`,
 							...(paged && page !== undefined ? pageLines(i, head, page, c.spec.db) : [])
 						]
 					: []),
@@ -4459,46 +4307,20 @@ const keyedLines = (k: KeyedVerdict | undefined, i: number): ReadonlyArray<strin
 	return [
 		`export const wk${i} = workload(Reader, { m: ${k.target} })`,
 		`export const kg${i} = (h: WorkloadHandles<typeof Reader, (typeof wk${i})["programs"]>["m"]) =>`,
-		...(k.admitted ? [] : ["\t// @ts-expect-error -- refused: a keyed get names every key field"]),
-		`\th.get(${k.record})`,
+		...(k.admitted ? [] : ["\t// @ts-expect-error -- refused: a key's read names every key field"]),
+		`\th.once({ params: ${k.record}, facts: {} })`,
 		...(k.admitted
 			? [
-					`export type kr${i} = Expect<Equals<ReturnType<typeof kg${i}>, Effect.Effect<Option.Option<${k.fact}>, ReadError>>>`
+					`export type kr${i} = Expect<Equals<ReturnType<typeof kg${i}>, Effect.Effect<KeyedSet<${k.fact}>, CallError>>>`
 				]
 			: [])
 	]
 }
 
-/** A page request in the program: its control properties, each a size, the module's cursor, null or undefined. */
-const requestText = (request: PageRequestSpec): string =>
-	Arr.isReadonlyArrayNonEmpty(request)
-		? `{ ${Arr.join(
-				Arr.map(request, ([k, v]) => `${k}: ${requestValueText(v)}`),
-				", "
-			)} }`
-		: "{}"
-
-/** A request's value in the program: a size, the module's cursor, null, undefined, or the module's plain string. */
-const requestValueText = (value: RequestValue): string => {
-	switch (value) {
-		case "size":
-			return "2"
-		case "cursor":
-			return "cursor"
-		case "null":
-			return "null"
-		case "undefined":
-			return "undefined"
-		case "string":
-			return "plainToken"
-	}
-}
-
 /**
- * A case's pages, through the handle of the paged member of the role's workload that pages its query ordered by the
- * page's field (paged(...)): a page whose type is the page of that very ordered query with the error channel ReadError
- * | CursorError, and a page under the drawn request, under its refusal's directive where the runtime refuses it; and,
- * where the query states no order, paged(...) of the query itself refused.
+ * A case's windows, through the handle of the paged member of the role's workload that pages its query ordered by the
+ * page's field (paged(...)): its first window, whose value is a KeyedList of that very ordered query's records with the
+ * error channel CallError; and, where the query states no order, paged(...) of the query itself refused.
  */
 const pageLines = (
 	i: number,
@@ -4506,27 +4328,13 @@ const pageLines = (
 	page: PageVerdict,
 	role: QuerySpec["db"]
 ): ReadonlyArray<string> => {
-	const directive =
-		page.refused === undefined
-			? []
-			: [
-					page.refused.claim.kind === "refusal"
-						? `		// @ts-expect-error -- refusal: ${page.refused.claim.refusal}`
-						: `		// @ts-expect-error -- refused: ${page.refused.claim.reason}`
-				]
-	const paged = `Effect.Effect<Page<${head}, typeof o${i}>, ReadError | CursorError>`
-	const handle = `(h: WorkloadHandles<typeof ${role}, (typeof wp${i})["programs"]>["p"]) => (args: GetArg<typeof q${i}>) =>`
+	const windowed = `Effect.Effect<KeyedList<${head}>, CallError>`
+	const handle = `(h: WorkloadHandles<typeof ${role}, (typeof wp${i})["programs"]>["p"]) => (params: InputOf<typeof q${i}>["params"]) =>`
 	return [
 		`export const o${i} = q${i}.orderBy([${jsonText(page.by)}, "asc"])`,
 		`export const wp${i} = workload(${role}, { p: paged(o${i}) })`,
-		`export const pw${i} = ${handle} h.page(args, { first: 2 })`,
-		`export type s${i} = Expect<Equals<ReturnType<ReturnType<typeof pw${i}>>, ${paged}>>`,
-		`export const u${i} = ${handle}`,
-		`	h.page(`,
-		`		args,`,
-		...directive,
-		`		${requestText(page.request)}`,
-		`	)`,
+		`export const pw${i} = ${handle} h.once({ params, facts: {}, window: { anchor: { kind: "start" }, size: 2 } })`,
+		`export type s${i} = Expect<Equals<ReturnType<ReturnType<typeof pw${i}>>, ${windowed}>>`,
 		...(page.unordered
 			? [
 					"// @ts-expect-error -- refusal: page needs an ordered query",
@@ -4583,18 +4391,6 @@ const programOf = (
 				? [
 						"/** A scope's name spelled through a string, which the types refuse. */",
 						"declare const anyName: string"
-					]
-				: []),
-			...(read.has("cursor")
-				? [
-						"/** A cursor of another query, which a page request takes as any query's. */",
-						"declare const cursor: PageCursor<unknown>"
-					]
-				: []),
-			...(read.has("plainToken")
-				? [
-						"/** A plain string no cursor codec made, which no page request takes. */",
-						"declare const plainToken: string"
 					]
 				: []),
 			...(read.has("flag")

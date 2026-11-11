@@ -70,6 +70,7 @@ import { str } from "#compiler/public/text.ts"
 import type { Predicate, Term } from "#compiler/types/core/phantom.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert } from "#test/support/assert.ts"
+import { answered } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { refusedLaws } from "#test/support/refused.ts"
@@ -558,7 +559,7 @@ const verdict = (
 	if (lawful) {
 		return assert.equal(outcome.kind, "accepted", `${where} is lawful`)
 	}
-	if (outcome.kind !== "invariant-rejected") {
+	if (outcome.kind !== "refused") {
 		return assert.fail(`${where} is unlawful, so refused, not ${outcome.kind}`)
 	}
 	assert.ok(
@@ -600,13 +601,23 @@ const constantCase = (c: ConstantCase, notes: Case<Feature>) =>
 			for (const [id, item] of c.items.entries()) {
 				const t = phiTruth(c, c.generated, item)
 				const genCond = yield* Effect.result(
-					db.workload.insertGenCond.apply({ insert: { GenCond: [fact(item, id)] } }, {})
+					answered(
+						db.workload.insertGenCond.once({
+							params: {},
+							facts: { insert: { GenCond: [fact(item, id)] } }
+						})
+					)
 				)
 				verdict(genCond, "GenCond", true, where("GenCond", id))
 				conds.push(`${id} ${t === "true" ? item.n : item.m}`)
 				notes.note(`a constant ${constTruth(c, c.generated.constant)} in a generated field`)
 				const genText = yield* Effect.result(
-					db.workload.insertGenText.apply({ insert: { GenText: [fact(item, id)] } }, {})
+					answered(
+						db.workload.insertGenText.once({
+							params: {},
+							facts: { insert: { GenText: [fact(item, id)] } }
+						})
+					)
 				)
 				verdict(genText, "GenText", text !== undefined, where("GenText", id))
 				if (text === undefined) {
@@ -616,13 +627,23 @@ const constantCase = (c: ConstantCase, notes: Case<Feature>) =>
 					notes.note("a constant text generated")
 				}
 				const checked = yield* Effect.result(
-					db.workload.insertChecked.apply({ insert: { Checked: [fact(item, id)] } }, {})
+					answered(
+						db.workload.insertChecked.once({
+							params: {},
+							facts: { insert: { Checked: [fact(item, id)] } }
+						})
+					)
 				)
 				verdict(checked, "Checked", phiTruth(c, c.checked, item) === "true", where("Checked", id))
 				notes.note(`a constant ${constTruth(c, c.checked.constant)} in a row check`)
 				const inside = c.allowed[item.kind] === true
 				const containedRow = yield* Effect.result(
-					db.workload.insertContained.apply({ insert: { Contained: [fact(item, id)] } }, {})
+					answered(
+						db.workload.insertContained.once({
+							params: {},
+							facts: { insert: { Contained: [fact(item, id)] } }
+						})
+					)
 				)
 				verdict(
 					containedRow,
@@ -637,7 +658,12 @@ const constantCase = (c: ConstantCase, notes: Case<Feature>) =>
 				const t = phiTruth(c, c.keyed, item)
 				const taken = t === "true" && selected.includes(item.n)
 				const keyed = yield* Effect.result(
-					db.workload.insertKeyed.apply({ insert: { Keyed: [fact(item, id)] } }, {})
+					answered(
+						db.workload.insertKeyed.once({
+							params: {},
+							facts: { insert: { Keyed: [fact(item, id)] } }
+						})
+					)
 				)
 				verdict(keyed, "Keyed", !taken, where("Keyed", id))
 				if (t === "true" && !taken) {

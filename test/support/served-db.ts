@@ -1,7 +1,6 @@
 import { Array as Arr, Effect, Layer, Option, type Scope } from "effect"
 import type { ServedDbContext } from "#adapter/db/context.ts"
-import { memberOps } from "#adapter/db/handles.ts"
-import type { ServedOps } from "#adapter/db/ops.ts"
+import { changeApplication, memberCalls, type ServedCalls, variantOf } from "#adapter/db/handles.ts"
 import { openServed } from "#adapter/db/served.ts"
 import type { ApplyError, OpenError } from "#adapter/errors/execution.ts"
 import { compileServed, type ServedRefusal } from "#adapter/public/compile.ts"
@@ -10,7 +9,7 @@ import { type LoadedMember, loadServed } from "#adapter/served/load.ts"
 import type { ApplyOutcome } from "#adapter/types/db.ts"
 import type { DbLayerOf, ServedLogin, ServedRole } from "#adapter/types/layer.ts"
 import type { Json } from "#compiler/core/canonical.ts"
-import type { ParamMap } from "#compiler/plan/common.ts"
+import { defect } from "#compiler/plan/runtime.ts"
 import type { ServedTables } from "#compiler/plan/serve.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import type { AnyLogin, AnyLoginRole, AnyRole } from "#compiler/public/schema.ts"
@@ -35,9 +34,8 @@ import { testVerify, tokenOf } from "#test/support/worlds.ts"
  *   `db.workload.<member>`.
  * - withServedDb: one Db of a role per installation, opened through its login's served layer, whose `serve` compiles a
  *   test's drawn programs into members of the role's workload, each loaded and run on that Db's context: the same pool,
- *   prologue and claims, and the operations a workload handle runs (adapter/db/handles.ts memberOps).
+ *   prologue and claims, and the calls a workload handle makes (adapter/db/handles.ts memberCalls).
  * - servedOn: the same `load` and `serve` over a served Db's context a test opened itself.
- * - appliedWith: a change member's call with its facts, whichever operations it was loaded with.
  *
  * The served file of `login` with `workloads` in place of its own, compiled under the snapshot the installation reached
  * and parsed: what an application imports. A program the compile refuses is its ServedRefusal, naming the role and the
@@ -93,9 +91,8 @@ export const servedFixture = <L extends AnyLogin>(
  * One Db of a role over an installation: its context, which every member it serves runs over; `load`, which compiles
  * `programs`, each a program workload(...) admits (a query, an ordered query, paged(...) of one, a ChangeSet, a
  * relation's key or refresh(relations)), into members of the role's workload under their names, and gives each one loaded, by
- * name, for a test that runs it over a context or executor of its own (adapter/db/handles.ts memberOpsOn) or reads its
- * loaded program; and `serve`, which gives each one's operations over the context, by name: the operations its program
- * allows run, the others refuse before any SQL.
+ * name, for a test that runs it over a context of its own (adapter/db/handles.ts memberCalls) or reads its loaded
+ * program; and `serve`, which gives each one's calls over the context, by name (once and watch, by its answer's shape).
  */
 export interface ServedDb {
 	readonly ctx: ServedDbContext
@@ -112,7 +109,7 @@ export interface ServedDb {
 	>
 	readonly serve: (
 		programs: Readonly<Record<string, unknown>>
-	) => Effect.Effect<ReadonlyMap<string, ServedOps<unknown>>, ServedRefusal | OpenError>
+	) => Effect.Effect<ReadonlyMap<string, ServedCalls>, ServedRefusal | OpenError>
 }
 
 /** The operations `load` and `serve` give over one served Db's context (ServedDb). */
@@ -186,7 +183,7 @@ export const withServedDb = <A, E, R>(
  * `load` and `serve` over `ctx`, a Db of `role` a test opened through its login's served layer, whose file was compiled
  * under `snapshot`, the JSON value of a snapshot.json: each call compiles its programs into one served file of the login
  * under that snapshot (adapter/public/compile.ts compileServed), the role's workload holding exactly them, loads it, and
- * gives each member loaded, or its operations run on `ctx`, by name.
+ * gives each member loaded, or its calls on `ctx`, by name.
  */
 const servedOn = (snapshot: unknown, role: AnyLoginRole, ctx: ServedDbContext): ServedOn => {
 	const login = role.login
@@ -213,9 +210,9 @@ const servedOn = (snapshot: unknown, role: AnyLoginRole, ctx: ServedDbContext): 
 			load(programs),
 			(loaded) =>
 				new Map(
-					Arr.map([...loaded], ([name, m]): readonly [string, ServedOps<unknown>] => [
+					Arr.map([...loaded], ([name, m]): readonly [string, ServedCalls] => [
 						name,
-						memberOps(ctx, m)
+						memberCalls(ctx, m)
 					])
 				)
 		)
@@ -223,21 +220,16 @@ const servedOn = (snapshot: unknown, role: AnyLoginRole, ctx: ServedDbContext): 
 }
 
 /**
- * A call's facts: under each op of a change member's array members, the rows of each, under its relation's name, as
- * a facts handle's apply takes them (types/db FactsApply).
+ * A change member's one application on `ctx` for a caller's input, its outcome and failure as the write runtime meets
+ * them (adapter/db/handles.ts changeApplication), for a suite of that runtime; a member that is no change is a defect of
+ * the test.
  */
-export type CallFacts = Readonly<Record<string, Readonly<Record<string, ReadonlyArray<unknown>>>>>
-
-/**
- * A change member's call with `params`: with `facts` where it was loaded as a facts handle, which its array members
- * make it; a member with none takes its parameters alone, and is handed no facts.
- */
-export const appliedWith = <A>(
-	served: ServedOps<A>,
-	facts: CallFacts,
-	params: ParamMap
-): Effect.Effect<ApplyOutcome<A>, ApplyError> =>
-	served.kind === "facts" ? served.ops.apply(facts, params) : served.ops.apply(params)
+export const applicationOf =
+	(ctx: ServedDbContext, loaded: LoadedMember) =>
+	(input: unknown): Effect.Effect<ApplyOutcome<unknown>, ApplyError> =>
+		loaded.kind === "change"
+			? changeApplication(ctx, variantOf(ctx, loaded.variants))(input)
+			: Effect.die(defect(`a write of the ${loaded.kind} member ${loaded.name}`))
 
 /** The member under `name` of those `load` or `serve` gave: a name it did not give is a defect of the test. */
 export const member = <M>(served: ReadonlyMap<string, M>, name: string): M =>

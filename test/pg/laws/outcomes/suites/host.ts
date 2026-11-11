@@ -22,6 +22,7 @@ import { check, closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { answered } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { refusedLaws } from "#test/support/refused.ts"
@@ -321,8 +322,18 @@ export const hostWitnessSuite = (): void => {
 										}))
 										const applied = yield* Effect.result(
 											k.op === "insert"
-												? db.workload.insertAccounts.apply({ insert: { Account: facts } }, {})
-												: db.workload.putAccounts.apply({ put: { Account: facts } }, {})
+												? answered(
+														db.workload.insertAccounts.once({
+															params: {},
+															facts: { insert: { Account: facts } }
+														})
+													)
+												: answered(
+														db.workload.putAccounts.once({
+															params: {},
+															facts: { put: { Account: facts } }
+														})
+													)
 										)
 										assert.ok(Result.isSuccess(applied), "the write is an outcome")
 										const outcome = applied.success
@@ -332,7 +343,7 @@ export const hostWitnessSuite = (): void => {
 											c.note("accepted")
 											return
 										}
-										if (outcome.kind !== "invariant-rejected") {
+										if (outcome.kind !== "refused") {
 											return assert.fail(
 												`a write that breaks a rule is refused, not ${outcome.kind}`
 											)

@@ -55,6 +55,7 @@ import type { Uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, defined, succeeded, unorderedEqual } from "#test/support/assert.ts"
+import { readOnce, rowsOf } from "#test/support/calls.ts"
 import { exactValue } from "#test/support/equivalence.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { workFacts } from "#test/support/fixtures/golden/work.ts"
@@ -448,11 +449,13 @@ layer(Substrate.layer)("reads through Db", (it) => {
 									(id) => ({ id })
 								)
 								const outcome = yield* Effect.result(
-									Effect.flatMap(
-										db.workload.tasksById.execute({
-											ids: c.stream ? Stream.fromIterable(facts) : facts
-										}),
-										(result) => result.collect
+									rowsOf(
+										db.workload.tasksById.once({
+											params: {
+												ids: c.stream ? Stream.fromIterable(facts) : facts
+											},
+											facts: {}
+										})
 									)
 								)
 								unorderedEqual(
@@ -526,8 +529,10 @@ layer(Substrate.layer)("reads through Db", (it) => {
 										yield* replace(opened.installed, facts)
 										const rows = payloadRows(facts)
 										const sorted = Arr.sort(rows, c.descending ? Order.flip(byIdText) : byIdText)
-										const got = yield* (yield* member(unions, unionMember(c)).ops.execute({}))
-											.collect
+										const got = yield* (yield* readOnce(member(unions, unionMember(c)))({
+											params: {},
+											facts: {}
+										})).collect
 										if (c.take.kind === "none") {
 											assert.deepEqual(Arr.map(got, plain), sorted)
 										} else {
@@ -575,8 +580,8 @@ layer(Substrate.layer)("reads through Db", (it) => {
 					return yield* Effect.gen(function* () {
 						const db = yield* Db.open(opened.served.login.roles.app, {})
 						const reads = {
-							union: Effect.flatMap(db.workload.taskPayloads.execute({}), (r) => r.collect),
-							attachment: Effect.flatMap(db.workload.accountTaskNotes.execute({}), (r) => r.collect)
+							union: rowsOf(db.workload.taskPayloads.once({ params: {}, facts: {} })),
+							attachment: rowsOf(db.workload.accountTaskNotes.once({ params: {}, facts: {} }))
 						}
 						/** A read's answer, its rows in id order where the query leaves the order open. */
 						const answer = (rows: ReadonlyArray<unknown>): ReadonlyArray<unknown> =>

@@ -57,6 +57,7 @@ import {
 import { cleared, replaced, seatOfInstalled } from "#test/pg/fin/installed.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, deepEquals, defined, nonEmpty, unorderedEqual } from "#test/support/assert.ts"
+import { answered } from "#test/support/calls.ts"
 import { stepPut, swapWithLast } from "#test/support/families/counted.ts"
 import { foldStoredOf } from "#test/support/families/fold.ts"
 import { type SpanKeyedOwner, spanOwnersGen } from "#test/support/families/generate.ts"
@@ -253,10 +254,20 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										const target = Arr.getUnsafe(members, sketch.edit.at)
 										const fact = { member: target.member, g: 0, x: Number(target.x) }
 										if (sketch.edit.kind === "delete") {
-											yield* db.workload.deleteMember.apply({ delete: { Member: [fact] } }, {})
+											yield* answered(
+												db.workload.deleteMember.once({
+													params: {},
+													facts: { delete: { Member: [fact] } }
+												})
+											)
 										} else {
 											const put = { ...fact, x: Number(Arr.getUnsafe(SPEC.domain, sketch.edit.to)) }
-											yield* db.workload.putMember.apply({ put: { Member: [put] } }, {})
+											yield* answered(
+												db.workload.putMember.once({
+													params: {},
+													facts: { put: { Member: [put] } }
+												})
+											)
 										}
 										const read = yield* foldRead(f)
 										const after =
@@ -373,15 +384,19 @@ layer(Substrate.layer, { excludeTestServices: true })(
 											during: owner.during,
 											label: labelOf(i)
 										}))
-										const first = yield* db.workload.insertOwners.apply(
-											{ insert: { SpanOwner: owned, SpanMember: members } },
-											{}
+										const first = yield* answered(
+											db.workload.insertOwners.once({
+												params: {},
+												facts: { insert: { SpanOwner: owned, SpanMember: members } }
+											})
 										)
 										const target = defined(sketch.owners[sketch.put.at], "the put owner")
 										const put = { id: target.id, during: target.during, label: sketch.put.label }
-										const outcome = yield* db.workload.putOwner.apply(
-											{ put: { SpanOwner: [put] } },
-											{}
+										const outcome = yield* answered(
+											db.workload.putOwner.once({
+												params: {},
+												facts: { put: { SpanOwner: [put] } }
+											})
 										)
 										const owners = yield* tableState(o.installed, SpanOwner)
 										const stored = yield* tableState(o.installed, SpanMember)

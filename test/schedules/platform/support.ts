@@ -152,6 +152,7 @@ const racesPrograms = {
 	quote: P.quote,
 	...P.platformWrites
 } as const
+import { answered } from "#test/support/calls.ts"
 
 export const racesAt = (name: string) => {
 	const base = P.platformAt(name).Platform
@@ -235,24 +236,24 @@ const primaryKeyOf: Readonly<Record<RelationName, ReadonlyArray<string>>> = Rec.
 
 /** What a grizzle call answered, as the oracle reads it. */
 export type Answer =
-	| { readonly kind: "accepted" | "no-change" }
-	| { readonly kind: "invariant-rejected"; readonly laws: Arr.NonEmptyReadonlyArray<LawId> }
-	| { readonly kind: "outside-world"; readonly relation: string }
+	| { readonly kind: "accepted" | "unchanged" }
+	| { readonly kind: "refused"; readonly laws: Arr.NonEmptyReadonlyArray<LawId> }
+	| { readonly kind: "outsideWorld"; readonly relation: string }
 
 /** The platform's installed names: an outcome's law read back to its LawId. */
 const platformNames = installationNamesOf(installationOf(P.Platform, { kind: "declared" }))
 
 export const answerOf = (outcome: ApplyOutcome<unknown>): Answer => {
 	switch (outcome.kind) {
-		case "invariant-rejected":
+		case "refused":
 			return {
 				kind: outcome.kind,
 				laws: Arr.map(outcome.refused.laws, (law) => platformNames.reported(law))
 			}
-		case "outside-world":
+		case "outsideWorld":
 			return { kind: outcome.kind, relation: outcome.relation }
 		case "accepted":
-		case "no-change":
+		case "unchanged":
 			return { kind: outcome.kind }
 	}
 }
@@ -338,7 +339,7 @@ interface RaceTxn {
  */
 type Observed =
 	| { readonly kind: "accepted" }
-	| { readonly kind: "no-change" }
+	| { readonly kind: "unchanged" }
 	| {
 			/**
 			 * The laws a refusal names: one, or every law one native object discharges together, as a family's axis
@@ -572,7 +573,7 @@ const openApp = (
 	i.rig.servedWriter(
 		name,
 		(context) => openServed(i.rig.served.roles.app, {}).pipe(Effect.provideContext(context)),
-		(db) => db.workload.noop.apply({})
+		(db) => answered(db.workload.noop.once({ params: {}, facts: {} }))
 	)
 
 const connect = (
@@ -1289,10 +1290,10 @@ const grizzleObserved = (i: RaceInstall, r: GrizzleRan): Observed | string => {
 		return `the write failed: ${r.last.error}`
 	}
 	const answer = r.last.answer
-	if (answer.kind === "outside-world") {
+	if (answer.kind === "outsideWorld") {
 		return `the write was outside its world at ${answer.relation}, which a full role never is`
 	}
-	if (answer.kind !== "invariant-rejected") {
+	if (answer.kind !== "refused") {
 		return { kind: answer.kind }
 	}
 	const unheld = Arr.filter(answer.laws, (id) => !i.laws.has(id))
@@ -1309,8 +1310,8 @@ const matches = (observed: Observed, decision: Decision): boolean => {
 	switch (observed.kind) {
 		case "accepted":
 			return decision.kind === "accepted"
-		case "no-change":
-			return decision.kind === "no-change"
+		case "unchanged":
+			return decision.kind === "unchanged"
 		case "refused":
 			return (
 				decision.kind === "refused" && Arr.some(observed.laws, (law) => decision.laws.includes(law))
@@ -1419,7 +1420,7 @@ const explain = (
 	}
 	const committed = Arr.filter(
 		ran,
-		(r) => r.observed.kind === "accepted" || r.observed.kind === "no-change"
+		(r) => r.observed.kind === "accepted" || r.observed.kind === "unchanged"
 	)
 	const explained = orderOf(committed, differs)
 	if (explained === undefined) {
@@ -1477,7 +1478,7 @@ const exactRepeats = (
 			(r) =>
 				r.writer === "grizzle" &&
 				r.observed.kind === "accepted" &&
-				r.decide(committed).kind === "no-change"
+				r.decide(committed).kind === "unchanged"
 		)
 		if (Option.isNone(repeat)) {
 			return undefined
@@ -1493,7 +1494,7 @@ const exactRepeats = (
 			if (Result.isFailure(a)) {
 				return `the exact repeat of #${repeat.value.id} failed: ${messageOf(a.failure)}`
 			}
-			if (a.success.kind !== "no-change") {
+			if (a.success.kind !== "unchanged") {
 				return `the exact repeat of #${repeat.value.id} was ${a.success.kind}, not no-change`
 			}
 		}

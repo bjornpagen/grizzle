@@ -58,6 +58,7 @@ import { EncodingFailure, pg, query, relation, schema, span, str, uuid, v } from
 import { tappedPool } from "#test/pg/api-errors/support.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, assertVariant } from "#test/support/assert.ts"
+import { answered, writeOnce } from "#test/support/calls.ts"
 import { type Names, namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
@@ -347,8 +348,11 @@ layer(Substrate.layer, { excludeTestServices: true })("ApplyError through the pu
 															"program",
 															"the described member takes its parameters"
 														)
-														return change.ops.apply(
-															callersParams({ ...liveParams, [c.field]: value })
+														return answered(
+															writeOnce(change)({
+																params: callersParams({ ...liveParams, [c.field]: value }),
+																facts: {}
+															})
 														)
 													})
 												: Effect.suspend(() => {
@@ -358,7 +362,12 @@ layer(Substrate.layer, { excludeTestServices: true })("ApplyError through the pu
 															"facts",
 															"an array member takes its call's facts"
 														)
-														return change.ops.apply({ insert: { Typed: [fact] } }, {})
+														return answered(
+															writeOnce(change)({
+																params: {},
+																facts: { insert: { Typed: [fact] } }
+															})
+														)
 													})
 										)
 										if (Result.isSuccess(outcome)) {

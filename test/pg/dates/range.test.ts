@@ -28,6 +28,7 @@ import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, bareRecord, defined, succeeded } from "#test/support/assert.ts"
+import { rowsOf } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { pgErrorFields } from "#test/support/substrate/errors.ts"
@@ -141,10 +142,7 @@ layer(Substrate.layer)(
 										yield* replaceRows(s.admin, group, [])
 										const text = textOf(d)
 										const written = yield* Effect.result(writer.query(insert, ["1", text]))
-										const stored = yield* Effect.flatMap(
-											db.workload.days.execute({}),
-											(r) => r.collect
-										)
+										const stored = yield* rowsOf(db.workload.days.once({ params: {}, facts: {} }))
 										if (inRange(d)) {
 											assert.ok(Result.isSuccess(written), `${text} is stored`)
 											assert.deepEqual(stored, [

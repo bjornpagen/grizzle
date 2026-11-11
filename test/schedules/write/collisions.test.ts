@@ -55,6 +55,7 @@ import { key, lawsByStatement, login, on, relation, role, schema } from "#compil
 import { workload } from "#compiler/public/workload.ts"
 import type { Law, Witness } from "#compiler/types/changeset/changeset.ts"
 import { assert, deepEquals, defined } from "#test/support/assert.ts"
+import { answered } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { openActors } from "#test/support/schedules/actors.ts"
@@ -380,10 +381,10 @@ layer(Substrate.layer)("colliding generated additions of a certified READ COMMIT
 				const open = (context: Parameters<Parameters<typeof rig.servedWriter>[1]>[0]) =>
 					openServed(rig.served.roles.learner, {}).pipe(Effect.provideContext(context))
 				const a = yield* rig.servedWriter("a", open, (db) =>
-					db.workload.start.apply({ insert: { Sitting: [] } }, {})
+					answered(db.workload.start.once({ params: {}, facts: { insert: { Sitting: [] } } }))
 				)
 				const b = yield* rig.servedWriter("b", open, (db) =>
-					db.workload.start.apply({ insert: { Sitting: [] } }, {})
+					answered(db.workload.start.once({ params: {}, facts: { insert: { Sitting: [] } } }))
 				)
 				assert.equal(a.ctx.isolation, "readCommitted", "generate certifies learner READ COMMITTED")
 				assert.equal(b.ctx.isolation, "readCommitted", "generate certifies learner READ COMMITTED")
@@ -405,12 +406,12 @@ layer(Substrate.layer)("colliding generated additions of a certified READ COMMIT
 					if (expected.kind === "inserted") {
 						return Result.isSuccess(ran) &&
 							(expected.rows.length === 0
-								? ran.success.kind === "no-change" || addedTo(ran.success, "Sitting") === 0n
+								? ran.success.kind === "unchanged" || addedTo(ran.success, "Sitting") === 0n
 								: addedTo(ran.success, "Sitting") === BigInt(expected.rows.length))
 							? undefined
 							: `${label} adds every free request, ${expected.rows.length}: ${Formatter.format(ran)}`
 					}
-					if (Result.isFailure(ran) || ran.success.kind !== "invariant-rejected") {
+					if (Result.isFailure(ran) || ran.success.kind !== "refused") {
 						return `${label} is a typed refusal of ${expected.law}, never an abort or a defect: ${Formatter.format(ran)}`
 					}
 					const outcome = ran.success
@@ -445,10 +446,19 @@ layer(Substrate.layer)("colliding generated additions of a certified READ COMMIT
 				const rowsOf = (rows: ReadonlyArray<Request>) => Arr.map(rows, (r) => ({ ...r }))
 				const held = (rows: ReadonlyArray<Request>) =>
 					Effect.result(
-						a.db.workload.held.apply({ insert: { Sitting: rowsOf(rows), Gate: [{ n: 0 }] } }, {})
+						answered(
+							a.db.workload.held.once({
+								params: {},
+								facts: { insert: { Sitting: rowsOf(rows), Gate: [{ n: 0 }] } }
+							})
+						)
 					)
 				const start = (rows: ReadonlyArray<Request>) =>
-					Effect.result(b.db.workload.start.apply({ insert: { Sitting: rowsOf(rows) } }, {}))
+					Effect.result(
+						answered(
+							b.db.workload.start.once({ params: {}, facts: { insert: { Sitting: rowsOf(rows) } } })
+						)
+					)
 
 				return yield* explore(
 					{

@@ -15,6 +15,7 @@ import { fin, on, ordered, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, defined } from "#test/support/assert.ts"
+import { answered, rowsOf } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
@@ -148,9 +149,11 @@ layer(Substrate.layer, { excludeTestServices: true })(
 											defined(bodies.get(n), "a body's length")
 										const id = uuidOf(1)
 										const members = Arr.map(c.lengths, (n) => ({ body: bodyOf(n) }))
-										const outcome = yield* db.workload.insertOwner.apply(
-											{ insert: { Owner: [{ id, members }] } },
-											{}
+										const outcome = yield* answered(
+											db.workload.insertOwner.once({
+												params: {},
+												facts: { insert: { Owner: [{ id, members }] } }
+											})
 										)
 										if (outcome.kind !== "accepted") {
 											return assert.fail(`a lawful nested write is accepted, not ${outcome.kind}`)
@@ -167,10 +170,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 												"each member is added once"
 											)
 										}
-										const read = yield* Effect.flatMap(
-											db.workload.members.execute({}),
-											(r) => r.collect
-										)
+										const read = yield* rowsOf(db.workload.members.once({ params: {}, facts: {} }))
 										assert.equal(read.length, c.lengths.length, "every member reads back")
 										for (const row of read) {
 											const at = Number(row.at)
@@ -179,9 +179,8 @@ layer(Substrate.layer, { excludeTestServices: true })(
 											assert.equal(row.body.length, length, "a body reads back at its length")
 											assert.ok(row.body === bodyOf(length), "a body reads back as written")
 										}
-										const [owner] = yield* Effect.flatMap(
-											db.workload.owners.execute({}),
-											(r) => r.collect
+										const [owner] = yield* rowsOf(
+											db.workload.owners.once({ params: {}, facts: {} })
 										)
 										assert.equal(
 											defined(owner, "the owner reads back").members,

@@ -62,6 +62,7 @@ import { verifyToken } from "@clerk/backend"
 import { attachDatabasePool } from "@vercel/functions/db-connections"
 import { Config, Effect, type Layer, ManagedRuntime, type Option, Redacted, Schema } from "effect"
 import pgDriver from "pg"
+import { oneOf, rowsOf } from "#test/support/calls.ts"
 
 type Equals<A, B> =
 	(<X>(x: X) => X extends A ? 1 : 2) extends <X>(x: X) => X extends B ? 1 : 2 ? true : false
@@ -463,8 +464,8 @@ export const moreCalls = (db: AnalystDb, workspace: Uuid, after: PageCursor<type
 	db.workload.callLog.page({ workspace }, { first: 50, after })
 
 export const spendOn = (db: AnalystDb, workspace: Uuid, model: string) =>
-	db.workload.modelSpend.get({ workspace, model })
-export const nightly = (db: AnalystDb) => db.workload.nightly.refresh
+	oneOf(db.workload.modelSpend.once({ params: { workspace, model }, facts: {} }))
+export const nightly = (db: AnalystDb) => db.workload.nightly.once({ params: {}, facts: {} })
 
 /** README: "Example", "Who is asking". */
 /** Clerk's session token: the user in `sub`, the active organization's id in the nested object `o`. */
@@ -636,10 +637,10 @@ export const GET = (request: Request): Promise<Response> => {
 	const feed = Effect.gen(function* () {
 		if (token === undefined) {
 			const db = yield* Db.open(WebServed.roles.anon, {})
-			return yield* (yield* db.workload.anonFeed.execute({})).collect
+			return yield* rowsOf(db.workload.anonFeed.once({ params: {}, facts: {} }))
 		}
 		const db = yield* Db.open(WebServed.roles.member, { token })
-		return yield* (yield* db.workload.memberFeed.execute({})).collect
+		return yield* rowsOf(db.workload.memberFeed.once({ params: {}, facts: {} }))
 	})
 	return web.runPromise(Effect.map(feed, (rows) => Response.json(rows)))
 }

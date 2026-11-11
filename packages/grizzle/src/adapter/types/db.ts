@@ -3,7 +3,18 @@ import type { OpenError, ReadError } from "#adapter/errors/execution.ts"
 import type { DbLayerService, ServedRole } from "#adapter/types/layer.ts"
 import type { CallError, EventOf, InputOf, ValueOf } from "#compiler/live/index.ts"
 import type { AnyChangeSet, Refused, Witness } from "#compiler/plan/change.ts"
-import type { AnyRole, Invariant, Phantom, ReadsContext, Refresh } from "#compiler/plan/common.ts"
+import type {
+	AnyClosed,
+	AnyRelation,
+	AnyRole,
+	CandidateKey,
+	Invariant,
+	OnlyParams,
+	Phantom,
+	ReadsContext,
+	Refresh,
+	Refusal
+} from "#compiler/plan/common.ts"
 
 /**
  * Db.open's options with a token: what the layer's verify turns into the payload the role's contexts are decoded from,
@@ -75,11 +86,35 @@ export type MemberHandle<X> = MemberCalls<X> &
 	ExplainOf<X> &
 	Phantom<{ readonly program: Invariant<X> }>
 
-/** A served member's once and watch (MemberHandle). */
+/**
+ * A served member's once and watch (MemberHandle). Each takes an input I inferred apart from X and checked after, as
+ * InputOf<X> and exactly so (ExactInput), so a literal's parameters take part in no inference that would widen them
+ * ("Front" to string), and a variable of a wider type is refused where the runtime refuses it, as a literal is.
+ */
 export interface MemberCalls<X> {
-	once(input: InputOf<X>): Effect.Effect<ValueOf<X>, CallError>
-	watch(input: InputOf<X>): Stream.Stream<EventOf<X>>
+	once<const I>(
+		input: I & NoInfer<InputOf<X>> & NoInfer<ExactInput<I, X>>
+	): Effect.Effect<ValueOf<X>, CallError>
+	watch<const I>(
+		input: I & NoInfer<InputOf<X>> & NoInfer<ExactInput<I, X>>
+	): Stream.Stream<EventOf<X>>
 }
+
+/** What a key member reads by: a relation's primary key, a closed relation's, or a candidate key. */
+type KeyTarget = AnyRelation | AnyClosed | CandidateKey<AnyRelation>
+
+/** The parameters an input holds. */
+type ParamsIn<I> = I extends { readonly params: infer P } ? P : unknown
+
+/**
+ * An input I of program X names exactly X's input members (db/input.ts reads a record of exactly those), and, but for
+ * a key member's, only X's parameters (OnlyParams, reader/params.ts readParams refuses any other name); a key member's
+ * params are read by the key's fields alone, so a whole fact of its relation names its key.
+ */
+type ExactInput<I, X> = ([Exclude<keyof I, keyof InputOf<X>>] extends [never]
+	? unknown
+	: Refusal<"an input holds its params and facts, and a paged member's window, alone">) &
+	(X extends KeyTarget ? unknown : OnlyParams<ParamsIn<I>, InputOf<X>["params"]>)
 
 /** A served member's explains by its program's kind: a read's, a change's, and a refresh's none. */
 type ExplainOf<X> =
@@ -92,8 +127,12 @@ type ExplainOf<X> =
  * `explainAnalyze` runs the statement under EXPLAIN ANALYZE and reports what each node did beside its estimates.
  */
 export interface ReadExplain<X> {
-	explain(input: InputOf<X>): Effect.Effect<ReadonlyArray<StatementPlan>, ReadError>
-	explainAnalyze(input: InputOf<X>): Effect.Effect<ReadonlyArray<ExecutedStatement>, ReadError>
+	explain<const I>(
+		input: I & NoInfer<InputOf<X>> & NoInfer<ExactInput<I, X>>
+	): Effect.Effect<ReadonlyArray<StatementPlan>, ReadError>
+	explainAnalyze<const I>(
+		input: I & NoInfer<InputOf<X>> & NoInfer<ExactInput<I, X>>
+	): Effect.Effect<ReadonlyArray<ExecutedStatement>, ReadError>
 }
 
 /**
@@ -103,7 +142,9 @@ export interface ReadExplain<X> {
  * which no rollback undoes.
  */
 export interface ChangeExplain<X> {
-	explain(input: InputOf<X>): Effect.Effect<ReadonlyArray<StatementPlan>, ReadError>
+	explain<const I>(
+		input: I & NoInfer<InputOf<X>> & NoInfer<ExactInput<I, X>>
+	): Effect.Effect<ReadonlyArray<StatementPlan>, ReadError>
 }
 
 /**

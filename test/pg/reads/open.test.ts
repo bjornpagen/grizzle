@@ -53,6 +53,7 @@ import {
 } from "#test/pg/adapter/support.ts"
 import { bareDatabase, installed } from "#test/pg/reads/support.ts"
 import { assert } from "#test/support/assert.ts"
+import { oneOf, rowsOf } from "#test/support/calls.ts"
 import * as search from "#test/support/fixtures/api/search.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { t1, workFacts } from "#test/support/fixtures/golden/work.ts"
@@ -355,7 +356,9 @@ layer(Substrate.layer)("Db.open", (it) => {
 									)
 									yield* Effect.flatMap(Db.open(stamping.served.login.roles.app, {}), (db) =>
 										Effect.gen(function* () {
-											const found = yield* Effect.result(db.workload.stamp.get({ id: stampId }))
+											const found = yield* Effect.result(
+												oneOf(db.workload.stamp.once({ params: { id: stampId }, facts: {} }))
+											)
 											if (!holdsSchema(c)) {
 												assert.ok(Result.isFailure(found), `a read of ${c.database}`)
 												noLedger(found.failure)
@@ -394,7 +397,9 @@ layer(Substrate.layer)("Db.open", (it) => {
 								if (c.target.schema === "Work") {
 									yield* Effect.flatMap(Db.open(work.served.login.roles.app, {}), (db) =>
 										Effect.gen(function* () {
-											const found = yield* Effect.result(db.workload.task.get({ id: t1 }))
+											const found = yield* Effect.result(
+												oneOf(db.workload.task.once({ params: { id: t1 }, facts: {} }))
+											)
 											if (holdsSchema(c)) {
 												assert.ok(Result.isSuccess(found), `a read of ${c.database}`)
 												assert.equal(
@@ -421,7 +426,9 @@ layer(Substrate.layer)("Db.open", (it) => {
 												c.database === "installed"
 													? sqlstates.insufficientPrivilege
 													: sqlstates.invalidSchemaName
-											const read = yield* Effect.flip(db.workload.vectorProbe.execute({ qs }))
+											const read = yield* Effect.flip(
+												rowsOf(db.workload.vectorProbe.once({ params: { qs }, facts: {} }))
+											)
 											assertInstanceOf(read, ReadFailure)
 											assertInstanceOf(read.reason, ServerError)
 											assert.equal(read.reason.sqlstate, refusedBy)
@@ -437,7 +444,12 @@ layer(Substrate.layer)("Db.open", (it) => {
 											testTypeSchema("vector_ext")
 										)
 										const found = yield* Effect.result(
-											db.workload.document.get({ id: "00000000-0000-4000-8000-000000000001" })
+											oneOf(
+												db.workload.document.once({
+													params: { id: "00000000-0000-4000-8000-000000000001" },
+													facts: {}
+												})
+											)
 										)
 										if (!holdsSchema(c)) {
 											assert.ok(Result.isFailure(found), `a read of ${c.database}`)
@@ -450,7 +462,7 @@ layer(Substrate.layer)("Db.open", (it) => {
 										assert.ok(Result.isSuccess(found), `a read of ${c.database}`)
 										assert.equal(found.success._tag, "None")
 										const probed = yield* Effect.orDie(
-											Effect.flatMap(db.workload.searchProbe.execute({ qs }), (r) => r.collect)
+											rowsOf(db.workload.searchProbe.once({ params: { qs }, facts: {} }))
 										)
 										assert.deepEqual(probed, [])
 										k.note("a vector probe answered")

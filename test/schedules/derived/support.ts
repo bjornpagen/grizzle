@@ -23,6 +23,7 @@ import {
 	type OracleFixtureFailed
 } from "#test/pg/derived/oracle/harness.ts"
 import { defined } from "#test/support/assert.ts"
+import { answered } from "#test/support/calls.ts"
 import { replaceMigrated } from "#test/support/install-migrate.ts"
 import { type Names, namesOf, roleNamesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -375,16 +376,24 @@ const open: Effect.Effect<
 	const refresherDb = yield* Db.open(served.login.roles.refresher, {}).pipe(
 		Effect.provideContext(refresherContext)
 	)
-	const first = yield* grizzleActor("refresher", server, refresherDb.workload.noop.apply({}), [])
+	const first = yield* grizzleActor(
+		"refresher",
+		server,
+		answered(refresherDb.workload.noop.once({ params: {}, facts: {} })),
+		[]
+	)
 	const refresher2Context = yield* Layer.build(served.layer)
 	const refresher2Db = yield* Db.open(served.login.roles.refresher2, {}).pipe(
 		Effect.provideContext(refresher2Context)
 	)
 	const refreshers = {
 		refresher: first,
-		refresher2: yield* grizzleActor("refresher2", server, refresher2Db.workload.noop.apply({}), [
-			first.pid
-		])
+		refresher2: yield* grizzleActor(
+			"refresher2",
+			server,
+			answered(refresher2Db.workload.noop.once({ params: {}, facts: {} })),
+			[first.pid]
+		)
 	}
 	return {
 		opened,

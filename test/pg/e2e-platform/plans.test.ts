@@ -1703,7 +1703,10 @@ const planSuite = (ctx: TestContext) =>
 						yield* o.withDb((db) =>
 							Effect.andThen(
 								untilAnswered(applyFacts(db, p.facts), refused),
-								untilAnswered(db.workload.refreshDailySpend.refresh, refused)
+								untilAnswered(
+									db.workload.refreshDailySpend.once({ params: {}, facts: {} }),
+									refused
+								)
 							)
 						)
 						for (const r of [...loadOrder, "DailySpend"]) {

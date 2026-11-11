@@ -126,6 +126,7 @@ import type { Predicate } from "#compiler/types/core/phantom.ts"
 import type { RowScalars } from "#compiler/types/schema/statements.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert } from "#test/support/assert.ts"
+import { answered } from "#test/support/calls.ts"
 import { setText } from "#test/support/closed/bit-text.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -1163,7 +1164,7 @@ const verdict = (
 	if (lawful) {
 		return assert.equal(outcome.kind, "accepted", `${where} is lawful`)
 	}
-	if (outcome.kind !== "invariant-rejected") {
+	if (outcome.kind !== "refused") {
 		return assert.fail(`${where} is unlawful, so refused, not ${outcome.kind}`)
 	}
 	assert.equal(refusedLaws(outcome.refused).length, 1, `${where} breaks one law`)
@@ -1233,8 +1234,18 @@ const absentCase = (c: AbsentCase, notes: Case<Feature>) =>
 					const t = truth(w, item, pred)
 					const applied = yield* Effect.result(
 						at === 0
-							? db.workload.insertChecked0.apply({ insert: { Checked0: [itemFact(item, id)] } }, {})
-							: db.workload.insertChecked1.apply({ insert: { Checked1: [itemFact(item, id)] } }, {})
+							? answered(
+									db.workload.insertChecked0.once({
+										params: {},
+										facts: { insert: { Checked0: [itemFact(item, id)] } }
+									})
+								)
+							: answered(
+									db.workload.insertChecked1.once({
+										params: {},
+										facts: { insert: { Checked1: [itemFact(item, id)] } }
+									})
+								)
 					)
 					verdict(applied, relation.name, t === "true", where(relation.name, id))
 					const reads = Arr.map(readsOf(pred), (read) => readOf(w, item, read))
@@ -1315,7 +1326,12 @@ const absentCase = (c: AbsentCase, notes: Case<Feature>) =>
 				const t = truth(w, item, c.contained)
 				const inside = w.allowed[item.kind]?.includes(item.flag) === true
 				const applied = yield* Effect.result(
-					db.workload.insertContained.apply({ insert: { Contained: [itemFact(item, id)] } }, {})
+					answered(
+						db.workload.insertContained.once({
+							params: {},
+							facts: { insert: { Contained: [itemFact(item, id)] } }
+						})
+					)
 				)
 				verdict(applied, "Contained", t !== "true" || inside, where("Contained", id))
 				if (!inside) {
@@ -1334,7 +1350,12 @@ const absentCase = (c: AbsentCase, notes: Case<Feature>) =>
 				const t = truth(w, item, c.keyed)
 				const taken = selected.includes(item.n)
 				const applied = yield* Effect.result(
-					db.workload.insertKeyed.apply({ insert: { Keyed: [itemFact(item, id)] } }, {})
+					answered(
+						db.workload.insertKeyed.once({
+							params: {},
+							facts: { insert: { Keyed: [itemFact(item, id)] } }
+						})
+					)
 				)
 				verdict(applied, "Keyed", t !== "true" || !taken, where("Keyed", id))
 				if (taken && t === "true") {
@@ -1359,13 +1380,15 @@ const absentCase = (c: AbsentCase, notes: Case<Feature>) =>
 					const value = readOf(w, item, read)
 					const fact = { id, kind: kindOf(item.kind), flag: flagOf(item.flag) }
 					const applied = yield* Effect.result(
-						db.workload.insertGenerated.apply(
-							{
-								insert: Rec.map(built.generatedRelations, (_, relation) =>
-									relation === name ? [fact] : []
-								)
-							},
-							{}
+						answered(
+							db.workload.insertGenerated.once({
+								params: {},
+								facts: {
+									insert: Rec.map(built.generatedRelations, (_, relation) =>
+										relation === name ? [fact] : []
+									)
+								}
+							})
 						)
 					)
 					verdict(applied, name, value !== undefined, where(name, id))
@@ -1414,24 +1437,41 @@ const absentCase = (c: AbsentCase, notes: Case<Feature>) =>
 			})
 			const members = Arr.map(c.items, (item, id) => itemFact(item, id))
 			const together = yield* Effect.result(
-				db.workload.insertOwner.apply({ insert: { Owner: [{ id: 0, members }] } }, {})
+				answered(
+					db.workload.insertOwner.once({
+						params: {},
+						facts: { insert: { Owner: [{ id: 0, members }] } }
+					})
+				)
 			)
 			verdict(together, "Member", true, where("Member", 0))
 			const stored = yield* Effect.result(
-				db.workload.insertOwner.apply({ insert: { Owner: [{ id: 1, members: [] }] } }, {})
+				answered(
+					db.workload.insertOwner.once({
+						params: {},
+						facts: { insert: { Owner: [{ id: 1, members: [] }] } }
+					})
+				)
 			)
 			verdict(stored, "Owner", true, where("Owner", 1))
 			for (const [i, item] of c.items.entries()) {
 				const one = yield* Effect.result(
-					db.workload.putMember.apply(
-						{ put: { Member: [memberFact(item, memberOfLater(i), 1)] } },
-						{}
+					answered(
+						db.workload.putMember.once({
+							params: {},
+							facts: { put: { Member: [memberFact(item, memberOfLater(i), 1)] } }
+						})
 					)
 				)
 				verdict(one, "Member", true, where("Member", memberOfLater(i)))
 			}
 			const deleted = yield* Effect.result(
-				db.workload.deleteMember.apply({ delete: { Member: [memberFact(c.items[0], 0, 0)] } }, {})
+				answered(
+					db.workload.deleteMember.once({
+						params: {},
+						facts: { delete: { Member: [memberFact(c.items[0], 0, 0)] } }
+					})
+				)
 			)
 			verdict(deleted, "Member", true, where("Member", 0))
 			for (const item of c.items) {

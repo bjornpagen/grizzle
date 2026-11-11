@@ -38,6 +38,7 @@ import {
 } from "#test/pg/write/swarm/spec.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, unorderedEqual } from "#test/support/assert.ts"
+import { answered, writeOnce } from "#test/support/calls.ts"
 import { familyNamed, type InstanceRow, writesVerdict } from "#test/support/families/fill.ts"
 import { installMigrated } from "#test/support/install-migrate.ts"
 import { lawNamesOf, namesOf } from "#test/support/kernel/naming.ts"
@@ -1856,7 +1857,10 @@ layer(Substrate.layer, { excludeTestServices: true })("the family writer under a
 									}
 									const served = memberOps(flight.context, member(loaded.success, "step"))
 									const applied = yield* Effect.result(
-										flight.judged(label, appliedWith(served, facts, params))
+										flight.judged(
+											label,
+											answered(writeOnce(served)({ params: params, facts: facts }))
+										)
 									)
 									if (Result.isFailure(applied)) {
 										return assert.fail(
@@ -1872,10 +1876,10 @@ layer(Substrate.layer, { excludeTestServices: true })("the family writer under a
 										case "refused": {
 											assert.equal(
 												outcome.kind,
-												"invariant-rejected",
+												"refused",
 												`${label}: the laws ${Formatter.format([...expected.laws])} are broken`
 											)
-											if (outcome.kind !== "invariant-rejected") {
+											if (outcome.kind !== "refused") {
 												return
 											}
 											const named = Arr.map(outcome.refused.laws, (law): LawId =>
@@ -1899,7 +1903,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the family writer under a
 											return
 										}
 										case "written": {
-											assert.equal(outcome.kind, expected.changed ? "accepted" : "no-change", label)
+											assert.equal(outcome.kind, expected.changed ? "accepted" : "unchanged", label)
 											yield* storesExactly(done, spec, built, expected.next, label)
 											c.noteAll(stepShapes(spec, state, step, expected))
 											state = expected.next

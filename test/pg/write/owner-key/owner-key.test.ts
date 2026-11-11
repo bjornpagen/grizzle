@@ -14,6 +14,7 @@ import { check, counted, fin, fold, Monoid, on, relation, schema } from "#compil
 import type { KeyHost } from "#compiler/types/changeset/changeset.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, containsEqual, unorderedEqual } from "#test/support/assert.ts"
+import { answered } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
@@ -274,25 +275,34 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										const members = membersOf(stored)
 										yield* replaceRows(s.admin, installationGroup(names), [])
 										if (stored.length > 0) {
-											const loaded = yield* db.workload.load.apply(
-												{
-													insert: {
-														Owner: Arr.map(stored, (owner) => ({ id: owner.id, cap: owner.cap })),
-														Member: members
+											const loaded = yield* answered(
+												db.workload.load.once({
+													params: {},
+													facts: {
+														insert: {
+															Owner: Arr.map(stored, (owner) => ({ id: owner.id, cap: owner.cap })),
+															Member: members
+														}
 													}
-												},
-												{}
+												})
 											)
 											assert.equal(loaded.kind, "accepted", "the stored state loads")
 										}
 										const facts = Arr.map(requested, (f) => ({ id: f.id, cap: f.cap }))
 										const outcome =
 											c.form === "enumerated"
-												? yield* db.workload.insertEnumerated.apply(
-														{ insert: { Owner: facts } },
-														{}
+												? yield* answered(
+														db.workload.insertEnumerated.once({
+															params: {},
+															facts: { insert: { Owner: facts } }
+														})
 													)
-												: yield* db.workload.insertDescribed.apply({ items: facts })
+												: yield* answered(
+														db.workload.insertDescribed.once({
+															params: { items: facts },
+															facts: {}
+														})
+													)
 										const want = expected(c.form, stored, requested)
 										cx.note(`insert ${c.form}`)
 										const storedMembers = yield* tableState(o.installed, Member)
@@ -303,7 +313,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										)
 										const owners = yield* tableState(o.installed, Owner)
 										if (want.kind === "refused") {
-											if (outcome.kind !== "invariant-rejected") {
+											if (outcome.kind !== "refused") {
 												return assert.fail(`a refusal by the owner's key law, not ${outcome.kind}`)
 											}
 											assert.deepEqual(refusedLaws(outcome.refused), [
@@ -358,7 +368,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 											cx.note("a stored owner with members repeated exactly")
 										}
 										if (want.added.length === 0) {
-											assert.equal(outcome.kind, "no-change")
+											assert.equal(outcome.kind, "unchanged")
 											return
 										}
 										if (outcome.kind !== "accepted") {

@@ -131,6 +131,7 @@ import {
 	Zed
 } from "#test/schedules/write/support.ts"
 import { deepEquals, defined } from "#test/support/assert.ts"
+import { answered, writeOnce } from "#test/support/calls.ts"
 import { caseHang, testIdleTimeout } from "#test/support/limits.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import type { SqlError } from "#test/support/pg.ts"
@@ -1151,10 +1152,10 @@ const grizzleAnswer = (
 	value: ApplyOutcome<unknown>
 ): GrizzleAnswer => {
 	switch (value.kind) {
-		case "invariant-rejected": {
+		case "refused": {
 			const [law, ...more] = value.refused.laws
 			return more.length === 0
-				? { kind: "invariant-rejected", law: reported(law) }
+				? { kind: "refused", law: reported(law) }
 				: {
 						kind: "failed",
 						what: `a refusal naming ${Arr.length(value.refused.laws)} laws: ${Arr.join(
@@ -1163,10 +1164,10 @@ const grizzleAnswer = (
 						)}`
 					}
 		}
-		case "outside-world":
+		case "outsideWorld":
 			return { kind: "failed", what: value.kind }
 		case "accepted":
-		case "no-change":
+		case "unchanged":
 			return { kind: value.kind }
 	}
 }
@@ -1240,9 +1241,11 @@ const runRace = (
 		const o = yield* open
 		const sql = sqlOf(o)
 		const laws = lawsOf(o)
-		const app = yield* o.rig.servedWriter("app", openApp(o.rig), (db) => db.workload.noop.apply({}))
+		const app = yield* o.rig.servedWriter("app", openApp(o.rig), (db) =>
+			answered(db.workload.noop.once({ params: {}, facts: {} }))
+		)
 		const app2 = yield* o.rig.servedWriter("app2", openApp(o.rig), (db) =>
-			db.workload.noop.apply({})
+			answered(db.workload.noop.once({ params: {}, facts: {} }))
 		)
 		const directs = yield* openActors(s, {
 			d1: { kind: "raw", as: o.rig.direct },
@@ -1313,7 +1316,14 @@ const runRace = (
 							label: describeOp(op),
 							outcome: Effect.map(
 								Effect.result(
-									untilAnswered(appliedWith(memberOps(ctx, change.member), factsOf(op), params))
+									untilAnswered(
+										answered(
+											writeOnce(memberOps(ctx, change.member))({
+												params: params,
+												facts: factsOf(op)
+											})
+										)
+									)
 								),
 								(r) => {
 									seen.set(key, answerOf(o.names.reported, r))
@@ -1686,7 +1696,7 @@ const inserterAnswerOf = (
 		refused: [],
 		answer: grizzleAnswer(reported, value),
 		rejection:
-			value.kind === "invariant-rejected"
+			value.kind === "refused"
 				? Option.some({ decided: value.refused.kind, witness: value.witness })
 				: Option.none()
 	}
@@ -1743,7 +1753,7 @@ const firstTryProblem = (
 	if (answered.answer.kind === "failed") {
 		return `${label} failed: ${answered.answer.what}`
 	}
-	if (answered.answer.kind !== "invariant-rejected" || answered.answer.law !== codeLaw) {
+	if (answered.answer.kind !== "refused" || answered.answer.law !== codeLaw) {
 		return undefined
 	}
 	return Option.match(answered.rejection, {
@@ -1790,10 +1800,14 @@ const runInserters = (
 		const codeLaw = o.names.lawOf(badgeCode)
 		const change = yield* committedInserter(o)
 		const ins1 = yield* o.rig.servedWriter("ins1", openInserter(o.rig), (db) =>
-			db.workload.addBadges.apply({ insert: { Badge: [], Gate: [] } }, {})
+			answered(
+				db.workload.addBadges.once({ params: {}, facts: { insert: { Badge: [], Gate: [] } } })
+			)
 		)
 		const ins2 = yield* o.rig.servedWriter("ins2", openInserter(o.rig), (db) =>
-			db.workload.addBadges.apply({ insert: { Badge: [], Gate: [] } }, {})
+			answered(
+				db.workload.addBadges.once({ params: {}, facts: { insert: { Badge: [], Gate: [] } } })
+			)
 		)
 		const writers = { ins1, ins2 }
 		const actors = yield* openActors(s, {
@@ -1821,7 +1835,12 @@ const runInserters = (
 						label: describeOp(inserterOp(call)),
 						outcome: Effect.map(
 							Effect.result(
-								appliedWith(memberOps(writers[actor].ctx, change.member), inserterFacts(call), {})
+								answered(
+									writeOnce(memberOps(writers[actor].ctx, change.member))({
+										params: {},
+										facts: inserterFacts(call)
+									})
+								)
 							),
 							(r) => {
 								seen.set(actor, inserterAnswerOf(o.names.reported, r))
@@ -2044,7 +2063,9 @@ const runInserterAlone = (
 		const changes = yield* certifiedInserter(o)
 		const change = defined(changes.get("addBadges"), "the served change addBadges")
 		const writer = yield* o.rig.servedWriter("ins1", openInserter(o.rig), (db) =>
-			db.workload.addBadges.apply({ insert: { Badge: [], Gate: [] } }, {})
+			answered(
+				db.workload.addBadges.once({ params: {}, facts: { insert: { Badge: [], Gate: [] } } })
+			)
 		)
 		const tap = makeTap(s.cluster)
 		const pool = yield* poolFor(o.rig.installed.as(o.rig.worlds.server), {
@@ -2063,7 +2084,12 @@ const runInserterAlone = (
 		const op = inserterOp(ac.call)
 		const mark = tap.mark()
 		const result = yield* Effect.result(
-			appliedWith(memberOps({ ...writer.ctx, pool }, change.member), inserterFacts(ac.call), {})
+			answered(
+				writeOnce(memberOps({ ...writer.ctx, pool }, change.member))({
+					params: {},
+					facts: inserterFacts(ac.call)
+				})
+			)
 		)
 		const { frontend } = tap.since(mark)
 		const stored = yield* s.superuserRead((rows) => rows(sql.read))

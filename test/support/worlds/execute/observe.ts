@@ -1,7 +1,7 @@
 import { Array as Arr, Effect, Record as Rec } from "effect"
 import type { ApplyError, OpenError, ReadError } from "#adapter/errors/execution.ts"
 import type { StaleReason } from "#adapter/errors/failures.ts"
-import type { ApplyOutcome } from "#adapter/public/db.ts"
+import type { ApplyOutcome } from "#adapter/types/db.ts"
 import type { LawId, RelationIdent } from "#compiler/core/ids.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import type {
@@ -89,6 +89,7 @@ export const openRefused = (error: OpenError, verifyCalls: 0 | 1): Effect.Effect
 export const applyFailed = (error: ApplyError): Effect.Effect<Observation> => {
 	switch (error._tag) {
 		case "EncodingFailure":
+		case "CallInputRefused":
 			return Effect.succeed({ kind: "encoding-refused" })
 		case "TransientFailure":
 			return Effect.succeed({ kind: "transient", reason: error.reason._tag })
@@ -131,9 +132,9 @@ export const readFailed = (error: ReadError): Effect.Effect<Observation> => {
 		case "TemporaryRefused":
 			return Effect.succeed({ kind: "refused", sqlstate: sqlStateOf(reason.error.sqlstate) })
 		case "CompileError":
-		case "PageRequestRefused":
 			return Effect.succeed({ kind: "compile-refused" })
 		case "EncodingFailure":
+		case "CallInputRefused":
 		case "LawRejected":
 			return Effect.succeed({ kind: "encoding-refused" })
 		case "InputTooLarge":

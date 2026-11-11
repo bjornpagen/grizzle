@@ -91,6 +91,7 @@ import { checkBuilder, selectBuilder } from "#compiler/schema/statements.ts"
 import { changeSetOver } from "#compiler/write/changeset/value.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, assertVariant, succeeded } from "#test/support/assert.ts"
+import { answered, readOnce, writeOnce } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import {
@@ -588,7 +589,7 @@ const lawName = (law: Law): string => {
 /** A change member of array members, applied with the call's facts. */
 const appliedFacts = (change: ServedOps<unknown>, facts: unknown) => {
 	assertVariant(change, "kind", "facts", "a write's change member takes its call's facts")
-	return change.ops.apply(facts, {})
+	return answered(writeOnce(change)({ params: {}, facts: facts }))
 }
 
 /**
@@ -613,7 +614,7 @@ const verdict = (
 	if (broken.length === 0) {
 		return assert.equal(outcome.kind, "accepted", `${where} breaks no law`)
 	}
-	if (outcome.kind !== "invariant-rejected") {
+	if (outcome.kind !== "refused") {
 		return assert.fail(`${where} breaks ${Arr.join(broken, ", ")}, so refused, not ${outcome.kind}`)
 	}
 	const named: ReadonlyArray<string> = Arr.sort(
@@ -919,7 +920,7 @@ const nullCase = (drawnCase: NullCase, notes: Case<Feature>) =>
 					)
 				})
 				const collect = (served: ReadonlyMap<string, ServedOps<unknown>>, name: string) =>
-					Effect.flatMap(member(served, name).ops.execute({}), (result) => result.collect)
+					readOnce(member(served, name))({ params: {}, facts: {} })
 				const filtered = yield* collect(reads, "filtered")
 				const grouped = yield* collect(reads, "grouped")
 				const whole = yield* collect(reads, "whole")

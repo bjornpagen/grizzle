@@ -25,6 +25,7 @@ import type { AnyRelation, Relation } from "#compiler/types/schema/relation.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined } from "#test/support/assert.ts"
+import { answered, writeOnce } from "#test/support/calls.ts"
 import { installMigrated } from "#test/support/install-migrate.ts"
 import { lawIdOf, namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -567,12 +568,12 @@ layer(Substrate.layer, { excludeTestServices: true })(
 											)
 											const ops = member(served, `step${String(i)}`)
 											const outcome = yield* ops.kind === "facts"
-												? ops.ops.apply(step.facts, {})
-												: ops.ops.apply({})
+												? answered(writeOnce(ops)({ params: {}, facts: step.facts }))
+												: answered(writeOnce(ops)({ params: {}, facts: {} }))
 											const label = `${Formatter.format(c)}, step ${String(i)}`
 											if (Arr.isReadonlyArrayNonEmpty(broken)) {
-												assert.equal(outcome.kind, "invariant-rejected", label)
-												if (outcome.kind === "invariant-rejected") {
+												assert.equal(outcome.kind, "refused", label)
+												if (outcome.kind === "refused") {
 													const laws = Arr.map(broken, lawOf)
 													assert.ok(
 														Arr.some(outcome.refused.laws, (law) =>
@@ -590,7 +591,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 												step.state.referrers.length
 											assert.equal(
 												outcome.kind,
-												step.state.owners === stored && next === size ? "no-change" : "accepted",
+												step.state.owners === stored && next === size ? "unchanged" : "accepted",
 												label
 											)
 											stored = step.state.owners

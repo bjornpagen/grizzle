@@ -110,6 +110,7 @@ import { regex } from "arkregex"
  * A schema no Db of the suite opens, holding Work's TaskNote: a ChangeSet over it is over no level of any role here.
  */
 const Elsewhere = schema("Elsewhere", { TaskNote: W.TaskNote }, [])
+import { answered, readOnce, writeOnce } from "#test/support/calls.ts"
 
 /** Every node of a plan tree, depth first. */
 const nodes = <N extends { readonly children: ReadonlyArray<N> }>(plan: N): ReadonlyArray<N> => [
@@ -600,10 +601,7 @@ layer(Substrate.layer)("workload explain", (it) => {
 											const analyzed = yield* observe(tap, explains.explainAnalyze(params))
 											const executed = yield* observe(
 												tap,
-												Effect.flatMap(
-													memberOps(context, program).ops.execute(params),
-													(result) => result.collect
-												)
+												readOnce(memberOps(context, program))({ params: params, facts: {} })
 											)
 											const sent = plannedStatements(tap, executed.window, context.prologue)
 											ofTheServed(
@@ -861,7 +859,7 @@ layer(Substrate.layer)("workload explain", (it) => {
 											)
 											const applied = yield* observe(
 												tap,
-												Effect.result(ops.ops.apply(facts, params))
+												Effect.result(answered(writeOnce(ops)({ params: params, facts: facts })))
 											)
 											ofTheServed(
 												plans.value,
@@ -1086,7 +1084,9 @@ layer(Substrate.layer)("workload explain", (it) => {
 												}
 											}
 											const explained = yield* Effect.result(explains.explain(facts, {}))
-											const applied = yield* Effect.result(handle.ops.apply(facts, {}))
+											const applied = yield* Effect.result(
+												answered(writeOnce(handle)({ params: {}, facts: facts }))
+											)
 											assert.equal(
 												EffectResult.isSuccess(explained),
 												EffectResult.isSuccess(applied),

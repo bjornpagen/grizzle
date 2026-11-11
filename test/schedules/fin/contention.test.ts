@@ -37,6 +37,7 @@ import { workload } from "#compiler/public/workload.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { familyStoredOf } from "#test/pg/fin/family.ts"
 import { assert, deepEquals, defined } from "#test/support/assert.ts"
+import { answered } from "#test/support/calls.ts"
 import { theorem } from "#test/support/families/theorem.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { openActors } from "#test/support/schedules/actors.ts"
@@ -120,7 +121,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 					const app = yield* rig.servedWriter(
 						"app",
 						(context) => openServed(rig.served.roles.app, {}).pipe(Effect.provideContext(context)),
-						(db) => db.workload.noop.apply({})
+						(db) => answered(db.workload.noop.once({ params: {}, facts: {} }))
 					)
 					const direct = yield* openActors(s, { direct: { kind: "raw", as: rig.direct } })
 					/** The grizzle write's refusals and answer in the current run, set by its move. */
@@ -154,9 +155,11 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									Effect.tap(
 										Effect.result(
 											untilAnswered(
-												app.db.workload.append.apply(
-													{ insert: { Member: [{ member: GRIZZLE, g: 0 }] } },
-													{}
+												answered(
+													app.db.workload.append.once({
+														params: {},
+														facts: { insert: { Member: [{ member: GRIZZLE, g: 0 }] } }
+													})
 												)
 											)
 										),

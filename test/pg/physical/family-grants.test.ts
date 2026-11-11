@@ -67,6 +67,7 @@ import {
 import { str } from "#compiler/public/text.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { assert, assertVariant, defined, nonEmpty } from "#test/support/assert.ts"
+import { answered, writeOnce } from "#test/support/calls.ts"
 import { migrated, type Version } from "#test/support/installed.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -584,7 +585,7 @@ layer(Substrate.layer)("a member writer's hold on its family's owner", (it) => {
 										"facts",
 										`the member ${name} takes its call's facts`
 									)
-									return change.ops.apply(facts, {})
+									return answered(writeOnce(change)({ params: {}, facts: facts }))
 								}
 								return yield* explore(
 									{
@@ -674,18 +675,18 @@ layer(Substrate.layer)("a member writer's hold on its family's owner", (it) => {
 														if (target.region === "north") {
 															assert.deepEqual(
 																[outcome.kind, now],
-																[was === w.label ? "no-change" : "accepted", w.label],
+																[was === w.label ? "unchanged" : "accepted", w.label],
 																what
 															)
 															c.note("a north store's label put through NorthStores")
 														} else {
 															const laws: ReadonlyArray<string> =
-																outcome.kind === "invariant-rejected"
+																outcome.kind === "refused"
 																	? Arr.map(refusedLaws(outcome.refused), (l) => l.kind)
 																	: []
 															assert.deepEqual(
 																[outcome.kind, ...laws],
-																["invariant-rejected", "primaryKey"],
+																["refused", "primaryKey"],
 																what
 															)
 															assert.equal(now, was, what)

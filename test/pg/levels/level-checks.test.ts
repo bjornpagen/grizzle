@@ -93,6 +93,7 @@ import type { RowScalars } from "#compiler/types/schema/statements.ts"
 import { folderSource, openMigrator } from "#test/pg/migrate/support.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, succeeded, unorderedEqual } from "#test/support/assert.ts"
+import { answered } from "#test/support/calls.ts"
 import { installedCodes, levelNameAt } from "#test/support/compile.ts"
 import { installMigrated, installMigratedThrough } from "#test/support/install-migrate.ts"
 import { atName, type Names, namesOf } from "#test/support/kernel/naming.ts"
@@ -508,13 +509,21 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										const broken = [...brokenOwn, ...brokenLevel]
 										const authorId = 2 * i
 										const editorId = 2 * i + 1
-										const byAuthor = yield* author.workload.add.apply(
-											{ insert: { Attribute: [{ id: authorId, value: row.value, n: row.n }] } },
-											{}
+										const byAuthor = yield* answered(
+											author.workload.add.once({
+												params: {},
+												facts: {
+													insert: { Attribute: [{ id: authorId, value: row.value, n: row.n }] }
+												}
+											})
 										)
-										const byEditor = yield* editor.workload.add.apply(
-											{ insert: { Attribute: [{ id: editorId, value: row.value, n: row.n }] } },
-											{}
+										const byEditor = yield* answered(
+											editor.workload.add.once({
+												params: {},
+												facts: {
+													insert: { Attribute: [{ id: editorId, value: row.value, n: row.n }] }
+												}
+											})
 										)
 										if (broken.length === 0) {
 											assert.equal(byAuthor.kind, "accepted", `${where} through the author`)
@@ -525,7 +534,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										if (Arr.some(brokenLevel, (s) => readsMatch(s.pred))) {
 											c.note("a row a level's match refuses")
 										}
-										if (byEditor.kind !== "invariant-rejected") {
+										if (byEditor.kind !== "refused") {
 											return assert.fail(
 												`${where} through the editor answered ${Formatter.format(byEditor)}`
 											)
@@ -553,7 +562,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										if (broken.length > 1) {
 											c.note("two checks broken at once")
 										}
-										if (byAuthor.kind !== "invariant-rejected") {
+										if (byAuthor.kind !== "refused") {
 											return assert.fail(
 												`${where} through the author answered ${Formatter.format(byAuthor)}`
 											)

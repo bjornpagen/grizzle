@@ -38,6 +38,7 @@ import { closed, key, mutable, on, relation, schema } from "#compiler/public/sch
 import { str } from "#compiler/public/text.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, bareRecord, unorderedEqual } from "#test/support/assert.ts"
+import { answered, rowsOf } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { refusedLaws } from "#test/support/refused.ts"
@@ -289,23 +290,33 @@ layer(Substrate.layer)(
 							/** The rows of `target` as grizzle reads them. */
 							const read = (target: Target) =>
 								target === "Item"
-									? Effect.flatMap(db.workload.itemRows.execute({}), (r) => r.collect)
-									: Effect.flatMap(db.workload.spotRows.execute({}), (r) => r.collect)
+									? rowsOf(db.workload.itemRows.once({ params: {}, facts: {} }))
+									: rowsOf(db.workload.spotRows.once({ params: {}, facts: {} }))
 							/** `rows` inserted into `target`. */
 							const seed = (target: Target, rows: ReadonlyArray<Row>) =>
 								target === "Item"
-									? db.workload.seedItem.apply({ insert: { Item: Arr.map(rows, writtenOf) } }, {})
-									: db.workload.seedSpot.apply({ insert: { Spot: Arr.map(rows, writtenOf) } }, {})
+									? answered(
+											db.workload.seedItem.once({
+												params: {},
+												facts: { insert: { Item: Arr.map(rows, writtenOf) } }
+											})
+										)
+									: answered(
+											db.workload.seedSpot.once({
+												params: {},
+												facts: { insert: { Spot: Arr.map(rows, writtenOf) } }
+											})
+										)
 							/** The write of the case into `target` from its query over `rows`. */
 							const write = (target: Target, op: Case["op"], rows: ReadonlyArray<Row>) => {
 								const params = { rows: Arr.map(rows, writtenOf) }
 								return target === "Item"
 									? op === "insert"
-										? db.workload.insertItem.apply(params)
-										: db.workload.putItem.apply(params)
+										? answered(db.workload.insertItem.once({ params: params, facts: {} }))
+										: answered(db.workload.putItem.once({ params: params, facts: {} }))
 									: op === "insert"
-										? db.workload.insertSpot.apply(params)
-										: db.workload.putSpot.apply(params)
+										? answered(db.workload.insertSpot.once({ params: params, facts: {} }))
+										: answered(db.workload.putSpot.once({ params: params, facts: {} }))
 							}
 							return yield* explore(
 								{
@@ -370,7 +381,7 @@ layer(Substrate.layer)(
 										)
 										const expected = expectedOf(k)
 										if (expected.kind === "refused") {
-											if (outcome.kind !== "invariant-rejected") {
+											if (outcome.kind !== "refused") {
 												return assert.fail(
 													`a write breaking ${Arr.join(expected.laws, ", ")} is refused, not ${outcome.kind}`
 												)
@@ -392,7 +403,7 @@ layer(Substrate.layer)(
 										}
 										assert.equal(
 											outcome.kind,
-											expected.changed ? "accepted" : "no-change",
+											expected.changed ? "accepted" : "unchanged",
 											"accepted where the write changed a row"
 										)
 										unorderedEqual(

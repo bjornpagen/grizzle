@@ -16,6 +16,7 @@ import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assertVariant } from "#test/support/assert.ts"
+import { readOnce } from "#test/support/calls.ts"
 import type { FixtureSchema } from "#test/support/compile.ts"
 import { type Installed, installMigrated as install } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
@@ -259,7 +260,7 @@ export const withCaseDb = <A, E>(
 					complement: perturbedContext(ctx, complementOf(perturbation))
 				}
 				const db: CaseDb = {
-					read: (name) => Effect.flatMap(member(members, name).ops.execute({}), (r) => r.collect),
+					read: (name) => readOnce(member(members, name))({ params: {}, facts: {} }),
 					refresh: (named, plan) =>
 						Effect.gen(function* () {
 							const loaded = yield* load({ refresh: refreshMember(named) })

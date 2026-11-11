@@ -72,6 +72,7 @@ import type { PutStatement } from "#compiler/write/put/statement.ts"
 import { textRows } from "#test/pg/codec/support.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, lacksText, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { answered, rowsOf } from "#test/support/calls.ts"
 import {
 	compileTemplate,
 	installedCodes,
@@ -754,10 +755,13 @@ layer(Substrate.layer)("vector equality as a world role", (it) => {
 										const found = yield* run(writer, spec, {})
 										assert.deepEqual(idsOf(found), expected.unmatched, "the unmatched")
 									}
-									const read: ReadonlyArray<unknown> = yield* (yield* db.workload.twins.execute({}))
-										.collect
-									const outcome = yield* db.workload.readBack.apply({})
-									if (outcome.kind !== "accepted" && outcome.kind !== "no-change") {
+									const read: ReadonlyArray<unknown> = yield* (yield* rowsOf(
+										db.workload.twins.once({ params: {}, facts: {} })
+									)).collect
+									const outcome = yield* answered(
+										db.workload.readBack.once({ params: {}, facts: {} })
+									)
+									if (outcome.kind !== "accepted" && outcome.kind !== "unchanged") {
 										return assert.fail(`the read-back's apply was ${outcome.kind}`)
 									}
 									const readBack = hasProperties(outcome.reads) ? outcome.reads.readBack : undefined

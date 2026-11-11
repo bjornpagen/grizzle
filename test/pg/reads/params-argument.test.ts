@@ -15,6 +15,7 @@ import { query, v } from "#compiler/public/query.ts"
 import { paged } from "#compiler/public/workload.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, assertVariant, defined } from "#test/support/assert.ts"
+import { answered, writeOnce } from "#test/support/calls.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { a1, t1, workFacts } from "#test/support/fixtures/golden/work.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -177,7 +178,7 @@ layer(Substrate.layer, { excludeTestServices: true })("a program's parameter arg
 									"program",
 									`the member ${name} takes its parameters alone`
 								)
-								return change.ops.apply(callersArgument(argument))
+								return answered(writeOnce(change)({ params: callersArgument(argument), facts: {} }))
 							}
 							const reads: { readonly [C in Call]: Read } = {
 								"execute without parameters": {

@@ -9,16 +9,16 @@
  * Its case is its one argument, JSON: `{ "dbs": 0 | 1 | 2, "read": boolean }`.
  */
 import { Effect, Layer } from "effect"
-import { compiledOpen } from "#adapter/db/open.ts"
+import { Db } from "#adapter/public/db.ts"
 import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { defined } from "#test/support/assert.ts"
+import { rowsOf } from "#test/support/calls.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
-import { loginLayer } from "#test/support/worlds.ts"
 
 /** The child's case: how many Dbs it opens, and whether each reads through a query. */
 interface ExitCase {
@@ -54,16 +54,16 @@ const work = (c: ExitCase) =>
 			const o = yield* installed(
 				Notes,
 				{ Note: [{ id: 1 }] },
-				{ label: "exit", extensions: [], programs: {} }
+				{ label: "exit", extensions: [], programs: { notes } }
 			)
 			for (let opened = 0; opened < c.dbs; opened++) {
 				yield* Effect.scoped(
 					Effect.gen(function* () {
-						const db = yield* compiledOpen(o.server.roles.app, {})
+						const db = yield* Db.open(o.served.login.roles.app, {})
 						if (c.read) {
-							yield* Effect.flatMap(db.execute(notes, {}), (result) => result.collect)
+							yield* rowsOf(db.workload.notes.once({ params: {}, facts: {} }))
 						}
-					}).pipe(withLayer(loginLayer(o.installed, o.server)))
+					}).pipe(withLayer(o.served.layer))
 				)
 			}
 		})

@@ -31,6 +31,7 @@ import { query, v } from "#compiler/public/query.ts"
 import { check, closed, relation, schema } from "#compiler/public/schema.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert } from "#test/support/assert.ts"
+import { answered, rowsOf } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { refusedLaws } from "#test/support/refused.ts"
@@ -155,9 +156,11 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								(flags, c) =>
 									Effect.gen(function* () {
 										yield* replaceRows(s.admin, installationGroup(names), [])
-										const outcome = yield* db.workload.write.apply(
-											{ insert: { R: [{ id: 1, flags: Bits.of(Flag, flags) }] } },
-											{}
+										const outcome = yield* answered(
+											db.workload.write.once({
+												params: {},
+												facts: { insert: { R: [{ id: 1, flags: Bits.of(Flag, flags) }] } }
+											})
 										)
 										const held = new Set(flags)
 										const broken = Arr.filter(restated, (r) => !r.holds(held))
@@ -171,7 +174,9 @@ layer(Substrate.layer, { excludeTestServices: true })(
 												"accepted",
 												`${Formatter.format(flags)} is accepted`
 											)
-											const read = yield* (yield* db.workload.readBack.execute({})).collect
+											const read = yield* rowsOf(
+												db.workload.readBack.once({ params: {}, facts: {} })
+											)
 											assert.deepEqual(
 												Arr.map(read, (row) => ({
 													apart: row.apart,
@@ -189,7 +194,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 											return
 										}
 										const refusal = `${Formatter.format(flags)} is refused naming every check it breaks, each once, in canonical order`
-										assert.ok(outcome.kind === "invariant-rejected", refusal)
+										assert.ok(outcome.kind === "refused", refusal)
 										assert.equal(outcome.refused.kind, "every", refusal)
 										assert.deepEqual(refusedLaws(outcome.refused), named, refusal)
 										assert.deepEqual(

@@ -5,9 +5,9 @@
  */
 export { Array as Arr, Effect } from "effect"
 export type { Brand, Option, Stream } from "effect"
-export type { DbOf, GetArg, QueryResult, WorkloadHandles } from "#adapter/types/db.ts"
+export type { DbOf, WorkloadHandles } from "#adapter/types/db.ts"
 export type { ReadError } from "#adapter/errors/execution.ts"
-export type { CursorError } from "#compiler/plan/common.ts"
+export type { CallError, InputOf, KeyedList, KeyedSet } from "#compiler/live/index.ts"
 export { ALLEN } from "#compiler/public/allen.ts"
 export { Compute } from "#compiler/public/compute.ts"
 export { date, Decimal, Money, pg, uuid, Vector } from "#compiler/public/fields.ts"
@@ -30,7 +30,6 @@ export type {
 	Headed,
 	Rostered
 } from "#compiler/types/core/phantom.ts"
-export type { Page, PageCursor } from "#compiler/types/page/page.ts"
 export {
 	Agree,
 	AgreeAbove,

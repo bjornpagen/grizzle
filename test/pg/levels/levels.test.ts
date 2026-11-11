@@ -70,6 +70,7 @@ import { quoteIdent } from "#compiler/sql/print.ts"
 import { cleared, seatOfInstalled } from "#test/pg/fin/installed.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined } from "#test/support/assert.ts"
+import { answered, rowsOf } from "#test/support/calls.ts"
 import { levelNameAt } from "#test/support/compile.ts"
 import { installMigrated } from "#test/support/install-migrate.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
@@ -215,9 +216,7 @@ const namesExactly = (
 	refused: ReadonlyArray<Law> | undefined,
 	law: Law
 ): boolean =>
-	outcome.kind === "invariant-rejected" &&
-	refused?.length === 1 &&
-	Option.isNone(exact(refused[0], law))
+	outcome.kind === "refused" && refused?.length === 1 && Option.isNone(exact(refused[0], law))
 
 /** Rows of an id and an n, each as its plain fields, for a comparison as a set. */
 const plain = (rows: ReadonlyArray<{ readonly id: string; readonly n: number }>) =>
@@ -467,9 +466,11 @@ layer(Substrate.layer, { excludeTestServices: true })(
 												if (facts.items.has(op.id)) {
 													continue
 												}
-												const outcome = yield* author.workload.addItem.apply(
-													{ insert: { Item: [{ id: Code(idAt(op.id)), n: op.n }] } },
-													{}
+												const outcome = yield* answered(
+													author.workload.addItem.once({
+														params: {},
+														facts: { insert: { Item: [{ id: Code(idAt(op.id)), n: op.n }] } }
+													})
 												)
 												if (outcome.kind !== "accepted") {
 													return yield* disagreed(
@@ -486,13 +487,15 @@ layer(Substrate.layer, { excludeTestServices: true })(
 													continue
 												}
 												const held = Arr.some([...facts.sittings.values()], (s) => s.item === op.id)
-												const outcome = yield* author.workload.dropItem.apply(
-													{ delete: { Item: [{ id: Code(idAt(op.id)), n }] } },
-													{}
+												const outcome = yield* answered(
+													author.workload.dropItem.once({
+														params: {},
+														facts: { delete: { Item: [{ id: Code(idAt(op.id)), n }] } }
+													})
 												)
 												if (held) {
 													if (
-														outcome.kind !== "invariant-rejected" ||
+														outcome.kind !== "refused" ||
 														outcome.witness.kind !== "unreported" ||
 														!namesExactly(outcome, refusedLaws(outcome.refused), above)
 													) {
@@ -516,27 +519,27 @@ layer(Substrate.layer, { excludeTestServices: true })(
 												if (facts.sittings.has(op.id)) {
 													continue
 												}
-												const outcome = yield* learner.workload.addSitting.apply(
-													{
-														insert: {
-															Sitting: [
-																{
-																	id: idAt(op.id),
-																	item: Code(idAt(op.item)),
-																	kind: op.test ? "Test" : "Practice"
-																}
-															]
+												const outcome = yield* answered(
+													learner.workload.addSitting.once({
+														params: {},
+														facts: {
+															insert: {
+																Sitting: [
+																	{
+																		id: idAt(op.id),
+																		item: Code(idAt(op.item)),
+																		kind: op.test ? "Test" : "Practice"
+																	}
+																]
+															}
 														}
-													},
-													{}
+													})
 												)
 												if (!facts.items.has(op.item)) {
 													if (
 														!namesExactly(
 															outcome,
-															outcome.kind === "invariant-rejected"
-																? refusedLaws(outcome.refused)
-																: undefined,
+															outcome.kind === "refused" ? refusedLaws(outcome.refused) : undefined,
 															containment
 														)
 													) {
@@ -561,19 +564,21 @@ layer(Substrate.layer, { excludeTestServices: true })(
 												if (s === undefined) {
 													continue
 												}
-												const outcome = yield* learner.workload.dropSitting.apply(
-													{
-														delete: {
-															Sitting: [
-																{
-																	id: idAt(op.id),
-																	item: Code(idAt(s.item)),
-																	kind: s.test ? "Test" : "Practice"
-																}
-															]
+												const outcome = yield* answered(
+													learner.workload.dropSitting.once({
+														params: {},
+														facts: {
+															delete: {
+																Sitting: [
+																	{
+																		id: idAt(op.id),
+																		item: Code(idAt(s.item)),
+																		kind: s.test ? "Test" : "Practice"
+																	}
+																]
+															}
 														}
-													},
-													{}
+													})
 												)
 												if (outcome.kind !== "accepted") {
 													return yield* disagreed(
@@ -585,7 +590,9 @@ layer(Substrate.layer, { excludeTestServices: true })(
 												break
 											}
 										}
-										const joined = yield* (yield* learner.workload.fused.execute({})).collect
+										const joined = yield* rowsOf(
+											learner.workload.fused.once({ params: {}, facts: {} })
+										)
 										const expectedJoin = plain(
 											Arr.map([...facts.sittings], ([id, sitting]) => ({
 												id: idAt(id),
@@ -599,7 +606,9 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										if (expectedJoin.length > 0) {
 											c.note("a fused read of a sitting")
 										}
-										const read = yield* (yield* learner.workload.items.execute({})).collect
+										const read = yield* rowsOf(
+											learner.workload.items.once({ params: {}, facts: {} })
+										)
 										const expectedItems = plain(
 											Arr.map([...facts.items], ([id, n]) => ({ id: idAt(id), n }))
 										)

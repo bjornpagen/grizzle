@@ -45,7 +45,6 @@ import {
 	buildChangeSet,
 	type ChangeSetSketch,
 	changeSetSketchGen,
-	type Entry,
 	generates,
 	isFact,
 	type MemberOp,
@@ -235,7 +234,6 @@ export type WriteOracleFeature =
 	| `${MemberOp} ${WSourceKind}`
 	| `read ${ReadSource}`
 	| `parameters ${WBinding}`
-	| `through ${Entry}`
 	| `put target ${PutChoice["target"]}`
 	| `outcome ${AppliedOutcome["kind"]}`
 	| `statistics ${Statistics}`
@@ -1041,7 +1039,6 @@ const noteShapes = (group: WGroup, c: WChangeSet, note: Case<WriteOracleFeature>
 		note("stream member")
 	}
 	note(`parameters ${c.binding}`)
-	note(`through ${c.entry}`)
 	if (group.projectedKeys.length > 0) {
 		note("projected key")
 	}
@@ -1336,10 +1333,8 @@ export const runCase = (
 				entries[artifact],
 				changes,
 				params,
-				artifact,
 				expected.collisions,
-				perturbation,
-				c.entry
+				perturbation
 			)
 			const state = yield* readGroup(t, group)
 			const sideExpected = expectedOf(applied)
@@ -1388,10 +1383,8 @@ export const runCase = (
 			entry.success,
 			changes,
 			params,
-			"optimized",
 			expected.collisions,
-			secondPlan,
-			c.entry
+			secondPlan
 		)
 		const againState = yield* readGroup(t, group)
 		const readAgain = `optimized, read again over its facts stored otherwise (${restored.reordered ? "reordered" : "in their order"}, ${restored.respelled ? "one value respelled" : "no value respelled"}), ${printPerturbation(secondPlan)}`

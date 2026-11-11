@@ -1,7 +1,6 @@
 import {
 	Array as Arr,
 	Effect,
-	Layer,
 	Option,
 	pipe,
 	Record as Rec,
@@ -9,13 +8,13 @@ import {
 	type Scope,
 	String as Str
 } from "effect"
-import { apply, compileChange, runApplication } from "#adapter/apply/index.ts"
-import type { DbContext } from "#adapter/db/context.ts"
-import { openDbContext } from "#adapter/db/open.ts"
+import type { ServedDbContext } from "#adapter/db/context.ts"
 import { fromEngine } from "#adapter/engine.ts"
 import type { ApplyError, OpenError } from "#adapter/errors/execution.ts"
-import type { ApplyOutcome } from "#adapter/public/db.ts"
+import type { ServedRefusal } from "#adapter/public/compile.ts"
 import { type CompiledEntry, compiledWrite } from "#adapter/served/forms.ts"
+import type { RoleContext } from "#adapter/served/role.ts"
+import type { ApplyOutcome } from "#adapter/types/db.ts"
 import type { Session } from "#adapter/wire/session.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
@@ -23,7 +22,6 @@ import { isRecord } from "#compiler/core/record.ts"
 import { TupleMap } from "#compiler/core/tuple-map.ts"
 import { type FactIdentity, factIdentity } from "#compiler/scalar/values/identity.ts"
 import type { Law, Refused, RefusedLaw } from "#compiler/types/changeset/changeset.ts"
-import type { ParamMap } from "#compiler/types/core/phantom.ts"
 import type { ChangeSetValue } from "#compiler/write/changeset/value.ts"
 import type { AmbientSession } from "#test/support/ambient.ts"
 import { type Installed, installMigrated as install } from "#test/support/install-migrate.ts"
@@ -33,7 +31,7 @@ import { factStatements } from "#test/support/oracle/install/load.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import { type Perturbation, perturbedContext } from "#test/support/oracle/perturb.ts"
 import { batchProblems, type Flight } from "#test/support/oracle/write/batch.ts"
-import { type Entry, isFact } from "#test/support/oracle/write/changeset.ts"
+import { isFact } from "#test/support/oracle/write/changeset.ts"
 import { typeInfo } from "#test/support/oracle/write/domain.ts"
 import type { Collisions } from "#test/support/oracle/write/expect.ts"
 import type { WFacts } from "#test/support/oracle/write/facts.ts"
@@ -49,10 +47,11 @@ import {
 	type WSchemaValue
 } from "#test/support/oracle/write/schema.ts"
 import type { SqlError } from "#test/support/pg.ts"
+import { openServedDb } from "#test/support/served-db.ts"
+import { type RoleSetupError, runEntry, servedRoleContext } from "#test/support/served-role.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import { occupiedGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-import { loginLayer } from "#test/support/worlds.ts"
 
 /** A refusal's witness as plain values: the violating fact's key, or why it names none. */
 export type OutcomeWitness =
@@ -111,17 +110,24 @@ export interface WriteTarget {
 	readonly value: WSchemaValue
 	/** The theory role of the writer role the Db opened as. */
 	readonly writer: string
-	/** db.apply as the opened Db runs it, over a ChangeSet value of whatever members the case generated. */
-	readonly db: {
-		apply(
-			changes: ChangeSetValue,
-			params: ParamMap
-		): Effect.Effect<ApplyOutcome<unknown>, ApplyError>
-	}
-	readonly ctx: DbContext
+	/**
+	 * The writer's served Db's context, and its role's compilation context as `grizzle generate` reads it, which every
+	 * case's ChangeSet compiles through (served-role.ts): a served Db compiles nothing, so the oracle compiles the case's
+	 * program as generate would and runs it on the Db (runEntry).
+	 */
+	readonly ctx: OracleContext
 }
 
-type TargetError = CompileError | SqlError | TransactionRolledBack | OpenError
+/** A writer's served Db's context with its role's compilation context (WriteTarget.ctx). */
+export type OracleContext = ServedDbContext & RoleContext
+
+type TargetError =
+	| CompileError
+	| SqlError
+	| TransactionRolledBack
+	| OpenError
+	| ServedRefusal
+	| RoleSetupError
 
 /**
  * The database side of the write oracle.
@@ -184,10 +190,9 @@ export const openTarget = (
 		)
 		const value = built.rename(done.schema)
 		const world = built.worldOf(value)
-		const context = yield* Layer.build(loginLayer(done, world.server))
-		const { ctx } = yield* openDbContext(world.server.roles.writer, {}).pipe(
-			Effect.provideContext(context)
-		)
+		const served = yield* openServedDb(done, world.server.roles.writer, {})
+		const role = yield* servedRoleContext(done, world.server.roles.writer)
+		const ctx: OracleContext = { ...served.ctx, ...role }
 		return {
 			schema,
 			built,
@@ -196,10 +201,6 @@ export const openTarget = (
 			statistics,
 			value,
 			writer: done.role(world.writer),
-			/** What db.apply runs (packages/grizzle/src/adapter/db/db.ts). */
-			db: {
-				apply: (changes, params) => Effect.suspend(() => apply(ctx, changes, changes.reads, params))
-			},
 			ctx
 		}
 	})
@@ -373,7 +374,7 @@ const loggedSession = (session: Session, log: Array<Flight>): Session => ({
 })
 
 /** A context whose sessions log their flights into `log`. */
-const loggedContext = (ctx: DbContext, log: Array<Flight>): DbContext => ({
+const loggedContext = (ctx: OracleContext, log: Array<Flight>): OracleContext => ({
 	...ctx,
 	pool: { ...ctx.pool, lease: Effect.map(ctx.pool.lease, (session) => loggedSession(session, log)) }
 })
@@ -393,10 +394,10 @@ export interface Applied {
 }
 
 /**
- * One application with `artifact`. Under a perturbation's planner settings (../perturb.ts) the optimized side is
- * db.apply's own path, apply over the Db's context, or db.compile's when `entry` says so, its handle compiled on
- * the attempt's own context and applied once, on a context whose every transaction sets them first; so is the
- * conservative realization.
+ * One application of `entry`, the compiled program of `artifact`: the optimized one `grizzle generate` serves, or the
+ * conservative realization (conservative.ts conservativeChange), each run as a served change member runs its loaded
+ * entry (served-role.ts runEntry), under a perturbation's planner settings (../perturb.ts) on a context whose every
+ * transaction sets them first.
  *
  * grizzle makes one attempt per call. The oracle calls again after a TransientFailure, as an application does, only
  * where the case's model allows one (expect.ts Collisions): a generated addition that drew a serial value a stored fact
@@ -411,11 +412,9 @@ export const applyWith = (
 	positions: GroupState["sequences"],
 	entry: CompiledEntry,
 	changes: ChangeSetValue,
-	params: ParamMap,
-	artifact: Artifact,
+	params: unknown,
 	collisions: ReadonlyMap<string, Collisions>,
-	perturbation: Perturbation,
-	entryPoint: Entry
+	perturbation: Perturbation
 ): Effect.Effect<Applied, SqlError, Substrate> => {
 	const perturbed = perturbedContext(t.ctx, perturbation)
 	let flights = 0
@@ -423,17 +422,7 @@ export const applyWith = (
 	/** Each attempt logs its own flights and is held to the single-flight property (see the header). */
 	const once = Effect.suspend(() => {
 		const log: Array<Flight> = []
-		const ctx = loggedContext(perturbed, log)
-		const attempt =
-			artifact === "conservative"
-				? runApplication(ctx, entry, params, changes.reads)
-				: entryPoint === "apply"
-					? apply(ctx, changes, changes.reads, params)
-					: Effect.scoped(
-							Effect.flatMap(Effect.orDie(compileChange(ctx, changes, changes.reads)), (handle) =>
-								handle.apply(params)
-							)
-						)
+		const attempt = runEntry(loggedContext(perturbed, log), entry, params, changes.reads)
 		return Effect.result(attempt).pipe(
 			Effect.flatMap((result) => {
 				flights += log.length

@@ -1,9 +1,9 @@
 import { Result as EffectResult } from "effect"
 import { readBacks } from "#adapter/apply/readback.ts"
-import type { DbContext } from "#adapter/db/context.ts"
 import { toResult } from "#adapter/engine.ts"
 import type { PageRuntime } from "#adapter/page/template.ts"
 import { type CompiledEntry, compiledPageRuntime } from "#adapter/served/forms.ts"
+import type { RoleContext } from "#adapter/served/role.ts"
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -105,7 +105,7 @@ export const conservativePageRuntime = (
 	CompileError
 > =>
 	EffectResult.flatMap(toResult(statedOrderOf(desc, SourceLoc("query", []))), (stated) =>
-		EffectResult.flatMap(
+		EffectResult.map(
 			toResult(
 				conservativePage(
 					{
@@ -117,23 +117,22 @@ export const conservativePageRuntime = (
 					runtime.page
 				)
 			),
-			(artifact) =>
-				EffectResult.map(
-					compiledPageRuntime({
-						page: {
-							order: runtime.page.order,
-							comparators: runtime.page.comparators,
-							heading: runtime.page.heading,
-							artifact
-						},
-						params: runtime.params,
-						codes: artifacts.names.codes,
-						query: runtime.identity.query,
-						generation: runtime.identity.generation,
-						spine: servedSpine(desc)
-					}),
-					(served) => ({ runtime: served, artifact })
-				)
+			(artifact) => ({
+				runtime: compiledPageRuntime({
+					page: {
+						order: runtime.page.order,
+						comparators: runtime.page.comparators,
+						heading: runtime.page.heading,
+						artifact
+					},
+					params: runtime.params,
+					codes: artifacts.names.codes,
+					query: runtime.page.query,
+					generation: runtime.page.generation,
+					spine: servedSpine(desc)
+				}),
+				artifact
+			})
 		)
 	)
 
@@ -145,7 +144,7 @@ export const conservativePageRuntime = (
  */
 export const conservativeChange = (
 	entry: CompiledEntry,
-	role: Pick<DbContext, "programArtifacts">
+	role: Pick<RoleContext, "programArtifacts">
 ): Result.Result<CompiledEntry, CompileError> =>
 	Result.flatMap(
 		role.programArtifacts({ kind: "changeSet", changeSet: entry.change.desc }),

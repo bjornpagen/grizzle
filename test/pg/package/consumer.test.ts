@@ -70,6 +70,7 @@ import net from "node:net"
 import { Effect, Redacted } from "effect"
 import pgDriver from "pg"
 import { Db, DbLayer, served } from "@bjornpagen/grizzle/runtime"
+import { rowsOf } from "#test/support/calls.ts"
 
 const config = JSON.parse(readFileSync(process.argv[2], "utf8"))
 const server = served(JSON.parse(readFileSync(config.served, "utf8")), "server")
@@ -92,7 +93,7 @@ const layer = DbLayer.make({
 const rows = await Effect.runPromise(
 	Effect.gen(function* () {
 		const db = yield* Db.open(server.roles.app, {})
-		return yield* (yield* db.workload.notes.execute({})).collect
+		return yield* rowsOf(db.workload.notes.once({ params: {}, facts: {} }))
 	}).pipe(Effect.provide(layer))
 )
 process.stdout.write(JSON.stringify(rows) + "\\n")

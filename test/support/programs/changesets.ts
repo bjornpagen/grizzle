@@ -4,7 +4,8 @@
  */
 export { Stream } from "effect"
 export type { Effect, Scope } from "effect"
-export type { Compiled, DbOf, WorkloadHandles } from "#adapter/types/db.ts"
+export type { DbOf, WorkloadHandles } from "#adapter/types/db.ts"
+export type { CallError, InputOf, WriteOutcome } from "#compiler/live/index.ts"
 export type { Phantom } from "#compiler/core/phantom.ts"
 export { ChangeSet } from "#compiler/public/changeset.ts"
 export type { AdditionIn, InsertAllRowsOf, Written } from "#compiler/public/changeset.ts"
@@ -17,7 +18,7 @@ export type { ArraysOf, ReadsOf, WritesOf } from "#compiler/types/changeset/chan
 export type { Invariant, Rostered } from "#compiler/types/core/phantom.ts"
 export type { Bits as BitsOf, Infer } from "#compiler/types/fields/field.ts"
 export type { RegexInfer } from "#compiler/types/fields/regex.ts"
-export type { ApplyError, ApplyOutcome, CompileError } from "#index.ts"
+export type { CompileError } from "#index.ts"
 export {
 	Bin,
 	Budget,

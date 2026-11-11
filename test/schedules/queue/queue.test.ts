@@ -40,6 +40,7 @@ import type { OpenError } from "#adapter/errors/execution.ts"
 import type { ServedRefusal } from "#adapter/public/compile.ts"
 import { type ApplyOutcome, Db } from "#adapter/public/db.ts"
 import type { CompileError, TransientTag } from "#compiler/core/errors.ts"
+import { answered } from "#test/support/calls.ts"
 import { Instant } from "#test/support/fixtures/api/contracts.ts"
 import * as Q from "#test/support/fixtures/api/queue.ts"
 import { kA, kB, kG, queueFacts } from "#test/support/fixtures/golden/queue.ts"
@@ -245,10 +246,18 @@ const runRace = (
 		)
 		yield* withWorker((one) =>
 			Effect.gen(function* () {
-				const g = yield* worker("g", one.workload.noop.apply({}), [])
+				const g = yield* worker(
+					"g",
+					answered(one.workload.noop.once({ params: {}, facts: {} })),
+					[]
+				)
 				yield* withWorker((two) =>
 					Effect.gen(function* () {
-						const h = yield* worker("h", two.workload.noop.apply({}), [g.pid])
+						const h = yield* worker(
+							"h",
+							answered(two.workload.noop.once({ params: {}, facts: {} })),
+							[g.pid]
+						)
 						const direct = yield* openActors(s, {
 							e: { kind: "psql", as: f.installed.world(worlds.enqueuer) },
 							w: { kind: "psql", as: f.installed.world(worlds.worker) }
@@ -267,20 +276,30 @@ const runRace = (
 										: "settle kB epoch 1",
 								call:
 									write.kind === "claim"
-										? db.workload.claim.apply({
-												kind: "render" as const,
-												slot: Q.Slot(0),
-												resource: "gpu" as const,
-												from: digest(write.from),
-												fromSeat: Q.SeatNo(write.fromSeat),
-												now: Instant(race.time.now),
-												expires: Instant(race.time.now + race.time.lease)
-											})
-										: db.workload.settle.apply({
-												key: Q.Digest(kB),
-												epoch: 1n,
-												outcome: "succeeded"
-											}),
+										? answered(
+												db.workload.claim.once({
+													params: {
+														kind: "render" as const,
+														slot: Q.Slot(0),
+														resource: "gpu" as const,
+														from: digest(write.from),
+														fromSeat: Q.SeatNo(write.fromSeat),
+														now: Instant(race.time.now),
+														expires: Instant(race.time.now + race.time.lease)
+													},
+													facts: {}
+												})
+											)
+										: answered(
+												db.workload.settle.once({
+													params: {
+														key: Q.Digest(kB),
+														epoch: 1n,
+														outcome: "succeeded"
+													},
+													facts: {}
+												})
+											),
 								footprint: everyRelation
 							}
 						}

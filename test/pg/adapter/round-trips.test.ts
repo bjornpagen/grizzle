@@ -53,6 +53,7 @@ import { defaultPool, poolFor, rowsOn } from "#test/pg/adapter/support.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, assertVariant, defined } from "#test/support/assert.ts"
+import { answered, oneOf, rowsOf, writeOnce } from "#test/support/calls.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { a1, t1, t4, t5, tMissing, workFacts } from "#test/support/fixtures/golden/work.ts"
 import { installMigrated as install } from "#test/support/install-migrate.ts"
@@ -119,7 +120,7 @@ const derivedFixture = (name: string) => {
 /** A read member's estimate-only explain of `params` (types/db ReadExplain): a member of another kind is a defect of the test. */
 const readExplained = (explains: MemberExplains, params: ParamMap) =>
 	explains.kind === "read"
-		? explains.ops.explain(params)
+		? explains.ops.explain({ params: params, facts: {} })
 		: assert.fail("a read member explains as a read")
 
 const readCallKinds = ["execute", "get", "explain", "page"] as const
@@ -573,7 +574,10 @@ layer(Substrate.layer, { excludeTestServices: true })("one round trip per public
 														"facts",
 														"a write member takes its call's facts"
 													)
-													const seen = yield* observe(tap, Effect.result(ops.ops.apply(called, {})))
+													const seen = yield* observe(
+														tap,
+														Effect.result(answered(writeOnce(ops)({ params: {}, facts: called })))
+													)
 													assertFlight(call.kind, seen.window, writeFrame)
 												}
 												notes.note(call.kind)
@@ -619,7 +623,7 @@ layer(Substrate.layer, { excludeTestServices: true })("one round trip per public
 					return yield* Effect.gen(function* () {
 						/** The session's startup, outside every window: a call of a Db opened before the cases. */
 						const warm = yield* Db.open(o.served.login.roles.app, {})
-						yield* warm.workload.task.get({ id: t1 })
+						yield* oneOf(warm.workload.task.once({ params: { id: t1 }, facts: {} }))
 						return yield* explore(
 							{
 								oracle: {
@@ -654,16 +658,20 @@ layer(Substrate.layer, { excludeTestServices: true })("one round trip per public
 									const db = defined(dbs[pickIndex(c.caller, dbs.length)], "an opened Db")
 									switch (c.call) {
 										case "get":
-											yield* db.workload.task.get({ id: c.present ? t1 : tMissing })
+											yield* oneOf(
+												db.workload.task.once({
+													params: { id: c.present ? t1 : tMissing },
+													facts: {}
+												})
+											)
 											break
 										case "execute":
-											yield* Effect.flatMap(
-												db.workload.tasksFor.execute({ account: a1 }),
-												(r) => r.collect
+											yield* rowsOf(
+												db.workload.tasksFor.once({ params: { account: a1 }, facts: {} })
 											)
 											break
 										case "apply":
-											yield* db.workload.nothing.apply({})
+											yield* answered(db.workload.nothing.once({ params: {}, facts: {} }))
 											break
 									}
 									assertFlight(
