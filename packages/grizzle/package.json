@@ -36,6 +36,7 @@
 	},
 	"imports": {
 		"#adapter/*": "./src/adapter/*",
+		"#client/*": "./src/client/*",
 		"#cli/*": "./src/cli/*",
 		"#http/*": "./src/http/*",
 		"#compiler/*": "@bjornpagen/grizzle-engine/internal/*"
@@ -50,6 +51,11 @@
 			"grizzle-source": "./src/runtime.ts",
 			"types": "./dist/runtime.d.ts",
 			"default": "./dist/runtime.js"
+		},
+		"./client": {
+			"grizzle-source": "./src/client.ts",
+			"types": "./dist/client.d.ts",
+			"default": "./dist/client.js"
 		},
 		"./compile": {
 			"grizzle-source": "./src/compile.ts",

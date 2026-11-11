@@ -221,7 +221,12 @@
 							"src/adapter/wire/releasing-pool.ts",
 							"src/adapter/wire/session.ts",
 							"src/adapter/witness/classify.ts",
-							"src/adapter/witness/keylaw.ts"
+							"src/adapter/witness/keylaw.ts",
+							"src/client.ts",
+							"src/client/call.ts",
+							"src/client/client.ts",
+							"src/client/handler.ts",
+							"src/client/sse.ts"
 						],
 						"options": {
 							"namespaceImportPackages": ["effect"],
@@ -244,7 +249,8 @@
 							"src/adapter/wire/batch.ts",
 							"src/adapter/wire/naming.ts",
 							"src/adapter/wire/session.ts",
-							"src/adapter/wire/statement.ts"
+							"src/adapter/wire/statement.ts",
+							"src/client/sse.ts"
 						],
 						"options": {
 							"diagnosticSeverity": {

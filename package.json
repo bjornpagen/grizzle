@@ -16,6 +16,7 @@
 		"#bench/*": "./bench/*",
 		"#compiler/*": "./packages/engine/src/*",
 		"#adapter/*": "./packages/grizzle/src/adapter/*",
+		"#client/*": "./packages/grizzle/src/client/*",
 		"#cli/*": "./packages/grizzle/src/cli/*",
 		"#devtools/*": "./packages/devtools/src/*",
 		"#http/*": "./packages/grizzle/src/http/*",

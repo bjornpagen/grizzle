@@ -155,6 +155,45 @@
 				"patterns": ["packages/engine/src/runtime/**"]
 			},
 			{
+				// The core modules a browser loads: none reaches node:crypto (core/sha256.ts, core/seal.ts, and every module over them stays in core), and this zone imports no other, so the client's closure holds no Node module.
+				"name": "browser-core",
+				"patterns": [
+					"packages/engine/src/core/array.ts",
+					"packages/engine/src/core/brand.ts",
+					"packages/engine/src/core/canonical.ts",
+					"packages/engine/src/core/causes.ts",
+					"packages/engine/src/core/decimal.ts",
+					"packages/engine/src/core/errors.ts",
+					"packages/engine/src/core/host.ts",
+					"packages/engine/src/core/invariant.ts",
+					"packages/engine/src/core/limits.ts",
+					"packages/engine/src/core/loc.ts",
+					"packages/engine/src/core/nonempty.ts",
+					"packages/engine/src/core/order.ts",
+					"packages/engine/src/core/record.ts",
+					"packages/engine/src/core/result.ts",
+					"packages/engine/src/core/text.ts",
+					"packages/engine/src/core/trusted.ts",
+					"packages/engine/src/core/tuple-map.ts"
+				]
+			},
+			{
+				// The value core: the exact values a browser decodes into and builds (Decimal, Money, Vector, Span, uuid, a calendar date) and their carrier limits, over browser-core alone.
+				"name": "values",
+				"patterns": [
+					"packages/engine/src/ir/carriers.ts",
+					"packages/engine/src/ir/date.ts",
+					"packages/engine/src/ir/decimal.ts",
+					"packages/engine/src/scalar/values/decimal.ts",
+					"packages/engine/src/scalar/values/fault.ts",
+					"packages/engine/src/scalar/values/float.ts",
+					"packages/engine/src/scalar/values/money.ts",
+					"packages/engine/src/scalar/values/span.ts",
+					"packages/engine/src/scalar/values/uuid.ts",
+					"packages/engine/src/scalar/values/vector.ts"
+				]
+			},
+			{
 				"name": "core",
 				"patterns": ["packages/engine/src/core/**"]
 			},
@@ -240,6 +279,17 @@
 				"patterns": ["packages/engine/src/served/**"]
 			},
 			{
+				// The live event model a browser folds by: events and errors as data, keys, keyed values and their fold, over browser-core alone (LIVE-EVENTS' five modules).
+				"name": "live-model",
+				"patterns": [
+					"packages/engine/src/live/events.ts",
+					"packages/engine/src/live/fold.ts",
+					"packages/engine/src/live/key.ts",
+					"packages/engine/src/live/keyed.ts",
+					"packages/engine/src/live/program.ts"
+				]
+			},
+			{
 				// The wire's spelling of every served value (live/wire.ts), its regular languages (live/pattern.ts), a served
 				// program's wire shape (live/shape.ts) and its codecs (live/codec.ts): runtime-free and browser-safe, the one
 				// table the server, the client and the OpenAPI document read.
@@ -262,6 +312,11 @@
 				// which the writer's side prints and the runtime's side reads; it loads no compiler.
 				"name": "live",
 				"patterns": ["packages/engine/src/live/**"]
+			},
+			{
+				// The engine's client facade: every engine value @bjornpagen/grizzle/client loads, from browser-safe modules alone.
+				"name": "plan-client",
+				"patterns": ["packages/engine/src/plan/client.ts"]
 			},
 			{
 				// The engine's runtime facade: every engine value the runtime shell loads, each from a module that loads no
@@ -300,21 +355,61 @@
 			{
 				"name": "index",
 				"patterns": ["packages/grizzle/src/index.ts"]
+			},
+			{
+				// @bjornpagen/grizzle/client: the browser client, which loads the engine through its client facade alone.
+				"name": "client",
+				"patterns": ["packages/grizzle/src/client/**", "packages/grizzle/src/client.ts"]
 			}
 		],
 		"rules": [
+			{
+				// Browser-safe by construction: no zone here imports one that reaches a Node module.
+				"from": "browser-core",
+				"allow": [],
+				"allowTypeOnly": ["core"]
+			},
+			{
+				"from": "values",
+				"allow": ["browser-core"],
+				"allowTypeOnly": ["core", "ir", "scalar", "types"]
+			},
+			{
+				"from": "live-model",
+				"allow": ["browser-core"],
+				"allowTypeOnly": ["core", "live", "live-wire", "types"]
+			},
+			{
+				"from": "plan-client",
+				"allow": ["browser-core", "live-model", "live-wire", "values"]
+			},
+			{
+				"from": "client",
+				"allow": ["browser-core", "client", "live-model", "live-wire", "plan-client", "values"],
+				"allowTypeOnly": [
+					"browser-core",
+					"core",
+					"live",
+					"live-model",
+					"live-wire",
+					"plan",
+					"types",
+					"values"
+				]
+			},
 			{
 				"from": "testing",
 				"allow": []
 			},
 			{
 				"from": "reader",
-				"allow": ["codec", "core", "ir", "scalar"]
+				"allow": ["browser-core", "codec", "core", "ir", "scalar", "values"]
 			},
 			{
 				"from": "decode",
 				"allow": [
 					"analysis",
+					"browser-core",
 					"check",
 					"codec",
 					"core",
@@ -329,6 +424,7 @@
 					"schema",
 					"sql",
 					"types",
+					"values",
 					"write"
 				]
 			},
@@ -336,6 +432,7 @@
 				"from": "install",
 				"allow": [
 					"analysis",
+					"browser-core",
 					"check",
 					"codec",
 					"core",
@@ -344,6 +441,7 @@
 					"ir",
 					"laws",
 					"live",
+					"live-model",
 					"live-served",
 					"live-wire",
 					"logical",
@@ -357,6 +455,7 @@
 					"sql",
 					"text",
 					"types",
+					"values",
 					"write"
 				]
 			},
@@ -367,6 +466,7 @@
 					"adapter-decode",
 					"adapter-runtime",
 					"analysis",
+					"browser-core",
 					"check",
 					"codec",
 					"core",
@@ -387,82 +487,129 @@
 					"served",
 					"sql",
 					"types",
+					"values",
 					"write"
 				]
 			},
 			{
 				// The runtime names the compiled forms it runs by type alone; its witness decode site is the decode zone's.
 				"from": "runtime",
-				"allow": ["codec", "core", "decode", "ir", "scalar"],
+				"allow": ["browser-core", "codec", "core", "decode", "ir", "scalar", "values"],
 				"allowTypeOnly": ["laws", "lower", "sql", "types", "write"]
 			},
 			{
 				"from": "core",
-				"allow": []
+				"allow": ["browser-core"]
 			},
 			{
 				"from": "sql",
-				"allow": ["core"]
+				"allow": ["browser-core", "core"]
 			},
 			{
 				"from": "allen",
-				"allow": ["core", "sql"]
+				"allow": ["browser-core", "core", "sql"]
 			},
 			{
 				"from": "ir",
-				"allow": ["core", "sql"]
+				"allow": ["browser-core", "core", "sql", "values"]
 			},
 			{
 				"from": "scalar",
-				"allow": ["core", "ir"]
+				"allow": ["browser-core", "core", "ir", "values"]
 			},
 			{
 				"from": "logical",
-				"allow": ["core", "ir", "scalar"]
+				"allow": ["browser-core", "core", "ir", "scalar", "values"]
 			},
 			{
 				"from": "types",
-				"allow": ["allen", "core", "ir", "scalar"]
+				"allow": ["allen", "browser-core", "core", "ir", "scalar", "values"]
 			},
 			{
 				"from": "text",
-				"allow": ["core", "ir", "scalar", "sql", "types"]
+				"allow": ["browser-core", "core", "ir", "scalar", "sql", "types", "values"]
 			},
 			{
 				"from": "codec",
-				"allow": ["core", "ir", "scalar", "types"]
+				"allow": ["browser-core", "core", "ir", "scalar", "types", "values"]
 			},
 			{
 				"from": "schema",
-				"allow": ["codec", "core", "ir", "runtime", "scalar", "sql", "text", "types"]
+				"allow": [
+					"browser-core",
+					"codec",
+					"core",
+					"ir",
+					"runtime",
+					"scalar",
+					"sql",
+					"text",
+					"types",
+					"values"
+				]
 			},
 			{
 				"from": "check",
-				"allow": ["allen", "core", "ir", "logical", "scalar", "schema", "text"]
+				"allow": [
+					"allen",
+					"browser-core",
+					"core",
+					"ir",
+					"logical",
+					"scalar",
+					"schema",
+					"text",
+					"values"
+				]
 			},
 			{
 				"from": "analysis",
-				"allow": ["check", "core", "ir", "logical", "runtime", "scalar", "schema", "text", "types"]
+				"allow": [
+					"browser-core",
+					"check",
+					"core",
+					"ir",
+					"logical",
+					"runtime",
+					"scalar",
+					"schema",
+					"text",
+					"types",
+					"values"
+				]
 			},
 			{
 				// The law model attaches the described public Law to each constraint it plans: Law is plain data, so naming
 				// its type couples nothing at run time.
 				"from": "laws",
-				"allow": ["analysis", "core", "ir", "scalar", "schema", "sql"],
+				"allow": ["analysis", "browser-core", "core", "ir", "scalar", "schema", "sql", "values"],
 				"allowTypeOnly": ["types"]
 			},
 			{
 				"from": "query",
-				"allow": ["core", "ir", "scalar", "schema", "text", "types"]
+				"allow": ["browser-core", "core", "ir", "scalar", "schema", "text", "types", "values"]
 			},
 			{
 				"from": "lower",
-				"allow": ["analysis", "check", "codec", "core", "ir", "logical", "runtime", "scalar", "sql"]
+				"allow": [
+					"analysis",
+					"browser-core",
+					"check",
+					"codec",
+					"core",
+					"ir",
+					"logical",
+					"runtime",
+					"scalar",
+					"sql",
+					"values"
+				]
 			},
 			{
 				"from": "write",
 				"allow": [
 					"analysis",
+					"browser-core",
 					"check",
 					"codec",
 					"core",
@@ -477,18 +624,21 @@
 					"schema",
 					"served",
 					"sql",
-					"types"
+					"types",
+					"values"
 				]
 			},
 			{
 				"from": "physical",
 				"allow": [
 					"analysis",
+					"browser-core",
 					"check",
 					"core",
 					"ir",
 					"laws",
 					"live",
+					"live-model",
 					"logical",
 					"lower",
 					"runtime",
@@ -497,6 +647,7 @@
 					"sql",
 					"text",
 					"types",
+					"values",
 					"write"
 				],
 				"allowTypeOnly": ["install"]
@@ -505,6 +656,7 @@
 				"from": "program",
 				"allow": [
 					"analysis",
+					"browser-core",
 					"check",
 					"codec",
 					"core",
@@ -512,6 +664,7 @@
 					"ir",
 					"laws",
 					"live",
+					"live-model",
 					"logical",
 					"lower",
 					"physical",
@@ -522,18 +675,33 @@
 					"served",
 					"sql",
 					"types",
+					"values",
 					"write"
 				]
 			},
 			{
 				"from": "deploy",
-				"allow": ["core", "ir", "laws", "live", "lower", "physical", "schema", "sql", "text"],
+				"allow": [
+					"browser-core",
+					"core",
+					"ir",
+					"laws",
+					"live",
+					"live-model",
+					"lower",
+					"physical",
+					"schema",
+					"sql",
+					"text",
+					"values"
+				],
 				"allowTypeOnly": ["install"]
 			},
 			{
 				"from": "public",
 				"allow": [
 					"allen",
+					"browser-core",
 					"core",
 					"ir",
 					"program",
@@ -542,13 +710,14 @@
 					"schema",
 					"text",
 					"types",
+					"values",
 					"write"
 				]
 			},
 			{
 				// The served forms name the compiled structures they hold by type alone: the file is data, rebuilt at load.
 				"from": "served",
-				"allow": ["check", "core", "ir", "scalar"],
+				"allow": ["browser-core", "check", "core", "ir", "scalar", "values"],
 				"allowTypeOnly": [
 					"codec",
 					"laws",
@@ -565,6 +734,7 @@
 				"from": "plan",
 				"allow": [
 					"analysis",
+					"browser-core",
 					"check",
 					"codec",
 					"core",
@@ -572,6 +742,7 @@
 					"deploy",
 					"ir",
 					"live",
+					"live-model",
 					"live-served",
 					"live-wire",
 					"lower",
@@ -584,6 +755,7 @@
 					"served",
 					"sql",
 					"types",
+					"values",
 					"write"
 				],
 				"allowTypeOnly": ["laws"]
@@ -593,19 +765,23 @@
 				"allow": [
 					"adapter-decode",
 					"adapter-runtime",
+					"browser-core",
 					"codec",
 					"core",
 					"decode",
 					"ir",
 					"live",
+					"live-model",
 					"plan-runtime",
 					"runtime",
 					"scalar",
-					"served"
+					"served",
+					"values"
 				],
 				"allowTypeOnly": [
 					"adapter",
 					"analysis",
+					"browser-core",
 					"check",
 					"codec",
 					"core",
@@ -628,6 +804,7 @@
 					"sql",
 					"text",
 					"types",
+					"values",
 					"write"
 				]
 			},
@@ -636,6 +813,7 @@
 				"allow": [
 					"adapter-decode",
 					"adapter-runtime",
+					"browser-core",
 					"codec",
 					"core",
 					"decode",
@@ -644,11 +822,13 @@
 					"reader",
 					"runtime",
 					"scalar",
-					"served"
+					"served",
+					"values"
 				],
 				"allowTypeOnly": [
 					"adapter",
 					"analysis",
+					"browser-core",
 					"check",
 					"codec",
 					"core",
@@ -671,37 +851,51 @@
 					"sql",
 					"text",
 					"types",
+					"values",
 					"write"
 				]
 			},
 			{
 				"from": "live",
-				"allow": ["core", "types"]
+				"allow": ["browser-core", "core", "live-model", "types"]
 			},
 			{
 				"from": "live-wire",
-				"allow": ["core", "ir", "live", "scalar"],
-				"allowTypeOnly": ["types"]
+				"allow": ["browser-core", "live-model", "values"],
+				"allowTypeOnly": ["core", "ir", "live", "scalar", "types"]
 			},
 			{
 				"from": "live-served",
-				"allow": ["core", "ir", "live", "live-wire", "scalar", "served"],
+				"allow": [
+					"browser-core",
+					"core",
+					"ir",
+					"live",
+					"live-model",
+					"live-wire",
+					"scalar",
+					"served",
+					"values"
+				],
 				"allowTypeOnly": ["runtime", "types"]
 			},
 			{
 				"from": "plan-runtime",
 				"allow": [
+					"browser-core",
 					"codec",
 					"core",
 					"decode",
 					"ir",
 					"live",
+					"live-model",
 					"live-served",
 					"live-wire",
 					"reader",
 					"runtime",
 					"scalar",
-					"served"
+					"served",
+					"values"
 				]
 			},
 			{
@@ -710,7 +904,16 @@
 			},
 			{
 				"from": "http",
-				"allow": ["adapter-runtime", "core", "http", "live", "live-wire", "plan-runtime"],
+				"allow": [
+					"adapter-runtime",
+					"browser-core",
+					"core",
+					"http",
+					"live",
+					"live-model",
+					"live-wire",
+					"plan-runtime"
+				],
 				"allowTypeOnly": ["adapter", "plan", "served", "types"]
 			},
 			{
@@ -719,6 +922,7 @@
 					"adapter-decode",
 					"adapter-runtime",
 					"analysis",
+					"browser-core",
 					"check",
 					"codec",
 					"core",
@@ -726,6 +930,7 @@
 					"deploy",
 					"ir",
 					"live",
+					"live-model",
 					"logical",
 					"lower",
 					"physical",
@@ -738,6 +943,7 @@
 					"served",
 					"sql",
 					"types",
+					"values",
 					"write"
 				]
 			},
@@ -747,6 +953,7 @@
 					"adapter",
 					"adapter-install",
 					"adapter-runtime",
+					"browser-core",
 					"core",
 					"deploy",
 					"install",
@@ -759,7 +966,8 @@
 					"schema",
 					"served",
 					"sql",
-					"types"
+					"types",
+					"values"
 				]
 			},
 			{

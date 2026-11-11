@@ -57,6 +57,11 @@
 			"types": "./dist/plan/change.d.ts",
 			"default": "./dist/plan/change.js"
 		},
+		"./internal/plan/client.ts": {
+			"grizzle-source": "./src/plan/client.ts",
+			"types": "./dist/plan/client.d.ts",
+			"default": "./dist/plan/client.js"
+		},
 		"./internal/plan/common.ts": {
 			"grizzle-source": "./src/plan/common.ts",
 			"types": "./dist/plan/common.d.ts",

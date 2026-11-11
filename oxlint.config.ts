@@ -64,8 +64,11 @@ const PLATFORM_SDKS = {
 		"src loads no platform's SDK: the caller wires Vercel's pool and AWS's token signer through DbConfig.attachPool and DbConfig.password."
 } as const
 
-/** The engine's imports: no Effect at run time, no Node module but node:crypto, no driver and no platform SDK. */
-const engineImports = () =>
+/**
+ * The engine's imports: no Effect at run time, no Node module but `crypto`, the one a module of `hashing` may import,
+ * no driver and no platform SDK.
+ */
+const engineImports = (hashing: "hashing" | "no Node module") =>
 	restrictedImports({
 		paths: [
 			{
@@ -89,8 +92,9 @@ const engineImports = () =>
 				message: "The engine loads no Effect at run time: import Effect's types with `import type`."
 			},
 			{
-				group: ["node:*", "!node:crypto"],
-				message: "The engine loads no Node module but node:crypto, which core hashes with."
+				group: hashing === "hashing" ? ["node:*", "!node:crypto"] : ["node:*"],
+				message:
+					"The engine loads no Node module but node:crypto, which core/sha256.ts and core/seal.ts alone import, so every module a browser loads, which never reaches them (.fallowrc.json's browser zones), loads none."
 			},
 			{ group: ["pg", "pg/*"], message: NO_IO },
 			PLATFORM_SDKS
@@ -271,10 +275,15 @@ export default defineConfig(
 						{ name: "WebSocket", message: NO_IO },
 						{ name: "crypto", message: NO_RANDOMNESS }
 					],
-					"eslint/no-restricted-imports": engineImports(),
+					"eslint/no-restricted-imports": engineImports("no Node module"),
 					/** `import { type T } from "effect"` passes allowTypeImports, but type stripping leaves `import {} from "effect"`, which loads Effect at run time. */
 					"typescript/no-import-type-side-effects": "error"
 				})
+			},
+			{
+				/** The engine's hashing modules: SHA-256 and AES-256-GCM over node:crypto, which no browser zone reaches. */
+				files: ["packages/engine/src/core/sha256.ts", "packages/engine/src/core/seal.ts"],
+				rules: active({ "eslint/no-restricted-imports": engineImports("hashing") })
 			},
 			{
 				files: ["packages/grizzle/**"],
