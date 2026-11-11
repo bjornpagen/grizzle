@@ -30,7 +30,7 @@
  * refuses only a refill of an immutable relation's rows; the instance a follow-up leaves (`followUpRows`) is the
  * reference writer's to fill, every refilled value among it.
  */
-import { boolean, type Gen, int } from "@grizzle/testing/gen"
+import { boolean, element, type Gen, int } from "@grizzle/testing/gen"
 import { keep, type Swarm, swarm, swarmChoice } from "@grizzle/testing/swarm"
 import { Array as Arr, Option, Order, pipe, Record as Rec, String as Str } from "effect"
 import type { ChangedColumn, DerivedReader, FamilyName } from "#compiler/core/causes.ts"
@@ -52,7 +52,7 @@ import {
 } from "#compiler/schema/statements.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { AnyRelation, Relation } from "#compiler/types/schema/relation.ts"
-import { defined } from "#test/support/assert.ts"
+import { defined, nonEmpty } from "#test/support/assert.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 /** A family's kind: a tree on one relation, or an ordered or a counted family of an owner and a member. */
@@ -276,18 +276,60 @@ interface FillSpace {
 }
 
 /**
- * A specification drawn under a swarm of `fillFeatures`: up to `space.relations` relations, families between them and
- * copies on their axes. A family is drawn only where the theory admits it (a relation is the member of at most one
- * sequence, a tree its own, and a counted family's owner comes before its member, so counted families never form a
- * cycle); every other shape is drawn, a counted member that is also a sequence's member, a tree's node or a sequence's
- * owner among them, so the suites meet the refusals too. An ordered family's owner comes before its member too, but
- * where the swarm keeps `nesting cycle`, which draws any owner and member, an ordered family of a relation over itself
- * among them.
+ * The sources among `sources` a copy of family `f` along `axis` may read with `spec` admitted after it: the reference
+ * (`verdictOf`) admits `spec`, its copies so far and the copy reading that source. A drawn specification's copy draws
+ * its source among these where it must be admitted, so no copy is drawn and then dropped.
  */
-export const fillSpecGen =
-	(space: FillSpace): Gen<FillSpec> =>
+export const admittedSources = (
+	spec: FillSpec,
+	f: number,
+	axis: Axis,
+	sources: ReadonlyArray<CopySource>
+): ReadonlyArray<CopySource> =>
+	Arr.filter(
+		sources,
+		(source) =>
+			verdictOf({ ...spec, copies: [...spec.copies, { family: f, axis, source }] }).kind ===
+			"admitted"
+	)
+
+/**
+ * How a specification is drafted: the features its swarm draws over, and the sources a copy is offered among those
+ * `sourcesFor` gives, with the specification so far.
+ */
+interface Drafting {
+	readonly features: Arr.NonEmptyReadonlyArray<FillFeature>
+	readonly offered: (
+		spec: FillSpec,
+		f: number,
+		axis: Axis,
+		sources: ReadonlyArray<CopySource>
+	) => ReadonlyArray<CopySource>
+}
+
+/** Every shape, refused ones among them: what the reference's own refusals are judged over. */
+const anyShape: Drafting = {
+	features: fillFeatures,
+	offered: (_spec, _f, _axis, sources) => sources
+}
+
+/**
+ * The shapes the reference admits: no sequences nesting each other in a cycle, the one refusal the families make, and
+ * each copy reading a source that leaves the specification admitted.
+ */
+const admittedShape: Drafting = {
+	features: nonEmpty(
+		Arr.filter(fillFeatures, (feature) => feature !== "nesting cycle"),
+		"the features of an admitted specification"
+	),
+	offered: admittedSources
+}
+
+/** A specification drawn as `drafting` drafts it, under a swarm of its features (fillSpecGen). */
+const draftedSpec =
+	(space: FillSpace, drafting: Drafting): Gen<FillSpec> =>
 	(source) => {
-		const features: Swarm<FillFeature> = source.draw(swarm(Arr.copy(fillFeatures)))
+		const features: Swarm<FillFeature> = source.draw(swarm(drafting.features))
 		const kept = (feature: FillFeature): boolean => source.draw(keep(features, feature))
 		const n = source.draw(int(1, space.relations))
 		const relations = upTo(n, () => ({
@@ -341,7 +383,12 @@ export const fillSpecGen =
 				copies: [...draft.copies, { family: f, axis, source: { kind: "caller" } }],
 				steps: []
 			}
-			const sources = sourcesFor(spec, f, axis, draft.copies.length)
+			const sources = drafting.offered(
+				{ ...spec, copies: draft.copies },
+				f,
+				axis,
+				sourcesFor(spec, f, axis, draft.copies.length)
+			)
 			if (Arr.isReadonlyArrayNonEmpty(sources)) {
 				const chosen = defined(sources[source.draw(int(0, sources.length - 1))], "a source")
 				draft.copies.push({ family: f, axis, source: chosen })
@@ -363,6 +410,25 @@ export const fillSpecGen =
 		})
 		return { ...drafted, steps }
 	}
+
+/**
+ * A specification drawn under a swarm of `fillFeatures`: up to `space.relations` relations, families between them and
+ * copies on their axes. A family is drawn only where the theory admits it (a relation is the member of at most one
+ * sequence, a tree its own, and a counted family's owner comes before its member, so counted families never form a
+ * cycle); every other shape is drawn, a counted member that is also a sequence's member, a tree's node or a sequence's
+ * owner among them, so the suites meet the refusals too. An ordered family's owner comes before its member too, but
+ * where the swarm keeps `nesting cycle`, which draws any owner and member, an ordered family of a relation over itself
+ * among them.
+ */
+export const fillSpecGen = (space: FillSpace): Gen<FillSpec> => draftedSpec(space, anyShape)
+
+/**
+ * A specification the reference admits (`verdictOf`), by construction: drawn as `fillSpecGen` draws one, but with no
+ * nesting cycle, and each copy's source among those that leave it admitted (`admittedSources`), a copy no source admits
+ * not drawn at all.
+ */
+export const admittedFillSpecGen = (space: FillSpace): Gen<FillSpec> =>
+	draftedSpec(space, admittedShape)
 
 /**
  * The copies family `f`'s sum fold may step: each a copy of its member's of a caller's `v` or a generated `g` along an
@@ -2262,6 +2328,69 @@ export const followUpRows = (
 		...Option.toArray(followUp.appended)
 	]
 }
+
+/** A follow-up's parts, each present or not: the owner's put, the counted members' insert, the removal, the append, the
+ * move. */
+type FollowUpPart = "put" | "inserted" | "removed" | "appended" | "moved"
+
+/** The parts `f` holds. */
+const partsOf = (f: FollowUp): ReadonlyArray<FollowUpPart> => [
+	...(Option.isSome(f.put) ? (["put"] as const) : []),
+	...(Arr.isReadonlyArrayNonEmpty(f.inserted) ? (["inserted"] as const) : []),
+	...(Option.isSome(f.removed) ? (["removed"] as const) : []),
+	...(Option.isSome(f.appended) ? (["appended"] as const) : []),
+	...(Option.isSome(f.moved) ? (["moved"] as const) : [])
+]
+
+/** `f` with only the parts `kept`. */
+const keptParts = (f: FollowUp, kept: ReadonlyArray<FollowUpPart>): FollowUp => ({
+	...f,
+	put: kept.includes("put") ? f.put : Option.none(),
+	inserted: kept.includes("inserted") ? f.inserted : [],
+	removed: kept.includes("removed") ? f.removed : Option.none(),
+	appended: kept.includes("appended") ? f.appended : Option.none(),
+	moved: kept.includes("moved") ? f.moved : Option.none()
+})
+
+/** Every nonempty subset of `items`, the smaller first. */
+const nonEmptySubsets = <A>(items: ReadonlyArray<A>): ReadonlyArray<ReadonlyArray<A>> => {
+	const none: ReadonlyArray<ReadonlyArray<A>> = [[]]
+	const all = Arr.reduce(items, none, (sofar, item) => [
+		...sofar,
+		...Arr.map(sofar, (sub) => [...sub, item])
+	])
+	return Arr.sort(
+		Arr.filter(all, (sub) => sub.length > 0),
+		Order.mapInput(Order.Number, (sub: ReadonlyArray<A>) => sub.length)
+	)
+}
+
+/**
+ * A follow-up `followUps` draws, made by construction one the reference writes (`writesVerdict`): of the parts it drew,
+ * one of the sets of them whose writes the reference writes, drawn among those sets, the smaller first; none where it
+ * drew none or no set of its parts is written. So no follow-up is drawn and then dropped: its refused parts are never
+ * offered.
+ */
+export const writtenFollowUpGen =
+	(
+		spec: FillSpec,
+		rows: ReadonlyArray<InstanceRow>,
+		followUps: Gen<Option.Option<FollowUp>>
+	): Gen<Option.Option<FollowUp>> =>
+	(source) =>
+		Option.flatMap(source.draw(followUps), (drawn) => {
+			const written = Arr.filter(
+				Arr.map(nonEmptySubsets(partsOf(drawn)), (kept) => keptParts(drawn, kept)),
+				(f) =>
+					writesVerdict(
+						spec,
+						Arr.map(followUpMembers(spec, rows, f), (m) => ({ relation: m.relation, op: m.op }))
+					).kind === "written"
+			)
+			return Arr.isReadonlyArrayNonEmpty(written)
+				? Option.some(source.draw(element(written)))
+				: Option.none()
+		})
 
 /**
  * A follow-up's ChangeSet, member by member: the owner's put, the counted members' insert, each a top fact of its

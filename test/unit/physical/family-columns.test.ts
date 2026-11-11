@@ -24,8 +24,8 @@
  * (test/unit/deploy/backfill.test.ts, which drafts and runs every drawn family added to stored rows).
  *
  * Oracles: the law model's natives, a second representation of what the installation must hold, and the emission
- * audit (oracle/verify). A drawn specification the fill reference refuses is given up (test/support/families/fill.ts
- * draws both, and builds no admitted one alone).
+ * audit (oracle/verify). Every drawn specification is one the fill reference admits, by construction
+ * (test/support/families/fill.ts admittedFillSpecGen).
  *
  * Plants (~/.cache/grizzle-release/BR04/plants): family-columns-no-cascade.patch (no foreign key cascades on update).
  *
@@ -55,7 +55,7 @@ import { loginDescOf, role } from "#compiler/schema/world.ts"
 import type { SqlStatement, TableConstraint } from "#compiler/sql/ast.ts"
 import type { AnyRelation } from "#compiler/types/schema/relation.ts"
 import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
-import { buildFill, type FillSpec, fillSpecGen, verdictOf } from "#test/support/families/fill.ts"
+import { admittedFillSpecGen, buildFill, type FillSpec } from "#test/support/families/fill.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { checkedStatements } from "#test/support/oracle/verify/index.ts"
 import { owning } from "#test/support/policy.ts"
@@ -88,7 +88,7 @@ const writingGen: Gen<Writing> = (source) => {
 const relationsAtMost = 3
 
 const familyCaseGen: Gen<FamilyCase> = (source) => ({
-	spec: source.draw(fillSpecGen({ relations: relationsAtMost, families: 3, copies: 2 })),
+	spec: source.draw(admittedFillSpecGen({ relations: relationsAtMost, families: 3, copies: 2 })),
 	writings: source.draw(array(writingGen, { min: relationsAtMost, max: relationsAtMost })),
 	viewer: source.draw(boolean)
 })
@@ -384,11 +384,7 @@ describe("a family's columns and references", () => {
 						steerEvery: 16,
 						caseHang
 					},
-					(r, k) =>
-						Effect.gen(function* () {
-							yield* k.assume(verdictOf(r.c.spec).kind === "admitted")
-							yield* property(r, k)
-						})
+					property
 				)
 			)
 	)

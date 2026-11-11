@@ -51,6 +51,7 @@ import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { AnyRelation, AnyRoster, Relation } from "#compiler/types/schema/relation.ts"
 import { defined } from "#test/support/assert.ts"
 import {
+	admittedSources,
 	type Axis,
 	type CopySource,
 	type FamilyKind,
@@ -58,8 +59,7 @@ import {
 	type InstanceRow,
 	relationName,
 	sourcesFor,
-	uuidOfRow,
-	verdictOf
+	uuidOfRow
 } from "#test/support/families/fill.ts"
 import { upTo } from "#test/support/up-to.ts"
 
@@ -230,62 +230,6 @@ const steppable = (spec: FillSpec, f: number): ReadonlyArray<number> => {
 	})
 }
 
-/** A copy's source renumbered past the copies `dropped` removes, or none where it reads one of them. */
-const renumbered = (
-	source: CopySource,
-	kept: ReadonlyMap<number, number>
-): CopySource | undefined => {
-	if (source.kind !== "copy") {
-		return source
-	}
-	const at = kept.get(source.copy)
-	return at === undefined ? undefined : { kind: "copy", copy: at }
-}
-
-/** A family core without its copies `dropped`, and every copy and step reading one of them, its copies renumbered. */
-const withoutCopies = (spec: FillSpec, dropped: ReadonlySet<number>): FillSpec => {
-	const gone = new Set(dropped)
-	for (let changed = true; changed;) {
-		changed = false
-		for (const [j, c] of spec.copies.entries()) {
-			if (!gone.has(j) && c.source.kind === "copy" && gone.has(c.source.copy)) {
-				gone.add(j)
-				changed = true
-			}
-		}
-	}
-	const kept = new Map<number, number>()
-	for (const [j] of spec.copies.entries()) {
-		if (!gone.has(j)) {
-			kept.set(j, kept.size)
-		}
-	}
-	return {
-		relations: spec.relations,
-		families: spec.families,
-		copies: Arr.flatMap(spec.copies, (c, j) => {
-			const source = gone.has(j) ? undefined : renumbered(c.source, kept)
-			return source === undefined ? [] : [{ ...c, source }]
-		}),
-		steps: Arr.flatMap(spec.steps, (s) => {
-			const at = kept.get(s.copy)
-			return at === undefined ? [] : [{ family: s.family, copy: at }]
-		})
-	}
-}
-
-/**
- * A family core the reference model admits: the copies it refuses dropped, with every copy reading one of them, until
- * none is refused. Families never nest each other in an ordered cycle and no key holds `g`, as drawn.
- */
-const admitted = (spec: FillSpec): FillSpec => {
-	let at = spec
-	for (let verdict = verdictOf(at); verdict.kind === "unfillable"; verdict = verdictOf(at)) {
-		at = withoutCopies(at, new Set(Arr.map(verdict.copies, (c) => c.copy)))
-	}
-	return at
-}
-
 /** How large a case may draw its schema: at scale, the downstream import's breadth. */
 const space = (scale: boolean) => ({
 	relations: scale ? 16 : 5,
@@ -306,8 +250,8 @@ const pick =
  * the relations before its member unless the swarm keeps cycles of families, or among the owners already drawn where
  * it keeps several families per owner, or among the members already drawn where it keeps members owning a family; a
  * sequence's member is no other sequence's, and no ordered family closes a cycle of ordered families. Then its copies,
- * their sources among those fill.ts offers, a copy of a copy first where the swarm keeps it, and its steps; the copies
- * the reference refuses are dropped.
+ * their sources among those fill.ts offers that leave the core admitted (fill.ts admittedSources), a copy of a copy
+ * first where the swarm keeps it, and its steps: the reference admits every core by construction.
  */
 const coreGen =
 	(features: Swarm<SwarmFeature>, scale: boolean): Gen<FillSpec> =>
@@ -379,7 +323,12 @@ const coreGen =
 				copies: [...copies, { family: f, axis, source: { kind: "caller" } }],
 				steps: []
 			}
-			const sources = sourcesFor(draft, f, axis, copies.length)
+			const sources = admittedSources(
+				{ ...draft, copies },
+				f,
+				axis,
+				sourcesFor(draft, f, axis, copies.length)
+			)
 			const ofCopies = Arr.filter(sources, (s) => s.kind === "copy")
 			const offered =
 				Arr.isReadonlyArrayNonEmpty(ofCopies) && kept("copy of a copy") ? ofCopies : sources
@@ -401,7 +350,7 @@ const coreGen =
 				? [{ family: f, copy: source.draw(pick(candidates)) }]
 				: []
 		})
-		return admitted({ ...drafted, steps })
+		return { ...drafted, steps }
 	}
 
 const axisOf = {

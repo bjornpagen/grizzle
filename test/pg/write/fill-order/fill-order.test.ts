@@ -1,7 +1,7 @@
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { constant, filter, type Gen, int } from "@grizzle/testing/gen"
+import { constant, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { boundedShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -11,11 +11,11 @@ import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, unorderedEqual } from "#test/support/assert.ts"
 import {
+	admittedFillSpecGen,
 	besides,
 	buildFill,
 	type FillSpec,
 	type FollowUp,
-	fillSpecGen,
 	type FollowUpMember,
 	followUpGen,
 	followUpMembers,
@@ -33,8 +33,8 @@ import {
 	relationName,
 	replacingGen,
 	sourceClassOf,
-	verdictOf,
 	writesVerdict,
+	writtenFollowUpGen,
 	writtenRows
 } from "#test/support/families/fill.ts"
 import { installMigrated } from "#test/support/install-migrate.ts"
@@ -67,7 +67,8 @@ import { fullWorld } from "#test/support/worlds.ts"
  * fold that steps a copy of the owner's `v` is judged by its member row's own CHECK at every statement, so the refill
  * that rewrites its members ahead of the owner's put is what lets the put land.
  *
- * The schemas are the unit suite's (test/unit/write/fill-order.test.ts), kept where the reference model admits them;
+ * The schemas are the unit suite's (test/unit/write/fill-order.test.ts), drawn admitted by the reference model by
+ * construction (fill.ts `admittedFillSpecGen`), each follow-up made one it writes (`writtenFollowUpGen`);
  * the unit suite holds the refusals. PostgreSQL proves every value grizzle wrote through the installation's natives,
  * so an accepted insert with the reference writer's rows is the property.
  *
@@ -201,18 +202,13 @@ const shapesOf = (spec: FillSpec): ReadonlyArray<ClusterSituation> => {
 }
 
 /**
- * A drawn specification the reference model admits with a family that is no tree, its relations all mutable or as
- * drawn, an instance of it, and a follow-up over the stored instance where one is drawn and the reference finds it
- * written.
+ * A specification the reference model admits by construction (fill.ts `admittedFillSpecGen`), its relations all
+ * mutable or as drawn, an instance of it, and a follow-up over the stored instance the reference writes, or none.
  */
 const caseGen: Gen<ClusterCase> = (source) =>
 	source.draw(
 		caseOver(
-			filter(
-				mutableOrDrawn(fillSpecGen({ relations: 4, families: 4, copies: 3 })),
-				(s) => verdictOf(s).kind === "admitted" && Arr.some(s.families, (f) => f.kind !== "tree"),
-				16
-			),
+			mutableOrDrawn(admittedFillSpecGen({ relations: 4, families: 4, copies: 3 })),
 			instanceGen,
 			followUpGen
 		)
@@ -223,13 +219,7 @@ const plantedBeside =
 	(planted: Planted): Gen<FillSpec> =>
 	(source) =>
 		besides(
-			source.draw(
-				filter(
-					mutableOrDrawn(fillSpecGen({ relations: 3, families: 3, copies: 2 })),
-					(s) => verdictOf(s).kind === "admitted",
-					16
-				)
-			),
+			source.draw(mutableOrDrawn(admittedFillSpecGen({ relations: 3, families: 3, copies: 2 }))),
 			source.draw(plantedGen(planted))
 		)
 
@@ -242,7 +232,7 @@ interface ClusterCase {
 
 /**
  * A case over a specification `specs` draws, its instance as `instances` draws it, and its follow-up as `followUps`
- * draws it over them, where the reference writes it.
+ * draws it over them, made one the reference writes (fill.ts `writtenFollowUpGen`).
  */
 const caseOver =
 	(
@@ -253,14 +243,7 @@ const caseOver =
 	(source) => {
 		const spec = source.draw(specs)
 		const rows = source.draw(instances(spec))
-		const followUp = Option.filter(
-			source.draw(followUps(spec, rows)),
-			(f) =>
-				writesVerdict(
-					spec,
-					Arr.map(followUpMembers(spec, rows, f), (m) => ({ relation: m.relation, op: m.op }))
-				).kind === "written"
-		)
+		const followUp = source.draw(writtenFollowUpGen(spec, rows, followUps(spec, rows)))
 		return { spec, rows, followUp }
 	}
 
