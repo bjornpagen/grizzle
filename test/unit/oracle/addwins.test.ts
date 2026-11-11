@@ -1,15 +1,34 @@
 /**
- * The add-wins calculator against independent references: it satisfies S' = (S minus D) union A per stratum with keys
- * checked after each stratum, build-order independence and put sugar, and counts each relation's changes netted over
- * the per-stratum changes.
+ * The add-wins calculator (test/support/oracle/addwins.ts applyAddWins), the write oracle's model of a ChangeSet,
+ * against independent references, over small-domain Task facts (an id of 0 to 3, an account of 0 or 1, a kind of the
+ * roster's two), every stored state holding one fact per id by construction:
  *
- * Same transition, so the same deltas; the counts attribute it to put.
+ * - Transition: per stratum S' = (S minus D) union A, A the inserts and puts and D the deletes and the occupants at
+ *   the puts' keys, keys checked after each stratum: the outcome is the definition's, written out apart, its final
+ *   state or the stratum whose S' first holds two facts at one id. Oracle: a second implementation.
+ * - Build-order independence: members permuted within each stratum, each member split into one per fact with one fact
+ *   repeated, and the strata built as the union of two sequences in either order, all give the outcome of the strata
+ *   as drawn. Oracle: universal, a metamorphic relation.
+ * - Put sugar: a put of facts at distinct ids is a described deletion of the occupants at their keys plus an
+ *   insertion: one state, one delta, its counts all put. Oracle: the specification.
+ * - Counts: each relation's changes netted across strata are the per-stratum netting reference's, on every sequence
+ *   the calculator applies, over the general strata and a dense family of two ids. Oracle: a second implementation.
+ * - Generated additions: one at a kept fact's key stands for it and draws nothing; any other draws past every fact of
+ *   the state before or after; given draws take the values given. Oracle: the specification.
  *
- * Given: each generated addition takes the given fact's values, past every stored value.
+ * Features: applied and rejected outcomes, a rejection before the last stratum; a stratum of several members and a
+ * member of several facts; a put displacing an occupant and one into an empty key; multi-stratum counts and counts
+ * that differ from the pooled reading; and each generated addition's case.
+ *
+ * Plants (~/.cache/grizzle-release/BR07/plants): addwins-keys-at-end.patch (keys checked only after the last stratum)
+ * turns the transition red; addwins-delete-cancels-insert.patch (a later delete member cancelling an earlier insert of
+ * the stratum) build-order independence; addwins-put-keeps-occupant.patch (a put displacing nothing) put sugar;
+ * addwins-put-counted-added.patch (puts counted as additions) the counts; addwins-draw-recreates.patch (a draw allowed
+ * to re-create a deleted stored fact) the generated additions.
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { noCoverage, required } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import {
 	array,
 	boolean,
@@ -18,13 +37,15 @@ import {
 	int,
 	map,
 	oneOf,
+	shuffled,
 	subarray,
-	uniqueArray
+	subset
 } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Option, Order, Record } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Record } from "effect"
+import { indices } from "#compiler/core/array.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { wild } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -85,27 +106,26 @@ const sameFacts = (a: ReadonlyArray<Fact>, b: ReadonlyArray<Fact>): void => {
 	)
 }
 
-/** Small-domain Task facts: id in 0..3, account in 0..1, kind a or b. */
-const taskFact: Gen<TaskFact> = map(
-	(source) => ({
-		id: source.draw(int(0, 3)),
-		account: source.draw(int(0, 1)),
-		kind: source.draw(element(kinds))
-	}),
-	({ id, account: a, kind }) => task(id, a, kind)
-)
+/** The Task ids a fact holds. */
+const taskIds: ReadonlyArray<number> = indices(4)
 
-/** A pk-consistent state: at most one fact per id. */
-const taskState: Gen<ReadonlyArray<TaskFact>> = map(
-	array(taskFact, { min: 0, max: 4 }),
-	(facts) => {
-		const byId = new Map<number, TaskFact>()
-		for (const f of facts) {
-			byId.set(f.id, f)
-		}
-		return [...byId.values()]
-	}
-)
+/** The Task fact at `id`: account 0 or 1, kind a or b. */
+const taskAt =
+	(id: number): Gen<TaskFact> =>
+	(source) =>
+		task(id, source.draw(int(0, 1)), source.draw(element(kinds)))
+
+/** Small-domain Task facts: id in 0..3, account in 0..1, kind a or b. */
+const taskFact: Gen<TaskFact> = (source) => source.draw(taskAt(source.draw(int(0, 3))))
+
+/** Facts at distinct ids, a state's or a put's: a subset of the ids, each with its fact. */
+const atDistinctIds: Gen<ReadonlyArray<TaskFact>> = (source) =>
+	Arr.map(source.draw(subset(taskIds, { min: 0, max: taskIds.length })), (id) =>
+		source.draw(taskAt(id))
+	)
+
+/** A pk-consistent state: at most one fact per id, by construction. */
+const taskState: Gen<ReadonlyArray<TaskFact>> = atDistinctIds
 
 const member: Gen<Member> = (source) => ({
 	op: source.draw(element<Op>(["insert", "delete", "put"])),
@@ -171,6 +191,8 @@ const sameOutcome = (actual: AddWinsOutcome, expected: AddWinsOutcome): void => 
 	}
 }
 
+type TransitionFeature = "applied" | "rejected" | "rejected before the last stratum"
+
 describe("the add-wins transition", () => {
 	it.effect("is S' = (S \\ D) ∪ A per stratum, with keys checked after each stratum", (ctx) =>
 		Effect.gen(function* () {
@@ -183,11 +205,17 @@ describe("the add-wins transition", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
-						suite: "unit/oracle/addwins-24932",
+						oracle: {
+							kind: "second-implementation",
+							name: "the definition S' = (S \\ D) ∪ A per stratum, written out apart, keys checked after each"
+						},
+						suite: "unit/oracle/addwins-transition",
 						draw: drawn((source) => [source.draw(taskState), source.draw(strata)] as const),
 						literal: Formatter.format,
-						coverage: noCoverage,
+						coverage: required<TransitionFeature>(
+							["applied", "rejected", "rejected before the last stratum"],
+							{ cases: 200, sense: notesOnly }
+						),
 						kept: [],
 						runs: 2000,
 						shrink: completeShrink,
@@ -195,7 +223,7 @@ describe("the add-wins transition", () => {
 						steerEvery: 16,
 						caseHang
 					},
-					([initial, layers]) =>
+					([initial, layers], c) =>
 						Effect.sync(() => {
 							const outcome = applyAddWins(
 								schema,
@@ -208,8 +236,13 @@ describe("the add-wins transition", () => {
 								assert.ok(outcome.kind === "invariant-rejected", "the reference rejects")
 								assert.equal(outcome.law, taskKey)
 								assert.equal(outcome.stratum, expected.stratum)
+								c.note("rejected")
+								if (expected.stratum < layers.length - 1) {
+									c.note("rejected before the last stratum")
+								}
 							} else {
 								sameFacts(factsOf(applied(outcome).state, "Task"), expected.state)
+								c.note("applied")
 							}
 						})
 				)
@@ -218,21 +251,24 @@ describe("the add-wins transition", () => {
 	)
 })
 
-/** The items ranked by the drawn order, which holds at least one rank, cycled; ties keep their place. */
-const shuffled = <A>(items: ReadonlyArray<A>, order: ReadonlyArray<number>): ReadonlyArray<A> =>
-	Arr.map(
-		Arr.sort(
+/** Each stratum's members in a drawn order: a permutation of its members, drawn whole. */
+const permutedGen =
+	(layers: ReadonlyArray<ReadonlyArray<Member>>): Gen<ReadonlyArray<ReadonlyArray<Member>>> =>
+	(source) =>
+		Arr.map(layers, (members) =>
 			Arr.map(
-				items,
-				(item, i) => [defined(order[i % order.length], "a drawn rank"), i, item] as const
-			),
-			Order.combine(
-				Order.mapInput(Order.Number, ([rank]: readonly [number, number, A]) => rank),
-				Order.mapInput(Order.Number, ([, i]: readonly [number, number, A]) => i)
+				source.draw(
+					shuffled(indices(members.length), { min: members.length, max: members.length })
+				),
+				(i) => defined(members[i], "a member of the stratum")
 			)
-		),
-		([, , item]) => item
-	)
+		)
+
+type OrderFeature =
+	| "applied"
+	| "rejected"
+	| "a stratum of several members"
+	| "a member of several facts"
 
 describe("build-order independence", () => {
 	it.effect("does not depend on member order, member splitting, or how strata are unioned", (ctx) =>
@@ -240,18 +276,20 @@ describe("build-order independence", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
-					suite: "unit/oracle/addwins-28530",
-					draw: drawn(
-						(source) =>
-							[
-								source.draw(taskState),
-								source.draw(strata),
-								source.draw(array(int(0, 2 ** 31 - 1), { min: 1, max: 8 }))
-							] as const
-					),
+					oracle: {
+						kind: "universal",
+						name: "the outcome is unchanged by member order, member splitting and how strata are unioned"
+					},
+					suite: "unit/oracle/addwins-build-order",
+					draw: drawn((source) => {
+						const layers = source.draw(strata)
+						return [source.draw(taskState), layers, source.draw(permutedGen(layers))] as const
+					}),
 					literal: Formatter.format,
-					coverage: noCoverage,
+					coverage: required<OrderFeature>(
+						["applied", "rejected", "a stratum of several members", "a member of several facts"],
+						{ cases: 200, sense: notesOnly }
+					),
 					kept: [],
 					runs: 1000,
 					shrink: completeShrink,
@@ -259,12 +297,17 @@ describe("build-order independence", () => {
 					steerEvery: 16,
 					caseHang
 				},
-				([initial, layers, order]) =>
+				([initial, layers, permuted], c) =>
 					Effect.sync(() => {
 						const s = oracleState(schema, { Task: initial }, loadedSequences)
 						const base = applyAddWins(schema, s, build(layers), { kind: "sequences" })
-						/** Members permuted within each stratum. */
-						const permuted = Arr.map(layers, (members) => shuffled(members, order))
+						c.note(base.kind === "invariant-rejected" ? "rejected" : "applied")
+						if (Arr.some(layers, (members) => members.length > 1)) {
+							c.note("a stratum of several members")
+						}
+						if (Arr.some(layers, (members) => Arr.some(members, (m) => m.facts.length > 1))) {
+							c.note("a member of several facts")
+						}
 						sameOutcome(applyAddWins(schema, s, build(permuted), { kind: "sequences" }), base)
 						/**
 						 * Every member split into one member per fact, and equal facts repeated. A member with no facts still
@@ -300,6 +343,8 @@ describe("build-order independence", () => {
 	)
 })
 
+type PutFeature = "a put displacing an occupant" | "a put into an empty key"
+
 describe("put", () => {
 	it.effect(
 		"is sugar for a described deletion of the occupants at its keys plus an insertion",
@@ -308,14 +353,17 @@ describe("put", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
-						suite: "unit/oracle/addwins-28789",
-						draw: drawn(
-							(source) =>
-								[source.draw(taskState), source.draw(array(taskFact, { min: 0, max: 4 }))] as const
-						),
+						oracle: {
+							kind: "specification",
+							name: "put is a described deletion of the occupants at its keys plus an insertion, counted as put"
+						},
+						suite: "unit/oracle/addwins-put",
+						draw: drawn((source) => [source.draw(taskState), source.draw(atDistinctIds)] as const),
 						literal: Formatter.format,
-						coverage: noCoverage,
+						coverage: required<PutFeature>(
+							["a put displacing an occupant", "a put into an empty key"],
+							{ cases: 100, sense: notesOnly }
+						),
 						kept: [],
 						runs: 1000,
 						shrink: completeShrink,
@@ -323,13 +371,12 @@ describe("put", () => {
 						steerEvery: 16,
 						caseHang
 					},
-					([initial, raw]) =>
+					([initial, facts], c) =>
 						Effect.sync(() => {
-							const byId = new Map<number, TaskFact>()
-							for (const f of raw) {
-								byId.set(f.id, f)
+							const held = new Set(Arr.map(initial, (f) => f.id))
+							for (const f of facts) {
+								c.note(held.has(f.id) ? "a put displacing an occupant" : "a put into an empty key")
 							}
-							const facts = [...byId.values()]
 							const s = oracleState(schema, { Task: initial }, loadedSequences)
 							const viaPut = applied(
 								applyAddWins(schema, s, OracleChangeSet.empty().put("Task", facts), {
@@ -469,8 +516,11 @@ describe("counts across strata, netted over the per-stratum changes", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
-						suite: "unit/oracle/addwins-6516340",
+						oracle: {
+							kind: "second-implementation",
+							name: "the per-stratum netting reference, written out apart"
+						},
+						suite: "unit/oracle/addwins-counts",
 						draw: drawn(
 							oneOf<readonly [ReadonlyArray<TaskFact>, ReadonlyArray<ReadonlyArray<Member>>]>([
 								(source) => [source.draw(taskState), source.draw(strata)] as const,
@@ -557,18 +607,14 @@ describe("generated additions", () => {
 		readonly deleted: ReadonlyArray<number>
 		readonly codes: ReadonlyArray<number>
 	}> = (source) => ({
-		stored: source.draw(
-			uniqueArray(
-				(source): Stored => ({ code: source.draw(int(0, 2)), n: source.draw(int(1, 3)) }),
-				(e) => e.code,
-				{ min: 0, max: 3 },
-				20
-			)
-		),
+		stored: Arr.map(source.draw(subset(indices(3), { min: 0, max: 3 })), (code): Stored => ({
+			code,
+			n: source.draw(int(1, 3))
+		})),
 		at: source.draw(int(1, 3)),
 		called: source.draw(boolean),
 		deleted: source.draw(array(int(0, 2 ** 31 - 1), { min: 0, max: 2 })),
-		codes: source.draw(uniqueArray(int(0, 3), (item) => item, { min: 1, max: 2 }, 20))
+		codes: source.draw(shuffled(indices(4), { min: 1, max: 2 }))
 	})
 	type Feature =
 		| "a kept fact holding the next draw at a generated code"
@@ -582,7 +628,10 @@ describe("generated additions", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "a generated addition stands for a kept fact at its key, draws past every fact, or takes the given values"
+						},
 						suite: "unit/oracle/addwins-generated",
 						draw: drawn(caseGen),
 						literal: Formatter.format,

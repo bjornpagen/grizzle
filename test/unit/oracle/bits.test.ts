@@ -8,6 +8,10 @@
  *   added. It shares no code with the evaluator, which reads sets of handles.
  * - The box, exhausted: every pair of subsets of the five handles (1,024 cases), each with every handle added to the
  *   first and to the empty set.
+ * - Features, required in the space: an empty set, a strict subset, disjoint sets, overlapping sets.
+ *
+ * Plant: ~/.cache/grizzle-release/BR07/plants/bits-strict-subset.patch (subset read as a strict subset) turns the
+ * property red.
  */
 import { describe, it } from "@effect/vitest"
 import { type Case, exhaust } from "@grizzle/testing/explore"

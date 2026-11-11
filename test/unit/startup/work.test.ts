@@ -1,3 +1,39 @@
+/**
+ * Startup work, counted and never timed, so no verdict depends on the machine: the calls a schema's build and every
+ * command and layer over it make to the schema's encoding and to its compilation, read off V8's call counts
+ * (test/support/kernel/calls.ts).
+ *
+ * - A schema value's content is read once, when schema(...) builds it (schema/levels.ts levelContent, its relations'
+ *   descriptions by name, compared by structure); roles, workloads and the login over it, and every level check they
+ *   and every command and layer make, read it again never from a description (contentOfDesc).
+ * - Each statement's canonical text is read once, where the statement is built (schema/statements.ts), and carried in
+ *   the level's content: schema(...) reads none, and `grizzle generate` and `grizzle check` own the schema once,
+ *   reading the texts its content carries (schema/own.ts ownBuilt), none again; they hash each level's fingerprint
+ *   (core/fingerprint.ts schemaLevel), the snapshot's encoding of it; no level check or program they compile reads a
+ *   description's text (descText). generate and check compile the installation's basis once (its law model and closed
+ *   constants, physical/install/plan.ts installBasis), packing every closed relation's cells once
+ *   (physical/ddl/constants.ts planClosed), plan the installation twice over it, for the artifacts the
+ *   access paths are planned against and for the draft, and build the draft's DDL once; then they compile each login's
+ *   programs once, into its served file (adapter/served/compile.ts compileServed), over the installation's artifacts
+ *   they already built, with no law model, plan basis or plan of the login's own, and its roles' programs from the
+ *   change compile the workload's plan holds (adapter/served/login.ts plannedLoginRoles), building no DDL.
+ * - DbLayer.make over the login's served file, the one generate wrote, loads it and owns, hashes, compiles and plans
+ *   nothing (adapter/pool/served.ts): every count of the layer is zero.
+ * - `grizzle migrate` and `grizzle drift` compile nothing before they connect: they reach the connection
+ *   (openMigrationSession) without owning the schema, compiling its basis or a login's programs.
+ * - No closed cell is held to its field's base type again where the schema compiles: closed.relation() admitted each
+ *   once (ir/desc.ts AdmittedClosedRelation), so the compile's calls of the base check (ir/expr.ts literalProblem) are
+ *   as many at twice the closed rows as at the rows.
+ * - Every count grows at most linearly in each dimension of the schema and its worlds: relations, closed rows, roles and
+ *   workload programs. The law is read over equal steps with no constant: at n, n + 1 and n + 2 the second step adds
+ *   no more calls than the first, where a count that grows faster than linearly adds more at every step.
+ *
+ * The oracle is the specification: the counts above, each stated by the module it names, and the linear law. The box
+ * is exhausted: every dimension, each at n from 2 to 3 and the two sizes past it. Features: every dimension.
+ *
+ * Plant: ~/.cache/grizzle-release/BR07/plants/work-laws-twice.patch (the installation basis compiling its law model twice) turns the
+ * property red.
+ */
 import net from "node:net"
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
@@ -44,41 +80,6 @@ import { caseHang } from "#test/support/limits.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import { clusterPool } from "#test/support/pg.ts"
 import { upTo } from "#test/support/up-to.ts"
-
-/**
- * Startup work, counted and never timed, so no verdict depends on the machine: the calls a schema's build and every
- * command and layer over it make to the schema's encoding and to its compilation, read off V8's call counts
- * (test/support/kernel/calls.ts).
- *
- * - A schema value's content is read once, when schema(...) builds it (schema/levels.ts levelContent, its relations'
- *   descriptions by name, compared by structure); roles, workloads and the login over it, and every level check they
- *   and every command and layer make, read it again never from a description (contentOfDesc).
- * - Each statement's canonical text is read once, where the statement is built (schema/statements.ts), and carried in
- *   the level's content: schema(...) reads none, and `grizzle generate` and `grizzle check` own the schema once,
- *   reading the texts its content carries (schema/own.ts ownBuilt), none again; they hash each level's fingerprint
- *   (core/fingerprint.ts schemaLevel), the snapshot's encoding of it; no level check or program they compile reads a
- *   description's text (descText). generate and check compile the installation's basis once (its law model and closed
- *   constants, physical/install/plan.ts installBasis), packing every closed relation's cells once
- *   (physical/ddl/constants.ts planClosed), plan the installation twice over it, for the artifacts the
- *   access paths are planned against and for the draft, and build the draft's DDL once; then they compile each login's
- *   programs once, into its served file (adapter/served/compile.ts compileServed), over the installation's artifacts
- *   they already built, with no law model, plan basis or plan of the login's own, and its roles' programs from the
- *   change compile the workload's plan holds (adapter/served/login.ts plannedLoginRoles), building no DDL.
- * - DbLayer.make over the login's served file, the one generate wrote, loads it and owns, hashes, compiles and plans
- *   nothing (adapter/pool/served.ts): every count of the layer is zero.
- * - `grizzle migrate` and `grizzle drift` compile nothing before they connect: they reach the connection
- *   (openMigrationSession) without owning the schema, compiling its basis or a login's programs.
- * - No closed cell is held to its field's base type again where the schema compiles: closed.relation() admitted each
- *   once (ir/desc.ts AdmittedClosedRelation), so the compile's calls of the base check (ir/expr.ts literalProblem) are
- *   as many at twice the closed rows as at the rows.
- * - Every count grows at most linearly in each dimension of the schema and its worlds: relations, closed rows, roles and
- *   workload programs, each compared at n and 2n, as the installation's sizes are (test/unit/laws/scaling.test.ts).
- *
- * The box is exhausted: every dimension at every n from 2 to 3.
- */
-
-/** The bound on growth from n to 2n: linear, with ε for the parts that do not grow. */
-const linear = 2.5
 
 /**
  * The functions whose calls the guard counts: each the one entry of a whole-schema pass, called a handful of times, so
@@ -398,8 +399,11 @@ layer(NodeServices.layer, { excludeTestServices: true })("startup work", (it) =>
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "every dimension of the schema and its worlds, each at n from 2 to 3, n + 1 and n + 2, every other at its least",
+						oracle: {
+							kind: "specification",
+							name: "each step's counts as its modules state them, and no count whose second step adds more than its first"
+						},
 						suite: "unit/startup/work",
 						generator: pointGen,
 						literal: Formatter.format,
@@ -410,32 +414,40 @@ layer(NodeServices.layer, { excludeTestServices: true })("startup work", (it) =>
 					(point, c) =>
 						Effect.gen(function* () {
 							c.note(point.dimension)
-							const small = yield* stepsAt(sizeOf(point.dimension, point.n))
-							const large = yield* stepsAt(sizeOf(point.dimension, 2 * point.n))
-							const at = `${point.dimension} at ${point.n} against ${2 * point.n}`
+							const measured = [
+								yield* stepsAt(sizeOf(point.dimension, point.n)),
+								yield* stepsAt(sizeOf(point.dimension, point.n + 1)),
+								yield* stepsAt(sizeOf(point.dimension, point.n + 2))
+							] as const
+							const [first, second, third] = measured
+							const at = `${point.dimension} at ${point.n}, ${point.n + 1} and ${point.n + 2}`
 							for (const step of stepNames) {
 								for (const site of siteNames) {
 									const want = exactly[step][site]
-									if (want !== undefined) {
-										assert.equal(small[step][site], want, `${at}: ${step} calls ${site}`)
-										assert.equal(large[step][site], want, `${at}: ${step} calls ${site}`)
+									for (const steps of measured) {
+										if (want !== undefined) {
+											assert.equal(steps[step][site], want, `${at}: ${step} calls ${site}`)
+										}
 									}
 									assert.ok(
-										large[step][site] <= linear * Math.max(small[step][site], 1),
-										`${at}: ${step}'s calls of ${site} grow from ${small[step][site]} to ${large[step][site]}`
+										third[step][site] - second[step][site] <=
+											second[step][site] - first[step][site],
+										`${at}: ${step}'s calls of ${site}, ${first[step][site]}, ${second[step][site]}, ${third[step][site]}, grow by more at each step`
 									)
 								}
 							}
 							if (point.dimension === "closed rows") {
 								for (const step of ["generate", "check", "layer"] as const) {
-									assert.equal(
-										large[step].literalProblem,
-										small[step].literalProblem,
-										`${at}: ${step} holds no closed cell to its base type again`
-									)
+									for (const steps of [second, third]) {
+										assert.equal(
+											steps[step].literalProblem,
+											first[step].literalProblem,
+											`${at}: ${step} holds no closed cell to its base type again`
+										)
+									}
 								}
 							}
-							for (const steps of [small, large]) {
+							for (const steps of measured) {
 								for (const step of ["generate", "check", "layer"] as const) {
 									assert.equal(
 										steps[step].descText,

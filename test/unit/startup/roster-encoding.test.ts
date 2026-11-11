@@ -5,15 +5,21 @@
  *
  * Each case draws a guard, the selection a key of T is over: up to three atoms joined by and or or, each a closed id
  * `kind` compared with a handle, held to an IN list of one, or read through a closed relation `Weight.at("weight",
- * kind)`, or an integer `n` compared with a number; and two sizes of the roster Kind, from 1 to 5,000 handles, every
- * handle's name four digits wide so no name's own length tells two sizes apart, Weight holding a row for each. The
- * oracle: the canonical text of every guard of T's guarded keys, the encoding every digest, law identity and snapshot
- * of the guard reads, holds the same characters at both sizes.
+ * kind)`, or an integer `n` compared with a number; and two sizes of the roster Kind, each drawn by stratum with
+ * explicit weights (one handle; a few, up to 64; thousands, from 1,000 to 5,000), every handle's name four digits wide
+ * so no name's own length tells two sizes apart, Weight holding a row for each.
+ *
+ * The oracle is universal, a metamorphic relation: the canonical text of every guard of T's guarded keys, the encoding
+ * every digest, law identity and snapshot of the guard reads, holds the same characters at both sizes. Features: each
+ * atom, a disjunction, a roster of one handle and one of thousands.
+ *
+ * Plant: ~/.cache/grizzle-release/BR07/plants/roster-encoding-size.patch (a roster's canonical form carrying its
+ * handle count) turns the property red.
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { array, element, type Gen, int } from "@grizzle/testing/gen"
+import { array, constant, element, type Gen, int, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -68,8 +74,12 @@ const atomGen: Gen<Atom> = (source) => {
 	}
 }
 
-/** A roster's size, from 1 to 5,000 handles. */
-const rosterSize = int(1, 5000)
+/** A roster's size, by stratum: one handle, a few, or thousands. */
+const rosterSize: Gen<number> = weighted([
+	[1, constant(1)],
+	[2, int(2, 64)],
+	[2, int(1000, 5000)]
+])
 
 const caseGen: Gen<EncodingCase> = (source) => {
 	const [first, ...rest] = source.draw(array(atomGen, { min: 1, max: 3 }))
@@ -174,7 +184,10 @@ describe("a predicate's canonical encoding", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "universal",
+						name: "a guard's canonical encoding is the same at two sizes of the roster it reads"
+					},
 					suite: "unit/startup/roster-encoding",
 					draw: drawn(caseGen),
 					literal: Formatter.format,

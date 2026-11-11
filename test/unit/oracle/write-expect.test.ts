@@ -23,6 +23,12 @@
  * - a refusal where the change applies, and an applied outcome where the domain or the bind refuses;
  * - a domain's refusal naming, decided, one of the several laws of the columns it types in the refused relation;
  * - a domain's check violation left an operational failure, unclassified.
+ *
+ * The oracle is the specification: the faithful realization the expectation states passes the judge, and each mutant,
+ * a planted fault of a realization, fails it. Features: every faithful outcome and every mutant above.
+ *
+ * Plant: ~/.cache/grizzle-release/BR07/plants/write-expect-keyless-accepted.patch (the judge accepting a keyless witness
+ * of a keyed law) turns the property red.
  */
 import { describe, it } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
@@ -211,7 +217,10 @@ describe("the write oracle's judgement", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "specification",
+						name: "the expectation's faithful realization passes the judge and every planted mutant of it fails"
+					},
 					suite: "unit/oracle/write-judge",
 					draw: drawn(
 						(source) =>

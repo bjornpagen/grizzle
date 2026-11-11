@@ -9,15 +9,22 @@
  *
  * - Each relation's unique objects beyond its primary key are decided once, as its law model is built (uniques.ts
  *   beyondPrimary, RelationLaws.beyond), and the law model specializes the schema once: no write compile, role probe or
- *   second specialization decides them again.
- * - A guard's predicate is encoded once, where its unique object is built, and compared by that text: the canonical
- *   encoder's calls grow linearly in k, where comparing every two guards by encoding both grew with k squared.
+ *   second specialization decides them again. The oracle is the specification's counts: one law model for generate,
+ *   none for the layer, one specialization and one decision per ordinary relation per law model.
+ * - A guard's predicate is encoded once, where its unique object is built, and compared by its label: the canonical
+ *   encoder's calls grow at most linearly in k. The oracle is that law over equal steps, read with no constant: at k,
+ *   k + 1 and k + 2 keys the second step adds no more encodings than the first, where comparing every two guards by
+ *   encoding both adds more at every step.
+ * - The installation's objects are ordered by a binary heap of the ready ones (obligations/graph.ts order), each push
+ *   comparing once per level of the heap and each pop at most twice: over the order's pushes p, its comparisons
+ *   (readyFirst) are at most 3·p·⌊log2 p⌋, the heap's own bound, where comparing every ready object at each step grows
+ *   with their number squared. Over r relations with no law between them every table is ready at once.
  *
- * - The installation's objects are ordered with n log n comparisons (obligations/graph.ts order), where re-sorting every
- *   ready object at each step grew with their number squared: over r relations with no law between them, every table
- *   ready at once, its comparisons at 2r are at most linear's bound over those at r.
+ * The boxes are exhausted: k from 1 to 3, and r from 20 to 40 by tens.
  *
- * The boxes are exhausted: k even from 6 to 10, and r from 20 to 40 by tens, each against twice it.
+ * Plants (~/.cache/grizzle-release/BR07/plants): guarded-keys-encode-pairs.patch (guards compared by encoding both)
+ * turns the first property red; install-order-quadratic.patch (every two ready objects compared at each pop) the
+ * second.
  */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
@@ -52,9 +59,6 @@ import { caseHang } from "#test/support/limits.ts"
 import { clusterPool } from "#test/support/pg.ts"
 import { ownedInput } from "#test/support/policy.ts"
 import { upTo } from "#test/support/up-to.ts"
-
-/** The bound on growth from k to 2k: linear, with ε for the parts that do not grow. */
-const linear = 2.5
 
 /** The ordinary relations of the schema, whose unique objects the law model decides once each. */
 const ordinary = 2
@@ -145,8 +149,8 @@ const stepNames: ReadonlyArray<keyof Steps> = ["generate", "layer"]
 /** The law models each step compiles: generate's one, and none for the served layer, which loads and compiles nothing. */
 const lawModels: Readonly<Record<keyof Steps, number>> = { generate: 1, layer: 0 }
 
-/** The box of guarded keys: k even, from 6 to 10, each measured against twice it. */
-const keysGen = map(int(3, 5), (half) => 2 * half)
+/** The box of guarded keys: k from 1 to 3, each measured at k, k + 1 and k + 2. */
+const keysGen = int(1, 3)
 
 layer(NodeServices.layer, { excludeTestServices: true })("guarded keys at startup", (it) => {
 	it.effect(
@@ -156,8 +160,11 @@ layer(NodeServices.layer, { excludeTestServices: true })("guarded keys at startu
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "k guarded keys for k from 1 to 3, each step measured at k, k + 1 and k + 2",
+						oracle: {
+							kind: "specification",
+							name: "one law model, specialization and decision per relation; encodings whose second step adds no more than the first"
+						},
 						suite: "unit/startup/guarded-keys",
 						generator: keysGen,
 						literal: Formatter.format,
@@ -167,11 +174,15 @@ layer(NodeServices.layer, { excludeTestServices: true })("guarded keys at startu
 					},
 					(k) =>
 						Effect.gen(function* () {
-							const small = yield* stepsAt(k)
-							const large = yield* stepsAt(2 * k)
-							const at = `k at ${k} against ${2 * k}`
+							const measured = [
+								yield* stepsAt(k),
+								yield* stepsAt(k + 1),
+								yield* stepsAt(k + 2)
+							] as const
+							const [first, second, third] = measured
+							const at = `k at ${k}, ${k + 1} and ${k + 2}`
 							for (const step of stepNames) {
-								for (const steps of [small, large]) {
+								for (const steps of measured) {
 									assert.equal(
 										steps[step].compileLaws,
 										lawModels[step],
@@ -189,8 +200,9 @@ layer(NodeServices.layer, { excludeTestServices: true })("guarded keys at startu
 									)
 								}
 								assert.ok(
-									large[step].encode <= linear * small[step].encode,
-									`${at}: ${step}'s encodings grow from ${small[step].encode} to ${large[step].encode}`
+									third[step].encode - second[step].encode <=
+										second[step].encode - first[step].encode,
+									`${at}: ${step}'s encodings ${first[step].encode}, ${second[step].encode}, ${third[step].encode} grow by more at each step`
 								)
 							}
 						})
@@ -199,12 +211,17 @@ layer(NodeServices.layer, { excludeTestServices: true })("guarded keys at startu
 	)
 })
 
-/** The comparisons ordering an installation's objects, the order's one comparator of two object keys. */
+/** The install order's heap: its pushes, and its comparisons of two ready objects. */
 const orderSites = {
-	compareKeys: { file: "packages/engine/src/physical/obligations/graph.ts", name: "compareKeys" }
+	push: { file: "packages/engine/src/physical/obligations/graph.ts", name: "push" },
+	readyFirst: { file: "packages/engine/src/physical/obligations/graph.ts", name: "readyFirst" }
 } satisfies Readonly<Record<string, CallSite>>
 
-/** The comparisons ordering the installation of r relations, each keyed by its id, with no law between them. */
+/** A binary heap's bound on its comparisons over `pushes` pushes and as many pops: ⌊log2 p⌋ a push, twice that a pop. */
+const heapBound = (pushes: number): number =>
+	pushes === 0 ? 0 : 3 * pushes * Math.floor(Math.log2(pushes))
+
+/** The heap's pushes and comparisons ordering the installation of r relations, each keyed by its id, no law between. */
 const orderedAt = (r: number) =>
 	Effect.gen(function* () {
 		const relations = upTo(r, (i) => relation(`R${i}`, { id: uuid, a: pg.integer }, ["id"]))
@@ -217,20 +234,23 @@ const orderedAt = (r: number) =>
 			Effect.sync(() => succeeded(compileInstallation(owned, installOptions(owned, "owner")))),
 			orderSites
 		)
-		return counts.compareKeys
+		return counts
 	})
 
-/** The box of relations the order holds: r from 20 to 40 by tens, each measured against twice it. */
+/** The box of relations the order holds: r from 20 to 40 by tens. */
 const relationsGen = map(int(2, 4), (tens) => 10 * tens)
 
 layer(NodeServices.layer, { excludeTestServices: true })("the install order", (it) => {
-	it.effect("compares its objects n log n times, linearly in r within the bound", (ctx) =>
+	it.effect("compares its objects within a binary heap's bound on its pushes", (ctx) =>
 		searched(
 			ctx,
 			exhaust(
 				{
-					box: { kind: "unstated" },
-					oracle: { kind: "unstated" },
+					box: "r relations with no law between them, for r from 20 to 40 by tens",
+					oracle: {
+						kind: "specification",
+						name: "a binary heap's bound: at most 3·p·⌊log2 p⌋ comparisons over p pushes and their pops"
+					},
 					suite: "unit/startup/install-order",
 					generator: relationsGen,
 					literal: Formatter.format,
@@ -240,11 +260,11 @@ layer(NodeServices.layer, { excludeTestServices: true })("the install order", (i
 				},
 				(r) =>
 					Effect.gen(function* () {
-						const small = yield* orderedAt(r)
-						const large = yield* orderedAt(2 * r)
+						const counts = yield* orderedAt(r)
+						assert.ok(counts.push > 0, `r at ${r}: the order pushes its objects`)
 						assert.ok(
-							large <= linear * small,
-							`r at ${r} against ${2 * r}: the order's comparisons grow from ${small} to ${large}`
+							counts.readyFirst <= heapBound(counts.push),
+							`r at ${r}: ${counts.readyFirst} comparisons over ${counts.push} pushes`
 						)
 					})
 			)
