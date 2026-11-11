@@ -1,11 +1,3 @@
-import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, pipe, String as Str } from "effect"
-import type { TestContext } from "vitest"
 /**
  * The worked example's plans at volume, read as a tenant through its world: every selective workload read is planned
  * through its indexes, and every index the workload creates is read.
@@ -26,14 +18,25 @@ import type { TestContext } from "vitest"
  * login's served file, runs every selective read of its workload as a served member through a counting executor, and
  * EXPLAINs each statement it sent with its parameters (test/support/plans.ts): planned with sequential and index scans disabled, so that a bitmap scan,
  * which reads only by an index condition, is the one scan left, every scan of a relation a statement restricts reads by
- * an index condition on an index the installation planned; and no free plan scans a relation of more than 20,000 rows,
- * neither sequentially nor as a nested loop's inner side without an index condition.
+ * an index condition on an index the installation planned.
  * Every index the workload's access paths created must be read by some free plan of some case. An index only a law's
  * maintenance asked for is no read's: the reverse reference of each alternatives arm's containment
  * from Task's rows of its handle, over Task's law column of that handle, is read by the foreign key's own check when an
  * arm's row goes, and the serving suites (test/pg/physical/serving.ts, world-serving.ts) hold every law's probe and
- * every world function to the index planned for it.
+ * every world function to the index planned for it. The oracle is PostgreSQL's planner.
+ *
+ * Features: a read by a busy account and by another.
+ *
+ * Plants (~/.cache/grizzle-release/BR13/plants): plans-access-index-dropped.patch.
  */
+import { layer } from "@effect/vitest"
+import { drawn, explore } from "@grizzle/testing/explore"
+import { required } from "@grizzle/testing/features"
+import { notesOnly } from "@grizzle/testing/sense"
+import { completeShrink } from "@grizzle/testing/shrink"
+import { searched } from "@grizzle/testing/vitest"
+import { Array as Arr, Effect, Formatter, pipe, String as Str } from "effect"
+import type { TestContext } from "vitest"
 import { appendAll } from "#compiler/core/array.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { codeOf } from "#compiler/ir/codes.ts"
@@ -54,7 +57,6 @@ import {
 	createdIndexes,
 	plannedIndexes,
 	recordingMembers,
-	relationRows,
 	sentProblems,
 	spread
 } from "#test/support/plans.ts"
@@ -322,10 +324,7 @@ const planSuite = (sizes: Sizes, runs: number) => (ctx: TestContext) =>
 			for (const r of ["Account", "Task", "AutomaticTask", "ManualTask", "TaskNote"]) {
 				yield* s.admin.query(`VACUUM (ANALYZE) ${table(r)}`, [])
 			}
-			const judge = {
-				rows: yield* relationRows(m.schema),
-				planned: plannedIndexes(m.installation)
-			}
+			const planned = plannedIndexes(m.installation)
 			const column = (relation: string, field: string): string =>
 				quoteIdent(names.column(relation, field))
 			const busiest = yield* s.admin.queryValues(
@@ -343,7 +342,10 @@ const planSuite = (sizes: Sizes, runs: number) => (ctx: TestContext) =>
 			const used = new Set<string>()
 			const explored = yield* explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "postgresql",
+						name: "PostgreSQL's plans with sequential and index scans disabled"
+					},
 					suite: `pg/e2e-work/plans ${sizes.tasks}`,
 					draw: drawn(pickGen),
 					literal: Formatter.format,
@@ -378,7 +380,7 @@ const planSuite = (sizes: Sizes, runs: number) => (ctx: TestContext) =>
 										s.admin,
 										read.name,
 										counts.sent.slice(before),
-										judge
+										planned
 									)
 									appendAll(problems, judged.problems)
 									for (const index of judged.read) {

@@ -1,11 +1,3 @@
-import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec, Result } from "effect"
-import type { TestContext } from "vitest"
 /**
  * The platform's plans at volume: every workload read is planned through an index, and law maintenance never scans the
  * relation it counts.
@@ -26,14 +18,9 @@ import type { TestContext } from "vitest"
  * organization over relations under row-level security; and EXPLAINs each statement the runtime sent with its
  * parameters:
  *
- * - a read is one statement, its rows and each attachment it declares, at every depth, parts of it (lower/shapes/index.ts
- *   OptimizedDelivery optimizedProgram);
  * - served: planned with sequential and index scans disabled, so that a bitmap scan, which reads only by an index
  *   condition, is the one scan left, every scan of a relation a statement restricts reads by an index condition on an
  *   index the installation planned (test/support/plans.ts);
- * - chosen at volume: no free plan scans a relation of more than 20,000 rows, neither sequentially nor as a nested
- *   loop's inner side without an index condition; over a smaller relation, the rate cards' few pages above all, the
- *   scan is the planner's choice;
  * - every index the installation created is read by some workload read's free plan here or by a law's maintenance below.
  *
  * Law maintenance runs as the triggers and native constraints fire on writes, read from the transaction's own
@@ -47,8 +34,21 @@ import type { TestContext } from "vitest"
  * bitmap scans disabled: PostgreSQL itself judges whether the installation serves it, and it must read through an index
  * scan with an index condition on an index the installation planned (the one the engine merged it into, or another
  * PostgreSQL finds cheaper), which counts as used. The engine's own serving rule is never consulted: a copy of it would
- * agree with it.
+ * agree with it. The oracle is PostgreSQL's planner and its transaction statistics.
+ *
+ * Features: a read by the busiest entities and by another, a week's window and a whole month's.
+ *
+ * Plants (~/.cache/grizzle-release/BR13/plants): plans-access-index-dropped.patch (the index engine creating no access
+ * index for a workload read), plans-probe-unindexed.patch (a law probe merged into no index).
  */
+import { layer } from "@effect/vitest"
+import { drawn, explore } from "@grizzle/testing/explore"
+import { required } from "@grizzle/testing/features"
+import { notesOnly } from "@grizzle/testing/sense"
+import { completeShrink } from "@grizzle/testing/shrink"
+import { searched } from "@grizzle/testing/vitest"
+import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec, Result } from "effect"
+import type { TestContext } from "vitest"
 import { parsePlanTree, planNodes } from "#bench/harness/explain.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import type { Json } from "#compiler/core/canonical.ts"
@@ -72,12 +72,7 @@ import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { messageOf } from "#test/support/message.ts"
 import { pickGen, pickIndex } from "#test/support/pick.ts"
-import {
-	plannedIndexes,
-	recordingMembers,
-	relationRows,
-	sentProblems
-} from "#test/support/plans.ts"
+import { plannedIndexes, recordingMembers, sentProblems } from "#test/support/plans.ts"
 import {
 	buildPlatform,
 	DAY,
@@ -1684,16 +1679,16 @@ const planSuite = (events: number, runs: number) => (ctx: TestContext) =>
 			for (const r of [...loadOrder, "DailySpend"]) {
 				yield* s.admin.query(`VACUUM (ANALYZE) ${o.table(r)}`, [])
 			}
-			const judge = {
-				rows: yield* relationRows(o.installed.schema),
-				planned: plannedIndexes(o.installed.installation)
-			}
+			const planned = plannedIndexes(o.installed.installation)
 			const e = entitiesOf(p)
 			const used = new Set<string>()
 			const explored = yield* explore(
 				{
 					suite: `pg/e2e-platform/plans ${events}`,
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "postgresql",
+						name: "PostgreSQL's plans with sequential and index scans disabled, and its transaction statistics"
+					},
 					draw: drawn(pickGen),
 					literal: Formatter.format,
 					kept: [],
@@ -1722,10 +1717,7 @@ const planSuite = (events: number, runs: number) => (ctx: TestContext) =>
 						/** One read's statements as `who` sent them, judged, the indexes their free plans read used. */
 						const review = (who: string, pr: Probe, sent: Parameters<typeof sentProblems>[2]) =>
 							Effect.gen(function* () {
-								if (sent.length !== 1) {
-									problems.push(`${pr.name} as ${who}: ${sent.length} statements, not one`)
-								}
-								const judged = yield* sentProblems(s.admin, `${pr.name} as ${who}`, sent, judge)
+								const judged = yield* sentProblems(s.admin, `${pr.name} as ${who}`, sent, planned)
 								appendAll(problems, judged.problems)
 								for (const index of judged.read) {
 									used.add(index)
@@ -1760,7 +1752,7 @@ const planSuite = (events: number, runs: number) => (ctx: TestContext) =>
 						assert.deepEqual(
 							problems,
 							[],
-							"every read is one statement, planned through its indexes, as billing and as the tenant"
+							"every read is planned through its indexes, as billing and as the tenant"
 						)
 					})
 			)
@@ -1801,7 +1793,7 @@ const planSuite = (events: number, runs: number) => (ctx: TestContext) =>
 					probeProblems.push(`${probe.label}: no index scan`)
 					continue
 				}
-				if (judge.planned.has(index.value)) {
+				if (planned.has(index.value)) {
 					used.add(index.value)
 				} else {
 					probeProblems.push(

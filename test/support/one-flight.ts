@@ -1,11 +1,11 @@
-import { Effect, type Scope } from "effect"
+import { Effect, Formatter, type Scope } from "effect"
 import type { ServedDbContext } from "#adapter/db/context.ts"
 import { defaultPool, poolFor, rowsOn } from "#test/pg/adapter/support.ts"
 import { assert } from "#test/support/assert.ts"
 import { testIdleTimeout } from "#test/support/limits.ts"
 import type { Credentials } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-import { makeTap, queryTexts } from "#test/support/wire-tap.ts"
+import { frameOf, makeTap } from "#test/support/wire-tap.ts"
 
 /**
  * The one-round-trip property of a write, judged on the wire: a call's BEGIN, every statement and its end go in one
@@ -56,16 +56,12 @@ export const oneFlight = <C extends ServedDbContext>(
 				const window = tap.since(mark)
 				if (window.roundTrips > 0) {
 					assert.equal(window.roundTrips, 1, `${label}: round trips on the wire`)
-					const framing = queryTexts(window)
-					assert.equal(
-						framing.length,
-						2,
-						`${label}: the flight's BEGIN and its end, its only simple queries`
-					)
-					assert.equal(
-						framing[0],
-						"BEGIN ISOLATION LEVEL SERIALIZABLE",
-						`${label}: the flight opens its transaction`
+					const frame = frameOf(window)
+					assert.ok(
+						frame.kind === "framed" &&
+							frame.isolation === "SERIALIZABLE" &&
+							frame.access === "read write",
+						`${label}: the flight's BEGIN and its end are its only simple queries, a SERIALIZABLE write's: ${Formatter.format(frame)}`
 					)
 				}
 				return yield* Effect.fromResult(value)

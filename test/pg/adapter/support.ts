@@ -1,4 +1,4 @@
-import { Array as Arr, Effect, Option, type Redacted, type Scope, String as Str } from "effect"
+import { Array as Arr, Effect, type Redacted, type Scope } from "effect"
 import type { CredentialError } from "#adapter/errors/failures.ts"
 import type { BatchRefused } from "#adapter/errors/failures.ts"
 import type { ConnectionPool, PoolBounds, Transport } from "#adapter/types/layer.ts"
@@ -20,7 +20,6 @@ import {
 import { testSql } from "#test/support/sql.ts"
 import type { Credentials } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-import { queryTexts, type WireWindow } from "#test/support/wire-tap.ts"
 import { paramText } from "#test/support/wire.ts"
 
 /**
@@ -180,71 +179,3 @@ export const backendState = (pid: number) =>
 			? { state: "gone", waitEvent: "" }
 			: { state: String(row[0]), waitEvent: String(row[1]) }
 	})
-
-/** The isolation levels a transaction's BEGIN may name, as its words spell them. */
-const isolationLevels = [
-	"SERIALIZABLE",
-	"REPEATABLE READ",
-	"READ COMMITTED",
-	"READ UNCOMMITTED"
-] as const
-
-/**
- * A flight's transaction as its simple Query texts state it: the isolation level its BEGIN names, or none; whether it
- * is READ ONLY; and whether it ends with COMMIT or ROLLBACK. Two spellings of one transaction read as one frame
- * (BEGIN or START TRANSACTION, modes in any order, comma or space between them, COMMIT or END, ROLLBACK or ABORT), so a
- * property asserts the transaction a call runs in, never the text that opens it.
- */
-export type TransactionFrame =
-	| {
-			readonly kind: "framed"
-			readonly isolation: (typeof isolationLevels)[number] | "unstated"
-			readonly access: "read only" | "read write"
-			readonly end: "commit" | "rollback"
-	  }
-	| { readonly kind: "unframed"; readonly texts: ReadonlyArray<string> }
-
-/** A text's words, upper case, with no punctuation between them. */
-const wordsOf = (text: string): ReadonlyArray<string> =>
-	Arr.filter(
-		Str.split(Str.toUpperCase(Str.replaceAll(";", " ")(Str.replaceAll(",", " ")(text))), " "),
-		Str.isNonEmpty
-	)
-
-/** Whether `words` hold `phrase` as consecutive words. */
-const holds = (words: ReadonlyArray<string>, phrase: string): boolean => {
-	const wanted = Str.split(phrase, " ")
-	return Arr.some(Arr.range(0, words.length - 1), (start) =>
-		Arr.every(wanted, (word, k) => words[start + k] === word)
-	)
-}
-
-/** The frame of a window's flight: its BEGIN's modes and its end, or `unframed` with its texts. */
-export const frameOf = (window: WireWindow): TransactionFrame => {
-	const texts = queryTexts(window)
-	const unframed: TransactionFrame = { kind: "unframed", texts }
-	if (texts.length !== 2) {
-		return unframed
-	}
-	const begin = wordsOf(texts[0] ?? "")
-	const ending = wordsOf(texts[1] ?? "")[0]
-	const opens = begin[0] === "BEGIN" || (begin[0] === "START" && begin[1] === "TRANSACTION")
-	const end =
-		ending === "COMMIT" || ending === "END"
-			? "commit"
-			: ending === "ROLLBACK" || ending === "ABORT"
-				? "rollback"
-				: undefined
-	if (!opens || end === undefined) {
-		return unframed
-	}
-	return {
-		kind: "framed",
-		isolation: Option.getOrElse(
-			Arr.findFirst(isolationLevels, (level) => holds(begin, `ISOLATION LEVEL ${level}`)),
-			(): "unstated" => "unstated"
-		),
-		access: holds(begin, "READ ONLY") ? "read only" : "read write",
-		end
-	}
-}

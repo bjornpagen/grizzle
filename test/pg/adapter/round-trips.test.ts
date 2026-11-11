@@ -3,7 +3,7 @@
  *
  * Each call runs on an opened Db whose pool is one tapped session, warmed first, so a window holds one call's traffic
  * alone. The oracle is the contract (README "One call, one transaction, one round trip or two" and "Deploying": Db.open
- * contacts nothing): every call is exactly one round trip and one transaction, read by its frame (adapter/support.ts
+ * contacts nothing): every call is exactly one round trip and one transaction, read by its frame (test/support/wire-tap.ts
  * frameOf: the isolation its BEGIN names, READ ONLY or not, COMMIT or ROLLBACK, whatever the spelling), its session idle
  * at its end, and no CancelRequest sent. Properties:
  *
@@ -47,13 +47,7 @@ import { arm, query, v } from "#compiler/public/query.ts"
 import { derived, login, relation, role, schema, wholeEntriesOf } from "#compiler/public/schema.ts"
 import { paged, refresh } from "#compiler/public/workload.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
-import {
-	defaultPool,
-	frameOf,
-	poolFor,
-	rowsOn,
-	type TransactionFrame
-} from "#test/pg/adapter/support.ts"
+import { defaultPool, poolFor, rowsOn } from "#test/pg/adapter/support.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, assertVariant, defined } from "#test/support/assert.ts"
@@ -66,7 +60,13 @@ import { pickGen, pickIndex } from "#test/support/pick.ts"
 import { member, withServedDb } from "#test/support/served-db.ts"
 import type { Credentials } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-import { makeTap, type Tap, type WireWindow } from "#test/support/wire-tap.ts"
+import {
+	frameOf,
+	makeTap,
+	type Tap,
+	type TransactionFrame,
+	type WireWindow
+} from "#test/support/wire-tap.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 import { testVerify } from "#test/support/worlds.ts"
 
