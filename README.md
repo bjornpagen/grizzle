@@ -1416,7 +1416,7 @@ export const WebLayer = DbLayer.make({
 - `driver`: the `pg` you import.
 - `transport`: how each connection reaches the server. `open` makes a new, unconnected socket, which pg connects to `host` and `port`; then come an SSLRequest and verify-full TLS over the socket, the server's certificate chained to `ca` and naming `servername`. `host` is a name or an IP address, never a Unix socket's path, since PostgreSQL offers no TLS over one. A tunnel connects to its local end and names the server it reaches. A CancelRequest opens its own connection the same way.
 - `password`: a `Redacted`, or an Effect that yields one for each new connection, so a rotated credential needs no restart.
-- `rolePrefix`, optional: the installation's, when two installations of the schema share a cluster, each login's and role's PostgreSQL role `<rolePrefix>__<stem>` ([Migrations](#migrations)); without it, each role is its stem, the name `grizzle generate` committed. The same prefix as the installation's `grizzle.config.ts` connection.
+- `rolePrefix`, optional: the installation's, when two installations of the schema share a cluster, each login's and role's PostgreSQL role `<rolePrefix>__<stem>` ([Migrations](#migrations)); without it, each role is its stem, the name `grizzle generate` committed. The same prefix as the installation's `grizzle.config.ts` connection, used verbatim: `gr8des_qti` makes `gr8des_qti__blog__web`.
 - `connectTimeoutMs`: how long one connection attempt may take, past which it fails with `ConnectTimedOut`, and how long the one CancelRequest an interrupted call sends may take.
 - `pool`: at most `max` sessions open, `min` of them kept open once opened, and the others closed `idleTimeoutMs` after their last use. None is opened before a call asks for one.
 
@@ -2774,7 +2774,8 @@ deploy.
   database's, a role's or a session's, changes what a migration or a query means.
 - **Two installations on one cluster.** PostgreSQL roles are the cluster's, every database's, while an installation is
   one database's: two installations of one schema on one cluster need roles of their own. Give each connection its
-  `rolePrefix`, a declared name installed as its conversion, beside its `database`, in `grizzle.config.ts` and in
+  `rolePrefix`, used verbatim (a lowercase PostgreSQL identifier segment, `[a-z_][a-z0-9_]*`, with no `__` and not
+  starting with `pg_`; anything else is refused at stage `config`), beside its `database`, in `grizzle.config.ts` and in
   `DbLayer.make` alike. Every login's and role's PostgreSQL role is then `<rolePrefix>__<stem>`: `a__keys__dashboard`
   in one installation, `b__keys__dashboard` in the other, `keys__dashboard` in one without a prefix, the names never
   meeting. One committed `generate` output installs into all of them: the drafted SQL names each role by its variable,

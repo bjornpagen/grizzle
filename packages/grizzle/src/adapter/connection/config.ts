@@ -460,12 +460,14 @@ const parseRoleSpace = (
 	where: SettingPath
 ): Result.Result<RoleSpace, SettingFault> => {
 	if (rolePrefix !== undefined && typeof rolePrefix !== "string") {
-		return Result.fail(faultAt(where, "rolePrefix", { kind: "rolePrefix", reason: "a string" }))
+		return Result.fail(
+			faultAt(where, "rolePrefix", { kind: "rolePrefix", fault: { kind: "notText" } })
+		)
 	}
 	const space = roleSpaceOf(rolePrefix)
 	return space.ok
 		? Result.succeed(space.value)
-		: Result.fail(faultAt(where, "rolePrefix", { kind: "rolePrefix", reason: space.error }))
+		: Result.fail(faultAt(where, "rolePrefix", { kind: "rolePrefix", fault: space.error }))
 }
 
 /**
@@ -482,8 +484,9 @@ const spaceRole = (
 		? Result.succeed(role.value)
 		: Result.fail(
 				faultAt(where, "rolePrefix", {
-					kind: "rolePrefix",
-					reason: `one under which the role ${role.error.role} fits ${role.error.limit} bytes`
+					kind: "installedRole",
+					role: role.error.role,
+					limit: role.error.limit
 				})
 			)
 }

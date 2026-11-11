@@ -31,6 +31,8 @@ export {
 	admittedIdentifier,
 	roleInSpace,
 	type RoleInstallation,
+	type RolePrefixFault,
+	rolePrefixFaultText,
 	type RoleSpace,
 	roleSpaceOf
 } from "#compiler/core/identity.ts"

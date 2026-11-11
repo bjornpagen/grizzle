@@ -13,7 +13,12 @@ import type {
 	RelationIdent,
 	Sqlstate
 } from "#compiler/plan/common.ts"
-import { admittedIdentifier, sqlstates } from "#compiler/plan/runtime.ts"
+import {
+	admittedIdentifier,
+	type RolePrefixFault,
+	rolePrefixFaultText,
+	sqlstates
+} from "#compiler/plan/runtime.ts"
 
 /**
  * The reasons of grizzle's errors, and the wire's own classification of a flight's failure.
@@ -282,7 +287,8 @@ export type SettingRule =
 	| { readonly kind: "snapshot" }
 	| { readonly kind: "function" }
 	| { readonly kind: "verifier"; readonly role: string; readonly login: string }
-	| { readonly kind: "rolePrefix"; readonly reason: string }
+	| { readonly kind: "rolePrefix"; readonly fault: RolePrefixFault }
+	| { readonly kind: "installedRole"; readonly role: string; readonly limit: number }
 
 /**
  * A setting a block's parse refuses: `setting`, its path from the block (`["DbConfig", "transport", "port"]`, an
@@ -333,7 +339,9 @@ const ruleText = (rule: SettingRule): string => {
 		case "verifier":
 			return `must be a function: role ${rule.role} of login ${rule.login} reads a context`
 		case "rolePrefix":
-			return `must be a role prefix, ${rule.reason}`
+			return `must be a role prefix, used verbatim: ${rolePrefixFaultText(rule.fault)}`
+		case "installedRole":
+			return `must be a role prefix under which the role ${rule.role} fits ${rule.limit} bytes`
 	}
 }
 
