@@ -8,7 +8,6 @@ import {
 	map,
 	oneOf,
 	option,
-	uniqueArray,
 	weighted
 } from "@grizzle/testing/gen"
 import { bigint } from "@grizzle/testing/values"
@@ -30,13 +29,14 @@ import { numericValue } from "#compiler/scalar/registry.ts"
 import { nonEmpty } from "#test/support/assert.ts"
 import { textDesc } from "#test/support/fixtures/ir/desc.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
-import { dictionaryNameGen } from "#test/support/kernel/dict.ts"
+import { dictionaryNameGen, dictionaryNameGenOtherThan } from "#test/support/kernel/dict.ts"
 
 /**
  * Declared types on the choice stream: every kind a field descriptor has (ir/desc.ts FieldDesc), each drawn within the
  * bounds its kind declares, and the computed types no declaration states, a computed numeric and an exact type. Each is
  * built by the registry's own constructors (scalarOf, numericValue, exactType), so a drawn type is one the schema
- * compiler or the checker gives a field or a term.
+ * compiler or the checker gives a field or a term. Every descriptor declaredGen draws is one a field declares: a bare
+ * `{ kind: "pg", type: "date" }` among them, which is the date field's own descriptor (scalar/date.ts dateDescriptor).
  */
 
 /** The rosters a declared type's closed ids and sets read: the closed relation's name and its handles in code order. */
@@ -50,16 +50,20 @@ const noRosters: Rosters = {}
 /** A declared name, as the identifier dictionary admits one. */
 const nameGen: Gen<string> = map(dictionaryNameGen, (n) => n.declared)
 
-/** A roster of one to five handles, each a distinct declared name, under a declared name of its own. */
+/**
+ * A roster of one to five handles under a declared name of its own, each handle a declared name drawn from those the
+ * handles before it left, so they are distinct by construction.
+ */
 const rosterGen: Gen<Readonly<{ name: string; handles: NonEmptyReadonlyArray<string> }>> = (
 	source
-) => ({
-	name: source.draw(nameGen),
-	handles: nonEmpty(
-		source.draw(uniqueArray(nameGen, (n) => n, { min: 1, max: 5 }, 8)),
-		"a roster's handles"
-	)
-})
+) => {
+	const count = source.draw(int(1, 5))
+	const handles: Array<string> = []
+	for (let at = 0; at < count; at += 1) {
+		handles.push(source.draw(dictionaryNameGenOtherThan(new Set(handles))).declared)
+	}
+	return { name: source.draw(nameGen), handles: nonEmpty(handles, "a roster's handles") }
+}
 
 /** A value from the small end of a range first, then from the whole range. */
 const smallFirst = (small: Gen<number>, whole: Gen<number>): Gen<number> =>

@@ -1,3 +1,18 @@
+/**
+ * The DAG validator (test/support/oracle/dag-validate.ts validateTable and dagProblems), the checker every artifact this
+ * package builds is held to, over the every-kind fixture, generated DAGs and their live variants, each broken by one
+ * named corruption (test/unit/ir/corruptions.ts) at any of its sites.
+ *
+ * - A live DAG and every live variant of it is accepted and comes back validated.
+ * - A corrupted one is a defect naming the first problem the validator reports, its place's label and path and its
+ *   rule, and its own rule is among the problems reported, at the corruption's place or within it.
+ *
+ * Oracle: each corruption's rule restated over the table, and the place it breaks, compared by label and path.
+ *
+ * Features: live, every corruption's rule beside the site it broke, and every node kind a live DAG holds.
+ *
+ * Plants: ir-validate-dangling-name (a node naming a node outside the table passes).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -13,11 +28,19 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec, String as Str } from "effect"
 import { makeIdSupply } from "#compiler/core/ids.ts"
-import { formatLoc, formatPath } from "#compiler/core/loc.ts"
+import { formatLoc, formatPath, SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import { type DagTable, type RelKind, relKinds } from "#compiler/ir/rel.ts"
 import { decodeWith } from "#compiler/ir/shape.ts"
-import { assert, nonEmpty, refusalLoc, succeeded } from "#test/support/assert.ts"
+import {
+	assert,
+	deepEquals,
+	nonEmpty,
+	type Place,
+	placeOf,
+	refusalLoc,
+	succeeded
+} from "#test/support/assert.ts"
 import { toTable } from "#test/support/dag.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { dagProblems, dagTableShape, validateTable } from "#test/support/oracle/dag-validate.ts"
@@ -31,38 +54,37 @@ import {
 import { everyKind } from "#test/unit/ir/fixture.ts"
 import { generatedDags } from "#test/unit/ir/population.ts"
 
-const locationOf = (path: ReadonlyArray<string | number>): string =>
-	path.length === 0 ? "relational DAG" : `relational DAG at ${formatPath(path)}`
+/** The label every place of a DAG's problems is under. */
+const dagLabel = "relational DAG"
 
-/** A rule broken, as the validator reports it: where, and the rule. */
+/** A rule broken, as the validator reports it: where, by its label and path, and the rule. */
 interface Reported {
-	readonly location: string
+	readonly place: Place
 	readonly rule: string
 }
 
 /** What the validator reports of a value: the shape stage's one refusal, or every problem of the semantic stage. */
 const reported = (value: unknown): ReadonlyArray<Reported> => {
-	const shaped = decodeWith(dagTableShape, value, "relational DAG")
+	const shaped = decodeWith(dagTableShape, value, dagLabel)
 	if (!shaped.ok) {
-		return [{ location: formatLoc(refusalLoc(shaped.error)), rule: shaped.error.message }]
+		return [{ place: placeOf(refusalLoc(shaped.error)), rule: shaped.error.message }]
 	}
 	return Arr.map(dagProblems(shaped.value), (p) => ({
-		location: locationOf(p.path),
+		place: { label: dagLabel, path: p.path },
 		rule: p.message
 	}))
 }
 
-const meets = (problem: Reported, refusal: DagRefusal): boolean => {
-	const expected = locationOf(refusal.path)
-	if (refusal.match === "at") {
-		return problem.location === expected
-	}
-	return (
-		problem.location === expected ||
-		Str.startsWith(`${expected}.`)(problem.location) ||
-		Str.startsWith(`${expected}[`)(problem.location)
-	)
-}
+/** Whether `path` is `within` or a path inside it. */
+const inside = (path: ReadonlyArray<string | number>, within: ReadonlyArray<string | number>) =>
+	path.length >= within.length && Arr.every(within, (step, i) => path[i] === step)
+
+/** Whether a problem stands where a corruption's refusal says: at its path, or within it. */
+const meets = (problem: Reported, refusal: DagRefusal): boolean =>
+	problem.place.label === dagLabel &&
+	(refusal.match === "at"
+		? deepEquals(problem.place.path, refusal.path)
+		: inside(problem.place.path, refusal.path))
 
 /**
  * What a case of the validator's suites reached: the live DAG or the rule its corruption broke, a node kind of a live
@@ -95,7 +117,7 @@ const answered = <A>(f: () => A): Result.Result<A, string> => {
  * defect it raises.
  */
 const validation = (value: unknown): Result.Result<DagTable, string> => {
-	const shaped = decodeWith(dagTableShape, value, "relational DAG")
+	const shaped = decodeWith(dagTableShape, value, dagLabel)
 	return shaped.ok ? answered(() => validateTable(shaped.value)) : Result.err(shaped.error.message)
 }
 
@@ -115,14 +137,14 @@ const judged = (c: Corrupted<unknown, DagRefusal, DagRule>): DagTable | undefine
 	const [first] = problems
 	assert.ok(
 		first !== undefined &&
-			Str.includes(first.location)(answer.error) &&
+			Str.includes(formatLoc(SourceLoc(first.place.label, first.place.path)))(answer.error) &&
 			Str.endsWith(first.rule)(answer.error),
 		`"${c.rule}" broken at a ${c.at}: the defect ${answer.error} names the first problem reported`
 	)
 	assert.ok(
 		Arr.some(problems, (p) => meets(p, c.refusal)),
-		`"${c.rule}" broken at a ${c.at}: expected a problem ${c.refusal.match} ${locationOf(c.refusal.path)}; reported ${Arr.join(
-			Arr.map(problems, (p) => `${p.rule} at ${p.location}`),
+		`"${c.rule}" broken at a ${c.at}: expected a problem ${c.refusal.match} ${formatPath(c.refusal.path)}; reported ${Arr.join(
+			Arr.map(problems, (p) => `${p.rule} at ${formatPath(p.place.path)}`),
 			"; "
 		)}`
 	)
