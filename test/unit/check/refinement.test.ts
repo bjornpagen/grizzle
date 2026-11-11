@@ -2,7 +2,7 @@
  * Refinements (check/refinement): which types guarantee which, what a union's column takes from its arms, and which
  * closed constants PostgreSQL must validate.
  *
- * - **Guarantees:** over every ordered pair of fifteen named types, `guarantees(a, b)` holds exactly when the two are
+ * - **Guarantees:** over every ordered pair of the named types, `guarantees(a, b)` holds exactly when the two are
  *   one carrier and one identity: a contract guarantees only itself, a numeric only its own typmod, and text the
  *   wildcard or its own language, two spellings of one language being one.
  * - **Union propagation:** over every ordered pair of deliverers, a union's column is the meet of its arms' types: one
@@ -165,7 +165,11 @@ type Token =
 	| { readonly kind: "language"; readonly language: "slug" | "state" }
 	| { readonly kind: "wildcard" }
 	| { readonly kind: "numeric"; readonly digits: number; readonly scale: number }
-	| { readonly kind: "contract"; readonly name: "Cents" | "Brand" | "Handle" }
+	| {
+			readonly kind: "contract"
+			readonly name: "Cents" | "Brand" | "Handle"
+			readonly base: "bigint" | "text"
+	  }
 	| { readonly kind: "bigint" }
 
 interface Deliverer {
@@ -256,28 +260,28 @@ const deliverers: Arr.NonEmptyReadonlyArray<Deliverer> = [
 		"Article",
 		"amount",
 		false,
-		{ kind: "contract", name: "Cents" },
+		{ kind: "contract", name: "Cents", base: "bigint" },
 		fieldType(Article, "amount")
 	),
 	deliverer(
 		"TierPlan",
 		"budget",
 		true,
-		{ kind: "contract", name: "Cents" },
+		{ kind: "contract", name: "Cents", base: "bigint" },
 		payloadType("TierPlan", "budget")
 	),
 	deliverer(
 		"TierPlan",
 		"rank",
 		true,
-		{ kind: "contract", name: "Brand" },
+		{ kind: "contract", name: "Brand", base: "bigint" },
 		payloadType("TierPlan", "rank")
 	),
 	deliverer(
 		"TierPlan",
 		"handle",
 		true,
-		{ kind: "contract", name: "Handle" },
+		{ kind: "contract", name: "Handle", base: "text" },
 		payloadType("TierPlan", "handle")
 	),
 	deliverer("Sheet", "count", false, { kind: "bigint" }, fieldType(Sheet, "count"))
@@ -339,6 +343,7 @@ const carrierOf = (t: Token): "text" | "numeric" | "bigint" => {
 		case "numeric":
 			return "numeric"
 		case "contract":
+			return t.base
 		case "bigint":
 			return "bigint"
 	}

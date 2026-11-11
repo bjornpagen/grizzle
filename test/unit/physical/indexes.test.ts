@@ -222,6 +222,14 @@ const eventColumns: Arr.NonEmptyReadonlyArray<string> = [
 	"id"
 ]
 
+/** Event's columns no installed index leads with (its primary key leads with id), so a request on them creates one. */
+const unindexedColumns: Arr.NonEmptyReadonlyArray<string> = [
+	"tenant",
+	"account",
+	"created",
+	"unrelated"
+]
+
 /**
  * A request planted alone, in place of the drawn ones: one the engine cannot create (a B-tree key over a text column,
  * whose entry no limit bounds, after drawn columns; more keys than INDEX_MAX_KEYS; an expression key, a name no column
@@ -265,7 +273,7 @@ const plantedGen: Gen<Planted> = weighted<Planted>([
 	[1, map(matching(regex("^e[0-9]{1,3}$")), (expr) => ({ kind: "an expression key", expr }))],
 	[
 		1,
-		map(shuffled(eventColumns, { min: 1, max: eventColumns.length }), (columns) => ({
+		map(shuffled(unindexedColumns, { min: 1, max: unindexedColumns.length }), (columns) => ({
 			kind: "a B-tree and a GiST index on one column list",
 			columns
 		}))
