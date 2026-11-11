@@ -10,13 +10,13 @@ import {
 } from "effect"
 import type { Stream } from "effect"
 import { Headers, HttpBody, HttpClientRequest, UrlParams } from "effect/http"
-import { UsageError } from "../domain/errors.ts"
-import { JsonNumber, isJsonNumberText, rawJson } from "./input.ts"
-import type { Chosen, RawJson, SentType } from "./input.ts"
-import * as Multipart from "./multipart.ts"
-import type { MediaDeclaration } from "./negotiate.ts"
-import { encoder as utf8, loneSurrogate } from "./redact.ts"
-import { isJsonFamily, mediaEssence } from "./sequential.ts"
+import { UsageError } from "#domain/errors.ts"
+import { JsonNumber, isJsonNumberText, rawJson } from "#runtime/input.ts"
+import type { Chosen, RawJson, SentType } from "#runtime/input.ts"
+import * as Multipart from "#runtime/multipart.ts"
+import type { MediaDeclaration } from "#runtime/negotiate.ts"
+import { encoder as utf8, loneSurrogate } from "#runtime/redact.ts"
+import { isJsonFamily, mediaEssence } from "#runtime/sequential.ts"
 
 /**
  * A value with a text form. Integers outside the safe range arrive as digit strings and are sent
@@ -1072,7 +1072,7 @@ export const body = (mediaType: string, value: Body): RequestBody => ({
 	mediaType
 })
 
-export type { Chosen, SentType } from "./input.ts"
+export type { Chosen, SentType } from "#runtime/input.ts"
 
 /**
  * The encoders of a body with several media alternatives, one per declared key: each takes the

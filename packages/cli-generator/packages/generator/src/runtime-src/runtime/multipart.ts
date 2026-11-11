@@ -2,10 +2,10 @@ import type { FileSystem, Stdio } from "effect"
 import { Bytes, Effect, Stream } from "effect"
 import { Base64, Hex } from "effect/encoding"
 import { HttpBody } from "effect/http"
-import { UsageError } from "../domain/errors.ts"
-import type { StdinClaim } from "./input.ts"
-import { stdinOrFile } from "./input.ts"
-import { encoder } from "./redact.ts"
+import { UsageError } from "#domain/errors.ts"
+import type { StdinClaim } from "#runtime/input.ts"
+import { stdinOrFile } from "#runtime/input.ts"
+import { encoder } from "#runtime/redact.ts"
 
 /**
  * Per-part encoding facts from an OpenAPI Encoding Object, already resolved by the caller.

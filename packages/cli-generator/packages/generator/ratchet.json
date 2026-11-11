@@ -1,6 +1,6 @@
 {
 	"typecheck": {
-		"total": 9990,
+		"total": 9988,
 		"files": {
 			"packages/generator/corpus/tools/coverage.ts": 63,
 			"packages/generator/corpus/tools/fetch.ts": 6,
@@ -19,7 +19,6 @@
 			"packages/generator/src/emit/entry.ts": 9,
 			"packages/generator/src/emit/escape.ts": 9,
 			"packages/generator/src/emit/help.ts": 63,
-			"packages/generator/src/emit/package.ts": 2,
 			"packages/generator/src/emit/printer.ts": 82,
 			"packages/generator/src/emit/readme.ts": 58,
 			"packages/generator/src/generate.ts": 39,
@@ -443,7 +442,7 @@
 		}
 	},
 	"oxlint": {
-		"total": 5759,
+		"total": 5726,
 		"files": {
 			"packages/generator/corpus/tools/coverage.ts": 63,
 			"packages/generator/corpus/tools/fetch.ts": 1,
@@ -499,19 +498,19 @@
 			"packages/generator/src/report/verdict.ts": 2,
 			"packages/generator/src/resolve/index.ts": 77,
 			"packages/generator/src/runtime-src/domain/errors.ts": 3,
-			"packages/generator/src/runtime-src/runtime/auth.ts": 41,
-			"packages/generator/src/runtime-src/runtime/base-url.ts": 11,
+			"packages/generator/src/runtime-src/runtime/auth.ts": 36,
+			"packages/generator/src/runtime-src/runtime/base-url.ts": 9,
 			"packages/generator/src/runtime-src/runtime/client.ts": 24,
-			"packages/generator/src/runtime-src/runtime/describe.ts": 5,
+			"packages/generator/src/runtime-src/runtime/describe.ts": 3,
 			"packages/generator/src/runtime-src/runtime/groups.ts": 2,
-			"packages/generator/src/runtime-src/runtime/input.ts": 81,
-			"packages/generator/src/runtime-src/runtime/multipart.ts": 13,
-			"packages/generator/src/runtime-src/runtime/negotiate.ts": 4,
+			"packages/generator/src/runtime-src/runtime/input.ts": 76,
+			"packages/generator/src/runtime-src/runtime/multipart.ts": 9,
+			"packages/generator/src/runtime-src/runtime/negotiate.ts": 2,
 			"packages/generator/src/runtime-src/runtime/output.ts": 73,
-			"packages/generator/src/runtime-src/runtime/redact.ts": 11,
-			"packages/generator/src/runtime-src/runtime/response.ts": 11,
+			"packages/generator/src/runtime-src/runtime/redact.ts": 10,
+			"packages/generator/src/runtime-src/runtime/response.ts": 7,
 			"packages/generator/src/runtime-src/runtime/sequential.ts": 4,
-			"packages/generator/src/runtime-src/runtime/serialize.ts": 68,
+			"packages/generator/src/runtime-src/runtime/serialize.ts": 60,
 			"packages/generator/src/runtime-src/runtime/sse.ts": 3,
 			"packages/generator/src/validate/dialect.ts": 1,
 			"packages/generator/src/validate/dispatch.ts": 5,

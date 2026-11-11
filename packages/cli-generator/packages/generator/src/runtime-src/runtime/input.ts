@@ -15,11 +15,11 @@ import {
 import { Argument, CliError, Flag } from "effect/cli"
 import { Base64, Base64Url } from "effect/encoding"
 import { HttpBody } from "effect/http"
-import { UsageError } from "../domain/errors.ts"
-import type { MediaDeclaration } from "./negotiate.ts"
-import * as Negotiate from "./negotiate.ts"
-import type { Secret } from "./redact.ts"
-import { RunCredentials, encoder } from "./redact.ts"
+import { UsageError } from "#domain/errors.ts"
+import type { MediaDeclaration } from "#runtime/negotiate.ts"
+import * as Negotiate from "#runtime/negotiate.ts"
+import type { Secret } from "#runtime/redact.ts"
+import { RunCredentials, encoder } from "#runtime/redact.ts"
 
 /**
  * Ceiling for a body read from `--body-file`, a file or stdin, in bytes. A runtime choice: design

@@ -1,8 +1,8 @@
 import { Config, Context, Effect, Layer, Option, Result } from "effect"
 import { Flag, GlobalFlag } from "effect/cli"
 import { Url } from "effect/http"
-import { UsageError } from "../domain/errors.ts"
-import { asCliError } from "./input.ts"
+import { UsageError } from "#domain/errors.ts"
+import { asCliError } from "#runtime/input.ts"
 
 /**
  * One server variable of the OpenAPI Server Object. `enum` is optional.

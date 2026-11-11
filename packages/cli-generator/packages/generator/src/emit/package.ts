@@ -1,7 +1,6 @@
-import platformNodeManifest from "@effect/platform-node/package.json" with { type: "json" }
-import { Data, Effect, FileSystem, Path, Schema } from "effect"
-import effectManifest from "effect/package.json" with { type: "json" }
-import typescriptManifest from "typescript/package.json" with { type: "json" }
+import { findPackageJSON } from "node:module"
+import { Effect, FileSystem, Record, Schema } from "effect"
+import type { Path } from "effect"
 import { printJson, printPackageJson } from "#emit/printer.ts"
 import type { AuthorConfig } from "#model/author-config.ts"
 import { JsonLiteral } from "#model/brands.ts"
@@ -15,25 +14,45 @@ export interface EmittedFile {
 /**
  * The package holds a value the printer refuses.
  */
-export class PackageEmitError extends Data.TaggedError("PackageEmitError")<{
-	readonly reason: "unprintable-package"
-}> {}
+export class PackageEmitError extends Schema.TaggedError<
+	PackageEmitError,
+	{ readonly brand: unique symbol }
+>()("PackageEmitError", { reason: Schema.Literal("unprintable-package") }) {}
+
+/**
+ * What a generated package pins, by field: the packages its runtime and its CLI import, and the packages it is checked
+ * with. Each is pinned to exactly the version the generator itself runs or checks with.
+ */
+const PINNED = {
+	dependencies: ["@effect/platform-node", "arkregex", "effect"],
+	devDependencies: ["@types/node", "typescript"]
+} as const
 
 const InstalledManifest = Schema.fromJsonString(Schema.Struct({ version: Schema.String }))
 
 /**
- * The installed `@types/node` version. TypeScript refuses an import of a `@types` package's
- * manifest, so it is read from the file the module resolution names.
+ * The version of an installed package, read from the manifest the module resolution finds for it from the generator's
+ * own module (`module.findPackageJSON`), which works for packages that do not export their manifest and for `@types`
+ * packages, which have no entry point. A package the generator cannot find is a defect of its own install.
  */
-const typesNodeVersion = Effect.gen(function* typesNode() {
-	const fs = yield* FileSystem.FileSystem
-	const path = yield* Path.Path
-	const manifest = yield* path.fromFileUrl(new URL(import.meta.resolve("@types/node/package.json")))
-	const text = yield* fs.readFileString(manifest)
-	const { version } = yield* Schema.decodeUnknownEffect(InstalledManifest)(text)
+const installedVersion = (name: string) =>
+	Effect.gen(function* () {
+		const fs = yield* FileSystem.FileSystem
+		const manifest = yield* Effect.sync(() => findPackageJSON(name, import.meta.url))
+		const located = yield* Effect.fromNullishOr(manifest)
+		const text = yield* fs.readFileString(located)
+		const { version } = yield* Schema.decodeEffect(InstalledManifest)(text)
+		return version
+	}).pipe(Effect.orDie)
 
-	return version
-}).pipe(Effect.orDie)
+/** Each listed package pinned to its installed version, by name. */
+const pinsOf = (names: ReadonlyArray<string>) =>
+	Effect.map(
+		Effect.forEach(names, (name) =>
+			Effect.map(installedVersion(name), (version) => [name, version] as const)
+		),
+		Record.fromEntries
+	)
 
 /**
  * The generated package's compiler options: strict, with the index and optional-property checks
@@ -64,7 +83,7 @@ const buildOptions = {
 	rootDir: "."
 }
 
-const unprintable = () => new PackageEmitError({ reason: "unprintable-package" })
+const unprintable = () => PackageEmitError.make({ reason: "unprintable-package" })
 
 /**
  * Emits `package.json`, `tsconfig.json` and `tsconfig.build.json` (design 4.2, 4.3; X12), sorted by
@@ -78,14 +97,8 @@ export const emitPackageFiles = (
 	Effect.gen(function* emit() {
 		const manifest = yield* decodeJson({
 			bin: { [config.binName]: "dist/src/bin.js" },
-			dependencies: {
-				"@effect/platform-node": platformNodeManifest.version,
-				effect: effectManifest.version
-			},
-			devDependencies: {
-				"@types/node": yield* typesNodeVersion,
-				typescript: typescriptManifest.version
-			},
+			dependencies: yield* pinsOf(PINNED.dependencies),
+			devDependencies: yield* pinsOf(PINNED.devDependencies),
 			engines: { node: generatorManifest.engines.node },
 			files: ["dist", "README.md"],
 			name: config.package.name,
@@ -94,6 +107,7 @@ export const emitPackageFiles = (
 				typecheck: "tsc --noEmit --checkers 1"
 			},
 			type: "module",
+			imports: { "#*.ts": { types: "./src/*.ts", default: "./dist/src/*.js" } },
 			version: config.package.version
 		}).pipe(Effect.mapError(unprintable))
 		const tsconfig = yield* decodeJson({

@@ -14,8 +14,8 @@ import {
 } from "effect"
 import { Flag, GlobalFlag, Prompt, TerminalCapabilities } from "effect/cli"
 import { Headers, HttpClientRequest, Url, UrlParams } from "effect/http"
-import { CredentialMissing, UsageError } from "../domain/errors.ts"
-import type { Provenance } from "./base-url.ts"
+import { CredentialMissing, UsageError } from "#domain/errors.ts"
+import type { Provenance } from "#runtime/base-url.ts"
 import {
 	StdinClaim,
 	decodeUtf8,
@@ -23,9 +23,9 @@ import {
 	readBounded,
 	stdinOrFile,
 	stripLineEnd
-} from "./input.ts"
-import { loneSurrogate, redactedPlaceholder } from "./redact.ts"
-import { cookieOctets, headerValueBreaks } from "./serialize.ts"
+} from "#runtime/input.ts"
+import { loneSurrogate, redactedPlaceholder } from "#runtime/redact.ts"
+import { cookieOctets, headerValueBreaks } from "#runtime/serialize.ts"
 
 /**
  * A scheme's security requirement list: alternatives in document order, each the scheme names that

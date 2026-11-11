@@ -1,10 +1,10 @@
 import { Effect, Option, Record as Rec, Schema } from "effect"
 import type { HttpClientError, HttpClientResponse } from "effect/http"
 import { Headers, UrlParams } from "effect/http"
-import { ApiResponseError, TransportError } from "../domain/errors.ts"
-import type { ScrubEntry } from "./redact.ts"
-import { scrubAround } from "./redact.ts"
-import { mediaEssence } from "./sequential.ts"
+import { ApiResponseError, TransportError } from "#domain/errors.ts"
+import type { ScrubEntry } from "#runtime/redact.ts"
+import { scrubAround } from "#runtime/redact.ts"
+import { mediaEssence } from "#runtime/sequential.ts"
 
 /**
  * What the matcher needs of one operation: its display name, its declared response keys (an

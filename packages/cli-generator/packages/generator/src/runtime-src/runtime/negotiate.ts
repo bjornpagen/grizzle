@@ -1,7 +1,7 @@
 import { Array as Arr, Effect, Option } from "effect"
 import { Flag } from "effect/cli"
-import { UsageError } from "../domain/errors.ts"
-import { isJsonFamily, mediaEssence as essence } from "./sequential.ts"
+import { UsageError } from "#domain/errors.ts"
+import { isJsonFamily, mediaEssence as essence } from "#runtime/sequential.ts"
 
 /**
  * An operation's declared media: request keys, and response keys per response key, in document

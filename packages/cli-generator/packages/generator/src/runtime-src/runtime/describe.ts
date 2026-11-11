@@ -1,8 +1,8 @@
 import { Array as Arr, Console, Context, Effect, Option, Order, Schema } from "effect"
 import type { Command } from "effect/cli"
 import { Flag, GlobalFlag } from "effect/cli"
-import { Servers } from "./base-url.ts"
-import type { MediaDeclaration } from "./negotiate.ts"
+import { Servers } from "#runtime/base-url.ts"
+import type { MediaDeclaration } from "#runtime/negotiate.ts"
 
 const Location = Schema.Literals(["body", "cookie", "header", "path", "query", "querystring"])
 

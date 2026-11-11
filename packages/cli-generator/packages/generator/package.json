@@ -11,6 +11,8 @@
 		"#test/*": "./test/*",
 		"#corpus/*": "./corpus/*",
 		"#scripts/*": "./scripts/*",
+		"#runtime/*": "./src/runtime-src/runtime/*",
+		"#domain/*": "./src/runtime-src/domain/*",
 		"#*": "./src/*"
 	},
 	"exports": {

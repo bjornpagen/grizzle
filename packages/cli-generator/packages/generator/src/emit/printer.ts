@@ -1254,6 +1254,7 @@ const packageKeys: readonly string[] = [
 	"bin",
 	"files",
 	"type",
+	"imports",
 	"exports",
 	"scripts",
 	"dependencies",

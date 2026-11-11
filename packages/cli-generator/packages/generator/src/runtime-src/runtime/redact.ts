@@ -1,7 +1,7 @@
 import { Array as Arr, Context, Layer, Order, Redacted, Ref } from "effect"
 import { Base64 } from "effect/encoding"
 import { UrlParams } from "effect/http"
-import type { Credential } from "./auth.ts"
+import type { Credential } from "#runtime/auth.ts"
 
 /**
  * A value read from a secret-file field flag (design 13.1 R4): scrubbed like a credential, but it
