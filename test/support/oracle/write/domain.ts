@@ -12,7 +12,6 @@ import type { ParamValue } from "#compiler/types/core/phantom.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { floatLiteralOf } from "#test/support/oracle/gen/domain.ts"
 import { toastLengths, toastPair, toastText } from "#test/support/oracle/gen/toast.ts"
-import { pickIndex } from "#test/support/pick.ts"
 
 /** The exact decimals, one kind per typmod. */
 export type NumericKind = "numeric(5, 2)" | "numeric(12, 4)" | "numeric(3, 0)"
@@ -41,11 +40,11 @@ export type SerialKind = "bigserial" | "serial"
  *   and numeric(3, 0), and double precision (payload columns only: NaN, -0 and infinity are values, never key parts
  *   here, so that the B-tree arbiter and the payload comparison meet them only as payload).
  *
- * ChangeSet inputs may spell a numeric value as any decimal that coerces to it at its column's typmod: a value that
- * rounds to it (coercedSpelling); another display scale is the same Decimal already. Fact identity is decided after that coercion, so valueIdentity
- * normalizes to the column's typmod before comparing, and an exact repeat or a put spelled differently is the stored
- * fact. The three typmods' values round onto each other's (1.4951 and 1.5000 are both 1.50 at scale 2, and 2 at scale
- * 0), so a described member that reads one typmod into another collapses distinct values into one after its cast.
+ * A ChangeSet input states a numeric value exactly at its column's typmod: one of more fractional digits is refused by
+ * the parse before any SQL (scalar/values/identity.ts parseValue), and another display scale is the same Decimal. The
+ * three typmods' values round onto each other's (1.4951 and 1.5000 are both 1.50 at scale 2, and 2 at scale 0), so a
+ * described member that reads one typmod into another collapses distinct values into one after PostgreSQL's cast,
+ * which valueIdentity models by normalizing to the column's typmod before comparing.
  */
 export type TypeKind =
 	| "int4"
@@ -248,64 +247,6 @@ export const typeInfo: Readonly<Record<TypeKind, TypeInfo>> = {
 		keyable: false,
 		parse: floatParse
 	}
-}
-
-/**
- * Per typmod, spellings that coerce to each stored value: other display scales, and values that round to it half away
- * from zero. An input holding one of them is the fact holding the canonical value, so an exact repeat or a put spelled
- * this way changes nothing (the canonical value comes first, so a spelling pick of 0 keeps it).
- */
-const spellingsOf = (
-	entries: ReadonlyArray<readonly [string, ReadonlyArray<string>]>
-): ReadonlyMap<string, ReadonlyArray<Decimal>> =>
-	new Map(Arr.map(entries, ([identity, spellings]) => [identity, Arr.map(spellings, decimal)]))
-
-const coercedSpellings: Readonly<Record<NumericKind, ReadonlyMap<string, ReadonlyArray<Decimal>>>> =
-	{
-		"numeric(5, 2)": spellingsOf([
-			["0", ["0", "0.000", "-0.004", "0.0049", "-0.00"]],
-			["1.5", ["1.5", "1.500", "1.495", "1.5049"]],
-			["-2.25", ["-2.250", "-2.245", "-2.2549", "-2.2451"]],
-			["10", ["10", "9.995", "10.004", "10.0000"]]
-		]),
-		"numeric(12, 4)": spellingsOf([
-			["0", ["0", "0.00000", "-0.00004"]],
-			["1.5", ["1.5", "1.50004", "1.49995"]],
-			["1.4951", ["1.49514", "1.495149", "1.49505"]],
-			["-2.2549", ["-2.25494", "-2.254851", "-2.25485"]]
-		]),
-		"numeric(3, 0)": spellingsOf([
-			["0", ["0.0", "-0.4", "0.49"]],
-			["2", ["2.0", "1.5", "2.4999"]],
-			["-2", ["-2.0", "-1.5", "-2.4"]],
-			["10", ["10.0", "9.5", "10.49"]]
-		])
-	}
-
-/**
- * A value of a column of `kind` as an input may spell it, chosen by a pick (test/support/pick.ts): the value itself,
- * or, for a numeric column, one of the spellings that coerce to it at the column's typmod (coercedSpellings), each as
- * likely. Every other kind has one spelling per value here. A pick shrinks toward the value itself.
- */
-export const coercedSpelling = <V>(kind: TypeKind, value: V, pick: number): V | Decimal => {
-	if (!isNumericKind(kind) || !(value instanceof Decimal)) {
-		return value
-	}
-	const spellings = coercedSpellings[kind].get(value.text) ?? []
-	const at = pickIndex(pick, spellings.length + 1)
-	return at === 0 ? value : (spellings[at - 1] ?? value)
-}
-
-/**
- * Whether a value of a column of `kind` is a numeric spelled other than as the column's typmod stores it: an input
- * that coercion changes.
- */
-export const isCoerced = (kind: TypeKind, value: unknown): boolean => {
-	if (!isNumericKind(kind) || !(value instanceof Decimal)) {
-		return false
-	}
-	const normalized = normalizeNumeric(value, numericTypmods[kind])
-	return normalized.ok && normalized.value.toString() !== value.toString()
 }
 
 /** Whether a value is text long enough to be stored out of line. */

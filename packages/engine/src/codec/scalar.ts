@@ -13,7 +13,7 @@ import type { PatternReads } from "#compiler/scalar/regex/patterns.ts"
 import type { AdmittedBytes } from "#compiler/scalar/values/bytes.ts"
 import {
 	admitted,
-	admitValue,
+	parseValue,
 	type CarrierHost,
 	type CarrierSpec,
 	canonicalText,
@@ -27,9 +27,9 @@ import {
  * on the descriptor. It has two parts, each writing a parameter text (core/wire.ts ParamText), which only the wire
  * sends and nothing in grizzle reads back; PostgreSQL's output texts are read by codec/read.ts alone:
  *
- * - `encode` admits a host value through the exact carrier's boundary (values/identity.ts admitValue: integer range,
- *   numeric precision and scale, binary32 rounding, -0 as +0, uuid case, span order and fixed width, vector
- *   dimensions, finite components and cosine domain) and writes the value's canonical text. That text is the
+ * - `encode` parses a host value exactly as its carrier's (values/identity.ts parseValue: integer range, numeric
+ *   precision and scale with no rounding, a real a binary32 value as it is, -0 as +0, uuid case, span order and fixed
+ *   width, vector dimensions, finite components and cosine domain) and writes the value's canonical text. That text is the
  *   parameter text (bound untyped and cast by the statement, $n::type), the element of an input's array (recordset.ts)
  *   and the fact identity's part. Every value is a quoted array element, so NaN and the infinities travel as text and
  *   reach the column's input function exactly.
@@ -142,7 +142,7 @@ const codecOf = <C extends Carrier>(
 		if (value === null || value === undefined) {
 			return Result.err("nullValue")
 		}
-		const admittedValue = admitValue(spec, value)
+		const admittedValue = parseValue(spec, value)
 		return !admittedValue.ok
 			? Result.err(admittedValue.error)
 			: Result.ok(parameterText(spec, admittedValue.value))
@@ -168,7 +168,7 @@ export const admittedCell = (spec: CarrierSpec, value: unknown): ParamText | Adm
  * grizzle's own.
  */
 export const textParam = (value: string): ParamText => {
-	const admittedText = admitValue({ carrier: "text" }, value)
+	const admittedText = parseValue({ carrier: "text" }, value)
 	if (!admittedText.ok) {
 		throw defect(`a text parameter grizzle writes, refused as ${admittedText.error}`)
 	}

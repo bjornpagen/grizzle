@@ -481,14 +481,13 @@ const carriedFields = (base: BaseSpec, w: Written): ReadonlySet<string> =>
 	)
 
 /**
- * The key refusal grizzle's host normalization makes of one target's additions, or of its deletions, in a stratum
+ * The key refusal grizzle's host normalization makes of one target's additions in a stratum
  * (packages/engine/src/runtime/write/normalize.ts), before any SQL is sent: two facts its inserts and puts submit,
  * inside the entry or not and whatever the claims fill, that agree on a key (or, of a span candidate key, collide; a
  * span primary key's overlapping pairs are its write statement's) and differ elsewhere break the key whatever is
- * stored; and two facts its deletes name, inside the entry or not, that agree on
- * every field of a key, a span compared as a value, and differ elsewhere name two facts where the key names one. The
- * first key of the target holding such a pair, the primary key first and then the declared keys in order, the
- * additions judged before the deletions, is invariant-rejected on its law, its witness the key of one of those facts in
+ * stored. Its deletes are judged at no key: of two deleted facts at one key at most one is stored, and the other's
+ * deletion changes nothing. The first key of the target holding such a pair, the primary key first and then the
+ * declared keys in order, is invariant-rejected on its law, its witness the key of one of those facts in
  * the terms it was written in, refused by the key's constraint on the target's table, as PostgreSQL's refusal of the
  * same write would name it (adapter/witness/keylaw.ts hostRefused), through a query entry as through a whole one. A
  * key is compared on the fields the relation it is written through carries
@@ -503,13 +502,12 @@ const keyConflictOf = (
 	target: string
 ): ActionOutcome | undefined => {
 	const base = state.install.base
-	const listed = (deletions: boolean) =>
-		Arr.flatMap(ops, ({ op, written }) =>
-			written.target === target && (op.kind === "delete") === deletions
-				? Arr.map(op.facts, (f) => ({ fact: targetTermsOf(written, f), w: written }))
-				: []
-		)
-	const submitted = Arr.dedupeWith(listed(false), (a, b) => sameValues(a.fact, b.fact))
+	const listed = Arr.flatMap(ops, ({ op, written }) =>
+		written.target === target && op.kind !== "delete"
+			? Arr.map(op.facts, (f) => ({ fact: targetTermsOf(written, f), w: written }))
+			: []
+	)
+	const submitted = Arr.dedupeWith(listed, (a, b) => sameValues(a.fact, b.fact))
 	const drawn = withSerials(
 		base,
 		target,
@@ -517,22 +515,17 @@ const keyConflictOf = (
 		nextDraw(state)
 	).facts
 	const additions = Arr.map(Arr.zip(submitted, drawn), ([x, fact]) => ({ fact, w: x.w }))
-	return (
-		conflictAmong(state, target, additions, "collide") ??
-		conflictAmong(state, target, listed(true), "equal")
-	)
+	return conflictAmong(state, target, additions)
 }
 
 /**
  * The refusal of the first key of `target` two of `facts` agree on and differ elsewhere (see `keyConflictOf`): a span
- * candidate key's agreement is a collision among additions; a span primary key's, and any span key's among deletions,
- * equal values.
+ * candidate key's agreement is a collision; a span primary key's, equal values.
  */
 const conflictAmong = (
 	state: ModelState,
 	target: string,
-	facts: ReadonlyArray<{ readonly fact: HostFact; readonly w: Written }>,
-	spans: "collide" | "equal"
+	facts: ReadonlyArray<{ readonly fact: HostFact; readonly w: Written }>
 ): ActionOutcome | undefined => {
 	const [first] = facts
 	if (first === undefined) {
@@ -547,7 +540,7 @@ const conflictAmong = (
 			continue
 		}
 		const agree = (a: HostFact, b: HostFact): boolean =>
-			law.kind === "spanKey" && spans === "collide" && position > 0
+			law.kind === "spanKey" && position > 0
 				? collide({ ...law, scalars: carriedOnly(law.scalars) }, a, b)
 				: projection(a, carriedOnly(key)) === projection(b, carriedOnly(key))
 		const paired = Arr.filter(facts, (x) =>
@@ -764,8 +757,8 @@ const onHost = (refusal: ActionOutcome): Called => ({ kind: "host", refusals: [r
  * - a relation outside the role's write list, a stratum that writes a query entry and also a relation its filter reads,
  *   and a read-back whose delta the change does not determine are refused when they compile;
  * - before any SQL, stratum by stratum, a value its field's encoder refuses (a base type's fault) is refused, and two
- *   facts the stratum's inserts and puts submit to one target, or two its deletes name, that agree on a key and differ
- *   elsewhere are `invariant-rejected` on that key's law (keyConflictOf); an input of any number of facts is admitted;
+ *   facts the stratum's inserts and puts submit to one target that agree on a key and differ elsewhere are
+ *   `invariant-rejected` on that key's law (keyConflictOf); an input of any number of facts is admitted;
  * - an op holding a value its law domain's CHECK refuses (an integer past its contract's bounds, a text past its
  *   pattern), which the encoder admits, is `invariant-rejected` on the field's law, its contract's or its own pattern
  *   law (fieldLaw), its witness a violating fact's key (domainWitness), as its stratum's statement casts the value:

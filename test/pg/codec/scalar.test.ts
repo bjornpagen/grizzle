@@ -13,8 +13,9 @@
  *   exactly the facts written, one row each.
  *
  * Oracle: a universal one, convert ∘ PostgreSQL ∘ encode = id, PostgreSQL's input and output functions between them.
- * The encoder's coercions are each held to PostgreSQL where its rounding is decided: numeric(p, s) in
- * test/pg/values/numeric.test.ts, the float8-to-real cast in test/pg/values/float.test.ts, pgvector's rounding in
+ * The encoder parses exactly, so every value drawn here is one its type holds as it is: a real a binary32 value, a
+ * numeric(7, 2) at most two fractional digits. Its refusal of every value PostgreSQL would round is held in
+ * test/pg/values/numeric.test.ts and test/pg/input/exactness.test.ts, pgvector's rounding in
  * test/pg/values/carriers.test.ts.
  *
  * Plants: codec-set-bit-order (setBit puts a set's position 0 at its digit's least significant bit), and
@@ -57,7 +58,7 @@ import { type Carrier, contractOf, type ScalarType } from "#compiler/ir/scalar.t
 import { anyNumeric, wildcardText } from "#compiler/scalar/compute/types.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
-import { admitValue, type CarrierHost, isHostValue } from "#compiler/scalar/values/identity.ts"
+import { parseValue, type CarrierHost, isHostValue } from "#compiler/scalar/values/identity.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { isVector, Vector } from "#compiler/scalar/values/vector.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
@@ -183,27 +184,26 @@ const span = <E extends number | bigint>(endpoint: Gen<E>) =>
 	)
 
 /**
- * A binary64 value strictly inside binary32's range, so the float8-to-real cast admits it: a sign, a significand in
- * [1, 2) of any binary64 bits, and an exponent from the least subnormal binary32's to one below the greatest's, which
- * keeps it above the underflow tie 2^-150 and below the overflow tie 2^128 - 2^103.
+ * A binary32 value of any exponent: a sign, a significand in [1, 2) of any binary64 bits and an exponent from the least
+ * subnormal binary32's to one below the greatest's, rounded to binary32, which keeps it nonzero and finite.
  */
 const insideReal: Gen<number> = (source) => {
 	const negative = source.draw(boolean)
 	const m = source.draw(double(1, 2 - 2 ** -52))
 	const e = source.draw(int(-149, 126))
-	return (negative ? -1 : 1) * m * 2 ** e
+	return Math.fround((negative ? -1 : 1) * m * 2 ** e)
 }
 
-/** Values the float8-to-real cast admits, by construction: binary32 values, binary64 values inside its range, edges. */
+/** Values a real holds exactly, by construction: binary32 values of every exponent, edges. */
 const realGen: Gen<number> = oneOf([
 	withNonFinite(insideReal),
 	withNonFinite(float(-realMax, realMax)),
-	element([-0, 1 + 2 ** -24, 2 ** -149, realMax, Number.NaN, Number.POSITIVE_INFINITY])
+	element([-0, 1 + 2 ** -23, 2 ** -149, realMax, Number.NaN, Number.POSITIVE_INFINITY])
 ])
 
 /**
- * A numeric(7,2) value, by construction: NaN, or a whole part below 10^5 - 1 in magnitude and up to four fraction
- * digits, so rounding to two places never reaches the typmod's 10^5.
+ * A numeric(7,2) value, by construction: NaN, or a whole part below 10^5 - 1 in magnitude and up to two fraction
+ * digits, each a value the typmod holds as it is.
  */
 const numeric72Gen: Gen<Decimal> = weighted([
 	[1, constant(Decimal.nan)],
@@ -211,7 +211,7 @@ const numeric72Gen: Gen<Decimal> = weighted([
 		12,
 		(source) => {
 			const whole = source.draw(int(-99_998, 99_998))
-			const fraction = source.draw(string(codePoint(0x30, 0x39), { min: 0, max: 4 }))
+			const fraction = source.draw(string(codePoint(0x30, 0x39), { min: 0, max: 2 }))
 			return Decimal.of(fraction.length === 0 ? `${whole}` : `${whole}.${fraction}`)
 		}
 	]
@@ -381,7 +381,7 @@ const sameHost = (a: unknown, b: unknown): boolean => {
  * is, never admitted.
  */
 const sameValue = (codec: ScalarCodec, sent: unknown, decoded: CarrierHost[Carrier]): boolean =>
-	sameHost(succeeded(admitValue(codec.spec, sent)), decoded)
+	sameHost(succeeded(parseValue(codec.spec, sent)), decoded)
 
 /**
  * PostgreSQL's output text of a value: admitted by the kernel's strict reader, and converted by the library to the value

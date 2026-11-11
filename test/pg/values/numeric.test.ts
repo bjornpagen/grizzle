@@ -8,7 +8,8 @@
  *   literals one digit past p nines at scale s among them, is what both of PostgreSQL's coercion paths make of it,
  *   numeric_in under the typmod and the numeric(numeric, typmod) cast: the same trimmed value, or 22003 where the host
  *   refuses it (normalizeNumeric's numericOverflow or numericInfinity); and the numeric(p, s) codec's encoder
- *   (codec/scalar.ts) writes that value, or refuses it.
+ *   (codec/scalar.ts), the exact parse, writes the literal's own value exactly where PostgreSQL stores it unchanged,
+ *   and refuses it wherever PostgreSQL would store another value or refuse it.
  * - Order: PostgreSQL's positions of a batch of numeric spellings, padded with trailing zeros and the special values
  *   among them, under ORDER BY ascending and descending (ties by position) are the host's under Decimal.compare;
  *   count(DISTINCT) and SELECT DISTINCT keep one value per host Decimal; and `<` and `=` over every value paired with
@@ -18,8 +19,8 @@
  *
  * Plants: values-numeric-parse-trailing-zeros (fromString drops a literal's trailing zeros without raising its
  * exponent), values-numeric-overflow-inclusive (normalizeNumeric admits a rounded magnitude of exactly 10^(p - s)),
- * codec-numeric-typmod-dropped (the numeric codec's carrier spec drops its typmod, so its encoder writes the value
- * unrounded),
+ * codec-numeric-typmod-dropped (the numeric codec's carrier spec drops its typmod, so its encoder admits a value its
+ * column rounds), codec-numeric-rounded (the encoder rounds to the scale where it must refuse),
  * values-numeric-nan-ties-infinity (compareDecimal ranks NaN with +Infinity).
  *
  * Features: "overflow by rounding", "negative scale" and "scale above precision", the coercions the typmod turns on.
@@ -122,8 +123,8 @@ const hostAnswer = (c: Case): string => {
 }
 
 /**
- * The numeric(p, s) codec's answer: the value its encoder writes for the literal, read back as its one text, or the
- * SQLSTATE PostgreSQL raises for a value the encoder refuses.
+ * The numeric(p, s) codec's answer: the value its encoder writes for the literal, read back as its one text, or
+ * "refused".
  */
 const codecAnswer = (c: Case): string => {
 	const codec = scalarCodec(
@@ -131,7 +132,16 @@ const codecAnswer = (c: Case): string => {
 		emptyCodebook
 	)
 	const encoded = codec.encode(succeeded(Decimal.fromString(c.v)))
-	return encoded.ok ? Decimal.fromOutput(encoded.value).toString() : "22003"
+	return encoded.ok ? Decimal.fromOutput(encoded.value).toString() : "refused"
+}
+
+/**
+ * Whether the codec parses exactly against PostgreSQL's coercion `host`: it writes the literal's own value only where
+ * PostgreSQL stores that value unchanged, and refuses wherever PostgreSQL stores another or refuses it.
+ */
+const parsesExactly = (c: Case, host: string, codec: string): boolean => {
+	const literal = succeeded(Decimal.fromString(c.v)).toString()
+	return codec === "refused" ? host !== literal : codec === literal && host === literal
 }
 
 const typmodSql = "((c.p << 16) | (c.s & 2047)) + 4"
@@ -176,7 +186,7 @@ layer(Substrate.layer)("numeric agreement with PostgreSQL", (it) => {
 	)
 
 	it.effect(
-		"normalizes literals to numeric(p, s) exactly as both PostgreSQL coercion paths do",
+		"normalizes literals to numeric(p, s) exactly as both PostgreSQL coercion paths do, and the codec parses exactly",
 		(ctx) =>
 			searched(
 				ctx,
@@ -223,7 +233,12 @@ layer(Substrate.layer)("numeric agreement with PostgreSQL", (it) => {
 									const host = hostAnswer(c)
 									const codec = codecAnswer(c)
 									const [ord, input, cast] = defined(rows[i], `no row for case ${i}`)
-									if (ord !== String(c.ord) || input !== host || cast !== host || codec !== host) {
+									if (
+										ord !== String(c.ord) ||
+										input !== host ||
+										cast !== host ||
+										!parsesExactly(c, host, codec)
+									) {
 										mismatches.push({ ...c, host, codec, input, cast })
 									}
 									const x = succeeded(Decimal.fromString(c.v))

@@ -2446,9 +2446,10 @@ ChangeSet.empty(Blog)               a write over a schema, or over a role: Chang
   from an array or a `Stream`, never from a query or through a query entry, since grizzle draws its family's values
   from its rows on the host. Its owner may be written through a query entry
   ([Writing through a role](#writing-through-a-role)).
-- **A relation's rows are a set.** Identical rows are one row. Two rows of one relation that share a key and differ
-  elsewhere are `invariant-rejected` on that key before any SQL is sent, or, at a key over a generated field, by the
-  statement that writes them. At the primary key, an array literal of up to 1,024 such rows with literal values is a
+- **A relation's rows are a set.** Identical rows are one row. Two rows one stratum adds to one relation that share a
+  key and differ elsewhere are `invariant-rejected` on that key before any SQL is sent, or, at a key over a generated
+  field, by the statement that writes them. Two rows it deletes at one key are no refusal: a deletion names its row
+  exactly, so at most one of them is stored, and deleting the other changes nothing. At the primary key, an array literal of up to 1,024 such rows with literal values is a
   type error. A row one stratum both adds and deletes stays; one it both inserts and puts is the put's. Laws are
   judged only once every row and parameter of the application encodes: a row or a parameter that does not, a missing
   parameter among them, is its `EncodingFailure`, whatever key the other rows share or generated field they leave

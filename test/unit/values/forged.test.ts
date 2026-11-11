@@ -34,7 +34,7 @@ import { carrierSpecOf } from "#compiler/codec/scalar.ts"
 import { isCompileError } from "#compiler/core/errors.ts"
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { isValueFault } from "#compiler/scalar/values/fault.ts"
-import { admitValue, canonicalText } from "#compiler/scalar/values/identity.ts"
+import { parseValue, canonicalText } from "#compiler/scalar/values/identity.ts"
 import { readArrayLiteral } from "#test/support/arrays.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { carriers, type Feature, forgedCases, pairOf, pairs } from "#test/support/forged.ts"
@@ -92,7 +92,7 @@ describe("a forged carrier instance", () => {
 									assert.notEqual(one.forgery, "honest", "an honest construction threw")
 									continue
 								}
-								const verdict = admitValue(spec, made.success)
+								const verdict = parseValue(spec, made.success)
 								if (!verdict.ok) {
 									c.note("refused at admission")
 									assert.ok(isValueFault(verdict.error), `refused with ${verdict.error}`)

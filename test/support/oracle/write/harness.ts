@@ -64,7 +64,6 @@ import {
 } from "#test/support/oracle/write/changeset.ts"
 
 import {
-	isCoerced,
 	isNumericKind,
 	isToastSized,
 	sameBase,
@@ -265,8 +264,6 @@ export type WriteOracleFeature =
 	| "flight logged"
 	| "outcome invariant-rejected"
 	| "generated accepted"
-	| "numeric coerced"
-	| "numeric coerced no-change"
 	| "toast-sized input"
 	| "toast-sized no-change"
 	| "toast-sized accepted"
@@ -1543,19 +1540,9 @@ export const runCase = (
 				note(metKind.value)
 			}
 		}
-		/**
-		 * An input spelling a numeric value that coercion changes, and such a case changing nothing; a TOAST-sized
-		 * payload among the inputs, and such a case changing nothing or accepted.
-		 */
+		/** A TOAST-sized payload among the inputs, and such a case changing nothing or accepted. */
 		const values = inputValues(group, c)
-		const coerced = Arr.some(values, (x) => isCoerced(x.kind, x.value))
 		const unchanged = expected.kind === "applied" && expected.outcome.kind === "no-change"
-		if (coerced) {
-			note("numeric coerced")
-		}
-		if (coerced && unchanged) {
-			note("numeric coerced no-change")
-		}
 		if (Arr.some(values, (x) => isToastSized(x.value))) {
 			note("toast-sized input")
 			if (unchanged) {

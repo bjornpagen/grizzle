@@ -1,15 +1,16 @@
 /**
  * A host value's admission and a fact's identity (scalar/values/identity.ts).
  *
- * - Admission: admitValue stores each carrier's value as its documented host type and range say, and refuses every
- *   other value, near misses and wild values of every kind, by its fault, never throwing; Uuid.parse admits exactly as
- *   the uuid carrier does. Oracle: each carrier's documentation as a judge of the value.
- * - Identity: a fact rewritten as PostgreSQL's coercion reads it alike (a uuid's case, digits below the amount's scale,
- *   a real's binary64, a span's keys or the fact's keys in another order) keeps its identity, and a fact changed past
- *   its coercion has another. Oracle: universal, a metamorphic relation.
+ * - Admission: parseValue stores each carrier's value as its documented host type and range say, exactly, and refuses
+ *   every other value, near misses and wild values of every kind, by its fault, never throwing: a numeric past its
+ *   typmod's scale and a double that is no binary32 value are refused, never rounded; Uuid.parse admits exactly as the
+ *   uuid carrier does. Oracle: each carrier's documentation as a judge of the value.
+ * - Identity: a fact rewritten as another spelling of its values (a uuid's case, a span's keys or the fact's keys in
+ *   another order) keeps its identity, and a fact changed has another. Oracle: universal, a metamorphic relation.
  * - Refusal: a fact that is not exactly its heading is refused as factShape, naming the field a misspelt key stands
- *   for; a value its field cannot hold, by its fault and field; a heading naming a field twice admits no fact. Oracle:
- *   the heading's shape and each carrier's faults as a checker.
+ *   for; a value its field cannot hold, by its fault and field, an amount past its scale and a real no binary32 value
+ *   holds among them; a heading naming a field twice admits no fact. Oracle: the heading's shape and each carrier's
+ *   faults as a checker.
  *
  * Features: each carrier stored and refused; each rewrite and each change; each malformation.
  *
@@ -46,11 +47,11 @@ import { rosterCodec } from "#compiler/ir/codes.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { isValueFault } from "#compiler/scalar/values/fault.ts"
 import {
-	admitValue,
 	type CarrierHost,
 	type CarrierSpec,
 	factIdentity,
-	type HeadingField
+	type HeadingField,
+	parseValue
 } from "#compiler/scalar/values/identity.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { Uuid } from "#compiler/scalar/values/uuid.ts"
@@ -119,6 +120,9 @@ const anyDouble: Gen<number> = weighted([
 	[1, element([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])]
 ])
 
+/** The probed numeric's typmod, numeric(6, 2): values past either bound are near. */
+const probeTypmod = { precision: 6, scale: 2 } as const
+
 const carriers: Arr.NonEmptyReadonlyArray<Carrier> = [
 	smallInteger("int2", 16),
 	smallInteger("int4", 32),
@@ -142,6 +146,42 @@ const carriers: Arr.NonEmptyReadonlyArray<Carrier> = [
 			typeof value !== "number"
 				? { fault: "floatType" }
 				: { stored: Object.is(value, -0) ? 0 : value }
+	},
+	{
+		spec: { carrier: "float4" },
+		live: oneOf<unknown>([anyDouble, map(anyDouble, (x) => Math.fround(x))]),
+		judge: (value) =>
+			typeof value !== "number"
+				? { fault: "floatType" }
+				: Number.isNaN(value) || Math.fround(value) === value
+					? { stored: Object.is(value, -0) ? 0 : value }
+					: { fault: "realInexact" }
+	},
+	{
+		spec: { carrier: "numeric", typmod: probeTypmod },
+		live: oneOf<unknown>([
+			(source) =>
+				Decimal.of(`${source.draw(bigint(-(10n ** 9n), 10n ** 9n))}e-${source.draw(int(0, 4))}`),
+			map(bigint(-(10n ** 6n), 10n ** 6n), (n) => Decimal.of(`${n}e-2`)),
+			element<unknown>([Decimal.nan, Decimal.infinity, Decimal.negativeInfinity, 1.5, "1.5"])
+		]),
+		judge: (value) => {
+			if (!(value instanceof Decimal)) {
+				return { fault: typeof value === "number" ? "decimalNumber" : "decimalType" }
+			}
+			if (value.isNaN()) {
+				return { stored: value }
+			}
+			if (value.isInfinite()) {
+				return { fault: "numericInfinity" }
+			}
+			const [whole, fraction = ""] = Str.split(".")(Str.replace("-", "")(value.text))
+			return fraction.length > probeTypmod.scale
+				? { fault: "numericScale" }
+				: BigInt(whole) >= 10n ** BigInt(probeTypmod.precision - probeTypmod.scale)
+					? { fault: "numericOverflow" }
+					: { stored: value }
+		}
 	},
 	{
 		spec: { carrier: "bool" },
@@ -346,7 +386,7 @@ const anyHostValue = lsw<unknown>({
 
 type AdmissionFeature = `${CarrierSpec["carrier"]} ${"stored" | "refused"}`
 
-describe("admitValue", () => {
+describe("parseValue", () => {
 	it.effect(
 		"stores every value of each carrier as its host type and range say, and refuses every other by its fault, never throwing; Uuid.parse admits exactly as the uuid carrier does",
 		(ctx) =>
@@ -399,7 +439,7 @@ describe("admitValue", () => {
 						Effect.sync(() => {
 							const value = passed(drawnValue)
 							const verdict = carrier.judge(value)
-							const result = admitValue(carrier.spec, value)
+							const result = parseValue(carrier.spec, value)
 							c.note(`${carrier.spec.carrier} ${result.ok ? "stored" : "refused"}`)
 							if (carrier.spec.carrier === "uuid") {
 								assert.deepEqual(
@@ -434,7 +474,7 @@ const factOf = (f: {
 }) => ({
 	id: f.id,
 	amount: Decimal.of(`${f.cents}e-2`),
-	ratio: f.ratio,
+	ratio: Math.fround(f.ratio),
 	during: { start: f.start, end: f.start + f.width }
 })
 
@@ -454,21 +494,13 @@ describe("factIdentity", () => {
 	)
 
 	/**
-	 * A fact rewritten as PostgreSQL's coercion reads it the same (a uuid's case, an amount's digits below its scale, a
-	 * real given as the binary64 it rounds from, a span's keys reordered, the fact's keys in another order) has the
-	 * fact's identity; one value changed past its coercion has another. The admitted fact is frozen.
+	 * A fact rewritten as another spelling of its values (a uuid's case, a span's keys reordered, the fact's keys in
+	 * another order) has the fact's identity; one value changed has another. The admitted fact is frozen.
 	 */
-	type FactRewrite =
-		| "uuid case"
-		| "digits below the scale"
-		| "a real's binary64"
-		| "span keys reordered"
-		| "fact keys reordered"
+	type FactRewrite = "uuid case" | "span keys reordered" | "fact keys reordered"
 	type FactChange = "another amount" | "another span" | "another real"
 	const factRewrites: Arr.NonEmptyReadonlyArray<FactRewrite> = [
 		"uuid case",
-		"digits below the scale",
-		"a real's binary64",
 		"span keys reordered",
 		"fact keys reordered"
 	]
@@ -505,81 +537,74 @@ describe("factIdentity", () => {
 		return out
 	}
 
-	it.effect(
-		"gives facts PostgreSQL's coercion reads alike one identity, and a changed fact another",
-		(ctx) =>
-			searched(
-				ctx,
-				explore(
-					{
-						oracle: {
-							kind: "universal",
-							name: "metamorphic: a rewrite PostgreSQL's coercion reads alike keeps the identity, a change past it moves it"
-						},
-						suite: "unit/values/fact-identity",
-						draw: drawn((source) => ({
-							fact: source.draw(factGen),
-							same: source.draw(boolean),
-							pick: source.draw(pickGen),
-							digit: source.draw(int(0, 4)),
-							order: source.draw(shuffled(keys, { min: keys.length, max: keys.length }))
-						})),
-						literal: Formatter.format,
-						coverage: required<`same: ${FactRewrite}` | `changed: ${FactChange}`>(
-							[
-								...Arr.map(factRewrites, (r) => `same: ${r}` as const),
-								...Arr.map(factChanges, (r) => `changed: ${r}` as const)
-							],
-							{ cases: 300, sense: notesOnly }
-						),
-						kept: [],
-						runs: 300,
-						shrink: completeShrink,
-						concurrency: 1,
-						steerEvery: 16,
-						caseHang
+	it.effect("gives two spellings of one fact one identity, and a changed fact another", (ctx) =>
+		searched(
+			ctx,
+			explore(
+				{
+					oracle: {
+						kind: "universal",
+						name: "metamorphic: a respelling of the fact's values keeps the identity, a change moves it"
 					},
-					({ fact: drawnFact, same, pick, digit, order }, c) =>
-						Effect.sync(() => {
-							const fact = factOf(drawnFact)
-							const admitted = succeeded(factIdentity(heading, fact))
-							assert.ok(Object.isFrozen(admitted.fact))
-							if (same) {
-								const rewrite = pickFrom(factRewrites, pick)
-								c.note(`same: ${rewrite}`)
-								const rewritten =
-									rewrite === "uuid case"
-										? { ...fact, id: Str.toUpperCase(fact.id) }
-										: rewrite === "digits below the scale"
-											? { ...fact, amount: Decimal.of(`${drawnFact.cents}${digit}e-3`) }
-											: rewrite === "a real's binary64"
-												? { ...fact, ratio: Math.fround(fact.ratio) }
-												: rewrite === "span keys reordered"
-													? { ...fact, during: { end: fact.during.end, start: fact.during.start } }
-													: reordered(fact, order)
-								assert.deepEqual(
-									succeeded(factIdentity(heading, rewritten)).identity,
-									admitted.identity,
-									rewrite
-								)
-							} else {
-								const change = pickFrom(factChanges, pick)
-								c.note(`changed: ${change}`)
-								const changedFact =
-									change === "another amount"
-										? { ...fact, amount: Decimal.of(`${drawnFact.cents + 1n}e-2`) }
-										: change === "another span"
-											? { ...fact, during: { start: fact.during.start, end: fact.during.end + 1n } }
-											: { ...fact, ratio: Math.fround(fact.ratio) === 0 ? 1 : -fact.ratio }
-								assert.notDeepEqual(
-									succeeded(factIdentity(heading, changedFact)).identity,
-									admitted.identity,
-									change
-								)
-							}
-						})
-				)
+					suite: "unit/values/fact-identity",
+					draw: drawn((source) => ({
+						fact: source.draw(factGen),
+						same: source.draw(boolean),
+						pick: source.draw(pickGen),
+						order: source.draw(shuffled(keys, { min: keys.length, max: keys.length }))
+					})),
+					literal: Formatter.format,
+					coverage: required<`same: ${FactRewrite}` | `changed: ${FactChange}`>(
+						[
+							...Arr.map(factRewrites, (r) => `same: ${r}` as const),
+							...Arr.map(factChanges, (r) => `changed: ${r}` as const)
+						],
+						{ cases: 300, sense: notesOnly }
+					),
+					kept: [],
+					runs: 300,
+					shrink: completeShrink,
+					concurrency: 1,
+					steerEvery: 16,
+					caseHang
+				},
+				({ fact: drawnFact, same, pick, order }, c) =>
+					Effect.sync(() => {
+						const fact = factOf(drawnFact)
+						const admitted = succeeded(factIdentity(heading, fact))
+						assert.ok(Object.isFrozen(admitted.fact))
+						if (same) {
+							const rewrite = pickFrom(factRewrites, pick)
+							c.note(`same: ${rewrite}`)
+							const rewritten =
+								rewrite === "uuid case"
+									? { ...fact, id: Str.toUpperCase(fact.id) }
+									: rewrite === "span keys reordered"
+										? { ...fact, during: { end: fact.during.end, start: fact.during.start } }
+										: reordered(fact, order)
+							assert.deepEqual(
+								succeeded(factIdentity(heading, rewritten)).identity,
+								admitted.identity,
+								rewrite
+							)
+						} else {
+							const change = pickFrom(factChanges, pick)
+							c.note(`changed: ${change}`)
+							const changedFact =
+								change === "another amount"
+									? { ...fact, amount: Decimal.of(`${drawnFact.cents + 1n}e-2`) }
+									: change === "another span"
+										? { ...fact, during: { start: fact.during.start, end: fact.during.end + 1n } }
+										: { ...fact, ratio: fact.ratio === 0 ? 1 : -fact.ratio }
+							assert.notDeepEqual(
+								succeeded(factIdentity(heading, changedFact)).identity,
+								admitted.identity,
+								change
+							)
+						}
+					})
 			)
+		)
 	)
 
 	/**
@@ -594,7 +619,9 @@ describe("factIdentity", () => {
 		| "an array"
 		| "null"
 		| "a real past the range"
+		| "a real no binary32 value holds"
 		| "an amount past the precision"
+		| "an amount past the scale"
 		| "a heading naming a field twice"
 	const malformations: Arr.NonEmptyReadonlyArray<Malformed> = [
 		"an extra key",
@@ -603,7 +630,9 @@ describe("factIdentity", () => {
 		"an array",
 		"null",
 		"a real past the range",
+		"a real no binary32 value holds",
 		"an amount past the precision",
+		"an amount past the scale",
 		"a heading naming a field twice"
 	]
 	it.effect(
@@ -622,7 +651,8 @@ describe("factIdentity", () => {
 							fact: source.draw(factGen),
 							malformed: source.draw(element(malformations)),
 							extra: source.draw(boolean),
-							digits: source.draw(int(0, 4))
+							digits: source.draw(int(0, 4)),
+							fraction: source.draw(int(1, 9))
 						})),
 						literal: Formatter.format,
 						coverage: required<Malformed>(malformations, { cases: 300, sense: notesOnly }),
@@ -633,7 +663,7 @@ describe("factIdentity", () => {
 						steerEvery: 16,
 						caseHang
 					},
-					({ fact: drawnFact, malformed, extra, digits }, c) =>
+					({ fact: drawnFact, malformed, extra, digits, fraction }, c) =>
 						Effect.sync(() => {
 							c.note(malformed)
 							const fact = factOf(drawnFact)
@@ -662,24 +692,43 @@ describe("factIdentity", () => {
 														? [
 																heading,
 																{ ...fact, ratio: binary32Max.value * 2 },
-																{ fault: "realOverflow", field: "ratio" }
+																{ fault: "realInexact", field: "ratio" }
 															]
-														: malformed === "an amount past the precision"
+														: malformed === "a real no binary32 value holds"
 															? [
 																	heading,
 																	{
 																		...fact,
-																		amount: Decimal.of(
-																			`1e${amountType.precision - amountType.scale + digits}`
-																		)
+																		ratio:
+																			fact.ratio === 0 ? 0.1 : fact.ratio * (1 + Number.EPSILON)
 																	},
-																	{ fault: "numericOverflow", field: "amount" }
+																	{ fault: "realInexact", field: "ratio" }
 																]
-															: [
-																	duplicated,
-																	extra ? { ...fact, extra: 1 } : fact,
-																	{ fault: "factShape", field: undefined }
-																]
+															: malformed === "an amount past the scale"
+																? [
+																		heading,
+																		{
+																			...fact,
+																			amount: Decimal.of(`${drawnFact.cents}${fraction}e-3`)
+																		},
+																		{ fault: "numericScale", field: "amount" }
+																	]
+																: malformed === "an amount past the precision"
+																	? [
+																			heading,
+																			{
+																				...fact,
+																				amount: Decimal.of(
+																					`1e${amountType.precision - amountType.scale + digits}`
+																				)
+																			},
+																			{ fault: "numericOverflow", field: "amount" }
+																		]
+																	: [
+																			duplicated,
+																			extra ? { ...fact, extra: 1 } : fact,
+																			{ fault: "factShape", field: undefined }
+																		]
 							assert.deepEqual(factIdentity(h, value), Result.err(refusal))
 						})
 				)

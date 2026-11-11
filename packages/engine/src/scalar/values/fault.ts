@@ -39,8 +39,10 @@ const valueFaults: { readonly [F in ValueFault]: string } = {
 		"an exact decimal literal: digits with an optional fraction and exponent, NaN, or Infinity",
 	decimalRange: `a numeric within PostgreSQL's format: below 10^${numericMaxIntegerDigits.value} with at most ${numericMaxFractionDigits.value} fractional digits`,
 	numericTypmod: `a numeric precision 1-${numericMaxPrecision.value} and scale ${numericMinScale.value}-${numericMaxScale.value}, both integers`,
+	numericScale:
+		"a numeric of at most its scale's fractional digits, a multiple of 10^-scale at a negative scale: a value its column would round is refused, never rounded",
 	numericOverflow:
-		"a numeric that rounds to fewer integer digits than its precision less its scale",
+		"a numeric of fewer integer digits than its precision less its scale, as its column stores it",
 	numericInfinity: "a finite numeric: a field with a precision cannot hold an infinite value",
 	moneyType: "a money amount as a bigint count of minor units",
 	moneyRange: "a money amount within the signed 64-bit minor-unit range",
@@ -49,6 +51,8 @@ const valueFaults: { readonly [F in ValueFault]: string } = {
 		"an integer host value: a JavaScript integer for smallint and integer, a bigint for bigint",
 	integerRange: "an integer within the PostgreSQL type's signed range",
 	floatType: "a JavaScript number",
+	realInexact:
+		"a real that is a binary32 value exactly: a double binary32 cannot hold is refused, never rounded to the nearest one",
 	realOverflow: "a real within binary32 range: the value overflows to infinity in single precision",
 	realUnderflow:
 		"a real within binary32 range: the nonzero value underflows to zero in single precision",

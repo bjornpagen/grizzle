@@ -26,7 +26,6 @@ import {
 } from "#test/support/oracle/addwins.ts"
 import { elementAt, recordEntryOf } from "#test/support/oracle/pick.ts"
 import {
-	coercedSpelling,
 	isNumericKind,
 	type NumericKind,
 	printValue,
@@ -229,11 +228,6 @@ interface FactPick {
 	readonly mode: number
 	readonly pick: number
 	readonly row: RowSketch
-	/**
-	 * How the fact spells each field's value: as it is, or a spelling that coerces to the same stored value
-	 * (domain.ts coercedSpelling), so a copy of a stored fact is still an exact repeat.
-	 */
-	readonly spell: ReadonlyArray<number>
 }
 
 interface MemberSketch {
@@ -247,13 +241,12 @@ interface MemberSketch {
 	readonly filter: { readonly on: boolean; readonly column: number; readonly value: number }
 	/**
 	 * Per target field: 0-3 a variable (preferring the same field), 4 a parameter; the variable's or the parameter's
-	 * pick, and the parameter's spelling. On the first serial field of an insert's head in the last stratum, 2-4 leave
+	 * pick. On the first serial field of an insert's head in the last stratum, 2-4 leave
 	 * every serial field out: a generated addition.
 	 */
 	readonly head: ReadonlyArray<{
 		readonly term: number
 		readonly value: number
-		readonly spell: number
 	}>
 }
 
@@ -394,7 +387,7 @@ export interface ChangeSetSketch {
 
 /**
  * The features a ChangeSet's swarm turns on, off or thins: each kind of member source beyond an enumerated array, more
- * than one stratum, read-backs, the MERGE near misses of the reread pair, coerced spellings, a projection's parameter
+ * than one stratum, read-backs, the MERGE near misses of the reread pair, a projection's parameter
  * spelling a text longer than its field's domain admits, Stream members and parameters, ChangeSet.bind, db.compile,
  * and unit additions: into a relation whose every field is an identity, a described generated addition of no field,
  * whose query holds several rows, beside the enumerated `[{}]` in the same stratum, one new fact in all.
@@ -406,7 +399,6 @@ const writeFeatures = [
 	"nearMisses",
 	"strata",
 	"reads",
-	"coercion",
 	"outsideDomain",
 	"streams",
 	"bind",
@@ -415,19 +407,15 @@ const writeFeatures = [
 ] as const
 type WriteFeature = (typeof writeFeatures)[number]
 
-const fourPicks = array(pickGen, { min: 4, max: 4 })
-
 const factPickGen: Gen<FactPick> = (source) => ({
 	mode: source.draw(int(0, 7)),
 	pick: source.draw(pickGen),
-	row: source.draw(rowSketchGen),
-	spell: source.draw(fourPicks)
+	row: source.draw(rowSketchGen)
 })
 
 const headTermGen: Gen<MemberSketch["head"][number]> = (source) => ({
 	term: source.draw(int(0, 4)),
-	value: source.draw(pickGen),
-	spell: source.draw(pickGen)
+	value: source.draw(pickGen)
 })
 
 const memberSketchGen: Gen<MemberSketch> = (source) => ({
@@ -1030,21 +1018,8 @@ export const resolveChangeSet =
 			weightOf(swarm, "strata") > 0 ? sketch.strata : [Arr.headNonEmpty(sketch.strata)]
 		/** Generated additions are drawn in the last stratum only (see the header). */
 		const last = drawn.length - 1
-		/** A fact as the picks spell it: each numeric value canonical or coerced to the same stored value. */
-		const spelled = (relation: WRelation, fact: Fact, spell: ReadonlyArray<number>): Fact => {
-			if (!kept("coercion")) {
-				return fact
-			}
-			const out: Record<string, unknown> = { ...fact }
-			for (const [i, c] of relation.columns.entries()) {
-				if (Rec.has(out, c.name)) {
-					out[c.name] = coercedSpelling(c.kind, out[c.name], spell[i] ?? 0)
-				}
-			}
-			return out
-		}
 		const factOf = (relation: WRelation, p: FactPick, generated: boolean): Fact =>
-			spelled(relation, drawnFact(relation, p, generated), p.spell)
+			drawnFact(relation, p, generated)
 		/** Half the picks copy an earlier generated addition, which equals it: one requested addition. */
 		const drawnFact = (relation: WRelation, p: FactPick, generated: boolean): Fact => {
 			const fresh = resolveRow(relation, p.row)
@@ -1246,11 +1221,7 @@ export const resolveChangeSet =
 				} else {
 					head[c.name] = {
 						kind: "param",
-						param: scalar(
-							kept("coercion")
-								? coercedSpelling(c.kind, at(typeInfo[c.kind].values, h.value), h.spell)
-								: at(typeInfo[c.kind].values, h.value)
-						)
+						param: scalar(at(typeInfo[c.kind].values, h.value))
 					}
 				}
 			}

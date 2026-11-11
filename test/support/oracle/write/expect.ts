@@ -188,38 +188,34 @@ const keyFields = (
 }
 
 /**
- * Same-key pairs among the enumerated facts of each stratum, which host normalization refuses before any SQL, once
- * every parameter the bind reads is inside its field (unboundParams), with the key's law and a violating key: among its
- * additions, a generated one on the keys holding no serial field, and among its deletions, each a set of the relation's
- * facts that a key names one of. At a key holding no serial field, a generated addition and a complete one that agrees
+ * Same-key pairs among the enumerated additions of each stratum, which host normalization refuses before any SQL, once
+ * every parameter the bind reads is inside its field (unboundParams), with the key's law and a violating key, a
+ * generated addition on the keys holding no serial field. Deletions are judged at no key: of two deleted facts at one
+ * key at most one is stored, and the other's deletion changes nothing. At a key holding no serial field, a generated addition and a complete one that agrees
  * with it at every field it states are one fact (README: a row that leaves its serial fields out is the fact its other
  * fields state, and one a stratum both inserts and puts is the put's), as the insert's statement, after the complete
  * one's, meets that row at its arbiter and changes nothing. Each law once, its violations every stratum's.
  */
 const hostRefusals = (ctx: ExpectContext, c: WChangeSet): AcceptableRefusals => {
-	const clashes = Arr.flatMap([false, true], (deletions) =>
-		Arr.flatMap(c.strata, (stratum) =>
-			Arr.flatMap(ctx.group.relations, (relation) => {
-				const listed = Arr.flatMap(stratum, (m) =>
-					m.relation === relation.name &&
-					(m.op === "delete") === deletions &&
-					m.source.kind === "array"
-						? m.source.facts
-						: []
+	const clashes = Arr.flatMap(c.strata, (stratum) =>
+		Arr.flatMap(ctx.group.relations, (relation) => {
+			const listed = Arr.flatMap(stratum, (m) =>
+				m.relation === relation.name && m.op !== "delete" && m.source.kind === "array"
+					? m.source.facts
+					: []
+			)
+			const serial = new Set(Arr.map(serialColumns(relation), (col) => col.name))
+			return Arr.flatMap(keysOf(relation), (key) =>
+				sameKeyViolations(
+					ctx,
+					relation,
+					key,
+					Arr.some(key.fields, (f) => serial.has(f))
+						? Arr.filter(listed, (f) => !isGenerated(relation, f))
+						: listed
 				)
-				const serial = new Set(Arr.map(serialColumns(relation), (col) => col.name))
-				return Arr.flatMap(keysOf(relation), (key) =>
-					sameKeyViolations(
-						ctx,
-						relation,
-						key,
-						!deletions && Arr.some(key.fields, (f) => serial.has(f))
-							? Arr.filter(listed, (f) => !isGenerated(relation, f))
-							: listed
-					)
-				)
-			})
-		)
+			)
+		})
 	)
 	const byLaw = new Map<LawId, Violations>()
 	for (const [law, violations] of clashes) {
@@ -518,8 +514,8 @@ const collisionsOf = (
  *
  * Before any of these, the bind: a parameter passed outside the field it is declared at refuses the whole ChangeSet
  * with EncodingFailure refinedValue before any SQL (unboundParams), whatever the facts hold; then host normalization
- * refuses a same-key pair among the enumerated additions or the enumerated deletions of any stratum, with that key's
- * law and a violating key (hostRefusals). A stratum that adds a fact holding a stored value its field's domain refuses, a described member
+ * refuses a same-key pair among the enumerated additions of any stratum, with that key's law and a violating key
+ * (hostRefusals). A stratum that adds a fact holding a stored value its field's domain refuses, a described member
  * reading a wider text into a narrower field, is refused there by the domain, naming the laws of the columns it types
  * in the tables its statement writes (DomainRefusal), or meets a law of the stratum first. A refused change leaves the
  * initial state.

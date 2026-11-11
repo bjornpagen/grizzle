@@ -266,9 +266,8 @@ const mintNormal = nominal<Pick<NormalFacts, "facts" | "entries">, NormalFacts>(
  * fact in the same order, or, for an input of no column, as its count of facts (sql/ast.ts ArraysSource); every member,
  * a Stream included, travels this way. The host codec owns the set property and the null ban for these forms:
  *
- * - it validates every field's representation through the exact carrier boundary, which also applies PostgreSQL's
- *   native coercion, because coercion happens before fact identity is established: numeric(5,2) inputs
- *   1.231 and 1.232 are one fact;
+ * - it parses every field exactly through its carrier (values/identity.ts parseValue), which refuses a value its
+ *   column would store as another, numeric(5,2)'s 1.231 among them, so fact identity is the stored value's;
  * - it refuses any null member and any null field (nullValue);
  * - it deduplicates complete facts by fact identity (values/identity.ts factIdentity: numeric 1.0 = 1.00, NaN = NaN,
  *   -0 = +0, uuid case), so the input is a set without a DISTINCT;

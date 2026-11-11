@@ -222,8 +222,7 @@ export const entryFacts = (entry: CheckedEntry, target: HostChecks): SlotFacts =
 			keys: target.keys.map((k) => ({
 				law: k.law,
 				described: k.described,
-				fields: mapped(k.fields),
-				stated: k.stated
+				fields: mapped(k.fields)
 			})),
 			spans: target.spans.flatMap((check) => {
 				const span = headOf.get(check.span.field)

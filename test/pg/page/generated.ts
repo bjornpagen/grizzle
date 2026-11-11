@@ -60,7 +60,7 @@ import { mergeHeadingGroups } from "#compiler/runtime/lower/union.ts"
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { hasCapability } from "#compiler/scalar/registry.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
-import { admitValue } from "#compiler/scalar/values/identity.ts"
+import { storedValue } from "#compiler/scalar/values/identity.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import type { Page } from "#compiler/types/page/page.ts"
 import { assert, refusalLoc } from "#test/support/assert.ts"
@@ -580,7 +580,7 @@ const callerInput = (
 		return of(value.success)
 	}
 	const decimal = codec.spec.carrier === "numeric" ? Decimal.fromString(text) : undefined
-	const admitted = decimal?.ok === true ? admitValue(codec.spec, decimal.value) : undefined
+	const admitted = decimal?.ok === true ? storedValue(codec.spec, decimal.value) : undefined
 	if (admitted?.ok === true) {
 		return of(admitted.value)
 	}

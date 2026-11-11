@@ -87,7 +87,7 @@ import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { digestOf } from "#compiler/scalar/values/bytes.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { isValueFault } from "#compiler/scalar/values/fault.ts"
-import { admitValue, factIdentity } from "#compiler/scalar/values/identity.ts"
+import { parseValue, factIdentity } from "#compiler/scalar/values/identity.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { assert, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -720,7 +720,7 @@ describe("the tuple converter", () => {
 							}
 							const cells = Arr.map(columns, (column, i): RowCell => {
 								if (column.type.carrier === "bytes") {
-									const admitted = admitValue({ carrier: "bytes" }, values[i])
+									const admitted = parseValue({ carrier: "bytes" }, values[i])
 									assert.ok(admitted.ok, `${column.label}: a Live value was refused`)
 									return { kind: "bytes", digest: admitted.value.digest }
 								}

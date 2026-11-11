@@ -531,7 +531,8 @@ export const checkNumericTypmod = (
  * The value a numeric(p, s) column stores for `d`, as apply_typmod and apply_typmod_special compute it, in its one
  * form: NaN unchanged; infinity refused (numericInfinity); otherwise rounded half away from zero to scale s, and
  * refused when the rounded magnitude is at least 10^(p - s) (numericOverflow, SQLSTATE 22003 in PostgreSQL). Without a
- * typmod, a computed numeric's, the value is numeric's own, which every Decimal already is.
+ * typmod, a computed numeric's, the value is numeric's own, which every Decimal already is. This is PostgreSQL's
+ * coercion of a value it computes or a literal it casts; a caller's value is parsed exactly instead (parseNumeric).
  */
 export const normalizeNumeric = (
 	d: Decimal,
@@ -552,4 +553,47 @@ export const normalizeNumeric = (
 	return scale >= 0
 		? Decimal.fromParts(units < 0n, magnitude, scale)
 		: Decimal.fromParts(units < 0n, magnitude * pow10(-scale), 0)
+}
+
+/**
+ * The count of 10^-scale units `d` is exactly, or undefined where it is no whole count: a value with more fractional
+ * digits than a nonnegative scale, or, at a negative scale, one that is no multiple of 10^-scale.
+ */
+const exactUnits = (d: FiniteDecimal, scale: number): bigint | undefined => {
+	const { negative, coefficient, minScale } = d.parts
+	if (scale >= minScale) {
+		const magnitude = coefficient * pow10(scale - minScale)
+		return negative ? -magnitude : magnitude
+	}
+	const divisor = pow10(minScale - scale)
+	if (coefficient % divisor !== 0n) {
+		return undefined
+	}
+	const magnitude = coefficient / divisor
+	return negative ? -magnitude : magnitude
+}
+
+/**
+ * A caller's numeric parsed exactly at its typmod: the value itself, already in its one form, where a numeric(p, s)
+ * holds it unchanged; never rounded. NaN passes; infinity is refused (numericInfinity), a value of more fractional digits
+ * than s, or at a negative s no multiple of 10^-s, is refused (numericScale) where PostgreSQL's coercion would round it
+ * (normalizeNumeric), and one of 10^(p - s) or more in magnitude is refused (numericOverflow). Without a typmod every
+ * Decimal is numeric's own value.
+ */
+export const parseNumeric = (
+	d: Decimal,
+	typmod: NumericTypmod | undefined
+): Result.Result<Decimal, ValueFault> => {
+	if (typmod === undefined) {
+		return Result.ok(d)
+	}
+	if (!d.isFinite()) {
+		return d.isNaN() ? Result.ok(d) : Result.err("numericInfinity")
+	}
+	const units = exactUnits(d, typmod.scale)
+	if (units === undefined) {
+		return Result.err("numericScale")
+	}
+	const magnitude = units < 0n ? -units : units
+	return magnitude >= pow10(typmod.precision) ? Result.err("numericOverflow") : Result.ok(d)
 }

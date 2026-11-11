@@ -59,19 +59,19 @@ import { codesOf, compiled, cs, parsedOf } from "#test/unit/write/changeset/fixt
  *
  * Host normalization of enumerated members, arrays and Streams alike, over one to three strata, checked against the
  * brute-force add-wins calculator: a refusal before SQL is a ChangeSet the add-wins meaning rejects, by a key law some
- * stratum's own facts violate whatever the state, or a stratum that deletes two facts at one value of a key, which
- * (S minus D) union A never shows, by that key's law; and a normalized ChangeSet means exactly what the one it came from
- * means. A fact no relation admits (a NULL, a field its relation lacks, a deletion without its serial field, an
+ * stratum's own additions violate whatever the state; a stratum that deletes two facts at one value of a key is no
+ * refusal, since (S minus D) union A is lawful whichever of them is stored; and a normalized ChangeSet means exactly
+ * what the one it came from means. A fact no relation admits (a NULL, a field its relation lacks, a deletion without its serial field, an
  * addition with some serial fields and not all) is a planted fault, refused by its own fault before anything else.
  *
  * Oracles: the brute-force add-wins calculator (oracle/addwins.ts, a second implementation) and the fact shape each
  * relation admits (a specification). The initial state is lawful by construction, its k and c each drawn once.
  *
- * Features: two and three strata, a Stream member, a refusal by a key, by a key two deletions share and by a key two
- * generated additions share, a later stratum restating an earlier one's key; each planted fault.
+ * Features: two and three strata, a Stream member, a refusal by a key and by a key two generated additions share, two
+ * deletions at one key normalized, a later stratum restating an earlier one's key; each planted fault.
  *
- * Plants (~/.cache/grizzle-release/BR02/plants): normalize-deletions-unnetted, normalize-deletions-unkeyed,
- * normalize-extra-field-admitted.
+ * Plants (~/.cache/grizzle-release/BR02/plants): normalize-deletions-unnetted, normalize-extra-field-admitted,
+ * normalize-deletions-keyed (two deletions at one key refused by that key).
  */
 const Pair = relation("Pair", { k: pg.integer, v: pg.integer, c: pg.integer }, ["k"])
 const Gen = relation("Gen", { id: pg.bigserial, k: pg.integer, w: pg.integer }, ["id"])
@@ -411,7 +411,7 @@ type NormalizeFeature =
 	| "three strata"
 	| "a Stream member"
 	| "refused by a key"
-	| "refused by a key two deletions share"
+	| "two deletions at one key, normalized"
 	| "refused by a key two generated additions share"
 	| "a later stratum restates an earlier stratum's key"
 
@@ -480,12 +480,7 @@ const normalizes = (
 		const expected = applyAddWins(oracleSchema, state, oracleOf(strata), { kind: "sequences" })
 		const { frontend, result } = yield* normalizedOf(changeSetOf(strata))
 		const normalization = succeeded(result, "a ChangeSet of admitted facts normalizes")
-		const deleted = deletedAtOneKey(strata)
 		if (normalization.kind === "keyConflict") {
-			if (Arr.contains(deleted, normalization.law)) {
-				c.note("refused by a key two deletions share")
-				return
-			}
 			c.note("refused by a key")
 			if (normalization.law === lawIdOf(Small, genK) && generatedAtOneK(strata)) {
 				c.note("refused by a key two generated additions share")
@@ -505,11 +500,9 @@ const normalizes = (
 			return
 		}
 		assertVariant(normalization, "kind", "normalized", "Small has no generated field to refuse")
-		assert.deepEqual(
-			deleted,
-			[],
-			"a stratum that deletes two facts at one key is refused by that key"
-		)
+		if (deletedAtOneKey(strata).length > 0) {
+			c.note("two deletions at one key, normalized")
+		}
 		assert.equal(
 			generatedAtOneK(strata),
 			false,
@@ -593,7 +586,7 @@ describe("normalization against the add-wins meaning", () => {
 								"three strata",
 								"a Stream member",
 								"refused by a key",
-								"refused by a key two deletions share",
+								"two deletions at one key, normalized",
 								"refused by a key two generated additions share",
 								"a later stratum restates an earlier stratum's key"
 							],

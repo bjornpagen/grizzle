@@ -98,8 +98,7 @@ const resolveRun =
 
 /**
  * The features every write suite's population must reach: each member kind under every op, one to three strata, each
- * read-back source, every put target, refusals by every kind of law, each schema shape, the value spellings that test
- * identity after coercion, TOAST-sized payloads, numeric casts between typmods, generated additions that collide with
+ * read-back source, every put target, refusals by every kind of law, each schema shape, TOAST-sized payloads, numeric casts between typmods, generated additions that collide with
  * stored serial values, a run that reads back, on one Db, relations sharing field names with other types, references
  * into candidate keys, Stream members, bound parameters, db.compile, a described member reading a wider text
  * into a narrower field (a deletion among them) refused by the domain, a put on an immutable relation, a generated
@@ -148,8 +147,6 @@ export const writeSituations = [
 	"deferred containment",
 	"immediate containment",
 	"projected key",
-	"numeric coerced",
-	"numeric coerced no-change",
 	"numeric cast between typmods",
 	"toast-sized input",
 	"toast-sized no-change",
@@ -344,8 +341,6 @@ const keptRuns: ReadonlyArray<
 			"a fact respelled on a second reading",
 			"put target deleteThenInsert",
 			"outcome no-change",
-			"numeric coerced",
-			"numeric coerced no-change",
 			"delete array",
 			"parameters passed",
 			"through apply",

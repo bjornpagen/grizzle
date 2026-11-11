@@ -16,8 +16,19 @@ import {
 	compareBytes,
 	isAdmittedBytes
 } from "#compiler/scalar/values/bytes.ts"
-import { Decimal, type NumericTypmod, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
-import { compareFloat, floatText, toDouble, toReal } from "#compiler/scalar/values/float.ts"
+import {
+	Decimal,
+	type NumericTypmod,
+	normalizeNumeric,
+	parseNumeric
+} from "#compiler/scalar/values/decimal.ts"
+import {
+	compareFloat,
+	floatText,
+	parseReal,
+	toDouble,
+	toReal
+} from "#compiler/scalar/values/float.ts"
 import { toInt2, toInt4, toInt8 } from "#compiler/scalar/values/integer.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { admitSpan, compareSpan, type Span, spanText } from "#compiler/scalar/values/span.ts"
@@ -117,18 +128,20 @@ type Comparators = {
 }
 
 /**
- * A numeric value admitted at its typmod, rounded as PostgreSQL's coercion rounds. Without one it is a computed
- * numeric's, a cursor's boundary value of an aggregate column the only one a caller passes: every Decimal is within
- * numeric's limits, and the computed bound (ir/scalar.ts NumericBound) is a proof of the values the database computes,
- * which a boundary value only meets in a comparison.
+ * A numeric value at its typmod by `atTypmod`: parsed exactly (decimal.ts parseNumeric) or coerced as PostgreSQL
+ * coerces a value it computes (normalizeNumeric). Without a typmod it is a computed numeric's, a cursor's boundary
+ * value of an aggregate column the only one a caller passes: every Decimal is within numeric's limits, and the computed
+ * bound (ir/scalar.ts NumericBound) is a proof of the values the database computes, which a boundary value only meets
+ * in a comparison.
  */
-const admitDecimal = (
-	value: unknown,
-	typmod: NumericTypmod | undefined
-): Result.Result<Decimal, ValueFault> =>
-	value instanceof Decimal
-		? normalizeNumeric(value, typmod)
-		: Result.err(typeof value === "number" ? "decimalNumber" : "decimalType")
+const decimalAt =
+	(
+		atTypmod: (d: Decimal, typmod: NumericTypmod | undefined) => Result.Result<Decimal, ValueFault>
+	) =>
+	(value: unknown, typmod: NumericTypmod | undefined): Result.Result<Decimal, ValueFault> =>
+		value instanceof Decimal
+			? atTypmod(value, typmod)
+			: Result.err(typeof value === "number" ? "decimalNumber" : "decimalType")
 
 /**
  * The encode-time boundary of a vector, read once from the caller's buffer as it is now into a copy grizzle alone holds:
@@ -189,11 +202,16 @@ const admitMoney = (value: unknown): Result.Result<Money, ValueFault> => {
 		: Result.err("moneyRange")
 }
 
-const admitters: Admitters = {
+/**
+ * PostgreSQL's assignment coercion of a value grizzle computes on the host for a column, as a fill's fold step or a
+ * greatest value: a numeric rounded to its typmod's scale, a double rounded to binary32, as PostgreSQL stores a value it
+ * computes. No caller's value goes through it: a caller's is parsed (parsers).
+ */
+const coercions: Admitters = {
 	int2: (value) => toInt2(value),
 	int4: (value) => toInt4(value),
 	int8: (value) => toInt8(value),
-	numeric: (value, spec) => admitDecimal(value, spec.typmod),
+	numeric: (value, spec) => decimalAt(normalizeNumeric)(value, spec.typmod),
 	float4: (value) => toReal(value),
 	float8: (value) => toDouble(value),
 	money: (value) => admitMoney(value),
@@ -211,6 +229,18 @@ const admitters: Admitters = {
 	exactInteger: (value) =>
 		typeof value === "bigint" ? Result.ok(value) : Result.err("integerType"),
 	exactMoney: (value) => (value instanceof Money ? Result.ok(value) : Result.err("moneyType"))
+}
+
+/**
+ * The exact parse of a caller's value, every carrier's: the value of the declared type it is, unchanged, or the fault
+ * that no such value exists. It never rounds: a numeric of more fractional digits than its typmod's scale and a double
+ * that is no binary32 value are refused, where PostgreSQL would store another value than the one sent. Every other
+ * carrier's parse is its coercion, which alters no value: its one form only, -0 as +0, a uuid in lowercase.
+ */
+const parsers: Admitters = {
+	...coercions,
+	numeric: (value, spec) => decimalAt(parseNumeric)(value, spec.typmod),
+	float4: (value) => parseReal(value)
 }
 
 /**
@@ -241,16 +271,36 @@ export const unreadableOf: { readonly [C in Carrier]: () => ValueFault } = {
 	exactMoney: () => "moneyType"
 }
 
-/** The stored value PostgreSQL holds for a host value of this carrier, or the boundary's refusal. */
-export const admitValue = <C extends Carrier>(
+/** One carrier's entry of an admitter table, read through the spec's own carrier, its value read once (hostRead). */
+const admitBy = <C extends Carrier>(
+	table: Admitters,
 	spec: SpecOf<C> & CarrierSpec,
 	value: unknown
 ): Result.Result<CarrierHost[C], ValueFault> => {
 	const own: SpecOf<C> = spec
 	const admit: (value: unknown, spec: SpecOf<C>) => Result.Result<CarrierHost[C], ValueFault> =
-		admitters[own.carrier]
+		table[own.carrier]
 	return hostRead(unreadableOf[own.carrier], () => admit(value, own))
 }
+
+/**
+ * The input boundary, one door for every caller's value, a parameter's, a fact's, a cursor's boundary value's: the
+ * exact parse of the value as its carrier's host value (parsers), or the fault that the declared type holds no such
+ * value. PostgreSQL then enforces every law over it.
+ */
+export const parseValue = <C extends Carrier>(
+	spec: SpecOf<C> & CarrierSpec,
+	value: unknown
+): Result.Result<CarrierHost[C], ValueFault> => admitBy(parsers, spec, value)
+
+/**
+ * The value PostgreSQL stores for a value grizzle computes on the host for a column of this carrier (coercions), or
+ * the refusal PostgreSQL would raise storing it.
+ */
+export const storedValue = <C extends Carrier>(
+	spec: SpecOf<C> & CarrierSpec,
+	value: unknown
+): Result.Result<CarrierHost[C], ValueFault> => admitBy(coercions, spec, value)
 
 const isNumber = (value: unknown): value is number => typeof value === "number"
 const isBigint = (value: unknown): value is bigint => typeof value === "bigint"
@@ -329,10 +379,10 @@ const canonicalTexts: CanonicalTexts = {
  * One logical value must compare the same in codecs, PostgreSQL equality, DISTINCT, keys, grouping and the test
  * oracle. This module is that host side, per scalar carrier:
  *
- * - `admitValue` is the boundary: it checks a host value against its carrier strictly and applies the native coercion
- *   PostgreSQL applies on the way in (numeric precision and scale, binary32 rounding of real, -0 as +0, uuid case),
- *   because coercion happens before fact identity is established: two inputs that coerce to one stored
- *   value are one admitted value.
+ * - `parseValue` is the boundary: the exact parse of a host value as its carrier's, which refuses a value its column
+ *   would store as another (a numeric past its scale, a double no binary32 value holds) and alters none: two spellings
+ *   of one value are one admitted value (-0 as +0, uuid case), so fact identity is the stored value's. `storedValue` is
+ *   PostgreSQL's own coercion of a value grizzle computes on the host, which rounds as PostgreSQL rounds.
  * - `canonicalText` gives every admitted value its one text, equal exactly when PostgreSQL's equality for the type
  *   holds, because every host value is in its one form (a Decimal has no display scale, a float and a vector component
  *   one zero): numeric 1.0 = 1.00 are one Decimal written 1, NaN = NaN, -0 = +0, text by exact scalar sequence. It is
@@ -565,7 +615,7 @@ export const readFact = (plan: HeadingPlan, fact: unknown): Result.Result<ReadFa
 			parts.push(String(lengthOf(bytes.value)))
 			continue
 		}
-		const value = admitValue(field.spec, read.value)
+		const value = parseValue(field.spec, read.value)
 		if (!value.ok) {
 			return Result.err({ fault: value.error, field: field.name })
 		}

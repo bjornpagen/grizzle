@@ -405,16 +405,11 @@ export interface HostChecks {
 	}>
 }
 
-/**
- * A declared key the host compares a relation's facts at: its law, its fields, and whether a fact as its caller writes
- * it states every one of them, its caller's and serial fields alone (`stated`): a deletion's facts, which state no
- * field grizzle writes, are compared only at such a key.
- */
+/** A declared key the host compares a relation's additions at: its law and its fields. */
 export interface HostKey {
 	readonly law: LawId
 	readonly described: OwnLaw
 	readonly fields: ReadonlyArray<HostKeyField>
-	readonly stated: boolean
 }
 
 /** A key field as the host compares facts at it: its name, and its carrier's spec under the installation's codes. */
@@ -428,7 +423,6 @@ interface CheckedKey {
 	readonly law: LawId
 	readonly described: OwnLaw
 	readonly fields: ReadonlyArray<KeySpec>
-	readonly stated: boolean
 }
 
 /** The host's same-key checks under the installation's codes (`HostChecks`): each key's fields by their specs, and each
@@ -478,8 +472,7 @@ const checkedFacts = (
 			keys: host.keys.map((k) => ({
 				law: k.law,
 				described: k.described,
-				fields: k.fields.map(specOf),
-				stated: k.stated
+				fields: k.fields.map(specOf)
 			})),
 			spans: host.spans.map((check) => {
 				const equal = check.equal.map(specOf)
@@ -688,9 +681,6 @@ const keyConflictIn = <I>(
 	return undefined
 }
 
-/** Two entries of different identities are two facts at every key. */
-const twoFacts = (): boolean => false
-
 /** Whether a span field is among a key's fields: such a key is no generated addition's arbiter. */
 const holdsSpan = (key: CheckedKey): boolean =>
 	key.fields.some(
@@ -812,8 +802,8 @@ type AdmittedGroup =
  * is its EncodingFailure whatever law the others break, and a nested write's generated field with no value refuses the
  * application only once every input admits.
  *
- * 1. Admits every fact through its heading's exact carriers: the null ban, the field set, each value's representation
- *    and PostgreSQL's own coercion, before fact identity is taken. An addition into a classed target
+ * 1. Admits every fact through its heading's exact carriers: the null ban, the field set, and each value's exact parse
+ *    (values/identity.ts parseValue), before fact identity is taken. An addition into a classed target
  *    (`EnumeratedInput` "classed") is routed once by the serial fields it supplies: one that omits all is a generated
  *    addition, admitted against its class's heading, the unit relation's when that holds no field; one that supplies
  *    all is complete; one that omits some is no fact of either heading (factShape).
@@ -831,11 +821,9 @@ type AdmittedGroup =
  *    key over a generated field is no host key: PostgreSQL computes the field, so the statement that writes the facts
  *    compares them there (insert/unique.ts `hostHeld`, `Probed`), and a family's member rows meet it at its index. A span
  *    candidate key also refuses two additions whose spans overlap at equal scalar fields, the pair
- *    the statement would otherwise meet as a violation that aborts it. Deletions are a relation's facts too: two facts
- *    the stratum deletes with one value of a declared key and different identities name two facts where the key names
- *    one, a key conflict on that key's law, judged over the deletions alone and before netting, since an addition at a
- *    deleted key is a replacement, and only at a key a deletion's facts state (HostKey `stated`): a deletion states no
- *    field grizzle writes, so a declared key holding one compares none of them.
+ *    the statement would otherwise meet as a violation that aborts it. Deletions are judged at no key: a deletion is
+ *    exact fact identity, so of two deleted facts at one key at most one is stored, the other's deletion changes
+ *    nothing, and the state after them is lawful whichever is.
  * 4. Nets additions against deletions within the stratum: a fact both added and deleted stays and is neither deleted
  *    nor counted, so it leaves the deletions (D EXCEPT A); and a fact both an insert and a put request is
  *    the put's, so it leaves the insert. Deleting an absent fact, or one a put displaces anyway, stays a
@@ -998,21 +986,14 @@ export const normalizeChangeSet = (
 		for (const id of sets.put.keys()) {
 			sets.insert.delete(id)
 		}
-		const refused =
-			sameKey(
-				facts,
-				compareFactIdentities,
-				serial,
-				stated,
-				sorted(compareFactIdentities, [...sets.put.values(), ...sets.insert.values()]),
-				sorted(compareFactIdentities, sets.generated.values())
-			) ??
-			keyConflictIn(
-				facts,
-				compareFactIdentities,
-				(key) => (key.stated ? sorted(compareFactIdentities, sets.delete.values()) : []),
-				twoFacts
-			)
+		const refused = sameKey(
+			facts,
+			compareFactIdentities,
+			serial,
+			stated,
+			sorted(compareFactIdentities, [...sets.put.values(), ...sets.insert.values()]),
+			sorted(compareFactIdentities, sets.generated.values())
+		)
 		if (refused !== undefined) {
 			return Result.ok(refused)
 		}

@@ -22,7 +22,22 @@ export const fround = (x: number): CanonicalFloat => canonicalZero(Math.fround(x
 export const toDouble = (x: unknown): Result.Result<CanonicalFloat, ValueFault> =>
 	typeof x === "number" ? Result.ok(canonicalZero(x)) : Result.err("floatType")
 
-/** A real value: the binary32 number PostgreSQL's float8-to-float4 cast stores for `x`, or its refusal. */
+/**
+ * A caller's real parsed exactly: a number that is a binary32 value as it is, NaN and the infinities included, -0 as
+ * +0; any other is realInexact, never rounded as PostgreSQL's float8-to-float4 cast would round it (toReal).
+ */
+export const parseReal = (x: unknown): Result.Result<CanonicalFloat, ValueFault> => {
+	if (typeof x !== "number") {
+		return Result.err("floatType")
+	}
+	const real = fround(x)
+	return real === x || Number.isNaN(x) ? Result.ok(real) : Result.err("realInexact")
+}
+
+/**
+ * A real value: the binary32 number PostgreSQL's float8-to-float4 cast stores for `x`, or its refusal. This is the
+ * coercion of a value PostgreSQL computes or a literal it casts; a caller's value is parsed exactly instead (parseReal).
+ */
 export const toReal = (x: unknown): Result.Result<CanonicalFloat, ValueFault> => {
 	if (typeof x !== "number") {
 		return Result.err("floatType")

@@ -30,7 +30,7 @@ import {
 	hostEvaluator,
 	type HostNode
 } from "#compiler/runtime/write/fill.ts"
-import { admittedText, admitValue } from "#compiler/scalar/values/identity.ts"
+import { admittedText, parseValue } from "#compiler/scalar/values/identity.ts"
 import { builtinType } from "#compiler/sql/build.ts"
 import { rowLayout } from "#compiler/write/family/statements.ts"
 import { hostFillOf } from "#compiler/write/program/decide.ts"
@@ -182,7 +182,7 @@ export const familyRows = (
 			}
 			const values = new Map<string, unknown>()
 			for (const field of fields) {
-				const value = admitValue(carrierSpecOf(field.type, codes), fact[field.name])
+				const value = parseValue(carrierSpecOf(field.type, codes), fact[field.name])
 				if (!value.ok) {
 					return refuse(
 						`${location}.${field.name}`,

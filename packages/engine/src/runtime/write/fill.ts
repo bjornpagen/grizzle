@@ -67,7 +67,7 @@ import { isAdmittedBytes } from "#compiler/scalar/values/bytes.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import {
 	admitted,
-	admitValue,
+	storedValue,
 	type Carrier,
 	type CarrierHost,
 	type CarrierSpec,
@@ -684,7 +684,7 @@ export const stepped = (
 	if (after === undefined) {
 		return Result.err({ kind: "range", family })
 	}
-	const stored = admitValue(spec, after)
+	const stored = storedValue(spec, after)
 	return stored.ok ? Result.ok(stored.value) : Result.err({ kind: "range", family })
 }
 
@@ -756,8 +756,8 @@ const sumHost = (a: unknown, b: unknown): unknown => {
 
 /** The greater of two values of one carrier, by PostgreSQL's order for it (a closed id's by code). */
 const maxHost = (spec: CarrierSpec, a: unknown, b: unknown): unknown => {
-	const left = admitValue(spec, a)
-	const right = admitValue(spec, b)
+	const left = storedValue(spec, a)
+	const right = storedValue(spec, b)
 	if (!left.ok || !right.ok) {
 		return undefined
 	}

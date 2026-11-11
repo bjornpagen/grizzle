@@ -7,7 +7,6 @@ import type { LawId } from "#compiler/core/ids.ts"
 import type { LawField } from "#compiler/ir/law.ts"
 import type { HostChecks, HostKey, HostKeyField } from "#compiler/runtime/write/normalize.ts"
 import type { OwnLaw } from "#compiler/types/changeset/changeset.ts"
-import { isCarried } from "#compiler/write/insert/statement.ts"
 import { hostHeld, type RelationUniques } from "#compiler/write/insert/unique.ts"
 
 /** A key field of the relation's facts, by its name, with its type. */
@@ -30,8 +29,7 @@ export const hostChecks = (
 						Object.freeze({
 							law: k.law,
 							described: k.described,
-							fields: k.fields.map(hostKeyField),
-							stated: k.fields.every(isCarried)
+							fields: k.fields.map(hostKeyField)
 						})
 					]
 				: []

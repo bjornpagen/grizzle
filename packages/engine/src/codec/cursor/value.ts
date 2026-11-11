@@ -15,7 +15,7 @@ import type { RosterCodec } from "#compiler/ir/codes.ts"
 import type { Carrier } from "#compiler/ir/scalar.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import {
-	admitValue,
+	parseValue,
 	type CarrierHost,
 	type CarrierSpec,
 	type SpecOf
@@ -164,7 +164,7 @@ const candidateOf = <C extends Carrier>(
  * A token is a caller's input, never PostgreSQL's output, so its value texts are parsed, never trusted: each text is
  * read into a candidate host value by its carrier's reading below, which is total over any string and never throws,
  * and the candidate is admitted through its carrier exactly as an encoder admits a value (values/identity.ts
- * admitValue). The boundary is the admitted value, bound as the codec's canonical text of it (codec.ts decode).
+ * parseValue). The boundary is the admitted value, bound as the codec's canonical text of it (codec.ts decode).
  *
  * The reader of one comparator's boundary values: the admitted value a token's text reads as, or a failure for a text
  * whose reading admission refuses.
@@ -174,7 +174,7 @@ export const boundaryValue = (
 ): ((text: string) => Result.Result<CarrierHost[Carrier], void>) => {
 	const candidate = candidateOf(codec.spec)
 	return (text) => {
-		const admitted = admitValue(codec.spec, candidate(text))
+		const admitted = parseValue(codec.spec, candidate(text))
 		return admitted.ok ? Result.ok(admitted.value) : Result.err(undefined)
 	}
 }

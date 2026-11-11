@@ -23,7 +23,7 @@ import { Array as Arr, Effect, Formatter, Result } from "effect"
 import { positionalColumns } from "#compiler/codec/recordset.ts"
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
-import { admitValue } from "#compiler/scalar/values/identity.ts"
+import { parseValue } from "#compiler/scalar/values/identity.ts"
 import { arraysEncoder } from "#test/support/arrays.ts"
 import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { type CarrierName, carriers, forgedCases } from "#test/support/forged.ts"
@@ -82,7 +82,7 @@ layer(Substrate.layer)("forged carrier inputs against PostgreSQL", (it) => {
 								}
 								const spec = carrierSpecOf(type, emptyCodebook)
 								const admitted = Arr.flatMap(inputs, (one) =>
-									Result.isSuccess(one.input) && admitValue(spec, one.input.success).ok
+									Result.isSuccess(one.input) && parseValue(spec, one.input.success).ok
 										? [{ input: one.input.success, pg: one.pg }]
 										: []
 								)
