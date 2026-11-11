@@ -2,7 +2,7 @@ import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { array, constant, element, int, oneOf } from "@grizzle/testing/gen"
+import { array, constant, element, type Gen, int, oneOf } from "@grizzle/testing/gen"
 import { agree, exact, set, structuralHash } from "@grizzle/testing/oracle"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
@@ -16,91 +16,29 @@ import {
 	FileSystem,
 	Formatter,
 	Layer,
-	Record as Rec,
-	String as Str
+	Record as Rec
 } from "effect"
 import { DbLayer, served } from "#adapter/public/layer.ts"
 import { roleNameOf } from "#adapter/served/served.ts"
 import { appendAll } from "#compiler/core/array.ts"
-import { SchemaFingerprint } from "#compiler/core/ids.ts"
-/**
- * A served file reads back as the runtime reads it: a login's compiled reads, written by servedText and read by
- * servedFile from the JSON value an import of the file yields, are the forms the compile served, member by member
- * (Maps and Sets in order, canonical values by their class and payload, a record's undefined members as absent ones),
- * and a file missing any one member does not read back so.
- *
- * Over generated public programs (test/support/oracle/public), each query and ordered query compiled as the runtime
- * compiles it and served (program/served.ts servedRead), an ordered one that pages with its page served beside it
- * (servedPage), one role of one login holding them all:
- *
- * - Round trip: the forms read back are the forms written (runtimeDifference finds no member that differs).
- * - Plant: one member of the file's JSON value, drawn among all of them, left out; the forms read back differ from the
- *   ones written, or reading them is a defect: a member the encoder drops is never one the decoder makes up.
- * - A host's read: the file's bytes, written to disk, read back and parsed, as an application reads its committed file;
- *   served (adapter/served/served.ts served), which names the file's roles, its login's role read (roleNameOf), and the
- *   layer over it built with no database (DbLayer.make), which loads it (served/load.ts loadServed). Every reader of
- *   the file reads it through servedFile, so a value its JSON form holds as no JSON value holds it, a Map, a Set, a
- *   bigint, a type, in a list or a record, reads as the runtime's own: its roles, a list whose records hold Maps, are
- *   what served names.
- * - A stale file: the first SQL text of one program, drawn among those stating one, edited, and the file written as
- *   generate writes one; check's difference finder (served/difference.ts servedDifference), reading both texts as a
- *   layer does, names that program.
- *
- * Over the write oracle's generated groups and ChangeSets (test/support/oracle/write), each ChangeSet as a served call
- * supplies it, its array members' facts the call's and its other members queries, compiled for reality and served
- * (write/program/served.ts servedWrite, with its read-backs, its reads decoder, its bound values, its array members,
- * served-members.ts servedMembers, and the closed relations its binding and witness read), one change member of one
- * role, where it serves: the same round trip, plant, host's read and stale file, its write, binding, statements,
- * read-backs and members read back as they were written and loaded as a layer loads them.
- *
- * Over drawn vectors bound to the Search fixture's scoring read-back (test/support/fixtures/api/search.ts), its query's
- * vector parameter closed by ChangeSet.bind over the caller's buffer, which the caller writes again after the bind: the
- * ChangeSet served, one change member of one role, and read back whole as above, its bound vector reading back as the
- * vector bound, bit for bit, -0 as 0, the one zero the codec writes (core/canonical.ts canonicalOf). A vector with a
- * component that is not finite has no canonical text, and no served file holds it: the served compile refuses it by
- * its name (served-members.ts opaqueBinding), as its bind read it, whatever the caller writes to it after.
- *
- * Essay ideas: an oracle (the forms served, compared as the runtime reads them) over generated programs, and a plant
- * that keeps it honest.
- */
-import type { Isolation } from "#compiler/core/isolation.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
-import * as Result from "#compiler/core/result.ts"
+import type * as Result from "#compiler/core/result.ts"
 import { trusted, trustedJson } from "#compiler/core/trusted.ts"
-import { queryInput } from "#compiler/program/compile.ts"
-import { servedPage, servedRead, servedSession } from "#compiler/program/served.ts"
-import { closedNamed } from "#compiler/runtime/write/fill.ts"
+import { firstCodebook } from "#compiler/ir/codes.ts"
+import { workload } from "#compiler/program/workload/value.ts"
+import { login, role, wholeEntriesOf, writableNamesOf } from "#compiler/public/schema.ts"
+import { rostersOf } from "#compiler/schema/own.ts"
 import { servedDifference } from "#compiler/served/difference.ts"
-import type {
-	ServedChange,
-	ServedFile,
-	ServedMember,
-	ServedRoleForm
-} from "#compiler/served/forms.ts"
+import type { ServedFile } from "#compiler/served/forms.ts"
 import { servedFile, servedText } from "#compiler/served/json.ts"
-import { servedMatchers } from "#compiler/served/matchers.ts"
-import { servedReadBacks } from "#compiler/served/spine.ts"
 import type { UnservedMember } from "#compiler/served/unserved.ts"
 import { changeSetOver } from "#compiler/write/changeset/value.ts"
-import { compileWrite } from "#compiler/write/program/compile.ts"
-import { closedTableOf } from "#compiler/write/program/decide.ts"
-import { servedMembers } from "#compiler/write/program/served-members.ts"
-import { servedWrite } from "#compiler/write/program/served.ts"
 import { offlineConnection } from "#test/pg/cli/support.ts"
 import { assert } from "#test/support/assert.ts"
-import {
-	codebookFor,
-	compileTemplate,
-	firstCodes,
-	realityWrite,
-	schemaInputOf,
-	testArtifacts,
-	testCompile
-} from "#test/support/compile.ts"
 import { documentDimensions, Search, scoredDocuments } from "#test/support/fixtures/api/search.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { buildRoot, buildSchema } from "#test/support/oracle/public/build.ts"
 import { caseSketchGen, resolveCase } from "#test/support/oracle/public/generate.ts"
+import { type LawLevel, lawLevelGen } from "#test/support/oracle/public/laws.ts"
 import { printCase } from "#test/support/oracle/public/print.ts"
 import type { ProgramCase } from "#test/support/oracle/public/program.ts"
 import {
@@ -121,7 +59,7 @@ import {
 } from "#test/support/oracle/write/schema.ts"
 import { clusterPool } from "#test/support/pg.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
-import { checking } from "#test/support/policy.ts"
+import { compiledLogin, drawnLogin, drawnSchema, loginGen } from "#test/support/served-login.ts"
 import {
 	editedAt,
 	firstSql,
@@ -130,8 +68,52 @@ import {
 	without
 } from "#test/support/served.ts"
 import { testVerify } from "#test/support/worlds.ts"
-import { compiledPageResult } from "#test/unit/page/fixtures.ts"
-import { descOf, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
+
+/**
+ * A served file reads back as the runtime reads it: a login's compiled file, written by servedText and read by
+ * servedFile from the JSON value an import of the file yields, is the file the compile served, member by member (Maps
+ * and Sets in order, canonical values by their class and payload, a record's undefined members as absent ones), and a
+ * file missing any one member does not read back so.
+ *
+ * Every file is a real login's, compiled as `grizzle generate` compiles it (test/support/served-login.ts compiledLogin,
+ * adapter/served/compile.ts snapshotCompiled then servedEntryOf), with no database:
+ *
+ * - Logins drawn over generated public schemas extended by their law levels (test/support/oracle/public, laws.ts),
+ *   under the level's codes, holes and all: roles that read the case's queries, an ordered one whole or paged
+ *   (paged(...)), write relations through ChangeSets, and perhaps a query entry reading a context.
+ * - A writer of a generated write schema (test/support/oracle/write) running one drawn ChangeSet as a served call
+ *   supplies it, its array members' facts the call's and its other members queries.
+ * - A writer of the Search fixture (test/support/fixtures/api/search.ts) running its scoring read-back, its query's
+ *   vector parameter closed by ChangeSet.bind over the caller's buffer, which the caller writes again after the bind.
+ *
+ * Properties, of each file:
+ * - Round trip: the file read back is the file written (runtimeDifference finds no member that differs).
+ * - Plant: one member of the file's JSON value, drawn among all of them, left out; the file read back differs from the
+ *   one written, or reading it is a defect: a member the encoder drops is never one the decoder makes up.
+ * - A host's read: the file's bytes, written to disk, read back and parsed, as an application reads its committed file;
+ *   served (adapter/served/served.ts served), which names the file's roles, its login's role read (roleNameOf), and the
+ *   layer over it built with no database (DbLayer.make), which loads it (served/load.ts loadServed).
+ * - A stale file: the first SQL text of one program, drawn among those stating one, edited, and the file written as
+ *   generate writes one; check's difference finder (served/difference.ts servedDifference), reading both texts as a
+ *   layer does, names that program.
+ * - A bound vector reads back as the vector bound, bit for bit, -0 as 0, the one zero the codec writes
+ *   (core/canonical.ts canonicalOf); a vector with a component that is not finite has no canonical text, and no served
+ *   file holds it: the served compile refuses it by its name (served-members.ts opaqueBinding), as its bind read it,
+ *   whatever the caller writes to it after.
+ *
+ * The oracle is the file the compile served, compared as the runtime reads it.
+ */
+
+type Feature =
+	| "a read"
+	| "a paged read"
+	| "an attachment"
+	| "a change"
+	| "a roster with a hole"
+	| "a dropped member that does not read back"
+	| "a file a host reads that loads"
+	| "a stale program named"
+	| "a list holding a Map"
 
 type ChangeFeature =
 	| "a served write"
@@ -151,63 +133,6 @@ type BoundFeature =
 	| "a vector not finite when bound and finite after"
 	| "a dropped member that does not read back"
 	| "a file a host reads that loads"
-
-type Feature =
-	| "a read"
-	| "a paged read"
-	| "an attachment"
-	| "a dropped member that does not read back"
-	| "a file a host reads that loads"
-	| "a stale program named"
-	| "a list holding a Map"
-
-/** The isolation level a case's role records, by the case's pick: each level for half the picks. */
-const isolationAt = (pick: number): Isolation => (pick % 2 === 0 ? "serializable" : "readCommitted")
-
-/** The served file of one login of one role at `isolation` holding `members`, under the codes `codes`. */
-const fileOf = (
-	members: ReadonlyArray<ServedMember>,
-	rosters: ServedFile["rosters"],
-	closed: ServedFile["closed"],
-	isolation: Isolation
-): ServedFile => {
-	const roles: ReadonlyArray<ServedRoleForm> = [
-		{
-			name: "reader",
-			installed: "base__reader",
-			isolation,
-			contexts: [],
-			refusals: {
-				laws: {
-					schemas: [],
-					constraintLaws: [],
-					theoryLaws: [],
-					tables: new Map(),
-					rosterDomains: [],
-					generated: []
-				},
-				relations: new Map(),
-				entries: new Map()
-			},
-			members
-		}
-	]
-	return {
-		login: "app",
-		fingerprint: SchemaFingerprint(Str.repeat(64)("0")),
-		base: "base",
-		level: 0,
-		role: "app_login",
-		schema: "base",
-		prologue: { fence: trusted("SELECT 1"), enter: trusted("SELECT 2") },
-		session: servedSession,
-		rosters,
-		matchers: servedMatchers(roles),
-		closed,
-		above: { schemas: [], constraints: { tables: {}, domains: {} }, laws: new Map() },
-		roles
-	}
-}
 
 const ok = <A, E extends { readonly message: string }>(
 	r: Result.Result<A, E>,
@@ -333,64 +258,6 @@ const readsBackWhole = (file: ServedFile, pick: number, printed: () => string) =
 		return { back, dropped: dropped !== undefined, stale: staleNamed(back, text, pick, printed) }
 	})
 
-const roundTrip = (c: ProgramCase, pick: number, note: (feature: Feature) => void) =>
-	Effect.gen(function* () {
-		const printed = () => printCase(c)
-		const built = buildSchema(c.schema)
-		const value = built.schema
-		const codes = ok(codebookFor(schemaInputOf(value), firstCodes), "the schema's codes", printed)
-		const members: Array<ServedMember> = []
-		for (const read of c.reads) {
-			if (read.kind !== "query") {
-				continue
-			}
-			const query = buildRoot(built, value, read.query)
-			const template = ok(
-				compileTemplate(query, value, testCompile),
-				"a generated query compiles",
-				printed
-			)
-			const desc = ok(queryInput(query), "the builder takes a generated query", printed).desc
-			const form = servedRead(template, desc, query.rows)
-			const name = `q${members.length}`
-			const compiledPage =
-				read.query.delivery.kind === "ordered"
-					? compiledPageResult(query, testCompile)
-					: Answered.fail(undefined)
-			if (Answered.isSuccess(compiledPage)) {
-				const page = servedPage(compiledPage.success.page, codes, name, {
-					schema: "served",
-					extensions: {}
-				})
-				members.push({ name, kind: "paged", read: form, page })
-				note("a paged read")
-			} else {
-				members.push({ name, kind: "read", read: form })
-				note("a read")
-			}
-			if (read.query.attachments.length > 0) {
-				note("an attachment")
-			}
-		}
-		const file = fileOf(
-			members,
-			new Map(Arr.map([...codes.rosters], ([name, codec]) => [name, codec.codes] as const)),
-			new Map(),
-			isolationAt(pick)
-		)
-		const reached = yield* readsBackWhole(file, pick, printed)
-		if (reached.dropped) {
-			note("a dropped member that does not read back")
-		}
-		if (holdsMap(reached.back.roles)) {
-			note("a list holding a Map")
-		}
-		note("a file a host reads that loads")
-		if (reached.stale) {
-			note("a stale program named")
-		}
-	})
-
 /**
  * `c` as a served call supplies it: every array member's facts the call's, none written in the ChangeSet and none a
  * Stream, every other member a query, and its parameters the call's.
@@ -405,10 +272,81 @@ const servedShape = (c: WChangeSet): WChangeSet => ({
 	binding: "passed"
 })
 
+/** The largest finite 32-bit float. */
+const float32Max = 3.4028234663852886e38
+
+/** A vector's component: a 32-bit float of any scale, -0, or one that is not finite. */
+const component = oneOf<number>([
+	float(-float32Max, float32Max),
+	constant(-0),
+	element([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])
+])
+
+/** The value the first change member of `file`'s first role binds under `name`, as the file holds it. */
+const boundOf = (file: ServedFile, name: string): unknown => {
+	const member = file.roles[0]?.members[0]
+	return member?.kind === "change" && member.variants.kind === "change"
+		? member.variants.change.bound.get(name)
+		: undefined
+}
+
 /**
- * A drawn ChangeSet over a drawn group, as a served call supplies it (servedShape), compiled for reality and served,
- * one change member of one role, read back whole (readsBackWhole); a ChangeSet that does not compile, or that no served
- * file holds, is no case of this property.
+ * A drawn login over the case `c`'s schema extended by its law level, compiled under the level's codes, its file read
+ * back whole (readsBackWhole); a login the served compile refuses is no case of this property.
+ */
+const loginTrip = (
+	c: ProgramCase,
+	level: LawLevel,
+	pick: number,
+	draw: <A>(generator: Gen<A>) => A,
+	note: (feature: Feature) => void
+) =>
+	Effect.gen(function* () {
+		const schema = drawnSchema(c, level)
+		const shapes = draw(loginGen(schema))
+		const printed = () => `${printCase(c)}\n${Formatter.format(level)}\n${Formatter.format(shapes)}`
+		const compiled = yield* Effect.result(
+			compiledLogin(drawnLogin(schema, shapes), schema.laws.codes)
+		)
+		if (Answered.isFailure(compiled)) {
+			return
+		}
+		const file = compiled.success.entry.file
+		for (const member of Arr.flatMap(file.roles, (r) => r.members)) {
+			note(
+				member.kind === "paged" ? "a paged read" : member.kind === "change" ? "a change" : "a read"
+			)
+		}
+		if (Arr.some(shapes, (s) => Arr.some(s.reads, (r) => r.query.attachments.length > 0))) {
+			note("an attachment")
+		}
+		if (
+			Arr.some([...file.rosters.values()], (codes) =>
+				Arr.some(codes, (slot) => slot.kind === "hole")
+			)
+		) {
+			note("a roster with a hole")
+		}
+		const reached = yield* readsBackWhole(file, pick, printed)
+		if (reached.dropped) {
+			note("a dropped member that does not read back")
+		}
+		if (holdsMap(reached.back.roles)) {
+			note("a list holding a Map")
+		}
+		note("a file a host reads that loads")
+		if (reached.stale) {
+			note("a stale program named")
+		}
+	})
+
+/** A fresh installation's codes: each roster's first. */
+const firstCodes = (owned: Parameters<typeof rostersOf>[0]) => firstCodebook(rostersOf(owned))
+
+/**
+ * A drawn ChangeSet over a drawn group, as a served call supplies it (servedShape), served by the full writer of its
+ * schema in a login of its own and compiled as generate compiles it, its file read back whole (readsBackWhole); a
+ * ChangeSet that does not compile, or that no served file holds, is no case of this property.
  */
 const changeTrip = (
 	group: WGroup,
@@ -420,54 +358,40 @@ const changeTrip = (
 	Effect.gen(function* () {
 		const printed = () => `${printGroup(group)}\n${printChangeSet(c)}`
 		const built = buildWSchema(schema, "Wo")
-		const artifacts = ok(testArtifacts(built.value, testCompile), "the schema's artifacts", printed)
 		const { changes } = buildChangeSet(built.value, built.relations, group, c)
-		const compiled = compileWrite(checking(built.value), descOf(changes), realityWrite(artifacts))
-		if (!compiled.ok) {
+		const writer = role(built.value, "writer", wholeEntriesOf(built.value), {
+			write: writableNamesOf(built.value)
+		})
+		const compiled = yield* Effect.result(
+			compiledLogin(
+				login(built.value, "server", [writer], {
+					workload: [workload(built.value, { w: changes })]
+				}),
+				firstCodes
+			)
+		)
+		if (Answered.isFailure(compiled)) {
 			return
 		}
-		const program = compiled.value
-		const parsed = parsedOf(changes)
-		const write = servedWrite(program)
-		const members = servedMembers(program.binding.members, parsed.opaque)
-		if (!write.ok || !members.ok) {
-			return
-		}
+		const file = compiled.success.entry.file
+		const change = Arr.flatMap(file.roles, (r) =>
+			Arr.flatMap(r.members, (m) =>
+				m.kind === "change" && m.variants.kind === "change" ? [m.variants.change] : []
+			)
+		)
 		note("a served write")
-		const change: ServedChange = {
-			program: write.value,
-			readBacks: servedReadBacks(program.artifact.readBacks),
-			decoder: changes.reads.form,
-			bound: parsed.values,
-			members: members.value
-		}
-		if (members.value.length > 0) {
+		if (Arr.some(change, (ch) => ch.members.length > 0)) {
 			note("an array member")
 		}
 		if (Arr.some(Arr.flatten(c.strata), (m) => m.source.kind !== "array")) {
 			note("a query member")
 		}
-		if (change.readBacks.length > 0) {
+		if (Arr.some(change, (ch) => ch.readBacks.length > 0)) {
 			note("a read-back")
 		}
 		if (c.strata.length > 1) {
 			note("more than one stratum")
 		}
-		const read = Arr.dedupe([
-			...program.binding.evaluation.closed,
-			...program.binding.witness.evaluation.closed
-		])
-		const file = fileOf(
-			[{ name: "w", kind: "change", variants: { kind: "change", change } }],
-			new Map(
-				Arr.map(
-					[...program.frontend.codes.rosters],
-					([name, codec]) => [name, codec.codes] as const
-				)
-			),
-			closedNamed(read, closedTableOf(program.frontend)),
-			isolationAt(pick)
-		)
 		const reached = yield* readsBackWhole(file, pick, printed)
 		if (reached.dropped) {
 			note("a dropped member that does not read back")
@@ -478,31 +402,11 @@ const changeTrip = (
 		}
 	})
 
-/** The largest finite 32-bit float. */
-const float32Max = 3.4028234663852886e38
-
-/** A vector's component: a 32-bit float of any scale, -0, or one that is not finite. */
-const component = oneOf<number>([
-	float(-float32Max, float32Max),
-	constant(-0),
-	element([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])
-])
-
-/** Search's artifacts, which every bound vector's ChangeSet compiles under. */
-const searchArtifacts = ok(testArtifacts(Search, testCompile), "Search's artifacts", () => "Search")
-
-/** The value the first change member of `file`'s first role binds under `name`, as the file holds it. */
-const boundOf = (file: ServedFile, name: string): unknown => {
-	const member = file.roles[0]?.members[0]
-	return member?.kind === "change" && member.variants.kind === "change"
-		? member.variants.change.bound.get(name)
-		: undefined
-}
-
 /**
- * The scoring read-back bound to `components`, the caller's buffer written at `at` with `later` after the bind, compiled
- * for reality and served, one change member of one role, and read back whole (readsBackWhole): its bound vector is the
- * vector bound, bit for bit, -0 as 0; or, where a component is not finite, refused by name.
+ * The scoring read-back bound to `components` and `account`, the caller's buffer written at `at` with `later` after the
+ * bind, served by Search's writer in a login of its own and compiled as generate compiles it: read back whole
+ * (readsBackWhole), its bound vector the vector bound, bit for bit, -0 as 0; or, where a component is not finite, the
+ * compile's refusal of it by name.
  */
 const boundTrip = (
 	components: ReadonlyArray<number>,
@@ -527,13 +431,15 @@ const boundTrip = (
 		if (!Arr.every(Arr.fromIterable(buffer), (x, i) => Object.is(x, bound[i]))) {
 			note("a vector written after it was bound")
 		}
-		const program = ok(
-			compileWrite(checking(Search), descOf(changes), realityWrite(searchArtifacts)),
-			"the scoring read-back compiles",
-			printed
+		const writer = role(Search, "writer", wholeEntriesOf(Search), {
+			write: writableNamesOf(Search)
+		})
+		const compiled = yield* Effect.result(
+			compiledLogin(
+				login(Search, "server", [writer], { workload: [workload(Search, { scored: changes })] }),
+				firstCodes
+			)
 		)
-		const parsed = parsedOf(changes)
-		const members = servedMembers(program.binding.members, parsed.opaque)
 		if (!Arr.every(components, Number.isFinite)) {
 			if (Arr.every(Arr.fromIterable(buffer), Number.isFinite)) {
 				note("a vector not finite when bound and finite after")
@@ -542,41 +448,22 @@ const boundTrip = (
 				_tag: "UnservedMember",
 				reasons: [{ kind: "opaqueBinding", name: "vector" }]
 			}
-			assert.deepEqual(
-				members,
-				Result.err(refusal),
+			assert.ok(
+				Answered.isFailure(compiled),
+				`a vector that is not finite is refused\n${printed()}`
+			)
+			assert.deepEqual<unknown>(
+				Answered.isFailure(compiled) ? compiled.failure.error : undefined,
+				refusal,
 				`a vector that is not finite is refused by name\n${printed()}`
 			)
 			note("a vector that is not finite refused")
 			return
 		}
-		const write = servedWrite(program)
-		if (!members.ok || !write.ok) {
+		if (Answered.isFailure(compiled)) {
 			return assert.fail(`the bound vector's read-back serves\n${printed()}`)
 		}
-		const change: ServedChange = {
-			program: write.value,
-			readBacks: servedReadBacks(program.artifact.readBacks),
-			decoder: changes.reads.form,
-			bound: parsed.values,
-			members: members.value
-		}
-		const read = Arr.dedupe([
-			...program.binding.evaluation.closed,
-			...program.binding.witness.evaluation.closed
-		])
-		const file = fileOf(
-			[{ name: "scored", kind: "change", variants: { kind: "change", change } }],
-			new Map(
-				Arr.map(
-					[...program.frontend.codes.rosters],
-					([name, codec]) => [name, codec.codes] as const
-				)
-			),
-			closedNamed(read, closedTableOf(program.frontend)),
-			isolationAt(pick)
-		)
-		const reached = yield* readsBackWhole(file, pick, printed)
+		const reached = yield* readsBackWhole(compiled.success.entry.file, pick, printed)
 		assert.deepEqual<unknown>(
 			boundOf(reached.back, "vector"),
 			bound,
@@ -591,7 +478,7 @@ const boundTrip = (
 
 layer(NodeServices.layer, { excludeTestServices: true })("a served file", (it) => {
 	it.effect(
-		"reads back every compiled read as the runtime reads it, and no member is dropped unseen",
+		"reads back every drawn login's file as the runtime reads it, and no member is dropped unseen",
 		(ctx) =>
 			searched(
 				ctx,
@@ -599,11 +486,16 @@ layer(NodeServices.layer, { excludeTestServices: true })("a served file", (it) =
 					{
 						oracle: {
 							kind: "specification",
-							name: "the served forms, compared as the runtime reads them"
+							name: "the file the compile served, compared as the runtime reads it"
 						},
 						suite: "unit/served/file",
 						draw: drawn(
-							(source) => [source.draw(caseSketchGen), source.draw(int(0, 1_000_000))] as const
+							(source) =>
+								[
+									source.draw(caseSketchGen),
+									source.draw(lawLevelGen),
+									source.draw(int(0, 1_000_000))
+								] as const
 						),
 						literal: Formatter.format,
 						coverage: required<Feature>(
@@ -611,6 +503,8 @@ layer(NodeServices.layer, { excludeTestServices: true })("a served file", (it) =
 								"a read",
 								"a paged read",
 								"an attachment",
+								"a change",
+								"a roster with a hole",
 								"a dropped member that does not read back",
 								"a file a host reads that loads",
 								"a stale program named",
@@ -625,11 +519,10 @@ layer(NodeServices.layer, { excludeTestServices: true })("a served file", (it) =
 						steerEvery: 16,
 						caseHang
 					},
-					([sketch, pick], notes) =>
-						roundTrip(notes.draw(resolveCase(sketch)), pick, notes.note).pipe(
-							Effect.scoped,
-							Effect.orDie
-						)
+					([sketch, level, pick], notes) =>
+						Effect.suspend(() =>
+							loginTrip(notes.draw(resolveCase(sketch)), level, pick, notes.draw, notes.note)
+						).pipe(Effect.scoped, Effect.orDie)
 				)
 			)
 	)

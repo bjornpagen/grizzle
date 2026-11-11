@@ -415,7 +415,9 @@ const differential = (
 	Effect.gen(function* () {
 		const printed = () =>
 			`${printCase(drawn.case)}\n${Formatter.format(level)}\n${Formatter.format(shapes)}`
-		const compiled = yield* Effect.result(compiledLogin(drawn, drawnLogin(drawn, shapes)))
+		const compiled = yield* Effect.result(
+			compiledLogin(drawnLogin(drawn, shapes), drawn.laws.codes)
+		)
 		if (Answered.isFailure(compiled)) {
 			return
 		}

@@ -10,13 +10,14 @@ import {
 import { builtLogin, type LayerRole, ownLoginOver } from "#adapter/served/login.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
+import type { Codebook } from "#compiler/ir/codes.ts"
 import { contextFieldAdmits } from "#compiler/ir/desc.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { context, login, role, wholeEntriesOf } from "#compiler/public/schema.ts"
 import { paged } from "#compiler/public/workload.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
-import { ownBuilt } from "#compiler/schema/own.ts"
+import { type Owned, ownBuilt } from "#compiler/schema/own.ts"
 import { fieldDescOf } from "#compiler/schema/protocol.ts"
 import { contextDescOf } from "#compiler/schema/world.ts"
 import type { ServedFile, ServedRoleForm } from "#compiler/served/forms.ts"
@@ -291,12 +292,12 @@ interface CompiledLogin {
 }
 
 /**
- * A login over the drawn schema compiled over the snapshot.json generate writes for its base under the level's codes
- * (CompiledLogin), or the compile's refusal.
+ * A login compiled over the snapshot.json generate writes for its base under the codes `codes` gives the owned base
+ * (CompiledLogin): a drawn schema's, its law level's (Laws codes), or a fresh installation's; or the compile's refusal.
  */
 export const compiledLogin = (
-	drawn: DrawnSchema,
-	login: unknown
+	login: unknown,
+	codes: (owned: Owned) => Codebook
 ): Effect.Effect<CompiledLogin, ServedRefusal> =>
 	Effect.gen(function* () {
 		const built = defined(builtLogin(login), "a login built by login(...)")
@@ -304,7 +305,7 @@ export const compiledLogin = (
 		const owned = succeeded(ownLoginOver(built, base), "the login over its base")
 		const compiled = yield* snapshotCompiled(
 			{ login: built, owned },
-			compiledSnapshot(base, drawn.laws.codes(base))
+			compiledSnapshot(base, codes(base))
 		)
 		const entry = yield* servedEntryOf(compiled)
 		const json = trustedJson<unknown>(entry.text)
