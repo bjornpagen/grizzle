@@ -2,10 +2,10 @@
  * An alternatives statement lowers to plain containments' natives (fin.md §7, w4-w7 §2.5), with no residual law and no
  * head: the discriminator's roster domain types it. The oracle is fin.md §7 turned into a checker:
  *
- * - **forward**, per arm relation X serving the handles H: each X row's parent is a parent of a handle in H. One handle
- *   is a constant selection of the parent: a constant law column on X holding the handle, referencing the parent's
- *   (id, tag); several are a selected target: a law column on the parent holding its id where its tag is in H,
- *   referenced by X's id;
+ * - **forward**, per arm relation X serving the handles H: each X row's parent is a parent of a handle in H, a law
+ *   column on the parent holding its id where its tag is in H, referenced by X's id. One handle's is the column the
+ *   reverse containment of that handle references from, whose UNIQUE serves its probe too (laws/model/plan.ts
+ *   `#reference`), so the arm holds no constant and the parent no UNIQUE over (id, tag);
  * - **reverse**, per armed handle h: each parent of tag h has its arm row, a law column on the parent holding its id
  *   where its tag is h, referencing X's id: one generated column per armed handle;
  * - every one of these foreign keys is deferred, since forward and reverse form a cycle, and no other is installed.
@@ -121,22 +121,17 @@ const schemaOf = (a: Assignment): SchemaDesc => {
 	}
 }
 
-/** A column by what it holds: a field by its name; a law column by the handles of the parents it is defined for, or by
- * the one handle a constant holds. */
+/** A column by what it holds: a field by its name; a law column, which only the parent holds, by the handles of the
+ * parents it is defined for. */
 const holds = (model: LawModel, a: Assignment, relation: LawRelation, c: NativeColumn): string => {
 	if (c.kind === "field") {
 		return c.field.name
 	}
+	assert.equal(relation.name, "Parent", `the law column ${c.column} is the parent's, no arm's`)
 	const native = defined(
 		lawColumnsOf(model, relation.name).get(c.column),
 		`the law column ${c.column}`
 	)
-	if (relation.name !== "Parent") {
-		const value = generatedOn(native, new Map<string, CarrierValue>([["id", 7n]]))
-		return typeof value === "string"
-			? `‹= ${value}›`
-			: assert.fail("a constant law column holds a handle")
-	}
 	const defined_ = Arr.filter(
 		handlesOf(a),
 		(h) =>
@@ -163,12 +158,9 @@ const shapeText = (
 const expected = (a: Assignment): ReadonlyArray<string> =>
 	Arr.sort(
 		[
-			...Arr.map(armsOf(a), (x) => {
-				const [only, ...more] = x.handles
-				return only !== undefined && more.length === 0
-					? shapeText(x.arm, "Parent", ["id → id", `‹= ${only}› → tag`], true)
-					: shapeText(x.arm, "Parent", [`id → ‹id | ${Arr.join(x.handles, ",")}›`], true)
-			}),
+			...Arr.map(armsOf(a), (x) =>
+				shapeText(x.arm, "Parent", [`id → ‹id | ${Arr.join(x.handles, ",")}›`], true)
+			),
 			...Arr.flatMap(handlesOf(a), (h, i) => {
 				const arm = a[i]
 				return arm === undefined || arm === "none"

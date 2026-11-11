@@ -17,6 +17,12 @@
  *   the containment 23503 by Src's foreign key reporting the containment's law, so the UNIQUE a fixed target references
  *   refuses no state the key admits.
  *
+ * A case may also state a containment out of the target's selection, over id and the target's terms, into Tgt over the
+ * same: it holds of every state, each selected row being its own tuple, and its reverse probe reads every one of the
+ * target's own columns, so a fixed target is referenced at those under a UNIQUE that probe reads too (laws/model/plan.ts
+ * `#reference`), which the key implies as it implies the one over the target's terms and fixed fields, and the
+ * checker's verdicts stand unchanged.
+ *
  * Kept beside the search, the downstream shapes: a target fixed to three values beyond its term, held by a key over a
  * wider selection whose condition is one of the three; and targets fixed to a natural and to a boolean, each held by a
  * key over the whole relation. And a drawn key over the whole relation at id alone, refused as a second key over the
@@ -101,11 +107,15 @@ interface State {
 	readonly src: ReadonlyArray<SrcRow | undefined>
 }
 
-/** A case: the target's terms and selection, the drawn key, if any, and the states written over the schema. */
+/**
+ * A case: the target's terms and selection, the drawn key, if any, whether a containment out of the target's selection
+ * probes its own columns, and the states written over the schema.
+ */
 interface Sketch {
 	readonly terms: Arr.NonEmptyReadonlyArray<Field>
 	readonly target: ReadonlyArray<Condition>
 	readonly key: KeySketch | undefined
+	readonly probed: boolean
 	readonly states: ReadonlyArray<State>
 }
 
@@ -214,6 +224,7 @@ const sketchGen: Gen<Sketch> = (source) => {
 		terms,
 		target,
 		key: source.draw(keyGen(terms, target)),
+		probed: source.draw(boolean),
 		states: source.draw(array(stateGen, { min: STATES, max: STATES }))
 	}
 }
@@ -454,6 +465,21 @@ const tgtSide = (
 
 const SOURCE_TERMS = ["p", "q", "r"] as const
 
+/** The terms of the containment out of the target's selection: id, then the target's other terms. */
+const probedTerms = (s: Sketch): Arr.NonEmptyReadonlyArray<Field> => [
+	"id",
+	...Arr.filter(s.terms, (t) => t !== "id")
+]
+
+/**
+ * The containment out of the target's selection into Tgt over id and the target's terms, which every state keeps; none
+ * where the case draws none or the target selects every row, a side whose columns are Tgt's own fields.
+ */
+const probeOf = (s: Sketch): SchemaDesc["statements"] =>
+	s.probed && s.target.length > 0
+		? [contained(tgtSide(s.target, probedTerms(s)), tgtSide([], probedTerms(s)))]
+		: []
+
 /** The schema a sketch states: Tgt and Src, the drawn key, and the containment of Src's terms in the target. */
 const schemaOf = (s: Sketch): SchemaDesc => ({
 	name: "TargetKeys",
@@ -486,7 +512,8 @@ const schemaOf = (s: Sketch): SchemaDesc => ({
 				selection: { conjuncts: [] }
 			},
 			tgtSide(s.target, s.terms)
-		)
+		),
+		...probeOf(s)
 	],
 	extends: undefined
 })
@@ -499,6 +526,7 @@ type TargetKeyFeature =
 	| "fixed to a value"
 	| "fixed to a term"
 	| "held by a key over a selection"
+	| "held by fixed fields, a probe out of its selection reading its terms"
 	| "refused, holding no key"
 	| "refused, restating the primary key"
 	| "committed"
@@ -565,7 +593,13 @@ const row = (a: 0 | 1, b: 0 | 1, c: 0 | 1, flag: boolean, depth: 0 | 1): TgtRow 
 const KEPT: ReadonlyArray<Kept<Sketch, TargetKeyFeature>> = [
 	{
 		note: "a drawn key over the whole relation at id alone, a second key over the primary key's set",
-		sketch: { terms: ["a"], target: [], key: { selection: [], terms: ["id"] }, states: [] },
+		sketch: {
+			terms: ["a"],
+			target: [],
+			key: { selection: [], terms: ["id"] },
+			probed: false,
+			states: []
+		},
 		draws: "",
 		reaches: ["refused, restating the primary key"]
 	},
@@ -575,6 +609,7 @@ const KEPT: ReadonlyArray<Kept<Sketch, TargetKeyFeature>> = [
 			terms: ["a"],
 			target: ["b = 0", "c = 1", "flag"],
 			key: { selection: ["flag"], terms: ["a", "b", "c"] },
+			probed: false,
 			states: [
 				kept([row(1, 0, 1, true, 0), undefined, undefined], [[1, 0, 0], undefined]),
 				kept([row(1, 0, 1, false, 0), undefined, undefined], [[1, 0, 0], undefined]),
@@ -601,6 +636,7 @@ const KEPT: ReadonlyArray<Kept<Sketch, TargetKeyFeature>> = [
 			terms: ["a"],
 			target: ["depth = 1"],
 			key: { selection: [], terms: ["a", "depth"] },
+			probed: false,
 			states: [
 				kept([row(0, 0, 0, false, 1), row(0, 1, 1, true, 0), undefined], [[0, 1, 1], undefined]),
 				kept([row(0, 0, 0, false, 0), undefined, undefined], [[0, 0, 0], undefined]),
@@ -622,6 +658,7 @@ const KEPT: ReadonlyArray<Kept<Sketch, TargetKeyFeature>> = [
 			terms: ["a"],
 			target: ["flag"],
 			key: { selection: [], terms: ["a", "flag"] },
+			probed: false,
 			states: [
 				kept(
 					[row(1, 0, 0, true, 0), row(1, 1, 1, false, 1), undefined],
@@ -667,6 +704,7 @@ layer(Substrate.layer)("which containment targets hold a key on PostgreSQL 19rc1
 								"fixed to a value",
 								"fixed to a term",
 								"held by a key over a selection",
+								"held by fixed fields, a probe out of its selection reading its terms",
 								"refused, holding no key",
 								"committed",
 								"committed a source row",
@@ -725,6 +763,9 @@ layer(Substrate.layer)("which containment targets hold a key on PostgreSQL 19rc1
 										}
 										if (held.key.selection.length > 0) {
 											c.note("held by a key over a selection")
+										}
+										if (probeOf(s).length > 0) {
+											c.note("held by fixed fields, a probe out of its selection reading its terms")
 										}
 										break
 								}

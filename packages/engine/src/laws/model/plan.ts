@@ -136,8 +136,38 @@ export type PlannedColumn =
 	| { readonly kind: "field"; readonly field: LawField }
 	| { readonly kind: "law"; readonly column: LawColumnPlan }
 
+/**
+ * A column a side lowers to (`sideColumns`), which a containment's target is referenced at and a reverse probe reads: a
+ * field, or the law column of a term under its side's selection.
+ */
+type SideColumn =
+	| { readonly kind: "field"; readonly field: LawField }
+	| { readonly kind: "law"; readonly column: Extract<LawColumnPlan, { readonly kind: "term" }> }
+
 /** A field as a planned native reads it. */
-const fieldColumn = (field: LawField): PlannedColumn => ({ kind: "field", field })
+const fieldColumn = (field: LawField): SideColumn => ({ kind: "field", field })
+
+/** Whether two selections are one, conjunct for conjunct in order, as a term's law column is known by its selection's
+ * conjuncts (laws/model/model.ts lawColumnIdentity). */
+const sameSelection = (a: ResolvedSelection, b: ResolvedSelection): boolean =>
+	a.conjuncts.length === b.conjuncts.length &&
+	a.conjuncts.every((c, i) => b.conjuncts[i]?.text === c.text)
+
+/** Whether two side columns of one relation are one column: one field, or the law column of one term under one
+ * selection. */
+const sameSideColumn = (a: SideColumn, b: SideColumn): boolean => {
+	switch (a.kind) {
+		case "field":
+			return b.kind === "field" && a.field === b.field
+		case "law":
+			return (
+				b.kind === "law" &&
+				a.column.term.kind === b.column.term.kind &&
+				a.column.term.column === b.column.term.column &&
+				sameSelection(a.column.selection, b.column.selection)
+			)
+	}
+}
 
 /**
  * The field a planned column's values are of, whose descriptor and type size an index entry over it: a field itself,
@@ -207,17 +237,43 @@ const entryColumn = (c: PlannedColumn, datum: DatumBound): EntryColumn => ({
 })
 
 /** A planned column with its datum, where its datum is bounded. */
-interface BoundedColumn {
-	readonly column: PlannedColumn
+interface BoundedColumn<C extends PlannedColumn> {
+	readonly column: C
 	readonly datum: DatumBound
 }
 
 /** The columns of `columns` whose datum is bounded, in their order. */
-const boundedColumns = (columns: ReadonlyArray<PlannedColumn>): ReadonlyArray<BoundedColumn> =>
+const boundedColumns = <C extends PlannedColumn>(
+	columns: ReadonlyArray<C>
+): ReadonlyArray<BoundedColumn<C>> =>
 	columns.flatMap((column) => {
 		const datum = plannedDatum(column)
 		return datum === undefined ? [] : [{ column, datum }]
 	})
+
+/** The columns a reverse probe's B-tree reads, with its entry (`btreeRun`). */
+interface BtreeRun<C extends PlannedColumn> {
+	readonly columns: NonEmptyReadonlyArray<C>
+	readonly entry: BtreeEntryBytes
+}
+
+/**
+ * The B-tree a reverse probe over `columns` reads (`plannedReverse`): the longest leading run of the columns whose datum
+ * is bounded, in their order, whose entry btreeEntry proves within BTMaxItemSize; none where no bounded column's entry
+ * is.
+ */
+const btreeRun = <C extends PlannedColumn>(columns: ReadonlyArray<C>): BtreeRun<C> | undefined => {
+	const bounded = boundedColumns(columns)
+	for (let n = Math.min(bounded.length, indexMaxKeys.value); n > 0; n--) {
+		const run = bounded.slice(0, n)
+		const [first, ...rest] = run
+		const proved = btreeEntry(run.map((b) => entryColumn(b.column, b.datum)))
+		if (first !== undefined && proved.ok) {
+			return { columns: [first.column, ...rest.map((b) => b.column)], entry: proved.value }
+		}
+	}
+	return undefined
+}
 
 /**
  * Whether PostgreSQL has a hash operator class for a column's type, its domain's base: every scalar carrier but money,
@@ -264,18 +320,9 @@ const plannedReverse = (
 	subject: string,
 	loc: SourceLoc
 ): PlannedReverse => {
-	const bounded = boundedColumns(columns)
-	for (let n = Math.min(bounded.length, indexMaxKeys.value); n > 0; n--) {
-		const run = bounded.slice(0, n)
-		const [first, ...rest] = run
-		const proved = btreeEntry(run.map((b) => entryColumn(b.column, b.datum)))
-		if (first !== undefined && proved.ok) {
-			return {
-				method: "btree",
-				columns: [first.column, ...rest.map((b) => b.column)],
-				entry: proved.value
-			}
-		}
+	const run = btreeRun(columns)
+	if (run !== undefined) {
+		return { method: "btree", columns: run.columns, entry: run.entry }
 	}
 	const hashed = [
 		...columns.filter((c) => c.kind === "field"),
@@ -284,7 +331,7 @@ const plannedReverse = (
 	if (hashed !== undefined) {
 		return { method: "hash", columns: [hashed] }
 	}
-	const [widest] = bounded
+	const [widest] = boundedColumns(columns)
 	const fault =
 		widest === undefined ? undefined : btreeEntry([entryColumn(widest.column, widest.datum)])
 	return fault === undefined || fault.ok
@@ -515,7 +562,7 @@ const dependencies = (column: LawColumnPlan): ReadonlyArray<NativePlan> =>
  * wherever the side reads no tuple, so a key over it holds apart only the rows it reads and a reference from it
  * references only from them.
  */
-const sideColumns = (side: ResolvedSide): NonEmptyReadonlyArray<PlannedColumn> =>
+const sideColumns = (side: ResolvedSide): NonEmptyReadonlyArray<SideColumn> =>
 	mapNonEmpty(side.terms, (term) => termColumn(tableOf(side.rel), term, side.selection))
 
 /** One term of a side over `relation` under `selection` as a column (`sideColumns`). */
@@ -523,10 +570,10 @@ const termColumn = (
 	relation: RelationInfo,
 	term: ResolvedTerm,
 	selection: ResolvedSelection
-): PlannedColumn =>
+): SideColumn =>
 	term.kind === "field" && selection.conjuncts.length === 0
 		? fieldColumn(term.column)
-		: lawColumn({ kind: "term", relation, term, selection })
+		: { kind: "law", column: { kind: "term", relation, term, selection } }
 
 /**
  * `r` as the ordinary relation a native object is installed on. `plan` routes every law over a closed relation alone to
@@ -762,7 +809,73 @@ const fixingSource = (
 /** How a containment references its target: the source's columns and the target's columns each meets, in order. */
 interface Reference {
 	readonly columns: NonEmptyReadonlyArray<PlannedColumn>
-	readonly targetColumns: NonEmptyReadonlyArray<PlannedColumn>
+	readonly targetColumns: NonEmptyReadonlyArray<SideColumn>
+}
+
+/** A containment from one side of an ordinary relation into another's, as `#scalarContainment` lowers it: a stated one,
+ * or a part of a rule over a query. */
+interface ScalarPart {
+	readonly from: ResolvedSide
+	readonly to: ResolvedSide
+}
+
+/** How a rule over a query is discharged (LawPlan): by the migration, by its parts' foreign keys, or by its triggers. */
+type RuleRoute =
+	| { readonly kind: "migration" }
+	| { readonly kind: "write"; readonly parts: NonEmptyReadonlyArray<ScalarPart> }
+	| { readonly kind: "trigger" }
+
+/**
+ * A rule's route: once by the migration, where it reads no ordinary relation; at every write by the foreign keys of its
+ * parts, where it lowers to them and the model discharges it natively (RuleDischarge); else at every COMMIT by its
+ * deferred constraint triggers.
+ */
+const ruleRoute = (
+	law: TheoryLaw,
+	d: Extract<TheoryLaw["detail"], { readonly kind: "rule" }>,
+	relations: Readonly<Record<string, TheoryRelation>>,
+	discharge: RuleDischarge
+): RuleRoute => {
+	if (!law.reads.some((r) => relations[r]?.kind === "relation")) {
+		return { kind: "migration" }
+	}
+	return d.lowering.kind === "foreignKeys" && discharge === "native"
+		? { kind: "write", parts: d.lowering.parts }
+		: { kind: "trigger" }
+}
+
+/**
+ * The containments a law lowers by `#scalarContainment` (`plan`), each to a foreign key, the UNIQUE it references and
+ * the reverse index over its source's columns: a stated containment of scalar pairs between ordinary relations that
+ * rides no family axis, and each part of a rule over a query its foreign keys discharge.
+ */
+const scalarParts = (
+	law: TheoryLaw,
+	relations: Readonly<Record<string, TheoryRelation>>,
+	discharge: RuleDischarge
+): ReadonlyArray<ScalarPart> => {
+	const d = law.detail
+	switch (d.kind) {
+		case "containment":
+			return d.from.rel.kind === "closed" ||
+				d.to.rel.kind === "closed" ||
+				d.lowers.kind === "rides" ||
+				d.pairing.kind === "span"
+				? []
+				: [d]
+		case "rule": {
+			const route = ruleRoute(law, d, relations, discharge)
+			return route.kind === "write" ? route.parts : []
+		}
+		case "key":
+		case "projectedKey":
+		case "check":
+		case "contract":
+		case "family":
+		case "tree":
+		case "fold":
+			return []
+	}
 }
 
 /** Whether `key` is exactly `side`: the same conjuncts and the same terms, each of one kind over one field. */
@@ -954,7 +1067,10 @@ interface FamilyPlan {
  *   term of the key; the source meets each fixed field by a constant law column holding the literal or by its own
  *   column paired with t, listed again. The key implies the UNIQUE, and every containment into the same fixed fields
  *   shares it. Tried before a target keyed by its terms alone. An alternatives arm of one handle is one: its parent
- *   selected by the handle.
+ *   selected by the handle. The key implies a UNIQUE over the target's own columns too, which its selection keeps the
+ *   key's fields at, and where a reverse probe of a containment out of the target's selection reads every one of them,
+ *   the containment references them under that UNIQUE instead, which serves the probe: no superkey and no constant
+ *   (`#reference`).
  * - A coverage, a containment pairing a span field of each side, is a PERIOD foreign key from the source's columns into
  *   the target's, which must be keyed WITHOUT OVERLAPS over exactly its terms: a declared span key, or a key over its
  *   projected side. A target whose spans may overlap within a key is refused.
@@ -1109,6 +1225,11 @@ export class Recognizer {
 	readonly #closedSides: ClosedSides
 	/** How a rule over a query that lowers to foreign keys is discharged (model.ts RuleDischarge). */
 	readonly #discharge: RuleDischarge
+	/**
+	 * The columns of each reverse probe every law plans that a B-tree reads (`btreeRun`), by its relation's name: the
+	 * indexes a UNIQUE a target is referenced at may serve too (`#reference`).
+	 */
+	readonly #probes: ReadonlyMap<string, ReadonlyArray<NonEmptyReadonlyArray<SideColumn>>>
 
 	constructor(
 		laws: ReadonlyArray<TheoryLaw>,
@@ -1160,6 +1281,16 @@ export class Recognizer {
 		this.#refill = refillDeferral(families)
 		this.#closedSides = closedSidesOf(laws)
 		this.#discharge = discharge
+		const probes = new Map<string, Array<NonEmptyReadonlyArray<SideColumn>>>()
+		for (const law of laws) {
+			for (const part of scalarParts(law, relations, discharge)) {
+				const run = btreeRun(sideColumns(part.from))
+				if (run !== undefined) {
+					probes.set(part.from.relation, [...(probes.get(part.from.relation) ?? []), run.columns])
+				}
+			}
+		}
+		this.#probes = probes
 	}
 
 	/**
@@ -1212,16 +1343,7 @@ export class Recognizer {
 			case "containment":
 				return this.#containment(law, d, loc, done)
 			case "rule":
-				if (!law.reads.some((r) => this.#relations[r]?.kind === "relation")) {
-					return migrationPlan(law)
-				}
-				return d.lowering.kind === "foreignKeys" && this.#discharge === "native"
-					? done(
-							d.lowering.parts.flatMap((p) =>
-								this.#scalarContainment(p.from, p.to, "deferred", loc)
-							)
-						)
-					: { law, natives: [], discharge: "trigger" }
+				return this.#rule(law, ruleRoute(law, d, this.#relations, this.#discharge), loc, done)
 			case "family":
 			case "tree":
 				return done(this.#familyNatives(this.#familyPlan(d.family.id, loc), law.id))
@@ -1235,6 +1357,26 @@ export class Recognizer {
 					...conditionsOf(planned, law.id)
 				])
 			}
+		}
+	}
+
+	/** A rule over a query, as its route discharges it: by the migration, by its parts' foreign keys, each a containment
+	 * deferred to COMMIT, which its triggers judged there, or by its triggers. */
+	#rule(
+		law: TheoryLaw,
+		route: RuleRoute,
+		loc: SourceLoc,
+		done: (natives: ReadonlyArray<NativePlan>) => LawPlan
+	): LawPlan {
+		switch (route.kind) {
+			case "migration":
+				return migrationPlan(law)
+			case "write":
+				return done(
+					route.parts.flatMap((p) => this.#scalarContainment(p.from, p.to, "deferred", loc))
+				)
+			case "trigger":
+				return { law, natives: [], discharge: "trigger" }
 		}
 	}
 
@@ -1430,12 +1572,12 @@ export class Recognizer {
 	}
 
 	/**
-	 * A containment from one side into another: a foreign key MATCH SIMPLE from the source's columns into the target's,
-	 * the UNIQUE over the target's columns it references, the law columns either side reads, and the index over the
-	 * source's columns. A fixed target (`#fixedTarget`) is referenced at its fixed fields too, which the source meets by
-	 * constant law columns and by its own columns listed again, so the index over its columns alone serves every probe.
-	 * Its deferral is the schema-wide rule's for a stated containment, and deferred for a part of a lowered rule over a
-	 * query, which its triggers judged at COMMIT.
+	 * A containment from one side into another: a foreign key MATCH SIMPLE from the source's columns into the target's
+	 * (`#reference`), the UNIQUE over the target's columns it references, the law columns either side reads, and the index
+	 * over the source's columns. A fixed target referenced at its fixed fields too is met by constant law columns and by
+	 * the source's own columns listed again, so the index over its columns alone serves every probe. Its deferral is the
+	 * schema-wide rule's for a stated containment, and deferred for a part of a lowered rule over a query, which its
+	 * triggers judged at COMMIT.
 	 */
 	#scalarContainment(
 		from: ResolvedSide,
@@ -1446,9 +1588,7 @@ export class Recognizer {
 		const fromRel = tableOf(from.rel)
 		const toRel = tableOf(to.rel)
 		const sourceColumns = sideColumns(from)
-		const reference =
-			this.#fixedTarget(to, sourceColumns, fromRel, toRel) ??
-			this.#keyedTarget(to, sourceColumns, toRel, loc)
+		const reference = this.#reference(to, sourceColumns, fromRel, toRel, loc)
 		const containment = `the containment of ${sideText(from)} in ${sideText(to)}`
 		return [
 			...lawColumns(reference.columns),
@@ -1582,23 +1722,60 @@ export class Recognizer {
 	}
 
 	/**
-	 * A target keyed by its terms: a key (`#keysOf`) that selects within it and whose terms are among its terms, referenced
-	 * at its own columns; or the refusal of an unkeyed target, which no UNIQUE the law model may add holds apart.
+	 * How a containment references its target: of the references the target admits (`#references`), the first whose
+	 * UNIQUE serves a reverse probe some law plans on the target's relation (`#serves`), which the probe then reads, so
+	 * the relation holds no index for it beside the UNIQUE; else the first.
 	 */
-	#keyedTarget(
+	#reference(
 		to: ResolvedSide,
 		source: NonEmptyReadonlyArray<PlannedColumn>,
+		fromRel: RelationInfo,
 		toRel: RelationInfo,
 		loc: SourceLoc
 	): Reference {
-		if (!this.#keysOf(to).some((k) => keyedBy(k, to))) {
-			return refuse(
-				"UnsupportedLawFamily",
-				loc,
-				`a containment into a side that contains a key of ${toRel.name}; ${to.relation}(${to.terms.map(termText).join(", ")}) contains no key among its terms and the fields its selection fixes, over a selection within its own, and a containment into an unkeyed side is not admitted`
-			)
+		const references = this.#references(to, source, fromRel, toRel, loc)
+		return references.find((r) => this.#serves(to.relation, r.targetColumns)) ?? references[0]
+	}
+
+	/**
+	 * The references a target admits, each into a UNIQUE a key of its relation implies, in the order the recognizer
+	 * prefers them: a fixed target's at its terms and fixed fields (`#fixedTarget`), which every containment into the same
+	 * fixed fields shares, then at its own columns, which that key implies too, since the target's selection holds the
+	 * key's and fixes each of the key's fields beyond the target's terms; a target keyed by its terms, by a key (`#keysOf`)
+	 * that selects within it and whose terms are among its terms, at its own columns. A target no key holds is refused:
+	 * no UNIQUE the law model may add holds it apart.
+	 */
+	#references(
+		to: ResolvedSide,
+		source: NonEmptyReadonlyArray<PlannedColumn>,
+		fromRel: RelationInfo,
+		toRel: RelationInfo,
+		loc: SourceLoc
+	): NonEmptyReadonlyArray<Reference> {
+		const own: Reference = { columns: source, targetColumns: sideColumns(to) }
+		const fixed = this.#fixedTarget(to, source, fromRel, toRel)
+		if (fixed !== undefined) {
+			return [fixed, own]
 		}
-		return { columns: source, targetColumns: sideColumns(to) }
+		if (this.#keysOf(to).some((k) => keyedBy(k, to))) {
+			return [own]
+		}
+		return refuse(
+			"UnsupportedLawFamily",
+			loc,
+			`a containment into a side that contains a key of ${toRel.name}; ${to.relation}(${to.terms.map(termText).join(", ")}) contains no key among its terms and the fields its selection fixes, over a selection within its own, and a containment into an unkeyed side is not admitted`
+		)
+	}
+
+	/**
+	 * Whether a UNIQUE over `columns` of `relation` serves a reverse probe some law plans there (`#probes`): one whose
+	 * B-tree reads every one of them, so the UNIQUE finds at most one row by the probe's values, on which PostgreSQL
+	 * rechecks the rest (physical/indexes/engine.ts, a keyed placement).
+	 */
+	#serves(relation: string, columns: NonEmptyReadonlyArray<SideColumn>): boolean {
+		return (this.#probes.get(relation) ?? []).some((probe) =>
+			columns.every((c) => probe.some((p) => sameSideColumn(c, p)))
+		)
 	}
 
 	/**
