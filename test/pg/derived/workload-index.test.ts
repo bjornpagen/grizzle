@@ -1,7 +1,7 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { type Gen, int, subset } from "@grizzle/testing/gen"
+import { array, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -14,7 +14,7 @@ import { codeOf } from "#compiler/ir/codes.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { pg, type Uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { printObjectName } from "#compiler/sql/print.ts"
+import { printObjectName, quoteIdent } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, unorderedEqual } from "#test/support/assert.ts"
 import {
@@ -25,21 +25,26 @@ import {
 	workloadOver
 } from "#test/support/compile.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
-import { installMigrated as install, loadMigrated as load } from "#test/support/install-migrate.ts"
+import { installMigrated as install } from "#test/support/install-migrate.ts"
 import { namesOf, parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
-/** The account budgets with at least `least` automatic tasks.
- *
+/**
  * Workload indexes on a derived relation on PostgreSQL 19.
  *
- * A workload program that reads AccountBudget by a range on its `tasks` column justifies a non-unique index on the
- * `tasks` column, beside the view's key index, which the installation's first migration creates on the materialized
- * view. The index is a plain B-tree on the view, survives a plain refresh and a concurrent one, and serves the
- * program's own optimized statement: over drawn thresholds and accounts made busy inside a transaction, with sequential
- * scans off, PostgreSQL plans the statement through it rather than the key index, and returns the accounts whose
+ * A workload program that reads AccountBudget, the account budgets, by a range on its `tasks` column justifies a
+ * non-unique index on the `tasks` column, beside the view's key index, which the installation's first migration creates
+ * on the materialized view. The index is a plain B-tree on the view, survives a plain refresh and a concurrent one, and
+ * serves the program's own optimized statement: over drawn accounts, each with its drawn number of automatic tasks
+ * written inside the case's transaction, and a drawn threshold, PostgreSQL plans the statement through it once the
+ * view's key index is dropped in that transaction and sequential scans are off, so the plan shows whether the index
+ * matches the statement's range, whatever the view's size makes cheapest; and the statement returns the accounts whose
  * automatic tasks number at least the threshold.
+ *
+ * Oracle: the accounts at or past the threshold, counted on the host, and PostgreSQL's planner as the judge of whether
+ * the index serves the range. Features: an account selected, an account below the threshold, one at it, none
+ * selected.
  *
  * Plants (main's test phase): derived-workload-index-unique.patch.
  */
@@ -54,35 +59,24 @@ const busyAccounts = query(W.Reports).rule((r) => {
 const id = (n: number): Uuid =>
 	`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
 
-/** 300 accounts with one automatic task each: a range on `tasks` from 2 selects only the accounts a case makes busy. */
-const accounts = Arr.map(indices(300), (i) => i + 1)
-const facts = {
-	Account: Arr.map(accounts, (a) => ({ id: id(a), name: `account${a}` })),
-	Task: Arr.map(accounts, (a) => ({ id: id(1000 + a), account: id(a), kind: "Automatic" })),
-	AutomaticTask: Arr.map(accounts, (a) => ({ task: id(1000 + a), budget: 100n }))
-}
-
 /**
- * A case: the least task count the program asks for, and up to three accounts given more automatic tasks inside the
- * case's transaction, so a range on `tasks` from it selects a few rows of 300, which the view's `tasks` index reaches
- * in a few pages where its key index would read them all.
+ * A case: the least task count the program asks for, and each account's automatic tasks beyond its first, one to
+ * eight accounts, all written inside the case's transaction.
  */
 interface BusyCase {
 	readonly least: number
-	readonly busy: ReadonlyArray<readonly [account: number, more: number]>
+	readonly more: ReadonlyArray<number>
 }
 
 const busyCaseGen: Gen<BusyCase> = (source) => ({
 	least: source.draw(int(2, 5)),
-	busy: Arr.map(
-		source.draw(subset(accounts, { min: 0, max: 3 })),
-		(account) => [account, source.draw(int(1, 4))] as const
-	)
+	more: source.draw(array(int(0, 4), { min: 1, max: 8 }))
 })
 
 type BusyFeature =
-	| "a busy account selected"
-	| "a busy account below the least"
+	| "an account selected"
+	| "an account below the least"
+	| "an account at the least"
 	| "no account selected"
 
 /** Each index of the view as (name, unique, valid, kind of the indexed relation, its key columns joined by commas). */
@@ -113,10 +107,11 @@ layer(Substrate.layer)("workload indexes on a derived relation", (it) => {
 						logins: []
 					})
 					const s = installed.declared
-					yield* load(installed, facts)
 					const owner = yield* substrate.session({ ...ownerSession(), label: "owner" })
-					const view = printObjectName(installed.names.relation("AccountBudget"))
+					const viewName = installed.names.relation("AccountBudget")
+					const view = printObjectName(viewName)
 					const keyIndex = namesOf(installed).viewKeyIndex(W.AccountBudget, ["account"])
+					const keyIndexName = `${quoteIdent(viewName.schema)}.${quoteIdent(keyIndex)}`
 					const names = namesOf(installed)
 					const automatic = codeOf(
 						defined(
@@ -178,8 +173,9 @@ layer(Substrate.layer)("workload indexes on a derived relation", (it) => {
 							},
 							coverage: required<BusyFeature>(
 								[
-									"a busy account selected",
-									"a busy account below the least",
+									"an account selected",
+									"an account below the least",
+									"an account at the least",
 									"no account selected"
 								],
 								{ cases: 12, sense: notesOnly }
@@ -195,11 +191,15 @@ layer(Substrate.layer)("workload indexes on a derived relation", (it) => {
 							Effect.ensuring(
 								Effect.gen(function* () {
 									yield* owner.begin
-									for (const [n, [account, more]] of c.busy.entries()) {
-										for (const extra of indices(more)) {
-											const task = id(2000 + 10 * n + extra)
+									for (const [a, more] of c.more.entries()) {
+										yield* owner.query(
+											`INSERT INTO ${names.table(W.Account)} (${names.column(W.Account, "id")}, ${names.column(W.Account, "name")}) VALUES ('${id(a)}'::uuid, 'account${a}')`,
+											[]
+										)
+										for (const t of indices(1 + more)) {
+											const task = id(1000 + 10 * a + t)
 											yield* owner.query(
-												`INSERT INTO ${names.table(W.Task)} (${names.column(W.Task, "id")}, ${names.column(W.Task, "account")}, ${names.column(W.Task, "kind")}) VALUES ('${task}'::uuid, '${id(account)}'::uuid, ${automatic}::smallint)`,
+												`INSERT INTO ${names.table(W.Task)} (${names.column(W.Task, "id")}, ${names.column(W.Task, "account")}, ${names.column(W.Task, "kind")}) VALUES ('${task}'::uuid, '${id(a)}'::uuid, ${automatic}::smallint)`,
 												[]
 											)
 											yield* owner.query(
@@ -212,6 +212,7 @@ layer(Substrate.layer)("workload indexes on a derived relation", (it) => {
 									yield* owner.query(`REFRESH MATERIALIZED VIEW CONCURRENTLY ${view}`, [])
 									const after = yield* indexes()
 									unorderedEqual(after, before, "every index survives both refreshes")
+									yield* owner.query(`DROP INDEX ${keyIndexName}`, [])
 									yield* owner.query(`ANALYZE ${view}`, [])
 									yield* owner.query("SET LOCAL enable_seqscan = off", [])
 									const least = paramTexts(
@@ -228,8 +229,8 @@ layer(Substrate.layer)("workload indexes on a derived relation", (it) => {
 										"the statement reads the view through the workload index"
 									)
 									const rows = yield* owner.values(statement.sql, least)
-									const selected = Arr.flatMap(c.busy, ([account, more]) =>
-										1 + more >= c.least ? [id(account)] : []
+									const selected = Arr.flatMap(c.more, (more, a) =>
+										1 + more >= c.least ? [id(a)] : []
 									)
 									assert.deepEqual(
 										Arr.sort(
@@ -238,9 +239,12 @@ layer(Substrate.layer)("workload indexes on a derived relation", (it) => {
 										),
 										Arr.sort(selected, Order.String)
 									)
-									k.note(selected.length === 0 ? "no account selected" : "a busy account selected")
-									if (Arr.some(c.busy, ([, more]) => 1 + more < c.least)) {
-										k.note("a busy account below the least")
+									k.note(selected.length === 0 ? "no account selected" : "an account selected")
+									if (Arr.some(c.more, (more) => 1 + more < c.least)) {
+										k.note("an account below the least")
+									}
+									if (Arr.some(c.more, (more) => 1 + more === c.least)) {
+										k.note("an account at the least")
 									}
 								}),
 								Effect.orDie(owner.rollback)

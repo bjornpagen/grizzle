@@ -43,8 +43,8 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * base reads the parent's id, which the checker carries in the state as the origin (check/recursion/origin.ts), so its
  * base is every edge and the pipelined statement computes the closure of every root and keeps the delivered parents'
  * (the conservative artifact). The optimized artifact seeds one recursive statement from the delivered parents' key
- * recordset: its states are exactly the page's closures, its rows read from the edge relation are proportional to
- * them, not to the forest, and one Recursive Union runs once for the page.
+ * recordset: its states are exactly the page's closures, its rows read from the edge relation, probed, are edges of
+ * the page's chains alone (pageEdges), never the forest's, and one Recursive Union runs once for the page.
  *
  * That the seeded statement delivers exactly the pipelined closures is the graph suite's (equivalence.test.ts, the
  * attachment population against the conservative lowering) and the recursion oracle's (consumer:attach against the
@@ -182,11 +182,20 @@ const below = (from: Term<number, unknown, unknown, "integer">) =>
 		rec: [forward]
 	})
 
+/**
+ * The rows the seeded attachment may read from E while it probes: E's key index is on (from, to), so under the
+ * probing settings every scan of E is a probe of it on `from`, the seed's at each page root and the step's at each state,
+ * and every row a probe reads, returned or removed by a filter, has that `from`, a page root or a vertex below one. Each
+ * such row is an edge of a page root's chain, and each of those edges leads to one vertex below its root, so they number
+ * the page's closures: the sum of its chains' depths. The forest's other edges are never read.
+ */
+const pageEdges = (f: Forest): number => Arr.reduce(f.page, 0, (sum, depth) => sum + depth)
+
 const pageBelow = (n: number) => page(n).attach("below", (p) => below(p.id), "array")
 
 layer(Substrate.layer)("R37: a recursive attachment seeded once from the parent keys", (it) => {
 	it.effect(
-		"reads rows proportional to the delivered parents' closures, in one Recursive Union for the page",
+		"reads only the edges of the delivered parents' chains, in one Recursive Union for the page",
 		(ctx) =>
 			searched(
 				ctx,
@@ -321,7 +330,7 @@ layer(Substrate.layer)("R37: a recursive attachment seeded once from the parent 
 							assert.deepEqual(planned.seeded.states, [closures], detail)
 							assert.ok(planned.seeded.feedback <= closures, detail)
 							assert.deepEqual(probed.seeded.states, [closures], detail)
-							assert.ok(probed.seeded.read <= 2 * (closures + f.page.length), detail)
+							assert.ok(probed.seeded.read <= pageEdges(f), detail)
 							k.note(f.page.length === 1 ? "a page of one root" : "a page of several roots")
 							if (new Set(f.page).size > 1) {
 								k.note("a page of chains of two depths")
