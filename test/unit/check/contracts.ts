@@ -34,7 +34,7 @@ const contractNames = ["Qty", "Fresh"] as const
 export type ContractName = (typeof contractNames)[number]
 
 /** A contract a query declares: its name, its base, and whether its predicate states its values are at least 0. */
-export interface Declared {
+export interface DeclaredContract {
 	readonly name: ContractName
 	readonly base: "int4" | "int8"
 	readonly nonnegative: boolean
@@ -43,13 +43,13 @@ export interface Declared {
 export interface ContractCase {
 	/** Whether the schema declares Qty, by a field of it. */
 	readonly schemaQty: boolean
-	readonly declared: Arr.NonEmptyReadonlyArray<Declared>
+	readonly declared: Arr.NonEmptyReadonlyArray<DeclaredContract>
 }
 
 /** The schema's Qty, as a query declares it. */
-const schemaQty: Declared = { name: "Qty", base: "int4", nonnegative: true }
+const schemaQty: DeclaredContract = { name: "Qty", base: "int4", nonnegative: true }
 
-const same = (a: Declared, b: Declared): boolean =>
+const same = (a: DeclaredContract, b: DeclaredContract): boolean =>
 	a.name === b.name && a.base === b.base && a.nonnegative === b.nonnegative
 
 /** The names declared with two descriptors, across the query and, where it declares Qty, the schema. */
@@ -61,10 +61,11 @@ export const conflicting = (c: ContractCase): ReadonlyArray<ContractName> => {
 	})
 }
 
-const baseDesc = (base: Declared["base"]): FieldDesc => (base === "int4" ? f.integer : f.bigint)
+const baseDesc = (base: DeclaredContract["base"]): FieldDesc =>
+	base === "int4" ? f.integer : f.bigint
 
 /** The descriptor a declaration states. */
-const descriptorOf = (d: Declared): FieldDesc => ({
+const descriptorOf = (d: DeclaredContract): FieldDesc => ({
 	kind: "contract",
 	name: d.name,
 	base: baseDesc(d.base),
@@ -98,7 +99,7 @@ export const contractQuery = (c: ContractCase): QueryDesc => {
 	)
 }
 
-const declaredGen: Gen<Declared> = (source) => ({
+const declaredGen: Gen<DeclaredContract> = (source) => ({
 	name: source.draw(element(contractNames)),
 	base: source.draw(element(["int4", "int8"] as const)),
 	nonnegative: source.draw(boolean)
