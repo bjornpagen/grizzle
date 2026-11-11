@@ -32,13 +32,18 @@ import { trusted } from "#compiler/core/trusted.ts"
 import type { Cell, ParamText } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { relNode, rooted, topoOrder } from "#compiler/ir/dag.ts"
-import type { TypedLiteral } from "#compiler/ir/expr.ts"
+import type { ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
 import type { LogicalQuery, ParamDecl, StatementSpec } from "#compiler/ir/products.ts"
 import {
 	type CompletedOrder,
 	conservativeMeta,
 	type Heading,
-	type OrderKey
+	type InputSetInput,
+	type NodeOf,
+	type OrderKey,
+	type RelNode,
+	type RootedDag,
+	unionArms
 } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
@@ -77,9 +82,9 @@ import {
 	queryCaseGen
 } from "#test/support/oracle/gen/case.ts"
 import { int4 } from "#test/support/oracle/gen/domain.ts"
-import { canonicalFacts } from "#test/support/oracle/gen/facts.ts"
+import { canonicalFacts, type GenFacts } from "#test/support/oracle/gen/facts.ts"
 import { printQueryCase } from "#test/support/oracle/gen/print.ts"
-import { normalQuery } from "#test/support/oracle/gen/query.ts"
+import { type GenParam, normalQuery } from "#test/support/oracle/gen/query.ts"
 import { type GenRelation, schemaDesc, schemaName } from "#test/support/oracle/gen/schema.ts"
 import { factStatements } from "#test/support/oracle/install/load.ts"
 import { oraclePlan } from "#test/support/oracle/install/real.ts"
@@ -99,14 +104,15 @@ import { Q } from "#test/unit/lower/conservative/fixtures.ts"
 
 /**
  * Why a case pages nothing: a column without an admitted order, a baseline lowering that refuses the query, a
- * heterogeneous union whose common columns hold no proved key, heading groups that tie on every common column, or a
- * traversal over the request bound.
+ * heterogeneous union whose common columns hold no proved key, heading groups that tie on every common column, or an
+ * answer or a traversal over the request bound.
  */
 type PageSkip =
 	| "unordered column"
 	| "baseline refuses"
 	| "union without a common key"
 	| "heading groups tie"
+	| "answer over the request bound"
 	| "traversal over the request bound"
 
 /**
@@ -173,11 +179,188 @@ const situations: Arr.NonEmptyReadonlyArray<PageFeature> = [
 	...Arr.map(pageSizes, (n) => `page size ${n}` as const)
 ]
 
-/** The requests a case's traversals may take, a search budget: a drawn case whose traversals would take more is skipped. */
+/**
+ * What a case may cost, a search budget: the rows its answer may hold by structure (`answerBound`), which D and every
+ * page read, judged before anything runs, and the requests its traversals take, judged once D is read. A drawn case
+ * over it in either is skipped.
+ */
 const requestBound = 10_000
 
 /** A traversal this long in one direction: the required feature "a traversal of at least 200 pages in one direction". */
 const longTraversal = 200
+
+/**
+ * The product of two row bounds: no rows where either holds none, an unbounded side otherwise unbounding it, never the
+ * NaN that zero times Infinity is.
+ */
+const times = (a: number, b: number): number => (a === 0 || b === 0 ? 0 : a * b)
+
+/** A column of a region's occurrence bound to one of the region's variables. */
+interface BoundColumn {
+	readonly source: RelNode
+	readonly column: string
+}
+
+/** Every occurrence column the variable of `region`'s heading column `column` is bound to. */
+const boundColumns = (region: NodeOf<"MatchRegion">, column: string): ReadonlyArray<BoundColumn> =>
+	Arr.flatMap(region.occurrences, (o) =>
+		Arr.flatMap(o.bindings, (b) =>
+			b.var.name === column ? [{ source: o.source, column: b.column }] : []
+		)
+	)
+
+/**
+ * The rows each node of `nodes`, in topological order, may hold, by structure over the case's stored facts `facts`
+ * and its relation parameters' rows `params`: a stored relation its facts, a closed relation its rows, a relation
+ * parameter its rows, a region the product of its occurrences', a union the sum of its arms', an intersection its lesser
+ * side's, an uncorrelated literal take its bound, a fold at least its one row, an approximate nearest its take, a
+ * recursive relation the product over its state columns of the values each may take, and every other node its input's
+ * or its left side's. Where structure bounds nothing, a correlated region, a view, a producer, a context, the bound is
+ * Infinity. No node's bound is below the rows PostgreSQL delivers for it, and none is NaN (`times`).
+ *
+ * A recursive relation's column takes its base's values and the values its step adds: none where the step carries the
+ * column's own value through (a projection, a filter, a region variable bound to it), what its step's other source holds
+ * where a region variable is bound there too, and no bound where the step reads another column of its state.
+ */
+const rowsBounds = (
+	nodes: ReadonlyArray<RelNode>,
+	facts: GenFacts,
+	params: Readonly<Record<string, GenParam>>
+): ReadonlyMap<NodeId, number> => {
+	const byId = new Map(Arr.map(nodes, (n) => [n.id, n] as const))
+	const bounds = new Map<NodeId, number>()
+	const rows = (n: RelNode): number =>
+		defined(bounds.get(n.id), "a node's inputs bounded before it")
+	const referenced = (expr: ScalarExpr): BoundColumn | undefined =>
+		expr.kind === "column"
+			? {
+					source: defined(byId.get(expr.column.node), "a referenced node"),
+					column: expr.column.name
+				}
+			: undefined
+	const projected = (n: NodeOf<"ProjectSet">, column: string): BoundColumn | undefined =>
+		Option.match(
+			Arr.findFirst(n.out, (o) => o.name === column),
+			{ onNone: () => undefined, onSome: (o) => referenced(o.expr) }
+		)
+	const values = (n: RelNode, column: string): number => {
+		if (n.kind === "Filter") {
+			return values(n.input, column)
+		}
+		if (n.kind === "ProjectSet") {
+			const from = projected(n, column)
+			return from === undefined ? rows(n) : Math.min(rows(n), values(from.source, from.column))
+		}
+		if (n.kind === "MatchRegion") {
+			return Arr.reduce(boundColumns(n, column), rows(n), (least, b) =>
+				Math.min(least, values(b.source, b.column))
+			)
+		}
+		return rows(n)
+	}
+	const added = (recursive: NodeId, own: string, n: RelNode, column: string): number => {
+		if (n.kind === "SelfRef") {
+			return n.recursive === recursive && column === own ? 0 : Number.POSITIVE_INFINITY
+		}
+		if (n.kind === "Filter") {
+			return added(recursive, own, n.input, column)
+		}
+		if (n.kind === "ProjectSet") {
+			const from = projected(n, column)
+			return from === undefined ? rows(n) : added(recursive, own, from.source, from.column)
+		}
+		if (n.kind === "MatchRegion") {
+			return Arr.reduce(boundColumns(n, column), rows(n), (least, b) =>
+				Math.min(least, added(recursive, own, b.source, b.column))
+			)
+		}
+		return values(n, column)
+	}
+	const relationRows = (input: InputSetInput): number => {
+		if (input.kind === "row") {
+			return 1
+		}
+		if (input.kind === "member") {
+			return Number.POSITIVE_INFINITY
+		}
+		const param = defined(params[input.param], "a relation parameter's rows")
+		if (param.kind !== "relation") {
+			throw new Error(`an InputSet over the scalar parameter ${input.param}`)
+		}
+		return param.rows.length
+	}
+	const bound = (n: RelNode): number => {
+		switch (n.kind) {
+			case "Base":
+				return n.relationKind === "relation"
+					? (facts[n.relation] ?? []).length
+					: Number.POSITIVE_INFINITY
+			case "Closed":
+				return n.rows.length
+			case "InputSet":
+				return relationRows(n.input)
+			case "MatchRegion":
+				return n.correlated.length > 0
+					? Number.POSITIVE_INFINITY
+					: Arr.reduce(n.occurrences, 1, (product, o) => times(product, rows(o.source)))
+			case "Filter":
+			case "ProjectSet":
+			case "Window":
+			case "OrderedResult":
+				return rows(n.input)
+			case "SemiJoin":
+			case "AntiJoin":
+			case "Difference":
+				return rows(n.left)
+			case "Intersect":
+				return Math.min(rows(n.left), rows(n.right))
+			case "Union":
+				return Arr.reduce(unionArms(n.groups), 0, (sum, arm) => sum + rows(arm))
+			case "Take":
+				return n.bound.kind === "literal" && n.correlation.length === 0
+					? Math.min(Number(n.bound.k), rows(n.input))
+					: rows(n.input)
+			case "Group":
+			case "OrderedSetAggregate":
+				return Math.max(1, rows(n.input))
+			case "ApproximateNearest":
+				return Math.min(Number(n.take), rows(n.source))
+			case "Attach":
+				return rows(n.parent)
+			case "Recursive":
+				return Arr.reduce(n.heading, 1, (product, c) =>
+					times(product, values(n.base, c.name) + added(n.id, c.name, n.step, c.name))
+				)
+			case "Context":
+			case "Delta":
+			case "Produce":
+			case "SelfRef":
+			case "Forbid":
+				return Number.POSITIVE_INFINITY
+		}
+	}
+	for (const n of nodes) {
+		bounds.set(n.id, bound(n))
+	}
+	return bounds
+}
+
+/**
+ * The rows a case's answer may hold, by structure (`rowsBounds`): its root's, and every attachment's child's, the parts
+ * D reads and every page reads its share of. It is never below what PostgreSQL delivers.
+ */
+const answerBound = (
+	dag: RootedDag,
+	facts: GenFacts,
+	params: Readonly<Record<string, GenParam>>
+): number => {
+	const nodes = topoOrder(dag)
+	const bounds = rowsBounds(nodes, facts, params)
+	const rows = (n: RelNode): number => defined(bounds.get(n.id), "a node of the case's DAG")
+	return Arr.reduce(nodes, rows(dag.roots[0]), (sum, n) =>
+		n.kind === "Attach" ? sum + rows(n.child) : sum
+	)
+}
 
 const config: GenConfig = {
 	...defaultGenConfig,
@@ -480,11 +663,43 @@ const valueRows = (
 	heading: Heading,
 	rows: ReadonlyArray<Row>,
 	codes: Codebook
-): ReadonlyArray<Row> => {
+): ReadonlyArray<Row> => Arr.map(rows, valueRow(heading, codes))
+
+/** A row on `heading` as values (`valueRows`), one row at a time. */
+const valueRow = (heading: Heading, codes: Codebook): ((row: Row) => Row) => {
 	const cells = Arr.map(heading, (c) => canonicalCell(c.type, codes))
-	return Arr.map(rows, (row) =>
+	return (row) =>
 		Arr.map(cells, (cell, i) => cell(defined(row[i], `column ${i} of a delivered row`)))
-	)
+}
+
+/**
+ * Rows of an attachment statement on `heading`, each leading with a parent key `width` columns wide, as values
+ * (`valueRow`): each parent key's rows, each row's text, in string order. Each row is read as a value and set by its key
+ * as it is read, so the rows are held once, as their texts.
+ */
+const childrenByKey = (
+	heading: Heading,
+	rows: ReadonlyArray<Row>,
+	width: number,
+	codes: Codebook
+): ReadonlyMap<string, ReadonlyArray<string>> => {
+	const value = valueRow(heading, codes)
+	const positions = leading(width)
+	const out = new Map<string, Array<string>>()
+	for (const raw of rows) {
+		const row = value(raw)
+		const key = keyText(row, positions)
+		const group = out.get(key)
+		if (group === undefined) {
+			out.set(key, [Formatter.format(row)])
+		} else {
+			group.push(Formatter.format(row))
+		}
+	}
+	for (const group of out.values()) {
+		group.sort()
+	}
+	return out
 }
 
 /** The rows PostgreSQL returns, every column as text. */
@@ -494,13 +709,14 @@ class Skip extends Data.TaggedError("Skip")<{ readonly reason: string }> {}
 
 interface Full {
 	readonly rows: ReadonlyArray<Row>
-	readonly attachments: ReadonlyArray<ReadonlyArray<Row>>
+	/** Each attachment statement's rows over every delivered parent, by parent key (`childrenByKey`). */
+	readonly attachments: ReadonlyArray<ReadonlyMap<string, ReadonlyArray<string>>>
 }
 
 /**
  * D: the conservative lowering's delivery, each heading group sorted on the page order and the groups merged on it,
  * on the template's heading, as values (valueRows); and every attachment statement's rows over every delivered parent,
- * as values too.
+ * as values too, by parent key, each read as it arrives (`childrenByKey`), so D holds one copy of every row.
  */
 const fullResult = (
 	session: PgConnection,
@@ -518,11 +734,17 @@ const fullResult = (
 			}
 			return spec.value
 		})
-		const raws: Array<ReadonlyArray<Row>> = []
+		const groups: Array<{ readonly spec: StatementSpec; readonly rows: ReadonlyArray<Row> }> = []
+		const attachments: Array<ReadonlyMap<string, ReadonlyArray<string>>> = []
 		for (const [i, statement] of statements.entries()) {
+			const spec = defined(specs[i], "statement")
 			const values = Arr.map(statement.params, (slot) => slotText(o.c, slot, codes))
-			const raw = yield* run(session)(defined(specs[i], "statement").sql, values)
-			raws.push(raw)
+			const raw = yield* run(session)(spec.sql, values)
+			if (spec.role === "attachment") {
+				attachments.push(childrenByKey(spec.heading, raw, keyColumns(statement.role).length, codes))
+			} else {
+				groups.push({ spec, rows: raw })
+			}
 		}
 		const heading = template.heading
 		const project = (spec: StatementSpec, row: Row): Row =>
@@ -537,12 +759,6 @@ const fullResult = (
 					c.name
 				)
 			)
-		const groups = Arr.flatMap(specs, (spec, i) =>
-			spec.role === "attachment" ? [] : [{ spec, rows: raws[i] ?? [] }]
-		)
-		const attachments = Arr.flatMap(specs, (spec, i) =>
-			spec.role === "attachment" ? [valueRows(spec.heading, raws[i] ?? [], codes)] : []
-		)
 		const types: Record<string, Heading[number]["type"]> = {}
 		for (const c of heading) {
 			types[c.name] = c.type
@@ -871,26 +1087,21 @@ const assertWithinBound = (
  */
 const checkAttachments = (label: string, p: Paged, full: Full): void => {
 	for (const [a, attached] of p.attached.entries()) {
-		const all = full.attachments[a]
-		if (all === undefined) {
+		const d = full.attachments[a]
+		if (d === undefined) {
 			throw new PropertyFailed({ report: `${label}: no attachment ${a} in D` })
 		}
-		const keyed = (rows: ReadonlyArray<Row>): Map<string, Array<string>> => {
-			const out = new Map<string, Array<string>>()
-			for (const row of rows) {
-				const key = keyText(row, leading(attached.width))
-				const group = out.get(key)
-				if (group === undefined) {
-					out.set(key, [Formatter.format(row)])
-				} else {
-					group.push(Formatter.format(row))
-				}
-			}
-			return out
-		}
 		const parents = new Set(attached.parents)
-		const page = keyed(attached.rows)
-		const d = keyed(all)
+		const page = new Map<string, Array<string>>()
+		for (const row of attached.rows) {
+			const key = keyText(row, leading(attached.width))
+			const group = page.get(key)
+			if (group === undefined) {
+				page.set(key, [Formatter.format(row)])
+			} else {
+				group.push(Formatter.format(row))
+			}
+		}
 		for (const key of page.keys()) {
 			assert.ok(
 				parents.has(key),
@@ -898,9 +1109,10 @@ const checkAttachments = (label: string, p: Paged, full: Full): void => {
 			)
 		}
 		for (const key of parents) {
+			const children: ReadonlyArray<string> = Arr.sort(page.get(key) ?? [], Order.String)
 			assert.deepEqual(
-				Arr.sort([...(page.get(key) ?? [])], Order.String),
-				Arr.sort([...(d.get(key) ?? [])], Order.String),
+				children,
+				d.get(key) ?? [],
 				`${label} attachment ${a}: the children of ${key}`
 			)
 		}
@@ -908,7 +1120,8 @@ const checkAttachments = (label: string, p: Paged, full: Full): void => {
 }
 
 /**
- * A forward and a backward traversal, each once at its drawn size, and the empty-page rules.
+ * A forward and a backward traversal, each once at its drawn size, and the empty-page rules. Each page is judged as it
+ * arrives, against D's rows at its place, so a traversal holds one page besides the one before it.
  *
  * Whether checkAttachments could see the dropped lookahead row's children leak onto a page: the row after a
  * forward page, the next page's first edge, or before a backward page, the previous page's last edge, is a
@@ -925,65 +1138,60 @@ const checkRuntime = (
 		const total = full.rows.length
 		for (const direction of ["forward", "backward"] as const) {
 			const size = sizes[direction]
-			const pages: Array<Paged> = []
-			let next: Paged = yield* page({ variant: direction === "forward" ? "first" : "last", size })
+			const forward = direction === "forward"
+			const traversal = `${label} ${direction} ${size}`
+			let previous: Paged | undefined
+			let current: Paged = yield* page({ variant: forward ? "first" : "last", size })
+			let pages = 0
+			let read = 0
 			for (;;) {
-				pages.push(next)
-				const info = next.page.pageInfo
-				const more = direction === "forward" ? info.hasNextPage : info.hasPreviousPage
-				const cursor = direction === "forward" ? info.endCursor : info.startCursor
+				const count = current.delivered.length
+				const start = forward ? read : total - read - count
+				const end = start + count
+				const at = `${traversal} page ${pages}`
+				assert.deepEqual(
+					current.delivered,
+					full.rows.slice(Math.max(0, start), Math.max(0, end)),
+					at
+				)
+				assert.equal(current.page.pageInfo.hasPreviousPage, start > 0, `${at} previous`)
+				assert.equal(current.page.pageInfo.hasNextPage, end < total, `${at} next`)
+				assert.equal(current.page.edges.length, count)
+				checkAttachments(at, current, full)
+				if (previous !== undefined) {
+					const lookahead = Arr.map(current.attached, (x) => (forward ? x.head : x.tail))
+					for (const [a, x] of previous.attached.entries()) {
+						const key = lookahead[a]
+						if (
+							key !== undefined &&
+							!x.parents.includes(key) &&
+							(full.attachments[a]?.has(key) ?? false)
+						) {
+							note("lookahead parent with children")
+						}
+					}
+				}
+				read += count
+				pages += 1
+				const info = current.page.pageInfo
+				const more = forward ? info.hasNextPage : info.hasPreviousPage
+				const cursor = forward ? info.endCursor : info.startCursor
 				if (!more || Option.isNone(cursor)) {
 					break
 				}
-				if (pages.length > total + 2) {
+				if (pages > total + 2) {
 					throw new PropertyFailed({ report: `${label}: a traversal that does not end` })
 				}
-				next = yield* page({
-					variant: direction === "forward" ? "after" : "before",
+				previous = current
+				current = yield* page({
+					variant: forward ? "after" : "before",
 					size,
 					token: cursor.value
 				})
 			}
-			if (pages.length >= longTraversal) {
+			assert.equal(read, total, `${traversal}: every row of D delivered`)
+			if (pages >= longTraversal) {
 				note("a traversal of at least 200 pages in one direction")
-			}
-			const ordered = direction === "forward" ? pages : Arr.reverse(pages)
-			const delivered: ReadonlyArray<Row> = Arr.flatMap(ordered, (p) => p.delivered)
-			assert.deepEqual(delivered, full.rows, `${label} ${direction} ${size}`)
-			let offset = 0
-			for (const [k, p] of ordered.entries()) {
-				const start = offset
-				offset += p.delivered.length
-				assert.equal(
-					p.page.pageInfo.hasPreviousPage,
-					start > 0,
-					`${label} ${direction} ${size} page ${k} previous`
-				)
-				assert.equal(
-					p.page.pageInfo.hasNextPage,
-					offset < total,
-					`${label} ${direction} ${size} page ${k} next`
-				)
-				assert.equal(p.page.edges.length, p.delivered.length)
-				checkAttachments(`${label} ${direction} ${size} page ${k}`, p, full)
-			}
-			for (let k = 1; k < ordered.length; k++) {
-				const prev = defined(ordered[k - 1], "page")
-				const cur = defined(ordered[k], "page")
-				const [fetched, lookahead] =
-					direction === "forward"
-						? [prev, Arr.map(cur.attached, (x) => x.head)]
-						: [cur, Arr.map(prev.attached, (x) => x.tail)]
-				for (const [a, x] of fetched.attached.entries()) {
-					const key = lookahead[a]
-					if (
-						key !== undefined &&
-						!x.parents.includes(key) &&
-						Arr.some(full.attachments[a] ?? [], (row) => keyText(row, leading(x.width)) === key)
-					) {
-						note("lookahead parent with children")
-					}
-				}
 			}
 			note(`page size ${size}`)
 		}
@@ -1191,6 +1399,16 @@ export const generatedSuite = (artifact: PageArtifactName): void => {
 				...o.c,
 				facts: multiplyFacts(o.c.schema, o.c.facts, perturbation.multiplier)
 			}
+			const answer = answerBound(query.dag, stored.facts, o.c.query.params)
+			if (!(answer <= requestBound)) {
+				yield* Effect.promise(() =>
+					ctx.annotate(
+						`skipped over the request bound ${requestBound}: an answer of at most ${answer} rows by structure`
+					)
+				)
+				c.note("skipped: answer over the request bound")
+				return
+			}
 			const facts = factStatements(plan, factSet(stored))
 			if (!facts.ok) {
 				return yield* Effect.die(new Error(facts.error.message))
@@ -1315,6 +1533,13 @@ export const generatedSuite = (artifact: PageArtifactName): void => {
 						c.note("skipped: heading groups tie")
 						return
 					}
+					const read = Arr.reduce(full.attachments, full.rows.length, (sum, children) =>
+						Arr.reduce([...children.values()], sum, (n, rows) => n + rows.length)
+					)
+					assert.ok(
+						read <= answer,
+						`D holds ${read} rows, over the answer's structural bound ${answer}\n${printCase(o)}`
+					)
 					const sizes = o.size
 					/** One request per page of each traversal, an empty D's traversal being one page. */
 					const cost =
