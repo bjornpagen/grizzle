@@ -81,9 +81,6 @@ export interface WireWindow {
 	readonly backend: ReadonlyArray<BackendMessage>
 }
 
-export const frontendCount = (window: WireWindow, type: string): number =>
-	Arr.filter(window.frontend, (message) => message.type === type).length
-
 export const backendCount = (window: WireWindow, type: string): number =>
 	Arr.filter(window.backend, (message) => message.type === type).length
 
@@ -147,7 +144,7 @@ const statementText = (type: string, body: Buffer): string => {
 }
 
 /** The simple Query texts of a window, in order: the BEGIN, COMMIT and ROLLBACK a flight frames its statements with. */
-export const queryTexts = (window: WireWindow): ReadonlyArray<string> =>
+const queryTexts = (window: WireWindow): ReadonlyArray<string> =>
 	Arr.map(
 		Arr.filter(window.frontend, (message) => message.type === "Q"),
 		(message) => message.text

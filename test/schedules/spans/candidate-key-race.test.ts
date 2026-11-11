@@ -29,7 +29,9 @@
  *
  * Features: the apply waited, the apply refused.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): span-key-overlaps.patch.
+ * Plants (~/.cache/grizzle-release/BR13/plants): candidate-key-exclusion-not-transient.patch (a span key's exclusion
+ * violation from an occupant the snapshot did not see classified as the key's law, not a TransientFailure, so a
+ * committed repeat is refused rather than retried into no-change).
  */
 
 import { layer } from "@effect/vitest"

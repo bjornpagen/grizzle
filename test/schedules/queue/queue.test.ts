@@ -23,8 +23,9 @@
  *
  * Features: a write waited, a write refused.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): queue-candidate-keys-unenforced.patch (candidate keys installed as no
- * constraint).
+ * Plants (~/.cache/grizzle-release/BR13/plants): queue-unique-not-transient.patch (a unique violation from an occupant
+ * the snapshot did not see classified as the key's law, not a TransientFailure, so a claimer that lost a seat is
+ * refused rather than retried).
  */
 
 import { layer } from "@effect/vitest"

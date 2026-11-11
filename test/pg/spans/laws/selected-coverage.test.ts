@@ -16,7 +16,8 @@
  * (test/support/laws/model.ts Span), which hold no int8 limit exactly and no date, so the limits can be stated only
  * here, as int8range and daterange literals.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): span-key-overlaps.patch.
+ * Plants (~/.cache/grizzle-release/BR13/plants): period-fk-not-enforced.patch (every PERIOD foreign key installed NOT
+ * ENFORCED, so a visit outside its site's shifts is accepted).
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"

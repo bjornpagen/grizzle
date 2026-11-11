@@ -9,8 +9,7 @@ import type { BelowSerializable } from "#test/support/substrate/session.ts"
  *   schedule("a planted writer below SERIALIZABLE is refused", [
  *   	beginBelow("w", "read committed"),
  *   	sql("w", insert, refused),
- *   	rollback("w"),
- *   	check(`SELECT count(*)::text FROM t`, rowSet([["0"]]))
+ *   	rollback("w")
  *   ])
  */
 export const schedule = <D extends string>(
@@ -24,14 +23,6 @@ export const sql = <D extends string>(
 	expect: Expectation<ScheduleOutcome>
 ): Step<D> => ({ _tag: "Perform", session, action: { _tag: "Sql", sql: text }, expect })
 
-/** BEGIN ISOLATION LEVEL SERIALIZABLE, as every transaction. */
-export const begin = <D extends string>(session: D): Step<D> => ({
-	_tag: "Perform",
-	session,
-	action: { _tag: "Begin" },
-	expect: ok()
-})
-
 /** A planted writer's BEGIN below SERIALIZABLE: its writes are to be refused. */
 export const beginBelow = <D extends string>(session: D, level: BelowSerializable): Step<D> => ({
 	_tag: "Perform",
@@ -40,21 +31,9 @@ export const beginBelow = <D extends string>(session: D, level: BelowSerializabl
 	expect: ok()
 })
 
-export const commit = <D extends string>(
-	session: D,
-	expect: Expectation<ScheduleOutcome>
-): Step<D> => ({ _tag: "Perform", session, action: { _tag: "Commit" }, expect })
-
 export const rollback = <D extends string>(session: D): Step<D> => ({
 	_tag: "Perform",
 	session,
 	action: { _tag: "Rollback" },
 	expect: ok()
-})
-
-/** A statement on the runner's observer connection, as the owner. */
-export const check = (text: string, expect: Expectation<ScheduleOutcome>): Step<never> => ({
-	_tag: "Check",
-	sql: text,
-	expect
 })

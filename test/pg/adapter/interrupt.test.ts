@@ -21,7 +21,8 @@
  * interruption left (committed, rolled back).
  *
  * Plants (~/.cache/grizzle-release/BR13/plants): interrupt-no-cancel.patch (an interrupted flight sends no
- * CancelRequest).
+ * CancelRequest), interrupt-lease-leaked.patch (an interrupted call's retired session never counted out of the pool's
+ * leases).
  */
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore, type Kept } from "@grizzle/testing/explore"

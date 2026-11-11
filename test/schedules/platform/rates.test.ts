@@ -18,8 +18,8 @@
  * The swarm adds a second split at a later instant, priced from the same card, so the two splits race for it: the
  * second to commit finds the card it retires gone and its own first part colliding with the first split's.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): span-key-overlaps.patch (span keys installed without WITHOUT
- * OVERLAPS).
+ * Plants (~/.cache/grizzle-release/BR13/plants): period-fk-not-enforced.patch (every PERIOD foreign key installed NOT
+ * ENFORCED, so pricedByCard admits a charge no card prices).
  */
 
 import { array, element, type Gen, int } from "@grizzle/testing/gen"

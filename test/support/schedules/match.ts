@@ -1,5 +1,4 @@
-import { exact, ordered, set, structuralHash } from "@grizzle/testing/oracle"
-import { Array as Arr, Formatter, Option } from "effect"
+import { Array as Arr, Formatter } from "effect"
 import { messageOf } from "#test/support/message.ts"
 import type {
 	Expectation,
@@ -64,28 +63,10 @@ const outcomeIs =
 		return holds(outcome) ? meets(shown) : misses(shown, `expected ${what}`)
 	}
 
-/** Rows as a set that fails on a repeated row, each row cell by cell. */
-const sameRowSet = (a: TextRows, b: TextRows): boolean =>
-	Option.isNone(set(structuralHash, ordered(exact))(a, b))
-
 /**
  * Expectations of a direct step's outcome, and printing outcomes.
- *
- * Rows compare cell by cell, through the testing library's equivalences; a row set holds each row once, so no
- * comparison goes through a text rendering of the values.
  *
  * Success, its rows unchecked.
  */
 export const ok = (): Expectation<ScheduleOutcome> =>
 	outcomeIs("ok", (outcome) => outcome._tag === "Ok")
-
-/** Success with these text rows in any order, each as many times. */
-export const rowSet = (expected: TextRows): Expectation<ScheduleOutcome> =>
-	outcomeIs(
-		`row set ${printRows(expected)}`,
-		(outcome) => outcome._tag === "Ok" && sameRowSet(outcome.rows, expected)
-	)
-
-/** COMMIT answered with ROLLBACK because the transaction had already failed. */
-export const rolledBack = (): Expectation<ScheduleOutcome> =>
-	outcomeIs("rolled back", (outcome) => outcome._tag === "RolledBack")
