@@ -1,3 +1,23 @@
+/**
+ * The interleaving engine (interleave.ts) over a lock manager the suite plants, against what it promises:
+ *
+ * - Every order with sleep sets reaches every result every order without them reaches, running no more orders
+ *   (a differential); sessions whose every move commutes with every other's run one order under sleep sets and every
+ *   order, the multinomial of their lengths, without them (an exhaustion of three sessions on their own resources).
+ * - Two sessions that lock in opposite orders reach the deadlock and its victim: a planted scenario, its verdict the
+ *   lock manager's own.
+ * - Sessions whose afters form a cycle are refused before any runs, naming one of the afters' loops, and every other
+ *   after relation runs: an exhaustion of every after of three sessions, self-loops among them.
+ * - A script is followed, and stops at the first decision it cannot make, by its decision and choice, never its prose.
+ * - A schedule drawn from a case's tape replays exactly, and every session a run starts is released, whatever its
+ *   judge refuses.
+ *
+ * Oracles are stated per search. Plants (~/.cache/grizzle-release/BR07/plants): interleave-sleep-everything.patch
+ * (every session put to sleep, commuting or not) turns the reach and deadlock properties red;
+ * interleave-sleep-sets-off.patch the commuting one; interleave-after-cycle-blind.patch (a self-loop unseen) the
+ * cycles; interleave-in-flight-allowed.patch the script; interleave-drawn-unobserved.patch (a drawn decision left off
+ * the tape) the replay; interleave-unreleased.patch the release.
+ */
 import { describe, it } from "@effect/vitest"
 import { assertTrue, deepStrictEqual, strictEqual } from "@effect/vitest/utils"
 import {
@@ -8,12 +28,13 @@ import {
 	Formatter,
 	Option,
 	Order,
+	Schema,
 	String as Str,
 	Struct
 } from "effect"
-import { type Case, drawn, explore } from "#explore.ts"
+import { type Case, drawn, exhaust, explore } from "#explore.ts"
 import { awaitFact } from "#fact.ts"
-import { noCoverage, required } from "#features.ts"
+import { noCoverage, required, requiredInSpace } from "#features.ts"
 import { array, element, type Gen, int } from "#gen.ts"
 import {
 	AfterCycle,
@@ -241,6 +262,70 @@ const crossing: Sessions<"a" | "b", Move> = {
 	}
 }
 
+/** Sessions that each write their own resource, once or twice, then commit: every move of one commutes with every other's. */
+const disjointSessions: Gen<Sessions<Named, Move>> = (source) => {
+	const own = (resource: Resource): Arr.NonEmptyReadonlyArray<Move> => {
+		const first: Move = { kind: "write", resource, value: source.draw(int(1, 2)) }
+		const second: ReadonlyArray<Move> =
+			source.draw(int(0, 1)) === 1
+				? [{ kind: "write", resource, value: source.draw(int(1, 2)) }]
+				: []
+		return [first, ...second, { kind: "commit" }]
+	}
+	return {
+		a: { moves: own("x"), after: Option.none() },
+		b: { moves: own("y"), after: Option.none() },
+		c: { moves: own("z"), after: Option.none() }
+	}
+}
+
+/** How many orders interleave sessions of these lengths, each keeping its own order: (Σ n)! / Π n!. */
+const multinomialOf = (lengths: ReadonlyArray<number>): number => {
+	const factorial = (n: number): number => (n <= 1 ? 1 : n * factorial(n - 1))
+	return Arr.reduce(
+		lengths,
+		factorial(Arr.reduce(lengths, 0, (sum, n) => sum + n)),
+		(orders, n) => orders / factorial(n)
+	)
+}
+
+/** A session's after: none, or one of the sessions, itself included. */
+const afterGen: Gen<Option.Option<Named>> = element([
+	Option.none(),
+	Option.some("a"),
+	Option.some("b"),
+	Option.some("c")
+])
+
+/** The loops the afters form, each its sessions: following each session's after until a session repeats. */
+const loopsOf = (
+	afters: Readonly<Record<Named, Option.Option<Named>>>
+): ReadonlyArray<ReadonlyArray<Named>> => {
+	const loops: Array<ReadonlyArray<Named>> = []
+	for (const start of Struct.keys(afters)) {
+		const path: Array<Named> = []
+		let at: Option.Option<Named> = Option.some(start)
+		while (Option.isSome(at) && !Arr.contains(path, at.value)) {
+			path.push(at.value)
+			at = afters[at.value]
+		}
+		if (Option.isSome(at)) {
+			const loop = Arr.dropWhile(path, (name) => name !== at.value)
+			if (!Arr.some(loops, (known) => sameMembers(known, loop))) {
+				loops.push(loop)
+			}
+		}
+	}
+	return loops
+}
+
+/** Whether a failure is the refusal of sessions whose afters form a cycle. */
+const isAfterCycle = Schema.is(AfterCycle)
+
+/** Whether two lists hold the same members, in any order. */
+const sameMembers = (a: ReadonlyArray<string>, b: ReadonlyArray<string>): boolean =>
+	a.length === b.length && Arr.every(a, (member) => Arr.contains(b, member))
+
 describe("interleaving", () => {
 	it.effect("reaches every result with sleep sets that it reaches without them", (ctx) =>
 		searched(
@@ -279,23 +364,42 @@ describe("interleaving", () => {
 		)
 	)
 
-	it.effect("prunes the orders of moves that commute", () =>
-		Effect.gen(function* () {
-			const independent: Sessions<"a" | "b", Move> = {
-				a: { moves: [{ kind: "write", resource: "x", value: 1 }], after: Option.none() },
-				b: { moves: [{ kind: "write", resource: "y", value: 2 }], after: Option.none() }
-			}
-			const reduced = yield* resultsOf(independent, "sleep-sets")
-			const full = yield* resultsOf(independent, "none")
-			deepStrictEqual(
-				[
-					[reduced.report.interleavings, reduced.report.pruned],
-					[full.report.interleavings, full.report.pruned],
-					reduced.results.size
-				],
-				[[1, 1], [2, 0], 1]
+	it.effect(
+		"prunes to one order the sessions whose every move commutes with every other's, where every order runs without sleep sets",
+		(ctx) =>
+			searched(
+				ctx,
+				exhaust(
+					{
+						suite: "commuting sessions",
+						oracle: {
+							kind: "specification",
+							name: "sleep sets run one order of moves that all commute; without them every order, the multinomial of the sessions' moves"
+						},
+						box: "three sessions, each writing its own resource once or twice, at either value, then committing",
+						generator: disjointSessions,
+						literal: Formatter.format,
+						limit: 4 ** 3 * 2 ** 3,
+						coverage: noCoverage,
+						caseHang: Duration.minutes(1)
+					},
+					(sessions) =>
+						Effect.gen(function* () {
+							const reduced = yield* resultsOf(sessions, "sleep-sets")
+							const full = yield* resultsOf(sessions, "none")
+							const lengths = Arr.map(Struct.keys(sessions), (name) => sessions[name].moves.length)
+							deepStrictEqual(
+								{
+									reduced: reduced.report.interleavings,
+									full: full.report.interleavings,
+									pruned: full.report.pruned,
+									results: [reduced.results.size, full.results.size]
+								},
+								{ reduced: 1, full: multinomialOf(lengths), pruned: 0, results: [1, 1] }
+							)
+						})
+				)
 			)
-		})
 	)
 
 	it.effect(
@@ -311,33 +415,84 @@ describe("interleaving", () => {
 			})
 	)
 
-	it.effect("refuses sessions whose afters form a cycle before running any", () =>
-		Effect.gen(function* () {
-			const refused = yield* Effect.flip(
-				interleave(
-					lockManager<"a" | "b">(),
+	it.effect(
+		"refuses sessions whose afters form a cycle before running any, naming one cycle, and runs every other",
+		(ctx) =>
+			searched(
+				ctx,
+				exhaust(
 					{
-						name: "cyclic",
-						sessions: {
-							a: { moves: [{ kind: "commit" }], after: Option.some("b") },
-							b: { moves: [{ kind: "commit" }], after: Option.some("a") }
+						suite: "after cycles",
+						oracle: {
+							kind: "specification",
+							name: "sessions start after their afters: refused exactly when the afters form a cycle, which it names"
 						},
-						exclusive: [],
-						state: Option.none()
+						box: "every choice of an after, none or a session, for each of three sessions",
+						generator: (source) => ({
+							a: source.draw(afterGen),
+							b: source.draw(afterGen),
+							c: source.draw(afterGen)
+						}),
+						literal: Formatter.format,
+						limit: 4 ** 3,
+						coverage: requiredInSpace<"a cycle" | "a self-loop" | "no cycle" | "a chain">([
+							"a cycle",
+							"a self-loop",
+							"no cycle",
+							"a chain"
+						]),
+						caseHang: Duration.minutes(1)
 					},
-					{ kind: "every", limit: 10, reduction: "sleep-sets" },
-					() => Effect.void
+					(afters, c) =>
+						Effect.gen(function* () {
+							const loops = loopsOf(afters)
+							let ran = 0
+							const outcome = yield* Effect.result(
+								interleave(
+									lockManager<Named>(),
+									{
+										name: "afters",
+										sessions: {
+											a: { moves: [{ kind: "commit" }], after: afters.a },
+											b: { moves: [{ kind: "commit" }], after: afters.b },
+											c: { moves: [{ kind: "commit" }], after: afters.c }
+										},
+										exclusive: [],
+										state: Option.none()
+									},
+									{ kind: "every", limit: 100, reduction: "sleep-sets" },
+									() =>
+										Effect.sync(() => {
+											ran += 1
+										})
+								)
+							)
+							if (Arr.some(loops, (loop) => loop.length === 1)) {
+								c.note("a self-loop")
+							}
+							if (Arr.isReadonlyArrayEmpty(loops)) {
+								c.note("no cycle")
+								if (Arr.some(Struct.keys(afters), (name) => Option.isSome(afters[name]))) {
+									c.note("a chain")
+								}
+								strictEqual(outcome._tag, "Success")
+								return
+							}
+							c.note("a cycle")
+							const refused = outcome._tag === "Failure" ? outcome.failure : undefined
+							assertTrue(isAfterCycle(refused), "the afters' cycle is refused")
+							deepStrictEqual(
+								{
+									ran,
+									named: Arr.some(loops, (loop) =>
+										sameMembers(loop, isAfterCycle(refused) ? refused.cycle : [])
+									)
+								},
+								{ ran: 0, named: true }
+							)
+						})
 				)
 			)
-			deepStrictEqual(
-				refused,
-				AfterCycle.make({
-					interleaving: "cyclic",
-					cycle: ["a", "b"],
-					message: "cyclic: a, b each start after another of them, so none can start"
-				})
-			)
-		})
 	)
 
 	it.effect("follows a script, and stops at a decision it cannot make", () =>
@@ -359,8 +514,14 @@ describe("interleaving", () => {
 				(run) => Effect.sync(() => runs.push(run))
 			)
 			const [run] = runs
+			const ending = run?.ending
 			deepStrictEqual(
-				[run?.reads, run?.ending],
+				[
+					run?.reads,
+					ending?.kind === "stopped"
+						? { kind: ending.kind, at: ending.at, choice: ending.choice }
+						: ending
+				],
 				[
 					[
 						{
@@ -375,8 +536,7 @@ describe("interleaving", () => {
 					{
 						kind: "stopped",
 						at: 4,
-						choice: { kind: "move", session: "a" },
-						why: "a has a move in flight"
+						choice: { kind: "move", session: "a" }
 					}
 				]
 			)

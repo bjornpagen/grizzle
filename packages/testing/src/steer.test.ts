@@ -1,3 +1,21 @@
+/**
+ * The steered phase (explore.ts), against what it promises, over locks planted to open on five magic values that
+ * random search meets once in 33 million cases:
+ *
+ * - It climbs, one new note at a time, to a situation an unsteered search never reaches: with no steered budget the
+ *   requirement goes unreached, with one it is met.
+ * - Its witnesses, floor and steered, are the suite label's alone: the same under every concurrency and every run
+ *   seed. Oracle: universal, a metamorphic relation.
+ * - It climbs through branches it perceives in V8's block coverage with no note on the way, where a blind search
+ *   meets none.
+ *
+ * Each lock is a planted capability problem, its verdict the specification's: a steered search reaches what it
+ * requires within its budget.
+ *
+ * Plants (~/.cache/grizzle-release/BR07/plants): steer-fresh-only.patch (every steered case a fresh draw) turns the
+ * first property red; coverage-verdict-run-seeded.patch (the steered stream drawn from the run's seed) the second;
+ * sense-v8-blind.patch (block coverage perceiving nothing) the third.
+ */
 import { describe, it } from "@effect/vitest"
 import { deepStrictEqual, strictEqual } from "@effect/vitest/utils"
 import { Array as Arr, Duration, Effect, Formatter, Option, Order, String as Str } from "effect"
@@ -117,8 +135,7 @@ describe("a steered search", () => {
 				explore(magicSearch("unsteered", fiveMatched(0), 4), noteMatched)
 			)
 			strictEqual(unsteered._tag, "FeaturesUnreached")
-			const steered = yield* explore(magicSearch("steered", fiveMatched(50_000), 4), noteMatched)
-			strictEqual(steered.residual.cases, 100)
+			yield* explore(magicSearch("steered", fiveMatched(50_000), 4), noteMatched)
 		}).pipe(Effect.provideServiceEffect(Run, runIn(ctx)))
 	)
 

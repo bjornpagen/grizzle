@@ -1,3 +1,18 @@
+/**
+ * A fuzz run (explore.ts under Run.fuzz, fuzz.ts), against what it promises:
+ *
+ * - It finds a failure the test streams never reach and keeps it: a lock planted to open on five magic values, which
+ *   random search opens once in 33 million cases, opens within the run's budget by climbing the counts it notes, and
+ *   a second run over the corpus it kept fails again at once. A capability of the search, its lock the plant.
+ * - It leaves every other suite as under test: over drawn searches, a suite another suite's fuzz run passes over
+ *   explores exactly as the same run under test does, and never reads or writes the corpus. Oracle: a differential.
+ * - A fuzz time reads as Go's -fuzztime does: every count of 1 to 3 in each unit. Oracle: the specification, Go's
+ *   grammar.
+ *
+ * Plants (~/.cache/grizzle-release/BR07/plants): fuzz-blind.patch (a fuzz run perceiving no note) turns the first
+ * property red; fuzz-every-suite.patch (a fuzz run fuzzing whatever suite it meets) the second; fuzz-time-seconds.patch
+ * (every unit read as seconds) the third.
+ */
 import { describe, it } from "@effect/vitest"
 import { deepStrictEqual, strictEqual } from "@effect/vitest/utils"
 import { Array as Arr, Duration, Effect, Formatter, Option } from "effect"
@@ -117,14 +132,57 @@ describe("a fuzz run", () => {
 		})
 	)
 
-	it.effect("leaves every other suite to run as under test", (ctx) =>
-		Effect.gen(function* () {
-			const { saved, corpus } = memoryCorpus()
-			const explored = yield* explore(search("unfuzzed"), (drawnValues, c) =>
-				Effect.sync(() => c.note(`${matchedOf(drawnValues)} matched`))
-			).pipe(Effect.provideServiceEffect(Run, fuzzRun(ctx, "lock", corpus, 1000)))
-			deepStrictEqual([explored.cases, saved.length], [125, 0])
-		})
+	it.effect(
+		"leaves every other suite to run as under test, its corpus never read or written",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unfuzzed suites",
+						oracle: {
+							kind: "universal",
+							name: "a differential: a suite another suite's fuzz run passes over explores as the same run under test does"
+						},
+						draw: drawn((source) => ({
+							runs: source.draw(int(0, 120)),
+							concurrency: source.draw(int(1, 4)),
+							cases: source.draw(int(1, 1000))
+						})),
+						literal: Formatter.format,
+						coverage: noCoverage,
+						kept: [],
+						runs: 20,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang: Duration.minutes(1)
+					},
+					({ runs, concurrency, cases }) =>
+						Effect.gen(function* () {
+							const untouched: Corpus = {
+								load: Effect.die("the corpus was read"),
+								save: () => Effect.die("the corpus was written"),
+								drop: () => Effect.die("the corpus was written")
+							}
+							const property = (drawnValues: ReadonlyArray<number>, c: Case<`${number} matched`>) =>
+								Effect.sync(() => c.note(`${matchedOf(drawnValues)} matched`))
+							const unfuzzed = { ...search("unfuzzed"), runs, concurrency }
+							const passedOver = yield* explore(unfuzzed, property).pipe(
+								Effect.provideServiceEffect(Run, fuzzRun(ctx, "lock", untouched, cases))
+							)
+							const underTest = yield* explore(unfuzzed, property).pipe(
+								Effect.provideServiceEffect(
+									Run,
+									Effect.map(runOfTest(ctx), (run) =>
+										Run.of({ ...run, replay: Option.none(), fuzz: Option.none() })
+									)
+								)
+							)
+							deepStrictEqual(passedOver, underTest)
+						})
+				)
+			)
 	)
 
 	it.effect("reads a fuzz time as Go's -fuzztime does", (ctx) =>

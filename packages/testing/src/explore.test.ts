@@ -1,3 +1,32 @@
+/**
+ * The search itself (explore.ts), checked against what it promises:
+ *
+ * - Streams: over drawn searches (rotating runs of 0 to 48, 1 to 4 at once, a snapshot every 1 to 16), the floor runs
+ *   max(1, ⌈runs / 4⌉) cases and the rotating stream runs, the residual counting the rotating cases alone; steering is
+ *   offered to exactly the floor's cases, never to a kept case or the rotating stream's.
+ * - Shrinking: a property failing at every draw of at least a drawn threshold shrinks to the threshold.
+ * - Failures by kind: a replay that no longer runs as its token says is ReplayStale; a kept case never meets a
+ *   requirement; a kept case that no longer reaches what it names is KeptUnreached; a hanging case is stopped on the
+ *   live clock under a TestClock; a note or draw after its case ended is CaseMisused; a kept case replays its draws and
+ *   prints them, is stale when they run out, are left over or it gives itself up, and records observations without
+ *   counting them as draws. Each scenario is one named kind of the library's failure taxonomy, its verdict the tag the
+ *   specification names.
+ * - Exhaustion: over drawn spaces (a × b values, a property drawing one of c more), every case runs once, a space one
+ *   past its limit runs none, and a filter's discarded values never count against the limit.
+ * - The residual: an independent recount, the 95% bound by exact enumeration of every run over a box of
+ *   distributions, and Good–Turing's identity by exact enumeration.
+ * - agree: each comparison's definition, side by side.
+ * - The coverage verdict and replay fidelity: metamorphic under another seed and concurrency, and a round trip.
+ * - A synchronous case runs inline: twice the cases arm no more timers or event-loop hops than the runtime's own
+ *   yields allow (SCHEDULED_PER_CASE). Its wall time is no verdict.
+ *
+ * Oracles are stated per search. Plants (~/.cache/grizzle-release/BR07/plants): explore-floor-rounded-down,
+ * shrink-binary-short, replay-leftover-accepted, kept-requirement-counted, kept-unreached-unchecked,
+ * hang-on-test-clock (red by the test's own timeout), misuse-unjudged, kept-draws-unprinted, kept-ran-out-filled,
+ * observe-draws, exhaust-limit-exact-refused, exhaust-discards-counted, residual-doubletons-wide, residual-bound-halved,
+ * residual-estimate-shifted, agree-set-repeats, steering-offered-rotating, coverage-verdict-run-seeded,
+ * replay-unsteered, sync-case-forked: one a property, in this order.
+ */
 import { createHook } from "node:async_hooks"
 import { describe, it } from "@effect/vitest"
 import { assertTrue, deepStrictEqual, strictEqual } from "@effect/vitest/utils"
@@ -39,8 +68,7 @@ import {
 	riskBoundOf,
 	tallyOf
 } from "#features.ts"
-import { array, boolean, constant, element, filter, type Gen, int } from "#gen.ts"
-import { liveMillis } from "#live.ts"
+import { array, constant, element, filter, type Gen, int } from "#gen.ts"
 import { agree, by, equivalence, exact, ordered, type Side, set, structuralHash } from "#oracle.ts"
 import { floorSeed } from "#random.ts"
 import type { Replay, ReplayCase } from "#replay.ts"
@@ -83,35 +111,120 @@ type Size = "small" | "big"
 const noteSize = (value: number, c: Readonly<{ note: (feature: Size) => void }>) =>
 	Effect.sync(() => c.note(value > 1000 ? "big" : "small"))
 
+/** The floor stream's cases of a search of `runs` rotating cases: a quarter as many, rounded up, and one at least. */
+const floorCasesOf = (runs: number): number => Math.max(1, Math.ceil(runs / 4))
+
+/** A search of this suite's own over a drawn space of inner searches, its oracle the library's specification. */
+const outerOf = <A, F extends string>(
+	suite: string,
+	name: string,
+	generator: Gen<A>,
+	coverage: Coverage<F>
+): Exploration<A, A, F> => ({
+	suite,
+	oracle: { kind: "specification", name },
+	draw: drawn(generator),
+	literal: Formatter.format,
+	coverage,
+	kept: [],
+	runs: 40,
+	shrink: completeShrink,
+	concurrency: 1,
+	steerEvery: 16,
+	caseHang: Duration.minutes(1)
+})
+
+/** An inner search, run under this suite's fixed run, so its streams are its label's and the run's seed. */
+const underFullRun = <A, E, R>(search: Effect.Effect<A, E, R>) =>
+	search.pipe(Effect.provideService(Run, fullRun))
+
+/** A drawn inner search: its rotating cases, how many run at once, and how many pass between steering snapshots. */
+type InnerShape = Readonly<{ runs: number; concurrency: number; steerEvery: number }>
+
+const innerShapes: Gen<InnerShape> = (source) => ({
+	runs: source.draw(int(0, 48)),
+	concurrency: source.draw(int(1, 4)),
+	steerEvery: source.draw(int(1, 16))
+})
+
+type StreamFeature = "no rotating case" | "a quarter rounded up" | "several windows"
+
+/** What a drawn inner search's shape reaches: none rotating, a floor rounded up, more cases than one window. */
+const streamFeatures = ({ runs, steerEvery }: InnerShape): ReadonlyArray<StreamFeature> => [
+	...(runs === 0 ? ["no rotating case" as const] : []),
+	...(runs % 4 === 0 ? [] : ["a quarter rounded up" as const]),
+	...(runs > steerEvery ? ["several windows" as const] : [])
+]
+
 describe("explore", () => {
 	it.effect(
-		"runs the floor stream and the rotating stream, and estimates from the rotating one alone",
-		() =>
-			Effect.gen(function* () {
-				const explored = yield* explore(
-					searchOf("passes", int(0, 9), noCoverage, 40, 4),
-					() => Effect.void
+		"runs the floor stream, a quarter of the rotating stream's cases and one at least, then the rotating stream, and estimates from the rotating one alone",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					outerOf(
+						"floor and rotating streams",
+						"the floor runs max(1, ⌈runs / 4⌉) cases and the rotating stream runs runs, which alone the residual counts",
+						innerShapes,
+						required<StreamFeature>(
+							["no rotating case", "a quarter rounded up", "several windows"],
+							{
+								cases: 40,
+								sense: notesOnly
+							}
+						)
+					),
+					(shape, c) =>
+						Effect.gen(function* () {
+							c.noteAll(streamFeatures(shape))
+							const explored = yield* underFullRun(
+								explore(
+									{
+										...searchOf("passes", int(0, 9), noCoverage, shape.runs, shape.concurrency),
+										steerEvery: shape.steerEvery
+									},
+									() => Effect.void
+								)
+							)
+							deepStrictEqual(
+								{ cases: explored.cases, independent: explored.residual.cases },
+								{ cases: shape.runs + floorCasesOf(shape.runs), independent: shape.runs }
+							)
+						})
 				)
-				strictEqual(explored.cases, 50)
-				strictEqual(explored.residual.cases, 40)
-			}).pipe(Effect.provideService(Run, fullRun))
+			)
 	)
 
-	it.effect("shrinks the property's own draws with the case", () =>
-		Effect.gen(function* () {
-			const failed = yield* Effect.flip(
-				explore(searchOf("draws", constant("case"), noCoverage, 100, 4), (_value, c) =>
-					c.draw(int(0, 1000)) >= 300 ? Effect.die("drew too much") : Effect.void
-				)
-			)
-			deepStrictEqual(
-				Option.map(
-					failed._tag === "PropertyFalsified" ? failed.replay : Option.none(),
-					(replayed) => replayed.values
+	it.effect("shrinks the property's own draws with the case, to the least draw that fails", (ctx) =>
+		searched(
+			ctx,
+			explore(
+				outerOf(
+					"shrunk draws",
+					"a failure at every draw of at least a threshold shrinks to the threshold itself",
+					int(1, 500),
+					noCoverage
 				),
-				Option.some([300])
+				(threshold) =>
+					Effect.gen(function* () {
+						const failed = yield* Effect.flip(
+							underFullRun(
+								explore(searchOf("draws", constant("case"), noCoverage, 100, 4), (_value, c) =>
+									c.draw(int(0, 1000)) >= threshold ? Effect.die("drew too much") : Effect.void
+								)
+							)
+						)
+						deepStrictEqual(
+							Option.map(
+								failed._tag === "PropertyFalsified" ? failed.replay : Option.none(),
+								(replayed) => replayed.values
+							),
+							Option.some([threshold])
+						)
+					})
 			)
-		}).pipe(Effect.provideService(Run, fullRun))
+		)
 	)
 
 	it.effect("refuses a replay that no longer runs as its token says, and never passes it", () =>
@@ -239,64 +352,109 @@ describe("exhaust", () => {
 		caseHang: Duration.seconds(10)
 	}
 
-	it.effect("checks every case of its space", () =>
-		Effect.gen(function* () {
-			strictEqual((yield* exhaust(pairs, () => Effect.void)).cases, 6)
-		}).pipe(Effect.provideService(Run, fullRun))
-	)
-
-	it.effect("counts only the cases a filter keeps, so a space its limit holds runs whole", () =>
-		Effect.gen(function* () {
-			const kept = yield* exhaust(
-				{
-					suite: "filtered",
-					oracle: {
-						kind: "specification",
-						name: "a property planted to exercise the search itself"
-					},
-					box: "every value of 0..11 the filter keeps",
-					generator: filter(int(0, 11), (n) => n < 10, 1),
-					literal: String,
-					limit: 10,
-					coverage: noCoverage,
-					caseHang: Duration.seconds(10)
-				},
-				() => Effect.void
-			)
-			strictEqual(kept.cases, 10)
-		}).pipe(Effect.provideService(Run, fullRun))
-	)
-
-	it.effect("refuses a space beyond its limit before any case runs", () =>
-		Effect.gen(function* () {
-			let ran = 0
-			const failed = yield* Effect.flip(
-				exhaust({ ...pairs, limit: 5 }, () =>
-					Effect.sync(() => {
-						ran += 1
-					})
+	it.effect(
+		"checks every case of its space, its own draws enumerated too, and refuses a space past its limit before any case runs",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					outerOf(
+						"exhaustive spaces",
+						"a space of a × b values whose property draws one of c more holds a·b·c cases, each run once, and one past its limit runs none",
+						(source) => ({
+							a: source.draw(int(1, 4)),
+							b: source.draw(int(1, 4)),
+							c: source.draw(int(1, 3)),
+							short: source.draw(int(0, 1)) === 1
+						}),
+						required<"a space run whole" | "a space refused" | "property draws enumerated">(
+							["a space run whole", "a space refused", "property draws enumerated"],
+							{ cases: 40, sense: notesOnly }
+						)
+					),
+					({ a, b, c, short }, k) =>
+						Effect.gen(function* () {
+							const space = a * b * c
+							const seen = new Set<string>()
+							let ran = 0
+							const search = exhaust(
+								{
+									...pairs,
+									suite: "a drawn space",
+									generator: (source) =>
+										[source.draw(int(0, a - 1)), source.draw(int(0, b - 1))] as const,
+									limit: short ? space - 1 : space
+								},
+								([x, y], inner) =>
+									Effect.sync(() => {
+										ran += 1
+										seen.add(`${x} ${y} ${inner.draw(int(0, c - 1))}`)
+									})
+							)
+							if (c > 1) {
+								k.note("property draws enumerated")
+							}
+							if (short) {
+								k.note("a space refused")
+								const failed = yield* Effect.flip(underFullRun(search))
+								deepStrictEqual(
+									{ failed: failed._tag, ran },
+									{ failed: "SpaceBeyondLimit", ran: 0 }
+								)
+								return
+							}
+							k.note("a space run whole")
+							const exhausted = yield* underFullRun(search)
+							deepStrictEqual(
+								{ cases: exhausted.cases, ran, distinct: seen.size },
+								{ cases: space, ran: space, distinct: space }
+							)
+						})
 				)
 			)
-			strictEqual(failed._tag, "SpaceBeyondLimit")
-			strictEqual(ran, 0)
-		}).pipe(Effect.provideService(Run, fullRun))
 	)
 
-	it.effect("enumerates the property's own draws too", () =>
-		Effect.gen(function* () {
-			const flags: Exhaustion<boolean, never> = {
-				suite: "flags",
-				oracle: { kind: "specification", name: "a property planted to exercise the search itself" },
-				box: "both booleans, with every draw of 0..2 the property makes",
-				generator: boolean,
-				literal: Formatter.format,
-				limit: 10,
-				coverage: noCoverage,
-				caseHang: Duration.seconds(10)
-			}
-			const exhausted = yield* exhaust(flags, (_flag, c) => Effect.sync(() => c.draw(int(0, 2))))
-			strictEqual(exhausted.cases, 6)
-		}).pipe(Effect.provideService(Run, fullRun))
+	it.effect("counts only the cases a filter keeps, so a space its limit holds runs whole", (ctx) =>
+		searched(
+			ctx,
+			explore(
+				outerOf(
+					"filtered spaces",
+					"a filter keeping the values below k of 0..n runs exactly those k cases under a limit of k",
+					(source) => {
+						const n = source.draw(int(0, 15))
+						return { n, k: source.draw(int(1, n + 1)) }
+					},
+					required<"some values filtered" | "none filtered">(
+						["some values filtered", "none filtered"],
+						{ cases: 40, sense: notesOnly }
+					)
+				),
+				({ n, k }, c) =>
+					Effect.gen(function* () {
+						c.note(k <= n ? "some values filtered" : "none filtered")
+						const kept = yield* underFullRun(
+							exhaust(
+								{
+									suite: "filtered",
+									oracle: {
+										kind: "specification",
+										name: "a property planted to exercise the search itself"
+									},
+									box: "every value of 0..n the filter keeps",
+									generator: filter(int(0, n), (value) => value < k, 1),
+									literal: String,
+									limit: k,
+									coverage: noCoverage,
+									caseHang: Duration.seconds(10)
+								},
+								() => Effect.void
+							)
+						)
+						strictEqual(kept.cases, k)
+					})
+			)
+		)
 	)
 })
 
@@ -756,25 +914,55 @@ describe("a kept case", () => {
 describe("steering", () => {
 	it.effect(
 		"is offered to the floor stream's cases, and never to the rotating stream's or a kept case",
-		() =>
-			Effect.gen(function* () {
-				const offered: Array<boolean> = []
-				yield* explore(
-					{
-						...searchOf<number, Size>("steering phases", int(0, 9), noCoverage, 40, 4),
-						kept: [{ note: "small", sketch: 1, draws: "", reaches: ["small"] }]
-					},
-					(value, c: Case<Size>) =>
-						Effect.andThen(
-							Effect.sync(() => offered.push(Option.isSome(c.steering))),
-							noteSize(value, c)
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					outerOf(
+						"steering phases",
+						"steering is offered to the floor's max(1, ⌈runs / 4⌉) cases alone, after the kept case and before the rotating runs",
+						innerShapes,
+						required<StreamFeature>(
+							["no rotating case", "a quarter rounded up", "several windows"],
+							{
+								cases: 40,
+								sense: notesOnly
+							}
 						)
+					),
+					(shape, c) =>
+						Effect.gen(function* () {
+							c.noteAll(streamFeatures(shape))
+							const offered: Array<boolean> = []
+							yield* underFullRun(
+								explore(
+									{
+										...searchOf<number, Size>(
+											"steering phases",
+											int(0, 9),
+											noCoverage,
+											shape.runs,
+											shape.concurrency
+										),
+										steerEvery: shape.steerEvery,
+										kept: [{ note: "small", sketch: 1, draws: "", reaches: ["small"] }]
+									},
+									(value, inner: Case<Size>) =>
+										Effect.andThen(
+											Effect.sync(() => offered.push(Option.isSome(inner.steering))),
+											noteSize(value, inner)
+										)
+								)
+							)
+							const floor = floorCasesOf(shape.runs)
+							deepStrictEqual(offered, [
+								false,
+								...Arr.replicate(true, floor),
+								...Arr.replicate(false, shape.runs)
+							])
+						})
 				)
-				deepStrictEqual(
-					[offered[0], Arr.filter(offered, (steers) => steers).length, offered.length],
-					[false, 10, 51]
-				)
-			}).pipe(Effect.provideService(Run, fullRun))
+			)
 	)
 })
 
@@ -1326,30 +1514,6 @@ const syncExhaustion = (kind: SyncProperty, cases: number, seed: number) =>
  */
 const SCHEDULED_PER_CASE = 0.25
 
-/**
- * How long one case of a trivial synchronous property may take, in microseconds of wall time, the runner's own cost.
- *
- * @limitKind measured
- * @owner the choice-stream testing library (explore's case runner)
- * @unit microseconds
- * @scope one case of an exhaustion whose property is a synchronous Effect of a few steps, in one test process
- * @evidence this suite re-measures it on every run; the figures below come from five exhaustions of 5,000 cases each,
- * the runner before and after cases ran inline, and from an async hook counting the timers and immediates of
- * exhaustions of 256, 512 and 1,024 cases
- * @observed 2026-11-06, 20:40 to 20:50 CST
- * @environment macOS (Darwin 27.0.0, an arm64 virtual machine) on 10 cores, Node 26.13.0, effect 4.1.2; load average
- * about 50 from other sessions
- * @workload `exhaust` over int(0, n − 1) with a property of two synchronous steps, under a deadline an hour away
- * @result inline: 63 to 208 µs a case (the first exhaustion of a process the slowest), one timer a search and an
- * immediate every 80 cases; the per-case fork it replaced: 320 to 499 µs a case, two timers and an immediate each
- * @decision 1,000 µs is about five times the slowest inline case seen, for loads beyond the one measured, and still
- * fails a runner that costs a millisecond a case, as the per-case fork did downstream (0.6 ms); the count gate
- * beside it is what tells a per-case fork or timer exactly
- * @revalidate an effect, Node or V8 upgrade; a change to runCase or the watchdog; a trivial case slower than 200 µs on a
- * quiet machine
- */
-const TRIVIAL_CASE_MICROS = 1000
-
 describe("a synchronous case", () => {
 	it.effect(
 		"runs inline: a search of twice the cases arms no timer per case, and hops to the event loop only for the runtime's own yields",
@@ -1378,16 +1542,13 @@ describe("a synchronous case", () => {
 							c.note(kind)
 							const { seed } = yield* Run
 							const once = yield* scheduledBy(syncExhaustion(kind, cases, seed))
-							const began = yield* liveMillis
 							const twice = yield* scheduledBy(syncExhaustion(kind, 2 * cases, seed))
-							const ended = yield* liveMillis
 							deepStrictEqual(
 								{
 									timersWithin: twice.timers - once.timers <= SCHEDULED_PER_CASE * cases,
-									hopsWithin: twice.hops - once.hops <= SCHEDULED_PER_CASE * cases,
-									fastEnough: ((ended - began) * 1000) / (2 * cases) <= TRIVIAL_CASE_MICROS
+									hopsWithin: twice.hops - once.hops <= SCHEDULED_PER_CASE * cases
 								},
-								{ timersWithin: true, hopsWithin: true, fastEnough: true }
+								{ timersWithin: true, hopsWithin: true }
 							)
 						})
 				)
