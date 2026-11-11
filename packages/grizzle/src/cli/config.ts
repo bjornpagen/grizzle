@@ -53,8 +53,9 @@ import {
  *   workloads (login(..., { workload })), which login(...) admitted, plan the schema's access paths; a schema whose
  *   logins own none drafts no access path.
  * - `migrations`: the migrations directory, absolute or relative to the configuration file's directory.
- * - `connection`: where `grizzle migrate` and `grizzle drift` connect (connection.ts). It is kept as given and checked
- *   only by them: generate, check and names never read it, and the configuration refuses only its absence.
+ * - `connection`: where `grizzle migrate`, `grizzle drift`, `grizzle roles` and `grizzle uninstall` connect
+ *   (connection.ts). It is kept as given and checked only by them: generate, check and names never read it, and the
+ *   configuration refuses only its absence.
  *
  * A plain object is refused with the fix, to wrap it in defineConfig: an Effect password's requirements and error
  * channel exist only in its type, which defineConfig's signature checks. Every setting is required and nothing else is
@@ -115,8 +116,8 @@ export interface ResolvedConfig {
 	/** In configured order. */
 	readonly schemas: ReadonlyArray<ConfiguredSchema>
 	/**
-	 * The configuration's connection as given, a function only `grizzle migrate` and `grizzle drift` call, and check
-	 * what it returns (connection.ts).
+	 * The configuration's connection as given, a function only `grizzle migrate`, `grizzle drift`, `grizzle roles` and
+	 * `grizzle uninstall` call, and check what it returns (connection.ts).
 	 */
 	readonly connection: () => MigrationConnectionConfig
 }

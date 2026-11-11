@@ -68,8 +68,8 @@ import {
 	resolveVariables,
 	type VariableFault
 } from "#compiler/plan/migration.ts"
-import type { InstalledRoleTooLong } from "#compiler/plan/runtime.ts"
 import { textParam } from "#compiler/plan/read.ts"
+import type { InstalledRoleTooLong } from "#compiler/plan/runtime.ts"
 import type { DeploySnapshot, LedgerState } from "#compiler/plan/serve.ts"
 
 /**

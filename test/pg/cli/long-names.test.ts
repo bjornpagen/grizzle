@@ -45,6 +45,7 @@ import {
 	String as Str
 } from "effect"
 import { Db } from "#adapter/public/db.ts"
+import { roleNameOf } from "#adapter/served/served.ts"
 import { conversionOf, maxIdentifierBytes } from "#compiler/core/identity.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import { trusted } from "#compiler/core/trusted.ts"
@@ -59,7 +60,6 @@ import {
 	schemaNameOf,
 	wholeEntriesOf
 } from "#compiler/public/schema.ts"
-import { roleNameOf } from "#adapter/served/served.ts"
 import { defineConfig } from "#index.ts"
 import {
 	cliOver,
@@ -231,7 +231,11 @@ const limitCase = (n: Names, c: Case<LimitFeature>) =>
 				for (const w of worlds) {
 					const bytes = utf8Length(allocated) + 2 + utf8Length(converted(w.name))
 					if (bytes > maxIdentifierBytes.value) {
-						throwsRefused(() => roleNameOf(w.world, {}), "RoleNameTooLong", `${w.name} past the limit`)
+						throwsRefused(
+							() => roleNameOf(w.world, {}),
+							"RoleNameTooLong",
+							`${w.name} past the limit`
+						)
 					} else {
 						assert.equal(utf8Length(roleNameOf(w.world, {})), bytes, `roleNameOf names ${w.name}`)
 					}

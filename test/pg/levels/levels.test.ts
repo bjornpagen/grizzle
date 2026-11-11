@@ -46,6 +46,7 @@ import {
 	String as Str
 } from "effect"
 import { Db } from "#adapter/public/db.ts"
+import { roleNameOf } from "#adapter/served/served.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { ChangeSet, type Law } from "#compiler/public/changeset.ts"
 import { closedId, contract, pg, uuid } from "#compiler/public/fields.ts"
@@ -63,7 +64,6 @@ import {
 	wholeEntriesOf,
 	writableNamesOf
 } from "#compiler/public/schema.ts"
-import { roleNameOf } from "#adapter/served/served.ts"
 import { workload } from "#compiler/public/workload.ts"
 import type { Uuid } from "#compiler/scalar/values/uuid.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"

@@ -30,6 +30,8 @@ import {
  *     grizzle migrate <config>
  *     grizzle drift <config>
  *     grizzle names <config>
+ *     grizzle roles <config>
+ *     grizzle uninstall <config>
  *
  * `<config>` is the configuration file, absolute or relative to the directory grizzle runs in; no command reads one it
  * does not name. `--name` names the migration folder, parsed here into a MigrationName, so a name of no folder name's
@@ -66,6 +68,8 @@ type Command =
 	| { readonly kind: "migrate" }
 	| { readonly kind: "drift" }
 	| { readonly kind: "names" }
+	| { readonly kind: "roles" }
+	| { readonly kind: "uninstall" }
 
 /** A command line: the usage, or a command over the configuration file it names, as given. */
 export type CommandLine =
@@ -85,10 +89,14 @@ export const usageText = `Usage:
       does the database match the snapshot? (applies nothing)
   grizzle names <config>
       each hashed object's PostgreSQL name and what it is
+  grizzle roles <config>
+      the installation's PostgreSQL roles in the cluster
+  grizzle uninstall <config>
+      drop the installation's schemas, with every row they hold, and its roles
 
 <config> is the configuration file, whose default export is defineConfig({ ... }): an absolute path, or
-one relative to the directory grizzle runs in. migrate and drift connect with the configuration's
-connection only.
+one relative to the directory grizzle runs in. migrate, drift, roles and uninstall connect with the
+configuration's connection only.
 
 Options of generate, as --flag value or --flag=value, anywhere after the command:
   --custom          an empty folder for data steps, named by --name
@@ -284,6 +292,8 @@ export const parseArgs = (argv: ReadonlyArray<string>): Result.Result<CommandLin
 		case "migrate":
 		case "drift":
 		case "names":
+		case "roles":
+		case "uninstall":
 			return parsePlain(command, rest)
 		case "generate":
 			return parseGenerate(rest)

@@ -91,7 +91,11 @@ const stemmed = <L>(named: AnyLogin | AnyRole | ServedLogin<L>): Stemmed => {
 	if (!named.stem.ok) {
 		throw named.stem.error
 	}
-	return { stem: named.stem.value, at: SourceLoc(`${named.kind} ${named.name}`, []), of: named.kind }
+	return {
+		stem: named.stem.value,
+		at: SourceLoc(`${named.kind} ${named.name}`, []),
+		of: named.kind
+	}
 }
 
 /**

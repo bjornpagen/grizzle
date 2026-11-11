@@ -40,6 +40,9 @@ import type { findMarkers, VariableFault } from "#compiler/plan/migration.ts"
  *   before it stay applied, which its drafted statements make safe to run again. A rerun resumes at the
  *   failed file. Only a lost connection during COMMIT leaves the outcome unknown, and the ledger answers it: the file's
  *   row is inserted inside its own transaction, so the file committed exactly when its row exists.
+ * - `grizzle roles` and `grizzle uninstall`: `uninstall`, the installation's roles or schemas could not be read, or
+ *   the transaction that drops them was refused and rolled back whole, as PostgreSQL refuses DROP ROLE while anything of
+ *   another database depends on a role (2BP01, its DETAIL naming the database). Nothing was dropped.
  * - After every folder applied: `drift`, the drift check of the catalog against the target snapshot
  *   (adapter/admission/drift.ts; edits are allowed, drift is not), with every mismatch; or `unchecked`, a drift check
  *   that reached no verdict, because the snapshot did not render, the ledger or the catalog could not be read, or the
@@ -61,6 +64,7 @@ export type MigrateStage =
 	| "commit"
 	| "drift"
 	| "unchecked"
+	| "uninstall"
 
 /**
  * What ran before a stage stopped the command, as the report's outcome line says it: nothing at all, the files before
@@ -84,7 +88,8 @@ export const stageOutcome: { readonly [S in MigrateStage]: MigrateOutcome } = {
 	record: "resumes",
 	commit: "resumes",
 	drift: "drifted",
-	unchecked: "noVerdict"
+	unchecked: "noVerdict",
+	uninstall: "nothingRan"
 }
 
 /** A statement apart's answer that is no row its query reads: the server's refusal, or a row the catalog cannot give. */
@@ -305,6 +310,29 @@ export class StackTooShallow extends Data.TaggedError("StackTooShallow")<{
 export class RoleUnread extends Data.TaggedError("RoleUnread")<{ readonly failure: RowFailure }> {
 	override get message(): string {
 		return `the session's role could not be read: ${failureText(this.failure)}`
+	}
+}
+
+/** The installation's namespace could not be read: the cluster's roles, or the schemas of its database. */
+export class NamespaceUnread extends Data.TaggedError("NamespaceUnread")<{
+	readonly what: "roles" | "schemas"
+	readonly failure: RowFailure | FlightFailure
+}> {
+	override get message(): string {
+		return `the installation's ${this.what} could not be read: ${failureText(this.failure)}`
+	}
+}
+
+/**
+ * The transaction that uninstalls the installation, its schemas and its roles, was refused and rolled back whole: by
+ * PostgreSQL's DROP ROLE while a role holds a privilege or an object anywhere else (2BP01, whose DETAIL names the
+ * database), or for any other failure of a statement of it.
+ */
+export class UninstallRefused extends Data.TaggedError("UninstallRefused")<{
+	readonly failure: StatementFailure
+}> {
+	override get message(): string {
+		return `the uninstall was refused and rolled back, nothing dropped: ${failureText(this.failure)}`
 	}
 }
 
@@ -770,6 +798,8 @@ export type MigrateReason =
 	| FileCommitLost
 	| Drifted
 	| DriftUnchecked
+	| NamespaceUnread
+	| UninstallRefused
 
 /** The stage each reason stops at. */
 const stageOf: { readonly [Tag in MigrateReason["_tag"]]: MigrateStage } = {
@@ -797,7 +827,9 @@ const stageOf: { readonly [Tag in MigrateReason["_tag"]]: MigrateStage } = {
 	FileCommitRefused: "commit",
 	FileCommitLost: "commit",
 	Drifted: "drift",
-	DriftUnchecked: "unchecked"
+	DriftUnchecked: "unchecked",
+	NamespaceUnread: "uninstall",
+	UninstallRefused: "uninstall"
 }
 
 /**
@@ -820,6 +852,8 @@ export class MigrateError extends Data.TaggedError("MigrateError")<{
 			case "SurveyFailed":
 			case "StackTooShallow":
 			case "RoleUnread":
+			case "NamespaceUnread":
+			case "UninstallRefused":
 				return undefined
 			case "OwnerUnread":
 			case "OwnedByAnother":
@@ -890,6 +924,8 @@ export class MigrateError extends Data.TaggedError("MigrateError")<{
 			case "SnapshotUnreached":
 			case "Drifted":
 			case "DriftUnchecked":
+			case "NamespaceUnread":
+			case "UninstallRefused":
 				return directory
 		}
 	}
@@ -903,6 +939,8 @@ export class MigrateError extends Data.TaggedError("MigrateError")<{
 			case "LedgerUnlocked":
 			case "RecordFailed":
 			case "FileCommitRefused":
+			case "NamespaceUnread":
+			case "UninstallRefused":
 				return serverReport(reason.failure)
 			case "DriftUnchecked": {
 				const unchecked: DriftUnchecked = reason

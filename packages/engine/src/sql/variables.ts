@@ -1,9 +1,4 @@
-import {
-	conversionOf,
-	installedRole,
-	parseDeclaredName,
-	type RoleSpace
-} from "#compiler/core/identity.ts"
+import { installedRole, isConversion, type RoleSpace } from "#compiler/core/identity.ts"
 import * as Result from "#compiler/core/result.ts"
 import { type Lexeme, lexemesOf } from "#compiler/sql/lexer.ts"
 import { databaseVariable, quoteIdent } from "#compiler/sql/print.ts"
@@ -23,7 +18,9 @@ import { databaseVariable, quoteIdent } from "#compiler/sql/print.ts"
  */
 
 /** What a variable stands for: the current database, or a role of the installation by its stem. */
-export type Variable = { readonly kind: "database" } | { readonly kind: "role"; readonly stem: string }
+export type Variable =
+	| { readonly kind: "database" }
+	| { readonly kind: "role"; readonly stem: string }
 
 /** What an installation fills a statement's variables with: its database, its connection's, and its role space. */
 export interface InstallationNames {
@@ -44,10 +41,6 @@ export type VariableFault =
 			readonly limit: number
 	  }
 
-/** Whether `text` is a declared name's conversion, as the naming door spells one. */
-const isConversion = (text: string): boolean =>
-	parseDeclaredName(text).ok && conversionOf(text) === text
-
 /**
  * What a variable's name stands for: DBNAME the database; a role stem, `<schema>__<name>`, two conversions joined by
  * `__` (core/identity.ts identity.login and identity.role), a role; any other name nothing.
@@ -63,10 +56,7 @@ export const variableOf = (name: string): Variable | undefined => {
 }
 
 /** The identifier `variable` is filled with under `names`, quoted, or why none is. */
-const filled = (
-	name: string,
-	names: InstallationNames
-): Result.Result<string, VariableFault> => {
+const filled = (name: string, names: InstallationNames): Result.Result<string, VariableFault> => {
 	const variable = variableOf(name)
 	if (variable === undefined) {
 		return Result.err({ kind: "unknownVariable", name })

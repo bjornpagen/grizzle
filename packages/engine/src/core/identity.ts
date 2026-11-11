@@ -350,6 +350,32 @@ export const installedRole = (
 		: Result.ok(role)
 }
 
+/** Whether `text` is a declared name's conversion, as the naming door spells one: what a stem's two parts each are. */
+export const isConversion = (text: string): boolean =>
+	parsedName(text).ok && conversionOf(text) === text
+
+/**
+ * The stem of the cluster role `role` when it lies in the namespace of an installation of role space `space` whose
+ * levels' PostgreSQL schemas are `levels`: `<level>__<conversion>` under the space (installedRole), the names its
+ * migrations can create, a login's or a role's of any of its snapshots; undefined for every other role, another
+ * installation's, another space's or none's. A conversion holds no `__`, so the parts are read without guessing.
+ */
+export const namespaceStem = (
+	space: RoleSpace,
+	levels: ReadonlySet<string>,
+	role: string
+): string | undefined => {
+	const lead = space.kind === "stems" ? "" : `${space.prefix}__`
+	if (!role.startsWith(lead)) {
+		return undefined
+	}
+	const stem = role.slice(lead.length)
+	const at = stem.indexOf("__")
+	return at > 0 && levels.has(stem.slice(0, at)) && isConversion(stem.slice(at + 2))
+		? stem
+		: undefined
+}
+
 /** Whether two declared names are one name: their segments agree, so the door renders both as one conversion
  * (TaskNote, Task_Note and task_note). */
 export const declaredAlike = (a: DeclaredName, b: DeclaredName): boolean =>

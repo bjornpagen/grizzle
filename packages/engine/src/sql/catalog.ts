@@ -291,8 +291,22 @@ export interface DoBlock {
 	readonly body: NonEmptyReadonlyArray<DoStatement>
 }
 
+/**
+ * A statement of an installation's uninstall (adapter/migrate/uninstall.ts), each of one transaction, in this order:
+ * DROP SCHEMA of its schemas in its database, CASCADE, with everything they hold; GRANT of its roles TO CURRENT_ROLE
+ * WITH INHERIT TRUE, SET FALSE, so the migration identity, which holds ADMIN on each role it created, holds their
+ * privileges, as DROP OWNED asks; DROP OWNED BY them, which revokes what they hold in the database and on its shared
+ * objects (the database's own TEMPORARY among them) and drops what they own; DROP ROLE of them, which PostgreSQL refuses
+ * (2BP01) while anything of another database depends on one. Each role is its variable (sql/print.ts printRole).
+ */
+export type UninstallStatement =
+	| { readonly kind: "dropSchemas"; readonly schemas: NonEmptyReadonlyArray<string> }
+	| { readonly kind: "adoptRoles"; readonly roles: NonEmptyReadonlyArray<string> }
+	| { readonly kind: "dropOwned"; readonly roles: NonEmptyReadonlyArray<string> }
+	| { readonly kind: "dropRoles"; readonly roles: NonEmptyReadonlyArray<string> }
+
 /** Every statement of the catalog language: what sql/emit.ts emitCatalog emits. */
-export type CatalogStatement = CatalogSelect | SetClosedSearchPath | DoBlock
+export type CatalogStatement = CatalogSelect | SetClosedSearchPath | DoBlock | UninstallStatement
 
 /** A pg_catalog type, not an array. */
 export const catalogType = (name: CatalogTypeName): CatalogCast => ({ name, array: false })

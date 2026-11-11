@@ -2127,6 +2127,16 @@ const writeCatalogStatement = (out: Lines, statement: CatalogStatement): void =>
 			return out.line(`SET LOCAL search_path TO ${printedSearchPath}`)
 		case "do":
 			return writeDo(out, statement)
+		case "dropSchemas":
+			return out.line(`DROP SCHEMA ${printIdentList(statement.schemas)} CASCADE`)
+		case "adoptRoles":
+			return out.line(
+				`GRANT ${statement.roles.map(printRole).join(", ")} TO CURRENT_ROLE WITH INHERIT TRUE, SET FALSE`
+			)
+		case "dropOwned":
+			return out.line(`DROP OWNED BY ${statement.roles.map(printRole).join(", ")}`)
+		case "dropRoles":
+			return out.line(`DROP ROLE ${statement.roles.map(printRole).join(", ")}`)
 	}
 }
 

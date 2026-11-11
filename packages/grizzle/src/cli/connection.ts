@@ -14,7 +14,8 @@ import {
 } from "#cli/errors.ts"
 
 /**
- * Where `grizzle migrate` and `grizzle drift` connect: the configuration's connection, and nothing else. The command
+ * Where `grizzle migrate`, `grizzle drift`, `grizzle roles` and `grizzle uninstall` connect: the configuration's
+ * connection, and nothing else. The command
  * line reads no environment for it, no URL, no password variable and no CA file; the only variables it reads are the
  * two of the process environment pg would send at an owner's session's startup by itself (ownerEnvironment).
  *
@@ -60,7 +61,8 @@ export const calledConnection = (
 	)
 
 /**
- * Where `grizzle migrate` and `grizzle drift` connect: the configuration's connection, called once here, the one place
+ * Where `grizzle migrate`, `grizzle drift`, `grizzle roles` and `grizzle uninstall` connect: the configuration's
+ * connection, called once here, the one place
  * a command calls it, in a process environment that sends no startup variable (ownerEnvironment).
  */
 export const migrationConnection = (

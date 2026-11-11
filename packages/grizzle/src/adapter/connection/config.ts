@@ -499,7 +499,6 @@ export const connectionRole = (
 	stem: string
 ): Result.Result<string, SettingFault> => spaceRole(connection.roles, where, stem)
 
-
 /**
  * A DbConfig's pool bounds, `setting` as its block's plain data holds them (parseConnection read it as data): parsed,
  * or the bound it refuses and the rule it breaks.

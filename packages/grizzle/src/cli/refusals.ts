@@ -139,7 +139,9 @@ export const migrateStageFix: Readonly<Record<MigrateStage, string>> = {
 	drift:
 		"undo the change made outside a migration, or reach the snapshot with a new migration (grizzle generate <config> --custom --name <name>)",
 	unchecked:
-		"the check changed nothing: run grizzle drift again, and report it with this output if it is refused the same way"
+		"the check changed nothing: run grizzle drift again, and report it with this output if it is refused the same way",
+	uninstall:
+		"nothing was dropped: revoke or drop what the DETAIL names in the database it names, a grant to a role of the installation made outside it, then run grizzle uninstall again"
 }
 
 /** The fix of each stage at which the command line itself refuses (errors.ts). */

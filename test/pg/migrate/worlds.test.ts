@@ -46,6 +46,7 @@ import { boolean, constant, element, type Gen, map, subset } from "@grizzle/test
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
+import { roleNameOf } from "#adapter/served/served.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { closedId, contract, pg, uuid } from "#compiler/public/fields.ts"
@@ -60,7 +61,6 @@ import {
 	role,
 	schema
 } from "#compiler/public/schema.ts"
-import { roleNameOf } from "#adapter/served/served.ts"
 import { str } from "#compiler/public/text.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { type Aim, aimedAt } from "#test/pg/migrate/support.ts"

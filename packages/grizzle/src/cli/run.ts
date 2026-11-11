@@ -18,13 +18,14 @@ import {
 	type MigrationPlace,
 	stageOutcome
 } from "#adapter/migrate/errors.ts"
+import type { UninstallReport } from "#adapter/migrate/uninstall.ts"
 import { parseArgs, usageText } from "#cli/args.ts"
 import { check, checkFiles, findingText, type SchemaCheck } from "#cli/check.ts"
 import { type ConfigFile, resolveConfig } from "#cli/config.ts"
 import { migrationConnection } from "#cli/connection.ts"
 import type { CliError } from "#cli/errors.ts"
 import { generateMigrations, type SchemaGenerateReport } from "#cli/generate.ts"
-import { drift, migrate } from "#cli/migrate.ts"
+import { drift, migrate, roles, uninstallAll } from "#cli/migrate.ts"
 import { names } from "#cli/names.ts"
 import { cliStageFix, migrateStageFix, refusalText } from "#cli/refusals.ts"
 import { metaFileName } from "#compiler/plan/migration.ts"
@@ -174,6 +175,15 @@ const renderApply = (reports: ReadonlyArray<SchemaApplyReport>): ReadonlyArray<s
 		)
 	])
 
+/** What uninstall dropped, a line each: every schema, then every role; that nothing was, when nothing was there. */
+const renderUninstall = (dropped: UninstallReport): ReadonlyArray<string> =>
+	dropped.schemas.length + dropped.roles.length === 0
+		? ["grizzle uninstall: nothing installed"]
+		: [
+				...Arr.map(dropped.schemas, (s) => `dropped schema ${s}`),
+				...Arr.map(dropped.roles, (r) => `dropped role ${r}`)
+			]
+
 const renderCliError = (e: CliError): ReadonlyArray<string> => [
 	`grizzle: ${e.message}`,
 	`fix: ${cliStageFix[e.stage]}`
@@ -206,15 +216,18 @@ const placeParts = (place: MigrationPlace): ReadonlyArray<string> => {
 	}
 }
 
-/** A migrate or a drift the database refused, with the command that ran, which its report names. */
+/** A command that connects, whose refusal by the database its report names. */
+type ConnectingCommand = "migrate" | "drift" | "roles" | "uninstall"
+
+/** A connecting command the database refused, with the command that ran, which its report names. */
 class CommandRefused extends Data.TaggedError("CommandRefused")<{
-	readonly command: "migrate" | "drift"
+	readonly command: ConnectingCommand
 	readonly error: MigrateError
 }> {}
 
-/** A command's failure: a CLI refusal as it is, a migrate or drift refusal with its command. */
+/** A command's failure: a CLI refusal as it is, a connecting command's refusal with its command. */
 const refusedBy =
-	(command: "migrate" | "drift") =>
+	(command: ConnectingCommand) =>
 	(e: CliError | MigrateError): CliError | CommandRefused =>
 		e._tag === "CliError" ? e : new CommandRefused({ command, error: e })
 
@@ -259,15 +272,19 @@ const reasonLines = (e: MigrateError): ReadonlyArray<string> => {
 		case "FileCommitRefused":
 		case "FileCommitLost":
 		case "DriftUnchecked":
+		case "NamespaceUnread":
+		case "UninstallRefused":
 			return []
 	}
 }
 
-/** What the database holds after a refused migrate or drift, as its report's outcome line says it. */
-const outcomeLine = (command: "migrate" | "drift", outcome: MigrateOutcome): string => {
+/** What the database holds after a refused connecting command, as its report's outcome line says it. */
+const outcomeLine = (command: ConnectingCommand, outcome: MigrateOutcome): string => {
 	switch (outcome) {
 		case "nothingRan":
-			return "No statement of any folder ran; the ledger and the catalog are unchanged."
+			return command === "roles" || command === "uninstall"
+				? "Nothing was dropped; the database and the cluster's roles are unchanged."
+				: "No statement of any folder ran; the ledger and the catalog are unchanged."
 		case "resumes":
 			return "The files before it stay applied and recorded; a rerun resumes at the failed file."
 		case "drifted":
@@ -287,10 +304,7 @@ const outcomeLine = (command: "migrate" | "drift", outcome: MigrateOutcome): str
  * unresolved marker and data loss, each fact the drift check found missing or unexpected, and the server's DETAIL and
  * HINT, each a line of its own, the last two as psql prints them; then what the database holds, and the fix.
  */
-const renderMigrateError = (
-	command: "migrate" | "drift",
-	e: MigrateError
-): ReadonlyArray<string> => {
+const renderMigrateError = (command: ConnectingCommand, e: MigrateError): ReadonlyArray<string> => {
 	const server = e.server.by === "server" ? [e.server.error] : []
 	const schema = e.schema
 	const where = [
@@ -387,6 +401,16 @@ const program = Effect.fn("program")(function* (
 		const applied = yield* Effect.mapError(migrate(config, connection), refusedBy("migrate"))
 		return ran(exitCodes.ok, renderApply(applied), [])
 	}
+	if (command.kind === "roles") {
+		const connection = yield* migrationConnection(config)
+		const listed = yield* Effect.mapError(roles(config, connection), refusedBy("roles"))
+		return ran(exitCodes.ok, listed, [])
+	}
+	if (command.kind === "uninstall") {
+		const connection = yield* migrationConnection(config)
+		const dropped = yield* Effect.mapError(uninstallAll(config, connection), refusedBy("uninstall"))
+		return ran(exitCodes.ok, renderUninstall(dropped), [])
+	}
 	if (command.kind === "drift") {
 		const connection = yield* migrationConnection(config)
 		const matched = yield* Effect.mapError(drift(config, connection), refusedBy("drift"))
@@ -439,7 +463,8 @@ const refusedReport = (e: CliError | CommandRefused): RefusedReport => {
  * and the ledger tells where a rerun resumes (packages/grizzle/src/adapter/migrate/apply.ts).
  *
  * Output is stable plain text. The clock a new folder's timestamp reads is Effect's Clock. No command reads the
- * environment for where to connect: migrate and drift connect with the configuration's connection (connection.ts).
+ * environment for where to connect: migrate, drift, roles and uninstall connect with the configuration's connection
+ * (connection.ts).
  */
 export const runCli = Effect.fn("runCli")(function* (
 	argv: ReadonlyArray<string>,

@@ -3,6 +3,7 @@ import { applyMigrations, checkDriftOf, type SchemaApplyReport } from "#adapter/
 import type { MigrateError } from "#adapter/migrate/errors.ts"
 import type { MigrationTarget } from "#adapter/migrate/input.ts"
 import type { MigrationConnection } from "#adapter/migrate/session.ts"
+import { installationRoles, type UninstallReport, uninstall } from "#adapter/migrate/uninstall.ts"
 import { committedSnapshot } from "#cli/committed.ts"
 import type { ResolvedConfig } from "#cli/config.ts"
 import type { CliError } from "#cli/errors.ts"
@@ -74,6 +75,34 @@ export const drift = Effect.fn("drift")(function* (
 		schema: t.snapshot.schema,
 		fingerprint: t.snapshot.fingerprint
 	}))
+})
+
+/**
+ * `grizzle roles`: the installation's PostgreSQL roles in the cluster (adapter/migrate/uninstall.ts), every configured
+ * schema's, read with `connection`, the configuration's, under its role prefix.
+ */
+export const roles = Effect.fn("roles")(function* (
+	config: ResolvedConfig,
+	connection: MigrationConnection
+): Effect.fn.Return<
+	ReadonlyArray<string>,
+	CliError | MigrateError,
+	FileSystem.FileSystem | Path.Path
+> {
+	const targets = yield* readTargets(config)
+	return yield* installationRoles({ connection, targets })
+})
+
+/**
+ * `grizzle uninstall`: drops every configured schema's installation from the connection's database, its schemas with
+ * every row they hold, and its roles from the cluster, in one transaction (adapter/migrate/uninstall.ts).
+ */
+export const uninstallAll = Effect.fn("uninstallAll")(function* (
+	config: ResolvedConfig,
+	connection: MigrationConnection
+): Effect.fn.Return<UninstallReport, CliError | MigrateError, FileSystem.FileSystem | Path.Path> {
+	const targets = yield* readTargets(config)
+	return yield* uninstall({ connection, targets })
 })
 
 /** A schema whose catalog matched its snapshot. */

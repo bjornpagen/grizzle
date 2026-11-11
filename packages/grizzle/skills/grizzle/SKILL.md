@@ -142,7 +142,9 @@ commit and `migrate`.
 
 Commands: `grizzle generate <config> [--name <name>] [--schema <schema>] [--rename <old>=<new>]... [--drop <old>]...`,
 `grizzle generate <config> --custom --name <name> [--schema <schema>]`, `grizzle check <config>`, `grizzle migrate
-<config>`, `grizzle drift <config>`, `grizzle names <config>`. Flags come anywhere after the command, as `--flag value`
+<config>`, `grizzle drift <config>`, `grizzle names <config>`, `grizzle roles <config>` (the installation's roles in
+the cluster), `grizzle uninstall <config>` (drops the installation's schemas, every row they hold, and its roles, in
+one transaction). Flags come anywhere after the command, as `--flag value`
 or `--flag=value`. A name is lowercase words joined by `_` or `-`, at most 240 characters, so that the folder
 `<timestamp>_<name>` fits one file name (NAME_MAX, 255 bytes). Without `--name`, a drafted folder is named after its
 change (`init`, `add_task_note`, `<first change>_and_more`); a custom one needs `--name`. `--schema` is accepted only
@@ -469,7 +471,8 @@ The command line's own refusals, by stage:
   `DbLayer.make` loads the served file once and compiles nothing; it refuses, at stage `config`, a file of another
   login than the name `served` was given. `grizzle check` refuses a served file that is not its login's compile under
   the committed snapshot: a program added, renamed, dropped or edited since the file was generated; run `grizzle
-  generate`. `roleNameOf(WebServed)` is the login's PostgreSQL role, read from the file. `Db.open` contacts nothing and
+  generate`. `roleNameOf(WebServed, connection)` is the login's PostgreSQL role, the file's stem under the connection's
+  `rolePrefix`. `Db.open` contacts nothing and
   checks nothing of the database: grizzle assumes it is the one the snapshot was migrated to, and the request's first
   call is its first round trip. `token` is required exactly when the role's
   relations read a context; the layer's `verify` refuses one at the stage `token`, and a claim of a refined field is
@@ -614,12 +617,15 @@ The command line's own refusals, by stage:
   a rule over it then passes on a text that does not parse. State what the rule holds of such a text in the rule.
   Parse a padded value as XML Schema reads it, collapsed first:
   `Compute.when(Compute.matches(Compute.collapse(x), doubleText), (x) => Compute.parseDouble(x), otherwise)`.
-- Each login is a PostgreSQL role, `roleNameOf(login)`, and each role a PostgreSQL role that cannot log in,
-  `roleNameOf(role)`, with its schema of views, `schemaNameOf(role)`; the schema's own is `schemaNameOf(schema)`. Take
-  every one from there, never spell or rebuild one: each is the name the installation creates, and each throws
-  CompileError for a name the installation refuses. The migration that adds a login creates its role; the operator
+- Each login is a PostgreSQL role, `roleNameOf(login, connection)`, and each role a PostgreSQL role that cannot log
+  in, `roleNameOf(role, connection)`, with its schema of views, `schemaNameOf(role)`; the schema's own is
+  `schemaNameOf(schema)`. Take every one from there, never spell or rebuild one: each is the name the installation
+  creates, and each throws CompileError for a name the installation refuses. A role is its stem, which `generate`
+  commits, under the connection's `rolePrefix` (`{}` for none): two installations of one schema share a cluster, each
+  in its own database under its own prefix, from one committed output. Drafted SQL names each role as psql's variable
+  `:"<stem>"` and the current database as `:"DBNAME"`, which `migrate` fills; write a role the same way in a data step. The migration that adds a login creates its role; the operator
   gives it a password, or, for an RDS IAM login, `GRANT rds_iam TO <role> WITH INHERIT TRUE, SET FALSE`, and the IAM
-  signer's user name is `roleNameOf(login)`. grizzle never sets either. A login holds only USAGE on the
+  signer's user name is `roleNameOf(login, connection)`. grizzle never sets either. A login holds only USAGE on the
   schema, SELECT on the ledger and EXECUTE on the snapshot guard, the lock and the check every transaction takes;
   everything else it does as one of its roles, one per transaction. The drift check takes a membership beyond the
   login's roles as no drift only with SET FALSE and no ADMIN, and only while the login's effective privileges on the
@@ -654,7 +660,7 @@ The command line's own refusals, by stage:
   one, or the `why` is `filterReadsFamily` or `keyHoldsFamily`, naming the field: filter the owner by the fields its
   caller writes. A family's members are written from an array or a `Stream`, never from a query or through a query
   entry.
-- A direct SQL writer logs in as a login's role, runs `SET ROLE` to `roleNameOf(role)` for one of its roles, reads
+- A direct SQL writer logs in as a login's role, runs `SET ROLE` to `roleNameOf(role, connection)` for one of its roles, reads
   the role's views in `schemaNameOf(role)`, and, for a role whose relations read a context, sets the claims in the
   transaction:
   `SELECT set_config('grizzle.claims', '{"Session":{"sub":"user_123"}}', true)`. A login holder can set any claims:

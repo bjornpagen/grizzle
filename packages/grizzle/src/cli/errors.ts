@@ -157,7 +157,14 @@ const schemaListText = (schemas: ReadonlyArray<SchemaNames>): string =>
 	)
 
 /** The commands of the command line. */
-export type CommandName = "generate" | "check" | "migrate" | "drift" | "names"
+export type CommandName =
+	| "generate"
+	| "check"
+	| "migrate"
+	| "drift"
+	| "names"
+	| "roles"
+	| "uninstall"
 
 /**
  * The flags of `grizzle generate`: its switches, the flags that take a value once, and the flags that take one each

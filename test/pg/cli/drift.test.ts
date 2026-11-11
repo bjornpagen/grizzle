@@ -52,9 +52,9 @@ import {
 	Record as Rec,
 	String as Str
 } from "effect"
+import { roleNameOf } from "#adapter/served/served.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { trusted } from "#compiler/core/trusted.ts"
-import { roleNameOf } from "#adapter/served/served.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { defineConfig } from "#index.ts"
 import { worlds } from "#test/pg/cli/fixture.ts"

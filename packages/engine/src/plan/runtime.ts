@@ -31,6 +31,7 @@ export {
 	admittedIdentifier,
 	type InstalledRoleTooLong,
 	installedRole,
+	namespaceStem,
 	type RoleInstallation,
 	type RoleSpace,
 	roleSpaceOf

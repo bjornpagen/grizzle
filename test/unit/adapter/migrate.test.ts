@@ -1130,7 +1130,9 @@ describe("the plan: skip, resume, run, or refuse before any statement", () => {
 									after: known.fingerprint
 								}
 							})()
-							const parsed = succeeded(parseTarget({ snapshot: known, folders: target }, stemsInstallation))
+							const parsed = succeeded(
+								parseTarget({ snapshot: known, folders: target }, stemsInstallation)
+							)
 							const planned = planApply(parsed, state)
 							if (verdict.kind === "refused") {
 								const refusal: MigrateError = failed(planned)

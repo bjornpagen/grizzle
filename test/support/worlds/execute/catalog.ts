@@ -127,6 +127,8 @@ export const failedFolder = (error: MigrateError): Option.Option<string> => {
 		case "LossesUndecided":
 		case "Drifted":
 		case "DriftUnchecked":
+		case "NamespaceUnread":
+		case "UninstallRefused":
 			return Option.none()
 	}
 }
