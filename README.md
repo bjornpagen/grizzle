@@ -3276,7 +3276,7 @@ connections before an instance suspends. grizzle depends on no platform's packag
 how its memberships are spelled: a membership beyond the login's roles is no drift when it carries SET FALSE and no
 ADMIN and the login's privileges on the installation stay exactly its own (USAGE on the schema, SELECT on the ledger).
 `rds_iam` holds nothing in the installation, so it is no drift; a membership that would hand the login any privilege or
-ownership there is. This has not been run against RDS.
+ownership there is.
 
 ```ts
 import { Signer } from "@aws-sdk/rds-signer"
@@ -3436,7 +3436,6 @@ grizzle fits applications that own their data end to end, with rules worth decla
 - **Tables are immutable by default.** `mutable(T)` opts one in to in-place updates.
 - **Derived tables are refreshed explicitly**, by a workload's `refresh(...)` member or `db.refresh`.
 - **Migrations are downtime.** No `Db` call runs while a migration is being applied.
-- **RDS IAM authentication** has not been run against RDS.
 
 ### Values
 

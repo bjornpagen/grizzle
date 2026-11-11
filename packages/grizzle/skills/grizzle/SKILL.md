@@ -634,7 +634,7 @@ The command line's own refusals, by stage:
   everything else it does as one of its roles, one per transaction. The drift check takes a membership beyond the
   login's roles as no drift only with SET FALSE and no ADMIN, and only while the login's effective privileges on the
   installation stay exactly those three: `rds_iam` holds nothing there, so it is no drift, and a membership handing the
-  login any privilege or ownership is. This has not been run against RDS.
+  login any privilege or ownership is.
 - A role is over a schema and is no schema itself: `role`, `login`, `schema.extend`, `wholeEntriesOf`,
   `writableNamesOf`, `lawsOf`, `lawIdsOf` and `lawsByStatement` take a schema, and a role passed to one is a type
   error; `query`, `ChangeSet.empty` and `workload` take either. A role's `write` names each entry once: a name listed
