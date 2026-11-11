@@ -87,8 +87,3 @@ export const seatsLaw: LawId = clubs.contract("Seats").law
 /** Club's code and Member's code share the one domain of `^.{1,20}$`, each field its own law. */
 export const clubCodeLaw: LawId = clubs.patternLaw(Club, "code")
 export const memberCodeLaw: LawId = clubs.patternLaw(Member, "code")
-
-/**
- * A club code a DETAIL must escape: a quote, a backslash, a comma and a bracket, inside the refinement's 20 characters.
- */
-export const awkwardCode = 'q"\\,]x'
