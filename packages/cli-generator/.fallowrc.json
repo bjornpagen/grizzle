@@ -98,7 +98,7 @@
 			{
 				"name": "generator",
 				"patterns": [
-					"packages/generator/src/*.ts",
+					"packages/generator/src/{bin,generate,index,main}.ts",
 					"packages/generator/package.json",
 					"packages/generator/tsconfig.json"
 				]
