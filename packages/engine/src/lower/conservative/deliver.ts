@@ -479,18 +479,18 @@ export class Delivery<Own extends PageParamSlot = never> {
 	/** The delivered rows from `start` (dag.ts deliverySpine) and the attachments on them. */
 	spine(start: RelNode): Spine {
 		const s = deliverySpine(start)
-		this.refuseArmAttachments(s)
+		this.#refuseArmAttachments(s)
 		return { nodes: s.nodes, attachments: s.attachments.map((a) => a.attach) }
 	}
 
 	/** Refuses an attachment on an arm of the union of several arms a spine ends at, an arm's own union first. */
-	refuseArmAttachments(s: DeliverySpine): void {
+	#refuseArmAttachments(s: DeliverySpine): void {
 		if (s.arms === undefined) {
 			return
 		}
 		const { union, spines } = s.arms
 		for (const arm of spines) {
-			this.refuseArmAttachments(arm)
+			this.#refuseArmAttachments(arm)
 			if (arm.attachments.length > 0) {
 				refuse(
 					"UnsupportedOperation",
