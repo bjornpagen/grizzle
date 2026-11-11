@@ -208,7 +208,7 @@ layer(Substrate.layer)("the live source", (it) => {
 					(c: LiveCase, notes) =>
 						Effect.gen(function* () {
 							const substrate = yield* Substrate
-							const live = yield* installLive(c, "live source", clusterPool)
+							const live = yield* installLive(c, "live_source", clusterPool)
 							const { installed } = live
 							const publication = identifierOf(identity.liveSource(installed.schema))
 							const slot = `${installed.schema}_decoded`

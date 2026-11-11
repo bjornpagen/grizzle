@@ -193,7 +193,7 @@ layer(Substrate.layer)("a generated program", (it) => {
 									const world = servedWorld(name)
 									return { schema: world.value, logins: [world.server] }
 								},
-								{ label: "live differential", ambient: ordinarySession }
+								{ label: "live_differential", ambient: ordinarySession }
 							)
 							const done = generated.installed
 							const world = servedWorld(done.declared)

@@ -136,7 +136,7 @@ layer(Substrate.layer)("a subscription dropped and called again", (it) => {
 					(c, notes) =>
 						Effect.gen(function* () {
 							const drop = notes.draw(dropGen)
-							const live = yield* installLive(c, "live reconnect", oneSession)
+							const live = yield* installLive(c, "live_reconnect", oneSession)
 							yield* Effect.gen(function* () {
 								const surfaces = yield* worldSurfaces(live)
 								const dropped = pickIndex(drop.subscription, c.subscriptions.length)

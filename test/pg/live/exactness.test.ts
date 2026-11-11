@@ -118,7 +118,7 @@ layer(Substrate.layer)("a live subscription", (it) => {
 					},
 					(c, notes) =>
 						Effect.gen(function* () {
-							const live = yield* installLive(c, "live exactness", clusterPool)
+							const live = yield* installLive(c, "live_exactness", clusterPool)
 							const overHttp = notes.draw(
 								array(boolean, { min: c.subscriptions.length, max: c.subscriptions.length })
 							)

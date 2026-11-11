@@ -146,7 +146,7 @@ layer(Substrate.layer)("every HTTP route", (it) => {
 					},
 					(c, notes) =>
 						Effect.gen(function* () {
-							const live = yield* installLive(c, "live endpoints", clusterPool)
+							const live = yield* installLive(c, "live_endpoints", clusterPool)
 							const served = stringsOf(live.json, new Set())
 							yield* Effect.gen(function* () {
 								const surfaces = yield* worldSurfaces(live)

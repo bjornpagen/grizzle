@@ -241,7 +241,7 @@ layer(Substrate.layer)("a commit's notifications", (it) => {
 					},
 					(c, notes) =>
 						Effect.gen(function* () {
-							const live = yield* installLive(c, "live routing", clusterPool)
+							const live = yield* installLive(c, "live_routing", clusterPool)
 							footprintsHold(live)
 							yield* Effect.gen(function* () {
 								const surfaces = yield* worldSurfaces(live)

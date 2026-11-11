@@ -249,7 +249,7 @@ layer(Substrate.layer)("a failing live call", (it) => {
 									const book = notebook(name)
 									return { schema: book.schema, logins: [book.app, book.psql] }
 								},
-								{ label: "live errors", ambient: ordinarySession }
+								{ label: "live_errors", ambient: ordinarySession }
 							)
 							const installed = generated.installed
 							const built = notebook(installed.declared)
