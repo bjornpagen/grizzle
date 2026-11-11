@@ -19,12 +19,7 @@ import {
 	String as Str
 } from "effect"
 import type { ApplyOutcome } from "#adapter/public/db.ts"
-import {
-	type ApplyError,
-	type OpenError,
-	type ReadError,
-	TransientFailure
-} from "#adapter/public/errors.ts"
+import type { ApplyError, OpenError, ReadError } from "#adapter/public/errors.ts"
 import type { DbOf } from "#adapter/types/db.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import type { LawId } from "#compiler/core/ids.ts"
@@ -98,6 +93,7 @@ import {
 import { openRig, type Rig } from "#test/support/schedules/rig.ts"
 import { type PsqlProcessError, reportedOwnerOf } from "#test/support/substrate/errors.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { untilAnswered } from "#test/support/transient.ts"
 
 import { regex } from "arkregex"
 import { openServed } from "#adapter/db/served.ts"
@@ -1136,59 +1132,35 @@ interface GrizzleRan {
 
 /**
  * A grizzle write run as the application runs it: read when it reads, then applied, and the whole again after each
- * TransientFailure, until a call answers. A count of attempts bounds nothing PostgreSQL bounds: an attempt that reads
- * what a transaction SSI has already prepared to commit is refused ("conflict out to pivot", during read) until that
- * commit is visible to a new snapshot, and every attempt run meanwhile is refused alike, however many, for as long as
- * the commit's WAL flush takes under load. Each refusal is a concurrent transaction's, and there are finitely many, so a
- * write that never answers is a hang, which the case's own bound (CaseHung) reports.
+ * TransientFailure, until a call answers (untilAnswered). A count of attempts bounds nothing PostgreSQL bounds: an
+ * attempt that reads what a transaction SSI has already prepared to commit is refused ("conflict out to pivot", during
+ * read) until that commit is visible to a new snapshot, and every attempt run meanwhile is refused alike, however many,
+ * for as long as the commit's WAL flush takes under load. Each refusal is a concurrent transaction's, and there are
+ * finitely many, so a write that never answers is a hang, which the case's own bound (CaseHung) reports.
  */
 const runGrizzle = (form: GrizzleWrite, db: RacesDb): Effect.Effect<GrizzleRan> =>
 	Effect.gen(function* () {
 		const transients: Array<{ readonly reason: string; readonly sqlstate: string }> = []
-		/** Whether the writer runs the write again after `error`, a TransientFailure, which it records. */
-		const again = (error: ReadError | ApplyError): boolean => {
-			if (!(error instanceof TransientFailure)) {
-				return false
-			}
-			transients.push({ reason: error.reason._tag, sqlstate: error.error.sqlstate })
-			return true
-		}
-		const failed = (error: ReadError | ApplyError): GrizzleRan => ({
-			transients,
-			last: { kind: "failed", error: messageOf(error) }
-		})
-		for (;;) {
-			const made: Result.Result<Call, ReadError> =
-				form.kind === "program"
-					? Result.succeed({ call: form.apply, ops: form.ops })
-					: yield* Effect.result(
-							Effect.map(form.read(db), (c): Call => ({
-								call: c.apply,
-								ops: () => c.ops
-							}))
-						)
-			/** The call made and its answer, or the read's or the call's failure. */
-			const ran: Result.Result<
-				{ readonly made: Call; readonly answer: Answer },
-				ReadError | ApplyError
-			> = Result.isFailure(made)
-				? Result.fail(made.failure)
-				: yield* Effect.result(
-						Effect.map(made.success.call(db), (answer) => ({
-							made: made.success,
-							answer
-						}))
-					)
-			if (Result.isSuccess(ran)) {
-				return {
+		const made: Effect.Effect<Call, ReadError> =
+			form.kind === "program"
+				? Effect.succeed({ call: form.apply, ops: form.ops })
+				: Effect.map(form.read(db), (c): Call => ({ call: c.apply, ops: () => c.ops }))
+		const ran = yield* Effect.result(
+			untilAnswered(
+				Effect.flatMap(made, (call) =>
+					Effect.map(call.call(db), (answer) => ({ made: call, answer }))
+				),
+				(t) => {
+					transients.push({ reason: t.reason._tag, sqlstate: t.error.sqlstate })
+				}
+			)
+		)
+		return Result.isSuccess(ran)
+			? {
 					transients,
 					last: { kind: "answered", answer: ran.success.answer, ...ran.success.made }
 				}
-			}
-			if (!again(ran.failure)) {
-				return failed(ran.failure)
-			}
-		}
+			: { transients, last: { kind: "failed", error: messageOf(ran.failure) } }
 	})
 
 /** A race's transactions on their sessions: grizzle writers on g, h and i, direct writers on a, b and c, in order. */

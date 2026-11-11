@@ -33,7 +33,7 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { fullSwarm } from "@grizzle/testing/swarm"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
-import type { ReadError } from "#adapter/errors/execution.ts"
+import type { ReadError, TransientFailure } from "#adapter/errors/execution.ts"
 import type { QueryResult } from "#adapter/types/db.ts"
 import { appendAll, indices } from "#compiler/core/array.ts"
 import { isRecord } from "#compiler/core/record.ts"
@@ -75,6 +75,7 @@ import {
 	tokenKinds
 } from "#test/support/platform/model.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { untilAnswered } from "#test/support/transient.ts"
 
 /** One of the platform's values, or a value it does not hold: the last share of the picks selects the absent one. */
 const liveOr = <A>(values: ReadonlyArray<A>, absent: A, pick: number): A => {
@@ -457,11 +458,19 @@ const checkArms = (readName: string, rows: ReadonlyArray<unknown>): void => {
 	}
 }
 
-/** Every invoice of an organization, paged `size` at a time and concatenated, following each page's end cursor. */
-const pagedInvoices = (db: PlatformDb, org: Uuid, size: number) =>
+/**
+ * Every invoice of an organization, paged `size` at a time and concatenated, following each page's end cursor, each
+ * page's call run again after a TransientFailure (untilAnswered), `refused` told of each.
+ */
+const pagedInvoices = (
+	db: PlatformDb,
+	org: Uuid,
+	size: number,
+	refused: (transient: TransientFailure) => void
+) =>
 	Effect.gen(function* () {
 		const paged: Array<unknown> = []
-		let page = yield* db.workload.invoices.page({ org }, { first: size })
+		let page = yield* untilAnswered(db.workload.invoices.page({ org }, { first: size }), refused)
 		for (;;) {
 			appendAll(
 				paged,
@@ -471,7 +480,10 @@ const pagedInvoices = (db: PlatformDb, org: Uuid, size: number) =>
 			if (!page.pageInfo.hasNextPage || Option.isNone(next)) {
 				return paged
 			}
-			page = yield* db.workload.invoices.page({ org }, { first: size, after: next.value })
+			page = yield* untilAnswered(
+				db.workload.invoices.page({ org }, { first: size, after: next.value }),
+				refused
+			)
 		}
 	})
 
@@ -553,6 +565,7 @@ type ReadsFeature =
 	| "a get answered"
 	| "a get answered none"
 	| "an ordered read paged"
+	| "a call run again after a TransientFailure"
 
 /**
  * A case as drawn: a billed platform's sketch, so its organizations hold invoices to page and refund, and one pick per
@@ -690,14 +703,20 @@ layer(Substrate.layer)(
 								const p: Platform = buildPlatform(cx.draw(resolvePlatform(sketch)))
 								cx.noteAll(builtFeatures(p))
 								yield* platform.clear
+								const refused = (): void => {
+									cx.note("a call run again after a TransientFailure")
+								}
 								yield* platform.withDb((db) =>
 									Effect.gen(function* () {
-										yield* applyFacts(db, p.facts)
-										yield* db.workload.refreshDailySpend.refresh
+										yield* untilAnswered(applyFacts(db, p.facts), refused)
+										yield* untilAnswered(db.workload.refreshDailySpend.refresh, refused)
 										const facts = hostFacts(p.facts, dailySpendRows(p.facts))
 										for (const [i, r] of reads.entries()) {
 											const { params, execute } = r.at(p, picks[i] ?? 0)
-											const rows = yield* (yield* execute(db)).collect
+											const rows = yield* untilAnswered(
+												Effect.flatMap(execute(db), (result) => result.collect),
+												refused
+											)
 											const expected = expectedOf(r.query, facts, params)
 											assert.deepEqual(
 												differences(expected, flattened(expected, rows)),
@@ -732,9 +751,14 @@ layer(Substrate.layer)(
 											}
 										]
 										for (const at of asked) {
-											const got = yield* db.workload.workspaceMonth.get(at)
-											const executed = yield* (yield* db.workload.workspaceMonth.execute(at))
-												.collect
+											const got = yield* untilAnswered(db.workload.workspaceMonth.get(at), refused)
+											const executed = yield* untilAnswered(
+												Effect.flatMap(
+													db.workload.workspaceMonth.execute(at),
+													(result) => result.collect
+												),
+												refused
+											)
 											assert.deepEqual(
 												[...Option.toArray(got)],
 												[...executed],
@@ -747,8 +771,14 @@ layer(Substrate.layer)(
 										 */
 										const size = 1 + (getPick % 3)
 										for (const org of ids(p.facts.Org).slice(0, 2)) {
-											const all = yield* (yield* db.workload.invoices.execute({ org })).collect
-											const paged = yield* pagedInvoices(db, org, size)
+											const all = yield* untilAnswered(
+												Effect.flatMap(
+													db.workload.invoices.execute({ org }),
+													(result) => result.collect
+												),
+												refused
+											)
+											const paged = yield* pagedInvoices(db, org, size, refused)
 											assert.deepEqual(paged, [...all], "the pages concatenate to the ordered rows")
 											assert.ok(
 												Arr.every(all, (row, j) => {
