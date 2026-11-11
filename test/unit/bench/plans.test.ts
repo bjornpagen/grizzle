@@ -1,3 +1,20 @@
+/**
+ * The bench harness's EXPLAIN readers (bench/harness/explain.ts), over plans the generator states: a tree of scans,
+ * joins with a join type, grouping nodes with a strategy and plain nodes, at most three levels below its root, each
+ * scan reading an index by name, quoted and non-ASCII names among them.
+ *
+ * - Read-back: printed as EXPLAIN (FORMAT JSON) prints it, figures an ANALYZE prints beside, as the JSON text or the
+ *   value the driver parses, the plan reads back as stated: every node's type, every index a node names and every
+ *   labelled edge, each in plan order (a node before its children), the order the readers promise.
+ * - Refusal: a cell that is not one plan (a node with no type, two plans, a number for an index name or a strategy,
+ *   no array) is refused as MalformedPlan by every reader, and anything else a reader throws fails the case.
+ *
+ * Oracle: the specification, a round trip of the plan the generator states. Features: either cell form, a nested plan,
+ * an index, a join type and a strategy; every way a cell breaks.
+ *
+ * Plants (~/.cache/grizzle-release/BR07/plants): plans-strategy-dropped.patch (an edge's label losing its strategy)
+ * turns the read-back red; plans-two-plans-read.patch (a cell of two plans read as its first) the refusal.
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -133,7 +150,10 @@ describe("the EXPLAIN readers", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "the plan the generator states, printed as EXPLAIN prints it and read back"
+						},
 						suite: "unit/bench/plan-readers",
 						draw: drawn((source) => ({ plan: source.draw(planGen), text: source.draw(boolean) })),
 						literal: Formatter.format,
@@ -195,7 +215,10 @@ describe("the EXPLAIN readers", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "specification",
+						name: "a cell that is not one plan is refused as MalformedPlan by every reader"
+					},
 					suite: "unit/bench/plan-readers-malformed",
 					draw: drawn((source) => ({
 						plan: source.draw(planGen),

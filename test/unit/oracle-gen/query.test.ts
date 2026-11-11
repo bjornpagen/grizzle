@@ -1,10 +1,3 @@
-import { describe, it } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { noCoverage, required } from "@grizzle/testing/features"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
-import { caseHang } from "#test/support/limits.ts"
 /**
  * Generated query cases: the conservative-oracle gate's case population.
  *
@@ -17,7 +10,23 @@ import { caseHang } from "#test/support/limits.ts"
  * Normalized: identifiers by first occurrence from the root (test/support/dag.ts normalizeDag).
  *
  * The edges of an acyclic closure pass a strict order filter: src < dst.
+ *
+ * Oracles: the specification, each claim judged by the engine's own checks (admitSchemaDesc, ownership, the DAG
+ * validator, every key and containment over native equality, literalProblem). The validity property requires no
+ * feature: which forms the population reaches is the gate's own required features, as above. Features of the
+ * configuration properties: a closure under the acyclic configuration.
+ *
+ * Plants (~/.cache/grizzle-release/BR07/plants): query-facts-key-unchecked.patch (facts drawn with no key conflict
+ * check) turns the validity property red; query-acyclic-ignored.patch (the acyclic configuration ignored) the
+ * configuration one.
  */
+import { describe, it } from "@effect/vitest"
+import { drawn, explore } from "@grizzle/testing/explore"
+import { noCoverage, required } from "@grizzle/testing/features"
+import { notesOnly } from "@grizzle/testing/sense"
+import { completeShrink } from "@grizzle/testing/shrink"
+import { searched } from "@grizzle/testing/vitest"
+import { caseHang } from "#test/support/limits.ts"
 
 import { Array as Arr, Effect, Formatter, Order, Record } from "effect"
 import { NodeId } from "#compiler/core/ids.ts"
@@ -67,7 +76,10 @@ describe("generated query cases", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "the engine's schema admission, ownership, DAG validation, keys, containments and literal checks"
+						},
 						suite: "unit/oracle-gen/query-valid",
 						draw: drawn(queryCaseGen(defaultGenConfig)),
 						literal: Formatter.format,
@@ -173,7 +185,10 @@ describe("generated query cases", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "a configuration that leaves forms out draws no node of them and no parameter"
+						},
 						suite: "unit/oracle-gen/query-plain",
 						draw: drawn(queryCaseGen(plain)),
 						literal: Formatter.format,
@@ -212,7 +227,10 @@ describe("generated query cases", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "the acyclic configuration filters every closure's edges"
+						},
 						suite: "unit/oracle-gen/query-acyclic",
 						draw: drawn(queryCaseGen(acyclic)),
 						literal: Formatter.format,

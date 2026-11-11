@@ -1,3 +1,22 @@
+/**
+ * The generators' scalar types, value domains and spelling rule (test/support/oracle/gen/domain.ts): every generated
+ * type's value classes hold only values the type stores exactly, one native-equality value per class, its edges
+ * included; text carries the metadata its pattern derives and admits every generated text; a key field's type is
+ * representable as a key; and a stored value is its class's one value, written in its canonical spelling or one of its
+ * twins (gen/domain.ts twinSpellings).
+ *
+ * A comparison parameter binds as the unrefined base.
+ *
+ * Oracles: the specification, the engine's own judges of each claim (literalProblem, the key representability check,
+ * analyzeText, the numeric bound) and the twin table. The types are exhausted over a box: every generated type,
+ * computed numerics included, with and without its edge classes, each key kept as a span or as a scalar. Features:
+ * every carrier the claims single out, edge classes, a type that is its own key type, a computed numeric; a canonical
+ * and a twin spelling.
+ *
+ * Plants (~/.cache/grizzle-release/BR07/plants): domain-duplicate-class.patch (a type's classes holding one twice)
+ * turns the types property red; domain-spelled-other-value.patch (a stored value spelling another class's value) the
+ * spelling one.
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
 import { required, requiredInSpace } from "@grizzle/testing/features"
@@ -7,15 +26,7 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
-/**
- * The generators' scalar types, value domains and spelling rule (test/support/oracle/gen/domain.ts): every generated
- * type's value classes hold only values the type stores exactly, one native-equality value per class, its edges
- * included; text carries the metadata its pattern derives and admits every generated text; a key field's type is
- * representable as a key; and a stored value is its class's one value, written in its canonical spelling or one of its
- * twins (gen/domain.ts twinSpellings).
- *
- * A comparison parameter binds as the unrefined base.
- */
+
 import { literalProblem, type TypedLiteral } from "#compiler/ir/expr.ts"
 import {
 	isRefined,
@@ -106,8 +117,11 @@ describe("generated scalar types", () => {
 					ctx,
 					exhaust(
 						{
-							box: { kind: "unstated" },
-							oracle: { kind: "unstated" },
+							box: "every generated type, computed numerics included, with and without its edge classes, each key kept as a span or as a scalar",
+							oracle: {
+								kind: "specification",
+								name: "the engine's literal check, key representability, text analysis and numeric bound"
+							},
 							suite: "unit/oracle-gen/domain-types",
 							/**
 							 * Every type, computed numerics included, with and without its edge classes, each key kept as a span or
@@ -189,7 +203,10 @@ describe("value domains", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "a stored value is its class's one value, in its canonical spelling or a twin of the twin table"
+						},
 						suite: "unit/oracle-gen/domain-spelling",
 						draw: drawn(
 							(source) =>

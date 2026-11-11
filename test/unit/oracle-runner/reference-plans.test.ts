@@ -8,9 +8,19 @@
  * every decline the reference observes, and on every refusal. The hash identity they rely on, indexIdentity, agrees with
  * native comparison wherever it gives one.
  *
- * An enum handle outside its roster compares equal to every other such handle.
+ * An enum handle outside its roster compares equal to every other such handle, and a value of another carrier is a
+ * defect comparison reports: indexIdentity gives neither an identity, so comparison alone decides them.
  *
- * A value of another carrier is a defect comparison reports.
+ * Oracles: a second implementation each, the reference's nested loops of its definition for the plans, and the
+ * reference's comparison (equal) for indexIdentity over a box of every sampled type and every ordered pair of every
+ * type's sampled values. The populations are the oracle's own (gen/case.ts, gen/recursive.ts), whose forms
+ * test/unit/oracle-gen/query.test.ts and the conservative gate require; here every case is a differential, so no
+ * feature of its own is required. indexIdentity's features: one identity, two, none for another carrier, none outside
+ * the roster.
+ *
+ * Plants (~/.cache/grizzle-release/BR07/plants): reference-plans-one-candidate.patch (an index lookup keeping one row of
+ * its bucket) turns the plan properties red; index-identity-outside-roster.patch (a handle outside its roster given an
+ * identity) the indexIdentity one.
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
@@ -136,7 +146,10 @@ const transcript = (c: QueryCase, nested: boolean): ReadonlyArray<TranscriptEntr
 const agree = (suite: string, generator: Gen<QueryCase>) =>
 	explore(
 		{
-			oracle: { kind: "unstated" },
+			oracle: {
+				kind: "second-implementation",
+				name: "the reference's nested loops of its definition, every plan refused"
+			},
 			suite,
 			draw: drawn(generator),
 			literal: Formatter.format,

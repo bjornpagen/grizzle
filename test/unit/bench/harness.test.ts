@@ -125,6 +125,16 @@ import {
  *   its cases when only the release fails.
  * - Every gate of the catalog has exactly one bench file, in its owner's directory: an audit of the real tree.
  * - The command line of `pnpm bench` reads exactly what a model of its grammar reads, and refuses the rest.
+ *
+ * Each property states its oracle and requires the situations its oracle tells apart.
+ *
+ * Plants (~/.cache/grizzle-release/BR07/plants), one a property in this order: harness-rows-read-one-loop.patch (a
+ * scan's rows read over one loop), harness-figure-not-finite-read.patch (a figure that is not finite read),
+ * harness-retry-once-more.patch (one retry past the policy), harness-rows-repeat-agrees.patch (a repeated row
+ * agreeing), harness-text-number-read.patch (a number cell read as text), harness-verdict-first-check.patch (a verdict
+ * blind to its first check), harness-record-two-verdicts.patch (two verdicts of a gate unnamed),
+ * harness-record-leak-keeps-verdicts.patch (a leaked release keeping its verdicts), harness-gate-owner-swapped.patch (a
+ * gate owned by the other directory), harness-full-takes-arguments.patch (`full` taking arguments).
  */
 const spec = {
 	literal: Formatter.format,
@@ -1053,7 +1063,10 @@ layer(NodeServices.layer, { excludeTestServices: true })(
 					ctx,
 					exhaust(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "specification",
+								name: "a run's record keeps its cases and verdicts when only its release fails, and names the leak"
+							},
 							suite: "unit/bench/record-of",
 							generator: (source) =>
 								[

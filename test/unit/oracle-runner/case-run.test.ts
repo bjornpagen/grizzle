@@ -9,7 +9,11 @@
  * case holds a resource, counting its acquisition and its release; the hanging case never finishes. The search runs as
  * a fiber of its own, which is interrupted once the hanging case has started; the oracle is the count itself: every
  * acquisition the search made has its release by the time the interruption returns. A case left holding never
- * releases, and the test's own timeout, the hang guard, names it: no clock decides the verdict.
+ * releases, and the test's own timeout, the hang guard, names it: no clock decides the verdict. Features: the hanging
+ * case first, after finished cases, and beside running ones.
+ *
+ * Plant: ~/.cache/grizzle-release/BR07/plants/case-interrupted-left-running.patch (a case the search's interruption
+ * reaches left running rather than stopped) turns the property red.
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -91,7 +95,10 @@ describe("a generated suite's cases", () => {
 							const check = yield* Effect.forkChild(
 								explore(
 									{
-										oracle: { kind: "unstated" },
+										oracle: {
+											kind: "specification",
+											name: "a search planted to hang one case, interrupted from outside"
+										},
 										suite: "unit/oracle-runner/case-interrupted-inner",
 										draw: drawn(int(0, 2 ** 31 - 1)),
 										literal: Formatter.format,

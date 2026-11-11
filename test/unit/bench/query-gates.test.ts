@@ -1,3 +1,21 @@
+/**
+ * The query kit's agreement judgments, against independent models.
+ *
+ * - `within(tolerance)` agrees on two keyed lists of numeric texts exactly when every key occurs once on each side and
+ *   its two values are equal texts or within the tolerance as numbers: a repeated key, a key on one side only, or a
+ *   difference above the tolerance disagrees. `agreementCounts` counts as unmatched exactly the keys on one side only.
+ * - `deliveredAgree` compares delivered values as sets of rows: a permutation of the rows agrees, a permutation inside
+ *   a nested array agrees as a set and disagrees in order unless it changed nothing, and a changed field, a repeated
+ *   row, or an item a nested set repeats disagrees.
+ *
+ * Oracles: second implementations, a model of keyed agreement over the drawn rows and the drawn changes' own verdicts.
+ * The keyed rows are drawn over four keys and a few decimal texts that are equal, near, apart or no number at all, so
+ * every verdict is in reach; the delivered rows are distinct by construction, at least one, each with its own id.
+ * Features: every way two keyed lists agree or not; every change to a delivery.
+ *
+ * Plants (~/.cache/grizzle-release/BR07/plants): kit-right-only-agrees.patch (a key on the right only agreeing) turns
+ * the keyed property red; kit-repeats-ignored.patch (a repeated row agreeing) the delivered one.
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -9,16 +27,6 @@ import { agreementCounts, deliveredAgree, within } from "#bench/query/support/ki
 import { assert, defined } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 
-/**
- * The query kit's agreement judgments, against independent models.
- *
- * - `within(tolerance)` agrees on two keyed lists of numeric texts exactly when every key occurs once on each side and
- *   its two values are equal texts or within the tolerance as numbers: a repeated key, a key on one side only, or a
- *   difference above the tolerance disagrees. `agreementCounts` counts as unmatched exactly the keys on one side only.
- * - `deliveredAgree` compares delivered values as sets of rows: a permutation of the rows agrees, a permutation inside
- *   a nested array agrees as a set and disagrees in order unless it changed nothing, and a changed field, a repeated
- *   row, or an item a nested set repeats disagrees.
- */
 type KeyedRows = ReadonlyArray<readonly [string, string]>
 
 const keys = ["a", "b", "c", "d"] as const
@@ -59,7 +67,10 @@ describe("the query kit's keyed numeric agreement", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "second-implementation",
+						name: "a model of keyed agreement: every key once on each side, equal or within the tolerance"
+					},
 					suite: "unit/bench/within",
 					draw: drawn(
 						(source) =>
@@ -151,16 +162,19 @@ const sameOrder = (a: ReadonlyArray<number>, b: ReadonlyArray<number>): boolean 
 describe("the query kit's delivered agreement", () => {
 	it.effect("deliveredAgree is set equality of delivered values", (ctx) =>
 		Effect.gen(function* () {
-			/** Rows distinct by construction, each with its own id, and nested arrays that repeat no item. */
+			/** At least one row, distinct by construction, each with its own id, and nested arrays that repeat no item. */
 			const rowsGen: Gen<ReadonlyArray<Delivered>> = map(
-				array(shuffled([0, 1, 2], { min: 0, max: 3 }), { min: 0, max: 5 }),
+				array(shuffled([0, 1, 2], { min: 0, max: 3 }), { min: 1, max: 5 }),
 				(arrays) => Arr.map(arrays, (xs, i): Delivered => ({ id: BigInt(i), xs }))
 			)
 			yield* searched(
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "a delivery is a set of rows: a permutation agrees, a changed field, a repeat or a nested repeat does not"
+						},
 						suite: "unit/bench/delivered-agree",
 						draw: drawn(
 							(source) =>
@@ -192,9 +206,6 @@ describe("the query kit's delivered agreement", () => {
 						Effect.sync(() => {
 							const ordered = deliveredAgree("ordered")
 							const unordered = deliveredAgree("set")
-							if (rows.length === 0) {
-								return
-							}
 							/** A permutation: the rows rotated by n, reversed when drawn so. */
 							const at = n % rows.length
 							const rotated = [...rows.slice(at), ...rows.slice(0, at)]
