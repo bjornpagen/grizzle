@@ -1,3 +1,59 @@
+/**
+ * Generated fields on PostgreSQL 19rc1: STORED generated columns, run as programs of a commands machine whose model
+ * predicts every verdict (testing doctrine, rule 11).
+ *
+ * The relation R holds a caller's key, a closed id `tier` over the roster Tier and two sets over it, a and b, and up to
+ * four generated fields, each one of its kind's expressions:
+ * - k, a count: |a|, |b|, |a ∪ b| or |a ∩ b|;
+ * - s, a set: a ∪ b, a ∩ b, a − b, b − a, or a ∪ L, a ∩ L or a − L, L a literal set operand, Bits.of(Tier, …) of the
+ *   live handles at even declared positions (markedOf), which takes a's type, so its bits are the handles' codes; or
+ *   {tier} or a ∪ {tier}, the singleton of the row's tier, Compute.singleton(tier), whose one bit is the tier's code;
+ * - w, C.at over Weight, a closed relation keyed by a Tier with two integer payloads: Weight.at("w", tier) or
+ *   Weight.at("v", tier);
+ * - p, C.row over Pair, a closed relation keyed by two Tiers: Pair.row(tier), it ∪ a, or it ∩ {tier}, whether the
+ *   tier pairs with itself.
+ *
+ * Tier is drawn by A8's generator (test/support/closed/generate.ts historyGen) and installed through its history, so
+ * most cases meet a roster whose codes have holes, where a set's bit i is code i and not a handle's declared position;
+ * rows, Weight's keys and Pair's pairs are drawn from its live handles by the same module. Weight holds every live
+ * handle or some of them, so C.at meets keys it holds no tuple at, which read NULL and which the column's NOT NULL
+ * refuses with 23502 (fin.md §17; OPEN-U5). The installation declares some generated fields from the start, so a short
+ * program meets a closed read over rows. The commands:
+ *
+ * - **write:** the writer inserts a row of caller values and PostgreSQL computes every generated column, or refuses
+ *   the row with 23502 naming w's column where w reads a key Weight does not hold;
+ * - **supply:** a direct writer supplies a generated column, by an INSERT or an UPDATE, and PostgreSQL refuses it with
+ *   428C9, changing nothing;
+ * - **add, change, drop:** a generated field is added, given another expression, or dropped (a declared drop), each a
+ *   migration drafted from the snapshot before it as `grizzle generate` drafts it and applied by the real runner. A
+ *   changed expression migrates in place by SET EXPRESSION: the column keeps its attnum, which a drop and an add would
+ *   not;
+ * - **closed rows:** Weight's and Pair's rows change, and every generated column reading them holds the new rows'
+ *   values: a STORED column is computed only when it is written, so the migration must re-express each one;
+ * - a migration under which w would read a key Weight does not hold, adding w or changing the rows, is refused with
+ *   23502 naming w's column. The runner applies a folder file by file, so the files before the refused one stay applied
+ *   and the folder is unfinished; a data step deletes the rows that read the absent key, and the same folder applied
+ *   again resumes and completes;
+ * - **regenerate:** no change drafts nothing, so a generated field's expression is one snapshot text.
+ *
+ * After every step the installation is the model's: R's columns are its caller's fields and exactly the model's
+ * generated fields, each STORED (attgenerated 's'), and every row's caller values are the model's. The oracles are two
+ * second implementations of each generation expression: the host evaluator (scalar/compute/evaluate.ts) over the
+ * checked schema's expression of the field, its closed reads answered from the model's rows of Weight and Pair, and a
+ * naive model of the expression the model chose, over plain Sets. PostgreSQL's stored value of every generated column
+ * of every row must agree with both, and with the reference evaluator (test/support/oracle/evaluate/catalog.ts) where
+ * the expression reads no closed relation, and PostgreSQL is the judge of every refusal.
+ *
+ * Each case's commands are a swarm drawn per case (rule 7); the all-off draw is guarded by keeping `write`, which
+ * applies in every state, always on. While no witness has added w over a row at a key Weight lacks, or written a row
+ * under one of the singleton expressions at a tier whose code is no position, half the steered cases are aimed at one of
+ * them (aimedRun). Bound: programs of three to eight steps, or an aimed write at each live handle, over a roster of two
+ * to four handles after up to two migrations of its history.
+ *
+ * Plants: fields-derived-host-intersection-union (the host evaluator's set intersection is the union).
+ *
+ * Features: the vocabulary Feature below, each command and each expression kind a program reaches.
+ */
 import { layer } from "@effect/vitest"
 import {
 	accepted,
@@ -88,59 +144,6 @@ import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import type { Credentials, RawSession } from "#test/support/substrate/session.ts"
 import { ownerSession, Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 import { outputText } from "#test/support/wire.ts"
-
-/**
- * Generated fields on PostgreSQL 19rc1: STORED generated columns, run as programs of a commands machine whose model
- * predicts every verdict (testing doctrine, rule 11).
- *
- * The relation R holds a caller's key, a closed id `tier` over the roster Tier and two sets over it, a and b, and up to
- * four generated fields, each one of its kind's expressions:
- * - k, a count: |a|, |b|, |a ∪ b| or |a ∩ b|;
- * - s, a set: a ∪ b, a ∩ b, a − b, b − a, or a ∪ L, a ∩ L or a − L, L a literal set operand, Bits.of(Tier, …) of the
- *   live handles at even declared positions (markedOf), which takes a's type, so its bits are the handles' codes; or
- *   {tier} or a ∪ {tier}, the singleton of the row's tier, Compute.singleton(tier), whose one bit is the tier's code;
- * - w, C.at over Weight, a closed relation keyed by a Tier with two integer payloads: Weight.at("w", tier) or
- *   Weight.at("v", tier);
- * - p, C.row over Pair, a closed relation keyed by two Tiers: Pair.row(tier), it ∪ a, or it ∩ {tier}, whether the
- *   tier pairs with itself.
- *
- * Tier is drawn by A8's generator (test/support/closed/generate.ts historyGen) and installed through its history, so
- * most cases meet a roster whose codes have holes, where a set's bit i is code i and not a handle's declared position;
- * rows, Weight's keys and Pair's pairs are drawn from its live handles by the same module. Weight holds every live
- * handle or some of them, so C.at meets keys it holds no tuple at, which read NULL and which the column's NOT NULL
- * refuses with 23502 (fin.md §17; OPEN-U5). The installation declares some generated fields from the start, so a short
- * program meets a closed read over rows. The commands:
- *
- * - **write:** the writer inserts a row of caller values and PostgreSQL computes every generated column, or refuses
- *   the row with 23502 naming w's column where w reads a key Weight does not hold;
- * - **supply:** a direct writer supplies a generated column, by an INSERT or an UPDATE, and PostgreSQL refuses it with
- *   428C9, changing nothing;
- * - **add, change, drop:** a generated field is added, given another expression, or dropped (a declared drop), each a
- *   migration drafted from the snapshot before it as `grizzle generate` drafts it and applied by the real runner. A
- *   changed expression migrates in place by SET EXPRESSION: the column keeps its attnum, which a drop and an add would
- *   not;
- * - **closed rows:** Weight's and Pair's rows change, and every generated column reading them holds the new rows'
- *   values: a STORED column is computed only when it is written, so the migration must re-express each one;
- * - a migration under which w would read a key Weight does not hold, adding w or changing the rows, is refused with
- *   23502 naming w's column. The runner applies a folder file by file, so the files before the refused one stay applied
- *   and the folder is unfinished; a data step deletes the rows that read the absent key, and the same folder applied
- *   again resumes and completes;
- * - **regenerate:** no change drafts nothing, so a generated field's expression is one snapshot text.
- *
- * After every step the installation is the model's: R's columns are its caller's fields and exactly the model's
- * generated fields, each STORED (attgenerated 's'), and every row's caller values are the model's. The oracles are two
- * second implementations of each generation expression: the host evaluator (scalar/compute/evaluate.ts) over the
- * checked schema's expression of the field, its closed reads answered from the model's rows of Weight and Pair, and a
- * naive model of the expression the model chose, over plain Sets. PostgreSQL's stored value of every generated column
- * of every row must agree with both, and with the reference evaluator (test/support/oracle/evaluate/catalog.ts) where
- * the expression reads no closed relation, and PostgreSQL is the judge of every refusal.
- *
- * Each case's commands are a swarm drawn per case (rule 7); the all-off draw is guarded by keeping `write`, which
- * applies in every state, always on. While no witness has added w over a row at a key Weight lacks, or written a row
- * under one of the singleton expressions at a tier whose code is no position, half the steered cases are aimed at one of
- * them (aimedRun). Bound: programs of three to eight steps, or an aimed write at each live handle, over a roster of two
- * to four handles after up to two migrations of its history.
- */
 
 /** The roster the sets range over, the relation that holds them, and the closed relations its fields read. */
 const tierName = parsedName("Tier")

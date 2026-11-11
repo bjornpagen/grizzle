@@ -1,3 +1,19 @@
+/**
+ * A family's members carrying bytes, on PostgreSQL 19rc1: an owner of a bytes value of its own, which its nested write
+ * admits once for the owner's row and once for its own insert, is inserted with members nested in order, each
+ * member's bytes value empty, short, or one short of, at or one past a chunk of the delivery in force
+ * (core/limits.ts bytesChunkLength), or of several chunks; then one member is deleted, which re-places every later
+ * sibling: grizzle reads the stored suffix, its bytes values in chunks (write/family/decode.ts), and writes each
+ * re-placed member again whole, its bytes value in its column's binary array (write/family/order.ts columnArray).
+ * Every member reads back at its slot with its bytes, before and after.
+ *
+ * Oracle: the drawn values, in slot order, less the one deleted.
+ *
+ * Plants: fields-delivery-chunk-offset (a delivered chunk is written at the wrong offset, so a member's bytes past its
+ * first chunk read back wrong).
+ *
+ * Features: the vocabulary Feature below, each member value's length class about a chunk.
+ */
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -17,18 +33,6 @@ import { assert, defined } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
-
-/**
- * A family's members carrying bytes, on PostgreSQL 19rc1: an owner of a bytes value of its own, which its nested write
- * admits once for the owner's row and once for its own insert, is inserted with members nested in order, each
- * member's bytes value empty, short, or one short of, at or one past a chunk of the delivery in force
- * (core/limits.ts bytesChunkLength), or of several chunks; then one member is deleted, which re-places every later
- * sibling: grizzle reads the stored suffix, its bytes values in chunks (write/family/decode.ts), and writes each
- * re-placed member again whole, its bytes value in its column's binary array (write/family/order.ts columnArray).
- * Every member reads back at its slot with its bytes, before and after.
- *
- * Oracle: the drawn values, in slot order, less the one deleted.
- */
 
 /** `length` bytes of a xorshift stream from `seed`. */
 const streamBytes = (length: number, seed: number): Uint8Array<ArrayBuffer> => {

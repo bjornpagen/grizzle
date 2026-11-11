@@ -1,3 +1,47 @@
+/**
+ * NULL is a value of grizzle's scalar language wherever it arises, on PostgreSQL 19rc1: a differential search over
+ * drawn expressions placed in every position a rule or a query reads one.
+ *
+ * Each case draws a world of closed relations over two rosters, some keys held by no row (language.ts World), rows of
+ * every open relation, and an expression for each position, drawn by construction over every operator family
+ * (comparisons, BETWEEN, IN, AND, OR and NOT, exact and IEEE 754 arithmetic, greatest and least, casts, text, sets,
+ * span endpoints, conditionals, guards and a closed relation's presence, C.has, false at a key no row holds) over
+ * every sort (integers, numerics, texts, closed ids, sets, booleans and
+ * both floats, NaN and the infinities among them) and every NULL source (a closed read at an absent key, at a NULL
+ * key, nested). Float arithmetic stands in a query alone, as grizzle admits it nowhere else. A span is never NULL, since
+ * no closed relation holds one (closed.relation refuses a span field): its endpoints meet a NULL only beside a NULL
+ * operand of the node above them. The positions:
+ *
+ * - three row checks on Checked;
+ * - a containment of a selection of Contained into the closed Allowed;
+ * - a key over a selection of Keyed, each row written at every kind;
+ * - three generated relations, each a generated field of a drawn type and a row check;
+ * - a fold, the sum of a family's integers under a drawn selection, filled by grizzle's writer: an owner with every row
+ *   nested, a stored owner a member put at a time, and a refill past a deleted member;
+ * - a query's filter, an aggregate's filter, keyed and with no key, and a query's head.
+ *
+ * The oracle is PostgreSQL itself: each expression, written in plain SQL from its meaning alone (closed relations as
+ * values, a closed read a scalar subquery), evaluated by one SELECT at every row it is judged at. The model of
+ * language.ts (Kleene's logic, strict operations) agrees with it at every row, and so does grizzle's host evaluator over
+ * the law model's own expressions: each row check, the containment's guard, the key's selection and each generated
+ * field. Through grizzle's writer and reader:
+ *
+ * - a row is accepted exactly where every law of its relation holds, a check and a selection holding where they are
+ *   true; a refused row names exactly the laws it breaks, every check that is false or unknown at it, and a generated
+ *   field NULL at it alone, as PostgreSQL checks NOT NULL first;
+ * - each stored generated value is PostgreSQL's;
+ * - each owner's fold total sums the members its selection makes true;
+ * - a filter returns the rows it makes true, an aggregate the groups of those rows and no row where none is, and a head
+ *   delivers PostgreSQL's value, or is refused at compile when it reads a closed relation.
+ *
+ * Steering aims a witness at each operator family a NULL operand has not reached in a position yet: its world leaves
+ * its last kind absent from Pick, and the position's expression is built around a node of that family over a read at
+ * it (language.ts aimedPredGen, aimedStoredGen).
+ *
+ * Plants: null-greatest-null-wins (the host's greatest and least return NULL when any operand is NULL).
+ *
+ * Features: every operator family in every position, reached by a NULL operand.
+ */
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore, type Kept } from "@grizzle/testing/explore"
 import { type Reached, required } from "@grizzle/testing/features"
@@ -108,47 +152,6 @@ import { refusedLaws } from "#test/support/refused.ts"
 import { member, withServedDb } from "#test/support/served-db.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
-
-/**
- * NULL is a value of grizzle's scalar language wherever it arises, on PostgreSQL 19rc1: a differential search over
- * drawn expressions placed in every position a rule or a query reads one.
- *
- * Each case draws a world of closed relations over two rosters, some keys held by no row (language.ts World), rows of
- * every open relation, and an expression for each position, drawn by construction over every operator family
- * (comparisons, BETWEEN, IN, AND, OR and NOT, exact and IEEE 754 arithmetic, greatest and least, casts, text, sets,
- * span endpoints, conditionals, guards and a closed relation's presence, C.has, false at a key no row holds) over
- * every sort (integers, numerics, texts, closed ids, sets, booleans and
- * both floats, NaN and the infinities among them) and every NULL source (a closed read at an absent key, at a NULL
- * key, nested). Float arithmetic stands in a query alone, as grizzle admits it nowhere else. A span is never NULL, since
- * no closed relation holds one (closed.relation refuses a span field): its endpoints meet a NULL only beside a NULL
- * operand of the node above them. The positions:
- *
- * - three row checks on Checked;
- * - a containment of a selection of Contained into the closed Allowed;
- * - a key over a selection of Keyed, each row written at every kind;
- * - three generated relations, each a generated field of a drawn type and a row check;
- * - a fold, the sum of a family's integers under a drawn selection, filled by grizzle's writer: an owner with every row
- *   nested, a stored owner a member put at a time, and a refill past a deleted member;
- * - a query's filter, an aggregate's filter, keyed and with no key, and a query's head.
- *
- * The oracle is PostgreSQL itself: each expression, written in plain SQL from its meaning alone (closed relations as
- * values, a closed read a scalar subquery), evaluated by one SELECT at every row it is judged at. The model of
- * language.ts (Kleene's logic, strict operations) agrees with it at every row, and so does grizzle's host evaluator over
- * the law model's own expressions: each row check, the containment's guard, the key's selection and each generated
- * field. Through grizzle's writer and reader:
- *
- * - a row is accepted exactly where every law of its relation holds, a check and a selection holding where they are
- *   true; a refused row names exactly the laws it breaks, every check that is false or unknown at it, and a generated
- *   field NULL at it alone, as PostgreSQL checks NOT NULL first;
- * - each stored generated value is PostgreSQL's;
- * - each owner's fold total sums the members its selection makes true;
- * - a filter returns the rows it makes true, an aggregate the groups of those rows and no row where none is, and a head
- *   delivers PostgreSQL's value, or is refused at compile when it reads a closed relation.
- *
- * Steering aims a witness at each operator family a NULL operand has not reached in a position yet: its world leaves
- * its last kind absent from Pick, and the position's expression is built around a node of that family over a read at
- * it (language.ts aimedPredGen, aimedStoredGen).
- */
 
 const positions = ["check", "contained", "key", "generated", "fold", "filter", "aggregate"] as const
 type Position = (typeof positions)[number]

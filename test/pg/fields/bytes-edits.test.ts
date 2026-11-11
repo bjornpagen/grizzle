@@ -1,3 +1,23 @@
+/**
+ * Edits of stored bytes values on PostgreSQL 19rc1, which the host knows only by their SHA-256 digests: a write returns
+ * a bytes column's digest (write/insert/statement.ts returnedColumn), the outcome nets its rows by it, and a member's
+ * facts are one fact exactly when every field, a bytes field's digest among them, is equal (scalar/values/identity.ts).
+ * A case stores a few rows twice over, in Blob and in Held, and a staged value for some of them in Stage. One ChangeSet
+ * puts some Blob rows again, some with the value they hold, some one byte off or of another length, some new, and
+ * deletes some by their exact facts, one byte off or not; a fact may be stated twice, or a second fact one byte off
+ * stated at its key. Another puts every staged value into Held through a query, a put of existing keys, whose UPDATE
+ * returns each row's old fact beside its new one, so a value one byte off its old one is netted by its digest alone.
+ *
+ * Oracle: a model of the relations' rows, which counts each put whose value differs from the stored one and each exact
+ * delete of a stored fact, refuses two facts at one key one byte apart, and holds every row each ChangeSet leaves.
+ *
+ * Each ChangeSet is a member of the full world's served workload, its call's facts keyed by op and relation.
+ *
+ * Plants: fields-bytes-digest-short (a bytes value's digest skips its last byte, so a value one byte off at its end, or
+ * one byte longer, is netted as the value it differs from).
+ *
+ * Features: the vocabulary Feature below, each kind of put and delete the model counts.
+ */
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -15,22 +35,6 @@ import { installed } from "#test/pg/reads/support.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-
-/**
- * Edits of stored bytes values on PostgreSQL 19rc1, which the host knows only by their SHA-256 digests: a write returns
- * a bytes column's digest (write/insert/statement.ts returnedColumn), the outcome nets its rows by it, and a member's
- * facts are one fact exactly when every field, a bytes field's digest among them, is equal (scalar/values/identity.ts).
- * A case stores a few rows twice over, in Blob and in Held, and a staged value for some of them in Stage. One ChangeSet
- * puts some Blob rows again, some with the value they hold, some one byte off or of another length, some new, and
- * deletes some by their exact facts, one byte off or not; a fact may be stated twice, or a second fact one byte off
- * stated at its key. Another puts every staged value into Held through a query, a put of existing keys, whose UPDATE
- * returns each row's old fact beside its new one, so a value one byte off its old one is netted by its digest alone.
- *
- * Oracle: a model of the relations' rows, which counts each put whose value differs from the stored one and each exact
- * delete of a stored fact, refuses two facts at one key one byte apart, and holds every row each ChangeSet leaves.
- *
- * Each ChangeSet is a member of the full world's served workload, its call's facts keyed by op and relation.
- */
 
 /** `length` bytes of a xorshift stream from `seed`. */
 const streamBytes = (length: number, seed: number): Uint8Array<ArrayBuffer> => {

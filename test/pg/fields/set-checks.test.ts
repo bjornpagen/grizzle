@@ -1,3 +1,22 @@
+/**
+ * A set compared with a set value in a row check, on PostgreSQL 19rc1: `Compute.disjoint` and `Compute.subset` take a
+ * set value of the first operand's roster (Bits.of) as their second operand, a literal that takes the set's type, so its
+ * bits are its handles' codes, and the installed CHECK holds a row exactly when the set algebra over its handles does.
+ *
+ * The box: every set over a roster of three handles, written as one row of R, whose checks hold its flags apart from
+ * {a}, within {a, b}, and within one side, {a, b} or {b, c}, so a and c together break all three. The model restates
+ * the checks over plain Sets: a row is accepted exactly when its flags hold every one; otherwise the write is refused naming `every` check the flags break, each once, in the schema's canonical order
+ * of its laws, whichever CHECK PostgreSQL tried first, its witness the row's key. A query reads an accepted row back
+ * through the same algebra against set values, whether its flags miss b and their union with {c}, which the model
+ * computes over plain Sets.
+ *
+ * Planted in a scratch copy, a refusal naming only the CHECK PostgreSQL reported, as one did before a refused CHECK
+ * named every law its row breaks, and one naming the broken checks against the canonical order, each fail the box.
+ *
+ * Plants: fields-set-subset-reversed (subset lowers as b ⊆ a).
+ *
+ * Features: a row accepted, and a row breaking each check alone and with others.
+ */
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
@@ -18,21 +37,6 @@ import { refusedLaws } from "#test/support/refused.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
-/**
- * A set compared with a set value in a row check, on PostgreSQL 19rc1: `Compute.disjoint` and `Compute.subset` take a
- * set value of the first operand's roster (Bits.of) as their second operand, a literal that takes the set's type, so its
- * bits are its handles' codes, and the installed CHECK holds a row exactly when the set algebra over its handles does.
- *
- * The box: every set over a roster of three handles, written as one row of R, whose checks hold its flags apart from
- * {a}, within {a, b}, and within one side, {a, b} or {b, c}, so a and c together break all three. The model restates
- * the checks over plain Sets: a row is accepted exactly when its flags hold every one; otherwise the write is refused naming `every` check the flags break, each once, in the schema's canonical order
- * of its laws, whichever CHECK PostgreSQL tried first, its witness the row's key. A query reads an accepted row back
- * through the same algebra against set values, whether its flags miss b and their union with {c}, which the model
- * computes over plain Sets.
- *
- * Planted in a scratch copy, a refusal naming only the CHECK PostgreSQL reported, as one did before a refused CHECK
- * named every law its row breaks, and one naming the broken checks against the canonical order, each fail the box.
- */
 const handles = ["a", "b", "c"] as const
 type Handle = (typeof handles)[number]
 const Flag = closed("Flag", handles)
@@ -131,7 +135,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							const db = yield* Db.open(o.served.login.roles.app, {})
 							return yield* exhaust(
 								{
-									box: { kind: "unstated" },
+									box: "every set over the roster's three handles",
 									suite: "pg/fields/set-checks",
 									generator: element(allSets),
 									literal: Formatter.format,

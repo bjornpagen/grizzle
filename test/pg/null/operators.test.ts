@@ -1,3 +1,29 @@
+/**
+ * Every operation of grizzle's scalar language over operands that are each NULL or one of two values, on PostgreSQL
+ * 19rc1: grizzle's host evaluator (scalar/compute/evaluate.ts) agrees with PostgreSQL, NULL included, and so does the
+ * model of language.ts.
+ *
+ * The box, exhausted: each operation the host evaluates in a check (each comparison over each sort, BETWEEN, IN, AND,
+ * OR, NOT, arithmetic, greatest, a guarded division and remainder, concatenation and a text's prefix and suffix tests,
+ * a set's algebra and tests, and a conditional), with each operand slot a closed read of Pick at k0, at k1 or at k2,
+ * which Pick holds no row at: the first value, the second, or NULL. A slot of a set reads Next at the flag Pick holds,
+ * a bigint casts the integer, an exact integer adds zero to it, and a truth compares the boolean with true. Each case's
+ * expression stands in a row check, whose installed predicate the law model holds; the host evaluates it, and for a
+ * term its first operand, over the closed rows the host's fill reads, and PostgreSQL evaluates the expression written
+ * in plain SQL from its meaning alone.
+ *
+ * The roundings (round, trunc, ceil and floor) are a query's alone: each case of one holds that every place the host
+ * evaluates an expression refuses it at compile (a row check, a generated field, a containment's and a key's
+ * selection, a fold's selection and a fold stepping a generated field), and that the host's evaluator, over the
+ * registry's node of it, claims no value but NULL's, where PostgreSQL's is NULL too.
+ *
+ * Oracle: PostgreSQL itself, the expression written in plain SQL from its meaning alone, with the model of language.ts
+ * agreeing.
+ *
+ * Plants: null-greatest-null-wins (the host's greatest and least return NULL when any operand is NULL).
+ *
+ * Features: every operation form, a NULL operand and none, and each of Kleene's and SQL's NULL rules the box turns on.
+ */
 import { layer } from "@effect/vitest"
 import { type Case, exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
@@ -73,26 +99,6 @@ import { checking, owning } from "#test/support/policy.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
-
-/**
- * Every operation of grizzle's scalar language over operands that are each NULL or one of two values, on PostgreSQL
- * 19rc1: grizzle's host evaluator (scalar/compute/evaluate.ts) agrees with PostgreSQL, NULL included, and so does the
- * model of language.ts.
- *
- * The box, exhausted: each operation the host evaluates in a check (each comparison over each sort, BETWEEN, IN, AND,
- * OR, NOT, arithmetic, greatest, a guarded division and remainder, concatenation and a text's prefix and suffix tests,
- * a set's algebra and tests, and a conditional), with each operand slot a closed read of Pick at k0, at k1 or at k2,
- * which Pick holds no row at: the first value, the second, or NULL. A slot of a set reads Next at the flag Pick holds,
- * a bigint casts the integer, an exact integer adds zero to it, and a truth compares the boolean with true. Each case's
- * expression stands in a row check, whose installed predicate the law model holds; the host evaluates it, and for a
- * term its first operand, over the closed rows the host's fill reads, and PostgreSQL evaluates the expression written
- * in plain SQL from its meaning alone.
- *
- * The roundings (round, trunc, ceil and floor) are a query's alone: each case of one holds that every place the host
- * evaluates an expression refuses it at compile (a row check, a generated field, a containment's and a key's
- * selection, a fold's selection and a fold stepping a generated field), and that the host's evaluator, over the
- * registry's node of it, claims no value but NULL's, where PostgreSQL's is NULL too.
- */
 
 /** The world every case reads: Pick holds k0 and k1, two payloads apart in every field, and no row at k2. */
 const world: World = {

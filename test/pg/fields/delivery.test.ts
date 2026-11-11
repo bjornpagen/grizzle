@@ -1,3 +1,19 @@
+/**
+ * A statement's delivery against PostgreSQL 19rc1 at chunk boundaries (lower/delivery.ts deliveredRows): rows of two
+ * bytes columns and a text column, each value at a length about a boundary of a small chunk length, stored by db.apply
+ * and read back by the delivered form of a read of their table, ordered and limited or not, under that chunk length.
+ * PostgreSQL's answer reads strictly as the delivery the statement states (test/support/kernel/strict.ts
+ * strictDelivered), and the library's assembly of it (codec/delivery.ts assembledIn) is exactly the rows stored, in the
+ * statement's order. The chunk length is a parameter of both sides, so a case of a few bytes meets every boundary the
+ * one in force meets at megabytes (test/pg/fields/bytes.test.ts).
+ *
+ * Oracle: the drawn rows themselves.
+ *
+ * Plants: fields-delivery-chunk-offset (a delivered chunk is written at the wrong offset), fields-delivery-order-reversed
+ * (the assembled rows come back in reverse order).
+ *
+ * Features: the vocabulary Feature below, each boundary a value's length meets.
+ */
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -37,18 +53,6 @@ import { strictDelivered } from "#test/support/kernel/strict.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { outputRows } from "#test/support/wire.ts"
-
-/**
- * A statement's delivery against PostgreSQL 19rc1 at chunk boundaries (lower/delivery.ts deliveredRows): rows of two
- * bytes columns and a text column, each value at a length about a boundary of a small chunk length, stored by db.apply
- * and read back by the delivered form of a read of their table, ordered and limited or not, under that chunk length.
- * PostgreSQL's answer reads strictly as the delivery the statement states (test/support/kernel/strict.ts
- * strictDelivered), and the library's assembly of it (codec/delivery.ts assembledIn) is exactly the rows stored, in the
- * statement's order. The chunk length is a parameter of both sides, so a case of a few bytes meets every boundary the
- * one in force meets at megabytes (test/pg/fields/bytes.test.ts).
- *
- * Oracle: the drawn rows themselves.
- */
 
 /** `length` bytes of a xorshift stream from `seed`. */
 const streamBytes = (length: number, seed: number): Uint8Array<ArrayBuffer> => {

@@ -1,3 +1,24 @@
+/**
+ * The set algebra over a drafted bits domain keeps every padding bit 0, on PostgreSQL 19rc1. A set over a roster of n
+ * codes is bit(m), m the codes rounded up to whole hex digits, and its domain's CHECK holds every bit past the last
+ * code at 0; so every set grizzle computes must leave those bits clear, or the CHECK refuses the write with 23514.
+ *
+ * Each case installs a roster of 1 to 9 codes, so every padding of 0 to 3 bits is met, a closed relation C over pairs
+ * of its codes, and a relation R holding two drawn sets a and b and a code k, whose generated columns are a ∪ b, a ∩ b,
+ * a − b, the complement of a within the roster ((a ∪ the full set's literal) − a, the complement masked by the
+ * roster's full set), and C.row(k), each cast to the bits domain by its column. The writes are drawn rows of R, which must all
+ * be accepted: the domain's CHECK never fires on a value grizzle computed. A query reads each row back, its stored
+ * columns and the same union and difference computed in the query, which must equal the host model's sets; and every
+ * stored set's text must be the model's positional text at m bits (test/support/closed/bit-text.ts setText), so a bit
+ * past the last code reads 0 wherever it lies.
+ *
+ * Oracle: the host model, plain Sets of codes, and the test oracle's positional text of each.
+ *
+ * Plants: fields-set-padding-bit-set (a set's text sets its last bit, a padding bit wherever the roster's codes do not
+ * fill their last hex digit).
+ *
+ * Features: the vocabulary Feature below, each padding width a roster meets.
+ */
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -19,23 +40,6 @@ import { setText, wholeDigits } from "#test/support/closed/bit-text.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
-
-/**
- * The set algebra over a drafted bits domain keeps every padding bit 0, on PostgreSQL 19rc1. A set over a roster of n
- * codes is bit(m), m the codes rounded up to whole hex digits, and its domain's CHECK holds every bit past the last
- * code at 0; so every set grizzle computes must leave those bits clear, or the CHECK refuses the write with 23514.
- *
- * Each case installs a roster of 1 to 9 codes, so every padding of 0 to 3 bits is met, a closed relation C over pairs
- * of its codes, and a relation R holding two drawn sets a and b and a code k, whose generated columns are a ∪ b, a ∩ b,
- * a − b, the complement of a within the roster ((a ∪ the full set's literal) − a, the complement masked by the
- * roster's full set), and C.row(k), each cast to the bits domain by its column. The writes are drawn rows of R, which must all
- * be accepted: the domain's CHECK never fires on a value grizzle computed. A query reads each row back, its stored
- * columns and the same union and difference computed in the query, which must equal the host model's sets; and every
- * stored set's text must be the model's positional text at m bits (test/support/closed/bit-text.ts setText), so a bit
- * past the last code reads 0 wherever it lies.
- *
- * Oracle: the host model, plain Sets of codes, and the test oracle's positional text of each.
- */
 
 /** The handle of code c of the drawn roster. */
 const handleOf = (code: number): string => `s${code}`

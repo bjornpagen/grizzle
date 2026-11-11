@@ -1,3 +1,22 @@
+/**
+ * A bytes field is written and read back whole, on PostgreSQL 19rc1: every value a case draws (the empty value, every
+ * byte value 0x00 to 0xff in a drawn rotation, short drawn values, a long value of a few MiB, and values one short of,
+ * at and one past a chunk of the delivery in force, core/limits.ts bytesChunkLength, and of several chunks) is written
+ * through db.apply, one fact per call or all in one batched insert, whose member array travels as a binary bytea[], and
+ * returned by the insert in chunks (codec/delivery.ts); then read back by a query, by its ordered form, which delivers
+ * the rows in its order, and by a query of the shelves the values sit on with each shelf's values attached, a statement
+ * of its own; and one shelf's values deleted, which the delete returns in chunks too. A kept case writes one value past
+ * 268,435,443 bytes, the bound of a value whose hex text is one string.
+ *
+ * Oracle: the drawn bytes themselves, and PostgreSQL's own octet_length and md5 of each stored value, read in the same
+ * check beside Effect's md5 of the drawn bytes, lowercase hex as md5(bytea) writes it. Every value read back is a fresh
+ * Uint8Array over its own buffer.
+ *
+ * Plants: fields-delivery-chunk-offset (a delivered chunk is written at the wrong offset), fields-delivery-order-reversed
+ * (the assembled rows come back in reverse order).
+ *
+ * Features: the vocabulary Feature below, each value's length class and each path it is written and read by.
+ */
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore, type Kept } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -19,21 +38,6 @@ import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
-
-/**
- * A bytes field is written and read back whole, on PostgreSQL 19rc1: every value a case draws (the empty value, every
- * byte value 0x00 to 0xff in a drawn rotation, short drawn values, a long value of a few MiB, and values one short of,
- * at and one past a chunk of the delivery in force, core/limits.ts bytesChunkLength, and of several chunks) is written
- * through db.apply, one fact per call or all in one batched insert, whose member array travels as a binary bytea[], and
- * returned by the insert in chunks (codec/delivery.ts); then read back by a query, by its ordered form, which delivers
- * the rows in its order, and by a query of the shelves the values sit on with each shelf's values attached, a statement
- * of its own; and one shelf's values deleted, which the delete returns in chunks too. A kept case writes one value past
- * 268,435,443 bytes, the bound of a value whose hex text is one string.
- *
- * Oracle: the drawn bytes themselves, and PostgreSQL's own octet_length and md5 of each stored value, read in the same
- * check beside Effect's md5 of the drawn bytes, lowercase hex as md5(bytea) writes it. Every value read back is a fresh
- * Uint8Array over its own buffer.
- */
 
 /** The bytes of a value: `length` bytes of a xorshift stream from `seed`, so a case draws two numbers, not MiB. */
 const streamBytes = (length: number, seed: number): Uint8Array<ArrayBuffer> => {
