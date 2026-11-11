@@ -62,8 +62,8 @@ import { upTo } from "#test/support/up-to.ts"
  *   (physical/ddl/constants.ts planClosed), plan the installation twice over it, for the artifacts the
  *   access paths are planned against and for the draft, and build the draft's DDL once; then they compile each login's
  *   programs once, into its served file (adapter/served/compile.ts compileServed), over the installation's artifacts
- *   they already built, with no law model, plan basis or plan of the login's own, and its roles' programs
- *   (adapter/served/login.ts loginRoles), building no DDL.
+ *   they already built, with no law model, plan basis or plan of the login's own, and its roles' programs from the
+ *   change compile the workload's plan holds (adapter/served/login.ts plannedLoginRoles), building no DDL.
  * - DbLayer.make over the login's served file, the one generate wrote, loads it and owns, hashes, compiles and plans
  *   nothing (adapter/pool/served.ts): every count of the layer is zero.
  * - `grizzle migrate` and `grizzle drift` compile nothing before they connect: they reach the connection
@@ -103,7 +103,10 @@ const sites = {
 		file: "packages/engine/src/physical/install/compile.ts",
 		name: "installationOver"
 	},
-	loginRoles: { file: "packages/grizzle/src/adapter/served/login.ts", name: "loginRoles" },
+	plannedLoginRoles: {
+		file: "packages/grizzle/src/adapter/served/login.ts",
+		name: "plannedLoginRoles"
+	},
 	connect: {
 		file: "packages/grizzle/src/adapter/migrate/session.ts",
 		name: "openMigrationSession"
@@ -317,7 +320,7 @@ const exactly: { readonly [S in keyof Steps]: Partial<Counts> } = {
 		planClosed: 1,
 		plan: 2,
 		installation: 1,
-		loginRoles: 1
+		plannedLoginRoles: 1
 	},
 	check: {
 		levelContent: 0,
@@ -330,7 +333,7 @@ const exactly: { readonly [S in keyof Steps]: Partial<Counts> } = {
 		planClosed: 1,
 		plan: 2,
 		installation: 1,
-		loginRoles: 1
+		plannedLoginRoles: 1
 	},
 	migrate: {
 		levelContent: 0,
@@ -342,7 +345,7 @@ const exactly: { readonly [S in keyof Steps]: Partial<Counts> } = {
 		planClosed: 0,
 		plan: 0,
 		installation: 0,
-		loginRoles: 0,
+		plannedLoginRoles: 0,
 		descText: 0,
 		connect: 1
 	},
@@ -356,7 +359,7 @@ const exactly: { readonly [S in keyof Steps]: Partial<Counts> } = {
 		planClosed: 0,
 		plan: 0,
 		installation: 0,
-		loginRoles: 0,
+		plannedLoginRoles: 0,
 		descText: 0,
 		connect: 1
 	},
@@ -371,7 +374,7 @@ const exactly: { readonly [S in keyof Steps]: Partial<Counts> } = {
 		planClosed: 0,
 		plan: 0,
 		installation: 0,
-		loginRoles: 0
+		plannedLoginRoles: 0
 	}
 }
 

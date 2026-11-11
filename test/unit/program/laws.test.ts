@@ -9,9 +9,9 @@
  * the same language, so one domain comes in spellings whose CHECKs differ and tautologies such as `^.*$` under `su` come
  * up beside refined patterns; contracts over a palette pattern; integers; two bigint contracts of one definition, which
  * share a domain with the span's; and a contract that refines nothing; and generated integers and refined texts read
- * from those fields. Statements over the tables restate a primary key, key an integer, key a selection, check a row,
- * contain one table's ids in another's, mirror two tables, cover one table's spans by another's and make a table
- * mutable, a statement drawn twice standing twice; an alternatives law over a roster and a closed relation of a palette
+ * from those fields. Statements over the tables key an integer, key a selection, check a row, contain one table's ids
+ * in another's, mirror two tables, cover one table's spans by another's and make a table mutable, a statement drawn
+ * twice standing twice; an alternatives law over a roster and a closed relation of a palette
  * pattern's payload may stand beside them. On two levels the tables stand above the core, which may restate core
  * statements.
  *
@@ -32,12 +32,15 @@
  * levels and matched among the schema's owned statements by identity text, and every law of the installation's theory
  * that holds one, as the installation describes the law its objects report. Every statement of the schema, and every
  * statement of its twin built again in another order, gives exactly those laws, in lawsOf's order, each one the
- * installation can report, a key restating a span primary key the primary key's law it shares; every law lawsOf lists
+ * installation can report; every law lawsOf lists
  * is some statement's, a primary key's, a contract's, a pattern's or a generated field's, and every statement's law is
  * one lawsOf lists. A statement of another drawn schema gives the laws the installation's theory holds for it when this
  * schema states it, and is refused as MalformedDescription when it does not, as is a copy of a statement no builder
- * made. Planted in a scratch copy, a mirrors giving only its first containment, and a key restating a primary key given
- * a key law of its own instead of the primary key's, each fail it.
+ * made. Planted in a scratch copy, a mirrors giving only its first containment fails it.
+ *
+ * A key restating a table's primary key holds apart the rows its primary key holds apart, so a schema that states one
+ * is refused as MalformedDescription (schema/own.ts distinctKeys): lawsOf refuses the same case with a key over its
+ * first table's primary key added.
  *
  * constraintNamesOf(schema) gives each check law lawsOf lists the name the installation reports it under on its
  * relation's table, through the same constraint-to-law map.
@@ -161,7 +164,10 @@ interface TableCase {
 	readonly generated: ReadonlyArray<readonly [name: string, field: GeneratedCase]>
 }
 
-/** A statement over the tables, each table by its index. */
+/**
+ * A statement over the tables, each table by its index. A "primary key" restates its table's primary key, which no
+ * schema admits: the property adds one to a drawn case to see it refused, and no case draws one.
+ */
 type StatementCase =
 	| { readonly kind: "primary key"; readonly table: number }
 	| { readonly kind: "key"; readonly table: number; readonly field: string }
@@ -332,10 +338,6 @@ const statementGens = (
 		[
 			...(Arr.isReadonlyArrayNonEmpty(tableIndices)
 				? [
-						(s: Source): StatementCase => ({
-							kind: "primary key",
-							table: s.draw(element(tableIndices))
-						}),
 						(s: Source): StatementCase => ({
 							kind: "mutable",
 							table: s.draw(element(tableIndices))
@@ -831,7 +833,7 @@ type LawsFeature =
 	| "two contracts of one domain"
 	| "a contract that refines nothing"
 	| "a generated refined text"
-	| "a key restating the primary key"
+	| "a key restating the primary key refused"
 	| "a mirrors"
 	| "an alternatives law"
 	| "a statement declared twice"
@@ -841,7 +843,6 @@ type LawsFeature =
 	| "another order listing the same laws"
 	| "a statement stating no law"
 	| "a law two statements state"
-	| "a key sharing the primary key's law"
 	| "an equal statement built again"
 	| "a statement of another schema stated here"
 	| "a statement of another schema refused"
@@ -888,7 +889,7 @@ describe("lawsOf", () => {
 								"two contracts of one domain",
 								"a contract that refines nothing",
 								"a generated refined text",
-								"a key restating the primary key",
+								"a key restating the primary key refused",
 								"a mirrors",
 								"an alternatives law",
 								"a statement declared twice",
@@ -897,7 +898,6 @@ describe("lawsOf", () => {
 								"another order listing the same laws",
 								"a statement stating no law",
 								"a law two statements state",
-								"a key sharing the primary key's law",
 								"an equal statement built again",
 								"a statement of another schema stated here",
 								"a statement of another schema refused",
@@ -916,6 +916,20 @@ describe("lawsOf", () => {
 					},
 					(c, k) =>
 						Effect.sync(() => {
+							if (Arr.isReadonlyArrayNonEmpty(c.tables)) {
+								throwsRefused(
+									() =>
+										lawsOf(
+											subjectOf(
+												{ ...c, statements: [...c.statements, { kind: "primary key", table: 0 }] },
+												(items) => items
+											)
+										),
+									"MalformedDescription",
+									"a key restating its table's primary key is refused"
+								)
+								k.note("a key restating the primary key refused")
+							}
 							const subject = subjectOf(c, (items) => items)
 							const laws = lawsOf(subject)
 							const installation = installationOf(subject, { kind: "declared" })
@@ -1114,9 +1128,6 @@ describe("lawsOf", () => {
 									}
 								}
 							}
-							if (Arr.some(looked, (l) => Arr.some(l.laws, (law) => law.kind === "primaryKey"))) {
-								k.note("a key sharing the primary key's law")
-							}
 							const fromStatements = Arr.flatMap(looked, (l) => l.laws)
 							const unstated = [
 								...primaryKeys,
@@ -1210,12 +1221,10 @@ describe("lawsOf", () => {
 							}
 							for (const s of c.statements) {
 								switch (s.kind) {
-									case "primary key":
-										k.note("a key restating the primary key")
-										break
 									case "mirrors":
 										k.note("a mirrors")
 										break
+									case "primary key":
 									case "key":
 									case "selected key":
 									case "check":
