@@ -199,8 +199,8 @@ describe("the naming door", () => {
 									installed(owned, server, identity.schema(parsedSchemaName(b)))
 								]
 								assert.equal(
-									installationAbstraction(x)(Arr.join(installationSql(x), "\n")),
-									installationAbstraction(y)(Arr.join(installationSql(y), "\n")),
+									installationAbstraction(x)(Arr.join(installationSql(x, "abstracted"), "\n")),
+									installationAbstraction(y)(Arr.join(installationSql(y, "abstracted"), "\n")),
 									`${fixture} under ${a} and ${b}`
 								)
 								const commented = (i: typeof x) => {

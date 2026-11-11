@@ -119,7 +119,7 @@ export const installed = (
 			return yield* Effect.die(new Error(`compile: ${compiled.error.message}`))
 		}
 		const installation: Installation = compiled.value
-		yield* transaction(substrate.admin, installationSql(installation))
+		yield* transaction(substrate.admin, installationSql(installation, substrate.database))
 		const read = yield* readCatalog(substrate.admin, [schema])
 		if (read.kind === "absent") {
 			return yield* Effect.die(new Error(`the installed schema ${schema} is absent`))

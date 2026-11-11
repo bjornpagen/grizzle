@@ -492,7 +492,7 @@ layer(Substrate.layer)("Compute's translate and lowerAscii on PostgreSQL", (it) 
 									const pinned = yield* substrate.admin.pin
 									const { problems, reached } = yield* inInstallation(
 										pinned,
-										installationSql(installation),
+										installationSql(installation, substrate.database),
 										judge(pinned, installation, rows)
 									)
 									c.noteAll(reached)

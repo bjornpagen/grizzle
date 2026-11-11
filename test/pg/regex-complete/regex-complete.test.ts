@@ -440,7 +440,7 @@ const install = () =>
 			}),
 			"install"
 		)
-		yield* transaction(s.admin, installationSql(installation))
+		yield* transaction(s.admin, installationSql(installation, s.database))
 		return { schema: name, installation }
 	})
 

@@ -262,7 +262,7 @@ layer(Substrate.layer)("a guard of a text's bytes on PostgreSQL 19", (it) => {
 									const pinned = yield* substrate.admin.pin
 									const problems = yield* inInstallation(
 										pinned,
-										installationSql(installation),
+										installationSql(installation, substrate.database),
 										Effect.gen(function* () {
 											const refused: Array<string> = []
 											for (const [i, text] of texts.entries()) {

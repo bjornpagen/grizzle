@@ -59,6 +59,7 @@ import {
 import { statementOutput, type StatementRoots } from "#compiler/runtime/lower/tree.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import { hexOfText, setText } from "#test/support/closed/bit-text.ts"
+import { filledSql } from "#test/support/compile.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { messageOf } from "#test/support/message.ts"
@@ -397,7 +398,7 @@ const installations = (
 				const plan = yield* planned(schema, name, substrate.owner.role)
 				yield* runStaged(
 					substrate.admin,
-					staged("install", ["BEGIN", ...plan.sql, "COMMIT"]),
+					staged("install", ["BEGIN", ...filledSql(plan.sql, substrate.database), "COMMIT"]),
 					({ message }) => new InstallationFailed({ stage: "install", message })
 				)
 				MutableHashMap.set(installed, schema, plan)
@@ -447,7 +448,7 @@ export const caseInstallation = (
 			return Effect.gen(function* () {
 				const substrate = yield* Substrate
 				const plan = yield* planned(schema, placement.name, substrate.owner.role)
-				return { plan, statements: plan.sql }
+				return { plan, statements: filledSql(plan.sql, substrate.database) }
 			})
 		case "installed":
 			return Effect.map(placement.installations.planOf(schema), (plan) => ({

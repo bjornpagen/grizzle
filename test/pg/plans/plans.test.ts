@@ -378,7 +378,7 @@ layer(Substrate.layer)("plan properties of the optimized lowering", (it) => {
 		const names = installation.value.names
 		const table = (relation: string) => printObjectName(names.relation(relation))
 		yield* transaction(s.admin, [
-			...installationSql(installation.value),
+			...installationSql(installation.value, s.database),
 			...factSql({
 				table,
 				kinds: defined(names.codes.rosters.get(parsedName("Kind")), "the codes of Kind")

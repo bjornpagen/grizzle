@@ -42,7 +42,7 @@ import { type AmbientOwner, type AmbientSession, ambientOwner } from "#test/supp
 import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 import { checkInstallation } from "#test/support/catalog/installed.ts"
 import type { InitializedClusterShape } from "#test/support/cluster.ts"
-import { type FixtureSchema, installationSql } from "#test/support/compile.ts"
+import { draftedSql, type FixtureSchema, filledSql } from "#test/support/compile.ts"
 import { paths, repoRoot } from "#test/support/files.ts"
 import { namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {
@@ -176,7 +176,7 @@ type VersionPlanner = (
 /** The installation's script with every name minted under its schema's identity abstracted
  * (installationAbstraction): one key per installation shape. */
 const shapeKey = (installation: Installation): string =>
-	Arr.join(Arr.map(installationSql(installation), installationAbstraction(installation)), "\n")
+	Arr.join(Arr.map(draftedSql(installation), installationAbstraction(installation)), "\n")
 
 const normalized = (statement: string): string =>
 	pipe(Str.trim(statement), Str.replace(regex(";$"), ""))
@@ -225,16 +225,21 @@ const isPrivilege = (statement: string): boolean => {
  * of the script exactly once and otherwise only statements that leave no object; each object's grants and revokes, and
  * the default privileges, run in the script's order; and every default privilege runs after every object is created,
  * as in the script. Every other statement creates or alters an object of its own, so its position decides nothing a catalog
- * shows (a statement that needs an earlier one fails the apply instead).
+ * shows (a statement that needs an earlier one fails the apply instead). Both are read as migrate sends them into
+ * `database` (filledSql), each variable filled.
  */
 export const runsInstallScript = (
 	folders: ReadonlyArray<FolderSource>,
-	installation: Installation
+	installation: Installation,
+	database: string
 ): boolean => {
 	const schema = installation.names.schema
-	const script = Arr.map(installationSql(installation), normalized)
+	const script = Arr.map(filledSql(draftedSql(installation), database), normalized)
 	const migration = Arr.map(
-		Arr.flatMap(folders, (folder) => Arr.flatMap(folder.files, (f) => splitStatements(f.text))),
+		filledSql(
+			Arr.flatMap(folders, (folder) => Arr.flatMap(folder.files, (f) => splitStatements(f.text))),
+			database
+		),
 		normalized
 	)
 	const pending = new Map<string, number>()
@@ -319,10 +324,10 @@ export const expectFreshCatalog = (
 	planned: VersionPlanner
 ): Effect.Effect<void, CompileError | SqlError | TransactionRolledBack, Substrate> =>
 	Effect.gen(function* () {
-		if (runsInstallScript(folders, migrated)) {
+		const substrate = yield* Substrate
+		if (runsInstallScript(folders, migrated, substrate.database)) {
 			return
 		}
-		const substrate = yield* Substrate
 		const fresh = yield* substrate.schema({ create: false, label: "fresh" })
 		const plan = yield* fromEngine(
 			planned(identity.schema(parsedSchemaName(fresh)), substrate.owner.role)
@@ -332,7 +337,7 @@ export const expectFreshCatalog = (
 			shapeKey(migrated),
 			"the fresh install compiles the same script"
 		)
-		yield* transaction(substrate.admin, plan.sql)
+		yield* transaction(substrate.admin, filledSql(plan.sql, substrate.database))
 		const schema = migrated.names.schema
 		yield* sameCatalog(
 			migrated,
@@ -702,7 +707,7 @@ export const installGenerated = (
 			files: reviewed.files
 		}
 		assert.ok(
-			runsInstallScript([folder], draft.installation),
+			runsInstallScript([folder], draft.installation, substrate.database),
 			"generate's first migration runs the installation's script alone"
 		)
 		const owner = yield* ambientOwner(options.ambient, installedSchemas(draft.installation))

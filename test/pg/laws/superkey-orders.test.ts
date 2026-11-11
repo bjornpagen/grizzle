@@ -537,7 +537,7 @@ const walkCase = (
 				Effect.gen(function* () {
 					const schema = yield* substrate.schema({ create: false, label: "superkey_fresh" })
 					const fresh = compile(step, { ...over, schema: atName(schema) })
-					yield* transaction(substrate.admin, installationSql(fresh))
+					yield* transaction(substrate.admin, installationSql(fresh, substrate.database))
 					yield* sameCatalog(
 						installation,
 						fresh,

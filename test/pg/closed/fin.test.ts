@@ -649,7 +649,7 @@ layer(Substrate.layer, { excludeTestServices: true })("dependent keys on Postgre
 									owner: s.owner.role
 								})
 							)
-							yield* transaction(s.admin, installationSql(compiled))
+							yield* transaction(s.admin, installationSql(compiled, s.database))
 							const names = compiled.names
 							const lawNames = installationNamesOf(compiled)
 							const rejected = (law: Law): Option.Option<Refusal> =>

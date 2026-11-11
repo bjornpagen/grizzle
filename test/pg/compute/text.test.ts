@@ -512,7 +512,7 @@ layer(Substrate.layer)("Compute's text terms on PostgreSQL", (it) => {
 									const pinned = yield* substrate.admin.pin
 									const { problems, reached } = yield* inInstallation(
 										pinned,
-										installationSql(installation),
+										installationSql(installation, substrate.database),
 										judgeDictionary(pinned, installation, s, d)
 									)
 									c.noteAll(reached)

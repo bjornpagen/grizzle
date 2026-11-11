@@ -346,7 +346,10 @@ const walk = (c: GuardCase, note: (feature: Feature) => void) =>
 				Effect.gen(function* () {
 					const freshName = yield* substrate.schema({ create: false, label: "guard_fresh" })
 					const fresh = yield* draftedVersion(c, step, freshName, Option.none(), noDeclarations)
-					yield* transaction(substrate.admin, installationSql(fresh.draft.installation))
+					yield* transaction(
+						substrate.admin,
+						installationSql(fresh.draft.installation, substrate.database)
+					)
 					yield* sameCatalog(
 						draft.installation,
 						fresh.draft.installation,
