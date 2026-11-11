@@ -156,7 +156,11 @@ const armPlace = (
 	...segments: ReadonlyArray<string | number>
 ): Place =>
 	placeOf(
-		childLoc(defined(decodedStage(desc).recursive[arm][0], `the first ${arm} arm`).loc, ...segments)
+		Arr.reduce(
+			segments,
+			defined(decodedStage(desc).recursive[arm][0], `the first ${arm} arm`).loc,
+			(loc, segment) => childLoc(loc, segment)
+		)
 	)
 
 /** The place of a declared state column, where admission reports a refusal of the column. */

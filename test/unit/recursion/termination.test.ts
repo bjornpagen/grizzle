@@ -280,13 +280,14 @@ describe("the seen-state estimate", () => {
 								checkOptions("query")
 							)
 							assert.ok(!r.ok, "a set state column is refused")
-							assert.equal(r.error.reason._tag, "RecursionRefused")
-							if (r.error.reason._tag === "RecursionRefused") {
-								const cause = r.error.reason.cause
-								assert.ok(cause.kind === "unhashableState", `refused for ${cause.kind}`)
-								const { recursion, column } = cause
-								assert.deepEqual({ recursion, column }, { recursion: "Marks", column: "m" })
+							const reason = r.error.reason
+							if (reason._tag !== "RecursionRefused") {
+								return assert.fail(`refused as ${reason._tag}, not by recursion admission`)
 							}
+							const cause = reason.cause
+							assert.ok(cause.kind === "unhashableState", `refused for ${cause.kind}`)
+							const { recursion, column } = cause
+							assert.deepEqual({ recursion, column }, { recursion: "Marks", column: "m" })
 						})
 				)
 			)
