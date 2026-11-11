@@ -41,11 +41,11 @@
  * by, over a selection or not, its terms holding a fixed field or not.
  *
  * Plants (~/.cache/grizzle-release/R10/plants): probed-target-shared-always (every fixed target at its terms and fixed
- * field: caught by the restated keys' objects), probed-target-shared-unless-probed (the shared reference taken wherever
- * no probe reads the target's own columns, though those need no constant and cost less: caught by the restated keys'
- * objects on a target that also selects b = 0), probed-target-probe-beside (each reverse probe a B-tree of its own beside a unique index that serves it:
- * caught by the redundant pair), probed-target-unique-dropped (no UNIQUE beside a reference at a target's own columns:
- * caught by the foreign key that references no unique index), and probed-target-projected-unimplied
+ * field: caught by the restated keys' objects), probed-target-constants-free (the choice counting a constant column as
+ * nothing, so a superkey is taken though the target's own columns need no constant and cost less: caught by the
+ * restated keys' objects), probed-target-probe-beside (each reverse probe a B-tree of its own beside a unique index that
+ * serves it: caught by the redundant pair), probed-target-unique-dropped (no UNIQUE beside a reference at a target's
+ * own columns: caught by the foreign key that references no unique index), and probed-target-projected-unimplied
  * (laws/model/model.ts #implyingKey back to declared keys only, so a UNIQUE only K over a selection implies reports its
  * containment: caught by the reported key).
  *
