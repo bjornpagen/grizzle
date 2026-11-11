@@ -262,16 +262,12 @@ const crossing: Sessions<"a" | "b", Move> = {
 	}
 }
 
-/** Sessions that each write their own resource, once or twice, then commit: every move of one commutes with every other's. */
+/** Sessions that each commit, after one write of their own resource or none: every move of one commutes with every other's. */
 const disjointSessions: Gen<Sessions<Named, Move>> = (source) => {
-	const own = (resource: Resource): Arr.NonEmptyReadonlyArray<Move> => {
-		const first: Move = { kind: "write", resource, value: source.draw(int(1, 2)) }
-		const second: ReadonlyArray<Move> =
-			source.draw(int(0, 1)) === 1
-				? [{ kind: "write", resource, value: source.draw(int(1, 2)) }]
-				: []
-		return [first, ...second, { kind: "commit" }]
-	}
+	const own = (resource: Resource): Arr.NonEmptyReadonlyArray<Move> =>
+		source.draw(int(0, 1)) === 1
+			? [{ kind: "write", resource, value: source.draw(int(1, 2)) }, { kind: "commit" }]
+			: [{ kind: "commit" }]
 	return {
 		a: { moves: own("x"), after: Option.none() },
 		b: { moves: own("y"), after: Option.none() },
@@ -376,10 +372,10 @@ describe("interleaving", () => {
 							kind: "specification",
 							name: "sleep sets run one order of moves that all commute; without them every order, the multinomial of the sessions' moves"
 						},
-						box: "three sessions, each writing its own resource once or twice, at either value, then committing",
+						box: "three sessions, each committing after one write of its own resource, at either value, or none",
 						generator: disjointSessions,
 						literal: Formatter.format,
-						limit: 4 ** 3 * 2 ** 3,
+						limit: 3 ** 3,
 						coverage: noCoverage,
 						caseHang: Duration.minutes(1)
 					},

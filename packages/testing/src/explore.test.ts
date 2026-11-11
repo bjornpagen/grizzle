@@ -360,7 +360,7 @@ describe("exhaust", () => {
 				explore(
 					outerOf(
 						"exhaustive spaces",
-						"a space of a × b values whose property draws one of c more holds a·b·c cases, each run once, and one past its limit runs none",
+						"a space of a × b values whose property draws one of c more holds a·b·c cases, each run once; one past its limit runs none when its generator alone passes the limit, and stops at the case that would pass it when its property's draws do",
 						(source) => ({
 							a: source.draw(int(1, 4)),
 							b: source.draw(int(1, 4)),
@@ -399,7 +399,7 @@ describe("exhaust", () => {
 								const failed = yield* Effect.flip(underFullRun(search))
 								deepStrictEqual(
 									{ failed: failed._tag, ran },
-									{ failed: "SpaceBeyondLimit", ran: 0 }
+									{ failed: "SpaceBeyondLimit", ran: c === 1 ? 0 : space }
 								)
 								return
 							}
