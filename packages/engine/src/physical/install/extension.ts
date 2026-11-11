@@ -51,11 +51,11 @@ export interface InstallExtension {
 	 * addWorlds): the served workload's, derived from the ChangeSets it serves (program/workload/compile.ts
 	 * servedWorkload); every other extension's, none (`noCarriers`).
 	 */
-	readonly carriers: ReadonlyArray<LoginRole>
+	readonly carriers: ReadonlyArray<RoleOfLogin>
 }
 
 /** A role of a login, by their declared names. */
-export interface LoginRole {
+export interface RoleOfLogin {
 	readonly login: string
 	readonly role: string
 }
@@ -64,4 +64,4 @@ export interface LoginRole {
 export const noCertificates: ReadonlyArray<RoleIsolation> = []
 
 /** No role that creates a carrier: what an extension that compiles no served workload states. */
-export const noCarriers: ReadonlyArray<LoginRole> = []
+export const noCarriers: ReadonlyArray<RoleOfLogin> = []

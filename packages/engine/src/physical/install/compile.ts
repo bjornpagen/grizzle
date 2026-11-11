@@ -35,7 +35,7 @@ import {
 	reverseRequests
 } from "#compiler/physical/indexes/engine.ts"
 import { commentsOf } from "#compiler/physical/install/comments.ts"
-import type { InstallExtension, LoginRole } from "#compiler/physical/install/extension.ts"
+import type { InstallExtension, RoleOfLogin } from "#compiler/physical/install/extension.ts"
 import {
 	freshPlanSettings,
 	type InstallBasis,
@@ -113,7 +113,7 @@ export interface CertifiedRole {
 }
 
 /** Each role of the plan's logins, in login then role order. */
-const installedRoles = (plan: InstallPlan): ReadonlyArray<LoginRole> =>
+const installedRoles = (plan: InstallPlan): ReadonlyArray<RoleOfLogin> =>
 	plan.logins.flatMap(({ login, roles }) =>
 		roles.map(({ checked }) => ({ login: login.name, role: checked.world.role.name }))
 	)
@@ -123,8 +123,8 @@ const installedRoles = (plan: InstallPlan): ReadonlyArray<LoginRole> =>
  * or of a role the plan does not install, is a defect of the caller that compiled the workload over other logins than
  * the installation's.
  */
-const statedOnce = <R extends LoginRole>(
-	installed: ReadonlyArray<LoginRole>,
+const statedOnce = <R extends RoleOfLogin>(
+	installed: ReadonlyArray<RoleOfLogin>,
 	stated: ReadonlyArray<R>,
 	what: string
 ): ReadonlyArray<R> => {

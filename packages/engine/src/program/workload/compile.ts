@@ -28,7 +28,7 @@ import { type WorkloadPhysical, workloadRequests } from "#compiler/physical/acce
 import { extractAccess } from "#compiler/physical/access/extract.ts"
 import { uniquePaths } from "#compiler/physical/access/paths.ts"
 import { namedRole, type WorldNames, worldNames } from "#compiler/physical/ddl/names.ts"
-import type { LoginRole } from "#compiler/physical/install/extension.ts"
+import type { RoleOfLogin } from "#compiler/physical/install/extension.ts"
 import {
 	mergeStatistics,
 	type StatisticsRequest,
@@ -443,7 +443,7 @@ export interface ServedWorkloadPlan extends WorkloadPlan {
 	readonly certification: ReadonlyArray<RoleIsolation>
 	/** The roles whose served ChangeSets create a carrier (servedCarriers), which the installation grants TEMPORARY on the
 	 * database. */
-	readonly carriers: ReadonlyArray<LoginRole>
+	readonly carriers: ReadonlyArray<RoleOfLogin>
 }
 
 /** Whether a ChangeSet's variants may create a carrier: any variant's flight (write/program/artifact.ts
@@ -460,9 +460,9 @@ const variantsCreateCarrier = (variants: CompiledVariants): boolean =>
  */
 const servedCarriers = (
 	served: ReadonlyMap<string, ReadonlyMap<string, RoleChanges>>
-): ReadonlyArray<LoginRole> =>
+): ReadonlyArray<RoleOfLogin> =>
 	[...served].flatMap(([login, roles]) =>
-		[...roles].flatMap(([role, changes]): ReadonlyArray<LoginRole> =>
+		[...roles].flatMap(([role, changes]): ReadonlyArray<RoleOfLogin> =>
 			[...changes.members.values()].some(variantsCreateCarrier) ? [{ login, role }] : []
 		)
 	)

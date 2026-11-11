@@ -11,7 +11,7 @@ import type { InstallOptions } from "#compiler/physical/install/compile.ts"
 import {
 	type InstallContribution,
 	type InstallExtension,
-	type LoginRole,
+	type RoleOfLogin,
 	noCarriers,
 	noCertificates,
 	noContribution
@@ -88,7 +88,7 @@ export const workloadExtension = (workload: WorkloadPhysical): InstallExtension 
 export const servedWorkloadExtension = (
 	workload: WorkloadPhysical & {
 		readonly certification: ReadonlyArray<RoleIsolation>
-		readonly carriers: ReadonlyArray<LoginRole>
+		readonly carriers: ReadonlyArray<RoleOfLogin>
 	}
 ): InstallExtension => ({
 	...workloadExtension(workload),

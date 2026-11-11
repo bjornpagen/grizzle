@@ -3263,21 +3263,22 @@ class Model {
 		const privileges = Arr.flatMap(s.privileges, (p): ReadonlyArray<string> =>
 			p === "ALL" ? databasePrivilegeTypes : [p]
 		)
-		for (const g of s.kind === "grant" ? s.to : s.from) {
-			if (g.kind === "role") {
-				const held = new Set(this.#databasePrivileges.get(g.name))
-				for (const p of privileges) {
-					if (s.kind === "grant") {
-						held.add(p)
-					} else {
-						held.delete(p)
-					}
-				}
-				if (held.size === 0) {
-					this.#databasePrivileges.delete(g.name)
+		const roles = Arr.flatMap(s.kind === "grant" ? s.to : s.from, (g) =>
+			g.kind === "role" ? [g.name] : []
+		)
+		for (const role of roles) {
+			const held = new Set(this.#databasePrivileges.get(role))
+			for (const p of privileges) {
+				if (s.kind === "grant") {
+					held.add(p)
 				} else {
-					this.#databasePrivileges.set(g.name, held)
+					held.delete(p)
 				}
+			}
+			if (held.size === 0) {
+				this.#databasePrivileges.delete(role)
+			} else {
+				this.#databasePrivileges.set(role, held)
 			}
 		}
 	}

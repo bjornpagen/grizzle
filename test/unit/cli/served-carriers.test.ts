@@ -27,7 +27,12 @@ import { offlineOwner } from "#test/pg/cli/support.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { repoRoot } from "#test/support/files.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { emptyState, interpret, type ModelFile, type State } from "#test/support/migrate/interpret.ts"
+import {
+	emptyState,
+	interpret,
+	type ModelFile,
+	type State
+} from "#test/support/migrate/interpret.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import { draftActions } from "#test/support/migrate/review.ts"
 

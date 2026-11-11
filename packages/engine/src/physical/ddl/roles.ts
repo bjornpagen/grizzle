@@ -77,7 +77,7 @@ import {
 	type LoweredDefinition,
 	lowerDefinition
 } from "#compiler/physical/derived/definition.ts"
-import type { LoginRole } from "#compiler/physical/install/extension.ts"
+import type { RoleOfLogin } from "#compiler/physical/install/extension.ts"
 import {
 	enforcement,
 	type Node,
@@ -1434,7 +1434,7 @@ const addLogin = (
 	cx: WorldsContext,
 	{ login, roles }: CheckedLogin,
 	advance: AdvanceFunctions,
-	carriers: ReadonlyArray<LoginRole>
+	carriers: ReadonlyArray<RoleOfLogin>
 ): {
 	readonly installed: InstalledLogin
 	readonly vector: boolean
@@ -1675,7 +1675,7 @@ export const addWorlds = (
 	advance: AdvanceFunctions,
 	revocable: Revocable,
 	checkedLogins: ReadonlyArray<CheckedLogin>,
-	carriers: ReadonlyArray<LoginRole>
+	carriers: ReadonlyArray<RoleOfLogin>
 ): WorldsPlan => {
 	const logins = [...checkedLogins].toSorted((x, y) => compareText(x.login.name, y.login.name))
 	const cx = worldsContext(b)
