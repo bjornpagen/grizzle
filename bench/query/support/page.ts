@@ -1,11 +1,11 @@
-import { type Array as Arr, Effect, Result } from "effect"
+import { type Array as Arr, Effect, Function, Result } from "effect"
 import { type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
-import { type PageCall, pageFlight } from "#adapter/page/execute.ts"
+import { type PageCall, windowIntake, windowStatement } from "#adapter/page/execute.ts"
 import type { PageRuntime } from "#adapter/page/template.ts"
 import type { HostParams } from "#adapter/reader/execution.ts"
 import { executionInputs, paramCodecs } from "#adapter/reader/relations.ts"
 import { compiledPageTemplateFor } from "#adapter/served/forms.ts"
-import { type FlightFailure, readFrame, runFramed } from "#adapter/wire/batch.ts"
+import { type FlightFailure, readFrame, runFramed, takenRows } from "#adapter/wire/batch.ts"
 import type { VariantStatement } from "#bench/harness/variant.ts"
 import {
 	type Compiled,
@@ -23,15 +23,15 @@ import { programAsts } from "#test/support/compile.ts"
 import { conservativePageRuntime } from "#test/support/conservative.ts"
 
 /**
- * A page request as the page runtime runs it (R05).
+ * A window as the page runtime runs it (R05).
  *
- * The page runtime template of an ordered query (packages/grizzle/src/adapter/page/template.ts pageTemplateFor, the runtime's own
- * constructor) holds, per artifact and request variant, the statements of a request: its rows statement with its page
- * placeholders, its attachments and, for an anchored request, its probe. A request is delivered as the runtime
- * delivers it: its relation inputs normalized (reader/relations.ts), its flight built by the runtime's pageFlight from
- * the call (packages/grizzle/src/adapter/page/execute.ts), which binds the limit, the size and the boundary texts exactly as the runtime
- * receives them, and sent on the recording session in one flight. The statements that flight sent, with their
- * parameters, are what a gate measures.
+ * The page runtime template of an ordered query (packages/grizzle/src/adapter/page/template.ts pageRuntimeOf, the
+ * runtime's own constructor) holds, per artifact and template variant, the one statement of a window: its rows part
+ * with its page placeholders, and its attachments. A window is delivered as the runtime delivers it: its relation
+ * inputs normalized (reader/relations.ts), its statement built by the runtime's windowStatement from the call
+ * (packages/grizzle/src/adapter/page/execute.ts), which binds the limit, the size and the boundary texts exactly as the
+ * runtime receives them, its rows read by the runtime's windowIntake, and sent on the recording session in one flight.
+ * The statement that flight sent, with its parameters, is what a gate measures.
  *
  * The page runtime of a template compiled with read "page", with the installation's codes its artifacts were compiled
  * under, which the request's parameter codecs read, as a Db's role's artifacts give them (adapter/page/page.ts).
@@ -73,10 +73,10 @@ export const conservativePages = (compiled: Compiled, pages: BenchPages): BenchP
 }
 
 export interface DeliveredPage {
-	/** What the request's flight sent, in order: its one statement, its rows and attachments, then its probe. */
+	/** What the window's flight sent: its one statement, its rows and attachments. */
 	readonly statements: Arr.NonEmptyReadonlyArray<VariantStatement>
 	/**
-	 * The request's statement, as it was sent, and its typed AST as compiled, as a reader reads it
+	 * The window's statement, as it was sent, and its typed AST as compiled, as a reader reads it
 	 * (test/support/compile.ts programAsts).
 	 */
 	readonly rows: {
@@ -86,7 +86,7 @@ export interface DeliveredPage {
 	readonly flights: number
 }
 
-/** Delivers one page request of `pages` as the runtime does, its rows read through the flight's own reading. */
+/** Delivers one window of `pages` as the runtime does, its rows read through the runtime's window intake. */
 export const deliverPage = Effect.fn("deliverPage")(
 	function* (
 		runtime: Runtime,
@@ -101,22 +101,20 @@ export const deliverPage = Effect.fn("deliverPage")(
 		if (Result.isFailure(inputs)) {
 			return yield* deliveryFailed(new ReadFailure({ reason: inputs.failure }))
 		}
-		const flight = yield* Effect.mapError(
-			pageFlight(pages, inputs.success, call),
+		const program = pages.artifact.requests[call.variant]
+		const intake = windowIntake(program, call.size, Function.constVoid)
+		const statement = yield* Effect.mapError(
+			windowStatement(pages, inputs.success, call, takenRows(intake.take)),
 			(reason) => new ReadFailure({ reason })
 		)
 		runtime.recorded.length = 0
 		runtime.flights = 0
-		yield* Effect.flatMap(
-			runFramed(runtime.session, readFrame(runtime.prologue), flight.statements),
-			(outcomes) => Effect.mapError(flight.read(outcomes), (reason) => new ReadFailure({ reason }))
-		)
+		yield* runFramed(runtime.session, readFrame(runtime.prologue), [statement])
+		yield* Effect.mapError(Effect.fromResult(intake.end()), (reason) => new ReadFailure({ reason }))
 		const statements = sentStatements(runtime)
-		/** The flight sends the request's one statement, its probe after it. */
-		const delivery = pages.artifact.requests[call.variant].delivery
-		if (delivery.kind !== "concat") {
+		if (program.delivery.kind !== "concat") {
 			throw new GateSetupError({
-				what: `the ${call.variant} request delivers heading groups, not one rows part`
+				what: `the ${call.variant} window delivers heading groups, not one rows part`
 			})
 		}
 		return {

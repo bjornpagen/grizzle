@@ -4,14 +4,15 @@
  * Each oracle case (test/support/oracle/gen: plain, attached and heterogeneous-union roots) is ordered by a drawn prefix
  * of its result heading, rotated, each direction drawn, as the pg page suite orders it (test/pg/page/generated.ts). Its
  * page either compiles or is refused with a typed CompileError that is no MalformedDescription: the compiler built the
- * query itself, so a refusal of its own structure is a defect, and so is a throw. The same holds of the page runtime
- * template over the compiled page. The population must reach a page of heading groups, a page with attachments and a
+ * query itself, so a refusal of its own structure is a defect, and so is a throw. The page runtime template over the
+ * compiled page is total, with one anchor codec per comparator, which writes a window's Key (adapter/page/window.ts).
+ * The population must reach a page of heading groups, a page with attachments and a
  * page whose attachment takes its other form per execution. Every plain or wildcard-text column of every statement a
  * page compiles is the one type of its carrier the registry builds, never one built by hand, as
  * test/unit/lower/registry-types.test.ts states of the lowerings.
  *
  * Oracle: totality, a universal law: the compiler built the query, so every refusal is typed and none is of malformed
- * structure; the registry's own types for the columns. A case whose lowerings refuse it is no case of this property and
+ * structure, and the runtime template refuses nothing; the registry's own types for the columns. A case whose lowerings refuse it is no case of this property and
  * is given up.
  *
  * Features: a page of heading groups, a page with attachments, and a page whose attachment takes its other form per
@@ -27,7 +28,7 @@ import { array, boolean, type Gen, int, map, weighted } from "@grizzle/testing/g
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Record as Rec, Result } from "effect"
+import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
 import { compiledPageRuntime } from "#adapter/served/forms.ts"
 import { indices } from "#compiler/core/array.ts"
 import { NodeId } from "#compiler/core/ids.ts"
@@ -353,10 +354,9 @@ const orderedQuery = (o: OrderedCase): OrderedQuery | undefined => {
  */
 const registryTypes = (artifacts: ReadonlyArray<PageArtifact>): void => {
 	for (const artifact of artifacts) {
-		for (const parts of [
-			...Arr.map(Rec.values(artifact.requests), (request) => flight(request.program.roots)),
-			...Arr.map(Rec.values(artifact.probes), (probe) => flight(probe.program.roots))
-		]) {
+		for (const parts of Arr.map(Rec.values(artifact.requests), (request) =>
+			flight(request.program.roots)
+		)) {
 			for (const part of parts) {
 				for (const column of statementOutput(part.role, part.heading, part.fused).heading) {
 					const t = column.type
@@ -485,12 +485,11 @@ describe("the page compiler and the page runtime template", () => {
 								spine: everyColumnCarried(query.dag),
 								codes
 							})
-							if (Result.isFailure(runtime)) {
-								assert.ok(
-									runtime.failure.reason._tag !== "MalformedDescription",
-									runtime.failure.message
-								)
-							}
+							assert.equal(
+								runtime.anchors.length,
+								template.comparators.length,
+								"one anchor codec per comparator"
+							)
 						})
 				)
 			)

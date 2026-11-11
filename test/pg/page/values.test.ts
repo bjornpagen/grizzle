@@ -8,19 +8,21 @@
  * subnormal and the largest finite double; numeric NaN (the fixture's numeric(161, 40) holds no infinity, which only an
  * unbounded numeric does), more digits than a binary64 holds and the smallest scale; the bigint extremes and 2^53 + 1,
  * which a binary64 cannot hold, either sign; the empty text, text beyond the BMP, U+10FFFF and combining marks. Through
- * Db, for a drawn query at a drawn page size per direction:
+ * Db, for a drawn query at a drawn window size per direction:
  *
- * - the forward and backward pages concatenate to D exactly, with exact flags: every boundary value round-trips, the
- *   seek comparing it in PostgreSQL's own order (NaN greatest, -0 = 0, code points);
- * - every edge's cursor carries its node's comparator values exactly: PostgreSQL reads each boundary text back, as its
- *   column's type, equal to the value stored in the edge's row.
+ * - the windows walked from the start, each after the last one's last row, and from the end, each before the first one's
+ *   first row, are D cut at the size, then one empty window: every boundary value round-trips as an anchor, the seek
+ *   comparing it in PostgreSQL's own order (NaN greatest, -0 = 0, code points);
+ * - every row's Key, its key fields' values, anchors a window by its values exactly: the boundary texts its anchor
+ *   binds (adapter/page/window.ts windowCall), each its comparator's codec's, are read back by PostgreSQL, as its
+ *   column's type, equal to the value stored in the row.
  *
- * Oracle: D itself, the complete sorted result, which the pages concatenate to; and PostgreSQL's reading of each
- * cursor's boundary text as its column's type.
+ * Oracle: D itself, the complete sorted result read by the query's unpaged member, which the windows cut; and
+ * PostgreSQL's reading of each anchor's boundary text as its column's type.
  *
- * Plants: page-cursor-float-rounded (the cursor decodes a double through twelve significant digits).
+ * Plants: window-anchor-float-rounded (a double's anchor written through twelve significant digits).
  *
- * Features: each ordered field's edge classes and spellings, each direction and page size.
+ * Features: each ordered field's edge classes and spellings, each direction and window size.
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -30,13 +32,16 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, pipe, Record as Rec, String as Str } from "effect"
-import { memberOps } from "#adapter/db/handles.ts"
+import { memberCalls } from "#adapter/db/handles.ts"
+import { windowCall } from "#adapter/page/window.ts"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
+import { keyOf } from "#compiler/live/index.ts"
 import { paged } from "#compiler/public/workload.ts"
-import { pageOf, pageTemplate, rowOf, sortedResult, traverse } from "#test/pg/page/support.ts"
+import { expectedWalk, pageTemplate, rowOf, sortedResult, walk } from "#test/pg/page/support.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { readOnce } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import {
 	float8,
@@ -224,7 +229,7 @@ const reached = (stored: ReadonlyArray<StoredFact>): ReadonlyArray<ValuesFeature
 
 layer(Substrate.layer)("boundary values through the page runtime", (it) => {
 	it.effect(
-		"pages drawn edge values of every ordered type to D exactly, each cursor carrying its node's values as PostgreSQL reads them back",
+		"cuts D of drawn edge values of every ordered type into windows exactly, each row's Key anchoring by its values as PostgreSQL reads them back",
 		(ctx) =>
 			searched(
 				ctx,
@@ -244,17 +249,25 @@ layer(Substrate.layer)("boundary values through the page runtime", (it) => {
 						{},
 						({ ctx: dbCtx, load }) =>
 							Effect.gen(function* () {
-								/** Every ordered query, a paged member of the workload under its position's name. */
+								/**
+								 * Every ordered query, a paged member of the workload under its position's name, and unpaged
+								 * beside it, whose read is D.
+								 */
 								const loaded = yield* load(
-									Rec.fromEntries(Arr.map(orderedNames, (q, i) => [`paged${i}`, paged(queries[q])]))
+									Rec.fromEntries(
+										Arr.flatMap(orderedNames, (q, i) => [
+											[`paged${i}`, paged(queries[q])],
+											[`unpaged${i}`, queries[q]]
+										])
+									)
 								)
 								return yield* explore(
 									{
 										oracle: {
 											kind: "second-implementation",
-											name: "D itself, and PostgreSQL's reading of each cursor's boundary text"
+											name: "D itself, and PostgreSQL's reading of each anchor's boundary text"
 										},
-										/** The pages at the drawn sizes concatenate to D, with exact flags. */
+										/** The windows at the drawn sizes cut D. */
 										suite: "pg/page/values",
 										draw: drawn(valuesCaseGen),
 										literal: Formatter.format,
@@ -295,47 +308,45 @@ layer(Substrate.layer)("boundary values through the page runtime", (it) => {
 													params: [id(n + 1), f.x, f.amount, f.big, f.label]
 												}))
 											)
-											const pagedMember = member(
-												loaded,
-												`paged${Arr.findFirstIndex(orderedNames, (n) => n === c.query).pipe(Option.getOrThrow)}`
+											const at = Arr.findFirstIndex(orderedNames, (n) => n === c.query).pipe(
+												Option.getOrThrow
 											)
-											const q = memberOps(dbCtx, pagedMember).ops
+											const pagedMember = member(loaded, `paged${at}`)
+											const q = memberCalls(dbCtx, pagedMember)
 											const compiled = pageTemplate(pagedMember, opened.installed.names.codes)
 											const runtime = compiled.runtime
-											const rows = yield* Effect.flatMap(q.execute({}), (result) => result.collect)
+											const rows = yield* readOnce(
+												memberCalls(dbCtx, member(loaded, `unpaged${at}`))
+											)({
+												params: {},
+												facts: {}
+											})
 											assert.equal(rows.length, c.facts.length)
 											const full = sortedResult(compiled, rows)
-											for (const [direction, size] of [
-												["forward", c.forward],
-												["backward", c.backward]
+											for (const [from, size] of [
+												["start", c.forward],
+												["end", c.backward]
 											] as const) {
-												const walked = yield* traverse(q, {}, direction, size, { kind: "end" })
-												assert.deepEqual(walked.nodes, full, `${direction} ${size}`)
-												const ordered =
-													direction === "forward" ? walked.pages : Arr.reverse(walked.pages)
-												let offset = 0
-												for (const [k, page] of ordered.entries()) {
-													assert.equal(
-														page.pageInfo.hasPreviousPage,
-														offset > 0,
-														`${direction} ${size} page ${k} previous`
-													)
-													offset += page.edges.length
-													assert.equal(
-														page.pageInfo.hasNextPage,
-														offset < full.length,
-														`${direction} ${size} page ${k} next`
-													)
-												}
+												const walked = yield* walk(q, compiled.fields, {}, size, from, full.length)
+												assert.deepEqual(walked.nodes, full, `from the ${from} at ${size}`)
+												assert.deepEqual(
+													walked.windows,
+													expectedWalk(full, size, from),
+													`the windows from the ${from} at ${size}`
+												)
 											}
-											/**
-											 * Each cursor's boundary texts, read back by PostgreSQL as their columns' types, equal the
-											 * edge's stored values.
-											 */
-											const page = yield* pageOf(q, {}, { first: c.facts.length })
-											for (const edge of page.edges) {
-												const decoded = succeeded(runtime.codec.decode(edge.cursor))
-												const node = rowOf(edge.node)
+											for (const delivered of rows) {
+												const call = succeeded(
+													windowCall(
+														{
+															anchor: { kind: "after", key: keyOf(compiled.fields, delivered) },
+															size: 1
+														},
+														runtime.anchors
+													)
+												)
+												const texts = call.variant === "after" ? call.boundary : []
+												const node = rowOf(delivered)
 												for (const [i, comparator] of runtime.page.comparators.entries()) {
 													const field = comparator.field
 													assert.ok(
@@ -344,12 +355,12 @@ layer(Substrate.layer)("boundary values through the page runtime", (it) => {
 													)
 													const [answer] = yield* s.admin.queryValues(
 														`SELECT ($1::${sqlTypes[field]} = m.${column(field)})::text FROM ${table} AS m WHERE m.${column("id")} = $2::uuid`,
-														[defined(decoded.texts[i]), String(node["id"])]
+														[defined(texts[i]), String(node["id"])]
 													)
 													assert.deepEqual(
 														answer,
 														["true"],
-														`${c.query}: ${field} of ${String(node["id"])} as its cursor carries it`
+														`${c.query}: ${field} of ${String(node["id"])} as its anchor carries it`
 													)
 												}
 											}

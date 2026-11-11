@@ -59,15 +59,15 @@ import { paramText } from "#test/support/wire.ts"
  * R05: native row seeks for eligible orders.
  *
  * The Access fixture (access.bench.ts): Entry(id, account, kind, amount, code), installed with the same schema, workload
- * and facts. Its pages are requested as the runtime requests them: the page runtime template of the ordered query,
- * each request's flight built by the runtime's own pageFlight from the call, with the boundary texts the runtime
+ * and facts. Its windows are read as the runtime reads them: the page runtime template of the ordered query, each
+ * window's statement built by the runtime's own windowStatement from the call, with the boundary texts the runtime
  * receives, and sent on the recording session (support/page.ts). Its own file, so a page failure records R05's verdict
  * alone and never erases R04's, R18's or R39's.
  *
- * - The page after a cursor is a native row comparison in the index condition of the index whose key leads with the
- *   seek's columns, reading the page and its lookahead with no filter, where the handwritten OR expansion filters every
- *   entry before the boundary.
- * - A page over a key-dropping projection repeats no answer.
+ * - The window after an anchor is a native row comparison in the index condition of the index whose key leads with the
+ *   seek's columns, reading the window alone with no filter, where the handwritten OR expansion filters every entry
+ *   before the boundary.
+ * - A window over a key-dropping projection repeats no answer.
  */
 interface Options extends Readonly<Record<string, unknown>> {
 	readonly entries: number
@@ -75,7 +75,7 @@ interface Options extends Readonly<Record<string, unknown>> {
 	readonly samples: number
 }
 
-/** The statement of a delivered page request, run alone as a variant, without its probe. */
+/** The statement of a delivered window, run alone as a variant. */
 const rowsVariant = (
 	role: "generated" | "conservative",
 	label: string,
@@ -94,8 +94,8 @@ export default defineGate({
 	gates: ["R05"],
 	title: "Row seeks of keyset pages against the handwritten OR expansion",
 	scope:
-		"Keyset pages after a cursor of an account's entries by (amount, id), requested through the page runtime, against " +
-		"the OR expansion and the handwritten row seek (R05); a page over a key-dropping projection.",
+		"Keyset windows after an anchor of an account's entries by (amount, id), read through the page runtime, against " +
+		"the OR expansion and the handwritten row seek (R05); a window over a key-dropping projection.",
 	phases: queryPhases,
 	options: {
 		full: { entries: 200000, accounts: 200, samples: 20 },
@@ -156,7 +156,7 @@ export default defineGate({
 					headingOf(page),
 					`SELECT e.${col("amount")} AS amount, e.${col("id")} AS id FROM ${E} AS e WHERE e.${col("account")} = $1::int8 ` +
 						`AND (e.${col("amount")} > $2::int8 OR (e.${col("amount")} = $2::int8 AND e.${col("id")} > $3::int8)) ` +
-						`ORDER BY e.${col("amount")}, e.${col("id")} LIMIT ${pageSize + 1}`
+						`ORDER BY e.${col("amount")}, e.${col("id")} LIMIT ${pageSize}`
 				),
 				params: [String(account), ...boundary]
 			}
@@ -164,7 +164,7 @@ export default defineGate({
 				sql: handwrittenRows(
 					headingOf(page),
 					`SELECT e.${col("amount")} AS amount, e.${col("id")} AS id FROM ${E} AS e WHERE e.${col("account")} = $1::int8 ` +
-						`AND (e.${col("amount")}, e.${col("id")}) > ($2::int8, $3::int8) ORDER BY e.${col("amount")}, e.${col("id")} LIMIT ${pageSize + 1}`
+						`AND (e.${col("amount")}, e.${col("id")}) > ($2::int8, $3::int8) ORDER BY e.${col("amount")}, e.${col("id")} LIMIT ${pageSize}`
 				),
 				params: [String(account), ...boundary]
 			}
@@ -232,16 +232,15 @@ export default defineGate({
 				) && Arr.every(scansOf(plan, entry), (n) => Option.isNone(n.filter))
 			cases.push(
 				{
-					name: "the page after (50000, 0) of an account's entries by amount",
+					name: "the window after (50000, 0) of an account's entries by amount",
 					gates: ["R05"],
 					conditions: {
 						workload:
-							"page { first: 20, after } of an account's (id, amount) ordered by amount, id",
+							"the window { after, size: 20 } of an account's (id, amount) ordered by amount, id",
 						schemaState: installed,
 						dataDistribution: data,
 						parameters: { account: String(account), after: boundary, size: pageSize },
-						resultSemantics:
-							"the 21 entries (page and lookahead) following the boundary in (amount, id) order",
+						resultSemantics: "the 20 entries following the boundary in (amount, id) order",
 						cacheState: "warm: each variant runs once before its timed samples"
 					},
 					phases: {},
@@ -262,14 +261,14 @@ export default defineGate({
 					}
 				},
 				{
-					name: "the page after 50000 of an account's amounts, the key dropped",
+					name: "the window after 50000 of an account's amounts, the key dropped",
 					gates: ["R05"],
 					conditions: {
-						workload: "page { first: 20, after } of an account's distinct amounts",
+						workload: "the window { after, size: 20 } of an account's distinct amounts",
 						schemaState: installed,
 						dataDistribution: data,
 						parameters: { account: String(account), after: ["50000"], size: pageSize },
-						resultSemantics: "the 21 distinct amounts following 50000",
+						resultSemantics: "the 20 distinct amounts following 50000",
 						cacheState: "warm: each variant runs once before its timed samples"
 					},
 					phases: {},
@@ -288,27 +287,27 @@ export default defineGate({
 						`row comparisons: ${Arr.join(rowComparisons, ", ")}\n${outline(seekPlan, 0)}`
 					),
 					mechanism(
-						"the seek reads the page and its lookahead",
-						rowsReadFrom(seekPlan, entry) <= pageSize + 1,
+						"the seek reads the window alone",
+						rowsReadFrom(seekPlan, entry) <= pageSize,
 						`${rowsReadFrom(seekPlan, entry)} rows`
 					),
 					equivalence(
-						"the generated page equals the conservative page",
+						"the generated window equals the conservative window",
 						compareVariants(seek, seekConservative).sameResult,
 						`${seek.result.rows} generated rows, ${seekConservative.result.rows} conservative`
 					),
 					equivalence(
-						"the generated page equals the OR expansion's",
+						"the generated window equals the OR expansion's",
 						compareVariants(seek, orM).sameResult,
 						`${seek.result.rows} generated rows, ${orM.result.rows} handwritten`
 					),
 					equivalence(
-						"the generated page equals the handwritten row seek's",
+						"the generated window equals the handwritten row seek's",
 						compareVariants(seek, rowM).sameResult,
 						`${seek.result.rows} generated rows, ${rowM.result.rows} handwritten`
 					),
 					equivalence(
-						"a page over a key-dropping projection repeats no answer and equals the conservative page",
+						"a window over a key-dropping projection repeats no answer and equals the conservative window",
 						droppedAfter.result.repeated === 0 &&
 							compareVariants(droppedAfter, droppedConservative).sameResult,
 						`${droppedAfter.result.repeated} repeated of ${droppedAfter.result.rows}; ${droppedConservative.result.rows} conservative`

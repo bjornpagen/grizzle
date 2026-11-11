@@ -1,41 +1,39 @@
 /**
  * The page runtime through the readers.
  *
- * The traversal property, that forward and backward pages at every size 1 through 7 concatenate to the complete sorted
- * distinct result D with exact flags and that each page's attachments read exactly its delivered parents' children, is
- * test/pg/page/generated.ts's, over generated ordered queries, minus the transaction and the handles; that every page
- * request is one round trip in one SERIALIZABLE READ ONLY transaction of its own that commits, is the round-trip
- * suite's (test/pg/adapter/round-trips.test.ts). Here the Paging fixture installs under a fresh schema and opens
- * through Db.open and its login's served file as its full world, every ordered query a paged member of its workload,
- * exactly as an application pages:
+ * The traversal property, that windows walked from the start and from the end at every size 1 through 7 concatenate to
+ * the complete sorted distinct result D and that each window's attachments read exactly its rows' children, is
+ * test/pg/page/generated.ts's, over generated ordered queries, minus the transaction and the handles. Here the Paging
+ * fixture installs under a fresh schema and opens through Db.open and its login's served file as its full world, every
+ * ordered query a paged member of its workload, exactly as an application reads windows, and its unpaged member beside
+ * it, whose read is D:
  *
- * - every request answers exactly by the D of the moment and its anchor's encoded values, through the query's paged
- *   member or its twin, another member paging the same query, whatever happened to D since the anchor's cursor was
- *   made: over drawn facts, a drawn query of the fixture and a walk of drawn requests, each anchored on an edge some
- *   earlier page delivered, through either member, with drawn changes to D between them (deleting an anchor's task, moving it, deleting the last page,
- *   inserting, flagging, emptying the account), each written as the facts' whole new state in one transaction that
- *   reads nothing (test/support/substrate/replace.ts), so no reset is an SSI pivot under load. A first page holds D's
- *   first k tuples and a last page its last k; an after page the first k tuples strictly after the anchor, a before
- *   page the last k strictly before it. The flag of the fetching direction is whether more remain on that side; the
- *   opposite flag of an anchored page is whether D holds a tuple at or before the anchor (after) or at or after it
- *   (before), whether or not the anchor is still in D; a first page has no previous page and a last page no next;
- * - a token that is not one this query issued for this generation, a token longer than the layout's bound included, and
- *   a request of another shape or size, is refused before any SQL: CursorError for the token, PageRequestRefused with
- *   its fault for the request, the counting executor seeing no transaction and no statement;
- * - a page size has no upper bound: a walk's requests draw sizes up to the largest safe integer, which the statements
- *   bind as bigint limits.
+ * - every window answers exactly by the D of the moment and its anchor's values, through the query's paged member or
+ *   its twin, another member paging the same query, whatever happened to D since the anchor's row was read: over drawn
+ *   facts, a drawn query of the fixture and a walk of drawn windows, each anchored at the key of a row some earlier
+ *   window delivered, through either member, with drawn changes to D between them (deleting an anchor's task, moving it,
+ *   deleting the last window's tasks, inserting, flagging, emptying the account), each written as the facts' whole new
+ *   state in one transaction that reads nothing (test/support/substrate/replace.ts), so no reset is an SSI pivot under
+ *   load. A start window holds D's first k rows and an end window its last k; an after window the first k rows strictly
+ *   after the anchor's values, a before window the last k strictly before them, whether or not a row of the anchor is
+ *   still in D; every window in D's order. Each window is one flight carrying its one statement;
+ * - a window input that is not exactly its params, no facts and a window of an anchor and a size, its size a safe integer
+ *   of at least 1, its anchor of its kind and a key of one admitted value per comparator, is refused before any SQL: the
+ *   call's error is the input refusal of its fault, and the Db's sessions send nothing; every other input reads its
+ *   window in one flight;
+ * - a window size has no upper bound: a walk's windows draw sizes up to the largest safe integer, which the statement
+ *   binds as a bigint limit.
  *
  * test/pg/page/values.test.ts covers the boundary values, test/pg/page/plans.test.ts the plans, and
  * test/pg/page/generated.ts the generated ordered queries.
  *
- * Oracle: the specification of a page, D of the moment and the anchor's encoded values, which the drawn facts and the
- * walk's own writes state; and the cursor codec's own refusals, with no transaction and no statement counted.
+ * Oracle: the specification of a window, D of the moment and the anchor's values, which the drawn facts and the walk's
+ * own writes state, D read by the query's unpaged member; and the window rule restated, with no flight counted.
  *
- * Plants: page-opposite-flag-false (an anchored page's opposite flag is always false), page-cursor-generation-unchecked
- * (the cursor codec accepts a token of another generation).
+ * Plants: window-after-seek-inclusive (the after template's seek admits the anchor's own row),
+ * window-anchor-length-unchecked (a key of another length than the comparators reaches SQL).
  *
- * Features: each query through each member, each request variant, the anchors and flags the walk names, and each token
- * and request refusal.
+ * Features: each query through each member, each anchor kind, the anchors the walk names, and each input refusal.
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -53,37 +51,41 @@ import {
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Option, pipe, Record as Rec, String as Str } from "effect"
-import { memberOps, memberOpsOn } from "#adapter/db/handles.ts"
+import {
+	Array as Arr,
+	Effect,
+	Formatter,
+	Option,
+	pipe,
+	Record as Rec,
+	Result,
+	String as Str
+} from "effect"
+import { memberCalls } from "#adapter/db/handles.ts"
 import { ReadFailure } from "#adapter/errors/execution.ts"
-import { PageRequestRefused, type RequestFault } from "#adapter/errors/failures.ts"
-import { poolExecutor } from "#adapter/reader/executor.ts"
-import { base64urlLength } from "#compiler/codec/cursor/base64url.ts"
-import { cursorCodec, cursorTokenMaxLength } from "#compiler/codec/cursor/codec.ts"
-import { headerBytes } from "#compiler/codec/cursor/layout.ts"
+import { CallInputRefused, type CallInputFault } from "#adapter/errors/failures.ts"
+import { callErrorOf } from "#adapter/live/call-error.ts"
 import { appendAll } from "#compiler/core/array.ts"
-import { CursorError, type CursorFault } from "#compiler/core/errors.ts"
-import { uuid, type Uuid } from "#compiler/public/fields.ts"
-import { query, v } from "#compiler/public/query.ts"
+import { type Anchor, type Key, keyOf } from "#compiler/live/index.ts"
+import type { Uuid } from "#compiler/public/fields.ts"
 import { paged } from "#compiler/public/workload.ts"
 import {
-	assertEdges,
 	canon,
-	countingExecutor,
-	type PageValue,
-	pageOf,
-	pageOrder,
+	holdsKey,
 	pageTemplate,
 	rowOf,
 	sortedResult,
 	strictlyAfter,
-	strictlyBefore
+	strictlyBefore,
+	windowOf
 } from "#test/pg/page/support.ts"
 import { installed } from "#test/pg/reads/support.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { assert, defined } from "#test/support/assert.ts"
+import { readOnce } from "#test/support/calls.ts"
 import { replaceMigrated as replace } from "#test/support/install-migrate.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { pickFrom, pickGen, pickIndex } from "#test/support/pick.ts"
+import { pickGen, pickIndex } from "#test/support/pick.ts"
+import { recordingContext } from "#test/support/plans.ts"
 import { member, withServedDb } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import {
@@ -94,7 +96,6 @@ import {
 	priorityDescendingTasks,
 	Paging,
 	priorityCounts,
-	Task,
 	tasksWithNotes,
 	titles
 } from "#test/unit/page/fixtures.ts"
@@ -110,34 +111,18 @@ const titleChoices = ["alpha", "beta", "gamma", "𝔘nicode", "beta"] as const
 const titleOf = (n: number): string => defined(titleChoices[n % titleChoices.length])
 
 /**
- * The token suite's facts: what every paged query needs to issue an edge, one task of the paged account A, noted (for
- * notes) and flagged High (for flagged and flagged by title). A refusal reads no fact, so no other is stated.
+ * The input suite's facts: one task of the paged account A, noted (for notes) and flagged High (for flagged and flagged
+ * by title), so every paged query's D holds a row whose key an input anchors at. A refusal reads no fact, so no other is
+ * stated.
  */
-const tokenFacts = {
+const inputFacts = {
 	Task: [{ id: t(0), account: A, priority: 0, title: titleOf(0) }],
 	Note: [{ task: t(0), note: "note" }],
 	Flag: [{ task: t(0), level: "High" }]
 }
 
 /**
- * The same heading, parameters and order as orderedTasks, so the same TypeScript shape, with a different filter: a
- * token of one is not a token of the other.
- */
-const nonNegativeTasks = query(Paging)
-	.rule((r) => {
-		const { id: tid, account, priority, title } = v(Task, "task")
-		return r
-			.match(Task, { id: tid, account, priority, title })
-			.where(r.eq(account, r.param("account", uuid)))
-			.where(r.ge(priority, 0))
-			.find({ id: tid, priority, title })
-	})
-	.orderBy(["priority", "desc"])
-
-const cursorFailure = (fault: CursorFault) => CursorError.make({ _tag: fault })
-
-/**
- * The ordered queries of the fixture a walk or a token is drawn over: one native row comparison either way, mixed
+ * The ordered queries of the fixture a walk or an input is drawn over: one native row comparison either way, mixed
  * directions, a keyless projection, a grouped result, an attachment, and two heterogeneous unions.
  */
 const pagedQueries = {
@@ -162,30 +147,29 @@ const pagedQueryNames: Arr.NonEmptyReadonlyArray<PagedQuery> = [
 	"flagged by title"
 ]
 
-/** The member that pages a query, or its twin, another member paging the same query: a request goes through either. */
+/**
+ * The member that pages a query, or its twin, another member paging the same query: a window is read through either.
+ * Beside them, the query served unpaged, whose read is D.
+ */
 type Handle = "member" | "twin"
 
-/** A paged query's member name, or its twin's: its position among the fixture's paged queries. */
-const memberName = (q: PagedQuery, handle: Handle): string =>
+/** A paged query's member name, its twin's, or its unpaged member's: its position among the fixture's paged queries. */
+const memberName = (q: PagedQuery, handle: Handle | "unpaged"): string =>
 	`${handle}${Arr.findFirstIndex(pagedQueryNames, (n) => n === q).pipe(Option.getOrThrow)}`
 
-/** Every paged query, served under its member's name, and the query of its shape with another filter. */
-const tokenMembers: Readonly<Record<string, unknown>> = {
-	...Rec.fromEntries(
-		Arr.map(pagedQueryNames, (q) => [memberName(q, "member"), paged(pagedQueries[q])])
-	),
-	nonNegative: paged(nonNegativeTasks)
-}
-
-/** Every paged query, served under its member's name and its twin's. */
-const walkMembers: Readonly<Record<string, unknown>> = Rec.fromEntries(
-	Arr.flatMap(pagedQueryNames, (q) =>
-		Arr.map(["member", "twin"] as const, (handle) => [
+/** Every paged query, served under its member's name and its twin's, and unpaged beside them. */
+const pagedMembers: Readonly<Record<string, unknown>> = Rec.fromEntries(
+	Arr.flatMap(pagedQueryNames, (q) => [
+		...Arr.map(["member", "twin"] as const, (handle): readonly [string, unknown] => [
 			memberName(q, handle),
 			paged(pagedQueries[q])
-		])
-	)
+		]),
+		[memberName(q, "unpaged"), pagedQueries[q]]
+	])
 )
+
+/** The paged account's parameters, which every window and D's read take. */
+const params = { account: A }
 
 /** A task the facts or a write draw: its account (0 is the one paged, 1 another), priority and title. */
 interface TaskSketch {
@@ -201,34 +185,34 @@ const taskSketchGen: Gen<TaskSketch> = (source) => ({
 })
 
 /**
- * A direct write between two requests. A target pick resolves over the tasks of the anchor pool's nodes (an edge's
- * task: its own, or the tasks a keyless node stands for) or, when the pool is empty, over every task.
+ * A direct write between two windows. A target pick resolves over the tasks of the anchor pool's rows (a delivered
+ * row's task: its own, or the tasks a keyless row stands for) or, when the pool is empty, over every task.
  */
 type Write =
-	| { readonly kind: "delete an edge's tasks"; readonly target: number }
+	| { readonly kind: "delete a row's tasks"; readonly target: number }
 	| {
-			readonly kind: "move an edge's tasks"
+			readonly kind: "move a row's tasks"
 			readonly target: number
 			readonly priority: number
 			readonly title: number
 	  }
-	| { readonly kind: "delete the last page" }
+	| { readonly kind: "delete the last window" }
 	| { readonly kind: "insert"; readonly task: TaskSketch }
 	| { readonly kind: "flag"; readonly target: number; readonly level: "High" | "Low" | "none" }
 	| { readonly kind: "empty the account" }
 
 const writeGen: Gen<Write> = weighted<Write>([
-	[3, (source) => ({ kind: "delete an edge's tasks", target: source.draw(pickGen) })],
+	[3, (source) => ({ kind: "delete a row's tasks", target: source.draw(pickGen) })],
 	[
 		3,
 		(source) => ({
-			kind: "move an edge's tasks",
+			kind: "move a row's tasks",
 			target: source.draw(pickGen),
 			priority: source.draw(element([-7, 0, 1, 2, 3, 4, 99])),
 			title: source.draw(int(0, titleChoices.length - 1))
 		})
 	],
-	[2, constant({ kind: "delete the last page" })],
+	[2, constant({ kind: "delete the last window" })],
 	[2, (source) => ({ kind: "insert", task: source.draw(taskSketchGen) })],
 	[
 		2,
@@ -241,33 +225,36 @@ const writeGen: Gen<Write> = weighted<Write>([
 	[1, constant({ kind: "empty the account" })]
 ])
 
-/** Which edge an anchored request takes: the last page's end or start, or any edge delivered so far. */
+/** Which row an anchored window takes: the last window's last or first row, or any row delivered so far. */
 type AnchorPick =
 	| { readonly kind: "end" }
 	| { readonly kind: "start" }
 	| { readonly kind: "any"; readonly pick: number }
 
-interface RequestSketch {
-	readonly variant: "first" | "last" | "after" | "before"
+/** An anchor's kind. */
+type Kind = Anchor["kind"]
+
+interface WindowSketch {
+	readonly kind: Kind
 	readonly size: number
 	readonly anchor: AnchorPick
 	readonly handle: Handle
 }
 
 /**
- * A request's size: mostly small, so the pages of the drawn facts cut through them, and now and then any safe integer,
- * a size whose limit, the size plus one, is past every 32-bit integer, or the largest safe integer: a page size has no
- * upper bound, and the statements bind the size and the limit as bigints.
+ * A window's size: mostly small, so the windows of the drawn facts cut through them, and now and then any safe integer,
+ * a size past every 32-bit integer, or the largest safe integer: a window size has no upper bound, and the statement
+ * binds it as a bigint.
  */
-const pageSizeGen: Gen<number> = weighted([
+const windowSizeGen: Gen<number> = weighted([
 	[8, int(1, 7)],
 	[1, int(8, Number.MAX_SAFE_INTEGER)],
-	[1, element([2 ** 31 - 1, Number.MAX_SAFE_INTEGER])]
+	[1, element([2 ** 31, Number.MAX_SAFE_INTEGER])]
 ])
 
-const requestSketchGen: Gen<RequestSketch> = (source) => ({
-	variant: source.draw(element(["first", "last", "after", "before", "after", "before"] as const)),
-	size: source.draw(pageSizeGen),
+const windowSketchGen: Gen<WindowSketch> = (source) => ({
+	kind: source.draw(element<Kind>(["start", "end", "after", "before", "after", "before"])),
+	size: source.draw(windowSizeGen),
 	anchor: source.draw(
 		oneOf<AnchorPick>([
 			constant({ kind: "end" }),
@@ -280,7 +267,7 @@ const requestSketchGen: Gen<RequestSketch> = (source) => ({
 
 interface StepSketch {
 	readonly writes: ReadonlyArray<Write>
-	readonly request: RequestSketch
+	readonly window: WindowSketch
 }
 
 interface WalkSketch {
@@ -292,13 +279,13 @@ interface WalkSketch {
 	readonly steps: ReadonlyArray<StepSketch>
 }
 
-/**
- * A walk's steps: drawn, or planted a fifth of the time as a page from one end, its edges deleted, and the page past
- * it, so an anchored page whose anchor and every tuple on one side of it left D, whose opposite flag the probe alone
- * can clear, is reached on every run.
- */
-const handleGen: Gen<RequestSketch["handle"]> = element(["member", "twin"] as const)
+const handleGen: Gen<Handle> = element(["member", "twin"] as const)
 
+/**
+ * A walk's steps: drawn, or planted a fifth of the time as a window from one end, its rows' tasks deleted, and the
+ * window past it, so a window anchored at a row gone from D, with the rows past it still to answer, is reached on every
+ * run.
+ */
 const stepsGen: Gen<ReadonlyArray<StepSketch>> = weighted<ReadonlyArray<StepSketch>>([
 	[
 		4,
@@ -307,7 +294,7 @@ const stepsGen: Gen<ReadonlyArray<StepSketch>> = weighted<ReadonlyArray<StepSket
 				writes: source.draw(
 					oneOf<ReadonlyArray<Write>>([constant([]), array(writeGen, { min: 1, max: 3 })])
 				),
-				request: source.draw(requestSketchGen)
+				window: source.draw(windowSketchGen)
 			}),
 			{ min: 1, max: 6 }
 		)
@@ -322,17 +309,17 @@ const stepsGen: Gen<ReadonlyArray<StepSketch>> = weighted<ReadonlyArray<StepSket
 			return [
 				{
 					writes: [],
-					request: {
-						variant: forward ? "first" : "last",
+					window: {
+						kind: forward ? "start" : "end",
 						size: first,
 						anchor: { kind: "end" },
 						handle: handles[0]
 					}
 				},
 				{
-					writes: [{ kind: "delete the last page" }],
-					request: {
-						variant: forward ? "after" : "before",
+					writes: [{ kind: "delete the last window" }],
+					window: {
+						kind: forward ? "after" : "before",
 						size: next,
 						anchor: forward ? { kind: "end" } : { kind: "start" },
 						handle: handles[1]
@@ -363,16 +350,16 @@ const walkSketchGen: Gen<WalkSketch> = (source) => ({
 
 type WalkFeature =
 	| `query ${PagedQuery}`
-	| `${RequestSketch["variant"]} through the ${RequestSketch["handle"]}`
-	| "a cursor of the other member"
+	| `${Kind} through the ${Handle}`
+	| "an anchor of the other member's row"
 	| "an anchor gone from D"
 	| "an anchor still in D"
-	| "an opposite flag cleared past a gone anchor"
-	| "an empty anchored page"
+	| "rows past a gone anchor"
+	| "an empty anchored window"
 	| "an emptied D"
-	| "a write between requests"
+	| "a write between windows"
 
-/** A task of the walk's model: what the database holds, which writes and node lookups resolve against. */
+/** A task of the walk's model: what the database holds, which writes and row lookups resolve against. */
 interface ModelTask {
 	readonly id: string
 	readonly account: string
@@ -381,23 +368,23 @@ interface ModelTask {
 	readonly flag: "High" | "Low" | "none"
 }
 
-/** An edge some page delivered: its cursor, its node, the member that made it. */
+/** A row some window delivered: its key, the row, the member that read it. */
 interface Delivered {
-	readonly cursor: string
-	readonly node: unknown
-	readonly handle: RequestSketch["handle"]
+	readonly key: Key
+	readonly row: unknown
+	readonly handle: Handle
 }
 
 /**
- * The ids of a model's tasks a node stands for: a keyed node's own task, or every task of the paged account a keyless
- * node collapses (a title's, a priority's count).
+ * The ids of a model's tasks a row stands for: a keyed row's own task, or every task of the paged account a keyless row
+ * collapses (a title's, a priority's count).
  */
 const tasksOf = (
 	q: PagedQuery,
-	node: unknown,
+	row: unknown,
 	tasks: ReadonlyArray<ModelTask>
 ): ReadonlyArray<string> => {
-	const fields = rowOf(node)
+	const fields = rowOf(row)
 	switch (q) {
 		case "titles":
 			return Arr.map(
@@ -423,8 +410,8 @@ const tasksOf = (
 }
 
 /**
- * The anchor a request takes, if it has one: the last page's end or start, or any edge delivered so far; none before
- * any edge was delivered.
+ * The row an anchored window takes, if it has one: the last window's last or first row, or any row delivered so far;
+ * none before any row was delivered.
  */
 const anchorOf = (
 	pick: AnchorPick,
@@ -445,202 +432,249 @@ const anchorOf = (
 	return Option.some(defined(pool[pickIndex(pick.kind === "any" ? pick.pick : 0, pool.length)]))
 }
 
-/** A page as the oracle states it: its canonical nodes and its flags. */
-interface Expected {
-	readonly nodes: ReadonlyArray<unknown>
-	readonly hasPreviousPage: boolean
-	readonly hasNextPage: boolean
-}
-
-const answered = (page: PageValue): Expected => ({
-	nodes: Arr.map(page.edges, (e) => canon(e.node)),
-	hasPreviousPage: page.pageInfo.hasPreviousPage,
-	hasNextPage: page.pageInfo.hasNextPage
-})
-
-/** The base64url alphabet a token is written in, and characters outside it. */
-const base64url = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
-const foreign = ["!", "+", "/", " ", "=", "é", "\u{1F600}"] as const
-/** The characters of a token's three digests: its first, every one of them within the header's bytes (layout.ts). */
-const digestCharacters = base64urlLength(headerBytes)
-
-/**
- * A text of `length` copies of "A", built by doubling: V8 holds it as concatenations of shared halves, its characters
- * never flattened into one copy until one of them is read, so a token as long as the layout's bound and more costs next
- * to nothing to hand a page, whose codec refuses it by its length alone.
- */
-const longText = (length: number): string => {
-	let text = ""
-	let piece = "A"
-	for (let rest = length; rest > 0; rest = Math.floor(rest / 2)) {
-		if (rest % 2 === 1) {
-			text += piece
-		}
-		if (rest > 1) {
-			piece += piece
-		}
-	}
-	return text
-}
-
-/** What is done to a valid token or its request, and what the refusal is. */
-type Tamper =
-	| { readonly kind: "a character of a digest changed"; readonly at: number; readonly to: number }
-	| { readonly kind: "truncated"; readonly keep: number }
-	| { readonly kind: "padded" }
-	| {
-			readonly kind: "a foreign character"
-			readonly at: number
-			readonly char: (typeof foreign)[number]
-	  }
-	| { readonly kind: "oversized"; readonly extra: number }
-	| { readonly kind: "another query"; readonly query: number }
-	| { readonly kind: "another generation" }
-	| {
-			readonly kind: "not a string"
-			readonly value: "null" | "undefined" | "number" | "object" | "boolean"
-	  }
-	| {
-			readonly kind: "another request shape"
-			readonly shape:
-				| "both sizes"
-				| "the other anchor"
-				| "both anchors"
-				| "no size"
-				| "an extra property"
-				| "no object"
-	  }
-	| {
-			readonly kind: "a size out of range"
-			readonly size:
-				| "zero"
-				| "negative"
-				| "fraction"
-				| "NaN"
-				| "infinite"
-				| "unsafe"
-				| "text"
-				| "bigint"
-	  }
-
-const tamperGen: Gen<Tamper> = oneOf<Tamper>([
-	(source) => ({
-		kind: "a character of a digest changed",
-		at: source.draw(pickGen),
-		to: source.draw(pickGen)
-	}),
-	(source) => ({ kind: "truncated", keep: source.draw(pickGen) }),
-	constant({ kind: "padded" }),
-	(source) => ({
-		kind: "a foreign character",
-		at: source.draw(pickGen),
-		char: source.draw(element(foreign))
-	}),
-	(source) => ({ kind: "oversized", extra: source.draw(int(1, 64)) }),
-	(source) => ({ kind: "another query", query: source.draw(pickGen) }),
-	constant({ kind: "another generation" }),
-	(source) => ({
-		kind: "not a string",
-		value: source.draw(element(["null", "undefined", "number", "object", "boolean"] as const))
-	}),
-	(source) => ({
-		kind: "another request shape",
-		shape: source.draw(
-			element([
-				"both sizes",
-				"the other anchor",
-				"both anchors",
-				"no size",
-				"an extra property",
-				"no object"
-			] as const)
-		)
-	}),
-	(source) => ({
-		kind: "a size out of range",
-		size: source.draw(
-			element([
-				"zero",
-				"negative",
-				"fraction",
-				"NaN",
-				"infinite",
-				"unsafe",
-				"text",
-				"bigint"
-			] as const)
-		)
-	})
-])
-
-interface TokenCase {
-	/** The query whose page issued the token, the page and the edge whose cursor it is. */
+/** How a window input is drawn: a valid one's members, each kept, dropped, doubled or replaced (see expectedOf). */
+interface InputSketch {
 	readonly query: PagedQuery
-	readonly from: "first" | "last"
-	readonly size: number
-	readonly edge: number
-	/** Which way the tampered request continues. */
-	readonly direction: "after" | "before"
-	readonly tamper: Tamper
+	readonly envelope: "exact" | "no window" | "an extra member" | "no record"
+	readonly facts: "none" | "a fact"
+	readonly window: "exact" | "no size" | "no anchor" | "an extra member" | "no record"
+	readonly size: unknown
+	readonly anchor: "a record" | "no record"
+	readonly kind: unknown
+	/** Whether the anchor holds a key member, and a member besides its kind and key. */
+	readonly keyMember: boolean
+	readonly extra: boolean
+	/** The key: the delivered row's, one value shorter or longer, or one value no codec admits at a pick. */
+	readonly key:
+		| { readonly kind: "the row's" }
+		| { readonly kind: "one shorter" }
+		| { readonly kind: "one longer" }
+		| { readonly kind: "a refused value"; readonly at: number; readonly value: Refused }
+		| { readonly kind: "no list" }
 }
 
-const tokenCaseGen: Gen<TokenCase> = (source) => ({
-	query: source.draw(element(pagedQueryNames)),
-	from: source.draw(element(["first", "last"] as const)),
-	size: source.draw(int(1, 7)),
-	edge: source.draw(pickGen),
-	direction: source.draw(element(["after", "before"] as const)),
-	tamper: source.draw(tamperGen)
-})
+/** Values no codec admits: no key holds null or undefined, and no carrier's host value is a symbol. */
+type Refused = "null" | "undefined" | "a symbol"
 
-/**
- * What the contract says a tampered request meets: a cursor refusal of one stated reason, a cursor refusal of any reason
- * the token's bytes lead to, or the request refusal of its shape or its size.
- */
-type Verdict =
-	| { readonly kind: "cursor"; readonly reason: CursorFault }
-	| { readonly kind: "some cursor refusal" }
-	| { readonly kind: "request"; readonly fault: RequestFault }
-
-const sizeOf = (size: Extract<Tamper, { kind: "a size out of range" }>["size"]): unknown => {
-	switch (size) {
-		case "zero":
-			return 0
-		case "negative":
-			return -1
-		case "fraction":
-			return 1.5
-		case "NaN":
-			return Number.NaN
-		case "infinite":
-			return Number.POSITIVE_INFINITY
-		case "unsafe":
-			return Number.MAX_SAFE_INTEGER + 1
-		case "text":
-			return "2"
-		case "bigint":
-			return 2n
-	}
-}
-
-const nonString = (value: Extract<Tamper, { kind: "not a string" }>["value"]): unknown => {
+const refusedValue = (value: Refused): unknown => {
 	switch (value) {
 		case "null":
 			return null
 		case "undefined":
 			return undefined
-		case "number":
-			return 7
-		case "object":
-			return {}
-		case "boolean":
-			return true
+		case "a symbol":
+			return Symbol("key")
+	}
+}
+
+const inputSketchGen: Gen<InputSketch> = (source) => ({
+	query: source.draw(element(pagedQueryNames)),
+	envelope: source.draw(
+		weighted<InputSketch["envelope"]>([
+			[8, constant("exact")],
+			[1, constant("no window")],
+			[1, constant("an extra member")],
+			[1, constant("no record")]
+		])
+	),
+	facts: source.draw(
+		weighted<InputSketch["facts"]>([
+			[8, constant("none")],
+			[1, constant("a fact")]
+		])
+	),
+	window: source.draw(
+		weighted<InputSketch["window"]>([
+			[8, constant("exact")],
+			[1, constant("no size")],
+			[1, constant("no anchor")],
+			[1, constant("an extra member")],
+			[1, constant("no record")]
+		])
+	),
+	size: source.draw(
+		weighted<unknown>([
+			[6, int(1, 7)],
+			[1, element([Number.MAX_SAFE_INTEGER])],
+			[
+				2,
+				element<unknown>([
+					0,
+					-0,
+					-1,
+					1.5,
+					Number.NaN,
+					Number.POSITIVE_INFINITY,
+					Number.MAX_SAFE_INTEGER + 1,
+					2n,
+					"2",
+					null
+				])
+			]
+		])
+	),
+	anchor: source.draw(
+		weighted<InputSketch["anchor"]>([
+			[8, constant("a record")],
+			[1, constant("no record")]
+		])
+	),
+	kind: source.draw(
+		weighted<unknown>([
+			[8, element<unknown>(["start", "after", "end", "before"])],
+			[1, element<unknown>(["first", "last", 0, null])]
+		])
+	),
+	keyMember: source.draw(
+		weighted<boolean>([
+			[1, constant(false)],
+			[1, constant(true)]
+		])
+	),
+	extra: source.draw(
+		weighted<boolean>([
+			[8, constant(false)],
+			[1, constant(true)]
+		])
+	),
+	key: source.draw(
+		weighted<InputSketch["key"]>([
+			[6, constant({ kind: "the row's" })],
+			[1, constant({ kind: "one shorter" })],
+			[1, constant({ kind: "one longer" })],
+			[
+				2,
+				(inner) => ({
+					kind: "a refused value",
+					at: inner.draw(pickGen),
+					value: inner.draw(element<Refused>(["null", "undefined", "a symbol"]))
+				})
+			],
+			[1, constant({ kind: "no list" })]
+		])
+	)
+})
+
+/** The key an input's anchor carries, from `row`, the delivered row's key. */
+const keyInput = (sketch: InputSketch["key"], row: Key): unknown => {
+	switch (sketch.kind) {
+		case "the row's":
+			return row
+		case "one shorter":
+			return row.slice(0, -1)
+		case "one longer":
+			return [...row, row[0]]
+		case "a refused value": {
+			const key = [...row]
+			key[pickIndex(sketch.at, row.length)] = refusedValue(sketch.value)
+			return key
+		}
+		case "no list":
+			return "key"
+	}
+}
+
+/** The input a sketch builds over `row`, the delivered row's key. */
+const inputOf = (c: InputSketch, row: Key): unknown => {
+	const anchor =
+		c.anchor === "no record"
+			? c.kind
+			: {
+					kind: c.kind,
+					...(c.keyMember ? { key: keyInput(c.key, row) } : {}),
+					...(c.extra ? { size: 1 } : {})
+				}
+	const members = { anchor, size: c.size }
+	const windowed =
+		c.window === "no record"
+			? [anchor, c.size]
+			: c.window === "no size"
+				? { anchor }
+				: c.window === "no anchor"
+					? { size: c.size }
+					: c.window === "an extra member"
+						? { ...members, after: anchor }
+						: members
+	const facts = c.facts === "none" ? {} : { Task: [] }
+	switch (c.envelope) {
+		case "exact":
+			return { params, facts, window: windowed }
+		case "no window":
+			return { params, facts }
+		case "an extra member":
+			return { params, facts, window: windowed, extra: true }
+		case "no record":
+			return [params, facts, windowed]
+	}
+}
+
+type InputFeature =
+	| `query ${PagedQuery}`
+	| CallInputFault
+	| "admitted"
+	| "a key of another length"
+	| "a key value no codec admits"
+
+/**
+ * The rule, restated (live/program.ts WindowInput, adapter/page/window.ts): the input's members exactly params, facts
+ * and window, then no facts, then the window's members exactly an anchor and a size, then its size a safe integer of at
+ * least 1, then its anchor a record of a kind and, exactly for an after and a before, a key of one value per
+ * comparator, each admitted; with what the case reached on the way.
+ */
+const expectedOf = (
+	c: InputSketch
+): {
+	readonly verdict: CallInputFault | "admitted"
+	readonly reached: ReadonlyArray<InputFeature>
+} => {
+	const refused = (fault: CallInputFault, ...reached: ReadonlyArray<InputFeature>) => ({
+		verdict: fault,
+		reached: [fault, ...reached]
+	})
+	if (c.envelope !== "exact") {
+		return refused("envelope")
+	}
+	if (c.facts !== "none") {
+		return refused("facts")
+	}
+	if (c.window !== "exact") {
+		return refused("window")
+	}
+	const size = c.size
+	if (typeof size !== "number" || !Number.isSafeInteger(size) || size < 1) {
+		return refused("size")
+	}
+	const kind = c.kind
+	if (
+		c.anchor === "no record" ||
+		c.extra ||
+		!(kind === "start" || kind === "end" || kind === "after" || kind === "before")
+	) {
+		return refused("anchor")
+	}
+	const keyed = kind === "after" || kind === "before"
+	if (c.keyMember !== keyed) {
+		return refused("anchor")
+	}
+	if (!keyed) {
+		return { verdict: "admitted", reached: ["admitted"] }
+	}
+	switch (c.key.kind) {
+		case "the row's":
+			return { verdict: "admitted", reached: ["admitted"] }
+		case "one shorter":
+		case "one longer":
+			return refused("anchor", "a key of another length")
+		case "a refused value":
+			return refused("anchor", "a key value no codec admits")
+		case "no list":
+			return refused("anchor")
 	}
 }
 
 layer(Substrate.layer)("the page runtime through the readers", (it) => {
 	it.effect(
-		"answers every request by the D of the moment and its anchor's encoded values, through either member, whatever changed since its cursor was made",
+		"answers every window by the D of the moment and its anchor's values, through either member, whatever changed since its anchor's row was read, each window one flight",
 		(ctx) =>
 			searched(
 				ctx,
@@ -656,12 +690,13 @@ layer(Substrate.layer)("the page runtime through the readers", (it) => {
 						{},
 						({ ctx: dbCtx, load }) =>
 							Effect.gen(function* () {
-								const loaded = yield* load(walkMembers)
+								const loaded = yield* load(pagedMembers)
+								const recording = recordingContext(dbCtx)
 								return yield* explore(
 									{
 										oracle: {
 											kind: "specification",
-											name: "D of the moment and the anchor's encoded values, as the walk's own writes state them"
+											name: "D of the moment and the anchor's values, as the walk's own writes state them"
 										},
 										suite: "pg/page/walks",
 										draw: drawn(walkSketchGen),
@@ -675,33 +710,36 @@ layer(Substrate.layer)("the page runtime through the readers", (it) => {
 										coverage: required<WalkFeature>(
 											[
 												...Arr.map(pagedQueryNames, (q): WalkFeature => `query ${q}`),
-												...Arr.flatMap(["first", "last", "after", "before"] as const, (variant) =>
+												...Arr.flatMap(["start", "end", "after", "before"] as const, (kind) =>
 													Arr.map(
 														["member", "twin"] as const,
-														(handle): WalkFeature => `${variant} through the ${handle}`
+														(handle): WalkFeature => `${kind} through the ${handle}`
 													)
 												),
-												"a cursor of the other member",
+												"an anchor of the other member's row",
 												"an anchor gone from D",
 												"an anchor still in D",
-												"an opposite flag cleared past a gone anchor",
-												"an empty anchored page",
+												"rows past a gone anchor",
+												"an empty anchored window",
 												"an emptied D",
-												"a write between requests"
+												"a write between windows"
 											],
 											{ cases: 100, sense: notesOnly }
 										)
 									},
 									(walk, c) =>
 										Effect.gen(function* () {
-											const params = { account: A }
-											const ops = (handle: Handle) =>
-												memberOps(dbCtx, member(loaded, memberName(walk.query, handle))).ops
+											/** A paged member's calls, their flights counted. */
+											const pagedCalls = (handle: Handle) =>
+												memberCalls(recording.ctx, member(loaded, memberName(walk.query, handle)))
+											const unpaged = memberCalls(
+												dbCtx,
+												member(loaded, memberName(walk.query, "unpaged"))
+											)
 											const compiled = pageTemplate(
 												member(loaded, memberName(walk.query, "member")),
 												opened.installed.names.codes
 											)
-											const order = pageOrder(compiled)
 											/** The facts: the drawn tasks, a note pair once, a flag per task. */
 											const model: Array<ModelTask> = Arr.map(walk.tasks, (x, n) => ({
 												id: t(n),
@@ -754,7 +792,7 @@ layer(Substrate.layer)("the page runtime through the readers", (it) => {
 												/** The writes, each resolved against the model. */
 												const targets = (pick: number): ReadonlyArray<string> => {
 													const marked = [
-														...new Set(Arr.flatMap(pool, (d) => tasksOf(walk.query, d.node, model)))
+														...new Set(Arr.flatMap(pool, (d) => tasksOf(walk.query, d.row, model)))
 													]
 													const candidates =
 														marked.length > 0
@@ -769,11 +807,11 @@ layer(Substrate.layer)("the page runtime through the readers", (it) => {
 													const chosen = defined(candidates[pickIndex(pick, candidates.length)])
 													return Option.match(
 														Arr.findFirst(pool, (d) =>
-															tasksOf(walk.query, d.node, model).includes(chosen)
+															tasksOf(walk.query, d.row, model).includes(chosen)
 														),
 														{
 															onNone: () => [chosen],
-															onSome: (node) => tasksOf(walk.query, node.node, model)
+															onSome: (row) => tasksOf(walk.query, row.row, model)
 														}
 													)
 												}
@@ -800,13 +838,13 @@ layer(Substrate.layer)("the page runtime through the readers", (it) => {
 												}
 												for (const write of step.writes) {
 													switch (write.kind) {
-														case "delete an edge's tasks":
+														case "delete a row's tasks":
 															remove(targets(write.target))
 															break
-														case "delete the last page":
+														case "delete the last window":
 															remove([
 																...new Set(
-																	Arr.flatMap(last, (d) => tasksOf(walk.query, d.node, model))
+																	Arr.flatMap(last, (d) => tasksOf(walk.query, d.row, model))
 																)
 															])
 															break
@@ -818,7 +856,7 @@ layer(Substrate.layer)("the page runtime through the readers", (it) => {
 																)
 															)
 															break
-														case "move an edge's tasks":
+														case "move a row's tasks":
 															update(targets(write.target), (task) => ({
 																...task,
 																priority: write.priority,
@@ -846,94 +884,86 @@ layer(Substrate.layer)("the page runtime through the readers", (it) => {
 													yield* writeModel
 												}
 												if (step.writes.length > 0 && pool.length > 0) {
-													c.note("a write between requests")
+													c.note("a write between windows")
 												}
-												/** The request, anchored on a delivered edge when it names one and one exists. */
-												const r = step.request
-												const anchor =
-													r.variant === "after" || r.variant === "before"
-														? anchorOf(r.anchor, last, pool)
+												/** The window, anchored at a delivered row's key when it names one and one exists. */
+												const w = step.window
+												const anchorRow =
+													w.kind === "after" || w.kind === "before"
+														? anchorOf(w.anchor, last, pool)
 														: Option.none<Delivered>()
-												const variant = Option.isSome(anchor)
-													? r.variant
-													: r.variant === "first" || r.variant === "after"
-														? "first"
-														: "last"
-												const request = Option.isSome(anchor)
-													? variant === "after"
-														? { first: r.size, after: anchor.value.cursor }
-														: { last: r.size, before: anchor.value.cursor }
-													: variant === "first"
-														? { first: r.size }
-														: { last: r.size }
-												const page = yield* pageOf(ops(r.handle), params, request)
-												assertEdges(page, `${variant} ${r.size}`)
-												/** The oracle: D now, and the anchor's values as its cursor encoded them. */
-												const rows = yield* Effect.flatMap(
-													ops("member").execute(params),
-													(result) => result.collect
-												)
-												const full = sortedResult(compiled, rows)
-												const k = r.size
-												const expected: Expected = Option.match(anchor, {
+												const anchor: Anchor = Option.match(anchorRow, {
 													onNone: () =>
-														variant === "first"
-															? {
-																	nodes: full.slice(0, k),
-																	hasPreviousPage: false,
-																	hasNextPage: full.length > k
-																}
-															: {
-																	nodes: full.slice(Math.max(0, full.length - k)),
-																	hasPreviousPage: full.length > k,
-																	hasNextPage: false
-																},
-													onSome: ({ node }) => {
-														if (variant === "after") {
-															const past = strictlyAfter(compiled, rows, node)
-															return {
-																nodes: past.slice(0, k),
-																hasPreviousPage: Arr.some(rows, (row) => order(row, node) <= 0),
-																hasNextPage: past.length > k
-															}
-														}
-														const before = strictlyBefore(compiled, rows, node)
-														return {
-															nodes: before.slice(Math.max(0, before.length - k)),
-															hasPreviousPage: before.length > k,
-															hasNextPage: Arr.some(rows, (row) => order(row, node) >= 0)
+														w.kind === "start" || w.kind === "after"
+															? { kind: "start" }
+															: { kind: "end" },
+													onSome: (row) =>
+														w.kind === "after"
+															? { kind: "after", key: row.key }
+															: { kind: "before", key: row.key }
+												})
+												const flights = recording.counts.flights
+												const statements = recording.counts.statements
+												const answered = yield* windowOf(
+													pagedCalls(w.handle),
+													params,
+													anchor,
+													w.size
+												)
+												assert.deepEqual(
+													[
+														recording.counts.flights - flights,
+														recording.counts.statements - statements
+													],
+													[1, 1],
+													`a ${anchor.kind} window is one flight of one statement`
+												)
+												/** The oracle: D now, and the anchor's values. */
+												const rows = yield* readOnce(unpaged)({ params, facts: {} })
+												const full = sortedResult(compiled, rows)
+												const k = w.size
+												const expected = ((): ReadonlyArray<unknown> => {
+													switch (anchor.kind) {
+														case "start":
+															return full.slice(0, k)
+														case "end":
+															return full.slice(Math.max(0, full.length - k))
+														case "after":
+															return strictlyAfter(compiled, rows, anchor.key).slice(0, k)
+														case "before": {
+															const before = strictlyBefore(compiled, rows, anchor.key)
+															return before.slice(Math.max(0, before.length - k))
 														}
 													}
-												})
+												})()
+												const presented: ReadonlyArray<unknown> = Arr.map(answered, canon)
 												assert.deepEqual(
-													answered(page),
+													presented,
 													expected,
-													`${variant} ${k} through the ${r.handle}`
+													`${anchor.kind} ${k} through the ${w.handle}`
 												)
 												c.note(`query ${walk.query}`)
-												c.note(`${variant} through the ${r.handle}`)
-												if (Option.isSome(anchor)) {
-													const gone = !Arr.some(rows, (row) => order(row, anchor.value.node) === 0)
+												c.note(`${anchor.kind} through the ${w.handle}`)
+												if (Option.isSome(anchorRow)) {
+													const gone = !holdsKey(compiled, rows, anchorRow.value.key)
 													c.note(gone ? "an anchor gone from D" : "an anchor still in D")
-													const opposite =
-														variant === "after" ? expected.hasPreviousPage : expected.hasNextPage
-													if (gone && !opposite) {
-														c.note("an opposite flag cleared past a gone anchor")
+													if (gone && expected.length > 0) {
+														c.note("rows past a gone anchor")
 													}
-													if (expected.nodes.length === 0) {
-														c.note("an empty anchored page")
+													if (expected.length === 0) {
+														c.note("an empty anchored window")
 													}
 													if (full.length === 0) {
 														c.note("an emptied D")
 													}
-													if (anchor.value.handle !== r.handle) {
-														c.note("a cursor of the other member")
+													if (anchorRow.value.handle !== w.handle) {
+														c.note("an anchor of the other member's row")
 													}
 												}
-												last = Arr.map(page.edges, (e) => ({
-													cursor: e.cursor,
-													node: e.node,
-													handle: r.handle
+												last = Arr.map(answered, (row) => ({
+													key: keyOf(compiled.fields, row),
+													row,
+													handle: w.handle
 												}))
 												appendAll(pool, last)
 											}
@@ -946,12 +976,12 @@ layer(Substrate.layer)("the page runtime through the readers", (it) => {
 	)
 
 	it.effect(
-		"refuses every token this query did not issue for this generation, and every other request shape or size, before any SQL",
+		"refuses every window input but exactly its params, no facts and a window of an anchor and a size before any SQL, and reads every other in one flight",
 		(ctx) =>
 			searched(
 				ctx,
 				Effect.gen(function* () {
-					const opened = yield* installed(Paging, tokenFacts, {
+					const opened = yield* installed(Paging, inputFacts, {
 						label: "real",
 						extensions: [],
 						programs: {}
@@ -960,26 +990,18 @@ layer(Substrate.layer)("the page runtime through the readers", (it) => {
 						opened.installed,
 						opened.server.roles.app,
 						{},
-						({ ctx: context, load }) =>
+						({ ctx: dbCtx, load }) =>
 							Effect.gen(function* () {
-								const loaded = yield* load(tokenMembers)
-								const { executor, counts } = countingExecutor(poolExecutor(context))
-								/** A paged member's operations, its reads through the counting executor. */
-								const counted = (name: string) =>
-									memberOpsOn(executor, context, member(loaded, name)).ops
+								const loaded = yield* load(pagedMembers)
+								const recording = recordingContext(dbCtx)
 								return yield* explore(
 									{
 										oracle: {
 											kind: "specification",
-											name: "the cursor codec's refusals before any SQL, no transaction and no statement counted"
+											name: "the window rule restated, a refusal sending no flight and every other input one"
 										},
-										/**
-										 * Refused before any SQL: no transaction opened, no statement sent.
-										 *
-										 * The token itself still continues.
-										 */
-										suite: "pg/page/tokens",
-										draw: drawn(tokenCaseGen),
+										suite: "pg/page/inputs",
+										draw: drawn(inputSketchGen),
 										literal: Formatter.format,
 										kept: [],
 										runs: 200,
@@ -987,227 +1009,55 @@ layer(Substrate.layer)("the page runtime through the readers", (it) => {
 										concurrency: 1,
 										steerEvery: 16,
 										caseHang,
-										coverage: required<Tamper["kind"] | `issued by ${PagedQuery}`>(
+										coverage: required<InputFeature>(
 											[
-												"a character of a digest changed",
-												"truncated",
-												"padded",
-												"a foreign character",
-												"oversized",
-												"another query",
-												"another generation",
-												"not a string",
-												"another request shape",
-												"a size out of range",
-												...Arr.map(pagedQueryNames, (q) => `issued by ${q}` as const)
+												...Arr.map(pagedQueryNames, (q): InputFeature => `query ${q}`),
+												"envelope",
+												"facts",
+												"window",
+												"size",
+												"anchor",
+												"admitted",
+												"a key of another length",
+												"a key value no codec admits"
 											],
 											{ cases: 200, sense: notesOnly }
 										)
 									},
 									(c, notes) =>
 										Effect.gen(function* () {
-											const q = memberName(c.query, "member")
-											const params = { account: A }
-											const issued = yield* pageOf(
-												counted(q),
-												params,
-												c.from === "first" ? { first: c.size } : { last: c.size }
-											)
-											const edge = defined(
-												issued.edges[pickIndex(c.edge, issued.edges.length)],
-												"an edge"
-											)
-											const token = edge.cursor
-											const plain = (cursor: unknown): Record<string, unknown> =>
-												c.direction === "after"
-													? { first: 2, after: cursor }
-													: { last: 2, before: cursor }
-											const tamper = c.tamper
-											/** The request sent, the member and parameters it is sent with, and the verdict the contract gives. */
-											const tampered = ((): {
-												readonly query: string
-												readonly params: { readonly account: Uuid }
-												readonly request: unknown
-												readonly verdict: Verdict
-											} => {
-												const same = { query: q, params }
-												switch (tamper.kind) {
-													case "a character of a digest changed": {
-														const at = pickIndex(
-															tamper.at,
-															Math.min(digestCharacters, token.length - 1)
+											const paging = member(loaded, memberName(c.query, "member"))
+											const calls = memberCalls(recording.ctx, paging)
+											const compiled = pageTemplate(paging, opened.installed.names.codes)
+											const [first] = yield* windowOf(calls, params, { kind: "start" }, 1)
+											const row = keyOf(compiled.fields, defined(first, "a row of D"))
+											const expected = expectedOf(c)
+											const flights = recording.counts.flights
+											const statements = recording.counts.statements
+											const answer = yield* Effect.result(readOnce(calls)(inputOf(c, row)))
+											const sent = [
+												recording.counts.flights - flights,
+												recording.counts.statements - statements
+											]
+											if (expected.verdict === "admitted") {
+												assert.ok(Result.isSuccess(answer), Formatter.format(answer))
+												assert.deepEqual(sent, [1, 1], "one flight of one statement")
+											} else {
+												assert.deepEqual(
+													answer,
+													Result.fail(
+														callErrorOf(
+															new ReadFailure({
+																reason: new CallInputRefused({ fault: expected.verdict })
+															})
 														)
-														const was = Option.getOrThrowWith(
-															pipe(base64url, Str.indexOf(defined(token[at]))),
-															() => new Error("a base64url digit")
-														)
-														const to =
-															(was + 1 + pickIndex(tamper.to, base64url.length - 1)) %
-															base64url.length
-														return {
-															...same,
-															request: plain(
-																`${Str.slice(0, at)(token)}${base64url[to]}${Str.slice(at + 1)(token)}`
-															),
-															verdict: { kind: "some cursor refusal" }
-														}
-													}
-													case "truncated":
-														return {
-															...same,
-															request: plain(
-																pipe(token, Str.slice(0, pickIndex(tamper.keep, token.length)))
-															),
-															verdict: { kind: "some cursor refusal" }
-														}
-													case "padded":
-														return {
-															...same,
-															request: plain(`${token}=`),
-															verdict: { kind: "cursor", reason: "cursorEncoding" }
-														}
-													case "a foreign character": {
-														const at = pickIndex(tamper.at, token.length + 1)
-														return {
-															...same,
-															request: plain(
-																`${Str.slice(0, at)(token)}${tamper.char}${Str.slice(at)(token)}`
-															),
-															verdict: { kind: "cursor", reason: "cursorEncoding" }
-														}
-													}
-													case "oversized":
-														return {
-															...same,
-															request: plain(longText(cursorTokenMaxLength + tamper.extra)),
-															verdict: { kind: "cursor", reason: "cursorOversized" }
-														}
-													case "another query": {
-														/** The same TypeScript shape with another filter, or any other query of the fixture. */
-														const others: Arr.NonEmptyReadonlyArray<string> = [
-															"nonNegative",
-															...Arr.map(
-																Arr.filter(pagedQueryNames, (n) => n !== c.query),
-																(n) => memberName(n, "member")
-															)
-														]
-														return {
-															query: pickFrom(others, tamper.query),
-															params,
-															request: plain(token),
-															verdict: { kind: "cursor", reason: "cursorQuery" }
-														}
-													}
-													case "another generation": {
-														const template = pageTemplate(
-															member(loaded, q),
-															opened.installed.names.codes
-														)
-														const runtime = template.runtime
-														const old = cursorCodec(
-															{
-																query: runtime.identity.query,
-																comparators: runtime.page.comparators,
-																generation: {
-																	schema: `${runtime.identity.generation.schema}-previous`,
-																	extensions: {}
-																}
-															},
-															cursorTokenMaxLength,
-															template.codes
-														)
-														const decoded = succeeded(runtime.codec.decode(token))
-														const reissued = succeeded(succeeded(old).encode(decoded.values))
-														return {
-															...same,
-															request: plain(reissued),
-															verdict: { kind: "cursor", reason: "cursorGeneration" }
-														}
-													}
-													case "not a string":
-														return {
-															...same,
-															request: plain(nonString(tamper.value)),
-															verdict: { kind: "cursor", reason: "cursorType" }
-														}
-													case "another request shape": {
-														const request = ((): unknown => {
-															switch (tamper.shape) {
-																case "both sizes":
-																	return { first: 2, last: 2 }
-																case "the other anchor":
-																	return c.direction === "after"
-																		? { first: 2, before: token }
-																		: { last: 2, after: token }
-																case "both anchors":
-																	return {
-																		...plain(token),
-																		[c.direction === "after" ? "before" : "after"]: token
-																	}
-																case "no size":
-																	return c.direction === "after"
-																		? { after: token }
-																		: { before: token }
-																case "an extra property":
-																	return { ...plain(token), size: 2 }
-																case "no object":
-																	return token
-															}
-														})()
-														return {
-															...same,
-															request,
-															verdict: { kind: "request", fault: "requestShape" }
-														}
-													}
-													case "a size out of range":
-														return {
-															...same,
-															request:
-																c.direction === "after"
-																	? { first: sizeOf(tamper.size), after: token }
-																	: { last: sizeOf(tamper.size), before: token },
-															verdict: { kind: "request", fault: "requestSize" }
-														}
-												}
-											})()
-											const within = counts.within
-											const statements = counts.statements
-											const failure = yield* Effect.flip(
-												pageOf(counted(tampered.query), tampered.params, tampered.request)
-											)
-											switch (tampered.verdict.kind) {
-												case "cursor":
-													assert.deepEqual(
-														failure,
-														cursorFailure(tampered.verdict.reason),
-														tamper.kind
-													)
-													break
-												case "some cursor refusal":
-													assert.ok(
-														failure instanceof CursorError,
-														`${tamper.kind}: ${String(failure)}`
-													)
-													break
-												case "request":
-													assert.deepEqual(
-														failure,
-														new ReadFailure({
-															reason: new PageRequestRefused({ fault: tampered.verdict.fault })
-														}),
-														tamper.kind
-													)
-													break
+													),
+													expected.verdict
+												)
+												assert.deepEqual(sent, [0, 0], "no SQL")
 											}
-											assert.deepEqual(
-												[counts.within, counts.statements],
-												[within, statements],
-												"no SQL"
-											)
-											yield* pageOf(counted(q), params, plain(token))
-											notes.note(tamper.kind)
-											notes.note(`issued by ${c.query}`)
+											notes.noteAll(expected.reached)
+											notes.note(`query ${c.query}`)
 										})
 								)
 							})

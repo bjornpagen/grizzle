@@ -7,29 +7,29 @@
  * key descending. An access index is identified by its columns and a direction vector canonical under reversal, so the
  * descending order is the ascending one's index read backward and the mixed order has its own; the three orders
  * install together, which is the case a workload naming an order and its exact reverse must reach. Each case replaces
- * the task table's facts with drawn tasks of the paged account and of another (substrate/replace.ts), and sends a drawn
- * request (an order, first, after or before an anchor drawn among the paged account's rows, a page size of one to seven)
- * through the order's paged member of the login's served workload with a counting executor (adapter/db/handles.ts
- * memberOpsOn). The rows statement it sent runs under EXPLAIN (ANALYZE) with sequential scans and sorts disabled, so a
- * plan that still scans the table sequentially or sorts has no access path that does otherwise, read by the tree's one
- * EXPLAIN decoder:
+ * the task table's facts with drawn tasks of the paged account and of another (substrate/replace.ts), and reads a drawn
+ * window (an order, from the start, or after or before the key of a row drawn among the paged account's, a size of one
+ * to seven) through the order's paged member of the login's served workload, on a Db context that records what its
+ * sessions send (test/support/plans.ts recordingContext). The window's statement runs under EXPLAIN (ANALYZE) with
+ * sequential scans and sorts disabled, so a plan that still scans the table sequentially or sorts has no access path
+ * that does otherwise, read by the tree's one EXPLAIN decoder:
  *
- * - every request reads the task table through an index, never by a sequential scan, and none has a Unique node: the
- *   delivered heading keeps the primary key, so no page deduplicates (R17);
+ * - every window reads the task table through an index, never by a sequential scan, and none has a Unique node: the
+ *   delivered heading keeps the primary key, so no window deduplicates (R17);
  * - nothing is sorted: each order has an access path in its own order or its exact reverse, read forward or backward;
- * - a first page, and a seek in one direction, a native row comparison the index bounds (R05), read at most the page
- *   and its lookahead, and a seek no row on the far side of its anchor;
- * - a seek in mixed directions (the OR expansion) reads at most the account's rows up to its anchor and the page and its
- *   lookahead past it, never the rest of the account.
+ * - a start window, and a seek in one direction, a native row comparison the index bounds (R05), read at most the
+ *   window, and a seek no row on the far side of its anchor;
+ * - a seek in mixed directions (the OR expansion) reads at most the account's rows up to its anchor and the window past
+ *   it, never the rest of the account.
  *
  * The plan's node order, index names and costs are the planner's; the properties above are what the access paths serve,
  * at any volume, so no volume stands in for the planner's choice.
  *
  * Oracle: PostgreSQL's EXPLAIN (ANALYZE) of each statement sent, under the specification above.
  *
- * Plants: page-access-paths-dropped (the workload requests no access path, so a page scans or sorts the table).
+ * Plants: page-access-paths-dropped (the workload requests no access path, so a window scans or sorts the table).
  *
- * Features: each order, each request variant, and each seek direction the plans name.
+ * Features: each order, each anchor kind, and each seek direction the plans name.
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -38,22 +38,23 @@ import { array, element, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Option, pipe, Record as Rec, String as Str } from "effect"
-import { memberOpsOn } from "#adapter/db/handles.ts"
-import { poolExecutor } from "#adapter/reader/executor.ts"
+import { Array as Arr, Effect, Formatter, pipe, Record as Rec, String as Str } from "effect"
+import { memberCalls } from "#adapter/db/handles.ts"
 import { explainStatementWith, parsePlan, rowsRead } from "#bench/harness/explain.ts"
 import { planNodeTypes } from "#bench/harness/explain.ts"
 import type { Param } from "#compiler/core/wire.ts"
+import { type Anchor, keyOf } from "#compiler/live/index.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import type { Uuid } from "#compiler/public/fields.ts"
 import { paged as pagedMember } from "#compiler/public/workload.ts"
-import { countingExecutor, pageOf } from "#test/pg/page/support.ts"
+import { pageTemplate, windowOf } from "#test/pg/page/support.ts"
 import { installed } from "#test/pg/reads/support.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { workloadOver } from "#test/support/compile.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { pickGen, pickIndex } from "#test/support/pick.ts"
+import { recordingContext } from "#test/support/plans.ts"
 import { member, withServedDb } from "#test/support/served-db.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -83,7 +84,7 @@ const orders = {
 	mixed: priorityDescendingTasks
 } as const
 type Order = keyof typeof orders
-type Variant = "first" | "after" | "before"
+type Variant = "start" | "after" | "before"
 
 interface PlanCase {
 	readonly order: Order
@@ -91,7 +92,7 @@ interface PlanCase {
 	readonly size: number
 	/** The priorities of the paged account's tasks, at least one, and of the other account's. */
 	readonly tasks: { readonly paged: ReadonlyArray<number>; readonly other: ReadonlyArray<number> }
-	/** Which of the paged account's rows, in the order, is the anchor: the last of the first page up to it. */
+	/** Which of the paged account's rows, in the order, is the anchor: the last of the window from the start up to it. */
 	readonly anchor: number
 }
 
@@ -100,7 +101,7 @@ const priorityGen = int(0, 4)
 
 const planCaseGen: Gen<PlanCase> = (source) => ({
 	order: source.draw(element<Order>(["descending", "ascending", "mixed"])),
-	variant: source.draw(element<Variant>(["first", "after", "before"])),
+	variant: source.draw(element<Variant>(["start", "after", "before"])),
 	size: source.draw(int(1, 7)),
 	tasks: {
 		paged: source.draw(array(priorityGen, { min: 1, max: 16 })),
@@ -111,17 +112,17 @@ const planCaseGen: Gen<PlanCase> = (source) => ({
 
 type PlanFeature =
 	| `${Order} ${Variant}`
-	| "a one-direction seek past more rows than its page reads"
-	| "a mixed seek past more rows than its page reads"
+	| "a one-direction seek past more rows than its window reads"
+	| "a mixed seek past more rows than its window reads"
 
 /**
  * The paged account's rows past the anchor on the seek's side, of `total`, the anchor the `at`th: after it for an after
- * page, before it for a before page, every row of the account for a first page.
+ * window, before it for a before window, every row of the account for a start window.
  */
 const remainder = (c: PlanCase, total: number, at: number): number =>
 	c.variant === "after" ? total - at : c.variant === "before" ? at - 1 : total
 
-/** Explores drawn requests over drawn tasks on one installation of the combined workload. */
+/** Explores drawn windows over drawn tasks on one installation of the combined workload. */
 const explorePlans = Effect.gen(function* () {
 	const s = yield* Substrate
 	const opened = yield* installed(
@@ -153,20 +154,16 @@ const explorePlans = Effect.gen(function* () {
 	return yield* withServedDb(opened.installed, opened.server.roles.app, {}, ({ ctx, load }) =>
 		Effect.gen(function* () {
 			const loaded = yield* load(Rec.map(orders, (q) => pagedMember(q)))
-			const { executor, counts } = countingExecutor(poolExecutor(ctx))
-			/** The paged member of an order, its reads through the counting executor. */
-			const pager = (order: Order) => memberOpsOn(executor, ctx, member(loaded, order)).ops
+			const recording = recordingContext(ctx)
+			/** The paged member of an order, what its windows send recorded. */
+			const pager = (order: Order) => memberCalls(recording.ctx, member(loaded, order))
 			const params = { account: paged }
-			/** The rows statement the runtime sends for a request: the first statement of that request. */
-			const sentFor = (order: Order, request: object) =>
+			/** The statement the runtime sends for a window: the one statement of its flight. */
+			const sentFor = (order: Order, anchor: Anchor, size: number) =>
 				Effect.gen(function* () {
-					const before = counts.sent.length
-					yield* pageOf(pager(order), params, request)
-					const sent = counts.sent[before]
-					if (sent === undefined) {
-						return yield* Effect.die(new Error("no statement sent"))
-					}
-					return sent
+					const before = recording.counts.sent.length
+					yield* windowOf(pager(order), params, anchor, size)
+					return defined(recording.counts.sent[before], "the window's statement")
 				})
 			/**
 			 * The plan of a sent statement, run under EXPLAIN (ANALYZE) in a transaction of its own with sequential scans and
@@ -206,12 +203,12 @@ const explorePlans = Effect.gen(function* () {
 						[
 							...Arr.flatMap(["descending", "ascending", "mixed"] as const, (order) =>
 								Arr.map(
-									["first", "after", "before"] as const,
+									["start", "after", "before"] as const,
 									(variant): PlanFeature => `${order} ${variant}`
 								)
 							),
-							"a one-direction seek past more rows than its page reads",
-							"a mixed seek past more rows than its page reads"
+							"a one-direction seek past more rows than its window reads",
+							"a mixed seek past more rows than its window reads"
 						],
 						{ cases: 60, sense: notesOnly }
 					)
@@ -233,15 +230,18 @@ const explorePlans = Effect.gen(function* () {
 						yield* s.admin.query(`ANALYZE ${task}`, [])
 						const total = c.tasks.paged.length
 						const at = pickIndex(c.anchor, total) + 1
-						const upToAnchor = yield* pageOf(pager(c.order), params, { first: at })
-						const anchor = Option.getOrThrow(upToAnchor.pageInfo.endCursor)
-						const request =
-							c.variant === "first"
-								? { first: c.size }
+						const upToAnchor = yield* windowOf(pager(c.order), params, { kind: "start" }, at)
+						const key = keyOf(
+							pageTemplate(member(loaded, c.order), opened.installed.names.codes).fields,
+							defined(upToAnchor.at(-1), "the anchor's row")
+						)
+						const anchor: Anchor =
+							c.variant === "start"
+								? { kind: "start" }
 								: c.variant === "after"
-									? { first: c.size, after: anchor }
-									: { last: c.size, before: anchor }
-						const sent = yield* sentFor(c.order, request)
+									? { kind: "after", key }
+									: { kind: "before", key }
+						const sent = yield* sentFor(c.order, anchor, c.size)
 						const cell = yield* planOf(sent)
 						const types = planNodeTypes(cell)
 						const shown = Arr.join(types, ", ")
@@ -256,23 +256,22 @@ const explorePlans = Effect.gen(function* () {
 						}
 						const read = rowsRead(succeeded(parsePlan(cell), "one EXPLAIN ANALYZE plan").plan)
 						const past = remainder(c, total, at)
-						const page = c.size + 1
-						if (c.order !== "mixed" || c.variant === "first") {
+						if (c.order !== "mixed" || c.variant === "start") {
 							assert.ok(
-								read <= Math.min(past, page),
-								`${read} rows read, ${past} past the anchor, a page of ${c.size}`
+								read <= Math.min(past, c.size),
+								`${read} rows read, ${past} past the anchor, a window of ${c.size}`
 							)
 						} else {
 							assert.ok(
-								read <= total - past + page,
-								`${read} rows read, ${total - past} of the account up to the anchor, a page of ${c.size}`
+								read <= total - past + c.size,
+								`${read} rows read, ${total - past} of the account up to the anchor, a window of ${c.size}`
 							)
 						}
-						if (c.variant !== "first" && past > page) {
+						if (c.variant !== "start" && past > c.size) {
 							cx.note(
 								c.order === "mixed"
-									? "a mixed seek past more rows than its page reads"
-									: "a one-direction seek past more rows than its page reads"
+									? "a mixed seek past more rows than its window reads"
+									: "a one-direction seek past more rows than its window reads"
 							)
 						}
 						cx.note(`${c.order} ${c.variant}`)
@@ -284,7 +283,7 @@ const explorePlans = Effect.gen(function* () {
 
 layer(Substrate.layer)("the plans of the page runtime's statements", (it) => {
 	it.effect(
-		"with an order, its exact reverse and a mixed order in one workload, every page reads the task table by an index, deduplicates nothing, sorts nothing, and a seek reads only its page and lookahead past the anchor",
+		"with an order, its exact reverse and a mixed order in one workload, every window reads the task table by an index, deduplicates nothing, sorts nothing, and a seek reads only its window past the anchor",
 		(ctx) => searched(ctx, explorePlans)
 	)
 })

@@ -8,21 +8,20 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Data, Effect, Formatter, Option, Order, Record as Rec, Result } from "effect"
 import { DatabaseError } from "pg"
 import type { TestContext } from "vitest"
-import { fromEngine } from "#adapter/engine.ts"
 import { type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
-import { ConnectionLost, type UnreadableAnswer } from "#adapter/errors/failures.ts"
-import { pageOf } from "#adapter/page/edges.ts"
-import { type PageCall, type PageRows, pageFlight } from "#adapter/page/execute.ts"
+import { ConnectionLost } from "#adapter/errors/failures.ts"
+import { windowIntake, windowStatement } from "#adapter/page/execute.ts"
 import type { PageRuntime } from "#adapter/page/template.ts"
+import { windowCall } from "#adapter/page/window.ts"
+import { partRuns, runOf } from "#adapter/reader/execution.ts"
 import { executionInputs, paramCodecs } from "#adapter/reader/relations.ts"
 import { compiledPageRuntime } from "#adapter/served/forms.ts"
-import type { BatchOutcome, Flight } from "#adapter/wire/batch.ts"
+import { keptRows } from "#adapter/wire/batch.ts"
 import { serverFailure } from "#adapter/wire/failure.ts"
-import { cursorCodec } from "#compiler/codec/cursor/codec.ts"
 import { arrayTexts } from "#compiler/codec/recordset.ts"
 import { scalarCodec } from "#compiler/codec/scalar.ts"
 import { indices } from "#compiler/core/array.ts"
-import type { CompileError, CursorError, CursorFault } from "#compiler/core/errors.ts"
+import type { CompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { NodeId, ParamId } from "#compiler/core/ids.ts"
 import { maxStringLength } from "#compiler/core/limits.ts"
@@ -45,6 +44,7 @@ import {
 	unionArms
 } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
+import { type Anchor, Key } from "#compiler/live/index.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import {
 	conservativeInput,
@@ -55,6 +55,8 @@ import {
 import { lowerOptimized } from "#compiler/lower/optimize/pipeline.ts"
 import { conservativeStatement } from "#compiler/lower/shapes/index.ts"
 import { compilePage, type PageTemplate } from "#compiler/lower/shapes/page/compile.ts"
+import type { Row as DeliveredRow } from "#compiler/plan/common.ts"
+import { columnPosition, rowCell, scalarReader } from "#compiler/plan/runtime.ts"
 import { keyColumns, statementOutput } from "#compiler/runtime/lower/tree.ts"
 import { mergeHeadingGroups } from "#compiler/runtime/lower/union.ts"
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
@@ -62,7 +64,6 @@ import { hasCapability } from "#compiler/scalar/registry.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { storedValue } from "#compiler/scalar/values/identity.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
-import type { Page } from "#compiler/types/page/page.ts"
 import { assert, refusalLoc } from "#test/support/assert.ts"
 import { admitGenerated, programAsts } from "#test/support/compile.ts"
 import { conservativePage } from "#test/support/conservative.ts"
@@ -113,7 +114,7 @@ import { withinOneParentCase } from "#test/unit/lower/dedup/cases.ts"
 /**
  * Why a case pages nothing: a column without an admitted order, a baseline lowering that refuses the query, a
  * heterogeneous union whose common columns hold no proved key, heading groups that tie on every common column, or an
- * answer or a traversal over the request bound.
+ * answer or a walk over the request bound.
  */
 type PageSkip =
 	| "unordered column"
@@ -121,19 +122,20 @@ type PageSkip =
 	| "union without a common key"
 	| "heading groups tie"
 	| "answer over the request bound"
-	| "traversal over the request bound"
+	| "walk over the request bound"
 
 /**
- * The page sizes a case draws from, one per direction: up to seven, so a D of more than seven rows spans several pages
- * at every size.
+ * The window sizes a case draws from, one per direction: up to seven, so a D of more than seven rows spans several
+ * windows at every size.
  */
 const pageSizes = [1, 2, 3, 4, 5, 6, 7] as const
 type PageSize = (typeof pageSizes)[number]
 
 /**
  * What a case reached: the node kinds of its query, the shapes of its template, a correlated child under a nested
- * attachment (test/support/key-sets.ts), the size of its D, the lookahead row a page drops, a per-execution form, a
- * caller's float -0 among a relation parameter's rows, the page size of each traversal, and its skip.
+ * attachment (test/support/key-sets.ts), the size of its D, a row past a window whose children it must not read, a
+ * per-execution form, a caller's float -0 among a relation parameter's rows, the window size of each walk, and its
+ * skip.
  */
 type PageFeature =
 	| "Group"
@@ -155,11 +157,11 @@ type PageFeature =
 	| "key prefix"
 	| "empty D"
 	| "more than seven rows"
-	| "lookahead parent with children"
+	| "a parent past the window with children"
 	| "per-execution form"
 	| "float -0 in a relation parameter"
-	| "a traversal of at least 200 pages in one direction"
-	| `page size ${PageSize}`
+	| "a walk of at least 200 windows in one direction"
+	| `window size ${PageSize}`
 	| `skipped: ${PageSkip}`
 
 /** What the population must reach. */
@@ -174,7 +176,7 @@ const situations: Arr.NonEmptyReadonlyArray<PageFeature> = [
 	"heading groups",
 	"attachments",
 	"a correlated child under a nested attachment",
-	"lookahead parent with children",
+	"a parent past the window with children",
 	"key prefix",
 	"mixed directions",
 	"row comparison",
@@ -185,19 +187,19 @@ const situations: Arr.NonEmptyReadonlyArray<PageFeature> = [
 	"more than seven rows",
 	"per-execution form",
 	"float -0 in a relation parameter",
-	"a traversal of at least 200 pages in one direction",
-	...Arr.map(pageSizes, (n) => `page size ${n}` as const)
+	"a walk of at least 200 windows in one direction",
+	...Arr.map(pageSizes, (n) => `window size ${n}` as const)
 ]
 
 /**
  * What a case may cost, a search budget: the rows its answer may hold by structure (`answerBound`), which D and every
- * page read, judged before anything runs, and the requests its traversals take, judged once D is read. A drawn case
- * over it in either is skipped.
+ * window read, judged before anything runs, and the windows its walks read, judged once D is read. A drawn case over it
+ * in either is skipped.
  */
 const requestBound = 10_000
 
-/** A traversal this long in one direction: the required feature "a traversal of at least 200 pages in one direction". */
-const longTraversal = 200
+/** A walk this long in one direction: the required feature "a walk of at least 200 windows in one direction". */
+const longWalk = 200
 
 /**
  * The product of two row bounds: no rows where either holds none, an unbounded side otherwise unbounding it, never the
@@ -390,7 +392,7 @@ interface OrderedCase {
 	readonly rotate: number
 	readonly dirs: ReadonlyArray<boolean>
 	readonly stated: number
-	/** Each direction's page size. */
+	/** Each direction's window size. */
 	readonly size: { readonly forward: PageSize; readonly backward: PageSize }
 	/**
 	 * Whether the caller passes every float zero among its relation parameters' rows as -0, a number its host carrier
@@ -408,8 +410,8 @@ const orderedCaseGen: Gen<OrderedCase> = (source) => ({
 	dirs: source.draw(array(boolean, { min: 8, max: 8 })),
 	stated: source.draw(int(0, 8)),
 	/**
-	 * A quarter of the cases page forward at size 1, so every such case whose D holds 200 rows or more reaches a
-	 * 200-page traversal, a required feature; the rest draw both sizes.
+	 * A quarter of the cases walk forward at size 1, so every such case whose D holds 200 rows or more reaches a walk of
+	 * 200 windows, a required feature; the rest draw both sizes.
 	 */
 	size: source.draw(
 		weighted<OrderedCase["size"]>([
@@ -452,9 +454,9 @@ const longCase = (facts: number): QueryCase => {
 	}
 }
 
-/** A long traversal: a long case of 200 to 240 facts in key order, paged forward one fact at a time. */
+/** A long walk: a long case of 200 to 240 facts in key order, walked forward one fact at a time. */
 const longOrderedCaseGen: Gen<OrderedCase> = map(
-	int(longTraversal, longTraversal + 40),
+	int(longWalk, longWalk + 40),
 	(facts): OrderedCase => ({
 		c: longCase(facts),
 		rotate: 0,
@@ -466,12 +468,12 @@ const longOrderedCaseGen: Gen<OrderedCase> = map(
 )
 
 /**
- * The case a case pages: the drawn one, or, while the case's steering leaves a traversal of 200 pages pending, a long
- * traversal drawn from the case's own tape, which no drawn population of this size reaches by itself.
+ * The case a case pages: the drawn one, or, while the case's steering leaves a walk of 200 windows pending, a long
+ * walk drawn from the case's own tape, which no drawn population of this size reaches by itself.
  */
 const aimedCase = (o: OrderedCase, c: Case<PageFeature>): OrderedCase =>
 	Option.exists(c.steering, (pending) =>
-		pending.has("a traversal of at least 200 pages in one direction")
+		pending.has("a walk of at least 200 windows in one direction")
 	)
 		? c.draw(longOrderedCaseGen)
 		: o
@@ -821,30 +823,34 @@ const fullResult = (
 	})
 
 /**
- * One request through the runtime minus its transaction: the token validated and decoded, the page run on the borrowed
- * session, and its cursors made from the decoded edges (packages/grizzle/src/adapter/page/page.ts).
+ * One window through the runtime minus its transaction: its anchor read by the window's parse (page/window.ts
+ * windowCall), its one statement built by the runtime's windowStatement and run on the test's session, and its rows read
+ * by the runtime's windowIntake, which merges heading groups, cuts them to the size, reverses a backward template and
+ * stitches attachments: the delivered Rows, in presentation order, and the Keys of the first and the last, which the
+ * windows before and after it anchor at.
  */
-interface Paged {
-	readonly page: Page<unknown, unknown>
-	readonly rows: PageRows
+interface Windowed {
 	/** The delivered rows on the template's heading, in presentation order, as values (valueRows). */
 	readonly delivered: ReadonlyArray<Row>
-	/** Every attachment statement of the request's program, in statement order. */
+	/** Every attachment statement of the window's program, in statement order. */
 	readonly attached: ReadonlyArray<Attached>
+	readonly first: Option.Option<Key>
+	readonly last: Option.Option<Key>
 }
 
 /**
- * One attachment statement of one page: the parent keys its parent delivered on this page (the page's delivered rows
- * of a rows statement, or every row of a parent attachment), and the rows it read, each leading with its parent key,
- * all as values (valueRows): an attachment statement keeps each (parent key, child) once, so where two parents' keys
- * are one value spelled two ways (-0 and 0), D's statement and the page's may keep different spellings of that row.
+ * One attachment statement of one window: the parent keys its parent delivered in this window (the window's delivered
+ * rows of a rows statement, or every row of a parent attachment), and the rows it read, each leading with its parent
+ * key, all as values (valueRows): an attachment statement keeps each (parent key, child) once, so where two parents'
+ * keys are one value spelled two ways (-0 and 0), D's statement and the window's may keep different spellings of that
+ * row.
  */
 interface Attached {
 	readonly width: number
 	readonly parents: ReadonlyArray<string>
 	readonly rows: ReadonlyArray<Row>
 	/**
-	 * The parent keys of the page's first and last edges, when the attachment's parent is the rows statement that
+	 * The parent keys of the window's first and last rows, when the attachment's parent is the rows statement that
 	 * delivered them.
 	 */
 	readonly head: string | undefined
@@ -895,74 +901,79 @@ const readFailureOf = (error: SqlError): ReadFailure => {
 }
 
 /**
- * Runs a page's flight on the test's session, inside the transaction the test holds open there: its statements one at a
- * time, every column delivered as text.
+ * Reads windows of `runtime` with `params` on the test's session, inside the transaction the test holds open there: each
+ * window's one statement sent, every column delivered as text, and its rows read by the runtime's intake (see Windowed).
+ * Every attachment runs, a part of the window's one statement: one with no parent row in this window reads none.
  */
-const flightOn =
-	(session: PgConnection) =>
-	<A>(flight: Flight<A, UnreadableAnswer>): Effect.Effect<A, ReadError> =>
-		Effect.flatMap(
-			Effect.forEach(flight.statements, (statement) =>
-				Effect.mapBoth(session.queryValues(sentSql(statement), statement.params), {
-					onFailure: readFailureOf,
-					onSuccess: (rows): BatchOutcome => ({
-						command: "SELECT",
-						rows: outputRows(Arr.map(rows, (row) => Arr.map(row, textCell)))
-					})
-				})
-			),
-			(outcomes) => Effect.mapError(flight.read(outcomes), (reason) => new ReadFailure({ reason }))
-		)
-
-/** One page request as a caller makes it: from an end, or from a cursor token of an earlier page. */
-type PageRequest =
-	| { readonly variant: "first" | "last"; readonly size: number }
-	| { readonly variant: "after" | "before"; readonly size: number; readonly token: string }
-
-/**
- * Every attachment runs, a part of the request's one statement: one with no parent row on this page reads none.
- *
- * The flight sends that statement, and the probe of an anchored request only.
- */
-const pager =
-	(
-		runtime: PageRuntime,
-		send: <A>(flight: Flight<A, UnreadableAnswer>) => Effect.Effect<A, ReadError>,
-		params: Readonly<Record<string, unknown>>,
-		codes: Codebook
-	) =>
-	(request: PageRequest): Effect.Effect<Paged, ReadError | CursorError> =>
+const windowReader = (
+	runtime: PageRuntime,
+	session: PgConnection,
+	params: Readonly<Record<string, unknown>>,
+	codes: Codebook
+) => {
+	const comparators = Arr.map(runtime.page.comparators, (c) => ({
+		field: c.field,
+		value: scalarReader(c.type, codes)
+	}))
+	return (anchor: Anchor, size: number): Effect.Effect<Windowed, ReadError> =>
 		Effect.gen(function* () {
-			const variant = request.variant
 			const inputs = yield* Effect.fromResult(
 				Result.mapError(
 					executionInputs(paramCodecs(runtime.params, codes, new CompilePatterns()), params),
 					(reason) => new ReadFailure({ reason })
 				)
 			)
-			const call: PageCall =
-				"token" in request
-					? {
-							variant: request.variant,
-							size: request.size,
-							boundary: (yield* fromEngine(runtime.codec.decode(request.token))).texts
-						}
-					: { variant: request.variant, size: request.size }
-			const rows = yield* Effect.flatMap(
-				Effect.mapError(pageFlight(runtime, inputs, call), (reason) => new ReadFailure({ reason })),
-				send
+			const call = yield* Effect.fromResult(
+				Result.mapError(
+					windowCall({ anchor, size }, runtime.anchors),
+					(reason) => new ReadFailure({ reason })
+				)
 			)
-			/** The page's nodes, which this suite compares by their texts, read as their Rows. */
-			const page = yield* Effect.fromResult(pageOf(runtime, rows, (row) => row))
-			assertWithinBound(runtime, rows, page, codes)
-			const records = runtime.artifact.requests[variant].records
+			const program = runtime.artifact.requests[call.variant]
+			const statement = yield* Effect.mapError(
+				windowStatement(runtime, inputs, call, keptRows),
+				(reason) => new ReadFailure({ reason })
+			)
+			const raw = yield* Effect.mapBoth(session.queryValues(sentSql(statement), statement.params), {
+				onFailure: readFailureOf,
+				onSuccess: (rows) => outputRows(Arr.map(rows, (row) => Arr.map(row, textCell)))
+			})
+			const rows: Array<DeliveredRow> = []
+			const intake = windowIntake(program, call.size, (row) => {
+				rows.push(row)
+			})
+			for (const row of raw) {
+				intake.take(row)
+			}
+			yield* Effect.mapError(
+				Effect.fromResult(intake.end()),
+				(reason) => new ReadFailure({ reason })
+			)
+			const sent = partRuns(program.run.parts, raw)
+			const delivery = program.delivery
+			const groups =
+				delivery.kind === "concat"
+					? delivery.groups
+					: Arr.map(delivery.order.groups, (g) => g.group)
+			/** The record of the rows statement that delivered a row, by its heading group. */
+			const recordOf = (row: DeliveredRow) =>
+				defined(groups[row.group], "a delivered row's heading group").record
+			/** A delivered row's Key: its comparators' values, each converted from its cell. */
+			const keyOfRow = (row: DeliveredRow): Key => {
+				const heading = recordOf(row).part.heading
+				return Key(
+					Arr.map(comparators, (c) =>
+						c.value.convert(rowCell(row.cells, columnPosition(heading, c.field)))
+					)
+				)
+			}
 			const delivered = valueRows(
 				runtime.page.heading,
-				Arr.map(rows.edges, (e) => {
-					const heading = e.statement.part.heading
+				Arr.map(rows, (row) => {
+					const heading = recordOf(row).part.heading
 					return Arr.map(runtime.page.heading, (c) =>
 						defined(
-							outputRow(e.raw)[
+							outputRow(row.cells)[
 								Option.getOrThrowWith(
 									Arr.findFirstIndex(heading, (h) => h.name === c.name),
 									() => new Error("a column the case's own heading holds")
@@ -974,18 +985,17 @@ const pager =
 				}),
 				codes
 			)
-			const attached: Array<Attached> = []
-			const expected = Option.isSome(rows.probe) ? 2 : 1
+			const records = program.records
 			const parents = new Map(
 				Arr.flatMap(records, (r) => Arr.map(r.plan.children, (c) => [c.record, r] as const))
 			)
+			const attached: Array<Attached> = []
 			for (const record of records) {
-				const statement = record.part
 				const parentRecord = parents.get(record)
 				if (parentRecord === undefined) {
 					continue
 				}
-				const parentKey = keyColumns(statement.role)
+				const parentKey = keyColumns(record.part.role)
 				const parent = parentRecord.part
 				const offset = keyColumns(parent.role).length
 				const positions = Arr.map(parentKey, ({ name }) => {
@@ -997,118 +1007,69 @@ const pager =
 				})
 				const parentRows: ReadonlyArray<Row> =
 					parent.role.kind === "attachment"
-						? Arr.map(rows.attachments.get(parentRecord) ?? [], outputRow)
+						? Arr.map(runOf(parentRecord, sent), outputRow)
 						: Arr.map(
-								Arr.filter(rows.edges, (e) => e.statement === parentRecord),
-								(e) => outputRow(e.raw)
+								Arr.filter(rows, (row) => recordOf(row) === parentRecord),
+								(row) => outputRow(row.cells)
 							)
-				const edgeKey = (edge: PageRows["edges"][number] | undefined): string | undefined =>
-					edge?.statement === parentRecord
-						? keyValue(outputRow(edge.raw), positions, parentKey, codes)
+				const edgeKey = (row: DeliveredRow | undefined): string | undefined =>
+					row !== undefined && recordOf(row) === parentRecord
+						? keyValue(outputRow(row.cells), positions, parentKey, codes)
 						: undefined
 				attached.push({
 					width: parentKey.length,
 					parents: Arr.map(parentRows, (row) => keyValue(row, positions, parentKey, codes)),
 					rows: valueRows(
-						statementOutput(statement.role, statement.heading, statement.fused).heading,
-						Arr.map(rows.attachments.get(record) ?? [], outputRow),
+						statementOutput(record.part.role, record.part.heading, record.part.fused).heading,
+						Arr.map(runOf(record, sent), outputRow),
 						codes
 					),
-					head: edgeKey(rows.edges[0]),
-					tail: edgeKey(rows.edges[rows.edges.length - 1])
+					head: edgeKey(rows[0]),
+					tail: edgeKey(rows.at(-1))
 				})
 			}
-			assert.equal(
-				Option.isSome(rows.probe),
-				variant === "after" || variant === "before",
-				`${variant} probe`
-			)
-			assert.equal(rows.statements, expected, `${variant} statements`)
-			return { page, rows, delivered, attached }
+			return {
+				delivered,
+				attached,
+				first: Option.map(Arr.head(rows), keyOfRow),
+				last: Option.map(Arr.last(rows), keyOfRow)
+			}
 		})
-
-/**
- * A page is returned only once every cursor fits its codec's bound: under a codec bounded by its longest cursor's length
- * the same rows give the same cursors, and under one a character shorter, when the order's shortest token still fits,
- * the page fails with cursorTupleOversized rather than lose or shorten a cursor.
- */
-const assertWithinBound = (
-	runtime: PageRuntime,
-	rows: PageRows,
-	page: Page<unknown, unknown>,
-	codes: Codebook
-): void => {
-	const edges = page.edges
-	if (!Arr.isReadonlyArrayNonEmpty(edges)) {
-		return
-	}
-	const longest = Arr.max(
-		Arr.map(edges, (e) => e.cursor.length),
-		Order.Number
-	)
-	const under = (maxLength: number) =>
-		cursorCodec(
-			{
-				query: runtime.identity.query,
-				comparators: runtime.page.comparators,
-				generation: runtime.identity.generation
-			},
-			maxLength,
-			codes
-		)
-	const tight = under(longest)
-	if (!tight.ok) {
-		throw new PropertyFailed({
-			report: `no codec bounded by its page's longest token: ${tight.error.message}`
-		})
-	}
-	const cursorsOf = (p: Page<unknown, unknown>): ReadonlyArray<string> =>
-		Arr.map(p.edges, (e): string => e.cursor)
-	const fitting = pageOf({ ...runtime, codec: tight.value }, rows, (row) => row)
-	assert.deepEqual(Result.map(fitting, cursorsOf), Result.succeed(cursorsOf(page)))
-	const short = under(longest - 1)
-	if (short.ok) {
-		const refused = pageOf({ ...runtime, codec: short.value }, rows, (row) => row)
-		assert.deepEqual(
-			Result.mapError(refused, (e) => e.reason._tag),
-			Result.fail<CursorFault>("cursorTupleOversized")
-		)
-	}
 }
 
 /**
- * Each attachment of each page reads exactly its delivered parents' children: every row it read belongs
- * to a parent delivered on that page, never to the dropped lookahead row or a row of another page, and each delivered
- * parent's children are exactly D's children of that parent key, with no duplicate and no omission. The attachment
- * statement keeps each (parent key, child) once (shapes/attach pipelinedAttachment), so a parent key's children are
- * the same set of values on a page as in D's attachment statement, keys and rows compared as values, as the reader
- * matches a parent to its children (codec/scalar.ts cellText).
+ * Each attachment of each window reads exactly its delivered parents' children: every row it read belongs to a parent
+ * delivered in that window, never to a row past it or of another window, and each delivered parent's children are
+ * exactly D's children of that parent key, with no duplicate and no omission. The attachment statement keeps each
+ * (parent key, child) once (shapes/attach pipelinedAttachment), so a parent key's children are the same set of values
+ * in a window as in D's attachment statement, keys and rows compared as values, as the reader matches a parent to its
+ * children (codec/scalar.ts cellText).
  */
-const checkAttachments = (label: string, p: Paged, full: Full): void => {
-	for (const [a, attached] of p.attached.entries()) {
+const checkAttachments = (label: string, w: Windowed, full: Full): void => {
+	for (const [a, attached] of w.attached.entries()) {
 		const d = full.attachments[a]
 		if (d === undefined) {
 			throw new PropertyFailed({ report: `${label}: no attachment ${a} in D` })
 		}
 		const parents = new Set(attached.parents)
-		const page = new Map<string, Array<string>>()
+		const read = new Map<string, Array<string>>()
 		for (const row of attached.rows) {
 			const key = keyText(row, leading(attached.width))
-			const group = page.get(key)
+			const group = read.get(key)
 			if (group === undefined) {
-				page.set(key, [Formatter.format(row)])
+				read.set(key, [Formatter.format(row)])
 			} else {
 				group.push(Formatter.format(row))
 			}
 		}
-		for (const key of page.keys()) {
+		for (const key of read.keys()) {
 			assert.ok(
 				parents.has(key),
-				`${label} attachment ${a}: a child of ${key}, a parent this page did not deliver`
+				`${label} attachment ${a}: a child of ${key}, a parent this window did not deliver`
 			)
 		}
 		for (const key of parents) {
-			const children: ReadonlyArray<string> = Arr.sort(page.get(key) ?? [], Order.String)
+			const children: ReadonlyArray<string> = Arr.sort(read.get(key) ?? [], Order.String)
 			assert.deepEqual(
 				children,
 				d.get(key) ?? [],
@@ -1119,115 +1080,73 @@ const checkAttachments = (label: string, p: Paged, full: Full): void => {
 }
 
 /**
- * A forward and a backward traversal, each once at its drawn size, and the empty-page rules. Each page is judged as it
- * arrives, against D's rows at its place, so a traversal holds one page besides the one before it.
+ * A walk from the start and a walk from the end, each at its drawn size: from the start, each window after the last
+ * row of the one before; from the end, each before the first row of the one before; each until a window holds no row.
+ * Each window is judged as it arrives, against D's rows at its place: it holds exactly its size of them, or what
+ * remains of D, so a walk ends with the one empty window past D's last row (or before its first), and an empty D's walk
+ * is that window alone. A walk holds one window besides the one before it.
  *
- * Whether checkAttachments could see the dropped lookahead row's children leak onto a page: the row after a
- * forward page, the next page's first edge, or before a backward page, the previous page's last edge, is a
- * parent with children in D that the page did not deliver.
+ * Whether checkAttachments could see the children of a row past a window leak into it: the row after a forward
+ * window, the next window's first row, or before a backward window, the previous window's last row, is a parent with
+ * children in D that the window did not deliver.
  */
 const checkRuntime = (
 	label: string,
-	page: ReturnType<typeof pager>,
+	read: ReturnType<typeof windowReader>,
 	full: Full,
 	note: Case<PageFeature>["note"],
 	sizes: { readonly forward: PageSize; readonly backward: PageSize }
-): Effect.Effect<void, ReadError | CursorError> =>
+): Effect.Effect<void, ReadError> =>
 	Effect.gen(function* () {
 		const total = full.rows.length
 		for (const direction of ["forward", "backward"] as const) {
 			const size = sizes[direction]
 			const forward = direction === "forward"
-			const traversal = `${label} ${direction} ${size}`
-			let previous: Paged | undefined
-			let current: Paged = yield* page({ variant: forward ? "first" : "last", size })
-			let pages = 0
-			let read = 0
+			const walk = `${label} ${direction} ${size}`
+			let previous: Windowed | undefined
+			let current = yield* read(forward ? { kind: "start" } : { kind: "end" }, size)
+			let windows = 0
+			let walked = 0
 			for (;;) {
 				const count = current.delivered.length
-				const start = forward ? read : total - read - count
-				const end = start + count
-				const at = `${traversal} page ${pages}`
-				assert.deepEqual(
-					current.delivered,
-					full.rows.slice(Math.max(0, start), Math.max(0, end)),
-					at
-				)
-				assert.equal(current.page.pageInfo.hasPreviousPage, start > 0, `${at} previous`)
-				assert.equal(current.page.pageInfo.hasNextPage, end < total, `${at} next`)
-				assert.equal(current.page.edges.length, count)
+				const start = forward ? walked : total - walked - count
+				const at = `${walk} window ${windows}`
+				assert.equal(count, Math.min(size, total - walked), `${at}: its size, or what remains of D`)
+				assert.deepEqual(current.delivered, full.rows.slice(start, start + count), at)
 				checkAttachments(at, current, full)
 				if (previous !== undefined) {
-					const lookahead = Arr.map(current.attached, (x) => (forward ? x.head : x.tail))
+					const beyond = Arr.map(current.attached, (x) => (forward ? x.head : x.tail))
 					for (const [a, x] of previous.attached.entries()) {
-						const key = lookahead[a]
+						const key = beyond[a]
 						if (
 							key !== undefined &&
 							!x.parents.includes(key) &&
 							(full.attachments[a]?.has(key) ?? false)
 						) {
-							note("lookahead parent with children")
+							note("a parent past the window with children")
 						}
 					}
 				}
-				read += count
-				pages += 1
-				const info = current.page.pageInfo
-				const more = forward ? info.hasNextPage : info.hasPreviousPage
-				const cursor = forward ? info.endCursor : info.startCursor
-				if (!more || Option.isNone(cursor)) {
+				walked += count
+				windows += 1
+				const edge = forward ? current.last : current.first
+				if (Option.isNone(edge)) {
 					break
 				}
-				if (pages > total + 2) {
-					throw new PropertyFailed({ report: `${label}: a traversal that does not end` })
+				if (windows > total + 1) {
+					throw new PropertyFailed({ report: `${label}: a walk that does not end` })
 				}
 				previous = current
-				current = yield* page({
-					variant: forward ? "after" : "before",
-					size,
-					token: cursor.value
-				})
-			}
-			assert.equal(read, total, `${traversal}: every row of D delivered`)
-			if (pages >= longTraversal) {
-				note("a traversal of at least 200 pages in one direction")
-			}
-			note(`page size ${size}`)
-		}
-		const first = yield* page({ variant: "first", size: 1 })
-		const last = yield* page({ variant: "last", size: 1 })
-		const start = first.page.pageInfo.startCursor
-		const end = last.page.pageInfo.endCursor
-		if (Option.isSome(start) && Option.isSome(end)) {
-			const pastEnd = yield* page({ variant: "after", size: 2, token: end.value })
-			assert.deepEqual(
-				[
-					pastEnd.delivered,
-					pastEnd.page.pageInfo.hasPreviousPage,
-					pastEnd.page.pageInfo.hasNextPage
-				],
-				[[], true, false],
-				`${label} past the end`
-			)
-			const beforeStart = yield* page({ variant: "before", size: 2, token: start.value })
-			assert.deepEqual(
-				[
-					beforeStart.delivered,
-					beforeStart.page.pageInfo.hasPreviousPage,
-					beforeStart.page.pageInfo.hasNextPage
-				],
-				[[], false, true],
-				`${label} before the start`
-			)
-		} else {
-			assert.equal(total, 0, `${label}: no edge only for an empty D`)
-			for (const p of [first, last]) {
-				assert.deepEqual(
-					[p.delivered, p.page.pageInfo.hasPreviousPage, p.page.pageInfo.hasNextPage],
-					[[], false, false],
-					`${label} empty D`
+				current = yield* read(
+					forward ? { kind: "after", key: edge.value } : { kind: "before", key: edge.value },
+					size
 				)
 			}
+			assert.equal(walked, total, `${walk}: every row of D delivered`)
+			if (windows >= longWalk) {
+				note("a walk of at least 200 windows in one direction")
+			}
+			note(`window size ${size}`)
 		}
 	})
 
@@ -1336,22 +1255,22 @@ const negativeZeroRelation = (o: OrderedCase): boolean =>
  * Each oracle case (test/support/oracle/gen: plain, attached and heterogeneous-union roots over matches,
  * filters, projections, semi- and anti-joins, unions, intersections, differences, groups, takes and recursive
  * closures) is ordered by a drawn prefix of its result heading, rotated, each direction drawn. Its page template is the
- * page compiler's, and its runtime template (packages/grizzle/src/adapter/page/template.ts pageRuntimeOf) adds the specs and the cursor
- * codec. The case installs with the real installer in a transaction that is rolled back, and every page reads that one
- * snapshot. Every request goes through the runtime as a reader's does, minus the transaction: the request's token is
- * validated and decoded by the cursor codec (codec/cursor), the request runs (k + 1 rows, the
- * heading-group merge, the lookahead, the backward reversal, the attachments over the delivered page, the probe), and
- * the page's cursors are made from the decoded edges by pageOf, so the next request continues from a real token. Then:
+ * page compiler's, and its runtime template (packages/grizzle/src/adapter/page/template.ts pageRuntimeOf) adds the
+ * specs and one anchor codec per comparator. The case installs with the real installer in a transaction that is rolled
+ * back, and every window reads that one snapshot. Every window goes through the runtime as a reader's does, minus the
+ * transaction: its anchor is read by the window's parse (page/window.ts windowCall), its Key the delivered row's
+ * comparator values, its one statement runs (a LIMIT of its size, the heading-group merge and cut, the backward
+ * reversal, the attachments over the delivered rows), and its rows are read by the runtime's window intake, so the
+ * next window anchors at a real row's Key. Then:
  *
- * - forward pages from { first } and backward pages from { last }, at one page size per direction, drawn per case,
- *   every size 1 through 7 over the run, concatenate to the complete sorted distinct conservative result D
- *   (fullResult, as the lowering suite computes it), on the template's heading as raw result texts;
- * - every page's flags are exact, and so are the inclusive rules of an empty page after the last edge, before the
- *   first, and of an empty D;
- * - each page's attachments read its delivered parents only: every attachment row a page read belongs
- *   to a parent it delivered, never to the lookahead row, and each delivered parent's children are exactly D's
- *   children of that key; every attachment statement goes in the page's one flight, which the page's statement count
- *   confirms.
+ * - windows walked from the start, each after the last one's last row, and from the end, each before the first one's
+ *   first row, at one size per direction, drawn per case, every size 1 through 7 over the run, cut the complete sorted
+ *   distinct conservative result D (fullResult, as the lowering suite computes it), on the template's heading as raw
+ *   result texts: each window holds exactly its size of D's rows at its place, or what remains of D, and a walk ends
+ *   with the one empty window past D's last row (or before its first), an empty D's walk being that window alone;
+ * - each window's attachments read its delivered parents only: every attachment row a window read belongs to a parent
+ *   it delivered, never to a row past it, and each delivered parent's children are exactly D's children of that key;
+ *   every attachment statement is a part of the window's one statement.
  *
  * Both artifacts run, each in a file of its own on the same cases: the optimized one, which the page compiler builds
  * and the runtime runs (generated-optimized.test.ts), and the conservative one, the page oracle's baseline
@@ -1359,12 +1278,12 @@ const negativeZeroRelation = (o: OrderedCase): boolean =>
  * columns hold no proved key is refused by the page compiler and skipped, as are the other rare skips
  * the lowering suite names. Every case notes what it reached (PageFeature), a skip its reason (PageSkip), and the
  * population must reach every required feature, among them a per-execution form, a relation parameter holding a
- * float -0, which the runtime passes as the caller's one zero, a traversal of at least 200 pages, and a correlated
+ * float -0, which the runtime passes as the caller's one zero, a walk of at least 200 windows, and a correlated
  * child under a nested attachment, the shape where a key within one parent must not stand for a key across parents
  * (lower/conservative/keys.ts). Its escaped counterexample is kept (pageKept) and replays before its streams.
  *
- * A case whose traversals at its drawn sizes would take more requests than the request bound is skipped, its D, sizes
- * and request count logged.
+ * A case whose walks at its drawn sizes would read more windows than the request bound is skipped, its D, sizes and
+ * window count logged.
  */
 /** The artifact a run of the suite pages through: the page compiler's, or the page oracle's baseline. */
 type PageArtifactName = "optimized" | "conservative"
@@ -1520,11 +1439,6 @@ export const generatedSuite = (artifact: PageArtifactName): void => {
 				generation: { schema: schema, extensions: {} },
 				spine: everyColumnCarried(query.dag)
 			})
-			if (Result.isFailure(runtime)) {
-				return yield* new PropertyFailed({
-					report: `page runtime template: ${runtime.failure.message}\n${printCase(o)}`
-				})
-			}
 			const params = hostParams(o, codes)
 			yield* Effect.scoped(
 				Effect.gen(function* () {
@@ -1568,22 +1482,24 @@ export const generatedSuite = (artifact: PageArtifactName): void => {
 						`D holds ${read} rows, over the answer's structural bound ${answer}\n${printCase(o)}`
 					)
 					const sizes = o.size
-					/** One request per page of each traversal, an empty D's traversal being one page. */
+					/** One window per size of D's rows in each walk, and the empty window that ends it. */
 					const cost =
-						Math.max(1, Math.ceil(full.rows.length / sizes.forward)) +
-						Math.max(1, Math.ceil(full.rows.length / sizes.backward))
+						Math.ceil(full.rows.length / sizes.forward) +
+						1 +
+						Math.ceil(full.rows.length / sizes.backward) +
+						1
 					if (cost > requestBound) {
 						yield* Effect.promise(() =>
 							ctx.annotate(
-								`skipped over the request bound ${requestBound}: |D| ${full.rows.length}, sizes ${sizes.forward} forward and ${sizes.backward} backward, ${cost} requests`
+								`skipped over the request bound ${requestBound}: |D| ${full.rows.length}, sizes ${sizes.forward} forward and ${sizes.backward} backward, ${cost} windows`
 							)
 						)
-						c.note("skipped: traversal over the request bound")
+						c.note("skipped: walk over the request bound")
 						return
 					}
 					yield* checkRuntime(
 						artifact,
-						pager(runtime.success, flightOn(session), params, codes),
+						windowReader(runtime, session, params, codes),
 						full,
 						c.note,
 						sizes
@@ -1602,7 +1518,7 @@ export const generatedSuite = (artifact: PageArtifactName): void => {
 						: new PropertyFailed({ report: `${messageOf(defect)}\n${printCase(o)}` })
 				)
 			),
-			Effect.catchTag(["ReadFailure", "CursorError"], (e) =>
+			Effect.catchTag("ReadFailure", (e) =>
 				Effect.fail(
 					new PropertyFailed({ report: `${e._tag}: ${Formatter.format(e)}\n${printCase(o)}` })
 				)
@@ -1613,7 +1529,7 @@ export const generatedSuite = (artifact: PageArtifactName): void => {
 		`the page runtime on generated ordered queries, ${artifact} artifact`,
 		(it) => {
 			it.effect(
-				"pages generated ordered queries through the runtime at a drawn size per direction, flags exact",
+				"cuts generated ordered queries into windows through the runtime at a drawn size per direction",
 				(ctx) =>
 					searched(
 						ctx,
@@ -1626,7 +1542,7 @@ export const generatedSuite = (artifact: PageArtifactName): void => {
 									suite: `page/generated-${artifact}`,
 									oracle: {
 										kind: "second-implementation",
-										name: "the baseline lowering's ordered answer, paged by the cursor contract"
+										name: "the baseline lowering's ordered answer, cut into windows by the window contract"
 									},
 									literal: Formatter.format,
 									coverage: required<PageFeature>(situations, { cases: 2_000, sense: notesOnly }),

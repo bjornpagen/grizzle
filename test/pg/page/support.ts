@@ -1,54 +1,48 @@
 import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec } from "effect"
-import type { MemberOps } from "#adapter/db/ops.ts"
-import type { ReadError } from "#adapter/errors/execution.ts"
+import type { ServedCalls } from "#adapter/db/handles.ts"
 import type { PageRuntime } from "#adapter/page/template.ts"
-import type { ReadExecutor } from "#adapter/reader/executor.ts"
+import type { DecodedRow } from "#adapter/reader/stream.ts"
 import type { LoadedMember } from "#adapter/served/load.ts"
 import { canonicalTextOf } from "#compiler/core/canonical.ts"
-import type { CursorError } from "#compiler/core/errors.ts"
 import { isRecord } from "#compiler/core/record.ts"
-import { trusted } from "#compiler/core/trusted.ts"
-import type { Param } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
-import type { ParamMap } from "#compiler/plan/common.ts"
+import {
+	type Anchor,
+	type CallError,
+	type Key,
+	type KeyFields,
+	keyOf
+} from "#compiler/live/index.ts"
 import { assert } from "#test/support/assert.ts"
-import { sentSql } from "#test/support/flight/scripted.ts"
+import { readOnce } from "#test/support/calls.ts"
 import { isList } from "#test/support/list.ts"
 import { mergeComparator } from "#test/support/merge.ts"
 
 /**
- * A page as the runtime delivers it, trusted at its documented shape: a served member's operations type it unknown,
- * since its program is.
- */
-export interface PageValue {
-	readonly edges: ReadonlyArray<{ readonly node: unknown; readonly cursor: string }>
-	readonly pageInfo: {
-		readonly startCursor: Option.Option<string>
-		readonly endCursor: Option.Option<string>
-		readonly hasPreviousPage: boolean
-		readonly hasNextPage: boolean
-	}
-}
-
-const admitPage = (page: unknown): PageValue => trusted<PageValue>(page)
-
-/**
- * A page of the paged member `ops` with `params`, admitted at its documented shape.
- *
  * Shared helpers for the page runtime suites (test/pg/page).
  *
- * Every suite pages through the members of a login's served workload, exactly as an application does, over the Paging
- * fixture and the boundary-value Measures fixture of the unit page suites (test/unit/page/fixtures.ts). A page's nodes
- * are compared as canonical values (`canon`), which keep every carrier's identity: a bigint, a Decimal's text, a float's
- * sign of zero and NaN, an Option.
+ * Every suite reads windows of the members of a login's served workload, exactly as an application does, over the
+ * Paging fixture and the boundary-value Measures fixture of the unit page suites (test/unit/page/fixtures.ts). A
+ * window's rows are compared as canonical values (`canon`), which keep every carrier's identity: a bigint, a Decimal's
+ * text, a float's sign of zero and NaN, an Option.
+ *
+ * A paged member's input: its parameters, no facts, and the window of `size` rows from `anchor`.
  */
-export const pageOf = (
-	ops: MemberOps<unknown>,
-	params: ParamMap,
-	request: unknown
-): Effect.Effect<PageValue, ReadError | CursorError> =>
-	Effect.map(ops.page(params, request), admitPage)
+export const windowInput = (params: unknown, anchor: Anchor, size: number) => ({
+	params,
+	facts: {},
+	window: { anchor, size }
+})
+
+/** The rows of the window of `size` rows from `anchor` of the paged member `calls`, in presentation order. */
+export const windowOf = (
+	calls: ServedCalls,
+	params: unknown,
+	anchor: Anchor,
+	size: number
+): Effect.Effect<ReadonlyArray<DecodedRow>, CallError> =>
+	readOnce(calls)(windowInput(params, anchor, size))
 
 /** A delivered row as the record it is. */
 export const rowOf = (row: unknown): Readonly<Record<string, unknown>> => {
@@ -92,10 +86,14 @@ export const canon = (value: unknown): unknown => {
 	return value
 }
 
-/** A paged member's page runtime with the installation's codes, which its rows' closed ids and sets order and decode by. */
+/**
+ * A paged member's page runtime with the installation's codes, which its rows' closed ids and sets order and decode by,
+ * and its key fields, the completed order's columns, whose values in order are a row's Key and a window's anchor.
+ */
 export interface TestPage {
 	readonly runtime: PageRuntime
 	readonly codes: Codebook
+	readonly fields: KeyFields
 }
 
 /**
@@ -107,46 +105,10 @@ export const pageTemplate = (member: LoadedMember, codes: Codebook): TestPage =>
 	if (member.kind !== "paged") {
 		throw new Error(`the member ${member.name} pages nothing`)
 	}
-	return { runtime: member.page.runtime, codes }
+	return { runtime: member.page.runtime, codes, fields: member.read.key.fields }
 }
 
-/**
- * The complete sorted distinct result D: the rows the reader's execute delivers, sorted on the page's completed order,
- * in canonical form.
- */
-export const sortedResult = (
-	compiled: TestPage,
-	rows: ReadonlyArray<unknown>
-): ReadonlyArray<unknown> => {
-	const types: Record<string, ScalarType> = {}
-	for (const c of compiled.runtime.page.heading) {
-		types[c.name] = c.type
-	}
-	const compare = mergeComparator({
-		order: compiled.runtime.page.order,
-		types,
-		codes: compiled.codes
-	})
-	if (!compare.ok) {
-		throw new Error(compare.error.message)
-	}
-	/** The page's completed order: the comparator's sign. */
-	const pageOrder: Order.Order<unknown> = (a, b) => {
-		const sign = compare.value(rowOf(a), rowOf(b))
-		return sign < 0 ? -1 : sign > 0 ? 1 : 0
-	}
-	const sorted = Arr.sort(rows, pageOrder)
-	for (let i = 1; i < sorted.length; i++) {
-		assert.notEqual(
-			compare.value(rowOf(sorted[i - 1]), rowOf(sorted[i])),
-			0,
-			"the page order is total over D"
-		)
-	}
-	return Arr.map(sorted, canon)
-}
-
-/** The page's completed order over delivered rows: negative when the first row comes first. */
+/** The page's completed order over records holding its order's columns: negative when the first comes first. */
 export const pageOrder = (compiled: TestPage): ((a: unknown, b: unknown) => number) => {
 	const types: Record<string, ScalarType> = {}
 	for (const c of compiled.runtime.page.heading) {
@@ -164,15 +126,39 @@ export const pageOrder = (compiled: TestPage): ((a: unknown, b: unknown) => numb
 }
 
 /**
- * The rows strictly after an anchor's values in the page order, sorted and canonical: what a forward
- * page after the anchor's cursor reads from `rows`, whether or not the anchor is still among them.
+ * The complete sorted distinct result D: `rows`, a read's whole answer, sorted on the page's completed order, in
+ * canonical form; no two rows tie on it.
+ */
+export const sortedResult = (
+	compiled: TestPage,
+	rows: ReadonlyArray<unknown>
+): ReadonlyArray<unknown> => {
+	const order = pageOrder(compiled)
+	const sorted = Arr.sort(rows, (a: unknown, b: unknown) => {
+		const sign = order(a, b)
+		return sign < 0 ? -1 : sign > 0 ? 1 : 0
+	})
+	for (let i = 1; i < sorted.length; i++) {
+		assert.notEqual(order(sorted[i - 1], sorted[i]), 0, "the page order is total over D")
+	}
+	return Arr.map(sorted, canon)
+}
+
+/** A Key as the record of its fields' values, which the page order compares rows with. */
+const keyRecord = (fields: KeyFields, key: Key): Readonly<Record<string, unknown>> =>
+	Rec.fromEntries(Arr.zip(fields, key))
+
+/**
+ * The rows of `rows` strictly after the anchor's values `key` in the page order, sorted and canonical: what a window
+ * after the key reads, whether or not a row of the key is still among them.
  */
 export const strictlyAfter = (
 	compiled: TestPage,
 	rows: ReadonlyArray<unknown>,
-	anchor: unknown
+	key: Key
 ): ReadonlyArray<unknown> => {
 	const order = pageOrder(compiled)
+	const anchor = keyRecord(compiled.fields, key)
 	return sortedResult(
 		compiled,
 		Arr.filter(rows, (r) => order(r, anchor) > 0)
@@ -180,130 +166,89 @@ export const strictlyAfter = (
 }
 
 /**
- * The rows strictly before an anchor's values in the page order, sorted and canonical: what a backward page before the
- * anchor's cursor reads from `rows`, whether or not the anchor is still among them.
+ * The rows of `rows` strictly before the anchor's values `key` in the page order, sorted and canonical: what a window
+ * before the key reads, whether or not a row of the key is still among them.
  */
 export const strictlyBefore = (
 	compiled: TestPage,
 	rows: ReadonlyArray<unknown>,
-	anchor: unknown
+	key: Key
 ): ReadonlyArray<unknown> => {
 	const order = pageOrder(compiled)
+	const anchor = keyRecord(compiled.fields, key)
 	return sortedResult(
 		compiled,
 		Arr.filter(rows, (r) => order(r, anchor) < 0)
 	)
 }
 
-export interface Traversal {
-	readonly pages: ReadonlyArray<PageValue>
-	/** The nodes of every page, in presentation order, canonical. */
+/** Whether a row of `rows` holds the anchor's values `key`. */
+export const holdsKey = (compiled: TestPage, rows: ReadonlyArray<unknown>, key: Key): boolean => {
+	const order = pageOrder(compiled)
+	const anchor = keyRecord(compiled.fields, key)
+	return Arr.some(rows, (r) => order(r, anchor) === 0)
+}
+
+/** Where a walk starts: D's first rows, each window after the last one's last row; or its last, each before the first. */
+export type From = "start" | "end"
+
+export interface Walk {
+	/** Every window in the order the walk read them, its last the empty window that ends it, each row canonical. */
+	readonly windows: ReadonlyArray<ReadonlyArray<unknown>>
+	/** The rows of every window, in D's order, canonical. */
 	readonly nodes: ReadonlyArray<unknown>
 }
 
 /**
- * The most pages one traversal takes before it counts as one that does not end: the suites' D hold at most a few
- * dozen rows, so a page size of 1 ends far below it.
+ * Every window of D through the paged member `calls`, whose rows' Keys are their `fields`' values: from the start, each
+ * window after the last row of the one before, or from the end, each before its first row, until a window holds no
+ * row. A walk over D of `rows` rows ends within rows + 1 windows at any size; one that does not is a defect.
  */
-const traversalPagesMax = 1_000
-
-/**
- * Every page of D through the paged member `ops`, forward from { first }, following each endCursor while hasNextPage,
- * or backward from { last }, following each startCursor while hasPreviousPage.
- */
-export const traverse = (
-	ops: MemberOps<unknown>,
-	params: ParamMap,
-	direction: "forward" | "backward",
+export const walk = (
+	calls: ServedCalls,
+	fields: KeyFields,
+	params: unknown,
 	size: number,
-	/** Where the traversal starts: the first or last tuple, or an anchor's cursor. */
-	from: { readonly kind: "end" } | { readonly kind: "anchor"; readonly cursor: string }
-): Effect.Effect<Traversal, ReadError | CursorError> =>
+	from: From,
+	rows: number
+): Effect.Effect<Walk, CallError> =>
 	Effect.gen(function* () {
-		const pages: Array<PageValue> = []
-		let request: object =
-			direction === "forward"
-				? from.kind === "end"
-					? { first: size }
-					: { first: size, after: from.cursor }
-				: from.kind === "end"
-					? { last: size }
-					: { last: size, before: from.cursor }
-		for (let n = 0; n < traversalPagesMax; n++) {
-			const page = yield* pageOf(ops, params, request)
-			pages.push(page)
-			const more =
-				direction === "forward" ? page.pageInfo.hasNextPage : page.pageInfo.hasPreviousPage
-			const next = direction === "forward" ? page.pageInfo.endCursor : page.pageInfo.startCursor
-			if (!more || Option.isNone(next)) {
-				const ordered = direction === "forward" ? pages : Arr.reverse(pages)
+		const windows: Array<ReadonlyArray<DecodedRow>> = []
+		let anchor: Anchor = from === "start" ? { kind: "start" } : { kind: "end" }
+		while (windows.length <= rows) {
+			const window = yield* windowOf(calls, params, anchor, size)
+			windows.push(window)
+			const edge = from === "start" ? Arr.last(window) : Arr.head(window)
+			if (Option.isNone(edge)) {
+				const presented = from === "start" ? windows : Arr.reverse(windows)
 				return {
-					pages,
-					nodes: Arr.flatMap(ordered, (p) => Arr.map(p.edges, (e) => canon(e.node)))
+					windows: Arr.map(windows, (w) => Arr.map(w, canon)),
+					nodes: Arr.flatMap(presented, (w) => Arr.map(w, canon))
 				}
 			}
-			request =
-				direction === "forward"
-					? { first: size, after: next.value }
-					: { last: size, before: next.value }
+			const key = keyOf(fields, edge.value)
+			anchor = from === "start" ? { kind: "after", key } : { kind: "before", key }
 		}
-		throw new Error(`a traversal of more than ${traversalPagesMax} pages`)
+		return assert.fail(`a walk of D's ${rows} rows read more than ${rows + 1} windows`)
 	})
 
 /**
- * Holds a page's edges and edge cursors to its own shape: startCursor and endCursor are the first and last
- * edges' cursors, Option.none on an empty page.
+ * The windows a walk of `size` reads over D, `full`, in the order it reads them: D cut into windows of `size` rows from
+ * its start, or from its end, each window in D's order, then the empty window that ends the walk.
  */
-export const assertEdges = (page: PageValue, label: string): void => {
-	const first = page.edges[0]
-	const last = page.edges[page.edges.length - 1]
-	assert.deepEqual(
-		page.pageInfo.startCursor,
-		first === undefined ? Option.none() : Option.some(first.cursor),
-		label
-	)
-	assert.deepEqual(
-		page.pageInfo.endCursor,
-		last === undefined ? Option.none() : Option.some(last.cursor),
-		label
-	)
-	for (const e of page.edges) {
-		assert.equal(typeof e.cursor, "string", label)
+export const expectedWalk = (
+	full: ReadonlyArray<unknown>,
+	size: number,
+	from: From
+): ReadonlyArray<ReadonlyArray<unknown>> => {
+	const out: Array<ReadonlyArray<unknown>> = []
+	for (let read = 0; read < full.length; read += size) {
+		out.push(
+			from === "start"
+				? full.slice(read, read + size)
+				: full.slice(Math.max(0, full.length - read - size), full.length - read)
+		)
 	}
-}
-
-export interface Counts {
-	/** Reads the executor ran, each on one session and, past a lone statement, in one transaction. */
-	within: number
-	/** The flights sent: one round trip each. */
-	flights: number
-	/** Statements sent through the page's session. */
-	statements: number
-	/** Every statement text and its parameters as sent, a text or a binary value each (core/wire.ts Param), in order. */
-	readonly sent: Array<{ readonly sql: string; readonly params: ReadonlyArray<Param> }>
-}
-
-/** An executor that counts the reads, flights and statements a page sends through `inner`. */
-export const countingExecutor = (
-	inner: ReadExecutor
-): { readonly executor: ReadExecutor; readonly counts: Counts } => {
-	const counts: Counts = { within: 0, flights: 0, statements: 0, sent: [] }
-	const executor: ReadExecutor = {
-		run: (flight) =>
-			Effect.suspend(() => {
-				counts.within++
-				if (flight.statements.length > 0) {
-					counts.flights++
-				}
-				for (const statement of flight.statements) {
-					counts.statements++
-					counts.sent.push({
-						sql: sentSql(statement),
-						params: statement.params
-					})
-				}
-				return inner.run(flight)
-			})
-	}
-	return { executor, counts }
+	out.push([])
+	return out
 }
