@@ -9,7 +9,7 @@ import { DocumentUri, SafeText } from "#model/brands.ts"
 import { Diagnostic } from "#model/diagnostic.ts"
 import { Operation, SecurityScheme } from "#model/entities.ts"
 import { normalizeParameter } from "#normalize/parameters.ts"
-import { resolve } from "#resolve/index.ts"
+import { defaultLimits, resolve } from "#resolve/index.ts"
 import hostileSeeds from "#test/fixtures/seeds/hostile.json" with { type: "json" }
 
 const root = nodePath.resolve(import.meta.dirname, "../..")
@@ -419,11 +419,15 @@ describe("operationHelp", () => {
 		)
 		const diagnostics = parameters.flatMap((_, index) => {
 			const outcome = Effect.runSync(
-				normalizeParameter(resolution, {
-					openapi: "3.2.0",
-					operation: { method: "PATCH", path: "/users/{id}" },
-					pointer: `/paths/~1users~1{id}/patch/parameters/${index}`
-				})
+				normalizeParameter(
+					resolution,
+					{
+						openapi: "3.2.0",
+						operation: { method: "PATCH", path: "/users/{id}" },
+						pointer: `/paths/~1users~1{id}/patch/parameters/${index}`
+					},
+					defaultLimits
+				)
 			)
 
 			return outcome.diagnostics

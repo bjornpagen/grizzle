@@ -23,6 +23,7 @@ import { appliesDynamicKeyword, budgetOf, charge, schemaKeyAt } from "#normalize
 import type { Budget, SchemaLimits } from "#normalize/schemas.ts"
 import { keyOf } from "#resolve/canonical.ts"
 import type { CanonicalKey } from "#resolve/canonical.ts"
+import { defaultLimits } from "#resolve/index.ts"
 import type { Resolution, ResolvedReference } from "#resolve/index.ts"
 
 /**
@@ -56,19 +57,19 @@ export const ParameterOutcome = Data.taggedEnum<ParameterOutcome>()
  * The site is not a Parameter Object the earlier stages could have passed: validation, resolution
  * or the structure checks should have stopped it.
  */
-export class ParameterNotReadable extends Schema.TaggedError<ParameterNotReadable>()(
-	"ParameterNotReadable",
-	{
-		pointer: Schema.String,
-		reason: Schema.Literals([
-			"content-entry-count",
-			"line-mismatch",
-			"not-a-parameter",
-			"path-not-required",
-			"schema-xor-content"
-		])
-	}
-) {}
+export class ParameterNotReadable extends Schema.TaggedError<
+	ParameterNotReadable,
+	{ readonly brand: unique symbol }
+>()("ParameterNotReadable", {
+	pointer: Schema.String,
+	reason: Schema.Literals([
+		"content-entry-count",
+		"line-mismatch",
+		"not-a-parameter",
+		"path-not-required",
+		"schema-xor-content"
+	])
+}) {}
 
 /**
  * The eight `style` values a Parameter, Header or Encoding Object may declare.
@@ -113,7 +114,11 @@ type ParameterNode = typeof ParameterObject.Type
 
 const MediaTypeObject = Schema.Struct({ schema: Schema.optionalKey(Schema.Unknown) })
 
-const rules: Record<SpecLine, string> = { "3.0": "oas-3.0", "3.1": "oas-3.1", "3.2": "oas-3.2" }
+const rules: Readonly<Record<SpecLine, string>> = {
+	"3.0": "oas-3.0",
+	"3.1": "oas-3.1",
+	"3.2": "oas-3.2"
+}
 
 const ignoredHeaders: ReadonlySet<string> = new Set(["accept", "authorization", "content-type"])
 
@@ -169,13 +174,13 @@ const rowOf = HashMap.fromIterable<
  */
 const explodeNotApplicable: ReadonlySet<string> = new Set(["STY-18", "STY-20", "STY-22", "STY-24"])
 
-const cookieStyles: Record<SpecLine, readonly StyleName[]> = {
+const cookieStyles: Readonly<Record<SpecLine, readonly StyleName[]>> = {
 	"3.0": ["form"],
 	"3.1": ["form"],
 	"3.2": ["cookie", "form"]
 }
 
-const fixedStyles: Record<Exclude<Location, "cookie">, readonly StyleName[]> = {
+const fixedStyles: Readonly<Record<Exclude<Location, "cookie">, readonly StyleName[]>> = {
 	header: ["simple"],
 	path: ["label", "matrix", "simple"],
 	query: ["deepObject", "form", "pipeDelimited", "spaceDelimited"],
@@ -201,17 +206,27 @@ export interface Finding {
 	readonly severity: "notice" | "refusal"
 }
 
+/**
+ * A refusal that tells the author what to do instead.
+ */
 const refusal = (
 	code: string,
 	anchor: string,
 	element: string,
 	message: string,
-	hint?: string
-): Finding => {
-	const finding: Finding = { anchor, code, element, message, severity: "refusal" }
+	hint: string
+): Finding => ({ anchor, code, element, hint, message, severity: "refusal" })
 
-	return hint === undefined ? finding : { ...finding, hint }
-}
+/**
+ * A refusal whose message is the whole story.
+ */
+const plainRefusal = (code: string, anchor: string, element: string, message: string): Finding => ({
+	anchor,
+	code,
+	element,
+	message,
+	severity: "refusal"
+})
 
 const notice = (code: string, anchor: string, element: string, message: string): Finding => ({
 	anchor,
@@ -494,7 +509,7 @@ const primitiveNotApplicableFinding = (row: string): Finding =>
 	)
 
 const explodeNotApplicableFinding = (row: string): Finding =>
-	refusal(
+	plainRefusal(
 		`${row}/explode-not-applicable`,
 		"style-values",
 		"Parameter style with explode true",
@@ -507,7 +522,7 @@ const decideContent = (node: ParameterNode, content: Content): Decision => {
 	const { mediaType, schemaKey } = content
 	if (Option.isNone(decodeMediaType(mediaType))) {
 		return refuse(
-			refusal(
+			plainRefusal(
 				"PRM-15/invalid-media-type",
 				"parameter-content",
 				"Parameter content media type",
@@ -518,7 +533,7 @@ const decideContent = (node: ParameterNode, content: Content): Decision => {
 
 	if (Option.isNone(schemaKey)) {
 		return refuse(
-			refusal(
+			plainRefusal(
 				"PRM-15/missing-schema",
 				"parameter-content",
 				"Parameter content media type",
@@ -553,7 +568,7 @@ const styleNotices = (
 	node: ParameterNode,
 	line: SpecLine,
 	honored: boolean,
-	deepRow?: string
+	deepRow: Option.Option<string>
 ): readonly Finding[] => {
 	const findings: Finding[] = []
 	if (node.allowEmptyValue === true && node.in !== "query") {
@@ -568,8 +583,8 @@ const styleNotices = (
 		findings.push(allowReservedIgnored)
 	}
 
-	if (deepRow !== undefined && line !== "3.2" && node.explode !== true) {
-		findings.push(deepObjectExplode(deepRow))
+	if (Option.isSome(deepRow) && line !== "3.2" && node.explode !== true) {
+		findings.push(deepObjectExplode(deepRow.value))
 	}
 
 	return findings
@@ -577,24 +592,14 @@ const styleNotices = (
 
 /**
  * What the author config's scalar switch makes of a `deepObject` schema (design 6.1 Scalar
- * switch). `Strict`: the switch is off, or the schema has no scalar branch or has a branch no
+ * switch). `strict`: the switch is off, or the schema has no scalar branch or has a branch no
  * switch covers (`null`, untyped, unresolved), so the strict rules decide (`PRM-27/non-object-
- * schema` when it admits a non-object). `Uncovered`: a nested branch the bracket switch is off for,
- * or a member union neither switch defines (`PRM-27/compound-nested`). `Covered`: every branch is
- * covered and a scalar one by the scalar switch; `nested` when the bracket switch covers one.
+ * schema` when it admits a non-object). `uncovered`: a nested branch the bracket switch is off for,
+ * or a member union neither switch defines (`PRM-27/compound-nested`). `scalars`: every branch is
+ * covered and a scalar one by the scalar switch; `scalarsAndNested` when the bracket switch also
+ * covers a nested one.
  */
-export type ScalarCover = Data.TaggedEnum<{
-	Covered: { readonly nested: boolean }
-	Strict: Record<never, never>
-	Uncovered: Record<never, never>
-}>
-
-/**
- * Constructors and dispatch for {@link ScalarCover}.
- */
-export const ScalarCover = Data.taggedEnum<ScalarCover>()
-
-const strictCover: ScalarCover = ScalarCover.Strict()
+export type ScalarCover = "scalars" | "scalarsAndNested" | "strict" | "uncovered"
 
 /**
  * What the schema shape and the author config add to a parameter's decision: `multiple` for a
@@ -622,16 +627,16 @@ const inapplicable = (
 	row: string,
 	style: StyleName,
 	traits: Pick<Traits, "nonObject" | "primitive">
-): Finding | undefined => {
+): Option.Option<Finding> => {
 	if (explodeNotApplicable.has(row)) {
-		return explodeNotApplicableFinding(row)
+		return Option.some(explodeNotApplicableFinding(row))
 	}
 
 	if (delimitedStyles.has(style) && traits.primitive) {
-		return primitiveNotApplicableFinding(row)
+		return Option.some(primitiveNotApplicableFinding(row))
 	}
 
-	return style === "deepObject" && traits.nonObject ? nonObjectSchema : undefined
+	return style === "deepObject" && traits.nonObject ? Option.some(nonObjectSchema) : Option.none()
 }
 
 /**
@@ -648,14 +653,24 @@ const deepObjectMarks = (
 	cover: ScalarCover,
 	strictNested: boolean,
 	brackets: boolean
-): Marks | undefined =>
-	ScalarCover.$match(cover, {
-		Covered: ({ nested }): Marks | undefined =>
-			nested && !brackets ? undefined : { nested, scalars: true },
-		Strict: (): Marks | undefined =>
-			strictNested && !brackets ? undefined : { nested: strictNested, scalars: false },
-		Uncovered: (): Marks | undefined => undefined
-	})
+): Option.Option<Marks> => {
+	switch (cover) {
+		case "scalars": {
+			return Option.some({ nested: false, scalars: true })
+		}
+		case "scalarsAndNested": {
+			return brackets ? Option.some({ nested: true, scalars: true }) : Option.none()
+		}
+		case "strict": {
+			return strictNested && !brackets
+				? Option.none()
+				: Option.some({ nested: strictNested, scalars: false })
+		}
+		case "uncovered": {
+			return Option.none()
+		}
+	}
+}
 
 const markedPlan = (plan: StylePlan, marks: Marks): StylePlan => {
 	const bracketed: StylePlan = marks.nested ? { ...plan, nonStandard: "deepObjectBrackets" } : plan
@@ -667,48 +682,52 @@ const decideStyle = (node: ParameterNode, line: SpecLine, traits: Traits): Decis
 	const location = node.in
 	const style = node.style ?? defaultStyle(location)
 	const explode = node.explode ?? (style === "form" || style === "cookie")
-	if (!stylesOf(location, line).includes(style)) {
+	if (!Arr.contains(stylesOf(location, line), style)) {
 		return refuse(styleLocation)
 	}
 
 	const honored = honorsAllowReserved(node, style, line)
 	const allowReserved = honored && node.allowReserved === true
 	if (location === "cookie") {
-		const findings = styleNotices(node, line, honored)
+		const findings = styleNotices(node, line, honored, Option.none())
 
 		return decideCookie(line, { allowReserved, explode, style }, traits.multiple, findings)
 	}
 
 	const deepRow =
-		style === "deepObject" ? deepObjectRow(line, node.explode === true, allowReserved) : undefined
-	const row =
-		deepRow ?? Option.getOrUndefined(HashMap.get(rowOf, [location, style, explode, allowReserved]))
-	if (row === undefined) {
+		style === "deepObject"
+			? Option.some(deepObjectRow(line, node.explode === true, allowReserved))
+			: Option.none()
+	const found = Option.orElse(deepRow, () =>
+		HashMap.get(rowOf, [location, style, explode, allowReserved])
+	)
+	if (Option.isNone(found)) {
 		return refuse(styleLocation)
 	}
 
+	const row = found.value
 	/**
 	 * PRM-27: a deepObject over a schema that admits non-objects is refused, bracket switch or not,
 	 * unless the scalar switch's branch walk decides it (design 6.1 Scalar switch).
 	 */
-	const cover = deepRow === undefined ? strictCover : traits.scalars
+	const cover: ScalarCover = Option.isNone(deepRow) ? "strict" : traits.scalars
 	const blocked = inapplicable(
 		row,
 		style,
-		ScalarCover.$is("Strict")(cover) ? traits : { ...traits, nonObject: false }
+		cover === "strict" ? traits : { ...traits, nonObject: false }
 	)
-	if (blocked !== undefined) {
-		return refuse(blocked)
+	if (Option.isSome(blocked)) {
+		return refuse(blocked.value)
 	}
 
-	const marks = deepObjectMarks(cover, deepRow !== undefined && traits.nested, traits.brackets)
-	if (marks === undefined) {
+	const marks = deepObjectMarks(cover, Option.isSome(deepRow) && traits.nested, traits.brackets)
+	if (Option.isNone(marks)) {
 		return refuse(compoundNested)
 	}
 
 	const plan: StylePlan = {
 		allowReserved,
-		explode: explode || deepRow !== undefined,
+		explode: explode || Option.isSome(deepRow),
 		kind: "style",
 		row,
 		style
@@ -717,10 +736,10 @@ const decideStyle = (node: ParameterNode, line: SpecLine, traits: Traits): Decis
 	return Decision.Build({
 		findings: [
 			...styleNotices(node, line, honored, deepRow),
-			...(marks.nested ? [bracketAuthorChoice] : []),
-			...(marks.scalars ? [scalarAuthorChoice] : [])
+			...(marks.value.nested ? [bracketAuthorChoice] : []),
+			...(marks.value.scalars ? [scalarAuthorChoice] : [])
 		],
-		plan: markedPlan(plan, marks)
+		plan: markedPlan(plan, marks.value)
 	})
 }
 
@@ -755,7 +774,7 @@ const decideName = (node: ParameterNode): Decision | undefined => {
 
 	if (Option.isNone(decodeWireName(node.name))) {
 		return refuse(
-			refusal(
+			plainRefusal(
 				"PRM-02/invalid-name",
 				"parameter-name",
 				"Parameter name",
@@ -903,20 +922,22 @@ const read = (
 	resolution: Resolution,
 	site: ParameterSite
 ): Effect.Effect<Source, ParameterNotReadable> => {
-	const unreadable = new ParameterNotReadable({ pointer: site.pointer, reason: "not-a-parameter" })
 	const use = { document: resolution.document, pointer: site.pointer }
 	const reference = referenceIn(resolution, use)
 	const target = follow(resolution, use)
 
 	return nodeIn(resolution, target).pipe(
 		Effect.flatMap(Schema.decodeUnknownEffect(ParameterObject)),
-		Effect.mapError(() => unreadable),
-		Effect.map((node) => ({
-			node,
-			reference,
-			related: reference === undefined ? [] : [target],
-			target
-		}))
+		Effect.mapBoth({
+			onFailure: () =>
+				ParameterNotReadable.make({ pointer: site.pointer, reason: "not-a-parameter" }),
+			onSuccess: (node) => ({
+				node,
+				reference,
+				related: reference === undefined ? [] : [target],
+				target
+			})
+		})
 	)
 }
 
@@ -977,7 +998,8 @@ const nestsDeeply = Effect.fnUntraced(function* nestsDeeply(
 	}
 
 	const home = follow(resolution, childKey(target, "schema"))
-	if ((yield* typesAt(resolution, home)).includes("array")) {
+	const types = yield* typesAt(resolution, home)
+	if (Arr.contains(types, "array")) {
 		return true
 	}
 
@@ -993,7 +1015,8 @@ const nestsDeeply = Effect.fnUntraced(function* nestsDeeply(
 	}
 
 	for (const member of members) {
-		if (compound(yield* typesAt(resolution, member))) {
+		const memberTypes = yield* typesAt(resolution, member)
+		if (compound(memberTypes)) {
 			return true
 		}
 	}
@@ -1114,9 +1137,9 @@ const valueTraits = Effect.fnUntraced(function* valueTraits(
 	}
 
 	const types = yield* typesAt(resolution, schema)
-	const nonObject = deepObject && !(yield* objectOnly(resolution, schema, walkOf(limits, true)))
+	const objects = deepObject ? yield* objectOnly(resolution, schema, walkOf(limits, true)) : true
 
-	return { nonObject, primitive: types.length > 0 && !compound(types) }
+	return { nonObject: !objects, primitive: types.length > 0 && !compound(types) }
 })
 
 /**
@@ -1176,7 +1199,7 @@ const BranchSchema = Schema.Struct({
  * The `enum` or `const` values of a scalar branch: strings, numbers and booleans.
  */
 const ScalarValues = Schema.NonEmptyArray(
-	Schema.Union([Schema.String, Schema.Number, Schema.Boolean])
+	Schema.Union([Schema.String, Schema.Finite, Schema.Boolean])
 )
 
 const decodeScalarValues = Schema.decodeUnknownOption(ScalarValues)
@@ -1235,7 +1258,7 @@ const typedBranches = Effect.fnUntraced(function* typedBranches(
 		}
 	}
 
-	const objects = types.length === 0 || types.includes("object")
+	const objects = types.length === 0 || Arr.contains(types, "object")
 
 	return objects
 		? { kinds, object: yield* memberSites(resolution, home), union: [] }
@@ -1301,7 +1324,8 @@ const memberNesting = Effect.fnUntraced(function* memberNesting(
 	resolution: Resolution,
 	member: CanonicalKey
 ): Effect.fn.Return<"flat" | "nested" | "union"> {
-	if (compound(yield* typesAt(resolution, member))) {
+	const types = yield* typesAt(resolution, member)
+	if (compound(types)) {
 		return "nested"
 	}
 
@@ -1330,11 +1354,11 @@ const unionMember = (kinds: ReadonlySet<Branch>): Branch => {
  * An object branch from its members' kinds: `mixed` over `nested` over `flat`.
  */
 const objectBranch = (members: readonly Branch[]): Branch => {
-	if (members.includes("mixed")) {
+	if (Arr.contains(members, "mixed")) {
 		return "mixed"
 	}
 
-	return members.includes("nested") ? "nested" : "flat"
+	return Arr.contains(members, "nested") ? "nested" : "flat"
 }
 
 /**
@@ -1371,9 +1395,12 @@ const branchesOf = Effect.fnUntraced(function* branches(
 		const members: Branch[] = []
 		for (const member of own.object) {
 			const nesting = yield* memberNesting(resolution, member)
-			members.push(
-				nesting === "union" ? unionMember(yield* branchesOf(resolution, member, walk)) : nesting
-			)
+			if (nesting === "union") {
+				const memberKinds = yield* branchesOf(resolution, member, walk)
+				members.push(unionMember(memberKinds))
+			} else {
+				members.push(nesting)
+			}
 		}
 
 		kinds.add(objectBranch(members))
@@ -1395,24 +1422,24 @@ export const scalarCover = Effect.fnUntraced(function* scalarCover(
 	resolution: Resolution,
 	schema: CanonicalKey,
 	switches: AuthorConfig["nonStandard"],
-	limits: SchemaLimits = {}
+	limits: SchemaLimits
 ): Effect.fn.Return<ScalarCover> {
 	if (switches?.deepObjectScalars !== true) {
-		return strictCover
+		return "strict"
 	}
 
 	const walk: BranchWalk = { budget: budgetOf(limits), memo: new Map(), path: new Set() }
 	const kinds = yield* branchesOf(resolution, schema, walk)
 	if (!kinds.has("scalar") || kinds.has("other")) {
-		return strictCover
+		return "strict"
 	}
 
 	const nested = kinds.has("nested")
 	if (kinds.has("mixed") || (nested && switches.deepObjectBrackets !== true)) {
-		return ScalarCover.Uncovered()
+		return "uncovered"
 	}
 
-	return ScalarCover.Covered({ nested })
+	return nested ? "scalarsAndNested" : "scalars"
 })
 
 /**
@@ -1426,7 +1453,7 @@ const scalarsOf = (
 ): Effect.Effect<ScalarCover> => {
 	const { node, target } = source
 	if (node.in !== "query" || node.style !== "deepObject" || node.schema === undefined) {
-		return Effect.succeed(strictCover)
+		return Effect.succeed("strict")
 	}
 
 	return scalarCover(resolution, childKey(target, "schema"), site.nonStandard, limits)
@@ -1449,33 +1476,31 @@ export const formStyleRefusal = Effect.fnUntraced(function* formStyleRefusal(
 		readonly explode?: boolean
 		readonly style?: StyleName
 	},
-	limits: SchemaLimits = {}
+	limits: SchemaLimits
 ): Effect.fn.Return<Option.Option<Finding>> {
 	const style = given.style ?? "form"
 	const allowReserved = given.allowReserved === true
-	const row =
+	const found =
 		style === "deepObject"
-			? deepObjectRow(resolution.line, given.explode === true, allowReserved)
-			: Option.getOrUndefined(
-					HashMap.get(rowOf, ["query", style, given.explode ?? style === "form", allowReserved])
-				)
-	if (row === undefined) {
+			? Option.some(deepObjectRow(resolution.line, given.explode === true, allowReserved))
+			: HashMap.get(rowOf, ["query", style, given.explode ?? style === "form", allowReserved])
+	if (Option.isNone(found)) {
 		return Option.none()
 	}
 
 	const traits = yield* valueTraits(resolution, schema, style === "deepObject", limits)
 
-	return Option.fromUndefinedOr(inapplicable(row, style, traits))
+	return inapplicable(found.value, style, traits)
 })
 
 const mediaOf = (resolution: Resolution, source: Source): Effect.Effect<Media> => {
 	const [mediaType] = Record.keys(source.node.content ?? {})
 	if (mediaType === undefined) {
-		return Effect.succeed(Option.none())
+		return Effect.succeedNone
 	}
 
 	return mediaContent(resolution, mediaType, childKey(source.target, "content", mediaType)).pipe(
-		Effect.map(Option.some)
+		Effect.asSome
 	)
 }
 
@@ -1543,7 +1568,7 @@ const build = Effect.fnUntraced(function* build(
 		plan.kind === "content" ? plan.schemaKey : schemaKeyAt(resolution, childKey(target, "schema"))
 	const objectValue = plan.kind === "style" && (yield* objectValued(resolution, source, limits))
 
-	return yield* Schema.decodeUnknownEffect(Parameter)({
+	return yield* Schema.decodeEffect(Parameter)({
 		deprecated: node.deprecated ?? false,
 		docs: docsOf(reference?.description ?? node.description, reference?.summary),
 		location: node.in,
@@ -1671,52 +1696,58 @@ const sensitiveOf = Effect.fnUntraced(function* sensitiveOf(
 export const normalizeParameter = Effect.fnUntraced(function* normalizeParameter(
 	resolution: Resolution,
 	site: ParameterSite,
-	limits: SchemaLimits = {}
+	limits: SchemaLimits
 ): Effect.fn.Return<ParameterOutcome, ParameterNotReadable> {
 	const source = yield* read(resolution, site)
 	const reason = contractReason(source.node, resolution.line)
 	if (reason !== undefined) {
-		return yield* new ParameterNotReadable({ pointer: site.pointer, reason })
+		return yield* ParameterNotReadable.make({ pointer: site.pointer, reason })
 	}
 
 	const deepObject = source.node.in === "query" && source.node.style === "deepObject"
 	const values = yield* valueTraits(resolution, schemaOf(source), deepObject, limits)
-	const decision = decide(source.node, resolution.line, yield* mediaOf(resolution, source), {
+	const media = yield* mediaOf(resolution, source)
+	const multiple = yield* carriesMultiple(resolution, source)
+	const nested = yield* nestsDeeply(resolution, source)
+	const scalars = yield* scalarsOf(resolution, site, source, limits)
+	const decision = decide(source.node, resolution.line, media, {
 		brackets: site.nonStandard?.deepObjectBrackets === true,
-		multiple: yield* carriesMultiple(resolution, source),
-		nested: yield* nestsDeeply(resolution, source),
+		multiple,
+		nested,
 		nonObject: values.nonObject,
 		primitive: values.primitive,
-		scalars: yield* scalarsOf(resolution, site, source, limits)
+		scalars
 	})
 	const diagnostics = (findings: readonly Finding[]) =>
 		toDiagnostics(resolution, site, source.related, source.node.name, findings)
 	if (Decision.$is("Ignore")(decision)) {
-		return ParameterOutcome.Ignored({ diagnostics: yield* diagnostics(decision.findings) })
+		const ignored = yield* diagnostics(decision.findings)
+
+		return ParameterOutcome.Ignored({ diagnostics: ignored })
 	}
 
 	if (Decision.$is("Refuse")(decision)) {
+		const refused = yield* diagnostics([decision.finding])
+
 		return ParameterOutcome.Refused({
-			diagnostics: yield* diagnostics([decision.finding]),
+			diagnostics: refused,
 			required: source.node.required ?? false
 		})
 	}
 
-	if (Arr.some(schemaSitesOf(resolution, source), (at) => appliesDynamicKeyword(resolution, at))) {
+	if (
+		Arr.some(schemaSitesOf(resolution, source), (at) =>
+			appliesDynamicKeyword(resolution, at, defaultLimits)
+		)
+	) {
 		return ParameterOutcome.Refused({ diagnostics: [], required: source.node.required ?? false })
 	}
 
-	return ParameterOutcome.Implemented({
-		diagnostics: yield* diagnostics(decision.findings),
-		parameter: yield* build(
-			resolution,
-			site,
-			source,
-			decision.plan,
-			limits,
-			yield* sensitiveOf(resolution, source, limits)
-		)
-	})
+	const implemented = yield* diagnostics(decision.findings)
+	const mark = yield* sensitiveOf(resolution, source, limits)
+	const parameter = yield* build(resolution, site, source, decision.plan, limits, mark)
+
+	return ParameterOutcome.Implemented({ diagnostics: implemented, parameter })
 })
 
 /**
@@ -1757,7 +1788,7 @@ export const partHeader = Effect.fnUntraced(function* partHeader(
 	site: CanonicalKey,
 	name: string,
 	origin: Related,
-	limits: SchemaLimits = {}
+	limits: SchemaLimits
 ): Effect.fn.Return<PartHeaderOutcome> {
 	const target = follow(resolution, site)
 	const decoded = yield* nodeIn(resolution, target).pipe(
@@ -1778,15 +1809,18 @@ export const partHeader = Effect.fnUntraced(function* partHeader(
 	}
 
 	const source: Source = { node, reference: referenceIn(resolution, site), related: [], target }
+	const nested = yield* nestsDeeply(resolution, source)
+	const values = yield* valueTraits(resolution, schemaOf(source), false, limits)
 	const traits: Traits = {
 		brackets: false,
 		multiple: false,
-		nested: yield* nestsDeeply(resolution, source),
+		nested,
 		nonObject: false,
-		primitive: (yield* valueTraits(resolution, schemaOf(source), false, {})).primitive,
-		scalars: strictCover
+		primitive: values.primitive,
+		scalars: "strict"
 	}
-	const decision = Option.match(yield* mediaOf(resolution, source), {
+	const media = yield* mediaOf(resolution, source)
+	const decision = Option.match(media, {
 		onNone: () => decideStyle(node, resolution.line, traits),
 		onSome: (content) => decideContent(node, content)
 	})
@@ -1798,7 +1832,11 @@ export const partHeader = Effect.fnUntraced(function* partHeader(
 		return unsupported("The header parameter rules ignore this header.")
 	}
 
-	if (Arr.some(schemaSitesOf(resolution, source), (at) => appliesDynamicKeyword(resolution, at))) {
+	if (
+		Arr.some(schemaSitesOf(resolution, source), (at) =>
+			appliesDynamicKeyword(resolution, at, defaultLimits)
+		)
+	) {
 		return unsupported("The header's schema applies a dynamic keyword.")
 	}
 

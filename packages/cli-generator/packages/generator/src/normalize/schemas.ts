@@ -1,3 +1,4 @@
+import { regex } from "arkregex"
 import {
 	Array as Arr,
 	Effect,
@@ -21,19 +22,17 @@ import type { DocumentUri } from "#model/brands.ts"
 import { makeDiagnostic, sortDiagnostics } from "#model/diagnostic.ts"
 import type { Diagnostic, DiagnosticInput } from "#model/diagnostic.ts"
 import { isSpecificationExtension } from "#model/extension.ts"
-import { isObject, isArray, nodeAt, stringMember } from "#model/json-tree.ts"
+import { isObject, isArray, stringMember } from "#model/json-tree.ts"
 import type { JsonObject } from "#model/json-tree.ts"
 import { methodMembers } from "#model/path-item.ts"
 import { evaluatePointerResult, formatPointer, parsePointerResult } from "#model/pointer.ts"
 import type { Json } from "#model/pointer.ts"
-import { specSectionUrl } from "#model/spec-section.ts"
+import { declaredOpenapi, specSectionUrl } from "#model/spec-section.ts"
 import type { SpecLine } from "#model/spec-section.ts"
 import { nodeIn, nodeOption, referenceIn } from "#normalize/document-set.ts"
 import { defsKey, keyOf } from "#resolve/canonical.ts"
 import type { CanonicalKey } from "#resolve/canonical.ts"
-import { defaultLimits } from "#resolve/index.ts"
 import type { ReferenceKind, Resolution, ResolveLimits } from "#resolve/index.ts"
-import { declaredOpenapi } from "#validate/dispatch.ts"
 
 type Document = typeof DocumentUri.Type
 
@@ -94,23 +93,23 @@ export interface SchemaNormalization extends StoredSchemas {
 /**
  * A conversion or import failure that no D-AD12 class names: a defect in that list (design 3.5).
  */
-export class SchemaImportDefect extends Schema.TaggedError<SchemaImportDefect>()(
-	"SchemaImportDefect",
-	{ key: Schema.String, message: Schema.String }
-) {}
+export class SchemaImportDefect extends Schema.TaggedError<
+	SchemaImportDefect,
+	{ readonly brand: unique symbol }
+>()("SchemaImportDefect", { key: Schema.String, message: Schema.String }) {}
 
 /**
  * A schema walk visited more nodes than the node budget allows (design 3.3, 9 I5).
  */
-export class SchemaBudgetExceeded extends Schema.TaggedError<SchemaBudgetExceeded>()(
-	"SchemaBudgetExceeded",
-	{ limit: Schema.Number }
-) {}
+export class SchemaBudgetExceeded extends Schema.TaggedError<
+	SchemaBudgetExceeded,
+	{ readonly brand: unique symbol }
+>()("SchemaBudgetExceeded", { limit: Schema.Finite }) {}
 
 /**
  * The node budget of one call: `maxNodes` from the resolution limits.
  */
-export type SchemaLimits = Partial<Pick<ResolveLimits, "maxNodes">>
+export type SchemaLimits = Pick<ResolveLimits, "maxNodes">
 
 /**
  * The node budget one call's walks share: every schema or OpenAPI object a walk visits is charged
@@ -123,31 +122,32 @@ export interface Budget {
 }
 
 /**
- * A fresh budget of `maxNodes` from the limits, the resolution default when absent.
+ * A fresh budget of `maxNodes` from the limits.
  */
-export const budgetOf = (limits: SchemaLimits): Budget => ({
-	limit: limits.maxNodes ?? defaultLimits.maxNodes,
-	spent: 0
-})
+export const budgetOf = (limits: SchemaLimits): Budget => ({ limit: limits.maxNodes, spent: 0 })
 
 /**
- * Charges `cost` visits, one by default; false once the budget is spent.
+ * Charges `cost` visits; false once the budget is spent.
  */
-export const charge = (budget: Budget, cost = 1): boolean => {
+const spend = (budget: Budget, cost: number): boolean => {
 	budget.spent += cost
 
 	return budget.spent <= budget.limit
 }
 
+/**
+ * Charges one visit; false once the budget is spent.
+ */
+export const charge = (budget: Budget): boolean => spend(budget, 1)
+
 const within = <A>(budget: Budget, value: A): Effect.Effect<A, SchemaBudgetExceeded> =>
 	budget.spent > budget.limit
-		? Effect.fail(new SchemaBudgetExceeded({ limit: budget.limit }))
+		? Effect.fail(SchemaBudgetExceeded.make({ limit: budget.limit }))
 		: Effect.succeed(value)
 
-const member = (node: Record.ReadonlyRecord<string, Json>, key: string): Json | undefined =>
-	Option.getOrUndefined(Record.get(node, key))
+const member = (node: JsonObject, key: string): Option.Option<Json> => Record.get(node, key)
 
-const strings = (value: Json | undefined): readonly string[] =>
+const strings = (value: Json): readonly string[] =>
 	isArray(value) ? Arr.filter(value, Predicate.isString) : []
 
 const isJson = Schema.is(Schema.Json)
@@ -160,12 +160,12 @@ const sortedKeys = (map: ReadonlyMap<string, unknown>): readonly string[] =>
 const tokensOf = (pointer: string): readonly string[] | undefined =>
 	Result.getOrUndefined(parsePointerResult(pointer))
 
-const childAt = (node: Json | undefined, token: string): Json | undefined => {
+const childAt = (node: Json, token: string): Option.Option<Json> => {
 	if (isObject(node)) {
 		return member(node, token)
 	}
 
-	return isArray(node) ? node[Number(token)] : undefined
+	return isArray(node) ? Option.fromUndefinedOr(node[Number(token)]) : Option.none()
 }
 
 /**
@@ -274,7 +274,7 @@ const forEachSchema = (
 	node: Json,
 	where: Positions,
 	visit: (node: JsonObject, path: readonly string[]) => void,
-	start: readonly string[] = []
+	start: readonly string[]
 ): void => {
 	transformSchema(budget, node, start, where, (current, path) => {
 		visit(current, path)
@@ -299,7 +299,7 @@ type Arity = "list" | "map" | "one"
 
 type Field = readonly [name: string, kind: Kind | "schema", arity: Arity]
 
-const methods = Arr.sort(methodMembers("3.2"), Order.String)
+const methods: readonly string[] = Arr.sort(methodMembers("3.2"), Order.String)
 
 const content: Field = ["content", "mediaType", "map"]
 
@@ -309,7 +309,7 @@ const encodings: readonly Field[] = [
 	["prefixEncoding", "encoding", "list"]
 ]
 
-const layoutFields = new Map<Kind, readonly Field[]>([
+const layoutFields: ReadonlyMap<Kind, readonly Field[]> = new Map<Kind, readonly Field[]>([
 	["callback", []],
 	[
 		"components",
@@ -390,9 +390,14 @@ const walkLayout = (layout: Layout, kind: Kind | "schema", node: Json, pointer: 
 	}
 
 	for (const [name, child, arity] of layoutFields.get(kind) ?? []) {
-		const value = member(node, name)
+		const found = member(node, name)
+		if (Option.isNone(found)) {
+			continue
+		}
+
+		const value = found.value
 		const location = childPointer(pointer, name)
-		if (arity === "one" && value !== undefined) {
+		if (arity === "one") {
 			walkLayout(layout, child, value, location)
 		} else if (arity === "list" && isArray(value)) {
 			layout.structural.add(location)
@@ -418,7 +423,7 @@ const layoutOf = (budget: Budget, value: Json): Layout => {
 /**
  * The layout kind each non-schema reference target starts a walk at.
  */
-const targetKinds: Partial<Record<ReferenceKind, Kind>> = {
+const targetKinds: Readonly<Partial<Record<ReferenceKind, Kind>>> = {
 	callback: "callback",
 	header: "header",
 	mediaType: "mediaType",
@@ -437,10 +442,15 @@ const memberLayouts = (budget: Budget, resolution: Resolution): ReadonlyMap<Docu
 	for (const { kind, target } of resolution.references.values()) {
 		const start = targetKinds[kind]
 		const value = resolution.documents.get(target.document)
-		if (target.document !== resolution.document && start !== undefined && value !== undefined) {
-			const layout = layouts.get(target.document) ?? { budget, roots: [], structural: new Set() }
-			layouts.set(target.document, layout)
-			walkLayout(layout, start, nodeAt(value, target.pointer) ?? null, target.pointer)
+		if (target.document === resolution.document || start === undefined || value === undefined) {
+			continue
+		}
+
+		const layout = layouts.get(target.document) ?? { budget, roots: [], structural: new Set() }
+		layouts.set(target.document, layout)
+		const node = Result.getSuccess(evaluatePointerResult(value, target.pointer))
+		if (Option.isSome(node)) {
+			walkLayout(layout, start, node.value, target.pointer)
 		}
 	}
 
@@ -502,30 +512,27 @@ const convert = (
 	}
 
 	if (!isObject(node)) {
-		return Effect.fail(new SchemaImportDefect({ key, message: "The schema is not an object." }))
+		return Effect.fail(SchemaImportDefect.make({ key, message: "The schema is not an object." }))
 	}
 
 	return Effect.try({
-		catch: (cause) => new SchemaImportDefect({ key, message: messageOf(cause) }),
+		catch: (cause) => SchemaImportDefect.make({ key, message: messageOf(cause) }),
 		try: () => fromOpenApi(line, node)
 	}).pipe(
-		Effect.flatMap((schema) =>
-			isJson(schema)
-				? Effect.succeed(schema)
-				: Effect.fail(new SchemaImportDefect({ key, message: "The conversion is not JSON." }))
+		Effect.filterOrFail(isJson, () =>
+			SchemaImportDefect.make({ key, message: "The conversion is not JSON." })
 		)
 	)
 }
 
-const typesOf = (node: JsonObject): readonly string[] => {
-	const type = member(node, "type")
-
-	return Predicate.isString(type) ? [type] : strings(type)
-}
+const typesOf = (node: JsonObject): readonly string[] =>
+	Option.match(member(node, "type"), {
+		onNone: () => [],
+		onSome: (type) => (Predicate.isString(type) ? [type] : strings(type))
+	})
 
 const factsOf = (node: Json): SchemaFacts => {
 	const object = isObject(node) ? node : {}
-	const properties = member(object, "properties")
 	const ref = stringMember(object, "$ref")
 	const format = stringMember(object, "format")
 
@@ -533,10 +540,13 @@ const factsOf = (node: Json): SchemaFacts => {
 		contentEncoding: stringMember(object, "contentEncoding"),
 		contentMediaType: stringMember(object, "contentMediaType"),
 		format: format === "binary" || format === "byte" ? format : undefined,
-		items: member(object, "items") !== undefined || member(object, "prefixItems") !== undefined,
-		properties: isObject(properties) ? Record.keys(properties) : [],
+		items: Option.isSome(member(object, "items")) || Option.isSome(member(object, "prefixItems")),
+		properties: Option.match(Option.filter(member(object, "properties"), isObject), {
+			onNone: () => [],
+			onSome: (properties) => Record.keys(properties)
+		}),
 		reference: pipe(ref, UndefinedOr.map(referenceKey)),
-		required: strings(member(object, "required")),
+		required: Option.match(member(object, "required"), { onNone: () => [], onSome: strings }),
 		types: typesOf(object)
 	}
 }
@@ -609,7 +619,7 @@ const storeFrom = (
  */
 export const storeSchemas = (
 	resolution: Resolution,
-	limits: SchemaLimits = {}
+	limits: SchemaLimits
 ): Effect.Effect<StoredSchemas, SchemaBudgetExceeded | SchemaImportDefect> => {
 	const budget = budgetOf(limits)
 
@@ -653,15 +663,21 @@ export const schemaKeyAt = (resolution: Resolution, site: CanonicalKey): string 
 		return target ?? own
 	}
 
-	const node = Option.getOrUndefined(nodeOption(resolution, site))
+	const asserting = Option.exists(
+		nodeOption(resolution, site),
+		(node) => isObject(node) && Arr.some(Record.keys(node), asserts)
+	)
 
-	return isObject(node) && Arr.some(Record.keys(node), asserts) ? own : target
+	return asserting ? own : target
 }
 
 /**
  * Inventory rows per keyword, for 3.0 and for 3.1 and 3.2.
  */
-const keywordRows = new Map<string, readonly [row30: string, row31: string]>([
+const keywordRows: ReadonlyMap<string, readonly [row30: string, row31: string]> = new Map<
+	string,
+	readonly [row30: string, row31: string]
+>([
 	["additionalProperties", ["S30-24", "SCH-13"]],
 	["const", ["SCH-28", "SCH-28"]],
 	["contains", ["SCH-12", "SCH-12"]],
@@ -711,7 +727,7 @@ const serverValidated: ReadonlySet<string> = new Set([
  * The dynamic and recursive keywords (D-AD12): refused wherever a schema holds them, and a body
  * schema that applies one is refused with it (SCH-05, 06, 65, 66).
  */
-const dynamicKeywords = new Map([
+const dynamicKeywords: ReadonlyMap<string, string> = new Map([
 	["$dynamicAnchor", "SCH-06/dynamic-anchor"],
 	["$dynamicRef", "SCH-05/dynamic-ref"],
 	["$recursiveAnchor", "SCH-65/recursive-anchor"],
@@ -722,7 +738,7 @@ const dynamicKeywords = new Map([
  * Keywords of other dialects that 3.1 and 3.2 refuse at element scope (SCH-07, SCH-64); a 3.0
  * schema does not read them.
  */
-const otherDialect = new Map([
+const otherDialect: ReadonlyMap<string, string> = new Map([
 	["$vocabulary", "SCH-07/vocabulary"],
 	["dependencies", "SCH-64/dependencies"]
 ])
@@ -749,17 +765,19 @@ const refusedInSource = (
 		const site = sites.get(key) ?? { document: resolution.document, pointer: "" }
 		const tokens = tokensOf(site.pointer)
 		const node = Option.getOrUndefined(nodeOption(resolution, site))
-		if (tokens !== undefined && node !== undefined) {
-			const visit = (current: JsonObject, path: readonly string[]): void => {
-				for (const keyword of Record.keys(current)) {
-					const code = refusedCode(resolution.line, keyword)
-					if (code !== undefined) {
-						found.push([code, { document: site.document, pointer: formatPointer(path) }])
-					}
+		if (tokens === undefined || node === undefined) {
+			continue
+		}
+
+		const visit = (current: JsonObject, path: readonly string[]): void => {
+			for (const keyword of Record.keys(current)) {
+				const code = refusedCode(resolution.line, keyword)
+				if (code !== undefined) {
+					found.push([code, { document: site.document, pointer: formatPointer(path) }])
 				}
 			}
-			forEachSchema(budget, node, where, visit, tokens)
 		}
+		forEachSchema(budget, node, where, visit, tokens)
 	}
 
 	return found
@@ -819,21 +837,25 @@ const holdsDynamicKeyword = (
 export const appliesDynamicKeyword = (
 	resolution: Resolution,
 	site: CanonicalKey,
-	limits: SchemaLimits = {}
+	limits: SchemaLimits
 ): boolean => {
 	const budget = budgetOf(limits)
 	const seen = new Set<string>()
 	const pending = [site]
 	for (let at = pending.pop(); at !== undefined; at = pending.pop()) {
-		if (!seen.has(keyOf(at))) {
-			seen.add(keyOf(at))
+		if (seen.has(keyOf(at))) {
+			continue
+		}
 
-			const scan = holdsDynamicKeyword(budget, resolution, at)
-			if (scan.found) {
-				return true
-			}
+		seen.add(keyOf(at))
 
-			pending.push(...scan.targets)
+		const scan = holdsDynamicKeyword(budget, resolution, at)
+		if (scan.found) {
+			return true
+		}
+
+		for (const target of scan.targets) {
+			pending.push(target)
 		}
 	}
 
@@ -848,10 +870,9 @@ const annotationKeys: ReadonlySet<string> = new Set([
 	"title"
 ])
 
-const isStructured = (value: Json | undefined): boolean => isArray(value) || isObject(value)
+const isStructured = (value: Json): boolean => isArray(value) || isObject(value)
 
-const isEmptySchema = (value: Json | undefined): boolean =>
-	isObject(value) && Record.keys(value).length === 0
+const isEmptySchema = (value: Json): boolean => isObject(value) && Record.isEmptyRecord(value)
 
 const inTypes = (types: readonly string[], value: Json): boolean => {
 	if (value === null) {
@@ -878,34 +899,35 @@ const isAnnotationOnly = (branch: JsonObject): boolean =>
  * The values of a `oneOf`/`anyOf` whose branches are all primitive `const` values with annotations
  * only (the S7 rule).
  */
-const constValues = (branches: Json | undefined): readonly Json[] | undefined => {
+const constValues = (branches: Json): Option.Option<readonly Json[]> => {
 	if (!isArray(branches) || branches.length === 0) {
-		return undefined
+		return Option.none()
 	}
 
 	const values: Json[] = []
 	for (const branch of branches) {
-		const value = isObject(branch) ? member(branch, "const") : undefined
-		if (!isObject(branch) || value === undefined || isStructured(value)) {
-			return undefined
+		if (!isObject(branch) || !isAnnotationOnly(branch)) {
+			return Option.none()
 		}
 
-		if (!isAnnotationOnly(branch)) {
-			return undefined
+		const value = member(branch, "const")
+		if (Option.isNone(value) || isStructured(value.value)) {
+			return Option.none()
 		}
 
-		values.push(value)
+		values.push(value.value)
 	}
 
-	return values
+	return Option.some(values)
 }
 
 const outsideSafeRange = (node: JsonObject): boolean =>
-	Arr.some(["exclusiveMaximum", "exclusiveMinimum", "maximum", "minimum"], (keyword) => {
-		const bound = member(node, keyword)
-
-		return Predicate.isNumber(bound) && Math.abs(bound) > Number.MAX_SAFE_INTEGER
-	})
+	Arr.some(["exclusiveMaximum", "exclusiveMinimum", "maximum", "minimum"], (keyword) =>
+		Option.exists(
+			member(node, keyword),
+			(bound) => Predicate.isNumber(bound) && Math.abs(bound) > Number.MAX_SAFE_INTEGER
+		)
+	)
 
 const isInt64 = (node: JsonObject): boolean =>
 	typesOf(node).includes("integer") &&
@@ -936,18 +958,19 @@ const filterEnum = (
 	recorder: Recorder,
 	node: JsonObject,
 	path: readonly string[]
-): readonly Json[] | undefined => {
-	const members = member(node, "enum")
+): Option.Option<readonly Json[]> => {
+	const found = member(node, "enum")
 	const enumPath = [...path, "enum"]
 	const types = typesOf(node)
-	if (!isArray(members)) {
-		return undefined
+	if (Option.isNone(found) || !isArray(found.value)) {
+		return Option.none()
 	}
 
+	const members = found.value
 	if (Arr.some(members, isStructured)) {
 		record(recorder, "remove", `${rowOf(recorder.line, "enum")}/not-asserted`, enumPath)
 
-		return undefined
+		return Option.none()
 	}
 
 	const kept = Arr.filter(members, (value, index) => {
@@ -960,26 +983,28 @@ const filterEnum = (
 		return inside
 	})
 
-	return kept.length > 0 ? kept : undefined
+	return Arr.isReadonlyArrayNonEmpty(kept) ? Option.some(kept) : Option.none()
 }
+
+const isReadOnlyNode = (node: JsonObject): boolean =>
+	Option.exists(member(node, "readOnly"), (value) => value === true)
 
 /**
  * Whether a property schema is `readOnly: true`, itself or as the target of its `$ref`.
  */
-const isReadOnly = (definitions: ReadonlyMap<string, Json>, schema: Json | undefined): boolean => {
+const isReadOnly = (definitions: ReadonlyMap<string, Json>, schema: Json): boolean => {
 	if (!isObject(schema)) {
 		return false
 	}
 
-	const ref = stringMember(schema, "$ref")
-	const key = pipe(ref, UndefinedOr.map(referenceKey))
-	const target = pipe(
-		key,
-		UndefinedOr.map((name) => definitions.get(name))
+	const key = Option.fromUndefinedOr(
+		pipe(stringMember(schema, "$ref"), UndefinedOr.map(referenceKey))
 	)
+	const target = Option.flatMap(key, (name) => Option.fromUndefinedOr(definitions.get(name)))
 
 	return (
-		member(schema, "readOnly") === true || (isObject(target) && member(target, "readOnly") === true)
+		isReadOnlyNode(schema) ||
+		Option.exists(target, (node) => isObject(node) && isReadOnlyNode(node))
 	)
 }
 
@@ -993,18 +1018,20 @@ const isReadOnly = (definitions: ReadonlyMap<string, Json>, schema: Json | undef
 const filterRequired = (
 	recorder: Recorder,
 	node: JsonObject,
-	path: readonly string[]
-): Json | undefined => {
-	const names = member(node, "required")
+	path: readonly string[],
+	names: Json
+): Option.Option<Json> => {
 	const properties = member(node, "properties")
-	if (!isArray(names) || !isObject(properties)) {
-		return names
+	if (!isArray(names) || Option.isNone(properties) || !isObject(properties.value)) {
+		return Option.some(names)
 	}
 
+	const declared = properties.value
 	const code = recorder.line === "3.0" ? "S30-31/response-only" : "SCH-45/read-only-required"
 	const kept = Arr.filter(names, (name, index) => {
 		const readOnly =
-			Predicate.isString(name) && isReadOnly(recorder.definitions, member(properties, name))
+			Predicate.isString(name) &&
+			Option.exists(member(declared, name), (schema) => isReadOnly(recorder.definitions, schema))
 		if (readOnly) {
 			record(recorder, "drop-member", code, [...path, "required", String(index)])
 		}
@@ -1012,7 +1039,7 @@ const filterRequired = (
 		return !readOnly
 	})
 
-	return kept.length > 0 ? kept : undefined
+	return Arr.isReadonlyArrayNonEmpty(kept) ? Option.some(kept) : Option.none()
 }
 
 /**
@@ -1085,13 +1112,16 @@ const filterNode =
 		let enumValues = filterEnum(recorder, node, path)
 		const rewritten = new Set<string>()
 		for (const keyword of ["oneOf", "anyOf"]) {
-			const values = constValues(member(node, keyword))
-			if (values !== undefined) {
+			const values = Option.flatMap(member(node, keyword), constValues)
+			if (Option.isSome(values)) {
 				rewritten.add(keyword)
-				enumValues =
-					enumValues === undefined
-						? values
-						: Arr.filter(enumValues, (item) => values.includes(item))
+				enumValues = Option.some(
+					Option.match(enumValues, {
+						onNone: () => values.value,
+						onSome: (current) =>
+							Arr.filter(current, (item) => Arr.some(values.value, (value) => value === item))
+					})
+				)
 			}
 		}
 
@@ -1099,7 +1129,7 @@ const filterNode =
 			record(recorder, "retype", "FMT-02/int64-range", path)
 		}
 
-		const patterned = member(node, "patternProperties") !== undefined
+		const patterned = Option.isSome(member(node, "patternProperties"))
 		const kept: [string, Json][] = []
 		for (const [keyword, value] of Record.toEntries(node)) {
 			const code = removalCode(recorder.line, node, keyword, value)
@@ -1113,17 +1143,17 @@ const filterNode =
 			} else if (keyword === "type" && int64) {
 				kept.push([keyword, retype(value)])
 			} else if (keyword === "required") {
-				const required = filterRequired(recorder, node, path)
-				if (required !== undefined) {
-					kept.push([keyword, required])
+				const required = filterRequired(recorder, node, path, value)
+				if (Option.isSome(required)) {
+					kept.push([keyword, required.value])
 				}
 			} else if (keyword !== "enum" && !rewritten.has(keyword)) {
 				kept.push([keyword, value])
 			}
 		}
 
-		if (enumValues !== undefined) {
-			kept.push(["enum", enumValues])
+		if (Option.isSome(enumValues)) {
+			kept.push(["enum", enumValues.value])
 		}
 
 		return Record.fromEntries(kept)
@@ -1138,13 +1168,19 @@ interface Edge {
 const edgesOf = (budget: Budget, definitions: ReadonlyMap<string, Json>): readonly Edge[] => {
 	const edges: Edge[] = []
 	for (const key of sortedKeys(definitions)) {
-		forEachSchema(budget, definitions.get(key) ?? {}, inPlace, (node, path) => {
-			const ref = stringMember(node, "$ref")
-			const to = pipe(ref, UndefinedOr.map(referenceKey))
-			if (to !== undefined && definitions.has(to)) {
-				edges.push({ from: key, path, to })
-			}
-		})
+		forEachSchema(
+			budget,
+			definitions.get(key) ?? {},
+			inPlace,
+			(node, path) => {
+				const ref = stringMember(node, "$ref")
+				const to = pipe(ref, UndefinedOr.map(referenceKey))
+				if (to !== undefined && definitions.has(to)) {
+					edges.push({ from: key, path, to })
+				}
+			},
+			[]
+		)
 	}
 
 	return edges
@@ -1251,7 +1287,11 @@ const importClasses: readonly (readonly [prefix: string, code: (line: SpecLine) 
 
 const quoted = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.String))
 
-const pathToken = /\[(?<token>"(?:[^"\\]|\\.)*"|\d+)\]/gu
+/**
+ * One token of the importer's error path, in brackets: a JSON string or an index. Splitting a path
+ * at it yields the text around the tokens with each token at an odd index.
+ */
+const pathToken = regex('\\[("(?:[^"\\\\]|\\\\.)*"|\\d+)\\]', "u")
 
 /**
  * The importer's error path (a line `  at ["definitions"]["A"][0]`) as tokens.
@@ -1259,11 +1299,10 @@ const pathToken = /\[(?<token>"(?:[^"\\]|\\.)*"|\d+)\]/gu
 const importPath = (message: string): readonly string[] => {
 	const [, location = ""] = Str.split(message, "\n  at ")
 
-	return Arr.map([...location.matchAll(pathToken)], (match) => {
-		const token = match.groups?.token ?? ""
-
-		return Str.startsWith('"')(token) ? Option.getOrElse(quoted(token), () => token) : token
-	})
+	return Arr.map(
+		Arr.filter(Str.split(location, pathToken), (_token, index) => index % 2 === 1),
+		(token) => (Str.startsWith('"')(token) ? Option.getOrElse(quoted(token), () => token) : token)
+	)
 }
 
 /**
@@ -1273,7 +1312,7 @@ const keywordChild = (
 	node: JsonObject,
 	keyword: string,
 	name: string
-): readonly [child: Json | undefined, width: number] => {
+): readonly [child: Option.Option<Json>, width: number] => {
 	const container = member(node, keyword)
 	if (copyPositions.one.has(keyword)) {
 		return [container, 1]
@@ -1281,7 +1320,9 @@ const keywordChild = (
 
 	const indexed = copyPositions.list.has(keyword) || copyPositions.map.has(keyword)
 
-	return indexed ? [childAt(container, name), 2] : [undefined, 1]
+	return indexed
+		? [Option.flatMap(container, (found) => childAt(found, name)), 2]
+		: [Option.none(), 1]
 }
 
 /**
@@ -1292,12 +1333,12 @@ const deepestSchema = (node: Json, tokens: readonly string[]): readonly string[]
 	let current = node
 	let consumed = 0
 	while (consumed < tokens.length && isObject(current)) {
-		const [child, width] = keywordChild(current, tokens[consumed] ?? "", tokens[consumed + 1] ?? "")
-		if (child === undefined || !(isObject(child) || Predicate.isBoolean(child))) {
+		const [found, width] = keywordChild(current, tokens[consumed] ?? "", tokens[consumed + 1] ?? "")
+		if (Option.isNone(found) || !(isObject(found.value) || Predicate.isBoolean(found.value))) {
 			break
 		}
 
-		current = child
+		current = found.value
 		consumed += width
 	}
 
@@ -1314,9 +1355,9 @@ const multiDocument = (
 	}
 
 	const entries = Arr.flatMap(keys, (key): [string, JsonObject][] => {
-		const node = definitions.get(key)
+		const node = Option.filter(Option.fromUndefinedOr(definitions.get(key)), isObject)
 
-		return isObject(node) ? [[key, node]] : []
+		return Option.isSome(node) ? [[key, node.value]] : []
 	})
 
 	return {
@@ -1341,7 +1382,7 @@ const importOnce = (
 ): Effect.Effect<Option.Option<string>> => {
 	const multi = multiDocument(definitions)
 	if (multi === undefined) {
-		return Effect.succeed(Option.none())
+		return Effect.succeedNone
 	}
 
 	return Effect.try({ catch: messageOf, try: () => importSchemas(multi) }).pipe(
@@ -1357,21 +1398,21 @@ const importEdit = (
 	line: SpecLine,
 	definitions: ReadonlyMap<string, Json>,
 	message: string
-): SchemaEdit | undefined => {
-	const [first = ""] = Str.split(message, "\n")
-	const found = importClasses.find(([prefix]) => Str.startsWith(prefix)(first))
+): Option.Option<SchemaEdit> => {
+	const [first] = Str.split(message, "\n")
+	const found = Arr.findFirst(importClasses, ([prefix]) => Str.startsWith(prefix)(first))
 	const [root, name = "", ...tokens] = importPath(message)
 	const key = root === "schemas" ? (sortedKeys(definitions)[Number(name)] ?? "") : name
 	const node = definitions.get(key)
-	if (found === undefined || node === undefined) {
-		return undefined
+	if (Option.isNone(found) || node === undefined) {
+		return Option.none()
 	}
 
 	const path = root === "definitions" ? deepestSchema(node, tokens) : []
 
 	return Equal.equals(replaceAt(node, path), node)
-		? undefined
-		: { action: "replace", code: found[1](line), key, path }
+		? Option.none()
+		: Option.some({ action: "replace", code: found.value[1](line), key, path })
 }
 
 /**
@@ -1387,18 +1428,19 @@ const importCopy = Effect.fnUntraced(function* importCopy(
 ): Effect.fn.Return<EditedCopy, SchemaBudgetExceeded | SchemaImportDefect> {
 	const definitions = new Map(initial)
 	const edits: SchemaEdit[] = []
-	charge(budget, definitions.size)
+	spend(budget, definitions.size)
 	yield* within(budget, definitions)
 	let failure = yield* importOnce(definitions)
 	while (Option.isSome(failure)) {
-		const edit = importEdit(line, definitions, failure.value)
-		if (edit === undefined) {
-			return yield* new SchemaImportDefect({ key: "", message: failure.value })
+		const found = importEdit(line, definitions, failure.value)
+		if (Option.isNone(found)) {
+			return yield* SchemaImportDefect.make({ key: "", message: failure.value })
 		}
 
+		const edit = found.value
 		edits.push(edit)
 		definitions.set(edit.key, replaceAt(definitions.get(edit.key) ?? {}, edit.path))
-		charge(budget, definitions.size)
+		spend(budget, definitions.size)
 		yield* within(budget, definitions)
 		failure = yield* importOnce(definitions)
 	}
@@ -1422,7 +1464,7 @@ const importCopy = Effect.fnUntraced(function* importCopy(
 export const validationCopy = Effect.fnUntraced(function* validationCopy(
 	line: SpecLine,
 	definitions: ReadonlyMap<string, Json>,
-	limits: SchemaLimits = {}
+	limits: SchemaLimits
 ): Effect.fn.Return<ValidationCopy, SchemaBudgetExceeded | SchemaImportDefect> {
 	const budget = budgetOf(limits)
 	const edits: SchemaEdit[] = []
@@ -1451,7 +1493,7 @@ interface Rule {
 
 const keywordsSection = "json-schema-keywords"
 
-const rules = new Map<string, Rule>([
+const rules: ReadonlyMap<string, Rule> = new Map<string, Rule>([
 	[
 		"alias-cycle",
 		{
@@ -1611,11 +1653,11 @@ const sourcePointer = (value: Json, base: string, path: readonly string[]): stri
 		return ""
 	}
 
-	let current = Result.getOrUndefined(evaluatePointerResult(value, base))
+	let current = Result.getSuccess(evaluatePointerResult(value, base))
 	let consumed = 0
 	for (const token of path) {
-		current = childAt(current, token)
-		if (current === undefined) {
+		current = Option.flatMap(current, (node) => childAt(node, token))
+		if (Option.isNone(current)) {
 			break
 		}
 
@@ -1658,7 +1700,7 @@ const diagnosticsOf = (
 		code: string,
 		at: CanonicalKey,
 		rule: Rule | undefined,
-		keyword?: string
+		keyword: Option.Option<string>
 	): void => {
 		const [, name = ""] = Str.split(code, "/")
 		const identity = [code, at.document, at.pointer] as const
@@ -1668,8 +1710,10 @@ const diagnosticsOf = (
 			records.push({
 				code,
 				document: at.document,
-				element:
-					name === "not-asserted" && keyword !== undefined ? `Schema ${keyword}` : rule.element,
+				element: Option.match(
+					Option.filter(keyword, () => name === "not-asserted"),
+					{ onNone: () => rule.element, onSome: (found) => `Schema ${found}` }
+				),
 				message: rule.message,
 				openapi,
 				pointer: at.pointer,
@@ -1689,18 +1733,23 @@ const diagnosticsOf = (
 			edit.code,
 			{ document: site.document, pointer },
 			rule,
-			edit.action === "remove" ? edit.path.at(-1) : undefined
+			edit.action === "remove" ? Arr.last(edit.path) : Option.none()
 		)
 	}
 
 	for (const [code, at] of refused) {
-		report(code, at, rules.get(Str.split(code, "/")[1] ?? ""))
+		report(code, at, rules.get(Str.split(code, "/")[1] ?? ""), Option.none())
 	}
 
 	for (const reference of resolution.references.values()) {
 		if (reference.kind === "schema" && reference.defsKey === undefined) {
 			const row = resolution.line === "3.0" ? "REF-02" : "SCH-03"
-			report(`${row}/non-schema-target`, reference.site, rules.get("non-schema-target"))
+			report(
+				`${row}/non-schema-target`,
+				reference.site,
+				rules.get("non-schema-target"),
+				Option.none()
+			)
 		}
 	}
 
@@ -1719,7 +1768,7 @@ const diagnosticsOf = (
  */
 export const normalizeSchemas = Effect.fnUntraced(function* normalizeSchemas(
 	resolution: Resolution,
-	limits: SchemaLimits = {}
+	limits: SchemaLimits
 ): Effect.fn.Return<SchemaNormalization, SchemaBudgetExceeded | SchemaImportDefect> {
 	const budget = budgetOf(limits)
 	const sites = yield* within(budget, sitesOf(budget, resolution))
@@ -1743,21 +1792,30 @@ const forCodeGeneration: Visit = (node) =>
 				return value
 			}
 
-			const names = Arr.sort(Record.keys(value), byString)
-
-			return Record.fromEntries(Arr.map(names, (name) => [name, member(value, name) ?? {}]))
+			return Record.fromEntries(
+				Arr.sort(
+					Record.toEntries(value),
+					Order.mapInput(byString, ([name]: readonly [string, Json]) => name)
+				)
+			)
 		}
 	)
 
 const referencedKeys = (budget: Budget, node: Json): readonly string[] => {
 	const keys: string[] = []
-	forEachSchema(budget, node, copyPositions, (current) => {
-		const ref = stringMember(current, "$ref")
-		const key = pipe(ref, UndefinedOr.map(referenceKey))
-		if (key !== undefined) {
-			keys.push(key)
-		}
-	})
+	forEachSchema(
+		budget,
+		node,
+		copyPositions,
+		(current) => {
+			const ref = stringMember(current, "$ref")
+			const key = pipe(ref, UndefinedOr.map(referenceKey))
+			if (key !== undefined) {
+				keys.push(key)
+			}
+		},
+		[]
+	)
 
 	return keys
 }
@@ -1770,7 +1828,7 @@ const referencedKeys = (budget: Budget, node: Json): readonly string[] => {
 export const codeGenerationCopy = (
 	validation: ReadonlyMap<string, Json>,
 	roots: readonly string[],
-	limits: SchemaLimits = {}
+	limits: SchemaLimits
 ): Effect.Effect<ReadonlyMap<string, Json>, SchemaBudgetExceeded> => {
 	const budget = budgetOf(limits)
 	const reached = new Set<string>()
@@ -1780,8 +1838,11 @@ export const codeGenerationCopy = (
 		if (!reached.has(key)) {
 			reached.add(key)
 
-			const refs = referencedKeys(budget, validation.get(key) ?? {})
-			pending.push(...Arr.filter(refs, (ref) => validation.has(ref) && !reached.has(ref)))
+			for (const ref of referencedKeys(budget, validation.get(key) ?? {})) {
+				if (validation.has(ref) && !reached.has(ref)) {
+					pending.push(ref)
+				}
+			}
 		}
 
 		key = pending.pop()

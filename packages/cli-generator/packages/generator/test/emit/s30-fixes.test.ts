@@ -7,7 +7,7 @@ import type { Json } from "#model/pointer.ts"
 import { planNames } from "#names/index.ts"
 import { normalize } from "#normalize/index.ts"
 import { normalizeSchemas } from "#normalize/schemas.ts"
-import { resolve } from "#resolve/index.ts"
+import { defaultLimits, resolve } from "#resolve/index.ts"
 
 // The 3.0 schema fixes of m2-s30fx and m2-s30ro, in process: a `default` that does not conform to
 // its schema's type is refused at element scope (S30-27, D-OC3, D-SCH4), the operation is still
@@ -133,7 +133,7 @@ const emitted = (line: Line, properties: Json): string => {
 	const { resolution, result } = normalizedApi(line, properties)
 	const { api } = result
 	const plan = Effect.runSync(planNames(api, { ...config, strict: false }))
-	const { validation } = Effect.runSync(normalizeSchemas(resolution))
+	const { validation } = Effect.runSync(normalizeSchemas(resolution, defaultLimits))
 	const output = Effect.runSync(
 		emitCli({ api, config: config.config, plan, validationEdits: validation.edits })
 	)

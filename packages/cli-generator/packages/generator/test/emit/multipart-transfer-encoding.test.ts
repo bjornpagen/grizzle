@@ -82,7 +82,7 @@ const generate = (line: Line, value: Schema.Json) =>
 	Effect.gen(function* generated() {
 		const resolution = yield* resolve({ document, line, value })
 		const { api } = yield* normalize(resolution, { checkFindings: [], config, configDocument })
-		const schemas = yield* normalizeSchemas(resolution)
+		const schemas = yield* normalizeSchemas(resolution, defaultLimits)
 		const plan = yield* planNames(api, { config, configDocument, strict: false })
 		const context = { config, configDocument, document, openapi: api.openapi }
 		const bound = (servers: readonly Server[]) => boundOrigins(servers, context).origins

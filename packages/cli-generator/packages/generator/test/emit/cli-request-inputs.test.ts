@@ -81,7 +81,7 @@ const { api: normalized } = await Effect.runPromise(
 	normalize(resolution, { checkFindings: [], config, configDocument })
 )
 
-const schemas = await Effect.runPromise(normalizeSchemas(resolution))
+const schemas = await Effect.runPromise(normalizeSchemas(resolution, defaultLimits))
 
 const encodedApi = Schema.encodeSync(Api)(normalized)
 

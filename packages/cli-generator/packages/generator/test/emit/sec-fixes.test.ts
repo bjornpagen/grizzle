@@ -1,4 +1,4 @@
-import { Effect, Schema } from "effect"
+import { Effect, Option, Schema } from "effect"
 import { describe, expect, test } from "vitest"
 import { checkSpecText } from "#check/index.ts"
 import { operationHelp } from "#emit/help.ts"
@@ -36,7 +36,11 @@ const run = (line: SpecLine, members: { readonly [key: string]: Json }, operatio
 			})
 			const checked = yield* checkSpecText(resolution)
 			const schemes = yield* normalizeSecuritySchemes(resolution, undefined, checked)
-			const policy = yield* normalizeSecurityPolicy(resolution, schemes, operation)
+			const policy = yield* normalizeSecurityPolicy(
+				resolution,
+				schemes,
+				Option.fromUndefinedOr(operation)
+			)
 
 			return { checked, policy }
 		})
@@ -121,7 +125,7 @@ describe("one diagnostic per undeclared requirement name", () => {
 					[]
 				)
 
-				return yield* normalizeSecurityPolicy(resolution, schemes, "/paths/~1a/get")
+				return yield* normalizeSecurityPolicy(resolution, schemes, Option.some("/paths/~1a/get"))
 			})
 		)
 

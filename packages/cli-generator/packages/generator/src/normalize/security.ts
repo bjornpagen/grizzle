@@ -9,7 +9,6 @@ import {
 	String as Str,
 	UndefinedOr
 } from "effect"
-import { memoize } from "effect/Function"
 import type { AuthorConfig } from "#model/author-config.ts"
 import { CookieName, HeaderName, stripUnsafeText } from "#model/brands.ts"
 import type { DocumentUri } from "#model/brands.ts"
@@ -18,12 +17,11 @@ import type { Diagnostic } from "#model/diagnostic.ts"
 import { SecurityPolicy, SecurityScheme } from "#model/entities.ts"
 import { childPointer, formatPointer, parsePointerResult } from "#model/pointer.ts"
 import type { Json } from "#model/pointer.ts"
-import { specSectionUrl } from "#model/spec-section.ts"
+import { declaredOpenapi, specSectionUrl } from "#model/spec-section.ts"
 import type { SpecLine } from "#model/spec-section.ts"
 import { follow, nodeOption } from "#normalize/document-set.ts"
 import type { Resolution } from "#resolve/index.ts"
 import { implicitComponent } from "#resolve/index.ts"
-import { declaredOpenapi } from "#validate/dispatch.ts"
 
 /**
  * The declared schemes of a document. `unusable` names schemes that were declared but refused, so
@@ -132,7 +130,10 @@ const decodeHeaderName = Schema.decodeUnknownOption(HeaderName)
 
 const decodeSecurityScheme = Schema.decodeUnknownOption(SecurityScheme)
 
-const flowRules = new Map([
+const flowRules: ReadonlyMap<
+	string,
+	{ readonly anchor: string; readonly permanent: boolean; readonly row: string }
+> = new Map([
 	[
 		"authorizationCode",
 		{ anchor: "oauth-flows-authorization-code", permanent: false, row: "OAF-05" }
@@ -165,10 +166,15 @@ const toDiagnostic = (resolution: Resolution, finding: Finding): Effect.Effect<D
 		message: finding.message,
 		openapi,
 		pointer: finding.pointer,
-		related: finding.related?.map((site) => ({
-			document: site.document ?? resolution.document,
-			pointer: site.pointer
-		})),
+		related: pipe(
+			finding.related,
+			UndefinedOr.map((sites) =>
+				Arr.map(sites, (site) => ({
+					document: site.document ?? resolution.document,
+					pointer: site.pointer
+				}))
+			)
+		),
 		scope: finding.scope ?? "element",
 		severity: "refusal",
 		specSection: specSectionUrl(resolution.line, finding.anchor)
@@ -219,7 +225,7 @@ const acquisitionFindings = (fields: SchemeFields, pointer: string): readonly Fi
 	})
 }
 
-const apiKeyRows = new Map([
+const apiKeyRows: ReadonlyMap<string, string> = new Map([
 	["cookie", "SSC-14"],
 	["header", "SSC-12"],
 	["query", "SSC-13"]
@@ -301,7 +307,7 @@ const kindOf = (
 	}
 
 	if (fields.type === "http") {
-		const scheme = fields.scheme?.toLowerCase()
+		const scheme = pipe(fields.scheme, UndefinedOr.map(Str.toLowerCase))
 
 		return { kind: { scheme, type: "http" }, row: scheme === "basic" ? "SSC-15" : "SSC-16" }
 	}
@@ -350,7 +356,7 @@ const modelFields = (name: string, site: Site, fields: Option.Option<SchemeField
 	}
 
 	const node = fields.value
-	const scheme = node.scheme?.toLowerCase()
+	const scheme = pipe(node.scheme, UndefinedOr.map(Str.toLowerCase))
 	if (node.type === "http" && scheme !== "basic" && scheme !== "bearer") {
 		return {
 			findings: [
@@ -603,10 +609,9 @@ interface Lookup {
 }
 
 /**
- * Built once per SchemeNormalization (memoized by identity), so a requirement entry costs one map
- * probe.
+ * Built once per policy, so a requirement entry costs one map probe.
  */
-const lookupOf = memoize((schemes: SchemeNormalization): Lookup => ({
+const lookupOf = (schemes: SchemeNormalization): Lookup => ({
 	author: {
 		declared: new Map(Arr.map(schemes.schemes, (scheme) => [scheme.name, scheme])),
 		unusable: new Set(schemes.unusable)
@@ -620,7 +625,7 @@ const lookupOf = memoize((schemes: SchemeNormalization): Lookup => ({
 		),
 		unusable: new Set(Arr.filter(schemes.unusable, (name) => !schemes.added.has(name)))
 	}
-}))
+})
 
 /**
  * A 3.2 requirement name that is not a component name resolves as a URI inside the set. The result
@@ -653,12 +658,15 @@ interface Source {
  */
 const effectiveList = (
 	resolution: Resolution,
-	operation: string | undefined
+	operation: Option.Option<string>
 ): { readonly list: readonly Json[]; readonly source: Source } | undefined => {
 	const candidates: readonly Source[] = [
-		...(operation === undefined
-			? []
-			: [{ pointer: childPointer(operation, "security"), rows: ["SEC-01", "SEC-04"] }]),
+		...Option.toArray(
+			Option.map(operation, (pointer): Source => ({
+				pointer: childPointer(pointer, "security"),
+				rows: ["SEC-01", "SEC-04"]
+			}))
+		),
 		{ pointer: "/security", rows: ["SEC-01", "SEC-03"] }
 	]
 	for (const source of candidates) {
@@ -767,13 +775,13 @@ const conflictRefusal = (
 const judge = (
 	resolution: Resolution,
 	schemes: SchemeNormalization,
+	lookup: Lookup,
 	entries: readonly (readonly [string, readonly string[]])[],
 	pointer: string,
 	supplied: boolean
 ): Judged => {
 	const findings: Finding[] = []
 	let refused = false
-	const lookup = lookupOf(schemes)
 	const { declared: byName, unusable } = supplied ? lookup.author : lookup.spec
 	const used: { readonly scheme: string; readonly scopes: readonly string[] }[] = []
 	const reached = new Map<string, SecurityScheme>()
@@ -823,9 +831,10 @@ const judge = (
 export const normalizeSecurityPolicy = Effect.fnUntraced(function* normalizeSecurityPolicy(
 	resolution: Resolution,
 	schemes: SchemeNormalization,
-	operation?: string
+	operation: Option.Option<string>
 ): Effect.fn.Return<PolicyNormalization> {
 	const spec = effectiveList(resolution, operation)
+	const lookup = lookupOf(schemes)
 	/**
 	 * `security.add` applies as if declared, only where the spec declares no security (D-OQ10).
 	 */
@@ -843,7 +852,10 @@ export const normalizeSecurityPolicy = Effect.fnUntraced(function* normalizeSecu
 			spec,
 			UndefinedOr.map((declared) => ({ ...declared, document: resolution.document }))
 		)
-	const source = effective?.source ?? { pointer: operation ?? "", rows: ["SEC-08"] }
+	const source = effective?.source ?? {
+		pointer: Option.getOrElse(operation, () => ""),
+		rows: ["SEC-08"]
+	}
 	const judged = Arr.map(effective?.list ?? [], (json, index) => {
 		const pointer = childPointer(source.pointer, String(index))
 		const entries = decodeRequirement(json).pipe(
@@ -862,7 +874,7 @@ export const normalizeSecurityPolicy = Effect.fnUntraced(function* normalizeSecu
 						}
 					]
 				}
-			: judge(resolution, schemes, entries.value, pointer, supplied !== undefined)
+			: judge(resolution, schemes, lookup, entries.value, pointer, supplied !== undefined)
 	})
 	const diagnostics = yield* Effect.forEach(
 		Arr.flatMap(judged, (one) => one.findings),
@@ -872,7 +884,7 @@ export const normalizeSecurityPolicy = Effect.fnUntraced(function* normalizeSecu
 				supplied === undefined ? finding : { ...finding, document: supplied.document }
 			)
 	)
-	const policy = yield* Schema.decodeUnknownEffect(SecurityPolicy)({
+	const policy = yield* Schema.decodeEffect(SecurityPolicy)({
 		alternatives: Arr.getSomes(
 			Arr.map(judged, (one) => Option.map(Option.fromUndefinedOr(one.use), (uses) => ({ uses })))
 		),

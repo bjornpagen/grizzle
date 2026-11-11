@@ -477,7 +477,7 @@ const parameterOutcome = Effect.fnUntraced(function* parameterOutcome(
 		return cached
 	}
 
-	const normalized = yield* normalizeParameter(shared.resolution, site)
+	const normalized = yield* normalizeParameter(shared.resolution, site, shared.limits)
 	const outcome = yield* withFormRules(shared, site, normalized)
 	shared.cache.set(entry.pointer, outcome)
 
@@ -854,7 +854,11 @@ const assembleOne = Effect.fnUntraced(function* assembleOne(
 		childPointer(raw.pointer, "responses"),
 		operationInfo(raw)
 	)
-	const policy = yield* normalizeSecurityPolicy(resolution, shared.schemes, raw.pointer)
+	const policy = yield* normalizeSecurityPolicy(
+		resolution,
+		shared.schemes,
+		Option.some(raw.pointer)
+	)
 	const servers = yield* effectiveServersOf(shared, raw)
 	const site = { operation: operationInfo(raw), pointer: raw.pointer }
 	const naming = namingOf(raw)

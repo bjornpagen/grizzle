@@ -212,7 +212,7 @@ const generated = await Effect.runPromise(
 			config: configOff,
 			configDocument
 		})
-		const schemas = yield* normalizeSchemas(resolution)
+		const schemas = yield* normalizeSchemas(resolution, defaultLimits)
 		const planOf = (model: Api) => planNames(model, { config, configDocument, strict: false })
 		const context = { config, configDocument, document, openapi: markedApi.openapi }
 		const bound = (servers: readonly Server[]) => boundOrigins(servers, context).origins

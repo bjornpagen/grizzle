@@ -1,6 +1,6 @@
 {
 	"typecheck": {
-		"total": 8487,
+		"total": 8429,
 		"files": {
 			"packages/generator/src/emit/api.ts": 125,
 			"packages/generator/src/emit/cli.ts": 123,
@@ -9,11 +9,7 @@
 			"packages/generator/src/model/author-config.ts": 11,
 			"packages/generator/src/model/entities.ts": 14,
 			"packages/generator/src/names/reserved.ts": 1,
-			"packages/generator/src/normalize/bodies.ts": 26,
-			"packages/generator/src/normalize/parameters.ts": 14,
 			"packages/generator/src/normalize/responses.ts": 19,
-			"packages/generator/src/normalize/schemas.ts": 13,
-			"packages/generator/src/normalize/security.ts": 5,
 			"packages/generator/src/runtime-src/domain/errors.ts": 22,
 			"packages/generator/src/runtime-src/runtime/client.ts": 32,
 			"packages/generator/src/runtime-src/runtime/input.ts": 41,
@@ -271,16 +267,12 @@
 		}
 	},
 	"superlint": {
-		"total": 187,
+		"total": 159,
 		"files": {
 			"packages/generator/src/emit/api.ts": 8,
 			"packages/generator/src/emit/cli.ts": 16,
 			"packages/generator/src/emit/readme.ts": 2,
 			"packages/generator/src/model/json-tree.ts": 3,
-			"packages/generator/src/normalize/bodies.ts": 4,
-			"packages/generator/src/normalize/parameters.ts": 3,
-			"packages/generator/src/normalize/schemas.ts": 19,
-			"packages/generator/src/normalize/security.ts": 2,
 			"packages/generator/src/runtime-src/runtime/auth.ts": 1,
 			"packages/generator/src/runtime-src/runtime/client.ts": 1,
 			"packages/generator/src/runtime-src/runtime/input.ts": 4,
@@ -344,7 +336,7 @@
 		}
 	},
 	"oxlint": {
-		"total": 4441,
+		"total": 4413,
 		"files": {
 			"packages/generator/src/emit/api.ts": 110,
 			"packages/generator/src/emit/cli.ts": 149,
@@ -353,11 +345,7 @@
 			"packages/generator/src/model/author-config.ts": 32,
 			"packages/generator/src/model/entities.ts": 19,
 			"packages/generator/src/names/reserved.ts": 2,
-			"packages/generator/src/normalize/bodies.ts": 7,
-			"packages/generator/src/normalize/parameters.ts": 8,
 			"packages/generator/src/normalize/responses.ts": 19,
-			"packages/generator/src/normalize/schemas.ts": 12,
-			"packages/generator/src/normalize/security.ts": 1,
 			"packages/generator/src/runtime-src/domain/errors.ts": 3,
 			"packages/generator/src/runtime-src/runtime/client.ts": 13,
 			"packages/generator/src/runtime-src/runtime/input.ts": 76,

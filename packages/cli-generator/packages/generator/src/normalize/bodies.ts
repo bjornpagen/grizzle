@@ -1,3 +1,4 @@
+import { regex } from "arkregex"
 import {
 	Array as Arr,
 	Data,
@@ -39,18 +40,17 @@ import {
 	formStyleRefusal,
 	partHeader,
 	PartHeaderOutcome,
-	ScalarCover,
 	scalarChoiceCode,
 	scalarCover,
 	styleNames,
 	typeNames
 } from "#normalize/parameters.ts"
-import type { StyleName } from "#normalize/parameters.ts"
+import type { ScalarCover, StyleName } from "#normalize/parameters.ts"
 import { appliesDynamicKeyword, budgetOf, charge, schemaKeyAt } from "#normalize/schemas.ts"
 import type { Budget } from "#normalize/schemas.ts"
 import { keyOf } from "#resolve/canonical.ts"
 import type { CanonicalKey } from "#resolve/canonical.ts"
-import { allOfReferrers, defaultLimits, implicitComponent } from "#resolve/index.ts"
+import { allOfReferrers, implicitComponent } from "#resolve/index.ts"
 import type { ResolveLimits, Resolution, ResolvedReference } from "#resolve/index.ts"
 import { mediaEssence } from "#runtime-src/runtime/sequential.ts"
 
@@ -88,7 +88,10 @@ export const BodyOutcome = Data.taggedEnum<BodyOutcome>()
  * The site is not a Request Body Object the earlier stages could have passed: validation or
  * resolution should have stopped it.
  */
-export class BodyNotReadable extends Schema.TaggedError<BodyNotReadable>()("BodyNotReadable", {
+export class BodyNotReadable extends Schema.TaggedError<
+	BodyNotReadable,
+	{ readonly brand: unique symbol }
+>()("BodyNotReadable", {
 	pointer: Schema.String,
 	reason: Schema.Literals(["media-type-not-an-object", "not-a-request-body"])
 }) {}
@@ -96,9 +99,10 @@ export class BodyNotReadable extends Schema.TaggedError<BodyNotReadable>()("Body
 /**
  * Schema inspection visited more nodes than the node budget allows.
  */
-export class BodyNodeBudget extends Schema.TaggedError<BodyNodeBudget>()("BodyNodeBudget", {
-	diagnostic: Diagnostic
-}) {}
+export class BodyNodeBudget extends Schema.TaggedError<
+	BodyNodeBudget,
+	{ readonly brand: unique symbol }
+>()("BodyNodeBudget", { diagnostic: Diagnostic }) {}
 
 const ObjectValue = Schema.Record(Schema.String, Schema.Unknown)
 
@@ -267,18 +271,28 @@ interface Finding {
 	readonly wire?: string
 }
 
+/**
+ * A refusal that tells the author what to do instead.
+ */
 const refusal = (
 	code: string,
 	anchor: string,
 	element: string,
 	message: string,
 	at: CanonicalKey,
-	hint?: string
-): Finding => {
-	const base: Finding = { anchor, at, code, element, message, severity: "refusal" }
+	hint: string
+): Finding => ({ anchor, at, code, element, hint, message, severity: "refusal" })
 
-	return hint === undefined ? base : { ...base, hint }
-}
+/**
+ * A refusal whose message is the whole story.
+ */
+const plainRefusal = (
+	code: string,
+	anchor: string,
+	element: string,
+	message: string,
+	at: CanonicalKey
+): Finding => ({ anchor, at, code, element, message, severity: "refusal" })
 
 const notice = (
 	code: string,
@@ -354,7 +368,7 @@ const budgetFailure = (walk: Walk): Effect.Effect<never, BodyNodeBudget> =>
 		scope: "document",
 		severity: "refusal",
 		specSection: specSectionUrl(walk.resolution.line, "reference-object")
-	}).pipe(Effect.flatMap((diagnostic) => Effect.fail(new BodyNodeBudget({ diagnostic }))))
+	}).pipe(Effect.flatMap((diagnostic) => Effect.fail(BodyNodeBudget.make({ diagnostic }))))
 
 /**
  * The schema and its `allOf` members in document order, each distinct schema once, so a graph
@@ -381,7 +395,9 @@ const flatten = Effect.fnUntraced(function* flatten(
 			found.push({ at, node })
 
 			const members = Arr.map(node.allOf ?? [], (_, index) => childKey(at, "allOf", String(index)))
-			pending.push(...Arr.reverse(members))
+			for (const member of Arr.reverse(members)) {
+				pending.push(member)
+			}
 		}
 
 		next = pending.pop()
@@ -446,7 +462,12 @@ const membersOf = Effect.fnUntraced(function* membersOf(
 
 const memberSchema = (members: Members, target: Target): CanonicalKey | undefined =>
 	target.kind === "property"
-		? members.properties.find(([name]) => name === target.name)?.[1]
+		? Option.getOrUndefined(
+				Option.map(
+					Arr.findFirst(members.properties, ([name]) => name === target.name),
+					([, schema]) => schema
+				)
+			)
 		: members.prefixItems[target.index]
 
 /**
@@ -485,7 +506,7 @@ const requirementOf = Effect.fnUntraced(function* requirementOf(
 	): Effect.fn.Return<void, BodyNodeBudget> {
 		const at = settle(walk.resolution, start)
 		if (!charge(walk.budget)) {
-			yield* budgetFailure(walk)
+			return yield* budgetFailure(walk)
 		}
 
 		const key = keyOf(at)
@@ -537,7 +558,7 @@ const noFacts: Facts = {
 const factsOf = Effect.fnUntraced(function* facts(
 	walk: Walk,
 	schema: CanonicalKey | undefined,
-	depth = 0
+	depth: number
 ): Effect.fn.Return<Facts, BodyNodeBudget> {
 	if (schema === undefined) {
 		return noFacts
@@ -601,12 +622,12 @@ type ArrayDefault = (line: SpecLine, facts: Facts) => Default
  */
 const defaultOfTypes = (line: SpecLine, facts: Facts, arrayDefault: ArrayDefault): Default => {
 	const named = Arr.filter(facts.type, (name) => name !== "null")
-	const names = named.length === 0 ? facts.type : named
+	const names: readonly string[] = named.length === 0 ? facts.type : named
 	const decided = Arr.dedupeWith(
 		Arr.map(names, (name) =>
 			name === "array" ? arrayDefault(line, facts) : scalarDefault(line, name, facts)
 		),
-		(left, right) => left.type === right.type
+		(left: Default, right: Default) => left.type === right.type
 	)
 	const [only] = decided
 
@@ -663,7 +684,7 @@ interface PlainNested {
 }
 
 interface PlainRule extends PlainNested {
-	contentEncoding?: Transfer
+	contentEncoding?: "base64"
 	nested?: readonly PlainNested[]
 	nestedItem?: PlainNested
 	nonStandard?: "deepObjectBrackets"
@@ -786,7 +807,7 @@ const contentTypeIgnored = (actual: CanonicalKey): Finding =>
 
 const invalidContentType = (input: RuleInput): Finding =>
 	dropping(
-		refusal(
+		plainRefusal(
 			"ENC-02/invalid-content-type",
 			"encoding-content-type",
 			"Encoding contentType",
@@ -826,11 +847,17 @@ const isObjectPart = Effect.fnUntraced(function* isObjectPart(
 		return false
 	}
 
-	if (facts.type.includes("object")) {
+	if (Arr.contains(facts.type, "object")) {
 		return true
 	}
 
-	return facts.type.length === 0 && (yield* membersOf(walk, schema)).properties.length > 0
+	if (facts.type.length > 0) {
+		return false
+	}
+
+	const members = yield* membersOf(walk, schema)
+
+	return members.properties.length > 0
 })
 
 interface Typing {
@@ -851,7 +878,7 @@ const typingOf = Effect.fnUntraced(function* typingOf(
 	facts: Effect.Effect<Facts, BodyNodeBudget>
 ): Effect.fn.Return<Typing, BodyNodeBudget> {
 	const given = explicitStyle(node)
-	const hasStyle = Record.keys(given).length > 0
+	const hasStyle = Struct.keys(given).length > 0
 	const findings: Finding[] = []
 	if (hasStyle && input.honorsStyle) {
 		if (node.contentType !== undefined) {
@@ -872,7 +899,8 @@ const typingOf = Effect.fnUntraced(function* typingOf(
 	}
 
 	if (node.contentType === undefined) {
-		const fallback = defaultFor(ctx.line, yield* facts, input)
+		const known = yield* facts
+		const fallback = defaultFor(ctx.line, known, input)
 
 		return {
 			contentType: [fallback.type],
@@ -914,7 +942,12 @@ const partTypingOf = Effect.fnUntraced(function* partTypingOf(
 ): Effect.fn.Return<Typing, BodyNodeBudget> {
 	const typing = yield* typingOf(ctx, input, node, Effect.succeed(facts))
 	const xml = Arr.some(typing.contentType, isXmlType)
-	if (typing.refused || !xml || !(yield* isObjectPart(ctx.walk, input.schema, facts))) {
+	if (typing.refused || !xml) {
+		return typing
+	}
+
+	const objectPart = yield* isObjectPart(ctx.walk, input.schema, facts)
+	if (!objectPart) {
 		return typing
 	}
 
@@ -981,7 +1014,7 @@ const headersOf = Effect.fnUntraced(function* headersOf(
 		if (Option.isNone(decodeHeaderName(name))) {
 			findings.push(
 				dropping(
-					refusal(
+					plainRefusal(
 						"ENC-03/invalid-header-name",
 						"encoding-headers",
 						"Encoding header name",
@@ -1106,7 +1139,7 @@ const nestingRefusal = (
 	element: string,
 	message: string,
 	actual: CanonicalKey
-): Finding => dropping(refusal(code, "nested-encoding", element, message, actual))
+): Finding => dropping(plainRefusal(code, "nested-encoding", element, message, actual))
 
 interface Nesting {
 	readonly findings: readonly Finding[]
@@ -1206,10 +1239,8 @@ const nestingOf = Effect.fnUntraced(function* nestingOf(
 	}
 })
 
-type Transfer = "base64"
-
 interface TransferResult {
-	readonly encoding: Transfer | undefined
+	readonly encoding: "base64" | undefined
 	readonly finding: Finding | undefined
 	readonly row: string | undefined
 }
@@ -1299,7 +1330,7 @@ const transferOf = (ctx: Context, input: RuleInput, facts: Facts): TransferResul
 	return {
 		...noTransfer,
 		finding: dropping(
-			refusal(
+			plainRefusal(
 				`${found.row}/nested-transfer-encoding`,
 				transferAnchor(ctx.line),
 				"Transfer encoding of a nested part",
@@ -1316,8 +1347,11 @@ const TransferHeaderSchema = Schema.Struct({
 })
 
 const transferHeaderOf = (node: EncodingNode): string | undefined =>
-	Record.keys(node.headers ?? {}).find(
-		(name) => Str.toLowerCase(name) === "content-transfer-encoding"
+	Option.getOrUndefined(
+		Arr.findFirst(
+			Record.keys(node.headers ?? {}),
+			(name) => Str.toLowerCase(name) === "content-transfer-encoding"
+		)
 	)
 
 /**
@@ -1345,9 +1379,14 @@ const transferConflict = Effect.fnUntraced(function* transferConflict(
 			schema.const,
 			UndefinedOr.map((value) => Arr.filter([value], Predicate.isString))
 		),
-		enum: schema.enum?.filter(Predicate.isString)
+		enum: pipe(
+			schema.enum,
+			UndefinedOr.map((values) => Arr.filter(values, Predicate.isString))
+		)
 	}
-	const keyword = (["const", "enum"] as const).find((field) => !admitsBase64(declared[field]))
+	const keyword = Option.getOrUndefined(
+		Arr.findFirst(["const", "enum"] as const, (field) => !admitsBase64(declared[field]))
+	)
 
 	return pipe(
 		keyword,
@@ -1389,7 +1428,7 @@ const buildRule = Effect.fnUntraced(function* buildRule(
 	buildAll: BuildAll
 ): Effect.fn.Return<RuleResult, BodyNodeBudget> {
 	const node: EncodingNode = input.node ?? {}
-	const facts = yield* factsOf(ctx.walk, input.schema)
+	const facts = yield* factsOf(ctx.walk, input.schema, 0)
 	const typing = yield* partTypingOf(ctx, input, node, facts)
 	if (typing.refused) {
 		return { findings: typing.findings, rule: undefined }
@@ -1465,7 +1504,10 @@ const buildAll: BuildAll = Effect.fnUntraced(function* all(
 	const rules: PlainRule[] = []
 	for (const input of inputs) {
 		const result = yield* buildRule(ctx, input, buildAll)
-		findings.push(...result.findings)
+		for (const finding of result.findings) {
+			findings.push(finding)
+		}
+
 		if (result.rule === undefined) {
 			return { findings, refused: true, rules: [] }
 		}
@@ -1494,7 +1536,7 @@ interface AlternativeResult {
 	readonly findings: readonly Finding[]
 }
 
-const stopAlternative = (...findings: readonly Finding[]): AlternativeResult => ({
+const stopAlternative = (findings: readonly Finding[]): AlternativeResult => ({
 	alternative: undefined,
 	findings
 })
@@ -1580,16 +1622,15 @@ const readMedia = (
 	resolution: Resolution,
 	mediaSite: CanonicalKey
 ): Effect.Effect<Media, BodyNotReadable> => {
-	const unreadable = new BodyNotReadable({
-		pointer: mediaSite.pointer,
-		reason: "media-type-not-an-object"
-	})
 	const home = follow(resolution, mediaSite)
 
 	return nodeIn(resolution, home).pipe(
 		Effect.flatMap(Schema.decodeUnknownEffect(MediaTypeObject)),
-		Effect.mapError(() => unreadable),
-		Effect.map((node) => ({ home, node }))
+		Effect.mapBoth({
+			onFailure: () =>
+				BodyNotReadable.make({ pointer: mediaSite.pointer, reason: "media-type-not-an-object" }),
+			onSuccess: (node) => ({ home, node })
+		})
 	)
 }
 
@@ -1664,7 +1705,7 @@ const partsBlocker = (line: SpecLine, media: Media): Finding | undefined => {
 	const { home, node } = media
 	const positional = node.prefixEncoding !== undefined || node.itemEncoding !== undefined
 	if (node.schema === undefined && line !== "3.2") {
-		return refusal(
+		return plainRefusal(
 			"ENC-33/missing-schema",
 			"encoding-multipart-media-types",
 			"Multipart media type without a schema",
@@ -1674,7 +1715,7 @@ const partsBlocker = (line: SpecLine, media: Media): Finding | undefined => {
 	}
 
 	return line === "3.2" && node.encoding !== undefined && positional
-		? refusal(
+		? plainRefusal(
 				"MED-13/encoding-with-positional",
 				"media-type-encoding",
 				"Media type encoding with prefixEncoding or itemEncoding",
@@ -1701,7 +1742,7 @@ const unknownKeys = (line: SpecLine, media: Media, members: Members): Keys => {
 			return {
 				findings: [
 					dropping(
-						refusal(
+						plainRefusal(
 							"MED-11/unknown-property",
 							"media-type-encoding",
 							"Media type encoding key",
@@ -1848,7 +1889,9 @@ const isArrayBody = Effect.fnUntraced(function* isArrayBody(
 		return true
 	}
 
-	return typesOf(yield* flatten(walk, schema)).includes("array")
+	const nodes = yield* flatten(walk, schema)
+
+	return Arr.contains(typesOf(nodes), "array")
 })
 
 /**
@@ -1863,7 +1906,13 @@ const isObjectBody = Effect.fnUntraced(function* isObjectBody(
 		return false
 	}
 
-	return members.properties.length > 0 || typesOf(yield* flatten(walk, schema)).includes("object")
+	if (members.properties.length > 0) {
+		return true
+	}
+
+	const nodes = yield* flatten(walk, schema)
+
+	return Arr.contains(typesOf(nodes), "object")
 })
 
 interface PartStyles {
@@ -1884,13 +1933,15 @@ const partStyles = Effect.fnUntraced(function* partStyles(
 	findings: readonly Finding[]
 ): Effect.fn.Return<PartStyles, BodyNodeBudget> {
 	const named = new Map(
-		Arr.flatMap(inputs, (input) =>
-			input.target.kind === "property" ? [[keyOf(input.actual), input.target.name] as const] : []
+		Arr.flatMap(inputs, (input): readonly (readonly [string, string])[] =>
+			input.target.kind === "property" ? [[keyOf(input.actual), input.target.name]] : []
 		)
 	)
-	const nameOf = (finding: Finding): string | undefined =>
-		finding.code === unsupportedPartStyleCode ? named.get(keyOf(finding.at)) : undefined
-	const refusedFields = Arr.flatMap(findings, (finding) => nameOf(finding) ?? [])
+	const nameOf = (finding: Finding): Option.Option<string> =>
+		finding.code === unsupportedPartStyleCode
+			? Option.fromUndefinedOr(named.get(keyOf(finding.at)))
+			: Option.none()
+	const refusedFields = Arr.getSomes(Arr.map(findings, nameOf))
 	if (schema === undefined || refusedFields.length === 0) {
 		return { drops: false, findings, refusedFields: [] }
 	}
@@ -1902,11 +1953,12 @@ const partStyles = Effect.fnUntraced(function* partStyles(
 
 	return {
 		drops,
-		findings: Arr.map(findings, (finding) => {
-			const name = nameOf(finding)
-
-			return name === undefined ? finding : moved(finding, name)
-		}),
+		findings: Arr.map(findings, (finding) =>
+			Option.match(nameOf(finding), {
+				onNone: () => finding,
+				onSome: (name) => moved(finding, name)
+			})
+		),
 		refusedFields: drops ? [] : refusedFields
 	}
 })
@@ -2067,7 +2119,8 @@ const isNested = Effect.fnUntraced(function* isNested(
 		...(isObjectValue(node.additionalProperties) ? [childKey(at, "additionalProperties")] : [])
 	])
 	for (const member of members) {
-		if (compound(typesOf(yield* flatten(walk, member)))) {
+		const reached = yield* flatten(walk, member)
+		if (compound(typesOf(reached))) {
 			return true
 		}
 	}
@@ -2115,7 +2168,7 @@ const scalarCoverOf = (
 	serialization: PlainSerialization | undefined
 ): Effect.Effect<ScalarCover> =>
 	serialization?.style !== "deepObject" || input.schema === undefined
-		? Effect.succeed(ScalarCover.Strict())
+		? Effect.succeed("strict")
 		: scalarCover(ctx.resolution, input.schema, ctx.site.nonStandard, {
 				maxNodes: ctx.walk.budget.limit
 			})
@@ -2136,16 +2189,15 @@ const styleRefusalOf = (
 			}).pipe(
 				Effect.map(
 					Option.map((found) =>
-						dropping(
-							refusal(
-								found.code,
-								found.anchor,
-								"Encoding style under form-urlencoded",
-								found.message,
-								input.actual,
-								found.hint
-							)
-						)
+						dropping({
+							anchor: found.anchor,
+							at: input.actual,
+							code: found.code,
+							element: "Encoding style under form-urlencoded",
+							...(found.hint === undefined ? {} : { hint: found.hint }),
+							message: found.message,
+							severity: "refusal"
+						})
 					)
 				)
 			)
@@ -2199,14 +2251,22 @@ const coveredDeepObject = (
 	input: RuleInput,
 	serialization: PlainSerialization | undefined,
 	cover: ScalarCover
-): Effect.Effect<DeepObjectAction, BodyNodeBudget> =>
-	ScalarCover.$match(cover, {
-		Covered: ({ nested }): Effect.Effect<DeepObjectAction, BodyNodeBudget> =>
-			Effect.succeed(nested ? "mark" : "none"),
-		Strict: (): Effect.Effect<DeepObjectAction, BodyNodeBudget> =>
-			deepObjectOf(ctx, input, serialization),
-		Uncovered: (): Effect.Effect<DeepObjectAction, BodyNodeBudget> => Effect.succeed("refuse")
-	})
+): Effect.Effect<DeepObjectAction, BodyNodeBudget> => {
+	switch (cover) {
+		case "scalars": {
+			return Effect.succeed("none")
+		}
+		case "scalarsAndNested": {
+			return Effect.succeed("mark")
+		}
+		case "strict": {
+			return deepObjectOf(ctx, input, serialization)
+		}
+		case "uncovered": {
+			return Effect.succeed("refuse")
+		}
+	}
+}
 
 /**
  * One form property's rule. Style fields apply on every line (ENC-12; 3.0 per ENC-14); without
@@ -2220,7 +2280,7 @@ const formRule = Effect.fnUntraced(function* formRule(
 	input: RuleInput
 ): Effect.fn.Return<RuleResult, BodyNodeBudget> {
 	const node: EncodingNode = input.node ?? {}
-	const typing = yield* typingOf(ctx, input, node, factsOf(ctx.walk, input.schema))
+	const typing = yield* typingOf(ctx, input, node, factsOf(ctx.walk, input.schema, 0))
 	if (typing.refused) {
 		return { findings: typing.findings, rule: undefined }
 	}
@@ -2230,9 +2290,8 @@ const formRule = Effect.fnUntraced(function* formRule(
 	 * would refuse; the style table refuses nothing else for deepObject (design 6.1 Scalar switch).
 	 */
 	const cover = yield* scalarCoverOf(ctx, input, typing.serialization)
-	const inapplicable = ScalarCover.$is("Strict")(cover)
-		? yield* styleRefusalOf(ctx, input, typing.serialization)
-		: Option.none()
+	const inapplicable =
+		cover === "strict" ? yield* styleRefusalOf(ctx, input, typing.serialization) : Option.none()
 	if (Option.isSome(inapplicable)) {
 		return { findings: [...typing.findings, inapplicable.value], rule: undefined }
 	}
@@ -2243,13 +2302,13 @@ const formRule = Effect.fnUntraced(function* formRule(
 	}
 
 	const explicit = typing.serialization === undefined && node.contentType !== undefined
-	const fallback = explicit
-		? defaultFor(ctx.line, yield* factsOf(ctx.walk, input.schema), input)
-		: undefined
+	const facts = explicit ? yield* factsOf(ctx.walk, input.schema, 0) : noFacts
+	const fallback = explicit ? defaultFor(ctx.line, facts, input) : undefined
 	const [given] = typing.contentType
 	if (
 		fallback !== undefined &&
-		(typing.contentType.length !== 1 || given?.toLowerCase() !== fallback.type)
+		(typing.contentType.length !== 1 ||
+			pipe(given, UndefinedOr.map(Str.toLowerCase)) !== fallback.type)
 	) {
 		return {
 			findings: [...typing.findings, formContentTypeRefusal(input, fallback.type)],
@@ -2277,7 +2336,7 @@ const formRule = Effect.fnUntraced(function* formRule(
 		rule.nonStandard = "deepObjectBrackets"
 	}
 
-	const covered = ScalarCover.$is("Covered")(cover)
+	const covered = cover === "scalars" || cover === "scalarsAndNested"
 	if (covered) {
 		rule.nonStandardScalars = "deepObjectScalars"
 	}
@@ -2354,7 +2413,10 @@ const formParts = Effect.fnUntraced(function* formParts(
 	let requirement: Requirement | undefined
 	for (const input of propertyInputs(media, members, true, false)) {
 		const result = yield* formRule(ctx, input)
-		findings.push(...result.findings)
+		for (const finding of result.findings) {
+			findings.push(finding)
+		}
+
 		if (result.rule !== undefined) {
 			rules.push(result.rule)
 			continue
@@ -2426,7 +2488,7 @@ const normalizeAlternative = Effect.fnUntraced(function* normalizeAlternative(
 	const { line, resolution } = ctx
 	const mediaSite = childKey(body, "content", key)
 	if (Option.isNone(decodeMediaRange(key))) {
-		return stopAlternative()
+		return stopAlternative([])
 	}
 
 	const base = mediaEssence(key)
@@ -2435,7 +2497,7 @@ const normalizeAlternative = Effect.fnUntraced(function* normalizeAlternative(
 	const { home, node } = media
 	const parts = yield* partsOf(ctx, media, base, codec)
 	if (parts.refused) {
-		return stopAlternative(...anchorDrops(home, parts.findings))
+		return stopAlternative(anchorDrops(home, parts.findings))
 	}
 
 	/**
@@ -2449,7 +2511,7 @@ const normalizeAlternative = Effect.fnUntraced(function* normalizeAlternative(
 			)
 	const limits = { maxNodes: ctx.walk.budget.limit }
 	if (Arr.some(schemaSites, (site) => appliesDynamicKeyword(resolution, site, limits))) {
-		return stopAlternative()
+		return stopAlternative([])
 	}
 
 	const result: PlainAlternative = {
@@ -2497,23 +2559,19 @@ const normalizeAlternative = Effect.fnUntraced(function* normalizeAlternative(
  */
 const underMediaSite = (
 	resolution: Resolution,
-	mediaSite: CanonicalKey | undefined,
+	mediaSite: CanonicalKey,
 	at: CanonicalKey
-): CanonicalKey | undefined => {
-	if (mediaSite === undefined) {
-		return undefined
-	}
-
+): Option.Option<CanonicalKey> => {
 	const home = follow(resolution, mediaSite)
 	const below = isPointerWithin(home.pointer, at.pointer)
 	if (keyOf(home) === keyOf(mediaSite) || at.document !== home.document || !below) {
-		return undefined
+		return Option.none()
 	}
 
-	return {
+	return Option.some({
 		document: mediaSite.document,
 		pointer: `${mediaSite.pointer}${Str.slice(home.pointer.length)(at.pointer)}`
-	}
+	})
 }
 
 /**
@@ -2527,17 +2585,19 @@ const underMediaSite = (
 const toDiagnostics = (
 	ctx: Context,
 	findings: readonly Finding[],
-	mediaSite?: CanonicalKey
+	mediaSite: Option.Option<CanonicalKey>
 ): Effect.Effect<readonly Diagnostic[]> =>
 	Effect.forEach(findings, (item) => {
-		const viaEntry = underMediaSite(ctx.resolution, mediaSite, item.at)
-		const own = viaEntry ?? item.at
+		const viaEntry = Option.flatMap(mediaSite, (entry) =>
+			underMediaSite(ctx.resolution, entry, item.at)
+		)
+		const own = Option.getOrElse(viaEntry, () => item.at)
 		/**
 		 * Placed away from its own location, the element names it first; under a referenced body,
 		 * the same place below the body's content entry follows.
 		 */
-		const moved = ctx.reference !== undefined || viaEntry !== undefined
-		const bodyEntry = ctx.reference === undefined || viaEntry === undefined ? [] : [viaEntry]
+		const moved = ctx.reference !== undefined || Option.isSome(viaEntry)
+		const bodyEntry = ctx.reference === undefined ? [] : Option.toArray(viaEntry)
 		const related = [...(moved ? [item.at] : []), ...bodyEntry, ...(item.related ?? [])]
 
 		return diagnosticOf({
@@ -2558,7 +2618,7 @@ const toDiagnostics = (
 	}).pipe(Effect.orDie)
 
 const emptyContent = (line: SpecLine, at: CanonicalKey): Finding =>
-	refusal(
+	plainRefusal(
 		"RQB-07/empty-content",
 		line === "3.0" ? "request-body-object" : "request-body-content",
 		"Request body content",
@@ -2627,6 +2687,11 @@ const entrySchemas = (resolution: Resolution): readonly Component[] => {
 }
 
 /**
+ * The `/allOf/<i>` step that ends a referring site's pointer.
+ */
+const allOfMember = regex("/allOf/\\d+$", "u")
+
+/**
  * The entry components whose own `allOf[<i>]` references `root` directly (DSC-11).
  */
 const allOfChildren = (
@@ -2636,7 +2701,7 @@ const allOfChildren = (
 ): readonly CanonicalKey[] => {
 	const parents = new Set(
 		Arr.map(allOfReferrers(resolution).get(keyOf(root)) ?? [], (site) =>
-			keyOf({ document: site.document, pointer: site.pointer.replace(/\/allOf\/\d+$/u, "") })
+			keyOf({ document: site.document, pointer: Str.replace(allOfMember, "")(site.pointer) })
 		)
 	)
 
@@ -2738,7 +2803,7 @@ export const hintDiscriminators: (
 
 	const plain = yield* Schema.encodeEffect(Body)(body)
 
-	return yield* Schema.decodeUnknownEffect(Body)({
+	return yield* Schema.decodeEffect(Body)({
 		...plain,
 		alternatives: Arr.map(plain.alternatives, (alternative, index) => {
 			const found = hints[index]
@@ -2758,15 +2823,16 @@ export const hintDiscriminators: (
 export const normalizeBody = Effect.fnUntraced(function* normalizeBody(
 	resolution: Resolution,
 	site: BodySite,
-	limits: ResolveLimits = defaultLimits
+	limits: ResolveLimits
 ): Effect.fn.Return<BodyOutcome, BodyNodeBudget | BodyNotReadable> {
-	const unreadable = new BodyNotReadable({ pointer: site.pointer, reason: "not-a-request-body" })
 	const use = { document: resolution.document, pointer: site.pointer }
 	const reference = referenceIn(resolution, use)
 	const target = follow(resolution, use)
 	const node = yield* nodeIn(resolution, target).pipe(
 		Effect.flatMap(Schema.decodeUnknownEffect(RequestBodyObject)),
-		Effect.mapError(() => unreadable)
+		Effect.mapError(() =>
+			BodyNotReadable.make({ pointer: site.pointer, reason: "not-a-request-body" })
+		)
 	)
 	const walk: Walk = { budget: budgetOf({ maxNodes: limits.maxNodes }), resolution, site }
 	const ctx: Context = { line: resolution.line, reference, resolution, site, walk }
@@ -2774,13 +2840,14 @@ export const normalizeBody = Effect.fnUntraced(function* normalizeBody(
 	const keys = Record.keys(node.content)
 	if (keys.length === 0) {
 		const empty = emptyContent(resolution.line, childKey(target, "content"))
+		const diagnostics = yield* toDiagnostics(ctx, [empty], Option.none())
 
-		return BodyOutcome.Refused({ diagnostics: yield* toDiagnostics(ctx, [empty]), required })
+		return BodyOutcome.Refused({ diagnostics, required })
 	}
 
 	const results = yield* Effect.forEach(keys, (key) => normalizeAlternative(ctx, target, key))
 	const placed = yield* Effect.forEach(results, (result, index) =>
-		toDiagnostics(ctx, result.findings, childKey(target, "content", keys[index] ?? ""))
+		toDiagnostics(ctx, result.findings, Option.some(childKey(target, "content", keys[index] ?? "")))
 	)
 	const diagnostics = placed.flat()
 	const alternatives = Arr.getSomes(
@@ -2790,7 +2857,7 @@ export const normalizeBody = Effect.fnUntraced(function* normalizeBody(
 		return BodyOutcome.Refused({ diagnostics, required })
 	}
 
-	const body = yield* Schema.decodeUnknownEffect(Body)({
+	const body = yield* Schema.decodeEffect(Body)({
 		alternatives,
 		docs: docsOf(reference?.description ?? node.description, reference?.summary),
 		origin: { document: resolution.document, pointer: site.pointer },
@@ -2829,7 +2896,7 @@ export const formContentRules = Effect.fnUntraced(function* formContentRules(
 	resolution: Resolution,
 	site: BodySite,
 	mediaType: string,
-	limits: ResolveLimits = defaultLimits
+	limits: ResolveLimits
 ): Effect.fn.Return<FormContentOutcome, BodyNodeBudget | BodyNotReadable> {
 	if (codecOf(mediaEssence(mediaType)) !== "form") {
 		return FormContentOutcome.Implemented({ diagnostics: [], encoding: [] })
@@ -2843,15 +2910,19 @@ export const formContentRules = Effect.fnUntraced(function* formContentRules(
 	const media = yield* readMedia(resolution, mediaSite)
 	const parts = yield* formParts(ctx, media, false)
 	if (parts.refused) {
-		return FormContentOutcome.Refused({
-			diagnostics: yield* toDiagnostics(ctx, anchorDrops(media.home, parts.findings), mediaSite)
-		})
+		const refused = yield* toDiagnostics(
+			ctx,
+			anchorDrops(media.home, parts.findings),
+			Option.some(mediaSite)
+		)
+
+		return FormContentOutcome.Refused({ diagnostics: refused })
 	}
 
-	return FormContentOutcome.Implemented({
-		diagnostics: yield* toDiagnostics(ctx, parts.findings, mediaSite),
-		encoding: yield* Schema.decodeUnknownEffect(Schema.Array(EncodingRule))(parts.encoding).pipe(
-			Effect.orDie
-		)
-	})
+	const diagnostics = yield* toDiagnostics(ctx, parts.findings, Option.some(mediaSite))
+	const encoding = yield* Schema.decodeEffect(Schema.Array(EncodingRule))(parts.encoding).pipe(
+		Effect.orDie
+	)
+
+	return FormContentOutcome.Implemented({ diagnostics, encoding })
 })

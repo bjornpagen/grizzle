@@ -6,7 +6,7 @@ import type { Json } from "#model/pointer.ts"
 import type { SpecLine } from "#model/spec-section.ts"
 import { normalizeParameter } from "#normalize/parameters.ts"
 import type { ParameterOutcome } from "#normalize/parameters.ts"
-import { resolve } from "#resolve/index.ts"
+import { defaultLimits, resolve } from "#resolve/index.ts"
 
 const entry = Schema.decodeUnknownSync(DocumentUri)("file:///spec/openapi.json")
 
@@ -35,7 +35,9 @@ const normalize = (line: SpecLine, parameter: Json, components: Members = {}): P
 	}
 	const resolution = Effect.runSync(resolve({ document: entry, line, value }))
 
-	return Effect.runSync(normalizeParameter(resolution, { openapi: openapi[line], pointer: site }))
+	return Effect.runSync(
+		normalizeParameter(resolution, { openapi: openapi[line], pointer: site }, defaultLimits)
+	)
 }
 
 const implemented = (line: SpecLine, parameter: Json, components: Members = {}) => {
@@ -135,7 +137,9 @@ const reasonOf = (line: SpecLine, parameter: Json): string => {
 	}
 	const resolution = Effect.runSync(resolve({ document: entry, line, value }))
 	const failure = Effect.runSync(
-		Effect.flip(normalizeParameter(resolution, { openapi: openapi[line], pointer: site }))
+		Effect.flip(
+			normalizeParameter(resolution, { openapi: openapi[line], pointer: site }, defaultLimits)
+		)
 	)
 
 	return `${failure._tag}:${failure.reason}`
@@ -1027,7 +1031,11 @@ const switched = (parameter: Json, nonStandard: Switches): ParameterOutcome => {
 	const resolution = Effect.runSync(resolve({ document: entry, line: "3.2", value }))
 
 	return Effect.runSync(
-		normalizeParameter(resolution, { nonStandard, openapi: openapi["3.2"], pointer: site })
+		normalizeParameter(
+			resolution,
+			{ nonStandard, openapi: openapi["3.2"], pointer: site },
+			defaultLimits
+		)
 	)
 }
 

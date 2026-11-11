@@ -1,4 +1,4 @@
-import { Effect, Exit, Schema } from "effect"
+import { Effect, Exit, Option, Schema } from "effect"
 import { describe, expect, test } from "vitest"
 import { checkSpecText } from "#check/index.ts"
 import { decodeAuthorConfig } from "#model/author-config.ts"
@@ -56,7 +56,7 @@ const run = (add: Json, rest: { readonly [key: string]: Json } = {}) =>
 				[]
 			)
 			const policy = (path: string) =>
-				normalizeSecurityPolicy(resolution, schemes, `/paths/~1${path}/get`)
+				normalizeSecurityPolicy(resolution, schemes, Option.some(`/paths/~1${path}/get`))
 
 			return {
 				bare: (yield* policy("bare")).policy,
@@ -93,7 +93,7 @@ const mixed = (add: Json) =>
 			const { diagnostics, policy } = yield* normalizeSecurityPolicy(
 				resolution,
 				schemes,
-				"/paths/~1mixed/get"
+				Option.some("/paths/~1mixed/get")
 			)
 
 			return { checked, diagnostics, policy }

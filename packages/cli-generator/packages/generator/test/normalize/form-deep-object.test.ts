@@ -9,7 +9,7 @@ import type { Json } from "#model/pointer.ts"
 import { normalizeBody } from "#normalize/bodies.ts"
 import type { BodyOutcome } from "#normalize/bodies.ts"
 import { normalize } from "#normalize/index.ts"
-import { resolve } from "#resolve/index.ts"
+import { defaultLimits, resolve } from "#resolve/index.ts"
 import { Description } from "#runtime-src/runtime/describe.ts"
 
 // A Stripe-shaped 3.0.3 form body: `deepObject` Encoding entries over a nested `metadata` object
@@ -90,7 +90,8 @@ const bodyWith = (requestBody: Json, deepObjectBrackets?: boolean): BodyOutcome 
 			resolutionOf(requestBody),
 			deepObjectBrackets === undefined
 				? { openapi, pointer: site }
-				: { nonStandard: { deepObjectBrackets }, openapi, pointer: site }
+				: { nonStandard: { deepObjectBrackets }, openapi, pointer: site },
+			defaultLimits
 		)
 	)
 
@@ -447,11 +448,15 @@ const createBody = fieldBody({ expand: objectOrEmpty, name: string }, ["expand"]
 describe("field scope under a $ref request body", () => {
 	test("PRM-27: the field refusal sits at the use site, its Encoding entry in the target related", () => {
 		const outcome = Effect.runSync(
-			normalizeBody(resolution31({ $ref: `#${target}` }, { Create: createBody }), {
-				nonStandard: { deepObjectBrackets: true },
-				openapi: openapi31,
-				pointer: site
-			})
+			normalizeBody(
+				resolution31({ $ref: `#${target}` }, { Create: createBody }),
+				{
+					nonStandard: { deepObjectBrackets: true },
+					openapi: openapi31,
+					pointer: site
+				},
+				defaultLimits
+			)
 		)
 
 		expect(formAlternative(outcome).refusedFields?.map(String)).toEqual(["expand"])
@@ -494,7 +499,9 @@ interface Switches {
 }
 
 const bodyUnder = (requestBody: Json, nonStandard: Switches): BodyOutcome =>
-	Effect.runSync(normalizeBody(resolutionOf(requestBody), { nonStandard, openapi, pointer: site }))
+	Effect.runSync(
+		normalizeBody(resolutionOf(requestBody), { nonStandard, openapi, pointer: site }, defaultLimits)
+	)
 
 const ruleMarkers = (found: MediaAlternative): Record<string, readonly (string | undefined)[]> =>
 	Object.fromEntries(

@@ -13,7 +13,7 @@ import {
 } from "#normalize/bodies.ts"
 import type { BodyOutcome } from "#normalize/bodies.ts"
 import { deepObjectExplodeText } from "#normalize/parameters.ts"
-import { resolve } from "#resolve/index.ts"
+import { defaultLimits, resolve } from "#resolve/index.ts"
 
 const entry = Schema.decodeUnknownSync(DocumentUri)("file:///spec/openapi.json")
 
@@ -42,7 +42,9 @@ const normalize = (line: SpecLine, requestBody: Json, components: Members = {}):
 	const value = documentOf(line, requestBody, components)
 	const resolution = Effect.runSync(resolve({ document: entry, line, value }))
 
-	return Effect.runSync(normalizeBody(resolution, { openapi: openapi[line], pointer: site }))
+	return Effect.runSync(
+		normalizeBody(resolution, { openapi: openapi[line], pointer: site }, defaultLimits)
+	)
 }
 
 const implemented = (line: SpecLine, requestBody: Json, components: Members = {}) => {
@@ -1096,7 +1098,9 @@ describe("BodyNotReadable a site the earlier stages should have stopped", () => 
 		const value = documentOf("3.1", { content: { "text/plain": {} } })
 		const resolution = Effect.runSync(resolve({ document: entry, line: "3.1", value }))
 		const failure = Effect.runSync(
-			Effect.flip(normalizeBody(resolution, { openapi: openapi["3.1"], pointer: "/info" }))
+			Effect.flip(
+				normalizeBody(resolution, { openapi: openapi["3.1"], pointer: "/info" }, defaultLimits)
+			)
 		)
 
 		expect(failure).toBeInstanceOf(BodyNotReadable)
@@ -1191,7 +1195,7 @@ describe("DSC-01 DSC-07 DSC-09 DSC-11 the discriminator hint", () => {
 		const resolution = Effect.runSync(resolve({ document: entry, line, value }))
 		const findings = Effect.runSync(checkSpecText(resolution))
 		const outcome = Effect.runSync(
-			normalizeBody(resolution, { openapi: openapi[line], pointer: site })
+			normalizeBody(resolution, { openapi: openapi[line], pointer: site }, defaultLimits)
 		)
 		if (outcome._tag !== "Implemented") {
 			throw new Error(`expected Implemented, got ${outcome._tag}`)

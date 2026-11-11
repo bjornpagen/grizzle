@@ -7,7 +7,7 @@ import type { Json } from "#model/pointer.ts"
 import type { SpecLine } from "#model/spec-section.ts"
 import { normalizeBody } from "#normalize/bodies.ts"
 import type { BodyOutcome } from "#normalize/bodies.ts"
-import { resolve } from "#resolve/index.ts"
+import { defaultLimits, resolve } from "#resolve/index.ts"
 
 const entry = Schema.decodeUnknownSync(DocumentUri)("file:///spec/openapi.json")
 
@@ -32,7 +32,11 @@ const normalize = (line: SpecLine, requestBody: Json): BodyOutcome => {
 	const resolution = Effect.runSync(resolve({ document: entry, line, value }))
 
 	return Effect.runSync(
-		normalizeBody(resolution, { openapi: openapi[line], pointer: "/paths/~1a/post/requestBody" })
+		normalizeBody(
+			resolution,
+			{ openapi: openapi[line], pointer: "/paths/~1a/post/requestBody" },
+			defaultLimits
+		)
 	)
 }
 

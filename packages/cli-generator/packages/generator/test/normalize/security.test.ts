@@ -1,4 +1,4 @@
-import { Effect, Schema } from "effect"
+import { Effect, Option, Schema } from "effect"
 import { describe, expect, test } from "vitest"
 import { checkSpecText } from "#check/index.ts"
 import { DocumentUri } from "#model/brands.ts"
@@ -37,7 +37,11 @@ const run = (
 			})
 			const findings = checked ?? (yield* checkSpecText(resolution))
 			const schemes = yield* normalizeSecuritySchemes(resolution, undefined, findings)
-			const policy = yield* normalizeSecurityPolicy(resolution, schemes, operation)
+			const policy = yield* normalizeSecurityPolicy(
+				resolution,
+				schemes,
+				Option.fromUndefinedOr(operation)
+			)
 
 			return { policy, schemes }
 		})
@@ -507,11 +511,15 @@ const elementReads = (count: number): number => {
 				undefined,
 				yield* checkSpecText(resolution)
 			)
-			const policy = yield* normalizeSecurityPolicy(resolution, {
-				...schemes,
-				schemes: counted(schemes.schemes),
-				unusable: counted(schemes.unusable)
-			})
+			const policy = yield* normalizeSecurityPolicy(
+				resolution,
+				{
+					...schemes,
+					schemes: counted(schemes.schemes),
+					unusable: counted(schemes.unusable)
+				},
+				Option.none()
+			)
 
 			return policy.policy.alternatives[0]?.uses.length ?? 0
 		})

@@ -9,7 +9,7 @@ import type { Json } from "#model/pointer.ts"
 import type { SpecLine } from "#model/spec-section.ts"
 import { normalizeSchemas } from "#normalize/schemas.ts"
 import { GenerationReport } from "#report/index.ts"
-import { resolve } from "#resolve/index.ts"
+import { defaultLimits, resolve } from "#resolve/index.ts"
 
 const root = nodePath.resolve(import.meta.dirname, "../..")
 
@@ -59,7 +59,7 @@ const diagnosed = (line: SpecLine, value: Json) =>
 	Effect.runSync(
 		resolve({ document: entry, line, value }).pipe(
 			Effect.flatMap((resolution) =>
-				normalizeSchemas(resolution).pipe(
+				normalizeSchemas(resolution, defaultLimits).pipe(
 					Effect.map((normalization) => [...resolution.diagnostics, ...normalization.diagnostics])
 				)
 			)

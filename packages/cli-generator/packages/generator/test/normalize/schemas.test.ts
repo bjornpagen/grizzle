@@ -12,7 +12,7 @@ import {
 	validationCopy
 } from "#normalize/schemas.ts"
 import type { SchemaEdit, SchemaLimits, SchemaNormalization } from "#normalize/schemas.ts"
-import { resolve } from "#resolve/index.ts"
+import { defaultLimits, resolve } from "#resolve/index.ts"
 
 const entry = Schema.decodeUnknownSync(DocumentUri)("file:///spec/openapi.json")
 
@@ -29,7 +29,7 @@ const spec = (line: SpecLine, schemas: Members, paths: Members = {}): Json => ({
 	paths
 })
 
-const run = (line: SpecLine, value: Json, limits: SchemaLimits = {}) =>
+const run = (line: SpecLine, value: Json, limits: SchemaLimits = defaultLimits) =>
 	resolve({ document: entry, line, value }).pipe(
 		Effect.flatMap((resolution) => normalizeSchemas(resolution, limits))
 	)
@@ -454,10 +454,10 @@ describe("validation copy", () => {
 		})
 		const store = Effect.runSync(
 			resolve({ document: entry, line: "3.0", value }).pipe(
-				Effect.flatMap((resolution) => storeSchemas(resolution))
+				Effect.flatMap((resolution) => storeSchemas(resolution, defaultLimits))
 			)
 		)
-		const copy = Effect.runSync(validationCopy("3.0", store.definitions))
+		const copy = Effect.runSync(validationCopy("3.0", store.definitions, defaultLimits))
 		const edits = copy.edits.map((edit) => `${edit.code} ${edit.key} ${edit.path.join("/")}`)
 
 		expect(sorted(edits)).toEqual([
@@ -623,7 +623,9 @@ describe("codeGenerationCopy", () => {
 				Response: { properties: { r: { type: "string" } }, type: "object" }
 			})
 		)
-		const code = Effect.runSync(codeGenerationCopy(result.validation.definitions, ["Body"]))
+		const code = Effect.runSync(
+			codeGenerationCopy(result.validation.definitions, ["Body"], defaultLimits)
+		)
 		const body = code.get("Body")
 		const properties = isRecord(body) ? body.properties : undefined
 
@@ -675,7 +677,9 @@ describe("node budget", () => {
 		"a depth-20 diamond of references stays linear",
 		() => {
 			const result = normalize("3.1", spec("3.1", diamond(20)))
-			const code = Effect.runSync(codeGenerationCopy(result.validation.definitions, ["D0"]))
+			const code = Effect.runSync(
+				codeGenerationCopy(result.validation.definitions, ["D0"], defaultLimits)
+			)
 
 			expect(result.diagnostics).toEqual([])
 			expect(code.size).toBe(21)
@@ -715,7 +719,7 @@ describe("repair and cycle bounds", () => {
 					{ $ref: `#/$defs/A${(index + 1) % size}` }
 				])
 			)
-			const exit = Effect.runSyncExit(validationCopy("3.1", definitions))
+			const exit = Effect.runSyncExit(validationCopy("3.1", definitions, defaultLimits))
 
 			expect(exit._tag).toBe("Success")
 			expect(
@@ -730,7 +734,7 @@ describe("repair and cycle bounds", () => {
 	test(
 		"each importer repair pass is charged to the node budget",
 		() => {
-			const repaired = Effect.runSync(validationCopy("3.1", rejected(30)))
+			const repaired = Effect.runSync(validationCopy("3.1", rejected(30), defaultLimits))
 
 			expect(repaired.edits.map((edit) => edit.code)).toEqual(
 				Arr.replicate("SCH-13/not-asserted", 30)
@@ -772,7 +776,11 @@ const keyOf = (line: SpecLine, schema: Json): string =>
 	)
 
 const applies = (schema: Json, schemas: Members = {}): boolean =>
-	appliesDynamicKeyword(resolved("3.1", spec("3.1", schemas, bodyPaths(schema))), bodySite)
+	appliesDynamicKeyword(
+		resolved("3.1", spec("3.1", schemas, bodyPaths(schema))),
+		bodySite,
+		defaultLimits
+	)
 
 describe("m2-schfx", () => {
 	test("SCH-03 a keyword that asserts beside $ref keeps the use site's key; annotations do not", () => {

@@ -4,7 +4,7 @@ import { DocumentUri } from "#model/brands.ts"
 import type { Json } from "#model/pointer.ts"
 import { normalizeParameter } from "#normalize/parameters.ts"
 import type { ParameterOutcome } from "#normalize/parameters.ts"
-import { resolve } from "#resolve/index.ts"
+import { defaultLimits, resolve } from "#resolve/index.ts"
 
 const entry = Schema.decodeUnknownSync(DocumentUri)("file:///spec/openapi.json")
 
@@ -37,7 +37,11 @@ const normalize = (last: Json): ParameterOutcome => {
 	const resolution = Effect.runSync(resolve({ document: entry, line: "3.1", value }))
 
 	return Effect.runSync(
-		normalizeParameter(resolution, { openapi: "3.1.1", pointer: "/paths/~1a/get/parameters/0" })
+		normalizeParameter(
+			resolution,
+			{ openapi: "3.1.1", pointer: "/paths/~1a/get/parameters/0" },
+			defaultLimits
+		)
 	)
 }
 

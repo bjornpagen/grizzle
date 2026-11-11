@@ -148,7 +148,7 @@ export const normalize = Effect.fn("normalize.normalize")(function* normalize(
 		context.checkFindings,
 		defaultLimits
 	)
-	const policy = yield* normalizeSecurityPolicy(resolution, schemes)
+	const policy = yield* normalizeSecurityPolicy(resolution, schemes, Option.none())
 	const rootServers = effectiveServers(
 		{
 			root: {

@@ -7,8 +7,6 @@ import type { Diagnostic } from "#model/diagnostic.ts"
 import type { Json } from "#model/pointer.ts"
 import { declaredOpenapi, patchVersion, SpecLine, specSectionUrl } from "#model/spec-section.ts"
 
-export { declaredOpenapi } from "#model/spec-section.ts"
-
 /**
  * The document has no `openapi` string, or names a line other than 3.0, 3.1 or 3.2. A run reports
  * it as the `DOC-02` refusal `versionRefusal` builds.
