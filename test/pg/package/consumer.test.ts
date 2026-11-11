@@ -61,18 +61,20 @@ const notesOf = (base: ReturnType<typeof declared>) =>
 
 /**
  * The consumer, as an application writes it against the published package: the login's served file, served under the
- * login's name, the full role's Db of it (test/support/worlds.ts fullWorld), and one read of every note through the
- * workload's member. It loads the runtime entry alone, so no schema module and none of the compiler runs.
+ * login's name, its layer given its installation's live source (LiveSource.layer), the full role's Db of it
+ * (test/support/worlds.ts fullWorld), and one read of every note through the workload's member. It loads the runtime
+ * entry alone, so no schema module and none of the compiler runs. It reads by once alone, so its live source never
+ * connects and never asks its decoder's credential, which the installation, migrated with no live source, holds none of.
  */
 const consumerProgram = `import { readFileSync } from "node:fs"
 import net from "node:net"
-import { Effect, Redacted } from "effect"
+import { Effect, Layer, Redacted } from "effect"
 import pgDriver from "pg"
-import { Db, DbLayer, served } from "@bjornpagen/grizzle/runtime"
+import { Db, DbLayer, LiveSource, served } from "@bjornpagen/grizzle/runtime"
 
 const config = JSON.parse(readFileSync(process.argv[2], "utf8"))
 const server = served(JSON.parse(readFileSync(config.served, "utf8")), "server")
-const layer = DbLayer.make({
+const connection = {
 	driver: pgDriver,
 	transport: {
 		kind: "sslRequest",
@@ -83,11 +85,21 @@ const layer = DbLayer.make({
 		servername: config.host
 	},
 	database: config.database,
-	password: Redacted.make(config.password),
-	connectTimeoutMs: config.connectTimeoutMs,
-	pool: { max: 1, min: 0, idleTimeoutMs: config.idleTimeoutMs },
-	login: server
-})
+	connectTimeoutMs: config.connectTimeoutMs
+}
+const layer = Layer.provide(
+	DbLayer.make({
+		...connection,
+		password: Redacted.make(config.password),
+		pool: { max: 1, min: 0, idleTimeoutMs: config.idleTimeoutMs },
+		login: server
+	}),
+	LiveSource.layer({
+		...connection,
+		password: Effect.die(new Error("the consumer reads by once, so its live source asks no decoder")),
+		login: server
+	})
+)
 const rows = await Effect.runPromise(
 	Effect.gen(function* () {
 		const db = yield* Db.open(server.roles.app, {})

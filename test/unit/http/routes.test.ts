@@ -4,7 +4,8 @@
  * law level, and logins drawn over them (test/support/served-login.ts: roles that read the case's queries, an ordered
  * one whole or paged, write relations through ChangeSets, and perhaps a query entry reading a context), each compiled
  * as `grizzle generate` compiles it, served as an application serves its committed file, its layer built with no
- * database and the handler over it (http/handler.ts httpHandler):
+ * database, given a live source that connects nothing (test/support/live-layer.ts), and the handler over it
+ * (http/handler.ts httpHandler):
  *
  * - The routes are the members: httpRoutes lists exactly `POST /<login>/<role>/<program>` for each member of each role
  *   the served file holds, and nothing else.
@@ -31,7 +32,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Result as Answered, Array as Arr, Effect, Formatter, Order, String as Str } from "effect"
-import { DbLayer, served } from "#adapter/public/layer.ts"
+import { served } from "#adapter/public/layer.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import { type CallErrorKind, callErrors } from "#compiler/live/index.ts"
@@ -42,6 +43,7 @@ import { offlineConnection } from "#test/pg/cli/support.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { readStream, type StreamRead } from "#test/support/event-stream.ts"
 import { caseHang, nodeTimerMax, nodeTimerMin } from "#test/support/limits.ts"
+import { offlineDecoders, servedSourcedLayer } from "#test/support/live-layer.ts"
 import { caseSketchGen, resolveCase } from "#test/support/oracle/public/generate.ts"
 import { lawLevelGen } from "#test/support/oracle/public/laws.ts"
 import { printCase } from "#test/support/oracle/public/print.ts"
@@ -408,7 +410,7 @@ describe("an HTTP handler's routes", () => {
 								}
 							}).pipe(
 								withLayer(
-									DbLayer.make({
+									servedSourcedLayer(offlineDecoders, {
 										...offlineConnection,
 										pool: clusterPool,
 										login,
