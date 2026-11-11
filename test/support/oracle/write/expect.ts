@@ -191,7 +191,10 @@ const keyFields = (
  * Same-key pairs among the enumerated facts of each stratum, which host normalization refuses before any SQL, once
  * every parameter the bind reads is inside its field (unboundParams), with the key's law and a violating key: among its
  * additions, a generated one on the keys holding no serial field, and among its deletions, each a set of the relation's
- * facts that a key names one of. Each law once, its violations every stratum's.
+ * facts that a key names one of. At a key holding no serial field, a generated addition and a complete one that agrees
+ * with it at every field it states are one fact (README: a row that leaves its serial fields out is the fact its other
+ * fields state, and one a stratum both inserts and puts is the put's), as the insert's statement, after the complete
+ * one's, meets that row at its arbiter and changes nothing. Each law once, its violations every stratum's.
  */
 const hostRefusals = (ctx: ExpectContext, c: WChangeSet): AcceptableRefusals => {
 	const clashes = Arr.flatMap([false, true], (deletions) =>
@@ -249,7 +252,10 @@ const keysOf = (relation: WRelation): ReadonlyArray<RelationKey> => [
 	...Arr.map(relation.keys, (fields): RelationKey => ({ kind: "candidate", fields }))
 ]
 
-/** The key's law and its violations by the distinct facts among `added` that share a value of it, if any do. */
+/**
+ * The key's law and its violations by the distinct facts among `added` that share a value of it, if any do: a generated
+ * fact and a complete one agreeing at every field the generated one states are one fact (`hostRefusals`).
+ */
 const sameKeyViolations = (
 	ctx: ExpectContext,
 	relation: WRelation,
@@ -257,6 +263,8 @@ const sameKeyViolations = (
 	added: ReadonlyArray<Fact>
 ): ReadonlyArray<readonly [LawId, Violations]> => {
 	const { fields } = key
+	const serial = new Set(Arr.map(serialColumns(relation), (col) => col.name))
+	const stated = Arr.flatMap(relation.columns, (col) => (serial.has(col.name) ? [] : [col.name]))
 	const byKey = new Map<string, Map<string, Fact>>()
 	for (const f of added) {
 		const k = keyOf(relation, fields, f)
@@ -271,7 +279,23 @@ const sameKeyViolations = (
 		)
 		byKey.set(k, set)
 	}
-	const clashing = Arr.filter([...byKey], ([, facts]) => facts.size > 1)
+	/** The distinct facts of one key's value: each complete one, and each generated one no complete one agrees with at
+	 * every field it states. */
+	const distinct = (facts: ReadonlyMap<string, Fact>): ReadonlyMap<string, Fact> => {
+		const complete = Arr.filter([...facts.values()], (f) => !isGenerated(relation, f))
+		return new Map(
+			Arr.filter(
+				[...facts],
+				([, f]) =>
+					!isGenerated(relation, f) ||
+					!Arr.some(complete, (c) => keyOf(relation, stated, c) === keyOf(relation, stated, f))
+			)
+		)
+	}
+	const clashing = Arr.filter(
+		Arr.map([...byKey], ([k, facts]) => [k, distinct(facts)] as const),
+		([, facts]) => facts.size > 1
+	)
 	const violators = Arr.flatMap(clashing, ([, facts]) => [...facts.values()])
 	if (!Arr.isReadonlyArrayNonEmpty(violators)) {
 		return []
