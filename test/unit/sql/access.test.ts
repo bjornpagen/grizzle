@@ -10,11 +10,11 @@ import { Array as Arr, Effect, Formatter } from "effect"
 import { relationAccess } from "#compiler/sql/access.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
 import { objectName, types } from "#compiler/sql/build.ts"
-import { type CarrierName, carrierName } from "#compiler/sql/naming.ts"
+import { type CarrierDeclaration, type CarrierName, carrierName } from "#compiler/sql/naming.ts"
 import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
 import { assert, unorderedEqual } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { isCarrierName } from "#test/support/sql.ts"
+import { isCarrierName, unitCarrier, unitCarrierName } from "#test/support/sql.ts"
 
 /**
  * The relations a statement reads and writes (sql/access.ts) beyond DML: a CREATE TEMPORARY TABLE creates its carrier,
@@ -61,6 +61,12 @@ const accessCaseGen: Gen<AccessCase> = oneOf<AccessCase>([
 	}))
 ])
 
+/** A carrier's declaration: one uuid column, c1, its key. */
+const uuidKeyed: CarrierDeclaration = {
+	columns: [{ name: "c1", type: types.uuid, collation: undefined, generated: undefined }],
+	primaryKey: ["c1"]
+}
+
 describe("the relations a statement reads and writes (sql/access.ts)", () => {
 	it.effect(
 		"creates a carrier, and reads and writes the carriers an ANALYZE names; other statements touch none",
@@ -91,24 +97,16 @@ describe("the relations a statement reads and writes (sql/access.ts)", () => {
 								case "a carrier created": {
 									const a = relationAccess({
 										kind: "createCarrier",
-										name: carrierName(sketch.n),
-										primaryKey: ["c1"],
-										columns: [
-											{
-												name: "c1",
-												type: types.uuid,
-												collation: undefined,
-												generated: undefined
-											}
-										]
+										name: carrierName(sketch.n, uuidKeyed),
+										...uuidKeyed
 									})
 									unorderedEqual([...a.reads], [])
-									unorderedEqual([...a.writes], [carrierName(sketch.n)])
+									unorderedEqual([...a.writes], [carrierName(sketch.n, uuidKeyed)])
 									assert.equal(a.stored, false)
 									return
 								}
 								case "carriers analyzed": {
-									const names = Arr.map(sketch.ns, carrierName)
+									const names = Arr.map(sketch.ns, unitCarrierName)
 									const a = relationAccess({ kind: "analyze", carriers: names })
 									unorderedEqual([...a.reads], names)
 									unorderedEqual([...a.writes], names)
@@ -133,10 +131,18 @@ describe("the relations a statement reads and writes (sql/access.ts)", () => {
 
 /**
  * The ANALYZE statement names carriers only: a name read from outside (a persisted snapshot) is a carrier exactly when
- * it spells carrierName(n) for some n from 1, whatever else a snapshot file can hold, and no rewrite of schema-qualified
+ * it spells carrierName(n, declaration) for some n from 1 and some declaration, whatever else a snapshot file can hold, and no rewrite of schema-qualified
  * names touches one.
  */
 const nearMisses = [
+	"__carrier_1",
+	"__carrier_0_abcdefghij",
+	"__carrier_01_abcdefghij",
+	"__carrier_1_abcdefghi",
+	"__carrier_1_abcdefghijk",
+	"__carrier_1_abcdefghi1",
+	"__carrier_1_ABCDEFGHIJ",
+	"__carrier__abcdefghij",
 	"__carrier_0",
 	"__carrier_01",
 	"__carrier_",
@@ -159,7 +165,10 @@ type AnalyzeFeature = "live" | "near miss" | "json"
 
 /** A name an ANALYZE may be handed, and whether it is a carrier's. */
 const namedGen: Gen<readonly [unknown, boolean]> = oneOf<readonly [unknown, boolean]>([
-	(source): readonly [unknown, boolean] => [carrierName(source.draw(int(1, 0x7fff_ffff))), true],
+	(source): readonly [unknown, boolean] => [
+		carrierName(source.draw(int(1, 0x7fff_ffff)), source.draw(element([unitCarrier, uuidKeyed]))),
+		true
+	],
 	map(element(nearMisses), (name): readonly [unknown, boolean] => [name, false]),
 	map(json(3), (value): readonly [unknown, boolean] => [value, false])
 ])

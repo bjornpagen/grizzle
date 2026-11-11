@@ -86,6 +86,7 @@ export type IdentityKind =
 	| "snapshotGuard"
 	| "aside"
 	| "swap"
+	| "carrier"
 
 declare const identifierBrand: unique symbol
 /**

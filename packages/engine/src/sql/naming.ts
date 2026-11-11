@@ -1,10 +1,14 @@
 import { nominal } from "#compiler/core/brand.ts"
+import { canonicalTextOf } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
+import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { FieldId, NodeId, OccurrenceId, ParamId, VarId } from "#compiler/core/ids.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import {
+	type ColumnDef,
 	isSetQuery,
 	type OperandBody,
 	type OperandSelect,
@@ -57,20 +61,29 @@ export const emptyNameMap: NameMap = []
 export const carrierPrefix = "__carrier_"
 
 /**
- * __carrier_<ordinal>: a write program's transaction-scoped carrier (write/carriers), the one name CREATE TEMPORARY
- * TABLE and ANALYZE take. Only carrierName spells one. The ordinal is the carrier's place among its program's carriers,
- * from 1: a carrier drops at its transaction's COMMIT, so a name tells apart only the carriers of one program: a session
- * keeps each served statement over a carrier under its own name (core/prepared.ts), and PostgreSQL plans it again over
- * the carrier its next call creates. A safe integer's decimal digits after the prefix are within PostgreSQL's
- * identifier.
+ * A carrier's declaration: the columns of its CREATE TEMPORARY TABLE, of any width, and its key's columns, or none.
+ */
+export interface CarrierDeclaration {
+	readonly columns: ReadonlyArray<ColumnDef>
+	readonly primaryKey: NonEmptyReadonlyArray<string> | undefined
+}
+
+/**
+ * __carrier_<ordinal>_<digest>: a write program's transaction-scoped carrier (write/carriers), the one name CREATE
+ * TEMPORARY TABLE and ANALYZE take. Only carrierName spells one, through the naming door (core/identity.ts
+ * identity.carrier). The ordinal is the carrier's place among its program's carriers, from 1, and the digest is its
+ * declaration's: a session keeps each served statement under its text (core/prepared.ts), and PostgreSQL plans it again
+ * over the carrier its next call creates, so a text that names a carrier must name one declaration, or a statement of
+ * another program over a carrier of its ordinal with other column types or collations meets the plan its text cached
+ * and fails as "cached plan must not change result type".
  */
 export type CarrierName = string & { readonly [carrierNameBrand]: true }
 declare const carrierNameBrand: unique symbol
 const CarrierName = nominal<string, CarrierName>()
 
-/** The `ordinal`-th carrier of a program, from 1. */
-export const carrierName = (ordinal: number): CarrierName =>
-	CarrierName(`${carrierPrefix}${ordinal}`)
+/** The `ordinal`-th carrier of a program, from 1, of `declaration`. */
+export const carrierName = (ordinal: number, declaration: CarrierDeclaration): CarrierName =>
+	CarrierName(identifierOf(identity.carrier(ordinal, canonicalTextOf(declaration))))
 
 /**
  * The first relation and column numbers: 1 for a statement of its own; the write protocols number the input arrays

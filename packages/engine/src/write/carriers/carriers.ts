@@ -8,6 +8,7 @@ import type { RelationInfo } from "#compiler/ir/law.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { CarrierDecl } from "#compiler/ir/products.ts"
 import type { Heading, HeadingColumn, RelNode } from "#compiler/ir/rel.ts"
+import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { columnIn, emptyEnv } from "#compiler/lower/conservative/context.ts"
 import { columnType } from "#compiler/runtime/lower/columns.ts"
 import {
@@ -18,7 +19,8 @@ import {
 	type Insert,
 	isSetQuery,
 	type Select,
-	type SetCore
+	type SetCore,
+	type TypeRef
 } from "#compiler/sql/ast.ts"
 import {
 	col,
@@ -31,7 +33,12 @@ import {
 	unitTargets
 } from "#compiler/sql/build.ts"
 import { emitText } from "#compiler/sql/emit.ts"
-import { type CarrierName, carrierName, emptyNameMap } from "#compiler/sql/naming.ts"
+import {
+	type CarrierDeclaration,
+	type CarrierName,
+	carrierName,
+	emptyNameMap
+} from "#compiler/sql/naming.ts"
 import { printTableName } from "#compiler/sql/print.ts"
 import {
 	type AnalyzeResult,
@@ -66,10 +73,10 @@ export interface CarrierColumn extends HeadingColumn {
  *   CREATE TEMPORARY TABLE "__carrier_<k>" ("c1" uuid NOT NULL, "c2" text COLLATE pg_catalog.pg_c_utf8 NOT NULL,
  *     PRIMARY KEY ("c1") DEFERRABLE INITIALLY IMMEDIATE) ON COMMIT DROP
  *
- * Carriers are named `__carrier_<k>`, k the carrier's ordinal among its program's carriers from 1, and their columns
- * c1 to cn. A carrier drops at its transaction's COMMIT, so a name tells apart only the carriers of one program
- * (sql/naming.ts CarrierName): a session keeps each served statement over a carrier under its own name
- * (core/prepared.ts), and PostgreSQL plans it again over the carrier its next call creates. A column
+ * Carriers are named `__carrier_<k>_<digest>`, k the carrier's ordinal among its program's carriers from 1 and the
+ * digest its declaration's, and their columns c1 to cn (sql/naming.ts CarrierName): a session keeps each served
+ * statement under its text (core/prepared.ts), and PostgreSQL plans it again over the carrier its next call creates,
+ * so the name a text reads a carrier by fixes the carrier's declaration, its row type among it. A column
  * is typed as the value it carries is written: a contract's domain, a refinement's `__text_` domain, a
  * roster's domain, or the builtin with its typmod, a builtin text column naming pg_catalog.pg_c_utf8 like every stored column,
  * so a statement reading the carrier sees the types a stored column of the relation has. A deletion's
@@ -84,12 +91,12 @@ export interface CarrierColumn extends HeadingColumn {
 export interface WriteCarrier extends CarrierDecl {
 	readonly heading: ReadonlyArray<CarrierColumn>
 	/**
-	 * The columns of its primary key, in key order: a carrier of a relation's facts (`relationCarrier`) holds a set of
-	 * them, keyed as the relation is, so the key a reader of it relies on is the carrier's own constraint; a member's or
-	 * a share's rows, a set by their fill (`memberRows`) that no constraint keys, and a world relation's empty delta have
-	 * none.
+	 * Its CREATE TEMPORARY TABLE's columns, each typed as its value is written, and the columns of its primary key, in
+	 * key order: a carrier of a relation's facts (`relationCarrier`) holds a set of them, keyed as the relation is, so
+	 * the key a reader of it relies on is the carrier's own constraint; a member's or a share's rows, a set by their
+	 * fill (`memberRows`) that no constraint keys, and a world relation's empty delta have none. Its name digests it.
 	 */
-	readonly primaryKey: NonEmptyReadonlyArray<string> | undefined
+	readonly declaration: CarrierDeclaration
 }
 
 /** A carrier's columns, in heading order. */
@@ -107,22 +114,33 @@ export type CarrierRow =
 export const carrierRow = (carrier: WriteCarrier): CarrierRow =>
 	isNonEmpty(carrier.heading) ? { kind: "columns", columns: carrier.heading } : { kind: "unit" }
 
-/** The carriers of one program, each named by its ordinal among them (see `WriteCarrier`). */
+/**
+ * The PostgreSQL type a carrier column of a value of `t` is declared with, as a stored column of its type is: a
+ * contract's domain, a refinement's `__text_` domain, a roster's domain, or the builtin with its typmod
+ * (lower/conservative/context.ts typeRef), `at` naming the carrier where a type is refused.
+ */
+export type CarrierTyping = (t: ScalarType, at: string) => TypeRef
+
+/** The carriers of one program, each named by its ordinal among them and its declaration (see `WriteCarrier`). */
 export class CarrierSupply {
 	readonly #all: Array<WriteCarrier> = []
+	readonly #typing: CarrierTyping
+
+	constructor(typing: CarrierTyping) {
+		this.#typing = typing
+	}
 
 	/** A carrier of `heading`, of any width, keyed by the fields `key` names, or by none. */
 	next(heading: Heading, key: NonEmptyReadonlyArray<string> | undefined): WriteCarrier {
-		const name = carrierName(this.#all.length + 1)
+		const ordinal = this.#all.length + 1
+		const at = `carrier ${ordinal}`
 		const columns = Object.freeze(
 			heading.map((c, i): CarrierColumn =>
 				Object.freeze({ name: c.name, type: c.type, column: `c${i + 1}` })
 			)
 		)
-		const carrier: WriteCarrier = Object.freeze({
-			name,
-			heading: columns,
-			fill: "insertSelect" as const,
+		const declaration: CarrierDeclaration = Object.freeze({
+			columns: Object.freeze(columns.map((c) => columnDefOf(c.column, this.#typing(c.type, at)))),
 			primaryKey:
 				key === undefined
 					? undefined
@@ -132,10 +150,16 @@ export class CarrierSupply {
 								(field) =>
 									defined(
 										columns.find((c) => c.name === field),
-										`the key field ${field} in carrier ${name}`
+										`the key field ${field} in ${at}`
 									).column
 							)
 						)
+		})
+		const carrier: WriteCarrier = Object.freeze({
+			name: carrierName(ordinal, declaration),
+			heading: columns,
+			fill: "insertSelect" as const,
+			declaration
 		})
 		this.#all.push(carrier)
 		return carrier
@@ -165,8 +189,7 @@ export const carrierScan = (carrier: WriteCarrier, alias: string): FromItem => (
  * A carrier's CREATE TEMPORARY TABLE, refused as ResourceBound (tableColumns) for a heading wider than a table of
  * PostgreSQL holds, tableMaxColumns.
  */
-const createAst = (w: WriteContext, carrier: WriteCarrier): CreateCarrier => {
-	const at = `carrier ${carrier.name}`
+const createAst = (carrier: WriteCarrier): CreateCarrier => {
 	if (carrier.heading.length > tableMaxColumns.value) {
 		throw new Refusal(
 			resourceBound(SourceLoc("write lowering", ["carriers", carrier.name]), {
@@ -180,27 +203,23 @@ const createAst = (w: WriteContext, carrier: WriteCarrier): CreateCarrier => {
 	return {
 		kind: "createCarrier",
 		name: carrier.name,
-		primaryKey: carrier.primaryKey,
-		columns: carrier.heading.map((c): ColumnDef => {
-			const type = w.cx.typeRef(c.type, at)
-			return type.kind === "builtin" && type.name === "text"
-				? {
-						name: c.column,
-						type,
-						collation: cUtf8Collation,
-						generated: undefined
-					}
-				: { name: c.column, type, collation: undefined, generated: undefined }
-		})
+		primaryKey: carrier.declaration.primaryKey,
+		columns: carrier.declaration.columns
 	}
 }
+
+/** A carrier column `column` of `type`: a builtin text one names pg_catalog.pg_c_utf8, like every stored column. */
+const columnDefOf = (column: string, type: TypeRef): ColumnDef =>
+	type.kind === "builtin" && type.name === "text"
+		? { name: column, type, collation: cUtf8Collation, generated: undefined }
+		: { name: column, type, collation: undefined, generated: undefined }
 
 export const buildCreateCarrier = (
 	w: WriteContext,
 	carrier: WriteCarrier
 ): WriteStatement<CarrierResult> =>
 	buildStatement(w, { kind: "shared", memo: w.share.creations, key: [carrier] }, () => ({
-		ast: createAst(w, carrier),
+		ast: createAst(carrier),
 		role: "carrier",
 		result: { kind: "carrier", carrier: carrier.name, step: "create" },
 		skipWhenEmpty: undefined

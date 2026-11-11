@@ -35,7 +35,6 @@ import {
 	targetAs,
 	types
 } from "#compiler/sql/build.ts"
-import { carrierName } from "#compiler/sql/naming.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
@@ -60,6 +59,7 @@ import {
 	auditStatementViolations,
 	auditTextViolations
 } from "#test/support/oracle/verify/sql.ts"
+import { unitCarrierName } from "#test/support/sql.ts"
 
 const catalog: SqlCatalog = [
 	{
@@ -435,7 +435,7 @@ describe("generated statements", () => {
  * the variant, and no other site is of that kind.
  */
 const rootHoleFirst = (statement: SqlStatement): void => {
-	const variant: SqlStatement = { kind: "analyze", carriers: [carrierName(1)] }
+	const variant: SqlStatement = { kind: "analyze", carriers: [unitCarrierName(1)] }
 	const marker = lit.int(424243, types.integer)
 	const rewrites = oneHole(statement, {
 		...noHoles,

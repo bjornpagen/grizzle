@@ -32,7 +32,8 @@ import { sha256Hex, utf8Length } from "#compiler/core/sha256.ts"
  *   canonical encoding, the first `5 * digestChars` bits of its SHA-256 as `digestChars` characters of lowercase RFC
  *   4648 base32: keys, foreign keys, span, norm and law checks, indexes and statistics, sequences, contract and
  *   text-pattern domains, named by their definitions, constants, sets' domains, law and arm tag columns, laws and their functions and triggers, filter functions, key and unique probes
- *   and advance functions, and a migration's temporaries. Every name grizzle derives starts with `__`, so no declared name meets
+ *   and advance functions, a migration's temporaries, and a write program's carriers, named by their declarations too.
+ *   Every name grizzle derives starts with `__`, so no declared name meets
  *   one; two distinct hashed identities meet only where their stems and their digests do, which the installation's
  *   census refuses as DigestCollision (`censusOf`), and a migration's census (`TemporaryCensus`) where a temporary
  *   meets a name standing while the migration runs or another temporary.
@@ -1175,5 +1176,19 @@ export const identity = Object.freeze({
 		mint("aside", [of], ["aside", ...nameSegments(of)], `${of} set aside`, hashed),
 	/** The name an index is built under before it is swapped in for `of`. */
 	swap: (of: string): Identity<"swap"> =>
-		mint("swap", [of], ["next", ...nameSegments(of)], `the next ${of}`, hashed)
+		mint("swap", [of], ["next", ...nameSegments(of)], `the next ${of}`, hashed),
+	/**
+	 * A write program's transaction-scoped carrier (sql/naming.ts carrierName): the `ordinal`-th of its program's
+	 * carriers, from 1, and its declaration's canonical text, the CREATE TEMPORARY TABLE's columns and key. A carrier
+	 * lives in its session's pg_temp until its transaction ends, so its name is no installation's: one name stands for
+	 * one declaration, and a served statement that names it reads one row type.
+	 */
+	carrier: (ordinal: number, declaration: string): Identity<"carrier"> =>
+		mint(
+			"carrier",
+			[String(ordinal), declaration],
+			["carrier", String(ordinal)],
+			`carrier ${ordinal} of its program`,
+			hashed
+		)
 })

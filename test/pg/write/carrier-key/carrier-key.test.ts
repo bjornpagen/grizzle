@@ -92,7 +92,7 @@ interface KeyedCarrier {
 const keyedCarriers = (artifact: WriteArtifact): Arr.NonEmptyReadonlyArray<KeyedCarrier> =>
 	nonEmpty(
 		Arr.flatMap(artifact.carriers, (carrier) => {
-			if (carrier.primaryKey === undefined) {
+			if (carrier.declaration.primaryKey === undefined) {
 				return []
 			}
 			const create = defined(

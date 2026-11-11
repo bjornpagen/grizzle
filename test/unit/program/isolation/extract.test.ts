@@ -141,9 +141,9 @@ import {
 	types,
 	windowOf
 } from "#compiler/sql/build.ts"
-import { carrierName } from "#compiler/sql/naming.ts"
 import { assert, nonEmpty } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { unitCarrierName } from "#test/support/sql.ts"
 
 /** The relations the drawn statements name: three stored ones, and X, whose table no relation names. */
 type Rel = "W" | "R" | "S" | "X"
@@ -1146,7 +1146,7 @@ const fromSource = (
 					return derived(stackedOf(p.rel, p.alias, p.inner), p.alias, COLUMNS, false)
 			}
 		case "carrier":
-			return { kind: "table", table: carrierName(p.carrier), alias: p.alias }
+			return { kind: "table", table: unitCarrierName(p.carrier), alias: p.alias }
 		case "cte":
 		case "returning":
 			return cteRefAs(p.name, p.alias)
@@ -1369,7 +1369,8 @@ const buildSelect = (
 	return select(body)
 }
 
-const tableOf = (t: TargetSpec): TableName => (t.kind === "table" ? TABLES[t.rel] : carrierName(9))
+const tableOf = (t: TargetSpec): TableName =>
+	t.kind === "table" ? TABLES[t.rel] : unitCarrierName(9)
 
 const one = lit.int(1, types.integer)
 
@@ -1563,7 +1564,7 @@ const envOf = (ctes: ReadonlyArray<CteSpec>): Env =>
 const buildStatement = (s: StatementSpec): SqlStatement => {
 	switch (s.kind) {
 		case "analyze":
-			return { kind: "analyze", carriers: [carrierName(1)] }
+			return { kind: "analyze", carriers: [unitCarrierName(1)] }
 		case "refresh":
 			return { kind: "refresh", view: objectName("app", "v"), concurrently: false }
 		case "schema":
@@ -2026,7 +2027,7 @@ class Expect {
 					break
 				case "carrier": {
 					this.shapes.add("a carrier read")
-					const relation = `carrier:${carrierName(s.carrier)}`
+					const relation = `carrier:${unitCarrierName(s.carrier)}`
 					rows.push(
 						this.read(
 							{
@@ -2355,7 +2356,7 @@ class Expect {
 							]
 						}
 						this.shapes.add("a carrier read")
-						const relation = `carrier:${carrierName(9)}`
+						const relation = `carrier:${unitCarrierName(9)}`
 						return [
 							this.read(
 								{

@@ -29,7 +29,6 @@ import {
 } from "#compiler/lower/conservative/types.ts"
 import { nativeOp } from "#compiler/scalar/compute/registry.ts"
 import type { OperandSelect, Select } from "#compiler/sql/ast.ts"
-import { carrierName } from "#compiler/sql/naming.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
 import { breachGuard } from "#compiler/write/refusal.ts"
@@ -47,6 +46,7 @@ import { defaultGenConfig, type QueryCase, queryCaseGen } from "#test/support/or
 import { genParamDecls } from "#test/support/oracle/gen/query.ts"
 import { schemaCodes } from "#test/support/oracle/gen/schema.ts"
 import { auditStatementViolations, auditTextViolations } from "#test/support/oracle/verify/sql.ts"
+import { unitCarrierName } from "#test/support/sql.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { everyKind, fixtureCodes } from "#test/unit/ir/fixture.ts"
 import {
@@ -114,7 +114,7 @@ const optionsFor = (params: ReadonlyArray<ParamDecl>, subject: Subject): Conserv
 					kind: "readBack",
 					deltas: () => ({
 						kind: "carrier",
-						carrier: carrierName(1),
+						carrier: unitCarrierName(1),
 						columns: ["c1", "c2", "c3", "c4"]
 					}),
 					breach: breachGuard("Ledger"),

@@ -133,7 +133,7 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 		dispatch: dispatchNode,
 		share: options.share
 	})
-	const supply = new CarrierSupply()
+	const supply = new CarrierSupply((t, at) => w.cx.typeRef(t, at))
 	const steps: Array<ConservativeStep> = []
 	const carry = (
 		carrier: WriteCarrier,

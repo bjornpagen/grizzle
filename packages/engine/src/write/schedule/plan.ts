@@ -13,7 +13,11 @@ import {
 	type SerialClass
 } from "#compiler/ir/write.ts"
 import type { CarriedShare } from "#compiler/lower/shapes/share/statements.ts"
-import { type WriteCarrier, CarrierSupply } from "#compiler/write/carriers/carriers.ts"
+import {
+	type CarrierTyping,
+	type WriteCarrier,
+	CarrierSupply
+} from "#compiler/write/carriers/carriers.ts"
 import { type DeleteAnchor, deleteAnchor } from "#compiler/write/delete/anchor.ts"
 import type { CheckNames } from "#compiler/write/entry/precheck.ts"
 import type { WriteFrontend, WrittenRelation } from "#compiler/write/frontend/compile.ts"
@@ -481,6 +485,8 @@ interface PlanEvidence {
 	/** The sub-queries several of a stratum's member statements read, each statement rooted at one member's node, to be
 	 * carried across them (`planStatementShares`). */
 	readonly shares: (members: ReadonlyArray<RelNode>) => ReadonlyArray<CarriedShare>
+	/** The type each carrier column is declared with, which the carrier's name digests (write/carriers CarrierTyping). */
+	readonly carrierTyping: CarrierTyping
 }
 
 /** The stored relations a member reads itself, not through a carried sub-query, whose carrier holds the state before
@@ -877,7 +883,7 @@ export const planWrite = (
 	evidence: PlanEvidence
 ): WritePlan => {
 	const ir = frontend.ir
-	const supply = new CarrierSupply()
+	const supply = new CarrierSupply(evidence.carrierTyping)
 	/** The strata's statements, the read-backs placed among them below. */
 	const strata: Array<PlanStep> = []
 	/** The nodes each stratum's members reach: a carried copy holds its stratum's starting state, so a node another

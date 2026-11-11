@@ -1707,7 +1707,8 @@ const compile = (
 	const plan = planWrite(restated, chosenIn(chosen, frontend.restate), {
 		level: options.level,
 		distinct: (node, relation) => distinctByEvidence(placed.facts, node, relation),
-		shares: (members) => unwrap(planStatementShares(sharing.index, members))
+		shares: (members) => unwrap(planStatementShares(sharing.index, members)),
+		carrierTyping: (t, at) => lowering.w.cx.typeRef(t, at)
 	})
 	const optimized = optimizedArtifact(restated, plan, lowering, options)
 	unwrap(insertOnly(schema, optimized.statements, options.names, options.laws))

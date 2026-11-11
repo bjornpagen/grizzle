@@ -56,7 +56,12 @@ import type {
 } from "#compiler/sql/ast.ts"
 import { arrays, col, positionalValue, provedCore, select, target } from "#compiler/sql/build.ts"
 import { emitText } from "#compiler/sql/emit.ts"
-import { type CarrierName, carrierName, emptyNameMap } from "#compiler/sql/naming.ts"
+import {
+	type CarrierDeclaration,
+	type CarrierName,
+	carrierName,
+	emptyNameMap
+} from "#compiler/sql/naming.ts"
 import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
 
 /** A placeholder of a stratum's nested rows of `relation`: the column at `part` of their sent layout. */
@@ -79,10 +84,12 @@ type ColumnsSource = Extract<FromSource, { readonly kind: "arrays" }> & {
 	readonly source: { readonly kind: "columns" }
 }
 
-/** A FROM item of a statement's nested rows: the item, its columns, and the carrier it reads once staged. */
+/** A FROM item of a statement's nested rows: the item, its columns, the declaration of the carrier it reads once
+ * staged, a column per array of its element type and collation, and that carrier. */
 interface StagedSource {
 	readonly item: ColumnsSource
 	readonly columns: NonEmptyReadonlyArray<ArrayColumn>
+	readonly declaration: CarrierDeclaration
 	readonly carrier: CarrierName
 }
 
@@ -121,7 +128,21 @@ const nestedSources = (
 					"a FROM item of nested rows reads one stratum's rows of one relation alone, with no ordinal"
 				)
 			}
-			found.push({ item: source, columns, carrier: carrierName(first + found.length) })
+			const declaration: CarrierDeclaration = {
+				columns: columns.map((c) => ({
+					name: c.definition.name,
+					type: c.definition.type,
+					collation: c.definition.collation,
+					generated: undefined
+				})),
+				primaryKey: undefined
+			}
+			found.push({
+				item: source,
+				columns,
+				declaration,
+				carrier: carrierName(first + found.length, declaration)
+			})
 			return undefined
 		}
 	})
@@ -154,17 +175,12 @@ const analyzeOf = (
 		: { kind: "absent" }
 }
 
-/** A carrier's CREATE TEMPORARY TABLE: a column per array of its FROM item, of its element type and collation. */
+/** A carrier's CREATE TEMPORARY TABLE, of its declaration. */
 const createOf = (source: StagedSource): CreateCarrier => ({
 	kind: "createCarrier",
 	name: source.carrier,
-	columns: source.columns.map((c) => ({
-		name: c.definition.name,
-		type: c.definition.type,
-		collation: c.definition.collation,
-		generated: undefined
-	})),
-	primaryKey: undefined
+	columns: source.declaration.columns,
+	primaryKey: source.declaration.primaryKey
 })
 
 /** A carrier's fill: its FROM item's arrays, its placeholders numbered from $1 in column order, inserted whole. */
