@@ -16,11 +16,12 @@ import type { RosterDigest } from "#compiler/core/fingerprint.ts"
 import type { DeclaredName } from "#compiler/core/identity.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { isList, isRecord } from "#compiler/core/record.ts"
+import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { isList } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { MoneyText, VectorText, vectorMaxDimensions } from "#compiler/ir/carriers.ts"
-import type { RosterCodes } from "#compiler/ir/cells.ts"
+import type { CodeSlot, RosterCodes } from "#compiler/ir/cells.ts"
 import { DecimalText } from "#compiler/ir/decimal.ts"
 import { internedRangeOp, rangeOpNamed } from "#compiler/ir/expr.ts"
 import { carriers, Roster, type ScalarType } from "#compiler/ir/scalar.ts"
@@ -42,9 +43,9 @@ import type { ServedFile } from "#compiler/served/forms.ts"
  * - every ScalarType once, in the file's `types` table, in the order the walk first meets it (a contract's base and a
  *   span's endpoint before the type over them), each occurrence `~t:` and its index, so a refined type is one object
  *   whatever the slots that read it;
- * - a Roster `~roster:` and its canonical payload, its declared name and its handles' digest, rebuilt at load from
- *   the live handles of the codes the file holds for it (ServedFile rosters) with the digest generate took, so a load
- *   hashes no handle;
+ * - a Roster `~roster:` and its canonical payload, its declared name and its handles' digest, rebuilt at load over the
+ *   live handles of the file's codes for it (`rosters`, below) with the digest generate took, so a load hashes no
+ *   handle;
  * - a range overload `~op:` and its code and carrier, read back as its one instance (ir/expr.ts rangeOp), which the
  *   registry and the host evaluator know an overload by;
  * - a host Decimal `~decimal:`, a host Money `~money:`, a host vector `~vector:`, and the IR's DecimalText, MoneyText
@@ -60,6 +61,11 @@ import type { ServedFile } from "#compiler/served/forms.ts"
  * with `~` or holds a symbol is refused, so no member of a form is ever dropped or guessed. A value is read once by the
  * canonical model (core/canonical.ts canonicalOf) and then by the file's own (servedOf), and the writer and the reader
  * each dispatch on that one reading, the reader's tags the writer's (ServedTag).
+ *
+ * Beside its members the file holds its types table, `types`, and its rosters' codes, `rosters`, which a load reads
+ * first and by name. `rosters` is no served value but the codes' own form: each roster's codes under its declared name,
+ * a RosterWire, code c at position c, a live code its handle and a hole `false`, so a roster of live codes alone is its
+ * handles in code order. A load reads it once (fileRosters) into the codes ServedFile holds.
  */
 
 /** The marker keys of a Map's, a Set's and a revived array's JSON forms, and of a revived member's keys or indices. */
@@ -93,13 +99,16 @@ const isServedTag = (tag: string): tag is ServedTag => servedTags.has(tag)
 
 const carrierNames: ReadonlySet<string> = new Set(carriers)
 
-/** Whether a record is a ScalarType: a carrier grizzle admits, and its capability set, which no other form holds both of. */
-const isScalarType = (value: unknown): value is ScalarType => {
-	if (!isRecord(value)) {
-		return false
-	}
-	const carrier = value["carrier"]
-	return typeof carrier === "string" && carrierNames.has(carrier) && isList(value["caps"])
+/** A ScalarType as the walk meets it: a plain record, whose members the types table writes. */
+type ScalarRecord = ScalarType & Readonly<Record<string, unknown>>
+
+/**
+ * Whether a plain record is a ScalarType: a carrier grizzle admits, and its capability set, which no other form holds
+ * both of.
+ */
+const isScalarType = (record: Readonly<Record<string, unknown>>): record is ScalarRecord => {
+	const carrier = record["carrier"]
+	return typeof carrier === "string" && carrierNames.has(carrier) && isList(record["caps"])
 }
 
 /** A value no served form may hold, at `path`: the compile's input is the caller's, so it is refused, never dropped. */
@@ -116,7 +125,7 @@ const unserved = (path: Path, what: string): never => {
 type ServedObject =
 	| { readonly kind: "tagged"; readonly tag: ServedTag; readonly payload: string }
 	| { readonly kind: "escaped"; readonly text: string }
-	| { readonly kind: "type"; readonly type: ScalarType }
+	| { readonly kind: "type"; readonly type: ScalarRecord }
 	| { readonly kind: "array"; readonly items: ReadonlyArray<unknown> }
 	| { readonly kind: "record"; readonly record: Readonly<Record<string, unknown>> }
 	| { readonly kind: "map"; readonly map: ReadonlyMap<unknown, unknown> }
@@ -210,9 +219,9 @@ const servedObject = (read: CanonicalObject | Outside): ServedObject => {
 /**
  * The one reading of a value by the served file (ServedValue), over its reading by the canonical model (canonicalOf):
  * well-formed text as it is, or escaped where it begins with `~`; a finite number, -0 as 0; a boolean; a bigint, NaN,
- * an infinity, a vector and a canonical value of a served class under their tags; a range overload, a ScalarType, an array and a plain
- * record; a Map and a Set; and nothing else. No reading is undefined, a function or a symbol, so those cases hold none
- * (never).
+ * an infinity, a vector and a canonical value of a served class under their tags; a range overload, a ScalarType, an
+ * array and a plain record; a Map and a Set; and nothing else. No reading is undefined, a function or a symbol, so
+ * those cases hold none (never).
  */
 const servedOf = (value: unknown): ServedValue => {
 	const read = canonicalOf(value)
@@ -235,16 +244,19 @@ const servedOf = (value: unknown): ServedValue => {
 }
 
 /** A value's JSON form, and whether a load revives it: whether it or a value it holds is no JSON value as it is. */
-interface Written {
-	readonly json: Json
+interface Written<J extends Json = Json> {
+	readonly json: J
 	readonly revived: boolean
 }
 
+/** A record's JSON form. */
+type JsonRecord = { readonly [key: string]: Json }
+
 /** A JSON form read back as it is. */
-const plain = (json: Json): Written => ({ json, revived: false })
+const plain = <J extends Json>(json: J): Written<J> => ({ json, revived: false })
 
 /** A JSON form a load revives. */
-const revived = (json: Json): Written => ({ json, revived: true })
+const revived = <J extends Json>(json: J): Written<J> => ({ json, revived: true })
 
 /**
  * One walk of a served form into its JSON form, the types it meets interned into its table (see the header). Records
@@ -252,7 +264,9 @@ const revived = (json: Json): Written => ({ json, revived: true })
  */
 class ServedWriter {
 	readonly types: Array<Json> = []
+	/** Each type's index in `types` by its object, so a type met again is not written again to find it. */
 	readonly #byObject = new Map<ScalarType, number>()
+	/** Each type's index in `types` by its canonical text, so types of one text are one entry. */
 	readonly #byText = new Map<string, number>()
 	readonly #path: Array<string | number> = []
 
@@ -260,7 +274,7 @@ class ServedWriter {
 	 * A value's JSON form, by its served reading (servedOf): a JSON scalar as it is, and an object as #object writes it.
 	 * No served reading is a bigint, undefined, a function or a symbol, so those cases hold none (never).
 	 */
-	value(value: unknown): Written {
+	#value(value: unknown): Written {
 		const served = servedOf(value)
 		switch (typeof served) {
 			case "string":
@@ -295,7 +309,7 @@ class ServedWriter {
 			case "array":
 				return this.#array(served.items)
 			case "record":
-				return this.#record(served.record)
+				return this.record(served.record)
 			case "map":
 				return this.#map(served.map)
 			case "set":
@@ -311,7 +325,7 @@ class ServedWriter {
 		const at: Array<number> = []
 		for (const [i, item] of value.entries()) {
 			const written = this.#at(i, () =>
-				item === undefined ? unserved(this.#path, "an element") : this.value(item)
+				item === undefined ? unserved(this.#path, "an element") : this.#value(item)
 			)
 			items.push(written.json)
 			if (written.revived) {
@@ -332,8 +346,8 @@ class ServedWriter {
 				this.#at(entries.length, () => [
 					typeof k === "object" && k !== null
 						? unserved(this.#path, "a Map keyed by primitives")
-						: this.value(k).json,
-					this.value(v).json
+						: this.#value(k).json,
+					this.#value(v).json
 				])
 			)
 		}
@@ -343,13 +357,13 @@ class ServedWriter {
 	#set(value: ReadonlySet<unknown>): Written {
 		const members: Array<Json> = []
 		for (const v of value) {
-			members.push(this.#at(members.length, () => this.value(v).json))
+			members.push(this.#at(members.length, () => this.#value(v).json))
 		}
 		return revived({ [setKey]: members })
 	}
 
 	/** A record's members in key order, and, where some are revived, the keys of those under `~`. */
-	#record(value: Readonly<Record<string, unknown>>): Written {
+	record(value: Readonly<Record<string, unknown>>): Written<JsonRecord> {
 		const out: Record<string, Json> = {}
 		const keys: Array<string> = []
 		for (const key of Object.keys(value).toSorted(compareText)) {
@@ -358,7 +372,7 @@ class ServedWriter {
 			}
 			const member = value[key]
 			if (member !== undefined) {
-				const written = this.#at(key, () => this.value(member))
+				const written = this.#at(key, () => this.#value(member))
 				out[key] = written.json
 				if (written.revived) {
 					keys.push(key)
@@ -373,76 +387,130 @@ class ServedWriter {
 	}
 
 	/** The index of `type` in the table, interned once by its canonical text: its parts first. */
-	#typeIndex(type: ScalarType): number {
+	#typeIndex(type: ScalarRecord): number {
 		const known = this.#byObject.get(type)
 		if (known !== undefined) {
 			return known
 		}
-		if (!isRecord(type)) {
-			throw defect("a ScalarType is a record")
-		}
-		const json = this.#record(type).json
+		const index = this.#textIndex(this.record(type).json)
+		this.#byObject.set(type, index)
+		return index
+	}
+
+	/** The index of the entry whose canonical text is `json`'s, appended as the table's last where none is. */
+	#textIndex(json: JsonRecord): number {
 		const text = writeCanonicalJson(json)
 		if (!text.ok) {
 			throw new Refusal(text.error)
 		}
 		const same = this.#byText.get(text.value)
-		const index = same ?? this.types.length
-		if (same === undefined) {
-			this.types.push(json)
-			this.#byText.set(text.value, index)
+		if (same !== undefined) {
+			return same
 		}
-		this.#byObject.set(type, index)
-		return index
+		this.#byText.set(text.value, this.types.length)
+		this.types.push(json)
+		return this.types.length - 1
 	}
 }
 
 /**
+ * A roster's codes as the served file holds them (see the header): code c at position c, a live code its handle and a
+ * hole `false`, which no handle is, so the list is the roster's code space and a hole is told from a handle by its JSON
+ * type alone.
+ */
+export type RosterWire = ReadonlyArray<string | false>
+
+/** The file's rosters: each roster's codes under its declared name. */
+type RostersWire = { readonly [roster: string]: RosterWire }
+
+/** A roster's codes in the served file's form (RosterWire). */
+export const rosterWire = (codes: RosterCodes): RosterWire =>
+	codes.map((slot) => (slot.kind === "live" ? slot.handle : false))
+
+/** The codes a roster's served form (RosterWire) holds. */
+export const rosterCodesOf = (wire: RosterWire): RosterCodes =>
+	wire.map((slot): CodeSlot => (slot === false ? { kind: "hole" } : { kind: "live", handle: slot }))
+
+/**
  * The served file's text of `file` (see the header), ending in a newline; refused where a form holds no served value.
- * Its members are walked as one record, and beside them its rosters and its types table, which a load reads first and
- * by name (servedFile), so the record's `~` lists only the members a load walks to a revived value.
+ * Its members are walked as one record, and beside them its rosters in their own form (rosterWire) and its types table,
+ * which a load reads first and by name (servedFile), so the record's `~` lists only the members a load walks to a
+ * revived value.
  */
 export const servedText = (file: ServedFile): Result.Result<string, CompileError> =>
 	Result.flatMap(
 		catchRefusal(() => {
 			const writer = new ServedWriter()
 			const { rosters, ...members } = file
-			const { json } = writer.value(members)
-			if (typeof json !== "object" || isList(json)) {
-				throw defect("a served file's JSON form is a record")
-			}
-			return { ...json, rosters: writer.value(rosters).json, types: writer.types }
+			const { json } = writer.record(members)
+			const wire: RostersWire = Object.fromEntries(
+				Array.from(rosters, ([roster, codes]) => [roster, rosterWire(codes)])
+			)
+			return { ...json, rosters: wire, types: writer.types }
 		}),
 		(json) => Result.map(writeCanonicalJson(json), (text) => `${text}\n`)
 	)
 
 /**
- * A roster by its canonical payload, its declared name and its handles' digest, each trusted as the compile wrote it:
- * its live handles in code order, its codes', holes left out.
+ * The file's rosters as a load reads them, once (fileRosters): each roster's codes, which ServedFile holds, and its
+ * live handles in code order, which every Roster the file names is rebuilt over.
  */
-const rosterOf = (rosters: ReadonlyMap<string, RosterCodes>, payload: string): Roster => {
+interface FileRosters {
+	readonly codes: ReadonlyMap<DeclaredName, RosterCodes>
+	readonly handles: ReadonlyMap<DeclaredName, NonEmptyReadonlyArray<string>>
+}
+
+/**
+ * The file's rosters (RostersWire) read once, each name trusted as the compile wrote it; a roster holds a live handle,
+ * since its codes are a declaration's.
+ */
+const fileRosters = (wire: RostersWire): FileRosters => {
+	const codes = new Map<DeclaredName, RosterCodes>()
+	const handles = new Map<DeclaredName, NonEmptyReadonlyArray<string>>()
+	for (const [roster, slots] of Object.entries(wire)) {
+		const name = trusted<DeclaredName>(roster)
+		const live = slots.filter((slot) => slot !== false)
+		if (!isNonEmpty(live)) {
+			throw defect(`roster ${name} holds a live handle`)
+		}
+		codes.set(name, rosterCodesOf(slots))
+		handles.set(name, live)
+	}
+	return { codes, handles }
+}
+
+/**
+ * A roster by its canonical payload, its declared name and its handles' digest, each trusted as the compile wrote it,
+ * over its live handles the file's rosters hold.
+ */
+const rosterOf = (
+	handles: ReadonlyMap<DeclaredName, NonEmptyReadonlyArray<string>>,
+	payload: string
+): Roster => {
 	const at = payload.lastIndexOf(":")
 	const name = trusted<DeclaredName>(payload.slice(0, at))
-	const codes = defined(rosters.get(name), `the served file holds the codes of its roster ${name}`)
-	const [first, ...rest] = codes.flatMap((slot) => (slot.kind === "live" ? [slot.handle] : []))
-	if (first === undefined) {
-		throw defect(`roster ${name} holds a live handle`)
-	}
-	return new Roster(name, [first, ...rest], trusted<RosterDigest>(payload.slice(at + 1)))
+	return new Roster(
+		name,
+		defined(handles.get(name), `the served file holds the codes of its roster ${name}`),
+		trusted<RosterDigest>(payload.slice(at + 1))
+	)
 }
 
 /**
  * One walk of a served file's JSON form back into its forms (see the header): only the paths its records and arrays
  * list to revived values, each value beside them the file's own, read as it is; its types read from `types`, each
- * occurrence of one index the same object, and its rosters from the codes the file holds for them.
+ * occurrence of one index the same object, and its rosters over the live handles the file holds for them.
  */
 class ServedReader {
 	readonly #types: ReadonlyArray<ScalarType>
-	readonly #rosters: ReadonlyMap<string, RosterCodes>
+	readonly #handles: ReadonlyMap<DeclaredName, NonEmptyReadonlyArray<string>>
 
-	constructor(types: ReadonlyArray<ScalarType>, rosters: ReadonlyMap<string, RosterCodes>) {
+	constructor(
+		types: ReadonlyArray<ScalarType>,
+		handles: ReadonlyMap<DeclaredName, NonEmptyReadonlyArray<string>>
+	) {
 		this.#types = types
-		this.#rosters = rosters
+		this.#handles = handles
 	}
 
 	value(json: unknown): unknown {
@@ -512,7 +580,7 @@ class ServedReader {
 			case tags.type:
 				return defined(this.#types[Number(payload)], `the served types table holds type ${payload}`)
 			case tags.roster:
-				return rosterOf(this.#rosters, payload)
+				return rosterOf(this.#handles, payload)
 			case tags.rangeOp: {
 				const at = payload.lastIndexOf(":")
 				return defined(
@@ -544,30 +612,29 @@ const revivedOf = <A>(result: Result.Result<A, CompileError>, what: string): A =
 	return result.value
 }
 
-/** The JSON form of a served file, as an import of it or JSON.parse yields it: its members, its rosters and its types. */
+/**
+ * The JSON form of a served file, as an import of it or JSON.parse yields it: its members, its rosters and its types
+ * table.
+ */
 interface ServedJson {
 	readonly types: ReadonlyArray<unknown>
-	readonly rosters: unknown
+	readonly rosters: RostersWire
 	readonly [member: string]: unknown
 }
 
 /**
  * The served file a served file's JSON value holds (what an import of the file, or JSON.parse of its text, yields),
- * trusted as the file `grizzle generate` wrote and `grizzle check` holds equal to the compile: its rosters first, which
- * hold no type or roster, then its types table, each entry over those before it, then its members, each walked only
+ * trusted as the file `grizzle generate` wrote and `grizzle check` holds equal to the compile: its rosters first, read
+ * once (fileRosters), then its types table, each entry over those before it, then its members, each walked only
  * along the paths it lists to revived values, every other value the JSON value's own.
  */
 export const servedFile = (json: unknown): ServedFile => {
 	const { types, rosters, ...members } = trusted<ServedJson>(json)
-	const codes = trusted<ReadonlyMap<string, RosterCodes>>(
-		new ServedReader([], new Map()).value(rosters)
-	)
+	const { codes, handles } = fileRosters(rosters)
 	const table: Array<ScalarType> = []
+	const reader = new ServedReader(table, handles)
 	for (const entry of types) {
-		table.push(trusted<ScalarType>(new ServedReader(table, codes).value(entry)))
+		table.push(trusted<ScalarType>(reader.value(entry)))
 	}
-	return trusted<ServedFile>({
-		...trusted<object>(new ServedReader(table, codes).value(members)),
-		rosters: codes
-	})
+	return trusted<ServedFile>({ ...trusted<object>(reader.value(members)), rosters: codes })
 }

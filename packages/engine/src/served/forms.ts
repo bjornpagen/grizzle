@@ -53,7 +53,8 @@ import type { ParamValue } from "#compiler/types/core/phantom.ts"
  * constructors the compile path runs it through too.
  *
  * The file is canonical JSON (served/json.ts), so `grizzle check` compares bytes: each ScalarType once in its types
- * table, every occurrence its index, and each Roster by its declared name, rebuilt from the file's own codes.
+ * table, every occurrence its index; its rosters' codes in their own form (served/json.ts RosterWire), each roster's
+ * handles in code order, a hole `false`; and each Roster by its declared name, rebuilt over the file's own codes.
  */
 export interface ServedFile {
 	/** The login's declared name, which names its file. */
@@ -66,7 +67,9 @@ export interface ServedFile {
 	/** The login's PostgreSQL role, and the PostgreSQL schema of its base. */
 	readonly role: string
 	readonly schema: string
-	/** The texts of every Db transaction's prologue the file fixes: the ledger's fence, then entering the snapshot guard. */
+	/**
+	 * The texts of every Db transaction's prologue the file fixes: the ledger's fence, then entering the snapshot guard.
+	 */
 	readonly prologue: ServedPrologue
 	/** The texts every session of the login sends besides its programs': its startup options and its transactions'. */
 	readonly session: ServedSession
@@ -133,9 +136,9 @@ export const servedDirectory = "served"
 export const servedPath = (login: string): string => `${servedDirectory}/${login}.json`
 
 /**
- * One role of a login as its Dbs serve it: its name in the login, its installed PostgreSQL role, the isolation level its
- * writes begin at, the contexts its relations read, typed, which a Db's claims are decoded through, the classifier of
- * its refusals, and its workload members in the workloads' order, each program's own record order.
+ * One role of a login as its Dbs serve it: its name in the login, its installed PostgreSQL role, the isolation level
+ * its writes begin at, the contexts its relations read, typed, which a Db's claims are decoded through, the classifier
+ * of its refusals, and its workload members in the workloads' order, each program's own record order.
  */
 export interface ServedRoleForm {
 	readonly name: string
@@ -188,9 +191,9 @@ export interface ServedRefreshTarget {
  * refreshPlan): its targets in refresh order, each with its view's plain and CONCURRENTLY refresh statements, which the
  * call's report names; the catalog statement that reads which views of one PostgreSQL schema PostgreSQL holds
  * populated, run once per schema the targets' views live in, in their first target's order, with that schema's
- * parameters and its targets, each by its place in refresh order and its view's name; and the DO block that refreshes every target, each plain or CONCURRENTLY
- * as PostgreSQL holds it populated, in one statement. The catalog statement and the block are sent, each named
- * (core/prepared.ts); a target's two statements are only reported.
+ * parameters and its targets, each by its place in refresh order and its view's name; and the DO block that refreshes
+ * every target, each plain or CONCURRENTLY as PostgreSQL holds it populated, in one statement. The catalog statement
+ * and the block are sent, each named (core/prepared.ts); a target's two statements are only reported.
  */
 export interface ServedRefresh {
 	readonly targets: NonEmptyReadonlyArray<
@@ -309,7 +312,10 @@ export interface ServedKeyLaws {
 	}>
 }
 
-/** A query entry a role writes through, by its target: the entry's name, and each head field to the target field it writes. */
+/**
+ * A query entry a role writes through, by its target: the entry's name, and each head field to the target field it
+ * writes.
+ */
 export interface ServedEntryKey {
 	readonly entry: EntryName
 	readonly head: ReadonlyMap<string, string>
