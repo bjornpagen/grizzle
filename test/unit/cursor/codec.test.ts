@@ -527,7 +527,7 @@ describe("boundary values round-trip exactly", () => {
 						draw: drawn(
 							oneOf([
 								string(storedScalar, { min: 0, max: 60 }),
-								element(["", "𝄞", "\u{10ffff}", "a\u{1f600}b", "￿", "é", "é"])
+								element(["", "𝄞", "\u{10ffff}", "a\u{1f600}b", "￿", "\u00e9", "e\u0301"])
 							])
 						),
 						literal: Formatter.format,

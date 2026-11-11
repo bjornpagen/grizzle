@@ -62,10 +62,12 @@ import {
 	Work,
 	Writer
 } from "#test/support/agreement/changeset-schema.ts"
+import { nonEmpty } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { messageOf } from "#test/support/message.ts"
 import { checking } from "#test/support/policy.ts"
 import { type PreludeAt, preludeAt, preludeFrom, preludeProgram } from "#test/support/prelude.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /**
  * The ChangeSet population: ChangeSets drawn over Work (./changeset-schema.ts), each read twice, as TypeScript source
@@ -1018,8 +1020,7 @@ const familyValue = (lit: Lit): FamilyValue => ({ kind: "value", lit })
 const nestedRows = (rows: ReadonlyArray<FamilyFact>): FamilyValue => ({ kind: "rows", rows })
 
 /** The ordinals 1 to `count`, none when it is 0. */
-const ordinals = (count: number): ReadonlyArray<number> =>
-	Arr.filter(Arr.range(1, Math.max(count, 1)), (i) => i <= count)
+const ordinals = (count: number): ReadonlyArray<number> => upTo(count, (i) => i + 1)
 const labels: Arr.NonEmptyReadonlyArray<Lit> = [
 	{ text: "0", value: 0 },
 	{ text: "1", value: 1 }
@@ -1228,15 +1229,21 @@ const familyMemberOf = (d: Drawing, clean: boolean): MemberSpec => {
 				: (["insert", "delete", "put"] as const)
 	)
 	const owner = d.from(uuids)
-	const facts = Arr.map(Arr.range(1, d.from([1, 2])), (i): FamilyFact => {
-		if (relation === "Item" || relation === "Chip") {
-			d.note("a counted member")
-			return countedFact(owner, i - 1)
-		}
-		return (relation === "Order" || relation === "Cart") && op === "insert"
-			? orderOf(d, i - 1, undefined)
-			: [["id", familyValue(Arr.getUnsafe(uuids, (i - 1) % uuids.length))]]
-	})
+	const facts = nonEmpty(
+		Arr.map(
+			upTo(d.from([1, 2]), (i) => i + 1),
+			(i): FamilyFact => {
+				if (relation === "Item" || relation === "Chip") {
+					d.note("a counted member")
+					return countedFact(owner, i - 1)
+				}
+				return (relation === "Order" || relation === "Cart") && op === "insert"
+					? orderOf(d, i - 1, undefined)
+					: [["id", familyValue(Arr.getUnsafe(uuids, (i - 1) % uuids.length))]]
+			}
+		),
+		"a write holds one or two facts"
+	)
 	const written: Arr.NonEmptyReadonlyArray<FamilyFact> = [
 		Arr.headNonEmpty(facts),
 		...facts.slice(1)

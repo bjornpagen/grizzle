@@ -214,10 +214,13 @@ const sidesOf = (given: string): Result.Result<readonly [string, string], Declar
 	if (!Str.includes("#")(old)) {
 		return Result.succeed(splitAt(1))
 	}
-	const splits = Arr.filter(Arr.range(1, pieces.length - 1), (k) => {
-		const [from, to] = splitAt(k)
-		return handleSide(from) && handleSide(to)
-	})
+	const splits = Arr.filter(
+		Array.from({ length: pieces.length - 1 }, (_, i) => i + 1),
+		(k) => {
+			const [from, to] = splitAt(k)
+			return handleSide(from) && handleSide(to)
+		}
+	)
 	const [only, ...more] = splits
 	if (more.length > 0) {
 		return refused({ kind: "ambiguous", given, readings: splits.length })

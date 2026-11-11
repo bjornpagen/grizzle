@@ -72,7 +72,7 @@ import {
 	Tones,
 	ToneWeight
 } from "#test/support/agreement/schema.ts"
-import { defined, succeeded } from "#test/support/assert.ts"
+import { defined, nonEmpty, succeeded } from "#test/support/assert.ts"
 import {
 	codebookFor,
 	compileTemplateOver,
@@ -1469,7 +1469,10 @@ const oppositeOf = (d: Drawing, left: Var, bound: ReadonlyArray<Var>): Term =>
 const maskPositions: Arr.NonEmptyReadonlyArray<number> = Arr.map(maskNames, (_name, i) => i)
 
 /** How far past the first name a second one is, wrapping around maskNames: never at the first. */
-const maskOffsets: Arr.NonEmptyReadonlyArray<number> = Arr.range(1, maskNames.length - 1)
+const maskOffsets: Arr.NonEmptyReadonlyArray<number> = nonEmpty(
+	upTo(maskNames.length - 1, (i) => i + 1),
+	"maskNames holds two names at least"
+)
 
 /** The name at a position of maskNames, wrapping around. */
 const maskNameAt = (position: number): MaskName =>
@@ -1981,29 +1984,35 @@ const headOver = (
 		]
 		return Arr.map(terms, (t, i) => [`${prefix}${i}`, t] as const)
 	}
-	return Arr.map(Arr.range(0, d.from([0, 1, 2])), (i) => {
-		const anywhere: ReadonlyArray<Form<HeadTerm>> = [
-			["condHead", () => ({ kind: "term", t: condOver(d, bound, ints) })],
-			["literalHead", () => ({ kind: "literal", value: d.from([0, 1, "a", "b"]) })],
-			["constantHead", () => ({ kind: "term", t: handleOf(d) })],
-			["paramHead", () => ({ kind: "term", t: d.param(d.from(fieldsOf.Item)) })]
-		]
-		const forms: Arr.NonEmptyReadonlyArray<Form<HeadTerm>> = Arr.isReadonlyArrayNonEmpty(bound)
-			? [
-					["headVar", () => ({ kind: "term", t: varTerm(d.from(bound)) })],
-					...(Arr.isReadonlyArrayNonEmpty(ints)
-						? [
-								[
-									"computedHead",
-									(): HeadTerm => ({ kind: "term", t: computedOver(d, ints) })
-								] as const
-							]
-						: []),
-					...anywhere
-				]
-			: [["literalHead", () => ({ kind: "literal", value: d.from([0, 1, "a", "b"]) })], ...anywhere]
-		return [`${prefix}${i}`, d.choose(forms)] as const
-	})
+	return nonEmpty(
+		upTo(d.from([0, 1, 2]) + 1, (i) => {
+			const anywhere: ReadonlyArray<Form<HeadTerm>> = [
+				["condHead", () => ({ kind: "term", t: condOver(d, bound, ints) })],
+				["literalHead", () => ({ kind: "literal", value: d.from([0, 1, "a", "b"]) })],
+				["constantHead", () => ({ kind: "term", t: handleOf(d) })],
+				["paramHead", () => ({ kind: "term", t: d.param(d.from(fieldsOf.Item)) })]
+			]
+			const forms: Arr.NonEmptyReadonlyArray<Form<HeadTerm>> = Arr.isReadonlyArrayNonEmpty(bound)
+				? [
+						["headVar", () => ({ kind: "term", t: varTerm(d.from(bound)) })],
+						...(Arr.isReadonlyArrayNonEmpty(ints)
+							? [
+									[
+										"computedHead",
+										(): HeadTerm => ({ kind: "term", t: computedOver(d, ints) })
+									] as const
+								]
+							: []),
+						...anywhere
+					]
+				: [
+						["literalHead", () => ({ kind: "literal", value: d.from([0, 1, "a", "b"]) })],
+						...anywhere
+					]
+			return [`${prefix}${i}`, d.choose(forms)] as const
+		}),
+		"a head holds one term at least"
+	)
 }
 
 /** A union's second arm: the first's, with its parameters renamed and, under a discriminant, each arm told apart. */

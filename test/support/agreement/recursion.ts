@@ -1,5 +1,5 @@
 import { floorPopulation, type Situations } from "@grizzle/testing/features"
-import { element, type Gen, int } from "@grizzle/testing/gen"
+import { constant, element, type Gen, int, proportional } from "@grizzle/testing/gen"
 import { floorSeed, rotatingSeed } from "@grizzle/testing/random"
 import { sample, type Source } from "@grizzle/testing/source"
 import { Array as Arr, Effect, Record as Rec, String as Str } from "effect"
@@ -28,6 +28,7 @@ import {
 	type PreludeAt,
 	preludeFrom
 } from "#test/support/prelude.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /**
  * The recursion agreement: recursive queries, query(Graph).recursive(name, { row, base, rec }), drawn over
@@ -325,20 +326,24 @@ const recArm = (source: Source, ranked: boolean, fault: Planted | undefined): Ar
 	}
 }
 
-const plantedOptions: Arr.NonEmptyReadonlyArray<Planted | undefined> = [
-	undefined,
-	undefined,
-	undefined,
-	...recursionFaults,
-	...declaredClasses
-]
+/** No plant three parts in the sum of the plants' count and three, and each plant one part. */
+const plantedGen: Gen<Planted | undefined> = proportional<Planted | undefined>([
+	[3, constant(undefined)],
+	[
+		recursionFaults.length + declaredClasses.length,
+		element<Planted>([...recursionFaults, ...declaredClasses])
+	]
+])
 
 const specGen: Gen<RecursionSpec> = (source) => {
 	const ranked = coin(source, 2)
-	const planted = source.draw(element(plantedOptions))
+	const planted = source.draw(plantedGen)
 	const site = planted === undefined ? undefined : siteOf[planted]
 	const arms = (count: number, make: () => Arm): ReadonlyArray<Arm> =>
-		Arr.map(Arr.range(1, count), make)
+		Arr.map(
+			upTo(count, (i) => i + 1),
+			make
+		)
 	return {
 		ranked,
 		base:

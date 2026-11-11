@@ -27,6 +27,7 @@ import {
 	type GenSchema,
 	schemaDesc
 } from "#test/support/oracle/gen/schema.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /**
  * The small closed universe the small-scope suite proves the analyses over: two relations, R(a, b) and S(a, b), both
@@ -297,7 +298,10 @@ export const subsetsOf = <A>(items: ReadonlyArray<A>): ReadonlyArray<ReadonlyArr
 						? Arr.map(choose(i + 1, size - 1), (rest) => [head, ...rest])
 						: []
 				)
-	return Arr.flatMap(Arr.range(0, items.length), (size) => choose(0, size))
+	return Arr.flatMap(
+		upTo(items.length + 1, (i) => i),
+		(size) => choose(0, size)
+	)
 }
 
 const relationFacts = (keys: Variant["r"]) =>

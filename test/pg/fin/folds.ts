@@ -101,6 +101,7 @@ import {
 } from "#test/support/substrate.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import type { Substrate } from "#test/support/substrate/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /** The roster the set monoids fold over: five handles, codes 0 to 4. */
 const Tag = closed("Tag", ["a", "b", "c", "d", "e"])
@@ -409,7 +410,10 @@ const setOf = (size: number): Carrier => ({
 		`X'${hexOfText(
 			setText(
 				size,
-				Arr.filter(Arr.range(0, size - 1), (c) => ((v >> BigInt(c)) & 1n) === 1n)
+				Arr.filter(
+					upTo(size, (i) => i),
+					(c) => ((v >> BigInt(c)) & 1n) === 1n
+				)
 			)
 		)}'`,
 	read: (c) => `${c}::text`,

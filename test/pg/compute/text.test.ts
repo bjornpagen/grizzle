@@ -112,7 +112,7 @@ const sqlCase: Gen<SqlCase> = (source) => {
 	])
 	const first = source.draw(pattern)
 	const second = source.draw(boolean) ? [source.draw(pattern)] : []
-	const strings = stringsOver(family.alphabet, 8)
+	const strings = stringsOver(element(family.alphabet), 8)
 	return {
 		family: fi,
 		sources: [first, ...second],
@@ -354,7 +354,7 @@ layer(Substrate.layer)("Compute's text terms on PostgreSQL", (it) => {
 		)
 		const first = source.draw(admitted)
 		const more = source.draw(array(admitted, { min: 0, max: 3 }))
-		const strings = stringsOver(family.alphabet, 6)
+		const strings = stringsOver(element(family.alphabet), 6)
 		return {
 			family: fi,
 			patterns: [first, ...more],

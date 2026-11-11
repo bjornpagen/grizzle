@@ -38,6 +38,7 @@ import {
 import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /**
  * A refresh member of a login's workload is compiled by `grizzle generate` into the login's served file, and held to
@@ -152,10 +153,13 @@ const setOf = (positions: ReadonlyArray<number>): number =>
 
 /** The positions of a set, ascending: declared level order. */
 const positionsOf = (bits: number): ReadonlyArray<number> =>
-	Arr.filter(Arr.range(0, materialized.length - 1), (p) => (bits & (1 << p)) !== 0)
+	Arr.filter(
+		upTo(materialized.length, (i) => i),
+		(p) => (bits & (1 << p)) !== 0
+	)
 
 /** Every nonempty set of the relations. */
-const everySet = Arr.range(1, (1 << materialized.length) - 1)
+const everySet = upTo((1 << materialized.length) - 1, (i) => i + 1)
 
 const at = (second: number) =>
 	DateTime.makeUnsafe({

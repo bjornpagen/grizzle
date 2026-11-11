@@ -41,6 +41,7 @@ import { caseHang } from "#test/support/limits.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /** A relation's table and a field's column, as the naming door names them. */
 const tableOf = (relationName: string): string =>
@@ -82,9 +83,7 @@ const countOf = (s: Stage, parent: number): number => defined(s.counts[parent], 
 
 /** The rows a stage admits: each parent's slots below its count. */
 const slotsOf = (s: Stage): ReadonlyArray<Row> =>
-	Arr.flatMap(parents, (_, parent) =>
-		Arr.map(Arr.range(0, countOf(s, parent) - 1), (at) => ({ parent, at }))
-	)
+	Arr.flatMap(parents, (_, parent) => upTo(countOf(s, parent), (at) => ({ parent, at })))
 
 const sameRow = (a: Row, b: Row): boolean => a.parent === b.parent && a.at === b.at
 

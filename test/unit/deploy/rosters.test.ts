@@ -90,6 +90,7 @@ import { lawNamesOf, parsedName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { noBindings, Reference, unobserved } from "#test/support/oracle/reference/evaluate.ts"
 import { owning } from "#test/support/policy.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /** The handles the roster may ever declare: the box's bound of four. */
 const universe = ["a", "b", "c", "d"] as const
@@ -925,7 +926,7 @@ const stepsFrom = (m: Model): ReadonlyArray<CommandStep<Params>> => {
 		...Arr.map(removedOf(m), (h) => ({ command: "re-add", parameters: h }) as const),
 		...(handles.length >= 2
 			? Arr.map(
-					Arr.range(0, handles.length - 2),
+					upTo(handles.length - 1, (i) => i),
 					(i) => ({ command: "reorder", parameters: i }) as const
 				)
 			: []),

@@ -63,6 +63,7 @@ import { type SpanKeyedOwner, spanOwnersGen } from "#test/support/families/gener
 import { caseHang } from "#test/support/limits.ts"
 import { tableState } from "#test/support/substrate/state.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 const Owner = relation("Owner", { id: pg.int4, n: drawn(natural), end: accumulated(pg.int4, 0) }, [
 	"id"
@@ -102,7 +103,10 @@ interface Sketch {
 const sketchGen: Gen<Sketch> = (source) => {
 	const n = source.draw(int(1, 4))
 	const values = nonEmpty(
-		Arr.map(Arr.range(1, n), () => source.draw(element([0, 1, 2, 3, 4] as const)))
+		Arr.map(
+			upTo(n, (i) => i + 1),
+			() => source.draw(element([0, 1, 2, 3, 4] as const))
+		)
 	)
 	const at = source.draw(int(0, n - 1))
 	const from = Arr.getUnsafe(values, at)

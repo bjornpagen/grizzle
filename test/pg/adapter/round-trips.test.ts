@@ -62,6 +62,7 @@ import { pickGen, pickIndex } from "#test/support/pick.ts"
 import { member, withServedDb } from "#test/support/served-db.ts"
 import type { Credentials } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
 import {
 	frameOf,
 	makeTap,
@@ -643,8 +644,9 @@ layer(Substrate.layer, { excludeTestServices: true })("one round trip per public
 							(c, notes) =>
 								Effect.gen(function* () {
 									const mark = tap.mark()
-									const dbs = yield* Effect.forEach(Arr.range(1, c.opens), () =>
-										Db.open(o.served.login.roles.app, {})
+									const dbs = yield* Effect.forEach(
+										upTo(c.opens, (i) => i + 1),
+										() => Db.open(o.served.login.roles.app, {})
 									)
 									const opened = tap.since(mark)
 									assert.equal(opened.events.length, 0, "Db.open writes and reads nothing")

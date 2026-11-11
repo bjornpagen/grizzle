@@ -32,10 +32,10 @@ import {
 import { RuleTester } from "oxlint/plugins-dev"
 import { drawn, explore } from "#explore.ts"
 import { required } from "#features.ts"
-import { array, constant, element, type Gen, int, subset, weighted } from "#gen.ts"
+import { array, boolean, constant, element, type Gen, int, subset, weighted } from "#gen.ts"
 import plugin from "#oxlint/plugin.ts"
 import { COMPARISONS, PREDICATES, TRUTHS } from "#oxlint/rules/no-boolean-assert.ts"
-import { MAKE_BY } from "#oxlint/rules/no-clamped-count.ts"
+import { CLAMPED, type Clamp, LENGTH } from "#oxlint/rules/no-clamped-count.ts"
 import {
 	ERROR_NAMES,
 	ERROR_SUFFIXES,
@@ -48,6 +48,7 @@ import {
 } from "#oxlint/rules/no-error-prose.ts"
 import { TABLES } from "#oxlint/rules/no-example-table.ts"
 import { RUNS, SEED_FIELD, SEEDED } from "#oxlint/rules/no-fixed-seed.ts"
+import { ARMS, CHOICES } from "#oxlint/rules/no-implicit-weight.ts"
 import {
 	COLLECTION_CONSTRUCTORS,
 	HASH_COLLECTIONS,
@@ -65,12 +66,13 @@ import { completeShrink } from "#shrink.ts"
 import { searched } from "#vitest/searched.ts"
 
 /** The imports every program starts from, so each name resolves as it does in a real test file. */
-const HEADER = `import { Array as Arr, Cause, Clock, DateTime, Duration, Effect, Equal, Exit, Formatter, HashMap, HashSet, Inspectable, Option, Order, Predicate, Random, Record, Result, Schedule } from "effect"
+const HEADER = `import { Array as Arr, Cause, Chunk, Clock, DateTime, Duration, Effect, Equal, Exit, Formatter, HashMap, HashSet, Inspectable, Iterable, Option, Order, pipe, Predicate, Random, Record, Result, Schedule } from "effect"
 import { TestClock } from "effect/testing"
 import { describe, flakyTest, it, layer } from "@effect/vitest"
 import { assertEquals, assertExitSuccess, assertFalse, assertInclude, assertMatch, assertNone, assertSome, assertTrue, deepStrictEqual, strictEqual } from "@effect/vitest/utils"
 import { expect, test } from "vitest"
 import assert from "node:assert"
+import { boolean, constant, element, int, oneOf, proportional, subset, weighted } from "@grizzle/testing/gen"
 `
 
 /** The placeholder of a site's own suffix, so the locals of two sites of one program never share a name. */
@@ -173,7 +175,12 @@ const judged = (name: RuleName, program: Program): Option.Option<string> => {
 				: {
 						valid: [],
 						invalid: [
-							{ code, errors: Arr.replicate({ messageId: messageIdOf(name) }, program.reports) }
+							{
+								code,
+								errors: Array.from({ length: program.reports }, () => ({
+									messageId: messageIdOf(name)
+								}))
+							}
 						]
 					}
 		)
@@ -270,16 +277,21 @@ const sleepSites: Gen<Site> = weighted([
 	]
 ])
 
-/** How a makeBy call is named: the header's `Arr`, a namespace import of effect/Array, or its own name imported alone. */
-const makeByCallee = (name: string): Gen<readonly [imports: string, callee: string]> =>
-	Str.includes(".")(name)
-		? element([
-				["", spelled(name)],
-				[`import * as Mod${OWN} from "effect/Array"\n`, `Mod${OWN}.${lastOf(name)}`]
-			] as const)
-		: constant([`import { ${name} as make${OWN} } from "effect/Array"\n`, `make${OWN}`] as const)
+/** The module of a dotted path, its first name. */
+const moduleOf = (path: string): string => Arr.headNonEmpty(Str.split(path, "."))
 
-/** A count makeBy is handed: a literal or a `const` holding one, an expression, a parameter. */
+/**
+ * How a clamping constructor is named: the header's module (`Arr` for Effect's Array), a namespace import of
+ * effect/<Module>, or its own name imported from effect/<Module>.
+ */
+const clampedCallee = (path: string): Gen<readonly [imports: string, callee: string]> =>
+	element([
+		["", spelled(path)],
+		[`import * as Mod${OWN} from "effect/${moduleOf(path)}"\n`, `Mod${OWN}.${lastOf(path)}`],
+		[`import { ${lastOf(path)} as made${OWN} } from "effect/${moduleOf(path)}"\n`, `made${OWN}`]
+	] as const)
+
+/** A count or a range's end as written: a literal or a `const` holding one, an expression, a parameter. */
 type Count =
 	| Readonly<{ kind: "literal" | "const"; value: number }>
 	| Readonly<{ kind: "expression" | "parameter" }>
@@ -291,58 +303,270 @@ const countGen: Gen<Count> = weighted<Count>([
 	[1, constant<Count>({ kind: "parameter" })]
 ])
 
-/** Whether a count states a positive whole number: the contract's one count that makeBy never normalizes. */
-const statesPositive = (count: Count): boolean =>
-	(count.kind === "literal" || count.kind === "const") &&
-	Number.isInteger(count.value) &&
-	count.value >= 1
+/** The integer a count writes, as the contract reads one: a literal or a `const` of a whole number. */
+const integerOf = (count: Count): Option.Option<number> =>
+	(count.kind === "literal" || count.kind === "const") && Number.isInteger(count.value)
+		? Option.some(count.value)
+		: Option.none()
 
-/** A makeBy call over a drawn count, data-last, or missing its function, and a near name that is no makeBy. */
-const clampedSites: Gen<Site> = weighted([
-	[
-		5,
-		(s) => {
-			const [imports, callee] = s.draw(makeByCallee(s.draw(oneOf(MAKE_BY))))
-			const count = s.draw(countGen)
-			const call = (written: string) => `${callee}(${written}, (i: number) => i)`
-			switch (count.kind) {
-				case "literal":
-					return site(
-						`${imports}const rows${OWN} = ${call(String(count.value))}`,
+/** Whether a count states a positive whole number: the contract's one count no clamping constructor normalizes. */
+const statesPositive = (count: Count): boolean => Option.exists(integerOf(count), (n) => n >= 1)
+
+/** A count as a site writes it under `tag`: what it declares, what it writes, and the parameter it needs, if any. */
+type WrittenCount = Readonly<{
+	declared: string
+	written: string
+	parameters: ReadonlyArray<string>
+}>
+
+const writtenCount = (count: Count, tag: string): WrittenCount => {
+	const name = `${tag}${OWN}`
+	switch (count.kind) {
+		case "literal":
+			return { declared: "", written: String(count.value), parameters: [] }
+		case "const":
+			return { declared: `const ${name} = ${count.value}\n`, written: name, parameters: [] }
+		case "expression":
+			return { declared: `const ${name} = 3\n`, written: `${name} - 1`, parameters: [] }
+		case "parameter":
+			return { declared: "", written: name, parameters: [`${name}: number`] }
+	}
+}
+
+/** A site of a call made inside a function of the counts' parameters, after the counts' declarations. */
+const callSite = (
+	imports: string,
+	counts: ReadonlyArray<WrittenCount>,
+	call: string,
+	reports: number
+): Site =>
+	site(
+		`${imports}${Arr.join(
+			Arr.map(counts, (count) => count.declared),
+			""
+		)}const rows${OWN} = (${Arr.join(
+			Arr.flatMap(counts, (count) => count.parameters),
+			", "
+		)}) => ${call}`,
+		reports
+	)
+
+/** The function a clamping constructor's data-first call takes beside its count, at the other place. */
+const besideCount = (at: number): string => (at === 0 ? "(i: number) => i" : `"x"`)
+
+/** A call to a clamping constructor as its clamp reads it, with the reports its contract gives it. */
+const clampedCall =
+	(callee: string, clamp: Clamp, imports: string): Gen<Site> =>
+	(source) => {
+		switch (clamp.kind) {
+			case "count": {
+				const count = source.draw(countGen)
+				const written = writtenCount(count, "count")
+				if (source.draw(boolean)) {
+					const args =
+						clamp.dataFirst === 0
+							? [written.written, besideCount(0)]
+							: [besideCount(1), written.written]
+					return callSite(
+						imports,
+						[written],
+						`${callee}(${Arr.join(args, ", ")})`,
 						statesPositive(count) ? 0 : 1
 					)
-				case "const":
-					return site(
-						`${imports}const count${OWN} = ${count.value}\nconst rows${OWN} = ${call(`count${OWN}`)}`,
-						statesPositive(count) ? 0 : 1
+				}
+				return clamp.dataLast === "piped"
+					? callSite(imports, [], `pipe(3, ${callee}((i: number) => i))`, 1)
+					: callSite(
+							imports,
+							[written],
+							`${callee}(${written.written})`,
+							statesPositive(count) ? 0 : 1
+						)
+			}
+			case "ends": {
+				const start = source.draw(countGen)
+				const startWritten = writtenCount(start, "start")
+				if (source.draw(boolean)) {
+					return callSite(
+						imports,
+						[startWritten],
+						`${callee}(${startWritten.written})`,
+						clamp.endless ? 0 : 1
 					)
-				case "expression":
-					return site(
-						`${imports}const count${OWN} = 3\nconst rows${OWN} = ${call(`count${OWN} - 1`)}`,
-						1
-					)
-				case "parameter":
-					return site(`${imports}const make${OWN}Rows = (n: number) => ${call("n")}`, 1)
+				}
+				const end = source.draw(countGen)
+				const endWritten = writtenCount(end, "end")
+				const states = Option.exists(
+					Option.all([integerOf(start), integerOf(end)]),
+					([from, to]) => from <= to
+				)
+				return callSite(
+					imports,
+					[startWritten, endWritten],
+					`${callee}(${startWritten.written}, ${endWritten.written})`,
+					states ? 0 : 1
+				)
+			}
+			case "length": {
+				const made = `${callee}((i: number) => i`
+				return source.draw(
+					weighted<Site>([
+						[1, constant(callSite(imports, [], `${made})`, 0))],
+						[1, constant(callSite(imports, [], `${made}, {})`, 0))],
+						[
+							3,
+							(s) => {
+								const count = s.draw(countGen)
+								const written = writtenCount(count, "count")
+								return callSite(
+									imports,
+									[written],
+									`${made}, { ${LENGTH}: ${written.written} })`,
+									statesPositive(count) ? 0 : 1
+								)
+							}
+						],
+						[
+							1,
+							constant(
+								callSite(
+									imports,
+									[writtenCount({ kind: "parameter" }, "options")],
+									`${made}, options${OWN})`,
+									1
+								)
+							)
+						]
+					])
+				)
 			}
 		}
+	}
+
+/** One clamping constructor of the rule's list, with its clamp. */
+const clampedOf = element(
+	Option.getOrThrow(Option.liftPredicate(CLAMPED, Arr.isReadonlyArrayNonEmpty))
+)
+
+/** A call to a drawn clamping constructor, a near name of one, and a method of that name on a local value. */
+const clampedSites: Gen<Site> = weighted([
+	[
+		6,
+		(s) => {
+			const [path, clamp] = s.draw(clampedOf)
+			const [imports, callee] = s.draw(clampedCallee(path))
+			return s.draw(clampedCall(callee, clamp, imports))
+		}
 	],
+	[1, (s) => site(`const rows${OWN} = ${spelled(s.draw(clampedOf)[0])}Of(0, -1)`, 0)],
 	[
 		1,
 		(s) => {
-			const [imports, callee] = s.draw(makeByCallee(s.draw(oneOf(MAKE_BY))))
-			return site(`${imports}const rows${OWN} = pipe(3, ${callee}((i: number) => i))`, 1)
+			const member = lastOf(s.draw(clampedOf)[0])
+			return site(
+				`const local${OWN} = { ${member}: (a: number, b: number) => [a, b] }\nconst near${OWN} = local${OWN}.${member}(0, -1)`,
+				0
+			)
+		}
+	]
+])
+
+/** Options a choice lists, each as a program writes it: literals and generators alike, since the rule reads their text. */
+const OPTION_TEXTS = [
+	`"a"`,
+	`"b"`,
+	`""`,
+	"0",
+	"1",
+	"true",
+	"constant(1)",
+	"int(0, 3)",
+	"boolean"
+] as const
+
+/** One to four distinct options, and, when `repeated`, one of them written a second time at a drawn place. */
+const listedGen =
+	(repeated: boolean): Gen<ReadonlyArray<string>> =>
+	(source) => {
+		const distinct = source.draw(subset(OPTION_TEXTS, { min: 1, max: 4 }))
+		if (!repeated) {
+			return distinct
+		}
+		const again = source.draw(
+			element(Option.getOrThrow(Option.liftPredicate(distinct, Arr.isReadonlyArrayNonEmpty)))
+		)
+		const at = source.draw(int(0, distinct.length))
+		return [...Arr.take(distinct, at), again, ...Arr.drop(distinct, at)]
+	}
+
+/** A written list as a site passes it: inline, held by a `const`, with `as const` or not, after a spread or not. */
+const listSite =
+	(items: ReadonlyArray<string>): Gen<readonly [declared: string, written: string]> =>
+	(source) => {
+		const spread = source.draw(boolean) ? ["...more"] : []
+		const list = `[${Arr.join([...spread, ...items], ", ")}]${source.draw(boolean) ? " as const" : ""}`
+		return source.draw(boolean) ? [`const options${OWN} = ${list}\n`, `options${OWN}`] : ["", list]
+	}
+
+/** A choice over a written list, a choice whose arms pair drawn weights with options, and the neighbours left alone. */
+const weightSites: Gen<Site> = weighted([
+	[
+		4,
+		(s) => {
+			const repeated = s.draw(boolean)
+			const [declared, written] = s.draw(listSite(s.draw(listedGen(repeated))))
+			return site(
+				`${declared}const choice${OWN} = ${s.draw(oneOf(CHOICES))}(${written})`,
+				repeated ? 1 : 0
+			)
+		}
+	],
+	[
+		3,
+		(s) => {
+			const repeated = s.draw(boolean)
+			const arms = Arr.map(
+				s.draw(listedGen(repeated)),
+				(option) => `[${s.draw(int(1, 3))}, ${option}]`
+			)
+			const [declared, written] = s.draw(listSite(arms))
+			return site(
+				`${declared}const choice${OWN} = ${s.draw(oneOf(ARMS))}(${written})`,
+				repeated ? 1 : 0
+			)
 		}
 	],
 	[
 		1,
 		(s) => {
-			const [imports, callee] = s.draw(makeByCallee(s.draw(oneOf(MAKE_BY))))
-			return site(`${imports}const rows${OWN} = ${callee}(3)`, 1)
+			const weight = s.draw(int(1, 3))
+			const arms = Arr.map(s.draw(listedGen(false)), (option) => `[${weight}, ${option}]`)
+			return site(`const choice${OWN} = ${s.draw(oneOf(ARMS))}([${Arr.join(arms, ", ")}])`, 0)
 		}
 	],
 	[
 		1,
-		(s) => site(`const rows${OWN} = ${spelled(s.draw(oneOf(MAKE_BY)))}Of(0, (i: number) => i)`, 0)
+		(s) =>
+			site(
+				`const choice${OWN} = ${s.draw(oneOf(CHOICES))}Of([${Arr.join(s.draw(listedGen(true)), ", ")}])`,
+				0
+			)
+	],
+	[
+		1,
+		(s) =>
+			site(
+				`const picked${OWN} = subset([${Arr.join(s.draw(listedGen(true)), ", ")}], { min: 0, max: 2 })`,
+				0
+			)
+	],
+	[
+		1,
+		(s) =>
+			site(
+				`const choose${OWN} = (options: ReadonlyArray<number>) => ${s.draw(oneOf(CHOICES))}(options)`,
+				0
+			)
 	]
 ])
 
@@ -374,7 +598,10 @@ const seededCall = (callee: string, at: number | "any", seed: string): string =>
 	if (at === "any") {
 		return `${spelled(callee)}(program, ${seed})`
 	}
-	const others = Arr.map(Arr.range(0, at), (place) => (place === at ? seed : "run.seed"))
+	const others = Arr.map(
+		Array.from({ length: at + 1 }, (_, i) => i),
+		(place) => (place === at ? seed : "run.seed")
+	)
 	return `${spelled(callee)}(${Arr.join([...others, "run.seed"], ", ")})`
 }
 
@@ -411,7 +638,7 @@ const seedSites: Gen<Site> = weighted([
 			)
 			return typeof at === "number"
 				? site(
-						`const words${OWN} = ${spelled(callee)}(${Arr.join([...Arr.replicate("run.seed", at + 1), "41"], ", ")})`,
+						`const words${OWN} = ${spelled(callee)}(${Arr.join([...Array.from({ length: at + 1 }, () => "run.seed"), "41"], ", ")})`,
 						0
 					)
 				: site(`const words${OWN} = ${spelled(callee)}(program)`, 0)
@@ -1022,8 +1249,13 @@ describe("the testing plugin's rules", () => {
 	it.effect("no-sleep-wait reports exactly the calls that wait for time to pass", (ctx) =>
 		searched(ctx, ruleSearch("no-sleep-wait", sleepSites))
 	)
-	it.effect("no-clamped-count reports exactly the makeBy calls no positive count states", (ctx) =>
-		searched(ctx, ruleSearch("no-clamped-count", clampedSites))
+	it.effect(
+		"no-clamped-count reports exactly the clamping calls no count they never normalize states",
+		(ctx) => searched(ctx, ruleSearch("no-clamped-count", clampedSites))
+	)
+	it.effect(
+		"no-implicit-weight reports exactly the choices that write an option more than once",
+		(ctx) => searched(ctx, ruleSearch("no-implicit-weight", weightSites))
 	)
 	it.effect(
 		"no-fixed-seed reports exactly the seeds written where a run or a stream takes one",

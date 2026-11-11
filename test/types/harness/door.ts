@@ -5,6 +5,7 @@ import { sample, type Source } from "@grizzle/testing/source"
 import { Array as Arr, Effect } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { type PreludeAt, preludeAt, preludeFrom, preludeProgram } from "#test/support/prelude.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /**
  * The assertion door's contract (test/support/assert.ts): assert.equal and assert.deepEqual take their expected value
@@ -94,7 +95,10 @@ const valueOf =
 			case "list":
 				return {
 					kind: "list",
-					items: Arr.map(Arr.range(1, source.draw(int(1, 2))), () => source.draw(valueOf(ty.of)))
+					items: Arr.map(
+						upTo(source.draw(int(1, 2)), (i) => i + 1),
+						() => source.draw(valueOf(ty.of))
+					)
 				}
 			case "record":
 				return {

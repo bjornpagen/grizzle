@@ -55,6 +55,7 @@ import {
 	schemaDesc,
 	schemaSketchGen
 } from "#test/support/oracle/gen/schema.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /**
  * The schema a compilation is given, parsed once (program/schema.ts parseSchemaInput), and the schema a query compiles
@@ -628,8 +629,9 @@ type Path = ReadonlyArray<string | number>
 
 /** Whether `path` holds `site`'s segments in a row: the site is where the decode refused, under whatever it nests in. */
 const holdsPath = (path: Path, site: Path): boolean =>
-	Arr.some(Arr.range(0, path.length - site.length), (from) =>
-		Arr.every(site, (segment, i) => path[from + i] === segment)
+	Arr.some(
+		upTo(path.length - site.length + 1, (i) => i),
+		(from) => Arr.every(site, (segment, i) => path[from + i] === segment)
 	)
 
 /**

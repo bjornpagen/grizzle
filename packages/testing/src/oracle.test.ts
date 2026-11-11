@@ -116,7 +116,7 @@ describe("a set comparison", () => {
  * rotated by `turn` places and changed by `change` at place `place`.
  */
 const spentAt = (size: number, change: Change, place: number, turn: number): number => {
-	const items = Arr.range(0, size - 1)
+	const items = Array.from({ length: size }, (_, i) => i)
 	const turned = [...Arr.drop(items, turn), ...Arr.take(items, turn)]
 	const [first, second] = answersOfNumbers(items, turned, change, place)
 	let spent = 0

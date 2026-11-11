@@ -33,7 +33,7 @@ import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { element, type Gen, subarray } from "@grizzle/testing/gen"
+import { constant, element, type Gen, subarray, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, Option, Record as Rec } from "effect"
@@ -106,7 +106,12 @@ const versionGen: Gen<Version> = (s) => {
 		mode: s.draw(element<Mode>(["insert", "write"])),
 		writes,
 		inserts: s.draw(subarray(writes)),
-		other: s.draw(element([[], [], s.draw(subarray(tables))]))
+		other: s.draw(
+			weighted<ReadonlyArray<(typeof tables)[number]>>([
+				[2, constant([])],
+				[1, subarray(tables)]
+			])
+		)
 	}
 }
 

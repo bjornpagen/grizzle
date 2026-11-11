@@ -58,6 +58,7 @@ import { caseHang } from "#test/support/limits.ts"
 import { constantEnv, evaluate } from "#test/support/oracle/evaluate/catalog.ts"
 import { numericPaddings } from "#test/support/oracle/gen/domain.ts"
 import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
 import {
 	baseParams,
 	type LeafBinding,
@@ -786,10 +787,12 @@ const buildCases = (
 					continue
 				}
 				const walk = pick(values, 200, operands.walk ^ (op.name.length * 31 + c.length))
-				const atPositions = Arr.flatMap(Arr.range(0, op.arity - 1), (p) =>
-					Arr.map(classes, (k, i) =>
-						Arr.map([0, 1, 2], (q) => (q === p ? k : at(at(walk, i % walk.length), q)))
-					)
+				const atPositions = Arr.flatMap(
+					upTo(op.arity, (i) => i),
+					(p) =>
+						Arr.map(classes, (k, i) =>
+							Arr.map([0, 1, 2], (q) => (q === p ? k : at(at(walk, i % walk.length), q)))
+						)
 				)
 				const pairs =
 					op.arity === 1 ? [] : Arr.flatMap(classes, (x) => Arr.map(classes, (y) => [x, y, y]))

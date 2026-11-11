@@ -27,7 +27,7 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { array, element, type Gen, int } from "@grizzle/testing/gen"
+import { array, element, type Gen, int, proportional } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -73,15 +73,22 @@ const textColumn: LeafBinding = { kind: "column", type: testPg.text.scalar }
 const variable = (name: string): ExprDesc => ({ kind: "var", var: name })
 const text = (value: string): ExprDesc => ({ kind: "literal", value })
 
+/** Tab, LF and CR, beside the space they become. */
+const whiteSpace: Arr.NonEmptyReadonlyArray<number> = [0x09, 0x0a, 0x0d, 0x20]
+
 /**
- * Tab, LF and CR beside the space they become, twice, so runs of them are common, the ASCII letters and their
- * neighbours, no-break space and line separator, which XML does not count as white space, Latin-1's capital and small E
- * acute, and BMP's last and a supplementary code point.
+ * The ASCII letters and their neighbours, no-break space and line separator, which XML does not count as white space,
+ * Latin-1's capital and small E acute, and BMP's last and a supplementary code point.
  */
-const alphabet: Arr.NonEmptyReadonlyArray<number> = [
-	0x09, 0x0a, 0x0d, 0x20, 0x09, 0x0a, 0x0d, 0x20, 0x40, 0x41, 0x5a, 0x5b, 0x60, 0x61, 0x7a, 0x7b,
-	0xa0, 0x2028, 0xc9, 0xe9, 0xffff, 0x1f600
+const others: Arr.NonEmptyReadonlyArray<number> = [
+	0x40, 0x41, 0x5a, 0x5b, 0x60, 0x61, 0x7a, 0x7b, 0xa0, 0x2028, 0xc9, 0xe9, 0xffff, 0x1f600
 ]
+
+/** A character of the alphabet, each white space twice as often as each other one, so runs of them are common. */
+const character: Gen<number> = proportional([
+	[2 * whiteSpace.length, element(whiteSpace)],
+	[others.length, element(others)]
+])
 
 /**
  * A case: a map Compute.translate admits, a raw pair PostgreSQL's translate takes whatever its characters, a
@@ -111,13 +118,13 @@ type SqlFeature =
 	| "a supplementary character beside white space"
 
 const sqlCase: Gen<SqlCase> = (source) => {
-	const from = Arr.dedupe(source.draw(array(element(alphabet), { min: 0, max: 4 })))
+	const from = Arr.dedupe(source.draw(array(character, { min: 0, max: 4 })))
 	return {
 		from,
-		to: Arr.map(from, () => source.draw(element(alphabet))),
-		rawFrom: codePointsText(source.draw(array(element(alphabet), { min: 0, max: 5 }))),
-		rawTo: codePointsText(source.draw(array(element(alphabet), { min: 0, max: 5 }))),
-		texts: source.draw(array(stringsOver(alphabet, 10), { min: 1, max: 48 }))
+		to: Arr.map(from, () => source.draw(character)),
+		rawFrom: codePointsText(source.draw(array(character, { min: 0, max: 5 }))),
+		rawTo: codePointsText(source.draw(array(character, { min: 0, max: 5 }))),
+		texts: source.draw(array(stringsOver(character, 10), { min: 1, max: 48 }))
 	}
 }
 
@@ -305,7 +312,7 @@ layer(Substrate.layer)("Compute's translate and lowerAscii on PostgreSQL", (it) 
 		| "a numeral's leading zeros dropped"
 
 	/** Short titles over tab, LF, CR, space and letters; tags of a few letters either case; numerals with leading zeros. */
-	const title = stringsOver([0x09, 0x0a, 0x0d, 0x20, 0x61, 0xe9], 6)
+	const title = stringsOver(element([0x09, 0x0a, 0x0d, 0x20, 0x61, 0xe9]), 6)
 	const rowGen: Gen<ReadonlyArray<Omit<Row, "id">>> = array(
 		(source) => ({
 			title: source.draw(title),

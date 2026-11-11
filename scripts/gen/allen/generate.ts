@@ -157,7 +157,13 @@ const minimize = (mask: number, terms: ReadonlyArray<Term>): AllenFormula => {
  */
 export const generateAllenTable = (): ReadonlyArray<AllenFormula> => {
 	const terms = enumerateTerms()
-	return [[], ...Arr.map(Arr.range(1, fullAllenMask), (mask) => minimize(mask, terms))]
+	return [
+		[],
+		...Arr.map(
+			Array.from({ length: fullAllenMask }, (_, i) => i + 1),
+			(mask) => minimize(mask, terms)
+		)
+	]
 }
 
 const renderConjunction = (conjunction: AllenConjunction): string =>

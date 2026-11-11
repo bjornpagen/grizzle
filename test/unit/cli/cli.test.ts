@@ -1068,7 +1068,10 @@ const sketchGen: Gen<ConfigSketch> = (source) => {
 	const names = source.draw(shuffled(schemaNames, { min: 1, max: schemaNames.length }))
 	const schemas = Arr.map(names, (name) => ({ name, ...source.draw(entryGen) }))
 	const logins = source.draw(
-		shuffled(Arr.range(0, schemas.length - 1), { min: 0, max: schemas.length })
+		shuffled(
+			upTo(schemas.length, (i) => i),
+			{ min: 0, max: schemas.length }
+		)
 	)
 	return {
 		schemas,

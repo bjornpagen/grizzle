@@ -202,15 +202,12 @@ export const families: Arr.NonEmptyReadonlyArray<Family> = [
 	}
 ]
 
-/** Strings over a family's alphabet, plus arbitrary admitted scalars, empty included. */
-export const stringsOver = (
-	alphabet: Arr.NonEmptyReadonlyArray<number>,
-	maxLength: number
-): Gen<string> =>
+/** Strings over a family's characters, plus arbitrary admitted scalars, empty included. */
+export const stringsOver = (character: Gen<number>, maxLength: number): Gen<string> =>
 	map(
 		array(
 			weighted([
-				[8, element(alphabet)],
+				[8, character],
 				[1, int(1, 0xd7ff)],
 				[1, int(0xe000, 0x10ffff)]
 			]),
@@ -593,7 +590,10 @@ const finitePiece =
 		const count = min === 1 && max === 1 ? "" : min === max ? `{${min}}` : `{${min},${max}}`
 		return {
 			spelling: `${atom}${count}`,
-			matches: Arr.flatMap(Arr.range(min, max), (n) => stringsOf(chars, n))
+			matches: Arr.flatMap(
+				upTo(max - min + 1, (i) => min + i),
+				(n) => stringsOf(chars, n)
+			)
 		}
 	}
 

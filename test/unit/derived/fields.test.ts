@@ -40,6 +40,7 @@ import { f as field } from "#test/support/fixtures/ir/desc.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { checkedIn, checking } from "#test/support/policy.ts"
+import { upTo } from "#test/support/up-to.ts"
 import {
 	type SketchedField,
 	fieldOf,
@@ -56,7 +57,10 @@ interface DeclaredCase {
 
 const handlesOf = (count: number): Arr.NonEmptyReadonlyArray<string> =>
 	Arr.prepend(
-		Arr.map(Arr.range(1, count - 1), (h) => `h${h}`),
+		Arr.map(
+			upTo(count - 1, (i) => i + 1),
+			(h) => `h${h}`
+		),
 		"h0"
 	)
 
@@ -95,7 +99,7 @@ const contractCaseGen: Gen<ContractCase> = (source) => {
 	const contracts = source.draw(array(boolean, { min: 1, max: 3 }))
 	return {
 		contracts,
-		declared: source.draw(subarray(Arr.range(0, contracts.length - 1))),
+		declared: source.draw(subarray(upTo(contracts.length, (i) => i))),
 		target: source.draw(int(0, contracts.length - 1))
 	}
 }

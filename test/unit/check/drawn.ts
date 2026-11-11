@@ -1,4 +1,4 @@
-import { boolean, element, type Gen, subarray, weighted } from "@grizzle/testing/gen"
+import { boolean, element, type Gen, int, subarray, weighted } from "@grizzle/testing/gen"
 import { Array as Arr, Option } from "effect"
 import type { FieldDesc, LiteralDesc } from "#compiler/ir/desc.ts"
 import {
@@ -18,6 +18,7 @@ import {
 	type SchemaDesc,
 	value
 } from "#test/support/fixtures/ir/desc.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /**
  * Small schemas the checker's models draw: the roster Kind and up to three relations, R0, R1 and R2, whose fields are
@@ -200,10 +201,11 @@ export const drawnSchemaGen =
 		const plan: FamilyPlan = new Map(
 			Arr.map(["id", ...fieldNames], (n) => [n, source.draw(familyGen)] as const)
 		)
-		const count = source.draw(element(Arr.range(1, most)))
+		const count = source.draw(int(1, most))
 		const first = source.draw(relationGen("R0", plan, serial))
-		const rest = Arr.map(Arr.range(1, count - 1), (i) =>
-			source.draw(relationGen(`R${i}`, plan, serial))
+		const rest = Arr.map(
+			upTo(count - 1, (i) => i + 1),
+			(i) => source.draw(relationGen(`R${i}`, plan, serial))
 		)
 		return { relations: [first, ...(count > 1 ? rest : [])] }
 	}

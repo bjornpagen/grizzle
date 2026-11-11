@@ -10,6 +10,7 @@ import { jsonText } from "#compiler/core/trusted.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
 import type { RegexScan } from "#compiler/types/fields/source.ts"
 import { type PreludeAt, preludeAt, preludeFrom, preludeProgram } from "#test/support/prelude.ts"
+import { upTo } from "#test/support/up-to.ts"
 import { families, type Flags, jsMatcher, patternOver } from "#test/unit/text/generators.ts"
 
 /**
@@ -153,17 +154,28 @@ const classAlphabet = ["a", "b", "c", "d", "e", "f", "g", "h"] as const
  * other's: the sum of k^j, saturated at TypeScript's union limit, past which it is the limit.
  */
 const repeatedMembers = (k: number, m: number, n: number): number =>
-	Arr.reduce(Arr.range(m, n), 0, (sum, j) =>
-		Math.min(
-			typeUnionLimit.value,
-			sum + Arr.reduce(Arr.range(1, j), 1, (p) => Math.min(typeUnionLimit.value, p * k))
-		)
+	Arr.reduce(
+		upTo(n - m + 1, (i) => m + i),
+		0,
+		(sum, j) =>
+			Math.min(
+				typeUnionLimit.value,
+				sum +
+					Arr.reduce(
+						upTo(j, (i) => i + 1),
+						1,
+						(p) => Math.min(typeUnionLimit.value, p * k)
+					)
+			)
 	)
 
 /** Every string of `length` characters over `chars`. */
 const stringsOfLength = (chars: ReadonlyArray<string>, length: number): ReadonlyArray<string> =>
-	Arr.reduce(Arr.range(1, length), [""], (acc: ReadonlyArray<string>) =>
-		Arr.flatMap(acc, (prefix) => Arr.map(chars, (c) => `${prefix}${c}`))
+	Arr.reduce(
+		upTo(length, (i) => i + 1),
+		[""],
+		(acc: ReadonlyArray<string>) =>
+			Arr.flatMap(acc, (prefix) => Arr.map(chars, (c) => `${prefix}${c}`))
 	)
 
 /** Where a cross product's count is drawn: written out, below the limit, near it, or at it and past. */
@@ -291,7 +303,10 @@ const literalCase = (
 const wordGen =
 	(length: Gen<number>): Gen<ReadonlyArray<WordChar>> =>
 	(source) =>
-		Arr.map(Arr.range(1, source.draw(length)), () => source.draw(element(wordAlphabet)))
+		Arr.map(
+			upTo(source.draw(length), (i) => i + 1),
+			() => source.draw(element(wordAlphabet))
+		)
 
 /**
  * A finite language of `count` literal words of `length` characters, spelled anchored as one alternation, each
@@ -307,7 +322,7 @@ const finiteGen =
 	): Gen<readonly [string, Arr.NonEmptyReadonlyArray<string>]> =>
 	(source) => {
 		const words = Arr.dedupeWith(
-			Arr.map(Arr.range(1, source.draw(count)), () => source.draw(wordGen(length))),
+			upTo(source.draw(count), () => source.draw(wordGen(length))),
 			(a, b) => Arr.join(a, "") === Arr.join(b, "")
 		)
 		const members = Arr.map(words, (w) => Arr.join(w, ""))
@@ -404,8 +419,9 @@ const caseGen: Gen<RegexCase> = (source) => {
 			const word = Arr.join(source.draw(wordGen(int(1, 2))), "")
 			const counted = source.draw(element([`{${zeros}${lo}}`, `{${zeros}${lo},${zeros}${hi}}`]))
 			const pattern = `^(?:${word})${counted}$`
-			const members = Arr.map(Arr.range(lo, Str.includes(",")(counted) ? hi : lo), (n) =>
-				Str.repeat(n)(word)
+			const members = Arr.map(
+				upTo((Str.includes(",")(counted) ? hi : lo) - lo + 1, (i) => lo + i),
+				(n) => Str.repeat(n)(word)
 			)
 			const ofPattern = jsMatcher(pattern, flags)
 			for (const member of members) {
@@ -466,7 +482,10 @@ const caseGen: Gen<RegexCase> = (source) => {
 			const count = repeatedMembers(k, m, n)
 			const pattern = `^[${Arr.join(chars, "")}]{${m}${n === m ? "" : `,${n}`}}$`
 			const written = (): ReadonlyArray<string> =>
-				Arr.flatMap(Arr.range(m, n), (j) => stringsOfLength(chars, j))
+				Arr.flatMap(
+					upTo(n - m + 1, (i) => m + i),
+					(j) => stringsOfLength(chars, j)
+				)
 			const host: HostClaim =
 				count >= typeUnionLimit.value
 					? { kind: "string" }
@@ -616,7 +635,7 @@ const templateOf = (name: string, members: number): ReadonlyArray<string> => {
 			factors,
 			(f, i) =>
 				`type ${name}${i} = ${Arr.join(
-					Arr.map(Arr.range(0, f - 1), (j) => literal(`${name}${i}_${j}`)),
+					upTo(f, (j) => literal(`${name}${i}_${j}`)),
 					" | "
 				)}`
 		),

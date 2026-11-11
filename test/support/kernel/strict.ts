@@ -29,6 +29,7 @@ import {
 import { toUuid } from "#compiler/scalar/values/uuid.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
 import { wholeDigits } from "#test/support/closed/bit-text.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /**
  * Why a text is no output text of the type: the words the library's decoders used before the conversions trusted their
@@ -678,7 +679,10 @@ export type StrictCell = string | Uint8Array<ArrayBuffer>
 const isDecimal = (text: string): boolean =>
 	text.length > 0 &&
 	(text === "0" || !Str.startsWith("0")(text)) &&
-	Arr.every(Arr.range(0, text.length - 1), (at) => Option.exists(Str.charCodeAt(text, at), isDigit))
+	Arr.every(
+		upTo(text.length, (i) => i),
+		(at) => Option.exists(Str.charCodeAt(text, at), isDigit)
+	)
 
 /**
  * The bytes a base64url text spells, read strictly: the alphabet only, no padding, and the text exactly the one
@@ -727,7 +731,13 @@ const strictRow = (
 			Arr.map(lengths, (length) => Math.ceil(length / chunkLength)),
 			1
 		)
-		if (chunks.size !== count || !Arr.every(Arr.range(0, count - 1), (i) => chunks.has(i))) {
+		if (
+			chunks.size !== count ||
+			!Arr.every(
+				upTo(count, (i) => i),
+				(i) => chunks.has(i)
+			)
+		) {
 			return yield* Result.fail(`row ${ord} in ${chunks.size} chunks, not 0 … ${count - 1}`)
 		}
 		const values = Arr.map(lengths, (length) => new Uint8Array(length))

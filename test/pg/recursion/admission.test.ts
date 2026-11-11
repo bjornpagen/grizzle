@@ -28,6 +28,7 @@ import {
 } from "#test/support/oracle/runner.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /**
  * Admitted recursions run on PostgreSQL 19.
@@ -68,7 +69,7 @@ interface Graph {
 /** Up to six vertices, each ordered pair of them an edge or not, each vertex blocked or not. */
 const graphGen: Gen<Graph> = (source) => {
 	const vertices = source.draw(int(1, 6))
-	const each = Arr.range(0, vertices - 1)
+	const each = upTo(vertices, (i) => i)
 	return {
 		vertices,
 		edges: source.draw(subarray(Arr.flatMap(each, (a) => Arr.map(each, (b) => [a, b] as const)))),
@@ -103,7 +104,7 @@ const genSchema = (): GenSchema => {
 
 /** A graph's facts, each relation's rows in its checked heading's canonical column order (E: cost, from, to). */
 const factsOf = (graph: Graph) => ({
-	V: Arr.map(Arr.range(0, graph.vertices - 1), (i) => [vertexId(i)]),
+	V: upTo(graph.vertices, (i) => [vertexId(i)]),
 	E: Arr.map(graph.edges, ([a, b], i) => [int8(i + 1), vertexId(a), vertexId(b)]),
 	B: Arr.map(graph.blocked, (i) => [vertexId(i)])
 })

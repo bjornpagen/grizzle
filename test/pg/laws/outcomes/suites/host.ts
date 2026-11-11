@@ -27,6 +27,7 @@ import { caseHang } from "#test/support/limits.ts"
 import { refusedLaws } from "#test/support/refused.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 
 const tiers = ["bronze", "silver", "gold"] as const
@@ -184,8 +185,9 @@ const brokenOf = (law: Law): Broken | undefined => {
 const isCode = (code: string): boolean =>
 	code.length >= 1 &&
 	code.length <= 8 &&
-	Arr.every(Arr.range(0, code.length - 1), (i) =>
-		Option.exists(Str.charCodeAt(code, i), (unit) => unit >= 0x61 && unit <= 0x7a)
+	Arr.every(
+		upTo(code.length, (i) => i),
+		(i) => Option.exists(Str.charCodeAt(code, i), (unit) => unit >= 0x61 && unit <= 0x7a)
 	)
 
 /** The laws an account breaks, by the model: each rule restated over its fields alone. */

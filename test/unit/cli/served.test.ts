@@ -46,6 +46,7 @@ import { dictionaryNameGen } from "#test/support/kernel/dict.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { editedAt, firstSql, memberPaths, without } from "#test/support/served.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /**
  * A login's served file is held to its workload's compile, byte for byte: `grizzle generate` writes
@@ -220,7 +221,7 @@ const editedGen =
 
 /** A nonempty set of the places of the file's `programs` programs. */
 const someOf = (programs: number): Gen<ReadonlyArray<number>> =>
-	filter(subarray(Arr.range(0, programs - 1)), (picked) => picked.length > 0, 8)
+	filter(subarray(upTo(programs, (i) => i)), (picked) => picked.length > 0, 8)
 
 /** A plant inserting, replacing or deleting one character of the file's text, by `op`. */
 const characterGen =
@@ -282,7 +283,7 @@ const aims = (
 	paths: number
 ): Arr.NonEmptyReadonlyArray<readonly [Situation, Gen<Plant>]> => [
 	["a program edited", editedGen(someOf(programs))],
-	["programs of both roles edited", editedGen(constant(Arr.range(0, programs - 1)))],
+	["programs of both roles edited", editedGen(constant(upTo(programs, (i) => i)))],
 	["a program of the second role edited alone", editedGen(constant([programs - 1]))],
 	["the file missing", missingGen],
 	["a stray file", strayGen],

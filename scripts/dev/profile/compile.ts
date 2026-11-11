@@ -167,7 +167,7 @@ const main = Effect.gen(function* () {
 	)
 	yield* Effect.forEach(
 		Arr.drop(
-			Arr.makeBy(settings.repeat, (round) => round),
+			Array.from({ length: settings.repeat }, (_, round) => round),
 			1
 		),
 		() =>

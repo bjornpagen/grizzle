@@ -184,7 +184,10 @@ describe("whole numbers", () => {
 					Effect.sync(() =>
 						deepStrictEqual(
 							everyValue(int(lo, hi)),
-							Arr.sort(Arr.range(lo, hi), byDistanceFromZero)
+							Arr.sort(
+								Array.from({ length: hi - lo + 1 }, (_, i) => lo + i),
+								byDistanceFromZero
+							)
 						)
 					)
 			)
@@ -214,7 +217,13 @@ describe("bigints", () => {
 					Effect.sync(() =>
 						deepStrictEqual(
 							everyValue(bigint(BigInt(lo), BigInt(hi))),
-							Arr.map(Arr.sort(Arr.range(lo, hi), byDistanceFromZero), BigInt)
+							Arr.map(
+								Arr.sort(
+									Array.from({ length: hi - lo + 1 }, (_, i) => lo + i),
+									byDistanceFromZero
+								),
+								BigInt
+							)
 						)
 					)
 			)
@@ -660,6 +669,9 @@ describe("collections", () => {
 							twin: ReadonlyArray<Readonly<{ values: ReadonlyArray<number> }>>
 						) => [twin, ...Arr.flatMap(twin, (item) => [item, item.values])]
 						const owned = Arr.map(twins, (twin) => new Set<object>(objectsOf(twin)))
+						const copies: typeof twins = Array.from({ length: count }, () =>
+							Arr.getUnsafe(twins, 0)
+						)
 						deepStrictEqual(
 							{
 								twins,
@@ -669,7 +681,7 @@ describe("collections", () => {
 									)
 								)
 							},
-							{ twins: Arr.makeBy(count, () => Arr.getUnsafe(twins, 0)), shared: false }
+							{ twins: copies, shared: false }
 						)
 					})
 			)
@@ -1019,11 +1031,14 @@ const ascendingModel = (
 /** Every array whose entry `i` is a number from 0 to `i`: the parent of node `i + 1` among the nodes before it. */
 const treesModel = (nodes: number): ReadonlyArray<ReadonlyArray<number>> =>
 	Arr.reduce(
-		Arr.filter(Arr.range(1, Math.max(1, nodes - 1)), (node) => node < nodes),
+		Array.from({ length: nodes - 1 }, (_, i) => i + 1),
 		[[]],
 		(trees: ReadonlyArray<ReadonlyArray<number>>, node) =>
 			Arr.flatMap(trees, (tree) =>
-				Arr.map(Arr.range(0, node - 1), (parent) => Arr.append(tree, parent))
+				Arr.map(
+					Array.from({ length: node }, (_, i) => i),
+					(parent) => Arr.append(tree, parent)
+				)
 			)
 	)
 
@@ -1035,8 +1050,10 @@ const compositionsModel = (total: number, parts: number): ReadonlyArray<Readonly
 			: []
 		: parts === 1
 			? [[total]]
-			: Arr.flatMap(Arr.range(0, total), (first) =>
-					Arr.map(compositionsModel(total - first, parts - 1), (rest) => [first, ...rest])
+			: Arr.flatMap(
+					Array.from({ length: total + 1 }, (_, i) => i),
+					(first) =>
+						Arr.map(compositionsModel(total - first, parts - 1), (rest) => [first, ...rest])
 				)
 
 /** Whether a parent array is a tree: every node reaches the root by its parents in fewer steps than there are nodes. */
@@ -1100,10 +1117,7 @@ describe("constructive collections", () => {
 								],
 								set(structuralHash, exact)
 							)
-							const values = Arr.map(Arr.range(lo, Math.max(lo, hi)), (value) => `v${value}`).slice(
-								0,
-								width
-							)
+							const values = Array.from({ length: width }, (_, i) => `v${lo + i}`)
 							yield* agree(
 								[
 									["subset", everyValue(subset(values, strict))],
@@ -1513,7 +1527,11 @@ const classSource = (written: WrittenClass): string => `^${classBody(written)}$`
 /** The class written out: each member at the place it is first written, or, negated, the printable characters it
  * leaves, in order. */
 const writtenOut = (written: WrittenClass): ReadonlyArray<string> => {
-	const members = Arr.dedupe(Arr.flatMap(written.items, ([low, high]) => Arr.range(low, high)))
+	const members = Arr.dedupe(
+		Arr.flatMap(written.items, ([low, high]) =>
+			Array.from({ length: high - low + 1 }, (_, i) => low + i)
+		)
+	)
 	const points = written.negated
 		? Arr.filter(Arr.range(0x20, 0x7e), (point) => !Arr.contains(members, point))
 		: members
@@ -1621,7 +1639,7 @@ describe("a pattern", () => {
 							const expected = writtenOut(written)
 							const recorded = recorder()
 							const byIndex = Arr.map(
-								Arr.range(0, expected.length - 1),
+								Array.from({ length: expected.length }, (_, i) => i),
 								(index) =>
 									generate(recorded, matching(pattern), forcedChooser(Float64Array.of(index), 1))
 										.value

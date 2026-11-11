@@ -29,6 +29,7 @@ import { installed } from "#test/pg/reads/support.ts"
 import { assert, bareRecord, nonEmpty, unorderedEqual } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 
 /** A pattern no stored field of the schema declares, so the installation holds no domain of it. */
@@ -67,8 +68,9 @@ const lowercaseOf =
 	(text: string): boolean =>
 		text.length >= 1 &&
 		text.length <= most &&
-		Arr.every(Arr.range(0, text.length - 1), (i) =>
-			Option.exists(Str.charCodeAt(text, i), (unit) => unit >= 0x61 && unit <= 0x7a)
+		Arr.every(
+			upTo(text.length, (i) => i),
+			(i) => Option.exists(Str.charCodeAt(text, i), (unit) => unit >= 0x61 && unit <= 0x7a)
 		)
 const isSlug = lowercaseOf(8)
 const isCode = lowercaseOf(4)

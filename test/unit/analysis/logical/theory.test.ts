@@ -83,6 +83,7 @@ import {
 	schemaDesc,
 	schemaSketchGen
 } from "#test/support/oracle/gen/schema.ts"
+import { upTo } from "#test/support/up-to.ts"
 import {
 	noImmediate,
 	type EvidencedTestTheory,
@@ -160,8 +161,14 @@ describe("span laws", () => {
 					([spans, uuids], c) =>
 						Effect.sync(() => {
 							const span = f.span(f.bigint, undefined)
-							const spanFields = Arr.map(Arr.range(1, spans), (i) => `s${i}`)
-							const uuidFields = Arr.map(Arr.range(1, uuids), (i) => `u${i}`)
+							const spanFields = Arr.map(
+								upTo(spans, (i) => i + 1),
+								(i) => `s${i}`
+							)
+							const uuidFields = Arr.map(
+								upTo(uuids, (i) => i + 1),
+								(i) => `u${i}`
+							)
 							const fields = [...spanFields, ...uuidFields]
 							const declared = Rec.fromEntries([
 								...Arr.map(spanFields, (name) => [name, span] as const),

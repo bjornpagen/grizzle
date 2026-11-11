@@ -89,6 +89,7 @@ import {
 import { caseHang } from "#test/support/limits.ts"
 import { nonEmptyArgumentsOf } from "#test/support/list.ts"
 import { checkedIn } from "#test/support/policy.ts"
+import { upTo } from "#test/support/up-to.ts"
 import { descOf, regex, wildcard } from "#test/unit/schema/support.ts"
 
 type KeyFeature =
@@ -383,8 +384,9 @@ const minimalHeadSets = (
 	determine: (set: ReadonlyArray<number>) => boolean
 ): ReadonlyArray<ReadonlyArray<number>> => {
 	const keys = Arr.filter(
-		Arr.map(Arr.range(1, 2 ** j.head.length - 1), (mask) =>
-			Arr.filter(j.head, (_, p) => holds(mask, p))
+		Arr.map(
+			upTo(2 ** j.head.length - 1, (i) => i + 1),
+			(mask) => Arr.filter(j.head, (_, p) => holds(mask, p))
 		),
 		determine
 	)
@@ -1089,11 +1091,12 @@ const aggregateGen =
 const shapeGen =
 	(stored: Arr.NonEmptyReadonlyArray<StoredType>): Gen<Shape> =>
 	(source) => {
-		const columns = Arr.range(0, stored.length)
+		const columns = upTo(stored.length + 1, (i) => i)
 		const nonEmptyHead = (s: typeof source) =>
 			nonEmpty(s.draw(shuffled(columns, { min: 1, max: columns.length })), "a head")
-		const aggregated = Arr.filter(Arr.range(1, stored.length), (i) =>
-			ordered(defined(stored[i - 1]))
+		const aggregated = Arr.filter(
+			upTo(stored.length, (i) => i + 1),
+			(i) => ordered(defined(stored[i - 1]))
 		)
 		return source.draw(
 			weighted<Shape>([
@@ -1119,7 +1122,12 @@ const shapeGen =
 					1,
 					(s) => ({
 						kind: "attached",
-						head: s.draw(shuffled(Arr.range(1, stored.length), { min: 0, max: stored.length }))
+						head: s.draw(
+							shuffled(
+								upTo(stored.length, (i) => i + 1),
+								{ min: 0, max: stored.length }
+							)
+						)
 					})
 				],
 				[
@@ -1188,7 +1196,7 @@ const storableOf = (c: StorableCase) => {
 		["id"]
 	)
 	const base = schema("Base", { Org, Wide }, [])
-	const everyColumn = Arr.range(0, c.stored.length)
+	const everyColumn = upTo(c.stored.length + 1, (i) => i)
 	const terms = (vars: Readonly<Record<string, unknown>>, columns: ReadonlyArray<number>) =>
 		Rec.fromEntries(Arr.map(columns, (i) => [columnName(i), vars[columnName(i)]] as const))
 	const rule =

@@ -120,6 +120,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 import { fullWorld } from "#test/support/worlds.ts"
 
 import { regex } from "arkregex"
+import { upTo } from "#test/support/up-to.ts"
 const label = str.regex("^[a-z]{0,8}$")
 /**
  * The domains a version changes: an assignment's rate, a contract whose predicate the tightened version tightens from
@@ -404,7 +405,12 @@ const racingGen: Gen<Racing> = (source) => ({
 })
 
 /** n! */
-const factorial = (n: number): number => Arr.reduce(Arr.range(1, n), 1, (product, k) => product * k)
+const factorial = (n: number): number =>
+	Arr.reduce(
+		upTo(n, (i) => i + 1),
+		1,
+		(product, k) => product * k
+	)
 
 /**
  * The race's cases: each point of the box (each writer lawful or violating) under every order of its five moves, each

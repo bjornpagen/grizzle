@@ -1,4 +1,4 @@
-import { element, type Gen, int, oneOf, weighted } from "@grizzle/testing/gen"
+import { constant, element, type Gen, int, weighted } from "@grizzle/testing/gen"
 import { matching } from "@grizzle/testing/pattern"
 import { Array as Arr } from "effect"
 import { hnswPolicy } from "#compiler/check/approximate/policy.ts"
@@ -319,15 +319,17 @@ export const searchCaseGen: Gen<SearchCase> = (source) => {
 			])
 		),
 		reading: source.draw(
-			oneOf<Reading>([
-				element(["the query"] as const),
-				element(["the query"] as const),
-				element([
-					"an attachment filtering by its parent",
-					"an attachment binding its parent",
-					"an import bound to an outer variable",
-					"an import bound to a parameter"
-				] as const)
+			weighted<Reading>([
+				[2, constant("the query")],
+				[
+					1,
+					element([
+						"an attachment filtering by its parent",
+						"an attachment binding its parent",
+						"an import bound to an outer variable",
+						"an import bound to a parameter"
+					] as const)
+				]
 			])
 		)
 	}

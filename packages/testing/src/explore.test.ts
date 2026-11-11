@@ -637,7 +637,8 @@ describe("the residual", () => {
 							kind: "specification",
 							name: "the chance the bound is exceeded, by the exact distribution of each run's seen situations and its last new case"
 						},
-						generator: (source) => Arr.makeBy(source.draw(int(1, 4)), () => source.draw(int(1, 4))),
+						generator: (source) =>
+							Array.from({ length: source.draw(int(1, 4)) }, () => source.draw(int(1, 4))),
 						literal: Formatter.format,
 						limit: 400,
 						coverage: noCoverage,

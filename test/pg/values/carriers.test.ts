@@ -55,6 +55,7 @@ import { caseHang } from "#test/support/limits.ts"
 import { pgErrorFields } from "#test/support/substrate/errors.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
 import { orderOf } from "#test/unit/values/support.ts"
 
 /** A batch of up to `max` values, a case's one recordset. */
@@ -129,8 +130,14 @@ const float8ArrayText = (xs: ReadonlyArray<number>): string =>
 	)}}`
 
 /** Every int4 span of bounds within -5..5, its lower bound below its upper. */
-const spanBounds = Arr.flatMap(Arr.range(-5, 4), (lower) =>
-	Arr.map(Arr.range(lower + 1, 5), (upper) => [lower, upper] as const)
+const spanBounds = nonEmpty(
+	Arr.flatMap(Arr.range(-5, 4), (lower) =>
+		Arr.map(
+			upTo(4 - lower, (i) => lower + 1 + i),
+			(upper) => [lower, upper] as const
+		)
+	),
+	"every span of bounds within -5..5"
 )
 
 /**

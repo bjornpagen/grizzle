@@ -480,7 +480,7 @@ layer(Substrate.layer)(
 					})
 					const familySketch: Gen<FamilySketch> = (source) => ({
 						strings: source.draw(
-							array(stringsOver(family.alphabet, 8), { min: 1, max: stringsPerCase })
+							array(stringsOver(element(family.alphabet), 8), { min: 1, max: stringsPerCase })
 						),
 						handwritten: Arr.map(written, (w) => source.draw(walksFor(w.r))),
 						generated: source.draw(

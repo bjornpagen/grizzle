@@ -86,6 +86,7 @@ import {
 import { caseHang } from "#test/support/limits.ts"
 import { attempt } from "#test/support/substrate.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /** A single junk accumulator of a family (the header's kinds), at a slot and a plane where it names one. */
 type Junk =
@@ -141,22 +142,28 @@ const box = { lawful: 4, junked: 3 } as const
 
 const junksOf = (n: number, planes: number): ReadonlyArray<Junk> => [
 	{ kind: "a junk seed" },
-	...Arr.flatMap(Arr.range(0, n - 1).slice(0, n), (slot) =>
-		Arr.flatMap(Arr.range(0, planes - 1), (plane): ReadonlyArray<Junk> => [
-			{ kind: "a junk before", slot, plane },
-			{ kind: "a junk after", slot, plane }
-		])
+	...Arr.flatMap(
+		upTo(n, (i) => i),
+		(slot) =>
+			Arr.flatMap(
+				upTo(planes, (i) => i),
+				(plane): ReadonlyArray<Junk> => [
+					{ kind: "a junk before", slot, plane },
+					{ kind: "a junk after", slot, plane }
+				]
+			)
 	),
-	...Arr.map(Arr.range(0, planes - 1), (plane): Junk => ({ kind: "a junk end", plane })),
-	...Arr.map(Arr.range(0, n - 1).slice(0, n), (slot): Junk => ({ kind: "a junk step", slot }))
+	...upTo(planes, (plane): Junk => ({ kind: "a junk end", plane })),
+	...upTo(n, (slot): Junk => ({ kind: "a junk step", slot }))
 ]
 
 const sketchGen =
 	(planes: number): Gen<Sketch> =>
 	(source) => {
-		const n = source.draw(element(nonEmpty(Arr.range(0, box.lawful))))
-		const values = Arr.map(Arr.range(0, n - 1).slice(0, n), () =>
-			source.draw(element([0, 1, 2, 3, 4] as const))
+		const n = source.draw(element(nonEmpty(upTo(box.lawful + 1, (i) => i))))
+		const values = Arr.map(
+			upTo(n, (i) => i),
+			() => source.draw(element([0, 1, 2, 3, 4] as const))
 		)
 		const junks: Arr.NonEmptyReadonlyArray<Junk> =
 			n <= box.junked ? [{ kind: "none" }, ...junksOf(n, planes)] : [{ kind: "none" }]
@@ -165,7 +172,7 @@ const sketchGen =
 
 const sketchCases = (planes: number): number =>
 	Arr.reduce(
-		Arr.range(0, box.lawful),
+		upTo(box.lawful + 1, (i) => i),
 		0,
 		(sum, n) => sum + 5 ** n * (1 + (n <= box.junked ? junksOf(n, planes).length : 0))
 	)

@@ -45,13 +45,14 @@ import {
 } from "#test/support/families/theorem.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /** Every pair of families of owners 0 and 1, members numbered in slot order across both, lengths summing to ≤ 5. */
 const FAMILIES: Arr.NonEmptyReadonlyArray<Families> = nonEmpty(
 	Arr.flatMap(Arr.range(0, 5), (a) =>
-		Arr.map(Arr.range(0, 5 - a), (b): Families => [
-			{ owner: 0, members: Arr.range(0, a - 1).slice(0, a) },
-			{ owner: 1, members: Arr.map(Arr.range(0, b - 1).slice(0, b), (m) => a + m) }
+		upTo(5 - a + 1, (b): Families => [
+			{ owner: 0, members: upTo(a, (i) => i) },
+			{ owner: 1, members: upTo(b, (m) => a + m) }
 		])
 	),
 	"a family pair"

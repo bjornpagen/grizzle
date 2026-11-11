@@ -38,7 +38,17 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { array, element, type Gen, int, map, oneOf, shuffled, subarray } from "@grizzle/testing/gen"
+import {
+	array,
+	constant,
+	element,
+	type Gen,
+	int,
+	map,
+	shuffled,
+	subarray,
+	weighted
+} from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -220,7 +230,12 @@ const recordGen =
 	(source) => {
 		const head = { id: p.id, writer: `w${p.id}`, ops: p.ops, start: p.start, end: p.end }
 		const e = expectFor(p.kind, host, state, p.ops)
-		const faithful = source.draw(element([true, true, false] as const))
+		const faithful = source.draw(
+			weighted([
+				[2, constant(true)],
+				[1, constant(false)]
+			])
+		)
 		const after = faithful && (e.kind === "accepted" || e.kind === "no-change") ? e.state : state
 		if (p.kind === "grizzle") {
 			const modelled: GrizzleSettled =
@@ -264,7 +279,10 @@ const historyGen: Gen<History> = (source) => {
 		reached = after
 	}
 	const committed = source.draw(
-		oneOf<HostState>([() => reached, () => reached, map(subarray(boxFacts), workers)])
+		weighted<HostState>([
+			[2, () => reached],
+			[1, map(subarray(boxFacts), workers)]
+		])
 	)
 	return {
 		host,

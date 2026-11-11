@@ -42,10 +42,12 @@ import { required } from "@grizzle/testing/features"
 import {
 	array,
 	boolean,
+	constant,
 	element,
 	type Gen,
 	int,
 	map,
+	proportional,
 	shuffled,
 	weighted
 } from "@grizzle/testing/gen"
@@ -194,7 +196,7 @@ type TranslationFeature =
 
 const translationCase: Gen<TranslationCase> = (source) => ({
 	map: source.draw(mapOver(translationAlphabet)),
-	texts: source.draw(array(stringsOver(translationAlphabet, 8), { min: 1, max: 16 }))
+	texts: source.draw(array(stringsOver(element(translationAlphabet), 8), { min: 1, max: 16 }))
 })
 
 /** The ASCII capitals, which lowerAscii lowers, and nothing else. */
@@ -340,7 +342,7 @@ describe("Compute's translate and lowerAscii", () => {
 			source: pattern,
 			flags,
 			map: source.draw(mapOver(f.alphabet)),
-			texts: source.draw(array(stringsOver(f.alphabet, 5), { min: 1, max: 12 }))
+			texts: source.draw(array(stringsOver(element(f.alphabet), 5), { min: 1, max: 12 }))
 		}
 	}
 
@@ -807,7 +809,9 @@ describe("Compute's translate and lowerAscii", () => {
 			}
 			const members = Arr.dedupe(image)
 			const kept = drop ? members.slice(1) : members
-			const more = source.draw(array(stringsOver(translationAlphabet, 3), { min: 0, max: 3 }))
+			const more = source.draw(
+				array(stringsOver(element(translationAlphabet), 3), { min: 0, max: 3 })
+			)
 			return `^(?:${Arr.join(Arr.map([...kept, ...more], spelled), "|")})$`
 		}
 
@@ -1073,8 +1077,13 @@ describe("Compute's translate and lowerAscii", () => {
 
 	/** XML's four white space characters beside no-break space and line separator, which XML does not count, and letters. */
 	const spaceAlphabet: Arr.NonEmptyReadonlyArray<number> = [
-		0x09, 0x0a, 0x0d, 0x20, 0x20, 0x61, 0x62, 0xa0, 0x2028, 0xe9, 0x1f600
+		0x09, 0x0a, 0x0d, 0x20, 0x61, 0x62, 0xa0, 0x2028, 0xe9, 0x1f600
 	]
+
+	/** A character of the alphabet, the space twice as often as each other one. */
+	const spaceCharacter: Gen<number> = proportional(
+		Arr.map(spaceAlphabet, (point) => [point === 0x20 ? 2 : 1, constant(point)] as const)
+	)
 
 	/** XML Schema's collapse as its definition reads: pieces cut at every run of white space, the empty ones dropped. */
 	const byDefinition = (value: string): string =>
@@ -1104,7 +1113,7 @@ describe("Compute's translate and lowerAscii", () => {
 			explore(
 				{
 					suite: "unit/compute/collapse-values",
-					draw: drawn(array(stringsOver(spaceAlphabet, 10), { min: 1, max: 24 })),
+					draw: drawn(array(stringsOver(spaceCharacter, 10), { min: 1, max: 24 })),
 					literal: Formatter.format,
 					oracle: {
 						kind: "second-implementation",
@@ -1205,7 +1214,7 @@ describe("Compute's translate and lowerAscii", () => {
 		return {
 			source: pattern,
 			flags,
-			texts: source.draw(array(stringsOver(spaceAlphabet, 8), { min: 1, max: 16 }))
+			texts: source.draw(array(stringsOver(spaceCharacter, 8), { min: 1, max: 16 }))
 		}
 	}
 

@@ -22,6 +22,7 @@ import { pgPin } from "#test/support/env.ts"
 import { testConnectTimeout } from "#test/support/limits.ts"
 import { memoryEndpoint, memoryTransport, tlsMaterial } from "#test/support/memory-tls.ts"
 import { parsedConnection } from "#test/support/pg.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /**
  * A protocol tap: a session's connection that a test reads every message of in both directions, counting round trips,
@@ -183,8 +184,9 @@ const wordsOf = (text: string): ReadonlyArray<string> =>
 /** Whether `words` hold `phrase` as consecutive words. */
 const holds = (words: ReadonlyArray<string>, phrase: string): boolean => {
 	const wanted = Str.split(phrase, " ")
-	return Arr.some(Arr.range(0, words.length - 1), (start) =>
-		Arr.every(wanted, (word, k) => words[start + k] === word)
+	return Arr.some(
+		upTo(words.length, (i) => i),
+		(start) => Arr.every(wanted, (word, k) => words[start + k] === word)
 	)
 }
 

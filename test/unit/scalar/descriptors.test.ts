@@ -80,6 +80,7 @@ import { fieldIdentity, spanDescriptor } from "#test/support/fixtures/descriptor
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { argumentsOf } from "#test/support/list.ts"
+import { upTo } from "#test/support/up-to.ts"
 import {
 	type DescriptorSketch,
 	descriptorGen,
@@ -115,10 +116,13 @@ const identityOf = (value: unknown): string => succeeded(fieldIdentity(value))
 const plainSketches: Arr.NonEmptyReadonlyArray<DescriptorSketch> = nonEmpty(
 	[
 		...Arr.map(spellings, (name): DescriptorSketch => ({ kind: "spelling", name })),
-		...Arr.map(Arr.range(1, binary64Precision.value), (precision): DescriptorSketch => ({
-			kind: "float",
-			precision
-		}))
+		...Arr.map(
+			upTo(binary64Precision.value, (i) => i + 1),
+			(precision): DescriptorSketch => ({
+				kind: "float",
+				precision
+			})
+		)
 	],
 	"the plain descriptors"
 )

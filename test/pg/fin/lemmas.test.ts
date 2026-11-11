@@ -89,6 +89,7 @@ import { caseHang } from "#test/support/limits.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /** A direction's drop: the constraints its mutant keeps. */
 type Mutant = "within dropped" | "covers dropped"
@@ -177,7 +178,7 @@ const multisetGen =
 		if (k === 0 || source.draw(element([false, true]))) {
 			return []
 		}
-		const first = source.draw(element(nonEmpty(Arr.range(from, CELLS.length - 1))))
+		const first = source.draw(element(nonEmpty(upTo(CELLS.length - 1 - from + 1, (i) => from + i))))
 		return [first, ...source.draw(multisetGen(k - 1, first))]
 	}
 

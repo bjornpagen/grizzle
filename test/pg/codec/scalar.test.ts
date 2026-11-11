@@ -79,6 +79,7 @@ import { caseHang } from "#test/support/limits.ts"
 import { headingRecord } from "#test/support/statement-rows.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
 import { codecOf, type TestCodec } from "#test/unit/codec/support.ts"
 import { decimalGen } from "#test/unit/values/support.ts"
 
@@ -94,7 +95,7 @@ const setWidths = Arr.range(1, 9)
 
 /** The handles of the roster of a set of `width` codes. */
 const setHandles = (width: number): Arr.NonEmptyReadonlyArray<string> =>
-	nonEmpty(Arr.map(Arr.range(0, width - 1), (c) => `s${c}`))
+	nonEmpty(upTo(width, (c) => `s${c}`))
 
 const setRoster = (width: number) => parsedName(`Set${width}`)
 
@@ -238,7 +239,7 @@ const caseShuffled: Gen<string> = (source) => {
 }
 
 /** The spellings a text comparison trips on: empty, composed and decomposed, beyond the BMP, U+FFFD and U+10FFFF. */
-const textEdges = ["", "é", "é", "𝔘", "�", "\u{10ffff}"] as const
+const textEdges = ["", "\u00e9", "e\u0301", "𝔘", "�", "\u{10ffff}"] as const
 
 /**
  * Texts of up to twelve code points, each well-formed and never NUL: ASCII, the rest of the BMP outside the surrogates,

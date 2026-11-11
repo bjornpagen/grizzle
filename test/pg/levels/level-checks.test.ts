@@ -183,7 +183,7 @@ const familyGen = int(0, families.length - 1)
 
 const rowGen =
 	(alphabet: Arr.NonEmptyReadonlyArray<number>): Gen<Row> =>
-	(source) => ({ value: source.draw(stringsOver(alphabet, 6)), n: source.draw(small) })
+	(source) => ({ value: source.draw(stringsOver(element(alphabet), 6)), n: source.draw(small) })
 
 /** The predicate as a row check's callback writes it. */
 const build = (p: Pred, a: AttributeRow): Predicate => {

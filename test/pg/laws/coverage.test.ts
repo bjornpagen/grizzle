@@ -45,6 +45,7 @@ import {
 	sameMoment
 } from "#test/support/substrate.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 const Target = relation("Target", { id: pg.int4, k: pg.int4, during: span(pg.int4), on: pg.bool }, [
 	"id"
@@ -90,7 +91,10 @@ const ROWS: Arr.NonEmptyReadonlyArray<Row> = nonEmpty(
 const sketchGen: Gen<Sketch> = (source) => {
 	const n = source.draw(element([0, 1, 2] as const))
 	return {
-		targets: Arr.map(Arr.range(1, n).slice(0, n), () => source.draw(element(ROWS))),
+		targets: Arr.map(
+			upTo(n, (i) => i + 1),
+			() => source.draw(element(ROWS))
+		),
 		source: source.draw(element(ROWS))
 	}
 }

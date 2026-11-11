@@ -61,6 +61,7 @@ import {
 } from "#test/support/families/fold.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /** How a swap-with-last's statements are sent. */
 type Sending = "prescribed" | "move first" | "count first" | "closure immediate"
@@ -81,7 +82,10 @@ interface Sketch {
 const sketchGen: Gen<Sketch> = (source) => {
 	const n = source.draw(int(1, 4))
 	const values = nonEmpty(
-		Arr.map(Arr.range(1, n), () => source.draw(element([0, 1, 2, 3, 4] as const)))
+		Arr.map(
+			upTo(n, (i) => i + 1),
+			() => source.draw(element([0, 1, 2, 3, 4] as const))
+		)
 	)
 	return { values, at: source.draw(int(0, n - 1)), sending: source.draw(element(SENDINGS)) }
 }

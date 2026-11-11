@@ -238,7 +238,10 @@ const renamingFamily = (applies: (file: string) => boolean, copies: number): Fam
 	return {
 		operators: ["rename"],
 		applies,
-		rules: Arr.makeBy(copies, () => rule)
+		rules: Arr.prepend(
+			Array.from({ length: copies - 1 }, () => rule),
+			rule
+		)
 	}
 }
 
@@ -443,7 +446,7 @@ layer(NodeServices.layer)("source mutation", (it) => {
 								killers: ["a.test.ts"]
 							}
 							const places = Arr.filter(
-								Arr.range(0, text.length),
+								Array.from({ length: text.length + 1 }, (_, i) => i),
 								(at) => Str.slice(at, at + original.length)(text) === original
 							)
 							const result = keptApplied(kept, text)

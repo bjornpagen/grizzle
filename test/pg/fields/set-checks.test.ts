@@ -30,12 +30,13 @@ import { Bits, bits, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { check, closed, relation, schema } from "#compiler/public/schema.ts"
 import { installed } from "#test/pg/reads/support.ts"
-import { assert } from "#test/support/assert.ts"
+import { assert, nonEmpty } from "#test/support/assert.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { refusedLaws } from "#test/support/refused.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 const handles = ["a", "b", "c"] as const
 type Handle = (typeof handles)[number]
@@ -77,8 +78,9 @@ const programs = {
 }
 
 /** Every set over Flag's handles. */
-const allSets = Arr.map(Arr.range(0, 2 ** handles.length - 1), (mask) =>
-	Arr.filter(handles, (_, i) => (mask & (1 << i)) !== 0)
+const allSets = nonEmpty(
+	upTo(2 ** handles.length, (mask) => Arr.filter(handles, (_, i) => (mask & (1 << i)) !== 0)),
+	"every set over the handles, the empty one first"
 )
 
 /**

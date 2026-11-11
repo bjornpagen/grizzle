@@ -56,7 +56,9 @@ import { servedPath } from "#compiler/served/forms.ts"
 import { regexField } from "#compiler/text/field.ts"
 import type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
 import type { EntryValue } from "#compiler/types/schema/world.ts"
+import { nonEmpty } from "#test/support/assert.ts"
 import { everyCallCount } from "#test/support/kernel/calls.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /**
  * The compile benchmark, `pnpm bench compile`: what a large schema costs to build and to compile, with no database, and
@@ -165,7 +167,7 @@ class CompileUsage extends Data.TaggedError("CompileUsage")<{ readonly reason: s
 /** The handles of a roster of `count` handles, each `prefix` and its position. */
 const handles = (prefix: string, count: number): readonly [string, ...Array<string>] => [
 	`${prefix}0`,
-	...Arr.makeBy(count - 1, (i) => `${prefix}${i + 1}`)
+	...upTo(count - 1, (i) => `${prefix}${i + 1}`)
 ]
 
 /** A roster of the generated schema: its handles, and the first, which the statements compare with. */
@@ -187,7 +189,7 @@ const around = <A>(items: Arr.NonEmptyReadonlyArray<A>, i: number): A =>
 const closedOf = (rosters: Arr.NonEmptyReadonlyArray<GeneratedRoster>, k: number, scale: Scale) => {
 	const a = around(rosters, k).roster
 	const b = around(rosters, k + 1).roster
-	const facts = Arr.makeBy(scale.rows, (i) => ({
+	const facts = upTo(scale.rows, (i) => ({
 		a: `h${k % rosters.length}_${Math.floor(i / scale.handles)}`,
 		b: `h${(k + 1) % rosters.length}_${i % scale.handles}`,
 		w: i % 1_000
@@ -312,10 +314,10 @@ const build = Effect.fn("build")(function* (scale: Scale) {
 		Arr.makeBy(rosterCount, (k) => closedOf(rosters, k, scale))
 	)
 	const [domains, domainsSpent] = yield* timed("domains", () =>
-		Arr.makeBy(scale.patterns, domainOf)
+		nonEmpty(upTo(scale.patterns, domainOf), "a scale holds one pattern at least")
 	)
 	const [ordinary, relationsSpent] = yield* timed("relations", () =>
-		Arr.makeBy(scale.relations, (i) => ordinaryOf(i, domains, rosters))
+		upTo(scale.relations, (i) => ordinaryOf(i, domains, rosters))
 	)
 	const [statements, statementsSpent] = yield* timed("statements", () =>
 		Arr.flatMap(ordinary, (r, i) =>

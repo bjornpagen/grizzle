@@ -23,6 +23,7 @@ import {
 import { assert, defined } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { encodeRefusalDetail } from "#test/support/oracle/write/detail.ts"
+import { upTo } from "#test/support/up-to.ts"
 import { outputText } from "#test/support/wire.ts"
 
 /** The write refusal channel, without a database.
@@ -138,7 +139,7 @@ const shortEscapes: ReadonlyMap<string, string> = new Map([
 /** `\uXXXX` for each UTF-16 unit of a character. */
 const hexEscape = (ch: string, upper: boolean): string =>
 	Arr.join(
-		Arr.map(Arr.range(0, ch.length - 1), (i) => {
+		upTo(ch.length, (i) => {
 			const unit = defined(Option.getOrUndefined(Str.charCodeAt(i)(ch)), "a UTF-16 unit")
 			const hex = Str.padStart(4, "0")(unit.toString(16))
 			return `\\u${upper ? Str.toUpperCase(hex) : hex}`

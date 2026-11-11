@@ -17,6 +17,7 @@ import { assert, assertVariant, nonEmpty, refused, succeeded } from "#test/suppo
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { checking } from "#test/support/policy.ts"
+import { upTo } from "#test/support/up-to.ts"
 import { descOf, parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /**
@@ -184,11 +185,14 @@ describe("a write that names rows by a primary key", () => {
 								mutable(Owner),
 								mutable(Member)
 							])
-							const facts = Arr.map(Arr.range(1, box.facts), (n) => ({
-								id: uuidOf(n + 1),
-								owner: uuidOf(1),
-								x: BigInt(n)
-							}))
+							const facts = Arr.map(
+								upTo(box.facts, (i) => i + 1),
+								(n) => ({
+									id: uuidOf(n + 1),
+									owner: uuidOf(1),
+									x: BigInt(n)
+								})
+							)
 							const value =
 								box.op === "put"
 									? ChangeSet.empty(Sequence).put(Member, facts)

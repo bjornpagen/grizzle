@@ -480,10 +480,16 @@ const sequences = (
 const enumerationOf = (shape: Shape): ReadonlyArray<Shaped> => {
 	switch (shape.kind) {
 		case "int":
-			return Arr.sort(Arr.range(shape.lo, shape.hi), byDistanceFromZero)
+			return Arr.sort(
+				Array.from({ length: shape.hi - shape.lo + 1 }, (_, i) => shape.lo + i),
+				byDistanceFromZero
+			)
 		case "array": {
 			const items = enumerationOf(shape.item)
-			return Arr.flatMap(Arr.range(shape.min, shape.max), (length) => sequences(items, length))
+			return Arr.flatMap(
+				Array.from({ length: shape.max - shape.min + 1 }, (_, i) => shape.min + i),
+				(length) => sequences(items, length)
+			)
 		}
 		case "pair": {
 			const seconds = enumerationOf(shape.second)
@@ -609,7 +615,7 @@ describe("enumeration", () => {
 					({ range, divisor, attempts }, c) =>
 						Effect.sync(() => {
 							const keep = (value: number) => value % divisor === 0
-							const values = Arr.range(range.lo, range.hi)
+							const values = Array.from({ length: range.hi - range.lo + 1 }, (_, i) => range.lo + i)
 							const kept = Arr.filter(values, keep).length
 							const failing = values.length - kept
 							c.note(failing === 0 ? "every value kept" : "some value discarded")
@@ -617,7 +623,7 @@ describe("enumeration", () => {
 								c.note("a second attempt")
 							}
 							const cases = Arr.reduce(
-								Arr.range(0, attempts - 1),
+								Array.from({ length: attempts }, (_, i) => i),
 								0,
 								(sum, failed) => sum + failing ** failed * kept
 							)

@@ -1,7 +1,7 @@
 import { layer } from "@effect/vitest"
 import { type Case as ExploreCase, drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { array, element, type Gen, int, oneOf } from "@grizzle/testing/gen"
+import { array, constant, element, type Gen, int, oneOf, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import {
@@ -82,7 +82,7 @@ import { str } from "#compiler/public/text.ts"
 import type { ParamMap } from "#compiler/types/core/phantom.ts"
 import { changeSetOver } from "#compiler/write/changeset/value.ts"
 import { installed } from "#test/pg/reads/support.ts"
-import { assert, defined } from "#test/support/assert.ts"
+import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 import { migrated, noObservation } from "#test/support/installed.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import {
@@ -107,6 +107,7 @@ import { refusedLaws } from "#test/support/refused.ts"
 import { member, withServedDb } from "#test/support/served-db.ts"
 import { clearRows, installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 
 /** A key's text: a one-digit integer behind any leading zeros, its sign spelled or not, at most four bytes. */
@@ -593,7 +594,12 @@ const writeGen =
 	(stored: Stored, fresh: number): Gen<Write> =>
 	(source) => {
 		const target = source.draw(
-			element(["MapKey", "MapKey", "Tag", "Tag", "Use", "Mapping"] as const)
+			weighted([
+				[2, constant("MapKey" as const)],
+				[2, constant("Tag" as const)],
+				[1, constant("Use" as const)],
+				[1, constant("Mapping" as const)]
+			])
 		)
 		switch (target) {
 			case "MapKey": {
@@ -646,7 +652,10 @@ const caseGen =
 	(source) => {
 		const stored = source.draw(storedGen(host))
 		const count = source.draw(int(1, 3))
-		const writes = Arr.map(Arr.range(1, count), (i) => source.draw(writeGen(stored, 10 + i)))
+		const writes = nonEmpty(
+			upTo(count, (i) => source.draw(writeGen(stored, 11 + i))),
+			"a case writes one to three times"
+		)
 		return { stored, writes }
 	}
 

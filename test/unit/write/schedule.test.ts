@@ -250,7 +250,7 @@ const keeps = (
 const instancesOf = (shape: Shape): ReadonlyArray<Instance> => {
 	const facts = (ref: number): Fact => [1, ref]
 	const passed = (p: ReadonlyArray<number>): ReadonlyArray<number> =>
-		shape.onP.includes("generated") ? Arr.range(maxOf(p, 0), 2) : [maxOf(p, 0)]
+		shape.onP.includes("generated") ? upTo(3 - maxOf(p, 0), (i) => maxOf(p, 0) + i) : [maxOf(p, 0)]
 	const states = Arr.flatMap(subsets(ids), (p) =>
 		Arr.flatMap(subsets(Arr.map(ids, facts)), (c) => Arr.map(passed(p), (seq) => ({ p, c, seq })))
 	)
@@ -856,7 +856,10 @@ const hasCycle = (stratum: Stratum, edges: ReadonlySet<string>): boolean => {
 		state.set(at, "done")
 		return false
 	}
-	return Arr.some(Arr.range(0, writes - 1), (w) => state.get(w) === undefined && visit(w))
+	return Arr.some(
+		upTo(writes, (i) => i),
+		(w) => state.get(w) === undefined && visit(w)
+	)
 }
 
 /**

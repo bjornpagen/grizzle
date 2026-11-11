@@ -194,7 +194,13 @@ const roleCaseGen: Gen<RoleCase> = (source) => ({
 })
 
 const memberGen: Gen<MemberCase> = (source) => ({
-	op: source.draw(element(["insert", "insert", "delete", "put"] as const)),
+	op: source.draw(
+		weighted([
+			[2, constant("insert" as const)],
+			[1, constant("delete" as const)],
+			[1, constant("put" as const)]
+		])
+	),
 	relation: source.draw(element(written))
 })
 

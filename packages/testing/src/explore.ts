@@ -1593,9 +1593,9 @@ export const explore = <S, T, F extends string, E, R>(
 				Effect.gen(function* () {
 					for (let windowStart = 0; windowStart < floorCases; windowStart += spec.steerEvery) {
 						const under = steeredBy(situations, [floorTally.tally()])
-						const indices = Arr.range(
-							windowStart,
-							Math.min(windowStart + spec.steerEvery, floorCases) - 1
+						const indices = Array.from(
+							{ length: Math.min(windowStart + spec.steerEvery, floorCases) - windowStart },
+							(_, i) => windowStart + i
 						)
 						const window = yield* windowOf(
 							indices,
@@ -1671,7 +1671,7 @@ export const explore = <S, T, F extends string, E, R>(
 							reported = now
 							yield* status(now)
 						}
-						const indices = Arr.range(fuzzedCases, fuzzedCases + spec.steerEvery - 1)
+						const indices = Array.from({ length: spec.steerEvery }, (_, i) => fuzzedCases + i)
 						fuzzedCases += indices.length
 						yield* mutatedWindow(fuzzed, indices, sense, (caseRun) => {
 							found += 1
@@ -1715,7 +1715,10 @@ export const explore = <S, T, F extends string, E, R>(
 					) {
 						yield* mutatedWindow(
 							steering,
-							Arr.range(windowStart, Math.min(windowStart + spec.steerEvery, steered.cases) - 1),
+							Array.from(
+								{ length: Math.min(windowStart + spec.steerEvery, steered.cases) - windowStart },
+								(_, i) => windowStart + i
+							),
 							steered.sense,
 							() => Effect.void
 						)
@@ -1737,9 +1740,9 @@ export const explore = <S, T, F extends string, E, R>(
 
 			const rotating = rotatingSeed(run.seed, floor)
 			for (let windowStart = 0; windowStart < spec.runs; windowStart += spec.steerEvery) {
-				const indices = Arr.range(
-					windowStart,
-					Math.min(windowStart + spec.steerEvery, spec.runs) - 1
+				const indices = Array.from(
+					{ length: Math.min(windowStart + spec.steerEvery, spec.runs) - windowStart },
+					(_, i) => windowStart + i
 				)
 				const window = yield* windowOf(
 					indices,

@@ -47,6 +47,7 @@ import { caseHang } from "#test/support/limits.ts"
 import { checkedIn } from "#test/support/policy.ts"
 import { compiledPattern } from "#test/support/regex.ts"
 import { ownerSession, Substrate, worldSession } from "#test/support/substrate/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
 import {
 	type SketchedField,
 	fieldOf,
@@ -414,7 +415,10 @@ const descriptorSchemaOf = (c: DescriptorCase) => {
 		closed(
 			`K${i}`,
 			Arr.prepend(
-				Arr.map(Arr.range(1, count - 1), (h) => `h${h}`),
+				Arr.map(
+					upTo(count - 1, (i) => i + 1),
+					(h) => `h${h}`
+				),
 				"h0"
 			)
 		)

@@ -78,6 +78,7 @@ import {
 import { queryFromDesc } from "#test/support/describe.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
+import { upTo } from "#test/support/up-to.ts"
 import {
 	type SketchedField,
 	fieldOf,
@@ -807,7 +808,10 @@ describe("context admission", () => {
 									closed(
 										`K${i}`,
 										Arr.prepend(
-											Arr.map(Arr.range(1, count - 1), (h) => `h${h}`),
+											Arr.map(
+												upTo(count - 1, (i) => i + 1),
+												(h) => `h${h}`
+											),
 											"h0"
 										)
 									)

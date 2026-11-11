@@ -31,7 +31,7 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { array, type Gen, int, map, weighted } from "@grizzle/testing/gen"
+import { array, element, type Gen, int, map, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -197,7 +197,7 @@ describe("a conjunction's language", () => {
 							return {
 								patterns,
 								texts: [
-									...source.draw(array(stringsOver(letters, 6), { min: 1, max: 40 })),
+									...source.draw(array(stringsOver(element(letters), 6), { min: 1, max: 40 })),
 									...source.draw(walksOf(patterns))
 								]
 							}

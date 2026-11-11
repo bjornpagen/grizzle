@@ -60,6 +60,7 @@ import type { BelowSerializable } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 import { regex } from "arkregex"
+import { upTo } from "#test/support/up-to.ts"
 /**
  * The features a history's swarm turns on, off or weighs: each writer kind, immediate constraints, a writer copying
  * another's list, and each choice of a planted writer. The sketch
@@ -196,7 +197,7 @@ const historySketchGen: Gen<HistorySketch> = (source) => {
 	const initial = source.draw(caseSketchGen(steps))
 	const writers = source.span("array", () => {
 		const count = source.draw(int(2, 3))
-		return Arr.map(Arr.range(0, count - 1), (index) =>
+		return upTo(count, (index) =>
 			source.span("element", (): WriterSketch => ({
 				kind: source.draw(swarmChoice(drawn, writerChoices)),
 				immediacy: source.draw(immediacyGen(drawn)),

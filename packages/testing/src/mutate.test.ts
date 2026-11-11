@@ -51,7 +51,7 @@ const spanLengths = (tape: Tape, label: string): ReadonlyArray<number> =>
  * that span's again, repeated, or plus a span of the donor with the same label in its place.
  */
 const lengthsOf = (seed: Tape, donor: Tape): ReadonlySet<number> => {
-	const lengths = new Set<number>(Arr.range(0, seed.length))
+	const lengths = new Set<number>(Array.from({ length: seed.length + 1 }, (_, i) => i))
 	for (const [span, label] of seed.spanLabel.entries()) {
 		const own = (seed.spanEnd[span] ?? 0) - (seed.spanStart[span] ?? 0)
 		lengths.add(seed.length - own)

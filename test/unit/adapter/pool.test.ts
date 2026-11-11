@@ -35,6 +35,7 @@ import { memoryEndpoint, memoryTransport, tlsMaterial } from "#test/support/memo
 import { noPassword } from "#test/support/pg.ts"
 import { parsedConnection } from "#test/support/pg.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /**
  * The session pool's lifetime bookkeeping (packages/grizzle/src/adapter/wire/session.ts makePool) over a PostgreSQL
@@ -682,10 +683,12 @@ describe("the session pool", () => {
 									case "starve": {
 										const count = leaseCount(step.leases, max)
 										const waiters = Math.max(0, count - (max - held.length))
-										const leases = yield* Effect.forEach(Arr.range(1, count), () =>
-											Effect.forkChild(Effect.scoped(Effect.andThen(pool.lease, Effect.never)), {
-												startImmediately: true
-											})
+										const leases = yield* Effect.forEach(
+											upTo(count, (i) => i + 1),
+											() =>
+												Effect.forkChild(Effect.scoped(Effect.andThen(pool.lease, Effect.never)), {
+													startImmediately: true
+												})
 										)
 										yield* settle
 										assert.equal(
@@ -793,7 +796,10 @@ describe("the session pool", () => {
 							/** Every session up to the maximum at once, the clock standing still: no permit was lost. */
 							const recovered = yield* Effect.scoped(
 								Effect.all(
-									Arr.map(Arr.range(1, max), () => pool.lease),
+									Arr.map(
+										upTo(max, (i) => i + 1),
+										() => pool.lease
+									),
 									{ concurrency: max }
 								)
 							)

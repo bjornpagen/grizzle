@@ -38,6 +38,7 @@ import { assert } from "#test/support/assert.ts"
 import { breachesOf, SHAPES, type Shape } from "#test/support/families/theorem.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /** The sizes of one run's case. */
 interface Scale {
@@ -185,10 +186,8 @@ layer(Substrate.layer)(
 									committed(shrink, "the suffix rewrite from the first slot commits")
 									yield* lawful
 									yield* cleared(seat, ["Owner", "Member"])
-									const lengths = Arr.map(Arr.range(0, scale.owners - 1), (o) => lengthOf(scale, o))
-									const rows = Arr.flatMap(lengths, (k, o) =>
-										Arr.map(Arr.range(0, k - 1).slice(0, k), (at) => [o, at, k] as const)
-									)
+									const lengths = upTo(scale.owners, (o) => lengthOf(scale, o))
+									const rows = Arr.flatMap(lengths, (k, o) => upTo(k, (at) => [o, at, k] as const))
 									const imported = yield* measured([
 										`INSERT INTO ${owner} (${c("Owner", "id")}, ${c("Owner", "n")}) SELECT o, n FROM ROWS FROM (pg_catalog.unnest(${arrayOf(
 											Arr.map(lengths, (_, o) => o),

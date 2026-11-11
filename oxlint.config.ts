@@ -1,5 +1,5 @@
 import { active, lintConfig, restrictedImports } from "@grizzle/devtools/preset"
-import { CLOCK_RULES, TEST_RULES } from "@grizzle/testing/oxlint"
+import { CLOCK_RULES, EVERY_FILE_RULES, TEST_RULES } from "@grizzle/testing/oxlint"
 import { defineConfig } from "oxlint"
 
 /** The engine's clock and scheduling ban, one message for every global it names. */
@@ -236,6 +236,7 @@ export default defineConfig(
 		tests: {
 			jsPlugin: "@grizzle/testing/oxlint",
 			rules: TEST_RULES,
+			everyFile: EVERY_FILE_RULES,
 			clock: { files: ["packages/testing/src/**", "test/**"], rules: CLOCK_RULES }
 		},
 		overrides: [
@@ -392,21 +393,6 @@ export default defineConfig(
 				rules: active({
 					/** A test's support modules and a bench name production identifiers through the naming door too. */
 					"devtools/test-no-spelled-names": ["error", { markers: NAME_MARKERS }]
-				})
-			},
-			{
-				files: ["test/**"],
-				rules: active({
-					/** A test's support modules draw the cases its searches run, so a count they pass makeBy holds there too. */
-					"testing/no-clamped-count": "error"
-				})
-			},
-			{
-				files: ["packages/testing/**"],
-				rules: active({
-					/** The library's own suites cannot import the repository's test support, and each count they pass makeBy is
-					 * drawn at least 1. */
-					"testing/no-clamped-count": "off"
 				})
 			},
 			{

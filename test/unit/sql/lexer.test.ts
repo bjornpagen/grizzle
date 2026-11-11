@@ -701,7 +701,13 @@ interface Drawn {
 const drawnText = (text: string): Drawn => ({ text, reaches: [] })
 
 /** What separates two parts: whitespace, a comment, or nothing, so a part may run into the next. */
-const partSeparator = element([" ", " ", "\n", "", "/**/", "--c\n"])
+const partSeparator = weighted([
+	[2, constant(" ")],
+	[1, constant("\n")],
+	[1, constant("")],
+	[1, constant("/**/")],
+	[1, constant("--c\n")]
+])
 
 /** Parts, each after its separator. */
 const partsText = (parts: ReadonlyArray<readonly [string, Drawn]>): Drawn => ({

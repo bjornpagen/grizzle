@@ -266,7 +266,14 @@ const pageSizeGen: Gen<number> = weighted([
 ])
 
 const requestSketchGen: Gen<RequestSketch> = (source) => ({
-	variant: source.draw(element(["first", "last", "after", "before", "after", "before"] as const)),
+	variant: source.draw(
+		weighted([
+			[1, constant("first" as const)],
+			[1, constant("last" as const)],
+			[2, constant("after" as const)],
+			[2, constant("before" as const)]
+		])
+	),
 	size: source.draw(pageSizeGen),
 	anchor: source.draw(
 		oneOf<AnchorPick>([
