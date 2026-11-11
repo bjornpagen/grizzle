@@ -1,3 +1,10 @@
+/**
+ * Tape mutation (mutate.ts): the same mutant from the same words, of a length its edits allow, replaying within every
+ * decision's range. Oracle: stated in the search.
+ *
+ * Plant: ~/.cache/grizzle-release/BR07/plants/mutate-point-past-hi.patch (a point edit one past its decision's highest
+ * value) turns the property red.
+ */
 import { describe, it } from "@effect/vitest"
 import { assertTrue, deepStrictEqual } from "@effect/vitest/utils"
 import { Array as Arr, Duration, Effect, Formatter, Option } from "effect"

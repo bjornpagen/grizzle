@@ -1,3 +1,22 @@
+/**
+ * The library's generators (gen.ts, values.ts, swarm.ts, lsw.ts, pattern.ts), each held to what its JSDoc promises,
+ * every search stating its oracle: exact enumeration orders and spaces (an int's or a bigint's distance from zero, every
+ * arrangement, subset, sorted list, tree and composition of a small box, each exactly once); ranges kept however wide;
+ * doubles and floats within range, a whole failure shrinking to the least whole number, every special double reached;
+ * UUIDs canonical, of their version and variant; a unique array distinct by construction; alphabets, twins, element
+ * order and the scalar code points; exact shares by exact enumeration (production's five in six, proportional weights,
+ * a swarm's omissions and presences, a swarm choice); live, stale and wild boundary values drawn, printed untouched and
+ * handed as data where data; a corrupted value's live share and its rules' weights; and a pattern's strings matching
+ * it.
+ *
+ * Plants (~/.cache/grizzle-release/BR07/plants), each turning the property of its generator red:
+ * int-order-sign-swapped, bigint-order-sign-swapped, int-wide-past-hi, double-past-max, float-past-max,
+ * double-whole-shrink-lost, specials-without-negative-zero, uuid-variant-wrong, shuffled-repeats,
+ * unique-array-unrepaired, alphabet-kept-last, clone-shares-object, production-four-in-five, element-reversed,
+ * unicode-scalar-surrogates, proportional-zero-drawn, swarm-half-off, swarm-keep-at-weight-one-always,
+ * ascending-repeats, parents-self, composition-past-total, lsw-proxy-touched (the lsw kinds and boundary data),
+ * shrink-no-item-deletion (shrinking toward the simplest live value), corrupted-never-live, pattern-repeat-past-max.
+ */
 import { describe, it } from "@effect/vitest"
 import { assertTrue, deepStrictEqual, strictEqual } from "@effect/vitest/utils"
 import { regex } from "arkregex"

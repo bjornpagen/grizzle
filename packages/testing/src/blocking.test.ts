@@ -1,3 +1,12 @@
+/**
+ * The watchdog (live.ts), over planted properties each run in a program of its own: a runaway ends its process with
+ * the hang report and its replay token once its moment and the watchdog's grace have passed, and only then; a body
+ * that returns, pauses or sleeps ends its search in the program by the guard's typed verdict. Oracle: stated in the
+ * search.
+ *
+ * Plant: ~/.cache/grizzle-release/BR07/plants/watchdog-grace-doubled.patch (a grace twice the one stated) turns the
+ * property red.
+ */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
 import { deepStrictEqual } from "@effect/vitest/utils"

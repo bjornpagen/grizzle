@@ -1,3 +1,12 @@
+/**
+ * Source mutation operators (mutants.ts): programs built from statements whose mutants are known yield exactly those,
+ * each at its own text, place, id and function; a family's mutants appear at each of its sites, each edit once
+ * however many rules propose it; and a kept mutant applies at the one place its original stands, stale wherever it
+ * stands otherwise. Oracles are stated per search.
+ *
+ * Plants (~/.cache/grizzle-release/BR07/plants), one a property in this order: mutants-conjunct-missed,
+ * mutants-repeated-sites, kept-mutant-first-place.
+ */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
 import { deepStrictEqual, strictEqual } from "@effect/vitest/utils"

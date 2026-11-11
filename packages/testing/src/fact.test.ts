@@ -1,3 +1,10 @@
+/**
+ * Awaiting a fact (fact.ts awaitFact): the value returned holds the fact and lies within what concurrent fibers made
+ * true, waiting on no timer. Oracle: the specification, stated in the search.
+ *
+ * Plant: ~/.cache/grizzle-release/BR07/plants/fact-returns-early.patch (the fact read twice at most) turns the property
+ * red.
+ */
 import { describe, it } from "@effect/vitest"
 import { deepStrictEqual } from "@effect/vitest/utils"
 import { Duration, Effect, Formatter, Option, Ref } from "effect"

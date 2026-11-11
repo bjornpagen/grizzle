@@ -1,3 +1,15 @@
+/**
+ * Command programs against a model (commands.ts), over a bounded queue the suite plants and a ring buffer wrong in
+ * named ways: every program a harness can write is drawn in a box of 3 steps, each step one the model accepts or
+ * refuses; a run answers every step as the system did and fails at the first step answered otherwise; a correct system
+ * passes every program, refusals included; each command is drawn as often as its weight times its presence; a failing
+ * program shrinks to the fewest steps that break it, keeping the refused step it needs; and a kept program runs to its
+ * end or is refused at its first step the model does not allow there. Oracles are stated per search.
+ *
+ * Plants (~/.cache/grizzle-release/BR07/plants), one a property in this order: program-step-short,
+ * commands-divergence-by-command, commands-refusal-answered-took, commands-pick-off-by-one, shrink-no-span-deletion,
+ * commands-inapplicable-run.
+ */
 import { describe, it } from "@effect/vitest"
 import { assertTrue, deepStrictEqual, strictEqual } from "@effect/vitest/utils"
 import {

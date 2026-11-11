@@ -1,3 +1,13 @@
+/**
+ * A search under its test's deadline (explore.ts Deadline, PRINT_MARGIN_MILLIS): the smallest case its shrink reached
+ * when the deadline cuts the shrink; the case in flight when it cuts the search before any case failed; a case that
+ * failed before the deadline though a lower case of its window was still in flight; a full shrink when the deadline
+ * leaves the time; and every stopped case's finalizers run before the search returns. The reports' replay lines are
+ * the contract a person replays from. Oracles are stated per search.
+ *
+ * Plants (~/.cache/grizzle-release/BR07/plants), one a property in this order: deadline-reports-unshrunk,
+ * deadline-in-flight-unnamed, settling-in-case-order, shrink-cut-at-start, finalizers-unawaited.
+ */
 import { describe, it } from "@effect/vitest"
 import { deepStrictEqual, strictEqual } from "@effect/vitest/utils"
 import { Array as Arr, Duration, Effect, Exit, Formatter, Option, String as Str } from "effect"

@@ -1,3 +1,12 @@
+/**
+ * Shrinking (shrink.ts), held to what it promises over tapes of every shape: a failing case shrinks to one that still
+ * fails, no larger, the same on a repeat, and to its space's least wherever its moves reach it; it never throws, and
+ * proposes only its documented moves of the smallest failing case so far, returning one its own decisions replay; and
+ * it spends at most its budget of candidates, saying so when the budget stopped it. Oracles are stated per search.
+ *
+ * Plants (~/.cache/grizzle-release/BR07/plants), one a property in this order: shrink-binary-short,
+ * shrink-proposes-below-lo, shrink-budget-plus-one.
+ */
 import { describe, it } from "@effect/vitest"
 import { assertTrue, deepStrictEqual, strictEqual } from "@effect/vitest/utils"
 import { Array as Arr, Duration, Effect, Formatter, Option } from "effect"

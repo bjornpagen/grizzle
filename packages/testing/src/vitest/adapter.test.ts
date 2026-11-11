@@ -1,3 +1,12 @@
+/**
+ * The Vitest adapter (vitest/run.ts, vitest/config.ts): a search runs on the run global setup chose, under its test's
+ * deadline; the test process runs under every hardened flag, the __proto__ accessor gone; and the config's every
+ * project runs natively on forks under those flags, with the timeouts and lists it states. Oracles are stated per
+ * search.
+ *
+ * Plants (~/.cache/grizzle-release/BR07/plants), one a property in this order: run-deadline-dropped,
+ * hardened-flag-dropped, config-pool-threads.
+ */
 import { describe, it } from "@effect/vitest"
 import { deepStrictEqual, strictEqual } from "@effect/vitest/utils"
 import { Array as Arr, Config, Duration, Effect, Formatter, Option } from "effect"

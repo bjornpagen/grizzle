@@ -1,3 +1,16 @@
+/**
+ * The engine under every search (random.ts, source.ts, tape.ts, replay.ts, enumerate.ts, gen.ts weighted), each held
+ * to its specification: a range drawn whole and nothing outside it, from any seed; one stream from one seed; a case
+ * replayed exactly from its values and through its replay token, the empty tape's included; a token's suite, steering
+ * and values read back exactly, colons in the suite included; a replay that runs out finishing on simplest values and
+ * saying so exactly then; weighted options in exact proportion however large the total; a uniform option and a
+ * leaning magnitude from the same words; every case of a generator once, in its order, counted against a limit; only
+ * the cases a filter keeps counted; a stream's cases from its seed alone.
+ *
+ * Plants (~/.cache/grizzle-release/BR07/plants), one a property in this order: between-hi-excluded,
+ * case-seed-unmixed, replay-past-last-value, token-drops-last, replay-token-suite-colon, overrun-unmarked,
+ * weighted-arm-off-by-one, biased-never-leans, enumeration-skips-values, exhaust-discards-counted, case-seed-unmixed.
+ */
 import { describe, it } from "@effect/vitest"
 import { deepStrictEqual } from "@effect/vitest/utils"
 import { Array as Arr, Duration, Effect, Formatter, Option, Order, String as Str } from "effect"

@@ -1,3 +1,11 @@
+/**
+ * The library as a consumer installs it: a package with this library copied into its node_modules runs its tests as
+ * Vitest does by default, and grizzle-mutate's verdicts, the residual table and the watchdog's replay report are what
+ * the library's contract says of the consumer's test files. Oracle: stated in the search.
+ *
+ * Plant: ~/.cache/grizzle-release/BR07/plants/reporter-silent.patch (the reporter printing no table) turns the property
+ * red.
+ */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
 import { deepStrictEqual } from "@effect/vitest/utils"

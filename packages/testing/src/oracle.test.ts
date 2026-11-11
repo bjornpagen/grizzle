@@ -1,3 +1,12 @@
+/**
+ * The library's oracles (oracle.ts): a set comparison agrees exactly when both sides hold the same items once each, and
+ * finds every repeat, drop and addition, over every pair of permutations of up to 3 of 4 items (an exhaustion against
+ * the definition); and it costs no more than grouping by key, its comparisons and key computations growing no faster
+ * than linearly in its answers' size (over sizes 2h, 4h and 6h, the second step costs no more than the first).
+ *
+ * Plants (~/.cache/grizzle-release/BR07/plants): agree-set-repeats.patch (a repeat agreeing) turns the first property
+ * red; set-compared-pairwise.patch (every item compared with every other) the second.
+ */
 import { describe, it } from "@effect/vitest"
 import { assertTrue, deepStrictEqual } from "@effect/vitest/utils"
 import { Array as Arr, Duration, Effect, Formatter, Hash, Option, Order } from "effect"
@@ -103,14 +112,30 @@ describe("a set comparison", () => {
 })
 
 /**
- * The item comparisons and key computations a set comparison of answers of `size` items may make: a multiple of
- * n·log2 n, so grouping by key is all it may cost; a scan of every pair makes n²/2.
+ * The item comparisons and key computations a set comparison makes over answers of `size` items, the second the first
+ * rotated by `rotate` thousandths of its length and changed by `change` at `at` thousandths of it.
  */
-const comparisonsBound = (size: number): number => 8 * size * (Math.log2(size + 1) + 1)
+const spentAt = (size: number, change: Change, at: number, rotate: number): number => {
+	const items = Arr.range(0, size - 1)
+	const turn = Math.floor((rotate * size) / 1000)
+	const turned = [...Arr.drop(items, turn), ...Arr.take(items, turn)]
+	const [first, second] = answersOfNumbers(items, turned, change, Math.floor((at * size) / 1000))
+	let spent = 0
+	const counted: Equivalence<number> = (left, right) => {
+		spent += 1
+		return exact(left, right)
+	}
+	const keyed = (item: number) => {
+		spent += 1
+		return Hash.number(item)
+	}
+	set(keyed, counted)(first, second)
+	return spent
+}
 
 describe("a set comparison's cost", () => {
 	it.effect(
-		"stays within a multiple of n log n comparisons on answers of any size, whatever change the second makes",
+		"grows no faster than linearly in its answers' size, whatever change the second makes: grouping by key is all it costs",
 		(ctx) =>
 			searched(
 				ctx,
@@ -119,13 +144,13 @@ describe("a set comparison's cost", () => {
 						suite: "set comparison cost",
 						oracle: {
 							kind: "specification",
-							name: "items compared only within their key's group: at most a multiple of n log n comparisons"
+							name: "items compared only within their key's group: over sizes 2h, 4h and 6h, the second step costs no more than the first"
 						},
 						draw: drawn((source) => ({
-							size: source.draw(int(1, 4000)),
+							half: source.draw(int(1, 600)),
 							change: source.draw(element(CHANGES)),
-							at: source.draw(int(0, 3999)),
-							rotate: source.draw(int(0, 3999))
+							at: source.draw(int(0, 999)),
+							rotate: source.draw(int(0, 999))
 						})),
 						literal: Formatter.format,
 						coverage: required<Change>(CHANGES, { cases: 40, sense: notesOnly }),
@@ -136,26 +161,15 @@ describe("a set comparison's cost", () => {
 						steerEvery: 20,
 						caseHang: Duration.minutes(1)
 					},
-					({ size, change, at, rotate }, c) =>
+					({ half, change, at, rotate }, c) =>
 						Effect.sync(() => {
 							c.note(change)
-							const items = Arr.range(0, size - 1)
-							const turned = [...Arr.drop(items, rotate % size), ...Arr.take(items, rotate % size)]
-							const place = at % size
-							const [first, second] = answersOfNumbers(items, turned, change, place)
-							let spent = 0
-							const counted: Equivalence<number> = (left, right) => {
-								spent += 1
-								return exact(left, right)
-							}
-							const keyed = (item: number) => {
-								spent += 1
-								return Hash.number(item)
-							}
-							set(keyed, counted)(first, second)
+							const [first, second, third] = Arr.map([2, 4, 6], (k) =>
+								spentAt(k * half, change, at, rotate)
+							)
 							assertTrue(
-								spent <= comparisonsBound(size),
-								`${spent} comparisons and keys for ${size} items, past ${Math.floor(comparisonsBound(size))}`
+								(third ?? 0) - (second ?? 0) <= (second ?? 0) - (first ?? 0),
+								`${first}, ${second} and ${third} comparisons and keys at ${2 * half}, ${4 * half} and ${6 * half} items`
 							)
 						})
 				)

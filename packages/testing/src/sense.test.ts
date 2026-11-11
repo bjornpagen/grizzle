@@ -1,3 +1,10 @@
+/**
+ * Block coverage as a sense (sense.ts v8Coverage): a fresh sense perceives exactly what its own case did, whatever
+ * senses read the file before it, every case running one block and skipping another. Oracle: universal, stated in the
+ * search.
+ *
+ * Plant: ~/.cache/grizzle-release/BR07/plants/sense-v8-blind.patch (a trace of nothing) turns the property red.
+ */
 import { describe, it } from "@effect/vitest"
 import { deepStrictEqual } from "@effect/vitest/utils"
 import { Array as Arr, Duration, Effect, Formatter, Option, Order, String as Str } from "effect"
