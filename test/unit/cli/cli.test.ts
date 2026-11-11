@@ -30,6 +30,7 @@ import {
 	FileSystem,
 	Formatter,
 	Option,
+	Record as Rec,
 	String as Str
 } from "effect"
 import type { MigrationConnectionConfig } from "#adapter/types/config.ts"
@@ -39,6 +40,7 @@ import type { ResolvedConfig } from "#cli/config.ts"
 import {
 	type ArgumentsRefused,
 	type CliError,
+	type CommandName,
 	configSettings,
 	generateFlags,
 	type MigrationNameRefused
@@ -72,8 +74,8 @@ import { upTo } from "#test/support/up-to.ts"
  * The `grizzle` command line without a database: argument parsing, folder timestamps and the lean configuration file.
  * What its commands write is the project suite's (project.test.ts).
  *
- * - The grammar, generated: every line of it (the commands generate, check, migrate, drift and names, each over the
- *   configuration file its one argument names, and generate's flags --name, a folder's name, --custom, which needs
+ * - The grammar, generated: every line of it (generate and every command of CommandName beside it, check, migrate,
+ *   drift, names, roles and uninstall, each over the configuration file its one argument names, and generate's flags --name, a folder's name, --custom, which needs
  *   --name, and --schema, in any order and as `--flag value` or `--flag=value`) is read as exactly what it says; one
  *   fault injected into a line, a --name of no folder name's shape among them, is a usage error naming that fault;
  *   --help or -h anywhere prints the usage.
@@ -100,8 +102,8 @@ import { upTo } from "#test/support/up-to.ts"
  * Features: each line of the grammar and each fault, --help, -h and no argument, the timestamps' calendar edges, each
  * configuration fault, and each way the bin's loading ends.
  */
-/** The commands that take no flag. */
-type PlainCommand = "check" | "migrate" | "drift" | "names"
+/** The commands that take no flag: every command of the command line but generate (cli/errors.ts CommandName). */
+type PlainCommand = Exclude<CommandName, "generate">
 
 /** What generate makes, as the grammar spells it: a draft, named or not, or a custom folder, always named. */
 type GrammarMode =
@@ -130,7 +132,20 @@ interface Spelled {
 	readonly units: ReadonlyArray<Unit>
 }
 
-const plainCommands = ["check", "migrate", "drift", "names"] as const
+/** Each plain command, keyed by the union itself, so a command the command line adds is a compile error here. */
+const plainCommandSet: { readonly [C in PlainCommand]: null } = {
+	check: null,
+	migrate: null,
+	drift: null,
+	names: null,
+	roles: null,
+	uninstall: null
+}
+
+const plainCommands: Arr.NonEmptyReadonlyArray<PlainCommand> = nonEmpty(
+	Rec.keys(plainCommandSet),
+	"the plain commands"
+)
 
 /** The parts of a drawn path: relative or absolute, with spaces, `=` and letters outside ASCII. */
 const configParts = [
