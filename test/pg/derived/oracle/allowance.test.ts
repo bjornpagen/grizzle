@@ -388,7 +388,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 						suite: "derived/allowance",
 						oracle: {
 							kind: "second-implementation",
-							name: "the conservative lowering of each derived definition over the same facts, and the host's exact arithmetic"
+							name: "the conservative lowering of each derived definition over the same facts, numerics compared by value, and each view's own tuples before a reload that changes no base value"
 						},
 						literal: Formatter.format,
 						coverage: required<AllowanceFeature>(situations, { cases: cases, sense: notesOnly }),

@@ -322,8 +322,8 @@ layer(Substrate.layer)("graph recognition and R37 against the conservative lower
 						{
 							suite: "recursion/graph-fixed-length",
 							oracle: {
-								kind: "second-implementation",
-								name: "the conservative lowering's raw text sets, no repeated row on the optimized side"
+								kind: "universal",
+								name: "a fixed-length match through joins and through a hop-counting recursive CTE are one set, both optimized"
 							},
 							literal: Formatter.format,
 							coverage: required<GraphFeature>(["recursive CTE"], {

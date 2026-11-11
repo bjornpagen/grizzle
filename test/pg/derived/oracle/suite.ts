@@ -46,7 +46,7 @@ const explored = (suite: string) =>
 			suite,
 			oracle: {
 				kind: "second-implementation",
-				name: "each derived definition evaluated by the conservative lowering over the same facts"
+				name: "each derived definition evaluated by the conservative lowering on one snapshot, and the tuples of every view a call did not name or whose base did not change"
 			},
 			literal: Formatter.format,
 			coverage: required<DerivedFeature>(situations, { cases: casesPerSeed, sense: notesOnly }),
