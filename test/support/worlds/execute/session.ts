@@ -6,7 +6,6 @@ import type { ReadError } from "#adapter/errors/execution.ts"
 import { compileServed, type ServedRefusal } from "#adapter/public/compile.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import { type CompileError, type CursorError, isCompileError } from "#compiler/core/errors.ts"
-import type { LawId } from "#compiler/core/ids.ts"
 import { pagedMember, refreshMember, workload } from "#compiler/program/workload/value.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
 import { queryOver, type QueryValue, varsOver } from "#compiler/query/build/query.ts"
@@ -14,7 +13,6 @@ import type { FinishedValue, RuleValue } from "#compiler/query/build/rule.ts"
 import type { ServedFile } from "#compiler/served/forms.ts"
 import { servedFile } from "#compiler/served/json.ts"
 import { regexField } from "#compiler/text/field.ts"
-import type { Law } from "#compiler/types/changeset/changeset.ts"
 import type { LoginRole } from "#compiler/types/schema/world.ts"
 import { changeSetOver, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
 import type { DeltaValue } from "#compiler/write/delta/source.ts"
@@ -31,7 +29,12 @@ import type { BuiltRole } from "#test/support/worlds/execute/build.ts"
 import { headDomains } from "#test/support/worlds/execute/describe.ts"
 import { carrierOf, factOfRow } from "#test/support/worlds/execute/host.ts"
 import { errorStory, errorTexts, type Found } from "#test/support/worlds/execute/leak.ts"
-import { applied, applyFailed, readFailed } from "#test/support/worlds/execute/observe.ts"
+import {
+	applied,
+	applyFailed,
+	type RefusalReader,
+	readFailed
+} from "#test/support/worlds/execute/observe.ts"
 import { attempt, type RealizeRefused } from "#test/support/worlds/execute/refused.ts"
 import { attachedField, flattened, reachFields } from "#test/support/worlds/model/reads.ts"
 import { relationSpecOf } from "#test/support/worlds/model/session/state.ts"
@@ -68,19 +71,20 @@ export const refusedWith = (observation: Observation, error: unknown): Seen => (
 
 /**
  * A Db's session: its login and role, the base of the version it was opened at, whose snapshot it holds, with that
- * version's described laws, which its refusals' laws are read back by, and the Db's context, which holds the pool of
- * the layer it was opened on, the pool that serves it after a migration made another version current. Each program an
- * action runs is a member of the role's workload, compiled as generate compiles it (adapter/public/compile.ts
- * compileServed) into a served file of the login under `snapshot`, the snapshot its layer's file was compiled under,
- * then loaded as a layer loads it and run on the Db's context (adapter/db/handles.ts memberOps); `compile` is the
- * installation's allocation and codes, under which the read differential compiles a read again (artifacts.ts).
+ * version's refusal reader, which its refusals' laws and refusing objects are read back by, and the Db's context, which
+ * holds the pool of the layer it was opened on, the pool that serves it after a migration made another version current.
+ * Each program an action runs is a member of the role's workload, compiled as generate compiles it
+ * (adapter/public/compile.ts compileServed) into a served file of the login under `snapshot`, the snapshot its layer's
+ * file was compiled under, then loaded as a layer loads it and run on the Db's context (adapter/db/handles.ts
+ * memberOps); `compile` is the installation's allocation and codes, under which the read differential compiles a read
+ * again (artifacts.ts).
  */
 export interface DbSession {
 	readonly kind: "db"
 	readonly login: string
 	readonly role: RoleSpec
 	readonly base: BaseSpec
-	readonly described: ReadonlyMap<LawId, Law>
+	readonly refusals: RefusalReader
 	readonly value: BuiltRole
 	/** The role reached through its login, whose served files the session's programs are compiled into. */
 	readonly reached: LoginRole<BuiltRole, unknown>
@@ -732,7 +736,7 @@ export const applySession = (
 		}
 		const answer = outcome.success
 		if (answer.kind !== "accepted" && answer.kind !== "no-change") {
-			const appliedAnswer = yield* applied(answer, session.described)
+			const appliedAnswer = yield* applied(answer, session.refusals)
 			return seen(appliedAnswer)
 		}
 		const readBacks = yield* Effect.forEach(planned, (p) => readBackOf(p, answer.reads))
@@ -813,7 +817,7 @@ export const applyValue = (session: DbSession, changes: unknown): Effect.Effect<
 			const failed = yield* applyFailed(outcome.failure)
 			return refusedWith(failed, outcome.failure)
 		}
-		const appliedSuccess = yield* applied(outcome.success, session.described)
+		const appliedSuccess = yield* applied(outcome.success, session.refusals)
 		return seen(appliedSuccess)
 	})
 

@@ -389,7 +389,8 @@ const collisionsOf = (
 					{
 						kind: "invariant-rejected",
 						law: law.law,
-						witness: { kind: "shown", keys: Arr.map(j.inside, (f) => inEntryTerms(w, f, key)) }
+						witness: { kind: "shown", keys: Arr.map(j.inside, (f) => inEntryTerms(w, f, key)) },
+						by: { kind: "open" }
 					}
 				]
 	})
@@ -436,7 +437,12 @@ const refusalsOf = (
 ): ReadonlyArray<ActionOutcome> => {
 	if (j.checks.length > 0) {
 		const witness = domainWitness(state, j)
-		return Arr.map(j.checks, (law): ActionOutcome => ({ kind: "invariant-rejected", law, witness }))
+		return Arr.map(j.checks, (law): ActionOutcome => ({
+			kind: "invariant-rejected",
+			law,
+			witness,
+			by: { kind: "open" }
+		}))
 	}
 	const outside: ReadonlyArray<ActionOutcome> = j.outside
 		? [{ kind: "outside-world", relation: j.op.relation }]
@@ -476,14 +482,16 @@ const carriedFields = (base: BaseSpec, w: Written): ReadonlySet<string> =>
 
 /**
  * The key refusal grizzle's host normalization makes of one target's additions, or of its deletions, in a stratum
- * (packages/engine/src/write/normalize/normalize.ts), before any SQL is sent: two facts its inserts and puts submit,
+ * (packages/engine/src/runtime/write/normalize.ts), before any SQL is sent: two facts its inserts and puts submit,
  * inside the entry or not and whatever the claims fill, that agree on a key (or, of a span candidate key, collide; a
  * span primary key's overlapping pairs are its write statement's) and differ elsewhere break the key whatever is
  * stored; and two facts its deletes name, inside the entry or not, that agree on
  * every field of a key, a span compared as a value, and differ elsewhere name two facts where the key names one. The
  * first key of the target holding such a pair, the primary key first and then the declared keys in order, the
  * additions judged before the deletions, is invariant-rejected on its law, its witness the key of one of those facts in
- * the terms it was written in. A key is compared on the fields the relation it is written through carries
+ * the terms it was written in, refused by the key's constraint on the target's table, as PostgreSQL's refusal of the
+ * same write would name it (adapter/witness/keylaw.ts hostRefused), through a query entry as through a whole one. A
+ * key is compared on the fields the relation it is written through carries
  * (write/frontend/entry.ts entryFacts): a query entry's fixed fields are one value for the whole stratum, so they take
  * no part, and a span key whose span the entry does not carry is not checked here. A generated addition takes part on
  * no key holding its serial field. Equal facts are one, as normalize.ts collapses them before it compares keys, so
@@ -552,7 +560,8 @@ const conflictAmong = (
 				witness: {
 					kind: "shown",
 					keys: Arr.map(paired, (x) => keyIn(x.w, x.fact, carriedOnly(key)))
-				}
+				},
+				by: { kind: "constraint", relation: target }
 			}
 		}
 	}
@@ -843,7 +852,8 @@ export const applyCall = (
 			Arr.map(brokenAt(state.host, after, at), ({ violation }) => ({
 				kind: "invariant-rejected",
 				law: violation.law,
-				witness: witnessFor(state.host, state.names.keys, role, violation, submitted)
+				witness: witnessFor(state.host, state.names.keys, role, violation, submitted),
+				by: { kind: "open" }
 			}))
 		let now = state.reality
 		let draws = nextDraw(state)

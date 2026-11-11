@@ -757,6 +757,20 @@ export type Witness =
 	| { readonly kind: "withheld" }
 
 /**
+ * The installed object a refusal names as refusing its law (types/changeset RefusingObject), in the model's words: a
+ * constraint on a relation's table, by the relation (`constraint`), which the executor reads back only where the
+ * installation's constraint of that name on that table discharges the refused law; any other object, a domain's CHECK,
+ * a write statement or a generated column's NOT NULL (`other`); or, in a prediction, an object the model leaves open
+ * (`open`), to the path the server takes. The model names the object of a refusal grizzle decides on the host, a
+ * same-key conflict among a ChangeSet's facts: the key's constraint on its target's table, which PostgreSQL's refusal of
+ * the same write names.
+ */
+export type RefusedBy =
+	| { readonly kind: "constraint"; readonly relation: string }
+	| { readonly kind: "other" }
+	| { readonly kind: "open" }
+
+/**
  * What one action did, as the model predicts it and the executor observes it. Rows and keys compare as keyed sets, and
  * an observation that repeats one agrees with no prediction.
  */
@@ -769,7 +783,12 @@ export type ActionOutcome =
 			readonly outcome: "accepted" | "no-change"
 			readonly reads: ReadonlyArray<ReadBack>
 	  }
-	| { readonly kind: "invariant-rejected"; readonly law: LawId; readonly witness: Witness }
+	| {
+			readonly kind: "invariant-rejected"
+			readonly law: LawId
+			readonly witness: Witness
+			readonly by: RefusedBy
+	  }
 	| {
 			readonly kind: "law-refused"
 			readonly sqlstate: SqlState

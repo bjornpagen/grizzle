@@ -78,6 +78,7 @@ import type {
 	Source,
 	Allowed,
 	HostValue,
+	RefusedBy,
 	Witness
 } from "#test/support/worlds/model/types.ts"
 
@@ -562,6 +563,21 @@ const within = (expected: Witness, observed: Witness, rest: Rest): Binding | und
 		: undefined
 }
 
+/**
+ * Whether an observed refusing object is the expected one: the constraint of the same relation's table, any other object,
+ * or, where the model leaves the object open, any.
+ */
+const refusedByMeets = (expected: RefusedBy, observed: RefusedBy): boolean => {
+	switch (expected.kind) {
+		case "constraint":
+			return observed.kind === "constraint" && observed.relation === expected.relation
+		case "other":
+			return observed.kind === "other"
+		case "open":
+			return true
+	}
+}
+
 /** An expected read-back meeting an observed one: one relation, its rows and delta as keyed sets (draws.ts bindFacts). */
 const readBackMeets: Meet<ReadBack, ReadBack> = (e, o, binding, rest) =>
 	o.relation === e.relation
@@ -578,7 +594,8 @@ const readBackMeets: Meet<ReadBack, ReadBack> = (e, o, binding, rest) =>
  * binding says which. Rows compare as keyed sets: a delivery that repeats a row agrees with nothing. A witness agrees
  * when every key it shows is one the expected witness allows, each a key of its own: the model predicts the most README
  * "Errors and outcomes" lets a refusal show, and a refusal may name fewer of the violating facts, never another; a
- * withheld witness shows none. Read-backs agree relation by relation, rows and delta as keyed sets. The drift check's
+ * withheld witness shows none; a refusal's object agrees where it is the one the model names (refusedByMeets).
+ * Read-backs agree relation by relation, rows and delta as keyed sets. The drift check's
  * mismatches are catalog facts as PostgreSQL deparses them, which the model does not spell: drift agrees when both find
  * something or both find nothing.
  */
@@ -612,7 +629,9 @@ const matched = (
 				? everyMeets(expected.reads, observed.reads, readBackMeets, unbound, rest)
 				: undefined
 		case "invariant-rejected":
-			return observed.kind === "invariant-rejected" && observed.law === expected.law
+			return observed.kind === "invariant-rejected" &&
+				observed.law === expected.law &&
+				refusedByMeets(expected.by, observed.by)
 				? within(expected.witness, observed.witness, rest)
 				: undefined
 		case "law-refused":

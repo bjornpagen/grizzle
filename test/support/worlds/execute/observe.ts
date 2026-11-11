@@ -3,13 +3,19 @@ import type { ApplyError, OpenError, ReadError } from "#adapter/errors/execution
 import type { StaleReason } from "#adapter/errors/failures.ts"
 import type { ApplyOutcome } from "#adapter/public/db.ts"
 import type { LawId } from "#compiler/core/ids.ts"
-import type { Law, Witness as GrizzleWitness } from "#compiler/types/changeset/changeset.ts"
+import type { Installation } from "#compiler/physical/install/compile.ts"
+import type {
+	Law,
+	RefusedLaw,
+	Witness as GrizzleWitness
+} from "#compiler/types/changeset/changeset.ts"
 import { reportedLawId } from "#test/support/kernel/naming.ts"
 import { valueText } from "#test/support/laws/model.ts"
 import { factOfKey } from "#test/support/worlds/execute/host.ts"
 import type {
 	Observation,
 	ModelOpenStage,
+	RefusedBy,
 	SqlState,
 	Witness
 } from "#test/support/worlds/model/types.ts"
@@ -160,14 +166,92 @@ const witnessOf = (witness: GrizzleWitness): Effect.Effect<Witness> =>
 			}))
 		: Effect.succeed({ kind: "withheld" })
 
+/** A table of an installation as a refusal names it: the relation it is, and each constraint and rule trigger on it,
+ * by its name, with the laws its violation reports. */
+interface RefusingTable {
+	readonly relation: string
+	readonly constraints: ReadonlyMap<string, ReadonlyArray<LawId>>
+}
+
+/**
+ * What reads a Db's refusal back into the model's words, from the installation the Db was opened at: its described
+ * laws, which a refused law's description is read back by (kernel/naming.ts reportedLawId), and each of its tables by
+ * its installed name, with every constraint and rule trigger it installs there (physical/install
+ * Installation.constraintLaws), which a refusing object is read back by.
+ */
+export interface RefusalReader {
+	readonly described: ReadonlyMap<LawId, Law>
+	readonly tables: ReadonlyMap<string, RefusingTable>
+}
+
+/** The refusal reader of an installation (`RefusalReader`), every name its compiler's. */
+export const refusalReader = (
+	installation: Pick<Installation, "described" | "constraintLaws" | "checked" | "names">
+): RefusalReader => {
+	const constraints = new Map<string, Map<string, ReadonlyArray<LawId>>>()
+	for (const c of installation.constraintLaws) {
+		if (c.kind === "domainConstraint") {
+			continue
+		}
+		const named = constraints.get(c.owner) ?? new Map<string, ReadonlyArray<LawId>>()
+		named.set(
+			c.name,
+			Arr.map(c.laws, (l) => l.law)
+		)
+		constraints.set(c.owner, named)
+	}
+	return {
+		described: installation.described,
+		tables: new Map(
+			Arr.map([...installation.checked.relations.values()], (r) => {
+				const table = installation.names.relation(r.name).name
+				return [
+					table,
+					{
+						relation: r.name,
+						constraints: constraints.get(table) ?? new Map<string, ReadonlyArray<LawId>>()
+					}
+				] as const
+			})
+		)
+	}
+}
+
+/**
+ * The object a refusal names as refusing its law, in the model's words (model/types.ts RefusedBy): a table's constraint
+ * by the relation the table is, which must be a constraint or rule trigger the installation holds on that table under
+ * that name and whose violation reports the refused law, or the run has a defect; any other object as `other`.
+ */
+const refusedByOf = (reader: RefusalReader, refused: RefusedLaw): Effect.Effect<RefusedBy> => {
+	const by = refused.by
+	switch (by.kind) {
+		case "constraint": {
+			const table = reader.tables.get(by.table)
+			const laws = table?.constraints.get(by.name)
+			return table !== undefined && laws !== undefined && Arr.some(laws, (l) => l === refused.id)
+				? Effect.succeed({ kind: "constraint", relation: table.relation })
+				: Effect.die(
+						new Error(
+							`a refusal of ${refused.id} names the constraint ${by.name} of the table ${by.table}, which the installation holds for none of its laws`
+						)
+					)
+		}
+		case "domain":
+		case "statement":
+		case "notNull":
+			return Effect.succeed({ kind: "other" })
+	}
+}
+
 /**
  * A write's outcome. An invariant-rejected outcome's law, the structured description grizzle reports, is read back to
  * the LawId the model names laws by, through the described laws of the installation the Db was opened at: exactly one
- * of them has the description, or the run has a defect (kernel/naming.ts reportedLawId).
+ * of them has the description, or the run has a defect (kernel/naming.ts reportedLawId); and the object it names as
+ * refusing that law is read back by the installation's tables (refusedByOf).
  */
 export const applied = (
 	outcome: ApplyOutcome<unknown>,
-	described: ReadonlyMap<LawId, Law>
+	reader: RefusalReader
 ): Effect.Effect<Observation> => {
 	switch (outcome.kind) {
 		case "accepted":
@@ -190,8 +274,9 @@ export const applied = (
 						)
 					)
 				}
-				const law = yield* Effect.sync(() => reportedLawId(described, reported))
-				const observation: Observation = { kind: "invariant-rejected", law, witness }
+				const law = yield* Effect.sync(() => reportedLawId(reader.described, reported))
+				const by = yield* refusedByOf(reader, reported)
+				const observation: Observation = { kind: "invariant-rejected", law, witness, by }
 				return observation
 			})
 	}

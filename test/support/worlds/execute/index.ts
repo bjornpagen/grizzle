@@ -77,7 +77,7 @@ import { beginSql } from "#test/support/worlds/execute/direct.ts"
 import { carrierOf, valueOfText } from "#test/support/worlds/execute/host.ts"
 import { leakOf } from "#test/support/worlds/execute/leak.ts"
 import { installedRoleName, namesOfBuiltAt } from "#test/support/worlds/execute/names.ts"
-import { openRefused, witnessTexts } from "#test/support/worlds/execute/observe.ts"
+import { openRefused, refusalReader, witnessTexts } from "#test/support/worlds/execute/observe.ts"
 import { isNativePool, leasedBackend, probePool } from "#test/support/worlds/execute/pool.ts"
 import { RealizeRefused, Thrown } from "#test/support/worlds/execute/refused.ts"
 import {
@@ -778,7 +778,7 @@ const realizeWith = (
 							login,
 							role,
 							base: current.spec.base,
-							described: current.installation.described,
+							refusals: refusalReader(current.installation),
 							value: target.value,
 							reached: target.reached,
 							snapshot,
