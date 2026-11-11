@@ -734,6 +734,10 @@ const judgeRefused = (
 				`a refusal that names some of ${Formatter.format(refusedLaws(outcome.refused))} names one its rows break`
 			)
 			break
+		case "above":
+			return assert.fail(
+				`a fold schema is one level, so no law above it refuses a write: ${Formatter.format(outcome.refused)}`
+			)
 	}
 	const named = Arr.filter(broken, (b) =>
 		Arr.some(refusedLaws(outcome.refused), (law) => deepEquals(b.law, law))
