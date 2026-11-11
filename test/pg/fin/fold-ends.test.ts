@@ -7,7 +7,7 @@ import { boundedShrink } from "@grizzle/testing/shrink"
 import { type Swarm, swarm, swarmChoice } from "@grizzle/testing/swarm"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
-import type { ApplyOutcome } from "#adapter/types/db.ts"
+import type { WrittenOutcome } from "#adapter/db/handles.ts"
 import type { MonoidName } from "#compiler/ir/desc.ts"
 import type { Law } from "#compiler/public/changeset.ts"
 import type { AnyRelation } from "#compiler/types/schema/relation.ts"
@@ -15,6 +15,7 @@ import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write
 import { cleared, seatOfInstalled } from "#test/pg/fin/installed.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, deepEquals, defined, nonEmpty, unorderedEqual } from "#test/support/assert.ts"
+import { type Answer, answered, writeOnce } from "#test/support/calls.ts"
 import {
 	type Breaking,
 	type Broken,
@@ -45,7 +46,7 @@ import {
 import { installMigrated } from "#test/support/install-migrate.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { refusedLaws } from "#test/support/refused.ts"
-import { appliedWith, type CallFacts, member, openServedDb } from "#test/support/served-db.ts"
+import { member, openServedDb } from "#test/support/served-db.ts"
 import { tableState } from "#test/support/substrate/state.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { fullWorld } from "#test/support/worlds.ts"
@@ -595,7 +596,10 @@ const slotsOf = (s: FoldSchema, w: Write): ReadonlyArray<ServedSlot> => {
 const servedOf = (
 	value: unknown,
 	slots: ReadonlyArray<ServedSlot>
-): { readonly changes: ChangeSetValue; readonly facts: CallFacts } => {
+): {
+	readonly changes: ChangeSetValue
+	readonly facts: Readonly<Record<string, Readonly<Record<string, ReadonlyArray<unknown>>>>>
+} => {
 	const held = Arr.dedupeWith(slots, (a, b) => a.op === b.op && a.relation.name === b.relation.name)
 	const changes = Arr.reduce(held, ChangeSet.empty(value), (cs, slot) => {
 		switch (slot.op) {
@@ -698,7 +702,7 @@ const situations: Arr.NonEmptyReadonlyArray<Situation> = nonEmpty(
 )
 
 /**
- * A refused write's outcome, as the model judges it: `invariant-rejected` naming rules its rows break, a field's piece
+ * A refused write's answer, as the model judges it: `refused` naming rules its rows break, a field's piece
  * bound or its accumulators' pattern, each field's own law: every one it names where it decides them, at least one
  * where it names `some` of a domain's; its witness the key of a row the write states whose value breaks a rule it
  * names, every one of them where it decides them, or `unreported` where the write states none (the rule broken at a
@@ -710,9 +714,9 @@ const judgeRefused = (
 	s: FoldSchema,
 	w: Write,
 	broken: Arr.NonEmptyReadonlyArray<Broken>,
-	outcome: ApplyOutcome<unknown>
+	outcome: Answer<WrittenOutcome>
 ): ReadonlyArray<Broken> => {
-	if (outcome.kind !== "invariant-rejected") {
+	if (outcome.kind !== "refused") {
 		return assert.fail(
 			`a write whose rows break ${Formatter.format(Arr.map(broken, (b) => b.law))} is refused, not ${outcome.kind}: ${Formatter.format(w)}`
 		)
@@ -930,7 +934,9 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									for (const w of sketch.writes) {
 										const served = servedOf(o.value, slotsOf(o.s, w))
 										const members = yield* o.db.serve({ write: served.changes })
-										const outcome = yield* appliedWith(member(members, "write"), served.facts, {})
+										const outcome = yield* answered(
+											writeOnce(member(members, "write"))({ params: {}, facts: served.facts })
+										)
 										const broken = brokenOf(o.s, rowsAfter(o.s, state, w))
 										if (Arr.isReadonlyArrayNonEmpty(broken)) {
 											const named = judgeRefused(o.s, w, broken, outcome)
@@ -951,7 +957,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										const next = applied(o.s, state, w)
 										assert.equal(
 											outcome.kind,
-											deepEquals(next, state) && w.kind !== "trees" ? "no-change" : "accepted",
+											deepEquals(next, state) && w.kind !== "trees" ? "unchanged" : "accepted",
 											`the write ${Formatter.format(w)}`
 										)
 										state = next

@@ -46,7 +46,9 @@ import {
 	Result,
 	String as Str
 } from "effect"
-import type { ServedOps } from "#adapter/db/ops.ts"
+import type { ServedDbContext } from "#adapter/db/context.ts"
+import { memberCalls, variantOf } from "#adapter/db/handles.ts"
+import type { LoadedMember } from "#adapter/served/load.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { accumulated, drawn, natural, pg, type Uuid, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -560,32 +562,41 @@ layer(Substrate.layer)("a member writer's hold on its family's owner", (it) => {
 							]),
 							(rows) => String(rows[0]?.[0])
 						)
-					return yield* withServedDb(m, b.login.roles.stocker, {}, ({ serve: serveStocker }) =>
-						withServedDb(m, b.login.roles.manager, {}, ({ serve: serveManager }) =>
+					return yield* withServedDb(m, b.login.roles.stocker, {}, (stockerDb) =>
+						withServedDb(m, b.login.roles.manager, {}, (managerDb) =>
 							Effect.gen(function* () {
 								/** The stocker's appends, puts and deletes of Item, and the manager's puts of NorthStores, each a call's facts. */
-								const stocker = yield* serveStocker({
-									append: ChangeSet.empty(b.stocker).insert(b.stocker.relations.Item, []),
-									put: ChangeSet.empty(b.stocker).put(b.stocker.relations.Item, []),
-									remove: ChangeSet.empty(b.stocker).delete(b.stocker.relations.Item, [])
-								})
-								const manager = yield* serveManager({
-									label: ChangeSet.empty(b.manager).put(b.manager.relations.NorthStores, [])
-								})
-								/** A change member's apply with the call's facts, its ChangeSet's array members. */
+								const stocker = {
+									ctx: stockerDb.ctx,
+									members: yield* stockerDb.load({
+										append: ChangeSet.empty(b.stocker).insert(b.stocker.relations.Item, []),
+										put: ChangeSet.empty(b.stocker).put(b.stocker.relations.Item, []),
+										remove: ChangeSet.empty(b.stocker).delete(b.stocker.relations.Item, [])
+									})
+								}
+								const manager = {
+									ctx: managerDb.ctx,
+									members: yield* managerDb.load({
+										label: ChangeSet.empty(b.manager).put(b.manager.relations.NorthStores, [])
+									})
+								}
+								/** A change member's apply on its Db with the call's facts, its ChangeSet's array members. */
 								const applied = (
-									served: ReadonlyMap<string, ServedOps<unknown>>,
+									db: {
+										readonly ctx: ServedDbContext
+										readonly members: ReadonlyMap<string, LoadedMember>
+									},
 									name: string,
 									facts: unknown
 								) => {
-									const change = member(served, name)
-									assertVariant(
-										change,
-										"kind",
+									const change = member(db.members, name)
+									assertVariant(change, "kind", "change", `the member ${name} is a change`)
+									assert.equal(
+										variantOf(db.ctx, change.variants).call.kind,
 										"facts",
 										`the member ${name} takes its call's facts`
 									)
-									return answered(writeOnce(change)({ params: {}, facts: facts }))
+									return answered(writeOnce(memberCalls(db.ctx, change))({ params: {}, facts }))
 								}
 								return yield* explore(
 									{

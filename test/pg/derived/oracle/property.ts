@@ -1,14 +1,10 @@
 import type { Case } from "@grizzle/testing/explore"
 import { set } from "@grizzle/testing/oracle"
 import { Array as Arr, Effect, Option, Record } from "effect"
-import {
-	type ApplyError,
-	type OpenError,
-	type ReadError,
-	ReadFailure
-} from "#adapter/errors/execution.ts"
+import type { ApplyError, OpenError } from "#adapter/errors/execution.ts"
 import type { ServedRefusal } from "#adapter/public/compile.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
+import type { CallError } from "#compiler/live/index.ts"
 import {
 	type AggregateKey,
 	buildSchema,
@@ -65,7 +61,7 @@ import type { Substrate } from "#test/support/substrate/substrate.ts"
  * - a call after no base change wrote nothing, even when every base row was rewritten with the same facts, in the
  *   same or another physical order: the case's values have one spelling, and no aggregate depends on the order
  *   PostgreSQL meets its inputs in; allowance.test.ts holds it over equal numerics written in several spellings;
- * - before a view's first refresh a read of it through the Db is ReadError, and after it the Db reads
+ * - before a view's first refresh a read of it through the Db fails, the CallError `failed`, and after it the Db reads
  *   exactly the rows the view stores.
  *
  * Each case ends with a call naming every derived relation, after which every view equals its definition, and then a
@@ -207,7 +203,7 @@ export const derivedCase = (
 	| OpenError
 	| ServedRefusal
 	| ApplyError
-	| ReadError,
+	| CallError,
 	Substrate
 > =>
 	Effect.scoped(
@@ -245,9 +241,10 @@ export const derivedCase = (
 					const [lowest] = order
 					assert.ok(lowest !== undefined, "the case declares a derived relation")
 					const early = yield* failureOf(read(lowest))
-					assert.ok(
-						early instanceof ReadFailure,
-						`a read before the first refresh is ReadFailure, not ${String(early)}`
+					assert.equal(
+						early.kind,
+						"failed",
+						`a read before the first refresh fails, not ${early.message}`
 					)
 					const populated = new Set<string>()
 					/** The first call names a downward-closed subset, so no named definition reads an unpopulated view. */
@@ -269,10 +266,7 @@ export const derivedCase = (
 							assert.equal(rows.length, stored.length, `the Db reads every row ${name} stores`)
 						} else {
 							const refused = yield* failureOf(read(name))
-							assert.ok(
-								refused instanceof ReadFailure,
-								`${name}, still unpopulated, is ReadFailure`
-							)
+							assert.equal(refused.kind, "failed", `${name}, still unpopulated, fails`)
 							c.note("unpopulated reads")
 						}
 					}

@@ -73,7 +73,7 @@ import {
 } from "#test/pg/cli/support.ts"
 import { openMigrator } from "#test/pg/migrate/support.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
-import { answered, oneOf } from "#test/support/calls.ts"
+import { answered, oneOf as oneRowOf } from "#test/support/calls.ts"
 import { readCatalog } from "#test/support/catalog/read.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { readLedger } from "#test/support/migrate/ledger.ts"
@@ -207,7 +207,7 @@ const roundTrip = (dir: string, name: string, fixture: Fixture, n: number) =>
 			assert.equal(outcome.kind, "accepted")
 			const row = yield* Effect.scoped(
 				Effect.flatMap(Db.open(s.login.roles.reader, {}), (db) =>
-					oneOf(db.workload.customer.once({ params: { id: id(n) }, facts: {} }))
+					oneRowOf(db.workload.customer.once({ params: { id: id(n) }, facts: {} }))
 				)
 			).pipe(withLayer(s.layer))
 			assert.deepEqual(
@@ -230,7 +230,7 @@ const roundTrip = (dir: string, name: string, fixture: Fixture, n: number) =>
 		assert.equal(outcome.kind, "accepted")
 		const row = yield* Effect.scoped(
 			Effect.flatMap(Db.open(l.login.roles.reader, {}), (db) =>
-				oneOf(db.workload.customer.once({ params: { id: id(n) }, facts: {} }))
+				oneRowOf(db.workload.customer.once({ params: { id: id(n) }, facts: {} }))
 			)
 		).pipe(withLayer(l.layer))
 		assert.deepEqual(

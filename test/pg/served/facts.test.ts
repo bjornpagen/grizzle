@@ -6,7 +6,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Result } from "effect"
-import { memberOps } from "#adapter/db/handles.ts"
+import { memberCalls, variantOf } from "#adapter/db/handles.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg } from "#compiler/public/fields.ts"
@@ -21,12 +21,13 @@ import { member, withServedDb } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
- * A served ChangeSet's array members take each call's facts (types/db FactsApply), keyed by each member's op and then
+ * A served ChangeSet's array members take each call's facts (its input's `facts`), keyed by each member's op and then
  * its relation, generated: a change member inserting into one relation and putting and deleting facts of another, each
  * through an array member, is loaded as a handle that takes the call's facts beside its parameters, and a call through
  * it writes exactly the facts it supplies, each under its own op.
  *
- * - Shape: the member loads as a facts handle (db/ops.ts ServedOps `facts`), decided once at load by its array members.
+ * - Shape: the member loads as a change whose calls take their facts (served/load.ts ChangeCall `facts`), decided once
+ *   at load by its array members.
  * - Oracle: after a call over stored items, the items stored are the stored ones less those the call deletes, with the
  *   ones it puts, which no stored item shares a key with, and the labels stored are the ones it inserts.
  * - Plant: the handle loses one member's facts, its array emptied or its relation left out of its op's record, or
@@ -232,23 +233,27 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									({ ctx: db, load }) =>
 										Effect.gen(function* () {
 											const loaded = yield* load({ add, items, labels })
-											const handle = memberOps(db, member(loaded, "add"))
-											if (handle.kind !== "facts") {
+											const change = member(loaded, "add")
+											if (
+												change.kind !== "change" ||
+												variantOf(db, change.variants).call.kind !== "facts"
+											) {
 												return assert.fail(
 													"a ChangeSet with array members loads as a handle taking each call's facts"
 												)
 											}
 											const applied = yield* Effect.result(
 												answered(
-													writeOnce(handle)({ params: {}, facts: plantedFacts(facts, plant) })
+													writeOnce(memberCalls(db, change))({
+														params: {},
+														facts: plantedFacts(facts, plant)
+													})
 												)
 											)
-											const storedItems = yield* (yield* readOnce(
-												memberOps(db, member(loaded, "items"))
-											)({ params: {}, facts: {} })).collect
-											const storedLabels = yield* (yield* readOnce(
-												memberOps(db, member(loaded, "labels"))
-											)({ params: {}, facts: {} })).collect
+											const everyRow = (name: string) =>
+												readOnce(memberCalls(db, member(loaded, name)))({ params: {}, facts: {} })
+											const storedItems = yield* everyRow("items")
+											const storedLabels = yield* everyRow("labels")
 											const expectedItems = itemsAfter(stored, facts)
 											const agrees =
 												Result.isSuccess(applied) &&

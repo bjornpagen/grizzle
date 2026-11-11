@@ -4,7 +4,7 @@
  * The outcome mapping over generated ChangeSets is the three-way write oracle's (test/support/oracle/write); this space
  * holds what it does not drive:
  *
- * - the empty ChangeSet is no-change, its read-backs an empty record, once its transaction, its frame alone, committed;
+ * - the empty ChangeSet is unchanged, its read-backs an empty record, once its transaction, its frame alone, committed;
  * - a ChangeSet whose relation parameter is a call's Stream collects the Stream anew at each application: applied
  *   twice with the same Stream of drawn wanted tasks, its notes deleted between, it adds a note for each that a Task
  *   holds both times;
@@ -13,7 +13,7 @@
  *   at its member, with the CompileError OutsideRole; one over a sibling with Work's relations and other statements, or
  *   over an extension of the Db's schema, is refused where its workload is built, MalformedDescription, as its schema
  *   is no level of the role's; and the stored state is as it was;
- * - a failed acquisition is TransportFailure{stage: "acquire"}, from a member loaded while the credential still worked.
+ * - a failed acquisition is the CallError `unavailable`, from a member loaded while the credential still worked.
  *
  * The Db runs on a tapped pool whose first session is warmed, so a window of the tap holds one call's traffic. Every
  * refusal leaves the stored state as it was.
@@ -31,10 +31,11 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Result, Stream } from "effect"
-import { memberOps } from "#adapter/db/handles.ts"
-import type { ServedOps } from "#adapter/db/ops.ts"
+import type { ServedDbContext } from "#adapter/db/context.ts"
+import { memberCalls, variantOf } from "#adapter/db/handles.ts"
 import { OpenError } from "#adapter/errors/execution.ts"
 import { CredentialError } from "#adapter/errors/failures.ts"
+import type { ChangeCall, LoadedMember } from "#adapter/served/load.ts"
 import { isCompileError } from "#compiler/core/errors.ts"
 import type { ParamMap } from "#compiler/plan/common.ts"
 import { workload } from "#compiler/program/workload/value.ts"
@@ -146,21 +147,33 @@ const applyCase: Gen<ApplyCase> = (source) => {
 	}
 }
 
-/** A change member of array members, applied with the call's facts. */
-const applied = (change: ServedOps<unknown>, facts: unknown) => {
-	assertVariant(change, "kind", "facts", "a change member of array members takes its call's facts")
-	return answered(writeOnce(change)({ params: {}, facts: facts }))
+/**
+ * How a change member's calls on `ctx` read their host inputs: its call's facts where it holds array members, else its
+ * parameters alone.
+ */
+const callKindOf = (ctx: ServedDbContext, change: LoadedMember): ChangeCall["kind"] => {
+	assertVariant(change, "kind", "change", "a ChangeSet loads as a change member")
+	return variantOf(ctx, change.variants).call.kind
 }
 
-/** A change member of no array member, applied with `params`. */
-const appliedWith = (change: ServedOps<unknown>, params: ParamMap) => {
-	assertVariant(
-		change,
-		"kind",
-		"program",
+/** A change member of array members, applied on `ctx` with the call's facts. */
+const applied = (ctx: ServedDbContext, change: LoadedMember, facts: unknown) => {
+	assert.equal(
+		callKindOf(ctx, change),
+		"facts",
+		"a change member of array members takes its call's facts"
+	)
+	return answered(writeOnce(memberCalls(ctx, change))({ params: {}, facts }))
+}
+
+/** A change member of no array member, applied on `ctx` with `params`. */
+const appliedWith = (ctx: ServedDbContext, change: LoadedMember, params: ParamMap) => {
+	assert.equal(
+		callKindOf(ctx, change),
+		"params",
 		"a change member of no array member takes its parameters alone"
 	)
-	return answered(writeOnce(change)({ params: params, facts: {} }))
+	return answered(writeOnce(memberCalls(ctx, change))({ params, facts: {} }))
 }
 
 layer(Substrate.layer)("a change member's apply", (it) => {
@@ -260,7 +273,7 @@ layer(Substrate.layer)("a change member's apply", (it) => {
 									base: ChangeSet.empty(rebuilt.Base).insert(W.TaskNote, []),
 									remove: ChangeSet.empty(s0).delete(W.TaskNote, [])
 								})
-								const run = (name: string) => memberOps(tapped, member(members, name))
+								const run = (name: string) => member(members, name)
 								return yield* explore(
 									{
 										oracle: {
@@ -296,7 +309,7 @@ layer(Substrate.layer)("a change member's apply", (it) => {
 											const before = yield* state
 											switch (change) {
 												case "empty": {
-													const outcome = yield* appliedWith(run("empty"), {})
+													const outcome = yield* appliedWith(tapped, run("empty"), {})
 													assert.ok(outcome.kind === "unchanged", outcome.kind)
 													assert.deepEqual(outcome.reads, bareRecord({}))
 													const after = yield* state
@@ -310,7 +323,7 @@ layer(Substrate.layer)("a change member's apply", (it) => {
 														(task): Note => ({ task, note })
 													)
 													const added = [counts("TaskNote", BigInt(written.length), 0n, 0n)]
-													const first = yield* appliedWith(run("streamed"), {
+													const first = yield* appliedWith(tapped, run("streamed"), {
 														wanted: stream,
 														note
 													})
@@ -325,14 +338,14 @@ layer(Substrate.layer)("a change member's apply", (it) => {
 													 * With the notes deleted again, the second application adds them again only if it
 													 * collects the Stream anew: a Stream read once would add nothing.
 													 */
-													const removed = yield* applied(run("remove"), {
+													const removed = yield* applied(tapped, run("remove"), {
 														delete: { TaskNote: written }
 													})
 													assert.ok(removed.kind === "accepted", removed.kind)
 													assert.deepEqual(removed.counts, [
 														counts("TaskNote", 0n, BigInt(written.length), 0n)
 													])
-													const second = yield* appliedWith(run("streamed"), {
+													const second = yield* appliedWith(tapped, run("streamed"), {
 														wanted: stream,
 														note
 													})
@@ -341,7 +354,7 @@ layer(Substrate.layer)("a change member's apply", (it) => {
 													break
 												}
 												case "a base level": {
-													const outcome = yield* applied(run("base"), {
+													const outcome = yield* applied(tapped, run("base"), {
 														insert: { TaskNote: notes }
 													})
 													assert.ok(outcome.kind === "accepted", outcome.kind)
@@ -389,10 +402,9 @@ layer(Substrate.layer)("a change member's apply", (it) => {
 															yield* pool.lease
 															credential.ok = false
 															const failed = yield* failureOf(
-																applied(run("base"), { insert: { TaskNote: notes } })
+																applied(tapped, run("base"), { insert: { TaskNote: notes } })
 															)
-															assert.ok(failed._tag === "TransportFailure", String(failed))
-															assert.equal(failed.stage, "acquire")
+															assert.equal(failed.kind, "unavailable", failed.message)
 														})
 													)
 													credential.ok = true

@@ -1,9 +1,10 @@
 /**
- * The public-API error matrix, the write side: each ApplyError that grizzle's own code decides, through a served
- * change member's apply.
+ * The public-API error matrix, the write side: each refusal that grizzle's own code decides, through a served change
+ * member's once.
  *
- * - EncodingFailure: a value its codec refuses is refused before any SQL, with the fault the codec's vocabulary names
- *   for its class and the parameter or member it belongs to as its slot. One field of an otherwise live fact at a time
+ * - An encoding refusal: a value its codec refuses is the CallError `input` before any SQL, its message naming the fault
+ *   the codec's vocabulary names for its class and the parameter it belongs to as its slot (core/errors.ts
+ *   EncodingFailure, whose message names both, never the value). One field of an otherwise live fact at a time
  *   (an integer, a bigint, a boolean, a refined text, a uuid, a span) is drawn a value of its field's invalid class,
  *   constructed, never filtered (a string that holds a non-hex letter, an integer past its type's range, a non-boolean,
  *   a text holding NUL, a span whose end is not past its start), or a Wild value (@grizzle/testing/lsw), passed as a
@@ -48,12 +49,12 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Result, String as Str } from "effect"
-import { memberOps } from "#adapter/db/handles.ts"
+import { memberCalls, variantOf } from "#adapter/db/handles.ts"
 import type { ValueFault } from "#compiler/core/errors.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import type { ParamMap } from "#compiler/plan/common.ts"
 import { changeSetOver } from "#compiler/write/changeset/value.ts"
-import { EncodingFailure, pg, query, relation, schema, span, str, uuid, v } from "#index.ts"
+import { pg, query, relation, schema, span, str, uuid, v } from "#index.ts"
 
 import { tappedPool } from "#test/pg/api-errors/support.ts"
 import { installed } from "#test/pg/reads/support.ts"
@@ -273,7 +274,7 @@ layer(Substrate.layer, { excludeTestServices: true })("ApplyError through the pu
 	)
 
 	it.effect(
-		"a value its codec refuses is EncodingFailure with its fault and slot, before any SQL; one it admits is answered",
+		"a value its codec refuses is refused as input naming its fault and slot, before any SQL; one it admits is answered",
 		(ctx) =>
 			searched(
 				ctx,
@@ -338,32 +339,29 @@ layer(Substrate.layer, { excludeTestServices: true })("ApplyError through the pu
 										const value = c.value.kind === "refused" ? c.value.value : passed(c.value)
 										const fact: Record<string, unknown> = { ...live, [c.field]: value }
 										const mark = tap.mark()
-										const change = memberOps(tapped, member(members, c.form))
+										const change = member(members, c.form)
+										assertVariant(change, "kind", "change", "a ChangeSet loads as a change member")
+										const calls = memberCalls(tapped, change)
+										const takes = variantOf(tapped, change.variants).call.kind
 										const outcome = yield* Effect.result(
 											c.form === "parameter"
 												? Effect.suspend(() => {
-														assertVariant(
-															change,
-															"kind",
-															"program",
+														assert.equal(
+															takes,
+															"params",
 															"the described member takes its parameters"
 														)
 														return answered(
-															writeOnce(change)({
+															writeOnce(calls)({
 																params: callersParams({ ...liveParams, [c.field]: value }),
 																facts: {}
 															})
 														)
 													})
 												: Effect.suspend(() => {
-														assertVariant(
-															change,
-															"kind",
-															"facts",
-															"an array member takes its call's facts"
-														)
+														assert.equal(takes, "facts", "an array member takes its call's facts")
 														return answered(
-															writeOnce(change)({
+															writeOnce(calls)({
 																params: {},
 																facts: { insert: { Typed: [fact] } }
 															})
@@ -379,7 +377,7 @@ layer(Substrate.layer, { excludeTestServices: true })("ApplyError through the pu
 											return
 										}
 										const error = outcome.failure
-										assert.ok(error instanceof EncodingFailure, String(error))
+										assert.equal(error.kind, "input", error.message)
 										assert.equal(
 											tap.since(mark).frontend.length,
 											0,
@@ -388,10 +386,16 @@ layer(Substrate.layer, { excludeTestServices: true })("ApplyError through the pu
 										const state = yield* tableState(o.installed, Typed)
 										assert.deepEqual(state, [])
 										if (c.form === "parameter") {
-											assert.deepEqual(error.place, { _tag: "Slot", name: c.field })
+											assert.ok(
+												Str.startsWith(`the value of ${c.field} was refused: `)(error.message),
+												`the refusal is at the slot ${c.field}: ${error.message}`
+											)
 										}
 										if (c.value.kind === "refused") {
-											assert.equal(error.reason._tag, classFault[c.field])
+											assert.ok(
+												Str.endsWith(` was refused: ${classFault[c.field]}`)(error.message),
+												`the refusal's fault is ${classFault[c.field]}: ${error.message}`
+											)
 											cx.note(`refused ${c.field} as ${c.form}`)
 										} else {
 											cx.note(`wild ${c.value.wild.kind} refused`)

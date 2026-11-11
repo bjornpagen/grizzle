@@ -40,8 +40,9 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Exit, Fiber, Formatter, Option, Order } from "effect"
-import { memberOps } from "#adapter/db/handles.ts"
-import type { ServedOps } from "#adapter/db/ops.ts"
+import type { ServedDbContext } from "#adapter/db/context.ts"
+import { memberCalls, variantOf } from "#adapter/db/handles.ts"
+import type { LoadedMember } from "#adapter/served/load.ts"
 import type { SessionPool } from "#adapter/wire/session.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Uuid } from "#compiler/public/fields.ts"
@@ -304,10 +305,15 @@ const aimedSketch = (sketch: CaseSketch, cx: Case<InterruptFeature>): CaseSketch
 		? { ...sketch, call: "write", blocker: "none", point: { ...sketch.point, arm: "beyond" } }
 		: sketch
 
-/** A change member of array members, applied with the call's facts. */
-const applyFacts = (change: ServedOps<unknown>, facts: unknown) => {
-	assertVariant(change, "kind", "facts", "the write's member takes its call's facts")
-	return answered(writeOnce(change)({ params: {}, facts: facts }))
+/** A change member of array members, applied on `ctx` with the call's facts. */
+const applyFacts = (ctx: ServedDbContext, change: LoadedMember, facts: unknown) => {
+	assertVariant(change, "kind", "change", "the write's member is a change")
+	assert.equal(
+		variantOf(ctx, change.variants).call.kind,
+		"facts",
+		"the write's member takes its call's facts"
+	)
+	return answered(writeOnce(memberCalls(ctx, change))({ params: {}, facts }))
 }
 
 /** The search: the Work installed once, a Db opened on it whose context and members every case's tapped pools reuse,
@@ -338,9 +344,9 @@ const interruptCases = Effect.gen(function* () {
 			)
 		)
 	)
-	/** A member's operations over `pool`. */
+	/** A member's calls over `pool`. */
 	const on = (pool: SessionPool, name: string) =>
-		memberOps({ ...context, pool }, member(members, name))
+		memberCalls({ ...context, pool }, member(members, name))
 	const notesNow = Effect.map(
 		s.admin.queryValues(
 			`SELECT ${noteTask}::text, ${noteText} FROM ${notes} ORDER BY ${noteTask}`,
@@ -394,7 +400,7 @@ const interruptCases = Effect.gen(function* () {
 						sketch.call === "write"
 							? Effect.orDie(
 									Effect.asVoid(
-										applyFacts(on(pool, "write"), {
+										applyFacts({ ...context, pool }, member(members, "write"), {
 											insert: { TaskNote: write.inserts },
 											delete: { TaskNote: write.deletes },
 											put: { TaskNote: write.puts }

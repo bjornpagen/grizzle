@@ -1,5 +1,5 @@
 import { Array as Arr, Data, Effect, Order, Record as Rec, type Scope } from "effect"
-import type { ApplyError, OpenError, ReadError } from "#adapter/errors/execution.ts"
+import type { ApplyError, OpenError } from "#adapter/errors/execution.ts"
 import type { ServedRefusal } from "#adapter/public/compile.ts"
 import { type RefreshReport, runRefresh } from "#adapter/refresh/run.ts"
 import { type DerivedAnalysis, derivedAnalysis } from "#compiler/analysis/schema.ts"
@@ -7,6 +7,7 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
+import type { CallError } from "#compiler/live/index.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput, flight } from "#compiler/lower/conservative/types.ts"
 import { refreshMember } from "#compiler/program/workload/value.ts"
@@ -215,7 +216,7 @@ export type RefreshPlan = "case" | "complement"
 /** A case's Db of one role, opened through its login's served file. */
 export interface CaseDb {
 	/** Every fact of the relation the reads name `name`, read through its served member (everyFact). */
-	readonly read: (name: string) => Effect.Effect<ReadonlyArray<unknown>, ReadError>
+	readonly read: (name: string) => Effect.Effect<ReadonlyArray<unknown>, CallError>
 	/**
 	 * A refresh of `named` through a refresh member compiled for the Db's role, refresh(named), run on the Db's
 	 * context under `plan`, every transaction of it setting the plan's planner settings (perturb.ts perturbedContext),

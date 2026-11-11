@@ -31,7 +31,6 @@ import {
 	Redacted,
 	String as Str
 } from "effect"
-import { compiledOpen } from "#adapter/db/open.ts"
 import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg, type Uuid, uuid } from "#compiler/public/fields.ts"
@@ -40,13 +39,13 @@ import { relation, schema } from "#compiler/public/schema.ts"
 import { servedFile, servedText } from "#compiler/served/json.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, succeeded, unorderedEqual } from "#test/support/assert.ts"
+import { answered, writeOnce } from "#test/support/calls.ts"
 import { pgPin } from "#test/support/env.ts"
 import { installMigrated } from "#test/support/install-migrate.ts"
 import { caseHang, testConnectTimeout, testIdleTimeout } from "#test/support/limits.ts"
-import { servedJson } from "#test/support/served-db.ts"
+import { member, servedJson, withServedDb } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-import { withLayer } from "#test/support/with-layer.ts"
-import { fullWorld, loginLayer } from "#test/support/worlds.ts"
+import { fullWorld } from "#test/support/worlds.ts"
 import { exitedCleanly, publishedProject, runChild } from "#test/unit/dev/published.ts"
 
 const Note = relation("Note", { id: uuid, n: pg.integer }, ["id"])
@@ -70,7 +69,6 @@ import net from "node:net"
 import { Effect, Redacted } from "effect"
 import pgDriver from "pg"
 import { Db, DbLayer, served } from "@bjornpagen/grizzle/runtime"
-import { rowsOf } from "#test/support/calls.ts"
 
 const config = JSON.parse(readFileSync(process.argv[2], "utf8"))
 const server = served(JSON.parse(readFileSync(config.served, "utf8")), "server")
@@ -93,7 +91,7 @@ const layer = DbLayer.make({
 const rows = await Effect.runPromise(
 	Effect.gen(function* () {
 		const db = yield* Db.open(server.roles.app, {})
-		return yield* rowsOf(db.workload.notes.once({ params: {}, facts: {} }))
+		return [...(yield* db.workload.notes.once({ params: {}, facts: {} }))]
 	}).pipe(Effect.provide(layer))
 )
 process.stdout.write(JSON.stringify(rows) + "\\n")
@@ -185,10 +183,22 @@ layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 									if (Arr.isReadonlyArrayNonEmpty(written)) {
 										c.note("a read after an earlier write")
 									}
-									const outcome = yield* Effect.gen(function* () {
-										const db = yield* compiledOpen(own.server.roles.app, {})
-										return yield* db.apply(ChangeSet.empty(App).insert(Note, notes), {})
-									}).pipe(withLayer(loginLayer(installed, own.server)))
+									const outcome = yield* withServedDb(
+										installed,
+										own.server.roles.app,
+										{},
+										({ serve }) =>
+											Effect.flatMap(
+												serve({ add: ChangeSet.empty(App).insert(Note, []) }),
+												(served) =>
+													answered(
+														writeOnce(member(served, "add"))({
+															params: {},
+															facts: { insert: { Note: notes } }
+														})
+													)
+											)
+									).pipe(Effect.scoped)
 									assert.equal(outcome.kind, "accepted")
 									for (const note of notes) {
 										written.push(note)

@@ -11,13 +11,13 @@
  * - Enumerated members, a put of the parent among them: on an automatic task with its budget, accepted with Task put 1,
  *   AutomaticTask deleted 1 and ManualTask added 1 (as a set of counts), its read-backs the replaced Task as removed old
  *   plus added new, the removed budget fact and the added arm; with a stale budget the deletion matches nothing, the
- *   remaining arm's tagged composite foreign key fails at COMMIT, and the outcome is invariant-rejected with the
+ *   remaining arm's tagged composite foreign key fails at COMMIT, and the call is refused with the
  *   Automatic arm's law, a native violation whose witness carries no key; on a manual task the put and the deletion
- *   change nothing, so its own operator is no-change and another one the key law of ManualTask, witnessed by the task's
+ *   change nothing, so its own operator is unchanged and another one the key law of ManualTask, witnessed by the task's
  *   key; on a missing task the switch creates it, manual, with its arm.
  * - Members described by queries, applied with parameters: they read stored relations, so on an automatic task the
  *   switch is the enumerated one with the stored budget, and on a manual or missing task every member is empty,
- *   no-change with empty read-backs.
+ *   unchanged with empty read-backs.
  *
  * The stored state afterwards is the model's: the facts with the switched task's rows replaced, or as they were after a
  * refusal. The deleted and reinserted Task key leaves TaskNote's reference, deferred, satisfied: t1 has a note.
@@ -258,12 +258,12 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									coverage: requiredInSpace<SwitchFeature>([
 										"enumerated automatic accepted",
 										"enumerated automatic rejected",
-										"enumerated manual no-change",
+										"enumerated manual unchanged",
 										"enumerated manual rejected",
 										"enumerated missing accepted",
 										"described automatic accepted",
-										"described manual no-change",
-										"described missing no-change"
+										"described manual unchanged",
+										"described missing unchanged"
 									])
 								},
 								(w, c) =>
@@ -377,7 +377,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 											assert.deepEqual(outcome.reads.tasks, [])
 											assert.deepEqual(outcome.reads.manual, [])
 											unchanged()
-											c.note(`${w.form} ${kind} no-change`)
+											c.note(`${w.form} ${kind} unchanged`)
 											return
 										}
 										if (kind === "missing") {
@@ -403,7 +403,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										if (Option.exists(manualOf(w.task), (held) => held.operator === w.operator)) {
 											assert.ok(outcome.kind === "unchanged", outcome.kind)
 											unchanged()
-											c.note(`${w.form} ${kind} no-change`)
+											c.note(`${w.form} ${kind} unchanged`)
 											return
 										}
 										assert.ok(outcome.kind === "refused", outcome.kind)

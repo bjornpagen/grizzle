@@ -1288,8 +1288,9 @@ layer(Substrate.layer, { excludeTestServices: true })(
 												? "committed"
 												: "refused"
 										),
-										Effect.catchTag("TransientFailure", () =>
-											Effect.succeed("serialization" as const)
+										Effect.catchIf(
+											(error) => error.kind === "transient",
+											() => Effect.succeed("serialization" as const)
 										)
 									)
 									const openA = Option.isSome(snapA)

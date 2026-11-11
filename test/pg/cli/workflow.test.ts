@@ -82,12 +82,7 @@ import {
 	Struct
 } from "effect"
 import { decodeMeta } from "#adapter/boundary/meta.ts"
-import {
-	type OpenError,
-	type ReadError,
-	ReadFailure,
-	StaleSnapshot
-} from "#adapter/errors/execution.ts"
+import { OpenError } from "#adapter/errors/execution.ts"
 import type { MigrateError } from "#adapter/migrate/errors.ts"
 import { statementsFor } from "#adapter/migrate/ledger.ts"
 import { Db } from "#adapter/public/db.ts"
@@ -96,6 +91,7 @@ import { roleNameOf } from "#adapter/served/served.ts"
 import { SchemaFingerprint } from "#compiler/core/ids.ts"
 import { writeMeta } from "#compiler/deploy/render/folder.ts"
 import { findMarkers, placeholderMarker } from "#compiler/deploy/render/markers.ts"
+import type { CallError } from "#compiler/live/index.ts"
 import type { Uuid } from "#compiler/public/fields.ts"
 import type { AnyLogin } from "#compiler/public/schema.ts"
 import { servedDirectory } from "#compiler/served/forms.ts"
@@ -720,9 +716,9 @@ const runTamper = (r: Workspace, kind: TamperKind, model: Model) =>
  * A Db opened through the login's served file generate wrote, under the committed snapshot's fingerprint, and its first
  * call, the served key's read: Db.open contacts nothing, so it always opens,
  * and the read answers once the ledger's latest complete target is the snapshot, whichever folders are still pending.
- * The first migration creates the login's role: before it there is no role to log in as, and the read's connection is
- * refused at stage acquire whatever its password. Both versions' login is one login, `server`. A pending folder leaves
- * the ledger behind, and the read's fence refuses it with StaleSnapshot.
+ * The first migration creates the login's role: before it there is no role to log in as, and the read finds no session,
+ * the CallError `unavailable`, whatever its password. Both versions' login is one login, `server`. A pending folder
+ * leaves the ledger behind, and the read's fence refuses it, the CallError `stale`.
  */
 const runOpen = (r: Workspace, model: Model) =>
 	Effect.gen(function* () {
@@ -746,7 +742,7 @@ const runOpen = (r: Workspace, model: Model) =>
 		const servedV2 = yield* servedAt(schemaDir(r), v2.server)
 		const servedV1 = yield* servedAt(schemaDir(r), v1.server)
 		/** Opened as the reader of that schema value, through its login's served file generate wrote, and read. */
-		const read: Effect.Effect<unknown, OpenError | ReadError> =
+		const read: Effect.Effect<unknown, OpenError | CallError> =
 			generated.version === 2
 				? withLayer(
 						Effect.scoped(
@@ -773,12 +769,15 @@ const runOpen = (r: Workspace, model: Model) =>
 				"the first read is refused short of the committed snapshot"
 			)
 			const failure = answered.failure
-			if (model.applied === 0) {
-				assert.ok(failure instanceof ReadFailure, `a ReadFailure, not ${String(failure)}`)
-				assert.equal(failure.stage, "acquire")
-			} else {
-				assert.ok(failure instanceof StaleSnapshot, `a StaleSnapshot, not ${String(failure)}`)
-			}
+			assert.ok(
+				!(failure instanceof OpenError),
+				`a call's failure, not ${Formatter.format(failure)}`
+			)
+			assert.equal(
+				failure.kind,
+				model.applied === 0 ? "unavailable" : "stale",
+				`the read's failure: ${failure.message}`
+			)
 		}
 		yield* confirm(model, r)
 	})

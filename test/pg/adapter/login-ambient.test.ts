@@ -44,6 +44,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, Option } from "effect"
 import { Db } from "#adapter/public/db.ts"
+import type { Anchor, KeyedList } from "#compiler/live/index.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Money, pg, type Uuid, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -52,7 +53,6 @@ import { str } from "#compiler/public/text.ts"
 import { paged } from "#compiler/public/workload.ts"
 import type { RoleSetting } from "#compiler/sql/ast.ts"
 import { printRoleSetting, quoteIdent } from "#compiler/sql/print.ts"
-import type { Page, PageCursor } from "#compiler/types/page/page.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import {
 	type AmbientFeature,
@@ -326,29 +326,24 @@ const situations: Arr.NonEmptyReadonlyArray<Feature> = [
 /** The one search_path a login's setting can name: the pin. */
 const searchPathPin: RoleSetting = { parameter: "search_path" }
 
-/** A page's answer: its nodes in order and its neighbours' existence. */
-interface PageAnswer<A> {
-	readonly nodes: ReadonlyArray<A>
-	readonly hasPreviousPage: boolean
-	readonly hasNextPage: boolean
-}
-
-/** Every page `pageAt` reads from the cursor `after`, following each page's end cursor while a next page stands. */
-const walk = <A, Q, E>(
-	pageAt: (after: Option.Option<PageCursor<Q>>) => Effect.Effect<Page<A, Q>, E>,
-	after: Option.Option<PageCursor<Q>>
-): Effect.Effect<ReadonlyArray<PageAnswer<A>>, E> =>
-	Effect.flatMap(pageAt(after), (page) => {
-		const answer: PageAnswer<A> = {
-			nodes: Arr.map(page.edges, (edge) => edge.node),
-			hasPreviousPage: page.pageInfo.hasPreviousPage,
-			hasNextPage: page.pageInfo.hasNextPage
-		}
-		const end = page.pageInfo.endCursor
-		return page.pageInfo.hasNextPage && Option.isSome(end)
-			? Effect.map(walk(pageAt, end), (rest) => [answer, ...rest])
-			: Effect.succeed([answer])
-	})
+/**
+ * The rows of every window `windowAt` reads from `anchor` on, in order, each window after the last key of the one
+ * before, until an empty window, the end of the rows.
+ */
+const walk = <Row extends object, E>(
+	windowAt: (anchor: Anchor) => Effect.Effect<KeyedList<Row>, E>,
+	anchor: Anchor
+): Effect.Effect<ReadonlyArray<ReadonlyArray<Row>>, E> =>
+	Effect.flatMap(windowAt(anchor), (window) =>
+		Option.match(Arr.last([...window.entries()]), {
+			onNone: () => Effect.succeed([]),
+			onSome: (last) =>
+				Effect.map(walk(windowAt, { kind: "after", key: last.key }), (rest) => [
+					[...window],
+					...rest
+				])
+		})
+	)
 
 /** Whether two facts share their id. */
 const sameId = (a: { readonly id: string }, b: { readonly id: string }): boolean => a.id === b.id
@@ -493,9 +488,9 @@ layer(Substrate.isolatedLayer)("a login under hostile database defaults", (it) =
 								writes,
 								linked: yield* rowsOf(db.workload.linkedNotes.once({ params: {}, facts: {} })),
 								amounts: yield* rowsOf(db.workload.everyAmount.once({ params: {}, facts: {} })),
-								at: yield* (yield* rowsOf(
+								at: yield* rowsOf(
 									db.workload.atAmount.once({ params: { at: Money.of(p.at) }, facts: {} })
-								)).collect,
+								),
 								from: yield* rowsOf(
 									db.workload.fromExact.once({ params: { from: p.from }, facts: {} })
 								),
@@ -503,13 +498,13 @@ layer(Substrate.isolatedLayer)("a login under hostile database defaults", (it) =
 									db.workload.amount.once({ params: { id: p.probe }, facts: {} })
 								),
 								pages: yield* walk(
-									(after) =>
-										Option.match(after, {
-											onNone: () => db.workload.byExact.page({}, { first: p.pageSize }),
-											onSome: (cursor) =>
-												db.workload.byExact.page({}, { first: p.pageSize, after: cursor })
+									(anchor) =>
+										db.workload.byExact.once({
+											params: {},
+											facts: {},
+											window: { anchor, size: p.pageSize }
 										}),
-									Option.none()
+									{ kind: "start" }
 								)
 							}
 						}).pipe(withLayer(Layer.fresh(o.served.layer)))

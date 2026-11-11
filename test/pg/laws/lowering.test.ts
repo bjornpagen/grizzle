@@ -54,10 +54,10 @@ import { array, element, type Gen, int, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Data, Effect, Formatter, Layer, Option, Record as Rec } from "effect"
-import type { ApplyError } from "#adapter/errors/execution.ts"
 import { Db } from "#adapter/public/db.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { constraintLaw } from "#compiler/ir/products.ts"
+import type { CallError } from "#compiler/live/index.ts"
 import {
 	compileInstallation,
 	conservativeInstallation
@@ -1085,7 +1085,7 @@ const witnessJudgement = (
 /** A lowered installation of a shape in one order: its seat, and the served write of its login. */
 interface LoweredInstall {
 	readonly seat: Seat
-	readonly write: (facts: ServedFacts) => Effect.Effect<ServedOutcome, ApplyError>
+	readonly write: (facts: ServedFacts) => Effect.Effect<ServedOutcome, CallError>
 }
 
 /** A shape's installations: the lowered one fresh and in each order it is installed in, and the oracle's seat. */

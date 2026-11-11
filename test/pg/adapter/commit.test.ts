@@ -1,5 +1,5 @@
 /**
- * A SERIALIZABLE apply whose COMMIT meets 40001 fails with TransientFailure{SerializationFailure} after its one attempt
+ * A SERIALIZABLE apply whose COMMIT meets 40001 fails with the CallError `transient` after its one attempt
  * and commits nothing; the caller's second call of the same apply commits, reading the state the concurrent transaction
  * committed. Interruption is interrupt.test.ts's.
  *
@@ -13,7 +13,7 @@
  *
  * The oracle is serializability over the two transactions. A committed concurrent transaction that both wrote what the
  * apply read and read what the apply wrote leaves no serial order for the apply, which must then fail with
- * TransientFailure{SerializationFailure} and commit nothing. Any other concurrent transaction leaves one, and the apply
+ * `transient`, safe to retry, and commit nothing. Any other concurrent transaction leaves one, and the apply
  * either commits the note it read, or fails the same way, SSI being free to refuse a serializable pair; a concurrent
  * transaction that rolled back changed nothing, and the apply commits. Whenever the apply failed, the caller's second
  * call commits the note the database then holds for t1.
@@ -28,8 +28,8 @@ import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Cause, Effect, Exit, Fiber, Formatter, Option } from "effect"
-import { TransientFailure } from "#adapter/errors/execution.ts"
 import { Db } from "#adapter/public/db.ts"
+import type { CallError } from "#compiler/live/index.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { installed } from "#test/pg/reads/support.ts"
@@ -55,14 +55,9 @@ const concurrents: Gen<readonly [Concurrent, End]> = (source) =>
 
 type CommitFeature = `${Concurrent} ${End}` | "40001 at COMMIT" | "a serializable pair committed"
 
-/** Whether a failure is SERIALIZABLE's refusal: TransientFailure{SerializationFailure}, carrying the server's 40001. */
-const serializationRefused = (failure: Option.Option<unknown>): boolean => {
-	if (Option.isNone(failure) || !(failure.value instanceof TransientFailure)) {
-		return false
-	}
-	const sqlstate: string = failure.value.error.sqlstate
-	return failure.value.reason._tag === "SerializationFailure" && sqlstate === "40001"
-}
+/** Whether a failure is SERIALIZABLE's refusal: the CallError `transient`, which is safe to retry. */
+const serializationRefused = (failure: Option.Option<CallError>): boolean =>
+	Option.exists(failure, (error) => error.kind === "transient")
 
 /** t1's note as workFacts stores it, and the one the concurrent transaction writes. */
 const stored = "check the feed"
@@ -72,7 +67,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 	"a COMMIT that meets a serialization failure",
 	(it) => {
 		it.effect(
-			"a SERIALIZABLE apply whose COMMIT meets 40001 fails with TransientFailure, and the caller's second call commits",
+			"a SERIALIZABLE apply whose COMMIT meets 40001 fails as transient, and the caller's second call commits",
 			(ctx) =>
 				searched(
 					ctx,
@@ -210,7 +205,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										if (concurrent === "both" && end === "commits") {
 											assert.ok(
 												serializationRefused(failure),
-												`TransientFailure 40001: ${String(exit)}`
+												`transient at COMMIT: ${String(exit)}`
 											)
 											c.note("40001 at COMMIT")
 										} else if (end === "rolls back" || concurrent === "nothing") {
@@ -220,7 +215,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										} else {
 											assert.ok(
 												serializationRefused(failure),
-												`TransientFailure 40001: ${String(exit)}`
+												`transient at COMMIT: ${String(exit)}`
 											)
 										}
 										if (Exit.isSuccess(exit)) {

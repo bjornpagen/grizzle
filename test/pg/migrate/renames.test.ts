@@ -506,12 +506,9 @@ const renamesCase = (p: Plan, c: Case<RenameFeature>) =>
 				const served = yield* db.serve(
 					Rec.fromEntries(Arr.map(p.relations, (r, i) => [`read${i}`, readOf(next, r, i)] as const))
 				)
-				return yield* Effect.forEach(p.relations, (_, i) => {
-					const read = member(served, `read${i}`)
-					return read.kind === "program"
-						? readOnce(read)({ params: {}, facts: {} })
-						: Effect.die(new Error(`read${i} is served as a query`))
-				})
+				return yield* Effect.forEach(p.relations, (_, i) =>
+					readOnce(member(served, `read${i}`))({ params: {}, facts: {} })
+				)
 			})
 		).pipe(Effect.scoped, Effect.orDie)
 		for (const [i, r] of p.relations.entries()) {

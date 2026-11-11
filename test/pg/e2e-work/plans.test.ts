@@ -41,6 +41,7 @@ import { context, login, role } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
 import { printObjectName, quoteIdent } from "#compiler/sql/print.ts"
 import { assert, defined } from "#test/support/assert.ts"
+import { readOnce } from "#test/support/calls.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { migrated, noObservation, rebuild } from "#test/support/installed.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
@@ -382,11 +383,14 @@ const planSuite = (ctx: TestContext) =>
 						yield* withServedDb(m, world.server.roles.tenant, { account }, ({ ctx, load }) =>
 							Effect.gen(function* () {
 								const loaded = yield* load(world.reads)
-								const { ops, counts } = recordingMembers(ctx)
+								const { calls, counts } = recordingMembers(ctx)
 								const problems: Array<string> = []
 								for (const read of selectiveReads(e, sizes, pick, account)) {
 									const before = counts.sent.length
-									yield* (yield* ops(member(loaded, read.name)).execute(read.params)).collect
+									yield* readOnce(calls(member(loaded, read.name)))({
+										params: read.params,
+										facts: {}
+									})
 									const judged = yield* sentProblems(
 										s.admin,
 										read.name,

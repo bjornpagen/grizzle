@@ -1,13 +1,12 @@
 /**
  * A connection that can't be had, for a Db already open (README "Errors and outcomes"): a failing `password` Effect or
- * a released layer fails a read with ReadFailure at stage `acquire`, and a write with TransportFailure at stage
- * `acquire`, each carrying the refusal as its reason.
+ * a released layer fails a read and a write alike with the CallError `unavailable`, which is safe to retry: no session
+ * was had, so nothing was sent.
  *
- * The box, exhausted: each call that needs a session, a read through execute, get and page and a write through apply,
+ * The box, exhausted: each call that needs a session, a set read's, a key read's and a paged read's once and a write's,
  * against each way its connection can't be had: the password Effect failing for every connection after the Db opened,
  * once the pool's one session closed for idleness, or the Db's layer released. The oracle is the README's sentence,
- * restated per call: a read's ReadFailure or a write's TransportFailure, at stage acquire, its reason the
- * CredentialError the password Effect failed with or the pool's LayerReleased.
+ * restated per call: the call fails with `unavailable`, its retry `safe`.
  *
  *
  * Features: every call by every way its connection can't be had.
@@ -21,17 +20,16 @@ import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Effect, Exit, Formatter, Option } from "effect"
-import { ReadFailure, TransportFailure } from "#adapter/errors/execution.ts"
 import { CredentialError } from "#adapter/errors/failures.ts"
 import { Db } from "#adapter/public/db.ts"
 import { DbLayer } from "#adapter/public/layer.ts"
+import type { CallError } from "#compiler/live/index.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { paged } from "#compiler/public/workload.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { roleBackends } from "#test/pg/serverless/support.ts"
 import { assert } from "#test/support/assert.ts"
-import { answered, oneOf, rowsOf } from "#test/support/calls.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { a1, t1, t3, workFacts } from "#test/support/fixtures/golden/work.ts"
 import { caseHang, nodeTimerMin } from "#test/support/limits.ts"
@@ -40,12 +38,12 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 import { testVerify } from "#test/support/worlds.ts"
 
-type Call = "execute" | "get" | "page" | "apply"
+type Call = "read" | "key" | "page" | "write"
 type Unhad = "the password fails" | "the layer released"
 
 const point: Gen<readonly [Call, Unhad]> = (source) =>
 	[
-		source.draw(element<Call>(["execute", "get", "page", "apply"])),
+		source.draw(element<Call>(["read", "key", "page", "write"])),
 		source.draw(element<Unhad>(["the password fails", "the layer released"]))
 	] as const
 
@@ -53,7 +51,7 @@ type AcquireFeature = `${Call}: ${Unhad}`
 
 /**
  * The full world's workload, one member per call that needs a session: a read of an account's automatic tasks, the
- * Task key's get, a page of every task by id, and a note written with the facts each call gives.
+ * Task key's read, a page of every task by id, and a note written with the facts each call gives.
  */
 const programs = {
 	automaticTasksFor: W.workReads(W.Work).automaticTasksFor,
@@ -79,7 +77,7 @@ const failureOf = <A, E>(
 
 layer(Substrate.layer)("a connection that can't be had", (it) => {
 	it.effect(
-		"fails a read with ReadFailure and a write with TransportFailure, at stage acquire, carrying the refusal",
+		"fails a read and a write with the CallError unavailable, safe to retry, whichever way its connection can't be had",
 		(ctx) =>
 			searched(
 				ctx,
@@ -98,19 +96,19 @@ layer(Substrate.layer)("a connection that can't be had", (it) => {
 							literal: Formatter.format,
 							limit: 8,
 							coverage: requiredInSpace<AcquireFeature>([
-								"execute: the password fails",
-								"execute: the layer released",
-								"get: the password fails",
-								"get: the layer released",
+								"read: the password fails",
+								"read: the layer released",
+								"key: the password fails",
+								"key: the layer released",
 								"page: the password fails",
 								"page: the layer released",
-								"apply: the password fails",
-								"apply: the layer released"
+								"write: the password fails",
+								"write: the layer released"
 							]),
 							box: "each call that needs a session, against each way its connection can't be had",
 							oracle: {
 								kind: "specification",
-								name: "README: a connection that can't be had fails a read with ReadFailure at stage acquire, and a write with TransportFailure"
+								name: "README: a connection that can't be had fails a read and a write with unavailable, safe to retry"
 							},
 							caseHang
 						},
@@ -137,36 +135,33 @@ layer(Substrate.layer)("a connection that can't be had", (it) => {
 										verify: testVerify
 									})
 									/** The call on an open Db, and what it failed with. */
-									const callOn = (db: Effect.Success<typeof opening>): Effect.Effect<unknown> => {
+									const callOn = (
+										db: Effect.Success<typeof opening>
+									): Effect.Effect<CallError | "the call succeeded" | undefined> => {
 										switch (call) {
-											case "execute":
+											case "read":
 												return failureOf(
-													rowsOf(
-														db.workload.automaticTasksFor.once({
-															params: { account: a1 },
-															facts: {}
-														})
-													)
+													db.workload.automaticTasksFor.once({ params: { account: a1 }, facts: {} })
 												)
-											case "get":
-												return failureOf(
-													oneOf(db.workload.task.once({ params: { id: t1 }, facts: {} }))
-												)
+											case "key":
+												return failureOf(db.workload.task.once({ params: { id: t1 }, facts: {} }))
 											case "page":
-												return failureOf(db.workload.tasks.page({}, { first: 2 }))
-											case "apply":
 												return failureOf(
-													answered(
-														db.workload.note.once({
-															params: {},
-															facts: { insert: { TaskNote: [{ task: t3, note: "acquired" }] } }
-														})
-													)
+													db.workload.tasks.once({
+														params: {},
+														facts: {},
+														window: { anchor: { kind: "start" }, size: 2 }
+													})
+												)
+											case "write":
+												return failureOf(
+													db.workload.note.once({
+														params: {},
+														facts: { insert: { TaskNote: [{ task: t3, note: "acquired" }] } }
+													})
 												)
 										}
 									}
-									const reason: TransportFailure["reason"]["_tag"] & ReadFailure["reason"]["_tag"] =
-										unhad === "the password fails" ? "CredentialError" : "LayerReleased"
 									const failure =
 										unhad === "the layer released"
 											? yield* Effect.flatMap(opening.pipe(withLayer(dbLayer)), callOn)
@@ -182,29 +177,15 @@ layer(Substrate.layer)("a connection that can't be had", (it) => {
 													failing.now = true
 													return yield* callOn(db)
 												}).pipe(withLayer(dbLayer))
-									if (call === "apply") {
-										assert.ok(
-											failure instanceof TransportFailure,
-											`a write's failure: ${Formatter.format(failure)}`
-										)
-										assert.deepEqual([failure.stage, failure.reason._tag], ["acquire", reason])
-									} else {
-										assert.ok(
-											failure instanceof ReadFailure,
-											`a read's failure: ${Formatter.format(failure)}`
-										)
-										assert.deepEqual([failure.stage, failure.reason._tag], ["acquire", reason])
-									}
-									if (
-										unhad === "the password fails" &&
-										(failure instanceof ReadFailure || failure instanceof TransportFailure)
-									) {
-										assert.deepEqual(
-											failure.reason,
-											refusal,
-											"the reason is the password Effect's CredentialError"
-										)
-									}
+									assert.ok(
+										typeof failure === "object",
+										`the call's failure: ${Formatter.format(failure)}`
+									)
+									assert.deepEqual(
+										[failure.kind, failure.retry],
+										["unavailable", "safe"],
+										`${call}'s failure: ${failure.message}`
+									)
 									c.note(`${call}: ${unhad}`)
 								})
 							)
