@@ -12,6 +12,7 @@ import { draftSchema, servedFiles } from "#cli/generate.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import { manifestStatements } from "#compiler/deploy/admission/manifest.ts"
 import { manifestRoles, roleExpectation } from "#compiler/deploy/admission/roles.ts"
+import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import { planFiles } from "#compiler/deploy/phases/files.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
@@ -26,6 +27,7 @@ import { defineConfig } from "#index.ts"
 import { offlineOwner } from "#test/pg/cli/support.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { repoRoot } from "#test/support/files.ts"
+import { parsedName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import {
 	emptyState,
@@ -194,6 +196,7 @@ interface Drafted {
 const drafted = (
 	logins: Logins,
 	previous: (configured: { readonly declared: string; readonly ident: string }) => DeploySnapshot,
+	declarations: Declarations,
 	notes: { readonly note: (feature: Feature) => void }
 ) =>
 	Effect.gen(function* () {
@@ -218,7 +221,7 @@ const drafted = (
 		)
 		const configured = defined(config.schemas[0], "the configured schema")
 		const compiled = yield* Effect.fromResult(compileSchema(configured))
-		const draft = yield* draftSchema(compiled, previous(configured), [], noDeclarations)
+		const draft = yield* draftSchema(compiled, previous(configured), [], declarations)
 		const served = draft.served
 		assert.ok(served.kind === "logins", "a schema with a login plans its logins")
 		const entries = yield* servedFiles(compiled, draft.snapshotFiles, served)
@@ -354,9 +357,22 @@ layer(NodeServices.layer, { excludeTestServices: true })("TEMPORARY on the datab
 								c.first,
 								(configured) =>
 									emptySnapshot({ schemaName: configured.declared, schema: configured.ident }),
+								noDeclarations,
 								notes
 							)
-							const second = yield* drafted(c.second, () => first.draft.snapshot, notes)
+							const second = yield* drafted(
+								c.second,
+								() => first.draft.snapshot,
+								{
+									renames: [],
+									drops:
+										Arr.isReadonlyArrayNonEmpty(c.first.other) &&
+										!Arr.isReadonlyArrayNonEmpty(c.second.other)
+											? [{ kind: "login", login: parsedName("other") }]
+											: []
+								},
+								notes
+							)
 							const once = migrated(first, emptyState)
 							assert.deepEqual(
 								temporaryHolders(once, first.declared),
