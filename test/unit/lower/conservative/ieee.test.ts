@@ -1,3 +1,19 @@
+/**
+ * IEEE 754 forms (lower/conservative/expr/total.ts ieeeForm): a nested float expression renders in SQL whose size is
+ * linear in its operations, each operand's text named once, whatever its operands are: columns named inline, or columns
+ * whose scope binds them to compound SQL (a correlated variable's value, a parent's key), which the form binds once.
+ *
+ * Over generated float4 and float8 expression trees up to five levels deep, half of each level's steps bindings and
+ * half operations, the rendered SQL is at most the most text one operation's form adds beyond its operands, times the
+ * operations, plus one column's text per leaf.
+ *
+ * Oracle: that bound, measured operation by operation from ieeeForm's own forms over a column and over a compound
+ * operand (a specification: linear size). Features: an operation over an operation, an operand bound to a compound
+ * expression. Kept: the two-stage pipeline shape that once grew exponentially.
+ *
+ * Plant, failing the search: a guarded form naming its compound operands inline, each as often as it reads them
+ * (ieee-inline).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore, type Kept } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -233,7 +249,10 @@ describe("IEEE 754 forms", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "each operation adds at most its own form's text beyond its operands', each operand named once"
+						},
 						suite: "unit/lower/conservative/ieee-linear",
 						draw: drawn(caseGen),
 						literal: Formatter.format,

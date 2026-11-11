@@ -15,6 +15,8 @@
  *
  * The box: one roster installed with one to four handles, then up to six migrations (growth, removal, re-addition), in
  * plain and awkward spellings; every live handle as a literal, every ordered pair of them, and one drawn set.
+ *
+ * Plant, failing the search: a handle lowered to its position among the live handles (codes-position).
  */
 import { describe, it } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"

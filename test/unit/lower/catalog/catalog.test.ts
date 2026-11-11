@@ -1,17 +1,41 @@
+/**
+ * The compile-target catalog's recognizers (lower/shapes/catalog, rules R26-R31, R41, R42) without a database: each
+ * applies exactly where its module's documented preconditions hold, and the composition is kept, applying none of its
+ * own, where one fails. Every query is the language's own composition of a construct, checked by the real checker
+ * (test/pg/catalog/queries.ts), and every search is exhaustive over the shapes the compositions' parameters span.
+ *
+ * - R26 in any spelling: the inclusive lexicographic order is recognized in every spelling and direction and orders its
+ *   window as spelled; the strict order and a conjunction of field comparisons are kept.
+ * - R26 and R41 on a self-match: windowed exactly where the second occurrence is free, the keys determine a row and the
+ *   students the two occurrences match are one.
+ * - R29 and R30: PERCENTILE_DISC exactly for gated fractions over ordinals joined on the group, PERCENTILE_CONT exactly
+ *   for a fraction in [0, 1] of a double precision value.
+ * - R31: MODE() exactly for take(1) of an unconditional count tied to the value ascending.
+ * - R27 and R42 under the parent-set policy, and an as-of kept where its fields' types differ or its take is ordered
+ *   toward the parent.
+ * - R28: a share kept where its total ranges over another binding set or its join restricts the pairs.
+ * - Determinism: two rewrites of one input are byte-identical, DAG and SQL, and the pass records the rewrite's
+ *   certificates.
+ *
+ * Oracle: each module's documented preconditions turned into a checker (a specification), the set of entries a rewrite
+ * applied compared to the set they admit; determinism is the universal law that one input rewrites alike. What a
+ * rewritten query delivers is unit/lower/catalog/reference's and pg/catalog/agreement's; the prose of a kept
+ * composition's reason is no contract.
+ *
+ * Features: each verdict of each search's shape classes ("recognized" and "kept" per spelling, "windowed" and "kept"
+ * per head, "rewritten" and "probed" per neighbor kind), every one required of the space.
+ *
+ * Plants, each failing its search: the strict order recognized (catalog-r26-strict); a constant on the second
+ * occurrence alone admitted (catalog-self-match-constant); a fraction of 0 admitted by the discrete gate
+ * (catalog-r29-zero); a fraction of 1.5 admitted by the continuous one (catalog-r30-range); the tiebreak's direction
+ * unread (catalog-r31-tiebreak); an attachment's bound parents taken whole under the automatic policy
+ * (catalog-parents-auto); an as-of ordered toward the parent admitted (catalog-as-of-order); a total over another
+ * source admitted (catalog-r28-source); a fresh node label that differs run to run (catalog-fresh-labels).
+ */
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
-import {
-	array,
-	boolean,
-	constant,
-	element,
-	filter,
-	type Gen,
-	int,
-	map,
-	oneOf
-} from "@grizzle/testing/gen"
+import { array, boolean, constant, element, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, Result } from "effect"
 import { catchRefusal, encode, everyProperty } from "#compiler/core/canonical.ts"
@@ -48,19 +72,6 @@ import { localVectorSchema, productionNames } from "#test/support/kernel/naming.
 import { caseHang } from "#test/support/limits.ts"
 import { schemaCodes } from "#test/support/oracle/gen/schema.ts"
 import * as D from "#test/unit/check/dsl.ts"
-
-/**
- * The compile-target catalog's recognizers, certificates and native targets without a database (rules R26-R31, R41,
- * R42).
- *
- * Every query is the language's own composition of the construct, checked by the real checker
- * (test/pg/catalog/queries.ts). Each recognizer is held to its module's documented preconditions as the oracle, over
- * every shape the compositions' parameters span: the rewrite applies exactly the entries whose conditions hold, and
- * the composition is kept, applying none of its own, where one fails. What a rewritten query delivers is
- * pg/catalog/agreement's, against PostgreSQL over drawn lab facts; the prose of a kept composition's reason is no
- * contract. Determinism, the pass's certificates, the editor's validation and the as-of recognizer's conditions on
- * edited DAGs complete the file.
- */
 
 const int8 = plainType("int8")
 
@@ -198,8 +209,11 @@ describe("R26: the lexicographic comparison in any spelling", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "each of five spellings (nested, its disjunctive normal form, operands swapped, the negated successor, a conjunction of field comparisons), each direction of each of two fields, inclusive or strict",
+						oracle: {
+							kind: "specification",
+							name: "R26's precondition: an inclusive lexicographic comparison of paired fields, in any spelling (ordinal.ts, lexicographic.ts)"
+						},
 						suite: "unit/lower/catalog/lexicographic-spellings",
 						literal: Formatter.format,
 						generator: (source) =>
@@ -274,21 +288,22 @@ interface SelfMatchShape {
 	readonly student: Student
 }
 
-/** A constant student is no variable a head can deliver. */
-const selfMatchShapes: Gen<SelfMatchShape> = filter(
-	(source) => ({
-		head: source.draw(element<Head>(["ordinal", "running maximum"])),
-		extra: source.draw(
-			element<Extra>(["none", "on the second occurrence", "on the first occurrence"])
-		),
-		keys: source.draw(element<Keys>(["student and id", "student", "id"])),
-		student: source.draw(
-			element<Student>(["shared", "one constant", "different constants", "equated"])
+/** A constant student is no variable a head can deliver, so keys a head delivers take only a student it binds. */
+const selfMatchShapes: Gen<SelfMatchShape> = (source) => {
+	const head = source.draw(element<Head>(["ordinal", "running maximum"]))
+	const extra = source.draw(
+		element<Extra>(["none", "on the second occurrence", "on the first occurrence"])
+	)
+	const keys = source.draw(element<Keys>(["student and id", "student", "id"]))
+	const student = source.draw(
+		element<Student>(
+			keys === "id"
+				? ["shared", "one constant", "different constants", "equated"]
+				: ["shared", "equated"]
 		)
-	}),
-	(shape) => shape.student === "shared" || shape.student === "equated" || shape.keys === "id",
-	1
-)
+	)
+	return { head, extra, keys, student }
+}
 
 /** The checked self-match of a shape, its student constants edited apart where the shape plants that. */
 const selfMatchDag = (shape: SelfMatchShape) => {
@@ -386,8 +401,11 @@ describe("R26 and R41: the self-match's own conditions", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "either head, every further condition, every key set, and every student binding the key set can deliver",
+						oracle: {
+							kind: "specification",
+							name: "R26's and R41's preconditions on a self-match (ordinal.ts): the second occurrence free, the keys determining a row, one student"
+						},
 						suite: "unit/lower/catalog/self-match-conditions",
 						literal: Formatter.format,
 						generator: selfMatchShapes,
@@ -463,8 +481,11 @@ describe("R29 and R30: percentiles", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "one or two of the fourteen fractions over each of three stages",
+						oracle: {
+							kind: "specification",
+							name: "R29's gate: every fraction in (0, 1] and m / 2^j with j at most 7, over ordinals joined on the group (percentile.ts)"
+						},
 						suite: "unit/lower/catalog/discrete-percentile",
 						literal: Formatter.format,
 						generator: (source) =>
@@ -511,8 +532,11 @@ describe("R29 and R30: percentiles", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "each of the fourteen fractions over a double precision or a numeric field",
+						oracle: {
+							kind: "specification",
+							name: "R30's precondition: a fraction in [0, 1] of a double precision value (percentile.ts)"
+						},
 						suite: "unit/lower/catalog/continuous-percentile",
 						literal: Formatter.format,
 						generator: (source) =>
@@ -546,8 +570,11 @@ describe("R31: the mode", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "either tiebreak direction, take(1) or take(2), an unconditional or a conditional count",
+						oracle: {
+							kind: "specification",
+							name: "R31's precondition: take(1) of an unconditional count tied to the value ascending (mode.ts)"
+						},
 						suite: "unit/lower/catalog/mode",
 						literal: Formatter.format,
 						generator: (source) =>
@@ -643,8 +670,11 @@ describe("R27 and R42: neighbors under the parent-set policy", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "every neighbor and as-of composition, bound or attached, under every parent-set policy",
+						oracle: {
+							kind: "specification",
+							name: "the parent-set rule (context.ts ParentPolicy, neighbor.ts)"
+						},
 						suite: "unit/lower/catalog/neighbor-parents",
 						literal: Formatter.format,
 						generator: (source) => [source.draw(neighbors), source.draw(policies)] as const,
@@ -679,8 +709,11 @@ describe("R27 and R42: neighbors under the parent-set policy", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "every as-of mode under no edit, its prices' day retyped bigint, or its take's order reversed",
+						oracle: {
+							kind: "specification",
+							name: "R42's preconditions: fields of one type compared, a take ordered from the parent outward (neighbor.ts)"
+						},
 						suite: "unit/lower/catalog/as-of-edits",
 						literal: Formatter.format,
 						generator: (source) =>
@@ -786,8 +819,11 @@ describe("R28: shares", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "a grouped share over each of three totals, or a keyed share, each restricted or not",
+						oracle: {
+							kind: "specification",
+							name: "R28's precondition: a total over the grouped count's own binding set, joined without restricting the pairs (share.ts)"
+						},
 						suite: "unit/lower/catalog/share",
 						literal: Formatter.format,
 						generator: shares,
@@ -843,8 +879,11 @@ describe("determinism and the catalog pass", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "every composition of every entry under the automatic policy",
+						oracle: {
+							kind: "universal",
+							name: "one input rewrites alike, byte for byte, and the pass records the rewrite's certificates"
+						},
 						suite: "unit/lower/catalog/determinism",
 						literal: Formatter.format,
 						generator: compositions,

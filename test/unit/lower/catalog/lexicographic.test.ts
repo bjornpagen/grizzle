@@ -1,3 +1,24 @@
+/**
+ * The lexicographic recognizer (lower/shapes/catalog/lexicographic.ts), whose decision diagram replaced an enumeration
+ * of every sign vector over at most six pairs, against that enumeration as the oracle: on every generated predicate
+ * over at most six pairs, any Boolean arrangement of native comparisons between paired fields, the lexicographic
+ * spellings and their perturbations among them, the recognizer finds exactly the order, directions and inclusiveness
+ * the enumeration finds, or, with it, none. Past six pairs, where the enumeration refused, the nested spelling of any
+ * order is still recognized as itself. A predicate any of whose parts is a native test of a pair that compares no order,
+ * a prefix test of its text fields, is no lexicographic order, whatever the rest of it is. And a predicate nested a
+ * hundred thousand connectives deep, which a recursion would overflow the call stack on, is recognized or refused
+ * exactly as the shallow predicate it is equivalent to.
+ *
+ * Oracle: the enumeration of every sign vector the recognizer replaced, a second implementation, over up to six pairs;
+ * past six, the order the nested spelling was built from; and the deep predicate's shallow equivalent, a metamorphic
+ * relation.
+ *
+ * Features: recognized or not, inclusive or strict, several pairs ordered, a prefix test among the parts.
+ *
+ * Plants, each failing its search: the direction of the second pair parsed read backwards (lexicographic-direction,
+ * failing the oracle and the wide searches); the parser recursing into connectives on the call stack
+ * (lexicographic-recursion, failing the deep search).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -16,18 +37,6 @@ import { wildcardText } from "#compiler/scalar/compute/types.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
-
-/**
- * The lexicographic recognizer (lower/shapes/catalog/lexicographic.ts), whose decision diagram replaced an enumeration
- * of every sign vector over at most six pairs, against that enumeration as the oracle: on every generated predicate
- * over at most six pairs, any Boolean arrangement of native comparisons between paired fields, the lexicographic
- * spellings and their perturbations among them, the recognizer finds exactly the order, directions and inclusiveness
- * the enumeration finds, or, with it, none. Past six pairs, where the enumeration refused, the nested spelling of any
- * order is still recognized as itself. A predicate any of whose parts is a native test of a pair that compares no order,
- * a prefix test of its text fields, is no lexicographic order, whatever the rest of it is. And a predicate nested a
- * hundred thousand connectives deep, which a recursion would overflow the call stack on, is recognized or refused
- * exactly as the shallow predicate it is equivalent to.
- */
 
 type Cmp = "eq" | "ne" | "lt" | "le" | "gt" | "ge"
 const cmps: readonly [Cmp, ...ReadonlyArray<Cmp>] = ["eq", "ne", "lt", "le", "gt", "ge"]
@@ -490,7 +499,10 @@ describe("the lexicographic recognizer", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "second-implementation",
+							name: "the enumeration of every sign vector of the pairs a predicate compares"
+						},
 						suite: "unit/lower/catalog/lexicographic-oracle",
 						draw: drawn(caseGen),
 						literal: Formatter.format,
@@ -541,7 +553,10 @@ describe("the lexicographic recognizer", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "the order and inclusiveness the nested spelling was built from"
+						},
 						suite: "unit/lower/catalog/lexicographic-wide",
 						draw: drawn((source) => {
 							const pairs = source.draw(int(7, 10))
@@ -591,7 +606,10 @@ describe("the lexicographic recognizer", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "universal",
+							name: "a predicate deepened by wrappers that keep its function decides as its shallow self"
+						},
 						suite: "unit/lower/catalog/lexicographic-deep",
 						draw: drawn(deepGen),
 						literal: Formatter.format,

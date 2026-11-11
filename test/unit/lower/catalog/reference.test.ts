@@ -13,6 +13,10 @@
  * Every entry must be judged on some case, never only declined: a composition whose rewrite meets a form the reference
  * cannot state (an aggregate over an empty frame, an ordered-set aggregate over no row, which are NULLs) is unjudged on
  * that case, and an entry unjudged on every case fails the suite.
+ *
+ * Oracle: the reference evaluator, a second implementation. Features: each entry judged.
+ *
+ * Plant, failing the search: the mode's ordered-set aggregate taken over the value descending (catalog-mode-order).
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"

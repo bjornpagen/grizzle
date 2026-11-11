@@ -1,7 +1,39 @@
+/**
+ * The conservative lowering (lower/conservative): the dispatch over every kind, the delivery of heading groups and its
+ * refusals. What a lowered statement computes is checked on PostgreSQL against the reference evaluator
+ * (test/pg/oracle/conservative), and its SQL by the structural audit over every lowered case
+ * (test/unit/sql/audit.test.ts); a statement's text is asserted nowhere. The rules here, each an exhaustive property
+ * over a planted space no generator draws, but the last:
+ *
+ * - every kind lowers, statements passing both audits and each one's text its AST printed, unless the node reads what
+ *   the lowering refuses: a feedback reference outside its recursion (MalformedDescription), a rewrite's internal node
+ *   or an approximate search the catalogue cannot resolve (UnsupportedOperation, both subjects), or a delta in a
+ *   query, which has no carrier;
+ * - a heterogeneous union delivered to the host is one statement per heading group, merged by the take's order and
+ *   then the delivery's where they differ, each group bounded by its take; matched inside a statement it is one
+ *   statement's UNION over the common columns; any other node over it, and an attachment on an arm of a group of
+ *   several, is refused;
+ * - an outer reference resolves only to a node in scope that one occurrence reads;
+ * - over generated queries whose takes are frequent, a take's bound parameter binds at its declared type, and one the
+ *   query does not declare is refused (MalformedDescription).
+ *
+ * Oracle: each rule's statement turned into a checker (a specification): the refusal a node's reads call for, read by
+ * walking its inputs; the delivery and merge a consumer of the union calls for; the occurrences reading a referenced
+ * source; the parameter's declaration.
+ *
+ * Features: every outcome under each subject; every consumer of the union; a lone arm, an arm of several, or none
+ * attached; a reference resolved and one refused; a bound parameter.
+ *
+ * Plants, each failing its search: a delta read in a query lowered as the empty relation (lowering-delta-query); a
+ * take delivered in another order merged by its take alone (lowering-merge-reorder); an attachment on an arm of several
+ * delivered (lowering-arm-attachments); a reference to a shared source resolved (lowering-shared-source); a bound
+ * parameter bound as int4 whatever its declaration (lowering-bound-int4).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { noCoverage, requiredInSpace } from "@grizzle/testing/features"
-import { element, filter, int, map, oneOf } from "@grizzle/testing/gen"
+import { required, requiredInSpace } from "@grizzle/testing/features"
+import { element, int, map, oneOf } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
@@ -59,22 +91,6 @@ import {
 } from "#test/unit/lower/conservative/fixtures.ts"
 import * as Cases from "#test/unit/lower/conservative/queries.ts"
 import { present } from "#test/unit/lower/support.ts"
-
-/**
- * The conservative lowering: the dispatch over every kind, the delivery of heading groups and its refusals.
- * What a lowered statement computes is checked on PostgreSQL against the reference evaluator
- * (test/pg/oracle/conservative), and its SQL by the structural audit over every lowered case
- * (test/unit/sql/audit.test.ts); a statement's text is asserted nowhere. The rules here, each an exhaustive property
- * over a planted space no generator draws:
- *
- * - every kind lowers, statements passing both audits, unless the node reads what the lowering refuses: a feedback
- *   reference outside its recursion (MalformedDescription), a rewrite's internal node or an approximate search the
- *   catalogue cannot resolve (UnsupportedOperation, both subjects), or a delta in a query, which has no carrier;
- * - a heterogeneous union delivered to the host is one statement per heading group, its take's order apart from the
- *   delivery order in the merge, a filter applied per group; matched inside a statement it is a UNION over the common
- *   columns; any other node over it, and an attachment on an arm of a group of several, is refused;
- * - an outer reference resolves only to a node in scope that one occurrence reads.
- */
 
 /**
  * The names a hand-built DAG lowers under: production's stand-ins for its relations, under Kind's codes, and the domain
@@ -187,8 +203,11 @@ describe("the kind table", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "every node of the every-kind fixture as a root, under a query and a read back",
+						oracle: {
+							kind: "specification",
+							name: "the refusal a node's reads call for: a feedback reference outside its recursion, a rewrite's node, an unresolved search, a delta in a query"
+						},
 						suite: "unit/lower/conservative/kinds",
 						literal: Formatter.format,
 						generator: (source) =>
@@ -379,8 +398,11 @@ describe("heterogeneous unions", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "every consumer of one heterogeneous union of two heading groups: delivered, filtered, bounded by either direction and one or two, bounded and reordered, matched, semi-joined, filtered above a bound, attached",
+						oracle: {
+							kind: "specification",
+							name: "the delivery and merge each consumer of a heterogeneous union calls for"
+						},
 						suite: "unit/lower/conservative/heterogeneous",
 						literal: Formatter.format,
 						generator: consumers,
@@ -473,8 +495,11 @@ describe("heterogeneous unions", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "one to three arms of one heading group, every subset of them attached",
+						oracle: {
+							kind: "specification",
+							name: "an attachment statement per attached lone arm, a refusal for an attached arm of several"
+						},
 						suite: "unit/lower/conservative/union-attachments",
 						literal: Formatter.format,
 						/** One to three arms of one heading group, `attached` holding a bit per arm whose parent carries tasks. */
@@ -567,8 +592,11 @@ describe("regions", () => {
 			ctx,
 			exhaust(
 				{
-					box: { kind: "unstated" },
-					oracle: { kind: "unstated" },
+					box: "two or three occurrences over two sources, the last fixing its amount to every earlier occurrence's source",
+					oracle: {
+						kind: "specification",
+						name: "the occurrences that read the referenced source: one resolves, several are ambiguous"
+					},
 					suite: "unit/lower/conservative/outer-references",
 					literal: Formatter.format,
 					/**
@@ -669,33 +697,37 @@ describe("take bound parameters", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "the declared type of each take's bound parameter, and MalformedDescription for an undeclared one"
+						},
 						suite: "unit/lower/conservative/bound-param-type",
 						literal: Formatter.format,
 						kept: [],
-						draw: drawn(filter(bounded, (c) => boundParams(c).length > 0, 32)),
+						draw: drawn(bounded),
 						runs: 60,
 						shrink: completeShrink,
-						coverage: noCoverage,
+						coverage: required<"a bound parameter">(["a bound parameter"], {
+							cases: 60,
+							sense: notesOnly
+						}),
 						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
-					(c) =>
+					(c, notes) =>
 						Effect.sync(() => {
 							const params = genParamDecls(c.query)
-							const r = lowered(c, params)
-							if (!r.ok) {
-								return
-							}
+							const program = succeeded(lowered(c, params), "a generated query lowers")
 							for (const p of boundParams(c)) {
+								notes.note("a bound parameter")
 								const declared = present(
 									Arr.flatMap(params, (d) =>
 										d.id === p && d.kind === "scalar" ? [d.type] : []
 									)[0],
 									`the declaration of ${p}`
 								)
-								const bound: ReadonlyArray<ScalarType> = Arr.flatMap(flight(r.value.roots), (s) =>
+								const bound: ReadonlyArray<ScalarType> = Arr.flatMap(flight(program.roots), (s) =>
 									Arr.flatMap(s.params, (slot) =>
 										slot.kind === "scalar" && slot.param === p ? [slot.type] : []
 									)
@@ -704,12 +736,11 @@ describe("take bound parameters", () => {
 								for (const type of bound) {
 									assert.ok(sameScalarType(type, declared), p)
 								}
-								const undeclared = lowered(
-									c,
-									Arr.filter(params, (d) => d.id !== p)
-								)
-								assert.equal(
-									!undeclared.ok && undeclared.error.reason._tag,
+								refused(
+									lowered(
+										c,
+										Arr.filter(params, (d) => d.id !== p)
+									),
 									"MalformedDescription",
 									p
 								)

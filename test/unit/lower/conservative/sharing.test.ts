@@ -1,3 +1,21 @@
+/**
+ * The conservative lowering lowers a node its statement reads more than once once (lower/conservative/dispatch.ts
+ * sharedOf): a DAG whose paths double at every level, each level a region matching the level below it twice, lowers to
+ * statements that grow at most linearly with its depth. Each statement passes both SQL audits, and the statements are
+ * counted as AST nodes (a structural property, never printed text): one more level costs no more at depth 2d than at
+ * depth d, where a lowering that unfolds the DAG into its paths pays 2^d for a level at depth d. Exhausted over where
+ * the levels read their values from, and over d:
+ *
+ * - nothing outside them: each level is a CTE of the statement;
+ * - a parent row, the levels being an attachment's child: each is a CTE of the child, evaluated per parent row;
+ * - the region they are a source of, the levels reading its first occurrence: each is a CTE of the source the region
+ *   reads LATERAL, evaluated per row of that occurrence.
+ *
+ * Oracle: at most linear growth stated as a checker (a specification): a level's marginal cost does not grow with the
+ * depth it is added at. Features: each placement.
+ *
+ * Plant, failing the search: a lowering that shares no node (sharing-unfold).
+ */
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
@@ -16,22 +34,6 @@ import { localVectorSchema, productionNames } from "#test/support/kernel/naming.
 import { caseHang } from "#test/support/limits.ts"
 import { auditStatementViolations, auditTextViolations } from "#test/support/oracle/verify/sql.ts"
 import { Edge, plainRegion, Q, T } from "#test/unit/lower/conservative/fixtures.ts"
-
-/**
- * The conservative lowering lowers a node its statement reads more than once once: a DAG whose paths double at every
- * level, each level a region matching the level below it twice, lowers to statements that grow linearly with its depth.
- * Lowered at depth d and at 2d, each statement passes both SQL audits, and the statements, counted as AST nodes (a
- * structural property, never printed text), grow by at most 2 + ε, where a lowering that unfolds the DAG into its
- * paths grows by 2^d. Exhausted over where the levels read their values from, and over d:
- *
- * - nothing outside them: each level is a CTE of the statement;
- * - a parent row, the levels being an attachment's child: each is a CTE of the child, evaluated per parent row;
- * - the region they are a source of, the levels reading its first occurrence: each is a CTE of the source the region
- *   reads LATERAL, evaluated per row of that occurrence.
- */
-
-/** The bound on growth from d to 2d: linear, with ε for the parts that do not grow. */
-const linear = 2.5
 
 type Placement = "uncorrelated" | "correlated to a parent row" | "correlated to its region"
 
@@ -135,14 +137,17 @@ const loweredSize = (query: LogicalQuery, at: string): number => {
 
 describe("shared nodes", () => {
 	it.effect(
-		"a DAG of 2^d paths lowers to statements that grow linearly with d, wherever its shared levels read from",
+		"a DAG of 2^d paths lowers to statements that grow at most linearly with d, wherever its shared levels read from",
 		(ctx) =>
 			searched(
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "each of three placements, a level added at depth 3 or 4 and at twice that depth",
+						oracle: {
+							kind: "specification",
+							name: "at most linear growth: one more level costs no more AST nodes at depth 2d than at depth d"
+						},
 						suite: "unit/lower/conservative/sharing",
 						generator: (source) =>
 							[source.draw(element(placements)), source.draw(int(3, 4))] as const,
@@ -153,12 +158,15 @@ describe("shared nodes", () => {
 					},
 					([placement, depth], c) =>
 						Effect.sync(() => {
-							const at = `${placement} at depth ${depth} against ${2 * depth}`
-							const small = loweredSize(placed(placement, depth), at)
-							const large = loweredSize(placed(placement, 2 * depth), at)
+							const at = `${placement}, a level at depth ${depth} against one at ${2 * depth}`
+							const levelCost = (level: number) =>
+								loweredSize(placed(placement, level + 1), at) -
+								loweredSize(placed(placement, level), at)
+							const shallow = levelCost(depth)
+							const deep = levelCost(2 * depth)
 							assert.ok(
-								large <= linear * small,
-								`${at}: the statements grow from ${small} to ${large} nodes`
+								deep <= shallow,
+								`${at}: a level costs ${shallow} AST nodes at depth ${depth} and ${deep} at depth ${2 * depth}`
 							)
 							c.note(placement)
 						})

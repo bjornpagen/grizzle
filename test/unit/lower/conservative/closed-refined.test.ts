@@ -1,3 +1,24 @@
+/**
+ * A Closed source's refined payload delivered by the conservative lowering (lower/conservative/refined.ts Tracer): a
+ * roster read with a query-local text payload p0 over the pattern ^[a-z]+$, its rows the node's own, which the
+ * lowering emits as base-typed VALUES literals (lower/conservative/closed).
+ *
+ * - **A literal in the pattern is proved on the host:** every payload literal the pattern's automaton admits is
+ *   delivered uncast, whether or not the installation names a domain for the pattern, so a pattern no stored column
+ *   carries lowers at all (the audit's floor case at TEST_SEED=3928500770, whose roster K0 carried such a payload).
+ * - **A literal outside it is the database's to refuse:** with a domain named for the pattern, the delivered p0 is cast
+ *   to it, which PostgreSQL checks for every delivered row; with none, the lowering refuses, naming p0's refinement.
+ * - **An empty source claims nothing:** its placeholder rows, under WHERE false, define no delivered value, so it is
+ *   delivered uncast.
+ *
+ * The box: every sequence of zero to two payload values over one in the pattern, one outside it (a capital), each under
+ * names with and without the pattern's domain, each the source projected whole or filtered to its rows (a derived table
+ * the trace follows). The oracle is the pattern's membership read off the values the case states, never the tracer.
+ *
+ * Features: each delivery (uncast with or without a domain, cast, refused, an empty source uncast).
+ *
+ * Plant, failing the search: the tracer admitting every text literal of a patterned claim (closed-refined-admit).
+ */
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
@@ -20,23 +41,6 @@ import { auditStatementViolations } from "#test/support/oracle/verify/sql.ts"
 import { fixtureCodes } from "#test/unit/ir/fixture.ts"
 import { Q, T } from "#test/unit/lower/conservative/fixtures.ts"
 
-/**
- * A Closed source's refined payload delivered by the conservative lowering (lower/conservative/refined.ts Tracer): a
- * roster read with a query-local text payload p0 over the pattern ^[a-z]+$, its rows the node's own, which the
- * lowering emits as base-typed VALUES literals (lower/conservative/closed).
- *
- * - **A literal in the pattern is proved on the host:** every payload literal the pattern's automaton admits is
- *   delivered uncast, whether or not the installation names a domain for the pattern, so a pattern no stored column
- *   carries lowers at all (the audit's floor case at TEST_SEED=3928500770, whose roster K0 carried such a payload).
- * - **A literal outside it is the database's to refuse:** with a domain named for the pattern, the delivered p0 is cast
- *   to it, which PostgreSQL checks for every delivered row; with none, the lowering refuses, naming p0's refinement.
- * - **An empty source claims nothing:** its placeholder rows, under WHERE false, define no delivered value, so it is
- *   delivered uncast.
- *
- * The box: every sequence of zero to two payload values over one in the pattern, one outside it (a capital), each under
- * names with and without the pattern's domain, each the source projected whole or filtered to its rows (a derived table
- * the trace follows). The oracle is the pattern's membership read off the values the case states, never the tracer.
- */
 type Value = "abc" | "Abc"
 
 /** The names the case lowers under: production's stand-ins, with no domain for any pattern, or with the domain an
