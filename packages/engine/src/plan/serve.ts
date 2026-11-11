@@ -75,7 +75,6 @@ export {
 	type ServedMember,
 	type ServedMemberForm,
 	type ServedPage,
-	type ServedPageProbe,
 	type ServedPageRequest,
 	type ServedPageProgram,
 	type ServedParamDomain,

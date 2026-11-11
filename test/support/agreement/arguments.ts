@@ -11,8 +11,8 @@ import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import { type PreludeAt, preludeProgram } from "#test/support/prelude.ts"
 
 /**
- * The argument agreement: every shape of a query's parameters against every form of argument a caller may pass to the
- * execute of the query's workload member, the program admitting exactly what the runtime admits. The oracle is the
+ * The argument agreement: every shape of a query's parameters against every form of argument a caller may pass as the
+ * params of the query's workload member's once, the program admitting exactly what the runtime admits. The oracle is the
  * runtime's own reading of an argument (adapter/reader/params.ts readParams, then adapter/reader/relations.ts
  * executionInputs over the compiled query's declared parameters): a record whose keys are the query's parameters, each
  * value admitted by its parameter's codec. The types are ParamArg over the query's ParamsOf, which a workload handle's
@@ -210,7 +210,7 @@ export const argumentCells = (): ReadonlyArray<ArgumentCell> =>
 			}
 			const query = queryOf(shape)
 			const admitted = admits(query.value, argument.value)
-			const line = `export const a${s}_${f} = (h: WorkloadHandles<typeof Reader, { readonly m: typeof q${s} }>["m"]) => h.execute(${argument.text})`
+			const line = `export const a${s}_${f} = (h: WorkloadHandles<typeof Reader, { readonly m: typeof q${s} }>["m"]) => h.once({ params: ${argument.text}, facts: {} })`
 			return [
 				{
 					what: `${form} for ${shape}`,

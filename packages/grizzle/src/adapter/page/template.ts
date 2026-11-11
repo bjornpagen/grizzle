@@ -137,7 +137,7 @@ export interface PageRuntime {
 interface PageRuntimeParts {
 	readonly page: ServedPage
 	readonly params: ReadonlyArray<ParamDecl>
-	/** The installation's codes, which every value codec, cursor boundary and placeholder encoder of a closed id or a set
+	/** The installation's codes, which every value codec, anchor boundary and placeholder encoder of a closed id or a set
 	 * reads. */
 	readonly codes: Codebook
 	/** The delivered spine, whose attachments' children carry the columns their head keys name (engine served/read.ts carried). */

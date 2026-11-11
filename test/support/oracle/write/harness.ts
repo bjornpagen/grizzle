@@ -1178,9 +1178,10 @@ export interface Ran {
  *   DELETE + INSERT in final state, counts and deltas;
  * - the brute-force add-wins result (expect.ts).
  *
- * The optimized side is reached through db.apply or db.compile(changes).apply(params), as the case draws, with the
- * parameters passed to the call or closed by ChangeSet.bind, and enumerated members given as arrays or Streams
- * (changeset.ts): each is the same ChangeSet, so all of them must give the oracle's outcome.
+ * The optimized side is applied as the compiled ChangeSet's one transaction on a served Db's context (test/support/
+ * served-role.ts runEntry), with the parameters passed to the call or closed by ChangeSet.bind, and enumerated members
+ * given as arrays or Streams (changeset.ts): each is the same ChangeSet, so all of them must give the oracle's
+ * outcome.
  *
  * Each database side starts from the same reset state and must give the oracle's outcome: `accepted` with the netted
  * counts per written relation or `no-change`, each with every read-back equal as a set to its definition over the final

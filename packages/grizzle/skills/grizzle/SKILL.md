@@ -70,16 +70,19 @@ export default defineConfig({
   `{ kind: "above", level, law }`, beside every law of its own the host finds the stated row breaking (`refused.own`).
 - A login owns its workloads: `login(Blog, "web", [AnonBlog, MemberBlog], { workload: [anonReads, memberReads] })`.
   A workload, `workload(schemaOrRole, { name: program })`, is over the login's base, a level of it, or one of its
-  roles, and names queries, ordered queries, ChangeSets, relation keys and refreshes. An ordered query the application
-  pages is the member `paged(query)`: only its handle (`db.workload.<name>.page`) pages, and generate compiles a page
-  template for no other member. The member `refresh(tables)`, of a nonempty list, refreshes materialized derived tables the role's
-  `refresh` list names: its handle is one Effect, `db.workload.<name>.refresh`, which refreshes them all in one
-  transaction, lower levels first. Two programs of one name across a login's workloads are refused when the login is
-  built. A ChangeSet member whose `insert`, `insertAll`, `delete` or `put` was given its facts as an array takes them
-  with each call, `db.workload.<name>.apply(facts, params)`: under each such member's op (`insert`, which
-  `insertAll`'s members are too, `put` or `delete`) and then its relation's name one array, typed and checked as that
-  member's own facts, as in `apply({ put: { Blob: stated }, delete: { Blob: removed } }, {})`; every other member is
-  `apply(params)`. Two array members of one op and one relation in two strata are refused: merge them into one.
+  roles, and names queries, ordered queries, ChangeSets, relation keys and refreshes. Every member is called the same
+  way: `once(input)`, its value (a read's keyed set or list, a write's outcome), and `watch(input)`, its events, live
+  for a read; `input` is `{ params, facts }`, both always present, `{}` where the program takes none. An ordered query
+  the application pages is the member `paged(query)`, whose input adds `window: { anchor, size }`, the anchor
+  `{ kind: "start" }`, `{ kind: "after", key }`, `{ kind: "end" }` or `{ kind: "before", key }`, a key a row's
+  `RowKey`; generate compiles a page template for no other member. The member `refresh(tables)`, of a nonempty list,
+  refreshes materialized derived tables the role's `refresh` list names, all of them in one transaction, lower levels
+  first. Two programs of one name across a login's workloads are refused when the login is built. A ChangeSet member
+  whose `insert`, `insertAll`, `delete` or `put` was given its facts as an array takes them as its input's `facts`:
+  under each such member's op (`insert`, which `insertAll`'s members are too, `put` or `delete`) and then its
+  relation's name one array, typed and checked as that member's own facts, as in
+  `once({ params: {}, facts: { put: { Blob: stated }, delete: { Blob: removed } } })`; every other member's facts are
+  `{}`. Two array members of one op and one relation in two strata are refused: merge them into one.
 - `connection` is the migration role's: `driver` (the pg module), `transport` (`kind: "sslRequest"`, `host`, `port`,
   `open`, which returns a new socket, `ca` and `servername`; TLS is always verify-full, the server certificate chaining
   to `ca` and naming `servername`), `database`, `role`, `password` (a Redacted, or an Effect yielding one, evaluated for
@@ -472,7 +475,7 @@ The command line's own refusals, by stage:
   export const WebServed = served<typeof Web>(webFile, "web")
   export const WebLayer = DbLayer.make({ ...connection, login: WebServed, password, pool, verify })
   const db = yield* Db.open(WebServed.roles.member, { token })
-  const feed = yield* db.workload.memberFeed.execute({})
+  const feed = yield* db.workload.memberFeed.once({ params: {}, facts: {} })
   ```
 
   `connection` is the config's connection without its `role` and its password, which are the migration role's
@@ -500,26 +503,21 @@ The command line's own refusals, by stage:
   applied is a mismatch of its own), so it can watch a production database from CI or a schedule; it connects as the
   migration identity, since the check replays the snapshot into a scratch schema in a transaction it rolls back.
 - Open a `Db` per request or handler: `Db.open` sends nothing, so this costs no round trip.
-- A paged member's `page` (`db.workload.<name>.page`) takes any safe integer of at least 1 as its size: there is no
-  default and no cap.
+- A paged member's window takes any safe integer of at least 1 as its size: there is no default and no cap.
 - Every transaction of a `Db` checks the ledger first, in the same round trip, and runs nothing unless the database
-  holds its snapshot: while a migration runs, its calls fail with `StaleSnapshot` (reason `Migrating`), and once a
-  migration to another snapshot completed, with `StaleSnapshot` (reason `Migrated`). An apply with nothing to write
-  sends its transaction and meets the check too, so a stale `Db` never answers it `no-change`. Deploy the code that
+  holds its snapshot: while a migration runs, its calls fail with a `stale` `CallError` (reason `Migrating`), and once a
+  migration to another snapshot completed, with `stale` (reason `Migrated`). A write with nothing to write sends its
+  transaction and meets the check too, so a stale `Db` never answers it `unchanged`. Deploy the code that
   carries the new snapshot.json, and open new `Db`s with it.
-- Handle a failure by its reason: grizzle's errors, the engine's `CompileError`, `EncodingFailure` and `CursorError`
-  among them, carry what happened as a tagged `reason`, so `Effect.catchReason("TransientFailure", "PutTargetConflict",
-  f)` handles one case and keeps every other, and an error's `stage` and `message` follow from it. Read a refusal's
-  facts from its reason (a `CompileError`'s `OutsideRole` names the `role` and the `access`), never from its message,
-  and a server's error by its `sqlstate` and the fields it names, never by its words, which follow `lc_messages`.
-  Retry only `TransientFailure`, with `Effect.retry` and your own `Schedule`; after `CommitUnknown`, read back before running the call again.
-- In a test, build a failure or an outcome with grizzle's own constructors, never a cast or an object literal in a
-  class's place: every error and reason class is exported as a value, the class grizzle builds it with
-  (`new ReadFailure({ reason: new InputTooLarge({ bound }) })`); a server's report is `new ServerError({ sqlstate,
-  message, constraint, schema, table, column, dataType, detail, hint })`, each field stated, its `sqlstate` from
-  `Sqlstate.parse(code)`, which is `undefined` for a code that is no SQLSTATE; and `ApplyOutcome.committed(counts,
-  reads)`, `invariantRejected(refused, witness)` and `outsideWorld(relation)` build what `db.apply` answers.
-- A broken rule is an outcome of `db.apply`, never an error. `invariant-rejected` carries `refused`,
+- Handle a call's failure by its `CallError`'s `kind`, one of a closed set, and its `retry`: `"safe"` when the same
+  call may succeed run again (`transient`, its `reason` naming the concurrent work that refused it; `unavailable`;
+  `transport`; `tokenExpired`), `"never"` otherwise (`input`, `tokenRefused`, `refused`, `outsideWorld`, `stale`,
+  `commitUnknown`, `failed`, and over HTTP `route`). Its `message` is the failure's own words, the server's report
+  where the database refused; read facts from the kind's members, never from the message. Run a call again only when
+  its `retry` is `"safe"`, with `Effect.retry` and your own `Schedule`; after `commitUnknown`, read back before running
+  the call again. `DbLayer.make` and `Db.open` fail with `OpenError`, whose tagged `reason` `Effect.catchReason`
+  reaches; every error and reason class is exported as a value, so a test builds the exact value, never a cast.
+- A broken rule is a write's `refused` `CallError`, its `retry` `"never"`. It carries `refused`,
   `{ kind: "every" | "first" | "some", laws }`, whose `laws` are never empty, each `{ law, id, by }`: `law` the law as
   the schema states it, such as `{ kind: "check", relation: "Grant", name: "WithinGrant" }`, which you match on
   directly, never on a constraint's name; `id` its identity, a LawId, or a GeneratedLawId for a generated field's law;

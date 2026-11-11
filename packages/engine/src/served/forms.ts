@@ -1,4 +1,3 @@
-import type { CursorGeneration } from "#compiler/codec/cursor/identity.ts"
 import type { DecoderForm } from "#compiler/core/decoder.ts"
 import type { DeclaredName } from "#compiler/core/identity.ts"
 import type {
@@ -26,7 +25,6 @@ import type { PageRequestProgram } from "#compiler/lower/shapes/page/compile.ts"
 import type {
 	PageComparator,
 	PageVariant,
-	ProbeKind,
 	VariantFill
 } from "#compiler/lower/shapes/page/seek.ts"
 import type { ChoiceInput } from "#compiler/lower/shapes/take/index.ts"
@@ -327,8 +325,8 @@ export type ServedPageProgram<F extends PageFill = PageFill> = ServedProgram<
 >
 
 /**
- * One request variant of a page (lower/shapes/page/compile.ts PageRequestProgram): its program, with how it fetches,
- * the flag its lookahead row proves, an anchored variant's probe, and how it delivers its rows.
+ * One window variant of a page (lower/shapes/page/compile.ts PageRequestProgram): its program, with the direction it
+ * fetches in and how it delivers its rows.
  */
 export type ServedPageRequest<V extends PageVariant = PageVariant> = {
 	readonly [P in V]: Omit<PageRequestProgram<P>, "program"> & {
@@ -336,26 +334,15 @@ export type ServedPageRequest<V extends PageVariant = PageVariant> = {
 	}
 }[V]
 
-/** One probe of a page: its program of one part, delivering one row of its one Boolean column. */
-export interface ServedPageProbe<K extends ProbeKind> {
-	readonly kind: K
-	readonly program: ServedPageProgram
-	readonly column: HeadingColumn
-}
-
 /**
- * An ordered query's page: its completed order, its cursor's comparators, its delivered heading, each request
- * variant's and probe's statements with their specs emitted, the query's semantic fingerprint and its schema's cursor
- * generation, which the cursor codec is rebuilt from. Its parameters and spine are its read's.
+ * An ordered query's page: its completed order, the comparators a window's anchor key is written by, its delivered
+ * heading, and each window variant's statements with their specs emitted. Its parameters and spine are its read's.
  */
 export interface ServedPage {
 	readonly order: CompletedOrder
 	readonly comparators: ReadonlyArray<PageComparator>
 	readonly heading: Heading
 	readonly requests: { readonly [V in PageVariant]: ServedPageRequest<V> }
-	readonly probes: { readonly [K in ProbeKind]: ServedPageProbe<K> }
-	readonly query: string
-	readonly generation: CursorGeneration
 }
 
 /**

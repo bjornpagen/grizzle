@@ -16,7 +16,6 @@ import type { LogicalQuery, PageFill, SizeFill } from "#compiler/ir/products.ts"
 import type {
 	CompletedOrder,
 	Heading,
-	HeadingColumn,
 	HeadingGroup,
 	NodeOf,
 	OrderKey,
@@ -68,10 +67,9 @@ import {
 	partedConservative,
 	type ShapeChoice,
 	ShapeState,
-	withBoundary,
-	withoutBoundary
+	withBoundary
 } from "#compiler/lower/shapes/index.ts"
-import { pagedRows, probeTest, retainedGroupRows } from "#compiler/lower/shapes/page/rows.ts"
+import { pagedRows, retainedGroupRows } from "#compiler/lower/shapes/page/rows.ts"
 import {
 	type AnchoredVariant,
 	anchoredSeek,
@@ -80,10 +78,8 @@ import {
 	type PageDirection,
 	type PageVariant,
 	type PlainVariant,
-	type ProbeKind,
 	pageComparators,
 	plainSlots,
-	probeSeek,
 	type RequestSlots,
 	reversedCompletedOrder,
 	type VariantFill,
@@ -99,9 +95,8 @@ import type { ChoiceInput, PageInput } from "#compiler/lower/shapes/take/index.t
 import { orderIsTotal } from "#compiler/lower/shapes/take/order.ts"
 import { assertMergeOrder, groupRows } from "#compiler/lower/shapes/union/index.ts"
 import type { AttachedTree, RowsRole, StatementRoots } from "#compiler/runtime/lower/tree.ts"
-import { plainType } from "#compiler/scalar/native.ts"
 import type { Expr, OperandSelect, OrderItem, Select } from "#compiler/sql/ast.ts"
-import { and, keyedSet, or, provedCore, select, target } from "#compiler/sql/build.ts"
+import { and, keyedSet, select } from "#compiler/sql/build.ts"
 
 /**
  * A page's program in its optimized artifact: one statement of parts, whose attachments choose by a relation
@@ -112,44 +107,17 @@ export type PageProgram<F extends PageFill = PageFill> = PartedStatement<
 	PageStatementSlot<F>
 >
 
-/** How a request variant fetches and the flag its lookahead row proves. */
-interface FetchFlags {
-	readonly direction: PageDirection
-	readonly lookahead: "hasNextPage" | "hasPreviousPage"
-}
-
-/** An anchored request's flags, and the probe of the opposite flag on its anchor (seek.ts probeKinds). */
-interface AnchoredFlags extends FetchFlags {
-	readonly probe: ProbeKind
-}
-
 /**
- * How each request variant fetches and establishes its flags. first and last have no probe: nothing precedes the first
- * tuple of D or follows its last.
- */
-const requestFlags = {
-	first: { direction: "forward", lookahead: "hasNextPage" },
-	after: { direction: "forward", lookahead: "hasNextPage", probe: "atOrBefore" },
-	last: { direction: "backward", lookahead: "hasPreviousPage" },
-	before: { direction: "backward", lookahead: "hasPreviousPage", probe: "atOrAfter" }
-} as const satisfies {
-	readonly first: FetchFlags
-	readonly after: AnchoredFlags
-	readonly last: FetchFlags
-	readonly before: AnchoredFlags
-}
-type PageRequestFlags = typeof requestFlags
-
-/**
- * One request variant: its flags, how it delivers its rows, and its program, the rows parts (one, or one per heading
- * group) with their attachments' after each; for a heterogeneous union the runtime merges its heading groups' rows in
- * `order`, the fetch order, and keeps the limit of them.
+ * One window variant: the direction it fetches in, how it delivers its rows, and its program, the rows parts (one, or
+ * one per heading group) with their attachments' after each; for a heterogeneous union the runtime merges its heading
+ * groups' rows in `order`, the fetch order, and keeps the size of them.
  * A mapped type indexed by its own keys, so a union of variants is the union of their programs, and the program of a
  * generic variant is the one an implementation over that variant builds.
  */
 export type PageRequestProgram<V extends PageVariant = PageVariant> = {
-	readonly [P in V]: PageRequestFlags[P] & {
+	readonly [P in V]: {
 		readonly variant: P
+		readonly direction: PageDirection
 		readonly delivery: PageRequestDelivery
 		readonly program: PageProgram<VariantFill[P]>
 	}
@@ -167,16 +135,9 @@ type PageRequestDelivery =
 			readonly order: CompletedOrder
 	  }
 
-/** One probe: its program of one part, delivering one row of its one Boolean column, `probeColumn`. */
-export interface PageProbeProgram<K extends ProbeKind = ProbeKind> {
-	readonly kind: K
-	readonly program: PageProgram
-	readonly column: HeadingColumn
-}
-
+/** A page's artifact: every window variant's program. */
 export interface PageArtifact {
 	readonly requests: { readonly [V in PageVariant]: PageRequestProgram<V> }
-	readonly probes: { readonly [K in ProbeKind]: PageProbeProgram<K> }
 }
 
 export interface PageTemplate {
@@ -185,14 +146,14 @@ export interface PageTemplate {
 	 * completion policy (pageOrderOf).
 	 */
 	readonly order: CompletedOrder
-	/** The cursor's comparison tuple, read from each delivered edge by field name. */
+	/** A row's comparison tuple, its key, read from each delivered row by field name. */
 	readonly comparators: ReadonlyArray<PageComparator>
 	/**
 	 * The delivered heading: the rows' heading, or a heterogeneous union's common heading, which every group carries.
 	 * A heterogeneous union's requests deliver per heading group, each request's delivery naming the discriminant.
 	 */
 	readonly heading: Heading
-	/** The optimized artifact: every request's and probe's statements, as the runtime sends them. */
+	/** The optimized artifact: every window variant's statements, as the runtime sends them. */
 	readonly artifact: PageArtifact
 }
 
@@ -227,13 +188,6 @@ interface StatedOrder {
 	readonly at: SourceLoc
 }
 
-/** The column a probe statement delivers. */
-const probeColumn = "__exists"
-
-const probeBoolean: HeadingColumn = { name: probeColumn, type: plainType("bool") }
-
-const probeHeading: Heading = [probeBoolean]
-
 /** What a page delivers in one artifact: one relation, or one per heading group. */
 type PageShape =
 	| {
@@ -253,7 +207,7 @@ type PageShape =
 /**
  * One artifact's lowering: a fresh context and delivery, whose statements' page placeholders are each filled by one of
  * `F`, its parts of kind `S` and programs of kind `P`, and the artifact's own forms of D's rows, a heading group's
- * rows, the delivery order, a probe's input and the attachments.
+ * rows, the delivery order and the attachments.
  */
 interface Kit<F extends PageFill, S, P> {
 	readonly cx: LowerContext
@@ -279,7 +233,6 @@ interface Kit<F extends PageFill, S, P> {
 		origin: RelNode,
 		originHeading: Heading
 	) => ReadonlyArray<OrderItem>
-	readonly probeRel: (rel: OperandSelect) => OperandSelect
 	/**
 	 * The page's rows of `origin`, of heading `heading`, that its attachments read, which `retained` lowers: at most the
 	 * requested size of them, held once by the statement or computed again in each attachment's own.
@@ -357,7 +310,6 @@ const conservativeKit = <F extends PageFill>(
 			return filtered(cx, plan, rel, g.heading, true)
 		},
 		order: (order, heading, map) => completedOrderItems(order, heading, map),
-		probeRel: (rel) => rel,
 		retained: (retained, heading, origin) => ({
 			...statementRows(cx, heading, origin, retained, noRowKeys),
 			bound: pageBound
@@ -404,7 +356,6 @@ const optimizedKit = <F extends PageFill>(
 				total: orderIsTotal(facts, origin, order, originHeading),
 				fixed: []
 			}),
-		probeRel: (rel) => withoutBoundary(rel, "operand"),
 		retained: (retained, heading, origin) =>
 			delivery.heldRows(retained(), heading, origin, pageBound),
 		attach: (rows, spine, attachments) =>
@@ -511,8 +462,8 @@ const sourcesOf = <F extends PageFill, S, P>(
 }
 
 /**
- * One request variant's program, its page placeholders those `slotsOf` allocates into its parameter list: a plain
- * request's sizes, an anchored one's sizes and boundaries.
+ * One window variant's program, its page placeholders those `slotsOf` allocates into its parameter list: a plain
+ * window's size, an anchored one's size and boundaries.
  */
 const requestProgram = <F extends PageFill, S, P>(
 	kit: Kit<F, S, P>,
@@ -525,8 +476,8 @@ const requestProgram = <F extends PageFill, S, P>(
 	const direction = variantDirection(variant)
 	const sources = sourcesOf(kit, shape)
 	/**
-	 * One source's rows after its anchor's seek, in the fetch order, bounded by `limit`, which is allocated after the
-	 * rows' own placeholders and before the seek's.
+	 * One source's rows after its anchor's seek, in the fetch order, bounded by `limit`, the window's size, which is
+	 * allocated after the rows' own placeholders and before the seek's.
 	 */
 	const paged = (source: PageSource<S>, slots: RequestSlots, limit: () => Expr): Select =>
 		pagedRows(cx, {
@@ -542,8 +493,8 @@ const requestProgram = <F extends PageFill, S, P>(
 	return kit.program(() => {
 		const slots = kit.slots(() => slotsOf(kit.delivery.params))
 		/**
-		 * The rows the page delivers of a source, its lookahead row dropped and a heading group's rows cut by the merge
-		 * (rows.ts retainedGroupRows), which its attachments read.
+		 * The rows the window delivers of a source, a heading group's rows cut by the merge (rows.ts retainedGroupRows),
+		 * which its attachments read.
 		 */
 		const retained = (source: PageSource<S>): Select => {
 			const at = `node ${source.origin.id} (page ${variant} attachment)`
@@ -569,7 +520,7 @@ const requestProgram = <F extends PageFill, S, P>(
 			const statement = kit.part(
 				() => {
 					const own = slots()
-					return paged(source, own, () => own.sizes.limit())
+					return paged(source, own, () => own.sizes.size())
 				},
 				source.heading,
 				source.role
@@ -582,45 +533,8 @@ const requestProgram = <F extends PageFill, S, P>(
 	})
 }
 
-/** One probe's program: SELECT EXISTS (D_1 after the seek) OR ... OR EXISTS (D_n after the seek). */
-const probeProgram = <S, P>(
-	kit: Kit<PageFill, S, P>,
-	shape: PageShape,
-	comparators: ReadonlyArray<PageComparator>,
-	kind: ProbeKind
-): P => {
-	const cx = kit.cx
-	const sources = sourcesOf(kit, shape)
-	return kit.program(() => [
-		{
-			statement: kit.part(
-				() => {
-					const { anchor } = anchoredSlots(
-						kit.delivery.params,
-						(t) => cx.baseTypeRef(t),
-						comparators,
-						probeSeek(kind)
-					)
-					const tests = mapNonEmpty(sources, (source) =>
-						probeTest(cx, {
-							rel: kit.probeRel(source.rel()),
-							heading: source.heading,
-							origin: { kind: "node", node: source.origin.id },
-							anchor
-						})
-					)
-					return select(provedCore("oneRow", [target(or(tests))], [], undefined))
-				},
-				probeHeading,
-				{ kind: "main" }
-			),
-			attachments: []
-		}
-	])
-}
-
 /**
- * How a request variant delivers its rows: its one rows part's, or a heterogeneous union's heading groups', which the
+ * How a window variant delivers its rows: its one rows part's, or a heterogeneous union's heading groups', which the
  * runtime merges in the fetch order.
  */
 const requestDelivery = (shape: PageShape, variant: PageVariant): PageRequestDelivery => {
@@ -636,8 +550,8 @@ const requestDelivery = (shape: PageShape, variant: PageVariant): PageRequestDel
 }
 
 /**
- * The kits of one artifact, each call a fresh one: a plain request's, whose statement holds size fills alone, and an
- * anchored request's or a probe's, which hold boundaries too.
+ * The kits of one artifact, each call a fresh one: a plain window's, whose statement holds its size fill alone, and an
+ * anchored window's, which holds boundaries too.
  */
 interface ArtifactKits<SP, SA> {
 	readonly plain: () => Kit<SizeFill, SP, PageProgram<SizeFill>>
@@ -645,8 +559,8 @@ interface ArtifactKits<SP, SA> {
 }
 
 /**
- * Every request variant and probe of a page's artifact over the ordered result `root`, each lowered with a fresh kit of
- * `kits`, in the page's order.
+ * Every window variant of a page's artifact over the ordered result `root`, each lowered with a fresh kit of `kits`, in
+ * the page's order.
  */
 const artifactOf = <SP, SA>(
 	kits: ArtifactKits<SP, SA>,
@@ -662,8 +576,8 @@ const artifactOf = <SP, SA>(
 		const kit = kits.plain()
 		const shape = shapeIn(kit)
 		return {
-			...requestFlags[variant],
 			variant,
+			direction: variantDirection(variant),
 			delivery: requestDelivery(shape, variant),
 			program: requestProgram(kit, shape, comparators, variant, plainSlots)
 		}
@@ -672,39 +586,28 @@ const artifactOf = <SP, SA>(
 		const kit = kits.anchored()
 		const shape = shapeIn(kit)
 		return {
-			...requestFlags[variant],
 			variant,
+			direction: variantDirection(variant),
 			delivery: requestDelivery(shape, variant),
 			program: requestProgram(kit, shape, comparators, variant, (params) =>
 				anchoredSlots(params, (t) => kit.cx.baseTypeRef(t), comparators, anchoredSeek(variant))
 			)
 		}
 	}
-	const probeOf = <K extends ProbeKind>(kind: K): PageProbeProgram<K> => {
-		const kit = kits.anchored()
-		return {
-			kind,
-			program: probeProgram(kit, shapeIn(kit), comparators, kind),
-			column: probeBoolean
+	/** Lowered in the order of pageVariants, each with a fresh kit. */
+	return {
+		requests: {
+			first: plainOf("first"),
+			after: anchoredOf("after"),
+			last: plainOf("last"),
+			before: anchoredOf("before")
 		}
 	}
-	/** Lowered in the order of pageVariants and probeKinds, each with a fresh kit. */
-	const requests: PageArtifact["requests"] = {
-		first: plainOf("first"),
-		after: anchoredOf("after"),
-		last: plainOf("last"),
-		before: anchoredOf("before")
-	}
-	const probes: PageArtifact["probes"] = {
-		atOrBefore: probeOf("atOrBefore"),
-		atOrAfter: probeOf("atOrAfter")
-	}
-	return { requests, probes }
 }
 
 /**
  * The page oracle's baseline artifact over the checked query's ordered result `root`, in `order` and `comparators`:
- * every request variant and probe lowered by the conservative kit (conservativeKit), which no page compiles
+ * every window variant lowered by the conservative kit (conservativeKit), which no page compiles
  * (test/support/conservative.ts conservativePage).
  */
 export const conservativePageArtifact = (
@@ -748,7 +651,7 @@ export const statedOrderOf = (
  * The order a page compares by: the user's stated keys completed into a total order of the delivered relation `origin`
  * by the order completion policy (logical/order.ts completeOrder), under `evidence` (the schema's query evidence) in
  * the transaction context: evidence that holds in every execution context and at every statement, immediate keys and
- * query-local facts, so one cursor serves a template in either context. The stated fields keep their sequence and
+ * query-local facts, so one row's key anchors a window of the template in either context. The stated fields keep their sequence and
  * directions; if they are not total, a heterogeneous union's discriminant follows them, ascending, then the narrowest
  * proved retained key's other fields, ascending, or without one the rest of the heading. For the paging example's
  * orderedTasks that is priority DESC, id ASC. A relation of at most one tuple compares by the empty tuple. A union
@@ -789,55 +692,48 @@ const unionPageOrder = (
 }
 
 /**
- * The page template of a compiled ordered query: every request variant and probe of its optimized artifact.
+ * The page template of a compiled ordered query: every window variant of its optimized artifact.
  *
  * The page compiler.
  *
- * A compiled ordered query becomes the statements of every page request:
+ * A compiled ordered query becomes the statements of every window, one per anchor kind:
  *
- * - four request variants, { first }, { first, after }, { last } and { last, before }, each one statement of its own
- *   parts with no nullable cursor slot. A variant's rows part is take(k + 1) of the distinct result D
+ * - four window variants, first (from the start), after (a key), last (from the end) and before (a key), each one
+ *   statement of its own parts with no nullable boundary slot. A variant's rows part is take(k) of the distinct result D
  *   in its fetch order after its seek (rows.ts): the declared order for first and after, every direction reversed for
- *   last and before, whose retained rows the runtime reverses back to the presentation order. The limit
- *   is a placeholder the runtime fills with the validated size plus one (seek.ts SizeSlots), and an anchored variant's
- *   boundary values are placeholders it fills from the decoded cursor, one per comparator (seek.ts BoundarySlots); a
- *   plain variant's statement holds no boundary placeholder, by its type (seek.ts VariantFill);
- * - two probes, each one statement of one Boolean column: whether D holds a tuple at or before, or at or after, a
- *   boundary. The lookahead proves the flag in the fetching direction; a probe proves the opposite one from the
- *   request's anchor, which decides it for an empty page and a nonempty one alike (seek.ts probeKinds), so the probe
- *   goes in the rows' flight. A first or last request needs no probe: nothing precedes the first tuple of D or follows
- *   its last. Rows and probe run in one snapshot, which the runtime provides;
- * - a heterogeneous union delivered per heading group (R21) pages each group: every group
- *   part takes k + 1 in the common fetch order after the same seek on the common comparators, the discriminant
- *   among them, and the runtime merges the groups on that order and keeps k + 1 (union/index.ts mergeHeadingGroups),
- *   because the first n of the union lie among the first n of each group. A probe tests every group in one statement,
- *   EXISTS per group joined by OR. A bounded union (a take under the order) is refused: its members depend on the merge
+ *   last and before, whose rows the runtime reverses back to the presentation order. The limit is a placeholder the
+ *   runtime fills with the window's size (seek.ts SizeSlots), and an anchored variant's boundary values are placeholders
+ *   it fills from the anchor's key, one per comparator, each written by its comparator's codec (seek.ts
+ *   BoundarySlots); a plain variant's statement holds no boundary placeholder, by its type (seek.ts VariantFill).
+ *   Whether rows lie beyond a window is no flag of it: the adjacent window, anchored at its first or last row's key,
+ *   answers them, so no statement fetches past the size and no second statement asks;
+ * - a heterogeneous union delivered per heading group (R21) pages each group: every group part takes k in the common
+ *   fetch order after the same seek on the common comparators, the discriminant among them, and the runtime merges the
+ *   groups on that order and keeps k (union/index.ts mergeHeadingGroups), because the first n of the union lie among
+ *   the first n of each group. A bounded union (a take under the order) is refused: its members depend on the merge
  *   across groups, which no group part sees;
- * - attachments are evaluated over the delivered page only: each is a part of the request's statement over the
- *   delivered page, which the statement holds once (OptimizedDelivery heldRows), the lookahead row dropped and a
- *   heading group's rows cut by the merge (rows.ts retainedGroupRows), so the parent's plan is the plan the page would
- *   have alone. A page never fuses an attachment into its rows part (R36), whose array would be evaluated for the
- *   lookahead row as well.
+ * - attachments are evaluated over the delivered window only: each is a part of the window's statement over the
+ *   delivered rows, which the statement holds once (OptimizedDelivery heldRows), a heading group's rows cut by the
+ *   merge (rows.ts retainedGroupRows), so the parent's plan is the plan the window would have alone. A window never
+ *   fuses an attachment into its rows part (R36).
  *
  * The optimized artifact lowers the rewritten query under its duplicate-elimination placement and CTE plan through the
  * shape dispatch (../index.ts); the page oracle's conservative one (test/support/conservative.ts conservativePage)
- * lowers the checked query through the baseline plug-ins, which deduplicate at every set boundary. Both deliver D as a set before the bound: the optimized rows are
- * deduplicated unless the facts prove them unique, so a retained-key page is a plain SELECT with no Unique node, and
- * no hidden key manufactures distinct answers (R17). A probe reads D under EXISTS, which is
- * duplicate-insensitive, so the optimized probe drops D's outermost DISTINCT.
+ * lowers the checked query through the baseline plug-ins, which deduplicate at every set boundary. Both deliver D as a
+ * set before the bound: the optimized rows are deduplicated unless the facts prove them unique, so a retained-key
+ * window is a plain SELECT with no Unique node, and no hidden key manufactures distinct answers (R17).
  *
  * The comparators are the page order's keys over the delivered heading: the user's stated order completed by the order
  * completion policy under evidence valid in every execution context (pageOrderOf), the same in both artifacts, so one
- * cursor serves either. A shape choice per execution (R20), such as an attached take over the delivered page, chosen
- * by the requested size, yields each statement's other form as a variant, as the template does.
+ * row's key anchors either. A shape choice per execution (R20), such as an attached take over the delivered window,
+ * chosen by the window's size, yields each statement's other form as a variant, as the template does.
  *
- * Keyset pages in the optimized lowering.
+ * Keyset windows in the optimized lowering.
  *
- * seek.ts: the request variants, the comparators, the seek predicate (native row comparison for one direction, the
- * lexicographic OR expansion for mixed directions, strict and inclusive) and the page placeholders. rows.ts: the paged
- * statement shape and the EXISTS probe. compile.ts: the page compiler, which turns a compiled ordered query into the
- * statements of every request variant and every probe; it reads the shape dispatch (../index.ts), so it is imported
- * from its own path rather than re-exported here.
+ * seek.ts: the window variants, the comparators, the strict seek predicate (native row comparison for one direction,
+ * the lexicographic OR expansion for mixed directions) and the page placeholders. rows.ts: the paged statement shape.
+ * compile.ts: the page compiler, which turns a compiled ordered query into the statements of every window variant; it
+ * reads the shape dispatch (../index.ts), so it is imported from its own path rather than re-exported here.
  *
  * A page is no node of the IR: it is compiled from the ordered query's template by compile.ts, which lowers the paged
  * statements directly.

@@ -47,8 +47,7 @@ import { caseHang } from "#test/support/limits.ts"
  * has no earlier state, so none is stale. A valid input one of whose fields is an accessor returning its valid value is
  * refused at that field's record, its getter never called: a reader that called it would admit the input.
  *
- * Plants (~/.cache/grizzle-release/BR04/plants): boundary-page-size-zero.patch (a page of size 0 is admitted), applied
- * to page/window.ts isWindowSize.
+ * Plant (~/.cache/grizzle-release/LIVE-WATCH/plants): boundary-window-size-zero.patch (a window of size 0 is admitted).
  *
  * Features: each live anchor kind, each wild kind at each site, each fault, each accessor; and each schema door's live
  * and wild values.

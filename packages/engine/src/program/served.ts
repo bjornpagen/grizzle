@@ -1,5 +1,4 @@
 import { keyedBy } from "#compiler/analysis/physical/props.ts"
-import type { CursorGeneration } from "#compiler/codec/cursor/identity.ts"
 import type { DecoderForm, RowDecoder } from "#compiler/core/decoder.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { isList } from "#compiler/core/record.ts"
@@ -14,12 +13,11 @@ import { keySetOf } from "#compiler/lower/conservative/keys.ts"
 import type { PageStatementSlot } from "#compiler/lower/conservative/types.ts"
 import type { SentStatement } from "#compiler/lower/shapes/index.ts"
 import type {
-	PageProbeProgram,
 	PageProgram,
 	PageRequestProgram,
 	PageTemplate
 } from "#compiler/lower/shapes/page/compile.ts"
-import type { PageVariant, ProbeKind } from "#compiler/lower/shapes/page/seek.ts"
+import type { PageVariant } from "#compiler/lower/shapes/page/seek.ts"
 import { sentSpec } from "#compiler/lower/template.ts"
 import { loginStartupOptions } from "#compiler/physical/ddl/roles.ts"
 import type { QueryTemplate } from "#compiler/program/compile.ts"
@@ -29,7 +27,6 @@ import type {
 	ServedFootprint,
 	ServedKey,
 	ServedPage,
-	ServedPageProbe,
 	ServedPageProgram,
 	ServedPageRequest,
 	ServedRead,
@@ -155,27 +152,16 @@ const servedPageProgram = <F extends PageFill>(
 }
 
 /**
- * An ordered query's page, served (served/forms.ts ServedPage): its order, comparators and heading, each request's and
- * probe's program with its statement's spec emitted now under the installation's codes `codes`, and its cursor's
- * identity, the query's semantic fingerprint `query` and its schema's generation `generation`.
+ * An ordered query's page, served (served/forms.ts ServedPage): its order, comparators and heading, and each window
+ * variant's program with its statement's spec emitted now under the installation's codes `codes`.
  */
-export const servedPage = (
-	page: PageTemplate,
-	codes: Codebook,
-	query: string,
-	generation: CursorGeneration
-): ServedPage => {
-	const { requests, probes } = page.artifact
+export const servedPage = (page: PageTemplate, codes: Codebook): ServedPage => {
+	const { requests } = page.artifact
 	const request = <V extends PageVariant>(
 		program: PageRequestProgram<V>
 	): ServedPageRequest<V> => ({
 		...program,
 		program: servedPageProgram(program.program, codes)
-	})
-	const probe = <K extends ProbeKind>(program: PageProbeProgram<K>): ServedPageProbe<K> => ({
-		kind: program.kind,
-		program: servedPageProgram(program.program, codes),
-		column: { name: program.column.name, type: program.column.type }
 	})
 	return {
 		order: page.order,
@@ -190,10 +176,7 @@ export const servedPage = (
 			after: request(requests.after),
 			last: request(requests.last),
 			before: request(requests.before)
-		},
-		probes: { atOrBefore: probe(probes.atOrBefore), atOrAfter: probe(probes.atOrAfter) },
-		query,
-		generation
+		}
 	}
 }
 

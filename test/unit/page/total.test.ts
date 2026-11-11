@@ -480,8 +480,6 @@ describe("the page compiler and the page runtime template", () => {
 							const runtime = compiledPageRuntime({
 								page: template,
 								params: query.params,
-								query: "unit/page/runtime-total",
-								generation: { schema: "oracle", extensions: {} },
 								spine: everyColumnCarried(query.dag),
 								codes
 							})

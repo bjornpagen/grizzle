@@ -127,8 +127,6 @@ export const conservativePageRuntime = (
 					},
 					params: runtime.params,
 					codes: artifacts.names.codes,
-					query: runtime.page.query,
-					generation: runtime.page.generation,
 					spine: servedSpine(desc)
 				}),
 				artifact

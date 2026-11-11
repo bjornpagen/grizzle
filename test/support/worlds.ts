@@ -1,6 +1,5 @@
 import { Array as Arr, Effect, Record as Rec, type Scope } from "effect"
 import { TokenError } from "#adapter/errors/failures.ts"
-import { base64urlDecode, base64urlEncode } from "#compiler/codec/cursor/base64url.ts"
 import type { Json } from "#compiler/core/canonical.ts"
 import { jsonText, trusted, trustedJson } from "#compiler/core/trusted.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
@@ -110,7 +109,16 @@ export type FullWorld<
  * The token of a payload's `text`, as every door reads a token (adapter/db/token.ts parseToken, a token68): the text's
  * UTF-8 bytes in base64url (RFC 4648 section 5), as a JWT's segments are, so Db.open and an HTTP call accept it alike.
  */
-export const tokenText = (text: string): string => base64urlEncode(utf8.encode(text))
+export const tokenText = (text: string): string => Buffer.from(utf8.encode(text)).toString("base64url")
+
+/**
+ * The bytes a base64url text spells (RFC 4648 section 5, unpadded), or none for a text that is no canonical base64url:
+ * the platform's decoding, which skips what it cannot read, held to the text its bytes encode back to.
+ */
+const base64urlBytes = (text: string): Uint8Array | undefined => {
+	const bytes = Buffer.from(text, "base64url")
+	return bytes.toString("base64url") === text ? bytes : undefined
+}
 
 /** The token of `payload`: its JSON text, as a token (tokenText). */
 export const tokenOf = (payload: Json): string => tokenText(jsonText(payload))
@@ -124,7 +132,7 @@ const utf8Strict = new TextDecoder("utf-8", { fatal: true })
  * that spells no UTF-8 text or a text that holds no JSON.
  */
 export const testVerify = (token: string): Effect.Effect<unknown, TokenError> => {
-	const bytes = base64urlDecode(token)
+	const bytes = base64urlBytes(token)
 	return bytes === undefined
 		? Effect.fail(new TokenError({ cause: "the token spells no base64url text" }))
 		: Effect.try({

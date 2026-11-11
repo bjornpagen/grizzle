@@ -1,6 +1,6 @@
 import { Array as Arr, Deferred, Effect, Exit, Option, Ref, Result } from "effect"
 import type { ServedDbContext } from "#adapter/db/context.ts"
-import { readCallOf } from "#adapter/db/handles.ts"
+import { memberCalls, readCallOf } from "#adapter/db/handles.ts"
 import { toResult } from "#adapter/engine.ts"
 import type { ReadError } from "#adapter/errors/execution.ts"
 import type { DecodedRow } from "#adapter/reader/stream.ts"
@@ -19,6 +19,7 @@ import {
 	testArtifacts
 } from "#test/support/compile.ts"
 import { conservativePageRuntime } from "#test/support/conservative.ts"
+import { readOnce } from "#test/support/calls.ts"
 import { flown, readThrough } from "#test/support/read-calls.ts"
 import { factKeySet, sameFact } from "#test/support/worlds/model/host.ts"
 import type { HostFact } from "#test/support/worlds/model/types.ts"
@@ -342,4 +343,30 @@ export const artifactsAgree = <E>(
 			Effect.all([sideRead("optimized"), sideRead("conservative")], { concurrency: "unbounded" })
 		)
 		return sameDelivery(optimized, conservative)
+	})
+
+/**
+ * Whether a member's public once delivers what its flight does (sameDelivery): `read` reads through the member as the
+ * Db's read did, once with each call's statement sent in a flight of its own (readerOf over flown), and once through the
+ * member's once (adapter/db/handles.ts memberCalls), its stream folded to its value, each call its own transaction at
+ * the one state no writer moves between them. The flight's rows are the ones the differential holds to the model and to
+ * the conservative artifact, so a once that agrees with them answers the model's rows. A once that fails where the
+ * flight answered is a defect of the run.
+ *
+ * Plant (~/.cache/grizzle-release/LIVE-WATCH/plants): stream-drop-first-row.patch (a read's stream drops its first
+ * row) turns it red wherever a read delivers a row.
+ */
+export const onceAgrees = <E>(
+	ctx: ServedDbContext,
+	member: LoadedMember,
+	read: (reader: MemberReader) => Effect.Effect<Delivery, E>
+): Effect.Effect<boolean> =>
+	Effect.gen(function* () {
+		const flight = readerOf(member, (statements) => flown(ctx, statements))
+		const viaFlight = yield* Effect.orDie(read(flight))
+		const once = readOnce(memberCalls(ctx, member))
+		const viaOnce = yield* Effect.orDie(
+			read({ fields: flight.fields, read: (input) => Effect.orDie(once(input)) })
+		)
+		return sameDelivery(viaFlight, viaOnce)
 	})

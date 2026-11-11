@@ -27,6 +27,7 @@ import {
 	artifactsAgree,
 	type Delivery,
 	type MemberReader,
+	onceAgrees,
 	readerOf,
 	servedMembers,
 	sidedMembers
@@ -555,7 +556,8 @@ const readVia = (
 
 /**
  * A read of a role relation, through a program over the role, by the path `via` names, served as a member of the
- * role's workload (servedFileOf) and run on the Db's context, then held to its conservative artifact (artifacts.ts).
+ * role's workload (servedFileOf) and run on the Db's context, then held to its conservative artifact (artifacts.ts), and
+ * read again through the member's public once, which must deliver what its flight did (artifacts.ts onceAgrees).
  */
 export const readSession = (
 	session: DbSession,
@@ -591,10 +593,8 @@ export const readSession = (
 				})
 			)
 		}
-		const served = readerOf(
-			defined(sided.success.optimized.get(readMember), "the read's served member"),
-			(statements) => flown(session.ctx, statements)
-		)
+		const optimized = defined(sided.success.optimized.get(readMember), "the read's served member")
+		const served = readerOf(optimized, (statements) => flown(session.ctx, statements))
 		const facts = yield* Effect.result(read.success.facts(served))
 		if (Result.isFailure(facts)) {
 			const error = facts.failure
@@ -604,6 +604,16 @@ export const readSession = (
 		const agree = yield* artifactsAgree(session.ctx, sided.success, (reader) =>
 			read.success.delivered(reader(readMember))
 		)
+		const viaOnce = yield* onceAgrees(session.ctx, optimized, (reader) =>
+			read.success.delivered(reader)
+		)
+		if (!viaOnce) {
+			return yield* Effect.die(
+				new Error("a read member's once delivers other rows than its flight", {
+					cause: { relation, via }
+				})
+			)
+		}
 		return agree
 			? seen({ kind: "rows", rows: facts.success })
 			: seen({ kind: "artifacts-disagree" })

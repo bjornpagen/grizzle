@@ -129,7 +129,7 @@ type Comparators = {
 
 /**
  * A numeric value at its typmod by `atTypmod`: parsed exactly (decimal.ts parseNumeric) or coerced as PostgreSQL
- * coerces a value it computes (normalizeNumeric). Without a typmod it is a computed numeric's, a cursor's boundary
+ * coerces a value it computes (normalizeNumeric). Without a typmod it is a computed numeric's, a window anchor's key
  * value of an aggregate column the only one a caller passes: every Decimal is within numeric's limits, and the computed
  * bound (ir/scalar.ts NumericBound) is a proof of the values the database computes, which a boundary value only meets
  * in a comparison.
@@ -284,7 +284,7 @@ const admitBy = <C extends Carrier>(
 }
 
 /**
- * The input boundary, one door for every caller's value, a parameter's, a fact's, a cursor's boundary value's: the
+ * The input boundary, one door for every caller's value, a parameter's, a fact's, a window anchor's key value's: the
  * exact parse of the value as its carrier's host value (parsers), or the fault that the declared type holds no such
  * value. PostgreSQL then enforces every law over it.
  */

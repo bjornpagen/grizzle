@@ -244,7 +244,7 @@ const textColumnUses = (analysis: DerivedAnalysis): ReadonlyArray<TextColumnUse>
  *   privilege on it. It is created after the tables, roster domains, constants and lower views its definition reads
  *   and after the domains its columns are typed by; a lower view joins the graph with this extension's
  *   contribution. WITH NO DATA makes creation cost nothing; the view is
- *   unpopulated, and unreadable, until its first `db.refresh`;
+ *   unpopulated, and unreadable, until its first refresh member's call;
  * - one unique index per inherited key, in Structure beside its view: `CREATE UNIQUE INDEX <key> ON <schema>.<view>
  *   USING btree (<cols>)`, plain columns, no expression and no predicate, the index REFRESH MATERIALIZED VIEW
  *   CONCURRENTLY requires, over the full heading when no narrower key is proven, named at the naming door

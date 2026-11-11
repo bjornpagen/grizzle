@@ -36,8 +36,8 @@ type Path = ReadonlyArray<string | number>
 
 /**
  * What grizzle reads back that it wrote, a MalformedArtifact's source: the snapshot (deploy/snapshot, the shell's
- * snapshot.json), the admission manifest, a migration folder's files and meta.json, the migrations ledger's rows, a
- * page's cursor token, and the canonical or fingerprinted value a digest is taken over.
+ * snapshot.json), the admission manifest, a migration folder's files and meta.json, the migrations ledger's rows, and
+ * the canonical or fingerprinted value a digest is taken over.
  */
 export type Artifact =
 	| "snapshot"
@@ -45,7 +45,6 @@ export type Artifact =
 	| "folder"
 	| "meta"
 	| "ledger"
-	| "cursor"
 	| "canonical"
 	| "fingerprint"
 
@@ -890,19 +889,6 @@ export const valueFaultWords = [
 export type ValueFault = (typeof valueFaultWords)[number]
 /** A codec's refusal words: the value faults and the null ban (codec/fault.ts). */
 export type CodecFault = ValueFault | "nullValue"
-/** A cursor token's refusal words, in the order validation checks them (codec/cursor/fault.ts). */
-const cursorFaultWords = [
-	"cursorType",
-	"cursorOversized",
-	"cursorEncoding",
-	"cursorMalformed",
-	"cursorGeneration",
-	"cursorQuery",
-	"cursorComparator",
-	"cursorValue",
-	"cursorTupleOversized"
-] as const
-export type CursorFault = (typeof cursorFaultWords)[number]
 /**
  * The engine's classification of a transient refusal, which the shell turns into the reason class of its
  * TransientFailure (adapter/errors/execution.ts transientReason): a concurrent transaction's work met the attempt, or a
@@ -965,11 +951,6 @@ export interface CodecReason {
 	readonly _tag: CodecFault
 }
 
-/** A cursor's refusal as a reason: its fault word as its tag, which is all it states (never the token). */
-export interface CursorReason {
-	readonly _tag: CursorFault
-}
-
 /**
  * Where a value an encoder refused sits: the parameter or member slot `name` (`parameter.field` for a member's field),
  * or a whole fact, whose shape belongs to no slot.
@@ -1011,28 +992,3 @@ export class EncodingFailure extends Error {
 	}
 }
 
-/**
- * A malformed, oversized, or mismatched cursor, checked on the host before any SQL: `reason` is the cursor's fault
- * (CursorReason), and its message names it.
- */
-export class CursorError extends Error {
-	readonly _tag = "CursorError" as const
-	readonly reason: CursorReason
-
-	constructor(reason: CursorReason) {
-		super(`the cursor was refused: ${reason._tag}`)
-		this.reason = reason
-	}
-
-	static {
-		Object.defineProperty(this.prototype, "name", {
-			value: "CursorError",
-			writable: true,
-			configurable: true
-		})
-	}
-
-	static make(reason: CursorReason): CursorError {
-		return new CursorError(reason)
-	}
-}

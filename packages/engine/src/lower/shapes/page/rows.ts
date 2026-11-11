@@ -17,15 +17,11 @@ import {
 import type { Expr, OperandSelect, OrderItem, Select } from "#compiler/sql/ast.ts"
 import {
 	countStar,
-	exists,
 	keyedSet,
-	lit,
 	lt,
 	provedCore,
 	select,
-	simpleSelect,
 	target,
-	types,
 	unionAll
 } from "#compiler/sql/build.ts"
 import type { NameOrigin } from "#compiler/sql/naming.ts"
@@ -35,7 +31,7 @@ interface PagedRowsSpec {
 	readonly rel: OperandSelect
 	readonly heading: Heading
 	readonly origin: NameOrigin
-	/** The seek past the anchor and its boundaries; none for a plain request. */
+	/** The seek past the anchor and its boundaries; none for a plain window. */
 	readonly anchor: Anchor | undefined
 	readonly direction: PageDirection
 	/** The ORDER BY of D in the declared order, over its columns as read. */
@@ -44,24 +40,20 @@ interface PagedRowsSpec {
 }
 
 /**
- * SELECT <heading> FROM (D) AS r(...) [WHERE seek] ORDER BY <order, reversed when backward> LIMIT <size + 1>.
+ * SELECT <heading> FROM (D) AS r(...) [WHERE seek] ORDER BY <order, reversed when backward> LIMIT <size>.
  *
- * The statement shapes of a keyset page.
+ * The statement shape of a keyset window.
  *
- * A page is take(k + 1) over the completed order plus the seek predicate: the distinct result D read as a
- * derived table, the seek on its delivered columns, ORDER BY the completed order (every direction reversed for a
- * backward variant), and LIMIT the requested size plus one, whose extra row is the lookahead that proves the flag in the
- * fetching direction. The seek and the bound apply to the final distinct result, never to an earlier
- * stage: D is deduplicated before the limit unless its uniqueness is proved, so no hidden source key manufactures
- * distinct answers (R17). PostgreSQL pulls a plain derived table up into the
- * statement, so over a retained key the seek reaches the base scan as an index condition and no Unique node appears.
+ * A window is take(k) over the completed order plus the seek predicate: the distinct result D read as a derived table,
+ * the seek on its delivered columns, ORDER BY the completed order (every direction reversed for a backward variant),
+ * and LIMIT the window's size. Whether rows lie beyond it is the adjacent window's to answer, so no row is fetched past
+ * the size. The seek and the bound apply to the final distinct result, never to an earlier stage: D is deduplicated
+ * before the limit unless its uniqueness is proved, so no hidden source key manufactures distinct answers (R17).
+ * PostgreSQL pulls a plain derived table up into the statement, so over a retained key the seek reaches the base scan
+ * as an index condition and no Unique node appears.
  *
- * A probe is the bounded existence test of the opposite flag: EXISTS (SELECT 1 FROM D WHERE seek),
- * which is duplicate-insensitive, so D needs no deduplication of its own under it.
- *
- * A page's attachment part reads the rows the page delivers without the lookahead row: take(k) where the rows part
- * takes k + 1, so the lookahead row gets no children. Over a heterogeneous union each group's part takes k + 1 and
- * the runtime keeps the first k of their merge, so the group rows an attachment reads are
+ * A window's attachment part reads the rows the window delivers: take(k), as its rows part. Over a heterogeneous union
+ * each group's part takes k and the runtime keeps the first k of their merge, so the group rows an attachment reads are
  * the group's first k whose place in the merge is within k (retainedGroupRows): fewer than k tuples of every group's
  * first k precede them in the fetch order. The first k of the union lie among the first k of each group, so a kept
  * tuple's predecessors are all counted, and an unkept one has at least k.
@@ -84,24 +76,6 @@ export const pagedRows = (cx: LowerContext, spec: PagedRowsSpec): Select => {
 	}
 }
 
-interface ProbeSpec {
-	readonly rel: OperandSelect
-	readonly heading: Heading
-	readonly origin: NameOrigin
-	readonly anchor: Anchor
-}
-
-/** EXISTS (SELECT 1 FROM (D) AS r(...) [WHERE seek]). */
-export const probeTest = (cx: LowerContext, spec: ProbeSpec): Expr => {
-	const source = cx.wrap(spec.rel, spec.heading, spec.origin)
-	const where = seekPredicate(
-		spec.anchor.boundaries.seekKeys(source.map),
-		spec.anchor.seek,
-		cx.names
-	)
-	return exists(simpleSelect([target(lit.int(1, types.integer))], [source.item], where))
-}
-
 interface PagedGroup {
 	readonly rows: () => Select
 	readonly heading: Heading
@@ -109,7 +83,7 @@ interface PagedGroup {
 
 interface RetainedGroupSpec {
 	/**
-	 * Every heading group's paged rows, each lowered by pagedRows bounded by the page size at every call, so no name is
+	 * Every heading group's paged rows, each lowered by pagedRows bounded by the window's size at every call, so no name is
 	 * defined twice in the statement, and its heading.
 	 */
 	readonly groups: NonEmptyReadonlyArray<PagedGroup>
@@ -123,7 +97,7 @@ interface RetainedGroupSpec {
 }
 
 /**
- * The rows of one heading group that a page of the union keeps (see the header):
+ * The rows of one heading group that a window of the union keeps (see the header):
  *
  *   SELECT <heading> FROM (<the group's first k>) AS r1(...)
  *   WHERE (SELECT count(*) FROM (<each group's first k, its comparators> UNION ALL ...) AS r2(...)
@@ -157,7 +131,7 @@ export const retainedGroupRows = (cx: LowerContext, spec: RetainedGroupSpec): Se
 			column: comparatorColumn(all.map, c),
 			boundary: comparatorColumn(kept.map, c)
 		})),
-		{ side: spec.direction === "forward" ? "precedes" : "follows", inclusive: false },
+		{ side: spec.direction === "forward" ? "precedes" : "follows" },
 		cx.names
 	)
 	const predecessors: Expr = {

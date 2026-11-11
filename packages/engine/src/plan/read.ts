@@ -1,15 +1,8 @@
 /**
  * The read plan: what a compiled read or page is, and what the shell runs and decodes it by — the template and its
- * programs, their statements, forms and placeholders, the codecs of their parameters and rows, and the cursor.
+ * programs, their statements, forms and placeholders, and the codecs of their parameters and rows.
  */
 export { parentUse } from "#compiler/check/scan.ts"
-export {
-	cursorCodec,
-	type CursorCodec,
-	cursorTokenMaxLength
-} from "#compiler/codec/cursor/codec.ts"
-export { cursorError } from "#compiler/codec/cursor/fault.ts"
-export type { CursorGeneration } from "#compiler/codec/cursor/identity.ts"
 export { encodeFailure, factPlace, slotPlace } from "#compiler/codec/fault.ts"
 export {
 	columnLiteral,
@@ -50,7 +43,6 @@ export type {
 export {
 	compilePageOf,
 	type PageArtifact,
-	type PageProbeProgram,
 	type PageProgram,
 	type PageRequestProgram,
 	type PageTemplate,
@@ -61,7 +53,6 @@ export type {
 	PageComparator,
 	PageDirection,
 	PageVariant,
-	ProbeKind,
 	VariantFill
 } from "#compiler/lower/shapes/page/seek.ts"
 export { type ChoiceInput, type RelationInput } from "#compiler/lower/shapes/take/index.ts"
@@ -81,7 +72,6 @@ export {
 	type ExecutionRequest,
 	templateFor
 } from "#compiler/program/template.ts"
-export { pageQueryFingerprint } from "#compiler/program/workload/fingerprint.ts"
 export { workloadState } from "#compiler/program/workload/value.ts"
 export { hostArguments } from "#compiler/query/build/host.ts"
 export { isOrderedValue, isQueryValue } from "#compiler/query/build/index.ts"
@@ -104,18 +94,10 @@ export { type CarrierHost, compareValues } from "#compiler/scalar/values/identit
 export { servedSource } from "#compiler/served/read.ts"
 export { servedReadBacks, servedSpine } from "#compiler/served/spine.ts"
 export type {
-	Page,
-	PageCursor,
-	PageEdge,
-	PageInfo,
-	PageRequest
-} from "#compiler/types/page/page.ts"
-export type {
 	ContextsOf,
 	EvidenceOfQuery,
 	Ordered,
 	OrderedBase,
-	PageOf,
 	ParamsOf,
 	Query,
 	QueryBase,

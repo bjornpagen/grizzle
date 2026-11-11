@@ -535,8 +535,6 @@ describe("a window's rows", () => {
 				const runtime = compiledPageRuntime({
 					page: { ...compiled.page, artifact: compiled.baseline },
 					params: compiled.query.params,
-					query: "unit/adapter/answers-page",
-					generation: { schema: "answers", extensions: {} },
 					spine: servedSpine(desc),
 					codes
 				})

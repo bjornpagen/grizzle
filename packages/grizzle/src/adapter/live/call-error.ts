@@ -72,7 +72,6 @@ const readReading: Reading<Exclude<ReadReason, LawRejected | InputRejected>> = {
 	DriverRefused: unavailable,
 	NoCancelKey: unavailable,
 	LayerReleased: unavailable,
-	HandleReleased: unavailable,
 	ConnectionLost: transport,
 	CommitLost: transport,
 	DriverFailure: transport,
@@ -98,7 +97,6 @@ const transportReading: Reading<TransportReason> = {
 	DriverRefused: unavailable,
 	NoCancelKey: unavailable,
 	LayerReleased: unavailable,
-	HandleReleased: unavailable,
 	ConnectionLost: transport,
 	DriverFailure: transport
 }

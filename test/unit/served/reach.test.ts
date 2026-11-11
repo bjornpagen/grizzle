@@ -10,7 +10,7 @@
  * then servedEntryOf) and its file read back from the JSON value its text parses to:
  *
  * - Rosters, sufficiency: the file holds the codes of every roster a role's code meets, its decoders' closed ids and
- *   sets, its codecs' parameters, claims and page cursors, and the columns of every relation its writes write.
+ *   sets, its codecs' parameters, claims and window anchors, and the columns of every relation its writes write.
  * - Rosters, minimality: every roster the file holds is one of those, or one a form of the file holds as a type, which
  *   a load rebuilds from its codes (served/json.ts `~roster:`).
  * - The load fails closed: the file loads (adapter/served/load.ts loadServed), and without the codes of any one roster

@@ -28,7 +28,7 @@ import type {
  * (test/unit/served/reach.test.ts) and of its classifier's cut (test/unit/served/refusals.test.ts).
  *
  * A role meets a roster where a value of it crosses the wire: a column its decoders read as a closed id or a set, a
- * parameter or a context claim its codecs encode, a page's cursor value, and every column of a relation its writes
+ * parameter or a context claim its codecs encode, a window's anchor key value, and every column of a relation its writes
  * write, whose stored codes a refusal's key decodes and whose domains PostgreSQL may report.
  *
  * A role that writes can raise, of its installation, exactly: each table constraint and rule trigger on a written
@@ -123,7 +123,7 @@ export const writtenBy = (role: ServedRoleForm): ReadonlySet<StoredRelationName>
 		)
 	)
 
-/** The rosters one member's decoders and codecs meet: its rows', its parameters', its page cursor's. */
+/** The rosters one member's decoders and codecs meet: its rows', its parameters', its window anchor's. */
 const memberRosters = (member: ServedMember): ReadonlyArray<string> => {
 	switch (member.kind) {
 		case "read":

@@ -131,7 +131,6 @@ import { parsedName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { referencePatterns } from "#test/support/oracle/reference/evaluate.ts"
 import { types as codecTypes } from "#test/unit/codec/support.ts"
-import { cursorCodecTypes as cursorTypes } from "#test/unit/cursor/support.ts"
 import { scalarTypes as irFixtureTypes } from "#test/unit/ir/fixture.ts"
 import {
 	E as conservativeEndpoints,
@@ -233,8 +232,8 @@ const predicateTable = (
 	})
 
 /**
- * The ScalarTypes the test fixture modules export (the IR fixture's, the conservative lowering's, the codec's and the
- * cursor's), every plain type and the canonical wildcard text, each beside where it comes from.
+ * The ScalarTypes the test fixture modules export (the IR fixture's, the conservative lowering's and the codec's), every
+ * plain type and the canonical wildcard text, each beside where it comes from.
  */
 const fixtureTypes = nonEmpty<readonly [string, ScalarType]>(
 	[
@@ -253,10 +252,6 @@ const fixtureTypes = nonEmpty<readonly [string, ScalarType]>(
 		...Arr.map(
 			Rec.toEntries(codecTypes),
 			([name, t]) => [`codec/support.ts types.${name}`, t] as const
-		),
-		...Arr.map(
-			Rec.toEntries(cursorTypes),
-			([name, t]) => [`cursor/support.ts types.${name}`, t] as const
 		),
 		...Arr.map(
 			Arr.filter(carriers, isPlainCarrier),
@@ -315,7 +310,7 @@ describe("scalarTypeOf: a FieldDesc to its ScalarType", () => {
 				ctx,
 				exhaust(
 					{
-						box: "every ScalarType the IR, conservative-lowering, codec and cursor fixtures export, every plain type and the wildcard text",
+						box: "every ScalarType the IR, conservative-lowering and codec fixtures export, every plain type and the wildcard text",
 						oracle: {
 							kind: "second-implementation",
 							name: "the registry's own build of each fixture type's FieldDesc"

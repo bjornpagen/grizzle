@@ -21,7 +21,7 @@ export {
 	workload,
 	writableNamesOf
 } from "#index.ts"
-export type { ApplyError, OpenError, WriteListOf } from "#index.ts"
+export type { CallError, OpenError, Refreshed, WriteListOf } from "#index.ts"
 export {
 	Account,
 	AccountNames,

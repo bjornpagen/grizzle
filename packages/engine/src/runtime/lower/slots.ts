@@ -82,8 +82,9 @@ const memberSlotOf = (
 })
 
 /**
- * What fills a page placeholder: its fill, with no encoder, since the page runtime binds a limit or a size, a
- * `$n::bigint`, as a bigint's decimal digits, and a boundary as the text its cursor carried (adapter/page/execute.ts).
+ * What fills a page placeholder: its fill, with no encoder, since the page runtime binds a window's size, a
+ * `$n::bigint`, as a bigint's decimal digits, and a boundary as its anchor key's value its comparator's codec wrote
+ * (adapter/page/execute.ts).
  */
 const pageSlotOf = (slot: PageParamSlot): Extract<ParamSlot, { readonly kind: "page" }> => ({
 	kind: "page",

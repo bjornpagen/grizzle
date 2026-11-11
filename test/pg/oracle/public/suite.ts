@@ -71,7 +71,7 @@ const situations = [
 	"page",
 	"refused encode",
 	"refused page size",
-	"refused cursor",
+	"refused anchor",
 	"key get closed some",
 	"an attached take of two children or more",
 	"an attached take delivered descending",
@@ -233,8 +233,8 @@ const planted: ReadonlyArray<Kept<CaseSketch, PublicFeature>> = [
  * - a root take of two rows or more, two of them ordered apart by a descending first key and two its stated keys tie:
  *   its rows arrive in the take's order, the ties broken by the column its stated order leaves out (program.ts
  *   takeOrder), as an attachment's do;
- * - each refusal class a read can meet at the public boundary: a parameter of another host type (encode), a page size
- *   that is no safe integer of at least 1 (request), and a cursor its codec cannot read;
+ * - each refusal class a read can meet at the public boundary: a parameter of another host type (encode), a window
+ *   size that is no safe integer of at least 1, and an anchor key of another length than its order's;
  * - every program form the generator draws (generate.ts programForms): imports bound to variables and to parameters,
  *   interiors, named stages, computed head and group keys, ranges, sets, relation parameters, closures, contract and
  *   typmod parameters, Allen relations and point memberships, each built through the public builders.

@@ -1209,7 +1209,7 @@ const applied = (combinator: Combinator, base: ShapeBase): Applied => {
 		case "page":
 			return {
 				line: (name, shape) =>
-					`export const ${name}_p = paged(${shape}.orderBy(["id", "asc"])); export const ${name} = (h: WorkloadHandles<typeof Reader, { readonly p: typeof ${name}_p }>["p"]) => h.page({}, { first: 10 })`,
+					`export const ${name}_p = paged(${shape}.orderBy(["id", "asc"])); export const ${name} = (h: WorkloadHandles<typeof Reader, { readonly p: typeof ${name}_p }>["p"]) => h.once({ params: {}, facts: {}, window: { anchor: { kind: "start" }, size: 10 } })`,
 				build: (q) => q.orderBy(["id", "asc"]),
 				read: "page"
 			}

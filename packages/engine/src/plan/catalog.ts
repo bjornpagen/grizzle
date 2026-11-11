@@ -22,7 +22,6 @@ export { paramDomainsOf, structuralRegex } from "#compiler/physical/ddl/domains.
 export { type InstallNames, missing } from "#compiler/physical/ddl/names.ts"
 export { loginStartupOptions } from "#compiler/physical/ddl/roles.ts"
 export { refreshStatement } from "#compiler/physical/derived/objects.ts"
-export { vectorExpectations } from "#compiler/physical/vector/admission.ts"
 export { vectorExtension } from "#compiler/physical/vector/storage.ts"
 export { admitSchemaDesc } from "#compiler/schema/admit.ts"
 export * as C from "#compiler/sql/catalog.ts"

@@ -37,7 +37,6 @@ export {
 	ExpiryRefused,
 	type ErrorResponse,
 	GeneratedSerialUnique,
-	HandleReleased,
 	type InputBound,
 	type CallInputFault,
 	CallInputRefused,

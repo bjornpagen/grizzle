@@ -205,15 +205,16 @@ export type StatementRole =
 	| "carrier"
 
 /**
- * A page placeholder every request fills from its size: the limit, the validated requested size plus one, or the size
- * itself, the most rows the page delivers, which an attachment's statement bounds the page's rows by
- * (lower/shapes/page/seek.ts SizeSlots).
+ * A page placeholder every window fills from its size: the most rows the window delivers, which its rows statement's
+ * LIMIT and an attachment's statement bound the window's rows by (lower/shapes/page/seek.ts SizeSlots).
  */
-export type SizeFill = { readonly kind: "limit" } | { readonly kind: "size" }
+export interface SizeFill {
+	readonly kind: "size"
+}
 
 /**
- * A page placeholder only an anchored request and a probe fill: the boundary value of one comparator, the cursor
- * tuple's text at that position (lower/shapes/page/seek.ts BoundarySlots).
+ * A page placeholder only an anchored window fills: the boundary value of one comparator, its anchor key's value at
+ * that position as its comparator's codec writes it (lower/shapes/page/seek.ts BoundarySlots).
  */
 export interface BoundaryFill {
 	readonly kind: "boundary"
@@ -221,7 +222,7 @@ export interface BoundaryFill {
 	readonly field: string
 }
 
-/** What fills one page placeholder: a size fill, or, in an anchored request's or a probe's statement, a boundary. */
+/** What fills one page placeholder: a size fill, or, in an anchored window's statement, a boundary. */
 export type PageFill = SizeFill | BoundaryFill
 
 /**
@@ -229,8 +230,8 @@ export type PageFill = SizeFill | BoundaryFill
  * scalar or relation parameter, `param` is the declared ParamId, which is the parameter's declared name and the key of
  * its host value (check/params.ts). A member slot is a write's enumerated member input (write/insert/input.ts); a page
  * placeholder is one only the page compiler allocates, and has no encoder: the page runtime binds its fill's text
- * (adapter/page/execute.ts), a limit or a size as the decimal digits of a bigint, `$n::bigint`, and a boundary as the
- * text its cursor carried.
+ * (adapter/page/execute.ts), a size as the decimal digits of a bigint, `$n::bigint`, and a boundary as the text its
+ * anchor's key value encodes to.
  *
  * A relation input's placeholders in one statement, one per array (ArrayTexts), each carry an encoder over the columns
  * they share and their `part`, the position of their array among the input's arrays: a binder writes each

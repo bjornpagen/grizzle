@@ -1434,8 +1434,6 @@ export const generatedSuite = (artifact: PageArtifactName): void => {
 				page: template,
 				params: query.params,
 				codes,
-				query: `generated ${Formatter.format(ordered.stated)} ${o.c.query.dag.roots[0].id}`,
-				generation: { schema: schema, extensions: {} },
 				spine: everyColumnCarried(query.dag)
 			})
 			const params = hostParams(o, codes)

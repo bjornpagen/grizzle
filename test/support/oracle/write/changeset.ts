@@ -170,8 +170,7 @@ export type WBinding = "passed" | "bound" | "bound as streams"
  *
  * An enumerated member may be given as a Stream of its facts instead of an array, the ChangeSet may close its
  * parameters with ChangeSet.bind (its relation parameters as arrays or as Streams) and be applied with no parameters
- * of the caller's, and the case may apply it through db.compile(changes).apply(params) instead of db.apply: each
- * means the same ChangeSet, so the expectation is the same.
+ * of the caller's: each means the same ChangeSet, so the expectation is the same.
  *
  * A read-back of a relation with a deferred containment out of it may attach, stated "one", the containment's target
  * fact to each row, which a read inside the write's transaction reads back as an Option: it runs

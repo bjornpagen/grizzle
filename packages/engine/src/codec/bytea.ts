@@ -6,14 +6,13 @@
  * with format code 1 and every other parameter as text, each by its own format code, so one statement mixes the two
  * (pg-protocol's serializer, `writeValues`).
  */
-import { utf8Bytes } from "#compiler/codec/cursor/bytes.ts"
 import { encodeFailure, slotPlace } from "#compiler/codec/fault.ts"
 import { nominal } from "#compiler/core/brand.ts"
 import type { EncodingFailure } from "#compiler/core/errors.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import { messageMaxBytes } from "#compiler/core/limits.ts"
 import * as Result from "#compiler/core/result.ts"
-import { sha256Hex, utf8Length } from "#compiler/core/sha256.ts"
+import { sha256Hex, utf8, utf8Length } from "#compiler/core/sha256.ts"
 import type { ParamBinary } from "#compiler/core/wire.ts"
 import type { LiteralBound } from "#compiler/ir/products.ts"
 import type { AdmittedBytes } from "#compiler/scalar/values/bytes.ts"
@@ -167,8 +166,8 @@ export const byteaArray = (
  * which text's receive function reads as the literal's element would be read: no quoting or escaping, and no string
  * of the whole array, so a column of any total length within a message travels.
  *
- * Each element's bytes are the platform encoder's whole encoding of its text (codec/cursor/bytes.ts utf8Bytes), copied
- * into place. TextEncoder.encodeInto is not used: on Node 26.13 it writes one character short into a destination of
+ * Each element's bytes are the platform encoder's whole encoding of its text (core/sha256.ts utf8), copied into place,
+ * as many as utf8Length counted. TextEncoder.encodeInto is not used: on Node 26.13 it writes one character short into a destination of
  * exactly the text's length when the text ends in a scalar of U+0400 to U+07FF and is long enough to take its
  * vectorized path (from 53 UTF-16 units), which left the last character's two bytes 0x00 and PostgreSQL refused the
  * array as invalid UTF-8.
@@ -180,7 +179,7 @@ export const textArray = (
 ): Result.Result<ParamBinary, LiteralBound> => {
 	const lengths = texts.map(utf8Length)
 	return binaryArray<never>(textOid, input, column, lengths, (out, at, i) => {
-		out.set(utf8Bytes(defined(texts[i], "each text counted")), at)
+		out.set(utf8(defined(texts[i], "each text counted")), at)
 		return Result.ok(undefined)
 	})
 }

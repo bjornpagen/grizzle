@@ -123,10 +123,10 @@ const refreshValues = new WeakMap<object, NonEmptyReadonlyArray<unknown>>()
 /**
  * refresh(relations): the workload member that refreshes the materialized derived relations of the nonempty list
  * `relations`, each built by derived.materialized(...): its handle refreshes them all in one transaction
- * (`yield* db.workload.<name>.refresh`), lower levels first. A value that is no list, an empty list, and an item that is
- * no materialized derived relation throw CompileError MalformedDescription synchronously; which relations a role may
- * refresh is the compile's to judge, against its refresh list. The compile reads the list as it held at the call, a
- * frozen copy, and never the caller's list itself.
+ * (`yield* db.workload.<name>.once({ params: {}, facts: {} })`), lower levels first. A value that is no list, an empty
+ * list, and an item that is no materialized derived relation throw CompileError MalformedDescription synchronously;
+ * which relations a role may refresh is the compile's to judge, against its refresh list. The compile reads the list
+ * as it held at the call, a frozen copy, and never the caller's list itself.
  */
 export const refreshMember = <Rs extends NonEmptyReadonlyArray<unknown>>(
 	relations: Rs

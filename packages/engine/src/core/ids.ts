@@ -8,7 +8,7 @@ import { nominal } from "#compiler/core/brand.ts"
  *
  * - Derived identities, computed from declared names: FieldId (relation identity plus logical field), ParamId (the
  *   parameter's declared name), the installed identifiers (Identifier of a kind, LawId among them), which the naming
- *   door (core/identity.ts) alone mints, and the content digests ProgramFingerprint and SchemaFingerprint.
+ *   door (core/identity.ts) alone mints, and the content digest SchemaFingerprint.
  * - Allocated identities, fresh per construction: NodeId, ExprId, VarId, OccurrenceId and ScopeId. Their spelling is
  *   allocation order and carries no meaning; fingerprints rename them canonically (fingerprint.ts), so semantic
  *   identity never depends on allocation order.
@@ -20,7 +20,6 @@ declare const scopeIdBrand: unique symbol
 declare const paramIdBrand: unique symbol
 declare const nodeIdBrand: unique symbol
 declare const exprIdBrand: unique symbol
-declare const programFingerprintBrand: unique symbol
 declare const schemaFingerprintBrand: unique symbol
 declare const storedRelationNameBrand: unique symbol
 declare const entryNameBrand: unique symbol
@@ -146,7 +145,6 @@ export type IndexName = Identifier<"accessIndex">
 export type DomainName = Identifier<
 	"contractDomain" | "textDomain" | "paramDomain" | "rosterDomain" | "bitsDomain"
 >
-export type ProgramFingerprint = string & { readonly [programFingerprintBrand]: true }
 export type SchemaFingerprint = string & { readonly [schemaFingerprintBrand]: true }
 
 /**
@@ -174,7 +172,6 @@ export const ScopeId = nominal<string, ScopeId>()
 export const ParamId = nominal<string, ParamId>()
 export const NodeId = nominal<string, NodeId>()
 export const ExprId = nominal<string, ExprId>()
-export const ProgramFingerprint = nominal<string, ProgramFingerprint>()
 export const SchemaFingerprint = nominal<string, SchemaFingerprint>()
 export const StoredRelationName = nominal<string, StoredRelationName>()
 export const EntryName = nominal<string, EntryName>()

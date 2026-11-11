@@ -62,8 +62,8 @@ import { preludeAt, type PreludeAt, preludeFrom, preludeProgram } from "#test/su
  * - a program over a role matching a drawn context, a member of a workload over the role as a query or as a ChangeSet's
  *   read-back, typechecks exactly when the engine compiles it for the role;
  * - a refresh member, refresh(relations), of drawn derived relations in a workload over a role typechecks exactly when
- *   the engine resolves every one against the role's refresh list, and its handle succeeds with nothing and fails with
- *   ApplyError;
+ *   the engine resolves every one against the role's refresh list, and its handle's once succeeds with Refreshed and
+ *   fails with CallError;
  * - Db.open of a role of the login's served workload (served<typeof L>(file, name).roles), of the role reached through
  *   the login value itself, of the role value itself, or of the schema typechecks exactly when Db.open's boundary reads
  *   its argument as a served login's role (pool/served.ts readServedRole);
@@ -806,8 +806,8 @@ const blockOf = (c: AccessCase, i: number): ReadonlyArray<string> => {
 		`export const f${i} = workload(${refreshRole}, { r: refresh([${Arr.join(spec.refresh.names, ", ")}]) })`,
 		...(verdict.refresh
 			? [
-					`export const h${i} = (db: DbOf<typeof ${refreshRole}, typeof f${i}.programs>) => db.workload.r.refresh`,
-					`export type g${i} = Expect<Equals<ReturnType<typeof h${i}>, Effect.Effect<void, ApplyError>>>`
+					`export const h${i} = (db: DbOf<typeof ${refreshRole}, typeof f${i}.programs>) => db.workload.r.once({ params: {}, facts: {} })`,
+					`export type g${i} = Expect<Equals<ReturnType<typeof h${i}>, Effect.Effect<Refreshed, CallError>>>`
 				]
 			: []),
 		...fullBlock(spec, verdict.full, i),

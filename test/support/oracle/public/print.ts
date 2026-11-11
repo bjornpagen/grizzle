@@ -235,20 +235,20 @@ const storedFact = (f: StoredFact): string => `(${Arr.join(Arr.map(f, stored), "
 
 const read = (r: ProgramRead, i: number): string => {
 	if (r.kind === "handle") {
-		return `read ${i}: db.get(roster, { id: ${r.handle} })`
+		return `read ${i}: key(roster).once({ params: { id: ${r.handle} }, facts: {} })`
 	}
 	if (r.kind === "key") {
-		return `read ${i}: db.get(${
+		return `read ${i}: key(${
 			r.candidate
 				? `key(on(${r.relation.name}, ${Arr.join(
 						Arr.map(r.key, (f) => f.name),
 						", "
 					)}))`
 				: r.relation.name
-		}, { ${Arr.join(
+		}).once({ params: { ${Arr.join(
 			Arr.map(r.key, (f, k) => `${f.name}: ${printValue(r.values[k])}`),
 			", "
-		)} })`
+		)} }, facts: {} })`
 	}
 	if (r.kind === "mixed") {
 		return Arr.join(

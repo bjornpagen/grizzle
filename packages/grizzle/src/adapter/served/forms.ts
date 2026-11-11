@@ -1,4 +1,4 @@
-import { Array as Arr, Record as Rec, Result } from "effect"
+import { Result } from "effect"
 import type { CompiledChange, WriteEntry } from "#adapter/apply/compile.ts"
 import type { ChangeForm } from "#adapter/apply/index.ts"
 import { readBacks } from "#adapter/apply/readback.ts"
@@ -16,7 +16,6 @@ import { paramCodecs } from "#adapter/reader/relations.ts"
 import { readProgram } from "#adapter/reader/run.ts"
 import type { RoleContext } from "#adapter/served/role.ts"
 import type { InstallationWitness } from "#adapter/witness/index.ts"
-import { vectorExpectations } from "#compiler/plan/catalog.ts"
 import {
 	type ChangeEntry,
 	compileParsed,
@@ -41,9 +40,7 @@ import {
 } from "#compiler/plan/common.ts"
 import {
 	compilePageOf,
-	type CursorGeneration,
 	type PageTemplate,
-	pageQueryFingerprint,
 	type QueryTemplate,
 	queryInput,
 	queryState,
@@ -141,20 +138,6 @@ export const compileReadForm = <A>(
 		return { ...rows, page }
 	})
 
-/**
- * The semantic generation of a schema's cursors: its fingerprint, and each extension it requires at the version
- * admission verified.
- */
-const cursorGeneration = (artifacts: SchemaArtifacts): CursorGeneration => ({
-	schema: artifacts.fingerprint,
-	extensions: Rec.fromEntries(
-		Arr.map(
-			vectorExpectations(artifacts.owned, artifacts.names.vectorSchema),
-			(e) => [e.extension, e.version] as const
-		)
-	)
-})
-
 /** What a page's template compiles from: the query template compiled with read "page", its Description and artifacts. */
 interface PageTemplateInput {
 	readonly template: QueryTemplate
@@ -164,9 +147,8 @@ interface PageTemplateInput {
 
 /**
  * The page runtime template of a query template compiled for a page: its page compiled (lower/shapes/page/compile.ts)
- * over the stated order, served with every statement's spec emitted (engine program/served.ts servedPage) under the
- * ordered query's semantic fingerprint (program/workload/fingerprint.ts) and its schema's cursor generation, and run as
- * a served page runs (page/template.ts pageRuntimeOf).
+ * over the stated order, served with every statement's spec emitted (engine program/served.ts servedPage), and run as a
+ * served page runs (page/template.ts pageRuntimeOf).
  */
 const pageTemplateFor = (input: PageTemplateInput): Result.Result<PageRuntime, CompileError> =>
 	Result.map(compiledPageTemplateFor(input), (compiled) => compiled.runtime)
@@ -188,26 +170,21 @@ export const compiledPageTemplateFor = (
 		const compiled = yield* toResult(
 			compilePageOf(template.programs, { stated, names: artifacts.reads })
 		)
-		const query = yield* toResult(pageQueryFingerprint(desc, artifacts.fingerprint))
 		const runtime = compiledPageRuntime({
 			page: compiled,
 			params: template.params,
 			codes: artifacts.names.codes,
-			query,
-			generation: cursorGeneration(artifacts),
 			spine: servedSpine(desc)
 		})
 		return { runtime, template: compiled }
 	})
 }
 
-/** A compiled page and what its runtime is built from: its read's parameters and spine, its codes and cursor identity. */
+/** A compiled page and what its runtime is built from: its read's parameters and spine, and its codes. */
 interface CompiledPageParts {
 	readonly page: PageTemplate
 	readonly params: ReadonlyArray<ParamDecl>
 	readonly codes: Codebook
-	readonly query: string
-	readonly generation: CursorGeneration
 	readonly spine: ServedSpine
 }
 
@@ -217,7 +194,7 @@ interface CompiledPageParts {
  */
 export const compiledPageRuntime = (parts: CompiledPageParts): PageRuntime =>
 	pageRuntimeOf({
-		page: servedPage(parts.page, parts.codes, parts.query, parts.generation),
+		page: servedPage(parts.page, parts.codes),
 		params: parts.params,
 		codes: parts.codes,
 		spine: parts.spine
@@ -225,8 +202,7 @@ export const compiledPageRuntime = (parts: CompiledPageParts): PageRuntime =>
 
 /**
  * The page template of an ordered query compiled for a role, or the refusal of a query read inside its attachment, or
- * its CompileError: what a page compiles for its call, and what db.compile and the layer's workload hold for an
- * ordered query.
+ * its CompileError: what generate's compile of a paged member holds for its ordered query.
  */
 const compiledPageTemplate = (
 	role: RoleContext,

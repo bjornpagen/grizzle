@@ -11,7 +11,6 @@ import {
 	DriverFailure,
 	type ExpiryRefused,
 	GeneratedSerialUnique,
-	HandleReleased,
 	InputRejected,
 	InputTooLarge,
 	LawRejected,
@@ -46,10 +45,11 @@ import type {
  * catchReasons and unwrapReason reach it. What follows from a reason (an error's stage) is a getter, never a stored
  * field, and each error's `message` renders a sentence from its reason.
  *
- * Db.open and DbLayer.make fail with OpenError; a read with ReadError (ReadFailure, TransientFailure or StaleSnapshot),
- * a page also with the engine's CursorError; a write or refresh with ApplyError (the engine's EncodingFailure,
- * TransientFailure, TransportFailure, ExecutionFailure, CommitUnknown or StaleSnapshot); compile with the engine's
- * CompileError. `invariant-rejected` is an outcome value, never an error, and a defect stays a defect.
+ * Db.open and DbLayer.make fail with OpenError; a read with ReadError (ReadFailure, TransientFailure or StaleSnapshot);
+ * a write or refresh with ApplyError (the engine's EncodingFailure, TransientFailure, TransportFailure,
+ * ExecutionFailure, CommitUnknown or StaleSnapshot); compile with the engine's CompileError. `invariant-rejected` is an
+ * outcome value, never an error, and a defect stays a defect. A served member's call reads each as its one CallError
+ * (live/call-error.ts).
  * Every failure the server raised carries the server's own report (failures.ts ServerError): its SQLSTATE, message,
  * DETAIL and HINT as given.
  */
@@ -116,19 +116,18 @@ export class OpenError extends Data.TaggedError("OpenError")<{
 /**
  * Why a read failed: the server refused its statement (ServerError), by a law of the schema (LawRejected) or a
  * parameter's pattern (ParamRejected) as the statement bound or cast a value; its session was not acquired
- * (AcquireRefusal), or its db.compile handle's Scope had ended (HandleReleased); the session it ran on failed (the
- * connection lost, before or after COMMIT was sent; the driver; rows grizzle cannot read); the compiler refused it before
- * any SQL, for a query that does not compile for this Db; the server refused a temporary table a change member's
- * explain creates to a role without TEMPORARY on the database; or the host refused its input before any SQL: a codec's
- * refusal, the exact parse's, a ChangeSet's input the host's parse into its keyed sets refuses (a change member's
- * explain, InputRejected), parameters past a bound of their transport, or a page request.
+ * (AcquireRefusal); the session it ran on failed (the connection lost, before or after COMMIT was sent; the driver;
+ * rows grizzle cannot read); the compiler refused it before any SQL, for a query that does not compile for this Db; the
+ * server refused a temporary table a change member's explain creates to a role without TEMPORARY on the database; or
+ * the host refused its input before any SQL: a codec's refusal, the exact parse's, a ChangeSet's input the host's parse
+ * into its keyed sets refuses (a change member's explain, InputRejected), parameters past a bound of their transport,
+ * or a call's input (CallInputRefused).
  */
 export type ReadReason =
 	| ServerError
 	| LawRejected
 	| ParamRejected
 	| AcquireRefusal
-	| HandleReleased
 	| ConnectionLost
 	| CommitLost
 	| DriverFailure
@@ -171,7 +170,6 @@ const readStage = (reason: ReadReason): ReadStage => {
 		case "DriverRefused":
 		case "NoCancelKey":
 		case "LayerReleased":
-		case "HandleReleased":
 			return "acquire"
 		case "ConnectionLost":
 		case "CommitLost":
@@ -310,7 +308,7 @@ export type ReadError = ReadFailure | TransientFailure | StaleSnapshot
  * Why a write or refresh changed nothing because its session could not be had or broke before COMMIT was sent: the
  * acquisition's refusal, its db.compile handle's ended Scope, or the connection lost or the driver failed.
  */
-export type TransportReason = AcquireRefusal | HandleReleased | ConnectionLost | DriverFailure
+export type TransportReason = AcquireRefusal | ConnectionLost | DriverFailure
 
 /** Where a write's transport failed. */
 export type TransportStage = "acquire" | "transport" | "driver"

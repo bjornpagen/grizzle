@@ -230,15 +230,6 @@ export class LayerReleased extends Data.TaggedError("LayerReleased") {
 	}
 }
 
-/**
- * The db.compile handle was used after the Scope that compiled it ended, which dropped its compiled form. No connection
- * was attempted.
- */
-export class HandleReleased extends Data.TaggedError("HandleReleased") {
-	override get message(): string {
-		return "the db.compile handle was used after the Scope that compiled it ended"
-	}
-}
 
 /**
  * Why no session was acquired: a connection attempt's refusal, or a released layer. The wait for a session has no
@@ -600,8 +591,8 @@ const fateText: Readonly<Record<TransactionFate, string>> = {
 /**
  * Statement `index` answered rows grizzle cannot read: a NULL cell, or a cell that is no text (only a catalog change
  * since the migration makes one, such as a dropped NOT NULL), a plan that is no plan, or rows its compiled proof says it
- * cannot deliver (a second row of a query proved at most one row, more rows than its LIMIT binds, a probe that is not
- * one row of one Boolean). The server ran it, so it decided nothing; `fate` is what the flight's transaction then did,
+ * cannot deliver (a second row of a query proved at most one row, more rows than its LIMIT binds, a window's rows out
+ * of its fetch order). The server ran it, so it decided nothing; `fate` is what the flight's transaction then did,
  * "committed" for a statement alone, which commits at its own Sync.
  */
 export class UnreadableAnswer extends Data.TaggedError("UnreadableAnswer")<{

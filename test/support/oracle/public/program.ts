@@ -555,14 +555,14 @@ export const deliveredOrder = (root: Root): Option.Option<Arr.NonEmptyReadonlyAr
 
 /**
  * A refusal the read provokes besides its answer, at the public boundary: a parameter of the wrong host type (encode),
- * a page size that is no safe integer of at least 1 (request), or a cursor its codec cannot read (cursor). Each must be
- * its typed error, and the read after it must answer as before.
+ * a window size that is no safe integer of at least 1 (page size), or an anchor key of another length than its order's
+ * (anchor). Each must be its typed error, and the read after it must answer as before.
  */
 export type Probe =
 	| { readonly kind: "none" }
 	| { readonly kind: "encode"; readonly param: Param }
 	| { readonly kind: "page size"; readonly size: number }
-	| { readonly kind: "cursor" }
+	| { readonly kind: "anchor" }
 
 /**
  * A heterogeneous union at the root: arms of more than one head key set, each arm in the heading group of its key set,

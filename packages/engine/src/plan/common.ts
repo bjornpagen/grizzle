@@ -30,7 +30,6 @@ export {
 export {
 	CompileError,
 	compileReasonText,
-	type CursorError,
 	type EncodingFailure,
 	isCompileError,
 	malformedArtifact,

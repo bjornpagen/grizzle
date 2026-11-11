@@ -33,7 +33,7 @@ import type { InvalidKind, WorldFeature } from "#test/support/worlds/model/types
  * a key it proves of a table's entry or of a derived relation, or by the whole heading, so every row arrives exactly
  * once; prepared; with another of its relations attached to each row; as the pairs a recursive query chains, over a reality holding a chain at every relation one chains
  * (docsChainedRealities), so a chain past one step is there to read whatever installation is drawn; both artifacts
- * must agree, a paged read's page by page, on the pages after and before every cursor its pages reached too) or as a
+ * must agree, a paged read's window by window, on the windows after and before every row's key its windows reached too) or as a
  * direct writer that
  * took the role on (its views and tables, with predicates that raise on one value, prepared and executed under other
  * claims), answers exactly its world under the claims it holds, whatever lies outside it; every write through an entry

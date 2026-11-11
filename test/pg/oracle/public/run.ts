@@ -1025,7 +1025,7 @@ const queryRead = (
 				note("refused page size")
 				break
 			}
-			case "cursor": {
+			case "anchor": {
 				const first = yield* sideExit(plain.window(params, { anchor: { kind: "start" }, size: 1 }))
 				const key: ReadonlyArray<unknown> = Exit.isSuccess(first)
 					? Option.match(Arr.head([...first.value.entries()]), {
@@ -1037,7 +1037,7 @@ const queryRead = (
 					plain.window(params, { anchor: { kind: "after", key }, size: 1 })
 				)
 				yield* refused(c, `${label}: an anchor of another length than its order's`, exit, "input")
-				note("refused cursor")
+				note("refused anchor")
 				break
 			}
 			case "none":

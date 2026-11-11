@@ -39,10 +39,11 @@ import type { ServedChoice } from "#compiler/plan/serve.ts"
  * (template.ts).
  *
  * 1. The rows part of the window's template, or one per heading group of a heterogeneous union. Each is take(size) in
- *    the template's fetch order after its seek: its limit placeholder and its size placeholder both take the window's
- *    size, and each boundary placeholder the anchor's text at that comparator's position, its comparator column's
- *    codec's (window.ts); every other placeholder is a declared parameter, encoded by the statement's own encoder, or a
- *    relation parameter in the transport its distinct fact count selected (reader/relations.ts). A statement with a
+ *    the template's fetch order after its seek: its size placeholder takes the window's size, its LIMIT and its
+ *    attachments' bound alike, and each boundary placeholder the anchor's text at that comparator's position, its
+ *    comparator column's codec's (window.ts); every other placeholder is a declared parameter, encoded by the
+ *    statement's own encoder, or a relation parameter in the transport its distinct fact count selected
+ *    (reader/relations.ts). A statement with a
  *    per-execution form runs that form when one of its choices' inputs exceeds the choice's threshold: a relation
  *    parameter's distinct fact count, or, for an attachment's take over the window, its size.
  * 2. Attachments, evaluated over the window's rows only: each part reads the window's delivered rows, which the
@@ -80,8 +81,8 @@ interface DeliveredEdge {
 }
 
 /**
- * The binding of a window's page placeholder: a size fill's text, the window's size, which a limit and a cut of the
- * delivered rows both take, or a boundary value as the window's anchor wrote it. The engine allocates one boundary
+ * The binding of a window's page placeholder: the size fill's text, the window's size, or a boundary value as the
+ * window's anchor wrote it. The engine allocates one boundary
  * placeholder per comparator, at its position, and the window's RowKey holds one value per comparator (window.ts), so a
  * position the boundary holds no text at is a defect of the compiler.
  */

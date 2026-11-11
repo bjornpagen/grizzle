@@ -9,7 +9,13 @@ import type {
 } from "#compiler/types/changeset/changeset.ts"
 import type { MembersTyped, Refusal } from "#compiler/types/core/phantom.ts"
 import type { AnyMaterialized } from "#compiler/types/derived/derived.ts"
-import type { ContextsOf, OrderedAt, OrderedBase, QueryAt } from "#compiler/types/query/query.ts"
+import type {
+	ContextsOf,
+	OrderedAt,
+	OrderedBase,
+	PageOf,
+	QueryAt
+} from "#compiler/types/query/query.ts"
 import type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
 import type { AnySchema, LevelsOf, RelationOf } from "#compiler/types/schema/schema.ts"
 import type { CandidateKey } from "#compiler/types/schema/statements.ts"
@@ -36,8 +42,9 @@ type KeyAt<L> = KeyedAt<L> | CandidateKey<Extract<KeyedAt<L>, AnyRelation>>
 type WritableBy<S> = S extends AnyRole ? Phantom<{ readonly writes: WriteListOf<S> }> : unknown
 
 /**
- * A workload member that pages its ordered query O: paged(O), whose handle pages as well as reading. A plain ordered
- * member reads only, and the layer compiles a page template only for a paged one.
+ * A workload member that pages its ordered query O: paged(O), whose handle reads a window of it, its input's `window`
+ * anchored at the start, the end, or after or before a row's key. A plain ordered member reads the whole query, and
+ * generate compiles a page template only for a paged one.
  */
 export interface Paged<O> {
 	readonly paged: O
@@ -45,8 +52,8 @@ export interface Paged<O> {
 
 /**
  * A workload member that refreshes the materialized derived relations of the nonempty list Rs: refresh(Rs), whose handle
- * refreshes them all in one transaction (`yield* db.workload.<name>.refresh`), lower levels first. It reads and writes
- * nothing else.
+ * refreshes them all in one transaction (`yield* db.workload.<name>.once({ params: {}, facts: {} })`), lower levels
+ * first. It reads and writes nothing else.
  */
 export interface Refresh<Rs> {
 	readonly refresh: Rs
@@ -129,10 +136,11 @@ export interface Workload<S, Programs> {
 export type AnyWorkload = Workload<AnySchema | AnyRole, Readonly<Record<string, unknown>>>
 
 /**
- * What paged takes: an ordered query, one orderBy(...) made; any other value is refused with the Refusal a page's read
- * of it gives, so the diagnostic names it. A bounded union of several headings is refused already by its take.
+ * What paged takes: an ordered query, one orderBy(...) made, that is no page over a bounded heterogeneous union
+ * (types/query/query.ts PageOf), which the page compiler refuses; any other value is refused with the Refusal a page's
+ * read of it gives, so the diagnostic names it.
  */
-type PagedArgument<O> = O extends OrderedBase ? unknown : Refusal<"page needs an ordered query">
+type PagedArgument<O> = O extends OrderedBase ? PageOf<O> : Refusal<"page needs an ordered query">
 
 /** paged(ordered): the workload member that pages the ordered query `ordered` (Paged). */
 export type PagedConstructor = <const O>(ordered: O & PagedArgument<O>) => Paged<O>

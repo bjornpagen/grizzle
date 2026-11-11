@@ -9,4 +9,3 @@ export type GrizzleErrorTag =
 	| ApplyError["_tag"]
 	| "CredentialError"
 	| "TokenError"
-	| "CursorError"

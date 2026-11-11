@@ -15,21 +15,21 @@ import type { Expr, OrderItem, TypeRef } from "#compiler/sql/ast.ts"
 import { and, asc, binary, desc, lit, or, row, slotParam, types } from "#compiler/sql/build.ts"
 
 /**
- * The four request shapes: { first }, { first, after }, { last }, { last, before }. Each is its own
- * compiled variant, so no variant has a nullable cursor slot.
+ * The four window templates, one per anchor kind: first (start), after (after a key), last (end), before (before a
+ * key). Each is its own compiled variant, so no variant has a nullable boundary slot.
  */
 const pageVariants = ["first", "after", "last", "before"] as const
 export type PageVariant = (typeof pageVariants)[number]
 
-/** The requests of no anchor, whose statements seek nothing. */
+/** The windows of no anchor, whose statements seek nothing. */
 export type PlainVariant = Extract<PageVariant, "first" | "last">
 
-/** The requests anchored at a cursor's boundary, whose statements seek past it. */
+/** The windows anchored at a key, whose statements seek past it. */
 export type AnchoredVariant = Exclude<PageVariant, PlainVariant>
 
 /**
- * The page fills a variant's statements hold: a plain request's are its sizes alone, so no binding of one reads a
- * boundary; an anchored request's are its sizes and its comparators' boundaries.
+ * The page fills a variant's statements hold: a plain window's are its size alone, so no binding of one reads a
+ * boundary; an anchored window's are its size and its comparators' boundaries.
  */
 export interface VariantFill {
 	readonly first: SizeFill
@@ -45,26 +45,12 @@ export const variantDirection = (variant: PageVariant): PageDirection =>
 	variant === "first" || variant === "after" ? "forward" : "backward"
 
 /**
- * The bounded existence probes of the opposite flag: whether D holds a tuple at or before, or at or after, the request's
- * anchor. The anchor alone decides the flag, so the probe needs no delivered row:
+ * Which side of the boundary a predicate selects; the boundary tuple itself never qualifies.
  *
- * Write A for the anchor, < for the declared order, which is total on D's comparison tuples, and E for the page's first
- * edge, the least t of D with A < t. For an after request, hasPreviousPage is "some t of D has t < E". If t < E, then
- * not A < t, since E is the least tuple of D after A; so t <= A, the order being total. If t <= A, then t < E, since
- * A < E. So "some t of D has t < E" is exactly "some t of D has t <= A", the atOrBefore probe on the anchor. An empty
- * page has no E, and every t of D has t <= A, so its flag is the same probe. A before request is the mirror image:
- * hasNextPage is the atOrAfter probe on the anchor. The anchor need not be a tuple of D.
- */
-export const probeKinds = ["atOrBefore", "atOrAfter"] as const
-export type ProbeKind = (typeof probeKinds)[number]
-
-/**
- * Which side of the boundary a predicate selects, and whether the boundary tuple itself qualifies.
+ * The seek of a keyset window.
  *
- * The seek of a keyset page.
- *
- * A cursor names a strict boundary in the completed total order (k1, ..., km) with directions d1, ..., dm. "After c" is
- * lexicographically later in the declared order:
+ * An anchor's key names a strict boundary in the completed total order (k1, ..., km) with directions d1, ..., dm.
+ * "After c" is lexicographically later in the declared order:
  *
  *   (k1 follows c1) OR (k1 = c1 AND k2 follows c2) OR ... OR (k1 = c1 AND ... AND k(m-1) = c(m-1) AND km follows cm)
  *
@@ -83,42 +69,29 @@ export type ProbeKind = (typeof probeKinds)[number]
  * extension's qualified operator, since a role's search_path never holds the extension schema. A row comparison
  * resolves each member's operator by name, so a tuple that holds a key of a qualified operator keeps the expansion.
  *
- * The inclusive forms "at or after c" and "at or before c" serve the flags of an empty page: the strict
- * predicate or the whole tuple equal, as one native row comparison `>=` / `<=` when the directions agree. The
- * zero-column relation orders by the empty comparison tuple: nothing is strictly after or before it, and
- * it is at or after itself.
+ * The zero-column relation orders by the empty comparison tuple: nothing is strictly after or before it.
  *
  * Each boundary value is one placeholder, cast to its comparator's base type: a comparison parameter casts to the base
- * type, so the indexed column is never cast, and a contract field
- * compares as its base. The values are the cursor's canonical parameter-codec texts, bound byte for byte as captured.
+ * type, so the indexed column is never cast, and a contract field compares as its base. The values are the anchor key's
+ * values as their comparators' codecs write them (adapter/page/window.ts).
  */
 export interface Seek {
 	readonly side: "follows" | "precedes"
-	readonly inclusive: boolean
 }
 
-/** The seek of an anchored request: strictly past its anchor in its fetch direction. */
+/** The seek of an anchored window: strictly past its anchor in its fetch direction. */
 export const anchoredSeek = (variant: AnchoredVariant): Seek => {
 	switch (variant) {
 		case "after":
-			return { side: "follows", inclusive: false }
+			return { side: "follows" }
 		case "before":
-			return { side: "precedes", inclusive: false }
-	}
-}
-
-export const probeSeek = (kind: ProbeKind): Seek => {
-	switch (kind) {
-		case "atOrBefore":
-			return { side: "precedes", inclusive: true }
-		case "atOrAfter":
-			return { side: "follows", inclusive: true }
+			return { side: "precedes" }
 	}
 }
 
 /**
- * One position of the completed order as a cursor compares it: a field of the delivered heading, its direction, and
- * its type (the shape codec/cursor's CursorComparator reads).
+ * One position of the completed order as a window's anchor compares it: a field of the delivered heading, its
+ * direction, and its type, whose codec writes the anchor key's value at that position.
  */
 export interface PageComparator {
 	readonly field: string
@@ -128,9 +101,8 @@ export interface PageComparator {
 
 /**
  * The comparators of a completed order over a delivered heading: exactly its keys, in order. The completion made the
- * order total on the result (logical/order.ts), so these keys identify a tuple and are the whole cursor
- * tuple; ORDER BY columns a lowering appends where the physical facts do not prove the keys total never break a tie
- * among them.
+ * order total on the result (logical/order.ts), so these keys identify a tuple and are a row's whole key; ORDER BY
+ * columns a lowering appends where the physical facts do not prove the keys total never break a tie among them.
  */
 export const pageComparators = (
 	order: CompletedOrder,
@@ -142,7 +114,7 @@ export const pageComparators = (
 		type: columnType(heading, k.column)
 	}))
 
-/** A new placeholder of `params` the page request fills with `fill`, cast to `sqlType`. */
+/** A new placeholder of `params` the window fills with `fill`, cast to `sqlType`. */
 const pageParam = <F extends PageFill>(
 	params: StatementParams<PageParamSlot<F>>,
 	fill: F,
@@ -159,13 +131,12 @@ const pageParam = <F extends PageFill>(
 	)
 
 /**
- * The size placeholders of one statement, its limit and its size, each allocated into that statement's parameter list
- * (its delivery's params once the statement began) by `allocate` at its first use, after the statement's own
- * parameters, and read by every later one: every request's statement holds them, a plain request's alone.
+ * The size placeholder of one statement, allocated into that statement's parameter list (its delivery's params once the
+ * statement began) by `allocate` at its first use, after the statement's own parameters, and read by every later one:
+ * every window's statement holds it, a plain window's alone.
  */
 class SizeSlots {
 	readonly #allocate: (fill: SizeFill) => Expr
-	#limit: Expr | undefined
 	#size: Expr | undefined
 
 	constructor(allocate: (fill: SizeFill) => Expr) {
@@ -173,15 +144,9 @@ class SizeSlots {
 	}
 
 	/**
-	 * The limit placeholder, `$n::bigint`: the requested size plus one. A page size is any safe integer of at least 1,
-	 * and every safe integer and its successor are bigint values, which LIMIT takes.
+	 * The size placeholder, `$n::bigint`: the most rows the window delivers, its rows statement's LIMIT and its
+	 * attachments' bound alike. A window's size is any safe integer of at least 1, a bigint value, which LIMIT takes.
 	 */
-	limit(): Expr {
-		this.#limit ??= this.#allocate({ kind: "limit" })
-		return this.#limit
-	}
-
-	/** The size placeholder, `$n::bigint`: the most rows the page delivers, any safe integer of at least 1. */
 	size(): Expr {
 		this.#size ??= this.#allocate({ kind: "size" })
 		return this.#size
@@ -189,7 +154,7 @@ class SizeSlots {
 }
 
 /**
- * The boundary placeholders of an anchored request's or a probe's statement, one per comparator, each cast to its
+ * The boundary placeholders of an anchored window's statement, one per comparator, each cast to its
  * comparator's base type: the first seek allocates them into the statement's parameter list, in comparator order, and
  * every later seek of the statement reads the same ones.
  */
@@ -236,21 +201,21 @@ export interface Anchor {
 	readonly boundaries: BoundarySlots
 }
 
-/** A request statement's page placeholders: its sizes, and, for an anchored request, its anchor. */
+/** A window statement's page placeholders: its size, and, for an anchored window, its anchor. */
 export interface RequestSlots {
 	readonly sizes: SizeSlots
 	readonly anchor: Anchor | undefined
 }
 
-/** A plain request's statement's page placeholders over its parameter list `params`: its sizes alone. */
+/** A plain window's statement's page placeholders over its parameter list `params`: its size alone. */
 export const plainSlots = (params: StatementParams<PageParamSlot<SizeFill>>): RequestSlots => ({
 	sizes: new SizeSlots((fill) => pageParam(params, fill, types.bigint)),
 	anchor: undefined
 })
 
 /**
- * An anchored request's or a probe's statement's page placeholders over its parameter list `params`: its sizes, and its
- * seek `seek` against one boundary per comparator, typed by `typeRef`.
+ * An anchored window's statement's page placeholders over its parameter list `params`: its size, and its seek `seek`
+ * against one boundary per comparator, typed by `typeRef`.
  */
 export const anchoredSlots = (
 	params: StatementParams<PageParamSlot>,
@@ -284,26 +249,24 @@ const isRowSeek = (keys: ReadonlyArray<SeekKey>, names: OperatorNames): boolean 
 		(k) => k.direction === keys[0]?.direction && operatorSchemaOf(names, k.type) === undefined
 	)
 
-/** The operator by which a key on `side` of its boundary value compares, strictly or inclusively. */
-const operator = (direction: Direction, seek: Seek): ">" | "<" | ">=" | "<=" => {
-	const greater = (direction === "asc") === (seek.side === "follows")
-	return greater ? (seek.inclusive ? ">=" : ">") : seek.inclusive ? "<=" : "<"
-}
+/** The operator by which a key strictly on `side` of its boundary value compares. */
+const operator = (direction: Direction, seek: Seek): ">" | "<" =>
+	(direction === "asc") === (seek.side === "follows") ? ">" : "<"
 
 /**
- * The seek predicate of `keys` against their boundary values; undefined when every tuple qualifies (the inclusive seek
- * of the empty comparison tuple).
+ * The seek predicate of `keys` against their boundary values: false over the empty comparison tuple, which no tuple
+ * strictly follows or precedes.
  */
 export const seekPredicate = (
 	keys: ReadonlyArray<SeekKey>,
 	seek: Seek,
 	names: OperatorNames
-): Expr | undefined => {
+): Expr => {
 	if (!isNonEmpty(keys)) {
-		return seek.inclusive ? undefined : lit.bool(false)
+		return lit.bool(false)
 	}
 	const [first] = keys
-	const compare = (op: ">" | "<" | ">=" | "<=" | "=", k: SeekKey): Expr =>
+	const compare = (op: ">" | "<" | "=", k: SeekKey): Expr =>
 		typedCompare(op, k.type, k.column, k.boundary, names)
 	if (keys.length === 1) {
 		return compare(operator(first.direction, seek), first)
@@ -316,15 +279,11 @@ export const seekPredicate = (
 		)
 	}
 	const equal = (k: SeekKey): Expr => compare("=", k)
-	const terms = mapNonEmpty(keys, (k, j) =>
-		and(
-			appendNonEmpty(
-				keys.slice(0, j).map(equal),
-				compare(operator(k.direction, { side: seek.side, inclusive: false }), k)
-			)
+	return or(
+		mapNonEmpty(keys, (k, j) =>
+			and(appendNonEmpty(keys.slice(0, j).map(equal), compare(operator(k.direction, seek), k)))
 		)
 	)
-	return or(seek.inclusive ? appendNonEmpty(terms, and(mapNonEmpty(keys, equal))) : terms)
 }
 
 /** ORDER BY items with every direction reversed: last and before reverse every sort direction. */

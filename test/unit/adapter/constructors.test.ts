@@ -34,7 +34,7 @@ import {
 	type MessageBound,
 	type TransientReason as EngineReason
 } from "#compiler/plan/common.ts"
-import { CompileError, CursorError, EncodingFailure, Sqlstate } from "#compiler/public/errors.ts"
+import { CompileError, EncodingFailure, Sqlstate } from "#compiler/public/errors.ts"
 import * as Public from "#index.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { wild } from "#test/support/kernel/naming.ts"
@@ -69,8 +69,8 @@ import { caseHang } from "#test/support/limits.ts"
  * Features: each constructor, each SQLSTATE grizzle branches on and any other, each report field empty or present.
  */
 
-/** The errors the public channels name: Db.open's and DbLayer.make's, a read's, a write's, a page's, db.compile's. */
-type Channel = Public.OpenError | Public.ReadError | Public.ApplyError | CursorError | CompileError
+/** The errors the public channels name: Db.open's and DbLayer.make's, a read's, a write's, generate's compile's. */
+type Channel = Public.OpenError | Public.ReadError | Public.ApplyError | CompileError
 
 /** A field's value when it is a failure: an Error carrying its tag. */
 type FailureIn<V> = V extends Error & { readonly _tag: string } ? V : never
@@ -110,7 +110,6 @@ const constructors: {
 	ConnectionLost: Public.ConnectionLost,
 	ConnectTimedOut: Public.ConnectTimedOut,
 	CredentialError: Public.CredentialError,
-	CursorError,
 	DbConfigRefused: Public.DbConfigRefused,
 	Deadlock: Public.Deadlock,
 	DriverFailure: Public.DriverFailure,
@@ -119,7 +118,6 @@ const constructors: {
 	ExecutionFailure: Public.ExecutionFailure,
 	ExpiryRefused: Public.ExpiryRefused,
 	GeneratedSerialUnique: Public.GeneratedSerialUnique,
-	HandleReleased: Public.HandleReleased,
 	InputRejected: Public.InputRejected,
 	InputTooLarge: Public.InputTooLarge,
 	LawRejected: Public.LawRejected,

@@ -3307,7 +3307,7 @@ const queryParams = <P extends ParentColumn>(q: Query<P>): ReadonlyArray<Param> 
 
 /**
  * The refusal a read provokes: one of those its query can carry (a parameter to mistype; an ordered root to page with a
- * size that is no safe integer of at least 1, zero or the first unsafe integer, or a cursor its codec cannot read), or
+ * size that is no safe integer of at least 1, zero or the first unsafe integer, or an anchor key of another length), or
  * none.
  */
 const resolveProbe = (
@@ -3329,7 +3329,7 @@ const resolveProbe = (
 						kind: "page size",
 						size: upper(sketch.pick) ? Number.MAX_SAFE_INTEGER + 1 : 0
 					} satisfies Probe,
-					{ kind: "cursor" } satisfies Probe
+					{ kind: "anchor" } satisfies Probe
 				]
 			: [])
 	]

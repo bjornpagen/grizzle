@@ -429,7 +429,7 @@ export type TextInfo =
  * codes (ir/codes.ts), which no type holds, since they depend on the codes the installation held before.
  *
  * Its identity is its name and its handles in order, as type identity compares them (sameScalarType): one name holds
- * other handles in another schema, which a cursor, a snapshot or a migration compares this one's against. Its canonical
+ * other handles in another schema, which a snapshot or a migration compares this one's against. Its canonical
  * form (core/canonical.ts Canonicalizable) is its name and its handles' digest (core/fingerprint.ts rosterDigest), taken
  * once, where the roster is first made (Roster.of), so a type, a literal or a predicate over the roster encodes the same
  * characters whatever the roster's size, and every encoding of it changes with its handles.
