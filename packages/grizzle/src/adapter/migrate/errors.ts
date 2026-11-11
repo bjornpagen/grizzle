@@ -395,9 +395,9 @@ export type InputFault =
 const variableFaultText = (fault: VariableFault): string => {
 	switch (fault.kind) {
 		case "unknownVariable":
-			return `names the variable :${quoteIdent(fault.name)}, which is neither :"DBNAME" nor a role's stem <schema>__<name>; write a slice with a space after its colon`
+			return `names the variable :${quoteIdent(fault.name)}, which is neither :"DBNAME" nor a role's name: its stem <schema>__<name>, the name a rename sets it aside under, __aside_<segments>_<digest>, or the installation's decoder login's, __live_<segments>_<digest>; write a slice with a space after its colon`
 		case "roleTooLong":
-			return `names the role ${fault.stem}, which the installation's role prefix makes ${fault.role}, past PostgreSQL's ${fault.limit} bytes`
+			return `names the role ${fault.name}, which the installation's role prefix makes ${fault.role}, past PostgreSQL's ${fault.limit} bytes`
 	}
 }
 

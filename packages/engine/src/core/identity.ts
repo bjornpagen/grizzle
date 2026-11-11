@@ -68,6 +68,10 @@ export const maxIdentifierBytes: Limit = derived({
 const hashedLead = "__"
 /** The separator of a hashed name's stem and its digest. */
 const digestSeparator = "_"
+/** The first segment of the stem of a name a migration sets an object aside under (identity.aside). */
+const asideSegment = "aside"
+/** The first segment of the stem of an installation's live source's name (identity.liveSource). */
+const liveSegment = "live"
 
 /**
  * The width of a hashed name's digest, in base32 characters of five bits each: a format constant of the naming door,
@@ -398,55 +402,70 @@ export interface InstalledRoleTooLong {
 }
 
 /**
- * The PostgreSQL role the installation of role space `space` installs for the role stem `stem`, or its refusal past
- * maxIdentifierBytes: the one place a cluster role's name is made from a stem. A stem fits by its identity's minting
- * (fitted), so only a prefix lengthens it.
+ * The PostgreSQL role the installation of role space `space` installs for the role the naming door names `name`, in
+ * any of its forms (RoleNameForm), or its refusal past maxIdentifierBytes: the one place a cluster role's name is
+ * made from a minted one. A minted name fits by its minting (fitted, the hashed form's budget), so only a prefix
+ * lengthens it.
  */
 export const roleInSpace = (
 	space: RoleSpace,
-	stem: string
+	name: string
 ): Result.Result<string, InstalledRoleTooLong> => {
 	if (space.kind === "stems") {
-		return Result.ok(stem)
+		return Result.ok(name)
 	}
-	const role = `${space.prefix}__${stem}`
+	const role = `${space.prefix}__${name}`
 	return utf8Length(role) > maxIdentifierBytes.value
 		? Result.err({ role, limit: maxIdentifierBytes.value })
 		: Result.ok(role)
 }
 
-/**
- * Whether `text` is a hashed identifier as the naming door spells one (`mint`): `__`, a stem of lowercase ASCII letters,
- * digits and underscores, `_` and digestChars characters of its base32, within maxIdentifierBytes: what a hashed
- * role's stem is, the installation's decoder login's (identity.liveSource).
- */
-export const isHashedIdentifier = (text: string): boolean => {
-	const separator = text.length - digestChars - digestSeparator.length
-	if (
-		!text.startsWith(hashedLead) ||
-		text.length > maxIdentifierBytes.value ||
-		separator <= hashedLead.length ||
-		text.charAt(separator) !== digestSeparator
-	) {
-		return false
-	}
-	for (let at = hashedLead.length; at < separator; at += 1) {
-		const ch = text.charAt(at)
-		if (!(isLower(ch) || isDigit(ch) || ch === "_")) {
-			return false
-		}
-	}
-	for (let at = separator + 1; at < text.length; at += 1) {
-		if (!base32.includes(text.charAt(at))) {
-			return false
-		}
-	}
-	return true
-}
-
 /** Whether `text` is a declared name's conversion, as the naming door spells one: what a stem's two parts each are. */
-export const isConversion = (text: string): boolean =>
+const isConversion = (text: string): boolean =>
 	parsedName(text).ok && conversionOf(text) === text
+
+/**
+ * The forms a drafted statement names a role of the installation in, each the identifier the naming door mints: a
+ * login's or role's stem, `<schema>__<name>`, two conversions joined by their one `__` (identity.login, identity.role);
+ * the name a migration sets a role aside under while it renames logins (identity.aside), hashed,
+ * `__aside_<segments>_<digest>`, its segments the stem's conversion cut to the stem budget; or the installation's live
+ * source's, its decoder login's (identity.liveSource), hashed, `__live_<segments>_<digest>`, its segments the root
+ * level's.
+ */
+export type RoleNameForm = "stem" | "aside" | "liveSource"
+
+/** Whether `text` is one segment of a conversion: lowercase ASCII letters and digits. */
+const isSegment = (text: string): boolean =>
+	text !== "" && Array.from(text).every((ch) => isLower(ch) || isDigit(ch))
+
+/** Whether `text` is a hashed name's digest: digestChars characters of lowercase base32. */
+const isDigest = (text: string): boolean =>
+	text.length === digestChars && Array.from(text).every((ch) => base32.includes(ch))
+
+/** The form `name` names a role of the installation in, or undefined for any other text. */
+export const roleNameForm = (name: string): RoleNameForm | undefined => {
+	const at = name.indexOf("__")
+	if (at > 0 && isConversion(name.slice(0, at)) && isConversion(name.slice(at + 2))) {
+		return "stem"
+	}
+	const digestAt = name.length - digestChars
+	const [lead, ...segments] = name
+		.slice(hashedLead.length, digestAt - digestSeparator.length)
+		.split(digestSeparator)
+	if (
+		!name.startsWith(hashedLead) ||
+		utf8Length(name) > maxIdentifierBytes.value ||
+		name.slice(digestAt - digestSeparator.length, digestAt) !== digestSeparator ||
+		!isDigest(name.slice(digestAt)) ||
+		!segments.every(isSegment)
+	) {
+		return undefined
+	}
+	if (lead === asideSegment) {
+		return "aside"
+	}
+	return lead === liveSegment ? "liveSource" : undefined
+}
 
 /**
  * The stem of the cluster role `role` when it lies in the namespace of an installation of role space `space` whose
@@ -1363,7 +1382,13 @@ export const identity = Object.freeze({
 	 * schema's longest conversion pass maxIdentifierBytes.
 	 */
 	liveSource: (root: string): Identity<"liveSource"> =>
-		mint("liveSource", [root], ["live", ...nameSegments(root)], `live source of ${root}`, hashed),
+		mint(
+			"liveSource",
+			[root],
+			[liveSegment, ...nameSegments(root)],
+			`live source of ${root}`,
+			hashed
+		),
 	/** The table of a schema's live secret, which only the installation's logins read. */
 	liveSecret: (): Identity<"liveSecret"> =>
 		mint("liveSecret", [], ["live", "secret"], "the live secret", readable("__live_secret")),
@@ -1402,7 +1427,7 @@ export const identity = Object.freeze({
 		),
 	/** The name a migration sets a held object aside under. */
 	aside: (of: string): Identity<"aside"> =>
-		mint("aside", [of], ["aside", ...nameSegments(of)], `${of} set aside`, hashed),
+		mint("aside", [of], [asideSegment, ...nameSegments(of)], `${of} set aside`, hashed),
 	/** The name an index is built under before it is swapped in for `of`. */
 	swap: (of: string): Identity<"swap"> =>
 		mint("swap", [of], ["next", ...nameSegments(of)], `the next ${of}`, hashed),

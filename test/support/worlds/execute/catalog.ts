@@ -21,9 +21,10 @@ import { type Owned, type OwnedRole, own, rostersOf } from "#compiler/schema/own
 import { schemaDescOf } from "#compiler/schema/schema.ts"
 import type { CreatePolicy, CreateView, ObjectName, RoleSetting } from "#compiler/sql/ast.ts"
 import { and, col, derived, lit, provedSelect, target } from "#compiler/sql/build.ts"
-import { printStatement, quoteIdent, quoteString, storedSettingValue } from "#compiler/sql/print.ts"
+import { quoteIdent, quoteString, storedSettingValue } from "#compiler/sql/print.ts"
 import type { AmbientOwner } from "#test/support/ambient.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { filledStatements } from "#test/support/compile.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { draftedAt, fromSnapshot, generate, noDeclarations } from "#test/support/migrate/kit.ts"
 import { review } from "#test/support/migrate/review.ts"
@@ -454,13 +455,16 @@ const roleSettingStatements = (
 		}
 	})
 
-/** The installation's own database default, which restores the database's isolation once the realization ends. */
-const databaseDefault = (installation: Installation): Effect.Effect<string> =>
+/**
+ * The installation's own database default, as migrate sends it into the catalog's database, which restores the
+ * database's isolation once the realization ends.
+ */
+const databaseDefault = (catalog: Catalog): Effect.Effect<ReadonlyArray<string>> =>
 	Option.match(
-		Arr.findFirst(installation.statements, (s) => s.kind === "alterDatabaseDefault"),
+		Arr.findFirst(catalog.installation.statements, (s) => s.kind === "alterDatabaseDefault"),
 		{
 			onNone: () => Effect.die(new Error("the installation stores no database default")),
-			onSome: (s) => Effect.succeed(printStatement(s))
+			onSome: (s) => Effect.succeed(filledStatements([s], catalog.database))
 		}
 	)
 
@@ -478,8 +482,10 @@ const databaseSettingStatements = (
 		switch (change) {
 			case "isolation-changed":
 			case "isolation-reset": {
-				const restore = yield* databaseDefault(catalog.installation)
-				yield* catalog.restoring(admin.query(restore, []))
+				const restore = yield* databaseDefault(catalog)
+				yield* catalog.restoring(
+					Effect.forEach(restore, (sql) => admin.query(sql, []), { discard: true })
+				)
 				return change === "isolation-changed"
 					? [`ALTER DATABASE ${database} SET default_transaction_isolation = 'read committed'`]
 					: [`ALTER DATABASE ${database} RESET default_transaction_isolation`]
@@ -540,8 +546,11 @@ const viewOf = (
 		)
 	})
 
-/** A view's definition replaced by one of the same rows that reads differently: its query under a WHERE true. */
-const redefinedView = (view: CreateView): Effect.Effect<string> => {
+/**
+ * A view's definition replaced by one of the same rows that reads differently, its query under a WHERE true, as sent
+ * into `database`.
+ */
+const redefinedView = (view: CreateView, database: string): Effect.Effect<string> => {
 	const alias = "executor_redefined"
 	const query = provedSelect(
 		"keyed",
@@ -549,8 +558,8 @@ const redefinedView = (view: CreateView): Effect.Effect<string> => {
 		[derived(view.query, alias, view.columns, false)],
 		lit.bool(true)
 	)
-	const created = printStatement({ ...view, query })
-	return Str.startsWith("CREATE VIEW ")(created)
+	const [created] = filledStatements([{ ...view, query }], database)
+	return created !== undefined && Str.startsWith("CREATE VIEW ")(created)
 		? Effect.succeed(Str.replace("CREATE VIEW ", "CREATE OR REPLACE VIEW ")(created))
 		: Effect.die(new Error("a view prints as no CREATE VIEW"))
 }
@@ -720,26 +729,32 @@ const perturbationStatements = (
 				const existingPolicy = yield* policyOf(catalog, p.role, p.entry)
 				return Option.match(existingPolicy, {
 					onNone: () => [],
-					onSome: (policy) => [
-						printStatement({ kind: "dropPolicy", name: policy.name, table: policy.table })
-					]
+					onSome: (policy) =>
+						filledStatements(
+							[{ kind: "dropPolicy", name: policy.name, table: policy.table }],
+							catalog.database
+						)
 				})
 			}
 			case "policy-edited": {
 				const currentPolicy = yield* policyOf(catalog, p.role, p.entry)
 				return Option.match(currentPolicy, {
 					onNone: () => [],
-					onSome: (policy) => [
-						printStatement({ kind: "dropPolicy", name: policy.name, table: policy.table }),
-						printStatement({ ...policy, filter: and([policy.filter, lit.bool(true)]) })
-					]
+					onSome: (policy) =>
+						filledStatements(
+							[
+								{ kind: "dropPolicy", name: policy.name, table: policy.table },
+								{ ...policy, filter: and([policy.filter, lit.bool(true)]) }
+							],
+							catalog.database
+						)
 				})
 			}
 			case "view-redefined": {
 				const existingView = yield* viewOf(catalog, p.role, p.entry)
 				return yield* Option.match(existingView, {
 					onNone: () => Effect.succeed([]),
-					onSome: (view) => Effect.map(redefinedView(view), (sql) => [sql])
+					onSome: (view) => Effect.map(redefinedView(view, catalog.database), (sql) => [sql])
 				})
 			}
 			case "function-redefined":

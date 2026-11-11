@@ -59,10 +59,9 @@ import {
 import { str } from "#compiler/public/text.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import type { ObjectName, SqlStatement } from "#compiler/sql/ast.ts"
-import { printStatement } from "#compiler/sql/print.ts"
 import { judged, probe, textProbes, type Verdict } from "#test/pg/physical/checks.ts"
 import { assert } from "#test/support/assert.ts"
-import { filledSql, installationSql } from "#test/support/compile.ts"
+import { filledStatements, installationSql } from "#test/support/compile.ts"
 import {
 	installationNamesOf,
 	type NamedRelation,
@@ -467,32 +466,32 @@ const refusedBy = (
 const withoutCheck = (
 	statements: ReadonlyArray<SqlStatement>,
 	dropped: InstalledCheck
-): ReadonlyArray<string> => {
+): ReadonlyArray<SqlStatement> => {
 	const owns = (kind: ConstraintOwner["kind"], owner: ObjectName): boolean =>
 		dropped.owner.kind === kind && dropped.owner.name === owner.name
-	return Arr.flatMap(statements, (st): ReadonlyArray<string> => {
+	return Arr.flatMap(statements, (st): ReadonlyArray<SqlStatement> => {
 		if (st.kind === "createTable") {
 			return owns("table", st.table)
 				? [
-						printStatement({
+						{
 							...st,
 							secondary: Arr.filter(
 								st.secondary,
 								(c) => !(c.kind === "check" && c.name === dropped.name)
 							)
-						})
+						}
 					]
-				: [printStatement(st)]
+				: [st]
 		}
 		if (st.kind === "createDomain") {
 			return owns("domain", st.name)
 				? [
-						printStatement({
+						{
 							...st,
 							constraints: Arr.filter(st.constraints, (c) => c.name !== dropped.name)
-						})
+						}
 					]
-				: [printStatement(st)]
+				: [st]
 		}
 		if (st.kind === "alterTable") {
 			const actions = Arr.filter(
@@ -505,14 +504,14 @@ const withoutCheck = (
 						a.constraint.name === dropped.name
 					)
 			)
-			return Arr.isReadonlyArrayNonEmpty(actions) ? [printStatement({ ...st, actions })] : []
+			return Arr.isReadonlyArrayNonEmpty(actions) ? [{ ...st, actions }] : []
 		}
 		if (st.kind === "alterDomain") {
 			return owns("domain", st.name) &&
 				st.action.kind === "addConstraint" &&
 				st.action.constraint.name === dropped.name
 				? []
-				: [printStatement(st)]
+				: [st]
 		}
 		if (st.kind === "comment") {
 			return (st.on.kind === "CONSTRAINT" &&
@@ -522,9 +521,9 @@ const withoutCheck = (
 					owns("domain", st.on.domain) &&
 					st.on.name === dropped.name)
 				? []
-				: [printStatement(st)]
+				: [st]
 		}
-		return [printStatement(st)]
+		return [st]
 	})
 }
 
@@ -611,7 +610,10 @@ layer(Substrate.layer)("the predicate CHECKs of the real installer", (it) => {
 									const dropped = checksOf(installation, s)[p.dropped]
 									const mutant = yield* inInstallation(
 										pinned,
-										filledSql(withoutCheck(installation.statements, dropped), substrate.database),
+										filledStatements(
+											withoutCheck(installation.statements, dropped),
+											substrate.database
+										),
 										judgeCase(pinned, installation, s, p)
 									)
 									assert.ok(

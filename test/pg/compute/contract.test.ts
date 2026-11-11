@@ -17,7 +17,7 @@
  * Features: a value the domain admits and one it refuses, for each contract.
  */
 import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
+import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { noCoverage, required } from "@grizzle/testing/features"
 import {
 	array,
@@ -34,7 +34,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint, double } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, pipe, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Option, pipe, String as Str } from "effect"
 import type { CompileReason } from "#compiler/core/errors.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
@@ -286,6 +286,21 @@ const fixtures = (): ReadonlyArray<Fixture> => {
 	]
 }
 
+/**
+ * The values a witness checks: its drawn batch, or, while a value the domain admits or one it refuses is pending, every
+ * edge of its contract and then the drawn batch, so a contract that admits few values (halves admits four of all the
+ * int8 values) meets one; the drawn batch is checked whole either way. None for a rotating or kept case, which runs as
+ * drawn.
+ */
+const aimedBatch = (
+	f: Fixture,
+	drawnBatch: ReadonlyArray<LiteralDesc>,
+	c: Case<DomainFeature>
+): ReadonlyArray<LiteralDesc> =>
+	Option.exists(c.steering, (pending) => pending.names("admitted") || pending.names("refused"))
+		? [...f.edges, ...drawnBatch]
+		: drawnBatch
+
 /** A schema with the evaluator installed: the session a contract's domain checks run on. */
 const evaluatorSchema = Effect.gen(function* () {
 	const { session, schema } = yield* Substrate
@@ -354,9 +369,9 @@ const contractSearch = (f: Fixture) =>
 				steerEvery: 16,
 				caseHang
 			},
-			(batch, c) =>
+			(drawnBatch, c) =>
 				Effect.gen(function* () {
-					const cases = Arr.map(batch, (value) => {
+					const cases = Arr.map(aimedBatch(f, drawnBatch, c), (value) => {
 						const bindings = { x: { kind: "literal", field: f.base, value } } as const
 						const lowered = lowerWith("query", cast, bindings, false, baseParams)
 						const literal = succeeded(lowerWith("query", operand, bindings, false, baseParams))

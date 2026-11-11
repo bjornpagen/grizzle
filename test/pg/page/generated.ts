@@ -1442,7 +1442,7 @@ export const generatedSuite = (artifact: PageArtifactName): void => {
 					const session = yield* s.admin.pin
 					yield* session.query("BEGIN", [])
 					yield* Effect.addFinalizer(() => Effect.orDie(session.query("ROLLBACK", [])))
-					for (const sql of filledSql(plan.sql, s.database)) {
+					for (const sql of filledSql(plan.drafted, s.database)) {
 						yield* session.query(sql, [])
 					}
 					for (const sql of facts.value) {

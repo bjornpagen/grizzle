@@ -396,7 +396,7 @@ const installations = (
 				const plan = yield* planned(schema, name, substrate.owner.role)
 				yield* runStaged(
 					substrate.admin,
-					staged("install", ["BEGIN", ...filledSql(plan.sql, substrate.database), "COMMIT"]),
+					staged("install", ["BEGIN", ...filledSql(plan.drafted, substrate.database), "COMMIT"]),
 					({ message }) => new InstallationFailed({ stage: "install", message })
 				)
 				MutableHashMap.set(installed, schema, plan)
@@ -446,7 +446,7 @@ export const caseInstallation = (
 			return Effect.gen(function* () {
 				const substrate = yield* Substrate
 				const plan = yield* planned(schema, placement.name, substrate.owner.role)
-				return { plan, statements: filledSql(plan.sql, substrate.database) }
+				return { plan, statements: filledSql(plan.drafted, substrate.database) }
 			})
 		case "installed":
 			return Effect.map(placement.installations.planOf(schema), (plan) => ({

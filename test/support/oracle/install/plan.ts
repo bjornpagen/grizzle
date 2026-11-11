@@ -1218,7 +1218,7 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 		domains: Rec.fromEntries(Arr.map([...domains], ([name, { domain }]) => [name, domain])),
 		loadOrder,
 		ddl,
-		sql,
+		drafted: { statements: sql },
 		vectorSchema,
 		skipped,
 		fill: {

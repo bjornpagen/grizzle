@@ -297,7 +297,7 @@ export const inInstalledCase = <A, E>(
 					.pipe(Effect.mapError((e) => new HarnessFailure({ message: `${String(e)}\n${sql}` })))
 			yield* exec("BEGIN")
 			return yield* Effect.gen(function* () {
-				for (const sql of filledSql(plan.sql, substrate.database)) {
+				for (const sql of filledSql(plan.drafted, substrate.database)) {
 					yield* exec(sql)
 				}
 				for (const sql of facts.value) {

@@ -5,6 +5,7 @@ import type { SpanCarrier } from "#compiler/ir/scalar.ts"
 import type { ClosedRows } from "#compiler/runtime/write/fill.ts"
 import type { PatternReads } from "#compiler/scalar/regex/patterns.ts"
 import type { Ddl, ObjectName, TypeRef } from "#compiler/sql/ast.ts"
+import type { DraftedScript } from "#test/support/compile.ts"
 
 /**
  * How a host value of a column is spelled as a typed SQL literal (literal.ts). A contract column spells its base's
@@ -165,10 +166,10 @@ export interface InstallPlan {
 	readonly loadOrder: ReadonlyArray<string>
 	readonly ddl: ReadonlyArray<Ddl>
 	/**
-	 * The emitted text of each DDL statement, in order, as drafted: a role of the installation is its variable, which
-	 * filledSql (test/support/compile.ts) fills as migrate does before a statement is sent.
+	 * The installation's DDL, in order, as drafted: a role of the installation is its variable, which filledSql
+	 * (test/support/compile.ts) fills as migrate does before a statement is sent.
 	 */
-	readonly sql: ReadonlyArray<string>
+	readonly drafted: DraftedScript
 	/** The schema the vector extension lives in, which names a vector column's type. */
 	readonly vectorSchema: string
 	/** Declarations skipped under `unsupported: "skip"`: laws and derived relations beyond the minimal installer. */

@@ -1172,7 +1172,7 @@ const step = (h: History, before: Model, after: Model, note: (f: Feature) => voi
 			h.rows = model.expected
 			const fresh = yield* substrate.schema({ create: false, label: "histories_fresh" })
 			const freshPlan = planned(built, fresh, h.owner)
-			yield* transaction(substrate.admin, filledSql(freshPlan.sql, substrate.database))
+			yield* transaction(substrate.admin, filledSql(freshPlan.drafted, substrate.database))
 			yield* sameCatalog(plan.installation, freshPlan.installation, `step ${h.steps}`)
 			const loaded = factStatements(freshPlan, factSetOf(v, model.expected))
 			if (!loaded.ok) {
