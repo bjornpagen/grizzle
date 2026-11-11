@@ -13,20 +13,23 @@ import { Array as Arr, Effect, Formatter, Option, Order, String as Str } from "e
  * count and stock, its filter the fixed region alone or the free label too (`label` is never "zz"); a keeper writes
  * Store and Item whole.
  *
- * A case draws a stored state, stores at three keys, each absent or in a region under a label with up to two Items,
- * and one write through one entry role: an insert, a put or a delete of a store at a stored or a fresh key, under a
- * label the label filter admits or refuses. The oracle is a model of the entry over the family: the role sees exactly
- * the north stores its filter admits; an insert or a put of a fact outside the entry is `outside-world`; one at a key a
- * store the role cannot see holds is `invariant-rejected` on Store's key, as is an insert at a key a visible store holds
- * under another label; a put of a visible store sets its label and leaves its count, its stock and its Items as they
- * are; a fresh store is inserted with no Item, its count and stock at their starts; a delete of a visible store with
- * Items is `invariant-rejected` on its family's laws, and of one the role cannot see is `no-change`, as is every write
- * that leaves the stores as they were, an insert of a visible store under its own label among them. A case that is both
- * outside the entry and at an unseen store's key may report either, as the README promises.
+ * A case draws a stored state, stores at three keys, each absent or in a region under a label with up to two Items, and
+ * one write through one entry role: an insert, a put or a delete of a store at a stored or a fresh key, under a label
+ * the label filter admits or refuses. The oracle is a model of the entry over the family: the role sees exactly the
+ * north stores its filter admits; an insert or a put of a fact outside the entry is `outside-world`; one at a key a
+ * store the role cannot see holds is `invariant-rejected` on Store's key, as is an insert at a key a visible store
+ * holds under another label; a put of a visible store sets its label and leaves its count, its stock and its Items as
+ * they are; a fresh store is inserted with no Item, its count and stock at their starts; a delete of a visible store
+ * with Items is `invariant-rejected` on its family's laws, and of one the role cannot see is `no-change`, as is every
+ * write that leaves the stores as they were, an insert of a visible store under its own label among them. A case that
+ * is both outside the entry and at an unseen store's key may report either, as the README promises.
  *
  * Each role's writes are a JavaScript caller's ChangeSets, served as members of its workload on a Db of its own, each
  * from its call's facts: the keeper's insert of Store and Item, and each entry role's insert, put and delete of its
  * entry.
+ *
+ * Plant: ~/.cache/grizzle-release/BR08/plants/entry-owner-outside-never-refused.patch, an entry's check never refusing
+ * a fact outside it, must turn the property red.
  */
 import type { Uuid } from "#compiler/public/fields.ts"
 import { type AnySchema, login, role } from "#compiler/public/schema.ts"

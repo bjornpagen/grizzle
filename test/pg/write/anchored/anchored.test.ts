@@ -50,7 +50,11 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * parameter of no keys to several, the claim's kind, resource, slot, seat and instants; PostgreSQL plans the deletion
  * for those values, as a custom plan does. The property is the plan's contract, not its text: exactly one node reads
  * Wanted, and an index condition bounds it, whatever the values. Each shape is a required feature, as are a relation
- * parameter of no keys and one of several. */
+ * parameter of no keys and one of several.
+ *
+ * Plant: ~/.cache/grizzle-release/BR08/plants/anchored-delete-never-anchored.patch, an exact deletion never anchored on
+ * its relation's occurrence, must turn the property red.
+ */
 type Shape =
 	| "the claim's deletion of the Wanted items its pick names"
 	| "a deletion of the Wanted items a relation parameter names"
@@ -271,8 +275,8 @@ layer(Substrate.layer, { excludeTestServices: true })("an anchored deletion", (i
 							const program = programs[shape]
 							const statements = flightOf(program, names.codes).statements
 							/**
-							 * Each placeholder from the drawn parameters, as its statement binds it, a relation's normalized once: the
-							 * key of Wanted is text, so a relation parameter of keys travels as a binary text[].
+							 * Each placeholder from the drawn parameters, as its statement binds it, a relation's normalized once:
+							 * the key of Wanted is text, so a relation parameter of keys travels as a binary text[].
 							 */
 							const declared = { params: program.params, codes: names.codes }
 							const found = Arr.findFirst(statements, (st, at) =>

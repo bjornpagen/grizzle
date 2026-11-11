@@ -41,6 +41,9 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
  * pair, and the conservative snapshot and differences); one to three facts over two keys and two payloads, written in
  * one statement or one each; and the replacement with its CTEs in both orders, with and without the deletion.
  * Exhausted.
+ *
+ * Plant: ~/.cache/grizzle-release/BR08/plants/carrier-key-unkeyed.patch, a carrier created without its primary key,
+ * must turn the property red.
  */
 const R = relation("R", { id: pg.int4, v: pg.int4 }, ["id"])
 const Keyed = schema("carrier_key", { R }, [mutable(R)])

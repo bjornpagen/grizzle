@@ -35,28 +35,32 @@ import { loginLayer } from "#test/support/worlds.ts"
  *
  * An attachment delivers what immediate-constraint evidence proves: the bare child where a containment proves exactly
  * one child per parent, an option where the correlation covers a key of the child. A containment proves a child before
- * COMMIT only as an immediate foreign key, which grizzle makes of one whose target holds no field outside the referenced
- * columns: a target with a payload can be replaced at the key in passing, so its foreign key is deferred, and a read-back
- * counts its children as an option's. A write's statements, its read-backs
- * and its COMMIT go in one flight, so a breach the host found while decoding would surface only after the write had
- * committed. Each read-back statement that delivers a bare child or an option checks the count of children per parent
- * itself and raises through the installation's refusal function: PostgreSQL aborts the transaction, and the apply fails
- * with an ExecutionFailure carrying the server's report, SQLSTATE 21Z01 with the delivered type it broke as its
- * constraint. The database's answer contradicts a proof, which fails closed as a typed failure, and nothing commits.
+ * COMMIT only as an immediate foreign key, which grizzle makes of one whose target holds no field outside the
+ * referenced columns: a target with a payload can be replaced at the key in passing, so its foreign key is deferred,
+ * and a read-back counts its children as an option's. A write's statements, its read-backs and its COMMIT go in one
+ * flight, so a breach the host found while decoding would surface only after the write had committed. Each read-back
+ * statement that delivers a bare child or an option checks the count of children per parent itself and raises through
+ * the installation's refusal function: PostgreSQL aborts the transaction, and the apply fails with an ExecutionFailure
+ * carrying the server's report, SQLSTATE 21Z01 with the delivered type it broke as its constraint. The database's
+ * answer contradicts a proof, which fails closed as a typed failure, and nothing commits.
  *
  * The breaches are made as a compiler defect would make them: the constraints behind the evidence are dropped after the
- * Db opened (Note's foreign keys, and the keys of Account, Badge and Profile), so the database may hold rows they forbid.
- * A case draws such a state: for each of three accounts, its rows of Account (none, one, or two under distinct names),
- * of Badge and of Profile; which of two tags Tag holds; the notes already stored, each over a drawn account and tag,
- * either possibly absent; then the note the write inserts over its own, and the artifact that runs it: the optimized one
- * db.apply runs, which fuses the marker and the badge into their parent's statement and pipelines the holder and the
- * profile, or the conservative realization, which pipelines every attachment.
+ * Db opened (Note's foreign keys, and the keys of Account, Badge and Profile), so the database may hold rows they
+ * forbid. A case draws such a state: for each of three accounts, its rows of Account (none, one, or two under distinct
+ * names), of Badge and of Profile; which of two tags Tag holds; the notes already stored, each over a drawn account and
+ * tag, either possibly absent; then the note the write inserts over its own, and the artifact that runs it: the
+ * optimized one db.apply runs, which fuses the marker and the badge into their parent's statement and pipelines the
+ * holder and the profile, or the conservative realization, which pipelines every attachment.
  *
  * The oracle is a model of the delivered types over every note the read-back reads: the marker is a bare child, broken
- * by no child (Tag keeps its key, so it never has two); the holder (a deferred reference into Account), the badge and the
- * profile are options, broken by two children, and the holder's none is no breach before COMMIT. A state the model finds
- * no breach in commits the note and reads back every note with exactly its children; any breach aborts the write with
- * an ExecutionFailure the server raised, 21Z01 naming a delivered type some breach broke, and commits nothing. */
+ * by no child (Tag keeps its key, so it never has two); the holder (a deferred reference into Account), the badge and
+ * the profile are options, broken by two children, and the holder's none is no breach before COMMIT. A state the model
+ * finds no breach in commits the note and reads back every note with exactly its children; any breach aborts the write
+ * with an ExecutionFailure the server raised, 21Z01 naming a delivered type some breach broke, and commits nothing.
+ *
+ * Plant: ~/.cache/grizzle-release/BR08/plants/delivered-breach-never-raised.patch, a read-back's breach arm that never
+ * fires, must turn the property red.
+ */
 const text = str.regex(".*")
 
 /** Five fields beyond the key pipeline the holder and the profile; one fuses the marker and the badge. */

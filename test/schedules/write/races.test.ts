@@ -29,6 +29,13 @@
  * served it chose (PutChoice), each answer, each TransientFailure reason met, each direct SQLSTATE, waits, deadlocks,
  * nature's branches, a write held between its strata by a blocker, generated and explicit serials, and each planted
  * shape.
+ *
+ * Plants: ~/.cache/grizzle-release/BR08/plants/races-assignments-keep-stored-values.patch, every assignment of a put in
+ * place keeping the stored value, must turn the races' property red;
+ * ~/.cache/grizzle-release/BR08/plants/races-inserter-served-serializable.patch, the certified READ COMMITTED inserter
+ * served its SERIALIZABLE projection, the inserters';
+ * ~/.cache/grizzle-release/BR08/plants/races-inserter-begins-swapped.patch, each level's BEGIN sent for the other's,
+ * the inserter alone's.
  */
 
 import { layer } from "@effect/vitest"
@@ -1513,8 +1520,8 @@ const runFeatures = (
 }
 
 /**
- * A call of the role `inserter`, which generate certifies READ COMMITTED: the Badge facts it states, then the Gate facts
- * it inserts after them, none or one.
+ * A call of the role `inserter`, which generate certifies READ COMMITTED: the Badge facts it states, then the Gate
+ * facts it inserts after them, none or one.
  */
 interface InserterCall {
 	readonly badges: Arr.NonEmptyReadonlyArray<Fact>
@@ -1947,7 +1954,8 @@ const overlap = (a: Span, b: Span): boolean => a.start < b.end && b.start < a.en
 
 /**
  * The role `inserter`'s changes as the served file holds them, where generate certified the role READ COMMITTED; any
- * other level fails the case, since an insert-only role writing tables no other role writes is certified READ COMMITTED.
+ * other level fails the case, since an insert-only role writing tables no other role writes is certified READ
+ * COMMITTED.
  */
 const certifiedInserter = (
 	o: Opened
@@ -2018,9 +2026,9 @@ type AloneFeature = `alone ${GrizzleAnswer["kind"]}`
 
 /**
  * The framing search's case: `inserter`'s served change run once over the drawn Badge state by a writer of the role
- * whose pool is tapped and sends `session`'s texts. Its one try must send one flight opened by READ COMMITTED's BEGIN, the
- * level generate certified, and closed by COMMIT, answer on that try (firstTryProblem), and answer and leave the state
- * the serial model says.
+ * whose pool is tapped and sends `session`'s texts. Its one try must send one flight opened by READ COMMITTED's BEGIN,
+ * the level generate certified, and closed by COMMIT, answer on that try (firstTryProblem), and answer and leave the
+ * state the serial model says.
  */
 const runInserterAlone = (
 	ac: InserterAlone,

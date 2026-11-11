@@ -17,8 +17,11 @@
  * An owner keyed by an id and a span WITHOUT OVERLAPS is put in place: its row updated, never deleted and inserted
  * again, which its members' foreign key and its drawn count and fold end would refuse. Drawn span-keyed owners
  * (test/support/families/generate.ts `spanOwnersGen`), owners sharing an id over disjoint spans among them, are
- * inserted with their counted members through a served member, one is put with a new label, and PostgreSQL then holds every
- * owner with its label, count and fold end, and every member, exactly as the families model states them.
+ * inserted with their counted members through a served member, one is put with a new label, and PostgreSQL then holds
+ * every owner with its label, count and fold end, and every member, exactly as the families model states them.
+ *
+ * Plant: ~/.cache/grizzle-release/BR08/plants/fin-fold-check-after-equals-before.patch, a fold's CHECK holding each
+ * after to its before, refuses a lawful edit and must turn both properties red.
  */
 import { layer } from "@effect/vitest"
 import { drawn as drawnCase, exhaust, explore } from "@grizzle/testing/explore"

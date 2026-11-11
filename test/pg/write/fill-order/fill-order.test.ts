@@ -57,20 +57,22 @@ import { fullWorld } from "#test/support/worlds.ts"
  *
  * A drawn follow-up over the stored instance (fill.ts `followUpGen`), one ChangeSet that puts an owner's row with a new
  * `v`, inserts counted members under it, deletes a member of one of its ordered families and puts a member, new or
- * moved from another owner's group, at the end of one, is then applied,
- * every value it leaves stale refilled (analysis/theory/refill.ts), wherever its refills write only mutable relations
- * (fill.ts `writesVerdict`, which refuses a refill of an immutable relation's rows or of a tree's values; the unit suite
- * judges those refusals), and it too stores exactly the reference writer's rows of the instance it leaves: the owner's
- * new values in its members' copies, every predecessor copy, last copy and fold drawn from them again, the new members'
- * counts, folds and copies, the appended member's index and its siblings' last copy, and every member re-placed after a
- * deleted or moved one, its own members' copies of it drawn again (a re-placed row is deleted and inserted again, which
- * no cascade follows). A fold that steps a copy of the
- * owner's `v` is judged by its member row's own CHECK at every statement, so the refill that rewrites its members
- * ahead of the owner's put is what lets the put land.
+ * moved from another owner's group, at the end of one, is then applied, every value it leaves stale refilled
+ * (analysis/theory/refill.ts), wherever its refills write only mutable relations (fill.ts `writesVerdict`, which
+ * refuses a refill of an immutable relation's rows or of a tree's values; the unit suite judges those refusals), and it
+ * too stores exactly the reference writer's rows of the instance it leaves: the owner's new values in its members'
+ * copies, every predecessor copy, last copy and fold drawn from them again, the new members' counts, folds and copies,
+ * the appended member's index and its siblings' last copy, and every member re-placed after a deleted or moved one, its
+ * own members' copies of it drawn again (a re-placed row is deleted and inserted again, which no cascade follows). A
+ * fold that steps a copy of the owner's `v` is judged by its member row's own CHECK at every statement, so the refill
+ * that rewrites its members ahead of the owner's put is what lets the put land.
  *
  * The schemas are the unit suite's (test/unit/write/fill-order.test.ts), kept where the reference model admits them;
  * the unit suite holds the refusals. PostgreSQL proves every value grizzle wrote through the installation's natives,
  * so an accepted insert with the reference writer's rows is the property.
+ *
+ * Plant: ~/.cache/grizzle-release/BR08/plants/fill-order-index-off-by-one.patch, the fill drawing each member's index
+ * one past its slot, must turn the property red.
  */
 
 type ClusterSituation =
@@ -267,10 +269,10 @@ const plantedCase = (planted: Planted): Gen<ClusterCase> =>
 	caseOver(plantedBeside(planted), instanceGen, followUpGen)
 
 /**
- * The situations a drawn specification reaches only now and then, each with the cases a witness draws to reach it
- * while it is pending: a planted shape beside a drawn one (fill.ts `plantedGen`, admitted by the reference as planted);
- * or, where a follow-up must change what the planted relations hold, the shape alone with a follow-up aimed at it: a put
- * of the owner whose copy a fold steps (fill.ts `ownerPutGen`), or a deletion or a move re-placing an ordered member that
+ * The situations a drawn specification reaches only now and then, each with the cases a witness draws to reach it while
+ * it is pending: a planted shape beside a drawn one (fill.ts `plantedGen`, admitted by the reference as planted); or,
+ * where a follow-up must change what the planted relations hold, the shape alone with a follow-up aimed at it: a put of
+ * the owner whose copy a fold steps (fill.ts `ownerPutGen`), or a deletion or a move re-placing an ordered member that
  * owns a counted member (`replacingGen`) over the instance of every count at its most (`fullInstance`), whose last
  * member of each group owns every counted member.
  */
@@ -550,8 +552,8 @@ const replacedImmutableOwner: ClusterCase = {
 /**
  * The case the search found leaving an owner's recount to an additions statement its stratum lacked: R1 owns R2's
  * ordered family, and copies its last member's v along the last axis. A follow-up puts R1 and deletes its first member,
- * re-placing the second at slot 0, and appends nothing: the removals leave R1's recount to the additions, after the put,
- * so the additions recount R1's count and its last copy.
+ * re-placing the second at slot 0, and appends nothing: the removals leave R1's recount to the additions, after the
+ * put, so the additions recount R1's count and its last copy.
  */
 const ownerPutBesideRemoval: ClusterCase = {
 	spec: {

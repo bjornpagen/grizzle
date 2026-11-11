@@ -3,16 +3,19 @@
  * a native law, and a state the old capacity refused is refused natively, by PostgreSQL, with the SQLSTATE of the
  * native its row names, reporting that row's law.
  *
- * - **The specification turned into a checker:** each row of §6's table is a schema stating the row's replacement
- *   over a club and its seats, and a model of the row's law over a state: a club's seats and their lead flags, its
- *   count of seats and the count it needs, its seats' weights or shift lengths, or a seat's club and home. Each case
- *   is a row and a state of the box; PostgreSQL must commit it exactly when the model's law holds, and otherwise refuse it with
+ * - **The specification turned into a checker:** each row of §6's table is a schema stating the row's replacement over
+ *   a club and its seats, and a model of the row's law over a state: a club's seats and their lead flags, its count of
+ *   seats and the count it needs, its seats' weights or shift lengths, or a seat's club and home. Each case is a row
+ *   and a state of the box; PostgreSQL must commit it exactly when the model's law holds, and otherwise refuse it with
  *   the SQLSTATE of the native the law installs as, by a constraint of the relation the model names, reporting a law of
  *   the row's kind (installed.ts reads the law off the installation's constraint map).
  *
  * One departure from §6's text, recorded in NP's report: "at least one" as a bare containment into `select(S, φ)` is no
  * native, because a containment's target must contain a key (laws/model/plan.ts, "a containment into an unkeyed side
  * is not admitted"); its replacement here is the counted family with `check(T, n ≥ 1)`, the count row with lo = 1.
+ *
+ * Plant: ~/.cache/grizzle-release/BR08/plants/fin-fold-check-after-equals-before.patch, a fold's CHECK holding each
+ * after to its before, refuses a lawful weighted or duration state and must turn the property red.
  */
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"

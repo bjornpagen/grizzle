@@ -21,6 +21,10 @@
  * Each case writes its family by one transaction that replaces the seat's rows, then sends its removal as one
  * transaction checked as its COMMIT would check it and rolled back, or ended by a real COMMIT, as its own text chooses
  * (installed.ts End): the box requires both ends.
+ *
+ * Plant: ~/.cache/grizzle-release/BR08/plants/fin-predecessor-axis-deferral-swapped.patch, the counted predecessor axis
+ * installed immediate and the ordered one deferred, refuses the prescribed swap-with-last at its delete and must turn
+ * the property red.
  */
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"

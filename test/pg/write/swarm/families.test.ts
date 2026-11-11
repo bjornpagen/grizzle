@@ -71,14 +71,18 @@ import { fullWorld } from "#test/support/worlds.ts"
  *   at one key the key's, a member naming no owner its family's; each statement's law is the one the naming door
  *   names for it (test/support/kernel/naming.ts lawOf), so a refusal by a family, tree, fold, key, check or
  *   containment names exactly the law of its statement;
- * - a refusal when it compiles, the served compile's, is justified by the oracle's own statement: StaleDerivedRead where the reference finds
- *   a refill of an immutable relation's rows or a put from a query leaving a value stale (fill.ts writesVerdict), and
- *   UnorderableStratum where every order of its cycle is one the stratum's writes require (oracle.ts justified).
+ * - a refusal when it compiles, the served compile's, is justified by the oracle's own statement: StaleDerivedRead
+ *   where the reference finds a refill of an immutable relation's rows or a put from a query leaving a value stale
+ *   (fill.ts writesVerdict), and UnorderableStratum where every order of its cycle is one the stratum's writes require
+ *   (oracle.ts justified).
  *
- * Its kept cases are the seven downstream defects' shapes and pantry's importWrite, nested and not; planted in a scratch
- * copy, the total chain of a stratum's family statements, the pair rule's edges on a deferred owner axis, a nested
- * fact's signature without its own texts and an action placed before the family rows it references immediately each
- * fail the search.
+ * Its kept cases are the seven downstream defects' shapes and pantry's importWrite, nested and not; planted in a
+ * scratch copy, the total chain of a stratum's family statements, the pair rule's edges on a deferred owner axis, a
+ * nested fact's signature without its own texts and an action placed before the family rows it references immediately
+ * each fail the search.
+ *
+ * Plant: ~/.cache/grizzle-release/BR08/plants/swarm-nested-signature-without-own-texts.patch, a nested fact's signature
+ * without its own texts, must turn the property red.
  */
 
 /** What the search reached: shapes written, refusals justified, and the downstream defects' shapes. */
@@ -420,9 +424,9 @@ const steppedCopy = coreOf(
 )
 
 /** A mutable owner R0 of an ordered family of R1, itself the owner of a counted family of R2 whose sum fold steps R2's
- * copy of R1's copy of R0's `v`: a put of R0 reaches the fold along two owner axes. The first family is a sequence, whose
- * walk fills R1's copy before the counted family's fill reads it; a counted family's copy of another counted family's is
- * no column a fill reaches (UnfillableField). */
+ * copy of R1's copy of R0's `v`: a put of R0 reaches the fold along two owner axes. The first family is a sequence,
+ * whose walk fills R1's copy before the counted family's fill reads it; a counted family's copy of another counted
+ * family's is no column a fill reaches (UnfillableField). */
 const twoHopCopy = coreOf(
 	[true, true, true],
 	[
@@ -448,7 +452,8 @@ const copiedCount = coreOf(
 
 /**
  * Pantry's importWrite shape: R0 owns a counted family of R1, whose rows R2 names whole (an immediate foreign key into
- * R1's every field), and R2 owns a counted family of R3, so one stratum lands R1's rows before R2's and R3's after them.
+ * R1's every field), and R2 owns a counted family of R3, so one stratum lands R1's rows before R2's and R3's after
+ * them.
  */
 const importWriteFamilies: SwarmSpec["fill"]["families"] = [
 	{ kind: "counted", owner: 0, member: 1, fold: "none" },

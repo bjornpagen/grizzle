@@ -13,9 +13,10 @@
  *   its RFC lowering, the hand-written DDL its own suite proves against PostgreSQL). grizzle's verdict and moment must
  *   be GT's, with one declared difference: grizzle pins the root (w4-w7 §2.2), so a root at a slot other than 0, which
  *   GT's lowering leaves free, is refused here.
- * - **The lowering model** (families/tree.ts treePredicted): each native of §2.2's table at its moment. A refusal must be at
- *   the model's moment, by a constraint whose role (read off the installed catalog, installed.ts) is one the model
- *   allows there, with that native's SQLSTATE, reporting the tree's law (the identity, the relation's primary key).
+ * - **The lowering model** (families/tree.ts treePredicted): each native of §2.2's table at its moment. A refusal must
+ *   be at the model's moment, by a constraint whose role (read off the installed catalog, installed.ts) is one the
+ *   model allows there, with that native's SQLSTATE, reporting the tree's law (the identity, the relation's primary
+ *   key).
  *
  * Each case's transaction is checked as its COMMIT would check it and rolled back: SET CONSTRAINTS ALL IMMEDIATE runs
  * every deferred check at that statement, a refusal there is the commit's, and no row stays to clear. Half the cases
@@ -33,10 +34,16 @@
  *
  * **Mutation rediscovery:** three mutants of the installed lowering, each grizzle's installation with one native
  * re-created by DDL in a schema of its own, never the shared tree: the owner axis without T0's r → r pair ("without r's
- * copy"), the last axis without T5's end → end pair ("T5 without end"), and the root pin dropped ("root unpinned"). Each is judged by the same model under its own lowering and must be killed, committing a
- * state the theorem refuses: P3's cross-tree row, a parent whose last child ends early, and a root off slot 0. The
- * sentinel's leaked flags, the root's unpinned copies, cannot arise: the owner axis runs from the plain parent, so the
- * root references itself and its copies are its own values, which "a stale copy" of a root shows refused.
+ * copy"), the last axis without T5's end → end pair ("T5 without end"), and the root pin dropped ("root unpinned").
+ * Each is judged by the same model under its own lowering and must be killed, committing a state the theorem refuses:
+ * P3's cross-tree row, a parent whose last child ends early, and a root off slot 0. The sentinel's leaked flags, the
+ * root's unpinned copies, cannot arise: the owner axis runs from the plain parent, so the root references itself and
+ * its copies are its own values, which "a stale copy" of a root shows refused.
+ *
+ * Plants: ~/.cache/grizzle-release/BR08/plants/fin-tree-first-child-start-unpinned.patch, T3 admitting a first child
+ * that starts past its parent's start plus one, commits a state the theorem refuses and must turn each box of states
+ * and of mutations red; ~/.cache/grizzle-release/BR08/plants/fin-tree-owner-axis-deferred.patch, the parent axis
+ * deferred, commits a split the model refuses at its statement and must turn the box of writes red.
  */
 import { layer } from "@effect/vitest"
 import { exhaust, type Oracle } from "@grizzle/testing/explore"
@@ -223,8 +230,8 @@ interface Judged {
 }
 
 /**
- * The end of a case, which its own text chooses (installed.ts endOf), by grizzle's model: each seat's transaction of the
- * case ends alike.
+ * The end of a case, which its own text chooses (installed.ts endOf), by grizzle's model: each seat's transaction of
+ * the case ends alike.
  */
 const endOfCase = (
 	statements: Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<TreeRow>>

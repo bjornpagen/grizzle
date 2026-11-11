@@ -19,6 +19,9 @@
  * Each case writes its families by one transaction that replaces the seat's rows, then sends its rewrite as one
  * transaction checked as its COMMIT would check it and rolled back, or ended by a real COMMIT, as its own text chooses
  * (installed.ts End): the box requires both ends.
+ *
+ * Plant: ~/.cache/grizzle-release/BR08/plants/fin-bound-check-at-most-count.patch, the bound CHECK admitting a row at
+ * the count, commits a misordered shrink the model refuses and must turn the property red.
  */
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"

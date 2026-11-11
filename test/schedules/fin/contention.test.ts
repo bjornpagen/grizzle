@@ -5,17 +5,20 @@
  * owner 0, run again after each TransientFailure until it answers, as an application runs it. Either append is lawful
  * before or after the other.
  *
- * - **The interleaving model:** a run is allowed exactly when the grizzle write answers accepted, every TransientFailure
- *   it met a SerializationFailure, never a refusal by the family's (group, index) key both writers drew from their
- *   snapshots; the direct writer commits, or fails with 40001 where the grizzle write committed inside its span; and
- *   the state read back holds the families theorem (theorem.ts), owner 0's family holding its first member and then
- *   every committed append in commit order.
+ * - **The interleaving model:** a run is allowed exactly when the grizzle write answers accepted, every
+ *   TransientFailure it met a SerializationFailure, never a refusal by the family's (group, index) key both writers
+ *   drew from their snapshots; the direct writer commits, or fails with 40001 where the grizzle write committed inside
+ *   its span; and the state read back holds the families theorem (theorem.ts), owner 0's family holding its first
+ *   member and then every committed append in commit order.
  * - **Every interleaving** of the direct writer's four moves and the grizzle write's one (the library's interleave,
  *   `every`, every move on the family's relations, so no two moves commute and every order runs), some of which block
  *   the grizzle write on the owner row the direct writer updated, and run it again once that commits.
+ *
+ * Plant: ~/.cache/grizzle-release/BR08/plants/fin-scale-owner-axis-no-cascade.patch, the owner axis installed with no
+ * action, refuses every append's count update and must turn the property red.
  */
 import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Result, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Result } from "effect"
 import { openServed } from "#adapter/db/served.ts"
 import type { TransientTag } from "#compiler/core/errors.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
@@ -184,6 +187,8 @@ layer(Substrate.layer, { excludeTestServices: true })(
 					).pipe(Effect.orDie)
 					/** Runs in which the grizzle write was refused by a TransientFailure and ran again. */
 					let retried = 0
+					/** Runs in which both writers committed. */
+					let bothCommitted = 0
 					const judge = (run: Interleaving): Judgment => {
 						if (ran === undefined) {
 							return refusedJudgment("the grizzle write made no move")
@@ -232,6 +237,9 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								`the committed state breaks the families theorem: ${Formatter.format(read.failure)}`
 							)
 						}
+						if (Arr.contains(run.commits, "direct") && Arr.contains(run.commits, "app")) {
+							bothCommitted += 1
+						}
 						const want = [0, ...Arr.map(run.commits, (w) => (w === "direct" ? DIRECT : GRIZZLE))]
 						const got = Arr.flatMap(read.success, (f) => (f.owner === 0 ? f.members : []))
 						return deepEquals(got, want)
@@ -265,8 +273,8 @@ layer(Substrate.layer, { excludeTestServices: true })(
 						`of ${report.interleavings} interleavings none refused the grizzle write and ran it again`
 					)
 					assert.ok(
-						Arr.some([...report.committedSets.keys()], Str.includes(",")),
-						`some interleaving committed both writers: ${Formatter.format([...report.committedSets])}`
+						bothCommitted > 0,
+						`of ${report.interleavings} interleavings none committed both writers`
 					)
 				})
 		)

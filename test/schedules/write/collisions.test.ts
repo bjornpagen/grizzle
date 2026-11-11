@@ -1,6 +1,6 @@
 /**
- * Two writers of one certified READ COMMITTED role collide on a generated addition's keys, and each call answers as some
- * serial order does.
+ * Two writers of one certified READ COMMITTED role collide on a generated addition's keys, and each call answers as
+ * some serial order does.
  *
  * Sitting(id, child, test, attempt, note, slot) draws `id` by its `uuidv7()` default and is keyed by (child, test,
  * attempt) and by slot. A generated addition leaves `id` out, so its arbiter is (child, test, attempt), the first
@@ -11,10 +11,10 @@
  * requires to be READ COMMITTED, read off each writer's served Db.
  *
  * Two writers A and B, two Dbs of `learner` over DbLayers of their own, run one call each over a stored state. In
- * `concurrent`, the schema's owner holds Gate in SHARE mode, which writes nothing, while A runs `held`: A's sittings are
- * written and uncommitted when its Gate insert waits on that lock (the lock barrier sees A blocked by the owner), and B
- * runs `start` then; the owner's COMMIT lets A finish. In `sequential`, A's call commits before B's begins. A call the
- * model refuses runs alone.
+ * `concurrent`, the schema's owner holds Gate in SHARE mode, which writes nothing, while A runs `held`: A's sittings
+ * are written and uncommitted when its Gate insert waits on that lock (the lock barrier sees A blocked by the owner),
+ * and B runs `start` then; the owner's COMMIT lets A finish. In `sequential`, A's call commits before B's begins. A
+ * call the model refuses runs alone.
  *
  * Properties, per case:
  * - B waits for A exactly where it meets a row A holds uncommitted: at the arbiter, or at slot with its arbiter key
@@ -34,6 +34,9 @@
  *
  * Oracle: the serial model below, over the stated rows alone. The probe's refusal, both arbiter waits and both 23505
  * witnesses are required features, among every other kind of answer.
+ *
+ * Plant: ~/.cache/grizzle-release/BR08/plants/collisions-generated-arbiter-last-key.patch, a generated addition
+ * arbitrated at the last declared key holding no drawn field (slot) instead of the first, must turn the property red.
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore, type Kept } from "@grizzle/testing/explore"

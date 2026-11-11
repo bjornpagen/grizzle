@@ -69,8 +69,8 @@ import { fullWorld } from "#test/support/worlds.ts"
  *
  * The oracle is the model: each owner's count and every end, each ordered member's slot and named running values, each
  * tree node's drawn fields and its fold of its children, held against every stored row of every relation after each
- * write. Coverage requires every (monoid, plane) cell of each kind under each of its write forms, reached by an accepted
- * write that touched that cell's family and whose stored rows matched.
+ * write. Coverage requires every (monoid, plane) cell of each kind under each of its write forms, reached by an
+ * accepted write that touched that cell's family and whose stored rows matched.
  *
  * A refined cell's accumulators are of another pattern than its step's (ends.ts): concat's pieces, texts of at most
  * three bytes PostgreSQL generates by doubling a caller's token, folded into the text of a and b. A write may draw a
@@ -84,6 +84,9 @@ import { fullWorld } from "#test/support/worlds.ts"
  * {a} and {b} inserted separately, whose end was written as the empty set. And the downstream shape that once needed
  * host-written copies: a concat over pieces PostgreSQL generates at a byte bound, folded into a pattern its
  * accumulators declare, accepted, and refused once a piece holds a letter outside the pattern.
+ *
+ * Plant: ~/.cache/grizzle-release/BR08/plants/fin-fold-check-after-equals-before.patch, a fold's CHECK holding each
+ * after to its before, refuses a lawful write and must turn the property red.
  */
 
 type CountedForm =

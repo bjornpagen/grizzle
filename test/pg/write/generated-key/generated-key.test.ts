@@ -24,18 +24,18 @@ import {
  * keys whose fields it states; a family's member rows meet such a key at its index, refused on the key with an
  * `unreported` witness.
  *
- * Keys holds a typed map key, MapKey (mapping, text), primary key both, whose `value` and `negative` PostgreSQL generates
- * from its text, the integer it spells and whether it is spelled with a minus, keyed by (mapping, value, negative): two
- * spellings of one value in one mapping, "1" and "01", are one key, and "0" and "-0" are two. Use names a typed key by a
- * containment into it. Tag (id, text), mutable, keeps at most one tag of each positive value, a key over a selected
- * side whose term and selection read its generated `value`. Mapping owns an ordered family of Entry rows, each a typed
- * key of its own, keyed by (mapping, value, negative), written nested under a new mapping.
+ * Keys holds a typed map key, MapKey (mapping, text), primary key both, whose `value` and `negative` PostgreSQL
+ * generates from its text, the integer it spells and whether it is spelled with a minus, keyed by (mapping, value,
+ * negative): two spellings of one value in one mapping, "1" and "01", are one key, and "0" and "-0" are two. Use names
+ * a typed key by a containment into it. Tag (id, text), mutable, keeps at most one tag of each positive value, a key
+ * over a selected side whose term and selection read its generated `value`. Mapping owns an ordered family of Entry
+ * rows, each a typed key of its own, keyed by (mapping, value, negative), written nested under a new mapping.
  *
  * Each case stores a lawful state, then applies one stratum of up to three writes: inserts, puts and deletes of MapKey
  * and Tag from an array or a query over a relation parameter, inserts of Use, and inserts of new mappings with their
  * entries nested. The stratum is the one member of a served workload of its own, its array writes of one op and one
- * relation one array member whose call's facts are their rows. Texts are drawn from three values, both signs and two paddings, so writes meet stored rows and each
- * other at every key.
+ * relation one array member whose call's facts are their rows. Texts are drawn from three values, both signs and two
+ * paddings, so writes meet stored rows and each other at every key.
  *
  * The oracle is the law model (test/support/laws/model.ts): the add-wins transition of the stratum over the stored
  * state, its facts' generated values computed from their texts apart from grizzle, and every law's violation over the
@@ -53,9 +53,11 @@ import {
  * not displace is the primary key's, and one of its value at another id, inside Low or outside it, the value key's, the
  * witness the key written in Low's fields, its generated value as PostgreSQL stores it.
  *
- * The planted bug, in a scratch copy only: the statement computing a requested fact's generated key field from another
- * term than its column's (write/insert/unique.ts `buildProbe`) fails the search, at a stored clash it misses or a clash
- * it invents.
+ * Plants: ~/.cache/grizzle-release/BR08/plants/generated-key-probe-term-of-another-field.patch, the probe computing a
+ * requested fact's generated key field from another field's column (write/insert/unique.ts `buildProbe`), must turn
+ * the first property red, at a stored clash it misses or a clash it invents; and
+ * ~/.cache/grizzle-release/BR08/plants/entry-owner-outside-never-refused.patch, an entry's check never refusing a fact
+ * outside it, the second, a label outside Low stored.
  */
 import { Db } from "#adapter/public/db.ts"
 import type { LawId } from "#compiler/core/ids.ts"

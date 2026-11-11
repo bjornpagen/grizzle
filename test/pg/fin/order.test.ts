@@ -10,11 +10,15 @@
  *   must agree on the verdict, the moment and a constraint the model allows there (family.ts judgedFamily).
  *
  * The box (doctrine rule 9): owners 0 and 1 with families whose lengths sum to at most five, for each shape every order
- * of all their rows in one INSERT, and every cut of the rows in descending and in ascending slot order into two INSERTs.
+ * of all their rows in one INSERT, and every cut of the rows in descending and in ascending slot order into two
+ * INSERTs.
  *
  * Each case's transaction runs on a seat with no rows and is checked as its COMMIT would check it and rolled back, or
  * ends by a real COMMIT whose rows are read and cleared, as its own text chooses (installed.ts End): the box requires
  * both ends.
+ *
+ * Plant: ~/.cache/grizzle-release/BR08/plants/fin-predecessor-axis-deferral-swapped.patch, the ordered predecessor axis
+ * installed deferred, commits a split the model refuses and must turn the property red.
  */
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"

@@ -34,6 +34,10 @@ import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
  * The oracle is PostgreSQL as the judge, and the round trip: every lawful write is accepted, adding the owner and each
  * member once, and reading the members back through the reader gives each body at its slot exactly as written, and the
  * owner's count its members'.
+ *
+ * Features: an owner with no members, members read back, members of two lengths, and the kept bodies past the longest
+ * string. Plant: ~/.cache/grizzle-release/BR08/plants/nested-identity-joined-signature.patch, a nested fact's signature
+ * joined into one text, must turn the property red on the kept case.
  */
 const Owner = relation("Owner", { id: uuid, members: drawnField(natural) }, ["id"])
 const Member = relation(

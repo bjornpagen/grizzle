@@ -40,13 +40,13 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * Union cells on PostgreSQL 19: a union's rows decode to exactly the records its arms decode to, each read alone.
  *
  * Property: for a drawn union of plain arms over one relation, in one heading group or two (told apart by a tag
- * literal), every arm delivering each key of its heading as a head literal or as the relation's field, the records
- * its member's execute delivers for the union are the set union of the records it delivers for each arm run as a query
- * of its own: the union holds each record once, however many arms deliver it, and each arm alone holds each of its records
- * once, so a delivery that repeats a record fails. The oracle is that decoding: an arm alone is one heading group of one
- * arm, whose cells no other arm shares, so it reads each literal as itself and each field by its type; the union must
- * read every cell as the arm that wrote it would. Records compare by their keys, and each value by its host kind and
- * value (an int4 has no -0: the literal -0 is PostgreSQL's 0, and equal to it).
+ * literal), every arm delivering each key of its heading as a head literal or as the relation's field, the records its
+ * member's execute delivers for the union are the set union of the records it delivers for each arm run as a query of
+ * its own: the union holds each record once, however many arms deliver it, and each arm alone holds each of its records
+ * once, so a delivery that repeats a record fails. The oracle is that decoding: an arm alone is one heading group of
+ * one arm, whose cells no other arm shares, so it reads each literal as itself and each field by its type; the union
+ * must read every cell as the arm that wrote it would. Records compare by their keys, and each value by its host kind
+ * and value (an int4 has no -0: the literal -0 is PostgreSQL's 0, and equal to it).
  *
  * A column's cells are drawn from one dictionary per kind (int4, int8,
  * bool, a refined text, a closed handle), shared by literals and facts, so a field's cell spells some arm's literal or
@@ -54,14 +54,17 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * any order, so two literal arms of a column meet before a field arm, after it and between, and two heading groups
  * meet.
  *
- * Two planted shapes, drawn one case in ten: a head literal 1 against a numeric field
- * and against a float field in one heading group. The checker gives a group's column one type in every arm, and a bare
- * head literal takes the type the group's field arm delivers its column at when it is a value of it (check/checker.ts
- * #positionedTypes): 1 is a float, so against the float field the union decodes to the records its arms decode to
- * alone, the literal's cell read as a float beside the field's -0 and 1.5; a JavaScript number is never a numeric, so
- * against the numeric field the literal keeps its integer type and the union is refused where its workload member is
- * compiled (MalformedDescription), before any SQL: a numeric "1.00" never meets a literal's cell. Every union and arm is
- * a member of the login's workload, served for its case.
+ * Two planted shapes, drawn one case in ten: a head literal 1 against a numeric field and against a float field in one
+ * heading group. The checker gives a group's column one type in every arm, and a bare head literal takes the type the
+ * group's field arm delivers its column at when it is a value of it (check/checker.ts #positionedTypes): 1 is a float,
+ * so against the float field the union decodes to the records its arms decode to alone, the literal's cell read as a
+ * float beside the field's -0 and 1.5; a JavaScript number is never a numeric, so against the numeric field the literal
+ * keeps its integer type and the union is refused where its workload member is compiled (MalformedDescription), before
+ * any SQL: a numeric "1.00" never meets a literal's cell. Every union and arm is a member of the login's workload,
+ * served for its case.
+ *
+ * Plant: ~/.cache/grizzle-release/BR08/plants/union-cells-union-all.patch, every UNION sent as UNION ALL, delivers a
+ * record twice and must turn the property red.
  */
 const handles = ["A", "B", "C"] as const
 type Handle = (typeof handles)[number]

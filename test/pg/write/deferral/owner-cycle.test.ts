@@ -53,14 +53,16 @@ import { fullWorld } from "#test/support/worlds.ts"
  * Each case installs such a schema and writes drawn owners with their members and R's facts, in one ChangeSet (counted
  * members by their group key, ordered ones nested), or the owners first and the rest after, in a second (counted
  * members inserted, ordered ones put at the end of their owner's family); then deletes every owner, member and fact of
- * R in one more. Each ChangeSet is a member of the full role's served workload, its facts each call's. The oracle is a model of the laws over the facts written: a lawful write is accepted, and an unlawful
- * one is refused with a law the model finds broken. The planted bug, a stratum's plain statements all run before its
- * family statements, refuses at the server an insert of R beside the members it names, and a deletion of owners beside
- * their members.
+ * R in one more. Each ChangeSet is a member of the full role's served workload, its facts each call's. The oracle is a
+ * model of the laws over the facts written: a lawful write is accepted, and an unlawful one is refused with a law the
+ * model finds broken. A stratum whose plain statements all ran before its family statements would refuse at the server
+ * an insert of R beside the members it names, and a deletion of owners beside their members.
  *
  * The downstream case (a counted family, its members keyed by their owner, the owners with one member contained in the
- * members, and an owner's check) is the kept case. The planted bug, the owner axis left out of the deferral's cycle
- * graph, refuses the lawful kept case at the server.
+ * members, and an owner's check) is the kept case.
+ *
+ * Plant: ~/.cache/grizzle-release/BR08/plants/owner-cycle-axis-out-of-cycle-graph.patch, the owner axis left out of the
+ * deferral's cycle graph, refuses the lawful kept case at the server and must turn the property red.
  */
 
 type FamilyKind = "counted" | "ordered"
@@ -132,8 +134,8 @@ const specGen: Gen<Spec> = (source) => {
 }
 
 /**
- * A case: a spec, its owners, and their members, drawn freely or, on the arm that every law holds on, one flagged member
- * per flagged owner at its owner's x, which every spec's laws admit.
+ * A case: a spec, its owners, and their members, drawn freely or, on the arm that every law holds on, one flagged
+ * member per flagged owner at its owner's x, which every spec's laws admit.
  */
 const caseGen: Gen<Case> = (source) => {
 	const spec = source.draw(specGen)

@@ -1,3 +1,15 @@
+/**
+ * The write refusal channel on PostgreSQL 19: the installed refusal function raises exactly its arguments, the
+ * SQLSTATE, the constraint name and the DETAIL PostgreSQL evaluates, which arrive intact as the error fields the
+ * adapter classifies, for both refusal SQLSTATEs, and the DETAIL parses back to the key texts, uuid, bigint and any
+ * storable text alike, for a law's refusal and a concurrent change.
+ *
+ * - Property: a refusal raised over drawn key texts reads back as those texts, its SQLSTATE and its constraint.
+ * - Oracle: universal, read ∘ raise = id.
+ * - Features: a law's refusal and a concurrent change.
+ * - Plant: ~/.cache/grizzle-release/BR08/plants/refusal-detail-tab-read-as-t.patch, the DETAIL reader reading an
+ *   escaped tab as a letter t, must turn the property red.
+ */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -36,10 +48,7 @@ const detailOf = (detail: Option.Option<string>): string =>
 		onSome: (text) => text
 	})
 
-/** The write refusal channel on PostgreSQL 19: the installed refusal function raises exactly its arguments, the
- * SQLSTATE, the constraint name and the DETAIL PostgreSQL evaluates, which arrive intact as the error fields the adapter
- * classifies, for both refusal SQLSTATEs, and the DETAIL parses back to the key texts, uuid, bigint and any storable
- * text alike, for a law's refusal and a concurrent change. The key's three fields: a uuid, a bigint and a text. */
+/** The key's three fields: a uuid, a bigint and a text. */
 const key = [
 	{ field: "employee", expr: param(1, types.uuid), type: scalarOf({ kind: "uuid" }, {}) },
 	{ field: "week", expr: param(2, types.bigint), type: plainType("int8") },

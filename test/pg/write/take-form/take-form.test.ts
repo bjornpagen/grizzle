@@ -43,10 +43,16 @@ import { upTo } from "#test/support/up-to.ts"
  *
  * The schema is installed and loaded with many accounts of many entries each, and analyzed. The ChangeSet is a served
  * member of the app role's workload, and each drawn parent set is bound through its loaded program (`bindWrite`), as
- * its apply binds it, and the form it sends is run under EXPLAIN ANALYZE in a transaction that is rolled back. The plan's contract, not its text: for a small set, Entry is read by index only and
- * at most k + 1 rows per parent; for a large one, in one scan, once. The rows the insert returns are, in both forms, the
- * first two entries of each named account, which the loaded facts fix. explainMember explains the form an application
- * sends: the whole-relation form ranks Entry's rows (a WindowAgg node, row_number) and the LATERAL form does not. */
+ * its apply binds it, and the form it sends is run under EXPLAIN ANALYZE in a transaction that is rolled back. The
+ * plan's contract, not its text: for a small set, Entry is read by index only and at most k + 1 rows per parent; for a
+ * large one, in one scan, once. The rows the insert returns are, in both forms, the first two entries of each named
+ * account, which the loaded facts fix. explainMember explains the form an application sends: the whole-relation form
+ * ranks Entry's rows (a WindowAgg node, row_number) and the LATERAL form does not.
+ *
+ * Features: the LATERAL form for few parents and the whole-relation form for many. Plant:
+ * ~/.cache/grizzle-release/BR08/plants/take-form-threshold-doubled.patch, the choice comparing its parents against
+ * twice its threshold, must turn the property red.
+ */
 const Account = relation("Account", { id: uuid }, ["id"])
 const Entry = relation("Entry", { account: uuid, seq: pg.bigint, amount: pg.bigint }, [
 	"account",

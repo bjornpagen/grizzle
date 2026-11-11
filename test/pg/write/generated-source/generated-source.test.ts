@@ -2,14 +2,14 @@
  * A query-sourced write into a relation with generated fields, against PostgreSQL 19.
  *
  * Items holds two relations of one heading, Item and Spot, the second mutable: each a key `id`, four written fields
- * (`v`, a tier, a numeral `k`, also a candidate key, and a day's text, one per numeral) and four generated fields of three kinds: `copy`,
- * the written `v` itself; `rate`, a closed read of the tier's rate, which Rate holds for low and mid and not for high, so
- * a high row's `rate` has no value; `parsed`, the numeral cast into a bigint; and `when`, the day's text parsed into a
- * date, which a generated column holds only as an IMMUTABLE expression. Each case stores up to three lawful rows,
- * then inserts or puts one to three rows, each fresh or a repeat of a stored one, from a query over a relation
- * parameter, a source the write cannot prove unique on the key, into one of the two relations. The write's statements
- * request the rows' written fields alone, and a requested fact's generated values are its generation expressions over
- * them.
+ * (`v`, a tier, a numeral `k`, also a candidate key, and a day's text, one per numeral) and four generated fields of
+ * three kinds: `copy`, the written `v` itself; `rate`, a closed read of the tier's rate, which Rate holds for low and
+ * mid and not for high, so a high row's `rate` has no value; `parsed`, the numeral cast into a bigint; and `when`, the
+ * day's text parsed into a date, which a generated column holds only as an IMMUTABLE expression. Each case stores up to
+ * three lawful rows, then inserts or puts one to three rows, each fresh or a repeat of a stored one, from a query over
+ * a relation parameter, a source the write cannot prove unique on the key, into one of the two relations. The write's
+ * statements request the rows' written fields alone, and a requested fact's generated values are its generation
+ * expressions over them.
  *
  * The oracle is the write restated over the drawn rows: the source's rows as a set; two at one key that differ is
  * the primary key's refusal; a high row the generated `rate`'s; an insert at a stored key that differs, the primary
@@ -17,11 +17,15 @@
  * write is applied, the stored rows after it each source row at its key over the rows before, every generated field
  * its expression's value, accepted where it changed a row and no-change otherwise. A refused write names one of the
  * laws it breaks and changes nothing.
+ *
+ * Features: each relation's insert and put applied, a refusal by each law, and an unchanged write. Plant:
+ * ~/.cache/grizzle-release/BR08/plants/generated-source-no-same-key-check.patch, the insert's same-key check dropped,
+ * must turn the property red.
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { array, element, type Gen, int, oneOf } from "@grizzle/testing/gen"
+import { array, element, type Gen, int, oneOf, shuffled } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Result } from "effect"
@@ -175,12 +179,20 @@ const rowGen =
 		k: source.draw(element(numerals))
 	})
 
-/** Stored rows at distinct keys and numerals, of tiers Rate holds. */
-const storedGen: Gen<ReadonlyArray<Row>> = (source) =>
-	Arr.dedupeWith(
-		source.draw(array(rowGen(element(["low", "mid"] as const)), { min: 0, max: 3 })),
-		(a, b) => a.id === b.id || a.k === b.k
-	)
+/**
+ * Stored rows at distinct keys and numerals by construction, of tiers Rate holds: the keys drawn as a sequence of
+ * distinct ids, and as many distinct numerals, paired in order.
+ */
+const storedGen: Gen<ReadonlyArray<Row>> = (source) => {
+	const ids = source.draw(shuffled([1, 2, 3], { min: 0, max: 3 }))
+	const ks = source.draw(shuffled(numerals, { min: ids.length, max: ids.length }))
+	return Arr.zipWith(ids, ks, (id, k) => ({
+		id,
+		v: BigInt(source.draw(int(0, 2))),
+		tier: source.draw(element(["low", "mid"] as const)),
+		k
+	}))
+}
 
 const caseGen: Gen<Case> = (source) => {
 	const target = source.draw(element(["Item", "Spot"] as const))

@@ -34,15 +34,19 @@ import { tokenOf } from "#test/support/worlds.ts"
  *
  * Seat(id, code, grp, lead, team, holder) has four unique objects, each a key (fin.md §6, "at most one"): its primary
  * key; the candidate key code; at most one lead per group, `key(on(select(Seat, lead), "grp"))`, a UNIQUE over the
- * selected side's generated law column; and at most one seat per team, `key(on(Seat, "team"))`. The role `holder` writes
- * MySeat, the seats of the session's subject, so a seat of another holder is a fact outside its world. A case stores
- * carl's seat (outside ann's world), ann's own seat (inside it), both or neither, lawfully, and ann inserts one seat
- * through MySeat. Every stored seat that conflicts with hers at an object is a refusal by that object's law, whichever
- * world holds it; with none she inserts it, and an exact repeat of her own changes nothing. No outcome is a
+ * selected side's generated law column; and at most one seat per team, `key(on(Seat, "team"))`. The role `holder`
+ * writes MySeat, the seats of the session's subject, so a seat of another holder is a fact outside its world. A case
+ * stores carl's seat (outside ann's world), ann's own seat (inside it), both or neither, lawfully, and ann inserts one
+ * seat through MySeat. Every stored seat that conflicts with hers at an object is a refusal by that object's law,
+ * whichever world holds it; with none she inserts it, and an exact repeat of her own changes nothing. No outcome is a
  * TransientFailure: nothing runs concurrently, so a write that meets a stored fact the role cannot see and fails
- * transiently fails again on every retry (the livelock FR2 fixed at the at-most-one objects, which the precheck did
- * not probe). The oracle is the specification turned into a checker: each object's conflict, stated over the drawn
- * values.
+ * transiently fails again on every retry (the livelock FR2 fixed at the at-most-one objects, which the precheck did not
+ * probe). The oracle is the specification turned into a checker: each object's conflict, stated over the drawn values.
+ *
+ * Features: an occupant outside the entry at each unique object, one inside it at the selected and the team keys, an
+ * exact repeat, and an insert accepted. Plant:
+ * ~/.cache/grizzle-release/BR08/plants/entry-occupants-primary-key-probe-only.patch, the precheck probing the primary
+ * key alone, must turn the property red.
  */
 const Subject = str.regex("^u_[a-z]{1,8}$")
 const Seat = relation(

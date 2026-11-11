@@ -40,7 +40,12 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * precedence; a described member's statement may report the stored conflict beside it first); failing that, a requested
  * owner at a stored key with another payload refuses the same way; otherwise the stored state gains each requested
  * owner at a key no row holds, its family empty, accepted with those owners counted as added, or no-change when there
- * are none. A refusal leaves the stored state as it was, and no outcome touches a stored member. */
+ * are none. A refusal leaves the stored state as it was, and no outcome touches a stored member.
+ *
+ * The oracle is a second implementation, the host model of the key above. Plant:
+ * ~/.cache/grizzle-release/BR08/plants/owner-key-owner-proposes-every-fact.patch, an owner's insert proposing every
+ * requested fact, stored or not, must turn the property red on the kept case.
+ */
 const Owner = relation(
 	"Owner",
 	{ id: pg.int4, cap: pg.int4, n: drawnField(natural), end: accumulated(pg.int4, 0) },
@@ -124,8 +129,8 @@ const ownerCaseGen: Gen<OwnerCase> = (source) => ({
 })
 
 /**
- * The stored state: the drawn owners, at distinct keys by construction (ownerCaseGen draws their keys as a subset), each
- * with its payload the sum of its members, as the row check holds it.
+ * The stored state: the drawn owners, at distinct keys by construction (ownerCaseGen draws their keys as a subset),
+ * each with its payload the sum of its members, as the row check holds it.
  */
 const storedOf = (sketches: ReadonlyArray<OwnerSketch>): ReadonlyArray<StoredOwner> =>
 	Arr.map(sketches, (s) => ({ ...s, cap: Arr.reduce(s.members, 0, (sum, x) => sum + x) }))

@@ -52,16 +52,21 @@ import { makeTap, type Tap } from "#test/support/wire-tap.ts"
  *
  * - execute of a read, get of a key and page of a paged member with live parameters: an answer, sent on the wire;
  * - the same with a wild parameter value: an answer where the codec admits the value, ReadError{stage: "encode"} naming
- *   the parameter otherwise; a wild page request: ReadError{stage: "request"} or a CursorError, or an answer for a value
- *   the request contract admits, whose exact verdict is the unit boundary suite's (test/unit/adapter/boundary.test.ts);
+ *   the parameter otherwise; a wild page request: ReadError{stage: "request"} or a CursorError, or an answer for a
+ *   value the request contract admits, whose exact verdict is the unit boundary suite's
+ *   (test/unit/adapter/boundary.test.ts);
  * - a stale cursor, from a page of another paged member: a CursorError;
  * - dispose: the pool's scope closes, as a DbLayer's does when its layer is released, and every live call is made at
- *   once. Every call that needs a session is then ReadError{stage: "acquire"}, and every refusal before SQL is still the
- *   same refusal.
+ *   once. Every call that needs a session is then ReadError{stage: "acquire"}, and every refusal before SQL is still
+ *   the same refusal.
  *
  * The model is whether the pool is disposed. Every refusal before SQL (the stages encode and request, and a
  * CursorError) is checked to send zero frontend messages, and after every command the pool holds no leased session. A
  * refusal is read from the error's typed fields, never from its text.
+ *
+ * - Oracle: the specification turned into a checker, each call's contract as its answer or typed refusal.
+ * - Plant: ~/.cache/grizzle-release/BR08/plants/boundary-lease-never-released.patch, a lease whose end never gives its
+ *   session back, must turn the property red.
  */
 interface Model {
 	readonly disposed: boolean
@@ -433,7 +438,10 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									})
 									return yield* explore(
 										{
-											oracle: { kind: "unstated" },
+											oracle: {
+												kind: "specification",
+												name: "each call's contract: an answer or a typed refusal, nothing sent before SQL, no lease left"
+											},
 											suite: "pg/reads/boundary",
 											/** Up to twelve commands, so a case can dispose and call again among its other calls. */
 											draw: drawn(

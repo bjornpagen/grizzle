@@ -49,7 +49,12 @@ import type { FullWorld } from "#test/support/worlds.ts"
  * with the relation's key law and one such fact's key as the witness; failing that, one overlapping a stored fact the
  * member does not displace refuses the same way; otherwise the final state is the stored one with the displaced facts
  * gone and the requested ones in, accepted with the requested facts not already stored counted as added (insert) or put
- * (put), or no-change when there are none. A refusal leaves the stored state as it was. */
+ * (put), or no-change when there are none. A refusal leaves the stored state as it was.
+ *
+ * The oracle is a second implementation, the host interval model above. Plant:
+ * ~/.cache/grizzle-release/BR08/plants/span-key-requested-overlap-unseen.patch, the insert's verdicts blind to another
+ * requested fact's overlap, must turn the property red.
+ */
 const note = str.regex("^[a-z]{1,8}$")
 const Room = relation("Room", { room: uuid, during: span(pg.bigint), guest: uuid }, [
 	"room",
@@ -175,8 +180,8 @@ const factSketchGen =
 	})
 
 /**
- * A lawful stored state by construction: in each room up to two facts, each starting a drawn gap past the end of the one
- * before it (adjacent at a gap of none) and spanning a drawn length, so no two facts of a room overlap.
+ * A lawful stored state by construction: in each room up to two facts, each starting a drawn gap past the end of the
+ * one before it (adjacent at a gap of none) and spanning a drawn length, so no two facts of a room overlap.
  */
 const storedGen: Gen<ReadonlyArray<Fact>> = (source) =>
 	Arr.flatMap([0, 1] as const, (room) => {

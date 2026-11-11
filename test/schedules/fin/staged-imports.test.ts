@@ -10,7 +10,8 @@
  * transactions overlap.
  *
  * Stored beside them are enough packages, each with one entry, keyed across the uuid range, that the two imports' keys
- * fall on index pages of their own at either end of it, so neither import's reads, made by key, meet the other's writes.
+ * fall on index pages of their own at either end of it, so neither import's reads, made by key, meet the other's
+ * writes.
  *
  * - **The model:** both imports answer accepted in every interleaving, neither refused by a serialization failure:
  *   their rows hold no conflict, and each staged statement reads a stored package or entry only through a source driven
@@ -18,6 +19,9 @@
  *   locking only the index pages and rows it reads, whatever the planner guesses of the carriers. So the staged import
  *   sends no ANALYZE of its carriers (write/program/staged.ts analyzeOf). Some interleaving overlaps them (the first
  *   import waits on the gate's key while the second commits).
+ *
+ * Plant: ~/.cache/grizzle-release/BR08/plants/staged-imports-every-probe-finds-a-row.patch, a probe of stored rows that
+ * always finds one, answers each import no-change and must turn the property red.
  */
 import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Result, String as Str } from "effect"

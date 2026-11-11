@@ -6,14 +6,15 @@
  *
  * - **Two implementations agreeing:** the reference fold (test/support/families/fold.ts folded), exact: counts, int4
  *   and numeric sums and max in their least units, sets as code masks; and the host's fill (runtime/write/fill.ts
- *   filler over the installation's own families and codes), which must fill every lawful family exactly as the reference
- *   does before PostgreSQL judges what both wrote. Every lawful state must commit and read back exactly; the twos fold's at most one of K, `bit_count(twos & K) = 0` as a
- *   check of its twos plane, refuses exactly the families where a handle of K is held twice.
+ *   filler over the installation's own families and codes), which must fill every lawful family exactly as the
+ *   reference does before PostgreSQL judges what both wrote. Every lawful state must commit and read back exactly; the
+ *   twos fold's at most one of K, `bit_count(twos & K) = 0` as a check of its twos plane, refuses exactly the families
+ *   where a handle of K is held twice.
  * - **The fold's model** (fold.ts foldPredicted): each after proved by `CHECK ((after = combine(before, x)) IS TRUE)`
  *   in exact arithmetic, every after drawn, never generated, per the ruling; the identity pins at the first slot and at
- *   the empty family; the befores carried on the predecessor axis and the ends on the last axis. A junk accumulator must
- *   be refused at the model's moment, by an installed constraint whose role (folds.ts foldNativeOf) the model allows
- *   there, with its SQLSTATE, reporting the family's or the fold's law.
+ *   the empty family; the befores carried on the predecessor axis and the ends on the last axis. A junk accumulator
+ *   must be refused at the model's moment, by an installed constraint whose role (folds.ts foldNativeOf) the model
+ *   allows there, with its SQLSTATE, reporting the family's or the fold's law.
  * - **The pin at a tree's root:** a tree folded by count over each node's children, written in every forest of at most
  *   four rows with its root's accumulators over every small value: the root is outside its family, so its pin must
  *   admit it exactly one state, and refuse every other.
@@ -28,6 +29,9 @@
  * ends by a real COMMIT whose rows are read and cleared, as its own text chooses (installed.ts End): every box requires
  * both ends, each meeting a refusal at commit, so the search itself shows a real COMMIT never decides otherwise than
  * the checked end.
+ *
+ * Plant: ~/.cache/grizzle-release/BR08/plants/fin-fold-check-after-equals-before.patch, a fold's CHECK holding each
+ * after to its before, refuses every lawful fold and must turn both properties red.
  */
 import { layer } from "@effect/vitest"
 import { exhaust, type Oracle } from "@grizzle/testing/explore"

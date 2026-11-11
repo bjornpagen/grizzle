@@ -26,9 +26,15 @@ import { withLayer } from "#test/support/with-layer.ts"
  * two rosters, a drawn subset of a handle pool in a drawn order, and a closed relation over one of them, keyed by its
  * closed id, with a number and a text drawn per handle. It installs through its first migration as any schema does, its
  * law theory is empty, it stores no table (a roster is a domain and its names constant, a closed relation's rows reach
- * the database only as constants), Db.open admits it, and a workload member reads every roster's handles. A closed relation's
- * rows are read only through its closed reads, which stand in predicates and generation expressions, never in a query's
- * head, so no query delivers them.
+ * the database only as constants), Db.open admits it, and a workload member reads every roster's handles. A closed
+ * relation's rows are read only through its closed reads, which stand in predicates and generation expressions, never
+ * in a query's head, so no query delivers them.
+ *
+ * - Property: the schema installs with no law and no table, and each roster's read delivers its handles, as a set.
+ * - Oracle: the specification turned into a checker, the schema restated.
+ * - Features: a roster of one handle, and one of every handle.
+ * - Plant: ~/.cache/grizzle-release/BR08/plants/closed-only-every-code-reads-the-first-handle.patch, every code
+ *   decoded as its roster's first handle, must turn the property red.
  */
 const Label = str.regex("^.*$", "su")
 

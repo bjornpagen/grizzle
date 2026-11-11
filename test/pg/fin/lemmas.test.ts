@@ -26,6 +26,9 @@
  * text chooses (installed.ts End): each box requires both ends, and the box of states, which meets refusals at commit,
  * a refusal at commit through each, so the search itself shows a real COMMIT never decides otherwise than the checked
  * end.
+ *
+ * Plant: ~/.cache/grizzle-release/BR08/plants/fin-bound-check-at-most-count.patch, the bound CHECK admitting a row at
+ * the count, commits a row beyond the family and must turn both properties red.
  */
 import { layer } from "@effect/vitest"
 import { runProgram } from "@grizzle/testing/commands"
@@ -197,8 +200,8 @@ const stateGen: Gen<StateSketch> = (source) => ({
 })
 
 /**
- * The stored state of a sketch: each present owner's count, each row its owner's count's copy, and a row with no owner a
- * copy above every slot, 5, so its bound holds and the copy's foreign key is what refuses it.
+ * The stored state of a sketch: each present owner's count, each row its owner's count's copy, and a row with no owner
+ * a copy above every slot, 5, so its bound holds and the copy's foreign key is what refuses it.
  */
 const storedOfSketch = (sketch: StateSketch): Stored => {
 	const owners = new Map<number, number>()

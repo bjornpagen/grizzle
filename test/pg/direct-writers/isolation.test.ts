@@ -39,9 +39,6 @@
  * - Plants: ~/.cache/grizzle-release/BR08/plants/isolation-guard-admits-repeatable-read.patch (the guard compares
  *   against REPEATABLE READ), ~/.cache/grizzle-release/BR08/plants/isolation-no-database-default.patch (the
  *   installation leaves the database's default level alone); each must turn the property red.
- *
- * It holds what test/schedules/write/below.test.ts searched (deleted): a world role's and the owner's statements at every
- * level, a MERGE that updates among them, the guard's 25000 naming its schema and table, and nothing committed.
  */
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"

@@ -1,8 +1,8 @@
 /**
- * The reads of families and trees through grizzle's installed indexes, on PostgreSQL 19rc1 (fin.md §11, "Plan
- * audits", trees.md §3, §5): the export, every subtree's descendants and every family's members are an index or range
- * scan of the index grizzle installs for them, with no sort, no sequential scan and no recursion, and return exactly the
- * rows the parent links say they should.
+ * The reads of families and trees through grizzle's installed indexes, on PostgreSQL 19rc1 (fin.md §11, "Plan audits",
+ * trees.md §3, §5): the export, every subtree's descendants and every family's members are an index or range scan of
+ * the index grizzle installs for them, with no sort, no sequential scan and no recursion, and return exactly the rows
+ * the parent links say they should.
  *
  * The reads, each over a planted, analyzed load and each planned custom or generic as the search draws (R04), of a row
  * drawn at every depth below the root alike and of an owner drawn among them all. A row's ancestors are no such read:
@@ -10,18 +10,21 @@
  * rightly scans the table, and no index grizzle installs serves it.
  *
  * Both plans are a served read's: every statement of a served workload is a named prepared statement
- * (core/prepared.ts), which PostgreSQL plans custom for its first five executions on a session and may plan generic from
- * its sixth (PostgreSQL 19 plancache.c choose_custom_plan), so an application's read of a tree or a family runs on
+ * (core/prepared.ts), which PostgreSQL plans custom for its first five executions on a session and may plan generic
+ * from its sixth (PostgreSQL 19 plancache.c choose_custom_plan), so an application's read of a tree or a family runs on
  * either.
  *
  * - **the export**, `WHERE doc = $1 ORDER BY start`: one scan of T1's UNIQUE (r, start), reading each row once;
  * - **descendants** of a row, `start > n.start AND start < n.end`: a range scan of T1 reading exactly them;
- * - **an ordered family's members**, `WHERE g = $1 ORDER BY at`: a scan of the family key UNIQUE (g, at) reading exactly
- *   its members, whether the planner sorts them after a bitmap scan or reads them in order.
+ * - **an ordered family's members**, `WHERE g = $1 ORDER BY at`: a scan of the family key UNIQUE (g, at) reading
+ *   exactly its members, whether the planner sorts them after a bitmap scan or reads them in order.
  *
  * - **Oracles:** EXPLAIN's plan shape (bench/harness/explain.ts), its index named by the installed catalog's role
  *   (installed.ts), never by an allocated name; and each read's rows against the tree's parent links
  *   (families/tree.ts descendantsOf) or the family as written, a second implementation that reads no interval.
+ *
+ * Plant: ~/.cache/grizzle-release/BR08/plants/fin-plans-tree-key-start-first.patch, T1's UNIQUE over (start, r), leaves
+ * the export no index in its order and must turn the property red.
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"

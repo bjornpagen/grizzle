@@ -9,14 +9,17 @@
  *   Every step commits, and every copy reads back as its owner's count.
  * - **A large import** of M owners with families of zero to four members, and one tree of T rows, each in one
  *   transaction. Each commits, and the deferred after-trigger queue, which holds one 12-byte event per deferred
- *   foreign-key check until COMMIT (fin.md §15; trigger.c's AfterTriggerEventDataOneCtid, in chunks of at most 1 MB with
- *   no spill), stays linear in the deferred checks the model counts: the last axis once per non-empty owner, and for a
- *   counted family its deferred predecessor axis once per member past slot 0.
+ *   foreign-key check until COMMIT (fin.md §15; trigger.c's AfterTriggerEventDataOneCtid, in chunks of at most 1 MB
+ *   with no spill), stays linear in the deferred checks the model counts: the last axis once per non-empty owner, and
+ *   for a counted family its deferred predecessor axis once per member past slot 0.
  *
  * - **Oracles:** PostgreSQL as the judge (each write commits), the families theorem on what reads back, and the queue's
  *   size against its event count. The bound is 24 bytes an event, the event's 12 twice over for a chunk's growth
  *   by doubling, plus 2 MiB, two chunks of the largest size, for the chunk in fill and the shared trigger data: a queue
  *   that grew per row by more than an event, or kept immediate checks' events past their statement, exceeds it.
+ *
+ * Plant: ~/.cache/grizzle-release/BR08/plants/fin-scale-owner-axis-no-cascade.patch, the owner axis installed with no
+ * action, refuses the long family's count update and must turn the property red.
  */
 import { layer } from "@effect/vitest"
 import { drawn as drawnCase, explore } from "@grizzle/testing/explore"

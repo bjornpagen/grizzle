@@ -36,7 +36,7 @@ const AccountEntries = derived.materialized(
 )
 
 /**
- * The schema of the direct-writer cases no generator draws (suites/native-errors.ts):
+ * The schema of the direct-writer cases no generator draws (native-errors.test.ts):
  *
  * - Account: an immutable relation keyed by id;
  * - Entry: a deferred foreign key into Account and a contract with a CHECK (`Amount >= 0`);

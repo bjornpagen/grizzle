@@ -34,8 +34,13 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * The calls cover each door to the shared boundary, each a workload member's handle of a served Db: execute and page of
  * a query without parameters (reader/params.ts hostParams), execute of a query with one, get by key (a key member reads
  * its values through readKeyValues, which projects the key's fields), and apply of a ChangeSet without parameters and
- * of one with a read-back's parameter (apply/run.ts declaredParams), each as a JavaScript caller reaches it. Every call meets every argument kind (exhaust), each kind built for that call: a
- * record holds the program's live parameters, `{}` for one without any.
+ * of one with a read-back's parameter (apply/run.ts declaredParams), each as a JavaScript caller reaches it. Every call
+ * meets every argument kind (exhaust), each kind built for that call: a record holds the program's live parameters,
+ * `{}` for one without any.
+ *
+ * - Oracle: the specification turned into a checker, ParamArg's refusals restated over the argument kinds.
+ * - Plant: ~/.cache/grizzle-release/BR08/plants/params-argument-stray-key-read.patch, a record read past a key naming
+ *   no parameter, must turn the property red.
  */
 const calls = [
 	"execute without parameters",

@@ -38,12 +38,13 @@ import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
  * delivered it.
  *
  * The schema is two mutable relations of a key and a text of any characters, Note and Response, the second written as
- * edullm writes a child's answers, from a relation parameter. A case is a list of texts, each drawn from the
- * characters a literal array quotes or escapes (quotes, backslashes, braces, commas, white space, the text NULL), every
- * plane's scalars (multibyte and astral, Cyrillic, Hebrew and Arabic among them), the empty text, texts of 53 to 1200
- * units with a scalar of U+0400 to U+07FF throughout or near their end, and long texts. It inserts one Note per text, reads them back, puts each row's text reversed, reads them back,
- * deletes the rows at even keys by their facts, reads the rest back, reads the texts back through a relation parameter,
- * and writes one Response per text from a relation parameter and reads them back.
+ * edullm writes a child's answers, from a relation parameter. A case is a list of texts, each drawn from the characters
+ * a literal array quotes or escapes (quotes, backslashes, braces, commas, white space, the text NULL), every plane's
+ * scalars (multibyte and astral, Cyrillic, Hebrew and Arabic among them), the empty text, texts of 53 to 1200 units
+ * with a scalar of U+0400 to U+07FF throughout or near their end, and long texts. It inserts one Note per text, reads
+ * them back, puts each row's text reversed, reads them back, deletes the rows at even keys by their facts, reads the
+ * rest back, reads the texts back through a relation parameter, and writes one Response per text from a relation
+ * parameter and reads them back.
  *
  * Node's TextEncoder.encodeInto underfilled a destination of exactly a text's UTF-8 length when the text held a scalar
  * of U+0400 to U+07FF and was 53 units or longer (nodejs/node#65994), which left 0x00 bytes in a binary text[] element;
@@ -52,6 +53,9 @@ import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
  *
  * The oracle is the literal path the binary array replaced (codec/recordset.ts textArrayParam): each read gives exactly
  * the texts PostgreSQL stores from the text array literal of the texts written, compared as JavaScript strings.
+ *
+ * Plant: ~/.cache/grizzle-release/BR08/plants/text-arrays-last-byte-dropped.patch, each text[] element short of its
+ * last byte, must turn the property red.
  */
 const Body = str.regex("^.*$", "su")
 const Note = relation("Note", { id: uuid, body: Body }, ["id"])
