@@ -12,14 +12,15 @@
  *   immutable relation's rows, or for a put whose rows a query states;
  * - a stratum refused with UnorderableStratum names a cycle each of whose orders the stratum's writes require: the
  *   phases of one relation's statements, an immediate key between two relations (a family's owner or last axis, a
- *   containment into a pure set, every key on a cycle of such keys deferred), or a family's count between its owner's
- *   and its member's statements (`justified`).
+ *   containment the law model checks at each statement, every key on a cycle of such keys deferred), or a family's
+ *   count between its owner's and its member's statements (`justified`).
  */
 import { Array as Arr, Option, Record as Rec } from "effect"
 import type { LawId } from "#compiler/core/ids.ts"
 import type { Statement } from "#compiler/public/schema.ts"
 import {
 	type BuiltSwarm,
+	callerFields,
 	copyName,
 	countName,
 	endName,
@@ -27,14 +28,15 @@ import {
 	fieldNames,
 	groupName,
 	holderOf,
-	holdsMask,
-	maskOf,
 	maskUnion,
 	maxIdentity,
+	namedIdName,
+	namedValueName,
 	nestedOnly,
 	type PlainRow,
 	plainName,
 	samePlain,
+	swarmFacts,
 	type SwarmSpec
 } from "#test/pg/write/swarm/spec.ts"
 import { defined } from "#test/support/assert.ts"
@@ -54,6 +56,7 @@ import {
 	type HostLaw,
 	type HostSchema,
 	type HostState,
+	isImmediate,
 	violations
 } from "#test/support/laws/model.ts"
 import type { StateRow } from "#test/support/substrate/state.ts"
@@ -140,13 +143,15 @@ const membership = (row: InstanceRow, f: number) =>
 
 /**
  * Every stored row of the core and the plain relations, by relation name: the reference writer's rows, each with its
- * set `b` and its extra ends, and each plain row as its relation stores it.
+ * set `b`, its extra ends and the columns it names a member's row by (spec.ts namedFacts), and each plain row as its
+ * relation stores it. A member whose owner is absent, which no write stores, holds the reference's values with that
+ * membership left out (ownedRows).
  */
 export const storedRows = (
 	spec: SwarmSpec,
 	state: State
 ): ReadonlyMap<string, ReadonlyArray<StateRow>> => {
-	const written = writtenRows(spec.fill, state.rows)
+	const written = writtenRows(spec.fill, ownedRows(state.rows))
 	const membersOf = (owner: number, f: number): ReadonlyArray<InstanceRow> =>
 		Arr.filter(state.rows, (row) => membership(row, f)?.owner === owner)
 	const out = new Map<string, Array<StateRow>>()
@@ -157,9 +162,9 @@ export const storedRows = (
 		out.set(plainName(j), [])
 	}
 	for (const row of state.rows) {
-		const fields: Record<string, StateRow[string]> = { ...written.get(row.id) }
-		if (holdsMask(spec, row.relation)) {
-			fields["b"] = maskOf(row.id)
+		const fields: Record<string, StateRow[string]> = {
+			...written.get(row.id),
+			...swarmFacts(spec, state.rows, row.relation, row.id)
 		}
 		for (const end of spec.ends) {
 			if (familyOf(spec, end.family).owner !== row.relation) {
@@ -284,6 +289,21 @@ export const hostSchema = (spec: SwarmSpec, built: BuiltSwarm, laws: Laws): Host
 							: numberAt(f, countName(family)) < 3 || numberAt(f, "v") >= 0
 				}
 			}
+			case "into member rows":
+				return {
+					kind: "contained",
+					law: id,
+					source: side(relationName(law.relation), [
+						groupName(law.family),
+						namedIdName(law.family),
+						namedValueName(law.family)
+					]),
+					target: side(relationName(familyOf(spec, law.family).member), [
+						groupName(law.family),
+						"id",
+						"v"
+					])
+				}
 		}
 	})
 	const keys = Arr.map(relations, (r): HostLaw => ({
@@ -306,12 +326,11 @@ const numberAt = (fact: HostFact, field: string): number => {
 }
 
 /**
- * The host state of a state's stored rows: every number a host number, every uuid its text, sets and ends left out. A
- * member whose owner is absent, which no write stores, holds the reference's values with that membership left out
- * (ownedRows), and its group field naming the absent owner.
+ * The host state of a state's stored rows (storedRows): every number a host number, every uuid its text, sets and ends
+ * left out, and a member whose owner is absent its group field naming the absent owner.
  */
 const hostState = (spec: SwarmSpec, state: State): HostState => {
-	const stored = storedRows(spec, { rows: ownedRows(state.rows), plain: state.plain })
+	const stored = storedRows(spec, state)
 	const groups = new Map(
 		Arr.map(state.rows, (row) => [
 			uuidOfRow(row.id),
@@ -643,8 +662,9 @@ export interface StratumWrite {
 }
 
 /**
- * An immediate key from `from` into `to`, by what it reads of `from`: its caller's `v` alone, which only a put of
- * `from` changes in place, or columns grizzle draws (a group, a copy, a count), which any family statement may change.
+ * An immediate key from `from` into `to`, by what it reads of `from`: its caller's fields alone (callerColumns), which
+ * only a put of `from` changes in place, or columns grizzle draws (a group, a copy, a count), which any family
+ * statement may change.
  */
 interface ImmediateKey {
 	readonly from: string
@@ -653,12 +673,30 @@ interface ImmediateKey {
 }
 
 /**
- * The immediate keys between relations, each `from` referencing `to`: every family's owner axis (its member
- * referencing its owner), a last copy's axis (its owner referencing its member), and a containment into a pure set; a
- * key on a cycle of these is deferred, and left out.
+ * The fields a caller states of each relation, by name, and only a put of it changes: a plain relation's every field,
+ * and a family relation's caller fields (spec.ts callerFields).
  */
-const immediateKeys = (spec: SwarmSpec): ReadonlyArray<ImmediateKey> => {
+const callerColumns = (spec: SwarmSpec): ReadonlyMap<string, ReadonlyArray<string>> =>
+	new Map([
+		...Arr.map(
+			spec.fill.relations,
+			(_, r) => [relationName(r), Rec.keys(callerFields(spec, r))] as const
+		),
+		...Arr.map(
+			spec.plains,
+			(_, j) => [plainName(j), fieldNames(spec, { kind: "plain", j })] as const
+		)
+	])
+
+/**
+ * The immediate keys between relations, each `from` referencing `to`: every family's owner axis (its member
+ * referencing its owner), a last copy's axis (its owner referencing its member), and every containment the schema
+ * states that the law model checks at each statement (`host`, model.ts isImmediate), reading its source's caller fields
+ * alone where it reads every fact of it; a key on a cycle of these is deferred, and left out.
+ */
+const immediateKeys = (spec: SwarmSpec, host: HostSchema): ReadonlyArray<ImmediateKey> => {
 	const core = spec.fill
+	const caller = callerColumns(spec)
 	const all: ReadonlyArray<ImmediateKey> = [
 		...Arr.flatMap(core.families, (f): ReadonlyArray<ImmediateKey> =>
 			f.kind === "tree"
@@ -671,26 +709,26 @@ const immediateKeys = (spec: SwarmSpec): ReadonlyArray<ImmediateKey> => {
 				? [{ from: relationName(f.owner), to: relationName(f.member), reads: "drawn" }]
 				: []
 		}),
-		...Arr.flatMap(spec.laws, (law): ReadonlyArray<ImmediateKey> => {
-			switch (law.kind) {
-				case "into set":
-					return [{ from: relationName(law.relation), to: plainName(law.plain), reads: "caller" }]
-				case "selected":
-					return [
+		...Arr.flatMap(host.laws, (law): ReadonlyArray<ImmediateKey> =>
+			law.kind === "contained" && isImmediate(host, law)
+				? [
 						{
-							from: relationName(holderOf(core, defined(core.copies[law.copy], "a copy"))),
-							to: plainName(law.plain),
-							reads: "drawn"
+							from: law.source.relation,
+							to: law.target.relation,
+							reads:
+								law.source.selection.kind === "every" &&
+								Arr.every(law.source.fields, (f) =>
+									defined(
+										caller.get(law.source.relation),
+										`the caller fields of ${law.source.relation}`
+									).includes(f)
+								)
+									? "caller"
+									: "drawn"
 						}
 					]
-				case "into rows":
-				case "into members":
-				case "owner into members":
-				case "member key":
-				case "check":
-					return []
-			}
-		})
+				: []
+		)
 	]
 	const reaches = (from: string, to: string): boolean => {
 		const seen = new Set([from])
@@ -717,7 +755,7 @@ const immediateKeys = (spec: SwarmSpec): ReadonlyArray<ImmediateKey> => {
  *   deletions, refills, updates and insertions in turn, so either of two statements of one relation may come first;
  * - along an immediate key from a referencing to a referenced relation, the referenced relation's additions and
  *   changes run before the referencing one's, and the referencing one's removals and changes before the referenced
- *   one's removals and changes, where the change is at a column the key reads: a key over a caller's `v` meets an
+ *   one's removals and changes, where the change is at a column the key reads: a key over caller fields meets an
  *   update in place only of a relation the step puts (`puts`), a key over drawn columns every update and count;
  * - a family's count of its owner, or a refill of its owner that carries its counts (an update), runs after its
  *   member's and its owner's deletions, puts and updates, before its owner's insertions, and before its member's
@@ -727,6 +765,7 @@ const immediateKeys = (spec: SwarmSpec): ReadonlyArray<ImmediateKey> => {
  */
 export const justified = (
 	spec: SwarmSpec,
+	host: HostSchema,
 	puts: ReadonlySet<string>,
 	a: StratumWrite,
 	b: StratumWrite
@@ -734,7 +773,7 @@ export const justified = (
 	if (a.relation === b.relation) {
 		return true
 	}
-	const keys = immediateKeys(spec)
+	const keys = immediateKeys(spec, host)
 	const changes = (k: ImmediateKey, o: StratumWrite): boolean =>
 		o.op === "insert" ||
 		o.op === "delete" ||

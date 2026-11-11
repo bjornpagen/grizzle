@@ -9,7 +9,6 @@
  */
 import { Array as Arr, Option, Record as Rec } from "effect"
 import type { ParamMap } from "#compiler/plan/common.ts"
-import { bits, pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { HeadShape } from "#compiler/types/query/terms.ts"
@@ -29,20 +28,20 @@ import {
 import {
 	type BuiltRelation,
 	type BuiltSwarm,
+	callerFields,
 	countName,
 	familyOf,
 	groupName,
-	holdsMask,
 	idOfUuid,
-	Mask,
-	maskOf,
 	plainFact,
 	plainName,
+	swarmFacts,
 	type SwarmSpec
 } from "#test/pg/write/swarm/spec.ts"
 import { defined } from "#test/support/assert.ts"
 import {
 	followUpMembers,
+	followUpRows,
 	insertedRelations,
 	type InstanceRow,
 	relationName,
@@ -57,17 +56,19 @@ export const membershipIn = (row: InstanceRow, f: number) =>
 
 /**
  * The top facts of an instance's rows by relation: each row no sequence nests, with its caller's fields, its set `b`,
- * its counted families' group fields, a tree root's own id as its root field, and each sequence's members nested at
- * its count field in slot order, each nested member its own caller's fields, set and counted group fields.
+ * the columns it names a member's row by, its counted families' group fields, a tree root's own id as its root field,
+ * and each sequence's members nested at its count field in slot order, each nested member its own caller's fields, set,
+ * named row's columns and counted group fields.
  */
 const topFacts = (
 	spec: SwarmSpec,
 	rows: ReadonlyArray<InstanceRow>
 ): ReadonlyMap<number, ReadonlyArray<Fact>> => {
 	const factOf = (row: InstanceRow, nested: boolean): Fact => {
-		const fact: Record<string, unknown> = { id: uuidOfRow(row.id), v: row.v }
-		if (holdsMask(spec, row.relation)) {
-			fact["b"] = maskOf(row.id)
+		const fact: Record<string, unknown> = {
+			id: uuidOfRow(row.id),
+			v: row.v,
+			...swarmFacts(spec, rows, row.relation, row.id)
 		}
 		for (const m of row.memberOf) {
 			if (familyOf(spec, m.family).kind === "counted") {
@@ -104,11 +105,14 @@ const topFacts = (
 	return out
 }
 
-/** A stored row's caller fact, as a delete or a put states it: its `v`, its set and its group of every family. */
-const callerFact = (spec: SwarmSpec, row: InstanceRow): Fact => ({
+/**
+ * A stored row's caller fact among `rows`, as a delete or a put states it: its `v`, its set, the columns it names a
+ * member's row by and its group of every family.
+ */
+const callerFact = (spec: SwarmSpec, rows: ReadonlyArray<InstanceRow>, row: InstanceRow): Fact => ({
 	id: uuidOfRow(row.id),
 	v: row.v,
-	...(holdsMask(spec, row.relation) ? { b: maskOf(row.id) } : {}),
+	...swarmFacts(spec, rows, row.relation, row.id),
 	...Rec.fromEntries(
 		Arr.map(row.memberOf, (m) => [groupName(m.family), uuidOfRow(m.owner)] as const)
 	)
@@ -330,41 +334,37 @@ export const changeSetOf = (
 			}
 			case "follow":
 				return {
-					members:
-						step.followUp === undefined
-							? []
-							: Arr.flatMap(followUpMembers(spec.fill, state.rows, step.followUp), (m) =>
-									spread(
-										relationOf(relationName(m.relation)),
-										m.op,
-										Arr.map(m.facts, (f) =>
-											holdsMask(spec, m.relation) ? { ...f, b: maskOf(idOfUuid(f["id"])) } : f
-										)
-									)
-								),
+					members: Option.match(Option.fromUndefinedOr(step.followUp), {
+						onNone: (): ReadonlyArray<Member> => [],
+						onSome: (followUp) => {
+							const after = followUpRows(state.rows, followUp)
+							return Arr.flatMap(followUpMembers(spec.fill, state.rows, followUp), (m) =>
+								spread(
+									relationOf(relationName(m.relation)),
+									m.op,
+									Arr.map(m.facts, (f) => ({
+										...f,
+										...swarmFacts(spec, after, m.relation, idOfUuid(f["id"]))
+									}))
+								)
+							)
+						}
+					}),
 					params: {}
 				}
-			case "query put": {
-				const target = relationOf(relationName(step.relation))
-				const masked = holdsMask(spec, step.relation)
+			case "query put":
 				return {
 					members: [
 						{
-							relation: target,
+							relation: relationOf(relationName(step.relation)),
 							op: "put",
 							rows: {
 								kind: "query",
-								query: masked
-									? query(value).rule((r) => {
-											const rows = r.relation("rows", { id: uuid, v: pg.bigint, b: bits(Mask) })
-											const row = v(rows, "row")
-											return r.match(rows, row).find(row)
-										})
-									: query(value).rule((r) => {
-											const rows = r.relation("rows", { id: uuid, v: pg.bigint })
-											const row = v(rows, "row")
-											return r.match(rows, row).find(row)
-										})
+								query: query(value).rule((r) => {
+									const rows = r.relation("rows", callerFields(spec, step.relation))
+									const row = v(rows, "row")
+									return r.match(rows, row).find(row)
+								})
 							}
 						}
 					],
@@ -372,11 +372,10 @@ export const changeSetOf = (
 						rows: Arr.map(step.rows, (p) => ({
 							id: uuidOfRow(p.id),
 							v: p.v,
-							...(masked ? { b: maskOf(p.id) } : {})
+							...swarmFacts(spec, state.rows, step.relation, p.id)
 						}))
 					}
 				}
-			}
 			case "delete all":
 				return {
 					members: [
@@ -387,7 +386,7 @@ export const changeSetOf = (
 										{
 											relation: relationOf(relationName(r)),
 											op: "delete" as const,
-											rows: factsOf(Arr.map(own, (x) => callerFact(spec, x)))
+											rows: factsOf(Arr.map(own, (x) => callerFact(spec, state.rows, x)))
 										}
 									]
 								: []

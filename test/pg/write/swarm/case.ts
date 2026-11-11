@@ -310,7 +310,7 @@ export const stepsGen =
 									: (["before", "with", "after"] as const)
 							)
 						)
-		const drawn = source.draw(swarmInstanceGen(spec.fill, scale ? 240 : 24, 1, 0))
+		const drawn = source.draw(swarmInstanceGen(spec, scale ? 240 : 24, 1, 0))
 		const rows = unlawful ? drawn : lawfulRows(spec, drawn)
 		const firstBreaks = unlawful && later.length === 0
 		const sets = Arr.flatMap(spec.plains, (p, plain): ReadonlyArray<PlainRow> =>

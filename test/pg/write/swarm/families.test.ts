@@ -1,7 +1,7 @@
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore, type Kept } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { boolean, type Gen, int } from "@grizzle/testing/gen"
+import { boolean, element, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { boundedShrink } from "@grizzle/testing/shrink"
 import { fullSwarm } from "@grizzle/testing/swarm"
@@ -46,13 +46,16 @@ import { oneFlight } from "#test/support/one-flight.ts"
 import { appliedWith, member, openServedDb } from "#test/support/served-db.ts"
 import { tableState } from "#test/support/substrate/state.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
 import { fullWorld } from "#test/support/worlds.ts"
 
 /**
  * A differential search over grizzle's family writer and its write schedule at the scale and in the shapes a
  * downstream tier found seven defects in, which the narrower searches never drew: a swarm of schemas of up to 24
  * relations, every family kind, owners of several families, members owning families, cycles of families, copies of
- * copies, fold ends of sum, count, max and or, and laws between family and plain relations; and of ChangeSets of up to
+ * copies, fold ends of sum, count, max and or, laws between family and plain relations, and a family relation naming
+ * a counted member's rows whole, an immediate foreign key into the member that lands its rows before the naming
+ * relation's and that relation's own members after them (pantry's importWrite); and of ChangeSets of up to
  * three strata mixing plain inserts, puts and deletes with family inserts (nested, one member per fact, every fact
  * twice), deletes, moves, recounts, owner column changes, a query's insert, a put from a query and a delete of
  * everything, at up to 150 facts and more (test/pg/write/swarm/spec.ts and case.ts).
@@ -72,9 +75,10 @@ import { fullWorld } from "#test/support/worlds.ts"
  *   a refill of an immutable relation's rows or a put from a query leaving a value stale (fill.ts writesVerdict), and
  *   UnorderableStratum where every order of its cycle is one the stratum's writes require (oracle.ts justified).
  *
- * Its kept cases are the seven downstream defects' shapes; planted in a scratch copy, the total chain of a stratum's
- * family statements, the pair rule's edges on a deferred owner axis and a nested fact's signature without its own texts
- * each fail the search.
+ * Its kept cases are the seven downstream defects' shapes and pantry's importWrite, nested and not; planted in a scratch
+ * copy, the total chain of a stratum's family statements, the pair rule's edges on a deferred owner axis, a nested
+ * fact's signature without its own texts and an action placed before the family rows it references immediately each
+ * fail the search.
  */
 
 /** What the search reached: shapes written, refusals justified, and the downstream defects' shapes. */
@@ -91,6 +95,7 @@ type Situation =
 	| "a pure set and the family rows it holds written in one stratum"
 	| "a selection over a copy judged"
 	| "a check over a drawn count judged"
+	| "a member's row named by an owner, inserted between it and the owner's members"
 	| "plain writes in strata around the family's"
 	| "a follow-up accepted"
 	| "a follow-up refilling a value"
@@ -127,6 +132,7 @@ const situations: Arr.NonEmptyReadonlyArray<Situation> = [
 	"a pure set and the family rows it holds written in one stratum",
 	"a selection over a copy judged",
 	"a check over a drawn count judged",
+	"a member's row named by an owner, inserted between it and the owner's members",
 	"plain writes in strata around the family's",
 	"a follow-up accepted",
 	"a follow-up refilling a value",
@@ -262,6 +268,19 @@ const insertShapes = (
 			: []),
 		...(Arr.some(spec.laws, (l) => l.kind === "check" && l.family !== undefined)
 			? (["a check over a drawn count judged"] as const)
+			: []),
+		...(Arr.some(
+			spec.laws,
+			(l) =>
+				l.kind === "into member rows" &&
+				stored(l.relation) &&
+				hasMembers(l.family) &&
+				Arr.some(
+					spec.fill.families,
+					(f, k) => f.owner === l.relation && f.member !== l.relation && hasMembers(k)
+				)
+		)
+			? (["a member's row named by an owner, inserted between it and the owner's members"] as const)
 			: [])
 	]
 }
@@ -427,12 +446,51 @@ const copiedCount = coreOf(
 	[{ family: 0, copy: 0 }]
 )
 
+/**
+ * Pantry's importWrite shape: R0 owns a counted family of R1, whose rows R2 names whole (an immediate foreign key into
+ * R1's every field), and R2 owns a counted family of R3, so one stratum lands R1's rows before R2's and R3's after them.
+ */
+const importWriteFamilies: SwarmSpec["fill"]["families"] = [
+	{ kind: "counted", owner: 0, member: 1, fold: "none" },
+	{ kind: "counted", owner: 2, member: 3, fold: "none" }
+]
+
+/** The importWrite shape with R0 owning an ordered family of R4 too, nested in R0's insert, as pantry's holds one. */
+const nestedImportWriteFamilies: SwarmSpec["fill"]["families"] = [
+	...importWriteFamilies,
+	{ kind: "ordered", owner: 0, member: 4, fold: "none" }
+]
+
+/** A spec of `families` over relations of the given mutability, R2 naming R1's rows whole. */
+const importWrite = (
+	mutable: ReadonlyArray<boolean>,
+	families: SwarmSpec["fill"]["families"]
+): SwarmSpec => ({
+	...bare(coreOf(mutable, families, [], [])),
+	laws: [{ kind: "into member rows", relation: 2, family: 0 }]
+})
+
+/** The importWrite shape, nested or not, each relation mutable as drawn, with follow-ups and a delete of everything. */
+const importWrites: Gen<SwarmCase> = (source) => {
+	const families = source.draw(element([importWriteFamilies, nestedImportWriteFamilies]))
+	const relations = 1 + Arr.reduce(families, 0, (most, f) => Math.max(most, f.owner, f.member))
+	return source.draw(
+		over(
+			importWrite(
+				upTo(relations, () => source.draw(boolean)),
+				families
+			),
+			["follow-ups", "delete all"]
+		)
+	)
+}
+
 /** A case over `spec` whose first insert of a drawn instance of at least `least` top rows per relation breaks a law
  * as `how` says: one top fact stated twice at its key, or a counted member naming no owner. */
 const brokenFirst =
 	(spec: SwarmSpec, how: "conflict" | "orphan"): Gen<SwarmCase> =>
 	(source) => {
-		const rows = source.draw(swarmInstanceGen(spec.fill, 24, 1, 1))
+		const rows = source.draw(swarmInstanceGen(spec, 24, 1, 1))
 		const candidates = Arr.filter(rows, (r) =>
 			how === "conflict"
 				? r.memberOf.length === 0
@@ -464,7 +522,7 @@ const large =
 		steps: [
 			{
 				kind: "insert",
-				rows: source.draw(swarmInstanceGen(spec.fill, bound, 1, least)),
+				rows: source.draw(swarmInstanceGen(spec, bound, 1, least)),
 				plain: [],
 				conflict: undefined,
 				orphan: undefined,
@@ -498,6 +556,7 @@ const together = over(
 /** The situations the drawn cases reach only now and then, each with the case a witness draws to reach it. */
 const aims: ReadonlyArray<readonly [Situation, Gen<SwarmCase>]> = [
 	["every fact stated twice written once", together],
+	["a member's row named by an owner, inserted between it and the owner's members", importWrites],
 	["plain writes in strata around the family's", together],
 	["a query's insert accepted", together],
 	["a check over a drawn count judged", together],
@@ -703,8 +762,61 @@ const inserted = (
 	shape: { split, repeat: false }
 })
 
-/** The seven downstream defects' shapes, then the shapes this search found, each kept by value. */
+/** Pantry's importWrite shapes, the seven downstream defects' shapes, then the shapes this search found, each kept by
+ * value. */
 const kept: ReadonlyArray<Kept<SwarmCase, Situation>> = [
+	{
+		note: "pantry's importWrite (1ce7c08f, drawn alone by the deleted test/pg/write/stratum-order): R2's rows name R1's rows whole and own R3's, every owner immutable, all in one stratum; one additions statement for R1's and R3's rows could land neither before nor after R2's insert, and the stratum was refused as UnorderableStratum",
+		sketch: {
+			spec: importWrite([false, false, false, false], importWriteFamilies),
+			steps: [
+				inserted(
+					[
+						{ relation: 0, id: 1, v: 0n, memberOf: [] },
+						{ relation: 1, id: 2, v: 1n, memberOf: [{ family: 0, owner: 1, slot: 0 }] },
+						{ relation: 1, id: 3, v: 2n, memberOf: [{ family: 0, owner: 1, slot: 0 }] },
+						{ relation: 2, id: 4, v: 0n, memberOf: [] },
+						{ relation: 2, id: 5, v: 1n, memberOf: [] },
+						{ relation: 3, id: 6, v: 0n, memberOf: [{ family: 1, owner: 4, slot: 0 }] },
+						{ relation: 3, id: 7, v: 1n, memberOf: [{ family: 1, owner: 4, slot: 0 }] }
+					],
+					false,
+					undefined
+				)
+			]
+		},
+		draws: "",
+		reaches: ["a member's row named by an owner, inserted between it and the owner's members"]
+	},
+	{
+		note: "pantry's importWrite with its nesting (f6f1afbf, drawn alone by the deleted test/pg/write/stratum-order): R0's insert nests its ordered R4 members beside the stratum whose rows land on both sides of R2's insert, so the family planner plans it, every relation mutable; then a delete of everything, R2's rows before the R1 rows they name",
+		sketch: {
+			spec: importWrite([true, true, true, true, true], nestedImportWriteFamilies),
+			steps: [
+				inserted(
+					[
+						{ relation: 0, id: 1, v: 0n, memberOf: [] },
+						{ relation: 4, id: 2, v: 1n, memberOf: [{ family: 2, owner: 1, slot: 0 }] },
+						{ relation: 4, id: 3, v: 2n, memberOf: [{ family: 2, owner: 1, slot: 1 }] },
+						{ relation: 1, id: 4, v: 1n, memberOf: [{ family: 0, owner: 1, slot: 0 }] },
+						{ relation: 1, id: 5, v: 2n, memberOf: [{ family: 0, owner: 1, slot: 0 }] },
+						{ relation: 2, id: 6, v: 0n, memberOf: [] },
+						{ relation: 2, id: 7, v: 1n, memberOf: [] },
+						{ relation: 3, id: 8, v: 0n, memberOf: [{ family: 1, owner: 6, slot: 0 }] },
+						{ relation: 3, id: 9, v: 1n, memberOf: [{ family: 1, owner: 6, slot: 0 }] }
+					],
+					false,
+					undefined
+				),
+				{ kind: "delete all" }
+			]
+		},
+		draws: "",
+		reaches: [
+			"a member's row named by an owner, inserted between it and the owner's members",
+			"a delete of everything accepted"
+		]
+	},
 	{
 		note: "two counted families on a cycle, each a member of the other's owner and each copying its owner's caller field, both rows inserted by their slots: each additions statement read the other's rows from the table, so each followed the other and the stratum was refused as UnorderableStratum, where the slots hold every value copied",
 		sketch: {
@@ -1704,7 +1816,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the family writer under a
 													"the cycle's next write"
 												)
 												assert.ok(
-													justified(spec, putsOf(spec, state, step), at, next),
+													justified(spec, host, putsOf(spec, state, step), at, next),
 													`${label}: refused with UnorderableStratum, whose order ${at.relation} ${at.op} before ${next.relation} ${next.op} no write of the stratum requires; the cycle: ${Formatter.format(cycle)}`
 												)
 											}

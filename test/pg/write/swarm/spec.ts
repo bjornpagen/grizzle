@@ -8,16 +8,19 @@
  * P0 … Pm−1, each a pure set `{ x }` or a referrer `{ id, r, x }`; and laws between the two: a family relation's `v`
  * contained in a pure set (an immediate foreign key), a referrer contained in a family relation's rows or in a
  * family's members, an owner (or the owners with one member) contained in its members (a law on a cycle with the owner
- * axis), a key over a family's members, a selection over a copy contained in a pure set, and a row check over a
- * relation's `v` and the count of a family it owns.
+ * axis), a key over a family's members, a selection over a copy contained in a pure set, a row check over a
+ * relation's `v` and the count of a family it owns, and a family relation naming a counted member's row whole (an
+ * immediate foreign key into a family's member, so the member's rows land before the naming relation's and that
+ * relation's own members after them: pantry's importWrite shape).
  *
  * Every name is the reference writer's (fill.ts): relation `R<i>`, family `f`'s count `n<f>`, group `o<f>`, index
  * `i<f>`, root `d<f>` and sum or count fold `s<f>`, copy `j`'s field `c<j>`; this module adds a member's set `b`, the
- * extra fold end `e<f>`, the plain relations `P<j>` and the check `C<i>`.
+ * extra fold end `e<f>`, the plain relations `P<j>`, the check `C<i>`, and a naming relation's copy of family `f`'s
+ * group `o<f>` (the shared-field column) beside the named row's id `m<f>` and `v` `w<f>`.
  */
 import { boolean, type Gen, int } from "@grizzle/testing/gen"
 import { keep, type Swarm, swarm, swarmChoice, weightOf } from "@grizzle/testing/swarm"
-import { Array as Arr, Option, Record as Rec, String as Str } from "effect"
+import { Array as Arr, Option, Order, Record as Rec, String as Str } from "effect"
 import { int8Min } from "#compiler/core/limits.ts"
 import { accumulated, bits, drawn, natural, pg, uuid } from "#compiler/public/fields.ts"
 import { type AnyFamily, type RowScalars, schema, type Statement } from "#compiler/public/schema.ts"
@@ -80,7 +83,10 @@ export interface PlainSpec {
  * - `owner into members`: `contained(on(O or select(O, n<f> = 1), "id", "v"), on(M, o<f>, "v"))`;
  * - `member key`: `key(on(M, o<f>, "v"))`, which a containment into a family's members needs, its target holding a key;
  * - `selected`: `contained(on(select(R, c<copy> > 0), "v"), on(P, "x"))`, R holding copy `copy`, P a pure set;
- * - `check`: `check("C<i>", R, …)`: `v > -3`, or, where `family` names a family R owns, `n<f> < 3 or v >= 0`.
+ * - `check`: `check("C<i>", R, …)`: `v > -3`, or, where `family` names a family R owns, `n<f> < 3 or v >= 0`;
+ * - `into member rows`: `contained(on(R, o<f>, m<f>, w<f>), on(M, o<f>, "id", "v"))`, M family `f`'s counted member
+ *   holding exactly `id`, `v` and `o<f>`, R after M and no family's member: each row of R names one row of M whole,
+ *   R's `o<f>` the member's group field it shares, so its foreign key is immediate.
  */
 export type LawSpec =
 	| { readonly kind: "into set"; readonly relation: number; readonly plain: number }
@@ -90,6 +96,7 @@ export type LawSpec =
 	| { readonly kind: "member key"; readonly family: number }
 	| { readonly kind: "selected"; readonly copy: number; readonly plain: number }
 	| { readonly kind: "check"; readonly relation: number; readonly family: number | undefined }
+	| { readonly kind: "into member rows"; readonly relation: number; readonly family: number }
 
 /** A drawn schema: its family core, its extra fold ends, its plain relations and its laws. */
 export interface SwarmSpec {
@@ -126,6 +133,7 @@ const swarmFeatures = [
 	"member key",
 	"selection over a copy",
 	"check",
+	"law into member rows",
 	"scale",
 	"split members",
 	"repeated fact",
@@ -147,6 +155,8 @@ const rootName = (f: number): string => `d${f}`
 const foldName = (f: number): string => `s${f}`
 export const endName = (f: number): string => `e${f}`
 export const copyName = (j: number): string => `c${j}`
+export const namedIdName = (f: number): string => `m${f}`
+export const namedValueName = (f: number): string => `w${f}`
 
 type FamilySpec = FillSpec["families"][number]
 type CopySpec = FillSpec["copies"][number]
@@ -164,14 +174,14 @@ export const holderOf = (spec: FillSpec, copy: CopySpec): number => {
 }
 
 /** Whether relation `r` holds the set `b`: it is the member of a family an or end folds. */
-export const holdsMask = (spec: SwarmSpec, r: number): boolean =>
+const holdsMask = (spec: SwarmSpec, r: number): boolean =>
 	Arr.some(spec.ends, (e) => e.monoid === "or" && familyOf(spec, e.family).member === r)
 
 /** The handles of the roster a member's set `b` is over: five, so its hex spelling pads a second digit. */
 const maskHandles = ["h0", "h1", "h2", "h3", "h4"] as const
 
 /** A row's set `b`, by its id: the handles of the bits of `11 · id mod 32`. */
-export const maskOf = (id: number): ReadonlySet<string> =>
+const maskOf = (id: number): ReadonlySet<string> =>
 	new Set(Arr.filter(maskHandles, (_, c) => (((id * 11) % 32) & (1 << c)) !== 0))
 
 /** The or of the sets of rows `ids`. */
@@ -522,6 +532,13 @@ const aroundGen =
 					})
 					break
 				}
+				case "law into member rows": {
+					const named = namedPairs({ fill: core, ends, plains, laws })
+					if (Arr.isReadonlyArrayNonEmpty(named)) {
+						laws.push({ kind: "into member rows", ...source.draw(pick(named)) })
+					}
+					break
+				}
 			}
 		}
 		const keyed = Arr.flatMap(laws, (l): ReadonlyArray<LawSpec> =>
@@ -532,6 +549,28 @@ const aroundGen =
 		return { fill: core, ends, plains, laws: Arr.dedupeWith([...laws, ...keyed], sameLaw) }
 	}
 
+/**
+ * The laws into member rows a spec may state: of each counted family whose member holds exactly `id`, `v` and its
+ * group, a naming relation after the member that is no family's member, so the law's target is every field of its
+ * member and no family statement ever writes the naming relation's rows.
+ */
+const namedPairs = (
+	spec: SwarmSpec
+): ReadonlyArray<{ readonly relation: number; readonly family: number }> =>
+	Arr.flatMap(spec.fill.families, (f, family) => {
+		const heading = fieldNames(spec, { kind: "core", r: f.member })
+		const whole = ["id", "v", groupName(family)]
+		return f.kind === "counted" &&
+			heading.length === whole.length &&
+			Arr.every(whole, (name) => heading.includes(name))
+			? Arr.flatMap(spec.fill.relations, (_, relation) =>
+					relation > f.member && Arr.every(spec.fill.families, (g) => g.member !== relation)
+						? [{ relation, family }]
+						: []
+				)
+			: []
+	})
+
 /** The features that draw laws, each its law's kind. */
 const lawFeatures = [
 	"law into a set",
@@ -540,7 +579,8 @@ const lawFeatures = [
 	"owner into members",
 	"member key",
 	"selection over a copy",
-	"check"
+	"check",
+	"law into member rows"
 ] as const
 
 /** Whether two laws are one statement: a schema states each law once. */
@@ -560,6 +600,8 @@ const sameLaw = (a: LawSpec, b: LawSpec): boolean => {
 			return b.kind === a.kind && b.copy === a.copy && b.plain === a.plain
 		case "check":
 			return b.kind === a.kind && b.relation === a.relation
+		case "into member rows":
+			return b.kind === a.kind && b.relation === a.relation && b.family === a.family
 	}
 }
 
@@ -627,7 +669,7 @@ const sourceField = (source: CopySource): string => {
 }
 
 /** The roster a member's set `b` and an or end are over. */
-export const Mask = closed("Mask", maskHandles, [])
+const Mask = closed("Mask", maskHandles, [])
 
 /** The fields of family relation `r`, fill.ts's in its order, then its set `b` and each extra end it owns. */
 const fieldsOf = (spec: SwarmSpec, r: number): Record<string, FieldBase> => {
@@ -673,8 +715,97 @@ const fieldsOf = (spec: SwarmSpec, r: number): Record<string, FieldBase> => {
 					: accumulatedField(bits(Mask), bitsOf(Mask, [], []), [])
 		}
 	}
-	return fields
+	return { ...fields, ...namedFields(spec, r) }
 }
+
+/** The families whose counted members' rows family relation `r` names whole, by its laws into member rows. */
+const namedFamilies = (spec: SwarmSpec, r: number): ReadonlyArray<number> =>
+	Arr.flatMap(spec.laws, (law) =>
+		law.kind === "into member rows" && law.relation === r ? [law.family] : []
+	)
+
+/** The columns family relation `r` names a member's row by, for each family it names: its group, its id and its `v`. */
+const namedFields = (spec: SwarmSpec, r: number): Readonly<Record<string, FieldBase>> =>
+	Rec.fromEntries(
+		Arr.flatMap(namedFamilies(spec, r), (f): ReadonlyArray<readonly [string, FieldBase]> => [
+			[groupName(f), uuid],
+			[namedIdName(f), uuid],
+			[namedValueName(f), pg.bigint]
+		])
+	)
+
+/**
+ * The fields a caller states of family relation `r`'s row and only a put of it changes: its id and `v`, its set `b`,
+ * and the columns it names a member's row by.
+ */
+export const callerFields = (spec: SwarmSpec, r: number): Readonly<Record<string, FieldBase>> => ({
+	id: uuid,
+	v: pg.bigint,
+	...(holdsMask(spec, r) ? { b: bits(Mask) } : {}),
+	...namedFields(spec, r)
+})
+
+/**
+ * The row of family `f`'s member that the row `id` names among `rows`: of the member's rows with an id below it, in id
+ * order, the one at the id modulo their count. The member comes before the naming relation and every row the swarm
+ * stores of it names one (swarmInstanceGen), and every row written after takes a larger id, so a row names one row in
+ * every state that holds it.
+ */
+const namedRow = (
+	spec: SwarmSpec,
+	f: number,
+	rows: ReadonlyArray<InstanceRow>,
+	id: number
+): InstanceRow => {
+	const member = familyOf(spec, f).member
+	const below = Arr.sort(
+		Arr.filter(rows, (x) => x.relation === member && x.id < id),
+		Order.mapInput(Order.Number, (x: InstanceRow) => x.id)
+	)
+	return defined(below[id % below.length], `the row of ${relationName(member)} the row ${id} names`)
+}
+
+/**
+ * The values the row `id` of family relation `relation` states at the columns it names a member's row by
+ * (namedFields), among `rows`: the named row's group in the family, its id and its `v`, a uuid as its text.
+ */
+const namedFacts = (
+	spec: SwarmSpec,
+	rows: ReadonlyArray<InstanceRow>,
+	relation: number,
+	id: number
+): Readonly<Record<string, string | bigint>> =>
+	Rec.fromEntries(
+		Arr.flatMap(
+			namedFamilies(spec, relation),
+			(f): ReadonlyArray<readonly [string, string | bigint]> => {
+				const named = namedRow(spec, f, rows, id)
+				const group = defined(
+					Option.getOrUndefined(Arr.findFirst(named.memberOf, (m) => m.family === f)),
+					`the group of the named row ${named.id}`
+				)
+				return [
+					[groupName(f), uuidOfRow(group.owner)],
+					[namedIdName(f), uuidOfRow(named.id)],
+					[namedValueName(f), named.v]
+				]
+			}
+		)
+	)
+
+/**
+ * The values the row `id` of family relation `relation` states beyond the reference writer's caller fields (fill.ts),
+ * among `rows`: its set `b`, and the columns it names a member's row by (namedFacts).
+ */
+export const swarmFacts = (
+	spec: SwarmSpec,
+	rows: ReadonlyArray<InstanceRow>,
+	relation: number,
+	id: number
+): Readonly<Record<string, string | bigint | ReadonlySet<string>>> => ({
+	...(holdsMask(spec, relation) ? { b: maskOf(id) } : {}),
+	...namedFacts(spec, rows, relation, id)
+})
 
 /** The fields of plain relation `j`. */
 const plainFields = (p: PlainSpec): Record<string, FieldBase> =>
@@ -889,6 +1020,15 @@ export const buildSwarm = (spec: SwarmSpec): BuiltSwarm => {
 							row.or(row.lt(field(row, countName(family)), 3n), row.ge(field(row, "v"), 0n))
 						)
 			}
+			case "into member rows":
+				return containedBuilder(
+					onBuilder(valueAt(law.relation), [
+						groupName(law.family),
+						namedIdName(law.family),
+						namedValueName(law.family)
+					]),
+					onBuilder(valueAt(familyOf(spec, law.family).member), [groupName(law.family), "id", "v"])
+				)
 		}
 	})
 	const mutables: ReadonlyArray<Statement> = [
@@ -945,15 +1085,27 @@ export const samePlain = (a: PlainRow, b: PlainRow): boolean =>
 	(a.kind === "set" || (b.kind === "referrer" && a.id === b.id && a.r === b.r))
 
 /**
+ * The relations a row of family relation `r` needs a row of: the owner of each counted family it is a member of, and
+ * the member of each family whose rows it names (a law into member rows).
+ */
+const neededBy = (spec: SwarmSpec, r: number): ReadonlyArray<number> => [
+	...Arr.flatMap(spec.fill.families, (f) =>
+		f.kind === "counted" && f.member === r ? [f.owner] : []
+	),
+	...Arr.map(namedFamilies(spec, r), (f) => familyOf(spec, f).member)
+]
+
+/**
  * An instance of a spec's core: some rows of each relation a ChangeSet inserts itself, each sequence's members nested
- * under their owner's rows, a tree's nodes to a few levels; the rows of a relation one of whose counted families has
- * no owner's row left are dropped, with every row nested under them, until none is; then every counted member names
+ * under their owner's rows, a tree's nodes to a few levels; the rows of a relation that needs a row of another with no
+ * row left (neededBy) are dropped, with every row nested under them, until none is; then every counted member names
  * an owner of each counted family it belongs to. Up to `bound` rows, ids from `first`, each `v` small around zero, and
  * at least `least` top rows of each relation a ChangeSet inserts itself, where the bound leaves room.
  */
 export const swarmInstanceGen =
-	(core: FillSpec, bound: number, first: number, least: number): Gen<ReadonlyArray<InstanceRow>> =>
+	(spec: SwarmSpec, bound: number, first: number, least: number): Gen<ReadonlyArray<InstanceRow>> =>
 	(source) => {
+		const core = spec.fill
 		interface Draft {
 			readonly relation: number
 			readonly id: number
@@ -998,10 +1150,7 @@ export const swarmInstanceGen =
 		for (let changed = true; changed;) {
 			changed = false
 			for (const [r] of core.relations.entries()) {
-				const orphaned = Arr.some(
-					countedOf(r),
-					(f) => left(defined(core.families[f], "a family").owner).length === 0
-				)
+				const orphaned = Arr.some(neededBy(spec, r), (needed) => left(needed).length === 0)
 				if (orphaned && left(r).length > 0) {
 					for (const row of left(r)) {
 						removed.add(row.id)
