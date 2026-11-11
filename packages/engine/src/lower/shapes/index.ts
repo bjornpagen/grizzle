@@ -978,8 +978,7 @@ export class OptimizedDelivery<
 						params,
 						role: only.role,
 						heading: only.heading,
-						fused: only.fused,
-						dependsOn: []
+						fused: only.fused
 					}
 				},
 				roots,

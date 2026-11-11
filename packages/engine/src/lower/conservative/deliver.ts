@@ -28,8 +28,7 @@ import type {
 	DeliveredBreach,
 	GroupMerge,
 	PageParamSlot,
-	ProgramDelivery,
-	StatementPlacement
+	ProgramDelivery
 } from "#compiler/lower/conservative/types.ts"
 import { armCore, setOperation } from "#compiler/lower/conservative/union/arms.ts"
 import {
@@ -37,6 +36,7 @@ import {
 	deliveredHeading,
 	type ParentKeyColumn,
 	statementOutput,
+	type StatementRole,
 	type StatementRoots
 } from "#compiler/runtime/lower/tree.ts"
 import type {
@@ -506,11 +506,11 @@ export class Delivery<Own extends PageParamSlot = never> {
 	statement(
 		query: Select,
 		rows: Heading,
-		statement: StatementPlacement
+		role: StatementRole
 	): ConservativeStatement<DeclaredParamSlot | Own> {
-		const output = statementOutput(statement.role, rows, [])
+		const output = statementOutput(role, rows, [])
 		return {
-			...statement,
+			role,
 			...printedStatement(
 				refineConservative(this.cx, query, output.heading, rows.length === 0),
 				output.names,
@@ -697,10 +697,7 @@ export class Delivery<Own extends PageParamSlot = never> {
 			return rows
 		}
 		const query = this.delivered(rel(), group.heading, union, groupOrder(plan))
-		const statement = this.statement(query, group.heading, {
-			role: { kind: "headingGroup", group: gi },
-			dependsOn: []
-		})
+		const statement = this.statement(query, group.heading, { kind: "headingGroup", group: gi })
 		return { statement, rel }
 	}
 
@@ -781,8 +778,8 @@ export class Delivery<Own extends PageParamSlot = never> {
 			rows
 		)
 		const statement = this.statement(query, child.heading, {
-			role: { kind: "attachment", parentKey: built.parentKey },
-			dependsOn: []
+			kind: "attachment",
+			parentKey: built.parentKey
 		})
 		const attachments = this.attachments(this.spine(attach.child), {
 			heading: child.heading,
@@ -846,10 +843,7 @@ export class ConservativeDelivery<Own extends PageParamSlot = never> extends Del
 		this.beginStatement()
 		const rel = (): OperandSelect => this.cx.lower(rows, emptyEnv)
 		const query = this.delivered(rel(), rows.heading, rows, order)
-		const statement = this.statement(query, rows.heading, {
-			role: { kind: "main" },
-			dependsOn: []
-		})
+		const statement = this.statement(query, rows.heading, { kind: "main" })
 		const attachments = this.attachments(
 			this.spine(rows),
 			statementRows(this.cx, rows.heading, rows, rel, noRowKeys)

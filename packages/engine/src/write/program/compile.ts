@@ -21,11 +21,7 @@ import { type CatalogSchema, evidenceCatalog } from "#compiler/laws/model/catalo
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import type { UniqueObject } from "#compiler/laws/model/uniques.ts"
 import { WriteParams } from "#compiler/lower/conservative/context.ts"
-import type {
-	DeclaredParamSlot,
-	ReadBackNaming,
-	WriteParamSlot
-} from "#compiler/lower/conservative/types.ts"
+import type { DeclaredParamSlot, WriteParamSlot } from "#compiler/lower/conservative/types.ts"
 import { isPlainQuery } from "#compiler/lower/delivery.ts"
 import { emptyCtePlan } from "#compiler/lower/optimize/cte-policy/index.ts"
 import { placeDeduplication } from "#compiler/lower/optimize/dedup/place.ts"
@@ -50,7 +46,13 @@ import { oneForm } from "#compiler/runtime/lower/forms.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 import { queryUses } from "#compiler/schema/walk.ts"
 import type { EmittedText, SqlStatement } from "#compiler/sql/ast.ts"
-import { type NameMap, NameSupply, type NameSupplyStart, namesPast } from "#compiler/sql/naming.ts"
+import {
+	freshNames as startNames,
+	type NameMap,
+	NameSupply,
+	type NameSupplyStart,
+	namesPast
+} from "#compiler/sql/naming.ts"
 import {
 	buildCreateCarrier,
 	buildFillCarrier,
@@ -1159,7 +1161,7 @@ const optimizedPlacement = (
 					? ridingSingle(step.readBacks, formedParts(buildParts), {
 							frontend,
 							deltas: plan.deltas,
-							lower: (read, deltas, naming) => lowerReadBack(read, deltas, naming, readBackOptions)
+							lower: (read, deltas, start) => lowerReadBack(read, deltas, start, readBackOptions)
 						})
 					: (() => {
 							const plain = formed(
@@ -1292,7 +1294,7 @@ const optimizedPlacement = (
 					deltaSourceIn(relation, frontend.deltaEntries, (target) =>
 						plannedDelta(plan.deltas, target, side)
 					)
-				const program = lowerReadBack(step.read, deltas, ownNaming, readBackOptions)
+				const program = lowerReadBack(step.read, deltas, startNames, readBackOptions)
 				const reads = [
 					...step.read.node.meta.reads.map((r) => `relation:${r}`),
 					...step.read.deltas.flatMap((d) =>
@@ -1309,9 +1311,6 @@ const optimizedPlacement = (
 	}
 	return b
 }
-
-/** A read-back's own statements: each names from r1 and c1. */
-const ownNaming: ReadBackNaming = Object.freeze({ kind: "own" })
 
 /** A single statement's parts as one build in one per-execution mode makes them: its shared sub-queries, its writes,
  * each with its step, and where the names after them start (singleStatement `start`). */
@@ -1388,11 +1387,11 @@ const ridingPartOf = (
 }
 
 /** What riding a single statement reads beside its parts: the write's front end, its delta plan, and how a read-back
- * lowers over the deltas and naming it is given. */
+ * lowers over the deltas and naming start it is given. */
 interface RidingContext {
 	readonly frontend: WriteFrontend
 	readonly deltas: WritePlan["deltas"]
-	readonly lower: (read: ReadBack, deltas: DeltasOf, naming: ReadBackNaming) => OptimizedProgram
+	readonly lower: (read: ReadBack, deltas: DeltasOf, start: NameSupplyStart) => OptimizedProgram
 }
 
 /**
@@ -1404,7 +1403,7 @@ interface RidingContext {
  * write's RETURNING (write/readback/deltas.ts deltaCte), named once past every name either form's parts define, so it
  * has one name in both forms; a delta of a relation no statement writes is the empty relation. Each read-back is
  * lowered over those deltas, its statement named past them and past every earlier read-back's
- * (lower/conservative/types.ts ReadBackNaming), and its statement is one part of the statement after the writes'
+ * (lower/conservative/types.ts ReadBackLowering start), and its statement is one part of the statement after the writes'
  * parts, in order, the names its part adds past all of those (`ridingPartOf`). The statement's
  * large form, where its writes or a read-back's statement made a per-execution choice, holds each part's large form,
  * a part of one form its own, and its choices are all of theirs.
@@ -1465,7 +1464,7 @@ const ridingSingle = (
 		deltaSourceIn(relation, frontend.deltaEntries, (target) => held(target, side))
 	let cursor = namesPast(deltaNames, start)
 	const placed = readBacks.map((read, at) => {
-		const program = context.lower(read, deltas, { kind: "riding", start: cursor })
+		const program = context.lower(read, deltas, cursor)
 		const statement = program.statement
 		cursor = namesPast(statement.sql.nameMap, cursor)
 		if (statement.forms.kind === "chosen") {

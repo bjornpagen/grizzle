@@ -437,11 +437,9 @@ interface Scope {
 	readonly sharing: ShareFrame | undefined
 }
 
-/** Where a lowering's first statement starts naming: a riding read-back's start, every other statement's r1 and c1. */
+/** Where a lowering's first statement starts naming: a read-back's start, every other statement's r1 and c1. */
 const firstStart = (options: ConservativeOptions): NameSupplyStart =>
-	options.subject.kind === "readBack" && options.subject.naming.kind === "riding"
-		? options.subject.naming.start
-		: freshNames
+	options.subject.kind === "readBack" ? options.subject.start : freshNames
 
 /**
  * The state one conservative lowering threads through its per-kind plug-ins.
@@ -544,7 +542,7 @@ export class LowerContext {
 	/**
 	 * The next statement of a query or a page, its placeholders `params`, naming past the last one's names: no two
 	 * statements of one lowering define one generated name, so any of them can be parts of one statement (a riding
-	 * read-back's of the write statement it rides, ReadBackNaming; a conservative program's of its one statement,
+	 * read-back's of the write statement it rides, ReadBackLowering start; a conservative program's of its one statement,
 	 * shapes/index.ts partedConservative). Placeholders never cross statements.
 	 */
 	beginStatement(params: Placeholders): void {

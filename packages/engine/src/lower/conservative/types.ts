@@ -34,15 +34,6 @@ export type DeltaRelation =
 	| { readonly kind: "empty" }
 
 /**
- * Where a read-back's names start: a statement of its own's at r1 and c1; or, riding a write statement as its part,
- * at `start`, past every name that statement defines, so no name is defined twice in it. Each later statement of its
- * lowering names past the one before (context.ts beginStatement).
- */
-export type ReadBackNaming =
-	| { readonly kind: "own" }
-	| { readonly kind: "riding"; readonly start: NameSupplyStart }
-
-/**
  * One breach of an attachment's delivered type a statement detects: each row of `from` that `when` holds of is a parent
  * key, `key`, at which the attachment delivered as `delivered` has another count of children.
  */
@@ -77,7 +68,12 @@ export interface ReadBackLowering {
 	readonly kind: "readBack"
 	readonly deltas: (relation: string, side: "added" | "removed") => DeltaRelation | undefined
 	readonly breach: BreachGuard
-	readonly naming: ReadBackNaming
+	/**
+	 * Where its first statement's names start: r1 and c1 for a statement of its own (sql/naming.ts freshNames), and past
+	 * every name a write statement defines for a read-back riding it as a part, so no name is defined twice in that
+	 * statement. Each later statement names past the one before (context.ts beginStatement).
+	 */
+	readonly start: NameSupplyStart
 }
 
 /**
@@ -230,20 +226,9 @@ export type PageStatementSlot<F extends PageFill = PageFill> = DeclaredParamSlot
 /** What fills one placeholder $n of a statement of any lowering. */
 export type ConservativeParamSlot = DeclaredParamSlot | OwnParamSlot
 
-/**
- * A statement's role and the statements of its program that must run first: none. An attachment recomputes its
- * parent key's set in its own statement (deliver.ts), so every statement of a query program goes in one flight; only a
- * write program's statements depend on earlier ones.
- */
-export interface StatementPlacement {
-	readonly role: StatementRole
-	readonly dependsOn: readonly []
-}
-
 /** A lowered statement whose placeholders are of `Slot`: a query's declared parameters', a write's or a page's own besides. */
-export interface ConservativeStatement<
-	Slot extends ConservativeParamSlot = DeclaredParamSlot
-> extends StatementPlacement {
+export interface ConservativeStatement<Slot extends ConservativeParamSlot = DeclaredParamSlot> {
+	readonly role: StatementRole
 	/** The AST, for post-processing; `sql` is its emission. */
 	readonly ast: Select
 	readonly sql: EmittedSql

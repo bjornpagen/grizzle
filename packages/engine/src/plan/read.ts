@@ -36,7 +36,6 @@ export type { CompletedOrder, Heading, NodeOf, TakeBound } from "#compiler/ir/re
 export {
 	type ConservativeParamSlot,
 	type DeclaredParamSlot,
-	flight,
 	type GroupMerge,
 	type PageStatementSlot,
 	type ProgramDelivery,

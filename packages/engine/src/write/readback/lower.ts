@@ -8,8 +8,9 @@ import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { ParamDecl } from "#compiler/ir/products.ts"
 import type { ReadBack } from "#compiler/ir/write.ts"
 import { type CatalogSchema, evidenceCatalog } from "#compiler/laws/model/catalog.ts"
-import type { DeltaRelation, ReadBackNaming } from "#compiler/lower/conservative/types.ts"
+import type { DeltaRelation } from "#compiler/lower/conservative/types.ts"
 import { lowerOptimized, type OptimizedProgram } from "#compiler/lower/optimize/pipeline.ts"
+import type { NameSupplyStart } from "#compiler/sql/naming.ts"
 import { carrierColumns, carrierField } from "#compiler/write/carriers/carriers.ts"
 import type { WriteNames } from "#compiler/write/insert/statement.ts"
 import type { DeltaHeld } from "#compiler/write/readback/deltas.ts"
@@ -96,7 +97,7 @@ export const deltaSourceIn = (
 export const lowerReadBack = (
 	read: ReadBack,
 	deltas: DeltasOf,
-	naming: ReadBackNaming,
+	start: NameSupplyStart,
 	options: ReadBackOptions
 ): OptimizedProgram => {
 	const admitted = admitQuery(
@@ -113,7 +114,7 @@ export const lowerReadBack = (
 			kind: "readBack",
 			deltas,
 			breach: breachGuard(options.names.schema),
-			naming
+			start
 		},
 		/** A read-back runs in its write's transaction and records no constraint premise. */
 		catalog: evidenceCatalog(options.schema),

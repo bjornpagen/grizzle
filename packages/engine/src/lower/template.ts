@@ -269,6 +269,6 @@ export const statementSpec = <Slot extends ConservativeParamSlot, P>(
 				paramSlots: statement.params.map(slotOf),
 				heading: statementOutput(statement.role, statement.heading, statement.fused).heading,
 				role: statement.role.kind,
-				dependsOn: statement.dependsOn
+				dependsOn: []
 			}))
 	)

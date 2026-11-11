@@ -342,7 +342,7 @@ const conservativeKit = <F extends PageFill>(
 		slots: (slotsOf) => slotsOf,
 		part: (lower, rows, role) => {
 			delivery.beginStatement()
-			return delivery.statement(lower(), rows, { role, dependsOn: [] })
+			return delivery.statement(lower(), rows, role)
 		},
 		rows: (node) => cx.lower(node, emptyEnv),
 		group: (plan, g) => {
