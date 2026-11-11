@@ -2921,17 +2921,16 @@ its field's or parameter's type exactly ([Tables and types](#tables-and-types)),
 `EncodingFailure` before any SQL. Every law over the values is PostgreSQL's: keys, containments, checks, contracts,
 patterns and rosters, each refusal classified into the typed outcome or error below, one round trip in, never an
 earlier refusal of the host's. The one rule the host judges is a relation's rows as a set: two rows one stratum adds at
-one key that differ elsewhere are `invariant-rejected` on that key before any SQL, since the input is no set of its
-facts.
+one key that differ elsewhere are `refused` on that key before any SQL, since the input is no set of its facts.
 
 **Contracts and patterns.** The encoder checks only the base type, so a value its contract or pattern refuses is refused
 by its domain's CHECK as the statement casts it, before the row's constraints and row-level security. A parameter's
 value is cast as PostgreSQL binds it, to its contract's domain or to its own pattern domain, one per parameter and
 pattern, which `grizzle generate` installs for every pattern a served parameter names: a value outside them is refused
-there, before the statement reads a row. A contract's refusal of a parameter is a write's `invariant-rejected` on the
-contract's law, its witness `unreported`, and a read's `ReadFailure` with reason `LawRejected`; a pattern's refusal of a
-parameter is `ParamRejected`, naming the parameter, `<parameter>.<field>` for a field of a relation parameter's facts,
-and its pattern, a write's `ExecutionFailure` and a read's `ReadFailure`, both at stage `execute`. The outcome names
+there, before the statement reads a row. A contract's refusal of a parameter is `refused` on the contract's law, its
+witness `unreported`, a write's and a read's (`LawRejected`) alike; a pattern's refusal of a parameter is `input`
+(`ParamRejected`), its message naming the parameter, `<parameter>.<field>` for a field of a relation parameter's facts,
+and its pattern. The outcome names
 the contract's rule or the field's pattern rule. Fields of one pattern share a domain, as do fields whose patterns
 grizzle proves match the same texts, and PostgreSQL reports the domain, never the column, so grizzle judges the row on
 the host to name the field, its rule spelled as that field spells its patterns:
