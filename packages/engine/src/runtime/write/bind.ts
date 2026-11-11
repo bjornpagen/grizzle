@@ -145,8 +145,8 @@ export interface BoundWrite {
  * are sent (write/program/staged.ts Execution): a family step's one per statement of its kind in its family's plan
  * (write/family/order.ts plan), each its rows' arrays under the statement's one text, none when the application writes
  * no row of that kind; any other statement's its one, its `values`, or, where its nested rows' arrays are past the
- * transport's message, its staged form's: its carriers created and filled chunk by chunk, their ANALYZE, then the
- * staged statement (write/program/staged.ts executionsOf). Its rows are every execution's, in order. A row no
+ * transport's message, its staged form's: its carriers created and filled chunk by chunk, their ANALYZE where the
+ * staged statement needs one, then the staged statement (write/program/staged.ts executionsOf). Its rows are every execution's, in order. A row no
  * statement or fill carries even alone is its family's FamilyRowBound, and a change an immutable owner's stored family
  * refuses its CompileError (write/family/edit.ts planEdits), before any write statement is sent: the read flight has
  * found the stored groups.

@@ -176,7 +176,7 @@ export const inputApplyError = (failure: InputFailure): EncodingFailure | Execut
  *    with the placeholder texts binding gave it, goes in the flight, a family's once per statement its plan cuts, and
  *    none where its nested write writes no row of the statement's kind; a statement whose nested rows are past the
  *    session's message once, as its staged form, behind its carriers' creations, their fills, a chunk of the rows each,
- *    and their ANALYZE (write/program/staged.ts), so it still runs once over every row; a statement whose enumerated
+ *    and their ANALYZE where it needs one (write/program/staged.ts), so it still runs once over every row; a statement whose enumerated
  *    member holds no fact is skipped, because it produces no statement. A temporary table the role holds no TEMPORARY
  *    privilege to create, a carrier of the program's own or a staged one, is TemporaryRefused (errors/failures.ts
  *    temporaryRefusal). A flight left with no statement still sends its frame, BEGIN, the
@@ -420,8 +420,8 @@ export interface BoundReads<R> {
 
 /**
  * A write's statements as `chunks` executes them under `transport`, in the order they are sent, each by the statement
- * it executes (SentStatement): one execution of most, a staged statement's carriers' creations, fills and ANALYZE
- * before it, and one of a family step per statement of its kind its family's plan cuts, each the step's one text over
+ * it executes (SentStatement): one execution of most, a staged statement's carriers' creations, fills and, where it
+ * needs one, ANALYZE before it, and one of a family step per statement of its kind its family's plan cuts, each the step's one text over
  * its own rows' arrays. The read-backs' follow every write.
  */
 const writeStatements = (

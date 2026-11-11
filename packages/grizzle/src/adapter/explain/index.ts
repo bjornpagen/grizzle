@@ -209,7 +209,7 @@ const explainChangeSet = Effect.fn("explainChangeSet")(function* (
 	/**
 	 * Every statement of the artifact as the application sends it, under the bound in force, each of its executions with
 	 * its text and placeholder values: a family step's one per statement its plan cuts, and a staged statement's
-	 * carriers' creations, fills and ANALYZE before it (write/program/bind.ts Chunks). A carrier's creation and an
+	 * carriers' creations, fills and, where it needs one, ANALYZE before it (write/program/bind.ts Chunks). A carrier's creation and an
 	 * ANALYZE, the program's own or a staged statement's, run unplanned, so every statement after them plans against
 	 * its carrier.
 	 */

@@ -67,7 +67,10 @@ const preparedStaged = (staged: Staged): PreparedStaged =>
 						columns: carrier.columns
 					})
 				),
-				analyze: prepared(staged.analyze),
+				analyze:
+					staged.analyze.kind === "needed"
+						? Object.freeze({ kind: "needed", text: prepared(staged.analyze.text) })
+						: staged.analyze,
 				sql: prepared(staged.sql),
 				kept: staged.kept
 			})

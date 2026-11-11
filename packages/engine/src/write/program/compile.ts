@@ -1411,15 +1411,26 @@ const laterStart = (a: NameSupplyStart, b: NameSupplyStart): NameSupplyStart => 
 
 /**
  * A sent read-back statement as a part of the statement it rides, its executable query's names drawn from `supply`
- * (template.ts executableQueryFrom), and the part as the runtime reads it (RidingPart): its query as it is; or, for one
- * that orders its rows, with each row's number in that order after its cells, which keeps its own ORDER BY and LIMIT,
- * since no arm of the statement it rides orders its rows.
+ * (template.ts executableQueryFrom), and the part as the runtime reads it (RidingPart): its query with each of its
+ * outermost targets named a generated column, since inside the statement it rides the query is a CTE's, whose columns
+ * the CTE names, and only a statement's outermost output carries public names; or, for one that orders its rows, also
+ * with each row's number in that order after its cells, which keeps its own ORDER BY and LIMIT, since no arm of the
+ * statement it rides orders its rows. The runtime reads a part's cells by position (RidingPart), never by name.
  */
 const ridingPartOf = (
 	statement: FusedStatement,
 	supply: NameSupply
 ): { readonly part: ReadBackPart; readonly shape: RidingPart } => {
-	const query = executableQueryFrom(statement, supply)
+	const executable = executableQueryFrom(statement, supply)
+	const query: PlainQuery = {
+		...executable,
+		body: {
+			...executable.body,
+			targets: executable.body.targets.map((t) =>
+				targetAs(t.expr, supply.column({ kind: "internal", purpose: "riding part column" }))
+			)
+		}
+	}
 	const width = query.body.targets.length
 	if (!isNonEmpty(query.orderBy)) {
 		return {

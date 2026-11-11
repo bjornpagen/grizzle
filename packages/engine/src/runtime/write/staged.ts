@@ -1,7 +1,7 @@
 /**
  * A statement's executions in the call's one flight: its one, inline, or, where its nested rows' arrays are past one
- * Bind message, its staged form's, its carriers created and filled chunk by chunk, their ANALYZE and the staged
- * statement (write/program/staged.ts, which compiles the staged form and says why).
+ * Bind message, its staged form's, its carriers created and filled chunk by chunk, their ANALYZE where the staged
+ * statement needs one, and the staged statement (write/program/staged.ts, which compiles the staged form and says why).
  */
 import { byteaElementBytes, byteaHeaderBytes } from "#compiler/codec/bytea.ts"
 import { literalAlone } from "#compiler/codec/recordset.ts"
@@ -32,16 +32,27 @@ export interface StagedCarrier {
 }
 
 /**
+ * Whether a staged statement's carriers are counted before it runs (write/program/staged.ts): `needed`, their ANALYZE,
+ * where the statement holds a target the planner joins against rows the carriers feed; `absent` where it holds none,
+ * its every read of a stored row driven by a row it holds or an arbitration's (write/probe.ts), which no count of the
+ * carriers plans differently.
+ */
+export type StagedAnalyze<Text> =
+	| { readonly kind: "needed"; readonly text: Text }
+	| { readonly kind: "absent" }
+
+/**
  * How a statement's nested rows may travel: `none`, a statement that reads none, whose every array rides its own Bind
- * message; or `carriers`, its staged form: a carrier per FROM item of its nested rows, their ANALYZE, its text reading
- * them, and the positions among the inline form's placeholders it keeps, in its own placeholders' order.
+ * message; or `carriers`, its staged form: a carrier per FROM item of its nested rows, their ANALYZE where it needs one,
+ * its text reading them, and the positions among the inline form's placeholders it keeps, in its own placeholders'
+ * order.
  */
 export type Staged =
 	| { readonly kind: "none" }
 	| {
 			readonly kind: "carriers"
 			readonly carriers: NonEmptyReadonlyArray<StagedCarrier>
-			readonly analyze: EmittedText
+			readonly analyze: StagedAnalyze<EmittedText>
 			readonly sql: EmittedText
 			readonly kept: ReadonlyArray<number>
 	  }
@@ -59,7 +70,7 @@ export type PreparedStaged =
 	| {
 			readonly kind: "carriers"
 			readonly carriers: NonEmptyReadonlyArray<PreparedCarrier>
-			readonly analyze: Prepared<EmittedText>
+			readonly analyze: StagedAnalyze<Prepared<EmittedText>>
 			readonly sql: Prepared<EmittedText>
 			readonly kept: ReadonlyArray<number>
 	  }
@@ -265,7 +276,8 @@ export interface StagedStatement {
 /**
  * A statement's executions (see the header): its one, inline, where it reads no nested rows or its Bind message, its
  * nested rows' arrays measured from their cells, fits the transport; otherwise its staged form's, each carrier created
- * and filled chunk by chunk, their ANALYZE, then the staged statement. `part` is what the statement itself does, which
+ * and filled chunk by chunk, their ANALYZE where the staged statement needs one (StagedAnalyze), then the staged
+ * statement. `part` is what the statement itself does, which
  * its inline execution is. `encode` writes the value of the placeholder at a position that carries no nested rows.
  * Each array of nested rows is written once, in the executions that send it.
  */
@@ -345,7 +357,9 @@ export const executionsOf = (
 			out.push({ text: carrier.fill, params, part: "fill" })
 		}
 	}
-	out.push({ text: staged.analyze, params: [], part: "analyze" })
+	if (staged.analyze.kind === "needed") {
+		out.push({ text: staged.analyze.text, params: [], part: "analyze" })
+	}
 	out.push({
 		text: staged.sql,
 		params: staged.kept.map((position) =>

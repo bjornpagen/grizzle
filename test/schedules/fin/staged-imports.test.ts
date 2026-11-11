@@ -13,15 +13,11 @@
  * fall on index pages of their own at either end of it, so neither import's reads, made by key, meet the other's writes.
  *
  * - **The model:** both imports answer accepted in every interleaving, neither refused by a serialization failure:
- *   their rows hold no conflict, and the staged carriers' ANALYZE has the staged statements probe the stored packages
- *   and entries by key, locking only the index pages and rows they read. Some interleaving overlaps them (the first
+ *   their rows hold no conflict, and each staged statement reads a stored package or entry only through a source driven
+ *   by a row it holds or the row its arbitration met (write/probe.ts), which PostgreSQL plans once per driving row,
+ *   locking only the index pages and rows it reads, whatever the planner guesses of the carriers. So the staged import
+ *   sends no ANALYZE of its carriers (write/program/staged.ts analyzeOf). Some interleaving overlaps them (the first
  *   import waits on the gate's key while the second commits).
- *
- * Planted, in the served write's own data (its loaded statements' staged forms): the staged carriers' ANALYZE dropped
- * (its text replaced by an empty SELECT), the planner reads a carrier of one heap page as ten pages of rows, scans the
- * stored relations whole, and the relation-level SIRead locks of those scans make the overlapping imports a
- * serialization conflict: one of them fails with 40001, so the exploration fails, which the second test requires. If it
- * does not, the ANALYZE is not what keeps the imports apart.
  */
 import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Result, String as Str } from "effect"
@@ -30,8 +26,6 @@ import { openServed } from "#adapter/db/served.ts"
 import type { ApplyError } from "#adapter/errors/execution.ts"
 import type { LoadedMember } from "#adapter/served/load.ts"
 import type { Session, SessionPool } from "#adapter/wire/session.ts"
-import type { TransientTag } from "#compiler/core/errors.ts"
-import { prepared } from "#compiler/core/prepared.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { bytes, drawn, natural, pg, uuid } from "#compiler/public/fields.ts"
 import { fin, key, login, on, ordered, relation, role, schema } from "#compiler/public/schema.ts"
@@ -54,7 +48,6 @@ import {
 	type Txn
 } from "#test/support/schedules/interleave.ts"
 import { openRig } from "#test/support/schedules/rig.ts"
-import { testSql } from "#test/support/sql.ts"
 import { textBound } from "#test/support/staged.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -96,9 +89,6 @@ const imports = (name: string) => {
 	}
 }
 
-/** The one refusal the planted bug may meet: a serialization failure of one import. */
-const serializationFailure: TransientTag = "SerializationFailure"
-
 /** The stored packages beside the imports, each with one entry, keyed across the uuid range. */
 const stored = 3_000
 
@@ -138,51 +128,6 @@ const importOf = (id: Key, name: number, limit: number) => ({
 })
 
 /**
- * How an import's loaded member reaches its call: as the served file loads it, or with its carriers' ANALYZE planted
- * away.
- */
-type Staging = (member: LoadedMember) => LoadedMember
-
-const asServed: Staging = (member) => member
-
-/**
- * The planted bug, in the served write's own data: every staged form of the member's loaded statements has its ANALYZE
- * replaced by an empty SELECT, so the carriers are never counted.
- */
-const unanalyzed: Staging = (member) => {
-	if (member.kind !== "change" || member.variants.kind !== "change") {
-		return member
-	}
-	const change = member.variants.change
-	const program = change.entry.program
-	return {
-		...member,
-		variants: {
-			kind: "change",
-			change: {
-				...change,
-				entry: {
-					...change.entry,
-					program: {
-						...program,
-						flight: {
-							...program.flight,
-							statements: Arr.map(program.flight.statements, (st) => ({
-								...st,
-								staged:
-									st.staged.kind === "carriers"
-										? { ...st.staged, analyze: prepared(testSql("SELECT")) }
-										: st.staged
-							}))
-						}
-					}
-				}
-			}
-		}
-	}
-}
-
-/**
  * The planted message bound of a change member of one variant: the longest Parse message of any statement it sends
  * (test/support/staged.ts textBound), so only its rows' arrays meet the bound; none for another member.
  */
@@ -197,163 +142,144 @@ const plantedPool = (pool: SessionPool, limit: number): SessionPool => ({
 	lease: Effect.map(pool.lease, (session): Session => ({ ...session, messageMaxBytes: limit }))
 })
 
-/** The exploration of every interleaving of the gate and the two imports, their members as `staging` hands them over. */
-const explored = (staging: Staging) =>
-	Effect.gen(function* () {
-		const s = yield* Substrate
-		const rig = yield* openRig(imports)
-		const names = namesOf(rig.installed)
-		/** The role's loaded `importPackage` member, as the first writer's layer loaded it from the served file. */
-		const loaded: Array<LoadedMember> = []
-		const open = (name: string) =>
-			rig.servedWriter(
-				name,
-				(context) =>
-					Effect.gen(function* () {
-						const opened = yield* openServed(rig.served.roles.app, {})
-						for (const member of opened.role.members) {
-							if (member.name === "importPackage") {
-								loaded.push(member)
-							}
+/** The exploration of every interleaving of the gate and the two imports. */
+const explored = Effect.gen(function* () {
+	const s = yield* Substrate
+	const rig = yield* openRig(imports)
+	const names = namesOf(rig.installed)
+	/** The role's loaded `importPackage` member, as the first writer's layer loaded it from the served file. */
+	const loaded: Array<LoadedMember> = []
+	const open = (name: string) =>
+		rig.servedWriter(
+			name,
+			(context) =>
+				Effect.gen(function* () {
+					const opened = yield* openServed(rig.served.roles.app, {})
+					for (const member of opened.role.members) {
+						if (member.name === "importPackage") {
+							loaded.push(member)
 						}
-						return opened
-					}).pipe(Effect.provideContext(context)),
-				(db) => db.workload.noop.apply({})
-			)
-		const a = yield* open("a")
-		const b = yield* open("b")
-		const loader = yield* open("loader")
-		const loadedMember = defined(loaded[0], "the loaded importPackage member")
-		const member = staging(loadedMember)
-		const limit = defined(
-			textBoundOf(loadedMember),
-			"importPackage is a change member of one variant"
+					}
+					return opened
+				}).pipe(Effect.provideContext(context)),
+			(db) => db.workload.noop.apply({})
 		)
-		/** An import on `writer`'s Db context, its pool's sessions holding the planted message bound. */
-		const imported = (writer: typeof a, facts: ReturnType<typeof importOf>) =>
-			Effect.suspend(() => {
-				const served = memberOps(
-					{ ...writer.ctx, pool: plantedPool(writer.ctx.pool, limit) },
-					member
+	const a = yield* open("a")
+	const b = yield* open("b")
+	const loader = yield* open("loader")
+	const member = defined(loaded[0], "the loaded importPackage member")
+	const limit = defined(textBoundOf(member), "importPackage is a change member of one variant")
+	/** An import on `writer`'s Db context, its pool's sessions holding the planted message bound. */
+	const imported = (writer: typeof a, facts: ReturnType<typeof importOf>) =>
+		Effect.suspend(() => {
+			const served = memberOps({ ...writer.ctx, pool: plantedPool(writer.ctx.pool, limit) }, member)
+			return served.kind === "facts"
+				? served.ops.apply(facts, {})
+				: Effect.die(new Error("importPackage applies with each call's facts"))
+		})
+	const direct = yield* openActors(s, { gate: { kind: "raw", as: rig.direct } })
+	const preload = {
+		insert: {
+			Package: Arr.makeBy(stored, (n) => ({
+				id: uuidAt(n + 1, stored + 2),
+				name: n,
+				entries: [{ path: "stored", content: Uint8Array.of(n % 251) }]
+			}))
+		}
+	}
+	/** Each import's answer in the current run, set by its move. */
+	const ran = new Map<string, string>()
+	const answer =
+		(session: string) => (outcome: Result.Result<{ readonly kind: string }, ApplyError>) =>
+			Effect.sync(() => {
+				ran.set(
+					session,
+					Result.isSuccess(outcome)
+						? outcome.success.kind
+						: outcome.failure._tag === "TransientFailure"
+							? `TransientFailure: ${outcome.failure.reason._tag}`
+							: `${outcome.failure._tag}: ${outcome.failure.message}`
 				)
-				return served.kind === "facts"
-					? served.ops.apply(facts, {})
-					: Effect.die(new Error("importPackage applies with each call's facts"))
 			})
-		const direct = yield* openActors(s, { gate: { kind: "raw", as: rig.direct } })
-		const preload = {
-			insert: {
-				Package: Arr.makeBy(stored, (n) => ({
-					id: uuidAt(n + 1, stored + 2),
-					name: n,
-					entries: [{ path: "stored", content: Uint8Array.of(n % 251) }]
-				}))
+	const txns: ReadonlyArray<Txn> = [
+		{
+			kind: "direct",
+			session: "gate",
+			steps: [
+				interleaveStep(
+					`INSERT INTO ${names.table(Package)} (${names.column(Package, "id")}, ${names.column(Package, "entries")}, ${names.column(Package, "name")}) VALUES ('${first}', 0, 0)`,
+					everyRelation
+				)
+			],
+			end: "rollback",
+			after: undefined
+		},
+		{
+			kind: "grizzle",
+			session: "a",
+			steps: [
+				opStep(
+					"the first import",
+					Effect.tap(Effect.result(imported(a, importOf(first, 1, limit))), answer("a")),
+					everyRelation
+				)
+			],
+			after: undefined
+		},
+		{
+			kind: "grizzle",
+			session: "b",
+			steps: [
+				opStep(
+					"the second import",
+					Effect.tap(Effect.result(imported(b, importOf(second, 2, limit))), answer("b")),
+					everyRelation
+				)
+			],
+			after: undefined
+		}
+	]
+	const reset = Effect.gen(function* () {
+		ran.clear()
+		yield* rig.replace([])
+		const preloaded = yield* loader.db.workload.importPackage.apply(preload, {})
+		assert.equal(preloaded.kind, "accepted", "the stored packages are stored")
+	}).pipe(Effect.orDie)
+	const judge = (run: Interleaving): Judgment => {
+		for (const session of ["a", "b"]) {
+			const answered = ran.get(session)
+			if (answered !== "accepted") {
+				return refusedJudgment(
+					`the ${session === "a" ? "first" : "second"} import answered ${String(answered)} in ${Formatter.format(run.order)}, where the two imports' rows hold no conflict`
+				)
 			}
 		}
-		/** Each import's answer in the current run, set by its move. */
-		const ran = new Map<string, string>()
-		const answer =
-			(session: string) => (outcome: Result.Result<{ readonly kind: string }, ApplyError>) =>
-				Effect.sync(() => {
-					ran.set(
-						session,
-						Result.isSuccess(outcome)
-							? outcome.success.kind
-							: outcome.failure._tag === "TransientFailure"
-								? `TransientFailure: ${outcome.failure.reason._tag}`
-								: `${outcome.failure._tag}: ${outcome.failure.message}`
-					)
-				})
-		const txns: ReadonlyArray<Txn> = [
-			{
-				kind: "direct",
-				session: "gate",
-				steps: [
-					interleaveStep(
-						`INSERT INTO ${names.table(Package)} (${names.column(Package, "id")}, ${names.column(Package, "entries")}, ${names.column(Package, "name")}) VALUES ('${first}', 0, 0)`,
-						everyRelation
-					)
-				],
-				end: "rollback",
-				after: undefined
-			},
-			{
-				kind: "grizzle",
-				session: "a",
-				steps: [
-					opStep(
-						"the first import",
-						Effect.tap(Effect.result(imported(a, importOf(first, 1, limit))), answer("a")),
-						everyRelation
-					)
-				],
-				after: undefined
-			},
-			{
-				kind: "grizzle",
-				session: "b",
-				steps: [
-					opStep(
-						"the second import",
-						Effect.tap(Effect.result(imported(b, importOf(second, 2, limit))), answer("b")),
-						everyRelation
-					)
-				],
-				after: undefined
-			}
-		]
-		const reset = Effect.gen(function* () {
-			ran.clear()
-			yield* rig.replace([])
-			const preloaded = yield* loader.db.workload.importPackage.apply(preload, {})
-			assert.equal(preloaded.kind, "accepted", "the stored packages are stored")
-		}).pipe(Effect.orDie)
-		const judge = (run: Interleaving): Judgment => {
-			for (const session of ["a", "b"]) {
-				const answered = ran.get(session)
-				if (answered !== "accepted") {
-					return refusedJudgment(
-						`the ${session === "a" ? "first" : "second"} import answered ${String(answered)} in ${Formatter.format(run.order)}, where the two imports' rows hold no conflict`
-					)
-				}
-			}
-			return allowed
-		}
-		return yield* exploreInterleavings(
-			rig.env,
-			{ direct, grizzle: { a: a.actor, b: b.actor } },
-			{
-				name: "two staged imports of unrelated packages",
-				txns,
-				reset,
-				state: { _tag: "Unread" },
-				model: (run) => Effect.sync(() => judge(run)),
-				maxInterleavings: runawayInterleavings
-			},
-			every
-		)
-	})
+		return allowed
+	}
+	return yield* exploreInterleavings(
+		rig.env,
+		{ direct, grizzle: { a: a.actor, b: b.actor } },
+		{
+			name: "two staged imports of unrelated packages",
+			txns,
+			reset,
+			state: { _tag: "Unread" },
+			model: (run) => Effect.sync(() => judge(run)),
+			maxInterleavings: runawayInterleavings
+		},
+		every
+	)
+})
 
 layer(Substrate.layer, { excludeTestServices: true })(
 	"two staged imports of unrelated packages in overlapping transactions",
 	(it) => {
 		it.effect("both commit in every interleaving, one waiting on the other's commit in some", () =>
 			Effect.gen(function* () {
-				const report = yield* explored(asServed)
+				const report = yield* explored
 				assert.ok(
 					report.blocked > 0,
 					`of ${report.interleavings} interleavings none had the first import wait on the gate while the second ran`
-				)
-			})
-		)
-
-		it.effect("fail, planted with no ANALYZE of their carriers, by a serialization failure", () =>
-			Effect.gen(function* () {
-				const failure = yield* Effect.flip(explored(unanalyzed))
-				assert.ok(
-					failure._tag === "InterleavingFailed" &&
-						Str.includes(serializationFailure)(failure.message),
-					`the planted bug is a serialization failure of one import, not ${failure.message}`
 				)
 			})
 		)

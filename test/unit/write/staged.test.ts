@@ -1,17 +1,18 @@
 /**
  * A statement's nested rows past one Bind message (write/program/staged.ts executionsOf): the statement goes inline
  * while its Bind message, every array of its nested rows written whole, fits the transport, and otherwise its carriers
- * are created, filled chunk by chunk, analyzed, and the staged statement sent, each fill as long as one Bind message
- * carries. The cut is measured from the cells' lengths, none of an array written to measure it.
+ * are created, filled chunk by chunk, analyzed where the staged statement needs it, and the staged statement sent, each
+ * fill as long as one Bind message carries. The cut is measured from the cells' lengths, none of an array written to
+ * measure it.
  *
  * Over drawn nested rows of text, bytes and literal columns, of drawn lengths, beside a placeholder the staged
- * statement keeps, under a drawn message bound:
+ * statement keeps, its carriers' ANALYZE needed or absent, under a drawn message bound:
  *
  * - **The executions are the encoders' own** (oracle: a second implementation, the cut by real encodings): the inline
  *   statement, its arrays written whole by the column's encoder, exactly where their Bind message, as the wire counts
  *   it, fits the bound; otherwise the carrier's creation, then fills of the longest runs of rows whose arrays, written
- *   by the same encoders, fit one Bind message, in row order, then the ANALYZE and the staged statement with the kept
- *   placeholder's value; a row whose fill alone is past the bound refuses the write as that row's NestedRowBound. So
+ *   by the same encoders, fit one Bind message, in row order, then the ANALYZE where the staged form holds one
+ *   (StagedAnalyze `needed`) and the staged statement with the kept placeholder's value; a row whose fill alone is past the bound refuses the write as that row's NestedRowBound. So
  *   every execution's Bind message fits the bound, every row travels exactly once, in order, and no fill could have
  *   carried the next row too.
  *
@@ -44,6 +45,7 @@ import {
 	nestedColumn,
 	type NestedPlaceholder,
 	type NestedRowBound,
+	type StagedAnalyze,
 	type StagedStatement
 } from "#compiler/runtime/write/staged.ts"
 import type { Transport } from "#compiler/runtime/write/transport.ts"
@@ -64,13 +66,15 @@ type Kind = "text" | "bytes" | "literal"
  */
 type Limit = { readonly kind: "drawn"; readonly bytes: number } | { readonly kind: "one fill" }
 
-/** A case: the nested columns, each row's cell lengths, the text's characters, the kept value and the bound. */
+/** A case: the nested columns, each row's cell lengths, the text's characters, the kept value, the bound, and whether
+ * the staged form counts its carriers. */
 interface Sketch {
 	readonly kinds: ReadonlyArray<Kind>
 	readonly rows: ReadonlyArray<ReadonlyArray<number>>
 	readonly character: string
 	readonly kept: number
 	readonly limit: Limit
+	readonly analyze: StagedAnalyze<unknown>["kind"]
 }
 
 /** The least bound a case draws: a Bind message of four parameters and the longest kept value fits it. */
@@ -90,7 +94,8 @@ const sketchGen: Gen<Sketch> = (source) => {
 		rows: source.draw(array((s) => Arr.map(kinds, () => s.draw(int(0, 120))), { min: 0, max: 12 })),
 		character: source.draw(element(["a", "é", "€", "𝄞", '"', ",", "\\"] as const)),
 		kept: source.draw(int(0, 40)),
-		limit: source.draw(limitGen)
+		limit: source.draw(limitGen),
+		analyze: source.draw(element(["needed", "absent"] as const))
 	}
 }
 
@@ -99,6 +104,8 @@ type Feature =
 	| "staged in one fill"
 	| "staged in several fills"
 	| "a row past one fill alone"
+	| "its carriers counted"
+	| "its carriers uncounted"
 	| "a text column"
 	| "a bytes column"
 	| "a literal column"
@@ -165,7 +172,10 @@ const resolved = (sketch: Sketch) => {
 					columns: [defined(firstColumn, "a nested column"), ...restColumns]
 				}
 			],
-			analyze: stagedTexts.analyze,
+			analyze:
+				sketch.analyze === "needed"
+					? { kind: "needed", text: stagedTexts.analyze }
+					: { kind: "absent" },
 			sql: stagedTexts.staged,
 			kept: [width]
 		},
@@ -187,7 +197,7 @@ const resolved = (sketch: Sketch) => {
 		literalUnits: maxStringLength.value,
 		frame: bindFrame
 	}
-	return { cells, statement, value, transport, width }
+	return { cells, statement, value, transport, width, analyze: sketch.analyze }
 }
 
 type Resolved = ReturnType<typeof resolved>
@@ -238,7 +248,9 @@ const expected = (r: Resolved): Result.Result<ReadonlyArray<Execution>, NestedRo
 		})
 		from = to
 	}
-	out.push({ text: stagedTexts.analyze, params: [], part: "analyze" })
+	if (r.analyze === "needed") {
+		out.push({ text: stagedTexts.analyze, params: [], part: "analyze" })
+	}
 	out.push({ text: stagedTexts.staged, params: [r.value], part: "statement" })
 	return Result.ok(out)
 }
@@ -283,6 +295,9 @@ const property = (staging: Staging) => (sketch: Sketch, c: Case<Feature>) =>
 					? "staged in one fill"
 					: "staged in several fills"
 		)
+		if (want.value.length > 1) {
+			c.note(sketch.analyze === "needed" ? "its carriers counted" : "its carriers uncounted")
+		}
 		assert.deepEqual(got, want, "the executions are the encoders' own cut")
 		for (const e of succeeded(got)) {
 			assert.ok(
@@ -303,7 +318,8 @@ const pastTheBound: Sketch = {
 	],
 	character: "a",
 	kept: 0,
-	limit: { kind: "drawn", bytes: 400 }
+	limit: { kind: "drawn", bytes: 400 },
+	analyze: "needed"
 }
 
 describe("nested rows past one Bind message", () => {
@@ -327,6 +343,8 @@ describe("nested rows past one Bind message", () => {
 								"staged in one fill",
 								"staged in several fills",
 								"a row past one fill alone",
+								"its carriers counted",
+								"its carriers uncounted",
 								"a text column",
 								"a bytes column",
 								"a literal column"

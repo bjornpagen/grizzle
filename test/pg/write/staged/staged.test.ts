@@ -26,8 +26,10 @@
  * - **A row no fill carries even alone** is InputTooLarge (familyRow) of Entry, its fill's Bind message past the planted
  *   bound, before any SQL: nothing sent and nothing stored.
  * - **A write that creates a temporary table on a role without TEMPORARY**, a staged carrier or a carrier of the
- *   program's own, which a put of a Tag read back by its delta needs, is TemporaryRefused, naming the privilege, with
- *   the server's 42501, and stores nothing.
+ *   program's own, which a put of a Tag read back by its delta joined with Tag's state needs, is TemporaryRefused,
+ *   naming the privilege, with the server's 42501, and stores nothing. The read-back reads Tag's state, which the put
+ *   writes, so it cannot ride the put's statement (write/schedule/plan.ts placeReadBacks), and its delta is carried
+ *   to it.
  * - **Any other write is the inline write**: it leaves the same rows of every table, every column of each row read as
  *   its row's text, each entry's indexes and its copies of its owners' counts and each owner's count and end among them,
  *   and answers the same outcome, its kind, its counts, and a refusal's laws and witness.
@@ -179,7 +181,8 @@ const sizeOf = (member: Member): bigint => BigInt(member.kind === "past" ? whole
 interface Sketch {
 	readonly packages: ReadonlyArray<ReadonlyArray<Member>>
 	readonly temporary: boolean
-	/** A put of a Tag read back by its delta beside the packages, which the program writes through carriers of its own. */
+	/** A put of a Tag read back by its delta joined with Tag's state beside the packages, which the program carries to
+	 * the read-back through carriers of its own. */
 	readonly tag: "none" | number
 	readonly flight: "in force" | "past any flight"
 }
@@ -260,7 +263,10 @@ const programs = {
 		.read("tags", (d) =>
 			query(Staged).rule((r) => {
 				const { id, v: value } = v(Tag, "added")
-				return r.match(d.added(Tag), { id, v: value }).find({ id, v: value })
+				return r
+					.match(d.added(Tag), { id, v: value })
+					.match(Tag, { id, v: value })
+					.find({ id, v: value })
 			})
 		)
 }
