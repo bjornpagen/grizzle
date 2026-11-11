@@ -8,6 +8,7 @@ import { generateMigration } from "#compiler/deploy/render/generate.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { compileLaws } from "#compiler/laws/model/model.ts"
+import { noLive } from "#compiler/live/notify.ts"
 import { workloadRequests, withWorkload } from "#compiler/physical/access/extension.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
@@ -241,7 +242,7 @@ export const compilePhases = ({ fixture: f, timed, each }: PhasesInput) => {
 			generateMigration({
 				previous: emptySnapshot({ schemaName: owned.name, schema: installation.names.schema }),
 				installation,
-				workload: { access, accessPaths: paths },
+				workload: { access, accessPaths: paths, live: noLive },
 				naming: { kind: "named", name: initMigrationName },
 				timestamp: "20261012000001",
 				abandoned: [],

@@ -74,6 +74,37 @@ export const fewValued: Readonly<Record<Carrier, boolean>> = {
 	exactMoney: false
 }
 
+/**
+ * Whether a column of each carrier routes a change by its value (logical/routes.ts Routes): PostgreSQL's `::text` of a
+ * stored value, under any writer's session settings, is the codec's canonical text of the value (codec/scalar.ts
+ * ScalarCodec text), so a change's text and a bound parameter's text are equal exactly when the values are. A date's
+ * text follows DateStyle, a float's extra_float_digits and its -0, a money's lc_monetary, a bytea's bytea_output; a
+ * numeric prints its stored scale where the codec trims it, a set prints bit_out's binary where the codec writes hex,
+ * and a vector, a date span and an exact carrier are none a route compares.
+ */
+export const routable: Readonly<Record<Carrier, boolean>> = {
+	int2: true,
+	int4: true,
+	int8: true,
+	numeric: false,
+	float4: false,
+	float8: false,
+	money: false,
+	bool: true,
+	uuid: true,
+	date: false,
+	text: true,
+	bytes: false,
+	code: true,
+	bits: false,
+	range4: true,
+	range8: true,
+	rangeDate: false,
+	vector: false,
+	exactInteger: false,
+	exactMoney: false
+}
+
 /** The serial generation names and the carrier each declares. */
 export const serialCarriers = {
 	smallserial: "int2",

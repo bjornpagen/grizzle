@@ -16,12 +16,20 @@ import {
 import type {
 	AccessIndexRequest,
 	AccessPath,
+	ParamDecl,
 	ProgramAccess,
 	StatisticsShape,
 	WorkloadAccess
 } from "#compiler/ir/products.ts"
-import type { RelNode } from "#compiler/ir/rel.ts"
-import { analyzeLogical, checkerEvidence, withLogicalMeta } from "#compiler/logical/annotate.ts"
+import type { RelNode, Rooted, RootedDag } from "#compiler/ir/rel.ts"
+import type { LivePlan } from "#compiler/live/notify.ts"
+import {
+	analyzeLogical,
+	checkerEvidence,
+	type LogicalAnalysis,
+	withLogicalMeta
+} from "#compiler/logical/annotate.ts"
+import { type Footprint, footprintOf } from "#compiler/logical/routes.ts"
 import { keyJoinNormalDag } from "#compiler/lower/optimize/eliminate/index.ts"
 import { allenNormalDag } from "#compiler/lower/optimize/simplify/allen.ts"
 import { type WorkloadPhysical, workloadRequests } from "#compiler/physical/access/extension.ts"
@@ -44,6 +52,7 @@ import {
 	loginChanges,
 	type RoleChanges
 } from "#compiler/program/workload/change.ts"
+import { loginRole, programsOn } from "#compiler/program/workload/roles.ts"
 import { workloadState } from "#compiler/program/workload/value.ts"
 import { inlineWorlds } from "#compiler/program/workload/world.ts"
 import { hostArguments } from "#compiler/query/build/host.ts"
@@ -159,21 +168,46 @@ const checkedQueryIr = (
 	label: string
 ): Result.Result<ProgramIr, CompileError> => {
 	const ordered = isOrderedQuery(query)
-	return Result.flatMap(checkQuery(read, query, { read: reading, label }), (checked) =>
+	return Result.map(analyzedQuery(query, read, reading, label), ({ dag, analysis }): ProgramIr => {
+		const root = withLogicalMeta(dag, analysis, (node) => node).roots[0]
+		return {
+			roots: [root],
+			pageable: ordered && root.kind === "OrderedResult" ? [root] : [],
+			targets: []
+		}
+	})
+}
+
+/** A query's checked DAG in the normal forms its access is extracted from, with its logical analysis and parameters. */
+export interface AnalyzedQuery {
+	readonly dag: RootedDag
+	readonly analysis: LogicalAnalysis<Rooted>
+	readonly params: ReadonlyArray<ParamDecl>
+}
+
+/**
+ * A query checked over `read`, read as `reading` names, in the normal forms its optimized lowering states it in (its
+ * filters in Allen normal form, every two occurrences of a stored relation joined on a key folded into one), with the
+ * logical analysis of that DAG under the checker's evidence: what its access paths (checkedQueryIr) and a read
+ * program's footprint (loginFootprints) are read from.
+ */
+const analyzedQuery = (
+	query: QueryDesc,
+	read: CheckedSchema,
+	reading: "rows" | "membership",
+	label: string
+): Result.Result<AnalyzedQuery, CompileError> =>
+	Result.flatMap(checkQuery(read, query, { read: reading, label }), (checked) =>
 		Result.flatMap(allenNormalDag(checked.dag), (allen) =>
 			Result.flatMap(keyJoinNormalDag(allen), (dag) =>
-				Result.map(analyzeLogical(dag, checkerEvidence), (analysis): ProgramIr => {
-					const root = withLogicalMeta(dag, analysis, (node) => node).roots[0]
-					return {
-						roots: [root],
-						pageable: ordered && root.kind === "OrderedResult" ? [root] : [],
-						targets: []
-					}
-				})
+				Result.map(analyzeLogical(dag, checkerEvidence), (analysis): AnalyzedQuery => ({
+					dag,
+					analysis,
+					params: checked.params
+				}))
 			)
 		)
 	)
-}
 
 /**
  * A program's IR over its checked schema: a query's read as rows (checkedQueryIr). A ChangeSet is planned as if each
@@ -444,6 +478,10 @@ export interface ServedWorkloadPlan extends WorkloadPlan {
 	/** The roles whose served ChangeSets create a carrier (servedCarriers), which the installation grants TEMPORARY on the
 	 * database. */
 	readonly carriers: ReadonlyArray<RoleOfLogin>
+	/** Each login's read programs' footprints on each of its roles (loginFootprints), by the login's name. */
+	readonly footprints: ReadonlyMap<string, LoginFootprints>
+	/** The union of every footprint's stored relations and routes (livePlanOf), which snapshot.json records as `live`. */
+	readonly live: LivePlan
 }
 
 /** Whether a ChangeSet's variants may create a carrier: any variant's flight (write/program/artifact.ts
@@ -467,6 +505,90 @@ const servedCarriers = (
 		)
 	)
 
+/**
+ * The footprint of every read program of a login's workloads on each role it runs on (logical/routes.ts Footprint), by
+ * the role's name in the login, then the program's name: what each read member of the login's served file routes a
+ * change by.
+ */
+export type LoginFootprints = ReadonlyMap<string, ReadonlyMap<string, Footprint>>
+
+/**
+ * A read program of `role`, a role of a login over the base `artifacts` compile, as its footprint is read: over the
+ * base, every world relation of the role it reads its definition (world.ts inlineWorlds), checked and analyzed as its
+ * access is (analyzedQuery).
+ */
+export const roleRead = (
+	role: OwnedRole,
+	query: QueryDesc,
+	artifacts: SchemaArtifacts
+): Result.Result<AnalyzedQuery, CompileError> =>
+	analyzedQuery(inlineWorlds(query, role), artifacts.derived.schema, "rows", "query")
+
+/**
+ * Every read program of `login`'s workloads, on each role of the login it runs on (roles.ts programsOn), with its
+ * footprint, in the login's role order and each role's program order: a query, an ordered query, a paged one or a key,
+ * read as `roleRead` reads it. A program over a level runs on every role of its login whose levels hold it, and each
+ * role's world relations stand for its own rows, so each role's footprint of it is its own. A role or program that does
+ * not compile is ChangeRefused, as the login's change compile refuses it.
+ */
+export const loginFootprints = (
+	login: ChangeLogin
+): Result.Result<LoginFootprints, ChangeRefused> => {
+	const out = new Map<string, ReadonlyMap<string, Footprint>>()
+	for (const { name, value } of login.roles) {
+		const refused =
+			(program: string | undefined) =>
+			(error: CompileError): ChangeRefused => ({ role: name, program, error })
+		const parsed = loginRole(value, login.named.owned)
+		if (!parsed.ok) {
+			return Result.err(refused(undefined)(parsed.error))
+		}
+		const running = programsOn(parsed.value.input, login.workload)
+		if (!running.ok) {
+			return Result.err(refused(undefined)(running.error))
+		}
+		const programs = new Map<string, Footprint>()
+		for (const program of running.value) {
+			if (program.kind === "changeSet" || program.kind === "refresh") {
+				continue
+			}
+			const analyzed = roleRead(parsed.value.owned, program.desc.query, login.artifacts)
+			if (!analyzed.ok) {
+				return Result.err(refused(program.name)(analyzed.error))
+			}
+			const { dag, analysis, params } = analyzed.value
+			programs.set(program.name, footprintOf(dag, analysis, params))
+		}
+		out.set(name, programs)
+	}
+	return Result.ok(out)
+}
+
+/**
+ * The live plan of an installation's logins (live/notify.ts LivePlan): every stored relation a footprint of `footprints`
+ * reads, each with every field some footprint routes it by, in code point order of relations and of fields. A
+ * materialized derived relation is none of it: a refresh replaces its rows, and the refresh says so itself.
+ */
+const livePlanOf = (footprints: ReadonlyMap<string, LoginFootprints>): LivePlan => {
+	const tables = new Map<string, Set<string>>()
+	for (const roles of footprints.values()) {
+		for (const programs of roles.values()) {
+			for (const footprint of programs.values()) {
+				for (const [relation, routes] of footprint.tables) {
+					const fields = tables.get(relation) ?? new Set<string>()
+					for (const field of routes.keys()) {
+						fields.add(field)
+					}
+					tables.set(relation, fields)
+				}
+			}
+		}
+	}
+	return [...tables]
+		.toSorted(([a], [b]) => compareText(a, b))
+		.map(([relation, fields]) => ({ relation, routes: [...fields].toSorted(compareText) }))
+}
+
 /** The plan of the logins refused: a program of a workload the checker refuses, or a login's change compile. */
 export type ServedWorkloadRefused =
 	| { readonly kind: "workload"; readonly error: CompileError }
@@ -474,7 +596,8 @@ export type ServedWorkloadRefused =
 
 /**
  * The plan of `logins` over `schema` under the options' artifacts as generate compiles it (ServedWorkloadPlan): their
- * workloads' plan, then each login's change members, in the logins' order, then every role's certificate over them.
+ * workloads' plan, then each login's change members and its read programs' footprints, in the logins' order, the live
+ * plan over those footprints, then every role's certificate over the change members.
  */
 export const servedWorkload = (
 	logins: ReadonlyArray<ServedLogin>,
@@ -490,13 +613,20 @@ export const servedWorkload = (
 		return Result.err({ kind: "workload", error: planned.error })
 	}
 	const changes = new Map<string, ReadonlyMap<string, RoleChanges<"readCommitted">>>()
+	const footprints = new Map<string, LoginFootprints>()
 	for (const login of logins) {
 		const roles = loginChanges(login, "readCommitted")
 		if (!roles.ok) {
 			return Result.err({ kind: "login", login: login.name, refused: roles.error })
 		}
 		changes.set(login.name, roles.value)
+		const read = loginFootprints(login)
+		if (!read.ok) {
+			return Result.err({ kind: "login", login: login.name, refused: read.error })
+		}
+		footprints.set(login.name, read.value)
 	}
+	const live = livePlanOf(footprints)
 	return Result.map(
 		Result.mapError(certification(options.artifacts, changes), (error): ServedWorkloadRefused => ({
 			kind: "workload",
@@ -506,7 +636,9 @@ export const servedWorkload = (
 			...planned.value,
 			changes: certified.served,
 			certification: certified.certificates,
-			carriers: servedCarriers(certified.served)
+			carriers: servedCarriers(certified.served),
+			footprints,
+			live
 		})
 	)
 }

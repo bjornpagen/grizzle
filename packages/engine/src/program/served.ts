@@ -1,13 +1,18 @@
 import { requireGet } from "#compiler/analysis/logical/get.ts"
+import { keyedBy } from "#compiler/analysis/physical/props.ts"
 import type { CursorGeneration } from "#compiler/codec/cursor/identity.ts"
 import type { DecoderForm, RowDecoder } from "#compiler/core/decoder.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { isList } from "#compiler/core/record.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
+import type { OuterRefs } from "#compiler/ir/dag.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
+import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { PageFill } from "#compiler/ir/products.ts"
 import { Roster } from "#compiler/ir/scalar.ts"
+import type { Footprint } from "#compiler/logical/routes.ts"
+import { keySetOf } from "#compiler/lower/conservative/keys.ts"
 import type { PageStatementSlot } from "#compiler/lower/conservative/types.ts"
 import type { SentStatement } from "#compiler/lower/shapes/index.ts"
 import type {
@@ -21,8 +26,11 @@ import { sentSpec } from "#compiler/lower/template.ts"
 import { loginStartupOptions } from "#compiler/physical/ddl/roles.ts"
 import type { QueryTemplate } from "#compiler/program/compile.ts"
 import { pageStatementSlotOf } from "#compiler/runtime/lower/slots.ts"
+import { unitColumn } from "#compiler/runtime/lower/tree.ts"
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import type {
+	ServedFootprint,
+	ServedKey,
 	ServedPage,
 	ServedPageProbe,
 	ServedPageProgram,
@@ -39,19 +47,86 @@ import { emptyNameMap } from "#compiler/sql/naming.ts"
 
 /**
  * A query compiled for a role's rows, served (served/forms.ts ServedRead): its declared parameters, its artifact and
- * delivered spine (served/read.ts), its records' decoder, and whether get may read it, its template's analyzed root
- * proved at most one row per parameter binding (analysis/logical/get.ts requireGet).
+ * delivered spine (served/read.ts), its records' decoder, whether get may read it, its template's analyzed root proved
+ * at most one row per parameter binding (analysis/logical/get.ts requireGet), the key its rows are delivered under
+ * (`key`: its own, templateKey, or its page's, pageKey), and its footprint, the login's plan's (program/workload/
+ * compile.ts loginFootprints), its tables named as installed.
  */
 export const servedRead = (
 	template: QueryTemplate,
 	desc: QueryDesc,
-	decoder: RowDecoder<unknown>
+	decoder: RowDecoder<unknown>,
+	key: ServedKey,
+	footprint: ServedFootprint
 ): ServedRead => ({
 	params: template.params,
 	source: servedSource(template.run),
 	spine: servedSpine(desc),
 	decoder: decoder.form,
-	getEligible: requireGet(template.analyzed.roots[0], SourceLoc("reader.get", [])).ok
+	getEligible: requireGet(template.analyzed.roots[0], SourceLoc("reader.get", [])).ok,
+	key,
+	footprint
+})
+
+/** The root of a program's DAG reads no enclosing node: it is evaluated once per execution. */
+const evaluatedOnce: OuterRefs = new Map()
+
+/**
+ * The key a template's rows are delivered under (served/forms.ts ServedKey), read off the optimized program its
+ * statement delivers: an ordered result's, the fields of its completed order; a set's, the KeySetProof of its root's
+ * rows (lower/conservative/keys.ts keySetOf) over the physical analysis's canonical minimal key among its heading
+ * (analysis/physical/props.ts keyedBy), its root evaluated once, or, where that proves none, every head field of every
+ * part its rows are delivered by, a heading group's each, in group order, the private column of a relation of no column
+ * none of them.
+ */
+export const templateKey = (template: QueryTemplate): ServedKey => {
+	const { query, plan } = template.programs.optimized
+	const root = query.dag.roots[0]
+	if (root.kind === "OrderedResult") {
+		return { kind: "list", fields: root.order.keys.map((k) => k.column) }
+	}
+	const heading = root.heading.map((c) => c.name)
+	const within = keyedBy(plan.analysis.of(root).props, heading)
+	const proof = keySetOf(within?.key ?? heading, within, evaluatedOnce, undefined)
+	return {
+		kind: "set",
+		fields:
+			proof.kind === "proved"
+				? proof.key.columns
+				: [
+						...new Set(
+							template.run.roots.flatMap((tree) =>
+								tree.statement.heading.flatMap((c) => (c.name === unitColumn ? [] : [c.name]))
+							)
+						)
+					]
+	}
+}
+
+/**
+ * A read program's footprint as its served read names it (served/forms.ts ServedFootprint): each stored relation's
+ * table, by its installed identifier, with each routed field's installed column to its parameter's declared name, and
+ * each materialized derived relation's view, by its installed identifier, routed by nothing, all under the
+ * installation's names `names`, which the naming door derives.
+ */
+export const servedFootprint = (footprint: Footprint, names: PhysicalNames): ServedFootprint =>
+	Object.fromEntries([
+		...[...footprint.tables].map(
+			([relation, routes]) =>
+				[
+					names.relation(relation).name,
+					Object.fromEntries(
+						[...routes].map(([field, param]) => [names.column(relation, field), param] as const)
+					)
+				] as const
+		),
+		...[...footprint.views].map((view) => [names.relation(view).name, {}] as const)
+	])
+
+/** The key a page's rows are delivered under: the fields of the completed order it pages by (served/forms.ts ServedPage). */
+export const pageKey = (page: ServedPage): ServedKey => ({
+	kind: "list",
+	fields: page.order.keys.map((k) => k.column)
 })
 
 /**

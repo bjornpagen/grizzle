@@ -56,6 +56,7 @@ import {
 	type SnapshotFiles,
 	snapshotFileName
 } from "#compiler/deploy/snapshot/types.ts"
+import { noLive } from "#compiler/live/notify.ts"
 import { workloadExtension } from "#compiler/physical/access/extension.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
@@ -1203,7 +1204,7 @@ const oracleDraft = (
 		generateMigration({
 			previous,
 			installation,
-			workload: { access: plan.access, accessPaths: plan.requests },
+			workload: { access: plan.access, accessPaths: plan.requests, live: noLive },
 			declared,
 			naming,
 			timestamp,

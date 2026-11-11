@@ -229,7 +229,8 @@ export interface ServedRefresh {
 
 /**
  * A query or ordered query compiled for a role's rows: its declared parameters, its artifact, its delivered spine,
- * the decoder of its records, and whether get may read it (proved at most one row per parameter binding).
+ * the decoder of its records, whether get may read it (proved at most one row per parameter binding), the key each of
+ * its delivered rows is told apart by, and its footprint.
  */
 export interface ServedRead {
 	readonly params: ReadonlyArray<ParamDecl>
@@ -237,7 +238,35 @@ export interface ServedRead {
 	readonly spine: ServedSpine
 	readonly decoder: DecoderForm
 	readonly getEligible: boolean
+	readonly key: ServedKey
+	readonly footprint: ServedFootprint
 }
+
+/**
+ * What tells a read's delivered rows apart under one binding, by the shape its answer is (live/events.ts): the tuple of
+ * the decoded values of `fields`, head fields of its records, in order. A set's rows are keyed by the key its delivery
+ * proves (lower/conservative/keys.ts KeySetProof), or by every head field of every heading group where it proves none,
+ * and none at all is the key of at most one row; a list's, an ordered read's or a page's, by the fields of the completed
+ * order it delivers them in, which a row after another is placed by.
+ */
+export type ServedKey =
+	| { readonly kind: "set"; readonly fields: ReadonlyArray<string> }
+	| { readonly kind: "list"; readonly fields: ReadonlyArray<string> }
+
+/**
+ * The routes of an installed table a read reads (logical/routes.ts Routes): each routed column, by its installed
+ * identifier, to the declared name of the scalar parameter the read fixes it to. A change of the table's row reaches a
+ * binding when the row's text in some routed column is that parameter's canonical text there; none routes every
+ * change of the table to every binding.
+ */
+export type ServedRoutes = Readonly<Record<string, string>>
+
+/**
+ * What a read's answer depends on (logical/routes.ts Footprint): each stored relation's table and each materialized
+ * derived relation's view it reads, by its installed identifier, with its routes, a view's none, since a refresh
+ * replaces its rows at once.
+ */
+export type ServedFootprint = Readonly<Record<string, ServedRoutes>>
 
 /**
  * A page's program: a page placeholder is the page's own, a choice a relation parameter's count or the page's size.

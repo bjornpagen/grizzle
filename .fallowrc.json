@@ -317,6 +317,7 @@
 					"deploy",
 					"ir",
 					"laws",
+					"live",
 					"logical",
 					"lower",
 					"physical",
@@ -497,7 +498,7 @@
 			},
 			{
 				"from": "deploy",
-				"allow": ["core", "ir", "laws", "lower", "physical", "schema", "sql", "text"],
+				"allow": ["core", "ir", "laws", "live", "lower", "physical", "schema", "sql", "text"],
 				"allowTypeOnly": ["install"]
 			},
 			{

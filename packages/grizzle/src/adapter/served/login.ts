@@ -424,7 +424,7 @@ const changeRefused = (refused: ChangeRefused): WorkloadRefused => new WorkloadR
  * `owned`'s roles named under the installation of `artifacts` (physical/ddl/names.ts namedRole), each in the login's
  * order: a role whose PostgreSQL role does not fit is refused as that role's, before any of the login compiles.
  */
-const namedOver = (
+export const namedOver = (
 	owned: OwnedLogin,
 	artifacts: SchemaArtifacts
 ): Effect.Effect<NamedLogin, WorkloadRefused> =>

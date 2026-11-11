@@ -11,6 +11,7 @@ import type {
 } from "#compiler/ir/products.ts"
 import type { FkCycles } from "#compiler/laws/model/model.ts"
 import type { ReferenceChoice } from "#compiler/laws/model/plan.ts"
+import type { LivePlan } from "#compiler/live/notify.ts"
 import type { ClosedNames } from "#compiler/physical/ddl/constants.ts"
 import type { TextDomainNames } from "#compiler/physical/ddl/domains.ts"
 import type { DescribedLaw } from "#compiler/physical/install/plan.ts"
@@ -166,6 +167,12 @@ export interface DeploySnapshot extends Snapshot<SqlStatement> {
 	/** Each login the installation creates, by its declared name. */
 	readonly logins: Readonly<Record<string, SnapshotLogin>>
 	readonly workload: WorkloadAccess
+	/**
+	 * The installation's live plan (live/notify.ts LivePlan): every stored relation a login's read program reads, each with
+	 * every field some read program routes a change of it by (program/workload/compile.ts loginFootprints). snapshot.json
+	 * holds it, under the fingerprint: what the installation signals a change of is part of what it is.
+	 */
+	readonly live: LivePlan
 }
 
 /**

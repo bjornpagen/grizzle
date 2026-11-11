@@ -22,22 +22,33 @@ import {
 	loginStem,
 	prepared,
 	raisableOf,
+	type SchemaArtifacts,
 	servedSession,
 	writesOf
 } from "#compiler/plan/common.ts"
 import {
+	type Footprint,
+	type LoginFootprints,
 	servedMatchers,
 	servedMembers,
 	servedRosters,
 	type UnservedMember
 } from "#compiler/plan/migration.ts"
-import { servedRead, servedReadBacks } from "#compiler/plan/read.ts"
+import {
+	pageKey,
+	type QueryTemplate,
+	servedFootprint,
+	servedRead,
+	servedReadBacks,
+	templateKey
+} from "#compiler/plan/read.ts"
 import {
 	ledgerStatements,
 	type ServedAbove,
 	type ServedChange,
 	type ServedContext,
 	type ServedFile,
+	type ServedKey,
 	type ServedMember,
 	type ServedRead,
 	type ServedRefusals,
@@ -63,6 +74,8 @@ export interface CompiledLogin {
 	readonly roles: ReadonlyArray<LayerRole>
 	/** The declared names of the relations its programs read and write (served/compile.ts CompiledServed). */
 	readonly footprint: ReadonlySet<string>
+	/** Each read program's footprint on each role (served/compile.ts CompiledServed footprints). */
+	readonly footprints: LoginFootprints
 }
 
 /**
@@ -91,10 +104,25 @@ const tablesOf = (installed: SnapshotTables, footprint: ReadonlySet<string>): Se
 	return out
 }
 
-/** A rows form's read, served: its template, its Description's spine, and its decoder's form. */
-const readOf = (form: RowsForm<unknown>): ServedRead => {
+/**
+ * A rows form's read, served: its template, its Description's spine, its decoder's form, the key its rows are
+ * delivered under, its template's own (templateKey) unless a page's is given, and its footprint, named as installed
+ * under the role's names `names`.
+ */
+const readOf = (
+	form: RowsForm<unknown>,
+	footprint: Footprint,
+	names: SchemaArtifacts["names"],
+	key: (template: QueryTemplate) => ServedKey
+): ServedRead => {
 	const { compiled } = form.bound.compiled
-	return servedRead(compiled.template, compiled.desc, form.decoder())
+	return servedRead(
+		compiled.template,
+		compiled.desc,
+		form.decoder(),
+		key(compiled.template),
+		servedFootprint(footprint, names)
+	)
 }
 
 /**
@@ -133,31 +161,48 @@ const variantsOf = (variants: ChangeVariants): Result.Result<ServedVariants, Uns
 }
 
 /**
- * One workload member of a role, served: a read's and a key's read, a paged read's
- * read beside the page its runtime was served from (served/forms.ts pageTemplateFor), and a ChangeSet's variants.
+ * One workload member of a role, served: a read's and a key's read, a paged read's read beside the page its runtime was
+ * served from (served/forms.ts pageTemplateFor), its rows keyed by the page's order, and a ChangeSet's variants. A
+ * read's footprint is the plan's for the member on the role, `footprints`, named as installed under `names`.
  */
-const memberOf = (member: WorkloadForm): Result.Result<ServedMember, UnservedMember> => {
+const memberOf = (
+	member: WorkloadForm,
+	footprints: ReadonlyMap<string, Footprint>,
+	names: SchemaArtifacts["names"]
+): Result.Result<ServedMember, UnservedMember> => {
 	const { name } = member
+	const footprint = (): Footprint => {
+		const read = footprints.get(name)
+		if (read === undefined) {
+			throw defect(`the footprint of read program ${name}, a read of its role's plan`)
+		}
+		return read
+	}
 	switch (member.kind) {
 		case "read":
-			return Result.succeed({ name, kind: "read", read: readOf(member.form) })
+			return Result.succeed({
+				name,
+				kind: "read",
+				read: readOf(member.form, footprint(), names, templateKey)
+			})
 		case "key":
 			return Result.succeed({
 				name,
 				kind: "key",
 				fields: member.fields,
-				read: readOf(member.form)
+				read: readOf(member.form, footprint(), names, templateKey)
 			})
 		case "paged": {
 			const source = member.form.page
 			if (source.kind !== "compiled") {
 				throw defect("a paged member's page template is compiled with it")
 			}
+			const page = source.page.runtime.page
 			return Result.succeed({
 				name,
 				kind: "paged",
-				read: readOf(member.form),
-				page: source.page.runtime.page
+				read: readOf(member.form, footprint(), names, () => pageKey(page)),
+				page
 			})
 		}
 		case "change":
@@ -240,10 +285,20 @@ const refusalsOf = (role: LayerRole): ServedRefusals => {
 	)
 }
 
-/** One role of the login, served: its name, its PostgreSQL role, its level, its contexts, its classifier and its members. */
-const roleOf = (role: LayerRole): Result.Result<ServedRoleForm, UnservedMember> =>
-	Result.map(
-		Result.all(Arr.map(role.workload, (member) => memberOf(member))),
+/**
+ * One role of the login, served: its name, its PostgreSQL role, its level, its contexts, its classifier and its
+ * members, each read with its footprint among the role's, `footprints`.
+ */
+const roleOf = (
+	role: LayerRole,
+	footprints: LoginFootprints
+): Result.Result<ServedRoleForm, UnservedMember> => {
+	const reads = footprints.get(role.role.name)
+	if (reads === undefined) {
+		throw defect(`the footprints of role ${role.role.name}, a role of its login's plan`)
+	}
+	return Result.map(
+		Result.all(Arr.map(role.workload, (member) => memberOf(member, reads, role.artifacts.names))),
 		(members): ServedRoleForm => ({
 			name: role.role.name,
 			installed: role.theory,
@@ -253,6 +308,7 @@ const roleOf = (role: LayerRole): Result.Result<ServedRoleForm, UnservedMember> 
 			members
 		})
 	)
+}
 
 /** One kind of owner's constraints above as a served file holds them: each one reporting a law of `laws`, under its
  * owner, an owner none of whose constraints does left out. */
@@ -300,7 +356,9 @@ export const servedFileOf = (
 		const schema = first.artifacts.names.schema
 		const ledger = yield* toResult(ledgerStatements(schema))
 		const role = yield* toResult(loginStem(login))
-		const roles = yield* Result.all(Arr.map(compiled.roles, roleOf))
+		const roles = yield* Result.all(
+			Arr.map(compiled.roles, (layered) => roleOf(layered, compiled.footprints))
+		)
 		const used = servedRosters(roles)
 		return {
 			login: login.name,

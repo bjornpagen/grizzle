@@ -69,6 +69,7 @@ import { Roster, rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { type Filler, type FillSpelling, fillersOf, ownFill } from "#compiler/laws/model/fillers.ts"
 import { type LawModel, statedTheory } from "#compiler/laws/model/model.ts"
 import type { LawColumnPlan } from "#compiler/laws/model/plan.ts"
+import { type LivePlan, noLive } from "#compiler/live/notify.ts"
 import type { ClosedNames, NamedClosed } from "#compiler/physical/ddl/constants.ts"
 import { storedTextDomains } from "#compiler/physical/ddl/domains.ts"
 import { isolationFunctionIdent } from "#compiler/physical/ddl/isolation.ts"
@@ -131,7 +132,8 @@ export const emptySnapshot = (input: {
 	constraintToLaw: { tables: {}, domains: {} },
 	logins: {},
 	workload: {},
-	accessPaths: []
+	accessPaths: [],
+	live: noLive
 })
 
 /** A workload access request as the snapshot records it. */
@@ -465,14 +467,18 @@ export const discontinuedRoster = (
 const installationLogins = (installation: Installation): ReadonlyArray<string> =>
 	installation.worlds.map((l) => l.role)
 
-/** A draft's workload: each login's programs' access, and the access requests they and the roles' write filters make. */
+/**
+ * A draft's workload: each login's programs' access, the access requests they and the roles' write filters make, and the
+ * live plan of its read programs' footprints (program/workload/compile.ts ServedWorkloadPlan live).
+ */
 export interface DraftWorkload {
 	readonly access: WorkloadAccess
 	readonly accessPaths: ReadonlyArray<AccessIndexRequest>
+	readonly live: LivePlan
 }
 
 /** The workload of a schema without one. */
-export const noWorkload: DraftWorkload = { access: {}, accessPaths: [] }
+export const noWorkload: DraftWorkload = { access: {}, accessPaths: [], live: noLive }
 
 interface TargetInput {
 	readonly installation: Installation
@@ -831,7 +837,8 @@ export const targetState = (input: TargetInput): Result.Result<SnapshotContent, 
 				Object.fromEntries(installation.worlds.map((l) => [l.name, { role: l.role }] as const))
 			),
 			workload: input.workload.access,
-			accessPaths: input.workload.accessPaths.map((r) => storedRequest(r))
+			accessPaths: input.workload.accessPaths.map((r) => storedRequest(r)),
+			live: input.workload.live
 		}
 	})
 
@@ -1142,12 +1149,18 @@ const migrationForm = <S>(
 const contentForm = <S>(c: SnapshotContent, units: Units<S>): RecordOf<S> => ({
 	...migrationForm(c, units, relationForm),
 	levels: levelsForm(c.levels, units),
-	constraintToLaw: c.constraintToLaw
+	constraintToLaw: c.constraintToLaw,
+	live: liveForm(c.live)
 })
 
+/** The JSON form of a live plan: each footprint table's relation and the fields it routes by. */
+const liveForm = (plan: LivePlan): FormOf<never> =>
+	plan.map((t): SnapshotForm => ({ relation: t.relation, routes: t.routes }))
+
 /** snapshot.json's form: the members DbLayer.make reads (ServedSnapshot), its fingerprint, every level, the
- * constraint-to-law map, each roster's codes (`rosters`), which manifest.json's theory records without, and the
- * installation's derived runtime facts (`derived`), which the content and its fingerprint hold none of. */
+ * constraint-to-law map, the live plan (`live`), each roster's codes (`rosters`), which manifest.json's theory records
+ * without, and the installation's derived runtime facts (`derived`), which the content and its fingerprint hold none
+ * of. */
 const runtimeForm = <S>(
 	s: DeploySnapshot,
 	derived: SnapshotDerived,
@@ -1156,6 +1169,7 @@ const runtimeForm = <S>(
 	fingerprint: s.fingerprint,
 	levels: levelsForm(s.levels, units),
 	constraintToLaw: s.constraintToLaw,
+	live: liveForm(s.live),
 	rosters: rostersForm(s.theory),
 	derived: derivedForm(derived)
 })

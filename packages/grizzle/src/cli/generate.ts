@@ -64,6 +64,7 @@ import {
 	type GenerateResult,
 	type Installation,
 	installationOver,
+	type LoginFootprints,
 	lossText,
 	type MigrationDraft,
 	type MigrationFolder,
@@ -251,13 +252,14 @@ type SchemaDraft = (
 
 /**
  * What one login's served file compiles over: its base's artifacts, compiled under the draft's codes over every
- * relation; and each of its roles with its ChangeSets compiled over them by the draft's workload plan
+ * relation; each of its roles with its ChangeSets compiled over them by the draft's workload plan
  * (program/workload/compile.ts servedWorkload) at the level its certificate gives its writes, by the role's name in the
- * login.
+ * login; and the footprint of every read program on each of its roles, the plan's (loginFootprints).
  */
 export interface PlannedLogin {
 	readonly artifacts: SchemaArtifacts
 	readonly roles: ReadonlyMap<string, RoleChanges>
+	readonly footprints: LoginFootprints
 }
 
 /**
@@ -343,10 +345,11 @@ const plannedLogins = Effect.fn("plannedLogins")(function* (
 		logins: new Map(
 			Arr.map(served, ({ login: l, artifacts }) => {
 				const roles = plan.changes.get(l.owned.name)
-				if (roles === undefined) {
+				const footprints = plan.footprints.get(l.owned.name)
+				if (roles === undefined || footprints === undefined) {
 					throw defect(`the change compile of login ${l.owned.name}, a login of the plan`)
 				}
-				return [l.owned.name, { artifacts, roles }] as const
+				return [l.owned.name, { artifacts, roles, footprints }] as const
 			})
 		)
 	}
@@ -420,7 +423,11 @@ const draftInput = Effect.fn("draftInput")(function* (
 			workload:
 				planned === undefined
 					? noWorkload
-					: { access: planned.plan.access, accessPaths: planned.plan.requests },
+					: {
+							access: planned.plan.access,
+							accessPaths: planned.plan.requests,
+							live: planned.plan.live
+						},
 			abandoned,
 			declared
 		},
@@ -494,7 +501,7 @@ export const servedFiles = Effect.fn("servedFiles")(function* (
 			throw defect(`the plan of login ${login.owned.name}, a login of the configuration`)
 		}
 		return Effect.mapError(
-			servedEntry(login, snapshot, planned.artifacts, planned.roles),
+			servedEntry(login, snapshot, planned.artifacts, planned.roles, planned.footprints),
 			(refusal) =>
 				cliError(
 					new ServedRefused({

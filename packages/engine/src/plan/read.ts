@@ -69,7 +69,13 @@ export type {
 export { type ChoiceInput, type RelationInput } from "#compiler/lower/shapes/take/index.ts"
 export type { SpecifiedStatement } from "#compiler/lower/template.ts"
 export { queryInput, type QueryInput, type QueryTemplate } from "#compiler/program/compile.ts"
-export { servedPage, servedRead } from "#compiler/program/served.ts"
+export {
+	pageKey,
+	servedFootprint,
+	servedPage,
+	servedRead,
+	templateKey
+} from "#compiler/program/served.ts"
 export type { StatementForms } from "#compiler/runtime/lower/forms.ts"
 export { pageStatementSlotOf } from "#compiler/runtime/lower/slots.ts"
 export {

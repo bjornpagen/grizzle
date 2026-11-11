@@ -5,6 +5,7 @@ import {
 	type BuiltLogin,
 	type LayerRole,
 	loginChangesOver,
+	namedOver,
 	plannedLoginRoles,
 	workloadSlice
 } from "#adapter/served/login.ts"
@@ -19,7 +20,12 @@ import {
 	type OwnedLogin,
 	type SchemaArtifacts
 } from "#compiler/plan/common.ts"
-import { servedText, type UnservedMember } from "#compiler/plan/migration.ts"
+import {
+	type LoginFootprints,
+	loginFootprints,
+	servedText,
+	type UnservedMember
+} from "#compiler/plan/migration.ts"
 import {
 	everySlice,
 	type ServedFile,
@@ -53,14 +59,16 @@ export interface ServedRefusal {
 
 /**
  * A login's workload compiled: the login, the snapshot it compiled under, read over the login's base's level, every
- * role of it with its programs, in the login's order, and its footprint: the declared names of the relations its
- * programs read and write (schema/reach.ts Slice names, its writes among them, login.ts workloadSlice).
+ * role of it with its programs, in the login's order, its footprint, the declared names of the relations its programs
+ * read and write (schema/reach.ts Slice names, its writes among them, login.ts workloadSlice), and each read program's
+ * footprint on each role (program/workload/compile.ts loginFootprints), which its served read routes changes by.
  */
 export interface CompiledServed {
 	readonly login: LoginDesc
 	readonly snapshot: ServedSnapshot
 	readonly roles: ReadonlyArray<LayerRole>
 	readonly footprint: ReadonlySet<string>
+	readonly footprints: LoginFootprints
 }
 
 const atLogin = (error: CompileError | UnservedMember): ServedRefusal => ({
@@ -99,7 +107,8 @@ const compileServed = Effect.fn("compileServed")(function* (
 	login: ServedInput,
 	snapshot: unknown,
 	artifacts: SchemaArtifacts,
-	changes: ReadonlyMap<string, RoleChanges>
+	changes: ReadonlyMap<string, RoleChanges>,
+	footprints: LoginFootprints
 ): Effect.fn.Return<CompiledServed, ServedRefusal> {
 	const served = yield* Effect.mapError(
 		fromEngine(servedSnapshot(snapshot, levelChain(login.login.base.desc).length - 1)),
@@ -111,7 +120,13 @@ const compileServed = Effect.fn("compileServed")(function* (
 		atRole
 	)
 	const footprint = yield* Effect.mapError(workloadSlice(login.login, login.owned), atRole)
-	return { login: login.login.desc, snapshot: served, roles, footprint: footprint.names }
+	return {
+		login: login.login.desc,
+		snapshot: served,
+		roles,
+		footprint: footprint.names,
+		footprints
+	}
 })
 
 /**
@@ -135,22 +150,24 @@ export const servedEntryOf = Effect.fn("servedEntryOf")(function* (compiled: Com
 /**
  * The served file of `login` under `snapshot`, the JSON value of the snapshot.json beside it, compiled over its base's
  * artifacts `artifacts`, its ChangeSets as `changes` compiled them over those artifacts, each role's at the level its
- * certificate gives it (compileServed, then `servedEntryOf`).
+ * certificate gives it, and its read programs' footprints as `footprints` read them (compileServed, then
+ * `servedEntryOf`).
  */
 export const servedEntry = (
 	login: ServedInput,
 	snapshot: unknown,
 	artifacts: SchemaArtifacts,
-	changes: ReadonlyMap<string, RoleChanges>
+	changes: ReadonlyMap<string, RoleChanges>,
+	footprints: LoginFootprints
 ): Effect.Effect<ServedEntry, ServedRefusal> =>
-	Effect.flatMap(compileServed(login, snapshot, artifacts, changes), servedEntryOf)
+	Effect.flatMap(compileServed(login, snapshot, artifacts, changes, footprints), servedEntryOf)
 
 /**
  * The compile of `login` under `snapshot` alone, no installation compiled beside it: the installation's artifacts
  * compiled from what the snapshot records (its codes, its closed relations' constant names, its text domains and its
  * foreign key graph's cycles) over every relation, the law model generate compiles from the schema, then the login over
- * them (compileServed): its roles, each with its workload's programs compiled, which a test reads beside the file they
- * project (a change form's compiled entry, its put choices among it).
+ * them (compileServed): its roles, each with its workload's programs compiled and its read programs' footprints read,
+ * which a test reads beside the file they project (a change form's compiled entry, its put choices among it).
  */
 export const snapshotCompiled = Effect.fn("snapshotCompiled")(function* (
 	login: ServedInput,
@@ -169,7 +186,19 @@ export const snapshotCompiled = Effect.fn("snapshotCompiled")(function* (
 		loginChangesOver(login.login, login.owned, artifacts, "serializable"),
 		atRole
 	)
-	return yield* compileServed(login, snapshot, artifacts, changes)
+	const named = yield* Effect.mapError(namedOver(login.owned, artifacts), atRole)
+	const footprints = yield* Effect.mapError(
+		fromEngine(
+			loginFootprints({
+				roles: login.login.roles,
+				workload: login.login.workload,
+				named,
+				artifacts
+			})
+		),
+		atRole
+	)
+	return yield* compileServed(login, snapshot, artifacts, changes, footprints)
 })
 
 /**

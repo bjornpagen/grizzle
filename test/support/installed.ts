@@ -7,6 +7,7 @@ import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import { type DraftWorkload, noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
+import { noLive } from "#compiler/live/notify.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import type { InstallExtension } from "#compiler/physical/install/extension.ts"
 import { parseSchemaInput } from "#compiler/program/schema.ts"
@@ -168,7 +169,7 @@ export const workloadOf = (
 				Arr.map(version.logins, (l) => ({ login: l.name, workloads: l.workload }))
 			)
 		],
-		draft: { access: plan.access, accessPaths: plan.requests }
+		draft: { access: plan.access, accessPaths: plan.requests, live: noLive }
 	}
 }
 
