@@ -36,18 +36,17 @@ import {
  * - The keys of each block's type, the top level, the transport and the pool, are exactly the reader's roster of its
  *   settings (connectionSettings and servedLoginSettings' settings, transportSettings, poolSettings).
  * - Each setting of each roster left out of an otherwise valid config, for a login whose role reads no context and one
- *   whose role reads Session: the types refuse it exactly where the reader does, at the call (TS2345) for a top-level
- *   setting and at its block's property (TS2741) for a nested one; and a key no roster names, in each block, both
- *   refuse at the key (TS2353).
+ *   whose role reads Session: the types refuse it exactly where the reader does; and a key no roster names, in each
+ *   block, both refuse. Each call stands on one line, so its refusal is the line's, wherever the checker reports it.
  * - The channels the reader cannot see, each a type-only contract stated with its reason (typeOnly): a password is a
  *   Redacted or an Effect yielding one that fails only with CredentialError and needs no service; verify fails only
  *   with TokenError; and the driver's Client has pipeline mode, which every flight's one round trip needs. Over every
  *   combination of a password, a verify and a driver, the reader admits each config but the one missing the verify a
  *   login reading a context needs, and the types admit exactly what the reader admits and every contract holds. Each
- *   is stated as whether DbLayer.make's parameter takes the config's type (Takes, TS2344): a call would raise the
- *   Effect language service's restatement of the checker's refusal beside it.
+ *   is stated as whether DbLayer.make's parameter takes the config's type (Takes): a call would raise the Effect
+ *   language service's restatement of the checker's refusal beside it.
  * - A config is of the login it names: a valid config of one login is taken for its own and never for the other
- *   (Takes, TS2344).
+ *   (Takes).
  */
 const logins = { PlainLogin, WebLogin } as const
 type LoginName = keyof typeof logins
@@ -310,7 +309,10 @@ const settingLines = (
 	]
 }
 
-/** A config left out one setting, or given a stranger key, as one DbLayer.make call under its directive. */
+/**
+ * A config left out one setting, or given a stranger key, as one DbLayer.make call on one line, under its directive
+ * where the reader refuses it: the contract is that the call does not compile, wherever the checker reports it.
+ */
 const callOf = (
 	name: string,
 	login: LoginName,
@@ -318,56 +320,23 @@ const callOf = (
 	extra: Block | undefined,
 	admitted: boolean
 ): Stated => {
-	const lines = settingLines(login, omit, extra)
-	const call = `export const ${name} = DbLayer.make({`
+	const settings = Arr.join(
+		Arr.map(settingLines(login, omit, extra), (l) => Str.trim(l.text)),
+		" "
+	)
+	const line = `export const ${name} = DbLayer.make({ ${settings} })`
 	if (admitted) {
-		return { lines: [call, ...Arr.map(lines, (l) => l.text), "})"] }
-	}
-	if (extra !== undefined) {
-		return {
-			lines: [
-				call,
-				...Arr.flatMap(lines, (l) =>
-					l.key === "extra"
-						? [
-								`${indentOf(l.text)}// @ts-expect-error -- TS2353: a key no setting of its block names`,
-								l.text
-							]
-						: [l.text]
-				),
-				"})"
-			]
-		}
-	}
-	if (omit === undefined || omit.block === "top") {
-		return {
-			lines: [
-				"// @ts-expect-error -- TS2345: a setting the reader requires is left out",
-				call,
-				...Arr.map(lines, (l) => l.text),
-				"})"
-			]
-		}
+		return { lines: [line] }
 	}
 	return {
 		lines: [
-			call,
-			...Arr.flatMap(lines, (l) =>
-				l.block === "top" && l.key === omit.block
-					? [
-							`\t// @ts-expect-error -- TS2741: a setting of its block the reader requires is left out`,
-							l.text
-						]
-					: [l.text]
-			),
-			"})"
+			extra === undefined
+				? "// @ts-expect-error -- refused: a setting the reader requires is left out"
+				: "// @ts-expect-error -- refused: a key no setting of its block names",
+			line
 		]
 	}
 }
-
-/** A line's leading tabs, which its directive stands at. */
-const indentOf = (line: string): string =>
-	Str.slice(0, line.length - Str.trimStart(line).length)(line)
 
 /** The program's statement of a channel case: its config's type taken by DbLayer.make's parameter, or refused. */
 const channelOf = (c: ChannelCase, i: number): Stated => {
@@ -392,7 +361,7 @@ const channelOf = (c: ChannelCase, i: number): Stated => {
 			`const k${i} = { ...base, login: ${c.login}Served, password: ${password}${verify}${driver} } as const`,
 			...(refused
 				? [
-						`// @ts-expect-error -- TS2344: ${Arr.isReadonlyArrayNonEmpty(broken) ? broken[0][0] : "the reader refuses the config"}`
+						`// @ts-expect-error -- refused: ${Arr.isReadonlyArrayNonEmpty(broken) ? broken[0][0] : "the reader refuses the config"}`
 					]
 				: []),
 			`export type c${i} = Expect<Takes<typeof ${c.login}, typeof k${i}>>`
@@ -444,7 +413,7 @@ export const configModule = (entries: PreludeAt): string => {
 			lines: [
 				...(given === target
 					? []
-					: ["// @ts-expect-error -- TS2344: a config is of the login it names"]),
+					: ["// @ts-expect-error -- refused: a config is of the login it names"]),
 				`export type r_${given}_${target} = Expect<Takes<typeof ${target}, typeof v_${given}>>`
 			]
 		}))

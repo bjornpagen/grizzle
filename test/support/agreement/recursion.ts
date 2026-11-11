@@ -93,11 +93,10 @@ const expectedKey = (e: Expected): string =>
 /** Where a planted fault stands: an arm list's line, or the one arm of a list. */
 type Site = "base list" | "rec list" | "base arm" | "rec arm"
 
-/** Each fault's refusal: the engine's reason, and the diagnostic the types raise at its site, with its claim. */
+/** Each fault's refusal: the engine's reason, and what the types claim at its site. */
 const refusals: {
 	readonly [F in RecursionFault]: {
 		readonly engine: Expected
-		readonly code: "TS2322"
 		readonly claim:
 			| { readonly kind: "refusal"; readonly refusal: Refused }
 			| { readonly kind: "prose"; readonly why: string }
@@ -105,7 +104,6 @@ const refusals: {
 } = {
 	"a head missing a row field": {
 		engine: { tag: "RecursionRefused", cause: "armHead" },
-		code: "TS2322",
 		claim: {
 			kind: "refusal",
 			refusal:
@@ -114,7 +112,6 @@ const refusals: {
 	},
 	"a head with a field the row lacks": {
 		engine: { tag: "RecursionRefused", cause: "armHead" },
-		code: "TS2322",
 		claim: {
 			kind: "refusal",
 			refusal:
@@ -123,7 +120,6 @@ const refusals: {
 	},
 	"a head field of another type": {
 		engine: { tag: "RecursionRefused", cause: "inexactConversion" },
-		code: "TS2322",
 		claim: {
 			kind: "refusal",
 			refusal:
@@ -132,12 +128,10 @@ const refusals: {
 	},
 	"self bound at a field the row lacks": {
 		engine: { tag: "Refused", refusal: "not a field of the arms the bindings select" },
-		code: "TS2322",
 		claim: { kind: "refusal", refusal: "not a field of the arms the bindings select" }
 	},
 	"no base arm": {
 		engine: { tag: "MalformedDescription" },
-		code: "TS2322",
 		claim: {
 			kind: "refusal",
 			refusal: "a recursion has at least one base arm and at least one recursive arm"
@@ -145,7 +139,6 @@ const refusals: {
 	},
 	"no recursive arm": {
 		engine: { tag: "MalformedDescription" },
-		code: "TS2322",
 		claim: {
 			kind: "refusal",
 			refusal: "a recursion has at least one base arm and at least one recursive arm"
@@ -576,8 +569,8 @@ const blockOf = (c: RecursionCase, i: number): ReadonlyArray<string> => {
 		const refusing = refusals[planted]
 		const directive =
 			refusing.claim.kind === "refusal"
-				? `// @ts-expect-error -- ${refusing.code} refusal: ${refusing.claim.refusal}`
-				: `// @ts-expect-error -- ${refusing.code}: ${refusing.claim.why}`
+				? `// @ts-expect-error -- refusal: ${refusing.claim.refusal}`
+				: `// @ts-expect-error -- refused: ${refusing.claim.why}`
 		return [
 			`/** The engine refuses it, ${c.verdict.key}. */`,
 			...Arr.flatMap(lines, (l) =>
@@ -595,7 +588,7 @@ const blockOf = (c: RecursionCase, i: number): ReadonlyArray<string> => {
 			: `export type p${i} = Expect<Equals<ParamsOf<typeof q${i}>, ${params}>>`,
 		`export type e${i} = Expect<Equals<EvidenceOfQuery<typeof q${i}>, Evidence.Unknown>>`,
 		`export const g${i} = (h: WorkloadHandles<typeof Reader, { readonly m: typeof q${i} }>["m"]) => (args: GetArg<typeof q${i}>) =>`,
-		...(get ? [] : [`\t// @ts-expect-error -- TS2345 refusal: ${getRefusal}`]),
+		...(get ? [] : [`\t// @ts-expect-error -- refusal: ${getRefusal}`]),
 		`\th.get(args)`,
 		""
 	]

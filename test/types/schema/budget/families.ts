@@ -1,7 +1,7 @@
 import { Array as Arr, Option } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { type PreludeAt, preludeProgram } from "#test/support/prelude.ts"
-import { type Steps, steps } from "#test/types/batch/measured.ts"
+import { type EqualSteps, equalSteps } from "#test/types/batch/measured.ts"
 import { type Over, type RefusalProbe, twinPrefix, twinProbes } from "#test/types/batch/twins.ts"
 
 /**
@@ -38,7 +38,7 @@ import { type Over, type RefusalProbe, twinPrefix, twinProbes } from "#test/type
 const familyPeriod = 8
 
 /** The family counts the scale test checks, each a program of its own: the growth law is read from their counts. */
-export const familySizes: Steps = steps(familyPeriod * 85)
+export const familySizes: EqualSteps = equalSteps(familyPeriod * 85)
 
 /** The family count the type-test batch checks the program at, beside its twin. */
 export const largestFamilies = familySizes.sizes[2]

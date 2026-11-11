@@ -1,7 +1,7 @@
 import { Array as Arr } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { type PreludeAt, preludeProgram } from "#test/support/prelude.ts"
-import { type Steps, steps } from "#test/types/batch/measured.ts"
+import { type EqualSteps, equalSteps } from "#test/types/batch/measured.ts"
 import { literal } from "#test/types/regex/agreement.ts"
 
 /**
@@ -44,4 +44,4 @@ export const regexScaleSource = (patterns: number, entries: PreludeAt): string =
 	)
 
 /** The sizes the program is checked at: 60, 120 and 180 patterns, each step ten of every shape. */
-export const regexScaleSizes: Steps = steps(10 * shapes.length)
+export const regexScaleSizes: EqualSteps = equalSteps(10 * shapes.length)

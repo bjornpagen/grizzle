@@ -195,7 +195,7 @@ const caseBlock = (c: UntypedCase, index: number): string => {
 	const at = untypedRefusalAt(c)
 	const lines = Arr.map(c.params(`n${index}`), (param, p) =>
 		Option.contains(at, p)
-			? `\t// @ts-expect-error -- TS2345 refusal: ${memberRefusal}\n\t${param}`
+			? `\t// @ts-expect-error -- refusal: ${memberRefusal}\n\t${param}`
 			: `\t${param}`
 	)
 	const kept = Option.isNone(at)

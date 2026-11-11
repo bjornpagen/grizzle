@@ -2806,7 +2806,7 @@ const decidedBy = (thrown: unknown): DecidedNote | undefined => {
 
 /**
  * The engine's verdict: admitted; refused for what no type states, which the types admit; or refused where the types
- * refuse, with the diagnostic and claim its directive states.
+ * refuse, with the claim its directive states.
  */
 type Verdict =
 	| { readonly kind: "admitted"; readonly admitted: Admitted }
@@ -2815,22 +2815,21 @@ type Verdict =
 			readonly note: DecidedNote
 			readonly term: Admitted["term"]
 	  }
-	| { readonly kind: "refused"; readonly claim: Claim; readonly code: string }
-	| { readonly kind: "contested"; readonly claim: Claim; readonly code: string }
+	| { readonly kind: "refused"; readonly claim: Claim }
+	| { readonly kind: "contested"; readonly claim: Claim }
 
-const refusedBy = (thrown: unknown, code: string): Verdict => ({
+const refusedBy = (thrown: unknown): Verdict => ({
 	kind: "refused",
 	claim:
 		thrown instanceof CompileError
 			? claimOf(thrown.reason)
-			: { kind: "prose", why: `the host: ${oneLine(messageOf(thrown))}` },
-	code
+			: { kind: "prose", why: `the host: ${oneLine(messageOf(thrown))}` }
 })
 
 /** The engine's refusal of a case: one of its decisions no type states, or a refusal the types share. */
-const decidedOr = (thrown: unknown, term: Admitted["term"], code: string): Verdict => {
+const decidedOr = (thrown: unknown, term: Admitted["term"]): Verdict => {
 	const note = decidedBy(thrown)
-	return note === undefined ? refusedBy(thrown, code) : { kind: "decided", note, term }
+	return note === undefined ? refusedBy(thrown) : { kind: "decided", note, term }
 }
 
 /**
@@ -2856,19 +2855,18 @@ const contractRefusal: ComputeRefusal =
 const contractVerdict = (
 	spec: CaseSpec & { readonly kind: "term" | "predicate" | "aggregate" },
 	fields: ReadonlySet<FieldName>,
-	term: Admitted["term"],
-	code: string
+	term: Admitted["term"]
 ): Verdict => {
 	const typed = compileTemplate(engineQuery(spec, fields, AsTyped).query, undefined, testCompile)
 	if (typed.ok) {
 		return { kind: "decided", note: engineDecides.literal, term }
 	}
 	if (isContractLiteral(typed.error)) {
-		return { kind: "refused", claim: { kind: "refusal", refusal: contractRefusal }, code }
+		return { kind: "refused", claim: { kind: "refusal", refusal: contractRefusal } }
 	}
-	const read = decidedOr(typed.error, term, code)
+	const read = decidedOr(typed.error, term)
 	return read.kind === "refused"
-		? { kind: "contested", claim: read.claim, code }
+		? { kind: "contested", claim: read.claim }
 		: { kind: "decided", note: engineDecides.literal, term }
 }
 
@@ -2908,9 +2906,6 @@ const outOf = (heading: Heading, uses: Set<Imported>): string | undefined =>
 			(c) => hostText(c.type, uses, "delivered")
 		)
 	)
-
-/** The diagnostic a refused construct raises: a member read's TS2339, and every other an argument's, a list's included. */
-const codeOf = (spec: CaseSpec): string => (spec.kind === "member" ? "TS2339" : "TS2345")
 
 /** A query of Cells over the case, built by the engine's reading, with the term it built where it built one. */
 const engineQuery = (
@@ -2987,20 +2982,19 @@ const engineVerdict = (
 	fields: ReadonlySet<FieldName>,
 	uses: Set<Imported>
 ): Verdict => {
-	const code = codeOf(spec)
 	switch (spec.kind) {
 		case "value": {
 			const made = Result.try(() =>
 				spec.ctor === "Decimal.of" ? hostDecimal.of(spec.lit.value) : hostMoney.of(spec.lit.value)
 			)
 			return Result.isFailure(made)
-				? decidedOr(made.failure, undefined, code)
+				? decidedOr(made.failure, undefined)
 				: { kind: "admitted", admitted: { term: undefined, out: undefined, params: [] } }
 		}
 		case "lexical": {
 			const form = Result.try(() => hostLexical.lexicalForm(Cell.fields[spec.field]))
 			return Result.isFailure(form)
-				? decidedOr(form.failure, undefined, code)
+				? decidedOr(form.failure, undefined)
 				: { kind: "admitted", admitted: { term: undefined, out: undefined, params: [] } }
 		}
 		case "bytes":
@@ -3009,37 +3003,36 @@ const engineVerdict = (
 				testArtifacts(spec.kind === "bytes" ? bytesSchema(spec) : digestSchema(spec), testCompile)
 			)
 			if (Result.isFailure(compiled)) {
-				return decidedOr(compiled.failure, undefined, code)
+				return decidedOr(compiled.failure, undefined)
 			}
 			return compiled.success.ok
 				? { kind: "admitted", admitted: { term: undefined, out: undefined, params: [] } }
-				: decidedOr(compiled.success.error, undefined, code)
+				: decidedOr(compiled.success.error, undefined)
 		}
 		case "closed": {
 			const compiled = Result.try(() => testArtifacts(closedSchema(spec), testCompile))
 			if (Result.isFailure(compiled)) {
-				return decidedOr(compiled.failure, undefined, code)
+				return decidedOr(compiled.failure, undefined)
 			}
 			return compiled.success.ok
 				? { kind: "admitted", admitted: { term: undefined, out: undefined, params: [] } }
 				: isContractLiteral(compiled.success.error)
-					? { kind: "refused", claim: { kind: "refusal", refusal: contractRefusal }, code }
-					: decidedOr(compiled.success.error, undefined, code)
+					? { kind: "refused", claim: { kind: "refusal", refusal: contractRefusal } }
+					: decidedOr(compiled.success.error, undefined)
 		}
 		case "member":
 			return hasMember(spec.holder, spec.name)
 				? { kind: "admitted", admitted: { term: undefined, out: undefined, params: [] } }
 				: {
 						kind: "refused",
-						claim: { kind: "prose", why: `${spec.holder} has no ${spec.name}` },
-						code
+						claim: { kind: "prose", why: `${spec.holder} has no ${spec.name}` }
 					}
 		case "term":
 		case "predicate":
 		case "aggregate": {
 			const built = Result.try(() => engineQuery(spec, fields, written))
 			if (Result.isFailure(built)) {
-				return decidedOr(built.failure, undefined, code)
+				return decidedOr(built.failure, undefined)
 			}
 			const typed = spec.kind === "term" ? typedTermOf(built.success.term()) : undefined
 			const term =
@@ -3049,8 +3042,8 @@ const engineVerdict = (
 			const template = compileTemplate(built.success.query, undefined, testCompile)
 			if (!template.ok) {
 				return isContractLiteral(template.error)
-					? contractVerdict(spec, fields, term, code)
-					: decidedOr(template.error, term, code)
+					? contractVerdict(spec, fields, term)
+					: decidedOr(template.error, term)
 			}
 			return {
 				kind: "admitted",
@@ -3084,8 +3077,7 @@ const verdictOf = (
 		)
 		? {
 				kind: "contested",
-				claim: { kind: "refusal", refusal: contractRefusal },
-				code: codeOf(spec)
+				claim: { kind: "refusal", refusal: contractRefusal }
 			}
 		: judged
 }
@@ -3202,7 +3194,7 @@ const branchedVerdict = (
 	}
 	return Option.match(branchRefusal(spec.term, fields, uses), {
 		onNone: () => judged,
-		onSome: (branch) => ({ kind: branch.kind, claim: branch.claim, code: codeOf(spec) })
+		onSome: (branch) => ({ kind: branch.kind, claim: branch.claim })
 	})
 }
 
@@ -4186,8 +4178,8 @@ const directiveOf = (verdict: Verdict): ReadonlyArray<string> => {
 	const claim = verdict.claim
 	return [
 		claim.kind === "refusal"
-			? `\t// @ts-expect-error -- ${verdict.code} refusal: ${claim.refusal}`
-			: `\t// @ts-expect-error -- ${verdict.code}: ${claim.why}`
+			? `\t// @ts-expect-error -- refusal: ${claim.refusal}`
+			: `\t// @ts-expect-error -- refused: ${claim.why}`
 	]
 }
 

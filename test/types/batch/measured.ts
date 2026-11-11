@@ -15,7 +15,7 @@ import { regex } from "arkregex"
  * checked by one checker: several checkers each make the types of the files they check, and how the files fall to
  * them moves the counts by more than a small dimension's step.
  *
- * A scaling test checks a program at three sizes of one dimension an equal step apart, 2h, 4h and 6h (Steps), each step
+ * A scaling test checks a program at three sizes of one dimension an equal step apart, 2h, 4h and 6h (EqualSteps), each step
  * a whole number of the periods its generator repeats with, so every step adds the same units in the same proportions.
  * It holds every program to no diagnostic and both counts to grow no faster than linearly, exactly
  * (test/support/growth.ts incrementsDoNotGrow): the second step adds no more than the first, so no unit costs more for
@@ -28,12 +28,12 @@ import { regex } from "arkregex"
  * step is even, and a whole number of the periods its generator repeats with, the units after which every pattern of
  * its program recurs (a key on every fifth relation, a shape of six, a family tree on every fourth unit).
  */
-export interface Steps {
+export interface EqualSteps {
 	readonly half: number
 	readonly sizes: readonly [number, number, number]
 }
 
-export const steps = (step: number): Steps => ({
+export const equalSteps = (step: number): EqualSteps => ({
 	half: step / 2,
 	sizes: [step, 2 * step, 3 * step]
 })
@@ -180,7 +180,7 @@ const measuredProgram = (dir: string, size: number, source: (entries: PreludeAt)
 /** The program at each of the steps' sizes, checked one after another: each check uses the cores tsgo takes. */
 export const measuredSizes = (
 	dir: string,
-	at: Steps,
+	at: EqualSteps,
 	source: (size: number, entries: PreludeAt) => string
 ) =>
 	Effect.forEach(at.sizes, (size) => measuredProgram(dir, size, (entries) => source(size, entries)))
@@ -200,7 +200,7 @@ export const assertClean = (m: Measured, what: string): void => {
  */
 export const assertGrowthLaw = (
 	what: string,
-	at: Steps,
+	at: EqualSteps,
 	measured: ReadonlyArray<Measured>
 ): void => {
 	const sized = (size: number): Measured =>

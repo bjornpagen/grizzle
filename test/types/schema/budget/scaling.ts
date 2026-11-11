@@ -2,7 +2,7 @@ import { Array as Arr } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { type PreludeAt, preludeProgram } from "#test/support/prelude.ts"
-import { type Steps, steps } from "#test/types/batch/measured.ts"
+import { type EqualSteps, equalSteps } from "#test/types/batch/measured.ts"
 
 /**
  * The schema-scale programs, one per schema dimension, each checked at three sizes an equal step apart (scaling.test.ts),
@@ -34,7 +34,7 @@ type SchemaShape = {
 /** One dimension: its name, the shape at n, and the shape at a size of its own along the dimension. */
 interface SchemaDimension {
 	readonly name: string
-	readonly steps: Steps
+	readonly steps: EqualSteps
 	readonly shape: (size: number) => SchemaShape
 }
 
@@ -51,7 +51,7 @@ interface SchemaDimension {
 export const schemaDimensions: ReadonlyArray<SchemaDimension> = [
 	{
 		name: "relations",
-		steps: steps(334),
+		steps: equalSteps(334),
 		shape: (relations) => ({
 			relations,
 			closed: 1,
@@ -66,7 +66,7 @@ export const schemaDimensions: ReadonlyArray<SchemaDimension> = [
 	},
 	{
 		name: "full-role entries",
-		steps: steps(380),
+		steps: equalSteps(380),
 		shape: (relations) => ({
 			relations,
 			closed: relations / 10,
@@ -81,7 +81,7 @@ export const schemaDimensions: ReadonlyArray<SchemaDimension> = [
 	},
 	{
 		name: "write-list names",
-		steps: steps(420),
+		steps: equalSteps(420),
 		shape: (relations) => ({
 			relations,
 			closed: 1,
@@ -96,7 +96,7 @@ export const schemaDimensions: ReadonlyArray<SchemaDimension> = [
 	},
 	{
 		name: "roster handles",
-		steps: steps(420),
+		steps: equalSteps(420),
 		shape: (handles) => ({
 			relations: 25,
 			closed: 1,
@@ -111,7 +111,7 @@ export const schemaDimensions: ReadonlyArray<SchemaDimension> = [
 	},
 	{
 		name: "set handles",
-		steps: steps(420),
+		steps: equalSteps(420),
 		shape: (members) => ({
 			relations: 25,
 			closed: 1,
@@ -126,7 +126,7 @@ export const schemaDimensions: ReadonlyArray<SchemaDimension> = [
 	},
 	{
 		name: "laws per relation",
-		steps: steps(4),
+		steps: equalSteps(4),
 		shape: (laws) => ({
 			relations: 100,
 			closed: 1,
@@ -141,7 +141,7 @@ export const schemaDimensions: ReadonlyArray<SchemaDimension> = [
 	},
 	{
 		name: "roles per schema",
-		steps: steps(4),
+		steps: equalSteps(4),
 		shape: (roles) => ({
 			relations: 100,
 			closed: 1,
@@ -156,7 +156,7 @@ export const schemaDimensions: ReadonlyArray<SchemaDimension> = [
 	},
 	{
 		name: "fields per relation",
-		steps: steps(10),
+		steps: equalSteps(10),
 		shape: (fields) => ({
 			relations: 25,
 			closed: 1,

@@ -3169,9 +3169,8 @@ interface PageVerdict {
 	readonly unordered: boolean
 }
 
-/** What the program states of a query the types must refuse: its diagnostic, and the refusal or prose it names. */
+/** What the program states of a query the types must refuse: the refusal it names, or why in prose. */
 interface RefusedQuery {
-	readonly code: "TS2322" | "TS2345" | "TS2353" | "TS2379" | "TS2554"
 	readonly claim:
 		| { readonly kind: "refusal"; readonly refusal: Refused }
 		| { readonly kind: "prose"; readonly reason: string }
@@ -3199,11 +3198,8 @@ const keysInNameOrder = (k: KeyProof): ReadonlyArray<ReadonlyArray<ReadonlyArray
 	)
 }
 
-/** A refusal the types name, under its diagnostic. */
-const named = (code: RefusedQuery["code"], refusal: Refused): RefusedQuery => ({
-	code,
-	claim: { kind: "refusal", refusal }
-})
+/** A refusal the types name. */
+const named = (refusal: Refused): RefusedQuery => ({ claim: { kind: "refusal", refusal } })
 
 /**
  * The refusal the types state where the engine refuses a case's planted fault: the engine's reason must be the fault's
@@ -3219,30 +3215,26 @@ const refusalOf = (spec: QuerySpec, reason: CompileReason): RefusedQuery | undef
 	switch (fault) {
 		case "scopeName":
 			return malformed && label === "v"
-				? named("TS2345", "a declared name: ASCII letters, digits and underscores, a letter first")
+				? named("a declared name: ASCII letters, digits and underscores, a letter first")
 				: undefined
 		case "unnamedScope":
 			return malformed && label === "v"
-				? {
-						code: "TS2554",
-						claim: { kind: "prose", reason: "v takes the scope's name beside its source" }
-					}
+				? prose("v takes the scope's name beside its source")
 				: undefined
 		case "stranger":
 			return refused === "not a field of the arms the bindings select" &&
 				Str.startsWith("r.match(")(label)
 				? Arr.some(spec.arms[0].matches, strangerAlone)
-					? prose("TS2353", "a match's one binding names no field of its source")
-					: named("TS2322", refused)
+					? prose("a match's one binding names no field of its source")
+					: named(refused)
 				: undefined
 		case "stray":
 			return refused === "the relation is not in this query's schema" && label === "r.match(Stray)"
-				? named("TS2345", refused)
+				? named(refused)
 				: undefined
 		case "unkeyedFold":
 			return reason._tag === "FoldOverProjection"
 				? named(
-						"TS2322",
 						"a fold reads each fact it matches once, by a key: bind a key of every source the rule matches, or match a query of the distinct values"
 					)
 				: undefined
@@ -3250,54 +3242,48 @@ const refusalOf = (spec: QuerySpec, reason: CompileReason): RefusedQuery | undef
 			return malformed &&
 				(Str.startsWith("union field ")(label) ||
 					(label === "query.rule" && "path" in reason.at && reason.at.path[0] === "arms"))
-				? named("TS2345", "a union's arms deliver each field at one type")
+				? named("a union's arms deliver each field at one type")
 				: undefined
 		case "emptyRelation":
 			return malformed && Str.startsWith("r.relation(")(label)
-				? named("TS2345", "a relation parameter has at least one field, as a relation does")
+				? named("a relation parameter has at least one field, as a relation does")
 				: undefined
 		case "strayRows":
 			return refused === "the relation is not in this query's schema" &&
 				Str.startsWith("r.match(parameter ")(label)
-				? named("TS2345", refused)
+				? named(refused)
 				: undefined
 		case "unboundImport":
 			return malformed && "path" in reason.at && reason.at.path[0] === "bindings"
-				? named("TS2345", "bind the query's parameters before matching it: Q.bind({ ... })")
+				? named("bind the query's parameters before matching it: Q.bind({ ... })")
 				: undefined
 		case "allenTerm":
-			return malformed && label === "r.allen"
-				? named("TS2345", "a span term is required")
-				: undefined
+			return malformed && label === "r.allen" ? named("a span term is required") : undefined
 		case "cosineDims":
 			return malformed && label === "Compute.cosineDistance"
-				? prose("TS2345", "cosine distance needs one dimension count")
+				? prose("cosine distance needs one dimension count")
 				: undefined
 		case "cosineTerm":
 			return malformed && label === "Compute.cosineDistance"
-				? prose("TS2345", "cosine distance needs a vector term")
+				? prose("cosine distance needs a vector term")
 				: undefined
 		case "orderHidden":
 			return malformed && label === "Query.orderBy"
-				? prose("TS2322", "the order names no field of the heading")
+				? prose("the order names no field of the heading")
 				: undefined
 		case "spanEndpoints":
 			return malformed && Arr.contains(spanLabels, label)
 				? prose(
-						"TS2345",
 						label === "r.pointIn"
 							? "a point of the span's endpoint type"
 							: "two spans over one endpoint type"
 					)
 				: undefined
 		case "packTerm":
-			return malformed && label === "r.pack"
-				? prose("TS2345", "r.pack needs a span term")
-				: undefined
+			return malformed && label === "r.pack" ? prose("r.pack needs a span term") : undefined
 		case "producerHead":
 			return unsupported && label === "rule"
 				? named(
-						"TS2322",
 						Arr.some(spec.arms[0].head, ([, h]) => h.kind === "count")
 							? "aggregate and span producer in one head: a producer yields facts per binding, an aggregate folds them"
 							: "one span producer per head"
@@ -3305,12 +3291,11 @@ const refusalOf = (spec: QuerySpec, reason: CompileReason): RefusedQuery | undef
 				: undefined
 		case "nearestBy":
 			return unsupported && label === "Query.approximateNearest"
-				? prose("TS2322", "by names a distance output, not a key field")
+				? prose("by names a distance output, not a key field")
 				: undefined
 		case "nearestSource":
 			return unsupported && label === "Query.approximateNearest"
 				? named(
-						"TS2345",
 						Arr.some(spec.arms[0].head, ([, h]) => h.kind === "count")
 							? "approximateNearest over one rule's projection; this source is an aggregate rule, whose output is a nonlinear fold rather than a distance of one stored vector"
 							: "approximateNearest over one rule's projection; this source is a rule whose head produces spans, facts per binding rather than its projection"
@@ -3338,17 +3323,14 @@ const strangerAlone = (m: Match): boolean => {
 	)
 }
 
-/** A structural refusal the types state under its diagnostic, its prose naming what the program breaks. */
-const prose = (code: RefusedQuery["code"], reason: string): RefusedQuery => ({
-	code,
-	claim: { kind: "prose", reason }
-})
+/** A structural refusal the types state, its prose naming what the program breaks. */
+const prose = (reason: string): RefusedQuery => ({ claim: { kind: "prose", reason } })
 
 /** The builder calls that take two spans, or a point and a span, of one endpoint type. */
 const spanLabels: ReadonlyArray<string> = ["r.allen", "r.pointIn", "r.intersection", "r.difference"]
 
 /** The refusal of a scope's name spelled through a `string`, which no engine sees (see the header). */
-const widened: RefusedQuery = named("TS2345", "one literal name")
+const widened: RefusedQuery = named("one literal name")
 
 /**
  * The records of each arm, as its decoded heading group, the union of them the query's records: one member per arm,
@@ -3402,18 +3384,15 @@ const requestRefusal = (
 	const value = Rec.fromEntries(Arr.map(request, ([k, v]) => [k, requestValue(v)] as const))
 	if (EffectResult.isSuccess(pageRequest(value))) {
 		return Arr.some(request, ([, v]) => v === "string") && !decodes(plainToken)
-			? { code: "TS2322", claim: { kind: "prose", reason: "a plain string is no cursor" } }
+			? prose("a plain string is no cursor")
 			: undefined
 	}
 	const values = Arr.map(request, ([, v]) => v)
 	return Arr.contains(values, "null")
-		? { code: "TS2322", claim: { kind: "prose", reason: "an explicitly supplied null cursor" } }
+		? prose("an explicitly supplied null cursor")
 		: Arr.contains(values, "undefined")
-			? {
-					code: "TS2379",
-					claim: { kind: "prose", reason: "an explicitly supplied undefined cursor" }
-				}
-			: { code: "TS2345", claim: { kind: "prose", reason: "a request shape the runtime refuses" } }
+			? prose("an explicitly supplied undefined cursor")
+			: prose("a request shape the runtime refuses")
 }
 
 /**
@@ -3595,7 +3574,7 @@ const readsThrough = (spec: QuerySpec, failed: (what: string) => never): boolean
  * the member, as every program of a workload is over a level of its schema.
  */
 const levelDirective =
-	"// @ts-expect-error -- TS2322: a program over a level of the workload's schema, or a key of a relation of one"
+	"// @ts-expect-error -- refused: a program over a level of the workload's schema, or a key of a relation of one"
 
 /**
  * The engine's verdict on a keyed get: its key position's fields (query/build/key.ts keyLookup), the names its values
@@ -4128,7 +4107,7 @@ const verdictText = (v: Verdict): string => {
 				)
 			)}`
 		case "refused":
-			return `refused, ${v.refused.code} ${v.refused.claim.kind === "refusal" ? v.refused.claim.refusal : v.refused.claim.reason}`
+			return `refused, ${v.refused.claim.kind === "refusal" ? v.refused.claim.refusal : v.refused.claim.reason}`
 	}
 }
 
@@ -4380,11 +4359,11 @@ const blockOf = (c: AgreementCase, i: number, paged: boolean): ReadonlyArray<str
 	const lines = [{ text: `export const q${i} = ${first.text}`, fault: first.fault }, ...rest]
 	switch (c.verdict.kind) {
 		case "refused": {
-			const { code, claim } = c.verdict.refused
+			const { claim } = c.verdict.refused
 			const directive =
 				claim.kind === "refusal"
-					? `// @ts-expect-error -- ${code} refusal: ${claim.refusal}`
-					: `// @ts-expect-error -- ${code}: ${claim.reason}`
+					? `// @ts-expect-error -- refusal: ${claim.refusal}`
+					: `// @ts-expect-error -- refused: ${claim.reason}`
 			const at = Arr.findFirstIndex(lines, (l) => l.fault)
 			if (Option.isNone(at)) {
 				throw new Error(`a refused case marks no line of its fault (${c.spec.fault})\n${c.source}`)
@@ -4408,7 +4387,7 @@ const blockOf = (c: AgreementCase, i: number, paged: boolean): ReadonlyArray<str
 				...(reads
 					? [
 							`export const g${i} = ${handle}`,
-							...(get ? [] : [`\t// @ts-expect-error -- TS2345 refusal: ${getRefusal}`]),
+							...(get ? [] : [`\t// @ts-expect-error -- refusal: ${getRefusal}`]),
 							"\th.get(args)",
 							`export const e${i} = ${handle}`,
 							"\th.execute(args)"
@@ -4475,7 +4454,7 @@ const keyedLines = (k: KeyedVerdict | undefined, i: number): ReadonlyArray<strin
 	return [
 		`export const wk${i} = workload(Reader, { m: ${k.target} })`,
 		`export const kg${i} = (h: WorkloadHandles<typeof Reader, (typeof wk${i})["programs"]>["m"]) =>`,
-		...(k.admitted ? [] : ["\t// @ts-expect-error -- TS2345: a keyed get names every key field"]),
+		...(k.admitted ? [] : ["\t// @ts-expect-error -- refused: a keyed get names every key field"]),
 		`\th.get(${k.record})`,
 		...(k.admitted
 			? [
@@ -4527,8 +4506,8 @@ const pageLines = (
 			? []
 			: [
 					page.refused.claim.kind === "refusal"
-						? `		// @ts-expect-error -- ${page.refused.code} refusal: ${page.refused.claim.refusal}`
-						: `		// @ts-expect-error -- ${page.refused.code}: ${page.refused.claim.reason}`
+						? `		// @ts-expect-error -- refusal: ${page.refused.claim.refusal}`
+						: `		// @ts-expect-error -- refused: ${page.refused.claim.reason}`
 				]
 	const paged = `Effect.Effect<Page<${head}, typeof o${i}>, ReadError | CursorError>`
 	const handle = `(h: WorkloadHandles<typeof ${role}, (typeof wp${i})["programs"]>["p"]) => (args: GetArg<typeof q${i}>) =>`
@@ -4545,7 +4524,7 @@ const pageLines = (
 		`	)`,
 		...(page.unordered
 			? [
-					"// @ts-expect-error -- TS2345 refusal: page needs an ordered query",
+					"// @ts-expect-error -- refusal: page needs an ordered query",
 					`export const v${i} = paged(q${i})`
 				]
 			: [])

@@ -20,11 +20,10 @@ import { type PreludeAt, preludeProgram } from "#test/support/prelude.ts"
  * reads take, the handle as a Db of Reader serving the query holds it (WorkloadHandles).
  *
  * Shapes and forms are closed unions read by exhaustive switches, so a new one is a compile error until it has its
- * cells. Each statement is one line, under the directive its form raises where the runtime refuses it
- * (directiveOf): a key no parameter is named the argument's (TS2345) under its named refusal, whether or not the query
- * declares a parameter (types/core/phantom.ts OnlyParams), an array's included, whose indices are such keys; a
- * property's value of another type the property's (TS2322); and any other value that is no record, or a record missing
- * a declared parameter, the argument's (TS2345).
+ * cells. Each statement is one line, under a directive where the runtime refuses it (directiveOf): a key no parameter
+ * is named under its named refusal, whether or not the query declares a parameter (types/core/phantom.ts OnlyParams),
+ * an array's included, whose indices are such keys; and a property's value of another type, any other value that is
+ * no record, and a record missing a declared parameter, each a structural refusal.
  */
 
 /** The parameters of a query: none, one scalar parameter of a carrier, or a relation parameter. */
@@ -150,20 +149,18 @@ const argumentOf = (shape: Shape, form: Form): Value | undefined => {
 	}
 }
 
-/** The directive over an argument the runtime refuses: its form's named refusal, else its diagnostic (see the header). */
+/** The directive over an argument the runtime refuses: its form's named refusal, else a structural refusal and why. */
 const directiveOf = (shape: Shape, form: Form): string => {
-	const why = `the runtime refuses ${jsonText(form)} for ${jsonText(shape)}`
 	switch (form) {
 		case "extra":
 		case "array":
-			return "// @ts-expect-error -- TS2345 refusal: a parameter map names only its program's parameters"
+			return "// @ts-expect-error -- refusal: a parameter map names only its program's parameters"
 		case "wrongValue":
-			return `// @ts-expect-error -- TS2322: ${why}`
 		case "number":
 		case "boolean":
 		case "empty":
 		case "exact":
-			return `// @ts-expect-error -- TS2345: ${why}`
+			return `// @ts-expect-error -- refused: the runtime refuses ${jsonText(form)} for ${jsonText(shape)}`
 	}
 }
 

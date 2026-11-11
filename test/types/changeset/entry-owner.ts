@@ -78,7 +78,7 @@ const caseBlock = (c: EntryOwnerCase, index: number): string => {
 	return `// ${c.op} of ${c.fact} through ${entry}
 export const write${index} = ChangeSet.empty(${name}).${c.op}(
 	${name}.relations.${entry},
-${entryOwnerRefused(c) ? "\t// @ts-expect-error -- TS2345 refusal: a member fact is not a fact of the relation\n" : ""}	[${fact}]
+${entryOwnerRefused(c) ? "\t// @ts-expect-error -- refusal: a member fact is not a fact of the relation\n" : ""}	[${fact}]
 )
 `
 }

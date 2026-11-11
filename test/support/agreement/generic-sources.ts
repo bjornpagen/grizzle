@@ -319,12 +319,9 @@ const constructs: Readonly<Record<string, Form>> = {
 }
 
 /** The faults a statement over a generic source may plant, each with the refusal the types name it by. */
-const faults: Readonly<
-	Record<string, { readonly refusal: Refused; readonly code: Code; readonly form: Form }>
-> = {
+const faults: Readonly<Record<string, { readonly refusal: Refused; readonly form: Form }>> = {
 	"a side of another type": {
 		refusal: "the sides' field types differ",
-		code: "TS2345",
 		form: member([Target])(
 			(v) => `contained(on(${v}, "n"), on(Target, "id"))`,
 			(m) => [containedBuilder(onBuilder(m, ["n"]), onBuilder(Target, ["id"]))]
@@ -332,7 +329,6 @@ const faults: Readonly<
 	},
 	"an arm that may be the parent": {
 		refusal: "an arm is a relation other than its parent",
-		code: "TS2322",
 		form: member([A])(
 			(v) => `alternatives(${v}, "kind", Kind, { a: A })`,
 			(m) => [alternativesBuilder(m, "kind", Kind, { a: A })]
@@ -340,7 +336,6 @@ const faults: Readonly<
 	},
 	"a family over another key": {
 		refusal: "a counted family's side is its owner's key",
-		code: "TS2345",
 		form: member([Slots])(
 			(v) => `counted(on(${v}, "n"), fin(Slots, "k"))`,
 			(m) => [countedBuilder(onBuilder(m, ["n"]), finBuilder(Slots, "k"))]
@@ -349,7 +344,6 @@ const faults: Readonly<
 	"a fold stepping over another relation": {
 		refusal:
 			"a fold's step is its family's member: its group, its value, then an accumulated pair per plane",
-		code: "TS2345",
 		form: member([B, Folded])(
 			(v) =>
 				`[counted(on(${v}, "owner"), fin(Folded, "k"))].flatMap((f) => [f, fold(f, Monoid.count, on(B, "owner"), on(Folded, "id", "size"))])`,
@@ -358,7 +352,6 @@ const faults: Readonly<
 	},
 	"a tree over another tree's slots": {
 		refusal: "a tree is a family of T over itself, on(T, parent, at), with drawn start and end",
-		code: "TS2345",
 		form: over("tree", [T1])(
 			(v) => `tree(on(${v}, "parent", "at"), fin(T1, "children"), { root: "doc" })`,
 			(t) => [
@@ -369,7 +362,6 @@ const faults: Readonly<
 	"a query's fold reading a fact twice": {
 		refusal:
 			"a fold reads each fact it matches once, by a key: bind a key of every source the rule matches, or match a query of the distinct values",
-		code: "TS2322",
 		form: overScope(
 			(v) => `return r.match(${v}, { owner: x.owner }).find({ owner: x.owner, total: r.count() })`,
 			(r, m, x) => r.match(m, { owner: x["owner"] }).find({ owner: x["owner"], total: r.count() })
@@ -377,13 +369,10 @@ const faults: Readonly<
 	}
 }
 
-/** The diagnostic a refusal raises: an argument's, or an arm's in the arm map's object literal. */
-type Code = "TS2345" | "TS2322"
-
 /** What the types say of a helper: it typechecks, or its statement's line raises a diagnostic naming a refusal. */
 type Verdict =
 	| { readonly kind: "admitted" }
-	| { readonly kind: "refused"; readonly code: Code; readonly refusal: Refused }
+	| { readonly kind: "refused"; readonly refusal: Refused }
 
 /** One helper: its construct or fault, its shape, and its verdict. */
 interface GenericCase {
@@ -435,14 +424,10 @@ const verdictOf = (
 	name: string,
 	form: Form,
 	shape: Arr.NonEmptyReadonlyArray<SourceName>,
-	refusal: Option.Option<{ readonly refusal: Refused; readonly code: Code }>
+	refusal: Option.Option<Refused>
 ): Verdict => {
 	if (!sharesHeading(shape)) {
-		return {
-			kind: "refused",
-			code: "TS2345",
-			refusal: "a generic source's relations share one heading"
-		}
+		return { kind: "refused", refusal: "a generic source's relations share one heading" }
 	}
 	if (Arr.every(shape, (s) => admits(form, sources[s]))) {
 		return { kind: "admitted" }
@@ -453,7 +438,7 @@ const verdictOf = (
 				`the engine refuses ${name} over ${Arr.join(shape, ", ")}, whose relations share one heading`
 			)
 		},
-		onSome: (r): Verdict => ({ kind: "refused", code: r.code, refusal: r.refusal })
+		onSome: (r): Verdict => ({ kind: "refused", refusal: r })
 	})
 }
 
@@ -467,12 +452,12 @@ const genericCases = (): ReadonlyArray<GenericCase> => [
 			verdict: verdictOf(name, form, shape, Option.none())
 		}))
 	),
-	...Arr.flatMap(Rec.toEntries(faults), ([name, { refusal, code, form }]) =>
+	...Arr.flatMap(Rec.toEntries(faults), ([name, { refusal, form }]) =>
 		Arr.map(Arr.filter(shapes[form.family], sharesHeading), (shape) => ({
 			name,
 			form,
 			shape,
-			verdict: verdictOf(name, form, shape, Option.some({ refusal, code }))
+			verdict: verdictOf(name, form, shape, Option.some(refusal))
 		}))
 	)
 ]
@@ -495,7 +480,7 @@ const blockOf = (c: GenericCase, i: number): string =>
 				" | "
 			)}>(${parameters[c.form.family]}: S) =>`,
 			...(c.verdict.kind === "refused"
-				? [`\t// @ts-expect-error -- ${c.verdict.code} refusal: ${c.verdict.refusal}`]
+				? [`\t// @ts-expect-error -- refusal: ${c.verdict.refusal}`]
 				: []),
 			`\t${c.form.text(parameters[c.form.family])}`,
 			""

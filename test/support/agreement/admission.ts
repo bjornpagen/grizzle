@@ -38,14 +38,13 @@ import { type PreludeAt, preludeProgram } from "#test/support/prelude.ts"
  * Cell column of its type it meets, are drawn from the run's stream. The oracle is the engine: the statement is built
  * through the builder's JavaScript view (queryOver, varsOver, computeCore, and check over an untyped row) and
  * compiled as the runtime compiles it, with no types. The program states each verdict: plain where the engine admits,
- * under a `@ts-expect-error` of the diagnostic the position raises where it refuses. The type batch checks the program
+ * under a `@ts-expect-error` where it refuses, naming the refusal the types name. The type batch checks the program
  * disarmed, so a statement the types refuse and the engine admits is a diagnostic no directive names, one they admit
  * and the engine refuses is a directive whose diagnostic never comes, and either fails the batch.
  *
  * Positions and constant kinds are closed unions read by exhaustive switches: a new one is a row of each, which the
  * compiler requires every reader to handle. Each statement is one line, so its diagnostic is on the line after its
- * directive: an object literal's property refuses with TS2322 (a binding, a head entry), a call's argument with
- * TS2345 (an operand, a Compute operand, a branch, a check's comparison, a handle's member).
+ * directive, whichever diagnostic the checker elaborates its refusal to.
  *
  * The discriminant position draws the kinds a head holds: a value no head holds is the head position's refusal. Three
  * positions stand in a self-join of Cell, whose second scope, named apart, is a second type: a constant bound at its
@@ -53,11 +52,11 @@ import { type PreludeAt, preludeProgram } from "#test/support/prelude.ts"
  * second scope's id (selfJoinAttachParent), is admitted exactly where it is at a rule's one scope.
  *
  * The rest stand where a constant meets a query rather than a column:
- * - paramBinding: Q.bind of a parameter declared at the constant's column, a property of bind's argument (TS2322).
+ * - paramBinding: Q.bind of a parameter declared at the constant's column, a property of bind's argument.
  * - computedBinding: a second scope of Cell bound at the constant's column to the first scope's value plus the
  *   constant, a computed term: an exact integer or exact money at a plain integer or money column is the equality the
- *   checker writes widened, as Compute.eq's, and admitted both ways; an operand the sum refuses is its argument's
- *   diagnostic (TS2345), and a sum the column refuses, a contract's base at the contract, the binding's (TS2322).
+ *   checker writes widened, as Compute.eq's, and admitted both ways; an operand the sum refuses is refused at its
+ *   argument, and a sum the column refuses, a contract's base at the contract, at the binding.
  * - deadFilter: a union source whose every arm holds the constant at a field, matched with another of its kind bound
  *   there, a filter no fact meets, which both refuse by name (DeadConstants, check/checker.ts RuleCheck #selected).
  * - heteroArms and heteroClash: two arms of different headings holding constants at one field, different ones, which
@@ -78,15 +77,16 @@ import { type PreludeAt, preludeProgram } from "#test/support/prelude.ts"
  * read by exhaustive switches, so a new combinator, shape or wrapper is a compile error until it has its cells. A
  * combinator reads the fields at risk: orderBy orders by the name some record holds that the shape does not deliver as
  * a column (an arm's own field, an attachment), and an attachment's child heads an arm's own field over a union of
- * several headings. Its directive is the diagnostic the types raise where they refuse (combinatorDiagnostic).
+ * several headings. Its directive is the refusal the types name where they refuse, or a structural refusal
+ * (combinatorRefusal).
  * The scope axis closes it over the schema a matched query is written over, what a relation parameter of an imported
  * query is bound to, and where a relational negation stands (scopeCells): a rule matches a query, as it is or bound,
  * only over a level of its schema, though the schemas share every relation the query reads; a relation parameter binds
  * the importing rule's own relation parameter alone; and r.not is a rule's filter, alone or in a conjunction there,
  * never in a disjunction. Each refusal is named, and the engine's reason must be the one its refusal names.
  * A refusal both name is under its named directive (namedRefusal): a JavaScript value at a first operand (firstOperand,
- * computeFirst, condThen) is "a term first", whatever value it is. Every other refusal is the diagnostic of its
- * position. The positions whose verdict turns on two constants being one value (deadFilter, heteroClash,
+ * computeFirst, condThen) is "a term first", whatever value it is. Every other refusal is structural: the statement
+ * does not compile. The positions whose verdict turns on two constants being one value (deadFilter, heteroClash,
  * threeArmsClash, attachedArmApart, attachedArmKeptApart) and the attached arms beside an arm of their heading, whose
  * verdict turns on no constant, draw only the kinds whose value the types carry, a primitive or a handle (valued): the
  * types take a Decimal, a Money and a typed Compute.literal to be any value of their type, the widening they keep
@@ -321,39 +321,6 @@ const constantOf = (kind: ConstantKind, pick: number): Constant => {
 	}
 }
 
-/** Whether a position holds a constant as a head holds it. */
-const headed = (position: AdmissionPosition): boolean =>
-	position === "head" ||
-	position === "discriminant" ||
-	position === "attachParent" ||
-	position === "selfJoinAttachParent" ||
-	position === "pageOrderKey"
-
-/**
- * The diagnostic a refused statement raises: a handle's member's, else its position's (see the header); at a computed
- * binding, the binding's where the constant is a term of its column's own contract, Cents (a contract's constant or a
- * parameter declared at the column), whose sum the column refuses, and the sum's operand's otherwise.
- */
-const refusalCode = (
-	position: AdmissionPosition,
-	kind: ConstantKind,
-	column: Column
-): "TS2322" | "TS2345" =>
-	position === "computedBinding"
-		? column === "cents" && (kind === "contract" || kind === "param")
-			? "TS2322"
-			: "TS2345"
-		: kind === "offRoster" ||
-			  !(
-					position === "binding" ||
-					position === "unionBinding" ||
-					position === "selfJoinBinding" ||
-					position === "paramBinding" ||
-					headed(position)
-			  )
-			? "TS2345"
-			: "TS2322"
-
 /**
  * Whether a kind is a JavaScript value, which a first operand refuses by name (types/compute/scalar.ts FirstTerm),
  * rather than a typed term.
@@ -386,37 +353,25 @@ const isJavaScriptValue = (kind: ConstantKind): boolean => {
 	}
 }
 
-/** The refusal a cell's types name, with its diagnostic; none where the refusal is structural. */
-const namedRefusal = (
-	position: AdmissionPosition,
-	kind: ConstantKind
-): { readonly code: "TS2322" | "TS2345"; readonly message: Refused } | undefined => {
+/** The refusal a cell's types name; none where the refusal is structural. */
+const namedRefusal = (position: AdmissionPosition, kind: ConstantKind): Refused | undefined => {
 	switch (position) {
 		case "firstOperand":
 		case "computeFirst":
 		case "condThen":
 			return isJavaScriptValue(kind)
-				? {
-						code: "TS2345",
-						message: "a term first: a literal takes its place opposite a term, never first"
-					}
+				? "a term first: a literal takes its place opposite a term, never first"
 				: undefined
 		case "deadFilter":
-			return { code: "TS2322", message: "no arm of the source delivers the bound constants" }
+			return "no arm of the source delivers the bound constants"
 		case "heteroClash":
 		case "threeArmsClash":
-			return {
-				code: "TS2345",
-				message: "arms of different headings share a field that holds a different constant in each"
-			}
+			return "arms of different headings share a field that holds a different constant in each"
 		case "attachedArm":
 		case "attachedArmTaken":
 		case "attachedArmNamed":
 		case "attachedArmKept":
-			return {
-				code: "TS2345",
-				message: "an attachment on an arm of a union whose heading several arms share"
-			}
+			return "an attachment on an arm of a union whose heading several arms share"
 		case "binding":
 		case "unionBinding":
 		case "selfJoinBinding":
@@ -438,23 +393,23 @@ const namedRefusal = (
 		case "heteroArms":
 		case "threeArms":
 			return kind === "param" || kind === "otherParam"
-				? { code: "TS2345", message: "a union's arms deliver each field at one type" }
+				? "a union's arms deliver each field at one type"
 				: undefined
 	}
 }
 
 /**
  * The directive over a refused statement: a roster's member as Compute.literal is the literal's own refusal, its
- * descriptor's (TS2345), wherever it stands; else its named refusal, else its diagnostic and why.
+ * descriptor's, wherever it stands; else its named refusal; else a structural refusal and why.
  */
-const directiveOf = (position: AdmissionPosition, kind: ConstantKind, column: Column): string => {
+const directiveOf = (position: AdmissionPosition, kind: ConstantKind): string => {
 	if (kind === "rosterLiteral") {
-		return "// @ts-expect-error -- TS2345: a roster's member is X.handle(member), never Compute.literal"
+		return "// @ts-expect-error -- refused: a roster's member is X.handle(member), never Compute.literal"
 	}
 	const named = namedRefusal(position, kind)
 	return named === undefined
-		? `// @ts-expect-error -- ${refusalCode(position, kind, column)}: the engine refuses ${kind} at ${position}`
-		: `// @ts-expect-error -- ${named.code} refusal: ${named.message}`
+		? `// @ts-expect-error -- refused: the engine refuses ${kind} at ${position}`
+		: `// @ts-expect-error -- refusal: ${named}`
 }
 
 /** One statement of the matrix: its lines in the program, and how the engine reads it. */
@@ -1088,7 +1043,7 @@ export const admissionCells = (pick: (cell: number) => number): ReadonlyArray<Ad
 			const statement = statementOf(position, constant, constantOf(kind, at + 1), at, i)
 			const admitted = statement.verdict()
 			const [first, ...rest] = Arr.reverse(statement.lines)
-			const refused = [...Arr.reverse(rest), directiveOf(position, kind, constant.column), first]
+			const refused = [...Arr.reverse(rest), directiveOf(position, kind), first]
 			return { position, kind, admitted, lines: admitted ? statement.lines : refused }
 		}
 	)
@@ -1311,55 +1266,41 @@ const searchRefusal = (base: ShapeBase, wrapper: ShapeWrapper): Refused | undefi
 }
 
 /**
- * The diagnostic a combinator over a shape raises where the types refuse it: the refusal they name, or the structural
- * error of its argument, a field no order or parent variable has (TS2322, TS2339) or a call's argument (TS2345).
+ * The refusal the types name for a combinator over a shape where they refuse it; none where the refusal is structural,
+ * a field no order or parent variable has, or a call's argument.
  */
-const combinatorDiagnostic = (
+const combinatorRefusal = (
 	combinator: Combinator,
 	base: ShapeBase,
 	wrapper: ShapeWrapper
-): { readonly code: "TS2322" | "TS2339" | "TS2345"; readonly message: Refused | undefined } => {
+): Refused | undefined => {
 	switch (combinator) {
 		case "take":
-			return {
-				code: "TS2345",
-				message: groupsTaken(base, wrapper)
-					? "one take over a union of several headings: each heading group is a statement of its own, which one take bounds and the merge across them keeps"
-					: undefined
-			}
+			return groupsTaken(base, wrapper)
+				? "one take over a union of several headings: each heading group is a statement of its own, which one take bounds and the merge across them keeps"
+				: undefined
 		case "page":
-			return {
-				code: "TS2345",
-				message: groupsTaken(base, wrapper)
-					? "a page over a bounded heterogeneous union: a group statement cannot tell which of its rows are among the union's first k"
-					: undefined
-			}
+			return groupsTaken(base, wrapper)
+				? "a page over a bounded heterogeneous union: a group statement cannot tell which of its rows are among the union's first k"
+				: undefined
 		case "orderBy":
-			return { code: "TS2322", message: undefined }
-		case "approximateNearest":
-			return { code: "TS2345", message: searchRefusal(base, wrapper) }
 		case "attach":
-			return { code: "TS2339", message: undefined }
 		case "named":
-			return { code: "TS2345", message: undefined }
+			return undefined
+		case "approximateNearest":
+			return searchRefusal(base, wrapper)
 		case "unionArm":
-			return {
-				code: "TS2345",
-				message: groupsTaken(base, wrapper)
-					? "an arm over a union of several headings: only a query's result delivers each heading group"
-					: base === "attached"
-						? "an attachment on an arm of a union whose heading several arms share"
-						: undefined
-			}
+			return groupsTaken(base, wrapper)
+				? "an arm over a union of several headings: only a query's result delivers each heading group"
+				: base === "attached"
+					? "an attachment on an arm of a union whose heading several arms share"
+					: undefined
 		case "unionArmApart":
-			return {
-				code: "TS2345",
-				message: groupsTaken(base, wrapper)
-					? "an arm over a union of several headings: only a query's result delivers each heading group"
-					: base === "union" && wrapper === "take"
-						? "arms of different headings share a field that holds a different constant in each"
-						: undefined
-			}
+			return groupsTaken(base, wrapper)
+				? "an arm over a union of several headings: only a query's result delivers each heading group"
+				: base === "union" && wrapper === "take"
+					? "arms of different headings share a field that holds a different constant in each"
+					: undefined
 	}
 }
 
@@ -1374,7 +1315,7 @@ export interface CombinatorCell {
 
 /**
  * The combinator axis: every combinator over every shape under every wrapper, its verdict the engine's, its line under
- * the directive of the diagnostic the types raise where the engine refuses.
+ * a directive where the engine refuses.
  */
 export const combinatorCells = (): ReadonlyArray<CombinatorCell> =>
 	Arr.map(
@@ -1388,11 +1329,11 @@ export const combinatorCells = (): ReadonlyArray<CombinatorCell> =>
 			const combined = applied(combinator, base)
 			const admitted = compiles(() => combined.build(shape.value()), combined.read)()
 			const line = combined.line(`n${i}`, shape.source)
-			const diagnostic = combinatorDiagnostic(combinator, base, wrapper)
+			const refusal = combinatorRefusal(combinator, base, wrapper)
 			const directive =
-				diagnostic.message === undefined
-					? `// @ts-expect-error -- ${diagnostic.code}: the engine refuses ${combinator} over ${base} under ${wrapper}`
-					: `// @ts-expect-error -- ${diagnostic.code} refusal: ${diagnostic.message}`
+				refusal === undefined
+					? `// @ts-expect-error -- refused: the engine refuses ${combinator} over ${base} under ${wrapper}`
+					: `// @ts-expect-error -- refusal: ${refusal}`
 			return { combinator, base, wrapper, admitted, lines: admitted ? [line] : [directive, line] }
 		}
 	)
@@ -1642,7 +1583,6 @@ const negationAt = (
 const scopeCellOf = (
 	axis: ScopeAxis,
 	what: string,
-	code: "TS2322" | "TS2345",
 	line: string,
 	build: () => unknown
 ): ScopeCell => {
@@ -1650,17 +1590,14 @@ const scopeCellOf = (
 	return {
 		what,
 		admitted: verdict.admitted,
-		lines: verdict.admitted
-			? [line]
-			: [`// @ts-expect-error -- ${code} refusal: ${verdict.refusal}`, line]
+		lines: verdict.admitted ? [line] : [`// @ts-expect-error -- refusal: ${verdict.refusal}`, line]
 	}
 }
 
 /**
  * The scope axis: every level a matched query may be written over against its rule's schema, as it is and bound
  * (matchedLevels, matchedForms), and every source a relation parameter of an imported query may be bound to
- * (relationSources), once each, each verdict the engine's. A match's refusal is its source argument's (TS2345), a
- * binding's the property of bind's argument (TS2322).
+ * (relationSources), once each, each verdict the engine's, each refusal the one the types name.
  */
 export const scopeCells = (): ReadonlyArray<ScopeCell> => [
 	...Arr.flatMap(matchedLevels, (level) =>
@@ -1671,7 +1608,6 @@ export const scopeCells = (): ReadonlyArray<ScopeCell> => [
 			return scopeCellOf(
 				"level",
 				`${form === "bound" ? "a bound query" : "a query"} over the ${level} level`,
-				"TS2345",
 				`export const ${name} = query(${overs.rule.source}).rule((r) => { const m = ${matched.source}; const { id } = v(m, "m"); return r.match(m, { id }).find({ id }) })`,
 				() => {
 					const m = matched.value()
@@ -1688,7 +1624,6 @@ export const scopeCells = (): ReadonlyArray<ScopeCell> => [
 		return scopeCellOf(
 			"binding",
 			`a relation parameter bound to: ${source}`,
-			"TS2322",
 			`export const b${j} = query(Agree).rule((r) => { const m = byIds.bind({ ids: ${bound.source} }); const { id } = v(m, "m"); return r.match(m, { id }).find({ id }) })`,
 			() => {
 				const imported = byIds()
@@ -1705,7 +1640,6 @@ export const scopeCells = (): ReadonlyArray<ScopeCell> => [
 		return scopeCellOf(
 			"negation",
 			`a relational negation at: ${place}`,
-			"TS2345",
 			`export const g${j} = query(Agree).rule((r) => { const { id, n } = v(Item, "item"); return r.match(Item, { id, n }).where(${filter.source}).find({ id }) })`,
 			() =>
 				queryOver(Agree).rule((r: RuleValue) => {

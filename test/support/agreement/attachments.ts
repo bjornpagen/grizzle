@@ -929,21 +929,19 @@ const armClaim = (
 type AttachAt = "name" | "child" | "nested"
 
 /**
- * What the program states of an attachment the types must refuse: its line, its diagnostic, and the refusal it names,
- * or why in prose where the refusal is structural (a child over no level of the parent's schema).
+ * What the program states of an attachment the types must refuse: its line, and the refusal it names, or why in prose
+ * where the refusal is structural (a child over no level of the parent's schema).
  */
 interface AttachRefused {
 	readonly at: AttachAt
-	readonly code: "TS2322" | "TS2345"
 	readonly claim:
 		| { readonly kind: "refusal"; readonly refusal: Refused }
 		| { readonly kind: "prose"; readonly reason: string }
 }
 
-/** A refusal the types name at `at`, under `code`. */
-const namedAt = (at: AttachAt, code: "TS2322" | "TS2345", refusal: Refused): AttachRefused => ({
+/** A refusal the types name at `at`. */
+const namedAt = (at: AttachAt, refusal: Refused): AttachRefused => ({
 	at,
-	code,
 	claim: { kind: "refusal", refusal }
 })
 
@@ -1112,21 +1110,16 @@ const engineRefusal = (spec: AttachSpec, reason: CompileReason): AttachRefused |
 		Str.startsWith("Query.attach(")(label) &&
 		Arr.some(spec.parent.head, (h) => h.name === spec.name)
 	) {
-		return namedAt("name", "TS2345", "a new field name for the attachment")
+		return namedAt("name", "a new field name for the attachment")
 	}
 	if (reason._tag === "UnsupportedOperation" && spec.child.arms === "apart") {
 		return namedAt(
 			"child",
-			"TS2322",
 			"an attached heterogeneous union; one attachment statement delivers one heading"
 		)
 	}
 	if (reason._tag === "ForeignLevel" && spec.child.schema === "DeliverApart") {
-		return {
-			at: "child",
-			code: "TS2322",
-			claim: { kind: "prose", reason: foreignChild }
-		}
+		return { at: "child", claim: { kind: "prose", reason: foreignChild } }
 	}
 	return undefined
 }
@@ -1181,7 +1174,7 @@ const attachVerdict = (spec: AttachSpec): AttachVerdict => {
 	]
 	const refused = Arr.flatMap(analyzed, ([a, at]): ReadonlyArray<AttachRefused> => {
 		const claimed = claimRefusal(a.attachment, a.node.delivered)
-		return claimed === undefined ? [] : [namedAt(at, "TS2322", claimed)]
+		return claimed === undefined ? [] : [namedAt(at, claimed)]
 	})
 	if (Arr.isReadonlyArrayNonEmpty(refused)) {
 		return { kind: "refused", refused }
@@ -1404,8 +1397,8 @@ const attachBlock = (c: AttachCase, i: number): ReadonlyArray<string> => {
 						r.at !== at
 							? []
 							: r.claim.kind === "refusal"
-								? [`// @ts-expect-error -- ${r.code} refusal: ${r.claim.refusal}`]
-								: [`// @ts-expect-error -- ${r.code}: ${r.claim.reason}`]
+								? [`// @ts-expect-error -- refusal: ${r.claim.refusal}`]
+								: [`// @ts-expect-error -- refused: ${r.claim.reason}`]
 					)
 				),
 				""

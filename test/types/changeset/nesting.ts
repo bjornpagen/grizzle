@@ -130,7 +130,7 @@ const caseBlock = (c: NestingCase, index: number): string => {
 ${memberType(c.form, parts, ["y: number", ...stated(c.excess, "part", 0)], [])}${memberType(c.form, lines, ["qty: number", ...stated(c.excess, "line", 0)], [`m: ReadonlyArray<${parts}>`])}${Arr.join(nodes, "")}${memberType(c.form, t(0), ["id: Uuid", "doc: Uuid", "label: number"], [`children: ReadonlyArray<${t(1)}>`, `n: ReadonlyArray<${lines}>`])}declare const root${index}: ${t(0)}
 export const insert${index} = ChangeSet.empty(Nesting).insert(
 	Node,
-${nestingRefused(c) ? "\t// @ts-expect-error -- TS2345 refusal: a member fact is not a fact of the relation\n" : ""}	[root${index}]
+${nestingRefused(c) ? "\t// @ts-expect-error -- refusal: a member fact is not a fact of the relation\n" : ""}	[root${index}]
 )
 `
 }

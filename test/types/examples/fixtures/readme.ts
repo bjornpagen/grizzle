@@ -1012,7 +1012,7 @@ export type OnePage = Expect<
 >
 
 /** "db.get on a query that can return several rows is a type error". */
-// @ts-expect-error -- TS2345 refusal: get needs a query proved at most one row per parameter binding
+// @ts-expect-error -- refusal: get needs a query proved at most one row per parameter binding
 export const manyPages = staff.get(published, {})
 
 export type AnonFeedHead = Expect<
@@ -1046,7 +1046,7 @@ export const price: Infer<typeof Cents> = Cents(500n)
 export type PlaceAt = Expect<Equals<Fact<typeof Place>["at"], bigint>>
 
 /** "A term is a field, or pred(n) of a natural field n". */
-// @ts-expect-error -- TS2345: pred reads a natural field, and holder is text
+// @ts-expect-error -- refused: pred reads a natural field, and holder is text
 export const predOfText = on(Place, pred("holder"))
 
 /** "over a selected side or a pred term it holds apart only the rows its side reads, and is no key of the table". */
@@ -1059,7 +1059,7 @@ export const byKey = staff.get(Post, { id: "00000000-0000-0000-0000-000000000000
 export type ByKey = Expect<Equals<Effect.Success<typeof byKey>, Option.Option<Fact<typeof Post>>>>
 
 /** "Db.open(WebServed.roles.member, ...) does not typecheck without one": MemberBlog's relations read Session and Org. */
-// @ts-expect-error -- TS2741: MemberBlog reads a context, so Db.open requires a token
+// @ts-expect-error -- refused: MemberBlog reads a context, so Db.open requires a token
 export const memberWithoutToken = Db.open(WebServed.roles.member, {})
 
 /** "Db.open(WebServed.roles.anon, ...) needs no token", and the web login's layer serves both of its roles. */
@@ -1075,23 +1075,23 @@ export const bothRoles = web.runPromise(
 export const anonFeedOnly = web.runPromise(
 	Effect.gen(function* () {
 		const anon = yield* Db.open(WebServed.roles.anon, {})
-		// @ts-expect-error -- TS2339: memberFeed is a program over MemberBlog, which an AnonBlog Db does not run
+		// @ts-expect-error -- refused: memberFeed is a program over MemberBlog, which an AnonBlog Db does not run
 		return anon.workload.memberFeed
 	})
 )
 
 /** A role is opened only through its served login: the role value itself is no ServedRole. */
-// @ts-expect-error -- TS2739: Db.open takes a role of a served login, WebServed.roles.member
+// @ts-expect-error -- refused: Db.open takes a role of a served login, WebServed.roles.member
 export const bareRole = Db.open(MemberBlog, { token: "a verified token" })
 
 /** "a role of the login itself (Web.roles.member) is a type error, since the app holds the login as a type alone". */
-// @ts-expect-error -- TS2741: Db.open takes a role of a served login, WebServed.roles.member
+// @ts-expect-error -- refused: Db.open takes a role of a served login, WebServed.roles.member
 export const loginsOwnRole = Db.open(Web.roles.member, { token: "a verified token" })
 
 /** "Two programs of one name across a login's workloads are a type error". */
 const twiceReader = role(Blog, "twice_reader", { Post: postIds })
 const twicePrograms = [workload(Blog, { postIds }), workload(Blog, { postIds })] as const
-// @ts-expect-error -- TS2345 refusal: two programs of one name across a login's workloads
+// @ts-expect-error -- refusal: two programs of one name across a login's workloads
 export const twiceNamed = () => login(Blog, "twice", [twiceReader], { workload: twicePrograms })
 
 /**
@@ -1109,15 +1109,15 @@ const post = {
 	body: "b",
 	status: "Draft"
 } as const
-// @ts-expect-error -- TS2345 refusal: a ChangeSet writes only the ordinary relations of its schema and the world relations its role writes
+// @ts-expect-error -- refusal: a ChangeSet writes only the ordinary relations of its schema and the world relations its role writes
 export const writePost = ChangeSet.empty(MemberBlog).insert(MemberPost, [post])
 
 /** "A query over the schema is a type error on a role that does not hold every table whole". */
-// @ts-expect-error -- TS2345 refusal: a program over no level of the database's schema
+// @ts-expect-error -- refusal: a program over no level of the database's schema
 export const baseOnMember = (db: Db<typeof MemberBlog, unknown>) => db.execute(published, {})
 
 /** "requires verify exactly when a role of the login reads a context". */
-// @ts-expect-error -- TS2345: a role of the web login reads a context, so its layer needs verify
+// @ts-expect-error -- refused: a role of the web login reads a context, so its layer needs verify
 export const webWithoutVerify = DbLayer.make({
 	...connection,
 	login: WebServed,
@@ -1135,7 +1135,7 @@ declare const dashboardFile: unknown
 const DashboardServed = served<typeof Dashboard>(dashboardFile, "dashboard")
 
 /** "Opening a Db of key_admin through the dashboard's served login doesn't compile without a token". */
-// @ts-expect-error -- TS2741: KeyAdmin reads a context, so Db.open requires a token
+// @ts-expect-error -- refused: KeyAdmin reads a context, so Db.open requires a token
 export const keyAdminWithoutToken = Db.open(DashboardServed.roles.key_admin, {})
 
 export type TopModelsHead = Expect<

@@ -31,8 +31,8 @@ import {
 	type Diagnostic,
 	type Directive,
 	disarm,
-	type Place,
-	placeKey
+	type FileLine,
+	lineKey
 } from "#test/types/batch/directives.ts"
 import { type BatchAt, typeRun } from "#test/types/batch/provided.ts"
 
@@ -166,8 +166,8 @@ type PromisedDiagnostic = Pick<Diagnostic, keyof Diagnostic>
 /** An error diagnostic, with its text: its first line plus its continuation lines, joined by "\n". */
 type ErrorDiagnostic = PromisedDiagnostic & { readonly text: string }
 
-/** A Place as plain data. */
-type PromisedPlace = Pick<Place, keyof Place>
+/** A FileLine as plain data. */
+type PromisedLine = Pick<FileLine, keyof FileLine>
 
 /**
  * A line's diagnostics as a twin compares them: each code it raises, beside the refusal that diagnostic prints, sorted
@@ -191,17 +191,17 @@ export type Problem =
 	| { readonly kind: "vacuous" }
 	| {
 			readonly kind: "code"
-			readonly at: PromisedPlace
+			readonly at: PromisedLine
 			readonly claimed: string
 			readonly raised: ReadonlyArray<string>
 	  }
-	| { readonly kind: "refusal missing"; readonly at: PromisedPlace; readonly refusal: string }
-	| { readonly kind: "refusal unnamed"; readonly at: PromisedPlace; readonly printed: string }
-	| { readonly kind: "twin alone"; readonly label: string; readonly at: PromisedPlace }
+	| { readonly kind: "refusal missing"; readonly at: PromisedLine; readonly refusal: string }
+	| { readonly kind: "refusal unnamed"; readonly at: PromisedLine; readonly printed: string }
+	| { readonly kind: "twin alone"; readonly label: string; readonly at: PromisedLine }
 	| {
 			readonly kind: "twins differ"
 			readonly label: string
-			readonly lines: ReadonlyArray<{ readonly at: PromisedPlace; readonly raised: Signature }>
+			readonly lines: ReadonlyArray<{ readonly at: PromisedLine; readonly raised: Signature }>
 	  }
 	| { readonly kind: "lacking"; readonly reason: string }
 
@@ -213,16 +213,16 @@ const problemText = (unit: string, problem: Problem): string => {
 		case "vacuous":
 			return `${unit}: a disarmed unit with no directive proves nothing`
 		case "code":
-			return `${placeKey(problem.at)}: raises ${Arr.join(problem.raised, ", ")}, where its directive claims ${problem.claimed}`
+			return `${lineKey(problem.at)}: raises ${Arr.join(problem.raised, ", ")}, where its directive claims ${problem.claimed}`
 		case "refusal missing":
-			return `${placeKey(problem.at)}: the diagnostic carries no Refusal<"${problem.refusal}">`
+			return `${lineKey(problem.at)}: the diagnostic carries no Refusal<"${problem.refusal}">`
 		case "refusal unnamed":
-			return `${placeKey(problem.at)}: the diagnostic carries ${problem.printed}: name it, "// @ts-expect-error -- TSnnnn refusal: <message>"`
+			return `${lineKey(problem.at)}: the diagnostic carries ${problem.printed}: name it, "// @ts-expect-error -- refusal: <message>"`
 		case "twin alone":
-			return `${placeKey(problem.at)}: twin ${problem.label} stands on this line alone, which compares it with nothing`
+			return `${lineKey(problem.at)}: twin ${problem.label} stands on this line alone, which compares it with nothing`
 		case "twins differ":
 			return `twin ${problem.label} raises other diagnostics at each of its lines: ${Arr.join(
-				Arr.map(problem.lines, ({ at, raised }) => `${placeKey(at)} ${Arr.join(raised, ", ")}`),
+				Arr.map(problem.lines, ({ at, raised }) => `${lineKey(at)} ${Arr.join(raised, ", ")}`),
 				"; "
 			)}`
 		case "lacking":
@@ -240,7 +240,7 @@ type UnitResult = {
 	/** Where each of the unit's error diagnostics is, by file name; its text is the output's. */
 	readonly errors: ReadonlyArray<PromisedDiagnostic>
 	/** The lines the unit's disarmed directives state, in order, one per directive. */
-	readonly directives: ReadonlyArray<PromisedPlace>
+	readonly directives: ReadonlyArray<PromisedLine>
 	/** Why the unit's checks fail whatever tsgo reported. */
 	readonly problems: ReadonlyArray<Problem>
 }
@@ -416,7 +416,7 @@ const refusalFragment = (text: string): Option.Option<string> =>
 const sameSignature = Arr.makeEquivalence(Equivalence.String)
 
 /** The diagnostics of `errors` on the line `at` names, as a twin compares them (Signature). */
-const signatureAt = (errors: ReadonlyArray<ErrorDiagnostic>, at: Place): Signature =>
+const signatureAt = (errors: ReadonlyArray<ErrorDiagnostic>, at: FileLine): Signature =>
 	Arr.sort(
 		Arr.dedupe(
 			Arr.filterMap(errors, (e) =>
@@ -444,7 +444,7 @@ const contradicted = (
 	errors: ReadonlyArray<ErrorDiagnostic>
 ): ReadonlyArray<Problem> => {
 	const own = Arr.flatMap(directives, (directive): ReadonlyArray<Problem> => {
-		const at: PromisedPlace = { file: directive.file, line: directive.line }
+		const at: PromisedLine = { file: directive.file, line: directive.line }
 		const matched = Arr.filter(errors, (e) => e.file === at.file && e.line === at.line)
 		const codes = Arr.sort(Arr.dedupe(Arr.map(matched, (e) => e.code)), Order.String)
 		const printed = Arr.findFirst(matched, (e) => refusalFragment(e.text))
@@ -464,13 +464,10 @@ const contradicted = (
 			case "code":
 				return [...coded(claim.code), ...unnamed()]
 			case "refusal":
-				return [
-					...coded(claim.code),
-					...(!Arr.isReadonlyArrayNonEmpty(matched) ||
+				return !Arr.isReadonlyArrayNonEmpty(matched) ||
 					Arr.some(matched, (e) => Str.includes(`Refusal<"${claim.refusal}">`)(e.text))
-						? []
-						: [{ kind: "refusal missing" as const, at, refusal: claim.refusal }])
-				]
+					? []
+					: [{ kind: "refusal missing", at, refusal: claim.refusal }]
 			case "refused":
 				return unnamed()
 			case "twin":
@@ -930,8 +927,8 @@ const checkedOf = (
 	unattributed: ReadonlyArray<string>
 ): Checked => {
 	const problems = Arr.map(result.problems, (problem) => problemText(unit, problem))
-	const lines = (places: ReadonlyArray<Place>) =>
-		Arr.sort(Arr.dedupe(Arr.map(places, placeKey)), Order.String)
+	const lines = (places: ReadonlyArray<FileLine>) =>
+		Arr.sort(Arr.dedupe(Arr.map(places, lineKey)), Order.String)
 	return {
 		output: Arr.join([...result.output, ...problems, ...unattributed], "\n"),
 		expected: lines(result.directives),

@@ -2,7 +2,7 @@ import { Array as Arr } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { type PreludeAt, preludeProgram } from "#test/support/prelude.ts"
-import { type Steps, steps } from "#test/types/batch/measured.ts"
+import { type EqualSteps, equalSteps } from "#test/types/batch/measured.ts"
 
 /**
  * The query-scale programs, one per dimension of what a program states over a schema, each checked at three sizes an
@@ -34,7 +34,7 @@ type QueryShape = {
 /** One dimension: its name, its sizes, and the shape at a size along it. */
 interface QueryDimension {
 	readonly name: string
-	readonly steps: Steps
+	readonly steps: EqualSteps
 	readonly shape: (size: number) => QueryShape
 }
 
@@ -52,7 +52,7 @@ const fixedRelations = 4 * relationPeriod
 export const queryDimensions: ReadonlyArray<QueryDimension> = [
 	{
 		name: "query rules and attachments",
-		steps: steps(fixedRelations),
+		steps: equalSteps(fixedRelations),
 		shape: (rules) => ({
 			relations: fixedRelations,
 			rules,
@@ -63,7 +63,7 @@ export const queryDimensions: ReadonlyArray<QueryDimension> = [
 	},
 	{
 		name: "ChangeSet inserts",
-		steps: steps(3 * fixedRelations),
+		steps: equalSteps(3 * fixedRelations),
 		shape: (members) => ({
 			relations: fixedRelations,
 			rules: 0,
@@ -74,7 +74,7 @@ export const queryDimensions: ReadonlyArray<QueryDimension> = [
 	},
 	{
 		name: "ChangeSet inserts, deletes and puts",
-		steps: steps(3 * fixedRelations),
+		steps: equalSteps(3 * fixedRelations),
 		shape: (members) => ({
 			relations: fixedRelations,
 			rules: 0,
@@ -85,7 +85,7 @@ export const queryDimensions: ReadonlyArray<QueryDimension> = [
 	},
 	{
 		name: "ChangeSet insertAll over every relation",
-		steps: steps(4 * relationPeriod),
+		steps: equalSteps(4 * relationPeriod),
 		shape: (size) => ({
 			relations: size,
 			rules: 0,
@@ -96,7 +96,7 @@ export const queryDimensions: ReadonlyArray<QueryDimension> = [
 	},
 	{
 		name: "contexts",
-		steps: steps(2 * relationPeriod),
+		steps: equalSteps(2 * relationPeriod),
 		shape: (contexts) => ({
 			relations: fixedRelations,
 			rules: 0,
@@ -107,7 +107,7 @@ export const queryDimensions: ReadonlyArray<QueryDimension> = [
 	},
 	{
 		name: "relations with their rules and members",
-		steps: steps(4 * relationPeriod),
+		steps: equalSteps(4 * relationPeriod),
 		shape: (size) => ({
 			relations: size,
 			rules: size,

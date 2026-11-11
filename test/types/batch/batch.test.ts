@@ -65,7 +65,7 @@ import {
 	whenWritten
 } from "#test/types/batch/batch.ts"
 import { guardedRun } from "#test/types/batch/compiler.ts"
-import { type Diagnostic, type Place, placeKey } from "#test/types/batch/directives.ts"
+import { type Diagnostic, type FileLine, lineKey } from "#test/types/batch/directives.ts"
 import { startBatch } from "#test/types/batch/global-setup.ts"
 import { type BatchAt, type TypeRun, typeRun } from "#test/types/batch/provided.ts"
 
@@ -229,7 +229,9 @@ const writtenOf = (
 	const written: Array<Written> = []
 	Arr.forEach(lines, (planted, index) => {
 		const directive = directiveOf(planted.over)
-		text.push(...directive, declaration(planted.raises, index))
+		Arr.forEach([...directive, declaration(planted.raises, index)], (line) => {
+			text.push(line)
+		})
 		written.push({
 			planted,
 			directive: text.length - directive.length,
@@ -251,7 +253,7 @@ const expectedOf = (
 	disarmed: boolean
 ): Readonly<{
 	errors: ReadonlyArray<Diagnostic>
-	directives: ReadonlyArray<Place>
+	directives: ReadonlyArray<FileLine>
 	problems: ReadonlyArray<Problem>
 }> => {
 	const lines = Arr.flatMap(modules, ({ file, lines: written }) =>
@@ -328,7 +330,7 @@ const diagnosticSet = (diagnostics: ReadonlyArray<Diagnostic>): ReadonlyArray<Di
 const problemOrder: Order.Order<Problem> = Order.mapInput(
 	Order.Struct({ kind: Order.String, label: Order.String, file: Order.String, line: Order.Number }),
 	(problem: Problem) => {
-		const at = (place: Place) => ({ file: place.file, line: place.line })
+		const at = (place: FileLine) => ({ file: place.file, line: place.line })
 		switch (problem.kind) {
 			case "code":
 			case "refusal missing":
@@ -519,11 +521,11 @@ const attributed = (planted: Planted, c: Case<Feature>) =>
 			}
 			const asSets = (result: {
 				readonly errors: ReadonlyArray<Diagnostic>
-				readonly directives: ReadonlyArray<Place>
+				readonly directives: ReadonlyArray<FileLine>
 				readonly problems: ReadonlyArray<Problem>
 			}) => ({
 				errors: diagnosticSet(result.errors),
-				directives: Arr.map(result.directives, placeKey),
+				directives: Arr.map(result.directives, lineKey),
 				problems: Arr.sort(result.problems, problemOrder)
 			})
 			assert.deepEqual(

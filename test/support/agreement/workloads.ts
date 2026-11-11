@@ -57,13 +57,13 @@ import {
  * A case draws its schema (Work, its extension Reports, a writer, a reader and a clerk of Work, and Other, a schema
  * no level of Work reaches), and one to three programs, each a query, an ordered query, a ChangeSet or a key over any
  * of those schemas or Twin, a schema of Work's name and other content, or a value that is no program (a schema). The
- * programs are a record, or, as a planted fault, a list. A refusal stands under its directive: a record's program is
- * refused at its property (TS2322), a list at the argument (TS2345).
+ * programs are a record, or, as a planted fault, a list. A refusal stands under its directive, on the workload's one
+ * line.
  *
  * An admitted workload over Work or a role of it, owned by a login over Work holding every role of Work, is also opened
  * through the login served as its type, `served<typeof L>(file, name)`: Db.open of a served role is exactly the Db the
  * login's own role types, its workload's handles among it, and a role the login does not hold is no member of the served
- * login's roles (TS2339).
+ * login's roles.
  *
  * One class of workloads the types accept and the engine refuses is declared (declaredClasses) and drawn with no
  * directive, its refusal asserted by its reason: a program under the empty name, which the record's string keys admit
@@ -367,7 +367,7 @@ const servedLines = (role: string, i: number): ReadonlyArray<string> => [
 	`export const s${i} = served<typeof l${i}>(file, "l${i}")`,
 	`export const o${i} = Db.open(s${i}.roles.${role}, { token: "token" })`,
 	`export type d${i} = Expect<Equals<Effect.Success<typeof o${i}>, OpenedAs<(typeof l${i})["roles"]["${role}"]>>>`,
-	"// @ts-expect-error -- TS2339: a served login holds its login's roles alone",
+	"// @ts-expect-error -- refused: a served login holds its login's roles alone",
 	`export const z${i} = s${i}.roles.stranger`
 ]
 
@@ -389,12 +389,12 @@ const blockOf = (c: WorkloadCase, i: number): ReadonlyArray<string> => {
 			]
 		case "a list of programs":
 			return [
-				"// @ts-expect-error -- TS2345: the programs are a record of named programs, never a list",
+				"// @ts-expect-error -- refused: the programs are a record of named programs, never a list",
 				statement
 			]
 		case undefined:
 			return [
-				"// @ts-expect-error -- TS2322: a program over a level of the workload's schema, or a key of a relation of one",
+				"// @ts-expect-error -- refused: a program over a level of the workload's schema, or a key of a relation of one",
 				statement
 			]
 	}

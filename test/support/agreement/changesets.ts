@@ -474,18 +474,6 @@ export const changeSetServed: Arr.NonEmptyReadonlyArray<ServedNote> = [
 	"served: a fact with a field its relation lacks"
 ]
 
-/**
- * The codes a served call's refused facts are reported by: an op left out is a property FactsCheck requires that the
- * argument lacks, at the argument (TS2345), which an argument of no op at all, the empty record, states as its one
- * missing property (TS2741); an op naming no array member's is a record where FactsCheck requires its Refusal, whose one
- * property the record lacks, at that key (TS2741); a relation or a fact FactsCheck refuses, at that key of the facts
- * (TS2322).
- */
-const servedShapeCode = "TS2345"
-const servedEmptyCode = "TS2741"
-const servedOpCode = "TS2741"
-const servedFactCode = "TS2322"
-
 /** What a case reached: its constructs and fault, the engine's verdict, and the Refusal its directive names. */
 export type ChangeSetNote =
 	| ChangeSetFeature
@@ -2284,7 +2272,6 @@ type Verdict =
 			readonly kind: "refused"
 			readonly at: "change" | "apply"
 			readonly claim: Claim
-			readonly code: string
 	  }
 
 /**
@@ -2358,19 +2345,13 @@ const paramText = (t: ScalarType): string =>
 			)}, "code", ${hostText(t)}>`
 		: `ParamType<${hostText(t)}, ${jsonText(carrierSql[t.carrier])}>`
 
-const refusedAt = (
-	at: "change" | "apply",
-	thrown: unknown,
-	spec: CaseSpec,
-	code: string
-): Verdict => ({
+const refusedAt = (at: "change" | "apply", thrown: unknown, spec: CaseSpec): Verdict => ({
 	kind: "refused",
 	at,
 	claim:
 		thrown instanceof CompileError
 			? claimOf(thrown.reason, spec)
-			: { kind: "prose", why: `the host: ${oneLine(messageOf(thrown))}` },
-	code
+			: { kind: "prose", why: `the host: ${oneLine(messageOf(thrown))}` }
 })
 
 /** The artifacts and checked schema a level's ChangeSets compile against, over reality. */
@@ -2469,46 +2450,6 @@ const outsideItsDomain = (laws: ReturnType<typeof realityWrite>["laws"], c: Chan
 	)
 
 /**
- * The diagnostic a planted fault raises: a fold's head field is a property of an object (TS2322), and so is a member
- * at an insertAll key that its own check refuses, a Stream's under exactOptionalPropertyTypes (TS2375); a Stream
- * member's fact is an argument under exactOptionalPropertyTypes (TS2379), every other an argument (TS2345).
- */
-const codeOf = (spec: CaseSpec): string =>
-	spec.fault === "a fold over a delta reading no key"
-		? "TS2322"
-		: keyedFault(spec)
-			? streamFirst(spec.change)
-				? "TS2375"
-				: "TS2322"
-			: spec.fault !== undefined && Arr.contains(factFaults, spec.fault) && streamFirst(spec.change)
-				? "TS2379"
-				: "TS2345"
-
-/**
- * Whether a case's fault is its first member's own, which an insertAll holds at a key: the member's check, refused at
- * its key, rather than its stratum's or its application's.
- */
-const keyedFault = (spec: CaseSpec): boolean =>
-	spec.change.kind === "built" &&
-	spec.fault !== undefined &&
-	Arr.contains(memberFaults, spec.fault) &&
-	!Arr.contains(stratumFaults, spec.fault) &&
-	Arr.some(
-		callsOf(spec.change),
-		(call) => call.kind === "insertAll" && Arr.some(call.entries, (e) => e.at === 0)
-	)
-
-/** The member faults the types refuse where the stratum or the application is checked, never at the member. */
-const stratumFaults: ReadonlyArray<ChangeSetFault> = [
-	"an append to an owner its stratum does not insert",
-	"a family's members edited in two strata"
-]
-
-/** Whether a case's first member, which carries a member's planted fault, is a Stream. */
-const streamFirst = (c: ChangeSpec): boolean =>
-	c.kind === "built" ? c.members[0]?.kind === "stream" : streamFirst(c.a)
-
-/**
  * The operations db.compile's handle of a compiled ChangeSet over `level` offers (changeOps), the shell's oracle of what
  * a compiled ChangeSet does when read as a query: a read refuses before it reads its parameters or reaches the compiled
  * value's apply.
@@ -2535,10 +2476,9 @@ const verdictOf = (spec: CaseSpec): Verdict => {
 
 /** The engine's verdict on one ChangeSet: built, compiled over reality, bound, then compiled for the applying role. */
 const verdictOfOne = (spec: CaseSpec): Verdict => {
-	const code = codeOf(spec)
 	const built = Result.try(() => buildChange(spec.change))
 	if (Result.isFailure(built)) {
-		return refusedAt("change", built.failure, spec, code)
+		return refusedAt("change", built.failure, spec)
 	}
 	const reality = realities[levelOf(spec.change)]
 	const desc = changeSetDesc(built.success)
@@ -2550,8 +2490,7 @@ const verdictOfOne = (spec: CaseSpec): Verdict => {
 		return refusedAt(
 			spec.fault === "an append to an owner its stratum does not insert" ? "apply" : "change",
 			program.error,
-			spec,
-			code
+			spec
 		)
 	}
 	const entries =
@@ -2572,8 +2511,7 @@ const verdictOfOne = (spec: CaseSpec): Verdict => {
 		return {
 			kind: "refused",
 			at: "apply",
-			claim: { kind: "refusal", refusal: "a parameter map names only its program's parameters" },
-			code
+			claim: { kind: "refusal", refusal: "a parameter map names only its program's parameters" }
 		}
 	}
 	const args = Rec.fromEntries(Arr.map(entries, ([n, l]) => [n, l.value] as const))
@@ -2581,7 +2519,7 @@ const verdictOfOne = (spec: CaseSpec): Verdict => {
 	if (!encoded.ok) {
 		const failure = encoded.error
 		if (failure instanceof CompileError) {
-			return refusedAt("change", failure, spec, code)
+			return refusedAt("change", failure, spec)
 		}
 		if (failure._tag === "LiteralBound" || failure._tag === "MessageBound") {
 			throw new Error(`the engine refuses a drawn ChangeSet's input as too large: ${failure._tag}`)
@@ -2591,14 +2529,12 @@ const verdictOfOne = (spec: CaseSpec): Verdict => {
 			? {
 					kind: "refused",
 					at: "apply",
-					claim: { kind: "prose", why: `the engine: no value for ${place.name}` },
-					code
+					claim: { kind: "prose", why: `the engine: no value for ${place.name}` }
 				}
 			: {
 					kind: "refused",
 					at: "change",
-					claim: { kind: "refusal", refusal: "a member fact is not a fact of the relation" },
-					code
+					claim: { kind: "refusal", refusal: "a member fact is not a fact of the relation" }
 				}
 	}
 	if (
@@ -2613,8 +2549,7 @@ const verdictOfOne = (spec: CaseSpec): Verdict => {
 		return {
 			kind: "refused",
 			at: "change",
-			claim: { kind: "refusal", refusal: "a member fact is not a fact of the relation" },
-			code
+			claim: { kind: "refusal", refusal: "a member fact is not a fact of the relation" }
 		}
 	}
 	if (encoded.value.kind === "invariant-rejected" && spec.fault === "two facts sharing a key") {
@@ -2624,15 +2559,14 @@ const verdictOfOne = (spec: CaseSpec): Verdict => {
 			claim: {
 				kind: "refusal",
 				refusal: "two facts of one relation share a key with different values; a key names one fact"
-			},
-			code
+			}
 		}
 	}
 	if (spec.apply !== undefined) {
 		const world = roleWorlds[spec.apply.role]
 		const applied = compileWrite(world.checked, desc, world.options)
 		if (!applied.ok) {
-			return refusedAt("apply", applied.error, spec, code)
+			return refusedAt("apply", applied.error, spec)
 		}
 		if (spec.apply.entry === "execute" || spec.apply.entry === "get") {
 			const ops = compiledChange(levelOf(spec.change))
@@ -2640,20 +2574,14 @@ const verdictOfOne = (spec: CaseSpec): Verdict => {
 				spec.apply.entry === "execute"
 					? Effect.runSync(Effect.flip(ops.execute({})))
 					: Effect.runSync(Effect.flip(ops.get({})))
-			return refusedAt(
-				"apply",
-				failure._tag === "ReadFailure" ? failure.reason : failure,
-				spec,
-				code
-			)
+			return refusedAt("apply", failure._tag === "ReadFailure" ? failure.reason : failure, spec)
 		}
 	}
 	if (spec.fault === "a value missing its brand") {
 		return {
 			kind: "refused",
 			at: "change",
-			claim: { kind: "refusal", refusal: "the query's head is not a fact of the relation" },
-			code
+			claim: { kind: "refusal", refusal: "the query's head is not a fact of the relation" }
 		}
 	}
 	const free = new Set(Arr.map(freeParams(spec.change), ([n]) => n))
@@ -2929,8 +2857,7 @@ const servedOf = (
 						kind: "refusal",
 						refusal:
 							"two facts of one relation share a key with different values; a key names one fact"
-					},
-					code: servedFactCode
+					}
 				}
 			}
 		]
@@ -2943,8 +2870,7 @@ const servedOf = (
 		verdict: {
 			kind: "refused",
 			at: "apply",
-			claim: { kind: "prose", why: "the facts leave out an array member's op" },
-			code: Arr.isReadonlyArrayNonEmpty(kept) ? servedShapeCode : servedEmptyCode
+			claim: { kind: "prose", why: "the facts leave out an array member's op" }
 		}
 	}
 	const first = Arr.headNonEmpty(groups)
@@ -2965,8 +2891,7 @@ const servedOf = (
 							kind: "refusal",
 							refusal:
 								"a served ChangeSet's facts name, under each op, only the relations of its array members of that op"
-						},
-						code: servedFactCode
+						}
 					}
 				}
 			]
@@ -2986,8 +2911,7 @@ const servedOf = (
 							kind: "refusal",
 							refusal:
 								"a served ChangeSet's facts name only the ops of its array members: insert, put and delete"
-						},
-						code: servedOpCode
+						}
 					}
 				}
 			]
@@ -3015,8 +2939,7 @@ const servedOf = (
 					variant: "a fact with a field its relation lacks",
 					facts: factsOf(arrayGroupsOf(change), [], []),
 					params,
-					verdict:
-						engine.kind === "refused" ? { ...engine, at: "apply", code: servedFactCode } : engine
+					verdict: engine.kind === "refused" ? { ...engine, at: "apply" } : engine
 				}
 			]
 		}
@@ -3270,8 +3193,8 @@ const directiveOf = (v: Verdict, at: "change" | "apply"): ReadonlyArray<string> 
 	v.kind === "refused" && v.at === at
 		? [
 				v.claim.kind === "refusal"
-					? `\t// @ts-expect-error -- ${v.code} refusal: ${v.claim.refusal}`
-					: `\t// @ts-expect-error -- ${v.code}: ${v.claim.why}`
+					? `\t// @ts-expect-error -- refusal: ${v.claim.refusal}`
+					: `\t// @ts-expect-error -- refused: ${v.claim.why}`
 			]
 		: []
 

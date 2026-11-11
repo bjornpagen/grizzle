@@ -68,8 +68,8 @@ import { preludeAt, type PreludeAt, preludeFrom, preludeProgram } from "#test/su
  *   the login value itself, of the role value itself, or of the schema typechecks exactly when Db.open's boundary reads
  *   its argument as a served login's role (pool/served.ts readServedRole);
  * - Db.open given no options, null, a token, or a token of another type than text typechecks exactly when Db.open's
- *   boundary reads them (db/served.ts openToken), refusing what a JavaScript caller passes at stage schema: no options
- *   at the call's arity (TS2554), null as the argument (TS2345), and another token at the token (TS2322);
+ *   boundary reads them (db/served.ts openToken), refusing what a JavaScript caller passes at stage schema: no options,
+ *   null as the argument, and another token;
  * - a program over the base, reading its ordinary relations alone or the closed relation's rows too, a member of a
  *   workload over a role, typechecks exactly when the engine compiles it for the role: a role holding every relation of
  *   the base whole but the closed one, whose rows every role reads, runs it, and a role holding one only through a query
@@ -131,20 +131,16 @@ const levelValues: { readonly [L in keyof typeof levelPrograms]: object } = {
 	Reports: accountTasks
 }
 
-/**
- * The directive of an opener that is no served login's role: the diagnostic it raises at Db.open's argument, which is
- * typed ServedRole, a plain interface, so the checker names the ServedRole members the argument lacks: a role reached
- * through its login lacks one, `base` (TS2741), and a role value or a schema lack several (TS2739).
- */
+/** The directive of an opener that is no served login's role: Db.open's argument refuses it. */
 const openerDirective = (opener: Opener): string => {
 	switch (opener) {
 		case "served role":
 			throw new Error("Db.open's boundary refuses a served login's role")
 		case "login role":
-			return "// @ts-expect-error -- TS2741: Db.open takes a role of a served login, and a login's role lacks its base"
+			return "// @ts-expect-error -- refused: Db.open takes a role of a served login, and a login's role lacks its base"
 		case "role value":
 		case "schema":
-			return "// @ts-expect-error -- TS2739: Db.open takes a role of a served login"
+			return "// @ts-expect-error -- refused: Db.open takes a role of a served login"
 	}
 }
 
@@ -163,18 +159,13 @@ const optionValues: {
 }
 
 /**
- * The diagnostic each malformed form raises, with why: the call's arity, the argument, or the token's property. A text
- * token is well formed, so the boundary refusing one is a defect the agreement reports.
+ * Why each malformed form is refused: the call's arity, the argument, or the token's property. A text token is well
+ * formed, so the boundary refusing one is a defect the agreement reports.
  */
-const optionRefusals: {
-	readonly [F in Exclude<OptionForm, "a token">]: {
-		readonly code: string
-		readonly why: string
-	}
-} = {
-	omitted: { code: "TS2554", why: "Db.open needs its options" },
-	null: { code: "TS2345", why: "Db.open's options are an object" },
-	"a token of another type": { code: "TS2322", why: "Db.open's token is text" }
+const optionRefusals: { readonly [F in Exclude<OptionForm, "a token">]: string } = {
+	omitted: "Db.open needs its options",
+	null: "Db.open's options are an object",
+	"a token of another type": "Db.open's token is text"
 }
 
 /** The directive of options the boundary refuses. */
@@ -182,8 +173,7 @@ const optionDirective = (form: OptionForm): string => {
 	if (form === "a token") {
 		throw new Error("Db.open's boundary refuses a text token")
 	}
-	const { code, why } = optionRefusals[form]
-	return `// @ts-expect-error -- ${code}: ${why}`
+	return `// @ts-expect-error -- refused: ${optionRefusals[form]}`
 }
 
 /** How a workload over a role serves a program: as a query member, or as the read-back of a ChangeSet member. */
@@ -653,7 +643,7 @@ const contextRefusal: Refused =
 
 /** The directive of a workload member over no level of the workload's schema, as workload(...) refuses it. */
 const levelDirective =
-	"// @ts-expect-error -- TS2322: a program over a level of the workload's schema, or a key of a relation of one"
+	"// @ts-expect-error -- refused: a program over a level of the workload's schema, or a key of a relation of one"
 
 /** A role's declaration, in the program. */
 const roleSource = (spec: AccessSpec, r: RoleSpec, i: number): string =>
@@ -696,8 +686,8 @@ const fullBlock = (spec: AccessSpec, verdict: FullVerdict, i: number): ReadonlyA
 		case "refused":
 			return [
 				verdict.repeat
-					? `// @ts-expect-error -- TS2345 refusal: ${repeatRefusal}`
-					: "// @ts-expect-error -- TS2345: role refuses the full role's write or refresh list",
+					? `// @ts-expect-error -- refusal: ${repeatRefusal}`
+					: "// @ts-expect-error -- refused: role refuses the full role's write or refresh list",
 				declaration
 			]
 		case "admitted":
@@ -740,7 +730,7 @@ const overLines = (
 	return [
 		...(admitted
 			? []
-			: [`// @ts-expect-error -- TS2345: ${builder} takes a schema, and a role is none`]),
+			: [`// @ts-expect-error -- refused: ${builder} takes a schema, and a role is none`]),
 		`export const B${i}_${schemaTakers.indexOf(builder)} = ${call}`
 	]
 }
@@ -770,7 +760,7 @@ const blockOf = (c: AccessCase, i: number): ReadonlyArray<string> => {
 	)
 	const opens = Arr.flatMap(Arr.zip(spec.roles, verdict.reads), ([r, reads]) => [
 		...(reads
-			? [`// @ts-expect-error -- TS2741: role ${r.name} reads a context, so Db.open needs a token`]
+			? [`// @ts-expect-error -- refused: role ${r.name} reads a context, so Db.open needs a token`]
 			: []),
 		`export const o${i}_${r.name} = Db.open(S${i}.roles.${r.name}, {})`,
 		`export const t${i}_${r.name} = Db.open(S${i}.roles.${r.name}, { token: "token" })`,
@@ -793,7 +783,7 @@ const blockOf = (c: AccessCase, i: number): ReadonlyArray<string> => {
 		...opens,
 		...(Arr.some(verdict.reads, (x) => x)
 			? [
-					"// @ts-expect-error -- TS2345: a role of the login reads a context, so its layer needs verify"
+					"// @ts-expect-error -- refused: a role of the login reads a context, so its layer needs verify"
 				]
 			: []),
 		`export const m${i} = DbLayer.make({ ...destination, login: S${i}, password })`,
@@ -806,12 +796,12 @@ const blockOf = (c: AccessCase, i: number): ReadonlyArray<string> => {
 		...(verdict.base ? [] : [levelDirective]),
 		`export const b${i} = workload(${defined(roleIds[spec.base.role], "the base program's role")}, { p: ${spec.base.program} })`,
 		programSource(programRole, spec.program.context, i),
-		...(verdict.program ? [] : [`// @ts-expect-error -- TS2322 refusal: ${contextRefusal}`]),
+		...(verdict.program ? [] : [`// @ts-expect-error -- refusal: ${contextRefusal}`]),
 		`export const x${i} = workload(${programRole}, { p: ${served} })`,
 		...(verdict.refresh
 			? []
 			: [
-					"// @ts-expect-error -- TS2322: a refresh member names derived relations of its role's refresh list"
+					"// @ts-expect-error -- refused: a refresh member names derived relations of its role's refresh list"
 				]),
 		`export const f${i} = workload(${refreshRole}, { r: refresh([${Arr.join(spec.refresh.names, ", ")}]) })`,
 		...(verdict.refresh
