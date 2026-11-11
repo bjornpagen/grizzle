@@ -51,8 +51,11 @@ export interface WriteFact {
  * - `mode`: `positive` where the rows it finds feed the statement, `negated` where their absence does (an anti-join,
  *   NOT EXISTS, r.not) or may (a value or a branch that reads both), `counted` where their number or an aggregate over
  *   them does, and `arbiter` where it is the arbitration of a relation the statement writes (an EXISTS or NOT EXISTS
- *   probe of it, an INSERT's ON CONFLICT, or a MERGE's NOT MATCHED), which PostgreSQL's unique check decides whatever
- *   the call read when its group binds a whole declared key;
+ *   probe of it, an INSERT's ON CONFLICT, one per object an ON CONFLICT with no target arbitrates, or a MERGE's NOT
+ *   MATCHED), which PostgreSQL's unique check decides whatever the call read when its group binds a whole declared key,
+ *   or the read of the row such an arbitration met by DO NOTHING under a transaction snapshot, for a row the INSERT
+ *   proposed and did not insert, which is committed and visible to its statement, since DO NOTHING raises 40001 on a
+ *   conflicting row its snapshot cannot see;
  * - `own`: whether the read can see only rows the call's own earlier statements wrote;
  * - `group`: the group it binds (Group), or none where it reads the relation otherwise;
  * - `probes`: the probes it stands beneath, outermost first, by their places in its statement's `probes`;
@@ -136,14 +139,19 @@ export interface MemberFacts {
 }
 
 /**
- * One role of one login: the privileges its grant plan holds, by relation, and its change members. Its read members
- * run SERIALIZABLE READ ONLY whatever its verdict, so no fact of theirs is read.
+ * One role of one login: the privileges its grant plan holds, by relation, its change members in the form served at
+ * READ COMMITTED (`members`), and in the form served at SERIALIZABLE where certification lowered it (`serializable`,
+ * program/isolation/certification.ts), none before. A role is served the form its level chooses, so its own conditions
+ * read `members` alone, which it is served exactly when it runs READ COMMITTED; every reason it gives another role, and
+ * every fact the installation states of a relation's writers, reads both, the form it may be served either way. Its
+ * read members run SERIALIZABLE READ ONLY whatever its verdict, so no fact of theirs is read.
  */
 export interface RoleFacts {
 	readonly login: string
 	readonly role: string
 	readonly privileges: ReadonlyMap<string, ReadonlySet<TablePrivilege>>
 	readonly members: ReadonlyArray<MemberFacts>
+	readonly serializable: ReadonlyArray<MemberFacts>
 }
 
 /**

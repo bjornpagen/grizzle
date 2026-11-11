@@ -136,7 +136,8 @@ const nativeReferences = (model: LawModel): ReadonlyMap<string, ReadonlyArray<Re
  * The isolation facts of an installation (analysis/isolation/facts.ts IsolationInput), total by construction: one
  * RelationFacts for every relation its owned schema states, at every level, stored, closed and derived alike, by its
  * declared name, and one RoleFacts for every role of `sources`, in their order, its privileges its grant plan's and its
- * members' facts the extractor's for each of its change members, in member order, every variant's.
+ * members' facts the extractor's for each of its change members, in member order, every variant's, none yet in the
+ * serializable form, which certification lowers a role to once it runs SERIALIZABLE (program/isolation/certification.ts).
  */
 export const isolationInput = <Checked, Names, Compiled>(
 	sources: IsolationSources<Checked, Names, Compiled>
@@ -162,7 +163,8 @@ export const isolationInput = <Checked, Names, Compiled>(
 		privileges: sources.grantedPrivileges(model, role.checked),
 		members: role.members.flatMap((member) =>
 			sources.memberFacts(member.name, member.compiled, role.names)
-		)
+		),
+		serializable: []
 	}))
 	return { relations, roles }
 }

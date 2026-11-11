@@ -1,42 +1,46 @@
 /**
  * The isolation certifier (analysis/isolation/certify.ts) over drawn installations: two logins' roles over four
  * relations, each relation with trigger-held laws or not, declared keys, counted groups and foreign keys (immediate or
- * deferred alike, an update cascading or not), each role's privileges, and its change members' statements, each
- * reading relations, positively, negated, counted or as grizzle's key arbitration, its own rows or not, by a group
- * bound to one value or to one per own row, or none, and writing relations, by insert, update or delete, with each
- * written row joined with some of its statement's reads. Some draws are counterexamples: two copiers, each inserting
+ * deferred alike, an update cascading or not), each role's privileges, and its change members' statements, each reading
+ * relations, positively, negated, counted or as grizzle's key arbitration, its own rows or not, by a group bound to one
+ * value or to one per own row, or none, and writing relations, by insert, update or delete, with each written row
+ * joined with some of its statement's reads; its members as served at READ COMMITTED, and those of its SERIALIZABLE
+ * form, which it judges the other roles by beside them. Some draws are counterexamples: two copiers, each inserting
  * into one relation and then copying the other's (by a scan, or at a whole key); a writer reading another's absence
  * beside a reader of both; a chain of SERIALIZABLE readers; a SERIALIZABLE pivot writing what an RC member reads
  * unsealed; a write after an outside read joined with no row of its call; an insert into a relation an update cascades
  * to; an inserter beside a SERIALIZABLE role that may insert too, whose guard would refuse its every write; and
- * NEGATION's four histories no serial order in real time explains, each reproduced on PostgreSQL: a reader of
- * one point group lagging an in-flight SERIALIZABLE pivot, a reader of one group per own row, a copy whose foreign key
- * check misses that pivot's row, and a copy over many own rows whose deferred check reads at COMMIT.
+ * NEGATION's four histories no serial order in real time explains, each reproduced on PostgreSQL: a reader of one point
+ * group lagging an in-flight SERIALIZABLE pivot, a reader of one group per own row, a copy whose foreign key check
+ * misses that pivot's row, and a copy over many own rows whose deferred check reads at COMMIT.
  *
- * The oracle restates every condition over the drawn facts, apart from the certifier's code: each role's own conditions,
- * its foreign key checks among its reads, then, of the roles that meet them, the greatest set none of whose members a
- * role outside it gives a reason, found by trying every subset. Every role's level is the oracle's, and every
- * SERIALIZABLE role names exactly the conditions the oracle finds it failing; a role with no change member is
- * SERIALIZABLE by the members condition. Adding a capability (a privilege, a read, a statement, a member, a role, an
- * insert with no insert, a trigger-held law, a foreign key) never makes a SERIALIZABLE role READ COMMITTED, nor does
- * removing a relation's fact, but for the first change member of a role with none, which the members condition alone
- * held. Every counterexample comes out SERIALIZABLE.
+ * The oracle restates every condition over the drawn facts, apart from the certifier's code: each role's own conditions
+ * over its READ COMMITTED members, its foreign key checks among its reads, then, of the roles that meet them, the
+ * greatest set none of whose members a role outside it gives a reason, found by trying every subset, where whatever a
+ * role's members read or write, conditions 2, 3 and 5c included, is read from both its forms. Every role's level is the
+ * oracle's, and every SERIALIZABLE role names exactly the conditions the oracle finds it failing; a role with no change
+ * member is SERIALIZABLE by the members condition. Adding a capability (a privilege, a read, a statement, a member, a
+ * role, an insert with no insert, a trigger-held law, a foreign key) never makes a SERIALIZABLE role READ COMMITTED,
+ * nor does removing a relation's fact, but for the first change member of a role with none, which the members condition
+ * alone held. Every counterexample comes out SERIALIZABLE.
  *
  * Planted in a scratch copy, each of these fails the search: condition 2's SERIALIZABLE readers left out; the fixpoint
  * run once; a pivot's write before a group read only later let through; a pivot's write after an outside read joined
  * with no row of its call let through; an unsealed read sharing a member with an outside read in another statement let
- * through; condition 5c left out; a read binding part of a declared key sealed as a point; a role with no change
- * member certified; an arbitration of no whole key sealed; an arbitration of a relation a role deletes sealed; a
- * relation another role deletes written READ COMMITTED; 5c's exemption of sealed reads restored; a read of one group
- * per own row sealed; foreign key checks left out of 5c; the checks of rows that reference a changed one left out; a
- * cascading update left out of the writers; a relation with no fact read as having no foreign key (the
- * droppedReference shape); a relation a SERIALIZABLE role writes too written READ COMMITTED; an unsealed read beneath a
- * neutral probe; a probe neutral with no positive read of its group, with a gated write no read of it joins (the
- * unjoinedGate shape), or with no row path from its core (the fallbacks), one through a read beneath other probes (the
- * chainedPath shape), of another group or no positive one (the arbiterPath shape), through one UNION arm alone (the
- * unions at another key, another relation or the recursion's own rows), through no UNION or no core at all; and the
- * arbitrated read without its clean prefix; a SERIALIZABLE writer's sealed foreign key checks counted as a pivot cause;
- * and that exemption extended to a role's own checks, the publication's publisher certified READ COMMITTED.
+ * through; condition 5c left out; a read binding part of a declared key sealed as a point; a role with no change member
+ * certified; an arbitration of no whole key sealed; an arbitration of a relation a role deletes sealed; a relation
+ * another role deletes written READ COMMITTED; 5c's exemption of sealed reads restored; a read of one group per own row
+ * sealed; foreign key checks left out of 5c; the checks of rows that reference a changed one left out; a cascading
+ * update left out of the writers; a relation with no fact read as having no foreign key (the droppedReference shape); a
+ * relation a SERIALIZABLE role writes too written READ COMMITTED; an unsealed read beneath a neutral probe; a probe
+ * neutral with no positive read of its group, with a gated write no read of it joins (the unjoinedGate shape), or with
+ * no row path from its core (the fallbacks), one through a read beneath other probes (the chainedPath shape), of
+ * another group or no positive one (the arbiterPath shape), through one UNION arm alone (the unions at another key,
+ * another relation or the recursion's own rows), through no UNION or no core at all; and the arbitrated read without
+ * its clean prefix; a SERIALIZABLE writer's sealed foreign key checks counted as a pivot cause; that exemption extended
+ * to a role's own checks, the publication's publisher certified READ COMMITTED; and a SERIALIZABLE form left out of a
+ * role's judging (the served cause), of the relations' writers (the served update) or of the absence sites (the served
+ * absence), or read for the role's own conditions (the served own).
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -54,7 +58,12 @@ import {
 	type RoleIsolation,
 	readSeal
 } from "#compiler/analysis/isolation/certify.ts"
-import type { IsolationInput, RoleFacts, RowSource } from "#compiler/analysis/isolation/facts.ts"
+import type {
+	IsolationInput,
+	MemberFacts,
+	RoleFacts,
+	RowSource
+} from "#compiler/analysis/isolation/facts.ts"
 import type { TablePrivilege } from "#compiler/core/privilege.ts"
 import { assert } from "#test/support/assert.ts"
 import { wild } from "#test/support/kernel/naming.ts"
@@ -97,6 +106,7 @@ interface StatementSketch {
 	readonly cores: ReadonlyArray<ReadonlyArray<RowSource>>
 }
 
+/** A role: its login, its privileges, and its change members as served at READ COMMITTED and at SERIALIZABLE. */
 interface RoleSketch {
 	readonly login: number
 	readonly privileges: ReadonlyArray<{
@@ -104,6 +114,7 @@ interface RoleSketch {
 		readonly privilege: TablePrivilege
 	}>
 	readonly members: ReadonlyArray<ReadonlyArray<StatementSketch>>
+	readonly serializable: ReadonlyArray<ReadonlyArray<StatementSketch>>
 }
 
 /** A foreign key: the relation it references, the referenced key among KEYS, and its update action. */
@@ -136,7 +147,7 @@ type Extension =
 	| { readonly kind: "read"; readonly role: number; readonly read: ReadSketch }
 	| { readonly kind: "statement"; readonly role: number; readonly statement: StatementSketch }
 	| {
-			readonly kind: "member"
+			readonly kind: "member" | "served"
 			readonly role: number
 			readonly member: ReadonlyArray<StatementSketch>
 	  }
@@ -176,6 +187,10 @@ type Shape =
 	| "unionRecursion"
 	| "arbiterPath"
 	| "publication"
+	| "servedCause"
+	| "servedUpdate"
+	| "servedAbsence"
+	| "servedOwn"
 	| "triggered"
 	| "droppedReference"
 
@@ -349,6 +364,7 @@ const statementGen: Gen<StatementSketch> = (s) => {
 
 const roleGen: Gen<RoleSketch> = (s) => ({
 	login: s.draw(int(0, 1)),
+	serializable: s.draw(array(array(statementGen, { min: 1, max: 2 }), { min: 0, max: 1 })),
 	privileges: s.draw(
 		array((t) => ({ relation: t.draw(relationGen), privilege: t.draw(privilegeGen) }), {
 			min: 0,
@@ -442,6 +458,7 @@ const copiersOf = (group: number | undefined): Sketch => ({
 	relations: Arr.makeBy(RELATIONS, () => clean([2])),
 	roles: Arr.map([0, 1], (i): RoleSketch => ({
 		login: i,
+		serializable: [],
 		privileges: insertSelectAll,
 		members: [
 			[
@@ -466,6 +483,7 @@ const absentThenInsert: Sketch = {
 	roles: [
 		{
 			login: 0,
+			serializable: [],
 			privileges: [
 				{ relation: 0, privilege: "INSERT" },
 				{ relation: 1, privilege: "SELECT" }
@@ -476,11 +494,13 @@ const absentThenInsert: Sketch = {
 		},
 		{
 			login: 0,
+			serializable: [],
 			privileges: [{ relation: 1, privilege: "INSERT" }],
 			members: [[{ writes: [insertOf(1, [])], reads: [], probes: [], cores: [] }]]
 		},
 		{
 			login: 1,
+			serializable: [],
 			privileges: [
 				{ relation: 0, privilege: "SELECT" },
 				{ relation: 1, privilege: "SELECT" },
@@ -516,11 +536,13 @@ const chainGen: Gen<Sketch> = (s) => {
 		roles: [
 			{
 				login: s.draw(int(0, 1)),
+				serializable: [],
 				privileges: [{ relation: c, privilege: "UPDATE" }],
 				members: [[{ writes: [], reads: [readOf(a, "positive", 0)], probes: [], cores: [] }]]
 			},
 			{
 				login: s.draw(int(0, 1)),
+				serializable: [],
 				privileges: [{ relation: a, privilege: "INSERT" }],
 				members: [
 					[{ writes: [insertOf(a, [0])], reads: [readOf(b, "positive", 0)], probes: [], cores: [] }]
@@ -528,6 +550,7 @@ const chainGen: Gen<Sketch> = (s) => {
 			},
 			{
 				login: s.draw(int(0, 1)),
+				serializable: [],
 				privileges: [{ relation: b, privilege: "INSERT" }],
 				members: [[{ writes: [insertOf(b, [])], reads: [], probes: [], cores: [] }]]
 			}
@@ -553,6 +576,7 @@ const sealsGen: Gen<Sketch> = (s) => {
 		roles: [
 			{
 				login: s.draw(int(0, 1)),
+				serializable: [],
 				privileges: [
 					{ relation: b, privilege: "INSERT" },
 					{ relation: c, privilege: "INSERT" }
@@ -570,6 +594,7 @@ const sealsGen: Gen<Sketch> = (s) => {
 			},
 			{
 				login: s.draw(int(0, 1)),
+				serializable: [],
 				privileges: [{ relation: a, privilege: "INSERT" }],
 				members: [
 					[
@@ -598,6 +623,7 @@ const pivotWriterGen: Gen<Sketch> = (s) => {
 		roles: [
 			{
 				login: s.draw(int(0, 1)),
+				serializable: [],
 				privileges: [
 					{ relation: c, privilege: "UPDATE" },
 					{ relation: b, privilege: "INSERT" }
@@ -615,6 +641,7 @@ const pivotWriterGen: Gen<Sketch> = (s) => {
 			},
 			{
 				login: s.draw(int(0, 1)),
+				serializable: [],
 				privileges: [{ relation: a, privilege: "INSERT" }],
 				members: [
 					[{ writes: [], reads: [readOf(b, "positive", undefined)], probes: [], cores: [] }],
@@ -639,6 +666,7 @@ const triggeredGen: Gen<Case> = (s) => {
 			roles: [
 				{
 					login: s.draw(int(0, 1)),
+					serializable: [],
 					privileges: [{ relation: x, privilege: "INSERT" }],
 					members: [[{ writes: [insertOf(x, [])], reads: [], probes: [], cores: [] }]]
 				}
@@ -659,6 +687,7 @@ const laggingReader: Sketch = {
 	roles: [
 		{
 			login: 0,
+			serializable: [],
 			privileges: [
 				{ relation: 0, privilege: "INSERT" },
 				{ relation: 1, privilege: "INSERT" }
@@ -670,6 +699,7 @@ const laggingReader: Sketch = {
 		},
 		{
 			login: 1,
+			serializable: [],
 			privileges: [{ relation: 2, privilege: "INSERT" }],
 			members: [
 				[{ writes: [insertOf(2, [0])], reads: [readOf(0, "positive", 0)], probes: [], cores: [] }]
@@ -687,6 +717,7 @@ const listReader: Sketch = {
 	roles: [
 		{
 			login: 0,
+			serializable: [],
 			privileges: [
 				{ relation: 0, privilege: "INSERT" },
 				{ relation: 1, privilege: "INSERT" }
@@ -698,6 +729,7 @@ const listReader: Sketch = {
 		},
 		{
 			login: 1,
+			serializable: [],
 			privileges: [{ relation: 2, privilege: "INSERT" }],
 			members: [
 				[
@@ -727,6 +759,7 @@ const refusedCopy: Sketch = {
 	roles: [
 		{
 			login: 0,
+			serializable: [],
 			privileges: [
 				{ relation: 0, privilege: "INSERT" },
 				{ relation: 1, privilege: "INSERT" }
@@ -738,6 +771,7 @@ const refusedCopy: Sketch = {
 		},
 		{
 			login: 1,
+			serializable: [],
 			privileges: [{ relation: 2, privilege: "INSERT" }],
 			members: [[{ writes: [insertOf(2, [])], reads: [], probes: [], cores: [] }]]
 		}
@@ -759,6 +793,7 @@ const deferredCopy: Sketch = {
 	roles: [
 		{
 			login: 0,
+			serializable: [],
 			privileges: [{ relation: 2, privilege: "INSERT" }],
 			members: [
 				[
@@ -773,11 +808,13 @@ const deferredCopy: Sketch = {
 		},
 		{
 			login: 0,
+			serializable: [],
 			privileges: [{ relation: 0, privilege: "INSERT" }],
 			members: [[{ writes: [insertOf(0, [])], reads: [], probes: [], cores: [] }]]
 		},
 		{
 			login: 1,
+			serializable: [],
 			privileges: [{ relation: 1, privilege: "INSERT" }],
 			members: [
 				[{ writes: [insertOf(1, [0])], reads: [readOf(0, "positive", 0)], probes: [], cores: [] }]
@@ -795,6 +832,7 @@ const lateWriter: Sketch = {
 	roles: [
 		{
 			login: 0,
+			serializable: [],
 			privileges: [{ relation: 1, privilege: "INSERT" }],
 			members: [
 				[
@@ -805,6 +843,7 @@ const lateWriter: Sketch = {
 		},
 		{
 			login: 1,
+			serializable: [],
 			privileges: [{ relation: 0, privilege: "INSERT" }],
 			members: [[{ writes: [insertOf(0, [])], reads: [], probes: [], cores: [] }]]
 		}
@@ -823,9 +862,10 @@ const cascadedWriter: Sketch = {
 		clean([])
 	],
 	roles: [
-		{ login: 0, privileges: [{ relation: 0, privilege: "UPDATE" }], members: [] },
+		{ login: 0, privileges: [{ relation: 0, privilege: "UPDATE" }], members: [], serializable: [] },
 		{
 			login: 1,
+			serializable: [],
 			privileges: [{ relation: 1, privilege: "INSERT" }],
 			members: [[{ writes: [insertOf(1, [])], reads: [], probes: [], cores: [] }]]
 		}
@@ -841,10 +881,11 @@ const sharedWriter: Sketch = {
 	roles: [
 		{
 			login: 0,
+			serializable: [],
 			privileges: [{ relation: 0, privilege: "INSERT" }],
 			members: [[{ writes: [insertOf(0, [])], reads: [], probes: [], cores: [] }]]
 		},
-		{ login: 1, privileges: [{ relation: 0, privilege: "INSERT" }], members: [] }
+		{ login: 1, privileges: [{ relation: 0, privilege: "INSERT" }], members: [], serializable: [] }
 	]
 }
 
@@ -858,6 +899,7 @@ const protocolSealedOf = (rows: ReadSketch["rows"]): Sketch => ({
 	roles: [
 		{
 			login: 0,
+			serializable: [],
 			privileges: [{ relation: 1, privilege: "INSERT" }],
 			members: [
 				[
@@ -875,6 +917,7 @@ const protocolSealedOf = (rows: ReadSketch["rows"]): Sketch => ({
 		},
 		{
 			login: 1,
+			serializable: [],
 			privileges: [{ relation: 0, privilege: "INSERT" }],
 			members: [[{ writes: [insertOf(0, [])], reads: [], probes: [], cores: [] }]]
 		}
@@ -890,6 +933,7 @@ const absentGate: Sketch = {
 	roles: [
 		{
 			login: 0,
+			serializable: [],
 			privileges: [{ relation: 1, privilege: "INSERT" }],
 			members: [
 				[
@@ -904,6 +948,7 @@ const absentGate: Sketch = {
 		},
 		{
 			login: 1,
+			serializable: [],
 			privileges: [{ relation: 0, privilege: "INSERT" }],
 			members: [[{ writes: [insertOf(0, [])], reads: [], probes: [], cores: [] }]]
 		}
@@ -922,6 +967,7 @@ const fallbackOf = (mode: "negated" | "counted"): Sketch => ({
 	roles: [
 		{
 			login: 0,
+			serializable: [],
 			privileges: [{ relation: 1, privilege: "INSERT" }],
 			members: [
 				[
@@ -940,6 +986,7 @@ const fallbackOf = (mode: "negated" | "counted"): Sketch => ({
 		},
 		{
 			login: 1,
+			serializable: [],
 			privileges: [{ relation: 0, privilege: "INSERT" }],
 			members: [[{ writes: [insertOf(0, [])], reads: [], probes: [], cores: [] }]]
 		}
@@ -969,6 +1016,7 @@ const unionOf = (arm: "same" | "key" | "relation" | "recursion"): Sketch => {
 		roles: [
 			{
 				login: 0,
+				serializable: [],
 				privileges: [{ relation: 1, privilege: "INSERT" }],
 				members: [
 					[
@@ -1002,6 +1050,7 @@ const unionOf = (arm: "same" | "key" | "relation" | "recursion"): Sketch => {
 			},
 			{
 				login: 1,
+				serializable: [],
 				privileges: [{ relation: 0, privilege: "INSERT" }],
 				members: [[{ writes: [insertOf(0, [])], reads: [], probes: [], cores: [] }]]
 			}
@@ -1019,6 +1068,7 @@ const arbiterPath: Sketch = {
 	roles: [
 		{
 			login: 0,
+			serializable: [],
 			privileges: [{ relation: 1, privilege: "INSERT" }],
 			members: [
 				[
@@ -1041,6 +1091,7 @@ const arbiterPath: Sketch = {
 		},
 		{
 			login: 1,
+			serializable: [],
 			privileges: [{ relation: 0, privilege: "INSERT" }],
 			members: [[{ writes: [insertOf(0, [])], reads: [], probes: [], cores: [] }]]
 		}
@@ -1059,6 +1110,7 @@ const unjoinedGate: Sketch = {
 	roles: [
 		{
 			login: 0,
+			serializable: [],
 			privileges: [
 				{ relation: 1, privilege: "INSERT" },
 				{ relation: 2, privilege: "INSERT" }
@@ -1076,6 +1128,7 @@ const unjoinedGate: Sketch = {
 		},
 		{
 			login: 1,
+			serializable: [],
 			privileges: [{ relation: 0, privilege: "INSERT" }],
 			members: [[{ writes: [insertOf(0, [])], reads: [], probes: [], cores: [] }]]
 		}
@@ -1094,6 +1147,7 @@ const chainedPath: Sketch = {
 	roles: [
 		{
 			login: 0,
+			serializable: [],
 			privileges: [{ relation: 1, privilege: "INSERT" }],
 			members: [
 				[
@@ -1120,6 +1174,7 @@ const chainedPath: Sketch = {
 		},
 		{
 			login: 1,
+			serializable: [],
 			privileges: [{ relation: 0, privilege: "INSERT" }],
 			members: [[{ writes: [insertOf(0, [])], reads: [], probes: [], cores: [] }]]
 		}
@@ -1137,6 +1192,7 @@ const arbitratedOf = (gated: boolean): Sketch => ({
 	roles: [
 		{
 			login: 0,
+			serializable: [],
 			privileges: [
 				{ relation: 0, privilege: "INSERT" },
 				{ relation: 1, privilege: "INSERT" }
@@ -1160,11 +1216,75 @@ const arbitratedOf = (gated: boolean): Sketch => ({
 		},
 		{
 			login: 1,
+			serializable: [],
 			privileges: [{ relation: 2, privilege: "INSERT" }],
 			members: [[{ writes: [insertOf(2, [])], reads: [], probes: [], cores: [] }]]
 		}
 	]
 })
+
+/**
+ * A role's SERIALIZABLE form, which it judges others by beside its READ COMMITTED one. r0 holds UPDATE on D, so it runs
+ * SERIALIZABLE by its own privileges, and inserts into B in either form. In its SERIALIZABLE form it also reads B by an
+ * own column (`cause`), so it may miss another call's write, and r1, reading B at its key, runs SERIALIZABLE by r0's
+ * writes; it updates A (`update`), so r1's point read of A, which r2 inserts, is unsealed, and r1 and r2 run
+ * SERIALIZABLE; or it reads C's absence (`absence`), so r1, inserting into C, runs SERIALIZABLE. Where r0 holds no
+ * UPDATE (`own`), its own conditions read its READ COMMITTED form alone, which reads nothing, and every role runs READ
+ * COMMITTED, though its SERIALIZABLE form reads C by an own column before it writes.
+ */
+const servedOf = (kind: "cause" | "update" | "absence" | "own"): Sketch => {
+	const serializable: StatementSketch = {
+		writes: [
+			insertOf(1, []),
+			...(kind === "update" ? [{ relation: 0, op: "update" as const, from: [] }] : [])
+		],
+		reads:
+			kind === "cause"
+				? [{ ...readOf(1, "positive", 0), rows: "many" }]
+				: kind === "absence"
+					? [readOf(2, "negated", 0)]
+					: kind === "own"
+						? [{ ...readOf(2, "positive", 0), rows: "many" }]
+						: [],
+		probes: [],
+		cores: []
+	}
+	return {
+		relations: [clean([0]), clean([0]), clean([0]), clean([])],
+		roles: [
+			{
+				login: 0,
+				serializable: [[serializable]],
+				privileges: [
+					{ relation: 1, privilege: "INSERT" },
+					...(kind === "own" ? [] : [{ relation: 3, privilege: "UPDATE" as const }])
+				],
+				members: [[{ writes: [insertOf(1, [])], reads: [], probes: [], cores: [] }]]
+			},
+			{
+				login: 1,
+				serializable: [],
+				privileges: [{ relation: 2, privilege: "INSERT" }],
+				members: [
+					[
+						{
+							writes: [insertOf(2, [0, 1])],
+							reads: [readOf(1, "positive", 0), readOf(0, "positive", 0)],
+							probes: [],
+							cores: []
+						}
+					]
+				]
+			},
+			{
+				login: 1,
+				serializable: [],
+				privileges: [{ relation: 0, privilege: "INSERT" }],
+				members: [[{ writes: [insertOf(0, [])], reads: [], probes: [], cores: [] }]]
+			}
+		]
+	}
+}
 
 /**
  * The publication layer: r0 inserts Q where B's key is absent and inserts B, so it runs SERIALIZABLE and may miss
@@ -1184,6 +1304,7 @@ const publication: Sketch = {
 	roles: [
 		{
 			login: 0,
+			serializable: [],
 			privileges: [
 				{ relation: 0, privilege: "INSERT" },
 				{ relation: 3, privilege: "INSERT" }
@@ -1195,11 +1316,13 @@ const publication: Sketch = {
 		},
 		{
 			login: 0,
+			serializable: [],
 			privileges: [{ relation: 1, privilege: "INSERT" }],
 			members: [[{ writes: [insertOf(1, [])], reads: [], probes: [], cores: [] }]]
 		},
 		{
 			login: 1,
+			serializable: [],
 			privileges: [{ relation: 2, privilege: "INSERT" }],
 			members: [
 				[
@@ -1236,6 +1359,14 @@ const extensionGen =
 					1,
 					(t) => ({
 						kind: "member",
+						role,
+						member: t.draw(array(statementGen, { min: 1, max: 2 }))
+					})
+				],
+				[
+					1,
+					(t) => ({
+						kind: "served",
 						role,
 						member: t.draw(array(statementGen, { min: 1, max: 2 }))
 					})
@@ -1327,6 +1458,14 @@ const shapeSketch = (
 			return arbiterPath
 		case "publication":
 			return publication
+		case "servedCause":
+			return servedOf("cause")
+		case "servedUpdate":
+			return servedOf("update")
+		case "servedAbsence":
+			return servedOf("absence")
+		case "servedOwn":
+			return servedOf("own")
 		case "drawn":
 			return s.draw(sketchGen)
 	}
@@ -1364,6 +1503,10 @@ const caseGen: Gen<Case> = (s) => {
 			[1, () => "unionRecursion"],
 			[1, () => "arbiterPath"],
 			[1, () => "publication"],
+			[1, () => "servedCause"],
+			[1, () => "servedUpdate"],
+			[1, () => "servedAbsence"],
+			[1, () => "servedOwn"],
 			[1, () => "triggered"],
 			[1, () => "droppedReference"]
 		])
@@ -1402,6 +1545,30 @@ const readFact = (r: ReadSketch) => ({
 			: { fields: keyOf(r.group), binding: `$p${r.binding}`, rows: r.rows }
 })
 
+/** A role's members as the certifier reads them, each named by its place; a member of no statement sends none. */
+const membersOf = (
+	members: ReadonlyArray<ReadonlyArray<StatementSketch>>
+): ReadonlyArray<MemberFacts> =>
+	Arr.flatMap(members, (statements, m) =>
+		Arr.isReadonlyArrayNonEmpty(statements)
+			? [
+					{
+						name: `m${m}`,
+						statements: Arr.map(statements, (st) => ({
+							writes: Arr.map(st.writes, (w) => ({
+								relation: relationName(w.relation),
+								op: w.op,
+								from: w.from
+							})),
+							reads: Arr.map(st.reads, readFact),
+							probes: st.probes,
+							cores: st.cores
+						}))
+					}
+				]
+			: []
+	)
+
 /** The facts a sketch states, as the certifier reads them. */
 const inputOf = (sketch: Sketch): IsolationInput => ({
 	relations: new Map(
@@ -1430,25 +1597,8 @@ const inputOf = (sketch: Sketch): IsolationInput => ({
 			login: `L${role.login}`,
 			role: `r${i}`,
 			privileges,
-			members: Arr.flatMap(role.members, (statements, m) =>
-				Arr.isReadonlyArrayNonEmpty(statements)
-					? [
-							{
-								name: `m${m}`,
-								statements: Arr.map(statements, (st) => ({
-									writes: Arr.map(st.writes, (w) => ({
-										relation: relationName(w.relation),
-										op: w.op,
-										from: w.from
-									})),
-									reads: Arr.map(st.reads, readFact),
-									probes: st.probes,
-									cores: st.cores
-								}))
-							}
-						]
-					: []
-			)
+			members: membersOf(role.members),
+			serializable: membersOf(role.serializable)
 		}
 	})
 })
@@ -1502,6 +1652,11 @@ const extended = (sketch: Sketch, e: Extension): Sketch => {
 			}))
 		case "member":
 			return withRole(sketch, e.role, (r) => ({ ...r, members: [...r.members, e.member] }))
+		case "served":
+			return withRole(sketch, e.role, (r) => ({
+				...r,
+				serializable: [...r.serializable, e.member]
+			}))
 		case "role":
 			return { ...sketch, roles: [...sketch.roles, e.role] }
 		case "insert":
@@ -1533,6 +1688,7 @@ const givesFirstMember = (sketch: Sketch, e: Extension): boolean => {
 		case "member":
 		case "insert":
 			return Arr.some(sketch.roles, (role, i) => i === e.role && role.members.length === 0)
+		case "served":
 		case "privilege":
 		case "role":
 		case "triggerLaw":
@@ -1556,8 +1712,14 @@ const afterOf = (c: Case): IsolationInput => {
 		: input
 }
 
+/** Every member a role may be served, at either level. */
+const served = (role: RoleSketch): ReadonlyArray<ReadonlyArray<StatementSketch>> => [
+	...role.members,
+	...role.serializable
+]
+
 const writesOfRole = (role: RoleSketch) =>
-	Arr.flatMap(role.members, (statements) => Arr.flatMap(statements, (st) => st.writes))
+	Arr.flatMap(served(role), (statements) => Arr.flatMap(statements, (st) => st.writes))
 
 type OracleSeal = "arbiter" | "own" | "unwritten" | "arbitrated" | "sealed" | "unsealed"
 
@@ -1790,7 +1952,7 @@ const oracle = (sketch: Sketch) => {
 			if (
 				Arr.some(roles, (r) =>
 					Arr.some(
-						r.members,
+						served(r),
 						(statements) =>
 							Arr.some(placedOf(statements), (placed) =>
 								Arr.some(
@@ -1883,7 +2045,7 @@ const oracle = (sketch: Sketch) => {
 			const other = Arr.getUnsafe(roles, o)
 			if (
 				Arr.some(
-					other.members,
+					served(other),
 					(statements) =>
 						Arr.some(statements, (st) => Arr.some(st.reads, (r) => written.has(r.relation))) ||
 						Arr.some(checksOf(statements), (c) => written.has(c.relation))
@@ -1893,10 +2055,10 @@ const oracle = (sketch: Sketch) => {
 			}
 			const shared = Arr.some([...writtenSet(other)], (x) => reads.has(x))
 			const pivot =
-				Arr.some(other.members, (statements) =>
+				Arr.some(served(other), (statements) =>
 					Arr.some(placedOf(statements), (placed) => Arr.some(placed, (p) => isOutside(p.seal)))
 				) ||
-				Arr.some(other.members, (statements) =>
+				Arr.some(served(other), (statements) =>
 					Arr.some(
 						checksOf(statements),
 						(c) => isOutside(c.seal) && (c.side === "referenced" || c.seal === "unsealed")
@@ -1958,12 +2120,7 @@ const conditions: ReadonlyArray<IsolationCondition> = [
 const everyCondition: ReadonlyArray<IsolationCondition> = ["facts", ...conditions]
 
 /**
- * The fixed shapes, each a required feature by its name. Their number sets the coverage budget, measured under the
- * search's label, which fixes the floor and steered streams whatever the run seed: with 300 runs and 200 steered cases
- * the stream never drew the absentGate among 20 of them; with 500 runs and 400 steered cases it drew it at case 118 and
- * every one by case 200; the two fallbacks added, it drew it at case 4 and all 22 by case 124; and, the unjoined gate,
- * the chained path, the four unions and the arbitration path added, it drew it at case 20 and all 29 by case 254; and,
- * the publication added, draws it at case 38 and all 30 by case 258.
+ * The fixed shapes, each a required feature by its name, which the search draws within its coverage budget.
  */
 const shapes: ReadonlyArray<Exclude<Shape, "drawn">> = [
 	"copiers",
@@ -1994,6 +2151,10 @@ const shapes: ReadonlyArray<Exclude<Shape, "drawn">> = [
 	"unionRecursion",
 	"arbiterPath",
 	"publication",
+	"servedCause",
+	"servedUpdate",
+	"servedAbsence",
+	"servedOwn",
 	"triggered",
 	"droppedReference"
 ]
@@ -2024,7 +2185,11 @@ const counterexampleRoles = (shape: Shape): ReadonlyArray<number> => {
 		case "copiers":
 		case "pointCopiers":
 		case "publication":
+		case "servedCause":
+		case "servedAbsence":
 			return [0, 1]
+		case "servedUpdate":
+			return [0, 1, 2]
 		case "absentThenInsert":
 			return [2]
 		case "chain":
@@ -2057,6 +2222,7 @@ const counterexampleRoles = (shape: Shape): ReadonlyArray<number> => {
 		case "seals":
 		case "protocolSealed":
 		case "unionSealed":
+		case "servedOwn":
 		case "arbitratedRead":
 		case "triggered":
 		case "droppedReference":

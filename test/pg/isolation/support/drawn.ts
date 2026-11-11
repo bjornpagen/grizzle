@@ -263,7 +263,8 @@ export const drawnFacts = (d: DrawnInstallation): IsolationInput => ({
 					new Set<TablePrivilege>(writes.has(name) ? ["SELECT", "INSERT"] : ["SELECT"])
 				])
 			),
-			members: [{ name: `m${i}`, statements: mapNonEmpty(member, statementFacts) }]
+			members: [{ name: `m${i}`, statements: mapNonEmpty(member, statementFacts) }],
+			serializable: []
 		}
 	})
 })

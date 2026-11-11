@@ -8,6 +8,7 @@ import type {
 	WriteFact
 } from "#compiler/analysis/isolation/facts.ts"
 import { defect } from "#compiler/core/invariant.ts"
+import type { Isolation } from "#compiler/core/isolation.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { overRowsOf } from "#compiler/lower/conservative/expr/lateral.ts"
 import type {
@@ -25,6 +26,7 @@ import type {
 	OperandBody,
 	OperandSelect,
 	OrderItem,
+	ProbeColumn,
 	QualifiedFunctionRef,
 	SetOperation,
 	SqlStatement,
@@ -33,6 +35,7 @@ import type {
 	WindowSpec,
 	With
 } from "#compiler/sql/ast.ts"
+import { col, eq } from "#compiler/sql/build.ts"
 
 /**
  * How the extractor reads one role's statements back:
@@ -42,12 +45,15 @@ import type {
  *   relation's table, whose reads no statement shows;
  * - `fieldOf`: the field a column of a relation's table is, none for a column of no field (a law column);
  * - `readsNoTable`: whether a schema function a statement calls reads no relation's table, as a refusal, a constant, a
- *   vector or a serial's advance function reads none; a world's filter function reads the relations of its membership.
+ *   vector or a serial's advance function reads none; a world's filter function reads the relations of its membership;
+ * - `arbitersOf`: the columns of each object an ON CONFLICT DO NOTHING with no target arbitrates on a relation's table,
+ *   its primary key, each UNIQUE and each span key, each by the columns of its fields, a law column's left out.
  */
 export interface ExtractNames {
 	readonly relationOf: (table: ObjectName) => string | undefined
 	readonly fieldOf: (relation: string, column: string) => string | undefined
 	readonly readsNoTable: (fn: QualifiedFunctionRef) => boolean
+	readonly arbitersOf: (relation: string) => ReadonlyArray<ReadonlyArray<string>>
 }
 
 /**
@@ -59,9 +65,16 @@ type Polarity = "positive" | "negated" | "both"
 /**
  * What a name a core sees is: a stored table's alias, whose values the statement reads, or an own source's, whose
  * values are the call's own: the session's context, one row (`one`), or a carrier, a CTE, a relation input's arrays, a
- * VALUES list, a function's or a derived table's rows, any number of rows (`many`).
+ * VALUES list, a function's or a derived table's rows, any number of rows (`many`), or an INSERT's met rows, any number
+ * of them, named by their source, which a `met` source reads through.
  */
-type Scope = ReadonlyMap<string, "table" | Group["rows"]>
+type Scope = ReadonlyMap<string, "table" | Group["rows"] | MetRows>
+
+/** A source of the rows an INSERT proposed and did not insert (sql/ast.ts FromSource `metRows`). */
+type MetRows = Extract<FromSource, { readonly kind: "metRows" }>
+
+/** The row an INSERT's arbitration met for a met row (sql/ast.ts FromSource `met`). */
+type Met = Extract<FromSource, { readonly kind: "met" }>
 
 /** A condition with the names it sees, which a condition pushed into a derived table keeps from where it stands. */
 interface Scoped {
@@ -77,8 +90,8 @@ interface Bound {
 }
 
 /**
- * What a CTE name refers to: a query, read where a source names it, under the scope and the CTEs it was defined in; or
- * rows the call itself makes, a data-modifying CTE's RETURNING or a recursive CTE's own working rows.
+ * What a CTE name refers to: a query, read where a source names it, under the scope and the CTEs it was defined in; a
+ * data-modifying CTE, whose RETURNING rows the call itself makes; or a recursive CTE's own working rows.
  */
 type CteRef =
 	| {
@@ -88,6 +101,7 @@ type CteRef =
 			readonly scope: Scope
 			readonly ctes: Ctes
 	  }
+	| { readonly kind: "write"; readonly body: Exclude<CteBody, { readonly kind: "select" }> }
 	| { readonly kind: "own" }
 
 type Ctes = ReadonlyMap<string, CteRef>
@@ -158,6 +172,11 @@ type Found =
 			readonly conditions: ReadonlyArray<Scoped>
 			readonly feeds: ReadonlyArray<number>
 			readonly columns: ReadonlyMap<string, string> | undefined
+			/**
+			 * The key columns it reads the row its statement's INSERT met at, where its structure proves that INSERT met it
+			 * (`metSealed`), none for any other read.
+			 */
+			readonly met: ReadonlyArray<string> | undefined
 	  }
 	| {
 			readonly kind: "opaque"
@@ -409,7 +428,7 @@ const pushedInto = (
  * What a source's alias names: a stored table's values, a derived table's that only renames one's columns among them,
  * or the call's own, of one row or many.
  */
-const nameOf = (source: FromSource): readonly [string, "table" | Group["rows"]] => {
+const nameOf = (source: FromSource): readonly [string, "table" | Group["rows"] | MetRows] => {
 	switch (source.kind) {
 		case "table":
 			return [source.alias, typeof source.table === "string" ? "many" : "table"]
@@ -417,6 +436,11 @@ const nameOf = (source: FromSource): readonly [string, "table" | Group["rows"]] 
 			return [source.alias ?? source.name, "many"]
 		case "context":
 			return [source.alias, "one"]
+		case "probe":
+		case "met":
+			return [source.alias, "table"]
+		case "metRows":
+			return [source.alias, source]
 		case "derived": {
 			const projection = projectionOf(source)
 			return [
@@ -576,11 +600,13 @@ class Walk {
 	readonly arbitrations: Array<Arbitration> = []
 	readonly #names: ExtractNames
 	readonly #paramOf: (n: number) => string | undefined
+	readonly #level: Isolation
 	readonly #feeding: Array<ReadonlyArray<number>> = []
 
-	constructor(names: ExtractNames, paramOf: (n: number) => string | undefined) {
+	constructor(names: ExtractNames, paramOf: (n: number) => string | undefined, level: Isolation) {
 		this.#names = names
 		this.#paramOf = paramOf
+		this.#level = level
 	}
 
 	statement(s: SqlStatement): void {
@@ -668,7 +694,7 @@ class Walk {
 				cte.name,
 				cte.query.kind === "select"
 					? { kind: "query", query: cte.query, columns: cte.columns, scope: c.scope, ctes }
-					: ownRows
+					: { kind: "write", body: cte.query }
 			)
 		}
 		const inner: Context = { ...c, ctes }
@@ -724,11 +750,22 @@ class Walk {
 			}
 		})
 		if (conflict !== undefined && typeof s.table !== "string") {
-			this.arbitrations.push({
-				table: s.table,
-				columns: conflict.kind === "columns" ? conflict.columns : undefined,
-				values: insertValues(s, inner.ctes, this.#paramOf)
-			})
+			const table = s.table
+			if (conflict.kind === "every" && this.#level === "readCommitted") {
+				this.#opaque(`?every:${table.schema}.${table.name}`, c)
+			} else {
+				const values = insertValues(s, inner.ctes, this.#paramOf)
+				const relation = this.#names.relationOf(table)
+				const arbitrated: ReadonlyArray<ReadonlyArray<string> | undefined> =
+					conflict.kind === "columns"
+						? [conflict.columns]
+						: conflict.kind === "every" && relation !== undefined
+							? this.#names.arbitersOf(relation)
+							: [undefined]
+				for (const columns of arbitrated) {
+					this.arbitrations.push({ table, columns, values })
+				}
+			}
 		}
 		for (const t of s.returning) {
 			this.expr(t.expr, valued(after))
@@ -811,7 +848,8 @@ class Walk {
 							: here,
 					conditions: targetConditions(w, on).map((expr) => ({ expr, scope })),
 					feeds: this.#feeds(),
-					columns: undefined
+					columns: undefined,
+					met: undefined
 				})
 			}
 			for (const e of on) {
@@ -944,9 +982,12 @@ class Walk {
 	}
 
 	/**
-	 * A FROM source of a core: the sources every row of it comes through, a table's read, a CTE's or a derived table's
-	 * rows; none for a LATERAL one, whose rows are computed per row of the sources before it, nor for a function's rows,
-	 * VALUES, a relation input's arrays or a context's fact.
+	 * A FROM source of a core: the sources every row of it comes through, a table's read, a probe's, a CTE's or a derived
+	 * table's rows, an INSERT's met rows' proposed CTE's; none for a LATERAL one, whose rows are computed per row of the
+	 * sources before it, nor for the row an arbitration met, a function's rows, VALUES, a relation input's arrays or a
+	 * context's fact. A probe's rows are its table's at its driving row's values, inner-joined, so every row of its core
+	 * comes through one of them; met rows are rows of the CTE their INSERT proposes, read where they stand, less the
+	 * rows its RETURNING holds, the call's own.
 	 */
 	#source(
 		source: FromSource,
@@ -965,9 +1006,41 @@ class Walk {
 						context: here,
 						conditions,
 						feeds: this.#feeds(),
-						columns: undefined
+						columns: undefined,
+						met: undefined
 					})
 				]
+			case "probe":
+				return [
+					this.#probed(
+						source.table,
+						source.inner,
+						source.by.columns,
+						source.filter,
+						here,
+						undefined
+					)
+				]
+			case "met":
+				if (this.#level === "readCommitted") {
+					this.#opaque(`?met:${source.table.schema}.${source.table.name}`, here)
+				} else {
+					this.#probed(
+						source.table,
+						source.inner,
+						source.key.map((k) => ({
+							column: k.column,
+							value: col(source.rows, k.from),
+							schema: k.schema
+						})),
+						source.filter,
+						here,
+						metSealed(source, here)
+					)
+				}
+				return []
+			case "metRows":
+				return this.#cteRead(source.proposed, beneath)
 			case "cte":
 			case "enclosing":
 				return this.#cteRead(source.name, beneath)
@@ -988,7 +1061,8 @@ class Walk {
 									context: here,
 									conditions,
 									feeds: this.#feeds(),
-									columns: projection.columns
+									columns: projection.columns,
+									met: undefined
 								})
 							]
 				return source.lateral ? [] : rows
@@ -1005,6 +1079,41 @@ class Walk {
 			case "context":
 				return []
 		}
+	}
+
+	/**
+	 * A write's read of `table` driven by its rows (a `probe` or a `met` source), read as the table `inner` under its own
+	 * conditions alone: each probed column equal to its value, which reads the driving row, and its filter, which reads
+	 * the driving row and `inner`; a `met` source's at its key columns where its structure proves its INSERT met the row
+	 * (`met`, metSealed). The values and the filter are walked as its conditions, seeing the core's names and `inner`.
+	 */
+	#probed(
+		table: ObjectName,
+		inner: string,
+		columns: ReadonlyArray<ProbeColumn>,
+		filter: ReadonlyArray<Expr>,
+		here: Context,
+		met: ReadonlyArray<string> | undefined
+	): RowSource {
+		const scope: Scope = new Map([...here.scope, [inner, "table"]])
+		const conditions = [
+			...columns.map((c) => eq(col(inner, c.column), c.value)),
+			...filter.flatMap(conjunctsOf)
+		]
+		const read = this.#table({
+			kind: "table",
+			table,
+			alias: inner,
+			context: here,
+			conditions: conditions.map((expr) => ({ expr, scope })),
+			feeds: this.#feeds(),
+			columns: undefined,
+			met
+		})
+		for (const e of conditions) {
+			this.expr(e, { ...here, probe: false, condition: true, scope })
+		}
+		return read
 	}
 
 	/** A table read found, as the row source it is: its place among the reads. */
@@ -1084,7 +1193,10 @@ const boundGroup = (bound: ReadonlyArray<Bound>): Group | undefined => {
 /** What a column of the call's own sources takes: one value or many, none for a stored table's or an unknown name. */
 const ownRowsOf = (scope: Scope, table: string): Group["rows"] | undefined => {
 	const named = scope.get(table)
-	return named === "table" ? undefined : named
+	if (named === undefined || named === "table") {
+		return undefined
+	}
+	return typeof named === "string" ? named : "many"
 }
 
 /**
@@ -1130,6 +1242,64 @@ const bindingsOf = (
 	return [...out.values()]
 }
 
+/**
+ * Whether an INSERT proposes exactly the rows of the CTE `proposed`: its source a query over that CTE alone, under no
+ * WITH, condition, grouping, HAVING, DISTINCT, LIMIT or OFFSET, so each row of it is one row the INSERT proposes.
+ */
+const proposesAlone = (insert: Insert, proposed: string): boolean => {
+	if (insert.source.kind !== "query") {
+		return false
+	}
+	const q = insert.source.query
+	const body = q.body
+	if (
+		q.with !== undefined ||
+		q.limit !== undefined ||
+		q.offset !== undefined ||
+		body.kind !== "core" ||
+		body.where !== undefined ||
+		body.groupBy.length > 0 ||
+		body.having !== undefined ||
+		body.distinct !== false
+	) {
+		return false
+	}
+	const [only, ...rest] = body.from
+	return only !== undefined && rest.length === 0 && only.kind === "cte" && only.name === proposed
+}
+
+/**
+ * The key columns of a `met` source where its structure proves the row it reads is the row its statement's INSERT met:
+ * its `rows` name a met rows source in scope (`metRows`), whose `insert` names a data-modifying CTE of the statement
+ * holding an INSERT into the met row's table that proposes that source's `proposed` alone (`proposesAlone`) and skips
+ * a conflicting row by ON CONFLICT DO NOTHING with no target or over columns all among the key. Every row that drives
+ * it is then a row the INSERT proposed and did not insert, and every stored row at the key conflicts with it at the
+ * arbiter: under a transaction snapshot each such row is visible to the statement or raised 40001 (nodeModifyTable.c
+ * ExecCheckTupleVisible). None for any other `met`, which is read by where it stands.
+ */
+const metSealed = (source: Met, here: Context): ReadonlyArray<string> | undefined => {
+	const rows = here.scope.get(source.rows)
+	if (rows === undefined || typeof rows === "string") {
+		return undefined
+	}
+	const written = here.ctes.get(rows.insert)
+	const insert =
+		written?.kind === "write" && written.body.kind === "insert" ? written.body : undefined
+	const key = source.key.map((k) => k.column)
+	const conflict = insert?.onConflict
+	return insert !== undefined &&
+		typeof insert.table !== "string" &&
+		insert.table.schema === source.table.schema &&
+		insert.table.name === source.table.name &&
+		proposesAlone(insert, rows.proposed) &&
+		(conflict?.kind === "every" ||
+			(conflict?.kind === "columns" &&
+				conflict.action.kind === "doNothing" &&
+				conflict.columns.every((c) => key.includes(c))))
+		? key
+		: undefined
+}
+
 /** A read's base mode: its mode were every probe above it a function of positive reads, an arbitration or positive. */
 const baseOf = (arbiter: boolean): ReadFact["mode"] => (arbiter ? "arbiter" : "positive")
 
@@ -1148,9 +1318,10 @@ const modeOf = (c: Context, arbiter: boolean): ReadFact["mode"] => {
 const statementFacts = (
 	s: SqlStatement,
 	names: ExtractNames,
-	paramOf: (n: number) => string | undefined
+	paramOf: (n: number) => string | undefined,
+	level: Isolation
 ): StatementFacts => {
-	const walk = new Walk(names, paramOf)
+	const walk = new Walk(names, paramOf, level)
 	walk.statement(s)
 	const relation = (t: ObjectName): string => names.relationOf(t) ?? `?${t.schema}.${t.name}`
 	const fields = (rel: string, bound: ReadonlyArray<Bound>): ReadonlyArray<Bound> =>
@@ -1188,7 +1359,7 @@ const statementFacts = (
 				}
 			}
 			const rel = relation(f.table)
-			const arbiter = f.context.probe && written.has(rel)
+			const arbiter = f.met !== undefined || (f.context.probe && written.has(rel))
 			return {
 				read: {
 					relation: rel,
@@ -1241,10 +1412,21 @@ const statementFacts = (
  * The facts of one change member's flight (analysis/isolation/facts.ts MemberFacts), read from its statements in the
  * order they run: what each writes, with the reads each written row is positively joined with, and what each reads.
  *
- * - A read's mode: `arbiter` for a table an EXISTS probes that its statement writes, an ON CONFLICT, and a MERGE's NOT
- *   MATCHED; else `negated` where its rows reach the statement by their absence (NOT EXISTS, NOT IN, EXCEPT's later
- *   arms, NOT) or either way (a predicate in a value or a branch, a NOT MATCHED BY SOURCE's source, a schema function
- *   no names clear); else `counted` beneath a scalar or ARRAY subquery or a core that counts; else `positive`.
+ * - A read's mode: `arbiter` for a table an EXISTS probes that its statement writes, an ON CONFLICT, a MERGE's NOT
+ *   MATCHED, and the row an arbitration met (a `met` source) wherever it stands, where its structure proves its
+ *   statement's INSERT met it (metSealed); else `negated` where its rows reach the statement by their absence (NOT
+ *   EXISTS, NOT IN, EXCEPT's later arms, NOT) or either way (a predicate in a value or a branch, a NOT MATCHED BY
+ *   SOURCE's source, a schema function no names clear); else `counted` beneath a scalar or ARRAY subquery or a core that
+ *   counts; else `positive`.
+ * - A write's read of a stored table driven by its rows (a `probe` or a `met` source) is a read of that table under its
+ *   own conditions alone, each probed column equal to its value or to its met row's column and the filter's conjuncts,
+ *   read where it stands: a probe is a source every row of its core comes through, and the row an arbitration met none.
+ *   An INSERT's met rows (a `metRows` source) are the call's own rows, which read the CTE their INSERT proposes where
+ *   they stand.
+ * - An ON CONFLICT with no target arbitrates every object `arbitersOf` names, one arbitration each. It and a `met`
+ *   source appear only in a statement compiled for SERIALIZABLE (`level`), whose transaction snapshot the met row's
+ *   seal rests on: in a READ COMMITTED one each is a read no names clear, `?every:schema.name` or `?met:schema.name`,
+ *   which the certifier refuses.
  * - A carrier's read is the call's own, named `carrier:<name>`. A table no relation is read as `?schema.name`, a schema
  *   function no names clear as `?function:schema.name`, and a statement that is no DML, carrier, ANALYZE or
  *   transaction control as `?refresh:schema.name` or `?statement:<kind>`: the certifier refuses each as a relation it
@@ -1262,9 +1444,11 @@ const statementFacts = (
  * - Every flip of polarity and every count opens a probe, gating the writes its place feeds; each read lists the probes
  *   it stands beneath and its base mode, the certifier's to judge (analysis/isolation/certify.ts neutralOf).
  * - Each core's row sources are the sources every row of it comes through: each FROM source, joined inner or
- *   crosswise, a table's read, a derived table's or a CTE's query by its one core or by a UNION's arms; none past a
- *   LATERAL source, an INTERSECT, an EXCEPT, the call's own rows of a data-modifying or a recursive CTE, or a core
- *   aggregating with no GROUP BY. A row source is reached by these steps alone, so no other row path can be stated.
+ *   crosswise, a table's read, a probe's, a derived table's, a CTE's or met rows' proposed CTE's query by its one core
+ *   or by a UNION's arms; none
+ *   past a LATERAL source, the row an arbitration met, an INTERSECT, an EXCEPT, the call's own rows of a data-modifying
+ *   or a recursive CTE, or a core aggregating with no GROUP BY. A row source is reached by these steps alone, so no
+ *   other row path can be stated.
  * - A write's rows are fed by the positive reads beneath it: an INSERT's source, an UPDATE's or a DELETE's target and
  *   FROM, a MERGE's source and target, and the query CTEs any of them read.
  */
@@ -1272,8 +1456,11 @@ export const memberFacts = (
 	name: string,
 	statements: NonEmptyReadonlyArray<SqlStatement>,
 	names: ExtractNames,
-	params: (statement: number, n: number) => string | undefined
+	params: (statement: number, n: number) => string | undefined,
+	level: Isolation
 ): MemberFacts => ({
 	name,
-	statements: mapNonEmpty(statements, (s, i) => statementFacts(s, names, (n) => params(i, n)))
+	statements: mapNonEmpty(statements, (s, i) =>
+		statementFacts(s, names, (n) => params(i, n), level)
+	)
 })

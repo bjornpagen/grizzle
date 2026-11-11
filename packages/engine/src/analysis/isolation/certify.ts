@@ -54,6 +54,10 @@ import type { TablePrivilege } from "#compiler/core/privilege.ts"
  *   runs READ COMMITTED, and refuses any other with 25000 (physical/ddl/isolation.ts readCommittedRelations), so a role
  *   certified past it would have every write refused.
  *
+ * A role is served the form its level chooses (program/isolation/certification.ts): its own conditions read the change
+ * members it is served at READ COMMITTED, and whatever another role's members read or write, conditions 2, 3 and 5c
+ * included, is read from every member that role may be served, its SERIALIZABLE form's beside them (RoleFacts).
+ *
  * The criterion is strict serializability: every history the roles can run is one call at a time, in real time. With
  * these, an RC member's outside reads behave as one snapshot, its writes commit at once, every write-write conflict is
  * a native unique check decided in commit order, and no transaction, RC or SERIALIZABLE, can be the pivot of a
@@ -159,13 +163,19 @@ const cascaded = (input: IsolationInput, updated: ReadonlySet<string>): Readonly
 	return out
 }
 
-/** The relations a role updates: those it holds UPDATE on and those its members' statements update. */
+/** Every change member's facts a role may be served, in the form of either level (RoleFacts). */
+const servedMembers = (role: RoleFacts): ReadonlyArray<MemberFacts> => [
+	...role.members,
+	...role.serializable
+]
+
+/** The relations a role updates: those it holds UPDATE on and those its members' statements update, in either form. */
 const updatedBy = (role: RoleFacts): ReadonlySet<string> =>
 	new Set([
 		...[...role.privileges].flatMap(([relation, privileges]) =>
 			privileges.has("UPDATE") ? [relation] : []
 		),
-		...role.members.flatMap((m) =>
+		...servedMembers(role).flatMap((m) =>
 			m.statements.flatMap((s) => s.writes.flatMap((w) => (w.op === "update" ? [w.relation] : [])))
 		)
 	])
@@ -188,7 +198,7 @@ class Writers {
 					}
 				}
 			}
-			for (const member of role.members) {
+			for (const member of servedMembers(role)) {
 				for (const s of member.statements) {
 					for (const w of s.writes) {
 						this.#written.add(w.relation)
@@ -231,7 +241,7 @@ const installationOf = (input: IsolationInput): Installation => ({
 		...input.relations.keys(),
 		...input.roles.flatMap((role) => [
 			...role.privileges.keys(),
-			...role.members.flatMap((m) =>
+			...servedMembers(role).flatMap((m) =>
 				m.statements.flatMap((s) => [
 					...s.writes.map((w) => w.relation),
 					...s.reads.flatMap((r) => (r.own ? [] : [r.relation]))
@@ -617,8 +627,8 @@ const checksOf = (at: Installation, member: MemberFacts): ReadonlyArray<Check> =
 		])
 	)
 
-/** The relations a role writes: those it holds a writer's privilege on, those its members' statements write, and those
- * its updates cascade to. */
+/** The relations a role writes: those it holds a writer's privilege on, those its members' statements write in either
+ * form, and those its updates cascade to. */
 const writtenBy = (at: Installation, role: RoleFacts): ReadonlySet<string> => {
 	const out = new Set<string>(cascaded(at.input, updatedBy(role)))
 	for (const [relation, privileges] of role.privileges) {
@@ -626,7 +636,7 @@ const writtenBy = (at: Installation, role: RoleFacts): ReadonlySet<string> => {
 			out.add(relation)
 		}
 	}
-	for (const member of role.members) {
+	for (const member of servedMembers(role)) {
 		for (const s of member.statements) {
 			for (const w of s.writes) {
 				out.add(w.relation)
@@ -706,8 +716,12 @@ const pivotCauseOf = (
 	return held === undefined ? undefined : `a law over ${held}, which it writes, is held by triggers`
 }
 
-const roleView = (at: Installation, role: RoleFacts): RoleView => {
-	const members = role.members.map((m) => memberView(at, m))
+/** A role's view over `members`, its own members' views or every member it may be served (RoleFacts). */
+const roleView = (
+	at: Installation,
+	role: RoleFacts,
+	members: ReadonlyArray<MemberView>
+): RoleView => {
 	const sites = new Map<string, Array<ReadSite>>()
 	const site = (relation: string, s: ReadSite): void => {
 		const held = sites.get(relation) ?? []
@@ -1083,45 +1097,63 @@ const serializableReasons = (
 	})
 
 /**
+ * One role twice: as its own conditions read it, over the members it is served at READ COMMITTED, and as it judges
+ * others, over every member it may be served (RoleFacts).
+ */
+interface Judged {
+	readonly own: RoleView
+	readonly judge: RoleView
+}
+
+/**
  * Each role's certificate: READ COMMITTED exactly when its change members meet every condition, the roles that run
  * SERIALIZABLE judged against the final verdicts. The roles that meet every condition of their own start READ
  * COMMITTED; a role a SERIALIZABLE role gives a reason runs SERIALIZABLE, which may give another one, until none
  * changes. Each step only removes roles, so the set it ends at is the greatest one every member of which meets every
  * condition against it. A role that runs SERIALIZABLE by others alone names every reason each other role that runs
- * SERIALIZABLE at the end gives it, never one of its own making. Each role and member is read once into its view, and a
- * reason names one site, never a pair of them. Roles keep the input's order.
+ * SERIALIZABLE at the end gives it, never one of its own making. A role's own conditions read the members it is served
+ * at READ COMMITTED, and the reasons it gives others, the absence sites among them, every member it may be served
+ * (Judged), so a role certification lowered to its SERIALIZABLE form judges others by that form's reads too. Each role
+ * and member is read once into its view, and a reason names one site, never a pair of them. Roles keep the input's
+ * order.
  */
 export const certify = (input: IsolationInput): ReadonlyArray<RoleIsolation> => {
 	const at = installationOf(input)
-	const views = input.roles.map((role) => roleView(at, role))
-	const absent = absenceSites(views)
-	const own = new Map<RoleView, ReadonlyArray<IsolationReason>>(
-		views.map((view) => [view, ownReasons(at, view, absent)] as const)
+	const roles = input.roles.map((role): Judged => {
+		const members = role.members.map((m) => memberView(at, m))
+		return {
+			own: roleView(at, role, members),
+			judge: roleView(at, role, [...members, ...role.serializable.map((m) => memberView(at, m))])
+		}
+	})
+	const absent = absenceSites(roles.map((r) => r.judge))
+	const own = new Map<Judged, ReadonlyArray<IsolationReason>>(
+		roles.map((r) => [r, ownReasons(at, r.own, absent)] as const)
 	)
-	const serializable = new Set(views.filter((view) => (own.get(view) ?? []).length > 0))
+	const serializable = new Set(roles.filter((r) => (own.get(r) ?? []).length > 0))
 	let changed = true
 	while (changed) {
 		changed = false
-		const judges = [...serializable]
-		for (const view of views) {
-			if (!serializable.has(view) && serializableReasons(view, judges).length > 0) {
-				serializable.add(view)
+		const judges = [...serializable].map((r) => r.judge)
+		for (const r of roles) {
+			if (!serializable.has(r) && serializableReasons(r.own, judges).length > 0) {
+				serializable.add(r)
 				changed = true
 			}
 		}
 	}
-	return views.map((view): RoleIsolation => {
-		const mine = own.get(view) ?? []
+	return roles.map((r): RoleIsolation => {
+		const mine = own.get(r) ?? []
 		const failed =
-			mine.length > 0 || !serializable.has(view)
+			mine.length > 0 || !serializable.has(r)
 				? mine
 				: serializableReasons(
-						view,
-						[...serializable].filter((other) => other !== view)
+						r.own,
+						[...serializable].flatMap((other) => (other === r ? [] : [other.judge]))
 					)
 		return {
-			login: view.role.login,
-			role: view.role.role,
+			login: r.own.role.login,
+			role: r.own.role.role,
 			certificate: isNonEmpty(failed)
 				? { level: "serializable", reasons: failed }
 				: { level: "readCommitted" }

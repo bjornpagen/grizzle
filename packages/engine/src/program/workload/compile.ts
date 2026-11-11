@@ -437,10 +437,11 @@ export interface ServedLogin extends ChangeLogin {
 
 /**
  * The plan of an installation's logins as generate compiles them: their workloads' plan (compileWorkload), and every
- * role of every login with the ChangeSets of the login's workloads that run on it compiled once over the artifacts its
- * login's served file compiles over (change.ts loginChanges), by the login's name, then the role's name in it: what each
- * login's served file projects; and the certificate of each of those roles (program/isolation/certification.ts), the
- * level its writes begin at, which the installation's guards follow (physical/install/compile.ts installationOver).
+ * role of every login with the ChangeSets of the login's workloads that run on it compiled over the artifacts its
+ * login's served file compiles over (change.ts loginChanges), in the form its certificate's level serves, by the
+ * login's name, then the role's name in it: what each login's served file projects; and the certificate of each of
+ * those roles (program/isolation/certification.ts), the level its writes begin at, which the installation's guards
+ * follow (physical/install/compile.ts installationOver).
  */
 export interface ServedWorkloadPlan extends WorkloadPlan {
 	readonly changes: ReadonlyMap<string, ReadonlyMap<string, RoleChanges>>
@@ -469,7 +470,7 @@ export const servedWorkload = (
 	if (!planned.ok) {
 		return Result.err({ kind: "workload", error: planned.error })
 	}
-	const changes = new Map<string, ReadonlyMap<string, RoleChanges>>()
+	const changes = new Map<string, ReadonlyMap<string, RoleChanges<"readCommitted">>>()
 	for (const login of logins) {
 		const roles = loginChanges(login, "readCommitted")
 		if (!roles.ok) {
@@ -482,7 +483,11 @@ export const servedWorkload = (
 			kind: "workload",
 			error
 		})),
-		(certified): ServedWorkloadPlan => ({ ...planned.value, changes, certification: certified })
+		(certified): ServedWorkloadPlan => ({
+			...planned.value,
+			changes: certified.served,
+			certification: certified.certificates
+		})
 	)
 }
 

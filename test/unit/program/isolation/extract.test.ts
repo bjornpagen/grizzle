@@ -1,57 +1,69 @@
 /**
  * What a change member's statements read and write, as the isolation certifier reads them (program/isolation/extract.ts
- * memberFacts): every read with its mode, whether it is the call's own, the fields it is bound at and what binds
- * them; and every write with the positive reads that feed it.
+ * memberFacts): every read with its mode, whether it is the call's own, the fields it is bound at and what binds them;
+ * and every write with the positive reads that feed it.
  *
  * Each case draws a member of one to three statements over W, R and S, stored relations of fields id, a and b whose
- * tables also hold a column no field is (a law column), and X, a table no relation names: a SELECT; an INSERT with ON
- * CONFLICT DO NOTHING, DO SELECT or DO UPDATE over drawn conflict columns or ON CONSTRAINT, an UPDATE, a DELETE (an
- * INSERT's and a DELETE's target may be a carrier), or a MERGE of up to three WHEN clauses; with statement CTEs that
- * read or write, the reading ones read where a source names them; an ANALYZE, a REFRESH, or a statement no member
- * sends. Each query is a core or a UNION, EXCEPT or INTERSECT of cores. A core reads tables, carriers, CTEs, relation
- * inputs' arrays, VALUES, a function's rows and derived tables, joined in one chain or crosswise, under a WHERE and ON
- * conjuncts that equate a table's columns with a placeholder, an own source's column of its core or an enclosing one,
- * another table's column, a literal or a cast placeholder; it filters by EXISTS, NOT EXISTS, IN, NOT IN, NOT and calls
- * of schema functions, nested; it counts by GROUP BY, HAVING, count(*), an aggregate call, ordered-set ones among them,
- * an aggregate inside COALESCE, or a window call; and it projects a scalar subquery, an ARRAY or an EXISTS.
+ * tables also hold a column no field is (a law column), and X, a table no relation names, compiled for READ COMMITTED
+ * or SERIALIZABLE: a SELECT; an INSERT with ON CONFLICT DO NOTHING, DO SELECT or DO UPDATE over drawn conflict columns,
+ * ON CONSTRAINT, or DO NOTHING with no target, which a key of id and a UNIQUE over a and the law column arbitrate, its
+ * source a query, a VALUES row, or one of the statement's query CTEs alone, an UPDATE, a DELETE (an INSERT's and a
+ * DELETE's target may be a carrier), or a MERGE of up to three WHEN clauses; with
+ * statement CTEs that read or write, the reading ones read where a source names them; an ANALYZE, a REFRESH, or a
+ * statement no member sends. Each query is a core or a UNION, EXCEPT or INTERSECT of cores. A core reads tables,
+ * carriers, CTEs, a writing CTE's RETURNING, relation inputs' arrays, VALUES, a function's rows, derived tables, a
+ * probe of a table at a key, a group or a group's last row, an INSERT's met rows (a writing CTE's INSERT and a query
+ * CTE), and the row an arbitration met for the met rows of an own source it sees, joined in one chain or crosswise,
+ * under a WHERE
+ * and ON conjuncts that equate a table's columns with a placeholder, an own source's column of its core or an enclosing
+ * one, another table's column, a literal or a cast placeholder; it filters by EXISTS, NOT EXISTS, IN, NOT IN, NOT and
+ * calls of schema functions, nested; it counts by GROUP BY, HAVING, count(*), an aggregate call, ordered-set ones among
+ * them, an aggregate inside COALESCE, or a window call; and it projects a scalar subquery, an ARRAY or an EXISTS.
  *
  * Oracle: the extractor's contract restated over the drawn shape, never over the built statements.
  * - A read's polarity: NOT flips it, an EXCEPT arm after the first flips it, EXISTS and IN keep it and their NOT flips
  *   it in a condition, and in a value either is either way, `both`. Counted beneath a counting core (a GROUP BY, a
  *   HAVING, a call over many rows, an aggregate's or a window's), a scalar subquery and an ARRAY. Probe on the table
  *   sources of an EXISTS's own cores alone.
- * - A read's mode: arbiter for a probe of a relation its statement writes, an ON CONFLICT, and a MERGE's NOT MATCHED
- *   where it writes; else negated where not positive; else counted where counted; else positive.
+ * - A read's mode: arbiter for a probe of a relation its statement writes, an ON CONFLICT, one per object an ON
+ *   CONFLICT with no target arbitrates, a MERGE's NOT MATCHED where it writes, and the row an arbitration met wherever
+ *   it stands where its met rows are a writing CTE's INSERT into its table that proposes their query CTE alone and
+ *   skips by DO NOTHING with no target or over columns among its key; else negated where not positive; else counted
+ *   where counted; else positive. A probe reads its table bound by its own equalities, the row met by its key bound to
+ *   its met rows' column, alone; a probe is a row source of its core, the row met none, and met rows read their query
+ *   CTE where they stand. Compiled for READ COMMITTED, the row met is `?met:schema.name` and an ON CONFLICT with no
+ *   target `?every:schema.name`, each negated, in place of their reads.
  * - A carrier read is the call's own, of no group; a table no relation names is `?schema.name`, a schema function the
  *   names do not clear `?function:schema.name`, negated, a REFRESH `?refresh:schema.name` and a statement no member
  *   sends `?statement:<kind>`.
- * - A table's group is the fields of its columns its core's conditions (its WHERE and every ON of its FROM; a MERGE's ON
- *   and its clause's condition as the clause reads it) equate with a placeholder or a column of an own source in
+ * - A table's group is the fields of its columns its core's conditions (its WHERE and every ON of its FROM; a MERGE's
+ *   ON and its clause's condition as the clause reads it) equate with a placeholder or a column of an own source in
  *   scope, its core's or an enclosing core's (a non-LATERAL derived table and a CTE see none of their reader's), the
  *   field-less column dropped, sorted; its binding is their texts in that order. An ON CONFLICT's group is its conflict
  *   columns', each bound to EXCLUDED's. A table read through a derived table that only renames its columns (each named
  *   as the table's, each the rotation's other) is keyed so by the conditions of the core that reads it, through the
  *   renaming, the derived table an outside table's value; one that also takes a LIMIT is keyed by none of them, read as
  *   its own query's, the derived table the call's own rows, so its own equalities equate it with no other table.
- * - A query CTE is read where a source names it, with that source's polarity, count and writes; a writing CTE runs once.
+ * - A query CTE is read where a source names it, with that source's polarity, count and writes; a writing CTE runs
+ *   once, and a source naming it reads its RETURNING, the call's own rows, which are no read and no row source.
  * - A write's `from` is the positive reads that feed it: its source's, an UPDATE's and a DELETE's target and FROM, a
  *   MERGE's source and every target read; a DO UPDATE writes its table twice from them.
  * - Every flip of polarity and every count opens a probe gating the writes its place feeds, judged by a grouped core's
  *   own rows where that core opens it, else by the core it stands in. A core's row sources are its sources in FROM
- *   order, an UPDATE's or a DELETE's target first: a table's read, a renaming projection's read, a LIMIT's or a stacked
- *   projection's core, a derived table's or a CTE's query by its one core or a UNION's arms; none for an INTERSECT, an
- *   EXCEPT or another source, and none at all for a core counting with no GROUP BY.
- * Reads are compared as multisets, the arbitrations after every other read, writes by the reads their `from` names,
- * and probes by the writes they gate and their core's row sources, each read marked where it stands beneath other
- * probes than the probe's chain.
+ *   order, an UPDATE's or a DELETE's target first: a table's read, a probe's, a renaming projection's read, a LIMIT's
+ *   or a stacked projection's core, a derived table's or a CTE's query by its one core or a UNION's arms; none for an
+ *   INTERSECT, an EXCEPT or another source, and none at all for a core counting with no GROUP BY.
+ * Reads are compared as multisets, the arbitrations after every other read, writes by the reads their `from` names, and
+ * probes by the writes they gate and their core's row sources, each read marked where it stands beneath other probes
+ * than the probe's chain.
  *
  * Planted in a scratch copy of the extractor, each of these fails the search: NOT EXISTS read as positive, an
- * aggregate's scan read as positive, a probe of the written relation read as negated, a table no relation names
- * dropped instead of named, a projection's renaming dropped, a derived table's conditions stopped at one level,
- * placeholders' declared names dropped, an ON CONFLICT's parameters dropped, probes never opened, every counting
- * core's probe judged by its own rows, grouped or not, a UNION passing no rows, a UNION through one arm alone, an
- * INTERSECT or an EXCEPT as a UNION, an ungrouped aggregate's sources as its row sources, an expression's subquery as a
- * row source of the core it stands in, and a derived table's or a CTE's rows as no row source.
+ * aggregate's scan read as positive, a probe of the written relation read as negated, a table no relation names dropped
+ * instead of named, a projection's renaming dropped, a derived table's conditions stopped at one level, placeholders'
+ * declared names dropped, an ON CONFLICT's parameters dropped, probes never opened, every counting core's probe judged
+ * by its own rows, grouped or not, a UNION passing no rows, a UNION through one arm alone, an INTERSECT or an EXCEPT as
+ * a UNION, an ungrouped aggregate's sources as its row sources, an expression's subquery as a row source of the core it
+ * stands in, and a derived table's or a CTE's rows as no row source.
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -70,6 +82,7 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, String as Str } from "effect"
 import type { ReadFact, RowSource } from "#compiler/analysis/isolation/facts.ts"
+import type { Isolation } from "#compiler/core/isolation.ts"
 import { type ExtractNames, memberFacts } from "#compiler/program/isolation/extract.ts"
 import type {
 	Cte,
@@ -152,6 +165,10 @@ const FIELDS: ReadonlyMap<string, string> = new Map([
 const NO_TABLE = "refuse"
 const READS_TABLES = "filter_rows"
 
+/** The objects an ON CONFLICT with no target arbitrates on each named relation's table, by their field columns: a key
+ * of c_id, and a UNIQUE over c_a and the law column c_hidden, which no field is. */
+const ARBITERS: ReadonlyArray<ReadonlyArray<Column>> = [["c_id"], ["c_a", "c_hidden"]]
+
 const NAMES: ExtractNames = {
 	relationOf: (table) =>
 		Option.getOrUndefined(
@@ -162,7 +179,9 @@ const NAMES: ExtractNames = {
 		),
 	fieldOf: (relation, column) =>
 		relation === "W" || relation === "R" || relation === "S" ? FIELDS.get(column) : undefined,
-	readsNoTable: (fn) => fn.schema === "app" && fn.name === NO_TABLE
+	readsNoTable: (fn) => fn.schema === "app" && fn.name === NO_TABLE,
+	arbitersOf: (relation) =>
+		relation === "W" || relation === "R" || relation === "S" ? ARBITERS : []
 }
 
 /** A source of a core that is the call's own: a relation input's arrays, VALUES, a CTE, a carrier or a function. */
@@ -224,6 +243,35 @@ type Source =
 	  }
 	| { readonly kind: "own"; readonly own: OwnKind; readonly at: number }
 	| { readonly kind: "derived"; readonly query: QuerySpec }
+	| {
+			/** A write's read of a stored table driven by the core's rows, at a key, a group or a group's last row. */
+			readonly kind: "probe"
+			readonly rel: Rel
+			readonly by: "key" | "group" | "last"
+			readonly equalities: Arr.NonEmptyReadonlyArray<{
+				readonly column: Column
+				readonly other: Other
+			}>
+	  }
+	| {
+			/**
+			 * An INSERT's met rows: the rows of the statement's query CTE `proposed` its writing CTE `insert` did not insert,
+			 * each an index among the statement's CTEs of its kind.
+			 */
+			readonly kind: "metRows"
+			readonly insert: number
+			readonly proposed: number
+	  }
+	| {
+			/**
+			 * The row an arbitration met for the met rows `rows` names, an index among the own sources the core sees, its
+			 * own first, at `columns`, each bound to the met rows' column.
+			 */
+			readonly kind: "met"
+			readonly rel: Rel
+			readonly rows: number
+			readonly columns: Arr.NonEmptyReadonlyArray<Column>
+	  }
 
 /** A filter: EXISTS, IN, NOT, or a call of a schema function, one the names know reads no table or not. */
 type Filter =
@@ -284,9 +332,11 @@ interface QuerySpec {
 
 type TargetSpec = { readonly kind: "table"; readonly rel: Rel } | { readonly kind: "carrier" }
 
-/** An INSERT's ON CONFLICT: none, an action over conflict columns, or DO NOTHING ON CONSTRAINT. */
+/** An INSERT's ON CONFLICT: none, an action over conflict columns, DO NOTHING ON CONSTRAINT, or DO NOTHING with no
+ * target, which every key and UNIQUE of the table arbitrates. */
 type Conflict =
 	| { readonly kind: "none" }
+	| { readonly kind: "every" }
 	| {
 			readonly kind: "columns"
 			readonly columns: Arr.NonEmptyReadonlyArray<Column>
@@ -312,6 +362,8 @@ type Dml =
 			readonly kind: "insert"
 			readonly target: TargetSpec
 			readonly source: QuerySpec | undefined
+			/** Whether it proposes one of the statement's query CTEs alone, by its index among them, in place of `source`. */
+			readonly proposes: number | undefined
 			/** With no source query, whether its one VALUES row states every column by a placeholder, $1 to $3, or c_id by 1. */
 			readonly params: boolean
 			readonly conflict: Conflict
@@ -344,7 +396,9 @@ type StatementSpec =
 	| { readonly kind: "select"; readonly query: QuerySpec; readonly ctes: ReadonlyArray<CteSpec> }
 	| { readonly kind: "analyze" | "refresh" | "schema" }
 
+/** A member's statements and the level they were compiled for, which a `met` source and an untargeted ON CONFLICT need. */
 interface MemberCase {
+	readonly level: Isolation
 	readonly statements: Arr.NonEmptyReadonlyArray<StatementSpec>
 }
 
@@ -374,7 +428,9 @@ const otherGen = (owns: number, tables: number, self: number): Gen<Other> => {
 	])
 }
 
-const derivedArm: Weighted<"table" | "own" | "derived"> = [1, () => "derived"]
+type SourceKind = "table" | "own" | "derived" | "probe" | "metRows" | "met"
+
+const derivedArm: Weighted<SourceKind> = [1, () => "derived"]
 
 /** A core's sources first, then each table's equalities over distinct columns of it. */
 const coreGen =
@@ -383,9 +439,12 @@ const coreGen =
 		const shapes = nonEmpty(
 			s.draw(
 				array(
-					weighted<"table" | "own" | "derived">([
+					weighted<SourceKind>([
 						[4, () => "table"],
 						[2, () => "own"],
+						[1, () => "probe"],
+						[1, () => "metRows"],
+						[1, () => "met"],
 						...(depth > 0 ? [derivedArm] : [])
 					]),
 					{ min: 1, max: 3 }
@@ -393,7 +452,7 @@ const coreGen =
 			),
 			"a core's sources"
 		)
-		const owns = Arr.filter(shapes, (k) => k !== "table").length
+		const owns = Arr.filter(shapes, (k) => k === "own" || k === "derived" || k === "metRows").length
 		const tables = Arr.filter(shapes, (k) => k === "table").length
 		const sources = Arr.map(shapes, (kind, at): Source => {
 			switch (kind) {
@@ -438,6 +497,34 @@ const coreGen =
 					return { kind: "own", own: s.draw(element(OWN_KINDS)), at: s.draw(int(0, 2)) }
 				case "derived":
 					return { kind: "derived", query: s.draw(queryGen(depth - 1)) }
+				case "metRows":
+					return { kind: "metRows", insert: s.draw(int(0, 1)), proposed: s.draw(int(0, 1)) }
+				case "met":
+					return {
+						kind: "met",
+						rel: s.draw(element(RELS)),
+						rows: s.draw(int(0, 3)),
+						columns: nonEmpty(
+							Arr.dedupe(s.draw(array(element(COLUMNS), { min: 1, max: 2 }))),
+							"the row met's key"
+						)
+					}
+				case "probe":
+					return {
+						kind: "probe",
+						rel: s.draw(element(RELS)),
+						by: s.draw(element(["key", "group", "last"] as const)),
+						equalities: nonEmpty(
+							Arr.map(
+								Arr.dedupe(s.draw(array(element(COLUMNS), { min: 1, max: 2 }))),
+								(column) => ({
+									column,
+									other: s.draw(otherGen(owns, tables + 1, tables))
+								})
+							),
+							"a probe's columns"
+						)
+					}
 			}
 		})
 		return {
@@ -513,7 +600,8 @@ const conflictGen: Gen<Conflict> = weighted<Conflict>([
 			action: s.draw(element(["doNothing", "doSelect", "doUpdate"] as const))
 		})
 	],
-	[1, () => ({ kind: "constraint" })]
+	[1, () => ({ kind: "constraint" })],
+	[1, () => ({ kind: "every" })]
 ])
 
 const whenGen: Gen<WhenSpec> = weighted<WhenSpec>([
@@ -560,6 +648,12 @@ const dmlGen: Gen<Dml> = weighted<Dml>([
 				])
 			),
 			params: s.draw(boolean),
+			proposes: s.draw(
+				weighted<number | undefined>([
+					[3, () => undefined],
+					[2, (t) => t.draw(int(0, 1))]
+				])
+			),
 			conflict: s.draw(conflictGen)
 		})
 	],
@@ -614,6 +708,7 @@ const statementGen: Gen<StatementSpec> = weighted<StatementSpec>([
 ])
 
 const caseGen: Gen<MemberCase> = (s) => ({
+	level: s.draw(element(["readCommitted", "serializable"] as const)),
 	statements: nonEmpty(s.draw(array(statementGen, { min: 1, max: 3 })), "a member's statements")
 })
 
@@ -621,14 +716,19 @@ const caseGen: Gen<MemberCase> = (s) => ({
 const OWN_COLUMN = "v"
 
 /**
- * The query CTEs a statement's sources may name, by name, beside its WITH: a CTE's body, and a writing CTE's source,
- * name none, so no CTE reads another and none is read before it is defined.
+ * The CTEs a statement's sources may name, by name, beside its WITH: a query CTE, read where it is named, and a writing
+ * CTE, whose RETURNING rows are the call's own. A CTE's body and a writing CTE's source name none, so no CTE reads
+ * another and none is read before it is defined.
  */
-type Env = ReadonlyArray<{
-	readonly name: string
-	readonly path: string
-	readonly query: QuerySpec
-}>
+type Env = ReadonlyArray<
+	| {
+			readonly kind: "query"
+			readonly name: string
+			readonly path: string
+			readonly query: QuerySpec
+	  }
+	| { readonly kind: "returning"; readonly name: string }
+>
 
 /** A source as its core places it: under its alias, an own CTE source resolved to the CTE it names, or VALUES where the
  * statement defines none. */
@@ -654,7 +754,33 @@ type PlacedSource =
 			readonly alias: string
 			readonly own: "arrays" | "values" | "function"
 	  }
+	| { readonly kind: "returning"; readonly alias: string; readonly name: string }
 	| { readonly kind: "derived"; readonly alias: string; readonly query: QuerySpec }
+	| {
+			readonly kind: "probe"
+			readonly alias: string
+			readonly rel: Rel
+			readonly by: "key" | "group" | "last"
+			readonly equalities: Arr.NonEmptyReadonlyArray<{
+				readonly column: Column
+				readonly other: Other
+			}>
+	  }
+	| {
+			readonly kind: "metRows"
+			readonly alias: string
+			readonly insert: string
+			readonly proposed: string
+			readonly path: string
+			readonly query: QuerySpec
+	  }
+	| {
+			readonly kind: "met"
+			readonly alias: string
+			readonly rel: Rel
+			readonly rows: number
+			readonly columns: Arr.NonEmptyReadonlyArray<Column>
+	  }
 
 /** A core's sources under their aliases, each named by the core's path, so the statement and the oracle agree. */
 const placed = (c: CoreSpec, path: string, env: Env): Arr.NonEmptyReadonlyArray<PlacedSource> =>
@@ -672,6 +798,26 @@ const placed = (c: CoreSpec, path: string, env: Env): Arr.NonEmptyReadonlyArray<
 				}
 			case "derived":
 				return { kind: "derived", alias, query: s.query }
+			case "probe":
+				return { kind: "probe", alias, rel: s.rel, by: s.by, equalities: s.equalities }
+			case "met":
+				return { kind: "met", alias, rel: s.rel, rows: s.rows, columns: s.columns }
+			case "metRows": {
+				const writes = Arr.flatMap(env, (e) => (e.kind === "returning" ? [e.name] : []))
+				const queries = Arr.flatMap(env, (e) => (e.kind === "query" ? [e] : []))
+				const insert = writes[s.insert % Math.max(writes.length, 1)]
+				const proposed = queries[s.proposed % Math.max(queries.length, 1)]
+				return insert === undefined || proposed === undefined
+					? { kind: "plain", alias, own: "values" }
+					: {
+							kind: "metRows",
+							alias,
+							insert,
+							proposed: proposed.name,
+							path: proposed.path,
+							query: proposed.query
+						}
+			}
 			case "own":
 				switch (s.own) {
 					case "carrier":
@@ -680,7 +826,9 @@ const placed = (c: CoreSpec, path: string, env: Env): Arr.NonEmptyReadonlyArray<
 						const named = env[s.at % Math.max(env.length, 1)]
 						return named === undefined
 							? { kind: "plain", alias, own: "values" }
-							: { kind: "cte", alias, name: named.name, path: named.path, query: named.query }
+							: named.kind === "returning"
+								? { kind: "returning", alias, name: named.name }
+								: { kind: "cte", alias, name: named.name, path: named.path, query: named.query }
 					}
 					case "arrays":
 					case "values":
@@ -692,7 +840,22 @@ const placed = (c: CoreSpec, path: string, env: Env): Arr.NonEmptyReadonlyArray<
 
 /** The own sources' aliases of a core, in source order: what an own equality's index names. */
 const ownAliases = (sources: ReadonlyArray<PlacedSource>): ReadonlyArray<string> =>
-	Arr.flatMap(sources, (s) => (s.kind === "table" ? [] : [s.alias]))
+	Arr.flatMap(sources, (s) =>
+		s.kind === "table" || s.kind === "probe" || s.kind === "met" ? [] : [s.alias]
+	)
+
+/** The met rows a `met` source names: the own source the core sees at its index, its own first; none where it sees none. */
+const metRowsAlias = (
+	p: Extract<PlacedSource, { readonly kind: "met" }>,
+	owned: ReadonlyArray<string>,
+	scope: ReadonlyArray<string>
+): string | undefined => {
+	const seen = [...owned, ...scope]
+	return seen[p.rows % Math.max(seen.length, 1)]
+}
+
+/** The name a `met` source reads its met rows by where it sees no own source: a name nothing in scope defines. */
+const NO_ROWS = "nowhere"
 
 /** An equality's other side as its core reads it, an enclosing core's own source resolved in `scope`. */
 type ResolvedOther =
@@ -812,8 +975,52 @@ const stackedOf = (
 }
 
 /** The FROM source of a placed source. */
-const fromSource = (p: PlacedSource, scope: ReadonlyArray<string>, env: Env): FromSource => {
+const fromSource = (
+	p: PlacedSource,
+	scope: ReadonlyArray<string>,
+	env: Env,
+	valueOf: (o: Other) => Expr,
+	owned: ReadonlyArray<string>
+): FromSource => {
 	switch (p.kind) {
+		case "probe": {
+			const columns = Arr.map(p.equalities, (e) => ({
+				column: e.column,
+				value: valueOf(e.other),
+				schema: undefined
+			}))
+			return {
+				kind: "probe",
+				table: TABLES[p.rel],
+				inner: `${p.alias}i`,
+				by: p.by === "key" ? { kind: "key", columns } : { kind: p.by, columns, order: ["c_id"] },
+				filter: [],
+				columns: COLUMNS,
+				alias: p.alias
+			}
+		}
+		case "met":
+			return {
+				kind: "met",
+				table: TABLES[p.rel],
+				inner: `${p.alias}i`,
+				rows: metRowsAlias(p, owned, scope) ?? NO_ROWS,
+				key: Arr.map(p.columns, (column) => ({ column, from: OWN_COLUMN, schema: undefined })),
+				filter: [],
+				columns: COLUMNS,
+				alias: p.alias
+			}
+		case "metRows":
+			return {
+				kind: "metRows",
+				insert: p.insert,
+				proposed: p.proposed,
+				key: [{ column: OWN_COLUMN, from: OWN_COLUMN, schema: undefined }],
+				columns: [OWN_COLUMN],
+				scan: `${p.alias}m`,
+				returned: `${p.alias}r`,
+				alias: p.alias
+			}
 		case "table":
 			switch (p.form) {
 				case "direct":
@@ -827,6 +1034,7 @@ const fromSource = (p: PlacedSource, scope: ReadonlyArray<string>, env: Env): Fr
 		case "carrier":
 			return { kind: "table", table: carrierName(p.carrier), alias: p.alias }
 		case "cte":
+		case "returning":
 			return cteRefAs(p.name, p.alias)
 		case "derived":
 			return derived(buildOperand(p.query, `${p.alias}q`, scope, env), p.alias, [OWN_COLUMN], false)
@@ -967,7 +1175,11 @@ const buildCore = (
 ): OperandCore => {
 	const sources = placed(c, path, env)
 	const within = [...scope, ...ownAliases(sources)]
-	const from = Arr.map(sources, (p) => fromSource(p, scope, env))
+	const owned = ownAliases(sources)
+	const tabled = Arr.flatMap(sources, (t) => (t.kind === "table" ? [t.alias] : []))
+	const from = Arr.map(sources, (p) =>
+		fromSource(p, scope, env, (o) => otherExpr(resolveOther(o, owned, tabled, scope)), owned)
+	)
 	const { where, ons } = equalityConjuncts(sources, scope)
 	const filters = Arr.map(c.filters, (f, j) =>
 		filterExpr(f, `${path}f${j}`, within, env, firstColumn(sources))
@@ -1082,11 +1294,13 @@ const buildDml = (
 	d: Dml,
 	path: string,
 	outer: With | undefined,
-	env: Env
+	env: Env,
+	statement: Env
 ): Insert | Update | Delete | Merge => {
 	switch (d.kind) {
 		case "insert": {
 			const conflict = d.conflict
+			const proposal = proposalOf(d, statement)
 			return {
 				kind: "insert",
 				with: outer,
@@ -1098,37 +1312,52 @@ const buildDml = (
 						? undefined
 						: conflict.kind === "constraint"
 							? { kind: "constraint", constraint: "w_pk", action: { kind: "doNothing" } }
-							: {
-									kind: "columns",
-									columns: conflict.columns,
-									action:
-										conflict.action === "doNothing"
-											? { kind: "doNothing" }
-											: conflict.action === "doSelect"
-												? { kind: "doSelect", where: undefined }
-												: {
-														kind: "doUpdate",
-														set: [{ column: "c_a", value: one }],
-														where: undefined
-													}
-								},
+							: conflict.kind === "every"
+								? { kind: "every", action: { kind: "doNothing" } }
+								: {
+										kind: "columns",
+										columns: conflict.columns,
+										action:
+											conflict.action === "doNothing"
+												? { kind: "doNothing" }
+												: conflict.action === "doSelect"
+													? { kind: "doSelect", where: undefined }
+													: {
+															kind: "doUpdate",
+															set: [{ column: "c_a", value: one }],
+															where: undefined
+														}
+									},
 				returning: [],
-				...(d.source === undefined
-					? d.params
-						? {
-								columns: COLUMNS,
-								source: {
-									kind: "values",
-									rows: [
-										[param(1, types.integer), param(2, types.integer), param(3, types.integer), one]
-									]
-								}
-							}
-						: { columns: ["c_id"], source: { kind: "values", rows: [[one]] } }
-					: {
+				...(proposal !== undefined
+					? {
 							columns: ["c_id"],
-							source: { kind: "query", query: buildSelect(d.source, `${path}i`, [], env) }
-						})
+							source: {
+								kind: "query",
+								query: buildSelect(proposal.query, `${path}i`, [], [proposal.cte])
+							}
+						}
+					: d.source === undefined
+						? d.params
+							? {
+									columns: COLUMNS,
+									source: {
+										kind: "values",
+										rows: [
+											[
+												param(1, types.integer),
+												param(2, types.integer),
+												param(3, types.integer),
+												one
+											]
+										]
+									}
+								}
+							: { columns: ["c_id"], source: { kind: "values", rows: [[one]] } }
+						: {
+								columns: ["c_id"],
+								source: { kind: "query", query: buildSelect(d.source, `${path}i`, [], env) }
+							})
 			}
 		}
 		case "update": {
@@ -1178,10 +1407,43 @@ const keyedWhere = (where: Expr | undefined, keyed: Column | undefined): Expr | 
 	return Arr.isReadonlyArrayNonEmpty(all) ? and(all) : undefined
 }
 
+/**
+ * The query CTE an INSERT proposes alone, by its index among the statement's query CTEs (Dml `proposes`), with the query
+ * of one plain core over it alone that its source is, a CTE source the env holds at 0; none where it proposes none or
+ * the statement defines no query CTE.
+ */
+const proposalOf = (
+	d: Extract<Dml, { readonly kind: "insert" }>,
+	statement: Env
+): { readonly cte: Env[number]; readonly query: QuerySpec } | undefined => {
+	const queries = Arr.filter(statement, (e) => e.kind === "query")
+	const cte =
+		d.proposes === undefined ? undefined : queries[d.proposes % Math.max(queries.length, 1)]
+	return cte === undefined
+		? undefined
+		: {
+				cte,
+				query: {
+					cores: [
+						{
+							sources: [{ kind: "own", own: "cte", at: 0 }],
+							filters: [],
+							aggregate: { kind: "none" },
+							projection: { kind: "plain" },
+							nested: false
+						}
+					],
+					op: "UNION"
+				}
+			}
+}
+
 /** A statement's query CTEs, which its sources may name: none where it defines none. */
 const envOf = (ctes: ReadonlyArray<CteSpec>): Env =>
-	Arr.flatMap(ctes, (c, i) =>
-		c.kind === "query" ? [{ name: `c${i}`, path: `c${i}q`, query: c.query }] : []
+	Arr.map(ctes, (c, i) =>
+		c.kind === "query"
+			? { kind: "query", name: `c${i}`, path: `c${i}q`, query: c.query }
+			: { kind: "returning", name: `c${i}` }
 	)
 
 const buildStatement = (s: StatementSpec): SqlStatement => {
@@ -1202,14 +1464,14 @@ const buildStatement = (s: StatementSpec): SqlStatement => {
 				query:
 					c.kind === "query"
 						? buildOperand(c.query, `c${i}q`, [], [])
-						: buildDml(c.dml, `c${i}`, undefined, [])
+						: buildDml(c.dml, `c${i}`, undefined, [], env)
 			}))
 			const outer: With | undefined = Arr.isReadonlyArrayNonEmpty(ctes)
 				? { recursive: false, ctes }
 				: undefined
 			return s.kind === "select"
 				? { ...buildSelect(s.query, "q", [], env), with: outer }
-				: buildDml(s.dml, "", outer, env)
+				: buildDml(s.dml, "", outer, env, env)
 		}
 	}
 }
@@ -1301,6 +1563,19 @@ type Shape =
 	| "a probed core reading a UNION"
 	| "a probed core reading an INTERSECT or an EXCEPT"
 	| "a probed core reading an aggregate with no GROUP BY"
+	| "a probed core reading a probe"
+	| "an ON CONFLICT with no target, arbitrating every key and UNIQUE"
+	| "a probe at a key"
+	| "a probe at a group"
+	| "the row an arbitration met"
+	| "the row an arbitration met, refused at READ COMMITTED"
+	| "an ON CONFLICT with no target, refused at READ COMMITTED"
+	| "a writing CTE's RETURNING read as the call's own rows"
+	| "the row met through no met rows, read by its place"
+	| "the row met through met rows of no INSERT proposing them alone with DO NOTHING over its key, read by its place"
+	| "an INSERT's met rows"
+	| "an INSERT proposing a query CTE alone"
+	| "a probe at a group's last row"
 
 /** A column of a table read with what its conditions equate it with. */
 interface Bound {
@@ -1330,6 +1605,10 @@ class Expect {
 	}> = []
 	readonly shapes = new Set<Shape>()
 	readonly written: ReadonlySet<string>
+	readonly inserts: ReadonlyMap<string, WritingInsert>
+	readonly level: Isolation
+	/** Every met rows source placed so far, by its alias, which a `met` source names. */
+	readonly metRows = new Map<string, Extract<PlacedSource, { readonly kind: "metRows" }>>()
 	/** Each read's key with its base mode and the count of probes above it, and each probe's gated writes. */
 	readonly based: Array<string> = []
 	readonly probes: Array<{
@@ -1340,8 +1619,14 @@ class Expect {
 	/** Each core's row sources, by number, as the comparison renders them. */
 	readonly cores: Array<ReadonlyArray<Rows>> = []
 
-	constructor(written: ReadonlySet<string>) {
+	constructor(
+		written: ReadonlySet<string>,
+		inserts: ReadonlyMap<string, WritingInsert>,
+		level: Isolation
+	) {
 		this.written = written
+		this.inserts = inserts
+		this.level = level
 	}
 
 	/** The place `next`, entered from `place`: where it flips the polarity or starts a count, a probe of its own. */
@@ -1375,8 +1660,9 @@ class Expect {
 
 	read(fact: Expected, feeds: ReadonlyArray<number>, place: Place): Rows {
 		this.reads.push({ ...fact, feeds })
-		const base: Mode = Arr.some(["?function:", "?refresh:", "?statement:"], (prefix) =>
-			Str.startsWith(prefix)(fact.relation)
+		const base: Mode = Arr.some(
+			["?function:", "?refresh:", "?statement:", "?met:", "?every:"],
+			(prefix) => Str.startsWith(prefix)(fact.relation)
 		)
 			? "negated"
 			: fact.mode === "arbiter"
@@ -1398,8 +1684,11 @@ class Expect {
 		return { kind: "read", key: readKey(fact), probes: place.probes }
 	}
 
-	/** A table read under its conditions' bindings: each field bound by a placeholder or an own column, sorted. */
-	table(rel: Rel, place: Place, all: ReadonlyArray<Bound>): Rows {
+	/**
+	 * A table read under its conditions' bindings: each field bound by a placeholder or an own column, sorted; an
+	 * arbitration wherever it stands where it reads the row its statement's arbitration met (`met`).
+	 */
+	table(rel: Rel, place: Place, all: ReadonlyArray<Bound>, met: boolean): Rows {
 		const relation = relationOf(rel)
 		if (rel === "X") {
 			this.shapes.add("a read no relation names")
@@ -1424,7 +1713,7 @@ class Expect {
 		return this.read(
 			{
 				relation,
-				mode: this.mode(place, relation, true),
+				mode: met ? "arbiter" : this.mode(place, relation, true),
 				own: false,
 				group: Arr.isReadonlyArrayNonEmpty(sorted) ? Arr.map(sorted, (b) => b.field) : undefined,
 				binding: Arr.isReadonlyArrayNonEmpty(sorted)
@@ -1526,6 +1815,11 @@ class Expect {
 		}
 		const rows: Array<Rows> = [...target(here)]
 		const sources = placed(c, path, env)
+		for (const s of sources) {
+			if (s.kind === "metRows") {
+				this.metRows.set(s.alias, s)
+			}
+		}
 		const owns = ownAliases(sources)
 		const tables = Arr.flatMap(sources, (s) => (s.kind === "table" ? [s.alias] : []))
 		const within = [...place.scope, ...owns]
@@ -1558,13 +1852,18 @@ class Expect {
 						}
 						rows.push(
 							this.wrapped([
-								this.table(s.rel, { ...beneath, scope: place.scope }, [
-									...Arr.map(s.inner, (e) => ({
-										column: ROTATED[e.column],
-										other: { kind: "param" as const, slot: e.slot }
-									})),
-									...outer
-								])
+								this.table(
+									s.rel,
+									{ ...beneath, scope: place.scope },
+									[
+										...Arr.map(s.inner, (e) => ({
+											column: ROTATED[e.column],
+											other: { kind: "param" as const, slot: e.slot }
+										})),
+										...outer
+									],
+									false
+								)
 							])
 						)
 						break
@@ -1573,7 +1872,9 @@ class Expect {
 						if (s.equalities.length > 0) {
 							this.shapes.add("a projection outside conditions do not key")
 						}
-						rows.push(this.wrapped([this.table(s.rel, { ...beneath, scope: place.scope }, [])]))
+						rows.push(
+							this.wrapped([this.table(s.rel, { ...beneath, scope: place.scope }, [], false)])
+						)
 						break
 					}
 					rows.push(
@@ -1583,7 +1884,8 @@ class Expect {
 							Arr.map(s.equalities, (e) => ({
 								column: s.form === "plain" ? ROTATED[e.column] : e.column,
 								other: resolve(e.other)
-							}))
+							})),
+							false
 						)
 					)
 					for (const e of s.equalities) {
@@ -1643,6 +1945,68 @@ class Expect {
 						rows.push(r)
 					}
 					break
+				case "probe":
+					this.shapes.add(
+						s.by === "key"
+							? "a probe at a key"
+							: s.by === "group"
+								? "a probe at a group"
+								: "a probe at a group's last row"
+					)
+					rows.push(
+						this.table(
+							s.rel,
+							here,
+							Arr.map(s.equalities, (e) => ({ column: e.column, other: resolve(e.other) })),
+							false
+						)
+					)
+					break
+				case "metRows":
+					this.shapes.add("an INSERT's met rows")
+					for (const r of this.query(s.query, s.path, { ...beneath, scope: [] }, [])) {
+						rows.push(r)
+					}
+					break
+				case "met": {
+					if (this.level === "readCommitted") {
+						this.shapes.add("the row an arbitration met, refused at READ COMMITTED")
+						this.opaque(`?met:app.${TABLES[s.rel].name}`, here)
+						break
+					}
+					const alias = metRowsAlias(s, owns, place.scope)
+					const named = alias === undefined ? undefined : this.metRows.get(alias)
+					const insert = named === undefined ? undefined : this.inserts.get(named.insert)
+					const conflict = insert?.conflict
+					const sealed =
+						insert !== undefined &&
+						named !== undefined &&
+						insert.rel === s.rel &&
+						insert.proposes === named.proposed &&
+						(conflict?.kind === "every" ||
+							(conflict?.kind === "columns" &&
+								conflict.action === "doNothing" &&
+								Arr.every(conflict.columns, (column) => s.columns.includes(column))))
+					this.shapes.add(
+						sealed
+							? "the row an arbitration met"
+							: named === undefined
+								? "the row met through no met rows, read by its place"
+								: "the row met through met rows of no INSERT proposing them alone with DO NOTHING over its key, read by its place"
+					)
+					this.table(
+						s.rel,
+						here,
+						alias === undefined
+							? []
+							: Arr.map(s.columns, (column) => ({ column, other: { kind: "own", alias } })),
+						sealed
+					)
+					break
+				}
+				case "returning":
+					this.shapes.add("a writing CTE's RETURNING read as the call's own rows")
+					break
 				case "plain":
 					break
 			}
@@ -1671,6 +2035,9 @@ class Expect {
 		}
 		this.cores[id] = c.aggregate.kind === "groupBy" || !counts(c.aggregate) ? rows : []
 		if (Arr.some(this.probes, (probe) => probe.core === id)) {
+			if (Arr.some(sources, (s) => s.kind === "probe")) {
+				this.shapes.add("a probed core reading a probe")
+			}
 			for (const s of sources) {
 				const q = s.kind === "cte" || s.kind === "derived" ? s.query : undefined
 				const [only, ...more] = q?.cores ?? []
@@ -1765,7 +2132,7 @@ class Expect {
 		}
 	}
 
-	dml(d: Dml, path: string, env: Env): void {
+	dml(d: Dml, path: string, env: Env, statement: Env): void {
 		switch (d.kind) {
 			case "insert": {
 				const target = d.target.kind === "table" ? relationOf(d.target.rel) : undefined
@@ -1779,49 +2146,71 @@ class Expect {
 				if (conflict.kind === "columns" && conflict.action === "doUpdate" && target !== undefined) {
 					this.shapes.add("a DO UPDATE")
 				}
-				if (d.source !== undefined) {
+				const proposal = proposalOf(d, statement)
+				if (proposal !== undefined) {
+					this.shapes.add("an INSERT proposing a query CTE alone")
+					this.query(proposal.query, `${path}i`, { ...topPlace, feeds: at }, [proposal.cte])
+				} else if (d.source !== undefined) {
 					this.query(d.source, `${path}i`, { ...topPlace, feeds: at }, env)
 				}
-				if (conflict.kind !== "none" && target !== undefined && d.target.kind === "table") {
+				if (
+					conflict.kind === "every" &&
+					this.level === "readCommitted" &&
+					d.target.kind === "table"
+				) {
+					this.shapes.add("an ON CONFLICT with no target, refused at READ COMMITTED")
+					this.opaque(`?every:app.${TABLES[d.target.rel].name}`, topPlace)
+				} else if (conflict.kind !== "none" && target !== undefined && d.target.kind === "table") {
 					const rel = d.target.rel
-					const stated = d.source === undefined && d.params
-					const fields =
-						conflict.kind === "columns" && rel !== "X"
-							? Arr.flatMap(conflict.columns, (column) => {
-									const field = FIELDS.get(column)
-									const slot = Arr.findFirstIndex(COLUMNS, (c) => c === column)
-									const text =
-										stated && Option.isSome(slot) && slot.value < 3
-											? paramText(slot.value + 1)
-											: `excluded.${column}`
-									return field === undefined ? [] : [{ field, text }]
-								})
-							: []
-					if (stated && Arr.isReadonlyArrayNonEmpty(fields)) {
-						this.shapes.add("an ON CONFLICT bound by the parameters its row carries")
+					const stated = proposal === undefined && d.source === undefined && d.params
+					if (conflict.kind === "every") {
+						this.shapes.add("an ON CONFLICT with no target, arbitrating every key and UNIQUE")
 					}
-					if (Arr.isReadonlyArrayNonEmpty(fields)) {
-						this.shapes.add("an ON CONFLICT arbiter over its conflict columns")
+					const arbitrated: ReadonlyArray<ReadonlyArray<Column>> =
+						conflict.kind === "columns"
+							? [conflict.columns]
+							: conflict.kind === "every" && rel !== "X"
+								? ARBITERS
+								: [[]]
+					for (const columns of arbitrated) {
+						const fields =
+							rel === "X"
+								? []
+								: Arr.flatMap(columns, (column) => {
+										const field = FIELDS.get(column)
+										const slot = Arr.findFirstIndex(COLUMNS, (c) => c === column)
+										const text =
+											stated && Option.isSome(slot) && slot.value < 3
+												? paramText(slot.value + 1)
+												: `excluded.${column}`
+										return field === undefined ? [] : [{ field, text }]
+									})
+						if (stated && Arr.isReadonlyArrayNonEmpty(fields)) {
+							this.shapes.add("an ON CONFLICT bound by the parameters its row carries")
+						}
+						if (Arr.isReadonlyArrayNonEmpty(fields)) {
+							this.shapes.add("an ON CONFLICT arbiter over its conflict columns")
+						}
+						const sorted = Arr.sort(
+							fields,
+							Order.mapInput(Order.String, (b: { readonly field: string }) => b.field)
+						)
+						this.tail.push({
+							relation: target,
+							mode: "arbiter",
+							own: false,
+							group: Arr.isReadonlyArrayNonEmpty(sorted)
+								? Arr.map(sorted, (b) => b.field)
+								: undefined,
+							binding: Arr.isReadonlyArrayNonEmpty(sorted)
+								? Arr.join(
+										Arr.map(sorted, (b) => b.text),
+										","
+									)
+								: undefined,
+							rows: Arr.isReadonlyArrayNonEmpty(sorted) ? (stated ? "one" : "many") : undefined
+						})
 					}
-					const sorted = Arr.sort(
-						fields,
-						Order.mapInput(Order.String, (b: { readonly field: string }) => b.field)
-					)
-					this.tail.push({
-						relation: target,
-						mode: "arbiter",
-						own: false,
-						group: Arr.isReadonlyArrayNonEmpty(sorted)
-							? Arr.map(sorted, (b) => b.field)
-							: undefined,
-						binding: Arr.isReadonlyArrayNonEmpty(sorted)
-							? Arr.join(
-									Arr.map(sorted, (b) => b.text),
-									","
-								)
-							: undefined,
-						rows: Arr.isReadonlyArrayNonEmpty(sorted) ? (stated ? "one" : "many") : undefined
-					})
 				}
 				return
 			}
@@ -1846,7 +2235,8 @@ class Expect {
 									here,
 									d.keyed === undefined
 										? []
-										: [{ column: d.keyed, other: { kind: "param", slot: 8 } }]
+										: [{ column: d.keyed, other: { kind: "param", slot: 8 } }],
+									false
 								)
 							]
 						}
@@ -1894,11 +2284,14 @@ class Expect {
 						if (this.written.has(relation)) {
 							this.shapes.add("a MERGE's NOT MATCHED arbiter")
 						}
-						this.table(d.rel, this.enter(place, { ...place, polarity: "negated", probe: true }), [
-							on
-						])
+						this.table(
+							d.rel,
+							this.enter(place, { ...place, polarity: "negated", probe: true }),
+							[on],
+							false
+						)
 					} else {
-						this.table(d.rel, place, w.match === "MATCHED" ? [on, ...condition] : condition)
+						this.table(d.rel, place, w.match === "MATCHED" ? [on, ...condition] : condition, false)
 					}
 				}
 				return
@@ -1937,9 +2330,40 @@ const writtenIn = (s: StatementSpec): ReadonlySet<string> => {
 	)
 }
 
+/** A writing CTE's INSERT as a met row's seal reads it: its table, the query CTE it proposes alone, its ON CONFLICT. */
+interface WritingInsert {
+	readonly rel: Rel | undefined
+	readonly proposes: string | undefined
+	readonly conflict: Conflict
+}
+
+/** The INSERTs of a statement's writing CTEs, by the CTE's name: what a met rows source names. */
+const insertsIn = (s: StatementSpec): ReadonlyMap<string, WritingInsert> => {
+	if (s.kind !== "dml" && s.kind !== "select") {
+		return new Map()
+	}
+	const env = envOf(s.ctes)
+	return new Map(
+		Arr.flatMap(s.ctes, (c, i): ReadonlyArray<readonly [string, WritingInsert]> =>
+			c.kind === "dml" && c.dml.kind === "insert"
+				? [
+						[
+							`c${i}`,
+							{
+								rel: c.dml.target.kind === "table" ? c.dml.target.rel : undefined,
+								proposes: proposalOf(c.dml, env)?.cte.name,
+								conflict: c.dml.conflict
+							}
+						]
+					]
+				: []
+		)
+	)
+}
+
 /** A statement's expected facts: its writing CTEs run once at their definition, its query CTEs read where named. */
-const expected = (s: StatementSpec): Expect => {
-	const x = new Expect(writtenIn(s))
+const expected = (s: StatementSpec, level: Isolation): Expect => {
+	const x = new Expect(writtenIn(s), insertsIn(s), level)
 	switch (s.kind) {
 		case "analyze":
 			return x
@@ -1953,17 +2377,17 @@ const expected = (s: StatementSpec): Expect => {
 			return x
 		case "select":
 		case "dml": {
+			const env = envOf(s.ctes)
 			Arr.forEach(s.ctes, (c, i) => {
 				if (c.kind === "dml") {
 					x.shapes.add("a CTE's write")
-					x.dml(c.dml, `c${i}`, [])
+					x.dml(c.dml, `c${i}`, [], env)
 				}
 			})
-			const env = envOf(s.ctes)
 			if (s.kind === "select") {
 				x.query(s.query, "q", topPlace, env)
 			} else {
-				x.dml(s.dml, "", env)
+				x.dml(s.dml, "", env, env)
 			}
 			return x
 		}
@@ -2098,7 +2522,20 @@ describe("a change member's facts", () => {
 								"a probed core reading a one-core derived table or CTE",
 								"a probed core reading a UNION",
 								"a probed core reading an INTERSECT or an EXCEPT",
-								"a probed core reading an aggregate with no GROUP BY"
+								"a probed core reading an aggregate with no GROUP BY",
+								"a probed core reading a probe",
+								"an ON CONFLICT with no target, arbitrating every key and UNIQUE",
+								"a probe at a key",
+								"a probe at a group",
+								"the row an arbitration met",
+								"the row an arbitration met, refused at READ COMMITTED",
+								"an ON CONFLICT with no target, refused at READ COMMITTED",
+								"a writing CTE's RETURNING read as the call's own rows",
+								"the row met through no met rows, read by its place",
+								"the row met through met rows of no INSERT proposing them alone with DO NOTHING over its key, read by its place",
+								"an INSERT's met rows",
+								"an INSERT proposing a query CTE alone",
+								"a probe at a group's last row"
 							],
 							{ cases: 500, sense: notesOnly }
 						),
@@ -2115,7 +2552,8 @@ describe("a change member's facts", () => {
 								"member",
 								Arr.map(c.statements, buildStatement),
 								NAMES,
-								(_, n) => PARAM_NAMES.get(n)
+								(_, n) => PARAM_NAMES.get(n),
+								c.level
 							)
 							assert.equal(facts.name, "member", "the member's name")
 							assert.equal(
@@ -2125,7 +2563,7 @@ describe("a change member's facts", () => {
 							)
 							Arr.forEach(c.statements, (spec, i) => {
 								const got = Arr.getUnsafe(facts.statements, i)
-								const x = expected(spec)
+								const x = expected(spec, c.level)
 								for (const shape of x.shapes) {
 									k.note(shape)
 								}
