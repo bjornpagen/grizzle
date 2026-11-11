@@ -1,4 +1,5 @@
-import { Array as Arr, Data, Effect, Order, Schema } from "effect"
+import { regex } from "arkregex"
+import { Array as Arr, Effect, Option, Order, Schema } from "effect"
 import { printJson } from "#emit/printer.ts"
 import { JsonLiteral } from "#model/brands.ts"
 
@@ -12,20 +13,26 @@ export const manifestFileName = ".openapi-cli-manifest.json"
  * `duplicate-path` or `unprintable` (a value `printJson` cannot take). `subject` names the path
  * involved, or the manifest file when no path is.
  */
-export class ManifestError extends Data.TaggedError("ManifestError")<{
-	readonly reason: "duplicate-path" | "malformed" | "unprintable"
-	readonly subject: string
-}> {}
+export class ManifestError extends Schema.TaggedError<
+	ManifestError,
+	{ readonly brand: unique symbol }
+>()("ManifestError", {
+	reason: Schema.Literals(["duplicate-path", "malformed", "unprintable"]),
+	subject: Schema.String
+}) {}
 
 const ManifestEntrySchema = Schema.Struct({
 	path: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
-	sha256: Schema.String.pipe(Schema.check(Schema.isPattern(/^[0-9a-f]{64}$/u)))
+	sha256: Schema.String.pipe(Schema.check(Schema.isPattern(regex("^[0-9a-f]{64}$", "u")))),
+	size: Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0)))
 })
 
 const ManifestFile = Schema.Struct({ files: Schema.Array(ManifestEntrySchema) })
 
 /**
- * One generated file: its path relative to the output directory and the sha256 of its bytes.
+ * One generated file: its path relative to the output directory, the sha256 of its bytes and
+ * their count. The count bounds what a later run reads to judge the file: a file of another size
+ * is not the one written, and is never read.
  */
 export type ManifestEntry = (typeof ManifestEntrySchema)["Type"]
 
@@ -37,18 +44,25 @@ const encodeJson = Schema.decodeUnknownEffect(JsonLiteral)
 
 const byPath = Order.mapInput(Order.String, (entry: ManifestEntry) => entry.path)
 
-const duplicatePath = (sorted: readonly ManifestEntry[]): string | undefined =>
-	sorted.find((entry, index) => index > 0 && sorted[index - 1]?.path === entry.path)?.path
+/** The first path two neighbours of a sorted list share. */
+const duplicatePath = (sorted: readonly ManifestEntry[]): Option.Option<string> =>
+	Option.map(
+		Arr.findFirst(
+			Arr.zip(sorted, Arr.drop(sorted, 1)),
+			([previous, entry]) => previous.path === entry.path
+		),
+		([, entry]) => entry.path
+	)
 
 const sortedUnique = (
 	entries: readonly ManifestEntry[]
 ): Effect.Effect<readonly ManifestEntry[], ManifestError> => {
 	const sorted = Arr.sort(entries, byPath)
-	const duplicate = duplicatePath(sorted)
 
-	return duplicate === undefined
-		? Effect.succeed(sorted)
-		: Effect.fail(new ManifestError({ reason: "duplicate-path", subject: duplicate }))
+	return Option.match(duplicatePath(sorted), {
+		onNone: () => Effect.succeed(sorted),
+		onSome: (subject) => Effect.fail(ManifestError.make({ reason: "duplicate-path", subject }))
+	})
 }
 
 /**
@@ -59,13 +73,13 @@ const sortedUnique = (
 export const printManifest = (
 	entries: readonly ManifestEntry[]
 ): Effect.Effect<string, ManifestError> =>
-	Schema.decodeUnknownEffect(Schema.Array(ManifestEntrySchema))(entries).pipe(
-		Effect.mapError(() => new ManifestError({ reason: "malformed", subject: manifestFileName })),
+	Schema.decodeEffect(Schema.Array(ManifestEntrySchema))(entries).pipe(
+		Effect.mapError(() => ManifestError.make({ reason: "malformed", subject: manifestFileName })),
 		Effect.flatMap(sortedUnique),
 		Effect.flatMap((sorted) =>
 			encodeJson({ files: sorted }).pipe(
-				Effect.mapError(
-					() => new ManifestError({ reason: "unprintable", subject: manifestFileName })
+				Effect.mapError(() =>
+					ManifestError.make({ reason: "unprintable", subject: manifestFileName })
 				)
 			)
 		),
@@ -81,6 +95,6 @@ export const decodeManifest = (
 	text: string
 ): Effect.Effect<readonly ManifestEntry[], ManifestError> =>
 	decodeFile(text, strict).pipe(
-		Effect.mapError(() => new ManifestError({ reason: "malformed", subject: manifestFileName })),
+		Effect.mapError(() => ManifestError.make({ reason: "malformed", subject: manifestFileName })),
 		Effect.flatMap((file) => sortedUnique(file.files))
 	)

@@ -1,4 +1,5 @@
-import { Array as Arr, Data, Effect, FileSystem, Option, Order, Schema } from "effect"
+import { regex } from "arkregex"
+import { Array as Arr, Effect, FileSystem, Option, Order, Schema } from "effect"
 import type { Path, PlatformError, Stream, Types } from "effect"
 import type { Digest } from "effect/crypto"
 import { checkSpecText } from "#check/index.ts"
@@ -21,8 +22,13 @@ import type { LoadRefusal } from "#load/index.ts"
 import { decodeAuthorConfig } from "#model/author-config.ts"
 import type { AuthorConfig } from "#model/author-config.ts"
 import type { DocumentUri } from "#model/brands.ts"
-import type { Diagnostic } from "#model/diagnostic.ts"
-import { isDocumentRefusal, isRefusal, makeDiagnostic, sortDiagnostics } from "#model/diagnostic.ts"
+import {
+	Diagnostic,
+	isDocumentRefusal,
+	isRefusal,
+	makeDiagnostic,
+	sortDiagnostics
+} from "#model/diagnostic.ts"
 import { sha256Hex } from "#model/digest.ts"
 import { Api } from "#model/entities.ts"
 import type { Operation } from "#model/entities.ts"
@@ -45,7 +51,7 @@ import {
 	skippedEntries
 } from "#report/index.ts"
 import type { GenerationReportValue } from "#report/index.ts"
-import { resolve } from "#resolve/index.ts"
+import { defaultLimits, resolve } from "#resolve/index.ts"
 import type { Resolution, ResolveMember } from "#resolve/index.ts"
 import { lineOf, versionRefusal } from "#validate/dispatch.ts"
 import type { UnsupportedOpenApiVersion } from "#validate/dispatch.ts"
@@ -107,10 +113,13 @@ export interface GenerateResult {
  * Nothing was written (design 8.1 exit 1): the author config cannot be used, the document is
  * refused, or `--strict` met a refusal. `diagnostics` are the run's diagnostics so far.
  */
-export class GenerateRefused extends Data.TaggedError("GenerateRefused")<{
-	readonly diagnostics: readonly Diagnostic[]
-	readonly reason: "config" | "document" | "strict"
-}> {}
+export class GenerateRefused extends Schema.TaggedError<
+	GenerateRefused,
+	{ readonly brand: unique symbol }
+>()("GenerateRefused", {
+	diagnostics: Schema.Array(Diagnostic),
+	reason: Schema.Literals(["config", "document", "strict"])
+}) {}
 
 /**
  * Every way `generate` can fail. Besides `GenerateRefused` and the writer's errors, the rest are
@@ -148,7 +157,7 @@ const DeclaredOpenapi = Schema.Struct({ openapi: Schema.String })
 const refused =
 	(reason: GenerateRefused["reason"]) =>
 	(diagnostics: readonly Diagnostic[]): GenerateRefused =>
-		new GenerateRefused({ diagnostics, reason })
+		GenerateRefused.make({ diagnostics, reason })
 
 /**
  * `DOC-02`: an `openapi` value that names no supported line refuses the document, reported like
@@ -184,24 +193,26 @@ const readConfig = (
 		Effect.mapError((refusal) => refused("config")([refusal.diagnostic])),
 		Effect.flatMap(({ bytes, json }) =>
 			decodeAuthorConfig(json, { document: config.document }).pipe(
-				Effect.mapError((refusal) => refused("config")(refusal.diagnostics)),
-				Effect.map((value) => ({ bytes, value }))
+				Effect.mapBoth({
+					onFailure: (refusal) => refused("config")(refusal.diagnostics),
+					onSuccess: (value) => ({ bytes, value })
+				})
 			)
 		)
 	)
 
-// The set's documents other than the entry, in set order, each with the hash of the bytes it parsed.
+/** The set's documents other than the entry, in set order, each with the hash of the bytes it parsed. */
 const memberInputs = (entry: Document, documents: DocumentSet | undefined) =>
-	[...(documents?.documents ?? [])].flatMap(([document, member]) =>
+	Arr.flatMap([...(documents?.documents ?? [])], ([document, member]) =>
 		document === entry ? [] : [{ document, sha256: member.sha256 }]
 	)
 
-// The real path of `path`, or undefined when it has none.
+/** The real path of `path`, none when it has none. */
 const realPathOf = (path: string) =>
 	Effect.gen(function* real() {
 		const fs = yield* FileSystem.FileSystem
 
-		return Option.getOrUndefined(yield* Effect.option(fs.realPath(path)))
+		return yield* Effect.option(fs.realPath(path))
 	})
 
 /**
@@ -220,14 +231,16 @@ export const setMembers = (
 
 		for (const [document, member] of documents?.documents ?? []) {
 			if (retrievalBase(document) === retrievalBase(entry.document)) {
+				const duplicate = duplicateUri({ path: member.path, uri: document })
 				const entryPath =
-					entry.source._tag === "File" ? yield* realPathOf(entry.source.path) : undefined
-				if (
-					document !== entry.document ||
-					entryPath === undefined ||
-					entryPath !== (yield* realPathOf(member.path))
-				) {
-					return yield* duplicateUri({ path: member.path, uri: document })
+					entry.source._tag === "File" ? yield* realPathOf(entry.source.path) : Option.none()
+				if (document !== entry.document || Option.isNone(entryPath)) {
+					return yield* duplicate
+				}
+
+				const memberPath = yield* realPathOf(member.path)
+				if (!Option.contains(memberPath, entryPath.value)) {
+					return yield* duplicate
 				}
 			} else {
 				const line = yield* Effect.option(lineOf(member.value))
@@ -242,7 +255,7 @@ export const setMembers = (
 		return found
 	})
 
-const pathItemSite = /^\/paths\/[^/]+$/u
+const pathItemSite = regex("^/paths/[^/]+$", "u")
 
 /**
  * Design 3.3, `PTH-10`: a Path Item under `paths` whose `$ref` ends in another document of the set
@@ -256,7 +269,8 @@ export const otherDocumentPathItems = (
 		onNone: () => patchVersion[resolution.line],
 		onSome: (found) => found.openapi
 	})
-	const references = [...resolution.references.values()].filter(
+	const references = Arr.filter(
+		[...resolution.references.values()],
 		(reference) =>
 			reference.kind === "pathItem" &&
 			reference.site.document === resolution.document &&
@@ -264,44 +278,45 @@ export const otherDocumentPathItems = (
 			reference.target.document !== resolution.document
 	)
 
-	return Effect.all(
-		references.map((reference) =>
-			makeDiagnostic({
-				code: "PTH-10/other-document",
-				document: resolution.document,
-				element: "Path Item",
-				hint: "Path Items are read from the entry document only; move this one into it.",
-				message:
-					"The Path Item is a reference into another document of the set; its operations are not generated.",
-				openapi,
-				pointer: reference.site.pointer,
-				related: [reference.target],
-				scope: "element",
-				severity: "refusal",
-				specSection: specSectionUrl(resolution.line, "path-item-ref")
-			})
-		)
+	return Effect.forEach(references, (reference) =>
+		makeDiagnostic({
+			code: "PTH-10/other-document",
+			document: resolution.document,
+			element: "Path Item",
+			hint: "Path Items are read from the entry document only; move this one into it.",
+			message:
+				"The Path Item is a reference into another document of the set; its operations are not generated.",
+			openapi,
+			pointer: reference.site.pointer,
+			related: [reference.target],
+			scope: "element",
+			severity: "refusal",
+			specSection: specSectionUrl(resolution.line, "path-item-ref")
+		})
 	)
 }
 
 const sameKey = (operation: Operation, method: string, path: string): boolean =>
 	operation.key.method === method && operation.key.path === path
 
-// Operations an operation-scope spec-text refusal names (PTH-03, PTH-04, PTH-08, PTH-28, STY-44
-// and the rest of design 3.4) are absent from the model, as normalize's own refusals are (2.4).
+/**
+ * Operations an operation-scope spec-text refusal names (PTH-03, PTH-04, PTH-08, PTH-28, STY-44
+ * and the rest of design 3.4) are absent from the model, as normalize's own refusals are (2.4).
+ */
 const withoutRefused = (api: Api, checked: readonly Diagnostic[]): Api => {
-	const named = checked.flatMap((diagnostic) =>
+	const named = Arr.flatMap(checked, (diagnostic) =>
 		isRefusal(diagnostic) && diagnostic.scope === "operation" && diagnostic.operation !== undefined
 			? [diagnostic.operation]
 			: []
 	)
-	const operations = api.operations.filter(
-		(operation) => !named.some((key) => sameKey(operation, key.method, key.path))
+	const operations = Arr.filter(
+		api.operations,
+		(operation) => !Arr.some(named, (key) => sameKey(operation, key.method, key.path))
 	)
 
 	return operations.length === api.operations.length
 		? api
-		: new Api({
+		: Api.make({
 				documents: api.documents,
 				entry: api.entry,
 				info: api.info,
@@ -318,15 +333,15 @@ const withoutRefused = (api: Api, checked: readonly Diagnostic[]): Api => {
 			})
 }
 
-// The code-generation copy's roots (design 3.5): every schema a request parameter or body uses.
+/** The code-generation copy's roots (design 3.5): every schema a request parameter or body uses. */
 const requestRoots = (api: Api): readonly string[] =>
 	Arr.dedupe(
-		api.operations.flatMap((operation) => [
-			...operation.parameters.flatMap((parameter) => [
+		Arr.flatMap(api.operations, (operation) => [
+			...Arr.flatMap(operation.parameters, (parameter) => [
 				parameter.schema.key,
 				...(parameter.serialization.kind === "content" ? [parameter.serialization.schema.key] : [])
 			]),
-			...(operation.body?.alternatives ?? []).flatMap((alternative) => [
+			...Arr.flatMap(operation.body?.alternatives ?? [], (alternative) => [
 				...(alternative.schema === undefined ? [] : [alternative.schema.key]),
 				...(alternative.itemSchema === undefined ? [] : [alternative.itemSchema.key])
 			])
@@ -338,29 +353,39 @@ interface CommandAt {
 	readonly path: readonly string[]
 }
 
-// Every planned command with its visible path, in the order `--describe` walks the tree (design
-// 8.3): top-level groups in plan order, each group's commands before its child groups, then the
-// root's commands.
+/**
+ * Every planned command with its visible path, in the order `--describe` walks the tree (design
+ * 8.3): top-level groups in plan order, each group's commands before its child groups, then the
+ * root's commands.
+ */
 const commandOrder = (plan: NamePlan): readonly CommandAt[] => {
-	const byTag = new Map(plan.groups.map((group) => [group.tag, group]))
+	const byTag = new Map(Arr.map(plan.groups, (group) => [group.tag, group] as const))
 	const namesOf = (group: PlannedGroup): readonly string[] => {
 		const parent = group.parent === undefined ? undefined : byTag.get(group.parent)
 
 		return [...(parent === undefined ? [] : namesOf(parent)), group.name]
 	}
 	const walk = (group: PlannedGroup): readonly CommandAt[] => [
-		...group.commands.map((command) => ({ command, path: [...namesOf(group), command.name] })),
-		...plan.groups.filter((child) => child.parent === group.tag).flatMap(walk)
+		...Arr.map(group.commands, (command) => ({ command, path: [...namesOf(group), command.name] })),
+		...Arr.flatMap(
+			Arr.filter(plan.groups, (child) => child.parent === group.tag),
+			walk
+		)
 	]
 
 	return [
-		...plan.groups.filter((group) => group.parent === undefined).flatMap(walk),
-		...plan.root.map((command) => ({ command, path: [command.name] }))
+		...Arr.flatMap(
+			Arr.filter(plan.groups, (group) => group.parent === undefined),
+			walk
+		),
+		...Arr.map(plan.root, (command) => ({ command, path: [command.name] }))
 	]
 }
 
 const refusedBy = (refusals: readonly CliRefusal[], operation: Operation): boolean =>
-	refusals.some((refusal) => sameKey(operation, refusal.operation.method, refusal.operation.path))
+	Arr.some(refusals, (refusal) =>
+		sameKey(operation, refusal.operation.method, refusal.operation.path)
+	)
 
 type CommandName = GenerationReportValue["commandNames"][number]
 
@@ -379,17 +404,19 @@ const commandName = ({ command, path }: CommandAt): CommandName => {
 	return name
 }
 
-// Design 8.1 `commandNames`: the emitted commands, so none of a refused operation's names.
+/** Design 8.1 `commandNames`: the emitted commands, so none of a refused operation's names. */
 const commandNames = (
 	order: readonly CommandAt[],
 	refusals: readonly CliRefusal[]
 ): GenerationReportValue["commandNames"] =>
-	order.flatMap((entry) =>
+	Arr.flatMap(order, (entry) =>
 		refusedBy(refusals, entry.command.operation) ? [] : [commandName(entry)]
 	)
 
-// `emitCli` refuses each command of an operation alone, and an operation's commands share its
-// flags, so its primary and alias commands are refused for one reason: keep the first of each.
+/**
+ * `emitCli` refuses each command of an operation alone, and an operation's commands share its
+ * flags, so its primary and alias commands are refused for one reason: keep the first of each.
+ */
 const refusedOperations = (refusals: readonly CliRefusal[]): readonly CliRefusal[] =>
 	Arr.dedupeWith(
 		refusals,
@@ -400,29 +427,34 @@ const refusedOperations = (refusals: readonly CliRefusal[]): readonly CliRefusal
 			left.subject === right.subject
 	)
 
-// Design 8.4 `EMT-1`: one operation-scope refusal per operation `emitCli` could not express,
-// naming every command of the operation that is not generated.
+/**
+ * Design 8.4 `EMT-1`: one operation-scope refusal per operation `emitCli` could not express,
+ * naming every command of the operation that is not generated.
+ */
 const emitRefusal = (
 	api: Api,
 	refusal: CliRefusal,
 	order: readonly CommandAt[]
 ): Effect.Effect<Diagnostic> =>
 	Effect.gen(function* map() {
-		const operation = api.operations.find((candidate) =>
+		const found = Arr.findFirst(api.operations, (candidate) =>
 			sameKey(candidate, refusal.operation.method, refusal.operation.path)
 		)
-		if (operation === undefined) {
+		if (Option.isNone(found)) {
 			return yield* Effect.die("emitCli refused an operation the model does not hold")
 		}
 
+		const operation = found.value
 		const { method, path } = operation.key
-		const names = order.flatMap((entry) =>
-			sameKey(entry.command.operation, method, path) ? [stringLiteral(entry.path.join(" "))] : []
+		const names = Arr.flatMap(order, (entry) =>
+			sameKey(entry.command.operation, method, path)
+				? [stringLiteral(Arr.join(entry.path, " "))]
+				: []
 		)
 		const needs = stringLiteral(refusal.subject)
 		const message =
 			names.length > 1
-				? `The commands ${names.join(", ")} are not generated: they need ${needs}.`
+				? `The commands ${Arr.join(names, ", ")} are not generated: they need ${needs}.`
 				: `The command is not generated: it needs ${needs}.`
 		const key =
 			operation.operationId === undefined
@@ -444,13 +476,12 @@ const emitRefusal = (
 		})
 	})
 
-// The accepted servers' templates in model order: root servers, then each operation's.
-const acceptedServers = (api: Api): readonly string[] =>
-	Arr.dedupe(
-		[...api.servers, ...api.operations.flatMap((operation) => operation.servers)].flatMap(
-			(server) => (server.accepted ? [server.template] : [])
-		)
-	)
+/** The accepted servers' templates in model order: root servers, then each operation's. */
+const acceptedServers = (api: Api): readonly string[] => {
+	const servers = [...api.servers, ...Arr.flatMap(api.operations, (operation) => operation.servers)]
+
+	return Arr.dedupe(Arr.flatMap(servers, (server) => (server.accepted ? [server.template] : [])))
+}
 
 interface Analysis {
 	readonly api: Api
@@ -459,8 +490,10 @@ interface Analysis {
 	readonly resolution: Resolution
 }
 
-// Stages 1 to 6 (design 3): load, validate, resolve, check and normalize. A document-scope
-// refusal at any of them fails with every diagnostic seen so far.
+/**
+ * Stages 1 to 6 (design 3): load, validate, resolve, check and normalize. A document-scope
+ * refusal at any of them fails with every diagnostic seen so far.
+ */
 const analyze = (
 	input: GenerateInput,
 	bytes: Uint8Array,
@@ -472,7 +505,7 @@ const analyze = (
 		const members = yield* setMembers(input, input.documents).pipe(
 			Effect.mapError((refusal) => refused("document")([refusal.diagnostic]))
 		)
-		const documents = [document, ...members.map((member) => member.document), configDocument]
+		const documents = [document, ...Arr.map(members, (member) => member.document), configDocument]
 		const order = (diagnostics: readonly Diagnostic[]) =>
 			sortDiagnostics(documents, distinctDiagnostics(diagnostics))
 		const loaded = yield* loadBytes(bytes, { document }).pipe(
@@ -482,7 +515,10 @@ const analyze = (
 			diagnosis: diagnoseDocument(loaded.value, document),
 			line: lineOf(loaded.value)
 		}).pipe(Effect.catchTag("UnsupportedOpenApiVersion", versionRefused(document)))
-		const validated = [...diagnosis.notices, ...diagnosis.refusals.map((entry) => entry.diagnostic)]
+		const validated = [
+			...diagnosis.notices,
+			...Arr.map(diagnosis.refusals, (entry) => entry.diagnostic)
+		]
 		if (diagnosis.refusals.length > 0) {
 			return yield* refused("document")(order(validated))
 		}
@@ -493,7 +529,7 @@ const analyze = (
 		const checked = yield* checkSpecText(resolution)
 		const outside = yield* otherDocumentPathItems(resolution)
 		const early = [...validated, ...resolution.diagnostics, ...checked, ...outside]
-		if (early.some(isDocumentRefusal)) {
+		if (Arr.some(early, isDocumentRefusal)) {
 			return yield* refused("document")(order(early))
 		}
 
@@ -504,7 +540,7 @@ const analyze = (
 		})
 		const api = withoutRefused(normalized.api, checked)
 		const diagnostics = order([...early, ...normalized.diagnostics])
-		if (diagnostics.some(isDocumentRefusal)) {
+		if (Arr.some(diagnostics, isDocumentRefusal)) {
 			return yield* refused("document")(diagnostics)
 		}
 
@@ -521,6 +557,15 @@ const analyze = (
  * `strict` any refusal writes nothing. Each operation `emitCli` refuses becomes one `EMT-1`
  * diagnostic (design 8.4), so none of its commands is emitted and the report lists it; the report's
  * `commandNames` lists every emitted command with the sources of its names (design 8.1).
+ *
+ * Each servers table binds the origins of its own level only (design 6.4), so a credential for one
+ * operation never reaches a host accepted only for another or only at the root. normalize keeps the
+ * stored schemas only; the domain emitter reads their validation copy, and help reads the defaults
+ * its edits refused. Help's REFUSED line reads `plan.diagnostics`, so the plan given to `emitCli`
+ * carries every diagnostic so far, normalize's element and field refusals among them, not the
+ * plan's own. The names plan reports renames as notices only, so the report carries no rename
+ * pairs, and it emits no command for an operation the author config skips (design 8.2), by the
+ * rule the report's `skipped` entries read.
  */
 export const generate = (
 	input: GenerateInput,
@@ -543,8 +588,6 @@ export const generate = (
 			order,
 			resolution
 		} = yield* analyze(input, bytes, author.value, configDocument)
-		// Each servers table binds the origins of its own level only (design 6.4), so a credential
-		// for one operation never reaches a host accepted only for another or only at the root.
 		const serversContext = { config: author.value, configDocument, document, openapi: api.openapi }
 		const bound = boundOrigins(api.servers, serversContext)
 		const plan = yield* planNames(api, {
@@ -556,13 +599,11 @@ export const generate = (
 			order,
 			distinctDiagnostics([...analyzed, ...bound.diagnostics, ...plan.diagnostics])
 		)
-		if (planned.some(isDocumentRefusal)) {
+		if (Arr.some(planned, isDocumentRefusal)) {
 			return yield* refused("document")(planned)
 		}
 
-		// normalize keeps the stored schemas only; the domain emitter reads their validation copy, and
-		// help reads the defaults its edits refused.
-		const schemas = yield* normalizeSchemas(resolution)
+		const schemas = yield* normalizeSchemas(resolution, defaultLimits)
 		const domain = yield* emitDomainSchemas(
 			schemas.validation.definitions,
 			requestRoots(api),
@@ -573,8 +614,6 @@ export const generate = (
 			boundOrigins: (servers) => boundOrigins(servers, serversContext).origins,
 			plan
 		})
-		// Help's REFUSED line reads `plan.diagnostics`, so the plan given to `emitCli` carries every
-		// diagnostic so far, normalize's element and field refusals among them, not the plan's own.
 		const cli = yield* emitCli({
 			api,
 			config: author.value,
@@ -582,11 +621,11 @@ export const generate = (
 			validationEdits: schemas.validation.edits
 		})
 		const commands = commandOrder(plan)
-		const emitted = yield* Effect.all(
-			refusedOperations(cli.refusals).map((refusal) => emitRefusal(api, refusal, commands))
+		const emitted = yield* Effect.forEach(refusedOperations(cli.refusals), (refusal) =>
+			emitRefusal(api, refusal, commands)
 		)
 		const diagnostics = sortDiagnostics(order, distinctDiagnostics([...planned, ...emitted]))
-		if (input.strict && diagnostics.some(isRefusal)) {
+		if (input.strict && Arr.some(diagnostics, isRefusal)) {
 			return yield* refused("strict")(diagnostics)
 		}
 
@@ -609,12 +648,11 @@ export const generate = (
 				{ document: configDocument, sha256: configSha256 }
 			],
 			nonStandard: nonStandardEntries(api, order),
-			// The names plan reports renames as notices only; it carries no from/to pairs yet.
 			renames: [],
 			schemes: api.securitySchemes,
-			// The names plan emits no command for these (design 8.2); the same rule picks them here.
 			skipped: skippedEntries(
-				api.operations.filter(
+				Arr.filter(
+					api.operations,
 					(operation) => overrideSite(author.value, operation).override?.skip === true
 				),
 				order
@@ -633,7 +671,7 @@ export const generate = (
 		return {
 			diagnostics,
 			files: Arr.sort(
-				files.map((file) => file.path),
+				Arr.map(files, (file) => file.path),
 				Order.String
 			),
 			notices,

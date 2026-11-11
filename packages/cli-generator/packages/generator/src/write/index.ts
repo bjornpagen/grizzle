@@ -1,20 +1,19 @@
-import { createHash, randomUUID } from "node:crypto"
-import { rmdir } from "node:fs/promises"
-import type { Scope } from "effect"
+import type { PlatformError, Scope } from "effect"
 import {
 	Array as Arr,
-	Data,
+	ByteSize,
 	Effect,
 	Exit,
 	FileSystem,
 	Option,
 	Order,
 	Path,
+	Random,
 	Ref,
-	Stream
+	Schema,
+	String as Str
 } from "effect"
 import type { Digest } from "effect/crypto"
-import type { PlatformError } from "effect/PlatformError"
 import { sha256Hex } from "#model/digest.ts"
 import { acquireRunLock, runLockFileName } from "#write/lock.ts"
 import type { RunLock, RunLockHeld, RunLockUnavailable } from "#write/lock.ts"
@@ -33,18 +32,22 @@ export interface GeneratedFile {
 /**
  * The writer refused before or during the write; `subject` names the path involved.
  */
-export class WriteRefused extends Data.TaggedError("WriteRefused")<{
-	readonly reason:
-		| "duplicate-path"
-		| "io"
-		| "output-not-directory"
-		| "output-parent-missing"
-		| "path-conflict"
-		| "reserved-path"
-		| "symlink"
-		| "unsafe-path"
-	readonly subject: string
-}> {}
+export class WriteRefused extends Schema.TaggedError<
+	WriteRefused,
+	{ readonly brand: unique symbol }
+>()("WriteRefused", {
+	reason: Schema.Literals([
+		"duplicate-path",
+		"io",
+		"output-not-directory",
+		"output-parent-missing",
+		"path-conflict",
+		"reserved-path",
+		"symlink",
+		"unsafe-path"
+	]),
+	subject: Schema.String
+}) {}
 
 /**
  * A previous-manifest path the writer left in place, or a previous manifest it could not use.
@@ -64,73 +67,83 @@ export interface WriteNotice {
 /**
  * The largest previous manifest the writer reads (4 MiB); a larger file is reported, not read.
  */
-export const maxPreviousManifestBytes = 4 * 1024 * 1024
+const maxPreviousManifestBytes = 4 * 1024 * 1024
 
 type Services = FileSystem.FileSystem | Path.Path | Digest.Digest
 
-const fold = (path: string): string => path.normalize("NFC").toLowerCase()
+const fold = (path: string): string => Str.toLowerCase(Str.normalize("NFC")(path))
 
-const reserved = new Set([fold(manifestFileName), fold(runLockFileName)])
+const reserved: ReadonlySet<string> = new Set([fold(manifestFileName), fold(runLockFileName)])
 
-const segmentsOf = (path: string): readonly string[] => path.split("/")
+const segmentsOf = (path: string): readonly string[] => Str.split("/")(path)
 
 const wellFormed = (path: string): boolean =>
 	path !== "" &&
-	!path.includes("\\") &&
-	!path.includes("\u0000") &&
-	segmentsOf(path).every((segment) => segment !== "" && segment !== "." && segment !== "..")
+	!Str.includes("\\")(path) &&
+	!Str.includes("\u0000")(path) &&
+	Arr.every(segmentsOf(path), (segment) => segment !== "" && segment !== "." && segment !== "..")
 
 const confined = (path: Path.Path, outputDir: string, relative: string): boolean =>
 	wellFormed(relative) && Option.isSome(path.resolveWithin(outputDir, relative))
 
-const ancestorsOf = (path: string): readonly string[] =>
-	segmentsOf(path)
-		.slice(0, -1)
-		.map((_, index, parents) => parents.slice(0, index + 1).join("/"))
+const ancestorsOf = (path: string): readonly string[] => {
+	const parents = Arr.dropRight(segmentsOf(path), 1)
+
+	return Arr.map(parents, (_, index) => Arr.join(Arr.take(parents, index + 1), "/"))
+}
 
 const refused = (reason: WriteRefused["reason"], subject: string) =>
-	Effect.fail(new WriteRefused({ reason, subject }))
+	Effect.fail(WriteRefused.make({ reason, subject }))
 
+/** The first path of the plan the writer refuses before any mutation, as its refusal. */
 const planFault = (
 	path: Path.Path,
 	outputDir: string,
 	files: readonly GeneratedFile[]
-): WriteRefused | undefined => {
+): Option.Option<WriteRefused> => {
 	const folded = new Set<string>()
 
 	for (const { path: relative } of files) {
 		const key = fold(relative)
 
 		if (!confined(path, outputDir, relative)) {
-			return new WriteRefused({ reason: "unsafe-path", subject: relative })
+			return Option.some(WriteRefused.make({ reason: "unsafe-path", subject: relative }))
 		}
 
 		if (reserved.has(key)) {
-			return new WriteRefused({ reason: "reserved-path", subject: relative })
+			return Option.some(WriteRefused.make({ reason: "reserved-path", subject: relative }))
 		}
 
 		if (folded.has(key)) {
-			return new WriteRefused({ reason: "duplicate-path", subject: relative })
+			return Option.some(WriteRefused.make({ reason: "duplicate-path", subject: relative }))
 		}
 
 		folded.add(key)
 	}
 
-	const conflicting = files.find(({ path: relative }) =>
-		ancestorsOf(fold(relative)).some((ancestor) => folded.has(ancestor))
+	return Option.map(
+		Arr.findFirst(files, ({ path: relative }) =>
+			Arr.some(ancestorsOf(fold(relative)), (ancestor) => folded.has(ancestor))
+		),
+		(conflicting) => WriteRefused.make({ reason: "path-conflict", subject: conflicting.path })
 	)
-
-	return conflicting === undefined
-		? undefined
-		: new WriteRefused({ reason: "path-conflict", subject: conflicting.path })
 }
 
-const ioFailure = (subject: string) => (_error: PlatformError) =>
-	new WriteRefused({ reason: "io", subject })
+const ioFailure = (subject: string) => (_error: PlatformError.PlatformError) =>
+	WriteRefused.make({ reason: "io", subject })
+
+/**
+ * A temp sibling's name part. The run lock keeps every other run out of the output directory and
+ * `wx` refuses a name already taken, so the part needs no cryptographic randomness.
+ */
+const tempToken = Effect.map(
+	Effect.all([Random.nextInt, Random.nextInt]),
+	([high, low]) => `${high.toString(36)}${low.toString(36)}`
+)
 
 const probe = (fs: FileSystem.FileSystem, target: string, subject: string) =>
 	fs.lstat(target).pipe(
-		Effect.map(Option.some),
+		Effect.asSome,
 		Effect.catchIf(
 			(error) => error.reason._tag === "NotFound",
 			() => Effect.succeedNone
@@ -236,7 +249,8 @@ const writeAtomic = (
 		yield* Ref.update(written, (all) => [...all, relative])
 
 		const target = path.join(outputDir, relative)
-		const temp = path.join(path.dirname(target), `.${path.basename(target)}.${randomUUID()}.tmp`)
+		const token = yield* tempToken
+		const temp = path.join(path.dirname(target), `.${path.basename(target)}.${token}.tmp`)
 		yield* lock.registerTemp(temp)
 		yield* fs
 			.writeFileString(temp, content, { flag: "wx" })
@@ -283,21 +297,29 @@ const readPrevious = (
 		})
 	})
 
-const sha256OfFile = (
-	fs: FileSystem.FileSystem,
-	target: string
-): Effect.Effect<string, PlatformError> => {
-	const hash = createHash("sha256")
+const encoder = new TextEncoder()
 
-	return fs.stream(target).pipe(
-		Stream.runForEach((chunk) =>
-			Effect.sync(() => {
-				hash.update(chunk)
-			})
-		),
-		Effect.map(() => hash.digest("hex"))
-	)
-}
+/**
+ * Whether the regular file at `target` holds exactly the bytes the manifest entry records: its
+ * size is checked first, so only a file of the recorded size is read and hashed, and memory stays
+ * bounded by what the generator itself wrote.
+ */
+const isAsWritten = (
+	fs: FileSystem.FileSystem,
+	target: string,
+	entry: ManifestEntry
+): Effect.Effect<boolean, PlatformError.PlatformError, Digest.Digest> =>
+	Effect.gen(function* asWritten() {
+		const info = yield* fs.lstat(target)
+		if (info.size !== ByteSize.bytes(entry.size)) {
+			return false
+		}
+
+		const bytes = yield* fs.readFile(target)
+		const current = yield* sha256Hex(bytes)
+
+		return current === entry.sha256
+	})
 
 const checkStale = (
 	outputDir: string,
@@ -316,11 +338,11 @@ const checkStale = (
 		const found = yield* walk(outputDir, entry.path, false).pipe(
 			Effect.catchIf(
 				(error) => error.reason === "symlink",
-				() => Effect.succeed(Option.some<FileSystem.File.Type>("SymbolicLink"))
+				() => Effect.succeedSome<FileSystem.File.Type>("SymbolicLink")
 			),
 			Effect.catchIf(
 				(error) => error.reason === "path-conflict",
-				() => Effect.succeed(Option.some<FileSystem.File.Type>("Directory"))
+				() => Effect.succeedSome<FileSystem.File.Type>("Directory")
 			)
 		)
 
@@ -337,15 +359,17 @@ const checkStale = (
 		}
 
 		const target = path.join(outputDir, entry.path)
-		const current = yield* sha256OfFile(fs, target).pipe(Effect.mapError(ioFailure(entry.path)))
+		const unchanged = yield* isAsWritten(fs, target, entry).pipe(
+			Effect.mapError(ioFailure(entry.path))
+		)
 
-		if (current !== entry.sha256) {
+		if (!unchanged) {
 			return notice("edited")
 		}
 
 		return yield* fs.remove(target).pipe(
 			Effect.as(Option.none<WriteNotice>()),
-			Effect.catch(() => Effect.succeed(notice("remove-failed")))
+			Effect.orElseSucceed(() => notice("remove-failed"))
 		)
 	})
 
@@ -366,19 +390,15 @@ const removeStale = (
 	written: ReadonlySet<string>
 ): Effect.Effect<readonly WriteNotice[], never, Services> =>
 	Effect.forEach(
-		previous.filter((entry) => !written.has(fold(entry.path))),
+		Arr.filter(previous, (entry) => !written.has(fold(entry.path))),
 		(entry) => staleNotice(outputDir, entry)
-	).pipe(Effect.map((all) => all.filter(Option.isSome).map((some) => some.value)))
-
-// Effect's `FileSystem.remove` has no empty-directory removal: it calls `fs.rm`, which fails on a
-// directory unless `recursive` is set, and recursive removal would delete what another party
-// placed. `rmdir` removes the directory only when it is empty.
-const removeEmptyDirectory = (directory: string) =>
-	Effect.ignore(Effect.tryPromise(() => rmdir(directory)))
+	).pipe(Effect.map(Arr.getSomes))
 
 /**
- * Remove what this run wrote, then the directories that emptied; run while the lock is still held.
- * Directories are removed with a non-recursive rmdir, so anything another party placed stays.
+ * Remove the files this run wrote, last first; run while the lock is still held. The directories
+ * the run made stay, empty: Effect's `FileSystem.remove` has no removal of an empty directory
+ * alone, and a recursive one would delete what another party placed, so the writer never deletes
+ * anything it did not write.
  */
 const undoWrites = (outputDir: string, written: readonly string[]) =>
 	Effect.gen(function* step8() {
@@ -387,15 +407,6 @@ const undoWrites = (outputDir: string, written: readonly string[]) =>
 
 		for (const relative of Arr.reverse(written)) {
 			yield* Effect.ignore(fs.remove(path.join(outputDir, relative), { force: true }))
-		}
-
-		const directories = Arr.sort(
-			Arr.dedupe(written.flatMap(ancestorsOf)),
-			Order.mapInput(Order.flip(Order.Number), (directory: string) => segmentsOf(directory).length)
-		)
-
-		for (const directory of directories) {
-			yield* removeEmptyDirectory(path.join(outputDir, directory))
 		}
 	})
 
@@ -407,7 +418,7 @@ const writeUnderLock = (
 	written: Ref.Ref<readonly string[]>
 ): Effect.Effect<readonly WriteNotice[], WriteRefused, Services> =>
 	Effect.gen(function* step9() {
-		for (const relative of [...sorted.map((file) => file.path), manifestFileName]) {
+		for (const relative of [...Arr.map(sorted, (file) => file.path), manifestFileName]) {
 			yield* checkTarget(outputDir, relative, false)
 		}
 
@@ -422,7 +433,7 @@ const writeUnderLock = (
 		const stale = yield* removeStale(
 			outputDir,
 			previous.entries,
-			new Set(sorted.map((file) => fold(file.path)))
+			new Set(Arr.map(sorted, (file) => fold(file.path)))
 		)
 
 		return [...previous.notices, ...stale]
@@ -442,13 +453,15 @@ const writeLocked = (
 			files,
 			Order.mapInput(Order.String, (file: GeneratedFile) => file.path)
 		)
-		// Effect.forEach takes (items, f); it is not an array method with a thisArg.
-		// oxlint-disable-next-line unicorn/no-array-method-this-argument
-		const entries = yield* Effect.forEach(sorted, (file) =>
-			sha256Hex(file.content).pipe(Effect.map((sha256) => ({ path: file.path, sha256 })))
-		)
+		const entries = yield* Effect.forEach(sorted, (file) => {
+			const bytes = encoder.encode(file.content)
+
+			return sha256Hex(bytes).pipe(
+				Effect.map((sha256) => ({ path: file.path, sha256, size: bytes.length }))
+			)
+		})
 		const manifest = yield* printManifest(entries).pipe(
-			Effect.mapError(() => new WriteRefused({ reason: "unsafe-path", subject: manifestFileName }))
+			Effect.mapError(() => WriteRefused.make({ reason: "unsafe-path", subject: manifestFileName }))
 		)
 		const lock = yield* acquireRunLock(outputDir)
 		const written = yield* Ref.make<readonly string[]>([])
@@ -465,8 +478,10 @@ const writeLocked = (
 /**
  * Write `files` into `outputDir` (design 3.6, Write and Run lock): validate every path before any
  * mutation, claim the run lock, replace each file by temp sibling plus rename, commit the manifest
- * last, then remove previous-manifest files the run no longer writes whose sha256 still matches.
- * Files left in place and a previous manifest that could not be used come back as notices.
+ * last, then remove previous-manifest files the run no longer writes whose size and sha256 still
+ * match. Files left in place and a previous manifest that could not be used come back as notices.
+ * A failed run into an output directory it created removes the files it wrote and leaves the
+ * directories, empty.
  */
 export const writeFiles = (
 	outputDir: string,
@@ -480,15 +495,11 @@ export const writeFiles = (
 		const path = yield* Path.Path
 		const fault = planFault(path, outputDir, files)
 
-		if (fault !== undefined) {
-			return yield* fault
+		if (Option.isSome(fault)) {
+			return yield* fault.value
 		}
 
 		const created = yield* ensureOutput(outputDir)
 
-		return yield* Effect.scoped(writeLocked(outputDir, files, created)).pipe(
-			Effect.onExit((exit) =>
-				created && Exit.isFailure(exit) ? removeEmptyDirectory(outputDir) : Effect.void
-			)
-		)
+		return yield* Effect.scoped(writeLocked(outputDir, files, created))
 	})
