@@ -1,12 +1,40 @@
+/**
+ * One installation of two levels on PostgreSQL: a lower level `Lo` (a content model's items) and an upper level built
+ * on it under its own name (sittings of those items), each in its own PostgreSQL schema, the upper level's sitting
+ * contained in the lower level's item by a deferred foreign key across schemas over one contract domain, the root's.
+ * A login over each level opens the one installation's snapshot: the lower one compiled from the lower level alone,
+ * the upper one's role holding the lower level whole, read only, and writing only sittings.
+ *
+ * The oracle is the installed catalog and the rule restated over the facts:
+ * - each level's table lives in its own level's PostgreSQL schema and in no other; the foreign key runs from the upper
+ *   table to the lower one; both columns are of the one contract domain; the upper role holds no privilege on the lower
+ *   table, nor the lower role on the upper one;
+ * - each drawn transaction commits exactly when the state it leaves keeps the containment; a sitting of an item that is
+ *   not there is refused by the containment as the upper level states it, and a deletion of an item a sitting holds,
+ *   through the lower login, by that law named `above` the lower level, `{ kind: "above", level, law }`, the law as
+ *   lawsOf(upper) lists it, witness unreported;
+ * - after every transaction the upper role reads the fused query, sittings joined to their items, and a query over the
+ *   lower level, the items, exactly as the facts hold them, each read compared as the set it is.
+ *
+ * The catalog's facts are read by the names the compiler derives (core/identity.ts) for each level's schema, each
+ * relation's table and each role, never spelled.
+ *
+ * Features: an item added and deleted, a held item's deletion refused from above, a sitting added and deleted, a
+ * dangling sitting refused, and a fused read of a sitting.
+ *
+ * Plants (~/.cache/grizzle-release/BR11/plants): levels-above-unnamed (a law of a level above the one a layer serves is
+ * named as that level's own law, not as a law above).
+ */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import { array, element, type Gen, int, weighted } from "@grizzle/testing/gen"
-import { exact, ordered } from "@grizzle/testing/oracle"
+import { exact, set, structuralHash } from "@grizzle/testing/oracle"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Data, Effect, Formatter, Layer, Option, Order, String as Str } from "effect"
+import { Array as Arr, Data, Effect, Formatter, Layer, Option, String as Str } from "effect"
 import { Db } from "#adapter/public/db.ts"
+import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { ChangeSet, type Law } from "#compiler/public/changeset.ts"
 import { closedId, contract, pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -26,34 +54,17 @@ import {
 } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
 import type { Uuid } from "#compiler/scalar/values/uuid.ts"
+import { quoteIdent } from "#compiler/sql/print.ts"
 import { cleared, seatOfInstalled } from "#test/pg/fin/installed.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { levelNameAt } from "#test/support/compile.ts"
 import { installMigrated } from "#test/support/install-migrate.ts"
+import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { refusedLaws } from "#test/support/refused.ts"
 import { servedFixture } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-
-/**
- * One installation of two levels on PostgreSQL: a lower level `Lo` (a content model's items) and an upper level built
- * on it under its own name (sittings of those items), each in its own PostgreSQL schema, the upper level's sitting
- * contained in the lower level's item by a deferred foreign key across schemas over one contract domain, the root's.
- * A login over each level opens the one installation's snapshot: the lower one compiled from the lower level alone,
- * the upper one's role holding the lower level whole, read only, and writing only sittings.
- *
- * The oracle is the installed catalog and the rule restated over the facts:
- * - each level's table lives in its own level's PostgreSQL schema and in no other; the foreign key runs from the upper
- *   table to the lower one; both columns are of the one contract domain; the upper role holds no privilege on the lower
- *   table, nor the lower role on the upper one;
- * - each drawn transaction commits exactly when the state it leaves keeps the containment; a sitting of an item that is
- *   not there is refused by the containment as the upper level states it, and a deletion of an item a sitting holds,
- *   through the lower login, by that law named `above` the lower level, `{ kind: "above", level, law }`, the law as
- *   lawsOf(upper) lists it, witness unreported;
- * - after every transaction the upper role reads the fused query, sittings joined to their items, and a query over the
- *   lower level, the items, exactly as the facts hold them.
- */
 
 const Code = contract("Code", uuid)
 const Kind = closed("Kind", ["Practice", "Test"])
@@ -174,12 +185,12 @@ const namesExactly = (
 	refused?.length === 1 &&
 	Option.isNone(exact(refused[0], law))
 
-/** Rows of an id and an n, in id order. */
-const byId = (rows: ReadonlyArray<{ readonly id: string; readonly n: number }>) =>
-	Arr.sort(
-		Arr.map(rows, (r) => ({ id: r.id, n: r.n })),
-		Order.mapInput(Order.String, (r: { readonly id: string }) => r.id)
-	)
+/** Rows of an id and an n, each as its plain fields, for a comparison as a set. */
+const plain = (rows: ReadonlyArray<{ readonly id: string; readonly n: number }>) =>
+	Arr.map(rows, (r) => ({ id: r.id, n: r.n }))
+
+/** Two reads of rows of an id and an n agree as sets: each row once, in any order. */
+const sameRows = set(structuralHash, exact)
 
 layer(Substrate.layer, { excludeTestServices: true })(
 	"levels of one installation on PostgreSQL 19rc1",
@@ -202,32 +213,58 @@ layer(Substrate.layer, { excludeTestServices: true })(
 						const upperSchema = schemaNameOf(at.upper)
 						const seat = yield* seatOfInstalled(done, ["Item", "Sitting"], "levels")
 						const session = seat.session
-						const one = (sql: string) =>
-							Effect.map(session.values(sql, []), (rows) => String(rows[0]?.[0]))
-						const quote = (s: string) => `'${Str.replaceAll("'", "''")(s)}'`
-						const table = (schemaName: string, name: string) => quote(`"${schemaName}"."${name}"`)
-
-						/** The catalog: each table in its level's schema, the foreign key across, one domain, no grant across. */
-						const placed = yield* one(
-							`SELECT concat_ws(',', to_regclass(${table(lowerSchema, "item")}) IS NOT NULL, to_regclass(${table(upperSchema, "sitting")}) IS NOT NULL, to_regclass(${table(lowerSchema, "sitting")}) IS NULL, to_regclass(${table(upperSchema, "item")}) IS NULL)`
-						)
-						assert.equal(placed, "t,t,t,t", "each table in its own level's schema")
-						const across = yield* one(
-							`SELECT count(*) FROM pg_catalog.pg_constraint WHERE contype = 'f' AND conrelid = ${table(upperSchema, "sitting")}::regclass AND confrelid = ${table(lowerSchema, "item")}::regclass AND condeferred`
-						)
-						assert.equal(
-							across,
-							"1",
-							"one deferred foreign key from the upper table into the lower one"
-						)
-						const domains = yield* one(
-							`SELECT (SELECT atttypid FROM pg_catalog.pg_attribute WHERE attrelid = ${table(lowerSchema, "item")}::regclass AND attname = 'id') = (SELECT atttypid FROM pg_catalog.pg_attribute WHERE attrelid = ${table(upperSchema, "sitting")}::regclass AND attname = 'item')`
-						)
-						assert.equal(domains, "true", "both columns of the root's one contract domain")
-						const grants = yield* one(
-							`SELECT concat_ws(',', has_table_privilege(${quote(roleNameOf(at.learner))}, ${table(lowerSchema, "item")}, 'SELECT,INSERT,UPDATE,DELETE'), has_table_privilege(${quote(roleNameOf(at.author))}, ${table(upperSchema, "sitting")}, 'SELECT,INSERT,UPDATE,DELETE'))`
-						)
-						assert.equal(grants, "f,f", "no privilege on the other level's table")
+						const quote = (text: string) => `'${Str.replaceAll("'", "''")(text)}'`
+						/** A relation's table in a level's schema, both as the compiler names them, as a regclass literal. */
+						const tableIn = (schemaName: string, relation: string) =>
+							quote(
+								`${quoteIdent(identifierOf(identity.schema(parsedSchemaName(schemaName))))}.${quoteIdent(identifierOf(identity.table(parsedName(relation))))}`
+							)
+						/** Whether a boolean the owner's session reads holds. */
+						const holds = (sql: string) =>
+							Effect.map(
+								session.values(`SELECT (${sql})::text`, []),
+								(rows) => rows[0]?.[0] === "true"
+							)
+						const lowerItem = tableIn(lowerSchema, "Item")
+						const upperSitting = tableIn(upperSchema, "Sitting")
+						const placed: ReadonlyArray<readonly [string, string]> = [
+							[
+								`to_regclass(${lowerItem}) IS NOT NULL`,
+								"Item's table is in the lower level's schema"
+							],
+							[
+								`to_regclass(${upperSitting}) IS NOT NULL`,
+								"Sitting's table is in the upper level's schema"
+							],
+							[
+								`to_regclass(${tableIn(lowerSchema, "Sitting")}) IS NULL`,
+								"no Sitting in the lower level's schema"
+							],
+							[
+								`to_regclass(${tableIn(upperSchema, "Item")}) IS NULL`,
+								"no Item in the upper level's schema"
+							],
+							[
+								`EXISTS (SELECT FROM pg_catalog.pg_constraint WHERE contype = 'f' AND conrelid = ${upperSitting}::regclass AND confrelid = ${lowerItem}::regclass AND condeferred)`,
+								"a deferred foreign key runs from the upper table into the lower one"
+							],
+							[
+								`(SELECT atttypid FROM pg_catalog.pg_attribute WHERE attrelid = ${lowerItem}::regclass AND attname = ${quote(identifierOf(identity.column(parsedName("id"))))}) = (SELECT atttypid FROM pg_catalog.pg_attribute WHERE attrelid = ${upperSitting}::regclass AND attname = ${quote(identifierOf(identity.column(parsedName("item"))))})`,
+								"both columns are of the root's one contract domain"
+							],
+							[
+								`NOT has_table_privilege(${quote(roleNameOf(at.learner))}, ${lowerItem}, 'SELECT,INSERT,UPDATE,DELETE')`,
+								"the upper role holds no privilege on the lower table"
+							],
+							[
+								`NOT has_table_privilege(${quote(roleNameOf(at.author))}, ${upperSitting}, 'SELECT,INSERT,UPDATE,DELETE')`,
+								"the lower role holds no privilege on the upper table"
+							]
+						]
+						for (const [fact, what] of placed) {
+							const held = yield* holds(fact)
+							assert.ok(held, what)
+						}
 
 						const lowerServed = yield* servedFixture(done, at.authorApp)
 						const upperServed = yield* servedFixture(done, at.app)
@@ -408,13 +445,13 @@ layer(Substrate.layer, { excludeTestServices: true })(
 											}
 										}
 										const joined = yield* (yield* learner.workload.fused.execute({})).collect
-										const expectedJoin = byId(
+										const expectedJoin = plain(
 											Arr.map([...facts.sittings], ([id, sitting]) => ({
 												id: idAt(id),
 												n: defined(facts.items.get(sitting.item), "a held item")
 											}))
 										)
-										const joinDiffers = ordered(exact)(byId(joined), expectedJoin)
+										const joinDiffers = sameRows(plain(joined), expectedJoin)
 										if (Option.isSome(joinDiffers)) {
 											return yield* disagreed(`the fused read: ${joinDiffers.value}`)
 										}
@@ -422,10 +459,10 @@ layer(Substrate.layer, { excludeTestServices: true })(
 											c.note("a fused read of a sitting")
 										}
 										const read = yield* (yield* learner.workload.items.execute({})).collect
-										const expectedItems = byId(
+										const expectedItems = plain(
 											Arr.map([...facts.items], ([id, n]) => ({ id: idAt(id), n }))
 										)
-										const itemsDiffer = ordered(exact)(byId(read), expectedItems)
+										const itemsDiffer = sameRows(plain(read), expectedItems)
 										if (Option.isSome(itemsDiffer)) {
 											return yield* disagreed(
 												`the lower level's query on the upper role: ${itemsDiffer.value}`

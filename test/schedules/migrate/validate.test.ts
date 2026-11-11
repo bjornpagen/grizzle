@@ -31,12 +31,22 @@
  * The migrations are drafted by generateMigration from the installed snapshot and applied by applyOnSession, exactly as
  * `grizzle migrate` applies them, as the database owner; each folder is applied with the same files every time,
  * so a resumed apply finds the files it already ran unchanged.
+ *
+ * Oracle: the specification restated over the data each case constructs to violate every law once, read by the law
+ * each refusal names (its constraint through the tightened version's laws, or its domain's CHECK); and, for the race,
+ * the law itself over every committed row, judged on each interleaving of the five moves.
+ *
+ * Features: the race's ends (the migration succeeded, refused by the law or aborted), each waiting on the other, and a
+ * violation committed before the law or refused by it.
+ *
+ * Plants (~/.cache/grizzle-release/BR11/plants): validate-rows-unvalidated and validate-race-unvalidated (a law added
+ * NOT VALID over stored rows is never validated).
  */
 
 import { layer } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
 import { noCoverage, requiredInSpace } from "@grizzle/testing/features"
-import { element, filter, type Gen, int } from "@grizzle/testing/gen"
+import { element, type Gen, increasing, int, shuffled } from "@grizzle/testing/gen"
 import { matching } from "@grizzle/testing/pattern"
 import type { Source } from "@grizzle/testing/source"
 import { searched } from "@grizzle/testing/vitest"
@@ -392,8 +402,15 @@ const racingGen: Gen<Racing> = (source) => ({
 	w2: source.draw(element(writerKinds))
 })
 
-/** Every order of the race's five moves, over each of the box's four points. */
-const racingCases = 4 * 30
+/** n! */
+const factorial = (n: number): number => Arr.reduce(Arr.range(1, n), 1, (product, k) => product * k)
+
+/**
+ * The race's cases: each point of the box (each writer lawful or violating) under every order of its five moves, each
+ * writer's insert before its COMMIT, so 5! orders over 2! for each writer's pair.
+ */
+const racingCases =
+	writerKinds.length * writerKinds.length * (factorial(5) / (factorial(2) * factorial(2)))
 
 /** The stored worker's id, the id no worker holds, and each writer's assignment's id. */
 const storedWorker = 1
@@ -537,9 +554,23 @@ const unordered = (a: ReadonlyArray<string>, b: ReadonlyArray<string>): boolean 
 
 const succeededStep: StepOutcome = { _tag: "Ok", rows: [], rowCount: 0 }
 
+/** The words of up to six lowercase letters, the empty one among them: 26^0 + 26^1 + ... + 26^6. */
+const wordsUpToSix = Arr.reduce(Arr.range(0, 6), 0, (sum, length) => sum + 26 ** length)
+
+/** The bijective base-26 word of `n`: "" for 0, "a" to "z" for 1 to 26, "aa" for 27, and so on, one word per number. */
+const wordOf = (n: number): string => {
+	let rest = n
+	let word = ""
+	while (rest > 0) {
+		rest -= 1
+		word = `${String.fromCharCode(0x61 + (rest % 26))}${word}`
+		rest = Math.floor(rest / 26)
+	}
+	return word
+}
+
 layer(Substrate.layer, { excludeTestServices: true })("a migration's Validate phase", (it) => {
 	/** A value of the name field, and keys apart from one another by construction: a first key and positive gaps. */
-	const labelGen = matching(regex("^[a-z]{0,8}$"))
 	const gap = int(1, 99)
 	const apart2: Gen<readonly [number, number]> = (source) => {
 		const k = source.draw(keyGen)
@@ -553,11 +584,21 @@ layer(Substrate.layer, { excludeTestServices: true })("a migration's Validate ph
 		const [k, a, b] = source.draw(apart3)
 		return [k, a, b, b + source.draw(gap)]
 	}
-	const threeLabels: Gen<readonly [string, string, string]> = (source) => [
-		source.draw(labelGen),
-		source.draw(labelGen),
-		source.draw(labelGen)
-	]
+	/**
+	 * Three names apart, each a name of the field's pattern: three distinct whole numbers drawn in ascending order and
+	 * put in a drawn order, each spelled by its bijective base-26 word ("" for 0, "a" to "z", then "aa"), which is one
+	 * word per number, so the names differ by construction. Words of up to six letters, the most a range of whole
+	 * numbers spells.
+	 */
+	const distinctLabels: Gen<readonly [string, string, string]> = (source) => {
+		const [a, b, c] = source.draw(increasing(0, wordsUpToSix - 1, { min: 3, max: 3 }))
+		const [x, y, z] = source.draw(shuffled([a, b, c], { min: 3, max: 3 }))
+		return [
+			wordOf(defined(x, "a name")),
+			wordOf(defined(y, "a name")),
+			wordOf(defined(z, "a name"))
+		]
+	}
 
 	/**
 	 * The violating rows: two workers sharing a name, an assignment of negative hours and one naming a worker none
@@ -568,7 +609,7 @@ layer(Substrate.layer, { excludeTestServices: true })("a migration's Validate ph
 	const violationsGen = (source: Source) => ({
 		workers: source.draw(apart4),
 		/** The shared name, the reviewer's rename, and the name of the worker the fix inserts: three apart. */
-		names: source.draw(filter(threeLabels, (n) => new Set(n).size === n.length, 100)),
+		names: source.draw(distinctLabels),
 		assignments: source.draw(apart2),
 		hours: [source.draw(int(-999, -1)), source.draw(int(0, 999))] as const,
 		badge: source.draw(keyGen),
@@ -606,7 +647,10 @@ layer(Substrate.layer, { excludeTestServices: true })("a migration's Validate ph
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "every law the constructed data violates refuses once, by its identity, leaving the rows as they were, and holds once fixed"
+						},
 						suite: "schedules/migrate/validate violating rows",
 						draw: drawn(violationsGen),
 						literal: Formatter.format,
@@ -815,8 +859,11 @@ layer(Substrate.layer, { excludeTestServices: true })("a migration's Validate ph
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "each racing writer's assignment lawful or violating, under every order of the five moves",
+						oracle: {
+							kind: "specification",
+							name: "the selected side's containment over every committed row: the migration succeeds only if no violation committed"
+						},
 						suite: "schedules/migrate/validate racing writers",
 						generator: racingGen,
 						literal: Formatter.format,

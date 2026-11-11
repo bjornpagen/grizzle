@@ -1,3 +1,25 @@
+/**
+ * The lowering shapes on PostgreSQL 19 (packages/engine/src/lower/shapes) that no generated suite reaches.
+ *
+ * The ledger fixture installs under a fresh schema, and the conditional aggregate's count(*) FILTER and CASE sum
+ * (R24.conditionalCount) are checked against the conservative lowering, the oracle baseline that deduplicates at every
+ * set boundary, by raw text row sets and with no repeated row, over generated groups where no binding, some and every
+ * binding satisfies the predicate, the case a filtered sum gets wrong.
+ *
+ * Every other shape is the generated suites': the per-group takes, heading groups and the VALUES transport the
+ * optimized differential's (test/pg/oracle/optimized), and the fused and pipelined attachments, spellings and
+ * array_out quoting the public-boundary differential's (test/pg/oracle/public), decoded as an application reads them.
+ * That the oracle tells a shape resting on an unsound fact from a sound one is the optimized differential's mutant
+ * populations (test/pg/oracle/optimized/counterexamples.ts): each invalid rewrite is killed on its population.
+ *
+ * Oracle: the conservative lowering, a second implementation that deduplicates at every set boundary, its rows as a set
+ * against the shaped statement's, PostgreSQL running both.
+ *
+ * Features: groups none, some and all of whose bindings qualify.
+ *
+ * Plants (~/.cache/grizzle-release/BR11/plants): shapes-count-unfiltered (R24's conditional count lowers with no
+ * FILTER, counting every binding).
+ */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -31,21 +53,6 @@ import { type ConditionalForm, conditional } from "#test/unit/lower/shapes/queri
 import { jsonText } from "#compiler/core/trusted.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { shapedFacts, shapedProgram, testOptions } from "#test/unit/lower/shapes/support.ts"
-
-/**
- * The lowering shapes on PostgreSQL 19 (packages/engine/src/lower/shapes), where no generator reaches them yet.
- *
- * The ledger fixture installs under a fresh schema, and the conditional aggregate's count(*) FILTER and CASE sum
- * (R24.conditionalCount) are checked against the conservative lowering, the oracle baseline that deduplicates at every
- * set boundary, by raw text row sets and with no repeated row, over generated groups where no binding, some and every
- * binding satisfies the predicate, the case a filtered sum gets wrong.
- *
- * Every other shape is the generated suites': the per-group takes, heading groups and the VALUES transport the
- * optimized differential's (test/pg/oracle/optimized), and the fused and pipelined attachments, spellings and
- * array_out quoting the public-boundary differential's (test/pg/oracle/public), decoded as an application reads them.
- * That the oracle tells a shape resting on an unsound fact from a sound one is the optimized differential's mutant
- * populations (test/pg/oracle/optimized/counterexamples.ts): each invalid rewrite is killed on its population.
- */
 
 /** The fixture's physical names, its codebook among them: the names the lowerings under test emit. */
 const namesOf = (schema: string) => testOptions(schema).names
@@ -266,6 +273,16 @@ const conditionalCaseGen: Gen<ConditionalCase> = (source) => ({
 	threshold: source.draw(int(-1, 61))
 })
 
+/** Every form of R24's conditional aggregate, each its own name, so a form the queries add is a type error here. */
+const formsByName: { readonly [F in ConditionalForm]: F } = {
+	int4: "int4",
+	int8: "int8",
+	numeric: "numeric",
+	"numeric5.2": "numeric5.2",
+	term: "term"
+}
+const forms: ReadonlyArray<ConditionalForm> = Rec.values(formsByName)
+
 /** What a delivered group met: none, some or all of its bindings satisfying the predicate. */
 type Qualifying = "none qualify" | "some qualify" | "all qualify"
 
@@ -291,18 +308,14 @@ layer(Substrate.layer)("the lowering shapes on PostgreSQL 19", (it) => {
 					const schema = yield* installed
 					const { admin } = yield* Substrate
 					const task = tableOf(schema, Task)
-					const forms: ReadonlyArray<ConditionalForm> = [
-						"int4",
-						"int8",
-						"numeric",
-						"numeric5.2",
-						"term"
-					]
 					const others = Arr.filter(relations, (r) => r !== Task)
 					const otherInserts = Arr.flatMap(others, (r) => factInserts(schema, r))
 					return yield* explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "second-implementation",
+								name: "the conservative lowering's rows, as a set, against the shaped statement's"
+							},
 							suite: "pg/lower-shapes/conditional",
 							draw: drawn(conditionalCaseGen),
 							literal: Formatter.format,

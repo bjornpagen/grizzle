@@ -1,3 +1,19 @@
+/**
+ * The conservative lowering's scalar vocabulary and literal forms on PostgreSQL 19.
+ *
+ * Every entry of the default operator table names a real overload: an operator form's identity is the implementing
+ * function (pg_operator.oprcode) of a builtin operator spelled with the form's symbol, unary for negation. Every
+ * function the default vocabulary lowers is a registry entry whose OpId is its regprocedure signature, an exact
+ * carrier's own overload prefixing the numeric signature that implements it, and the call it emits names that function. That every literal kind reaches PostgreSQL exactly is the generated oracle suites': their
+ * compared and projected literals and closed payloads over every palette type, against the reference.
+ *
+ * Oracle: PostgreSQL's catalog, pg_operator for each form's function and pg_proc for each registry entry's signature.
+ *
+ * Features: a binary operator and the negation among the forms; a function lowered to its call among the entries.
+ *
+ * Plants (~/.cache/grizzle-release/BR11/plants): conservative-mod-as-div (the table spells the modulo functions with the
+ * division symbol) and conservative-call-misnamed (every function lowers to a call of abs).
+ */
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
@@ -14,16 +30,6 @@ import { assert, contains, defined } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { T } from "#test/unit/lower/conservative/fixtures.ts"
-
-/**
- * The conservative lowering's scalar vocabulary and literal forms on PostgreSQL 19.
- *
- * Every entry of the default operator table names a real overload: an operator form's identity is the implementing
- * function (pg_operator.oprcode) of a builtin operator spelled with the form's symbol, unary for negation. Every
- * function the default vocabulary lowers is a registry entry whose OpId is its regprocedure signature, an exact
- * carrier's own overload prefixing the numeric signature that implements it, and the call it emits names that function. That every literal kind reaches PostgreSQL exactly is the generated oracle suites': their
- * compared and projected literals and closed payloads over every palette type, against the reference.
- */
 
 /** The namespaces of the exact carriers' own overloads, whose OpIds prefix the numeric signature that implements them. */
 const exactNamespaces = ["exact:", "exactMoney:"] as const

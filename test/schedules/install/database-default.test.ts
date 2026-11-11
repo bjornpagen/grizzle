@@ -12,6 +12,14 @@
  * database's owner (`every`): both commit; in an interleaving where both ran their blocks before either
  * committed, the later block waited on the earlier installation, and in any other nothing waited; and the database's
  * default isolation is SERIALIZABLE after.
+ *
+ * Oracle: the specification restated as a judge of each interleaving (judge), over every interleaving, reduced by
+ * sleep sets; the database's settings read after each.
+ *
+ * Feature: an interleaving in which a block waited, which the space must hold.
+ *
+ * Plants (~/.cache/grizzle-release/BR11/plants): database-default-unlocked (a block tries its advisory lock and runs on
+ * without it, so two installations update the settings row at once).
  */
 
 import { layer } from "@effect/vitest"
