@@ -86,6 +86,7 @@ import {
 	schema,
 	type Statement
 } from "#compiler/public/schema.ts"
+import { constraintLawsOf } from "#compiler/runtime/write/laws.ts"
 import { generatedField, generatedRelation, relation } from "#compiler/schema/relation.ts"
 import {
 	alternativesBuilder,
@@ -617,7 +618,8 @@ const keyLawsOf = (installation: Installation) =>
 			names: installation.names,
 			constraintLaws: installation.constraintLaws,
 			theoryLaws: installation.theoryLaws,
-			relations: [...installation.checked.relations.values()]
+			relations: [...installation.checked.relations.values()],
+			rosters: new Set(installation.names.codes.rosters.keys())
 		}),
 		noLevelAbove,
 		installation.names.codes
@@ -636,7 +638,7 @@ const reportsCheckAs = (
 		kind: "table",
 		name: installation.names.relation(law.relation).name
 	})
-	return found !== undefined && Arr.some(found.laws, (l) => sameLaw(l.described, law))
+	return found?.kind === "object" && Arr.some(found.laws, (l) => sameLaw(l.described, law))
 }
 
 /**
@@ -652,12 +654,15 @@ const reportable = (installation: Installation): ReadonlyArray<IdentifiedLaw> =>
 	const installed = (name: ObjectName): boolean => map.schemas.has(name.schema)
 	const native = (owner: ConstraintOwner, constraint: string): ReadonlyArray<IdentifiedLaw> => {
 		const found = map.lawsOf(admittedIdentifier(constraint), owner)
-		return found === undefined
-			? []
-			: [
-					...Arr.map(found.laws, (l) => ({ law: l.described, id: l.law })),
-					...Arr.map(found.uses, (u) => ({ law: u.law.described, id: u.law.law }))
-				]
+		if (found === undefined) {
+			return []
+		}
+		switch (found.kind) {
+			case "object":
+				return Arr.map(found.laws, (l) => ({ law: l.described, id: l.law }))
+			case "domain":
+				return Arr.map(found.uses, (u) => ({ law: u.law.described, id: u.law.law }))
+		}
 	}
 	const ofTable = (table: ObjectName, constraint: string): ReadonlyArray<IdentifiedLaw> =>
 		installed(table)
@@ -1213,8 +1218,9 @@ describe("lawsOf", () => {
 							}
 							for (const cl of installation.constraintLaws) {
 								if (
-									cl.kind === "domainConstraint" &&
-									Arr.filter(cl.laws, (l) => l.described.kind === "contract").length > 1
+									(cl.kind === "domainConstraint" || cl.kind === "unstoredDomainConstraint") &&
+									Arr.filter(constraintLawsOf(cl), (l) => l.described.kind === "contract").length >
+										1
 								) {
 									k.note("two contracts of one domain")
 								}

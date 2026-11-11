@@ -2,7 +2,7 @@ import { Array as Arr, Effect, Record as Rec } from "effect"
 import type { ApplyError, OpenError, ReadError } from "#adapter/errors/execution.ts"
 import type { StaleReason } from "#adapter/errors/failures.ts"
 import type { ApplyOutcome } from "#adapter/public/db.ts"
-import type { LawId } from "#compiler/core/ids.ts"
+import type { LawId, RelationIdent } from "#compiler/core/ids.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import type {
 	Law,
@@ -188,17 +188,23 @@ export interface RefusalReader {
 export const refusalReader = (
 	installation: Pick<Installation, "described" | "constraintLaws" | "checked" | "names">
 ): RefusalReader => {
-	const constraints = new Map<string, Map<string, ReadonlyArray<LawId>>>()
+	const constraints = new Map<RelationIdent, Map<string, ReadonlyArray<LawId>>>()
 	for (const c of installation.constraintLaws) {
-		if (c.kind === "domainConstraint") {
-			continue
+		switch (c.kind) {
+			case "constraint":
+			case "trigger": {
+				const named = constraints.get(c.owner) ?? new Map<string, ReadonlyArray<LawId>>()
+				named.set(
+					c.name,
+					Arr.map(c.laws, (l) => l.law)
+				)
+				constraints.set(c.owner, named)
+				break
+			}
+			case "domainConstraint":
+			case "unstoredDomainConstraint":
+				break
 		}
-		const named = constraints.get(c.owner) ?? new Map<string, ReadonlyArray<LawId>>()
-		named.set(
-			c.name,
-			Arr.map(c.laws, (l) => l.law)
-		)
-		constraints.set(c.owner, named)
 	}
 	return {
 		described: installation.described,

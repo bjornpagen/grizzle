@@ -37,7 +37,7 @@ import { compileInstallation, type Installation } from "#compiler/physical/insta
 import { installationsOf } from "#compiler/schema/own.ts"
 import { fullRoleDesc, ownLogin, rostersOf } from "#compiler/schema/own.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { assert, assertVariant, defined, succeeded } from "#test/support/assert.ts"
 import { decodedSchema, f, ge, literal, relation, value } from "#test/support/fixtures/ir/desc.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { owning } from "#test/support/policy.ts"
@@ -196,12 +196,21 @@ describe("contract domains by definition (W6.Q10)", () => {
 								).pipe(Option.getOrUndefined),
 								"the shared domain's constraint"
 							)
-							assert.equal(entry.laws.length, 2, "the shared constraint reports both contracts")
-							assert.ok(
-								entry.kind === "domainConstraint" &&
-									entry.uses.length === 2 &&
-									new Set(Arr.map(entry.uses, (u) => u.law)).size === 2,
-								"each column names its own contract's law"
+							assertVariant(
+								entry,
+								"kind",
+								"domainConstraint",
+								"the shared domain types both columns"
+							)
+							assert.equal(
+								entry.uses.length,
+								2,
+								"each contract's column is a use of the shared domain"
+							)
+							assert.equal(
+								new Set(Arr.map(entry.uses, (u) => u.law.law)).size,
+								2,
+								"each column names its own contract's law, so the shared constraint's laws, its uses', are both contracts'"
 							)
 						}
 					})

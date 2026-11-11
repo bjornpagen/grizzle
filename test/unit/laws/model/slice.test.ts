@@ -67,6 +67,7 @@ import {
 } from "#compiler/ir/desc.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
 import type { ProgramArtifacts } from "#compiler/ir/products.ts"
+import { contractOf, type ScalarType, textOf } from "#compiler/ir/scalar.ts"
 import type { LawModel, NamedNative } from "#compiler/laws/model/model.ts"
 import { namedRole, selectionKeysOf } from "#compiler/physical/ddl/names.ts"
 import { installBasis, planBasis } from "#compiler/physical/install/plan.ts"
@@ -90,7 +91,7 @@ import {
 import { everySlice, sliceOf, writesOf } from "#compiler/schema/reach.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { assert, assertVariant, defined, succeeded } from "#test/support/assert.ts"
 import {
 	type AuthoredRelationDesc,
 	type AuthoredStatementDesc,
@@ -1249,9 +1250,13 @@ describe("a compile's law model", () => {
 									if (!written(e.owner) && !intoWrites.has(`${e.owner} ${e.name}`)) {
 										break
 									}
-									const raised = witness.lawsOf(e.name, { kind: "table", name: e.owner })
+									const raised = defined(
+										witness.lawsOf(e.name, { kind: "table", name: e.owner }),
+										`${e.name} on ${e.owner} names a law`
+									)
+									assertVariant(raised, "kind", "object", `${e.name} on ${e.owner} types no column`)
 									assert.deepEqual(
-										defined(raised, `${e.name} on ${e.owner} names a law`).laws,
+										raised.laws,
 										e.laws,
 										`the laws ${e.name} on ${e.owner} reports, described as the whole model does`
 									)
@@ -1265,6 +1270,12 @@ describe("a compile's law model", () => {
 									const raised = defined(
 										witness.lawsOf(e.name, { kind: "domain", name: e.owner }),
 										`the domain ${e.owner} names its laws`
+									)
+									assertVariant(
+										raised,
+										"kind",
+										"domain",
+										`the domain ${e.owner} types stored columns`
 									)
 									for (const u of uses) {
 										assert.ok(
@@ -1280,6 +1291,8 @@ describe("a compile's law model", () => {
 									}
 									break
 								}
+								case "unstoredDomainConstraint":
+									break
 							}
 						}
 
@@ -1372,7 +1385,27 @@ describe("a compile's law model", () => {
 									set(structuralHash, exact)
 								)
 							}
-							const narrowed = raisableOf(wholeArtifacts, changed)
+							const cast = Arr.flatMap(compiledWrites, (w) =>
+								Arr.flatMap(w.params, (p) => (p.kind === "scalar" ? [p.type] : []))
+							)
+							const names = wholeArtifacts.names
+							const chainOf = (t: ScalarType): ReadonlyArray<string> => {
+								const contract = contractOf(t)
+								return contract === undefined
+									? []
+									: [names.contractDomain(contract.name).name, ...chainOf(contract.base)]
+							}
+							const castDomains = new Set(
+								Arr.flatMap(cast, (t) => {
+									const text = textOf(t)
+									const pattern =
+										text === undefined || text.regex === "wildcard"
+											? undefined
+											: names.textDomain(text.regex)
+									return [...chainOf(t), ...(pattern === undefined ? [] : [pattern.name])]
+								})
+							)
+							const narrowed = raisableOf(wholeArtifacts, { written: changed, cast })
 							const constraintOf = (e: {
 								readonly kind: string
 								readonly owner: string
@@ -1408,12 +1441,18 @@ describe("a compile's law model", () => {
 										)
 										assert.ok(
 											whole.kind === "domainConstraint" &&
-												whole.uses.length > 0 &&
-												!Arr.some(whole.uses, (u) => written(u.table)),
-											`${constraintOf(e)}, which the served refusals drop, types columns of the whole schema, none a write writes`
+												!Arr.some(whole.uses, (u) => written(u.table)) &&
+												!castDomains.has(e.owner),
+											`${constraintOf(e)}, which the served refusals drop, types columns of the whole schema, none a write writes, and no value a write casts`
 										)
 										break
 									}
+									case "unstoredDomainConstraint":
+										assert.ok(
+											!castDomains.has(e.owner),
+											`${constraintOf(e)}, which the served refusals drop, types no value a write casts`
+										)
+										break
 								}
 							}
 							const slicedLaws = new Set(Arr.map(sliced.theoryLaws, (l) => l.law))

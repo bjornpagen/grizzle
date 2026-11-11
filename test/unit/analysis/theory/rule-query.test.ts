@@ -54,7 +54,7 @@ import type { CompileError, CompileReasonTag } from "#compiler/core/errors.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
 import * as Result from "#compiler/core/result.ts"
 import { numericMaxPrecision, numericMaxScale } from "#compiler/ir/scalar.ts"
-import type { ConstraintLaw } from "#compiler/laws/model/model.ts"
+import type { TableConstraintLaw } from "#compiler/laws/model/model.ts"
 import { theoryViolations } from "#compiler/laws/model/violations.ts"
 import type { SchemaArtifacts } from "#compiler/program/schema.ts"
 import { type Law, sameLaw } from "#compiler/public/changeset.ts"
@@ -272,13 +272,13 @@ type TextReached = `a ${Exclude<Pattern, "same">} ${"ref" | "note"}` | "into" | 
  * superkey's UNIQUE that a key and a lowered rule's foreign key both rest on, reports its first (laws/model/model.ts
  * constraintLawMap); two objects under one name clash where they report two.
  */
-const clashesOf = (constraints: ReadonlyArray<ConstraintLaw>): ReadonlyArray<string> =>
+const clashesOf = (constraints: ReadonlyArray<TableConstraintLaw>): ReadonlyArray<string> =>
 	Arr.flatMap([...Map.groupBy(constraints, (x) => `${x.owner} ${x.name}`)], ([at, named]) =>
 		Arr.dedupeWith(Arr.map(named, reportedOf), sameLaw).length > 1 ? [at] : []
 	)
 
 /** The law a constraint or trigger reports, its first, as an outcome names it. */
-const reportedOf = (constraint: ConstraintLaw): Law => constraint.laws[0].described
+const reportedOf = (constraint: TableConstraintLaw): Law => constraint.laws[0].described
 
 /**
  * How a derived relation's two arms deliver its head literal: one in both, or one each, the union's discriminant. Both

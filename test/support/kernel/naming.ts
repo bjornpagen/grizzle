@@ -48,7 +48,12 @@ import {
 } from "#compiler/ir/law.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import { type ConstraintLaws, type ConstraintOwner, constraintLaw } from "#compiler/ir/products.ts"
-import { type ConstraintLaw, compileLaws, type LawModel } from "#compiler/laws/model/model.ts"
+import {
+	type ConstraintLaw,
+	compileLaws,
+	type LawModel,
+	type TableConstraintLaw
+} from "#compiler/laws/model/model.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { type TextDomain, textDomainIdentity } from "#compiler/physical/ddl/domains.ts"
 import {
@@ -330,9 +335,9 @@ const refused = (error: CompileError): Error =>
 
 /** What a constraint lives on, as PostgreSQL reports it: a table constraint's table, or a domain constraint's domain. */
 export const constraintOwner = (c: ConstraintLaw): ConstraintOwner =>
-	c.kind === "domainConstraint"
-		? { kind: "domain", name: c.owner }
-		: { kind: "table", name: c.owner }
+	c.kind === "constraint" || c.kind === "trigger"
+		? { kind: "table", name: c.owner }
+		: { kind: "domain", name: c.owner }
 
 /** A native object that installs a named constraint of one relation over a field set. */
 interface NamedConstraint {
@@ -669,25 +674,16 @@ const lawNamesOver = (
 	contractNamed: (contract: DeclaredName) => Identity<"contractDomain">
 ): LawNames => {
 	const holding = holdingOf(model)
-	/** What installs a constraint the law model maps: the one native of its owner that names it. */
-	const nativeKind = (c: Exclude<ConstraintLaw, { readonly kind: "trigger" }>): NativeKind =>
+	/** What installs a table constraint the law model maps: the one native of its owner that names it. */
+	const nativeKind = (
+		c: Extract<TableConstraintLaw, { readonly kind: "constraint" }>
+	): NativeKind =>
 		single(
-			Arr.flatMap(model.natives, (n): ReadonlyArray<NativeKind> => {
-				switch (c.kind) {
-					case "constraint":
-						return n.namespace === "constraint" &&
-							n.owner === c.owner &&
-							identifierOf(n.named) === c.name
-							? [n.object.kind]
-							: []
-					case "domainConstraint":
-						return n.namespace === "domain" &&
-							identifierOf(contractNamed(n.object.name)) === c.owner &&
-							n.object.check.kind === "checked"
-							? [n.object.kind]
-							: []
-				}
-			}),
+			Arr.flatMap(model.natives, (n): ReadonlyArray<NativeKind> =>
+				n.namespace === "constraint" && n.owner === c.owner && identifierOf(n.named) === c.name
+					? [n.object.kind]
+					: []
+			),
 			(count) => `the law model maps ${c.name} of ${c.owner}, which ${count} of its natives install`
 		)
 	const reporting: ReadonlyArray<{
