@@ -1,14 +1,15 @@
-import { Array as Arr, Effect, Option, Order, Schema, SchemaGetter } from "effect"
+import { Array as Arr, Effect, Option, Order, Result, Schema, SchemaGetter } from "effect"
 import type { Types } from "effect"
 import { sanitizeProse } from "#emit/help.ts"
 import { HeaderName, MediaRange } from "#model/brands.ts"
 import { makeDiagnostic } from "#model/diagnostic.ts"
-import type { Diagnostic } from "#model/diagnostic.ts"
+import type { Diagnostic, DiagnosticOperation } from "#model/diagnostic.ts"
 import { ResponseCase } from "#model/entities.ts"
 import type { MediaAlternative } from "#model/entities.ts"
 import { isSpecificationExtension } from "#model/extension.ts"
 import { specSectionUrl } from "#model/spec-section.ts"
 import { childKey, follow, nodeIn, referenceIn } from "#normalize/document-set.ts"
+import { readEventContract } from "#normalize/event-stream.ts"
 import { headerMarks } from "#normalize/header-object.ts"
 import { headerPercentEncoding } from "#normalize/parameters.ts"
 import { defsKey } from "#resolve/canonical.ts"
@@ -54,6 +55,7 @@ interface Rule {
 	readonly element: string
 	readonly hint?: string
 	readonly message: string
+	readonly scope: "element" | "operation"
 	readonly severity: "notice" | "refusal"
 }
 
@@ -62,12 +64,14 @@ const rules = {
 		anchor: "appendix-d-serializing-headers-and-cookies",
 		element: "Response header percent-encoding",
 		message: headerPercentEncoding,
+		scope: "element",
 		severity: "notice"
 	},
 	"MED-09/description-ignored": {
 		anchor: "media-type-object",
 		element: "Media type description",
 		message: "The description of a media type is not used, so it is ignored here.",
+		scope: "element",
 		severity: "notice"
 	},
 	"MED-10/encoding-ignored": {
@@ -75,24 +79,64 @@ const rules = {
 		element: "Media type encoding",
 		message:
 			"The encoding field applies to multipart and form-urlencoded request bodies only, so it is ignored here.",
+		scope: "element",
 		severity: "notice"
+	},
+	"MED-18/stream-event-twice": {
+		anchor: "special-considerations-for-server-sent-events",
+		element: "Event stream item union",
+		hint: "Name each event in one branch of the itemSchema union.",
+		message:
+			"Two branches of an event stream's itemSchema name one event and differ in its data or its x-stream role; the operation is refused.",
+		scope: "operation",
+		severity: "refusal"
+	},
+	"MED-18/stream-retry-not-json": {
+		anchor: "special-considerations-for-server-sent-events",
+		element: "Event stream role",
+		hint: "Give the event's data property contentMediaType application/json, or drop retryWhen.",
+		message:
+			"An x-stream retryWhen points into an event's data, which its schema does not declare as JSON; the operation is refused.",
+		scope: "operation",
+		severity: "refusal"
+	},
+	"MED-18/stream-role-invalid": {
+		anchor: "special-considerations-for-server-sent-events",
+		element: "Event stream role",
+		hint: 'Write {"role":"ready"}, {"role":"end"}, {"role":"error"} or {"role":"error","retryWhen":{"pointer":...,"equals":...}}.',
+		message:
+			"An x-stream annotation is not one of its forms, so the stream's stopping point is unknown; the operation is refused.",
+		scope: "operation",
+		severity: "refusal"
+	},
+	"MED-18/stream-role-unnamed": {
+		anchor: "special-considerations-for-server-sent-events",
+		element: "Event stream role",
+		hint: "Give the branch's event property a const event name.",
+		message:
+			"An x-stream role sits on an itemSchema branch that names no event, so no event can take the role; the operation is refused.",
+		scope: "operation",
+		severity: "refusal"
 	},
 	"RSP-05/invalid-media-type": {
 		anchor: "response-content",
 		element: "Response content key",
 		message: "A content key is not a media type or a media range; the alternative is refused.",
+		scope: "element",
 		severity: "refusal"
 	},
 	"RSP-09/ignored-content-type": {
 		anchor: "response-headers",
 		element: "Response header",
 		message: "A response header named Content-Type is ignored.",
+		scope: "element",
 		severity: "notice"
 	},
 	"RSP-09/invalid-header-name": {
 		anchor: "response-headers",
 		element: "Response header",
 		message: "A response header name is not an RFC 9110 token; the header is refused.",
+		scope: "element",
 		severity: "refusal"
 	},
 	"RSS-06/invalid-key": {
@@ -101,6 +145,7 @@ const rules = {
 		hint: "Use a status code, a range from 1XX to 5XX with an uppercase X, or default.",
 		message:
 			"A responses key is not a status code, a status range or default; the response is refused.",
+		scope: "element",
 		severity: "refusal"
 	},
 	"RSS-10/status-out-of-range": {
@@ -108,6 +153,7 @@ const rules = {
 		element: "Response key",
 		hint: "Status codes run from 100 to 599.",
 		message: "A status code outside 100 to 599 is refused.",
+		scope: "element",
 		severity: "refusal"
 	}
 } as const satisfies Record<string, Rule>
@@ -274,7 +320,23 @@ const alternativeOf = Effect.fnUntraced(function* alternativeOf(
 		plain.schema = schemaRefAt(resolution, childKey(home, "schema"))
 	}
 
-	return { findings, value: Option.some(plain) }
+	const contract =
+		plain.codec === "sse" && media.itemSchema !== undefined
+			? readEventContract(resolution, childKey(home, "itemSchema"))
+			: Result.succeed(Option.none())
+	if (Result.isFailure(contract)) {
+		return { findings: [...findings, contract.failure], value: Option.some(plain) }
+	}
+
+	return {
+		findings,
+		value: Option.some(
+			Option.match(contract.success, {
+				onNone: () => plain,
+				onSome: (events) => ({ ...plain, events })
+			})
+		)
+	}
 })
 
 // A 3.0 schema-serialized header carries the D-OC9 notice; a content-based one never was
@@ -377,7 +439,14 @@ const caseOf = Effect.fnUntraced(function* caseOf(
 	}
 })
 
-const toDiagnostic = (resolution: Resolution, finding: Finding): Effect.Effect<Diagnostic> => {
+/**
+ * The diagnostic of a finding: an operation-scope refusal names the operation it omits.
+ */
+const toDiagnostic = (
+	resolution: Resolution,
+	finding: Finding,
+	operation: typeof DiagnosticOperation.Type
+): Effect.Effect<Diagnostic> => {
 	const rule: Rule = rules[finding.code]
 	const openapi = Option.getOrElse(declaredOpenapi(resolution.value), () => "unknown")
 
@@ -388,8 +457,9 @@ const toDiagnostic = (resolution: Resolution, finding: Finding): Effect.Effect<D
 		hint: rule.hint,
 		message: rule.message,
 		openapi,
+		operation: rule.scope === "operation" ? operation : undefined,
 		pointer: finding.at.pointer,
-		scope: "element",
+		scope: rule.scope,
 		severity: rule.severity,
 		specSection: specSectionUrl(resolution.line, rule.anchor)
 	})
@@ -442,7 +512,8 @@ const entryOf = Effect.fnUntraced(function* entryOf(
  */
 export const normalizeResponses = Effect.fnUntraced(function* normalizeResponses(
 	resolution: Resolution,
-	pointer: string
+	pointer: string,
+	operation: typeof DiagnosticOperation.Type
 ): Effect.fn.Return<NormalizedResponses> {
 	const responses = { document: resolution.document, pointer }
 	// oxlint-disable-next-line unicorn/no-array-method-this-argument -- Effect.forEach(items, f), not an array method
@@ -454,7 +525,9 @@ export const normalizeResponses = Effect.fnUntraced(function* normalizeResponses
 
 	return {
 		// oxlint-disable-next-line unicorn/no-array-method-this-argument -- Effect.forEach(items, f), not an array method
-		diagnostics: yield* Effect.forEach(findings, (finding) => toDiagnostic(resolution, finding)),
+		diagnostics: yield* Effect.forEach(findings, (finding) =>
+			toDiagnostic(resolution, finding, operation)
+		),
 		// oxlint-disable-next-line unicorn/no-array-method-this-argument -- Effect.forEach(items, f), not an array method
 		responses: yield* Effect.forEach(cases, (plain) =>
 			Schema.decodeUnknownEffect(ResponseCase)(plain).pipe(Effect.orDie)

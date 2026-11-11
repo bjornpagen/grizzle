@@ -31,7 +31,9 @@ const normalize = (
 	}
 	const resolution = Effect.runSync(resolve({ document: entry, line, value }))
 
-	return Effect.runSync(normalizeResponses(resolution, responsesPointer))
+	return Effect.runSync(
+		normalizeResponses(resolution, responsesPointer, { method: "GET", path: "/a" })
+	)
 }
 
 const keys = (result: NormalizedResponses) => result.responses.map((response) => response.key)
@@ -113,7 +115,9 @@ describe("response keys", () => {
 			paths: { "/a": { get: {} } }
 		}
 		const resolution = Effect.runSync(resolve({ document: entry, line: "3.1", value }))
-		const result = Effect.runSync(normalizeResponses(resolution, responsesPointer))
+		const result = Effect.runSync(
+			normalizeResponses(resolution, responsesPointer, { method: "GET", path: "/a" })
+		)
 
 		expect(result).toEqual({ diagnostics: [], responses: [] })
 	})

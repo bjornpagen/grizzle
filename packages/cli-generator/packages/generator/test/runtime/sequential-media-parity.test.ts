@@ -64,7 +64,9 @@ const generatorCodecs = (mediaTypes: readonly string[]) => {
 		}
 	}
 	const resolution = Effect.runSync(resolve({ document: entry, line: "3.1", value }))
-	const { responses } = Effect.runSync(normalizeResponses(resolution, "/paths/~1a/get/responses"))
+	const { responses } = Effect.runSync(
+		normalizeResponses(resolution, "/paths/~1a/get/responses", { method: "GET", path: "/a" })
+	)
 
 	return new Map(
 		(responses[0]?.alternatives ?? []).map(

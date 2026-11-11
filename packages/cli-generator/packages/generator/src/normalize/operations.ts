@@ -800,7 +800,11 @@ const assembleOne = Effect.fnUntraced(function* assembleOne(
 	)
 	const parameters = yield* assembleParameters(shared, raw, merged)
 	const body = yield* assembleBody(shared, raw)
-	const responses = yield* normalizeResponses(resolution, childPointer(raw.pointer, "responses"))
+	const responses = yield* normalizeResponses(
+		resolution,
+		childPointer(raw.pointer, "responses"),
+		operationInfo(raw)
+	)
 	const policy = yield* normalizeSecurityPolicy(resolution, shared.schemes, raw.pointer)
 	const servers = yield* effectiveServersOf(shared, raw)
 	const site = { operation: operationInfo(raw), pointer: raw.pointer }
@@ -844,7 +848,10 @@ const assembleOne = Effect.fnUntraced(function* assembleOne(
 		...namingNotices,
 		...raises
 	]
-	if (raises.length > 0) {
+	if (
+		raises.length > 0 ||
+		Arr.some(responses.diagnostics, (diagnostic) => diagnostic.scope === "operation")
+	) {
 		return { diagnostics: withoutAuthorChoiceNotices(diagnostics) }
 	}
 

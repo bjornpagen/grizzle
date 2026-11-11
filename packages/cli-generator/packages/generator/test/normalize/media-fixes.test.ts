@@ -44,7 +44,9 @@ const responsesOf = (line: Line, responses: Json) => {
 	}
 	const resolution = Effect.runSync(resolve({ document: entry, line, value }))
 
-	return Effect.runSync(normalizeResponses(resolution, responsesPointer))
+	return Effect.runSync(
+		normalizeResponses(resolution, responsesPointer, { method: "GET", path: "/a" })
+	)
 }
 
 const codes = (found: { readonly diagnostics: readonly Diagnostic[] }) =>

@@ -20,7 +20,14 @@ import type { DiscriminatorHint } from "#model/entities.ts"
 import { childPointer, formatPointer, isPointerWithin } from "#model/pointer.ts"
 import { specSectionUrl } from "#model/spec-section.ts"
 import { docsOf, sanitize } from "#normalize/docs.ts"
-import { childKey, follow, nodeIn, nodeOption, referenceIn } from "#normalize/document-set.ts"
+import {
+	childKey,
+	follow,
+	nodeIn,
+	nodeOption,
+	referenceIn,
+	settle
+} from "#normalize/document-set.ts"
 import { headerMarks } from "#normalize/header-object.ts"
 import {
 	authorChoiceCodes,
@@ -182,8 +189,6 @@ const formUrlencoded = "application/x-www-form-urlencoded"
 
 const octetStream = "application/octet-stream"
 
-const maxHops = 16
-
 type Codec =
 	| "binary"
 	| "form"
@@ -312,21 +317,6 @@ const sorted = (rows: readonly string[]): readonly string[] =>
 interface Located {
 	readonly at: CanonicalKey
 	readonly node: SchemaNodeValue
-}
-
-// Follows schema references to the schema they end at, in whichever document of the set holds it.
-const settle = (resolution: Resolution, start: CanonicalKey): CanonicalKey => {
-	let current = start
-	for (let hop = 0; hop < maxHops; hop += 1) {
-		const reference = referenceIn(resolution, current)
-		if (reference === undefined || reference.kind !== "schema") {
-			return current
-		}
-
-		current = reference.target
-	}
-
-	return current
 }
 
 const nodeAt = (resolution: Resolution, at: CanonicalKey): Effect.Effect<SchemaNodeValue> =>

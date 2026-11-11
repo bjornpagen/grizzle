@@ -1623,7 +1623,32 @@ const distinct = (values: readonly string[]): readonly string[] => [...new Set(v
 interface Choices {
 	readonly accepts: boolean
 	readonly choosesType: boolean
+	readonly follows: boolean
 }
+
+/**
+ * Whether a response key can match a 2xx status: a code from 200 to 299, the `2XX` range, or `default`.
+ */
+const matchesSuccess = (key: Operation["responses"][number]["key"]): boolean => {
+	if (key === "default") {
+		return true
+	}
+
+	return "code" in key ? key.code >= 200 && key.code <= 299 : key.range === 2
+}
+
+/**
+ * Whether a command reads a stream with a stop point before its end: some response a 2xx status can match offers a
+ * `text/event-stream` alternative whose event contract names a `ready` event, so `--follow` can read past it.
+ */
+const followsOf = (operation: Operation): boolean =>
+	Arr.some(
+		Arr.filter(operation.responses, (response) => matchesSuccess(response.key)),
+		(response) =>
+			Arr.some(response.alternatives, (alternative) =>
+				Arr.some(alternative.events?.events ?? [], (event) => event.role === "ready")
+			)
+	)
 
 const choicesOf = (operation: Operation): Choices => {
 	const requestTypes = (operation.body?.alternatives ?? []).map((item) => item.mediaType)
@@ -1635,7 +1660,8 @@ const choicesOf = (operation: Operation): Choices => {
 
 	return {
 		accepts: responseTypes.length > 1,
-		choosesType: requestTypes.length > 1 || requestTypes.some(isRange)
+		choosesType: requestTypes.length > 1 || requestTypes.some(isRange),
+		follows: followsOf(operation)
 	}
 }
 
@@ -1659,6 +1685,10 @@ const configOf = (command: PlannedCommand, choices: Choices, context: CommandCon
 
 		if (choices.accepts) {
 			entries.push(["accept", path("Negotiate.acceptFlag")])
+		}
+
+		if (choices.follows) {
+			entries.push(["follow", path("Sse.followFlag")])
 		}
 
 		return entries
@@ -1757,13 +1787,17 @@ const commandStatement = (
 			"Effect.flatMap",
 			fn("Output.send", ...(choices.accepts ? [meta, path("flags.accept")] : [meta]))
 		)
+		const stopPoint = choices.follows
+			? [fn("Effect.provideService", path("Sse.StopPoint"), path("flags.follow"))]
+			: []
 		const handled = Option.match(body, {
-			onNone: () => pipe(built, [send]),
+			onNone: () => pipe(built, [send, ...stopPoint]),
 			onSome: (plan) =>
 				pipe(plan.head, [
 					...(plan.steps ?? []),
 					fn("Effect.flatMap", arrow([{ name: I(plan.parameter) }], built)),
-					send
+					send,
+					...stopPoint
 				])
 		})
 		const handler = arrow(config.length === 0 ? [] : [{ name: I("flags") }], handled)

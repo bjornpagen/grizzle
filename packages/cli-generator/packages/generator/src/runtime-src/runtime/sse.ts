@@ -1,5 +1,6 @@
 import {
 	Array as Arr,
+	Context,
 	Effect,
 	Option,
 	Predicate,
@@ -8,6 +9,7 @@ import {
 	Stream,
 	String as Str
 } from "effect"
+import { Flag } from "effect/cli"
 import { ResponseStreamError } from "../domain/errors.ts"
 import { encoder } from "./redact.ts"
 import { compactJsonText } from "./sequential.ts"
@@ -352,6 +354,11 @@ export interface EventContract {
 }
 
 /**
+ * An operation's event contracts by response key and then media key, as its emitted meta holds them.
+ */
+export type EventTable = Readonly<Record<string, Readonly<Record<string, EventContract>>>>
+
+/**
  * The contract of a stream whose `itemSchema` names no event: every event is an item whose data prints as text, and the
  * stream ends with its body.
  */
@@ -362,6 +369,26 @@ export const openContract: EventContract = { events: {}, otherwise: "text" }
  * or, for a stream whose contract names no role, the end of the body.
  */
 export type StopAt = "ready" | "terminal"
+
+/**
+ * The stop point a run reads its stream to: provided from `--follow` by a command whose response names a `ready`
+ * event, and absent, which reads to the first `ready` event, for every other command.
+ */
+export class StopPoint extends Context.Service<StopPoint, StopAt>()(
+	"effect-openapi-cli-generator/runtime-src/runtime/sse/StopPoint"
+) {}
+
+/**
+ * `--follow`, which a command whose streamed response names a `ready` event declares: read on past the `ready` event,
+ * printing each live change, until the stream ends or the run is interrupted.
+ */
+export const followFlag = Flag.Boolean("follow").pipe(
+	Flag.withDescription(
+		"Keep reading the stream after its ready event, until it ends or is interrupted"
+	),
+	Flag.withDefault(false),
+	Flag.map((follow): StopAt => (follow ? "terminal" : "ready"))
+)
 
 /**
  * What a command writes of its stream: one JSON line per event, or the bytes received.

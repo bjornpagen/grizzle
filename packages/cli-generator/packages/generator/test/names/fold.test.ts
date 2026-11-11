@@ -238,7 +238,8 @@ describe("reserved sets", () => {
 		"accept",
 		"allow-credentials-for-base-url",
 		"max-record-bytes",
-		"max-error-bytes"
+		"max-error-bytes",
+		"follow"
 	]
 	const builtIns = ["help", "h", "version", "v", "completions", "log-level"]
 	const negations = [
@@ -250,7 +251,8 @@ describe("reserved sets", () => {
 		"verbose",
 		"retry-unsafe",
 		"allow-credentials-for-base-url",
-		"describe"
+		"describe",
+		"follow"
 	]
 
 	test.each([...builtIns, ...runtimeFlags, ...negations.map((name) => `no-${name}`)])(

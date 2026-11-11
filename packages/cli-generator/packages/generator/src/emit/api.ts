@@ -44,6 +44,7 @@ import type {
 import type {
 	Api,
 	EncodingRule,
+	EventContract,
 	MediaAlternative,
 	Operation,
 	Parameter,
@@ -266,6 +267,16 @@ const groupImports: readonly Import[] = [
 	{ _tag: "Namespace", from: S("../runtime/serialize.ts"), name: I("Serialize"), typeOnly: false }
 ]
 
+/**
+ * The import of a module whose operations' metas hold an event table.
+ */
+const eventTableImport: Import = {
+	_tag: "Named",
+	from: S("../runtime/sse.ts"),
+	names: [I("EventTable")],
+	typeOnly: true
+}
+
 const essence = (mediaType: string): string => (mediaType.split(";")[0] ?? "").trim().toLowerCase()
 
 const isRange = (mediaType: string): boolean => essence(mediaType).endsWith("/*")
@@ -295,6 +306,66 @@ const refusedEntry = (alternatives: readonly MediaAlternative[]): Option.Option<
 				)
 			)
 }
+
+/**
+ * One event row of a contract as the runtime's `EventRow` holds it: its data, its retry rule when it has one, its role.
+ */
+const eventRowExpr = (event: EventContract["events"][number]): Expr =>
+	obj([
+		["data", str(event.data)],
+		...("retryWhen" in event
+			? ([
+					[
+						"retryWhen",
+						obj([
+							[
+								"equals",
+								typeof event.retryWhen.equals === "string"
+									? str(event.retryWhen.equals)
+									: typeof event.retryWhen.equals === "number"
+										? num(event.retryWhen.equals)
+										: bool(event.retryWhen.equals)
+							],
+							["pointer", str(event.retryWhen.pointer)]
+						])
+					]
+				] as const)
+			: []),
+		["role", str(event.role)]
+	])
+
+/**
+ * An event contract as the runtime's `EventContract` holds it: its rows by event name, and how other events print.
+ */
+const eventContractExpr = (contract: EventContract): Expr =>
+	obj([
+		[
+			"events",
+			obj(Arr.map(contract.events, (event) => [event.name, eventRowExpr(event)] as const))
+		],
+		["otherwise", str(contract.otherwise)]
+	])
+
+/**
+ * The operation's event table (`EventTable`): the contract of each response alternative that carries one, by response
+ * key and then media key; empty when none does.
+ */
+const eventTableOf = (responses: Operation["responses"]): (readonly [string, Expr])[] =>
+	Arr.flatMap(responses, (response) => {
+		const byMedia = Arr.flatMap(response.alternatives, (alternative) =>
+			alternative.events === undefined
+				? []
+				: [[alternative.mediaType, eventContractExpr(alternative.events)] as const]
+		)
+
+		return byMedia.length === 0 ? [] : [[responseKey(response.key), obj(byMedia)] as const]
+	})
+
+/**
+ * Whether an operation's emitted meta holds an event table.
+ */
+const hasEventTable = (operation: Operation): boolean =>
+	eventTableOf(operation.responses).length > 0
 
 const responseKey = (key: ResponseCase["key"]): string => {
 	if (key === "default") {
@@ -1756,6 +1827,8 @@ const commandStatements = (
 		const inputName = yield* identifier(`${capitalized}Input`)
 		const mediaName = yield* identifier(`${name}Media`)
 		const securityName = yield* identifier(`${name}Security`)
+		const eventsName = yield* identifier(`${name}Events`)
+		const eventTable = eventTableOf(operation.responses)
 		const parameters = yield* Effect.forEach(inputKeys(operation), (entry) =>
 			parameterParts(entry, context)
 		)
@@ -1809,6 +1882,7 @@ const commandStatements = (
 		])
 		const meta: (readonly [string, Expr])[] = [
 			...(operation.deprecated ? ([["deprecated", bool(true)]] as const) : []),
+			...(eventTable.length === 0 ? [] : ([["events", ident(eventsName)]] as const)),
 			["media", ident(mediaName)],
 			["method", str(operation.key.method)],
 			[
@@ -1875,6 +1949,17 @@ const commandStatements = (
 				type: typeRef(I("SecurityRequirement")),
 				value: yield* requirementOf(operation, context.schemes)
 			},
+			...(eventTable.length === 0
+				? []
+				: [
+						{
+							_tag: "Const",
+							exported: false,
+							name: eventsName,
+							type: typeRef(I("EventTable")),
+							value: obj(eventTable)
+						} as const
+					]),
 			{ _tag: "Const", exported: true, name: yield* identifier(`${name}Meta`), value: obj(meta) }
 		]
 	})
@@ -1910,7 +1995,12 @@ const moduleFile = (
 			}
 		}
 
-		const content = yield* printModule({ imports: groupImports, statements: statements.flat() })
+		const content = yield* printModule({
+			imports: Arr.some(commands, (command) => hasEventTable(command.operation))
+				? [...groupImports, eventTableImport]
+				: groupImports,
+			statements: statements.flat()
+		})
 
 		return { content, path: `src/api/${segment}.ts` }
 	})

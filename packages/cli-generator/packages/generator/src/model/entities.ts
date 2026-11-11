@@ -1,4 +1,4 @@
-import { Schema } from "effect"
+import { Array as Arr, Schema, String as Str } from "effect"
 import {
 	CookieName,
 	DocumentUri,
@@ -199,34 +199,106 @@ export const DiscriminatorHint = Schema.Struct({
 })
 
 /**
+ * An SSE event type as an `event` field sets it: text with no line break, which no field value holds.
+ */
+const EventName = Schema.String.check(
+	Schema.makeFilter(
+		(name) =>
+			(!Str.includes("\r")(name) && !Str.includes("\n")(name)) ||
+			"an event type holds no line break"
+	)
+)
+
+/**
+ * How an event's data prints: `json`, the server's JSON text compacted, for data whose `contentMediaType` is JSON;
+ * `text`, a JSON string, for any other.
+ */
+const EventData = Schema.Literals(["json", "text"])
+
+/**
+ * Where a failure event's JSON data says that retrying is safe: the JSON Pointer into the data and the scalar it holds
+ * there when it is.
+ */
+export const RetryWhen = Schema.Struct({
+	equals: Schema.Union([Schema.String, Schema.Finite, Schema.Boolean]),
+	pointer: JsonPointer
+})
+
+/**
+ * One event type of an SSE response's item union (`x-stream`, design of the event lifecycle): its name, how its data
+ * prints and its role. An `item` is printed and the stream goes on; `ready` ends the initial state, the default stop;
+ * `end` ends the stream; `error` ends it with a failure, retried only when its JSON data holds `retryWhen`'s value.
+ */
+export const StreamEvent = Schema.Union([
+	Schema.Struct({
+		data: Schema.Literal("json"),
+		name: EventName,
+		retryWhen: RetryWhen,
+		role: Schema.Literal("error")
+	}),
+	Schema.Struct({
+		data: EventData,
+		name: EventName,
+		role: Schema.Literals(["end", "error", "item", "ready"])
+	})
+])
+
+/**
+ * The event contract of a `text/event-stream` response alternative, read from its `itemSchema`: each event type its
+ * union names, each name once, and how the data of an event of any other type prints.
+ */
+export class EventContract extends Schema.Class<EventContract, { readonly brand: unique symbol }>(
+	"EventContract"
+)(
+	Schema.Struct({ events: Schema.Array(StreamEvent), otherwise: EventData }).check(
+		Schema.makeFilter(
+			(contract) =>
+				Arr.dedupe(Arr.map(contract.events, (event) => event.name)).length ===
+					contract.events.length || "each event type is named once"
+		)
+	)
+) {}
+
+/**
  * One media type a body or response offers; `codec` is derived from the media type.
- * `discriminator` and `refusedFields` are set on a request body alternative only. `refusedFields`
+ * `discriminator` and `refusedFields` are set on a request body alternative only; `events`, on a
+ * `text/event-stream` response alternative whose `itemSchema` names events or JSON data only. `refusedFields`
  * names the alternative's properties refused at `field` scope, in property order (design 8.5);
  * absent, none is refused.
  */
-export class MediaAlternative extends Schema.Class<MediaAlternative>("MediaAlternative")({
-	codec: Schema.Literals([
-		"binary",
-		"form",
-		"json",
-		"jsonseq",
-		"multipart",
-		"ndjson",
-		"sse",
-		"text",
-		"xml"
-	]),
-	discriminator: Schema.optionalKey(DiscriminatorHint),
-	encoding: Schema.Array(EncodingRule),
-	itemEncoding: Schema.optionalKey(EncodingRule),
-	itemSchema: Schema.optionalKey(SchemaRef),
-	mediaType: Schema.Union([MediaType, MediaRange]),
-	origin: Origin,
-	prefixEncoding: Schema.Array(EncodingRule),
-	refusedFields: Schema.optionalKey(Schema.Array(WireName)),
-	rows,
-	schema: Schema.optionalKey(SchemaRef)
-}) {}
+export class MediaAlternative extends Schema.Class<MediaAlternative>("MediaAlternative")(
+	Schema.Struct({
+		codec: Schema.Literals([
+			"binary",
+			"form",
+			"json",
+			"jsonseq",
+			"multipart",
+			"ndjson",
+			"sse",
+			"text",
+			"xml"
+		]),
+		discriminator: Schema.optionalKey(DiscriminatorHint),
+		encoding: Schema.Array(EncodingRule),
+		events: Schema.optionalKey(EventContract),
+		itemEncoding: Schema.optionalKey(EncodingRule),
+		itemSchema: Schema.optionalKey(SchemaRef),
+		mediaType: Schema.Union([MediaType, MediaRange]),
+		origin: Origin,
+		prefixEncoding: Schema.Array(EncodingRule),
+		refusedFields: Schema.optionalKey(Schema.Array(WireName)),
+		rows,
+		schema: Schema.optionalKey(SchemaRef)
+	}).check(
+		Schema.makeFilter(
+			(alternative) =>
+				alternative.events === undefined ||
+				alternative.codec === "sse" ||
+				"an event contract belongs to a text/event-stream alternative"
+		)
+	)
+) {}
 
 /**
  * A request body; alternatives keep document order.

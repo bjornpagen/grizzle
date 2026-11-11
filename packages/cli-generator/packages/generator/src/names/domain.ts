@@ -29,7 +29,8 @@ export const runtimeNamespaces: readonly (readonly [string, string])[] = [
 	["Multipart", "../runtime/multipart.ts"],
 	["Negotiate", "../runtime/negotiate.ts"],
 	["Output", "../runtime/output.ts"],
-	["Serialize", "../runtime/serialize.ts"]
+	["Serialize", "../runtime/serialize.ts"],
+	["Sse", "../runtime/sse.ts"]
 ]
 
 /**

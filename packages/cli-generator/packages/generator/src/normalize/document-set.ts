@@ -58,3 +58,26 @@ export const childKey = (key: CanonicalKey, ...tokens: readonly string[]): Canon
 	document: key.document,
 	pointer: Arr.reduce(tokens, key.pointer, (pointer, token) => childPointer(pointer, token))
 })
+
+/**
+ * How many schema references `settle` follows before it stops where it is.
+ */
+const maxHops = 16
+
+/**
+ * The schema a schema use site stands for: the end of its chain of schema references, in whichever document of the set
+ * holds it, followed at most `maxHops` references.
+ */
+export const settle = (resolution: Resolution, start: CanonicalKey): CanonicalKey => {
+	let current = start
+	for (let hop = 0; hop < maxHops; hop += 1) {
+		const reference = referenceIn(resolution, current)
+		if (reference?.kind !== "schema") {
+			return current
+		}
+
+		current = reference.target
+	}
+
+	return current
+}

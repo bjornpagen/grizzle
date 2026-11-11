@@ -100,8 +100,8 @@ import {
 	toApiResponseError
 } from "./response.ts"
 import { jsonSeqRecords, ndjsonRecords, sequentialCodecOf, utf8Bytes } from "./sequential.ts"
-import type { EventContract, EventFailed, StopAt } from "./sse.ts"
-import { eventStream, hasLifecycle, openContract } from "./sse.ts"
+import type { EventContract, EventFailed, EventTable, StopAt } from "./sse.ts"
+import { eventStream, hasLifecycle, openContract, StopPoint } from "./sse.ts"
 
 /**
  * `--output <path>` writes the response body to a file; `-` writes it to stdout.
@@ -1393,7 +1393,7 @@ export const formatter = (root: Command.Command.Any): CliOutput.Formatter => ({
  */
 export interface OperationMeta {
 	readonly deprecated?: boolean | undefined
-	readonly events?: Readonly<Record<string, Readonly<Record<string, EventContract>>>> | undefined
+	readonly events?: EventTable | undefined
 	readonly media: MediaDeclaration
 	readonly method: string
 	readonly operationId?: string | undefined
@@ -2321,7 +2321,9 @@ export const send =
 												yield* undeclaredMediaNotice(operation, ok, scrub)
 											}
 
-											yield* writeResponseUnder(eventPlanOf(meta, ok.status, mediaType, "ready"))({
+											const stopPoint = yield* Effect.serviceOption(StopPoint)
+											const stopAt = Option.getOrElse(stopPoint, (): StopAt => "ready")
+											yield* writeResponseUnder(eventPlanOf(meta, ok.status, mediaType, stopAt))({
 												bytes: bodyOf(ok, idleSeconds),
 												mediaType
 											}).pipe(
