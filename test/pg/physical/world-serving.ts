@@ -418,21 +418,30 @@ const claimSql = (domain: FieldDomain): string => {
 }
 
 /**
+ * How many rows share each value of a spread field (docsLoads). Where a field holds two values, a probe that binds one
+ * spread field and rechecks another meets, among the rows of its value, both values of the other unless every one of
+ * them hashes alike, a chance of 2^-(rowsPerSpreadValue - 1), so the recheck removes rows the judge reads.
+ */
+export const rowsPerSpreadValue = 50
+
+/**
  * The documents base's relations at `rows` facts each, over the series `g`, in an order its foreign key admits:
  *
  * - Org: an id per number, plans 0 to 5, which its check admits;
  * - Doc: an id per number, words the number itself, so (org, words) is a key whatever the org, an org and an owner
- *   each spread over rows / 50 values;
+ *   each spread over rows / rowsPerSpreadValue values;
  * - Share: a document per number, at most one per document as the one-share variant's key admits, a user spread over
- *   rows / 50;
- * - Note: its identity numbers it, a document and an author each spread over rows / 50, every document one Doc holds;
+ *   rows / rowsPerSpreadValue;
+ * - Note: its identity numbers it, a document and an author each spread over rows / rowsPerSpreadValue, every document
+ *   one Doc holds;
  * - Visit: its two serials number it, so it writes no field of its own.
  *
  * Every value a spread field holds is one an identity field holds too, so a link from either finds its fact, and each
- * spread value is held by some 50 rows, so a probe that rechecks another field on them is told from one that binds it.
+ * spread value is held by some rowsPerSpreadValue rows, so a probe that rechecks another field on them is told from one
+ * that binds it.
  */
 const docsLoads = (base: BaseSpec, rows: number): ReadonlyArray<VolumeLoad> => {
-	const many = Math.max(1, Math.floor(rows / 50))
+	const many = Math.max(1, Math.floor(rows / rowsPerSpreadValue))
 	const loads: Readonly<Record<string, VolumeLoad["fields"]>> = {
 		Org: [
 			["id", uuidOf("g")],

@@ -22,14 +22,14 @@
  * index of both fields rather than read by one and rechecked on the other. Every world function of the drawn roles'
  * writable entries is judged beside them, at T's middle row and at no row.
  *
- * Each case draws how many facts each relation holds, few, so its load, one SERIALIZABLE transaction, holds nothing its
- * neighbours' transactions would be summarized for. With sequential and bitmap scans disabled the judge's structural
- * verdicts stand at any size: a lowering that deduplicates each relation a filter reads, which PostgreSQL cannot pull
+ * Each case draws how many facts each relation holds, at most the least population at which every spread field of the
+ * load holds two values (mostRows), so its load, one SERIALIZABLE transaction, stays small beside its neighbours'. With
+ * sequential and bitmap scans disabled the judge's structural verdicts stand at any size: a lowering that deduplicates each relation a filter reads, which PostgreSQL cannot pull
  * into its join, reads that relation's index with no index condition, and the judge names the scan. What only volume
  * shows, a scan's buffers far past its bound and an index PostgreSQL prefers by its cost, is no property here; that
  * every created index is needed is test/pg/physical/serving.test.ts's.
  *
- * Its kept cases, restated at the drawn range's largest population: a negated link from Doc into OrgDocs, joined to Share by Doc's owner, whose precheck calls three world
+ * Its kept cases, restated at mostRows: a negated link from Doc into OrgDocs, joined to Share by Doc's owner, whose precheck calls three world
  * functions that PostgreSQL plans at their calls, a role session's first, each reading the index ends of the join of
  * OrgDocs and Share for its selectivity (world-serving.ts callBound); and a link from Note's doc into Doc's org bound
  * by the tenant's claim, whose read by key through the role's view PostgreSQL drives from the claimed Doc into Note's
@@ -45,7 +45,7 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore, type Kept } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { array, boolean, element, type Gen, int } from "@grizzle/testing/gen"
+import { array, boolean, constant, element, type Gen, int, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
@@ -54,6 +54,7 @@ import {
 	joinedOf,
 	judgeCase,
 	linksOf,
+	rowsPerSpreadValue,
 	type Second,
 	secondsOf,
 	type LinkWitness,
@@ -177,12 +178,27 @@ interface PopulationCase {
 	readonly rows: number
 }
 
-/** The most facts a relation holds in a case: the bound of the drawn population, whose size no property depends on. */
-const mostRows = 400
+/**
+ * The most facts a relation holds in a case, derived: the least population at which every spread field of the load
+ * holds two values (world-serving.ts rowsPerSpreadValue), so a probe that binds one spread field and rechecks another
+ * removes rows the judge reads. A larger population shows the judge nothing more: sequential and bitmap scans are
+ * disabled, so a scan's structure is the same at any size, and a scan's buffers past its bound are no property here.
+ */
+const mostRows = 2 * rowsPerSpreadValue
+
+/**
+ * A case's population: half the cases at mostRows, where a recheck shows, and half at any size up to it, down to one
+ * fact a relation. The weights are a search budget, never a claim: the size that shows a recheck is one point of the
+ * range, which a uniform draw would reach once in mostRows cases.
+ */
+const rowsGen: Gen<number> = weighted([
+	[1, constant(mostRows)],
+	[1, int(1, mostRows)]
+])
 
 const caseGen: Gen<PopulationCase> = (source) => ({
 	world: source.draw(worldGen),
-	rows: source.draw(int(1, mostRows))
+	rows: source.draw(rowsGen)
 })
 
 /** The cases kept from failure reports, each replayed first by value (see the header). */
