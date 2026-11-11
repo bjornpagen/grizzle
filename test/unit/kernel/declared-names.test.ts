@@ -1,3 +1,17 @@
+/**
+ * The naming door's byte limit on declared names (core/identity.ts parseDeclaredName): a declared name is admitted
+ * exactly when its conversion, its segments lowercased and joined by single underscores, fits maxIdentifierBytes, and
+ * an admitted name names its table by exactly that conversion, never cut. The oracle is the generator's own segments:
+ * a name is spelled from words, acronyms and digit runs, each run of them joined so the door's boundary rule splits it
+ * back into them (a capital after a lowercase letter, an acronym's last capital before a lowercase letter, a digit run
+ * against a letter, an underscore), so the conversion is known before the door reads it. Lengths are steered to the
+ * limit: a name's conversion ends at a drawn target byte count around 63, the last word sized to meet it.
+ *
+ * Features: a conversion under the limit, at it, one byte past and far past, and two names at the limit apart.
+ *
+ * Plants (~/.cache/grizzle-release/BR06/plants): declared-names-at-limit-refused (a conversion of exactly the limit
+ * refused) and declared-names-acronym-unsplit (an acronym's last capital kept with it before a lowercase letter).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -15,15 +29,6 @@ import {
 import { assert, nonEmpty } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 
-/**
- * The naming door's byte limit on declared names (core/identity.ts parseDeclaredName): a declared name is admitted
- * exactly when its conversion, its segments lowercased and joined by single underscores, fits maxIdentifierBytes, and
- * an admitted name names its table by exactly that conversion, never cut. The oracle is the generator's own segments:
- * a name is spelled from words, acronyms and digit runs, each run of them joined so the door's boundary rule splits it
- * back into them (a capital after a lowercase letter, an acronym's last capital before a lowercase letter, a digit run
- * against a letter, an underscore), so the conversion is known before the door reads it. Lengths are steered to the
- * limit: a name's conversion ends at a drawn target byte count around 63, the last word sized to meet it.
- */
 const lowercase = nonEmpty(Arr.fromIterable("abcdefghijklmnopqrstuvwxyz"), "lowercase letters")
 const uppercase = nonEmpty(Arr.fromIterable("ABCDEFGHIJKLMNOPQRSTUVWXYZ"), "capital letters")
 const digits = nonEmpty(Arr.fromIterable("0123456789"), "digits")

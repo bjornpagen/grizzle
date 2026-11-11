@@ -3,12 +3,32 @@
  * reason, location and sentence, a collision's other location and an artifact's path, wherever it was found; a tagged failure or defect by its tag and every field, down
  * the chain of its causes and through its fields; and an end that is no Error, or an Error of no message, by what it
  * is.
+ *
+ * Oracle: the specification of a report, each fact it must state, checked as text the report contains: the drawn
+ * words are four to ten lowercase letters, which no fixed text of a report holds in that form by chance alone.
+ *
+ * Features: a prose refusal, a collision and a malformed artifact, found within a value; a cause that is tagged,
+ * fieldless, a plain Error or none, in the chain or in a field; an end that is undefined, a text, an object or an Error
+ * of no message.
+ *
+ * Plants (~/.cache/grizzle-release/BR06/plants): message-compile-error-tag-only (a CompileError stated by its tag
+ * alone), message-chain-dropped (the chain of causes left out), message-field-error-named-only (an error in a field
+ * stated by its name alone) and message-non-error-unstated (an end that is no Error not stated).
  */
 
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { array, constant, element, type Gen, int, map, oneOf, option } from "@grizzle/testing/gen"
+import {
+	array,
+	constant,
+	element,
+	type Gen,
+	int,
+	map,
+	option,
+	weighted
+} from "@grizzle/testing/gen"
 import { matching } from "@grizzle/testing/pattern"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
@@ -57,15 +77,18 @@ type InnerSketch =
 	| { readonly kind: "error"; readonly text: string }
 	| { readonly kind: "none" }
 
-const innerGen: Gen<InnerSketch> = oneOf<InnerSketch>([
-	(source) => ({
-		kind: "tagged",
-		sqlstate: source.draw(matching(regex("^[0-9A-Z]{5}$"))),
-		constraint: Option.getOrUndefined(source.draw(option(word)))
-	}),
-	constant<InnerSketch>({ kind: "fieldless" }),
-	map(word, (text): InnerSketch => ({ kind: "error", text })),
-	constant<InnerSketch>({ kind: "none" })
+const innerGen: Gen<InnerSketch> = weighted<InnerSketch>([
+	[
+		1,
+		(source) => ({
+			kind: "tagged",
+			sqlstate: source.draw(matching(regex("^[0-9A-Z]{5}$"))),
+			constraint: Option.getOrUndefined(source.draw(option(word)))
+		})
+	],
+	[1, constant<InnerSketch>({ kind: "fieldless" })],
+	[1, map(word, (text): InnerSketch => ({ kind: "error", text }))],
+	[1, constant<InnerSketch>({ kind: "none" })]
 ])
 
 /** The error an inner sketch stands for, made afresh. */
@@ -118,19 +141,25 @@ type End =
 	| { readonly kind: "object"; readonly value: { readonly n: number; readonly w: string } }
 	| { readonly kind: "empty Error"; readonly code: string }
 
-const endGen: Gen<End> = oneOf<End>([
-	constant<End>({ kind: "undefined" }),
-	map(word, (value): End => ({ kind: "text", value })),
-	(source): End => ({
-		kind: "object",
-		value: { n: source.draw(int(-(2 ** 31), 2 ** 31 - 1)), w: source.draw(word) }
-	}),
-	map(word, (code): End => ({ kind: "empty Error", code }))
+const endGen: Gen<End> = weighted<End>([
+	[1, constant<End>({ kind: "undefined" })],
+	[1, map(word, (value): End => ({ kind: "text", value }))],
+	[
+		1,
+		(source): End => ({
+			kind: "object",
+			value: { n: source.draw(int(-(2 ** 31), 2 ** 31 - 1)), w: source.draw(word) }
+		})
+	],
+	[1, map(word, (code): End => ({ kind: "empty Error", code }))]
 ])
 
 /** A path into a value: words and indices. */
 const pathGen: Gen<ReadonlyArray<string | number>> = array(
-	oneOf<string | number>([word, int(0, 9)]),
+	weighted<string | number>([
+		[1, word],
+		[1, int(0, 9)]
+	]),
 	{
 		min: 0,
 		max: 3
@@ -302,7 +331,10 @@ describe("a failure's message", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "the tag, every field and every cause's facts, each in the report"
+						},
 						suite: "unit/kernel/tagged-message",
 						draw: drawn((source): TaggedSketch => ({
 							stage: source.draw(word),
@@ -362,7 +394,7 @@ describe("a failure's message", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: { kind: "specification", name: "the end's own formatting, in the report" },
 					suite: "unit/kernel/no-error-message",
 					draw: drawn(endGen),
 					literal: Formatter.format,

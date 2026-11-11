@@ -1,3 +1,25 @@
+/**
+ * The assertion door (test/support/assert.ts): each assertion holds exactly where its contract says, and fails as an
+ * AssertionError everywhere else.
+ *
+ * - unorderedEqual holds exactly between two lists that are one set, each holding every element once. Oracle: element
+ *   counts under deepStrictEqual's equality, a second implementation.
+ * - refused and succeeded hold exactly for a failure of the named reason and for a success; faulted exactly for the
+ *   named fault; refusedAt exactly for a failure whose named field holds the value. Oracle: the planted outcome, which
+ *   the case states before it asserts.
+ * - matchesObject on an Option field holds exactly for an Option of the pattern's case and value. Oracle: the case and
+ *   value compared by hand.
+ * - throwsRefused holds exactly for a thunk that throws a CompileError of its reason, and returns what it threw. Oracle:
+ *   the planted outcome.
+ *
+ * Features: each change of a list (permuted, removed, added, replaced, repeated) holding and failing; a success, the
+ * named reason, fault or stage, and another; each Option pattern against none and some; each thunk outcome holding and
+ * failing.
+ *
+ * Plants (~/.cache/grizzle-release/BR06/plants): assert-unordered-repeats-folded, assert-refused-any-reason,
+ * assert-faulted-any-fault, assert-refused-at-any-value, assert-option-some-any-value and
+ * assert-throws-refused-lookalike, each the assertion holding where its contract says it fails.
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -10,8 +32,8 @@ import {
 	type Gen,
 	int,
 	map,
-	oneOf,
-	string
+	string,
+	weighted
 } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
@@ -61,10 +83,10 @@ import { pickGen, pickIndex } from "#test/support/pick.ts"
 type Element = number | { readonly k: number }
 
 /** Elements equal only when deepStrictEqual says so: small integers, their -0, and records of them. */
-const elementGen: Gen<Element> = oneOf<Element>([
-	int(-2, 2),
-	constant(-0),
-	(source) => ({ k: source.draw(int(0, 2)) })
+const elementGen: Gen<Element> = weighted<Element>([
+	[1, int(-2, 2)],
+	[1, constant(-0)],
+	[1, (source) => ({ k: source.draw(int(0, 2)) })]
 ])
 
 /**
@@ -133,15 +155,15 @@ type OptionPattern =
 	| { readonly kind: "value"; readonly value: string }
 	| { readonly kind: "any string" }
 const textGen = element(["fact", "other", ""] as const)
-const optionGen: Gen<Option.Option<string>> = oneOf<Option.Option<string>>([
-	constant(Option.none()),
-	map(textGen, (text) => Option.some(text))
+const optionGen: Gen<Option.Option<string>> = weighted<Option.Option<string>>([
+	[1, constant(Option.none())],
+	[1, map(textGen, (text) => Option.some(text))]
 ])
 
-const optionPatternGen: Gen<OptionPattern> = oneOf<OptionPattern>([
-	constant<OptionPattern>({ kind: "none" }),
-	map(textGen, (value): OptionPattern => ({ kind: "value", value })),
-	constant<OptionPattern>({ kind: "any string" })
+const optionPatternGen: Gen<OptionPattern> = weighted<OptionPattern>([
+	[1, constant<OptionPattern>({ kind: "none" })],
+	[1, map(textGen, (value): OptionPattern => ({ kind: "value", value }))],
+	[1, constant<OptionPattern>({ kind: "any string" })]
 ])
 
 /**
@@ -296,7 +318,10 @@ describe("the assertion door", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "second-implementation",
+							name: "element counts under deepStrictEqual's equality"
+						},
 						...spec,
 						suite: "unit/kernel/unordered-equal",
 						draw: drawn((source) => ({
@@ -343,7 +368,7 @@ describe("the assertion door", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: { kind: "specification", name: "the planted outcome and its reason" },
 						...spec,
 						suite: "unit/kernel/refused",
 						draw: drawn(plantedGen(proseTags)),
@@ -395,7 +420,7 @@ describe("the assertion door", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: { kind: "specification", name: "the planted outcome and its fault" },
 					...spec,
 					suite: "unit/kernel/faulted",
 					draw: drawn(plantedGen(valueFaultWords)),
@@ -431,7 +456,7 @@ describe("the assertion door", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: { kind: "specification", name: "the planted outcome and its stage" },
 						...spec,
 						suite: "unit/kernel/refused-at",
 						draw: drawn((source) => ({
@@ -475,7 +500,7 @@ describe("the assertion door", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: { kind: "specification", name: "the Option's case and value compared by hand" },
 						...spec,
 						suite: "unit/kernel/matches-option",
 						draw: drawn((source) => ({
@@ -531,7 +556,7 @@ describe("the assertion door", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: { kind: "specification", name: "the planted thunk's outcome and its reason" },
 						...spec,
 						suite: "unit/kernel/throws-refused",
 						draw: drawn((source) => ({

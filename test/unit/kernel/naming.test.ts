@@ -1,3 +1,28 @@
+/**
+ * Production names from src: the test kit's naming (test/support/kernel/naming.ts) agrees with src's own records, and
+ * every name the law model mints keeps the naming door's rule (core/identity.ts).
+ *
+ * - Each case draws a schema of a law family's box (test/support/laws: keys over whole and selected sides, checks,
+ *   containments, alternatives over single and composite keys, span coverage, a work queue, timekeeping), or a relation
+ *   of drawn contracts under drawn names over two definitions, read at its own level or at an empty level above it. Every named native's constraint reports a law of the theory, among the
+ *   constraints of its kind the kit names for that law; every key statement's law, as the kit names it, is reported by
+ *   a constraint of the model; every alternatives expansion's arms and reverses are its tagged and native foreign keys;
+ *   every checked contract's and text domain's CHECK reports its law. Every native's name is readable exactly where its
+ *   identity is a declared row check's, then the check's name's conversion, and otherwise hashed, `__<stem>_<digest>`
+ *   with the digest the naming door's rule restated over the identity's canonical encoding; each fits an identifier,
+ *   and no two natives of one namespace share a name.
+ * - A row check's law is named by its statement rebuilt in its written operand order, which ownership reorders, over
+ *   every predicate of at most two levels of connectives over two leaves.
+ *
+ * Oracles: src's law model and installation records, read through the kit, and the naming door's rule restated here
+ * (hashedName); the schema's one row check's one law for the owned form.
+ *
+ * Features: a named native, an alternatives expansion, a checked contract, a text domain, a key statement, a readable
+ * row check, a hashed law column, an empty level above; a conjunction under a disjunction and a singleton conjunction.
+ *
+ * Plants (~/.cache/grizzle-release/BR06/plants): naming-digest-low-bits (a hashed name's digest from the low bits of
+ * its hex, none dropped) and naming-kit-trigger-as-domain (the kit taking a trigger's owner for a domain).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
 import { required, requiredInSpace } from "@grizzle/testing/features"
@@ -16,7 +41,7 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Order, Record as Rec, String as Str } from "effect"
 import { indices } from "#compiler/core/array.ts"
-import { conversionOf, identifierOf } from "#compiler/core/identity.ts"
+import { conversionOf, identifierOf, maxIdentifierBytes } from "#compiler/core/identity.ts"
 import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
 import { sha256Hex } from "#compiler/core/sha256.ts"
 import type { SchemaDesc, SideDesc, StatementDesc } from "#compiler/ir/desc.ts"
@@ -52,22 +77,6 @@ import { argumentsOf } from "#test/support/list.ts"
 import { pickFrom, pickGen, pickIndex } from "#test/support/pick.ts"
 import { rawContract } from "#test/unit/schema/support.ts"
 
-/**
- * Production names from src: the test kit's naming (test/support/kernel/naming.ts) agrees with src's own records, and
- * every name the law model mints keeps the naming door's rule (core/identity.ts).
- *
- * - Each case draws a schema of a law family's box (test/support/laws: keys over whole and selected sides, checks,
- *   containments, alternatives over single and composite keys, span coverage, a work queue, timekeeping), or a relation
- *   of drawn contracts under drawn names over two definitions, read at its own level or at an empty level above it. Every named native's constraint reports a law of the theory, among the
- *   constraints of its kind the kit names for that law; every key statement's law, as the kit names it, is reported by
- *   a constraint of the model; every alternatives expansion's arms and reverses are its tagged and native foreign keys;
- *   every checked contract's and text domain's CHECK reports its law. Every native's name is readable exactly where its
- *   identity is a declared row check's, then the check's name's conversion, and otherwise hashed, `__<stem>_<digest>`
- *   with the digest the naming door's rule restated over the identity's canonical encoding; each fits an identifier,
- *   and no two natives of one namespace share a name.
- * - A row check's law is named by its statement rebuilt in its written operand order, which ownership reorders, over
- *   every predicate of at most two levels of connectives over two leaves.
- */
 /** Every statement of a schema description, at every level. */
 const levelStatements = (desc: SchemaDesc): ReadonlyArray<StatementDesc> => [
 	...desc.statements,
@@ -388,7 +397,10 @@ describe("production names from src", () => {
 								}
 								const id = native.named
 								named.push([`${native.namespace} ${native.owner}`, identifierOf(id)])
-								assert.ok(bytesOf(identifierOf(id)) <= 63, `${identifierOf(id)} fits an identifier`)
+								assert.ok(
+									bytesOf(identifierOf(id)) <= maxIdentifierBytes.value,
+									`${identifierOf(id)} fits an identifier`
+								)
 								if (id.kind === "check") {
 									k.note("a readable row check")
 									assert.equal(id.form, "readable")
