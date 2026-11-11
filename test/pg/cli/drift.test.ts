@@ -1,40 +1,3 @@
-import { NodeServices } from "@effect/platform-node"
-import { layer } from "@effect/vitest"
-import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { array, constant, type Gen, weighted } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { searched } from "@grizzle/testing/vitest"
-import {
-	Array as Arr,
-	DateTime,
-	Effect,
-	Formatter,
-	Layer,
-	Option,
-	Record as Rec,
-	String as Str
-} from "effect"
-import { identifierOf, identity } from "#compiler/core/identity.ts"
-import { trusted } from "#compiler/core/trusted.ts"
-import { roleNameOf } from "#compiler/public/schema.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
-import { defineConfig } from "#index.ts"
-import { worlds } from "#test/pg/cli/fixture.ts"
-import {
-	type CliRun,
-	cliOver,
-	configName,
-	connectionOf,
-	ownerOn,
-	workspace
-} from "#test/pg/cli/support.ts"
-import { assert, defined, nonEmpty } from "#test/support/assert.ts"
-import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
-import { caseHang } from "#test/support/limits.ts"
-import { pickFrom, pickGen } from "#test/support/pick.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
-
 /**
  * `grizzle drift` against changes made by hand to the objects a world installs, on PostgreSQL 19, searched: drift
  * passes on a fresh installation; once any set of objects is changed by hand it refuses with Drifted, a mismatch of
@@ -59,7 +22,49 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  *
  * The oracle is PostgreSQL's catalog as the drift check reads it: drift refuses exactly when a change was made, its
  * mismatches naming every changed object, and passes once every change is undone.
+ *
+ *
+ * Features: every operator planted, nothing planted, and several at once.
+ *
+ * Plants (~/.cache/grizzle-release/BR13/plants): workflow-drift-unchecked.patch (the drift check comparing nothing).
  */
+import { NodeServices } from "@effect/platform-node"
+import { layer } from "@effect/vitest"
+import { type Case, drawn, explore } from "@grizzle/testing/explore"
+import { required } from "@grizzle/testing/features"
+import { array, constant, type Gen, weighted } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
+import { searched } from "@grizzle/testing/vitest"
+import {
+	Array as Arr,
+	DateTime,
+	Effect,
+	Formatter,
+	Layer,
+	Option,
+	Record as Rec,
+	String as Str
+} from "effect"
+import { identifierOf, identity } from "#compiler/core/identity.ts"
+import { trusted } from "#compiler/core/trusted.ts"
+import { roleNameOf } from "#compiler/public/schema.ts"
+import { quoteIdent } from "#compiler/sql/print.ts"
+import { defineConfig } from "#index.ts"
+import { worlds } from "#test/pg/cli/fixture.ts"
+import {
+	cliOver,
+	configName,
+	connectionOf,
+	driftMismatches,
+	ownerOn,
+	workspace
+} from "#test/pg/cli/support.ts"
+import { assert, defined, nonEmpty } from "#test/support/assert.ts"
+import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
+import { pickFrom, pickGen } from "#test/support/pick.ts"
+import { Substrate } from "#test/support/substrate/substrate.ts"
+
 type Planted =
 	| "a view's security barrier"
 	| "row security disabled"
@@ -309,16 +314,6 @@ const changeOf = (kind: Planted, [first, second, third]: Picks, n: Names) =>
 		}
 	})
 
-/** The facts a drift refusal names, none when the command ran or was refused for anything else. */
-const mismatchesOf = (ran: CliRun): ReadonlyArray<string> => {
-	const report = ran.report
-	if (report.outcome !== "refused" || report.refusal._tag !== "CommandRefused") {
-		return []
-	}
-	const reason = report.refusal.error.reason
-	return reason._tag === "Drifted" ? Arr.map(reason.mismatches, (m) => `${m.kind} ${m.fact}`) : []
-}
-
 type DriftFeature = Planted | "nothing planted" | "several planted"
 
 /** The operators a case plants, each at its picks, in the operators' order. */
@@ -491,7 +486,7 @@ layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 											return
 										}
 										assert.equal(drifted.code, 1, drifted.stdout)
-										const mismatches = mismatchesOf(drifted)
+										const mismatches = driftMismatches(drifted)
 										for (const change of changes) {
 											assert.ok(
 												Arr.some(mismatches, (m) => Str.includes(change.named)(m)),

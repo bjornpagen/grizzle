@@ -401,6 +401,19 @@ export const cliOver = (
 ): Effect.Effect<CliRun, never, FileSystem.FileSystem | Path.Path> =>
 	runIn(dir, (file) => Effect.succeed({ file, value }), argv, now)
 
+/**
+ * The drift check's mismatches a refused `grizzle migrate` or `grizzle drift` reports, each as its kind and fact: none
+ * for a report the drift check did not refuse. A refusal at stage drift is exactly one with a mismatch.
+ */
+export const driftMismatches = (ran: CliRun): ReadonlyArray<string> => {
+	const report = ran.report
+	if (report.outcome !== "refused" || report.refusal._tag !== "CommandRefused") {
+		return []
+	}
+	const reason = report.refusal.error.reason
+	return reason._tag === "Drifted" ? Arr.map(reason.mismatches, (m) => `${m.kind} ${m.fact}`) : []
+}
+
 /** What the bin did: its exit code and its output. */
 export interface BinRun {
 	readonly status: number

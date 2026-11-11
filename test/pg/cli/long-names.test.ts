@@ -1,3 +1,30 @@
+/**
+ * On PostgreSQL 19: a login's and its roles' PostgreSQL roles and schemas as the installation names them, at the
+ * identifier limit, through the command line, generated.
+ *
+ * A login's or role's PostgreSQL role joins its schema's name and its own (core/identity.ts), and must fit 63 bytes:
+ * PostgreSQL would cut a longer one, and Db.open would look for a role no migration created. A caller never spells one:
+ * roleNameOf and schemaNameOf (program/names.ts) name each from its value. A case draws a login and one to three roles
+ * over one relation, each name lowercase words or camel case, which the naming door converts, so the longest
+ * PostgreSQL role is the login's or a role's; a schema name (substrate/names.ts uniqueSchemaNameOfLength) whose longest
+ * role fills exactly 63 bytes, or one byte more; and a spelling of the schema's declared name, each of its letter
+ * segments lowercase, capitalized or in capitals, which converts back to the allocation. The rule and the catalog are
+ * the oracles:
+ *
+ * - schemaNameOf of the schema is the allocation, however its declared name is spelled;
+ * - at 63 bytes, `grizzle generate` drafts, `grizzle check` passes and `grizzle migrate`, with the configuration's
+ *   connection, applies it; the installed schema is the allocation; the roles the catalog holds under the allocation
+ *   are exactly roleNameOf of the login, which alone logs in, and of every role, and the schemas it holds there exactly
+ *   schemaNameOf of every role; and Db.open of every role, its layer given the served file generate wrote and the
+ *   password of roleNameOf of the login, logs in and is admitted;
+ * - one byte past, `grizzle generate` refuses the name as too long and drafts nothing, and roleNameOf refuses
+ *   (RoleNameTooLong) exactly the worlds whose role passes 63 bytes.
+ *
+ * Features: the login's role the longest and a role's, a converted camel-case name, a schema spelled apart from its
+ * conversion, at the limit and one byte past.
+ *
+ * Plants (~/.cache/grizzle-release/BR13/plants): long-names-limit-off-by-one.patch (the 63-byte rule admitting 64).
+ */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
@@ -51,28 +78,6 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 import { tokenOf } from "#test/support/worlds.ts"
 
-/**
- * On PostgreSQL 19: a login's and its roles' PostgreSQL roles and schemas as the installation names them, at the
- * identifier limit, through the command line, generated.
- *
- * A login's or role's PostgreSQL role joins its schema's name and its own (core/identity.ts), and must fit 63 bytes:
- * PostgreSQL would cut a longer one, and Db.open would look for a role no migration created. A caller never spells one:
- * roleNameOf and schemaNameOf (program/names.ts) name each from its value. A case draws a login and one to three roles
- * over one relation, each name lowercase words or camel case, which the naming door converts, so the longest
- * PostgreSQL role is the login's or a role's; a schema name (substrate/names.ts uniqueSchemaNameOfLength) whose longest
- * role fills exactly 63 bytes, or one byte more; and a spelling of the schema's declared name, each of its letter
- * segments lowercase, capitalized or in capitals, which converts back to the allocation. The rule and the catalog are
- * the oracles:
- *
- * - schemaNameOf of the schema is the allocation, however its declared name is spelled;
- * - at 63 bytes, `grizzle generate` drafts, `grizzle check` passes and `grizzle migrate`, with the configuration's
- *   connection, applies it; the installed schema is the allocation; the roles the catalog holds under the allocation
- *   are exactly roleNameOf of the login, which alone logs in, and of every role, and the schemas it holds there exactly
- *   schemaNameOf of every role; and Db.open of every role, its layer given the served file generate wrote and the
- *   password of roleNameOf of the login, logs in and is admitted;
- * - one byte past, `grizzle generate` refuses the name as too long and drafts nothing, and roleNameOf refuses
- *   (RoleNameTooLong) exactly the worlds whose role passes 63 bytes.
- */
 interface Names {
 	readonly login: string
 	readonly roles: Arr.NonEmptyReadonlyArray<string>

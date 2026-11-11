@@ -1,3 +1,52 @@
+/**
+ * The migration workflow a user runs, as a state machine over the command line, on PostgreSQL 19.
+ *
+ * The model is the documented loop (README "Migrations", packages/grizzle/skills/grizzle/SKILL.md "The loop" and "Refusals"): a
+ * workspace whose grizzle.config.ts names the shop (test/pg/cli/fixture.ts) at version 1 or 2 with its full workload or
+ * without its customer lookup, a migrations directory, and a database. Its state: the configuration, what the committed
+ * snapshot was generated from, the folders written and the folders applied, the folders whose markers the reviewer has
+ * not resolved, and a custom folder whose data step fails.
+ * Each command is a step of the loop, run through `runCli` in process exactly as the bin runs it:
+ *
+ * - configure: a new grizzle.config.ts; `grizzle check` then refuses exactly when the configuration differs from what
+ *   the snapshot was generated from;
+ * - `grizzle generate`: writes a folder exactly when the configuration changed, its added field's value a placeholder
+ *   when the table existed before;
+ * - review: the placeholders resolved, the marker lines deleted;
+ * - `grizzle check`: passes exactly when everything is generated and resolved;
+ * - `grizzle migrate`, with the configuration's connection: refuses before connecting, with nothing run, exactly when
+ *   check finds a committed file to fix, here an unresolved marker; it compiles nothing, so a configuration not yet
+ *   generated refuses nothing. Otherwise it applies the pending folders, stopping at a custom data step that fails,
+ *   which a rerun resumes once fixed, and refuses at its drift check after applying them while a stray table stands in
+ *   the schema;
+ * - `grizzle drift`: applies nothing, and passes exactly when the latest complete folder's target is the committed
+ *   snapshot's configuration, with no partial folder, and the catalog is the snapshot's; a stray table, created behind grizzle's back and dropped after,
+ *   is the drift it names;
+ * - `grizzle generate --custom` with a data step, failing or not, and the fix of a failing one;
+ * - tampering, undone after: snapshot.json or meta.json made unreadable or off the chain (check, migrate and generate
+ *   all refuse, nothing written or run), or an applied file edited (migrate refuses, nothing run);
+ * - Db.open against the committed snapshot: through the login's served file generate wrote, its first read answers
+ *   exactly when every folder up to the last generated one is applied, a custom folder after it keeping the snapshot's
+ *   target;
+ * - `grizzle migrate` with a wrong password: refused at its connection, nothing run;
+ * - scenarios, each a step drawn with the steps that make it reachable: a workload program removed, a placeholder
+ *   reviewed, a folder resumed after its failing data step was fixed, a first call answering on a database fully
+ *   applied, and one refused on a database a new snapshot is generated over.
+ *
+ * After every command the real workspace and database are read back and must be what the model claims: the exit code,
+ * the folders on disk, the folders the ledger records complete, and after every refusal that runs nothing, the ledger
+ * unchanged. Universal: no command ever prints the migration identity's password or a wrong one it was given. What
+ * the commands reach is noted through the case the exploration hands the property.
+ *
+ * The model's commands are pure: whether each applies, what it draws and the state it leaves are judged by the model
+ * alone, so a workflow is generated, printed and shrunk as data, and each command's run on the workspace checks the
+ * real state against the model's states before and after it.
+ *
+ * Features: every command kind of the loop, each scenario among them.
+ *
+ * Plants (~/.cache/grizzle-release/BR13/plants): workflow-markers-unchecked.patch (migrate applying a folder whose
+ * markers are unresolved), cli-ledger-shared.patch, workflow-drift-unchecked.patch (migrate skipping its drift check).
+ */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
 import {
@@ -56,6 +105,7 @@ import {
 	cli,
 	cliClock,
 	configName,
+	driftMismatches,
 	ownerOn,
 	servedAt,
 	workspace,
@@ -76,52 +126,7 @@ import { testVerify } from "#test/support/worlds.ts"
 /** The clock the in-process command lines of this file read. */
 const nextNow = cliClock()
 
-/**
- * The migration workflow a user runs, as a state machine over the command line, on PostgreSQL 19.
- *
- * The model is the documented loop (README "Migrations", packages/grizzle/skills/grizzle/SKILL.md "The loop" and "Refusals"): a
- * workspace whose grizzle.config.ts names the shop (test/pg/cli/fixture.ts) at version 1 or 2 with its full workload or
- * without its customer lookup, a migrations directory, and a database. Its state: the configuration, what the committed
- * snapshot was generated from, the folders written and the folders applied, the folders whose markers the reviewer has
- * not resolved, and a custom folder whose data step fails.
- * Each command is a step of the loop, run through `runCli` in process exactly as the bin runs it:
- *
- * - configure: a new grizzle.config.ts; `grizzle check` then refuses exactly when the configuration differs from what
- *   the snapshot was generated from;
- * - `grizzle generate`: writes a folder exactly when the configuration changed, its added field's value a placeholder
- *   when the table existed before;
- * - review: the placeholders resolved, the marker lines deleted;
- * - `grizzle check`: passes exactly when everything is generated and resolved;
- * - `grizzle migrate`, with the configuration's connection: refuses before connecting, with nothing run, exactly when
- *   check finds a committed file to fix, here an unresolved marker; it compiles nothing, so a configuration not yet
- *   generated refuses nothing. Otherwise it applies the pending folders, stopping at a custom data step that fails,
- *   which a rerun resumes once fixed, and refuses at its drift check after applying them while a stray table stands in
- *   the schema;
- * - `grizzle drift`: applies nothing, and passes exactly when the latest complete folder's target is the committed
- *   snapshot's configuration, with no partial folder, and the catalog is the snapshot's; a stray table, created behind grizzle's back and dropped after,
- *   is the drift it names;
- * - `grizzle generate --custom` with a data step, failing or not, and the fix of a failing one;
- * - tampering, undone after: snapshot.json or meta.json made unreadable or off the chain (check, migrate and generate
- *   all refuse, nothing written or run), or an applied file edited (migrate refuses, nothing run);
- * - Db.open against the committed snapshot: through the login's served file generate wrote, its first read answers
- *   exactly when every folder up to the last generated one is applied, a custom folder after it keeping the snapshot's
- *   target;
- * - `grizzle migrate` with a wrong password: refused at its connection, nothing run;
- * - scenarios, each a step drawn with the steps that make it reachable: a workload program removed, a placeholder
- *   reviewed, a folder resumed after its failing data step was fixed, a first call answering on a database fully
- *   applied, and one refused on a database a new snapshot is generated over.
- *
- * After every command the real workspace and database are read back and must be what the model claims: the exit code,
- * the folders on disk, the folders the ledger records complete, and after every refusal that runs nothing, the ledger
- * unchanged. Universal: no command ever prints the migration identity's password or a wrong one it was given. What
- * the commands reach is noted through the case the exploration hands the property.
- *
- * The model's commands are pure: whether each applies, what it draws and the state it leaves are judged by the model
- * alone, so a workflow is generated, printed and shrunk as data, and each command's run on the workspace checks the
- * real state against the model's states before and after it.
- *
- * The workloads a workflow configures the shop with: both programs, or ordersOf alone.
- */
+/** The workloads a workflow configures the shop with: both programs, or ordersOf alone. */
 type Workload = "full" | "withoutByName"
 
 interface Configured {
@@ -616,8 +621,8 @@ const runMigrate = (r: Workspace, before: Model, after: Model) =>
 			r.c.note("migrate refuses at drift")
 			assert.equal(ran.code, 1, ran.stdout)
 			assert.ok(
-				Str.includes("refused at stage drift")(ran.stderr) && Str.includes(strayTable)(ran.stderr),
-				ran.stderr
+				Arr.some(driftMismatches(ran), Str.includes(strayTable)),
+				`migrate is refused at its drift check, a mismatch naming the stray table: ${ran.stderr}`
 			)
 		} else {
 			r.c.note(before.partial ? "migrate resumes a partial folder" : "migrate applies")
@@ -640,8 +645,8 @@ const runDrift = (r: Workspace, model: Model) =>
 		assert.equal(ran.code, matches ? 0 : 1, `grizzle drift: ${ran.stdout}${ran.stderr}`)
 		if (model.stray) {
 			assert.ok(
-				Str.includes(strayTable)(ran.stderr),
-				`the drift names the stray table: ${ran.stderr}`
+				Arr.some(driftMismatches(ran), Str.includes(strayTable)),
+				`a mismatch of the drift names the stray table: ${ran.stderr}`
 			)
 		}
 		const appliedAfter = yield* r.applied
@@ -1221,7 +1226,10 @@ layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 					ctx,
 					explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "second-implementation",
+								name: "the documented loop as a state machine: exit codes, folders on disk and the ledger"
+							},
 							suite: "cli/workflow",
 							draw: drawn(
 								program(workflow, { min: 0, max: 14 }, fullSwarm(Struct.keys(workflow.commands)))

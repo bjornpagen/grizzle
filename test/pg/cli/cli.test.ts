@@ -1,3 +1,32 @@
+/**
+ * `grizzle generate`, `check` and `migrate` on PostgreSQL 19 over drawn configurations, in the cases the workflow model
+ * (workflow.test.ts) does not draw: several declared schemas, the ledger fixture's alternatives and derived relation,
+ * an Effect password, the bin itself, and a role that does not own the schema.
+ *
+ * A case is a configuration: one to three declared schemas, each the shop at version 1 with its full workload, without
+ * its customer lookup or with none, or the ledger with its law, derived relation and workload; and where migrate connects,
+ * the configuration's connection: as the migration identity with its password or an Effect yielding it, or as a role
+ * that does not own the declared schemas, which exist. The loop runs in an application directory with the lean config,
+ * every command through one executor: the bin, `node packages/grizzle/src/cli/main.ts`, as a child process whose
+ * environment names another server, database, role, password and CA in the variables PostgreSQL clients read for a
+ * connection, none of which the command line reads; or `runCli` in process. The property, by each schema's own model
+ * (its directory, snapshot and ledger):
+ * - generate, check and migrate exit 0; each schema's ledger records exactly its own folders, complete, its latest
+ *   target its own committed snapshot's; an Effect password is evaluated for the connection;
+ * - Db.open admits each schema as its writer and its reader, through its login's served file generate wrote, served
+ *   as an application serves it, and the writer's served insert is accepted and the reader's served key reads it back;
+ * - a second migrate exits 0 and changes no ledger.
+ * When the role migrate connects as does not own the declared schemas, which exist, migrate exits 1 at the stage
+ * owner (the typed refusal, in process) and nothing runs in any of them.
+ *
+ * The oracle is each schema's own model: its directory, its committed snapshot and its ledger.
+ *
+ * Features: each executor, several schemas, the ledger fixture, each connection, and the refusal of a role that does not
+ * own the schemas.
+ *
+ * Plants (~/.cache/grizzle-release/BR13/plants): cli-ledger-shared.patch (migrate recording every schema's folders in
+ * the first schema's ledger), cli-owner-unchecked.patch (migrate skipping its owner stage).
+ */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -53,27 +82,6 @@ import { withLayer } from "#test/support/with-layer.ts"
 /** The clock the in-process command lines of this file read. */
 const nextNow = cliClock()
 
-/**
- * `grizzle generate`, `check` and `migrate` on PostgreSQL 19 over drawn configurations, in the cases the workflow model
- * (workflow.test.ts) does not draw: several declared schemas, the ledger fixture's alternatives and derived relation,
- * an Effect password, the bin itself, and a role that does not own the schema.
- *
- * A case is a configuration: one to three declared schemas, each the shop at version 1 with its full workload, without
- * its customer lookup or with none, or the ledger with its law, derived relation and workload; and where migrate connects,
- * the configuration's connection: as the migration identity with its password or an Effect yielding it, or as a role
- * that does not own the declared schemas, which exist. The loop runs in an application directory with the lean config,
- * every command through one executor: the bin, `node packages/grizzle/src/cli/main.ts`, as a child process whose
- * environment names another server, database, role, password and CA in the variables PostgreSQL clients read for a
- * connection, none of which the command line reads; or `runCli` in process. The property, by each schema's own model
- * (its directory, snapshot and ledger):
- * - generate, check and migrate exit 0; each schema's ledger records exactly its own folders, complete, its latest
- *   target its own committed snapshot's; an Effect password is evaluated for the connection;
- * - Db.open admits each schema as its writer and its reader, through its login's served file generate wrote, served
- *   as an application serves it, and the writer's served insert is accepted and the reader's served key reads it back;
- * - a second migrate exits 0 and changes no ledger.
- * When the role migrate connects as does not own the declared schemas, which exist, migrate exits 1 at the stage
- * owner (the typed refusal, in process) and nothing runs in any of them.
- */
 type Executor = "the bin" | "in process"
 type Fixture =
 	| { readonly fixture: "shop"; readonly workload: "full" | "withoutByName" | "none" }
@@ -225,7 +233,10 @@ const configurations = (ctx: TestContext) =>
 		ctx,
 		explore(
 			{
-				oracle: { kind: "unstated" },
+				oracle: {
+					kind: "second-implementation",
+					name: "each schema's own model: its directory, committed snapshot and ledger"
+				},
 				suite: "cli/configurations",
 				draw: drawn(configGen),
 				literal: Formatter.format,
