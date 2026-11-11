@@ -1,3 +1,33 @@
+/**
+ * Proved root pushdown (lower/optimize/graph/seed.ts) and the carried columns it rests on
+ * (shapes/attach-recursive/carried.ts). The PostgreSQL agreement of every rewrite here is test/pg/recursion/graph.
+ *
+ * - A carried column is a state column the step delivers unchanged from the state it extends: over generated
+ *   recursions, exactly the origin the generator's recursion keeps (a walk's or reach's origin column, a pair closure's
+ *   fixed end), never the advanced endpoint or a computed counter; and every generated recursion is positive linear.
+ * - A predicate moves into a recursion's seed exactly when it reads only a carried column and the recursion has no
+ *   other reader: exhausted over the Network example (each recursion, column, spelling of the predicate and sharing),
+ *   where a recursion also delivered as a root, read by another node, or a second import left unfiltered never moves;
+ *   the pass leaves a query it moves nothing in as it was, and is idempotent.
+ * - Two conjuncts on a carried column alike but for one part, a literal, a parameter, an operator, a closed relation's
+ *   field or a closed read's key, are two predicates: over a reach between closed ids, each is moved into the seed, the
+ *   second whatever the first placed there, and one conjunct is moved once.
+ * - Over generated origin filters of every vertex type, double precision included, the recursion's seed applies the
+ *   filter after the pass, whether the pass placed it there or the seed applied it already, and the pass is
+ *   idempotent; over generated recursions read by every other consumer, the pass fires no rule.
+ *
+ * Oracle: the generator's own model of the recursion it built (the origin it keeps, the consumer that reads it), and
+ * the carried-column rule as a checker over the planted spaces (specifications). A pass's output is compared to its
+ * input by canonical structure, never by object identity.
+ *
+ * Features: each recursion form, origin and linearity; each spelling moved or kept and each sharing kept; one conjunct
+ * or two moved; an origin filter applied over any vertex type and over double precision; each other consumer.
+ *
+ * Plants, each failing its search: every state column carried (graph-carried-all); a recursion read by another node
+ * restricted at its seed (graph-sole-reader); two literals alike to the seed whatever their values
+ * (graph-alike-literal); a double precision origin never restrictable (graph-float8-origin); every state column of a
+ * recursion restrictable, the advanced endpoint included (graph-restrict-endpoint).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore, type Kept, sketched } from "@grizzle/testing/explore"
 import { required, requiredInSpace } from "@grizzle/testing/features"
@@ -8,6 +38,7 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
 import { appendAll } from "#compiler/core/array.ts"
+import { canonicalEquals, everyProperty } from "#compiler/core/canonical.ts"
 import { NodeId } from "#compiler/core/ids.ts"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
 import { relNode, rooted, topoOrder } from "#compiler/ir/dag.ts"
@@ -49,25 +80,6 @@ import {
 import { schemaCodes } from "#test/support/oracle/gen/schema.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
 import { nodeOfKind, present } from "#test/unit/lower/support.ts"
-
-/**
- * Proved root pushdown (lower/optimize/graph/seed.ts) and the carried columns it rests on
- * (shapes/attach-recursive/carried.ts). The PostgreSQL agreement of every rewrite here is test/pg/recursion/graph.
- *
- * - A carried column is a state column the step delivers unchanged from the state it extends: over generated
- *   recursions, exactly the origin the generator's recursion keeps (a walk's or reach's origin column, a pair closure's
- *   fixed end), never the advanced endpoint or a computed counter; and every generated recursion is positive linear.
- * - A predicate moves into a recursion's seed exactly when it reads only a carried column and the recursion has no
- *   other reader, whatever the column's type, a numeric or double precision one included: over generated origin filters by vertex type, and over a planted
- *   arrangement of the Network example (each recursion, column, spelling of the predicate and sharing), where a
- *   recursion also delivered as a root, or a second import left unfiltered, never moves; the pass is the identity where
- *   nothing moves and idempotent where something did. Over generated origin filters of every vertex type, the
- *   recursion's seed applies the filter after the pass, whether the pass placed it there or the seed applied it
- *   already, and the pass is idempotent.
- * - Two conjuncts on a carried column alike but for one part, a literal, a parameter, an operator, a closed relation's
- *   field or a closed read's key, are two predicates: over a reach between closed ids, each is moved into the seed,
- *   the second whatever the first placed there, and one conjunct is moved once.
- */
 
 /** The graph example's schema. */
 const text = str.regex("^.*$", "su")
@@ -114,7 +126,10 @@ describe("carried state columns (shapes/attach-recursive/carried.ts)", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "the origin the generator's recursion keeps, and positive linear feedback"
+						},
 						suite: "unit/lower/graph/carried",
 						draw: drawn(recursiveCaseGen({ ...defaultRecursiveLimits, consumers: ["state"] })),
 						literal: Formatter.format,
@@ -525,8 +540,11 @@ describe("proved root pushdown (graph.seedPushdown)", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "each of four columns of Reach and Walks, each spelling of the predicate, each sharing of the recursion",
+						oracle: {
+							kind: "specification",
+							name: "a predicate on a carried column of a recursion its consumer alone reads moves, and nothing else"
+						},
 						suite: "unit/lower/graph/pushdown",
 						generator: (source) =>
 							[
@@ -569,12 +587,15 @@ describe("proved root pushdown (graph.seedPushdown)", () => {
 							const once = succeeded(graphPass.run(q, ctx))
 							const rules = Arr.map(ctx.certificates.all(), (x) => x.rule)
 							assert.equal(seedPushdowns(rules), moves)
-							if (moves === 0) {
-								assert.equal(once, q, "the identity where nothing moves")
-							} else {
-								assert.notEqual(once, q)
-							}
-							assert.equal(succeeded(graphPass.run(once, context())), once, "idempotent")
+							assert.equal(
+								canonicalEquals(once, q, everyProperty),
+								moves === 0,
+								"the query is as it was exactly where nothing moves"
+							)
+							assert.ok(
+								canonicalEquals(succeeded(graphPass.run(once, context())), once, everyProperty),
+								"idempotent"
+							)
 							c.note(`${moves === 1 ? "moved" : "kept"} ${spelling}`)
 							if (moves === 0 && column === "Reach.origin") {
 								c.note(`${sharing} kept`)
@@ -591,8 +612,11 @@ describe("proved root pushdown (graph.seedPushdown)", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "each part two conjuncts on the carried origin differ in, one conjunct or both",
+						oracle: {
+							kind: "specification",
+							name: "every conjunct on the carried origin moves, once"
+						},
 						suite: "unit/lower/graph/alike-conjuncts",
 						generator: (source) =>
 							[
@@ -629,7 +653,10 @@ describe("proved root pushdown (graph.seedPushdown)", () => {
 								conjuncts === "one" ? 1 : 2,
 								`${part}: every conjunct on the carried origin moves`
 							)
-							assert.equal(succeeded(graphPass.run(once, passContext())), once, "idempotent")
+							assert.ok(
+								canonicalEquals(succeeded(graphPass.run(once, passContext())), once, everyProperty),
+								"idempotent"
+							)
 							c.note(`${conjuncts} moved`)
 						})
 				)
@@ -644,7 +671,10 @@ describe("proved root pushdown (graph.seedPushdown)", () => {
 				Effect.andThen(
 					explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "specification",
+								name: "the seed applies every conjunct of an origin filter that reads the recursion alone"
+							},
 							suite: "unit/lower/graph/origin-filter",
 							draw: originFilterCases.draw,
 							kept: [...originFilterCases.kept, restatedRoots],
@@ -670,9 +700,12 @@ describe("proved root pushdown (graph.seedPushdown)", () => {
 									["applied"],
 									`${q.label}: the seed applies the origin filter`
 								)
-								assert.equal(
-									succeeded(graphPass.run(once, caseContext(q))),
-									once,
+								assert.ok(
+									canonicalEquals(
+										succeeded(graphPass.run(once, caseContext(q))),
+										once,
+										everyProperty
+									),
 									`${q.label}: idempotent`
 								)
 								c.note(
@@ -684,7 +717,10 @@ describe("proved root pushdown (graph.seedPushdown)", () => {
 					),
 					explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "specification",
+								name: "no graph rule fires on a recursion read by any consumer but an origin filter"
+							},
 							/**
 							 * Planted: walks read by a minimum length, which the forms and consumers drawn freely pair about one
 							 * case in fifteen, so one drawn case in four pairs them.

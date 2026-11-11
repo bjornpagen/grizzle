@@ -1,3 +1,19 @@
+/**
+ * The scalar types a lowering states are the registry's: a plain or wildcard-text column of a lowered statement's result
+ * heading, whatever node or delivery column introduced it, is the one type of its carrier the registry builds
+ * (scalar/compute/types.ts plainType and wildcardText), capabilities included. A type built anywhere else carries an
+ * identity no field descriptor decodes to, as a hand-built unit column of the conservative delivery would.
+ *
+ * Each oracle case (test/support/oracle/gen: plain, attached and heterogeneous-union roots) is lowered conservatively
+ * and optimized as the page totality suite lowers its cases (test/unit/page/total.test.ts); a case either lowering
+ * refuses is no case: the lowerings are not this property's subject.
+ *
+ * Oracle: the registry's one type per carrier (plainType, wildcardText), a specification. Features: a plain root, an
+ * attached root, a heterogeneous union.
+ *
+ * Plant, failing the search: a delivered heading rebuilding each column's type with its capabilities reordered
+ * (registry-types-rebuilt).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -24,17 +40,6 @@ import { defaultGenConfig, queryCaseGen } from "#test/support/oracle/gen/case.ts
 import { genParamDecls } from "#test/support/oracle/gen/query.ts"
 import { schemaCodes } from "#test/support/oracle/gen/schema.ts"
 import { checkedLowering } from "#test/support/oracle/verify/index.ts"
-
-/**
- * The scalar types a lowering states are the registry's: a plain or wildcard-text column of a lowered statement's result
- * heading, whatever node or delivery column introduced it, is the one type of its carrier the registry builds
- * (scalar/compute/types.ts plainType and wildcardText), capabilities included. A type built anywhere else carries an
- * identity no field descriptor decodes to, as a hand-built unit column of the conservative delivery would.
- *
- * Each oracle case (test/support/oracle/gen: plain, attached and heterogeneous-union roots) is lowered conservatively
- * and optimized as the page totality suite lowers its cases (test/unit/page/total.test.ts); a case either lowering
- * refuses is no case: the lowerings are not this property's subject.
- */
 
 type RootFeature = "plain root" | "attached root" | "heterogeneous union"
 
@@ -65,7 +70,10 @@ describe("the scalar types of lowered statements", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "the registry's one type of each plain carrier and of wildcard text"
+						},
 						suite: "unit/lower/registry-types",
 						draw: drawn(
 							queryCaseGen({

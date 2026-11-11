@@ -1,3 +1,22 @@
+/**
+ * A refined output the optimized delivery casts to its domain and orders by (lower/shapes/refined castOutputs): the ORDER
+ * BY item that reads the output reads its cast, the expression the output list holds, never the uncast value. Under
+ * SELECT DISTINCT the uncast item is PostgreSQL's 42P10 ("for SELECT DISTINCT, ORDER BY expressions must appear in
+ * select list", parse_clause.c), which the generated suites met before the delivery cast the item alike.
+ *
+ * The oracle is the specification turned into a checker, over every query of every statement of the optimized program:
+ * no ORDER BY item is, canonically, the uncast value of an output its core casts; and under SELECT DISTINCT every ORDER
+ * BY item is one of the core's outputs.
+ *
+ * Bound: a refined value from each source the delivery's trace judges, a derived relation's column, which it casts, and
+ * a declared parameter, which its bind proves (lower/conservative/refined Tracer), emitted alone or beside a projected
+ * field that keeps no key, so the delivery deduplicates, ordered by the value alone or after the projected field, either
+ * direction. Exhausted.
+ *
+ * Features: ordered by a cast output, ordered by two outputs, the tag alone.
+ *
+ * Plant, failing the search: a cast output's ORDER BY item left uncast (refined-order-uncast).
+ */
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
@@ -23,21 +42,6 @@ import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { checking, checkOptions, owning } from "#test/support/policy.ts"
 
-/**
- * A refined output the optimized delivery casts to its domain and orders by (lower/shapes/refined castOutputs): the ORDER
- * BY item that reads the output reads its cast, the expression the output list holds, never the uncast value. Under
- * SELECT DISTINCT the uncast item is PostgreSQL's 42P10 ("for SELECT DISTINCT, ORDER BY expressions must appear in
- * select list", parse_clause.c), which the generated suites met before the delivery cast the item alike.
- *
- * The oracle is the specification turned into a checker, over every query of every statement of the optimized program:
- * no ORDER BY item is, canonically, the uncast value of an output its core casts; and under SELECT DISTINCT every ORDER
- * BY item is one of the core's outputs.
- *
- * Bound: a refined value from each source the delivery's trace judges, a derived relation's column, which it casts, and
- * a declared parameter, which its bind proves (lower/conservative/refined Tracer), emitted alone or beside a projected
- * field that keeps no key, so the delivery deduplicates, ordered by the value alone or after the projected field, either
- * direction. Exhausted.
- */
 const Slug = str.regex("^[a-z][a-z0-9-]*$")
 const Prose = str.regex("^.*$", "su")
 const Article = relation("Article", { id: uuid, slug: Slug, title: Prose }, ["id"])

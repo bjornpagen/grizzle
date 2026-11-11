@@ -1,7 +1,33 @@
+/**
+ * The admission of a recursion's feedback by every lowering: the conservative one (lower/conservative/recursive
+ * requireAdmittedFeedback, and conservative/self-ref for a second scan) and the optimized recursion lowerer
+ * (lower/shapes/recursion/index.ts), which refuses through the same walk before it lowers. The rule, as their headers
+ * state it: a recursion lowers only when its feedback is positive and linear, so no path from the step to its SelfRef
+ * passes through an input that is not monotone and distributive over the feedback (a fold's, a bound's, the negated
+ * side of an anti-join or a difference, either side of an intersection), every state column has a hash operator class,
+ * and the step scans the feedback once. Otherwise every lowering refuses it as UnsupportedOperation, alike: the two
+ * artifacts of a template refuse alike. Without the refusal an aggregate or bound over the feedback would fold one
+ * iteration instead of the fixed point, a wrong answer and not an error, and an unhashable state column would fail the
+ * recursive CTE with 0A000.
+ *
+ * The checker never admits these steps, so the property is exhaustive over generated ones: every operator (a fold, a
+ * bound, an anti-join, a difference, an intersection, a union) over every arrangement of the three relations a step
+ * reads (the feedback itself, a transition hop over it, a fixed seed), as the step or joined by its start to a hop, each
+ * reading the feedback at least once and the one feedback node at most once per operator, over a hashable state and
+ * one with a money column.
+ *
+ * Oracle: the rule as a model of the step's sketch (a specification): how often the step scans the feedback, and whether
+ * the feedback flows into an input that is not positive, decide lowered or refused; the two lowerings' refusals, reason,
+ * location and message, are compared with each other (a differential).
+ *
+ * Features: each verdict: lowered, refused for a block, for an unhashable state, for a second scan.
+ *
+ * Plant, failing the search: an intersection that blocks only its left side's feedback (feedback-intersect-right).
+ */
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
-import { element } from "@grizzle/testing/gen"
+import { boolean, element, type Gen, map, oneOf } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
 import { catchRefusal } from "#compiler/core/canonical.ts"
@@ -33,23 +59,6 @@ import {
 import { conservativeShapeFacts } from "#test/unit/lower/shapes/support.ts"
 import { nodeOfKind } from "#test/unit/lower/support.ts"
 
-/**
- * The admission of a recursion's feedback by every lowering: the conservative one (lower/conservative/recursive
- * requireAdmittedFeedback, and conservative/self-ref for a second scan) and the optimized recursion lowerer
- * (lower/shapes/recursion/index.ts), which refuses through the same walk before it lowers. The rule, as their
- * headers state it: a recursion lowers only when its feedback is positive and linear, so no path from the step to its
- * SelfRef passes through an operator that is not monotone and distributive over the feedback (a fold, a bound, the
- * negated side of an anti-join or a difference, either side of an intersection), the step scans the feedback once, and
- * every state column has a hash operator class. Otherwise every lowering refuses it as UnsupportedOperation, alike:
- * the two artifacts of a template refuse alike. Without the refusal an aggregate or bound over the feedback would fold
- * one iteration instead of the fixed point, a wrong answer and not an error, and an unhashable state column would fail
- * the recursive CTE with 0A000.
- *
- * The checker never admits these steps, so the property is exhaustive over hand-built steps: each construction states
- * what the rule reads of it (whether an operator on the way to the feedback blocks it, how often the step scans it),
- * crossed with a hashable or a money state and a few counter depths, every one of which lowers to the recursive CTE.
- */
-
 const names = productionNames("Ledger", { kind: "declared" }, localVectorSchema, emptyCodebook)
 
 type State = "hashable" | "money"
@@ -61,192 +70,130 @@ const states: Readonly<Record<State, Heading>> = {
 }
 
 /**
- * What a step is built from: the builder, its SelfRef, `hop` (the linear one-step transition (src, dst, hops + 1)
- * over the feedback from below the closure's counter depth, joined to the extra occurrences given), and `seed` (a fresh
- * projection of Edge at hops 0, a relation that reads no feedback, of the state heading).
+ * A relation of the state heading a step's operator reads: the feedback (the recursion's one SelfRef), a transition hop
+ * over it ((src, dst, hops + 1) from below the closure's counter), or the fixed seed (Edge at hops 0), which reads none.
  */
-interface Parts {
-	readonly q: Q
-	readonly self: RelNode
-	readonly hop: (extra: ReadonlyArray<OccurrenceSpec>) => RelNode
-	readonly seed: () => RelNode
+type Leaf = "feedback" | "hop" | "seed"
+
+/** An operator over leaves: a leaf alone, a fold or a bound over one, or a binary operator over two. */
+type Operator =
+	| { readonly kind: "leaf"; readonly leaf: Leaf }
+	| { readonly kind: "aggregate" | "bound"; readonly of: Leaf }
+	| {
+			readonly kind: "anti" | "difference" | "intersect" | "union"
+			readonly left: Leaf
+			readonly right: Leaf
+	  }
+
+/** A step: its operator, the step itself or joined by its rows' start to a transition hop. */
+interface Step {
+	readonly joined: boolean
+	readonly operator: Operator
 }
+
+const leaves: Arr.NonEmptyReadonlyArray<Leaf> = ["feedback", "hop", "seed"]
+const reading: Arr.NonEmptyReadonlyArray<Leaf> = ["feedback", "hop"]
 
 /**
- * A construction of a step, and what the rule reads of it: whether an operator on a path from the step to its SelfRef
- * is not monotone and distributive over the feedback, and how many times the step scans the feedback.
+ * Two leaves of a binary operator: never the one feedback node twice, and, where the operator must read the feedback,
+ * a reading leaf beside a seed.
  */
-interface Construction {
-	readonly blocks: boolean
-	readonly scans: number
-	readonly step: (p: Parts) => RelNode
+const pairGen =
+	(mustRead: boolean): Gen<readonly [Leaf, Leaf]> =>
+	(source) => {
+		const left = source.draw(element(leaves))
+		const right = source.draw(
+			element<Leaf>(
+				left === "feedback" ? ["hop", "seed"] : left === "seed" && mustRead ? reading : leaves
+			)
+		)
+		return [left, right]
+	}
+
+/** An operator, one that reads the feedback where `mustRead`: the step itself must, a joined operator need not. */
+const operatorGen = (mustRead: boolean): Gen<Operator> =>
+	oneOf<Operator>([
+		map(element<Leaf>(mustRead ? ["hop"] : leaves), (leaf): Operator => ({ kind: "leaf", leaf })),
+		map(
+			(source) =>
+				[
+					source.draw(element<"aggregate" | "bound">(["aggregate", "bound"])),
+					source.draw(element(mustRead ? reading : leaves))
+				] as const,
+			([kind, of]): Operator => ({ kind, of })
+		),
+		map(
+			(source) =>
+				[
+					source.draw(
+						element<"anti" | "difference" | "intersect" | "union">([
+							"anti",
+							"difference",
+							"intersect",
+							"union"
+						])
+					),
+					source.draw(pairGen(mustRead))
+				] as const,
+			([kind, [left, right]]): Operator => ({ kind, left, right })
+		)
+	])
+
+const stepGen: Gen<Step> = (source) => {
+	const joined = source.draw(boolean)
+	return { joined, operator: source.draw(operatorGen(!joined)) }
 }
 
-const constructions = {
-	"the linear step": { blocks: false, scans: 1, step: (p) => p.hop([]) },
-	"an aggregate as the step": {
-		blocks: true,
-		scans: 1,
-		step: (p) => {
-			const state = Arr.map(p.self.heading, (c) => c.name)
-			const m = p.q.region([
-				{ source: p.self, bind: Rec.fromEntries(Arr.map(state, (c) => [c, c])), constants: {} }
-			])
-			return p.q.group(
-				m,
-				state,
-				Arr.filter(state, (c) => c !== "hops"),
-				[{ name: "hops", fn: "max", op: "int4_max", args: ["hops"], type: T.int4 }],
-				conservativeMeta
-			)
-		}
-	},
-	"an aggregate joined to the step": {
-		blocks: true,
-		scans: 2,
-		/** The fold reads each state row once, by the whole state its match binds (FoldInput), paid included. */
-		step: (p) => {
-			const state = Arr.map(p.self.heading, (c) => c.name)
-			const m = p.q.region([
-				{ source: p.self, bind: Rec.fromEntries(Arr.map(state, (c) => [c, c])), constants: {} }
-			])
-			const g = p.q.group(
-				m,
-				state,
-				["src"],
-				[{ name: "most", fn: "max", op: "int4_max", args: ["dst"], type: T.int4 }],
-				conservativeMeta
-			)
-			return p.hop([{ source: g, bind: { src: "src" }, constants: {} }])
-		}
-	},
-	"a bound over the step": {
-		blocks: true,
-		scans: 1,
-		step: (p) => {
-			const h = p.hop([])
-			return p.q.take(
-				h,
-				asc(...argumentsOf(Arr.map(h.heading, (c) => c.name))),
-				{ kind: "literal", k: 1n },
-				[],
-				conservativeMeta
-			)
-		}
-	},
-	"a bound joined to the step": {
-		blocks: true,
-		scans: 2,
-		step: (p) =>
-			p.hop([
-				{
-					source: p.q.take(
-						p.self,
-						asc(...argumentsOf(Arr.map(p.self.heading, (c) => c.name))),
-						{ kind: "literal", k: 1n },
-						[],
-						conservativeMeta
-					),
-					bind: { src: "src" },
-					constants: {}
-				}
-			])
-	},
-	"a negated feedback": {
-		blocks: true,
-		scans: 2,
-		step: (p) =>
-			p.q.anti(p.hop([]), p.self, [
-				["src", "src"],
-				["dst", "dst"]
-			])
-	},
-	"a negated fixed relation": {
-		blocks: false,
-		scans: 1,
-		step: (p) =>
-			p.q.anti(p.hop([]), p.seed(), [
-				["src", "src"],
-				["dst", "dst"]
-			])
-	},
-	"a difference removing the feedback": {
-		blocks: true,
-		scans: 2,
-		step: (p) => p.q.setOp("Difference", p.hop([]), p.self)
-	},
-	"a difference keeping the feedback": {
-		blocks: false,
-		scans: 1,
-		step: (p) => p.q.setOp("Difference", p.hop([]), p.seed())
-	},
-	"an intersection over the step": {
-		blocks: true,
-		scans: 1,
-		step: (p) => p.q.setOp("Intersect", p.hop([]), p.seed())
-	},
-	"an intersection of a fixed relation with the step": {
-		blocks: true,
-		scans: 1,
-		step: (p) => p.q.setOp("Intersect", p.seed(), p.hop([]))
-	},
-	"an intersection with the feedback on its left, joined": {
-		blocks: true,
-		scans: 2,
-		step: (p) =>
-			p.hop([
-				{ source: p.q.setOp("Intersect", p.self, p.seed()), bind: { src: "src" }, constants: {} }
-			])
-	},
-	"an intersection with the feedback on its right, joined": {
-		blocks: true,
-		scans: 2,
-		step: (p) =>
-			p.hop([
-				{ source: p.q.setOp("Intersect", p.seed(), p.self), bind: { src: "src" }, constants: {} }
-			])
-	},
-	"a nonlinear self-join": {
-		blocks: false,
-		scans: 2,
-		step: (p) => p.hop([{ source: p.self, bind: { src: "mid" }, constants: {} }])
-	},
-	"two transition arms": {
-		blocks: false,
-		scans: 2,
-		step: (p) => p.q.union([p.hop([]), p.hop([])], [])
-	},
-	"a transition arm beside a fixed arm": {
-		blocks: false,
-		scans: 1,
-		step: (p) => p.q.union([p.hop([]), p.seed()], [])
+/** How often a leaf scans the feedback. */
+const scansOf = (leaf: Leaf): number => (leaf === "seed" ? 0 : 1)
+
+/**
+ * What the rule reads of a step: how often it scans the feedback, and whether the feedback flows into an input that is
+ * not positive: a fold's or a bound's, the right of an anti-join or a difference, either side of an intersection.
+ */
+const readOf = (step: Step): { readonly scans: number; readonly blocks: boolean } => {
+	const own = operatorRead(step.operator)
+	return step.joined ? { scans: own.scans + 1, blocks: own.blocks } : own
+}
+
+/** What the rule reads of an operator over its leaves. */
+const operatorRead = (o: Operator): { readonly scans: number; readonly blocks: boolean } => {
+	switch (o.kind) {
+		case "leaf":
+			return { scans: scansOf(o.leaf), blocks: false }
+		case "aggregate":
+		case "bound":
+			return { scans: scansOf(o.of), blocks: scansOf(o.of) > 0 }
+		case "anti":
+		case "difference":
+			return { scans: scansOf(o.left) + scansOf(o.right), blocks: scansOf(o.right) > 0 }
+		case "intersect":
+			return {
+				scans: scansOf(o.left) + scansOf(o.right),
+				blocks: scansOf(o.left) + scansOf(o.right) > 0
+			}
+		case "union":
+			return { scans: scansOf(o.left) + scansOf(o.right), blocks: false }
 	}
-} as const satisfies Record<string, Construction>
+}
 
-type ConstructionName = keyof typeof constructions
+type Verdict =
+	| "lowered"
+	| "refused for a block"
+	| "refused for an unhashable state"
+	| "refused for a second scan"
 
-const constructionNames: Arr.NonEmptyReadonlyArray<ConstructionName> = [
-	"the linear step",
-	"an aggregate as the step",
-	"an aggregate joined to the step",
-	"a bound over the step",
-	"a bound joined to the step",
-	"a negated feedback",
-	"a negated fixed relation",
-	"a difference removing the feedback",
-	"a difference keeping the feedback",
-	"an intersection over the step",
-	"an intersection of a fixed relation with the step",
-	"an intersection with the feedback on its left, joined",
-	"an intersection with the feedback on its right, joined",
-	"a nonlinear self-join",
-	"two transition arms",
-	"a transition arm beside a fixed arm"
-]
-
-/** The rule: lowered exactly when the feedback is positive and linear and every state column hashes. */
-const lowersByRule = (c: Construction, state: State): boolean =>
-	!c.blocks && c.scans === 1 && state === "hashable"
+/** The rule, in the order the lowerings apply it: the walk for a block, the state's hashing, then the scans. */
+const verdictOf = (step: Step, state: State): Verdict => {
+	const read = readOf(step)
+	return read.blocks
+		? "refused for a block"
+		: state === "money"
+			? "refused for an unhashable state"
+			: read.scans > 1
+				? "refused for a second scan"
+				: "lowered"
+}
 
 interface Built {
 	readonly dag: ReturnType<Q["build"]>["dag"]
@@ -254,10 +201,10 @@ interface Built {
 }
 
 /**
- * A closure over Edge (and Reading for a money state) seeded at hops 0, whose step the construction builds, its hop
- * stepping from below hops `depth`.
+ * A closure over Edge (and Reading for a money state) seeded at hops 0, whose step is `step`'s, its hops stepping from
+ * below one hop.
  */
-const closure = (c: Construction, h: Heading, depth: number): Built => {
+const closure = (step: Step, h: Heading): Built => {
 	const q = new Q()
 	const rec = q.b.reserve()
 	const self = q.node({
@@ -267,7 +214,8 @@ const closure = (c: Construction, h: Heading, depth: number): Built => {
 		loc: undefined,
 		meta: conservativeMeta
 	})
-	const money = Arr.some(h, (col) => col.name === "paid")
+	const state = Arr.map(h, (col) => col.name)
+	const money = Arr.contains(state, "paid")
 	const seed = () =>
 		q.project(
 			q.region([
@@ -300,7 +248,7 @@ const closure = (c: Construction, h: Heading, depth: number): Built => {
 			{ source: q.base(Edge, conservativeMeta), bind: { src: "mid", dst: "dst" }, constants: {} },
 			...extra
 		])
-		const f = q.filter(m, q.op("int4lt", [q.col(m, "hops"), q.int(depth, T.int4)], T.bool))
+		const f = q.filter(m, q.op("int4lt", [q.col(m, "hops"), q.int(1, T.int4)], T.bool))
 		return q.project(
 			f,
 			[
@@ -312,11 +260,53 @@ const closure = (c: Construction, h: Heading, depth: number): Built => {
 			conservativeMeta
 		)
 	}
+	const leaf = (l: Leaf): RelNode => (l === "feedback" ? self : l === "hop" ? hop([]) : seed())
+	const operator = (o: Operator): RelNode => {
+		switch (o.kind) {
+			case "leaf":
+				return leaf(o.leaf)
+			case "aggregate":
+				return q.group(
+					q.region([
+						{
+							source: leaf(o.of),
+							bind: Rec.fromEntries(Arr.map(state, (c) => [c, c])),
+							constants: {}
+						}
+					]),
+					state,
+					Arr.filter(state, (c) => c !== "hops"),
+					[{ name: "hops", fn: "max", op: "int4_max", args: ["hops"], type: T.int4 }],
+					conservativeMeta
+				)
+			case "bound":
+				return q.take(
+					leaf(o.of),
+					asc(...argumentsOf(state)),
+					{ kind: "literal", k: 1n },
+					[],
+					conservativeMeta
+				)
+			case "anti":
+				return q.anti(leaf(o.left), leaf(o.right), [
+					["src", "src"],
+					["dst", "dst"]
+				])
+			case "difference":
+				return q.setOp("Difference", leaf(o.left), leaf(o.right))
+			case "intersect":
+				return q.setOp("Intersect", leaf(o.left), leaf(o.right))
+			case "union":
+				return q.union([leaf(o.left), leaf(o.right)], [])
+		}
+	}
 	const root = q.b.define(rec, {
 		kind: "Recursive",
 		name: "closure",
 		base: seed(),
-		step: c.step({ q, self, hop, seed }),
+		step: step.joined
+			? hop([{ source: operator(step.operator), bind: { src: "src" }, constants: {} }])
+			: operator(step.operator),
 		self,
 		termination: { kind: "finiteCarrier", stateEstimate: 100n, premises: [] },
 		origin: [],
@@ -357,45 +347,46 @@ const located = (e: CompileError) => ({
 	message: e.message
 })
 
-type FeedbackFeature = "lowered" | "refused"
-
 describe("every lowering admits exactly positive linear feedback over a hashable state", () => {
-	it.effect("lowers or refuses each construction alike in every lowering", (ctx) =>
+	it.effect("lowers or refuses each step alike in every lowering", (ctx) =>
 		searched(
 			ctx,
 			exhaust(
 				{
-					box: { kind: "unstated" },
-					oracle: { kind: "unstated" },
+					box: "every operator over every arrangement of the feedback, a hop and a seed, as the step or joined to a hop, over a hashable state and a money one",
+					oracle: {
+						kind: "specification",
+						name: "positive linear feedback over a hashable state, read off the step's sketch; the two lowerings' refusals compared with each other"
+					},
 					suite: "unit/lower/feedback/admission",
-					/** The hop's counter depth: one hop, a few, and more. */
 					generator: (source) =>
-						[
-							source.draw(element(constructionNames)),
-							source.draw(element<State>(["hashable", "money"])),
-							source.draw(element([1, 4, 5]))
-						] as const,
+						[source.draw(stepGen), source.draw(element<State>(["hashable", "money"]))] as const,
 					literal: Formatter.format,
-					limit: 200,
-					coverage: requiredInSpace<FeedbackFeature>(["lowered", "refused"]),
+					limit: 2 * (33 + 41),
+					coverage: requiredInSpace<Verdict>([
+						"lowered",
+						"refused for a block",
+						"refused for an unhashable state",
+						"refused for a second scan"
+					]),
 					caseHang
 				},
-				([name, state, depth], c) =>
+				([step, state], c) =>
 					Effect.sync(() => {
-						const construction = constructions[name]
-						const b = closure(construction, states[state], depth)
+						const verdict = verdictOf(step, state)
+						const b = closure(step, states[state])
+						const at = Formatter.format(step)
 						const fromConservative = conservative(b)
 						const fromOptimized = optimized(b)
-						if (lowersByRule(construction, state)) {
-							succeeded(fromConservative, name)
-							succeeded(fromOptimized, name)
-							c.note("lowered")
-						} else {
-							const expected = refused(fromConservative, "UnsupportedOperation", name)
-							const got = refused(fromOptimized, "UnsupportedOperation", name)
-							assert.deepEqual(located(got), located(expected), name)
-							c.note("refused")
+						c.note(verdict)
+						if (verdict === "lowered") {
+							succeeded(fromConservative, at)
+							succeeded(fromOptimized, at)
+							return
 						}
+						const expected = refused(fromConservative, "UnsupportedOperation", at)
+						const got = refused(fromOptimized, "UnsupportedOperation", at)
+						assert.deepEqual(located(got), located(expected), at)
 					})
 			)
 		)

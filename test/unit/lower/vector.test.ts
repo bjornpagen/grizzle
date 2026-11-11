@@ -1,3 +1,26 @@
+/**
+ * approximateNearest in the optimized lowering: one search per execution, never one per parent, and the refusals of
+ * placements that would run it more often. The indexed statements run on PostgreSQL in test/pg/vector/ann, which
+ * checks their plans; here a search is counted on the AST as a query ranked by the cosine distance.
+ *
+ * The rule, over every placement of a search a parent and its child make (the checker builds only some of them; the
+ * others are hand-built DAGs the lowering must refuse on its own): a program the lowering admits computes each search
+ * node once, in one statement and outside any sublink, which runs per row of the query around it; a search whose own
+ * source reads the parent variable would run once per parent, and is refused; every refusal is UnsupportedOperation,
+ * by the checker or by the lowering. The placements must reach both: a search the parent delivers or only its child
+ * reads is admitted, and one a statement of its own would compute again (an attachment of a child over candidates, a
+ * root reading it beside the child) is refused. A search in a derived relation's definition is refused, and the lowering traces the search
+ * again on the DAG it lowers, refusing a score that is no longer the cosine distance.
+ *
+ * Oracle: the rule as a checker over each admitted program's AST, the searches it runs counted against the DAG's
+ * search nodes and none under a sublink, and over the placements whose verdict it fixes (a specification).
+ *
+ * Features: each placement shape paired with its outcome; a search admitted and refused by its purpose and score.
+ *
+ * Plants, each failing its search: a search over a source that reads the parent, or one an attachment's statement
+ * would compute again, lowered (vector-per-parent); a search in a derived relation's definition admitted
+ * (vector-derived-definition).
+ */
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
@@ -50,21 +73,6 @@ import { nodeOfKind } from "#test/unit/lower/support.ts"
 /** A node rebuilt over its rebuilt inputs, the node itself where none changed (ir/dag.ts rebuildDag). */
 const kept = (node: RelNode, inputs: NodeOver<ValueRefs<RelNode>>): RelNode =>
 	unchangedEdges(node, inputs) ? node : relNode(node.id, { ...inputs, meta: metaSpecOf(node.meta) })
-
-/**
- * approximateNearest in the optimized lowering: one search per execution, never one per parent, and the refusals of
- * placements that would run it more often. The indexed statements run on PostgreSQL in test/pg/vector/ann, which
- * checks their plans; here a search is counted on the AST as a query ranked by the cosine distance.
- *
- * The rule, over every placement of a search a parent and its child make (the checker builds only some of them; the
- * others are hand-built DAGs the lowering must refuse on its own): a program the lowering admits computes each search
- * node once, in one statement and outside any sublink, which runs per row of the query around it; a search whose own
- * source reads the parent variable would run once per parent, and is refused; every refusal is UnsupportedOperation,
- * by the checker or by the lowering. The placements must reach both: a search the parent delivers or only its child
- * reads is admitted, and one a statement of its own would compute again (an attachment of a child over candidates, a
- * root reading it beside the child) is refused. A search in a derived relation's definition is refused, and the lowering traces the search
- * again on the DAG it lowers, refusing a score that is no longer the cosine distance.
- */
 
 const ownedSearch = owning(Search)
 const installation = succeeded(
@@ -300,8 +308,11 @@ describe("attachments: one search per execution, never one per parent", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "every parent with every child, the DAG's first search read by a root of its own as well or not",
+						oracle: {
+							kind: "specification",
+							name: "an admitted program computes each search once, outside any sublink; a search reading the parent is refused"
+						},
 						suite: "unit/lower/vector/placements",
 						/**
 						 * Every parent with every child, the DAG's first search read by a root of its own as well where
@@ -457,8 +468,11 @@ describe("refusals in the lowering", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "a query or a derived relation's definition, ranked by the cosine distance or by a literal",
+						oracle: {
+							kind: "specification",
+							name: "a search lowers only in a query and only ranked by the cosine distance it traces"
+						},
 						suite: "unit/lower/vector/traced",
 						generator: (source) =>
 							[

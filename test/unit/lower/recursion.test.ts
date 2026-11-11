@@ -1,3 +1,14 @@
+/**
+ * The form the optimized recursive lowering gives a recursion (lower/shapes/recursion/index.ts), against the rule its
+ * header states: whatever depth a counter bounds the recursion to, it is one recursive CTE, its feedback under UNION and
+ * no DISTINCT anywhere, the complete final state needing none; a recursion realized without its UNION is refused
+ * (MalformedDescription).
+ *
+ * Oracle: the module's stated form, checked on the lowered statement's AST (a specification). Feature: a bounded walk.
+ *
+ * Plants, each failing the search: the recursive CTE's terms joined by UNION ALL (recursion-union-all); a plain
+ * realization lowered (recursion-plain-admitted).
+ */
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
@@ -37,12 +48,6 @@ import { caseHang } from "#test/support/limits.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
 import { conservativeShapeFacts } from "#test/unit/lower/shapes/support.ts"
 import { present } from "#test/unit/lower/support.ts"
-
-/**
- * The form the optimized recursive lowering gives a recursion (lower/shapes/recursion/index.ts), against the rule its
- * header states: whatever depth a counter bounds the recursion to, it is the recursive CTE, its feedback under UNION
- * and no DISTINCT anywhere, the complete final state needing none; a recursion realized without its UNION is refused.
- */
 
 const Vertex = relation("Vertex", { id: uuid, rank: pg.smallint }, ["id"])
 const Edge = relation("Edge", { from: uuid, to: uuid }, ["from", "to"])
@@ -179,8 +184,11 @@ describe("the form a recursion lowers to (packages/engine/src/lower/shapes/recur
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "a walk from a parameter root bounded below every depth from none to six hops",
+						oracle: {
+							kind: "specification",
+							name: "one recursive CTE under UNION, no DISTINCT, whatever the depth; a plain realization refused"
+						},
 						suite: "unit/lower/recursion/form",
 						/** Walks bounded at every depth from none to several hops. */
 						generator: int(0, 6),

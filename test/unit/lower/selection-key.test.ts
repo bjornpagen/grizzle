@@ -1,9 +1,27 @@
+/**
+ * A read of a selection key's relation probes the key's law column (lower/conservative/match-region probeKeys): a key
+ * over `select(R, φ)` on f installs `CASE WHEN φ THEN f END` under a UNIQUE NULLS DISTINCT, and a match of R that holds
+ * every conjunct of φ as a constant and fixes f compares f's value with that column, which the UNIQUE's index serves,
+ * in the optimized statement and the conservative one alike. A match that fixes f under any other selection, or
+ * holds φ without fixing f, reads R by its fields, as before.
+ *
+ * The box: the plans fixture's two selection keys, Note's (open = true, on ticket) and Task's (kind = Automatic, on
+ * account), and Badge's, whose guard's value is an operation over literals (tiers = {bronze} ∪ {silver}, on holder),
+ * each read with its guard held, absent or contradicted, by the other literal or, for Badge, by another operation over
+ * the same literals, and its term fixed by a parameter or not, under both lowerings. The oracle is the rule restated
+ * over the case: the law column is read exactly when the guard is held and the term fixed; its name is read off the
+ * installation's natives. The probe is read off each statement's AST, never its printed text.
+ *
+ * Features: each relation probed, and read by its fields.
+ *
+ * Plant, failing the search: a key probing an occurrence that fixes its term whatever its guard (selection-key-guard).
+ */
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter } from "effect"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { Bits, bits, uuid } from "#compiler/public/fields.ts"
@@ -18,20 +36,6 @@ import { installationOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { auditStatementViolations } from "#test/support/oracle/verify/sql.ts"
 
-/**
- * A read of a selection key's relation probes the key's law column (lower/conservative/match-region probeKeys): a key
- * over `select(R, φ)` on f installs `CASE WHEN φ THEN f END` under a UNIQUE NULLS DISTINCT, and a match of R that holds
- * every conjunct of φ as a constant and fixes f compares f's value with that column, which the UNIQUE's index serves,
- * in the optimized statement and the conservative one alike. A match that fixes f under any other selection, or
- * holds φ without fixing f, reads R by its fields, as before.
- *
- * The box: the plans fixture's two selection keys, Note's (open = true, on ticket) and Task's (kind = Automatic, on
- * account), and Badge's, whose guard's value is an operation over literals (tiers = {bronze} ∪ {silver}, on holder),
- * each read with its guard held, absent or contradicted, by the other literal or, for Badge, by another operation over
- * the same literals, and its term fixed by a parameter or not, under both lowerings. The oracle is the rule restated
- * over the case: the law column is read exactly when the guard is held and the term fixed; its name is read off the
- * installation's natives.
- */
 type Relation = "Note" | "Task" | "Badge"
 type Guard = "held" | "absent" | "other"
 
@@ -225,13 +229,6 @@ describe("a selection key's probe", () => {
 									Arr.some(statements, (ast) => probes(ast, column)),
 									probed,
 									`${path} compares ${column} with its parameter exactly when probed: ${Formatter.format(c)}`
-								)
-							}
-							for (const spec of [...template.optimized, ...template.conservative]) {
-								assert.equal(
-									Str.includes(`"${column}"`)(spec.sql),
-									probed,
-									`the emitted text reads ${column} exactly when probed: ${Formatter.format(c)}`
 								)
 							}
 							seen.note(probed ? `${c.relation} probed` : `${c.relation} read by its fields`)

@@ -1,7 +1,36 @@
+/**
+ * The optimized lowering of checked public programs builds only DAGs the validator admits.
+ *
+ * Each read is lowered as a template compiles it (program/compile.ts compileQuery): checked, its conservative artifact
+ * lowered from the checked DAG, its optimized artifact from the checked DAG restated (everyParentTakes) and annotated
+ * under the query's evidence (logical/annotate.ts queryEvidence). The optimized pipeline builds its DAG valid by
+ * construction and checks nothing; the property reads the DAG it leaves back through the strict re-reader
+ * (test/support/oracle/dag-validate.ts), so a rewrite that leaves a reader's checked claim unstated, an attachment's
+ * delivered type or an order's keys, is the defect the re-reader raises, never a refusal of the program. The lowering
+ * may refuse a program otherwise, which is not this property's subject, nor are the checker and the conservative
+ * lowering.
+ *
+ * The rewrite this guards: an identity projection redirected onto its input hands its readers an input the demand pass
+ * redefined, which states none of the projection's evidence unless it takes it over (lower/optimize/simplify/rules.ts
+ * identityProjection). The readers that check that evidence are an option or bare attachment's child, by its card, and a
+ * take, by the keys that make its order total. The reads are generated public programs (oracle/public/generate.ts),
+ * and planted ones beside them for the take, which the generator's orders over every column rarely bring to an
+ * identity. A third search holds R07 (lower/optimize/closed) to its statement: a roster match a plain match also binds
+ * is dropped, and one an import bound to its variable alone reads is lowered.
+ *
+ * Oracle: the strict DAG re-reader and the lowering's own audit (checkedLowering), a specification of a valid DAG; and
+ * R07's statement, which no Closed occurrence may outlive.
+ *
+ * Features: an option or bare child, and a take, over an identity projection's input; each roster form.
+ *
+ * Plants, each failing its search: an identity projection's input left without the projection's evidence
+ * (simplify-identity-evidence, failing the generated and the planted searches); R07 rewriting no membership
+ * (closed-roster-kept).
+ */
 import { describe, it } from "@effect/vitest"
 import { type Case, drawn, exhaust, explore } from "@grizzle/testing/explore"
 import { required, requiredInSpace } from "@grizzle/testing/features"
-import { boolean, element, filter, type Gen, int, oneOf, subarray } from "@grizzle/testing/gen"
+import { boolean, element, type Gen, int, oneOf, shuffled } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -39,26 +68,6 @@ import { checkedLowering } from "#test/support/oracle/verify/index.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { present } from "#test/unit/lower/support.ts"
-
-/**
- * The optimized lowering of checked public programs builds only DAGs the validator admits.
- *
- * Each read is lowered as a template compiles it (program/compile.ts compileQuery): checked, its conservative artifact
- * lowered from the checked DAG, its optimized artifact from the checked DAG restated (everyParentTakes) and annotated
- * under the query's evidence (logical/annotate.ts queryEvidence). The optimized pipeline builds its DAG valid by
- * construction and checks nothing; the property reads the DAG it leaves back through the strict re-reader
- * (test/support/oracle/dag-validate.ts), so a rewrite that leaves a reader's checked claim unstated, an attachment's
- * delivered type or an order's keys, is the defect the re-reader raises, never a refusal of the program. The lowering
- * may refuse a program otherwise, which is not this property's subject, nor are the checker and the conservative
- * lowering.
- *
- * The rewrite this guards: an identity projection redirected onto its input hands its readers an input the demand pass
- * redefined, which states none of the projection's evidence unless it takes it over (lower/optimize/simplify/rules.ts
- * identityProjection). The readers that check that evidence are an option or bare attachment's child, by its card, and a
- * take, by the keys that make its order total. The reads are generated public programs (oracle/public/generate.ts),
- * and planted ones beside them for the take, which the generator's orders over every column rarely bring to an
- * identity.
- */
 
 /** The handle names a drawn roster takes. */
 const handleNames = ["Red", "Green", "Blue", "Amber", "Teal"] as const
@@ -261,7 +270,10 @@ describe("the optimized lowering of checked public programs", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "specification",
+						name: "the strict DAG re-reader and the lowering's audit (checkedLowering)"
+					},
 					suite: "unit/lower/public-programs",
 					draw: drawn(caseSketchGen),
 					literal: Formatter.format,
@@ -301,8 +313,11 @@ describe("the optimized lowering of checked public programs", () => {
 			ctx,
 			exhaust(
 				{
-					box: { kind: "unstated" },
-					oracle: { kind: "unstated" },
+					box: "takes of the first one to three items over every found column set, filtered or not, ordered by each found column either way; and routes with one to three scans of Stop in a child that finds nothing",
+					oracle: {
+						kind: "specification",
+						name: "the strict DAG re-reader and the lowering's audit (checkedLowering)"
+					},
 					suite: "unit/lower/public-programs-planted",
 					generator: plantedGen,
 					literal: Formatter.format,
@@ -329,17 +344,22 @@ describe("the optimized lowering of checked public programs", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "R07: a roster match a plain match also binds is dropped, one an import alone reads is lowered"
+						},
 						suite: "unit/lower/public-programs-roster",
 						draw: drawn((source) => {
-							/** Two to four distinct handles: one, and the first three of the others drawn besides it. */
+							/** Two to four distinct handles in any order: one, and one to three of the others. */
 							const first = source.draw(element(handleNames))
-							const others = source.draw(
-								filter(subarray(handleNames), (picked) => picked.length >= 2, 10)
-							)
 							const handles: readonly [HandleName, ...HandleName[]] = [
 								first,
-								...Arr.filter(others, (h) => h !== first).slice(0, 3)
+								...source.draw(
+									shuffled(
+										Arr.filter(handleNames, (h) => h !== first),
+										{ min: 1, max: 3 }
+									)
+								)
 							]
 							return { handles, twin: source.draw(boolean) }
 						}),
