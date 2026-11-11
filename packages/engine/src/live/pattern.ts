@@ -112,12 +112,6 @@ export const integersBelow = (count: number): string =>
 	`-?${alternation(["0", `[1-9]${atMostDigits(count - 1)}`])}`
 
 /**
- * A decimal's spelling, as the wire's decimal grammar writes it: an optional minus sign, an integer part as JSON writes
- * one, and an optional fraction of at least one digit; never an exponent.
- */
-export const decimalGrammar = String.raw`-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?`
-
-/**
  * The fractions of a decimal of at most `scale` fraction digits whose first `zeros` digits are zero, as the wire's
  * grammar spells them: a point and at least one digit, trailing zeros free. A fraction of zeros alone is zero's.
  */

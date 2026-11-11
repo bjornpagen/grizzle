@@ -26,7 +26,7 @@ type Json = Parameters<Validator>[0]
 const officialPath = `${repoRoot}test/support/openapi/oas-3.2-schema-2025-09-17.json`
 
 /** The SHA-256 of the vendored schema's bytes, lowercase hex, as fetched from spec.openapis.org on 2026-11-11. */
-export const officialSha256 = "0c9d74bf25f9b9388b2d81e421ef60fdefa9feffa94898dadfc501b342b3bfcc"
+const officialSha256 = "0c9d74bf25f9b9388b2d81e421ef60fdefa9feffa94898dadfc501b342b3bfcc"
 
 /** The official schema's `$id`, under which it is registered. */
 const officialId = "https://spec.openapis.org/oas/3.2/schema/2025-09-17"

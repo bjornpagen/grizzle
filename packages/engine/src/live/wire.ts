@@ -122,7 +122,7 @@ export type WireFaultKind = (typeof wireFaults)[number]
  * A decimal type's bound as the wire reads it: numeric(p, s), whose values may also be NaN, or a computed numeric's
  * proved bound, finite.
  */
-export type WireNumeric =
+type WireNumeric =
 	| { readonly kind: "typmod"; readonly precision: number; readonly scale: number }
 	| { readonly kind: "bound"; readonly digits: number; readonly scale: number }
 
@@ -165,7 +165,7 @@ export type WireScalar = { readonly [C in Carrier]: WireSpec<C> }[Carrier]
  * The host value of each carrier the wire spells: the value a served Db's handle takes and delivers, a bytes value as
  * its bytes.
  */
-export interface WireHost {
+interface WireHost {
 	readonly int2: number
 	readonly int4: number
 	readonly int8: bigint
@@ -336,7 +336,10 @@ const bigIntegerOf = (
 	return inRange(value) ? Result.ok(value) : Result.err("range")
 }
 
-/** Whether a text is a decimal in the wire's decimal grammar (pattern.ts decimalGrammar): no exponent, no plus sign. */
+/**
+ * Whether a text is a decimal in the wire's decimal grammar: an optional minus sign, an integer part as JSON writes one,
+ * and an optional fraction of at least one digit; no exponent, no plus sign.
+ */
 const isDecimalSpelling = (text: string): boolean => {
 	const point = text.indexOf(".")
 	if (point < 0) {
@@ -600,7 +603,7 @@ const dateWire: CarrierWire<"date"> = {
  * The wire's table: each carrier's schema, encode, exact parse, trusting decode and host check (see the module's
  * header).
  */
-export const carrierWire: CarrierWires = {
+const carrierWire: CarrierWires = {
 	int2: {
 		schema: () => ({ type: "integer", minimum: int2Min.value, maximum: int2Max.value }),
 		encode: (value) => value,
