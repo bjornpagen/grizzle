@@ -24,6 +24,7 @@ import { type Owned, rostersOf } from "#compiler/schema/own.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { type BuiltSchema, generatedSchemaName } from "#test/support/oracle/public/build.ts"
 import type { ProgramSchema } from "#test/support/oracle/public/program.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /**
  * A level of laws over a generated public schema, drawn beside it: what the public draw's own vocabulary holds no
@@ -118,11 +119,11 @@ export const lawsOf = (s: ProgramSchema, built: BuiltSchema, level: LawLevel): L
 	const previous = Arr.appendAll(
 		Arr.flatMap(level.holes, (count, i) =>
 			Arr.append(
-				Arr.makeBy(count, (j) => `gone${i}x${j}`),
+				upTo(count, (j) => `gone${i}x${j}`),
 				`live${i}`
 			)
 		),
-		Arr.makeBy(level.trailing, (j) => `goneLast${j}`)
+		upTo(level.trailing, (j) => `goneLast${j}`)
 	)
 	const kindName = fresh("LawKind", taken)
 	const Kind = closed(kindName, live)

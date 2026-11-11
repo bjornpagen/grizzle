@@ -122,9 +122,9 @@ import { outputText } from "#test/support/wire.ts"
  * reading, a refusal with the one the contract names, the case's setup (install, layer, open, store), the reference and
  * the language's own proofs, or a root delivered in an order whose statements state none.
  */
-export type DisagreementCheck = "answer" | "cell" | "refusal" | "setup" | "reference" | "order"
+type DisagreementCheck = "answer" | "cell" | "refusal" | "setup" | "reference" | "order"
 
-export class Disagreement extends Data.TaggedError("Disagreement")<{
+class Disagreement extends Data.TaggedError("Disagreement")<{
 	readonly check: DisagreementCheck
 	readonly report: string
 }> {
