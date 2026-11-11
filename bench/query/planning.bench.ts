@@ -42,10 +42,10 @@ import {
 } from "#bench/query/support/kit.ts"
 import { outline, planOf, scansOf, summaryOf } from "#bench/query/support/plans.ts"
 import { indices, maxOf } from "#compiler/core/array.ts"
-import { flight } from "#compiler/lower/conservative/types.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
+import { programAsts } from "#test/support/compile.ts"
 import { featureCount, has, shapeOf } from "#test/support/kernel/shape.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 
@@ -260,8 +260,8 @@ const planAndRun = Effect.fn("planAndRun")(function* (
 
 /** Whether a compiled read raises no planner fence: no OFFSET 0 and no MATERIALIZED stage in any statement. */
 const unfenced = (compiled: Compiled): boolean =>
-	Arr.every(flight(compiled.compiled.template.programs.optimized.roots), (statement) => {
-		const shape = shapeOf(statement.ast)
+	Arr.every(programAsts(compiled.compiled.template.programs.optimized), (statement) => {
+		const shape = shapeOf(statement)
 		return featureCount(shape, "offset literal") === 0 && !has(shape, "cte materialized")
 	})
 

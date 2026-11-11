@@ -8,7 +8,7 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Result, String as Str } from "effect"
 import { rowOptions } from "#adapter/engine.ts"
 import { pageEdges } from "#adapter/page/execute.ts"
-import { answerOf, type SentRuns } from "#adapter/reader/execution.ts"
+import type { SentRuns } from "#adapter/reader/execution.ts"
 import { deliveredRows, readProgram } from "#adapter/reader/run.ts"
 import { compiledPageRuntime } from "#adapter/served/forms.ts"
 import {
@@ -342,26 +342,22 @@ describe("a statement's rows", () => {
 					codes
 				)
 				const root = defined(
-					Arr.findFirst(program.records, (r) => r.run.statement.role.kind !== "attachment").pipe(
+					Arr.findFirst(program.records, (r) => r.part.role.kind !== "attachment").pipe(
 						Option.getOrUndefined
 					),
-					"the root statement"
+					"the root part"
 				)
 				const attached = defined(
-					Arr.findFirst(program.records, (r) => r.run.statement.role.kind === "attachment").pipe(
+					Arr.findFirst(program.records, (r) => r.part.role.kind === "attachment").pipe(
 						Option.getOrUndefined
 					),
-					"the attachment statement"
+					"the attachment part"
 				)
-				const role = attached.run.statement.role
-				/** How many columns an attachment statement's rows lead with: its parent key's. */
+				const role = attached.part.role
+				/** How many columns an attachment part's rows lead with: its parent key's. */
 				const keyCount = role.kind === "attachment" ? role.parentKey.length : 0
 				const outputOf = (record: typeof root) =>
-					statementOutput(
-						record.run.statement.role,
-						record.run.statement.heading,
-						record.run.statement.fused
-					).heading
+					statementOutput(record.part.role, record.part.heading, record.part.fused).heading
 				yield* searched(
 					ctx,
 					explore(
@@ -430,25 +426,24 @@ describe("a statement's rows", () => {
 									return [...rows, again]
 								}
 								const sent: Array<ReadonlyArray<ReadonlyArray<string>>> = []
-								sent[answerOf(root.arrival)] =
+								sent[root.answer] =
 									plant.kind === "repeat" && plant.statement === "root"
 										? planted(rootRows, root)
 										: rootRows
-								sent[answerOf(attached.arrival)] =
+								sent[attached.answer] =
 									plant.kind === "repeat" && plant.statement === "attachment"
 										? planted(childRows, attached)
 										: childRows
 								const answers: SentRuns = Arr.map(sent, outputRows)
 								const delivered = deliveredRows(program, answers, {})
-								const repeatedAt =
-									plant.kind === "repeat" && (plant.statement === "root" || childRows.length > 0)
-										? answerOf((plant.statement === "root" ? root : attached).arrival)
-										: undefined
-								if (repeatedAt !== undefined && plant.kind === "repeat") {
+								if (
+									plant.kind === "repeat" &&
+									(plant.statement === "root" || childRows.length > 0)
+								) {
 									c.note(plant.respelled ? "a respelled repeat refused" : "a repeat refused")
 									assert.ok(Result.isFailure(delivered), "a repeated row was delivered")
 									assert.equal(delivered.failure._tag, "UnreadableAnswer")
-									assert.equal(delivered.failure.index, repeatedAt)
+									assert.equal(delivered.failure.index, 0, "at the read's one statement")
 									return
 								}
 								c.note("stitched")
@@ -525,12 +520,8 @@ describe("a page's candidates", () => {
 					})
 				)
 				const program = runtime.artifact.requests.first
-				const rows = defined(program.records[0], "the rows statement")
-				const heading = statementOutput(
-					rows.run.statement.role,
-					rows.run.statement.heading,
-					rows.run.statement.fused
-				).heading
+				const rows = defined(program.records[0], "the rows part")
+				const heading = statementOutput(rows.part.role, rows.part.heading, rows.part.fused).heading
 				yield* searched(
 					ctx,
 					explore(
@@ -609,7 +600,7 @@ describe("a page's candidates", () => {
 									c.note(answer.refusal)
 									assert.ok(Result.isFailure(edges), `${answer.refusal}: delivered`)
 									assert.equal(edges.failure._tag, "UnreadableAnswer")
-									assert.equal(edges.failure.index, answerOf(rows.arrival))
+									assert.equal(edges.failure.index, 0, "at the request's one statement")
 									return
 								}
 								const page = Result.getOrThrow(edges)

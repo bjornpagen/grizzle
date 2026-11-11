@@ -48,7 +48,6 @@ import {
 	flight
 } from "#compiler/lower/conservative/types.ts"
 import { lowerOptimized } from "#compiler/lower/optimize/pipeline.ts"
-import { deliveredAsOptimized, type OptimizedStatement } from "#compiler/lower/shapes/index.ts"
 import { compilePage, type PageTemplate } from "#compiler/lower/shapes/page/compile.ts"
 import { statementSpec } from "#compiler/lower/template.ts"
 import { declaredSlotOf } from "#compiler/runtime/lower/slots.ts"
@@ -61,7 +60,7 @@ import { admitValue } from "#compiler/scalar/values/identity.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import type { Page } from "#compiler/types/page/page.ts"
 import { assert, refusalLoc } from "#test/support/assert.ts"
-import { admitGenerated } from "#test/support/compile.ts"
+import { admitGenerated, programAsts } from "#test/support/compile.ts"
 import { conservativePage } from "#test/support/conservative.ts"
 import { genCatalog } from "#test/support/evidence.ts"
 import { sentSql } from "#test/support/flight/scripted.ts"
@@ -508,12 +507,12 @@ const fullResult = (
 	o: OrderedCase,
 	query: LogicalQuery,
 	template: PageTemplate,
-	statements: ReadonlyArray<OptimizedStatement>,
+	statements: ReadonlyArray<ConservativeStatement>,
 	codes: Codebook
 ): Effect.Effect<Full, SqlError> =>
 	Effect.gen(function* () {
 		const specs = Arr.map(statements, (s) => {
-			const spec = statementSpec(s, declaredSlotOf(codes, new CompilePatterns()))
+			const spec = statementSpec({ ...s, fused: [] }, declaredSlotOf(codes, new CompilePatterns()))
 			if (!spec.ok) {
 				throw new Error(spec.error.message)
 			}
@@ -706,9 +705,9 @@ type PageRequest =
 	| { readonly variant: "after" | "before"; readonly size: number; readonly token: string }
 
 /**
- * Every attachment runs, in the rows statement's flight: one with no parent row on this page reads none.
+ * Every attachment runs, a part of the request's one statement: one with no parent row on this page reads none.
  *
- * The rows statements, every attachment, and the probe of an anchored request only.
+ * The flight sends that statement, and the probe of an anchored request only.
  */
 const pager =
 	(
@@ -745,7 +744,7 @@ const pager =
 			const delivered = valueRows(
 				runtime.page.heading,
 				Arr.map(rows.edges, (e) => {
-					const heading = e.statement.run.statement.heading
+					const heading = e.statement.part.heading
 					return Arr.map(runtime.page.heading, (c) =>
 						defined(
 							outputRow(e.raw)[
@@ -761,19 +760,18 @@ const pager =
 				codes
 			)
 			const attached: Array<Attached> = []
-			let expected = Option.isSome(rows.probe) ? 1 : 0
+			const expected = Option.isSome(rows.probe) ? 2 : 1
 			const parents = new Map(
 				Arr.flatMap(records, (r) => Arr.map(r.plan.children, (c) => [c.record, r] as const))
 			)
 			for (const record of records) {
-				const statement = record.run.statement
+				const statement = record.part
 				const parentRecord = parents.get(record)
 				if (parentRecord === undefined) {
-					expected++
 					continue
 				}
 				const parentKey = keyColumns(statement.role)
-				const parent = parentRecord.run.statement
+				const parent = parentRecord.part
 				const offset = keyColumns(parent.role).length
 				const positions = Arr.map(parentKey, ({ name }) => {
 					const at = Arr.findFirstIndex(parent.heading, (h) => h.name === name)
@@ -789,7 +787,6 @@ const pager =
 								Arr.filter(rows.edges, (e) => e.statement === parentRecord),
 								(e) => outputRow(e.raw)
 							)
-				expected++
 				const edgeKey = (edge: PageRows["edges"][number] | undefined): string | undefined =>
 					edge?.statement === parentRecord
 						? keyValue(outputRow(edge.raw), positions, parentKey, codes)
@@ -1064,11 +1061,14 @@ const coverage = (
 		note("heading groups")
 	}
 	if (
-		Arr.some(flight(template.artifact.requests.first.roots), (s) => s.role.kind === "attachment")
+		Arr.some(
+			flight(template.artifact.requests.first.program.roots),
+			(s) => s.role.kind === "attachment"
+		)
 	) {
 		note("attachments")
 	}
-	if (Arr.some(flight(compiled.artifact.requests.first.roots), (s) => s.forms.kind === "chosen")) {
+	if (compiled.artifact.requests.first.program.statement.forms.kind === "chosen") {
 		note("per-execution form")
 	}
 	if (template.heading.length === 0) {
@@ -1089,8 +1089,8 @@ const coverage = (
 	}
 	if (
 		Arr.some(
-			flight(template.artifact.requests.after.roots),
-			(s) => has(shapeOf(s.ast), "distinct") || has(shapeOf(s.ast), "distinct on")
+			programAsts(template.artifact.requests.after.program),
+			(ast) => has(shapeOf(ast), "distinct") || has(shapeOf(ast), "distinct on")
 		)
 	) {
 		note("distinct before the bound")
@@ -1304,7 +1304,7 @@ export const generatedSuite = (artifact: PageArtifactName): void => {
 						o,
 						query,
 						template,
-						flight(deliveredAsOptimized(conservative.value).roots),
+						flight(conservative.value.roots),
 						codes
 					).pipe(
 						Effect.catchDefect((defect) =>

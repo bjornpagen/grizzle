@@ -5,6 +5,7 @@ import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
+import { flight } from "#compiler/lower/conservative/types.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
@@ -18,8 +19,8 @@ import { caseHang } from "#test/support/limits.ts"
  * evidence, so it is one artifact whatever the context.
  *
  * The programs are planted: notes matches TaskNote to Task on TaskNote's deferred foreign key, which committed-snapshot
- * evidence removes and a transaction keeps; budgets attaches each budget's task, fused into one optimized statement
- * beside two conservative ones; the ordered tasks read as a page.
+ * evidence removes and a transaction keeps; budgets attaches each budget's task, fused into the optimized program's one
+ * relation beside the conservative program's two; the ordered tasks read as a page.
  */
 const notes = query(Work).rule((r) => {
 	const { task, note } = v(TaskNote, "taskNote")
@@ -76,7 +77,7 @@ type TemplateFeature =
 	| TemplateContext
 	| Read
 	| "a committed-snapshot certificate"
-	| "several statements"
+	| "several relations"
 
 describe("a template", () => {
 	it.effect(
@@ -99,7 +100,7 @@ describe("a template", () => {
 							"rows",
 							"page",
 							"a committed-snapshot certificate",
-							"several statements"
+							"several relations"
 						]),
 						caseHang
 					},
@@ -123,8 +124,11 @@ describe("a template", () => {
 							c.noteAll(
 								Arr.flatMap([snapshot, transaction], (template): ReadonlyArray<TemplateFeature> => [
 									template.context,
-									...(Math.max(template.optimized.length, template.conservative.length) > 1
-										? (["several statements"] as const)
+									...(Math.max(
+										flight(template.programs.optimized.roots).length,
+										flight(template.programs.conservative.roots).length
+									) > 1
+										? (["several relations"] as const)
 										: [])
 								])
 							)

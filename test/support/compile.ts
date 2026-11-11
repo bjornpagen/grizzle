@@ -19,13 +19,17 @@ import type { LogicalQuery, ParamDecl, StatementSpec } from "#compiler/ir/produc
 import type { NodeOf, RelKind, RelNode } from "#compiler/ir/rel.ts"
 import type { Env, LowerContext, NodeLowerer } from "#compiler/lower/conservative/context.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
-import { conservativeInput } from "#compiler/lower/conservative/types.ts"
+import {
+	type ConservativeParamSlot,
+	conservativeInput
+} from "#compiler/lower/conservative/types.ts"
 import {
 	type LowerOptimizedOptions,
 	lowerOptimized,
 	type OptimizedProgram
 } from "#compiler/lower/optimize/pipeline.ts"
 import { catalogLowerers } from "#compiler/lower/shapes/catalog/native.ts"
+import type { SentStatement, StatementParts } from "#compiler/lower/shapes/index.ts"
 import { workloadExtension } from "#compiler/physical/access/extension.ts"
 import { noTextDomainUses } from "#compiler/physical/ddl/domains.ts"
 import { namedRole } from "#compiler/physical/ddl/names.ts"
@@ -68,8 +72,10 @@ import {
 	ownRole,
 	rostersOf
 } from "#compiler/schema/own.ts"
-import type { OperandSelect } from "#compiler/sql/ast.ts"
+import type { Cte, OperandSelect, Select } from "#compiler/sql/ast.ts"
+import { col, cteRef, provedCore, select, target } from "#compiler/sql/build.ts"
 import { printStatement } from "#compiler/sql/print.ts"
+import { inertVisitor, visitSelect } from "#compiler/sql/transform.ts"
 import type { CompiledWrite, CompileWriteOptions } from "#compiler/write/program/compile.ts"
 import { flightOf } from "#compiler/write/program/served.ts"
 import { readArrayLiteral } from "#test/support/arrays.ts"
@@ -588,4 +594,158 @@ export const nestedRowsColumn = (
 		}
 	}
 	throw new Error(`no statement carries ${relation}'s nested rows`)
+}
+
+/** A program's one statement as the tests read it: its AST, and how its rows divide into parts. */
+interface ProgramStatement {
+	readonly parts: StatementParts<ConservativeParamSlot>
+	readonly statement: SentStatement<ConservativeParamSlot>
+}
+
+/**
+ * The statement ASTs an optimized program shows a reader: its one part's statement as the lowering built it, before
+ * its executable form casts its outputs to text; or its one statement of tagged parts (shapes/index.ts StatementParts).
+ */
+export const programAsts = (program: ProgramStatement): Arr.NonEmptyReadonlyArray<Select> =>
+	program.parts.kind === "one" ? [program.parts.delivered.ast] : [program.statement.ast]
+
+/**
+ * The CTE of a statement of tagged parts that part `tag`'s arm reads (lower/parts.ts taggedParts): the part's
+ * executable query, under the name and columns its arm reads.
+ */
+const partCte = (statement: Select, tag: number): Cte => {
+	const arms = statement.body.kind === "setOp" ? statement.body.arms : [statement.body]
+	const arm = arms[tag]
+	const from = arm?.kind === "core" ? arm.from[0] : undefined
+	const cte =
+		from?.kind === "cte"
+			? Arr.findFirst(statement.with?.ctes ?? [], (c) => c.name === from.name)
+			: Option.none()
+	if (Option.isNone(cte)) {
+		throw new Error(`the CTE the arm of part ${tag} reads`)
+	}
+	return cte.value
+}
+
+/**
+ * The query each part of a program computes, by its tag: its one part as lowered; or, of a statement of tagged parts,
+ * the CTE its tag's arm reads (partCte), the part's executable query, which may read the statement's other CTEs, the
+ * queries its parts share.
+ */
+export const partQueries = (program: ProgramStatement): ReadonlyArray<OperandSelect> => {
+	const parts = program.parts
+	if (parts.kind === "one") {
+		return [parts.delivered.ast]
+	}
+	return Arr.map(parts.parts, (_, tag) => {
+		const query = partCte(program.statement.ast, tag).query
+		if (query.kind !== "select") {
+			throw new Error(`a query as part ${tag}'s CTE`)
+		}
+		return query
+	})
+}
+
+/**
+ * Each part of a program as a statement of its own, by its tag, as the shape readers read one: its one part as lowered;
+ * or, of a statement of tagged parts, every row of the CTE its tag's arm reads (partCte) under that CTE alone, its reads
+ * of the statement's other CTEs left as they are: a shape to read, never a statement to send.
+ */
+export const partSelects = (program: ProgramStatement): ReadonlyArray<Select> => {
+	const parts = program.parts
+	if (parts.kind === "one") {
+		return [parts.delivered.ast]
+	}
+	return Arr.map(parts.parts, (_, tag) => {
+		const cte = partCte(program.statement.ast, tag)
+		return {
+			...select(
+				provedCore(
+					"keyed",
+					Arr.map(cte.columns, (c) => target(col(cte.name, c))),
+					[cteRef(cte.name)],
+					undefined
+				)
+			),
+			with: { recursive: false, ctes: [cte] }
+		}
+	})
+}
+
+/**
+ * The queries part `tag` of a program computes: its own (partQueries), and each CTE of its statement it reads, by name,
+ * and those they read in turn, the rows a statement of tagged parts holds once for several of its parts.
+ */
+const partReads = (program: ProgramStatement, tag: number): ReadonlyArray<OperandSelect> => {
+	const own = partQueries(program)[tag]
+	if (own === undefined) {
+		throw new Error(`the query of part ${tag}`)
+	}
+	const ctes = new Map(
+		Arr.flatMap(program.statement.ast.with?.ctes ?? [], (cte) =>
+			cte.query.kind === "select" ? [[cte.name, cte.query] as const] : []
+		)
+	)
+	const seen = new Set<string>()
+	const out: Array<OperandSelect> = [own]
+	const visit = (q: OperandSelect): void => {
+		visitSelect(q, {
+			...inertVisitor,
+			fromItem: (item) => {
+				if (item.kind !== "cte" || seen.has(item.name)) {
+					return
+				}
+				seen.add(item.name)
+				const read = ctes.get(item.name)
+				if (read !== undefined) {
+					out.push(read)
+					visit(read)
+				}
+			}
+		})
+	}
+	visit(own)
+	return out
+}
+
+/**
+ * Whether part `tag` of a program holds a WITH RECURSIVE at any depth of the queries it computes (partReads): the
+ * lowering nests a recursion's WITH RECURSIVE inside a derived table under any consumer node, so a query's top level
+ * alone does not show it, and a statement of tagged parts holds the rows several parts read as one CTE of its own.
+ */
+export const partRecursive = (program: ProgramStatement, tag: number): boolean => {
+	let recursive = false
+	for (const query of partReads(program, tag)) {
+		visitSelect(query, {
+			...inertVisitor,
+			with: (w) => {
+				recursive ||= w.recursive
+			}
+		})
+	}
+	return recursive
+}
+
+/**
+ * The statement delivering only part `tag`'s rows of a program, its placeholders the program's: the program's
+ * statement itself where it has one part; otherwise its WITH, and every row of the CTE the part's arm reads (partCte),
+ * so PostgreSQL computes the part and the CTEs it reads alone.
+ */
+export const partStatement = (program: ProgramStatement, tag: number): Select => {
+	const ast = program.statement.ast
+	if (program.parts.kind === "one") {
+		return ast
+	}
+	const cte = partCte(ast, tag)
+	return {
+		...select(
+			provedCore(
+				"keyed",
+				Arr.map(cte.columns, (c) => target(col(cte.name, c))),
+				[cteRef(cte.name)],
+				undefined
+			)
+		),
+		with: ast.with
+	}
 }

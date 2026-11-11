@@ -421,22 +421,10 @@ export const statementRows = (
 type HeadingGroup = NodeOf<"Union">["groups"][number]
 
 /** The parent rows of an attachment statement, its child's, whose key sets `keys` lowers again. */
-export const attachmentRows = (child: Heading, keys: (demand: Heading) => Select): ParentRows => ({
+const attachmentRows = (child: Heading, keys: (demand: Heading) => Select): ParentRows => ({
 	heading: child,
 	keys
 })
-
-/**
- * Where a program's statements go, in flight order: `place` builds the next statement at the position it takes, which
- * a refusal of its lowering names.
- */
-export type Place = <S>(build: (position: number) => S) => S
-
-/** The positions of a program's statements, the first at 0. */
-export const positions = (): Place => {
-	let next = 0
-	return (build) => build(next++)
-}
 
 /**
  * One attachment statement's rows in its delivery order, the parent key columns then the child's, and the key sets of
@@ -539,27 +527,6 @@ export class Delivery<Own extends PageParamSlot = never> {
 			),
 			orderBy
 		}
-	}
-
-	program(root: RelNode): ConservativeProgram<DeclaredParamSlot | Own> {
-		const plan = this.heterogeneousPlan(root)
-		if (plan !== undefined) {
-			return { roots: this.groups(plan), delivery: headingGroupsDelivery(plan) }
-		}
-		const order = root.kind === "OrderedResult" ? root.order : undefined
-		const rows = root.kind === "OrderedResult" ? root.input : root
-		this.beginStatement()
-		const rel = (): OperandSelect => this.cx.lower(rows, emptyEnv)
-		const query = this.delivered(rel(), rows.heading, rows, order)
-		const statement = this.statement(query, rows.heading, {
-			role: { kind: "main" },
-			dependsOn: []
-		})
-		const attachments = this.attachments(
-			this.spine(rows),
-			statementRows(this.cx, rows.heading, rows, rel)
-		)
-		return { roots: [{ statement, attachments }], delivery: { kind: "rows" } }
 	}
 
 	/**
@@ -849,5 +816,34 @@ export class Delivery<Own extends PageParamSlot = never> {
 			keys: (demand) => select(distinctCore(headingTargets(demand, source.map), from, where)),
 			parentKey
 		}
+	}
+}
+
+/**
+ * A conservative delivery, the oracles' baseline: its program is a statement per delivered relation, each attachment's
+ * computing its parent key's set again itself. The optimized delivery shares its building blocks and assembles its own
+ * program of one statement (shapes/index.ts OptimizedDelivery optimizedProgram).
+ */
+export class ConservativeDelivery<Own extends PageParamSlot = never> extends Delivery<Own> {
+	/** The program delivering `root`'s rows, its attachments' and its heading groups', a statement each. */
+	program(root: RelNode): ConservativeProgram<DeclaredParamSlot | Own> {
+		const plan = this.heterogeneousPlan(root)
+		if (plan !== undefined) {
+			return { roots: this.groups(plan), delivery: headingGroupsDelivery(plan) }
+		}
+		const order = root.kind === "OrderedResult" ? root.order : undefined
+		const rows = root.kind === "OrderedResult" ? root.input : root
+		this.beginStatement()
+		const rel = (): OperandSelect => this.cx.lower(rows, emptyEnv)
+		const query = this.delivered(rel(), rows.heading, rows, order)
+		const statement = this.statement(query, rows.heading, {
+			role: { kind: "main" },
+			dependsOn: []
+		})
+		const attachments = this.attachments(
+			this.spine(rows),
+			statementRows(this.cx, rows.heading, rows, rel)
+		)
+		return { roots: [{ statement, attachments }], delivery: { kind: "rows" } }
 	}
 }

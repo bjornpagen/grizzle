@@ -1,25 +1,27 @@
 import { Array as Arr } from "effect"
-import { appendAll } from "#compiler/core/array.ts"
+import { cellKindOf, deliveryOf, resultWidth } from "#compiler/codec/delivery.ts"
+import { appendAll, maxOf } from "#compiler/core/array.ts"
 import { canonicalEquals, everyProperty } from "#compiler/core/canonical.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import { sameScalarType } from "#compiler/ir/scalar.ts"
-import {
-	type ConservativeProgram,
-	flight,
-	type ProgramDelivery
-} from "#compiler/lower/conservative/types.ts"
+import { flight, type ProgramDelivery } from "#compiler/lower/conservative/types.ts"
 import {
 	deliveredHeading,
 	keyColumns,
-	mapTree,
 	type RowsRole,
+	type StatementOutput,
 	statementOutput,
 	type StatementRoots,
 	type StatementTree
 } from "#compiler/runtime/lower/tree.ts"
 
-import type { FusedStatement } from "#compiler/lower/shapes/index.ts"
+import type {
+	DeliveredPart,
+	FusedStatement,
+	SentStatement,
+	StatementParts
+} from "#compiler/lower/shapes/index.ts"
 import {
 	type FusedAttachment,
 	type FusedLayout,
@@ -46,16 +48,16 @@ const arrayOf = (type: TypeRef): TypeRef | undefined =>
 export const fusedHeading = (f: FusedAttachment): Heading =>
 	deliveredHeading(Arr.map(f.layout.columns, (c) => c.column))
 
+/**
+ * A program as its channels are checked: the one statement it sends, in one of its forms, how its rows divide into
+ * parts, its parts' delivered relations in their tree, and how the runtime delivers them.
+ */
 export interface ChannelProgram {
-	readonly roots: StatementRoots<FusedStatement>
+	readonly statement: SentStatement
+	readonly parts: StatementParts
+	readonly roots: StatementRoots<DeliveredPart>
 	readonly delivery: ProgramDelivery
 }
-
-/** The channels of a conservative artifact: it fuses no attachment. */
-export const conservativeChannels = (program: ConservativeProgram): ChannelProgram => ({
-	roots: mapTree(program.roots, (s) => ({ ...s, fused: [] })),
-	delivery: program.delivery
-})
 
 const sameType = (a: TypeRef | undefined, b: TypeRef): boolean =>
 	a !== undefined && canonicalEquals(a, b, everyProperty)
@@ -75,7 +77,7 @@ const placeholderIndices = (lexed: Lexed): ReadonlySet<number> | undefined => {
 }
 
 const statementSql = (
-	s: FusedStatement,
+	s: SentStatement,
 	audit: StatementAudit,
 	where: string
 ): ReadonlyArray<VerificationProblem> => {
@@ -175,7 +177,7 @@ const slotProblem = (
 
 /** Each parameter slot's problems against the placeholder type its AST's audit reads for it. */
 const slotProblems = (
-	s: FusedStatement,
+	s: SentStatement,
 	audit: StatementAudit,
 	where: string
 ): ReadonlyArray<VerificationProblem> =>
@@ -242,6 +244,39 @@ const fusedProblems = (
 	return out
 }
 
+/**
+ * A delivered relation's fused attachment columns against its output: each named as no other output column is, and each
+ * its own structure (fusedProblems), its column the target `targets` holds at its place when the relation's lowered
+ * statement is at hand.
+ */
+const fusedColumnProblems = (
+	output: StatementOutput<FusedAttachment>,
+	fused: ReadonlyArray<FusedAttachment>,
+	targets: ReadonlyArray<Target> | undefined,
+	where: string
+): ReadonlyArray<VerificationProblem> => {
+	const out: Array<VerificationProblem> = []
+	/** An attachment's parent key may repeat a name the child also binds; a fused column's name is its own. */
+	const delivered = Arr.map(output.heading, (c) => c.name)
+	const fusedNames = Arr.map(fused, (f) => f.name)
+	if (
+		Arr.some(fusedNames, (name) => delivered.includes(name)) ||
+		new Set(fusedNames).size !== fusedNames.length
+	) {
+		out.push(
+			problem("resultColumns", where, "a fused attachment column name no other output column has")
+		)
+	}
+	for (const [j, f] of fused.entries()) {
+		appendAll(out, fusedProblems(f, delivered, targets?.[output.fusedAt(j)], where))
+	}
+	return out
+}
+
+/**
+ * A program's one part as lowered, before its executable form casts its outputs to texts: its outermost output columns
+ * are its output's, and its fused attachments are columns of an outermost core.
+ */
 const resultProblems = (s: FusedStatement, where: string): ReadonlyArray<VerificationProblem> => {
 	const out: Array<VerificationProblem> = []
 	const names = bodyPositionNames(s.ast.body)
@@ -261,20 +296,8 @@ const resultProblems = (s: FusedStatement, where: string): ReadonlyArray<Verific
 			out.push(problem("resultColumns", `${where} column ${i}`, `the output name ${name}`))
 		}
 	}
-	/** An attachment's parent key may repeat a name the child also binds; a fused column's name is its own. */
-	const delivered = Arr.map(output.heading, (c) => c.name)
-	const fused = s.fused
-	const fusedNames = Arr.map(fused, (f) => f.name)
-	if (
-		Arr.some(fusedNames, (name) => delivered.includes(name)) ||
-		new Set(fusedNames).size !== fusedNames.length
-	) {
-		out.push(
-			problem("resultColumns", where, "a fused attachment column name no other output column has")
-		)
-	}
 	const targets = outerTargets(s.ast.body)
-	if (fused.length > 0 && targets === undefined) {
+	if (s.fused.length > 0 && targets === undefined) {
 		out.push(
 			problem(
 				"attachment",
@@ -283,8 +306,70 @@ const resultProblems = (s: FusedStatement, where: string): ReadonlyArray<Verific
 			)
 		)
 	}
-	for (const [j, f] of fused.entries()) {
-		appendAll(out, fusedProblems(f, delivered, targets?.[output.fusedAt(j)], where))
+	appendAll(out, fusedColumnProblems(output, s.fused, targets, where))
+	return out
+}
+
+/**
+ * The cells of each row a delivered relation's part sends (codec/delivery.ts resultWidth): its output's columns, or,
+ * where one is bytes, its chunked rows' numbers, columns and lengths, as the runtime reads them
+ * (adapter/reader/execution.ts).
+ */
+const cellsOf = (part: DeliveredPart): number => {
+	const output = statementOutput(part.role, part.heading, part.fused)
+	return resultWidth(
+		deliveryOf([
+			...Arr.map(output.heading, (c) => cellKindOf(c.type)),
+			...Arr.map(output.fused, () => "text" as const)
+		])
+	)
+}
+
+/**
+ * How the statement's rows divide into its delivered relations' (lower/parts.ts): one part's statement sends exactly
+ * its one relation's cells; a statement of tagged parts sends the tag and the widest part's cells, a numbered part's
+ * row number after them, and each part is the rows of one relation or more, each of whose rows has the part's cells, and
+ * each relation's rows are one part's.
+ */
+const partProblems = (
+	program: ChannelProgram,
+	where: string
+): ReadonlyArray<VerificationProblem> => {
+	const out: Array<VerificationProblem> = []
+	const relations = flight(program.roots)
+	const width = bodyPositionNames(program.statement.ast.body).length
+	const parts = program.parts
+	if (parts.kind === "one") {
+		const [only, ...more] = relations
+		if (more.length > 0 || only.answer !== 0) {
+			out.push(problem("parts", where, "one delivered relation, whose rows are the statement's"))
+		}
+		if (width !== cellsOf(only)) {
+			out.push(problem("parts", where, `${cellsOf(only)} output columns, not ${width}`))
+		}
+		return out
+	}
+	const sent = Arr.map(parts.parts, (p) => p.width + (p.kind === "numbered" ? 1 : 0))
+	const cells = maxOf(sent, 0)
+	if (width !== cells + 1) {
+		out.push(problem("parts", where, `the tag and ${cells} cells, not ${width} output columns`))
+	}
+	for (const [tag, part] of parts.parts.entries()) {
+		const at = `${where} part ${tag}`
+		const delivering = Arr.filter(relations, (r) => r.answer === tag)
+		if (delivering.length === 0) {
+			out.push(problem("parts", at, "a delivered relation whose rows it is"))
+		}
+		if (Arr.some(delivering, (r) => cellsOf(r) !== part.width)) {
+			out.push(problem("parts", at, `${part.width} cells, those of each relation it delivers`))
+		}
+	}
+	for (const [i, r] of relations.entries()) {
+		if (!Number.isInteger(r.answer) || r.answer < 0 || r.answer >= parts.parts.length) {
+			out.push(
+				problem("parts", `${where} relation ${i}`, "the rows of one of the statement's parts")
+			)
+		}
 	}
 	return out
 }
@@ -294,8 +379,8 @@ const resultProblems = (s: FusedStatement, where: string): ReadonlyArray<Verific
  * own columns (adapter/reader/execution.ts attachedOf).
  */
 const attachmentProblems = (
-	parent: FusedStatement,
-	s: FusedStatement,
+	parent: DeliveredPart,
+	s: DeliveredPart,
 	where: string
 ): ReadonlyArray<VerificationProblem> => {
 	const own = new Set(Arr.map(parent.heading, (c) => c.name))
@@ -363,8 +448,9 @@ const programShape = (program: ChannelProgram): ReadonlyArray<VerificationProble
 /**
  * Codec and result-channel alignment, a property of the test kernel (verify/index.ts checkedLowering).
  *
- * "Codecs and result channels align." Every statement of a lowered query program is checked against its own AST and
- * the channels the runtime binds and decodes through:
+ * "Codecs and result channels align." The one statement a lowered query program sends, in the form `program` holds, is
+ * checked against its own AST and the channels the runtime binds and decodes through, and so is each delivered relation
+ * of its parts:
  *
  * - the AST passes the structural statement audit, the text is exactly the AST's emission, and the text passes the
  *   text audit (sql.ts): never a keyword scan;
@@ -372,42 +458,63 @@ const programShape = (program: ChannelProgram): ReadonlyArray<VerificationProble
  *   is the slot's cast (a scalar's base or domain type, an input array's element type made an array, bigint for an input
  *   count), and every slot has an encoder (every
  *   placeholder carries its cast);
- * - the outermost SELECT's output columns are the statement's output (conservative/types.ts statementOutput: an
- *   attachment's parent key, then the delivered relation's columns, or the private unit column of a zero-column one,
- *   then each fused attachment's), position by position and by name, renamed only there;
- * - an attachment's parent, the statement whose tree holds it, has own columns that hold the parent key, which the
- *   runtime stitches each child to its parent by (no statement depends on another: an attachment computes its
- *   parent's rows itself, conservative/types.ts StatementPlacement);
+ * - its rows divide into its relations' as the runtime divides them (partProblems): one part's statement sends its
+ *   relation's cells, and a statement of tagged parts the tag and the widest part's cells, each part one relation's
+ *   rows or more of the same cells;
+ * - a program of one part keeps that part as lowered, whose outermost output columns are its output
+ *   (conservative/types.ts statementOutput: an attachment's parent key, then the delivered relation's columns, or the
+ *   private unit column of a zero-column one, then each fused attachment's), position by position and by name;
+ * - an attachment's parent, the relation whose tree holds it, has own columns that hold the parent key, which the
+ *   runtime stitches each child to its parent by;
  * - an attachment fused into its parent is an output column after the heading, ARRAY(SELECT ...) of one
- *   field or ARRAY(SELECT to_jsonb(c) ...) of several, correlated on delivered parent columns, each element decodable;
- * - a program is one main statement, or one statement per heading group carrying the union's discriminant;
- * - the optimized and conservative artifacts decode to the same public result: the same rows statements and the same
- *   attachment tree, an attachment fused on one side matching a pipelined statement on the other.
+ *   field or ARRAY(SELECT to_jsonb(c) ...) of several where the part's lowered statement is kept, correlated on
+ *   delivered parent columns, each element decodable;
+ * - a program delivers one main relation, or one relation per heading group carrying the union's discriminant;
+ * - the optimized and conservative artifacts decode to the same public result: the same rows relations and the same
+ *   attachment tree, an attachment fused on one side matching a part of its own on the other.
  *
- * Every alignment problem of a lowered query program, each located at `label` and the statement's position.
+ * Every alignment problem of a lowered query program, each located at `label`, a part's position or a relation's.
  */
 export const channelProblems = (
 	program: ChannelProgram,
 	label: string
 ): ReadonlyArray<VerificationProblem> => {
 	const out: Array<VerificationProblem> = [...programShape(program)]
+	const sent = program.statement
+	const audit = auditStatementDetailed(sent.ast)
+	appendAll(out, statementSql(sent, audit, label))
+	appendAll(out, slotProblems(sent, audit, label))
+	appendAll(out, partProblems(program, label))
+	if (program.parts.kind === "one") {
+		const delivered = program.parts.delivered
+		const where = `${label} part 0`
+		appendAll(out, statementSql(delivered, auditStatementDetailed(delivered.ast), where))
+		appendAll(out, resultProblems(delivered, where))
+	}
 	let position = 0
-	const statement = (s: FusedStatement): string => {
-		const where = `${label} ${position++}`
-		const audit = auditStatementDetailed(s.ast)
-		appendAll(out, statementSql(s, audit, where))
-		appendAll(out, slotProblems(s, audit, where))
-		appendAll(out, resultProblems(s, where))
+	const relation = (part: DeliveredPart): string => {
+		const where = `${label} relation ${position++}`
+		if (program.parts.kind === "tagged") {
+			appendAll(
+				out,
+				fusedColumnProblems(
+					statementOutput(part.role, part.heading, part.fused),
+					part.fused,
+					undefined,
+					where
+				)
+			)
+		}
 		return where
 	}
-	const under = (tree: StatementTree<FusedStatement>): void => {
+	const under = (tree: StatementTree<DeliveredPart>): void => {
 		for (const a of tree.attachments) {
-			appendAll(out, attachmentProblems(tree.statement, a.statement, statement(a.statement)))
+			appendAll(out, attachmentProblems(tree.statement, a.statement, relation(a.statement)))
 			under(a)
 		}
 	}
 	for (const tree of program.roots) {
-		statement(tree.statement)
+		relation(tree.statement)
 		under(tree)
 	}
 	return out
@@ -441,7 +548,7 @@ const fusedShape = (f: FusedAttachment): AttachmentShape => ({
 
 /** The attachments under the rows of the statement `tree` holds: its pipelined attachment statements, and its fused columns. */
 const attachmentsOf = (
-	tree: StatementTree<FusedStatement>
+	tree: StatementTree<DeliveredPart>
 ): ReadonlyMap<NodeId, AttachmentShape> => {
 	const out = new Map<NodeId, AttachmentShape>()
 	for (const a of tree.attachments) {

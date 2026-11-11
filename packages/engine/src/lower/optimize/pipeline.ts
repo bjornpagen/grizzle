@@ -24,15 +24,12 @@ import {
 import { graphPass } from "#compiler/lower/optimize/graph/index.ts"
 import { catalogPass } from "#compiler/lower/shapes/catalog/rewrite.ts"
 import {
-	type DeliveredProgram,
-	type FusedStatement,
 	OptimizedDelivery,
 	type OptimizedDeliveryProgram,
 	optimizedDispatch,
 	type RelationChoice,
 	ShapeState
 } from "#compiler/lower/shapes/index.ts"
-import { arrivalsOf } from "#compiler/lower/shapes/share/index.ts"
 import { type ShapeFacts, shapeFactsFromPlan } from "#compiler/lower/shapes/share/physical.ts"
 import { everyParentTakes } from "#compiler/lower/shapes/take/decorrelate.ts"
 import type { RelationInput } from "#compiler/lower/shapes/take/index.ts"
@@ -52,13 +49,10 @@ type OptimizedSubject =
 	| MembershipLowering
 
 /**
- * The optimized artifact of a query, a derived relation's definition or a read-back: its statements, each with its
- * forms, whose large form is L (the large mode's statement as lowered, or as a template holds it with its spec).
+ * The optimized artifact of a query, a derived relation's definition or a read-back: the one statement it sends, in
+ * its forms, and its parts.
  */
-export interface OptimizedProgram<L = FusedStatement> extends OptimizedDeliveryProgram<
-	RelationChoice,
-	L
-> {
+export interface OptimizedProgram extends OptimizedDeliveryProgram<RelationChoice> {
 	/** The query the rewrites left, whose DAG the statements lower. */
 	readonly query: LogicalQuery
 	readonly plan: DedupPlan
@@ -129,13 +123,13 @@ const factsOf = (plan: DedupPlan, ctx: PassContext, options: OptimizedOptions): 
 		}
 	})
 
-/** The delivery of the rewritten query: each statement with its forms. */
+/** The delivery of the rewritten query: its one statement, in its forms, and its parts. */
 const deliver = (
 	query: LogicalQuery,
 	facts: ShapeFacts,
 	cte: CtePlan,
 	options: OptimizedOptions
-): Result.Result<DeliveredProgram<RelationChoice>, CompileError> =>
+): Result.Result<OptimizedDeliveryProgram<RelationChoice>, CompileError> =>
 	catchRefusal(() => {
 		const state = new ShapeState<RelationInput>("small", cte)
 		const lowering: ConservativeOptions = {
@@ -145,7 +139,7 @@ const deliver = (
 			subject: options.subject.kind === "derivedDefinition" ? { kind: "query" } : options.subject
 		}
 		const cx = new LowerContext(query.dag, lowering, optimizedDispatch(facts, state))
-		return new OptimizedDelivery<never>(cx, facts, state).program(query.dag.roots[0])
+		return new OptimizedDelivery<never>(cx, facts, state).optimizedProgram(query.dag.roots[0])
 	})
 
 /** The optimized lowering of a checked query, as a pass. */
@@ -172,15 +166,8 @@ const optimizedLowering = (options: OptimizedOptions): Pass<LogicalQuery, Optimi
 		if (!delivered.ok) {
 			return delivered
 		}
-		const program = delivered.value
-		/** Each statement with how the runtime has it (shapes/share arrivalsOf). */
-		const arrived = arrivalsOf(query.dag, program.roots)
-		if (!arrived.ok) {
-			return arrived
-		}
 		return Result.ok({
-			...program,
-			roots: arrived.value,
+			...delivered.value,
 			query,
 			plan,
 			cte,

@@ -1,10 +1,12 @@
-import { canonicalTextOf, catchRefusal, Refusal } from "#compiler/core/canonical.ts"
+import { maxOf } from "#compiler/core/array.ts"
+import { canonicalTextOf, catchRefusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import { bytesChunkLength } from "#compiler/core/limits.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { StatementSpec } from "#compiler/ir/products.ts"
+import type { Heading } from "#compiler/ir/rel.ts"
 import type { ConservativeParamSlot, ProgramDelivery } from "#compiler/lower/conservative/types.ts"
 import {
 	type DeliveredColumn,
@@ -13,19 +15,24 @@ import {
 	type PlainQuery,
 	textColumn
 } from "#compiler/lower/delivery.ts"
+import { type PartDivision, partCellColumn, partTagColumn } from "#compiler/lower/parts.ts"
 import type {
+	DeliveredPart,
 	FusedStatement,
-	OptimizedStatement,
-	RelationChoice
+	OptimizedDeliveryProgram,
+	RelationChoice,
+	SentStatement,
+	StatementParts
 } from "#compiler/lower/shapes/index.ts"
+import type { StatementForms } from "#compiler/runtime/lower/forms.ts"
 import type { FusedAttachment } from "#compiler/runtime/lower/fused.ts"
 import { declaredSlotOf } from "#compiler/runtime/lower/slots.ts"
 import {
-	mapTree,
 	type StatementOutput,
 	statementOutput,
 	type StatementRoots
 } from "#compiler/runtime/lower/tree.ts"
+import { wildcardText } from "#compiler/scalar/compute/types.ts"
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import type { OperandBody, OrderItem, Select, SelectBody, Target } from "#compiler/sql/ast.ts"
 import { col, derived, mapTargets, provedCore, target, targetAs } from "#compiler/sql/build.ts"
@@ -95,7 +102,7 @@ export const executableQuery = (statement: FusedStatement<ConservativeParamSlot>
  * statement defines a name another defines.
  */
 export const executableQueryFrom = (
-	statement: FusedStatement<ConservativeParamSlot>,
+	statement: Pick<FusedStatement<ConservativeParamSlot>, "ast" | "role" | "heading" | "fused">,
 	supply: NameSupply
 ): PlainQuery => {
 	const ast = statement.ast
@@ -154,25 +161,99 @@ export const executableQueryFrom = (
 	return deliveredRows(rows, delivered, [], supply, bytesChunkLength.value)
 }
 
-/** A query statement's large form as a template holds it: the large mode's statement and the spec emitted from it. */
+/** A program statement's large form as a template holds it: the large mode's statement and the spec emitted from it. */
 export interface SpecifiedForm {
-	readonly statement: FusedStatement
+	readonly statement: SentStatement
 	readonly spec: StatementSpec
 }
 
 /**
- * A statement of an artifact as the runtime binds, sends and decodes it: the lowered statement, read as an optimized
- * one, its large form with its own spec, and the spec emitted from it.
+ * The statement an artifact sends as the runtime binds, sends and decodes it: the program's statement, its large form
+ * with its own spec, and the spec emitted from it.
  */
-export interface SpecifiedStatement {
-	readonly statement: OptimizedStatement<RelationChoice, SpecifiedForm>
+export interface SpecifiedStatement extends SentStatement {
+	readonly forms: StatementForms<RelationChoice, SpecifiedForm>
 	readonly spec: StatementSpec
 }
 
-/** An artifact as the runtime runs it: its statements, each with its spec, in their tree, and their delivery. */
+/**
+ * An artifact as the runtime runs it: its statement with its spec, how its rows divide into parts, its parts in their
+ * tree, and their delivery.
+ */
 export interface SpecifiedArtifact {
 	readonly delivery: ProgramDelivery
-	readonly roots: StatementRoots<SpecifiedStatement>
+	readonly statement: SpecifiedStatement
+	readonly parts: StatementParts
+	readonly roots: StatementRoots<DeliveredPart>
+}
+
+/**
+ * The output heading of a program's statement as its parts divide it: its one part's output, or the tag and the cells
+ * after it, each a text (lower/parts.ts taggedParts).
+ */
+export const sentHeading = (parts: PartDivision, roots: StatementRoots<DeliveredPart>): Heading => {
+	if (parts.kind === "tagged") {
+		const width = maxOf(
+			parts.parts.map((p) => (p.kind === "numbered" ? p.width + 1 : p.width)),
+			0
+		)
+		return [
+			{ name: partTagColumn, type: wildcardText },
+			...Array.from({ length: width }, (_, i) => ({
+				name: `${partCellColumn}${i + 1}`,
+				type: wildcardText
+			}))
+		]
+	}
+	const [root] = roots
+	return statementOutput(root.statement.role, root.statement.heading, root.statement.fused).heading
+}
+
+/**
+ * The spec of the program statement `statement`, whose rows divide into `parts`, each placeholder filled as `slotOf`
+ * says: its text, already executable, and its output heading.
+ */
+export const sentSpec = <Slot extends ConservativeParamSlot, P>(
+	statement: SentStatement<Slot>,
+	parts: PartDivision,
+	roots: StatementRoots<DeliveredPart>,
+	slotOf: (slot: Slot) => P
+): StatementSpec<P> => ({
+	sql: statement.sql.text,
+	paramSlots: statement.params.map(slotOf),
+	heading: sentHeading(parts, roots),
+	role: "main",
+	dependsOn: []
+})
+
+/** An optimized program as the runtime runs it: its statement and its large form, each with its spec. */
+export const specifiedProgram = (
+	program: OptimizedDeliveryProgram<RelationChoice>,
+	codes: Codebook
+): SpecifiedArtifact => {
+	const slotOf = declaredSlotOf(codes, new CompilePatterns())
+	const { statement, parts, roots } = program
+	const spec = sentSpec(statement, parts, roots, slotOf)
+	const forms = statement.forms
+	return {
+		delivery: program.delivery,
+		statement: {
+			...statement,
+			forms:
+				forms.kind === "one"
+					? forms
+					: {
+							...forms,
+							large: {
+								statement: forms.large,
+								spec: sentSpec(forms.large, parts, roots, slotOf)
+							}
+						},
+			spec
+		},
+		parts,
+		roots
+	}
 }
 
 /** The spec emitted from `statement`, each placeholder filled as `slotOf` says. */
@@ -191,42 +272,3 @@ export const statementSpec = <Slot extends ConservativeParamSlot, P>(
 				dependsOn: statement.dependsOn
 			}))
 	)
-
-/**
- * Every statement of one query artifact, each with the spec emitted from it.
- *
- * Template assembly: a lowered program's statements as the runtime binds, executes and converts them.
- *
- * Each statement of either artifact becomes a StatementSpec:
- *
- * - its executable text: the outermost SELECT casts each delivered column to text, money through numeric (codec
- *   resultTextCasts), and the converters read PostgreSQL's exact text forms, which the runtime takes as the server sent
- *   them and parses none (adapter/wire/session.ts). A fused attachment's array column is cast to text as well, which
- *   is its array literal. Where the outermost SELECT deduplicates, a cast in its target list would deduplicate the
- *   texts rather than the values (1.0 and 1.00 are one numeric and two texts: PostgreSQL's output texts are raw, and
- *   only decode reads them into one form), so the statement is read as a derived table that deduplicates values and
- *   the casts are applied outside it, with its ORDER BY re-applied to the uncast columns;
- * - one encoder per placeholder: a scalar parameter's text codec, a relation parameter's array encoder over the input's
- *   normal facts (codec/recordset.ts normalArray), which writes that placeholder's array alone, and the delivered parent
- *   keys of an attachment, whose texts the runtime reads from the parent statement's rows;
- * - its heading, the statement's output heading: its rows are texts, a rows statement's its heading's columns then one
- *   per fused attachment column, an attachment statement's the parent key columns first, which the runtime stitches
- *   onto its parents; the value's decoder converts them (adapter/reader/execution.ts).
- */
-export const specifiedStatements = <S extends FusedStatement>(
-	roots: StatementRoots<S>,
-	codes: Codebook
-): Result.Result<
-	StatementRoots<{ readonly statement: S; readonly spec: StatementSpec }>,
-	CompileError
-> =>
-	catchRefusal(() => {
-		const slotOf = declaredSlotOf(codes, new CompilePatterns())
-		return mapTree(roots, (statement) => {
-			const spec = statementSpec(statement, slotOf)
-			if (!spec.ok) {
-				throw new Refusal(spec.error)
-			}
-			return { statement, spec: spec.value }
-		})
-	})

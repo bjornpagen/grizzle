@@ -7,7 +7,6 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { conservativeMeta, type RelNode } from "#compiler/ir/rel.ts"
-import type { Arrival, Sent } from "#compiler/lower/shapes/index.ts"
 import { shareKey } from "#compiler/lower/shapes/share/index.ts"
 import {
 	planStatementShares,
@@ -29,14 +28,14 @@ import { present } from "#test/unit/lower/support.ts"
 /**
  * Sub-queries shared by the statements of one program and repeated inside one statement (shapes/share/statements.ts):
  * the carried sub-queries of a stratum's statements, the MATERIALIZED CTEs of one statement, and the attachment
- * statements a delivered program feeds from an earlier one. The first two rules are exhausted over the number of
- * copies:
+ * parts of a program's statement it feeds from an earlier one (R25). The first two rules are exhausted over the
+ * number of copies:
  *
  * - n statements each reading `pick` carry it once, its every copy read through the carrier, exactly when n is more
  *   than one; the highest shared sub-query is chosen, so `first`, which pick reads, is never carried beside it;
  * - a statement reading r copies of an unbounded union computes it once as a CTE exactly when r is more than one;
- * - an attachment of a parent is fed the rows of the first earlier attachment of that parent computing its sub-query,
- *   and every other is sent, the sent statements answering in the order the program holds them.
+ * - an attachment of a parent is fed the rows of the first earlier attachment part of that parent computing its
+ *   sub-query, and every other is a part of its own, the parts in the order the program holds them.
  */
 
 /**
@@ -237,29 +236,29 @@ const attachedJobs = (filters: ReadonlyArray<number>): QueryValue =>
 	)
 
 /**
- * The fixed rule as the oracle: the parent's statement is sent first; each attachment, in the order the program holds
- * them, is fed the rows of the first earlier attachment of its filter, and is sent otherwise, the sent statements
- * answering in that order.
+ * The fixed rule as the oracle: the parent's rows are the statement's first part; each attachment, in the order the
+ * program holds them, is fed the rows of the first earlier attachment of its filter, and is a part of its own
+ * otherwise, the parts in that order: each one's answer, the position of the rows it reads among the parts'.
  */
-const expectedArrivals = (filters: ReadonlyArray<number>): ReadonlyArray<Arrival> => {
-	const arrivals: Array<Arrival> = [{ kind: "sent", answer: 0 }]
-	const firstOf = new Map<number, Sent>()
+const expectedAnswers = (filters: ReadonlyArray<number>): ReadonlyArray<number> => {
+	const answers: Array<number> = [0]
+	const firstOf = new Map<number, number>()
 	for (const filter of filters) {
 		const feeder = firstOf.get(filter)
 		if (feeder === undefined) {
-			const sent: Sent = { kind: "sent", answer: firstOf.size + 1 }
-			firstOf.set(filter, sent)
-			arrivals.push(sent)
+			const own = firstOf.size + 1
+			firstOf.set(filter, own)
+			answers.push(own)
 		} else {
-			arrivals.push({ kind: "fed", feeder })
+			answers.push(feeder)
 		}
 	}
-	return arrivals
+	return answers
 }
 
-describe("attachment statements fed from an earlier one", () => {
+describe("attachment parts fed from an earlier one", () => {
 	it.effect(
-		"feed a later attachment from the first earlier one computing its sub-query, and send every other",
+		"feed a later attachment from the first earlier part computing its sub-query, and place every other",
 		(ctx) =>
 			searched(
 				ctx,
@@ -287,20 +286,22 @@ describe("attachment statements fed from an earlier one", () => {
 								Arr.map(filters, (filter, i) => [`jobs${i}`, filter])
 							)
 							assert.equal(main.attachments.length, filters.length)
-							const arrivals: ReadonlyArray<Arrival> = [
-								main.statement.arrival,
-								...Arr.map(main.attachments, (a) => a.statement.arrival)
+							const answers: ReadonlyArray<number> = [
+								main.statement.answer,
+								...Arr.map(main.attachments, (a) => a.statement.answer)
 							]
 							assert.deepEqual(
-								arrivals,
-								expectedArrivals(
+								answers,
+								expectedAnswers(
 									Arr.map(main.attachments, (a) =>
 										present(filterOf.get(a.attach.name), `the filter of ${a.attach.name}`)
 									)
 								)
 							)
-							for (const arrival of Arr.drop(arrivals, 1)) {
-								c.note(arrival.kind)
+							const placed = new Set<number>()
+							for (const answer of Arr.drop(answers, 1)) {
+								c.note(placed.has(answer) ? "fed" : "sent")
+								placed.add(answer)
 							}
 						})
 				)

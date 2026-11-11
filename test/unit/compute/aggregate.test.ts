@@ -30,7 +30,7 @@ import { numericValue } from "#compiler/scalar/registry.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
 import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
 import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
-import { compileTemplate, testCompile } from "#test/support/compile.ts"
+import { compileTemplate, programAsts, testCompile } from "#test/support/compile.ts"
 import { strictRead } from "#test/support/kernel/strict.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { aggregate } from "#test/support/oracle/reference/aggregate.ts"
@@ -150,7 +150,7 @@ describe("R24 conditional aggregates", () => {
 								)
 								const { optimized, conservative } = template.programs
 								assert.equal(
-									countsByFilter(flight(optimized.roots)),
+									countsByFilter(Arr.map(programAsts(optimized), (ast) => ({ ast }))),
 									counts,
 									`${shape}(cond(p, ${then}, ${otherwise}))`
 								)

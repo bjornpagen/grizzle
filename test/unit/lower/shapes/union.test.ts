@@ -129,7 +129,9 @@ const optimized = (built: LogicalQuery): number => {
 	const state = new ShapeState<RelationInput>("small", emptyCtePlan)
 	const cx = new LowerContext(built.dag, testOptions("Ledger"), optimizedDispatch(facts, state))
 	return Arr.reduce(
-		flight(new OptimizedDelivery<never>(cx, facts, state).program(built.dag.roots[0]).roots),
+		flight(
+			new OptimizedDelivery<never>(cx, facts, state).optimizedProgram(built.dag.roots[0]).roots
+		),
 		0,
 		(n, s) => n + (s.role.kind === "attachment" ? 1 : 0) + s.fused.length
 	)

@@ -3,8 +3,8 @@ import * as Result from "effect/Result"
 import { toResult } from "#adapter/engine.ts"
 import {
 	programRecords,
-	readForm,
 	type RunStatement,
+	runStatement,
 	type StatementRecord
 } from "#adapter/reader/execution.ts"
 import { type GroupOrder, groupOrder } from "#adapter/reader/run.ts"
@@ -37,16 +37,14 @@ import {
 	cursorCodec,
 	cursorTokenMaxLength,
 	rowCell,
-	scalarReader,
-	servedTree
+	scalarReader
 } from "#compiler/plan/runtime.ts"
 import type {
 	ServedChoice,
 	ServedPage,
 	ServedPageProbe,
+	ServedPageProgram,
 	ServedPageRequest,
-	ServedPageStatement,
-	ServedRoots,
 	ServedSpine
 } from "#compiler/plan/serve.ts"
 
@@ -75,24 +73,20 @@ import type {
  * - one value codec per comparator, which writes a delivered edge's boundary values as the texts its probe binds, the
  *   same canonical texts the edge's cursor carries.
  *
- * One statement of a page program as the runtime runs it: its page placeholders, each the page fill the runtime binds
- * (execute.ts), among its read ones, and its per-execution form, when it has one.
+ * The statement of a page program as the runtime runs it: its page placeholders, each the page fill the runtime binds
+ * (execute.ts), among its read ones, its per-execution form, when it has one, and how its rows divide into its parts.
  */
 export type PageRunStatement<F extends PageFill = PageFill> = RunStatement<
-	ServedPageStatement<F>["statement"],
 	PageStatementSlot<F>,
 	ServedChoice<ChoiceInput>
 >
-
-/** A page statement's record (reader/execution.ts programRecords), its page placeholders each filled by one of `F`. */
-export type PageRecord<F extends PageFill = PageFill> = StatementRecord<PageRunStatement<F>>
 
 /** A delivered row's comparison tuple, the comparators' values converted from its cells, in order. */
 export type ComparisonTuple = ReadonlyArray<CarrierHost[Carrier]>
 
 /** A rows statement of a request: its record, and the reading of a row's comparison tuple from its cells. */
 export interface RowsStatement {
-	readonly record: PageRecord
+	readonly record: StatementRecord
 	readonly tuple: (cells: ReadonlyArray<Cell>) => ComparisonTuple
 }
 
@@ -110,11 +104,13 @@ export type PageDelivery =
  */
 export interface RunProgram<V extends PageVariant = PageVariant> {
 	readonly program: ServedPageRequest<V>
+	/** Its statement as it runs. */
+	readonly run: PageRunStatement<VariantFill[V]>
 	/**
-	 * Its statements' records in flight order, what the request delivers, and the layouts of its delivered Rows, one
-	 * per heading group (one for a rows delivery), which the query's decoder binds to.
+	 * Its parts' records in flight order, what the request delivers, and the layouts of its delivered Rows, one per
+	 * heading group (one for a rows delivery), which the query's decoder binds to.
 	 */
-	readonly records: ReadonlyArray<PageRecord<VariantFill[V]>>
+	readonly records: ReadonlyArray<StatementRecord>
 	readonly delivery: PageDelivery
 	readonly layouts: Arr.NonEmptyReadonlyArray<Layout>
 	/** The fetch order of two delivered rows' comparison tuples (fetchComparison). */
@@ -147,8 +143,8 @@ const fetchComparison = (
 }
 
 /**
- * A probe: its program, whose one statement delivers one Boolean column, that statement as it runs, and the column's
- * codec, which reads its answer.
+ * A probe: its served form, whose program's one part delivers one Boolean column, its statement as it runs, and the
+ * column's codec, which reads its answer.
  */
 interface RunProbe<K extends ProbeKind = ProbeKind> {
 	readonly program: ServedPageProbe<K>
@@ -183,29 +179,9 @@ interface PageRuntimeParts {
 	readonly spine: ServedSpine
 }
 
-/** A statement of a page program as it runs: its served spec and placeholders, and its large form's. */
-const pageRun = <F extends PageFill>(served: ServedPageStatement<F>): PageRunStatement<F> => {
-	const { statement, spec } = served
-	const forms = statement.forms
-	return {
-		statement,
-		...readForm(statement, spec),
-		forms:
-			forms.kind === "one"
-				? forms
-				: {
-						kind: "chosen",
-						choices: forms.choices,
-						large: readForm(forms.large.statement, forms.large.spec)
-					},
-		arrival: statement.arrival
-	}
-}
-
-/** The statements of a page program as they run (pageRun), in their tree. */
-const runsOf = <F extends PageFill>(
-	roots: ServedRoots<ServedPageStatement<F>>
-): ServedRoots<PageRunStatement<F>> => Arr.map(roots, (tree) => servedTree(tree, pageRun))
+/** The statement of a page program as it runs: its served spec and placeholders, its large form's, and its parts. */
+const pageRun = <F extends PageFill>(program: ServedPageProgram<F>): PageRunStatement<F> =>
+	runStatement(program.statement, program.parts, (choice) => choice)
 
 /**
  * The reading of a rows statement's comparison tuple: each comparator's column, a column of the statement's heading
@@ -213,11 +189,11 @@ const runsOf = <F extends PageFill>(
  * comparator's value codec.
  */
 const rowsStatement = (
-	record: PageRecord,
+	record: StatementRecord,
 	comparators: ReadonlyArray<readonly [PageComparator, ScalarReader]>
 ): RowsStatement => {
 	const read = Arr.map(comparators, ([c, value]) => ({
-		at: columnPosition(record.run.statement.heading, c.field),
+		at: columnPosition(record.part.heading, c.field),
 		convert: value.convert
 	}))
 	return {
@@ -239,7 +215,7 @@ const rowsStatement = (
 const pageDelivery = (
 	delivery: ServedPageRequest["delivery"],
 	heading: Heading,
-	delivered: Arr.NonEmptyReadonlyArray<PageRecord>,
+	delivered: Arr.NonEmptyReadonlyArray<StatementRecord>,
 	comparators: ReadonlyArray<readonly [PageComparator, ScalarReader]>,
 	codes: Codebook
 ): PageDelivery => {
@@ -248,13 +224,7 @@ const pageDelivery = (
 		? { kind: "concat", groups: rows }
 		: {
 				kind: "groups",
-				order: groupOrder(
-					delivery.order,
-					heading,
-					rows,
-					(r) => r.record.run.statement.heading,
-					codes
-				)
+				order: groupOrder(delivery.order, heading, rows, (r) => r.record.part.heading, codes)
 			}
 }
 
@@ -274,11 +244,7 @@ interface ArtifactParts {
 
 const runArtifact = (page: ServedPage, parts: ArtifactParts): RunArtifact => {
 	const request = <V extends PageVariant>(program: ServedPageRequest<V>): RunProgram<V> => {
-		const { records, delivered } = programRecords(
-			runsOf<VariantFill[V]>(program.roots),
-			parts.spine,
-			parts.codes
-		)
+		const { records, delivered } = programRecords(program.program.roots, parts.spine, parts.codes)
 		const delivery = pageDelivery(
 			program.delivery,
 			parts.heading,
@@ -288,6 +254,7 @@ const runArtifact = (page: ServedPage, parts: ArtifactParts): RunArtifact => {
 		)
 		return {
 			program,
+			run: pageRun<VariantFill[V]>(program.program),
 			records,
 			delivery,
 			layouts: deliveredLayouts(delivery),
@@ -296,7 +263,7 @@ const runArtifact = (page: ServedPage, parts: ArtifactParts): RunArtifact => {
 	}
 	const probe = <K extends ProbeKind>(program: ServedPageProbe<K>): RunProbe<K> => ({
 		program,
-		statement: pageRun(program.statement),
+		statement: pageRun(program.program),
 		answer: scalarReader(program.column.type, parts.codes)
 	})
 	return {

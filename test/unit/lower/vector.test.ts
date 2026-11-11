@@ -20,7 +20,6 @@ import {
 	type RelNode,
 	type ValueRefs
 } from "#compiler/ir/rel.ts"
-import { flight } from "#compiler/lower/conservative/types.ts"
 import type { OptimizedProgram } from "#compiler/lower/optimize/pipeline.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { queryInput } from "#compiler/program/compile.ts"
@@ -31,7 +30,7 @@ import { compute } from "#compiler/scalar/compute/builders.ts"
 import type { OperandSelect, SqlStatement } from "#compiler/sql/ast.ts"
 import { type AstHooks, identityHooks, transformStatement } from "#compiler/sql/transform.ts"
 import { assert, refused, succeeded } from "#test/support/assert.ts"
-import { lowerAligned } from "#test/support/compile.ts"
+import { lowerAligned, programAsts } from "#test/support/compile.ts"
 import { rebuildDag } from "#test/support/dag.ts"
 import { installedCatalog } from "#test/support/evidence.ts"
 import {
@@ -373,14 +372,14 @@ describe("attachments: one search per execution, never one per parent", () => {
 								reached("refused")
 								return
 							}
-							const statements = flight(program.value.roots)
+							const asts = programAsts(program.value)
 							assert.equal(
-								Arr.reduce(statements, 0, (n, st) => n + searchesIn(st.ast)),
+								Arr.reduce(asts, 0, (n, ast) => n + searchesIn(ast)),
 								searchesOf(shaped),
 								"each search computed once"
 							)
 							assert.equal(
-								Arr.reduce(statements, 0, (n, st) => n + searchesPerRow(st.ast)),
+								Arr.reduce(asts, 0, (n, ast) => n + searchesPerRow(ast)),
 								0,
 								"no search under a sublink"
 							)
@@ -479,7 +478,7 @@ describe("refusals in the lowering", () => {
 							const r = lowered(score === "a literal" ? literalScore(q) : q, purpose)
 							if (purpose === "query" && score === "the cosine distance") {
 								assert.equal(
-									Arr.reduce(flight(succeeded(r).roots), 0, (n, s) => n + searchesIn(s.ast)),
+									Arr.reduce(programAsts(succeeded(r)), 0, (n, ast) => n + searchesIn(ast)),
 									1
 								)
 								c.note("admitted")

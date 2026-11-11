@@ -86,7 +86,15 @@ const derivedFixture = (name: string) => {
 }
 
 const readCallKinds = ["execute", "get", "explain", "page"] as const
-type ReadCallFeature = `${(typeof readCallKinds)[number]} ${"one statement" | "several statements"}`
+
+/**
+ * What a read call met: a read of one part or of several, each one statement (lower/shapes/index.ts PartedStatement),
+ * and a page alone or with its probe, the one read whose flight sends a second statement.
+ */
+type ReadCallFeature =
+	| `${"execute" | "explain"} ${"one part" | "several parts"}`
+	| "get one part"
+	| `page ${"alone" | "with its probe"}`
 
 /**
  * A drawn read call: its kind, the query it reads (a page's ordered query), a present or absent key, a page's
@@ -97,7 +105,7 @@ const readCallsGen = array(
 		kind: source.draw(element(readCallKinds)),
 		query: source.draw(
 			element([
-				"one statement",
+				"one relation",
 				"heading groups",
 				"fused attachments",
 				"a pipelined attachment"
@@ -171,8 +179,9 @@ const refreshesGen = array(boolean, { min: 1, max: 4 })
  * Each call runs on an opened Db whose pool is tapped: the Db's own context with a pool of one session whose every
  * byte the tap records, warmed first, so a window holds one call's traffic alone. The contract (README, "Transactions
  * and concurrency" and "Reading") is the oracle of every drawn call: exactly one round trip, the session
- * idle at its end, no cancel; every read, of one statement or of several (heading groups, pipelined attachments, a
- * page's rows and its opposite-flag probe), in one SERIALIZABLE READ ONLY transaction that commits; every write and
+ * idle at its end, no cancel; every read, one statement of one part or of several (heading groups, pipelined
+ * attachments), a page's with its opposite-flag probe after it, in one SERIALIZABLE READ ONLY transaction that commits;
+ * every write and
  * refresh in one SERIALIZABLE transaction that commits; an EXPLAIN in one that rolls back; and each of them behind the
  * Db's prologue (adapter/wire/batch.ts Prologue), the fence's ledger lock and the guard that enters the Db's role, so a
  * flight executes its statements and two more. Db.open sends nothing at all, so a request's first call is its first
@@ -270,7 +279,7 @@ export const roundTripSuite = (): void => {
 										),
 								"array"
 							)
-						/** Ordered pages: one statement each, and one whose attachment computes the page again. */
+						/** Ordered pages: one of one part, and one whose attachment is a part over the page it holds. */
 						const budgets = query(s)
 							.rule((r) => {
 								const { id } = v(W.Task, "task")
@@ -302,16 +311,28 @@ export const roundTripSuite = (): void => {
 								"option"
 							)
 							.orderBy(["id", "asc"])
+						/**
+						 * Each read query, and whether its statement is one part or several: a heading group or a pipelined
+						 * attachment each a part of its own.
+						 */
 						const queries = {
-							"one statement": { member: "oneStatement", params: { account: a1 } },
-							"heading groups": { member: "headingGroups", params: {} },
-							"fused attachments": { member: "fusedAttachments", params: { account: a1 } },
-							"a pipelined attachment": { member: "pipelinedAttachment", params: {} }
+							"one relation": { member: "oneRelation", params: { account: a1 }, parts: "one part" },
+							"heading groups": { member: "headingGroups", params: {}, parts: "several parts" },
+							"fused attachments": {
+								member: "fusedAttachments",
+								params: { account: a1 },
+								parts: "one part"
+							},
+							"a pipelined attachment": {
+								member: "pipelinedAttachment",
+								params: {},
+								parts: "several parts"
+							}
 						} as const
 						return yield* withServedDb(o.installed, o.server.roles.app, {}, ({ ctx, load }) =>
 							Effect.gen(function* () {
 								const loaded = yield* load({
-									oneStatement: reads.automaticTasksFor,
+									oneRelation: reads.automaticTasksFor,
 									headingGroups: payloads,
 									fusedAttachments: reads.taskCards,
 									pipelinedAttachment: accountTaskNotes,
@@ -335,10 +356,13 @@ export const roundTripSuite = (): void => {
 										steerEvery: 16,
 										coverage: required<ReadCallFeature>(
 											[
-												...Arr.map(readCallKinds, (k): ReadCallFeature => `${k} one statement`),
-												...Arr.flatMap(readCallKinds, (k): ReadonlyArray<ReadCallFeature> =>
-													k === "get" ? [] : [`${k} several statements`]
-												)
+												"execute one part",
+												"execute several parts",
+												"explain one part",
+												"explain several parts",
+												"get one part",
+												"page alone",
+												"page with its probe"
 											],
 											{ cases: 40, sense: notesOnly }
 										),
@@ -387,9 +411,17 @@ export const roundTripSuite = (): void => {
 																		})
 																	)
 												const seen = yield* observe(tap, effect)
-												/** The prologue is two Executes more than the call's own statements. */
+												/**
+												 * The prologue is two Executes more than the call's own statements: a read's one, and an
+												 * anchored page's probe after it.
+												 */
 												const statements = frontendCount(seen.window, "E") - prologueStatements
-												assert.ok(statements >= 1, `${call.kind}: statements behind the prologue`)
+												const probed = call.kind === "page" && Option.isSome(anchor)
+												assert.equal(
+													statements,
+													probed ? 2 : 1,
+													`${call.kind}: its statements behind the prologue`
+												)
 												assertFlights(
 													call.kind,
 													seen.window,
@@ -399,9 +431,13 @@ export const roundTripSuite = (): void => {
 														: readFraming
 												)
 												notes.note(
-													statements > 1
-														? `${call.kind} several statements`
-														: `${call.kind} one statement`
+													call.kind === "page"
+														? probed
+															? "page with its probe"
+															: "page alone"
+														: call.kind === "get"
+															? "get one part"
+															: `${call.kind} ${target.parts}`
 												)
 												if (
 													call.kind === "page" &&

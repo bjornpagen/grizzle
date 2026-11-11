@@ -16,6 +16,7 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { regex } from "arkregex"
 import { Array as Arr, Effect, Exit, Formatter, Option, Order, String as Str } from "effect"
+import { partRuns } from "#adapter/reader/execution.ts"
 import { executionInputs, paramCodecs } from "#adapter/reader/relations.ts"
 import { checkedSchema } from "#compiler/analysis/schema.ts"
 import { refinedConstants } from "#compiler/check/refinement/index.ts"
@@ -29,6 +30,7 @@ import type * as Result from "#compiler/core/result.ts"
 import type { Param } from "#compiler/core/wire.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { isRefined } from "#compiler/ir/scalar.ts"
+import { flight } from "#compiler/lower/conservative/types.ts"
 import { constantValidationObjects } from "#compiler/lower/shapes/refined/index.ts"
 import {
 	compileInstallation,
@@ -79,7 +81,7 @@ import { expectConstraint, expectSqlstate, inTransaction } from "#test/support/s
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { ownerSession, Substrate, worldSession } from "#test/support/substrate/substrate.ts"
-import { paramText } from "#test/support/wire.ts"
+import { outputRows, paramText } from "#test/support/wire.ts"
 import { oracleWorld } from "#test/support/worlds.ts"
 
 /**
@@ -987,12 +989,19 @@ layer(Substrate.layer)("refinement validation sites on PostgreSQL 19", (it) => {
 					const tables = installationGroup(installationNamesOf(installation))
 					const session = yield* s.session({ ...ownerSession(), label: "reader" })
 					/**
-					 * An attachment over exact parents is its own statement in the flight (lower/shapes/attach R36): the parent's
-					 * rows, then the attachment's, each a parent's key then a child's fields.
+					 * An attachment over exact parents is a part of its own of the read's one statement (lower/shapes/index.ts
+					 * OptimizedDelivery, R36): the parent's rows, then the attachment's, each a parent's key then a child's
+					 * fields, behind its part's tag (adapter/reader/execution.ts partRuns).
 					 */
 					const attached = compiled(echoComments, name)
-					assert.equal(attached.optimized.length, 2)
-					const spec = defined(attached.optimized[1], "the attachment statement")
+					assert.equal(attached.optimized.length, 1)
+					const spec = defined(attached.optimized[0], "the read's statement")
+					const attachment = defined(
+						Option.getOrUndefined(
+							Arr.findFirst(flight(attached.run.roots), (p) => p.role.kind === "attachment")
+						),
+						"the attachment's part"
+					)
 					const union = compiled(slugsOrEcho, name)
 					const unionSpec = defined(union.optimized[0], "statement")
 					const conservative = defined(union.conservative[0], "statement")
@@ -1056,14 +1065,21 @@ layer(Substrate.layer)("refinement validation sites on PostgreSQL 19", (it) => {
 									}))
 								])
 								const excluded = Arr.filter(facts, (fact) => fact.slug !== slug)
-								const delivered = yield* runPlanned(
+								const sent = yield* runPlanned(
 									session,
 									spec.sql,
 									paramTexts(spec, { slug }, declared(attached)),
 									plan
 								)
+								const delivered = defined(
+									partRuns(
+										attached.run.parts,
+										outputRows(Arr.map(sent, (r) => Arr.map(r, String)))
+									)[attachment.answer],
+									"the attachment's run"
+								)
 								unorderedEqual(
-									Arr.map(delivered, (r) => Arr.map(r, String)),
+									Arr.map(delivered, (r): ReadonlyArray<string> => r),
 									Arr.map(excluded, (fact) => [id(fact.article), id(fact.article), slug, fact.id]),
 									`the attachment under ${slug}, ${plan}`
 								)

@@ -33,7 +33,7 @@ import {
 	installFixture,
 	type MeasureOptions,
 	measureQuery,
-	optimizedStatement,
+	optimizedAst,
 	plainExplain,
 	type QueryMeasure,
 	queryPhases,
@@ -75,8 +75,7 @@ import {
 } from "#bench/query/support/plans.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import { trusted } from "#compiler/core/trusted.ts"
-import type { OptimizedStatement } from "#compiler/lower/shapes/index.ts"
-import type { Expr, FunctionCall, OperandSelect, WindowSpec } from "#compiler/sql/ast.ts"
+import type { Expr, FunctionCall, OperandSelect, Select, WindowSpec } from "#compiler/sql/ast.ts"
 import {
 	identityHooks,
 	inertVisitor,
@@ -145,9 +144,9 @@ const keyedTexts = (rows: ReadonlyArray<TextRow>, key: number, value: number): K
 }
 
 /** Every call of a statement, nested queries included. */
-const callsOf = (statement: OptimizedStatement): ReadonlyArray<FunctionCall> => {
+const callsOf = (statement: Select): ReadonlyArray<FunctionCall> => {
 	const calls: Array<FunctionCall> = []
-	transformStatement(statement.ast, {
+	transformStatement(statement, {
 		...identityHooks,
 		expr: (e) => {
 			if (e.kind === "call") {
@@ -174,9 +173,9 @@ const casesIn = (query: OperandSelect): ReadonlyArray<Extract<Expr, { readonly k
 }
 
 /** Every LATERAL derived table of a statement, by its alias: the rows an operation binds its operands in, once per row. */
-const lateralsOf = (statement: OptimizedStatement): ReadonlyMap<string, OperandSelect> => {
+const lateralsOf = (statement: Select): ReadonlyMap<string, OperandSelect> => {
 	const laterals = new Map<string, OperandSelect>()
-	transformStatement(statement.ast, {
+	transformStatement(statement, {
 		...identityHooks,
 		fromSource: (source) => {
 			if (source.kind === "derived" && source.lateral) {
@@ -287,7 +286,7 @@ export default defineGate({
 						`sum(${s("score")}) FILTER (WHERE ${s("score")} > ${threshold}::float8) AS points FROM ${S} GROUP BY ${s("student")}`
 				)
 				const plan = planOf(m.generated, 0)
-				const statement = optimizedStatement(compiled, 0)
+				const statement = optimizedAst(compiled)
 				const calls = callsOf(statement)
 				const laterals = lateralsOf(statement)
 				/**
@@ -408,7 +407,7 @@ export default defineGate({
 				})
 			}
 			/** The frames of the running aggregates' window calls. */
-			const frames = Arr.flatMap(callsOf(optimizedStatement(running, 0)), (c) =>
+			const frames = Arr.flatMap(callsOf(optimizedAst(running)), (c) =>
 				c.over?.frame === undefined ? [] : [c.over.frame]
 			)
 			const runningFrame = (frame: NonNullable<WindowSpec["frame"]>): boolean =>
@@ -804,8 +803,7 @@ export default defineGate({
 				checks: [
 					mechanism(
 						"one call per fraction over one scan",
-						orderedOnce(discM) &&
-							has(shapeOf(optimizedStatement(disc, 0).ast), "aggregate percentile_disc"),
+						orderedOnce(discM) && has(shapeOf(optimizedAst(disc)), "aggregate percentile_disc"),
 						outline(planOf(discM.generated, 0), 0)
 					),
 					agrees("percentile_disc agrees with the ordinal composition", discM),
@@ -828,8 +826,7 @@ export default defineGate({
 				checks: [
 					mechanism(
 						"one ordered aggregate over one scan",
-						orderedOnce(contM) &&
-							has(shapeOf(optimizedStatement(cont, 0).ast), "aggregate percentile_cont"),
+						orderedOnce(contM) && has(shapeOf(optimizedAst(cont)), "aggregate percentile_cont"),
 						outline(planOf(contM.generated, 0), 0)
 					),
 					equivalence(
@@ -848,7 +845,7 @@ export default defineGate({
 				checks: [
 					mechanism(
 						"one ordered aggregate over one scan",
-						orderedOnce(modeM) && has(shapeOf(optimizedStatement(mode, 0).ast), "aggregate mode"),
+						orderedOnce(modeM) && has(shapeOf(optimizedAst(mode)), "aggregate mode"),
 						outline(planOf(modeM.generated, 0), 0)
 					),
 					agrees("mode() agrees with the count-and-take composition per student", modeM),
@@ -892,10 +889,10 @@ export default defineGate({
 					`JOIN ${St} AS st ON st.${fx.column("Student", "id")} = x.${s("student")} GROUP BY st.${fx.column("Student", "cohort")}`
 			)
 			const directPlan = planOf(directM.generated, 0)
-			const directStatement = optimizedStatement(direct, 0)
-			const directShape = shapeOf(directStatement.ast)
+			const directStatement = optimizedAst(direct)
+			const directShape = shapeOf(directStatement)
 			/** An aggregate over DISTINCT arguments, which deduplicates the argument alone. */
-			const distinctArguments = (statement: OptimizedStatement): number =>
+			const distinctArguments = (statement: Select): number =>
 				Arr.filter(callsOf(statement), (c) => !c.star && c.distinct).length
 			/**
 			 * Whether PostgreSQL's eager aggregation ran a partial aggregate below the join, which the direct form lets it
@@ -966,8 +963,8 @@ export default defineGate({
 					),
 					mechanism(
 						"the unbound-key aggregate deduplicates the complete binding, never the argument alone",
-						distinctArguments(optimizedStatement(distinct, 0)) === 0,
-						`${distinctArguments(optimizedStatement(distinct, 0))} aggregates over DISTINCT arguments`
+						distinctArguments(optimizedAst(distinct)) === 0,
+						`${distinctArguments(optimizedAst(distinct))} aggregates over DISTINCT arguments`
 					),
 					agrees("direct agrees with the composition", directM),
 					equivalence(

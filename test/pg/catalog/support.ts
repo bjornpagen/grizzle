@@ -8,8 +8,7 @@ import type { Certificate, CertificateRule } from "#compiler/ir/certificate.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import { LowerContext } from "#compiler/lower/conservative/context.ts"
-import { Delivery } from "#compiler/lower/conservative/deliver.ts"
-import type { ConservativeProgram } from "#compiler/lower/conservative/types.ts"
+import { ConservativeDelivery } from "#compiler/lower/conservative/deliver.ts"
 import type { CatalogOptions } from "#compiler/lower/shapes/catalog/context.ts"
 import { type CatalogResult, rewriteCatalog } from "#compiler/lower/shapes/catalog/rewrite.ts"
 import { plainType } from "#compiler/scalar/native.ts"
@@ -20,7 +19,12 @@ import type { QueryDesc } from "#test/support/fixtures/ir/desc.ts"
 import { canonicalFacts } from "#test/support/oracle/gen/facts.ts"
 import { genParamDecls } from "#test/support/oracle/gen/query.ts"
 import { type GenSchema, schemaDesc } from "#test/support/oracle/gen/schema.ts"
-import type { LabelledCase, Lowering } from "#test/support/oracle/runner.ts"
+import {
+	type LabelledCase,
+	type Lowering,
+	type SentProgram,
+	sentConservative
+} from "#test/support/oracle/runner.ts"
 import { checkAuthored, checking, checkOptions } from "#test/support/policy.ts"
 
 const int4 = plainType("int4")
@@ -229,20 +233,23 @@ export const catalogLowering = (
 		lower: ({ case: c, names }) =>
 			Result.flatMap(
 				rewriteCatalog(c.query.dag, options),
-				(rewritten): Result.Result<ConservativeProgram, CompileError> => {
+				(rewritten): Result.Result<SentProgram, CompileError> => {
 					results.push(rewritten)
-					return catchRefusal(() =>
-						new Delivery(
-							new LowerContext(
-								rewritten.dag,
-								{
-									names,
-									params: genParamDecls(c.query),
-									subject: { kind: "query" }
-								},
-								catalogDispatch
-							)
-						).program(c.query.dag.roots[0])
+					return Result.flatMap(
+						catchRefusal(() =>
+							new ConservativeDelivery(
+								new LowerContext(
+									rewritten.dag,
+									{
+										names,
+										params: genParamDecls(c.query),
+										subject: { kind: "query" }
+									},
+									catalogDispatch
+								)
+							).program(c.query.dag.roots[0])
+						),
+						sentConservative
 					)
 				}
 			)

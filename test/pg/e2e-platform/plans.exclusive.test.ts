@@ -26,8 +26,8 @@ import type { TestContext } from "vitest"
  * organization over relations under row-level security; and EXPLAINs each statement the runtime sent with its
  * parameters:
  *
- * - a read is one statement for its rows and one for each attachment it declares, at every depth: over exact parents
- *   every attachment is a statement of its own in the read's flight (R36, lower/shapes/index.ts rowsStatement);
+ * - a read is one statement, its rows and each attachment it declares, at every depth, parts of it (lower/shapes/index.ts
+ *   OptimizedDelivery optimizedProgram);
  * - served: planned with sequential and index scans disabled, so that a bitmap scan, which reads only by an index
  *   condition, is the one scan left, every scan of a relation a statement restricts reads by an index condition on an
  *   index the installation planned (test/support/plans.ts);
@@ -54,9 +54,6 @@ import { parsePlanTree, planNodes } from "#bench/harness/explain.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import type { Json } from "#compiler/core/canonical.ts"
 import { trusted } from "#compiler/core/trusted.ts"
-import type { QueryDesc, QueryStageDesc, RuleDesc } from "#compiler/ir/desc.ts"
-import { flight } from "#compiler/lower/conservative/types.ts"
-import { queryInput } from "#compiler/program/compile.ts"
 import { ALLEN } from "#compiler/public/allen.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { pg, type Uuid, uuid } from "#compiler/public/fields.ts"
@@ -71,7 +68,7 @@ import {
 } from "#test/pg/e2e-platform/support.ts"
 import { directSql, literal } from "#test/schedules/platform/support.ts"
 import { assert } from "#test/support/assert.ts"
-import { compileTemplate, testCompile } from "#test/support/compile.ts"
+import { compileTemplate, programAsts, testCompile } from "#test/support/compile.ts"
 import * as P from "#test/support/fixtures/api/platform.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { has, shapeOf } from "#test/support/kernel/shape.ts"
@@ -119,50 +116,6 @@ const volume = (events: number): VolumeSizes => ({
  * - repricedInMonth: the card that starts inside the month is existential, one (event, kind) per such card.
  */
 const deduplicating: ReadonlyArray<ReadName> = ["repricedInMonth"]
-
-/**
- * The attachments a query declares, at every depth: each attach stage's and each arm's own, with every attachment
- * their children declare. Read off the query's Description, the caller's statement of it, never off the compiled
- * program, whose count it checks.
- */
-const declaredAttachments = (q: QueryDesc): number => {
-	const ofArms = (arms: ReadonlyArray<RuleDesc>): number =>
-		Arr.reduce(arms, 0, (n, arm) =>
-			Arr.reduce(arm.attach, n, (m, a) => m + 1 + declaredAttachments(a.child))
-		)
-	const ofStage = (stage: QueryStageDesc): number => {
-		switch (stage.kind) {
-			case "rules":
-				return ofArms(stage.arms)
-			case "recursive":
-				return 0
-			case "union":
-				return ofStage(stage.input) + ofArms(stage.arms)
-			case "attach":
-				return ofStage(stage.input) + 1 + declaredAttachments(stage.attach.child)
-			case "named":
-			case "order":
-			case "take":
-			case "approx":
-				return ofStage(stage.input)
-		}
-	}
-	return ofStage(q.stage)
-}
-
-/**
- * The statements a read is, by the R36 rule (lower/shapes/index.ts rowsStatement): its rows' statement and one per
- * attachment it declares, at every depth, since no platform read's parents are an approximate search, the one case
- * an attachment fuses. invoicePreview is seven: the invoice, its lines, each line's usage and plan detail, its
- * refunds, its payment and its dispute.
- */
-const statementsOf = (read: unknown): number => {
-	const input = queryInput(read)
-	if (!input.ok) {
-		return assert.fail("a workload read's query value")
-	}
-	return 1 + declaredAttachments(input.value.desc)
-}
 
 const unit = (t: bigint) => ({ start: P.Instant(t), end: P.Instant(t + 1n) })
 
@@ -1756,8 +1709,8 @@ const planSuite = (events: number, runs: number) => (ctx: TestContext) =>
 					return assert.fail(`${pr.name} does not compile`)
 				}
 				return Arr.some(
-					flight(template.value.programs.optimized.roots),
-					(st) => has(shapeOf(st.ast), "distinct") || has(shapeOf(st.ast), "distinct on")
+					programAsts(template.value.programs.optimized),
+					(st) => has(shapeOf(st), "distinct") || has(shapeOf(st), "distinct on")
 				)
 					? [pr.name]
 					: []
@@ -1792,20 +1745,11 @@ const planSuite = (events: number, runs: number) => (ctx: TestContext) =>
 						)
 						cx.note(pickIndex(pick, 2) === 0 ? "a week's window" : "a whole month's window")
 						const problems: Array<string> = []
-						/**
-						 * One read's statements as `who` sent them, its read being `read`, judged, the indexes their free plans
-						 * read used.
-						 */
-						const review = (
-							who: string,
-							pr: Probe,
-							read: unknown,
-							sent: Parameters<typeof sentProblems>[2]
-						) =>
+						/** One read's statements as `who` sent them, judged, the indexes their free plans read used. */
+						const review = (who: string, pr: Probe, sent: Parameters<typeof sentProblems>[2]) =>
 							Effect.gen(function* () {
-								const expected = statementsOf(read)
-								if (sent.length !== expected) {
-									problems.push(`${pr.name} as ${who}: ${sent.length} statements, not ${expected}`)
+								if (sent.length !== 1) {
+									problems.push(`${pr.name} as ${who}: ${sent.length} statements, not one`)
 								}
 								const judged = yield* sentProblems(s.admin, `${pr.name} as ${who}`, sent, judge)
 								appendAll(problems, judged.problems)
@@ -1827,7 +1771,7 @@ const planSuite = (events: number, runs: number) => (ctx: TestContext) =>
 										for (const pr of asked) {
 											const before = counts.sent.length
 											yield* (yield* ops(member(loaded, pr.name)).execute(pr.params)).collect
-											yield* review(who, pr, reads[pr.name], counts.sent.slice(before))
+											yield* review(who, pr, counts.sent.slice(before))
 										}
 									})
 								)
@@ -1842,7 +1786,7 @@ const planSuite = (events: number, runs: number) => (ctx: TestContext) =>
 						assert.deepEqual(
 							problems,
 							[],
-							"every read is its rows' statement and its attachments', each planned through its indexes, as billing and as the tenant"
+							"every read is one statement, planned through its indexes, as billing and as the tenant"
 						)
 					})
 			)

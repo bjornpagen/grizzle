@@ -1,7 +1,17 @@
 import { searchInRows } from "#compiler/check/approximate/attach.ts"
+import { appendAll } from "#compiler/core/array.ts"
+import { canonicalEquals, everyProperty, Refusal } from "#compiler/core/canonical.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
+import { defect } from "#compiler/core/invariant.ts"
 import { lateralParentMax } from "#compiler/core/limits.ts"
-import { extendNonEmpty, isNonEmpty, lastNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
+import {
+	concatNonEmpty,
+	extendNonEmpty,
+	isNonEmpty,
+	lastNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "#compiler/core/nonempty.ts"
 import type { CompletedOrder, Heading, NodeOf, RelKind, RelNode } from "#compiler/ir/rel.ts"
 import {
 	columnIn,
@@ -18,31 +28,31 @@ import {
 } from "#compiler/lower/conservative/context.ts"
 
 import {
-	attachmentRows,
 	checkedAttachment,
 	Delivery,
 	groupOrder,
 	groupTake,
 	type HeterogeneousPlan,
 	headingGroupsDelivery,
-	type Place,
 	parentColumnsOf,
-	positions,
 	printedStatement,
 	statementRows
 } from "#compiler/lower/conservative/deliver.ts"
 import { conservativeLowerers } from "#compiler/lower/conservative/dispatch.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
+import { bindLaterally } from "#compiler/lower/conservative/expr/lateral.ts"
 import { orderItemsOf } from "#compiler/lower/conservative/take/order.ts"
-import type {
-	ConservativeParamSlot,
-	ConservativeProgram,
-	ConservativeStatement,
-	DeclaredParamSlot,
-	PageParamSlot,
-	StatementPlacement
+import {
+	type ConservativeParamSlot,
+	type ConservativeProgram,
+	type ConservativeStatement,
+	type DeclaredParamSlot,
+	flight,
+	type PageParamSlot,
+	type ProgramDelivery
 } from "#compiler/lower/conservative/types.ts"
 import type { CtePlan, CteStrategy } from "#compiler/lower/optimize/cte-policy/index.ts"
+import { partQuery, shiftedPart, type TaggedPart, taggedParts } from "#compiler/lower/parts.ts"
 import { aggregateLowerer } from "#compiler/lower/shapes/aggregate/index.ts"
 import { seededAttachment } from "#compiler/lower/shapes/attach-recursive/index.ts"
 import {
@@ -59,6 +69,7 @@ import { recursionLowerer } from "#compiler/lower/shapes/recursion/index.ts"
 import { refineDelivered } from "#compiler/lower/shapes/refined/index.ts"
 import { regionLowerer } from "#compiler/lower/shapes/region/index.ts"
 import { inputSetLowerer } from "#compiler/lower/shapes/relparam/index.ts"
+import { shareKey } from "#compiler/lower/shapes/share/index.ts"
 import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
 import { producerLowerer } from "#compiler/lower/shapes/spans/index.ts"
 import {
@@ -76,17 +87,23 @@ import {
 import { orderIsTotal } from "#compiler/lower/shapes/take/order.ts"
 import { groupRows, unionLowerer } from "#compiler/lower/shapes/union/index.ts"
 import { approximateLowerer } from "#compiler/lower/shapes/vector/index.ts"
+import { executableQuery, executableQueryFrom } from "#compiler/lower/template.ts"
 import { columnType } from "#compiler/runtime/lower/columns.ts"
 import { oneForm, type StatementForms } from "#compiler/runtime/lower/forms.ts"
 import type { FusedAttachment } from "#compiler/runtime/lower/fused.ts"
 import {
 	type AttachedTree,
+	deliveredHeading,
 	mapTree,
+	type RowsRole,
+	type StatementRole,
 	statementOutput,
-	type StatementRoots
+	type StatementRoots,
+	type StatementTree
 } from "#compiler/runtime/lower/tree.ts"
 import {
 	type Cte,
+	type EmittedSql,
 	isSetQuery,
 	type OperandBody,
 	type OperandSelect,
@@ -95,12 +112,23 @@ import {
 } from "#compiler/sql/ast.ts"
 import {
 	and,
+	col,
 	conjunction,
 	cteRead,
 	type DefinedCte,
+	derived,
 	keyedSet,
-	select
+	select,
+	target
 } from "#compiler/sql/build.ts"
+import { emit } from "#compiler/sql/emit.ts"
+import {
+	freshNames,
+	type NameMap,
+	type NameOrigin,
+	NameSupply,
+	namesPast
+} from "#compiler/sql/naming.ts"
 
 /**
  * Which form a per-execution take choice lowers to in one lowering of a statement: the LATERAL form for a small parent
@@ -127,33 +155,16 @@ export interface ShapeChoice<Source extends ChoiceInput = ChoiceInput> {
 export type RelationChoice = ShapeChoice<RelationInput>
 
 /**
- * A statement the runtime sends, as its flight's `answer`th: its position among its program's sent statements in flight
- * order (conservative/types.ts flight), the order the runtime sends them in.
- */
-export interface Sent {
-	readonly kind: "sent"
-	readonly answer: number
-}
-
-/**
- * How the runtime has a statement's rows: it sends the statement, or feeds it the rows of the earlier sent statement
- * that computes the same sub-query (shapes/share arrivalsOf), whose arrival it holds.
- */
-export type Arrival = Sent | { readonly kind: "fed"; readonly feeder: Sent }
-
-/** The arrival of the statement at `position` of a program the runtime sends whole. */
-export const sentAt = (position: number): Sent => ({ kind: "sent", answer: position })
-
-/**
- * A statement of an optimized delivery: the conservative statement shape, with the attachments fused into it as output
- * columns after the heading, in order (none when each is pipelined), as the runtime binds and decodes it.
+ * A statement of an optimized delivery as the conservative statement shape, with the attachments fused into it as
+ * output columns after the heading, in order: the statement a page's conservative artifact places, and what a
+ * statement of a conservative program fuses (none).
  */
 export type FusedStatement<Slot extends ConservativeParamSlot = DeclaredParamSlot> =
 	ConservativeStatement<Slot> & {
 		readonly fused: ReadonlyArray<FusedAttachment>
 	}
 
-/** A conservative statement as an optimized delivery places it: it fuses no attachment and has one form. */
+/** A conservative statement as a page's conservative artifact places it: it fuses no attachment and has one form. */
 export const asDelivered = <C, Slot extends ConservativeParamSlot>(
 	s: ConservativeStatement<Slot>
 ): DeliveredStatement<C, Slot> => ({
@@ -162,79 +173,161 @@ export const asDelivered = <C, Slot extends ConservativeParamSlot>(
 	forms: oneForm
 })
 
-/** A delivered statement with how the runtime has its rows. */
-export const withArrival = <C, Slot extends ConservativeParamSlot>(
-	s: DeliveredStatement<C, Slot>,
-	arrival: Arrival
-): OptimizedStatement<C, FusedStatement<Slot>, Slot> => ({ ...s, arrival })
-
-/**
- * A statement as one optimized delivery lowered it, its small form, with its forms by the per-execution choices of a
- * delivery's choice kind C its shapes made in it: its large form is the same statement lowered in the large mode
- * (OptimizedDelivery.formed).
- */
+/** A statement of a page's conservative artifact in its forms, of choices of kind C: it has one. */
 export type DeliveredStatement<
 	C,
 	Slot extends ConservativeParamSlot = DeclaredParamSlot
 > = FusedStatement<Slot> & { readonly forms: StatementForms<C, FusedStatement<Slot>> }
 
-/** One lowering of a statement in one per-execution mode: the statement, and the choices its lowering made. */
-interface Lowered<C, Slot extends ConservativeParamSlot> {
-	readonly statement: FusedStatement<Slot>
-	readonly choices: ReadonlyArray<C>
+/**
+ * A delivered relation of a program, as the runtime reads it: its role (an attachment's with its parent key), the
+ * heading of the relation, its fused attachments, and `answer`, the position of its rows among the runs of the
+ * program's answer, its part's tag (StatementParts).
+ */
+export interface DeliveredPart {
+	readonly role: StatementRole
+	readonly heading: Heading
+	readonly fused: ReadonlyArray<FusedAttachment>
+	readonly answer: number
 }
 
-/** An optimized delivery's statements, each with its forms. */
-export interface DeliveredProgram<
+/**
+ * A part of a statement of tagged parts as its lowering built it: how the host reads its rows (lower/parts.ts
+ * TaggedPart), and `delivered`, the query whose rows it delivers as lowered, before its executable form casts its
+ * outputs to texts and the statement tags them: a query of its own, its WITH each CTE of the statement it may read, its
+ * operands not yet bound laterally (lower/conservative/expr/lateral.ts bindLaterally), which moves a binding into its
+ * core's FROM and changes no column's type. The type oracle describes it as it describes a statement of one part.
+ */
+export interface LoweredTaggedPart extends TaggedPart {
+	readonly delivered: Select
+}
+
+/**
+ * How the rows of a program's statement divide into its parts: all of them its one part's, the statement its part
+ * delivers as lowered (`delivered`, which an embedding reads, before its executable form casts its outputs to text);
+ * or each behind its tag, the part's position in flight order, each as lowered (LoweredTaggedPart).
+ */
+export type StatementParts<Slot extends ConservativeParamSlot = DeclaredParamSlot> =
+	| { readonly kind: "one"; readonly delivered: FusedStatement<Slot> }
+	| { readonly kind: "tagged"; readonly parts: NonEmptyReadonlyArray<LoweredTaggedPart> }
+
+/** One form of the statement a program sends: its executable AST, its text and its placeholders. */
+export interface SentStatement<Slot extends ConservativeParamSlot = DeclaredParamSlot> {
+	readonly ast: Select
+	readonly sql: EmittedSql
+	readonly params: ReadonlyArray<Slot>
+}
+
+/**
+ * The statement an optimized program sends, in its small form, with its forms by the per-execution choices of kind C
+ * its shapes made: its large form is the same parts lowered in the large mode.
+ */
+export type FormedStatement<
 	C,
 	Slot extends ConservativeParamSlot = DeclaredParamSlot
-> extends ConservativeProgram<Slot> {
-	readonly roots: StatementRoots<DeliveredStatement<C, Slot>>
-}
+> = SentStatement<Slot> & { readonly forms: StatementForms<C, SentStatement<Slot>> }
 
 /**
- * A statement of the optimized artifact: a delivered statement with its forms, by choices of kind C (a relation
- * parameter's count, outside a page; a page's attachments also by its size) with large form L (the large mode's
- * statement, or a template's with its spec), and how the runtime has its rows. A reader of neither names neither.
+ * The one statement a program sends, in its forms, how its rows divide into parts, and each part's delivered relation,
+ * in their tree, in flight order.
  */
-export type OptimizedStatement<
+export interface PartedStatement<
 	C = unknown,
-	L = unknown,
 	Slot extends ConservativeParamSlot = DeclaredParamSlot
-> = FusedStatement<Slot> & {
-	readonly forms: StatementForms<C, L>
-	readonly arrival: Arrival
+> {
+	readonly statement: FormedStatement<C, Slot>
+	readonly parts: StatementParts<Slot>
+	readonly roots: StatementRoots<DeliveredPart>
 }
 
-/**
- * A conservative statement at `position` as the runtime reads an optimized one: it fuses no attachment, has one form
- * and is sent.
- */
-const asOptimizedStatement = <C, L, Slot extends ConservativeParamSlot>(
-	s: ConservativeStatement<Slot>,
-	position: number
-): OptimizedStatement<C, L, Slot> => ({
-	...s,
-	fused: [],
-	forms: oneForm,
-	arrival: sentAt(position)
-})
-
-/** The conservative artifact as the runtime reads an optimized one (asOptimizedStatement). */
-export const deliveredAsOptimized = <C, L, Slot extends ConservativeParamSlot>(
-	program: ConservativeProgram<Slot>
-): OptimizedDeliveryProgram<C, L, Slot> => ({
-	...program,
-	roots: mapTree(program.roots, (s, position) => asOptimizedStatement<C, L, Slot>(s, position))
-})
-
+/** An optimized delivery's program: its parted statement, and how the runtime delivers its parts' rows. */
 export interface OptimizedDeliveryProgram<
 	C = unknown,
-	L = unknown,
 	Slot extends ConservativeParamSlot = DeclaredParamSlot
-> extends ConservativeProgram<Slot> {
-	readonly roots: StatementRoots<OptimizedStatement<C, L, Slot>>
+> extends PartedStatement<C, Slot> {
+	readonly delivery: ProgramDelivery
 }
+
+/**
+ * A conservative program's statements as the parts of one statement, as the runtime runs an optimized program's: the
+ * oracles' baseline. A program of one statement sends that statement's executable query; one of several sends each as
+ * a part (lower/parts.ts), its executable query a CTE whose rows the statement delivers behind its tag, its
+ * placeholders renumbered past the earlier statements' (shiftedPart). Each part still computes its parent key's set
+ * itself and reads nothing of another part. Its lowering named each statement past the one before
+ * (conservative/context.ts beginStatement), so no name is defined twice in it, and the parts' CTEs name past them all.
+ */
+export const partedConservative = <Slot extends ConservativeParamSlot>(
+	roots: StatementRoots<ConservativeStatement<Slot>>
+): PartedStatement<never, Slot> => {
+	const parts = mapTree(roots, (s, answer): DeliveredPart => ({
+		role: s.role,
+		heading: s.heading,
+		fused: [],
+		answer
+	}))
+	const [only, ...others] = flight(roots)
+	if (!isNonEmpty(others)) {
+		const delivered: FusedStatement<Slot> = { ...only, fused: [] }
+		const ast = executableQuery(delivered)
+		return {
+			statement: {
+				ast,
+				sql: emitted(ast, only.sql.nameMap),
+				params: only.params,
+				forms: oneForm
+			},
+			parts: { kind: "one", delivered },
+			roots: parts
+		}
+	}
+	const statements: NonEmptyReadonlyArray<ConservativeStatement<Slot>> = [only, ...others]
+	const supply = new NameSupply(
+		statements.reduce((start, s) => namesPast(s.sql.nameMap, start), freshNames)
+	)
+	const params: Array<Slot> = []
+	const names: Array<NameMap[number]> = []
+	const tagged = mapNonEmpty(statements, (s) => {
+		const shift = shiftedPart(s.ast, s.params, params.length)
+		appendAll(params, shift.params)
+		appendAll(names, s.sql.nameMap)
+		const executable = executableQueryFrom(
+			{ ast: shift.query, role: s.role, heading: s.heading, fused: [] },
+			supply
+		)
+		const { query, columns, shape } = partQuery(executable, supply)
+		const name = supply.relation({ kind: "internal", purpose: "statement part" })
+		return {
+			cte: { name, columns, materialized: undefined, query },
+			shape: { ...shape, delivered: shift.query }
+		}
+	})
+	const { body } = taggedParts(
+		mapNonEmpty(tagged, (p) => ({ name: p.cte.name, columns: p.cte.columns })),
+		0
+	)
+	const ast: Select = {
+		...select(body),
+		with: { recursive: false, ctes: mapNonEmpty(tagged, (p) => p.cte) }
+	}
+	return {
+		statement: {
+			ast,
+			sql: emitted(ast, [...names, ...supply.map()]),
+			params,
+			forms: oneForm
+		},
+		parts: { kind: "tagged", parts: mapNonEmpty(tagged, (p) => p.shape) },
+		roots: parts
+	}
+}
+
+/** A conservative program as one statement of parts (partedConservative), delivered as the program delivers. */
+export const conservativeStatement = <Slot extends ConservativeParamSlot>(
+	program: ConservativeProgram<Slot>
+): OptimizedDeliveryProgram<never, Slot> => ({
+	...partedConservative(program.roots),
+	delivery: program.delivery
+})
 
 /** The CTEs one statement defined while it was lowered: its WITH entries, and each shared node's CTE by node. */
 interface CteLog {
@@ -251,8 +344,8 @@ const freshLog = (): CteLog => ({ ctes: new Set(), defined: new Map() })
 
 /**
  * The attachment whose child a take is lowered in: the nodes of its delivered rows, and the parents those rows are,
- * the parent rows of a pipelined statement or one row for a fused attachment's correlated subquery per delivered parent
- * row.
+ * the parent rows of an attachment's own part or one row for a fused attachment's correlated subquery per delivered
+ * parent row.
  */
 interface AttachmentContext<I extends ChoiceInput> {
 	/** The labels of the delivered rows' nodes, which a correlation's column references name. */
@@ -261,9 +354,9 @@ interface AttachmentContext<I extends ChoiceInput> {
 }
 
 /**
- * The parent set of a pipelined attachment's child: the parent rows' bound. A page's attachment chooses per execution
- * by the requested size, which bounds the delivered page; any other count is known only once the parent statement has
- * run, which shares the child's flight, so the facts' bound fixes the form, and without one the child is read for
+ * The parent set of the child of an attachment of its own part: the parent rows' bound. A page's attachment chooses
+ * per execution by the requested size, which bounds the delivered page; any other count is known only once the parent
+ * rows are, in the child's own statement, so the facts' bound fixes the form, and without one the child is read for
  * every group.
  */
 const parentsOfRows = <I extends ChoiceInput>(bound: RowsBound<I>): ParentSet<I> => {
@@ -318,14 +411,14 @@ export interface ShapeLog<I extends ChoiceInput> {
  * MATERIALIZED or NOT MATERIALIZED as the policy decided, and every use reads it under a fresh alias; every other node
  * is inlined at each use.
  *
- * The delivery schedules a query's statements: the main statement, or one statement per heading group
- * of a heterogeneous union delivered to the host (R21), and the attachments, fused into their parent statement as
- * ARRAY(SELECT ...) where the R36 rule selects it and otherwise pipelined: a statement of their own in the same
- * flight, which computes its parent key's set again (conservative/deliver.ts). A take correlated to a relation
- * parameter, or in a page's attachment to the delivered page, chooses its form per execution by that input's size,
- * known before the flight is sent: the delivery lowers each statement in the small mode and, when that lowering made
- * choices, again in the large mode (OptimizedDelivery.formed). A take correlated to the parent rows of any other
- * pipelined attachment takes the form the parent rows' bound fixes (parentsOf).
+ * The delivery lowers a query's program as one statement of parts: the main rows, or one part per heading group of a
+ * heterogeneous union delivered to the host (R21), and the attachments, fused into their parent's part as
+ * ARRAY(SELECT ...) where the R36 rule selects it and otherwise parts of their own, over their parent's rows the
+ * statement holds once (OptimizedDelivery rowsPart). A take correlated to a relation parameter, or in a page's
+ * attachment to the delivered page, chooses its form per execution by that input's size, known before the statement is
+ * sent: the delivery lowers the statement in the small mode and, when that lowering made choices, again in the large
+ * mode (OptimizedDelivery #program). A take correlated to the parent rows of any other attachment takes the form the
+ * parent rows' bound fixes (parentsOf).
  */
 export class ShapeState<I extends ChoiceInput> implements ShapeLog<I> {
 	readonly cte: CtePlan
@@ -437,8 +530,8 @@ const delivering =
 
 /**
  * The parents a take is evaluated for: the parent set of the attachment being lowered when it correlates to that
- * attachment's delivered rows, the parent rows of a pipelined statement or one row of a fused attachment's per-parent
- * subquery, and otherwise what the DAG and the facts say (take/index.ts parentSetOf).
+ * attachment's delivered rows, the parent rows of an attachment's own part or one row of a fused attachment's
+ * per-parent subquery, and otherwise what the DAG and the facts say (take/index.ts parentSetOf).
  */
 const parentsOf = <I extends ChoiceInput>(
 	cx: LowerContext,
@@ -613,8 +706,8 @@ const dispatchIn = <I extends ChoiceInput>(
 }
 
 /**
- * The dispatch of a delivery's statements, outside any attachment: its rows, and a parent's rows computed again inside
- * an attachment's statement, are lowered as in their own statement.
+ * The dispatch of a delivery's parts, outside any attachment: its rows, and a parent's rows computed again inside an
+ * attachment's part, are lowered as in their own part.
  */
 export const optimizedDispatch = (
 	facts: ShapeFacts,
@@ -650,19 +743,60 @@ interface DeliveredAttachment {
 }
 
 interface RowsSpec<I extends ChoiceInput> {
-	/**
-	 * The rows, lowered in the statement being lowered: the statement's own, or a later statement's computing them
-	 * again.
-	 */
+	/** The rows, lowered in the statement being lowered: delivered by their part, or held for their attachments. */
 	readonly rel: () => OperandSelect
 	readonly heading: Heading
-	/** The node whose rows the statement delivers, for the facts. */
+	/** The node whose rows the part delivers, for the facts. */
 	readonly origin: RelNode
 	readonly attachments: ReadonlyArray<DeliveredAttachment>
 	readonly order: CompletedOrder | undefined
-	readonly statement: StatementPlacement
-	/** How many rows the statement delivers at most. */
+	readonly role: RowsRole
+	/** How many rows the part delivers at most. */
 	readonly bound: RowsBound<I>
+}
+
+/** A part of the statement being lowered: its rows' query in its delivery order, its role, heading and fused columns. */
+interface LoweredPart {
+	readonly query: Select
+	readonly role: StatementRole
+	readonly heading: Heading
+	readonly fused: ReadonlyArray<FusedAttachment>
+}
+
+/** An attachment placed as a part of its own under its parent's rows: the attachment, its parent key and its part. */
+interface PlacedAttachment {
+	readonly attach: NodeOf<"Attach">
+	readonly parentKey: Heading
+	readonly part: DeliveredPart
+}
+
+/** Rows a statement holds once (OptimizedDelivery #held): a read of its columns from position `from` on. */
+interface HeldRows {
+	readonly read: (from: number) => OperandSelect
+}
+
+/**
+ * `query` with the statement entries `entries` leading its WITH, as a statement of its own holds the CTEs its lowering
+ * defined.
+ */
+const withEntries = (query: Select, entries: ReadonlyArray<Cte>): Select =>
+	isNonEmpty(entries)
+		? {
+				...query,
+				with:
+					query.with === undefined
+						? { ctes: entries, recursive: false }
+						: { ...query.with, ctes: extendNonEmpty(entries, query.with.ctes) }
+			}
+		: query
+
+/** The text of the statement `ast` under the names `nameMap`, which a statement the lowering built always prints. */
+const emitted = (ast: Select, nameMap: NameMap): EmittedSql => {
+	const printed = emit(ast, nameMap)
+	if (!printed.ok) {
+		throw new Refusal(printed.error)
+	}
+	return printed.value
 }
 
 /**
@@ -682,75 +816,182 @@ export class OptimizedDelivery<
 		this.state = state
 	}
 
+	/** The parts of the statement being lowered, in flight order. */
+	#placed: Array<LoweredPart> = []
+	/** The attachments placed under each parent's rows in the statement being lowered, by those rows, in flight order. */
+	#siblings = new Map<DeliveredRows<I>, Array<PlacedAttachment>>()
+
+	/** The part `part`, placed at the next position of the statement being lowered, as the runtime reads it. */
+	#place(part: LoweredPart): DeliveredPart {
+		const answer = this.#placed.length
+		this.#placed.push(part)
+		return { role: part.role, heading: part.heading, fused: part.fused, answer }
+	}
+
 	/**
-	 * The statement delivering `query`, a relation of heading `rows`, after the columns its role puts first, with the
-	 * choices its lowering made: the refined output casts, the statement's WITH entries, the public names (the output
-	 * heading, then each fused attachment's column), printed by sql/emit. A zero-column relation delivers its private
-	 * unit column.
+	 * The rows `query` delivers, `width` columns, held once by the statement being lowered: a MATERIALIZED CTE of its
+	 * WITH, defined here, after every CTE `query` reads, which a part and every part under it read in place of
+	 * computing them again.
 	 */
-	#emitted(
-		query: Select,
-		rows: Heading,
-		statement: StatementPlacement,
-		fused: ReadonlyArray<FusedAttachment>
-	): Lowered<ShapeChoice<I | RelationInput>, DeclaredParamSlot | Own> {
-		const output = statementOutput(statement.role, rows, fused)
-		const log = this.state.drain()
-		let shaped = refineDelivered(this.cx, query, output.heading)
-		const logged = [...log.ctes]
-		if (isNonEmpty(logged)) {
-			shaped = {
-				...shaped,
-				with:
-					shaped.with === undefined
-						? { ctes: logged, recursive: false }
-						: { ...shaped.with, ctes: extendNonEmpty(logged, shaped.with.ctes) }
+	#held(query: OperandSelect, width: number, origin: NameOrigin): HeldRows {
+		const cx = this.cx
+		const name = cx.relationAlias(origin)
+		const columns = cx.supply.columns(Array.from({ length: width }, () => origin))
+		this.state.log.ctes.add({ name, columns, materialized: "MATERIALIZED", query })
+		return {
+			read: (from) =>
+				cteRead(cx.relationAlias(origin), {
+					name,
+					columns: columns.slice(from),
+					set: from === 0
+				})
+		}
+	}
+
+	/**
+	 * The program `place` places, in its forms: its parts lowered in one statement in the small mode, each
+	 * per-execution take in its small form, and, when that lowering made choices, lowered again in the large mode as
+	 * the statement's large form. Both forms place the same parts, so they share the parts' tree and how the rows divide
+	 * into them; only the statement, its names and its placeholders differ.
+	 */
+	#program(
+		place: () => StatementRoots<DeliveredPart>
+	): PartedStatement<ShapeChoice<I | RelationInput>, DeclaredParamSlot | Own> {
+		const small = this.#statement("small", place)
+		if (!isNonEmpty(small.choices)) {
+			return {
+				statement: { ...small.sent, forms: oneForm },
+				parts: small.parts,
+				roots: small.roots
 			}
 		}
+		const large = this.#statement("large", place)
 		return {
 			statement: {
-				...statement,
-				...printedStatement(shaped, output.names, this.cx.supply),
-				params: [...this.params.slots],
-				heading: rows,
-				fused
+				...small.sent,
+				forms: { kind: "chosen", choices: small.choices, large: large.sent }
 			},
-			choices: log.choices
+			parts: small.parts,
+			roots: small.roots
 		}
-	}
-
-	/** One lowering of a statement by `lower` in `mode`, with names, placeholders and WITH entries of its own. */
-	#lowered(
-		mode: InputChoiceMode,
-		lower: () => Select,
-		rows: Heading,
-		statement: StatementPlacement,
-		fused: ReadonlyArray<FusedAttachment>
-	): Lowered<ShapeChoice<I | RelationInput>, DeclaredParamSlot | Own> {
-		this.state.begin(mode)
-		this.beginStatement()
-		return this.#emitted(lower(), rows, statement, fused)
 	}
 
 	/**
-	 * The statement in its forms: its query lowered by `lower` in the small mode, each per-execution take
-	 * in its small form, and, when that lowering made choices, lowered again in the large mode, each take in its large
-	 * form, as the statement's large form. Both forms are this placement's, so they share its role and heading; only
-	 * the query, its names and its placeholders differ.
+	 * The one statement of the parts `place` places, lowered in `mode` with names, placeholders and WITH entries of its
+	 * own, every part in that statement.
+	 *
+	 * One part is the statement: its query, its refined output casts, the statement's WITH entries and its public
+	 * names, printed by sql/emit, then its executable form (template.ts executableQueryFrom), exactly as a statement of
+	 * its own. Several parts are each part's executable form as a CTE of the statement after its WITH entries
+	 * (lower/parts.ts partQuery), and the statement's rows are each part's rows behind its tag (lower/parts.ts
+	 * taggedParts). A part's refined outputs are refined over the statement's WITH entries, which the refinement retypes
+	 * with the part, so every part and entry reads one placeholder alike.
 	 */
-	formed(
-		lower: () => Select,
-		rows: Heading,
-		statement: StatementPlacement,
-		fused: ReadonlyArray<FusedAttachment>
-	): DeliveredStatement<ShapeChoice<I | RelationInput>, DeclaredParamSlot | Own> {
-		const small = this.#lowered("small", lower, rows, statement, fused)
-		const choices = small.choices
-		if (!isNonEmpty(choices)) {
-			return { ...small.statement, forms: oneForm }
+	#statement(
+		mode: InputChoiceMode,
+		place: () => StatementRoots<DeliveredPart>
+	): {
+		readonly sent: SentStatement<DeclaredParamSlot | Own>
+		readonly parts: StatementParts<DeclaredParamSlot | Own>
+		readonly roots: StatementRoots<DeliveredPart>
+		readonly choices: ReadonlyArray<ShapeChoice<I | RelationInput>>
+	} {
+		this.state.begin(mode)
+		this.beginStatement()
+		this.#placed = []
+		this.#siblings = new Map()
+		const roots = place()
+		const placed = this.#placed
+		this.#placed = []
+		this.#siblings = new Map()
+		const log = this.state.drain()
+		const cx = this.cx
+		const supply = cx.supply
+		const [only, ...others] = placed
+		if (only === undefined) {
+			throw defect("a program places its rows' part")
 		}
-		const large = this.#lowered("large", lower, rows, statement, fused)
-		return { ...small.statement, forms: { kind: "chosen", choices, large: large.statement } }
+		if (!isNonEmpty(others)) {
+			const output = statementOutput(only.role, only.heading, only.fused)
+			const printed = printedStatement(
+				withEntries(refineDelivered(cx, only.query, output.heading), [...log.ctes]),
+				output.names,
+				supply
+			)
+			const executable = executableQueryFrom(
+				{ ast: printed.ast, role: only.role, heading: only.heading, fused: only.fused },
+				new NameSupply(namesPast(printed.sql.nameMap, freshNames))
+			)
+			const params = [...this.params.slots]
+			return {
+				sent: { ast: executable, sql: emitted(executable, printed.sql.nameMap), params },
+				parts: {
+					kind: "one",
+					delivered: {
+						...printed,
+						params,
+						role: only.role,
+						heading: only.heading,
+						fused: only.fused,
+						dependsOn: []
+					}
+				},
+				roots,
+				choices: log.choices
+			}
+		}
+		let entries: ReadonlyArray<Cte> = [...log.ctes]
+		const parts = mapNonEmpty([only, ...others], (part) => {
+			const output = statementOutput(part.role, part.heading, part.fused)
+			const refined = refineDelivered(cx, withEntries(part.query, entries), output.heading)
+			const refinedWith = refined.with?.ctes ?? []
+			const own = refinedWith.slice(entries.length)
+			entries = refinedWith.slice(0, entries.length)
+			const executable = executableQueryFrom(
+				{
+					ast: {
+						...refined,
+						with:
+							isNonEmpty(own) && refined.with !== undefined
+								? { ...refined.with, ctes: own }
+								: undefined
+					},
+					role: part.role,
+					heading: part.heading,
+					fused: part.fused
+				},
+				supply
+			)
+			const { query, columns, shape } = partQuery(executable, supply)
+			const name = supply.relation({ kind: "internal", purpose: "statement part" })
+			return {
+				cte: { name, columns, materialized: undefined, query },
+				shape: { ...shape, delivered: refined }
+			}
+		})
+		const { body } = taggedParts(
+			mapNonEmpty(parts, (p) => ({ name: p.cte.name, columns: p.cte.columns })),
+			0
+		)
+		const ast = bindLaterally(
+			{
+				...select(body),
+				with: {
+					recursive: false,
+					ctes: concatNonEmpty(
+						entries,
+						mapNonEmpty(parts, (p) => p.cte)
+					)
+				}
+			},
+			supply
+		)
+		return {
+			sent: { ast, sql: emitted(ast, supply.map()), params: [...this.params.slots] },
+			parts: { kind: "tagged", parts: mapNonEmpty(parts, (p) => p.shape) },
+			roots,
+			choices: log.choices
+		}
 	}
 
 	/**
@@ -780,125 +1021,159 @@ export class OptimizedDelivery<
 		}
 	}
 
-	override program(
+	/** The program delivering `root`'s rows, its attachments' and its heading groups', as one statement (`#program`). */
+	optimizedProgram(
 		root: RelNode
-	): DeliveredProgram<ShapeChoice<I | RelationInput>, DeclaredParamSlot | Own> {
+	): OptimizedDeliveryProgram<ShapeChoice<I | RelationInput>, DeclaredParamSlot | Own> {
 		const cx = this.cx
 		const plan = this.heterogeneousPlan(root)
 		if (plan !== undefined) {
-			return { roots: this.headingGroups(plan), delivery: headingGroupsDelivery(plan) }
+			return {
+				...this.#program(() => this.headingGroups(plan)),
+				delivery: headingGroupsDelivery(plan)
+			}
 		}
 		const order = root.kind === "OrderedResult" ? root.order : undefined
 		const rows = root.kind === "OrderedResult" ? root.input : root
 		const spine = this.spine(rows)
-		const main = this.rowsStatement({
-			rel: () => cx.lower(rows, emptyEnv),
-			heading: rows.heading,
-			origin: rows,
-			attachments: spine.attachments.map((attach) => ({ attach, spine: spine.nodes })),
-			order,
-			statement: { role: { kind: "main" }, dependsOn: [] },
-			bound: rowsBoundOf(this.facts, rows)
+		const program = this.#program(() => [
+			this.rowsPart({
+				rel: () => cx.lower(rows, emptyEnv),
+				heading: rows.heading,
+				origin: rows,
+				attachments: spine.attachments.map((attach) => ({ attach, spine: spine.nodes })),
+				order,
+				role: { kind: "main" },
+				bound: rowsBoundOf(this.facts, rows)
+			})
+		])
+		return { ...program, delivery: { kind: "rows" } }
+	}
+
+	/**
+	 * A page's program of the parts `place` places (shapes/page/compile.ts), as one statement (`#program`): its rows
+	 * parts (placedRows) and their attachments' (pipelinedPart), over the page's rows the statement holds (heldRows).
+	 */
+	pageProgram(
+		place: () => StatementRoots<DeliveredPart>
+	): PartedStatement<ShapeChoice<I | RelationInput>, DeclaredParamSlot | Own> {
+		return this.#program(place)
+	}
+
+	/** The part delivering `query`, rows of heading `heading` in their delivery order, of role `role`, placed next. */
+	placedRows(query: Select, heading: Heading, role: RowsRole): DeliveredPart {
+		return this.#place({ query, role, heading, fused: [] })
+	}
+
+	/**
+	 * The rows `query` delivers, of heading `heading`, held once by the statement being lowered (`#held`), as the parts
+	 * of the attachments over them read them, at most `bound` of them.
+	 */
+	heldRows(
+		query: OperandSelect,
+		heading: Heading,
+		origin: RelNode,
+		bound: RowsBound<I>
+	): DeliveredRows<I> {
+		const held = this.#held(query, deliveredHeading(heading).length, {
+			kind: "node",
+			node: origin.id
 		})
-		const place = positions()
-		const statement = place(main.build)
-		return {
-			roots: [{ statement, attachments: main.attachments(place) }],
-			delivery: { kind: "rows" }
-		}
+		return { ...statementRows(this.cx, heading, origin, () => held.read(0)), bound }
 	}
 
 	/**
 	 * The scope of the child of an attachment `context` describes. The delivery's own context lowers outside any
-	 * attachment (optimizedDispatch), so a parent's rows computed again inside an attachment's statement, through it,
-	 * are lowered as in their own statement.
+	 * attachment (optimizedDispatch), so a parent's rows computed again inside an attachment's part, through it, are
+	 * lowered as in their own part.
 	 */
 	inAttachment(context: AttachmentContext<I>): LowerContext {
 		return this.cx.withDispatch(dispatchIn(this.facts, this.state, context))
 	}
 
 	/**
-	 * A rows statement and its attachments (R36): fused as columns of the statement, which `build` builds at the
-	 * position it is placed at, or each a pipelined statement under it, which `attachments` places once the rows
-	 * statement is placed.
+	 * A rows part and its attachments (R36): fused as columns of the part, or each a part of its own in the same
+	 * statement after it.
 	 *
 	 * An attachment is the nest operator: for each delivered parent fact, the set of its correlated child facts; the
 	 * parent set is unchanged, never filtered, multiplied or reordered. Two lowerings deliver identical nested results,
 	 * chosen by the rule and never by the caller:
 	 *
-	 * - pipelined: one statement per attached query, in the parent statement's flight and snapshot, which computes the
-	 *   set of its parent key's values again as a derived table of its own (conservative/deliver.ts parentKeysSource);
-	 *   the library stitches children onto parents by key;
-	 * - fused: the child inside the parent statement as `ARRAY(SELECT ...)`, an empty array rather than NULL, directly
-	 *   for a single field and as `ARRAY(SELECT to_jsonb(...))` for several, decoded by the attachment's codec
+	 * - a part of its own: the child's facts correlated to each parent key of the parent's rows. A parent with
+	 *   attachments of this kind holds its rows once, a MATERIALIZED CTE of the statement (`#held`), which its own part
+	 *   delivers and every attachment under it reads its parent key's set from (conservative/deliver.ts
+	 *   parentKeysSource), so no part computes a relation above it again; the library stitches children onto parents by
+	 *   key, each part's rows read behind its tag;
+	 * - fused: the child inside the parent's part as `ARRAY(SELECT ...)`, an empty array rather than NULL, directly for a
+	 *   single field and as `ARRAY(SELECT to_jsonb(...))` for several, decoded by the attachment's codec
 	 *   (runtime/lower/fused.ts), a child whose correlated columns the parent row supplies included.
 	 *
 	 * A LEFT JOIN with padded columns is never emitted. Parent predicates stay on the parent and are never pushed into a
-	 * child, which correlates to delivered parents only: the fused column is computed over the parent's delivered rows,
-	 * read as a derived table, so the parent's plan is the plan it would have alone and an attachment on a page is
-	 * evaluated over the delivered page only.
+	 * child, which correlates to delivered parents only, so the parent's plan is the plan it would have alone and an
+	 * attachment on a page is evaluated over the delivered page only.
 	 *
-	 * Every attachment is pipelined, its own statement in the same round trip, unless the statement's rows read an
-	 * approximate search: then every one is fused, since a pipelined statement computes its parent's key set again,
-	 * which would run the search a second time, and two HNSW searches in one snapshot need not retrieve the same set. A
-	 * child that must be a statement of its own (check/approximate/attach.ts pipelinedOnly: a recursive child, seeded once
-	 * from the parent keys (R37, attach-recursive), a child over an approximate source, evaluated once per execution,
-	 * and a child with attachments of its own, a heterogeneous union or a bytes column, whose values travel in chunks
-	 * (codec/delivery.ts), each delivering more than one array can carry) never sits under rows that read a search: the
-	 * lowering takes only an admitted query (check/index.ts AdmittedQuery). No width or count decides the form: a
-	 * pipelined statement's cost is one more statement in the flight, never a different answer.
+	 * Every attachment is a part of its own unless the parent's rows read an approximate search: then every one is
+	 * fused, since the search would be read again by the attachments' parts, and two HNSW searches in one snapshot need
+	 * not retrieve the same set. A child that must be a part of its own (check/approximate/attach.ts pipelinedOnly: a
+	 * recursive child, seeded once from the parent keys (R37, attach-recursive), a child over an approximate source,
+	 * evaluated once per execution, and a child with attachments of its own, a heterogeneous union or a bytes column,
+	 * whose values travel in chunks (codec/delivery.ts), each delivering more than one array can carry) never sits
+	 * under rows that read a search: the lowering takes only an admitted query (check/index.ts AdmittedQuery). No width
+	 * or count decides the form.
 	 */
-	rowsStatement(spec: RowsSpec<I>): {
-		readonly build: (
-			position: number
-		) => DeliveredStatement<ShapeChoice<I | RelationInput>, DeclaredParamSlot | Own>
-		readonly attachments: (
-			place: Place
-		) => ReadonlyArray<
-			AttachedTree<DeliveredStatement<ShapeChoice<I | RelationInput>, DeclaredParamSlot | Own>>
-		>
-	} {
+	rowsPart(spec: RowsSpec<I>): StatementTree<DeliveredPart> {
 		const cx = this.cx
 		const searches = searchInRows(spec.origin) !== undefined
 		const fused = searches ? spec.attachments : []
 		const pipelined = searches ? [] : spec.attachments
-		/** withFusedAttachments reads every fused child over one spine: the delivered rows' nodes. */
-		const spine = [...new Set(fused.flatMap((a) => a.spine))]
-		const lowered = (): Select => {
+		if (!isNonEmpty(pipelined)) {
+			/** withFusedAttachments reads every fused child over one spine: the delivered rows' nodes. */
+			const spine = [...new Set(fused.flatMap((a) => a.spine))]
 			const rel = spec.rel()
-			return fused.length === 0
-				? this.deliveredRows(rel, spec.heading, spec.origin, spec.order)
-				: withFusedAttachments(
-						this.inAttachment({
-							spine: new Set(spine.map((n) => n.id)),
-							parents: { kind: "bounded", max: 1n }
-						}),
-						rel,
-						spec.rel,
-						spec.heading,
-						spec.origin,
-						spine,
-						fused.map((a) => a.attach),
-						this.facts,
-						spec.order
-					).query
-		}
-		const columns = fused.map((a) => fusedDescription(cx, a.attach, a.spine, spec.heading))
-		return {
-			build: () => this.formed(lowered, spec.heading, spec.statement, columns),
-			attachments: (place) => {
-				const rows: DeliveredRows<I> = {
-					...statementRows(cx, spec.heading, spec.origin, spec.rel),
-					bound: spec.bound
-				}
-				return pipelined.map((a) => this.pipelined(place, a.attach, a.spine, rows))
+			const query =
+				fused.length === 0
+					? this.deliveredRows(rel, spec.heading, spec.origin, spec.order)
+					: withFusedAttachments(
+							this.inAttachment({
+								spine: new Set(spine.map((n) => n.id)),
+								parents: { kind: "bounded", max: 1n }
+							}),
+							rel,
+							spec.rel,
+							spec.heading,
+							spec.origin,
+							spine,
+							fused.map((a) => a.attach),
+							this.facts,
+							spec.order
+						).query
+			const columns = fused.map((a) => fusedDescription(cx, a.attach, a.spine, spec.heading))
+			return {
+				statement: this.#place({ query, role: spec.role, heading: spec.heading, fused: columns }),
+				attachments: []
 			}
+		}
+		const origin = { kind: "node", node: spec.origin.id } as const
+		const held = this.#held(spec.rel(), deliveredHeading(spec.heading).length, origin)
+		const statement = this.#place({
+			query: this.deliveredRows(held.read(0), spec.heading, spec.origin, spec.order),
+			role: spec.role,
+			heading: spec.heading,
+			fused: []
+		})
+		const rows: DeliveredRows<I> = {
+			...statementRows(cx, spec.heading, spec.origin, () => held.read(0)),
+			bound: spec.bound
+		}
+		return {
+			statement,
+			attachments: pipelined.map((a) => this.pipelinedPart(a.attach, a.spine, rows))
 		}
 	}
 
 	/**
-	 * One pipelined attachment's statement in the statement being lowered, or its seeded recursive form (R37), with
-	 * its child lowered over the parent rows' bound and its parent key `parentKey`.
+	 * One pipelined attachment's rows in the part being lowered, or its seeded recursive form (R37), with its child
+	 * lowered over the parent rows' bound and its parent key `parentKey`.
 	 */
 	pipelinedQuery(
 		attach: NodeOf<"Attach">,
@@ -917,59 +1192,145 @@ export class OptimizedDelivery<
 	}
 
 	/**
-	 * One pipelined attachment, a statement of its own in its parent's flight that computes its parent key's set again;
-	 * its child's own attachments are pipelined after it, over its key sets. Those rows read no search: the query is
-	 * admitted (check/index.ts AdmittedQuery).
+	 * One pipelined attachment, a part of its own in its parent's statement over its parent key's set; its child's own
+	 * attachments are parts after it, over its rows, which it then holds once (`#held`) and delivers from. Those rows
+	 * read no search: the query is admitted (check/index.ts AdmittedQuery).
 	 */
-	pipelined(
-		place: Place,
+	pipelinedPart(
 		attach: NodeOf<"Attach">,
 		spine: ReadonlyArray<RelNode>,
 		rows: DeliveredRows<I>
-	): AttachedTree<DeliveredStatement<ShapeChoice<I | RelationInput>, DeclaredParamSlot | Own>> {
+	): AttachedTree<DeliveredPart> {
 		const cx = this.cx
 		this.oneHeadingAttached(attach)
 		const child = attach.child
 		const parentKey = parentColumnsOf(cx, attach, spine, rows.heading)
-		const statement = place(() =>
-			this.formed(
-				() =>
-					checkedAttachment(
-						cx,
-						attach,
-						this.pipelinedQuery(attach, spine, rows, parentKey).query,
-						parentKey,
-						child.heading,
-						rows
-					),
-				child.heading,
-				{ role: { kind: "attachment", parentKey }, dependsOn: [] },
-				[]
-			)
-		)
-		const childSpine = this.spine(attach.child)
-		const childRows: DeliveredRows<I> = {
-			...attachmentRows(child.heading, (demand) =>
-				this.pipelinedQuery(attach, spine, rows, parentKey).keys(demand)
-			),
-			bound: boundTimes(rows.bound, this.facts.maxCard(attach.child))
+		const role: StatementRole = { kind: "attachment", parentKey }
+		const childSpine = this.spine(child)
+		const siblings = this.#siblings.get(rows) ?? []
+		this.#siblings.set(rows, siblings)
+		const placed = (part: DeliveredPart): DeliveredPart => {
+			siblings.push({ attach, parentKey, part })
+			return part
 		}
-		const attachments = childSpine.attachments.map((nested) =>
-			this.pipelined(place, nested, childSpine.nodes, childRows)
+		if (!isNonEmpty(childSpine.attachments)) {
+			const feeder = siblings.find((s) => this.#sameRows(s, attach, parentKey))
+			if (feeder !== undefined) {
+				return {
+					statement: { role, heading: child.heading, fused: [], answer: feeder.part.answer },
+					attach,
+					attachments: []
+				}
+			}
+			const built = this.pipelinedQuery(attach, spine, rows, parentKey)
+			return {
+				statement: placed(
+					this.#place({
+						query: checkedAttachment(cx, attach, built.query, parentKey, child.heading, rows),
+						role,
+						heading: child.heading,
+						fused: []
+					})
+				),
+				attach,
+				attachments: []
+			}
+		}
+		const built = this.pipelinedQuery(attach, spine, rows, parentKey)
+		const origin = { kind: "node", node: attach.id } as const
+		const childColumns = deliveredHeading(child.heading)
+		const held = this.#held(
+			checkedAttachment(cx, attach, built.rows, parentKey, child.heading, rows),
+			parentKey.length + childColumns.length,
+			origin
 		)
-		return { statement, attach, attachments }
+		const statement = placed(
+			this.#place({
+				query: this.#heldAttachment(held, parentKey, childColumns, built.order, origin),
+				role,
+				heading: child.heading,
+				fused: []
+			})
+		)
+		const childRows: DeliveredRows<I> = {
+			...statementRows(cx, child.heading, child, () => held.read(parentKey.length)),
+			bound: boundTimes(rows.bound, this.facts.maxCard(child))
+		}
+		return {
+			statement,
+			attach,
+			attachments: childSpine.attachments.map((nested) =>
+				this.pipelinedPart(nested, childSpine.nodes, childRows)
+			)
+		}
 	}
 
-	/** One statement per heading group (R21), each with its pipelined attachments' statements (groupSpec). */
-	headingGroups(
-		plan: HeterogeneousPlan
-	): StatementRoots<DeliveredStatement<ShapeChoice<I | RelationInput>, DeclaredParamSlot | Own>> {
-		const place = positions()
-		return mapNonEmpty(plan.union.groups, (group, gi) => {
-			const built = this.rowsStatement(this.groupSpec(plan, gi, group))
-			const statement = place(built.build)
-			return { statement, attachments: built.attachments(place) }
-		})
+	/**
+	 * Whether the attachment placed as `placed` delivers the rows `attach` would, both under one parent's rows (R25):
+	 * one parent key, each correlated to the same child column, one delivered type and order, a child of one heading,
+	 * and children of one share key (share/index.ts shareKey), so in one snapshot they compute the same set. The share
+	 * keys are read only where the rest agree.
+	 */
+	#sameRows(placed: PlacedAttachment, attach: NodeOf<"Attach">, parentKey: Heading): boolean {
+		const other = placed.attach
+		if (
+			other.delivered !== attach.delivered ||
+			!canonicalEquals(other.order, attach.order, everyProperty) ||
+			!canonicalEquals(other.correlation, attach.correlation, everyProperty) ||
+			!canonicalEquals(placed.parentKey, parentKey, everyProperty) ||
+			!canonicalEquals(other.child.heading, attach.child.heading, everyProperty)
+		) {
+			return false
+		}
+		return this.#shareKey(other.child) === this.#shareKey(attach.child)
+	}
+
+	/** The share key of `child` within the delivery's DAG; a DAG it cannot key is refused. */
+	#shareKey(child: RelNode): string {
+		const key = shareKey(this.cx.dag, child)
+		if (!key.ok) {
+			throw new Refusal(key.error)
+		}
+		return key.value
+	}
+
+	/**
+	 * An attachment part's rows from the rows `held` holds, the parent key's columns `parentKey` then the child's
+	 * `child`, in the attachment's order (PipelinedAttachment order).
+	 */
+	#heldAttachment(
+		held: HeldRows,
+		parentKey: Heading,
+		child: Heading,
+		order: PipelinedAttachment["order"],
+		origin: NameOrigin
+	): Select {
+		const cx = this.cx
+		const alias = cx.relationAlias(origin)
+		const keys = parentKey.map((c) => ({ name: c.name, column: cx.supply.column(origin) }))
+		const own = child.map((c) => ({ name: c.name, column: cx.supply.column(origin) }))
+		const columns = [...keys, ...own].map((c) => c.column)
+		return {
+			...select(
+				keyedSet(
+					columns.map((c) => target(col(alias, c))),
+					[derived(held.read(0), alias, columns, false)],
+					undefined,
+					"an attachment's held rows"
+				)
+			),
+			orderBy: order(
+				new Map(keys.map((k) => [k.name, col(alias, k.column)])),
+				new Map(own.map((c) => [c.name, col(alias, c.column)]))
+			)
+		}
+	}
+
+	/** One part per heading group (R21), each with its attachments' parts (groupSpec). */
+	headingGroups(plan: HeterogeneousPlan): StatementRoots<DeliveredPart> {
+		return mapNonEmpty(plan.union.groups, (group, gi) =>
+			this.rowsPart(this.groupSpec(plan, gi, group))
+		)
 	}
 
 	/**
@@ -1055,7 +1416,7 @@ export class OptimizedDelivery<
 			origin: union,
 			attachments,
 			order: groupOrder(plan),
-			statement: { role: { kind: "headingGroup", group: gi }, dependsOn: [] },
+			role: { kind: "headingGroup", group: gi },
 			bound: rowsBoundOf(this.facts, union)
 		}
 	}

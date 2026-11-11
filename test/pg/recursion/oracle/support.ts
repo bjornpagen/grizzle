@@ -31,13 +31,14 @@ import { mutants } from "#test/support/oracle/mutants/mutants.ts"
 import {
 	type CheckOptions,
 	comparisonFailed,
-	conservative,
+	conservativeProgram,
 	defaultRunOptions,
 	type Lowering,
 	oracleCheck,
 	type OracleOutcome,
 	runOracle,
-	type RunnerSide
+	type RunnerSide,
+	sentConservative
 } from "#test/support/oracle/runner.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -103,13 +104,16 @@ export const recursiveEquivalence = <C extends RecursiveCase>(
 const atRoot = (name: string, root: (c: QueryCase) => RelNode): Lowering => ({
 	name,
 	lower: ({ case: c, names }) =>
-		lowerConservative(
-			{ dag: c.query.dag, root: root(c) },
-			{
-				names,
-				params: genParamDecls(c.query),
-				subject: { kind: "query" }
-			}
+		Result.flatMap(
+			lowerConservative(
+				{ dag: c.query.dag, root: root(c) },
+				{
+					names,
+					params: genParamDecls(c.query),
+					subject: { kind: "query" }
+				}
+			),
+			sentConservative
 		)
 })
 
@@ -203,9 +207,9 @@ const recursionMutant = (
 export const feedbackUnionAllMutant: Lowering = {
 	name: "mutant feedback UNION ALL",
 	lower: (input) =>
-		Result.flatMap(conservative.lower(input), (p) =>
+		Result.flatMap(conservativeProgram(input), (p) =>
 			Result.flatMap(mutants.V6.mutate(p, input.case), (plain) =>
-				Result.map(recursionMutant(plain.program, false), (m) => m.program)
+				Result.flatMap(recursionMutant(plain.program, false), (m) => sentConservative(m.program))
 			)
 		)
 }
@@ -217,8 +221,8 @@ export const feedbackUnionAllMutant: Lowering = {
 export const bagRecursion: Lowering = {
 	name: "mutant bag recursion",
 	lower: (input) =>
-		Result.flatMap(conservative.lower(input), (p) =>
-			Result.map(recursionMutant(p, true), (m) => m.program)
+		Result.flatMap(conservativeProgram(input), (p) =>
+			Result.flatMap(recursionMutant(p, true), (m) => sentConservative(m.program))
 		)
 }
 
@@ -248,11 +252,14 @@ export const rebuiltAs =
 				throw new Error(`${mutation} rebuilds a generated recursive case`)
 			}
 			const m = resolveRecursiveCase(source.sketch, source.limits, mutation)
-			return lowerConservative(conservativeInput(m.query), {
-				names,
-				params: genParamDecls(m.query),
-				subject: { kind: "query" }
-			})
+			return Result.flatMap(
+				lowerConservative(conservativeInput(m.query), {
+					names,
+					params: genParamDecls(m.query),
+					subject: { kind: "query" }
+				}),
+				sentConservative
+			)
 		}
 	})
 

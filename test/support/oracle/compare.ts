@@ -10,7 +10,6 @@ import {
 	type ScalarType,
 	sameScalarType
 } from "#compiler/ir/scalar.ts"
-import type { ConservativeProgram } from "#compiler/lower/conservative/types.ts"
 import type { StatementRole, StatementRoots, StatementTree } from "#compiler/runtime/lower/tree.ts"
 import { admittedText } from "#compiler/scalar/values/identity.ts"
 import { strictReader } from "#test/support/kernel/strict.ts"
@@ -57,10 +56,6 @@ export const labeledStatements = <S extends { readonly role: StatementRole }>(
 	}
 	return out
 }
-
-/** The structural label of each statement of a program, in flight order (labeledStatements). */
-export const statementLabels = (program: ConservativeProgram): ReadonlyArray<string> =>
-	Arr.map(labeledStatements(program.roots), (l) => l.label)
 
 /**
  * What a statement of a run leaves unstated: nothing (a database run); or the columns some row leaves unstated, whose

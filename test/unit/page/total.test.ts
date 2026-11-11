@@ -29,7 +29,6 @@ import { genCatalog } from "#test/support/evidence.ts"
 import { isPlainCarrier } from "#test/support/fixtures/ir/scalar.ts"
 import { standInNames } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { largeStatements } from "#test/support/oracle/forms.ts"
 import {
 	defaultGenConfig,
 	fullCaseSwarms,
@@ -329,17 +328,18 @@ const orderedQuery = (o: OrderedCase): OrderedQuery | undefined => {
 }
 
 /**
- * The registry's rule on every statement a page compiles: a plain-carrier, contract-free, non-serial, typmod-free
- * column is its carrier's plain type, and a contract-free wildcard text the wildcard text (scalar/compute/types.ts).
+ * The registry's rule on every relation a page's statements deliver: a plain-carrier, contract-free, non-serial,
+ * typmod-free column is its carrier's plain type, and a contract-free wildcard text the wildcard text
+ * (scalar/compute/types.ts).
  */
 const registryTypes = (artifacts: ReadonlyArray<PageArtifact>): void => {
 	for (const artifact of artifacts) {
-		for (const statements of [
-			...Arr.map(Rec.values(artifact.requests), (program) => flight(program.roots)),
-			...Arr.map(Rec.values(artifact.probes), (program) => [program.statement])
+		for (const parts of [
+			...Arr.map(Rec.values(artifact.requests), (request) => flight(request.program.roots)),
+			...Arr.map(Rec.values(artifact.probes), (probe) => flight(probe.program.roots))
 		]) {
-			for (const statement of [...statements, ...largeStatements(statements, (l) => l)]) {
-				for (const column of statementOutput(statement.role, statement.heading, []).heading) {
+			for (const part of parts) {
+				for (const column of statementOutput(part.role, part.heading, part.fused).heading) {
 					const t = column.type
 					if (
 						isPlainCarrier(t.carrier) &&
@@ -448,20 +448,11 @@ describe("the page compiler and the page runtime template", () => {
 							if (baseline.requests.first.delivery.kind === "headingGroups") {
 								c.note("heading groups")
 							}
-							if (
-								Arr.some(
-									flight(template.artifact.requests.first.roots),
-									(s) => s.role.kind === "attachment"
-								)
-							) {
+							const first = template.artifact.requests.first.program
+							if (Arr.some(flight(first.roots), (s) => s.role.kind === "attachment")) {
 								c.note("attachments")
 							}
-							if (
-								Arr.some(
-									flight(template.artifact.requests.first.roots),
-									(s) => s.forms.kind === "chosen"
-								)
-							) {
+							if (first.statement.forms.kind === "chosen") {
 								c.note("per-execution form")
 							}
 							const runtime = compiledPageRuntime({

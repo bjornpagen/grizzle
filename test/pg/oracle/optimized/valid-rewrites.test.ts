@@ -43,6 +43,7 @@ import {
 	plainDifferential,
 	printDifferential
 } from "#test/pg/oracle/optimized/support.ts"
+import { programAsts } from "#test/support/compile.ts"
 import type { QueryCase } from "#test/support/oracle/gen/case.ts"
 import { defaultGenConfig } from "#test/support/oracle/gen/case.ts"
 import {
@@ -123,9 +124,14 @@ const plainExists = (statements: ReadonlyArray<{ readonly ast: Select }>): boole
 const setOperations = (body: OperandBody): ReadonlyArray<SetOperation> =>
 	body.kind === "setOp" ? [body] : []
 
-const unionAll = (statements: ReadonlyArray<{ readonly ast: Select }>): boolean =>
-	Arr.some(partsOf(statements).selects, (q) =>
-		Arr.some(setOperations(q.body), (op) => op.op === "UNION ALL")
+/** Whether some statement has a UNION ALL, besides the body `tagged`, the UNION ALL that tags a statement's parts. */
+const unionAll = (
+	statements: ReadonlyArray<{ readonly ast: Select }>,
+	tagged: OperandBody | undefined
+): boolean =>
+	Arr.some(
+		partsOf(statements).selects,
+		(q) => q.body !== tagged && Arr.some(setOperations(q.body), (op) => op.op === "UNION ALL")
 	)
 
 /** The top-level cores of a set operation's arms. */
@@ -163,37 +169,44 @@ const plainRecursiveTerms = (statements: ReadonlyArray<{ readonly ast: Select }>
 			})
 	)
 
+/** The optimized program's statement ASTs (test/support/compile.ts programAsts). */
+const optimizedAsts = (o: DifferentialOutcome): ReadonlyArray<{ readonly ast: Select }> =>
+	Arr.map(programAsts(o.optimizedProgram), (ast) => ({ ast }))
+
+/**
+ * The body of the optimized program's statement when its parts are tagged: the UNION ALL that tags their rows
+ * (lower/parts.ts taggedParts), which no rewrite emits.
+ */
+const tagging = (o: DifferentialOutcome): OperandBody | undefined =>
+	o.optimizedProgram.parts.kind === "tagged" ? o.optimizedProgram.statement.ast.body : undefined
+
 /** What the emitted SQL shows when a rule's certificate is recorded. */
 const shows: Readonly<Record<ValidId, (o: DifferentialOutcome) => string | undefined>> = {
 	V1: (o) =>
-		distinctCores(flight(o.optimizedProgram.roots)) <
-		distinctCores(flight(o.conservativeProgram.roots))
+		distinctCores(optimizedAsts(o)) < distinctCores(flight(o.conservativeProgram.roots))
 			? undefined
 			: "no fewer DISTINCT cores than the conservative statements",
 	V2: (o) =>
-		distinctCores(flight(o.optimizedProgram.roots)) <
-		distinctCores(flight(o.conservativeProgram.roots))
+		distinctCores(optimizedAsts(o)) < distinctCores(flight(o.conservativeProgram.roots))
 			? undefined
 			: "no fewer DISTINCT cores than the conservative statements",
 	V3: (o) => {
 		if (plainExists(flight(o.conservativeProgram.roots))) {
 			return "the conservative lowering emitted an EXISTS over a plain witness"
 		}
-		return plainExists(flight(o.optimizedProgram.roots))
-			? undefined
-			: "no EXISTS over a plain witness"
+		return plainExists(optimizedAsts(o)) ? undefined : "no EXISTS over a plain witness"
 	},
 	V5: (o) => {
-		if (unionAll(flight(o.conservativeProgram.roots))) {
+		if (unionAll(flight(o.conservativeProgram.roots), undefined)) {
 			return "the conservative lowering emitted UNION ALL"
 		}
-		return unionAll(flight(o.optimizedProgram.roots)) ? undefined : "no UNION ALL"
+		return unionAll(optimizedAsts(o), tagging(o)) ? undefined : "no UNION ALL"
 	},
 	V6: (o) => {
 		if (plainRecursiveTerms(flight(o.conservativeProgram.roots))) {
 			return "the conservative lowering emitted a WITH RECURSIVE whose UNION terms are plain cores"
 		}
-		return plainRecursiveTerms(flight(o.optimizedProgram.roots))
+		return plainRecursiveTerms(optimizedAsts(o))
 			? undefined
 			: "no WITH RECURSIVE whose UNION terms are plain cores"
 	}

@@ -24,7 +24,7 @@ import { codeNames } from "#compiler/ir/codes.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import { toQueryDescription } from "#compiler/ir/describe.ts"
 import type { NodeOf } from "#compiler/ir/rel.ts"
-import type { SpecifiedStatement } from "#compiler/lower/template.ts"
+import type { DeliveredPart } from "#compiler/lower/shapes/index.ts"
 import { queryInput } from "#compiler/program/compile.ts"
 import { queryOver as query, varsOver as v } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
@@ -187,12 +187,12 @@ interface Compiled {
 	}>
 }
 
-/** Every Attach node a program's statement trees name: each attached statement's, and each fused attachment's. */
+/** Every Attach node a program's part trees name: each attached part's, and each fused attachment's. */
 const lowered = (
-	roots: ReadonlyArray<StatementTree<SpecifiedStatement>>
+	roots: ReadonlyArray<StatementTree<DeliveredPart>>
 ): ReadonlyArray<NodeOf<"Attach">> =>
 	Arr.flatMap(roots, (tree) => [
-		...Arr.map(tree.statement.statement.fused, (f) => f.attach),
+		...Arr.map(tree.statement.fused, (f) => f.attach),
 		...Arr.flatMap(tree.attachments, (a) => [a.attach, ...lowered([a])])
 	])
 

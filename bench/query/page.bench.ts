@@ -75,7 +75,7 @@ interface Options extends Readonly<Record<string, unknown>> {
 	readonly samples: number
 }
 
-/** The rows statement of a delivered page request, run alone as a variant. */
+/** The statement of a delivered page request, run alone as a variant, without its probe. */
 const rowsVariant = (
 	role: "generated" | "conservative",
 	label: string,
@@ -207,7 +207,7 @@ export default defineGate({
 			)
 			/** The comparisons of the rows statement's seek: a row value against a row value. */
 			const rowComparisons: Array<BinaryOperator> = []
-			transformStatement(after.rows.statement.ast, {
+			transformStatement(after.rows.ast, {
 				...identityHooks,
 				expr: (e) => {
 					if (e.kind === "binary" && e.left.kind === "row" && e.right.kind === "row") {

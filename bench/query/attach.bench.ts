@@ -27,7 +27,8 @@ import {
 	judged,
 	type MeasureOptions,
 	measureQuery,
-	optimizedStatement,
+	optimizedPartAst,
+	optimizedProgram,
 	plainExplain,
 	queryPhases,
 	rawSession,
@@ -47,7 +48,7 @@ import {
 	serializedKb
 } from "#bench/query/support/plans.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
-import type { OptimizedStatement } from "#compiler/lower/shapes/index.ts"
+import type { DeliveredPart } from "#compiler/lower/shapes/index.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, on, relation, schema } from "#compiler/public/schema.ts"
@@ -59,14 +60,14 @@ import { labeledStatements } from "#test/support/oracle/compare.ts"
  * R36 and R37: fused and pipelined attachments, and recursive attachments seeded from their parents' rows.
  *
  * - R36 (:410): "both lowerings deliver identical nested results". A region's accounts carry three attachments of
- *   one, two and five fields, each pipelined over exact parents whatever its width: a statement of its own, which
- *   computes its parents' rows itself in the same flight (only a parent whose rows read an approximate search fuses,
- *   so the search runs once). The generated delivery is compared with the conservative one, which pipelines every
- *   attachment, as nested results; each statement's output volume and planning are recorded. No plan joins outer.
+ *   one, two and five fields, each pipelined over exact parents whatever its width: a part of its own of the read's one
+ *   statement, over the parents' rows the statement holds once (only a parent whose rows read an approximate search
+ *   fuses, so the search runs once). The generated delivery is compared with the conservative one, which pipelines
+ *   every attachment, as nested results; the statement's output volume and planning are recorded. No plan joins outer.
  * - R37 (:418): "total rows read is proportional to the closures, not to the parents times the relation." A binary
  *   tree of follows edges and a recursive relation whose state carries its origin; a range of people with their
- *   reachable set attached is one recursive statement seeded from its parents' rows, and the edges it reads are
- *   bounded by the delivered closures.
+ *   reachable set attached is one recursive part seeded from its parents' rows, and the edges the read's statement
+ *   reads, which only that part reads, are bounded by the delivered closures.
  * The handwritten baselines are what an expert writes for the same nested answers: the region's
  * accounts in one statement with each attachment a correlated to_jsonb(ARRAY(SELECT jsonb_build_object(...))) over the
  * account's tasks, and the range of people in one statement whose recursive CTE is seeded from the range and carries
@@ -268,21 +269,22 @@ const distinctParents = (rows: ReadonlyArray<unknown>): boolean => {
 	return new Set(ids).size === ids.length
 }
 
-/** The fused attachment `name` of a statement. */
-const fusedAs = (statement: OptimizedStatement, name: string) =>
-	Arr.findFirst(statement.fused, (f) => f.name === name)
+/** The fused attachment `name` of a delivered relation. */
+const fusedAs = (part: DeliveredPart, name: string) =>
+	Arr.findFirst(part.fused, (f) => f.name === name)
 
-/**
- * The pipelined attachment statements `name` of a compiled read, with their positions in the optimized artifact, which
- * are their positions among the statements a delivery sends.
- */
-const attachmentsOf = (
-	compiled: Compiled,
-	name: string
-): ReadonlyArray<{ readonly index: number; readonly statement: OptimizedStatement }> =>
-	Arr.flatMap(
-		labeledStatements(compiled.compiled.template.programs.optimized.roots),
-		({ statement, attach }, index) => (attach?.name === name ? [{ index, statement }] : [])
+/** The delivered relation of a compiled read's rows: its optimized program's first root. */
+const parentOf = (compiled: Compiled): DeliveredPart =>
+	optimizedProgram(compiled).roots[0].statement
+
+/** The shape of the part a delivered relation's rows are of a compiled read (kit.ts optimizedPartAst). */
+const partShape = (compiled: Compiled, part: DeliveredPart) =>
+	shapeOf(optimizedPartAst(compiled, part))
+
+/** The pipelined attachments `name` of a compiled read: each a part of its optimized program's statement. */
+const attachmentsOf = (compiled: Compiled, name: string): ReadonlyArray<DeliveredPart> =>
+	Arr.flatMap(labeledStatements(optimizedProgram(compiled).roots), ({ statement, attach }) =>
+		attach?.name === name ? [statement] : []
 	)
 
 /** The join types an outer join plans as: none of grizzle's statements has one. */
@@ -351,13 +353,13 @@ export default defineGate({
 			const cards = compile(fx, regionCards, reading)
 			const cardsM = yield* measureQuery(runtime, raw, cards, { region }, measure)
 			const sent = cardsM.delivered.generated.statements
-			const cardsParent = optimizedStatement(cards, 0)
-			const parentShape = shapeOf(cardsParent.ast)
+			const cardsParent = parentOf(cards)
+			const parentShape = partShape(cards, cardsParent)
 			const sheets = attachmentsOf(cards, "sheet")
 			const titles = compile(fx, regionTitles, reading)
 			const titlesM = yield* measureQuery(runtime, raw, titles, { region }, measure)
 			const titlesSent = titlesM.delivered.generated.statements
-			const titlesParent = optimizedStatement(titles, 0)
+			const titlesParent = parentOf(titles)
 			const A = fx.table("Account")
 			const T = fx.table("Task")
 			const ac = (f: string) => fx.column("Account", f)
@@ -438,18 +440,16 @@ export default defineGate({
 							x
 						])
 					),
-					parentSerializedKb: serializedKb(cardsM.generated, 0),
-					handwrittenSerializedKb: serializedKb(cardsHand, 0),
-					pipelinedSerializedKb: Arr.map(sheets, (sheet) =>
-						serializedKb(cardsM.generated, sheet.index)
-					)
+					generatedSerializedKb: serializedKb(cardsM.generated, 0),
+					handwrittenSerializedKb: serializedKb(cardsHand, 0)
 				}
 			})
 			const r36: VerdictInput = {
 				checks: [
 					mechanism(
-						"a one-field attachment over exact parents is pipelined, its own statement",
-						attachmentsOf(cards, "ids").length === 1 &&
+						"a one-field attachment over exact parents is pipelined, its own part of the one statement",
+						sent.length === 1 &&
+							attachmentsOf(cards, "ids").length === 1 &&
 							Option.isNone(fusedAs(cardsParent, "ids")) &&
 							!has(parentShape, "array subquery"),
 						`${sent.length} statements sent; fused: ${Arr.join(
@@ -459,7 +459,7 @@ export default defineGate({
 					),
 					mechanism(
 						"a one-field attachment whose values need deduplication is pipelined as well",
-						titlesSent.length === 2 &&
+						titlesSent.length === 1 &&
 							attachmentsOf(titles, "titles").length === 1 &&
 							titlesParent.fused.length === 0,
 						`${titlesSent.length} statements sent; fused: ${Arr.join(
@@ -468,7 +468,7 @@ export default defineGate({
 						)}`
 					),
 					mechanism(
-						"a two-field attachment over exact parents is pipelined, its own statement",
+						"a two-field attachment over exact parents is pipelined, its own part",
 						attachmentsOf(cards, "priorities").length === 1 &&
 							Option.isNone(fusedAs(cardsParent, "priorities")) &&
 							!has(parentShape, "call to_jsonb"),
@@ -480,8 +480,8 @@ export default defineGate({
 					mechanism(
 						"a wide attachment is pipelined",
 						sheets.length === 1 && Option.isNone(fusedAs(cardsParent, "sheet")),
-						`${sent.length} statements sent; the sheet is statement ${Arr.join(
-							Arr.map(sheets, (sheet) => String(sheet.index)),
+						`${sent.length} statements sent; the sheet is part ${Arr.join(
+							Arr.map(sheets, (sheet) => String(sheet.answer)),
 							", "
 						)}`
 					),
@@ -545,7 +545,11 @@ export default defineGate({
 			if (reachAttachment === undefined) {
 				throw new GateSetupError({ what: "the reachable sets pipeline no attachment" })
 			}
-			const reachChild = planOf(reachM.generated, reachAttachment.index)
+			/**
+			 * The read's one statement: its rows part reads people alone, so every follows edge it reads and every
+			 * recursion it runs are the attachment's.
+			 */
+			const reachChild = planOf(reachM.generated, 0)
 			const closures = arrayTotal(reachM.delivered.generated.rows, "reach")
 			const parents = reachM.delivered.generated.rows.length
 			if (closures <= parents) {
@@ -554,7 +558,7 @@ export default defineGate({
 				})
 			}
 			const edgesRead = rowsReadFrom(reachChild, follows)
-			const conservativeEdges = planOf(reachM.conservative, 1)
+			const conservativeEdges = planOf(reachM.conservative, 0)
 			const edges = options.people - 1
 			const P = fx.table("Person")
 			const F = fx.table("Follows")
@@ -621,10 +625,11 @@ export default defineGate({
 			const r37: VerdictInput = {
 				checks: [
 					mechanism(
-						"the recursive attachment is one seeded statement",
-						reachAttachments.length === 1 &&
-							featureCount(shapeOf(reachAttachment.statement.ast), "with recursive") === 1,
-						`${reachAttachments.length} attachment statements; ${reachSent.length} statements sent`
+						"the recursive attachment is one seeded part",
+						reachSent.length === 1 &&
+							reachAttachments.length === 1 &&
+							featureCount(partShape(reach, reachAttachment), "with recursive") === 1,
+						`${reachAttachments.length} attachment parts; ${reachSent.length} statements sent`
 					),
 					mechanism(
 						"the recursion computes the delivered closures only",

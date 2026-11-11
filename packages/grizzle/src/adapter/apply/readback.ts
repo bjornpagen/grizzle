@@ -1,9 +1,13 @@
 import * as Arr from "effect/Array"
 import type * as Effect from "effect/Effect"
-import * as Order from "effect/Order"
 import * as Result from "effect/Result"
 import { type InputTooLarge, UnreadableAnswer } from "#adapter/errors/failures.ts"
-import type { ExecutionInputs, HostParams, SentRuns } from "#adapter/reader/execution.ts"
+import {
+	type ExecutionInputs,
+	type HostParams,
+	partRuns,
+	taggedRun
+} from "#adapter/reader/execution.ts"
 import {
 	deliveredRows,
 	programFlight,
@@ -19,14 +23,14 @@ import type { ServedCarried, ServedReadBack } from "#compiler/plan/serve.ts"
 /**
  * Delivering a ChangeSet's read-backs.
  *
- * A read-back is a query over the post-change state and the change's own deltas, lowered as a program of statements by
- * the optimized lowering (write/readback/lower.ts), and placed after the writes in the WriteProgram's artifact. It
- * may attach, order, take and union like any query, so its rows are delivered to the host exactly as a query's are:
- * heading groups merged on the completed order, attachments' child rows grouped under their parents by key. That
- * delivery is the reader's (reader/run.ts programFlight), and a read-back's one flight runs in the applying
+ * A read-back is a query over the post-change state and the change's own deltas, lowered as a program of one
+ * statement by the optimized lowering (write/readback/lower.ts), and placed after the writes in the WriteProgram's
+ * artifact. It may attach, order, take and union like any query, so its rows are delivered to the host exactly as a
+ * query's are: heading groups merged on the completed order, attachments' child rows grouped under their parents by
+ * key. That delivery is the reader's (reader/run.ts programFlight), and a read-back's one flight runs in the applying
  * transaction, after the write statements and before COMMIT (run.ts). A read-back riding a write statement sends
- * nothing of its own: its statements are parts of that statement, whose rows behind each part's tag are its statements'
- * answers (`riddenRows`). The outcome's reads are the ChangeSet's reads
+ * nothing of its own: its statement is a part of that statement, whose rows behind the part's tag are its statement's
+ * answer (`riddenRows`). The outcome's reads are the ChangeSet's reads
  * decoder's record (write/changeset/value.ts) over one Row whose children, slot by slot in the artifact's order, are
  * the read-backs' delivered Rows: its layout (ReadBackRuns.layout) names each read-back's slot and its program's
  * layouts, one per heading group, and each read-back delivers every row.
@@ -43,7 +47,7 @@ import type { ServedCarried, ServedReadBack } from "#compiler/plan/serve.ts"
  *
  * The rows are held until COMMIT succeeds: nothing a read-back read reaches the caller before.
  */
-/** The rows a riding read-back's statements are parts of: the write statement's position and the parts' place among
+/** The rows a riding read-back's statement is a part of: the write statement's position and the part's place among
  * its rows (engine served/read.ts ServedCarried). */
 type Riding = Omit<Extract<ServedCarried, { readonly kind: "riding" }>, "kind" | "source">
 
@@ -106,7 +110,7 @@ export const readBacks = (served: ReadonlyArray<ServedReadBack>, codes: Codebook
 					kind: "riding",
 					name: readBack.name,
 					program: riddenProgram(carried.source, readBack.spine, codes),
-					riding: { statement: carried.statement, tag: carried.tag, parts: carried.parts }
+					riding: { statement: carried.statement, tag: carried.tag, part: carried.part }
 				}
 	})
 	return { runs: each, layout: readsLayout(each) }
@@ -124,38 +128,10 @@ export const readBackFlight = (
 ): Effect.Effect<Flight<ReadonlyArray<Row>, UnreadableAnswer>, InputTooLarge> =>
 	programFlight(run.program, inputs, delivering)
 
-/** A numbered part's rows in their statement's order: by their row number. */
-const byNumber: Order.Order<{ readonly number: number }> = Order.mapInput(
-	Order.Number,
-	(numbered) => numbered.number
-)
-
-/**
- * The answers of a riding read-back's sent statements, in flight order, from the rows `rows` of the write statement it
- * rides: each part's rows behind its tag, their first `width` cells after the tag, a numbered part's put back in its
- * statement's order by the row number after them (engine write/program/artifact.ts RidingPart).
- */
-const ridingRuns = (riding: Riding, rows: OutputRows): SentRuns =>
-	Arr.map(riding.parts, (part, at) => {
-		const own = String(riding.tag + at)
-		const tagged = Arr.filter(rows, (row) => row[0] === own)
-		const ordered =
-			part.kind === "rows"
-				? tagged
-				: Arr.map(
-						Arr.sort(
-							Arr.map(tagged, (row) => ({ row, number: Number(row[1 + part.width]) })),
-							byNumber
-						),
-						(numbered) => numbered.row
-					)
-		return Arr.map(ordered, (row) => row.slice(1, 1 + part.width))
-	})
-
 /**
  * The delivered Rows of a read-back riding the write statement whose rows are `rows`, delivered as its own flight would
- * deliver its statements' answers (reader/run.ts deliveredRows); a repeated row is UnreadableAnswer at `index`, the
- * write statement's place in the flight.
+ * deliver its statement's answer: its part's rows behind its tag, divided into its own parts' runs (reader/execution.ts
+ * taggedRun, partRuns); a repeated row is UnreadableAnswer at `index`, the write statement's place in the flight.
  */
 export const riddenRows = (
 	run: Extract<ReadBackRun, { readonly kind: "riding" }>,
@@ -164,6 +140,10 @@ export const riddenRows = (
 	index: number
 ): Result.Result<ReadonlyArray<Row>, UnreadableAnswer> =>
 	Result.mapError(
-		deliveredRows(run.program, ridingRuns(run.riding, rows), params),
+		deliveredRows(
+			run.program,
+			partRuns(run.program.parts, taggedRun(rows, run.riding.tag, run.riding.part)),
+			params
+		),
 		(unreadable) => new UnreadableAnswer({ index, fate: unreadable.fate })
 	)

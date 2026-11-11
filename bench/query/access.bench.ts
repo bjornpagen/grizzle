@@ -31,7 +31,8 @@ import {
 	installFixture,
 	type MeasureOptions,
 	measureQuery,
-	optimizedStatement,
+	optimizedAst,
+	optimizedProgram,
 	plainExplain,
 	queryPhases,
 	rawSession,
@@ -51,13 +52,12 @@ import {
 import { appendAll } from "#compiler/core/array.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import type { ConservativeParamSlot } from "#compiler/lower/conservative/types.ts"
-import type { OptimizedStatement } from "#compiler/lower/shapes/index.ts"
-import { executableQuery } from "#compiler/lower/template.ts"
+import type { SentStatement } from "#compiler/lower/shapes/index.ts"
 import { closedId, contract, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import type { BinaryOperator, Expr, FromSource, SqlStatement } from "#compiler/sql/ast.ts"
+import type { BinaryOperator, Expr, FromSource, Select, SqlStatement } from "#compiler/sql/ast.ts"
 import { printType } from "#compiler/sql/print.ts"
 import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
 import type { SqlError } from "#test/support/pg.ts"
@@ -267,13 +267,10 @@ const repeatedIn = (names: ReadonlyArray<string>): ReadonlyArray<string> =>
  * The single-assignment R18 checks of one compiled statement, as the runtime sends it (its executable text-cast form):
  * every relation alias and every column a derived table, a function or a VALUES list names is defined once.
  */
-const singleAssignment = (
-	label: string,
-	statement: OptimizedStatement
-): ReadonlyArray<GateCheck> => {
+const singleAssignment = (label: string, statement: SentStatement): ReadonlyArray<GateCheck> => {
 	const aliases: Array<string> = []
 	const columns: Array<string> = []
-	transformStatement(executableQuery(statement), {
+	transformStatement(statement.ast, {
 		...identityHooks,
 		fromSource: (item) => {
 			const defined = definedBy(item)
@@ -360,12 +357,12 @@ const storedColumnOf = (statement: SqlStatement): ((e: Expr) => Resolved) => {
 
 /** The operators of the statement's predicates comparing the stored column `stored` with a parameter. */
 const parameterBounds = (
-	statement: OptimizedStatement,
+	statement: Select,
 	stored: StoredColumn
 ): ReadonlyArray<BinaryOperator> => {
-	const resolve = storedColumnOf(statement.ast)
+	const resolve = storedColumnOf(statement)
 	const ops: Array<BinaryOperator> = []
-	transformStatement(statement.ast, {
+	transformStatement(statement, {
 		...identityHooks,
 		expr: (e) => {
 			if (e.kind === "binary" && bare(e.right).kind === "param") {
@@ -616,8 +613,7 @@ export default defineGate({
 			if (nonempty < 3) {
 				throw new GateSetupError({ what: `${nonempty} prefixes select rows, fewer than three` })
 			}
-			const prefixStatement = optimizedStatement(prefix, 0)
-			const bounds = parameterBounds(prefixStatement, { table: entry, column: codeColumn })
+			const bounds = parameterBounds(optimizedAst(prefix), { table: entry, column: codeColumn })
 			cases.push({
 				name: "an account's codes in a prefix's code-point interval",
 				gates: ["R39", "R18"],
@@ -670,7 +666,7 @@ export default defineGate({
 			const structural: Array<GateCheck> = []
 			const signatures: Array<GateCheck> = []
 			for (const [i, { label, compiled, sql }] of judgedStatements.entries()) {
-				const statement = optimizedStatement(compiled, 0)
+				const statement = optimizedProgram(compiled).statement
 				appendAll(structural, singleAssignment(label, statement))
 				const inferred = yield* statementTypes(raw, sql, `gz_m15b_sig_${i}`)
 				const cast: Array<string> = []

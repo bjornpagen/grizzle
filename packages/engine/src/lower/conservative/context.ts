@@ -67,8 +67,7 @@ import {
 	freshNames,
 	type NameOrigin,
 	NameSupply,
-	type NameSupplyStart,
-	namesPast
+	type NameSupplyStart
 } from "#compiler/sql/naming.ts"
 
 /** The SQL expressions of one node's columns, by heading name. */
@@ -543,17 +542,13 @@ export class LowerContext {
 	}
 
 	/**
-	 * The next statement of a query or a page, its placeholders `params`, naming afresh; names and placeholders never
-	 * cross statements. A riding read-back's statements are parts of the one write statement it rides, so each names
-	 * past the last one's names instead (ReadBackNaming).
+	 * The next statement of a query or a page, its placeholders `params`, naming past the last one's names: no two
+	 * statements of one lowering define one generated name, so any of them can be parts of one statement (a riding
+	 * read-back's of the write statement it rides, ReadBackNaming; a conservative program's of its one statement,
+	 * shapes/index.ts partedConservative). Placeholders never cross statements.
 	 */
 	beginStatement(params: Placeholders): void {
-		const subject = this.options.subject
-		const start =
-			subject.kind === "readBack" && subject.naming.kind === "riding"
-				? namesPast(this.#shared.supply.map(), subject.naming.start)
-				: freshNames
-		this.beginStatementWith(new NameSupply(start), params)
+		this.beginStatementWith(new NameSupply(this.#shared.supply.past()), params)
 	}
 
 	/** The next statement of a query or a page, naming from `supply`, its placeholders `params`. */

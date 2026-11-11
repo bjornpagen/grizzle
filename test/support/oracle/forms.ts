@@ -1,36 +1,13 @@
-import { Array as Arr } from "effect"
-import { type ConservativeParamSlot, flight } from "#compiler/lower/conservative/types.ts"
-import type { FusedStatement, OptimizedStatement } from "#compiler/lower/shapes/index.ts"
-import { oneForm } from "#compiler/runtime/lower/forms.ts"
-import { mapTree, type StatementRoots } from "#compiler/runtime/lower/tree.ts"
-
-/** Each statement's large form, when it has one: the large mode's statement, read from the form by `fused`. */
-export const largeStatements = <C, L, Slot extends ConservativeParamSlot>(
-	statements: ReadonlyArray<OptimizedStatement<C, L, Slot>>,
-	fused: (large: L) => FusedStatement<Slot>
-): ReadonlyArray<FusedStatement<Slot>> =>
-	Arr.flatMap(statements, (s) => (s.forms.kind === "chosen" ? [fused(s.forms.large)] : []))
+import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import type { ConservativeParamSlot } from "#compiler/lower/conservative/types.ts"
+import type { FormedStatement, SentStatement } from "#compiler/lower/shapes/index.ts"
 
 /**
- * The per-execution forms of an optimized program's statements, as the oracles run them.
- *
- * Each statement that holds a large form: its position, and the program's statements with its large form in its
- * place, as an execution whose choice exceeds its threshold sends them.
+ * The statements an optimized program may send, as the oracles run them: its statement, and its large form when its
+ * shapes made a per-execution choice, which an execution whose choice exceeds its threshold sends instead. Both divide
+ * into the program's parts alike.
  */
-export const largeFormPrograms = <C, L>(
-	roots: StatementRoots<OptimizedStatement<C, L>>,
-	fused: (large: L) => FusedStatement
-): ReadonlyArray<{
-	readonly statement: number
-	readonly roots: StatementRoots<OptimizedStatement>
-}> =>
-	Arr.flatMap(flight(roots), (s, i) => {
-		const forms = s.forms
-		if (forms.kind === "one") {
-			return []
-		}
-		const large: OptimizedStatement = { ...fused(forms.large), forms: oneForm, arrival: s.arrival }
-		return [
-			{ statement: i, roots: mapTree(roots, (t, j): OptimizedStatement => (j === i ? large : t)) }
-		]
-	})
+export const sentForms = <C, Slot extends ConservativeParamSlot>(
+	statement: FormedStatement<C, Slot>
+): NonEmptyReadonlyArray<SentStatement<Slot>> =>
+	statement.forms.kind === "chosen" ? [statement, statement.forms.large] : [statement]

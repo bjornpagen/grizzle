@@ -9,13 +9,14 @@ import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
 import type { TestContext } from "vitest"
 import { indices } from "#compiler/core/array.ts"
 import { catchRefusal } from "#compiler/core/canonical.ts"
+import * as Result from "#compiler/core/result.ts"
 import { canonicalZero } from "#compiler/ir/carriers.ts"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { RelNode, ValidDag } from "#compiler/ir/rel.ts"
 import { LowerContext } from "#compiler/lower/conservative/context.ts"
-import { Delivery } from "#compiler/lower/conservative/deliver.ts"
+import { ConservativeDelivery } from "#compiler/lower/conservative/deliver.ts"
 import type { CatalogOptions } from "#compiler/lower/shapes/catalog/context.ts"
 import { CatalogEditor } from "#compiler/lower/shapes/catalog/edit.ts"
 import { type CatalogResult, rewriteCatalog } from "#compiler/lower/shapes/catalog/rewrite.ts"
@@ -38,7 +39,8 @@ import {
 	defaultRunOptions,
 	type Lowering,
 	printOutcome,
-	runLabelledOracle
+	runLabelledOracle,
+	sentConservative
 } from "#test/support/oracle/runner.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import * as D from "#test/unit/check/dsl.ts"
@@ -607,7 +609,7 @@ layer(Substrate.layer)("the compile-target catalog against its compositions", (i
 							})
 							ed.redefine(cell, { ...osa, fractions: [literal] })
 							const built = ed.build()
-							return lowerNative(built, built.roots[0], names)
+							return Result.flatMap(lowerNative(built, built.roots[0], names), sentConservative)
 						}
 					})
 					return yield* explore(
@@ -700,7 +702,7 @@ layer(Substrate.layer)("the compile-target catalog against its compositions", (i
 
 const lowerNative = (dag: ValidDag, root: RelNode, names: PhysicalNames) =>
 	catchRefusal(() =>
-		new Delivery(
+		new ConservativeDelivery(
 			new LowerContext(
 				dag,
 				{

@@ -390,11 +390,10 @@ const roundTrip = (c: ProgramCase, pick: number, note: (feature: Feature) => voi
 					? compiledPageResult(query, testCompile)
 					: Answered.fail(undefined)
 			if (Answered.isSuccess(compiledPage)) {
-				const page = ok(
-					servedPage(compiledPage.success.page, codes, name, { schema: "served", extensions: {} }),
-					"a compiled page's specs emit",
-					printed
-				)
+				const page = servedPage(compiledPage.success.page, codes, name, {
+					schema: "served",
+					extensions: {}
+				})
 				members.push({ name, kind: "paged", read: form, page })
 				note("a paged read")
 			} else {

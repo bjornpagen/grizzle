@@ -31,7 +31,9 @@ import {
 	judged,
 	type MeasureOptions,
 	measureQuery,
-	optimizedStatement,
+	optimizedAst,
+	optimizedPartAst,
+	optimizedProgram,
 	plainExplain,
 	queryPhases,
 	rawSession,
@@ -73,8 +75,7 @@ import {
 import { indices, maxOf } from "#compiler/core/array.ts"
 import { lateralParentMax } from "#compiler/core/limits.ts"
 import { ledgerStatements } from "#compiler/deploy/ledger/ledger.ts"
-import { flight } from "#compiler/lower/conservative/types.ts"
-import type { OptimizedStatement } from "#compiler/lower/shapes/index.ts"
+import type { DeliveredPart } from "#compiler/lower/shapes/index.ts"
 import type { QueryTemplate } from "#compiler/program/compile.ts"
 import { parseSchemaInput } from "#compiler/program/schema.ts"
 import { servedSession } from "#compiler/program/served.ts"
@@ -96,8 +97,8 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
  *
  * - R20 (:247): a LATERAL plan shows a Limit under the nested loop with an index condition on the correlation key and
  *   reads parents times k rows; a whole-relation plan reads the input once. A pipelined attachment's form is fixed by
- *   its parent rows' bound, since the parent statement shares the child's flight: over a key-lookup parent, bounded at
- *   one row, the take is the LATERAL form, and over a parent statement with no bound it reads every group. A form is
+ *   its parent rows' bound, since the parent's part shares the child's statement: over a key-lookup parent, bounded at
+ *   one row, the take is the LATERAL form, and over a parent part with no bound it reads every group. A form is
  *   chosen per execution only by a relation parameter's distinct count or a page's size. The take also runs through
  *   `bind` over every student, k = 3 and k = 1, which the policy lowers to row_number and DISTINCT ON; through `bind`
  *   to a relation parameter delivered with a few students and with every student, whose count chooses per execution;
@@ -153,9 +154,9 @@ const bandsOf = (options: Options): ReadonlyArray<Band> => {
 const intArray = (values: ReadonlyArray<number>): string =>
 	`{${Arr.join(Arr.map(values, String), ",")}}`
 
-/** How many of a template's optimized statements hold a whole-relation form chosen per execution. */
+/** Whether a template's optimized statement holds a whole-relation form chosen per execution: 1 when it does. */
 const chosenForms = (template: QueryTemplate): number =>
-	Arr.filter(flight(template.programs.optimized.roots), (s) => s.forms.kind === "chosen").length
+	template.programs.optimized.statement.forms.kind === "chosen" ? 1 : 0
 
 const k = 3
 
@@ -184,23 +185,15 @@ const inTakeOrder = (rows: ReadonlyArray<unknown>): boolean =>
 		})
 	})
 
-/**
- * The pipelined attachment statement `name` of a compiled read: its position in the optimized artifact, which is its
- * position among the statements a delivery sends, and its compiled form.
- */
-const attachmentOf = (
-	compiled: Compiled,
-	name: string
-): { readonly index: number; readonly statement: OptimizedStatement } => {
-	const statements = labeledStatements(compiled.compiled.template.programs.optimized.roots)
-	return Option.getOrThrowWith(
+/** The pipelined attachment `name` of a compiled read: a part of its optimized program's statement. */
+const attachmentOf = (compiled: Compiled, name: string): DeliveredPart =>
+	Option.getOrThrowWith(
 		Arr.findFirst(
-			Arr.map(statements, ({ statement, attach }, index) => ({ index, statement, attach })),
+			labeledStatements(optimizedProgram(compiled).roots),
 			(s) => s.attach?.name === name
 		),
 		() => new GateSetupError({ what: `the optimized artifact pipelines no attachment ${name}` })
-	)
-}
+	).statement
 
 /** The loops of the most often run scan of `table`. */
 const scanLoops = (plan: PlanNode, table: string): number => {
@@ -311,11 +304,15 @@ export default defineGate({
 			const oneParent = 7
 			const fewM = yield* measureQuery(runtime, raw, sheetOne, { id: oneParent }, measure)
 			const fewAttachment = attachmentOf(sheetOne, "best")
-			const fewChild = planOf(fewM.generated, fewAttachment.index)
+			/**
+			 * The read's one statement, whose rows part reads students alone, so every scan of sittings is the
+			 * attachment's.
+			 */
+			const fewChild = planOf(fewM.generated, 0)
 			const sheets = compile(fx, studentSheets, reading)
 			const manyParents = Math.min(options.students, lateralParentMax.value * 2)
 			const manyM = yield* measureQuery(runtime, raw, sheets, { upto: manyParents }, measure)
-			const manyChild = planOf(manyM.generated, attachmentOf(sheets, "best").index)
+			const manyChild = planOf(manyM.generated, 0)
 			cases.push({
 				name: "a student by key and the students up to an id, each with its three best sittings attached, pipelined",
 				gates: ["R20"],
@@ -390,13 +387,10 @@ export default defineGate({
 				Arr.findFirst(forParam.compiled.template.params, (d) => d.name === "students"),
 				() => new GateSetupError({ what: "bestForStudents declares no students parameter" })
 			)
-			const choosesByStudents = Arr.some(
-				flight(forParam.compiled.template.programs.optimized.roots),
-				(st) =>
-					st.forms.kind === "chosen"
-						? Arr.some(st.forms.choices, (c) => c.source.param === studentsParam.id)
-						: false
-			)
+			const forParamForms = optimizedProgram(forParam).statement.forms
+			const choosesByStudents =
+				forParamForms.kind === "chosen" &&
+				Arr.some(forParamForms.choices, (c) => c.source.param === studentsParam.id)
 			const everyPlan = planOf(everyM.generated, 0)
 			const onePlan = planOf(oneM.generated, 0)
 			cases.push(
@@ -758,7 +752,8 @@ export default defineGate({
 					...formChecks,
 					mechanism(
 						"a key-lookup parent's attachment takes the LATERAL form",
-						has(shapeOf(fewAttachment.statement.ast), "lateral") && lateralProbe(fewChild),
+						has(shapeOf(optimizedPartAst(sheetOne, fewAttachment)), "lateral") &&
+							lateralProbe(fewChild),
 						outline(fewChild, 0)
 					),
 					mechanism(
@@ -778,7 +773,7 @@ export default defineGate({
 					),
 					mechanism(
 						"a take(1) bound to every student is DISTINCT ON, reading the input once",
-						has(shapeOf(optimizedStatement(one, 0).ast), "distinct on") && wholeOnce(onePlan),
+						has(shapeOf(optimizedAst(one)), "distinct on") && wholeOnce(onePlan),
 						outline(onePlan, 0)
 					),
 					mechanism(
@@ -912,7 +907,7 @@ export default defineGate({
 				checks: [
 					mechanism(
 						"LEAD with the row's own default and a presence count over one scan",
-						has(shapeOf(optimizedStatement(next, 0).ast), "window lead") &&
+						has(shapeOf(optimizedAst(next)), "window lead") &&
 							wholeOnce(nextPlan) &&
 							nodeTypes(nextPlan).has("WindowAgg"),
 						outline(nextPlan, 0)

@@ -72,6 +72,13 @@ export type PlainCore = Extract<SetCore, { readonly distinct: false }>
 /** A query of a plain core: the rows a statement delivers, each target a column's value, in its columns' order. */
 export type PlainQuery = Omit<Select, "body"> & { readonly body: PlainCore }
 
+/**
+ * Whether `query` is a query of a plain core: one statement's delivered rows, as against a statement of tagged parts,
+ * whose body is the parts' UNION ALL (lower/parts.ts taggedParts).
+ */
+export const isPlainQuery = (query: Select): query is PlainQuery =>
+	query.body.kind === "core" && query.body.distinct === false
+
 const internal = (purpose: string) => ({ kind: "internal", purpose }) as const
 
 /**

@@ -36,7 +36,6 @@ import { nativeEqualityKey } from "#compiler/ir/expr.ts"
 import { baseOf, numericTypmodOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { ParamMap } from "#compiler/plan/common.ts"
 import { pagedMember } from "#compiler/program/workload/value.ts"
-import type { Select } from "#compiler/sql/ast.ts"
 import type { AnyRole } from "#compiler/types/schema/world.ts"
 import { changeSetOver } from "#compiler/write/changeset/value.ts"
 import { CellDisagreement, type SentRow, strictReaderOf } from "#test/pg/oracle/public/cells.ts"
@@ -251,18 +250,30 @@ const attachmentForms = (template: OracleTemplate): ReadonlyMap<string, "fused" 
 }
 
 /**
- * The artifacts of a template whose delivered statements leave their rows unordered. PostgreSQL delivers rows in an
+ * The artifacts of a template whose delivered relations leave their rows unordered. PostgreSQL delivers rows in an
  * order only under an ORDER BY, whatever plan it picks, so a root delivered in an order states one in every delivered
- * statement of both artifacts: an order the rows arrive in only by the plan's grace is no delivery.
+ * statement of the conservative artifact, and in the optimized one's one part, or numbers each of its delivered parts'
+ * rows in it (lower/parts.ts TaggedPart): an order the rows arrive in only by the plan's grace is no delivery.
  */
 const unorderedArtifacts = (
 	template: OracleTemplate
 ): ReadonlyArray<"optimized" | "conservative"> => {
-	const ordered = (roots: StatementRoots<{ readonly ast: Select }>): boolean =>
-		Arr.every(roots, (tree) => tree.statement.ast.orderBy.length > 0)
+	const optimized = template.programs.optimized
+	const parts = optimized.parts
+	const optimizedOrdered =
+		parts.kind === "one"
+			? parts.delivered.ast.orderBy.length > 0
+			: Arr.every(
+					optimized.roots,
+					(tree) => parts.parts[tree.statement.answer]?.kind === "numbered"
+				)
+	const conservativeOrdered = Arr.every(
+		template.programs.conservative.roots,
+		(tree) => tree.statement.ast.orderBy.length > 0
+	)
 	return [
-		...(ordered(template.programs.optimized.roots) ? [] : (["optimized"] as const)),
-		...(ordered(template.programs.conservative.roots) ? [] : (["conservative"] as const))
+		...(optimizedOrdered ? [] : (["optimized"] as const)),
+		...(conservativeOrdered ? [] : (["conservative"] as const))
 	]
 }
 

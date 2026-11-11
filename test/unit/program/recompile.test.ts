@@ -7,7 +7,6 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import * as Result from "#compiler/core/result.ts"
-import { flight } from "#compiler/lower/conservative/types.ts"
 import { type QueryTemplate, queryInput } from "#compiler/program/compile.ts"
 import { type ExecutionRequest, templateFor } from "#compiler/program/template.ts"
 import { schemaInputOf, testArtifacts, testCompile } from "#test/support/compile.ts"
@@ -31,11 +30,11 @@ const request: ExecutionRequest = {
 	read: "rows"
 }
 
-/** The specs of a template's optimized statements' large forms. */
-const largeSpecs = (t: QueryTemplate) =>
-	Arr.flatMap(flight(t.programs.optimized.roots), (s) =>
-		s.forms.kind === "chosen" ? [s.forms.large.spec] : []
-	)
+/** The spec of a template's optimized statement's large form, when it has one. */
+const largeSpecs = (t: QueryTemplate) => {
+	const forms = t.run.statement.forms
+	return forms.kind === "chosen" ? [forms.large.spec] : []
+}
 
 /** The statements a template emits, as text. */
 const statementsOf = (t: QueryTemplate) => ({

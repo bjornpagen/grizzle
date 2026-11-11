@@ -10,7 +10,6 @@ import { groupingSteps } from "#bench/harness/explain.ts"
 import { checkQuery } from "#compiler/check/index.ts"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
-import { flight } from "#compiler/lower/conservative/types.ts"
 import { Compute, type Predicate, type Term } from "#compiler/public/compute.ts"
 import { pg, uuid, type Uuid } from "#compiler/public/fields.ts"
 import { query, type Rule, type SelfSource, v } from "#compiler/public/query.ts"
@@ -19,6 +18,7 @@ import { str } from "#compiler/public/text.ts"
 import { queryValueDesc } from "#compiler/query/build/query.ts"
 import { explainMain, lowerCase, optimizedLowering } from "#test/pg/recursion/lowering/support.ts"
 import { assert, contains } from "#test/support/assert.ts"
+import { programAsts } from "#test/support/compile.ts"
 import { localVectorSchema, productionNames } from "#test/support/kernel/naming.ts"
 import { featureCount, shapeOf } from "#test/support/kernel/shape.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -499,8 +499,8 @@ layer(Substrate.layer)("counter shapes through the optimized lowering", (it) => 
 								if (!u.ok) {
 									return assert.fail(`the counter is refused: ${u.error.message}`)
 								}
-								const statement = flight(u.value.roots)[0]
-								assert.equal(featureCount(shapeOf(statement.ast), "with recursive"), 1)
+								const [statement] = programAsts(u.value)
+								assert.equal(featureCount(shapeOf(statement), "with recursive"), 1)
 								const outcome = yield* runLabelledOracle(counted, optimized, reference, {
 									...defaultRunOptions,
 									schema: { kind: "named", name: name }

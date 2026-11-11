@@ -1,29 +1,23 @@
 import { indices } from "#compiler/core/array.ts"
-import { Refusal } from "#compiler/core/canonical.ts"
 import { defect } from "#compiler/core/invariant.ts"
-import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import type { Codebook } from "#compiler/ir/codes.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
-import type { StatementRole, StatementSpec } from "#compiler/ir/products.ts"
+import type { StatementSpec } from "#compiler/ir/products.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import type {
 	DeclaredParamSlot,
 	ProgramDelivery,
 	WriteParamSlot
 } from "#compiler/lower/conservative/types.ts"
+import type { TaggedPart } from "#compiler/lower/parts.ts"
 import type {
-	FusedStatement,
-	OptimizedStatement,
-	RelationChoice
+	DeliveredPart,
+	FormedStatement,
+	RelationChoice,
+	StatementParts
 } from "#compiler/lower/shapes/index.ts"
-import {
-	type SpecifiedArtifact,
-	type SpecifiedStatement,
-	statementSpec
-} from "#compiler/lower/template.ts"
+import type { SpecifiedArtifact } from "#compiler/lower/template.ts"
 import { oneForm, type StatementForms } from "#compiler/runtime/lower/forms.ts"
-import { declaredSlotOf } from "#compiler/runtime/lower/slots.ts"
-import { mapTree, type StatementRoots } from "#compiler/runtime/lower/tree.ts"
+import type { StatementRoots } from "#compiler/runtime/lower/tree.ts"
 import type { AddedTag, RemovedTag } from "#compiler/runtime/write/net.ts"
 import type { Staged } from "#compiler/runtime/write/staged.ts"
 import {
@@ -37,11 +31,9 @@ import {
 } from "#compiler/runtime/write/steps.ts"
 import { wildcardText } from "#compiler/scalar/compute/types.ts"
 import { plainType } from "#compiler/scalar/native.ts"
-import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import type { EmittedText, SqlStatement } from "#compiler/sql/ast.ts"
 import type { NameMap } from "#compiler/sql/naming.ts"
 import type { WriteCarrier } from "#compiler/write/carriers/carriers.ts"
-import { groupBy } from "#compiler/write/defined.ts"
 import type { WriteStatement } from "#compiler/write/insert/statement.ts"
 import type { SingleStatement } from "#compiler/write/program/single.ts"
 import { carriersOf, nestedColumnOf, stagedOf } from "#compiler/write/program/staged.ts"
@@ -97,11 +89,11 @@ const writesOf = (step: WriteStep): ReadonlyArray<RowsStep> => {
 export interface ReadBackOf {
 	readonly name: string
 	readonly query: QueryDesc
-	/** Its statements as the runtime runs them, each with its spec as placed and its large form's. */
+	/** Its statement as the runtime runs it, with its spec as placed and its large form's, and its parts. */
 	readonly run: SpecifiedArtifact
 }
 
-/** One read-back as the artifact delivers it: its name, its query, and its statements as they reach the server
+/** One read-back as the artifact delivers it: its name, its query, and its statement as it reaches the server
  * (`carried`). */
 export interface ReadBackDelivery {
 	readonly name: string
@@ -110,55 +102,44 @@ export interface ReadBackDelivery {
 }
 
 /**
- * How a read-back's statements reach the server: `sent`, each a statement of the artifact after the writes, in order,
- * its main statement or first heading group's first leading, as the runtime runs them, each with its spec as placed and
- * its large form's (`run`); or `riding`, as parts of the write statement at `statement`, which writes every delta it
- * reads (write/schedule/plan.ts placeReadBacks): its sent statements in flight order, each a part of that statement
- * whose rows are its rows behind the part's tag, from `tag` on (write/program/single.ts), and none a text of its own
+ * How a read-back's statement reaches the server: `sent`, a statement of the artifact after the writes, as the runtime
+ * runs it, with its spec as placed and its large form's (`run`); or `riding`, a part of the write statement at
+ * `statement`, which writes every delta it reads (write/schedule/plan.ts placeReadBacks): its statement, a part of that
+ * statement whose rows are its rows behind the part's tag `tag` (write/program/single.ts), and no text of its own
  * (`RiddenArtifact`).
  */
 export type ReadBackCarried =
 	| {
 			readonly kind: "sent"
 			readonly run: SpecifiedArtifact
-			readonly statements: NonEmptyReadonlyArray<ArtifactStatement>
+			readonly statement: ArtifactStatement
 	  }
 	| ({
 			readonly kind: "riding"
 			readonly statement: number
 			readonly run: RiddenArtifact
-	  } & RidingParts)
+	  } & RidingPart)
 
 /**
- * A riding read-back's statements as the runtime reads their rows: each lowered statement in its tree, with how its
- * rows arrive, and how the rows combine. The statement it rides sends them, so none carries a text of its own.
+ * A riding read-back's program as the runtime reads its rows: how its statement's rows divide into parts, its parts in
+ * their tree, and how their rows combine. The statement it rides sends its statement, so it carries no text of its own.
  */
 export interface RiddenArtifact {
 	readonly delivery: ProgramDelivery
-	readonly roots: StatementRoots<OptimizedStatement<RelationChoice, FusedStatement>>
+	readonly parts: StatementParts
+	readonly roots: StatementRoots<DeliveredPart>
 }
 
-/**
- * One sent statement of a riding read-back as a part of the statement it rides: each row its tag, then the `width`
- * cells the sent statement would answer alone. A `rows` part's rows are that statement's in the order it would send
- * them; a `numbered` part is an ordered statement's, each row's next cell its row number in the statement's order, by
- * which the runtime puts its rows back in that order, since no arm of the statement it rides orders its rows.
- */
+/** Where a riding read-back's statement's rows stand among the rows of the statement it rides: its part's tag, and the
+ * part (ReadBackCarried `riding`). */
 export interface RidingPart {
-	readonly kind: "rows" | "numbered"
-	readonly width: number
-}
-
-/** Where a riding read-back's sent statements' rows stand among the rows of the statement it rides: the first one's tag,
- * and each one's part, in flight order (ReadBackCarried `riding`). */
-export interface RidingParts {
 	readonly tag: number
-	readonly parts: NonEmptyReadonlyArray<RidingPart>
+	readonly part: TaggedPart
 }
 
-/** A read-back riding the statement it is placed with: its name, its query, its statements as the runtime reads their
- * rows, and where its rows stand among that statement's rows. */
-export interface RidingReadBack extends RidingParts {
+/** A read-back riding the statement it is placed with: its name, its query, its statement's parts as the runtime reads
+ * their rows, and where its rows stand among that statement's rows. */
+export interface RidingReadBack extends RidingPart {
 	readonly name: string
 	readonly query: QueryDesc
 	readonly run: RiddenArtifact
@@ -233,12 +214,9 @@ export interface WriteArtifact {
 	>
 }
 
-/** The large form of a read-back's placed statement: the large mode's statement and the form an execution sends, each
- * placeholder a declared parameter's. */
-export interface PlacedLarge {
-	readonly statement: FusedStatement
-	readonly sent: SentForm & { readonly params: ReadonlyArray<DeclaredParamSlot> }
-}
+/** A read-back's statement as placed, in its forms: each form the statement a program sends (shapes/index.ts
+ * SentStatement), every placeholder a declared parameter's. */
+export type PlacedRun = FormedStatement<RelationChoice>
 
 /** A statement placed in an artifact being built: the write program's own, with its step, its forms and the read-backs
  * riding it; or a read-back's, with its read-back and the statement its program lowered there, which determine its step
@@ -258,7 +236,7 @@ export type PlacedStatement = {
 			readonly kind: "readBack"
 			readonly of: ReadBackOf
 			readonly spec: StatementSpec<DeclaredParamSlot>
-			readonly run: OptimizedStatement<RelationChoice, PlacedLarge>
+			readonly run: PlacedRun
 	  }
 )
 
@@ -274,40 +252,15 @@ const placedForms = (placed: PlacedStatement): ArtifactForms => {
 	const forms = placed.run.forms
 	return forms.kind === "one"
 		? oneForm
-		: Object.freeze({ kind: "chosen", choices: forms.choices, large: forms.large.sent })
-}
-
-/** A read-back's statement as the runtime runs it, under its spec in the artifact `spec`, each placeholder with its
- * encoder under the installation's codes: its large form, when it has one, specified as the form it sends. */
-export const specifiedRun = (
-	run: OptimizedStatement<RelationChoice, PlacedLarge>,
-	spec: StatementSpec<DeclaredParamSlot>,
-	codes: Codebook
-): SpecifiedStatement => {
-	const slotOf = declaredSlotOf(codes, new CompilePatterns())
-	const encoded = Object.freeze({ ...spec, paramSlots: spec.paramSlots.map(slotOf) })
-	const forms = run.forms
-	if (forms.kind === "one") {
-		return Object.freeze({ statement: { ...run, forms }, spec: encoded })
-	}
-	const large = forms.large
-	return Object.freeze({
-		statement: {
-			...run,
-			forms: {
-				...forms,
-				large: {
-					statement: large.statement,
-					spec: Object.freeze({
-						...encoded,
-						sql: large.sent.sql,
-						paramSlots: large.sent.params.map(slotOf)
-					})
-				}
-			}
-		},
-		spec: encoded
-	})
+		: Object.freeze({
+				kind: "chosen",
+				choices: forms.choices,
+				large: Object.freeze({
+					sql: forms.large.sql.text,
+					params: forms.large.params,
+					ast: forms.large.ast
+				})
+			})
 }
 
 /** The artifact of the statements `placed`, in position order, and its carriers: its strata, deltas, read-backs and
@@ -336,23 +289,20 @@ export const settledArtifact = (
 		return { placed: p, statement }
 	})
 	const statements = settled.map((s) => s.statement)
-	const sent = groupBy(
-		settled.flatMap(({ placed: p, statement }) =>
-			p.kind === "readBack" ? [{ of: p.of, statement }] : []
-		),
-		(r) => r.of
-	).map(([of, group]) => ({
-		at: group[0].statement.index,
-		delivery: Object.freeze({
-			name: of.name,
-			query: of.query,
-			carried: Object.freeze({
-				kind: "sent" as const,
-				run: of.run,
-				statements: Object.freeze(mapNonEmpty(group, (r) => r.statement))
-			})
-		})
-	}))
+	const sent = settled.flatMap(({ placed: p, statement }) =>
+		p.kind === "readBack"
+			? [
+					{
+						at: statement.index,
+						delivery: Object.freeze({
+							name: p.of.name,
+							query: p.of.query,
+							carried: Object.freeze({ kind: "sent" as const, run: p.of.run, statement })
+						})
+					}
+				]
+			: []
+	)
 	const riding = settled.flatMap(({ placed: p, statement }) =>
 		p.kind === "own"
 			? p.riders.map((rider) => ({
@@ -365,7 +315,7 @@ export const settledArtifact = (
 							statement: statement.index,
 							run: rider.run,
 							tag: rider.tag,
-							parts: rider.parts
+							part: rider.part
 						})
 					})
 				}))
@@ -456,28 +406,6 @@ export const singleStatementSpec = (
 		],
 		role: "member" as const,
 		dependsOn: Object.freeze([...dependsOn])
-	})
-
-/** Each statement of one read-back with its StatementSpec, placed at artifact position `offset`: the template module's
- * executable texts, each statement's dependencies moved to artifact positions. */
-export const readBackSpecs = <S extends FusedStatement>(
-	roots: StatementRoots<S>,
-	offset: number
-): StatementRoots<{ readonly statement: S; readonly spec: StatementSpec<DeclaredParamSlot> }> =>
-	mapTree(roots, (statement) => {
-		const spec = statementSpec(statement, (slot: DeclaredParamSlot) => slot)
-		if (!spec.ok) {
-			throw new Refusal(spec.error)
-		}
-		const role: StatementRole = spec.value.role === "main" ? "readBack" : spec.value.role
-		return {
-			statement,
-			spec: Object.freeze({
-				...spec.value,
-				role,
-				dependsOn: spec.value.dependsOn.map((d) => d + offset)
-			})
-		}
 	})
 
 /** The positions a statement depends on: every earlier statement that writes what it reads or writes, or reads what it

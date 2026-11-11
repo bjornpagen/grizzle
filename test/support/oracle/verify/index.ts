@@ -1,20 +1,16 @@
 import { Array as Arr } from "effect"
+import { catchRefusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { EvidenceCatalog, TemplateContext } from "#compiler/ir/evidence.ts"
-import { type ConservativeProgram, flight } from "#compiler/lower/conservative/types.ts"
+import type { ConservativeProgram } from "#compiler/lower/conservative/types.ts"
 import type { OptimizedProgram } from "#compiler/lower/optimize/pipeline.ts"
-import { mapTree } from "#compiler/runtime/lower/tree.ts"
+import { conservativeStatement } from "#compiler/lower/shapes/index.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { assert } from "#test/support/assert.ts"
 import type { OracleTemplate } from "#test/support/conservative.ts"
-import {
-	artifactProblems,
-	type ChannelProgram,
-	channelProblems,
-	conservativeChannels
-} from "#test/support/oracle/verify/channels.ts"
+import { artifactProblems, channelProblems } from "#test/support/oracle/verify/channels.ts"
 import { verifyMultiplicity } from "#test/support/oracle/verify/multiplicity.ts"
 import { problemText, type VerificationProblem } from "#test/support/oracle/verify/problems.ts"
 import {
@@ -40,18 +36,10 @@ export interface LoweringUnderCheck {
 }
 
 /**
- * The optimized artifact's statements in their large forms: each statement whose small form made per-execution
- * choices, as the large-mode delivery lowered it; every other statement as it is.
- */
-const largeForms = (optimized: OptimizedProgram): ChannelProgram => ({
-	roots: mapTree(optimized.roots, (s) => (s.forms.kind === "chosen" ? s.forms.large : s)),
-	delivery: optimized.delivery
-})
-
-/**
- * Every problem of a lowering, in a fixed order: the plan's, then the optimized statements', then the large variants',
- * then the conservative statements', then the artifacts' alignment. A failure is the physical analysis refusing the
- * DAG the plan realizes.
+ * Every problem of a lowering, in a fixed order: the plan's, then the optimized statement's, then its large form's,
+ * then the conservative program's as one statement of parts (shapes/index.ts conservativeStatement), then the
+ * artifacts' alignment. A failure is the physical analysis refusing the DAG the plan realizes, or the conservative
+ * program's statement refused.
  */
 const loweringProblems = (
 	lowering: LoweringUnderCheck
@@ -65,22 +53,25 @@ const loweringProblems = (
 	if (!multiplicity.ok) {
 		return multiplicity
 	}
-	const program: ChannelProgram = { roots: optimized.roots, delivery: optimized.delivery }
-	const chosen = Arr.some(flight(optimized.roots), (s) => s.forms.kind === "chosen")
-	return Result.ok([
+	const forms = optimized.statement.forms
+	const own = [
 		...multiplicity.value.problems,
-		...channelProblems(program, "statement"),
-		...(chosen ? channelProblems(largeForms(optimized), "large variant statement") : []),
-		...(alignment.kind === "readBack"
-			? []
-			: [
-					...channelProblems(
-						conservativeChannels(alignment.conservative),
-						"conservative statement"
-					),
-					...artifactProblems(program, conservativeChannels(alignment.conservative))
-				])
-	])
+		...channelProblems(optimized, "statement"),
+		...(forms.kind === "chosen"
+			? channelProblems({ ...optimized, statement: forms.large }, "large variant statement")
+			: [])
+	]
+	if (alignment.kind === "readBack") {
+		return Result.ok(own)
+	}
+	return Result.map(
+		catchRefusal(() => conservativeStatement(alignment.conservative)),
+		(conservative) => [
+			...own,
+			...channelProblems(conservative, "conservative statement"),
+			...artifactProblems(optimized, conservative)
+		]
+	)
 }
 
 /**
@@ -102,8 +93,8 @@ export const loweringViolations = (lowering: LoweringUnderCheck): ReadonlyArray<
  *
  * - the plan's obligations, recomputed from the DAG under the execution context and the catalog the template is
  *   compiled for, every certificate rebuilt and compared whole (multiplicity.ts);
- * - every statement's channels and structural audit, in the optimized artifact, in each per-execution variant's large
- *   form, and in the conservative artifact (channels.ts, sql.ts);
+ * - the sent statement's channels and structural audit, in the optimized artifact, in its per-execution large form,
+ *   and in the conservative artifact as one statement of parts (channels.ts, sql.ts);
  * - the two artifacts decode to the same public result (channels.ts artifactProblems), unless the optimized one is a
  *   read-back, whose conservative artifact is realized with its write and compared by the write oracle.
  *
@@ -118,29 +109,19 @@ export const checkedLowering = (lowering: LoweringUnderCheck): void => {
 }
 
 /**
- * A compiled query template as a lowering under check: its optimized program, each large form as the statement it holds,
- * aligned with its conservative program, for the context and catalog it was compiled for.
+ * A compiled query template as a lowering under check: its optimized program aligned with its conservative program,
+ * for the context and catalog it was compiled for.
  */
 export const templateLowering = (
 	template: OracleTemplate,
 	context: TemplateContext,
 	catalog: EvidenceCatalog
-): LoweringUnderCheck => {
-	const { optimized, conservative } = template.programs
-	return {
-		optimized: {
-			...optimized,
-			roots: mapTree(optimized.roots, (s) =>
-				s.forms.kind === "chosen"
-					? { ...s, forms: { ...s.forms, large: s.forms.large.statement } }
-					: { ...s, forms: s.forms }
-			)
-		},
-		alignment: { kind: "aligned", conservative },
-		context,
-		catalog
-	}
-}
+): LoweringUnderCheck => ({
+	optimized: template.programs.optimized,
+	alignment: { kind: "aligned", conservative: template.programs.conservative },
+	context,
+	catalog
+})
 
 /**
  * Asserts every statement passes the structural audit, the statement audit on its AST and the text audit on its

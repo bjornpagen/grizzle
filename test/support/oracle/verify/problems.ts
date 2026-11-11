@@ -20,6 +20,7 @@ const verificationRules = [
 	"paramTypes",
 	"paramCodec",
 	"resultColumns",
+	"parts",
 	"dependencies",
 	"attachment",
 	"merge",

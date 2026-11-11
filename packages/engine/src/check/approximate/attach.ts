@@ -143,7 +143,8 @@ const correlatedRefusal = (
 
 /**
  * What in a child's subtree makes its attachment a statement of its own even under parent rows that read an
- * approximate search, the one case an attachment otherwise fuses (lower/shapes/index.ts rowsStatement), or undefined.
+ * approximate search, the one case an attachment otherwise fuses (lower/shapes/index.ts OptimizedDelivery rowsPart),
+ * or undefined.
  */
 const pipelinedOnly = (child: RelNode): string | undefined => {
 	if (child.heading.some((column) => column.type.carrier === "bytes")) {
@@ -206,7 +207,7 @@ const pipelinedReason = (node: RelNode, top: boolean): string | undefined => {
 /**
  * The search the rows of `start` read when a statement computes them, or undefined: an attachment's rows are its
  * parent's, so an Attach is followed to its parent only. A rows statement fuses its attachments exactly when its rows
- * read one (lower/shapes/index.ts rowsStatement).
+ * read one (lower/shapes/index.ts OptimizedDelivery rowsPart).
  */
 export const searchInRows = (start: RelNode): RelNode | undefined => {
 	const seen = new Set<RelNode>([start])
@@ -296,7 +297,8 @@ const deliveredAttachments = (root: RelNode): ReadonlyArray<DeliveredAttachment>
  * one, a semi-join's or a set operation's right side among them. That statement computes those rows again in the same
  * snapshot, so it would run the search a second time, and a delivered parent the second search misses would lose its
  * children. Every other attachment fuses exactly when the rows of its statement read an approximate search
- * (lower/shapes/index.ts rowsStatement), so the search runs once; over exact rows it is a statement of its own.
+ * (lower/shapes/index.ts OptimizedDelivery rowsPart), so the search runs once; over exact rows it is a statement of
+ * its own.
  *
  * The refusal of an attachment that must be a statement of its own on a statement whose rows read a search (see the
  * header), or undefined. An attachment's child that has attachments of its own is one too, so a search further up the

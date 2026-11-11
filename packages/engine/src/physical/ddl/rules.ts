@@ -266,18 +266,17 @@ const compileProbe = (
 		throw new Refusal(lowered.error)
 	}
 	const { program, checked } = lowered.value
-	const [root, ...rest] = program.roots
-	const main = root.statement
+	const parts = program.parts
 	if (
-		rest.length > 0 ||
-		root.attachments.length > 0 ||
-		main.role.kind !== "main" ||
-		main.forms.kind !== "one"
+		parts.kind !== "one" ||
+		parts.delivered.role.kind !== "main" ||
+		program.statement.forms.kind !== "one"
 	) {
 		throw new Refusal(
 			unsupported(relation.loc, `${label}: a probe that lowers to one main statement`)
 		)
 	}
+	const main = parts.delivered
 	const numbered = new Map<number, ProbeParam>(
 		main.params.flatMap((p) => {
 			const read = probe.params.get(p.param)

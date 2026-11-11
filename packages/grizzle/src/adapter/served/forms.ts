@@ -222,10 +222,12 @@ interface CompiledPageParts {
 export const compiledPageRuntime = (
 	parts: CompiledPageParts
 ): Result.Result<PageRuntime, CompileError> =>
-	Result.flatMap(
-		toResult(servedPage(parts.page, parts.codes, parts.query, parts.generation)),
-		(page) => pageRuntimeOf({ page, params: parts.params, codes: parts.codes, spine: parts.spine })
-	)
+	pageRuntimeOf({
+		page: servedPage(parts.page, parts.codes, parts.query, parts.generation),
+		params: parts.params,
+		codes: parts.codes,
+		spine: parts.spine
+	})
 
 /**
  * The page template of an ordered query compiled for a role, or the refusal of a query read inside its attachment, or

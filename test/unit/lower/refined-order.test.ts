@@ -8,7 +8,6 @@ import { checkQuery } from "#compiler/check/index.ts"
 import { canonicalEquals, everyProperty } from "#compiler/core/canonical.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { type Direction, directions } from "#compiler/core/order.ts"
-import { flight } from "#compiler/lower/conservative/types.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { queryInput } from "#compiler/program/compile.ts"
 import { uuid } from "#compiler/public/fields.ts"
@@ -18,7 +17,7 @@ import { str } from "#compiler/public/text.ts"
 import type { Expr, OrderItem, SqlStatement, Target } from "#compiler/sql/ast.ts"
 import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
-import { allocatedLevels, lowerAligned } from "#test/support/compile.ts"
+import { allocatedLevels, lowerAligned, programAsts } from "#test/support/compile.ts"
 import { installedCatalog } from "#test/support/evidence.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -191,7 +190,7 @@ describe("a refined output the delivery casts", () => {
 								catalog
 							})
 						)
-						for (const q of Arr.flatMap(flight(program.roots), (s) => orderedCores(s.ast))) {
+						for (const q of Arr.flatMap(programAsts(program), orderedCores)) {
 							const uncast = Arr.flatMap(q.targets, (t) =>
 								t.expr.kind === "cast" ? [t.expr.expr] : []
 							)

@@ -170,22 +170,21 @@ const explainQuery = Effect.fn("explainQuery")(function* (
 		return yield* new ReadFailure({ reason: ready.failure })
 	}
 	const inputs = ready.success
-	const exceeds = readExceeds(inputs)
-	/** A query's statements depend on none other (reader/run.ts), so they run in index order. */
-	const statements: Array<Explained> = []
+	/** A query sends one statement (reader/run.ts), whose plan is the query's. */
 	const program = readProgram(
 		servedSource(template.run),
 		servedSpine(compiled.value.compiled.desc),
 		ctx.artifacts.names.codes
 	)
-	for (const { run } of program.records) {
-		const execution = executionOf(formFor(run, exceeds), (slot) => readBinding(slot, inputs))
-		if (Result.isFailure(execution)) {
-			return yield* new ReadFailure({ reason: execution.failure })
-		}
-		statements.push(planned(execution.success.text.sql, execution.success.params))
+	const execution = executionOf(formFor(program.run, readExceeds(inputs)), (slot) =>
+		readBinding(slot, inputs)
+	)
+	if (Result.isFailure(execution)) {
+		return yield* new ReadFailure({ reason: execution.failure })
 	}
-	return yield* plansOf(ctx, queryFrame, statements)
+	return yield* plansOf(ctx, queryFrame, [
+		planned(execution.success.text.sql, execution.success.params)
+	])
 })
 
 const explainChangeSet = Effect.fn("explainChangeSet")(function* (

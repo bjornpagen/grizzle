@@ -50,7 +50,7 @@ interface SentStatement {
 const flightStatements = (compiled: CompiledWrite): ReadonlyArray<SentStatement> => [
 	...compiled.artifact.statements.filter((s) => s.step.kind !== "readBack").flatMap(sentForms),
 	...compiled.artifact.readBacks.flatMap((r) =>
-		r.carried.kind === "sent" ? r.carried.statements.flatMap(sentForms) : []
+		r.carried.kind === "sent" ? sentForms(r.carried.statement) : []
 	)
 ]
 

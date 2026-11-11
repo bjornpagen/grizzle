@@ -8,17 +8,15 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { planNodes } from "#bench/harness/explain.ts"
 import { indices } from "#compiler/core/array.ts"
+import * as Result from "#compiler/core/result.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
-import {
-	conservativeInput,
-	type ConservativeProgram,
-	flight
-} from "#compiler/lower/conservative/types.ts"
+import { conservativeInput, flight } from "#compiler/lower/conservative/types.ts"
 import type { Term } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, type Rule, type SelfSource, v } from "#compiler/public/query.ts"
 import { contained, on, relation, schema as declareSchema } from "#compiler/public/schema.ts"
+import { printStatement } from "#compiler/sql/print.ts"
 import {
 	executedPlan,
 	inInstalledCase,
@@ -29,12 +27,12 @@ import {
 	statementParams
 } from "#test/pg/recursion/graph/support.ts"
 import { assert, defined } from "#test/support/assert.ts"
-import { lowerAligned } from "#test/support/compile.ts"
+import { lowerAligned, partStatement } from "#test/support/compile.ts"
 import { installedCatalog } from "#test/support/evidence.ts"
 import { caseHang } from "#test/support/limits.ts"
 import type { QueryCase } from "#test/support/oracle/gen/case.ts"
 import type { GenContainment } from "#test/support/oracle/gen/schema.ts"
-import { runProgram } from "#test/support/oracle/runner.ts"
+import { runProgram, type SentProgram, sentConservative } from "#test/support/oracle/runner.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
@@ -219,8 +217,10 @@ layer(Substrate.layer)("R37: a recursive attachment seeded once from the parent 
 							 * With hash joins the planner reads the small edge table whole once per statement, and so it does
 							 * through a nested loop over the page materialized, which it prefers to probing while the edge
 							 * table fits a heap page: at 40 edges, each probe of the key index is costed a random heap page,
-							 * the whole table one. Where it probes the edge relation's key index instead, the rows read are
-							 * those of the traversal itself.
+							 * the whole table one. The page the attachment reads is the statement's MATERIALIZED CTE
+							 * (lower/shapes/index.ts OptimizedDelivery heldRows), which no planner setting keeps a nested loop
+							 * from rescanning, so the probed reading costs a random page as a sequential one. Where it probes
+							 * the edge relation's key index instead, the rows read are those of the traversal itself.
 							 */
 							const measured = yield* inInstalledCase(c, schema, (session, plan) =>
 								Effect.gen(function* () {
@@ -230,11 +230,14 @@ layer(Substrate.layer)("R37: a recursive attachment seeded once from the parent 
 										context: "snapshot",
 										catalog: installedCatalog(plan.installation)
 									})
-									const baseline = lowerConservative(conservativeInput(logicalOf(c)), {
-										names,
-										params: logicalOf(c).params,
-										subject: { kind: "query" }
-									})
+									const baseline = Result.flatMap(
+										lowerConservative(conservativeInput(logicalOf(c)), {
+											names,
+											params: logicalOf(c).params,
+											subject: { kind: "query" }
+										}),
+										sentConservative
+									)
 									if (!optimized.ok || !baseline.ok) {
 										throw new Error("lowering failed")
 									}
@@ -242,7 +245,11 @@ layer(Substrate.layer)("R37: a recursive attachment seeded once from the parent 
 									if (edgeTable === undefined) {
 										throw new Error("no installed table for E")
 									}
-									const measure = (program: ConservativeProgram, side: string) =>
+									/**
+									 * One side's attachment: its program run whole, and its part alone executed under EXPLAIN
+									 * (test/support/compile.ts partStatement), the CTEs it reads with it.
+									 */
+									const measure = (program: SentProgram, side: string) =>
 										Effect.gen(function* () {
 											const run = yield* runProgram(session, c, program, side)
 											const index = Option.getOrThrowWith(
@@ -250,16 +257,16 @@ layer(Substrate.layer)("R37: a recursive attachment seeded once from the parent 
 													flight(program.roots),
 													(st) => st.role.kind === "attachment"
 												),
-												() => new Error(`${side}: no attachment statement`)
+												() => new Error(`${side}: no attachment part`)
 											)
-											const statement = flight(program.roots)[index]
-											if (statement === undefined) {
-												throw new Error(`${side}: no attachment statement`)
+											const part = flight(program.roots)[index]
+											if (part === undefined) {
+												throw new Error(`${side}: no attachment part`)
 											}
 											const root = yield* executedPlan(
 												session,
-												statement.sql.text,
-												statementParams(c, statement)
+												printStatement(partStatement(program, part.answer)),
+												statementParams(c, program.statement)
 											)
 											const nodes = [...planNodes(root)]
 											return {
@@ -297,6 +304,7 @@ layer(Substrate.layer)("R37: a recursive attachment seeded once from the parent 
 									]) {
 										yield* session.query(`SET LOCAL ${setting} = off`, []).pipe(Effect.orDie)
 									}
+									yield* session.query("SET LOCAL random_page_cost = 1", []).pipe(Effect.orDie)
 									const probed = {
 										seeded: yield* measure(optimized.value, "optimized"),
 										pipelined: yield* measure(baseline.value, "conservative")

@@ -25,7 +25,9 @@ import { setQueryOf, withArms } from "#compiler/sql/build.ts"
 import { emit } from "#compiler/sql/emit.ts"
 
 /** The node each relation alias of a statement names. */
-export const aliasOrigins = (statement: ConservativeStatement): ReadonlyMap<string, NodeId> => {
+export const aliasOrigins = (
+	statement: Pick<ConservativeStatement, "sql">
+): ReadonlyMap<string, NodeId> => {
 	const out = new Map<string, NodeId>()
 	for (const entry of statement.sql.nameMap) {
 		if (entry.role === "relation" && entry.origin.kind === "node") {

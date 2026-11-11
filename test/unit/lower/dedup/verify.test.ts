@@ -16,7 +16,12 @@ import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput, flight } from "#compiler/lower/conservative/types.ts"
 import { placeDeduplication } from "#compiler/lower/optimize/dedup/place.ts"
 import type { DedupPlan } from "#compiler/lower/optimize/dedup/plan.ts"
-import type { FusedStatement } from "#compiler/lower/shapes/index.ts"
+import {
+	conservativeStatement,
+	type DeliveredPart,
+	type FusedStatement,
+	type SentStatement
+} from "#compiler/lower/shapes/index.ts"
 import { mapTree } from "#compiler/runtime/lower/tree.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 import type { Select } from "#compiler/sql/ast.ts"
@@ -51,8 +56,7 @@ import {
 import {
 	artifactProblems,
 	type ChannelProgram,
-	channelProblems,
-	conservativeChannels
+	channelProblems
 } from "#test/support/oracle/verify/channels.ts"
 import {
 	type PlanUnderVerification,
@@ -430,7 +434,7 @@ interface ProgramSubject {
 }
 
 const generatedProgram = (c: QueryCase): ChannelProgram =>
-	conservativeChannels(
+	conservativeStatement(
 		succeeded(
 			lowerConservative(conservativeInput(c.query), {
 				names: standInNames(c.schema.name, schemaCodes(c.schema)),
@@ -453,15 +457,24 @@ const renamedAlias = (ast: Select, from: string, to: string): Select =>
 		expr: (e) => (e.kind === "column" && e.table === from ? { ...e, table: to } : e)
 	})
 
-/** The program with statement i replaced. */
-const replaced = (
+/** The program with the statement it sends changed. */
+const sentAs = (
 	p: ChannelProgram,
-	i: number,
-	replace: (s: FusedStatement) => FusedStatement
-) => ({
+	change: (s: SentStatement) => SentStatement
+): ChannelProgram => ({
 	...p,
-	roots: mapTree(p.roots, (s, k) => (k === i ? replace(s) : s))
+	statement: change(p.statement)
 })
+
+/** The program with its one part's lowered statement changed, where it has one part `keep` holds of. */
+const oneAs = (
+	p: ChannelProgram,
+	keep: (s: FusedStatement) => boolean,
+	change: (s: FusedStatement) => FusedStatement
+): ReadonlyArray<ChannelProgram> =>
+	p.parts.kind === "one" && keep(p.parts.delivered)
+		? [{ ...p, parts: { kind: "one", delivered: change(p.parts.delivered) } }]
+		: []
 
 const boolType = plainType("bool")
 
@@ -472,19 +485,22 @@ type ChannelBreak =
 	| "a slot added"
 	| "a result column renamed"
 	| "the result heading cut short"
+	| "a part's cells cut short"
 	| "the main statement twice"
 	| "heading groups renumbered"
 	| "the merge discriminant changed"
 	| "a relation alias respelled"
 	| "the text garbled"
 
-/** A statement index and the program with that statement changed. */
+/** For each delivered relation `keep` holds of, the program with that relation changed. */
 const atEach = (
 	p: ChannelProgram,
-	keep: (s: FusedStatement) => boolean,
-	change: (s: FusedStatement) => FusedStatement
+	keep: (s: DeliveredPart) => boolean,
+	change: (s: DeliveredPart) => DeliveredPart
 ): ReadonlyArray<ChannelProgram> =>
-	Arr.flatMap(flight(p.roots), (s, i) => (keep(s) ? [replaced(p, i, change)] : []))
+	Arr.flatMap(flight(p.roots), (s, i) =>
+		keep(s) ? [{ ...p, roots: mapTree(p.roots, (t, k) => (k === i ? change(t) : t)) }] : []
+	)
 
 /** The relation aliases a statement's FROM items declare. */
 const aliasesOf = (ast: Select): ReadonlyArray<string> => {
@@ -512,65 +528,60 @@ const channelBreaks: Readonly<
 > = {
 	"the text edited": {
 		expect: exactly("statementText"),
-		sites: (p) =>
-			atEach(
-				p,
-				() => true,
-				(s) => ({ ...s, sql: { ...s.sql, text: testSql(`${s.sql.text}\n`) } })
-			)
+		sites: (p) => [
+			sentAs(p, (s) => ({ ...s, sql: { ...s.sql, text: testSql(`${s.sql.text}\n`) } }))
+		]
 	},
 	"the slots dropped": {
 		expect: exactly("placeholders"),
-		sites: (p) =>
-			atEach(
-				p,
-				(s) => s.params.length > 0,
-				(s) => ({ ...s, params: [] })
-			)
+		sites: (p) => (p.statement.params.length > 0 ? [sentAs(p, (s) => ({ ...s, params: [] }))] : [])
 	},
 	"a slot recast": {
 		expect: exactly("paramTypes"),
 		sites: (p) =>
-			atEach(
-				p,
-				(s) =>
-					Arr.some(s.params, (slot) => slot.kind === "scalar" && slot.sqlType !== types.bigint),
-				(s) => ({
-					...s,
-					params: Arr.map(s.params, (slot) =>
-						slot.kind === "scalar" && slot.sqlType !== types.bigint
-							? { ...slot, sqlType: types.bigint }
-							: slot
-					)
-				})
+			Arr.some(
+				p.statement.params,
+				(slot) => slot.kind === "scalar" && slot.sqlType !== types.bigint
 			)
+				? [
+						sentAs(p, (s) => ({
+							...s,
+							params: Arr.map(s.params, (slot) =>
+								slot.kind === "scalar" && slot.sqlType !== types.bigint
+									? { ...slot, sqlType: types.bigint }
+									: slot
+							)
+						}))
+					]
+				: []
 	},
 	"a slot added": {
 		expect: including("placeholders"),
 		sites: (p) =>
-			atEach(
-				p,
-				(s) => s.heading.length > 0,
-				(s) => ({
-					...s,
-					params: [
-						...s.params,
-						{
-							kind: "scalar",
-							placeholder: "value",
-							number: s.params.length + 1,
-							param: ParamId("p_added"),
-							type: present(s.heading[0], "a column").type,
-							sqlType: types.uuid
-						}
-					]
-				})
+			Arr.flatMap(
+				Option.toArray(Arr.findFirst(flight(p.roots), (r) => r.heading.length > 0)),
+				(r) => [
+					sentAs(p, (s) => ({
+						...s,
+						params: [
+							...s.params,
+							{
+								kind: "scalar",
+								placeholder: "value",
+								number: s.params.length + 1,
+								param: ParamId("p_added"),
+								type: present(r.heading[0], "a column").type,
+								sqlType: types.uuid
+							}
+						]
+					}))
+				]
 			)
 	},
 	"a result column renamed": {
 		expect: including("resultColumns"),
 		sites: (p) =>
-			atEach(
+			oneAs(
 				p,
 				(s) => s.heading.length > 0,
 				(s) => ({
@@ -582,9 +593,18 @@ const channelBreaks: Readonly<
 	"the result heading cut short": {
 		expect: including("resultColumns"),
 		sites: (p) =>
-			atEach(
+			oneAs(
 				p,
 				(s) => s.heading.length > 0,
+				(s) => ({ ...s, heading: s.heading.slice(1) })
+			)
+	},
+	"a part's cells cut short": {
+		expect: including("parts"),
+		sites: (p) =>
+			atEach(
+				p,
+				(s) => s.heading.length > 1,
 				(s) => ({ ...s, heading: s.heading.slice(1) })
 			)
 	},
@@ -640,23 +660,24 @@ const channelBreaks: Readonly<
 	"a relation alias respelled": {
 		expect: exactly("statementAudit"),
 		sites: (p) =>
-			atEach(
-				p,
-				(s) => aliasesOf(s.ast).length > 0,
-				(s) => {
-					const ast = renamedAlias(s.ast, present(aliasesOf(s.ast)[0], "an alias"), "x_respelled")
-					return { ...s, ast, sql: { ...s.sql, text: testSql(printStatement(ast)) } }
-				}
-			)
+			aliasesOf(p.statement.ast).length > 0
+				? [
+						sentAs(p, (s) => {
+							const ast = renamedAlias(
+								s.ast,
+								present(aliasesOf(s.ast)[0], "an alias"),
+								"x_respelled"
+							)
+							return { ...s, ast, sql: { ...s.sql, text: testSql(printStatement(ast)) } }
+						})
+					]
+				: []
 	},
 	"the text garbled": {
 		expect: exactly("statementText", "placeholders"),
-		sites: (p) =>
-			atEach(
-				p,
-				() => true,
-				(s) => ({ ...s, sql: { ...s.sql, text: testSql(`${s.sql.text} '`) } })
-			)
+		sites: (p) => [
+			sentAs(p, (s) => ({ ...s, sql: { ...s.sql, text: testSql(`${s.sql.text} '`) } }))
+		]
 	}
 }
 
@@ -667,6 +688,7 @@ const channelBreakNames: Arr.NonEmptyReadonlyArray<ChannelBreak> = [
 	"a slot added",
 	"a result column renamed",
 	"the result heading cut short",
+	"a part's cells cut short",
 	"the main statement twice",
 	"heading groups renumbered",
 	"the merge discriminant changed",

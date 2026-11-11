@@ -22,7 +22,7 @@ import {
 	installedIndexes,
 	installFixture,
 	judged,
-	optimizedStatement,
+	optimizedAst,
 	plainExplain,
 	queryPhases,
 	rawSession,
@@ -198,7 +198,7 @@ export default defineGate({
 			}
 			const arraysPlan = planOf(arraysM, 0)
 			/** The template's statement: its relation parameter as its arrays, one placeholder per column. */
-			const templateShape = shapeOf(optimizedStatement(compiled, 0).ast)
+			const templateShape = shapeOf(optimizedAst(compiled))
 			const itemKey = fx.columnName("Item", "id")
 			const probesKey = (plan: PlanNode): boolean =>
 				Arr.some(

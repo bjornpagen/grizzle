@@ -16,7 +16,6 @@ import { identity } from "#compiler/core/identity.ts"
 import type { CodeSlot } from "#compiler/ir/cells.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
-import { flight } from "#compiler/lower/conservative/types.ts"
 /**
  * A guarded float form binds its compound operands once per row, never in a SubPlan PostgreSQL runs again for every
  * row (lower/conservative/expr/lateral.ts), and computes what the reference evaluator computes.
@@ -447,8 +446,8 @@ const subplansRun = (plan: PlanNode): ReadonlyArray<PlanNode> =>
 	)
 
 /**
- * Each statement of `lowering` over the case, installed and filled in one rolled-back transaction, planned under
- * EXPLAIN ANALYZE: the SubPlans and InitPlans that ran, by statement.
+ * The statement of `lowering` over the case, installed and filled in one rolled-back transaction, planned under
+ * EXPLAIN ANALYZE: the SubPlans and InitPlans that ran.
  */
 const subplansOf = (c: LabelledCase, lowering: Lowering, schema: string) =>
 	Effect.scoped(
@@ -481,17 +480,16 @@ const subplansOf = (c: LabelledCase, lowering: Lowering, schema: string) =>
 				const tables = Arr.map(Rec.values(plan.tables), (t) => printObjectName(t.name))
 				yield* session.query(`ANALYZE ${Arr.join(tables, ", ")}`, [])
 				const ran: Array<string> = []
-				for (const [i, statement] of flight(lowered.value.roots).entries()) {
-					const rows = yield* session.queryValues(
-						explainStatementWith(statement.sql.text, { serialize: { kind: "off" }, wal: false }),
-						[]
+				const text = lowered.value.statement.sql.text
+				const rows = yield* session.queryValues(
+					explainStatementWith(text, { serialize: { kind: "off" }, wal: false }),
+					[]
+				)
+				const explained = yield* Effect.fromResult(parsePlan(rows[0]?.[0]))
+				for (const n of subplansRun(explained.plan)) {
+					ran.push(
+						`${lowering.name}: a subplan's ${n.nodeType} ran ${n.actualLoops} times\n${text}`
 					)
-					const explained = yield* Effect.fromResult(parsePlan(rows[0]?.[0]))
-					for (const n of subplansRun(explained.plan)) {
-						ran.push(
-							`${lowering.name} statement ${i}: a subplan's ${n.nodeType} ran ${n.actualLoops} times\n${statement.sql.text}`
-						)
-					}
 				}
 				return ran
 			}).pipe(Effect.ensuring(Effect.ignore(session.query("ROLLBACK", []))))

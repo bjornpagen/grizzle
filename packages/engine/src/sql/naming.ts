@@ -102,7 +102,7 @@ export const namesPast = (map: NameMap, from: NameSupplyStart): NameSupplyStart 
 	return { relationStart, columnStart }
 }
 
-/** Fresh names for one statement. Local mutable state owned by one lowering; never shared across statements. */
+/** Fresh names for one statement. Local mutable state owned by one lowering; a later statement names past it. */
 export class NameSupply {
 	#relation: number
 	#column: number
@@ -134,6 +134,13 @@ export class NameSupply {
 
 	map(): NameMap {
 		return [...this.#entries]
+	}
+
+	/**
+	 * The numbering past every name this supply minted, from its start at least: where a statement after it starts.
+	 */
+	past(): NameSupplyStart {
+		return { relationStart: this.#relation, columnStart: this.#column }
 	}
 }
 

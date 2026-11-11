@@ -34,8 +34,9 @@ export type DeltaRelation =
 	| { readonly kind: "empty" }
 
 /**
- * How a read-back's statements are named: each a statement of its own, from r1 and c1; or, riding a write statement as
- * its parts, one after another from `start`, past every name that statement defines, so no name is defined twice in it.
+ * Where a read-back's names start: a statement of its own's at r1 and c1; or, riding a write statement as its part,
+ * at `start`, past every name that statement defines, so no name is defined twice in it. Each later statement of its
+ * lowering names past the one before (context.ts beginStatement).
  */
 export type ReadBackNaming =
 	| { readonly kind: "own" }

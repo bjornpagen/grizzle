@@ -1,5 +1,5 @@
 import { type AdmittedQuery, checkQuery } from "#compiler/check/index.ts"
-import { catchCompileError, catchRefusal, Refusal } from "#compiler/core/canonical.ts"
+import { catchCompileError, catchRefusal } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -8,7 +8,7 @@ import type { TemplateContext } from "#compiler/ir/evidence.ts"
 import type { ProgramArtifacts, LogicalQuery, ParamDecl } from "#compiler/ir/products.ts"
 import type { Heading, RootedDag } from "#compiler/ir/rel.ts"
 import { analyzeLogical, queryEvidence } from "#compiler/logical/annotate.ts"
-import { flight, type ProgramDelivery } from "#compiler/lower/conservative/types.ts"
+import type { ProgramDelivery } from "#compiler/lower/conservative/types.ts"
 
 import {
 	lowerOptimized,
@@ -16,13 +16,7 @@ import {
 	optimizedInput
 } from "#compiler/lower/optimize/pipeline.ts"
 
-import {
-	type SpecifiedArtifact,
-	type SpecifiedForm,
-	type SpecifiedStatement,
-	specifiedStatements,
-	statementSpec
-} from "#compiler/lower/template.ts"
+import { type SpecifiedArtifact, specifiedProgram } from "#compiler/lower/template.ts"
 import {
 	levelSchema,
 	parseSchemaInput,
@@ -32,9 +26,6 @@ import {
 } from "#compiler/program/schema.ts"
 import { hostArguments } from "#compiler/query/build/host.ts"
 import { publicDesc, queryState } from "#compiler/query/build/state.ts"
-import { declaredSlotOf } from "#compiler/runtime/lower/slots.ts"
-import { mapTree } from "#compiler/runtime/lower/tree.ts"
-import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 
 export interface QueryTemplate extends ProgramArtifacts {
 	readonly kind: "query" | "ordered"
@@ -44,17 +35,16 @@ export interface QueryTemplate extends ProgramArtifacts {
 	/** How the runtime delivers the result. */
 	readonly delivery: ProgramDelivery
 	/**
-	 * The optimized lowering, its statements' ASTs included, for inspection, an optimized statement's large form holding
-	 * its spec; and the checked query it lowers, each attachment judged (rel.ts Attach judged), which a page's order is
-	 * completed over.
+	 * The optimized lowering, its statement's AST included, for inspection; and the checked query it lowers, each
+	 * attachment judged (rel.ts Attach judged), which a page's order is completed over.
 	 */
 	readonly programs: {
-		readonly optimized: OptimizedProgram<SpecifiedForm>
+		readonly optimized: OptimizedProgram
 		readonly checked: LogicalQuery
 	}
 	/**
-	 * The optimized artifact as the runtime binds, sends and decodes it: its statements, each with the spec emitted from
-	 * it, of which `optimized` is the specs.
+	 * The optimized artifact as the runtime binds, sends and decodes it: its statement with the spec emitted from it, of
+	 * which `optimized` is the spec, and its parts.
 	 */
 	readonly run: SpecifiedArtifact
 	/**
@@ -222,47 +212,20 @@ export const compileQuery = (
 		return lowered
 	}
 	const optimized = lowered.value
-	const codes = artifacts.reads.codes
-	const optimizedSpecs = specifiedStatements(optimized.roots, codes)
-	if (!optimizedSpecs.ok) {
-		return optimizedSpecs
-	}
-	/** Each statement's large form with the spec emitted from it. */
-	const specified = catchRefusal(() =>
-		mapTree(optimizedSpecs.value, ({ statement: s, spec }): SpecifiedStatement => {
-			const forms = s.forms
-			if (forms.kind === "one") {
-				return { statement: { ...s, forms }, spec }
-			}
-			const large = statementSpec(forms.large, declaredSlotOf(codes, new CompilePatterns()))
-			if (!large.ok) {
-				throw new Refusal(large.error)
-			}
-			return {
-				statement: {
-					...s,
-					forms: { ...forms, large: { statement: forms.large, spec: large.value } }
-				},
-				spec
-			}
-		})
-	)
-	if (!specified.ok) {
-		return specified
+	const run = catchRefusal(() => specifiedProgram(optimized, artifacts.reads.codes))
+	if (!run.ok) {
+		return run
 	}
 	const template: QueryTemplate = {
 		kind: isOrderedQuery(source.desc) ? "ordered" : "query",
 		context,
-		optimized: flight(specified.value).map((run) => run.spec),
+		optimized: [run.value.statement.spec],
 		certificates: optimized.certificates,
 		heading: checked.dag.roots[0].heading,
 		params: checked.params,
 		delivery: optimized.delivery,
-		programs: {
-			optimized: { ...optimized, roots: mapTree(specified.value, (run) => run.statement) },
-			checked: judged
-		},
-		run: { delivery: optimized.delivery, roots: specified.value },
+		programs: { optimized, checked: judged },
+		run: run.value,
 		analyzed: analyzed.value.dag
 	}
 	return Result.ok(template)

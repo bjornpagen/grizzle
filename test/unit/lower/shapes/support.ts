@@ -11,7 +11,7 @@ import { unbounded } from "#compiler/ir/cardinality.ts"
 import type { Certificate } from "#compiler/ir/certificate.ts"
 import type { RelDag, RelNode, ValidDag } from "#compiler/ir/rel.ts"
 import { LowerContext, type NodeDispatch } from "#compiler/lower/conservative/context.ts"
-import { Delivery } from "#compiler/lower/conservative/deliver.ts"
+import { ConservativeDelivery } from "#compiler/lower/conservative/deliver.ts"
 import { dispatchNode } from "#compiler/lower/conservative/dispatch.ts"
 import type {
 	ConservativeOptions,
@@ -222,5 +222,5 @@ export const shapedProgram = (
 	options: ConservativeOptions
 ): ConservativeProgram => {
 	const cx = new LowerContext(query.dag, options, shapeDispatch(facts))
-	return new Delivery(cx).program(query.root)
+	return new ConservativeDelivery(cx).program(query.root)
 }

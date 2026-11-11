@@ -1,5 +1,6 @@
 import * as Arr from "effect/Array"
 import * as Effect from "effect/Effect"
+import * as Order from "effect/Order"
 import * as Result from "effect/Result"
 import { type InputTooLarge, UnreadableAnswer } from "#adapter/errors/failures.ts"
 import { carried } from "#adapter/reader/analysis.ts"
@@ -18,12 +19,13 @@ import type {
 } from "#compiler/plan/common.ts"
 import type { Delivery } from "#compiler/plan/decode.ts"
 import type {
-	Arrival,
 	ChoiceInput,
 	DeclaredParamSlot,
 	FusedTexts,
 	StatementForms,
-	StatementOutput
+	StatementOutput,
+	PartDivision,
+	TaggedPart
 } from "#compiler/plan/read.ts"
 import {
 	TupleMap,
@@ -44,10 +46,12 @@ import {
 import type {
 	ServedAttach,
 	ServedAttached,
+	ServedChoice,
 	ServedFused,
+	ServedPart,
 	ServedRoots,
-	ServedRunStatement,
 	ServedSpec,
+	ServedSentStatement,
 	ServedSpine,
 	ServedTree
 } from "#compiler/plan/serve.ts"
@@ -88,19 +92,23 @@ import type {
  *   result) and each attachment's slot, child layout and the delivery the analysis proved, which the decoder's stated
  *   delivery must be licensed by. Row plans and layouts are settled once per program (programRecords), so a row reads
  *   no attachment fact and builds no scope, and a decoder binds to the same layouts on every read.
- * - Records. A program's statement tree is parsed once into one record per statement (programRecords): its forms,
- *   which sent statement's answer its rows are (a fed statement's being the feeder its arrival holds), the records of
- *   the attachment statements under it, which its tree holds, and its layout; a read follows references only.
+ * - Parts. A program sends one statement, whose rows are its parts' rows: its one part's, or each part's behind its
+ *   tag, a numbered part's put back in its order by the row number after its cells (partRuns). Each part is a
+ *   delivered relation, the program's rows, a heading group's or an attachment's; an attachment fed an earlier part's
+ *   rows (R25) reads that part's.
+ * - Records. A program's tree of parts is parsed once into one record per part (programRecords): which part's rows are
+ *   its rows, the records of the attachments under it, which its tree holds, and its layout; a read follows references
+ *   only.
  *
  * The host values of a read's parameters, by declared name; Stream relation parameters already collected (params.ts).
  */
 export type HostParams = Readonly<Record<string, unknown>>
 
 /**
- * What a record reads of a statement, whatever its placeholders and forms: its role, the heading of the relation it
- * delivers and its fused attachments, as a served program holds them (engine served/read.ts ServedRunStatement).
+ * What a record reads of a delivered relation: its role, the heading of the relation it delivers and its fused
+ * attachments, as a served program holds them (engine served/read.ts ServedPart).
  */
-type LoweredStatement = Pick<ServedRunStatement<unknown, ChoiceInput>, "role" | "heading" | "fused">
+type LoweredStatement = Pick<ServedPart, "role" | "heading" | "fused">
 
 /** One form of a statement as an execution sends it: the spec emitted from it, and its placeholders in order. */
 export interface StatementForm<Slot = DeclaredParamSlot> {
@@ -109,17 +117,15 @@ export interface StatementForm<Slot = DeclaredParamSlot> {
 }
 
 /**
- * A statement as it runs: the statement its records read, its form, its forms (lower/shapes StatementForms): one, or its
- * whole-relation form with the choices that select it, and how the runtime has its rows.
+ * A program's statement as it runs: its form, its forms (lower/shapes StatementForms): one, or its whole-relation form
+ * with the choices that select it, and how its rows divide into its parts.
  */
 export interface RunStatement<
-	S extends LoweredStatement,
 	Slot = DeclaredParamSlot,
 	Choice = ReadChoice
 > extends StatementForm<Slot> {
-	readonly statement: S
 	readonly forms: StatementForms<Choice, StatementForm<Slot>>
-	readonly arrival: Arrival
+	readonly parts: PartDivision
 }
 
 /** A read's per-execution choice: by the distinct fact count of a relation parameter. */
@@ -129,10 +135,34 @@ export interface ReadChoice {
 }
 
 /** The form of a statement whose placeholders are `statement`'s, sent as `spec`. */
-export const readForm = <Slot>(
+const readForm = <Slot>(
 	statement: { readonly params: ReadonlyArray<Slot> },
 	spec: ServedSpec
 ): StatementForm<Slot> => ({ spec, slots: statement.params })
+
+/**
+ * A served program's statement as it runs, its rows dividing into `parts`, each choice of its large form read as
+ * `choice` reads it.
+ */
+export const runStatement = <Slot, Source extends ChoiceInput, Choice>(
+	statement: ServedSentStatement<Slot, Source>,
+	parts: PartDivision,
+	choice: (served: ServedChoice<Source>) => Choice
+): RunStatement<Slot, Choice> => {
+	const forms = statement.forms
+	return {
+		...readForm(statement, statement.spec),
+		forms:
+			forms.kind === "one"
+				? forms
+				: {
+						kind: "chosen",
+						choices: Arr.map(forms.choices, choice),
+						large: readForm(forms.large.statement, forms.large.spec)
+					},
+		parts
+	}
+}
 
 /**
  * What an execution reads, from one walk of the read's declared parameters (relations.ts executionInputs): the host
@@ -168,8 +198,8 @@ export const inputCount = (inputs: ExecutionInputs, param: ParamId): number =>
 	declaredInput(inputs.relations, param).normalized.count
 
 /** The form `run` takes in an execution: its large form when one of its choices `exceeds` its threshold. */
-export const formFor = <S extends LoweredStatement, Slot, Choice>(
-	run: RunStatement<S, Slot, Choice>,
+export const formFor = <Slot, Choice>(
+	run: RunStatement<Slot, Choice>,
 	exceeds: (choice: Choice) => boolean
 ): StatementForm<Slot> => {
 	const forms = run.forms
@@ -224,8 +254,42 @@ export const encodeForm = <Slot, E>(
 ): Effect.Effect<PreparedStatement, E> =>
 	Effect.suspend(() => Effect.fromResult(executionOf(form, bind)))
 
-/** A flight's answers to the statements it sent, in the order it sent them, as PostgreSQL sent them. */
+/** The runs of a program's answer: each part's rows, in the order of the parts, as PostgreSQL sent them. */
 export type SentRuns = ReadonlyArray<OutputRows>
+
+/** A numbered part's rows in their part's order: by their row number. */
+const byNumber: Order.Order<{ readonly number: number }> = Order.mapInput(
+	Order.Number,
+	(numbered) => numbered.number
+)
+
+/**
+ * The rows of the part `part` among `rows`, the rows of a statement of tagged parts: the rows behind its tag `tag`,
+ * their first `width` cells after the tag, a numbered part's put back in its part's order by the row number after
+ * them (lower/parts.ts TaggedPart).
+ */
+export const taggedRun = (rows: OutputRows, tag: number, part: TaggedPart): OutputRows => {
+	const own = String(tag)
+	const tagged = Arr.filter(rows, (row) => row[0] === own)
+	const ordered =
+		part.kind === "rows"
+			? tagged
+			: Arr.map(
+					Arr.sort(
+						Arr.map(tagged, (row) => ({ row, number: Number(row[1 + part.width]) })),
+						byNumber
+					),
+					(numbered) => numbered.row
+				)
+	return Arr.map(ordered, (row) => row.slice(1, 1 + part.width))
+}
+
+/**
+ * The runs of a program's answer `rows`, the rows of its one statement: its one part's rows whole, or each part's behind
+ * its tag (taggedRun), in the order of the parts.
+ */
+export const partRuns = (parts: PartDivision, rows: OutputRows): SentRuns =>
+	parts.kind === "one" ? [rows] : Arr.map(parts.parts, (part, tag) => taggedRun(rows, tag, part))
 
 /**
  * One parent key column as a row holds it: its position among the row's texts, and its type's cell text
@@ -242,8 +306,8 @@ interface KeyRead {
  * An attachment statement under a statement's rows: its record, and the parent key read from the parent's rows and from
  * the attachment's, which lead with it.
  */
-interface ChildPlan<Run> {
-	readonly record: StatementRecord<Run>
+interface ChildPlan {
+	readonly record: StatementRecord
 	readonly parent: ReadonlyArray<KeyRead>
 	readonly child: ReadonlyArray<KeyRead>
 }
@@ -263,10 +327,10 @@ interface FusedPlan {
  * How one statement's rows become Rows: each row's children, slot by slot, first those of the attachment statements
  * under it, then those of its fused attachment columns, the order its layout's attachment slots name.
  */
-interface RowPlan<Run> {
+interface RowPlan {
 	/** A row's identity, over every output column of the statement. */
 	readonly identity: RowIdentity
-	readonly children: ReadonlyArray<ChildPlan<Run>>
+	readonly children: ReadonlyArray<ChildPlan>
 	readonly fused: ReadonlyArray<FusedPlan>
 }
 
@@ -288,44 +352,30 @@ const rowIdentity =
 const itself = (cell: Cell): string => outputTextOf(cell)
 
 /**
- * One statement of a program as a flight runs it and its readers read it: its forms (`run`), how its rows arrive, how
- * they become Rows, and its layout (core/decoder.ts), where a decoder finds each public column among its texts and each
- * attachment among a row's children. A program's records are settled once (programRecords), so a read resolves no
- * statement position, builds no plan, and a decoder binds to the same layouts each time.
+ * One part of a program as its readers read it: the delivered relation it is, the position of its rows among the runs
+ * of the program's answer (partRuns), how its rows arrive, how they become Rows, and its layout (core/decoder.ts), where
+ * a decoder finds each public column among its texts and each attachment among a row's children. A program's records
+ * are settled once (programRecords), so a read resolves no position, builds no plan, and a decoder binds to the same
+ * layouts each time.
  */
-export interface StatementRecord<Run> {
-	readonly run: Run
-	readonly arrival: Arrival
+export interface StatementRecord {
+	readonly part: LoweredStatement
+	readonly answer: number
 	/** How its answer's rows travel, which reads them (codec/delivery.ts). */
 	readonly delivery: Delivery
-	readonly plan: RowPlan<Run>
+	readonly plan: RowPlan
 	readonly layout: Layout
 }
 
-/**
- * A program's records, in flight order, and its delivered ones, the statements that are no attachment, in flight order.
- */
-export interface ProgramRecords<Run> {
-	readonly records: Arr.NonEmptyReadonlyArray<StatementRecord<Run>>
-	readonly delivered: Arr.NonEmptyReadonlyArray<StatementRecord<Run>>
+/** A program's records, in flight order, and its delivered ones, the parts that are no attachment, in flight order. */
+export interface ProgramRecords {
+	readonly records: Arr.NonEmptyReadonlyArray<StatementRecord>
+	readonly delivered: Arr.NonEmptyReadonlyArray<StatementRecord>
 }
 
 /** A statement's output columns (conservative/types.ts statementOutput). */
 export const outputOf = (statement: LoweredStatement): StatementOutput<ServedFused> =>
 	statementOutput(statement.role, statement.heading, statement.fused)
-
-/**
- * A statement as a program runs it, whatever its forms: the lowered statement it was placed as, and how the runtime has
- * its rows.
- */
-export interface Arrived {
-	readonly statement: LoweredStatement
-	readonly arrival: Arrival
-}
-
-/** The answer of the sent statement whose rows a statement's are: its own, or its feeder's. */
-export const answerOf = (arrival: Arrival): number =>
-	arrival.kind === "sent" ? arrival.answer : arrival.feeder.answer
 
 /**
  * Where a statement is in its program's tree: delivered, whose whole heading is public, or an attachment under its
@@ -358,9 +408,9 @@ const columnsOf = (statement: LoweredStatement, under: Under): ReadonlyMap<strin
  * An attachment as its parent's record holds it: its child plan, and its layout but for the slot, which its parent
  * numbers.
  */
-interface Attached<Run> {
+interface Attached {
 	readonly name: string
-	readonly plan: ChildPlan<Run>
+	readonly plan: ChildPlan
 	readonly layout: Omit<AttachmentLayout, "slot">
 }
 
@@ -373,14 +423,13 @@ interface Attached<Run> {
  * lowering refuses to deliver an attached heterogeneous union per heading group (lower/conservative/deliver.ts), and
  * a fused child is one column.
  */
-const recordOf = <Run extends Arrived>(
-	tree: ServedTree<Run>,
+const recordOf = (
+	tree: ServedTree<ServedPart>,
 	under: Under,
 	scope: ServedSpine | undefined,
 	codes: Codebook
-): StatementRecord<Run> => {
-	const run = tree.statement
-	const statement = run.statement
+): StatementRecord => {
+	const statement = tree.statement
 	const output = outputOf(statement)
 	const attached = Arr.map(tree.attachments, (child) => attachedOf(child, output, scope, codes))
 	const attachments = new Map<string, AttachmentLayout>()
@@ -414,8 +463,8 @@ const recordOf = <Run extends Arrived>(
 		}
 	})
 	return {
-		run,
-		arrival: run.arrival,
+		part: statement,
+		answer: statement.answer,
 		delivery: deliveryOf([
 			...Arr.map(output.heading, (column) => cellKindOf(column.type)),
 			...Arr.map(output.fused, () => "text" as const)
@@ -436,12 +485,12 @@ const recordOf = <Run extends Arrived>(
  * The attachment `tree` holds under the rows of a statement of output `parent`, in the parent's scope `scope`: its
  * record, its parent key read from the parent's rows and from its own, which lead with it, and its layout.
  */
-const attachedOf = <Run extends Arrived>(
-	tree: ServedAttached<Run>,
+const attachedOf = (
+	tree: ServedAttached<ServedPart>,
 	parent: StatementOutput<ServedFused>,
 	scope: ServedSpine | undefined,
 	codes: Codebook
-): Attached<Run> => {
+): Attached => {
 	const { attach } = tree
 	const record = recordOf(
 		tree,
@@ -449,7 +498,7 @@ const attachedOf = <Run extends Arrived>(
 		scope?.under.get(attach.name),
 		codes
 	)
-	const parentKey = keyColumns(tree.statement.statement.role)
+	const parentKey = keyColumns(tree.statement.role)
 	return {
 		name: attach.name,
 		plan: {
@@ -465,9 +514,7 @@ const attachedOf = <Run extends Arrived>(
 }
 
 /** `record` and the records of the attachment statements under it, in flight order. */
-const recordsUnder = <Run>(
-	record: StatementRecord<Run>
-): Arr.NonEmptyReadonlyArray<StatementRecord<Run>> => [
+const recordsUnder = (record: StatementRecord): Arr.NonEmptyReadonlyArray<StatementRecord> => [
 	record,
 	...Arr.flatMap(record.plan.children, (child) => recordsUnder(child.record))
 ]
@@ -477,11 +524,11 @@ const recordsUnder = <Run>(
  * the installation's codes `codes`: its delivered ones, each with the records of the attachment statements under its
  * rows, and all of them in flight order.
  */
-export const programRecords = <Run extends Arrived>(
-	roots: ServedRoots<Run>,
+export const programRecords = (
+	roots: ServedRoots<ServedPart>,
 	spine: ServedSpine,
 	codes: Codebook
-): ProgramRecords<Run> => {
+): ProgramRecords => {
 	const delivered = Arr.map(roots, (tree) => recordOf(tree, { kind: "root" }, spine, codes))
 	return { records: Arr.flatten(Arr.map(delivered, recordsUnder)), delivered }
 }
@@ -491,8 +538,8 @@ const keyOf = (cells: ReadonlyArray<Cell>, key: ReadonlyArray<KeyRead>): Readonl
 	key.map((read) => read.cell(rowCell(cells, read.at)))
 
 /** The rows of `record` in a flight whose sent statements answered `sent`, as its delivery assembles them. */
-export const runOf = <Run>(record: StatementRecord<Run>, sent: SentRuns): AssembledRows =>
-	assembled(record.delivery, sentAnswer(sent, answerOf(record.arrival)))
+export const runOf = (record: StatementRecord, sent: SentRuns): AssembledRows =>
+	assembled(record.delivery, sentAnswer(sent, record.answer))
 
 /** The children of a row with no attachment slot, and of a slot with no child. */
 const noSlots: ReadonlyArray<ReadonlyArray<Row>> = Object.freeze([])
@@ -533,11 +580,10 @@ const repeats = (rows: AssembledRows, identity: RowIdentity): boolean => {
 }
 
 /**
- * The server's answer to `record`'s statement holding a row twice, which its compiled proof says it cannot deliver:
- * UnreadableAnswer at the statement whose rows they are, after the read committed.
+ * The server's answer holding a row twice, which its compiled proof says it cannot deliver: UnreadableAnswer at the
+ * program's one statement, after the read committed.
  */
-const repeated = <Run>(record: StatementRecord<Run>): UnreadableAnswer =>
-	new UnreadableAnswer({ index: answerOf(record.arrival), fate: "committed" })
+const repeated = (): UnreadableAnswer => new UnreadableAnswer({ index: 0, fate: "committed" })
 
 /**
  * The Rows of `rows`, rows of `record` delivered as heading group `group` (0 unless the statement is one of a
@@ -550,18 +596,18 @@ const repeated = <Run>(record: StatementRecord<Run>): UnreadableAnswer =>
  * never a row delivered twice. A child statement's rows lead with their parent key, so its rows are distinct exactly
  * when each parent's children are.
  */
-export const rowsOf = <Run>(
-	record: StatementRecord<Run>,
+export const rowsOf = (
+	record: StatementRecord,
 	sent: SentRuns,
 	rows: AssembledRows,
 	group: number
 ): Result.Result<ReadonlyArray<Row>, UnreadableAnswer> => {
 	const plan = record.plan
 	if (repeats(rows, plan.identity)) {
-		return Result.fail(repeated(record))
+		return Result.fail(repeated())
 	}
 	const grouped: Array<{
-		readonly child: ChildPlan<Run>
+		readonly child: ChildPlan
 		readonly groups: TupleMap<ReadonlyArray<string>, Array<Row>>
 	}> = []
 	for (const child of plan.children) {
@@ -595,7 +641,7 @@ export const rowsOf = <Run>(
 		for (const f of plan.fused) {
 			const elements = f.texts(rowText(cells, f.position), cells)
 			if (repeats(elements, f.identity)) {
-				return Result.fail(repeated(record))
+				return Result.fail(repeated())
 			}
 			const fusedChildren: Array<Row> = []
 			for (const child of elements) {

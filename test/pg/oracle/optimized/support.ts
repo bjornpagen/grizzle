@@ -21,16 +21,23 @@ import {
 	conservativeInput,
 	type ConservativeParamSlot,
 	type ConservativeProgram,
+	type ConservativeStatement,
 	flight
 } from "#compiler/lower/conservative/types.ts"
-import { keyColumns, statementOutput, type StatementRoots } from "#compiler/runtime/lower/tree.ts"
+import type { PartDivision } from "#compiler/lower/parts.ts"
+import {
+	keyColumns,
+	mapTree,
+	statementOutput,
+	type StatementRoots
+} from "#compiler/runtime/lower/tree.ts"
 
 import {
 	lowerOptimized,
 	type OptimizedProgram,
 	optimizedInput
 } from "#compiler/lower/optimize/pipeline.ts"
-import { deliveredAsOptimized, type OptimizedStatement } from "#compiler/lower/shapes/index.ts"
+import type { DeliveredPart, SentStatement } from "#compiler/lower/shapes/index.ts"
 import { type FusedAttachment, fusedElement } from "#compiler/runtime/lower/fused.ts"
 
 import { canonicalTextOf, type Json } from "#compiler/core/canonical.ts"
@@ -54,11 +61,11 @@ import {
 	readRun,
 	type StatementRows
 } from "#test/support/oracle/compare.ts"
-import { largeFormPrograms } from "#test/support/oracle/forms.ts"
+import { sentForms } from "#test/support/oracle/forms.ts"
 import type { QueryCase } from "#test/support/oracle/gen/case.ts"
 import { printQueryCase } from "#test/support/oracle/gen/print.ts"
 import type { GenParam } from "#test/support/oracle/gen/query.ts"
-import { arrayCasts, captureRows, type RawRow } from "#test/support/oracle/install/capture.ts"
+import { captureRows, type RawRow } from "#test/support/oracle/install/capture.ts"
 import { factStatements } from "#test/support/oracle/install/load.ts"
 import type { RealInstallPlan } from "#test/support/oracle/install/real.ts"
 import {
@@ -74,13 +81,15 @@ import {
 	printOracleCase,
 	PropertyFailed,
 	runStaged,
+	type SentProgram,
+	sentRows,
 	slotValue,
 	sqlMessage,
 	staged
 } from "#test/support/oracle/runner.ts"
 import { fusedHeading } from "#test/support/oracle/verify/channels.ts"
 import { loweringViolations } from "#test/support/oracle/verify/index.ts"
-import { typeProblems } from "#test/support/oracle/verify/types.ts"
+import { type Judged, programJudged, typeProblems } from "#test/support/oracle/verify/types.ts"
 import type { PgConnection } from "#test/support/pg.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -169,16 +178,19 @@ const normalizedCase = <C extends QueryCase>(c: C): C => {
 	return changed ? { ...c, query: { ...c.query, params } } : c
 }
 
-/** One executed program: each statement's raw rows, fused columns included, in delivery order. */
+/** A delivered relation as its rows are read: its role, its heading and its fused attachments. */
+type Delivering = Pick<DeliveredPart, "role" | "heading" | "fused">
+
+/** One executed program: each delivered relation's raw rows, fused columns included, in flight order. */
 export interface Executed {
-	readonly statements: ReadonlyArray<Labeled<OptimizedStatement>>
+	readonly statements: ReadonlyArray<Labeled<Delivering>>
 	readonly rows: ReadonlyArray<ReadonlyArray<RawRow>>
 }
 
-/** The values of a statement's placeholders, each filled by `fill`. */
+/** The values of a statement's placeholders, each filled by `fill`; a slot with none fails at `at`. */
 const placeholders = (
-	statement: OptimizedStatement,
-	i: number,
+	statement: { readonly params: ReadonlyArray<ConservativeParamSlot> },
+	at: string,
 	name: string,
 	fill: (slot: ConservativeParamSlot) => string | undefined
 ): Effect.Effect<ReadonlyArray<string>, DifferentialFailure> => {
@@ -186,32 +198,32 @@ const placeholders = (
 	for (const slot of statement.params) {
 		const value = fill(slot)
 		if (value === undefined) {
-			return Effect.fail(
-				failure("execute", name, `statement ${i}: no value for a ${slot.kind} placeholder`)
-			)
+			return Effect.fail(failure("execute", name, `${at}: no value for a ${slot.kind} placeholder`))
 		}
 		params.push(value)
 	}
 	return Effect.succeed(params)
 }
 
-/** Runs a program's statements in order, each placeholder filled by `fill`. */
+/**
+ * Runs a conservative program's statements in order, each as it was lowered, every column cast to its result text
+ * (captureRows), each placeholder filled by `fill`: the baseline's rows, which no part of a statement of parts carries,
+ * so the parts' tags and the runtime's reading of them are compared with plain statements.
+ */
 export const executeStatements = (
 	session: PgConnection,
-	roots: StatementRoots<OptimizedStatement>,
+	roots: StatementRoots<ConservativeStatement<ConservativeParamSlot>>,
 	name: string,
 	fill: (slot: ConservativeParamSlot) => string | undefined
 ): Effect.Effect<Executed, DifferentialFailure> =>
 	Effect.gen(function* () {
-		const statements = labeledStatements(roots)
+		const statements = labeledStatements(mapTree(roots, (s) => ({ ...s, fused: [] })))
 		const ran: Array<ReadonlyArray<RawRow>> = []
 		for (const [i, { statement }] of statements.entries()) {
-			const params = yield* placeholders(statement, i, name, fill)
-			const output = statementOutput(statement.role, statement.heading, statement.fused)
-			const columns = [
-				...Arr.map(output.heading, (h) => resultTextCasts(h.type)),
-				...Arr.map(output.fused, () => arrayCasts)
-			]
+			const params = yield* placeholders(statement, `statement ${i}`, name, fill)
+			const columns = Arr.map(statementOutput(statement.role, statement.heading, []).heading, (h) =>
+				resultTextCasts(h.type)
+			)
 			const rows = yield* captureRows(session, statement.sql.text, params, columns).pipe(
 				Effect.mapError((e) =>
 					failure("execute", name, `statement ${i}: ${sqlMessage(e)}\n${statement.sql.text}`)
@@ -220,6 +232,28 @@ export const executeStatements = (
 			ran.push(rows)
 		}
 		return { statements, rows: ran }
+	})
+
+/**
+ * Runs `sent`, a statement a program sends, each placeholder filled by `fill`: each delivered relation's rows as the
+ * runtime reads them (runner.ts sentRows).
+ */
+export const executeSent = (
+	session: PgConnection,
+	program: { readonly parts: PartDivision; readonly roots: StatementRoots<DeliveredPart> },
+	sent: Pick<SentStatement<ConservativeParamSlot>, "sql" | "params">,
+	name: string,
+	fill: (slot: ConservativeParamSlot) => string | undefined
+): Effect.Effect<Executed, DifferentialFailure> =>
+	Effect.gen(function* () {
+		const params = yield* placeholders(sent, "the statement", name, fill)
+		const parts = yield* sentRows(session, program, sent.sql.text, params).pipe(
+			Effect.mapError((e) => failure("execute", name, `${sqlMessage(e)}\n${sent.sql.text}`))
+		)
+		return {
+			statements: Arr.map(parts, (p) => p.labeled),
+			rows: Arr.map(parts, (p) => p.rows)
+		}
 	})
 
 /** A plan node's label: its type, with the join type or aggregate strategy that refines it. */
@@ -250,14 +284,14 @@ const asDriverText = (cell: unknown): string => jsonText(trusted<Json>(cell))
  */
 const explainStatements = (
 	session: PgConnection,
-	statements: ReadonlyArray<OptimizedStatement>,
+	statements: ReadonlyArray<Pick<SentStatement<ConservativeParamSlot>, "sql" | "params">>,
 	name: string,
 	fill: (slot: ConservativeParamSlot) => string | undefined
 ): Effect.Effect<ReadonlyArray<PlanShape>, DifferentialFailure> =>
 	Effect.gen(function* () {
 		const plans: Array<PlanShape> = []
 		for (const [i, statement] of statements.entries()) {
-			const params = yield* placeholders(statement, i, name, fill)
+			const params = yield* placeholders(statement, `statement ${i}`, name, fill)
 			const rows = yield* session
 				.queryValues(explainOf(statement.sql.text), params)
 				.pipe(
@@ -292,7 +326,7 @@ const explainStatements = (
 const execute = (
 	session: PgConnection,
 	c: QueryCase,
-	roots: StatementRoots<OptimizedStatement>,
+	roots: StatementRoots<ConservativeStatement<ConservativeParamSlot>>,
 	name: string
 ): Effect.Effect<Executed, DifferentialFailure> =>
 	executeStatements(session, roots, name, (slot) => slotValue(c, slot))
@@ -662,16 +696,14 @@ export interface DifferentialOptions {
 /** The plain differential: no other lowering. */
 export const plainDifferential: Omit<DifferentialOptions, "placement"> = { others: [] }
 
-/** An optimized form that runs: the default program, or the per-execution variant of one statement. */
-export type OptimizedForm =
-	| { readonly kind: "optimized" }
-	| { readonly kind: "optimized variant"; readonly statement: number }
+/** An optimized form that runs: the program's statement, or its per-execution large form (forms.ts sentForms). */
+export interface OptimizedForm {
+	readonly kind: "optimized" | "optimized variant"
+}
 
 /** A form as the name its run and reports carry. */
-const formLabel = (form: OptimizedForm): string =>
-	form.kind === "optimized variant" ? `optimized variant ${form.statement}` : form.kind
+const formLabel = (form: OptimizedForm): string => form.kind
 
-/** One compared run of the optimized artifact: the default program, or a per-execution variant. */
 /**
  * One optimized form's verdict against the conservative run: it agrees, and nothing of its rows is kept, or it differs,
  * and its run is kept beside its comparison and order problems for the report. A case holds one form's rows at a time
@@ -787,7 +819,7 @@ const runDifferential = (
 		if (violations.length > 0) {
 			return yield* failure("verify", "optimized", Arr.join(violations, "\n"))
 		}
-		const others: Array<{ readonly lowering: Lowering; readonly program: ConservativeProgram }> = []
+		const others: Array<{ readonly lowering: Lowering; readonly program: SentProgram }> = []
 		for (const lowering of options.others) {
 			others.push({
 				lowering,
@@ -819,17 +851,15 @@ const runDifferential = (
 					)
 					/**
 					 * The type oracle (oracle/verify/types.ts): every column each artifact delivers is of the type its
-					 * heading states, as PostgreSQL resolves the statement.
+					 * heading states, as PostgreSQL resolves the statement: every conservative statement, and the
+					 * optimized program's one part as lowered (programJudged).
 					 */
 					const typed = yield* typeProblems(session, names, [
-						...Arr.map(flight(deliveredAsOptimized(conservativeProgram).roots), (statement, i) => ({
+						...Arr.map(flight(conservativeProgram.roots), (statement, i) => ({
 							where: `conservative statement ${i}`,
-							statement
+							statement: { ...statement, fused: [] }
 						})),
-						...Arr.map(flight(optimizedProgram.roots), (statement, i) => ({
-							where: `optimized statement ${i}`,
-							statement
-						}))
+						...programJudged(optimizedProgram, "optimized statement")
 					]).pipe(
 						Effect.mapError((e) => failure("types", e.where, `${sqlMessage(e.error)}\n${e.sql}`))
 					)
@@ -839,7 +869,7 @@ const runDifferential = (
 					const conservativeRun = yield* execute(
 						session,
 						c,
-						deliveredAsOptimized(conservativeProgram).roots,
+						conservativeProgram.roots,
 						"conservative"
 					)
 					const baseline = yield* delivered(
@@ -852,21 +882,23 @@ const runDifferential = (
 					const baselineRead = readRun(baseline.run)
 					const optimizedDag = optimizedProgram.query.dag
 					const optimizedOrdered = isOrdered(optimizedDag.roots[0])
-					const forms: Array<{
-						readonly form: OptimizedForm
-						readonly roots: StatementRoots<OptimizedStatement>
-					}> = [{ form: { kind: "optimized" }, roots: optimizedProgram.roots }]
-					for (const v of largeFormPrograms(optimizedProgram.roots, (l) => l)) {
-						forms.push({
-							form: { kind: "optimized variant", statement: v.statement },
-							roots: v.roots
+					const forms = Arr.map(
+						sentForms(optimizedProgram.statement),
+						(
+							statement,
+							i
+						): { readonly form: OptimizedForm; readonly statement: SentStatement } => ({
+							form: { kind: i === 0 ? "optimized" : "optimized variant" },
+							statement
 						})
-					}
+					)
 					const optimized: Array<OptimizedRun> = []
 					let fusedAttachments = 0
 					for (const f of forms) {
 						const label = formLabel(f.form)
-						const run = yield* execute(session, c, f.roots, label)
+						const run = yield* executeSent(session, optimizedProgram, f.statement, label, (slot) =>
+							slotValue(c, slot)
+						)
 						const d = yield* delivered(optimizedDag, run, label, optimizedOrdered, names.codes)
 						fusedAttachments = Math.max(fusedAttachments, d.fusedAttachments)
 						const comparison = compareRead(baselineRead, readRun(d.run))
@@ -881,10 +913,10 @@ const runDifferential = (
 					 * Every statement a form sent, each text planned once: db.explain plans whichever form an
 					 * execution's inputs select.
 					 */
-					const sent = new Map<string, OptimizedStatement>()
-					for (const s of Arr.flatMap(forms, (f) => flight(f.roots))) {
-						if (!sent.has(s.sql.text)) {
-							sent.set(s.sql.text, s)
+					const sent = new Map<string, SentStatement>()
+					for (const f of forms) {
+						if (!sent.has(f.statement.sql.text)) {
+							sent.set(f.statement.sql.text, f.statement)
 						}
 					}
 					const plans = yield* explainStatements(session, [...sent.values()], "optimized", (slot) =>
@@ -892,11 +924,12 @@ const runDifferential = (
 					)
 					const otherRuns: Array<DifferentialOutcome["others"][number]> = []
 					for (const o of others) {
-						const run = yield* execute(
+						const run = yield* executeSent(
 							session,
-							c,
-							deliveredAsOptimized(o.program).roots,
-							o.lowering.name
+							o.program,
+							o.program.statement,
+							o.lowering.name,
+							(slot) => slotValue(c, slot)
 						)
 						const d = yield* delivered(query.dag, run, o.lowering.name, false, names.codes)
 						otherRuns.push({
@@ -923,6 +956,97 @@ const runDifferential = (
 	})
 
 /**
+ * A plant of the type oracle's: where its break stands, a part's location as programJudged locates it, and the
+ * statements it judges, that part's broken and every other as lowered.
+ */
+export interface TypePlant {
+	readonly where: string
+	readonly judged: ReadonlyArray<Judged>
+}
+
+/** The type oracle's problems with a case's optimized program as lowered, and with each plant of it. */
+export interface TypedPlants {
+	readonly clean: ReadonlyArray<string>
+	readonly planted: ReadonlyArray<{
+		readonly where: string
+		readonly problems: ReadonlyArray<string>
+	}>
+}
+
+/**
+ * The type oracle (oracle/verify/types.ts) over a case's optimized program, every part as lowered (programJudged), and
+ * over each plant `plants` makes of the program, in one rolled-back transaction on one pinned owner session over the
+ * case's installation, each judgment under a savepoint of its own, whose rollback drops its probe views. The optimized
+ * program is the differential's: compiled for the snapshot context against the installation's own evidence catalog.
+ */
+export const typedPlants = (
+	input: QueryCase,
+	options: Pick<DifferentialOptions, "placement">,
+	plants: (program: OptimizedProgram) => ReadonlyArray<TypePlant>
+): Effect.Effect<TypedPlants, DifferentialFailure, Substrate> =>
+	Effect.gen(function* () {
+		const substrate = yield* Substrate
+		const c = normalizedCase(input)
+		const installation = yield* caseInstallation(c.schema, options.placement).pipe(
+			Effect.mapError((e) =>
+				e.stage === "plan"
+					? failure("plan", "install", e.message)
+					: failure("execute", "install", e.message)
+			)
+		)
+		const names: PhysicalNames = installation.plan.installation.names
+		const query = logicalQuery(c)
+		const catalog = installedCatalog(installation.plan.installation)
+		const program = yield* lowerSide("optimized", () =>
+			Engine.flatMap(
+				Engine.flatMap(admitGenerated(query), (q) => optimizedInput(q, checkerEvidence)),
+				(caseInput) =>
+					lowerOptimized(caseInput, {
+						names,
+						catalog,
+						subject: { kind: "query" },
+						context: "snapshot"
+					})
+			)
+		)
+		return yield* Effect.scoped(
+			Effect.gen(function* () {
+				const session = yield* substrate.admin.pin
+				return yield* Effect.gen(function* () {
+					yield* runStaged(
+						session,
+						[{ stage: "setup", sql: "BEGIN" }, ...staged("install", installation.statements)],
+						(refusal) => failure("execute", refusal.stage, refusal.message)
+					)
+					const judge = (judged: ReadonlyArray<Judged>) =>
+						Effect.gen(function* () {
+							yield* runStaged(session, [{ stage: "judge", sql: "SAVEPOINT judged" }], (r) =>
+								failure("execute", r.stage, r.message)
+							)
+							const problems = yield* typeProblems(session, names, judged).pipe(
+								Effect.mapError((e) =>
+									failure("types", e.where, `${sqlMessage(e.error)}\n${e.sql}`)
+								)
+							)
+							yield* runStaged(
+								session,
+								[{ stage: "judge", sql: "ROLLBACK TO SAVEPOINT judged" }],
+								(r) => failure("execute", r.stage, r.message)
+							)
+							return problems
+						})
+					const clean = yield* judge(programJudged(program, "optimized statement"))
+					const planted: Array<TypedPlants["planted"][number]> = []
+					for (const p of plants(program)) {
+						planted.push({ where: p.where, problems: yield* judge(p.judged) })
+					}
+					return { clean, planted }
+				}).pipe(Effect.ensuring(Effect.ignore(session.query("ROLLBACK", []))))
+			})
+		)
+	})
+
+/**
  * The optimized-versus-conservative differential runner.
  *
  * One generated or hand-built case runs on PostgreSQL 19 under both of a template's artifacts, in one rolled-back
@@ -934,11 +1058,11 @@ const runDifferential = (
  *    certificate, runs every statement of its program;
  * 3. the optimized lowering (lower/optimize/pipeline.ts lowerOptimized), compiled against the installation's own
  *    evidence catalog (laws/model/catalog.ts, the catalog compileQuery uses) for one execution context, checked by
- *    the kernel's verification against the conservative artifact (oracle/verify), runs every statement of its
- *    program, every column of which the type oracle judged (oracle/verify/types.ts), and then
- *    each per-execution form the runtime may choose instead: every per-execution variant statement,
- *    and the VALUES transport of every relation parameter the transport rule sends as VALUES;
- * 4. every optimized run is compared with the conservative run statement by statement as raw output-function text
+ *    the kernel's verification against the conservative artifact (oracle/verify), sends its one statement, its one
+ *    part's columns judged by the type oracle (oracle/verify/types.ts programJudged), and then the per-execution large
+ *    form the runtime may choose instead, each statement's rows divided into its parts' as the runtime divides them
+ *    (executeSent);
+ * 4. every optimized run is compared with the conservative run relation by relation as raw output-function text
  *    multisets (test/support/oracle/compare.ts), its repeated rows are counted, and the order of every ordered
  *    delivery is compared too;
  * 5. every statement an optimized form sent is planned as db.explain plans it, each text once, and its plan is read as
@@ -990,13 +1114,8 @@ export const printDifferential = (o: DifferentialOutcome): string => {
 		lines.push(printRun(r.run))
 	}
 	lines.push(printRun(o.conservative))
-	for (const [i, s] of flight(o.optimizedProgram.roots).entries()) {
-		lines.push(`optimized statement ${i}:\n${s.sql.text}`)
-	}
-	for (const [i, s] of flight(o.optimizedProgram.roots).entries()) {
-		if (s.forms.kind === "chosen") {
-			lines.push(`optimized variant ${i}:\n${s.forms.large.sql.text}`)
-		}
+	for (const [i, s] of sentForms(o.optimizedProgram.statement).entries()) {
+		lines.push(`${i === 0 ? "optimized statement" : "optimized variant"}:\n${s.sql.text}`)
 	}
 	for (const [i, s] of flight(o.conservativeProgram.roots).entries()) {
 		lines.push(`conservative statement ${i}:\n${s.sql.text}`)

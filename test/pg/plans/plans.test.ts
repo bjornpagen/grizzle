@@ -45,6 +45,7 @@ import {
 	declaredOf,
 	installationSql,
 	paramTexts,
+	programAsts,
 	testCompile
 } from "#test/support/compile.ts"
 import type { OracleTemplate } from "#test/support/conservative.ts"
@@ -420,7 +421,7 @@ layer(Substrate.layer)("plan properties of the optimized lowering", (it) => {
 								assert.equal(nodeTypes(plan).includes("Sort"), false)
 								assert.deepEqual(sequentialScans(plan, relation(c.relation)), [])
 								const redundant = withDistinctBound(
-									only(flight(template.programs.optimized.roots), "program statement").ast
+									only(programAsts(template.programs.optimized), "program statement")
 								)
 								const kept = yield* estimate(printStatement(redundant), [])
 								assert.notDeepEqual(
@@ -531,11 +532,19 @@ layer(Substrate.layer)("plan properties of the optimized lowering", (it) => {
 							Effect.gen(function* () {
 								const q = accountsWithFirstEntries(direction, k)
 								const template = compiled(q, schema)
-								const found = Arr.findFirst(template.optimized, (s) => s.role === "attachment")
-								if (Option.isNone(found)) {
-									return yield* Effect.die(new Error("the attachment statement"))
+								if (
+									!Arr.some(
+										flight(template.programs.optimized.roots),
+										(s) => s.role.kind === "attachment"
+									)
+								) {
+									return yield* Effect.die(new Error("the attachment part"))
 								}
-								const statement = found.value
+								/**
+								 * The read's one statement: its rows part reads accounts alone, so every scan of entry is the
+								 * take's.
+								 */
+								const statement = only(template.optimized, "the optimized statement")
 								const plan = yield* analyze(
 									statement.sql,
 									paramTexts(statement, {}, declared(q, template))

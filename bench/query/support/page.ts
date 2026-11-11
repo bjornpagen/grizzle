@@ -2,7 +2,7 @@ import { type Array as Arr, Effect, Result } from "effect"
 import { type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
 import { type PageCall, pageFlight } from "#adapter/page/execute.ts"
 import type { PageRuntime } from "#adapter/page/template.ts"
-import { answerOf, type HostParams } from "#adapter/reader/execution.ts"
+import type { HostParams } from "#adapter/reader/execution.ts"
 import { executionInputs, paramCodecs } from "#adapter/reader/relations.ts"
 import { compiledPageTemplateFor } from "#adapter/served/forms.ts"
 import { type FlightFailure, readFrame, runFramed } from "#adapter/wire/batch.ts"
@@ -16,10 +16,10 @@ import {
 	sentStatements
 } from "#bench/query/support/kit.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
-import type { PageStatementSlot } from "#compiler/lower/conservative/types.ts"
-import type { FusedStatement } from "#compiler/lower/shapes/index.ts"
 import type { PageArtifact } from "#compiler/lower/shapes/page/compile.ts"
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
+import type { Select } from "#compiler/sql/ast.ts"
+import { programAsts } from "#test/support/compile.ts"
 import { conservativePageRuntime } from "#test/support/conservative.ts"
 
 /**
@@ -73,12 +73,15 @@ export const conservativePages = (compiled: Compiled, pages: BenchPages): BenchP
 }
 
 export interface DeliveredPage {
-	/** What the request's flight sent, in order: its rows statement and attachments, then its probe. */
+	/** What the request's flight sent, in order: its one statement, its rows and attachments, then its probe. */
 	readonly statements: Arr.NonEmptyReadonlyArray<VariantStatement>
-	/** The request's rows statement, as it was sent and as it was compiled. */
+	/**
+	 * The request's statement, as it was sent, and its typed AST as compiled, as a reader reads it
+	 * (test/support/compile.ts programAsts).
+	 */
 	readonly rows: {
 		readonly sent: VariantStatement
-		readonly statement: FusedStatement<PageStatementSlot>
+		readonly ast: Select
 	}
 	readonly flights: number
 }
@@ -109,24 +112,19 @@ export const deliverPage = Effect.fn("deliverPage")(
 			(outcomes) => Effect.mapError(flight.read(outcomes), (reason) => new ReadFailure({ reason }))
 		)
 		const statements = sentStatements(runtime)
-		/** The flight sends the request's statements in program order, its probe after them. */
-		const program = pages.artifact.requests[call.variant]
-		const delivery = program.delivery
+		/** The flight sends the request's one statement, its probe after it. */
+		const delivery = pages.artifact.requests[call.variant].delivery
 		if (delivery.kind !== "concat") {
 			throw new GateSetupError({
-				what: `the ${call.variant} request delivers heading groups, not one rows statement`
-			})
-		}
-		const record = delivery.groups[0].record
-		const sent = statements[answerOf(record.arrival)]
-		if (sent === undefined) {
-			throw new GateSetupError({
-				what: `the ${call.variant} request sent no rows statement ${answerOf(record.arrival)}`
+				what: `the ${call.variant} request delivers heading groups, not one rows part`
 			})
 		}
 		return {
 			statements,
-			rows: { sent, statement: pages.compiled.requests[call.variant].roots[0].statement },
+			rows: {
+				sent: statements[0],
+				ast: programAsts(pages.compiled.requests[call.variant].program)[0]
+			},
 			flights: runtime.flights
 		}
 	},

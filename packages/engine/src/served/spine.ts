@@ -1,5 +1,4 @@
 import { parentUse } from "#compiler/check/scan.ts"
-import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import type { AttachDesc, QueryDesc, QueryStageDesc } from "#compiler/ir/desc.ts"
 import {
 	type ServedCarried,
@@ -83,8 +82,8 @@ export const servedSpine = (desc: QueryDesc): ServedSpine => {
 	return gatheredSpine(root)
 }
 
-/** How a delivered read-back's statements reach the server, as the runtime reads it: sent, its statements served
- * (servedSource); or riding the write statement at its position, its parts from its tag on, its statements read only
+/** How a delivered read-back's statement reaches the server, as the runtime reads it: sent, its program served
+ * (servedSource); or riding the write statement at its position, its part at its tag, its parts read only
  * (servedRiddenSource). */
 const servedCarried = (carried: ReadBackCarried): ServedCarried =>
 	carried.kind === "sent"
@@ -94,7 +93,7 @@ const servedCarried = (carried: ReadBackCarried): ServedCarried =>
 				source: servedRiddenSource(carried.run),
 				statement: carried.statement,
 				tag: carried.tag,
-				parts: mapNonEmpty(carried.parts, (p) => ({ kind: p.kind, width: p.width }))
+				part: { kind: carried.part.kind, width: carried.part.width }
 			}
 
 /**

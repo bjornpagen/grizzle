@@ -123,14 +123,12 @@ export const renderMembership = (
 		return program
 	}
 	const loc = SourceLoc(`write ${entry.entry}`, ["filter"])
-	const [root, ...rest] = program.value.roots
-	const main = root.statement
+	const parts = program.value.parts
 	if (
-		rest.length > 0 ||
-		root.attachments.length > 0 ||
-		main.role.kind !== "main" ||
-		main.fused.length > 0 ||
-		main.params.length > 0
+		parts.kind !== "one" ||
+		parts.delivered.role.kind !== "main" ||
+		parts.delivered.fused.length > 0 ||
+		parts.delivered.params.length > 0
 	) {
 		return Result.err(
 			CompileError.make(
@@ -142,5 +140,5 @@ export const renderMembership = (
 			)
 		)
 	}
-	return Result.ok(exists(unaliased(main.ast)))
+	return Result.ok(exists(unaliased(parts.delivered.ast)))
 }

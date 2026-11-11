@@ -275,22 +275,21 @@ export const lowerDefinition = (
 		return lowered
 	}
 	const optimized = lowered.value
-	const [root, ...rest] = optimized.roots
-	const main = root.statement
+	const parts = optimized.parts
 	if (
-		rest.length > 0 ||
-		root.attachments.length > 0 ||
-		main.role.kind !== "main" ||
-		main.params.length > 0 ||
-		main.heading.length === 0 ||
-		main.fused.length > 0 ||
+		parts.kind !== "one" ||
+		parts.delivered.role.kind !== "main" ||
+		parts.delivered.params.length > 0 ||
+		parts.delivered.heading.length === 0 ||
+		parts.delivered.fused.length > 0 ||
 		optimized.delivery.kind !== "rows" ||
-		main.forms.kind !== "one"
+		optimized.statement.forms.kind !== "one"
 	) {
 		return Result.err(
 			unsupported(at, "a definition that lowers to one main statement with no placeholder")
 		)
 	}
+	const main = parts.delivered
 	const expected = query.dag.roots[0].heading.map((c) => c.name)
 	if (
 		main.heading.length !== expected.length ||

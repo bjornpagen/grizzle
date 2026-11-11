@@ -17,8 +17,8 @@ import {
 	withEncodedParams
 } from "#test/pg/recursion/lowering/support.ts"
 import { repeatsStates } from "#test/pg/recursion/oracle/support.ts"
+import { partRecursive } from "#test/support/compile.ts"
 import { standInNames } from "#test/support/kernel/naming.ts"
-import { has, shapeOf } from "#test/support/kernel/shape.ts"
 import {
 	defaultRecursiveLimits,
 	type GraphLimits,
@@ -131,7 +131,7 @@ const sites = (c: RecursiveCase) => {
 		sites: mutated.value.sites,
 		recursive: Arr.some(
 			flight(program.value.roots),
-			(st) => st.role.kind !== "attachment" && has(shapeOf(st.ast), "with recursive")
+			(part) => part.role.kind !== "attachment" && partRecursive(program.value, part.answer)
 		)
 	}
 }

@@ -14,16 +14,14 @@ import type { TemplateContext } from "#compiler/ir/evidence.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import type { RelNode } from "#compiler/ir/rel.ts"
-import {
-	type ConservativeProgram,
-	type ConservativeStatement,
-	flight
-} from "#compiler/lower/conservative/types.ts"
+import { type ConservativeParamSlot, flight } from "#compiler/lower/conservative/types.ts"
 import type { OptimizedProgram } from "#compiler/lower/optimize/pipeline.ts"
+import type { DeliveredPart } from "#compiler/lower/shapes/index.ts"
 import { queryValueDesc } from "#compiler/query/build/query.ts"
+import type { OperandSelect } from "#compiler/sql/ast.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import { defined } from "#test/support/assert.ts"
-import { lowerAligned } from "#test/support/compile.ts"
+import { lowerAligned, partQueries, partRecursive, programAsts } from "#test/support/compile.ts"
 import { genCatalog } from "#test/support/evidence.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { has, shapeOf } from "#test/support/kernel/shape.ts"
@@ -40,6 +38,7 @@ import {
 	inputText,
 	type LabelledCase,
 	type Lowering,
+	type SentProgram,
 	slotValue
 } from "#test/support/oracle/runner.ts"
 import type { PgConnection } from "#test/support/pg.ts"
@@ -83,37 +82,50 @@ export type GraphOptimizedFeature =
 	| "recursive CTE"
 
 /**
- * Whether a program statement is an attachment seeded once from the parent keys (R37): an R37 seeded attachment is a
- * WITH RECURSIVE at its statement's top level by construction.
+ * Each delivered relation of an optimized program with the query its part computes (test/support/compile.ts
+ * partQueries).
  */
-export const seededStatements = (program: ConservativeProgram): number =>
+const partsOf = (
+	program: SentProgram
+): ReadonlyArray<{ readonly part: DeliveredPart; readonly query: OperandSelect }> => {
+	const queries = partQueries(program)
+	return Arr.map(flight(program.roots), (part) => {
+		const query = queries[part.answer]
+		if (query === undefined) {
+			throw new Error(`the query of part ${part.answer}`)
+		}
+		return { part, query }
+	})
+}
+
+/**
+ * Whether a program part is an attachment seeded once from the parent keys (R37): an R37 seeded attachment is a
+ * WITH RECURSIVE at its part's top level by construction.
+ */
+export const seededStatements = (program: SentProgram): number =>
 	Arr.filter(
-		flight(program.roots),
-		(s) => s.role.kind === "attachment" && s.ast.with?.recursive === true
+		partsOf(program),
+		({ part, query }) => part.role.kind === "attachment" && query.with?.recursive === true
 	).length
 
 /**
- * Whether a statement holds a WITH RECURSIVE at any depth of its AST: the lowering nests a recursion's WITH RECURSIVE
- * inside a derived table under any consumer node, so its top level alone does not show it.
- */
-const holdsRecursive = (statement: ConservativeStatement): boolean =>
-	has(shapeOf(statement.ast), "with recursive")
-
-/**
- * What one optimized program did, as features. A recursion stays a recursive CTE when a statement of the query itself,
- * not an attachment's, holds a WITH RECURSIVE.
+ * What one optimized program did, as features. A recursion stays a recursive CTE when a part of the query itself,
+ * not an attachment's, holds a WITH RECURSIVE (test/support/compile.ts partRecursive).
  */
 export const optimizedFeatures = (
 	program: OptimizedProgram
 ): ReadonlyArray<GraphOptimizedFeature> => {
+	const parts = partsOf(program)
 	const seeded = seededStatements(program)
-	const pipelined =
-		Arr.filter(flight(program.roots), (s) => s.role.kind === "attachment").length - seeded
+	const pipelined = Arr.filter(parts, ({ part }) => part.role.kind === "attachment").length - seeded
 	return [
 		...Arr.flatMap(program.certificates, (c) => (isGraphRule(c.rule) ? [c.rule] : [])),
 		...(seeded > 0 ? ["seeded attachment" as const] : []),
 		...(pipelined > 0 ? ["pipelined attachment" as const] : []),
-		...(Arr.some(flight(program.roots), (s) => s.role.kind !== "attachment" && holdsRecursive(s))
+		...(Arr.some(
+			parts,
+			({ part }) => part.role.kind !== "attachment" && partRecursive(program, part.answer)
+		)
 			? ["recursive CTE" as const]
 			: [])
 	]
@@ -139,9 +151,9 @@ export const formsHold = (recursions: number, recursive: boolean): boolean =>
  * the count when the lowering breaks it: a recursion that shows no WITH RECURSIVE is one the observer cannot see, or one
  * the graph pass rewrote away.
  */
-export const formsBroken = (root: RelNode, program: ConservativeProgram): string | undefined => {
+export const formsBroken = (root: RelNode, program: SentProgram): string | undefined => {
 	const recursions = reachableRecursions(root)
-	const kept = Arr.some(flight(program.roots), holdsRecursive)
+	const kept = Arr.some(programAsts(program), (ast) => has(shapeOf(ast), "with recursive"))
 	return formsHold(recursions, kept)
 		? undefined
 		: `${recursions} reachable recursions, a WITH RECURSIVE shown: ${kept}`
@@ -300,7 +312,7 @@ export const inInstalledCase = <A, E>(
  */
 export const statementParams = (
 	c: QueryCase,
-	statement: ConservativeStatement
+	statement: { readonly params: ReadonlyArray<ConservativeParamSlot> }
 ): ReadonlyArray<string> =>
 	Arr.map(statement.params, (slot): string => {
 		const value = slotValue(c, slot)

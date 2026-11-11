@@ -6,12 +6,15 @@ import type { Codebook } from "#compiler/ir/codes.ts"
 import type { ParamDecl } from "#compiler/ir/products.ts"
 import type { RelNode } from "#compiler/ir/rel.ts"
 import { type ConservativeParamSlot, flight } from "#compiler/lower/conservative/types.ts"
-import { deliveredAsOptimized, type OptimizedStatement } from "#compiler/lower/shapes/index.ts"
 import { parseSchemaInput } from "#compiler/program/schema.ts"
 import { isOrderedValue, isQueryValue } from "#compiler/query/build/query.ts"
-import type { StatementRoots } from "#compiler/runtime/lower/tree.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
-import { delivered, executeStatements, orderProblems } from "#test/pg/oracle/optimized/support.ts"
+import {
+	delivered,
+	executeSent,
+	executeStatements,
+	orderProblems
+} from "#test/pg/oracle/optimized/support.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { codebookFor, compileTemplate, testCompile } from "#test/support/compile.ts"
 import type { OracleTemplate } from "#test/support/conservative.ts"
@@ -25,7 +28,7 @@ import {
 	printRun,
 	type Run
 } from "#test/support/oracle/compare.ts"
-import { largeFormPrograms } from "#test/support/oracle/forms.ts"
+import { sentForms } from "#test/support/oracle/forms.ts"
 import {
 	type ParamSketch,
 	type PayrollFacts,
@@ -179,7 +182,7 @@ const runProgram = (
 		const { optimized, conservative, checked } = program.template.programs
 		const conservativeRun = yield* executeStatements(
 			session,
-			deliveredAsOptimized(conservative).roots,
+			conservative.roots,
 			"conservative",
 			fill(values)
 		)
@@ -190,25 +193,19 @@ const runProgram = (
 			ordered(checked.dag.roots[0]),
 			program.codes
 		)
-		const forms: Array<{
-			readonly form: string
-			readonly roots: StatementRoots<OptimizedStatement>
-		}> = [{ form: "optimized", roots: optimized.roots }]
-		for (const v of largeFormPrograms(optimized.roots, (l) => l.statement)) {
-			forms.push({ form: `optimized variant ${v.statement}`, roots: v.roots })
-		}
 		const runs: Array<ProgramOutcome["optimized"][number]> = []
-		for (const f of forms) {
-			const run = yield* executeStatements(session, f.roots, f.form, fill(values))
+		for (const [i, statement] of sentForms(optimized.statement).entries()) {
+			const form = i === 0 ? "optimized" : "optimized variant"
+			const run = yield* executeSent(session, optimized, statement, form, fill(values))
 			const d = yield* delivered(
 				optimized.query.dag,
 				run,
-				f.form,
+				form,
 				ordered(optimized.query.dag.roots[0]),
 				program.codes
 			)
 			runs.push({
-				form: f.form,
+				form,
 				run: d.run,
 				comparison: compareRuns(baseline.run, d.run),
 				order: orderProblems(baseline, d)
@@ -245,8 +242,8 @@ const printProgramOutcome = (o: ProgramOutcome, program: PayrollProgram): string
 		lines.push(printRun(r.run))
 	}
 	lines.push(printRun(o.conservative))
-	for (const [i, s] of flight(program.template.programs.optimized.roots).entries()) {
-		lines.push(`optimized statement ${i}:\n${s.sql.text}`)
+	for (const [i, s] of sentForms(program.template.programs.optimized.statement).entries()) {
+		lines.push(`${i === 0 ? "optimized statement" : "optimized variant"}:\n${s.sql.text}`)
 	}
 	for (const [i, s] of flight(program.template.programs.conservative.roots).entries()) {
 		lines.push(`conservative statement ${i}:\n${s.sql.text}`)
@@ -290,9 +287,9 @@ const printFacts = (facts: PayrollFacts): string =>
  *    so an unlawful state fails as such, every materialized view of the installation's levels is refreshed, lower
  *    levels first, each level in a PostgreSQL schema of its own (RunTotal's is Reporting's), and the tables are
  *    analyzed;
- * 2. under the case's planner settings, each program's conservative statements run, then its optimized statements and
- *    each per-execution variant, an attachment's parent keys read from its parent statement's delivered rows;
- * 3. every optimized run equals the conservative run statement by statement as raw output-function text sets,
+ * 2. under the case's planner settings, each program's conservative statements run, then its optimized statement and
+ *    its per-execution large form, each divided into its parts' rows as the runtime divides them;
+ * 3. every optimized run equals the conservative run relation by relation as raw output-function text sets,
  *    repeats no row, and keeps every ordered delivery's order; a fused attachment is unfused first.
  *
  * Runs every program on one case in one rolled-back transaction; fails with the printable case on a disagreement.

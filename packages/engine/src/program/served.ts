@@ -1,52 +1,38 @@
 import { requireGet } from "#compiler/analysis/logical/get.ts"
 import type { CursorGeneration } from "#compiler/codec/cursor/identity.ts"
 import type { DecoderForm, RowDecoder } from "#compiler/core/decoder.ts"
-import type { CompileError } from "#compiler/core/errors.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { isList } from "#compiler/core/record.ts"
-import * as Result from "#compiler/core/result.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
 import type { PageFill } from "#compiler/ir/products.ts"
 import { Roster } from "#compiler/ir/scalar.ts"
 import type { PageStatementSlot } from "#compiler/lower/conservative/types.ts"
-import type { FusedStatement } from "#compiler/lower/shapes/index.ts"
+import type { SentStatement } from "#compiler/lower/shapes/index.ts"
 import type {
 	PageProbeProgram,
 	PageProgram,
 	PageRequestProgram,
-	PageStatement,
 	PageTemplate
 } from "#compiler/lower/shapes/page/compile.ts"
 import type { PageVariant, ProbeKind } from "#compiler/lower/shapes/page/seek.ts"
-import { statementSpec } from "#compiler/lower/template.ts"
+import { sentSpec } from "#compiler/lower/template.ts"
 import { loginStartupOptions } from "#compiler/physical/ddl/roles.ts"
 import type { QueryTemplate } from "#compiler/program/compile.ts"
 import { pageStatementSlotOf } from "#compiler/runtime/lower/slots.ts"
-import { traverseTree } from "#compiler/runtime/lower/tree.ts"
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import type {
 	ServedPage,
 	ServedPageProbe,
+	ServedPageProgram,
 	ServedPageRequest,
-	ServedPageStatement,
 	ServedRead,
 	ServedRoleForm,
 	ServedSession,
 	ServedVariants
 } from "#compiler/served/forms.ts"
-import {
-	type ServedRoots,
-	type ServedSpec,
-	servedChoice,
-	servedHeading,
-	servedRunStatement,
-	servedSource,
-	servedSpec,
-	servedTree
-} from "#compiler/served/read.ts"
+import { servedHeading, servedProgram, servedSource } from "#compiler/served/read.ts"
 import { servedSpine } from "#compiler/served/spine.ts"
 import { emitText } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
@@ -68,102 +54,60 @@ export const servedRead = (
 	getEligible: requireGet(template.analyzed.roots[0], SourceLoc("reader.get", [])).ok
 })
 
-/** A page statement's spec, emitted now under the codes `codes`: a page's statements carry none of their own. */
-const pageSpec = <F extends PageFill>(
-	statement: FusedStatement<PageStatementSlot<F>>,
-	codes: Codebook
-): Result.Result<ServedSpec, CompileError> =>
-	Result.map(
-		statementSpec(statement, pageStatementSlotOf(codes, new CompilePatterns())),
-		servedSpec
-	)
-
-/** A page statement as the runtime runs it: its spec, and its large form's, emitted under the codes `codes`. */
-const servedPageStatement = <F extends PageFill>(
-	statement: PageStatement<F>,
-	codes: Codebook
-): Result.Result<ServedPageStatement<F>, CompileError> =>
-	Result.flatMap(pageSpec(statement, codes), (spec) => {
-		const forms = statement.forms
-		if (forms.kind === "one") {
-			return Result.ok({ statement: servedRunStatement(statement, { kind: "one" }), spec })
-		}
-		return Result.map(pageSpec(forms.large, codes), (large) => ({
-			statement: servedRunStatement(statement, {
-				kind: "chosen",
-				choices: mapNonEmpty(forms.choices, servedChoice),
-				large: { statement: { params: forms.large.params }, spec: large }
-			}),
-			spec
-		}))
-	})
-
-/** A page program's statements, each served (servedPageStatement), in their tree; or the first that emits no spec. */
-const servedPageRoots = <F extends PageFill>(
+/**
+ * A page's program as the runtime runs it: its statement's spec, and its large form's, emitted under the codes
+ * `codes`, and its parts.
+ */
+const servedPageProgram = <F extends PageFill>(
 	program: PageProgram<F>,
 	codes: Codebook
-): Result.Result<ServedRoots<ServedPageStatement<F>>, CompileError> =>
-	Result.map(
-		traverseTree(program.roots, (statement) => servedPageStatement(statement, codes)),
-		(roots) => mapNonEmpty(roots, (tree) => servedTree(tree, (statement) => statement))
-	)
-
-/** A request variant of a page, served: its flags and delivery as compiled, its statements served. */
-const servedRequest = <V extends PageVariant>(
-	program: PageRequestProgram<V>,
-	codes: Codebook
-): Result.Result<ServedPageRequest<V>, CompileError> =>
-	Result.map(servedPageRoots(program, codes), (roots) => ({ ...program, roots }))
-
-/** A probe of a page, served: its kind, its statement served, and its one Boolean column. */
-const servedProbe = <K extends ProbeKind>(
-	program: PageProbeProgram<K>,
-	codes: Codebook
-): Result.Result<ServedPageProbe<K>, CompileError> =>
-	Result.map(servedPageStatement(program.statement, codes), (statement) => ({
-		kind: program.kind,
-		statement,
-		column: { name: program.column.name, type: program.column.type }
-	}))
+): ServedPageProgram<F> => {
+	const slotOf = pageStatementSlotOf(codes, new CompilePatterns())
+	const { statement, parts, roots } = program
+	const spec = (form: SentStatement<PageStatementSlot<F>>) => sentSpec(form, parts, roots, slotOf)
+	const forms = statement.forms
+	return servedProgram({
+		statement: {
+			params: statement.params,
+			forms:
+				forms.kind === "one"
+					? forms
+					: {
+							kind: "chosen",
+							choices: forms.choices,
+							large: { statement: { params: forms.large.params }, spec: spec(forms.large) }
+						},
+			spec: spec(statement)
+		},
+		parts,
+		roots
+	})
+}
 
 /**
  * An ordered query's page, served (served/forms.ts ServedPage): its order, comparators and heading, each request's and
- * probe's statements with their specs emitted now under the installation's codes `codes`, and its cursor's identity,
- * the query's semantic fingerprint `query` and its schema's generation `generation`. A statement whose spec does not
- * emit is its CompileError.
+ * probe's program with its statement's spec emitted now under the installation's codes `codes`, and its cursor's
+ * identity, the query's semantic fingerprint `query` and its schema's generation `generation`.
  */
 export const servedPage = (
 	page: PageTemplate,
 	codes: Codebook,
 	query: string,
 	generation: CursorGeneration
-): Result.Result<ServedPage, CompileError> => {
+): ServedPage => {
 	const { requests, probes } = page.artifact
-	const first = servedRequest(requests.first, codes)
-	const after = servedRequest(requests.after, codes)
-	const last = servedRequest(requests.last, codes)
-	const before = servedRequest(requests.before, codes)
-	const atOrBefore = servedProbe(probes.atOrBefore, codes)
-	const atOrAfter = servedProbe(probes.atOrAfter, codes)
-	if (!first.ok) {
-		return first
-	}
-	if (!after.ok) {
-		return after
-	}
-	if (!last.ok) {
-		return last
-	}
-	if (!before.ok) {
-		return before
-	}
-	if (!atOrBefore.ok) {
-		return atOrBefore
-	}
-	if (!atOrAfter.ok) {
-		return atOrAfter
-	}
-	return Result.ok({
+	const request = <V extends PageVariant>(
+		program: PageRequestProgram<V>
+	): ServedPageRequest<V> => ({
+		...program,
+		program: servedPageProgram(program.program, codes)
+	})
+	const probe = <K extends ProbeKind>(program: PageProbeProgram<K>): ServedPageProbe<K> => ({
+		kind: program.kind,
+		program: servedPageProgram(program.program, codes),
+		column: { name: program.column.name, type: program.column.type }
+	})
+	return {
 		order: page.order,
 		comparators: page.comparators.map((c) => ({
 			field: c.field,
@@ -171,11 +115,16 @@ export const servedPage = (
 			type: c.type
 		})),
 		heading: servedHeading(page.heading),
-		requests: { first: first.value, after: after.value, last: last.value, before: before.value },
-		probes: { atOrBefore: atOrBefore.value, atOrAfter: atOrAfter.value },
+		requests: {
+			first: request(requests.first),
+			after: request(requests.after),
+			last: request(requests.last),
+			before: request(requests.before)
+		},
+		probes: { atOrBefore: probe(probes.atOrBefore), atOrAfter: probe(probes.atOrAfter) },
 		query,
 		generation
-	})
+	}
 }
 
 /** A transaction's BEGIN at `isolation`, read only and read write. */

@@ -5,13 +5,13 @@ import { identity } from "#compiler/core/identity.ts"
 import { ParamId } from "#compiler/core/ids.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { ParamDecl } from "#compiler/ir/products.ts"
-import { type ConservativeProgram, flight } from "#compiler/lower/conservative/types.ts"
 import type { OptimizedProgram } from "#compiler/lower/optimize/pipeline.ts"
 import type { OperandBody, OperandSelect } from "#compiler/sql/ast.ts"
 import { setQueryOf } from "#compiler/sql/build.ts"
-import { printObjectName } from "#compiler/sql/print.ts"
+import { emit } from "#compiler/sql/emit.ts"
+import { printObjectName, printStatement } from "#compiler/sql/print.ts"
 import { defined } from "#test/support/assert.ts"
-import { lowerAligned } from "#test/support/compile.ts"
+import { lowerAligned, partStatement } from "#test/support/compile.ts"
 import { genCatalog } from "#test/support/evidence.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import type { QueryCase } from "#test/support/oracle/gen/case.ts"
@@ -22,7 +22,6 @@ import { oraclePlanUnder } from "#test/support/oracle/install/real.ts"
 import {
 	aliasOrigins,
 	identityVisitor,
-	rewriteProgram,
 	rewriteSelect,
 	topLevelContext
 } from "#test/support/oracle/mutants/ast.ts"
@@ -31,7 +30,8 @@ import {
 	factSet,
 	inputText,
 	type Lowering,
-	type LoweringInput
+	type LoweringInput,
+	type SentProgram
 } from "#test/support/oracle/runner.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -101,9 +101,9 @@ export const optimizedLowering = (name: string): Lowering => ({
 })
 
 /**
- * EXPLAIN (FORMAT JSON), without ANALYZE (no trial run at preparation; plan shape only), of a lowering's
- * main statement over a case installed and loaded in a rolled-back transaction, after ANALYZE of its tables. Only
- * scalar parameters are bound; the plan's node types are returned in depth-first order.
+ * EXPLAIN (FORMAT JSON), without ANALYZE (no trial run at preparation; plan shape only), of a lowering's main part
+ * alone (test/support/compile.ts partStatement) over a case installed and loaded in a rolled-back transaction, after
+ * ANALYZE of its tables. Only scalar parameters are bound; the plan's node types are returned in depth-first order.
  */
 export const explainMain = (c: QueryCase, lowering: Lowering) =>
 	Effect.scoped(
@@ -130,8 +130,8 @@ export const explainMain = (c: QueryCase, lowering: Lowering) =>
 			if (!lowered.ok) {
 				return yield* Effect.die(new Error(lowered.error.message))
 			}
-			const [main] = flight(lowered.value.roots)
-			const params = Arr.map(main.params, (slot) => {
+			const program = lowered.value
+			const params = Arr.map(program.statement.params, (slot) => {
 				const p = slot.kind === "scalar" ? c.query.params[slot.param] : undefined
 				if (p?.kind !== "scalar") {
 					throw new Error(`explainMain binds scalar parameters only, not ${slot.kind}`)
@@ -148,11 +148,12 @@ export const explainMain = (c: QueryCase, lowering: Lowering) =>
 				if (tables.length > 0) {
 					yield* session.query(`ANALYZE ${Arr.join(tables, ", ")}`, [])
 				}
-				const result = yield* session.query(`EXPLAIN (FORMAT JSON) ${main.sql.text}`, params)
+				const main = printStatement(partStatement(program, program.roots[0].statement.answer))
+				const result = yield* session.query(`EXPLAIN (FORMAT JSON) ${main}`, params)
 				const [record] = result.rows
 				/** The plan's node types, a node before its children (bench/harness/explain.ts planNodeTypes). */
 				const explained = Rec.values(defined(record, "the EXPLAIN row"))[0]
-				return { sql: main.sql.text, nodes: planNodeTypes(explained) }
+				return { sql: main, nodes: planNodeTypes(explained) }
 			}).pipe(Effect.ensuring(Effect.ignore(session.query("ROLLBACK", []))))
 		})
 	)
@@ -181,32 +182,38 @@ const mutateFeedback = (query: OperandSelect, count: () => void): OperandSelect 
 }
 
 interface MutatedFeedback {
-	readonly program: ConservativeProgram
+	readonly program: SentProgram
 	readonly sites: number
 }
 
+/**
+ * The I8 rewrite on a program's statement, emitted again under its name map and placeholders (mutants/ast.ts
+ * rewriteProgram), its parts as they were: every recursion's feedback union made UNION ALL, and how many it made so.
+ */
 export const feedbackUnionAll = (
-	program: ConservativeProgram
+	program: SentProgram
 ): Result.Result<MutatedFeedback, CompileError> => {
 	let sites = 0
 	const count = () => {
 		sites++
 	}
-	const rewritten = rewriteProgram(program, (statement) =>
-		setQueryOf(
-			mutateFeedback(
-				rewriteSelect(
-					statement.ast,
-					aliasOrigins(statement),
-					{ ...identityVisitor, derived: (query) => mutateFeedback(query, count) },
-					topLevelContext
-				),
-				count
+	const statement = program.statement
+	const ast = setQueryOf(
+		mutateFeedback(
+			rewriteSelect(
+				statement.ast,
+				aliasOrigins(statement),
+				{ ...identityVisitor, derived: (query) => mutateFeedback(query, count) },
+				topLevelContext
 			),
-			"the I8 rewrite, which rewrites only a recursive CTE"
-		)
+			count
+		),
+		"the I8 rewrite, which rewrites only a recursive CTE"
 	)
-	return Result.map(rewritten, (p) => ({ program: p, sites }))
+	return Result.map(emit(ast, statement.sql.nameMap), (sql) => ({
+		program: { ...program, statement: { ...statement, ast, sql } },
+		sites
+	}))
 }
 
 export const optimizedFeedbackUnionAll: Lowering = {

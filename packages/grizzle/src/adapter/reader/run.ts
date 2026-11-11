@@ -4,25 +4,29 @@ import * as Option from "effect/Option"
 import * as Result from "effect/Result"
 import { type InputTooLarge, UnreadableAnswer } from "#adapter/errors/failures.ts"
 import {
-	type Arrived,
-	answerOf,
 	type ExecutionInputs,
 	encodeForm,
 	type HostParams,
 	formFor,
 	inputCount,
 	outputOf,
+	partRuns,
 	programRecords,
 	type ReadChoice,
 	type RunStatement,
 	readBinding,
-	readForm,
 	rowsOf,
 	runOf,
+	runStatement,
 	type SentRuns,
 	type StatementRecord
 } from "#adapter/reader/execution.ts"
-import type { Flight, PreparedStatement } from "#adapter/wire/batch.ts"
+import {
+	type BatchOutcome,
+	type Flight,
+	type PreparedStatement,
+	sentAnswer
+} from "#adapter/wire/batch.ts"
 import type { Carrier, Cell, Codebook, Layout, ParamId, Row } from "#compiler/plan/common.ts"
 import type {
 	CarrierHost,
@@ -31,6 +35,7 @@ import type {
 	Heading,
 	ProgramDelivery,
 	RelationInput,
+	PartDivision,
 	TakeBound
 } from "#compiler/plan/read.ts"
 import {
@@ -42,14 +47,11 @@ import {
 	mergeHeadingGroups,
 	rowCell,
 	runsLargeForm,
-	scalarReader,
-	servedTree
+	scalarReader
 } from "#compiler/plan/runtime.ts"
 import type {
 	ServedChoice,
-	ServedReadStatement,
 	ServedRiddenSource,
-	ServedRoots,
 	ServedSource,
 	ServedSpine
 } from "#compiler/plan/serve.ts"
@@ -57,38 +59,30 @@ import type {
 /**
  * Running one compiled query template and delivering its public result.
  *
- * A template's statements are sent in one flight (wire/batch.ts), one round trip, in one transaction and snapshot: the
- * main statement or the heading groups, and every attachment beside them, since an attachment computes its parent's
- * rows itself (lower/conservative/deliver.ts) instead of binding the keys its parent delivered. Each statement is
- * encoded by its own slots when the flight is made, and its rows, texts, become Rows when it answers. How a statement
- * binds its parameters, chooses its per-execution form and delivers its Rows is execution.ts's, settled once per
- * template and artifact (readProgram), so a read checks nothing its program already settled. The delivered Rows are
- * decoded by the value's decoder, bound to the program's layouts (one per heading group, one for a rows delivery).
+ * A template sends one statement in one flight (wire/batch.ts), one round trip, in one transaction and snapshot: its
+ * parts are the main rows or the heading groups, and every attachment beside them, each part over its parent's rows,
+ * which the statement holds once (lower/shapes OptimizedDelivery rowsPart). The statement is encoded by its slots when
+ * the flight is made, and its rows, texts, divide into its parts' runs (execution.ts partRuns) and become Rows when it
+ * answers. How the statement binds its parameters and chooses its per-execution form, and how a part delivers its
+ * Rows, is execution.ts's, settled once per template and artifact (readProgram), so a read checks nothing its program
+ * already settled. The delivered Rows are decoded by the value's decoder, bound to the program's layouts (one per
+ * heading group, one for a rows delivery).
  *
- * - Heading groups. A heterogeneous union is one statement per heading group, each
+ * - Heading groups. A heterogeneous union is one part per heading group, each
  *   delivering its group's full heading, its discriminant included, and each Row states its group. Without a bound the
  *   union is the groups' rows. With a take, each group holds its first k in the take's completed order, and the k-way
  *   merge on that order keeps the first k overall: the first k of the union lie among the first k of each group. An
  *   ordered union then delivers the kept rows in its order. The merge compares Rows, before any is decoded, on the
  *   order's columns converted from each group's texts (GroupOrder: PostgreSQL's B-tree order per column), so only the
  *   kept rows are decoded.
- * - Shared sub-queries. An attachment statement whose child sub-query an earlier attachment of the same
- *   parent computes, by share key and statement text, is not sent: the runtime hands it the earlier statement's rows,
- *   which in one snapshot are the rows it would deliver (lower/shapes/share arrivalsOf), and stitches them under its own
- *   name. The read-only snapshot creates no temporary relation.
+ * - Shared sub-queries. An attachment whose part an earlier attachment of the same parent computes (R25,
+ *   lower/shapes/share shareKey) has no part of its own: the runtime hands it the earlier part's rows, which in one
+ *   snapshot are the rows it would deliver, and stitches them under its own name.
  *
  * What a read delivers from: its served source (engine served/read.ts ServedSource), the delivery of the artifact that
- * runs and its statement tree, each statement with the spec emitted from it, saying whether the runtime sends it or
- * feeds it an earlier one's rows (lower/shapes Arrival) and holding its forms, each large form with its spec.
- *
- * A read's statement as it runs: the served statement its records read, its form, its forms, the whole-relation one with
- * the choices that select it, and how the runtime has its rows.
+ * runs, its statement with the spec emitted from it and its forms, each large form with its spec, and its parts in
+ * their tree, each with the run of the answer that holds its rows.
  */
-type ReadRun = RunStatement<ServedReadStatement["statement"]>
-
-/** A read statement's record (execution.ts programRecords). */
-export type ReadRecord = StatementRecord<ReadRun>
-
 /** How a take bound reads its k: a literal, or a declared parameter's admitted input. */
 type BoundPlan =
 	| { readonly kind: "literal"; readonly k: number }
@@ -119,7 +113,7 @@ export interface GroupOrder<G> {
  * (core/decoder.ts Row.group).
  */
 interface HeadingGroup {
-	readonly record: StatementRecord<Arrived>
+	readonly record: StatementRecord
 	readonly group: number
 }
 
@@ -154,11 +148,13 @@ interface DeliveryPlan {
 }
 
 /**
- * A read's program: its statements' records in flight order, what the read delivers, and the layouts of its delivered
- * Rows, one per heading group, in group order (one for a rows delivery), which a decoder binds to.
+ * A read's program: its statement as it runs, its parts' records in flight order, what the read delivers, and the
+ * layouts of its delivered Rows, one per heading group, in group order (one for a rows delivery), which a decoder
+ * binds to.
  */
 export interface ReadProgram {
-	readonly records: ReadonlyArray<ReadRecord>
+	readonly run: RunStatement
+	readonly records: ReadonlyArray<StatementRecord>
 	readonly delivery: DeliveryPlan
 	readonly layouts: Arr.NonEmptyReadonlyArray<Layout>
 }
@@ -168,27 +164,6 @@ const readChoice = (choice: ServedChoice<RelationInput>): ReadChoice => ({
 	source: choice.source.param,
 	threshold: choice.threshold
 })
-
-/** The statements of a read source, each settled as it runs, in their tree. */
-const readStatements = (source: ServedSource): ServedRoots<ReadRun> =>
-	Arr.map(source.roots, (tree) =>
-		servedTree(tree, ({ statement, spec }): ReadRun => {
-			const forms = statement.forms
-			return {
-				statement,
-				...readForm(statement, spec),
-				forms:
-					forms.kind === "one"
-						? forms
-						: {
-								kind: "chosen",
-								choices: Arr.map(forms.choices, readChoice),
-								large: readForm(forms.large.statement, forms.large.spec)
-							},
-				arrival: statement.arrival
-			}
-		})
-	)
 
 /**
  * The order `order` over heading groups `groups`, in group order, of headings `headingOf`, under the union's heading
@@ -250,7 +225,7 @@ const boundPlan = (bound: TakeBound): BoundPlan =>
 		: { kind: "param", param: bound.param }
 
 /** A heading group's heading: its statement's spec's. */
-const headingOf = (group: HeadingGroup): Heading => outputOf(group.record.run.statement).heading
+const headingOf = (group: HeadingGroup): Heading => outputOf(group.record.part).heading
 
 /** How a heterogeneous union of the union heading `heading` merges its heading groups, under the codes `codes`. */
 const mergePlan = (
@@ -288,7 +263,7 @@ const mergePlan = (
  */
 const deliveryPlan = (
 	delivery: ProgramDelivery,
-	delivered: Arr.NonEmptyReadonlyArray<StatementRecord<Arrived>>,
+	delivered: Arr.NonEmptyReadonlyArray<StatementRecord>,
 	codes: Codebook
 ): DeliveryPlan => {
 	const groups = Arr.map(delivered, (record, group): HeadingGroup => ({ record, group }))
@@ -315,35 +290,37 @@ export const readProgram = (
 	spine: ServedSpine,
 	codes: Codebook
 ): ReadProgram => {
-	const { records, delivered } = programRecords(readStatements(source), spine, codes)
+	const { records, delivered } = programRecords(source.roots, spine, codes)
 	const delivery = deliveryPlan(source.delivery, delivered, codes)
-	return { records, delivery, layouts: deliveredLayouts(delivery) }
+	return {
+		run: runStatement(source.statement, source.parts, readChoice),
+		records,
+		delivery,
+		layouts: deliveredLayouts(delivery)
+	}
 }
 
 /**
- * A riding read-back's program, which reads its statements' rows from the write statement it rides and sends nothing:
- * what it delivers, and the layouts of its delivered Rows (ReadProgram).
+ * A riding read-back's program, which reads its statement's rows from the write statement it rides and sends nothing:
+ * how its statement's rows divide into its parts, what it delivers, and the layouts of its delivered Rows
+ * (ReadProgram).
  */
-export type RiddenProgram = Pick<ReadProgram, "delivery" | "layouts">
+export interface RiddenProgram extends Pick<ReadProgram, "delivery" | "layouts"> {
+	readonly parts: PartDivision
+}
 
 /**
  * The program of a riding read-back's source on its delivered spine `spine`, under the installation's codes `codes`:
- * its statements' records read as a read's are (programRecords), with no form to send.
+ * its parts' records read as a read's are (programRecords), with no form to send.
  */
 export const riddenProgram = (
 	source: ServedRiddenSource,
 	spine: ServedSpine,
 	codes: Codebook
 ): RiddenProgram => {
-	const { delivered } = programRecords(
-		Arr.map(source.roots, (tree) =>
-			servedTree(tree, (statement): Arrived => ({ statement, arrival: statement.arrival }))
-		),
-		spine,
-		codes
-	)
+	const { delivered } = programRecords(source.roots, spine, codes)
 	const delivery = deliveryPlan(source.delivery, delivered, codes)
-	return { delivery, layouts: deliveredLayouts(delivery) }
+	return { parts: source.parts, delivery, layouts: deliveredLayouts(delivery) }
 }
 
 /** A read statement's choice: a relation parameter's distinct fact count above its threshold. */
@@ -485,25 +462,16 @@ interface Delivered {
 
 const withGroup: Emit<Delivered> = (row, group) => ({ row, group })
 
-/** The statements of one execution of a read program (see the header): each one sent, in its form for `inputs`. */
-export const programStatements = (
+/** The statement of one execution of a read program (see the header), in its form for `inputs`. */
+export const programStatement = (
 	program: ReadProgram,
 	inputs: ExecutionInputs
-): Effect.Effect<ReadonlyArray<PreparedStatement>, InputTooLarge> =>
-	Effect.gen(function* () {
-		const exceeds = readExceeds(inputs)
-		const statements: Array<PreparedStatement> = []
-		for (const record of program.records) {
-			if (record.arrival.kind === "fed") {
-				continue
-			}
-			const encoded = yield* encodeForm(formFor(record.run, exceeds), (slot) =>
-				readBinding(slot, inputs)
-			)
-			statements.push(encoded)
-		}
-		return statements
-	})
+): Effect.Effect<PreparedStatement, InputTooLarge> =>
+	encodeForm(formFor(program.run, readExceeds(inputs)), (slot) => readBinding(slot, inputs))
+
+/** The runs of a read program's answer `outcomes`, its one statement's: its parts' rows (execution.ts partRuns). */
+const answerRuns = (program: ReadProgram, outcomes: ReadonlyArray<BatchOutcome>): SentRuns =>
+	partRuns(program.run.parts, sentAnswer(outcomes, 0).rows)
 
 /**
  * The one flight of a read program (see the header), reading its delivered Rows through `read`, the value's decoder
@@ -514,17 +482,16 @@ export const programFlight = <A>(
 	inputs: ExecutionInputs,
 	read: (row: Row) => A
 ): Effect.Effect<Flight<ReadonlyArray<A>, UnreadableAnswer>, InputTooLarge> =>
-	Effect.map(programStatements(program, inputs), (statements) => ({
-		statements,
+	Effect.map(programStatement(program, inputs), (statement) => ({
+		statements: [statement],
 		read: (outcomes) =>
-			Effect.suspend(() => {
-				const sent: SentRuns = outcomes.map((outcome) => outcome.rows)
-				return Effect.fromResult(
-					Result.map(deliveredRows(program, sent, inputs.params), (rows) =>
+			Effect.suspend(() =>
+				Effect.fromResult(
+					Result.map(deliveredRows(program, answerRuns(program, outcomes), inputs.params), (rows) =>
 						rows.map((row) => read(row))
 					)
 				)
-			})
+			)
 	}))
 
 /**
@@ -538,9 +505,7 @@ const atMostOne = <A>(
 ): Result.Result<Option.Option<A>, UnreadableAnswer> => {
 	const [first, second] = delivered
 	if (second !== undefined) {
-		return Result.fail(
-			new UnreadableAnswer({ index: answerOf(second.group.record.arrival), fate: "committed" })
-		)
+		return Result.fail(new UnreadableAnswer({ index: 0, fate: "committed" }))
 	}
 	return Result.succeed(first === undefined ? Option.none() : Option.some(read(first.row)))
 }
@@ -551,15 +516,15 @@ export const programGetFlight = <A>(
 	inputs: ExecutionInputs,
 	read: (row: Row) => A
 ): Effect.Effect<Flight<Option.Option<A>, UnreadableAnswer>, InputTooLarge> =>
-	Effect.map(programStatements(program, inputs), (statements) => ({
-		statements,
+	Effect.map(programStatement(program, inputs), (statement) => ({
+		statements: [statement],
 		read: (outcomes) =>
 			Effect.suspend(() => {
-				const sent: SentRuns = outcomes.map((outcome) => outcome.rows)
 				const { merge, groups } = program.delivery
 				return Effect.fromResult(
-					Result.flatMap(merged(merge, groups, sent, inputs.params, withGroup), (delivered) =>
-						atMostOne(delivered, read)
+					Result.flatMap(
+						merged(merge, groups, answerRuns(program, outcomes), inputs.params, withGroup),
+						(delivered) => atMostOne(delivered, read)
 					)
 				)
 			})

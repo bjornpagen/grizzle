@@ -13,7 +13,7 @@ import type { SqlStatement } from "#compiler/sql/ast.ts"
 import { inertVisitor, visitSelect } from "#compiler/sql/transform.ts"
 import { Note, Plans, Task } from "#test/pg/plans/fixture.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
-import { compileTemplate, testCompile } from "#test/support/compile.ts"
+import { compileTemplate, programAsts, testCompile } from "#test/support/compile.ts"
 import { installationOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { auditStatementViolations } from "#test/support/oracle/verify/sql.ts"
@@ -207,7 +207,7 @@ describe("a selection key's probe", () => {
 							const column = lawColumnOf(c.relation)
 							const probed = c.guard === "held" && c.term
 							for (const [path, statements] of [
-								["optimized", Arr.map(flight(template.programs.optimized.roots), (s) => s.ast)],
+								["optimized", programAsts(template.programs.optimized)],
 								[
 									"conservative",
 									Arr.map(flight(template.programs.conservative.roots), (s) => s.ast)

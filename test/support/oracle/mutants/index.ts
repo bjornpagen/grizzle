@@ -5,7 +5,11 @@ import { standInNames } from "#test/support/kernel/naming.ts"
 import type { QueryCase } from "#test/support/oracle/gen/case.ts"
 import { schemaCodes } from "#test/support/oracle/gen/schema.ts"
 import type { Mutant } from "#test/support/oracle/mutants/mutants.ts"
-import { conservative, type Lowering } from "#test/support/oracle/runner.ts"
+import {
+	conservativeProgram,
+	type Lowering,
+	sentConservative
+} from "#test/support/oracle/runner.ts"
 
 /**
  * The mutant suite: I1-I8 and V1-V6 as post-processors of the
@@ -16,8 +20,8 @@ import { conservative, type Lowering } from "#test/support/oracle/runner.ts"
 export const mutantLowering = (mutant: Mutant): Lowering => ({
 	name: `mutant ${mutant.id}`,
 	lower: (input) =>
-		Result.flatMap(conservative.lower(input), (program) =>
-			Result.map(mutant.mutate(program, input.case), (m) => m.program)
+		Result.flatMap(conservativeProgram(input), (program) =>
+			Result.flatMap(mutant.mutate(program, input.case), (m) => sentConservative(m.program))
 		)
 })
 
@@ -47,7 +51,7 @@ const declaredNames = (c: QueryCase): PhysicalNames =>
 	standInNames(c.schema.name, schemaCodes(c.schema))
 
 export const mutationSites = (mutant: Mutant, c: QueryCase): MutationSites => {
-	const program = conservative.lower({ case: c, names: declaredNames(c) })
+	const program = conservativeProgram({ case: c, names: declaredNames(c) })
 	if (!program.ok) {
 		return refusedBy("lower", program.error)
 	}

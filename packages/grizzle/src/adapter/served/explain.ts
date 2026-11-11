@@ -7,7 +7,7 @@ import { LawRejected, UnreadableAnswer } from "#adapter/errors/failures.ts"
 import { decodePlan, explainFailure } from "#adapter/explain/plan.ts"
 import { hostParams } from "#adapter/reader/params.ts"
 import { executionInputs } from "#adapter/reader/relations.ts"
-import { programStatements } from "#adapter/reader/run.ts"
+import { programStatement } from "#adapter/reader/run.ts"
 import {
 	type ChangeCall,
 	type LoadedChange,
@@ -146,12 +146,12 @@ const explainRead = Effect.fn("explainRead")(function* (
 		Effect.fromResult(executionInputs(read.codecs, values)),
 		(reason) => new ReadFailure({ reason })
 	)
-	const statements = yield* Effect.mapError(
-		programStatements(read.program, inputs),
+	const statement = yield* Effect.mapError(
+		programStatement(read.program, inputs),
 		(reason) => new ReadFailure({ reason })
 	)
 	return yield* plansOf(ctx, readFrame, () =>
-		Result.succeed(Arr.map(statements, (s) => planned(s.text.sql, s.params)))
+		Result.succeed([planned(statement.text.sql, statement.params)])
 	)
 })
 
@@ -197,9 +197,9 @@ const hostCallOf = (
 
 /**
  * A change member's program for `call`, each statement planned against empty carriers, rolled back: its write
- * statements, then its read-backs' (change.reads), each read-back's statements as apply's flight sends them behind the
- * writes (apply/readback.ts readBackFlight), over the same inputs, in the artifact's order; a riding read-back's are
- * parts of the write statement it rides, planned with it.
+ * statements, then its read-backs' (change.reads), each read-back's statement as apply's flight sends it behind the
+ * writes (apply/readback.ts readBackFlight), over the same inputs, in the artifact's order; a riding read-back's is a
+ * part of the write statement it rides, planned with it.
  */
 const explainChange = Effect.fn("explainChange")(function* (
 	ctx: ServedDbContext,
@@ -220,11 +220,11 @@ const explainChange = Effect.fn("explainChange")(function* (
 	const readBacks = yield* Effect.mapError(
 		Effect.forEach(
 			Arr.flatMap(change.reads.runs.runs, (run) => (run.kind === "sent" ? [run] : [])),
-			(run) => programStatements(run.program, inputs)
+			(run) => programStatement(run.program, inputs)
 		),
 		(reason) => new ReadFailure({ reason })
 	)
-	const backs = Arr.map(Arr.flatten(readBacks), (s) => planned(s.text.sql, s.params))
+	const backs = Arr.map(readBacks, (s) => planned(s.text.sql, s.params))
 	const skip = inputs.bound.skip
 	const explainedOf = (
 		chunks: Chunks,

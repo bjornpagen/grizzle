@@ -33,9 +33,6 @@ const trimStatement = (sql: string): string =>
  */
 export type ColumnCasts = ReadonlyArray<"numeric" | "text">
 
-/** A fused attachment's array column: cast to text, its array literal. */
-export const arrayCasts: ColumnCasts = ["text"]
-
 /** The capturing query over `sql`, whose output columns take `columns` casts each. */
 const captureSql = (sql: string, columns: ReadonlyArray<ColumnCasts>): string => {
 	const inner = trimStatement(sql)
@@ -141,16 +138,45 @@ export const captureRows = (
 	params: ReadonlyArray<unknown>,
 	columns: ReadonlyArray<ColumnCasts>
 ): Effect.Effect<ReadonlyArray<RawRow>, SqlError | RawCaptureError> =>
+	captured(runner, sql, params, (width) =>
+		columns.length === width
+			? Result.succeed(columns)
+			: Result.fail(
+					new RawCaptureError({
+						reason: `expected ${columns.length} columns, the query has ${width}`,
+						at: { kind: "result" }
+					})
+				)
+	)
+
+/**
+ * The rows of a statement whose every output column is a text the runtime reads as sent, a program's sent statement
+ * (lower/template.ts executableQueryFrom, lower/parts.ts): captureRows with no cast, over every column the query has.
+ */
+export const captureTexts = (
+	runner: QueryRunner,
+	sql: string,
+	params: ReadonlyArray<unknown>
+): Effect.Effect<ReadonlyArray<RawRow>, SqlError | RawCaptureError> =>
+	captured(runner, sql, params, (width) =>
+		Result.succeed(Array.from({ length: width }, (): ColumnCasts => []))
+	)
+
+/** The rows of `sql`, each of its output columns cast as `columnsOf` says for the query's own column count. */
+const captured = (
+	runner: QueryRunner,
+	sql: string,
+	params: ReadonlyArray<unknown>,
+	columnsOf: (width: number) => Result.Result<ReadonlyArray<ColumnCasts>, RawCaptureError>
+): Effect.Effect<ReadonlyArray<RawRow>, SqlError | RawCaptureError> =>
 	Effect.gen(function* () {
 		const described = yield* runner.query(columnsSql(sql), params)
 		const width = described.fields.length
-		if (columns.length !== width) {
-			return yield* new RawCaptureError({
-				reason: `expected ${columns.length} columns, the query has ${width}`,
-				at: { kind: "result" }
-			})
+		const columns = columnsOf(width)
+		if (Result.isFailure(columns)) {
+			return yield* columns.failure
 		}
-		const result = yield* runner.query(captureSql(sql, columns), params)
+		const result = yield* runner.query(captureSql(sql, columns.success), params)
 		const rows: Array<RawRow> = []
 		for (const [r, record] of result.rows.entries()) {
 			const values = Record.values(record)

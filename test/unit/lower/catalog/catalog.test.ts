@@ -23,7 +23,7 @@ import { makePassContext } from "#compiler/ir/pass.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import type { Rooted, RootedDag, VarDecl } from "#compiler/ir/rel.ts"
 import { LowerContext } from "#compiler/lower/conservative/context.ts"
-import { Delivery } from "#compiler/lower/conservative/deliver.ts"
+import { ConservativeDelivery } from "#compiler/lower/conservative/deliver.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import {
 	CatalogContext,
@@ -84,7 +84,7 @@ const sql = (q: LogicalQuery, r: CatalogResult<Rooted>): ReadonlyArray<string> =
 		flight(
 			succeeded(
 				catchRefusal(() =>
-					new Delivery(
+					new ConservativeDelivery(
 						new LowerContext(
 							r.dag,
 							{

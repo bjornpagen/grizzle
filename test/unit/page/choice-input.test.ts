@@ -96,12 +96,10 @@ describe("a read's per-execution choice", () => {
 									{ [name]: facts }
 								)
 							)
-							const [record] = program.records
-							assert.ok(record !== undefined, name)
-							const forms = record.run.forms
+							const forms = program.run.forms
 							assert.ok(forms.kind === "chosen", name)
 							assert.equal(
-								formFor(record.run, readExceeds(inputs)) === forms.large,
+								formFor(program.run, readExceeds(inputs)) === forms.large,
 								count > lateralParentMax.value,
 								name
 							)

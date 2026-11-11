@@ -6,13 +6,13 @@
  * done tasks with their memo, a task having at most one memo, discriminated by kind, so (id, kind) is a key of every
  * arm and the take over the union completes on it (a union over notes, of which a task may have several, is refused at
  * check time, test/unit/check/unions.test.ts). A case draws the tasks, each of a kind of the roster, a done task with
- * a memo or not, and the take's bound. For each query, every statement of the optimized artifact returns the raw text
- * set of the same statement of the conservative artifact, with no repeated row, and both are the bounded subset the
- * model computes by definition, each closed id the code the installation stores for its handle:
+ * a memo or not, and the take's bound. For each query, every relation the optimized artifact's statement delivers
+ * holds the raw text set of the same relation of the conservative artifact's, with no repeated row, and both are the
+ * bounded subset the model computes by definition, each closed id the code the installation stores for its handle:
  *
- * - the take delivered to the host: one statement per heading group, each that group's first k in the common order
+ * - the take delivered to the host: one part per heading group, each that group's first k in the common order
  *   (id, then kind in roster order), whose merge is the union's first k;
- * - the take consumed inside a statement, its ids: one statement, the UNION ALL of the common fields under ORDER BY and
+ * - the take consumed inside a statement, its ids: one relation, the UNION ALL of the common fields under ORDER BY and
  *   LIMIT;
  * - a match of the bounded union that binds kind to Done and so may bind the memo text: the done group's rows joined
  *   back to the bounded union on every common field.
@@ -24,8 +24,10 @@ import { array, boolean, element, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Order, pipe, String as Str } from "effect"
+import { partRuns } from "#adapter/reader/execution.ts"
 import { identity } from "#compiler/core/identity.ts"
-import type { StatementSpec } from "#compiler/ir/products.ts"
+import { flight } from "#compiler/lower/conservative/types.ts"
+import type { SpecifiedArtifact } from "#compiler/lower/template.ts"
 import { closedId, uuid, type Uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, contained, key, on, relation, schema } from "#compiler/public/schema.ts"
@@ -38,6 +40,7 @@ import { installMigrated as install, replaceMigrated } from "#test/support/insta
 import { namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { outputRows } from "#test/support/wire.ts"
 
 const Kind = closed("Kind", ["Open", "Done", "Held"])
 const Text = str.regex("^.{1,80}$", "su")
@@ -147,37 +150,47 @@ const compiled = (q: unknown, schemaIdent: string): OracleTemplate => {
 	return r.value
 }
 
-/** The rows of a statement as sorted record text; these queries take no parameter. */
-const run = (spec: StatementSpec) =>
+/**
+ * The rows of each relation an artifact delivers, in flight order, each as sorted record text: its one statement run,
+ * its rows divided into its parts' runs as the runtime divides them (adapter/reader/execution.ts partRuns), and each
+ * row the record of its cells. These queries take no parameter, and no cell of theirs, an id, a code or a title, is one
+ * a record's text quotes.
+ */
+const run = (artifact: SpecifiedArtifact) =>
 	Effect.gen(function* () {
 		const s = yield* Substrate
+		const spec = artifact.statement.spec
 		assert.deepEqual(spec.paramSlots, [])
-		const rows = yield* s.admin.queryValues(`SELECT t::text FROM (${spec.sql}) AS t`, [])
-		return Arr.sort(
-			Arr.map(rows, (r) => String(r[0])),
-			Order.String
+		const rows = yield* s.admin.queryValues(spec.sql, [])
+		const runs = partRuns(
+			artifact.parts,
+			outputRows(Arr.map(rows, (row) => Arr.map(row, (cell) => String(cell))))
 		)
+		return Arr.map(flight(artifact.roots), (part): ReadonlyArray<string> => {
+			const partRun = runs[part.answer]
+			if (partRun === undefined) {
+				throw new Error(`no part answers ${part.answer}`)
+			}
+			return Arr.sort(
+				Arr.map(partRun, (cells) => `(${Arr.join(cells, ",")})`),
+				Order.String
+			)
+		})
 	})
 
 /**
- * Every statement of both artifacts, the optimized one's agreeing with the conservative one's; the conservative rows.
+ * Every relation both artifacts deliver, the optimized one's rows agreeing with the conservative one's, none repeated;
+ * the conservative rows.
  */
 const agreed = (template: OracleTemplate) =>
 	Effect.gen(function* () {
-		assert.equal(template.optimized.length, template.conservative.length)
-		const out: Array<ReadonlyArray<string>> = []
-		for (const [i, base] of template.conservative.entries()) {
-			const optimized = template.optimized[i]
-			if (optimized === undefined) {
-				throw new Error(`optimized statement ${i}`)
-			}
-			const expected = yield* run(base)
-			const optimizedRows = yield* run(optimized)
-			assert.deepEqual(optimizedRows, expected, `statement ${i}`)
-			assert.equal(new Set(expected).size, expected.length, `statement ${i} repeats a row`)
-			out.push(expected)
+		const optimized = yield* run(template.runs.optimized)
+		const conservative = yield* run(template.runs.conservative)
+		assert.deepEqual(optimized, conservative, "the relations of both artifacts")
+		for (const [i, rows] of conservative.entries()) {
+			assert.equal(new Set(rows).size, rows.length, `relation ${i} repeats a row`)
 		}
-		return out
+		return conservative
 	})
 
 const sorted = (rows: ReadonlyArray<string>): ReadonlyArray<string> => Arr.sort(rows, Order.String)

@@ -25,7 +25,7 @@ import type { EncodingFailure } from "#compiler/core/errors.ts"
 import { ParamId } from "#compiler/core/ids.ts"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
 import type { RelationParamDecl } from "#compiler/ir/products.ts"
-import { flight, type RelationColumn } from "#compiler/lower/conservative/types.ts"
+import type { RelationColumn } from "#compiler/lower/conservative/types.ts"
 import { closedId, pg, uuid as uuidField } from "#compiler/public/fields.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -46,7 +46,7 @@ import {
 import { f } from "#test/support/fixtures/ir/desc.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { largeStatements } from "#test/support/oracle/forms.ts"
+import { sentForms } from "#test/support/oracle/forms.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { textOfParam } from "#test/support/wire.ts"
 
@@ -185,15 +185,10 @@ describe("every declared parameter admitted at the read boundary", () => {
 								() => new Error("the read declares p")
 							)
 							/**
-							 * The optimized artifact's statements, its large variants included: a rule that is not empty binds p.
+							 * The optimized artifact's statement, its large form included: a rule that is not empty binds p.
 							 */
-							const optimized = template.programs.optimized
-							const bound = Arr.some(
-								[
-									...flight(optimized.roots),
-									...largeStatements(flight(optimized.roots), (l) => l.statement)
-								],
-								(s) => Arr.some(s.params, (slot) => slot.kind === "scalar" && slot.param === p.id)
+							const bound = Arr.some(sentForms(template.programs.optimized.statement), (s) =>
+								Arr.some(s.params, (slot) => slot.kind === "scalar" && slot.param === p.id)
 							)
 							if (inner === outer) {
 								assert.ok(bound, `pinned and matched at ${inner}: its statement binds p`)

@@ -2,17 +2,16 @@ import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty
 import { type Prepared, prepared } from "#compiler/core/prepared.ts"
 import type { Delivered, Heading } from "#compiler/ir/rel.ts"
 import type { DeclaredParamSlot, ProgramDelivery } from "#compiler/lower/conservative/types.ts"
-import type { Arrival } from "#compiler/lower/shapes/index.ts"
+import type { PartDivision, TaggedPart } from "#compiler/lower/parts.ts"
 import type { ChoiceInput, RelationInput } from "#compiler/lower/shapes/take/index.ts"
 import type { StatementForms } from "#compiler/runtime/lower/forms.ts"
 import type { FusedLayout } from "#compiler/runtime/lower/fused.ts"
 import type { StatementRole } from "#compiler/runtime/lower/tree.ts"
 import type { EmittedText } from "#compiler/sql/ast.ts"
-import type { RidingPart } from "#compiler/write/program/artifact.ts"
 
 /**
- * A compiled read as the runtime runs it: its statements in their tree, each with the text it sends, and its delivered
- * spine, data alone, which a served file carries and a read, a page and a write's read-back are rebuilt from. Every
+ * A compiled read as the runtime runs it: its statement with the text it sends, its parts in their tree, and its
+ * delivered spine, data alone, which a served file carries and a read, a page and a write's read-back are rebuilt from. Every
  * projection here copies, member by member, exactly what the runtime reads of a compiled structure, its AST, IR nodes
  * and encoders left behind, and names each statement's text (core/prepared.ts); a compiled structure is assignable to
  * its served type over the spec it emitted (EmittedSpec), so the compile path serves it too.
@@ -64,22 +63,24 @@ export interface ServedChoice<Source extends ChoiceInput> {
 }
 
 /**
- * A statement as the runtime runs it, the lowered statement's AST and IR left behind: its role (an attachment's with
- * its parent key), the heading of the relation it delivers, its fused attachments, its placeholders, its forms and
- * how the runtime has its rows.
+ * A delivered relation of a program as the runtime reads its rows (shapes/index.ts DeliveredPart), the lowered
+ * statement's AST and IR left behind: its role (an attachment's with its parent key), the heading of the relation it
+ * delivers, its fused attachments, and the position of its rows among the runs of the program's answer.
  */
-export interface ServedRunStatement<Slot, Source extends ChoiceInput, Spec = ServedSpec> {
+export interface ServedPart {
 	readonly role: StatementRole
 	readonly heading: Heading
 	readonly fused: ReadonlyArray<ServedFused>
-	readonly params: ReadonlyArray<Slot>
-	readonly forms: StatementForms<ServedChoice<Source>, ServedForm<Slot, Spec>>
-	readonly arrival: Arrival
+	readonly answer: number
 }
 
-/** A statement with the spec emitted from it, a served one's by default. */
-export interface ServedSpecified<Slot, Source extends ChoiceInput, Spec = ServedSpec> {
-	readonly statement: ServedRunStatement<Slot, Source, Spec>
+/**
+ * The statement a program sends as the runtime runs it, with the spec emitted from it, a served one's by default: its
+ * placeholders and its forms.
+ */
+export interface ServedSentStatement<Slot, Source extends ChoiceInput, Spec = ServedSpec> {
+	readonly params: ReadonlyArray<Slot>
+	readonly forms: StatementForms<ServedChoice<Source>, ServedForm<Slot, Spec>>
 	readonly spec: Spec
 }
 
@@ -97,20 +98,27 @@ export interface ServedAttached<S> extends ServedTree<S> {
 /** A program's delivered statements, its main statement or one per heading group, in group order. */
 export type ServedRoots<S> = NonEmptyReadonlyArray<ServedTree<S>>
 
-/** A read statement: every placeholder a declared parameter's, every choice a relation parameter's count. */
-export type ServedReadStatement<Spec = ServedSpec> = ServedSpecified<
+/**
+ * A program as the runtime runs it: the one statement it sends, how its rows divide into parts, and each part's
+ * delivered relation, in their tree.
+ */
+export interface ServedProgram<Slot, Source extends ChoiceInput, Spec = ServedSpec> {
+	readonly statement: ServedSentStatement<Slot, Source, Spec>
+	readonly parts: PartDivision
+	readonly roots: ServedRoots<ServedPart>
+}
+
+/**
+ * A read's artifact as the runtime runs it: its program, every placeholder a declared parameter's and every choice a
+ * relation parameter's count, and how its parts' rows are delivered; over the specs the compiler emitted
+ * (EmittedSpec), the compiled artifact servedSource serves.
+ */
+export interface ServedSource<Spec = ServedSpec> extends ServedProgram<
 	DeclaredParamSlot,
 	RelationInput,
 	Spec
->
-
-/**
- * A read's artifact as the runtime runs it: its statements in their tree, and how their rows are delivered; over the
- * specs the compiler emitted (EmittedSpec), the compiled artifact servedSource serves.
- */
-export interface ServedSource<Spec = ServedSpec> {
+> {
 	readonly delivery: ProgramDelivery
-	readonly roots: ServedRoots<ServedReadStatement<Spec>>
 }
 
 /**
@@ -124,10 +132,10 @@ export interface ServedReadBack {
 }
 
 /**
- * How a read-back's statements reach the server (write/program/artifact.ts ReadBackCarried): `sent`, each its own
- * statement behind the writes, its program a read's served source; or `riding`, as parts of the write statement at
- * artifact position `statement`, whose rows behind each part's tag, from `tag` on, are its sent statements' rows, in
- * flight order (RidingPart), its program the statements as their rows are read, with no text (ServedRiddenSource).
+ * How a read-back's statement reaches the server (write/program/artifact.ts ReadBackCarried): `sent`, its own statement
+ * behind the writes, its program a read's served source; or `riding`, a part of the write statement at artifact
+ * position `statement`, whose rows behind the part's tag `tag` are its statement's rows (TaggedPart `part`), its
+ * program its parts as their rows are read, with no text (ServedRiddenSource).
  */
 export type ServedCarried =
 	| { readonly kind: "sent"; readonly source: ServedSource }
@@ -136,23 +144,18 @@ export type ServedCarried =
 			readonly source: ServedRiddenSource
 			readonly statement: number
 			readonly tag: number
-			readonly parts: NonEmptyReadonlyArray<RidingPart>
+			readonly part: TaggedPart
 	  }
 
-/** A riding read-back's statement as the runtime reads its rows: its role, its heading, its fused attachments and how
- * the runtime has its rows. The statement it rides sends it, so it has no text, placeholder or form of its own. */
-export interface ServedRiddenStatement {
-	readonly role: StatementRole
-	readonly heading: Heading
-	readonly fused: ReadonlyArray<ServedFused>
-	readonly arrival: Arrival
-}
-
-/** A riding read-back's program as the runtime reads its rows: its statements in their tree, and how their rows are
- * delivered. */
+/**
+ * A riding read-back's program as the runtime reads its rows: how its statement's rows divide into parts, its parts in
+ * their tree, and how their rows are delivered. The statement it rides sends its statement, so it has no text,
+ * placeholder or form of its own.
+ */
 export interface ServedRiddenSource {
 	readonly delivery: ProgramDelivery
-	readonly roots: ServedRoots<ServedRiddenStatement>
+	readonly parts: PartDivision
+	readonly roots: ServedRoots<ServedPart>
 }
 
 /**
@@ -204,34 +207,28 @@ const servedRole = (role: StatementRole): StatementRole => {
 }
 
 /** A statement's spec as the runtime reads it: the text it sends, named here (core/prepared.ts), and its output heading. */
-export const servedSpec = (spec: EmittedSpec): ServedSpec => ({
+const servedSpec = (spec: EmittedSpec): ServedSpec => ({
 	text: prepared(spec.sql),
 	heading: servedHeading(spec.heading)
 })
 
 /** A per-execution choice as the runtime reads it: its input and threshold. */
-export const servedChoice = <Source extends ChoiceInput>(
+const servedChoice = <Source extends ChoiceInput>(
 	choice: ServedChoice<Source>
 ): ServedChoice<Source> => ({ source: choice.source, threshold: choice.threshold })
 
-/** A statement as the runtime runs it (ServedRunStatement), its forms `forms` as the caller served them. */
-export const servedRunStatement = <Slot, Source extends ChoiceInput>(
-	statement: Omit<ServedRunStatement<Slot, Source>, "forms">,
-	forms: ServedRunStatement<Slot, Source>["forms"]
-): ServedRunStatement<Slot, Source> => ({
-	role: servedRole(statement.role),
-	heading: servedHeading(statement.heading),
-	fused: statement.fused.map(servedFused),
-	params: statement.params,
-	forms,
-	arrival: statement.arrival
+/** A delivered relation as the runtime reads its rows (ServedPart). */
+const servedPart = (part: ServedPart): ServedPart => ({
+	role: servedRole(part.role),
+	heading: servedHeading(part.heading),
+	fused: part.fused.map(servedFused),
+	answer: part.answer
 })
 
-/** A statement with its spec, each form served. */
-const servedSpecified = <Slot, Source extends ChoiceInput>(
-	specified: ServedSpecified<Slot, Source, EmittedSpec>
-): ServedSpecified<Slot, Source> => {
-	const { statement } = specified
+/** A program's statement with its spec, each form served. */
+const servedStatement = <Slot, Source extends ChoiceInput>(
+	statement: ServedSentStatement<Slot, Source, EmittedSpec>
+): ServedSentStatement<Slot, Source> => {
 	const forms: StatementForms<ServedChoice<Source>, ServedForm<Slot>> = statement.forms.kind ===
 	"one"
 		? { kind: "one" }
@@ -243,8 +240,27 @@ const servedSpecified = <Slot, Source extends ChoiceInput>(
 					spec: servedSpec(statement.forms.large.spec)
 				}
 			}
-	return { statement: servedRunStatement(statement, forms), spec: servedSpec(specified.spec) }
+	return { params: statement.params, forms, spec: servedSpec(statement.spec) }
 }
+
+/** How a statement's rows divide into parts, as the runtime reads them. */
+const servedDivision = (parts: PartDivision): PartDivision =>
+	parts.kind === "one"
+		? { kind: "one" }
+		: { kind: "tagged", parts: mapNonEmpty(parts.parts, (p) => ({ kind: p.kind, width: p.width })) }
+
+/** A program's parts in their tree, each as the runtime reads it. */
+const servedParts = (roots: ServedRoots<ServedPart>): ServedRoots<ServedPart> =>
+	mapNonEmpty(roots, (tree) => servedTree(tree, servedPart))
+
+/** A program as the runtime runs it (ServedProgram), over the specs the compiler emitted. */
+export const servedProgram = <Slot, Source extends ChoiceInput>(
+	program: ServedProgram<Slot, Source, EmittedSpec>
+): ServedProgram<Slot, Source> => ({
+	statement: servedStatement(program.statement),
+	parts: servedDivision(program.parts),
+	roots: servedParts(program.roots)
+})
 
 /** A statement tree, each statement served by `serve` and each attachment as the runtime reads it. */
 export const servedTree = <A, B>(
@@ -260,20 +276,13 @@ export const servedTree = <A, B>(
 
 /** A read's artifact as the runtime runs it (ServedSource): a template's `run`, or a read-back's, served. */
 export const servedSource = (run: ServedSource<EmittedSpec>): ServedSource => ({
-	delivery: run.delivery,
-	roots: mapNonEmpty(run.roots, (tree) => servedTree(tree, servedSpecified))
+	...servedProgram(run),
+	delivery: run.delivery
 })
 
-/** A riding read-back's program as the runtime reads its rows (ServedRiddenSource): each statement's role, heading,
- * fused attachments and arrival, as the runtime reads them. */
+/** A riding read-back's program as the runtime reads its rows (ServedRiddenSource). */
 export const servedRiddenSource = (run: ServedRiddenSource): ServedRiddenSource => ({
 	delivery: run.delivery,
-	roots: mapNonEmpty(run.roots, (tree) =>
-		servedTree(tree, (statement) => ({
-			role: servedRole(statement.role),
-			heading: servedHeading(statement.heading),
-			fused: statement.fused.map(servedFused),
-			arrival: statement.arrival
-		}))
-	)
+	parts: servedDivision(run.parts),
+	roots: servedParts(run.roots)
 })

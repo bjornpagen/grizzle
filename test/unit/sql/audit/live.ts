@@ -11,7 +11,7 @@ import type { LogicalQuery } from "#compiler/ir/products.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput, flight } from "#compiler/lower/conservative/types.ts"
 import { lowerOptimized } from "#compiler/lower/optimize/pipeline.ts"
-import { deliveredAsOptimized, type FusedStatement } from "#compiler/lower/shapes/index.ts"
+import { conservativeStatement, type SentStatement } from "#compiler/lower/shapes/index.ts"
 import { executableQuery } from "#compiler/lower/template.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
@@ -47,7 +47,7 @@ import {
 	noDeclarations,
 	type Previous
 } from "#test/support/migrate/kit.ts"
-import { largeStatements } from "#test/support/oracle/forms.ts"
+import { sentForms } from "#test/support/oracle/forms.ts"
 import { defaultGenConfig, type QueryCase, queryCaseGen } from "#test/support/oracle/gen/case.ts"
 import { genParamDecls } from "#test/support/oracle/gen/query.ts"
 import { schemaCodes, schemaDesc } from "#test/support/oracle/gen/schema.ts"
@@ -255,8 +255,8 @@ const logicalQuery = (c: QueryCase): LogicalQuery => ({
 type Lowered = ReadonlyArray<{ readonly ast: SqlStatement; readonly text: string }>
 
 /**
- * Every statement a case lowers to: conservative and optimized, the R20 variants, and the executable form of every
- * conservative and optimized statement.
+ * Every statement a case lowers to: each conservative statement and its executable form, the conservative program's
+ * statement of parts, and the optimized program's statement, its R20 large form, and its one part as lowered.
  */
 const lowered = (c: QueryCase, context: TemplateContext): Lowered => {
 	const artifacts = testArtifacts(schemaDesc(c.schema), {
@@ -277,11 +277,14 @@ const lowered = (c: QueryCase, context: TemplateContext): Lowered => {
 		throw failure("the conservative lowering", conservative.error)
 	}
 	const out: Array<{ readonly ast: SqlStatement; readonly text: string }> = []
-	const statement = (s: FusedStatement) => {
+	const sent = (s: SentStatement) => {
 		out.push({ ast: s.ast, text: s.sql.text })
-		out.push({ ast: executableQuery(s), text: "" })
 	}
-	Arr.forEach(flight(deliveredAsOptimized(conservative.value).roots), statement)
+	for (const s of flight(conservative.value.roots)) {
+		sent(s)
+		out.push({ ast: executableQuery({ ...s, fused: [] }), text: "" })
+	}
+	sent(conservativeStatement(conservative.value).statement)
 	const optimized = Result.flatMap(admitGenerated(query), (q) =>
 		lowerOptimized(q, {
 			names,
@@ -294,9 +297,9 @@ const lowered = (c: QueryCase, context: TemplateContext): Lowered => {
 		throw failure("the optimized lowering", optimized.error)
 	}
 	const program = optimized.value
-	Arr.forEach(flight(program.roots), statement)
-	for (const large of largeStatements(flight(program.roots), (l) => l)) {
-		out.push({ ast: large.ast, text: large.sql.text })
+	Arr.forEach(sentForms(program.statement), sent)
+	if (program.parts.kind === "one") {
+		sent(program.parts.delivered)
 	}
 	return out
 }

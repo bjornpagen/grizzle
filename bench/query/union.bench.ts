@@ -31,7 +31,9 @@ import {
 	judged,
 	type MeasureOptions,
 	measureQuery,
-	optimizedStatement,
+	optimizedAst,
+	optimizedProgram,
+	partsVariant,
 	plainExplain,
 	queryPhases,
 	rawSession,
@@ -49,7 +51,7 @@ import { closedId, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, contained, key, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { schemaInputOf, testArtifacts } from "#test/support/compile.ts"
+import { partSelects, schemaInputOf, testArtifacts } from "#test/support/compile.ts"
 import { has, shapeOf } from "#test/support/kernel/shape.ts"
 
 /**
@@ -59,18 +61,18 @@ import { has, shapeOf } from "#test/support/kernel/shape.ts"
  * - R21 (:255): "for a delivered union, round trips equal one per union regardless of group count and each group's
  *   plan is the plan the group would have alone; for a consumed union, the result equals the merge of the per-group
  *   bounded statements." A union of open tasks (id, kind, title) and done tasks with their memo (id, kind, text), a
- *   task having at most one memo, is delivered as one statement per heading group, each compared with the same arm
- *   compiled alone; bounded by take(10) it is delivered per group and merged by the runtime, and consumed by another
- *   query it is lowered in SQL as a UNION ALL of the common fields, a LIMIT and a join back. Never one padded
- *   statement. The groups go in one flight of one SERIALIZABLE READ ONLY transaction, so a delivered union is one
- *   round trip whatever its group count (packages/grizzle/src/adapter/wire/batch.ts).
+ *   task having at most one memo, is delivered as one statement of a part per heading group, each part run alone and
+ *   compared with the same arm compiled alone; bounded by take(10) it is delivered per group and merged by the
+ *   runtime, and consumed by another query it is lowered in SQL as a UNION ALL of the common fields, a LIMIT and a
+ *   join back. No group's part padded with another's columns. The statement goes in one flight, so a delivered union
+ *   is one round trip whatever its group count (packages/grizzle/src/adapter/wire/batch.ts).
  *   The order of a heterogeneous union is on its common fields, the discriminant completing ties across arms, and "if
  *   the fields common to every arm hold no key, completion is refused with UnsupportedOperation": the
  *   bounded union is over memos, so (id, kind) is a key of every arm, and the same union over notes, of which a task
  *   may have several, is the take the compiler must refuse.
- * - R25 (contract): the feeding rule computes identical sub-queries over the same feeding statements once, by
- *   the first statement, and feeds the others; two identical pipelined attachments of one parent are such a pair. The
- *   statements the runtime sends and their cost are measured against the shared form.
+ * - R25 (contract): the feeding rule computes identical sub-queries over the same feeding parts once, by the first
+ *   part, and feeds the others; two identical pipelined attachments of one parent are such a pair. The statement the
+ *   runtime sends and its cost are measured against the shared form, its parent's and representative's parts alone.
  * The handwritten baselines: the delivered union as one statement per heading group, each the
  * arm's direct keyed scan; the consumed bound as the union's own tuples, one per (id, 'Open', title) and one per (id,
  * 'Done', text), ordered by the completed order (the common id, then the discriminant in roster order), limited to ten, then their ids; and the shared attachments as the parent statement and one child
@@ -223,12 +225,18 @@ interface Options extends Readonly<Record<string, unknown>> {
 
 type Gates = "R21" | "R25"
 
-/** The heading-group statements of a compiled read's optimized artifact. */
-const groupStatements = (compiled: Compiled) =>
-	Arr.filter(
-		flight(compiled.compiled.template.programs.optimized.roots),
-		(s) => s.role.kind === "headingGroup"
-	)
+/** The heading-group parts of a compiled read's optimized statement, each with its shape's AST (partSelects). */
+const groupStatements = (compiled: Compiled) => {
+	const program = optimizedProgram(compiled)
+	const selects = partSelects(program)
+	return Arr.flatMap(flight(program.roots), (part) => {
+		const ast = selects[part.answer]
+		if (ast === undefined) {
+			throw new GateSetupError({ what: `the optimized artifact has no part ${part.answer}` })
+		}
+		return part.role.kind === "headingGroup" ? [{ part, heading: part.heading, ast }] : []
+	})
+}
 
 /** A heading's column names, sorted: what a statement delivers, whatever the column order. */
 const headingNames = (heading: ReadonlyArray<{ readonly name: string }>): ReadonlyArray<string> =>
@@ -324,7 +332,23 @@ export default defineGate({
 			const openM = yield* measureQuery(runtime, raw, open, { account }, { ...measure, samples: 1 })
 			const done = compile(fx, doneArm, reading)
 			const doneM = yield* measureQuery(runtime, raw, done, { account }, { ...measure, samples: 1 })
-			const groupShapes = Arr.map(unionM.generated.plans, (p) => p.shape)
+			const unionGroups = groupStatements(union)
+			const groupParts = Arr.map(unionGroups, (g) => g.part)
+			if (!Arr.isReadonlyArrayNonEmpty(groupParts)) {
+				throw new GateSetupError({ what: "the union delivers no heading-group part" })
+			}
+			/** Each heading group's part run alone: its rows without the tag that carries them, and its plan alone. */
+			const unionParts = yield* measureVariant(
+				raw,
+				partsVariant(
+					"generated: each heading group's part alone",
+					union,
+					unionM.delivered.generated.statements[0],
+					groupParts
+				),
+				handOptions
+			)
+			const groupShapes = Arr.map(unionParts.plans, (p) => p.shape)
 			const aloneShapes = [summaryOf(openM.generated, 0).shape, summaryOf(doneM.generated, 0).shape]
 			const groupRows = yield* textRowsOf(raw, unionM.delivered.generated.statements)
 			const unionHand = yield* measureVariant(
@@ -339,14 +363,14 @@ export default defineGate({
 				),
 				handOptions
 			)
-			const unionVersusHand = compareVariants(unionM.generated, unionHand)
+			const unionVersusHand = compareVariants(unionParts, unionHand)
 			/**
 			 * Each heading group's statement delivers exactly its arm's heading, as the arm compiled alone does: no group
 			 * carries another's columns.
 			 */
-			const groupHeadings = Arr.map(groupStatements(union), (g) => headingNames(g.heading))
+			const groupHeadings = Arr.map(unionGroups, (g) => headingNames(g.heading))
 			const armHeadings = Arr.map([open, done], (arm) =>
-				headingNames(optimizedStatement(arm, 0).heading)
+				headingNames(optimizedProgram(arm).roots[0].statement.heading)
 			)
 			const unpadded = set(structuralHash, ordered(exact))(groupHeadings, armHeadings)
 			/** R21, bounded and consumed. */
@@ -358,7 +382,7 @@ export default defineGate({
 			const consumedIds = asRows(idsOf(consumedM.delivered.generated.rows))
 			const boundedGroups = Arr.map(groupStatements(bounded), (g) => shapeOf(g.ast))
 			const consumedStatements = flight(consumed.compiled.template.programs.optimized.roots)
-			const consumedShape = shapeOf(optimizedStatement(consumed, 0).ast)
+			const consumedShape = shapeOf(optimizedAst(consumed))
 			const consumedHand = yield* measureVariant(
 				raw,
 				handwritten(
@@ -410,6 +434,7 @@ export default defineGate({
 					variants: [
 						unionM.generated,
 						unionM.conservative,
+						unionParts,
 						openM.generated,
 						doneM.generated,
 						unionHand
@@ -458,8 +483,8 @@ export default defineGate({
 						`${unionM.delivered.generated.flights} and ${boundedM.delivered.generated.flights} flights`
 					),
 					mechanism(
-						"one statement per heading group, none padded",
-						unionM.delivered.generated.statements.length === 2 &&
+						"one statement of a part per heading group, none padded",
+						unionM.delivered.generated.statements.length === 1 &&
 							groupHeadings.length === 2 &&
 							Option.isNone(unpadded),
 						`${unionM.delivered.generated.statements.length} statements; ${Option.getOrElse(unpadded, () => "each group's heading is its arm's")}`
@@ -471,13 +496,13 @@ export default defineGate({
 					),
 					mechanism(
 						"a delivered bound takes k per group",
-						boundedM.delivered.generated.statements.length === 2 &&
+						boundedM.delivered.generated.statements.length === 1 &&
 							boundedGroups.length === 2 &&
 							Arr.every(
 								boundedGroups,
 								(shape) => has(shape, "limit param") || has(shape, "limit literal")
 							),
-						`${boundedGroups.length} group statements`
+						`${boundedGroups.length} group parts`
 					),
 					mechanism(
 						"a take over a union whose common fields hold no key is refused with UnsupportedOperation",
@@ -496,9 +521,9 @@ export default defineGate({
 					agrees("the bounded union agrees with the conservative lowering", boundedM),
 					agrees("the consumed union agrees with the conservative lowering", consumedM),
 					equivalence(
-						"the delivered union agrees with the handwritten group statements",
+						"the delivered union's group parts agree with the handwritten group statements",
 						unionVersusHand.sameResult,
-						`${unionM.generated.result.rows} generated rows, ${unionHand.result.rows} handwritten`
+						`${unionParts.result.rows} generated rows, ${unionHand.result.rows} handwritten`
 					),
 					equivalence(
 						"the consumed union agrees with the handwritten first ten tuples",
@@ -526,22 +551,20 @@ export default defineGate({
 			const region = 7
 			const sharedM = yield* measureQuery(runtime, raw, shared, { region }, measure)
 			const sent = sharedM.delivered.generated.statements
-			const [parentSent, ...children] = sent
-			const [childSent] = children
-			if (childSent === undefined) {
-				throw new GateSetupError({ what: "the shared attachments sent no child statement" })
+			const sharedProgram = optimizedProgram(shared)
+			const relations = flight(sharedProgram.roots)
+			const placed = new Set(Arr.map(relations, (r) => r.answer))
+			const [parentPart, childPart] = relations
+			if (childPart === undefined) {
+				throw new GateSetupError({ what: "the shared attachments pipeline no child part" })
 			}
-			/** The shared form: the parent and one attachment statement, whose rows feed both attachments. */
+			/**
+			 * The shared form: the parent's part and one attachment's part, whose rows feed both attachments, each run as a
+			 * statement of its own.
+			 */
 			const once = yield* measureVariant(
 				raw,
-				{
-					role: "generated",
-					label: "shared: the representative only",
-					statements: [parentSent, childSent],
-					transaction: readSnapshot,
-					decode: { kind: "none" },
-					outside: {}
-				},
+				partsVariant("shared: the representative only", shared, sent[0], [parentPart, childPart]),
 				{ ...handOptions, warmup: 0 }
 			)
 			/** What an expert writes: the parent statement and one child statement over the parent's own predicate. */
@@ -590,20 +613,17 @@ export default defineGate({
 				loads: {},
 				measures: {
 					statementsSent: sent.length,
-					childStatements: children.length,
-					childDedupNodes: Arr.reduce(
-						plansOf(sharedM.generated).slice(1),
-						0,
-						(n, p) => n + dedupNodes(p).length
-					)
+					parts: placed.size,
+					relations: relations.length,
+					childDedupNodes: Arr.reduce(plansOf(once).slice(1), 0, (n, p) => n + dedupNodes(p).length)
 				}
 			})
 			const r25: VerdictInput = {
 				checks: [
 					mechanism(
-						"identical sub-queries over the same feeding statement are computed once and fed to the others",
-						sent.length === 2,
-						`${sent.length} statements sent`
+						"identical sub-queries over the same feeding part are computed once and fed to the others",
+						sent.length === 1 && relations.length === 3 && placed.size === 2,
+						`${sent.length} statements sent, ${placed.size} parts for ${relations.length} relations`
 					),
 					judged(
 						"the delivered result agrees with the conservative lowering",

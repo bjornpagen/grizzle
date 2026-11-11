@@ -11,17 +11,19 @@ import {
 	outputNames
 } from "#compiler/lower/conservative/context.ts"
 import { parentKeysSource } from "#compiler/lower/conservative/deliver.ts"
-import { orderItemsOf } from "#compiler/lower/conservative/take/order.ts"
 import { carriedFrom, positiveLinear } from "#compiler/lower/shapes/attach-recursive/carried.ts"
-import type { DeliveredRows, PipelinedAttachment } from "#compiler/lower/shapes/attach/index.ts"
+import {
+	attachmentOrder,
+	type DeliveredRows,
+	type PipelinedAttachment
+} from "#compiler/lower/shapes/attach/index.ts"
 import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
 import type { ChoiceInput } from "#compiler/lower/shapes/take/index.ts"
 import { orderIsTotal } from "#compiler/lower/shapes/take/order.ts"
 import { columnType } from "#compiler/runtime/lower/columns.ts"
-import type { Expr, OrderItem, Select, SelectCore, With } from "#compiler/sql/ast.ts"
+import type { Expr, Select, SelectCore, With } from "#compiler/sql/ast.ts"
 import {
 	and,
-	asc,
 	cast,
 	col,
 	core,
@@ -226,17 +228,13 @@ export const seededAttachment = (
 		...decision.keys.map((k) => target(originOf(k))),
 		...states.map((c) => target(c.expr))
 	]
-	const orderBy: ReadonlyArray<OrderItem> =
-		attach.order === undefined
-			? []
-			: [
-					...decision.keys.map((k) => asc(originOf(k))),
-					...orderItemsOf(attach.order, child.heading, stateMap, {
-						leading: [],
-						total: orderIsTotal(facts, attach.child, attach.order, child.heading),
-						fixed: []
-					})
-				]
+	const order = attachmentOrder(
+		attach,
+		parentColumns,
+		attach.order !== undefined && orderIsTotal(facts, attach.child, attach.order, child.heading)
+	)
+	/** Each parent key column read as the origin column the decision delivers it from. */
+	const originMap: ColumnMap = new Map(decision.keys.map((k) => [k.parent.name, originOf(k)]))
 	const scanned = provedCore("keyed", targets, [cteRefAs(cte, scan)], undefined)
 	const recursion: With = {
 		recursive: true,
@@ -245,10 +243,12 @@ export const seededAttachment = (
 		]
 	}
 	return {
+		query: { ...select(scanned), with: recursion, orderBy: order(originMap, stateMap) },
+		rows: { ...select(scanned), with: recursion },
+		order,
 		keys: (demand) => ({
 			...select(distinctCore(headingTargets(demand, stateMap), [cteRefAs(cte, scan)], undefined)),
 			with: recursion
-		}),
-		query: { ...select(scanned), with: recursion, orderBy }
+		})
 	}
 }

@@ -8,7 +8,7 @@ import { Array as Arr, Effect, Formatter } from "effect"
 import { appendAll } from "#compiler/core/array.ts"
 import * as Result from "#compiler/core/result.ts"
 import { rooted } from "#compiler/ir/dag.ts"
-import { type ConservativeProgram, flight } from "#compiler/lower/conservative/types.ts"
+import { flight } from "#compiler/lower/conservative/types.ts"
 import {
 	formsBroken,
 	type GraphOptimizedFeature,
@@ -42,7 +42,8 @@ import {
 	oracleCheck,
 	printOutcome,
 	PropertyFailed,
-	runOracle
+	runOracle,
+	type SentProgram
 } from "#test/support/oracle/runner.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -128,7 +129,7 @@ const generalRequired: Situations<GraphFeature> = [
  */
 type CaseCheck = (agreed: {
 	readonly c: RecursiveCase
-	readonly program: ConservativeProgram
+	readonly program: SentProgram
 	readonly noted: ReadonlyArray<GraphOptimizedFeature>
 }) => ReadonlyArray<string>
 

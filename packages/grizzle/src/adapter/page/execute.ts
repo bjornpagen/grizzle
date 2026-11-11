@@ -6,7 +6,6 @@ import { type InputTooLarge, UnreadableAnswer } from "#adapter/errors/failures.t
 import type {
 	ComparisonTuple,
 	PageDelivery,
-	PageRecord,
 	PageRunStatement,
 	PageRuntime,
 	RowsStatement,
@@ -21,18 +20,19 @@ import {
 } from "#compiler/plan/runtime.ts"
 
 import {
-	answerOf,
 	type ExecutionInputs,
 	encodeForm,
 	formFor,
 	inputCount,
+	partRuns,
 	readBinding,
 	rowsOf,
 	runOf,
-	type SentRuns
+	type SentRuns,
+	type StatementRecord
 } from "#adapter/reader/execution.ts"
 import type { GroupOrder } from "#adapter/reader/run.ts"
-import type { BatchStatement, Flight } from "#adapter/wire/batch.ts"
+import { type BatchStatement, type Flight, sentAnswer } from "#adapter/wire/batch.ts"
 import type { AssembledRows, Cell, ParamText, Row } from "#compiler/plan/common.ts"
 import type { ScalarReader } from "#compiler/plan/decode.ts"
 import type {
@@ -52,20 +52,21 @@ import type { ServedChoice } from "#compiler/plan/serve.ts"
  *
  * The caller runs the flight (page.ts): a lone statement as itself, anything more in one read-only transaction, so the
  * rows, the attachments and the probe describe one snapshot. The flight is one round trip, and every statement in it
- * binds only the request: none reads another's rows. Each statement binds its parameters, chooses its per-execution
- * form and delivers its records as a read's does (reader/execution.ts), from what the page runtime template settled
- * once (template.ts).
+ * binds only the request: none reads another's rows. The request's statement binds its parameters, chooses its
+ * per-execution form and delivers its parts' records as a read's does (reader/execution.ts), from what the page
+ * runtime template settled once (template.ts).
  *
- * 1. The rows statement of the request variant, or one per heading group of a heterogeneous union. Each is
+ * 1. The rows part of the request variant, or one per heading group of a heterogeneous union. Each is
  *    take(k + 1) in the variant's fetch order after its seek: its limit placeholder takes the validated size plus one,
  *    and each boundary placeholder the anchor's canonical text at that comparator's position, byte for byte as the
  *    cursor carried it; every other placeholder is a declared parameter, encoded by the statement's own encoder, or a
  *    relation parameter in the transport its distinct fact count selected (reader/relations.ts). A statement with a
  *    per-execution form runs that form when one of its choices' inputs exceeds the choice's threshold: a relation
  *    parameter's distinct fact count, or, for an attachment's take over the delivered page, the requested size.
- * 2. Attachments, evaluated over the delivered page only: each statement computes the page's delivered rows again,
- *    the lookahead row dropped and a heading group's rows cut by the merge (lower/shapes/page/rows.ts), from the same
- *    placeholders, whose size placeholder takes the validated size. Children are stitched onto their parents by key,
+ * 2. Attachments, evaluated over the delivered page only: each part reads the page's delivered rows, which the
+ *    statement holds once, the lookahead row dropped and a heading group's rows cut by the merge
+ *    (lower/shapes/page/rows.ts), from the same placeholders, whose size placeholder takes the validated size.
+ *    Children are stitched onto their parents by key,
  *    in the attachment's delivered type, exactly as a read stitches them. The cursor, the flags and the order are the
  *    parent's alone.
  * 3. The opposite flag: an after or before request's probe (compile.ts requestFlags), one statement of one Boolean
@@ -101,8 +102,8 @@ export type PageCall =
 	  }
 
 interface DeliveredEdge {
-	/** The rows statement that delivered it, and its row's cells. */
-	readonly statement: PageRecord
+	/** The rows part that delivered it, and its row's cells. */
+	readonly statement: StatementRecord
 	readonly raw: ReadonlyArray<Cell>
 	/** The delivered Row: the row's cells with its attachments' child Rows, which the query's decoder reads. */
 	readonly row: Row
@@ -115,8 +116,8 @@ export interface PageRows {
 	readonly edges: ReadonlyArray<DeliveredEdge>
 	readonly hasPreviousPage: boolean
 	readonly hasNextPage: boolean
-	/** The rows of each attachment statement, by its record. */
-	readonly attachments: ReadonlyMap<PageRecord, AssembledRows>
+	/** The rows of each attachment part, by its record. */
+	readonly attachments: ReadonlyMap<StatementRecord, AssembledRows>
 	/** The probe that decided the opposite flag, none when none ran. */
 	readonly probe: Option.Option<ProbeKind>
 	/** How many statements were sent. */
@@ -248,7 +249,7 @@ const fetchOrder = (
 	for (const [group, rows] of delivery.groups.entries()) {
 		const candidates = candidatesOf(rows, group, sent)
 		if (candidates.length > limit) {
-			return Result.fail(contradicted(answerOf(rows.record.arrival)))
+			return Result.fail(contradicted(0))
 		}
 		for (const candidate of candidates) {
 			out.push(candidate)
@@ -288,7 +289,7 @@ export const pageEdges = (
 	Result.flatMap(fetchOrder(program.delivery, sent, size + 1), (candidates) => {
 		const stray = outOfOrder(candidates, program.fetch)
 		if (stray !== undefined) {
-			return Result.fail(contradicted(answerOf(stray.statement.record.arrival)))
+			return Result.fail(contradicted(0))
 		}
 		const delivery = program.delivery
 		/** The lookahead, dropped. */
@@ -392,15 +393,8 @@ const requestFlight = <V extends PageVariant>(
 	probe: Effect.Effect<Option.Option<SentProbe>, InputTooLarge>
 ): Effect.Effect<Flight<PageRows, UnreadableAnswer>, InputTooLarge> =>
 	Effect.gen(function* () {
-		/** 1, 2. Every statement of the request, the rows statements and their attachments. */
-		const batch: Array<BatchStatement> = []
-		for (const record of program.records) {
-			if (record.arrival.kind === "sent") {
-				const statement = yield* sending(record.run, inputs, size, bind)
-				batch.push(statement)
-			}
-		}
-		const sent = batch.length
+		/** 1, 2. The request's statement, its rows parts and their attachments'. */
+		const batch: Array<BatchStatement> = [yield* sending(program.run, inputs, size, bind)]
 		/** 3. An anchored request's opposite flag: its probe on the anchor. */
 		const probing = yield* probe
 		if (Option.isSome(probing)) {
@@ -411,8 +405,8 @@ const requestFlight = <V extends PageVariant>(
 			read: (outcomes) =>
 				Effect.fromResult(
 					Result.gen(function* () {
-						const runs: SentRuns = Arr.map(outcomes.slice(0, sent), (outcome) => outcome.rows)
-						const attachments = new Map<PageRecord, AssembledRows>()
+						const runs: SentRuns = partRuns(program.run.parts, sentAnswer(outcomes, 0).rows)
+						const attachments = new Map<StatementRecord, AssembledRows>()
 						for (const record of program.records) {
 							for (const { record: child } of record.plan.children) {
 								attachments.set(child, runOf(child, runs))
@@ -420,8 +414,8 @@ const requestFlight = <V extends PageVariant>(
 						}
 						let opposite = false
 						if (Option.isSome(probing)) {
-							for (const outcome of outcomes.slice(sent)) {
-								opposite = yield* probeAnswer(probing.value, outcome.rows, sent)
+							for (const outcome of outcomes.slice(1)) {
+								opposite = yield* probeAnswer(probing.value, outcome.rows, 1)
 							}
 						}
 						const page = yield* pageEdges(program, runs, size)

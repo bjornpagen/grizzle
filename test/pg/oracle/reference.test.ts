@@ -9,10 +9,7 @@ import { runOfTest } from "@grizzle/testing/vitest/run"
 import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import * as Result from "#compiler/core/result.ts"
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
-import {
-	type ConservativeProgram,
-	type ConservativeStatement
-} from "#compiler/lower/conservative/types.ts"
+import type { DeliveredPart } from "#compiler/lower/shapes/index.ts"
 /**
  * The reference side of the oracle discriminates, and failing cases shrink to printable form.
  *
@@ -22,7 +19,7 @@ import {
  * - the I1 mutant (a DISTINCT dropped from a projection that keeps no key) is told apart from the reference by the
  *   floor stream's generated cases, which the suite's label fixes, and the failure shrinks to the printed case and the
  *   repeated row;
- * - the reference derives the delivered statements from the IR, so a lowering that drops an attachment statement,
+ * - the reference derives the delivered statements from the IR, so a lowering that drops an attachment's part,
  *   delivers one under another name, or reports a narrowed column type is a structural difference, never a reference
  *   built to match it: a fault the conservative program of a generated case offers a target for is planted in it, or
  *   none, and the comparison must report exactly the differences the plant makes, read off the program's statement
@@ -58,7 +55,8 @@ import {
 	oracleKill,
 	printOracleCase,
 	reference,
-	runOracle
+	runOracle,
+	type SentProgram
 } from "#test/support/oracle/runner.ts"
 import { pickGen, pickIndex } from "#test/support/pick.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -86,19 +84,17 @@ const planted = "planted"
 
 /** The program with the attached tree labelled `target` replaced by `replace` of it: none drops it. */
 const editAttached = (
-	program: ConservativeProgram,
+	program: SentProgram,
 	target: string,
-	replace: (
-		tree: AttachedTree<ConservativeStatement>
-	) => ReadonlyArray<AttachedTree<ConservativeStatement>>
-): ConservativeProgram => {
+	replace: (tree: AttachedTree<DeliveredPart>) => ReadonlyArray<AttachedTree<DeliveredPart>>
+): SentProgram => {
 	const labels = Arr.map(labeledStatements(program.roots), (l) => l.label)
 	let at = 0
 	const attached = (
-		tree: AttachedTree<ConservativeStatement>
-	): ReadonlyArray<AttachedTree<ConservativeStatement>> => {
+		tree: AttachedTree<DeliveredPart>
+	): ReadonlyArray<AttachedTree<DeliveredPart>> => {
 		const label = Arr.getUnsafe(labels, at++)
-		const edited: AttachedTree<ConservativeStatement> = {
+		const edited: AttachedTree<DeliveredPart> = {
 			...tree,
 			attachments: Arr.flatMap(tree.attachments, attached)
 		}
@@ -106,7 +102,7 @@ const editAttached = (
 	}
 	return {
 		...program,
-		roots: Arr.map(program.roots, (tree): StatementTree<ConservativeStatement> => {
+		roots: Arr.map(program.roots, (tree): StatementTree<DeliveredPart> => {
 			at++
 			return { ...tree, attachments: Arr.flatMap(tree.attachments, attached) }
 		})
@@ -115,7 +111,7 @@ const editAttached = (
 
 /** A plant: the program the planted lowering delivers, and the structural differences the comparison must report. */
 interface Plant {
-	readonly program: ConservativeProgram
+	readonly program: SentProgram
 	readonly expected: ReadonlyArray<StructuralDifference>
 }
 
@@ -128,7 +124,7 @@ type Offered = readonly [PlantFeature, Plant]
  * target.
  */
 const plantIn = (
-	program: ConservativeProgram,
+	program: SentProgram,
 	fault: StructureFault,
 	pick: number
 ): Option.Option<Plant> => {
@@ -219,7 +215,7 @@ const plantIn = (
  * no difference, then each fault it offers a target for.
  */
 const plantsOf = (
-	program: ConservativeProgram,
+	program: SentProgram,
 	pick: number
 ): readonly [Offered, ...ReadonlyArray<Offered>] => [
 	["no fault", { program, expected: [] }],

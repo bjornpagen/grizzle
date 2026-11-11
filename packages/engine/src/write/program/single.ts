@@ -1,4 +1,4 @@
-import { appendAll, maxOf } from "#compiler/core/array.ts"
+import { appendAll } from "#compiler/core/array.ts"
 import {
 	appendNonEmpty,
 	concatNonEmpty,
@@ -8,28 +8,11 @@ import {
 	type NonEmptyReadonlyArray
 } from "#compiler/core/nonempty.ts"
 import type { WriteParamSlot } from "#compiler/lower/conservative/types.ts"
-import type {
-	ArraysSource,
-	Cte,
-	EmittedSql,
-	Expr,
-	Select,
-	SetCore,
-	ValuePlaceholder
-} from "#compiler/sql/ast.ts"
-import {
-	col,
-	cteRef,
-	lit,
-	provedCore,
-	select,
-	target,
-	types,
-	unionAll
-} from "#compiler/sql/build.ts"
+import { shiftedPart, taggedParts } from "#compiler/lower/parts.ts"
+import type { Cte, EmittedSql, Select } from "#compiler/sql/ast.ts"
+import { select } from "#compiler/sql/build.ts"
 import { emitText } from "#compiler/sql/emit.ts"
 import { type NameMap, NameSupply, type NameSupplyStart, namesPast } from "#compiler/sql/naming.ts"
-import { identityHooks, transformSelect } from "#compiler/sql/transform.ts"
 import {
 	type DeleteResult,
 	type InsertResult,
@@ -61,7 +44,7 @@ export interface WritePart {
  * A sent statement of a read-back riding a single statement, a part of it: its executable query, whose WITH, recursive
  * or not, stays its own inside the part, its placeholders, every one a declared parameter's, the generated names it
  * defines, all past every name the statement's writes and deltas define, and the width of its rows, a numbered part's
- * row number among them (write/program/artifact.ts RidingPart).
+ * row number among them (lower/parts.ts TaggedPart).
  */
 export interface ReadBackPart {
 	readonly query: Select
@@ -110,43 +93,6 @@ export const freshNames = (
 	return { relation, columns, nameMap: supply.map(), next: namesPast(supply.map(), ownStatement) }
 }
 
-/** `slot` numbered `offset` later. */
-const moved = <P extends ValuePlaceholder>(slot: P, offset: number): P =>
-	offset === 0 ? slot : { ...slot, number: slot.number + offset }
-
-/** A relation input's arrays with each placeholder numbered `offset` later. */
-const movedArrays = (source: ArraysSource, offset: number): ArraysSource =>
-	source.kind === "count"
-		? { kind: "count", count: moved(source.count, offset) }
-		: {
-				kind: "columns",
-				columns: mapNonEmpty(source.columns, (c) => ({ ...c, array: moved(c.array, offset) })),
-				ordinal: source.ordinal
-			}
-
-/**
- * A part's query and slots with each placeholder $n renumbered $n + offset: a part's placeholders number from $1, and
- * the statement's continue past the earlier parts'.
- */
-const shifted = (
-	query: Select,
-	params: ReadonlyArray<WriteParamSlot>,
-	offset: number
-): { readonly query: Select; readonly params: ReadonlyArray<WriteParamSlot> } =>
-	offset === 0
-		? { query, params }
-		: {
-				query: transformSelect(query, {
-					...identityHooks,
-					replaceSource: (item) =>
-						item.kind === "arrays"
-							? { ...item, source: movedArrays(item.source, offset) }
-							: undefined,
-					expr: (e) => (e.kind === "param" ? { ...e, slot: moved(e.slot, offset) } : e)
-				}),
-				params: params.map((slot) => moved(slot, offset))
-			}
-
 /** The single statement of the shared sub-queries `shares` and the write parts `writes`, whose generated names start at
  * `start`, past every part's: a stratum's write actions as one statement, the single-statement realization.
  * Where one snapshot suffices, the stratum's statements are writes of distinct relations whose members all read the
@@ -176,7 +122,7 @@ const shifted = (
  * after the writes' parts, and each of its sent statements is a part after them, its own query whole as one CTE, its
  * rows behind its tag after the writes' tags, padded as theirs are; the runtime reads them as that read-back's
  * statements' rows. No arm orders its rows: an ordered part's rows carry their row number in the part's order, which
- * the runtime reads them back in (write/program/artifact.ts RidingPart). */
+ * the runtime reads them back in (lower/parts.ts TaggedPart). */
 export const singleStatement = (
 	shares: ReadonlyArray<SharedPart>,
 	writes: NonEmptyReadonlyArray<WritePart>,
@@ -188,7 +134,7 @@ export const singleStatement = (
 	const nameMap: Array<NameMap[number]> = []
 	let next = start
 	for (const part of shares) {
-		const shift = shifted(part.query, part.params, params.length)
+		const shift = shiftedPart(part.query, part.params, params.length)
 		shareCtes.push({
 			name: part.name,
 			columns: part.columns,
@@ -201,7 +147,7 @@ export const singleStatement = (
 	const outs = mapNonEmpty(writes, (part) => {
 		const statement = part.statement
 		/** The statement's WITH, renumbered as its body is: transformSelect keeps a WITH it is given. */
-		const { query: body, params: partParams } = shifted(
+		const { query: body, params: partParams } = shiftedPart(
 			statement.ast,
 			statement.params,
 			params.length
@@ -225,7 +171,7 @@ export const singleStatement = (
 	})
 	appendAll(nameMap, riding.nameMap)
 	const ridden = riding.parts.map((part) => {
-		const shift = shifted(part.query, part.params, params.length)
+		const shift = shiftedPart(part.query, part.params, params.length)
 		appendAll(params, shift.params)
 		appendAll(nameMap, part.nameMap)
 		return { query: shift.query, width: part.width }
@@ -251,26 +197,7 @@ export const singleStatement = (
 			[...riding.deltas, ...rides.flatMap((r) => r.ctes)]
 		)
 	)
-	const parts = extendNonEmpty(outs, rides)
-	const width = maxOf(
-		parts.map((o) => o.columns.length),
-		0
-	)
-	const arms = mapNonEmpty(parts, (o, tag): SetCore => {
-		const padding: ReadonlyArray<Expr> = Array.from({ length: width - o.columns.length }, () =>
-			lit.text("", types.text)
-		)
-		return provedCore(
-			"keyed",
-			[
-				target(lit.int(tag, types.integer)),
-				...o.columns.map((c) => target(col(o.name, c))),
-				...padding.map((p) => target(p))
-			],
-			[cteRef(o.name)],
-			undefined
-		)
-	})
-	const ast: Select = { ...select(unionAll("disjoint", arms)), with: { recursive: false, ctes } }
+	const { body, width } = taggedParts(extendNonEmpty(outs, rides), 0)
+	const ast: Select = { ...select(body), with: { recursive: false, ctes } }
 	return { ast, sql: emitText(ast, nameMap), params, width }
 }

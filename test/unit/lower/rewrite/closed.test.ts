@@ -6,14 +6,13 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import type { ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
 import { conservativeMeta, type Heading, type RelNode } from "#compiler/ir/rel.ts"
-import { flight } from "#compiler/lower/conservative/types.ts"
 import { closedPass } from "#compiler/lower/optimize/closed/index.ts"
 import { simplifyPass } from "#compiler/lower/optimize/simplify/index.ts"
 import { closedId, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
-import { compileTemplate, testCompile } from "#test/support/compile.ts"
+import { compileTemplate, programAsts, testCompile } from "#test/support/compile.ts"
 import { has, shapeOf } from "#test/support/kernel/shape.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { Q, T, Task } from "#test/unit/lower/conservative/fixtures.ts"
@@ -282,9 +281,7 @@ describe("R07 over closed constants", () => {
 							)
 							c.note(featureOf(o))
 							assert.equal(rewritten, specified(o), Formatter.format(o))
-							const shapes = Arr.map(flight(template.programs.optimized.roots), (s) =>
-								shapeOf(s.ast)
-							)
+							const shapes = Arr.map(programAsts(template.programs.optimized), shapeOf)
 							assert.equal(
 								Arr.some(shapes, (shape) => has(shape, "from values")),
 								!rewritten,

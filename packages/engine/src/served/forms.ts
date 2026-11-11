@@ -34,10 +34,9 @@ import type { ServedWrite } from "#compiler/runtime/write/flight.ts"
 import type { ArrayMember } from "#compiler/runtime/write/members.ts"
 import type { ServedMatchers } from "#compiler/scalar/regex/matcher.ts"
 import type {
+	ServedProgram,
 	ServedReadBack,
-	ServedRoots,
 	ServedSource,
-	ServedSpecified,
 	ServedSpine
 } from "#compiler/served/read.ts"
 import type { EmittedText, ObjectName } from "#compiler/sql/ast.ts"
@@ -217,26 +216,28 @@ export interface ServedRead {
 	readonly getEligible: boolean
 }
 
-/** A page statement: a page placeholder is the page's own, a choice a relation parameter's count or the page's size. */
-export type ServedPageStatement<F extends PageFill = PageFill> = ServedSpecified<
+/**
+ * A page's program: a page placeholder is the page's own, a choice a relation parameter's count or the page's size.
+ */
+export type ServedPageProgram<F extends PageFill = PageFill> = ServedProgram<
 	PageStatementSlot<F>,
 	ChoiceInput
 >
 
 /**
- * One request variant of a page (lower/shapes/page/compile.ts PageRequestProgram): its statements, with how it fetches,
+ * One request variant of a page (lower/shapes/page/compile.ts PageRequestProgram): its program, with how it fetches,
  * the flag its lookahead row proves, an anchored variant's probe, and how it delivers its rows.
  */
 export type ServedPageRequest<V extends PageVariant = PageVariant> = {
-	readonly [P in V]: Omit<PageRequestProgram<P>, "roots"> & {
-		readonly roots: ServedRoots<ServedPageStatement<VariantFill[P]>>
+	readonly [P in V]: Omit<PageRequestProgram<P>, "program"> & {
+		readonly program: ServedPageProgram<VariantFill[P]>
 	}
 }[V]
 
-/** One probe of a page: its one statement, delivering one row of its one Boolean column. */
+/** One probe of a page: its program of one part, delivering one row of its one Boolean column. */
 export interface ServedPageProbe<K extends ProbeKind> {
 	readonly kind: K
-	readonly statement: ServedPageStatement
+	readonly program: ServedPageProgram
 	readonly column: HeadingColumn
 }
 

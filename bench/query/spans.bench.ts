@@ -30,7 +30,7 @@ import {
 	installFixture,
 	type MeasureOptions,
 	measureQuery,
-	optimizedStatement,
+	optimizedAst,
 	plainExplain,
 	queryPhases,
 	rawSession,
@@ -301,7 +301,7 @@ export default defineGate({
 					mechanism(
 						"the generated lookup is span @> t in the GiST index condition",
 						gistProbe(lookupPlan) &&
-							has(shapeOf(optimizedStatement(lookup, 0).ast), "predicate @> column column"),
+							has(shapeOf(optimizedAst(lookup)), "predicate @> column column"),
 						outline(lookupPlan, 0)
 					),
 					mechanism(
@@ -312,7 +312,7 @@ export default defineGate({
 					mechanism(
 						"a lookup per joined fact keeps the GiST form",
 						gistProbe(joinedPlan) &&
-							has(shapeOf(optimizedStatement(joined, 0).ast), "predicate @> column column"),
+							has(shapeOf(optimizedAst(joined)), "predicate @> column column"),
 						outline(joinedPlan, 0)
 					),
 					agrees("the lookup agrees with the conservative lowering", lookupM),

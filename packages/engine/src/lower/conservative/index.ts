@@ -2,7 +2,7 @@ import { catchRefusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type * as Result from "#compiler/core/result.ts"
 import { LowerContext } from "#compiler/lower/conservative/context.ts"
-import { Delivery } from "#compiler/lower/conservative/deliver.ts"
+import { ConservativeDelivery } from "#compiler/lower/conservative/deliver.ts"
 import { dispatchNode } from "#compiler/lower/conservative/dispatch.ts"
 import type {
 	ConservativeInput,
@@ -43,5 +43,5 @@ export const lowerConservative = (
 ): Result.Result<ConservativeProgram, CompileError> =>
 	catchRefusal(() => {
 		const cx = new LowerContext(input.dag, options, dispatchNode)
-		return new Delivery(cx).program(input.root)
+		return new ConservativeDelivery(cx).program(input.root)
 	})

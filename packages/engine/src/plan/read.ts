@@ -43,8 +43,9 @@ export {
 	type RelationColumn
 } from "#compiler/lower/conservative/types.ts"
 export { type FusedAttachment, fusedTexts, type FusedTexts } from "#compiler/runtime/lower/fused.ts"
+export type { PartDivision, TaggedPart } from "#compiler/lower/parts.ts"
 export type {
-	Arrival,
+	DeliveredPart,
 	FusedStatement,
 	RelationChoice,
 	ShapeChoice
@@ -55,7 +56,6 @@ export {
 	type PageProbeProgram,
 	type PageProgram,
 	type PageRequestProgram,
-	type PageStatement,
 	type PageTemplate,
 	statedOrderOf
 } from "#compiler/lower/shapes/page/compile.ts"

@@ -9,7 +9,6 @@ import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { identity } from "#compiler/core/identity.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
-import { flight } from "#compiler/lower/conservative/types.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import type {
@@ -22,7 +21,7 @@ import type {
 } from "#compiler/sql/ast.ts"
 import { identityHooks, transformExpr, transformStatement } from "#compiler/sql/transform.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
-import { compileTemplate, testCompile } from "#test/support/compile.ts"
+import { compileTemplate, programAsts, testCompile } from "#test/support/compile.ts"
 import { decodedQuery, type MatchDesc, type VarDesc } from "#test/support/fixtures/ir/desc.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { featureCount, shapeOf } from "#test/support/kernel/shape.ts"
@@ -233,14 +232,14 @@ describe("a region past the collapse limit is an explicit JOIN chain", () => {
 									installation: identity.schema(parsedSchemaName("plan"))
 								})
 							)
-							const [statement] = flight(compiled.programs.optimized.roots)
-							assert.equal(featureCount(shapeOf(statement.ast), "cross join"), 0)
-							assert.equal(featureCount(shapeOf(statement.ast), "join"), path.edges - 1)
+							const [statement] = programAsts(compiled.programs.optimized)
+							assert.equal(featureCount(shapeOf(statement), "cross join"), 0)
+							assert.equal(featureCount(shapeOf(statement), "join"), path.edges - 1)
 							const found = Option.getOrThrowWith(
-								chainOf(statement.ast),
+								chainOf(statement),
 								() => new Error("a core reads the chain")
 							)
-							transformStatement(statement.ast, {
+							transformStatement(statement, {
 								...identityHooks,
 								joins: (chain) => {
 									const left = new Set([aliasOf(chain.first)])

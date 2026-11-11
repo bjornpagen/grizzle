@@ -29,8 +29,9 @@ import {
 	Scope,
 	String as Str
 } from "effect"
-import { resultTextCasts } from "#compiler/codec/scalar.ts"
-import { canonicalTag } from "#compiler/core/canonical.ts"
+import { partRuns } from "#adapter/reader/execution.ts"
+import { assembled, cellKindOf, deliveryOf } from "#compiler/codec/delivery.ts"
+import { canonicalTag, catchRefusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
 import * as Engine from "#compiler/core/result.ts"
@@ -45,10 +46,16 @@ import {
 	conservativeInput,
 	type ConservativeParamSlot,
 	type ConservativeProgram,
-	type ConservativeStatement,
 	flight
 } from "#compiler/lower/conservative/types.ts"
-import { statementOutput } from "#compiler/runtime/lower/tree.ts"
+import type { PartDivision } from "#compiler/lower/parts.ts"
+import {
+	conservativeStatement,
+	type DeliveredPart,
+	type SentStatement,
+	type StatementParts
+} from "#compiler/lower/shapes/index.ts"
+import { statementOutput, type StatementRoots } from "#compiler/runtime/lower/tree.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import { hexOfText, setText } from "#test/support/closed/bit-text.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
@@ -59,9 +66,10 @@ import {
 	compareRuns,
 	printComparison,
 	printRun,
+	type Labeled,
+	labeledStatements,
 	type Run,
-	type StatementRows,
-	statementLabels
+	type StatementRows
 } from "#test/support/oracle/compare.ts"
 import type { QueryCase } from "#test/support/oracle/gen/case.ts"
 import { type SpelledValue, typedLiteralDesc } from "#test/support/oracle/gen/domain.ts"
@@ -79,7 +87,12 @@ import {
 	type StoredRelation
 } from "#test/support/oracle/gen/restorage.ts"
 import { type GenSchema, schemaCodes, schemaDesc } from "#test/support/oracle/gen/schema.ts"
-import { captureRows } from "#test/support/oracle/install/capture.ts"
+import {
+	captureTexts,
+	RawCaptureError,
+	type RawRow,
+	type QueryRunner
+} from "#test/support/oracle/install/capture.ts"
 import { InputSpelling, moneyText } from "#test/support/oracle/install/literal.ts"
 import { type FactSet, factStatements } from "#test/support/oracle/install/load.ts"
 import type { InstallPlan } from "#test/support/oracle/install/model.ts"
@@ -108,6 +121,7 @@ import { checkedStatements } from "#test/support/oracle/verify/index.ts"
 import type { PgConnection, PipelineRefused, SqlError } from "#test/support/pg.ts"
 import { pgErrorFields } from "#test/support/substrate/errors.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { outputRows } from "#test/support/wire.ts"
 
 /** A hand-built case with the name its suite reports it by (runLabelledOracle). */
 export interface LabelledCase extends QueryCase {
@@ -125,10 +139,20 @@ export interface LoweringInput {
 	readonly names: PhysicalNames
 }
 
+/**
+ * A lowered program as the oracles send it: its one statement, how its rows divide into parts, and its parts' delivered
+ * relations in their tree (shapes/index.ts PartedStatement).
+ */
+export interface SentProgram {
+	readonly statement: SentStatement<ConservativeParamSlot>
+	readonly parts: StatementParts<ConservativeParamSlot>
+	readonly roots: StatementRoots<DeliveredPart>
+}
+
 /** A way to lower a case's query: the conservative lowering, an optimized one, or a mutant of the conservative. */
 export interface Lowering {
 	readonly name: string
-	readonly lower: (input: LoweringInput) => Engine.Result<ConservativeProgram, CompileError>
+	readonly lower: (input: LoweringInput) => Engine.Result<SentProgram, CompileError>
 }
 
 /** The right side of a comparison: another Lowering, or the reference evaluator. */
@@ -144,26 +168,47 @@ export const reference: ReferenceSide = { name: "reference", reference: true }
 const isReference = (side: RunnerSide): side is ReferenceSide => "reference" in side
 
 /**
- * The oracle baseline: deduplication at every set boundary, no certificate. Every statement it emits passes the
- * kernel's structural audit (oracle/verify checkedStatements).
+ * The oracle baseline's program: deduplication at every set boundary, no certificate, a statement per delivered
+ * relation. Every statement it emits passes the kernel's structural audit (oracle/verify checkedStatements).
  */
+export const conservativeProgram = ({
+	case: c,
+	names
+}: LoweringInput): Engine.Result<ConservativeProgram, CompileError> =>
+	Engine.map(
+		lowerConservative(conservativeInput(c.query), {
+			names,
+			params: genParamDecls(c.query),
+			subject: { kind: "query" }
+		}),
+		(program) => {
+			checkedStatements(
+				Arr.map(flight(program.roots), (s) => s.ast),
+				"conservative statement"
+			)
+			return program
+		}
+	)
+
+/**
+ * A conservative program as the oracles send it: its statements the parts of one (shapes/index.ts
+ * conservativeStatement), which passes the structural audit too.
+ */
+export const sentConservative = (
+	program: ConservativeProgram
+): Engine.Result<SentProgram, CompileError> =>
+	Engine.map(
+		catchRefusal(() => conservativeStatement(program)),
+		(sent) => {
+			checkedStatements([sent.statement.ast], "conservative program statement")
+			return sent
+		}
+	)
+
+/** The oracle baseline (conservativeProgram), sent as one statement (sentConservative). */
 export const conservative: Lowering = {
 	name: "conservative",
-	lower: ({ case: c, names }) =>
-		Engine.map(
-			lowerConservative(conservativeInput(c.query), {
-				names,
-				params: genParamDecls(c.query),
-				subject: { kind: "query" }
-			}),
-			(program) => {
-				checkedStatements(
-					Arr.map(flight(program.roots), (s) => s.ast),
-					"conservative statement"
-				)
-				return program
-			}
-		)
+	lower: (input) => Engine.flatMap(conservativeProgram(input), sentConservative)
 }
 
 /** A failure of the harness to run a case: planning, lowering, executing or rendering the reference. */
@@ -208,7 +253,7 @@ class InvarianceFailed extends Data.TaggedError("InvarianceFailed")<{
 interface LoweredRun {
 	readonly kind: "lowered"
 	readonly run: Run
-	readonly program: ConservativeProgram
+	readonly program: SentProgram
 }
 
 /**
@@ -563,7 +608,7 @@ export const sqlMessage = (error: unknown): string => {
 /** The text of each placeholder of a statement. */
 const paramValues = (
 	c: QueryCase,
-	statement: ConservativeStatement,
+	statement: { readonly params: ReadonlyArray<ConservativeParamSlot> },
 	side: string
 ): Result.Result<ReadonlyArray<string>, OracleFailure> => {
 	const out: Array<string> = []
@@ -623,35 +668,86 @@ export const slotValue = (c: QueryCase, slot: ConservativeParamSlot): string | u
 	}
 }
 
-/** Runs every statement of a program in order on `session`. */
+/**
+ * A part's run as the runtime assembles it (codec/delivery.ts assembled), by the delivery its output's cells take: each
+ * text cell as sent, and a bytes value as its hex text, the text PostgreSQL's output function writes for it.
+ */
+const partTexts = (part: DeliveredPart, run: ReadonlyArray<RawRow>): ReadonlyArray<RawRow> => {
+	const output = statementOutput(part.role, part.heading, part.fused)
+	const delivery = deliveryOf([
+		...Arr.map(output.heading, (c) => cellKindOf(c.type)),
+		...Arr.map(output.fused, () => "text" as const)
+	])
+	return Arr.map(assembled(delivery, outputRows(run)), (row) =>
+		Arr.map(row, (cell) => (typeof cell === "string" ? cell : `\\x${cell.toHex()}`))
+	)
+}
+
+/**
+ * Each delivered relation of `program`, labeled, and its rows as one execution of the statement of text `text` the
+ * program sends delivers them, its placeholders `params`: every cell its text as sent (captureTexts), the rows divided
+ * into its parts' runs as the runtime divides them (adapter/reader/execution.ts partRuns), and each relation's its
+ * part's run assembled (partTexts), a relation another's part feeds reading that part's run.
+ */
+export const sentRows = (
+	session: QueryRunner,
+	program: { readonly parts: PartDivision; readonly roots: StatementRoots<DeliveredPart> },
+	text: string,
+	params: ReadonlyArray<string>
+): Effect.Effect<
+	ReadonlyArray<{ readonly labeled: Labeled<DeliveredPart>; readonly rows: ReadonlyArray<RawRow> }>,
+	SqlError | RawCaptureError
+> =>
+	Effect.flatMap(captureTexts(session, text, params), (rows) => {
+		const runs = partRuns(program.parts, outputRows(rows))
+		const out: Array<{
+			readonly labeled: Labeled<DeliveredPart>
+			readonly rows: ReadonlyArray<RawRow>
+		}> = []
+		for (const labeled of labeledStatements(program.roots)) {
+			const run = runs[labeled.statement.answer]
+			if (run === undefined) {
+				return Effect.fail(
+					new RawCaptureError({
+						reason: `${labeled.label}: no part answers ${labeled.statement.answer}`,
+						at: { kind: "result" }
+					})
+				)
+			}
+			out.push({ labeled, rows: partTexts(labeled.statement, run) })
+		}
+		return Effect.succeed(out)
+	})
+
+/**
+ * Runs a program's statement on `session`: each delivered relation's rows (sentRows) under its label, its heading's
+ * columns. A fused attachment fails the run: the runner compares only a relation's own columns.
+ */
 export const runProgram = (
 	session: PgConnection,
 	c: QueryCase,
-	program: ConservativeProgram,
+	program: SentProgram,
 	name: string
 ): Effect.Effect<Run, OracleFailure> =>
 	Effect.gen(function* () {
-		const labels = statementLabels(program)
+		const text = program.statement.sql.text
+		const params = yield* Effect.fromResult(paramValues(c, program.statement, name))
+		const parts = yield* sentRows(session, program, text, params).pipe(
+			Effect.mapError((e) => failure("execute", name, `${sqlMessage(e)}\n${text}`))
+		)
 		const statements: Array<StatementRows> = []
-		for (const [i, statement] of flight(program.roots).entries()) {
-			const params = yield* Effect.fromResult(paramValues(c, statement, name))
-			const heading = statementOutput(statement.role, statement.heading, []).heading
-			const rows = yield* captureRows(
-				session,
-				statement.sql.text,
-				params,
-				Arr.map(heading, (h) => resultTextCasts(h.type))
-			).pipe(
-				Effect.mapError((e) =>
-					failure(
-						"execute",
-						name,
-						`statement ${labels[i]}: ${sqlMessage(e)}\n${statement.sql.text}`
-					)
+		for (const { labeled, rows } of parts) {
+			const part = labeled.statement
+			if (part.fused.length > 0) {
+				return yield* failure(
+					"execute",
+					name,
+					`${labeled.label}: a fused attachment, whose rows the runner compares none of`
 				)
-			)
+			}
+			const heading = statementOutput(part.role, part.heading, []).heading
 			statements.push({
-				label: elementAt(labels, i, "the statement labels"),
+				label: labeled.label,
 				columns: Arr.map(heading, (h) => h.name),
 				codes: schemaCodes(c.schema),
 				unstated: { kind: "none" },
@@ -666,7 +762,7 @@ const lowerSide = (
 	lowering: Lowering,
 	c: QueryCase,
 	names: PhysicalNames
-): Effect.Effect<ConservativeProgram, OracleFailure> =>
+): Effect.Effect<SentProgram, OracleFailure> =>
 	Effect.try({
 		try: () => lowering.lower({ case: c, names }),
 		catch: (e) => failure("lower", lowering.name, messageOf(e))
@@ -912,7 +1008,7 @@ const runNamed = (
 					const lowered: ReadonlyArray<{
 						readonly role: SideRole
 						readonly name: string
-						readonly program: ConservativeProgram
+						readonly program: SentProgram
 						readonly first: Run
 					}> = [
 						{ role: "left", name: left.name, program: leftProgram, first: leftRun },
@@ -995,10 +1091,7 @@ export const printOutcome = (o: OracleOutcome): string =>
 			printRun(o.left.run),
 			printRun(o.right.run),
 			...(o.right.kind === "lowered"
-				? Arr.map(
-						flight(o.right.program.roots),
-						(s, i) => `${o.right.run.name} statement ${i}:\n${s.sql.text}`
-					)
+				? [`${o.right.run.name} statement:\n${o.right.program.statement.sql.text}`]
 				: [])
 		],
 		"\n"

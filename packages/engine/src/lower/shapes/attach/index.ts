@@ -271,12 +271,36 @@ export interface DeliveredRows<I extends ChoiceInput> extends ParentRows {
 	readonly bound: RowsBound<I>
 }
 
+/**
+ * An attachment's rows as its part delivers them, the parent key columns then the child's (deliveredHeading): its
+ * query in its order; the same rows unordered, which a part with attachments of its own holds once; that order over
+ * rows of those columns, the parent key's read through `parent` and the child's through `child`; and the key sets of
+ * its rows, for a part under it that computes them again (ParentRows keys).
+ */
 export interface PipelinedAttachment {
-	/** The statement's rows' key sets, for a later statement that computes them again (ParentRows keys). */
-	readonly keys: (demand: Heading) => Select
-	/** The statement as it delivers them, in its order: the parent key columns, then the child's (deliveredHeading). */
 	readonly query: Select
+	readonly rows: Select
+	readonly order: (parent: ColumnMap, child: ColumnMap) => ReadonlyArray<OrderItem>
+	readonly keys: (demand: Heading) => Select
 }
+
+/**
+ * An attachment's delivery order over rows of its columns: each parent key column ascending, then the child's order,
+ * completed by the child's heading unless `total` (take/order.ts); none for an unordered attachment.
+ */
+export const attachmentOrder =
+	(attach: NodeOf<"Attach">, parentColumns: Heading, total: boolean) =>
+	(parent: ColumnMap, child: ColumnMap): ReadonlyArray<OrderItem> =>
+		attach.order === undefined
+			? []
+			: [
+					...parentColumns.map((c) => asc(columnIn(parent, c.name))),
+					...orderItemsOf(attach.order, attach.child.heading, child, {
+						leading: [],
+						total,
+						fixed: []
+					})
+				]
 
 /** The child as a fold by every column the Attach correlates, a Group whose keys hold them; none for any other. */
 const foldedByCorrelation = (
@@ -343,17 +367,13 @@ export const pipelinedAttachment = (
 			? correlationEqualities(cx, attach, child.heading, source.map, parentMap)
 			: []
 	const distinct = !facts.childUniquePerParent(attach)
-	const orderBy: ReadonlyArray<OrderItem> =
-		attach.order === undefined
-			? []
-			: [
-					...keys.map((k) => asc(k.expr)),
-					...orderItemsOf(attach.order, child.heading, source.map, {
-						leading: [],
-						total: !distinct && orderIsTotal(facts, attach.child, attach.order, child.heading),
-						fixed: []
-					})
-				]
+	const order = attachmentOrder(
+		attach,
+		parentColumns,
+		!distinct &&
+			attach.order !== undefined &&
+			orderIsTotal(facts, attach.child, attach.order, child.heading)
+	)
 	const from = [parent.item, source.item]
 	const body = distinctCoreWhen(
 		distinct,
@@ -365,8 +385,10 @@ export const pipelinedAttachment = (
 		conjunction(where)
 	)
 	return {
+		query: { ...select(body), orderBy: order(parentMap, source.map) },
+		rows: select(body),
+		order,
 		keys: (demand) =>
-			select(distinctCore(headingTargets(demand, source.map), from, conjunction(where))),
-		query: { ...select(body), orderBy }
+			select(distinctCore(headingTargets(demand, source.map), from, conjunction(where)))
 	}
 }

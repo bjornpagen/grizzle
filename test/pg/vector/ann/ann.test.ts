@@ -9,7 +9,6 @@ import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec } from "e
 import { groupingSteps, planIndexNames, planNodeTypes } from "#bench/harness/explain.ts"
 import { subtree } from "#compiler/check/approximate/trace.ts"
 import type { RelDag } from "#compiler/ir/rel.ts"
-import { flight } from "#compiler/lower/conservative/types.ts"
 import { searchPolicySettings } from "#compiler/physical/ddl/roles.ts"
 import {
 	accountA,
@@ -35,7 +34,7 @@ import {
 	vectorText
 } from "#test/pg/vector/ann/support.ts"
 import { assert, contains, defined, nonEmpty } from "#test/support/assert.ts"
-import { paramTexts, scalarsOnly } from "#test/support/compile.ts"
+import { paramTexts, programAsts, scalarsOnly } from "#test/support/compile.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { has, shapeOf } from "#test/support/kernel/shape.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -387,7 +386,7 @@ layer(Substrate.layer)("approximateNearest on PostgreSQL 19", (it) => {
 
 					/** The unfiltered search over the stored relation's key: ORDER BY <=> LIMIT straight off the index. */
 					const direct = compile(unfiltered, fx.installed, "query")
-					assert.equal(has(shapeOf(flight(direct.program.roots)[0].ast), "distinct"), false)
+					assert.equal(has(shapeOf(programAsts(direct.program)[0]), "distinct"), false)
 					const directPlan = yield* plan(session, direct, { vector })
 					assert.deepEqual(groupingSteps(directPlan.nodes), [], Formatter.format(directPlan))
 					assert.equal(hnsw(directPlan.indexes), true, Formatter.format(directPlan))
@@ -400,7 +399,7 @@ layer(Substrate.layer)("approximateNearest on PostgreSQL 19", (it) => {
 						Arr.map(keyed.program.certificates, (x) => x.rule),
 						"approximateNearest.indexed"
 					)
-					assert.equal(has(shapeOf(flight(keyed.program.roots)[0].ast), "distinct"), false)
+					assert.equal(has(shapeOf(programAsts(keyed.program)[0]), "distinct"), false)
 					const keyedPlan = yield* plan(session, keyed, { account: accountA, vector })
 					assert.deepEqual(groupingSteps(keyedPlan.nodes), [], Formatter.format(keyedPlan))
 					assert.equal(hnsw(keyedPlan.indexes), true, Formatter.format(keyedPlan))
@@ -411,7 +410,7 @@ layer(Substrate.layer)("approximateNearest on PostgreSQL 19", (it) => {
 						Arr.map(fanout.program.certificates, (x) => x.rule),
 						"approximateNearest.deduplicated"
 					)
-					assert.ok(has(shapeOf(flight(fanout.program.roots)[0].ast), "distinct"))
+					assert.ok(has(shapeOf(programAsts(fanout.program)[0]), "distinct"))
 					const fanoutPlan = yield* plan(session, fanout, { account: accountA, vector })
 					assert.notDeepEqual(groupingSteps(fanoutPlan.nodes), [], Formatter.format(fanoutPlan))
 					assert.equal(hnsw(fanoutPlan.indexes), true, Formatter.format(fanoutPlan))
@@ -758,7 +757,7 @@ layer(Substrate.layer)("approximateNearest on PostgreSQL 19", (it) => {
 				const t = compile(titles, fx.installed, "query")
 				/** A search two rules read is one MATERIALIZED CTE, one evaluation per execution. */
 				const twice = compile(shared, fx.installed, "query")
-				assert.ok(has(shapeOf(flight(twice.program.roots)[0].ast), "cte materialized"))
+				assert.ok(has(shapeOf(programAsts(twice.program)[0]), "cte materialized"))
 				const tagged = new Set(
 					Arr.map(
 						Arr.filter(fx.facts, (d) => d.tags.includes("gamma")),

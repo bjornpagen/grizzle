@@ -15,7 +15,7 @@ import type { ReadError } from "#adapter/errors/execution.ts"
 import { pageEdges } from "#adapter/page/execute.ts"
 import { type PageRequestValue, pageRequest } from "#adapter/page/request.ts"
 import type { PageRuntime } from "#adapter/page/template.ts"
-import type { SentRuns } from "#adapter/reader/execution.ts"
+import { partRuns, type SentRuns, type StatementRecord } from "#adapter/reader/execution.ts"
 import { poolExecutor, type ReadExecutor } from "#adapter/reader/executor.ts"
 import { deliveredRows, type ReadProgram } from "#adapter/reader/run.ts"
 import type { LoadedMember } from "#adapter/served/load.ts"
@@ -29,13 +29,13 @@ import { trustedJson } from "#compiler/core/trusted.ts"
 import type { Cell } from "#compiler/core/wire.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
-import type { ChoiceInput } from "#compiler/lower/shapes/take/index.ts"
+import type { PartDivision } from "#compiler/lower/parts.ts"
 import type { ParamMap } from "#compiler/plan/common.ts"
 import { type FusedLayout, fusedElement } from "#compiler/runtime/lower/fused.ts"
 import { statementOutput } from "#compiler/runtime/lower/tree.ts"
 import type { Bytes } from "#compiler/scalar/values/bytes.ts"
 import { isHostValue } from "#compiler/scalar/values/identity.ts"
-import type { ServedRunStatement } from "#compiler/served/read.ts"
+import type { ServedPart } from "#compiler/served/read.ts"
 import type { Page } from "#compiler/types/page/page.ts"
 import { type Conversion, freshCodesOf } from "#test/pg/oracle/public/planted.ts"
 import {
@@ -153,9 +153,8 @@ interface Checked {
 	readonly layout: Layout
 }
 
-const ownFrom = (
-	statement: Pick<ServedRunStatement<unknown, ChoiceInput>, "role" | "heading" | "fused">
-): number => statementOutput(statement.role, statement.heading, statement.fused).own(0)
+const ownFrom = (part: Pick<ServedPart, "role" | "heading" | "fused">): number =>
+	statementOutput(part.role, part.heading, part.fused).own(0)
 
 interface LaidOut {
 	readonly heading: Heading
@@ -355,7 +354,43 @@ const checkRecords = (
 	}
 }
 
-type SentChecked = Checked & { readonly sent: boolean }
+/**
+ * A program's delivered parts as the cells check reads them, in flight order: each with the position of its rows among
+ * the runs of the program's answer.
+ */
+type PartChecked = Checked & { readonly answer: number }
+
+/** The checks of a program's records (adapter/reader/execution.ts StatementRecord), one per part. */
+const partsChecked = (records: ReadonlyArray<StatementRecord>): ReadonlyArray<PartChecked> =>
+	Arr.map(records, ({ part, layout, answer }): PartChecked => ({
+		heading: statementOutput(part.role, part.heading, part.fused).heading,
+		own: ownFrom(part),
+		fused: part.fused,
+		layout,
+		answer
+	}))
+
+/**
+ * The parts whose runs the answer holds, each run once, by the first part reading it: a part a sibling's feeds (R25,
+ * lower/shapes/share shareKey) reads that sibling's run, and is checked with it.
+ */
+const answering = (parts: ReadonlyArray<PartChecked>): ReadonlyArray<PartChecked> => {
+	const seen = new Set<number>()
+	return Arr.filter(parts, (part) => {
+		if (seen.has(part.answer)) {
+			return false
+		}
+		seen.add(part.answer)
+		return true
+	})
+}
+
+/**
+ * The runs of the parts of a program's statement, the first answer of its flight `sent`, divided as the runtime divides
+ * them (partRuns); a page's probe answers after it.
+ */
+const programRuns = (parts: PartDivision, sent: SentRuns): SentRuns =>
+	partRuns(parts, defined(sent[0], "the answer of the program's statement"))
 
 /**
  * A delivered row as PostgreSQL sent it: each column's cell text by its field name, a bytes value's its one text (its
@@ -393,22 +428,13 @@ const checkRead =
 		params: ParamMap,
 		records: ReadonlyArray<unknown>
 	): ReadonlyArray<SentRow> => {
-		const statements = Arr.map(
-			program.records,
-			({ run: { statement }, layout, arrival }): SentChecked => ({
-				heading: statementOutput(statement.role, statement.heading, statement.fused).heading,
-				own: ownFrom(statement),
-				fused: statement.fused,
-				layout,
-				sent: arrival.kind === "sent"
-			})
-		)
-		checkCells(
-			Arr.filter(statements, (s) => s.sent),
-			sent,
-			conversion
-		)
-		const delivered = deliveredRows(program, sent, params)
+		if (sent.length !== 1) {
+			disagree(`a flight of ${sent.length} answers for a read's one statement`)
+		}
+		const statements = partsChecked(program.records)
+		const runs = programRuns(program.run.parts, sent)
+		checkCells(answering(statements), runs, conversion)
+		const delivered = deliveredRows(program, runs, params)
 		if (Result.isFailure(delivered)) {
 			throw new Error(`the rows PostgreSQL sent are unreadable: ${delivered.failure.message}`)
 		}
@@ -429,7 +455,9 @@ const probeOf = (
 			return []
 		case "after":
 		case "before":
-			return [run.probes[run.requests[request.variant].program.probe].statement.statement]
+			return [
+				run.probes[run.requests[request.variant].program.probe].program.program.roots[0].statement
+			]
 	}
 }
 
@@ -442,25 +470,18 @@ const checkPage =
 		}
 		const run = runtime.artifact
 		const program = run.requests[parsed.success.variant]
-		const statements = Arr.map(
-			program.records,
-			({ run: { statement }, layout, arrival }): SentChecked => ({
-				heading: statementOutput(statement.role, statement.heading, statement.fused).heading,
-				own: ownFrom(statement),
-				fused: statement.fused,
-				layout,
-				sent: arrival.kind === "sent"
-			})
-		)
-		checkCells(
-			[...Arr.filter(statements, (s) => s.sent), ...probeOf(run, parsed.success)],
-			sent,
-			conversion
-		)
+		const probes = probeOf(run, parsed.success)
+		if (sent.length !== 1 + probes.length) {
+			disagree(`a flight of ${sent.length} answers for a request and ${probes.length} probes`)
+		}
+		const statements = partsChecked(program.records)
+		const runs = programRuns(program.run.parts, sent)
+		checkCells(answering(statements), runs, conversion)
+		checkCells(probes, sent.slice(1), conversion)
 		checkRecords(
 			Arr.map(page.edges, (edge) => edge.node),
 			Arr.map(
-				Result.getOrThrow(pageEdges(program, sent, parsed.success.size)).edges,
+				Result.getOrThrow(pageEdges(program, runs, parsed.success.size)).edges,
 				(edge) => edge.row
 			),
 			program.layouts,

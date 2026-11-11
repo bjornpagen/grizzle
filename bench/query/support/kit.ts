@@ -43,8 +43,8 @@ import type { CertificateRule } from "#compiler/ir/certificate.ts"
 import { codeNames, codeOf } from "#compiler/ir/codes.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
-import { flight } from "#compiler/lower/conservative/types.ts"
-import type { OptimizedStatement } from "#compiler/lower/shapes/index.ts"
+import type { OptimizedProgram } from "#compiler/lower/optimize/pipeline.ts"
+import type { DeliveredPart } from "#compiler/lower/shapes/index.ts"
 import { ledgerTableName } from "#compiler/physical/ddl/ledger.ts"
 import { queryInput } from "#compiler/program/compile.ts"
 import type { SchemaArtifacts } from "#compiler/program/schema.ts"
@@ -56,14 +56,18 @@ import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { bindGroups } from "#compiler/schema/record.ts"
 import { type ServedSpine, servedSource } from "#compiler/served/read.ts"
 import { servedSpine } from "#compiler/served/spine.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
+import type { Select } from "#compiler/sql/ast.ts"
+import { printStatement, quoteIdent } from "#compiler/sql/print.ts"
 import type { AnyLogin, AnyRole } from "#compiler/types/schema/world.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import {
+	installedCodes,
+	partSelects,
+	partStatement,
+	programAsts,
 	schemaInputOf,
 	type TestNaming,
 	testArtifacts,
-	installedCodes,
 	testCompile,
 	workloadOver
 } from "#test/support/compile.ts"
@@ -429,16 +433,28 @@ export const certifiedRules = (compiled: Compiled): ReadonlyArray<CertificateRul
 ]
 
 /**
- * Statement `index` of the optimized artifact, as compiled: its typed AST, parameters, role, fused attachments and
- * per-execution choices.
+ * The optimized artifact's program, as compiled: its one statement in its forms, its parts and their delivered
+ * relations.
  */
-export const optimizedStatement = (compiled: Compiled, index: number): OptimizedStatement => {
-	const statement = flight(compiled.compiled.template.programs.optimized.roots)[index]
-	if (statement === undefined) {
-		throw new GateSetupError({ what: `the optimized artifact has no statement ${index}` })
-	}
-	return statement
-}
+export const optimizedProgram = (compiled: Compiled): OptimizedProgram =>
+	compiled.compiled.template.programs.optimized
+
+/**
+ * The optimized artifact's typed AST as a reader reads it: its one part's statement as lowered, or its statement of
+ * tagged parts (test/support/compile.ts programAsts).
+ */
+export const optimizedAst = (compiled: Compiled): Select =>
+	programAsts(optimizedProgram(compiled))[0]
+
+/**
+ * The typed AST of the part `part` of the optimized artifact's statement as a statement of its own, the shape readers'
+ * (test/support/compile.ts partSelects): its rows as lowered, or the CTE its tag's arm reads.
+ */
+export const optimizedPartAst = (compiled: Compiled, part: DeliveredPart): Select =>
+	Option.getOrThrowWith(
+		Arr.get(partSelects(optimizedProgram(compiled)), part.answer),
+		() => new GateSetupError({ what: `the optimized artifact has no part ${part.answer}` })
+	)
 
 export type Artifact = "optimized" | "conservative"
 
@@ -666,6 +682,29 @@ export const deliveredAlone = (
 	transaction: delivered.statements.length > 1 ? readSnapshot : autocommit,
 	decode: { kind: "none" },
 	outside
+})
+
+/**
+ * The variant of the parts `parts` of a generated delivery's one statement `sent`, each run as a statement of its own
+ * (test/support/compile.ts partStatement) with the parameters the delivery sent, in one SERIALIZABLE READ ONLY
+ * transaction where there are several: the rows each part delivers, without the tag and padding that carry them in the
+ * one statement, which a handwritten statement per relation is compared with, and each part's plan alone.
+ */
+export const partsVariant = (
+	label: string,
+	compiled: Compiled,
+	sent: VariantStatement,
+	parts: Arr.NonEmptyReadonlyArray<DeliveredPart>
+): VariantSpec => ({
+	role: "generated",
+	label,
+	statements: Arr.map(parts, (part) => ({
+		sql: printStatement(partStatement(optimizedProgram(compiled), part.answer)),
+		params: sent.params
+	})),
+	transaction: parts.length > 1 ? readSnapshot : autocommit,
+	decode: { kind: "none" },
+	outside: {}
 })
 
 /** The variant of a delivery of `compiled`, its compile timings and its whole operation beside it. */

@@ -10,9 +10,8 @@ import * as Result from "#compiler/core/result.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import type { LogicalQuery, StatementSpec } from "#compiler/ir/products.ts"
-import { flight } from "#compiler/lower/conservative/types.ts"
 import type { OptimizedProgram } from "#compiler/lower/optimize/pipeline.ts"
-import { specifiedStatements } from "#compiler/lower/template.ts"
+import { specifiedProgram } from "#compiler/lower/template.ts"
 import { workloadRequests as accessRequests } from "#compiler/physical/access/extension.ts"
 import { noTextDomainUses } from "#compiler/physical/ddl/domains.ts"
 import {
@@ -71,7 +70,7 @@ const DocumentTag = relation("DocumentTag", { document: uuid, tag: TagName }, ["
  * - every vector is a unit vector of exact binary32 components, so its stored value is the text the fixture writes.
  *
  * Queries compile through the checker and the optimized pipeline (lowerOptimized), and run as the template's
- * executable statements (lower/template.ts specifiedStatements): every result column cast to text, every placeholder
+ * executable statements (lower/template.ts specifiedProgram): every result column cast to text, every placeholder
  * filled by the template's own encoder. The conservative artifact of an approximate program is the exact pgvector
  * lowering, so the exact baseline here is the complete scan written directly against the
  * installation: `cosine_distance` over every eligible row, which no HNSW index orders.
@@ -518,14 +517,10 @@ export const compile = (
 	if (!program.ok) {
 		throw failed("lower", program.error)
 	}
-	const specs = specifiedStatements(program.value.roots, installed.names.codes)
-	if (!specs.ok) {
-		throw failed("specs", specs.error)
-	}
 	return {
 		logical: logical.value,
 		program: program.value,
-		specs: Arr.map(flight(specs.value), (run) => run.spec)
+		specs: [specifiedProgram(program.value, installed.names.codes).statement.spec]
 	}
 }
 

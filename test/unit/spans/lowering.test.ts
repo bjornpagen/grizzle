@@ -26,12 +26,13 @@ import {
 	refused,
 	succeeded
 } from "#test/support/assert.ts"
-import { compileTemplate, testCompile } from "#test/support/compile.ts"
+import { compileTemplate, programAsts, testCompile } from "#test/support/compile.ts"
 import type { OracleTemplate } from "#test/support/conservative.ts"
 import { decodedQuery } from "#test/support/fixtures/ir/desc.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { has, shapeOf } from "#test/support/kernel/shape.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { sentForms } from "#test/support/oracle/forms.ts"
 import { paramText } from "#test/support/wire.ts"
 
 const Instant = contract("Instant", pg.bigint)
@@ -54,7 +55,7 @@ const compiled = (q: unknown): OracleTemplate =>
 
 /** The ASTs of every statement of both artifacts. */
 const statements = (t: OracleTemplate): ReadonlyArray<SqlStatement> => [
-	...Arr.map(flight(t.programs.optimized.roots), (s) => s.ast),
+	...programAsts(t.programs.optimized),
 	...Arr.map(flight(t.programs.conservative.roots), (s) => s.ast)
 ]
 
@@ -185,7 +186,7 @@ describe("span parameters and windows", () => {
 				assert.ok(has(shapeOf(statement), "predicate = column param"))
 			}
 			for (const st of Arr.appendAll(
-				flight(equated.programs.optimized.roots),
+				sentForms(equated.programs.optimized.statement),
 				flight(equated.programs.conservative.roots)
 			)) {
 				assert.deepEqual(

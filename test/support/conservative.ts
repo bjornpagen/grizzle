@@ -1,4 +1,4 @@
-import { Array as Arr, Result as EffectResult } from "effect"
+import { Result as EffectResult } from "effect"
 import { readBacks } from "#adapter/apply/readback.ts"
 import type { DbContext } from "#adapter/db/context.ts"
 import { toResult } from "#adapter/engine.ts"
@@ -11,30 +11,18 @@ import * as Result from "#compiler/core/result.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
-import type { PageFill, StatementSpec } from "#compiler/ir/products.ts"
+import type { StatementSpec } from "#compiler/ir/products.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
+import { type ConservativeProgram, conservativeInput } from "#compiler/lower/conservative/types.ts"
+import { conservativeStatement } from "#compiler/lower/shapes/index.ts"
 import {
-	type ConservativeProgram,
-	conservativeInput,
-	type DeclaredParamSlot,
-	flight
-} from "#compiler/lower/conservative/types.ts"
-import { deliveredAsOptimized, type RelationChoice } from "#compiler/lower/shapes/index.ts"
-import {
-	artifactStatements,
-	assemble,
-	conservativeKit,
+	conservativePageArtifact,
 	type PageArtifact,
 	type PageCompileInput,
 	type PageTemplate,
-	pageShapeOf,
 	statedOrderOf
 } from "#compiler/lower/shapes/page/compile.ts"
-import {
-	type SpecifiedArtifact,
-	type SpecifiedForm,
-	specifiedStatements
-} from "#compiler/lower/template.ts"
+import { type SpecifiedArtifact, specifiedProgram } from "#compiler/lower/template.ts"
 import type { QueryTemplate } from "#compiler/program/compile.ts"
 import type { SchemaArtifacts } from "#compiler/program/schema.ts"
 import { servedReadBacks, servedSpine } from "#compiler/served/spine.ts"
@@ -57,8 +45,9 @@ import { type ConservativeWrite, realizeConservative } from "#test/support/oracl
 
 /**
  * A query template with its conservative lowering beside its optimized one, as the oracles read both: the checked
- * query lowered with no evidence (lower/conservative), its statements specified as the optimized ones are, and read as
- * optimized statements. The compiler builds the optimized artifact alone (program/compile.ts compileQuery).
+ * query lowered with no evidence (lower/conservative), and its statements as the parts of one statement specified as
+ * the optimized one is (shapes/index.ts conservativeStatement), which the runtime runs as it runs the optimized one.
+ * The compiler builds the optimized artifact alone (program/compile.ts compileQuery).
  */
 export type OracleTemplate = QueryTemplate & {
 	readonly conservative: ReadonlyArray<StatementSpec>
@@ -80,19 +69,12 @@ export const withConservative = (
 		}),
 		(conservative) =>
 			Result.map(
-				specifiedStatements(
-					deliveredAsOptimized<RelationChoice, SpecifiedForm, DeclaredParamSlot>(conservative)
-						.roots,
-					names.codes
-				),
-				(roots): OracleTemplate => ({
+				catchRefusal(() => specifiedProgram(conservativeStatement(conservative), names.codes)),
+				(run): OracleTemplate => ({
 					...template,
-					conservative: Arr.map(flight(roots), (run) => run.spec),
+					conservative: [run.statement.spec],
 					programs: { ...template.programs, conservative },
-					runs: {
-						optimized: template.run,
-						conservative: { delivery: conservative.delivery, roots }
-					}
+					runs: { optimized: template.run, conservative: run }
 				})
 			)
 	)
@@ -198,16 +180,7 @@ export const conservativePage = (
 				)
 			)
 		}
-		const shape = pageShapeOf(conservativeKit<PageFill>(input).delivery, checkedRoot)
-		return assemble(
-			artifactStatements(
-				<F extends PageFill>() => conservativeKit<F>(input),
-				checkedRoot,
-				page.order,
-				page.comparators
-			),
-			{ ...shape, order: page.order }
-		)
+		return conservativePageArtifact(input, checkedRoot, page.order, page.comparators)
 	})
 
 /**
@@ -230,7 +203,7 @@ const conservativeArtifact = (
 				placeFamily(b, placements, step.stratum, step.node, after)
 				break
 			case "readBack":
-				placeReadBack(b, step.read, deliveredAsOptimized(step.program), previous)
+				placeReadBack(b, step.read, conservativeStatement(step.program), previous)
 				break
 			case "carrier": {
 				const result = step.statement.result

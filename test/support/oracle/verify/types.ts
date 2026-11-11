@@ -1,14 +1,15 @@
-import { Array as Arr, Data, Effect, String as Str } from "effect"
+import { Array as Arr, Data, Effect, Option, String as Str } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import { contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
-import type { FusedStatement } from "#compiler/lower/shapes/index.ts"
+import { flight } from "#compiler/lower/conservative/types.ts"
+import type { FusedStatement, StatementParts } from "#compiler/lower/shapes/index.ts"
 import { columnType } from "#compiler/physical/ddl/names.ts"
-import { statementOutput } from "#compiler/runtime/lower/tree.ts"
+import { statementOutput, type StatementRoots } from "#compiler/runtime/lower/tree.ts"
 import type { TypeRef } from "#compiler/sql/ast.ts"
 import { types } from "#compiler/sql/build.ts"
 import { lex } from "#compiler/sql/lexer.ts"
-import { printType } from "#compiler/sql/print.ts"
+import { printStatement, printType } from "#compiler/sql/print.ts"
 import { elementAt } from "#test/support/oracle/pick.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 
@@ -41,10 +42,50 @@ const claimedType = (names: PhysicalNames, t: ScalarType): TypeRef =>
 		? types.text
 		: columnType(names, t).type
 
-/** A delivered statement the type oracle judges, and where its problems are located. */
+/**
+ * A delivered statement the type oracle judges, and where its problems are located: the relation it delivers, its
+ * role, heading and fused attachments, and the text PostgreSQL resolves its columns from.
+ */
 export interface Judged {
 	readonly where: string
-	readonly statement: FusedStatement
+	readonly statement: Pick<FusedStatement, "role" | "heading" | "fused"> & {
+		readonly sql: { readonly text: string }
+	}
+}
+
+/**
+ * The statements the type oracle judges of a program sent as one statement (shapes/index.ts PartedStatement), each
+ * located at `where`: its one part as lowered; or each part of a statement of tagged parts as lowered (LoweredTaggedPart
+ * `delivered`), a query of its own, before its executable form casts its columns to texts and the statement tags
+ * them, judged against the relation the part delivers, the first of the program's delivered relations its rows are
+ * (a relation another's part feeds has that relation's heading). A tagged part no relation reads is located without
+ * one, and judged by no heading: the channel verification refuses it (verify/channels.ts partProblems).
+ */
+export const programJudged = (
+	program: {
+		readonly parts: StatementParts
+		readonly roots: StatementRoots<
+			Pick<FusedStatement, "role" | "heading" | "fused"> & {
+				readonly answer: number
+			}
+		>
+	},
+	where: string
+): ReadonlyArray<Judged> => {
+	const parts = program.parts
+	if (parts.kind === "one") {
+		return [{ where, statement: parts.delivered }]
+	}
+	const relations = flight(program.roots)
+	return Arr.flatMap(parts.parts, (part, tag) =>
+		Arr.map(
+			Option.toArray(Arr.findFirst(relations, (r) => r.answer === tag)),
+			(relation): Judged => ({
+				where: `${where} part ${tag}`,
+				statement: { ...relation, sql: { text: printStatement(part.delivered) } }
+			})
+		)
+	)
 }
 
 /**

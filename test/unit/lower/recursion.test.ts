@@ -11,7 +11,6 @@ import { topoOrder } from "#compiler/ir/dag.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import type { NodeOf } from "#compiler/ir/rel.ts"
 import { emptyEnv, LowerContext } from "#compiler/lower/conservative/context.ts"
-import { flight } from "#compiler/lower/conservative/types.ts"
 import { emptyCtePlan } from "#compiler/lower/optimize/cte-policy/index.ts"
 import type { OptimizedProgram } from "#compiler/lower/optimize/pipeline.ts"
 import { optimizedDispatch, ShapeState } from "#compiler/lower/shapes/index.ts"
@@ -31,7 +30,7 @@ import type {
 	SelectCore
 } from "#compiler/sql/ast.ts"
 import { assert, refused, succeeded } from "#test/support/assert.ts"
-import { lowerAligned } from "#test/support/compile.ts"
+import { lowerAligned, programAsts } from "#test/support/compile.ts"
 import { ownedSchemaFixture } from "#test/support/evidence.ts"
 import { localVectorSchema, productionNames } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -141,7 +140,7 @@ const queries = (s: Select): ReadonlyArray<OperandSelect> => {
 	return out
 }
 
-const mainAst = (p: OptimizedProgram): Select => flight(p.roots)[0].ast
+const mainAst = (p: OptimizedProgram): Select => programAsts(p)[0]
 
 const recursiveCtes = (s: Select): ReadonlyArray<Cte> =>
 	Arr.flatMap(queries(s), (q) => (q.with?.recursive === true ? q.with.ctes : []))

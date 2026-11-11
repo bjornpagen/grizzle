@@ -13,7 +13,7 @@ import type { RuleValue } from "#compiler/query/build/rule.ts"
 import type { Select } from "#compiler/sql/ast.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
-import { compileTemplate, testCompile } from "#test/support/compile.ts"
+import { compileTemplate, programAsts, testCompile } from "#test/support/compile.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { upTo } from "#test/support/up-to.ts"
 
@@ -118,8 +118,8 @@ const nodes = (v: unknown): number =>
 				? Arr.reduce(Rec.values(v), 1, (n, x) => n + nodes(x))
 				: 1
 
-const total = (statements: ReadonlyArray<{ readonly ast: Select }>): number =>
-	Arr.reduce(statements, 0, (n, s) => n + nodes(s.ast))
+const total = (asts: ReadonlyArray<Select>): number =>
+	Arr.reduce(asts, 0, (n, ast) => n + nodes(ast))
 
 /**
  * The AST nodes of each artifact's statements, a query of `n` attachments of `width` fields compiled as a Db compiles
@@ -131,9 +131,11 @@ const sizesOf = (n: number, width: number) => {
 		compileTemplate(query, value, testCompile),
 		`${n} attachments of ${width} fields`
 	)
-	const conservative = flight(template.programs.conservative.roots)
-	const optimized = flight(template.programs.optimized.roots)
-	return { conservative: total(conservative), optimized: total(optimized) }
+	const conservative = Arr.map(flight(template.programs.conservative.roots), (s) => s.ast)
+	return {
+		conservative: total(conservative),
+		optimized: total(programAsts(template.programs.optimized))
+	}
 }
 
 describe("compiled size", () => {
