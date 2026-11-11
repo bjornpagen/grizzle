@@ -82,7 +82,9 @@ import { fullWorld } from "#test/support/worlds.ts"
  * each fail the search.
  *
  * Plant: ~/.cache/grizzle-release/BR08/plants/swarm-nested-signature-without-own-texts.patch, a nested fact's signature
- * without its own texts, must turn the property red.
+ * without its own texts, must turn the property red. Plant: ~/.cache/grizzle-release/FILLORDER/plants/
+ * swarm-owner-slot-every-drawn.patch, an owner's slot carrying every drawn and accumulated column at its start, its copies
+ * as a member among them, fails the kept case of TEST_SEED=881675980.
  */
 
 /** What the search reached: shapes written, refusals justified, and the downstream defects' shapes. */
@@ -903,6 +905,37 @@ const kept: ReadonlyArray<Kept<SwarmCase, Situation>> = [
 						{ relation: 1, id: 3, v: -1n, memberOf: [{ family: 1, owner: 1, slot: 1 }] },
 						{ relation: 0, id: 4, v: 0n, memberOf: [{ family: 0, owner: 3, slot: 0 }] },
 						{ relation: 0, id: 5, v: 3n, memberOf: [{ family: 0, owner: 2, slot: 0 }] }
+					],
+					false,
+					undefined
+				)
+			]
+		},
+		draws: "",
+		reaches: ["a lawful first insert accepted"]
+	},
+	{
+		note: "TEST_SEED=881675980's case 2, its shape alone: two counted families on a cycle, R0's summing its R1 members' copy of R0's caller field, each relation inserted by its slot: R1's slot, an owner's, carried every drawn and accumulated column of R1 at its start, its copy among them, which the fresh owner's fill read as given, so R0's end was written at the sum of starts and its fold's foreign key refused a lawful write",
+		sketch: {
+			spec: {
+				fill: {
+					relations: [relationFlags(false), relationFlags(false)],
+					families: [
+						{ kind: "counted", owner: 0, member: 1, fold: "sum" },
+						{ kind: "counted", owner: 1, member: 0, fold: "none" }
+					],
+					copies: [{ family: 0, axis: "owner", source: { kind: "caller" } }],
+					steps: [{ family: 0, copy: 0 }]
+				},
+				ends: [],
+				plains: [],
+				laws: []
+			},
+			steps: [
+				inserted(
+					[
+						{ relation: 0, id: 1, v: 1n, memberOf: [{ family: 1, owner: 2, slot: 0 }] },
+						{ relation: 1, id: 2, v: 2n, memberOf: [{ family: 0, owner: 1, slot: 0 }] }
 					],
 					false,
 					undefined
