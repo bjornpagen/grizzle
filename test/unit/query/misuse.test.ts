@@ -10,16 +10,18 @@
  * kind the library draws (@grizzle/testing/lsw). A Stale argument is a value that was live in another scope of the builder: a
  * variable, a rule builder, a Finished, an interior stage, a parent variable or a self of another rule, attachment or
  * recursive definition, each named by where it comes from. A near miss is a value the builder branches on, one call
- * each at the position it names: a take bound, an order pair, an attachment name, a binding's value, an empty
- * conjunction, an aggregate over a carrier PostgreSQL does not define it for. The contract:
+ * each at the position it names: a take bound, an order pair, an attachment name, a binding's value, a binding of a
+ * match or a negation naming no field of its source, an empty conjunction, an aggregate over a carrier PostgreSQL does
+ * not define it for. The contract:
  *
  * - a Live argument builds a query whose Description has a canonical text;
  * - a Stale argument is refused at build time with exactly MalformedDescription;
  * - a Wild argument either builds such a query (a Wild string may well be a valid name) or throws a CompileError
- *   whose reason is MalformedDescription or UnsupportedOperation; it never throws anything else, and never builds a
- *   query whose Description has no canonical text;
- * - a near miss is refused with MalformedDescription or UnsupportedOperation, or builds a query with a canonical text
- *   that compiles to a template or to a CompileError, and never throws while it compiles.
+ *   whose reason is one of the builder's own: MalformedDescription, Refused (a rule the types name too, stated by its
+ *   roster member) or UnsupportedOperation; it never throws anything else, and never builds a query whose Description
+ *   has no canonical text;
+ * - a near miss is refused with one of the builder's own reasons, or builds a query with a canonical text that
+ *   compiles to a template or to a CompileError, and never throws while it compiles.
  *
  * Every stale source, every wild kind, every position and every near miss is a required feature. A hostile proxy and
  * an object whose getter throws are refused at the entry that receives them (query/build/host.ts), before any read of
@@ -34,7 +36,8 @@
  * sites.
  *
  * Plants (~/.cache/grizzle-release/BR06/plants): misuse-host-arguments-unguarded (a hostile argument let past the
- * builder's entry) and named-scopes-calls-swapped (the duplicate reported at the earlier call).
+ * builder's entry) and named-scopes-calls-swapped (the duplicate reported at the earlier call); MISUSE/plants:
+ * stray-binding-untyped-throw (a binding naming no field thrown as an untyped error).
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
@@ -816,6 +819,23 @@ const nearMisses = [
 			)
 	},
 	{
+		name: "a match's binding naming no field",
+		call: () =>
+			ruled((r, task) =>
+				r.match(Task, { id: task["id"], nope: task["id"] }).find({ id: task["id"] })
+			)
+	},
+	{
+		name: "a negation's binding naming no field",
+		call: () =>
+			ruled((r, task) =>
+				r
+					.match(Task, { id: task["id"] })
+					.where(r.not(TaskNote, { task: task["id"], nope: task["id"] }))
+					.find({ id: task["id"] })
+			)
+	},
+	{
 		name: "approximateNearest by a column outside the heading",
 		call: () => scoredDocuments().approximateNearest({ by: "nope", take: 20 })
 	},
@@ -964,8 +984,13 @@ const callOf = (position: PositionEntry, argument: Drawn<"live", StaleSource>): 
 	}
 }
 
+/**
+ * The builder's own refusals, one per door: malformed's MalformedDescription, builderRefusal's Refused (a rule the
+ * types name too) and unsupported's UnsupportedOperation.
+ */
 const admitted: ReadonlySet<CompileReasonTag> = new Set([
 	"MalformedDescription",
+	"Refused",
 	"UnsupportedOperation"
 ])
 
