@@ -332,6 +332,7 @@ describe("a live answer over the protocol's results", () => {
 								claims: new Set(),
 								isolation: loadedApp.isolation,
 								expiry: { kind: "never" },
+								subscriptions: { register: () => Effect.die("a flight registers no live read") },
 								pool: scriptedPool({
 									lease:
 										c.fault.kind === "no session"

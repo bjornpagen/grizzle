@@ -1360,10 +1360,10 @@ A `login` is one PostgreSQL user, the one `roleNameOf(Web, {})` names (here `blo
 
 ```ts
 import net from "node:net"
-import { CredentialError, DbLayer, served, TokenError } from "@bjornpagen/grizzle/runtime"
+import { CredentialError, DbLayer, LiveSource, served, TokenError } from "@bjornpagen/grizzle/runtime"
 import { verifyToken } from "@clerk/backend"
 import { attachDatabasePool } from "@vercel/functions/db-connections"
-import { Config, Effect } from "effect"
+import { Config, Effect, Layer } from "effect"
 import pgDriver from "pg"
 import etlJobFile from "./migrations/blog/served/etl_job.json" with { type: "json" }
 import webFile from "./migrations/blog/served/web.json" with { type: "json" }
@@ -1390,6 +1390,15 @@ const connection = {
 /** The web login's committed workload, served as its type: the app evaluates no schema module. */
 export const WebServed = served<typeof Web>(webFile, "web")
 
+/** The installation's live source, once per process: its decoder login's credential, and a login that reads. */
+export const BlogLive = LiveSource.layer({
+	...connection,
+	login: WebServed,
+	password: Config.Redacted("BLOG_DECODER_PASSWORD").pipe(
+		Effect.mapError((cause) => new CredentialError({ cause }))
+	)
+})
+
 export const WebLayer = DbLayer.make({
 	...connection,
 	login: WebServed,
@@ -1408,7 +1417,7 @@ export const WebLayer = DbLayer.make({
 				})
 			)
 		)
-})
+}).pipe(Layer.provide(BlogLive))
 ```
 
 `DbLayer.make` builds one login's connection pool, which serves every role of the login. It takes the login's served workload and the connection. `served<typeof Web>(webFile, "web")` serves the file `grizzle generate` commits for the login ([Migrating and deploying](#migrating-and-deploying)), the one thing the app loads of its schema, as the login's type: `Web` is imported with `import type`, so no schema module runs in the app, and the name is the login's, which the layer checks the file against. The app imports grizzle from `@bjornpagen/grizzle/runtime`, which loads none of its compiler. The connection:
@@ -1421,6 +1430,8 @@ export const WebLayer = DbLayer.make({
 - `pool`: at most `max` sessions open, `min` of them kept open once opened, and the others closed `idleTimeoutMs` after their last use. None is opened before a call asks for one.
 
 A login whose roles read the token also needs `verify`, your function from a bearer token to its verified payload: here, Clerk's `verifyToken`. `attachPool` hands the pool to Vercel, so idle connections close before a function instance suspends.
+
+A login whose workloads serve a read requires its installation's live source, `LiveSource.layer`, which its type states: the `DbLayer` of `Web` is a layer that needs `BlogLive`, and the program does not compile until it is provided. Build it once per process for the installation and provide it to every such layer, so one process holds one of it however many logins it serves. It takes the connection of the installation's decoder login, the one login `grizzle migrate` grants REPLICATION, whose `password` is that login's credential, and any served login of the installation that reads. It connects nothing until a Db's first `watch`; from then on, for its scope, it holds one listening session of the decoder login and the process's candidacy for the installation's live leader, which streams the committed changes of the tables live reads read from the installation's replication slot and fans out which rows they touched, sealed under the installation's secret. `EtlJob` serves no read, so its layer needs no live source.
 
 grizzle states no number of its own, and there is no isolation level, statement timeout or retry policy to set. A call waits for a session as long as you let it: the wait has no deadline, and interrupting the Effect, your own timeout among the ways, ends it, leaving nothing behind. Closing the layer's scope destroys every connection of its pool at once, awaiting nothing from the network.
 

@@ -74,6 +74,12 @@ export const servedLoginSettings: BlockSettings<{ readonly pool: PoolBounds }> =
 	}
 }
 
+/** LiveSource.layer's: the served login whose file carries its installation's live source, which the layer reads. */
+export const liveSourceSettings: BlockSettings<Readonly<Record<string, never>>> = {
+	settings: ["login"],
+	parse: () => Result.succeed({})
+}
+
 /**
  * The settings the block's read leaves unread, each read once off the typed block instead: the driver, a module whose
  * members may be getters; the password; the transport, read by its own read (readTransport), whose `open` is the

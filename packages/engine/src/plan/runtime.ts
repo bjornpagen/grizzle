@@ -13,7 +13,8 @@ export {
 	columnLiteral,
 	normalArray,
 	parameterNormalizer,
-	positionalColumns
+	positionalColumns,
+	textArrayParam
 } from "#compiler/codec/recordset.ts"
 export {
 	carrierSpecOf,
@@ -77,6 +78,7 @@ export {
 	type ReplicationCommand,
 	startCommand
 } from "#compiler/live/replication.ts"
+export { sealNonceBytes } from "#compiler/core/seal.ts"
 export { explainAnalyzeOf, explainOf, type ExplainText } from "#compiler/runtime/explain.ts"
 export { columnPosition, columnType } from "#compiler/runtime/lower/columns.ts"
 export { fusedTexts } from "#compiler/runtime/lower/fused.ts"

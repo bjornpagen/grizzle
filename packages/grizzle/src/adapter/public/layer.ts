@@ -1,12 +1,18 @@
 import type * as Layer from "effect/Layer"
 import type { OpenError } from "#adapter/errors/execution.ts"
+import { liveSourceLayer } from "#adapter/pool/live.ts"
 import { servedLayer } from "#adapter/pool/served.ts"
 import { served as servedValue } from "#adapter/served/served.ts"
 import type {
+	LoginBase,
 	DbConfigShape,
 	DbLayerConstructor,
 	DbLayerOf,
 	DbLayerService,
+	LiveOf,
+	LiveSourceConfigShape,
+	LiveSourceConstructor,
+	LiveSourceService,
 	ServedConstructor
 } from "#adapter/types/layer.ts"
 import type { AnyLogin } from "#compiler/plan/common.ts"
@@ -43,6 +49,9 @@ export type {
 	ConnectionPool,
 	DbConnection,
 	DbLayerOf,
+	LiveOf,
+	LiveSourceConfigShape,
+	LiveSourceService,
 	PoolBounds,
 	ServedLogin,
 	ServedRole,
@@ -52,8 +61,22 @@ export type {
 } from "#adapter/types/layer.ts"
 
 export const DbLayer: DbLayerConstructor = {
-	make: <const L extends AnyLogin>(config: DbConfig<L>): Layer.Layer<DbLayerOf<L>, OpenError> =>
-		servedLayer(config)
+	make: <const L extends AnyLogin>(
+		config: DbConfig<L>
+	): Layer.Layer<DbLayerOf<L>, OpenError, LiveOf<L>> => servedLayer(config)
+}
+
+/**
+ * LiveSource.layer(config): an installation's live source for the process, built once per process per installation and
+ * provided to every DbLayer of a login of it that serves a read, which requires it (LiveOf): the connection of the
+ * installation's decoder login, whose `password` is its credential, and a served login of the installation that serves
+ * a read. It connects nothing until a Db's first watch; from then on, for its scope, it holds one listening session of
+ * the decoder login and the process's candidacy for the installation's live leader, which every layer it serves shares.
+ */
+export const LiveSource: LiveSourceConstructor = {
+	layer: <const L extends AnyLogin>(
+		config: LiveSourceConfigShape<L>
+	): Layer.Layer<LiveSourceService<LoginBase<L>>, OpenError> => liveSourceLayer(config)
 }
 
 /**

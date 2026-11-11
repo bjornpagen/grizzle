@@ -1,4 +1,5 @@
 import type { Expiry } from "#adapter/db/claims.ts"
+import type { Subscriptions } from "#adapter/live/subscriptions.ts"
 import { type Frame, type Prologue, readFrame, writeFrame } from "#adapter/wire/batch.ts"
 import type { SessionPool } from "#adapter/wire/session.ts"
 import type { Isolation } from "#compiler/plan/common.ts"
@@ -24,6 +25,8 @@ export interface ServedDbContext {
 	readonly isolation: Isolation
 	/** When the Db's token stops authorizing it, read once from its verified claims: what ends its live reads. */
 	readonly expiry: Expiry
+	/** The layer's live reads' registry, which each watch of the Db registers on (live/subscriptions.ts). */
+	readonly subscriptions: Subscriptions
 }
 
 /** The frame of every read of the Db: SERIALIZABLE READ ONLY. */

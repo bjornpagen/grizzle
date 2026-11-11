@@ -41,6 +41,7 @@ import type {
 	ServedFile,
 	ServedFootprint,
 	ServedKey,
+	ServedLive,
 	ServedMember,
 	ServedPage,
 	ServedRead,
@@ -176,6 +177,8 @@ export interface LoadedLogin {
 	readonly roles: Arr.NonEmptyReadonlyArray<LoadedRole>
 	/** The installed tables its statements read and write, with their indexes, which its explains name plans by. */
 	readonly tables: ServedTables
+	/** The installation's live change source, which the login's live reads are woken by (served/forms.ts ServedLive). */
+	readonly live: ServedLive
 }
 
 /** A read's decoder bound to `layouts` under `bind`, its refusal a defect of the compile that wrote the file. */
@@ -421,6 +424,7 @@ export const loadServed = (file: ServedFile, name: string): Result.Result<Loaded
 			prologue: file.prologue,
 			session: file.session,
 			roles,
-			tables: file.tables
+			tables: file.tables,
+			live: file.live
 		}
 	})

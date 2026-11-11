@@ -141,6 +141,7 @@ export const servedContext = (
 			prologue: prologueOf(login.prologue, held.role.installed, claims.text, login.fingerprint),
 			claims: claims.present,
 			expiry: claims.expiry,
+			subscriptions: held.sessions.subscriptions,
 			pool: held.sessions.pool,
 			isolation: held.role.isolation
 		}

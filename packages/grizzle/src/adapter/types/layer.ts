@@ -3,6 +3,7 @@ import type { Token } from "#adapter/db/token.ts"
 import type { OpenError } from "#adapter/errors/execution.ts"
 import type { CredentialError, TokenError } from "#adapter/errors/failures.ts"
 import type { PgDriver, PgSocket } from "#adapter/types/driver.ts"
+import type { ShapeOf } from "#compiler/live/index.ts"
 import type {
 	AnyLogin,
 	AnyRole,
@@ -13,6 +14,7 @@ import type {
 	RolesOf,
 	phantom
 } from "#compiler/plan/common.ts"
+import type { Workload } from "#compiler/plan/common.ts"
 import type { ServedFile } from "#compiler/plan/serve.ts"
 
 /**
@@ -185,6 +187,60 @@ export type DbConfigShape<L> = DbConnection & {
 } & VerifyOf<L>
 
 /**
+ * The Effect service of an installation's live source, which every DbLayer of a login of it that serves a read requires
+ * (LiveOf): one per process per installation, built by LiveSource.layer, which holds the installation's leader
+ * candidacy, its fan-out's listening session and the registry of every live read of the process's layers of it. B, the
+ * installation's base schema, is a phantom no runtime value holds, so the source of one installation serves no other's.
+ */
+export interface LiveSourceService<in out B> {
+	readonly [phantom]?: { readonly base: B; readonly serves: (serves: B) => void } | undefined
+}
+
+/** A login's base schema, the installation its live source serves. */
+export type LoginBase<L> = L extends { readonly base: infer B } ? B : never
+
+/**
+ * Whether a login's workloads serve a read: some member of one of them whose answer is a set's or a list's (engine
+ * live/program.ts ShapeOf), a ChangeSet's or a refresh's being a write's.
+ */
+type WorkloadsRead<Ws> = Ws extends readonly [infer W, ...infer Rest]
+	? W extends Workload<unknown, infer P>
+		? [Exclude<ShapeOf<P[keyof P]>, "write">] extends [never]
+			? WorkloadsRead<Rest>
+			: true
+		: WorkloadsRead<Rest>
+	: false
+
+/** Whether login L serves a read, every login of no known workloads among those that do. */
+type ServesRead<L> = L extends { readonly workload: infer Ws } ? WorkloadsRead<Ws> : true
+
+/**
+ * What DbLayer.make of login L requires: its installation's live source where L serves a read, whose watches register
+ * on it; nothing where its workloads are provably read-free. A generic L requires it: providing a source no layer uses
+ * is legal, and leaving out one a layer uses is a type error where the program is run.
+ */
+export type LiveOf<L> = [ServesRead<L>] extends [false] ? never : LiveSourceService<LoginBase<L>>
+
+/**
+ * LiveSource.layer's config: the connection of the installation's decoder login, whose `password` is that login's
+ * credential, the one login that reads the installation's replication slot, and a served login of the installation that
+ * serves a read, whose file carries the installation's live source (texts, names and tables).
+ */
+export type LiveSourceConfigShape<L> = DbConnection & { readonly login: ServedLogin<L> }
+
+/**
+ * LiveSource.layer; packages/grizzle/src/adapter/live/layer.ts implements it. Its config is parsed where it is given,
+ * as DbLayer.make's is: one no connection can use, or a login whose file serves no read, fails the layer with
+ * OpenError{stage: "config"}. Building the layer connects nothing: the installation's fan-out and this process's
+ * candidacy for its leader start at the first watch of any layer it serves, and end with its scope.
+ */
+export interface LiveSourceConstructor {
+	layer<const L extends AnyLogin>(
+		config: LiveSourceConfigShape<NoInfer<L>> & { readonly login: ServedLogin<L> }
+	): Layer.Layer<LiveSourceService<LoginBase<L>>, OpenError>
+}
+
+/**
  * DbLayer.make; packages/grizzle/src/adapter/public/layer.ts implements it. The config is parsed where it is given: one
  * no connection can use (a driver that is no driver, an empty host or one that is a path, a port outside 1 to 65535, an
  * empty CA bundle, no servername, a connect timeout or a pool bound outside its range) fails the layer with
@@ -197,7 +253,7 @@ export type DbConfigShape<L> = DbConnection & {
 export interface DbLayerConstructor {
 	make<const L extends AnyLogin>(
 		config: DbConfigShape<NoInfer<L>> & { readonly login: ServedLogin<L> }
-	): Layer.Layer<DbLayerOf<L>, OpenError>
+	): Layer.Layer<DbLayerOf<L>, OpenError, LiveOf<L>>
 }
 
 /** served(file, name), building a ServedLogin of L from its committed file and L's name. */

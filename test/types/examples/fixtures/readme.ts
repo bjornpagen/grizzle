@@ -52,13 +52,14 @@ import {
 import {
 	CredentialError,
 	DbLayer,
+	LiveSource,
 	roleNameOf,
 	served,
 	TokenError
 } from "@bjornpagen/grizzle/runtime"
 import { verifyToken } from "@clerk/backend"
 import { attachDatabasePool } from "@vercel/functions/db-connections"
-import { Config, Effect, type Layer, ManagedRuntime, type Option, Redacted, Schema } from "effect"
+import { Config, Effect, Layer, ManagedRuntime, type Option, Redacted, Schema } from "effect"
 import pgDriver from "pg"
 
 type Equals<A, B> =
@@ -611,6 +612,15 @@ const connection = {
 /** The web login's committed workload, served as its type: the app evaluates no schema module. */
 export const WebServed = served<typeof Web>(webFile, "web")
 
+/** The installation's live source, once per process: its decoder login's credential, and a login that reads. */
+export const BlogLive = LiveSource.layer({
+	...connection,
+	login: WebServed,
+	password: Config.Redacted("BLOG_DECODER_PASSWORD").pipe(
+		Effect.mapError((cause) => new CredentialError({ cause }))
+	)
+})
+
 export const WebLayer = DbLayer.make({
 	...connection,
 	login: WebServed,
@@ -629,7 +639,7 @@ export const WebLayer = DbLayer.make({
 				})
 			)
 		)
-})
+}).pipe(Layer.provide(BlogLive))
 
 /** README: "Example", "The route handler". */
 /** A post's id: a uuid's text, typed Uuid (five hyphenated groups) and checked to be a uuid. */

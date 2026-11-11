@@ -17,7 +17,13 @@ import type * as Scope from "effect/Scope"
  * Sessions over pg, a hot path: every query of every flight is written, and every cell of every row it answers is
  * checked, here, in native loops with no Option or closure per row.
  */
-import { flightMaxBytes, messageMaxBytes, nominal } from "#compiler/plan/runtime.ts"
+import {
+	defect,
+	flightMaxBytes,
+	messageMaxBytes,
+	nominal,
+	type ReplicationCommand
+} from "#compiler/plan/runtime.ts"
 
 import type { ParsedConnection, ParsedTransport } from "#adapter/connection/config.ts"
 import {
@@ -28,7 +34,10 @@ import {
 	CredentialError,
 	DriverRefused,
 	LayerReleased,
+	ConnectionLost,
 	NoCancelKey,
+	ReplicationEnded,
+	type ServerError,
 	SocketFailed,
 	StartupRefused,
 	TlsRefused
@@ -145,10 +154,14 @@ export interface ControlTexts {
 }
 
 /**
- * Whose session it is: a login's, every session of a pool, which starts under the options pinning its role's defaults,
- * or an owner's, one outside any pool, which states none.
+ * Whose session it is: a login's, every session of a pool, which starts under the options pinning its role's defaults;
+ * an owner's, one outside any pool, which states none; or a replication connection's, the live leader's walsender of
+ * its database, which states none either.
  */
-type Startup = { readonly kind: "owner" } | { readonly kind: "login"; readonly options: string }
+type Startup =
+	| { readonly kind: "owner" }
+	| { readonly kind: "login"; readonly options: string }
+	| { readonly kind: "replication" }
 
 /**
  * Where one session connects and as whom: the parsed connection (connection/config.ts ParsedConnection), its driver,
@@ -185,12 +198,14 @@ export const controlText = (controls: ControlTexts, control: TxControl): Emitted
 
 /**
  * One query of a pipeline: a statement, on the extended protocol with its own Sync, served under its name or one-shot
- * as the unnamed statement (batch.ts BatchStatement), or a transaction control, a simple Query message.
+ * as the unnamed statement (batch.ts BatchStatement), or a transaction control, a simple Query message; or, on a
+ * replication connection, which reads no other, one simple Query of an emitted text (ReplicationSession).
  */
 export type WireQuery =
 	| PreparedStatement
 	| OneShotStatement
 	| { readonly _tag: "control"; readonly control: TxControl }
+	| { readonly _tag: "simple"; readonly text: EmittedText | ReplicationCommand }
 
 /**
  * What the server answered one query: its result; a result whose rows grizzle's SQL cannot deliver (a NULL cell, or a
@@ -428,6 +443,7 @@ const clientConfig = (
 	client_encoding: "utf8",
 	sslnegotiation: "postgres",
 	...(spec.startup.kind === "login" ? { options: spec.startup.options } : {}),
+	...(spec.startup.kind === "replication" ? { replication: "database" } : {}),
 	pipeline: true,
 	types: rawText,
 	connectionTimeoutMillis: spec.connectTimeoutMs,
@@ -611,7 +627,10 @@ const oneShotQuery = (query: OneShotStatement): PgQueryConfig => ({
 	queryMode: "extended"
 })
 
-const controlQuery = (sql: EmittedText): PgQueryConfig => ({ text: sql, rowMode: "array" })
+const controlQuery = (sql: EmittedText | ReplicationCommand): PgQueryConfig => ({
+	text: sql,
+	rowMode: "array"
+})
 
 /** The rows no taken statement's outcome holds (batch.ts RowIntake). */
 const noRows: OutputRows = outputRows([])
@@ -624,6 +643,8 @@ const queryConfig = (query: WireQuery, controls: ControlTexts): PgQueryConfig =>
 	switch (query._tag) {
 		case "control":
 			return controlQuery(controlText(controls, query.control))
+		case "simple":
+			return controlQuery(query.text)
 		case "prepared":
 			return preparedQuery(query)
 		case "oneShot":
@@ -840,15 +861,17 @@ const sessionClient = (
 const ended = (): void => undefined
 
 /**
- * One session outside any pool (the migration owner's), an owner's, closed with the scope: its Terminate is written and
- * its sockets destroyed at once, nothing awaited, and the session is ended from then on. The attempt is interruptible.
+ * One session outside any pool over `spec`, closed with the scope: its Terminate is written and its sockets destroyed at
+ * once, nothing awaited, and the session is ended from then on. `attach` is handed its client once it is connected and
+ * before the session is returned, so a listener it adds misses nothing the session receives. The attempt is
+ * interruptible.
  */
-export const connectSession = (
-	given: Omit<SessionSpec, "startup">
+const connectOne = (
+	spec: SessionSpec,
+	attach: (client: PgClient) => void
 ): Effect.Effect<Session, ConnectRefusal, Scope.Scope> =>
 	Effect.uninterruptibleMask((restore) =>
 		Effect.gen(function* () {
-			const spec: SessionSpec = { ...given, startup: { kind: "owner" } }
 			const services = yield* Effect.context()
 			const sockets: Array<PgSocket> = []
 			const sessions: Array<Session> = []
@@ -892,9 +915,214 @@ export const connectSession = (
 					session.destroy()
 				})
 			)
+			attach(client)
 			return session
 		})
 	)
+
+/** A client that is handed nothing beyond its session. */
+const attachNothing = (): void => undefined
+
+/**
+ * One session outside any pool (the migration owner's, the live leader's), an owner's, which starts under no options of
+ * a login's, closed with the scope (connectOne).
+ */
+export const connectSession = (
+	given: Omit<SessionSpec, "startup">
+): Effect.Effect<Session, ConnectRefusal, Scope.Scope> =>
+	connectOne({ ...given, startup: { kind: "owner" } }, attachNothing)
+
+/**
+ * What a listening session reports, each in pg's own event, in the order the server sent it: `notified`, the payload of
+ * a notification on a channel it listens on, absent only where pg read none; and `ended`, once, when its connection
+ * ends, lost, ended by the server or destroyed, after which nothing more is notified.
+ */
+export interface ListenHooks {
+	readonly notified: (payload: string | undefined) => void
+	readonly ended: () => void
+}
+
+/**
+ * A listening session outside any pool (adapter/live/listen.ts), the installation's decoder login's, an owner's, which
+ * starts under no login's options, closed with the scope (connectOne), its hooks attached before the session is
+ * returned, so every notification it receives and its end are reported once it LISTENs. A connection the network drops
+ * without a word is found only by the transport's own keepalive (Transport.open), for which grizzle sets no interval.
+ */
+export const connectListener = (
+	given: Omit<SessionSpec, "startup">,
+	hooks: ListenHooks
+): Effect.Effect<Session, ConnectRefusal, Scope.Scope> =>
+	connectOne({ ...given, startup: { kind: "owner" } }, (client) => {
+		client.on("notification", (message) => {
+			hooks.notified(message.payload)
+		})
+		client.once("end", hooks.ended)
+	})
+/** How a query on a replication connection failed: the server refused it, or the session ended under it. */
+export type ReplicationFailure = ServerError | ConnectionLost
+
+/** The failure an answer that is no result reads as on a replication connection. */
+const replicationFailure = (
+	answer: Exclude<Answer, { readonly _tag: "result" | "unreadable" }>
+): ReplicationFailure => {
+	switch (answer._tag) {
+		case "refused":
+			return answer.error
+		case "terminated":
+			return new ConnectionLost({
+				operation: "query",
+				ended: { by: "server", error: answer.error }
+			})
+		case "failed":
+			return new ConnectionLost({ operation: "query", ended: { by: "transport" } })
+	}
+}
+
+/**
+ * The live leader's replication connection (adapter/live/leader.ts): a walsender of the database, which reads only
+ * simple Queries, SQL or a replication command, each sent alone (`simple`); then the one stream START_REPLICATION
+ * opens (`stream`), each CopyData of which is handed to `data` the moment it arrives, as the bytes it carries, and which
+ * ends only in failure, the server's refusal, the session's end, or the server ending the stream; and the replies the
+ * stream takes, each one CopyData (`reply`), written by pg's own writer of one (copyWriterOf).
+ */
+export interface ReplicationSession {
+	readonly simple: (
+		text: EmittedText | ReplicationCommand
+	) => Effect.Effect<OutputRows, ReplicationFailure | UnreadableRows>
+	readonly stream: (
+		start: ReplicationCommand,
+		data: (chunk: Uint8Array) => void
+	) => Effect.Effect<never, ReplicationFailure | ReplicationEnded>
+	readonly reply: (chunk: Uint8Array) => void
+}
+
+/** A simple Query's answer whose rows grizzle cannot read: a NULL cell, or a cell that is no text. */
+export class UnreadableRows extends Data.TaggedError("UnreadableRows")<{
+	readonly command: string
+}> {
+	override get message(): string {
+		return `the answer of ${this.command} on the replication connection holds a cell that is no text`
+	}
+}
+
+/**
+ * The writer of one CopyData message on a client's connection, pg 8.23's `sendCopyFromChunk` (lib/connection.js), which
+ * its types leave out: read once, checked, and bound to the connection; none where pg has no such member.
+ */
+const copyWriterOf = (client: PgClient): ((chunk: Uint8Array) => void) | undefined => {
+	const connection: unknown = client.connection
+	if (!Predicate.hasProperty(connection, "sendCopyFromChunk")) {
+		return undefined
+	}
+	const write: unknown = connection.sendCopyFromChunk
+	return Predicate.isFunction(write)
+		? (chunk) => {
+				Reflect.apply(write, connection, [chunk])
+			}
+		: undefined
+}
+
+/** The bytes a CopyData message carries, as pg 8.23 parses it (pg-protocol copyData's `chunk`). */
+const copyChunk = (message: unknown): Uint8Array | undefined =>
+	Predicate.hasProperty(message, "chunk") && message.chunk instanceof Uint8Array
+		? message.chunk
+		: undefined
+
+/**
+ * A replication session over `client` (ReplicationSession). The stream is pg's own Submittable, which pg makes the
+ * client's active query (client.js _pulseQueryQueue) and hands every CopyData it reads (_handleCopyData), the
+ * CopyBothResponse before them being a message pg reads and leaves to no one; its every other handler is the end of
+ * the stream: an ErrorResponse its refusal, the connection's end its loss, a ReadyForQuery the server's end of it.
+ */
+const replicationOf = (
+	client: PgClient,
+	spec: SessionSpec,
+	write: (chunk: Uint8Array) => void
+): ReplicationSession => ({
+	simple: (text) =>
+		Effect.callback<OutputRows, ReplicationFailure | UnreadableRows>((resume) => {
+			submit(client, spec, { _tag: "simple", text }, (answer) => {
+				switch (answer._tag) {
+					case "result":
+						resume(Effect.succeed(answer.outcome.rows))
+						return
+					case "unreadable":
+						resume(Effect.fail(new UnreadableRows({ command: answer.command })))
+						return
+					case "refused":
+					case "terminated":
+					case "failed":
+						resume(Effect.fail(replicationFailure(answer)))
+				}
+			})
+		}),
+	stream: (start, data) =>
+		Effect.callback<never, ReplicationFailure | ReplicationEnded>((resume) => {
+			const finished = (): void => {
+				resume(Effect.fail(new ReplicationEnded()))
+			}
+			const ignored = (): void => undefined
+			client.query({
+				submit: (connection) => {
+					connection.query(start)
+				},
+				handleCopyData: (message: unknown) => {
+					const chunk = copyChunk(message)
+					if (chunk === undefined) {
+						resume(
+							Effect.fail(new ConnectionLost({ operation: "query", ended: { by: "transport" } }))
+						)
+						return
+					}
+					data(chunk)
+				},
+				handleError: (error: unknown) => {
+					const answer = errorAnswer(spec.driver, error)
+					resume(
+						Effect.fail(
+							answer._tag === "result" || answer._tag === "unreadable"
+								? new ConnectionLost({ operation: "query", ended: { by: "transport" } })
+								: replicationFailure(answer)
+						)
+					)
+				},
+				handleReadyForQuery: finished,
+				handleRowDescription: ignored,
+				handleDataRow: ignored,
+				handleCommandComplete: ignored,
+				handleEmptyQuery: ignored,
+				handlePortalSuspended: ignored,
+				handleCopyInResponse: finished
+			})
+		}),
+	reply: write
+})
+
+/**
+ * The live leader's replication connection, outside any pool: a session of `given`'s role, the decoder login, which
+ * starts as a walsender of its database and states no login's options (Startup), closed with the scope (connectOne).
+ */
+export const connectReplication = (
+	given: Omit<SessionSpec, "startup">
+): Effect.Effect<ReplicationSession, ConnectRefusal, Scope.Scope> => {
+	const spec: SessionSpec = { ...given, startup: { kind: "replication" } }
+	const held: { client: PgClient | undefined } = { client: undefined }
+	return Effect.flatMap(
+		connectOne(spec, (client) => {
+			held.client = client
+		}),
+		() => {
+			const client = held.client
+			if (client === undefined) {
+				return Effect.die(defect("connectOne hands its client to attach before it returns"))
+			}
+			const write = copyWriterOf(client)
+			return write === undefined
+				? Effect.fail(new DriverRefused({ said: "the driver's connection writes no CopyData" }))
+				: Effect.succeed(replicationOf(client, spec, write))
+		}
+	)
+}
 
 /**
  * What one lease's ask for a client came to, once pg answered it: pg's client, held for the lease with its permit; or
@@ -1002,9 +1230,12 @@ const answerAttempt =
 		owner.permitBack()
 	}
 
+/** Where a login's sessions connect: the driver, the transport, the database, the login role, the password and the connect timeout. */
+export type LoginConnection = Omit<SessionSpec, "startup" | "controls">
+
 interface PoolConfig {
-	/** The driver, the transport, the database, the derived login role, the password and the connect timeout. */
-	readonly connection: Omit<SessionSpec, "startup" | "controls">
+	/** Where each of the pool's sessions connects. */
+	readonly connection: LoginConnection
 	/**
 	 * What every session of the login sends that no program states: the startup options pinning its role's defaults and
 	 * its transactions' control texts, its served file's (served/forms.ts ServedSession).

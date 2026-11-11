@@ -13,6 +13,8 @@ import {
 } from "#adapter/errors/execution.ts"
 import type { CallInputRefused } from "#adapter/errors/failures.ts"
 import { callErrorOf } from "#adapter/live/call-error.ts"
+import { routeKeys } from "#adapter/live/router.ts"
+import type { LiveAnswer } from "#adapter/live/subscriptions.ts"
 import { applyOutcome } from "#adapter/outcomes/index.ts"
 import { windowIntake, windowStatement } from "#adapter/page/execute.ts"
 import { windowCall } from "#adapter/page/window.ts"
@@ -48,6 +50,8 @@ import { takenRows } from "#adapter/wire/batch.ts"
 import {
 	type CallError,
 	callError,
+	diffList,
+	diffSet,
 	fold,
 	type Keyed,
 	type KeyedList,
@@ -55,7 +59,6 @@ import {
 	type ListEvent,
 	opening,
 	type ReadShape,
-	type ReadState,
 	type Refreshed,
 	type SetEvent,
 	type WriteEvent,
@@ -215,49 +218,74 @@ const parseWindow =
 		})
 
 /**
- * How a read of shape S answers, beside how its events are made (reader/stream.ts ShapeEvents): its `end`, and its
- * events folded from before its reset (live/fold.ts), which once settles.
+ * How a read of shape S answers, beside how its events are made (reader/stream.ts ShapeEvents): its `end`, its events
+ * folded from before its reset (live/fold.ts), which once settles, and the least change between two of its values, which
+ * a live read sends after each re-run (live/subscriptions.ts LiveAnswer).
  */
-interface ShapeAnswer<S extends ReadShape, E> extends ShapeEvents<E> {
-	readonly end: E
-	readonly settle: (events: ReadonlyArray<E>) => ReadState<S, DecodedRow>
-}
+interface ShapeAnswer<S extends ReadShape, E>
+	extends ShapeEvents<E>, LiveAnswer<S, DecodedRow, E> {}
 
 /** A set read's answer. */
 const setAnswer: ShapeAnswer<"set", SetEvent<DecodedRow>> = {
 	...setEvents,
 	end: { kind: "end" },
-	settle: (events) => fold(opening<"set", DecodedRow>("set"), events)
+	settle: (events) => fold(opening<"set", DecodedRow>("set"), events),
+	diff: diffSet
 }
 
 /** An ordered read's answer. */
 const listAnswer: ShapeAnswer<"list", ListEvent<DecodedRow>> = {
 	...listEvents,
 	end: { kind: "end" },
-	settle: (events) => fold(opening<"list", DecodedRow>("list"), events)
+	settle: (events) => fold(opening<"list", DecodedRow>("list"), events),
+	diff: diffList
 }
 
 /**
- * A read's calls of shape S (see the header): its input parsed by `parse`, a refusal of which is its one error event;
- * watch its events then `end`; once its events settled to ready, the read's value, or the error that ended them.
+ * A read's calls of shape S (see the header): its input parsed by `parse`, a refusal of which is its one error event
+ * then `end`; once its events settled to ready, the read's value, or the error that ended them. Its watch is live
+ * (live/subscriptions.ts): registered on the layer's registry under the routing keys its served footprint binds with
+ * the call's inputs (live/router.ts routeKeys), before its first run, then that run's events, then each change of its
+ * value after its ready, until the Db's token expires, its source is lost, a run fails, or its consumer stops.
  */
 const readCalls = <S extends ReadShape, E>(
 	ctx: ServedDbContext,
+	read: LoadedRead,
 	answer: ShapeAnswer<S, E>,
 	parse: (input: unknown) => Effect.Effect<ParsedRead, ReadError>
 ): {
 	readonly once: (input: unknown) => Effect.Effect<Keyed<S, DecodedRow>, CallError>
 	readonly watch: (input: unknown) => Stream.Stream<E>
 } => {
+	const refused = (failure: ReadError): Stream.Stream<E> =>
+		Stream.make(answer.error(callErrorOf(failure)))
 	const events = (input: unknown): Stream.Stream<E> =>
 		Stream.unwrap(
 			Effect.match(parse(input), {
-				onFailure: (failure) => Stream.make(answer.error(callErrorOf(failure))),
+				onFailure: refused,
 				onSuccess: (parsed) => readStream(ctx, parsed.call, answer)
 			})
 		)
+	const live = (parsed: ParsedRead): Stream.Stream<E> =>
+		Stream.unwrap(
+			Effect.map(
+				ctx.subscriptions.register({
+					read: readStream(ctx, parsed.call, answer),
+					answer,
+					keys: routeKeys(read.footprint, read.codecs, parsed.inputs),
+					expiry: ctx.expiry
+				}),
+				(registered) => Stream.concat(registered.initial, registered.changes)
+			)
+		)
 	return {
-		watch: (input) => Stream.concat(events(input), Stream.make(answer.end)),
+		watch: (input) =>
+			Stream.unwrap(
+				Effect.match(parse(input), {
+					onFailure: (failure) => Stream.concat(refused(failure), Stream.make(answer.end)),
+					onSuccess: live
+				})
+			),
 		once: (input) =>
 			Effect.flatMap(Stream.runCollect(events(input)), (collected) => {
 				const state = answer.settle(collected)
@@ -282,9 +310,9 @@ const readMemberCalls = (
 ): ServedCalls => {
 	switch (read.key.kind) {
 		case "set":
-			return { shape: "set", ...readCalls(ctx, setAnswer, parse) }
+			return { shape: "set", ...readCalls(ctx, read, setAnswer, parse) }
 		case "list":
-			return { shape: "list", ...readCalls(ctx, listAnswer, parse) }
+			return { shape: "list", ...readCalls(ctx, read, listAnswer, parse) }
 	}
 }
 

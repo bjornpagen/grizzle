@@ -14,6 +14,7 @@ import {
 	HandleReleased,
 	InputTooLarge,
 	LawRejected,
+	type LiveSourceMissing,
 	CallInputRefused,
 	PutTargetConflict,
 	RoleOutsideLayers,
@@ -63,6 +64,7 @@ export type OpenReason =
 	| DbConfigRefused
 	| ConnectionEnvironmentRefused
 	| ServedLoginRefused
+	| LiveSourceMissing
 	| RoleOutsideLayers
 	| TokenMalformed
 	| TokenError
@@ -82,6 +84,7 @@ const openStage = (reason: OpenReason): OpenStage => {
 		case "DbConfigRefused":
 		case "ConnectionEnvironmentRefused":
 		case "ServedLoginRefused":
+		case "LiveSourceMissing":
 			return "config"
 		case "RoleOutsideLayers":
 			return "role"

@@ -40,6 +40,7 @@ const openReading: Reading<OpenReason> = {
 	DbConfigRefused: failed,
 	ConnectionEnvironmentRefused: failed,
 	ServedLoginRefused: failed,
+	LiveSourceMissing: failed,
 	RoleOutsideLayers: route,
 	TokenMalformed: tokenRefused,
 	TokenError: tokenRefused,

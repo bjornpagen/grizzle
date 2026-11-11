@@ -22,19 +22,28 @@ import {
 	RoleOutsideLayers,
 	type SettingFault
 } from "#adapter/errors/failures.ts"
+import { liveSourceSessions } from "#adapter/live/layer.ts"
+import type { Subscriptions } from "#adapter/live/subscriptions.ts"
 import { type LoadedLogin, type LoadedRole, loadServed } from "#adapter/served/load.ts"
 import type {
 	ConnectionPool,
 	DbConfigShape,
 	DbLayerOf,
 	DbLayerService,
+	LiveOf,
 	PoolBounds,
 	ServedLogin,
 	Verify
 } from "#adapter/types/layer.ts"
-import { makePool, type SessionPool } from "#adapter/wire/session.ts"
+import { type LoginConnection, makePool, type SessionPool } from "#adapter/wire/session.ts"
 import type { AnyLogin, Invariant } from "#compiler/plan/common.ts"
-import { SourceLoc, malformedDescription, nominal, readCaller } from "#compiler/plan/runtime.ts"
+import {
+	defect,
+	SourceLoc,
+	malformedDescription,
+	nominal,
+	readCaller
+} from "#compiler/plan/runtime.ts"
 import type { ServedFile } from "#compiler/plan/serve.ts"
 
 /**
@@ -72,6 +81,8 @@ export interface ServedSessions {
 	/** The one pool of the login's role. */
 	readonly pool: SessionPool
 	readonly token: TokenCheck
+	/** The layer's live reads' registry, which every watch of its Dbs registers on (live/subscriptions.ts). */
+	readonly subscriptions: Subscriptions
 }
 
 const keyPrefix = "@bjornpagen/grizzle/ServedLayer/"
@@ -313,9 +324,9 @@ const installedLogin = (
  * Builds the service in the current scope (the layer's) from a parsed config: the served login loaded (see the header),
  * a login a role of which reads a context refused without a verify, then the login's pool.
  */
-const makeServedSessions = Effect.fn("makeServedSessions")(function* (
+const makeServedSessions = Effect.fn("makeServedSessions")(function* <L>(
 	config: ParsedDbConfig
-): Effect.fn.Return<ServedSessions, OpenError, Scope.Scope> {
+): Effect.fn.Return<ServedSessions, OpenError, Scope.Scope | LiveOf<L>> {
 	const loaded = yield* Effect.fromResult(loadServed(config.login.file, config.login.name))
 	const login = yield* Effect.fromResult(
 		Result.mapError(installedLogin(config, loaded), refusedConfig)
@@ -330,27 +341,50 @@ const makeServedSessions = Effect.fn("makeServedSessions")(function* (
 			})
 		)
 	}
+	const connection: LoginConnection = {
+		driver: config.driver,
+		transport: config.transport,
+		database: config.database,
+		role: login.role,
+		password: config.password,
+		connectTimeoutMs: config.connectTimeoutMs
+	}
 	const pool = yield* makePool({
-		connection: {
-			driver: config.driver,
-			transport: config.transport,
-			database: config.database,
-			role: login.role,
-			password: config.password,
-			connectTimeoutMs: config.connectTimeoutMs
-		},
+		connection,
 		session: login.session,
 		bounds: config.pool,
 		attachPool: config.attachPool
 	})
-	return { login, pool, token: config.token }
+	const subscriptions = yield* liveSubscriptions<L>(login)
+	return { login, pool, token: config.token, subscriptions }
 })
+
+/**
+ * The registry the layer's watches register on: its installation's live source's, which the layer requires where its
+ * login serves a read (types/layer.ts LiveOf) and finds by its base (live/layer.ts liveSourceSessions); a login that
+ * serves none registers no watch.
+ */
+const liveSubscriptions = <L>(
+	login: LoadedLogin
+): Effect.Effect<Subscriptions, OpenError, LiveOf<L>> => {
+	switch (login.live.kind) {
+		case "none":
+			return Effect.succeed(readFree)
+		case "source":
+			return Effect.map(liveSourceSessions<LiveOf<L>>(login.base), (live) => live.subscriptions)
+	}
+}
+
+/** The registry of a login that serves no read, which no watch of its Dbs registers on. */
+const readFree: Subscriptions = {
+	register: () => Effect.die(defect("a login that serves no read registers no live read"))
+}
 
 /**
  * The process environment the layer's sessions would start in, read where pg reads it, which sets no startup variable
  * that reaches a login's session (connection/environment.ts): one it sets is OpenError{stage: "config"}.
  */
-const loginEnvironment: Effect.Effect<void, OpenError> = Effect.flatMap(
+export const loginEnvironment: Effect.Effect<void, OpenError> = Effect.flatMap(
 	Effect.sync(() => startupVariableSet("login")),
 	Option.match({
 		onNone: () => Effect.void,
@@ -368,7 +402,7 @@ const loginEnvironment: Effect.Effect<void, OpenError> = Effect.flatMap(
  */
 export const servedLayer = <const L extends AnyLogin>(
 	config: DbConfigShape<L>
-): Layer.Layer<DbLayerOf<L>, OpenError> => {
+): Layer.Layer<DbLayerOf<L>, OpenError, LiveOf<L>> => {
 	const read = parseServedConfig(config)
 	return Layer.unwrap(
 		Effect.gen(function* () {
@@ -376,7 +410,7 @@ export const servedLayer = <const L extends AnyLogin>(
 			yield* loginEnvironment
 			return Layer.effect(
 				sessionsKey<DbLayerOf<L>>(parsed.login.base, parsed.login.name),
-				makeServedSessions(parsed)
+				makeServedSessions<L>(parsed)
 			)
 		})
 	)

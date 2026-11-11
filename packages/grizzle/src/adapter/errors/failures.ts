@@ -278,6 +278,7 @@ export type SettingRule =
 	| { readonly kind: "readableCertificates" }
 	| { readonly kind: "password" }
 	| { readonly kind: "servedLogin" }
+	| { readonly kind: "liveLogin" }
 	| { readonly kind: "builtLogin" }
 	| { readonly kind: "snapshot" }
 	| { readonly kind: "function" }
@@ -324,6 +325,8 @@ const ruleText = (rule: SettingRule): string => {
 			return "must be a Redacted or an Effect yielding one, evaluated for each connection attempt"
 		case "servedLogin":
 			return "must be a served login built by served(...)"
+		case "liveLogin":
+			return "must be a served login built by served(...) of a login that serves a read"
 		case "builtLogin":
 			return "must be a login built by login(...)"
 		case "snapshot":
@@ -466,6 +469,60 @@ export class CatalogRowRefused extends Data.TaggedError("CatalogRowRefused")<{
 }> {
 	override get message(): string {
 		return `the catalog's answer is not ${this.what}`
+	}
+}
+
+/**
+ * A DbLayer of a login that serves a read was built where no live source of its installation is provided
+ * (LiveSource.layer), which its watches register on: the reason of an OpenError at stage `config`. The type of
+ * DbLayer.make states the requirement, so only a JavaScript caller meets it.
+ */
+export class LiveSourceMissing extends Data.TaggedError("LiveSourceMissing")<{
+	readonly base: string
+}> {
+	override get message(): string {
+		return `no live source of the installation of ${this.base} is provided: provide LiveSource.layer for it`
+	}
+}
+
+/**
+ * The layer's listening session ended, lost, ended by the server or closed, so no change after it reaches the layer's
+ * live reads, each of which ends with it: a call watching again opens another.
+ */
+export class ListenerLost extends Data.TaggedError("ListenerLost") {
+	override get message(): string {
+		return "the session the layer's live reads listen on ended"
+	}
+}
+
+/**
+ * The installation's replication slot is invalidated, PostgreSQL having dropped the WAL it needs
+ * (max_slot_wal_keep_size), so changes committed since can no longer be decoded: every live read ends with it, and none
+ * registers until the slot is made again.
+ */
+export class SourceInvalidated extends Data.TaggedError("SourceInvalidated") {
+	override get message(): string {
+		return "the installation's replication slot is invalidated, so its changes can no longer be decoded"
+	}
+}
+
+/**
+ * The installation's replication slot does not stand: its leader makes it, so a live read registers once it stands, and
+ * one that registers before is refused, for its caller to call again.
+ */
+export class SlotAbsent extends Data.TaggedError("SlotAbsent") {
+	override get message(): string {
+		return "the installation's replication slot does not stand yet: its live leader makes it"
+	}
+}
+
+/**
+ * The server ended a replication stream: its COPY ended, its ReadyForQuery came, and no change after reaches the live
+ * leader that read it.
+ */
+export class ReplicationEnded extends Data.TaggedError("ReplicationEnded") {
+	override get message(): string {
+		return "the server ended the installation's replication stream"
 	}
 }
 

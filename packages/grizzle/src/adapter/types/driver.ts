@@ -96,6 +96,8 @@ export interface PgClientConfig {
 	readonly client_encoding: string
 	readonly sslnegotiation: "postgres"
 	readonly options?: string
+	/** A replication connection's mode, the live leader's (wire/session.ts connectReplication): a walsender of its database. */
+	readonly replication?: "database"
 	readonly pipeline: true
 	readonly types: { readonly getTypeParser: () => (text: string) => string }
 	readonly connectionTimeoutMillis: number

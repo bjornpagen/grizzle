@@ -69,6 +69,7 @@ export {
 	type ServedEntryKey,
 	type ServedFile,
 	type ServedFootprint,
+	type ServedLive,
 	type ServedKey,
 	type ServedKeyLaws,
 	type ServedMember,
