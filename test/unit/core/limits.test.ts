@@ -24,7 +24,7 @@
 import { describe, it } from "@effect/vitest"
 import { type Case, exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
-import { element, type Gen, int, oneOf } from "@grizzle/testing/gen"
+import { element, type Gen, int, weighted } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Effect, Formatter, Record as Rec } from "effect"
 import {
@@ -141,7 +141,10 @@ describe("PostgreSQL's integers", () => {
 			exhaust(
 				{
 					suite: "unit/core/limits-roster",
-					generator: oneOf([int(-8, 8), int(rosterMaxCodes.value - 8, rosterMaxCodes.value + 8)]),
+					generator: weighted([
+						[1, int(-8, 8)],
+						[1, int(rosterMaxCodes.value - 8, rosterMaxCodes.value + 8)]
+					]),
 					literal: Formatter.format,
 					limit: 34,
 					box: "every code within eight of the first code and of rosterMaxCodes",

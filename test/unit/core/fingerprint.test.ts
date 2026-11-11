@@ -29,9 +29,9 @@ import {
 	type Gen,
 	int,
 	map,
-	oneOf,
 	string,
-	uniqueArray
+	uniqueArray,
+	weighted
 } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
@@ -45,10 +45,10 @@ import { assert, defined, refused, succeeded } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { isList } from "#test/support/list.ts"
 
-const leaf = oneOf<string | number | boolean>([
-	string(codePoint(0x20, 0x7e), { min: 0, max: 4 }),
-	int(-(2 ** 31), 2 ** 31 - 1),
-	boolean
+const leaf = weighted<string | number | boolean>([
+	[1, string(codePoint(0x20, 0x7e), { min: 0, max: 4 })],
+	[1, int(-(2 ** 31), 2 ** 31 - 1)],
+	[1, boolean]
 ])
 const sourceLocGen: Gen<{ readonly label: string; readonly path: Path; readonly line: number }> = (
 	source

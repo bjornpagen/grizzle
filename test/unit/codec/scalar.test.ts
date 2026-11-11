@@ -1,3 +1,25 @@
+/**
+ * Text-mode scalar codecs: each carrier's written text, admission at the encoder, and the null ban; the strict reading of
+ * PostgreSQL's output text (the kernel's, test/support/kernel/strict.ts), and the library's trusting conversion agreeing
+ * with it on every text it admits.
+ *
+ * Each carrier's output form is restated here as an oracle from PostgreSQL's output functions (int2out/int4out/int8out,
+ * numeric_out at a typmod's display scale, money::numeric at scale 2, boolout, range_out's half-open form), each text's
+ * cell text the canonical text of the value it spells, which the encoder writes, and each refusal
+ * the codec vocabulary names for a value it meets (README "Errors and outcomes") is planted per carrier, beside the null ban every
+ * encoder holds.
+ *
+ * A Live value and the text PostgreSQL's output function writes for it.
+ *
+ * Oracles: the kernel's strict reading of PostgreSQL's output text (test/support/kernel/strict.ts) for each carrier's
+ * forms; int8out's and range_out's grammars as reference RegExps; a vector's round trip.
+ *
+ * Features: every form each carrier reaches (FormFeature); an integer's syntax and range refusals beside an int8; a
+ * span's syntax refusal beside a span; a vector in the cosine domain, one lifted into it, and a subnormal component.
+ *
+ * Plants (~/.cache/grizzle-release/BR06/plants): codec-span-empty-admitted (a span whose start is its end admitted)
+ * and codec-int8-leading-zero (the strict reading admitting an integer's leading zero).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -37,19 +59,6 @@ import { asVector } from "#test/unit/codec/values.ts"
 
 import { regex } from "arkregex"
 import { paramText } from "#test/support/wire.ts"
-/**
- * Text-mode scalar codecs: each carrier's written text, admission at the encoder, and the null ban; the strict reading of
- * PostgreSQL's output text (the kernel's, test/support/kernel/strict.ts), and the library's trusting conversion agreeing
- * with it on every text it admits.
- *
- * Each carrier's output form is restated here as an oracle from PostgreSQL's output functions (int2out/int4out/int8out,
- * numeric_out at a typmod's display scale, money::numeric at scale 2, boolout, range_out's half-open form), each text's
- * cell text the canonical text of the value it spells, which the encoder writes, and each refusal
- * the codec vocabulary names for a value it meets (README "Errors and outcomes") is planted per carrier, beside the null ban every
- * encoder holds.
- *
- * A Live value and the text PostgreSQL's output function writes for it.
- */
 interface Written {
 	readonly value: CarrierHost[Carrier]
 	readonly text: string
