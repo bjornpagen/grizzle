@@ -42,9 +42,8 @@ import {
 	type StoredRelationName
 } from "#compiler/core/ids.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
-import { codeOf, draftCodebook, firstCodebook, keptRosters, noRenames } from "#compiler/ir/codes.ts"
+import { codeOf } from "#compiler/ir/codes.ts"
 import type { LawField } from "#compiler/ir/law.ts"
-import { Roster } from "#compiler/ir/scalar.ts"
 import { strataAt } from "#compiler/ir/stratum.ts"
 import type { ConstraintLaw, ConstraintLawOf, DomainUse } from "#compiler/laws/model/model.ts"
 import {
@@ -52,24 +51,20 @@ import {
 	type SchemaArtifacts,
 	schemaArtifacts
 } from "#compiler/program/schema.ts"
-import { Compute } from "#compiler/public/compute.ts"
-import { bits, closedId, contract, generated, pg, uuid } from "#compiler/public/fields.ts"
-import { check, closed, relation, schema } from "#compiler/public/schema.ts"
-import { str } from "#compiler/public/text.ts"
 import { type ConcurrentChangeTag, changeTag, keyTag } from "#compiler/runtime/write/refusal.ts"
 import type { UniqueAbort, WriteStep } from "#compiler/runtime/write/steps.ts"
 import type { Refuser, StatementAt } from "#compiler/runtime/write/witness.ts"
-import { own, rostersOf } from "#compiler/schema/own.ts"
+import { own } from "#compiler/schema/own.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
 import type { KeyHost, Law, RefusingObject, Witness } from "#compiler/types/changeset/changeset.ts"
-import { Clubs } from "#test/pg/laws/outcomes/schemas.ts"
 import { assert, defined, nonEmpty, succeeded, unorderedEqual } from "#test/support/assert.ts"
-import { testArtifacts, testCompile } from "#test/support/compile.ts"
-import * as W from "#test/support/fixtures/api/work.ts"
 import { wild } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { caseSketchGen, resolveCase } from "#test/support/oracle/public/generate.ts"
+import { type LawFeature, lawFeatures, lawLevelGen } from "#test/support/oracle/public/laws.ts"
 import { encodeRefusalDetail } from "#test/support/oracle/write/detail.ts"
 import { refusedLaws } from "#test/support/refused.ts"
+import { type DrawnSchema, drawnSchema } from "#test/support/served-login.ts"
 import { nothingReported, type Reported, serverError } from "#test/support/server-error.ts"
 
 /**
@@ -77,9 +72,9 @@ import { nothingReported, type Reported, serverError } from "#test/support/serve
  * installation's violation classifier, packages/grizzle/src/adapter/witness), read only from the fields grizzle controls,
  * never from the server's prose.
  *
- * Over three installations (the worked example's Work; Clubs, whose key holds a code, a bigint and a refined text; and a
- * schema whose roster lost a handle, so its codes hold a hole, whose two contracts of one definition share a domain),
- * a drawn ErrorResponse: a SQLSTATE grizzle branches on or another; a constraint the installation installs, under its
+ * Over generated installations, a public schema (test/support/oracle/public) extended by its law level (laws.ts: a roster
+ * whose codes hold holes, a code key, a set, checked contracts that may share one domain, a generated column, a table
+ * CHECK) and installed under the level's codes, a drawn ErrorResponse: a SQLSTATE grizzle branches on or another; a constraint the installation installs, under its
  * table or domain, a law's identity, a name of no installation, or none; the schema it reports, the installation's,
  * another or none; the table or data type, the constraint's owner, another of the installation, another domain or
  * none; and a DETAIL grizzle's refusal or concurrent change encodes, prose, or none. It is raised at a drawn origin of a
@@ -90,70 +85,29 @@ import { nothingReported, type Reported, serverError } from "#test/support/serve
  * constraint list, its laws and its rosters: SERIALIZABLE's 40001 and 40P01, and a 23505 or 23P01 on a constraint the
  * statement lists as an abort, are TransientFailure; a 40Z01 whose DETAIL names a concurrent change at one of the
  * installation's stored relations is that change's TransientFailure, and one at any other relation (a closed relation
- * of the installation, another installation's relation, a name of none) is no outcome the installation reads; a 42Z01
+ * of the installation, a name of none) is no outcome the installation reads; a 42Z01
  * names the entry outside which a fact fell where its constraint is a query entry the installation's role writes
  * through, and is no outcome otherwise (a schema's installation writes through none); a 23514 on one of the
  * installation's roster domains
  * is grizzle's own defect; a 23000 on a law's identity with grizzle's DETAIL rejects that law at the refused key, decoded
  * through its columns (a uuid as its text, an integer as its number, a closed id's code as its handle, a text as itself);
  * any other class 23 violation reported in the installation's schema rejects the laws its constraint maps to under the
- * owner it reports, a shared domain's (Clubs' code refinement types Club's and Member's code, each its own law)
- * narrowed to the columns of the relations the statement writes, the host asked about those columns alone, the one law
+ * owner it reports, a shared domain's (a text pattern's, or one definition's contracts', typing several columns, each
+ * its own law) narrowed to the columns of the relations the statement writes, the host asked about those columns alone, the one law
  * decided and several `some`, where the host decides none; and everything else is ExecutionFailure carrying the server's
  * report as given. Which constraint maps to
  * which law is the installation's (the law families and the write oracle hold it to PostgreSQL's refusals).
  */
 
-/** A schema whose roster Kind lost a handle, so its codes hold a hole, and whose two contracts share one domain. */
-const Kind = closed("Kind", ["leaf", "branch", "root"])
-const Seats = contract("Seats", pg.integer, (x) => x.le(500))
-const Count = contract("Count", pg.integer, (x) => x.ge(0))
-const Tally = contract("Tally", pg.integer, (x) => x.ge(0))
-const Node = relation.generated(
-	"Node",
-	{
-		id: uuid,
-		kind: closedId(Kind),
-		marks: bits(Kind),
-		seats: Seats,
-		count: Count,
-		label: str.regex("^.{1,20}$", "su")
-	},
-	["id"],
-	(r) => ({ spare: generated(pg.integer, Compute.base(r.seats)) })
-)
-const Tag = relation("Tag", { id: uuid, tally: Tally }, ["id"])
-const Rosters = schema("RosterDomains", { Kind, Node, Tag }, [
-	check("SeatsPositive", Node, (x) => x.gt(x.seats, 0))
-])
-const rostersOwned = succeeded(own(defined(schemaDescOf(Rosters), "Rosters is a built schema")))
-const rostersArtifacts = succeeded(
-	schemaArtifacts(succeeded(parseSchemaInput(Rosters)), {
-		codes: succeeded(
-			draftCodebook(
-				keptRosters(
-					firstCodebook([
-						Roster.of(defined(rostersOf(rostersOwned)[0], "Rosters declares Kind").closed, [
-							"leaf",
-							"gone",
-							"branch"
-						])
-					])
-				),
-				noRenames,
-				rostersOf(rostersOwned)
+/** The artifacts of a drawn installation: its schema extended by its law level, under the level's codes. */
+const artifactsOf = (drawn: DrawnSchema): SchemaArtifacts =>
+	succeeded(
+		schemaArtifacts(succeeded(parseSchemaInput(drawn.laws.schema)), {
+			codes: drawn.laws.codes(
+				succeeded(own(defined(schemaDescOf(drawn.laws.schema), "the extended schema is built")))
 			)
-		)
-	})
-)
-
-type InstallationName = "Work" | "Clubs" | "RosterDomains"
-
-const installations: Readonly<Record<InstallationName, SchemaArtifacts>> = {
-	Work: succeeded(testArtifacts(W.Work, testCompile)),
-	Clubs: succeeded(testArtifacts(Clubs, testCompile)),
-	RosterDomains: rostersArtifacts
-}
+		})
+	)
 
 /** A key field's text as a refusal's DETAIL carries it, and the value the witness holds for it. */
 interface KeyValue {
@@ -288,11 +242,7 @@ type DetailSketch =
  * The relation a concurrent change's DETAIL names: a stored relation of the installation, which a write statement
  * raises one at, or another, which none of the installation's statements does.
  */
-type ChangeAt =
-	| "a stored relation"
-	| "a closed relation"
-	| "another installation's relation"
-	| "a name of no installation"
+type ChangeAt = "a stored relation" | "a closed relation" | "a name of no installation"
 
 /** The reported constraint. */
 type ConstraintSketch =
@@ -311,7 +261,7 @@ type SchemaSketch = "the installation's" | "another" | "none"
 type OwnerSketch =
 	| "the constraint's own"
 	| "another table of the installation"
-	| "another installation's domain"
+	| "a domain the installation lacks"
 	| "a bits domain at a width the installation lacks"
 	| "none"
 
@@ -319,7 +269,6 @@ type OwnerSketch =
 type ColumnSketch = "a generated column of the table" | "another column of the table" | "none"
 
 interface ReportSketch {
-	readonly installation: InstallationName
 	readonly sqlstate: string
 	readonly constraint: ConstraintSketch
 	readonly schema: SchemaSketch
@@ -409,7 +358,7 @@ const schemaGen: Gen<SchemaSketch> = weighted<SchemaSketch>([
 const ownerGen: Gen<OwnerSketch> = weighted<OwnerSketch>([
 	[6, constant("the constraint's own")],
 	[1, constant("another table of the installation")],
-	[1, constant("another installation's domain")],
+	[1, constant("a domain the installation lacks")],
 	[1, constant("a bits domain at a width the installation lacks")],
 	[1, constant("none")]
 ])
@@ -440,7 +389,6 @@ const changeGen: Gen<DetailSketch> = (inner) => ({
 		weighted<ChangeAt>([
 			[5, constant("a stored relation")],
 			[1, constant("a closed relation")],
-			[1, constant("another installation's relation")],
 			[1, constant("a name of no installation")]
 		])
 	)
@@ -460,8 +408,6 @@ const detailGen: Gen<DetailSketch> = oneOf<DetailSketch>([
 	changeGen
 ])
 
-const installationGen = element<InstallationName>(["Work", "Clubs", "RosterDomains"])
-
 /**
  * A report: any combination of its fields; or one shaped as a kind of report grizzle's statements meet, a native
  * violation, a write statement's refusal, a concurrent change or a unique abort, each field still drawn where the shape
@@ -471,7 +417,6 @@ const reportGen: Gen<ReportSketch> = weighted<ReportSketch>([
 	[
 		4,
 		(source) => ({
-			installation: source.draw(installationGen),
 			sqlstate: source.draw(element(sqlstateDictionary)),
 			constraint: source.draw(constraintGen),
 			schema: source.draw(schemaGen),
@@ -484,7 +429,6 @@ const reportGen: Gen<ReportSketch> = weighted<ReportSketch>([
 	[
 		2,
 		(source) => ({
-			installation: source.draw(installationGen),
 			sqlstate: sqlstates.notNullViolation,
 			constraint: { kind: "none" },
 			schema: source.draw(element<SchemaSketch>(["the installation's", "another"])),
@@ -497,7 +441,6 @@ const reportGen: Gen<ReportSketch> = weighted<ReportSketch>([
 	[
 		3,
 		(source) => ({
-			installation: source.draw(installationGen),
 			sqlstate: source.draw(
 				element([
 					sqlstates.uniqueViolation,
@@ -517,7 +460,6 @@ const reportGen: Gen<ReportSketch> = weighted<ReportSketch>([
 	[
 		2,
 		(source) => ({
-			installation: source.draw(installationGen),
 			sqlstate: sqlstates.integrityConstraintViolation,
 			constraint: { kind: "a law's identity", pick: source.draw(pick) },
 			schema: source.draw(element<SchemaSketch>(["the installation's", "none"])),
@@ -530,7 +472,6 @@ const reportGen: Gen<ReportSketch> = weighted<ReportSketch>([
 	[
 		1,
 		(source) => ({
-			installation: source.draw(installationGen),
 			sqlstate: sqlstates.grizzleConcurrentChange,
 			constraint: source.draw(constraintGen),
 			schema: source.draw(schemaGen),
@@ -543,7 +484,6 @@ const reportGen: Gen<ReportSketch> = weighted<ReportSketch>([
 	[
 		1,
 		(source) => ({
-			installation: source.draw(installationGen),
 			sqlstate: source.draw(element([sqlstates.uniqueViolation, sqlstates.exclusionViolation])),
 			constraint: { kind: "an installed constraint", pick: source.draw(pick) },
 			schema: source.draw(schemaGen),
@@ -726,6 +666,7 @@ const reasonOf = (
 })
 
 type WitnessFeature =
+	| LawFeature
 	| "rejected under a table constraint"
 	| "rejected under a domain constraint"
 	| "a shared domain narrowed by the relations written"
@@ -814,26 +755,14 @@ describe("a server error at a write", () => {
 				explore(
 					{
 						suite: "unit/adapter/witness",
-						draw: drawn((source) => {
-							const sketch = source.draw(reportGen)
-							const artifacts = installations[sketch.installation]
-							const relations = [...artifacts.derived.schema.relations.values()]
-							const refused =
-								sketch.detail.kind === "a refusal"
-									? defined(relations[sketch.detail.relation % relations.length], "a relation")
-									: undefined
-							/** The refused key's values, drawn for the relation's primary fields. */
-							const key =
-								refused === undefined
-									? []
-									: Arr.map(refused.primaryFields, (field) => ({
-											field: field.name,
-											value: source.draw(
-												defined(keyValueGen(artifacts, field), "a key carrier the suite draws")
-											)
-										}))
-							return { sketch, key }
-						}),
+						draw: drawn(
+							(source) =>
+								[
+									source.draw(caseSketchGen),
+									source.draw(lawLevelGen),
+									source.draw(reportGen)
+								] as const
+						),
 						literal: Formatter.format,
 						oracle: {
 							kind: "specification",
@@ -866,8 +795,12 @@ describe("a server error at a write", () => {
 								"execution: another class",
 								"execution: a bits domain the installation lacks",
 								"execution: a concurrent change at a closed relation",
-								"execution: a concurrent change at another installation's relation",
-								"execution: a concurrent change at a name of no installation"
+								"execution: a concurrent change at a name of no installation",
+								"a roster with a hole",
+								"a generated column",
+								"a table CHECK",
+								"contracts sharing one domain",
+								"a code key"
 							],
 							{ cases: 3000, sense: notesOnly }
 						),
@@ -878,9 +811,34 @@ describe("a server error at a write", () => {
 						steerEvery: 16,
 						caseHang
 					},
-					({ sketch, key }, k) =>
+					([caseSketch, level, sketch], k) =>
 						Effect.sync(() => {
-							const artifacts = installations[sketch.installation]
+							const artifacts = artifactsOf(drawnSchema(k.draw(resolveCase(caseSketch)), level))
+							k.noteAll(lawFeatures(level))
+							/**
+							 * The relations a refusal's DETAIL may name: each whose key every field of carries a value the suite
+							 * draws, the level's holder and counter among them.
+							 */
+							const refusable = nonEmpty(
+								Arr.filter([...artifacts.derived.schema.relations.values()], (r) =>
+									Arr.every(r.primaryFields, (f) => keyValueGen(artifacts, f) !== undefined)
+								),
+								"the relations a refusal names"
+							)
+							const refused =
+								sketch.detail.kind === "a refusal"
+									? defined(refusable[sketch.detail.relation % refusable.length], "a relation")
+									: undefined
+							/** The refused key's values, drawn for the relation's primary fields. */
+							const key =
+								refused === undefined
+									? []
+									: Arr.map(refused.primaryFields, (field) => ({
+											field: field.name,
+											value: k.draw(
+												defined(keyValueGen(artifacts, field), "a key carrier the suite draws")
+											)
+										}))
 							const names = artifacts.names
 							const schemaName = names.schema
 							const stored = [...artifacts.derived.schema.relations.values()]
@@ -901,29 +859,13 @@ describe("a server error at a write", () => {
 												"the installation's closed relations"
 											)
 										)
-									case "another installation's relation":
-										return among(
-											nonEmpty(
-												Arr.filter(
-													Arr.flatMap(Rec.values(installations), (other) => [
-														...other.derived.schema.relations.keys()
-													]),
-													(name) => !Arr.contains(relationNames, name)
-												),
-												"another installation's stored relations"
-											)
-										)
 									case "a name of no installation":
-										return "NoSuchRelation"
+										return wild.relation("absent")
 								}
 							}
 							const constraints = artifacts.constraintLaws
 							const rosters = [...names.codes.rosters.values()]
 							const tables = Arr.map(relationNames, (r) => names.relation(r).name)
-							const otherDomain = Arr.flatMap(
-								installations[sketch.installation === "Work" ? "Clubs" : "Work"].constraintLaws,
-								(c) => (isTableConstraint(c) ? [] : [c.owner])
-							)
 							/** The reported constraint, and the owner it is installed under, when it has one. */
 							const chosen = ((): {
 								readonly name: ConstraintName | undefined
@@ -1004,8 +946,8 @@ describe("a server error at a write", () => {
 											),
 											dataType: undefined
 										}
-									case "another installation's domain":
-										return { table: undefined, dataType: otherDomain[0] }
+									case "a domain the installation lacks":
+										return { table: undefined, dataType: wild.domain("lacking") }
 									case "a bits domain at a width the installation lacks": {
 										const codec = defined(rosters[0] ?? undefined, "a roster")
 										return {
@@ -1025,7 +967,7 @@ describe("a server error at a write", () => {
 									case "prose":
 										return d.text
 									case "a refusal": {
-										const relation = defined(stored[d.relation % stored.length], "a relation")
+										const relation = defined(refusable[d.relation % refusable.length], "a relation")
 										const fields = Arr.map(key, (kv) => ({
 											field:
 												d.foreign === "a field the relation lacks"
@@ -1038,7 +980,7 @@ describe("a server error at a write", () => {
 												kind: "law",
 												relation:
 													d.foreign === "a relation of no installation"
-														? "NoSuchRelation"
+														? wild.relation("absent")
 														: relation.name
 											},
 											fields
@@ -1274,7 +1216,7 @@ describe("a server error at a write", () => {
 									if (Option.isNone(law) || d.kind !== "a refusal" || d.foreign !== "none") {
 										return { kind: "execution" }
 									}
-									const relation = defined(stored[d.relation % stored.length], "a relation")
+									const relation = defined(refusable[d.relation % refusable.length], "a relation")
 									return {
 										kind: "rejected",
 										laws: [described(law.value.law)],
