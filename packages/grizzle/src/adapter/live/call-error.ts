@@ -33,7 +33,7 @@ type Reading<R extends { readonly _tag: string }> = {
 }
 
 /**
- * Why opening a Db failed: a token that is no token68, one verify refused, or claims that do not decode are
+ * Why opening a Db failed: a token that is no token68, one verify refused, or claims or an `exp` that do not decode are
  * `tokenRefused`; a role no layer
  * serves is no route; the rest is the server's own configuration.
  */
@@ -45,6 +45,7 @@ const openReading: Reading<OpenReason> = {
 	TokenMalformed: tokenRefused,
 	TokenError: tokenRefused,
 	ClaimRefused: tokenRefused,
+	ExpiryRefused: tokenRefused,
 	CompileError: failed
 }
 

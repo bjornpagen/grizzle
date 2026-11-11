@@ -164,6 +164,7 @@ export const openServed = Effect.fn("openServed")(function* <R extends AnyRole, 
 	const ctx: ServedDbContext = {
 		prologue: prologueOf(login.prologue, held.installed, claims.text, login.fingerprint),
 		claims: claims.present,
+		expiry: claims.expiry,
 		pool: sessions.pool,
 		isolation: held.isolation
 	}

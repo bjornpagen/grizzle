@@ -5,7 +5,7 @@ import * as Rec from "effect/Record"
 import * as Result from "effect/Result"
 import * as Str from "effect/String"
 import { readHost } from "#adapter/engine.ts"
-import { ClaimRefused } from "#adapter/errors/failures.ts"
+import { ClaimRefused, ExpiryRefused } from "#adapter/errors/failures.ts"
 import type { Codebook, ContextDesc, FieldDesc, ScalarType } from "#compiler/plan/common.ts"
 import type { ScalarCodec } from "#compiler/plan/read.ts"
 import { defect, isList, isRecord, jsonText, scalarCodec } from "#compiler/plan/runtime.ts"
@@ -52,20 +52,35 @@ export interface ClaimValue {
 }
 
 /**
- * A Db's claims: the setting's text, the contexts that hold a fact, by name, and every claim of those facts, in the
- * setting's order.
+ * When a Db's token stops authorizing it, which ends each of its live reads (live/subscriptions.ts): `never`, for a Db
+ * opened without a token or whose verified payload states no `exp`; or `at` the instant its `exp` states, a NumericDate
+ * (seconds since the epoch, RFC 7519), in milliseconds since the epoch. The payload's `exp` is read once, with its top
+ * level, and an `exp` that is no finite number is ExpiryRefused: no timer of grizzle's own ends a live read.
+ */
+export type Expiry =
+	| { readonly kind: "never" }
+	| { readonly kind: "at"; readonly epochMillis: number }
+
+/** The expiry of a Db whose token states none, or that has no token. */
+const neverExpires: Expiry = Object.freeze({ kind: "never" })
+
+/**
+ * A Db's claims: the setting's text, the contexts that hold a fact, by name, every claim of those facts, in the
+ * setting's order, and the token's expiry.
  */
 export interface Claims {
 	readonly text: string
 	readonly present: ReadonlySet<string>
 	readonly values: ReadonlyArray<ClaimValue>
+	readonly expiry: Expiry
 }
 
-/** The claims of a Db with no context facts. */
+/** The claims of a Db with no context facts and no token. */
 export const noClaims: Claims = Object.freeze({
 	text: "{}",
 	present: new Set<string>(),
-	values: []
+	values: [],
+	expiry: neverExpires
 })
 
 /**
@@ -258,47 +273,63 @@ const objectText = (members: ReadonlyArray<readonly [string, string]>): string =
 		","
 	)}}`
 
-/** The claims `payload` holds for `contexts` (see the header). */
+/**
+ * The expiry the payload's top level states (Expiry): none for a payload that is no object or holds no `exp`, the
+ * instant of a finite `exp`, and ExpiryRefused for any other `exp`.
+ */
+const expiryOf = (
+	top: Option.Option<ReadonlyMap<string, unknown>>
+): Result.Result<Expiry, ExpiryRefused> => {
+	const exp = Option.isSome(top) ? top.value.get("exp") : undefined
+	if (exp === undefined) {
+		return Result.succeed(neverExpires)
+	}
+	return typeof exp === "number" && Number.isFinite(exp)
+		? Result.succeed({ kind: "at", epochMillis: exp * 1000 })
+		: Result.fail(new ExpiryRefused())
+}
+
+/**
+ * The claims `payload` holds for `contexts`, and its expiry (see the header). Its top level is read once, before any
+ * context decodes: a read that throws refuses the first context in order, or the expiry when no context reads the
+ * payload.
+ */
 export const claimsOf = (
 	contexts: ReadonlyArray<TypedContext>,
 	payload: unknown
-): Result.Result<Claims, ClaimRefused> => {
-	const members: Array<readonly [string, string]> = []
-	const values: Array<ClaimValue> = []
+): Result.Result<Claims, ClaimRefused | ExpiryRefused> => {
 	const sorted = Arr.sort(
 		contexts,
 		Order.mapInput(Order.String, (c: TypedContext) => c.name)
 	)
-	if (!Arr.isReadonlyArrayNonEmpty(sorted)) {
-		return Result.succeed(noClaims)
-	}
-	const top = readHost(notAnObject(Arr.headNonEmpty(sorted).name), () =>
-		Result.succeed(topLevel(payload))
-	)
-	if (Result.isFailure(top)) {
-		return Result.fail(top.failure)
-	}
-	const read: PayloadRead = { top: top.success, claims: new Map() }
-	for (const context of sorted) {
-		const fact = contextFact(context, read)
-		if (Result.isFailure(fact)) {
-			return Result.fail(fact.failure)
+	const unreadable: ClaimRefused | ExpiryRefused = Arr.isReadonlyArrayNonEmpty(sorted)
+		? notAnObject(Arr.headNonEmpty(sorted).name)
+		: new ExpiryRefused()
+	return Result.gen(function* () {
+		const top = yield* readHost(unreadable, () => Result.succeed(topLevel(payload)))
+		const read: PayloadRead = { top, claims: new Map() }
+		const members: Array<readonly [string, string]> = []
+		const values: Array<ClaimValue> = []
+		for (const context of sorted) {
+			const fact = yield* contextFact(context, read)
+			if (fact === undefined) {
+				continue
+			}
+			members.push([
+				context.name,
+				objectText(Arr.map(fact, ({ field, text }) => [field, jsonText(text)] as const))
+			])
+			for (const { field, type, text } of fact) {
+				values.push({ context: context.name, field, type, text })
+			}
 		}
-		if (fact.success === undefined) {
-			continue
+		const expiry = yield* expiryOf(top)
+		return {
+			text: objectText(members),
+			present: new Set(Arr.map(members, ([name]) => name)),
+			values,
+			expiry
 		}
-		members.push([
-			context.name,
-			objectText(Arr.map(fact.success, ({ field, text }) => [field, jsonText(text)] as const))
-		])
-		for (const { field, type, text } of fact.success) {
-			values.push({ context: context.name, field, type, text })
-		}
-	}
-	return Result.succeed({
-		text: objectText(members),
-		present: new Set(Arr.map(members, ([name]) => name)),
-		values
 	})
 }
 

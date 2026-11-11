@@ -449,6 +449,17 @@ export class ClaimRefused extends Data.TaggedError("ClaimRefused")<{
 	}
 }
 
+/**
+ * The verified payload states an `exp` that is no NumericDate, a finite JSON number of seconds since the epoch, or the
+ * payload's top level could not be read for it: the reason of an OpenError at stage `token`. The value is not quoted.
+ * A payload without `exp` is a token that never expires (db/claims.ts Expiry).
+ */
+export class ExpiryRefused extends Data.TaggedError("ExpiryRefused") {
+	override get message(): string {
+		return "the token's exp is no number of seconds since the epoch"
+	}
+}
+
 /** The catalog answered what its statement cannot: `what` is what the statement answers. */
 export class CatalogRowRefused extends Data.TaggedError("CatalogRowRefused")<{
 	readonly what: string

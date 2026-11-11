@@ -113,6 +113,7 @@ const constructors: {
 	DriverRefused: Public.DriverRefused,
 	EncodingFailure,
 	ExecutionFailure: Public.ExecutionFailure,
+	ExpiryRefused: Public.ExpiryRefused,
 	GeneratedSerialUnique: Public.GeneratedSerialUnique,
 	HandleReleased: Public.HandleReleased,
 	InputTooLarge: Public.InputTooLarge,

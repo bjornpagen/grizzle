@@ -40,7 +40,7 @@ import {
 	String as Str
 } from "effect"
 import { type Claims, claimsOf, type TypedContext, typedContext } from "#adapter/db/claims.ts"
-import { ClaimRefused } from "#adapter/errors/failures.ts"
+import { ClaimRefused, type ExpiryRefused } from "#adapter/errors/failures.ts"
 import { checkedSchema } from "#compiler/analysis/schema.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
@@ -557,7 +557,10 @@ describe("the host claims decoder", () => {
 								c.note(`value:${s.kind}`)
 							}
 							const payload = payloadOf(draw)
-							const grizzle: Result.Result<Claims, ClaimRefused> = claimsOf(memberContexts, payload)
+							const grizzle: Result.Result<Claims, ClaimRefused | ExpiryRefused> = claimsOf(
+								memberContexts,
+								payload
+							)
 							const read = Option.liftThrowable(() => payloadFacts(docsBase, memberSpec, payload))()
 							if (Option.isNone(read)) {
 								c.note("verdict:read-throws")

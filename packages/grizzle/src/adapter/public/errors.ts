@@ -34,6 +34,7 @@ export {
 	Deadlock,
 	DriverFailure,
 	DriverRefused,
+	ExpiryRefused,
 	type ErrorResponse,
 	GeneratedSerialUnique,
 	HandleReleased,
