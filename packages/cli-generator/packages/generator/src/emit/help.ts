@@ -1,5 +1,5 @@
-import { JsonPointer, Predicate, Schema } from "effect"
-import { SafeText } from "#model/brands.ts"
+import { JsonPointer, Predicate } from "effect"
+import { SafeText, sanitizeProse } from "#model/brands.ts"
 import { isRefusal } from "#model/diagnostic.ts"
 import type { Diagnostic } from "#model/diagnostic.ts"
 import type { DiscriminatorHint, Operation, Parameter, SecurityScheme } from "#model/entities.ts"
@@ -93,34 +93,6 @@ export interface OperationHelp {
 }
 
 type SafeTextValue = typeof SafeText.Type
-
-const maxProseLength = 2000
-
-const rejected = /(?![\n\t])[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}]/gu
-
-const decodeSafe = Schema.decodeSync(SafeText)
-
-const truncate = (text: string): string => {
-	let kept = ""
-	let count = 0
-	for (const char of text) {
-		if (count === maxProseLength) {
-			break
-		}
-
-		kept += char
-		count += 1
-	}
-
-	return kept
-}
-
-/**
- * Source prose made help-safe: removes exactly what the `SafeText` brand rejects, then caps the
- * length at 2000 code points, so the result always decodes.
- */
-export const sanitizeProse = (text: string): SafeTextValue =>
-	decodeSafe(truncate(text.replaceAll(rejected, "")))
 
 // A single-line generated field: sanitized, with LF and TAB runs folded to one space.
 const line = (text: string): string => sanitizeProse(text).replaceAll(/[\n\t]+/gu, " ")

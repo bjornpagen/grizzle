@@ -20,7 +20,7 @@ import {
 	takesJsonContent
 } from "#emit/api.ts"
 import type { FormPart, MixedPlan, NestedFormPart, PartHeader } from "#emit/api.ts"
-import { operationHelp, sanitizeProse } from "#emit/help.ts"
+import { operationHelp } from "#emit/help.ts"
 import type { HelpBodyField, HelpFlag, HelpPartOption } from "#emit/help.ts"
 import type { EmittedFile } from "#emit/package.ts"
 import {
@@ -44,6 +44,7 @@ import {
 } from "#emit/printer.ts"
 import type { Expr, Import, PrinterError, Statement } from "#emit/printer.ts"
 import type { AuthorConfig } from "#model/author-config.ts"
+import { sanitizeProse } from "#model/brands.ts"
 import type { Api, MediaAlternative, Operation, Parameter } from "#model/entities.ts"
 import { formatPointer } from "#model/pointer.ts"
 import type { SpecLine } from "#model/spec-section.ts"

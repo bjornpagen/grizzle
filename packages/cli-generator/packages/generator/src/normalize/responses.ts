@@ -1,6 +1,6 @@
 import { Array as Arr, Effect, Option, Order, Result, Schema, SchemaGetter } from "effect"
 import type { Types } from "effect"
-import { sanitizeProse } from "#emit/help.ts"
+import { sanitizeProse } from "#model/brands.ts"
 import { HeaderName, MediaRange } from "#model/brands.ts"
 import { makeDiagnostic } from "#model/diagnostic.ts"
 import type { Diagnostic, DiagnosticOperation } from "#model/diagnostic.ts"

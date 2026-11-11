@@ -1,7 +1,7 @@
 import { Array as Arr, Effect, Option, Order, Record, Schema } from "effect"
 import type { Types } from "effect"
-import { sanitizeProse } from "#emit/help.ts"
 import type { AuthorConfig } from "#model/author-config.ts"
+import { sanitizeProse } from "#model/brands.ts"
 import { JsonPointer } from "#model/brands.ts"
 import type { DocumentUri } from "#model/brands.ts"
 import { sortDiagnostics } from "#model/diagnostic.ts"
