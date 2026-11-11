@@ -2,10 +2,10 @@
  * A containment into a fixed target, through grizzle's lowering on PostgreSQL 19rc1: a document row states its node's
  * context, the node being of kind `document`, its own document and at depth 0, as `contained(on(Document, "node"),
  * on(select(Node, (n) => n.and(n.eq(n.kind, "document"), n.eq(n.document, n.id), n.eq(n.depth, 0n))), "id"))`. The
- * target's selection fixes kind and depth to values and document to its term id, beyond its term: each value is a
- * STORED generated column of Document holding it, and the foreign key lists `node` again opposite `document`, so the
- * reference lands on the UNIQUE over Node's id and fixed fields, which Node's primary key implies, and adds no column
- * to Node.
+ * target's selection fixes kind and depth to values and document to its term id, beyond its term. Its superkey would
+ * hold Node's id and the fixed fields, Document a constant column for each of kind and depth; its own column, Node's id
+ * under the selection, under a UNIQUE Node's primary key implies too, costs the schema less, so the foreign key
+ * references that (laws/model/plan.ts sharedTargets).
  *
  * - **The specification turned into a checker:** the containment's meaning, the target's selection read row by row: a
  *   state commits exactly when every document row's node is a node of kind `document` whose document is itself and

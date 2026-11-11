@@ -1890,10 +1890,11 @@ no trigger and no function for it.
 - **Fixed fields.** The source holds each value a target fixes a field to as a STORED generated column, and lists its
   own field again for each field the target equates to one of its terms, so the foreign key meets the target's terms,
   then its fixed fields, which add no column to the target. The UNIQUE it references is the key the target holds, or
-  one over more columns, which that key implies. Where a containment out of the target's selection reads every one of
-  the target's terms, as each `alternatives` arm's way back does, the foreign key meets the target's terms alone, under
-  a UNIQUE the key implies too, which that containment's index lookups read: the source holds no constant, and the
-  target no second index.
+  one over more columns, which that key implies. The key implies a UNIQUE over the target's terms under its selection
+  too, which needs no constant, and grizzle references whichever adds fewer indexes and columns to the schema: the
+  target's own terms where a containment out of the same selection reads them, as each `alternatives` arm's way back
+  does, so one index serves both, or where the shared UNIQUE costs a constant or a column more; the shared one where
+  several targets fix a field to different values, or where both cost the same.
 - **`alternatives`** is its containments: one from each arm into its parent at its handle, and one from the parent's
   rows of each handle into its arm, a selected side.
 - **Coverage.** A coverage's target needs a no-overlap key over its span, or the schema is refused: coalesce the spans,

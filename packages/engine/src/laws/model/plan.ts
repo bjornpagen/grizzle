@@ -917,6 +917,130 @@ export const breaksKey = (columns: ReadonlyArray<PlannedColumn>, key: TargetKey)
 	)
 }
 
+/** Whether two lists of side columns hold one set of columns, each in the other. */
+const sameColumns = (a: ReadonlyArray<SideColumn>, b: ReadonlyArray<SideColumn>): boolean =>
+	a.length === b.length &&
+	a.every((c) => b.some((d) => sameSideColumn(c, d))) &&
+	b.every((d) => a.some((c) => sameSideColumn(c, d)))
+
+/** A constant law column a reference's source holds (`fixingSource`). */
+type ConstantColumn = Extract<LawColumnPlan, { readonly kind: "constant" }>
+
+/** The constant law columns a reference's source holds: each value its target's selection fixes a field to. */
+const constantsOf = (r: Reference): ReadonlyArray<ConstantColumn> =>
+	r.columns.flatMap((c) => (c.kind === "law" && c.column.kind === "constant" ? [c.column] : []))
+
+/** Whether two constant law columns are one: of one source and target, meeting one field, holding one value. */
+const sameConstant = (a: ConstantColumn, b: ConstantColumn): boolean =>
+	a.relation.name === b.relation.name &&
+	a.target.name === b.target.name &&
+	a.field === b.field &&
+	literalKey(a.value) === literalKey(b.value)
+
+/**
+ * What a relation holds whatever reference each fixed target takes (`#reference`): the column sets its keys and the
+ * references into its targets keyed by their terms hold unique, the columns each reverse probe's B-tree reads
+ * (`btreeRun`), and the law columns some side lowers to, a key's, a containment's source's, or a target's keyed by its
+ * terms.
+ */
+interface Planned {
+	readonly uniques: ReadonlyArray<NonEmptyReadonlyArray<SideColumn>>
+	readonly probes: ReadonlyArray<NonEmptyReadonlyArray<SideColumn>>
+	readonly columns: ReadonlyArray<SideColumn>
+}
+
+/** A relation that plans nothing a reference's UNIQUE could reuse. */
+const plansNothing: Planned = { uniques: [], probes: [], columns: [] }
+
+/**
+ * The objects a UNIQUE over `columns` adds to a relation beyond what it holds (`Planned`): its index, unless a key or a
+ * reference keyed by its terms holds that set already, or a reverse probe's B-tree reads every one of them, which the
+ * UNIQUE then serves in its place; and each of its law columns no side lowers to.
+ */
+const uniqueCost = (planned: Planned, columns: NonEmptyReadonlyArray<SideColumn>): number =>
+	(planned.uniques.some((u) => sameColumns(u, columns)) ||
+	planned.probes.some((probe) => columns.every((c) => probe.some((p) => sameSideColumn(c, p))))
+		? 0
+		: 1) +
+	columns.filter((c) => c.kind === "law" && !planned.columns.some((p) => sameSideColumn(p, c)))
+		.length
+
+/**
+ * A containment into a fixed target as the choice of its reference reads it (`sharedTargets`): the target's relation,
+ * its own columns, the columns of the UNIQUE its shared reference lands on, and the constants that reference adds to
+ * the containment's source.
+ */
+interface FixedUse {
+	readonly relation: string
+	readonly own: NonEmptyReadonlyArray<SideColumn>
+	readonly shared: NonEmptyReadonlyArray<SideColumn>
+	readonly constants: ReadonlyArray<ConstantColumn>
+}
+
+/** The fixed targets of one relation whose shared references land on one UNIQUE, each by its own columns with the
+ * constants every containment into it adds to its source. */
+interface SharedGroup {
+	readonly relation: string
+	readonly shared: NonEmptyReadonlyArray<SideColumn>
+	readonly targets: Array<{
+		readonly own: NonEmptyReadonlyArray<SideColumn>
+		readonly constants: Array<ConstantColumn>
+	}>
+}
+
+/**
+ * The fixed targets whose containments take the shared reference, by relation, each by its own columns: the choice by
+ * what each reference adds to the whole schema, its UNIQUE's index and law columns (`uniqueCost`) and its source's
+ * constants. Of the fixed targets whose shared references land on one UNIQUE, those whose constants cost no more objects
+ * than their own columns' UNIQUE take the shared one, where that UNIQUE's cost and all their constants are no more than
+ * all their own UNIQUEs' cost, which keeps the superkey every target fixing one field to several values shares; every
+ * other fixed target takes its own columns, which hold no constant on any source.
+ */
+const sharedTargets = (
+	uses: ReadonlyArray<FixedUse>,
+	planned: (relation: string) => Planned
+): ReadonlyMap<string, ReadonlyArray<NonEmptyReadonlyArray<SideColumn>>> => {
+	const groups: Array<SharedGroup> = []
+	for (const use of uses) {
+		const known = groups.find(
+			(g) => g.relation === use.relation && sameColumns(g.shared, use.shared)
+		)
+		const group: SharedGroup = known ?? { relation: use.relation, shared: use.shared, targets: [] }
+		if (known === undefined) {
+			groups.push(group)
+		}
+		const held = group.targets.find((t) => sameColumns(t.own, use.own))
+		const target = held ?? { own: use.own, constants: [] }
+		if (held === undefined) {
+			group.targets.push(target)
+		}
+		for (const c of use.constants) {
+			if (!target.constants.some((k) => sameConstant(k, c))) {
+				target.constants.push(c)
+			}
+		}
+	}
+	const taken = new Map<string, Array<NonEmptyReadonlyArray<SideColumn>>>()
+	for (const group of groups) {
+		const on = planned(group.relation)
+		const priced = group.targets.map((t) => ({
+			own: t.own,
+			ownCost: uniqueCost(on, t.own),
+			constants: t.constants.length
+		}))
+		const cheaper = priced.filter((t) => t.constants <= t.ownCost)
+		const sum = (xs: ReadonlyArray<number>): number => xs.reduce((a, b) => a + b, 0)
+		const sharedCost = uniqueCost(on, group.shared) + sum(cheaper.map((t) => t.constants))
+		if (cheaper.length > 0 && sharedCost <= sum(cheaper.map((t) => t.ownCost))) {
+			taken.set(group.relation, [
+				...(taken.get(group.relation) ?? []),
+				...cheaper.map((t) => t.own)
+			])
+		}
+	}
+	return taken
+}
+
 /** Whether `key` is exactly `side`: the same conjuncts and the same terms, each of one kind over one field. */
 const sameSide = (key: ResolvedSide, side: ResolvedSide): boolean =>
 	keyedBy(key, side) &&
@@ -1107,9 +1231,10 @@ interface FamilyPlan {
  *   column paired with t, listed again. The key implies the UNIQUE, and every containment into the same fixed fields
  *   shares it. Tried before a target keyed by its terms alone. An alternatives arm of one handle is one: its parent
  *   selected by the handle. The key implies a UNIQUE over the target's own columns too, which its selection keeps the
- *   key's fields at, and where a reverse probe of a containment out of the target's selection reads every one of them,
- *   the containment references them under that UNIQUE instead, which serves the probe: no superkey and no constant
- *   (`#reference`).
+ *   key's fields at, with no constant on the source; a containment references whichever adds fewer indexes and columns
+ *   to the whole schema, the superkey where both cost the same (`sharedTargets`, `#reference`), so a target a reverse
+ *   probe out of its selection reads at its own columns, whose UNIQUE serves that probe, and a target whose superkey
+ *   costs a column or a constant more, take their own columns.
  * - A coverage, a containment pairing a span field of each side, is a PERIOD foreign key from the source's columns into
  *   the target's, which must be keyed WITHOUT OVERLAPS over exactly its terms: a declared span key, or a key over its
  *   projected side. A target whose spans may overlap within a key is refused.
@@ -1264,11 +1389,9 @@ export class Recognizer {
 	readonly #closedSides: ClosedSides
 	/** How a rule over a query that lowers to foreign keys is discharged (model.ts RuleDischarge). */
 	readonly #discharge: RuleDischarge
-	/**
-	 * The columns of each reverse probe every law plans that a B-tree reads (`btreeRun`), by its relation's name: the
-	 * indexes a UNIQUE a target is referenced at may serve too (`#reference`).
-	 */
-	readonly #probes: ReadonlyMap<string, ReadonlyArray<NonEmptyReadonlyArray<SideColumn>>>
+	/** The fixed targets whose containments take the shared reference, by relation, each by its own columns
+	 * (`sharedTargets`). */
+	readonly #shared: ReadonlyMap<string, ReadonlyArray<NonEmptyReadonlyArray<SideColumn>>>
 
 	constructor(
 		laws: ReadonlyArray<TheoryLaw>,
@@ -1320,16 +1443,64 @@ export class Recognizer {
 		this.#refill = refillDeferral(families)
 		this.#closedSides = closedSidesOf(laws)
 		this.#discharge = discharge
-		const probes = new Map<string, Array<NonEmptyReadonlyArray<SideColumn>>>()
-		for (const law of laws) {
-			for (const part of scalarParts(law, relations, discharge)) {
-				const run = btreeRun(sideColumns(part.from))
-				if (run !== undefined) {
-					probes.set(part.from.relation, [...(probes.get(part.from.relation) ?? []), run.columns])
+		const planned = new Map<
+			string,
+			{
+				uniques: Array<NonEmptyReadonlyArray<SideColumn>>
+				probes: Array<NonEmptyReadonlyArray<SideColumn>>
+				columns: Array<SideColumn>
+			}
+		>()
+		const at = (relation: string) => {
+			const known = planned.get(relation)
+			const held = known ?? { uniques: [], probes: [], columns: [] }
+			if (known === undefined) {
+				planned.set(relation, held)
+			}
+			return held
+		}
+		for (const [name, r] of Object.entries(relations)) {
+			for (const k of scalarKeys(r)) {
+				at(name).uniques.push(mapNonEmpty(k, fieldColumn))
+			}
+		}
+		for (const [name, sides] of keys) {
+			for (const side of sides) {
+				if (side.rel.kind !== "closed" && !side.terms.some((t) => isSpanField(t.column))) {
+					const columns = sideColumns(side)
+					at(name).uniques.push(columns)
+					at(name).columns.push(...columns)
 				}
 			}
 		}
-		this.#probes = probes
+		const fixed: Array<FixedUse> = []
+		for (const part of laws.flatMap((law) => scalarParts(law, relations, discharge))) {
+			const source = sideColumns(part.from)
+			at(part.from.relation).columns.push(...source)
+			const run = btreeRun(source)
+			if (run !== undefined) {
+				at(part.from.relation).probes.push(run.columns)
+			}
+			const own = sideColumns(part.to)
+			const shared = this.#fixedTarget(
+				part.to,
+				source,
+				tableOf(part.from.rel),
+				tableOf(part.to.rel)
+			)
+			if (shared === undefined) {
+				at(part.to.relation).uniques.push(own)
+				at(part.to.relation).columns.push(...own)
+			} else {
+				fixed.push({
+					relation: part.to.relation,
+					own,
+					shared: shared.targetColumns,
+					constants: constantsOf(shared)
+				})
+			}
+		}
+		this.#shared = sharedTargets(fixed, (relation) => planned.get(relation) ?? plansNothing)
 	}
 
 	/**
@@ -1761,9 +1932,12 @@ export class Recognizer {
 	}
 
 	/**
-	 * How a containment references its target: of the references the target admits (`#references`), the first whose
-	 * UNIQUE serves a reverse probe some law plans on the target's relation (`#serves`), which the probe then reads, so
-	 * the relation holds no index for it beside the UNIQUE; else the first.
+	 * How a containment references its target, each reference into a UNIQUE a key of its relation implies: a fixed target
+	 * (`#fixedTarget`) at its terms and fixed fields where the choice over the whole schema takes that shared UNIQUE
+	 * (`sharedTargets`), else at its own columns, which the key holding it implies too, since its selection holds the
+	 * key's and fixes each of the key's fields beyond its terms; a target keyed by its terms, by a key (`#keysOf`) that
+	 * selects within it and whose terms are among its terms, at its own columns. A target no key holds is refused: no
+	 * UNIQUE the law model may add holds it apart.
 	 */
 	#reference(
 		to: ResolvedSide,
@@ -1772,48 +1946,20 @@ export class Recognizer {
 		toRel: RelationInfo,
 		loc: SourceLoc
 	): Reference {
-		const references = this.#references(to, source, fromRel, toRel, loc)
-		return references.find((r) => this.#serves(to.relation, r.targetColumns)) ?? references[0]
-	}
-
-	/**
-	 * The references a target admits, each into a UNIQUE a key of its relation implies, in the order the recognizer
-	 * prefers them: a fixed target's at its terms and fixed fields (`#fixedTarget`), which every containment into the same
-	 * fixed fields shares, then at its own columns, which that key implies too, since the target's selection holds the
-	 * key's and fixes each of the key's fields beyond the target's terms; a target keyed by its terms, by a key (`#keysOf`)
-	 * that selects within it and whose terms are among its terms, at its own columns. A target no key holds is refused:
-	 * no UNIQUE the law model may add holds it apart.
-	 */
-	#references(
-		to: ResolvedSide,
-		source: NonEmptyReadonlyArray<PlannedColumn>,
-		fromRel: RelationInfo,
-		toRel: RelationInfo,
-		loc: SourceLoc
-	): NonEmptyReadonlyArray<Reference> {
 		const own: Reference = { columns: source, targetColumns: sideColumns(to) }
 		const fixed = this.#fixedTarget(to, source, fromRel, toRel)
 		if (fixed !== undefined) {
-			return [fixed, own]
+			return (this.#shared.get(to.relation) ?? []).some((s) => sameColumns(s, own.targetColumns))
+				? fixed
+				: own
 		}
 		if (this.#keysOf(to).some((k) => keyedBy(k, to))) {
-			return [own]
+			return own
 		}
 		return refuse(
 			"UnsupportedLawFamily",
 			loc,
 			`a containment into a side that contains a key of ${toRel.name}; ${to.relation}(${to.terms.map(termText).join(", ")}) contains no key among its terms and the fields its selection fixes, over a selection within its own, and a containment into an unkeyed side is not admitted`
-		)
-	}
-
-	/**
-	 * Whether a UNIQUE over `columns` of `relation` serves a reverse probe some law plans there (`#probes`): one whose
-	 * B-tree reads every one of them, so the UNIQUE finds at most one row by the probe's values, on which PostgreSQL
-	 * rechecks the rest (physical/indexes/engine.ts, a keyed placement).
-	 */
-	#serves(relation: string, columns: NonEmptyReadonlyArray<SideColumn>): boolean {
-		return (this.#probes.get(relation) ?? []).some((probe) =>
-			columns.every((c) => probe.some((p) => sameSideColumn(c, p)))
 		)
 	}
 

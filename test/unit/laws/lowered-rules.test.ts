@@ -3,7 +3,8 @@
  * native foreign keys (analysis/theory/laws.ts RuleLowering): one DEFERRABLE INITIALLY DEFERRED foreign key per match
  * of the definition, from the source's columns, then a constant column of the source for each constant the match fixes,
  * into a UNIQUE of the match's relation over exactly the fields it references, its declared key's own or a superkey of
- * it; and the rule then holds no trigger. Every other rule over a query keeps its triggers. The law oracle's
+ * it, or, where that costs the schema fewer indexes and columns, from the source's columns alone into the match's own
+ * columns under its constants (laws/model/plan.ts sharedTargets); and the rule then holds no trigger. Every other rule over a query keeps its triggers. The law oracle's
  * conservative installation (physical/install/compile.ts conservativeInstallation) keeps the triggers of every rule,
  * under the same laws.
  *
@@ -613,7 +614,9 @@ const assertKept = (c: LoweringCase, installation: Installation, law: LawId): vo
 /**
  * Asserts `installation` lowers the rule: one deferred foreign key per match from S's paired columns, then a constant
  * column per constant, each generated from its literal, into exactly a UNIQUE or the primary key of the match's
- * relation, each mapped to the rule's law, and no trigger of the rule. The shapes it met.
+ * relation, or, where the law model finds it costs the schema less (laws/model/plan.ts sharedTargets), from the paired
+ * columns alone into the match's own columns under its constants, which a UNIQUE of the relation holds; each mapped to
+ * the rule's law, and no trigger of the rule. The shapes it met.
  */
 const assertLowered = (
 	c: LoweringCase,
@@ -654,24 +657,29 @@ const assertLowered = (
 		const paired = Arr.map(heads, (h) =>
 			installation.names.column("S", defined(SOURCE[h.at], "a source field per head term"))
 		)
+		const leadsPaired = (k: (typeof keys)[number]): boolean =>
+			Arr.join(
+				Arr.take(
+					Arr.map(k.columns, (col) => col.column),
+					heads.length
+				),
+				", "
+			) === Arr.join(paired, ", ")
 		const fk = holding(
 			Arr.findFirst(
 				keys,
 				(k) =>
 					k.references.name === target &&
-					Arr.join(
+					leadsPaired(k) &&
+					(Arr.join(
 						Arr.map(k.referencedColumns, (r) => r.column),
 						", "
-					) === over &&
-					Arr.join(
-						Arr.take(
-							Arr.map(k.columns, (col) => col.column),
-							heads.length
-						),
-						", "
-					) === Arr.join(paired, ", ")
+					) === over ||
+						(constants.length > 0 &&
+							k.columns.length === heads.length &&
+							!Arr.some(k.referencedColumns, (r) => Arr.contains(referenced, r.column))))
 			),
-			`a foreign key from S's ${Arr.join(paired, ", ")} into ${m.target} over ${over}`
+			`a foreign key from S's ${Arr.join(paired, ", ")} into ${m.target} over ${over}, or over its own columns under the match's constants`
 		)
 		assert.equal(fk.deferrable, "INITIALLY DEFERRED", "the foreign key is deferred")
 		assert.equal(
@@ -680,37 +688,43 @@ const assertLowered = (
 			"the foreign key names the rule's law"
 		)
 		const referencing = Arr.map(fk.columns, (col) => col.column)
-		Arr.forEach(constants, (k, i) => {
-			const name = defined(referencing[heads.length + i], "a constant column per constant")
-			const generation = holding(
-				Arr.findFirst(columns, (col) => col.column.name === name),
-				`the constant column ${name} of S`
-			).column.generated
-			assert.ok(
-				generation?.kind === "stored" && Str.includes(`${k.value}`)(printExpr(generation.expr)),
-				`${name} is generated, stored, from ${k.value}`
-			)
-			shapes.push("a constant column")
-		})
-		const isReferenced = (column: string): boolean => Arr.some(referenced, (r) => r === column)
+		const atOwnColumns = referencing.length === heads.length && constants.length > 0
+		if (!atOwnColumns) {
+			Arr.forEach(constants, (k, i) => {
+				const name = defined(referencing[heads.length + i], "a constant column per constant")
+				const generation = holding(
+					Arr.findFirst(columns, (col) => col.column.name === name),
+					`the constant column ${name} of S`
+				).column.generated
+				assert.ok(
+					generation?.kind === "stored" && Str.includes(`${k.value}`)(printExpr(generation.expr)),
+					`${name} is generated, stored, from ${k.value}`
+				)
+				shapes.push("a constant column")
+			})
+		}
+		const landed = atOwnColumns ? Arr.map(fk.referencedColumns, (r) => r.column) : referenced
+		const isReferenced = (column: string): boolean => Arr.some(landed, (r) => r === column)
 		assert.ok(
 			Arr.some(
 				constraints,
 				(x) =>
 					x.table === target &&
 					(x.constraint.kind === "unique" || x.constraint.kind === "primaryKey") &&
-					x.constraint.columns.length === referenced.length &&
+					x.constraint.columns.length === landed.length &&
 					Arr.every(x.constraint.columns, (col) => isReferenced(col.column))
 			),
-			`a UNIQUE of ${m.target} over exactly ${over}`
+			`a UNIQUE of ${m.target} over exactly ${Arr.join(landed, ", ")}`
 		)
 		const declared = Arr.some(
 			KEYS[m.target],
 			(k) =>
 				k.length === referenced.length &&
-				Arr.every(k, (field) => isReferenced(installation.names.column(m.target, field)))
+				Arr.every(k, (field) =>
+					Arr.contains(referenced, installation.names.column(m.target, field))
+				)
 		)
-		if (!declared) {
+		if (!declared && !atOwnColumns) {
 			shapes.push("a superkey's UNIQUE")
 		}
 	}

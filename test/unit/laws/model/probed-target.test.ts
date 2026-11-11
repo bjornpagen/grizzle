@@ -1,30 +1,32 @@
 /**
- * A fixed target's UNIQUE beside the reverse probes out of its selection, in the index set the installation plans. A
- * fixed target, a containment's target whose selection fixes a field beyond its terms, is held by a key K of its
- * relation over a selection within its own, K's terms among its terms and that field, and K implies two UNIQUEs a
- * reference into it may land on: one over its terms and the fixed field, which every target fixing that field to another
- * value shares, and one over its own columns, its terms under its selection, which keeps the fixed field at one value.
- * Where a containment out of the target's selection probes a B-tree that reads every one of the target's own columns,
- * the reference lands on the second, which serves that probe too; elsewhere on the first (laws/model/plan.ts
- * `#reference`).
+ * A fixed target's references, in the index set and columns the installation plans. A fixed target, a containment's
+ * target whose selection fixes a field beyond its terms, is held by a key K of its relation over a selection within its
+ * own, K's terms among its terms and that field, and K implies two UNIQUEs a reference into it may land on: one over its
+ * terms and the fixed field, which every target fixing that field to another value shares and which the source meets
+ * by a constant column of each value; and one over its own columns, its terms under its selection, which keeps the
+ * fixed field at one value, with no constant. The law model takes whichever adds fewer indexes and columns to the whole
+ * schema, the superkey where both cost the same (laws/model/plan.ts `sharedTargets`, `#reference`).
  *
  * A case draws T(id, a, b, c, kind), keyed by K over every row or over select(T, c = 1), on a and kind, a, or a and b in
- * a drawn order; one to three fixed targets, each select(K's selection and kind = v) over terms that hold K's beyond
- * kind in a drawn order, each the target of a containment from a relation of its own; and up to three containments out
- * of a selection of T, out of select(K's selection and kind = v) for a drawn v or out of K's selection, over a drawn
- * list of id, a and b, each into a relation keyed by exactly its terms.
+ * a drawn order; one to three fixed targets, each select(K's selection, b = 0 at one draw in three, and kind = v) over
+ * terms that hold K's beyond kind in a drawn order, each the target of a containment from a relation of its own that
+ * holds no kind; and up to three containments out of a selection of T, out of such a selection or out of K's, over a
+ * drawn list of id, a and b, each into a relation keyed by exactly its terms. b = 0 is a guard where b is a target's
+ * term, which keeps the superkey's columns under a selection nothing else reads, and a second fixed field where it is
+ * not, a second constant on the source: either way the superkey costs more than the target's own columns.
  *
  * The oracle is the installation's planned index set (Installation.indexes: every index a key installs and every index
- * the install creates), read against the law model's foreign keys and key natives:
+ * the install creates) and its law columns, read against the law model's foreign keys and key natives:
  *
  * - no relation holds a redundant pair, an index whose keys lead another's of its relation and access method, key for
  *   key, direction and class alike: the other serves every probe it serves, unless both are unique over two lists, each
  *   holding apart rows the other does not;
  * - every foreign key references the column set of exactly one unique index of its target;
  * - every unique index holds the column set of a key a key law states, or of a foreign key's referenced columns;
- * - an implied key is free where a probe out of a target's selection reads its own columns: the schema with K beside,
- *   for each such target, the key over its selection and terms that K implies (the restated keys a downstream schema
- *   states instead of K) plans T's index set exactly, each index's method, uniqueness and column set;
+ * - the keys K implies cost nothing to leave unstated: the schema with K beside, for each fixed target, the key over its
+ *   selection and terms that K implies (the restated keys a downstream schema states instead of K, under which every
+ *   target takes its own columns) plans at least as many objects, indexes and law columns over every relation, constant
+ *   columns among them;
  * - every unique index of T reports a key that every pair of rows it refuses together breaks. Over every pair of a box
  *   of T's rows, id, a, b and c each 0 or 1 and kind 0, 1 or 2, where each column of the index, a field's value or a law
  *   column's generated value by the reference evaluator, is NULL on neither row and equal, the law its constraint
@@ -38,18 +40,22 @@
  * same selection probes, and test/pg/laws/target-keys.test.ts draws such a probe beside every key a target may be held
  * by, over a selection or not, its terms holding a fixed field or not.
  *
- * Plants (~/.cache/grizzle-release/R10/plants): probed-target-shared-always (every fixed target referenced at its terms
- * and fixed field, its UNIQUE never the probe's: caught by the implied key's index set), probed-target-probe-beside
- * (each reverse probe a B-tree of its own beside a unique index that serves it: caught by the redundant pair), and
- * probed-target-unique-dropped (no UNIQUE beside a reference at a target's own columns: caught by the foreign key that
- * references no unique index), and probed-target-projected-unimplied (laws/model/model.ts #implyingKey back to declared
- * keys only, so a UNIQUE only K over a selection implies reports its containment: caught by the reported key).
+ * Plants (~/.cache/grizzle-release/R10/plants): probed-target-shared-always (every fixed target at its terms and fixed
+ * field: caught by the restated keys' objects), probed-target-shared-unless-probed (the shared reference taken wherever
+ * no probe reads the target's own columns, though those need no constant and cost less: caught by the restated keys'
+ * objects on a target that also selects b = 0), probed-target-probe-beside (each reverse probe a B-tree of its own beside a unique index that serves it:
+ * caught by the redundant pair), probed-target-unique-dropped (no UNIQUE beside a reference at a target's own columns:
+ * caught by the foreign key that references no unique index), and probed-target-projected-unimplied
+ * (laws/model/model.ts #implyingKey back to declared keys only, so a UNIQUE only K over a selection implies reports its
+ * containment: caught by the reported key).
  *
- * Features: a target referenced at its own columns, leading the probe or within it; a target referenced at its terms and
- * fixed field, with no probe out of its selection or a probe missing one of its terms; a probe out of another
- * selection; K over a selection or over every row, its terms holding the fixed field; two targets sharing the UNIQUE
- * over their terms and fixed field; a target of each reference beside one another; a generated UNIQUE refusing a pair,
- * reported as K over a selection; and a target's own UNIQUE, K implying it through the field its selection fixes.
+ * Features: a target a probe out of its selection reads at its own columns, leading the probe or within it; a target no
+ * containment out of its selection probes, and one a probe out of its selection misses a term of; a lone target fixing
+ * kind by a literal, from a source that holds no kind, that no probe reads; two such targets fixing kind to two values
+ * over one set of terms; one that also selects b = 0; a probe out of another selection; K over a selection or over every row, its terms holding the
+ * fixed field; a probed target beside an unprobed one; a target's own UNIQUE K implies through the field its selection
+ * fixes; a generated UNIQUE refusing a pair, reported as K over a selection; and constant columns that cost the schema
+ * no more objects.
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -107,14 +113,31 @@ type Value = 0 | 1 | 2
 
 const VALUES = [0, 1, 2] as const
 
-/** A fixed target: select(K's selection and kind = value) over its terms. */
-interface Target {
+/**
+ * A selection of T within K's: K's conjuncts, then b = 0 where `guarded`, a guard where b is one of a target's terms and
+ * a second field it fixes where it is not, then kind = value.
+ */
+interface Narrow {
 	readonly value: Value
+	readonly guarded: boolean
+}
+
+/** Whether two narrow selections are one. */
+const sameNarrow = (x: Narrow, y: Narrow): boolean => x.value === y.value && x.guarded === y.guarded
+
+/** A fixed target: a narrow selection of T over its terms. */
+interface Target extends Narrow {
 	readonly terms: Arr.NonEmptyReadonlyArray<Term>
 }
 
-/** Where a probe's containment reads T: a target's selection, at kind = value, or K's own selection. */
-type ProbeAt = { readonly kind: "fixed"; readonly value: Value } | { readonly kind: "key" }
+/** Where a probe's containment reads T: a narrow selection, or K's own selection. */
+type ProbeAt = ({ readonly kind: "fixed" } & Narrow) | { readonly kind: "key" }
+
+/** Whether a narrow selection holds b = 0, at one draw in three. */
+const guardedGen: Gen<boolean> = weighted<boolean>([
+	[2, () => false],
+	[1, () => true]
+])
 
 /** A containment out of a selection of T over its terms, into a relation keyed by exactly them. */
 interface Probe {
@@ -151,7 +174,7 @@ const targetGen =
 					])
 				)
 			: source.draw(element<Arr.NonEmptyReadonlyArray<Term>>([["a"], ["a", "b"], ["b", "a"]]))
-		return { value: source.draw(element(VALUES)), terms }
+		return { value: source.draw(element(VALUES)), guarded: source.draw(guardedGen), terms }
 	}
 
 const PROBE_TERMS: Arr.NonEmptyReadonlyArray<ProbeTerm> = ["id", "a", "b"]
@@ -169,8 +192,17 @@ const probeGen =
 	(source) => {
 		const at = source.draw(
 			weighted<ProbeAt>([
-				[3, (s) => ({ kind: "fixed", value: s.draw(element(targets)).value })],
-				[1, (s) => ({ kind: "fixed", value: s.draw(element(VALUES)) })],
+				[
+					3,
+					(s) => {
+						const t = s.draw(element(targets))
+						return { kind: "fixed", value: t.value, guarded: t.guarded }
+					}
+				],
+				[
+					1,
+					(s) => ({ kind: "fixed", value: s.draw(element(VALUES)), guarded: s.draw(guardedGen) })
+				],
 				[1, () => ({ kind: "key" })]
 			])
 		)
@@ -194,9 +226,15 @@ const sketchGen: Gen<Sketch> = (source) => {
 const keySelection = (s: Sketch): ReadonlyArray<ExprDesc> =>
 	s.selected ? [eq(field("c"), literal(1))] : []
 
-/** A selection of T a probe or a target reads: K's, then kind = value where it fixes kind. */
+/** A selection of T a probe or a target reads: K's, then b = 0 where guarded and kind = value where it is narrow. */
 const selectionAt = (s: Sketch, at: ProbeAt): ReadonlyArray<ExprDesc> =>
-	at.kind === "key" ? keySelection(s) : [...keySelection(s), eq(field("kind"), literal(at.value))]
+	at.kind === "key"
+		? keySelection(s)
+		: [
+				...keySelection(s),
+				...(at.guarded ? [eq(field("b"), literal(0))] : []),
+				eq(field("kind"), literal(at.value))
+			]
 
 /** A side of T over `terms` under `selection`. */
 const sideOfT = (
@@ -210,11 +248,11 @@ const sideOfT = (
 
 /** A target's side: its terms under K's selection and kind = its value. */
 const targetSide = (s: Sketch, t: Target): SideDesc =>
-	sideOfT(selectionAt(s, { kind: "fixed", value: t.value }), t.terms)
+	sideOfT(selectionAt(s, { kind: "fixed", value: t.value, guarded: t.guarded }), t.terms)
 
 /** Whether a probe's containment reads a target's selection over every one of its terms. */
 const reads = (p: Probe, t: Target): boolean =>
-	p.at.kind === "fixed" && p.at.value === t.value && Arr.every(t.terms, (x) => p.terms.includes(x))
+	p.at.kind === "fixed" && sameNarrow(p.at, t) && Arr.every(t.terms, (x) => p.terms.includes(x))
 
 /** Whether a probe's terms lead with a target's, in its order. */
 const leads = (p: Probe, t: Target): boolean => Arr.every(t.terms, (x, i) => p.terms[i] === x)
@@ -227,14 +265,14 @@ const setText = (names: ReadonlyArray<string>): string =>
 	Arr.join(Arr.sort(names, Order.String), ",")
 
 /**
- * The keys K implies that a downstream schema restates instead of K: for each target whose own columns a probe reads,
- * the key over its selection and terms, each selection and term set once.
+ * The keys K implies that a downstream schema restates instead of K: for each fixed target, the key over its selection
+ * and terms, each selection and term set once.
  */
 const restated = (s: Sketch): ReadonlyArray<SideDesc> =>
 	Arr.map(
 		Arr.dedupeWith(
-			Arr.filter(s.targets, (t) => probed(s, t)),
-			(x: Target, y: Target) => x.value === y.value && setText(x.terms) === setText(y.terms)
+			s.targets,
+			(x: Target, y: Target) => sameNarrow(x, y) && setText(x.terms) === setText(y.terms)
 		),
 		(t) => targetSide(s, t)
 	)
@@ -392,15 +430,21 @@ const checkIndexes = (installation: Installation, what: string): void => {
 	}
 }
 
-/** T's planned indexes, each by its shape, in code-unit order. */
-const shapesOfT = (installation: Installation): ReadonlyArray<string> =>
-	Arr.sort(
-		Arr.map(
-			Arr.filter(installation.indexes, (i) => i.relation === "T"),
-			indexShape
-		),
-		Order.String
+/** What an installation plans over every relation: its indexes and law columns, and its constant columns among them. */
+interface Objects {
+	readonly objects: number
+	readonly constants: number
+}
+
+const objectsOf = (installation: Installation): Objects => {
+	const columns = Arr.flatMap(installation.laws.natives, (n) =>
+		n.namespace === "column" ? [n.plan] : []
 	)
+	return {
+		objects: installation.indexes.length + columns.length,
+		constants: Arr.filter(columns, (c) => c.kind === "constant").length
+	}
+}
 
 /** A row of T in the box: each field by its name, at its carrier's value. */
 type Row = ReadonlyMap<string, CarrierValue>
@@ -560,70 +604,87 @@ const checkReports = (
 }
 
 type Feature =
-	| "a target referenced at its own columns, leading a probe"
-	| "a target referenced at its own columns, within a probe"
-	| "a target at its terms and fixed field, with no probe out of its selection"
-	| "a target at its terms and fixed field, a probe out of its selection missing one of its terms"
+	| "a target a probe reads at its own columns, leading the probe"
+	| "a target a probe reads at its own columns, within the probe"
+	| "a target no containment out of its selection probes"
+	| "a target a probe out of its selection misses a term of"
+	| "a lone target fixing kind by a literal, from a source that holds no kind, that no probe reads"
+	| "two targets fixing kind to two values over one set of terms, that no probe reads"
+	| "a target that also selects b = 0, that no probe reads"
 	| "a probe out of another selection of T"
 	| "K over a selection"
 	| "K over every row"
 	| "K's terms holding the fixed field"
-	| "two targets sharing the UNIQUE over their terms and fixed field"
-	| "a target at its own columns beside one at its terms and fixed field"
-	| "a generated UNIQUE refusing a pair, reported as K over a selection"
+	| "a probed target beside an unprobed one"
 	| "a target's own UNIQUE, K implying it through the field its selection fixes"
+	| "a generated UNIQUE refusing a pair, reported as K over a selection"
+	| "constant columns that cost the schema no more objects"
 
 const FEATURES: Arr.NonEmptyReadonlyArray<Feature> = [
-	"a target referenced at its own columns, leading a probe",
-	"a target referenced at its own columns, within a probe",
-	"a target at its terms and fixed field, with no probe out of its selection",
-	"a target at its terms and fixed field, a probe out of its selection missing one of its terms",
+	"a target a probe reads at its own columns, leading the probe",
+	"a target a probe reads at its own columns, within the probe",
+	"a target no containment out of its selection probes",
+	"a target a probe out of its selection misses a term of",
+	"a lone target fixing kind by a literal, from a source that holds no kind, that no probe reads",
+	"two targets fixing kind to two values over one set of terms, that no probe reads",
+	"a target that also selects b = 0, that no probe reads",
 	"a probe out of another selection of T",
 	"K over a selection",
 	"K over every row",
 	"K's terms holding the fixed field",
-	"two targets sharing the UNIQUE over their terms and fixed field",
-	"a target at its own columns beside one at its terms and fixed field",
+	"a probed target beside an unprobed one",
+	"a target's own UNIQUE, K implying it through the field its selection fixes",
 	"a generated UNIQUE refusing a pair, reported as K over a selection",
-	"a target's own UNIQUE, K implying it through the field its selection fixes"
+	"constant columns that cost the schema no more objects"
 ]
 
 /** What a case holds, from the sketch alone. */
 const featuresOf = (s: Sketch): ReadonlyArray<Feature> => {
 	const own = Arr.filter(s.targets, (t) => probed(s, t))
-	const shared = Arr.filter(s.targets, (t) => !probed(s, t))
+	const unprobed = Arr.filter(s.targets, (t) => !probed(s, t))
 	const outOf = (t: Target) =>
-		Arr.filter(s.probes, (p) => p.at.kind === "fixed" && p.at.value === t.value)
+		Arr.filter(s.probes, (p) => p.at.kind === "fixed" && sameNarrow(p.at, t))
+	const partners = (t: Target) =>
+		Arr.filter(
+			unprobed,
+			(u) => u.guarded === t.guarded && u.value !== t.value && setText(u.terms) === setText(t.terms)
+		)
 	return [
 		...(Arr.some(own, (t) => Arr.some(s.probes, (p) => reads(p, t) && leads(p, t)))
-			? ["a target referenced at its own columns, leading a probe" as const]
+			? ["a target a probe reads at its own columns, leading the probe" as const]
 			: []),
 		...(Arr.some(own, (t) => Arr.some(s.probes, (p) => reads(p, t) && !leads(p, t)))
-			? ["a target referenced at its own columns, within a probe" as const]
+			? ["a target a probe reads at its own columns, within the probe" as const]
 			: []),
-		...(Arr.some(shared, (t) => outOf(t).length === 0)
-			? ["a target at its terms and fixed field, with no probe out of its selection" as const]
+		...(Arr.some(unprobed, (t) => outOf(t).length === 0)
+			? ["a target no containment out of its selection probes" as const]
 			: []),
-		...(Arr.some(shared, (t) => outOf(t).length > 0)
+		...(Arr.some(unprobed, (t) => outOf(t).length > 0)
+			? ["a target a probe out of its selection misses a term of" as const]
+			: []),
+		...(Arr.some(unprobed, (t) => partners(t).length === 0)
 			? [
-					"a target at its terms and fixed field, a probe out of its selection missing one of its terms" as const
+					"a lone target fixing kind by a literal, from a source that holds no kind, that no probe reads" as const
 				]
+			: []),
+		...(Arr.some(unprobed, (t) => partners(t).length > 0)
+			? [
+					"two targets fixing kind to two values over one set of terms, that no probe reads" as const
+				]
+			: []),
+		...(Arr.some(unprobed, (t) => t.guarded)
+			? ["a target that also selects b = 0, that no probe reads" as const]
 			: []),
 		...(Arr.some(s.probes, (p) => {
 			const at = p.at
-			return at.kind === "key" || !Arr.some(s.targets, (t) => t.value === at.value)
+			return at.kind === "key" || !Arr.some(s.targets, (t) => sameNarrow(t, at))
 		})
 			? ["a probe out of another selection of T" as const]
 			: []),
 		s.selected ? "K over a selection" : "K over every row",
 		...(s.key.includes("kind") ? ["K's terms holding the fixed field" as const] : []),
-		...(Arr.some(shared, (t, i) =>
-			Arr.some(shared.slice(i + 1), (u) => setText(u.terms) === setText(t.terms))
-		)
-			? ["two targets sharing the UNIQUE over their terms and fixed field" as const]
-			: []),
-		...(own.length > 0 && shared.length > 0
-			? ["a target at its own columns beside one at its terms and fixed field" as const]
+		...(own.length > 0 && unprobed.length > 0
+			? ["a probed target beside an unprobed one" as const]
 			: []),
 		...(own.length > 0 && s.key.includes("kind")
 			? ["a target's own UNIQUE, K implying it through the field its selection fixes" as const]
@@ -633,7 +694,7 @@ const featuresOf = (s: Sketch): ReadonlyArray<Feature> => {
 
 describe("a fixed target's UNIQUE beside the reverse probes out of its selection", () => {
 	it.effect(
-		"plans no redundant pair, a unique index per referenced set and none beyond the keys and references, leaves T's indexes as the implied keys restated would, and reports a key every duplicate breaks",
+		"plans no redundant pair, a unique index per referenced set and none beyond the keys and references, no more objects than the implied keys restated, a constant only where it saves one, and reports a key every duplicate breaks",
 		(ctx) =>
 			searched(
 				ctx,
@@ -641,7 +702,7 @@ describe("a fixed target's UNIQUE beside the reverse probes out of its selection
 					{
 						oracle: {
 							kind: "specification",
-							name: "the planned index set: no redundant pair, one unique index per referenced set, none a law needs no more, an implied key restated free where a probe reads a target's own columns, and each unique index reporting a key the pairs of a box of rows it refuses break"
+							name: "the planned index set and law columns: no redundant pair, one unique index per referenced set, none a law needs no more, no more objects than with the implied keys restated and a constant column only where it saves one, and each unique index reporting a key the pairs of a box of rows it refuses break"
 						},
 						suite: "unit/laws/model/probed-target",
 						draw: drawn(sketchGen),
@@ -660,18 +721,18 @@ describe("a fixed target's UNIQUE beside the reverse probes out of its selection
 							const plain = installationOf(schemaOf(s, []))
 							checkIndexes(plain, "the schema with K alone")
 							checkReports(plain, "the schema with K alone", c.note)
-							const keys = restated(s)
-							if (keys.length === 0) {
-								return
-							}
-							const restating = installationOf(schemaOf(s, keys))
+							const restating = installationOf(schemaOf(s, restated(s)))
 							checkIndexes(restating, "the schema with the implied keys restated")
 							checkReports(restating, "the schema with the implied keys restated", c.note)
-							assert.deepEqual(
-								shapesOfT(restating),
-								shapesOfT(plain),
-								"restating the keys K implies over the targets a probe reads at their own columns plans T's indexes as K alone does"
+							const alone = objectsOf(plain)
+							const beside = objectsOf(restating)
+							assert.ok(
+								alone.objects <= beside.objects,
+								`K alone plans ${alone.objects} indexes and law columns, no more than the ${beside.objects} of K beside the keys it implies`
 							)
+							if (alone.constants > beside.constants) {
+								c.note("constant columns that cost the schema no more objects")
+							}
 						})
 				)
 			)
