@@ -165,6 +165,7 @@ export type CommandName =
 	| "names"
 	| "roles"
 	| "uninstall"
+	| "openapi"
 
 /**
  * The flags of `grizzle generate`: its switches, the flags that take a value once, and the flags that take one each
@@ -471,6 +472,7 @@ type TreeFault =
 	| { readonly kind: "notDirectory"; readonly directory: string }
 	| { readonly kind: "strayEntry"; readonly directory: string; readonly entry: string }
 	| { readonly kind: "strayServed"; readonly directory: string; readonly entry: string }
+	| { readonly kind: "strayDocument"; readonly directory: string; readonly entry: string }
 	| {
 			readonly kind: "halfSnapshot"
 			readonly directory: string
@@ -490,9 +492,11 @@ export class TreeRefused extends Data.TaggedError("TreeRefused")<{
 			case "notDirectory":
 				return `${fault.directory} is not a directory; it is schema ${this.schema}'s migrations directory`
 			case "strayEntry":
-				return `${fault.directory} holds ${fault.entry}, which is neither ${snapshotFileName}, ${manifestFileName}, the served directory nor a migration folder`
+				return `${fault.directory} holds ${fault.entry}, which is neither ${snapshotFileName}, ${manifestFileName}, the served directory, the openapi directory nor a migration folder`
 			case "strayServed":
 				return `${fault.directory} holds ${fault.entry}, which is no file named <login>.json; grizzle generate writes one per login`
+			case "strayDocument":
+				return `${fault.directory} holds ${fault.entry}, which is no file named <login>.json; grizzle generate writes one OpenAPI document per login`
 			case "halfSnapshot":
 				return `${fault.directory} holds ${fault.present} without ${fault.missing}; grizzle generate writes the two together, so restore ${fault.missing} from version control`
 			case "noMeta":
@@ -548,10 +552,11 @@ export class SnapshotUnwritten extends Data.TaggedError("SnapshotUnwritten")<{
 /** The served files of `schema` could not be written or removed, for `cause`. */
 export class ServedUnwritten extends Data.TaggedError("ServedUnwritten")<{
 	readonly schema: string
+	readonly kind: "served" | "openapi"
 	readonly cause: Error
 }> {
 	override get message(): string {
-		return `the served files of ${this.schema} could not be written${codeOf(this.cause)}`
+		return `the ${this.kind === "served" ? "served files" : "OpenAPI documents"} of ${this.schema} could not be written${codeOf(this.cause)}`
 	}
 }
 

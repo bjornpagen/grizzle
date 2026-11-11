@@ -341,7 +341,7 @@ const headingSchema = <L>(heading: WireHeading<L>, leaf: (l: L) => WireSchema): 
 }
 
 /** The JSON Schema of a record's values: its one heading's, or one of its headings'. */
-export const recordSchema = <L>(record: WireRecord<L>, leaf: (l: L) => WireSchema): WireSchema => {
+const recordSchema = <L>(record: WireRecord<L>, leaf: (l: L) => WireSchema): WireSchema => {
 	const [first, ...rest] = record
 	return oneOfSchemas([headingSchema(first, leaf), ...rest.map((h) => headingSchema(h, leaf))])
 }

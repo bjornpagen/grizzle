@@ -29,6 +29,7 @@ import {
 } from "#compiler/plan/common.ts"
 import {
 	type Footprint,
+	memberWire,
 	type ProgramFootprints,
 	servedMatchers,
 	servedMembers,
@@ -51,6 +52,7 @@ import {
 	type ServedFile,
 	type ServedKey,
 	type ServedMember,
+	type ServedMemberForm,
 	type ServedRead,
 	type ServedRefusals,
 	type ServedRoleForm,
@@ -170,7 +172,7 @@ const memberOf = (
 	member: WorkloadForm,
 	footprints: ProgramFootprints,
 	names: SchemaArtifacts["names"]
-): Result.Result<ServedMember, UnservedMember> => {
+): Result.Result<ServedMemberForm, UnservedMember> => {
 	const { name } = member
 	const footprint = (): Footprint => {
 		const read = footprints.get(name)
@@ -203,7 +205,7 @@ const memberOf = (
 			})
 		}
 		case "change":
-			return Result.map(variantsOf(member.variants), (variants): ServedMember => ({
+			return Result.map(variantsOf(member.variants), (variants): ServedMemberForm => ({
 				name,
 				kind: "change",
 				variants
@@ -284,25 +286,32 @@ const refusalsOf = (role: LayerRole): ServedRefusals => {
 
 /**
  * One role of the login, served: its name, its PostgreSQL role, its level, its contexts, its classifier and its
- * members, each read with its footprint among the login's, `footprints`.
+ * members, each read with its footprint among the login's, `footprints`, and each with its wire, read off its form once
+ * (live/member.ts memberWire), which a member whose shape no wire spells refuses.
  */
 const roleOf = (
 	role: LayerRole,
 	footprints: ProgramFootprints
-): Result.Result<ServedRoleForm, UnservedMember> =>
-	Result.map(
-		Result.all(
+): Result.Result<ServedRoleForm, CompileError | UnservedMember> =>
+	Result.gen(function* () {
+		const forms = yield* Result.all(
 			Arr.map(role.workload, (member) => memberOf(member, footprints, role.artifacts.names))
-		),
-		(members): ServedRoleForm => ({
-			name: role.role.name,
+		)
+		const named = { name: role.role.name, refusals: refusalsOf(role) }
+		const members = yield* Result.all(
+			Arr.map(forms, (form) =>
+				Result.map(toResult(memberWire(form, named)), (wire): ServedMember => ({ ...form, wire }))
+			)
+		)
+		return {
+			name: named.name,
 			installed: role.theory,
 			isolation: role.isolation,
 			contexts: contextsOf(role),
-			refusals: refusalsOf(role),
+			refusals: named.refusals,
 			members
-		})
-	)
+		}
+	})
 
 /** One kind of owner's constraints above as a served file holds them: each one reporting a law of `laws`, under its
  * owner, an owner none of whose constraints does left out. */

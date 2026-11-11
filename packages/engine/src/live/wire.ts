@@ -41,7 +41,6 @@ import {
 	anchored,
 	base64Texts,
 	calendarDates,
-	decimalGrammar,
 	decimals,
 	admittedText,
 	integers,
@@ -955,6 +954,3 @@ export const parseScalar = (
 
 /** The server's own JSON of a scalar converted back to its host value, trusted. */
 export const decodeScalar = (spec: WireScalar, json: WireJson): unknown => decodeAt(spec, json)
-
-/** The decimal grammar a decimal's spelling is in, beside the bounds each type's schema states. */
-export { decimalGrammar }

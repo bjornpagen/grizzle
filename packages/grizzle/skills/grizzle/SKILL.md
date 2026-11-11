@@ -107,8 +107,9 @@ export default defineConfig({
    `manifest.json` again, drafts no folder, and prints `next: commit snapshot.json, then run grizzle check`. Beside the
    snapshot it writes `served/<login>.json` for every login of the configuration over the schema: the login's
    workload compiled under that snapshot, every program for every role it runs on, which is what the application
-   serves. It writes a served file whose text changed, removes the one of a login the configuration no longer lists,
-   prints each, and prints `next: commit the served files, then run grizzle check` when nothing else changed. A login
+   serves, and `openapi/<login>.json`, the login's OpenAPI 3.2 document read off that served file. It writes a served
+   file or document whose text changed, removes the ones of a login the configuration no longer lists, prints each,
+   and prints `next: commit the served files, then run grizzle check` when nothing else changed. A login
    whose workload does not compile refuses generate, naming the login, the role and the program. A name the previous snapshot
    holds that the schema no longer does and no declaration names refuses the draft before anything is written:
    `<name> is dropped but not declared: declare it with --drop <name>, or --rename it`.
@@ -144,7 +145,7 @@ Commands: `grizzle generate <config> [--name <name>] [--schema <schema>] [--rena
 `grizzle generate <config> --custom --name <name> [--schema <schema>]`, `grizzle check <config>`, `grizzle migrate
 <config>`, `grizzle drift <config>`, `grizzle names <config>`, `grizzle roles <config>` (the installation's roles in
 the cluster), `grizzle uninstall <config>` (drops the installation's schemas, every row they hold, and its roles, in
-one transaction). Flags come anywhere after the command, as `--flag value`
+one transaction), `grizzle openapi <config>` (each login's OpenAPI document from its committed served file). Flags come anywhere after the command, as `--flag value`
 or `--flag=value`. A name is lowercase words joined by `_` or `-`, at most 240 characters, so that the folder
 `<timestamp>_<name>` fits one file name (NAME_MAX, 255 bytes). Without `--name`, a drafted folder is named after its
 change (`init`, `add_task_note`, `<first change>_and_more`); a custom one needs `--name`. `--schema` is accepted only
@@ -310,6 +311,13 @@ as PostgreSQL's scanner reads it: whitespace, comments and the case of unquoted 
   `check` compiles every login again and holds each file to it byte for byte: the login's served file differs from
   what its workload compiles to under snapshot.json (an ungenerated change), naming the login and the first program
   where they part; run grizzle generate, which writes the served file again.
+- `openapi/<login>.json`: a login's OpenAPI 3.2 document, read off its served file alone: one
+  `POST /<login>/<role>/<program>` per program of each role, its request body the program's `{ params, facts }`
+  (a paged program's `{ params, facts, window }`), its answer a `text/event-stream` of the program's events, and the
+  `grizzle-wire` header naming the wire's digest. `check` holds it to the one its served file gives, byte for byte: the
+  login's OpenAPI document differs from the one its served file gives (an ungenerated change); run grizzle generate,
+  which writes the OpenAPI document again. `grizzle openapi grizzle.config.ts` writes the documents of the committed
+  served files alone, compiling nothing.
 - `meta.json`: it records the folder's place in the chain, the renames and drops it was drafted under, every
   drafted statement of every file in its place, its confirmed groups and data losses among them, which `check` reads
   every reviewed file against, and the law of each constraint the folder installs, by which `migrate` names the law a
@@ -352,6 +360,9 @@ schema or workload that does not compile) are `check`'s alone.
 | the login's served file differs from what its workload compiles to under snapshot.json (an ungenerated change) | run grizzle generate, which writes the served file again |
 | the login has no served file beside snapshot.json (an ungenerated change) | run grizzle generate, which writes the served file |
 | the served file is of a login the configuration does not list over the schema | run grizzle generate, which removes the served file |
+| the login's OpenAPI document differs from the one its served file gives (an ungenerated change) | run grizzle generate, which writes the OpenAPI document again |
+| the login has no OpenAPI document beside snapshot.json (an ungenerated change) | run grizzle generate, which writes the OpenAPI document |
+| the OpenAPI document is of a login the configuration does not list over the schema | run grizzle generate, which removes the OpenAPI document |
 | the schema or a login's workload does not compile | fix the schema or workload it names, then run grizzle generate |
 | the schema no longer holds a name snapshot.json holds, and no --drop or --rename declares what became of it | run grizzle generate <config> --drop <name>, or --rename <old>=<new> where it was renamed |
 | a roster declares a handle before one that holds a lower code in snapshot.json | append new handles; a roster's order is its codes' order |

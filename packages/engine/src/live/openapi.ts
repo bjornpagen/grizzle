@@ -12,7 +12,7 @@ import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import { contractOf, octetsOf, type ScalarType, textOf } from "#compiler/ir/scalar.ts"
 import { type EventDescriptor, events, type Retry, type Role } from "#compiler/live/events.ts"
-import { memberShape, memberWire, type ServedLeaf, wireScalarOf } from "#compiler/live/member.ts"
+import { memberShape, type ServedLeaf, wireScalarOf } from "#compiler/live/member.ts"
 import { inputSchema, type MemberShape, slotSchemas } from "#compiler/live/shape.ts"
 import {
 	type SchemaGap,
@@ -140,70 +140,79 @@ const eventsOf = (
 	})
 }
 
-/** The operation of one member of `role` in `file`'s document. */
+/** The request header a call names the wire it was built for by, its digest (live/member.ts WireDigest). */
+const wireHeader = "grizzle-wire"
+
+/**
+ * The operation of one member of `role` in `file`'s document: its shape read off its served form, as generate read its
+ * wire, whose digest its request names in its one header, and which its `x-grizzle-wire` carries for a client.
+ */
 const operationOf = (
 	file: ServedFile,
 	role: ServedRoleForm,
 	member: ServedMember
 ): Result.Result<Operation, CompileError> =>
-	Result.flatMap(memberShape(member, role), (shape) =>
-		Result.map(memberWire(member, role), (wire): Operation => {
-			const operationId = `${role.name}.${member.name}`
-			const items = eventsOf(shape, operationId)
-			return {
-				path: `/${file.login}/${role.name}/${member.name}`,
-				operation: {
-					operationId,
-					tags: [role.name],
-					security: role.contexts.length === 0 ? [] : [{ [bearer]: [] }],
-					requestBody: {
+	Result.map(memberShape(member, role), (shape): Operation => {
+		const operationId = `${role.name}.${member.name}`
+		const items = eventsOf(shape, operationId)
+		return {
+			path: `/${file.login}/${role.name}/${member.name}`,
+			operation: {
+				operationId,
+				tags: [role.name],
+				security: role.contexts.length === 0 ? [] : [{ [bearer]: [] }],
+				parameters: [
+					{
+						in: "header",
+						name: wireHeader,
 						required: true,
-						content: {
-							"application/json": {
-								schema: inputSchema(
-									shape.input,
-									`urn:grizzle:${file.login}:${role.name}:${member.name}`,
-									leafSchema
-								)
-							}
+						schema: { type: "string", const: member.wire.digest }
+					}
+				],
+				requestBody: {
+					required: true,
+					content: {
+						"application/json": {
+							schema: inputSchema(
+								shape.input,
+								`urn:grizzle:${file.login}:${role.name}:${member.name}`,
+								leafSchema
+							)
 						}
-					},
-					responses: {
-						"200": {
-							description: `The ${shape.shape} answer of ${operationId}: its events, then its end`,
-							content: {
-								"text/event-stream": {
-									itemSchema: {
-										oneOf: items.map(([, component]) => ({
-											$ref: `#/components/schemas/${component}`
-										})),
-										discriminator: {
-											propertyName: "event",
-											mapping: Object.fromEntries(
-												items.map(([name, component]) => [
-													name,
-													`#/components/schemas/${component}`
-												])
-											)
-										}
+					}
+				},
+				responses: {
+					"200": {
+						description: `The ${shape.shape} answer of ${operationId}: its events, then its end`,
+						content: {
+							"text/event-stream": {
+								itemSchema: {
+									oneOf: items.map(([, component]) => ({
+										$ref: `#/components/schemas/${component}`
+									})),
+									discriminator: {
+										propertyName: "event",
+										mapping: Object.fromEntries(
+											items.map(([name, component]) => [name, `#/components/schemas/${component}`])
+										)
 									}
 								}
 							}
 						}
-					},
-					"x-grizzle-wire": { digest: wire.digest, member: wire.member }
+					}
 				},
-				events: items.map(([, component, schema]) => [component, schema])
-			}
-		})
-	)
+				"x-grizzle-wire": { digest: member.wire.digest, member: member.wire.member }
+			},
+			events: items.map(([, component, schema]) => [component, schema])
+		}
+	})
 
 /**
  * The OpenAPI 3.2 document of a login's served file (see the module's header): its info naming the login and the
  * snapshot fingerprint it serves, an operation per program of each role, every event's schema a component, and the
  * bearer scheme a role that reads a context is called under. A member whose wire shape is refused refuses it.
  */
-export const openApiDocument = (file: ServedFile): Result.Result<Json, CompileError> => {
+const openApiDocument = (file: ServedFile): Result.Result<Json, CompileError> => {
 	const operations: Array<Operation> = []
 	for (const role of file.roles) {
 		for (const member of role.members) {

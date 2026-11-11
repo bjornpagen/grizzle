@@ -72,6 +72,7 @@ export {
 	type ServedKey,
 	type ServedKeyLaws,
 	type ServedMember,
+	type ServedMemberForm,
 	type ServedPage,
 	type ServedPageProbe,
 	type ServedPageRequest,

@@ -19,7 +19,14 @@ import {
 	type ResolvedConfig
 } from "#cli/config.ts"
 import type { CliError } from "#cli/errors.ts"
-import { readSchemaTree, type SchemaTree } from "#cli/files.ts"
+import {
+	type LoginFileKind,
+	loginFileKinds,
+	loginFiles,
+	type LoginTexts,
+	readSchemaTree,
+	type SchemaTree
+} from "#cli/files.ts"
 import { draftSchema, servedFiles } from "#cli/generate.ts"
 import { refusalText } from "#cli/refusals.ts"
 import { namedText, noDeclarations } from "#cli/renames.ts"
@@ -39,12 +46,7 @@ import {
 	servedPartingText,
 	splitStatements
 } from "#compiler/plan/migration.ts"
-import {
-	type DeploySnapshot,
-	derivedHolds,
-	servedPath,
-	snapshotFileName
-} from "#compiler/plan/serve.ts"
+import { type DeploySnapshot, derivedHolds, snapshotFileName } from "#compiler/plan/serve.ts"
 
 /** A refusal a finding is of: any of the refusal table's but an edited literal pack's, which carries its own facts. */
 type PlainKind = Exclude<keyof typeof refusalText, "literalPack">
@@ -141,8 +143,8 @@ interface CommittedCheck {
 	readonly committed: Option.Option<Committed>
 	readonly folders: number
 	readonly packs: ReadonlyArray<PackStatement>
-	/** The committed served files' texts, by login (files.ts SchemaTree). */
-	readonly served: ReadonlyMap<string, string>
+	/** The committed served files' and OpenAPI documents' texts, by kind and login (files.ts SchemaTree). */
+	readonly logins: LoginTexts
 }
 
 /** A finding of `kind` about `schema` at `where`, with its fix. */
@@ -172,7 +174,13 @@ const checkCommitted = Effect.fn("checkCommitted")(function* (
 	const read = yield* Effect.result(readSchemaTree(schema.declared, schema.directory))
 	if (Result.isFailure(read)) {
 		at("strayEntry", path(), read.failure.reason.message)
-		return { findings, committed: Option.none(), folders: 0, packs: [], served: new Map() }
+		return {
+			findings,
+			committed: Option.none(),
+			folders: 0,
+			packs: [],
+			logins: { served: new Map(), openapi: new Map() }
+		}
 	}
 	const tree: SchemaTree = read.success
 	const committed = yield* Effect.result(committedSnapshot(schema, tree))
@@ -257,7 +265,7 @@ const checkCommitted = Effect.fn("checkCommitted")(function* (
 		committed: recorded,
 		folders: tree.folders.length,
 		packs,
-		served: tree.served
+		logins: tree.logins
 	}
 })
 
@@ -288,49 +296,76 @@ const packFindings = (
 				]
 	})
 
+/** The findings of one kind of login file, each by the refusal it names, and how a stale file's problem is told. */
+const loginRules = {
+	served: {
+		missing: "servedMissing",
+		stale: "servedStale",
+		extra: "servedExtra",
+		parting: (expected: string, committed: string): string =>
+			`${servedPartingText(servedDifference(expected, committed))}: `
+	},
+	openapi: {
+		missing: "documentMissing",
+		stale: "documentStale",
+		extra: "documentExtra",
+		parting: (): string => ""
+	}
+} as const satisfies {
+	readonly [K in LoginFileKind]: {
+		readonly missing: PlainKind
+		readonly stale: PlainKind
+		readonly extra: PlainKind
+		readonly parting: (expected: string, committed: string) => string
+	}
+}
+
 /**
- * The findings of a schema's committed served files, `committed` by login, against the served files generate writes
+ * The findings of a schema's committed login files of `kind`, `committed` by login, against the ones generate writes
  * under the draft's snapshot, `served`, each where it lies relative to `cwd`: a login's file that is not its text, a
  * login with none, and a file of a login the configuration does not list.
  */
-const servedFindings = (
+const loginFindings = (
 	schema: ConfiguredSchema,
+	kind: LoginFileKind,
 	served: ReadonlyArray<ServedEntry>,
 	committed: ReadonlyMap<string, string>,
 	where: (login: string) => string
 ): ReadonlyArray<CheckFinding> => {
+	const rules = loginRules[kind]
 	const listed = new Set(Arr.map(served, (f) => f.login))
 	const extra = Arr.filter(Arr.fromIterable(committed.keys()), (login) => !listed.has(login))
 	return [
 		...Arr.flatMap(served, (file) => {
 			const text = committed.get(file.login)
+			const expected = kind === "served" ? file.text : file.openapi
 			if (text === undefined) {
 				return [
 					finding(
 						schema,
-						"servedMissing",
+						rules.missing,
 						where(file.login),
-						`login ${file.login}: ${refusalText.servedMissing.problem}`
+						`login ${file.login}: ${refusalText[rules.missing].problem}`
 					)
 				]
 			}
-			return text === file.text
+			return text === expected
 				? []
 				: [
 						finding(
 							schema,
-							"servedStale",
+							rules.stale,
 							where(file.login),
-							`login ${file.login}, ${servedPartingText(servedDifference(file.text, text))}: ${refusalText.servedStale.problem}`
+							`login ${file.login}, ${rules.parting(expected, text)}${refusalText[rules.stale].problem}`
 						)
 					]
 		}),
 		...Arr.map(Arr.sort(extra, Order.String), (login) =>
 			finding(
 				schema,
-				"servedExtra",
+				rules.extra,
 				where(login),
-				`login ${login}: ${refusalText.servedExtra.problem}`
+				`login ${login}: ${refusalText[rules.extra].problem}`
 			)
 		)
 	]
@@ -419,11 +454,18 @@ const checkSchema = Effect.fn("checkSchema")(function* (
 				)
 			} else {
 				const paths = yield* Path.Path
-				const stale = servedFindings(schema, served.success, committed.served, (login) =>
-					paths.relative(cwd, Arr.join([schema.directory, servedPath(login)], "/"))
-				)
-				for (const f of stale) {
-					findings.push(f)
+				for (const kind of loginFileKinds) {
+					const stale = loginFindings(
+						schema,
+						kind,
+						served.success,
+						committed.logins[kind],
+						(login) =>
+							paths.relative(cwd, Arr.join([schema.directory, loginFiles[kind].path(login)], "/"))
+					)
+					for (const f of stale) {
+						findings.push(f)
+					}
 				}
 			}
 		}

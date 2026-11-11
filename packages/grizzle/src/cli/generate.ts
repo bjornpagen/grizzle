@@ -31,10 +31,13 @@ import {
 	ServedRefused
 } from "#cli/errors.ts"
 import {
+	type LoginFileKind,
+	loginFileKinds,
+	type LoginText,
+	type LoginTexts,
 	readSchemaTree,
-	type ServedText,
 	writeFolder,
-	writeServedFiles,
+	writeLoginFiles,
 	writeSnapshotFiles
 } from "#cli/files.ts"
 import { rosterRenames } from "#cli/renames.ts"
@@ -143,10 +146,11 @@ type Written =
  * A custom migration is the empty folder whose source and target are both the committed snapshot, for hand-written
  * data steps, named `--name`; the snapshot's files do not change.
  *
- * Beside the snapshot, every other draft brings the schema's served directory to the snapshot it commits: each login of
- * the configuration over the schema has its workload compiled under that snapshot (servedFiles), and its
- * `served/<login>.json` is written where the directory does not hold that text, and the served file of a login the
- * configuration no longer lists is removed. A custom folder changes no snapshot and compiles nothing, so it leaves them.
+ * Beside the snapshot, every other draft brings the schema's served and openapi directories to the snapshot it commits:
+ * each login of the configuration over the schema has its workload compiled under that snapshot (servedFiles), and its
+ * `served/<login>.json` and its OpenAPI document `openapi/<login>.json`, read off that served file, are written where
+ * the directory does not hold that text, and the files of a login the configuration no longer lists are removed. A
+ * custom folder changes no snapshot and compiles nothing, so it leaves them.
  *
  * Every selected schema drafts before anything is written, so a schema the compiler refuses writes no folder of any
  * schema, and a name the previous snapshot holds that the schema no longer does is refused unless the command line
@@ -161,9 +165,9 @@ export type SchemaGenerateReport = SchemaWritten & {
 	readonly ident: string
 	/** The snapshot the schema's directory now commits. */
 	readonly fingerprint: string
-	/** The path of each served file written, its text not the one the directory held. */
+	/** The path of each served file and OpenAPI document written, its text not the one the directory held. */
 	readonly served: ReadonlyArray<string>
-	/** The path of each served file removed, of a login the configuration no longer lists over the schema. */
+	/** The path of each served file and OpenAPI document removed, of a login the configuration no longer lists. */
 	readonly unserved: ReadonlyArray<string>
 	/** The certificate of every role of the schema's logins, its reasons with it (ServedBasis); none for a custom folder. */
 	readonly certification: ServedWorkloadPlan["certification"]
@@ -217,17 +221,23 @@ const selectSchemas = (
 }
 
 /**
- * What a draft does to a schema's served directory: each login's served file whose text the directory does not hold,
- * written, and the served file of each login the configuration no longer lists over the schema, removed, by its
+ * What a draft does to a schema's directory of one kind of login file: each login's file whose text the directory does
+ * not hold, written, and the file of each login the configuration no longer lists over the schema, removed, by its
  * declared name.
  */
-interface ServedWrites {
-	readonly write: ReadonlyArray<ServedText>
+interface LoginWrites {
+	readonly write: ReadonlyArray<LoginText>
 	readonly remove: ReadonlyArray<string>
 }
 
-/** A custom folder leaves the served files as they are. */
-const noServedWrites: ServedWrites = { write: [], remove: [] }
+/** What a draft does to a schema's directories of login files, by kind (files.ts loginFiles). */
+type ServedWrites = { readonly [K in LoginFileKind]: LoginWrites }
+
+/** A custom folder leaves the login files as they are. */
+const noServedWrites: ServedWrites = {
+	served: { write: [], remove: [] },
+	openapi: { write: [], remove: [] }
+}
 
 /** A schema's draft: nothing to write; snapshot.json written again, its derived facts the compile's, with no folder; an
  * empty custom folder; or a drafted folder and its new snapshot's files. Beside any of them but the custom folder, the
@@ -515,16 +525,21 @@ export const servedFiles = Effect.fn("servedFiles")(function* (
 	})
 })
 
-/** What writing `served` does to a served directory holding `committed`, by login (ServedWrites). */
-const servedWrites = (
-	served: ReadonlyArray<ServedEntry>,
-	committed: ReadonlyMap<string, string>
-): ServedWrites => {
+/** The text of a login's file of `kind` its compile gives: its served file's, or its OpenAPI document's. */
+const loginText = (entry: ServedEntry, kind: LoginFileKind): string =>
+	kind === "served" ? entry.text : entry.openapi
+
+/** What writing `served` does to directories holding `committed`, by kind and login (ServedWrites). */
+const servedWrites = (served: ReadonlyArray<ServedEntry>, committed: LoginTexts): ServedWrites => {
 	const listed = new Set(Arr.map(served, (f) => f.login))
-	return {
-		write: Arr.filter(served, (f) => committed.get(f.login) !== f.text),
-		remove: Arr.filter(Arr.fromIterable(committed.keys()), (login) => !listed.has(login))
-	}
+	const writes = (kind: LoginFileKind): LoginWrites => ({
+		write: Arr.flatMap(served, (f) => {
+			const text = loginText(f, kind)
+			return committed[kind].get(f.login) === text ? [] : [{ login: f.login, text }]
+		}),
+		remove: Arr.filter(Arr.fromIterable(committed[kind].keys()), (login) => !listed.has(login))
+	})
+	return { served: writes("served"), openapi: writes("openapi") }
 }
 
 /** One schema's draft, computed without writing anything. */
@@ -563,7 +578,7 @@ const draftFor = Effect.fn("draftFor")(function* (
 		options.declared
 	)
 	const files = yield* servedFiles(compiled, generated.snapshotFiles, generated.served)
-	const served = servedWrites(files, tree.served)
+	const served = servedWrites(files, tree.logins)
 	const certification = generated.served.kind === "logins" ? generated.served.certification : []
 	if (generated.change === "none") {
 		return committed.kind === "files" && !derivedHolds(committed.derived, generated.derived)
@@ -631,25 +646,30 @@ const abandonedSchemas = Effect.fn("abandonedSchemas")(
 		)
 )
 
-/** Writes a draft: its folder whole, then its snapshot, then its served files. */
+/** Writes a draft: its folder whole, then its snapshot, then its served files and OpenAPI documents. */
 const writeDraft = Effect.fn("writeDraft")(function* (
 	draft: SchemaDraft
 ): Effect.fn.Return<SchemaGenerateReport, CliError, FileSystem.FileSystem | Path.Path> {
 	const { schema } = draft
-	const written = yield* writeSchemaDraft(draft)
-	const served = yield* writeServedFiles(
-		schema.declared,
-		schema.directory,
-		draft.served.write,
-		draft.served.remove
+	const schemaWritten = yield* writeSchemaDraft(draft)
+	const files = yield* Effect.forEach(loginFileKinds, (kind) =>
+		writeLoginFiles(
+			schema.declared,
+			kind,
+			schema.directory,
+			draft.served[kind].write,
+			draft.served[kind].remove
+		)
 	)
+	const written = Arr.flatMap(files, (f) => f.written)
+	const removed = Arr.flatMap(files, (f) => f.removed)
 	return {
-		...written,
+		...schemaWritten,
 		schema: schema.declared,
 		ident: schema.ident,
 		fingerprint: draft.snapshot.fingerprint,
-		served: served.written,
-		unserved: served.removed,
+		served: written,
+		unserved: removed,
 		certification: draft.certification
 	}
 })

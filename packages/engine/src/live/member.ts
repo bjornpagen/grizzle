@@ -47,7 +47,7 @@ import { encodeScalar, sameJson, type WireJson, type WireScalar } from "#compile
 import type { InputData } from "#compiler/runtime/write/normalize.ts"
 import type {
 	ServedChange,
-	ServedMember,
+	ServedMemberForm,
 	ServedRead,
 	ServedRoleForm,
 	ServedVariants
@@ -625,8 +625,11 @@ const changeShape = (
 const shapeWire = (shape: MemberShape<ServedLeaf>): MemberWire =>
 	mapShape(shape, (leaf) => leaf.wire)
 
+/** What a member's wire reads of its role: its name, and its refusals, whose relations its witnesses name. */
+export type WireRole = Pick<ServedRoleForm, "name" | "refusals">
+
 /** The relations a refusal's witness may name for a role (adapter witness/index.ts statedWitness), typed by heading. */
-const witnessOf = (role: ServedRoleForm): ReadonlyArray<WireWitness<ServedLeaf>> =>
+const witnessOf = (role: WireRole): ReadonlyArray<WireWitness<ServedLeaf>> =>
 	[...role.refusals.relations].map(([relation, heading]) => {
 		const entry = role.refusals.entries.get(relation)
 		if (entry === undefined) {
@@ -649,8 +652,8 @@ const witnessOf = (role: ServedRoleForm): ReadonlyArray<WireWitness<ServedLeaf>>
  * served form holds what no wire spells: a decoder no layout binds, or a key field no heading holds as a scalar.
  */
 export const memberShape = (
-	member: ServedMember,
-	role: ServedRoleForm
+	member: ServedMemberForm,
+	role: WireRole
 ): Bound<MemberShape<ServedLeaf>> => {
 	const binding: Binding = { role: role.name, member: member.name }
 	const witness = witnessOf(role)
@@ -715,7 +718,7 @@ export interface ServedWire {
 }
 
 /** A member's wire, its leaves its codecs' scalars, with its digest (ServedWire), or the refusal of its shape. */
-export const memberWire = (member: ServedMember, role: ServedRoleForm): Bound<ServedWire> =>
+export const memberWire = (member: ServedMemberForm, role: WireRole): Bound<ServedWire> =>
 	Result.flatMap(memberShape(member, role), (shape) => {
 		const wire = shapeWire(shape)
 		return Result.map(writeCanonicalJson(wire), (text) => ({

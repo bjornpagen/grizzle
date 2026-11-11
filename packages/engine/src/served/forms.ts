@@ -19,6 +19,7 @@ import type { RosterCodes } from "#compiler/ir/cells.ts"
 import type { ConstraintLaws, PageFill, ParamDecl } from "#compiler/ir/products.ts"
 import type { CompletedOrder, Heading, HeadingColumn } from "#compiler/ir/rel.ts"
 import type { ConstraintLaw } from "#compiler/laws/model/model.ts"
+import type { ServedWire } from "#compiler/live/member.ts"
 import type { PageStatementSlot } from "#compiler/lower/conservative/types.ts"
 import type { PageRequestProgram } from "#compiler/lower/shapes/page/compile.ts"
 import type {
@@ -223,17 +224,25 @@ export interface ServedContext {
 }
 
 /**
- * One program of a role's workload, by name: a query or ordered query read for its rows; an ordered query that pages,
- * with its page; a key, whose lookup reads by the key's values; a ChangeSet, compiled for each set of its fill
- * contexts that may hold a fact; or a refresh of materialized derived relations, its targets in refresh order.
+ * One program of a role's workload, by name, as its compile serves it: a query or ordered query read for its rows; an
+ * ordered query that pages, with its page; a key, whose lookup reads by the key's values; a ChangeSet, compiled for each
+ * set of its fill contexts that may hold a fact; or a refresh of materialized derived relations, its targets in refresh
+ * order.
  */
-export type ServedMember = { readonly name: string } & (
+export type ServedMemberForm = { readonly name: string } & (
 	| { readonly kind: "read"; readonly read: ServedRead }
 	| { readonly kind: "paged"; readonly read: ServedRead; readonly page: ServedPage }
 	| { readonly kind: "key"; readonly fields: ReadonlyArray<string>; readonly read: ServedRead }
 	| { readonly kind: "change"; readonly variants: ServedVariants }
 	| { readonly kind: "refresh"; readonly refresh: ServedRefresh }
 )
+
+/**
+ * One program of a role's workload as its served file holds it: its form, and its wire (live/member.ts ServedWire), the
+ * shape its HTTP calls take and answer with and that shape's digest, which generate reads off the form once, so a
+ * layer, a client and the OpenAPI document read it and none derives it again.
+ */
+export type ServedMember = ServedMemberForm & { readonly wire: ServedWire }
 
 /**
  * A materialized view one refresh call refreshes, in refresh order (lower levels first, then declared order): its

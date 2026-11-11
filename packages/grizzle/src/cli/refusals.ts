@@ -49,6 +49,19 @@ export const refusalText = {
 		problem: "the served file is of a login the configuration does not list over the schema",
 		fix: "run grizzle generate, which removes the served file"
 	},
+	documentStale: {
+		problem:
+			"the login's OpenAPI document differs from the one its served file gives (an ungenerated change)",
+		fix: "run grizzle generate, which writes the OpenAPI document again"
+	},
+	documentMissing: {
+		problem: "the login has no OpenAPI document beside snapshot.json (an ungenerated change)",
+		fix: "run grizzle generate, which writes the OpenAPI document"
+	},
+	documentExtra: {
+		problem: "the OpenAPI document is of a login the configuration does not list over the schema",
+		fix: "run grizzle generate, which removes the OpenAPI document"
+	},
 	compile: {
 		problem: "the schema or a login's workload does not compile",
 		fix: "fix the schema or workload it names, then run grizzle generate"
