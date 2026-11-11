@@ -27,7 +27,6 @@ import {
 	bo,
 	digest1,
 	l1,
-	l2,
 	p0,
 	p1,
 	request1,
@@ -597,19 +596,22 @@ const fromStateA: Arr.NonEmptyReadonlyArray<Case> = [
 		witnesses: [unreported]
 	},
 	{
-		change: "withhold applied again on its own, { run: run1 }",
+		change:
+			'insert Posting { line: l1, account: "GrossWages", side: "debit", amount: Cents(500_001n) }',
 		role: "clerk",
 		changes: (p) =>
-			p.called(p.w.server.roles.clerk, p.cs().insert(P.Posting, p.postings), { run: run1 }),
+			p.attempt(p.w.server.roles.clerk, p.cs().insert(P.Posting, []), {
+				insert: {
+					Posting: [{ line: l1, account: "GrossWages", side: "debit", amount: cents(500_001n) }]
+				}
+			}),
+		/**
+		 * A generated addition, its entry drawn, meets stored postings at key(line, account), the first declared key that
+		 * holds no drawn field: l1's stored GrossWages posting is 500_000, so the request is a conflict there, never an
+		 * exact repeat, which would change nothing.
+		 */
 		law: L.lawOf(key(on(P.Posting, "line", "account"))),
-		witnesses: [
-			postingKey(l1, "GrossWages"),
-			postingKey(l1, "NetPay"),
-			postingKey(l1, "Withholding"),
-			postingKey(l2, "GrossWages"),
-			postingKey(l2, "NetPay"),
-			postingKey(l2, "Withholding")
-		]
+		witnesses: [postingKey(l1, "GrossWages")]
 	}
 ]
 

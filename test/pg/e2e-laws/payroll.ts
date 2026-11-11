@@ -6,13 +6,12 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { ParamMap } from "#compiler/plan/common.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { Compute } from "#compiler/public/compute.ts"
 import type { Uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import type { AnyLoginRole, LevelsOf, Schema, StatementsByName } from "#compiler/public/schema.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { type Fixture, openFixture } from "#test/pg/e2e-laws/support.ts"
-import { Cents, Instant } from "#test/support/fixtures/api/contracts.ts"
+import { Instant } from "#test/support/fixtures/api/contracts.ts"
 import * as P from "#test/support/fixtures/api/payroll.ts"
 import { stateA } from "#test/support/fixtures/golden/payroll.ts"
 import type { SqlError } from "#test/support/pg.ts"
@@ -77,37 +76,6 @@ const members = (s: PayrollInstalled) => ({
 				status: "approved"
 			})
 	}),
-	postings: query(s)
-		.rule((r) => {
-			const { id, gross } = v(P.PayLine, "payLine")
-			return r.match(P.PayLine, { id, run: r.param("run", P.PayLine.fields.run), gross }).find({
-				line: id,
-				account: "GrossWages",
-				side: "debit",
-				amount: gross
-			})
-		})
-		.rule((r) => {
-			const { id, net } = v(P.PayLine, "payLine")
-			return r
-				.match(P.PayLine, { id, run: r.param("run", P.PayLine.fields.run), net })
-				.find({ line: id, account: "NetPay", side: "credit", amount: net })
-		})
-		.rule((r) => {
-			const { id, gross, net } = v(P.PayLine, "payLine")
-			return r
-				.match(P.PayLine, { id, run: r.param("run", P.PayLine.fields.run), gross, net })
-				.find({
-					line: id,
-					account: "Withholding",
-					side: "credit",
-					amount: Compute.when(
-						Compute.within(Compute.sub(gross, net), 0n, 9223372036854775807n),
-						(withheld) => Compute.cast(withheld, Cents),
-						Compute.literal(Cents, 0n)
-					)
-				})
-		}),
 	/** The pay run put. */
 	payPut: query(s).rule((r) => {
 		const { employer, period } = v(P.PayRun, "payRun")
