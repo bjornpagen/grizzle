@@ -9,19 +9,30 @@
  * - Writers of disjoint keys: two or three sessions, each holding its transaction open across every other's statements,
  *   commit every call at READ COMMITTED but one its Invoice's CHECK refuses (an amount off its Lines' sum); at
  *   SERIALIZABLE each call commits, is refused as it is at READ COMMITTED, or meets a serialization failure, a
- *   TransientFailure the caller retries. Where SERIALIZABLE takes its predicate locks is PostgreSQL's, never asserted.
+ *   TransientFailure the caller retries, and only a race that posts an Invoice meets one.
+ * - What disjoint writers read, as pg_locks shows it (SSISCAN-04's contract): at READ COMMITTED they hold no SIRead
+ *   lock; at SERIALIZABLE every SIRead lock they hold is on an index of Invoice, the relation Line's foreign key
+ *   references and its counted family's owner, at one of two reads: PostgreSQL's own foreign key check (ri_triggers.c
+ *   ri_FastPathCheck under the transaction snapshot), and the owner INSERT's probe at its key, which proposes only
+ *   Invoices no stored row holds (write/insert/statement.ts Proposal `unstored`), since PostgreSQL judges a proposed
+ *   row by every CHECK before an arbiter meets its key (19rc1 nodeModifyTable.c ExecInsert). Each lock is a page, or
+ *   the whole index where it holds no entry yet (nbtsearch.c _bt_first locks an empty index whole). A race of Docs
+ *   alone, which neither read reaches, holds no SIRead lock. A met row's classification that read the stored rows of
+ *   the facts its INSERT inserted would lock more.
  * - Writers of shared keys: every race of calls over a few keys, at the level generate certifies the importer at and at
  *   SERIALIZABLE, is one some serial order of the same calls explains (support/race.ts runIsolationRace): READ
  *   COMMITTED promises that only where generate certifies it.
  * - One history, two forms: the same calls run one after another give the same rows, the same refusals and the same
  *   state at either level.
  *
- * Oracles: the specification of the disjoint writers' outcomes; a serial order of the same calls (support/race.ts),
+ * Oracles: the specification of the disjoint writers' outcomes and of their SIRead locks; a serial order of the same calls (support/race.ts),
  * timing drawn from the case (every order where a race makes few moves, a PCT schedule beyond); and the differential of
  * one history at the two levels. Features: Docs only, an Invoice posted, three sessions, a CHECK refused; a stored Doc
  * and two calls at one key; an exact repeat, a key or axis refusal, an unsettled invoice refused and Lines sent alone.
- * Plant: ~/.cache/grizzle-release/BR09/plants/arbiter-row-check-negated.patch, every row CHECK installed negated,
- * refuses a settled Invoice and commits an unsettled one, at either level.
+ * Plants: ~/.cache/grizzle-release/BR09/plants/arbiter-row-check-negated.patch, every row CHECK installed negated,
+ * refuses a settled Invoice and commits an unsettled one, at either level; and
+ * arbiter-met-classes-not-materialized.patch, the met rows' classes computed in a CTE PostgreSQL may inline, which lets
+ * a filter on the class read the stored rows of every fact the INSERT inserted, a SIRead lock past Invoice's indexes.
  */
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
@@ -306,6 +317,22 @@ const strategyOf =
 				}
 	}
 
+/** A SIRead lock a race's sessions hold, read from pg_locks: its kind, its relation's name, and whether that relation
+ * is an index of a relation some foreign key references, which in the import shape is Invoice alone. */
+interface SireadLock {
+	readonly kind: string
+	readonly relation: string
+	readonly referenced: boolean
+}
+
+const sireadLocksSql = `SELECT l.locktype, c.relname, EXISTS (
+	SELECT 1 FROM pg_catalog.pg_index AS i JOIN pg_catalog.pg_constraint AS f ON f.confrelid = i.indrelid AND f.contype = 'f'
+	WHERE i.indexrelid = l.relation
+)::text
+FROM pg_catalog.pg_locks AS l JOIN pg_catalog.pg_class AS c ON c.oid = l.relation
+WHERE l.mode = 'SIReadLock' AND l.pid = ANY ($1::int4[])
+ORDER BY 2, 1`
+
 const levelSql = (level: Isolation): string =>
 	`SET TRANSACTION ISOLATION LEVEL ${level === "readCommitted" ? "READ COMMITTED" : "SERIALIZABLE"}`
 
@@ -324,14 +351,15 @@ const failureOf = (outcomes: ReadonlyArray<ScheduleOutcome>): string | undefined
 
 /**
  * Runs a race of disjoint keys over `s`: every session begins at `level`, each sends its call's statements one at a time
- * in turn with the others', so every transaction is open across every other's statements, and each commits in turn.
- * Each call's failure.
+ * in turn with the others', so every transaction is open across every other's statements, the SIRead locks are read
+ * while all are open, and each commits in turn. Each call's failure, and the locks.
  */
 const runDisjoint = (s: InstalledShape, race: DisjointRace, level: Isolation) =>
 	Effect.scoped(
 		Effect.gen(function* () {
 			const substrate = yield* Substrate
 			yield* Effect.provideService(replaceMigrated(s.installed, {}), Substrate, substrate)
+			const env = yield* exploreEnv(substrate)
 			const role = defined(s.shape.roles["importer"], "the importer")
 			const sessions = Arr.map(race.calls, (_, i) => `s${i}`)
 			const actors = yield* openActors(
@@ -363,6 +391,13 @@ const runDisjoint = (s: InstalledShape, race: DisjointRace, level: Isolation) =>
 					}
 				}
 			}
+			const pids = Arr.map(sessions, (_, i) => actorOf(i).pid)
+			const rows = yield* env.observer.queryValues(sireadLocksSql, [pids])
+			const locks = Arr.map(rows, (row): SireadLock => ({
+				kind: textOfValue(row[0]) ?? "",
+				relation: textOfValue(row[1]) ?? "",
+				referenced: textOfValue(row[2]) === "true"
+			}))
 			for (const [i] of sessions.entries()) {
 				const own = defined(outcomes[i], "a session's outcomes")
 				const ended = yield* actorOf(i).perform(
@@ -370,7 +405,7 @@ const runDisjoint = (s: InstalledShape, race: DisjointRace, level: Isolation) =>
 				)
 				own.push(ended)
 			}
-			return Arr.map(outcomes, failureOf)
+			return { failures: Arr.map(outcomes, failureOf), locks }
 		})
 	)
 
@@ -461,7 +496,7 @@ type DisjointFeature =
 	| "an invoice posted"
 	| "three sessions"
 	| "a CHECK refused"
-	| "a serialization failure retried"
+	| "a 40001 under an Invoice race"
 
 type SharedFeature = "a stored Doc" | "two calls at one key" | "three sessions"
 
@@ -477,7 +512,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 	"the insert protocol's arbitrations",
 	(it) => {
 		it.effect(
-			"writers of disjoint keys commit every call but an unsettled Invoice, which both levels refuse, SERIALIZABLE perhaps after a serialization failure",
+			"writers of disjoint keys commit every call but an unsettled Invoice, and SIRead-lock Invoice's indexes alone, Docs none",
 			(ctx) =>
 				searched(
 					ctx,
@@ -491,7 +526,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								{
 									oracle: {
 										kind: "specification",
-										name: "disjoint calls commit unless their Invoice is unsettled, which the Settled CHECK refuses at either level; SERIALIZABLE may also fail one with 40001"
+										name: "disjoint calls commit unless their Invoice is unsettled, which the Settled CHECK refuses at either level, an Invoice race's SERIALIZABLE call perhaps with 40001; no SIRead lock at READ COMMITTED, and at SERIALIZABLE none but a page or an index of Invoice, none for Docs alone"
 									},
 									suite: "pg/isolation/arbiter-disjoint",
 									draw: drawn(disjointRaces),
@@ -516,26 +551,37 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										const rc = yield* runDisjoint(shapes.readCommitted, race, "readCommitted")
 										const ser = yield* runDisjoint(shapes.serializable, race, "serializable")
 										const refused = (f: string | undefined) => f === "23514" || f === "23000"
-										const problems = Arr.flatMap(race.calls, (call, i) => {
-											const atRc = rc[i]
-											const atSer = ser[i]
+										const outcomes = Arr.flatMap(race.calls, (call, i) => {
+											const atRc = rc.failures[i]
+											const atSer = ser.failures[i]
 											return [
 												...(call.unsettled === refused(atRc) &&
 												(call.unsettled || atRc === undefined)
 													? []
 													: [`READ COMMITTED s${i}: ${atRc ?? "committed"}`]),
-												...(atSer === "40001" ||
+												...((atSer === "40001" && !race.docsOnly) ||
 												(call.unsettled === refused(atSer) &&
 													(call.unsettled || atSer === undefined))
 													? []
 													: [`SERIALIZABLE s${i}: ${atSer ?? "committed"}`])
 											]
 										})
+										const locks = [
+											...Arr.map(rc.locks, (l) => `READ COMMITTED holds ${l.kind} ${l.relation}`),
+											...Arr.flatMap(ser.locks, (l) =>
+												!race.docsOnly &&
+												l.referenced &&
+												(l.kind === "page" || l.kind === "relation")
+													? []
+													: [`SERIALIZABLE holds ${l.kind} ${l.relation}`]
+											)
+										]
+										const problems = [...outcomes, ...locks]
 										if (Arr.some(race.calls, (call) => call.unsettled)) {
 											c.note("a CHECK refused")
 										}
-										if (Arr.some(ser, (f) => f === "40001")) {
-											c.note("a serialization failure retried")
+										if (Arr.some(ser.failures, (f) => f === "40001")) {
+											c.note("a 40001 under an Invoice race")
 										}
 										if (Arr.isReadonlyArrayNonEmpty(problems)) {
 											return yield* Effect.die(
