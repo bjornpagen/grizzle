@@ -28,7 +28,6 @@ import { Array as Arr, Effect, Formatter, Result, String as Str } from "effect"
 import { memberOps } from "#adapter/db/handles.ts"
 import { openServed } from "#adapter/db/served.ts"
 import type { ApplyError } from "#adapter/errors/execution.ts"
-import { servedSessions } from "#adapter/pool/served.ts"
 import type { LoadedMember } from "#adapter/served/load.ts"
 import type { Session, SessionPool } from "#adapter/wire/session.ts"
 import type { TransientTag } from "#compiler/core/errors.ts"
@@ -212,8 +211,7 @@ const explored = (staging: Staging) =>
 				(context) =>
 					Effect.gen(function* () {
 						const opened = yield* openServed(rig.served.roles.app, {})
-						const { role } = yield* servedSessions(rig.served.roles.app)
-						for (const member of role.members) {
+						for (const member of opened.role.members) {
 							if (member.name === "importPackage") {
 								loaded.push(member)
 							}

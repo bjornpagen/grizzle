@@ -7,21 +7,15 @@ import { compileFailure } from "#adapter/apply/run.ts"
 import { type Claims, claimsOf, noClaims, type TypedContext } from "#adapter/db/claims.ts"
 import type { ServedDbContext } from "#adapter/db/context.ts"
 import { servedHandles } from "#adapter/db/handles.ts"
-import { readHost } from "#adapter/engine.ts"
 import { OpenError, ReadFailure } from "#adapter/errors/execution.ts"
 import { TokenError } from "#adapter/errors/failures.ts"
-import { type ServedSessions, servedSessions } from "#adapter/pool/served.ts"
+import { readServedRole, type ServedSessions, servedSessions } from "#adapter/pool/served.ts"
+import type { LoadedRole } from "#adapter/served/load.ts"
 import type { DbConstructor, DbOf, OpenOptions, WorkloadHandles } from "#adapter/types/db.ts"
 import type { DbLayerService, ServedRole, Verify } from "#adapter/types/layer.ts"
 import { prologueOf } from "#adapter/wire/batch.ts"
 import type { AnyRole, CompileError } from "#compiler/plan/common.ts"
-import {
-	SourceLoc,
-	defect,
-	malformedDescription,
-	noOpaque,
-	readsAsData
-} from "#compiler/plan/runtime.ts"
+import { SourceLoc, defect, malformedDescription, readCaller } from "#compiler/plan/runtime.ts"
 
 const openLoc = SourceLoc("Db.open", [])
 
@@ -42,31 +36,6 @@ const isWorkloadOf = <R, P>(
 ): handles is object & WorkloadHandles<R, P> =>
 	Reflect.ownKeys(handles).length === names.length &&
 	Arr.every(names, (name) => Reflect.has(handles, name))
-
-/** Whether a value holds the kind and the three names a layer is found by, which served(...)'s tokens alone hold. */
-const holdsTokenParts = (value: unknown): boolean =>
-	typeof value === "object" &&
-	value !== null &&
-	"kind" in value &&
-	value.kind === "servedRole" &&
-	"base" in value &&
-	typeof value.base === "string" &&
-	"login" in value &&
-	typeof value.login === "string" &&
-	"role" in value &&
-	typeof value.role === "string"
-
-/**
- * Whether a value is a served role token, as a JavaScript caller may pass any value: served(...)'s tokens alone hold
- * the kind and the three names a layer is found by. The value is read at the boundary (engine.ts readHost), so a value
- * whose reading runs the caller's code and throws (a proxy's trap, a getter) is no token, and Db.open refuses it as it
- * refuses any other, never escaping as a defect.
- */
-export const isServedRole = (value: unknown): value is ServedRole<unknown, unknown> =>
-	Result.getOrElse(
-		readHost(false, () => Result.succeed(holdsTokenParts(value))),
-		() => false
-	)
 
 /**
  * The layer's verify of a token, called at the boundary: a verify that throws instead of returning its Effect has not
@@ -107,25 +76,30 @@ const dbClaims = (
 const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
 	typeof value === "object" && value !== null && !Arr.isArray(value)
 
+/** No key of Db.open's options is left unread: every own property is copied. */
+const optionKeys: ReadonlySet<string> = new Set()
+
 /**
- * Db.open's options as a JavaScript caller passes them, read once at the boundary: the token they give, a string, or
- * none. The options are an object whose properties read as data (core/host.ts readsAsData), and the token
- * is their own property; no options, null, a list, a value that is no object, one whose reading throws or that holds
- * a getter or a setter, and a token that is no string are each refused at stage schema. The types require the options
- * and type the token, so only a JavaScript caller meets a refusal here.
+ * Db.open's options as a JavaScript caller passes them, read once at the boundary (core/host.ts readCaller): the token
+ * they give, a string, or none. The options are an object that is no list, every own property of which, at any depth,
+ * reads as data, and the token is their own property, read off the copy; no options, null, a list, a value that is no
+ * object, one whose reading throws or that holds a getter or a setter, and a token that is no string are each refused at
+ * stage schema. The types require the options and type the token, so only a JavaScript caller meets a refusal here.
  */
 export const openToken = (options: unknown): Result.Result<Option.Option<string>, OpenError> => {
 	if (!isRecord(options)) {
 		return Result.fail(refusedOption("Db.open's options: an object, { token } or {}"))
 	}
-	if (!readsAsData([options], noOpaque)) {
+	const read = readCaller(options, optionKeys)
+	if (!read.ok) {
 		return Result.fail(
 			refusedOption(
 				"an argument whose properties can be read as data: no getter, setter or refusing proxy"
 			)
 		)
 	}
-	const token: unknown = Rec.has(options, "token") ? options["token"] : undefined
+	const copy = read.value.data
+	const token: unknown = Rec.has(copy, "token") ? copy["token"] : undefined
 	if (token === undefined) {
 		return Result.succeed(Option.none())
 	}
@@ -135,10 +109,15 @@ export const openToken = (options: unknown): Result.Result<Option.Option<string>
 	return Result.fail(refusedOption("Db.open's token: a string, the token the layer's verify reads"))
 }
 
-/** An opened served Db and the one context every operation of it reads (context.ts). */
+/**
+ * An opened served Db, the one context every operation of it reads (context.ts), and its login's layer and the role as
+ * it loaded, which the open found at the address it read off the token once.
+ */
 interface OpenedServed<R, P> {
 	readonly db: DbOf<R, P>
 	readonly ctx: ServedDbContext
+	readonly sessions: ServedSessions
+	readonly role: LoadedRole
 }
 
 /**
@@ -179,12 +158,13 @@ const servedDb = <R, P>(workload: WorkloadHandles<R, P>): DbOf<R, P> => {
  * first, the ledger's lock and the snapshot guard with the served file's fingerprint, and fails with StaleSnapshot at a
  * database another snapshot leads or a migration holds. It never installs or changes a schema. In order:
  *
- * 1. The role and the options. A value that is no role token of a served login (Web.roles.member) is
+ * 1. The role and the options, each read once at the boundary into a copy every later step reads (pool/served.ts
+ *    readServedRole, openToken). A value that is no role token of a served login (Web.roles.member) is
  *    OpenError{stage: "schema"} whose reason is the CompileError, and so are options a JavaScript caller passes that are
- *    no object read as data, or whose token is no string (openToken).
+ *    no object read as data, or whose token is no string.
  * 2. The layer. The requirement DbLayer<R> names the role only as a type, so the layer of the token's login is resolved
- *    among the layers the context holds (pool/registry.ts dbSessions): a login whose layer is not provided, or whose
- *    served file holds no role of the token's name, is OpenError{stage: "role"}.
+ *    among the layers the context holds, at the address read off the token (pool/served.ts servedSessions): a login
+ *    whose layer is not provided, or whose served file holds no role of the token's name, is OpenError{stage: "role"}.
  * 3. The token. A Db opened with a token turns it into claims once: the layer's verify runs on it, and the payload it
  *    returns is decoded through the contexts the role's relations read (claims.ts). A refusal is OpenError{stage:
  *    "token"} whose reason is verify's TokenError, or ClaimRefused for a payload that does not decode. A Db opened
@@ -199,13 +179,9 @@ export const openServed = Effect.fn("openServed")(function* <R extends AnyRole, 
 	options: OpenOptions<R>
 ): Effect.fn.Return<OpenedServed<R, P>, OpenError, DbLayerService<R>> {
 	const reached: unknown = role
-	if (!isServedRole(reached)) {
-		return yield* refusedOption(
-			"a role reached through its served login: Db.open(Web.roles.member, ...)"
-		)
-	}
+	const address = yield* Effect.fromResult(readServedRole<R>(reached))
 	const token = yield* Effect.fromResult(openToken(options))
-	const { sessions, role: held } = yield* servedSessions(role)
+	const { sessions, role: held } = yield* servedSessions(address)
 	const claims = yield* dbClaims(sessions, held.contexts, token)
 	const login = sessions.login
 	const ctx: ServedDbContext = {
@@ -225,7 +201,7 @@ export const openServed = Effect.fn("openServed")(function* <R extends AnyRole, 
 			defect(`the workload handles of role ${held.name}: one per program of its layer`)
 		)
 	}
-	return { db: servedDb<R, P>(handles), ctx }
+	return { db: servedDb<R, P>(handles), ctx, sessions, role: held }
 })
 
 /** Db.open: the Db openServed opens. The role is reached through its served login, whose layer provides the Effect. */

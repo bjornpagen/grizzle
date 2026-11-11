@@ -12,7 +12,12 @@ import { readHost } from "#adapter/engine.ts"
 import type { PgDriver, PgSocket } from "#adapter/types/driver.ts"
 import type { DbConnection, PoolBounds, Transport } from "#adapter/types/layer.ts"
 import type { Limit } from "#compiler/plan/common.ts"
-import { noOpaque, published, readsAsData } from "#compiler/plan/runtime.ts"
+import {
+	type CallerObject,
+	type CallerRecord,
+	published,
+	readCaller
+} from "#compiler/plan/runtime.ts"
 
 /**
  * A connection block, parsed once where it is given: the DbConfig DbLayer.make takes, and the migration connection
@@ -30,10 +35,7 @@ import { noOpaque, published, readsAsData } from "#compiler/plan/runtime.ts"
  */
 export interface BlockSettings<E> {
 	readonly settings: ReadonlyArray<string>
-	readonly parse: (
-		plain: Readonly<Record<string, unknown>>,
-		where: string
-	) => Result.Result<E, string>
+	readonly parse: (plain: CallerRecord, where: string) => Result.Result<E, string>
 }
 
 /** A migration connection's: its login role, a nonempty string, which the parse returns beside the connection. */
@@ -71,17 +73,23 @@ export const servedLoginSettings: BlockSettings<{ readonly pool: PoolBounds }> =
 }
 
 /**
- * The settings read off the typed block rather than as plain data: the driver, a module whose members may be getters,
- * the password, a DbConfig's functions, and its snapshot, which its own parser reads once (boundary/snapshot.ts
- * parseSnapshot).
+ * The settings the block's read leaves unread, each read once off the typed block instead: the driver, a module whose
+ * members may be getters; the password; the transport, read by its own read (readTransport), whose `open` is the
+ * caller's function; and a DbConfig's login value, its functions and its snapshot, which the layer reads (pool/served.ts,
+ * pool/registry.ts), the snapshot by its own parser (boundary/snapshot.ts parseSnapshot).
  */
-const ownSettings: ReadonlySet<string> = new Set([
+const typedSettings: ReadonlySet<string> = new Set([
 	"driver",
 	"password",
+	"transport",
+	"login",
 	"attachPool",
 	"verify",
 	"snapshot"
 ])
+
+/** The transport setting its read leaves unread, read once off the typed transport: `open`, the caller's function. */
+const typedTransportSettings: ReadonlySet<string> = new Set(["open"])
 
 /** A connection block's own settings, every block's beside its extras' (BlockSettings). */
 export const connectionSettings = [
@@ -250,25 +258,46 @@ const driverOf = (given: PgDriver): Option.Option<PgDriver> => {
 }
 
 /**
- * A block's transport, `setting` as plain data read (parseConnection) and `typed` the same value as the block's type
- * states it, whose `open` is the caller's function: parsed, its host minted a network host and its CA a bundle of PEM
- * texts, or the refusal's text.
+ * A block's transport as its one read leaves it (readTransport): the copy of its settings, every own key among them,
+ * and the caller's `open`, read once off the typed transport.
+ */
+interface TransportRead {
+	readonly setting: CallerObject
+	readonly open: Transport["open"]
+}
+
+/**
+ * A block's transport, read once off the typed block: its settings copied but `open`, which is read once off the typed
+ * transport; none for a value that is no object, and refused when its reading throws or meets a getter or a setter.
+ */
+const readTransport = (
+	typed: Transport
+): Result.Result<Option.Option<TransportRead>, undefined> => {
+	const passed: unknown = typed
+	if (!isObject(passed)) {
+		return Result.succeed(Option.none())
+	}
+	const read = readCaller(passed, typedTransportSettings)
+	return read.ok
+		? Result.succeed(Option.some({ setting: read.value, open: typed.open }))
+		: Result.fail(undefined)
+}
+
+/**
+ * A block's transport as its read left it (readTransport): parsed, its host minted a network host and its CA a bundle of
+ * PEM texts, or the refusal's text.
  */
 const parseTransport = (
-	setting: unknown,
-	typed: Transport,
+	read: TransportRead,
 	where: string
 ): Result.Result<ParsedTransport, string> => {
-	if (!isObject(setting)) {
-		return Result.fail(
-			`${where} must be an object: { kind: "sslRequest", host, port, open, ca, servername }`
-		)
-	}
-	const extra = unknownKey(Rec.keys(setting), transportSettings, where)
+	const extra = unknownKey(read.setting.keys, transportSettings, where)
 	if (Option.isSome(extra)) {
 		return Result.fail(extra.value)
 	}
-	const { kind, host, port, open, ca: caSetting, servername } = setting
+	const { kind, host, port, ca: caSetting, servername } = read.setting.data
+	const open = read.open
+	const passedOpen: unknown = open
 	if (kind !== "sslRequest") {
 		return Result.fail(
 			`${where}.kind must be "sslRequest": an SSLRequest, then verify-full TLS over the socket`
@@ -285,7 +314,7 @@ const parseTransport = (
 	if (typeof port !== "number" || !integerIn(port, 1, portMax.value)) {
 		return Result.fail(`${where}.port must be an integer port number from 1 to ${portMax.value}`)
 	}
-	if (typeof open !== "function") {
+	if (typeof passedOpen !== "function") {
 		return Result.fail(`${where}.open must be a function returning a new, unconnected socket`)
 	}
 	const ca = caBundle(caSetting)
@@ -308,7 +337,7 @@ const parseTransport = (
 			kind: "sslRequest",
 			host: networkHost(host),
 			port,
-			open: typed.open,
+			open,
 			ca: bundle,
 			authority,
 			servername
@@ -320,7 +349,8 @@ const parseTransport = (
  * The block named `where`, which holds `extras` besides its connection: parsed, with what `extras` parses of it, or the
  * refusal's text, which names the setting it refuses.
  *
- * A DbConfig's pool hook and verify are functions the layer reads itself (pool/registry.ts), never plain data.
+ * A DbConfig's login value, pool hook and verify are the layer's to read (pool/served.ts, pool/registry.ts), never plain
+ * data.
  */
 export const parseConnection = <E>(
 	block: DbConnection,
@@ -332,32 +362,37 @@ export const parseConnection = <E>(
 		return Result.fail(`${where} must be an object`)
 	}
 	/**
-	 * The caller's block, read once at the boundary (core/host.ts hostRead): each own setting once. The password, read
+	 * The caller's block, read once at the boundary (core/host.ts readCaller): each own setting once. The password, read
 	 * off the typed block so an Effect keeps the channels its type states, is recognized by its library's own guard, a
 	 * Redacted of text or an Effect, and kept opaque: the credential stage reveals or runs it. The driver's three
-	 * classes are read off the typed block, once each. Every other setting is plain data, read once as data
-	 * (core/host.ts readsAsData), so no read below runs caller code; the transport's `open` is a function of
-	 * it, which the transport's typed value names.
+	 * classes are read off the typed block, once each, and so is the transport, whose own read copies its settings but
+	 * the caller's `open` (readTransport). Every other setting is plain data, copied as the read finds it, and every
+	 * later read is of the copy, never of the caller's block.
 	 */
 	const unreadable = `${where} must be an object whose settings read as data: no getter, setter or refusing proxy`
 	const read = readHost(unreadable, () => {
-		const keys = Rec.keys(value)
+		const own = readCaller(value, typedSettings)
+		if (!own.ok) {
+			return Result.fail(unreadable)
+		}
 		const password = givenPassword(block.password)
 		const driver = driverOf(block.driver)
-		const plain: Record<string, unknown> = {}
-		for (const key of keys) {
-			if (!ownSettings.has(key)) {
-				plain[key] = value[key]
-			}
+		const transport = readTransport(block.transport)
+		if (Result.isFailure(transport)) {
+			return Result.fail(unreadable)
 		}
-		return readsAsData([plain], noOpaque)
-			? Result.succeed({ keys, plain, password, driver, transport: block.transport })
-			: Result.fail(unreadable)
+		return Result.succeed({
+			keys: own.value.keys,
+			plain: own.value.data,
+			password,
+			driver,
+			transport: transport.success
+		})
 	})
 	if (Result.isFailure(read)) {
 		return Result.fail(read.failure)
 	}
-	const { keys, plain, password, driver, transport: typedTransport } = read.success
+	const { keys, plain, password, driver, transport: transportRead } = read.success
 	const settings = [...connectionSettings, ...extras.settings]
 	const extra = unknownKey(keys, settings, where)
 	if (Option.isSome(extra)) {
@@ -368,8 +403,13 @@ export const parseConnection = <E>(
 			`${where}.driver must be node-postgres as imported (import pg from "pg"): its Client, Pool and DatabaseError classes`
 		)
 	}
-	const { database, transport: transportSetting, connectTimeoutMs } = plain
-	const transport = parseTransport(transportSetting, typedTransport, `${where}.transport`)
+	const { database, connectTimeoutMs } = plain
+	if (Option.isNone(transportRead)) {
+		return Result.fail(
+			`${where}.transport must be an object: { kind: "sslRequest", host, port, open, ca, servername }`
+		)
+	}
+	const transport = parseTransport(transportRead.value, `${where}.transport`)
 	if (Result.isFailure(transport)) {
 		return Result.fail(transport.failure)
 	}

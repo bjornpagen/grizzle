@@ -7,7 +7,7 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { attachDatabasePool } from "@vercel/functions/db-connections"
 import { Array as Arr, Effect, Formatter, Layer, ManagedRuntime, Option, Redacted } from "effect"
-import { servedSessions } from "#adapter/pool/served.ts"
+import { openServed } from "#adapter/db/served.ts"
 import { compileServed } from "#adapter/public/compile.ts"
 import { DbLayer, served } from "#adapter/public/layer.ts"
 import type { ConnectionPool } from "#adapter/types/layer.ts"
@@ -374,7 +374,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the session pool on Verce
 							yield* Effect.addFinalizer(() => Effect.promise(() => instance.dispose()))
 							const invocation = Effect.scoped(
 								Effect.gen(function* () {
-									const { sessions } = yield* servedSessions(file.roles.app)
+									const { sessions } = yield* openServed(file.roles.app, {})
 									/** The pool logs in as the substrate's worker, whose name the layer derived when it was built. */
 									const pool = sessions.pool
 									const session = yield* pool.lease

@@ -24,8 +24,10 @@ import { defect, isList, isRecord, jsonText, scalarCodec } from "#compiler/plan/
  * A context reads its fields from the payload's own top level, or from the nested claim object its `claim` names. An
  * absent claim object is no fact, and its context has no member. A claim object that is present but no object, a
  * field missing from it, or a value its field's encoder refuses is refused as ClaimRefused, which quotes no claim
- * value. Reading the payload runs the verifier's value, once (core/host.ts); a read that throws refuses
- * it the same way. A Db opened without a token has no context facts: its setting is `{}`.
+ * value. Reading the payload runs the verifier's value, and each object of it is read once (PayloadRead): its top level
+ * before any context decodes, and each claim object when the first context naming it reads it, every context that
+ * names it then reading the same members; a read that throws refuses the context that made it the same way. A Db
+ * opened without a token has no context facts: its setting is `{}`.
  *
  * Claims are JSON, which has no bigint, and an instant is a bigint contract (a token's `exp` and `iat` among them), so
  * an integer claim is read as JSON states integers. An int8 claim is a JSON number that is a safe integer, or a string
@@ -136,37 +138,71 @@ const claimHost = (type: ScalarType, value: unknown): Option.Option<unknown> => 
 	}
 }
 
+/** An object's own enumerable members, each read once: a data property's value, or what its getter returns called once. */
+const ownMembers = (value: Readonly<Record<string, unknown>>): ReadonlyMap<string, unknown> => {
+	const own = new Map<string, unknown>()
+	for (const key of Rec.keys(value)) {
+		own.set(key, value[key])
+	}
+	return own
+}
+
+/** The refusal of a context whose claim object is no object, or whose reading throws. */
+const notAnObject = (context: string): ClaimRefused =>
+	new ClaimRefused({ context, fault: { kind: "notAnObject" } })
+
 /**
- * The claim object a context reads, read once into a map of its own enumerable members: undefined when absent, which is
- * no fact. Only own properties are read, the payload's claim among them, so a key named like a prototype member
- * (`constructor`, `__proto__`) is a member like any other, or absent, never the prototype's.
+ * The payload's top level, read once (ownMembers): its own enumerable members, so a key named like a prototype member
+ * (`constructor`, `__proto__`) is a member like any other, or absent, never the prototype's; none for a payload that is
+ * no object or a list, which holds no claim object and is no context's fact.
+ */
+const topLevel = (payload: unknown): Option.Option<ReadonlyMap<string, unknown>> =>
+	isRecord(payload) && !isList(payload) ? Option.some(ownMembers(payload)) : Option.none()
+
+/**
+ * The payload as its contexts read it, each object of it read once: its top level (topLevel), and each claim object a
+ * context names, read when the first context in order reads it and then shared by every context that names it.
+ */
+interface PayloadRead {
+	readonly top: Option.Option<ReadonlyMap<string, unknown>>
+	readonly claims: Map<string, ReadonlyMap<string, unknown> | undefined>
+}
+
+/**
+ * The members a context reads, from the payload as read (PayloadRead): its top level, or the claim object its `claim`
+ * names, read once into its own enumerable members; undefined when the claim object is absent, which is no fact. A top
+ * level or a claim object that is no object, a list among them, and a claim object whose reading throws, refuse the
+ * context.
  */
 const claimObject = (
 	context: Pick<TypedContext, "name" | "claim">,
-	payload: unknown
-): Result.Result<ReadonlyMap<string, unknown> | undefined, ClaimRefused> =>
-	readHost(new ClaimRefused({ context: context.name, fault: { kind: "notAnObject" } }), () => {
-		const claim = context.claim
-		const found =
-			claim === undefined
-				? payload
-				: isRecord(payload) && Rec.has(payload, claim)
-					? payload[claim]
-					: undefined
-		if (found === undefined && claim !== undefined) {
-			return Result.succeed(undefined)
+	payload: PayloadRead
+): Result.Result<ReadonlyMap<string, unknown> | undefined, ClaimRefused> => {
+	const claim = context.claim
+	if (claim === undefined) {
+		return Option.isSome(payload.top)
+			? Result.succeed(payload.top.value)
+			: Result.fail(notAnObject(context.name))
+	}
+	if (payload.claims.has(claim)) {
+		return Result.succeed(payload.claims.get(claim))
+	}
+	const found = Option.isSome(payload.top) ? payload.top.value.get(claim) : undefined
+	if (found === undefined) {
+		payload.claims.set(claim, undefined)
+		return Result.succeed(undefined)
+	}
+	if (!isRecord(found) || isList(found)) {
+		return Result.fail(notAnObject(context.name))
+	}
+	return Result.map(
+		readHost(notAnObject(context.name), () => Result.succeed(ownMembers(found))),
+		(members) => {
+			payload.claims.set(claim, members)
+			return members
 		}
-		if (!isRecord(found) || isList(found)) {
-			return Result.fail(
-				new ClaimRefused({ context: context.name, fault: { kind: "notAnObject" } })
-			)
-		}
-		const own = new Map<string, unknown>()
-		for (const key of Rec.keys(found)) {
-			own.set(key, found[key])
-		}
-		return Result.succeed(own)
-	})
+	)
+}
 
 /**
  * One context's fact as the setting's member: each field with its type and its text form, in the context's field
@@ -180,7 +216,7 @@ type Fact = ReadonlyArray<{
 
 const contextFact = (
 	context: TypedContext,
-	payload: unknown
+	payload: PayloadRead
 ): Result.Result<Fact | undefined, ClaimRefused> =>
 	Result.flatMap(claimObject(context, payload), (object) => {
 		if (object === undefined) {
@@ -229,11 +265,22 @@ export const claimsOf = (
 ): Result.Result<Claims, ClaimRefused> => {
 	const members: Array<readonly [string, string]> = []
 	const values: Array<ClaimValue> = []
-	for (const context of Arr.sort(
+	const sorted = Arr.sort(
 		contexts,
 		Order.mapInput(Order.String, (c: TypedContext) => c.name)
-	)) {
-		const fact = contextFact(context, payload)
+	)
+	if (!Arr.isReadonlyArrayNonEmpty(sorted)) {
+		return Result.succeed(noClaims)
+	}
+	const top = readHost(notAnObject(Arr.headNonEmpty(sorted).name), () =>
+		Result.succeed(topLevel(payload))
+	)
+	if (Result.isFailure(top)) {
+		return Result.fail(top.failure)
+	}
+	const read: PayloadRead = { top: top.success, claims: new Map() }
+	for (const context of sorted) {
+		const fact = contextFact(context, read)
 		if (Result.isFailure(fact)) {
 			return Result.fail(fact.failure)
 		}

@@ -25,12 +25,11 @@ import type {
 	DbLayerOf,
 	DbLayerService,
 	PoolBounds,
-	ServedRole,
 	Verify
 } from "#adapter/types/layer.ts"
 import { makePool, type SessionPool } from "#adapter/wire/session.ts"
-import type { AnyLogin } from "#compiler/plan/common.ts"
-import { trusted } from "#compiler/plan/runtime.ts"
+import type { AnyLogin, Invariant } from "#compiler/plan/common.ts"
+import { SourceLoc, malformedDescription, nominal, readCaller } from "#compiler/plan/runtime.ts"
 import type { ServedFile } from "#compiler/plan/serve.ts"
 
 /**
@@ -79,12 +78,73 @@ const keyPrefix = "@bjornpagen/grizzle/ServedLayer/"
 const sessionsKey = <I>(base: string, login: string): Context.Service<I, ServedSessions> =>
 	Context.Service<I, ServedSessions>(`${keyPrefix}${base}/${login}`)
 
+declare const roleAddressBrand: unique symbol
+
 /**
- * The layer of the served role `role`'s login, among the layers the context holds, and the role as it loaded (see the
- * header): a login whose layer is not provided, or whose layer holds no role of the token's name, is RoleOutsideLayers.
+ * The role a Db.open names, read once off its token (readServedRole): its login's base and the login by their declared
+ * names, and its own name in the login, plain strings, the key its layer is found by. Only readServedRole mints one, so
+ * a lookup is never handed the caller's token, which it would read again; R, the role, is a phantom.
  */
-export const servedSessions = <R, P>(
-	role: ServedRole<R, P>
+export interface RoleAddress<R> {
+	readonly base: string
+	readonly login: string
+	readonly role: string
+	readonly [roleAddressBrand]: Invariant<R>
+}
+
+/** The names of a role's address, as its token's read copy holds them. */
+interface RoleNames {
+	readonly base: string
+	readonly login: string
+	readonly role: string
+}
+
+/** The refusal of a value handed Db.open that is no served role's token, at stage schema. */
+const noToken = (): OpenError =>
+	new OpenError({
+		reason: malformedDescription(
+			SourceLoc("Db.open", []),
+			"a role reached through its served login: Db.open(Web.roles.member, ...)"
+		)
+	})
+
+/** No key of a role's token is left unread: every own property is copied. */
+const tokenKeys: ReadonlySet<string> = new Set()
+
+/**
+ * The address of the role a JavaScript caller hands Db.open, read once at the boundary (core/host.ts readCaller): an
+ * object that is no list, its every own property data, whose kind is a served role's and whose base, login and role are
+ * strings, which served(...)'s tokens alone hold. A value that is none, or whose reading throws (a proxy's trap, a
+ * getter), is no token, refused at stage schema with no verify call, never escaping as a defect; every later read is of
+ * the copy.
+ */
+export const readServedRole = <R>(value: unknown): Result.Result<RoleAddress<R>, OpenError> => {
+	if (typeof value !== "object" || value === null || Arr.isArray(value)) {
+		return Result.fail(noToken())
+	}
+	const read = readCaller(value, tokenKeys)
+	if (!read.ok) {
+		return Result.fail(noToken())
+	}
+	const { kind, base, login, role } = read.value.data
+	if (
+		kind !== "servedRole" ||
+		typeof base !== "string" ||
+		typeof login !== "string" ||
+		typeof role !== "string"
+	) {
+		return Result.fail(noToken())
+	}
+	return Result.succeed(nominal<RoleNames, RoleAddress<R>>()({ base, login, role }))
+}
+
+/**
+ * The layer of the role at `address`'s login, among the layers the context holds, and the role as it loaded (see the
+ * header): a login whose layer is not provided, or whose layer holds no role of the address's name, is
+ * RoleOutsideLayers.
+ */
+export const servedSessions = <R>(
+	address: RoleAddress<R>
 ): Effect.Effect<
 	{ readonly sessions: ServedSessions; readonly role: LoadedRole },
 	OpenError,
@@ -94,15 +154,18 @@ export const servedSessions = <R, P>(
 		Effect.mapError(
 			Effect.fromOption(
 				Option.flatMap(
-					Context.getOption(context, sessionsKey<DbLayerService<R>>(role.base, role.login)),
+					Context.getOption(context, sessionsKey<DbLayerService<R>>(address.base, address.login)),
 					(sessions) =>
 						Option.map(
-							Arr.findFirst(sessions.login.roles, (r) => r.name === role.role),
+							Arr.findFirst(sessions.login.roles, (r) => r.name === address.role),
 							(loaded) => ({ sessions, role: loaded })
 						)
 				)
 			),
-			() => new OpenError({ reason: new RoleOutsideLayers({ role: role.role, login: role.login }) })
+			() =>
+				new OpenError({
+					reason: new RoleOutsideLayers({ role: address.role, login: address.login })
+				})
 		)
 	)
 
@@ -125,9 +188,18 @@ const refusedConfig = (detail: string): OpenError =>
 	new OpenError({ reason: new DbConfigRefused({ detail }) })
 
 /**
- * The config's own settings, read once at the boundary as the connection's are (core/host.ts hostRead): the served
- * login, the pool hook and verify, each checked as a JavaScript caller may pass any value. The pool's bounds are plain
- * data, parsed with the connection (connection/config.ts servedLoginSettings).
+ * The keys of a served login value the layer leaves unread when it reads the value: its file, which it takes once off
+ * the typed value, and its roles' tokens, which only Db.open reads.
+ */
+const loginUnread: ReadonlySet<string> = new Set(["file", "roles"])
+
+const loginRefused = "DbConfig.login must be a served login built by served(...)"
+
+/**
+ * The config's own settings, read once at the boundary as the connection's are (core/host.ts readCaller): the served
+ * login, the pool hook and verify, each read once off the typed config and checked as a JavaScript caller may pass any
+ * value, and the login's kind and names read once off its copy; nothing after reads the config or the login again. The
+ * pool's bounds are plain data, parsed with the connection (connection/config.ts servedLoginSettings).
  */
 const ownSettings = <L extends AnyLogin>(
 	config: DbConfigShape<L>
@@ -135,38 +207,43 @@ const ownSettings = <L extends AnyLogin>(
 	readHost(
 		"DbConfig must be an object whose settings read as data: no getter, setter or refusing proxy",
 		() => {
+			const login = config.login
+			const hook = config.attachPool
+			const verify = config.verify
 			/** The same values as plain JavaScript passes them: a block written in JavaScript is checked all the same. */
-			const login: unknown = config.login
-			const hook: unknown = config.attachPool
-			const verify: unknown = config.verify
-			if (
-				typeof login !== "object" ||
-				login === null ||
-				!("kind" in login) ||
-				login.kind !== "servedLogin" ||
-				!("name" in login) ||
-				typeof login.name !== "string" ||
-				!("base" in login) ||
-				typeof login.base !== "string" ||
-				!("file" in login)
-			) {
-				return Result.fail("DbConfig.login must be a served login built by served(...)")
+			const passedLogin: unknown = login
+			const passedHook: unknown = hook
+			const passedVerify: unknown = verify
+			if (typeof passedLogin !== "object" || passedLogin === null) {
+				return Result.fail(loginRefused)
 			}
-			if (hook !== undefined && typeof hook !== "function") {
+			const read = readCaller(passedLogin, loginUnread)
+			if (!read.ok) {
+				return Result.fail(loginRefused)
+			}
+			const { kind, name, base } = read.value.data
+			if (
+				kind !== "servedLogin" ||
+				typeof name !== "string" ||
+				typeof base !== "string" ||
+				!read.value.keys.includes("file")
+			) {
+				return Result.fail(loginRefused)
+			}
+			if (hook !== undefined && typeof passedHook !== "function") {
 				return Result.fail(
 					"DbConfig.attachPool must be a function, called with each pool the layer builds"
 				)
 			}
-			if (verify !== undefined && typeof verify !== "function") {
+			if (verify !== undefined && typeof passedVerify !== "function") {
 				return Result.fail(
 					"DbConfig.verify must be a function from a token to the payload its claims are read from"
 				)
 			}
 			return Result.succeed({
-				login: { name: login.name, base: login.base, file: trusted<ServedFile>(login.file) },
-				attachPool: config.attachPool ?? attachNothing,
-				token:
-					config.verify === undefined ? { kind: "none" } : { kind: "verify", verify: config.verify }
+				login: { name, base, file: login.file },
+				attachPool: hook ?? attachNothing,
+				token: verify === undefined ? { kind: "none" } : { kind: "verify", verify }
 			})
 		}
 	)
@@ -226,16 +303,19 @@ export const loginEnvironment: Effect.Effect<void, OpenError> = Effect.flatMap(
 )
 
 /**
- * The DbLayer of a DbConfig: the config parsed once, then the process environment its sessions would start in
- * (loginEnvironment), then the service built in the layer's scope, stored under its login's key. Either refusal is
- * OpenError{stage: "config"}. The key is the file's base and the login's name, which loading holds to the file's.
+ * The DbLayer of a DbConfig: the config parsed once, where DbLayer.make is given it, so a layer built again never reads
+ * the caller's config again; then, each time the layer is built, its refusal, the process environment its sessions
+ * would start in (loginEnvironment), then the service built in the layer's scope, stored under its login's key. Either
+ * refusal is OpenError{stage: "config"}. The key is the file's base and the login's name, which loading holds to the
+ * file's.
  */
 export const servedLayer = <const L extends AnyLogin>(
 	config: DbConfigShape<L>
-): Layer.Layer<DbLayerOf<L>, OpenError> =>
-	Layer.unwrap(
+): Layer.Layer<DbLayerOf<L>, OpenError> => {
+	const read = parseServedConfig(config)
+	return Layer.unwrap(
 		Effect.gen(function* () {
-			const parsed = yield* Effect.fromResult(parseServedConfig(config))
+			const parsed = yield* Effect.fromResult(read)
 			yield* loginEnvironment
 			return Layer.effect(
 				sessionsKey<DbLayerOf<L>>(parsed.login.base, parsed.login.name),
@@ -243,3 +323,4 @@ export const servedLayer = <const L extends AnyLogin>(
 			)
 		})
 	)
+}

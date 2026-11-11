@@ -3,7 +3,8 @@ import { array, element, type Gen, int } from "@grizzle/testing/gen"
 import { floorSeed, rotatingSeed } from "@grizzle/testing/random"
 import { sample, type Source } from "@grizzle/testing/source"
 import { Array as Arr, Effect, Result as EffectResult, Record as Rec } from "effect"
-import { isServedRole, openToken } from "#adapter/db/served.ts"
+import { openToken } from "#adapter/db/served.ts"
+import { readServedRole } from "#adapter/pool/served.ts"
 import { refreshTargets } from "#adapter/refresh/targets.ts"
 import { served } from "#adapter/served/served.ts"
 import { catchCompileError } from "#compiler/core/canonical.ts"
@@ -65,7 +66,7 @@ import { preludeAt, type PreludeAt, preludeFrom, preludeProgram } from "#test/su
  *   ApplyError;
  * - Db.open of a role of the login's served workload (served<typeof L>(file, name).roles), of the role reached through
  *   the login value itself, of the role value itself, or of the schema typechecks exactly when Db.open's boundary reads
- *   its argument as a served login's role (db/served.ts isServedRole);
+ *   its argument as a served login's role (pool/served.ts readServedRole);
  * - Db.open given no options, null, a token, or a token of another type than text typechecks exactly when Db.open's
  *   boundary reads them (db/served.ts openToken), refusing what a JavaScript caller passes at stage schema: no options
  *   at the call's arity (TS2554), null as the argument (TS2345), and another token at the token (TS2322);
@@ -581,7 +582,7 @@ const verdictOf = (spec: AccessSpec): AccessVerdict => {
 		reads,
 		program: program.ok,
 		refresh: EffectResult.isSuccess(refresh),
-		opener: isServedRole(opened),
+		opener: EffectResult.isSuccess(readServedRole(opened)),
 		options: EffectResult.isSuccess(openToken(optionValues[spec.options].value)),
 		base: compileTemplate(
 			baseValues[spec.base.program],

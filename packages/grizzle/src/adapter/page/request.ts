@@ -6,7 +6,7 @@ import { type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
 import { PageRequestRefused, type RequestFault } from "#adapter/errors/failures.ts"
 import type { CursorError } from "#compiler/plan/common.ts"
 import type { PageVariant } from "#compiler/plan/read.ts"
-import { cursorError, noOpaque, readsAsData } from "#compiler/plan/runtime.ts"
+import { cursorError, readCaller } from "#compiler/plan/runtime.ts"
 
 /**
  * Page request validation.
@@ -16,9 +16,9 @@ import { cursorError, noOpaque, readsAsData } from "#compiler/plan/runtime.ts"
  * as a size or a cursor taken from an end user's request, before anything else of the page happens, so a refused
  * request compiles nothing and sends no SQL:
  *
- * - the request is the caller's value, read once as data at the runtime's boundary (core/host.ts readsAsData):
- *   one whose reading throws (a refusing proxy), or that holds a getter or a setter, is refused, so every later read of
- *   it runs no caller code;
+ * - the request is the caller's value, read once as data at the runtime's boundary into a copy (core/host.ts
+ *   readCaller): one whose reading throws (a refusing proxy), or that holds a getter or a setter, is refused, and every
+ *   later read is of the copy, never of the caller's value;
  * - the request is an object whose own properties are control properties of exactly one direction: `first` with an
  *   optional `after`, or `last` with an optional `before`. Both sizes (mixed directions), an anchor of the other
  *   direction, both anchors, no size, or any other own property is refused;
@@ -67,6 +67,9 @@ const directions = {
 
 const controlKeys: ReadonlySet<PropertyKey> = new Set(["first", "after", "last", "before"])
 
+/** No key of a page request is left unread: every own property is copied. */
+const requestKeys: ReadonlySet<string> = new Set()
+
 /** An admitted size: a safe integer of at least 1. */
 const isPageSize = (value: unknown): value is number =>
 	typeof value === "number" && Number.isSafeInteger(value) && value >= 1
@@ -78,14 +81,14 @@ export const pageRequest = (
 	if (!Predicate.isObject(request)) {
 		return Result.fail(shapeError())
 	}
-	if (!readsAsData([request], noOpaque)) {
+	const read = readCaller(request, requestKeys)
+	if (!read.ok) {
 		return Result.fail(shapeError())
 	}
-	const own = Reflect.ownKeys(request)
-	if (Arr.some(own, (k) => !controlKeys.has(k))) {
+	const fields = read.value.data
+	if (Arr.some(Reflect.ownKeys(fields), (k) => !controlKeys.has(k))) {
 		return Result.fail(shapeError())
 	}
-	const fields: { readonly [key: string]: unknown } = request
 	const hasFirst = Rec.has(fields, "first")
 	const hasLast = Rec.has(fields, "last")
 	if (hasFirst === hasLast) {

@@ -2,7 +2,6 @@ import { Array as Arr, Effect, Option } from "effect"
 import { openServed } from "#adapter/db/served.ts"
 import { fromEngine } from "#adapter/engine.ts"
 import { type OpenError, type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
-import { servedSessions } from "#adapter/pool/served.ts"
 import { type ServedRefusal, snapshotServedEntry } from "#adapter/served/compile.ts"
 import { explainMember as explainLoaded, type MemberCall } from "#adapter/served/explain.ts"
 import { builtLogin, ownLoginOver } from "#adapter/served/login.ts"
@@ -76,8 +75,7 @@ export const explainMember = <R extends AnyRole, P>(
 	options: OpenOptions<R>
 ): Effect.Effect<ReadonlyArray<Plan>, ReadError | OpenError, DbLayerService<R>> =>
 	Effect.gen(function* () {
-		const { ctx } = yield* openServed(role, options)
-		const { role: loaded } = yield* servedSessions(role)
+		const { ctx, role: loaded } = yield* openServed(role, options)
 		const found = Arr.findFirst(loaded.members, (m) => m.name === member)
 		if (Option.isNone(found)) {
 			return yield* new ReadFailure({
