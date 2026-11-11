@@ -1040,6 +1040,37 @@ export const blockSize = published({
 	verified: "2026-11-05"
 })
 
+const asyncC = `${postgresSource}/src/backend/commands/async.c`
+
+/**
+ * The margin NOTIFY_PAYLOAD_MAX_LENGTH leaves of a page beside a channel's name, which keeps one notification on one
+ * SLRU page of the notification queue.
+ */
+const notifyPayloadMargin = published({
+	value: 128,
+	owner: "PostgreSQL 19rc1",
+	unit: "bytes",
+	scope: "the part of one notification queue page no channel name and no payload may take",
+	constraint: "compile-time constant",
+	source: `${asyncC}#L193-L201`,
+	quote: "#define NOTIFY_PAYLOAD_MAX_LENGTH	(BLCKSZ - NAMEDATALEN - 128)",
+	verified: "2026-11-11"
+})
+
+/**
+ * NOTIFY_PAYLOAD_MAX_LENGTH, the bytes a notification's payload must stay under: Async_Notify refuses a payload of
+ * this many bytes or more with 22023, which fails the statement that sent it, and with it the write.
+ */
+export const notifyPayloadMaxBytes = derived({
+	owner: "PostgreSQL 19rc1",
+	unit: "bytes",
+	scope:
+		"one NOTIFY payload in the server encoding, its terminating zero excluded: sent only while shorter",
+	from: [blockSize, namedatalen, notifyPayloadMargin],
+	derivation: `async.c's "#define NOTIFY_PAYLOAD_MAX_LENGTH (BLCKSZ - NAMEDATALEN - 128)" (${asyncC}#L201) and Async_Notify's "if (payload_len >= NOTIFY_PAYLOAD_MAX_LENGTH) ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE), errmsg("payload string too long")))" (${asyncC}#L923-L926, verified 2026-11-11)`,
+	compute: ([block, name, margin]) => block.value - name.value - margin.value
+})
+
 /**
  * The greatest alignment PostgreSQL rounds a tuple and its parts to, MAXIMUM_ALIGNOF: 8 on every platform it builds
  * on, the alignment of int64 and double. An entry measured at the greatest alignment is at least its size at any.

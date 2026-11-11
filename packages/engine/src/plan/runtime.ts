@@ -54,6 +54,16 @@ export { jsonText, trusted, trustedJson } from "#compiler/core/trusted.ts"
 export { TupleMap } from "#compiler/core/tuple-map.ts"
 export { codeNames, rosterCodebook } from "#compiler/ir/codes.ts"
 export { constraintLaw } from "#compiler/ir/products.ts"
+export {
+	liveChannel,
+	type NotificationRefused,
+	parseNotification,
+	payloadOf,
+	type RouteColumn,
+	type RouteKey,
+	type RouteTable,
+	subscriptionKey
+} from "#compiler/live/notify.ts"
 export { explainAnalyzeOf, explainOf, type ExplainText } from "#compiler/runtime/explain.ts"
 export { columnPosition, columnType } from "#compiler/runtime/lower/columns.ts"
 export { fusedTexts } from "#compiler/runtime/lower/fused.ts"

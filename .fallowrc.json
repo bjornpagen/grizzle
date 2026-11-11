@@ -240,6 +240,12 @@
 				"patterns": ["packages/engine/src/served/**"]
 			},
 			{
+				// Liveness's one grammar and plan (live/notify.ts): a write's route keys, their payload text and its parser,
+				// which the writer's side prints and the runtime's side reads; it loads no compiler.
+				"name": "live",
+				"patterns": ["packages/engine/src/live/**"]
+			},
+			{
 				// The engine's runtime facade: every engine value the runtime shell loads, each from a module that loads no
 				// compiler.
 				"name": "plan-runtime",
@@ -452,6 +458,7 @@
 					"core",
 					"ir",
 					"laws",
+					"live",
 					"logical",
 					"lower",
 					"runtime",
@@ -474,6 +481,7 @@
 					"decode",
 					"ir",
 					"laws",
+					"live",
 					"logical",
 					"lower",
 					"physical",
@@ -523,6 +531,7 @@
 					"decode",
 					"deploy",
 					"ir",
+					"live",
 					"lower",
 					"physical",
 					"program",
@@ -623,8 +632,12 @@
 				]
 			},
 			{
+				"from": "live",
+				"allow": ["core"]
+			},
+			{
 				"from": "plan-runtime",
-				"allow": ["codec", "core", "decode", "ir", "reader", "runtime", "scalar", "served"]
+				"allow": ["codec", "core", "decode", "ir", "live", "reader", "runtime", "scalar", "served"]
 			},
 			{
 				"from": "runtime-entry",
