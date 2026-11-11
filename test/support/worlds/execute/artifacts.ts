@@ -19,24 +19,26 @@ import { servedSource } from "#compiler/served/read.ts"
 import { defined } from "#test/support/assert.ts"
 import { compileTemplate, type TestCompileOptions, testArtifacts } from "#test/support/compile.ts"
 import { conservativePageRuntime } from "#test/support/conservative.ts"
-import { factKeySet } from "#test/support/worlds/model/host.ts"
+import { factKeySet, sameFact } from "#test/support/worlds/model/host.ts"
 import type { HostFact } from "#test/support/worlds/model/types.ts"
 
 /**
  * The differential of one read's two artifacts. Every read a Db serves is compiled by generate's compile into its
  * served file: the optimized artifact, which the Db runs, beside which the oracle lowers the same query conservatively,
- * resting on no evidence the context admits (test/support/conservative.ts). Both must deliver the same rows from the
- * same snapshot, each a keyed set; rows that differ, or that either artifact repeats, are `artifacts-disagree`, a defect
- * no model branch allows.
+ * resting on no evidence the context admits (test/support/conservative.ts). Both must deliver the same from the same
+ * snapshot (Delivery): a read's rows as one keyed set, and a paged read's pages one by one, each page's edges in order
+ * with their cursors and its flags, over every page it reaches from the first or the last and the pages after and
+ * before every cursor those pages delivered. Rows that differ, or that either artifact repeats, are
+ * `artifacts-disagree`, a defect no model branch allows.
  *
  * The check reads through the members of two served files over the Db's own context (adapter/db/handles.ts
  * memberOpsOn), as the Db runs a member. One is the file the Db's read was served from, so it runs the very statements
  * and page the Db's read ran. The other is that file with every read's statements its conservative lowering and every
  * page's artifact its conservative page artifact (conservativeServed), loaded as a layer loads a file. Their flights
  * meet: each pair of flights, one per artifact, is sent as one flight in one READ ONLY transaction of the Db's role and
- * claims on one leased session, the optimized statements first. Every read path (execute, get, every page) sends its
- * flights in turn, so the k-th flight of one artifact meets the k-th of the other. A flight left without a partner,
- * because the other artifact read through in fewer flights, is sent alone.
+ * claims on one leased session, the optimized statements first. Every read path (execute, get, every page, every
+ * anchored page) sends its flights in turn, so the k-th flight of one artifact meets the k-th of the other. A flight left
+ * without a partner, because the other artifact read through in fewer flights, is sent alone.
  */
 type Side = "optimized" | "conservative"
 
@@ -176,11 +178,27 @@ const executorAt = (ctx: ServedDbContext, meeting: Ref.Ref<Meeting>, side: Side)
 		)
 })
 
+/** One page a paged read requested, as two artifacts' pages are held to each other: its edges in order, and its flags. */
+export interface DeliveredPage {
+	readonly edges: ReadonlyArray<{ readonly fact: HostFact; readonly cursor: string }>
+	readonly hasNextPage: boolean
+	readonly hasPreviousPage: boolean
+}
+
 /**
- * Whether two deliveries are one keyed set: neither holds a fact twice, and each fact of one is a fact of the other,
+ * What a read delivers, as the differential holds the two artifacts' deliveries to each other: a keyed set of facts
+ * (execute, get, an attachment, a recursive read), or every page a paged read requested, in the order it requested
+ * them.
+ */
+export type Delivery =
+	| { readonly kind: "facts"; readonly facts: ReadonlyArray<HostFact> }
+	| { readonly kind: "pages"; readonly pages: ReadonlyArray<DeliveredPage> }
+
+/**
+ * Whether two sets of facts are one keyed set: neither holds a fact twice, and each fact of one is a fact of the other,
  * each fact by every field and its value. Two artifacts that repeat one row alike deliver no set, so they do not agree.
  */
-const sameFacts = (left: ReadonlyArray<HostFact>, right: ReadonlyArray<HostFact>): boolean => {
+const sameSet = (left: ReadonlyArray<HostFact>, right: ReadonlyArray<HostFact>): boolean => {
 	const l = factKeySet(left)
 	const r = factKeySet(right)
 	return (
@@ -189,6 +207,36 @@ const sameFacts = (left: ReadonlyArray<HostFact>, right: ReadonlyArray<HostFact>
 		l.size === r.size &&
 		Arr.every([...l], (key) => r.has(key))
 	)
+}
+
+/**
+ * Whether two pages are one: the same edges in the same order, each the same fact at the same cursor (one codec
+ * serves both artifacts, so a boundary's cursor is one token), and the same flags.
+ */
+const samePage = (left: DeliveredPage, right: DeliveredPage): boolean =>
+	left.hasNextPage === right.hasNextPage &&
+	left.hasPreviousPage === right.hasPreviousPage &&
+	left.edges.length === right.edges.length &&
+	Arr.every(
+		Arr.zip(left.edges, right.edges),
+		([l, r]) => l.cursor === r.cursor && sameFact(l.fact, r.fact)
+	)
+
+/**
+ * Whether two deliveries agree: two keyed sets that are one set (sameSet), or two requests' pages that are, request by
+ * request, one page (samePage).
+ */
+const sameDelivery = (left: Delivery, right: Delivery): boolean => {
+	switch (left.kind) {
+		case "facts":
+			return right.kind === "facts" && sameSet(left.facts, right.facts)
+		case "pages":
+			return (
+				right.kind === "pages" &&
+				left.pages.length === right.pages.length &&
+				Arr.every(Arr.zip(left.pages, right.pages), ([l, r]) => samePage(l, r))
+			)
+	}
 }
 
 /** A read's members, loaded from each artifact's served file, by name. */
@@ -277,17 +325,16 @@ export const servedMembers = (
 }
 
 /**
- * Whether the Db's two artifacts of the read `read` makes deliver the same facts (see the header). `read` reads through
- * the operations of the members it names, exactly as the Db's read did, each side's run on its own executor over `ctx`
- * (memberOpsOn). A read the Db answered that either artifact refuses here is an answer no observation names, so it is
- * raised as a defect of the run.
+ * Whether the Db's two artifacts of the read `read` makes deliver the same (see the header, and sameDelivery). `read`
+ * reads through the operations of the members it names as the Db's read did, a paged read also requesting the pages
+ * after and before every cursor its pages reached, each side's run on its own executor over `ctx` (memberOpsOn). A read
+ * the Db answered that either artifact refuses here is an answer no observation names, so it is raised as a defect of
+ * the run.
  */
 export const artifactsAgree = <E>(
 	ctx: ServedDbContext,
 	members: SidedMembers,
-	read: (
-		operations: (name: string) => ServedOps<unknown>
-	) => Effect.Effect<ReadonlyArray<HostFact>, E>
+	read: (operations: (name: string) => ServedOps<unknown>) => Effect.Effect<Delivery, E>
 ): Effect.Effect<boolean> =>
 	Effect.gen(function* () {
 		const meeting = yield* Ref.make<Meeting>({ kind: "open" })
@@ -303,5 +350,5 @@ export const artifactsAgree = <E>(
 		const [optimized, conservative] = yield* Effect.orDie(
 			Effect.all([sideRead("optimized"), sideRead("conservative")], { concurrency: "unbounded" })
 		)
-		return sameFacts(optimized, conservative)
+		return sameDelivery(optimized, conservative)
 	})
