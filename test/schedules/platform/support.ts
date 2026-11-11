@@ -124,8 +124,9 @@ import { openServed } from "#adapter/db/served.ts"
  * writer's statements. The driver runs every order of a race of few moves and a PCT schedule otherwise. Each run is
  * read back as the owner and judged:
  *
- * - every direct abort is 40001 or 40P01, and each call a grizzle writer ran again a transient refusal, its reason
- *   noted. Which session PostgreSQL makes the deadlock victim is the driver's branch, judged like any other;
+ * - every direct abort is 40001 or 40P01, and each call a grizzle writer ran again a transient refusal whose reason is
+ *   of SQLSTATE class 40, a transaction rollback (rollbackClass). Which session PostgreSQL makes the deadlock victim is
+ *   the driver's branch, judged like any other;
  * - some serial order of the committed transactions, respecting real time (one that finished before another began
  *   comes first), explains each: applied by the model at its place, each decides what it decided, accepted or
  *   no-change, and the state after the last is the committed state, relation by relation as sets of facts;
@@ -1280,8 +1281,29 @@ const directObserved = (i: RaceInstall, result: TxnResult): Observed | string =>
 	}
 }
 
+/**
+ * The SQLSTATE class each transient reason is raised under (adapter/errors/execution.ts transientReason): a
+ * transaction rollback, class 40 (40001, 40P01, and grizzle's concurrent-change code a write statement or a refresh
+ * raises), or an integrity violation, class 23 (a unique violation a concurrent writer's occupant raised). Every tag is
+ * named, so a new one is a type error here until its class is stated.
+ */
+const rollbackClass: { readonly [T in TransientTag]: boolean } = {
+	SerializationFailure: true,
+	Deadlock: true,
+	PutTargetConflict: true,
+	SpanKeyChange: true,
+	ConcurrentRefresh: true,
+	GeneratedSerialUnique: false,
+	UnseenOccupant: false
+}
+
 /** How a grizzle write ended, as the oracle reads it, or why its outcome breaks the contract. */
 const grizzleObserved = (i: RaceInstall, r: GrizzleRan): Observed | string => {
+	for (const reason of r.transients) {
+		if (!rollbackClass[reason]) {
+			return `a call was refused as transient by ${reason}, of no transaction rollback`
+		}
+	}
 	if (r.last.kind === "failed") {
 		return `the write failed: ${r.last.error}`
 	}
