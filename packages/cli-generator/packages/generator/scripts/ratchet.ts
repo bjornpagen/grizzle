@@ -18,8 +18,10 @@ import { ChildProcess, ChildProcessSpawner } from "effect/process"
 
 /**
  * The finding ratchet: while the generator is being cleaned, each tool of the gate runs over it in full and fails
- * when its finding count rises above the count `ratchet.json` holds. The ledger only falls: `--lower` writes the
- * current counts when no tool rose. A tool at zero leaves the ledger and runs as the plain tool; when every tool is
+ * when any file's finding count rises above the count `ratchet.json` holds for that file, a file the ledger does not
+ * name holding none: a fall elsewhere never pays for a rise, so an API change cannot break its consumers behind a
+ * larger cleanup, and new code comes in clean. The ledger only falls: `--lower` writes the
+ * current counts when no file rose. A tool at zero leaves the ledger and runs as the plain tool; when every tool is
  * at zero this script and its ledger are deleted. A tool that fails to run, or whose own summary disagrees with the
  * findings read from its output, fails the check: a count the ratchet could not read is never a pass.
  */
@@ -309,8 +311,8 @@ const main = Effect.gen(function* () {
 	const committed = Option.getOrElse(Record.get(ledger, tool), () => countOf([]))
 	const { output, count } = yield* runTool(tool)
 	const shown = path.relative(ROOT, LEDGER)
-	if (count.total > committed.total) {
-		const rose = risen(committed, count)
+	const rose = risen(committed, count)
+	if (Arr.isReadonlyArrayNonEmpty(rose)) {
 		yield* Console.error(
 			Arr.join(
 				[
@@ -318,7 +320,7 @@ const main = Effect.gen(function* () {
 						output,
 						Arr.map(rose, (entry) => entry.file)
 					),
-					`ratchet: ${tool} has ${String(count.total)} findings in the generator, above the ${String(committed.total)} ${shown} holds. The files that rose:`,
+					`ratchet: ${tool} has ${String(count.total)} findings in the generator (${shown} holds ${String(committed.total)}), and these files rose above their counts there:`,
 					...Arr.map(
 						rose,
 						(entry) => `  ${entry.file}: ${String(entry.held)} -> ${String(entry.count)}`
