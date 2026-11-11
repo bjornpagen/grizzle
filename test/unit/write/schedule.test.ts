@@ -6,7 +6,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { boundedShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
-import { ParamId } from "#compiler/core/ids.ts"
+import { ParamId, StoredRelationName } from "#compiler/core/ids.ts"
 import type { ActionCore } from "#compiler/ir/write.ts"
 import { completeClass } from "#compiler/ir/write.ts"
 import {
@@ -240,8 +240,8 @@ const orders = <A>(items: ReadonlyArray<A>): ReadonlyArray<ReadonlyArray<A>> =>
 				])
 			)
 
-const nameOf = (shape: Shape, relation: "C" | "P"): string =>
-	(relation === "C") === shape.sourceFirst ? "A" : "B"
+const nameOf = (shape: Shape, relation: "C" | "P"): StoredRelationName =>
+	StoredRelationName((relation === "C") === shape.sourceFirst ? "A" : "B")
 
 const actionOf = (shape: Shape, relation: "C" | "P", op: Op): ActionCore => {
 	const source = { kind: "enumerated", slot: ParamId(`${relation} ${op}`) } as const
@@ -297,7 +297,10 @@ type Situation =
 interface Stratum {
 	readonly actions: ReadonlyArray<StratumAction>
 	readonly family: ReadonlyArray<FamilyNode>
-	readonly edits: ReadonlyArray<{ readonly relation: string; readonly edit: MemberEdit }>
+	readonly edits: ReadonlyArray<{
+		readonly relation: StoredRelationName
+		readonly edit: MemberEdit
+	}>
 	readonly pairs: ReadonlyArray<FamilyPair>
 	readonly references: ReadonlyArray<ImmediateReference>
 	readonly refills: RefillOrder
@@ -312,7 +315,7 @@ interface StratumAction {
 	readonly meeting: Meeting
 }
 
-const relationName = (r: number): string => `R${String(r)}`
+const relationName = (r: number): StoredRelationName => StoredRelationName(`R${String(r)}`)
 
 const memberOps: ReadonlyArray<MemberOp> = ["insert", "put", "delete", "nested"]
 
@@ -395,7 +398,7 @@ const stratumGen: Gen<Stratum> = (source) => {
 	const inserts: Array<FamilyNode> = []
 	const updates: Array<FamilyNode> = []
 	const refilled: Array<FamilyNode> = []
-	const edits: Array<{ readonly relation: string; readonly edit: MemberEdit }> = []
+	const edits: Array<{ readonly relation: StoredRelationName; readonly edit: MemberEdit }> = []
 	for (let r = 0; r < n; r += 1) {
 		const relation = relationName(r)
 		if (!members.has(r)) {
@@ -784,43 +787,48 @@ const importShape: Stratum = {
 			action: {
 				op: "insert",
 				serial: completeClass,
-				relation: "R2",
+				relation: relationName(2),
 				source: { kind: "enumerated", slot: ParamId("R2 member") }
 			}
 		}
 	],
 	family: [
-		{ kind: "rows", relation: "R3", statement: "update", changes: updateChanges(importEdit) },
+		{
+			kind: "rows",
+			relation: relationName(3),
+			statement: "update",
+			changes: updateChanges(importEdit)
+		},
 		{
 			kind: "owners",
-			family: { owner: "R0", count: "n0" },
-			relation: "R0",
-			member: "R1",
+			family: { owner: relationName(0), count: "n0" },
+			relation: relationName(0),
+			member: relationName(1),
 			changes: ["field:n0", "field:e0"]
 		},
 		{
 			kind: "owners",
-			family: { owner: "R2", count: "n1" },
-			relation: "R2",
-			member: "R3",
+			family: { owner: relationName(2), count: "n1" },
+			relation: relationName(2),
+			member: relationName(3),
 			changes: ["field:n1", "field:e1"]
 		},
-		{ kind: "rows", relation: "R1", statement: "insert" }
+		{ kind: "rows", relation: relationName(1), statement: "insert" }
 	],
-	edits: [{ relation: "R3", edit: importEdit }],
+	edits: [{ relation: relationName(3), edit: importEdit }],
 	pairs: [
 		{
-			family: { owner: "R0", count: "n0" },
-			owner: "R0",
-			member: "R1",
+			family: { owner: relationName(0), count: "n0" },
+			owner: relationName(0),
+			member: relationName(1),
 			immediate: true,
 			fromColumns: ["field:g0", "law:n0", "field:c0"],
 			toColumns: ["field:id", "field:n0", "field:a"]
 		},
 		{
-			family: { owner: "R2", count: "n1" },
-			owner: "R2",
-			member: "R3",
+			family: { owner: relationName(2), count: "n1" },
+			owner: relationName(2),
+			member: relationName(3),
 			immediate: true,
 			fromColumns: ["field:g1", "law:n1", "field:c1"],
 			toColumns: ["field:id", "field:n1", "field:a"]
@@ -861,31 +869,31 @@ const importShape: Stratum = {
 const familyCycle: Stratum = {
 	actions: [],
 	family: [
-		{ kind: "rows", relation: "R1", statement: "delete" },
+		{ kind: "rows", relation: relationName(1), statement: "delete" },
 		{
 			kind: "owners",
-			family: { owner: "R0", count: "n1" },
-			relation: "R0",
-			member: "R1",
+			family: { owner: relationName(0), count: "n1" },
+			relation: relationName(0),
+			member: relationName(1),
 			changes: ["field:n1", "field:e1"]
 		},
-		{ kind: "rows", relation: "R0", statement: "insert" },
-		{ kind: "rows", relation: "R1", statement: "insert" }
+		{ kind: "rows", relation: relationName(0), statement: "insert" },
+		{ kind: "rows", relation: relationName(1), statement: "insert" }
 	],
 	edits: [],
 	pairs: [
 		{
-			family: { owner: "R1", count: "n0" },
-			owner: "R1",
-			member: "R0",
+			family: { owner: relationName(1), count: "n0" },
+			owner: relationName(1),
+			member: relationName(0),
 			immediate: false,
 			fromColumns: ["field:g0", "law:n0", "field:c0"],
 			toColumns: ["field:id", "field:n0", "field:a"]
 		},
 		{
-			family: { owner: "R0", count: "n1" },
-			owner: "R0",
-			member: "R1",
+			family: { owner: relationName(0), count: "n1" },
+			owner: relationName(0),
+			member: relationName(1),
 			immediate: false,
 			fromColumns: ["field:g1", "law:n1", "field:c1"],
 			toColumns: ["field:id", "field:n1", "field:a"]
@@ -926,7 +934,7 @@ const editsBesideASet: Stratum = {
 			meeting: "nowhere",
 			action: {
 				op: "delete",
-				relation: "P0",
+				relation: StoredRelationName("P0"),
 				source: { kind: "enumerated", slot: ParamId("P0 member") }
 			}
 		},
@@ -935,50 +943,60 @@ const editsBesideASet: Stratum = {
 			action: {
 				op: "insert",
 				serial: completeClass,
-				relation: "P0",
+				relation: StoredRelationName("P0"),
 				source: { kind: "enumerated", slot: ParamId("P0 member") }
 			}
 		}
 	],
 	family: [
-		{ kind: "rows", relation: "R1", statement: "delete" },
-		{ kind: "rows", relation: "R2", statement: "delete" },
-		{ kind: "rows", relation: "R1", statement: "update", changes: updateChanges(setEdits.R1) },
-		{ kind: "rows", relation: "R2", statement: "update", changes: updateChanges(setEdits.R2) },
+		{ kind: "rows", relation: relationName(1), statement: "delete" },
+		{ kind: "rows", relation: relationName(2), statement: "delete" },
+		{
+			kind: "rows",
+			relation: relationName(1),
+			statement: "update",
+			changes: updateChanges(setEdits.R1)
+		},
+		{
+			kind: "rows",
+			relation: relationName(2),
+			statement: "update",
+			changes: updateChanges(setEdits.R2)
+		},
 		{
 			kind: "owners",
-			family: { owner: "R0", count: "n0" },
-			relation: "R0",
-			member: "R1",
+			family: { owner: relationName(0), count: "n0" },
+			relation: relationName(0),
+			member: relationName(1),
 			changes: ["field:n0", "field:e0"]
 		},
 		{
 			kind: "owners",
-			family: { owner: "R0", count: "n1" },
-			relation: "R0",
-			member: "R2",
+			family: { owner: relationName(0), count: "n1" },
+			relation: relationName(0),
+			member: relationName(2),
 			changes: ["field:n1", "field:e1"]
 		},
-		{ kind: "rows", relation: "R1", statement: "insert" },
-		{ kind: "rows", relation: "R2", statement: "insert" }
+		{ kind: "rows", relation: relationName(1), statement: "insert" },
+		{ kind: "rows", relation: relationName(2), statement: "insert" }
 	],
 	edits: [
-		{ relation: "R1", edit: setEdits.R1 },
-		{ relation: "R2", edit: setEdits.R2 }
+		{ relation: relationName(1), edit: setEdits.R1 },
+		{ relation: relationName(2), edit: setEdits.R2 }
 	],
 	pairs: [
 		{
-			family: { owner: "R0", count: "n0" },
-			owner: "R0",
-			member: "R1",
+			family: { owner: relationName(0), count: "n0" },
+			owner: relationName(0),
+			member: relationName(1),
 			immediate: true,
 			fromColumns: ["field:g0", "law:n0", "field:c0"],
 			toColumns: ["field:id", "field:n0", "field:a"]
 		},
 		{
-			family: { owner: "R0", count: "n1" },
-			owner: "R0",
-			member: "R2",
+			family: { owner: relationName(0), count: "n1" },
+			owner: relationName(0),
+			member: relationName(2),
 			immediate: true,
 			fromColumns: ["field:g1", "law:n1", "field:c1"],
 			toColumns: ["field:id", "field:n1", "field:a"]
@@ -1046,8 +1064,8 @@ const familiesCycle = (pairs: ReadonlyArray<FamilyPair>): boolean => {
 /** The shapes a generated stratum holds. */
 const stratumShapes = (stratum: Stratum): ReadonlyArray<StratumSituation> => {
 	const owners = Arr.flatMap(stratum.family, (f) => (f.kind === "owners" ? [f.relation] : []))
-	const familyRelations = new Set(Arr.map(stratum.family, (f) => f.relation))
-	const plainRelations = new Set(Arr.map(stratum.actions, (a) => a.action.relation))
+	const familyRelations = new Set<string>(Arr.map(stratum.family, (f) => f.relation))
+	const plainRelations = new Set<string>(Arr.map(stratum.actions, (a) => a.action.relation))
 	const has = (statement: "update" | "insert") =>
 		Arr.some(stratum.family, (f) => f.kind === "rows" && f.statement === statement)
 	return [

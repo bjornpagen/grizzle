@@ -11,6 +11,7 @@ export type {
 	ArraysOf,
 	ChangeSet,
 	FactsCheck,
+	KeyHost,
 	Law,
 	PlannedStrata,
 	Refused,
@@ -72,6 +73,7 @@ export { projectWrite, servedWrite } from "#compiler/write/program/served.ts"
 export {
 	interpretRows,
 	type KeyDecoder,
+	type KeyWitness,
 	keyWitness,
 	witnessDecoder
 } from "#compiler/runtime/write/outcome.ts"

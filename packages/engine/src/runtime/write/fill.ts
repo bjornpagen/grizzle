@@ -33,6 +33,7 @@
 import { encodeFailure } from "#compiler/codec/fault.ts"
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
 import type { EncodingFailure, EncodingPlace } from "#compiler/core/errors.ts"
+import type { StoredRelationName } from "#compiler/core/ids.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
 import { maxStringLength } from "#compiler/core/limits.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
@@ -94,7 +95,7 @@ export const fieldKey = (field: string): ColumnKey => `field:${field}`
  * with its members in slot order. A member holds no field its nesting supplies: its group, and a tree node's root field.
  */
 export interface HostNode {
-	readonly relation: string
+	readonly relation: StoredRelationName
 	readonly values: ReadonlyMap<ColumnKey, unknown>
 	readonly families: ReadonlyArray<{
 		readonly family: FamilyId
@@ -104,7 +105,7 @@ export interface HostNode {
 
 /** A row of a nesting filled: every column the host writes, by key, and each family it owns, with its members filled. */
 export interface FilledNode {
-	readonly relation: string
+	readonly relation: StoredRelationName
 	readonly values: ReadonlyMap<ColumnKey, unknown>
 	readonly families: ReadonlyArray<{
 		readonly family: FamilyId
@@ -149,7 +150,7 @@ export type FillStop =
  */
 export interface FillRefusal {
 	readonly path: ReadonlyArray<string | number>
-	readonly relation: string
+	readonly relation: StoredRelationName
 	readonly column: string
 	readonly stop: FillStop
 	readonly key: Readonly<Record<string, KeyHost>> | undefined
@@ -223,7 +224,7 @@ export type Filler = (root: HostNode, position: FillAt) => Result.Result<FilledN
 /** A relation as the host fills its rows (`HostFill`): its name, its fields with their types, which an expression over a
  * row reads, and its declared keys by their fields' names, the primary key first, which a refusal states a row by. */
 export interface FillRelation extends EvaluatedRelation {
-	readonly name: string
+	readonly name: StoredRelationName
 	readonly keys: ReadonlyArray<NonEmptyReadonlyArray<string>>
 }
 
@@ -232,7 +233,7 @@ export interface FillRelation extends EvaluatedRelation {
 export interface FillFamily {
 	readonly id: FamilyId
 	readonly count: string
-	readonly member: string
+	readonly member: StoredRelationName
 	readonly tree: boolean
 }
 
@@ -284,7 +285,7 @@ export interface FillColumnData {
 /** A relation's layout at one position, as data (ir/fill.ts FillLayout): its relation by name, its columns, and the
  * families its rows own, by id, in the order the walk fills them. */
 export interface FillLayoutData {
-	readonly relation: string
+	readonly relation: StoredRelationName
 	readonly columns: ReadonlyArray<FillColumnData>
 	readonly owns: ReadonlyArray<FamilyId>
 }
@@ -1080,7 +1081,7 @@ export const filler = (fill: HostFill, codes: Codebook, evaluate: HostEvaluator)
 	const relations = new Map(fill.relations.map((r) => [r.name, r] as const))
 	const layouts = new Map<string, Layout>()
 	/** A row's layout at a position, which the write's fill laid out. */
-	const laidOut = (relation: string, position: FillAt): Layout => {
+	const laidOut = (relation: StoredRelationName, position: FillAt): Layout => {
 		const key = layoutKey(relation, position)
 		const known = layouts.get(key)
 		if (known !== undefined) {

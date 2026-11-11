@@ -51,12 +51,15 @@ export {
 	type ColumnIdent,
 	type ConstraintName,
 	type DomainName,
+	type EntryName,
 	type Identifier,
 	type IdentityKind,
 	type LawId,
 	type ParamId,
 	type RelationIdent,
-	SchemaFingerprint
+	type RoleRelationName,
+	SchemaFingerprint,
+	type StoredRelationName
 } from "#compiler/core/ids.ts"
 export { defect, defined } from "#compiler/core/invariant.ts"
 export {

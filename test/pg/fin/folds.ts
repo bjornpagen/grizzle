@@ -23,6 +23,7 @@ import {
 	String as Str
 } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
+import { StoredRelationName } from "#compiler/core/ids.ts"
 import type { FoldPlane } from "#compiler/ir/family.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import {
@@ -963,12 +964,14 @@ export const hostFilled = (f: FoldSeat, family: FoldFamily): Result.Result<FoldS
 	const { spec } = f
 	const codes = f.seat.installed.names.codes
 	const built = filler(
-		hostFillOf(f.seat.model.theory.fill, [{ relation: "Owner", position: { kind: "top" } }]),
+		hostFillOf(f.seat.model.theory.fill, [
+			{ relation: StoredRelationName("Owner"), position: { kind: "top" } }
+		]),
 		codes,
 		hostEvaluator(codes, closedLeaf(new Map()), f.seat.model.patterns)
 	)
 	const node: HostNode = {
-		relation: "Owner",
+		relation: StoredRelationName("Owner"),
 		values: new Map<ColumnKey, unknown>([
 			[fieldKey("id"), family.owner],
 			...Option.match(spec.check, {
@@ -980,7 +983,7 @@ export const hostFilled = (f: FoldSeat, family: FoldFamily): Result.Result<FoldS
 			{
 				family: { owner: "Owner", count: "n" },
 				members: Arr.map(family.members, (m) => ({
-					relation: "Member",
+					relation: StoredRelationName("Member"),
 					values: new Map<ColumnKey, unknown>([
 						[fieldKey("member"), m.member],
 						...Option.match(spec.x, {

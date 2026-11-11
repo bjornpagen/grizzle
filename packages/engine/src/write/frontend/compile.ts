@@ -6,7 +6,7 @@ import { checkFill, checkMember, checkReadBack } from "#compiler/check/index.ts"
 import type { MemberColumn, MemberRelation } from "#compiler/check/schema.ts"
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import { CompileError, type ProseTag, prose } from "#compiler/core/errors.ts"
-import { type LawId, ParamId } from "#compiler/core/ids.ts"
+import { type EntryName, type LawId, ParamId, type StoredRelationName } from "#compiler/core/ids.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
 import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
 import {
@@ -74,6 +74,7 @@ import {
 } from "#compiler/write/frontend/entry.ts"
 
 import type { HostChecks, StartData } from "#compiler/runtime/write/normalize.ts"
+import type { WitnessEntry } from "#compiler/runtime/write/witness.ts"
 import { relationDepths } from "#compiler/write/family/compose.ts"
 import { fixedSentence } from "#compiler/write/family/edit.ts"
 import { type Nesting, nestingOf } from "#compiler/write/family/nesting.ts"
@@ -177,8 +178,9 @@ export type EnumeratedInput =
 			readonly act: Extract<SingleAct, { readonly op: "insert" }>
 			readonly slot: MemberSlot
 			readonly nesting: Nesting
-			/** Each member relation its families reach, as its same-key checks judge its nested rows. */
-			readonly reached: ReadonlyMap<string, SlotFacts>
+			/** Each member relation its families reach, with the same-key checks its nested rows are judged by, which are
+			 * stated in its own words: a nested write reaches no query entry. */
+			readonly reached: ReadonlyMap<StoredRelationName, HostChecks>
 			readonly members: NonEmptyReadonlyArray<string>
 	  }
 	| {
@@ -225,16 +227,28 @@ export interface SlotGroup {
 	readonly stratum: StratumAt
 	readonly relation: WrittenRelation
 	readonly inputs: NonEmptyReadonlyArray<EnumeratedInput>
-	/** The facts as the host checks them: the relation's or a query entry's name, and its same-key checks. */
+	/** The facts as the host checks them: the words they are stated in, and their same-key checks. */
 	readonly facts: SlotFacts
 }
 
-/** What the host's normalization reads of the facts of a slot group: the relation the facts are of as a refusal names
- * it, and its same-key checks, over the facts' own fields. */
+/**
+ * The words a slot group's facts are stated in: its written relation's own, through a whole entry; or a query entry's,
+ * its head fields', with what the host reads them back into facts of its target by (runtime/write/witness.ts
+ * WitnessEntry).
+ */
+export type StatedIn =
+	| { readonly kind: "relation" }
+	| { readonly kind: "entry"; readonly entry: WitnessEntry }
+
+/** What the host's normalization reads of the facts of a slot group: the words they are stated in, and their same-key
+ * checks, over the facts' own fields. */
 export interface SlotFacts {
-	readonly name: string
+	readonly stated: StatedIn
 	readonly host: HostChecks
 }
+
+/** Facts stated in their written relation's own words. */
+const statedInRelation: StatedIn = Object.freeze({ kind: "relation" })
 
 /** A stratum's edits of one member relation: its slots, each normalized as any slot is, by operation. */
 export interface StratumEdit {
@@ -383,7 +397,7 @@ const queriesIn = (drafted: Drafted, dag: ValidDag, at: Counterpart): WriteQueri
  * sources are evaluated. `entry` names the entry; `reads` is its enumerated slot, its described
  * sources' union, or both as one union, each delivering the entry's facts. */
 export interface OutsideWrite {
-	readonly entry: string
+	readonly entry: EntryName
 	readonly reads: SourceReads
 }
 
@@ -683,7 +697,7 @@ interface Draft {
 
 /** A refused addition before its source is built (OutsideWrite), its sources' facts carrying `carried`. */
 interface OutsideDraft {
-	readonly entry: string
+	readonly entry: EntryName
 	readonly carried: Heading
 	readonly reads: DraftReads
 }
@@ -931,7 +945,7 @@ const compile = (
 	 * own among them: each one's counted families complete its rows after the walk, from what the read flight finds
 	 * stored, as they do a member's own insert (write/family/nesting.ts NestedLayout).
 	 */
-	const countedReached = (relation: RelationInfo): ReadonlyArray<string> =>
+	const countedReached = (relation: RelationInfo): ReadonlyArray<StoredRelationName> =>
 		[...nestingFor(relation).layouts].flatMap(([name, laid]) =>
 			laid.pending.size > 0 ? [name] : []
 		)
@@ -1362,7 +1376,7 @@ const compile = (
 	 * its nested writes reach, whose rows the planner completes (`countedReached`). */
 	const edits: Array<{
 		readonly stratum: StratumAt
-		readonly relation: string
+		readonly relation: StoredRelationName
 		readonly write:
 			| { readonly op: "insert" | "put" | "delete"; readonly slot: ParamId }
 			| { readonly op: "nested" }
@@ -1577,7 +1591,7 @@ const compile = (
 										reached: new Map(
 											nesting.reached.map((r) => {
 												const member = writtenOf(r.family.member.name, loc)
-												return [member.name, { name: member.name, host: member.host }] as const
+												return [member.name, member.host] as const
 											})
 										),
 										members: memberNames
@@ -1637,7 +1651,7 @@ const compile = (
 						facts:
 							target.kind === "entry"
 								? entryFacts(target.entry, relation.host)
-								: { name: relation.name, host: relation.host }
+								: { stated: statedInRelation, host: relation.host }
 					})
 				)
 			}
@@ -1847,7 +1861,7 @@ const compile = (
 				...edited
 			])
 		]
-		const deepest = (names: ReadonlyArray<string>) =>
+		const deepest = (names: ReadonlyArray<StoredRelationName>) =>
 			names.toSorted((a, b) => depthOf(b) - depthOf(a))
 		const counted = [
 			...edited.flatMap((relation) =>
@@ -1941,7 +1955,7 @@ const compile = (
 	 */
 	const familyWritesOf = (
 		stratum: StratumAt,
-		edited: ReadonlyArray<string>,
+		edited: ReadonlyArray<StoredRelationName>,
 		refill: StratumRefill | undefined
 	): ReadonlyArray<FamilyNode> | undefined => {
 		const own = edits.filter((e) => e.stratum === stratum)
@@ -1956,7 +1970,7 @@ const compile = (
 		/** The stratum's refills its family statements draw, by member relation; none where the family planner draws them. */
 		const refilled =
 			refill === undefined
-				? new Map<string, ReadonlyArray<PlainRefill>>()
+				? new Map<StoredRelationName, ReadonlyArray<PlainRefill>>()
 				: plainRefills(refill, managed, new Set(by(["put", "delete"])))
 		if (
 			refilled === undefined ||
@@ -1973,7 +1987,7 @@ const compile = (
 		 * copy, which their owner axes cascade. None for the edits of two relations or of one the stratum does not put or
 		 * delete by a slot, or an append's recount of a member the stratum appends nothing to, which the family planner
 		 * refills on the host. */
-		const startsOf = (member: string, memberRefills: ReadonlyArray<PlainRefill>) => {
+		const startsOf = (member: StoredRelationName, memberRefills: ReadonlyArray<PlainRefill>) => {
 			const all = memberRefills.flatMap((r) => r.ways.map((way) => way.root))
 			const puts = [...new Set(all.flatMap((x) => (x.kind === "put" ? [x.relation] : [])))]
 			const [edit, ...otherEdits] = [
@@ -2003,11 +2017,11 @@ const compile = (
 			)
 		)
 		/** The members an edit's refills rewrite in the edit's own removals statement (FamilyRemovals `riders`). */
-		const ridersOf = (member: string): ReadonlyArray<string> =>
+		const ridersOf = (member: StoredRelationName): ReadonlyArray<StoredRelationName> =>
 			[...starts].flatMap(([rider, x]) => (x?.edit === member ? [rider] : []))
 		/** The plain relations whose puts a removals statement's refills read the facts of, which it runs before: its own
 		 * member's, and every rider's it rewrites. */
-		const refilledFromOf = (member: string): ReadonlyArray<string> => [
+		const refilledFromOf = (member: StoredRelationName): ReadonlyArray<StoredRelationName> => [
 			...new Set([
 				...(putRefilled.get(member) ?? []),
 				...ridersOf(member).flatMap((rider) => starts.get(rider)?.puts ?? [])
@@ -2039,7 +2053,7 @@ const compile = (
 		const deleting = by(["delete"])
 		/** What `member`'s removals statement does to its rows (schedule.ts RemovalEdit): the operations the stratum states
 		 * of a member it puts or deletes, and else the refill its plain puts' cascades draw. */
-		const removalEdits = (member: string): NonEmptyReadonlyArray<RemovalEdit> =>
+		const removalEdits = (member: StoredRelationName): NonEmptyReadonlyArray<RemovalEdit> =>
 			putting.includes(member)
 				? deleting.includes(member)
 					? ["put", "delete"]
@@ -2083,7 +2097,7 @@ const compile = (
 				)
 			)
 		/** The owners `member`'s additions draw: every family's of its slots, a counted family's of its nested rows. */
-		const drawnOwners = (member: string) =>
+		const drawnOwners = (member: StoredRelationName) =>
 			ownersOfFamilies(
 				memberFamilies(member, families).filter(
 					(f) => !isTreeOf(f, member) && (slotted.includes(member) || !isSequence(f))
@@ -2096,7 +2110,7 @@ const compile = (
 		 * and its nested rows' sent layout; and whether a described member inserts or puts some, whose rows the database
 		 * computes.
 		 */
-		const insertedRows = (owner: string) => ({
+		const insertedRows = (owner: StoredRelationName) => ({
 			carried: [
 				...slots.flatMap((g) =>
 					g.stratum === stratum && g.relation.name === owner
@@ -2138,7 +2152,7 @@ const compile = (
 		}
 		/** The owner copies `member`'s additions draw, each with where it reads its owner's column (schedule.ts
 		 * OwnerCopy): every family's of its slots', a counted family's of its nested rows', but its own tree's. */
-		const ownerCopiesOf = (member: string): ReadonlyArray<OwnerCopy> =>
+		const ownerCopiesOf = (member: StoredRelationName): ReadonlyArray<OwnerCopy> =>
 			memberFamilies(member, families).flatMap((f) =>
 				isTreeOf(f, member) || (!slotted.includes(member) && isSequence(f))
 					? []
@@ -2344,7 +2358,7 @@ const compile = (
 		const refill = refills.get(s)
 		return refill === undefined ? [] : [Object.freeze({ stratum, refill })]
 	})
-	const nestedRelations = new Set([
+	const nestedRelations = new Set<string>([
 		...nestedWrites.flatMap((n) => [...n.nesting.layouts.keys()]),
 		...edits.map((e) => e.relation),
 		...families
@@ -2394,20 +2408,18 @@ const compile = (
 			deletes: slotOf("delete")
 		})
 	})
-	for (const r of readBacks) {
-		for (const d of r.deltas) {
-			if (nestedRelations.has(d.relation)) {
-				refuse(
-					"UnsupportedOperation",
-					childLoc(at, "reads", r.name),
-					`a delta of ${d.relation}, which a family write writes through its family's statements: read ${d.relation} itself after the change`
-				)
-			}
+	const classified = readBacks.flatMap((r) =>
+		r.deltas.map((d) => ({ read: r.name, delta: d, side: d.side, of: deltaOf(d.relation) }))
+	)
+	for (const { read, delta, of } of classified) {
+		if (of.kind === "relation" && nestedRelations.has(of.relation)) {
+			refuse(
+				"UnsupportedOperation",
+				childLoc(at, "reads", read),
+				`a delta of ${delta.relation}, which a family write writes through its family's statements: read ${delta.relation} itself after the change`
+			)
 		}
 	}
-	const classified = readBacks.flatMap((r) =>
-		r.deltas.map((d) => ({ delta: d, side: d.side, of: deltaOf(d.relation) }))
-	)
 	const relationDeltas = groupBy(
 		classified.flatMap((d) => (d.of.kind === "relation" ? [{ side: d.side, ...d.of }] : [])),
 		(d) => d.relation

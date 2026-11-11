@@ -1,7 +1,6 @@
-import type { CheckedEntry } from "#compiler/analysis/schema.ts"
 import { contractLaw } from "#compiler/analysis/theory/description.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
-import type { LawId, ParamId } from "#compiler/core/ids.ts"
+import type { LawId, ParamId, StoredRelationName } from "#compiler/core/ids.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
 import { isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { type ExprTable, predicateTable } from "#compiler/ir/expr.ts"
@@ -14,7 +13,12 @@ import {
 	type FillRule,
 	layoutKey
 } from "#compiler/ir/fill.ts"
-import { type FamilyId, familyKey, type LawRelation, type RelationInfo } from "#compiler/ir/law.ts"
+import {
+	type FamilyId,
+	familyKey,
+	type RelationInfo,
+	type TableRelation
+} from "#compiler/ir/law.ts"
 import {
 	baseOf,
 	contractOf,
@@ -56,12 +60,10 @@ import type {
 	LawCheckData,
 	WitnessAction,
 	WitnessData,
-	WitnessEntry,
 	WitnessField,
 	WitnessTable,
 	WitnessUnique
 } from "#compiler/runtime/write/witness.ts"
-import { irLiteral } from "#compiler/scalar/compute/literal.ts"
 import { tablePatterns, typePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { headingData, nestingData } from "#compiler/write/family/nesting.ts"
 import { endColumns, laidLayout, rowLayout } from "#compiler/write/family/statements.ts"
@@ -105,7 +107,7 @@ const proposalAt = (frontend: WriteFrontend, stratum: StratumAt, slot: ParamId):
 export const ownerSlots = (
 	frontend: WriteFrontend,
 	stratum: StratumAt,
-	relation: string
+	relation: StoredRelationName
 ): ReadonlyArray<ParamId> =>
 	frontend.slots
 		.filter((g) => g.stratum === stratum && g.relation.name === relation)
@@ -122,7 +124,7 @@ export const ownerSlots = (
 const nestedOwner = (
 	frontend: WriteFrontend,
 	stratum: StratumAt,
-	relation: string
+	relation: StoredRelationName
 ): NestedOwner => {
 	for (const n of frontend.nested) {
 		const at = n.stratum === stratum ? n.nesting.layouts.get(relation) : undefined
@@ -160,7 +162,7 @@ const freshStrata = (frontend: WriteFrontend): ReadonlyArray<FreshStratum> => {
 				!isSequence(f) &&
 				(appended.some((a) => a.relation === f.member.name) || nestedRelations.has(f.member.name))
 		)
-		const owners = new Map<string, FreshOwner>()
+		const owners = new Map<StoredRelationName, FreshOwner>()
 		for (const { owner } of reached) {
 			if (owners.has(owner.name)) {
 				continue
@@ -210,9 +212,11 @@ const ownedColumns = (
 }
 
 /** Every relation whose stated rows a write judges, by name: each it writes and each its slot groups state. */
-const judgedRelations = (frontend: WriteFrontend): ReadonlyMap<string, JudgedRelation> => {
+const judgedRelations = (
+	frontend: WriteFrontend
+): ReadonlyMap<StoredRelationName, JudgedRelation> => {
 	const families = frontend.laws.families
-	const judged = new Map<string, JudgedRelation>()
+	const judged = new Map<StoredRelationName, JudgedRelation>()
 	for (const relation of [...frontend.written, ...frontend.slots.map((g) => g.relation)]) {
 		if (!judged.has(relation.name)) {
 			judged.set(relation.name, {
@@ -251,7 +255,7 @@ const countedFamily = (family: Family): CountedFamily => ({
 })
 
 /** A relation as a fill's data holds it (fold.ts FillRelation). */
-const fillRelation = (relation: LawRelation): FillRelation => ({
+const fillRelation = (relation: TableRelation): FillRelation => ({
 	name: relation.name,
 	fields: relation.fields.map((f) => ({ name: f.name, type: f.type })),
 	keys: relation.keyNames.map((k) => mapNonEmpty(k.fields, (f) => f.name))
@@ -326,7 +330,7 @@ const topAt: FillAt = Object.freeze({ kind: "top" })
 const fillStarts = (
 	frontend: WriteFrontend,
 	fresh: ReadonlyArray<FreshStratum>
-): ReadonlyArray<{ readonly relation: string; readonly position: FillAt }> => [
+): ReadonlyArray<{ readonly relation: StoredRelationName; readonly position: FillAt }> => [
 	...frontend.nested.map((n) => ({
 		relation: n.nesting.relation.name,
 		position: fillAtOf(n.nesting.start)
@@ -345,7 +349,7 @@ const fillStarts = (
  */
 export const hostFillOf = (
 	fill: FillOrder,
-	starts: ReadonlyArray<{ readonly relation: string; readonly position: FillAt }>
+	starts: ReadonlyArray<{ readonly relation: StoredRelationName; readonly position: FillAt }>
 ): HostFill => {
 	const layouts = new Map<string, FillLayoutData>()
 	const relations = new Map<string, FillRelation>()
@@ -498,9 +502,9 @@ const groupData = (group: SlotGroup): GroupData => ({
 /** Each stratum's nested layouts (binding.ts NestedAt): each relation as the first of the stratum's nested writes that
  * fills it lays it out. */
 const nestedAts = (frontend: WriteFrontend): ReadonlyArray<NestedAt> => {
-	const byStratum = new Map<StratumAt, Map<string, NestedLayoutData>>()
+	const byStratum = new Map<StratumAt, Map<StoredRelationName, NestedLayoutData>>()
 	for (const n of frontend.nested) {
-		const layouts = byStratum.get(n.stratum) ?? new Map<string, NestedLayoutData>()
+		const layouts = byStratum.get(n.stratum) ?? new Map<StoredRelationName, NestedLayoutData>()
 		for (const [relation, at] of nestingData(n.nesting).layouts) {
 			if (!layouts.has(relation)) {
 				layouts.set(relation, at)
@@ -520,8 +524,8 @@ export const familyNames = (family: Family): FamilyNames => ({
 
 /** Each relation a nested write fills, by name, as the first family in the law model's order it is a member of names it
  * (binding.ts FamilyNames). */
-const rowFamilies = (frontend: WriteFrontend): ReadonlyMap<string, FamilyNames> => {
-	const out = new Map<string, FamilyNames>()
+const rowFamilies = (frontend: WriteFrontend): ReadonlyMap<StoredRelationName, FamilyNames> => {
+	const out = new Map<StoredRelationName, FamilyNames>()
 	for (const n of frontend.nested) {
 		for (const relation of n.nesting.layouts.keys()) {
 			const family = frontend.laws.families.find((f) => f.member.name === relation)
@@ -691,38 +695,6 @@ const witnessTable = (frontend: WriteFrontend, relation: WrittenRelation): Witne
 	}
 }
 
-/** A query entry as the witness reads it (witness.ts WitnessEntry): its head fields and its literal-fixed fields. */
-const witnessEntry = (entry: CheckedEntry): WitnessEntry => ({
-	entry: entry.entry,
-	head: [...entry.head].map(([head, { field }]) => ({ head, field: field.name })),
-	fixed: entry.fixed.flatMap((fixed) => {
-		if (fixed.value.kind !== "literal") {
-			return []
-		}
-		const carried = irLiteral(fixed.value.value, fixed.field.type)
-		return carried.ok
-			? [{ field: fixed.field.name, type: fixed.field.type, literal: carried.value.literal }]
-			: []
-	})
-})
-
-/** Each query entry a slot group writes through, by the name its facts are stated under. */
-const witnessEntries = (frontend: WriteFrontend): ReadonlyMap<string, WitnessEntry> => {
-	const entries = new Map<string, WitnessEntry>()
-	const world = frontend.schema.world
-	if (world.kind !== "role") {
-		return entries
-	}
-	for (const group of frontend.slots) {
-		const name = group.facts.name
-		const write = name === group.relation.name ? undefined : world.writes.get(name)
-		if (write?.kind === "rows" && !entries.has(name)) {
-			entries.set(name, witnessEntry(write.writable))
-		}
-	}
-	return entries
-}
-
 /** What the witness's judge evaluates over: every closed relation its expressions read, and every pattern its
  * expressions and its fields' types are checked against. */
 const witnessEvaluation = (
@@ -769,7 +741,6 @@ const witnessData = (frontend: WriteFrontend): WitnessData => {
 						: { kind: "slot", slot: action.source.slot }
 			}))
 		),
-		entries: witnessEntries(frontend),
 		lawOrder,
 		evaluation: witnessEvaluation(frontend, tables)
 	})

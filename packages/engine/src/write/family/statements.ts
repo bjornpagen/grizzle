@@ -18,7 +18,7 @@
  */
 import { withGenerationInputs } from "#compiler/analysis/theory/fill.ts"
 import { type CompileError, unsupported } from "#compiler/core/errors.ts"
-import type { ParamId } from "#compiler/core/ids.ts"
+import type { ParamId, StoredRelationName } from "#compiler/core/ids.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import { bytesChunkLength } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -126,7 +126,7 @@ export interface RowColumn {
  * PostgreSQL's, so none is listed.
  */
 export interface RowLayout {
-	readonly relation: string
+	readonly relation: StoredRelationName
 	readonly key: NonEmptyReadonlyArray<RowColumn>
 	readonly columns: ReadonlyArray<RowColumn>
 }

@@ -4,6 +4,7 @@ import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen, int } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
+import { StoredRelationName } from "#compiler/core/ids.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import type { FieldDesc, LiteralDesc, MonoidName } from "#compiler/ir/desc.ts"
 import type { Family } from "#compiler/ir/family.ts"
@@ -291,7 +292,9 @@ const fillOf = (s: Shape): Compiled | undefined => {
 	const codes = firstCodebook(rostersOf(succeeded(own(decodedSchema(desc)))))
 	const family = defined(model.value.families[0], "the fold's family")
 	const fill = filler(
-		hostFillOf(model.value.theory.fill, [{ relation: "Owner", position: { kind: "top" } }]),
+		hostFillOf(model.value.theory.fill, [
+			{ relation: StoredRelationName("Owner"), position: { kind: "top" } }
+		]),
 		codes,
 		hostEvaluator(codes, closedLeaf(new Map()), model.value.patterns)
 	)
@@ -319,13 +322,13 @@ const caseGen: Gen<FoldCase> = (source) => {
 
 /** The owner's nesting: its id, and its members, each its id, its value and its flag. */
 const nestingOf = (c: FoldCase): HostNode => ({
-	relation: "Owner",
+	relation: StoredRelationName("Owner"),
 	values: new Map([[fieldKey("id"), uuidOf(0)]]),
 	families: [
 		{
 			family: { owner: "Owner", count: "n" },
 			members: Arr.map(c.members, (m, i) => ({
-				relation: "Member",
+				relation: StoredRelationName("Member"),
 				values: new Map<ReturnType<typeof fieldKey>, unknown>([
 					[fieldKey("id"), uuidOf(i + 1)],
 					[fieldKey("flag"), m.flag],

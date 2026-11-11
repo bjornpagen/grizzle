@@ -27,11 +27,16 @@ import {
 import { ExecutionFailure, TransientFailure } from "#adapter/errors/execution.ts"
 import type { ServerError } from "#adapter/errors/failures.ts"
 import { classifyServerError, type FailureOrigin } from "#adapter/outcomes/index.ts"
-import { installationWitness } from "#adapter/served/refusals.ts"
+import { installationRefusals, installationWitness } from "#adapter/served/refusals.ts"
 import { noLevelAbove } from "#adapter/witness/keylaw.ts"
 import type { TransientTag } from "#compiler/core/errors.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
-import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
+import {
+	type ConstraintName,
+	EntryName,
+	type LawId,
+	type StoredRelationName
+} from "#compiler/core/ids.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { codeOf, draftCodebook, firstCodebook, keptRosters, noRenames } from "#compiler/ir/codes.ts"
 import type { LawField } from "#compiler/ir/law.ts"
@@ -81,7 +86,9 @@ import { nothingReported, type Reported, serverError } from "#test/support/serve
  * statement lists as an abort, are TransientFailure; a 40Z01 whose DETAIL names a concurrent change at one of the
  * installation's stored relations is that change's TransientFailure, and one at any other relation (a closed relation
  * of the installation, another installation's relation, a name of none) is no outcome the installation reads; a 42Z01
- * names the entry outside which a fact fell; a 23514 on one of the installation's roster domains
+ * names the entry outside which a fact fell where its constraint is a query entry the installation's role writes
+ * through, and is no outcome otherwise (a schema's installation writes through none); a 23514 on one of the
+ * installation's roster domains
  * is grizzle's own defect; a 23000 on a law's identity with grizzle's DETAIL rejects that law at the refused key, decoded
  * through its columns (a uuid as its text, an integer as its number, a closed id's code as its handle, a text as itself);
  * any other class 23 violation reported in the installation's schema rejects the laws its constraint maps to under the
@@ -552,7 +559,7 @@ const firstStratum = defined(strataAt(["the one stratum"])[0], "the one stratum'
 
 /** A write step into `relation`, its fields the least a write step holds, listing `aborts`. */
 const writeOf = (
-	relation: string,
+	relation: StoredRelationName,
 	aborts: ReadonlyArray<UniqueAbort>
 ): Extract<WriteStep, { readonly kind: "write" }> => ({
 	kind: "write",
@@ -567,12 +574,16 @@ const writeOf = (
 /** The origin a sketch is over an installation's stored relations, and the relations its statement writes. */
 const originOf = (
 	o: OriginSketch,
-	relations: Arr.NonEmptyReadonlyArray<string>,
+	relations: Arr.NonEmptyReadonlyArray<StoredRelationName>,
 	aborts: ReadonlyArray<UniqueAbort>
-): { readonly origin: FailureOrigin; readonly written: ReadonlyArray<string> } => {
-	const relationAt = (n: number): string => defined(relations[n % relations.length], "a relation")
+): {
+	readonly origin: FailureOrigin
+	readonly written: ReadonlyArray<StoredRelationName>
+} => {
+	const relationAt = (n: number): StoredRelationName =>
+		defined(relations[n % relations.length], "a relation")
 	const first = relationAt(defined(o.relations[0], "a drawn relation"))
-	const statement = (step: WriteStep, written: ReadonlyArray<string>) => ({
+	const statement = (step: WriteStep, written: ReadonlyArray<StoredRelationName>) => ({
 		origin: { kind: "statement" as const, index: 1, step, chunk: 0 },
 		written
 	})
@@ -655,7 +666,12 @@ const originOf = (
 			return statement({ kind: "readBack", name: "read" }, [])
 		case "an entry's precheck":
 			return statement(
-				{ kind: "check", stratum: firstStratum, entry: "Entry", skipWhenEmpty: undefined },
+				{
+					kind: "check",
+					stratum: firstStratum,
+					entry: EntryName("Entry"),
+					skipWhenEmpty: undefined
+				},
 				[first]
 			)
 		case "a read-back past the statements":
@@ -703,6 +719,7 @@ type WitnessFeature =
 	| "execution: a NOT NULL on no generated column"
 	| "a concurrent change"
 	| "outside an entry"
+	| "execution: a precheck naming no entry the role writes through"
 	| "SerializationFailure"
 	| "Deadlock"
 	| "GeneratedSerialUnique"
@@ -803,7 +820,7 @@ describe("a server error at a write", () => {
 								"rejected under a generated column",
 								"execution: a NOT NULL on no generated column",
 								"a concurrent change",
-								"outside an entry",
+								"execution: a precheck naming no entry the role writes through",
 								"SerializationFailure",
 								"Deadlock",
 								"GeneratedSerialUnique",
@@ -1161,9 +1178,13 @@ describe("a server error at a write", () => {
 										: { kind: "execution" }
 								}
 								if (state === sqlstates.grizzleOutsideWorld) {
-									return reported.constraint === undefined
-										? { kind: "execution" }
-										: { kind: "outside", relation: reported.constraint }
+									const entry = Arr.findFirst(
+										[...installationRefusals(artifacts).entries.values()],
+										(e) => e.entry === reported.constraint
+									)
+									return Option.isSome(entry)
+										? { kind: "outside", relation: entry.value.entry }
+										: { kind: "execution" }
 								}
 								if (!Str.startsWith("23")(state)) {
 									return { kind: "execution" }
@@ -1387,21 +1408,23 @@ describe("a server error at a write", () => {
 										return
 									}
 									k.note(
-										!Str.startsWith("23")(state)
-											? "execution: another class"
-											: reported.schema !== undefined && reported.schema !== schemaName
-												? "execution: another schema"
-												: state === sqlstates.notNullViolation
-													? "execution: a NOT NULL on no generated column"
-													: reported.constraint === undefined
-														? "execution: no constraint"
-														: state === sqlstates.integrityConstraintViolation
-															? sketch.detail.kind === "a refusal"
-																? "execution: a refused key no relation holds"
-																: "execution: a refusal without its DETAIL"
-															: sketch.owner === "a bits domain at a width the installation lacks"
-																? "execution: a bits domain the installation lacks"
-																: "execution: a constraint its owner lacks"
+										state === sqlstates.grizzleOutsideWorld
+											? "execution: a precheck naming no entry the role writes through"
+											: !Str.startsWith("23")(state)
+												? "execution: another class"
+												: reported.schema !== undefined && reported.schema !== schemaName
+													? "execution: another schema"
+													: state === sqlstates.notNullViolation
+														? "execution: a NOT NULL on no generated column"
+														: reported.constraint === undefined
+															? "execution: no constraint"
+															: state === sqlstates.integrityConstraintViolation
+																? sketch.detail.kind === "a refusal"
+																	? "execution: a refused key no relation holds"
+																	: "execution: a refusal without its DETAIL"
+																: sketch.owner === "a bits domain at a width the installation lacks"
+																	? "execution: a bits domain the installation lacks"
+																	: "execution: a constraint its owner lacks"
 									)
 									return
 								}

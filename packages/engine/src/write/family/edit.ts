@@ -19,8 +19,8 @@ import {
 	familyKey,
 	generatedLaw,
 	type LawField,
-	type LawRelation,
-	type RelationInfo
+	type RelationInfo,
+	type TableRelation
 } from "#compiler/ir/law.ts"
 import type { CountRow, MemberKey, Owner, Recount, Row } from "#compiler/runtime/write/draw.ts"
 /**
@@ -161,7 +161,7 @@ export const factKey = (ctx: FillContext, layout: RowLayout, fact: Fact): Member
 	keyOf(ctx, layout, valuesOfFact(fact))
 
 /** A fact's fields its caller writes, by column key: what a put of it sets of a row already stored. */
-export const callerValues = (relation: LawRelation, fact: Fact): Values =>
+export const callerValues = (relation: TableRelation, fact: Fact): Values =>
 	callerFields(relation, valuesOfFact(fact))
 
 /**
@@ -274,7 +274,7 @@ export const ownersOf = (
 /** The fields a family's drawn values read of a member: its step value, its selections' fields, every column its axes
  * carry from a member, and the fields every generated one of those reads, transitively (fill.ts withGenerationInputs).
  * A selection's law columns (a fold's accumulators) are no member field, so no caller's update changes them. */
-const inputsOf = (family: Family, relation: LawRelation): ReadonlyArray<LawField> => {
+const inputsOf = (family: Family, relation: TableRelation): ReadonlyArray<LawField> => {
 	const named = new Set<string>()
 	for (const fold of family.folds) {
 		if (fold.step.kind === "value") {
@@ -309,7 +309,7 @@ type RowValue =
 
 const rowValue = (
 	ctx: FillContext,
-	relation: LawRelation,
+	relation: TableRelation,
 	values: Values,
 	key: ColumnKey
 ): RowValue => {
@@ -336,7 +336,7 @@ const rowValue = (
 /** A value of a row (`RowValue`), as a comparison or an evaluation reads it: undefined where it is none or refused. */
 export const valueAt = (
 	ctx: FillContext,
-	relation: LawRelation,
+	relation: TableRelation,
 	values: Values,
 	key: ColumnKey
 ): unknown => {
@@ -350,7 +350,7 @@ export const valueAt = (
  */
 const carriedAt = (
 	ctx: FillContext,
-	relation: LawRelation,
+	relation: TableRelation,
 	values: Values,
 	key: ColumnKey
 ): Result.Result<unknown, FillStop> => {
@@ -398,7 +398,7 @@ export interface OwnerViews {
 }
 
 /** The values of a row's fields its caller writes, a caller's and a serial one. */
-const callerFields = (relation: LawRelation, row: Values): Values =>
+const callerFields = (relation: TableRelation, row: Values): Values =>
 	new Map(
 		relation.fields.flatMap((f) =>
 			(f.writing.kind === "caller" || f.writing.kind === "serial") && row.has(fieldKey(f.name))
@@ -412,7 +412,7 @@ const callerFields = (relation: LawRelation, row: Values): Values =>
  * the result, since PostgreSQL generates it from the row's written fields; the row unchanged when nothing is written.
  */
 const overlaid = (
-	relation: LawRelation,
+	relation: TableRelation,
 	row: Values | undefined,
 	over: Values | undefined
 ): Values | undefined => {
@@ -481,7 +481,7 @@ interface GroupFilled {
  */
 const fillGroup = (
 	ctx: FillContext,
-	relation: LawRelation,
+	relation: TableRelation,
 	family: Family,
 	edit: GroupEdit,
 	fixed: FixedGroup | undefined
@@ -783,7 +783,7 @@ const afterType = (plane: FoldPlane): LawField["type"] =>
 	plane.after.kind === "field" ? plane.after.field.type : plane.end.type
 
 /** The type of a column key of a member of `family`: a field's, or one of the family's drawn law columns'. */
-const typeOfKey = (relation: LawRelation, family: Family, key: ColumnKey): LawField["type"] => {
+const typeOfKey = (relation: TableRelation, family: Family, key: ColumnKey): LawField["type"] => {
 	const field = relation.fields.find((f) => fieldKey(f.name) === key)
 	if (field !== undefined) {
 		return field.type
@@ -897,7 +897,7 @@ export interface RefillView {
 }
 
 /** Whether two rows of `relation` hold another value at some column one of them holds. */
-const differs = (ctx: FillContext, relation: LawRelation, a: Values, b: Values): boolean =>
+const differs = (ctx: FillContext, relation: TableRelation, a: Values, b: Values): boolean =>
 	[...a.keys()].some((key) => {
 		const field = relation.fields.find((f) => fieldKey(f.name) === key)
 		return field !== undefined && b.has(key) && !same(ctx, field.type, a.get(key), b.get(key))

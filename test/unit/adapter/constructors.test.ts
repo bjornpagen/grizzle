@@ -25,6 +25,7 @@ import { literalBound, messageBound } from "#adapter/errors/failures.ts"
 import { applyOutcome, transientFailureOf } from "#adapter/outcomes/index.ts"
 import { type FenceStep, fenceReason } from "#adapter/wire/batch.ts"
 import { serverFailure } from "#adapter/wire/failure.ts"
+import { StoredRelationName } from "#compiler/core/ids.ts"
 import type { UniqueAbort } from "#compiler/plan/change.ts"
 import {
 	admittedIdentifier,
@@ -687,7 +688,7 @@ describe("the public failure and outcome constructors", () => {
 									const aborts: ReadonlyArray<UniqueAbort> = [
 										{
 											constraint: admittedIdentifier(listed),
-											relation: drawnCase.relation,
+											relation: StoredRelationName(drawnCase.relation),
 											reason: drawnCase.reason
 										}
 									]

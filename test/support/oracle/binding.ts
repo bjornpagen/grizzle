@@ -5,7 +5,7 @@
  * model's meaning, never through write/program/decide.ts.
  */
 import { Array as Arr, Option, String as Str } from "effect"
-import type { ParamId } from "#compiler/core/ids.ts"
+import type { ParamId, StoredRelationName } from "#compiler/core/ids.ts"
 import { type Family, isSequence } from "#compiler/ir/family.ts"
 import { type FillPosition, layoutKey } from "#compiler/ir/fill.ts"
 import { familyKey, type RelationInfo } from "#compiler/ir/law.ts"
@@ -60,7 +60,7 @@ const sorted = (names: Iterable<string>): ReadonlyArray<string> => Arr.sort([...
  * start. */
 const judgedAgrees = (frontend: WriteFrontend, binding: Binding): void => {
 	const families = frontend.laws.families
-	const relations = new Map<string, RelationInfo>()
+	const relations = new Map<StoredRelationName, RelationInfo>()
 	for (const r of [...frontend.written, ...Arr.map(frontend.slots, (g) => g.relation)]) {
 		relations.set(r.name, r)
 	}
@@ -132,7 +132,7 @@ const judgedAgrees = (frontend: WriteFrontend, binding: Binding): void => {
 const nestedPosition = (
 	frontend: WriteFrontend,
 	stratum: StratumAt,
-	relation: string
+	relation: StoredRelationName
 ): FillPosition | undefined =>
 	Option.getOrUndefined(
 		Arr.findFirst(frontend.nested, (n) => n.stratum === stratum && n.nesting.layouts.has(relation))
@@ -163,7 +163,7 @@ const freshAgrees = (frontend: WriteFrontend, binding: Binding): void => {
 				: []
 		)
 		assert.deepEqual(fresh.appended, appended, `stratum ${stratum}'s appended slots`)
-		const reaches = (relation: string): boolean =>
+		const reaches = (relation: StoredRelationName): boolean =>
 			Arr.some(appended, (a) => a.relation === relation) ||
 			Arr.some(frontend.nested, (n) => n.stratum === stratum && n.nesting.layouts.has(relation))
 		const counted = Arr.filter(families, (f) => !isSequence(f) && reaches(f.member.name))

@@ -11,7 +11,7 @@ import {
 } from "#compiler/codec/recordset.ts"
 import { admittedCell, admittedParam, carrierSpecOf } from "#compiler/codec/scalar.ts"
 import type { EncodingFailure, EncodingPlace } from "#compiler/core/errors.ts"
-import type { ColumnIdent } from "#compiler/core/ids.ts"
+import type { ColumnIdent, StoredRelationName } from "#compiler/core/ids.ts"
 import { defect, defined, invariant } from "#compiler/core/invariant.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -56,7 +56,7 @@ export interface LaidColumn {
 
 /** A row layout as binding reads it (`RowLayout`): its relation, its key's columns and its others'. A RowLayout is one. */
 export interface LaidLayout {
-	readonly relation: string
+	readonly relation: StoredRelationName
 	readonly key: NonEmptyReadonlyArray<LaidColumn>
 	readonly columns: ReadonlyArray<LaidColumn>
 }
@@ -81,7 +81,7 @@ export type LevelAt =
  * write, and the fields its own row writes.
  */
 export interface NestingData {
-	readonly relation: string
+	readonly relation: StoredRelationName
 	readonly primary: NonEmptyReadonlyArray<HeadingColumn>
 	readonly root:
 		| { readonly kind: "plain" | "counted" }
@@ -89,11 +89,11 @@ export interface NestingData {
 	readonly sequences: ReadonlyArray<SplitFamily>
 	readonly start: FillAt
 	readonly levels: ReadonlyArray<{
-		readonly relation: string
+		readonly relation: StoredRelationName
 		readonly at: LevelAt
 		readonly heading: Heading
 	}>
-	readonly layouts: ReadonlyMap<string, NestedLayoutData>
+	readonly layouts: ReadonlyMap<StoredRelationName, NestedLayoutData>
 	readonly top: Heading
 }
 
@@ -105,7 +105,7 @@ export interface NestedWalk {
 }
 
 /** A level's key in a nesting's normalizers. */
-const levelKey = (relation: string, at: LevelAt): string =>
+const levelKey = (relation: StoredRelationName, at: LevelAt): string =>
 	at.kind === "top"
 		? `${relation}\u0000top`
 		: `${relation}\u0000${at.kind}\u0000${familyKey(at.family.id)}`
@@ -148,10 +148,13 @@ type Signed = string | NestedRow
  */
 export interface NestedSet {
 	readonly tops: Map<
-		string,
+		StoredRelationName,
 		TupleMap<ReadonlyArray<ParamText>, TupleMap<ReadonlyArray<Signed>, NestedFact>>
 	>
-	readonly rows: Map<string, TupleMap<MemberKey, TupleMap<ReadonlyArray<string>, NestedRow>>>
+	readonly rows: Map<
+		StoredRelationName,
+		TupleMap<MemberKey, TupleMap<ReadonlyArray<string>, NestedRow>>
+	>
 }
 
 /** A stratum's nested writes before any fact: no fact and no row. */
@@ -278,10 +281,9 @@ export const nestedRows = (
 }
 
 /** Text order by code point. */
-const byCodePoint = <A>(
-	entries: Iterable<readonly [string, A]>
-): ReadonlyArray<readonly [string, A]> =>
-	[...entries].toSorted(([a], [b]) => compareCodePoints(a, b))
+const byCodePoint = <K extends string, A>(
+	entries: Iterable<readonly [K, A]>
+): ReadonlyArray<readonly [K, A]> => [...entries].toSorted(([a], [b]) => compareCodePoints(a, b))
 
 /** Keys in their texts' order (core/text.ts compareTextTuples). */
 const byTexts = <A>(
@@ -297,7 +299,7 @@ const byTexts = <A>(
  */
 export const nestedConflict = (
 	set: NestedSet
-): { readonly relation: string; readonly fact: NestedFact } | undefined => {
+): { readonly relation: StoredRelationName; readonly fact: NestedFact } | undefined => {
 	for (const [relation, byKey] of byCodePoint(set.tops)) {
 		for (const [, signatures] of byTexts(byKey)) {
 			if (signatures.size > 1) {
@@ -320,7 +322,7 @@ export const nestedConflict = (
 /** A nested set with no conflict as its rows: each member relation's, by key, in the order they are inserted. */
 export const nestedRowsOf = (
 	set: NestedSet
-): ReadonlyMap<string, ReadonlyTupleMap<MemberKey, NestedRow>> =>
+): ReadonlyMap<StoredRelationName, ReadonlyTupleMap<MemberKey, NestedRow>> =>
 	new Map(
 		[...set.rows].map(([relation, byKey]) => {
 			const rows = new TupleMap<MemberKey, NestedRow>()
@@ -425,13 +427,13 @@ const hostNodes = (
  */
 export const sentLayout = <C extends LaidColumn>(at: {
 	readonly layout: {
-		readonly relation: string
+		readonly relation: StoredRelationName
 		readonly key: NonEmptyReadonlyArray<C>
 		readonly columns: ReadonlyArray<C>
 	}
 	readonly pending: ReadonlySet<ColumnKey>
 }): {
-	readonly relation: string
+	readonly relation: StoredRelationName
 	readonly key: NonEmptyReadonlyArray<C>
 	readonly columns: ReadonlyArray<C>
 } => ({
@@ -497,8 +499,8 @@ const rowsOf = (
 	nesting: NestingData,
 	codes: Codebook,
 	root: FilledNode
-): ReadonlyMap<string, ReadonlyArray<NestedRow>> => {
-	const out = new Map<string, Array<NestedRow>>()
+): ReadonlyMap<StoredRelationName, ReadonlyArray<NestedRow>> => {
+	const out = new Map<StoredRelationName, Array<NestedRow>>()
 	const pending: Array<FilledNode> = [root]
 	for (let row = pending.pop(); row !== undefined; row = pending.pop()) {
 		if (row !== root || nesting.root.kind !== "plain") {

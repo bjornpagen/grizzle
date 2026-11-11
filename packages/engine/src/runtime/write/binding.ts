@@ -5,7 +5,7 @@
  * call's values, and never the law model: what a stratum's appends fill, which facts each slot's statement proposes,
  * and which columns of a written relation are a counted family's count or end.
  */
-import type { ParamId } from "#compiler/core/ids.ts"
+import type { ParamId, StoredRelationName } from "#compiler/core/ids.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
@@ -43,8 +43,8 @@ import type { Proposal } from "#compiler/write/insert/statement.ts"
  */
 export interface CountedFamily {
 	readonly id: FamilyId
-	readonly owner: string
-	readonly member: string
+	readonly owner: StoredRelationName
+	readonly member: StoredRelationName
 	readonly count: string
 	readonly ends: ReadonlyArray<string>
 	readonly group: NonEmptyReadonlyArray<{
@@ -103,9 +103,12 @@ export interface FreshOwner {
  */
 export interface FreshStratum {
 	readonly stratum: StratumAt
-	readonly appended: ReadonlyArray<{ readonly relation: string; readonly slot: ParamId }>
+	readonly appended: ReadonlyArray<{
+		readonly relation: StoredRelationName
+		readonly slot: ParamId
+	}>
 	readonly counted: ReadonlyArray<CountedFamily>
-	readonly owners: ReadonlyMap<string, FreshOwner>
+	readonly owners: ReadonlyMap<StoredRelationName, FreshOwner>
 }
 
 /**
@@ -123,15 +126,15 @@ export interface MemberAt {
 /** A family as a row of it past every statement is reported by (bind.ts FamilyRowBound): its owner relation, its count
  * field and its member relation, by name. */
 export interface FamilyNames {
-	readonly owner: string
+	readonly owner: StoredRelationName
 	readonly count: string
-	readonly member: string
+	readonly member: StoredRelationName
 }
 
 /** Each relation whose rows one stratum's nested writes fill, by name, as the first of them that fills it lays it out. */
 export interface NestedAt {
 	readonly stratum: StratumAt
-	readonly layouts: ReadonlyMap<string, NestedLayoutData>
+	readonly layouts: ReadonlyMap<StoredRelationName, NestedLayoutData>
 }
 
 /** A compiled write's binding (see the module's header). */
@@ -144,13 +147,13 @@ export interface Binding {
 	readonly nested: ReadonlyArray<NestedAt>
 	/** Each relation a nested write fills, by name, as the first family it is a member of names it, which a row of it no
 	 * statement carries even alone is reported by. */
-	readonly rowFamilies: ReadonlyMap<string, FamilyNames>
+	readonly rowFamilies: ReadonlyMap<StoredRelationName, FamilyNames>
 	/** Which facts of each member slot the statement that writes them proposes (insert/statement.ts Proposal). */
 	readonly proposals: ReadonlyMap<ParamId, Proposal>
 	/** Each stratum whose fresh owners the host counts, in order. */
 	readonly fresh: ReadonlyArray<FreshStratum>
 	/** Each relation whose stated rows are judged, by name. */
-	readonly judged: ReadonlyMap<string, JudgedRelation>
+	readonly judged: ReadonlyMap<StoredRelationName, JudgedRelation>
 	/** What the write's nested walks and fresh fills fill by: the layouts they meet. */
 	readonly fill: HostFill
 	/** What the fill's evaluator reads. */

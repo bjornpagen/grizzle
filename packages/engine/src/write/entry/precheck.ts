@@ -1,6 +1,6 @@
 import type { CheckedEntry, CheckedSchema } from "#compiler/analysis/schema.ts"
 import { Refusal } from "#compiler/core/canonical.ts"
-import type { LawId } from "#compiler/core/ids.ts"
+import type { EntryName, LawId } from "#compiler/core/ids.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import type { EvidenceCatalog } from "#compiler/ir/evidence.ts"
@@ -99,9 +99,9 @@ export type EntryCheck =
 			readonly catalog: EvidenceCatalog
 			readonly world: CheckNames
 	  }
-	| { readonly kind: "outside"; readonly entry: string }
+	| { readonly kind: "outside"; readonly entry: EntryName }
 
-const entryOf = (check: EntryCheck): string =>
+const entryOf = (check: EntryCheck): EntryName =>
 	check.kind === "membership" ? check.entry.entry : check.entry
 
 /** The probes of a query entry over `relation` an addition of serial class `serial` calls for a fact outside the entry:

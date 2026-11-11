@@ -20,6 +20,7 @@ import { uuid } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, String as Str } from "effect"
 import { scalarCodec } from "#compiler/codec/scalar.ts"
+import { StoredRelationName } from "#compiler/core/ids.ts"
 import {
 	type ChangeRow,
 	netStrata,
@@ -66,7 +67,12 @@ const universe = ["a", "b", "c", "d"] as const
  * The relation names a ChangeSet writes, among them two whose UTF-16 order is not their code point order: U+FF61 is
  * below U+10000 by code point, above it by code unit.
  */
-const relationNames = ["a", "b", "\uFF61", "\u{10000}"] as const
+const relationNames = [
+	StoredRelationName("a"),
+	StoredRelationName("b"),
+	StoredRelationName("\uFF61"),
+	StoredRelationName("\u{10000}")
+] as const
 
 /** The members of one stratum that returned a fact it made present, or absent, in the order their rows came back. */
 const addedBy = element([["insert"], ["put"], ["insert", "put"], ["put", "insert"]] as const)
@@ -98,7 +104,7 @@ interface Sequence {
 
 /** Up to three written relations, a name repeated among them, over one to five strata. */
 const sequences: Gen<{
-	readonly written: ReadonlyArray<string>
+	readonly written: ReadonlyArray<StoredRelationName>
 	readonly strata: number
 	readonly relations: ReadonlyArray<Sequence>
 }> = (source) => {
@@ -205,7 +211,7 @@ describe("netting", () => {
 							if (!Arr.every(sorted, (r, i) => r === byUnits[i])) {
 								c.note("names out of code unit order")
 							}
-							const mine = upTo(strata, () => new Map<string, StratumChange>())
+							const mine = upTo(strata, () => new Map<StoredRelationName, StratumChange>())
 							const expected = Arr.map(sorted, (relation) => {
 								const sequence = defined(
 									relations[distinct.indexOf(relation)],
@@ -521,10 +527,10 @@ describe("a stratum's change is a set difference", () => {
 								)
 								assert.deepEqual(
 									outcomeCounts(
-										["Ticket"],
-										Arr.map(mine, (change) => new Map([["Ticket", change]]))
+										[ticket.name],
+										Arr.map(mine, (change) => new Map([[ticket.name, change]]))
 									),
-									[{ relation: "Ticket", ...oracleNetCounts(theirs) }]
+									[{ relation: ticket.name, ...oracleNetCounts(theirs) }]
 								)
 							})
 					)

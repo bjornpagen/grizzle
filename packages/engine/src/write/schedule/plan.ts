@@ -1,5 +1,6 @@
 import type { CheckedEntry } from "#compiler/analysis/schema.ts"
 import { appendAll } from "#compiler/core/array.ts"
+import type { EntryName, StoredRelationName } from "#compiler/core/ids.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { LawField, RelationInfo, SpanField } from "#compiler/ir/law.ts"
 import { inputsOf, type RelNode } from "#compiler/ir/rel.ts"
@@ -71,7 +72,7 @@ export type PlannedCheck =
 			readonly action: PlanAction
 			readonly relation: WrittenRelation
 	  }
-	| { readonly kind: "outside"; readonly entry: string }
+	| { readonly kind: "outside"; readonly entry: EntryName }
 
 /** A write action's statement by what it does, with what its builder reads beyond the action's own input: an insertion
  * or a put's insert half, an exact deletion with the stratum's additions it excepts (D EXCEPT A), a deletion whose
@@ -134,7 +135,7 @@ export type PlanStep =
 			readonly carrier: WriteCarrier
 			readonly node: RelNode
 			/** The relation its action writes, by declared name, whose columns type the carrier. */
-			readonly relation: string
+			readonly relation: StoredRelationName
 			readonly stratum: StratumAt
 	  }
 	| {

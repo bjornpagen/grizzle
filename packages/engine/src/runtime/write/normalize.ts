@@ -8,8 +8,8 @@ import {
 } from "#compiler/codec/recordset.ts"
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
 import { nominal } from "#compiler/core/brand.ts"
-import { type EncodingFailure, KeyConflict } from "#compiler/core/errors.ts"
-import type { LawId, ParamId } from "#compiler/core/ids.ts"
+import type { EncodingFailure } from "#compiler/core/errors.ts"
+import type { LawId, ParamId, RoleRelationName, StoredRelationName } from "#compiler/core/ids.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -27,7 +27,7 @@ import type {
 	MessageBound,
 	NormalFacts
 } from "#compiler/ir/products.ts"
-import type { Heading, KeySet } from "#compiler/ir/rel.ts"
+import type { Heading } from "#compiler/ir/rel.ts"
 import type { ScalarType, SpanCarrier } from "#compiler/ir/scalar.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
 import type { MemberKey } from "#compiler/runtime/write/draw.ts"
@@ -43,6 +43,7 @@ import {
 	type NestedWalk,
 	type NestingData
 } from "#compiler/runtime/write/nesting.ts"
+import { type KeyWitness, keyWitness } from "#compiler/runtime/write/outcome.ts"
 import type { Transport } from "#compiler/runtime/write/transport.ts"
 import { DigestBook, isAdmittedBytes } from "#compiler/scalar/values/bytes.ts"
 import {
@@ -78,7 +79,7 @@ const keyNormalized = nominal<KeyedFacts, KeyNormalized>()
  */
 const keyedFacts = (
 	slot: SlotData,
-	relation: string,
+	relation: RoleRelationName,
 	normal: NormalFacts
 ): Result.Result<KeyedFacts, EncodingFailure | LiteralBound> => {
 	const binary = new Map<string, ParamBinary>()
@@ -121,17 +122,18 @@ export const refilledSlot = (
 	})
 }
 
-/** A same-key conflict between two additions, or two deletions, of one stratum: invariant-rejected with the key law and
- * its description, whose witness is the key values only. */
+/**
+ * A same-key conflict between two additions, or two deletions, of one stratum: invariant-rejected with the key law and
+ * its description, refused by the key's constraint on the table of `relation`, the stored relation the facts write;
+ * its witness is the key values only, in the words the facts were stated in: a query entry's head fields under the
+ * entry's name, where the facts are written through one.
+ */
 interface KeyRefusal {
 	readonly kind: "keyConflict"
-	readonly stratum: StratumAt
-	readonly relation: string
-	readonly fields: KeySet
+	readonly relation: StoredRelationName
 	readonly law: LawId
 	readonly described: Law
-	readonly values: Readonly<Record<string, KeyHost>>
-	readonly conflict: KeyConflict
+	readonly witness: KeyWitness
 }
 
 export interface Normalized {
@@ -141,7 +143,7 @@ export interface Normalized {
 	 * are inserted. */
 	readonly nested: ReadonlyMap<
 		StratumAt,
-		ReadonlyMap<string, ReadonlyTupleMap<MemberKey, NestedRow>>
+		ReadonlyMap<StoredRelationName, ReadonlyTupleMap<MemberKey, NestedRow>>
 	>
 }
 
@@ -204,7 +206,7 @@ export type InputData =
 			readonly act: Extract<SingleAct, { readonly op: "insert" }>
 			readonly slot: SlotData
 			readonly nesting: NestingData
-			readonly reached: ReadonlyMap<string, SlotFacts>
+			readonly reached: ReadonlyMap<StoredRelationName, HostChecks>
 			readonly members: NonEmptyReadonlyArray<string>
 	  }
 
@@ -212,7 +214,7 @@ export type InputData =
  * facts as the host checks them, and its inputs. */
 export interface GroupData {
 	readonly stratum: StratumAt
-	readonly relation: string
+	readonly relation: StoredRelationName
 	readonly facts: SlotFacts
 	readonly inputs: NonEmptyReadonlyArray<InputData>
 }
@@ -252,14 +254,14 @@ export type BindInput =
 			readonly act: Extract<SingleAct, { readonly op: "insert" }>
 			readonly slot: SlotData
 			readonly nesting: NestingData
-			readonly reached: ReadonlyMap<string, CheckedFacts>
+			readonly reached: ReadonlyMap<StoredRelationName, CheckedFacts>
 			readonly members: NonEmptyReadonlyArray<InputMember<RelationNormalizer>>
 	  }
 
-/** A slot group as normalization runs it (`GroupData`), under the installation's codes. */
+/** A slot group as normalization runs it (`GroupData`), under the installation's codes: its written relation is its
+ * facts' (`CheckedFacts`). */
 export interface BindGroup {
 	readonly stratum: StratumAt
-	readonly relation: string
 	readonly facts: CheckedFacts
 	readonly inputs: NonEmptyReadonlyArray<BindInput>
 }
@@ -445,28 +447,41 @@ interface CheckedKeys {
 	}>
 }
 
-/** A slot group's facts as the host checks them under the installation's codes (`SlotFacts`). */
+/**
+ * A slot group's facts as the host checks them under the installation's codes (`SlotFacts`): `stated`, the name of the
+ * relation they are stated in, which a fault and a refusal's witness name them by, the stored relation's own or a
+ * query entry's; `relation`, the stored relation they write, a query entry's target, whose declared keys the checks
+ * compare and whose table's constraints refuse a pair at one; and the checks.
+ */
 export interface CheckedFacts {
-	readonly name: string
+	readonly stated: RoleRelationName
+	readonly relation: StoredRelationName
 	readonly host: CheckedKeys
 }
 
-/** The host checks of a slot group's facts under the installation's codes, built once (`CheckedFacts`). */
-const checkedFacts = (facts: SlotFacts, codes: Codebook): CheckedFacts => {
+/** The host checks `host` of facts of the stored relation `relation`, stated in `stated`, under the installation's
+ * codes, built once (`CheckedFacts`). */
+const checkedFacts = (
+	stated: RoleRelationName,
+	relation: StoredRelationName,
+	host: HostChecks,
+	codes: Codebook
+): CheckedFacts => {
 	const specOf = (f: HostKeyField): KeySpec => ({
 		field: f.field,
 		spec: carrierSpecOf(f.type, codes)
 	})
 	return Object.freeze({
-		name: facts.name,
+		stated,
+		relation,
 		host: Object.freeze({
-			keys: facts.host.keys.map((k) => ({
+			keys: host.keys.map((k) => ({
 				law: k.law,
 				described: k.described,
 				fields: k.fields.map(specOf),
 				stated: k.stated
 			})),
-			spans: facts.host.spans.map((check) => {
+			spans: host.spans.map((check) => {
 				const equal = check.equal.map(specOf)
 				const span = {
 					field: check.span.field,
@@ -484,18 +499,30 @@ const checkedFacts = (facts: SlotFacts, codes: Codebook): CheckedFacts => {
 	})
 }
 
+/** The name of the relation a slot group's facts are stated in: its written relation's own, or its query entry's. */
+const statedName = (group: GroupData): RoleRelationName => {
+	const stated = group.facts.stated
+	switch (stated.kind) {
+		case "relation":
+			return group.relation
+		case "entry":
+			return stated.entry.entry
+	}
+}
+
 /**
  * A slot group as normalization runs it (`BindGroup`), built once from its data under the installation's codes: each
- * member's normalizer over the heading its facts are admitted by, the name a refusal locates being its facts' (the
- * relation's, or a query entry's), each single input's starts as their host values, and its facts' checks by their
- * specs.
+ * member's normalizer over the heading its facts are admitted by, the name a refusal locates being the relation its
+ * facts are stated in (the stored relation's own, or a query entry's), each single input's starts as their host
+ * values, and its facts' checks by their specs.
  */
 export const bindGroup = (group: GroupData, codes: Codebook): BindGroup => {
+	const stated = statedName(group)
 	const normalizer =
 		(heading: Heading) =>
 		(member: string): RelationNormalizer =>
 			relationNormalizer({
-				relation: group.facts.name,
+				relation: stated,
 				columns: positionalColumns(heading),
 				slot: { kind: "slot", name: member },
 				codes
@@ -542,7 +569,9 @@ export const bindGroup = (group: GroupData, codes: Codebook): BindGroup => {
 					slot: input.slot,
 					nesting: input.nesting,
 					reached: new Map(
-						[...input.reached].map(([name, facts]) => [name, checkedFacts(facts, codes)] as const)
+						[...input.reached].map(
+							([name, host]) => [name, checkedFacts(name, name, host, codes)] as const
+						)
 					),
 					members: mapNonEmpty(input.members, (name) => ({ name, normalize: admitBy(name) }))
 				}
@@ -551,8 +580,7 @@ export const bindGroup = (group: GroupData, codes: Codebook): BindGroup => {
 	}
 	return Object.freeze({
 		stratum: group.stratum,
-		relation: group.relation,
-		facts: checkedFacts(group.facts, codes),
+		facts: checkedFacts(stated, group.relation, group.facts.host, codes),
 		inputs: mapNonEmpty(group.inputs, inputOf)
 	})
 }
@@ -604,41 +632,29 @@ const keyValues = (fact: Fact, fields: ReadonlyArray<KeySpec>): Readonly<Record<
 		)
 	)
 
-const names = (fields: ReadonlyArray<KeySpec>): KeySet => fields.map((f) => f.field)
-
-/** The refusal of two additions or two deletions of `facts`'s relation at one key, `fact` the later. */
+/** The refusal of two additions or two deletions of `facts`'s relation at one key, `fact` the later: the key's
+ * constraint on the stored relation's table, its witness `fact`'s key in the words the facts are stated in. */
 const conflictOf = (
-	stratum: StratumAt,
 	facts: CheckedFacts,
 	fact: Fact,
 	fields: ReadonlyArray<KeySpec>,
 	law: { readonly law: LawId; readonly described: Law }
-): KeyRefusal => {
-	const keyFields = names(fields)
-	return {
-		kind: "keyConflict",
-		stratum,
-		relation: facts.name,
-		fields: keyFields,
-		law: law.law,
-		described: law.described,
-		values: keyValues(fact, fields),
-		conflict: KeyConflict.make({
-			relation: facts.name,
-			fields: keyFields,
-			values: keyFields.map((f) => fact[f])
-		})
-	}
-}
+): KeyRefusal => ({
+	kind: "keyConflict",
+	relation: facts.relation,
+	law: law.law,
+	described: law.described,
+	witness: keyWitness(facts.stated, keyValues(fact, fields))
+})
 
 /** The refusal of two nested facts or rows of `facts`'s relation at its primary key, the key a nested set holds them
  * by, `fact` the later. */
-const primaryConflict = (stratum: StratumAt, facts: CheckedFacts, fact: NestedFact): KeyRefusal => {
+const primaryConflict = (facts: CheckedFacts, fact: NestedFact): KeyRefusal => {
 	const [primary] = facts.host.keys
 	if (primary === undefined) {
-		throw defect(`the primary key of ${facts.name}, which a nested write keys its rows by`)
+		throw defect(`the primary key of ${facts.relation}, which a nested write keys its rows by`)
 	}
-	return conflictOf(stratum, facts, fact, primary.fields, primary)
+	return conflictOf(facts, fact, primary.fields, primary)
 }
 
 /**
@@ -647,7 +663,6 @@ const primaryConflict = (stratum: StratumAt, facts: CheckedFacts, fact: NestedFa
  * entries there one fact where `oneFact` holds of them at that key.
  */
 const keyConflictIn = <I>(
-	stratum: StratumAt,
 	facts: CheckedFacts,
 	order: IdentityOrder<I>,
 	onKey: (key: CheckedKey) => ReadonlyArray<Entry<I>>,
@@ -665,7 +680,7 @@ const keyConflictIn = <I>(
 				order(prior.identity, e.identity) !== 0 &&
 				!oneFact(key, prior, e)
 			) {
-				return conflictOf(stratum, facts, e.fact, fields, key)
+				return conflictOf(facts, e.fact, fields, key)
 			}
 			seen.set(k, e)
 		}
@@ -692,7 +707,6 @@ const holdsSpan = (key: CheckedKey): boolean =>
  * states, `stated`, are one fact: its statement, after the complete one's, meets that row there and is no change.
  */
 const sameKey = <I>(
-	stratum: StratumAt,
 	facts: CheckedFacts,
 	order: IdentityOrder<I>,
 	serial: ReadonlyArray<string>,
@@ -711,7 +725,6 @@ const sameKey = <I>(
 		)
 	}
 	const keyed = keyConflictIn(
-		stratum,
 		facts,
 		order,
 		({ fields }) =>
@@ -748,7 +761,7 @@ const sameKey = <I>(
 			let reach: bigint | undefined
 			for (const { entry, span: value } of ordered) {
 				if (reach !== undefined && position(value.start) < reach) {
-					return conflictOf(stratum, facts, entry.fact, witness, check)
+					return conflictOf(facts, entry.fact, witness, check)
 				}
 				if (reach === undefined || position(value.end) > reach) {
 					reach = position(value.end)
@@ -772,8 +785,7 @@ type GroupSets = Readonly<
 type AdmittedGroup =
 	| {
 			readonly kind: "admitted"
-			readonly stratum: StratumAt
-			readonly relation: CheckedFacts
+			readonly facts: CheckedFacts
 			readonly serial: ReadonlyArray<string>
 			readonly stated: ReadonlyArray<KeySpec>
 			readonly sets: GroupSets
@@ -848,16 +860,16 @@ export const normalizeChangeSet = (
 	 */
 	const normals: Array<{
 		readonly slot: SlotData
-		readonly relation: string
+		readonly relation: RoleRelationName
 		readonly normal: NormalFacts
 	}> = []
 	/** The write's bytes values, each the one value of its digest (scalar/values/bytes.ts DigestBook). */
 	const book = new DigestBook()
 	/** Each stratum's nested writes, one set across its every nested input, and the relations their rows are of. */
 	const nested = new Map<StratumAt, NestedSet>()
-	const reached = new Map<StratumAt, Map<string, CheckedFacts>>()
+	const reached = new Map<StratumAt, Map<StoredRelationName, CheckedFacts>>()
 	const admittedGroups: Array<AdmittedGroup> = []
-	for (const { stratum, facts: relation, inputs: enumerated } of groups) {
+	for (const { stratum, facts, inputs: enumerated } of groups) {
 		const sets: GroupSets = {
 			insert: new TupleMap(),
 			generated: new TupleMap(),
@@ -879,11 +891,11 @@ export const normalizeChangeSet = (
 					slotOf.set("insert", input.slot)
 					const set = nested.get(stratum) ?? nestedSet()
 					nested.set(stratum, set)
-					const relations = reached.get(stratum) ?? new Map<string, CheckedFacts>()
+					const relations = reached.get(stratum) ?? new Map<StoredRelationName, CheckedFacts>()
 					reached.set(stratum, relations)
-					relations.set(input.nesting.relation, relation)
-					for (const [name, facts] of input.reached) {
-						relations.set(name, facts)
+					relations.set(input.nesting.relation, facts)
+					for (const [name, reachedFacts] of input.reached) {
+						relations.set(name, reachedFacts)
 					}
 					for (const member of input.members) {
 						const given = inputs.get(member.name)
@@ -976,22 +988,19 @@ export const normalizeChangeSet = (
 				}
 			}
 		}
-		admittedGroups.push(
-			stopped ?? { kind: "admitted", stratum, relation, serial, stated, sets, slotOf }
-		)
+		admittedGroups.push(stopped ?? { kind: "admitted", facts, serial, stated, sets, slotOf })
 	}
 	for (const group of admittedGroups) {
 		if (group.kind === "generatedNull") {
 			return Result.ok(group)
 		}
-		const { stratum, relation, serial, stated, sets, slotOf } = group
+		const { facts, serial, stated, sets, slotOf } = group
 		for (const id of sets.put.keys()) {
 			sets.insert.delete(id)
 		}
 		const refused =
 			sameKey(
-				stratum,
-				relation,
+				facts,
 				compareFactIdentities,
 				serial,
 				stated,
@@ -999,8 +1008,7 @@ export const normalizeChangeSet = (
 				sorted(compareFactIdentities, sets.generated.values())
 			) ??
 			keyConflictIn(
-				stratum,
-				relation,
+				facts,
 				compareFactIdentities,
 				(key) => (key.stated ? sorted(compareFactIdentities, sets.delete.values()) : []),
 				twoFacts
@@ -1012,28 +1020,29 @@ export const normalizeChangeSet = (
 			sets.delete.delete(id)
 		}
 		for (const [category, slot] of slotOf) {
-			normals.push({ slot, relation: relation.name, normal: normalFacts(sets[category]) })
+			normals.push({ slot, relation: facts.stated, normal: normalFacts(sets[category]) })
 		}
 	}
 	/** Each stratum's nested rows by relation, judged as the stratum's additions of that relation (step 3): a row its
 	 * set holds once at its key may still share another declared key with another row. */
-	const rows = new Map<StratumAt, ReadonlyMap<string, ReadonlyTupleMap<MemberKey, NestedRow>>>()
+	const rows = new Map<
+		StratumAt,
+		ReadonlyMap<StoredRelationName, ReadonlyTupleMap<MemberKey, NestedRow>>
+	>()
 	for (const [stratum, set] of nested) {
-		const factsOf = (name: string): CheckedFacts =>
+		const factsOf = (name: StoredRelationName): CheckedFacts =>
 			defined(
 				reached.get(stratum)?.get(name),
 				`the facts of ${name}, a relation a nested write writes`
 			)
 		const conflict = nestedConflict(set)
 		if (conflict !== undefined) {
-			return Result.ok(primaryConflict(stratum, factsOf(conflict.relation), conflict.fact))
+			return Result.ok(primaryConflict(factsOf(conflict.relation), conflict.fact))
 		}
 		const held = nestedRowsOf(set)
 		for (const [name, byKey] of held) {
-			const facts = factsOf(name)
 			const refused = sameKey(
-				stratum,
-				facts,
+				factsOf(name),
 				compareTextTuples,
 				[],
 				[],

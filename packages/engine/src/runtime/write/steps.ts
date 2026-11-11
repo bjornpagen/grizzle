@@ -6,7 +6,7 @@
  */
 import { indices, maxOf } from "#compiler/core/array.ts"
 import type { TransientReason } from "#compiler/core/errors.ts"
-import type { ConstraintName, ParamId } from "#compiler/core/ids.ts"
+import type { ConstraintName, EntryName, ParamId, StoredRelationName } from "#compiler/core/ids.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { OutputText } from "#compiler/core/wire.ts"
 import type { FamilyId } from "#compiler/ir/law.ts"
@@ -27,7 +27,7 @@ import type { PutResult } from "#compiler/write/put/statement.ts"
  * probed insert's 23505 or 23P01 on a unique object besides its arbiter, raised by an occupant its snapshot did not see. */
 export interface UniqueAbort {
 	readonly constraint: ConstraintName
-	readonly relation: string
+	readonly relation: StoredRelationName
 	readonly reason: Extract<
 		TransientReason["_tag"],
 		"GeneratedSerialUnique" | "PutTargetConflict" | "UnseenOccupant"
@@ -48,7 +48,7 @@ export const removedTag = (result: DeleteResult): RemovedTag =>
  * among the casts; nothing for a carrier's creation, a shared sub-query's fill, a snapshot or a delta.
  */
 export type CarrierCasts =
-	| { readonly kind: "member"; readonly relation: string; readonly stratum: StratumAt }
+	| { readonly kind: "member"; readonly relation: StoredRelationName; readonly stratum: StratumAt }
 	| { readonly kind: "none" }
 
 export type WriteStep =
@@ -57,7 +57,7 @@ export type WriteStep =
 			readonly stratum: StratumAt
 			/** The action's index in its stratum (ir.strata[stratum].actions). */
 			readonly action: number
-			readonly relation: string
+			readonly relation: StoredRelationName
 			readonly result: WriteStepResult
 			/** The enumerated input whose emptiness lets the runtime skip the statement, none for a statement of no
 			 * enumerated input. */
@@ -82,7 +82,7 @@ export type WriteStep =
 			readonly kind: "advance"
 			readonly stratum: StratumAt
 			readonly action: number
-			readonly relation: string
+			readonly relation: StoredRelationName
 			readonly field: string
 			readonly skipWhenEmpty: ParamId | undefined
 	  }
@@ -90,7 +90,7 @@ export type WriteStep =
 	| {
 			readonly kind: "check"
 			readonly stratum: StratumAt
-			readonly entry: string
+			readonly entry: EntryName
 			readonly skipWhenEmpty: ParamId | undefined
 	  }
 	| {
@@ -128,11 +128,11 @@ export interface FamilyStep {
 	readonly stratum: StratumAt
 	/** What its statements write: a member relation's rows, or a family's owners' counts. */
 	readonly target:
-		| { readonly kind: "rows"; readonly relation: string }
+		| { readonly kind: "rows"; readonly relation: StoredRelationName }
 		| { readonly kind: "owners"; readonly family: FamilyId }
 	readonly statement: FamilyStatement["kind"]
 	/** The relation its rows are facts of: the member relation, or the counted family's owner. */
-	readonly relation: string
+	readonly relation: StoredRelationName
 	readonly result: FamilySql["result"]
 }
 

@@ -15,7 +15,7 @@ import {
 } from "#compiler/analysis/theory/refill.ts"
 import type { StaleCause } from "#compiler/core/causes.ts"
 import { CompileError, type RoleAccess } from "#compiler/core/errors.ts"
-import type { ParamId } from "#compiler/core/ids.ts"
+import type { ParamId, StoredRelationName } from "#compiler/core/ids.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import {
@@ -79,7 +79,7 @@ export type RefillHolds =
 export interface StratumRefill {
 	readonly closure: Closure
 	readonly reads: ReadonlyArray<RefillRead>
-	readonly relations: ReadonlyArray<string>
+	readonly relations: ReadonlyArray<StoredRelationName>
 	readonly recounted: ReadonlyArray<Family>
 	readonly order: RefillOrder
 }
@@ -91,9 +91,9 @@ export interface StratumRefill {
  * an UPDATE the owner axis cascades into them (write/family/additions.ts recountOf).
  */
 export type RefillStart =
-	| { readonly kind: "put"; readonly relation: string }
-	| { readonly kind: "edit"; readonly relation: string; readonly family: Family }
-	| { readonly kind: "recount"; readonly relation: string; readonly family: Family }
+	| { readonly kind: "put"; readonly relation: StoredRelationName }
+	| { readonly kind: "edit"; readonly relation: StoredRelationName; readonly family: Family }
+	| { readonly kind: "recount"; readonly relation: StoredRelationName; readonly family: Family }
 
 /**
  * A way a change of the stratum reaches a refilled family's members: where it starts, and the families whose owner axes
@@ -195,7 +195,7 @@ export const plainRefills = (
 	refill: StratumRefill,
 	managed: (relation: string) => boolean,
 	edited: ReadonlySet<string>
-): ReadonlyMap<string, ReadonlyArray<PlainRefill>> | undefined => {
+): ReadonlyMap<StoredRelationName, ReadonlyArray<PlainRefill>> | undefined => {
 	const byFamily = new Map<
 		string,
 		{ readonly family: Family; readonly ways: [PlainRefillWay, ...Array<PlainRefillWay>] }
@@ -213,7 +213,7 @@ export const plainRefills = (
 			known.ways.push(way)
 		}
 	}
-	const out = new Map<string, Array<PlainRefill>>()
+	const out = new Map<StoredRelationName, Array<PlainRefill>>()
 	for (const { family, ways } of byFamily.values()) {
 		const list = out.get(family.member.name) ?? []
 		list.push({ family, ways })
@@ -224,7 +224,7 @@ export const plainRefills = (
 
 /** A relation's family statement of kind `statement`, as the schedule names it. */
 const rowsNode = (
-	relation: string,
+	relation: StoredRelationName,
 	statement: "delete" | "refill" | "update" | "insert"
 ): FamilyNode =>
 	statement === "delete" || statement === "insert"

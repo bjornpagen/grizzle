@@ -6,6 +6,7 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
+import { StoredRelationName } from "#compiler/core/ids.ts"
 import { generatedLaw } from "#compiler/ir/law.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
 import {
@@ -255,7 +256,7 @@ type Outcome =
 const accepted: Outcome = { kind: "accepted" }
 
 /** Member.w's law, which a member of a missing weight breaks. */
-const weightLaw = generatedLaw("Member", "w")
+const weightLaw = generatedLaw(StoredRelationName("Member"), "w")
 
 /**
  * The outcome of a write PostgreSQL runs once the host has bound and planned it: refused on Member.w's law where a

@@ -1,5 +1,5 @@
 import { resultTextCasts } from "#compiler/codec/scalar.ts"
-import type { ConstraintName, ParamId } from "#compiler/core/ids.ts"
+import type { ConstraintName, EntryName, ParamId, StoredRelationName } from "#compiler/core/ids.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { serialDraw } from "#compiler/ir/desc.ts"
@@ -101,7 +101,7 @@ export const proposalOf = (
  * statement raises it. */
 export interface InsertResult {
 	readonly kind: "insert"
-	readonly relation: string
+	readonly relation: StoredRelationName
 	readonly variant: InsertVariant
 	/** The serial class of the facts it inserts, the one its action's front end decided. */
 	readonly serial: SerialClass
@@ -117,7 +117,7 @@ export interface InsertResult {
 /** What a deletion's rows mean: each is a fact the statement made absent. */
 export interface DeleteResult {
 	readonly kind: "delete"
-	readonly relation: string
+	readonly relation: StoredRelationName
 	/** exact: the facts a delete member names; displacing: the occupants a put replaces. */
 	readonly mode: "exact" | "displacing"
 	readonly columns: ReadonlyArray<ResultColumn>
@@ -130,13 +130,13 @@ export interface DeleteResult {
  * fact accounts for. Every such fact refuses the write, so the statement raises or returns no row. */
 export interface SpanClassifyResult {
 	readonly kind: "spanClassify"
-	readonly relation: string
+	readonly relation: StoredRelationName
 }
 
 /** The sequence advance after explicit serial values; its rows carry nothing to decode. */
 export interface SequenceAdvanceResult {
 	readonly kind: "sequenceAdvance"
-	readonly relation: string
+	readonly relation: StoredRelationName
 	readonly field: string
 }
 
@@ -157,7 +157,7 @@ export interface AnalyzeResult {
  * outside-world refusal of the entry it names, raised inside it. */
 export interface EntryCheckResult {
 	readonly kind: "entryCheck"
-	readonly entry: string
+	readonly entry: EntryName
 }
 
 export type WriteResult =

@@ -1,5 +1,6 @@
 import { compareText } from "#compiler/core/canonical.ts"
 import type { WritabilityReason } from "#compiler/core/causes.ts"
+import { EntryName } from "#compiler/core/ids.ts"
 import * as Result from "#compiler/core/result.ts"
 import {
 	type BindingsDesc,
@@ -104,7 +105,7 @@ export type EntryFilter<F> =
  */
 export interface WritableEntry<Target, F> {
 	/** The entry's name in its role. */
-	readonly entry: string
+	readonly entry: EntryName
 	/** T, the ordinary relation of the base every write into the entry targets. */
 	readonly target: Target
 	/** Each head field of the entry, the field of T it writes and its standing, in the entry's canonical field order. */
@@ -328,7 +329,7 @@ export const writableEntry = (
 	base: SchemaDesc,
 	entry: EntryDefinition
 ): Result.Result<WritableEntry<string, string>, WritabilityRefused> => {
-	const name = entry.name
+	const name = EntryName(entry.name)
 	const stage = unnamed(entry.query.stage)
 	if (stage.kind !== "rules" || stage.arms.length !== 1) {
 		return refused(name, { kind: "notOneArm" })

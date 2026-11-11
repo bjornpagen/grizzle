@@ -15,10 +15,11 @@
 import { Array as Arr, Formatter, Option, Record as Rec } from "effect"
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
+import type { StoredRelationName } from "#compiler/core/ids.ts"
 import { formatLoc, SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { Family } from "#compiler/ir/family.ts"
-import type { LawField, LawRelation, RelationInfo } from "#compiler/ir/law.ts"
+import type { LawField, LawRelation, RelationInfo, TableRelation } from "#compiler/ir/law.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import {
 	closedLeaf,
@@ -133,7 +134,7 @@ export const familyRows = (
 	const { order, closed, patterns } = plan.fill
 	const families = order.families
 	const codes = plan.codes
-	const relations = new Map<string, RelationInfo>()
+	const relations = new Map<StoredRelationName, RelationInfo>()
 	const members = new Set<string>()
 	for (const f of families) {
 		const at = formatLoc(SourceLoc(`family ${f.id.owner}.${f.id.count}`, [plan.declared]))
@@ -213,7 +214,11 @@ export const familyRows = (
 	}
 	const placed = new Set<Admitted>()
 	/** A fact's nesting: its own written fields, but the group its family supplies, and every family it owns. */
-	const nodeOf = (relation: LawRelation, family: Family | undefined, fact: Admitted): HostNode => {
+	const nodeOf = (
+		relation: TableRelation,
+		family: Family | undefined,
+		fact: Admitted
+	): HostNode => {
 		const supplied = new Set(
 			family === undefined ? [] : Arr.map(family.group, (g) => g.member.name)
 		)

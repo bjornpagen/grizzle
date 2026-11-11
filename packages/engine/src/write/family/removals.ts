@@ -35,6 +35,7 @@
  */
 import { readsOf, withGenerationInputs } from "#compiler/analysis/theory/fill.ts"
 import { appendAll } from "#compiler/core/array.ts"
+import type { StoredRelationName } from "#compiler/core/ids.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { baseLiteral, type Family, isSequence } from "#compiler/ir/family.ts"
@@ -332,8 +333,8 @@ export interface RefillRoot {
  */
 export interface RefillWay {
 	readonly root:
-		| { readonly kind: "put"; readonly relation: string }
-		| { readonly kind: "edit"; readonly relation: string; readonly family: Family }
+		| { readonly kind: "put"; readonly relation: StoredRelationName }
+		| { readonly kind: "edit"; readonly relation: StoredRelationName; readonly family: Family }
 	readonly hops: NonEmptyReadonlyArray<Family>
 }
 

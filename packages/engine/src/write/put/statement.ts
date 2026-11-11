@@ -1,5 +1,5 @@
 import { appendAll } from "#compiler/core/array.ts"
-import type { ParamId } from "#compiler/core/ids.ts"
+import type { ParamId, StoredRelationName } from "#compiler/core/ids.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import {
 	concatNonEmpty,
@@ -101,7 +101,7 @@ import { explicitSerials } from "#compiler/write/serial/advance.ts"
 export type PutResult =
 	| {
 			readonly kind: "upsert"
-			readonly relation: string
+			readonly relation: StoredRelationName
 			readonly columns: ReadonlyArray<ResultColumn>
 			/** The complete fact, positions 0 to fields.length - 1, key first. */
 			readonly fields: ReadonlyArray<string>
@@ -109,7 +109,7 @@ export type PutResult =
 	  }
 	| {
 			readonly kind: "update"
-			readonly relation: string
+			readonly relation: StoredRelationName
 			readonly columns: ReadonlyArray<ResultColumn>
 			readonly fields: ReadonlyArray<string>
 			readonly key: KeySet
@@ -117,7 +117,7 @@ export type PutResult =
 	  }
 	| {
 			readonly kind: "merge"
-			readonly relation: string
+			readonly relation: StoredRelationName
 			readonly columns: ReadonlyArray<ResultColumn>
 			readonly action: number
 			readonly fields: ReadonlyArray<string>

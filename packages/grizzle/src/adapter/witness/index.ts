@@ -1,7 +1,7 @@
 import { type ViolationClassifier, violationClassifier } from "#adapter/witness/classify.ts"
 import { type KeyLaws, keyLawsOf, type LawsAbove } from "#adapter/witness/keylaw.ts"
-import type { KeyDecoder } from "#compiler/plan/change.ts"
-import type { Codebook } from "#compiler/plan/common.ts"
+import type { KeyHost, KeyWitness } from "#compiler/plan/change.ts"
+import type { Codebook, EntryName, StoredRelationName } from "#compiler/plan/common.ts"
 import { keyWitness, witnessDecoder } from "#compiler/plan/runtime.ts"
 import type { ServedEntryKey, ServedRefusals } from "#compiler/plan/serve.ts"
 
@@ -47,6 +47,18 @@ const entryKey = <V>(
 }
 
 /**
+ * The witness of a key of the stored relation `relation`, in the words its role states its facts in: the relation's
+ * own, or `entry`'s, the query entry the role writes the relation through.
+ */
+const statedWitness = (
+	relation: StoredRelationName,
+	entry: ServedEntryKey | undefined
+): ((values: Readonly<Record<string, KeyHost>>) => KeyWitness) =>
+	entry === undefined
+		? (values) => keyWitness(relation, values)
+		: (values) => keyWitness(entry.entry, entryKey(entry, values))
+
+/**
  * The witness decoding of an installation from its refusals as data `refusals` (see the header), the laws of the levels
  * above its own `above`, and the codes it holds `codes`: what a layer builds once per role from its served file, and
  * the compile from a role's artifacts (adapter/served/refusals.ts installationWitness).
@@ -58,28 +70,29 @@ export const servedWitness = (
 ): InstallationWitness => {
 	const laws = keyLawsOf(refusals.laws, above, codes)
 	/**
-	 * The WriteProgram's decoder over every stored relation: a refusal's key text decodes through its column's result
-	 * codec, exactly as a compiled program reads it. A role names a key of a relation it writes through a query entry
-	 * in the entry's vocabulary.
+	 * The WriteProgram's decoder over every stored relation, by the name a refusal's DETAIL spells it: a refusal's key
+	 * text decodes through its column's result codec, exactly as a compiled program reads it, and its witness states the
+	 * key as the role states its facts, in a query entry's vocabulary where the role writes the relation through one.
 	 */
-	const base = witnessDecoder({
+	const decoder = witnessDecoder({
 		relations: new Map(
-			Array.from(refusals.relations, ([name, heading]) => [name, { heading }] as const)
+			Array.from(refusals.relations, ([name, heading]) => [
+				name,
+				{ heading, witness: statedWitness(name, refusals.entries.get(name)) }
+			])
 		),
 		codes
 	})
-	const decoder: KeyDecoder = {
-		fromRefusal: (relation, key) => {
-			const found = base.fromRefusal(relation, key)
-			if (found === undefined) {
-				return undefined
-			}
-			const entry = refusals.entries.get(found.relation)
-			return entry === undefined ? found : keyWitness(entry.entry, entryKey(entry, found.values))
-		}
-	}
 	return {
 		laws,
-		classify: violationClassifier(laws, decoder, new Set(refusals.relations.keys()))
+		classify: violationClassifier(laws, decoder, {
+			stored: new Set(refusals.relations.keys()),
+			entries: new Map(
+				Array.from(refusals.entries.values(), (e): readonly [string, EntryName] => [
+					e.entry,
+					e.entry
+				])
+			)
+		})
 	}
 }

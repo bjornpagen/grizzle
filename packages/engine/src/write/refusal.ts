@@ -1,6 +1,6 @@
 import { resultTextCasts } from "#compiler/codec/scalar.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
-import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
+import type { ConstraintName, EntryName, LawId } from "#compiler/core/ids.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { type Sqlstate, sqlstates } from "#compiler/core/sqlstate.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
@@ -143,7 +143,7 @@ export type ArmRefusal =
 			readonly delivered: "one" | "option"
 			readonly key: ReadonlyArray<RefusedValue>
 	  }
-	| { readonly kind: "outside"; readonly entry: string }
+	| { readonly kind: "outside"; readonly entry: EntryName }
 
 /** The arms' precedence (see `refusalGuard`). A breach is a read-back's, alone among its statement's arms; a fact outside a
  * query entry and a key a fact outside it holds are its precheck's, alone among theirs. */
@@ -215,7 +215,7 @@ type BreachDelivered = Extract<ArmRefusal, { readonly kind: "breach" }>["deliver
 export type RaisedConstraint =
 	| { readonly kind: "constraint"; readonly name: ConstraintName }
 	| { readonly kind: "breach"; readonly delivered: BreachDelivered }
-	| { readonly kind: "entry"; readonly entry: string }
+	| { readonly kind: "entry"; readonly entry: EntryName }
 
 /** The constraint field's text. */
 const constraintText = (raised: RaisedConstraint): string => {

@@ -1,3 +1,4 @@
+import type { StoredRelationName } from "#compiler/core/ids.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Order from "#compiler/core/order.ts"
@@ -22,20 +23,20 @@ interface ScheduledAction<A> {
 export type FamilyNode =
 	| {
 			readonly kind: "rows"
-			readonly relation: string
+			readonly relation: StoredRelationName
 			readonly statement: "delete" | "insert"
 	  }
 	| {
 			readonly kind: "rows"
-			readonly relation: string
+			readonly relation: StoredRelationName
 			readonly statement: "refill" | "update"
 			readonly changes: ReadonlyArray<string>
 	  }
 	| {
 			readonly kind: "owners"
 			readonly family: FamilyId
-			readonly relation: string
-			readonly member: string
+			readonly relation: StoredRelationName
+			readonly member: StoredRelationName
 			readonly changes: ReadonlyArray<string>
 	  }
 	| FamilyAdditions
@@ -44,7 +45,7 @@ export type FamilyNode =
 /** An owner relation a family statement changes the rows of, at the columns `changes` names: their counts and ends,
  * each generated column that reads one of them among them. */
 export interface OwnerChanges {
-	readonly relation: string
+	readonly relation: StoredRelationName
 	readonly changes: ReadonlyArray<string>
 }
 
@@ -65,7 +66,7 @@ export type CopySource = "stored" | "held" | "drawn"
  * key (write/family/fold.ts ColumnKey), and where it reads the owner's column (`CopySource`). */
 export interface OwnerCopy {
 	readonly family: string
-	readonly owner: string
+	readonly owner: StoredRelationName
 	readonly column: string
 	readonly source: CopySource
 }
@@ -209,8 +210,8 @@ export const generating = (
  */
 export interface FamilyPair {
 	readonly family: FamilyId
-	readonly owner: string
-	readonly member: string
+	readonly owner: StoredRelationName
+	readonly member: StoredRelationName
 	readonly immediate: boolean
 	readonly fromColumns: ReadonlyArray<string>
 	readonly toColumns: ReadonlyArray<string>
@@ -224,7 +225,10 @@ export interface FamilyPair {
  * immediate, before their insertions, as a count statement would.
  */
 export interface RefillOrder {
-	readonly precedes: ReadonlyArray<{ readonly node: FamilyNode; readonly relation: string }>
+	readonly precedes: ReadonlyArray<{
+		readonly node: FamilyNode
+		readonly relation: StoredRelationName
+	}>
 	readonly edges: ReadonlyArray<{ readonly before: FamilyNode; readonly after: FamilyNode }>
 }
 

@@ -4,7 +4,7 @@
  */
 import { arrayTexts } from "#compiler/codec/recordset.ts"
 import type { CompileError, EncodingFailure } from "#compiler/core/errors.ts"
-import type { ParamId } from "#compiler/core/ids.ts"
+import type { ParamId, StoredRelationName } from "#compiler/core/ids.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
 import { maxStringLength } from "#compiler/core/limits.ts"
 import { isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
@@ -126,11 +126,14 @@ export const legacyFlights =
 		const { frontend } = compiled
 		const unplanned: StatedFill = Object.freeze({ kind: "unplanned" })
 		const { factsOf, fresh, form, statedRowsOf, generatedRejection, statementChunks } = applied
-		const noRows: ReadonlyMap<string, ReadonlyTupleMap<MemberKey, NestedRow>> = new Map()
+		const noRows: ReadonlyMap<
+			StoredRelationName,
+			ReadonlyTupleMap<MemberKey, NestedRow>
+		> = new Map()
 		/** Each relation's depth among the families, which orders a stratum's relations' statements. */
 		const depthOf = relationDepths(frontend.laws.families)
 		/** A member relation's row no statement carries even alone, as the first family it is a member of names it. */
-		const rowBound = (relation: string, row: Unsendable): FamilyRowBound => ({
+		const rowBound = (relation: StoredRelationName, row: Unsendable): FamilyRowBound => ({
 			_tag: "FamilyRowBound",
 			family: familyNames(
 				defined(
@@ -144,7 +147,7 @@ export const legacyFlights =
 		 * as its counted families' appends in the stratum left them, each row in its relation's row layout. */
 		const nestedPlans = (
 			stratum: StratumAt,
-			nested: ReadonlyMap<string, ReadonlyTupleMap<MemberKey, NestedRow>>
+			nested: ReadonlyMap<StoredRelationName, ReadonlyTupleMap<MemberKey, NestedRow>>
 		): Result.Result<ReadonlyArray<RelationPlanAt>, FamilyRowBound> => {
 			const relations: Array<RelationPlanAt> = []
 			for (const [relation, rows] of nested) {
@@ -177,7 +180,7 @@ export const legacyFlights =
 		 * addition's, whose key does not exist yet, so no member names it, and every row of it a nested write of the
 		 * stratum fills, a tree's nodes and a sequence's members, with every column the walk drew. An owner among them is
 		 * fresh only where the read finds none stored at its key (write/family/edit.ts planEdits). */
-		const insertedOf = (stratum: StratumAt, relation: string): ReadonlyArray<Fact> => [
+		const insertedOf = (stratum: StratumAt, relation: StoredRelationName): ReadonlyArray<Fact> => [
 			...frontend.slots
 				.filter((g) => g.stratum === stratum && g.relation.name === relation)
 				.flatMap((g) => g.inputs.flatMap(insertSlots))
@@ -333,7 +336,7 @@ export const legacyFlights =
 			target: EditTarget,
 			owners: ReadonlyArray<OwnerWrite>,
 			refilled: Map<ParamId, NormalizedSlot>,
-			nested: Map<string, TupleMap<MemberKey, NestedRow>>
+			nested: Map<StoredRelationName, TupleMap<MemberKey, NestedRow>>
 		): ReadonlyArray<OwnerWrite> =>
 			owners.flatMap((write) => {
 				const family = defined(
@@ -387,7 +390,7 @@ export const legacyFlights =
 				return kept.size > 0 ? [{ family: write.family, recounts: kept, stored: write.stored }] : []
 			})
 		/** The row layout of `relation`, whose rows a nested write of the stratum fills. */
-		const nestedLayout = (stratum: StratumAt, relation: string): RowLayout => {
+		const nestedLayout = (stratum: StratumAt, relation: StoredRelationName): RowLayout => {
 			for (const n of frontend.nested) {
 				const at = n.stratum === stratum ? n.nesting.layouts.get(relation) : undefined
 				if (at !== undefined) {

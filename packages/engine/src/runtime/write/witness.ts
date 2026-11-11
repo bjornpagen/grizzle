@@ -4,9 +4,11 @@ import type {
 	ColumnIdent,
 	ConstraintName,
 	DomainName,
+	EntryName,
 	LawId,
 	ParamId,
-	RelationIdent
+	RelationIdent,
+	StoredRelationName
 } from "#compiler/core/ids.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
 import {
@@ -104,7 +106,7 @@ export interface JudgedRow {
  */
 export interface StatedRows {
 	readonly slot: (group: GroupData, input: InputData, slot: SlotData) => ReadonlyArray<JudgedRow>
-	readonly nested: (stratum: StratumAt, relation: string) => ReadonlyArray<JudgedRow>
+	readonly nested: (stratum: StratumAt, relation: StoredRelationName) => ReadonlyArray<JudgedRow>
 }
 
 /** A field of a written relation as the witness reads it: its name, its installed column, its type, and how it is
@@ -167,7 +169,7 @@ export interface WitnessUnique {
  * endpoint CHECKs.
  */
 export interface WitnessTable {
-	readonly name: string
+	readonly name: StoredRelationName
 	readonly ident: RelationIdent
 	readonly fields: ReadonlyArray<WitnessField>
 	readonly keys: ReadonlyArray<NonEmptyReadonlyArray<string>>
@@ -179,7 +181,7 @@ export interface WitnessTable {
 /** A query entry a slot group writes through, as the witness reads it: its name, each head field with the target field
  * it writes, and each literal-fixed target field with its literal. */
 export interface WitnessEntry {
-	readonly entry: string
+	readonly entry: EntryName
 	readonly head: ReadonlyArray<{ readonly head: string; readonly field: string }>
 	readonly fixed: ReadonlyArray<{
 		readonly field: string
@@ -190,7 +192,7 @@ export interface WitnessEntry {
 
 /** An action of a stratum as the witness reads it: the relation it writes, and its source, described or a member slot. */
 export interface WitnessAction {
-	readonly relation: string
+	readonly relation: StoredRelationName
 	readonly source:
 		| { readonly kind: "described" }
 		| { readonly kind: "slot"; readonly slot: ParamId }
@@ -198,14 +200,13 @@ export interface WitnessAction {
 
 /**
  * What the host judges a refused statement's stated rows by, decided when the write compiled
- * (write/program/decide.ts): each written relation, each stratum's actions in order, each query entry a slot group
- * writes through by its name, each law a CHECK states by its place in the theory's order of laws, and what the judge's
- * evaluator reads.
+ * (write/program/decide.ts): each written relation, each stratum's actions in order, each law a CHECK states by its
+ * place in the theory's order of laws, and what the judge's evaluator reads. A query entry a slot group writes through
+ * is its group's own (write/frontend/compile.ts StatedIn).
  */
 export interface WitnessData {
 	readonly tables: ReadonlyArray<WitnessTable>
 	readonly actions: ReadonlyArray<ReadonlyArray<WitnessAction>>
-	readonly entries: ReadonlyMap<string, WitnessEntry>
 	readonly lawOrder: ReadonlyMap<LawId, number>
 	readonly evaluation: Evaluation
 }
@@ -262,9 +263,9 @@ export type StatementAt =
 	| {
 			readonly kind: "write"
 			readonly stratum: StratumAt
-			readonly relations: ReadonlyArray<string>
+			readonly relations: ReadonlyArray<StoredRelationName>
 	  }
-	| { readonly kind: "precheck"; readonly stratum: StratumAt; readonly entry: string }
+	| { readonly kind: "precheck"; readonly stratum: StratumAt; readonly entry: EntryName }
 	| { readonly kind: "unstated" }
 
 /**
@@ -390,7 +391,7 @@ export interface Witnessing {
 	readonly data: WitnessData
 	readonly codes: Codebook
 	readonly judge: Judge
-	readonly tables: ReadonlyMap<string, WitnessTable>
+	readonly tables: ReadonlyMap<StoredRelationName, WitnessTable>
 	readonly groups: ReadonlyArray<GroupData>
 	readonly slots: ReadonlyMap<
 		ParamId,
@@ -466,12 +467,8 @@ const entryKey = <V>(
 	return Object.freeze(out)
 }
 
-/** The entry a slot group writes through, by the name its facts are stated under, when it is no relation's own. */
-const entryOf = (w: Witnessing, group: GroupData): WitnessEntry | undefined =>
-	group.facts.name === group.relation ? undefined : w.data.entries.get(group.facts.name)
-
 /** A written relation by its name, which the witness's data holds. */
-const tableOf = (w: Witnessing, name: string): WitnessTable =>
+const tableOf = (w: Witnessing, name: StoredRelationName): WitnessTable =>
 	defined(w.tables.get(name), `the written relation ${name}`)
 
 /**
@@ -488,28 +485,35 @@ const slotFacts = (
 	relation: WitnessTable
 ): ReadonlyArray<StatedFact> => {
 	const codes = w.codes
-	const entry = entryOf(w, group)
-	return stated.slot(group, input, slot).map((written): StatedFact => {
-		const row: JudgedRow =
-			entry === undefined
-				? written
-				: {
-						kind: written.kind,
-						stated: targetFact(entry, written.stated, codes),
-						filled: written.filled
-					}
-		const key = statedKey(relation, row, codes)
-		return {
-			relation,
-			row,
-			witness:
-				key === undefined
-					? unreported
-					: entry === undefined
-						? keyWitness(relation.name, key)
-						: keyWitness(entry.entry, entryKey(entry, key))
+	const rows = stated.slot(group, input, slot)
+	const facts = group.facts.stated
+	switch (facts.kind) {
+		case "relation":
+			return rows.map((row): StatedFact => {
+				const key = statedKey(relation, row, codes)
+				return {
+					relation,
+					row,
+					witness: key === undefined ? unreported : keyWitness(relation.name, key)
+				}
+			})
+		case "entry": {
+			const entry = facts.entry
+			return rows.map((written): StatedFact => {
+				const row: JudgedRow = {
+					kind: written.kind,
+					stated: targetFact(entry, written.stated, codes),
+					filled: written.filled
+				}
+				const key = statedKey(relation, row, codes)
+				return {
+					relation,
+					row,
+					witness: key === undefined ? unreported : keyWitness(entry.entry, entryKey(entry, key))
+				}
+			})
 		}
-	})
+	}
 }
 
 /** The facts one slot group of the ChangeSet states for `relation` (slotFacts): each insert's and put's, none of a
@@ -558,7 +562,7 @@ const relationsFacts = (
 	w: Witnessing,
 	stated: StatedRows,
 	stratum: StratumAt,
-	relations: ReadonlyArray<string>
+	relations: ReadonlyArray<StoredRelationName>
 ): ReadonlyArray<StatedFact> =>
 	relations.flatMap((name) => {
 		const relation = w.tables.get(name)
@@ -635,14 +639,22 @@ const precheckGroups = (
 	w: Witnessing,
 	at: Extract<StatementAt, { readonly kind: "precheck" }>
 ): ReadonlyArray<GroupData> =>
-	w.groups.filter((group) => group.stratum === at.stratum && group.facts.name === at.entry)
+	w.groups.filter(
+		(group) =>
+			group.stratum === at.stratum &&
+			group.facts.stated.kind === "entry" &&
+			group.facts.stated.entry.entry === at.entry
+	)
 
 /**
  * The stored relations a refused statement writes or casts its facts into, by declared name: its actions', a write's
  * own, a query entry's precheck's target, whose types the precheck casts the entry's facts into, and none of a
  * statement that states no fact.
  */
-export const statementRelations = (w: Witnessing, at: StatementAt): ReadonlyArray<string> => {
+export const statementRelations = (
+	w: Witnessing,
+	at: StatementAt
+): ReadonlyArray<StoredRelationName> => {
 	switch (at.kind) {
 		case "actions":
 			return [...new Set(actionsAt(w, at).map((action) => action.relation))]

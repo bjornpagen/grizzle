@@ -11,7 +11,7 @@ import {
 } from "#compiler/codec/recordset.ts"
 import { carrierSpecOf, paramEncoder } from "#compiler/codec/scalar.ts"
 import type { CompileError, EncodingFailure } from "#compiler/core/errors.ts"
-import type { LawId, ParamId } from "#compiler/core/ids.ts"
+import type { LawId, ParamId, StoredRelationName } from "#compiler/core/ids.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { isIterable } from "#compiler/core/record.ts"
@@ -250,11 +250,16 @@ const unplannedFill: StatedFill = Object.freeze({ kind: "unplanned" })
 /** The witness of a refusal no row the ChangeSet states is found breaking. */
 const unreportedWitness: Witness = Object.freeze({ kind: "unreported" })
 
+/**
+ * What binding one application gives: its bound write; a same-key conflict among its facts, by its key law, the stored
+ * relation whose key's constraint refuses it (`relation`, a query entry's target) and its witness, in the words the
+ * facts were stated in; or a generated field's refusal.
+ */
 export type BindResult =
 	| BoundWrite
 	| {
 			readonly kind: "invariant-rejected"
-			readonly relation: string
+			readonly relation: StoredRelationName
 			readonly law: LawId
 			readonly described: Law
 			readonly witness: Witness
@@ -410,7 +415,7 @@ export const bindWrite = (
 			relation: normalized.relation,
 			law: normalized.law,
 			described: normalized.described,
-			witness: keyWitness(normalized.relation, normalized.values)
+			witness: normalized.witness
 		})
 	}
 	/** The normal facts of a member slot of the front end: the one site of the fact "normalizeChangeSet normalizes every
@@ -439,7 +444,7 @@ export const bindWrite = (
 	const encodeSlot = (
 		slot: WriteSlot,
 		slotFacts: (slot: ParamId) => NormalizedSlot,
-		nestedRows: (stratum: StratumAt, relation: string) => ReadonlyArray<NestedRow>
+		nestedRows: (stratum: StratumAt, relation: StoredRelationName) => ReadonlyArray<NestedRow>
 	): Result.Result<Param, EncodingFailure | LiteralBound> => {
 		switch (slot.kind) {
 			case "scalar":
@@ -463,9 +468,9 @@ export const bindWrite = (
 	/** A stratum's nested rows of `relation` as their placeholders carry them: their sent layout's column types, and each
 	 * row's cells in its order (write/program/staged.ts NestedCells). */
 	const nestedCellsOf = (
-		nestedRows: (stratum: StratumAt, relation: string) => ReadonlyArray<NestedRow>,
+		nestedRows: (stratum: StratumAt, relation: StoredRelationName) => ReadonlyArray<NestedRow>,
 		stratum: StratumAt,
-		relation: string
+		relation: StoredRelationName
 	): NestedCells => {
 		const layout = sentLayout(nestedAt(stratum, relation))
 		return {
@@ -486,7 +491,7 @@ export const bindWrite = (
 	const valuesOver =
 		(
 			slotFacts: (slot: ParamId) => NormalizedSlot,
-			nestedRows: (stratum: StratumAt, relation: string) => ReadonlyArray<NestedRow>
+			nestedRows: (stratum: StratumAt, relation: StoredRelationName) => ReadonlyArray<NestedRow>
 		) =>
 		(
 			statement: FlightStatement
@@ -506,7 +511,7 @@ export const bindWrite = (
 	])
 	const ctx: FillContext = { codes, evaluate: prepared.evaluate }
 	/** How `relation`'s stated rows are judged, which the binding decided when the write compiled. */
-	const judgedOf = (relation: string): JudgedRelation =>
+	const judgedOf = (relation: StoredRelationName): JudgedRelation =>
 		defined(binding.judged.get(relation), `the judged relation ${relation}, a written one`)
 	/** An owner's count or end while its family is empty: the count 0, each end at its start. */
 	const emptyOf = (owned: OwnedColumn): FilledColumn =>
@@ -523,7 +528,7 @@ export const bindWrite = (
 	 */
 	const foundAt = (
 		at: StratumFill | undefined,
-		relation: string,
+		relation: StoredRelationName,
 		judged: JudgedRelation,
 		columns: Values,
 		key: MemberKey
@@ -557,7 +562,7 @@ export const bindWrite = (
 	const judgedRow = (
 		fill: StatedFill,
 		stratum: StratumAt,
-		relation: string,
+		relation: StoredRelationName,
 		columns: Values,
 		op: "insert" | "put" | "delete",
 		key: MemberKey | undefined,
@@ -623,48 +628,60 @@ export const bindWrite = (
 	 */
 	const statedRowsOf = (fill: StatedFill): StatedRows => ({
 		slot: (group: GroupData, input: InputData, slot: SlotData) => {
-			const relation = group.relation
-			if (group.facts.name !== relation) {
-				return factsOf(slot.slot).facts.map((fact): JudgedRow => ({
-					kind: "known",
-					stated: fact,
-					filled: () => unfilled
-				}))
+			switch (group.facts.stated.kind) {
+				case "entry":
+					return factsOf(slot.slot).facts.map((fact): JudgedRow => ({
+						kind: "known",
+						stated: fact,
+						filled: () => unfilled
+					}))
+				case "relation":
+					return ownRows(fill, group, input, slot)
 			}
-			const drawn = fill.kind === "unplanned" ? undefined : fill.drawn(slot.slot)
-			const facts = (drawn ?? factsOf(slot.slot)).facts
-			const source: ColumnsSource =
-				input.kind === "nested" ? "walk" : drawn === undefined ? "stated" : "drawn"
-			const { layout, primary } = judgedOf(relation)
-			const op = input.kind === "single" ? input.act.op : "insert"
-			const proposal = defined(
-				binding.proposals.get(slot.slot),
-				`the proposal of member slot ${slot.slot}`
-			)
-			return facts.map((fact) => {
-				const columns = new Map(
-					Object.entries(fact).map(([name, v]) => [fieldKey(name), v] as const)
-				)
-				const whole = primary.every((name) => columns.has(fieldKey(name)))
-				return judgedRow(
-					fill,
-					group.stratum,
-					relation,
-					columns,
-					op,
-					whole ? keyOf(ctx, layout, columns) : undefined,
-					source,
-					proposal
-				)
-			})
 		},
-		nested: (stratum: StratumAt, relation: string) =>
+		nested: (stratum: StratumAt, relation: StoredRelationName) =>
 			[...(normalized.nested.get(stratum)?.get(relation)?.values() ?? [])].map((row) =>
 				judgedRow(fill, stratum, relation, row.values, "insert", row.key, "walk", "every")
 			)
 	})
+	/**
+	 * The rows of a slot stated in its written relation's own words, as `fill` fills them: its facts, an owner slot's as
+	 * its insert carries the counts and ends the write draws into it, each as its statement writes it (`judgedRow`).
+	 */
+	const ownRows = (
+		fill: StatedFill,
+		group: GroupData,
+		input: InputData,
+		slot: SlotData
+	): ReadonlyArray<JudgedRow> => {
+		const relation = group.relation
+		const drawn = fill.kind === "unplanned" ? undefined : fill.drawn(slot.slot)
+		const facts = (drawn ?? factsOf(slot.slot)).facts
+		const source: ColumnsSource =
+			input.kind === "nested" ? "walk" : drawn === undefined ? "stated" : "drawn"
+		const { layout, primary } = judgedOf(relation)
+		const op = input.kind === "single" ? input.act.op : "insert"
+		const proposal = defined(
+			binding.proposals.get(slot.slot),
+			`the proposal of member slot ${slot.slot}`
+		)
+		return facts.map((fact) => {
+			const columns = new Map(Object.entries(fact).map(([name, v]) => [fieldKey(name), v] as const))
+			const whole = primary.every((name) => columns.has(fieldKey(name)))
+			return judgedRow(
+				fill,
+				group.stratum,
+				relation,
+				columns,
+				op,
+				whole ? keyOf(ctx, layout, columns) : undefined,
+				source,
+				proposal
+			)
+		})
+	}
 	/** Where `relation` stands in a nested write of `stratum` that fills its rows (binding.ts NestedAt). */
-	const nestedAt = (stratum: StratumAt, relation: string): NestedLayoutData =>
+	const nestedAt = (stratum: StratumAt, relation: StoredRelationName): NestedLayoutData =>
 		defined(
 			binding.nested.find((n) => n.stratum === stratum)?.layouts.get(relation),
 			`the nested layout of ${relation}, a relation a nested write of stratum ${stratum} fills`
@@ -699,7 +716,10 @@ export const bindWrite = (
 	 * which the insert proposes nothing of (insert/statement.ts Proposal), so its stored families are the statement's to
 	 * draw.
 	 */
-	const normalNestedRows = (stratum: StratumAt, relation: string): ReadonlyArray<NestedRow> => [
+	const normalNestedRows = (
+		stratum: StratumAt,
+		relation: StoredRelationName
+	): ReadonlyArray<NestedRow> => [
 		...(normalized.nested.get(stratum)?.get(relation)?.values() ?? [])
 	]
 	const freshlyCounted = freshOwners(ctx, prepared.fill, binding.fresh, factsOf, normalNestedRows)
@@ -716,7 +736,10 @@ export const bindWrite = (
 	const fresh = freshlyCounted.value.slots
 	/** A stratum's nested rows of a relation as its statements send them: a nested owner's with the counts and ends its
 	 * stratum's appends draw (`freshOwners`). */
-	const nestedRowsOf = (stratum: StratumAt, relation: string): ReadonlyArray<NestedRow> =>
+	const nestedRowsOf = (
+		stratum: StratumAt,
+		relation: StoredRelationName
+	): ReadonlyArray<NestedRow> =>
 		freshlyCounted.value.nested.get(stratum)?.get(relation) ?? normalNestedRows(stratum, relation)
 	/** A row of a nested relation no fill carries even alone, as the first family it is a member of names it (binding.ts
 	 * Binding rowFamilies). */
@@ -817,7 +840,7 @@ interface FreshGeneratedNull extends GeneratedNull {
  * rows, every one with the counts and ends of its counted families as its stratum's appends to it draw them. */
 interface FreshCounts {
 	readonly slots: ReadonlyMap<ParamId, NormalizedSlot>
-	readonly nested: ReadonlyMap<StratumAt, ReadonlyMap<string, ReadonlyArray<NestedRow>>>
+	readonly nested: ReadonlyMap<StratumAt, ReadonlyMap<StoredRelationName, ReadonlyArray<NestedRow>>>
 }
 
 /**
@@ -833,13 +856,15 @@ const freshOwners = (
 	fill: Filler,
 	fresh: ReadonlyArray<FreshStratum>,
 	factsOf: (slot: ParamId) => NormalizedSlot,
-	nestedOf: (stratum: StratumAt, relation: string) => ReadonlyArray<NestedRow>
+	nestedOf: (stratum: StratumAt, relation: StoredRelationName) => ReadonlyArray<NestedRow>
 ): Result.Result<FreshCounts, EncodingFailure | FreshGeneratedNull> => {
 	const slotsOut = new Map<ParamId, NormalizedSlot>()
-	const nestedOut = new Map<StratumAt, Map<string, ReadonlyArray<NestedRow>>>()
+	const nestedOut = new Map<StratumAt, Map<StoredRelationName, ReadonlyArray<NestedRow>>>()
 	for (const { stratum: s, appended, counted: reached, owners } of fresh) {
 		/** A relation's appended members' values: its slots' facts', then its nested rows'. */
-		const membersOf = (relation: string): ReadonlyArray<ReadonlyMap<ColumnKey, unknown>> => [
+		const membersOf = (
+			relation: StoredRelationName
+		): ReadonlyArray<ReadonlyMap<ColumnKey, unknown>> => [
 			...appended.flatMap((a) =>
 				a.relation === relation ? factsOf(a.slot).facts.map(valuesOfFact) : []
 			),
@@ -939,7 +964,8 @@ const freshOwners = (
 						)
 					})
 				}
-				const byRelation = nestedOut.get(s) ?? new Map<string, ReadonlyArray<NestedRow>>()
+				const byRelation =
+					nestedOut.get(s) ?? new Map<StoredRelationName, ReadonlyArray<NestedRow>>()
 				byRelation.set(owner, rows)
 				nestedOut.set(s, byRelation)
 			}

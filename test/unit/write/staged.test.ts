@@ -29,6 +29,7 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { bindFrame } from "#adapter/wire/batch.ts"
+import { StoredRelationName } from "#compiler/core/ids.ts"
 import { maxStringLength } from "#compiler/core/limits.ts"
 import { prepared } from "#compiler/core/prepared.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -123,6 +124,9 @@ const cellOf = (kind: Kind, character: string, length: number): MemberCell => {
 	}
 }
 
+/** The relation the cases' nested rows are rows of. */
+const entryRelation = StoredRelationName("Entry")
+
 /** The texts of the statement the cases stage, each named as a served write's are. */
 const stagedTexts = {
 	inline: prepared(testSql("inline")),
@@ -135,7 +139,7 @@ const stagedTexts = {
 /** The case's nested rows, its statement, its kept value and its transport. */
 const resolved = (sketch: Sketch) => {
 	const cells: NestedCells = {
-		relation: "Entry",
+		relation: entryRelation,
 		types: Arr.map(sketch.kinds, typeOf),
 		rows: Arr.map(sketch.rows, (row) =>
 			Arr.map(row, (length, part) =>
@@ -216,7 +220,7 @@ const expected = (r: Resolved): Result.Result<ReadonlyArray<Execution>, NestedRo
 		if (alone > r.transport.messageBytes) {
 			return Result.err({
 				_tag: "NestedRowBound",
-				relation: "Entry",
+				relation: entryRelation,
 				row: { kind: "message", bytes: alone, limit: r.transport.messageBytes, statement: "insert" }
 			})
 		}

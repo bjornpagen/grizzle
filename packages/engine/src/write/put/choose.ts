@@ -1,3 +1,4 @@
+import type { StoredRelationName } from "#compiler/core/ids.ts"
 import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { LawField } from "#compiler/ir/law.ts"
 import type { RelNode } from "#compiler/ir/rel.ts"
@@ -219,7 +220,7 @@ export const choosePutTargets = (frontend: WriteFrontend): ChosenTargets => {
 	)
 	const writtenIn = ir.strata.map((stratum) => new Set(stratum.actions.map((a) => a.relation)))
 	/** Whether the actions of more than one stratum write the relation. */
-	const severalStrata = (relation: string): boolean =>
+	const severalStrata = (relation: StoredRelationName): boolean =>
 		writtenIn.filter((written) => written.has(relation)).length > 1
 	const strata = strataAt(ir.strata).map(([s, stratum]): ChosenStratum =>
 		Object.freeze({

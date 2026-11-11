@@ -10,7 +10,8 @@ import type {
 	LawId,
 	RelationIdent,
 	RosterCodec,
-	SchemaArtifacts
+	SchemaArtifacts,
+	StoredRelationName
 } from "#compiler/plan/common.ts"
 import { constraintLaw, defect } from "#compiler/plan/runtime.ts"
 import type { DescribedLaw, ServedKeyLaws, ServedSnapshot } from "#compiler/plan/serve.ts"
@@ -81,7 +82,7 @@ export interface KeyLaws {
 	/** The laws a reported constraint's violation can report, under the reported owner. */
 	readonly lawsOf: (constraint: ConstraintName, owner: ConstraintOwner) => NativeLaws | undefined
 	/** The table a stored relation of the installation is, by its declared name: what a write statement writes. */
-	readonly tableOf: (relation: string) => RelationIdent
+	readonly tableOf: (relation: StoredRelationName) => RelationIdent
 	/** Every law of the theory by the constraint name a write statement's refusal raises it under (SQLSTATE 23000),
 	 * the law's identity itself. */
 	readonly raised: ReadonlyMap<ConstraintName, DescribedLaw>
@@ -106,11 +107,11 @@ export interface KeyLaws {
 export type HostRefusal =
 	| {
 			readonly kind: "key"
-			readonly relation: string
+			readonly relation: StoredRelationName
 			readonly law: LawId
 			readonly described: Law
 	  }
-	| { readonly kind: "generated"; readonly relation: string; readonly field: string }
+	| { readonly kind: "generated"; readonly relation: StoredRelationName; readonly field: string }
 
 /**
  * Every law one native constraint's violation can report, each described, in the order the installation lists them;
@@ -247,7 +248,7 @@ export const keyLawsOf = (data: ServedKeyLaws, above: LawsAbove, codes: Codebook
 		const law = above.laws.get(id)
 		return law === undefined ? undefined : { laws: [{ law: id, described: law }], uses: noUses }
 	}
-	const tableOf = (relation: string): RelationIdent => {
+	const tableOf = (relation: StoredRelationName): RelationIdent => {
 		const table = data.tables.get(relation)
 		if (table === undefined) {
 			throw defect(`the installation stores relation ${relation}, which a write statement wrote`)

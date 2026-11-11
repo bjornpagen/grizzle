@@ -517,11 +517,14 @@ const reportedLaw = (
 		return undefined
 	}
 	if (fields.code === sqlstates.notNullViolation) {
+		const stored = defined(installation.checked.relations.get(relation))
 		const generatedField = Arr.findFirst(
-			defined(installation.checked.relations.get(relation)).fields,
+			stored.fields,
 			(f) => f.writing.kind === "generated" && Option.contains(fields.column, f.column)
 		)
-		return Option.getOrUndefined(Option.map(generatedField, (f) => generatedLaw(relation, f.name)))
+		return Option.getOrUndefined(
+			Option.map(generatedField, (f) => generatedLaw(stored.name, f.name))
+		)
 	}
 	const law =
 		fields.code === sqlstates.checkViolation && fields.constraint !== undefined
@@ -647,7 +650,13 @@ layer(Substrate.layer, { excludeTestServices: true })("dependent keys on Postgre
 							const projectionRefused = rejected(
 								lawNames.described(lawNames.lawOf(built.laws.projected))
 							)
-							const atRefused = rejected(generatedLaw("AtProbe", "w"))
+							const atRefused = rejected(
+								generatedLaw(
+									defined(compiled.checked.relations.get("AtProbe"), "AtProbe, the probe relation")
+										.name,
+									"w"
+								)
+							)
 							const block = blockOf(c.shape)
 							const fields = ["id", "version", "kind", ...Arr.map(block, (b) => b.field)]
 							const probes = probesOf(c.shape)

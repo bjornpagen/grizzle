@@ -1,4 +1,5 @@
 import { scalarReader } from "#compiler/codec/read.ts"
+import type { RoleRelationName, StoredRelationName } from "#compiler/core/ids.ts"
 import type { OutputText } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
@@ -34,21 +35,21 @@ interface WriteChanges {
 	/** One entry per written relation, in code point order. */
 	readonly counts: ReadonlyArray<RelationCounts>
 	/** Per stratum of the artifact, each relation it changed and what it changed. */
-	readonly strata: ReadonlyArray<ReadonlyMap<string, StratumChange>>
+	readonly strata: ReadonlyArray<ReadonlyMap<StoredRelationName, StratumChange>>
 	/** Per written relation, delta.added and delta.removed netted across strata. */
-	readonly deltas: ReadonlyMap<string, NettedRelation>
+	readonly deltas: ReadonlyMap<StoredRelationName, NettedRelation>
 }
 
 /** A relation the ChangeSet writes, by name, with the identity its facts are netted across strata by: every field's
  * value (net.ts relationIdentity). */
 export interface WrittenOutcome {
-	readonly relation: string
+	readonly relation: StoredRelationName
 	readonly identity: (fact: Fact) => FactIdentity
 }
 
 /** A relation the ChangeSet writes, by name, with its heading, every field's name and type. */
 export interface WrittenHeading {
-	readonly relation: string
+	readonly relation: StoredRelationName
 	readonly heading: Heading
 }
 
@@ -69,10 +70,20 @@ export interface OutcomeContext {
 	readonly codes: Codebook
 }
 
-/** What a witness the server reports is read by: every ordinary relation of the base by name, with its heading, and the
- * installation's codes, which a witness's closed ids and sets are read by. */
+/**
+ * What a witness the server reports is read by: every ordinary relation of the base by the name a refusal's DETAIL
+ * spells it, with its heading and the witness of a key of it in the words its role states its facts in (its own, or a
+ * query entry's it writes the relation through); and the installation's codes, which a witness's closed ids and sets
+ * are read by.
+ */
 export interface WitnessRelations {
-	readonly relations: ReadonlyMap<string, { readonly heading: Heading }>
+	readonly relations: ReadonlyMap<
+		string,
+		{
+			readonly heading: Heading
+			readonly witness: (values: Readonly<Record<string, KeyHost>>) => KeyWitness
+		}
+	>
 	readonly codes: Codebook
 }
 
@@ -82,9 +93,12 @@ const isSet = (value: unknown): value is ReadonlySet<unknown> => value instanceo
 /** A witness that names one violating fact's key. */
 export type KeyWitness = Extract<Witness, { readonly kind: "key" }>
 
-/** The witness of one relation's key values. */
-export const keyWitness = (relation: string, key: Readonly<Record<string, KeyHost>>): KeyWitness =>
-	Object.freeze({ kind: "key", relation, values: Object.freeze(key) })
+/** The witness of one relation's key values, the relation named as the facts were stated: a stored relation's own name,
+ * or a query entry's. */
+export const keyWitness = (
+	relation: RoleRelationName,
+	key: Readonly<Record<string, KeyHost>>
+): KeyWitness => Object.freeze({ kind: "key", relation, values: Object.freeze(key) })
 
 /** One fact a write statement's row made present or absent, with the tag of the change. */
 type RowChange =
@@ -188,7 +202,7 @@ export const interpretRows = (
 	})
 	const written = context.written.map((w) => w.relation)
 	const counts = outcomeCounts(written, changes)
-	const deltas = new Map<string, NettedRelation>()
+	const deltas = new Map<StoredRelationName, NettedRelation>()
 	for (const relation of written) {
 		deltas.set(relation, netStrata(relationChanges(changes, relation)))
 	}
@@ -250,7 +264,7 @@ export const witnessDecoder = (context: WitnessRelations): KeyDecoder => {
 			}
 			values[field] = value
 		}
-		return keyWitness(relation, values)
+		return info.witness(values)
 	}
 	return { fromRefusal: convertKey }
 }

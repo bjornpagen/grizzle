@@ -1,4 +1,4 @@
-import type { ParamId } from "#compiler/core/ids.ts"
+import type { ParamId, StoredRelationName } from "#compiler/core/ids.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { LogicalQuery, PageFill, ParamDecl } from "#compiler/ir/products.ts"
@@ -179,7 +179,7 @@ export interface MemberParamSlot extends ValuePlaceholder {
 export interface NestedRowsParamSlot extends ValuePlaceholder {
 	readonly kind: "nestedRows"
 	readonly stratum: StratumAt
-	readonly relation: string
+	readonly relation: StoredRelationName
 	readonly columns: ReadonlyArray<RelationColumn>
 	readonly part: ArrayPart
 }

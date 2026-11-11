@@ -64,7 +64,13 @@ import {
 	type FillWriter,
 	layoutKey
 } from "#compiler/ir/fill.ts"
-import { familyKey, type LawField, type LawRelation, type NativeColumn } from "#compiler/ir/law.ts"
+import {
+	familyKey,
+	type LawField,
+	type LawRelation,
+	type NativeColumn,
+	type TableRelation
+} from "#compiler/ir/law.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 
 /** The field names an expression reads of its row. */
@@ -446,7 +452,7 @@ interface DraftColumn {
  * everything it waits on, by key, in the order a refusal meets them.
  */
 interface Draft {
-	readonly relation: LawRelation
+	readonly relation: TableRelation
 	readonly position: FillPosition
 	readonly columns: ReadonlyMap<string, DraftColumn>
 }
@@ -454,7 +460,7 @@ interface Draft {
 /** One relation's draft layout at one position: its columns' waits, or the first refusal its own row gives. */
 const draftAt = (
 	families: ReadonlyArray<Family>,
-	relation: LawRelation,
+	relation: TableRelation,
 	position: FillPosition
 ): Result.Result<Draft, Unfillable> => {
 	const entries = entriesAt(families, relation, position)
@@ -701,7 +707,7 @@ export const fillOrder = (
 			})
 		)
 	}
-	const relations = new Map<string, LawRelation>()
+	const relations = new Map<string, TableRelation>()
 	for (const f of families) {
 		relations.set(f.owner.name, f.owner)
 		relations.set(f.member.name, f.member)

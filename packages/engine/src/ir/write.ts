@@ -1,4 +1,4 @@
-import type { ParamId } from "#compiler/core/ids.ts"
+import type { ParamId, StoredRelationName } from "#compiler/core/ids.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
 import type { RelNode, ValidDag } from "#compiler/ir/rel.ts"
@@ -42,7 +42,10 @@ export const completeAddition = (a: ActionOp): boolean =>
 	a.op === "put" || (a.op === "insert" && a.serial.kind === "complete")
 
 /** What an action does: insert, put or delete its source's facts. */
-export type ActionCore = ActionOp & { readonly relation: string; readonly source: ActionSource }
+export type ActionCore = ActionOp & {
+	readonly relation: StoredRelationName
+	readonly source: ActionSource
+}
 
 /**
  * An action of a stratum, with the indices of the earlier actions of its stratum that must complete first (the

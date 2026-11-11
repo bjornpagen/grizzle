@@ -7,7 +7,8 @@ import {
 	type CheckedEntry,
 	identifierOf,
 	type Raisable,
-	type SchemaArtifacts
+	type SchemaArtifacts,
+	type StoredRelationName
 } from "#compiler/plan/common.ts"
 import type { ServedEntryKey, ServedKeyLaws, ServedRefusals } from "#compiler/plan/serve.ts"
 
@@ -56,7 +57,7 @@ export const keyLawsData = (input: KeyLawInput): ServedKeyLaws => ({
 /** The query entries a role's artifacts write through, by their targets: none for reality. */
 const writtenEntries = (
 	artifacts: Pick<SchemaArtifacts, "world">
-): ReadonlyMap<string, CheckedEntry> => {
+): ReadonlyMap<StoredRelationName, CheckedEntry> => {
 	const world = artifacts.world
 	if (world.kind !== "role") {
 		return new Map()

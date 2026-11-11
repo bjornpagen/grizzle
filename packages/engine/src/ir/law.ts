@@ -1,5 +1,5 @@
 import type { DeclaredName, Identity, IndexMethod } from "#compiler/core/identity.ts"
-import type { ColumnIdent, LawId, RelationIdent } from "#compiler/core/ids.ts"
+import type { ColumnIdent, LawId, RelationIdent, StoredRelationName } from "#compiler/core/ids.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { Direction } from "#compiler/core/order.ts"
@@ -73,6 +73,7 @@ export interface LawRelation {
  * installed on.
  */
 export interface TableRelation extends LawRelation {
+	readonly name: StoredRelationName
 	readonly ident: RelationIdent
 }
 
@@ -127,6 +128,7 @@ interface StoredRelationOf<Kind extends "relation" | "closed"> extends LawRelati
 
 /** An ordinary relation, the only kind a ChangeSet writes, with its installed table's identifier. */
 export interface RelationInfo extends StoredRelationOf<"relation">, TableRelation {
+	readonly name: StoredRelationName
 	/** The keys ownership declared on it, its primary key first. */
 	readonly keyNames: NonEmptyReadonlyArray<KeyName>
 }
@@ -323,7 +325,7 @@ export const familyKey = (id: FamilyId): string => `${id.owner}\u0000${id.count}
  * every row. */
 export interface GeneratedLaw {
 	readonly kind: "generated"
-	readonly relation: string
+	readonly relation: StoredRelationName
 	readonly field: string
 }
 
@@ -331,7 +333,7 @@ export interface GeneratedLaw {
  * A generated field's law, by its relation and field: the one description every refusal of a generated field with no
  * value names, whether the host finds it filling a row or PostgreSQL's NOT NULL refuses the row (23502).
  */
-export const generatedLaw = (relation: string, field: string): GeneratedLaw =>
+export const generatedLaw = (relation: StoredRelationName, field: string): GeneratedLaw =>
 	Object.freeze({ kind: "generated", relation, field })
 
 /**

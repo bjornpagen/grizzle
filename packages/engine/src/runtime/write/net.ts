@@ -1,4 +1,5 @@
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
+import type { StoredRelationName } from "#compiler/core/ids.ts"
 import * as Order from "#compiler/core/order.ts"
 import { compareCodePoints } from "#compiler/core/text.ts"
 import { type ReadonlyTupleMap, TupleMap } from "#compiler/core/tuple-map.ts"
@@ -171,13 +172,13 @@ export const outcomeKind = (counts: Iterable<Counts>): "accepted" | "no-change" 
 }
 
 export interface RelationCounts extends Counts {
-	readonly relation: string
+	readonly relation: StoredRelationName
 }
 
 /** The changes the strata made to one relation, in stratum order, of the strata that changed it. */
 export const relationChanges = (
-	strata: ReadonlyArray<ReadonlyMap<string, StratumChange>>,
-	relation: string
+	strata: ReadonlyArray<ReadonlyMap<StoredRelationName, StratumChange>>,
+	relation: StoredRelationName
 ): ReadonlyArray<StratumChange> =>
 	strata.flatMap((s) => {
 		const change = s.get(relation)
@@ -187,8 +188,8 @@ export const relationChanges = (
 /** The outcome's counts: one entry per relation the ChangeSet writes, in code point order of the names,
  * each netted over the strata in order. A written relation no stratum changed counts zero. */
 export const outcomeCounts = (
-	written: ReadonlyArray<string>,
-	strata: ReadonlyArray<ReadonlyMap<string, StratumChange>>
+	written: ReadonlyArray<StoredRelationName>,
+	strata: ReadonlyArray<ReadonlyMap<StoredRelationName, StratumChange>>
 ): ReadonlyArray<RelationCounts> =>
 	[...new Set(written)].toSorted(codePointOrder).map((relation) => ({
 		relation,

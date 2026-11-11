@@ -4,6 +4,7 @@
  */
 import type { ValueFault } from "#compiler/core/errors.ts"
 import { hostRead } from "#compiler/core/host.ts"
+import type { StoredRelationName } from "#compiler/core/ids.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import { isList, isPlainRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -11,7 +12,7 @@ import type { FamilyId } from "#compiler/ir/law.ts"
 
 /** An addition split along its relation's families: its own fields, and each family's member additions in order. */
 export interface NestedAddition {
-	readonly relation: string
+	readonly relation: StoredRelationName
 	/** The fact's own fields: every field but its families' count fields and the fields grizzle draws or accumulates. */
 	readonly fact: Readonly<Record<string, unknown>>
 	readonly families: ReadonlyArray<{
@@ -28,7 +29,7 @@ export interface ChangeSetRefusal {
 
 /** A fact found while splitting, with where its result goes: its slot, and its families' member slots in order. */
 interface Split {
-	readonly relation: string
+	readonly relation: StoredRelationName
 	readonly own: Readonly<Record<string, unknown>>
 	readonly families: ReadonlyArray<{
 		readonly family: FamilyId
@@ -58,8 +59,8 @@ const pathOf = (at: PathStep | undefined): ReadonlyArray<string | number> => {
 /** A family an addition splits along: its id, its owner and member relations and its count field, each by name. */
 export interface SplitFamily {
 	readonly id: FamilyId
-	readonly owner: string
-	readonly member: string
+	readonly owner: StoredRelationName
+	readonly member: StoredRelationName
 	readonly count: string
 }
 
@@ -71,7 +72,10 @@ interface RelationSplit {
 }
 
 /** How a fact of `relation` splits along `families`. */
-const relationSplit = (relation: string, families: ReadonlyArray<SplitFamily>): RelationSplit => {
+const relationSplit = (
+	relation: StoredRelationName,
+	families: ReadonlyArray<SplitFamily>
+): RelationSplit => {
 	const owned = families.filter((f) => f.owner === relation)
 	return { owned, counts: new Set(owned.map((f) => f.count)) }
 }
@@ -99,12 +103,12 @@ const factRecord = (
  * program's, with the installation's codes.
  */
 export const encodeAddition = (
-	relation: string,
+	relation: StoredRelationName,
 	fact: unknown,
 	families: ReadonlyArray<SplitFamily>
 ): Result.Result<NestedAddition, ChangeSetRefusal> => {
-	const relationSplits = new Map<string, RelationSplit>()
-	const splitOf = (name: string): RelationSplit => {
+	const relationSplits = new Map<StoredRelationName, RelationSplit>()
+	const splitOf = (name: StoredRelationName): RelationSplit => {
 		const known = relationSplits.get(name)
 		if (known !== undefined) {
 			return known
@@ -115,7 +119,7 @@ export const encodeAddition = (
 	}
 	const splits: Array<Split | undefined> = [undefined]
 	const pending: Array<{
-		readonly relation: string
+		readonly relation: StoredRelationName
 		readonly value: unknown
 		readonly at: PathStep | undefined
 		readonly slot: number

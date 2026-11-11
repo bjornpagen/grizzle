@@ -4,10 +4,12 @@ import type { DeclaredName } from "#compiler/core/identity.ts"
 import type {
 	ColumnIdent,
 	DomainName,
+	EntryName,
 	GeneratedLawId,
 	LawId,
 	RelationIdent,
-	SchemaFingerprint
+	SchemaFingerprint,
+	StoredRelationName
 } from "#compiler/core/ids.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
@@ -292,7 +294,7 @@ export interface ServedKeyLaws {
 	readonly schemas: ReadonlyArray<string>
 	readonly constraintLaws: ReadonlyArray<ConstraintLaw>
 	readonly theoryLaws: ReadonlyArray<DescribedLaw>
-	readonly tables: ReadonlyMap<string, RelationIdent>
+	readonly tables: ReadonlyMap<StoredRelationName, RelationIdent>
 	readonly rosterDomains: ReadonlyArray<{
 		readonly roster: DeclaredName
 		readonly code: DomainName
@@ -308,7 +310,7 @@ export interface ServedKeyLaws {
 
 /** A query entry a role writes through, by its target: the entry's name, and each head field to the target field it writes. */
 export interface ServedEntryKey {
-	readonly entry: string
+	readonly entry: EntryName
 	readonly head: ReadonlyMap<string, string>
 }
 
@@ -318,6 +320,6 @@ export interface ServedEntryKey {
  */
 export interface ServedRefusals {
 	readonly laws: ServedKeyLaws
-	readonly relations: ReadonlyMap<string, Heading>
-	readonly entries: ReadonlyMap<string, ServedEntryKey>
+	readonly relations: ReadonlyMap<StoredRelationName, Heading>
+	readonly entries: ReadonlyMap<StoredRelationName, ServedEntryKey>
 }

@@ -4,6 +4,7 @@
  * builders of the SQL the two write in common.
  */
 import { maxOf } from "#compiler/core/array.ts"
+import type { StoredRelationName } from "#compiler/core/ids.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { Family } from "#compiler/ir/family.ts"
@@ -72,7 +73,7 @@ export type UpdateResult = Extract<PutResult, { readonly kind: "update" }>
 /** One part of a family write's rows: the relation its rows are facts of, what they mean, and how many columns they hold
  * behind their tag. */
 export interface FamilyPart {
-	readonly relation: string
+	readonly relation: StoredRelationName
 	readonly result: InsertResult | DeleteResult | UpdateResult
 	/** Whether its rows are facts of its relation, or owners' keys, counts and ends alone, a recount's. */
 	readonly rows: "facts" | "counts"
@@ -91,7 +92,7 @@ export interface FamilyWriteSql {
 export interface FamilyReturning {
 	readonly cte: string
 	readonly columns: ReadonlyArray<ReturnedColumn>
-	readonly relation: string
+	readonly relation: StoredRelationName
 	readonly result: FamilyPart["result"]
 	readonly rows: FamilyPart["rows"]
 }

@@ -16,6 +16,7 @@ import type { ClosedRelation, SchemaReading } from "#compiler/check/schema.ts"
 import { catchRefusal, compareText } from "#compiler/core/canonical.ts"
 import type { GeneratedRule, KeyFault } from "#compiler/core/causes.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
+import { StoredRelationName } from "#compiler/core/ids.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import { childLoc, labeledChildLoc, SourceLoc } from "#compiler/core/loc.ts"
 import {
@@ -552,7 +553,7 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 		readable: ReadonlyArray<ClosedRelation>,
 		patterns: PatternAutomata
 	): RelationInfo {
-		const name = r.name
+		const name = StoredRelationName(r.name)
 		const loc = r.loc
 		const generated = new Set<string>(
 			Object.values(r.fields).flatMap((f) => (f.writing.kind === "generated" ? [f.name] : []))

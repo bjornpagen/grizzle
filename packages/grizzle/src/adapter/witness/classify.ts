@@ -22,7 +22,9 @@ import type {
 	DomainName,
 	ConstraintName,
 	ConstraintOwner,
-	RelationIdent
+	EntryName,
+	RelationIdent,
+	StoredRelationName
 } from "#compiler/plan/common.ts"
 import {
 	defect,
@@ -61,7 +63,8 @@ type ViolationFields = Pick<
  *   TransientFailure reason and the relation, one of this installation's stored relations, and the outcome is that
  *   TransientFailure.
  * - SQLSTATE 42Z01 raised by a query entry's precheck (write/entry/precheck.ts): the entry's name as the constraint name.
- *   The outcome is `outside-world` for that entry, which carries no value.
+ *   The outcome is `outside-world` for that entry, which carries no value, where it is an entry the role writes
+ *   through (ReportedNames); any other name is no outcome.
  * - SQLSTATE 23514 on one of the installation's roster domains, the data type PostgreSQL reports: a roster's code
  *   domain admits exactly its live handles' codes, its bits domain exactly the sets of them, and grizzle's codec
  *   writes only live handles, so no statement grizzle sends can raise it. It is grizzle's own defect, never a law
@@ -127,7 +130,7 @@ export type Violation =
 			readonly refused: Refused
 			readonly witness: Witness
 	  }
-	| { readonly kind: "outside"; readonly relation: string }
+	| { readonly kind: "outside"; readonly relation: EntryName }
 	| { readonly kind: "aborted"; readonly reason: ConcurrentChange }
 	| { readonly kind: "defect"; readonly domain: DomainName; readonly roster: RosterDomain }
 
@@ -138,7 +141,7 @@ export type Violation =
  * the refuser, or unreported where none does, and which laws the refusal names.
  */
 export interface WrittenAt {
-	readonly relations: ReadonlyArray<string>
+	readonly relations: ReadonlyArray<StoredRelationName>
 	readonly judge: (refuser: Refuser) => HostJudgement
 }
 
@@ -301,19 +304,26 @@ const generatedViolation = (
 }
 
 /**
- * The classifier of one installation's violations (see the header), whose stored relations, by declared name, are
- * `stored`.
+ * What a violation names the installation's relations by, as the server reports them: its stored relations, by declared
+ * name, which a concurrent change's DETAIL names; and the query entries the role writes through, each by its name,
+ * which a precheck's refusal reports as its constraint, so a name the role writes through no entry is no outcome.
  */
+export interface ReportedNames {
+	readonly stored: ReadonlySet<string>
+	readonly entries: ReadonlyMap<string, EntryName>
+}
+
+/** The classifier of one installation's violations (see the header), whose relations it names are `names`. */
 export const violationClassifier =
-	(laws: KeyLaws, decoder: KeyDecoder, stored: ReadonlySet<string>): ViolationClassifier =>
+	(laws: KeyLaws, decoder: KeyDecoder, names: ReportedNames): ViolationClassifier =>
 	(failure, written) => {
 		if (failure.sqlstate === sqlstates.grizzleConcurrentChange) {
-			return concurrentChange(failure.detail, stored)
+			return concurrentChange(failure.detail, names.stored)
 		}
 		if (failure.sqlstate === sqlstates.grizzleOutsideWorld) {
-			return failure.constraint === undefined
-				? undefined
-				: { kind: "outside", relation: failure.constraint }
+			const entry =
+				failure.constraint === undefined ? undefined : names.entries.get(failure.constraint)
+			return entry === undefined ? undefined : { kind: "outside", relation: entry }
 		}
 		if (sqlstateClass(failure.sqlstate) !== sqlstateClass(sqlstates.integrityConstraintViolation)) {
 			return undefined

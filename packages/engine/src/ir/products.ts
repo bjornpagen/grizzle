@@ -6,7 +6,8 @@ import type {
 	LawId,
 	ParamId,
 	RelationIdent,
-	SchemaFingerprint
+	SchemaFingerprint,
+	StoredRelationName
 } from "#compiler/core/ids.ts"
 import type { Direction } from "#compiler/core/order.ts"
 import type * as Result from "#compiler/core/result.ts"
@@ -255,7 +256,7 @@ export type ParamSlot =
 			 * which the binding encodes as a family statement's rows. */
 			readonly kind: "nestedRows"
 			readonly stratum: StratumAt
-			readonly relation: string
+			readonly relation: StoredRelationName
 			readonly part: number
 	  }
 	| { readonly kind: "page"; readonly fill: PageFill }

@@ -1214,8 +1214,8 @@ const resolvesAsStated = (c: FamilyCase, t: Theory, k: Case<FamilyFeature>): voi
 	if (c.kind === "tree") {
 		k.note("tree")
 		assert.deepEqual(fam.id, { owner: "T", count: "children" }, "its slots")
-		assert.equal(fam.owner.name, "T", "it is its own owner")
-		assert.equal(fam.member.name, "T", "and its own member")
+		assert.equal<string>(fam.owner.name, "T", "it is its own owner")
+		assert.equal<string>(fam.member.name, "T", "and its own member")
 		assert.deepEqual(
 			Arr.map(fam.group, (p) => [p.member.name, p.owner.name]),
 			[["parent", "id"]],
@@ -1248,8 +1248,8 @@ const resolvesAsStated = (c: FamilyCase, t: Theory, k: Case<FamilyFeature>): voi
 	k.note(c.fold)
 	const [group, keys] = keysOf(c)
 	assert.deepEqual(fam.id, { owner: "O", count: "n" }, "its slots")
-	assert.equal(fam.owner.name, "O", "its owner")
-	assert.equal(fam.member.name, "F", "its member")
+	assert.equal<string>(fam.owner.name, "O", "its owner")
+	assert.equal<string>(fam.member.name, "F", "its member")
 	assert.equal(fam.count.name, "n", "its count")
 	assert.deepEqual<ReadonlyArray<ReadonlyArray<string>>>(
 		Arr.map(fam.group, (p) => [p.member.name, p.owner.name]),

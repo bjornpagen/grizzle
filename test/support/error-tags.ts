@@ -10,4 +10,3 @@ export type GrizzleErrorTag =
 	| "CredentialError"
 	| "TokenError"
 	| "CursorError"
-	| "KeyConflict"

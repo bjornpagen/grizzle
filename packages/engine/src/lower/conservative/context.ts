@@ -1,6 +1,6 @@
 import { Refusal } from "#compiler/core/canonical.ts"
 import { CompileError, type ProseTag, prose } from "#compiler/core/errors.ts"
-import type { NodeId, ParamId } from "#compiler/core/ids.ts"
+import type { NodeId, ParamId, StoredRelationName } from "#compiler/core/ids.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
@@ -280,7 +280,7 @@ export class WriteParams extends StatementParams<MemberParamSlot | NestedRowsPar
 	 */
 	nestedRows(
 		stratum: StratumAt,
-		relation: string,
+		relation: StoredRelationName,
 		allocate: () => ReadonlyArray<RelationColumn>
 	): NonEmptyReadonlyArray<NestedRowsParamSlot> {
 		const key = `${stratum}\u0000${relation}`
@@ -580,7 +580,7 @@ export class LowerContext {
 	 */
 	nestedRows(
 		stratum: StratumAt,
-		relation: string,
+		relation: StoredRelationName,
 		allocate: () => ReadonlyArray<RelationColumn>,
 		at: string
 	): NonEmptyReadonlyArray<NestedRowsParamSlot> {

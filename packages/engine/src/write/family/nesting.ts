@@ -16,6 +16,7 @@
  * (write/family/edit.ts planEdits), from the stored family the read flight finds: the walk fills every other column of
  * it and leaves those the counted family fills (`NestedLayout` pending), which the fill order lets no walked column read.
  */
+import type { StoredRelationName } from "#compiler/core/ids.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { type Family, isSequence, isTreeOf } from "#compiler/ir/family.ts"
@@ -42,7 +43,7 @@ type LevelOf =
 
 /** One level of a nesting: its relation, where it stands, and the heading its own fields are admitted by. */
 interface Level {
-	readonly relation: string
+	readonly relation: StoredRelationName
 	readonly at: LevelOf
 	readonly heading: Heading
 }
@@ -125,7 +126,7 @@ export interface Nesting {
 	readonly levels: ReadonlyArray<Level>
 	/** Each relation whose rows its family statements write: every reached member relation, and the insert's own unless
 	 * its root is plain. */
-	readonly layouts: ReadonlyMap<string, NestedLayout>
+	readonly layouts: ReadonlyMap<StoredRelationName, NestedLayout>
 	/** The fields the insert's own row writes: every field of its relation but a generated one. */
 	readonly top: Heading
 }
@@ -187,11 +188,11 @@ export const nestingOf = (relation: RelationInfo, fill: FillOrder): Nesting => {
 				? { kind: "counted" }
 				: { kind: "plain" }
 	const reached: Array<Reached> = []
-	let frontier: ReadonlyArray<{ readonly relation: string; readonly depth: number }> = [
+	let frontier: ReadonlyArray<{ readonly relation: StoredRelationName; readonly depth: number }> = [
 		{ relation: relation.name, depth: 1 }
 	]
 	while (frontier.length > 0) {
-		const next: Array<{ readonly relation: string; readonly depth: number }> = []
+		const next: Array<{ readonly relation: StoredRelationName; readonly depth: number }> = []
 		for (const { relation: owner, depth } of frontier) {
 			for (const f of families.filter((g) => g.owner.name === owner && isSequence(g))) {
 				reached.push({ family: f, depth })
@@ -202,7 +203,7 @@ export const nestingOf = (relation: RelationInfo, fill: FillOrder): Nesting => {
 		}
 		frontier = next
 	}
-	const layouts = new Map<string, NestedLayout>()
+	const layouts = new Map<StoredRelationName, NestedLayout>()
 	const start = walkStart(families, relation.name)
 	/** The insert's own relation as a family's member, a tree's or a counted family's, when its family statements write
 	 * its rows, at the walk's start. */

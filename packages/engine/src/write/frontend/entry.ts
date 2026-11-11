@@ -15,7 +15,10 @@ import type {
 } from "#compiler/ir/desc.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import type { HostChecks, HostKeyField } from "#compiler/runtime/write/normalize.ts"
+import type { WitnessEntry } from "#compiler/runtime/write/witness.ts"
+import { irLiteral } from "#compiler/scalar/compute/literal.ts"
 import type { WritableEntry } from "#compiler/schema/entry.ts"
+import type { SlotFacts } from "#compiler/write/frontend/compile.ts"
 import { isSerialField } from "#compiler/write/insert/statement.ts"
 
 /** A fill's relation parameter, its declared name: the front end substitutes the sources that fill the fill for it
@@ -164,8 +167,24 @@ export const entryKey = <V>(
 	return Object.freeze(out)
 }
 
-/** The host's view of a query entry's facts (`SlotFacts`): the entry by its name, and each same-key check of the target
- * over the head fields that write it. A fixed field holds one value in every fact of one Db, so a key leaves it out
+/** A query entry as the host reads its facts back into facts of its target (runtime/write/witness.ts WitnessEntry): its
+ * name, each head field with the target field it writes, and each literal-fixed target field with its literal. */
+const witnessEntry = (entry: CheckedEntry): WitnessEntry => ({
+	entry: entry.entry,
+	head: [...entry.head].map(([head, { field }]) => ({ head, field: field.name })),
+	fixed: entry.fixed.flatMap((fixed) => {
+		if (fixed.value.kind !== "literal") {
+			return []
+		}
+		const carried = irLiteral(fixed.value.value, fixed.field.type)
+		return carried.ok
+			? [{ field: fixed.field.name, type: fixed.field.type, literal: carried.value.literal }]
+			: []
+	})
+})
+
+/** The host's view of a query entry's facts (`SlotFacts`): stated in the entry's words, and each same-key check of the
+ * target over the head fields that write it. A fixed field holds one value in every fact of one Db, so a key leaves it out
  * and still holds two facts apart exactly when the target's key does; a span check whose span field is fixed is left
  * to the statement, which probes it.
  *
@@ -190,10 +209,7 @@ export const entryKey = <V>(
  * world, so it is no action at all but a refusal of its source, raised when the source holds any row; a deletion there is
  * a no-op and is dropped. With every context present, an addition is prechecked against the entry's membership before
  * it writes. */
-export const entryFacts = (
-	entry: CheckedEntry,
-	target: HostChecks
-): { readonly name: string; readonly host: HostChecks } => {
+export const entryFacts = (entry: CheckedEntry, target: HostChecks): SlotFacts => {
 	const headOf = new Map([...entry.head].map(([head, { field }]) => [field.name, head] as const))
 	const mapped = (fields: ReadonlyArray<HostKeyField>): ReadonlyArray<HostKeyField> =>
 		fields.flatMap((f) => {
@@ -201,7 +217,7 @@ export const entryFacts = (
 			return head === undefined ? [] : [{ field: head, type: f.type }]
 		})
 	return {
-		name: entry.entry,
+		stated: { kind: "entry", entry: witnessEntry(entry) },
 		host: {
 			keys: target.keys.map((k) => ({
 				law: k.law,

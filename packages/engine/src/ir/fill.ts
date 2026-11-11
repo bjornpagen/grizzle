@@ -16,7 +16,12 @@
 import type { LawId } from "#compiler/core/ids.ts"
 import type { ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
 import type { Family, FamilyFold } from "#compiler/ir/family.ts"
-import { type FamilyId, familyKey, type LawRelation, type NativeColumn } from "#compiler/ir/law.ts"
+import {
+	type FamilyId,
+	familyKey,
+	type NativeColumn,
+	type TableRelation
+} from "#compiler/ir/law.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 
 /**
@@ -131,7 +136,7 @@ export interface FillColumn {
 
 /** A relation's columns at one position, in the order each stage fills them, and the families its rows own. */
 export interface FillLayout {
-	readonly relation: LawRelation
+	readonly relation: TableRelation
 	readonly position: FillPosition
 	readonly columns: ReadonlyArray<FillColumn>
 	/**

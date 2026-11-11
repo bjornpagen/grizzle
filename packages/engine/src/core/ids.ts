@@ -22,6 +22,8 @@ declare const nodeIdBrand: unique symbol
 declare const exprIdBrand: unique symbol
 declare const programFingerprintBrand: unique symbol
 declare const schemaFingerprintBrand: unique symbol
+declare const storedRelationNameBrand: unique symbol
+declare const entryNameBrand: unique symbol
 
 export type FieldId = string & { readonly [fieldIdBrand]: true }
 export type OccurrenceId = string & { readonly [occurrenceIdBrand]: true }
@@ -138,6 +140,24 @@ export type DomainName = Identifier<"contractDomain" | "textDomain" | "rosterDom
 export type ProgramFingerprint = string & { readonly [programFingerprintBrand]: true }
 export type SchemaFingerprint = string & { readonly [schemaFingerprintBrand]: true }
 
+/**
+ * An ordinary relation's declared name, the only kind of relation a ChangeSet writes: what its table, its key laws and a
+ * write's statements name it by. Minted only where the checked schema resolves the relation (analysis/schema.ts), so
+ * a query entry's name never stands where a stored relation's is required.
+ */
+export type StoredRelationName = string & { readonly [storedRelationNameBrand]: true }
+/**
+ * A role's query entry's declared name: what a program writes its facts through, and what a refusal states them in.
+ * Minted only where the entry is admitted writable (schema/entry.ts writableEntry), so it never stands where a stored
+ * relation's name is required.
+ */
+export type EntryName = string & { readonly [entryNameBrand]: true }
+/**
+ * A relation a role writes through, by the name its facts are stated in: a whole entry's, its stored relation's own,
+ * or a query entry's.
+ */
+export type RoleRelationName = StoredRelationName | EntryName
+
 /** Unchecked brand constructors: the caller asserts the spelling is already an identifier of that kind. */
 export const OccurrenceId = nominal<string, OccurrenceId>()
 export const VarId = nominal<string, VarId>()
@@ -147,6 +167,8 @@ export const NodeId = nominal<string, NodeId>()
 export const ExprId = nominal<string, ExprId>()
 export const ProgramFingerprint = nominal<string, ProgramFingerprint>()
 export const SchemaFingerprint = nominal<string, SchemaFingerprint>()
+export const StoredRelationName = nominal<string, StoredRelationName>()
+export const EntryName = nominal<string, EntryName>()
 
 /**
  * A FieldId is the injective pair (relation, field): '%' and '.' are percent-escaped in each component, so the one

@@ -89,6 +89,7 @@ import {
 	type TextRow,
 	textRows
 } from "#bench/harness/variant.ts"
+import { StoredRelationName } from "#compiler/core/ids.ts"
 import type { UniqueAbort } from "#compiler/runtime/write/steps.ts"
 import { assert, assertVariant, nonEmpty } from "#test/support/assert.ts"
 import { wild } from "#test/support/kernel/naming.ts"
@@ -438,7 +439,7 @@ const ranOf = (r: Retried): Effect.Effect<OperationResult> => {
 	const options: RetryOptions = {
 		uniqueAborts: Arr.map(r.listed, ([name, reason]) => ({
 			constraint: wild.constraint(name),
-			relation: "Item",
+			relation: StoredRelationName("Item"),
 			reason
 		})),
 		label: (failed) => (r.labelled ? failed.sqlstate : undefined)

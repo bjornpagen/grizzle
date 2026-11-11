@@ -6,6 +6,7 @@
 import { byteaElementBytes, byteaHeaderBytes } from "#compiler/codec/bytea.ts"
 import { literalAlone } from "#compiler/codec/recordset.ts"
 import type { EncodingFailure } from "#compiler/core/errors.ts"
+import type { StoredRelationName } from "#compiler/core/ids.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { Prepared } from "#compiler/core/prepared.ts"
@@ -83,7 +84,7 @@ export interface Execution {
  * row's cells in the same order (runtime/write/draw.ts rowTexts).
  */
 export interface NestedCells {
-	readonly relation: string
+	readonly relation: StoredRelationName
 	readonly types: ReadonlyArray<ScalarType>
 	readonly rows: ReadonlyArray<ReadonlyArray<MemberCell>>
 }
@@ -91,7 +92,7 @@ export interface NestedCells {
 /** A nested row no fill carries even alone, as the relation it is a row of names it. */
 export interface NestedRowBound {
 	readonly _tag: "NestedRowBound"
-	readonly relation: string
+	readonly relation: StoredRelationName
 	readonly row: Unsendable
 }
 

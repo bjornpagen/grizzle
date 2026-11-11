@@ -4,6 +4,7 @@ import { requiredInSpace } from "@grizzle/testing/features"
 import { array, element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
+import { StoredRelationName } from "#compiler/core/ids.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import {
 	closedLeaf,
@@ -97,7 +98,9 @@ const fills = Arr.map([false, true] as const, (selected) => {
 	return {
 		family: defined(model.families[0], "the fold's family"),
 		fill: filler(
-			hostFillOf(model.theory.fill, [{ relation: "Owner", position: { kind: "top" } }]),
+			hostFillOf(model.theory.fill, [
+				{ relation: StoredRelationName("Owner"), position: { kind: "top" } }
+			]),
 			codes,
 			hostEvaluator(codes, closedLeaf(new Map()), model.patterns)
 		)
@@ -144,13 +147,13 @@ describe("the host fill of a concat fold", () => {
 					Effect.sync(() => {
 						const { family, fill } = defined(fills[c.selected ? 1 : 0])
 						const nesting: HostNode = {
-							relation: "Owner",
+							relation: StoredRelationName("Owner"),
 							values: new Map([[fieldKey("id"), uuidOf(0)]]),
 							families: [
 								{
 									family: { owner: "Owner", count: "n" },
 									members: Arr.map(c.members, (m, i) => ({
-										relation: "Member",
+										relation: StoredRelationName("Member"),
 										values: new Map<ReturnType<typeof fieldKey>, unknown>([
 											[fieldKey("id"), uuidOf(i + 1)],
 											[fieldKey("piece"), m.piece],
