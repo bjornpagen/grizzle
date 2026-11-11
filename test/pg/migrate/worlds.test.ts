@@ -453,7 +453,7 @@ layer(Substrate.layer)("worlds across migrations", (it) => {
 										const b = defined(built[i], `version ${i}`)
 										const found: Array<string> = []
 										for (const world of [b.login, b.editor, b.viewer]) {
-											const rows = yield* owner.values(oidQuery, [roleNameOf(world)])
+											const rows = yield* owner.values(oidQuery, [roleNameOf(world, {})])
 											for (const row of rows) {
 												found.push(String(row[0]))
 											}

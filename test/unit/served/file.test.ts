@@ -187,7 +187,7 @@ const hostReads = (file: ServedFile, text: string, printed: () => string) =>
 			],
 			set(structuralHash, exact)
 		)
-		assert.equal(roleNameOf(login), file.role, `roleNameOf reads the file's role\n${printed()}`)
+		assert.equal(roleNameOf(login, {}), file.role, `roleNameOf reads the file's role\n${printed()}`)
 		const built = yield* Effect.exit(
 			Effect.scoped(
 				Layer.build(

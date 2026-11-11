@@ -489,7 +489,7 @@ export const servedFromFile = <L extends AnyLogin>(
 	Effect.gen(function* () {
 		const substrate = yield* Substrate
 		const file = yield* servedAt(`${dir}/migrations/${schema}`, login)
-		const credentials = yield* substrate.login(roleNameOf(file))
+		const credentials = yield* substrate.login(roleNameOf(file, {}))
 		return {
 			login: file,
 			layer: DbLayer.make({

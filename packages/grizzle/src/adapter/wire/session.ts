@@ -151,10 +151,10 @@ type Startup = { readonly kind: "owner" } | { readonly kind: "login"; readonly o
 
 /**
  * Where one session connects and as whom: the parsed connection (connection/config.ts ParsedConnection), its driver,
- * transport, database, password and connect timeout, the login role, whose session it is, and its transactions' control
- * texts.
+ * transport, database, password and connect timeout, the login role, whose session it is, installed already under the
+ * connection's role space, and its transactions' control texts.
  */
-interface SessionSpec extends ParsedConnection {
+interface SessionSpec extends Omit<ParsedConnection, "roles"> {
 	/** The login role. */
 	readonly role: string
 	readonly startup: Startup

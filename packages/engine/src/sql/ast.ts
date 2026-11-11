@@ -1615,8 +1615,8 @@ export type Privilege = (typeof privileges)[number]
 
 /**
  * What a GRANT or REVOKE names, at least one object: PostgreSQL has no grant on no object. `DATABASE` is the current
- * database, whatever it is named: an installation's statements name no database, so its GRANT and REVOKE are printed as
- * a DO block that reads the name (sql/catalog.ts databasePrivilegeBlock).
+ * database, whatever it is named: an installation's statements name no database, so its GRANT and REVOKE name the
+ * database's variable, which migrate fills with its connection's (sql/print.ts printDatabase).
  */
 export type GrantObjects =
 	| { readonly kind: "TABLE"; readonly names: NonEmptyReadonlyArray<ObjectName> }

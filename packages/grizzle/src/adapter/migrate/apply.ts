@@ -58,6 +58,7 @@ import {
 	apartRow,
 	apartRows,
 	decidingFailure,
+	installationOf,
 	type MigrationConnection,
 	type MigrationSession,
 	openMigrationSession
@@ -80,7 +81,7 @@ import {
 	sqlstateClass,
 	sqlstates
 } from "#compiler/plan/common.ts"
-import type { FolderLaws } from "#compiler/plan/migration.ts"
+import type { FolderLaws, InstallationNames } from "#compiler/plan/migration.ts"
 import { textParam } from "#compiler/plan/read.ts"
 import type { DeploySnapshot, LedgerStatements } from "#compiler/plan/serve.ts"
 
@@ -295,8 +296,11 @@ interface Checked {
 	readonly lock: ApplyLock
 }
 
-const checkTarget = (target: MigrationTarget): Result.Result<Checked, MigrateError> =>
-	Result.flatMap(parseTarget(target), (parsed) =>
+const checkTarget = (
+	target: MigrationTarget,
+	installation: InstallationNames
+): Result.Result<Checked, MigrateError> =>
+	Result.flatMap(parseTarget(target, installation), (parsed) =>
 		Result.map(statementsFor(parsed.schema), (statements) => ({
 			parsed,
 			statements,
@@ -714,7 +718,10 @@ export const checkDrift = Effect.fn("checkDrift")(function* (
 	const schema = snapshot.schema
 	const unchecked = (failure: DriftUnchecked["failure"]) =>
 		stopped(new DriftUnchecked({ schema, failure }))
-	const drift = yield* Effect.mapError(Effect.fromResult(driftFlight(snapshot)), unchecked)
+	const drift = yield* Effect.mapError(
+		Effect.fromResult(driftFlight(snapshot, session.installation)),
+		unchecked
+	)
 	const answered = yield* Effect.mapError(
 		session.alongside(ledgerReads(schema, statements), drift.flight.statements, driftTransaction),
 		unchecked
@@ -755,7 +762,7 @@ export const applyOnSession = Effect.fn("applyOnSession")(function* (
 	}
 	const checked: Array<Checked> = []
 	for (const t of targets) {
-		const checkedTarget = yield* Effect.fromResult(checkTarget(t))
+		const checkedTarget = yield* Effect.fromResult(checkTarget(t, session.installation))
 		checked.push(checkedTarget)
 	}
 	const planned = yield* surveyAll(session, checked)
@@ -779,7 +786,7 @@ const driftOnSession = Effect.fn("driftOnSession")(function* (
 	targets: ReadonlyArray<MigrationTarget>
 ): Effect.fn.Return<void, MigrateError> {
 	for (const t of targets) {
-		const checked = yield* Effect.fromResult(checkTarget(t))
+		const checked = yield* Effect.fromResult(checkTarget(t, session.installation))
 		yield* checkDrift(session, checked.parsed.snapshot, checked.statements)
 	}
 })
@@ -803,7 +810,7 @@ export const applyMigrations = Effect.fn("applyMigrations")(function* (input: {
 	readonly targets: ReadonlyArray<MigrationTarget>
 }): Effect.fn.Return<ReadonlyArray<SchemaApplyReport>, MigrateError, Scope.Scope> {
 	for (const t of input.targets) {
-		yield* Effect.asVoid(Effect.fromResult(parseTarget(t)))
+		yield* Effect.asVoid(Effect.fromResult(parseTarget(t, installationOf(input.connection))))
 	}
 	const session = yield* openMigrationSession(input.connection)
 	return yield* applyOnSession(session, input.targets)

@@ -1,6 +1,7 @@
 import { Array as Arr, Context, Effect, Layer, Option, Result, type Scope } from "effect"
 import { parseSnapshot } from "#adapter/boundary/snapshot.ts"
 import {
+	connectionRole,
 	faultAt,
 	loginSettings,
 	type ParsedConnection,
@@ -222,16 +223,31 @@ const makeDbSessions = Effect.fn("makeDbSessions")(function* (
 	const base = yield* openStage(ownServed(config.login.base, snapshot.fingerprints))
 	const codes = snapshot.codes
 	const owned = yield* openStage(ownLoginOver(config.login, base))
-	const loginRole = yield* openStage(loginRoleName(config.login.desc))
+	const loginRole = yield* Effect.flatMap(openStage(loginRoleName(config.login.desc)), (stem) =>
+		Effect.fromResult(Result.mapError(connectionRole(config, dbConfig, stem), refusedConfig))
+	)
 	const slice = yield* Effect.mapError(
 		workloadSlice(config.login, owned),
 		(refused) => new OpenError({ reason: refused.error })
 	)
 	const layer = yield* openStage(artifactsUnder(owned.base, codes, snapshot.derived, slice))
 	const above = lawsAbove(snapshot)
-	const roles = yield* Effect.mapError(
+	const compiled = yield* Effect.mapError(
 		loginRoles(config.login, owned, layer, above),
 		(refused) => new OpenError({ reason: refused.error })
+	)
+	const roles = yield* Effect.fromResult(
+		Result.mapError(
+			Result.all(
+				Arr.map(compiled, (role) =>
+					Result.map(connectionRole(config, dbConfig, role.theory), (theory) => ({
+						...role,
+						theory
+					}))
+				)
+			),
+			refusedConfig
+		)
 	)
 	if (!Arr.isReadonlyArrayNonEmpty(roles)) {
 		return yield* new OpenError({

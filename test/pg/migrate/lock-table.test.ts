@@ -130,6 +130,7 @@ const refusingTransaction = (
 ): MigrationSession => {
 	let armed = true
 	return {
+		installation: m.installation,
 		apart: m.apart,
 		alongside: m.alongside,
 		transaction: (statements) => {
@@ -149,6 +150,7 @@ const refusingTransaction = (
 
 /** `m`, whose transaction alongside is refused at statement `index`, answered as the server's 53200. */
 const refusingAlongside = (m: MigrationSession, index: number): MigrationSession => ({
+	installation: m.installation,
 	apart: m.apart,
 	transaction: m.transaction,
 	alongside: (apart, statements, transaction) =>
@@ -236,7 +238,10 @@ layer(Substrate.layer)("a migration that runs out of the server's lock table", (
 										role: owner,
 										password: substrate.owner.password
 									})
-									const m = migrationSession(tapped.session)
+									const m = migrationSession(tapped.session, {
+										database: substrate.database,
+										roles: { kind: "stems" }
+									})
 									const over = {
 										schema: atName(allocated),
 										owner: ownedBy(owner),
@@ -267,7 +272,7 @@ layer(Substrate.layer)("a migration that runs out of the server's lock table", (
 									const ledgerBefore = yield* Effect.result(readLedger(m, schema, ledgerStatements))
 									const relationsBefore = yield* relations()
 									const snapshot = target(1).snapshot
-									const replay = succeeded(driftFlight(snapshot)).replay
+									const replay = succeeded(driftFlight(snapshot, m.installation)).replay
 									/** The place the refused statement is at, which `pick` notes. */
 									let place: Place = "the drift check's replay"
 									/** The case's statement among a file transaction's, at the place its text names. */

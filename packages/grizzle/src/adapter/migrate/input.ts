@@ -9,11 +9,13 @@ import {
 import type { MigrationText } from "#adapter/wire/batch.ts"
 import { compareCodePoints, sha256Hex } from "#compiler/plan/common.ts"
 import {
+	type InstallationNames,
 	isFolderName,
 	isNoTransaction,
 	lex,
 	orderFolderFiles,
 	type ReadMeta,
+	resolveVariables,
 	splitStatements,
 	type Token
 } from "#compiler/plan/migration.ts"
@@ -36,7 +38,10 @@ import type { DeploySnapshot } from "#compiler/plan/serve.ts"
  *   statement that controls the transaction (BEGIN, START TRANSACTION, COMMIT, END, ROLLBACK other than ROLLBACK TO,
  *   ABORT, PREPARE TRANSACTION) is refused: a file runs as one transaction, or each of its statements alone, and its
  *   ledger row is inserted inside its own transaction, which a file that commits
- *   or opens a transaction itself would break.
+ *   or opens a transaction itself would break;
+ * - each statement's variables, its installation's roles by their stems and its database (compiler/sql/variables.ts),
+ *   are filled with what the installation names them, and a variable none fills is refused: what is sent is the filled
+ *   statement, what the ledger records the digest of the file as written, the same in every installation.
  *
  * A folder as the command line read it.
  */
@@ -64,7 +69,8 @@ export interface ParsedFile {
 	/** SHA-256 of the text, which the ledger records. */
 	readonly digest: string
 	readonly noTransaction: boolean
-	/** The file's statements, each as reviewed: the one SQL grizzle sends that its printer did not print. */
+	/** The file's statements, each as reviewed with its variables filled: the one SQL grizzle sends that its printer did
+	 * not print. */
 	readonly statements: ReadonlyArray<MigrationText>
 }
 
@@ -135,8 +141,11 @@ export const transactionControl = (statement: string): string | undefined => {
 	return verb === undefined ? undefined : transactionControls.get(verb)?.(second, third)
 }
 
-/** Checks one schema's snapshot and folders, without a connection. */
-export const parseTarget = (target: MigrationTarget): Result.Result<ParsedTarget, MigrateError> => {
+/** Checks one schema's snapshot and folders, without a connection, each statement filled under `installation`. */
+export const parseTarget = (
+	target: MigrationTarget,
+	installation: InstallationNames
+): Result.Result<ParsedTarget, MigrateError> => {
 	const snapshot = target.snapshot
 	const schema = snapshot.schema
 	const refuse = (fault: InputFault) => Result.fail(stopped(new InputRefused({ schema, fault })))
@@ -179,9 +188,8 @@ export const parseTarget = (target: MigrationTarget): Result.Result<ParsedTarget
 			file: { name, text },
 			ordinal
 		} of ordered.value) {
-			const statements = splitStatements(text)
-			const noTransaction = isNoTransaction(text)
-			for (const [i, statement] of statements.entries()) {
+			const statements: Array<MigrationText> = []
+			for (const [i, statement] of splitStatements(text).entries()) {
 				const control = transactionControl(statement)
 				if (control !== undefined) {
 					return refuse({
@@ -192,14 +200,25 @@ export const parseTarget = (target: MigrationTarget): Result.Result<ParsedTarget
 						control
 					})
 				}
+				const filled = resolveVariables(statement, installation)
+				if (!filled.ok) {
+					return refuse({
+						kind: "variable",
+						folder,
+						file: name,
+						statement: i + 1,
+						fault: filled.error
+					})
+				}
+				statements.push(reviewed(filled.value))
 			}
 			files.push({
 				name,
 				ordinal,
 				text,
 				digest: sha256Hex(text),
-				noTransaction,
-				statements: Arr.map(statements, (s) => reviewed(s))
+				noTransaction: isNoTransaction(text),
+				statements
 			})
 		}
 		folders.push({

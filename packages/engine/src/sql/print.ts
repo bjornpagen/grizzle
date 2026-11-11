@@ -38,6 +38,7 @@ import {
 	type FunctionParam,
 	type FunctionRef,
 	type Grantee,
+	type GrantObjects,
 	type IndexKey,
 	type Insert,
 	type KeyColumn,
@@ -85,7 +86,7 @@ import {
 	type DoBlock,
 	type DoStatement,
 	databaseDefaultBlock,
-	databasePrivilegeBlock
+	databasePrivilegeLock
 } from "#compiler/sql/catalog.ts"
 import { statementParams } from "#compiler/sql/transform.ts"
 
@@ -120,6 +121,22 @@ const statementTextLoc = SourceLoc("SQL statement text", [])
 export const quoteIdent = (name: string): string => `"${name.replaceAll('"', '""')}"`
 
 export const printObjectName = (name: ObjectName): string =>
+/**
+ * A role of the installation where a statement names it: psql's identifier variable `:"<stem>"`, the role's stem, which
+ * `grizzle generate` commits, the one way a statement prints an installation's role. Migrate fills it with the role the
+ * installation's role space installs (sql/variables.ts resolveVariables), so one drafted file installs under every
+ * role space, and one never filled is a syntax error, never another role.
+ */
+export const printRole = (stem: string): string => `:${quoteIdent(stem)}`
+
+/** The name of the variable that stands for the current database, psql's own: a name of no role stem, all of which
+ * hold `__`. */
+export const databaseVariable = "DBNAME"
+
+/** The current database where a GRANT or REVOKE on it names it, `:"DBNAME"`: an installation's statements name no
+ * database, and migrate fills it with its connection's (sql/variables.ts resolveVariables). */
+const printDatabase = (): string => `:${quoteIdent(databaseVariable)}`
+
 	`${quoteIdent(name.schema)}.${quoteIdent(name.name)}`
 
 /** Each isolation level as BEGIN ISOLATION LEVEL spells it. */
@@ -1271,7 +1288,19 @@ export const printFunctionSignature = (fn: FunctionName): string =>
 	`${printObjectName(fn)}(${fn.args.map((t) => printType(t)).join(", ")})`
 
 const printGrantee = (grantee: Grantee): string =>
-	grantee.kind === "PUBLIC" ? "PUBLIC" : quoteIdent(grantee.name)
+	grantee.kind === "PUBLIC" ? "PUBLIC" : printRole(grantee.name)
+
+/** The database privilege's lock, terminated, ahead of a GRANT or REVOKE on the current database (sql/catalog.ts
+ * databasePrivilegeLock), in the same transaction; nothing ahead of one on any other object. */
+const databasePrivilegeLocked = (out: Lines, on: GrantObjects): void => {
+	if (on.kind === "DATABASE") {
+		terminated(out, (lines) => writeStatement(lines, databasePrivilegeLock))
+	}
+}
+
+/** What a GRANT or REVOKE names: its objects, or the current database (printDatabase). */
+const printGrantOn = (on: GrantObjects): string =>
+	on.kind === "DATABASE" ? `DATABASE ${printDatabase()}` : printGrantObjects(on)
 
 const printGrantObjects = (on: NamedGrantObjects): string => {
 	switch (on.kind) {
@@ -1564,7 +1593,8 @@ export const printCommentTarget = (on: CommentTarget): string => {
 	switch (on.kind) {
 		case "SCHEMA":
 		case "ROLE":
-			return `${on.kind} ${quoteIdent(on.name)}`
+			return `SCHEMA ${quoteIdent(on.name)}`
+			return `ROLE ${printRole(on.name)}`
 		case "TABLE":
 		case "VIEW":
 		case "MATERIALIZED VIEW":
@@ -1600,8 +1630,11 @@ export const printCommentTarget = (on: CommentTarget): string => {
  * installation in the database sets the same default on the same pg_db_role_setting row, and two that update it at
  * once fail with XX000 (tuple concurrently updated), so the block first takes the database default's
  * transaction-scoped advisory lock: a second installation waits for the first to commit, then sets it again. A GRANT or
- * REVOKE on the current database is a DO block alike (sql/catalog.ts databasePrivilegeBlock), under the database
- * privilege's lock.
+ * REVOKE on the current database names it by its variable (printDatabase), after the database privilege's lock
+ * (databasePrivilegeLocked), two statements of one transaction.
+ *
+ * Every role of the installation prints as its variable (printRole); the owner a FOR ROLE names is no role of it and
+ * prints as its name.
  *
  * A carrier is printed under pg_temp, the session's own temporary schema: never a stored relation of the same name.
  */
@@ -1646,7 +1679,9 @@ export const writeStatement = (out: Lines, statement: SqlStatement): void => {
 		}
 		case "rename":
 			return out.line(
-				`ALTER ${statement.object} ${statement.object === "ROLE" || statement.object === "SCHEMA" ? quoteIdent(statement.name) : printObjectName(statement.name)} RENAME TO ${quoteIdent(statement.to)}`
+				statement.object === "ROLE"
+					? `ALTER ROLE ${printRole(statement.name)} RENAME TO ${printRole(statement.to)}`
+					: `ALTER ${statement.object} ${statement.object === "SCHEMA" ? quoteIdent(statement.name) : printObjectName(statement.name)} RENAME TO ${quoteIdent(statement.to)}`
 			)
 		case "renameColumn":
 			return out.line(
@@ -1697,7 +1732,7 @@ export const writeStatement = (out: Lines, statement: SqlStatement): void => {
 			return selectBlock(out, statement.query)
 		case "createPolicy": {
 			out.line(
-				`CREATE POLICY ${quoteIdent(statement.name)} ON ${printObjectName(statement.table)} AS PERMISSIVE FOR ALL TO ${quoteIdent(statement.role)}`
+				`CREATE POLICY ${quoteIdent(statement.name)} ON ${printObjectName(statement.table)} AS PERMISSIVE FOR ALL TO ${printRole(statement.role)}`
 			)
 			const clauses = out.nested()
 			clauses.line(`USING (${printExpr(statement.filter)})`)
@@ -1709,7 +1744,7 @@ export const writeStatement = (out: Lines, statement: SqlStatement): void => {
 			)
 		case "drop":
 			return out.line(
-				`DROP ${statement.object} ${statement.ifExists ? "IF EXISTS " : ""}${statement.object === "ROLE" || statement.object === "SCHEMA" ? quoteIdent(statement.name) : printObjectName(statement.name)}`
+				`DROP ${statement.object} ${statement.ifExists ? "IF EXISTS " : ""}${statement.object === "ROLE" ? printRole(statement.name) : statement.object === "SCHEMA" ? quoteIdent(statement.name) : printObjectName(statement.name)}`
 			)
 		case "dropFunction":
 			return out.line(
@@ -1750,37 +1785,31 @@ export const writeStatement = (out: Lines, statement: SqlStatement): void => {
 			return writeDo(out, databaseDefaultBlock(statement))
 		case "createRole":
 			return out.line(
-				`CREATE ROLE ${quoteIdent(statement.name)} ${statement.login ? "LOGIN NOINHERIT" : "NOLOGIN"}`
+				`CREATE ROLE ${printRole(statement.name)} ${statement.login ? "LOGIN NOINHERIT" : "NOLOGIN"}`
 			)
 		case "grantRole":
 			return out.line(
-				`GRANT ${quoteIdent(statement.role)} TO ${quoteIdent(statement.to)} WITH INHERIT FALSE, SET TRUE`
+				`GRANT ${printRole(statement.role)} TO ${printRole(statement.to)} WITH INHERIT FALSE, SET TRUE`
 			)
 		case "revokeRole":
-			return out.line(`REVOKE ${quoteIdent(statement.role)} FROM ${quoteIdent(statement.from)}`)
+			return out.line(`REVOKE ${printRole(statement.role)} FROM ${printRole(statement.from)}`)
 		case "alterRole":
 			return out.line(
-				`ALTER ROLE ${quoteIdent(statement.name)} ${printAlterRoleAction(statement.action)}`
+				`ALTER ROLE ${printRole(statement.name)} ${printAlterRoleAction(statement.action)}`
 			)
-		case "grant": {
-			const on = statement.on
-			return on.kind === "DATABASE"
-				? writeDo(out, databasePrivilegeBlock(statement))
-				: out.line(
-						`GRANT ${statement.privileges.join(", ")} ON ${printGrantObjects(on)} TO ${statement.to.map(printGrantee).join(", ")}`
-					)
-		}
-		case "revoke": {
-			const on = statement.on
-			return on.kind === "DATABASE"
-				? writeDo(out, databasePrivilegeBlock(statement))
-				: out.line(
-						`REVOKE ${statement.privileges.join(", ")} ON ${printGrantObjects(on)} FROM ${statement.from.map(printGrantee).join(", ")}`
-					)
-		}
+		case "grant":
+			databasePrivilegeLocked(out, statement.on)
+			return out.line(
+				`GRANT ${statement.privileges.join(", ")} ON ${printGrantOn(statement.on)} TO ${statement.to.map(printGrantee).join(", ")}`
+			)
+		case "revoke":
+			databasePrivilegeLocked(out, statement.on)
+			return out.line(
+				`REVOKE ${statement.privileges.join(", ")} ON ${printGrantOn(statement.on)} FROM ${statement.from.map(printGrantee).join(", ")}`
+			)
 		case "grantColumns":
 			return out.line(
-				`GRANT ${statement.privilege} (${printIdentList(statement.columns)}) ON TABLE ${printObjectName(statement.table)} TO ${quoteIdent(statement.to)}`
+				`GRANT ${statement.privilege} (${printIdentList(statement.columns)}) ON TABLE ${printObjectName(statement.table)} TO ${printRole(statement.to)}`
 			)
 		case "alterDefaultPrivileges":
 			return out.line(

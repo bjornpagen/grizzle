@@ -9,6 +9,7 @@ export {
 	type DefaultPrivilegesExpectation,
 	defaultPrivilegesExpectations,
 	type ExpectedPolicy,
+	installedExpectation,
 	judgedSchemas,
 	manifestRoles,
 	privilegeFamilies,

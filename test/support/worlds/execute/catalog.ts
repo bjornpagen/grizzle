@@ -167,9 +167,10 @@ const writesRecord = (at: KillPoint, statement: BatchStatement): boolean => {
  * The migration session of a deploy killed at `at`: as the runner sends the transaction holding that record, the
  * connection ends at once, failing it and whatever follows, as when the process running the runner dies.
  */
-const killedAt = (session: Session, at: KillPoint): MigrationSession => {
-	const inner = migrationSession(session)
+const killedAt = (session: Session, at: KillPoint, database: string): MigrationSession => {
+	const inner = migrationSession(session, { database, roles: { kind: "stems" } })
 	return {
+		installation: inner.installation,
 		apart: inner.apart,
 		alongside: inner.alongside,
 		transaction: (statements) =>
@@ -226,7 +227,9 @@ export const runFolders = (
 				runAlone(connection, oneShotStatement(testSql("SELECT pg_catalog.pg_backend_pid()"), []))
 			)
 			const session =
-				end.kind === "runner" ? migrationSession(connection) : killedAt(connection, end.at)
+				end.kind === "runner"
+					? migrationSession(connection, { database: substrate.database, roles: { kind: "stems" } })
+					: killedAt(connection, end.at, substrate.database)
 			const ran = yield* Effect.result(applyOnSession(session, [{ snapshot, folders }]))
 			if (Result.isSuccess(ran)) {
 				return { kind: "applied" }

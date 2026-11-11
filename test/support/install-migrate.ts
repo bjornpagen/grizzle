@@ -383,7 +383,11 @@ const applyFolders = (
 					)
 				)
 		)
-		yield* applied(applyOnSession(migrationSession(connection), [{ snapshot, folders }]))
+		yield* applied(
+			applyOnSession(migrationSession(connection, { database, roles: { kind: "stems" } }), [
+				{ snapshot, folders }
+			])
+		)
 	}).pipe(Effect.scoped)
 
 /**

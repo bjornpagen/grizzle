@@ -81,7 +81,7 @@ const stepsOf = (
 	report: SchemaApplyReport,
 	c: { note: (f: FlightFeature) => void }
 ) => {
-	const parsed = succeeded(parseTarget(target))
+	const parsed = succeeded(parseTarget(target, { database: "unparsed", roles: { kind: "stems" } }))
 	let steps = 1
 	for (const applied of report.applied) {
 		const folder = defined(
@@ -182,7 +182,10 @@ layer(Substrate.layer)("every step of grizzle migrate is one flight", (it) => {
 								role: owner,
 								password: substrate.owner.password
 							})
-							const m = migrationSession(tapped.session)
+							const m = migrationSession(tapped.session, {
+								database: substrate.database,
+								roles: { kind: "stems" }
+							})
 							const over = {
 								schema: atName(allocated),
 								owner: ownedBy(owner),

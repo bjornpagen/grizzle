@@ -38,26 +38,37 @@ import {
 	defaultPrivilegesExpectations,
 	emptyNameMap,
 	identityHooks,
+	installedExpectation,
 	judgedSchemas,
 	manifestRoles,
 	roleExpectation,
+	type RoleExpectation,
 	transformCreateIndex,
 	transformStatement
 } from "#compiler/plan/catalog.ts"
 import {
-	type CompileError,
+	CompileError,
 	emit,
+	malformedArtifact,
 	emitCatalog,
 	type EmittedText,
 	nominal,
 	type NonEmptyReadonlyArray,
 	type ParamText,
 	quoteIdent,
+	SourceLoc,
 	sha256Hex,
 	type SqlStatement,
 	type TypeSchema
 } from "#compiler/plan/common.ts"
-import { type ManifestStatement, manifestStatements } from "#compiler/plan/migration.ts"
+import {
+	type InstallationNames,
+	type ManifestStatement,
+	manifestStatements,
+	resolveVariables,
+	type VariableFault
+} from "#compiler/plan/migration.ts"
+import type { InstalledRoleTooLong } from "#compiler/plan/runtime.ts"
 import { textParam } from "#compiler/plan/read.ts"
 import type { DeploySnapshot, LedgerState } from "#compiler/plan/serve.ts"
 
@@ -736,10 +747,35 @@ const inScratch = (
 	}
 }
 
-/** The texts that build the snapshot's objects in the scratch schemas, in the manifest's order. */
+/** A replayed statement's text with its variables filled (compiler/sql/variables.ts): what the replay sends. */
+const filledText = nominal<string, EmittedText>()
+
+/** A role of `of`'s past PostgreSQL's longest identifier under the installation's role prefix, as the snapshot's
+ * refusal. */
+const roleTooLong = (of: "login" | "role", fault: InstalledRoleTooLong): CompileError =>
+	CompileError.make({
+		_tag: "RoleNameTooLong",
+		at: SourceLoc("rolePrefix", []),
+		of,
+		role: fault.role,
+		limit: fault.limit
+	})
+
+/** A replayed statement's variable no installation fills, as the snapshot's refusal: a manifest that names a role by
+ * no stem, or a role the installation's role prefix makes too long. */
+const unfilled = (fault: VariableFault): CompileError =>
+	fault.kind === "roleTooLong"
+		? roleTooLong("role", fault)
+		: malformedArtifact("manifest", [], `a role named by its stem, not ${fault.name}`)
+
+/**
+ * The texts that build the snapshot's objects in the scratch schemas, in the manifest's order, each policy's role filled
+ * as the installation names it.
+ */
 const scratchStatements = (
 	statements: ReadonlyArray<ManifestStatement>,
-	scratchOf: ReadonlyMap<string, TypeSchema>
+	scratchOf: ReadonlyMap<string, TypeSchema>,
+	installation: InstallationNames
 ): Result.Result<ReadonlyArray<EmittedText>, CompileError> => {
 	const texts: Array<EmittedText> = []
 	for (const d of Arr.flatMap(statements, (s) => inScratch(s, scratchOf))) {
@@ -747,7 +783,11 @@ const scratchStatements = (
 		if (!e.ok) {
 			return Result.fail(e.error)
 		}
-		texts.push(e.value.text)
+		const filled = resolveVariables(e.value.text, installation)
+		if (!filled.ok) {
+			return Result.fail(unfilled(filled.error))
+		}
+		texts.push(filledText(filled.value))
 	}
 	return Result.succeed(texts)
 }
@@ -908,7 +948,8 @@ export interface DriftFlight {
 }
 
 /**
- * The drift check of `snapshot`'s schema as statements of driftTransaction, in order, each read through the slot it is
+ * The drift check of `snapshot`'s schema, installed as `installation` names its roles (deploy/admission/roles.ts
+ * installedExpectation), as statements of driftTransaction, in order, each read through the slot it is
  * sent into (Sending): the closed search path first (sql/ast.ts closedSearchPath), against which every description is
  * spelled, since PostgreSQL's deparsers spell a name bare exactly when the path finds it first; each installed schema's
  * name as PostgreSQL prints it, the installed schema's first and then each role's; the replay, whose statements name
@@ -916,19 +957,28 @@ export interface DriftFlight {
  * database's settings, the owner's default privileges (none for the empty snapshot, which alters no default), and each
  * login's and role's login, settings, privileges, memberships and policies.
  */
-export const driftFlight = (snapshot: DeploySnapshot): Result.Result<DriftFlight, CompileError> =>
+export const driftFlight = (
+	snapshot: DeploySnapshot,
+	installation: InstallationNames
+): Result.Result<DriftFlight, CompileError> =>
 	Result.gen(function* () {
 		const schema = snapshot.schema
 		const statements = yield* toResult(manifestStatements(snapshot))
 		const schemas = judgedSchemas(statements, schema)
 		const scratchOf = new Map(Arr.map(schemas, (s) => [s, scratchSchema(s)] as const))
-		const replay = yield* scratchStatements(statements, scratchOf)
+		const replay = yield* scratchStatements(statements, scratchOf, installation)
 		const createdExtensions = Arr.flatMap(statements, (s) =>
 			s.kind === "createExtension" ? [s] : []
 		)
-		const roles = Arr.map(manifestRoles(statements), (role) =>
-			roleExpectation(statements, schema, role)
-		)
+		const roles: Array<RoleExpectation> = []
+		for (const stem of manifestRoles(statements)) {
+			const expected = roleExpectation(statements, schema, stem)
+			const installed = installedExpectation(expected, installation.roles)
+			if (!installed.ok) {
+				return yield* Result.fail(roleTooLong(expected.login ? "login" : "role", installed.error))
+			}
+			roles.push(installed.value)
+		}
 		const flight = sending()
 		flight.command(emitCatalog(C.setClosedSearchPath))
 		const printed = Arr.map(schemas, (s) => ({

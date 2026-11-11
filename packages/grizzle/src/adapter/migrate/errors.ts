@@ -13,9 +13,10 @@ import {
 	type CompileError,
 	compileReasonText,
 	type LawId,
+	quoteIdent,
 	sqlstates
 } from "#compiler/plan/common.ts"
-import type { findMarkers } from "#compiler/plan/migration.ts"
+import type { findMarkers, VariableFault } from "#compiler/plan/migration.ts"
 
 /**
  * The failure of `grizzle migrate` and `grizzle drift`.
@@ -354,6 +355,23 @@ export type InputFault =
 			readonly statement: number
 			readonly control: string
 	  }
+	| {
+			readonly kind: "variable"
+			readonly folder: string
+			readonly file: string
+			readonly statement: number
+			readonly fault: VariableFault
+	  }
+
+/** What a statement's variable that no installation fills is, as a refusal states it (compiler/sql/variables.ts). */
+export const variableFaultText = (fault: VariableFault): string => {
+	switch (fault.kind) {
+		case "unknownVariable":
+			return `names the variable :${quoteIdent(fault.name)}, which is neither :"DBNAME" nor a role's stem <schema>__<name>; write a slice with a space after its colon`
+		case "roleTooLong":
+			return `names the role ${fault.stem}, which the installation's role prefix makes ${fault.role}, past PostgreSQL's ${fault.limit} bytes`
+	}
+}
 
 /** `schema`'s snapshot and folders, as the command line read them, are refused for `fault`. */
 export class InputRefused extends Data.TaggedError("InputRefused")<{
@@ -376,6 +394,7 @@ export class InputRefused extends Data.TaggedError("InputRefused")<{
 			case "foreignMeta":
 				return { kind: "file", folder: fault.folder, file: "meta.json" }
 			case "transactionControl":
+			case "variable":
 				return {
 					kind: "statement",
 					folder: fault.folder,
@@ -406,6 +425,8 @@ export class InputRefused extends Data.TaggedError("InputRefused")<{
 				return `migration ${fault.folder}: ${compileReasonText(fault.error.reason)}`
 			case "transactionControl":
 				return `${fault.folder}/${fault.file} statement ${fault.statement} is ${fault.control}: a migration file runs as one transaction, or each statement alone with -- grizzle: no-transaction, and its ledger row is recorded in its own transaction`
+			case "variable":
+				return `${fault.folder}/${fault.file} statement ${fault.statement} ${variableFaultText(fault.fault)}`
 		}
 	}
 }

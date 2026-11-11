@@ -1,4 +1,6 @@
+import { type InstalledRoleTooLong, installedRole, type RoleSpace } from "#compiler/core/identity.ts"
 import { combine, compareStrings, mapInput } from "#compiler/core/order.ts"
+import * as Result from "#compiler/core/result.ts"
 import type { ManifestStatement } from "#compiler/deploy/admission/manifest.ts"
 import { databaseDefaults } from "#compiler/physical/ddl/isolation.ts"
 import type {
@@ -316,6 +318,43 @@ export const roleExpectation = (
 		secured: [...filtered].filter((t) => rowSecure.has(t)).toSorted(compareStrings)
 	}
 }
+
+/** Each of `stems` under the role space `space`, in order (core/identity.ts installedRole), or the first refused. */
+const installedAll = (
+	space: RoleSpace,
+	stems: ReadonlyArray<string>
+): Result.Result<ReadonlyArray<string>, InstalledRoleTooLong> => {
+	const out: Array<string> = []
+	for (const stem of stems) {
+		const role = installedRole(space, stem)
+		if (!role.ok) {
+			return role
+		}
+		out.push(role.value)
+	}
+	return Result.ok(out)
+}
+
+/**
+ * `expectation`, which names the manifest's roles by their stems, as the installation of role space `space` installs
+ * it: the role, each role it is granted and each granted it, under the space, as the cluster names them; its
+ * privileges, schemas and policies are the database's, named as the manifest names them. A prefix keeps the stems'
+ * order. The first role past PostgreSQL's longest identifier refuses it.
+ */
+export const installedExpectation = (
+	expectation: RoleExpectation,
+	space: RoleSpace
+): Result.Result<RoleExpectation, InstalledRoleTooLong> =>
+	Result.flatMap(installedRole(space, expectation.role), (role) =>
+		Result.flatMap(installedAll(space, expectation.memberships), (memberships) =>
+			Result.map(installedAll(space, expectation.members), (members) => ({
+				...expectation,
+				role,
+				memberships,
+				members
+			}))
+		)
+	)
 
 /** The logins and roles the manifest creates, in its order. */
 export const manifestRoles = (

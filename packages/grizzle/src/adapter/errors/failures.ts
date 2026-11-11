@@ -282,6 +282,7 @@ export type SettingRule =
 	| { readonly kind: "snapshot" }
 	| { readonly kind: "function" }
 	| { readonly kind: "verifier"; readonly role: string; readonly login: string }
+	| { readonly kind: "rolePrefix"; readonly reason: string }
 
 /**
  * A setting a block's parse refuses: `setting`, its path from the block (`["DbConfig", "transport", "port"]`, an
@@ -331,6 +332,8 @@ const ruleText = (rule: SettingRule): string => {
 			return "must be a function"
 		case "verifier":
 			return `must be a function: role ${rule.role} of login ${rule.login} reads a context`
+		case "rolePrefix":
+			return `must be a role prefix, ${rule.reason}`
 	}
 }
 

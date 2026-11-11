@@ -1,11 +1,14 @@
 import { catchCompileError } from "#compiler/core/canonical.ts"
-import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
+import { CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import {
 	type DeclaredName,
 	type Identity,
 	identifierOf,
 	identity,
-	parseDeclaredName
+	installedRole,
+	parseDeclaredName,
+	type RoleInstallation,
+	roleSpaceOf
 } from "#compiler/core/identity.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -58,21 +61,40 @@ const worldDesc = <D>(described: D | undefined, operation: string): D => {
 	return described
 }
 
-/**
- * roleNameOf(world): the PostgreSQL role grizzle installs for a login or a role. A login's is the one that logs in, as
- * its layer's pool does: the role a password is set on, `rds_iam` is granted to and an IAM signer names. A role's is the
- * one a direct SQL writer's `SET ROLE` names. Each is minted by the naming door with the installer's own function
- * (loginRoleName), so it is the installed name by construction and never spelled by hand. It throws CompileError for a
- * value login(...) or role(...) did not build, and for a name the installation refuses: a declared name the naming door
- * refuses (MalformedDescription) or a role past PostgreSQL's 63 bytes (RoleNameTooLong).
- */
-export const roleNameOf = (world: AnyLogin | AnyRole): string => {
+/** A login's or a role's stem, the role name its identity spells (loginRoleName, theoryRole), and where it is declared. */
+const worldStem = (world: AnyLogin | AnyRole): { readonly stem: string; readonly loc: SourceLoc } => {
 	switch (world.kind) {
-		case "login":
-			return orThrow(loginRoleName(worldDesc(loginDescOf(world), "roleNameOf")))
-		case "role":
-			return identifierOf(orThrow(theoryRole(worldDesc(roleDescOf(world), "roleNameOf"))))
+		case "login": {
+			const login = worldDesc(loginDescOf(world), "roleNameOf")
+			return { stem: orThrow(loginRoleName(login)), loc: login.loc }
+		}
+		case "role": {
+			const role = worldDesc(roleDescOf(world), "roleNameOf")
+			return { stem: identifierOf(orThrow(theoryRole(role))), loc: role.loc }
+		}
 	}
+}
+
+/**
+ * roleNameOf(world, installation): the PostgreSQL role the installation installs for a login or a role. A login's is
+ * the one that logs in, as its layer's pool does: the role a password is set on, `rds_iam` is granted to and an IAM
+ * signer names. A role's is the one a direct SQL writer's `SET ROLE` names. Each is its stem, minted by the naming door
+ * with the installer's own function (loginRoleName), under the installation's role prefix (core/identity.ts
+ * installedRole), so it is the installed name by construction and never spelled by hand. It throws CompileError for a
+ * value login(...) or role(...) did not build, and for a name the installation refuses: a declared name or a role
+ * prefix the naming door refuses (MalformedDescription), or a role past PostgreSQL's 63 bytes (RoleNameTooLong).
+ */
+export const roleNameOf = (world: AnyLogin | AnyRole, installation: RoleInstallation): string => {
+	const { stem, loc } = worldStem(world)
+	const space = roleSpaceOf(installation.rolePrefix)
+	if (!space.ok) {
+		throw malformed("roleNameOf", `the role prefix ${JSON.stringify(installation.rolePrefix)} as ${space.error}`)
+	}
+	const role = installedRole(space.value, stem)
+	if (!role.ok) {
+		throw CompileError.make({ _tag: "RoleNameTooLong", at: loc, of: world.kind, ...role.error })
+	}
+	return role.value
 }
 
 /**

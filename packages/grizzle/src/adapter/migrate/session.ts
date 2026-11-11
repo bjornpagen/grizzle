@@ -31,6 +31,7 @@ import type { ParsedConnection } from "#adapter/connection/config.ts"
 import { connectSession, type Session } from "#adapter/wire/session.ts"
 import { type CatalogQuery, catalogRow, catalogRows } from "#adapter/wire/statement.ts"
 import { servedSession } from "#compiler/plan/common.ts"
+import type { InstallationNames } from "#compiler/plan/migration.ts"
 
 /**
  * The migration identity's session.
@@ -49,6 +50,11 @@ import { servedSession } from "#compiler/plan/common.ts"
  * InputTooLarge (../wire/batch.ts send): nothing of it ran.
  */
 export interface MigrationSession {
+	/**
+	 * What the session's installation names a statement's variables (compiler/sql/variables.ts): the database it is
+	 * connected to and the role space of its connection.
+	 */
+	readonly installation: InstallationNames
 	/**
 	 * One step of statements apart, each its own implicit transaction: each answers its outcome or the server's refusal
 	 * of it, in order.
@@ -110,8 +116,12 @@ const fileTransaction: Transaction = {
 	end: "COMMIT"
 }
 
-/** The migration identity's view of a session it holds for the scope. */
-export const migrationSession = (session: Session): MigrationSession => ({
+/** The migration identity's view of a session it holds for the scope, connected into `installation`'s database. */
+export const migrationSession = (
+	session: Session,
+	installation: InstallationNames
+): MigrationSession => ({
+	installation,
 	apart: (statements) => runApart(session, statements),
 	alongside: (apart, statements, transaction) =>
 		runAlongside(session, apart, statements, transaction),
@@ -125,6 +135,12 @@ export const migrationSession = (session: Session): MigrationSession => ({
 export interface MigrationConnection extends ParsedConnection {
 	readonly role: string
 }
+
+/** What a migration connection's installation names a statement's variables: its database, and its role space. */
+export const installationOf = (connection: MigrationConnection): InstallationNames => ({
+	database: connection.database,
+	roles: connection.roles
+})
 
 /**
  * Opens the migration identity's session, closed with the scope. A connection failure is a MigrateError whose reason,
@@ -144,5 +160,5 @@ export const openMigrationSession = (
 					refusal
 				})
 			),
-		onSuccess: migrationSession
+		onSuccess: (session) => migrationSession(session, installationOf(spec))
 	})

@@ -70,13 +70,19 @@ export interface Transport {
 
 /**
  * Where a connection goes and how it authenticates, which a DbLayer's config and the migration connection share: the
- * driver, the transport, the database, the password, and the connect timeout.
+ * driver, the transport, the database and its installation's role prefix, the password, and the connect timeout.
  */
 export interface DbConnection {
 	/** node-postgres, as the caller imports it (`import pg from "pg"`): grizzle imports no driver itself. */
 	readonly driver: PgDriver
 	readonly transport: Transport
 	readonly database: string
+	/**
+	 * The installation's role prefix: every login's and role's PostgreSQL role is `<rolePrefix>__<role>` (roleNameOf),
+	 * so two installations of one schema share a cluster, each in its own database under its own prefix. A declared
+	 * name, installed as its conversion; without it, each role is the name `grizzle generate` committed.
+	 */
+	readonly rolePrefix?: string
 	/** Evaluated for each connection attempt when it is an Effect, so a rotating credential needs no restart. */
 	readonly password: Redacted.Redacted | Effect.Effect<Redacted.Redacted, CredentialError>
 	/**

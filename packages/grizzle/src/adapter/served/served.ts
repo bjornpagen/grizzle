@@ -1,4 +1,8 @@
 import * as Arr from "effect/Array"
+import * as Result from "effect/Result"
+import { prefixedRole } from "#adapter/connection/config.ts"
+import { OpenError } from "#adapter/errors/execution.ts"
+import { DbConfigRefused } from "#adapter/errors/failures.ts"
 import type {
 	ServedConstructor,
 	ServedLogin,
@@ -6,7 +10,12 @@ import type {
 	ServedRoles
 } from "#adapter/types/layer.ts"
 import type { AnyLogin } from "#compiler/plan/common.ts"
-import { builtMark, defect, servedFile } from "#compiler/plan/runtime.ts"
+import {
+	builtMark,
+	defect,
+	type RoleInstallation,
+	servedFile
+} from "#compiler/plan/runtime.ts"
 
 /**
  * served(file, name): a login's served workload, as an application holds it, and the tokens of its roles.
@@ -65,7 +74,16 @@ export const served: ServedConstructor = <L extends AnyLogin>(
 }
 
 /**
- * roleNameOf(login): the PostgreSQL role a served login logs in as, which its file names: what a platform names the
- * login's password or IAM credential by. It reads the one member of the file served read and evaluates no schema.
+ * roleNameOf(login, installation): the PostgreSQL role a served login logs in as in the installation, the stem its file
+ * names under the installation's role prefix, as its layer's pool logs in (connection/config.ts prefixedRole): what a
+ * platform names the login's password or IAM credential by. The installation is the layer's connection, or any part of
+ * it (`{}` for one without a prefix). It reads the one member of the file served read and evaluates no schema; it throws the OpenError
+ * DbLayer.make fails with for a role prefix it refuses.
  */
-export const roleNameOf = <L>(login: ServedLogin<L>): string => login.file.role
+export const roleNameOf = <L>(login: ServedLogin<L>, installation: RoleInstallation): string => {
+	const role = prefixedRole(installation.rolePrefix, ["roleNameOf", "installation"], login.file.role)
+	if (Result.isFailure(role)) {
+		throw new OpenError({ reason: new DbConfigRefused(role.failure) })
+	}
+	return role.success
+}

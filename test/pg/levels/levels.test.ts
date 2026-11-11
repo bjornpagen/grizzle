@@ -335,8 +335,8 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							upper: schemaNameOf(at.upper)
 						}
 						const roleOf: { readonly [R in LevelRole]: string } = {
-							author: roleNameOf(at.author),
-							learner: roleNameOf(at.learner)
+							author: roleNameOf(at.author, {}),
+							learner: roleNameOf(at.learner, {})
 						}
 						/** A relation's table in a level's schema, both as the compiler names them, as a regclass literal. */
 						const tableIn = (level: Level, relation: string) =>

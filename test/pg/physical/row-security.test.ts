@@ -179,7 +179,7 @@ const expectedAt = (uses: Uses, b: Built, tableOf: (r: RelationName) => string):
 					? [
 							{
 								table: tableOf(r),
-								roles: [roleNameOf(who === "clerk" ? b.clerk : b.keeper)],
+								roles: [roleNameOf(who === "clerk" ? b.clerk : b.keeper, {})],
 								holds: uses[who][r].holds === "whole" ? "every row" : "narrowed"
 							}
 						]

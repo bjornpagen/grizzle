@@ -976,7 +976,7 @@ export const RdsEtlLayer = DbLayer.make({
 				hostname: "db.internal",
 				port: 5432,
 				region: "us-east-1",
-				username: roleNameOf(EtlServed)
+				username: roleNameOf(EtlServed, connection)
 			}).getAuthToken(),
 		catch: (cause) => new CredentialError({ cause })
 	}).pipe(Effect.map(Redacted.make))

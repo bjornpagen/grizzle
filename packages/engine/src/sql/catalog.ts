@@ -4,14 +4,20 @@ import type {
 	AlterDatabaseDefault,
 	CatalogTypeName,
 	Expr,
-	Grant,
 	ObjectName,
 	PlDeclaration,
 	PlStatement,
 	Refresh,
-	Revoke
+	Select
 } from "#compiler/sql/ast.ts"
-import { call as valueCall, core as valueCore, lit, target, types } from "#compiler/sql/build.ts"
+import {
+	provedSelect,
+	call as valueCall,
+	core as valueCore,
+	lit,
+	target,
+	types
+} from "#compiler/sql/build.ts"
 
 /**
  * The catalog-read AST: the SQL grizzle's shell sends to read PostgreSQL's catalog (admission, drift, the ledger's
@@ -586,7 +592,7 @@ export const setClosedSearchPath: SetClosedSearchPath = { kind: "setClosedSearch
  * An advisory lock grizzle takes, by what it serializes: the database default an installation sets, so concurrent
  * installations into one database set it one at a time (databaseDefaultBlock); the database's privileges an
  * installation grants or revokes, which every installation in the database writes on the database's one pg_database row,
- * one at a time alike (databasePrivilegeBlock); or the apply of one schema's
+ * one at a time alike (databasePrivilegeLock); or the apply of one schema's
  * migrations, so two applies of the schema never interleave their files (adapter/migrate/apply.ts). Each lives in the
  * database's one bigint key space, which the application's own locks share, so its key is grizzle's by derivation from
  * its name (advisoryKey), never a chosen number, and is known on the host before any statement is sent: every statement
@@ -677,49 +683,21 @@ export const databaseDefaultBlock = (statement: AlterDatabaseDefault): DoBlock =
 })
 
 /**
- * The DO block of a GRANT or REVOKE on the current database (sql/ast.ts GrantObjects `DATABASE`): the database
- * privilege's advisory lock, then the statement on the database's own name, which format quotes as an identifier
- * (`%I`), as it quotes each role it names:
- *
- *   DO $$
- *   BEGIN
- *     PERFORM "pg_catalog"."pg_advisory_xact_lock"(<key>::bigint);
- *     EXECUTE "pg_catalog"."format"('GRANT TEMPORARY ON DATABASE %I TO %I'::"pg_catalog"."text",
- *       "pg_catalog"."current_database"(), '<role>'::"pg_catalog"."text");
- *   END
- *   $$
- *
- * A GRANT or REVOKE on a database writes its pg_database row, which every installation in the database shares, and two
- * that write it at once fail with XX000 (tuple concurrently updated), so the block first takes the lock: a second
- * installation waits for the first to commit, then writes it again.
+ * The database privilege's advisory lock, `SELECT pg_advisory_xact_lock(<key>)`, held to the end of the transaction: the
+ * statement a GRANT or REVOKE on the current database runs first (sql/print.ts), and what any other writer of the
+ * database's ACL takes before it. Such a statement writes the database's pg_database row, which every installation in the
+ * database shares, and two that write it at once fail with XX000 (tuple concurrently updated): a second installation
+ * waits for the first to commit, then writes it again.
  */
-export const databasePrivilegeBlock = (statement: Grant | Revoke): DoBlock => {
-	const [verb, preposition, grantees] =
-		statement.kind === "grant"
-			? (["GRANT", "TO", statement.to] as const)
-			: (["REVOKE", "FROM", statement.from] as const)
-	const named = grantees.map((g) => (g.kind === "PUBLIC" ? "PUBLIC" : "%I"))
-	return {
-		kind: "do",
-		declare: [],
-		body: [
-			advisoryXactLock({ kind: "databasePrivilege" }),
-			{
-				kind: "execute",
-				command: {
-					kind: "formatted",
-					text: valueCall("format", [
-						lit.text(
-							`${verb} ${statement.privileges.join(", ")} ON DATABASE %I ${preposition} ${named.join(", ")}`,
-							types.text
-						),
-						valueCall("current_database", []),
-						...grantees.flatMap((g) => (g.kind === "role" ? [lit.text(g.name, types.text)] : []))
-					])
-				},
-				into: undefined,
-				using: []
-			}
-		]
-	}
-}
+export const databasePrivilegeLock: Select = provedSelect(
+	"oneRow",
+	[
+		target(
+			valueCall("pg_advisory_xact_lock", [
+				lit.int(advisoryKey({ kind: "databasePrivilege" }), types.bigint)
+			])
+		)
+	],
+	[],
+	undefined
+)

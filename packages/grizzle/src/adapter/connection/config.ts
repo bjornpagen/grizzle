@@ -15,8 +15,11 @@ import type { Limit } from "#compiler/plan/common.ts"
 import {
 	type CallerObject,
 	type CallerRecord,
+	installedRole,
 	published,
-	readCaller
+	type RoleSpace,
+	readCaller,
+	roleSpaceOf
 } from "#compiler/plan/runtime.ts"
 
 /**
@@ -105,6 +108,7 @@ export const connectionSettings = [
 	"driver",
 	"transport",
 	"database",
+	"rolePrefix",
 	"password",
 	"connectTimeoutMs"
 ] as const
@@ -181,11 +185,13 @@ export interface ParsedTransport {
 	readonly servername: string
 }
 
-/** A block's destination, credentials, verify-full TLS and connect timeout, as its driver connects them. */
+/** A block's destination, credentials, verify-full TLS and connect timeout, as its driver connects them, and the role
+ * space of the installation in its database, its `rolePrefix` read (core/identity.ts roleSpaceOf). */
 export interface ParsedConnection {
 	readonly driver: PgDriver
 	readonly transport: ParsedTransport
 	readonly database: string
+	readonly roles: RoleSpace
 	readonly password: DbConnection["password"]
 	readonly connectTimeoutMs: number
 }
@@ -411,7 +417,7 @@ export const parseConnection = <E>(
 	if (Option.isNone(driver)) {
 		return Result.fail(faultAt(where, "driver", { kind: "driver" }))
 	}
-	const { database, connectTimeoutMs } = plain
+	const { database, rolePrefix, connectTimeoutMs } = plain
 	if (Option.isNone(transportRead)) {
 		return Result.fail(faultAt(where, "transport", { kind: "object", settings: transportSettings }))
 	}
@@ -421,6 +427,10 @@ export const parseConnection = <E>(
 	}
 	if (typeof database !== "string" || database === "") {
 		return Result.fail(faultAt(where, "database", { kind: "nonemptyText" }))
+	}
+	const roles = parseRoleSpace(rolePrefix, where)
+	if (Result.isFailure(roles)) {
+		return Result.fail(roles.failure)
 	}
 	const parsedExtras = extras.parse(plain, where)
 	if (Result.isFailure(parsedExtras)) {
@@ -436,11 +446,69 @@ export const parseConnection = <E>(
 		driver: driver.value,
 		transport: transport.success,
 		database,
+		roles: roles.success,
 		password: password.value,
 		connectTimeoutMs,
 		...parsedExtras.success
 	})
 }
+
+/** The role space of a block's `rolePrefix`, as its plain data holds it (core/identity.ts roleSpaceOf), or the
+ * prefix refused. */
+const parseRoleSpace = (
+	rolePrefix: unknown,
+	where: SettingPath
+): Result.Result<RoleSpace, SettingFault> => {
+	if (rolePrefix !== undefined && typeof rolePrefix !== "string") {
+		return Result.fail(faultAt(where, "rolePrefix", { kind: "rolePrefix", reason: "a string" }))
+	}
+	const space = roleSpaceOf(rolePrefix)
+	return space.ok
+		? Result.succeed(space.value)
+		: Result.fail(faultAt(where, "rolePrefix", { kind: "rolePrefix", reason: space.error }))
+}
+
+/**
+ * The PostgreSQL role a block's role space installs for the role stem `stem` (core/identity.ts installedRole), or the
+ * block's rolePrefix refused when the role is past PostgreSQL's longest identifier.
+ */
+const spaceRole = (
+	space: RoleSpace,
+	where: SettingPath,
+	stem: string
+): Result.Result<string, SettingFault> => {
+	const role = installedRole(space, stem)
+	return role.ok
+		? Result.succeed(role.value)
+		: Result.fail(
+				faultAt(where, "rolePrefix", {
+					kind: "rolePrefix",
+					reason: `one under which the role ${role.error.role} fits ${role.error.limit} bytes`
+				})
+			)
+}
+
+/**
+ * The PostgreSQL role a block's installation installs for the role stem `stem`, a role a served file or a compile names,
+ * under the block's role space (spaceRole): the one place a layer makes the role its pool logs in as and its Dbs take
+ * on.
+ */
+export const connectionRole = (
+	connection: ParsedConnection,
+	where: SettingPath,
+	stem: string
+): Result.Result<string, SettingFault> => spaceRole(connection.roles, where, stem)
+
+/**
+ * The PostgreSQL role the installation of role prefix `rolePrefix` installs for the role stem `stem`, as a block of that
+ * prefix would (parseRoleSpace, spaceRole), for a caller that names a role outside a layer: roleNameOf.
+ */
+export const prefixedRole = (
+	rolePrefix: string | undefined,
+	where: SettingPath,
+	stem: string
+): Result.Result<string, SettingFault> =>
+	Result.flatMap(parseRoleSpace(rolePrefix, where), (space) => spaceRole(space, where, stem))
 
 /**
  * A DbConfig's pool bounds, `setting` as its block's plain data holds them (parseConnection read it as data): parsed,

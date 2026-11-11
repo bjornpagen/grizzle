@@ -57,5 +57,12 @@ export { servedDifference, servedPartingText } from "#compiler/served/difference
 export { servedText } from "#compiler/served/json.ts"
 export { type UnservedMember, type UnservedReason } from "#compiler/served/unserved.ts"
 export { lex, type Token } from "#compiler/sql/lexer.ts"
+export {
+	type InstallationNames,
+	resolveVariables,
+	type Variable,
+	type VariableFault,
+	variableOf
+} from "#compiler/sql/variables.ts"
 export { servedMembers } from "#compiler/write/program/served-members.ts"
 export { servedMatchers } from "#compiler/served/matchers.ts"

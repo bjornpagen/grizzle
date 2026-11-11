@@ -53,6 +53,7 @@ import { confirmMarker, placeholderMarker } from "#compiler/deploy/render/marker
 import { emptyFingerprint, emptySnapshot, noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { placeholderToken } from "#compiler/sql/print.ts"
+import type { InstallationNames } from "#compiler/sql/variables.ts"
 import { assert, defined, failed, succeeded } from "#test/support/assert.ts"
 import { firstCodes } from "#test/support/compile.ts"
 import { atName, parsedSchemaName } from "#test/support/kernel/naming.ts"
@@ -69,6 +70,9 @@ import {
 import { draftFiles } from "#test/support/migrate/review.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { shopV1, shopV2, shopV3, shopV3Declared } from "#test/unit/deploy/schemas.ts"
+
+/** The installation every parse here fills its statements under: the stems role space, as without a role prefix. */
+const stemsInstallation: InstallationNames = { database: "unparsed", roles: { kind: "stems" } }
 
 /** The schema every version of the shop is installed under, and its PostgreSQL schema. */
 const shopSchema = atName("shop")
@@ -726,7 +730,7 @@ describe("the input check before any connection", () => {
 								onSome: (g) => g.snapshot
 							})
 							const planted = plantedFolders(handed, c.fault)
-							const parsed = parseTarget({ snapshot, folders: planted.folders })
+							const parsed = parseTarget({ snapshot, folders: planted.folders }, stemsInstallation)
 							if (planted.refusal !== undefined) {
 								const reason = failed(parsed).reason
 								assert.deepEqual(
@@ -961,11 +965,14 @@ describe("the plan: skip, resume, run, or refuse before any statement", () => {
 							const sources = Arr.map(chain, (g, i) => reviewedSource(c, g.folder, i))
 							/** Every folder as it ran, which the ledger's digests record. */
 							const ran = succeeded(
-								parseTarget({
-									snapshot: defined(Arr.last(chain).pipe(Option.getOrUndefined), "a draft")
-										.snapshot,
-									folders: sources
-								})
+								parseTarget(
+									{
+										snapshot: defined(Arr.last(chain).pipe(Option.getOrUndefined), "a draft")
+											.snapshot,
+										folders: sources
+									},
+									stemsInstallation
+								)
 							).folders
 							const partial =
 								c.partial.kind === "partial"
@@ -1123,7 +1130,7 @@ describe("the plan: skip, resume, run, or refuse before any statement", () => {
 									after: known.fingerprint
 								}
 							})()
-							const parsed = succeeded(parseTarget({ snapshot: known, folders: target }))
+							const parsed = succeeded(parseTarget({ snapshot: known, folders: target }, stemsInstallation))
 							const planned = planApply(parsed, state)
 							if (verdict.kind === "refused") {
 								const refusal: MigrateError = failed(planned)

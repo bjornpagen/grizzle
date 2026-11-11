@@ -402,7 +402,7 @@ layer(Substrate.layer)("the search policy as login defaults", (it) => {
 											const worlds = defined(built[i], `version ${i}`)
 											const stores: Array<ReadonlyArray<string>> = []
 											for (const w of worlds) {
-												const rows = yield* owner.values(storedQuery, [roleNameOf(w.value)])
+												const rows = yield* owner.values(storedQuery, [roleNameOf(w.value, {})])
 												stores.push(Arr.map(rows, (row) => String(row[0])))
 											}
 											observed.push(stores)

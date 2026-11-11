@@ -283,6 +283,73 @@ export const parseSchemaName = (name: string): Result.Result<SchemaName, string>
 				: Result.ok(schemaName(declared))
 	)
 
+declare const rolePrefixBrand: unique symbol
+
+/** An installation's role prefix, its declared name's conversion: minted only by `parseRolePrefix`. */
+export type RolePrefix = string & { readonly [rolePrefixBrand]: true }
+
+const rolePrefixOf = nominal<string, RolePrefix>()
+
+/**
+ * The rule a role prefix keeps: a schema's declared name's (`parseSchemaName`), since it leads each role of its
+ * installation as a schema's conversion leads them under none, where PostgreSQL reserves `pg_`. The prefix, as its
+ * conversion, or the reason it breaks the rule.
+ */
+export const parseRolePrefix = (prefix: string): Result.Result<RolePrefix, string> =>
+	Result.map(parseSchemaName(prefix), (name) => rolePrefixOf(conversionOf(name)))
+
+/**
+ * Where an installation's roles live in the cluster, whose roles every database shares: at their stems, the names a
+ * login's or role's identity spells (`identity.login`, `identity.role`), which `grizzle generate` commits; or each under
+ * the installation's role prefix, `<prefix>__<stem>`. A conversion holds no `__`, so a stem holds exactly one, a
+ * prefixed name exactly two, and two prefixes of distinct conversions part before the first: the roles of two
+ * installations of distinct role spaces are disjoint.
+ */
+export type RoleSpace =
+	| { readonly kind: "stems" }
+	| { readonly kind: "prefixed"; readonly prefix: RolePrefix }
+
+/**
+ * An installation as a caller names it outside a connection: a connection block (DbConnection) or any part of one,
+ * the database and the role prefix that identify it, of which roleNameOf reads the prefix; one without a prefix installs
+ * its roles at their stems.
+ */
+export interface RoleInstallation {
+	readonly database?: string
+	readonly rolePrefix?: string
+}
+
+/** A role space of the installation's role prefix, or of its stems with none: the one reading of an installation's
+ * `rolePrefix`, refused as parseRolePrefix refuses it. */
+export const roleSpaceOf = (rolePrefix: string | undefined): Result.Result<RoleSpace, string> =>
+	rolePrefix === undefined
+		? Result.ok({ kind: "stems" })
+		: Result.map(parseRolePrefix(rolePrefix), (prefix) => ({ kind: "prefixed", prefix }))
+
+/** An installed role past PostgreSQL's maxIdentifierBytes, which no installation can create or log in as. */
+export interface InstalledRoleTooLong {
+	readonly role: string
+	readonly limit: number
+}
+
+/**
+ * The PostgreSQL role the installation of role space `space` installs for the role stem `stem`, or its refusal past
+ * maxIdentifierBytes: the one place a cluster role's name is made from a stem. A stem fits by its identity's minting
+ * (physical/ddl/names.ts fitted), so only a prefix lengthens it.
+ */
+export const installedRole = (
+	space: RoleSpace,
+	stem: string
+): Result.Result<string, InstalledRoleTooLong> => {
+	if (space.kind === "stems") {
+		return Result.ok(stem)
+	}
+	const role = `${space.prefix}__${stem}`
+	return utf8Length(role) > maxIdentifierBytes.value
+		? Result.err({ role, limit: maxIdentifierBytes.value })
+		: Result.ok(role)
+}
+
 /** Whether two declared names are one name: their segments agree, so the door renders both as one conversion
  * (TaskNote, Task_Note and task_note). */
 export const declaredAlike = (a: DeclaredName, b: DeclaredName): boolean =>

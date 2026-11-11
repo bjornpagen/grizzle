@@ -6,6 +6,7 @@ import * as Option from "effect/Option"
 import * as Result from "effect/Result"
 import type * as Scope from "effect/Scope"
 import {
+	connectionRole,
 	faultAt,
 	type ParsedConnection,
 	parseConnection,
@@ -259,13 +260,39 @@ export const parseServedConfig = <L extends AnyLogin>(
 	)
 
 /**
+ * `login` as the config's installation installs it: its PostgreSQL role, which every session of its pool logs in as,
+ * and each of its roles', which a Db's prologue takes on, the file's stems each under the config's role space
+ * (connection/config.ts connectionRole).
+ */
+const installedLogin = (
+	config: ParsedDbConfig,
+	login: LoadedLogin
+): Result.Result<LoadedLogin, SettingFault> =>
+	Result.flatMap(connectionRole(config, dbConfig, login.role), (role) =>
+		Result.map(
+			Result.all(
+				Arr.map(login.roles, (r) =>
+					Result.map(connectionRole(config, dbConfig, r.installed), (installed) => ({
+						...r,
+						installed
+					}))
+				)
+			),
+			(roles) => ({ ...login, role, roles })
+		)
+	)
+
+/**
  * Builds the service in the current scope (the layer's) from a parsed config: the served login loaded (see the header),
  * a login a role of which reads a context refused without a verify, then the login's pool.
  */
 const makeServedSessions = Effect.fn("makeServedSessions")(function* (
 	config: ParsedDbConfig
 ): Effect.fn.Return<ServedSessions, OpenError, Scope.Scope> {
-	const login = yield* Effect.fromResult(loadServed(config.login.file, config.login.name))
+	const loaded = yield* Effect.fromResult(loadServed(config.login.file, config.login.name))
+	const login = yield* Effect.fromResult(
+		Result.mapError(installedLogin(config, loaded), refusedConfig)
+	)
 	const reading = Arr.findFirst(login.roles, (role) => role.contexts.length > 0)
 	if (config.token.kind === "none" && Option.isSome(reading)) {
 		return yield* refusedConfig(

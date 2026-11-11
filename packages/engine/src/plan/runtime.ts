@@ -27,7 +27,14 @@ export { canonicalEquals, everyProperty } from "#compiler/core/canonical.ts"
 export { outputTextOf, rowCell, rowText } from "#compiler/core/decoder.ts"
 export { malformedDescription } from "#compiler/core/errors.ts"
 export { type CallerObject, type CallerRecord, readCaller } from "#compiler/core/host.ts"
-export { admittedIdentifier } from "#compiler/core/identity.ts"
+export {
+	admittedIdentifier,
+	type InstalledRoleTooLong,
+	installedRole,
+	type RoleInstallation,
+	type RoleSpace,
+	roleSpaceOf
+} from "#compiler/core/identity.ts"
 export { SchemaFingerprint } from "#compiler/core/ids.ts"
 export { defect, defined } from "#compiler/core/invariant.ts"
 export {

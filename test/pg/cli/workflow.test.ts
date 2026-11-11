@@ -1186,7 +1186,7 @@ const runCommands = (c: Case<CommandKind>, steps: Program<WorkflowParameters>) =
 			const logins = new Map<string, Credentials>()
 			const login = (value: AnyLogin): Effect.Effect<Credentials, SqlError, Services> =>
 				Effect.suspend(() => {
-					const role = roleNameOf(value)
+					const role = roleNameOf(value, {})
 					const known = logins.get(role)
 					if (known !== undefined) {
 						return Effect.succeed(known)
