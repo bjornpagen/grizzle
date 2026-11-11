@@ -1,6 +1,6 @@
 import { Option } from "effect"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
-import { pgErrorFields } from "#test/support/substrate/errors.ts"
+import { messageText, pgErrorFields } from "#test/support/substrate/errors.ts"
 
 /**
  * How an operation under measurement ended, by cause, for the contention gates' lock waits, deadlock rate and
@@ -47,50 +47,53 @@ const causeBySqlstate: ReadonlyMap<string, Exclude<OutcomeCause, "other">> = new
 export const causeOf = (sqlstate: string): OutcomeCause => causeBySqlstate.get(sqlstate) ?? "other"
 
 /** The constraint PostgreSQL named in the error, or none. */
-export type Constraint =
+export type ReportedConstraint =
 	| { readonly kind: "named"; readonly name: string }
 	| { readonly kind: "none" }
+
+/**
+ * What PostgreSQL said of a failure: its SQLSTATE, the cause it is tallied by, the constraint it named, its message,
+ * and its DETAIL.
+ */
+interface Reported {
+	readonly sqlstate: string
+	readonly cause: OutcomeCause
+	readonly constraint: ReportedConstraint
+	readonly message: string
+	/** A 40001's reason code, a unique violation's key, …; none when PostgreSQL sent no DETAIL. */
+	readonly detail: Option.Option<string>
+}
 
 /**
  * A failure, by where in a transaction it was raised: at BEGIN, at a statement (by its label), at the deferred checks
  * forced before COMMIT, or by COMMIT itself.
  */
 export type FailedOutcome =
-	| {
+	| (Reported & {
 			readonly kind: "failed"
 			readonly at: "statement"
 			readonly statement: string
-			readonly sqlstate: string
-			readonly cause: OutcomeCause
-			readonly constraint: Constraint
-	  }
-	| {
+	  })
+	| (Reported & {
 			readonly kind: "failed"
 			readonly at: "begin" | "deferredChecks" | "commit"
-			readonly sqlstate: string
-			readonly cause: OutcomeCause
-			readonly constraint: Constraint
-	  }
+	  })
 
 export type Outcome =
 	| { readonly kind: "committed" }
 	| { readonly kind: "rolledBack" }
 	| FailedOutcome
 
-const fieldsOf = (
-	error: unknown
-): Option.Option<{
-	readonly sqlstate: string
-	readonly cause: OutcomeCause
-	readonly constraint: Constraint
-}> =>
+const fieldsOf = (error: unknown): Option.Option<Reported> =>
 	Option.map(Option.fromUndefinedOr(pgErrorFields(error)), (fields) => ({
 		sqlstate: fields.code,
 		cause: causeOf(fields.code),
 		constraint: Option.match(Option.fromUndefinedOr(fields.constraint), {
-			onNone: (): Constraint => ({ kind: "none" }),
-			onSome: (name): Constraint => ({ kind: "named", name })
-		})
+			onNone: (): ReportedConstraint => ({ kind: "none" }),
+			onSome: (name): ReportedConstraint => ({ kind: "named", name })
+		}),
+		message: fields.message,
+		detail: fields.detail
 	}))
 
 /**
@@ -114,6 +117,21 @@ export const failedAt = (
 	at: "begin" | "deferredChecks" | "commit"
 ): Option.Option<FailedOutcome> =>
 	Option.map(fieldsOf(error), (fields): FailedOutcome => ({ kind: "failed", at, ...fields }))
+
+/**
+ * An outcome as a counterexample reads it: committed, rolled back, or the failure where it was raised, with its
+ * SQLSTATE, the constraint PostgreSQL named, and its message and DETAIL, a 40001's "Reason code" among them.
+ */
+export const outcomeText = (outcome: Outcome): string => {
+	switch (outcome.kind) {
+		case "committed":
+			return "committed"
+		case "rolledBack":
+			return "rolled back"
+		case "failed":
+			return `failed ${outcome.at === "statement" ? `at statement ${outcome.statement}` : `at ${outcome.at}`} with ${outcome.sqlstate}${outcome.constraint.kind === "named" ? ` on ${outcome.constraint.name}` : ""}: ${messageText(outcome)}`
+	}
+}
 
 /** An outcome's key in a tally: `committed`, `rolledBack`, or the failure's cause. */
 export type OutcomeKey = "committed" | "rolledBack" | OutcomeCause

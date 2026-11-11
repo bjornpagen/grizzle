@@ -31,10 +31,10 @@ import { type Summary, summarize } from "#bench/cold/stats.ts"
 import { explain, type MalformedPlan } from "#bench/harness/explain.ts"
 import type { Attempted } from "#bench/harness/load.ts"
 import {
-	type Constraint,
 	causeOf,
 	type FailedOutcome,
-	type Outcome
+	type Outcome,
+	type ReportedConstraint
 } from "#bench/harness/outcome.ts"
 import type { TransactionPlan, TransactionStatement } from "#bench/harness/transaction.ts"
 import { type Fixture, GateSetupError, installFixture } from "#bench/query/support/kit.ts"
@@ -515,12 +515,14 @@ export const insertsOf = (ast: SqlStatement): ReadonlyArray<Insert> => {
 
 /**
  * Where a grizzle application's one attempt failed on the wire: the program's statement, or its COMMIT, that the server
- * refused, with the SQLSTATE and the constraint it reported.
+ * refused, with the SQLSTATE, the constraint, the message and the DETAIL it reported.
  */
 export interface AttemptFailure {
 	readonly statement: StatementLabel
 	readonly sqlstate: string
-	readonly constraint: Constraint
+	readonly constraint: ReportedConstraint
+	readonly message: string
+	readonly detail: Option.Option<string>
 }
 
 /**
@@ -704,7 +706,7 @@ const attributor = (
 	}
 }
 
-const constraintOf = (name: string | undefined): Constraint =>
+const constraintOf = (name: string | undefined): ReportedConstraint =>
 	name === undefined ? { kind: "none" } : { kind: "named", name }
 
 /**
@@ -730,7 +732,9 @@ const observedSession = (
 						failure: {
 							statement: attributed.label,
 							sqlstate: answer.error.sqlstate,
-							constraint: constraintOf(answer.error.constraint)
+							constraint: constraintOf(answer.error.constraint),
+							message: answer.error.message,
+							detail: Option.fromUndefinedOr(answer.error.detail)
 						}
 					}
 				: {
@@ -815,23 +819,18 @@ const observedPool = (
 	lease: Effect.map(pool.lease, (session) => observedSession(session, attribute, log, beforeCommit))
 })
 
-const failedOf = (f: AttemptFailure): FailedOutcome =>
-	f.statement.kind === "commit"
-		? {
-				kind: "failed",
-				at: "commit",
-				sqlstate: f.sqlstate,
-				cause: causeOf(f.sqlstate),
-				constraint: f.constraint
-			}
-		: {
-				kind: "failed",
-				at: "statement",
-				statement: labelText(f.statement),
-				sqlstate: f.sqlstate,
-				cause: causeOf(f.sqlstate),
-				constraint: f.constraint
-			}
+const failedOf = (f: AttemptFailure): FailedOutcome => {
+	const reported = {
+		sqlstate: f.sqlstate,
+		cause: causeOf(f.sqlstate),
+		constraint: f.constraint,
+		message: f.message,
+		detail: f.detail
+	}
+	return f.statement.kind === "commit"
+		? { kind: "failed", at: "commit", ...reported }
+		: { kind: "failed", at: "statement", statement: labelText(f.statement), ...reported }
+}
 
 /**
  * The retry label of a grizzle attempt's failure for a gate that does not classify its retries: where it failed, and

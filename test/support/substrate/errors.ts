@@ -103,3 +103,13 @@ export const pgErrorFields = (error: unknown): PgErrorFields | undefined => {
 	}
 	return fromRecord(error)
 }
+
+/**
+ * PostgreSQL's message as a report reads it, with its DETAIL when it sent one: a 40001's reason code, a violated key,
+ * a missing referenced row.
+ */
+export const messageText = (said: Pick<PgErrorFields, "message" | "detail">): string =>
+	Option.match(said.detail, {
+		onNone: () => said.message,
+		onSome: (detail) => `${said.message}; DETAIL: ${detail}`
+	})

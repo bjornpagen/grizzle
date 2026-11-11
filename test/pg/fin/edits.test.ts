@@ -42,6 +42,7 @@ import {
 	schema
 } from "#compiler/public/schema.ts"
 import {
+	attemptedText,
 	byMember,
 	Disagreed,
 	FOLD_SPECS,
@@ -243,7 +244,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										)
 										if (written.kind !== "committed") {
 											return yield* new Disagreed({
-												message: `the reference state ${Formatter.format(before)} was refused`
+												message: `the reference state ${Formatter.format(before)} met ${attemptedText(written)}`
 											})
 										}
 										const target = Arr.getUnsafe(members, sketch.edit.at)

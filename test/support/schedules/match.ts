@@ -7,6 +7,7 @@ import type {
 	StepOutcome,
 	Verdict
 } from "#test/support/schedules/types.ts"
+import { messageText } from "#test/support/substrate/errors.ts"
 import type { TextRows } from "#test/support/substrate/substrate.ts"
 
 export const meets = (shown: string): Verdict => ({ _tag: "Meets", shown })
@@ -34,7 +35,7 @@ export const describeOutcome = (outcome: ScheduleOutcome): string => {
 		case "Ok":
 			return `ok, ${outcome.rowCount} row${outcome.rowCount === 1 ? "" : "s"}${outcome.rows.length === 0 ? "" : `: ${printRows(outcome.rows)}`}`
 		case "PgError":
-			return `SQLSTATE ${outcome.fields.code}${outcome.fields.constraint === undefined ? "" : ` on ${outcome.fields.constraint}`} (${outcome.fields.message})`
+			return `SQLSTATE ${outcome.fields.code}${outcome.fields.constraint === undefined ? "" : ` on ${outcome.fields.constraint}`} (${messageText(outcome.fields)})`
 		case "RolledBack":
 			return `rolled back (COMMIT answered ${outcome.command})`
 		case "Failed":

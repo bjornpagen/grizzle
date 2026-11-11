@@ -21,7 +21,13 @@ import { printObjectName, quoteIdent } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { type Installed, installMigrated } from "#test/support/install-migrate.ts"
 import type { SqlError } from "#test/support/pg.ts"
-import { type Attempted, attempt, attemptChecked, type Checked } from "#test/support/substrate.ts"
+import {
+	type Attempted,
+	attempt,
+	attemptChecked,
+	type Checked,
+	refusalText
+} from "#test/support/substrate.ts"
 import type { PgErrorFields, TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
@@ -409,7 +415,9 @@ export const replaced = (
 			const index = real.moment.index - 1
 			return index < 0
 				? Effect.die(
-						new Error(`${seat.label}: the replacing TRUNCATE was refused: ${real.fields.message}`)
+						new Error(
+							`${seat.label}: the replacing TRUNCATE was refused: ${refusalText(real.fields)}`
+						)
 					)
 				: Effect.succeed({ ...real, moment: { kind: "statement", index } })
 		}

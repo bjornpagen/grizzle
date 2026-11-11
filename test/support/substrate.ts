@@ -13,6 +13,7 @@ import { quoteIdent } from "#compiler/sql/print.ts"
 import type { Moment } from "#test/support/families/mutate.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import {
+	messageText,
 	type PgErrorFields,
 	pgErrorFields,
 	type TransactionRolledBack
@@ -149,9 +150,12 @@ export const momentText = (moment: Moment): string =>
 export const sameMoment = (a: Moment, b: Moment): boolean =>
 	a.kind === "commit" ? b.kind === "commit" : b.kind === "statement" && a.index === b.index
 
-/** A refusal as a report reads it: its SQLSTATE, the constraint PostgreSQL names, and its message. */
+/**
+ * A refusal as a report reads it: its SQLSTATE, the constraint PostgreSQL names, and its message and DETAIL, a 40001's
+ * reason code among them.
+ */
 export const refusalText = (fields: PgErrorFields): string =>
-	`${fields.code} on ${fields.constraint ?? "no constraint"} (${fields.message})`
+	`${fields.code} on ${fields.constraint ?? "no constraint"} (${messageText(fields)})`
 
 /** An identifier of a proof's own schema, quoted, joined to a name in it. */
 export const qualified = (schema: string, name: string): string =>

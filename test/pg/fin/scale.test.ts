@@ -25,6 +25,7 @@ import { element, type Gen, int } from "@grizzle/testing/gen"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
+import { outcomeText } from "#bench/harness/outcome.ts"
 import { measureTransaction, type TransactionMeasure } from "#bench/harness/transaction.ts"
 import { familySeat, familyStoredOf, storedSql } from "#test/pg/fin/family.ts"
 import { cleared, seatOf } from "#test/pg/fin/installed.ts"
@@ -76,6 +77,13 @@ const queueBytes = (m: TransactionMeasure): number => {
 	}
 	return m.deferredEvents.value.totalBytes
 }
+
+/**
+ * Fails the case unless the measured transaction `what` names committed, saying how it ended otherwise: where it
+ * failed, its SQLSTATE, and PostgreSQL's message and DETAIL, a 40001's reason code among them.
+ */
+const committed = (m: TransactionMeasure, what: string): void =>
+	assert.equal(m.outcome.kind, "committed", `${what}; it ${outcomeText(m.outcome)}`)
 
 layer(Substrate.layer)(
 	"long families and large imports through grizzle's lowering on PostgreSQL 19rc1",
@@ -146,7 +154,7 @@ layer(Substrate.layer)(
 										`INSERT INTO ${owner} (${c("Owner", "id")}, ${c("Owner", "n")}) VALUES (0, ${n})`,
 										`INSERT INTO ${member} (${memberCols}) SELECT a, 0, a, ${n} FROM pg_catalog.generate_series(${n - 1}, 0, -1) AS a`
 									])
-									assert.equal(write.outcome.kind, "committed", `the long family of ${n} commits`)
+									committed(write, `the long family of ${n} commits`)
 									const longEvents = 1 + (counted ? n - 1 : 0)
 									assert.ok(
 										queueBytes(write) <= queueBound(longEvents),
@@ -156,11 +164,7 @@ layer(Substrate.layer)(
 										`UPDATE ${owner} SET ${c("Owner", "n")} = ${n + 1} WHERE ${c("Owner", "id")} = 0`,
 										`INSERT INTO ${member} (${memberCols}) VALUES (${n}, 0, ${n}, ${n + 1})`
 									])
-									assert.equal(
-										grow.outcome.kind,
-										"committed",
-										"growing the long family by one commits"
-									)
+									committed(grow, "growing the long family by one commits")
 									const stale = yield* seat.session.values(
 										`SELECT count(*)::int8 FROM ${member} WHERE ${c("Member", "‹n›")} <> ${n + 1}`,
 										[]
@@ -175,11 +179,7 @@ layer(Substrate.layer)(
 										`UPDATE ${owner} SET ${c("Owner", "n")} = ${n} WHERE ${c("Owner", "id")} = 0`,
 										`INSERT INTO ${member} (${memberCols}) SELECT a + 1, 0, a, ${n} FROM pg_catalog.generate_series(0, ${n - 1}) AS a`
 									])
-									assert.equal(
-										shrink.outcome.kind,
-										"committed",
-										"the suffix rewrite from the first slot commits"
-									)
+									committed(shrink, "the suffix rewrite from the first slot commits")
 									yield* lawful
 									yield* cleared(seat, ["Owner", "Member"])
 									const lengths = Arr.map(Arr.range(0, scale.owners - 1), (o) => lengthOf(scale, o))
@@ -209,11 +209,7 @@ layer(Substrate.layer)(
 													)})) AS t(m, g, a, n)`
 												])
 									])
-									assert.equal(
-										imported.outcome.kind,
-										"committed",
-										`the import of ${scale.owners} families commits`
-									)
+									committed(imported, `the import of ${scale.owners} families commits`)
 									const importEvents =
 										Arr.filter(lengths, (k) => k > 0).length +
 										(counted ? Arr.filter(rows, ([, a]) => a > 0).length : 0)
@@ -238,11 +234,7 @@ layer(Substrate.layer)(
 										deferredEvents: true,
 										wal: false
 									})
-									assert.equal(
-										loaded.outcome.kind,
-										"committed",
-										`the tree of ${scale.tree} rows commits in one INSERT`
-									)
+									committed(loaded, `the tree of ${scale.tree} rows commits in one INSERT`)
 									const treeEvents = Arr.filter(tree, (r) => r.children > 0).length
 									assert.ok(
 										queueBytes(loaded) <= queueBound(treeEvents),

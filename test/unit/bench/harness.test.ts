@@ -314,13 +314,17 @@ const listable: ReadonlyArray<readonly [Named, UniqueAbort["reason"]]> = [
 	["slot_key", "UnseenOccupant"]
 ]
 
-/** One scripted attempt: it commits, or PostgreSQL refuses it with `code`, naming a constraint or none, at `at`. */
+/**
+ * One scripted attempt: it commits, or PostgreSQL refuses it with `code`, naming a constraint or none, with a DETAIL or
+ * none, at `at`.
+ */
 type Step =
 	| { readonly kind: "commits" }
 	| {
 			readonly kind: "refused"
 			readonly code: Code
 			readonly constraint: Option.Option<Named>
+			readonly detail: Option.Option<string>
 			readonly at: FailedOutcome["at"]
 	  }
 
@@ -343,6 +347,7 @@ const stepGen: Gen<Step> = (source) =>
 				constraint: source.draw(boolean)
 					? Option.some(source.draw(element(constraintNames)))
 					: Option.none(),
+				detail: source.draw(boolean) ? Option.some("Reason code: drawn.") : Option.none(),
 				at: source.draw(element(["statement", "begin", "deferredChecks", "commit"] as const))
 			}
 
@@ -363,16 +368,16 @@ const failedOf = (step: Refused): FailedOutcome => {
 		onNone: () => ({ kind: "none" }) as const,
 		onSome: (name) => ({ kind: "named", name: wild.constraint(name) }) as const
 	})
+	const reported = {
+		sqlstate: step.code,
+		cause: causes[step.code],
+		constraint,
+		message: "refused",
+		detail: step.detail
+	}
 	return step.at === "statement"
-		? {
-				kind: "failed",
-				at: "statement",
-				statement: "write",
-				sqlstate: step.code,
-				cause: causes[step.code],
-				constraint
-			}
-		: { kind: "failed", at: step.at, sqlstate: step.code, cause: causes[step.code], constraint }
+		? { kind: "failed", at: "statement", statement: "write", ...reported }
+		: { kind: "failed", at: step.at, ...reported }
 }
 
 /**
@@ -431,6 +436,10 @@ const errorOf = (step: Refused) => ({
 	...Option.match(step.constraint, {
 		onNone: () => ({}),
 		onSome: (name) => ({ constraint: wild.constraint(name) })
+	}),
+	...Option.match(step.detail, {
+		onNone: () => ({}),
+		onSome: (detail) => ({ detail })
 	})
 })
 
