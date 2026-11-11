@@ -1,6 +1,6 @@
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
+import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import {
 	constant,
@@ -16,7 +16,16 @@ import {
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, DateTime, Effect, FileSystem, Formatter, Order, String as Str } from "effect"
+import {
+	Array as Arr,
+	DateTime,
+	Effect,
+	FileSystem,
+	Formatter,
+	Option,
+	Order,
+	String as Str
+} from "effect"
 import { check } from "#cli/check.ts"
 import { type Json, writeCanonicalJson } from "#compiler/core/canonical.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
@@ -199,44 +208,105 @@ const mutatedText = (
 	}
 }
 
+/** A plant editing the first SQL text of each program `picked` draws, by its place in the file's order. */
+const editedGen =
+	(picked: Gen<ReadonlyArray<number>>): Gen<Plant> =>
+	(source) => ({
+		kind: "edited",
+		programs: source.draw(picked),
+		at: source.draw(int(0, 4096)),
+		char: source.draw(unicodeScalar)
+	})
+
+/** A nonempty set of the places of the file's `programs` programs. */
+const someOf = (programs: number): Gen<ReadonlyArray<number>> =>
+	filter(subarray(Arr.range(0, programs - 1)), (picked) => picked.length > 0, 8)
+
+/** A plant inserting, replacing or deleting one character of the file's text, by `op`. */
+const characterGen =
+	(op: Gen<"insert" | "replace" | "delete">): Gen<Plant> =>
+	(source) => ({
+		kind: "mutated",
+		mutation: {
+			kind: "character",
+			op: source.draw(op),
+			at: source.draw(int(0, 4096)),
+			char: source.draw(unicodeScalar)
+		}
+	})
+
+/** A plant dropping one of the file's `paths` member paths. */
+const droppedGen =
+	(paths: number): Gen<Plant> =>
+	(source) => ({
+		kind: "mutated",
+		mutation: { kind: "dropped", member: source.draw(int(0, paths - 1)) }
+	})
+
+/** A plant putting whitespace before or after the file's text. */
+const layoutGen: Gen<Plant> = (source) => ({
+	kind: "mutated",
+	mutation: {
+		kind: "layout",
+		whitespace: source.draw(element([" ", "\t", "\n", "\r"])),
+		place: source.draw(element(["leading", "trailing"] as const))
+	}
+})
+
+const missingGen = constant<Plant>({ kind: "missing" })
+
+/** A plant writing a stray file of a login the configuration does not list beside the login's. */
+const strayGen: Gen<Plant> = map(
+	filter(dictionaryNameGen, (name) => Str.toLowerCase(name.declared) !== login, 8),
+	(name): Plant => ({ kind: "stray", login: name.declared })
+)
+
 /** Every plant of a served file holding `programs` programs and `paths` member paths in its JSON value. */
 const plantGen = (programs: number, paths: number): Gen<Plant> =>
 	oneOf<Plant>([
-		(source): Plant => ({
-			kind: "edited",
-			programs: source.draw(
-				filter(subarray(Arr.range(0, programs - 1)), (picked) => picked.length > 0, 8)
-			),
-			at: source.draw(int(0, 4096)),
-			char: source.draw(unicodeScalar)
-		}),
-		(source): Plant => ({
-			kind: "mutated",
-			mutation: {
-				kind: "character",
-				op: source.draw(element(["insert", "replace", "delete"] as const)),
-				at: source.draw(int(0, 4096)),
-				char: source.draw(unicodeScalar)
-			}
-		}),
-		(source): Plant => ({
-			kind: "mutated",
-			mutation: { kind: "dropped", member: source.draw(int(0, paths - 1)) }
-		}),
-		(source): Plant => ({
-			kind: "mutated",
-			mutation: {
-				kind: "layout",
-				whitespace: source.draw(element([" ", "\t", "\n", "\r"])),
-				place: source.draw(element(["leading", "trailing"] as const))
-			}
-		}),
-		constant<Plant>({ kind: "missing" }),
-		map(
-			filter(dictionaryNameGen, (name) => Str.toLowerCase(name.declared) !== login, 8),
-			(name): Plant => ({ kind: "stray", login: name.declared })
-		)
+		editedGen(someOf(programs)),
+		characterGen(element(["insert", "replace", "delete"] as const)),
+		droppedGen(paths),
+		layoutGen,
+		missingGen,
+		strayGen
 	])
+
+/**
+ * The arm of the plant generator each situation one draw of it reaches, as the steered phase aims a witness at what
+ * is pending, the file's `programs` programs in its order, its second role's last: every program edited reaches both
+ * roles, and the last one alone the second role alone.
+ */
+const aims = (
+	programs: number,
+	paths: number
+): Arr.NonEmptyReadonlyArray<readonly [Situation, Gen<Plant>]> => [
+	["a program edited", editedGen(someOf(programs))],
+	["programs of both roles edited", editedGen(constant(Arr.range(0, programs - 1)))],
+	["a program of the second role edited alone", editedGen(constant([programs - 1]))],
+	["the file missing", missingGen],
+	["a stray file", strayGen],
+	["a character inserted", characterGen(constant("insert" as const))],
+	["a character replaced", characterGen(constant("replace" as const))],
+	["a character deleted", characterGen(constant("delete" as const))],
+	["a member dropped", droppedGen(paths)],
+	["another layout", layoutGen]
+]
+
+/**
+ * The plant a case runs: its drawn one, or, for a witness while some situation is pending, a draw of the arm of one
+ * pending situation, itself drawn among them, so one steering window reaches several.
+ */
+const aimedPlant = (plant: Plant, c: Case<Situation>, programs: number, paths: number): Plant =>
+	Option.match(c.steering, {
+		onNone: () => plant,
+		onSome: (pending) => {
+			const [first, ...rest] = Arr.filter(aims(programs, paths), ([situation]) =>
+				pending.names(situation)
+			)
+			return first === undefined ? plant : c.draw(c.draw(element([first, ...rest]))[1])
+		}
+	})
 
 /** The finding a plant makes: its kind, the served file it names, and what its problem must say. */
 interface Expected {
@@ -388,9 +458,10 @@ layer(NodeServices.layer, { excludeTestServices: true })("served files", (it) =>
 							steerEvery: 16,
 							caseHang
 						},
-						(plant, c) =>
+						(drawnPlant, c) =>
 							Effect.scoped(
 								Effect.gen(function* () {
+									const plant = aimedPlant(drawnPlant, c, programs.length, paths.length)
 									c.noteAll(situationsOf(plant, programs))
 									const ws = yield* workspace("served-planted")
 									yield* fs.copy(base, ws, { overwrite: true })
