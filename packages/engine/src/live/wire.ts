@@ -34,7 +34,7 @@ import {
 	moneyFractionDigits,
 	uuidGroups
 } from "#compiler/ir/carriers.ts"
-import { type CalendarDate, convertDate, toCalendarDate } from "#compiler/ir/date.ts"
+import { type CalendarDate, convertDate, dayNumber, toCalendarDate } from "#compiler/ir/date.ts"
 import type { Carrier } from "#compiler/ir/scalar.ts"
 import {
 	amounts,
@@ -67,12 +67,16 @@ export type WireJson =
 export type WireSchema = { readonly [keyword: string]: Json }
 
 /**
- * The laws of a type a JSON Schema does not state, each a check PostgreSQL makes and grizzle classifies, never the
- * parse: a span's start before its end, a fixed-width span's width, a vector's norm in the cosine domain, a float4's
- * binary32 exactness (which the parse holds, and no JSON Schema keyword states), a contract's predicate, a text pattern
- * no ECMA-262 regex states, and a text's byte bound; and of a refusal grizzle reports, the members of each law it names
- * (types/changeset Law, whose union of kinds no schema here restates) and which key of its relation a witness's values
- * are. A schema lists the gaps of its type under `x-grizzle-gaps`.
+ * What a JSON Schema does not state, each named where a schema lists it, under `x-grizzle-gaps`, with who refuses a
+ * value its schema admits:
+ *
+ * - the exact parse (`parse`, as the host's parseValue): a float4's or a vector component's binary32 exactness, a
+ *   span's start before its end, a fixed-width span's width, and a vector's norm in the cosine domain, each refused as
+ *   the WireFaultKind of its name before any SQL;
+ * - PostgreSQL, a refusal grizzle classifies by the law it names: a contract's predicate, a text's byte bound, and a
+ *   text pattern no ECMA-262 regex states;
+ * - nothing, for what a refusal reports: the members of each law it names (types/changeset Law, whose union of kinds no
+ *   schema here restates), and which key of its relation a witness's values are.
  */
 export const schemaGaps = [
 	"binary32",
@@ -95,7 +99,10 @@ export const gapsKeyword = "x-grizzle-gaps"
 /**
  * Why `parse` refused a caller's JSON: no JSON of the spelling's kind; a malformed spelling; a value outside the type's
  * range; a decimal past the type's scale; a number no binary32 is; an unknown handle; a set's member twice; a vector of
- * another dimension count; a text PostgreSQL's text cannot hold; members other than a record's own.
+ * another dimension count, or whose norm lies outside the cosine domain; a span whose start is not before its end, or
+ * of another width than its type fixes; a text PostgreSQL's text cannot hold; members other than a record's own. A
+ * fault a schema cannot state is named as its gap is (schemaGaps), so a schema-valid value the parse refuses names one
+ * of its schema's gaps.
  */
 export const wireFaults = [
 	"binary32",
@@ -106,8 +113,11 @@ export const wireFaults = [
 	"range",
 	"repeated",
 	"scale",
+	"spanOrder",
+	"spanWidth",
 	"spelling",
-	"text"
+	"text",
+	"vectorNorm"
 ] as const
 
 /** Why `parse` refused (wireFaults). */
@@ -475,10 +485,16 @@ const handlesOf = (
 	return Result.ok(members)
 }
 
-/** A span's two endpoints a caller's JSON spells: a record of exactly `start` and `end`, each read by `endpoint`. */
+/**
+ * A span a caller's JSON spells: a record of exactly `start` and `end`, each read by `endpoint`, its start before its
+ * end, and, for a fixed width, its end that many units past its start, each endpoint's units read by `units`: every
+ * value a span type holds, nonempty and bounded (ir/scalar.ts SpanInfo).
+ */
 const spanOf = <E>(
 	json: unknown,
-	endpoint: (json: unknown) => Result.Result<E, WireFaultKind>
+	endpoint: (json: unknown) => Result.Result<E, WireFaultKind>,
+	units: (value: E) => bigint,
+	width: WireWidth
 ): Result.Result<Span<E>, WireFaultKind> => {
 	if (!isPlainRecord(json)) {
 		return Result.err("json")
@@ -488,7 +504,15 @@ const spanOf = <E>(
 		return Result.err("members")
 	}
 	return Result.flatMap(endpoint(json["start"]), (start) =>
-		Result.map(endpoint(json["end"]), (end) => Object.freeze({ start, end }))
+		Result.flatMap(endpoint(json["end"]), (end): Result.Result<Span<E>, WireFaultKind> => {
+			const length = units(end) - units(start)
+			if (length <= 0n) {
+				return Result.err("spanOrder")
+			}
+			return width.kind === "fixed" && length !== BigInt(width.units)
+				? Result.err("spanWidth")
+				: Result.ok(Object.freeze({ start, end }))
+		})
 	)
 }
 
@@ -715,22 +739,33 @@ export const carrierWire: CarrierWires = {
 	range4: {
 		schema: (spec) => spanSchema(int4Wire.schema({ carrier: "int4" }), spec.width),
 		encode: (value) => spanJson(value, (endpoint) => endpoint),
-		parse: (json) =>
-			spanOf(json, (endpoint) => smallIntegerOf(endpoint, int4Min.value, int4Max.value)),
+		parse: (json, spec) =>
+			spanOf(
+				json,
+				(endpoint) => smallIntegerOf(endpoint, int4Min.value, int4Max.value),
+				BigInt,
+				spec.width
+			),
 		decode: (json) => trustedSpan(json, trustedNumber),
 		is: isSpanOf(isNumber)
 	},
 	range8: {
 		schema: (spec) => spanSchema(spelled(integers(int8Min.value, int8Max.value)), spec.width),
 		encode: (value) => spanJson(value, (endpoint) => endpoint.toString()),
-		parse: (json) => spanOf(json, (endpoint) => bigIntegerOf(endpoint, int8Range)),
+		parse: (json, spec) =>
+			spanOf(
+				json,
+				(endpoint) => bigIntegerOf(endpoint, int8Range),
+				(value) => value,
+				spec.width
+			),
 		decode: (json) => trustedSpan(json, (endpoint) => BigInt(trustedString(endpoint))),
 		is: isSpanOf(isBigint)
 	},
 	rangeDate: {
 		schema: (spec) => spanSchema(dateWire.schema({ carrier: "date" }), spec.width),
 		encode: (value) => spanJson(value, (endpoint): WireJson => endpoint),
-		parse: (json) => spanOf(json, dateOf),
+		parse: (json, spec) => spanOf(json, dateOf, (value) => BigInt(dayNumber(value)), spec.width),
 		decode: (json) => trustedSpan(json, (endpoint) => convertDate(trustedString(endpoint))),
 		is: isSpanOf(isCalendarDate)
 	},
@@ -771,7 +806,9 @@ export const carrierWire: CarrierWires = {
 				}
 				components[i] = real.value
 			}
-			return Result.ok(Vector.branded(components))
+			return Vector.inCosineDomain(components)
+				? Result.ok(Vector.branded(components))
+				: Result.err("vectorNorm")
 		},
 		decode: (json) => Vector.branded(Float32Array.from(trustedArray(json), trustedNumber)),
 		is: isVector

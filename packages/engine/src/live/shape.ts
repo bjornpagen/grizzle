@@ -249,8 +249,8 @@ export const mapShape = <L, M>(member: MemberShape<L>, f: (leaf: L) => M): Membe
  * `Option.none()`, `Option.isOption` and `Option.match`, passed where a codec of a member is made.
  */
 export interface WireOptions {
-	readonly some: <A>(value: A) => Option.Some<A>
-	readonly none: Option.None<never>
+	readonly some: <A>(value: A) => Option.Option<A>
+	readonly none: Option.Option<never>
 	readonly is: (value: unknown) => value is Option.Option<unknown>
 	readonly match: <A, B>(
 		option: Option.Option<A>,
