@@ -1,7 +1,7 @@
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { array, element, type Gen, int } from "@grizzle/testing/gen"
+import { array, constant, element, type Gen, int } from "@grizzle/testing/gen"
 import { pctSchedule } from "@grizzle/testing/interleave"
 import { agree, type Equivalence, exact, ordered } from "@grizzle/testing/oracle"
 import { notesOnly } from "@grizzle/testing/sense"
@@ -59,10 +59,14 @@ import { upTo } from "#test/support/up-to.ts"
  * written whole with it, the Invoice's total their CHECKed sum.
  *
  * - Writers of disjoint keys: two or three sessions, each holding its transaction open across every other's statements,
- *   commit every call at READ COMMITTED and hold no SIRead lock; at SERIALIZABLE every SIRead lock they hold is a page
- *   of an index of a relation a foreign key references, PostgreSQL's own foreign key check (ri_triggers.c
- *   ri_FastPathCheck under the transaction snapshot), never one of grizzle's statements, and a race of Docs alone, which
- *   no foreign key reads, meets no 40001. A 40001 a race of Invoices meets is that check's, noted.
+ *   commit every call at READ COMMITTED and hold no SIRead lock; at SERIALIZABLE every SIRead lock they hold is on an
+ *   index of Invoice, the relation Line's foreign key references and its counted family's owner, at one of two reads:
+ *   PostgreSQL's own foreign key check (ri_triggers.c ri_FastPathCheck under the transaction snapshot), and the owner
+ *   INSERT's probe at its key, which proposes only Invoices no stored row holds (write/insert/statement.ts Proposal
+ *   `unstored`), since PostgreSQL judges a proposed row by every CHECK before an arbiter meets its key (19rc1
+ *   nodeModifyTable.c ExecInsert). Each lock is a page, or the whole index where it holds no entry yet (nbtsearch.c
+ *   _bt_first locks an empty index whole). A race of Docs alone, which neither read reaches, holds no SIRead lock and
+ *   meets no 40001; a 40001 a race of Invoices meets is at those reads, noted.
  * - Writers of shared keys: every race of calls over a few keys, at the level generate certifies the importer at and at
  *   SERIALIZABLE, is one some serial order of the same calls explains (support/race.ts runIsolationRace): READ
  *   COMMITTED promises that only where generate certifies it.
@@ -185,14 +189,17 @@ const linesCall = (id: number, lines: ReadonlyArray<readonly [number, number]>):
 	}
 })
 
-/** A post whose amount is its Lines' sum, or, drawn, one off it, which the CHECK refuses. */
-const posted =
-	(id: number): Gen<CallSketch> =>
+/** A post of the Invoice `id` whose amount is its Lines' sum plus what `off` draws: 0 settles it, 1 the CHECK refuses. */
+const postedOff =
+	(id: number, off: Gen<number>): Gen<CallSketch> =>
 	(s) => {
 		const amounts = s.draw(array(element([1, 2, 3]), { min: 0, max: 3 }))
 		const sum = Arr.reduce(amounts, 0, (a, b) => a + b)
-		return postCall(id, amounts, sum + s.draw(element([0, 0, 0, 1])))
+		return postCall(id, amounts, sum + s.draw(off))
 	}
+
+/** A post whose amount is its Lines' sum, or, drawn, one off it, which the CHECK refuses. */
+const posted = (id: number): Gen<CallSketch> => postedOff(id, element([0, 0, 0, 1]))
 
 /** A race of disjoint keys: two or three calls, the i-th at keys no other names, Docs only or any. */
 interface DisjointRace {
@@ -244,6 +251,15 @@ const sharedRaces: Gen<SharedRace> = (s) => ({
 	calls: nonEmptyList(s.draw(array(sharedCall, { min: 2, max: 3 })), "a race's calls")
 })
 
+/**
+ * The history a witness runs: its drawn one, or, while an unsettled invoice's refusal is pending, the drawn one after a
+ * post the CHECK refuses, its Invoice one no fact of the initial state holds.
+ */
+const aimedHistory = (drawnHistory: SharedRace, c: Case<SerialFeature>): SharedRace =>
+	Option.exists(c.steering, (pending) => pending.names("an unsettled invoice refused"))
+		? { ...drawnHistory, calls: [c.draw(postedOff(3, constant(1))), ...drawnHistory.calls] }
+		: drawnHistory
+
 const initialOf = (race: SharedRace) =>
 	race.initial === "doc" ? { Doc: [{ id: uuidOf(1), slug: 1, title: 0 }] } : {}
 
@@ -283,7 +299,7 @@ const strategyOf =
 	}
 
 /** A SIRead lock a race's sessions hold, read from pg_locks: its kind, its relation's name, and whether that relation
- * is an index of a relation some foreign key references. */
+ * is an index of a relation some foreign key references, which in the import shape is Invoice alone. */
 interface SireadLock {
 	readonly kind: string
 	readonly relation: string
@@ -461,7 +477,7 @@ type DisjointFeature =
 	| "an invoice posted"
 	| "three sessions"
 	| "a CHECK refused"
-	| "40001 under a foreign key check"
+	| "40001 at an Invoice's index"
 
 type SharedFeature = "a stored Doc" | "two calls at one key" | "three sessions"
 
@@ -476,7 +492,7 @@ const runs = 8
 layer(Substrate.layer, { excludeTestServices: true })(
 	"the insert protocol's arbitrations",
 	(it) => {
-		it.effect("writers of disjoint keys take no SIRead lock of grizzle's and commit", (ctx) =>
+		it.effect("writers of disjoint keys SIRead-lock Invoice's indexes alone, Docs none", (ctx) =>
 			searched(
 				ctx,
 				Effect.scoped(
@@ -489,7 +505,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							{
 								oracle: {
 									kind: "specification",
-									name: "no SIRead lock but a foreign key check's, no 40001 a Doc meets"
+									name: "no SIRead lock but at an Invoice index, none and no 40001 for Docs alone"
 								},
 								suite: "pg/isolation/arbiter-disjoint",
 								draw: drawn(disjointRaces),
@@ -523,7 +539,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 											f !== undefined && !refused(f) ? Arr.of(`READ COMMITTED s${i}: ${f}`) : []
 										),
 										...Arr.flatMap(ser.locks, (l) =>
-											l.kind === "page" && l.referenced
+											!race.docsOnly && l.referenced && (l.kind === "page" || l.kind === "relation")
 												? []
 												: Arr.of(`SERIALIZABLE holds ${l.kind} ${l.relation}`)
 										),
@@ -539,7 +555,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										)
 									]
 									if (Arr.some(ser.failures, (f) => f === "40001")) {
-										c.note("40001 under a foreign key check")
+										c.note("40001 at an Invoice's index")
 									}
 									if (Arr.isReadonlyArrayNonEmpty(problems)) {
 										return yield* Effect.die(new Error(Arr.join(problems, "\n")))
@@ -648,8 +664,9 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								steerEvery: runs,
 								caseHang
 							},
-							(history, c) =>
+							(drawnHistory, c) =>
 								Effect.gen(function* () {
+									const history = aimedHistory(drawnHistory, c)
 									const initial = initialOf(history)
 									const rc = yield* runSerial(
 										shapes.readCommitted,

@@ -799,7 +799,9 @@ export const buildInsert = (
 		 * laws/model/uniques.ts beyondPrimary), so the arbitration met each met row at one of them where the statement's
 		 * snapshot shows the occupant. A row an earlier INSERT of the same statement wrote is met with no wait and shown by
 		 * no snapshot: such a met row takes class -1, the statement's defect (refusal.ts ArmRefusal `defect`). Its CTE's
-		 * columns are every field's, by r2's returned names, then the class, `metClass`.
+		 * columns are every field's, by r2's returned names, then the class, `metClass`. It is MATERIALIZED, so its classes
+		 * are computed over the met rows alone: a filter on the class pushed below the met rows' anti-join would read the
+		 * stored rows for every fact the INSERT inserted.
 		 */
 		const classifyMet = (
 			objects: Extract<EveryObject, { readonly kind: "named" }>,
@@ -853,8 +855,8 @@ export const buildInsert = (
 			]
 			const [first, ...rest] = classes
 			const rk = supply.relation(internal("met classes"))
-			ctes.push(
-				cte(
+			ctes.push({
+				...cte(
 					rk,
 					[...outFields.map(retCol), metClass],
 					select(
@@ -873,8 +875,9 @@ export const buildInsert = (
 							undefined
 						)
 					)
-				)
-			)
+				),
+				materialized: "MATERIALIZED"
+			})
 			return rk
 		}
 		/**

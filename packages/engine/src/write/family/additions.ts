@@ -1169,6 +1169,35 @@ const metRefusal = (
 				)
 			)
 	)
+	/** Each met row with whether the stored row met at its key repeats it, MATERIALIZED, so the repeat is read for the
+	 * met rows alone: a filter on it pushed below the met rows' anti-join would read the stored rows for every member the
+	 * INSERT inserted. */
+	const classed = supply.relation(internal("met member class"))
+	const classedKeys = mapNonEmpty(pk, () => supply.column(internal("met member key")))
+	const repeated = supply.column(internal("met member repeat"))
+	ctes.push({
+		...cte(
+			classed,
+			[...classedKeys, repeated],
+			select(
+				provedCore(
+					"keyed",
+					[
+						...mapNonEmpty(pk, (f, i) =>
+							targetAs(
+								col(met.alias, proposedColumn(f)),
+								defined(classedKeys[i], "a met key column")
+							)
+						),
+						targetAs(metFound(w, supply, name, repeat), repeated)
+					],
+					[met.source],
+					undefined
+				)
+			)
+		),
+		materialized: "MATERIALIZED"
+	})
 	const refused = supply.relation(internal("met member"))
 	const refusedKeys = mapNonEmpty(pk, () => supply.column(internal("met member key")))
 	ctes.push(
@@ -1178,11 +1207,11 @@ const metRefusal = (
 			select(
 				provedCore(
 					"keyed",
-					mapNonEmpty(pk, (f, i) =>
-						targetAs(col(met.alias, proposedColumn(f)), defined(refusedKeys[i], "a met key column"))
+					mapNonEmpty(classedKeys, (key, i) =>
+						targetAs(col(classed, key), defined(refusedKeys[i], "a met key column"))
 					),
-					[met.source],
-					not(metFound(w, supply, name, repeat))
+					[cteRef(classed)],
+					not(col(classed, repeated))
 				)
 			)
 		)
