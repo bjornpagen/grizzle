@@ -49,7 +49,13 @@ import { type CombineFn, monoidSpecs } from "#compiler/ir/monoid.ts"
 
 import { type CellSide, sideOf } from "#compiler/ir/cells.ts"
 import { closedCell } from "#compiler/ir/rel.ts"
-import { baseOf, rosterOf, type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
+import {
+	baseOf,
+	fewValued,
+	rosterOf,
+	type ScalarType,
+	sameScalarType
+} from "#compiler/ir/scalar.ts"
 import { keyOf, literalKey } from "#compiler/laws/model/names.ts"
 import type { OwnedContract } from "#compiler/schema/own.ts"
 import {
@@ -953,18 +959,30 @@ interface Planned {
 /** A relation that plans nothing a reference's UNIQUE could reuse. */
 const plansNothing: Planned = { uniques: [], probes: [], columns: [] }
 
+/** Whether every column of `columns` is one of `within`'s. */
+const within = (columns: ReadonlyArray<SideColumn>, outer: ReadonlyArray<SideColumn>): boolean =>
+	columns.every((c) => outer.some((o) => sameSideColumn(c, o)))
+
 /**
- * The objects a UNIQUE over `columns` adds to a relation beyond what it holds (`Planned`): its index, unless a key or a
- * reference keyed by its terms holds that set already, or a reverse probe's B-tree reads every one of them, which the
- * UNIQUE then serves in its place; and each of its law columns no side lowers to.
+ * Whether a B-tree over `index`, in its order, serves an equality probe over `probe`, as the index engine places one
+ * (physical/indexes/engine.ts equalityPlacements): a unique one whose every column the probe binds, finding at most one
+ * row; one whose leading columns are the probe's, in any order; or one led by a probe column of many values, a closed
+ * id's and a boolean's being few, that holds every probe column. `index` is unique wherever this reads it.
  */
-const uniqueCost = (planned: Planned, columns: NonEmptyReadonlyArray<SideColumn>): number =>
-	(planned.uniques.some((u) => sameColumns(u, columns)) ||
-	planned.probes.some((probe) => columns.every((c) => probe.some((p) => sameSideColumn(c, p))))
-		? 0
-		: 1) +
-	columns.filter((c) => c.kind === "law" && !planned.columns.some((p) => sameSideColumn(p, c)))
-		.length
+const servesProbe = (
+	index: NonEmptyReadonlyArray<SideColumn>,
+	probe: NonEmptyReadonlyArray<SideColumn>
+): boolean =>
+	within(index, probe) ||
+	sameColumns(index.slice(0, probe.length), probe) ||
+	(probe.some(
+		(c) => sameSideColumn(c, index[0]) && !fewValued[baseOf(plannedField(c).type).carrier]
+	) &&
+		within(probe, index))
+
+/** The items of `items` with no earlier one `same` holds of, in their order. */
+const distinct = <A>(items: ReadonlyArray<A>, same: (a: A, b: A) => boolean): ReadonlyArray<A> =>
+	items.filter((a, i) => !items.slice(0, i).some((b) => same(a, b)))
 
 /**
  * A containment into a fixed target as the choice of its reference reads it (`sharedTargets`): the target's relation,
@@ -978,69 +996,123 @@ interface FixedUse {
 	readonly constants: ReadonlyArray<ConstantColumn>
 }
 
-/** The fixed targets of one relation whose shared references land on one UNIQUE, each by its own columns with the
- * constants every containment into it adds to its source. */
-interface SharedGroup {
-	readonly relation: string
-	readonly shared: NonEmptyReadonlyArray<SideColumn>
-	readonly targets: Array<{
-		readonly own: NonEmptyReadonlyArray<SideColumn>
-		readonly constants: Array<ConstantColumn>
-	}>
+/**
+ * A UNIQUE a reference may land on, as the choice counts what it adds to its relation beyond what the relation holds
+ * (`Planned`): whether a key or a reference keyed by its terms holds its set already, so it adds no index; the reverse
+ * probes it serves, each probe no planned UNIQUE serves whose B-tree reads every one of its columns, which then needs
+ * no B-tree; and its law columns no side lowers to.
+ */
+interface Landing {
+	readonly columns: NonEmptyReadonlyArray<SideColumn>
+	readonly planned: boolean
+	readonly serves: ReadonlyArray<number>
+	readonly fresh: ReadonlyArray<SideColumn>
+}
+
+/** A fixed target of one relation: its two landings, and the constants every containment into it adds to its sources
+ * where it takes the shared one. */
+interface FixedTarget {
+	readonly own: Landing
+	readonly shared: Landing
+	readonly constants: ReadonlyArray<ConstantColumn>
 }
 
 /**
- * The fixed targets whose containments take the shared reference, by relation, each by its own columns: the choice by
- * what each reference adds to the whole schema, its UNIQUE's index and law columns (`uniqueCost`) and its source's
- * constants. Of the fixed targets whose shared references land on one UNIQUE, those whose constants cost no more objects
- * than their own columns' UNIQUE take the shared one, where that UNIQUE's cost and all their constants are no more than
- * all their own UNIQUEs' cost, which keeps the superkey every target fixing one field to several values shares; every
- * other fixed target takes its own columns, which hold no constant on any source.
+ * The fixed targets of one relation that take the shared reference: a choice by what each configuration adds to the
+ * whole schema, counted exactly. A configuration's objects are the distinct UNIQUEs its targets land on that no
+ * planned UNIQUE is, the reverse probes no planned UNIQUE and no landing serves, each needing a B-tree, the distinct law
+ * columns its landings add, and the distinct constants its shared references add to their sources. From every target
+ * at its own columns, which is what keys restated over the targets would plan, it moves targets to their shared
+ * UNIQUE, all of one shared UNIQUE's targets at once or one alone, taking the move that leaves the fewest objects
+ * while that is no more than before; so it never plans more objects than the own columns would, and keeps the superkey
+ * where both cost the same.
+ */
+const takingShared = (
+	uses: ReadonlyArray<FixedUse>,
+	planned: Planned
+): ReadonlyArray<NonEmptyReadonlyArray<SideColumn>> => {
+	const probes = distinct(planned.probes, sameColumns).filter(
+		(probe) => !planned.uniques.some((u) => servesProbe(u, probe))
+	)
+	const landing = (columns: NonEmptyReadonlyArray<SideColumn>): Landing => ({
+		columns,
+		planned: planned.uniques.some((u) => sameColumns(u, columns)),
+		serves: probes.flatMap((probe, i) => (servesProbe(columns, probe) ? [i] : [])),
+		fresh: columns.filter(
+			(c) => c.kind === "law" && !planned.columns.some((p) => sameSideColumn(p, c))
+		)
+	})
+	const owns = distinct(uses, (a, b) => sameColumns(a.own, b.own))
+	const targets: ReadonlyArray<FixedTarget> = owns.map((use) => ({
+		own: landing(use.own),
+		shared: landing(use.shared),
+		constants: distinct(
+			uses.filter((u) => sameColumns(u.own, use.own)).flatMap((u) => u.constants),
+			sameConstant
+		)
+	}))
+	const objects = (taking: ReadonlySet<FixedTarget>): number => {
+		const landed = targets.map((t) => (taking.has(t) ? t.shared : t.own))
+		const served = new Set(landed.flatMap((l) => l.serves))
+		return (
+			distinct(
+				landed.filter((l) => !l.planned).map((l) => l.columns),
+				sameColumns
+			).length +
+			(probes.length - served.size) +
+			distinct(
+				landed.flatMap((l) => l.fresh),
+				sameSideColumn
+			).length +
+			distinct(
+				targets.filter((t) => taking.has(t)).flatMap((t) => t.constants),
+				sameConstant
+			).length
+		)
+	}
+	const moves = (taking: ReadonlySet<FixedTarget>): ReadonlyArray<ReadonlyArray<FixedTarget>> => {
+		const left = targets.filter((t) => !taking.has(t))
+		const groups = distinct(left, (a, b) => sameColumns(a.shared.columns, b.shared.columns)).map(
+			(g) => left.filter((t) => sameColumns(t.shared.columns, g.shared.columns))
+		)
+		return [...groups, ...left.map((t) => [t])]
+	}
+	const improved = (taking: ReadonlySet<FixedTarget>, cost: number): ReadonlySet<FixedTarget> => {
+		const [first, ...rest] = moves(taking).map((move) => {
+			const next = new Set([...taking, ...move])
+			return { next, cost: objects(next) }
+		})
+		if (first === undefined) {
+			return taking
+		}
+		const least = rest.reduce((a, b) => (b.cost < a.cost ? b : a), first)
+		return least.cost <= cost ? improved(least.next, least.cost) : taking
+	}
+	const empty: ReadonlySet<FixedTarget> = new Set()
+	const taken = improved(empty, objects(empty))
+	return targets.filter((t) => taken.has(t)).map((t) => t.own.columns)
+}
+
+/**
+ * The fixed targets whose containments take the shared reference, by relation, each by its own columns: each
+ * relation's choice over every containment into its fixed targets (`takingShared`).
  */
 const sharedTargets = (
 	uses: ReadonlyArray<FixedUse>,
 	planned: (relation: string) => Planned
-): ReadonlyMap<string, ReadonlyArray<NonEmptyReadonlyArray<SideColumn>>> => {
-	const groups: Array<SharedGroup> = []
-	for (const use of uses) {
-		const known = groups.find(
-			(g) => g.relation === use.relation && sameColumns(g.shared, use.shared)
-		)
-		const group: SharedGroup = known ?? { relation: use.relation, shared: use.shared, targets: [] }
-		if (known === undefined) {
-			groups.push(group)
-		}
-		const held = group.targets.find((t) => sameColumns(t.own, use.own))
-		const target = held ?? { own: use.own, constants: [] }
-		if (held === undefined) {
-			group.targets.push(target)
-		}
-		for (const c of use.constants) {
-			if (!target.constants.some((k) => sameConstant(k, c))) {
-				target.constants.push(c)
-			}
-		}
-	}
-	const taken = new Map<string, Array<NonEmptyReadonlyArray<SideColumn>>>()
-	for (const group of groups) {
-		const on = planned(group.relation)
-		const priced = group.targets.map((t) => ({
-			own: t.own,
-			ownCost: uniqueCost(on, t.own),
-			constants: t.constants.length
-		}))
-		const cheaper = priced.filter((t) => t.constants <= t.ownCost)
-		const sum = (xs: ReadonlyArray<number>): number => xs.reduce((a, b) => a + b, 0)
-		const sharedCost = uniqueCost(on, group.shared) + sum(cheaper.map((t) => t.constants))
-		if (cheaper.length > 0 && sharedCost <= sum(cheaper.map((t) => t.ownCost))) {
-			taken.set(group.relation, [
-				...(taken.get(group.relation) ?? []),
-				...cheaper.map((t) => t.own)
-			])
-		}
-	}
-	return taken
-}
+): ReadonlyMap<string, ReadonlyArray<NonEmptyReadonlyArray<SideColumn>>> =>
+	new Map(
+		distinct(
+			uses.map((u) => u.relation),
+			(a, b) => a === b
+		).map((relation) => [
+			relation,
+			takingShared(
+				uses.filter((u) => u.relation === relation),
+				planned(relation)
+			)
+		])
+	)
 
 /** Whether `key` is exactly `side`: the same conjuncts and the same terms, each of one kind over one field. */
 const sameSide = (key: ResolvedSide, side: ResolvedSide): boolean =>
