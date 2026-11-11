@@ -1,4 +1,4 @@
-import { boolean, clone, element, filter, type Gen, int, map, weighted } from "@grizzle/testing/gen"
+import { boolean, clone, element, type Gen, int, map, weighted } from "@grizzle/testing/gen"
 import { Array as Arr } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
@@ -542,20 +542,25 @@ const realOutput: Dictionary = ((): Dictionary => {
 })()
 
 /** What a written draw does to one relation of the shop fixture: nothing, or one action over its fact. */
-const writeOps = ["none", "insert", "put", "delete"] as const
-type WriteOp = (typeof writeOps)[number]
+type WriteOp = "none" | WritingOp
+
+/** An action over a relation's fact. */
+type WritingOp = "insert" | "put" | "delete"
 
 /** Whether the shop's Crew is mutable, so a Hand's delete may shrink a stored Crew's family. */
 type CrewMutability = "immutable" | "mutable"
 
 /**
- * The actions a written draw may take on a relation: every one, but a Hand's delete only under a mutable Crew, since
+ * The actions that write a relation's fact: every one, but a Hand's delete only under a mutable Crew, since
  * an immutable Crew's family is fixed from its insert and the compiler refuses the delete. For the same reason a Hand's
  * insert under an immutable Crew comes with its Crew's insert (changeSetOf): a member inserted under a stored immutable
  * owner is refused, which audit.test.ts states once.
  */
-const opsOf = (relation: unknown, crew: CrewMutability): Arr.NonEmptyReadonlyArray<WriteOp> =>
-	relation === Hand && crew === "immutable" ? ["none", "insert", "put"] : writeOps
+const writingOpsOf = (
+	relation: unknown,
+	crew: CrewMutability
+): Arr.NonEmptyReadonlyArray<WritingOp> =>
+	relation === Hand && crew === "immutable" ? ["insert", "put"] : ["insert", "put", "delete"]
 
 /**
  * The shop relations a written draw acts on, each with its fact: an immutable and a mutable relation, a candidate key,
@@ -583,19 +588,23 @@ interface WriteSketch {
 	readonly described: boolean
 }
 
-/** A write sketch that writes something: a sketch of no action and no described put is drawn again. */
-const writeSketchGen: Gen<WriteSketch> = filter(
-	(source): WriteSketch => {
-		const crew = source.draw(element(["immutable", "mutable"] as const))
-		return {
-			crew,
-			ops: Arr.map(writeTargets, ([relation]) => source.draw(element(opsOf(relation, crew)))),
-			described: crew === "immutable" && source.draw(boolean)
-		}
-	},
-	(w) => w.described || Arr.some(w.ops, (op) => op !== "none"),
-	8
-)
+/**
+ * A write sketch that writes something, by construction: where no described put comes on top, one target drawn among
+ * them acts, its action drawn from those that write, and every other target's action is drawn from all of them.
+ */
+const writeSketchGen: Gen<WriteSketch> = (source) => {
+	const crew = source.draw(element(["immutable", "mutable"] as const))
+	const described = crew === "immutable" && source.draw(boolean)
+	const acting = described ? undefined : source.draw(int(0, writeTargets.length - 1))
+	return {
+		crew,
+		ops: Arr.map(writeTargets, ([relation], i) => {
+			const writing = writingOpsOf(relation, crew)
+			return source.draw(element<WriteOp>(i === acting ? writing : ["none", ...writing]))
+		}),
+		described
+	}
+}
 
 /** Whether a write sketch deletes the Hand: a member of Crew's family. */
 const deletesHand = (w: WriteSketch): boolean =>
