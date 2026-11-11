@@ -54,7 +54,7 @@ import {
 	cUtf8Collation,
 	derived,
 	desc,
-	distinctCoreWhen,
+	distinctCore,
 	distinctOnCore,
 	exists,
 	join,
@@ -421,7 +421,9 @@ const queryArm = (
 		const where = conjunction(predicates)
 		return {
 			core: Arr.isReadonlyArrayNonEmpty(targets)
-				? distinctCoreWhen(q.on("distinct"), targets, [from], where)
+				? q.on("distinct")
+					? distinctCore(targets, [from], where)
+					: provedCore("certified", targets, [from], where)
 				: provedCore("certified", targets, [from], where),
 			types: Arr.map(typed, (t) => t.type)
 		}
@@ -1344,7 +1346,9 @@ const projected = (
 ): SetCore =>
 	Arr.isReadonlyArrayNonEmpty(leading)
 		? distinctOnCore(leading, targets, from, where)
-		: distinctCoreWhen(d.keep("distinct"), targets, from, where)
+		: d.keep("distinct")
+			? distinctCore(targets, from, where)
+			: provedCore("certified", targets, from, where)
 
 /** A query core with outputs of `outputs` when given, its decisions one span. */
 const coreOf = (

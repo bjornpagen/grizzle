@@ -1,3 +1,15 @@
+/**
+ * Recursion admission factors several transition arms into one feedback scan, here over the arms that fix or repeat
+ * a state column: the arm matching self with b fixed to a parameter, or with b repeating a, reads the current state
+ * through equalities on it, beside the transitive arm, so the definition reads its feedback once and lowers. The
+ * factoring of arms that read no self, of the reverse transition, of a negated fixed relation and of an importer's
+ * parameters is unit/recursion/feedback-shape's; the state heading's casts are unit/recursion/state-heading's.
+ *
+ * Oracle: the factoring's statement (check/recursion/factor.ts) as a checker over every set of the two arms: one
+ * feedback read, exactly the parameters the arms read, and a conservative lowering. Features: each arm, and both.
+ *
+ * Plant, failing the search: factoring keeping only the self match's variable bindings (factor-fixed-dropped).
+ */
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
@@ -20,14 +32,6 @@ import {
 	vars
 } from "#test/unit/check/dsl.ts"
 import { Graph, lower, reads, theRecursive } from "#test/unit/recursion/fixtures.ts"
-
-/**
- * Recursion admission factors several transition arms into one feedback scan, here over the arms that fix or repeat
- * a state column: the arm matching self with b fixed to a parameter, or with b repeating a, reads the current state
- * through equalities on it, beside the transitive arm, so the definition reads its feedback once and lowers. The
- * factoring of arms that read no self, of the reverse transition, of a negated fixed relation and of an importer's
- * parameters is unit/recursion/feedback-shape's; the state heading's casts are unit/recursion/state-heading's.
- */
 
 const uuidField: FieldDesc = { kind: "uuid" }
 
@@ -94,8 +98,11 @@ describe("factoring transition arms into one feedback scan", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "every set of the two arms beside the transitive one: b repeating a, b fixed to a parameter",
+						oracle: {
+							kind: "specification",
+							name: "factor.ts: arms that fix or repeat a state column read the current state through equalities, one feedback read"
+						},
 						suite: "unit/recursion/factoring-equalities",
 						generator: subarray<Arm>(["b repeating a", "b fixed to a parameter"]),
 						literal: Formatter.format,

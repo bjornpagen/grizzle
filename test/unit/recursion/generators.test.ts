@@ -1,3 +1,19 @@
+/**
+ * The graph-shaped recursive generators themselves (test/support/oracle/gen/recursive.ts), whose features every
+ * recursion suite's coverage rests on. Host only: these checks need no database.
+ *
+ * - Each graph shape is the shape it names: a chain is the path 0 -> 1 -> ... -> n-1, a tree n-1 edges into distinct
+ *   vertices with no cycle, a diamond holds its four edges and no cycle, a self-loop graph a loop, a dense cycle every
+ *   edge i -> i+1 around and a cycle, and parallel edges each an edge of its own id beside its repeats.
+ * - terminatesAsBag holds exactly when every recursion's derivations stay finite without deduplication: a walk, or a
+ *   traversal of edges with no cycle in the direction it runs.
+ *
+ * Oracle: each shape's definition as a checker, and a cycle search over the traversed edges (a second implementation).
+ * Features: each form, direction and termination the bag search must reach.
+ *
+ * Plants, each failing its search: the chain's edges pointed backwards (generator-chain-reversed); an acyclic
+ * recursion counted as looping (generator-bag-bounded-only).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore, sketched } from "@grizzle/testing/explore"
 import { noCoverage, required } from "@grizzle/testing/features"
@@ -20,14 +36,6 @@ import {
 	resolveRecursiveCase
 } from "#test/support/oracle/gen/recursive.ts"
 
-/**
- * The graph-shaped recursive generators themselves. Host only:
- * these checks need no database.
- *
- * - each graph shape is the shape it names, and the parallel-edge, cycle and diamond features are true of the facts;
- * - terminatesAsBag holds exactly when every recursion's derivations stay finite without deduplication.
- */
-
 const pairsOf = (graph: GenGraph) => Arr.filter(edgePairs(graph), ([a, b]) => a !== b)
 
 describe("graph-shaped recursive generators", () => {
@@ -38,7 +46,7 @@ describe("graph-shaped recursive generators", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: { kind: "specification", name: "each graph shape's definition" },
 						suite: "recursion/generators-shapes",
 						draw: drawn(graphSketchGen),
 						literal: Formatter.format,
@@ -159,7 +167,10 @@ describe("graph-shaped recursive generators", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "second-implementation",
+							name: "a cycle search over the edges each recursion traverses"
+						},
 						suite: "recursion/generators-bag-termination",
 						draw: sketched(recursiveCaseSketchGen, (sketch) =>
 							resolveRecursiveCase(sketch, limits, "unmutated")

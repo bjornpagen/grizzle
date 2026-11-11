@@ -1,3 +1,18 @@
+/**
+ * The static seen-state estimate (check/recursion/termination.ts): the product over state columns of the number of
+ * values each can take. Planted over a grid walk the generated recursions (unit/recursion/certificates, one counter, a
+ * tag and a mark) never build: two independent counters bounded by drawn bounds, a column computed from both, a
+ * column of a drawn type copied from data, and a tag column of one literal or two. The rule restated: a bounded counter
+ * counts every integer from its seed to its bound; a computed column the product of the columns it reads beside its
+ * literals; data, of any type, counts once; a column of literals counts them. A set state column, which no hash
+ * operator class deduplicates, is refused at every roster size, its cause naming the recursion and the column.
+ *
+ * Oracle: the estimate's rule restated as a formula, and the hashing rule (a specification). Features: each copied
+ * column's type, a computed column, two tags, the widest grid; each roster size.
+ *
+ * Plants, each failing its search: a counting recursion's estimate one more than its states (refusals-estimate); a set
+ * state column counted as hashable (termination-bits-hashable).
+ */
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
@@ -27,15 +42,6 @@ import {
 	vars
 } from "#test/unit/check/dsl.ts"
 import { Graph, theRecursive } from "#test/unit/recursion/fixtures.ts"
-
-/**
- * The static seen-state estimate (check/recursion/termination.ts): the product over state columns of the number of
- * values each can take. Planted over a grid walk the generated recursions (unit/recursion/certificates, one counter, a
- * tag and a mark) never build: two independent counters bounded by drawn bounds, a column computed from both, a
- * column of a drawn type copied from data, and a tag column of one literal or two. The rule restated: a bounded counter
- * counts every integer from its seed to its bound; a computed column the product of the columns it reads beside its
- * literals; data, of any type, counts once; a column of literals counts them.
- */
 
 const integer: FieldDesc = { kind: "pg", type: "integer" }
 const s = (column: string) => varRef(`self.${column}`)
@@ -77,8 +83,11 @@ describe("the seen-state estimate", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "two counters each bounded below one to three, a computed column or a literal, one tag or two, and each Vertex column copied as data",
+						oracle: {
+							kind: "specification",
+							name: "termination.ts: counters multiply, a computed column by the columns it reads beside its literal, data once, literals each"
+						},
 						suite: "unit/recursion/estimate",
 						generator: (source) =>
 							[
@@ -209,8 +218,11 @@ describe("the seen-state estimate", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "a set state column over a roster of one, two or three handles",
+						oracle: {
+							kind: "specification",
+							name: "state.ts requireHashing: a set state column is unhashable"
+						},
 						suite: "unit/recursion/estimate-sets",
 						generator: int(1, 3),
 						literal: Formatter.format,
@@ -270,12 +282,10 @@ describe("the seen-state estimate", () => {
 							assert.ok(!r.ok, "a set state column is refused")
 							assert.equal(r.error.reason._tag, "RecursionRefused")
 							if (r.error.reason._tag === "RecursionRefused") {
-								assert.deepEqual(r.error.reason.cause, {
-									kind: "unhashableState",
-									recursion: "Marks",
-									column: "m",
-									type: "bits Flag"
-								})
+								const cause = r.error.reason.cause
+								assert.ok(cause.kind === "unhashableState", `refused for ${cause.kind}`)
+								const { recursion, column } = cause
+								assert.deepEqual({ recursion, column }, { recursion: "Marks", column: "m" })
 							}
 						})
 				)

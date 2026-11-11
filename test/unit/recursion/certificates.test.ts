@@ -1,3 +1,52 @@
+/**
+ * Generated recursions against the termination proof rules: for every recursive definition the generator draws, the
+ * checker's verdict is the one a reference model of the rules gives, and so is the certificate's family and state
+ * estimate.
+ *
+ * A definition walks Graph's edges from a parameter root, with a state of its node, a counter-like column h and a tag
+ * column t of one integer carrier, and a mark m of text. Its base arms seed h, t and m with literals; its recursive arms
+ * deliver for h a literal, a copy of h or of t, a step h + k, k + h or h - k under zero to two guards on h (a comparison
+ * either way round with a literal or a parameter, a range, or a disequality), a product or a sum with the edge's cost,
+ * or the cost itself; for t a literal, a copy, the cost or the cost plus a literal, or a product; for m a literal or a
+ * copy. A recursive arm may also pin h to a vertex's rank, so h is data there. A head literal is typed, untyped (the
+ * state column types it) or a narrower integer literal cast to the carrier, which are one value to the rules.
+ *
+ * The reference model, written from the rules as termination.ts states them:
+ *
+ * - a literal is one value; data (the edge's columns, a pinned h, a computed term over data only) counts once; a copy
+ *   of the column's own state adds nothing; a copy of another column widens to that column's values;
+ * - h + k, k + h and h - k with k a nonzero integer literal are a counter when a guard bounds h on the side it moves
+ *   towards: the last value the guards admit is the tightest bound, and the counter produces that value plus its
+ *   step, which must stay inside the carrier (a parameter bound is the carrier's extreme), or the recursion is
+ *   refused for carrier overflow;
+ * - any other term computed from a column's own value is unbounded computed state, refused;
+ * - a counter counts every integer from its least to its greatest value: the seeds' range when every other value is
+ *   a known literal, the carrier's range otherwise, widened to what the counter produces;
+ * - the estimate is the product over the columns, recorded and never refused, whatever its size; the family is
+ *   finiteCarrier without a counter, boundedState with an increasing one, wellFounded with only decreasing ones;
+ * - a counter's step is exact integer arithmetic, narrowed into the carrier: from every value the counter can hold,
+ *   least to greatest, each of its steps stays inside the carrier, the step past its last state included, or the
+ *   narrowing is unproved, PartialOperation, which admission decides after the rules above. Every other integer
+ *   arithmetic the definition computes is narrowed under the guard that it fits, as a program writes it.
+ *
+ * The model restates the rules, so a rule that is unsound in both, an estimate below the states a recursion really
+ * reaches, would pass the comparison. So every admitted definition also runs, by the reference evaluator's fixpoint,
+ * over small generated graphs: it must reach its fixpoint, and no vertex may carry more distinct states than the
+ * estimate over that graph. The rules count a column's data once, the states per combination of carrier values, and a
+ * vertex holds a state for each value the graph's data gives a column there (edges of two costs into it, or the cost
+ * beside the cost plus one), so over a graph the model counts a column's data as the distinct values its data forms
+ * take on the graph's edges. That comparison bites where a vertex reaches the bound, so the draw holds definitions
+ * without data whose estimate a vertex with a self-loop reaches exactly. The fixpoint runs where the reference reaches it within its step limit
+ * under the estimate; a definition whose estimate over a graph is past that limit, such as a counter stepping toward a
+ * bound near the carrier's extreme, is held to its verdict, family and estimate alone. A guard's literal bound is drawn
+ * near the carrier's extremes too, where a counter's next value leaves the carrier before the bound is checked.
+ *
+ * Oracle: the reference model of the rules (a second implementation of termination.ts), and the reference evaluator's
+ * fixpoint over generated graphs. Features: each rule's situations (featureTests), a fixpoint reached, at its estimate,
+ * past the reference's step limit, and a vertex holding more states than the estimate with its data once.
+ *
+ * Plant, failing the search: a counter's last produced value read one step past its bound (termination-produced).
+ */
 import { describe, it } from "@effect/vitest"
 import { explore, type Kept, sketched } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -75,50 +124,6 @@ import {
 	vars
 } from "#test/unit/check/dsl.ts"
 import { Graph, theRecursive } from "#test/unit/recursion/fixtures.ts"
-
-/**
- * Generated recursions against the termination proof rules: for every recursive definition the generator draws, the
- * checker's verdict is the one a reference model of the rules gives, and so is the certificate's family and state
- * estimate.
- *
- * A definition walks Graph's edges from a parameter root, with a state of its node, a counter-like column h and a tag
- * column t of one integer carrier, and a mark m of text. Its base arms seed h, t and m with literals; its recursive arms
- * deliver for h a literal, a copy of h or of t, a step h + k, k + h or h - k under zero to two guards on h (a comparison
- * either way round with a literal or a parameter, a range, or a disequality), a product or a sum with the edge's cost,
- * or the cost itself; for t a literal, a copy, the cost or the cost plus a literal, or a product; for m a literal or a
- * copy. A recursive arm may also pin h to a vertex's rank, so h is data there. A head literal is typed, untyped (the
- * state column types it) or a narrower integer literal cast to the carrier, which are one value to the rules.
- *
- * The reference model, written from the rules as termination.ts states them:
- *
- * - a literal is one value; data (the edge's columns, a pinned h, a computed term over data only) counts once; a copy
- *   of the column's own state adds nothing; a copy of another column widens to that column's values;
- * - h + k, k + h and h - k with k a nonzero integer literal are a counter when a guard bounds h on the side it moves
- *   towards: the last value the guards admit is the tightest bound, and the counter produces that value plus its
- *   step, which must stay inside the carrier (a parameter bound is the carrier's extreme), or the recursion is
- *   refused for carrier overflow;
- * - any other term computed from a column's own value is unbounded computed state, refused;
- * - a counter counts every integer from its least to its greatest value: the seeds' range when every other value is
- *   a known literal, the carrier's range otherwise, widened to what the counter produces;
- * - the estimate is the product over the columns, recorded and never refused, whatever its size; the family is
- *   finiteCarrier without a counter, boundedState with an increasing one, wellFounded with only decreasing ones;
- * - a counter's step is exact integer arithmetic, narrowed into the carrier: from every value the counter can hold,
- *   least to greatest, each of its steps stays inside the carrier, the step past its last state included, or the
- *   narrowing is unproved, PartialOperation, which admission decides after the rules above. Every other integer
- *   arithmetic the definition computes is narrowed under the guard that it fits, as a program writes it.
- *
- * The model restates the rules, so a rule that is unsound in both, an estimate below the states a recursion really
- * reaches, would pass the comparison. So every admitted definition also runs, by the reference evaluator's fixpoint,
- * over small generated graphs: it must reach its fixpoint, and no vertex may carry more distinct states than the
- * estimate over that graph. The rules count a column's data once, the states per combination of carrier values, and a
- * vertex holds a state for each value the graph's data gives a column there (edges of two costs into it, or the cost
- * beside the cost plus one), so over a graph the model counts a column's data as the distinct values its data forms
- * take on the graph's edges. That comparison bites where a vertex reaches the bound, so the draw holds definitions
- * without data whose estimate a vertex with a self-loop reaches exactly. The fixpoint runs where the reference reaches it within its step limit
- * under the estimate; a definition whose estimate over a graph is past that limit, such as a counter stepping toward a
- * bound near the carrier's extreme, is held to its verdict, family and estimate alone. A guard's literal bound is drawn
- * near the carrier's extremes too, where a counter's next value leaves the carrier before the bound is checked.
- */
 
 type Carrier = "smallint" | "integer" | "bigint"
 const ranges: Readonly<Record<Carrier, readonly [bigint, bigint]>> = {
@@ -1416,7 +1421,10 @@ describe("generated recursions against the termination proof rules", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "second-implementation",
+							name: "a reference model of termination.ts's rules, and the reference evaluator's fixpoint over generated graphs"
+						},
 						suite: "unit/recursion/certificates",
 						draw: sketched(
 							(source) =>
