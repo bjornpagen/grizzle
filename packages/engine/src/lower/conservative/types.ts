@@ -243,8 +243,9 @@ export interface ConservativeStatement<Slot extends ConservativeParamSlot = Decl
 }
 
 /**
- * A program's statements in flight order, the order the runtime sends them and every position names: each delivered
- * statement, then the attachment statements under it, depth first in emission order.
+ * A program's statements in part order, the order its one statement holds them as parts (shapes/index.ts
+ * partedConservative) and every part's position names: each delivered statement, then the attachment statements under
+ * it, depth first in emission order.
  */
 export const flight = <S>(roots: StatementRoots<S>): NonEmptyReadonlyArray<S> => {
 	const [first, ...rest] = roots

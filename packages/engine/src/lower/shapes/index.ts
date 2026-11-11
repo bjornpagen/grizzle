@@ -170,21 +170,6 @@ export type FusedStatement<Slot extends ConservativeParamSlot = DeclaredParamSlo
 		readonly fused: ReadonlyArray<FusedAttachment>
 	}
 
-/** A conservative statement as a page's conservative artifact places it: it fuses no attachment and has one form. */
-export const asDelivered = <C, Slot extends ConservativeParamSlot>(
-	s: ConservativeStatement<Slot>
-): DeliveredStatement<C, Slot> => ({
-	...s,
-	fused: [],
-	forms: oneForm
-})
-
-/** A statement of a page's conservative artifact in its forms, of choices of kind C: it has one. */
-export type DeliveredStatement<
-	C,
-	Slot extends ConservativeParamSlot = DeclaredParamSlot
-> = FusedStatement<Slot> & { readonly forms: StatementForms<C, FusedStatement<Slot>> }
-
 /**
  * A delivered relation of a program, as the runtime reads it: its role (an attachment's with its parent key), the
  * heading of the relation, its fused attachments, and `answer`, the position of its rows among the runs of the

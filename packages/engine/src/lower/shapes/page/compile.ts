@@ -41,7 +41,11 @@ import {
 	type StatementParams
 } from "#compiler/lower/conservative/context.ts"
 
-import { Delivery, statementRows } from "#compiler/lower/conservative/deliver.ts"
+import {
+	ConservativeDelivery,
+	type Delivery,
+	statementRows
+} from "#compiler/lower/conservative/deliver.ts"
 import { dispatchNode } from "#compiler/lower/conservative/dispatch.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
 import { noRowKeys } from "#compiler/lower/conservative/keys.ts"
@@ -334,7 +338,7 @@ const conservativeKit = <F extends PageFill>(
 		subject: { kind: "query" }
 	}
 	const cx = new LowerContext(input.checked.dag, options, dispatchNode)
-	const delivery = new Delivery<PageParamSlot<F>>(cx)
+	const delivery = new ConservativeDelivery<PageParamSlot<F>>(cx)
 	return {
 		cx,
 		delivery,

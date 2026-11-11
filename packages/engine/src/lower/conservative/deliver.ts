@@ -144,7 +144,8 @@ const groupMerge = (plan: HeterogeneousPlan): GroupMerge => {
  *   program's `merge` says how, the take's order apart from the delivery order. Attachments and filters above the union
  *   apply per group (heterogeneousPlan); any other node over it, which would deliver only the common heading, is
  *   refused.
- * - Each attachment is one more statement, sent in the same flight as its parent's and run in the same snapshot. It
+ * - Each attachment is one more statement, a part after its parent's of the program's one statement
+ *   (shapes/index.ts partedConservative), so both read one snapshot. It
  *   computes the set of its parent key's values in its parent's rows again, as a derived table of its own
  *   (parentKeysSource), and selects, for every parent key, the child's facts correlated to it: the parent key columns
  *   first, then the child's heading. Attachments nest; a child's own attachments compute the child statement's key
@@ -278,9 +279,8 @@ export const parentColumnsOf = (
 }
 
 /**
- * The parent key `parentKey`'s values in the parent's rows, computed again as a derived table of the statement being
- * lowered (ParentRows keys), and each parent key column's expression over it. This replaces the delivered parent keys
- * an attachment once took as a parameter, so the attachment needs no earlier statement's rows.
+ * The parent key `parentKey`'s values in the parent's rows, a derived table of the statement being lowered (ParentRows
+ * keys), and each parent key column's expression over it: the attachment reads its parents' keys in its own statement.
  */
 export const parentKeysSource = (
 	cx: LowerContext,
@@ -421,8 +421,9 @@ export const checkedAttachment = (
 }
 
 /**
- * The parent rows of a rows statement delivering `origin`'s rows of heading `heading`, lowered again by `rel`, and what
- * `keys` proves of their keys (keys.ts RowKeys).
+ * The parent rows of a rows statement delivering `origin`'s rows of heading `heading`, read by `rel` (lowered again in
+ * the conservative baseline, read where the statement holds them in the optimized delivery, shapes/index.ts #held),
+ * and what `keys` proves of their keys (keys.ts RowKeys).
  */
 export const statementRows = (
 	cx: LowerContext,
@@ -449,11 +450,13 @@ interface AttachmentQuery {
 }
 
 /**
- * The statements of one delivery over `cx`: each begun with placeholders of its own, a declared parameter's or one of
- * `Own` its caller allocates (a page's fills), which the statement it emits holds.
+ * What every delivery over `cx` reads: each statement begun with placeholders of its own, a declared parameter's or one
+ * of `Own` its caller allocates (a page's fills), which the statement it emits holds; a delivery's spine; the plan of a
+ * heterogeneous union delivered per heading group; and the refusal of an attachment of several headings.
  */
 export class Delivery<Own extends PageParamSlot = never> {
 	readonly cx: LowerContext
+
 	#params: StatementParams<Own>
 
 	constructor(cx: LowerContext) {
@@ -495,49 +498,6 @@ export class Delivery<Own extends PageParamSlot = never> {
 					`attachments on the arm ${arm.nodes[0].id} of a union of several arms, whose facts may come from several arms`
 				)
 			}
-		}
-	}
-
-	/**
-	 * One statement delivering a relation of heading `rows` after the columns its role puts first, printed by sql/emit
-	 * after renaming the outermost output to the output's names (statementOutput). A zero-column relation delivers its
-	 * private unit column.
-	 */
-	statement(
-		query: Select,
-		rows: Heading,
-		role: StatementRole
-	): ConservativeStatement<DeclaredParamSlot | Own> {
-		const output = statementOutput(role, rows, [])
-		return {
-			role,
-			...printedStatement(
-				refineConservative(this.cx, query, output.heading, rows.length === 0),
-				output.names,
-				this.cx.supply
-			),
-			params: [...this.#params.slots],
-			heading: rows
-		}
-	}
-
-	/** SELECT <columns> FROM (<rel>) AS r(...) [ORDER BY ...]: a relation delivered as the statement's rows. */
-	delivered(
-		rel: OperandSelect,
-		heading: Heading,
-		origin: RelNode,
-		order: CompletedOrder | undefined
-	): Select {
-		const source = this.cx.wrap(rel, heading, { kind: "node", node: origin.id })
-		const orderBy: ReadonlyArray<OrderItem> =
-			order === undefined || heading.length === 0
-				? []
-				: completedOrderItems(order, heading, source.map)
-		return {
-			...select(
-				keyedSet(headingTargets(heading, source.map), [source.item], undefined, "a delivery")
-			),
-			orderBy
 		}
 	}
 
@@ -633,6 +593,72 @@ export class Delivery<Own extends PageParamSlot = never> {
 			spineNodes.push(node)
 		}
 		return { union, spineNodes, attachments, filters, bound }
+	}
+
+	/**
+	 * One attachment statement delivers one heading, so an attachment whose child's spine ends at a union of several
+	 * heading groups is refused, whichever delivery lowers it.
+	 */
+	oneHeadingAttached(attach: NodeOf<"Attach">): void {
+		const heterogeneous = heterogeneousUnion(deliverySpine(attach.child))
+		if (heterogeneous !== undefined) {
+			refuse(
+				"UnsupportedOperation",
+				nodeLabel(attach),
+				`an attached heterogeneous union ${heterogeneous.id} delivered per heading group; one attachment statement delivers one heading`
+			)
+		}
+	}
+}
+
+/**
+ * A conservative delivery, the oracles' baseline: a statement per delivered relation, each attachment's computing its
+ * parent key's set again itself, which shapes/index.ts partedConservative makes the parts of one statement. The
+ * optimized delivery shares only Delivery's spine, heading-group plan and placeholders, and builds its own parts
+ * (shapes/index.ts OptimizedDelivery).
+ */
+export class ConservativeDelivery<Own extends PageParamSlot = never> extends Delivery<Own> {
+	/**
+	 * One statement delivering a relation of heading `rows` after the columns its role puts first, printed by sql/emit
+	 * after renaming the outermost output to the output's names (statementOutput). A zero-column relation delivers its
+	 * private unit column.
+	 */
+	statement(
+		query: Select,
+		rows: Heading,
+		role: StatementRole
+	): ConservativeStatement<DeclaredParamSlot | Own> {
+		const output = statementOutput(role, rows, [])
+		return {
+			role,
+			...printedStatement(
+				refineConservative(this.cx, query, output.heading, rows.length === 0),
+				output.names,
+				this.cx.supply
+			),
+			params: [...this.params.slots],
+			heading: rows
+		}
+	}
+
+	/** SELECT <columns> FROM (<rel>) AS r(...) [ORDER BY ...]: a relation delivered as the statement's rows. */
+	delivered(
+		rel: OperandSelect,
+		heading: Heading,
+		origin: RelNode,
+		order: CompletedOrder | undefined
+	): Select {
+		const source = this.cx.wrap(rel, heading, { kind: "node", node: origin.id })
+		const orderBy: ReadonlyArray<OrderItem> =
+			order === undefined || heading.length === 0
+				? []
+				: completedOrderItems(order, heading, source.map)
+		return {
+			...select(
+				keyedSet(headingTargets(heading, source.map), [source.item], undefined, "a delivery")
+			),
+			orderBy
+		}
 	}
 
 	/** One statement per heading group, each with its attachments' statements (groupStatement, groupAttachments). */
@@ -739,21 +765,6 @@ export class Delivery<Own extends PageParamSlot = never> {
 	}
 
 	/**
-	 * One attachment statement delivers one heading, so an attachment whose child's spine ends at a union of several
-	 * heading groups is refused, whichever delivery lowers it.
-	 */
-	oneHeadingAttached(attach: NodeOf<"Attach">): void {
-		const heterogeneous = heterogeneousUnion(deliverySpine(attach.child))
-		if (heterogeneous !== undefined) {
-			refuse(
-				"UnsupportedOperation",
-				nodeLabel(attach),
-				`an attached heterogeneous union ${heterogeneous.id} delivered per heading group; one attachment statement delivers one heading`
-			)
-		}
-	}
-
-	/**
 	 * The children of one attachment, for every parent row, as a statement of its own.
 	 *
 	 * The child's own attachments read this statement's rows, the child columns after the parent key, computing
@@ -824,14 +835,7 @@ export class Delivery<Own extends PageParamSlot = never> {
 			parentKey
 		}
 	}
-}
 
-/**
- * A conservative delivery, the oracles' baseline: its program is a statement per delivered relation, each attachment's
- * computing its parent key's set again itself. The optimized delivery shares its building blocks and assembles its own
- * program of one statement (shapes/index.ts OptimizedDelivery optimizedProgram).
- */
-export class ConservativeDelivery<Own extends PageParamSlot = never> extends Delivery<Own> {
 	/** The program delivering `root`'s rows, its attachments' and its heading groups', a statement each. */
 	program(root: RelNode): ConservativeProgram<DeclaredParamSlot | Own> {
 		const plan = this.heterogeneousPlan(root)
