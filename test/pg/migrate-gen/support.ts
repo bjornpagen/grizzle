@@ -2142,7 +2142,11 @@ const declarationsOf = (
  * every other relation, field or handle removed as a `--drop`; an alias rename, which the draft holds as no change,
  * neither. The draft then drafts what a reviewer choosing the path's renames chose.
  */
-export const declarationsAlong = (from: TracedVersion, to: TracedVersion, choose: boolean): Declarations =>
+export const declarationsAlong = (
+	from: TracedVersion,
+	to: TracedVersion,
+	choose: boolean
+): Declarations =>
 	declarationsOf(
 		from.version,
 		to.version,

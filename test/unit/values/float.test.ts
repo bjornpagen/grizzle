@@ -69,29 +69,31 @@ const doubleGen: Gen<number> = weighted([
 ])
 
 /** The bit pattern of a binary32 value, read through one scratch buffer. */
-const binary32 = Object.freeze((() => {
-	const scratch = new Float32Array(1)
-	const bits = new Int32Array(scratch.buffer)
-	const of = (pattern: number): number => {
-		bits[0] = pattern
-		return scratch[0] ?? 0
-	}
-	return {
-		bitsOf: (value: number): number => {
-			scratch[0] = value
-			return bits[0] ?? 0
-		},
-		/** The binary32 values on either side of a finite one: the least subnormal's beside zero. */
-		neighbours: (value: number): readonly [number, number] => {
-			if (value === 0) {
-				return [-(2 ** binary32LeastExponent.value), 2 ** binary32LeastExponent.value]
-			}
-			scratch[0] = value
-			const pattern = bits[0] ?? 0
-			return value > 0 ? [of(pattern - 1), of(pattern + 1)] : [of(pattern + 1), of(pattern - 1)]
+const binary32 = Object.freeze(
+	(() => {
+		const scratch = new Float32Array(1)
+		const bits = new Int32Array(scratch.buffer)
+		const of = (pattern: number): number => {
+			bits[0] = pattern
+			return scratch[0] ?? 0
 		}
-	}
-})())
+		return {
+			bitsOf: (value: number): number => {
+				scratch[0] = value
+				return bits[0] ?? 0
+			},
+			/** The binary32 values on either side of a finite one: the least subnormal's beside zero. */
+			neighbours: (value: number): readonly [number, number] => {
+				if (value === 0) {
+					return [-(2 ** binary32LeastExponent.value), 2 ** binary32LeastExponent.value]
+				}
+				scratch[0] = value
+				const pattern = bits[0] ?? 0
+				return value > 0 ? [of(pattern - 1), of(pattern + 1)] : [of(pattern + 1), of(pattern - 1)]
+			}
+		}
+	})()
+)
 
 type RealFeature =
 	| "rounded"
