@@ -322,6 +322,12 @@ describe("the live model's values", () => {
 		| "a move"
 		| "a re-sent upsert"
 
+	/** Whether two drawn changes are one: a re-sent change is the change before it again. */
+	const sameChange = (a: ChangeSpec, b: ChangeSpec): boolean =>
+		a.kind === "remove"
+			? b.kind === "remove" && a.i === b.i
+			: b.kind === "upsert" && a.spec.i === b.spec.i && a.spec.p === b.spec.p && a.after === b.after
+
 	/** What `change` does to `model`, read off the model before it. */
 	const appliedOf = (
 		shape: ReadShape,
@@ -329,7 +335,7 @@ describe("the live model's values", () => {
 		change: ChangeSpec,
 		previous: ChangeSpec | undefined
 	): Applied => {
-		if (change === previous) {
+		if (change.kind === "upsert" && previous !== undefined && sameChange(change, previous)) {
 			return "a re-sent upsert"
 		}
 		if (change.kind === "remove") {
@@ -398,7 +404,60 @@ describe("the live model's values", () => {
 							return { shape, fields: s.draw(indexFieldsGen), start, changes }
 						}),
 						literal: Formatter.format,
-						kept: [],
+						kept: [
+							{
+								note: "an upsert re-sent twice and then removed: the remove takes its key out, and no upsert is re-sent past a later change",
+								sketch: {
+									shape: "set",
+									fields: ["k"],
+									start: [],
+									changes: [
+										{ kind: "remove", i: 0 },
+										{ kind: "upsert", spec: { i: 0, p: 0 }, after: null },
+										{ kind: "upsert", spec: { i: 0, p: 0 }, after: null },
+										{ kind: "upsert", spec: { i: 0, p: 0 }, after: null },
+										{ kind: "remove", i: 0 }
+									]
+								},
+								draws: "",
+								reaches: [
+									"a remove of an absent key",
+									"a new upsert",
+									"a re-sent upsert",
+									"a remove of a present key"
+								]
+							},
+							{
+								note: "a list's last upsert follows a key a later remove takes out: a re-send is only of the stream's last change",
+								sketch: {
+									shape: "list",
+									fields: ["k"],
+									start: [
+										{ i: 0, p: 0 },
+										{ i: 1, p: 0 },
+										{ i: 2, p: 0 },
+										{ i: 3, p: 0 }
+									],
+									changes: [
+										{ kind: "upsert", spec: { i: 0, p: 0 }, after: null },
+										{ kind: "upsert", spec: { i: 8, p: 0 }, after: null },
+										{ kind: "upsert", spec: { i: 8, p: 0 }, after: null },
+										{ kind: "remove", i: 0 },
+										{ kind: "remove", i: 0 },
+										{ kind: "upsert", spec: { i: 0, p: 0 }, after: 8 },
+										{ kind: "remove", i: 8 }
+									]
+								},
+								draws: "",
+								reaches: [
+									"an upsert in place",
+									"a new upsert",
+									"a re-sent upsert",
+									"a remove of a present key",
+									"a remove of an absent key"
+								]
+							}
+						],
 						runs: 400,
 						shrink: completeShrink,
 						concurrency: 1,
@@ -430,11 +489,12 @@ describe("the live model's values", () => {
 									...Arr.map(changes, (change) => kit.change(fields, change))
 								]
 								sameSpecs(shape, readySpecs(fold(openingOf(kit), events)), model)
-								const last = Arr.findLast(changes, (change) => change.kind === "upsert")
-								if (Option.isSome(last)) {
-									const again = [...events, kit.change(fields, last.value)]
-									sameSpecs(shape, readySpecs(fold(openingOf(kit), again)), model)
+								const last = changes.at(-1)
+								if (last?.kind !== "upsert") {
+									return
 								}
+								const again = [...events, kit.change(fields, last)]
+								sameSpecs(shape, readySpecs(fold(openingOf(kit), again)), model)
 							})
 						})
 				)
