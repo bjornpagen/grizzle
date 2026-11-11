@@ -1,6 +1,6 @@
 import type { CatalogKey } from "#compiler/analysis/physical/evidence.ts"
 import type { CheckedEntry, CheckedSchema, DerivedAnalysis } from "#compiler/analysis/schema.ts"
-import { readsOf } from "#compiler/analysis/theory/fill.ts"
+import { readsOf, withGenerationInputs } from "#compiler/analysis/theory/fill.ts"
 import { immediateEvidence } from "#compiler/analysis/theory/theory.ts"
 import { checkFill, checkMember, checkReadBack } from "#compiler/check/index.ts"
 import type { MemberColumn, MemberRelation } from "#compiler/check/schema.ts"
@@ -51,6 +51,7 @@ import { everyParentTakes } from "#compiler/lower/shapes/take/decorrelate.ts"
 import {
 	closedLeaf,
 	type ClosedRows,
+	type ColumnKey,
 	columnKey,
 	fieldKey,
 	type HostEvaluator,
@@ -701,6 +702,18 @@ interface OutsideDraft {
 	readonly carried: Heading
 	readonly reads: DraftReads
 }
+
+/**
+ * The columns a row of `relation` holds `column` by, by key: a law column by itself, and a field by itself or, generated,
+ * by the written fields its generation reads, transitively, over which a statement evaluates it (write/family/scan.ts
+ * scannedValue).
+ */
+const heldBy = (relation: RelationInfo, column: NativeColumn): ReadonlyArray<ColumnKey> =>
+	column.kind === "law"
+		? [columnKey(column)]
+		: withGenerationInputs(relation, [column.field]).flatMap((f) =>
+				f.writing.kind === "generated" ? [] : [fieldKey(f.name)]
+			)
 
 /**
  * The columns a family draws on its member, by key (write/family/edit.ts fillGroup): its index, its folds' accumulators,
@@ -2139,13 +2152,14 @@ const compile = (
 					)
 			)
 		})
-		/** Where an owner copy of `f` reads the owner column `to` (schedule.ts CopySource). */
+		/** Where an owner copy of `f` reads the owner column `to` (schedule.ts CopySource): held where every row the stratum
+		 * inserts of its owner holds the group's fields and the columns that hold `to` (`heldBy`). */
 		const copySource = (f: Family, to: NativeColumn): CopySource => {
 			const rows = insertedRows(f.owner.name)
 			if (!isNonEmpty(rows.carried) && !rows.described) {
 				return "stored"
 			}
-			const need = [...f.group.map((g) => fieldKey(g.owner.name)), columnKey(to)]
+			const need = [...f.group.map((g) => fieldKey(g.owner.name)), ...heldBy(f.owner, to)]
 			return !rows.described && rows.carried.every((keys) => need.every((k) => keys.includes(k)))
 				? "held"
 				: "drawn"

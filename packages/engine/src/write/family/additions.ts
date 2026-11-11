@@ -809,13 +809,14 @@ const appendScan = (
 				)
 			}
 		}
-		/** The owner among rows the stratum inserts, which the statement's parameters hold. */
+		/** The owner among rows the stratum inserts, which the statement's parameters hold: its column, or a generated
+		 * field's generation over the fields it reads (scan.ts scannedValue). */
 		const inserted = (owners: Shaped): Expr => {
 			const n = supply.relation(internal("inserted owner"))
 			return {
 				kind: "subquery",
 				query: simpleSelect(
-					[target(cast(col(n, columnAt(owners, columnKey(read.to))), w.cx.baseTypeRef(read.type)))],
+					[target(cast(scannedValue(w, owner, n, owners, read.to), w.cx.baseTypeRef(read.type)))],
 					[cteRefAs(owners.name, n)],
 					and(
 						mapNonEmpty(family.group, (g, i) =>

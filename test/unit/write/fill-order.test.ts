@@ -1,5 +1,5 @@
 import { describe, it } from "@effect/vitest"
-import { type Case, drawn, exhaust, explore } from "@grizzle/testing/explore"
+import { type Case, drawn, exhaust, explore, type Kept } from "@grizzle/testing/explore"
 import { required, requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
@@ -100,7 +100,10 @@ import { descOf, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
  * The planted bug: a copy's source read with no regard to when its row fills it (analysis/theory/fill.ts `ownerLater`
  * and `readLater` admitting every source) admits schemas the model refuses, which the witnesses reach on every seed.
  *
- * Plants (~/.cache/grizzle-release/BR02/plants): fill-order-read-later-admitted, the planted bug above as a patch.
+ * Plants (~/.cache/grizzle-release/BR02/plants): fill-order-read-later-admitted, the planted bug above as a patch;
+ * (~/.cache/grizzle-release/FILLORDER/plants): fill-order-generated-copy-drawn, an owner copy of a generated column of
+ * owners the stratum inserts read from the table after their statement, never from the fields its generation reads,
+ * which the kept case of TEST_SEED=2002821052 refuses as UnorderableStratum.
  */
 
 type FillSituation =
@@ -858,6 +861,36 @@ const stepsOfSequenceCopies: ReadonlyArray<{ readonly note: string; readonly ske
 		}
 	)
 
+/** The cases the drawn search found, each kept by value. */
+const foundCases: ReadonlyArray<Kept<FillCase, FillSituation>> = [
+	{
+		note: "TEST_SEED=2002821052's case 38: a counted family whose members copy their owner's generated g beside a sequence of its owners nested under them: the copy read g from the table after the owners' statement, which follows the members' by the sequence's owner axis, so the instance's insert was refused as UnorderableStratum, where the nested rows hold the v that g is generated from",
+		sketch: {
+			spec: {
+				relations: [
+					{ generated: true, mutable: true },
+					{ generated: false, mutable: true },
+					{ generated: false, mutable: true }
+				],
+				families: [
+					{ kind: "counted", owner: 0, member: 2, fold: "sum" },
+					{ kind: "counted", owner: 1, member: 2, fold: "none" },
+					{ kind: "ordered", owner: 2, member: 0, fold: "none" }
+				],
+				copies: [
+					{ family: 2, axis: "last", source: { kind: "caller" } },
+					{ family: 0, axis: "owner", source: { kind: "generated" } }
+				],
+				steps: []
+			},
+			rows: [],
+			followUp: Option.none()
+		},
+		draws: "",
+		reaches: ["admitted"]
+	}
+]
+
 const caseGen: Gen<FillCase> = (source) => {
 	const spec = source.draw(mutableOrDrawn(fillSpecGen({ relations: 4, families: 4, copies: 3 })))
 	const rows = source.draw(instanceGen(spec))
@@ -1460,15 +1493,21 @@ describe("the fill order: a schema generate accepts is one every write of fills"
 						draw: drawn(caseGen),
 						literal: Formatter.format,
 						coverage: required<FillSituation>(fillSituations, { cases: 240, sense: notesOnly }),
-						kept: Arr.map(stepsOfSequenceCopies, ({ note, sketch }) => ({
-							note,
-							sketch,
-							draws: "",
-							reaches: [
-								"admitted",
-								"admitted: a counted fold stepping a sequence's copy of its owner's"
-							]
-						})),
+						kept: [
+							...Arr.map(
+								stepsOfSequenceCopies,
+								({ note, sketch }): Kept<FillCase, FillSituation> => ({
+									note,
+									sketch,
+									draws: "",
+									reaches: [
+										"admitted",
+										"admitted: a counted fold stepping a sequence's copy of its owner's"
+									]
+								})
+							),
+							...foundCases
+						],
 						runs: 100,
 						shrink: boundedShrink(400),
 						concurrency: 1,

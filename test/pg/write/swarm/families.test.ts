@@ -879,6 +879,40 @@ const kept: ReadonlyArray<Kept<SwarmCase, Situation>> = [
 		reaches: ["a lawful first insert accepted"]
 	},
 	{
+		note: "unit/write/fill-order's TEST_SEED=2002821052, case 38, written: a counted family whose members copy their owner's generated g and a sequence of its owners nested under them, one member's owner nested under that member: its additions read g from the table after the statement that nests the owners, which follows theirs by its owner axis, so the stratum was refused as UnorderableStratum, where the nested rows hold the v that g is generated from",
+		sketch: {
+			spec: {
+				fill: {
+					relations: [relationFlags(true), { generated: true, mutable: true }],
+					families: [
+						{ kind: "counted", owner: 1, member: 0, fold: "none" },
+						{ kind: "ordered", owner: 0, member: 1, fold: "none" }
+					],
+					copies: [{ family: 0, axis: "owner", source: { kind: "generated" } }],
+					steps: []
+				},
+				ends: [],
+				plains: [],
+				laws: []
+			},
+			steps: [
+				inserted(
+					[
+						{ relation: 0, id: 1, v: 1n, memberOf: [{ family: 0, owner: 2, slot: 0 }] },
+						{ relation: 1, id: 2, v: 2n, memberOf: [{ family: 1, owner: 1, slot: 0 }] },
+						{ relation: 1, id: 3, v: -1n, memberOf: [{ family: 1, owner: 1, slot: 1 }] },
+						{ relation: 0, id: 4, v: 0n, memberOf: [{ family: 0, owner: 3, slot: 0 }] },
+						{ relation: 0, id: 5, v: 3n, memberOf: [{ family: 0, owner: 2, slot: 0 }] }
+					],
+					false,
+					undefined
+				)
+			]
+		},
+		draws: "",
+		reaches: ["a lawful first insert accepted"]
+	},
+	{
 		note: "TEST_SEED=1608381433's case 10: an ordered member's put beside an append to the counted family it owns, whose count its stored members copy, the owner axis deferred since the put re-places the owner; the planner on the host refused it, its members' copies left stale",
 		sketch: {
 			spec: {
