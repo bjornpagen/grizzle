@@ -1,7 +1,12 @@
 import { Array as Arr, Order, Record as Rec, String as Str } from "effect"
 import type { DecoderForm } from "#compiler/core/decoder.ts"
 import { type DeclaredName, identifierOf } from "#compiler/core/identity.ts"
-import type { ColumnIdent, RelationIdent, StoredRelationName } from "#compiler/core/ids.ts"
+import type {
+	ColumnIdent,
+	EntryName,
+	RelationIdent,
+	StoredRelationName
+} from "#compiler/core/ids.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
 import type { ParamDecl } from "#compiler/ir/products.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
@@ -31,7 +36,8 @@ import type {
  * those columns alone, since a statement coerces to a domain only the columns it writes and the values it casts; each
  * law of the theory reading a written relation, which a write statement's refusal raises; each generated column of a
  * written table, whose NOT NULL its generation expression breaks; and the domains of the rosters its written columns
- * and its cast values hold. A cast value is every claim of a context the role reads, which each of its write
+ * and its cast values hold; and a fact outside each query entry it writes through into a written relation, which the
+ * entry's precheck refuses. A cast value is every claim of a context the role reads, which each of its write
  * statements casts to its type, and every scalar parameter its writes declare; it meets each contract domain of its
  * type's contract chain, outermost first, and its pattern's text domain. A role that writes nothing raises nothing.
  */
@@ -190,6 +196,8 @@ export interface Raised {
 	readonly theoryLaws: ReadonlyArray<DescribedLaw>
 	readonly rosters: ReadonlySet<DeclaredName>
 	readonly generated: ReadonlyArray<{ readonly table: RelationIdent; readonly column: ColumnIdent }>
+	/** Each query entry the role writes through into a written relation, by its target. */
+	readonly entries: ReadonlyMap<StoredRelationName, EntryName>
 }
 
 /** Nothing raised: a role whose members write nothing. */
@@ -198,7 +206,8 @@ export const raisedNothing: Raised = {
 	constraints: [],
 	theoryLaws: [],
 	rosters: new Set(),
-	generated: []
+	generated: [],
+	entries: new Map()
 }
 
 /** The types of the values a role's writes cast (see the header): its contexts' claims and its writes' scalar parameters. */
@@ -232,7 +241,10 @@ const castDomains = (names: SchemaArtifacts["names"], type: ScalarType): Readonl
 
 /** What writes of the relations `written`, casting values of the types `cast`, can raise of `artifacts` (Raised). */
 export const raisedBy = (
-	artifacts: Pick<SchemaArtifacts, "derived" | "names" | "laws" | "constraintLaws" | "theoryLaws">,
+	artifacts: Pick<
+		SchemaArtifacts,
+		"derived" | "names" | "laws" | "constraintLaws" | "theoryLaws" | "world"
+	>,
 	written: ReadonlySet<string>,
 	cast: ReadonlyArray<ScalarType>
 ): Raised => {
@@ -286,6 +298,15 @@ export const raisedBy = (
 					? [{ table: artifacts.names.relation(r.name).name, column: f.column }]
 					: []
 			)
+		),
+		entries: new Map(
+			artifacts.world.kind === "role"
+				? Arr.flatMap([...artifacts.world.checked.world.writes.values()], (e) =>
+						e.kind === "rows" && written.has(e.writable.target.name)
+							? [[e.writable.target.name, e.writable.entry] as const]
+							: []
+					)
+				: []
 		)
 	}
 }

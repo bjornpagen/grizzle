@@ -45,7 +45,6 @@ import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { SchemaArtifacts } from "#compiler/program/schema.ts"
 import type { ConcurrentChangeTag } from "#compiler/runtime/write/refusal.ts"
 import type { Refuser } from "#compiler/runtime/write/witness.ts"
-import type { ServedRoleForm } from "#compiler/served/forms.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { type BuiltSchema, buildSchema } from "#test/support/oracle/public/build.ts"
@@ -171,7 +170,6 @@ const writingTables = (
  */
 const refusalsOf = (
 	artifacts: SchemaArtifacts,
-	role: ServedRoleForm,
 	shape: RoleShape,
 	raised: Raised,
 	draw: <A>(generator: Gen<A>) => A
@@ -317,11 +315,11 @@ const refusalsOf = (
 		at: [relation],
 		feature: "a concurrent change classified alike"
 	}))
-	const outside = Arr.map([...role.refusals.entries.values()], (entry): Refusal => ({
+	const outside = Arr.map([...raised.entries.values()], (entry): Refusal => ({
 		reported: {
 			...nothingReported,
 			sqlstate: sqlstates.grizzleOutsideWorld,
-			constraint: entry.entry,
+			constraint: entry,
 			schema
 		},
 		at: [],
@@ -412,7 +410,7 @@ const differential = (
 			const cut = servedWitness(role.served.refusals, back.above, codes).classify
 			const full = installationWitness(artifacts, back.above).classify
 			const raised = raisedBy(artifacts, written, castBy(role.served))
-			for (const refusal of refusalsOf(artifacts, role.served, shape, raised, draw)) {
+			for (const refusal of refusalsOf(artifacts, shape, raised, draw)) {
 				const relations = draw(statementGen(refusal.at, written))
 				const failure = serverError(refusal.reported)
 				const at = statementAt(relations)

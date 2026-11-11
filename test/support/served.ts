@@ -144,3 +144,41 @@ export const editedAt = (
 	}
 	return value
 }
+
+/** Every member path of a JSON value, a record's keys and an array's indices, outermost first. */
+export const memberPaths = (
+	json: unknown,
+	at: ReadonlyArray<string | number>
+): ReadonlyArray<ReadonlyArray<string | number>> => {
+	if (isList(json)) {
+		return Arr.flatMap(json, (item, i) => [[...at, i], ...memberPaths(item, [...at, i])])
+	}
+	if (isRecord(json)) {
+		return Arr.flatMap(Rec.toEntries(json), ([key, item]) => [
+			[...at, key],
+			...memberPaths(item, [...at, key])
+		])
+	}
+	return []
+}
+
+/** A copy of a JSON value without the member at `path`: an array's element taken out, a record's key left out. */
+export const without = (json: unknown, path: ReadonlyArray<string | number>): unknown => {
+	const [first, ...rest] = path
+	if (first === undefined) {
+		return json
+	}
+	if (isList(json)) {
+		return rest.length === 0
+			? Arr.filter(json, (_, i) => i !== first)
+			: Arr.map(json, (item, i) => (i === first ? without(item, rest) : item))
+	}
+	if (isRecord(json)) {
+		return Rec.fromEntries(
+			Arr.flatMap(Rec.toEntries(json), ([key, item]): ReadonlyArray<readonly [string, unknown]> =>
+				key !== first ? [[key, item]] : rest.length === 0 ? [] : [[key, without(item, rest)]]
+			)
+		)
+	}
+	return json
+}

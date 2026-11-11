@@ -122,7 +122,13 @@ import {
 import { clusterPool } from "#test/support/pg.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
 import { checking } from "#test/support/policy.ts"
-import { editedAt, firstSql, runtimeDifference } from "#test/support/served.ts"
+import {
+	editedAt,
+	firstSql,
+	memberPaths,
+	runtimeDifference,
+	without
+} from "#test/support/served.ts"
 import { testVerify } from "#test/support/worlds.ts"
 import { compiledPageResult } from "#test/unit/page/fixtures.ts"
 import { descOf, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
@@ -154,44 +160,6 @@ type Feature =
 	| "a file a host reads that loads"
 	| "a stale program named"
 	| "a list holding a Map"
-
-/** Every member path of a JSON value, a record's keys and an array's indices, outermost first. */
-const memberPaths = (
-	json: unknown,
-	at: ReadonlyArray<string | number>
-): ReadonlyArray<ReadonlyArray<string | number>> => {
-	if (isList(json)) {
-		return Arr.flatMap(json, (item, i) => [[...at, i], ...memberPaths(item, [...at, i])])
-	}
-	if (isRecord(json)) {
-		return Arr.flatMap(Rec.toEntries(json), ([key, item]) => [
-			[...at, key],
-			...memberPaths(item, [...at, key])
-		])
-	}
-	return []
-}
-
-/** A copy of a JSON value without the member at `path`: an array's element taken out, a record's key left out. */
-const without = (json: unknown, path: ReadonlyArray<string | number>): unknown => {
-	const [first, ...rest] = path
-	if (first === undefined) {
-		return json
-	}
-	if (isList(json)) {
-		return rest.length === 0
-			? Arr.filter(json, (_, i) => i !== first)
-			: Arr.map(json, (item, i) => (i === first ? without(item, rest) : item))
-	}
-	if (isRecord(json)) {
-		return Rec.fromEntries(
-			Arr.flatMap(Rec.toEntries(json), ([key, item]): ReadonlyArray<readonly [string, unknown]> =>
-				key !== first ? [[key, item]] : rest.length === 0 ? [] : [[key, without(item, rest)]]
-			)
-		)
-	}
-	return json
-}
 
 /** The isolation level a case's role records, by the case's pick: each level for half the picks. */
 const isolationAt = (pick: number): Isolation => (pick % 2 === 0 ? "serializable" : "readCommitted")

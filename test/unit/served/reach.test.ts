@@ -17,7 +17,8 @@
  * - Laws, sufficiency and minimality: each role's refusals hold exactly what its writes can raise of its installation,
  *   its table constraints and triggers, each domain's CHECK with its uses on the written tables alone, its unstored
  *   contract domains, the theory's laws over the written relations, their generated columns, their rosters' domains,
- *   and their tables and headings; nothing for a role that writes nothing.
+ *   their tables and headings, and the query entries it writes through into them; nothing for a role that writes
+ *   nothing.
  *
  * The oracle is the reach computed independently from the compiled program and the installation
  * (test/support/served-reach.ts): the statements' parameters and written relations, the decoders, and the written
@@ -131,6 +132,12 @@ const refusalsReach = (role: ServedRoleForm, raised: Raised, printed: () => stri
 	)
 	exactly(laws.tables.keys(), raised.relations, `role ${role.name}'s tables`, printed)
 	exactly(role.refusals.relations.keys(), raised.relations, `role ${role.name}'s headings`, printed)
+	exactly(
+		Arr.map([...role.refusals.entries], ([target, e]) => `${target}=${e.entry}`),
+		Arr.map([...raised.entries], ([target, entry]) => `${target}=${entry}`),
+		`role ${role.name}'s written query entries`,
+		printed
+	)
 }
 
 const reach = (

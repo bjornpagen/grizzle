@@ -2,12 +2,23 @@ import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { constant, filter, type Gen, int, map, oneOf, subarray } from "@grizzle/testing/gen"
+import {
+	constant,
+	element,
+	filter,
+	type Gen,
+	int,
+	map,
+	oneOf,
+	subarray,
+	unicodeScalar
+} from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, DateTime, Effect, FileSystem, Formatter, Order, String as Str } from "effect"
 import { check } from "#cli/check.ts"
+import { type Json, writeCanonicalJson } from "#compiler/core/canonical.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { trusted, trustedJson } from "#compiler/core/trusted.ts"
 import { type ServedFile, servedDirectory, servedPath } from "#compiler/served/forms.ts"
@@ -25,7 +36,7 @@ import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { dictionaryNameGen } from "#test/support/kernel/dict.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { editedAt, firstSql } from "#test/support/served.ts"
+import { editedAt, firstSql, memberPaths, without } from "#test/support/served.ts"
 
 /**
  * A login's served file is held to its workload's compile, byte for byte: `grizzle generate` writes
@@ -36,13 +47,18 @@ import { editedAt, firstSql } from "#test/support/served.ts"
  *
  * A case takes the committed directory of one schema's first draft, whose login serves reads, a key and a ChangeSet over
  * its two roles (the CLI fixture's shop, test/pg/cli/fixture.ts), and plants one fault (Plant): the SQL of a nonempty
- * set of its programs that state SQL edited, each at a drawn place by a drawn
- * character; its file deleted; or a stray file beside it, of a drawn login name the configuration does not list. The
- * oracle is the first draft: check passes on it as generate wrote it, so a login compiles to the same bytes from the
- * drafted snapshot and from the committed one; after the plant, check finds exactly the plant's one finding, at the
- * planted file, naming the login and, for an edit, the first edited program in the file's order; generate writes or
- * removes exactly the planted file, drafting no folder, and leaves the served directory as the first draft wrote it,
- * byte for byte; and check passes again.
+ * set of its programs that state SQL edited, each at a drawn place by a drawn character; its file deleted; a stray
+ * file beside it, of a drawn login name the configuration does not list; or its text mutated (Mutation), a character
+ * inserted, replaced or deleted at a drawn place, one member of its JSON value dropped and the rest written as
+ * generate writes a file, or whitespace put before or after it. The oracle is the first draft: check passes on it as
+ * generate wrote it, so a login compiles to the same bytes from the drafted snapshot and from the committed one; after
+ * the plant, check finds exactly the plant's one finding where the planted text is not the draft's byte for byte, at
+ * the planted file, naming the login, for an edit the first edited program in the file's order and for another layout
+ * its layout alone, and none where it is; generate writes or removes exactly the planted file, drafting no folder, and
+ * leaves the served directory as the first draft wrote it, byte for byte; and check passes again.
+ *
+ * Plant (~/.cache/grizzle-release/TSERVED/plants): served-check-layout.patch lets check pass a committed file that
+ * reads as the compile's in another layout, so a file generate does not regenerate byte for byte passes.
  */
 
 /** A program of the served file, in the file's order: its role's and its own name, and its first SQL text's path. */
@@ -54,18 +70,39 @@ interface Program {
 
 /**
  * One fault planted into the committed served directory: the programs at `programs` in the file's order edited, the
- * code unit `code` inserted into each one's first SQL text at `at`, counted around its length; the login's file
- * deleted; or a stray file of the login `login` written beside it.
+ * character `char` inserted into each one's first SQL text at `at`, counted around its length; the login's file
+ * deleted; a stray file of the login `login` written beside it; or the login's file's text mutated.
  */
 type Plant =
 	| {
 			readonly kind: "edited"
 			readonly programs: ReadonlyArray<number>
 			readonly at: number
-			readonly code: number
+			readonly char: string
 	  }
 	| { readonly kind: "missing" }
 	| { readonly kind: "stray"; readonly login: string }
+	| { readonly kind: "mutated"; readonly mutation: Mutation }
+
+/**
+ * An edit of a served file's text: the character `char` inserted at `at` or put in place of the character there, or
+ * the character there deleted, `at` counted around the text's length; the member of its JSON value at `member` among
+ * every member path dropped, the rest written as generate writes a file; or a whitespace character JSON admits between
+ * tokens put before its text or after it, which leaves its value as it is.
+ */
+type Mutation =
+	| {
+			readonly kind: "character"
+			readonly op: "insert" | "replace" | "delete"
+			readonly at: number
+			readonly char: string
+	  }
+	| { readonly kind: "dropped"; readonly member: number }
+	| {
+			readonly kind: "layout"
+			readonly whitespace: string
+			readonly place: "leading" | "trailing"
+	  }
 
 type Situation =
 	| "a program edited"
@@ -73,6 +110,11 @@ type Situation =
 	| "a program of the second role edited alone"
 	| "the file missing"
 	| "a stray file"
+	| "a character inserted"
+	| "a character replaced"
+	| "a character deleted"
+	| "a member dropped"
+	| "another layout"
 
 const shop = shopV1("ServedShop", "full")
 const ident = identifierOf(identity.schema(parsedSchemaName("ServedShop")))
@@ -122,15 +164,43 @@ const editedText = (
 		trusted<ServedFile>(
 			editedAt(file, defined(programs[i], `program ${i}`).sql, (sql) => {
 				const place = plant.at % (sql.length + 1)
-				return `${Str.slice(0, place)(sql)}${String.fromCharCode(plant.code)}${Str.slice(place)(sql)}`
+				return `${Str.slice(0, place)(sql)}${plant.char}${Str.slice(place)(sql)}`
 			})
 		)
 	)
 	return succeeded(servedText(edited), "the edited served file's text")
 }
 
-/** Every plant of a served file holding `programs` programs. */
-const plantGen = (programs: number): Gen<Plant> =>
+/**
+ * The text `text`, a served file's, mutated: a character inserted, replaced or deleted, a member of its JSON value
+ * `json` dropped, every member path `paths`, and the rest written canonically as generate writes a file, or whitespace
+ * put before its text or after it.
+ */
+const mutatedText = (
+	text: string,
+	json: unknown,
+	paths: Arr.NonEmptyReadonlyArray<ReadonlyArray<string | number>>,
+	mutation: Mutation
+): string => {
+	switch (mutation.kind) {
+		case "character": {
+			const place = mutation.at % (text.length + (mutation.op === "insert" ? 1 : 0))
+			const after = Str.slice(mutation.op === "insert" ? place : place + 1)(text)
+			return `${Str.slice(0, place)(text)}${mutation.op === "delete" ? "" : mutation.char}${after}`
+		}
+		case "dropped": {
+			const path = defined(paths[mutation.member % paths.length], "a member path")
+			return `${succeeded(writeCanonicalJson(trusted<Json>(without(json, path))), "the dropped file's text")}\n`
+		}
+		case "layout":
+			return mutation.place === "leading"
+				? `${mutation.whitespace}${text}`
+				: `${text}${mutation.whitespace}`
+	}
+}
+
+/** Every plant of a served file holding `programs` programs and `paths` member paths in its JSON value. */
+const plantGen = (programs: number, paths: number): Gen<Plant> =>
 	oneOf<Plant>([
 		(source): Plant => ({
 			kind: "edited",
@@ -138,7 +208,28 @@ const plantGen = (programs: number): Gen<Plant> =>
 				filter(subarray(Arr.range(0, programs - 1)), (picked) => picked.length > 0, 8)
 			),
 			at: source.draw(int(0, 4096)),
-			code: source.draw(int(0x21, 0x7e))
+			char: source.draw(unicodeScalar)
+		}),
+		(source): Plant => ({
+			kind: "mutated",
+			mutation: {
+				kind: "character",
+				op: source.draw(element(["insert", "replace", "delete"] as const)),
+				at: source.draw(int(0, 4096)),
+				char: source.draw(unicodeScalar)
+			}
+		}),
+		(source): Plant => ({
+			kind: "mutated",
+			mutation: { kind: "dropped", member: source.draw(int(0, paths - 1)) }
+		}),
+		(source): Plant => ({
+			kind: "mutated",
+			mutation: {
+				kind: "layout",
+				whitespace: source.draw(element([" ", "\t", "\n", "\r"])),
+				place: source.draw(element(["leading", "trailing"] as const))
+			}
 		}),
 		constant<Plant>({ kind: "missing" }),
 		map(
@@ -154,29 +245,49 @@ interface Expected {
 	readonly says: string
 }
 
-const expectedOf = (plant: Plant, programs: ReadonlyArray<Program>): Expected => {
+/**
+ * The findings a plant makes, `planted` the login's file's text it leaves, if any: one, but none for a mutation that
+ * leaves the text the first draft's byte for byte.
+ */
+const expectedOf = (
+	plant: Plant,
+	programs: ReadonlyArray<Program>,
+	planted: string,
+	text: string
+): ReadonlyArray<Expected> => {
+	const stale = (says: string): ReadonlyArray<Expected> => [
+		{ kind: "servedStale", file: `${schemaDir}/${servedPath(login)}`, says }
+	]
 	switch (plant.kind) {
 		case "edited": {
 			const earliest = Arr.reduce(plant.programs, programs.length, (least, i) => Math.min(least, i))
 			const first = defined(programs[earliest], "the first edited program")
-			return {
-				kind: "servedStale",
-				file: `${schemaDir}/${servedPath(login)}`,
-				says: `login ${login}, first at program ${first.program} of role ${first.role}:`
-			}
+			return stale(`login ${login}, first at program ${first.program} of role ${first.role}:`)
 		}
 		case "missing":
-			return {
-				kind: "servedMissing",
-				file: `${schemaDir}/${servedPath(login)}`,
-				says: `login ${login}:`
-			}
+			return [
+				{
+					kind: "servedMissing",
+					file: `${schemaDir}/${servedPath(login)}`,
+					says: `login ${login}:`
+				}
+			]
 		case "stray":
-			return {
-				kind: "servedExtra",
-				file: `${schemaDir}/${servedPath(plant.login)}`,
-				says: `login ${plant.login}:`
-			}
+			return [
+				{
+					kind: "servedExtra",
+					file: `${schemaDir}/${servedPath(plant.login)}`,
+					says: `login ${plant.login}:`
+				}
+			]
+		case "mutated":
+			return planted === text
+				? []
+				: stale(
+						plant.mutation.kind === "layout"
+							? `login ${login}, in its layout alone:`
+							: `login ${login}, `
+					)
 	}
 }
 
@@ -199,6 +310,21 @@ const situationsOf = (plant: Plant, programs: ReadonlyArray<Program>): ReadonlyA
 			return ["the file missing"]
 		case "stray":
 			return ["a stray file"]
+		case "mutated":
+			switch (plant.mutation.kind) {
+				case "character":
+					return [
+						plant.mutation.op === "insert"
+							? "a character inserted"
+							: plant.mutation.op === "replace"
+								? "a character replaced"
+								: "a character deleted"
+					]
+				case "dropped":
+					return ["a member dropped"]
+				case "layout":
+					return ["another layout"]
+			}
 	}
 }
 
@@ -226,16 +352,15 @@ layer(NodeServices.layer, { excludeTestServices: true })("served files", (it) =>
 					assert.equal(passed.code, 0, `check passes on the first draft: ${passed.stdout}`)
 					const file = `${base}/${schemaDir}/${servedPath(login)}`
 					const text = yield* fs.readFileString(file)
-					const programs = nonEmpty(
-						programsOf(servedFile(trustedJson<unknown>(text))),
-						"the served programs"
-					)
+					const json = trustedJson<unknown>(text)
+					const programs = nonEmpty(programsOf(servedFile(json)), "the served programs")
+					const paths = nonEmpty(memberPaths(json, []), "the served file's member paths")
 					const listed = yield* fs.readDirectory(`${base}/${schemaDir}`)
 					const entries = Arr.sort(listed, Order.String)
 					return yield* explore(
 						{
 							suite: "unit/cli/served",
-							draw: drawn(plantGen(programs.length)),
+							draw: drawn(plantGen(programs.length, paths.length)),
 							literal: Formatter.format,
 							oracle: {
 								kind: "specification",
@@ -247,7 +372,12 @@ layer(NodeServices.layer, { excludeTestServices: true })("served files", (it) =>
 									"programs of both roles edited",
 									"a program of the second role edited alone",
 									"the file missing",
-									"a stray file"
+									"a stray file",
+									"a character inserted",
+									"a character replaced",
+									"a character deleted",
+									"a member dropped",
+									"another layout"
 								],
 								{ cases: 40, sense: notesOnly }
 							),
@@ -265,9 +395,21 @@ layer(NodeServices.layer, { excludeTestServices: true })("served files", (it) =>
 									const ws = yield* workspace("served-planted")
 									yield* fs.copy(base, ws, { overwrite: true })
 									const planted = `${ws}/${schemaDir}/${servedPath(login)}`
+									const written = ((): string => {
+										switch (plant.kind) {
+											case "edited":
+												return editedText(text, programs, plant)
+											case "missing":
+											case "stray":
+												return text
+											case "mutated":
+												return mutatedText(text, json, paths, plant.mutation)
+										}
+									})()
 									switch (plant.kind) {
 										case "edited":
-											yield* fs.writeFileString(planted, editedText(text, programs, plant))
+										case "mutated":
+											yield* fs.writeFileString(planted, written)
 											break
 										case "missing":
 											yield* fs.remove(planted)
@@ -279,28 +421,32 @@ layer(NodeServices.layer, { excludeTestServices: true })("served files", (it) =>
 											)
 											break
 									}
-									const expected = expectedOf(plant, programs)
+									const expected = expectedOf(plant, programs, written, text)
 									const refused = yield* cliOver(ws, config, ["check", configName], at(2))
-									assert.equal(refused.code, 1, refused.stdout)
+									assert.equal(refused.code, expected.length === 0 ? 0 : 1, refused.stdout)
 									const read = yield* resolvedConfig(config, `${ws}/${configName}`)
 									const [checked] = yield* check(succeeded(read), ws)
 									const findings = defined(checked, "the schema's check").findings
 									assert.deepEqual(
 										Arr.map(findings, (f) => ({ kind: f.kind, where: f.where })),
-										[{ kind: expected.kind, where: expected.file }],
+										Arr.map(expected, (e) => ({ kind: e.kind, where: e.file })),
 										Formatter.format(plant)
 									)
-									const [found] = findings
-									assert.ok(
-										Str.startsWith(expected.says)(defined(found, "the finding").problem),
-										`the finding names ${expected.says}: ${Formatter.format(found)}`
-									)
+									for (const [i, e] of expected.entries()) {
+										const found = defined(findings[i], "the finding")
+										assert.ok(
+											Str.startsWith(e.says)(found.problem),
+											`the finding names ${e.says}: ${Formatter.format(found)}`
+										)
+									}
 									const regenerated = yield* cliOver(ws, config, ["generate", configName], at(3))
 									assert.equal(regenerated.code, 0, regenerated.stderr)
-									assert.ok(
-										Str.includes(expected.file)(regenerated.stdout),
-										`generate names the file it writes or removes: ${regenerated.stdout}`
-									)
+									for (const e of expected) {
+										assert.ok(
+											Str.includes(e.file)(regenerated.stdout),
+											`generate names the file it writes or removes: ${regenerated.stdout}`
+										)
+									}
 									const after = yield* fs.readDirectory(`${ws}/${schemaDir}`)
 									assert.deepEqual(
 										Arr.sort(after, Order.String),
