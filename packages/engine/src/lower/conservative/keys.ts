@@ -54,7 +54,7 @@ export const parentFixed = (
  * nothing of an enclosing node; or the key's columns hold the child's correlated columns, which fix its parent key
  * (`ParentFixed`), so rows of two evaluations differ there.
  */
-export type AcrossEvaluations =
+type AcrossEvaluations =
 	| { readonly kind: "evaluatedOnce" }
 	| { readonly kind: "parentFixed"; readonly fixed: ParentFixed }
 
@@ -106,7 +106,7 @@ export const keySetOf = (
 			key: DeliveredKey({ columns, within, across: { kind: "evaluatedOnce" } })
 		}
 	}
-	if (fixed !== undefined && fixed.correlated.every((c) => columns.includes(c))) {
+	if (fixed?.correlated.every((c) => columns.includes(c)) === true) {
 		return {
 			kind: "proved",
 			key: DeliveredKey({ columns, within, across: { kind: "parentFixed", fixed } })

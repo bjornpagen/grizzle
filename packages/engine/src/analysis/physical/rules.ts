@@ -13,7 +13,7 @@ import {
 	paramPremise,
 	type Rep,
 	resolveOuter,
-	row,
+	rowAttribute,
 	structural,
 	withReason
 } from "#compiler/analysis/physical/fds.ts"
@@ -491,7 +491,7 @@ const inheritSame = (node: RelNode, input: PhysicalProps): FixedState => {
 	const columns = node.heading.map((c) => c.name)
 	const fds = new DependencyDraft(columns)
 	const fixed = new Map<string, FixedFacts>()
-	inherit(fds, fixed, input, sameName(fds), "input", row)
+	inherit(fds, fixed, input, sameName(fds), "input", rowAttribute)
 	return { fds, fixed }
 }
 
@@ -727,7 +727,7 @@ export const physicalPropsOf = (node: RelNode, cx: RuleContext): PhysicalProps =
 			let maxCard = left.maxCard
 			if (node.kind === "Intersect") {
 				const right = cx.props(node.right)
-				inherit(s.fds, s.fixed, right, sameName(s.fds), "right", row)
+				inherit(s.fds, s.fixed, right, sameName(s.fds), "right", rowAttribute)
 				maxCard = leastCardinality([left.maxCard, right.maxCard])
 			}
 			return finish(node, cx, {
@@ -1178,7 +1178,7 @@ const regionProps = (node: NodeOf<"MatchRegion">, cx: RuleContext): PhysicalProp
 		 * was evaluated for.
 		 */
 		const ns = `occurrence${place}`
-		const occurrenceRow = hiddenIn(ns, row)
+		const occurrenceRow = hiddenIn(ns, rowAttribute)
 		for (const [c, k] of known) {
 			if (!colVar.has(c)) {
 				fds.implyWithin(ns, k.vars, [hiddenIn(ns, c)], k.just)
@@ -1311,7 +1311,7 @@ const projectProps = (node: NodeOf<"ProjectSet">, cx: RuleContext): PhysicalProp
 	}
 	/** Copies of equal input columns are equal; inherit maps the rest. */
 	const repsOf = (c: string): ReadonlyArray<Rep> => reps.get(c) ?? []
-	inherit(fds, fixed, input, repsOf, "input", row)
+	inherit(fds, fixed, input, repsOf, "input", rowAttribute)
 	/** The columns a computed column is determined by, and why; none when a column it reads is not represented. */
 	const determinants = (
 		c: (typeof computed)[number]
@@ -1403,7 +1403,7 @@ const unionProps = (node: NodeOf<"Union">, cx: RuleContext): PhysicalProps => {
 		fds.embed(a.props.dependencies, {
 			namespace: ns,
 			column: () => [],
-			row: hiddenIn(ns, row),
+			row: hiddenIn(ns, rowAttribute),
 			localize: asTheyAre
 		})
 		for (const c of a.props.columns) {
@@ -1411,14 +1411,14 @@ const unionProps = (node: NodeOf<"Union">, cx: RuleContext): PhysicalProps => {
 				fds.imply([c], [hiddenIn(ns, c)], structural)
 			}
 		}
-		identifiedBy.push(hiddenIn(ns, row))
+		identifiedBy.push(hiddenIn(ns, rowAttribute))
 	}
 	for (const [i, x] of arms.entries()) {
 		for (const [j, y] of arms.entries()) {
 			if (j <= i) {
 				continue
 			}
-			const apart = hiddenIn(`apart${i}.${j}`, row)
+			const apart = hiddenIn(`apart${i}.${j}`, rowAttribute)
 			for (const c of columns) {
 				const type = unionType.get(c)
 				const lx = literalFixed(x.props, c)
@@ -1458,7 +1458,7 @@ const groupProps = (
 		input,
 		(c) => (node.keys.includes(c) && fds.has(c) ? [{ column: c, just: structural }] : []),
 		"input",
-		hiddenIn("input", row)
+		hiddenIn("input", rowAttribute)
 	)
 	const just = withReason(
 		joinJustifications([ownPremise(node), comparing(columnTypes(node.heading, node.keys))]),
@@ -1489,7 +1489,8 @@ const produceProps = (node: NodeOf<"Produce">, cx: RuleContext): PhysicalProps =
 	const fixed = new Map<string, FixedFacts>()
 	const carried = (c: string): ReadonlyArray<Rep> =>
 		node.carried.includes(c) && fds.has(c) ? [{ column: c, just: structural }] : []
-	const inputRow = node.producer === "spanIntersection" ? row : hiddenIn("input", row)
+	const inputRow =
+		node.producer === "spanIntersection" ? rowAttribute : hiddenIn("input", rowAttribute)
 	inherit(fds, fixed, input, carried, "input", inputRow)
 	if (node.producer !== "spanIntersection") {
 		fds.identify([inputRow, node.out], justify({ premises: [nodePremise(node.id)] }))

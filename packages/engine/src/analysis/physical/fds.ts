@@ -110,7 +110,7 @@ export const paramPremise = (param: ParamId): Premise => ({ kind: "param", param
  * The attribute a dependency table derives when its start identifies at most one row of its fragment: a superkey is a
  * start whose closure holds it. Every table names its own row this one way; an embedding renames an embedded table's.
  */
-export const row = "\u0000"
+export const rowAttribute = "\u0000"
 
 /**
  * An attribute a table carries beyond its fragment's heading, under the namespace of the embedding that brought it:
@@ -120,9 +120,9 @@ export const row = "\u0000"
  * a table's columns and its hidden attributes never meet, and two namespaces of one table never do either.
  */
 export const hiddenIn = (namespace: string, attribute: string): string =>
-	`${row}${namespace}${row}${attribute}`
+	`${rowAttribute}${namespace}${rowAttribute}${attribute}`
 
-const isHidden = (attribute: string): boolean => attribute.startsWith(row)
+const isHidden = (attribute: string): boolean => attribute.startsWith(rowAttribute)
 
 /** The namespaces of the embeddings an implication passed through, outermost first; none for a table's own. */
 type Origin = ReadonlyArray<string>
@@ -258,7 +258,7 @@ const directly = (closure: FactClosure, occurrence: JoinedOccurrence): boolean =
 	for (let fact = stack.pop(); fact !== undefined; fact = stack.pop()) {
 		const column = fact.kind === "column" || closure.columns.has(fact.span)
 		const key = fact.kind === "column" ? fact.column : fact.span
-		const name = `${column ? "c" : "p"}${row}${key}`
+		const name = `${column ? "c" : "p"}${rowAttribute}${key}`
 		if (seen.has(name)) {
 			continue
 		}
@@ -441,7 +441,7 @@ export class Dependencies {
 				}
 			}
 		}
-		for (const c of [...columns, row]) {
+		for (const c of [...columns, rowAttribute]) {
 			need(c)
 		}
 		for (const a of queue) {
@@ -590,7 +590,7 @@ export class Dependencies {
 			 */
 			const column = fact.kind === "column" || !closure.points.has(fact.span)
 			const key = fact.kind === "column" ? fact.column : fact.span
-			const name = `${column ? "c" : "p"}${row}${key}`
+			const name = `${column ? "c" : "p"}${rowAttribute}${key}`
 			if (seen.has(name)) {
 				continue
 			}
@@ -648,8 +648,8 @@ export class Dependencies {
 	proof(start: ReadonlyArray<string>): Justification | undefined {
 		for (const stage of this.#stages) {
 			const staged = this.#closure(start, (j) => !lessDemanding(stage, j.context))
-			if (staged.columns.has(row)) {
-				return this.explain(staged, [row])
+			if (staged.columns.has(rowAttribute)) {
+				return this.explain(staged, [rowAttribute])
 			}
 		}
 		return undefined
@@ -770,7 +770,7 @@ export class DependencyDraft {
 
 	/** `from` identifies at most one row. */
 	identify(from: ReadonlyArray<string>, just: Justification): void {
-		this.#add(from, [], [row], just, [], [])
+		this.#add(from, [], [rowAttribute], just, [], [])
 	}
 
 	/** A rule region's row is identified by every one of its occurrences' rows, `joined`. */
@@ -778,7 +778,7 @@ export class DependencyDraft {
 		this.#add(
 			joined.map((o) => o.row),
 			[],
-			[row],
+			[rowAttribute],
 			just,
 			[],
 			joined
@@ -810,7 +810,7 @@ export class DependencyDraft {
 	embed(table: Dependencies, embedding: Embedding): void {
 		const heading = new Set(table.columns)
 		const ns = embedding.namespace
-		const rename = (a: string): string => (a === row ? embedding.row : hiddenIn(ns, a))
+		const rename = (a: string): string => (a === rowAttribute ? embedding.row : hiddenIn(ns, a))
 		const read = (a: string): Rep => {
 			const first = heading.has(a) ? embedding.column(a)[0] : undefined
 			return first ?? { column: rename(a), just: structural }
