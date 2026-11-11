@@ -276,15 +276,13 @@ export interface ServedRefresh {
 
 /**
  * A query or ordered query compiled for a role's rows: its declared parameters, its artifact, its delivered spine,
- * the decoder of its records, whether get may read it (proved at most one row per parameter binding), the key each of
- * its delivered rows is told apart by, and its footprint.
+ * the decoder of its records, the key each of its delivered rows is told apart by, and its footprint.
  */
 export interface ServedRead {
 	readonly params: ReadonlyArray<ParamDecl>
 	readonly source: ServedSource
 	readonly spine: ServedSpine
 	readonly decoder: DecoderForm
-	readonly getEligible: boolean
 	readonly key: ServedKey
 	readonly footprint: ServedFootprint
 }

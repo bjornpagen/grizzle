@@ -14,10 +14,10 @@ import type {
 } from "#test/support/worlds/model/types.ts"
 
 /**
- * The keys grizzle proves of a role relation, which `db.get` reads by (packages/engine/src/ir/keys.ts, logical/props.ts,
- * logical/closure.ts, analysis/derived/world.ts, analysis/logical/get.ts): a get is eligible exactly when one of the
- * relation's keys lies within the fields it binds, since the read binds them to literals and only a key whose every
- * column is a literal leaves at most one row.
+ * The keys grizzle proves of a role relation (packages/engine/src/ir/keys.ts, logical/props.ts, logical/closure.ts,
+ * analysis/derived/world.ts): a read binding fields to literals is proved at most one row exactly when one of the
+ * relation's keys lies within the fields it binds, since only a key whose every column is a literal leaves at most one
+ * row.
  *
  * - An ordinary relation: its primary key and each declared key. A closed roster: its handle (its values distinct), or
  *   nothing at all when it has at most one member. A derived relation: its definition's keys, as a world relation's.

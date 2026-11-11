@@ -21,14 +21,11 @@ import { typeRun } from "#test/types/batch/provided.ts"
  * The type/engine agreements, one program the type batch checks:
  *
  * 1. Evidence: the drawn queries (test/support/agreement/queries.ts), the engine's verdict on each stated as types:
- *    each get is written as db.get, under a refusal directive where the engine refuses it, and each query's claimed
- *    keys are asserted to lie over the engine's, its cardinality the engine's, and its records, parameters and reads
- *    the engine's decoded heading and parameters. The batch checks the program disarmed, so it raises exactly its
- *    directives' refusals: a get the types refuse and the engine proves is a diagnostic no directive names, a get the
- *    types accept and the engine refuses is a directive whose refusal never comes, and a claimed key the engine does
- *    not prove, or a record or parameter the engine does not deliver, fails its assertion.
- *    Each query no take closes, of one heading, is paged: its page is of that very ordered query, its unordered self
- *    is refused a page, and a drawn page request is admitted exactly where the runtime's request reader admits it.
+ *    each query's claimed keys are asserted to lie over the engine's, its cardinality the engine's, and its records,
+ *    parameters and reads the engine's decoded heading and parameters. The batch checks the program disarmed, so it
+ *    raises exactly its directives' refusals: a claimed key the engine does not prove, a cardinality the engine does
+ *    not state, or a record or parameter the engine does not deliver, fails its assertion. Each query no take closes,
+ *    of one heading, is paged: its page is of that very ordered query, and its unordered self is refused a page.
  * 2. Order invariance: the same queries in a second drawn order, as a second module, and every query's head and keys
  *    asserted equal across the two, so TypeScript's evidence never depends on unrelated statements' order.
  * 3. Admission (test/support/agreement/admission.ts): every position a constant stands in against every constant
@@ -46,35 +43,30 @@ import { typeRun } from "#test/types/batch/provided.ts"
  *    so a variable two filters fix is fixed to both values, whichever is written first, as the types read it.
  *
  * The floor's witnesses (agreementWitnesses, faultWitnesses), the same in every run, reach every construct the
- * evidence types reason about, a constant in each position, both verdicts, a variable two filters fix, a contract in a
- * head, a self-join whose get the engine proves, which pinnedSelfJoin draws by construction, a span parameter opposite
- * each span predicate and in a producer, a distance to a vector parameter, a search whose get the engine proves, a
- * closed relation, a roster and a derived relation matched, each span construct over a span of dates, its parameter and
- * its width in days beside an integer span's width, an extension's Db reading a base query and a base Db
+ * evidence types reason about, a constant in each position, both cardinalities, a variable two filters fix, a contract
+ * in a head, a self-join the engine proves at most one row, which pinnedSelfJoin draws by construction, a span parameter
+ * opposite each span predicate and in a producer, a distance to a vector parameter, a search the engine proves at most
+ * one row, a closed relation, a roster and a derived relation matched, each span construct over a span of dates, its
+ * parameter and its width in days beside an integer span's width, an extension's Db reading a base query and a base Db
  * refused an extension's, a keyed get admitted through each kind of key position and with a name beside its key, and
  * refused for a key field missing, alone or with a name in its place, a union looked up by each field its rules fix to a
  * constant, pinned by one of them and not by another, and every fault refused, each whose site may hold a valid value
  * admitted too, so the program is never vacuous on any seed; the admission matrix holds every position and kind by
  * construction.
- *
- * Plant (~/.cache/grizzle-release/BR14/plants): evidence-get-one-only.patch refuses db.get of a query its evidence
- * proves at most one row, admitting only one proved exactly one.
  */
 const required: Situations<AgreementNote> = [
 	...agreementFeatures,
-	"get proved",
-	"get refused",
+	"at most one row proved",
+	"many rows",
 	"a key below the heading",
 	"a variable two filters fix",
 	"a contract in the head",
-	"a page request admitted",
-	"a page request refused",
 	"an unordered page refused",
 	"a span parameter opposite r.allen",
 	"a span parameter opposite r.pointIn",
 	"a producer over a span parameter",
 	"a distance to a vector parameter",
-	"a search get proves",
+	"a search proves at most one row",
 	"a closed relation matched",
 	"r.allen over date spans",
 	"a date's point test",
@@ -83,7 +75,7 @@ const required: Situations<AgreementNote> = [
 	"a width in days",
 	"a width over integer endpoints",
 	"a roster matched",
-	"a derived relation's get proved",
+	"a derived relation's read proved at most one row",
 	"an extension's Db read a base query",
 	"a base Db refused an extension query",
 	"a keyed get admitted",
@@ -125,7 +117,7 @@ const faultsRequired: Situations<AgreementNote | FaultNote> = [
 
 layer(NodeServices.layer, { excludeTestServices: true })("the type/engine agreement", (it) => {
 	it.effect(
-		`over drawn queries in two orders, faulted ones and the admission cells, the types accept a query, its get, its records and its parameters exactly as the engine does, its keys, and every constant exactly where the engine admits it`,
+		`over drawn queries in two orders, faulted ones and the admission cells, the types accept a query, its records and its parameters exactly as the engine does, its keys, and every constant exactly where the engine admits it`,
 		() =>
 			Effect.gen(function* () {
 				const { expected, actual } = yield* checked("evidence/agreement")

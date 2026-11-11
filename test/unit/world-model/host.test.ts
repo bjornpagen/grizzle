@@ -14,9 +14,10 @@
  * A writable entry's rows are exactly the head projections of its target's facts that isMember holds in it: over the
  * documents worlds' writable entries and drawn realities and sessions, entryRows and isMember agree.
  *
- * A role relation's field set is a get key exactly where grizzle's get eligibility proves one (entryKeyed against
- * adapter/reader/eligibility.ts), over drawn installations of the documents base, each of which the builder must
- * build: a drawn installation it refuses fails the case.
+ * A role relation's field set is a key exactly where grizzle's logical analysis proves the read that binds it at most
+ * one row (entryKeyed against the empty key among the compiled template's analyzed root's logical keys, ir/rel.ts
+ * MetaSpec), over drawn installations of the documents base, each of which the builder must build: a drawn installation
+ * it refuses fails the case.
  *
  * The draw's weights are explicit: a field's binding is a shared variable three times in eight, a literal twice, and
  * unnamed, another variable or a context field once each; a term of a kind is each bound variable of the kind twice as
@@ -56,7 +57,6 @@ import {
 	Result,
 	String as Str
 } from "effect"
-import { getEligibility } from "#adapter/reader/eligibility.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import { literalDescShape } from "#compiler/ir/desc.ts"
@@ -974,7 +974,7 @@ describe("the worlds model's host semantics", () => {
 	)
 
 	it.effect(
-		"proves a role relation's field set a get key exactly where grizzle's get eligibility does",
+		"proves a role relation's field set a key exactly where grizzle's logical analysis proves its read at most one row",
 		(ctx) =>
 			searched(
 				ctx,
@@ -982,7 +982,7 @@ describe("the worlds model's host semantics", () => {
 					{
 						oracle: {
 							kind: "second-implementation",
-							name: "grizzle's get eligibility (adapter/reader/eligibility.ts) on the get the model keys"
+							name: "grizzle's logical keys (ir/rel.ts MetaSpec.logicalKeys) of the read the model keys"
 						},
 						...budget,
 						suite: "unit/world-model/host get keys",
@@ -1031,15 +1031,18 @@ describe("the worlds model's host semantics", () => {
 												matched.where(r.eq(vars[f.name], carrierOf(f.domain, pooled(f.domain, 0))))
 											).find(vars)
 										})
-										/** A get the builder refuses before its eligibility (a literal it will not type) is the read's own refusal. */
+										/** A read the builder refuses before its analysis (a literal it will not type) is the read's own refusal. */
 										const compiled = compileTemplate(query, roleValue, testCompile)
 										if (!compiled.ok) {
 											continue
 										}
 										assert.equal(
-											Result.isSuccess(getEligibility(compiled.value)),
+											Arr.some(
+												compiled.value.analyzed.roots[0].meta.logicalKeys,
+												(proof) => proof.key.length === 0
+											),
 											keyed,
-											`get of ${role.name}.${name} by ${Arr.join(
+											`read of ${role.name}.${name} by ${Arr.join(
 												Arr.map(fields, (f) => f.name),
 												", "
 											)}: the model says ${keyed ? "a key" : "no key"}`

@@ -4,15 +4,7 @@ import { floorSeed, rotatingSeed } from "@grizzle/testing/random"
 import { forcedChooser, generate, recorder, sample, type Source } from "@grizzle/testing/source"
 import { keep, type Swarm, swarm, swarmChoice } from "@grizzle/testing/swarm"
 import { valuesFromToken } from "@grizzle/testing/tape"
-import {
-	Array as Arr,
-	Effect,
-	Option,
-	pipe,
-	Record as Rec,
-	String as Str
-} from "effect"
-import { requireGet } from "#compiler/analysis/logical/get.ts"
+import { Array as Arr, Effect, Option, pipe, Record as Rec, String as Str } from "effect"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import { headingsOf } from "#compiler/core/decoder.ts"
 import type { CompileReason } from "#compiler/core/errors.ts"
@@ -93,16 +85,14 @@ import { upTo } from "#test/support/up-to.ts"
  * The type/engine agreement: queries drawn over the agreement schema (./schema.ts), each with the engine's verdict on
  * it, and the one TypeScript program that states every verdict as a type assertion, which the type tier checks
  * (test/types/evidence/agreement.test.ts). The engine is the oracle: a drawn query typechecks exactly when the engine
- * compiles it, a role's workload holds it exactly where the engine compiles it for the role, the get of its workload
- * member's handle accepts exactly what the engine proves at most one row per binding, every key the types claim is one
- * the engine proves, its cardinality is the engine's, and the records the types infer, of a snapshot read and of its
- * handle's execute and get, are the engine's decoded heading (./heading.ts), as are its parameters. A handle is typed
+ * compiles it, a role's workload holds it exactly where the engine compiles it for the role, every key the types claim
+ * is one the engine proves, its cardinality is the engine's, and the records the types infer, of a snapshot read and
+ * of its handle's once, are the engine's decoded heading (./heading.ts), as are its parameters. A handle is typed
  * as a Db of the role serving the workload holds it (WorkloadHandles).
  *
  * A query is drawn as data (QuerySpec) and read twice: rendered as TypeScript source for the program, and built through
  * the query builder's JavaScript view (queryOver, varsOver, computeCore) for the engine, which compiles it as the
- * runtime does (snapshot context, rows) and reads the root of its analyzed DAG: whether get may read it
- * (analysis/logical/get.ts requireGet), its cardinality and its minimal keys; each arm, built and compiled alone, gives
+ * runtime does (snapshot context, rows) and reads the root of its analyzed DAG: its cardinality and its minimal keys; each arm, built and compiled alone, gives
  * its heading group's decoded record. Both readings walk one spec construct by construct, so the program and the engine
  * see one query.
  *
@@ -129,9 +119,9 @@ import { upTo } from "#test/support/up-to.ts"
  * of some cases and the rest combine. Each constant's construct is drawn at a place every case visits, so a case whose
  * swarm keeps it holds it and the floor reaches it by construction: a constant of Tone through the rule's anchor
  * (Anchor), a handle discriminant before the union's own gates, a constant at Tones as the rule's last match. So is a
- * self-join whose get the engine proves (pinnedSelfJoin), drawn as a rule's second match: two scopes of one relation,
- * each with a key bound to values fixed per binding, in a query of no other arm, which reaches the pair a repeat and a
- * proved get make (agreementPairs) wherever the swarm keeps it.
+ * self-join the engine proves at most one row (pinnedSelfJoin), drawn as a rule's second match: two scopes of one
+ * relation, each with a key bound to values fixed per binding, in a query of no other arm, which reaches the pair a
+ * repeat and a proof of at most one row make (agreementPairs) wherever the swarm keeps it.
  *
  * A constant stands in every term position: a JavaScript value (`literal`), Tone's handle (`handle`) at Item.tone in a
  * binding, a filter, first in a comparison, a head, a union's discriminant and a binding at Tones, the union source of
@@ -275,8 +265,8 @@ type Planted = "clean" | Fault
 /** What a drawn case reached: its constructs, and the engine's verdict on it. */
 export type AgreementNote =
 	| AgreementFeature
-	| "get proved"
-	| "get refused"
+	| "at most one row proved"
+	| "many rows"
 	| "a key below the heading"
 	| "a variable two filters fix"
 	| "a flag whose readings each prove more than both state"
@@ -286,7 +276,7 @@ export type AgreementNote =
 	| "a span parameter opposite r.pointIn"
 	| "a producer over a span parameter"
 	| "a distance to a vector parameter"
-	| "a search get proves"
+	| "a search proves at most one row"
 	| "a contract's span refused against its base's"
 	| "a closed relation matched"
 	| "r.allen over date spans"
@@ -296,7 +286,7 @@ export type AgreementNote =
 	| "a width in days"
 	| "a width over integer endpoints"
 	| "a roster matched"
-	| "a derived relation's get proved"
+	| "a derived relation's read proved at most one row"
 	| "an extension's Db read a base query"
 	| "a base Db refused an extension query"
 	| "a keyed get admitted"
@@ -317,7 +307,7 @@ export type FaultNote = `${Fault} refused` | `${Fault} admitted`
  * draws by construction.
  */
 export const agreementPairs: ReadonlyArray<readonly [AgreementNote, AgreementNote]> = [
-	["repeat", "get proved"]
+	["repeat", "at most one row proved"]
 ]
 
 type Rel = "Item" | "Tag" | "Note" | "Slot" | "Tone" | "ToneWeight" | "ItemTones" | "OwnerCounts"
@@ -2159,7 +2149,7 @@ const literalDiscriminants = (three: boolean): Arr.NonEmptyReadonlyArray<HeadTer
  * The query a drawing draws: a rule, a union of it with its renamed twin, two twins or a rule of its own heading, or in
  * its place a union of constants (constantUnion), a quarter of a plain case's draws; and a take that closes it. A
  * handle discriminant is drawn first, so a case that keeps it is a discriminated union whatever the union's own gates
- * draw. A pinned self-join is no union's arm, so its get is proved whatever the rest of the case draws. A union of two
+ * draw. A pinned self-join is no union's arm, so it is proved at most one row whatever the rest of the case draws. A union of two
  * headings is discriminated, its second arm's fields named apart from the first's, but where the case plants
  * unionTypes, which names them as the first's. A faulted case's query is one rule, so its fault stands once, but for
  * unionTypes, whose fault is its second arm.
@@ -3063,14 +3053,13 @@ const built = (spec: QuerySpec): QueryValue => {
 }
 
 /**
- * What the engine proves of a query's root: whether get may read it, its cardinality, and its minimal keys, every key
+ * What the engine proves of a query's root: its cardinality, and its minimal keys, every key
  * its proofs state (ir/keys.ts keyFactors), each over its classes of equal columns: one column of each class, together,
  * are a key. Each class is in name order, and a key's classes by their first names. And the query as the types see it:
  * its records, the decoded record of each heading group, and its parameters, as ./heading.ts writes them.
  */
 interface Proved {
-	/** Whether get may read the query, and its cardinality, under what every reading of its flags states. */
-	readonly get: boolean
+	/** Its cardinality, under what every reading of its flags states. */
 	readonly card: Card
 	/** Whether the card rests on a proof by cases over one flagged filter's readings, what both state not pinning it. */
 	readonly split: boolean
@@ -3383,16 +3372,12 @@ const verdictOf = (spec: QuerySpec, source: string): Verdict => {
 			return failed(`a reading of one flag: ${messageOf(compiled.error)}`)
 		}
 		const root = compiled.value.analyzed.roots[0]
-		return {
-			get: requireGet(root, SourceLoc("agreement", [])).ok,
-			pinned: root.meta.card !== "many"
-		}
+		return root.meta.card !== "many"
 	}
 	const split = Arr.flatMap(spec.arms, (arm, i) =>
 		arm.flagged?.kind === "either" ? [Arr.map(splitReadings(spec, arm, i), readingOf)] : []
 	)
-	const splitGet = Arr.some(split, (readings) => Arr.every(readings, (r) => r.get))
-	const splitPinned = Arr.some(split, (readings) => Arr.every(readings, (r) => r.pinned))
+	const splitPinned = Arr.some(split, (readings) => Arr.every(readings, (pinned) => pinned))
 	const params = Arr.reduce(
 		Arr.flatMap(all, (t) => t.params),
 		[],
@@ -3402,7 +3387,6 @@ const verdictOf = (spec: QuerySpec, source: string): Verdict => {
 	return {
 		kind: "admitted",
 		proved: {
-			get: requireGet(read, SourceLoc("agreement", [])).ok || splitGet,
 			card: read.meta.card === "many" && splitPinned ? "atMostOne" : read.meta.card,
 			split: read.meta.card === "many" && splitPinned,
 			readings: meetCard(Arr.map(roots, (root) => root.meta.card)),
@@ -3743,7 +3727,7 @@ const caseOf = ({ spec, reached }: Drawn): AgreementCase => {
 	}
 	if (verdict.kind === "admitted") {
 		const heading = Arr.length(spec.arms[0].head)
-		notes.add(verdict.proved.get ? "get proved" : "get refused")
+		notes.add(verdict.proved.card === "many" ? "many rows" : "at most one row proved")
 		if (verdict.proved.split) {
 			notes.add("a flag whose readings each prove more than both state")
 		}
@@ -3762,8 +3746,8 @@ const caseOf = ({ spec, reached }: Drawn): AgreementCase => {
 		for (const note of spanNotes(spec)) {
 			notes.add(note)
 		}
-		if (spec.nearest !== undefined && verdict.proved.get) {
-			notes.add("a search get proves")
+		if (spec.nearest !== undefined && verdict.proved.card !== "many") {
+			notes.add("a search proves at most one row")
 		}
 		for (const note of sourceNotes(spec, verdict.proved)) {
 			notes.add(note)
@@ -3787,8 +3771,8 @@ const caseOf = ({ spec, reached }: Drawn): AgreementCase => {
 }
 
 /**
- * What an admitted query's sources and Db reach: a closed relation and a roster matched, a get proved over a derived
- * relation, an extension's Db reading a query over its base, and a base Db refusing a query over its extension.
+ * What an admitted query's sources and Db reach: a closed relation and a roster matched, a read over a derived relation
+ * proved at most one row, an extension's Db reading a query over its base, and a base Db refusing a query over its extension.
  */
 const sourceNotes = (spec: QuerySpec, proved: Proved): ReadonlyArray<AgreementNote> => {
 	const matched = (rel: MatchSource): boolean =>
@@ -3797,7 +3781,9 @@ const sourceNotes = (spec: QuerySpec, proved: Proved): ReadonlyArray<AgreementNo
 	return [
 		...(matched("ToneWeight") ? ["a closed relation matched" as const] : []),
 		...(matched("Tone") ? ["a roster matched" as const] : []),
-		...(rollup && proved.get ? ["a derived relation's get proved" as const] : []),
+		...(rollup && proved.card !== "many"
+			? ["a derived relation's read proved at most one row" as const]
+			: []),
 		...(!rollup && spec.db === "Reporter" && proved.reads
 			? ["an extension's Db read a base query" as const]
 			: []),
@@ -3963,11 +3949,11 @@ const reordered = (spec: QuerySpec): QuerySpec => ({
 	}))
 })
 
-/** A verdict as text: whether get reads the query, and its keys as a set; a refusal as its claim. */
+/** A verdict as text: its cardinality, and its keys as a set; a refusal as its claim. */
 const verdictText = (v: Verdict): string => {
 	switch (v.kind) {
 		case "admitted":
-			return `get ${v.proved.get ? "proved" : "refused"}, keys ${jsonText(
+			return `card ${v.proved.card}, keys ${jsonText(
 				Arr.map(v.proved.keys, (keys) =>
 					Arr.sort(
 						Arr.map(keys, (k) => jsonText(k)),
@@ -4037,7 +4023,7 @@ const keptCases: ReadonlyArray<KeptCase> = [
 		note: "a rule fixing Slot's key by a constant item and r.allen(slot.during, ALLEN.converse(ALLEN.equals), a span parameter): the engine proves get, an equality its equals mask lowers to, where the types read every mask as stating nothing (TEST_SEED=2458598146)",
 		population: "clean",
 		tape: "1m.2.3.a.3.b.c.4.7.8.1.a.b.7.2.6.3.d.2.g.7.0.b.1.2.6.7.5.c.e.8.1.f.2.2.4.e.a.4.8.8.7.9.1.5.d.7.h.d.2.7.f.1.h.h.d.f.3.d.8.2.d.4.6.a.1.0.0.6.3.6.3.0.0.2.1.1.2.1.0.1.0.2.6.2.0.2.0.1.0.0.0.6.2.3.1.1.2.3.2.1.2.1.1.2.5.1.1.2.4.1",
-		reaches: ["allen", "get proved", "a span parameter opposite r.allen"]
+		reaches: ["allen", "at most one row proved", "a span parameter opposite r.allen"]
 	},
 	{
 		note: "a union of three rules of constants, h0 low throughout and b y, x, x, two rules alike: the engine keys it by b, the fields its rules do not all fix alike, where the types, which required every two rules told apart, keyed it by its whole heading (TEST_SEED=1635200356)",
@@ -4142,9 +4128,8 @@ export const agreementEntriesFrom = (entry: (path: string) => string): PreludeAt
 
 /**
  * The program over the run's cases, as five modules:
- * - index.ts, every clean case's query in the drawn order, the get the types must accept or refuse (a refusal under its
- *   directive, which the type-test batch disarms), the assertion that every key the types claim lies over one the
- *   engine proves, and its records, parameters, cardinality and reads asserted the engine's;
+ * - index.ts, every clean case's query in the drawn order, the assertion that every key the types claim lies over one
+ *   the engine proves, and its records, parameters, cardinality and reads asserted the engine's;
  * - order.ts, the same in a second order drawn from the run's stream;
  * - invariance.ts, every query's head and keys asserted equal across the two;
  * - admission.ts, the admission agreement over every position and constant kind (./admission.ts), its constants drawn

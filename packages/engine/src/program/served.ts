@@ -1,9 +1,7 @@
-import { requireGet } from "#compiler/analysis/logical/get.ts"
 import { keyedBy } from "#compiler/analysis/physical/props.ts"
 import type { CursorGeneration } from "#compiler/codec/cursor/identity.ts"
 import type { DecoderForm, RowDecoder } from "#compiler/core/decoder.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
-import { SourceLoc } from "#compiler/core/loc.ts"
 import { isList } from "#compiler/core/record.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { OuterRefs } from "#compiler/ir/dag.ts"
@@ -47,9 +45,8 @@ import { emptyNameMap } from "#compiler/sql/naming.ts"
 
 /**
  * A query compiled for a role's rows, served (served/forms.ts ServedRead): its declared parameters, its artifact and
- * delivered spine (served/read.ts), its records' decoder, whether get may read it, its template's analyzed root proved
- * at most one row per parameter binding (analysis/logical/get.ts requireGet), the key its rows are delivered under
- * (`key`: its own, templateKey, or its page's, pageKey), and its footprint, the workload plan's
+ * delivered spine (served/read.ts), its records' decoder, the key its rows are delivered under (`key`: its own,
+ * templateKey, or its page's, pageKey), and its footprint, the workload plan's
  * (program/workload/compile.ts WorkloadFootprints), its tables named as installed (servedFootprint).
  */
 export const servedRead = (
@@ -63,7 +60,6 @@ export const servedRead = (
 	source: servedSource(template.run),
 	spine: servedSpine(desc),
 	decoder: decoder.form,
-	getEligible: requireGet(template.analyzed.roots[0], SourceLoc("reader.get", [])).ok,
 	key,
 	footprint
 })

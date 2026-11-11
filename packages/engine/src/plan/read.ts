@@ -2,8 +2,6 @@
  * The read plan: what a compiled read or page is, and what the shell runs and decodes it by — the template and its
  * programs, their statements, forms and placeholders, the codecs of their parameters and rows, and the cursor.
  */
-export { requireGet } from "#compiler/analysis/logical/get.ts"
-export { getRefusal } from "#compiler/runtime/read/get.ts"
 export { parentUse } from "#compiler/check/scan.ts"
 export {
 	cursorCodec,
