@@ -1,3 +1,20 @@
+/**
+ * A generation expression reads the fields its caller writes (core/causes.ts GeneratedRule readsUnwritten): PostgreSQL
+ * generates the column from them alone, and a drawn or an accumulated field, which grizzle writes on the host, is no
+ * generation expression's to read. The public type leaves both out of the callback's row; a JavaScript caller's row
+ * types them by their declared types, so an expression over one is built and reaches the checker, which refuses it by
+ * name.
+ *
+ * Each case draws a relation R of up to two drawn counts, each the owner of a counted family, up to two accumulated
+ * sets each a fold of the first family fills, and up to two sets the caller writes, every field under a drawn name, and
+ * a generated field reading a drawn nonempty set of them, summed in a drawn order. The model: the least read in code
+ * units grizzle writes is refused, with its writing; a read of the caller's fields alone is admitted.
+ *
+ * Oracle: the model above, a specification: the least read in code units among the fields grizzle writes.
+ *
+ * Plant (~/.cache/grizzle-release/BR06/plants): generation-row-last-read-named (the greatest such read named, not the
+ * least).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn as drawnCase, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -24,18 +41,6 @@ import { assert, nonEmpty, refused, succeeded } from "#test/support/assert.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
 import { caseHang } from "#test/support/limits.ts"
 
-/**
- * A generation expression reads the fields its caller writes (core/causes.ts GeneratedRule readsUnwritten): PostgreSQL
- * generates the column from them alone, and a drawn or an accumulated field, which grizzle writes on the host, is no
- * generation expression's to read. The public type leaves both out of the callback's row; a JavaScript caller's row
- * types them by their declared types, so an expression over one is built and reaches the checker, which refuses it by
- * name.
- *
- * Each case draws a relation R of up to two drawn counts, each the owner of a counted family, up to two accumulated
- * sets each a fold of the first family fills, and up to two sets the caller writes, every field under a drawn name, and
- * a generated field reading a drawn nonempty set of them, summed in a drawn order. The model: the least read in code
- * units grizzle writes is refused, with its writing; a read of the caller's fields alone is admitted.
- */
 const Flag = closed("Flag", ["a", "b"])
 
 type Writing = "drawn" | "accumulated" | "caller"

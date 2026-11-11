@@ -1,3 +1,20 @@
+/**
+ * What a level may state about the levels below it, against the rule restated as the oracle: a process over a lower
+ * level holds none of the code above it, so a level reaches a lower ordinary relation only as one side of a containment
+ * between stored relations whose sides are fields with no span, into a side holding a key the target relation declares
+ * and selected by constants alone (a deferred foreign key PostgreSQL judges at COMMIT; test/unit/laws/lowered-rules
+ * draws the superkeys and constants), and never by a key, a check, `mutable` or a family.
+ *
+ * The box is every statement of a drawn space stated at the upper level `Up` over `Lo`: a key, a check, `mutable` and
+ * a counted family over a lower and an upper relation; and every containment from one of four sources (an upper field
+ * or a lower candidate key, every fact or a selection) into one of seven targets (the upper primary key, or the lower
+ * primary key, candidate key or a field no key holds, every fact or a selection). Each is owned, and refused with LevelRefused, naming the lower
+ * relation it reaches and both levels, exactly where the oracle refuses it; every other statement owns.
+ * An admitted statement's levels each install in the PostgreSQL schema their own declared name converts to.
+ *
+ * Plant (~/.cache/grizzle-release/BR06/plants): levels-single-reach-admitted (a statement reaching one lower relation
+ * admitted).
+ */
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
@@ -23,21 +40,6 @@ import type { AnySchema } from "#compiler/types/schema/schema.ts"
 import type { Statement } from "#compiler/types/schema/statements.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
-
-/**
- * What a level may state about the levels below it, against the rule restated as the oracle: a process over a lower
- * level holds none of the code above it, so a level reaches a lower ordinary relation only as one side of a containment
- * between stored relations whose sides are fields with no span, into a side holding a key the target relation declares
- * and selected by constants alone (a deferred foreign key PostgreSQL judges at COMMIT; test/unit/laws/lowered-rules
- * draws the superkeys and constants), and never by a key, a check, `mutable` or a family.
- *
- * The box is every statement of a drawn space stated at the upper level `Up` over `Lo`: a key, a check, `mutable` and
- * a counted family over a lower and an upper relation; and every containment from one of four sources (an upper field
- * or a lower candidate key, every fact or a selection) into one of seven targets (the upper primary key, or the lower
- * primary key, candidate key or a field no key holds, every fact or a selection). Each is owned, and refused with LevelRefused, naming the lower
- * relation it reaches and both levels, exactly where the oracle refuses it; every other statement owns.
- * An admitted statement's levels each install in the PostgreSQL schema their own declared name converts to.
- */
 
 const A = relation("A", { id: uuid, x: uuid, y: uuid, n: natural }, ["id"])
 const L = relation("L", { id: uuid, owner: uuid }, ["id"])

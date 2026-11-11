@@ -1,3 +1,19 @@
+/**
+ * The schema vocabulary over the real field descriptors, str.regex and the Compute catalogue:
+ * a row check's field terms are typed terms of the term protocol, so Compute arithmetic, casts and charLength compose
+ * with them, and ownership accepts the result.
+ *
+ * The relations are built by the public, typed builders; the checks go through the builder's admission core, which
+ * takes the callback as a JavaScript caller passes it, so the refusals below reach it at run time.
+ *
+ * Oracle: ownership's own acceptance of each composed check, and its refusal of a literal of another host kind or
+ * roster and of two contracts of different identity.
+ *
+ * Features: arithmetic, a cast, charLength and a handle; each refusal.
+ *
+ * Plant (~/.cache/grizzle-release/BR06/plants): contract-identity-nameless (two contracts of different names one
+ * identity).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -18,14 +34,6 @@ import { checkBuilder } from "#compiler/schema/statements.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 
-/**
- * The schema vocabulary over the real field descriptors, str.regex and the Compute catalogue:
- * a row check's field terms are typed terms of the term protocol, so Compute arithmetic, casts and charLength compose
- * with them, and ownership accepts the result.
- *
- * The relations are built by the public, typed builders; the checks go through the builder's admission core, which
- * takes the callback as a JavaScript caller passes it, so the refusals below reach it at run time.
- */
 const Slug = str.regex("^[a-z]{1,20}$")
 const Cents = contract("Cents", pg.bigint, (v) => Compute.ge(v, 0n))
 const Kind = closed("Kind", ["a", "b"])
@@ -65,7 +73,7 @@ describe("row checks over the field registry and Compute", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: { kind: "specification", name: "ownership of the composed row check" },
 						suite: "unit/schema/row-check-compose",
 						draw: drawn((source) => ({
 							composed: source.draw(
@@ -123,7 +131,10 @@ describe("row checks over the field registry and Compute", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "a literal of another host kind or roster, and two contracts of different identity, refused"
+						},
 						suite: "unit/schema/row-check-refused",
 						draw: drawn((source) => ({
 							refused: source.draw(

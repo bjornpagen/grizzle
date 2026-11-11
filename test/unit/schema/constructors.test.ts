@@ -1,3 +1,23 @@
+/**
+ * The relation, closed, derived, schema and statement constructors: each records
+ * its Description, refuses a malformed JavaScript argument synchronously with MalformedDescription, and
+ * returns a frozen value whose public members are exactly the public API's.
+ *
+ * Every property draws a well-formed declaration and plants at most one defect a JavaScript caller can write, so the
+ * oracle is the constructor's documented rule (packages/engine/src/schema/relation.ts, statements.ts, schema.ts, literal.ts)
+ * restated: a planted defect is refused, and a declaration without one records exactly what was written. A defect is
+ * refused where the builder admits its arguments, its admission core (admitRelation, admitRoster, admitClosedRelation, ...), which a
+ * declaration with no defect reaches through the builder itself.
+ *
+ * Oracle: each constructor's documented rule, restated over the drawn declaration and its one planted defect; binary32
+ * rounding (Math.fround) and a numeric's scale for literals.
+ *
+ * Features: as each search names them: every planted defect of each constructor, and the well-formed declarations
+ * beside them.
+ *
+ * Plants (~/.cache/grizzle-release/BR06/plants): constructors-key-kept-by-reference (a relation keeping the caller's
+ * primary key array) and descriptors-repeated-handle-admitted (a repeated name in a list admitted).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -6,11 +26,9 @@ import {
 	boolean,
 	constant,
 	element,
-	filter,
 	type Gen,
 	int,
 	map,
-	oneOf,
 	shuffled,
 	uniqueArray,
 	weighted
@@ -107,17 +125,6 @@ import {
 } from "#test/unit/schema/support.ts"
 
 import { regex as arkregex } from "arkregex"
-/**
- * The relation, closed, derived, schema and statement constructors: each records
- * its Description, refuses a malformed JavaScript argument synchronously with MalformedDescription, and
- * returns a frozen value whose public members are exactly the public API's.
- *
- * Every property draws a well-formed declaration and plants at most one defect a JavaScript caller can write, so the
- * oracle is the constructor's documented rule (packages/engine/src/schema/relation.ts, statements.ts, schema.ts, literal.ts)
- * restated: a planted defect is refused, and a declaration without one records exactly what was written. A defect is
- * refused where the builder admits its arguments, its admission core (admitRelation, admitRoster, admitClosedRelation, ...), which a
- * declaration with no defect reaches through the builder itself.
- */
 const Kind = closed("Kind", ["Automatic", "Manual"], [])
 const Task = relation("Task", { id: uuid, account: uuid, kind: rawClosedId(Kind) }, ["id"], [])
 
@@ -143,6 +150,9 @@ const rosterOf = (handles: ReadonlyArray<string>): Arr.NonEmptyReadonlyArray<str
 }
 
 const wordGen = matching(arkregex("^[a-z][a-zA-Z0-9]{0,7}$"))
+
+/** A payload field's name, never the key's `id`: a word that ends in a digit, which `id` does not. */
+const payloadNameGen = matching(arkregex("^[a-z][a-zA-Z0-9]{0,6}[0-9]$"))
 
 /** A nonempty list: a first element and up to `more` others. */
 const nonEmptyGen =
@@ -224,7 +234,10 @@ describe("relation", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "the relation constructor's contract: a nonempty name, built descriptors, a distinct key over its fields"
+						},
 						suite: "unit/schema/relation-constructor",
 						draw: drawn((source) => {
 							const name = source.draw(wordGen)
@@ -437,7 +450,10 @@ describe("closed", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "the roster's handles in declared order, each a code of its roster"
+						},
 						suite: "unit/schema/roster-constructor",
 						draw: drawn((source) => {
 							const handles = rosterOf(
@@ -542,7 +558,7 @@ describe("closed", () => {
 		readonly type: PayloadType
 		readonly values: ReadonlyArray<unknown>
 	}> = (source) => {
-		const name = source.draw(filter(wordGen, (w) => w !== "id", 100))
+		const name = source.draw(payloadNameGen)
 		const type = source.draw(
 			element<PayloadType>(["bigint", "cents", "rate", "money", "ratio", "flag"])
 		)
@@ -556,7 +572,10 @@ describe("closed", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "one row per key of the roster, against the drawn fields, each named defect refused"
+						},
 						suite: "unit/schema/closed-relation-constructor",
 						draw: drawn((source) => {
 							const handles = rosterOf(
@@ -987,17 +1006,20 @@ describe("literals take their field's value", () => {
 			]
 		])
 
-	const caseGen = oneOf<{ readonly field: LiteralField; readonly value: HostValue }>([
-		(source) => ({ field: { kind: "real" }, value: source.draw(floatGen) }),
-		(source) => ({ field: { kind: "double precision" }, value: source.draw(floatGen) }),
-		(source) => {
-			const precision = source.draw(int(1, 12))
-			const scale = Math.min(source.draw(int(0, 12)), precision)
-			return {
-				field: { kind: "numeric(p, s)", precision, scale },
-				value: source.draw(numericGen(precision, scale))
+	const caseGen = weighted<{ readonly field: LiteralField; readonly value: HostValue }>([
+		[1, (source) => ({ field: { kind: "real" }, value: source.draw(floatGen) })],
+		[1, (source) => ({ field: { kind: "double precision" }, value: source.draw(floatGen) })],
+		[
+			1,
+			(source) => {
+				const precision = source.draw(int(1, 12))
+				const scale = Math.min(source.draw(int(0, 12)), precision)
+				return {
+					field: { kind: "numeric(p, s)", precision, scale },
+					value: source.draw(numericGen(precision, scale))
+				}
 			}
-		}
+		]
 	])
 
 	type Site = "closed row" | "selection" | "check operand"
@@ -1010,7 +1032,10 @@ describe("literals take their field's value", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "second-implementation",
+							name: "binary32 rounding (Math.fround) and a numeric's scale rounded half away from zero"
+						},
 						suite: "unit/schema/literal-rule",
 						draw: drawn((source) => ({
 							case: source.draw(caseGen),
@@ -1178,7 +1203,10 @@ describe("statements", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "the terms of the heading in the order written"
+						},
 						suite: "unit/schema/field-lists",
 						/** Every site with every defect, each pair drawn about a fifteenth of the time. */
 						draw: drawn((source) => ({
@@ -1294,7 +1322,7 @@ describe("statements", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: { kind: "specification", name: "two sides built by on, of one width" },
 					suite: "unit/schema/law-sides",
 					draw: drawn((source) => ({
 						statement: source.draw(element<SideStatement>(["contained", "mirrors"])),
@@ -1431,28 +1459,37 @@ describe("statements", () => {
 			)
 		]
 	])
-	const atomGen: Gen<CheckPredicate> = oneOf([
-		map(
-			(source) => ({
-				op: source.draw(opGen),
-				left: source.draw(operandGen),
-				right: source.draw(intField)
-			}),
-			(r): CheckPredicate => ({ kind: "fields", ...r })
-		),
-		map(
-			(source) => ({
-				op: source.draw(opGen),
-				left: source.draw(operandGen),
-				value: source.draw(int(-1000, 1000)),
-				helper: source.draw(boolean)
-			}),
-			(r): CheckPredicate => ({ kind: "literal", ...r })
-		),
-		map(
-			(source) => ({ op: source.draw(opGen), n: source.draw(int(0, 2000)) }),
-			(r): CheckPredicate => ({ kind: "length", ...r })
-		)
+	const atomGen: Gen<CheckPredicate> = weighted([
+		[
+			1,
+			map(
+				(source) => ({
+					op: source.draw(opGen),
+					left: source.draw(operandGen),
+					right: source.draw(intField)
+				}),
+				(r): CheckPredicate => ({ kind: "fields", ...r })
+			)
+		],
+		[
+			1,
+			map(
+				(source) => ({
+					op: source.draw(opGen),
+					left: source.draw(operandGen),
+					value: source.draw(int(-1000, 1000)),
+					helper: source.draw(boolean)
+				}),
+				(r): CheckPredicate => ({ kind: "literal", ...r })
+			)
+		],
+		[
+			1,
+			map(
+				(source) => ({ op: source.draw(opGen), n: source.draw(int(0, 2000)) }),
+				(r): CheckPredicate => ({ kind: "length", ...r })
+			)
+		]
 	])
 	const predicateGen = (depth: number): Gen<CheckPredicate> =>
 		depth === 0
@@ -1599,7 +1636,10 @@ describe("statements", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "the row predicate over its own row, literals of the field's type"
+						},
 						suite: "unit/schema/check-constructor",
 						draw: drawn((source) => ({
 							predicate: source.draw(predicateGen(2)),
@@ -1705,7 +1745,10 @@ describe("alternatives", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "each arm's containment and each handle's reverse, in roster order"
+						},
 						suite: "unit/schema/alternatives-constructor",
 						draw: drawn((source) => ({
 							handles: source.draw(
@@ -1922,7 +1965,10 @@ describe("schema and schema.extend", () => {
 					ctx,
 					explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "specification",
+								name: "each relation under its own name, statements in order, mirrors expanded in place"
+							},
 							suite: "unit/schema/schema-constructor",
 							draw: drawn((source) => ({
 								entries: source.draw(
@@ -2037,7 +2083,10 @@ describe("schema and schema.extend", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "the levels computed from what each definition reads"
+						},
 						suite: "unit/schema/derived-levels",
 						draw: drawn((source) => ({
 							levels: source.draw(

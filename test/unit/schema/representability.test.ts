@@ -1,3 +1,21 @@
+/**
+ * Key representability: every primary and candidate key
+ * must fit its index entry for every value its fields admit, or ownership refuses it with UnrepresentableKey naming the
+ * key and the bound that failed.
+ *
+ * The oracles restate PostgreSQL rather than read src: the B-tree item limit and the per-type datum sizes and alignments
+ * of pg_type, numeric.c's numeric_maximum_size, btree_gist's key representations, and the longest match of a pattern
+ * computed from the pattern as drawn, witnessed by the host's own RegExp over the same language spelled greedy and
+ * widest first.
+ *
+ * PostgreSQL's INDEX_MAX_KEYS (pg_config_manual.h), restated: the most columns an index, and so a key, holds.
+ *
+ * Features: as each search names them: bounded and unbounded patterns and lengths, each key layout, entries at and past
+ * their limits, spans and vectors in keys.
+ *
+ * Plants (~/.cache/grizzle-release/BR06/plants): representability-btree-item-past (BTMaxItemSize sixteen bytes past
+ * PostgreSQL's) and representability-index-keys-33 (INDEX_MAX_KEYS one past PostgreSQL's).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore, sketched } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -9,7 +27,6 @@ import {
 	type Gen,
 	int,
 	map,
-	oneOf,
 	weighted
 } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
@@ -89,18 +106,6 @@ import {
 } from "#test/unit/schema/support.ts"
 
 import { regex as arkregex } from "arkregex"
-/**
- * Key representability: every primary and candidate key
- * must fit its index entry for every value its fields admit, or ownership refuses it with UnrepresentableKey naming the
- * key and the bound that failed.
- *
- * The oracles restate PostgreSQL rather than read src: the B-tree item limit and the per-type datum sizes and alignments
- * of pg_type, numeric.c's numeric_maximum_size, btree_gist's key representations, and the longest match of a pattern
- * computed from the pattern as drawn, witnessed by the host's own RegExp over the same language spelled greedy and
- * widest first.
- *
- * PostgreSQL's INDEX_MAX_KEYS (pg_config_manual.h), restated: the most columns an index, and so a key, holds.
- */
 const postgresIndexMaxKeys = 32
 /** BTMaxItemSize for the default 8192-byte block (nbtree.h), restated. */
 const postgresBtreeMaxItem = 2704
@@ -518,7 +523,10 @@ describe("pattern byte bounds", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "second-implementation",
+							name: "the pattern's longest match in UTF-8 bytes, computed from the pattern as drawn"
+						},
 						suite: "unit/schema/pattern-byte-bound",
 						draw: drawn(patternSketchGen),
 						literal: Formatter.format,
@@ -802,15 +810,18 @@ describe("length bounds", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "charLength at four bytes a code point, octetLength exact"
+						},
 						suite: "unit/schema/length-bound",
 						draw: drawn((source) => ({
 							conjuncts: source.draw(nonEmpty(lengthConjunctGen, 3)),
 							nested: source.draw(boolean),
 							base: source.draw(
-								oneOf([
-									constant<LengthSketch["base"]>({ kind: "wildcard" }),
-									map(int(1, 200), (k): LengthSketch["base"] => ({ kind: "letters", k }))
+								weighted([
+									[1, constant<LengthSketch["base"]>({ kind: "wildcard" })],
+									[1, map(int(1, 200), (k): LengthSketch["base"] => ({ kind: "letters", k }))]
 								])
 							)
 						})),
@@ -1073,7 +1084,12 @@ const keyFieldGen: Gen<KeyFieldSketch> = weighted([
 		2,
 		map(
 			(source) => ({
-				precision: source.draw(oneOf([int(1, 40), int(1, 1000)])),
+				precision: source.draw(
+					weighted([
+						[1, int(1, 40)],
+						[1, int(1, 1000)]
+					])
+				),
 				scale: source.draw(int(0, 10))
 			}),
 			({ precision, scale }): KeyFieldSketch => ({
@@ -1567,7 +1583,10 @@ describe("keyTextBytes", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "second-implementation",
+							name: "PostgreSQL's datum sizes and alignments, restated"
+						},
 						suite: "unit/schema/key-text-bytes",
 						draw: drawn(budgetCaseGen),
 						literal: Formatter.format,
@@ -1628,22 +1647,28 @@ describe("B-tree entries (nbtree.h BTMaxItemSize)", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "second-implementation",
+							name: "BTMaxItemSize and pg_type's sizes and alignments, restated"
+						},
 						suite: "unit/schema/btree-entry",
 						draw: drawn((source) => ({
 							fields: source.draw(nonEmpty(keyFieldGen, 4)),
 							primary: source.draw(boolean),
 							boundary: source.draw(
-								oneOf([
-									constant<KeySizeSketch["boundary"]>({ kind: "none" }),
-									map(
-										(inner) => ({ delta: inner.draw(int(-8, 8)), octets: inner.draw(boolean) }),
-										({ delta, octets }): KeySizeSketch["boundary"] => ({
-											kind: "at",
-											delta,
-											octets
-										})
-									)
+								weighted([
+									[1, constant<KeySizeSketch["boundary"]>({ kind: "none" })],
+									[
+										1,
+										map(
+											(inner) => ({ delta: inner.draw(int(-8, 8)), octets: inner.draw(boolean) }),
+											({ delta, octets }): KeySizeSketch["boundary"] => ({
+												kind: "at",
+												delta,
+												octets
+											})
+										)
+									]
 								])
 							)
 						})),
@@ -1711,7 +1736,7 @@ describe("B-tree entries (nbtree.h BTMaxItemSize)", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: { kind: "specification", name: "INDEX_MAX_KEYS, restated" },
 						suite: "unit/schema/key-width",
 						draw: drawn((source) => ({
 							width: source.draw(int(postgresIndexMaxKeys - 3, postgresIndexMaxKeys + 3)),
@@ -1787,7 +1812,10 @@ describe("GiST entries for span keys (gist.c gistSplit)", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "btree_gist's scalar keys and the span, laid out"
+						},
 						suite: "unit/schema/span-key-layout",
 						/** Planted: the span between two scalar fields, which the drawn positions reach a few times a run. */
 						draw: sketched(
@@ -1925,7 +1953,10 @@ describe("GiST entries for span keys (gist.c gistSplit)", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "second-implementation",
+							name: "btree_gist's two-bound key representation, restated"
+						},
 						suite: "unit/schema/gist-entry",
 						/**
 						 * Planted: two text datums of 3,000 bytes, past a GiST page, which the drawn datums reach a few times a run.
@@ -2053,7 +2084,10 @@ describe("a vector field is a key field like any other: every vector has one for
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "second-implementation",
+							name: "the B-tree entry of a vector key, restated, and btree_gist's refusal of a vector beside a span"
+						},
 						suite: "unit/schema/vector-keys",
 						draw: drawn(vectorKeySketchGen),
 						literal: Formatter.format,

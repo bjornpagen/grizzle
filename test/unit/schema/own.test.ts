@@ -1,3 +1,22 @@
+/**
+ * Ownership at the schema door (schema/own.ts): what a schema owns, and what it refuses, each by its documented reason.
+ *
+ * - Fingerprint: the fingerprint is of canonical content: order, repeats and locations drop out, meaning does not, and
+ *   the canonical description owns to it. Oracle: the fingerprint's invariance, a metamorphic relation.
+ * - Conflicts: a name claimed twice with conflicting meaning is refused, and the same meaning twice owns as one.
+ * - Handles: every handle written against a closedId field, at any contract depth, is checked against its roster; a
+ *   handle longer than a name's 63 bytes is refused, built or decoded. Oracles: the roster's own handles; NAMEDATALEN
+ *   - 1, restated.
+ * - Statements over a derived relation: a key, a check, a containment either way and mirrors own over one, and mutable
+ *   and an alternatives arm are refused, from a description or the builders.
+ * - Structure: a description naming what no level declares, or breaking a structural rule, is refused by its reason.
+ *   Names no fixture declares are built so, ending in a digit, never drawn and filtered.
+ *
+ * Features: as each search names them.
+ *
+ * Plant (~/.cache/grizzle-release/BR06/plants): own-statements-in-written-order (statements kept in the order written,
+ * so reordering moves the fingerprint).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
 import { required, requiredInSpace } from "@grizzle/testing/features"
@@ -6,12 +25,11 @@ import {
 	boolean,
 	constant,
 	element,
-	filter,
 	type Gen,
 	int,
 	map,
-	oneOf,
-	shuffled
+	shuffled,
+	weighted
 } from "@grizzle/testing/gen"
 import { matching } from "@grizzle/testing/pattern"
 import { notesOnly } from "@grizzle/testing/sense"
@@ -116,6 +134,12 @@ const Reports = schema.extend(Work, "Reports", { TaskIds }, [], [])
 
 const wordGen = matching(arkregex("^[A-Z][a-z]{1,7}$"))
 
+/**
+ * A word no fixture declares, as a name or a handle: a word that ends in a digit, which no declared name or handle of the
+ * fixtures does.
+ */
+const undeclaredWordGen = matching(arkregex("^[A-Z][a-z]{1,7}[0-9]$"))
+
 /** The ownership of a value at the schema door: a built schema, or a description decoded there. */
 const ownValue = (value: unknown) => ownedInput(value)
 
@@ -155,46 +179,55 @@ type LimitsPredicate =
 			readonly rotate: number
 	  }
 
-const limitsAtomGen: Gen<LimitsPredicate> = oneOf([
-	map(
-		(source) => ({
-			field: source.draw(element<"limit" | "maximum">(["limit", "maximum"])),
-			n: source.draw(bigint(-5n, 5n))
-		}),
-		(r): LimitsPredicate => ({ kind: "at least", ...r })
-	),
-	map(
-		(source) => ({
-			field: source.draw(element<"limit" | "maximum">(["limit", "maximum"])),
-			n: source.draw(bigint(-5n, 5n))
-		}),
-		(r): LimitsPredicate => ({ kind: "equal", ...r })
-	),
-	constant<LimitsPredicate>({ kind: "within maximum" })
+const limitsAtomGen: Gen<LimitsPredicate> = weighted([
+	[
+		1,
+		map(
+			(source) => ({
+				field: source.draw(element<"limit" | "maximum">(["limit", "maximum"])),
+				n: source.draw(bigint(-5n, 5n))
+			}),
+			(r): LimitsPredicate => ({ kind: "at least", ...r })
+		)
+	],
+	[
+		1,
+		map(
+			(source) => ({
+				field: source.draw(element<"limit" | "maximum">(["limit", "maximum"])),
+				n: source.draw(bigint(-5n, 5n))
+			}),
+			(r): LimitsPredicate => ({ kind: "equal", ...r })
+		)
+	],
+	[1, constant<LimitsPredicate>({ kind: "within maximum" })]
 ])
 
 const limitsPredicateGen = (depth: number): Gen<LimitsPredicate> =>
 	depth === 0
 		? limitsAtomGen
-		: oneOf([
-				limitsAtomGen,
-				map(
-					(source) => ({
-						kind: source.draw(element<"and" | "or">(["and", "or"])),
-						args: source.draw(
-							map(
-								(source) =>
-									[
-										source.draw(limitsPredicateGen(depth - 1)),
-										source.draw(array(limitsPredicateGen(depth - 1), { min: 0, max: 2 }))
-									] as const,
-								([first, rest]): Arr.NonEmptyReadonlyArray<LimitsPredicate> => [first, ...rest]
-							)
-						),
-						rotate: source.draw(int(0, 2))
-					}),
-					(r): LimitsPredicate => r
-				)
+		: weighted([
+				[1, limitsAtomGen],
+				[
+					1,
+					map(
+						(source) => ({
+							kind: source.draw(element<"and" | "or">(["and", "or"])),
+							args: source.draw(
+								map(
+									(source) =>
+										[
+											source.draw(limitsPredicateGen(depth - 1)),
+											source.draw(array(limitsPredicateGen(depth - 1), { min: 0, max: 2 }))
+										] as const,
+									([first, rest]): Arr.NonEmptyReadonlyArray<LimitsPredicate> => [first, ...rest]
+								)
+							),
+							rotate: source.draw(int(0, 2))
+						}),
+						(r): LimitsPredicate => r
+					)
+				]
 			])
 
 type LimitsRow = Row & { readonly limit: Row["id"]; readonly maximum: Row["id"] }
@@ -271,7 +304,10 @@ describe("the owned product", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "universal",
+							name: "the fingerprint is invariant under order, repeats and locations, and moves with meaning"
+						},
 						suite: "unit/schema/fingerprint",
 						draw: drawn((source) => ({
 							relationOrder: source.draw(
@@ -447,7 +483,10 @@ describe("conflicting declarations", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "one declaration per meaning, a conflicting claim refused"
+						},
 						suite: "unit/schema/conflicts",
 						draw: drawn((source) => ({
 							conflict: source.draw(element(conflicts)),
@@ -547,15 +586,15 @@ describe("closed relations", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: { kind: "specification", name: "the roster's own handles" },
 						suite: "unit/schema/closed-handles",
 						draw: drawn((source) => ({
 							site: source.draw(element(handleSites)),
 							depth: source.draw(int(0, 3)),
 							handle: source.draw(
-								oneOf([
-									element(["Automatic", "Manual"]),
-									filter(wordGen, (w) => w !== "Automatic" && w !== "Manual", 100)
+								weighted([
+									[1, element(["Automatic", "Manual"])],
+									[1, undeclaredWordGen]
 								])
 							)
 						})),
@@ -699,7 +738,7 @@ describe("closed relations", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: { kind: "specification", name: "NAMEDATALEN - 1, 63 bytes, restated" },
 						suite: "unit/schema/handle-name-bytes",
 						draw: drawn((source) => ({
 							accented: source.draw(int(0, 31)),
@@ -816,8 +855,11 @@ describe("statements over a derived relation", () => {
 					ctx,
 					exhaust(
 						{
-							box: { kind: "unstated" },
-							oracle: { kind: "unstated" },
+							box: "every statement kind over a derived relation, from a description and from the builders",
+							oracle: {
+								kind: "specification",
+								name: "the statements a derived relation admits, and the ones it refuses"
+							},
 							suite: "unit/schema/statements-over-derived",
 							generator: space,
 							literal: Formatter.format,
@@ -1024,21 +1066,13 @@ describe("scope and structure", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: { kind: "specification", name: "each structural rule's documented reason" },
 						suite: "unit/schema/structure",
 						draw: drawn((source) => ({
 							structure: source.draw(element(structures)),
 							/** No declared name. */
-							name: source.draw(
-								filter(wordGen, (w) => !["Kind", "Account", "Task", "Work"].includes(w), 100)
-							),
-							field: source.draw(
-								filter(
-									matching(arkregex("^[a-z]{2,8}$")),
-									(f) => !["id", "account", "kind", "budget", "units", "pool"].includes(f),
-									100
-								)
-							),
+							name: source.draw(undeclaredWordGen),
+							field: source.draw(matching(arkregex("^[a-z]{2,8}[0-9]$"))),
 							level: source.draw(int(2, 5)),
 							n: source.draw(bigint(0n, 9n)),
 							description: source.draw(element<unknown>([42, { name: "X" }, null, "Work"]))

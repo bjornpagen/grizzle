@@ -1,3 +1,28 @@
+/**
+ * The world builders' admission (context, role, login) and ownership of their decoded descriptions (ownRole,
+ * ownLogin), against the rules of roles restated as the oracle:
+ *
+ * - a context's fields are claims of scalar types: text, uuid, boolean, the integer types, a contract over one of them,
+ *   or a closed handle; and a field its sequence writes is none, though its description, its integer's, is admitted.
+ *   Each case draws a context of one to three fields of any drawn type (field-sketch.ts), serial forms included: the
+ *   builder refuses it at the first field no claim is, a description at any field whose type no claim's is;
+ * - a role relation is a whole relation of the base under its own name, or a query built over the base or one of its
+ *   levels that reads only the base's relations, reads no parameter, attaches nothing, searches nothing approximately
+ *   and is a Query, not an Ordered; a role writes whole ordinary relations and query entries the writable-entry rule
+ *   admits, at most one per base relation, and refreshes derived whole entries. Each case draws a healthy role (drawn
+ *   whole entries, writable query entries over drawn relations, drawn writes and refreshes) and at most one defect,
+ *   each with its drawn target: the builder refuses it by the rule it breaks, with that rule's fields, and ownership of
+ *   its description, where a description can state it, by the same rule; the healthy role is admitted by both;
+ * - a query entry's definition may hold whatever a program's may: over the derived oracle's generated definitions
+ *   (drawn levels, aggregates, unions, takes, negations), each lowers as a program, and as a role's query entry it is
+ *   admitted and a query reading it lowers;
+ * - a login's roles share its base, are named apart from it, and each role is in exactly one login. Each case draws a
+ *   sequence of logins over a pool of roles of drawn bases and names: each login is refused at its first role breaking
+ *   a rule, in the order base, name, a login already holding it, and admitted otherwise, its description owned.
+ *
+ * Plant (~/.cache/grizzle-release/BR06/plants): worlds-context-serial-claim (a context field its sequence writes
+ * admitted as a claim).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore, sketched } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -63,28 +88,6 @@ import {
 } from "#test/unit/schema/field-sketch.ts"
 import { descOf, rawClosedId, regex } from "#test/unit/schema/support.ts"
 
-/**
- * The world builders' admission (context, role, login) and ownership of their decoded descriptions (ownRole,
- * ownLogin), against the rules of roles restated as the oracle:
- *
- * - a context's fields are claims of scalar types: text, uuid, boolean, the integer types, a contract over one of them,
- *   or a closed handle; and a field its sequence writes is none, though its description, its integer's, is admitted.
- *   Each case draws a context of one to three fields of any drawn type (field-sketch.ts), serial forms included: the
- *   builder refuses it at the first field no claim is, a description at any field whose type no claim's is;
- * - a role relation is a whole relation of the base under its own name, or a query built over the base or one of its
- *   levels that reads only the base's relations, reads no parameter, attaches nothing, searches nothing approximately
- *   and is a Query, not an Ordered; a role writes whole ordinary relations and query entries the writable-entry rule
- *   admits, at most one per base relation, and refreshes derived whole entries. Each case draws a healthy role (drawn
- *   whole entries, writable query entries over drawn relations, drawn writes and refreshes) and at most one defect,
- *   each with its drawn target: the builder refuses it by the rule it breaks, with that rule's fields, and ownership of
- *   its description, where a description can state it, by the same rule; the healthy role is admitted by both;
- * - a query entry's definition may hold whatever a program's may: over the derived oracle's generated definitions
- *   (drawn levels, aggregates, unions, takes, negations), each lowers as a program, and as a role's query entry it is
- *   admitted and a query reading it lowers;
- * - a login's roles share its base, are named apart from it, and each role is in exactly one login. Each case draws a
- *   sequence of logins over a pool of roles of drawn bases and names: each login is refused at its first role breaking
- *   a rule, in the order base, name, a login already holding it, and admitted otherwise, its description owned.
- */
 const Kind = closed("Kind", ["Draft", "Live"])
 const Author = regex("^user_[a-z]{1,8}$", "u")
 const Post = relation(

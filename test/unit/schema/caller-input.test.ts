@@ -1,3 +1,20 @@
+/**
+ * Caller input a builder refuses as such, never as an internal defect: a union of carriers no column reads.
+ *
+ * Each case draws one or two rosters, their names from two so they may meet, and two carriers: a field of any drawn
+ * type, a contract over a closed id among them, a closed id or a set over a drawn roster, each also an arm of its own,
+ * or a head literal's constant column. Oracle: the column rule stated over the carriers' sketches alone, a second statement of schema/record.ts
+ * columnsMeet: a set meets only a set of a roster of its name, since no head literal is a set; a closed id, its
+ * contract's included, meets only a closed id of a roster of its name or a head literal; and any other two meet here
+ * (the checker judges their SQL types).
+ *
+ * That a context's claims are scalar fields its caller writes is the worlds suite's (test/unit/schema/worlds.test.ts,
+ * context admission), over every drawn field type, serial forms included.
+ *
+ * Features: each pair of carriers the rule tells apart, a meeting and a refusal.
+ *
+ * Plant (~/.cache/grizzle-release/BR06/plants): caller-input-rosters-meet (two closed ids of different rosters meeting).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -19,19 +36,6 @@ import {
 	type DrawnRoster
 } from "#test/unit/schema/field-sketch.ts"
 
-/**
- * Caller input a builder refuses as such, never as an internal defect: a union of carriers no column reads.
- *
- * Each case draws one or two rosters, their names from two so they may meet, and two carriers: a field of any drawn
- * type, a contract over a closed id among them, a closed id or a set over a drawn roster, each also an arm of its own,
- * or a head literal's constant column. Oracle: the column rule stated over the carriers' sketches alone, a second statement of schema/record.ts
- * columnsMeet: a set meets only a set of a roster of its name, since no head literal is a set; a closed id, its
- * contract's included, meets only a closed id of a roster of its name or a head literal; and any other two meet here
- * (the checker judges their SQL types).
- *
- * That a context's claims are scalar fields its caller writes is the worlds suite's (test/unit/schema/worlds.test.ts,
- * context admission), over every drawn field type, serial forms included.
- */
 interface RosterSketch {
 	readonly name: number
 	readonly handles: number
