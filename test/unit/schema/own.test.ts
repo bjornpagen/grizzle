@@ -865,8 +865,6 @@ describe("statements over a derived relation", () => {
 							suite: "unit/schema/statements-over-derived",
 							generator: space,
 							literal: Formatter.format,
-							/** The space is every statement form, 6 described and 7 built, with its sides either way round. */
-							limit: 26,
 							coverage: requiredInSpace<`${DerivedStatementKind} ${StatementForm["form"]}`>(
 								Arr.map(statementForms, (l) => `${l.kind} ${l.form}` as const)
 							),

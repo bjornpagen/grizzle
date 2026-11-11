@@ -264,10 +264,6 @@ const catalogFactGen: Gen<CatalogFact> = (source) => {
 	}
 }
 
-/** How many facts the box holds. */
-const catalogFacts =
-	levelRelations.length * levels.length + levelRoles.length * levelRelations.length + 2
-
 type CatalogFeature =
 	| "a table in its level's schema"
 	| "no table in another level's schema"
@@ -371,7 +367,6 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								suite: "pg/levels/catalog",
 								generator: catalogFactGen,
 								literal: Formatter.format,
-								limit: catalogFacts,
 								box: "each declared relation at each level, each role on each declared relation, the containment and its domain",
 								oracle: {
 									kind: "postgresql",

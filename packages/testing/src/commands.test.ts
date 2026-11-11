@@ -298,7 +298,6 @@ describe("a state machine", () => {
 							box: "every program of up to 3 steps, pushes of 0 or 1",
 							generator: program(twoValued, { min: 0, max: 3 }, fullSwarm(COMMANDS)),
 							literal: Formatter.format,
-							limit: 2000,
 							coverage: noCoverage,
 							caseHang: Duration.minutes(1)
 						},

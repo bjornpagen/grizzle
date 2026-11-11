@@ -97,7 +97,6 @@ describe("the seen-state estimate", () => {
 								source.draw(element(copied))
 							] as const,
 						literal: Formatter.format,
-						limit: 200,
 						coverage: requiredInSpace<EstimateFeature>([
 							...Arr.map(copied, ([column]): EstimateFeature => `copies ${column}`),
 							"a computed column",
@@ -227,8 +226,6 @@ describe("the seen-state estimate", () => {
 						suite: "unit/recursion/estimate-sets",
 						generator: int(1, 3),
 						literal: Formatter.format,
-						/** The space is a roster of one, two or three handles. */
-						limit: 3,
 						coverage: requiredInSpace<`${number} handles`>(["1 handles", "2 handles", "3 handles"]),
 						caseHang
 					},

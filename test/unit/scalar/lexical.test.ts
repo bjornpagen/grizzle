@@ -73,7 +73,7 @@ import {
 } from "#test/support/lexical.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { checkedIn } from "#test/support/policy.ts"
-import { patternOver, walkGen } from "#test/unit/text/generators.ts"
+import { admittedPatternOver, walkGen } from "#test/unit/text/generators.ts"
 
 const nfaOf = (source: string): Nfa => buildNfa(succeeded(parsePattern(source, "u")))
 
@@ -148,7 +148,6 @@ describe("lexical forms", () => {
 						suite: "unit/scalar/lexical-admitted",
 						generator: targetGen(admittedMaxPrecision),
 						literal: Formatter.format,
-						limit: 200,
 						coverage: requiredInSpace<LexicalTarget["kind"]>([
 							"integer",
 							"decimal",
@@ -196,14 +195,14 @@ const pairGen: Gen<{ readonly inner: string; readonly outer: string }> = weighte
 	[
 		1,
 		(source) => ({
-			inner: source.draw(patternOver(alphabet)),
-			outer: source.draw(patternOver(alphabet))
+			inner: source.draw(admittedPatternOver(alphabet)),
+			outer: source.draw(admittedPatternOver(alphabet))
 		})
 	],
 	[
 		1,
 		(source) => ({
-			inner: source.draw(patternOver(alphabet)),
+			inner: source.draw(admittedPatternOver(alphabet)),
 			outer: formSource(source.draw(targetGen(admittedMaxPrecision)))
 		})
 	]
@@ -245,11 +244,11 @@ describe("language inclusion", () => {
 						}
 					},
 					({ inner, outer, walks }, run) =>
-						Effect.gen(function* () {
+						Effect.sync(() => {
 							const a = parsePattern(inner, "u")
 							const b = parsePattern(outer, "u")
 							if (!a.ok || !b.ok) {
-								return yield* run.assume(false)
+								return assert.fail(`${inner} and ${outer}: admitted patterns parse`)
 							}
 							const innerNfa = buildNfa(a.value)
 							const outerNfa = buildNfa(b.value)
@@ -379,7 +378,7 @@ describe("a parse's lexical precondition", () => {
 					{
 						suite: "unit/scalar/lexical-proved",
 						draw: drawn((source) => ({
-							pattern: `^(?:${source.draw(patternOver(alphabet))})$`,
+							pattern: `^(?:${source.draw(admittedPatternOver(alphabet))})$`,
 							target: source.draw(element(checkTargets)),
 							route: source.draw(element<Route>(["type", "guard"]))
 						})),
@@ -400,10 +399,11 @@ describe("a parse's lexical precondition", () => {
 						}
 					},
 					({ pattern, target: [target, build], route }, run) =>
-						Effect.gen(function* () {
-							if (!analyzeText([{ source: pattern, flags: "u" }], SourceLoc("str.regex", [])).ok) {
-								return yield* run.assume(false)
-							}
+						Effect.sync(() => {
+							assert.ok(
+								analyzeText([{ source: pattern, flags: "u" }], SourceLoc("str.regex", [])).ok,
+								`${pattern}: an admitted pattern's text analyzes`
+							)
 							const verdict = inclusion([nfaOf(pattern)], [nfaOf(formSource(target))]).kind
 							const checked = checkedIn(schema("Lexical", { R: build(pattern, route) }, []))
 							run.note(`${route} ${checked.ok ? "admitted" : "refused"}`)
@@ -523,7 +523,7 @@ describe("a decimal's parse", () => {
 					{
 						suite: "unit/scalar/lexical-decimal-proved",
 						draw: drawn((source) => ({
-							pattern: `^(?:${source.draw(patternOver(alphabet))})$`,
+							pattern: `^(?:${source.draw(admittedPatternOver(alphabet))})$`,
 							route: source.draw(element<Route>(["type", "guard"])),
 							bound: source.draw(decimalBoundGen)
 						})),
@@ -551,13 +551,13 @@ describe("a decimal's parse", () => {
 						}
 					},
 					({ pattern, route, bound }, run) =>
-						Effect.gen(function* () {
+						Effect.sync(() => {
 							const analyzed = analyzeText(
 								[{ source: pattern, flags: "u" }],
 								SourceLoc("str.regex", [])
 							)
 							if (!analyzed.ok) {
-								return yield* run.assume(false)
+								return assert.fail(`${pattern}: an admitted pattern's text analyzes`)
 							}
 							const verdict = inclusion([nfaOf(pattern)], [nfaOf(decimalText.source)]).kind
 							const check = analyzed.value.check

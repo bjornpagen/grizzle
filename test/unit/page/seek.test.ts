@@ -260,8 +260,6 @@ describe("the seek predicate", () => {
 							}
 						},
 						literal: Formatter.format,
-						/** The 1, 2, 4 and 8 direction sets of zero to three keys, each with every seek. */
-						limit: 15 * seeks.length,
 						coverage: requiredInSpace<`${0 | 1 | 2 | 3} keys`>([
 							"0 keys",
 							"1 keys",
@@ -402,7 +400,6 @@ describe("variants and probes", () => {
 						suite: "unit/page/reverse",
 						generator: array(element(directions), { min: 1, max: 4 }),
 						literal: Formatter.format,
-						limit: 30,
 						coverage: noCoverage,
 						caseHang
 					},

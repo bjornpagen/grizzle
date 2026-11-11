@@ -1536,7 +1536,6 @@ describe("the fill order: a schema generate accepts is one every write of fills"
 						suite: "unit/write/fill-order-box",
 						generator: shapeGen,
 						literal: Formatter.format,
-						limit: 400,
 						box: "one family of each kind under a top, a nested or a tree-node owner, one copy along each axis of each column kind its target row holds, and the instance of every count at its most",
 						oracle: {
 							kind: "second-implementation",
@@ -1575,7 +1574,6 @@ describe("the fill order: a schema generate accepts is one every write of fills"
 						suite: "unit/write/fill-order-stale",
 						generator: staleShapeGen,
 						literal: Formatter.format,
-						limit: 216,
 						box: "an owner's put through one copy or two, and an edit of a family of a member owner, of a tree node or of the owner a copy reads, to a predecessor copy, a last copy, a tree's copy or a sum fold stepping the copy, and a put or a delete re-placing an ordered family's member whose counted members copy its v, g or index, over mutable relations holding g; a put of an immutable owner's member whose immutable counted members copy its v, which re-places nothing; a refill's refill of an immutable relation's rows, and of a mutable one's, which reads what the first refill changes, each write named after a plain put; each put from a query too, and each write under a role leaving out each relation in turn",
 						oracle: {
 							kind: "second-implementation",
@@ -1610,7 +1608,6 @@ describe("the fill order: a schema generate accepts is one every write of fills"
 						suite: "unit/write/fill-order-siblings",
 						generator: siblingsGen,
 						literal: Formatter.format,
-						limit: 12,
 						box: "an owner of a tree or an ordered family and an ordered family, each ending in a fold or a last copy, with a copy along one's owner axis of the other's end, or along each one's",
 						oracle: {
 							kind: "second-implementation",

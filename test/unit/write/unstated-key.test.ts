@@ -112,9 +112,6 @@ const boxGen: Gen<Box> = (source) => {
 	}
 }
 
-/** The box's tapes: two writes, four primary keys, sixteen subsets of the other four, and three counts of facts. */
-const boxCases = 2 * 4 * 16 * 3
-
 /** Whether two keys hold the same fields in the same order. */
 const sameFields = (a: ReadonlyArray<string>, b: ReadonlyArray<string>): boolean =>
 	a.length === b.length && Arr.every(a, (field, i) => b[i] === field)
@@ -159,7 +156,6 @@ describe("a write that names rows by a primary key", () => {
 						suite: "unit/write/unstated-key",
 						generator: boxGen,
 						literal: Formatter.format,
-						limit: boxCases,
 						box: "a sequence's member under each of four primary keys, beside every subset of the other three and a key over a generated field declared, put or deleted as one to three facts",
 						oracle: {
 							kind: "specification",

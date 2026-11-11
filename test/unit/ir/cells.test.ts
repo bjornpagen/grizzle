@@ -256,7 +256,6 @@ describe("the row-major index", () => {
 						suite: "unit/ir/cells-index",
 						generator: shapes,
 						literal: Formatter.format,
-						limit: 258,
 						coverage: requiredInSpace<Shape>([
 							"one coordinate",
 							"three coordinates",
@@ -337,7 +336,6 @@ describe("a fin coordinate", () => {
 						box: "every owner roster of 0 to 4 owners, each holding 0 to 3 slots",
 						generator: owners,
 						literal: Formatter.format,
-						limit: 341,
 						coverage: requiredInSpace<Owners>([
 							"an owner with no slot",
 							"several owners with slots",
@@ -525,7 +523,6 @@ describe("a dependent key space", () => {
 						box: "every dependent space of 1 to 3 owners, a block of 1 or 2 coordinates with a slot, each count 0 to 2, every slot digit 0 to 3",
 						generator: spaces,
 						literal: Formatter.format,
-						limit: 1950,
 						coverage: requiredInSpace<Dependent>([
 							"an owner with no slot",
 							"a block of two slots",
@@ -620,7 +617,6 @@ describe("a relation's string of cells", () => {
 						suite: "unit/ir/cells-relations",
 						generator: box,
 						literal: Formatter.format,
-						limit: 11_915,
 						coverage: requiredInSpace<Relation>([
 							"a set",
 							"a function",
@@ -933,7 +929,6 @@ describe("a roster's codes", () => {
 						suite: "unit/ir/cells-roster-holes",
 						generator: patterns,
 						literal: Formatter.format,
-						limit: 171,
 						coverage: requiredInSpace<Holes>([
 							"no hole",
 							"a leading hole",
@@ -1289,7 +1284,6 @@ describe("a side", () => {
 						suite: "unit/ir/cells-side",
 						generator: headings,
 						literal: Formatter.format,
-						limit: 3702,
 						coverage: requiredInSpace<Keyed>([
 							"keyed by a declared key",
 							"keyed by all its fields",
@@ -1431,7 +1425,6 @@ describe("a constant's digest", () => {
 						suite: "unit/ir/cells-digest",
 						generator: small,
 						literal: Formatter.format,
-						limit: 858,
 						coverage: requiredInSpace<Edited>([
 							"a cell made present",
 							"a cell made absent",

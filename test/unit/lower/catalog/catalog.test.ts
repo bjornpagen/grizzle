@@ -230,7 +230,6 @@ describe("R26: the lexicographic comparison in any spelling", () => {
 								source.draw((source) => [source.draw(dirs), source.draw(dirs)] as const),
 								source.draw(boolean)
 							] as const,
-						limit: 40,
 						coverage: requiredInSpace<`${Spelling} ${"recognized" | "kept"}`>([
 							"nested recognized",
 							"nested kept",
@@ -409,7 +408,6 @@ describe("R26 and R41: the self-match's own conditions", () => {
 						suite: "unit/lower/catalog/self-match-conditions",
 						literal: Formatter.format,
 						generator: selfMatchShapes,
-						limit: 48,
 						coverage: requiredInSpace<`${Head} ${"windowed" | "kept"}`>([
 							"ordinal windowed",
 							"ordinal kept",
@@ -499,7 +497,6 @@ describe("R29 and R30: percentiles", () => {
 									])
 								)
 							] as const,
-						limit: 630,
 						coverage: requiredInSpace<"rewritten" | "a fraction refused" | "a stage refused">([
 							"rewritten",
 							"a fraction refused",
@@ -544,7 +541,6 @@ describe("R29 and R30: percentiles", () => {
 								source.draw(element(fractions)),
 								source.draw(element<"score" | "amount">(["score", "amount"]))
 							] as const,
-						limit: 28,
 						coverage: requiredInSpace<"rewritten" | "kept">(["rewritten", "kept"]),
 						caseHang
 					},
@@ -583,7 +579,6 @@ describe("R31: the mode", () => {
 								source.draw(int(1, 2)),
 								source.draw(element<"all" | "conditional">(["all", "conditional"]))
 							] as const,
-						limit: 8,
 						coverage: requiredInSpace<"rewritten" | "kept">(["rewritten", "kept"]),
 						caseHang
 					},
@@ -678,7 +673,6 @@ describe("R27 and R42: neighbors under the parent-set policy", () => {
 						suite: "unit/lower/catalog/neighbor-parents",
 						literal: Formatter.format,
 						generator: (source) => [source.draw(neighbors), source.draw(policies)] as const,
-						limit: 36,
 						coverage: requiredInSpace<`${Neighbor["kind"]} ${"rewritten" | "probed"}`>([
 							"bound neighbor rewritten",
 							"bound neighbor probed",
@@ -727,7 +721,6 @@ describe("R27 and R42: neighbors under the parent-set policy", () => {
 									])
 								)
 							] as const,
-						limit: 9,
 						coverage: requiredInSpace<Edit>([
 							"none",
 							"the prices' day retyped bigint",
@@ -827,7 +820,6 @@ describe("R28: shares", () => {
 						suite: "unit/lower/catalog/share",
 						literal: Formatter.format,
 						generator: shares,
-						limit: 8,
 						coverage: requiredInSpace<"rewritten" | "kept">(["rewritten", "kept"]),
 						caseHang
 					},
@@ -887,7 +879,6 @@ describe("determinism and the catalog pass", () => {
 						suite: "unit/lower/catalog/determinism",
 						literal: Formatter.format,
 						generator: compositions,
-						limit: 44,
 						coverage: requiredInSpace<"rewritten" | "kept">(["rewritten", "kept"]),
 						caseHang
 					},

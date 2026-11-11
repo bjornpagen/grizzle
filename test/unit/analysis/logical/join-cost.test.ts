@@ -98,7 +98,6 @@ describe("the analysis of k joined relations of two keys each", () => {
 					box: "k relations at 2h, 4h and 6h, h at 2 and 3",
 					generator: int(2, 3),
 					literal: Formatter.format,
-					limit: 2,
 					coverage: requiredInSpace<Point>(["from k = 4", "from k = 6"]),
 					caseHang,
 					oracle: {

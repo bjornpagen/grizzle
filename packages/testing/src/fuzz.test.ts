@@ -202,7 +202,6 @@ describe("a fuzz run", () => {
 							source.draw(element(["x", "ms", "s", "m", "h"] as const))
 						] as const,
 					literal: Formatter.format,
-					limit: 100,
 					coverage: noCoverage,
 					caseHang: Duration.minutes(1)
 				},

@@ -464,9 +464,12 @@ const descriptorSchemaOf = (c: DescriptorCase) => {
 	return schema.extend(Base, "Derived", { D: runtimeDerived("D", definition, []) }, [])
 }
 
+/** What a descriptor case reached: each aggregate and column kind, or a schema the compiler refuses, which installs
+ * nothing and so holds no descriptor to judge: the compiler's refusals are its own suites'. */
 type DescriptorFeature =
 	| `aggregate ${DescriptorAggregate["fn"]}`
 	| `column ${InferredFieldDesc["kind"]}`
+	| "a schema the compiler refuses"
 
 layer(Substrate.layer)("derived relations on PostgreSQL 19", (it) => {
 	it.effect(
@@ -511,8 +514,8 @@ layer(Substrate.layer)("derived relations on PostgreSQL 19", (it) => {
 						Effect.scoped(
 							Effect.gen(function* () {
 								const built = catchCompileError(() => descriptorSchemaOf(c))
-								yield* k.assume(built.ok && Result.map(checkedIn(built.value), derivedAnalysis).ok)
-								if (!built.ok) {
+								if (!built.ok || !Result.map(checkedIn(built.value), derivedAnalysis).ok) {
+									k.note("a schema the compiler refuses")
 									return
 								}
 								const substrate = yield* Substrate

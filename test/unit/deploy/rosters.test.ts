@@ -1025,7 +1025,6 @@ describe("roster migrations", () => {
 						suite: "unit/deploy/rosters",
 						generator: boxOf(prepared.reached),
 						literal: Formatter.format,
-						limit: 4_000,
 						box: "every state a program of at most five commands (grow, remove, re-add, reorder, add a set, regenerate, change the closed rows) reaches over a roster of at most four handles, from a roster of one handle with no set, with every step it can take next",
 						oracle: {
 							kind: "second-implementation",

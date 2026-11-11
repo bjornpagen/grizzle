@@ -410,7 +410,6 @@ layer(NodeServices.layer, { excludeTestServices: true })("startup work", (it) =>
 						suite: "unit/startup/work",
 						generator: pointGen,
 						literal: Formatter.format,
-						limit: dimensions.length,
 						coverage: requiredInSpace<Dimension>(dimensions),
 						caseHang
 					},

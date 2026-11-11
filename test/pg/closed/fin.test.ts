@@ -630,7 +630,6 @@ layer(Substrate.layer, { excludeTestServices: true })("dependent keys on Postgre
 						box: "3 shapes, each of 4 live owners (a hole among Kind's codes) holding no row or counting 1 or 2 slots, every key of the live codes' product",
 						generator: cases,
 						literal: Formatter.format,
-						limit: 243,
 						coverage: requiredInSpace<FinFeature>([
 							"an aliasing slot digit",
 							"an owner with no row",

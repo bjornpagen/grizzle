@@ -145,7 +145,6 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										kind: "specification",
 										name: "the checks' set algebra restated over each set of the roster's handles"
 									},
-									limit: allSets.length,
 									coverage: requiredInSpace<Situation>([
 										"accepted",
 										"refused by Apart",

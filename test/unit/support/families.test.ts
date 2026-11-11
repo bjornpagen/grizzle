@@ -136,7 +136,6 @@ describe("the family lowering", () => {
 					suite: "unit/support/families/lowering",
 					generator: boxGen,
 					literal: Formatter.format,
-					limit: boxOwners.length * slotHeld.length ** boxSlots,
 					coverage: requiredInSpace<BoxFeature>([
 						"the theorem holds",
 						"breach twice",

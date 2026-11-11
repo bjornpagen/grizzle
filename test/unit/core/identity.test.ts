@@ -177,7 +177,6 @@ describe("the naming door", () => {
 									source.draw(element(nonEmpty(pairs, "pairs of schema names")))
 								] as const,
 							literal: Formatter.format,
-							limit: 2 * pairs.length,
 							coverage: requiredInSpace<InstallFeature>([
 								"two plain names",
 								"one name a prefix of the other",
@@ -277,7 +276,6 @@ describe("the naming door", () => {
 								)
 							),
 							literal: Formatter.format,
-							limit: 2 * (alike.length + refusedNames.length),
 							coverage: requiredInSpace<RuleFeature>([
 								"relations alike",
 								"fields alike",

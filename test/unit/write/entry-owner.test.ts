@@ -10,7 +10,6 @@ import { assert, defined } from "#test/support/assert.ts"
 import {
 	type EntryOwnerCase,
 	entryName,
-	entryOwnerCases,
 	entryOwnerDeclared,
 	entryOwnerRefused,
 	entryRole,
@@ -83,7 +82,6 @@ describe("a family's owner written through a query entry", () => {
 						suite: "unit/write/entry-owner",
 						generator: caseGen,
 						literal: Formatter.format,
-						limit: entryOwnerCases.length,
 						box: "every entry head of the family's count and end, filter, op and fact of the entry-owner box",
 						oracle: {
 							kind: "specification",

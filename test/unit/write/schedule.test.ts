@@ -1203,7 +1203,6 @@ describe("a stratum's schedule", () => {
 						suite: "unit/write/schedule",
 						generator: shapeGen,
 						literal: Formatter.format,
-						limit: 2 * 2 * (8 + 16) * 4,
 						box: "C named first or second; C and P each with a payload or a pure set; any set of P's deletion, put and insertion, and of a pure set's generated insertion; one action of C or none; every lawful state over two ids, at every position of P's sequence",
 						oracle: {
 							kind: "second-implementation",

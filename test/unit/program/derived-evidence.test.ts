@@ -143,8 +143,6 @@ describe("a query over a derived relation", () => {
 							suite: "unit/program/derived-evidence",
 							generator: space,
 							literal: Formatter.format,
-							/** AccountBudget's three projections and RunTotal's seven. */
-							limit: 10,
 							coverage: requiredInSpace<EvidenceFeature>([
 								"AccountBudget",
 								"RunTotal",

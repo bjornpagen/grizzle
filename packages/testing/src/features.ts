@@ -129,30 +129,26 @@ export type Phase = WitnessPhase | "independent" | "fuzzed"
 export type SteeringPhase = Exclude<Phase, "independent">
 
 /**
- * How often each situation was reached, and how many cases gave themselves up, by the cases of one phase, and how many
- * of its last cases in a row reached no situation an earlier case of it had not (`sinceNew`): all of them when none
+ * How often each situation was reached by the cases of one phase, and how many of its last cases in a row reached no situation an earlier case of it had not (`sinceNew`): all of them when none
  * reached any.
  */
 export type Tally<P extends Phase> = Readonly<{
 	phase: P
 	cases: number
-	discards: number
 	counts: ReadonlyMap<string, number>
 	sinceNew: number
 }>
 
-/** A tally being filled: a passing case adds its notes, a case that gave itself up is a discard. */
+/** A tally being filled: a passing case adds its notes. */
 export type TallyBuilder<P extends Phase> = Readonly<{
 	phase: P
 	add: (notes: ReadonlySet<string>) => void
-	discard: () => void
 	tally: () => Tally<P>
 }>
 
 /** Starts a tally of one phase. */
 export const tallyOf = <P extends Phase>(phase: P): TallyBuilder<P> => {
 	let cases = 0
-	let discards = 0
 	let lastNew = 0
 	const counts = new Map<string, number>()
 	return {
@@ -167,10 +163,7 @@ export const tallyOf = <P extends Phase>(phase: P): TallyBuilder<P> => {
 				counts.set(key, count + 1)
 			}
 		},
-		discard: () => {
-			discards += 1
-		},
-		tally: () => ({ phase, cases, discards, counts: new Map(counts), sinceNew: cases - lastNew })
+		tally: () => ({ phase, cases, counts: new Map(counts), sinceNew: cases - lastNew })
 	}
 }
 

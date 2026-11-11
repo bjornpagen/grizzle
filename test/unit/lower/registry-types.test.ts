@@ -41,7 +41,13 @@ import { genParamDecls } from "#test/support/oracle/gen/query.ts"
 import { schemaCodes } from "#test/support/oracle/gen/schema.ts"
 import { checkedLowering } from "#test/support/oracle/verify/index.ts"
 
-type RootFeature = "plain root" | "attached root" | "heterogeneous union"
+/** What a case's root reached; a query a lowering refuses has no delivered types to judge, and is noted as such: the
+ * lowerings' refusals are their own suites'. */
+type RootFeature =
+	| "plain root"
+	| "attached root"
+	| "heterogeneous union"
+	| "a query a lowering refuses"
 
 /** A delivered column of a plain carrier is typed as the registry states the carrier, and wildcard text as the registry's. */
 const registryTyped = (column: HeadingColumn): void => {
@@ -106,7 +112,7 @@ describe("the scalar types of lowered statements", () => {
 						caseHang
 					},
 					(c, n) =>
-						Effect.gen(function* () {
+						Effect.sync(() => {
 							const query: LogicalQuery = { dag: c.query.dag, params: genParamDecls(c.query) }
 							const names = standInNames("Oracle", schemaCodes(c.schema))
 							const conservative = lowerConservative(conservativeInput(query), {
@@ -115,7 +121,8 @@ describe("the scalar types of lowered statements", () => {
 								subject: { kind: "query" }
 							})
 							if (!conservative.ok) {
-								return yield* n.assume(false)
+								n.note("a query a lowering refuses")
+								return
 							}
 							const catalog = genCatalog(c.schema)
 							const admission = admitGenerated(query)
@@ -128,7 +135,8 @@ describe("the scalar types of lowered statements", () => {
 									})
 								: admission
 							if (!optimized.ok) {
-								return yield* n.assume(false)
+								n.note("a query a lowering refuses")
+								return
 							}
 							checkedLowering({
 								optimized: optimized.value,

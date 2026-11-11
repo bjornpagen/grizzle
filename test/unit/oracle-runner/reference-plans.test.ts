@@ -314,7 +314,6 @@ describe("indexIdentity", () => {
 							] as const
 						},
 						literal: Formatter.format,
-						limit: samples.length * everyValue.length * everyValue.length,
 						coverage: requiredInSpace<KeyFeature>([
 							"one identity",
 							"two identities",

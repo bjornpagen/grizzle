@@ -309,7 +309,6 @@ describe("the closed monoids", () => {
 					suite: "unit/ir/monoid",
 					generator: patterns,
 					literal: Formatter.format,
-					limit: 5 + 125 + 125 + 4096 + 81 * 256 + 64 + 125,
 					coverage: requiredInSpace<Pattern["monoid"] | "concat noncommuting">([
 						"count",
 						"sum",

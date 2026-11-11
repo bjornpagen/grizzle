@@ -106,7 +106,6 @@ describe("factoring transition arms into one feedback scan", () => {
 						suite: "unit/recursion/factoring-equalities",
 						generator: subarray<Arm>(["b repeating a", "b fixed to a parameter"]),
 						literal: Formatter.format,
-						limit: 4,
 						coverage: requiredInSpace<Arm | "both">([
 							"b repeating a",
 							"b fixed to a parameter",

@@ -1,10 +1,8 @@
 import {
 	type Case,
-	type CaseDiscarded,
 	type Draw,
 	type Explored,
 	explore,
-	isCaseDiscarded,
 	isWitness,
 	type Kept,
 	type Oracle,
@@ -1145,39 +1143,34 @@ export interface CheckOptions<S, F extends string> {
 
 /**
  * The property of one case under its perturbation, failing with the report of why, the perturbation appended. A case
- * that gives itself up, or is interrupted, ends as it did.
+ * that is interrupted ends as it did.
  */
 const underPerturbation = <E, R>(
 	property: Effect.Effect<void, E, R>,
 	conditions: Conditions
-): Effect.Effect<void, PropertyFailed | ComparisonFailed | CaseDiscarded, R> => {
+): Effect.Effect<void, PropertyFailed | ComparisonFailed, R> => {
 	const perturbation = conditions.perturbation
 	return Effect.provideService(property, CurrentPerturbation, perturbation).pipe(
 		Effect.provideService(CurrentRestorage, conditions.restorage),
-		Effect.catchCause(
-			(cause): Effect.Effect<never, PropertyFailed | ComparisonFailed | CaseDiscarded> => {
-				if (Cause.hasInterruptsOnly(cause)) {
-					return Effect.interrupt
-				}
-				const error = Cause.squash(cause)
-				if (isCaseDiscarded(error)) {
-					return Effect.fail(error)
-				}
-				const failed =
-					error instanceof PropertyFailed || error instanceof ComparisonFailed
-						? error
-						: new PropertyFailed({ report: reportOf(cause) })
-				if (!isPerturbed(perturbation)) {
-					return Effect.fail(failed)
-				}
-				const report = Arr.join([failed.report, printPerturbation(perturbation)], "\n")
-				return Effect.fail(
-					failed instanceof ComparisonFailed
-						? new ComparisonFailed({ report, outcome: failed.outcome })
-						: new PropertyFailed({ report })
-				)
+		Effect.catchCause((cause): Effect.Effect<never, PropertyFailed | ComparisonFailed> => {
+			if (Cause.hasInterruptsOnly(cause)) {
+				return Effect.interrupt
 			}
-		)
+			const error = Cause.squash(cause)
+			const failed =
+				error instanceof PropertyFailed || error instanceof ComparisonFailed
+					? error
+					: new PropertyFailed({ report: reportOf(cause) })
+			if (!isPerturbed(perturbation)) {
+				return Effect.fail(failed)
+			}
+			const report = Arr.join([failed.report, printPerturbation(perturbation)], "\n")
+			return Effect.fail(
+				failed instanceof ComparisonFailed
+					? new ComparisonFailed({ report, outcome: failed.outcome })
+					: new PropertyFailed({ report })
+			)
+		})
 	)
 }
 
@@ -1318,7 +1311,7 @@ export const oracleKill = <S, T, F extends string, R>(
 			property(value, c).pipe(
 				Effect.tapCause((cause) =>
 					Effect.sync(() => {
-						if (!Cause.hasInterruptsOnly(cause) && !isCaseDiscarded(Cause.squash(cause))) {
+						if (!Cause.hasInterruptsOnly(cause)) {
 							last = Option.some({
 								value,
 								verdict: Option.map(Cause.findErrorOption(cause), verdictOf)

@@ -63,7 +63,6 @@ import {
 	endedBy,
 	type EndFeature,
 	endGen,
-	ends,
 	mutated,
 	refusedAtCommitBy,
 	type Seat,
@@ -169,13 +168,6 @@ const sketchGen =
 			n <= box.junked ? [{ kind: "none" }, ...junksOf(n, planes)] : [{ kind: "none" }]
 		return { values, junk: source.draw(element(junks)) }
 	}
-
-const sketchCases = (planes: number): number =>
-	Arr.reduce(
-		upTo(box.lawful + 1, (i) => i),
-		0,
-		(sum, n) => sum + 5 ** n * (1 + (n <= box.junked ? junksOf(n, planes).length : 0))
-	)
 
 /** A plane list with one plane replaced. */
 const replacedPlane = (planes: Planes, plane: number, value: bigint): Planes =>
@@ -397,7 +389,6 @@ layer(Substrate.layer)("folds through grizzle's lowering on PostgreSQL 19rc1", (
 								suite: `fin/fold ${spec.label}`,
 								generator: sketchGen(planes),
 								literal: Formatter.format,
-								limit: sketchCases(planes) * ends.length,
 								box: "owner 0 with every family of zero to four members over the seat's five step values, each written lawful, and every family of zero to three members with every single junk accumulator: a junk seed, one before, one after, one end, each case ended by a real COMMIT and by the checked end",
 								oracle: ORACLE,
 								coverage: requiredInSpace<FoldFeature>(
@@ -491,7 +482,6 @@ layer(Substrate.layer)("folds through grizzle's lowering on PostgreSQL 19rc1", (
 							suite: "fin/fold-tree-root",
 							generator: element(forests),
 							literal: Formatter.format,
-							limit: forests.length,
 							box: "every tree and forest of two trees of at most four rows, each root's before over 0 to 1 and after over 0 to 2, every other accumulator the count fold's",
 							oracle: {
 								kind: "specification",

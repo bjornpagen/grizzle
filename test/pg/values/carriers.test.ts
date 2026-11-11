@@ -32,7 +32,6 @@ import {
 	boolean,
 	constant,
 	element,
-	filter,
 	type Gen,
 	int,
 	map,
@@ -261,18 +260,21 @@ layer(Substrate.layer)("span and vector agreement with PostgreSQL", (it) => {
 					 * Components drawn across the whole binary32 exponent range, subnormals included, with mantissas that are
 					 * arbitrary binary64 values so most of them need rounding. The float8-to-real cast raises on underflow and
 					 * on overflow (float8_to_float4), so the drawn magnitudes stay strictly between the binary32 underflow tie
-					 * 2^-150 and the overflow tie 2^128 - 2^103; the input search below draws past both.
+					 * 2^-150 and the overflow tie 2^128 - 2^103, by construction: at the least exponent, -150, the mantissa
+					 * stays above 1, and at the greatest, 127, below 2 - 2^-24; the input search below draws past both.
 					 */
-					const magnitude = filter(
-						(source) => {
-							const negative = source.draw(boolean)
-							const m = source.draw(double(1, 2 - 2 ** -52))
-							const e = source.draw(int(-152, 127))
-							return (negative ? -1 : 1) * m * 2 ** e
-						},
-						(x) => Math.abs(x) > 2 ** -150 && Math.abs(x) < overflowTie,
-						10
-					)
+					const magnitude: Gen<number> = (source) => {
+						const negative = source.draw(boolean)
+						const e = source.draw(int(-150, 127))
+						const m = source.draw(
+							e === -150
+								? double(1 + 2 ** -52, 2 - 2 ** -52)
+								: e === 127
+									? double(1, 2 - 2 ** -23)
+									: double(1, 2 - 2 ** -52)
+						)
+						return (negative ? -1 : 1) * m * 2 ** e
+					}
 					const components = array(oneOf([magnitude, element(roundingEdges)]), { min: 1, max: 12 })
 					const sameComponents = (pg: ReadonlyArray<number>, host: ReadonlyArray<number>) =>
 						pg.length === host.length && Arr.every(pg, (x, k) => x === host[k])

@@ -163,7 +163,6 @@ describe("the schema a query compiles against", () => {
 						/** The query's schema, then the schema the caller names: every ordered pair of the four. */
 						generator: (source) => [source.draw(subjects), source.draw(subjects)] as const,
 						literal: Formatter.format,
-						limit: 16,
 						coverage: requiredInSpace<LevelFeature>(["the schema itself", "a level", "no level"]),
 						caseHang
 					},
@@ -240,7 +239,6 @@ describe("the artifacts of a schema", () => {
 							source.draw((source) => [source.draw(arms), source.draw(arms)] as const)
 						] as const,
 					literal: Formatter.format,
-					limit: 36,
 					coverage: requiredInSpace<ArtifactsFeature>([
 						"the built value and the Owned",
 						"the built value and its description",

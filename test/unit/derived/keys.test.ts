@@ -1761,7 +1761,6 @@ describe("derived relation keys", () => {
 							other: source.draw(boolean)
 						}),
 						literal: Formatter.format,
-						limit: 6,
 						box: "a view of Keyed naming its key one to three times, beside its other field or not, and a level above reading the view whole",
 						oracle: {
 							kind: "specification",

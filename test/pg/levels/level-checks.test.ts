@@ -50,7 +50,7 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { array, element, filter, type Gen, int, map, weighted } from "@grizzle/testing/gen"
+import { array, element, type Gen, int, map, weighted } from "@grizzle/testing/gen"
 import { exact } from "@grizzle/testing/oracle"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
@@ -59,7 +59,6 @@ import { applyOnSession } from "#adapter/migrate/apply.ts"
 import type { MigrateError, MigrationPlace } from "#adapter/migrate/errors.ts"
 import type { MigrationTarget } from "#adapter/migrate/input.ts"
 import { Db } from "#adapter/public/db.ts"
-import { SourceLoc } from "#compiler/core/loc.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
@@ -87,7 +86,6 @@ import {
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { workload } from "#compiler/public/workload.ts"
-import { matchPattern } from "#compiler/scalar/regex/admit.ts"
 import type { Predicate } from "#compiler/types/core/phantom.ts"
 import type { RowScalars } from "#compiler/types/schema/statements.ts"
 import { folderSource, openMigrator } from "#test/pg/migrate/support.ts"
@@ -108,7 +106,12 @@ import {
 import { servedFixture } from "#test/support/served-db.ts"
 import { pgErrorFields } from "#test/support/substrate/errors.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-import { families, jsMatcher, patternOver, stringsOver } from "#test/unit/text/generators.ts"
+import {
+	admittedPatternOver,
+	families,
+	jsMatcher,
+	stringsOver
+} from "#test/unit/text/generators.ts"
 
 /** Text of no byte bound: a query matches no pattern over it, and a row check matches any. */
 const Wild = str.regex("^.*$", "su")
@@ -135,9 +138,9 @@ interface Row {
 	readonly n: number
 }
 
-/** The patterns a case's matches draw from: admitted ones over its family's alphabet. */
+/** The patterns a case's matches draw from: admitted ones over its family's alphabet, by construction. */
 const patternGen = (alphabet: Arr.NonEmptyReadonlyArray<number>): Gen<string> =>
-	filter(patternOver(alphabet), (p) => matchPattern(p, SourceLoc("pattern", [])).ok, 16)
+	admittedPatternOver(alphabet)
 
 const small = int(-3, 3)
 

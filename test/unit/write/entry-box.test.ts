@@ -265,7 +265,6 @@ describe("the write front end over its small box", () => {
 						suite: "unit/write/entry-box",
 						generator: pointGen,
 						literal: Formatter.format,
-						limit: 2125,
 						coverage: requiredInSpace<BoxFeature>([
 							"refused at build",
 							"compiled whole",

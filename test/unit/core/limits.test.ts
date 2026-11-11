@@ -99,7 +99,6 @@ describe("PostgreSQL's integers", () => {
 					suite: "unit/core/limits-integers",
 					generator: element(integerCarriers),
 					literal: Formatter.format,
-					limit: integerCarriers.length,
 					box: "every integer carrier",
 					oracle: {
 						kind: "second-implementation",
@@ -146,7 +145,6 @@ describe("PostgreSQL's integers", () => {
 						[1, int(rosterMaxCodes.value - 8, rosterMaxCodes.value + 8)]
 					]),
 					literal: Formatter.format,
-					limit: 34,
 					box: "every code within eight of the first code and of rosterMaxCodes",
 					oracle: { kind: "second-implementation", name: "Node's Int16Array" },
 					coverage: requiredInSpace<Code>([
@@ -197,7 +195,6 @@ describe("a constant's length", () => {
 					suite: "unit/core/limits-constant",
 					generator: int(constantMaxBits.value - 8, constantMaxBits.value + 8),
 					literal: Formatter.format,
-					limit: 17,
 					coverage: requiredInSpace<Length>(["at the bound", "below the bound", "past the bound"]),
 					caseHang
 				},
@@ -241,7 +238,6 @@ describe("a heap page", () => {
 					suite: "unit/core/limits-align",
 					generator: roundings,
 					literal: Formatter.format,
-					limit: 132,
 					coverage: requiredInSpace<Aligned>(["already aligned", "rounded up", "byte alignment"]),
 					caseHang
 				},
@@ -283,7 +279,6 @@ describe("a heap page", () => {
 						suite: "unit/core/limits-heap-tuple",
 						generator: int(heapTupleMaxBytes.value - 16, heapTupleMaxBytes.value + 16),
 						literal: Formatter.format,
-						limit: 33,
 						box: "every tuple size within sixteen bytes of heapTupleMaxBytes",
 						oracle: { kind: "specification", name: "PageAddItem's fit test on an empty heap page" },
 						coverage: requiredInSpace<Tuple>(["below the bound", "at the bound", "past the bound"]),

@@ -374,7 +374,6 @@ layer(Substrate.layer)("Allen masks and pointIn on stored spans", (it) => {
 								mask: source.draw(element(fixedMasks))
 							}),
 							literal: Formatter.format,
-							limit: rangeTypes.length * fixedMasks.length,
 							coverage: requiredInSpace<MaskFeature>(maskFeatures),
 							caseHang
 						},
@@ -435,7 +434,6 @@ layer(Substrate.layer)("Allen masks and pointIn on stored spans", (it) => {
 								artifact: source.draw(element(artifacts))
 							}),
 							literal: Formatter.format,
-							limit: windowTypes.length * artifacts.length,
 							coverage: requiredInSpace<PointFeature>(
 								Arr.flatMap(windowTypes, (point) =>
 									Arr.map(artifacts, (artifact): PointFeature => `${point} ${artifact}`)

@@ -168,7 +168,6 @@ describe("a refined output the delivery casts", () => {
 						direction: source.draw(element(directions))
 					}),
 					literal: Formatter.format,
-					limit: 12,
 					coverage: requiredInSpace<Feature>([
 						"ordered by a cast output",
 						"ordered by two outputs",

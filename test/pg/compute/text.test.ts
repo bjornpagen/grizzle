@@ -23,14 +23,13 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { array, boolean, element, filter, type Gen, int, map, weighted } from "@grizzle/testing/gen"
+import { array, boolean, element, type Gen, int, map, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { appendAll } from "#compiler/core/array.ts"
 import { identity } from "#compiler/core/identity.ts"
-import { SourceLoc } from "#compiler/core/loc.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import type { ExprDesc } from "#compiler/ir/desc.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
@@ -43,7 +42,6 @@ import { Compute } from "#compiler/public/compute.ts"
 import { closedId, pg } from "#compiler/public/fields.ts"
 import { check, closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { matchPattern } from "#compiler/scalar/regex/admit.ts"
 import { judged, probe } from "#test/pg/physical/checks.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { installationSql } from "#test/support/compile.ts"
@@ -62,7 +60,13 @@ import {
 	renderSql,
 	testPg
 } from "#test/unit/compute/support.ts"
-import { families, jsMatcher, patternOver, stringsOver } from "#test/unit/text/generators.ts"
+import {
+	admittedPatternOver,
+	families,
+	jsMatcher,
+	patternOver,
+	stringsOver
+} from "#test/unit/text/generators.ts"
 
 /** A text whose pattern bounds its bytes, which a query's `~` reads (lower.ts regexReadable); every drawn row is short. */
 const textColumn: LeafBinding = { kind: "column", type: testPg.regex("^.{0,64}$", "su").scalar }
@@ -347,11 +351,7 @@ layer(Substrate.layer)("Compute's text terms on PostgreSQL", (it) => {
 	const dictionary: Gen<Dictionary> = (source) => {
 		const fi = source.draw(int(0, families.length - 1))
 		const family = defined(families[fi], "a family")
-		const admitted = filter(
-			patternOver(family.alphabet),
-			(p) => matchPattern(p, SourceLoc("pattern", [])).ok,
-			16
-		)
+		const admitted = admittedPatternOver(family.alphabet)
 		const first = source.draw(admitted)
 		const more = source.draw(array(admitted, { min: 0, max: 3 }))
 		const strings = stringsOver(element(family.alphabet), 6)

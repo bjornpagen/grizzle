@@ -78,8 +78,6 @@ describe("catalogs", () => {
 								source.draw(subset(["id", "email", "city"], { min: 1, max: 3 }))
 							] as const,
 						literal: Formatter.format,
-						/** The space: 2 execution contexts, 7 nonempty sets of columns. */
-						limit: 14,
 						coverage: requiredInSpace<CatalogFeature>([
 							"no key proves the scan",
 							"a key proves the scan",

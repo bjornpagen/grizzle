@@ -302,7 +302,6 @@ describe("literal folding", () => {
 						suite: "unit/lower/rewrite/simplify-literal-order",
 						literal: Formatter.format,
 						generator: (source) => [source.draw(literalPairs), source.draw(comparisons)] as const,
-						limit: 462,
 						coverage: requiredInSpace<FoldFeature>([
 							"decided true",
 							"decided false",
@@ -367,7 +366,6 @@ describe("literal folding", () => {
 						suite: "unit/lower/rewrite/simplify-between-in",
 						literal: Formatter.format,
 						generator: forms,
-						limit: 65,
 						coverage: requiredInSpace<FoldFeature>([
 							"decided true",
 							"decided false",
@@ -475,7 +473,6 @@ describe("literal folding", () => {
 						suite: "unit/lower/rewrite/simplify-frontier-folding",
 						literal: Formatter.format,
 						generator: shapes,
-						limit: 17,
 						coverage: requiredInSpace<FoldFeature>([
 							"decided true",
 							"decided false",
@@ -544,7 +541,6 @@ describe("finite folding", () => {
 							source.draw(element<"code:int2eq" | "code:int2ne">(["code:int2eq", "code:int2ne"])),
 							source.draw(element<Handle>(roster))
 						] as const,
-					limit: 12,
 					coverage: requiredInSpace<"some facts satisfy" | "no fact satisfies">([
 						"some facts satisfy",
 						"no fact satisfies"
@@ -615,7 +611,6 @@ describe("branch removal", () => {
 							anti: source.draw(boolean)
 						}
 					},
-					limit: 28,
 					coverage: requiredInSpace<Removed>([
 						"an empty region",
 						"an empty union arm",
@@ -713,7 +708,6 @@ describe("normalization", () => {
 						suite: "unit/lower/rewrite/simplify-equality",
 						literal: Formatter.format,
 						generator: (source) => [source.draw(boolean), source.draw(boolean)] as const,
-						limit: 4,
 						coverage: requiredInSpace<"every conjunct an equality" | "a conjunct left">([
 							"every conjunct an equality",
 							"a conjunct left"

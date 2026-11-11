@@ -5,12 +5,11 @@ import { required } from "@grizzle/testing/features"
 import {
 	constant,
 	element,
-	filter,
 	type Gen,
 	int,
 	map,
 	oneOf,
-	subarray,
+	subset,
 	unicodeScalar
 } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
@@ -42,7 +41,7 @@ import {
 	workspace
 } from "#test/pg/cli/support.ts"
 import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
-import { dictionaryNameGen } from "#test/support/kernel/dict.ts"
+import { admittedNames, dictionaryNameGenOtherThan } from "#test/support/kernel/dict.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { editedAt, firstSql, memberPaths, without } from "#test/support/served.ts"
@@ -221,7 +220,10 @@ const editedGen =
 
 /** A nonempty set of the places of the file's `programs` programs. */
 const someOf = (programs: number): Gen<ReadonlyArray<number>> =>
-	filter(subarray(upTo(programs, (i) => i)), (picked) => picked.length > 0, 8)
+	subset(
+		upTo(programs, (i) => i),
+		{ min: 1, max: programs }
+	)
 
 /** A plant inserting, replacing or deleting one character of the file's text, by `op`. */
 const characterGen =
@@ -258,7 +260,14 @@ const missingGen = constant<Plant>({ kind: "missing" })
 
 /** A plant writing a stray file of a login the configuration does not list beside the login's. */
 const strayGen: Gen<Plant> = map(
-	filter(dictionaryNameGen, (name) => Str.toLowerCase(name.declared) !== login, 8),
+	dictionaryNameGenOtherThan(
+		new Set(
+			Arr.map(
+				Arr.filter(admittedNames, (name) => Str.toLowerCase(name.declared) === login),
+				(name) => name.declared
+			)
+		)
+	),
 	(name): Plant => ({ kind: "stray", login: name.declared })
 )
 

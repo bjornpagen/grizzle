@@ -64,8 +64,6 @@ const typedPairs: Gen<{ readonly type: RangeType; readonly pair: PairFacts }> = 
 		}))
 	)
 )
-/** The pairs of both universes number some 17,000; the limit guards only against their growth. */
-const pairLimit = 100_000
 
 /** A span's endpoint, its bound as PostgreSQL's lower() and upper() return it for the stored half-open value. */
 const bound = (span: HalfOpen, endpoint: SpanEndpoint): bigint =>
@@ -108,7 +106,6 @@ describe("the relations' places", () => {
 						suite: "unit/allen/places",
 						generator: typedPairs,
 						literal: Formatter.format,
-						limit: pairLimit,
 						coverage: requiredInSpace<PlaceFeature>(
 							Arr.flatMap(rangeTypes, (type) =>
 								Arr.map(allenRelations, (r): PlaceFeature => `${type} ${r}`)
@@ -162,7 +159,6 @@ describe("the endpoint masks", () => {
 						suite: "unit/allen/endpoint-masks",
 						generator: typedPairs,
 						literal: Formatter.format,
-						limit: pairLimit,
 						coverage: requiredInSpace<PredicateFeature>(situations),
 						caseHang
 					},

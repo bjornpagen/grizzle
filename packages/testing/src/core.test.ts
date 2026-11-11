@@ -4,18 +4,18 @@
  * replayed exactly from its values and through its replay token, the empty tape's included; a token's suite, steering
  * and values read back exactly, colons in the suite included; a replay that runs out finishing on simplest values and
  * saying so exactly then; weighted options in exact proportion however large the total; a uniform option and a
- * leaning magnitude from the same words; every case of a generator once, in its order, counted against a limit; only
- * the cases a filter keeps counted; a stream's cases from its seed alone.
+ * leaning magnitude from the same words; every case of a generator once, in its order, all of them counted; a stream's
+ * cases from its seed alone.
  *
  * Plants (~/.cache/grizzle-release/BR07/plants), one a property in this order: between-hi-excluded,
  * case-seed-unmixed, replay-past-last-value, token-drops-last, replay-token-suite-colon, overrun-unmarked,
- * weighted-arm-off-by-one, biased-never-leans, enumeration-skips-values, exhaust-discards-counted, case-seed-unmixed.
+ * weighted-arm-off-by-one, biased-never-leans, enumeration-skips-values, case-seed-unmixed.
  */
 import { describe, it } from "@effect/vitest"
 import { deepStrictEqual } from "@effect/vitest/utils"
 import { Array as Arr, Duration, Effect, Formatter, Option, Order, String as Str } from "effect"
 import { everyCase, everyValue, fraction, shareOf } from "#chance.fixtures.ts"
-import { type Counted, count } from "#enumerate.ts"
+import { sizeOf } from "#enumerate.ts"
 import { drawn, type Exploration, explore, type Oracle } from "#explore.ts"
 import { type Coverage, noCoverage, required } from "#features.ts"
 import {
@@ -23,7 +23,6 @@ import {
 	boolean,
 	characterOf,
 	constant,
-	filter,
 	type Gen,
 	int,
 	oneOf,
@@ -500,22 +499,16 @@ const enumerationOf = (shape: Shape): ReadonlyArray<Shaped> => {
 	}
 }
 
-/** What `count` must answer for a space of `cases` under `limit`. */
-const countedOf = (cases: number, limit: number): Counted =>
-	cases > limit ? { kind: "beyond", limit } : { kind: "within", cases }
-
 type EnumerationFeature =
 	| "a range across zero"
 	| "a range below zero"
 	| "a collection that may be empty"
 	| "a collection of collections"
 	| "a pair"
-	| "a space beyond its limit"
-	| "a space within its limit"
 
 describe("enumeration", () => {
 	it.effect(
-		"yields every case of a generator once, in its specified order, and counts them against a limit",
+		"yields every case of a generator once, in its specified order, and counts them all",
 		(ctx) =>
 			searched(
 				ctx,
@@ -526,25 +519,20 @@ describe("enumeration", () => {
 							kind: "second-implementation",
 							name: "each shape's values listed from its specification: int's order, collections by length, the first decision outermost"
 						},
-						(source) => {
-							const shape = source.draw(shapeOf(2))
-							return { shape, limit: source.draw(int(0, 2 * enumerationOf(shape).length)) }
-						},
+						shapeOf(2),
 						required<EnumerationFeature>(
 							[
 								"a range across zero",
 								"a range below zero",
 								"a collection that may be empty",
 								"a collection of collections",
-								"a pair",
-								"a space beyond its limit",
-								"a space within its limit"
+								"a pair"
 							],
 							{ cases: 400, sense: notesOnly }
 						)
 					),
-					({ shape, limit }, c) =>
-						Effect.sync(() => {
+					(shape, c) =>
+						Effect.gen(function* () {
 							const noteShape = (inner: Shape, nested: boolean): void => {
 								switch (inner.kind) {
 									case "int":
@@ -572,64 +560,10 @@ describe("enumeration", () => {
 							}
 							noteShape(shape, false)
 							const expected = enumerationOf(shape)
-							c.note(
-								expected.length > limit ? "a space beyond its limit" : "a space within its limit"
-							)
+							const size = yield* sizeOf(generatorOf(shape))
 							deepStrictEqual(
-								{
-									values: everyValue(generatorOf(shape)),
-									counted: count(generatorOf(shape), limit)
-								},
-								{ values: expected, counted: countedOf(expected.length, limit) }
-							)
-						})
-				)
-			)
-	)
-
-	it.effect(
-		"counts the cases a filter keeps, after each failed attempt, and never one it discards",
-		(ctx) =>
-			searched(
-				ctx,
-				explore(
-					searchOf(
-						"filtered count",
-						{
-							kind: "specification",
-							name: "a filter of a attempts keeps, for each k < a, every tape of k failing attempts and a kept one"
-						},
-						(source) => {
-							const range = source.draw(rangeShape)
-							return {
-								range,
-								divisor: source.draw(int(1, 4)),
-								attempts: source.draw(int(1, 3))
-							}
-						},
-						required<"every value kept" | "some value discarded" | "a second attempt">(
-							["every value kept", "some value discarded", "a second attempt"],
-							{ cases: 200, sense: notesOnly }
-						)
-					),
-					({ range, divisor, attempts }, c) =>
-						Effect.sync(() => {
-							const keep = (value: number) => value % divisor === 0
-							const values = Array.from({ length: range.hi - range.lo + 1 }, (_, i) => range.lo + i)
-							const kept = Arr.filter(values, keep).length
-							const failing = values.length - kept
-							c.note(failing === 0 ? "every value kept" : "some value discarded")
-							if (attempts > 1 && failing > 0 && kept > 0) {
-								c.note("a second attempt")
-							}
-							const cases = Arr.reduce(
-								Array.from({ length: attempts }, (_, i) => i),
-								0,
-								(sum, failed) => sum + failing ** failed * kept
-							)
-							deepStrictEqual(
-								count(filter(int(range.lo, range.hi), keep, attempts), Number.MAX_SAFE_INTEGER),
-								{ kind: "within", cases }
+								{ values: everyValue(generatorOf(shape)), size },
+								{ values: expected, size: expected.length }
 							)
 						})
 				)

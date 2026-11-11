@@ -171,7 +171,6 @@ describe("a nested write through the program", () => {
 						suite: "unit/write/nested/program",
 						generator: caseGen,
 						literal: Formatter.format,
-						limit: 20_000,
 						coverage: requiredInSpace<Feature>(["an empty family", "a deep tree", "two trees"]),
 						caseHang,
 						box: "one or two owners of up to two lines of quantity 0 or 1, one or two trees of up to four nodes",
@@ -338,7 +337,6 @@ describe("a nested write's facts are a set by identity (rule 0, ruling 1)", () =
 						suite: "unit/write/nested/set",
 						generator: setCaseGen,
 						literal: Formatter.format,
-						limit: 20_000,
 						coverage: requiredInSpace<SetFeature>([
 							"an identical repeat in one member",
 							"an identical repeat across members",
@@ -470,7 +468,6 @@ describe("a nested tree at depth and width", () => {
 							n: source.draw(element([1, 2, 3, 99_999, 100_000] as const))
 						}),
 						literal: Formatter.format,
-						limit: 20,
 						coverage: requiredInSpace<ShapeFeature>([
 							"a chain",
 							"a star",

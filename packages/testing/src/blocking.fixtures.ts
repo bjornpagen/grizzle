@@ -123,7 +123,6 @@ const searchedAsProgram = (planted: Planted, seed: number) =>
 						box: "every value from 0 to 9",
 						generator: values,
 						literal: Formatter.format,
-						limit: 10,
 						coverage: noCoverage,
 						caseHang: Duration.millis(planted.hangMillis)
 					},

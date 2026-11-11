@@ -85,7 +85,6 @@ describe("a read's per-execution choice", () => {
 								source.draw(element([lateralParentMax.value, lateralParentMax.value + 1]))
 							] as const,
 						literal: Formatter.format,
-						limit: 2 * parameterNames.length,
 						coverage: requiredInSpace<Count>(["at lateralParentMax", "one past lateralParentMax"]),
 						caseHang
 					},

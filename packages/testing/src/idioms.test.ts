@@ -83,9 +83,10 @@ import { floorSeed, rotatingSeed, wordsOf } from "#random.ts"
 import { notesOnly } from "#sense.ts"
 import { completeShrink, shrink } from "#shrink.ts"
 import {
+	type Chooser,
 	forcedChooser,
-	type Generated,
 	generate,
+	type Generated,
 	prefixChooser,
 	randomChooser,
 	recorder,
@@ -103,6 +104,12 @@ import {
 } from "#swarm.ts"
 import { bigint, double, doubleOrSpecial, float, uuid } from "#values.ts"
 import { searched } from "#vitest/searched.ts"
+
+/**
+ * A chooser that takes every decision's greatest value: a draw at the far end of its range, which a double drawn whole
+ * starts its shrink from where its seed's draw does not fail.
+ */
+const greatestChooser: Chooser = { exhausted: () => false, draw: (_lo, hi) => hi }
 
 /** A case drawn fresh from one seed. */
 const fresh = <A>(generator: Gen<A>, seed: number): Generated<A> =>
@@ -176,7 +183,6 @@ describe("whole numbers", () => {
 					box: "every range of whole numbers within -5..5",
 					generator: smallBounds,
 					literal: Formatter.format,
-					limit: 100,
 					coverage: noCoverage,
 					caseHang: Duration.minutes(1)
 				},
@@ -209,7 +215,6 @@ describe("bigints", () => {
 					box: "every range of bigints within -5..5",
 					generator: smallBounds,
 					literal: Formatter.format,
-					limit: 100,
 					coverage: noCoverage,
 					caseHang: Duration.minutes(1)
 				},
@@ -312,17 +317,23 @@ describe("floating-point numbers", () => {
 						noCoverage,
 						40
 					),
-					(seed, c) =>
+					(seed) =>
 						Effect.gen(function* () {
 							const generator = double(-1e9, 1e9)
 							const fails = (value: number) => Math.abs(value) > 10.25
 							const wholeArm = Float64Array.of(0)
-							const failing = generate(
+							const drawnStart = generate(
 								recorder(),
 								generator,
 								prefixChooser(wholeArm, wholeArm.length, randomChooser(wordsOf(seed)))
 							)
-							yield* c.assume(fails(failing.value))
+							const failing = fails(drawnStart.value)
+								? drawnStart
+								: generate(
+										recorder(),
+										generator,
+										prefixChooser(wholeArm, wholeArm.length, greatestChooser)
+									)
 							const shrunk = yield* shrink(
 								generator,
 								failing,
@@ -504,7 +515,6 @@ describe("collections", () => {
 						box: "every arrangement of 0 to 4 of 0, 1, 2 and 3",
 						generator: shuffled(values, { min: 0, max: 4 }),
 						literal: Formatter.format,
-						limit: 100,
 						coverage: noCoverage,
 						caseHang: Duration.minutes(1)
 					},
@@ -594,11 +604,11 @@ describe("collections", () => {
 							}
 							deepStrictEqual(
 								{
-									status: tape.status === "discarded" ? "discarded" : "kept",
+									status: tape.status,
 									distinct: Arr.dedupe(items).length === items.length,
 									length: items.length
 								},
-								{ status: "kept", distinct: true, length: Math.min(length, keys) }
+								{ status: "complete", distinct: true, length: Math.min(length, keys) }
 							)
 						})
 				)
@@ -620,7 +630,6 @@ describe("collections", () => {
 						box: "every alphabet of a, b and c",
 						generator: alphabet(letters),
 						literal: Formatter.format,
-						limit: 100,
 						coverage: noCoverage,
 						caseHang: Duration.minutes(1)
 					},
@@ -908,7 +917,6 @@ describe("swarms", () => {
 						box: "every swarm of every alphabet of a, b and c",
 						generator: alphabet<Letter>(["a", "b", "c"]),
 						literal: Formatter.format,
-						limit: 20,
 						coverage: noCoverage,
 						caseHang: Duration.minutes(1)
 					},
@@ -967,7 +975,6 @@ describe("swarms", () => {
 							options: source.draw(alphabet<Letter>(["a", "b", "c"]))
 						}),
 						literal: Formatter.format,
-						limit: 2000,
 						coverage: noCoverage,
 						caseHang: Duration.minutes(1)
 					},
@@ -1092,7 +1099,6 @@ describe("constructive collections", () => {
 						oracle: { kind: "second-implementation", name: "each space built by naive recursion" },
 						generator: rangeBox,
 						literal: Formatter.format,
-						limit: 200,
 						coverage: noCoverage,
 						caseHang: Duration.minutes(1)
 					},
@@ -1148,7 +1154,6 @@ describe("constructive collections", () => {
 					},
 					generator: int(1, 5),
 					literal: Formatter.format,
-					limit: 10,
 					coverage: noCoverage,
 					caseHang: Duration.minutes(1)
 				},
@@ -1186,7 +1191,6 @@ describe("constructive collections", () => {
 							parts: source.draw(int(1, 3))
 						}),
 						literal: Formatter.format,
-						limit: 20,
 						coverage: noCoverage,
 						caseHang: Duration.minutes(1)
 					},
@@ -1279,7 +1283,6 @@ describe("live, stale and wild values", () => {
 						box: "the simplest wild value of every kind",
 						generator: map(element(WILD_KINDS), wildOf),
 						literal: Formatter.format,
-						limit: 32,
 						coverage: noCoverage,
 						caseHang: Duration.minutes(1)
 					},

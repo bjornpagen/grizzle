@@ -255,17 +255,6 @@ const coveredAlone = (stored: Stored): boolean =>
 const copiesRight = (stored: Stored): boolean =>
 	Arr.every(stored.rows, (r) => stored.owners.get(r.group) === r.copy)
 
-/** How many multisets of at most `size` items there are over `kinds` kinds: Σ_j C(kinds + j − 1, j). */
-const multisets = (kinds: number, size: number): number => {
-	let total = 0
-	let term = 1
-	for (let j = 0; j <= size; j++) {
-		total += term
-		term = (term * (kinds + j)) / (j + 1)
-	}
-	return total
-}
-
 /** An owner's place in a drawn state: absent, or present with a count. */
 type Presence = { readonly kind: "absent" } | { readonly kind: "present"; readonly count: number }
 
@@ -542,23 +531,6 @@ const rewriteGen: Gen<RewriteCase> = (source) => {
 		sent: source.draw(shuffled(prescribed, { min: prescribed.length, max: prescribed.length }))
 	}
 }
-
-/** How many rewrite cases the box holds: each member of each family, both rewrites, every order of their statements. */
-const rewriteSpace = Arr.reduce(REWRITABLE, 0, (total, families) =>
-	Arr.reduce(
-		Arr.filter(families, (f) => f.members.length > 0),
-		total,
-		(sum, f) =>
-			sum +
-			Arr.reduce(indices(f.members.length), 0, (cases, at) =>
-				Arr.reduce(
-					["shrink", "swap"] as const,
-					cases,
-					(n, rewrite) => n + factorial(prescribedOf(rewrite, f.owner, f.members, at).length)
-				)
-			)
-	)
-)
 
 /** The two RFC lowerings of mirrors a rewrite runs under, by the family shape whose closure they defer or not. */
 const REWRITE_LOWERINGS = {
@@ -874,9 +846,6 @@ layer(Substrate.layer)("the fin lemmas of fin.md §5.2 on PostgreSQL 19rc1", (it
 							suite: "substrate/fin-states",
 							generator: stateGen,
 							literal: Formatter.format,
-							limit:
-								(box.counts.length + 1) ** box.owners.length *
-								multisets(box.owners.length * box.ats.length, box.rows),
 							coverage: requiredInSpace(nonEmpty(situations)),
 							caseHang
 						},
@@ -950,7 +919,6 @@ layer(Substrate.layer)("the fin lemmas of fin.md §5.2 on PostgreSQL 19rc1", (it
 							suite: "substrate/fin-mutations",
 							generator: mutationGen,
 							literal: Formatter.format,
-							limit: Arr.reduce(FAMILY_STATES, 0, (n, f) => n + mutationsOf(storedOf(f)).length),
 							coverage: requiredInSpace(nonEmpty(situations)),
 							caseHang
 						},
@@ -998,7 +966,6 @@ layer(Substrate.layer)("the fin lemmas of fin.md §5.2 on PostgreSQL 19rc1", (it
 							suite: "substrate/fin-row-order",
 							generator: orderGen,
 							literal: Formatter.format,
-							limit: Arr.reduce(FAMILY_STATES, 0, (n, f) => n + factorial(storedOf(f).rows.length)),
 							coverage: requiredInSpace<OrderFeature>([
 								"committed",
 								"committed with a successor sent first"
@@ -1049,7 +1016,6 @@ layer(Substrate.layer)("the fin lemmas of fin.md §5.2 on PostgreSQL 19rc1", (it
 							suite: "substrate/fin-rewrites",
 							generator: rewriteGen,
 							literal: Formatter.format,
-							limit: rewriteSpace,
 							coverage: requiredInSpace<RewriteFeature>([
 								"ordered shrink prescribed committed",
 								"counted shrink prescribed committed",
@@ -1115,7 +1081,6 @@ layer(Substrate.layer)("the fin lemmas of fin.md §5.2 on PostgreSQL 19rc1", (it
 							suite: "substrate/fin-cycle",
 							generator: cycleGen,
 							literal: Formatter.format,
-							limit: CYCLIC.length * 3,
 							coverage: requiredInSpace<CycleFeature>([
 								"rfc create committed",
 								"rfc drop rows first committed",

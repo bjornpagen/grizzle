@@ -260,7 +260,6 @@ layer(Substrate.layer)("the generators against PostgreSQL 19", (it) => {
 						generator: (source) =>
 							[source.draw(element(generatedTypes)), source.draw(element(genAggregates))] as const,
 						literal: ([t, fn]) => `${fn}(${sqlType(t, "s")})`,
-						limit: generatedTypes.length * genAggregates.length,
 						box: "every aggregate the generators know over every type they draw a column of",
 						oracle: {
 							kind: "postgresql",
@@ -335,7 +334,6 @@ layer(Substrate.layer)("the generators against PostgreSQL 19", (it) => {
 						suite: "oracle-gen/value-classes",
 						generator: element(generatedTypes),
 						literal: Formatter.format,
-						limit: generatedTypes.length,
 						coverage: noCoverage,
 						caseHang
 					},

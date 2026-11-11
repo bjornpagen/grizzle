@@ -148,7 +148,6 @@ describe("span laws", () => {
 							return [spans, source.draw(int(spans === 0 ? 1 : 0, 2))] as const
 						},
 						literal: Formatter.format,
-						limit: 12,
 						box: "a containment of zero to three span fields beside zero to two uuid fields",
 						oracle: { kind: "specification", name: "a coverage law pairs one span field" },
 						coverage: requiredInSpace<SpanFeature>([
@@ -640,7 +639,6 @@ describe("violation queries mean what their laws say", () => {
 						generator: (source) =>
 							[source.draw(manager), source.draw(manager), source.draw(manager)] as const,
 						literal: Formatter.format,
-						limit: 64,
 						coverage: requiredInSpace<"a self-managed employee" | "lawful">([
 							"a self-managed employee",
 							"lawful"
@@ -705,7 +703,6 @@ describe("violation queries mean what their laws say", () => {
 								source.draw(subarray(["x", "y"]))
 							] as const,
 						literal: Formatter.format,
-						limit: 200,
 						coverage: requiredInSpace<"a shared name" | "lawful" | "labels">([
 							"a shared name",
 							"lawful",
@@ -1070,7 +1067,6 @@ describe("law identities", () => {
 						suite: "unit/analysis/logical/law-ids-equivalent",
 						generator: array(declaration, { min: 1, max: 3 }),
 						literal: Formatter.format,
-						limit: 2000,
 						box: "one to three declarations, each a containment either way or mirrors in either spelling",
 						oracle: {
 							kind: "specification",

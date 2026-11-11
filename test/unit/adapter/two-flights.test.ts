@@ -143,7 +143,6 @@ describe("a write that reads before it writes", () => {
 					suite: "unit/adapter/two-flights",
 					generator: twoFlights,
 					literal: Formatter.format,
-					limit: 33,
 					coverage: requiredInSpace<Situation>([
 						"none",
 						"read",

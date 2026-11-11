@@ -511,8 +511,6 @@ describe("a rule region's dependency table", () => {
 							)
 						}),
 						literal: Formatter.format,
-						/** The space: 8 sets of bound columns, by 27 assignments of no constant, a literal or a parameter. */
-						limit: 216,
 						coverage: requiredInSpace<RegionFeature>([
 							"a bound column's constant fixes its variable",
 							"an unbound column's constant",

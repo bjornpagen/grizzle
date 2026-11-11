@@ -564,7 +564,6 @@ describe("proved root pushdown (graph.seedPushdown)", () => {
 								)
 							] as const,
 						literal: Formatter.format,
-						limit: 32,
 						coverage: requiredInSpace<PushFeature>([
 							"moved where",
 							"moved constant",
@@ -635,7 +634,6 @@ describe("proved root pushdown (graph.seedPushdown)", () => {
 								source.draw(element<Conjuncts>(["one", "two"]))
 							] as const,
 						literal: Formatter.format,
-						limit: 12,
 						coverage: requiredInSpace<`${Conjuncts} moved`>(["one moved", "two moved"]),
 						caseHang
 					},

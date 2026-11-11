@@ -268,7 +268,6 @@ describe("a tree's law", () => {
 						suite: "unit/analysis/theory/violations/tree",
 						generator: treeState,
 						literal: Formatter.format,
-						limit: 8_000,
 						box: "every forest of one or two trees of at most four rows, r over two values, and every single mutation of one field in range",
 						oracle: {
 							kind: "second-implementation",

@@ -200,7 +200,6 @@ describe("a write program's carriers", () => {
 					suite: "unit/write/carrier-names",
 					generator: layoutsGen,
 					literal: Formatter.format,
-					limit: 2 ** layouts.length,
 					box: "every set of R's layouts, v text, bigint, boolean or uuid, each a put with a read-back of both sides in both realizations",
 					oracle: {
 						kind: "second-implementation",

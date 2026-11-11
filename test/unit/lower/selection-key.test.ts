@@ -186,7 +186,6 @@ describe("a selection key's probe", () => {
 						suite: "unit/lower/selection-key",
 						generator: caseGen,
 						literal: Formatter.format,
-						limit: 18,
 						box: "Note's, Task's and Badge's selection keys, the guard held, absent or contradicted, the term fixed or not",
 						oracle: {
 							kind: "specification",

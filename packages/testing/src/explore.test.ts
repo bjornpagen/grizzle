@@ -8,11 +8,11 @@
  * - Failures by kind: a replay that no longer runs as its token says is ReplayStale; a kept case never meets a
  *   requirement; a kept case that no longer reaches what it names is KeptUnreached; a hanging case is stopped on the
  *   live clock under a TestClock; a note or draw after its case ended is CaseMisused; a kept case replays its draws and
- *   prints them, is stale when they run out, are left over or it gives itself up, and records observations without
+ *   prints them, is stale when they run out or are left over, and records observations without
  *   counting them as draws. Each scenario is one named kind of the library's failure taxonomy, its verdict the tag the
  *   specification names.
- * - Exhaustion: over drawn spaces (a × b values, a property drawing one of c more), every case runs once, a space one
- *   past its limit runs none, and a filter's discarded values never count against the limit.
+ * - Exhaustion: over drawn spaces (a × b values, a property drawing one of c more), every case runs once, and a space
+ *   whose count its test's deadline cuts fails as DeadlineReached with no case run: nothing caps an exhaustion.
  * - The residual: an independent recount, the 95% bound by exact enumeration of every run over a box of
  *   distributions, and Good–Turing's identity by exact enumeration.
  * - agree: each comparison's definition, side by side.
@@ -23,7 +23,7 @@
  * Oracles are stated per search. Plants (~/.cache/grizzle-release/BR07/plants): explore-floor-rounded-down,
  * shrink-binary-short, replay-leftover-accepted, kept-requirement-counted, kept-unreached-unchecked,
  * hang-on-test-clock (red by the test's own timeout), misuse-unjudged, kept-draws-unprinted, kept-ran-out-filled,
- * observe-draws, exhaust-limit-exact-refused, exhaust-discards-counted, residual-doubletons-wide, residual-bound-halved,
+ * observe-draws, exhaust-deadline-passed (TESTLINT/plants), residual-doubletons-wide, residual-bound-halved,
  * residual-estimate-shifted, agree-set-repeats, steering-offered-rotating, coverage-verdict-run-seeded,
  * replay-unsteered, sync-case-forked: one a property, in this order.
  */
@@ -43,7 +43,6 @@ import {
 import { fraction, type Fraction, plus, times } from "#chance.fixtures.ts"
 import {
 	type Case,
-	type CaseDiscarded,
 	type CasePhase,
 	drawn,
 	type Exhaustion,
@@ -68,7 +67,8 @@ import {
 	riskBoundOf,
 	tallyOf
 } from "#features.ts"
-import { array, constant, element, filter, type Gen, int } from "#gen.ts"
+import { array, boolean, constant, element, type Gen, int } from "#gen.ts"
+import { liveMillis } from "#live.ts"
 import { agree, by, equivalence, exact, ordered, type Side, set, structuralHash } from "#oracle.ts"
 import { floorSeed } from "#random.ts"
 import type { Replay, ReplayCase } from "#replay.ts"
@@ -235,7 +235,7 @@ describe("explore", () => {
 		Effect.gen(function* () {
 			const staleBy = (
 				replayed: ReplayCase,
-				property: (sketch: string, c: Case<"rare">) => Effect.Effect<void, CaseDiscarded>
+				property: (sketch: string, c: Case<"rare">) => Effect.Effect<void>
 			) =>
 				Effect.flip(
 					explore(
@@ -261,12 +261,9 @@ describe("explore", () => {
 			)
 			const leftOver = yield* staleBy({ drawn: { kind: "unsteered" }, values: [3, 4] }, draws)
 			const ranOut = yield* staleBy({ drawn: { kind: "unsteered" }, values: [] }, draws)
-			const gaveUp = yield* staleBy({ drawn: { kind: "unsteered" }, values: [] }, (_sketch, c) =>
-				c.assume(false)
-			)
 			deepStrictEqual(
-				Arr.map([undeclared, leftOver, ranOut, gaveUp], (failure) => failure._tag),
-				["ReplayStale", "ReplayStale", "ReplayStale", "ReplayStale"]
+				Arr.map([undeclared, leftOver, ranOut], (failure) => failure._tag),
+				["ReplayStale", "ReplayStale", "ReplayStale"]
 			)
 		}).pipe(Effect.provideService(Run, fullRun))
 	)
@@ -351,32 +348,33 @@ describe("exhaust", () => {
 		box: "every pair of 0..2 and 0..1",
 		generator: (source) => [source.draw(int(0, 2)), source.draw(int(0, 1))] as const,
 		literal: Formatter.format,
-		limit: 6,
 		coverage: noCoverage,
 		caseHang: Duration.seconds(10)
 	}
 
 	it.effect(
-		"checks every case of its space, its own draws enumerated too, and refuses a space past its limit before any case runs",
+		"checks every case of its space, its own draws enumerated too, and fails, never passes, a space its test's deadline cuts",
 		(ctx) =>
 			searched(
 				ctx,
 				explore(
 					outerOf(
 						"exhaustive spaces",
-						"a space of a × b values whose property draws one of c more holds a·b·c cases, each run once; one past its limit runs none when its generator alone passes the limit, and stops at the case that would pass it when its property's draws do",
+						"a space of a × b values whose property draws one of c more holds a·b·c cases, each run once; under a deadline already past, a space too large to count and one counted whole both fail as DeadlineReached and run no case",
 						(source) => ({
 							a: source.draw(int(1, 4)),
 							b: source.draw(int(1, 4)),
 							c: source.draw(int(1, 3)),
-							short: source.draw(int(0, 1)) === 1
+							cut: source.draw(boolean)
 						}),
-						required<"a space run whole" | "a space refused" | "property draws enumerated">(
-							["a space run whole", "a space refused", "property draws enumerated"],
-							{ cases: 40, sense: notesOnly }
-						)
+						required<
+							"a space run whole" | "a space the deadline cuts" | "property draws enumerated"
+						>(["a space run whole", "a space the deadline cuts", "property draws enumerated"], {
+							cases: 40,
+							sense: notesOnly
+						})
 					),
-					({ a, b, c, short }, k) =>
+					({ a, b, c, cut }, k) =>
 						Effect.gen(function* () {
 							const space = a * b * c
 							const seen = new Set<string>()
@@ -386,8 +384,7 @@ describe("exhaust", () => {
 									...pairs,
 									suite: "a drawn space",
 									generator: (source) =>
-										[source.draw(int(0, a - 1)), source.draw(int(0, b - 1))] as const,
-									limit: short ? space - 1 : space
+										[source.draw(int(0, a - 1)), source.draw(int(0, b - 1))] as const
 								},
 								([x, y], inner) =>
 									Effect.sync(() => {
@@ -398,12 +395,34 @@ describe("exhaust", () => {
 							if (c > 1) {
 								k.note("property draws enumerated")
 							}
-							if (short) {
-								k.note("a space refused")
-								const failed = yield* Effect.flip(underFullRun(search))
+							if (cut) {
+								k.note("a space the deadline cuts")
+								const began = yield* liveMillis
+								const past = Effect.provideService(
+									Run,
+									Run.of({ ...fullRun, deadline: { kind: "at", millis: began } })
+								)
+								const endless = yield* Effect.flip(
+									exhaust(
+										{
+											suite: "a space past any deadline",
+											oracle: pairs.oracle,
+											box: "every whole number below 2^53",
+											generator: int(0, 2 ** 53 - 1),
+											literal: String,
+											coverage: noCoverage,
+											caseHang: pairs.caseHang
+										},
+										() =>
+											Effect.sync(() => {
+												ran += 1
+											})
+									).pipe(past)
+								)
+								const counted = yield* Effect.flip(past(search))
 								deepStrictEqual(
-									{ failed: failed._tag, ran },
-									{ failed: "SpaceBeyondLimit", ran: c === 1 ? 0 : space }
+									{ endless: endless._tag, counted: counted._tag, ran },
+									{ endless: "DeadlineReached", counted: "DeadlineReached", ran: 0 }
 								)
 								return
 							}
@@ -416,49 +435,6 @@ describe("exhaust", () => {
 						})
 				)
 			)
-	)
-
-	it.effect("counts only the cases a filter keeps, so a space its limit holds runs whole", (ctx) =>
-		searched(
-			ctx,
-			explore(
-				outerOf(
-					"filtered spaces",
-					"a filter keeping the values below k of 0..n runs exactly those k cases under a limit of k",
-					(source) => {
-						const n = source.draw(int(0, 15))
-						return { n, k: source.draw(int(1, n + 1)) }
-					},
-					required<"some values filtered" | "none filtered">(
-						["some values filtered", "none filtered"],
-						{ cases: 40, sense: notesOnly }
-					)
-				),
-				({ n, k }, c) =>
-					Effect.gen(function* () {
-						c.note(k <= n ? "some values filtered" : "none filtered")
-						const kept = yield* underFullRun(
-							exhaust(
-								{
-									suite: "filtered",
-									oracle: {
-										kind: "specification",
-										name: "a property planted to exercise the search itself"
-									},
-									box: "every value of 0..n the filter keeps",
-									generator: filter(int(0, n), (value) => value < k, 1),
-									literal: String,
-									limit: k,
-									coverage: noCoverage,
-									caseHang: Duration.seconds(10)
-								},
-								() => Effect.void
-							)
-						)
-						strictEqual(kept.cases, k)
-					})
-			)
-		)
 	)
 })
 
@@ -640,7 +616,6 @@ describe("the residual", () => {
 						generator: (source) =>
 							Array.from({ length: source.draw(int(1, 4)) }, () => source.draw(int(1, 4))),
 						literal: Formatter.format,
-						limit: 400,
 						coverage: noCoverage,
 						caseHang: Duration.minutes(1)
 					},
@@ -675,7 +650,6 @@ describe("the residual", () => {
 							weights: Arr.map(NOTED, () => source.draw(int(1, 3)))
 						}),
 						literal: Formatter.format,
-						limit: 200,
 						coverage: noCoverage,
 						caseHang: Duration.minutes(1)
 					},
@@ -865,36 +839,25 @@ describe("a kept case", () => {
 		}).pipe(Effect.provideService(Run, fullRun))
 	)
 
-	it.effect(
-		"fails as stale when its draws run out or are left over, or it gives itself up, never filling them in",
-		() =>
-			Effect.gen(function* () {
-				const staleWith = (
-					draws: string,
-					property: (sketch: number, c: Case<"drew">) => Effect.Effect<void, CaseDiscarded>
-				) =>
-					Effect.flip(
-						explore(
-							{
-								...searchOf("stale draws", int(0, 9), noCoverage, 10, 1),
-								kept: [{ note: "drifted", sketch: 0, draws, reaches: ["drew"] }]
-							},
-							property
-						)
-					)
-				const ranOut = yield* staleWith("", rareDraw)
-				const leftOver = yield* staleWith(tokenOf(Float64Array.of(3, 4), 2), rareDraw)
-				const gaveUp = yield* staleWith("", (_sketch, c) =>
-					Effect.andThen(
-						Effect.sync(() => c.note("drew")),
-						c.assume(false)
+	it.effect("fails as stale when its draws run out or are left over, never filling them in", () =>
+		Effect.gen(function* () {
+			const staleWith = (
+				draws: string,
+				property: (sketch: number, c: Case<"drew">) => Effect.Effect<void>
+			) =>
+				Effect.flip(
+					explore(
+						{
+							...searchOf("stale draws", int(0, 9), noCoverage, 10, 1),
+							kept: [{ note: "drifted", sketch: 0, draws, reaches: ["drew"] }]
+						},
+						property
 					)
 				)
-				deepStrictEqual(
-					[ranOut._tag, leftOver._tag, gaveUp._tag],
-					["KeptStale", "KeptStale", "KeptStale"]
-				)
-			}).pipe(Effect.provideService(Run, fullRun))
+			const ranOut = yield* staleWith("", rareDraw)
+			const leftOver = yield* staleWith(tokenOf(Float64Array.of(3, 4), 2), rareDraw)
+			deepStrictEqual([ranOut._tag, leftOver._tag], ["KeptStale", "KeptStale"])
+		}).pipe(Effect.provideService(Run, fullRun))
 	)
 
 	it.effect("records what the system decided without counting it as a draw", () =>
@@ -1005,14 +968,10 @@ const innerValues = int(0, 999)
  */
 type RareReach = "never" | "unsteered" | "one in fifty" | "one in five" | "always"
 
-/** Which values the inner property gives up on: none, a third, a half (the stall verdict's edge), or two thirds. */
-type Discarding = "none" | "a third" | "a half" | "two thirds"
-
 /** What the coverage oracle draws: an inner search, and the two runs that must agree on its verdict. */
 type VerdictSketch = Readonly<{
 	label: Label
 	rare: RareReach
-	discarding: Discarding
 	budget: 0 | 16 | 64
 	runs: readonly [first: InnerRun, second: InnerRun]
 }>
@@ -1022,23 +981,9 @@ const verdictSketches: Gen<VerdictSketch> = (source) => ({
 	rare: source.draw(
 		element(["never", "unsteered", "one in fifty", "one in five", "always"] as const)
 	),
-	discarding: source.draw(element(["none", "a third", "a half", "two thirds"] as const)),
 	budget: source.draw(element([0, 16, 64] as const)),
 	runs: [source.draw(innerRuns), source.draw(innerRuns)]
 })
-
-const givesUp = (discarding: Discarding, value: number): boolean => {
-	switch (discarding) {
-		case "none":
-			return false
-		case "a third":
-			return value % 3 === 0
-		case "a half":
-			return value % 2 === 0
-		case "two thirds":
-			return value % 3 !== 0
-	}
-}
 
 const reachesRare = (rare: RareReach, value: number, steered: boolean): boolean => {
 	switch (rare) {
@@ -1061,7 +1006,6 @@ type Inner = "common" | "rare"
 type Outcome =
 	| Readonly<{ kind: "explored"; steered: number }>
 	| Readonly<{ kind: "unreached"; missing: ReadonlyArray<string>; witnessed: Witnessed }>
-	| Readonly<{ kind: "stalled" }>
 
 /** An inner run's verdict, and the values of every case it drew under steering (its witnesses), ascending. */
 type Verdict = Readonly<{ outcome: Outcome; witnesses: ReadonlyArray<number> }>
@@ -1081,8 +1025,7 @@ const verdictOf = (sketch: VerdictSketch, run: InnerRun) =>
 				shrink: boundedShrink(10)
 			},
 			(value, c: Case<Inner>) =>
-				Effect.gen(function* () {
-					yield* c.assume(!givesUp(sketch.discarding, value))
+				Effect.sync(() => {
 					c.note("common")
 					if (reachesRare(sketch.rare, value, Option.isSome(c.steering))) {
 						c.note("rare")
@@ -1099,8 +1042,7 @@ const verdictOf = (sketch: VerdictSketch, run: InnerRun) =>
 						kind: "unreached",
 						missing: unreached.missing,
 						witnessed: unreached.witnessed
-					}),
-				CasesStalled: () => Effect.succeed<Outcome>({ kind: "stalled" })
+					})
 			}),
 			Effect.map((outcome): Verdict => ({ outcome, witnesses: Arr.sort(witnesses, Order.Number) })),
 			Effect.provideService(Run, runOf(run.seed, Option.none()))
@@ -1109,25 +1051,20 @@ const verdictOf = (sketch: VerdictSketch, run: InnerRun) =>
 
 /**
  * What the floor stream alone decides of a verdict, from the floor's own cases (the label's first stream, drawn here
- * as `sample` draws it): a stall when more of them give up than run; a pass with no steered case when they reach both
+ * as `sample` draws it): a pass with no steered case when they reach both
  * situations; a failure naming "rare" when no witness can reach it; otherwise the steered phase decides.
  */
 type FloorDecides =
-	| Readonly<{ kind: "stalled" }>
 	| Readonly<{ kind: "met" }>
 	| Readonly<{ kind: "unreachable"; floor: number }>
 	| Readonly<{ kind: "steered" }>
 
 const floorDecides = (sketch: VerdictSketch): FloorDecides => {
 	const floor = sample(innerValues, floorSeed(sketch.label), Math.ceil(INNER_RUNS / 4))
-	const ran = Arr.filter(floor, (value) => !givesUp(sketch.discarding, value))
-	if (floor.length - ran.length > ran.length) {
-		return { kind: "stalled" }
-	}
 	if (sketch.rare === "never" || sketch.rare === "unsteered") {
-		return { kind: "unreachable", floor: ran.length }
+		return { kind: "unreachable", floor: floor.length }
 	}
-	return Arr.some(ran, (value) => reachesRare(sketch.rare, value, true))
+	return Arr.some(floor, (value) => reachesRare(sketch.rare, value, true))
 		? { kind: "met" }
 		: { kind: "steered" }
 }
@@ -1157,8 +1094,6 @@ const leftToSteering = (outcome: Outcome, budget: number): Option.Option<Outcome
 				Arr.contains(outcome.missing, "rare")
 				? Option.some(outcome)
 				: Option.none()
-		case "stalled":
-			return Option.none()
 	}
 }
 
@@ -1177,7 +1112,7 @@ describe("the coverage verdict", () => {
 						},
 						draw: drawn(verdictSketches),
 						literal: Formatter.format,
-						coverage: required<Outcome["kind"]>(["explored", "unreached", "stalled"], {
+						coverage: required<Outcome["kind"]>(["explored", "unreached"], {
 							cases: 60,
 							sense: notesOnly
 						}),
@@ -1197,9 +1132,6 @@ describe("the coverage verdict", () => {
 							deepStrictEqual(secondVerdict, verdict)
 							const decided = floorDecides(sketch)
 							switch (decided.kind) {
-								case "stalled":
-									deepStrictEqual(verdict.outcome, { kind: "stalled" })
-									break
 								case "met":
 									deepStrictEqual(verdict.outcome, { kind: "explored", steered: 0 })
 									break
@@ -1316,7 +1248,6 @@ const fidelitySearch = (
 							box: "every value of 0..59, with the draw its property makes",
 							generator: spaceValues,
 							literal: String,
-							limit: 10_000,
 							coverage: requiredInSpace<"rare">(["rare"]),
 							caseHang: Duration.minutes(1)
 						},
@@ -1494,7 +1425,6 @@ const syncExhaustion = (kind: SyncProperty, cases: number, seed: number) =>
 			box: "every value below the drawn count",
 			generator: int(0, cases - 1),
 			literal: Formatter.format,
-			limit: cases,
 			coverage: noCoverage,
 			caseHang: Duration.minutes(1)
 		},

@@ -48,14 +48,12 @@ import {
 	type TreeBreach,
 	breachOf,
 	canonical,
-	checkedCases,
 	checkedGen,
 	type NodeConstraint,
 	constraintNamed,
 	ddlOf,
 	forestBox,
 	forestsOf,
-	fullCases,
 	fullGen,
 	insertSql,
 	isP3,
@@ -71,7 +69,6 @@ import {
 	RFC,
 	readSql,
 	rowsOfRead,
-	shapeCases,
 	shapeGen,
 	shapesBetween,
 	sqlstateOf,
@@ -411,7 +408,6 @@ layer(Substrate.layer)("trees.md's theorem on PostgreSQL 19rc1", (it) => {
 							suite: "substrate/tree-states",
 							generator: fullGen(shapes),
 							literal: Formatter.format,
-							limit: fullCases(shapes),
 							box: "every state of one or two rows: every shape with at most two self-parented rows, every assignment of two root values up to swapping them, each row's at, children and start over [0, N] and end over [0, N + 1], the copies the host's",
 							oracle: THEOREM_ORACLE,
 							coverage: requiredInSpace<StateFeature>([
@@ -460,7 +456,6 @@ layer(Substrate.layer)("trees.md's theorem on PostgreSQL 19rc1", (it) => {
 							suite: "substrate/tree-shapes",
 							generator: shapeGen(shapes),
 							literal: Formatter.format,
-							limit: shapeCases(shapes),
 							box: "every forest shape of one to three rows with at most two self-parented rows and every assignment of two root values, up to relabelling and swapping the values, with each row's start in [0, N) and end in [1, N], the family and copies the host's",
 							oracle: THEOREM_ORACLE,
 							coverage: requiredInSpace<StateFeature>([
@@ -513,7 +508,6 @@ layer(Substrate.layer)("trees.md's theorem on PostgreSQL 19rc1", (it) => {
 							suite: "substrate/tree-checked",
 							generator: checkedGen(placements),
 							literal: Formatter.format,
-							limit: Arr.reduce(placements, 0, (sum, p) => sum + checkedCases(p)),
 							box: "every shape of four and five rows with one or two self-parented rows and every assignment of two root values, and of six rows with one root and one value, up to relabelling, the family and copies the host's, with every start and end its rows' checks pass: T1's starts apart per value, T2's roots at 0, T3's first children one past their parents, a leaf's end its start + 1 and any other in (start, N]",
 							oracle: THEOREM_ORACLE,
 							coverage: requiredInSpace<StateFeature>([
@@ -556,7 +550,6 @@ layer(Substrate.layer)("trees.md's theorem on PostgreSQL 19rc1", (it) => {
 							suite: "substrate/tree-mutations",
 							generator: element(cases),
 							literal: Formatter.format,
-							limit: cases.length,
 							box: "every single mutation of every tree, and of every forest of two trees, of one to six rows in all, each named",
 							oracle: THEOREM_ORACLE,
 							coverage: requiredInSpace<StateFeature | MutationFeature>([
@@ -612,11 +605,6 @@ layer(Substrate.layer)("trees.md's theorem on PostgreSQL 19rc1", (it) => {
 							suite: "substrate/tree-writes",
 							generator: writeGen(forests),
 							literal: Formatter.format,
-							limit: Arr.reduce(
-								forests,
-								0,
-								(sum, f) => sum + factorial(f.length) + 2 * 2 ** (f.length - 1)
-							),
 							box: "every tree and every forest of two trees of one to six rows in all, every order of its rows within one INSERT, and every split of its pre-order and its reverse pre-order into consecutive INSERTs",
 							oracle: THEOREM_ORACLE,
 							coverage: requiredInSpace<StateFeature | WriteFeature>([

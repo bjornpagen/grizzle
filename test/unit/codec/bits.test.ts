@@ -161,7 +161,6 @@ describe("bit strings at a word's edges", () => {
 						suite: "unit/codec/bits-edges",
 						generator: edges,
 						literal: Formatter.format,
-						limit: 15_670,
 						coverage: requiredInSpace<Edge>([
 							"no bits",
 							"a partial last word",
@@ -210,7 +209,6 @@ describe("bit strings at a word's edges", () => {
 					suite: "unit/codec/bits-blocks",
 					generator: blocks,
 					literal: Formatter.format,
-					limit: 7872,
 					coverage: requiredInSpace<Block>([
 						"one one",
 						"one zero",
@@ -559,7 +557,6 @@ describe("bit strings on the host", () => {
 						suite: "unit/codec/bits-cell-placement",
 						generator: oneHots,
 						literal: Formatter.format,
-						limit: 97,
 						coverage: requiredInSpace<CellRead>([
 							"inside one word",
 							"across two words",

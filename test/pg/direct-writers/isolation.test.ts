@@ -402,7 +402,6 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 								suite: "pg/direct-writers/isolation",
 								generator: box,
 								literal: Formatter.format,
-								limit: levels.length * actors.length * (2 * writes.length + 1) * tables.length,
 								coverage: requiredInSpace<IsolationFeature>(situations),
 								caseHang
 							},

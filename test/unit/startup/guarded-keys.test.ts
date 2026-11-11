@@ -172,7 +172,6 @@ layer(NodeServices.layer, { excludeTestServices: true })("guarded keys at startu
 						suite: "unit/startup/guarded-keys",
 						generator: keysGen,
 						literal: Formatter.format,
-						limit: 2,
 						coverage: noCoverage,
 						caseHang
 					},
@@ -261,7 +260,6 @@ layer(NodeServices.layer, { excludeTestServices: true })("the install order", (i
 					suite: "unit/startup/install-order",
 					generator: relationsGen,
 					literal: Formatter.format,
-					limit: 3,
 					coverage: noCoverage,
 					caseHang
 				},

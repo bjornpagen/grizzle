@@ -240,7 +240,6 @@ layer(Substrate.layer)("objects named like PostgreSQL's own types", (it) => {
 						suite: "pg/migrate/catalog-names",
 						generator: caseGen,
 						literal: literalOf,
-						limit: 2 * catalogNames.length,
 						coverage: requiredInSpace<Feature>(required),
 						caseHang
 					},

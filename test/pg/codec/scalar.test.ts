@@ -31,7 +31,6 @@ import {
 	codePoint,
 	constant,
 	element,
-	filter,
 	type Gen,
 	int,
 	map,
@@ -172,16 +171,29 @@ const int4Gen: Gen<number> = oneOf([
 	element([int4Min.value, int4Max.value, 0, -0])
 ])
 
-/** Two distinct endpoints, the lower first: a draw that repeats an endpoint draws again. */
-const span = <E extends number | bigint>(endpoint: Gen<E>) =>
-	map(
-		filter(
-			(source) => [source.draw(endpoint), source.draw(endpoint)] as const,
-			([a, b]) => a !== b,
-			10
-		),
-		([a, b]) => (a < b ? { start: a, end: b } : { start: b, end: a })
-	)
+/**
+ * Two distinct endpoints, the lower first: the second endpoint, where it repeats the first, is moved to its `neighbour`,
+ * so every draw is a span by construction.
+ */
+const span =
+	<E extends number | bigint>(
+		endpoint: Gen<E>,
+		neighbour: (endpoint: E) => E
+	): Gen<Readonly<{ start: E; end: E }>> =>
+	(source) => {
+		const a = source.draw(endpoint)
+		const drawn = source.draw(endpoint)
+		const b = drawn === a ? neighbour(a) : drawn
+		return a < b ? { start: a, end: b } : { start: b, end: a }
+	}
+
+/** An int4 endpoint's neighbour: the next one up, or down from the greatest. */
+const int4Neighbour = (endpoint: number): number =>
+	endpoint === int4Max.value ? endpoint - 1 : endpoint + 1
+
+/** An int8 endpoint's neighbour: the next one up, or down from the greatest. */
+const int8Neighbour = (endpoint: bigint): bigint =>
+	endpoint === int8Max.value ? endpoint - 1n : endpoint + 1n
 
 /**
  * A binary64 value strictly inside binary32's range, so the float8-to-real cast admits it: a sign, a significand in
@@ -311,8 +323,8 @@ const cases: Arr.NonEmptyReadonlyArray<Case> = [
 		type: scalarOf({ kind: "bits", roster: `Set${w}` }, { [`Set${w}`]: setHandles(w) }),
 		values: map(subset(setHandles(w), { min: 0, max: w }), (hs) => new Set(hs))
 	})),
-	{ label: "int4range", type: scalars.range4, values: span(int4Gen) },
-	{ label: "int8range", type: scalars.range8, values: span(int8Gen) },
+	{ label: "int4range", type: scalars.range4, values: span(int4Gen, int4Neighbour) },
+	{ label: "int8range", type: scalars.range8, values: span(int8Gen, int8Neighbour) },
 	{ label: "vector(3)", type: scalars.vector3, values: vectorGen(3) },
 	{ label: "vector(16)", type: scalars.vector16, values: vectorGen(16) },
 	{ label: "contract Cents", type: scalars.cents, values: int8Gen }
@@ -525,7 +537,7 @@ layer(Substrate.layer)("exact scalar codecs against PostgreSQL", (it) => {
 					kind: source.draw(element(kindHandles)),
 					kinds: new Set(source.draw(subset(kindHandles, { min: 0, max: kindHandles.length }))),
 					label: source.draw(textGen),
-					during: source.draw(span(int8Gen)),
+					during: source.draw(span(int8Gen, int8Neighbour)),
 					value: source.draw(vectorGen(16))
 				})
 				const encode = arraysEncoder({

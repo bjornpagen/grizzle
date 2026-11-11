@@ -44,6 +44,7 @@ import {
 } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
+import { generate, recorder, simplestChooser } from "@grizzle/testing/source"
 import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
@@ -267,10 +268,20 @@ describe("EXPLAIN capture", () => {
 					{
 						...spec,
 						suite: "unit/bench/explain-faults",
-						draw: drawn((source) => ({
-							capture: source.draw(captureGen),
-							fault: source.draw(element(planFaults))
-						})),
+						draw: drawn((source) => {
+							const capture = source.draw(captureGen)
+							const admitted = Arr.filter(planFaults, (fault) =>
+								Option.isSome(
+									generate(recorder(), plantedFault(capture, fault), simplestChooser).value
+								)
+							)
+							return {
+								capture,
+								fault: source.draw(
+									element(nonEmpty(admitted, "a fault the capture has a place for"))
+								)
+							}
+						}),
 						oracle: {
 							kind: "specification",
 							name: "each planted fault is output PostgreSQL never prints, which the reader refuses"
@@ -279,20 +290,20 @@ describe("EXPLAIN capture", () => {
 						runs: 300
 					},
 					({ capture, fault }, c) =>
-						Effect.gen(function* () {
-							const planted = c.draw(plantedFault(capture, fault))
-							yield* c.assume(Option.isSome(planted))
-							for (const value of Option.toArray(planted)) {
-								const read = parsePlan(value)
-								assertVariant(read, "_tag", "Failure", fault)
-								assert.ok(read.failure instanceof MalformedPlan, fault)
-								if (treeFaults.has(fault)) {
-									const tree = parsePlanTree(value)
-									assertVariant(tree, "_tag", "Failure", fault)
-									assert.ok(tree.failure instanceof MalformedPlan, fault)
-								}
-								c.note(fault)
+						Effect.sync(() => {
+							const value = Option.getOrThrowWith(
+								c.draw(plantedFault(capture, fault)),
+								() => new Error(`${fault}: planted in a capture drawn with a place for it`)
+							)
+							const read = parsePlan(value)
+							assertVariant(read, "_tag", "Failure", fault)
+							assert.ok(read.failure instanceof MalformedPlan, fault)
+							if (treeFaults.has(fault)) {
+								const tree = parsePlanTree(value)
+								assertVariant(tree, "_tag", "Failure", fault)
+								assert.ok(tree.failure instanceof MalformedPlan, fault)
 							}
+							c.note(fault)
 						})
 				)
 			)
@@ -1074,7 +1085,6 @@ layer(NodeServices.layer, { excludeTestServices: true })(
 									source.draw(element(["clean", "leaked"] as const))
 								] as const,
 							literal: Formatter.format,
-							limit: 4,
 							coverage: requiredInSpace<RecordFeature>([
 								"run failed",
 								"release clean",
@@ -1151,7 +1161,6 @@ layer(NodeServices.layer, { excludeTestServices: true })("the gate catalog", (su
 						suite: "unit/bench/catalog",
 						generator: element(catalogIds),
 						literal: Formatter.format,
-						limit: catalogIds.length,
 						coverage: requiredInSpace<"query" | "write">(["query", "write"]),
 						box: "every gate of the catalog, against the bench files under the owners' directories",
 						oracle: {

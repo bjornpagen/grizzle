@@ -323,7 +323,6 @@ describe("the optimized lowering of checked public programs", () => {
 					suite: "unit/lower/public-programs-planted",
 					generator: plantedGen,
 					literal: Formatter.format,
-					limit: 128,
 					coverage: requiredInSpace<IdentityFeature>([
 						"an option or bare child over an identity projection's input",
 						"a take over an identity projection's input"

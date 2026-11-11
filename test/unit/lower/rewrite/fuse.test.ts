@@ -121,7 +121,6 @@ describe("the complete bound tuple survives fusion", () => {
 								source.draw(element<Bound>(["account, amount", "id, account, amount"])),
 								source.draw(element<Reader>(["a fold", "the query"]))
 							] as const,
-						limit: 4,
 						coverage: requiredInSpace<`${Bound} read by ${Reader}`>([
 							"account, amount read by a fold",
 							"account, amount read by the query",
@@ -216,7 +215,6 @@ describe("fixed columns in R01 fusion", () => {
 								source.draw(uses),
 								source.draw(element<Stage>(["filtered", "unfiltered"]))
 							] as const,
-						limit: 50,
 						coverage: requiredInSpace<"fused" | "refused">(["fused", "refused"]),
 						caseHang
 					},

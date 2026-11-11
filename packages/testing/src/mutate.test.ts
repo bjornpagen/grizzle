@@ -108,16 +108,12 @@ describe("the tape mutator", () => {
 							structured,
 							prefixChooser(mutant.values, mutant.length, randomChooser(wordsOf(words)))
 						).tape
-						deepStrictEqual(
-							{
-								status: replayed.status !== "discarded",
-								inRange: Arr.every(
-									Arr.fromIterable(replayed.values.entries()),
-									([at, value]) =>
-										value >= (replayed.lo[at] ?? 0) && value <= (replayed.hi[at] ?? 0)
-								)
-							},
-							{ status: true, inRange: true }
+						assertTrue(
+							Arr.every(
+								Arr.fromIterable(replayed.values.entries()),
+								([at, value]) => value >= (replayed.lo[at] ?? 0) && value <= (replayed.hi[at] ?? 0)
+							),
+							"every replayed decision within its range"
 						)
 					})
 				)

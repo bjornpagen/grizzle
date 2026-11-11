@@ -2,9 +2,9 @@ import { Array as Arr, String as Str } from "effect"
 
 /**
  * How a recording ended. A replay that ran past its values, or met a value its decision no longer allows, finished on
- * simplest values (`overrun`). A filter that found no value it keeps gave up (`discarded`), and the case never runs.
+ * simplest values (`overrun`).
  */
-export type Status = "complete" | "overrun" | "discarded"
+export type Status = "complete" | "overrun"
 
 /**
  * Everything a case decided, in typed buffers: decision `i` chose `values[i]` between `lo[i]` and `hi[i]`, inclusive,

@@ -95,7 +95,6 @@ layer(Substrate.layer)("a connection that can't be had", (it) => {
 							suite: "serverless/acquire",
 							generator: point,
 							literal: Formatter.format,
-							limit: 8,
 							coverage: requiredInSpace<AcquireFeature>([
 								"execute: the password fails",
 								"execute: the layer released",

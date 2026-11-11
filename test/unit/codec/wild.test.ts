@@ -551,7 +551,10 @@ describe("admission reads a value once", () => {
 						name: "the getter's first answer, as admission kept it"
 					},
 					suite: "unit/codec/wild-unstable",
-					draw: drawn((source) => [source.draw(int32), source.draw(int32)] as const),
+					draw: drawn(
+						(source) =>
+							[source.draw(int(int4Min.value, int4Max.value - 1)), source.draw(int32)] as const
+					),
 					literal: Formatter.format,
 					coverage: noCoverage,
 					kept: [],
@@ -561,10 +564,9 @@ describe("admission reads a value once", () => {
 					steerEvery: 16,
 					caseHang
 				},
-				([first, then], c) =>
-					Effect.gen(function* () {
+				([first, then]) =>
+					Effect.sync(() => {
 						const end = int4Max.value
-						yield* c.assume(first < end)
 						const range4 = decoded(written.range4[0]).type
 						const codec = scalarCodec(range4, kindCodes)
 						const unstable = unstableSpan(first, then, end)

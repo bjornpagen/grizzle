@@ -95,7 +95,6 @@ layer(Substrate.layer)("no server-side deadlines", (it) => {
 							suite: "serverless/deadlines",
 							generator: modes,
 							literal: Formatter.format,
-							limit: 8,
 							coverage: requiredInSpace<DeadlineFeature>(
 								Arr.flatMap(accesses, (i) => Arr.map(contexts, (c): DeadlineFeature => `${i} ${c}`))
 							),

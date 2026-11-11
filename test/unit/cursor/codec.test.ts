@@ -949,7 +949,6 @@ describe("validation before any SQL, in order", () => {
 						suite: "unit/cursor/validation-order",
 						generator: plantings,
 						literal: Formatter.format,
-						limit: 20_000,
 						coverage: requiredInSpace<CursorFault | "accepted">([
 							"accepted",
 							...new Set(Rec.values(faultReasons))
@@ -1094,7 +1093,6 @@ describe("validation before any SQL, in order", () => {
 						generator: (source) =>
 							[source.draw(int(0, headerBytes - 1)), source.draw(element([1, 0x80]))] as const,
 						literal: Formatter.format,
-						limit: headerBytes * 2,
 						coverage: requiredInSpace<"a header byte changed">(["a header byte changed"]),
 						caseHang
 					},

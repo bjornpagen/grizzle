@@ -44,13 +44,7 @@ import {
 	type Judging,
 	judgedFold
 } from "#test/pg/fin/folds.ts"
-import {
-	endedBy,
-	type EndFeature,
-	endGen,
-	ends,
-	refusedAtCommitBy
-} from "#test/pg/fin/installed.ts"
+import { endedBy, type EndFeature, endGen, refusedAtCommitBy } from "#test/pg/fin/installed.ts"
 import { assert, deepEquals, nonEmpty } from "#test/support/assert.ts"
 import { swapWithLast } from "#test/support/families/counted.ts"
 import {
@@ -89,8 +83,6 @@ const sketchGen: Gen<Sketch> = (source) => {
 	)
 	return { values, at: source.draw(int(0, n - 1)), sending: source.draw(element(SENDINGS)) }
 }
-
-const sketchCases = Arr.reduce(Arr.range(1, 4), 0, (sum, n) => sum + 5 ** n * n * SENDINGS.length)
 
 /** A plan's statements in a sending: the prescribed order, or with its first update or its count moved first. */
 const sent = (
@@ -159,7 +151,6 @@ layer(Substrate.layer)(
 									suite: `fin/swap-with-last ${spec.label}`,
 									generator: sketchGen,
 									literal: Formatter.format,
-									limit: sketchCases * ends.length,
 									box: "owner 0 with every counted family of one to four members over the seat's five step values, each member removed by swap-with-last, sent prescribed, move first, count first, and prescribed with the predecessor axis immediate, each case ended by a real COMMIT and by the checked end",
 									oracle: {
 										kind: "second-implementation",

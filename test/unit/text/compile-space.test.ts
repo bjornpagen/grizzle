@@ -228,11 +228,14 @@ const sweptColors = (
 }
 
 describe("the raw NFA PostgreSQL's parser builds", () => {
+	/** What a case reached; a nested arm's pattern that no compile holds, neither live nor within its states, has no NFA
+	 * to judge, and is noted as such. */
 	type Reached =
 		| "a pattern"
 		| "sets that cut one another"
 		| "a loop"
 		| "a walk longer than its spelling"
+		| "a nested pattern no compile holds"
 	it.effect(
 		"holds the states and arcs its fold counts, no walk of it is deeper than its fold's depth, and its colors are its printed sets' classes",
 		(ctx) =>
@@ -264,19 +267,21 @@ describe("the raw NFA PostgreSQL's parser builds", () => {
 						caseHang
 					},
 					({ arm, source, flags }, c) =>
-						Effect.gen(function* () {
+						Effect.sync(() => {
 							const label = `/${source}/${flags}`
 							const ir = liveIr(source, flags)
-							if (arm === "nested") {
-								yield* c.assume(ir !== undefined)
+							if (arm === "nested" && ir === undefined) {
+								c.note("a nested pattern no compile holds")
+								return
 							}
 							if (ir === undefined) {
 								return assert.fail(`${label}: an admitted pattern is live`)
 							}
 							const colors = colorsOf(ir)
 							const size = rawSize(ir, colors)
-							if (arm === "nested") {
-								yield* c.assume(size.states <= regexMaxHeldStates.value)
+							if (arm === "nested" && size.states > regexMaxHeldStates.value) {
+								c.note("a nested pattern no compile holds")
+								return
 							}
 							assert.ok(
 								size.states <= regexMaxHeldStates.value,

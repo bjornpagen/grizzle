@@ -140,7 +140,6 @@ describe("the host fill of a concat fold", () => {
 					suite: "unit/write/concat-fill",
 					generator: caseGen,
 					literal: Formatter.format,
-					limit: 3_000,
 					box: "families of up to three members, pieces '', 'a' and U+1F600, each selected or not, under a selecting fold and one that does not select",
 					oracle: { kind: "second-implementation", name: "a naive left fold of the slots' texts" },
 					coverage: requiredInSpace<FillFeature>([

@@ -72,7 +72,14 @@ import { rootedCaseGen } from "#test/support/oracle/mutants/cases.ts"
 import { checkedLowering } from "#test/support/oracle/verify/index.ts"
 import { everyColumnCarried } from "#test/support/spine.ts"
 
-type TotalFeature = "heading groups" | "attachments" | "per-execution form"
+/** What a page case reached; a case no ordered read stands for, or whose query a lowering refuses, holds no page to judge
+ * and is noted as such: the lowerings' refusals are their own suites'. */
+type TotalFeature =
+	| "heading groups"
+	| "attachments"
+	| "per-execution form"
+	| "a case no ordered read stands for"
+	| "a query a lowering refuses"
 
 interface OrderedCase {
 	readonly c: QueryCase
@@ -415,24 +422,26 @@ describe("the page compiler and the page runtime template", () => {
 						caseHang
 					},
 					(sketch, c) =>
-						Effect.gen(function* () {
+						Effect.sync(() => {
 							const o = c.draw(resolveOrdered(sketch))
 							const orderedRead = orderedQuery(o)
 							if (orderedRead === undefined) {
-								return yield* c.assume(false)
+								c.note("a case no ordered read stands for")
+								return
 							}
 							const query = orderedRead.query
 							/** The case's names, under the codes its schema's installation holds. */
 							const codes = schemaCodes(o.c.schema)
 							const names = standInNames("Oracle", codes)
-							/** The lowerings are not this property's subject: a case either of them refuses is no case. */
+							/** The lowerings are not this property's subject: a case either of them refuses is noted as such. */
 							const conservative = lowerConservative(conservativeInput(query), {
 								names,
 								params: query.params,
 								subject: { kind: "query" }
 							})
 							if (!conservative.ok) {
-								return yield* c.assume(false)
+								c.note("a query a lowering refuses")
+								return
 							}
 							const catalog = genCatalog(o.c.schema)
 							const admission = admitGenerated(query)
@@ -445,7 +454,8 @@ describe("the page compiler and the page runtime template", () => {
 									})
 								: admission
 							if (!optimized.ok) {
-								return yield* c.assume(false)
+								c.note("a query a lowering refuses")
+								return
 							}
 							checkedLowering({
 								optimized: optimized.value,

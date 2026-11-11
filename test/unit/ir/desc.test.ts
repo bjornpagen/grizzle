@@ -1137,10 +1137,8 @@ describe("Descriptions", () => {
 					}
 				},
 				([[kind, value], pick], c) =>
-					Effect.gen(function* () {
-						const queries = queriesIn(value)
-						yield* c.assume(Arr.isReadonlyArrayNonEmpty(queries))
-						const path = pickFrom(nonEmpty(queries, "a query's place"), pick)
+					Effect.sync(() => {
+						const path = pickFrom(nonEmpty(queriesIn(value), "a query's place"), pick)
 						const place = placeOf(kind, value, path)
 						if (place === undefined) {
 							return assert.fail(
@@ -1594,7 +1592,6 @@ describe("Descriptions", () => {
 							constant<Nesting>({ kind: "an array cycle" }),
 							map(int(0, 3), (depth): Nesting => ({ kind: "shared", depth }))
 						]),
-						limit: 100,
 						coverage: requiredInSpace<Nesting["kind"]>([
 							"a chain",
 							"a cycle",

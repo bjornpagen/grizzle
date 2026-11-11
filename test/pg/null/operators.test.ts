@@ -802,7 +802,6 @@ layer(Substrate.layer, { excludeTestServices: true })("each operation over NULL"
 							suite: "pg/null/operators",
 							generator: caseGen,
 							literal: Formatter.format,
-							limit: 1200,
 							coverage: requiredInSpace<Feature>([
 								"compare",
 								"between",

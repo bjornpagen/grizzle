@@ -76,7 +76,6 @@ layer(spawner, { excludeTestServices: true })(
 							suite: "substrate/exit",
 							generator: caseGen,
 							literal: Formatter.format,
-							limit: 5,
 							coverage: requiredInSpace<Feature>([
 								"0 Dbs",
 								"1 Dbs",

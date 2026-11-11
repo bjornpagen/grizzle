@@ -274,6 +274,22 @@ const stratumOf = (members: ReadonlyArray<Member>): ChangeSetValue =>
 		changes[m.op](relationValues[m.relation], sent(m.facts, m.transport))
 	)
 
+/**
+ * The longest prefix of `members` whose ChangeSet normalizes, the empty one at least: the ChangeSet a fault is planted
+ * in, so nothing but the fault refuses it, by construction.
+ */
+const normalizingPrefix = (members: ReadonlyArray<Member>) =>
+	Effect.gen(function* () {
+		for (let length = members.length; length > 0; length -= 1) {
+			const prefix = Arr.take(members, length)
+			const { result } = yield* normalizedOf(stratumOf(prefix))
+			if (result.ok && result.value.kind === "normalized") {
+				return prefix
+			}
+		}
+		return []
+	})
+
 /** The strata sequenced. */
 const changeSetOf = (strata: ReadonlyArray<ReadonlyArray<Member>>): ChangeSetValue => {
 	const [first, ...rest] = Arr.map(strata, stratumOf)
@@ -641,12 +657,8 @@ describe("normalization against the add-wins meaning", () => {
 						Effect.gen(function* () {
 							c.note(fault)
 							const plant = c.draw(plantedGen(fault))
-							const valid = stratumOf(members)
-							const without = succeeded(
-								(yield* normalizedOf(valid)).result,
-								"the ChangeSet without the fault"
-							)
-							yield* c.assume(without.kind === "normalized")
+							const prefix = yield* normalizingPrefix(members)
+							const valid = stratumOf(prefix)
 							refused((yield* normalizedOf(plant(valid))).result, faultOf(fault))
 						})
 				)

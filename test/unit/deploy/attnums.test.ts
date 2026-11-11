@@ -231,7 +231,6 @@ describe("a table's attribute numbers", () => {
 						suite: "unit/deploy/attnums",
 						generator: boxGen,
 						literal: Formatter.format,
-						limit: 6_000,
 						box: "every program of one to six commands (add a field, drop the first, rename the first), each under a column bound from 2 to 6",
 						oracle: {
 							kind: "second-implementation",

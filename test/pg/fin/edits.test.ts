@@ -121,8 +121,6 @@ const sketchGen: Gen<Sketch> = (source) => {
 	return { values, edit }
 }
 
-const sketchCases = Arr.reduce(Arr.range(1, 4), 0, (sum, n) => sum + 5 ** n * n * (1 + 4))
-
 const SpanOwner = relation(
 	"SpanOwner",
 	{
@@ -221,7 +219,6 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									suite: "fin/edits",
 									generator: sketchGen,
 									literal: Formatter.format,
-									limit: sketchCases,
 									box: "owner 0 with every counted family of one to four members over five int4 values, each member deleted and each put to every other value",
 									oracle: {
 										kind: "second-implementation",

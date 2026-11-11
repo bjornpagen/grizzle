@@ -124,7 +124,6 @@ layer(Substrate.layer)(
 								suite: "laws/fixed-target",
 								generator: sketchGen,
 								literal: Formatter.format,
-								limit: (1 + 2 * 2 * 2) ** IDS.length * SUBSETS.length,
 								box: "nodes 0 and 1, each absent or of kind document or element, of document 0 or 1 and at depth 0 or 1, and every subset of document rows over them, nodes written first",
 								oracle: {
 									kind: "specification",

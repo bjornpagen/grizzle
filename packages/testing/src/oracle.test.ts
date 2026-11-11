@@ -91,7 +91,6 @@ describe("a set comparison", () => {
 							}
 						},
 						literal: Formatter.format,
-						limit: 4000,
 						coverage: requiredInSpace<Change>(CHANGES),
 						caseHang: Duration.minutes(1)
 					},

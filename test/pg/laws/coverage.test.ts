@@ -181,7 +181,6 @@ layer(Substrate.layer)("coverage through grizzle's lowering on PostgreSQL 19rc1"
 							suite: "fin/coverage",
 							generator: sketchGen,
 							literal: Formatter.format,
-							limit: Arr.reduce([0, 1, 2], 0, (sum, n) => sum + ROWS.length ** n) * ROWS.length,
 							box: "keys 0 and 1, points 0 to 3, each span a non-empty interval, the empty one, or outside its selection: at most two target rows in one INSERT, then one source row",
 							oracle: {
 								kind: "specification",

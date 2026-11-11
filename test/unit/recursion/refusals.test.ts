@@ -260,7 +260,6 @@ describe("arm heads", () => {
 							suite: "unit/recursion/arm-heads",
 							generator: (source) => [source.draw(heads), source.draw(heads)] as const,
 							literal: Formatter.format,
-							limit: 9,
 							coverage: requiredInSpace<HeadFeature>([
 								"admitted",
 								"base missing",
@@ -514,7 +513,6 @@ describe("the state heading", () => {
 							return [d, a, spelled] as const
 						},
 						literal: Formatter.format,
-						limit: 200,
 						coverage: requiredInSpace<StateFeature>([
 							"admitted same",
 							"admitted cast",
@@ -831,7 +829,6 @@ describe("the feedback's shape", () => {
 									source.draw(mains)
 								] as const,
 							literal: Formatter.format,
-							limit: 2000,
 							coverage: requiredInSpace<ShapeFeature>([
 								"admitted",
 								"admitted with an aggregate base",
@@ -980,7 +977,6 @@ describe("r.pack over a recursive arm", () => {
 						suite: "unit/recursion/pack",
 						generator: boolean,
 						literal: Formatter.format,
-						limit: 2,
 						coverage: requiredInSpace<"packed" | "plain">(["packed", "plain"]),
 						caseHang
 					},
@@ -1052,7 +1048,6 @@ describe("unbounded computed state", () => {
 								source.draw(element<Advance>(["plus one", "times two"]))
 							] as const,
 						literal: Formatter.format,
-						limit: 16,
 						coverage: requiredInSpace<UnboundedFeature>([
 							"a bounded counter",
 							"refused integer current above plus one",
@@ -1137,7 +1132,6 @@ describe("unbounded computed state", () => {
 							suite: "unit/recursion/computed-cycle",
 							generator: (source) => [source.draw(terms), source.draw(terms)] as const,
 							literal: Formatter.format,
-							limit: 16,
 							coverage: requiredInSpace<"a cycle" | "acyclic">(["a cycle", "acyclic"]),
 							caseHang
 						},
@@ -1277,7 +1271,6 @@ describe("unbounded computed state through a correlated import", () => {
 								)
 							] as const,
 						literal: Formatter.format,
-						limit: 50,
 						coverage: requiredInSpace<ImportFeature>([
 							"admitted Inc",
 							"refused Inc",

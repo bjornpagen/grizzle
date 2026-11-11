@@ -343,7 +343,6 @@ describe("the host's set algebra", () => {
 						suite: "unit/compute/bits",
 						generator: patterns,
 						literal: Formatter.format,
-						limit: 3124,
 						coverage: requiredInSpace<Situation>([
 							"a singleton at the first code",
 							"a singleton at the last code",
@@ -373,7 +372,6 @@ describe("the host's set algebra", () => {
 						suite: "unit/compute/bits-two-rosters",
 						generator: element(twoSetOps),
 						literal: Formatter.format,
-						limit: twoSetOps.length,
 						coverage: requiredInSpace<NativeFn>(
 							nonEmpty(
 								Arr.map(twoSetOps, (op) => op.fn),

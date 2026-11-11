@@ -1,4 +1,4 @@
-import { Array as Arr, Option, type Predicate } from "effect"
+import { Array as Arr, Option } from "effect"
 import { enumerated, firstBranch, nextBranch } from "#enumerate.ts"
 import { forcedChooser, type Generated, generate, recorder, type Source } from "#source.ts"
 import type { Tape } from "#tape.ts"
@@ -229,23 +229,6 @@ export const subarray =
 	}
 
 /**
- * A value `keep` accepts, trying `attempts` draws. When none is kept the case is discarded and never runs. A filter
- * suits a predicate most values meet; a rare one belongs in the generator, which should build such values directly.
- */
-export const filter =
-	<A>(generator: Gen<A>, keep: Predicate.Predicate<A>, attempts: number): Gen<A> =>
-	(source) => {
-		let candidate = source.span("attempt", () => generator(source))
-		for (let tried = 1; tried < attempts && !keep(candidate); tried += 1) {
-			candidate = source.span("attempt", () => generator(source))
-		}
-		if (!keep(candidate)) {
-			source.discard()
-		}
-		return candidate
-	}
-
-/**
  * A recursive structure at most `depth` levels deep: at each level the base case or one more step, the base case
  * first so shrinking flattens the structure. The bound keeps every value finite and every space enumerable.
  */
@@ -463,8 +446,7 @@ const nearestNew = <K>(
 ): Option.Option<K> => {
 	const recorded = recorder()
 	const drawn = generate(recorded, key, forcedChooser(decisions, decisions.length)).tape
-	const isNew = (generated: Generated<K>): boolean =>
-		generated.tape.status !== "discarded" && !taken.has(generated.value)
+	const isNew = (generated: Generated<K>): boolean => !taken.has(generated.value)
 	for (let at = 0; at < drawn.length; at += 1) {
 		const lo = drawn.lo[at] ?? 0
 		const width = (drawn.hi[at] ?? 0) - lo + 1

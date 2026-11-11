@@ -298,7 +298,6 @@ layer(Substrate.layer, { excludeTestServices: true })("a delta carrier's key", (
 							suite: "pg/write/carrier-key",
 							generator: caseGen,
 							literal: Formatter.format,
-							limit: 400,
 							coverage: requiredInSpace<KeyFeature>([
 								"accepted",
 								"two facts at one key refused",

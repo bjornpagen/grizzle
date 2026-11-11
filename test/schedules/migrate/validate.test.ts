@@ -120,7 +120,6 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 import { fullWorld } from "#test/support/worlds.ts"
 
 import { regex } from "arkregex"
-import { upTo } from "#test/support/up-to.ts"
 const label = str.regex("^[a-z]{0,8}$")
 /**
  * The domains a version changes: an assignment's rate, a contract whose predicate the tightened version tightens from
@@ -403,21 +402,6 @@ const racingGen: Gen<Racing> = (source) => ({
 	w1: source.draw(element(writerKinds)),
 	w2: source.draw(element(writerKinds))
 })
-
-/** n! */
-const factorial = (n: number): number =>
-	Arr.reduce(
-		upTo(n, (i) => i + 1),
-		1,
-		(product, k) => product * k
-	)
-
-/**
- * The race's cases: each point of the box (each writer lawful or violating) under every order of its five moves, each
- * writer's insert before its COMMIT, so 5! orders over 2! for each writer's pair.
- */
-const racingCases =
-	writerKinds.length * writerKinds.length * (factorial(5) / (factorial(2) * factorial(2)))
 
 /** The stored worker's id, the id no worker holds, and each writer's assignment's id. */
 const storedWorker = 1
@@ -874,7 +858,6 @@ layer(Substrate.layer, { excludeTestServices: true })("a migration's Validate ph
 						suite: "schedules/migrate/validate racing writers",
 						generator: racingGen,
 						literal: Formatter.format,
-						limit: racingCases,
 						coverage: requiredInSpace<RacingFeature>([
 							"the migration succeeded",
 							"the migration refused by the law",

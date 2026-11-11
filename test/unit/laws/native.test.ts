@@ -90,12 +90,10 @@ import {
 	BOX_RULES,
 	type BoxCase,
 	boxGen,
-	SPAN_BOX_CASES,
 	SPAN_BOX_RULES,
 	spanBoxGen,
 	type Explored,
 	exploredGen,
-	FIN_BOX_CASES,
 	finBoxGen,
 	PAIR_KINDS,
 	type Pair,
@@ -472,9 +470,6 @@ type RuleFeature = RuleKind | Verdict
 
 const boxLiteral = (b: BoxCase<RuleEntry>): string =>
 	`${ruleText(b.entry.rule)}: ${Formatter.format(b.state)}`
-
-/** The box's size, counted by the library's own enumeration. */
-const BOX_CASES = 15_016
 
 /** The oracle of the state and transaction suites: the laws' meaning, read from each statement by the host. */
 const HOST_ORACLE: Oracle = {
@@ -1165,7 +1160,6 @@ describe("the native constraints grizzle installs", () => {
 								Arr.map(BOX_RULES, (rule): RuleEntry => ({ rule, installed: installRules([rule]) }))
 							),
 							literal: boxLiteral,
-							limit: BOX_CASES,
 							box: "every rule of the partial-projection lowering with each of its selections, over every state of at most two Owner rows and three of every other relation, each varying the fields its laws read over two or three values",
 							oracle: HOST_ORACLE,
 							coverage: requiredInSpace<RuleFeature>([...RULE_KINDS, ...VERDICTS, "a put"]),
@@ -1253,7 +1247,6 @@ describe("the native constraints grizzle installs", () => {
 							suite: "unit/laws/native/fin-box",
 							generator: finBoxGen,
 							literal: Formatter.format,
-							limit: FIN_BOX_CASES,
 							box: "no owner or an owner of count 0 to 3, over its first four slots, each holding no row, one or two, every copy the count",
 							oracle: FAMILY_ORACLE,
 							coverage: requiredInSpace<FinFeature>([
@@ -1355,7 +1348,6 @@ describe("the native constraints grizzle installs", () => {
 						suite: "unit/laws/native/family-box",
 						generator: familyBoxGen,
 						literal: Formatter.format,
-						limit: SHAPES.length * FIN_BOX_CASES,
 						box: "each shape, ordered and counted, with no owner or an owner of count 0 to 3, over its first four slots, each holding no row, one or two, every copy the count",
 						oracle: LEMMA_ORACLE,
 						coverage: requiredInSpace<FamilyFeature>([
@@ -1455,7 +1447,6 @@ describe("the native constraints grizzle installs", () => {
 								}))
 							),
 							literal: spanLiteral,
-							limit: SPAN_BOX_CASES,
 							box: "every span rule over at most two rows of Visit and of Shift, each varying the fields its laws read, its owner over two values and its span over two adjacent halves and their whole",
 							oracle: HOST_ORACLE,
 							coverage: requiredInSpace<SpanFeature>([

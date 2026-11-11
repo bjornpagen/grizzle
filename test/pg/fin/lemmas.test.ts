@@ -53,7 +53,6 @@ import {
 	endedBy,
 	type EndFeature,
 	endGen,
-	ends,
 	mutated,
 	refusedAtCommitBy
 } from "#test/pg/fin/installed.ts"
@@ -184,19 +183,6 @@ const multisetGen =
 		return [first, ...source.draw(multisetGen(k - 1, first))]
 	}
 
-const multisets = (n: number, k: number): number => {
-	/** Multisets of size exactly j over n kinds, C(n + j − 1, j), summed over j ≤ k. */
-	let total = 0
-	for (let j = 0; j <= k; j += 1) {
-		let c = 1
-		for (let i = 0; i < j; i += 1) {
-			c = (c * (n + i)) / (i + 1)
-		}
-		total += c
-	}
-	return total
-}
-
 const stateGen: Gen<StateSketch> = (source) => ({
 	counts: Arr.map(box.owners, () =>
 		source.draw(element<number | undefined>([undefined, ...box.counts]))
@@ -290,10 +276,6 @@ layer(Substrate.layer)("the fin lemmas through grizzle's lowering on PostgreSQL 
 							suite: "fin/lemma-states",
 							generator: stateGen,
 							literal: Formatter.format,
-							limit:
-								(box.counts.length + 1) ** box.owners.length *
-								multisets(CELLS.length, box.rows) *
-								ends.length,
 							box: "every state of owners 0 and 1, each absent or of count 0 to 3, with at most three rows over slots 0 to 4 of either owner, every copy its owner's count, written from no state in one transaction, each case ended by a real COMMIT and by the checked end",
 							oracle: ORACLE,
 							coverage: requiredInSpace<StateFeature>([

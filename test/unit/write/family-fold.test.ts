@@ -377,7 +377,6 @@ describe("the host fold, exhaustively", () => {
 						suite: "unit/write/family-fold/box",
 						generator: caseGen,
 						literal: Formatter.format,
-						limit: 60_000,
 						coverage: requiredInSpace<FoldFeature>([
 							"monoid count",
 							"monoid sum",

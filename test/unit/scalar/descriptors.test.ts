@@ -166,7 +166,6 @@ describe("alias identity", () => {
 							] as const
 						},
 						literal: Formatter.format,
-						limit: (plainSketches.length * (plainSketches.length - 1)) / 2,
 						box: "every pair of the pg namespace's descriptors and float(p) at every precision",
 						oracle: {
 							kind: "specification",

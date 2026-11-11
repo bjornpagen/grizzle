@@ -230,7 +230,6 @@ describe("varints (unsigned LEB128, minimal form)", () => {
 							suite: "unit/cursor/varint-short",
 							generator: short,
 							literal: Formatter.format,
-							limit: 70_000,
 							coverage: noCoverage,
 							caseHang
 						},

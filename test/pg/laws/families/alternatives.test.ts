@@ -85,7 +85,6 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							suite: "laws/alternatives/armed-handles",
 							literal: Formatter.format,
 							generator: element(armedHandles),
-							limit: armedHandles.length,
 							coverage: requiredInSpace<ArmedFeature>([
 								"a handle of a payload relation shared",
 								"a handle of a payload relation of its own"

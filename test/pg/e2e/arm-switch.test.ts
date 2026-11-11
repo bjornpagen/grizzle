@@ -252,7 +252,6 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									suite: "e2e/arm-switch",
 									generator: switches,
 									literal: Formatter.format,
-									limit: 30,
 									caseHang,
 									coverage: requiredInSpace<SwitchFeature>([
 										"enumerated automatic accepted",

@@ -292,7 +292,6 @@ layer(Substrate.layer)("descriptors against the PostgreSQL 19 catalog", (it) => 
 						suite: "pg/scalar/registry/spellings",
 						generator: element(spellings),
 						literal: Formatter.format,
-						limit: spellings.length,
 						box: "every spelling of the pg namespace that is a descriptor, the serials among them",
 						oracle: {
 							kind: "postgresql",
@@ -325,7 +324,6 @@ layer(Substrate.layer)("descriptors against the PostgreSQL 19 catalog", (it) => 
 							suite: "pg/scalar/registry/float-precisions",
 							generator: int(-4, 59),
 							literal: (p: number) => `float(${p})`,
-							limit: 64,
 							box: "every precision from -4 to 59, past both of float(p)'s edges",
 							oracle: { kind: "postgresql", name: "the type PostgreSQL stores float(p) as" },
 							coverage: requiredInSpace<FloatFeature>([
@@ -420,7 +418,6 @@ layer(Substrate.layer)("descriptors against the PostgreSQL 19 catalog", (it) => 
 							int(vectorMaxDimensions.value - 2, vectorMaxDimensions.value + 2)
 						]),
 						literal: Formatter.format,
-						limit: 11,
 						box: "every dimension count within two of 1 and of vectorMaxDimensions, and down to -2",
 						oracle: {
 							kind: "postgresql",
@@ -467,7 +464,6 @@ layer(Substrate.layer)("descriptors against the PostgreSQL 19 catalog", (it) => 
 							suite: "pg/scalar/registry/carriers",
 							generator: element(carriers),
 							literal: Formatter.format,
-							limit: carriers.length,
 							box: "every carrier of the registry",
 							oracle: {
 								kind: "postgresql",

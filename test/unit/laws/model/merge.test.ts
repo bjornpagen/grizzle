@@ -233,8 +233,6 @@ describe("a merged family axis holds exactly when every containment merged into 
 						suite: "unit/laws/model/merge",
 						generator: mergeGen,
 						literal: Formatter.format,
-						/** The space: 3⁶ states on the owner axis, 3⁸ on the predecessor and 3⁶ on the last. */
-						limit: 8019,
 						coverage: requiredInSpace<Feature>(
 							Arr.flatMap(["owner", "predecessor", "last"] as const, (axis) =>
 								Arr.map(verdicts, (v) => [`axis ${axis}`, v] as const)

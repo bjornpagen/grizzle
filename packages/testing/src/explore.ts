@@ -14,7 +14,7 @@ import {
 	Schema,
 	String as Str
 } from "effect"
-import { type Branch, count, firstBranch, nextBranch } from "#enumerate.ts"
+import { type Branch, firstBranch, nextBranch, sizeOf } from "#enumerate.ts"
 import { failureText } from "#failure.ts"
 import {
 	type Coverage,
@@ -243,20 +243,12 @@ const withCaseLives = <A, R>(
 		)
 	})
 
-/** A case gave itself up: its precondition did not hold. It never counts as a pass or a failure. */
-export class CaseDiscarded extends Schema.TaggedError<
-	CaseDiscarded,
-	{ readonly brand: unique symbol }
->()("CaseDiscarded", {}) {}
-
-/** Whether an error is a case's discard: a case that left the space, never a failure. */
-export const isCaseDiscarded = Schema.is(CaseDiscarded)
-
 /**
  * What a property sees of the case it runs: it notes the situations it reached; steers, where steering is allowed, by
  * reading which of the suite's required situations no witness had reached when the case's window began (Pending);
- * draws more from the case's own tape; records on the tape what the system under test decided (and learns whether a
- * replay decided the same); and gives the case up when a precondition fails. A note, a draw or an observation made
+ * draws more from the case's own tape; and records on the tape what the system under test decided (and learns whether
+ * a replay decided the same). A case never gives itself up: a precondition is a property of the generator, which
+ * constructs only cases that meet it. A note, a draw or an observation made
  * after the case ended is a misuse, reported as one. Steering is offered to the witnesses (the floor stream, the
  * steered phase, an exhaustion's cases) and to a fuzz run, so a property may aim their draws at what is pending.
  * `steering` is none wherever a case must be a plain draw of its generator: the rotating stream, whose cases alone
@@ -270,7 +262,6 @@ export type Case<F extends string> = Readonly<{
 	steering: Option.Option<Pending<F>>
 	draw: <A>(generator: Gen<A>) => A
 	observe: (decided: string) => Observed
-	assume: (holds: boolean) => Effect.Effect<void, CaseDiscarded>
 }>
 
 /**
@@ -297,7 +288,7 @@ export const sketched = <S, T>(generator: Gen<S>, resolve: (sketch: S) => T): Dr
  * what the property drew from the case's tape is `draws`, the tape token of exactly those decisions ("" when it drew
  * none), so a kept race replays the very schedule that failed. A kept case passes only when it ran exactly its draws:
  * draws that no longer fit what the property draws, running out, out of a decision's range or left over, fail as
- * `KeptStale`, as does a kept case that gives itself up, and a kept case never fills in what it lacks. A failure or a
+ * `KeptStale`, and a kept case never fills in what it lacks. A failure or a
  * hang it meets is reported as one, stale or not. What the system decided is observed, not drawn: an observation the
  * draws lack is recorded, never stale.
  */
@@ -424,14 +415,6 @@ export class DeadlineReached extends Schema.TaggedError<
 	message: Schema.String
 }) {}
 
-/** More of the floor stream's cases gave themselves up than ran: the generator rarely meets the property's
- * precondition, and should build values that meet it rather than filter for them. The floor is the label-fixed set of
- * plain draws, so a stall is the same on every run seed. */
-export class CasesStalled extends Schema.TaggedError<
-	CasesStalled,
-	{ readonly brand: unique symbol }
->()("CasesStalled", { suite: Schema.String, message: Schema.String }) {}
-
 /** The witnesses a coverage verdict was judged on: an exploration's floor and steered cases, or an exhaustion's every
  * case. */
 const Witnessed = Schema.Union([
@@ -458,14 +441,14 @@ export class FeaturesUnreached extends Schema.TaggedError<
 }) {}
 
 /** A kept case no longer runs as kept: its draws no longer fit what its property draws (they ran out, fell outside a
- * decision's range, or were left over), or it gave itself up. */
+ * decision's range, or were left over). */
 export class KeptStale extends Schema.TaggedError<KeptStale, { readonly brand: unique symbol }>()(
 	"KeptStale",
 	{ suite: Schema.String, note: Schema.String, message: Schema.String }
 ) {}
 
 /** A replay token's case no longer runs as its token says: it steers by a requirement the suite no longer declares,
- * its draws no longer fit what its property draws, or it gave itself up. */
+ * or its draws no longer fit what its property draws. */
 export class ReplayStale extends Schema.TaggedError<
 	ReplayStale,
 	{ readonly brand: unique symbol }
@@ -488,24 +471,16 @@ export class CaseMisused extends Schema.TaggedError<
 	{ readonly brand: unique symbol }
 >()("CaseMisused", { suite: Schema.String, message: Schema.String }) {}
 
-/** An exhaustive space holds more cases than its limit; it is refused before any case beyond the limit runs. */
-export class SpaceBeyondLimit extends Schema.TaggedError<
-	SpaceBeyondLimit,
-	{ readonly brand: unique symbol }
->()("SpaceBeyondLimit", { suite: Schema.String, limit: Schema.Finite, message: Schema.String }) {}
-
 /** Every way an exploration or an exhaustion can fail. */
 export type SearchFailure =
 	| PropertyFalsified
 	| CaseHung
 	| DeadlineReached
-	| CasesStalled
 	| FeaturesUnreached
 	| KeptUnreached
 	| KeptStale
 	| ReplayStale
 	| CaseMisused
-	| SpaceBeyondLimit
 
 /**
  * What a case did. A case is cut when its search's deadline arrived before it ended. A failed, hung or cut case carries
@@ -513,14 +488,12 @@ export type SearchFailure =
  */
 type Outcome =
 	| Readonly<{ kind: "passed" }>
-	| Readonly<{ kind: "discarded" }>
 	| Readonly<{ kind: "failed"; cause: Cause.Cause<unknown>; tape: Tape }>
 	| Readonly<{ kind: "hung"; tape: Tape }>
 	| Readonly<{ kind: "cut"; tape: Tape }>
 
 /**
- * A case's outcome as its search judges it: what it did, or misused, when a case that passed or gave itself up was used
- * after it ended. A failure, a hang or a cut is judged as itself, whatever was done with the case after.
+ * A case's outcome as its search judges it: what it did, or misused, when a case that passed was used after it ended. A failure, a hang or a cut is judged as itself, whatever was done with the case after.
  */
 type Judged = Outcome | Readonly<{ kind: "misused" }>
 
@@ -554,8 +527,6 @@ const judge = <A>(caseRun: CaseRun<unknown, unknown>, judgment: Judgment<A>): A 
 	switch (judged.kind) {
 		case "passed":
 			return judgment.passed(judged)
-		case "discarded":
-			return judgment.discarded(judged)
 		case "failed":
 			return judgment.failed(judged)
 		case "hung":
@@ -570,7 +541,6 @@ const judge = <A>(caseRun: CaseRun<unknown, unknown>, judgment: Judgment<A>): A 
 const judgedOf = (caseRun: CaseRun<unknown, unknown>): Judged => {
 	switch (caseRun.outcome.kind) {
 		case "passed":
-		case "discarded":
 			return caseRun.misused() ? { kind: "misused" } : caseRun.outcome
 		case "failed":
 		case "hung":
@@ -582,13 +552,12 @@ const judgedOf = (caseRun: CaseRun<unknown, unknown>): Judged => {
 /** A failing case's run and its cause, what a shrink carries from candidate to candidate. */
 type Failure<S> = Readonly<{ run: CaseRun<S, unknown>; cause: Cause.Cause<unknown> }>
 
-/** A shrink candidate's judgment: it is a smaller case of the failure only when its property failed; a pass, a discard,
- * a hang or a misuse is not the failure being shrunk, and a cut candidate ends the shrink. */
+/** A shrink candidate's judgment: it is a smaller case of the failure only when its property failed; a pass, a hang or
+ * a misuse is not the failure being shrunk, and a cut candidate ends the shrink. */
 const candidateJudgment = <S>(candidate: CaseRun<S, Tape>): Judgment<Attempt<Failure<S>>> => {
 	const holds = (): Attempt<Failure<S>> => ({ kind: "holds", tape: candidate.kept })
 	return {
 		passed: holds,
-		discarded: holds,
 		hung: holds,
 		misused: holds,
 		cut: () => ({ kind: "cut" }),
@@ -621,22 +590,15 @@ const steeredBy = <F extends string>(
 /** How a case's property ended, before its recording is read. */
 type Settled =
 	| Readonly<{ kind: "passed"; trace: Uint8Array }>
-	| Readonly<{ kind: "discarded" }>
 	| Readonly<{ kind: "failed"; cause: Cause.Cause<unknown> }>
 	| Readonly<{ kind: "hung" }>
 	| Readonly<{ kind: "cut" }>
 
-/** A case's outcome: discarded whenever its recording gave up, however its property ended, otherwise as its property
- * settled, a failed, hung or cut case with its tape. */
+/** A case's outcome: as its property settled, a failed, hung or cut case with its tape. */
 const outcomeOf = (recorded: Recording, settled: Settled): Outcome => {
-	if (recorded.status() === "discarded") {
-		return { kind: "discarded" }
-	}
 	switch (settled.kind) {
 		case "passed":
 			return { kind: "passed" }
-		case "discarded":
-			return { kind: "discarded" }
 		case "failed":
 			return { kind: "failed", cause: settled.cause, tape: recorded.tape() }
 		case "hung":
@@ -786,8 +748,7 @@ const runRecorded = <S, T, F extends string, E, R, K>(
 					return "as-recorded"
 				}
 				return recorded.source.observe(fnv1a32(decided))
-			},
-			assume: (holds) => (holds ? Effect.void : Effect.fail(CaseDiscarded.make({})))
+			}
 		}
 		const finish = (settled: Settled): CaseRun<S, K> => {
 			open = false
@@ -806,21 +767,15 @@ const runRecorded = <S, T, F extends string, E, R, K>(
 			pool.push(recorded)
 			return run
 		}
-		if (recorded.status() === "discarded") {
-			return Effect.succeed(finish({ kind: "discarded" }))
-		}
 		const settled = sense
 			.perceive(Effect.scoped(Effect.suspend(() => property(resolve(sketch), c))))
 			.pipe(
 				Effect.exit,
-				Effect.map((exit): Settled => {
-					if (Exit.isSuccess(exit)) {
-						return { kind: "passed", trace: exit.value[1] }
-					}
-					return Option.exists(Exit.findErrorOption(exit), isCaseDiscarded)
-						? { kind: "discarded" }
+				Effect.map((exit): Settled =>
+					Exit.isSuccess(exit)
+						? { kind: "passed", trace: exit.value[1] }
 						: { kind: "failed", cause: exit.cause }
-				})
+				)
 			)
 		return Effect.uninterruptibleMask((restore) =>
 			Effect.gen(function* () {
@@ -854,7 +809,6 @@ const runRecorded = <S, T, F extends string, E, R, K>(
 						yield* life.stop(running)
 						break
 					case "passed":
-					case "discarded":
 					case "failed":
 						break
 				}
@@ -1095,13 +1049,6 @@ const replayOne = <S, T, F extends string, E, R, A>(
 								message: `${search.suite}: ${where} passed, but not as its token says: ${drewInstead(caseRun, values.length)}; replay it from a fresh failure`
 							})
 						),
-			discarded: () =>
-				Effect.fail(
-					ReplayStale.make({
-						suite: search.suite,
-						message: `${search.suite}: ${where} gave itself up, so it no longer runs; replay it from a fresh failure`
-					})
-				),
 			misused: () => misusedIn(search.suite, where),
 			hung: (hung) =>
 				Effect.fail(
@@ -1142,7 +1089,7 @@ const replayOne = <S, T, F extends string, E, R, A>(
 	})
 
 /**
- * What a passing exploration found: its cases, its discards, how many cases its steered phase ran, the residual
+ * What a passing exploration found: its cases, how many cases its steered phase ran, the residual
  * estimate of its independent cases, how many of them reached each feature its coverage rates (features.ts rating),
  * and the oracle it states. A replay's has its one case: it runs no stream.
  */
@@ -1150,7 +1097,6 @@ export type Explored = Readonly<{
 	kind: "explored"
 	suite: string
 	cases: number
-	discards: number
 	steered: number
 	residual: Residual
 	rates: ReadonlyArray<Rate>
@@ -1300,7 +1246,6 @@ export const explore = <S, T, F extends string, E, R>(
 						kind: "explored",
 						suite: spec.suite,
 						cases: 1,
-						discards: 0,
 						steered: 0,
 						residual: residualOf(tallyOf("independent").tally()),
 						rates: ratesOf(spec.coverage, tallyOf("independent").tally()),
@@ -1317,7 +1262,6 @@ export const explore = <S, T, F extends string, E, R>(
 			const hang = hangOf(spec.caseHang)
 			const unsteered = underOf(situations, { kind: "unsteered" })
 			let cases = 0
-			let discards = 0
 			const blockedUnder = (under: Under<F>) =>
 				blockedIn(run, spec.suite, spec.literal, spec.caseHang, Option.some(under.drawn))
 			const caseOf = (chooser: Chooser, under: Under<F>) =>
@@ -1366,7 +1310,6 @@ export const explore = <S, T, F extends string, E, R>(
 				kind: "explored",
 				suite: spec.suite,
 				cases,
-				discards,
 				steered: steeredTally.tally().cases,
 				residual: residualOf(independentTally.tally()),
 				rates: ratesOf(spec.coverage, independentTally.tally()),
@@ -1412,14 +1355,6 @@ export const explore = <S, T, F extends string, E, R>(
 								)
 							: Effect.void
 					},
-					discarded: () =>
-						Effect.fail(
-							KeptStale.make({
-								suite: spec.suite,
-								note: kept.note,
-								message: `${spec.suite}: ${where} gave itself up, so its property's precondition no longer holds for it; replay it from a fresh failure and keep that`
-							})
-						),
 					misused: () => misusedIn(spec.suite, where),
 					hung: () =>
 						Effect.fail(
@@ -1454,7 +1389,7 @@ export const explore = <S, T, F extends string, E, R>(
 			const floor = floorSeed(spec.suite)
 			const seeds = seedsOf()
 
-			/** Judges one case of a phase: a pass counts in its phase's tally and a discard is its phase's, a failure is
+			/** Judges one case of a phase: a pass counts in its phase's tally, a failure is
 			 * shrunk under the steering the case was drawn under, as far as the deadline allows, and reported with its phase
 			 * and its replay token, and a hang or a cut is reported as drawn. */
 			const settle = <K>(
@@ -1463,18 +1398,11 @@ export const explore = <S, T, F extends string, E, R>(
 				under: Under<F>,
 				tally: TallyBuilder<Phase>
 			) =>
-				judge<Effect.Effect<boolean, SearchFailure, Exclude<R, Scope.Scope>>>(caseRun, {
+				judge<Effect.Effect<void, SearchFailure, Exclude<R, Scope.Scope>>>(caseRun, {
 					passed: () =>
 						Effect.sync(() => {
 							cases += 1
 							tally.add(caseRun.notes)
-							return true
-						}),
-					discarded: () =>
-						Effect.sync(() => {
-							discards += 1
-							tally.discard()
-							return false
 						}),
 					misused: () => misusedIn(spec.suite, where),
 					hung: (hung) => {
@@ -1573,7 +1501,8 @@ export const explore = <S, T, F extends string, E, R>(
 					)
 					for (const [offset, caseRun] of settlingOrder(window)) {
 						const where = `${mutatedLabel(mutated)} (seed ${hex(mutated.stream)}), case ${Arr.getUnsafe(indices, offset)}`
-						if ((yield* settle(caseRun, where, under, mutated.tally)) && keepIfNew(caseRun)) {
+						yield* settle(caseRun, where, under, mutated.tally)
+						if (keepIfNew(caseRun)) {
 							yield* found(caseRun)
 						}
 					}
@@ -1604,9 +1533,8 @@ export const explore = <S, T, F extends string, E, R>(
 						)
 						for (const [offset, caseRun] of settlingOrder(window)) {
 							const where = `the floor stream (seed ${hex(floor)}), case ${windowStart + offset}`
-							if (yield* settle(caseRun, where, under, floorTally)) {
-								passed(caseRun)
-							}
+							yield* settle(caseRun, where, under, floorTally)
+							passed(caseRun)
 						}
 					}
 				})
@@ -1615,14 +1543,6 @@ export const explore = <S, T, F extends string, E, R>(
 				yield* floorStream((chooser, under) => seedOf(chooser, under, notesOnly), keepIfNew)
 			} else {
 				yield* floorStream(caseOf, () => undefined)
-			}
-
-			const floored = floorTally.tally()
-			if (floored.discards > floored.cases) {
-				return yield* CasesStalled.make({
-					suite: spec.suite,
-					message: `${spec.suite}: ${floored.discards} of the floor stream's cases gave themselves up and ${floored.cases} ran; build values that meet the precondition instead of filtering for them`
-				})
 			}
 
 			if (Option.isSome(fuzzing)) {
@@ -1645,8 +1565,8 @@ export const explore = <S, T, F extends string, E, R>(
 							under,
 							sense
 						)
-						const passed = yield* settle(caseRun, `the corpus's case ${index}`, under, fuzzedTally)
-						return passed && keepIfNew(caseRun)
+						yield* settle(caseRun, `the corpus's case ${index}`, under, fuzzedTally)
+						return keepIfNew(caseRun)
 					})
 				)
 				const started = yield* liveMillis
@@ -1763,8 +1683,34 @@ export const explore = <S, T, F extends string, E, R>(
 	)
 
 /**
- * An exhaustive check: every case of a bounded generator, under a hard limit. `literal` prints a case as source, as an
- * exploration's does; `coverage` is what the space must reach, judged on every case of it; `box` names the space in
+ * The size of an exhaustion's space, counted before any case runs and raced against its test's deadline: a count the
+ * deadline cuts fails the exhaustion, naming the space, since a space too large to count is too large to exhaust.
+ */
+const spaceCounted = (
+	run: Context.Service.Shape<typeof Run>,
+	cutting: Cutting,
+	suite: string,
+	generator: Gen<unknown>
+): Effect.Effect<number, DeadlineReached> =>
+	cutting.kind === "unbounded"
+		? sizeOf(generator)
+		: Effect.raceFirst(
+				sizeOf(generator),
+				Effect.andThen(
+					cutting.reached,
+					deadlineReachedIn(
+						run,
+						suite,
+						"counting the exhaustive space",
+						"none: the space was still being counted, too large to finish before the deadline; exhaust a smaller space the generator constructs, or sample this one with explore",
+						Option.none()
+					)
+				)
+			)
+
+/**
+ * An exhaustive check: every case of a generator's space, whatever its size, the whole space or a failure. `literal`
+ * prints a case as source, as an exploration's does; `coverage` is what the space must reach, judged on every case of it; `box` names the space in
  * words, the bound a pass proves the property within ("every family of size ≤ 4 under every single mutation"); and
  * `oracle` is what the property is checked against. The report prints both.
  */
@@ -1772,7 +1718,6 @@ export type Exhaustion<A, F extends string> = Readonly<{
 	suite: string
 	generator: Gen<A>
 	literal: (value: A) => string
-	limit: number
 	coverage: SpaceCoverage<F>
 	caseHang: Duration.Input
 	box: Box
@@ -1786,14 +1731,12 @@ export type Exhaustion<A, F extends string> = Readonly<{
 export type Box = string | Readonly<{ kind: "unstated" }>
 
 /**
- * What a passing exhaustion checked: every case of its space, the limit it was counted under, the box it names and the
- * oracle it states. A replay's has its one case.
+ * What a passing exhaustion checked: every case of its space, the box it names and the oracle it states. A replay's has its one case.
  */
 export type Exhausted = Readonly<{
 	kind: "exhausted"
 	suite: string
 	cases: number
-	limit: number
 	box: Box
 	oracle: Oracle
 }>
@@ -1801,14 +1744,16 @@ export type Exhausted = Readonly<{
 /**
  * Checks a property on every case of a bounded generator, in enumeration order, and shrinks the first case that fails
  * by editing its tape, property draws included, under the steering it was drawn under, for at most as many candidates
- * as the space's limit: enumeration is lexicographic over decisions and shrinking descends shortlex order, so a later
- * case with fewer decisions may be less than the first failure, and the shrink moves toward it, while a space of one
- * shape needs no candidate. Its replay token runs the shrunk case alone. The space is counted before any property runs
- * and refused beyond its limit; draws the property makes are enumerated too, so each case's successor depends on it
- * and cases run one at a time, and a run that would pass the limit stops before it. Each case steers by the
- * requirements no earlier case reached. Every case of the space is a witness, fixed by the generator alone, so every
- * requirement must be reached by one of them, and the verdict is the same on every run seed. Passing is a proof inside
- * the box the generator draws.
+ * as the space holds cases: enumeration is lexicographic over decisions and shrinking descends shortlex order, so a
+ * later case with fewer decisions may be less than the first failure, and the shrink moves toward it, while a space of
+ * one shape needs no candidate. Its replay token runs the shrunk case alone. The space is counted before any property
+ * runs (sizeOf), and draws the property makes are enumerated too, so each case's successor depends on it and cases run
+ * one at a time. Nothing caps an exhaustion: its test's deadline is its only end, and a count or a run the deadline cuts
+ * fails, naming the space, so a space too large to finish is a failure, never a pass over part of it; a suite whose
+ * space cannot finish exhausts a smaller space it constructs, or samples it with explore under a budget it names. Each
+ * case steers by the requirements no earlier case reached. Every case of the space is a witness, fixed by the generator
+ * alone, so every requirement must be reached by one of them, and the verdict is the same on every run seed. Passing is
+ * a proof inside the box the generator draws.
  */
 export const exhaust = <A, F extends string, E, R>(
 	spec: Exhaustion<A, F>,
@@ -1821,7 +1766,6 @@ export const exhaust = <A, F extends string, E, R>(
 				kind: "exhausted",
 				suite: spec.suite,
 				cases,
-				limit: spec.limit,
 				box: spec.box,
 				oracle: spec.oracle
 			})
@@ -1843,14 +1787,7 @@ export const exhaust = <A, F extends string, E, R>(
 					(): Exhausted => exhaustedOf(1)
 				)
 			}
-			const refused = SpaceBeyondLimit.make({
-				suite: spec.suite,
-				limit: spec.limit,
-				message: `${spec.suite}: the space holds more than ${spec.limit} cases; an exhaustive check refuses rather than samples`
-			})
-			if (count(spec.generator, spec.limit).kind === "beyond") {
-				return yield* refused
-			}
+			const size = yield* spaceCounted(run, life.cutting, spec.suite, spec.generator)
 			const exhaustive = tallyOf("exhaustive")
 			const pool: Array<Recorder> = []
 			const hang = hangOf(spec.caseHang)
@@ -1891,16 +1828,13 @@ export const exhaust = <A, F extends string, E, R>(
 			while (Option.isSome(branch)) {
 				const under = steeredBy(situations, [exhaustive.tally()])
 				const caseRun = yield* caseAt(branch.value, under)
-				const where = `case ${cases} of the exhaustive space`
+				const where = `case ${cases} of the exhaustive space of ${size} cases`
 				yield* judge<Effect.Effect<void, SearchFailure, Exclude<R, Scope.Scope>>>(caseRun, {
 					passed: () =>
-						cases >= spec.limit
-							? Effect.fail(refused)
-							: Effect.sync(() => {
-									cases += 1
-									exhaustive.add(caseRun.notes)
-								}),
-					discarded: () => Effect.sync(() => exhaustive.discard()),
+						Effect.sync(() => {
+							cases += 1
+							exhaustive.add(caseRun.notes)
+						}),
 					misused: () => misusedIn(spec.suite, where),
 					hung: (hung) => {
 						const replayed = replayCaseOf(under.drawn, hung.tape)
@@ -1928,7 +1862,7 @@ export const exhaust = <A, F extends string, E, R>(
 									Effect.map(candidateOf(values, under), (candidate) =>
 										judge(candidate, candidateJudgment(candidate))
 									),
-								boundedShrink(spec.limit)
+								boundedShrink(size)
 							),
 							(shrunk) => {
 								const best = shrunk.best.failure.run

@@ -226,7 +226,6 @@ layer(Substrate.layer)("the invalid mutants are killed", (it) => {
 						suite: "mutants/invalid",
 						generator: element(invalid),
 						literal: (m: Mutant) => m.id,
-						limit: invalid.length,
 						box: "every invalid mutant of the roster (mutants.ts)",
 						oracle: {
 							kind: "specification",

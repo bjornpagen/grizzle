@@ -41,7 +41,6 @@ import { caseHang } from "#test/support/limits.ts"
 import { draftChain, fromEmpty, noDeclarations, ownedBy } from "#test/support/migrate/kit.ts"
 import { readLedger } from "#test/support/migrate/ledger.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-import { upTo } from "#test/support/up-to.ts"
 import { frameOf, type Tapped, tappedSession } from "#test/support/wire-tap.ts"
 import { shopV1, shopV2, shopV3, shopV3Declared } from "#test/unit/deploy/schemas.ts"
 
@@ -62,13 +61,6 @@ const historyGen: Gen<History> = (source) => {
 	const count = source.draw(int(1, versions.length))
 	return { versions: count, split: source.draw(int(0, count)) }
 }
-
-/** The histories the box holds: a history of n versions splits at each of its n + 1 folders, none included. */
-const historyCount = Arr.reduce(
-	upTo(versions.length, (i) => i + 1),
-	0,
-	(sum, count) => sum + count + 1
-)
 
 type FlightFeature =
 	| "an absent ledger admitted"
@@ -167,7 +159,6 @@ layer(Substrate.layer)("every step of grizzle migrate is one flight", (it) => {
 						suite: "migrate/flights",
 						generator: historyGen,
 						literal: Formatter.format,
-						limit: historyCount,
 						coverage: requiredInSpace<FlightFeature>([
 							"an absent ledger admitted",
 							"every folder in one apply",

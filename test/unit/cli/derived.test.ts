@@ -188,7 +188,6 @@ layer(NodeServices.layer, { excludeTestServices: true })("derived runtime facts"
 							suite: "unit/cli/derived-facts",
 							generator: stalings(members),
 							literal: Formatter.format,
-							limit: 1 + 2 * 2 ** members.length,
 							box: "a snapshot.json whose derived member is removed, or which leaves out any of the members the draft records, or whose closed facts hold one of a relation the schema lacks",
 							oracle: {
 								kind: "specification",

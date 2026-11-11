@@ -156,7 +156,6 @@ layer(Substrate.layer, { excludeTestServices: true })("the session pool on Verce
 							suite: "serverless/vercel-env",
 							generator: (source) => [source.draw(boolean), source.draw(boolean)] as const,
 							literal: Formatter.format,
-							limit: 4,
 							coverage: requiredInSpace<VercelEnvFeature>([
 								"url and region",
 								"url only",
