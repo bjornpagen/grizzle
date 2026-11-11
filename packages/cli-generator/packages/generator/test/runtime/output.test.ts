@@ -958,7 +958,7 @@ const sendTo = async (
 			},
 			"EXAMPLE"
 		),
-		Auth.layer({ schemes: {} }, "EXAMPLE"),
+		Auth.layer({ schemes: {} }, "EXAMPLE", []),
 		ConfigProvider.layer(ConfigProvider.fromEnvRecord({})),
 		NodeFileSystem.layer,
 		NodePath.layer,

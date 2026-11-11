@@ -1,6 +1,7 @@
 import { Effect, Runtime } from "effect"
 import { describe, expect, test } from "vitest"
 import { UsageError } from "#runtime-src/domain/errors.ts"
+import { jsonNull } from "#runtime-src/runtime/input.ts"
 import * as Serialize from "#runtime-src/runtime/serialize.ts"
 import type { Json } from "#runtime-src/runtime/serialize.ts"
 
@@ -95,7 +96,7 @@ describe("querystring under form-urlencoded content", () => {
 
 describe("querystring under any other media type", () => {
 	test("STY-43: application/json gives the percent-encoded compact JSON", async () => {
-		const parameter = ofValue("application/json", { a: 1, b: ["x y", null] })
+		const parameter = ofValue("application/json", { a: 1, b: ["x y", jsonNull] })
 
 		expect(await urlOf(parameter)).toBe(
 			"/search?%7B%22a%22%3A1%2C%22b%22%3A%5B%22x%20y%22%2Cnull%5D%7D"

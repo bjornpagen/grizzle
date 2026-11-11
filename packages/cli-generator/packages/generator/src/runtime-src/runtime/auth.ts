@@ -137,15 +137,32 @@ export const maxCredentialBytes = 65_536
 export const maxCertificateBytes = 1_048_576
 
 /**
- * The security table and environment prefix, provided once by the root `services` layer.
+ * The global setting `--<scheme>-file <path|->` of one scheme.
+ */
+type FileSetting = GlobalFlag.Setting<string, Option.Option<string>>
+
+/**
+ * The security table, the environment prefix and the credential file settings the root registered,
+ * provided once by the root `services` layer.
  */
 export class Schemes extends Context.Service<
 	Schemes,
-	{ readonly envPrefix: string; readonly table: SecurityTable }
+	{
+		readonly envPrefix: string
+		readonly files: readonly FileSetting[]
+		readonly table: SecurityTable
+	}
 >()("effect-openapi-cli-generator/runtime-src/runtime/auth/Schemes") {}
 
-export const layer = (table: SecurityTable, envPrefix: string): Layer.Layer<Schemes> =>
-	Layer.succeed(Schemes)({ envPrefix, table })
+/**
+ * The `Schemes` service. `files` are the very settings the root registers as global flags, so a
+ * scheme's file flag and its evaluation read one service key.
+ */
+export const layer = (
+	table: SecurityTable,
+	envPrefix: string,
+	files: readonly FileSetting[]
+): Layer.Layer<Schemes> => Layer.succeed(Schemes)({ envPrefix, files, table })
 
 /**
  * A lower-case letter or digit before an upper-case letter: a camel-case word boundary.
@@ -189,27 +206,21 @@ export const envName = (envPrefix: string, scheme: string, definition: SecurityS
 	("env" in definition ? definition.env : undefined) ??
 	`${envPrefix}_${screamingSnake(schemeSlug(scheme))}`
 
-type FileSetting = GlobalFlag.Setting<string, Option.Option<string>>
-
-const fileSettings = new Map<string, FileSetting>()
+/**
+ * The name of a scheme's credential file flag: `bearerAuth` is `bearer-auth-file`.
+ */
+const fileFlagName = (scheme: string): string => `${schemeSlug(scheme)}-file`
 
 /**
- * The root global setting `--<scheme>-file <path|->`. One setting per scheme: a second call
- * returns the first, so the flag registration and the evaluation read the same service key.
+ * A fresh root global setting `--<scheme>-file <path|->`. Each call mints its own service key, so
+ * the root mints each scheme's setting once and hands that same setting to `layer`.
  */
 export const credentialFileSetting = (scheme: string): FileSetting => {
-	const name = `${schemeSlug(scheme)}-file`
-	const known = fileSettings.get(name)
-	if (known !== undefined) {
-		return known
-	}
+	const name = fileFlagName(scheme)
 
-	const created = GlobalFlag.Setting(name)({
+	return GlobalFlag.Setting(name)({
 		flag: Flag.String(name).pipe(Flag.withMetavar("path|-"), Flag.optional)
 	})
-	fileSettings.set(name, created)
-
-	return created
 }
 
 const usage = (scheme: string, message: string): UsageError =>
@@ -306,7 +317,8 @@ const certificateOf = (
 const credentialOf = (
 	scheme: string,
 	definition: SecurityScheme,
-	envPrefix: string
+	envPrefix: string,
+	files: readonly FileSetting[]
 ): Effect.Effect<
 	Option.Option<Credential>,
 	UsageError,
@@ -317,8 +329,12 @@ const credentialOf = (
 			return yield* certificateOf(scheme, definition)
 		}
 
-		const setting = yield* Effect.serviceOption(credentialFileSetting(scheme))
-		const file = Option.flatten(setting)
+		const name = fileFlagName(scheme)
+		const setting = Arr.findFirst(files, (each) => each.id === name)
+		const given: Option.Option<Option.Option<string>> = Option.isSome(setting)
+			? yield* Effect.serviceOption(setting.value)
+			: Option.none()
+		const file = Option.flatten(given)
 		const value = Option.isSome(file)
 			? yield* fromFile(scheme, file.value).pipe(
 					Effect.filterOrFail(
@@ -342,7 +358,7 @@ const credentialOf = (
  * What a scheme name loses before a terminal sees it: it comes from the generated table, but a
  * terminal must never see a control character.
  */
-const unsafeName = regex("[\\p{Cc}\\p{Cf}\\p{Cs}\\u2028\\u2029]", "gu")
+const unsafeName: Readonly<RegExp> = regex("[\\p{Cc}\\p{Cf}\\p{Cs}\\u2028\\u2029]", "gu")
 
 const safeName = Str.replaceAll(unsafeName, "")
 
@@ -458,7 +474,7 @@ const promptTarget = <R>(
  * A per-evaluation credential reader: each scheme is resolved once, so stdin is claimed at most
  * once. A scheme the table does not define cannot be configured.
  */
-const resolver = (envPrefix: string, table: SecurityTable) => {
+const resolver = (envPrefix: string, table: SecurityTable, files: readonly FileSetting[]) => {
 	const resolved = new Map<string, Option.Option<Credential>>()
 
 	return Effect.fnUntraced(function* resolveScheme(scheme: string) {
@@ -469,7 +485,9 @@ const resolver = (envPrefix: string, table: SecurityTable) => {
 
 		const definition = table.schemes[scheme]
 		const found =
-			definition === undefined ? Option.none() : yield* credentialOf(scheme, definition, envPrefix)
+			definition === undefined
+				? Option.none()
+				: yield* credentialOf(scheme, definition, envPrefix, files)
 		resolved.set(scheme, found)
 
 		return found
@@ -542,8 +560,8 @@ export const evaluate = (
 	Schemes | FileSystem.FileSystem | Stdio.Stdio | StdinClaim
 > =>
 	Effect.gen(function* evaluateRequirement() {
-		const { envPrefix, table } = yield* Schemes
-		const resolve = resolver(envPrefix, table)
+		const { envPrefix, files, table } = yield* Schemes
+		const resolve = resolver(envPrefix, table, files)
 
 		const chosen = yield* configuredAlternative(requirement, resolve)
 		if (Option.isSome(chosen)) {
@@ -630,8 +648,8 @@ export const preview = (
 	requirement: SecurityRequirement
 ): Effect.Effect<Preview, UsageError, Schemes | FileSystem.FileSystem | Stdio.Stdio | StdinClaim> =>
 	Effect.gen(function* previewRequirement() {
-		const { envPrefix, table } = yield* Schemes
-		const configured = yield* configuredAlternative(requirement, resolver(envPrefix, table))
+		const { envPrefix, files, table } = yield* Schemes
+		const configured = yield* configuredAlternative(requirement, resolver(envPrefix, table, files))
 		if (Option.isSome(configured)) {
 			yield* noticeDeprecated(configured.value)
 
@@ -834,9 +852,9 @@ const unsafeHeaderValue = (value: string): boolean =>
 /**
  * An RFC 6265 cookie-name: an RFC 9110 token.
  */
-const cookieNameToken = regex("^[!#$%&'*+.^_`|~0-9A-Za-z-]+$", "u")
+const cookieNameToken: Readonly<RegExp> = regex("^[!#$%&'*+.^_`|~0-9A-Za-z-]+$", "u")
 
-const controlCharacter = regex("\\p{Cc}", "u")
+const controlCharacter: Readonly<RegExp> = regex("\\p{Cc}", "u")
 
 const refuse = (scheme: string, rule: string): Effect.Effect<never, UsageError> =>
 	Effect.fail(usage(scheme, `the credential for ${scheme} ${rule}`))
@@ -1029,7 +1047,7 @@ export const credentialHeaders = ["authorization", "proxy-authorization", "cooki
  * one of these words. Output redacts such a header beside `credentialHeaders`; the wire never
  * changes.
  */
-export const credentialLikeName = regex.as(
+export const credentialLikeName: Readonly<RegExp> = regex.as(
 	"token|secret|password|passwd|api-key|apikey|api_key|auth|session|credential|signature",
 	"iu"
 )
@@ -1051,7 +1069,7 @@ export const credentialLikeExemptions = [
  * A response header name `--verbose` redacts by operator policy: a credential-like name
  * (`credentialLikeName`) that `credentialLikeExemptions` does not list.
  */
-export const credentialLikeResponseName = regex.as(
+export const credentialLikeResponseName: Readonly<RegExp> = regex.as(
 	`^(?!(?:${Arr.join(credentialLikeExemptions, "|")})$).*(?:${credentialLikeName.source})`,
 	"iu"
 )
@@ -1090,11 +1108,11 @@ export const redactedNames = (table: SecurityTable) =>
 		)
 	)
 
-const dottedLoopback = regex("^127\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}$", "u")
+const dottedLoopback: Readonly<RegExp> = regex("^127\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}$", "u")
 
-const mappedLoopback = regex("^\\[::ffff:7f[0-9a-f]{2}:[0-9a-f]{1,4}\\]$", "u")
+const mappedLoopback: Readonly<RegExp> = regex("^\\[::ffff:7f[0-9a-f]{2}:[0-9a-f]{1,4}\\]$", "u")
 
-const trailingDot = regex("\\.$", "u")
+const trailingDot: Readonly<RegExp> = regex("\\.$", "u")
 
 /**
  * The one loopback predicate (design 6.5 Loopback hosts). Its input is a WHATWG `URL.hostname`:

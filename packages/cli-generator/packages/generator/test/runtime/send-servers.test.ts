@@ -178,7 +178,7 @@ const run = async (meta: Output.OperationMeta, world: World = {}) => {
 	)
 	const environment = Layer.mergeAll(
 		BaseUrl.layer(rootTable, "X"),
-		Auth.layer(security, "X"),
+		Auth.layer(security, "X", []),
 		ConfigProvider.layer(ConfigProvider.fromEnvRecord({ X_BEARER_AUTH: SECRET })),
 		FileSystem.layerNoop({}),
 		Path.layer,

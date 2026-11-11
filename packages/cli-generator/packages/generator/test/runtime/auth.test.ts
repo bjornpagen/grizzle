@@ -1,4 +1,5 @@
 import {
+	Array as Arr,
 	ConfigProvider,
 	Effect,
 	FileSystem,
@@ -64,16 +65,27 @@ const run = (world: World, requirement: Auth.SecurityRequirement) => {
 					Effect.flatMap((claim) => claim.claim(claimedBy)),
 					Effect.flatMap(() => Auth.evaluate("users-update", requirement))
 				)
-	for (const [scheme, path] of Object.entries(world.given ?? {})) {
-		provided = provided.pipe(
-			Effect.provideService(Auth.credentialFileSetting(scheme), Option.some(path))
-		)
+	const given = Arr.map(Object.entries(world.given ?? {}), ([scheme, path]) => ({
+		path,
+		setting: Auth.credentialFileSetting(scheme)
+	}))
+	for (const { path, setting } of given) {
+		provided = provided.pipe(Effect.provideService(setting, Option.some(path)))
 	}
 
 	return Effect.runPromise(
 		provided.pipe(
 			Effect.provide(
-				Layer.mergeAll(Auth.layer(table, "EXAMPLE"), fs, stdio, Input.stdinClaimLayer)
+				Layer.mergeAll(
+					Auth.layer(
+						table,
+						"EXAMPLE",
+						Arr.map(given, ({ setting }) => setting)
+					),
+					fs,
+					stdio,
+					Input.stdinClaimLayer
+				)
 			),
 			Effect.provide(ConfigProvider.layer(ConfigProvider.fromUnknown(world.env ?? {}))),
 			Effect.result
@@ -102,16 +114,12 @@ describe("credentialFileSetting", () => {
 		expect(flag.param.name).toBe("bearer-auth-file")
 		expect(flag.param.typeName).toBe("path|-")
 	})
-
-	test("returns one setting per scheme", () => {
-		expect(Auth.credentialFileSetting("apiKey")).toBe(Auth.credentialFileSetting("apiKey"))
-	})
 })
 
 describe("Auth.layer", () => {
 	test("provides Schemes with the table and the env prefix", async () => {
 		const schemes = await Effect.runPromise(
-			Effect.service(Auth.Schemes).pipe(Effect.provide(Auth.layer(table, "EXAMPLE")))
+			Effect.service(Auth.Schemes).pipe(Effect.provide(Auth.layer(table, "EXAMPLE", [])))
 		)
 
 		expect(schemes.table).toBe(table)
@@ -179,12 +187,13 @@ describe("credential sources", () => {
 					})
 				)
 		})
+		const setting = Auth.credentialFileSetting("bearerAuth")
 		const result = await Effect.runPromise(
 			Auth.evaluate("users-update", [["bearerAuth"]]).pipe(
-				Effect.provideService(Auth.credentialFileSetting("bearerAuth"), Option.some("/bad")),
+				Effect.provideService(setting, Option.some("/bad")),
 				Effect.provide(
 					Layer.mergeAll(
-						Auth.layer(table, "EXAMPLE"),
+						Auth.layer(table, "EXAMPLE", [setting]),
 						fs,
 						Stdio.layerTest({}),
 						Input.stdinClaimLayer
@@ -212,12 +221,13 @@ describe("credential sources", () => {
 
 	test("a credential that is not UTF-8 is refused", async () => {
 		const fs = FileSystem.layerNoop({ stream: () => Stream.make(new Uint8Array([0xff, 0xfe])) })
+		const setting = Auth.credentialFileSetting("bearerAuth")
 		const result = await Effect.runPromise(
 			Auth.evaluate("users-update", [["bearerAuth"]]).pipe(
-				Effect.provideService(Auth.credentialFileSetting("bearerAuth"), Option.some("/bin")),
+				Effect.provideService(setting, Option.some("/bin")),
 				Effect.provide(
 					Layer.mergeAll(
-						Auth.layer(table, "EXAMPLE"),
+						Auth.layer(table, "EXAMPLE", [setting]),
 						fs,
 						Stdio.layerTest({}),
 						Input.stdinClaimLayer

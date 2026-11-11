@@ -47,7 +47,7 @@ const run = async (meta: Output.OperationMeta) => {
 	)
 	const environment = Layer.mergeAll(
 		BaseUrl.layer(rootTable, "X"),
-		Auth.layer({ schemes: {} }, "X"),
+		Auth.layer({ schemes: {} }, "X", []),
 		ConfigProvider.layer(ConfigProvider.fromEnvRecord({})),
 		FileSystem.layerNoop({}),
 		Path.layer,

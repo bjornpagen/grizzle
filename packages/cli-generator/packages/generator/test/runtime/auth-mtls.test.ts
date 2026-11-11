@@ -60,7 +60,7 @@ const evaluate = (requirement: Auth.SecurityRequirement, env: Record<string, str
 		Auth.evaluate("users-read", requirement).pipe(
 			Effect.provide(
 				Layer.mergeAll(
-					Auth.layer(table, "ACME"),
+					Auth.layer(table, "ACME", []),
 					FileSystem.layerNoop({}),
 					Stdio.layerTest({}),
 					Input.stdinClaimLayer
@@ -255,7 +255,7 @@ describe("through send", () => {
 		)
 		const environment = Layer.mergeAll(
 			BaseUrl.layer(servers, "ACME"),
-			Auth.layer(table, "ACME"),
+			Auth.layer(table, "ACME", []),
 			ConfigProvider.layer(ConfigProvider.fromEnvRecord(env)),
 			FileSystem.layerNoop({}),
 			Path.layer,

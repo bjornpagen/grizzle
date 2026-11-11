@@ -93,7 +93,7 @@ const run = async (world: World) => {
 	)
 	const environment = Layer.mergeAll(
 		BaseUrl.layer(servers, "EXAMPLE"),
-		Auth.layer(security, "EXAMPLE"),
+		Auth.layer(security, "EXAMPLE", []),
 		ConfigProvider.layer(ConfigProvider.fromEnvRecord(env)),
 		FileSystem.layerNoop({}),
 		Path.layer,

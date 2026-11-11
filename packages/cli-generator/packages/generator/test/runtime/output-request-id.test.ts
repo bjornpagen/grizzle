@@ -134,7 +134,7 @@ describe("Output.send scrubs the request id with the run's recorded values", () 
 		)
 		const environment = Layer.mergeAll(
 			BaseUrl.layer(servers, "EXAMPLE"),
-			Auth.layer({ schemes: {} }, "EXAMPLE"),
+			Auth.layer({ schemes: {} }, "EXAMPLE", []),
 			ConfigProvider.layer(ConfigProvider.fromEnvRecord({})),
 			FileSystem.layerNoop({}),
 			Path.layer,

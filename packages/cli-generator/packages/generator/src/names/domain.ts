@@ -56,12 +56,14 @@ export const fixedNamespaces: ReadonlySet<string> = new Set([
 /**
  * The names `cli/root.ts` holds besides the fixed namespaces: its own namespace imports, the
  * `services` layer it defines, the `servers` and `security` tables it reads from
- * `api/servers.ts` and `api/security.ts`, and the lazy root's `table` of group loaders, `root`
- * function and its `args` and `groups` parameters.
+ * `api/servers.ts` and `api/security.ts`, the `credentialFiles` settings it mints once for the
+ * root and the `Auth` layer, and the lazy root's `table` of group loaders, `root` function and its
+ * `args` and `groups` parameters.
  */
 export const rootModuleNames: ReadonlySet<string> = new Set([
 	...Arr.map(rootNamespaceImports, ([name]) => name),
 	"args",
+	"credentialFiles",
 	"groups",
 	"root",
 	"security",

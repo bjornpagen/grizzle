@@ -1,5 +1,5 @@
 import { NodeServices } from "@effect/platform-node"
-import { Cause, Console, Effect, Exit, Layer, Runtime, Schema, Sink, Stdio } from "effect"
+import { Cause, Console, Effect, Exit, Layer, Option, Runtime, Schema, Sink, Stdio } from "effect"
 import { CliOutput, Command, Flag } from "effect/cli"
 import { constVoid } from "effect/Function"
 import { describe, expect, test } from "vitest"
@@ -161,8 +161,8 @@ const helpOf = (flag: Flag.Flag<unknown>) =>
 const help = (description?: string) =>
 	helpOf(
 		description === undefined
-			? Input.secretFileFlag("password-file")
-			: Input.secretFileFlag("password-file", description)
+			? Input.secretFileFlag("password-file", Option.none())
+			: Input.secretFileFlag("password-file", Option.some(description))
 	)
 
 describe("m3-pw1b secret-file field flag", () => {
@@ -170,8 +170,8 @@ describe("m3-pw1b secret-file field flag", () => {
 		const { content, refusals } = await emitted()
 
 		expect(refusals).toEqual([])
-		expect(content).toContain('Input.secretFileFlag("password-file"),')
-		expect(content).not.toMatch(/Input\.secretFileFlag\("password-file"\)\.pipe/u)
+		expect(content).toContain('Input.secretFileFlag("password-file", Option.none()),')
+		expect(content).not.toMatch(/Input\.secretFileFlag\("password-file", Option\.none\(\)\)\.pipe/u)
 		expect(content).not.toMatch(/\("password"/u)
 		expect(content).toContain('Flag.String("name")')
 	})
@@ -208,7 +208,7 @@ describe("m3-pw1b secret-file field flag", () => {
 
 		expect(refusals).toEqual([])
 		expect(content).toMatch(
-			/Input\.secretFileFlag\( ?"password-file", "The account password\.",? ?\)/u
+			/Input\.secretFileFlag\(\s*"password-file",\s*Option\.some\("The account password\."\),?\s*\)/u
 		)
 
 		const { code, printed } = await help("The account password.")
@@ -227,7 +227,7 @@ describe("m3-pw1b secret-file field flag", () => {
 		})
 
 		expect(content).toMatch(
-			/Input\.secretFileFlag\( ?"password-file", "The\[31m account password\.",? ?\)/u
+			/Input\.secretFileFlag\(\s*"password-file",\s*Option\.some\("The\[31m account password\."\),?\s*\)/u
 		)
 		expect(content).not.toContain("\u001B")
 		expect(content).not.toContain("\u202E")
@@ -236,7 +236,7 @@ describe("m3-pw1b secret-file field flag", () => {
 	test("a property without a description emits today's call", async () => {
 		const { content } = await emitted({ description: "", format: "password", type: "string" })
 
-		expect(content).toContain('Input.secretFileFlag("password-file"),')
+		expect(content).toContain('Input.secretFileFlag("password-file", Option.none()),')
 	})
 })
 
@@ -245,7 +245,9 @@ describe("m3-pwmh multipart password part flag", () => {
 		const { content, refusals } = await emittedFrom(multipartWith())
 
 		expect(refusals).toEqual([])
-		expect(content).toMatch(/Input\.secretPartFlag\("secret"\)\.pipe\( ?Flag\.optional,? ?\)/u)
+		expect(content).toMatch(
+			/Input\.secretPartFlag\("secret", Option\.none\(\)\)\.pipe\( ?Flag\.optional,? ?\)/u
+		)
 		expect(content).not.toContain('Flag.String("secret")')
 		expect(content).toContain('Flag.String("name")')
 	})
@@ -261,7 +263,7 @@ describe("m3-pwmh multipart password part flag", () => {
 
 		expect(refusals).toEqual([])
 		expect(content).toMatch(
-			/Input\.secretPartFlag\( ?"secret", "The\[31m account secret\.",? ?\)\.pipe\( ?Flag\.optional,? ?\)/u
+			/Input\.secretPartFlag\(\s*"secret",\s*Option\.some\("The\[31m account secret\."\),?\s*\)\.pipe\(\s*Flag\.optional,?\s*\)/u
 		)
 		expect(content).not.toContain("\u001B")
 		expect(content).not.toContain("\u202E")
@@ -276,7 +278,7 @@ describe("m3-pwmh multipart password part flag", () => {
 
 	test("help for the part shows path|-, the description, then the never-echoed note", async () => {
 		const { code, printed } = await helpOf(
-			Input.secretPartFlag("secret", "The account secret.").pipe(Flag.optional)
+			Input.secretPartFlag("secret", Option.some("The account secret.")).pipe(Flag.optional)
 		)
 		const described = printed.indexOf("The account secret.")
 

@@ -1,7 +1,18 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import nodePath from "node:path"
 import { NodeFileSystem, NodeServices } from "@effect/platform-node"
-import { Effect, FileSystem, Layer, Option, Runtime, Schema, Sink, Stdio, Stream } from "effect"
+import {
+	Effect,
+	FileSystem,
+	Layer,
+	Option,
+	Record,
+	Runtime,
+	Schema,
+	Sink,
+	Stdio,
+	Stream
+} from "effect"
 import { CliError, Command } from "effect/cli"
 import type { Flag } from "effect/cli"
 import { HttpBody } from "effect/http"
@@ -643,13 +654,16 @@ describe("Input.mergeBody", () => {
 	})
 
 	test("a JSON-valued field with a nested __proto__ key and an array of objects merges at its pointer", async () => {
-		const meta: unknown = JSON.parse('{"__proto__":{"polluted":true},"inner":{"k":[1,{"z":null}]}}')
+		const meta = Record.fromEntries([
+			["__proto__", { polluted: true }],
+			["inner", { k: [1, { z: Input.jsonNull }] }]
+		])
 		const text = await run(
 			mergedText({
 				body: '{"name":"n"}',
 				fields: {
 					"/items": Option.some([{ id: 1 }, { id: 2, tags: ["a"] }]),
-					"/meta": Option.some(Schema.decodeUnknownSync(Schema.Json)(meta)),
+					"/meta": Option.some(meta),
 					"/plain": Option.some({ a: 1 }),
 					"/plain/__proto__/x": Option.some("1")
 				}
@@ -693,7 +707,10 @@ describe("Input.selectBody", () => {
 		const png = counting(marker)
 		const selected = await run(
 			Input.selectBody({
-				alternatives: { "application/json": json.effect, "image/png": png.effect },
+				alternatives: {
+					"application/json": Input.exactBody("application/json", json.effect),
+					"image/png": Input.exactBody("image/png", png.effect)
+				},
 				chosen: none,
 				media
 			})
@@ -709,7 +726,10 @@ describe("Input.selectBody", () => {
 		const png = counting(HttpBody.uint8Array(bytes))
 		const selected = await run(
 			Input.selectBody({
-				alternatives: { "application/json": json.effect, "image/png": png.effect },
+				alternatives: {
+					"application/json": Input.exactBody("application/json", json.effect),
+					"image/png": Input.exactBody("image/png", png.effect)
+				},
 				chosen: Option.some("image/png"),
 				media
 			})
@@ -724,18 +744,24 @@ describe("Input.selectBody", () => {
 		const selected = await run(
 			Input.selectBody({
 				alternatives: {
-					"application/json": Input.mergeBody({
-						body: none,
-						bodyFile: Option.some("-"),
-						fields: {},
-						required: true,
-						schema: Schema.Json
-					}),
-					"image/png": Input.binaryBody({
-						body: Option.some("x"),
-						bodyFile: none,
-						required: true
-					})
+					"application/json": Input.exactBody(
+						"application/json",
+						Input.mergeBody({
+							body: none,
+							bodyFile: Option.some("-"),
+							fields: {},
+							required: true,
+							schema: Schema.Json
+						})
+					),
+					"image/png": Input.exactBody(
+						"image/png",
+						Input.binaryBody({
+							body: Option.some("x"),
+							bodyFile: none,
+							required: true
+						})
+					)
 				},
 				chosen: none,
 				media
@@ -750,7 +776,10 @@ describe("Input.selectBody", () => {
 		const png = counting(marker)
 		const error = await run(
 			Input.selectBody({
-				alternatives: { "application/json": png.effect, "image/png": png.effect },
+				alternatives: {
+					"application/json": Input.exactBody("application/json", png.effect),
+					"image/png": Input.exactBody("image/png", png.effect)
+				},
 				chosen: Option.some("text/secret-value"),
 				media
 			}).pipe(Effect.flip)
@@ -766,7 +795,7 @@ describe("Input.selectBody", () => {
 		const image = counting(HttpBody.uint8Array(bytes))
 		const selected = await run(
 			Input.selectBody({
-				alternatives: { "image/*": image.effect },
+				alternatives: { "image/*": Input.rangeBody("image/*", image.effect) },
 				chosen: Option.some("image/webp"),
 				media: { request: ["image/*"], responses: {} }
 			})
@@ -781,10 +810,14 @@ describe("Input.selectBody", () => {
 		const selected = await run(
 			Input.selectBody({
 				alternatives: {
-					"application/json": Effect.succeed(HttpBody.text("json")),
-					"application/x-www-form-urlencoded": Effect.succeed<Input.JsonNode | undefined>({
-						name: "ada"
-					})
+					"application/json": Input.exactBody(
+						"application/json",
+						Effect.succeed(HttpBody.text("json"))
+					),
+					"application/x-www-form-urlencoded": Input.exactBody(
+						"application/x-www-form-urlencoded",
+						Effect.succeed<Input.JsonNode | undefined>({ name: "ada" })
+					)
 				},
 				chosen: Option.some("application/x-www-form-urlencoded"),
 				media: {
@@ -808,7 +841,10 @@ describe("Input.selectBody", () => {
 		const png = counting(marker)
 		const error = await run(
 			Input.selectBody({
-				alternatives: { "application/json": json.effect, "image/png": png.effect },
+				alternatives: {
+					"application/json": Input.exactBody("application/json", json.effect),
+					"image/png": Input.exactBody("image/png", png.effect)
+				},
 				chosen: Option.some("image/png"),
 				foreign: { "application/json": { body: true }, "image/png": { photo: false, url: true } },
 				media
@@ -827,7 +863,10 @@ describe("Input.selectBody", () => {
 		const png = counting(marker)
 		const selected = await run(
 			Input.selectBody({
-				alternatives: { "application/json": json.effect, "image/png": png.effect },
+				alternatives: {
+					"application/json": Input.exactBody("application/json", json.effect),
+					"image/png": Input.exactBody("image/png", png.effect)
+				},
 				chosen: none,
 				foreign: { "application/json": { photo: false }, "image/png": { url: true } },
 				media
@@ -872,7 +911,10 @@ describe("Input.selectBody content type", () => {
 		const body = Effect.succeed(HttpBody.text("x"))
 		const declared = await run(
 			Input.selectBody({
-				alternatives: { "application/json": body, "image/png": body },
+				alternatives: {
+					"application/json": Input.exactBody("application/json", body),
+					"image/png": Input.exactBody("image/png", body)
+				},
 				chosen: none,
 				media
 			})
@@ -889,7 +931,7 @@ describe("Input.selectBody content type", () => {
 
 		const ranged = await run(
 			Input.selectBody({
-				alternatives: { "image/*": body },
+				alternatives: { "image/*": Input.rangeBody("image/*", body) },
 				chosen: Option.some("image/webp"),
 				media: { request: ["image/*"], responses: {} }
 			})

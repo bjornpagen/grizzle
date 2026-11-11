@@ -87,7 +87,7 @@ const usage = (flag: string, cause: string): UsageError =>
 /**
  * The characters that end an authority: the path, query and fragment delimiters.
  */
-const authorityDelimiter = regex("[/?#]", "u")
+const authorityDelimiter: Readonly<RegExp> = regex("[/?#]", "u")
 
 /**
  * The text an authority check reads: from after the first `://` (from index 2 when the text has
@@ -146,7 +146,7 @@ export const parseServerVariable = (
 		}
 	)
 
-const serverIndex = regex("^\\d+$", "u")
+const serverIndex: Readonly<RegExp> = regex("^\\d+$", "u")
 
 const lookupServer = (table: ServersTable, raw: string): Effect.Effect<ServerEntry, UsageError> =>
 	Effect.fromOption(
@@ -333,7 +333,7 @@ const expandTemplate = (
 /**
  * A brace left in an expanded template: the template was malformed.
  */
-const templateBrace = regex("[{}]", "u")
+const templateBrace: Readonly<RegExp> = regex("[{}]", "u")
 
 const normalizeOrigin = (origin: string): string =>
 	Result.match(Url.fromString(origin), {

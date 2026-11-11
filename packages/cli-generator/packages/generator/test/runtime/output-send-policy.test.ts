@@ -137,7 +137,7 @@ const run = async (world: World) => {
 	)
 	const environment = Layer.mergeAll(
 		BaseUrl.layer(servers, "EXAMPLE"),
-		Auth.layer(world.security ?? bearer, "EXAMPLE"),
+		Auth.layer(world.security ?? bearer, "EXAMPLE", []),
 		ConfigProvider.layer(
 			ConfigProvider.fromEnvRecord(world.env ?? { EXAMPLE_BEARER_AUTH: SECRET })
 		),

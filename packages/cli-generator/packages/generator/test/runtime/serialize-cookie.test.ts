@@ -1,6 +1,7 @@
 import { Effect, Runtime } from "effect"
 import { describe, expect, test } from "vitest"
 import { UsageError } from "#runtime-src/domain/errors.ts"
+import { jsonNull } from "#runtime-src/runtime/input.ts"
 import * as Serialize from "#runtime-src/runtime/serialize.ts"
 import type { Value } from "#runtime-src/runtime/serialize.ts"
 
@@ -99,7 +100,7 @@ describe("cookie style on 3.2", () => {
 describe("cookie undefined and refusals", () => {
 	test.each([form31, form32, style32])("an undefined optional adds no pair", async (options) => {
 		expect(await expand("c", undefined, options)).toBeUndefined()
-		expect(await expand("c", null, options)).toBeUndefined()
+		expect(await expand("c", jsonNull, options)).toBeUndefined()
 		expect(await expand("c", [], options)).toBeUndefined()
 		expect(await expand("c", {}, options)).toBeUndefined()
 	})

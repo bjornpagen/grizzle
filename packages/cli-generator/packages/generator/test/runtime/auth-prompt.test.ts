@@ -1,4 +1,5 @@
 import {
+	Array as Arr,
 	Cause,
 	ConfigProvider,
 	Effect,
@@ -100,17 +101,23 @@ const run = async (world: World, requirement: Auth.SecurityRequirement) => {
 					Effect.flatMap((claim) => claim.claim(claimedBy)),
 					Effect.flatMap(() => Auth.evaluate("users-update", requirement))
 				)
-	for (const [scheme, path] of Object.entries(world.given ?? {})) {
-		program = program.pipe(
-			Effect.provideService(Auth.credentialFileSetting(scheme), Option.some(path))
-		)
+	const given = Arr.map(Object.entries(world.given ?? {}), ([scheme, path]) => ({
+		path,
+		setting: Auth.credentialFileSetting(scheme)
+	}))
+	for (const { path, setting } of given) {
+		program = program.pipe(Effect.provideService(setting, Option.some(path)))
 	}
 
 	const exit = await Effect.runPromise(
 		Effect.exit(program).pipe(
 			Effect.provide(
 				Layer.mergeAll(
-					Auth.layer(table, "EXAMPLE"),
+					Auth.layer(
+						table,
+						"EXAMPLE",
+						Arr.map(given, ({ setting }) => setting)
+					),
 					FileSystem.layerNoop({ stream: (path) => Stream.make(bytes(files[path] ?? "")) }),
 					stdio,
 					TerminalCapabilities.layer.pipe(Layer.provide(stdio)),

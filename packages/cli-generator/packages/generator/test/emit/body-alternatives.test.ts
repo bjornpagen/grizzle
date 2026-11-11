@@ -157,8 +157,12 @@ describe("body alternatives: the cli/ table", () => {
 	test("every alternative is a selectBody entry, with each key's foreign flags", () => {
 		const text = file("src/cli/messages.ts")
 
-		expect(text).toContain('"application/x-www-form-urlencoded": Input.structuredBody({')
-		expect(text).toContain('"multipart/form-data": Effect.all({')
+		expect(text).toContain(
+			'        "application/x-www-form-urlencoded": Input.exactBody(\n          "application/x-www-form-urlencoded",\n          Input.structuredBody({'
+		)
+		expect(text).toContain(
+			'        "multipart/form-data": Input.exactBody(\n          "multipart/form-data",\n          Effect.all({'
+		)
 		expect(text).toContain(
 			[
 				"      foreign: {",
@@ -179,8 +183,12 @@ describe("body alternatives: the cli/ table", () => {
 	test("text and sequential alternatives beside JSON are Input.sequentialBody entries", () => {
 		const text = file("src/cli/events.ts")
 
-		expect(text).toContain('"application/x-ndjson": Input.sequentialBody({')
-		expect(text).toContain('"text/plain": Input.sequentialBody({')
+		expect(text).toContain(
+			'        "application/x-ndjson": Input.exactBody(\n          "application/x-ndjson",\n          Input.sequentialBody({'
+		)
+		expect(text).toContain(
+			'        "text/plain": Input.exactBody(\n          "text/plain",\n          Input.sequentialBody({'
+		)
 		expect(text).toContain(
 			"Events.send({ body: selected.body, contentType: selected.contentType })"
 		)

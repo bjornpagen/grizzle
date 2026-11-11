@@ -290,7 +290,7 @@ describe("a secret recorded before send", () => {
 		)
 		const environment = Layer.mergeAll(
 			BaseUrl.layer(servers, "EXAMPLE"),
-			Auth.layer({ schemes: {} }, "EXAMPLE"),
+			Auth.layer({ schemes: {} }, "EXAMPLE", []),
 			ConfigProvider.layer(ConfigProvider.fromEnvRecord({})),
 			NodeFileSystem.layer,
 			Path.layer,

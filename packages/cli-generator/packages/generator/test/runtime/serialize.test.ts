@@ -15,7 +15,7 @@ import { HttpBody, UrlParams } from "effect/http"
 import type { HttpClientRequest } from "effect/http"
 import { describe, expect, test } from "vitest"
 import { UsageError } from "#runtime-src/domain/errors.ts"
-import { stdinClaimLayer } from "#runtime-src/runtime/input.ts"
+import { jsonNull, stdinClaimLayer } from "#runtime-src/runtime/input.ts"
 import { fileBody, partFilename } from "#runtime-src/runtime/multipart.ts"
 import * as Serialize from "#runtime-src/runtime/serialize.ts"
 import type { Value } from "#runtime-src/runtime/serialize.ts"
@@ -69,7 +69,7 @@ describe("type to text", () => {
 	})
 
 	test("null, undefined, empty arrays and empty objects are undefined", async () => {
-		expect(await text(null)).toBeUndefined()
+		expect(await text(jsonNull)).toBeUndefined()
 		// oxlint-disable-next-line unicorn/no-useless-undefined -- the value under test
 		expect(await text(undefined)).toBeUndefined()
 		expect(await text([])).toBeUndefined()
@@ -101,7 +101,7 @@ describe("type to text", () => {
 	})
 
 	test("a required undefined is a usage error", async () => {
-		const values: readonly Value[] = [null, undefined, [], {}]
+		const values: readonly Value[] = [jsonNull, undefined, [], {}]
 
 		await Promise.all(values.map((value) => expectUsage(Serialize.toText("p", value, true))))
 	})
@@ -113,9 +113,9 @@ describe("type to text", () => {
 	})
 
 	test("null array items, undefined array items and null members are refused", async () => {
-		await expectUsage(Serialize.toText("p", ["a", null], false))
+		await expectUsage(Serialize.toText("p", ["a", jsonNull], false))
 		await expectUsage(Serialize.toText("p", ["a", undefined], false))
-		await expectUsage(Serialize.toText("p", { a: null }, false))
+		await expectUsage(Serialize.toText("p", { a: jsonNull }, false))
 	})
 
 	test("a nested value is refused", async () => {
@@ -176,7 +176,7 @@ describe("simple", () => {
 	test("an empty array and an empty object are refused: a path parameter is required", async () => {
 		await expectUsage(Serialize.simple("id", [], plain).expand)
 		await expectUsage(Serialize.simple("id", {}, plain).expand)
-		await expectUsage(Serialize.simple("id", null, plain).expand)
+		await expectUsage(Serialize.simple("id", jsonNull, plain).expand)
 		await expectUsage(Serialize.simple("id", undefined, plain).expand)
 	})
 
@@ -490,7 +490,7 @@ describe("form", () => {
 	})
 
 	test("an undefined optional value sends nothing", async () => {
-		const values: readonly Value[] = [null, undefined, [], {}, { a: undefined }]
+		const values: readonly Value[] = [jsonNull, undefined, [], {}, { a: undefined }]
 
 		const results = await Promise.all(
 			values.map((value) => query(Serialize.form("q", value, formOptions())))
@@ -500,7 +500,7 @@ describe("form", () => {
 	})
 
 	test("an undefined required value is a usage error", async () => {
-		const values: readonly Value[] = [null, undefined, [], {}]
+		const values: readonly Value[] = [jsonNull, undefined, [], {}]
 
 		await Promise.all(
 			values.map((value) =>
@@ -613,7 +613,9 @@ describe("spaceDelimited and pipeDelimited", () => {
 
 	test("an undefined value sends nothing or is refused when required", async () => {
 		expect(await query(Serialize.pipeDelimited("c", [], formOptions()))).toBeUndefined()
-		await expectUsage(Serialize.spaceDelimited("c", null, formOptions({ required: true })).expand)
+		await expectUsage(
+			Serialize.spaceDelimited("c", jsonNull, formOptions({ required: true })).expand
+		)
 	})
 })
 
@@ -688,10 +690,10 @@ describe("allowEmptyValue", () => {
 	})
 
 	test("null and undefined still send nothing, or are refused when required", async () => {
-		expect(await query(Serialize.form("q", null, allowed))).toBeUndefined()
+		expect(await query(Serialize.form("q", jsonNull, allowed))).toBeUndefined()
 		// oxlint-disable-next-line unicorn/no-useless-undefined -- the value under test
 		expect(await query(Serialize.form("q", undefined, allowed))).toBeUndefined()
-		await expectUsage(Serialize.form("q", null, { ...allowed, required: true }).expand)
+		await expectUsage(Serialize.form("q", jsonNull, { ...allowed, required: true }).expand)
 	})
 
 	test("without it an empty array sends nothing", async () => {
@@ -738,12 +740,14 @@ describe("header", () => {
 	})
 
 	test("null, undefined, [] and {} send nothing, or are refused when required", async () => {
-		expect(await headerText(null)).toBeUndefined()
+		expect(await headerText(jsonNull)).toBeUndefined()
 		// oxlint-disable-next-line unicorn/no-useless-undefined -- the value under test
 		expect(await headerText(undefined)).toBeUndefined()
 		expect(await headerText([])).toBeUndefined()
 		expect(await headerText({})).toBeUndefined()
-		await expectUsage(Serialize.header("X-Test", null, headerOptions({ required: true })).expand)
+		await expectUsage(
+			Serialize.header("X-Test", jsonNull, headerOptions({ required: true })).expand
+		)
 		await expectUsage(Serialize.header("X-Test", [], headerOptions({ required: true })).expand)
 	})
 
@@ -889,7 +893,7 @@ describe("request", () => {
 		const built = await run(
 			describeRequest({
 				query: [
-					Serialize.form("skip", null, { allowReserved: false, explode: true, required: false })
+					Serialize.form("skip", jsonNull, { allowReserved: false, explode: true, required: false })
 				]
 			})
 		)
@@ -936,7 +940,9 @@ describe("request", () => {
 		)
 		await expectUsage(
 			describeRequest({
-				query: [Serialize.form("q", null, { allowReserved: false, explode: true, required: true })]
+				query: [
+					Serialize.form("q", jsonNull, { allowReserved: false, explode: true, required: true })
+				]
 			})
 		)
 		await expectUsage(
@@ -972,7 +978,9 @@ describe("body", () => {
 
 	test("a JSON string is quoted, a structured +json type is JSON", async () => {
 		expect(bytes(await withBody("application/json", "x"))).toBe('"x"')
-		expect(bytes(await withBody("application/merge-patch+json", { a: null }))).toBe('{"a":null}')
+		expect(bytes(await withBody("application/merge-patch+json", { a: jsonNull }))).toBe(
+			'{"a":null}'
+		)
 	})
 
 	test("a text media type sends the string as given", async () => {
@@ -1322,7 +1330,7 @@ describe("chooseParts", () => {
 		expect(exit).toEqual(
 			Exit.succeed({
 				fields: { title: ["cat"] },
-				photo: { contentType: "image/png", values: ["x"] }
+				photo: { contentType: Option.some("image/png"), values: ["x"] }
 			})
 		)
 	})
@@ -1340,10 +1348,16 @@ describe("chooseParts", () => {
 		])
 	})
 
-	test("a sent part with no type is a defect", async () => {
-		const exit = await split({ "photo-part": ["x"] }, Option.none())
+	test("a sent part with no type is a defect when its form is written", async () => {
+		const chosen = await split({ "photo-part": ["x"] }, Option.none())
+		const written = await Effect.runPromiseExit(
+			formRequest({}, [["photo", { contentType: Option.none(), values: ["x"] }]])
+		)
 
-		expect(Exit.isFailure(exit) && Cause.hasDies(exit.cause)).toBe(true)
+		expect(chosen).toEqual(
+			Exit.succeed({ fields: {}, photo: { contentType: Option.none(), values: ["x"] } })
+		)
+		expect(Exit.isFailure(written) && Cause.hasDies(written.cause)).toBe(true)
 	})
 
 	test("a part with one listed type and headers carries both; not sent, it carries neither", async () => {

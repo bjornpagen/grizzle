@@ -32,7 +32,7 @@ const run = (requirement: Auth.SecurityRequirement, env: Record<string, string>)
 		Auth.evaluate("users-update", requirement).pipe(
 			Effect.provide(
 				Layer.mergeAll(
-					Auth.layer(table, "EXAMPLE"),
+					Auth.layer(table, "EXAMPLE", []),
 					FileSystem.layerNoop({}),
 					stdio,
 					Input.stdinClaimLayer

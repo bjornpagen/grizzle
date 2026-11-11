@@ -206,6 +206,16 @@ const describedBy = (description: string): readonly Expr[] => {
 	return text === "" ? [] : [str(text)]
 }
 
+/**
+ * A secret flag's description argument: `Option.some` of the sanitized description, or
+ * `Option.none()` when the property has none.
+ */
+const secretDescription = (description: string): Expr => {
+	const [text] = describedBy(description)
+
+	return text === undefined ? fn("Option.none") : fn("Option.some", text)
+}
+
 // ---------------------------------------------------------------------------------------------
 // Body field schemas: the property a field flag writes, for its description and `int64` check.
 // The walk follows `$ref`, `properties`, `allOf` members and an array's `items`, each node once
@@ -850,13 +860,13 @@ const secretPartEntry = (
 	schema: FieldSchema
 ) =>
 	Effect.gen(function* secretPart() {
-		const description = describedBy(yield* fieldDescription(flag, alternative, schema))
+		const description = secretDescription(yield* fieldDescription(flag, alternative, schema))
 		const repeated = flag.source._tag === "Body" && flag.source.repeated
 		const presence = repeated ? fn("Flag.atLeast", num(0)) : path("Flag.optional")
 
 		return [
 			flag.identifier,
-			pipe(fn("Input.secretPartFlag", str(flag.name), ...description), [presence])
+			pipe(fn("Input.secretPartFlag", str(flag.name), description), [presence])
 		] as const
 	})
 
@@ -912,9 +922,9 @@ const flagEntry = (flag: PlannedFlag, operation: Operation, context: CommandCont
 		// A `format: password` property's secret-file flag (design 13.1 R4): the m3-pw2 helper carries
 		// its presence and its help note, after the property's sanitized description when it has one.
 		if (source.kind === "secret-file") {
-			const description = describedBy(yield* fieldDescription(flag, alternative, schema))
+			const description = secretDescription(yield* fieldDescription(flag, alternative, schema))
 
-			return [flag.identifier, fn("Input.secretFileFlag", str(flag.name), ...description)] as const
+			return [flag.identifier, fn("Input.secretFileFlag", str(flag.name), description)] as const
 		}
 
 		if (isSecretPart(source, alternative, schema)) {
@@ -1459,7 +1469,11 @@ const bodyPlan = (
 		const foreign: Entry[] = []
 		for (const alternative of body.alternatives) {
 			const built = yield* choiceEntry(command, alternative, body.required, context)
-			alternatives.push([alternative.mediaType, built.value])
+			const wrapper = isRange(alternative.mediaType) ? "Input.rangeBody" : "Input.exactBody"
+			alternatives.push([
+				alternative.mediaType,
+				fn(wrapper, str(alternative.mediaType), built.value)
+			])
 			domain.push(...built.domain)
 
 			const misplaced = yield* foreignFlags(command, alternative)
@@ -2235,19 +2249,34 @@ const rootFile = (
 			...emitted.map((command) => ident(I(command.identifier))),
 			...author.names.map((name) => ident(I(name)))
 		]
-		const settings = [
-			...globalSettings.map((setting) => path(setting)),
-			...plan.credentials.map((credential) =>
-				fn("Auth.credentialFileSetting", str(credential.scheme))
-			)
-		]
+		const files: readonly Statement[] =
+			plan.credentials.length === 0
+				? []
+				: [
+						{
+							_tag: "Const",
+							exported: false,
+							name: I("credentialFiles"),
+							value: arr(
+								plan.credentials.map((credential) =>
+									fn("Auth.credentialFileSetting", str(credential.scheme))
+								)
+							)
+						}
+					]
+		const globals = arr(globalSettings.map((setting) => path(setting)))
+		const settings =
+			plan.credentials.length === 0
+				? globals
+				: fn("Arr.appendAll", globals, path("credentialFiles"))
+		const credentialFiles = plan.credentials.length === 0 ? arr([]) : path("credentialFiles")
 		// The loaded groups come first, then the untagged and author commands, as the eager order was.
 		const subcommands =
 			others.length === 0 ? path("groups") : fn("Arr.appendAll", path("groups"), arr(others))
 		const header = (children: Expr) =>
 			pipe(fn("Command.make", str(config.binName)), [
 				fn("Command.withSubcommands", children),
-				fn("Command.withGlobalFlags", arr(settings))
+				fn("Command.withGlobalFlags", settings)
 			])
 		const entries = yield* Effect.all(topLevel.map(tableEntry))
 		// With no top-level group there is nothing to load, and an empty table would infer `unknown`
@@ -2281,6 +2310,7 @@ const rootFile = (
 					]
 		const all: Statement[] = [
 			...statements,
+			...files,
 			...lazy,
 			{
 				_tag: "Const",
@@ -2289,7 +2319,7 @@ const rootFile = (
 				value: fn(
 					"Layer.mergeAll",
 					fn("BaseUrl.layer", path("servers"), prefix),
-					fn("Auth.layer", path("security"), prefix),
+					fn("Auth.layer", path("security"), prefix, credentialFiles),
 					fn("Auth.redactedNames", path("security")),
 					path("Input.stdinClaimLayer")
 				)

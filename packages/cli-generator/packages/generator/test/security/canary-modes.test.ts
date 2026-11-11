@@ -79,7 +79,7 @@ import { Paths1accountsPostRequestBodyContentApplication1jsonSchema } from "../s
 import * as Input from "../src/runtime/input.ts";
 import * as Output from "../src/runtime/output.ts";
 
-export const boom = Command.make("boom", { secretFile: Input.secretFileFlag("secret-file") }, (flags) =>
+export const boom = Command.make("boom", { secretFile: Input.secretFileFlag("secret-file", Option.none()) }, (flags) =>
   Input.mergeBody({
     body: Option.none(),
     bodyFile: Option.none(),

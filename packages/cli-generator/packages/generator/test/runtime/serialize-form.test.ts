@@ -2,6 +2,7 @@ import { Effect, Runtime } from "effect"
 import type { HttpClientRequest } from "effect/http"
 import { describe, expect, test } from "vitest"
 import { UsageError } from "#runtime-src/domain/errors.ts"
+import { jsonNull } from "#runtime-src/runtime/input.ts"
 import type { MediaDeclaration } from "#runtime-src/runtime/negotiate.ts"
 import * as Serialize from "#runtime-src/runtime/serialize.ts"
 import type { FormEncoding, Json } from "#runtime-src/runtime/serialize.ts"
@@ -114,7 +115,7 @@ describe("form-urlencoded default contentType", () => {
 	})
 
 	test("a null property is omitted", async () => {
-		expect(await encode({ a: null, b: "x" })).toBe("b=x")
+		expect(await encode({ a: jsonNull, b: "x" })).toBe("b=x")
 	})
 
 	test("an empty array sends no pair", async () => {
@@ -173,7 +174,7 @@ describe("form-urlencoded Encoding style", () => {
 
 	test("a null property is omitted under an explicit style", async () => {
 		expect(
-			await encode({ a: null, b: "x" }, [
+			await encode({ a: jsonNull, b: "x" }, [
 				["a", { style: "form" }],
 				["b", {}]
 			])
@@ -222,7 +223,7 @@ describe("form-urlencoded pairs", () => {
 
 	test("undeclared array and object keys follow the default table, nulls are omitted", async () => {
 		expect(
-			await encode(inOrder(["n", null], ["o", { k: 1 }], ["a", "1"], ["l", ["x", "y"]]), [
+			await encode(inOrder(["n", jsonNull], ["o", { k: 1 }], ["a", "1"], ["l", ["x", "y"]]), [
 				["a", { style: "form" }]
 			])
 		).toBe("a=1&o=%7B%22k%22%3A1%7D&l=x&l=y")
@@ -323,7 +324,7 @@ describe("form-urlencoded body", () => {
 
 	test.each([
 		["an empty object", {}],
-		["only null properties", { a: null }],
+		["only null properties", { a: jsonNull }],
 		["only empty arrays", { a: [] }]
 	])("a present body with %s is empty text under the media type", async (_, value) => {
 		const built = await Promise.all(
@@ -370,7 +371,7 @@ describe("form-urlencoded refused fields", () => {
 	})
 
 	test("a refused key holding null is still refused", async () => {
-		await expectUsage(refusedBody({ metadata: null }, { [media]: ["metadata"] }))
+		await expectUsage(refusedBody({ metadata: jsonNull }, { [media]: ["metadata"] }))
 	})
 
 	test("the refusal stops the request before it is built", async () => {

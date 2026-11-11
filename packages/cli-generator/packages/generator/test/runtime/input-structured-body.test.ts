@@ -76,9 +76,7 @@ const mergedText = (given: Given) =>
 
 // The value as `mergeBody` would send it: a `JsonNumber` written as its text.
 const asText = (value: Input.JsonNode | undefined): string =>
-	JSON.stringify(value, (_key: string, node: Input.JsonNode) =>
-		node instanceof Input.JsonNumber ? Input.rawJson(node.text) : node
-	)
+	value === undefined ? "" : Input.jsonText(value)
 
 const formText = async (value: Serialize.Json | undefined): Promise<string> => {
 	const built = await Effect.runPromise(

@@ -173,7 +173,7 @@ describe("emitCli: the golden users-update fixture", () => {
 		expect(occurrences(content, 'Auth.credentialFileSetting("bearerAuth")')).toBe(1)
 		expect(content).toContain("export const services = Layer.mergeAll(")
 		expect(content).toContain('BaseUrl.layer(servers, "EXAMPLE")')
-		expect(content).toContain('Auth.layer(security, "EXAMPLE")')
+		expect(content).toContain('Auth.layer(security, "EXAMPLE", credentialFiles)')
 		expect(content).toContain('import { login } from "../../custom/commands.ts";')
 		expect(content).toContain('{ load: () => import("./users.ts"), name: "users" }')
 		expect(content).toContain("Command.withSubcommands(Arr.appendAll(groups, [login]))")

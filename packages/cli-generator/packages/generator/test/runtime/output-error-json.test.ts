@@ -104,7 +104,7 @@ const client = HttpClient.make((sent) =>
 
 const sendLayer = Layer.mergeAll(
 	BaseUrl.layer(servers, PREFIX),
-	Auth.layer(noSecurity, PREFIX),
+	Auth.layer(noSecurity, PREFIX, []),
 	FileSystem.layerNoop({}),
 	Path.layer,
 	Input.stdinClaimLayer,

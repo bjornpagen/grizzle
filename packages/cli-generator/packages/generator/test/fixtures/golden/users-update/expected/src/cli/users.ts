@@ -103,18 +103,20 @@ export const setAvatar = Command.make(
   (flags) =>
     Input.selectBody({
       alternatives: {
-        "application/json": Input.mergeBody({
-          body: flags.body,
-          bodyFile: flags.bodyFile,
-          fields: { "/url": flags.url },
-          required: true,
-          schema: Avatar,
-        }),
-        "image/png": Input.binaryBody({
-          body: flags.body,
-          bodyFile: flags.bodyFile,
-          required: true,
-        }),
+        "application/json": Input.exactBody(
+          "application/json",
+          Input.mergeBody({
+            body: flags.body,
+            bodyFile: flags.bodyFile,
+            fields: { "/url": flags.url },
+            required: true,
+            schema: Avatar,
+          }),
+        ),
+        "image/png": Input.exactBody(
+          "image/png",
+          Input.binaryBody({ body: flags.body, bodyFile: flags.bodyFile, required: true }),
+        ),
       },
       chosen: flags.contentType,
       foreign: { "image/png": { url: Option.isSome(flags.url) } },

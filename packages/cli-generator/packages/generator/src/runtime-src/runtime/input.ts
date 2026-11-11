@@ -1,16 +1,21 @@
+import { regex } from "arkregex"
 import {
+	Array as Arr,
 	Context,
 	Effect,
 	FileSystem,
+	Formatter,
 	JsonPointer,
 	Layer,
 	Option,
 	Predicate,
+	Record as Rec,
 	Redacted,
 	Ref,
 	Schema,
 	Stdio,
-	Stream
+	Stream,
+	String as Str
 } from "effect"
 import { Argument, CliError, Flag } from "effect/cli"
 import { Base64, Base64Url } from "effect/encoding"
@@ -72,7 +77,7 @@ export const bodyFileFlag = Flag.String(bodyFileName).pipe(
 export class StdinClaim extends Context.Service<
 	StdinClaim,
 	{ readonly claim: (flag: string) => Effect.Effect<void, UsageError> }
->()("openapi-cli/runtime/StdinClaim") {}
+>()("effect-openapi-cli-generator/runtime-src/runtime/input/StdinClaim") {}
 
 /**
  * A fresh claim for one invocation. The root `services` layer provides it once.
@@ -90,7 +95,7 @@ export const stdinClaimLayer: Layer.Layer<StdinClaim> = Layer.effect(
 					Effect.flatMap((first) =>
 						Option.isSome(first)
 							? Effect.fail(
-									new UsageError({
+									UsageError.make({
 										flag,
 										message: `--${flag}: standard input is already read by --${first.value}`
 									})
@@ -103,34 +108,46 @@ export const stdinClaimLayer: Layer.Layer<StdinClaim> = Layer.effect(
 )
 
 const usage = (flag: string, cause: string): UsageError =>
-	new UsageError({ flag, message: `--${flag}: ${cause}` })
+	UsageError.make({ flag, message: `--${flag}: ${cause}` })
 
 const cannotReadIn = (flag: string): UsageError => usage(flag, "cannot read the file or stdin")
 
-const overLimitIn = (
-	flag: string,
-	limit: number = maxBodyBytes,
-	subject = "the body"
-): UsageError => usage(flag, `${subject} is over ${limit} bytes`)
+/**
+ * What a bounded read of a flag's file refuses past: `limit` bytes, named as `subject`.
+ */
+interface ReadBound {
+	readonly limit: number
+	readonly subject: string
+}
+
+const bodyBound: ReadBound = { limit: maxBodyBytes, subject: "the body" }
+
+const overLimitIn = (flag: string, bound: ReadBound): UsageError =>
+	usage(flag, `${bound.subject} is over ${bound.limit} bytes`)
 
 const cannotRead = (): UsageError => cannotReadIn(bodyFileName)
 
-const overLimit = (limit: number): UsageError => overLimitIn(bodyFileName, limit)
+const overLimit = (limit: number): UsageError =>
+	overLimitIn(bodyFileName, { limit, subject: bodyBound.subject })
 
 const notAFile = (): UsageError =>
 	usage(bodyFileName, `is not a regular file; for a pipe use --${bodyFileName} -`)
 
-/* oxlint-disable unicorn/throw-new-error -- Schema.TaggedError<Self>()(tag, fields) declares a class; nothing is thrown */
-
 /**
  * A bounded read stopped at its limit.
  */
-export class OverLimit extends Schema.TaggedError<OverLimit>()("OverLimit", {}) {}
+export class OverLimit extends Schema.TaggedError<OverLimit, { readonly brand: unique symbol }>()(
+	"OverLimit",
+	{}
+) {}
 
 /**
  * A bounded read whose source failed; the cause stays out of the message.
  */
-export class ReadFailed extends Schema.TaggedError<ReadFailed>()("ReadFailed", {}) {}
+export class ReadFailed extends Schema.TaggedError<ReadFailed, { readonly brand: unique symbol }>()(
+	"ReadFailed",
+	{}
+) {}
 
 /**
  * `source` bounded to `limit` bytes: a source failure becomes `ReadFailed`, and the chunk that
@@ -138,12 +155,12 @@ export class ReadFailed extends Schema.TaggedError<ReadFailed>()("ReadFailed", {
  */
 export const bounded = (
 	source: Stream.Stream<Uint8Array, unknown>,
-	limit: number = maxBodyBytes
+	limit: number
 ): Stream.Stream<Uint8Array, OverLimit | ReadFailed> =>
 	source.pipe(
-		Stream.mapError((): OverLimit | ReadFailed => new ReadFailed()),
+		Stream.mapError((): OverLimit | ReadFailed => ReadFailed.make({})),
 		Stream.limitBytes(limit, (): Stream.Stream<Uint8Array, OverLimit | ReadFailed> =>
-			Stream.fail(new OverLimit())
+			Stream.fail(OverLimit.make({}))
 		)
 	)
 
@@ -192,31 +209,25 @@ export const stdinOrFile = (
 			)
 		: Effect.flatMap(Effect.service(FileSystem.FileSystem), openFile)
 
-// What a bounded read of a flag's file refuses past: `limit` bytes, named as `subject`.
-interface ReadBound {
-	readonly limit: number
-	readonly subject?: string
-}
-
-const bodyBound: ReadBound = { limit: maxBodyBytes }
-
 const collect = (
 	source: Stream.Stream<Uint8Array, unknown>,
-	flag: string = bodyFileName,
-	bound: ReadBound = bodyBound
+	flag: string,
+	bound: ReadBound
 ): Effect.Effect<Uint8Array, UsageError> =>
 	readBounded(source, bound.limit).pipe(
 		Effect.catchTags({
-			OverLimit: () => Effect.fail(overLimitIn(flag, bound.limit, bound.subject)),
+			OverLimit: () => Effect.fail(overLimitIn(flag, bound)),
 			ReadFailed: () => Effect.fail(cannotReadIn(flag))
 		})
 	)
 
-// A bounded read of a path, or of stdin for `-` under the one stdin claim, failing in `flag`.
+/**
+ * A bounded read of a path, or of stdin for `-` under the one stdin claim, failing in `flag`.
+ */
 const readFlagFile = (
 	path: string,
 	flag: string,
-	bound: ReadBound = bodyBound
+	bound: ReadBound
 ): Effect.Effect<Uint8Array, UsageError, FileSystem.FileSystem | Stdio.Stdio | StdinClaim> =>
 	stdinOrFile(flag, path, (fs) =>
 		Effect.succeed(fs.stream(path, { bytesToRead: bound.limit + 1 }))
@@ -229,10 +240,12 @@ const readFlagFile = (
 export const readBodyFile = (
 	path: string
 ): Effect.Effect<Uint8Array, UsageError, FileSystem.FileSystem | Stdio.Stdio | StdinClaim> =>
-	readFlagFile(path, bodyFileName)
+	readFlagFile(path, bodyFileName, bodyBound)
 
-// A body stream that counts the bytes it yields, so a file that grows past its stat size still
-// stops at the limit; the send step sees a `UsageError`.
+/**
+ * A body stream that counts the bytes it yields, so a file that grows past its stat size still
+ * stops at the limit; the send step sees a `UsageError`.
+ */
 const limited = (
 	body: HttpBody.HttpBody,
 	limit: number
@@ -257,25 +270,28 @@ const limited = (
 			)
 }
 
-// Only a regular file is accepted. It is opened once here, so a missing read permission fails at
-// flag time, then streamed with its size as `Content-Length`. A directory is refused, and so is a
-// pipe or device (a FIFO, `<(cmd)`): it has no size to trust, and the platform file system reads
-// by position, which a pipe refuses. Such input goes through `-` instead. `limit` is the in-memory
-// ceiling the file is counted against; `undefined` streams it unguarded.
+/**
+ * A regular file as a body. Only a regular file is accepted. It is opened once here, so a missing
+ * read permission fails at flag time, then streamed with its size as `Content-Length`. A directory
+ * is refused, and so is a pipe or device (a FIFO, `<(cmd)`): it has no size to trust, and the
+ * platform file system reads by position, which a pipe refuses. Such input goes through `-`
+ * instead. `limit` is the in-memory ceiling the file is counted against; none streams it
+ * unguarded.
+ */
 const openFile = (
 	path: string,
-	limit?: number
+	limit: Option.Option<number>
 ): Effect.Effect<HttpBody.HttpBody, UsageError, FileSystem.FileSystem> =>
 	Effect.gen(function* open() {
 		const fs = yield* FileSystem.FileSystem
 		const info = yield* fs.stat(path).pipe(Effect.mapError(cannotRead))
 
 		if (info.type !== "File") {
-			return yield* Effect.fail(notAFile())
+			return yield* notAFile()
 		}
 
-		if (limit !== undefined && info.size > BigInt(limit)) {
-			return yield* Effect.fail(overLimit(limit))
+		if (Option.isSome(limit) && info.size > BigInt(limit.value)) {
+			return yield* overLimit(limit.value)
 		}
 
 		yield* fs.open(path, { flag: "r" }).pipe(Effect.scoped, Effect.mapError(cannotRead))
@@ -285,13 +301,16 @@ const openFile = (
 			Effect.mapError(cannotRead)
 		)
 
-		return yield* limit === undefined
-			? opened
-			: opened.pipe(Effect.flatMap((body) => limited(body, limit)))
+		return yield* Option.match(limit, {
+			onNone: () => opened,
+			onSome: (bound) => Effect.flatMap(opened, (body) => limited(body, bound))
+		})
 	})
 
-// `--body-file -` as a chunked body with no length: stdin under the one stdin claim, streamed as
-// it arrives and never collected. A read failure is a `UsageError` naming the flag.
+/**
+ * `--body-file -` as a chunked body with no length: stdin under the one stdin claim, streamed as
+ * it arrives and never collected. A read failure is a `UsageError` naming the flag.
+ */
 const stdinBody: Effect.Effect<HttpBody.HttpBody, UsageError, Stdio.Stdio | StdinClaim> =
 	Effect.service(StdinClaim).pipe(
 		Effect.flatMap((claim) => claim.claim(bodyFileName)),
@@ -340,7 +359,7 @@ export const binaryBody = (options: {
 
 	return options.bodyFile.value === "-"
 		? stdinBody.pipe(Effect.flatMap((body) => limited(body, limit)))
-		: openFile(options.bodyFile.value, limit)
+		: openFile(options.bodyFile.value, Option.some(limit))
 }
 
 /**
@@ -375,14 +394,14 @@ export const sequentialBody = (options: {
 
 	const path = options.bodyFile.value
 
-	return path === "-" ? stdinBody : openFile(path)
+	return path === "-" ? stdinBody : openFile(path, Option.none())
 }
 
 /**
  * A JSON number kept as its source text. A field flag for an `integer` or `number` property passes
  * the operator's text this way; a merged body marks any number whose text `JSON.parse` would
- * change (digits past 2^53, `1.50`, `1e2`). `mergeBody` writes it with `JSON.rawJSON` at
- * serialization only.
+ * change (digits past 2^53, `1.50`, `1e2`). `jsonText` writes it as its text, unchanged; a text
+ * outside the JSON number grammar is refused before the writer meets it.
  */
 export class JsonNumber {
 	readonly text: string
@@ -392,7 +411,10 @@ export class JsonNumber {
 	}
 }
 
-const jsonNumberGrammar = /^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$/u
+const jsonNumberGrammar: Readonly<RegExp> = regex(
+	"^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+	"u"
+)
 
 /**
  * Whether `text` is a JSON number (RFC 8259 section 6). A `JsonNumber` is sent as its text, so a
@@ -401,11 +423,71 @@ const jsonNumberGrammar = /^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$/u
 export const isJsonNumberText = (text: string): boolean => jsonNumberGrammar.test(text)
 
 /**
+ * JSON `null` as the runtime carries it: a value of its own beside `JsonNumber`, so `undefined` is
+ * the one absence a parameter, member or field has. Its JSON form is `null`.
+ */
+export class JsonNull {
+	toJSON(): null {
+		return null
+	}
+}
+
+/**
+ * The one JSON `null` every parse revives.
+ */
+export const jsonNull = new JsonNull()
+
+/**
+ * A JSON value the runtime writes: a scalar, a `JsonNumber`, `JsonNull`, or an array or object of
+ * them. Both a parsed body and a serializer's value are one.
+ */
+export type JsonValue =
+	| JsonNull
+	| boolean
+	| number
+	| string
+	| JsonNumber
+	| readonly JsonValue[]
+	| { readonly [key: string]: JsonValue }
+
+/**
+ * The compact JSON text of `value`, as `JSON.stringify` writes it, with a `JsonNumber` as its
+ * digit text and `JsonNull` as `null`. Effect writes JSON only through `JSON.stringify`, which has
+ * no raw number of its own, so the runtime composes the text and writes each name and leaf through
+ * `Formatter.formatJson`; members keep their own-key order.
+ */
+export const jsonText = (value: JsonValue): string => {
+	if (value instanceof JsonNumber) {
+		return value.text
+	}
+
+	if (value instanceof JsonNull) {
+		return "null"
+	}
+
+	if (Arr.isArray<JsonValue>(value)) {
+		return `[${Arr.join(Arr.map(value, jsonText), ",")}]`
+	}
+
+	if (Predicate.isObject(value)) {
+		return `{${Arr.join(
+			Arr.map(
+				Rec.toEntries(value),
+				([key, member]) => `${Formatter.formatJson(key)}:${jsonText(member)}`
+			),
+			","
+		)}}`
+	}
+
+	return Formatter.formatJson(value)
+}
+
+/**
  * A field flag's value: a scalar, a number field's text as a `JsonNumber`, or a decoded JSON
- * value (an object, an array, `null`) for a property that is not flattened (design 4.5).
+ * value (an object, an array, `JsonNull`) for a property that is not flattened (design 4.5).
  */
 export type FieldValue =
-	| null
+	| JsonNull
 	| boolean
 	| number
 	| string
@@ -456,16 +538,21 @@ export class SecretField {
 
 const secretFileNote = "Read the value from a file or stdin (-); it is never echoed"
 
-// A secret flag's help: the property's description, when given, then the secret-file note.
-const secretHelp = (description: string | undefined): string =>
-	description === undefined ? secretFileNote : `${description} ${secretFileNote}`
+/**
+ * A secret flag's help: the property's description, when it has one, then the secret-file note.
+ */
+const secretHelp = (description: Option.Option<string>): string =>
+	Option.match(description, {
+		onNone: () => secretFileNote,
+		onSome: (text) => `${text} ${secretFileNote}`
+	})
 
 /**
  * A secret-file field flag, `--<prop>-file <path|->`. `Flag.String` keeps `-` literal; the value
- * is a path, so argv never holds the secret. Help shows the property's description, when given,
- * then the note that the value is read from a file or stdin.
+ * is a path, so argv never holds the secret. Help shows the property's description, when it has
+ * one, then the note that the value is read from a file or stdin.
  */
-export const secretFileFlag = (name: string, description?: string) =>
+export const secretFileFlag = (name: string, description: Option.Option<string>) =>
 	Flag.String(name).pipe(
 		Flag.withMetavar("path|-"),
 		Flag.optional,
@@ -478,7 +565,7 @@ export const secretFileFlag = (name: string, description?: string) =>
  * presence step (`Flag.optional`, or `Flag.atLeast` for a repeated part); a read failure names
  * the flag, never the path (`Multipart.fileBody`).
  */
-export const secretPartFlag = (name: string, description?: string) =>
+export const secretPartFlag = (name: string, description: Option.Option<string>) =>
 	Flag.String(name).pipe(Flag.withMetavar("path|-"), Flag.withDescription(secretHelp(description)))
 
 export type Fields = Readonly<
@@ -486,45 +573,53 @@ export type Fields = Readonly<
 >
 
 export type JsonNode =
-	| null
+	| JsonNull
 	| boolean
 	| number
 	| string
 	| JsonNumber
 	| readonly JsonNode[]
-	| JsonObject
-
-export interface JsonObject {
-	[key: string]: JsonNode
-}
+	| { [key: string]: JsonNode }
 
 /**
- * What `JSON.rawJSON` returns: a value `JSON.stringify` writes as its text, unchanged.
+ * A JSON object whose members a merge writes.
  */
-export interface RawJson {
-	readonly rawJSON: string
-}
-
-type Reviver = (key: string, value: JsonNode, context: { readonly source?: string }) => JsonNode
-
-// TypeScript 7.1 and @types/node 26 declare no `JSON.rawJSON` and no reviver `context`, while
-// Node 26 provides both. One typed binding here, no global augmentation.
-// oxlint-disable-next-line typescript/no-inferrable-types -- the wide type selects Reflect.get's untyped overload
-const jsonGlobal: string = "JSON"
-
-const jsonEngine: {
-	readonly parse: (text: string, reviver?: Reviver) => JsonNode
-	readonly rawJSON: (text: string) => RawJson
-	// oxlint-disable-next-line anti-slop/no-reflect-get, typescript/no-unsafe-assignment -- the one way to type Node's JSON without a global augmentation
-} = Reflect.get(globalThis, jsonGlobal)
+export type JsonObject = Record<string, JsonNode>
 
 /**
- * `text` as raw JSON for a `JSON.stringify` replacer, written unchanged. Throws `SyntaxError` when
- * `text` is not a JSON primitive.
+ * A `JSON.parse` reviver over operator JSON: each value, `null` as parsed and its children already
+ * revived, and the source text of a primitive.
  */
-export const rawJson = (text: string): RawJson => jsonEngine.rawJSON(text)
+type Reviver = (
+	key: string,
+	value: JsonNode | null,
+	context: { readonly source?: string }
+) => JsonNode
 
-const int64Digits = /^-?(?:0|[1-9]\d*)$/u
+/**
+ * Whether `value` is a revived JSON value: what a reviver returns at every level.
+ */
+const isJsonNode = (value: unknown): value is JsonNode => {
+	if (
+		value instanceof JsonNull ||
+		Predicate.isBoolean(value) ||
+		Predicate.isNumber(value) ||
+		Predicate.isString(value) ||
+		value instanceof JsonNumber
+	) {
+		return true
+	}
+
+	if (Arr.isArray(value)) {
+		return Arr.every(value, isJsonNode)
+	}
+
+	return Predicate.isObject(value) && Arr.every(Rec.values(value), isJsonNode)
+}
+
+const JsonNodeSchema = Schema.declare(isJsonNode)
+
+const int64Digits: Readonly<RegExp> = regex("^-?(?:0|[1-9]\\d*)$", "u")
 
 /**
  * Deepest array and object nesting accepted in operator JSON (`--body`, `--body-file`, a JSON field
@@ -533,8 +628,11 @@ const int64Digits = /^-?(?:0|[1-9]\d*)$/u
  */
 export const maxJsonDepth = 128
 
-// Iterative scan of JSON text, so the bound holds before any recursive parse or walk runs. A
-// bracket inside a string never counts; malformed text is left for the parser to refuse.
+/**
+ * Whether JSON text nests deeper than `maxJsonDepth`: an iterative scan, so the bound holds before
+ * any recursive parse or walk runs. A bracket inside a string never counts; malformed text is left
+ * for the parser to refuse.
+ */
 const nestsTooDeep = (text: string): boolean => {
 	let depth = 0
 	let inString = false
@@ -579,7 +677,7 @@ export const jsonNumber = (digits: string, flag: string): Effect.Effect<JsonNumb
  * message.
  */
 export const asCliError = (error: UsageError): CliError.CliError =>
-	new CliError.UserError({ cause: error, userMessage: error.message })
+	CliError.UserError.make({ cause: error, userMessage: error.message })
 
 /**
  * The flag for an `int64` field: its digit string parsed to a `JsonNumber`, so a later merge writes
@@ -597,18 +695,20 @@ export const int64Flag = (name: string) =>
  */
 export type NumericKind = "integer" | "number"
 
-const numericGrammar = {
+const numericGrammar: Readonly<Record<NumericKind, (text: string) => boolean>> = {
 	integer: (text: string) => int64Digits.test(text),
 	number: isJsonNumberText
-} satisfies Record<NumericKind, (text: string) => boolean>
+}
 
-const numericCause = {
+const numericCause: Readonly<Record<NumericKind, string>> = {
 	integer: "is not an integer",
 	number: "is not a JSON number"
-} satisfies Record<NumericKind, string>
+}
 
-// The one check behind `numericFlag` and `numericArgument`: the text unchanged, or a value-free
-// error built by `refuse` from the cause.
+/**
+ * The one check behind `numericFlag` and `numericArgument`: the text unchanged, or a value-free
+ * error built by `refuse` from the cause.
+ */
 const numericText =
 	(kind: NumericKind, refuse: (cause: string) => UsageError) =>
 	(text: string): Effect.Effect<string, CliError.CliError> =>
@@ -637,19 +737,20 @@ export const numericArgument = (name: string, kind: NumericKind) =>
 	Argument.String(name).pipe(
 		Argument.withMetavar(kind),
 		Argument.mapEffect(
-			numericText(kind, (cause) => new UsageError({ message: `<${name}>: ${cause}` }))
+			numericText(kind, (cause) => UsageError.make({ message: `<${name}>: ${cause}` }))
 		)
 	)
 
-// The one stderr notice for a given deprecated parameter: it names the flag or argument, never a
-// value, and passes the value on unchanged. An absent optional flag is `None` and an absent
-// repeated one is empty; neither prints.
+/**
+ * The one stderr notice for a given deprecated parameter: it names the flag or argument, never a
+ * value, and passes the value on unchanged. An absent optional flag is `None` and an absent
+ * repeated one is empty; neither prints.
+ */
 const noticeDeprecated =
 	(label: string) =>
 	<A>(value: A): Effect.Effect<A, never, Stdio.Stdio> => {
 		const absent =
-			(Option.isOption(value) && Option.isNone(value)) ||
-			(Array.isArray(value) && value.length === 0)
+			(Option.isOption(value) && Option.isNone(value)) || (Arr.isArray(value) && value.length === 0)
 
 		return absent
 			? Effect.succeed(value)
@@ -676,26 +777,48 @@ export const deprecatedArgument =
 	<A>(self: Argument.Argument<A>): Argument.Argument<A> =>
 		self.pipe(Argument.mapEffect(noticeDeprecated(`<${name}>`)))
 
-const isObject = (value: JsonNode | undefined): value is JsonObject =>
-	Predicate.isObject(value) && !Array.isArray(value) && !(value instanceof JsonNumber)
+const isObject = (value: JsonNode): value is JsonObject =>
+	Predicate.isObject(value) &&
+	!Arr.isArray<JsonNode>(value) &&
+	!(value instanceof JsonNumber) &&
+	!(value instanceof JsonNull)
 
-// oxlint-disable-next-line typescript/no-unsafe-return -- Object.create(null) is any; the result holds only JsonNode values
-const bare = (source: JsonObject = {}): JsonObject => Object.assign(Object.create(null), source)
+/**
+ * A fresh object with no prototype, so `__proto__`, `constructor` and `prototype` are ordinary own
+ * keys.
+ */
+const bare = (): JsonObject => {
+	const fresh: JsonObject = {}
+	Reflect.setPrototypeOf(fresh, null)
+
+	return fresh
+}
+
+/**
+ * A copy of `source` with no prototype.
+ */
+const bareCopy = (source: JsonObject): JsonObject => Object.assign(bare(), source)
 
 const revive: Reviver = (_key, value, context) => {
+	if (value === null) {
+		return jsonNull
+	}
+
 	if (Predicate.isNumber(value)) {
 		return context.source !== undefined && String(value) !== context.source
 			? new JsonNumber(context.source)
 			: value
 	}
 
-	return isObject(value) ? bare(value) : value
+	return isObject(value) ? bareCopy(value) : value
 }
 
-// A JSON field value keeps only integers whose digits `JSON.parse` would change; `1.50` and `1e2`
-// decode to the same number.
-// A number that overflows (`1e400`) decodes to Infinity, which `JSON.stringify` would send as
-// `null`; it throws here, and the flag's catch turns that into a value-free failure.
+/**
+ * The reviver of a JSON field value: it keeps only integers whose digits `JSON.parse` would
+ * change, since `1.50` and `1e2` decode to the same number. A number that overflows (`1e400`)
+ * decodes to Infinity, which `JSON.stringify` would send as `null`; it throws here, and the
+ * parse's failure turns that into a value-free one.
+ */
 const reviveIntegers: Reviver = (key, value, context) => {
 	if (Predicate.isNumber(value) && !Number.isFinite(value)) {
 		throw new RangeError("a JSON number is not finite")
@@ -708,14 +831,26 @@ const reviveIntegers: Reviver = (key, value, context) => {
 		: revive(key, value, context)
 }
 
-// The one parse behind `jsonFlag` and `jsonArgument`: the decoded value, or the value-free error
-// `failure` builds.
+/**
+ * Decodes operator JSON text whose values `reviver` revives.
+ */
+const revivedDecoder = (reviver: Reviver) =>
+	Schema.decodeEffect(Schema.fromJsonString(JsonNodeSchema, { reviver }))
+
+const decodeRevived = revivedDecoder(revive)
+
+const decodeIntegers = revivedDecoder(reviveIntegers)
+
+const decodePlain = Schema.decodeEffect(Schema.fromJsonString(Schema.Unknown))
+
+/**
+ * The one parse behind `jsonFlag` and `jsonArgument`: the decoded value, or the value-free error
+ * `failure` builds.
+ */
 const parsedJson =
 	(failure: () => CliError.CliError) =>
 	(raw: string): Effect.Effect<JsonNode, CliError.CliError> =>
-		nestsTooDeep(raw)
-			? Effect.fail(failure())
-			: Effect.try({ catch: failure, try: () => jsonEngine.parse(raw, reviveIntegers) })
+		nestsTooDeep(raw) ? Effect.fail(failure()) : Effect.mapError(decodeIntegers(raw), failure)
 
 /**
  * The flag for a JSON-valued field: its text parsed with the number-preserving parse `mergeBody`
@@ -735,70 +870,68 @@ export const jsonFlag = (name: string) =>
 export const jsonArgument = (name: string) =>
 	Argument.String(name).pipe(
 		Argument.mapEffect(
-			parsedJson(() => asCliError(new UsageError({ message: `<${name}>: is not valid JSON` })))
+			parsedJson(() => asCliError(UsageError.make({ message: `<${name}>: is not valid JSON` })))
 		)
 	)
 
-// A `JsonNumber` whose text is not a JSON number throws here, before `JSON.rawJSON` could write it
-// as some other JSON primitive; the merge's catch turns that into a value-free failure.
-const replace = (_key: string, value: JsonNode): JsonNode | RawJson => {
-	if (!(value instanceof JsonNumber)) {
-		return value
-	}
-
-	if (!isJsonNumberText(value.text)) {
-		throw new SyntaxError("a JSON number has no JSON text form")
-	}
-
-	return jsonEngine.rawJSON(value.text)
-}
-
-const segmentsOf = (pointer: string): readonly string[] | undefined =>
-	pointer.startsWith("/") ? pointer.slice(1).split("/").map(JsonPointer.unescapeToken) : undefined
+const segmentsOf = (pointer: string): Option.Option<Arr.NonEmptyReadonlyArray<string>> =>
+	Str.startsWith("/")(pointer)
+		? Option.some(
+				Arr.map(Str.split("/")(Str.slice(1)(pointer)), (token) => JsonPointer.unescapeToken(token))
+			)
+		: Option.none()
 
 const setAt = (
 	root: JsonObject,
 	pointer: string,
 	value: JsonNode
-): Effect.Effect<void, UsageError> => {
-	const segments = segmentsOf(pointer)
-	const last = segments?.at(-1)
+): Effect.Effect<void, UsageError> =>
+	Option.match(segmentsOf(pointer), {
+		onNone: () => Effect.fail(usage("body", "a field has no valid body pointer")),
+		onSome: (segments) => {
+			let node = root
+			for (const segment of Arr.initNonEmpty(segments)) {
+				const next = Option.filter(Rec.get(node, segment), isObject)
 
-	if (segments === undefined || last === undefined) {
-		return Effect.fail(usage("body", "a field has no valid body pointer"))
-	}
+				if (Option.isSome(next)) {
+					node = next.value
+				} else {
+					const fresh = bare()
 
-	let node = root
-	for (const segment of segments.slice(0, -1)) {
-		const next = Object.hasOwn(node, segment) ? node[segment] : undefined
+					node[segment] = fresh
+					node = fresh
+				}
+			}
 
-		if (isObject(next)) {
-			node = next
-		} else {
-			const fresh = bare()
+			node[Arr.lastNonEmpty(segments)] = value
 
-			node[segment] = fresh
-			node = fresh
+			return Effect.void
 		}
-	}
+	})
 
-	node[last] = value
-
-	return Effect.void
-}
-
-const supplied = (value: Fields[string]): FieldValue | FileField | SecretField | undefined => {
+const supplied = (value: Fields[string]): Option.Option<FieldValue | FileField | SecretField> => {
 	if (Option.isOption(value)) {
-		return Option.getOrUndefined(value)
+		return value
 	}
 
-	return value.length === 0 ? undefined : value
+	return Arr.isReadonlyArrayNonEmpty(value) ? Option.some(value) : Option.none()
 }
 
-// Walks a field value with an explicit stack, so a deep value cannot overflow it. A `JsonNumber` is
-// checked against the JSON number grammar only: whether it is an integer is the flag's check
-// (`int64Flag`, `numericFlag`). After a "fine" verdict `toNode` recurses at most `maxJsonDepth`
-// levels.
+/**
+ * A field value that is a JSON object.
+ */
+const isFieldObject = (value: FieldValue): value is Readonly<Record<string, FieldValue>> =>
+	Predicate.isObject(value) &&
+	!Arr.isArray<FieldValue>(value) &&
+	!(value instanceof JsonNumber) &&
+	!(value instanceof JsonNull)
+
+/**
+ * Walks a field value with an explicit stack, so a deep value cannot overflow it. A `JsonNumber`
+ * is checked against the JSON number grammar only: whether it is an integer is the flag's check
+ * (`int64Flag`, `numericFlag`). After a "fine" verdict `toNode` recurses at most `maxJsonDepth`
+ * levels.
+ */
 const inspectField = (root: FieldValue): "badNumber" | "fine" | "tooDeep" => {
 	const pending: { readonly depth: number; readonly value: FieldValue }[] = [
 		{ depth: 0, value: root }
@@ -811,12 +944,12 @@ const inspectField = (root: FieldValue): "badNumber" | "fine" | "tooDeep" => {
 			if (!isJsonNumberText(value.text)) {
 				return "badNumber"
 			}
-		} else if (Array.isArray(value) || Predicate.isObject(value)) {
+		} else if (Arr.isArray<FieldValue>(value) || isFieldObject(value)) {
 			if (depth >= maxJsonDepth) {
 				return "tooDeep"
 			}
 
-			for (const child of Object.values<FieldValue>(value)) {
+			for (const child of Arr.isArray<FieldValue>(value) ? value : Rec.values(value)) {
 				pending.push({ depth: depth + 1, value: child })
 			}
 		}
@@ -825,19 +958,21 @@ const inspectField = (root: FieldValue): "badNumber" | "fine" | "tooDeep" => {
 	return "fine"
 }
 
-// A field value enters the body as a deep copy whose objects have no prototype, so a later field
-// flag that writes `__proto__` beneath it sets an own key, as it does everywhere else.
+/**
+ * A field value as it enters the body: a deep copy whose objects have no prototype, so a later
+ * field flag that writes `__proto__` beneath it sets an own key, as it does everywhere else.
+ */
 const toNode = (value: FieldValue): JsonNode => {
-	if (Array.isArray(value)) {
-		return value.map(toNode)
+	if (Arr.isArray<FieldValue>(value)) {
+		return Arr.map(value, (item) => toNode(item))
 	}
 
-	if (value instanceof JsonNumber || !Predicate.isObject(value)) {
+	if (!isFieldObject(value)) {
 		return value
 	}
 
 	const copy = bare()
-	for (const [key, entry] of Object.entries(value)) {
+	for (const [key, entry] of Rec.toEntries(value)) {
 		copy[key] = toNode(entry)
 	}
 
@@ -850,16 +985,18 @@ const encodeBytes = (bytes: Uint8Array, encoding: FieldEncoding): string =>
 const readEncoded = (
 	field: FileField
 ): Effect.Effect<string, UsageError, FileSystem.FileSystem | Stdio.Stdio | StdinClaim> =>
-	readFlagFile(field.path, field.flag).pipe(
+	readFlagFile(field.path, field.flag, bodyBound).pipe(
 		Effect.map((bytes) => encodeBytes(bytes, field.encoding))
 	)
 
 const decodeText = (bytes: Uint8Array, flag: string): Effect.Effect<string, UsageError> =>
 	decodeUtf8(bytes, usage(flag, "is not valid UTF-8"))
 
-// Records `secret` for the run when `RunCredentials` is present. It is optional so `mergeBody` and
-// `structuredBody` keep their requirements for callers that pass no secret field; every emitted
-// entry provides it, because `finalCatch` and `send` require it.
+/**
+ * Records `secret` for the run when `RunCredentials` is present. It is optional so `mergeBody` and
+ * `structuredBody` keep their requirements for callers that pass no secret field; every emitted
+ * entry provides it, because `finalCatch` and `send` require it.
+ */
 const record = (secret: Secret): Effect.Effect<void> =>
 	Effect.serviceOption(RunCredentials).pipe(
 		Effect.flatMap(
@@ -871,15 +1008,22 @@ const record = (secret: Secret): Effect.Effect<void> =>
 	)
 
 /**
+ * One trailing `\r?\n`.
+ */
+const lineEnd: Readonly<RegExp> = regex("\r?\n$", "u")
+
+/**
  * Strips one trailing `\r?\n`: the line end `echo value > file` writes. The one rule for a secret
  * read from a file, shared by credential files (`auth.ts`) and secret-file field flags; a second
  * line end is the value's own.
  */
-export const stripLineEnd = (text: string): string => text.replace(/\r?\n$/u, "")
+export const stripLineEnd = (text: string): string => Str.replace(lineEnd, "")(text)
 
-// A secret-file value: the text, bounded and UTF-8, with one trailing line end stripped (as a
-// credential file), recorded for the run before anything else can fail, and held `Redacted` until
-// the merge writes it.
+/**
+ * A secret-file value: the text, bounded and UTF-8, with one trailing line end stripped (as a
+ * credential file), recorded for the run before anything else can fail, and held `Redacted` until
+ * the merge writes it.
+ */
 const readSecret = (
 	field: SecretField
 ): Effect.Effect<Redacted.Redacted, UsageError, FileSystem.FileSystem | Stdio.Stdio | StdinClaim> =>
@@ -900,14 +1044,14 @@ const sourceOf = (options: {
 	if (Option.isSome(options.body)) {
 		return Option.isSome(options.bodyFile)
 			? Effect.fail(usage("body", `cannot be used with --${bodyFileName}`))
-			: Effect.succeed(Option.some({ bytes: encoder.encode(options.body.value), flag: "body" }))
+			: Effect.succeedSome({ bytes: encoder.encode(options.body.value), flag: "body" })
 	}
 
 	return Option.isSome(options.bodyFile)
 		? readBodyFile(options.bodyFile.value).pipe(
 				Effect.map((bytes) => Option.some({ bytes, flag: bodyFileName }))
 			)
-		: Effect.succeed(Option.none())
+		: Effect.succeedNone
 }
 
 interface BodyOptions {
@@ -918,15 +1062,19 @@ interface BodyOptions {
 	readonly schema: Schema.Top
 }
 
-// What the merge of the body sources settled on: no body, the operator's bytes as given, or the
-// merged value with its text. Every variant that carries text was asserted against the schema.
+/**
+ * What the merge of the body sources settled on: no body, the operator's bytes as given, or the
+ * merged value with its text. Every variant that carries text was asserted against the schema.
+ */
 type Merged =
 	| { readonly _tag: "Empty" }
 	| { readonly _tag: "Verbatim"; readonly bytes: Uint8Array; readonly text: string }
 	| { readonly _tag: "Merged"; readonly text: string; readonly value: JsonNode }
 
-// The merge `mergeBody` and `structuredBody` share; `flag` names the source a failure blames, and
-// `parse` is the bounded, number-preserving parse that blames it.
+/**
+ * The merge `mergeBody` and `structuredBody` share; `flag` names the source a failure blames, and
+ * `parse` is the bounded, number-preserving parse that blames it.
+ */
 const mergeSources = (
 	options: BodyOptions
 ): Effect.Effect<
@@ -940,24 +1088,19 @@ const mergeSources = (
 	Effect.gen(function* merge() {
 		const source = yield* sourceOf(options)
 		const flag = Option.match(source, { onNone: () => "body", onSome: (found) => found.flag })
-		const overrides = Object.entries(options.fields).flatMap(([pointer, field]) => {
-			const value = supplied(field)
-
-			return value === undefined ? [] : [[pointer, value] as const]
-		})
-		const parse = (text: string, reviver?: Reviver): Effect.Effect<JsonNode, UsageError> =>
-			nestsTooDeep(text)
-				? Effect.fail(usage(flag, `is nested over ${maxJsonDepth} levels`))
-				: Effect.try({
-						catch: () => usage(flag, "is not valid JSON"),
-						try: () => jsonEngine.parse(text, reviver)
-					})
-		const settled = (merged: Merged) => ({
-			merged,
-			parse: (text: string) => parse(text, revive)
-		})
+		const overrides = Arr.flatMap(Rec.toEntries(options.fields), ([pointer, field]) =>
+			Option.toArray(Option.map(supplied(field), (value) => [pointer, value] as const))
+		)
+		const guarded =
+			<A>(decode: (text: string) => Effect.Effect<A, Schema.SchemaError>) =>
+			(text: string): Effect.Effect<A, UsageError> =>
+				nestsTooDeep(text)
+					? Effect.fail(usage(flag, `is nested over ${maxJsonDepth} levels`))
+					: Effect.mapError(decode(text), () => usage(flag, "is not valid JSON"))
+		const parse = guarded(decodeRevived)
+		const settled = (merged: Merged) => ({ merged, parse })
 		const assert = (text: string) =>
-			parse(text).pipe(
+			guarded(decodePlain)(text).pipe(
 				Effect.filterOrFail(Schema.is(options.schema), () =>
 					usage(flag, "the request body does not match its schema")
 				)
@@ -982,13 +1125,11 @@ const mergeSources = (
 		}
 
 		const base = Option.isSome(source)
-			? yield* decodeText(source.value.bytes, flag).pipe(
-					Effect.flatMap((text) => parse(text, revive))
-				)
+			? yield* decodeText(source.value.bytes, flag).pipe(Effect.flatMap(parse))
 			: bare()
 
 		if (!isObject(base)) {
-			return yield* Effect.fail(usage(flag, "must be a JSON object to take field flags"))
+			return yield* usage(flag, "must be a JSON object to take field flags")
 		}
 
 		for (const [pointer, given] of overrides) {
@@ -1003,22 +1144,17 @@ const mergeSources = (
 			const verdict = inspectField(value)
 
 			if (verdict === "badNumber") {
-				return yield* Effect.fail(usage(flag, "a number field is not a JSON number"))
+				return yield* usage(flag, "a number field is not a JSON number")
 			}
 
 			if (verdict === "tooDeep") {
-				return yield* Effect.fail(
-					usage(flag, `a field value is nested over ${maxJsonDepth} levels`)
-				)
+				return yield* usage(flag, `a field value is nested over ${maxJsonDepth} levels`)
 			}
 
 			yield* setAt(base, pointer, toNode(value))
 		}
 
-		const text = yield* Effect.try({
-			catch: () => usage(flag, "the merged body cannot be serialized"),
-			try: () => JSON.stringify(base, replace)
-		})
+		const text = jsonText(base)
 
 		yield* assert(text)
 
@@ -1098,69 +1234,100 @@ export type Chosen<V> = {
 export type ForeignFlags = Readonly<Record<string, boolean>>
 
 /**
- * The unevaluated body effect of each declared request media key.
+ * One request body alternative as `selectBody` runs it: given the `Content-Type` the negotiation
+ * chose, its key, the type it sends and its body.
  */
-interface BodyAlternatives {
-	readonly [key: string]: Effect.Effect<unknown, unknown, unknown>
+type Chooser = (contentType: string) => Effect.Effect<unknown, unknown, unknown>
+
+/**
+ * The effect a chooser returns.
+ */
+type Returned<F> = F extends (contentType: string) => infer R ? R : never
+
+/**
+ * Each alternative of `A` as the chooser it is, read through its own success, failure and
+ * services: what lets the picked alternative keep its key's types.
+ */
+type Choosers<A> = {
+	readonly [K in keyof A]: (
+		contentType: string
+	) => Effect.Effect<
+		Effect.Success<Returned<A[K]>>,
+		Effect.Error<Returned<A[K]>>,
+		Effect.Services<Returned<A[K]>>
+	>
 }
 
 /**
- * The request body for the media key `--content-type` selects (design 6.6). `alternatives` maps
- * each declared request media key to its unevaluated body effect, whose value type is that key's
- * own; only the chosen one is run, so the others' flag refusals never fire and stdin is read at
- * most once. `foreign` lists, per key, the body flags that do not apply to it: one the operator
- * supplied is a `UsageError` (exit 2) before any alternative runs, so no input is dropped silently.
- * Returns the chosen key, the `Content-Type` to send, and the body. A key the media declaration
- * lists without an alternative is a defect of the generated code, not of the operator.
+ * The alternative of an exact media key (`application/json`): it sends the key itself as its
+ * `Content-Type`.
  */
-export const selectBody = <A extends BodyAlternatives>(options: {
+export const exactBody =
+	<const K extends string, A, E, R>(key: K, body: Effect.Effect<A, E, R>) =>
+	(): Effect.Effect<{ readonly body: A; readonly contentType: K; readonly key: K }, E, R> =>
+		Effect.map(body, (value) => ({ body: value, contentType: key, key }))
+
+/**
+ * The alternative of a range key (`image/*`): it sends the concrete type the operator named
+ * inside the range as its `Content-Type`.
+ */
+export const rangeBody =
+	<const K extends string, A, E, R>(key: K, body: Effect.Effect<A, E, R>) =>
+	(
+		contentType: string
+	): Effect.Effect<{ readonly body: A; readonly contentType: string; readonly key: K }, E, R> =>
+		Effect.map(body, (value) => ({ body: value, contentType, key }))
+
+/**
+ * The request body for the media key `--content-type` selects (design 6.6). `alternatives` maps
+ * each declared request media key to its `exactBody` or `rangeBody`, each over its unevaluated body
+ * effect, whose value type is that key's own; only the chosen one is run, so the others' flag
+ * refusals never fire and stdin is read at most once. `foreign` lists, per key, the body flags that
+ * do not apply to it: one the operator supplied is a `UsageError` (exit 2) before any alternative
+ * runs, so no input is dropped silently. Returns the chosen key, the `Content-Type` to send, and
+ * the body: one member of `Chosen`. A key the media declaration lists without an alternative is a
+ * defect of the generated code, not of the operator.
+ */
+export const selectBody = <A extends Choosers<A>>(options: {
 	readonly alternatives: A
 	readonly chosen: Option.Option<string>
-	readonly foreign?: { readonly [P in keyof A & string]?: ForeignFlags }
+	readonly foreign?: NoInfer<{ readonly [P in keyof A & string]?: ForeignFlags }>
 	readonly media: MediaDeclaration
 }): Effect.Effect<
-	Chosen<{ readonly [P in keyof A]: Effect.Success<A[P]> }>,
-	UsageError | Effect.Error<A[keyof A]>,
-	Effect.Services<A[keyof A]>
+	Effect.Success<Returned<A[keyof A & string]>>,
+	UsageError | Effect.Error<Returned<A[keyof A & string]>>,
+	Effect.Services<Returned<A[keyof A & string]>>
 > =>
 	Effect.gen(function* select() {
 		const picked = yield* Negotiate.selectRequestMedia(options.media, options.chosen)
-		const declared: BodyAlternatives = options.alternatives
-		const entry = Object.hasOwn(declared, picked.key) ? declared[picked.key] : undefined
+		const declared: Readonly<Record<string, Chooser>> = options.alternatives
+		const isAlternative = (key: string): key is keyof A & string => Rec.has(declared, key)
+		const { contentType, key } = picked
 
-		if (entry === undefined) {
+		if (!isAlternative(key)) {
 			return yield* Effect.die(
 				new Error("selectBody: a declared request media key has no body alternative")
 			)
 		}
 
-		// SAFETY: `entry` is one of the values of `A`, so its failures and services are among theirs.
-		// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- an entry of `A` fails and requires within the union over `A`'s values
-		const alternative = entry as Effect.Effect<
-			unknown,
-			Effect.Error<A[keyof A]>,
-			Effect.Services<A[keyof A]>
-		>
-
 		const foreign: { readonly [key: string]: ForeignFlags | undefined } = options.foreign ?? {}
-		const flags = Object.hasOwn(foreign, picked.key) ? foreign[picked.key] : undefined
-		const misplaced = Object.entries(flags ?? {}).find(([, given]) => given)?.[0]
+		const misplaced = Option.flatMap(
+			Option.flatMap(Rec.get(foreign, key), Option.fromUndefinedOr),
+			(flags) =>
+				Option.map(
+					Arr.findFirst(Rec.toEntries(flags), ([, given]) => given),
+					([flag]) => flag
+				)
+		)
 
-		if (misplaced !== undefined) {
-			return yield* Effect.fail(
-				new UsageError({
-					flag: misplaced,
-					message: `--${misplaced}: does not apply to --content-type ${picked.key}`
-				})
-			)
+		if (Option.isSome(misplaced)) {
+			return yield* UsageError.make({
+				flag: misplaced.value,
+				message: `--${misplaced.value}: does not apply to --content-type ${key}`
+			})
 		}
 
-		const chosen = { body: yield* alternative, contentType: picked.contentType, key: picked.key }
-
-		// SAFETY: selectRequestMedia returns a declared key of `A` and its own content type (the key, or
-		// a concrete type inside a declared range), and `alternative` is that key's entry.
-		// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the picked key, its content type and its entry's value form one member of `Chosen`
-		return chosen as Chosen<{ readonly [P in keyof A]: Effect.Success<A[P]> }>
+		return yield* options.alternatives[key](contentType)
 	})
 
 /**

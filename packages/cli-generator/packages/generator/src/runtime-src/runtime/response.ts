@@ -67,12 +67,12 @@ const mediaTypeOf = (response: HttpClientResponse.HttpClientResponse): string | 
  * in `output.ts` keeps), format characters, U+2028, U+2029 and lone surrogates. Its bytes are
  * pinned by `request-id.test.ts`; it is not `sanitize`'s class.
  */
-const requestIdUnsafeText = regex("[\\p{Cc}\\p{Cf}\\p{Cs}\\u2028\\u2029]", "gu")
+const requestIdUnsafeText: Readonly<RegExp> = regex("[\\p{Cc}\\p{Cf}\\p{Cs}\\u2028\\u2029]", "gu")
 
 /**
  * A high surrogate at the end of a cut: the cut split a pair. Not a lone-surrogate test.
  */
-const trailingHighSurrogate = regex("[\\uD800-\\uDBFF]$", "u")
+const trailingHighSurrogate: Readonly<RegExp> = regex("[\\uD800-\\uDBFF]$", "u")
 
 /**
  * The first `maxRequestIdLength` UTF-16 units of `text`, never ending in half a surrogate pair.
@@ -222,11 +222,11 @@ const tlsCodes: ReadonlySet<string> = new Set([
 	"UNABLE_TO_VERIFY_LEAF_SIGNATURE"
 ])
 
-const tlsMessage = regex.as("certificate|\\bssl\\b|\\btls\\b", "iu")
+const tlsMessage: Readonly<RegExp> = regex.as("certificate|\\bssl\\b|\\btls\\b", "iu")
 
-const tlsCode = regex("^ERR_(?:SSL|TLS)", "u")
+const tlsCode: Readonly<RegExp> = regex("^ERR_(?:SSL|TLS)", "u")
 
-const dnsMessage = regex.as("getaddrinfo|\\bdns\\b", "iu")
+const dnsMessage: Readonly<RegExp> = regex.as("getaddrinfo|\\bdns\\b", "iu")
 
 const isTimeout = (link: CauseLink): boolean => link.name === "TimeoutError"
 

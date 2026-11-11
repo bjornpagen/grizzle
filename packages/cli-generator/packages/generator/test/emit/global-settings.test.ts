@@ -43,7 +43,7 @@ const contentOf = (output: CliEmitOutput, path: string) =>
 	output.files.find((file) => file.path === path)?.content ?? ""
 
 // The root's settings in registration order: the Milestone 2 eight, then the Milestone 3 eight in
-// the order the slice list fixes (m3-wi1a), then each scheme's file setting.
+// the order the slice list fixes (m3-wi1a), then the file settings the root mints once.
 const registered = [
 	"BaseUrl.baseUrlSetting",
 	"BaseUrl.serverSetting",
@@ -61,7 +61,7 @@ const registered = [
 	"Output.MaxRecordBytes",
 	"Output.errorFormatSetting",
 	"Output.dryRunSetting",
-	'Auth.credentialFileSetting("bearerAuth")'
+	"credentialFiles"
 ]
 
 const recordRun = 'Command.provideEffectDiscard(Output.recordRun("EXAMPLE"))'
@@ -73,13 +73,14 @@ describe("m3-wi1a: the Milestone 3 global settings and the run record", () => {
 		const root = contentOf(await emit(spec), "src/cli/root.ts")
 		expect(root).toContain('import * as Client from "../runtime/client.ts";')
 
-		const flags = root.slice(root.indexOf("Command.withGlobalFlags(["))
+		const flags = root.slice(root.indexOf("Command.withGlobalFlags("))
 		const positions = registered.map((setting) => flags.indexOf(setting))
 		expect(positions.every((position) => position > 0)).toBe(true)
 		expect(positions).toEqual(Arr.sort(positions, Order.Number))
-		for (const setting of registered) {
+		for (const setting of registered.slice(0, -1)) {
 			expect(occurrences(root, setting)).toBe(1)
 		}
+		expect(occurrences(root, 'Auth.credentialFileSetting("bearerAuth")')).toBe(1)
 	})
 
 	test("each group command records the run before its handler", async () => {

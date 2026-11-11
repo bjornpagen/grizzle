@@ -83,7 +83,7 @@ const searchParamsForm = (text: string): string => Str.slice(1)(UrlParams.toStri
  * A lone surrogate (any \p{Cs} unit), which has no UTF-8 form; the one test every runtime module
  * shares.
  */
-export const loneSurrogate = regex("\\p{Cs}", "u")
+export const loneSurrogate: Readonly<RegExp> = regex("\\p{Cs}", "u")
 
 /**
  * The forms a value takes in a URL or a form-urlencoded body, shared by credentials and secrets:

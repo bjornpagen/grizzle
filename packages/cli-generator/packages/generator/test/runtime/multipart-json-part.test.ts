@@ -2,7 +2,7 @@ import { Effect, Runtime, Schema, Stream } from "effect"
 import type { HttpClientRequest } from "effect/http"
 import { describe, expect, test } from "vitest"
 import { UsageError } from "#runtime-src/domain/errors.ts"
-import { JsonNumber } from "#runtime-src/runtime/input.ts"
+import { JsonNumber, jsonNull } from "#runtime-src/runtime/input.ts"
 import * as Serialize from "#runtime-src/runtime/serialize.ts"
 
 // ENC-22: an object multipart part is one part, its value written as compact JSON under the part's
@@ -36,7 +36,7 @@ const boundaryOf = (built: HttpClientRequest.HttpClientRequest): string =>
 const meta = Serialize.jsonPart({
 	big: new JsonNumber("9007199254740993"),
 	name: "Ada",
-	tags: ["a", 1, null, true]
+	tags: ["a", 1, jsonNull, true]
 })
 
 describe("ENC-22: a JSON multipart part", () => {

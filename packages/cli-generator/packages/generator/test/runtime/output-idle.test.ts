@@ -114,7 +114,7 @@ const run = async (world: World) => {
 	)
 	const environment = Layer.mergeAll(
 		BaseUrl.layer(servers, prefix),
-		Auth.layer({ schemes: {} }, prefix),
+		Auth.layer({ schemes: {} }, prefix, []),
 		ConfigProvider.layer(ConfigProvider.fromEnv({ env: world.env ?? {} })),
 		Layer.succeed(Output.idleTimeoutSetting, Option.fromNullishOr(world.flag)),
 		NodeFileSystem.layer,

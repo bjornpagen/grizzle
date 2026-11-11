@@ -135,7 +135,7 @@ const run = async (world: World) => {
 	const recorded = Layer.effect(RunCredentials)(Ref.make(world.recorded ?? []))
 	const environment = Layer.mergeAll(
 		BaseUrl.layer(servers, "EXAMPLE"),
-		Auth.layer(security, "EXAMPLE"),
+		Auth.layer(security, "EXAMPLE", []),
 		ConfigProvider.layer(ConfigProvider.fromEnvRecord(world.env ?? {})),
 		FileSystem.layerNoop({}),
 		Path.layer,

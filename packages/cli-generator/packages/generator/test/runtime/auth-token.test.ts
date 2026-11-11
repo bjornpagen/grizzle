@@ -1,4 +1,5 @@
 import {
+	Array as Arr,
 	Cause,
 	ConfigProvider,
 	Effect,
@@ -125,15 +126,21 @@ const run = async (world: World = {}) => {
 			Effect.flatMap(Output.send(meta(world.requirement ?? [["oauthAuth"]])))
 		)
 	)
-	for (const [scheme, path] of Object.entries(world.given ?? {})) {
-		program = program.pipe(
-			Effect.provideService(Auth.credentialFileSetting(scheme), Option.some(path))
-		)
+	const given = Arr.map(Object.entries(world.given ?? {}), ([scheme, path]) => ({
+		path,
+		setting: Auth.credentialFileSetting(scheme)
+	}))
+	for (const { path, setting } of given) {
+		program = program.pipe(Effect.provideService(setting, Option.some(path)))
 	}
 
 	const environment = Layer.mergeAll(
 		BaseUrl.layer(servers, "EXAMPLE"),
-		Auth.layer(security, "EXAMPLE"),
+		Auth.layer(
+			security,
+			"EXAMPLE",
+			Arr.map(given, ({ setting }) => setting)
+		),
 		ConfigProvider.layer(ConfigProvider.fromEnvRecord(world.env ?? {})),
 		FileSystem.layerNoop({
 			stream: (path) => Stream.make(new TextEncoder().encode(files[path] ?? ""))

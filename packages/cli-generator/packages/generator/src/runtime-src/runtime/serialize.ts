@@ -1,28 +1,35 @@
+import { regex } from "arkregex"
 import {
+	Array as Arr,
 	Effect,
+	Formatter,
 	Option,
 	Predicate,
 	Record as Rec,
 	Result,
 	Schema,
 	SchemaIssue,
-	SchemaParser
+	SchemaParser,
+	String as Str,
+	Struct
 } from "effect"
 import type { Stream } from "effect"
 import { Headers, HttpBody, HttpClientRequest, UrlParams } from "effect/http"
 import { UsageError } from "#domain/errors.ts"
-import { JsonNumber, isJsonNumberText, rawJson } from "#runtime/input.ts"
-import type { Chosen, RawJson, SentType } from "#runtime/input.ts"
+import { JsonNull, JsonNumber, isJsonNumberText, jsonText as writeJson } from "#runtime/input.ts"
+import type { Chosen, SentType } from "#runtime/input.ts"
 import * as Multipart from "#runtime/multipart.ts"
 import type { MediaDeclaration } from "#runtime/negotiate.ts"
 import { encoder as utf8, loneSurrogate } from "#runtime/redact.ts"
 import { isJsonFamily, mediaEssence } from "#runtime/sequential.ts"
 
 /**
- * A value with a text form. Integers outside the safe range arrive as digit strings and are sent
- * as given; a `JsonNumber` is a number sent as its digit text, never through a JS number.
+ * A value with a text form, or none. Integers outside the safe range arrive as digit strings and
+ * are sent as given; a `JsonNumber` is a number sent as its digit text, never through a JS number.
+ * `undefined` is an absent value and `JsonNull` a JSON `null`: both are RFC 6570 undefined, but an
+ * absent member is omitted where a `null` one is refused.
  */
-export type Scalar = string | number | boolean | null | undefined | JsonNumber
+export type Scalar = string | number | boolean | JsonNull | undefined | JsonNumber
 
 /**
  * A parameter value: a scalar, an array of scalars, or an object with scalar members. Deeper
@@ -76,7 +83,7 @@ type Refusal = Effect.Effect<never, UsageError>
 /**
  * Messages name the parameter and the rule, never the value.
  */
-const refuse = (message: string): Refusal => Effect.fail(new UsageError({ message }))
+const refuse = (message: string): Refusal => Effect.fail(UsageError.make({ message }))
 
 const scalarText = (name: string, value: Scalar): Effect.Effect<string | undefined, UsageError> => {
 	if (value instanceof JsonNumber) {
@@ -93,7 +100,7 @@ const scalarText = (name: string, value: Scalar): Effect.Effect<string | undefin
 
 	if (Predicate.isNumber(value)) {
 		return Number.isFinite(value)
-			? Effect.succeed(JSON.stringify(value))
+			? Effect.succeed(Formatter.formatJson(value))
 			: refuse(`parameter ${name} holds a number with no JSON text form`)
 	}
 
@@ -101,7 +108,7 @@ const scalarText = (name: string, value: Scalar): Effect.Effect<string | undefin
 		return Effect.succeed(String(value))
 	}
 
-	if (Predicate.isNullish(value)) {
+	if (value === undefined || value instanceof JsonNull) {
 		return Effect.undefined
 	}
 
@@ -111,34 +118,33 @@ const scalarText = (name: string, value: Scalar): Effect.Effect<string | undefin
 /**
  * An array item or an object member that is itself undefined has no place in a list.
  */
-const itemText = (name: string, value: Scalar) =>
-	Effect.flatMap(scalarText(name, value), (text) =>
-		text === undefined
-			? refuse(`parameter ${name} holds an item with no text form`)
-			: Effect.succeed(text)
+const itemText = (name: string, value: Scalar): Effect.Effect<string, UsageError> =>
+	Effect.filterOrElse(scalarText(name, value), Predicate.isNotUndefined, () =>
+		refuse(`parameter ${name} holds an item with no text form`)
 	)
 
 const memberTexts = (name: string, value: { readonly [member: string]: Scalar }) =>
 	Effect.forEach(
-		Object.entries(value).filter(([, member]) => member !== undefined),
+		Arr.filter(Rec.toEntries(value), ([, member]) => member !== undefined),
 		([key, member]) => Effect.zip(itemText(name, key), itemText(name, member))
 	)
 
-const isList = (value: Value): value is readonly Scalar[] => Array.isArray(value)
+const isList = (value: Value): value is readonly Scalar[] => Arr.isArray<Value>(value)
 
-const isNestedList = (value: Nested): value is readonly Nested[] => Array.isArray(value)
+const isNestedList = (value: Nested): value is readonly Nested[] => Arr.isArray<Nested>(value)
 
 const isScalar = (value: Nested): value is Scalar =>
-	value instanceof JsonNumber || !Predicate.isObjectOrArray(value)
+	value instanceof JsonNumber || value instanceof JsonNull || !Predicate.isObjectOrArray(value)
 
 /**
  * A value an RFC 6570 style can expand: a scalar, or an array or object of scalars.
  */
 const isFlat = (value: Nested): value is Value =>
-	isScalar(value) ||
-	(isNestedList(value) ? value : Object.values(value)).every((member) => isScalar(member))
+	isScalar(value) || Arr.every(isNestedList(value) ? value : Rec.values(value), isScalar)
 
-// A value an RFC 6570 style expands, or the refusal of a member that is an object or array.
+/**
+ * A value an RFC 6570 style expands, or the refusal of a member that is an object or array.
+ */
 const flatOf = (name: string, value: Nested): Effect.Effect<Value, UsageError> =>
 	isFlat(value)
 		? Effect.succeed(value)
@@ -148,10 +154,10 @@ const describe = (name: string, value: Value): Effect.Effect<Text | undefined, U
 	if (isList(value)) {
 		return value.length === 0
 			? Effect.undefined
-			: Effect.map(Effect.all(value.map((item) => itemText(name, item))), (items): Text => ({
-					items,
-					kind: "array"
-				}))
+			: Effect.map(
+					Effect.forEach(value, (item) => itemText(name, item)),
+					(items): Text => ({ items, kind: "array" })
+				)
 	}
 
 	if (!isScalar(value)) {
@@ -187,15 +193,26 @@ export const toText = (
 		return text
 	})
 
-const percentTriplet = /%[0-9A-Fa-f]{2}/u
+const percentTriplet: Readonly<RegExp> = regex("%[0-9A-Fa-f]{2}", "u")
+
+/**
+ * The characters of RFC 3986 unreserved that `encodeURIComponent` leaves alone though RFC 3986
+ * reserves them, each with its percent triplet.
+ */
+const subDelimiterTriplets: ReadonlyArray<readonly [string, string]> = [
+	["!", "%21"],
+	["'", "%27"],
+	["(", "%28"],
+	[")", "%29"],
+	["*", "%2A"]
+]
 
 /**
  * Everything outside RFC 3986 unreserved. `encodeURIComponent` leaves `!'()*` alone.
  */
-const encodeUnreserved = (text: string) =>
-	encodeURIComponent(text).replaceAll(
-		/[!'()*]/gu,
-		(character) => `%${(character.codePointAt(0) ?? 0).toString(16).toUpperCase()}`
+const encodeUnreserved = (text: string): string =>
+	Arr.reduce(subDelimiterTriplets, encodeURIComponent(text), (encoded, [character, triplet]) =>
+		Str.replaceAll(character, triplet)(encoded)
 	)
 
 /**
@@ -216,14 +233,30 @@ const formReserved = ":/?[]@!$'()*,;"
  * `HttpClient` parses every request URL with `new URL`, so encoding it here keeps this output equal
  * to the wire, as `queryWireForm` does. A form body is not parsed as a URL, so it keeps `'`.
  */
-const queryReserved = formReserved.replace("'", "")
+const queryReserved = Str.replace("'", "")(formReserved)
+
+/**
+ * One token of a value an encoder reads under `allowReserved`: a percent triplet or one code point.
+ */
+const encoderToken = regex("%[0-9A-Fa-f]{2}|[\\S\\s]", "gu")
+
+/**
+ * The tokens of `text` in order, each through `encode`.
+ */
+const tokensThrough = (text: string, encode: (token: string) => string): string =>
+	Arr.join(
+		Arr.map(Arr.fromIterable(Str.matchAll(encoderToken)(text)), ([token]) => encode(token)),
+		""
+	)
 
 const encoder =
-	(allowReserved: boolean, passed = pathReserved) =>
-	(text: string) =>
+	(allowReserved: boolean, passed: string) =>
+	(text: string): string =>
 		allowReserved
-			? text.replaceAll(/%[0-9A-Fa-f]{2}|[\S\s]/gu, (token) =>
-					percentTriplet.test(token) || passed.includes(token) ? token : encodeUnreserved(token)
+			? tokensThrough(text, (token) =>
+					percentTriplet.test(token) || Str.includes(token)(passed)
+						? token
+						: encodeUnreserved(token)
 				)
 			: encodeUnreserved(text)
 
@@ -257,12 +290,14 @@ const parts = (text: Text): readonly string[] => {
 		return []
 	}
 
-	return text.kind === "array" ? text.items : text.members.flat()
+	return text.kind === "array" ? text.items : Arr.flatten(text.members)
 }
 
 const checkDelimiters = (name: string, style: PathStyle, text: Text, options: PathOptions) => {
 	const banned = ambiguousDelimiters(style, text, options)
-	const clash = parts(text).some((part) => banned.some((delimiter) => part.includes(delimiter)))
+	const clash = Arr.some(parts(text), (part) =>
+		Arr.some(banned, (delimiter) => Str.includes(delimiter)(part))
+	)
 
 	return clash
 		? refuse(`parameter ${name} holds a character its ${style} expansion would leave ambiguous`)
@@ -277,48 +312,57 @@ const encodeText = (text: Text, encode: (text: string) => string): Text => {
 	}
 
 	if (text.kind === "array") {
-		return { items: text.items.map((item) => encode(item)), kind: "array" }
+		return { items: Arr.map(text.items, (item) => encode(item)), kind: "array" }
 	}
 
 	return {
 		kind: "object",
-		members: text.members.map(([key, member]) => [encode(key), encode(member)] as const)
+		members: Arr.map(text.members, ([key, member]) => [encode(key), encode(member)] as const)
 	}
 }
 
 /**
- * The comma-joined form of every non-exploded expansion.
+ * The `separator`-joined form of every non-exploded expansion.
  */
-const flat = (text: Text, separator = ",") => {
+const flat = (text: Text, separator: string) => {
 	if (text.kind === "primitive") {
 		return text.text
 	}
 
-	return text.kind === "array" ? text.items.join(separator) : text.members.flat().join(separator)
+	return Arr.join(text.kind === "array" ? text.items : Arr.flatten(text.members), separator)
 }
 
 const expandMatrix = (name: string, text: Text, explode: boolean) => {
 	if (explode && text.kind === "array") {
-		return text.items.map((item) => assignment(name, item)).join("")
+		return Arr.join(
+			Arr.map(text.items, (item) => assignment(name, item)),
+			""
+		)
 	}
 
 	if (explode && text.kind === "object") {
-		return text.members.map(([key, member]) => assignment(key, member)).join("")
+		return Arr.join(
+			Arr.map(text.members, ([key, member]) => assignment(key, member)),
+			""
+		)
 	}
 
-	return assignment(name, flat(text))
+	return assignment(name, flat(text, ","))
 }
 
 const expandLabel = (text: Text, explode: boolean) => {
 	if (explode && text.kind === "array") {
-		return `.${text.items.join(".")}`
+		return `.${Arr.join(text.items, ".")}`
 	}
 
 	if (explode && text.kind === "object") {
-		return `.${text.members.map(([key, member]) => `${key}=${member}`).join(".")}`
+		return `.${Arr.join(
+			Arr.map(text.members, ([key, member]) => `${key}=${member}`),
+			"."
+		)}`
 	}
 
-	return `.${flat(text)}`
+	return `.${flat(text, ",")}`
 }
 
 const compose = (
@@ -339,20 +383,27 @@ const compose = (
 	}
 
 	return explode && text.kind === "object"
-		? text.members.map(([key, member]) => `${key}=${member}`).join(",")
-		: flat(text)
+		? Arr.join(
+				Arr.map(text.members, ([key, member]) => `${key}=${member}`),
+				","
+			)
+		: flat(text, ",")
 }
 
+/**
+ * A path style's constructor. Only a matrix expansion emits the name, so only its name is refused
+ * for a lone surrogate.
+ */
 const styled =
 	(style: PathStyle) =>
 	(name: string, value: Nested, options: PathOptions): PathParameter => ({
 		expand: Effect.gen(function* styleExpansion() {
-			// Only a matrix expansion emits the name.
 			if (style === "matrix" && loneSurrogate.test(name)) {
 				return yield* refuse("a matrix parameter has a name with no UTF-8 form")
 			}
 
-			const text = yield* toText(name, yield* flatOf(name, value), true)
+			const flatValue = yield* flatOf(name, value)
+			const text = yield* toText(name, flatValue, true)
 
 			if (text === undefined) {
 				return yield* refuse(`parameter ${name} is required and has no value`)
@@ -360,7 +411,13 @@ const styled =
 
 			yield* checkDelimiters(name, style, text, options)
 
-			return compose(style, name, text, options.explode, encoder(options.allowReserved))
+			return compose(
+				style,
+				name,
+				text,
+				options.explode,
+				encoder(options.allowReserved, pathReserved)
+			)
 		}),
 		name,
 		style
@@ -381,23 +438,26 @@ export const label = styled("label")
  */
 export const matrix = styled("matrix")
 
-const placeholder = /\{(?<name>[^{}]*)\}/u
+const placeholder = regex("\\{([^{}]*)\\}", "u")
+
+const encodedDot: Readonly<RegExp> = regex("%2e", "giu")
 
 const dotSegment = (segment: string) => {
-	const decoded = segment.replaceAll(/%2e/giu, ".")
+	const decoded = Str.replaceAll(encodedDot, ".")(segment)
 
 	return decoded === "." || decoded === ".."
 }
 
 /**
  * A path template with its parameters. Expansion fails with `UsageError` for a placeholder with no
- * parameter, a parameter with no placeholder, a repeated parameter name, any parameter refusal,
- * and a `.` or `..` segment in the result (percent-encoded forms included, since servers and the
+ * parameter, a parameter with no placeholder, a repeated parameter name, any parameter refusal, a
+ * parameter that expands to nothing (an empty simple expansion would collapse its segment; matrix
+ * and label never expand to ""), and a `.` or `..` segment in the result (percent-encoded forms included, since servers and the
  * WHATWG parser normalize them away).
  */
 export const path = (template: string, parameters: readonly PathParameter[]): Path => ({
 	expand: Effect.gen(function* pathExpansion() {
-		const names = parameters.map((parameter) => parameter.name)
+		const names = Arr.map(parameters, (parameter) => parameter.name)
 
 		if (new Set(names).size !== names.length) {
 			return yield* refuse(`path ${template} has two parameters with one name`)
@@ -408,7 +468,6 @@ export const path = (template: string, parameters: readonly PathParameter[]): Pa
 		for (const parameter of parameters) {
 			const expansion = yield* parameter.expand
 
-			// An empty simple expansion would collapse its segment; matrix and label never expand to "".
 			if (expansion === "") {
 				return yield* refuse(`path parameter ${parameter.name} expands to nothing`)
 			}
@@ -417,7 +476,7 @@ export const path = (template: string, parameters: readonly PathParameter[]): Pa
 		}
 
 		const used = new Set<string>()
-		const pieces = template.split(placeholder)
+		const pieces = Str.split(placeholder)(template)
 		let expanded = ""
 
 		for (const [index, piece] of pieces.entries()) {
@@ -439,7 +498,7 @@ export const path = (template: string, parameters: readonly PathParameter[]): Pa
 			return yield* refuse(`path ${template} has a parameter with no placeholder`)
 		}
 
-		if (expanded.split("/").some(dotSegment)) {
+		if (Arr.some(Str.split("/")(expanded), dotSegment)) {
 			return yield* refuse(`path ${template} expands to a dot segment`)
 		}
 
@@ -508,12 +567,12 @@ const queryDelimiter = (
  * Under `allowReserved` a percent triplet passes unchanged, so one that spells the joiner is
  * byte-identical to it.
  */
-const encodedDelimiters: Partial<Record<QueryStyle, string>> = {
+const encodedDelimiters: Readonly<Partial<Record<QueryStyle, string>>> = {
 	pipeDelimited: "%7C",
 	spaceDelimited: "%20"
 }
 
-const bracketInKey = /[[\]]/u
+const bracketInKey: Readonly<RegExp> = regex("[[\\]]", "u")
 
 /**
  * A deepObject member key holding `[` or `]` writes a name whose encoded bracket equals the
@@ -529,7 +588,7 @@ const checkQueryDelimiter = (
 	options: QueryOptions
 ) => {
 	if (style === "deepObject" && text.kind === "object") {
-		return text.members.some(([member]) => bracketInKey.test(member))
+		return Arr.some(text.members, ([member]) => bracketInKey.test(member))
 			? refuseBracketKey(name)
 			: Effect.void
 	}
@@ -538,9 +597,11 @@ const checkQueryDelimiter = (
 	const encoded = options.allowReserved ? encodedDelimiters[style] : undefined
 	const clash =
 		banned !== undefined &&
-		parts(text).some(
+		Arr.some(
+			parts(text),
 			(part) =>
-				part.includes(banned) || (encoded !== undefined && part.toUpperCase().includes(encoded))
+				Str.includes(banned)(part) ||
+				(encoded !== undefined && Str.includes(encoded)(Str.toUpperCase(part)))
 		)
 
 	return clash
@@ -575,17 +636,19 @@ const composePairs = (
 	const text = encodeText(raw, codec.value)
 
 	if (raw.kind === "object" && style === "deepObject") {
-		return raw.members.map(
+		return Arr.map(
+			raw.members,
 			([member, memberText]) => `${codec.name(`${name}[${member}]`)}=${codec.value(memberText)}`
 		)
 	}
 
 	if (explode && text.kind === "array") {
-		return text.items.map((item) => `${key}=${item}`)
+		return Arr.map(text.items, (item) => `${key}=${item}`)
 	}
 
 	if (explode && raw.kind === "object") {
-		return raw.members.map(
+		return Arr.map(
+			raw.members,
 			([member, memberText]) => `${codec.name(member)}=${codec.value(memberText)}`
 		)
 	}
@@ -594,7 +657,7 @@ const composePairs = (
 }
 
 const isEmptyCompound = (value: Nested) =>
-	isNestedList(value) ? value.length === 0 : !isScalar(value) && Object.keys(value).length === 0
+	isNestedList(value) ? value.length === 0 : !isScalar(value) && Rec.isEmptyReadonlyRecord(value)
 
 /**
  * Bracket paths stop here (design 6.1): deeper is refused, so the walk is bounded.
@@ -619,12 +682,14 @@ const bracketLeaves = (
 		}
 
 		if (isScalar(value)) {
-			return [[keys, yield* itemText(name, value)]]
+			const text = yield* itemText(name, value)
+
+			return [[keys, text]]
 		}
 
 		const children: readonly (readonly [string, Nested])[] = isNestedList(value)
-			? value.map((item, index) => [String(index), item] as const)
-			: Object.entries(value).filter(([, member]) => member !== undefined)
+			? Arr.map(value, (item, index) => [String(index), item] as const)
+			: Arr.filter(Rec.toEntries(value), ([, member]) => member !== undefined)
 		const leaves: Leaf[] = []
 
 		for (const [key, child] of children) {
@@ -632,7 +697,11 @@ const bracketLeaves = (
 				return yield* refuseBracketKey(name)
 			}
 
-			leaves.push(...(yield* bracketLeaves(name, child, [...keys, yield* itemText(name, key)])))
+			const keyText = yield* itemText(name, key)
+			const below = yield* bracketLeaves(name, child, [...keys, keyText])
+			for (const leaf of below) {
+				leaves.push(leaf)
+			}
 		}
 
 		return leaves
@@ -651,37 +720,43 @@ const bracketPairs = (
 ): Effect.Effect<readonly string[] | undefined, UsageError> =>
 	Effect.gen(function* bracketExpansion() {
 		if (isScalar(value)) {
-			return Predicate.isNullish(value)
+			return value === undefined || value instanceof JsonNull
 				? undefined
 				: yield* refuse(`parameter ${name} is not an object or array, which brackets require`)
 		}
 
 		const leaves = yield* bracketLeaves(name, value, [])
-		const names = leaves.map(([keys]) =>
-			codec.name(`${name}${keys.map((key) => `[${key}]`).join("")}`)
-		)
+		const named = Arr.map(leaves, ([keys, text]) => ({
+			name: codec.name(
+				`${name}${Arr.join(
+					Arr.map(keys, (key) => `[${key}]`),
+					""
+				)}`
+			),
+			text
+		}))
 
-		if (new Set(names).size !== names.length) {
+		if (new Set(Arr.map(named, (leaf) => leaf.name)).size !== named.length) {
 			return yield* refuse(`parameter ${name} sends two leaves with one bracketed name`)
 		}
 
-		return leaves.length === 0
+		return named.length === 0
 			? undefined
-			: leaves.map(([, text], index) => `${names[index]}=${codec.value(text)}`)
+			: Arr.map(named, (leaf) => `${leaf.name}=${codec.value(leaf.text)}`)
 	})
 
 /**
  * Whether `deepObject` takes this value through the bracket convention: an object or array under
  * `brackets`, but not a scalar the scalar switch sends as one pair.
  */
-const bracketed = (style: QueryStyle, value: Nested, brackets?: boolean, scalars?: boolean) =>
-	style === "deepObject" && brackets === true && !(scalars === true && isScalar(value))
+const bracketed = (style: QueryStyle, value: Nested, brackets: boolean, scalars: boolean) =>
+	style === "deepObject" && brackets && !(scalars && isScalar(value))
 
 /**
  * `deepObject` sends an object, or a scalar when the scalar switch is set.
  */
-const deepObjectTakes = (text: Text, scalars?: boolean) =>
-	text.kind === "object" || (scalars === true && text.kind === "primitive")
+const deepObjectTakes = (text: Text, scalars: boolean) =>
+	text.kind === "object" || (scalars && text.kind === "primitive")
 
 const nothingSent = (
 	name: string,
@@ -705,10 +780,10 @@ const queryStyled =
 				return yield* refuse(`parameter ${name} has a name with no UTF-8 form`)
 			}
 
-			if (bracketed(style, value, options.brackets, options.scalars)) {
+			if (bracketed(style, value, options.brackets === true, options.scalars === true)) {
 				const pairs = yield* bracketPairs(name, value, queryCodec(options.allowReserved))
 
-				return pairs === undefined ? yield* nothingSent(name, value, options) : pairs.join("&")
+				return pairs === undefined ? yield* nothingSent(name, value, options) : Arr.join(pairs, "&")
 			}
 
 			if (!isFlat(value)) {
@@ -721,19 +796,16 @@ const queryStyled =
 				return yield* nothingSent(name, value, options)
 			}
 
-			if (style === "deepObject" && !deepObjectTakes(text, options.scalars)) {
+			if (style === "deepObject" && !deepObjectTakes(text, options.scalars === true)) {
 				return yield* refuse(`parameter ${name} is not an object, which deepObject requires`)
 			}
 
 			yield* checkQueryDelimiter(name, style, text, options)
 
-			return composePairs(
-				style,
-				name,
-				text,
-				options.explode,
-				queryCodec(options.allowReserved)
-			).join("&")
+			return Arr.join(
+				composePairs(style, name, text, options.explode, queryCodec(options.allowReserved)),
+				"&"
+			)
 		}),
 		name,
 		style
@@ -782,16 +854,16 @@ export interface HeaderParameter {
 /**
  * RFC 9110 `token`.
  */
-const headerToken = /^[\w!#$%&'*+.^`|~-]+$/u
+const headerToken: Readonly<RegExp> = regex("^[\\w!#$%&'*+.^`|~-]+$", "u")
 
-const headerLineBreak = /[\n\r]/u
+const headerLineBreak: Readonly<RegExp> = regex("[\n\r]", "u")
 
-const edgeSpace = /^[\t ]|[\t ]$/u
+const edgeSpace: Readonly<RegExp> = regex("^[\t ]|[\t ]$", "u")
 
 /**
  * Any code point above U+00FF: a header field carries one byte per character, so it has no form.
  */
-const wideCodePoint = /[\u{100}-\u{10FFFF}]/u
+const wideCodePoint: Readonly<RegExp> = regex("[\\u{100}-\\u{10FFFF}]", "u")
 
 /**
  * The part of the header-value rule that credentials and parameters share: CR, LF, NUL and a code
@@ -799,7 +871,7 @@ const wideCodePoint = /[\u{100}-\u{10FFFF}]/u
  * (`edgeSpace` here, `trim` for a credential).
  */
 export const headerValueBreaks = (text: string): boolean =>
-	headerLineBreak.test(text) || text.includes("\u0000") || wideCodePoint.test(text)
+	headerLineBreak.test(text) || Str.includes("\u0000")(text) || wideCodePoint.test(text)
 
 /**
  * A header value, or a media type that becomes one, that no header can carry unchanged (RFC 9110
@@ -819,12 +891,9 @@ const headerAmbiguity = (text: Text, explode: boolean): readonly string[] => {
 		return []
 	}
 
-	const keys = explode && text.kind === "object" ? text.members.map(([key]) => key) : []
+	const keys = explode && text.kind === "object" ? Arr.map(text.members, ([key]) => key) : []
 
-	return [
-		...parts(text).filter((part) => part.includes(",")),
-		...keys.filter((key) => key.includes("="))
-	]
+	return [...Arr.filter(parts(text), Str.includes(",")), ...Arr.filter(keys, Str.includes("="))]
 }
 
 /**
@@ -836,13 +905,14 @@ export const header = (name: string, value: Nested, options: HeaderOptions): Hea
 			return yield* refuse("a header parameter has a name that is not an RFC 9110 token")
 		}
 
-		const text = yield* toText(name, yield* flatOf(name, value), options.required)
+		const flatValue = yield* flatOf(name, value)
+		const text = yield* toText(name, flatValue, options.required)
 
 		if (text === undefined) {
 			return text
 		}
 
-		if (headerTexts(text).some(unsafeHeaderText)) {
+		if (Arr.some(headerTexts(text), unsafeHeaderText)) {
 			return yield* refuse(`header ${name} holds a value no header line can carry unchanged`)
 		}
 
@@ -881,7 +951,10 @@ export interface CookieParameter {
 /**
  * RFC 6265 `cookie-octet`: `%x21 / %x23-2B / %x2D-3A / %x3C-5B / %x5D-7E`.
  */
-export const cookieOctets = /^[\u0021\u0023-\u002B\u002D-\u003A\u003C-\u005B\u005D-\u007E]*$/u
+export const cookieOctets: Readonly<RegExp> = regex(
+	"^[\\u0021\\u0023-\\u002B\\u002D-\\u003A\\u003C-\\u005B\\u005D-\\u007E]*$",
+	"u"
+)
 
 /**
  * Reserved characters a 3.2 `form` cookie value may pass under `allowReserved`: RFC 3986 reserved
@@ -893,14 +966,20 @@ const cookieAssignment = (key: string, text: string) => `${key}=${text}`
 
 const composeCookie = (name: string, text: Text, explode: boolean): string => {
 	if (explode && text.kind === "array") {
-		return text.items.map((item) => cookieAssignment(name, item)).join("; ")
+		return Arr.join(
+			Arr.map(text.items, (item) => cookieAssignment(name, item)),
+			"; "
+		)
 	}
 
 	if (explode && text.kind === "object") {
-		return text.members.map(([key, member]) => cookieAssignment(key, member)).join("; ")
+		return Arr.join(
+			Arr.map(text.members, ([key, member]) => cookieAssignment(key, member)),
+			"; "
+		)
 	}
 
-	return cookieAssignment(name, flat(text))
+	return cookieAssignment(name, flat(text, ","))
 }
 
 /**
@@ -923,20 +1002,21 @@ export const cookie = (name: string, value: Nested, options: CookieOptions): Coo
 			return yield* refuse(`parameter ${name} sets explode false, which 3.2 forbids for a cookie`)
 		}
 
-		const text = yield* toText(name, yield* flatOf(name, value), options.required)
+		const flatValue = yield* flatOf(name, value)
+		const text = yield* toText(name, flatValue, options.required)
 
 		if (text === undefined) {
 			return text
 		}
 
 		if (options.style === "cookie") {
-			const keys = text.kind === "object" ? text.members.map(([key]) => key) : []
+			const keys = text.kind === "object" ? Arr.map(text.members, ([key]) => key) : []
 
-			if (keys.some((key) => !headerToken.test(key))) {
+			if (Arr.some(keys, (key) => !headerToken.test(key))) {
 				return yield* refuse(`parameter ${name} holds a member name that is not an RFC 6265 token`)
 			}
 
-			if (headerTexts(text).some((part) => !cookieOctets.test(part))) {
+			if (Arr.some(headerTexts(text), (part) => !cookieOctets.test(part))) {
 				return yield* refuse(`parameter ${name} holds a character outside RFC 6265 cookie-octet`)
 			}
 
@@ -967,10 +1047,23 @@ export type Json =
 	| string
 	| number
 	| boolean
-	| null
+	| JsonNull
 	| JsonNumber
 	| readonly Json[]
 	| { readonly [member: string]: Json }
+
+type JsonObject = Readonly<Record<string, Json>>
+
+const isJsonObject = (value: Json): value is JsonObject =>
+	Predicate.isObject(value) &&
+	!Arr.isArray<Json>(value) &&
+	!(value instanceof JsonNumber) &&
+	!(value instanceof JsonNull)
+
+const isJsonScalar = (value: Json): value is Exclude<Json, object> | JsonNumber | JsonNull =>
+	value instanceof JsonNumber ||
+	value instanceof JsonNull ||
+	(!Predicate.isObject(value) && !Arr.isArray<Json>(value))
 
 /**
  * A request body: a JSON or text value, or a binary stream that is already an `HttpBody` (a
@@ -1008,36 +1101,22 @@ const hasUnwritableNumber = (value: Json): boolean => {
 		return !Number.isFinite(value)
 	}
 
-	if (Array.isArray(value)) {
-		return value.some((item: Json) => hasUnwritableNumber(item))
+	if (Arr.isArray<Json>(value)) {
+		return Arr.some(value, hasUnwritableNumber)
 	}
 
-	return (
-		Predicate.isObject(value) && Object.values(value).some((member) => hasUnwritableNumber(member))
-	)
+	return isJsonObject(value) && Arr.some(Rec.values(value), hasUnwritableNumber)
 }
-
-const rawNumbers = (_key: string, value: Json): Json | RawJson =>
-	value instanceof JsonNumber ? rawJson(value.text) : value
 
 /**
- * Compact JSON text from `JSON.stringify`, with a `JsonNumber` written as its digit text through
- * `JSON.rawJSON`. `subject` names the body, parameter or property in a refusal.
+ * Compact JSON text, with a `JsonNumber` written as its digit text (`Input.jsonText`). `subject`
+ * names the body, parameter or property in a refusal. The walk refuses every number JSON cannot
+ * carry first, so the text is written whole.
  */
-const jsonText = (subject: string, value: Json) => {
-	const unwritable = `${subject} holds a number with no JSON text form`
-
-	// The walk leaves `JSON.rawJSON` no text to refuse; a SyntaxError from it is a refusal all the same.
-	return hasUnwritableNumber(value)
-		? refuse(unwritable)
-		: Effect.try({ catch: (error) => error, try: () => JSON.stringify(value, rawNumbers) }).pipe(
-				Effect.catchIf(
-					(error): error is SyntaxError => error instanceof SyntaxError,
-					() => refuse(unwritable)
-				),
-				Effect.orDie
-			)
-}
+const jsonText = (subject: string, value: Json): Effect.Effect<string, UsageError> =>
+	hasUnwritableNumber(value)
+		? refuse(`${subject} holds a number with no JSON text form`)
+		: Effect.succeed(writeJson(value))
 
 const bodyOf = (mediaType: string, value: Body) =>
 	Effect.gen(function* bodyEvaluation() {
@@ -1050,7 +1129,9 @@ const bodyOf = (mediaType: string, value: Body) =>
 		}
 
 		if (isJsonMedia(mediaType)) {
-			return HttpBody.text(yield* jsonText("the body", value), mediaType)
+			const text = yield* jsonText("the body", value)
+
+			return HttpBody.text(text, mediaType)
 		}
 
 		if (!Predicate.isString(value)) {
@@ -1152,14 +1233,15 @@ const fieldValues = (fields: FormFields, name: string): readonly FormValue[] =>
 	)
 
 /**
- * A part that travels whole beside the form's fields: its `Content-Type`, chosen among the types
- * its Encoding `contentType` lists (design 6.3, ENC-10) or the one it lists, its values, and its
- * declared headers (ENC-03, HDR-01), each a header parameter, sent together or not at all. Every
- * value of the part carries the same header lines; a header whose expansion is `undefined` is not
- * written.
+ * A part that travels whole beside the form's fields: its `Content-Type`, the one type its
+ * Encoding `contentType` lists or the operator's choice among several (design 6.3, ENC-10), its
+ * values, and its declared headers (ENC-03, HDR-01), each a header parameter, sent together or not
+ * at all. A choice is present for a sent part: `Input.partOptions` refused a sent part without it.
+ * Every value of the part carries the same header lines; a header whose expansion is `undefined`
+ * is not written.
  */
 export interface ChosenPart<T extends string = string> {
-	readonly contentType: T
+	readonly contentType: Option.Option<T> | T
 	readonly headers?: readonly HeaderParameter[]
 	readonly values: readonly FormValue[]
 }
@@ -1207,7 +1289,7 @@ export type FormPartEntry = readonly [
  * part has a value, so the part is not sent.
  */
 export const nestedValues = (fields: FormFields): readonly FormValue[] =>
-	Object.values(fields).some((values) => values.length > 0) ? [{ nested: fields }] : []
+	Arr.some(Rec.values(fields), Arr.isReadonlyArrayNonEmpty) ? [{ nested: fields }] : []
 
 /**
  * The declared parts in wire order.
@@ -1252,21 +1334,23 @@ const formText = (value: Exclude<LeafValue, FormFile>) => {
 	return Effect.succeed(String(value))
 }
 
-// What one part entry sends: a declared type with the fields' values under the part's name, a
-// chosen part as given, or nothing for a chosen part not sent.
+/**
+ * What one part entry sends: a declared type with the fields' values under the part's name, a
+ * chosen part as given, or nothing for a chosen part not sent.
+ */
 const sentPart = (
 	fields: FormFields,
 	name: string,
 	sent: Exclude<FormPartEntry[1], NestedForm | PositionalForm>
 ): ChosenPart | undefined =>
-	Predicate.isString(sent)
-		? { contentType: sent, values: Object.hasOwn(fields, name) ? (fields[name] ?? []) : [] }
-		: sent
+	Predicate.isString(sent) ? { contentType: sent, values: fieldValues(fields, name) } : sent
 
 type HeaderLine = readonly [name: string, value: string]
 
-// The header lines of a sent part: each header parameter's expansion, in order, left out when it
-// sends nothing.
+/**
+ * The header lines of a sent part: each header parameter's expansion, in order, left out when it
+ * sends nothing.
+ */
 const headerLines = (headers: readonly HeaderParameter[] | undefined) =>
 	Effect.gen(function* lines() {
 		const written: HeaderLine[] = []
@@ -1280,8 +1364,10 @@ const headerLines = (headers: readonly HeaderParameter[] | undefined) =>
 		return written
 	})
 
-// One value's part. A part entry's `contentEncoding` reaches the writer, which encodes the bytes,
-// and the part's header lines reach the writer's part head.
+/**
+ * One value's part. A part entry's `contentEncoding` reaches the writer, which encodes the bytes,
+ * and the part's header lines reach the writer's part head.
+ */
 const formPart = (
 	[name, , contentEncoding]: FormPartEntry,
 	contentType: string,
@@ -1299,12 +1385,14 @@ const formPart = (
 		: Effect.map(formText(value), (text) => encoded({ body: utf8.encode(text), contentType, name }))
 }
 
-// A by-name nested part (design 6.3, HT:B16): each nested part's values in nested property order,
-// each under its own rule. The writer's one nesting level holds leaf parts only.
+/**
+ * A by-name nested part (design 6.3, HT:B16): each nested part's values in nested property order,
+ * each under its own rule. The writer's one nesting level holds leaf parts only.
+ */
 const nestedPart = (name: string, nesting: NestedForm, fields: FormFields) =>
 	Effect.gen(function* nested() {
-		const declared = new Set(nesting.parts.map(([member]) => member))
-		if (Object.keys(fields).some((member) => !declared.has(member))) {
+		const declared = new Set(Arr.map(nesting.parts, ([member]) => member))
+		if (Arr.some(Rec.keys(fields), (member) => !declared.has(member))) {
 			return yield* Effect.die(new Error("formData: a nested field has no declared part"))
 		}
 
@@ -1316,17 +1404,20 @@ const nestedPart = (name: string, nesting: NestedForm, fields: FormFields) =>
 					return yield* Effect.die(new Error("formData: a nested part nests again"))
 				}
 
-				leaves.push(yield* formPart(entry, contentType, [], value))
+				const leaf = yield* formPart(entry, contentType, [], value)
+				leaves.push(leaf)
 			}
 		}
 
 		return { kind: nesting.kind, name, parts: leaves } satisfies Multipart.NestedPart
 	})
 
-// A part nested by position (design 6.3, HT:B16): the part's files in order, file `i` under
-// `positions[i]` and later files under `item`, as one `multipart/mixed` nested part with no
-// nested names, or nothing when no file is given. A file beyond the positions with no item rule is
-// a `UsageError` naming the flag.
+/**
+ * A part nested by position (design 6.3, HT:B16): the part's files in order, file `i` under
+ * `positions[i]` and later files under `item`, as one `multipart/mixed` nested part with no
+ * nested names, or nothing when no file is given. A file beyond the positions with no item rule
+ * is a `UsageError` naming the flag.
+ */
 const positionalParts = (fields: FormFields, name: string, nesting: PositionalForm) =>
 	Effect.gen(function* positional() {
 		const values = fieldValues(fields, name)
@@ -1334,14 +1425,12 @@ const positionalParts = (fields: FormFields, name: string, nesting: PositionalFo
 			return []
 		}
 
-		const ruled = nesting.item === undefined ? nesting.positions.length : Infinity
+		const ruled = nesting.item === undefined ? nesting.positions.length : Number.POSITIVE_INFINITY
 		if (values.length > ruled) {
-			return yield* Effect.fail(
-				new UsageError({
-					flag: nesting.flag,
-					message: `--${nesting.flag}: this part takes at most ${String(ruled)} file${ruled === 1 ? "" : "s"}`
-				})
-			)
+			return yield* UsageError.make({
+				flag: nesting.flag,
+				message: `--${nesting.flag}: this part takes at most ${String(ruled)} file${ruled === 1 ? "" : "s"}`
+			})
 		}
 
 		const leaves: Multipart.LeafPart[] = []
@@ -1359,8 +1448,8 @@ const positionalParts = (fields: FormFields, name: string, nesting: PositionalFo
 
 const formDataOf = (fields: FormFields, options: FormDataOptions) =>
 	Effect.gen(function* formDataEvaluation() {
-		const declared = new Set(options.parts.map(([name]) => name))
-		if (Object.keys(fields).some((name) => !declared.has(name))) {
+		const declared = new Set(Arr.map(options.parts, ([name]) => name))
+		if (Arr.some(Rec.keys(fields), (name) => !declared.has(name))) {
 			return yield* Effect.die(new Error("formData: a field has no declared part"))
 		}
 
@@ -1368,7 +1457,11 @@ const formDataOf = (fields: FormFields, options: FormDataOptions) =>
 		for (const entry of options.parts) {
 			const [name, rule] = entry
 			if (isPositionalForm(rule)) {
-				sent.push(...(yield* positionalParts(fields, name, rule)))
+				const positional = yield* positionalParts(fields, name, rule)
+				for (const part of positional) {
+					sent.push(part)
+				}
+
 				continue
 			}
 
@@ -1393,17 +1486,25 @@ const formDataOf = (fields: FormFields, options: FormDataOptions) =>
 			}
 
 			const part = sentPart(fields, name, rule)
-			if (part === undefined) {
+			if (part === undefined || part.values.length === 0) {
 				continue
 			}
 
-			const headers = part.values.length === 0 ? [] : yield* headerLines(part.headers)
+			const contentType = Predicate.isString(part.contentType)
+				? Option.some(part.contentType)
+				: part.contentType
+			if (Option.isNone(contentType)) {
+				return yield* Effect.die(new Error("formData: a sent part has no content type"))
+			}
+
+			const headers = yield* headerLines(part.headers)
 			for (const value of part.values) {
 				if (isFormNested(value)) {
 					return yield* Effect.die(new Error("formData: a nested value under a plain part"))
 				}
 
-				sent.push(yield* formPart(entry, part.contentType, headers, value))
+				const leaf = yield* formPart(entry, contentType.value, headers, value)
+				sent.push(leaf)
 			}
 		}
 
@@ -1434,31 +1535,36 @@ export interface FormSchemaOptions extends FormPartFlags {
 	readonly schema: Schema.Top
 }
 
-// A JSON value as `JSON.parse` reads its text back: a `JsonNumber` as its number.
+/**
+ * A JSON value as `JSON.parse` reads its text back: a `JsonNumber` as its number.
+ */
 const parsedJson = (value: Json): Schema.Json => {
 	if (value instanceof JsonNumber) {
 		return Number(value.text)
 	}
 
-	if (
-		value === null ||
-		Predicate.isString(value) ||
-		Predicate.isNumber(value) ||
-		Predicate.isBoolean(value)
-	) {
+	if (value instanceof JsonNull) {
+		return null
+	}
+
+	if (Predicate.isString(value) || Predicate.isNumber(value) || Predicate.isBoolean(value)) {
 		return value
 	}
 
-	if (Array.isArray(value)) {
-		return value.map((item: Json) => parsedJson(item))
+	if (Arr.isArray<Json>(value)) {
+		return Arr.map(value, parsedJson)
 	}
 
-	return Object.fromEntries(Object.entries(value).map(([key, member]) => [key, parsedJson(member)]))
+	return Rec.fromEntries(
+		Arr.map(Rec.toEntries(value), ([key, member]) => [key, parsedJson(member)] as const)
+	)
 }
 
-// A part value as the body schema reads it: a scalar as itself, an `int64` digit text as its
-// number and a JSON part as its parsed value, as a merged JSON body is asserted. A file is a
-// stand-in whose issues are never reported.
+/**
+ * A part value as the body schema reads it: a scalar as itself, an `int64` digit text as its
+ * number and a JSON part as its parsed value, as a merged JSON body is asserted. A file is a
+ * stand-in whose issues are never reported.
+ */
 const assertedValue = (value: LeafValue): Schema.Json => {
 	if (isFormFile(value)) {
 		return ""
@@ -1473,61 +1579,69 @@ const assertedValue = (value: LeafValue): Schema.Json => {
 
 const standardIssues = SchemaIssue.makeFormatterStandardSchemaV1()
 
-// A part's path: its name, and a nested part's nested name after it, as one key.
-const partPath = (...names: readonly string[]): string => JSON.stringify(names)
+/**
+ * A part's path: its name, and a nested part's nested name after it, as one key.
+ */
+const partPath = (names: readonly string[]): string => Formatter.formatJson(names)
 
 interface Asserted {
 	readonly files: Set<string>
 	readonly sent: Set<string>
 }
 
-// The values of one form level as the body schema reads them: each part's first value, every value
-// of a repeated part, and a by-name nested part's values as its object. The paths of the parts
-// given and of the file parts are gathered into `seen`.
+/**
+ * The values of one form level as the body schema reads them: each part's first value, every
+ * value of a repeated part, and a by-name nested part's values as its object. The paths of the
+ * parts given and of the file parts are gathered into `seen`.
+ */
 const assertedObject = (
 	fields: FormFields,
 	options: FormPartFlags & { readonly nested?: FormSchemaOptions["nested"] },
 	seen: Asserted,
-	...at: readonly string[]
+	at: readonly string[]
 ): { readonly [name: string]: Schema.Json } => {
 	const repeated = new Set(options.repeated)
 	const entries: (readonly [string, Schema.Json])[] = []
-	for (const [name, values] of Object.entries(fields)) {
+	for (const [name, values] of Rec.toEntries(fields)) {
 		const [first] = values
 		if (first === undefined) {
 			continue
 		}
 
-		const slot = partPath(...at, name)
+		const slot = partPath([...at, name])
 		seen.sent.add(slot)
 		if (isFormNested(first)) {
 			const members = options.nested?.[name] ?? { flags: {}, repeated: [] }
-			entries.push([name, assertedObject(first.nested, members, seen, ...at, name)])
+			entries.push([name, assertedObject(first.nested, members, seen, [...at, name])])
 			continue
 		}
 
-		const leaves = values.filter((value): value is LeafValue => !isFormNested(value))
-		if (leaves.some(isFormFile)) {
+		const leaves = Arr.filter(values, (value): value is LeafValue => !isFormNested(value))
+		if (Arr.some(leaves, isFormFile)) {
 			seen.files.add(slot)
 		}
 
-		entries.push([name, repeated.has(name) ? leaves.map(assertedValue) : assertedValue(first)])
+		entries.push([name, repeated.has(name) ? Arr.map(leaves, assertedValue) : assertedValue(first)])
 	}
 
-	return Object.fromEntries(entries)
+	return Rec.fromEntries(entries)
 }
 
 type PathSegment = PropertyKey | { readonly key: PropertyKey }
 
-// An issue path segment's name, if it is a string key.
+/**
+ * An issue path segment's name, if it is a string key.
+ */
 const segmentName = (segment: PathSegment | undefined): string | undefined => {
 	const key = Predicate.isObject(segment) ? segment.key : segment
 
 	return Predicate.isString(key) ? key : undefined
 }
 
-// The path of the part an issue is under: its first segment, if that is a part name, and for a
-// by-name nested part the nested name after it.
+/**
+ * The path of the part an issue is under: its first segment, if that is a part name, and for a
+ * by-name nested part the nested name after it.
+ */
 const issuePath = (
 	issue: { readonly path?: readonly PathSegment[] | undefined },
 	nested: ReadonlySet<string>
@@ -1539,21 +1653,24 @@ const issuePath = (
 		return undefined
 	}
 
-	return nested.has(name) && member !== undefined ? partPath(name, member) : partPath(name)
+	return nested.has(name) && member !== undefined ? partPath([name, member]) : partPath([name])
 }
 
-// The first failing part's flag and path in declared order, a nested part's nested flags before
-// its own.
+/**
+ * The first failing part's flag and path in declared order, a nested part's nested flags before
+ * its own.
+ */
 const failingFlag = (options: FormSchemaOptions, failing: ReadonlySet<string | undefined>) =>
-	Object.entries(options.flags)
-		.flatMap(([name, flag]) => [
-			...Object.entries(options.nested?.[name]?.flags ?? {}).map(([member, memberFlag]) => ({
+	Arr.findFirst(
+		Arr.flatMap(Rec.toEntries(options.flags), ([name, flag]) => [
+			...Arr.map(Rec.toEntries(options.nested?.[name]?.flags ?? {}), ([member, memberFlag]) => ({
 				flag: memberFlag,
-				slot: partPath(name, member)
+				slot: partPath([name, member])
 			})),
-			{ flag, slot: partPath(name) }
-		])
-		.find(({ slot }) => failing.has(slot))
+			{ flag, slot: partPath([name]) }
+		]),
+		({ slot }) => failing.has(slot)
+	)
 
 /**
  * The part values asserted against the body's schema before any request (design 4.5, C2): text
@@ -1569,41 +1686,42 @@ export const assertFormData =
 	(fields: FormFields): Effect.Effect<FormFields, UsageError> =>
 		Effect.gen(function* assertion() {
 			const seen: Asserted = { files: new Set(), sent: new Set() }
-			const value = assertedObject(fields, options, seen)
+			const value = assertedObject(fields, options, seen, [])
 			if (seen.sent.size === 0 && !options.required) {
 				return fields
 			}
 
-			const checked = SchemaParser.decodeUnknownResult(Schema.toType(options.schema))(value, {
+			const checked = SchemaParser.decodeResult(Schema.toType(options.schema))(value, {
 				errors: "all"
 			})
 			if (Result.isSuccess(checked)) {
 				return fields
 			}
 
-			const nested = new Set(Object.keys(options.nested ?? {}))
+			const nested = new Set(Rec.keys(options.nested ?? {}))
 			const failing = new Set(
-				standardIssues(checked.failure)
-					.issues.map((issue) => issuePath(issue, nested))
-					.filter((slot) => slot === undefined || !seen.files.has(slot))
+				Arr.filter(
+					Arr.map(standardIssues(checked.failure).issues, (issue) => issuePath(issue, nested)),
+					(slot) => slot === undefined || !seen.files.has(slot)
+				)
 			)
 			if (failing.size === 0) {
 				return fields
 			}
 
 			const named = failingFlag(options, failing)
-			if (named === undefined) {
+			if (Option.isNone(named)) {
 				return yield* refuse("the multipart parts do not match the request body schema")
 			}
 
-			return yield* Effect.fail(
-				new UsageError({
-					flag: named.flag,
-					message: seen.sent.has(named.slot)
-						? `--${named.flag}: does not match the request body schema`
-						: `--${named.flag}: this request needs it`
-				})
-			)
+			const { flag, slot } = named.value
+
+			return yield* UsageError.make({
+				flag,
+				message: seen.sent.has(slot)
+					? `--${flag}: does not match the request body schema`
+					: `--${flag}: this request needs it`
+			})
 		})
 
 /**
@@ -1623,62 +1741,58 @@ export type PartChoices = Readonly<
 >
 
 /**
- * The content type a keyed part entry gives: the chosen type, or the one type listed.
+ * One keyed part as `chooseParts` moves it: its values and header parameters, and its type exactly
+ * as its entry in the choices gave it.
  */
-export type PartChoiceType<X> =
-	X extends Option.Option<infer T> ? Extract<T, string> : Extract<X, string>
+export interface KeyedPart<X> {
+	readonly contentType: X extends PartChoices[string] ? X[1] : never
+	readonly headers?: readonly HeaderParameter[]
+	readonly values: readonly FormValue[]
+}
 
 /**
  * A form as the `api/` builder takes it: the declared parts' values under `fields`, and each keyed
  * part under its key, absent when it is not sent.
  */
 export type ChosenForm<C extends PartChoices> = { readonly fields: FormFields } & {
-	readonly [K in keyof C]?: ChosenPart<PartChoiceType<C[K][1]>> | undefined
+	readonly [K in keyof C]?: KeyedPart<C[K]> | undefined
+}
+
+/**
+ * The keyed part of one choice entry, none when the part has no value: the type of `chooseParts`'s
+ * per-entry step, so each key keeps its entry's type.
+ */
+interface KeyedOf extends Struct.Lambda {
+	(choice: PartChoices[string]): KeyedPart<PartChoices[string]> | undefined
+	readonly "~lambda.out": KeyedPart<this["~lambda.in"]> | undefined
 }
 
 /**
  * Splits asserted part values for the `api/` builder (ENC-10, ENC-03): each keyed part's values
  * leave the fields and travel with its type and header parameters, and a part with no value is left
  * out with its headers. `Input.partOptions` has already refused a sent part with no type and a
- * header flag without its part, so meeting a sent part with no type here is a defect.
+ * header flag without its part.
  */
 export const chooseParts =
 	<const C extends PartChoices>(choices: C) =>
-	(fields: FormFields): Effect.Effect<ChosenForm<C>> =>
-		Effect.gen(function* choose() {
-			const named = new Set(Object.values(choices).map(([part]) => part))
-			const chosen: (readonly [string, ChosenPart])[] = []
-			for (const [key, [part, contentType, headers]] of Object.entries(choices)) {
-				const values = fieldValues(fields, part)
-				if (values.length === 0) {
-					continue
-				}
-
-				const type = Predicate.isString(contentType)
-					? contentType
-					: Option.getOrUndefined(contentType)
-				if (type === undefined) {
-					return yield* Effect.die(new Error("chooseParts: a sent part has no content type"))
-				}
-
-				chosen.push([
-					key,
-					headers === undefined || headers.length === 0
-						? { contentType: type, values }
-						: { contentType: type, headers, values }
-				])
+	(fields: FormFields): Effect.Effect<ChosenForm<C>> => {
+		const keyedOf = Struct.lambda<KeyedOf>(([part, contentType, headers]) => {
+			const values = fieldValues(fields, part)
+			if (values.length === 0) {
+				return undefined
 			}
 
-			const split = {
-				...Object.fromEntries(chosen),
-				fields: Object.fromEntries(Object.entries(fields).filter(([name]) => !named.has(name)))
-			}
-
-			// SAFETY: each keyed key is a key of `choices` whose type is the one it gave, and the
-			// generated keys are never `fields`, so `split` holds `fields` and optional keyed parts only.
-			// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- `fields` and one optional keyed part per key of `choices`, as `ChosenForm` reads them
-			return split as ChosenForm<C>
+			return headers === undefined || headers.length === 0
+				? { contentType, values }
+				: { contentType, headers, values }
 		})
+		const named = new Set(Arr.map(Rec.values(choices), ([part]) => part))
+
+		return Effect.succeed({
+			...Struct.map(choices, keyedOf),
+			fields: Rec.fromEntries(Arr.filter(Rec.toEntries(fields), ([name]) => !named.has(name)))
+		})
+	}
 
 /**
  * A `multipart/form-data` body streamed through the multipart writer (design 6.3): one part per
@@ -1710,30 +1824,36 @@ export interface MixedOptions {
 	readonly required: boolean
 }
 
-// The one flag a positional body's parts come from (the names plan never renames it).
+/**
+ * The one flag a positional body's parts come from (the names plan never renames it).
+ */
 const partFlag = "part"
 
 const partCount = (count: number) => `${count} part${count === 1 ? "" : "s"}`
 
 const partCountError = (bound: string) =>
-	new UsageError({ flag: partFlag, message: `--${partFlag}: this body takes ${bound}` })
+	UsageError.make({ flag: partFlag, message: `--${partFlag}: this body takes ${bound}` })
 
+/**
+ * The positional body's evaluation. With no item rule a part beyond the position rules has no rule
+ * to be sent under.
+ */
 const mixedOf = (bodies: MixedParts, options: MixedOptions) =>
 	Effect.gen(function* mixedEvaluation() {
 		if (bodies.length === 0 && !options.required) {
 			return HttpBody.empty
 		}
 
-		// With no item rule a part beyond the position rules has no rule to be sent under.
-		const ruled = options.itemEncoding === undefined ? options.prefixEncoding.length : Infinity
-		const most = Math.min(ruled, options.maxParts ?? Infinity)
+		const ruled =
+			options.itemEncoding === undefined ? options.prefixEncoding.length : Number.POSITIVE_INFINITY
+		const most = Math.min(ruled, options.maxParts ?? Number.POSITIVE_INFINITY)
 		if (bodies.length > most) {
-			return yield* Effect.fail(partCountError(`at most ${partCount(most)}`))
+			return yield* partCountError(`at most ${partCount(most)}`)
 		}
 
 		const least = options.minParts ?? 0
 		if (bodies.length < least) {
-			return yield* Effect.fail(partCountError(`at least ${partCount(least)}`))
+			return yield* partCountError(`at least ${partCount(least)}`)
 		}
 
 		return yield* Multipart.mixed(Multipart.positionalParts(bodies, options), Option.none())
@@ -1779,16 +1899,6 @@ export interface UrlEncodedOptions {
 	readonly properties: readonly (readonly [name: string, encoding: FormEncoding])[]
 }
 
-interface JsonObject {
-	readonly [member: string]: Json
-}
-
-const isJsonObject = (value: Json): value is JsonObject =>
-	Predicate.isObject(value) && !Array.isArray(value) && !(value instanceof JsonNumber)
-
-const isJsonScalar = (value: Json): value is Exclude<Json, object> | JsonNumber =>
-	value instanceof JsonNumber || (!Predicate.isObject(value) && !Array.isArray(value))
-
 /**
  * Whether a string, member name or item anywhere in `value` holds a lone surrogate.
  */
@@ -1797,19 +1907,20 @@ const hasLoneSurrogate = (value: Json): boolean => {
 		return loneSurrogate.test(value)
 	}
 
-	if (Array.isArray(value)) {
-		return value.some((item: Json) => hasLoneSurrogate(item))
+	if (Arr.isArray<Json>(value)) {
+		return Arr.some(value, hasLoneSurrogate)
 	}
 
 	return (
 		isJsonObject(value) &&
-		Object.entries(value).some(
+		Arr.some(
+			Rec.toEntries(value),
 			([member, text]) => loneSurrogate.test(member) || hasLoneSurrogate(text)
 		)
 	)
 }
 
-const formSafe = /^[\w*.-]$/u
+const formSafe: Readonly<RegExp> = regex("^[\\w*.-]$", "u")
 
 /**
  * The WHATWG `application/x-www-form-urlencoded` serializer for one name or value: ASCII
@@ -1817,22 +1928,24 @@ const formSafe = /^[\w*.-]$/u
  * Under `allowReserved` the form's reserved set and percent triplets also pass, so `&`, `=`, `+`
  * and `#` stay encoded.
  */
-const formEncoder = (allowReserved: boolean) => (text: string) =>
-	text.replaceAll(/%[0-9A-Fa-f]{2}|[\S\s]/gu, (token) => {
-		if (token === " ") {
-			return "+"
-		}
+const formEncoder =
+	(allowReserved: boolean) =>
+	(text: string): string =>
+		tokensThrough(text, (token) => {
+			if (token === " ") {
+				return "+"
+			}
 
-		if (formSafe.test(token)) {
-			return token
-		}
+			if (formSafe.test(token)) {
+				return token
+			}
 
-		if (allowReserved && (percentTriplet.test(token) || formReserved.includes(token))) {
-			return token
-		}
+			if (allowReserved && (percentTriplet.test(token) || Str.includes(token)(formReserved))) {
+				return token
+			}
 
-		return token === "~" ? "%7E" : encodeUnreserved(token)
-	})
+			return token === "~" ? "%7E" : encodeUnreserved(token)
+		})
 
 const formCodec = (allowReserved: boolean): PairCodec => ({
 	joiners: { deepObject: ",", form: ",", pipeDelimited: "%7C", spaceDelimited: "+" },
@@ -1872,7 +1985,7 @@ const styledPairs = (
 			explode: encoding.explode ?? style === "form"
 		}
 
-		if (bracketed(style, value, encoding.brackets, encoding.scalars)) {
+		if (bracketed(style, value, encoding.brackets === true, encoding.scalars === true)) {
 			const pairs = yield* bracketPairs(name, value, formCodec(options.allowReserved))
 
 			return pairs === undefined ? noPairs : { members: true, pairs }
@@ -1888,7 +2001,7 @@ const styledPairs = (
 			return noPairs
 		}
 
-		if (style === "deepObject" && !deepObjectTakes(text, encoding.scalars)) {
+		if (style === "deepObject" && !deepObjectTakes(text, encoding.scalars === true)) {
 			return yield* refuse(`property ${name} is not an object, which deepObject requires`)
 		}
 
@@ -1907,7 +2020,7 @@ const styledPairs = (
  */
 const contentPairs = (name: string, value: Json): Effect.Effect<PropertyPairs, UsageError> =>
 	Effect.gen(function* contentExpansion() {
-		if (value === null) {
+		if (value instanceof JsonNull) {
 			return noPairs
 		}
 
@@ -1915,7 +2028,7 @@ const contentPairs = (name: string, value: Json): Effect.Effect<PropertyPairs, U
 			return yield* refuse(`property ${name} holds an unpaired surrogate, which has no UTF-8 form`)
 		}
 
-		const items: readonly Json[] = Array.isArray(value) ? value : [value]
+		const items: readonly Json[] = Arr.isArray<Json>(value) ? value : [value]
 		const encode = formEncoder(false)
 		const pairs: string[] = []
 
@@ -1929,6 +2042,11 @@ const contentPairs = (name: string, value: Json): Effect.Effect<PropertyPairs, U
 
 		return { members: false, pairs }
 	})
+
+/**
+ * A form pair's encoded name: an encoded name holds no `=`, so the first one ends it.
+ */
+const pairNameOf = (pair: string): string => Arr.headNonEmpty(Str.split("=")(pair))
 
 /**
  * The `application/x-www-form-urlencoded` text of an object (design 6.3): the pairs of each
@@ -1948,19 +2066,20 @@ export const urlEncode = (
 	options: UrlEncodedOptions
 ): Effect.Effect<string, UsageError> =>
 	Effect.gen(function* formExpansion() {
-		const declared = new Set(options.properties.map(([name]) => name))
-		const undeclared = Object.keys(value)
-			.filter((name) => !declared.has(name))
-			.map((name) => [name, {}] as const)
+		const declared = new Set(Arr.map(options.properties, ([name]) => name))
+		const undeclared = Arr.map(
+			Arr.filter(Rec.keys(value), (name) => !declared.has(name)),
+			(name) => [name, {}] as const
+		)
 		const encodeName = formEncoder(false)
-		const declaredNames = new Set([...declared].map(encodeName))
+		const declaredNames = new Set(Arr.map([...declared], encodeName))
 		const senders = new Map<string, string>()
 		const pairs: string[] = []
 
 		for (const [name, encoding] of [...options.properties, ...undeclared]) {
-			const property = Object.hasOwn(value, name) ? value[name] : undefined
+			const property = Rec.get(value, name)
 
-			if (property === undefined) {
+			if (Option.isNone(property)) {
 				continue
 			}
 
@@ -1969,12 +2088,11 @@ export const urlEncode = (
 			}
 
 			const sent = hasStyle(encoding)
-				? yield* styledPairs(name, property, encoding)
-				: yield* contentPairs(name, property)
+				? yield* styledPairs(name, property.value, encoding)
+				: yield* contentPairs(name, property.value)
 
 			for (const pair of sent.pairs) {
-				// An encoded name holds no `=`, so the first one ends it.
-				const pairName = pair.slice(0, pair.indexOf("="))
+				const pairName = pairNameOf(pair)
 				const sender = senders.get(pairName)
 
 				if (
@@ -1987,12 +2105,11 @@ export const urlEncode = (
 				}
 
 				senders.set(pairName, name)
+				pairs.push(pair)
 			}
-
-			pairs.push(...sent.pairs)
 		}
 
-		return pairs.join("&")
+		return Arr.join(pairs, "&")
 	})
 
 /**
@@ -2021,13 +2138,17 @@ const refusedNamesOf = (
  * it, as a server reading brackets or dots would nest it.
  */
 const carries = (field: string, pairName: string): boolean =>
-	pairName === field || pairName.startsWith(`${field}[`) || pairName.startsWith(`${field}.`)
+	pairName === field ||
+	Str.startsWith(`${field}[`)(pairName) ||
+	Str.startsWith(`${field}.`)(pairName)
 
-// A refused field has no flag, so only the whole body can carry it; the name is the field's,
-// never its value.
+/**
+ * The refusal of a refused field. It has no flag, so only the whole body can carry it; the name is
+ * the field's, never its value.
+ */
 const refuseField = (field: string, mediaType: string): Refusal =>
 	Effect.fail(
-		new UsageError({
+		UsageError.make({
 			flag: "--body",
 			message: `property ${field} is refused for ${mediaType} and cannot be set through --body or --body-file`
 		})
@@ -2042,9 +2163,9 @@ const refuseField = (field: string, mediaType: string): Refusal =>
 const guardedText = (value: JsonObject, mediaType: string, options: UrlEncodedBodyOptions) =>
 	Effect.gen(function* refusedFieldGuard() {
 		const names = refusedNamesOf(mediaType, options.refused)
-		const ownKey = Object.keys(value).find((key) => names.includes(key))
-		if (ownKey !== undefined) {
-			return yield* refuseField(ownKey, mediaType)
+		const ownKey = Arr.findFirst(Rec.keys(value), (key) => Arr.contains(names, key))
+		if (Option.isSome(ownKey)) {
+			return yield* refuseField(ownKey.value, mediaType)
 		}
 
 		const text = yield* urlEncode(value, options)
@@ -2053,12 +2174,17 @@ const guardedText = (value: JsonObject, mediaType: string, options: UrlEncodedBo
 		}
 
 		const own = new Set(
-			options.properties.map(([name]) => name).filter((name) => !names.includes(name))
+			Arr.filter(
+				Arr.map(options.properties, ([name]) => name),
+				(name) => !Arr.contains(names, name)
+			)
 		)
 		for (const pairName of new URLSearchParams(text).keys()) {
-			const field = own.has(pairName) ? undefined : names.find((name) => carries(name, pairName))
-			if (field !== undefined) {
-				return yield* refuseField(field, mediaType)
+			const field = own.has(pairName)
+				? Option.none()
+				: Arr.findFirst(names, (name) => carries(name, pairName))
+			if (Option.isSome(field)) {
+				return yield* refuseField(field.value, mediaType)
 			}
 		}
 
@@ -2079,7 +2205,9 @@ const urlEncodedOf = (mediaType: string, value: Json | undefined, options: UrlEn
 			return yield* refuse("a form-urlencoded body must be an object")
 		}
 
-		return HttpBody.text(yield* guardedText(value, mediaType, options), mediaType)
+		const text = yield* guardedText(value, mediaType, options)
+
+		return HttpBody.text(text, mediaType)
 	})
 
 /**
@@ -2164,7 +2292,9 @@ export const querystring = (
 				: yield* refuse(`parameter ${name} must be an object under form-urlencoded content`)
 		}
 
-		return encodeUnreserved(yield* contentText(name, mediaType, value))
+		const text = yield* contentText(name, mediaType, value)
+
+		return encodeUnreserved(text)
 	}),
 	name,
 	style: "querystring"
@@ -2189,7 +2319,9 @@ export const queryContent = (
 			return yield* absentContent(name, options)
 		}
 
-		return `${encodeUnreserved(name)}=${encodeUnreserved(yield* contentText(name, mediaType, value))}`
+		const text = yield* contentText(name, mediaType, value)
+
+		return `${encodeUnreserved(name)}=${encodeUnreserved(text)}`
 	}),
 	name,
 	style: "content"
@@ -2279,9 +2411,9 @@ export interface RequestParts {
 export const request = (method: string, descriptors: RequestParts): Request =>
 	Effect.gen(function* requestEvaluation() {
 		const expandedPath = yield* descriptors.path.expand
-		const pairs = yield* Effect.all(descriptors.query.map((parameter) => parameter.expand))
-		const query = pairs.filter(Predicate.isNotUndefined).join("&")
-		const names = descriptors.headers.map((parameter) => parameter.name.toLowerCase())
+		const pairs = yield* Effect.forEach(descriptors.query, (parameter) => parameter.expand)
+		const query = Arr.join(Arr.filter(pairs, Predicate.isNotUndefined), "&")
+		const names = Arr.map(descriptors.headers, (parameter) => Str.toLowerCase(parameter.name))
 
 		if (new Set(names).size !== names.length) {
 			return yield* refuse("two header parameters have one name")
@@ -2289,17 +2421,15 @@ export const request = (method: string, descriptors: RequestParts): Request =>
 
 		const cookies = descriptors.cookies ?? []
 
-		if (cookies.length > 0 && names.includes("cookie")) {
+		if (cookies.length > 0 && Arr.contains(names, "cookie")) {
 			return yield* refuse("a header parameter named Cookie sits beside cookie parameters")
 		}
 
-		const values = yield* Effect.all(
-			descriptors.headers.map((parameter) =>
-				parameter.expand.pipe(Effect.map((text) => [parameter.name, text] as const))
-			)
+		const values = yield* Effect.forEach(descriptors.headers, (parameter) =>
+			Effect.map(parameter.expand, (text) => [parameter.name, text] as const)
 		)
-		const cookiePairs = yield* Effect.all(cookies.map((parameter) => parameter.expand))
-		const cookieHeader = cookiePairs.filter(Predicate.isNotUndefined).join("; ")
+		const cookiePairs = yield* Effect.forEach(cookies, (parameter) => parameter.expand)
+		const cookieHeader = Arr.join(Arr.filter(cookiePairs, Predicate.isNotUndefined), "; ")
 		const url = query === "" ? expandedPath : `${expandedPath}?${query}`
 		let built = HttpClientRequest.setUrl(
 			HttpClientRequest.makeWith(

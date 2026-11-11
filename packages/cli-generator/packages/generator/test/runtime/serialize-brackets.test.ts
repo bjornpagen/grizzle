@@ -1,6 +1,7 @@
 import { Effect, Runtime } from "effect"
 import { describe, expect, test } from "vitest"
 import { UsageError } from "#runtime-src/domain/errors.ts"
+import { jsonNull } from "#runtime-src/runtime/input.ts"
 import * as Serialize from "#runtime-src/runtime/serialize.ts"
 import type { Json, Nested } from "#runtime-src/runtime/serialize.ts"
 
@@ -79,7 +80,7 @@ describe("query deepObject with brackets", () => {
 	})
 
 	test("a null leaf and a scalar top-level value are refused", async () => {
-		await expectUsage(Serialize.deepObject("a", { b: { c: null } }, brackets).expand)
+		await expectUsage(Serialize.deepObject("a", { b: { c: jsonNull } }, brackets).expand)
 		await expectUsage(Serialize.deepObject("a", "x", brackets).expand)
 	})
 

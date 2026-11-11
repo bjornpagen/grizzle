@@ -46,7 +46,7 @@ const crlf = "\r\n"
 /**
  * Every lone CR or lone LF, which a CRLF pair does not contain.
  */
-const loneNewline = regex("\r(?!\n)|(?<!\r)\n", "gu")
+const loneNewline: Readonly<RegExp> = regex("\r(?!\n)|(?<!\r)\n", "gu")
 
 const isNested = (part: Part): part is NestedPart => "parts" in part
 
@@ -264,7 +264,7 @@ export const mixed = (
 /**
  * A path separator, POSIX or Windows.
  */
-const pathSeparator = regex("[/\\\\]", "u")
+const pathSeparator: Readonly<RegExp> = regex("[/\\\\]", "u")
 
 export const partFilename = (path: string, partName: string): string => {
 	if (path === "-") {
