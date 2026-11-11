@@ -21,6 +21,7 @@ import { checkQuery } from "#compiler/check/index.ts"
 import { catchRefusal, type Json } from "#compiler/core/canonical.ts"
 import type { CompileError, CompileReasonTag } from "#compiler/core/errors.ts"
 import { formatLoc, SourceLoc } from "#compiler/core/loc.ts"
+import type { Refused } from "#compiler/core/refusals.ts"
 import * as Result from "#compiler/core/result.ts"
 import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
 import { descText, type QueryDesc, type QueryStageDesc, type RuleDesc } from "#compiler/ir/desc.ts"
@@ -398,14 +399,14 @@ const headArms = (stage: QueryStageDesc): ReadonlyArray<RuleDesc> => {
 }
 
 /**
- * The parameters a stage reads itself: every parameter of its rules but those an imported query reads, which the
- * import's bind map binds; the bind map's operands are the stage's own.
+ * The parameters a stage reads itself, scalar or relation: every parameter of its rules but those an imported query
+ * reads, which the import's bind map binds; the bind map's operands are the stage's own.
  */
 const ownParams = (stage: JsonRecord): ReadonlyArray<Site> =>
 	sitesUnder(
 		stage,
 		[],
-		(v) => v["kind"] === "param",
+		(v) => v["kind"] === "param" || v["kind"] === "paramOf",
 		(v, key) => v["kind"] !== "query" || key !== "query"
 	)
 
@@ -427,12 +428,27 @@ interface Live {
  * (whose rules may name a parent variable, the checker refusing it as AttachedPage), or for a member by checkMember.
  */
 interface Refusal {
-	readonly reason: CompileReasonTag
+	readonly reason: ReasonKey
 	readonly boundary: "description" | "page" | "member"
 }
 
+/** A refusal's reason as the boundary's answer reads it: its tag, and a named refusal's message (core/refusals.ts). */
+type ReasonKey = Exclude<CompileReasonTag, "Refused"> | `Refused:${Refused}`
+
+/** The reason key of `error`. */
+const reasonKeyOf = (error: CompileError): ReasonKey =>
+	error.reason._tag === "Refused" ? `Refused:${error.reason.refusal}` : error.reason._tag
+
 const malformed: Refusal = { reason: "MalformedDescription", boundary: "description" }
 const attachedPage: Refusal = { reason: "AttachedPage", boundary: "page" }
+const bindNamesNoParameter: Refusal = {
+	reason: "Refused:a bind map names only the imported query's parameters",
+	boundary: "description"
+}
+const relationNotInSchema: Refusal = {
+	reason: "Refused:the relation is not in this query's schema",
+	boundary: "description"
+}
 
 /** Every rule a corruption breaks. */
 type RuleName =
@@ -790,7 +806,7 @@ const corruptions: Arr.NonEmptyReadonlyArray<Corruption<Live, Refusal, RuleName>
 				},
 				(match) => ({ ...match, source }),
 				"match",
-				malformed
+				rule === "unknownRelation" ? relationNotInSchema : malformed
 			)
 	),
 	...Arr.map(
@@ -1087,7 +1103,7 @@ const corruptions: Arr.NonEmptyReadonlyArray<Corruption<Live, Refusal, RuleName>
 				bind: { p9002: { kind: "literal", value: 1 } }
 			}),
 		"the root's rules",
-		malformed
+		bindNamesNoParameter
 	),
 	{
 		rule: "memberHeading",
@@ -1136,7 +1152,7 @@ const corruptions: Arr.NonEmptyReadonlyArray<Corruption<Live, Refusal, RuleName>
 						new CompilePatterns()
 					)
 				)
-				return !typed.ok ? [typed.error.reason._tag] : []
+				return !typed.ok ? [reasonKeyOf(typed.error)] : []
 			})[0]
 			return [
 				{
@@ -1351,7 +1367,7 @@ const roundTrip = (
 	const refused = refusedAt(corrupted.refusal.boundary, corrupted.value, schema, relation)
 	assert.ok(!refused.ok, `${label} was accepted`)
 	assert.equal(
-		refused.error.reason._tag,
+		reasonKeyOf(refused.error),
 		corrupted.refusal.reason,
 		`${label}: ${refused.error.message}`
 	)

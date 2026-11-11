@@ -375,8 +375,8 @@ const declaredClasses = ["unkeyedTarget", "castFits"] as const
 type DeclaredClass = (typeof declaredClasses)[number]
 
 /**
- * The kept faults, each a probe of the kept case every run states (keptCase) and never drawn: a family's member side
- * over a selection, by counted, ordered and tree.
+ * The kept faults, each a probe of the kept case every run states (keptCase) and never drawn: a side over a selection,
+ * by counted, ordered and tree.
  */
 const keptFaults = ["selectedCounted", "selectedOrdered", "selectedTree"] as const
 type KeptFault = (typeof keptFaults)[number]
@@ -918,7 +918,10 @@ const refusals: { readonly [F in SchemaFault | KeptFault]: Refusing } = {
 	}),
 	selectedCounted: named("TS2345", wholeMember),
 	selectedOrdered: named("TS2345", wholeMember),
-	selectedTree: named("TS2345", wholeMember)
+	selectedTree: named(
+		"TS2345",
+		"a tree is a family of T over itself, on(T, parent, at), with drawn start and end"
+	)
 }
 
 /**
@@ -4610,7 +4613,10 @@ const familyProbe = (d: Drawing, base: Base): Probe => {
 							]
 						]
 					: fault === "endPlanes"
-						? [[set, noHandles]]
+						? [
+								[sumType, zero(sumType)],
+								[sumType, zero(sumType)]
+							]
 						: [[sumType, zero(sumType)]]
 			case "count":
 				return [[{ kind: "natural" }, { kind: "bigint", value: 0n }]]
@@ -4800,8 +4806,8 @@ const countedSideProbe = (): Probe => {
 
 /**
  * A family whose member side is a selection of its member relation, a kept fault: counted and ordered of M's members in
- * fin(O, n), or the tree of T over itself. A family's members are every fact of its member relation, so each refuses
- * the selection before it reads the side's terms.
+ * fin(O, n), refused as a family's member side, every fact of its relation, before the side's terms are read; or the
+ * tree of T over itself, whose side over a selection breaks the tree's own shape, on(T, parent, at).
  */
 const selectedMemberProbe = (fault: KeptFault): Probe => {
 	const drawnNatural = (name: string): FieldSpec => ({

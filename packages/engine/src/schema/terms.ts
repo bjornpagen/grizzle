@@ -98,7 +98,7 @@ const typingOf = (
 		: { kind: "untyped" }
 }
 
-/** The operand opposite a term: another term, or a literal of the term's type. A check has no parameters. */
+/** The operand opposite a term: another term, or a literal of the term's type. A schema predicate reads no parameter. */
 const operand = (value: unknown, type: TermType | undefined, label: string): OpenExpr => {
 	const term = termExpr(value)
 	if (term !== undefined) {
@@ -108,7 +108,7 @@ const operand = (value: unknown, type: TermType | undefined, label: string): Ope
 		throw malformed(label, "a scalar operand, not a predicate")
 	}
 	if (isParam(value)) {
-		throw malformed(label, "a literal or a field of the row: a row check has no parameters")
+		throw builderRefusal(label, "a schema predicate reads no parameter")
 	}
 	const literal =
 		type === undefined

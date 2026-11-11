@@ -19,6 +19,7 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Record, String as Str } from "effect"
+import type { Refused } from "#compiler/core/refusals.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
 import { natural, uuid } from "#compiler/public/fields.ts"
 import { queryOver, queryValueDesc, varsOver } from "#compiler/query/build/query.ts"
@@ -969,13 +970,42 @@ describe("scope and structure", () => {
 		"an extension under its base's name",
 		"a value that is no description"
 	]
-	/** What ownership answers each with: success, or its documented reason. */
-	const answer = (s: Structure): "owned" | "MalformedDescription" | "IdentifierCollision" =>
-		s === "Reports as written" || s === "a check over its own row"
-			? "owned"
-			: s === "an extension under its base's name"
-				? "IdentifierCollision"
-				: "MalformedDescription"
+	/**
+	 * What ownership answers each with: success, its documented reason, or a rule the types name too, by the refusal it
+	 * states (Refused).
+	 */
+	const answers: {
+		readonly [S in Structure]:
+			| "owned"
+			| "MalformedDescription"
+			| "IdentifierCollision"
+			| { readonly refused: Refused }
+	} = {
+		"Reports as written": "owned",
+		"a key over an undeclared relation": {
+			refused: "a statement names a relation no level of the schema declares"
+		},
+		"a key over an undeclared field": "MalformedDescription",
+		"pred of a field that is not natural": "MalformedDescription",
+		"a selection reading an undeclared field": "MalformedDescription",
+		"sides of two widths": { refused: "the sides' field types differ" },
+		"a closedId over an undeclared roster": "MalformedDescription",
+		"a key over a closed relation": "MalformedDescription",
+		"a closed relation made mutable": "MalformedDescription",
+		"a check over a closed relation": "MalformedDescription",
+		"a check reading a parameter": "MalformedDescription",
+		"a check over its own row": "owned",
+		"a family counted by no field of its owner": "MalformedDescription",
+		"a family over no relation": {
+			refused: "a statement names a relation no level of the schema declares"
+		},
+		"a derived relation in the root": "MalformedDescription",
+		"a derived level that disagrees": "MalformedDescription",
+		"a definition reading its own level": "MalformedDescription",
+		"a parameterized definition": "MalformedDescription",
+		"an extension under its base's name": "IdentifierCollision",
+		"a value that is no description": "MalformedDescription"
+	}
 
 	/** A pool's claims, a counted family of Claim over Pool's drawn count n. */
 	const Pool = relation("Pool", { id: uuid, n: drawnField(natural, []) }, ["id"], [])
@@ -1141,11 +1171,17 @@ describe("scope and structure", () => {
 										return ownValue(s.description)
 								}
 							})()
-							const expected = answer(s.structure)
+							const expected = answers[s.structure]
 							if (expected === "owned") {
 								succeeded(owned)
-							} else {
+							} else if (typeof expected === "string") {
 								refused(owned, expected)
+							} else {
+								const e = refused(owned, "Refused")
+								assert.equal(
+									e.reason._tag === "Refused" ? e.reason.refusal : undefined,
+									expected.refused
+								)
 							}
 						})
 				)

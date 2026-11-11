@@ -50,7 +50,8 @@ import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
-import type { CompileError } from "#compiler/core/errors.ts"
+import type { CompileError, CompileReasonTag } from "#compiler/core/errors.ts"
+import type { Refused } from "#compiler/core/refusals.ts"
 import * as Result from "#compiler/core/result.ts"
 import { numericMaxPrecision, numericMaxScale } from "#compiler/ir/scalar.ts"
 import type { ConstraintLaw } from "#compiler/laws/model/model.ts"
@@ -580,8 +581,34 @@ const negationCase: Gen<NegationCase> = (s) => ({
 const Note = relation("Note", { item: pg.integer, on: pg.integer }, ["item", "on"])
 const Notes = schema("RuleQueryNegated", { Item, Mark, Claim, Note }, [])
 
-/** Whether a negated source is one a rule reads: a select-project-join query or a union of them, or a relation of one. */
-const admitted = (source: NegatedSource): boolean => source !== "aggregate" && source !== "negating"
+/**
+ * The reason each negated source is refused for, as a refusal reads (reasonOf), or none for one a rule reads: a
+ * select-project-join query or a union of them, or a relation of one. An aggregate breaks a rule the types name too
+ * (Refused); a negation that negates in turn is UnsupportedLawFamily.
+ */
+const negatedRefusals: { readonly [S in NegatedSource]: ReasonRead | undefined } = {
+	table: undefined,
+	join: undefined,
+	union: undefined,
+	derived: undefined,
+	aggregate: {
+		tag: "Refused",
+		refusal:
+			"a rule reads a derived relation whose definition joins, selects and projects: this one aggregates"
+	},
+	negating: { tag: "UnsupportedLawFamily" }
+}
+
+/** A refusal's reason as a refusal reads: a named refusal's roster member, or another reason's tag. */
+type ReasonRead =
+	| { readonly tag: "Refused"; readonly refusal: Refused }
+	| { readonly tag: Exclude<CompileReasonTag, "Refused"> }
+
+/** A refusal's reason as negatedRefusals states it. */
+const reasonOf = (e: CompileError): ReasonRead =>
+	e.reason._tag === "Refused"
+		? { tag: "Refused", refusal: e.reason.refusal }
+		: { tag: e.reason._tag }
 
 /**
  * The case's schema: Mark joined with Note derived on a level of its own, then Item's facts negating the case's source,
@@ -862,7 +889,7 @@ describe("a rule over a query", () => {
 						box: "every containment into and out of, check over and key over a derived relation of Item, read itself or through a semijoin, whose definition negates Mark, a join of Mark and Note, their union, the join derived, a query that aggregates or one that negates, alone, in a conjunction or in a conjunction nested in one, binding Mark's on by a literal or not at all",
 						oracle: {
 							kind: "specification",
-							name: "a rule over a query reads a negation of select-project-join arms: a schema schema.extend builds compiles to its artifacts exactly when every arm it negates joins, selects and projects, and is refused UnsupportedLawFamily naming what the negated query does otherwise"
+							name: "a rule over a query reads a negation of select-project-join arms: a schema schema.extend builds compiles to its artifacts exactly when every arm it negates joins, selects and projects, and is refused otherwise: an aggregate by the rule the types name, a negation that negates in turn as UnsupportedLawFamily"
 						},
 						coverage: requiredInSpace<NegationReached>([
 							...Arr.map(negatedSources, (n) => `negates ${n}` as const),
@@ -891,7 +918,8 @@ describe("a rule over a query", () => {
 								k.note(`${c.rule} read through a semijoin`)
 							}
 							const compiled = compiledOf(negationSchemaOf(c))
-							if (admitted(c.source)) {
+							const refusal = negatedRefusals[c.source]
+							if (refusal === undefined) {
 								assert.deepEqual(
 									compiled.ok ? undefined : compiled.error.reason,
 									undefined,
@@ -904,9 +932,10 @@ describe("a rule over a query", () => {
 								)
 								return
 							}
-							assert.ok(
-								!compiled.ok && compiled.error.reason._tag === "UnsupportedLawFamily",
-								`${Formatter.format(c)} is refused UnsupportedLawFamily: ${compiled.ok ? "compiled" : compiled.error.message}`
+							assert.deepEqual(
+								compiled.ok ? undefined : reasonOf(compiled.error),
+								refusal,
+								`${Formatter.format(c)} is refused for its negated source`
 							)
 						})
 				)

@@ -7,8 +7,9 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
-import type { CompileReasonTag } from "#compiler/core/errors.ts"
+import type { CompileError, CompileReasonTag } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import type { Refused } from "#compiler/core/refusals.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { CompareOp, ExprDesc, LiteralDesc } from "#compiler/ir/desc.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
@@ -31,9 +32,9 @@ import {
 
 /**
  * A contract predicate is lowered in the "check" mode, which differs from the "query" mode only in what it reads and
- * admits (scalar/compute/lower.ts): it reads only the domain's VALUE, refusing a parameter (UnsupportedOperation) and a
- * variable (MalformedDescription); its operations are those the host evaluates for the ContractLiteral check, so it
- * refuses round (UnsupportedOperation); and it refuses float and money arithmetic, which no CHECK holds
+ * admits (scalar/compute/lower.ts): it reads only the domain's VALUE, refusing a parameter (Refused, "a schema predicate
+ * reads no parameter") and a variable (MalformedDescription); its operations are those the host evaluates for the
+ * ContractLiteral check, so it refuses round (UnsupportedOperation); and it refuses float and money arithmetic, which no CHECK holds
  * (UnsupportedOperation). Every other verdict, an admission, a PartialOperation for an unproved precondition, a
  * ResourceBound past numeric's digits, a MalformedDescription for an ill-typed term, is the query mode's: the oracle
  * is the same predicate lowered in the query mode over a column of the base.
@@ -302,7 +303,8 @@ const isZeroDivisor = (t: Term): boolean =>
 		t.right.value === "0.0" ||
 		t.right.value === "0.00")
 
-type Verdict = "admitted" | CompileReasonTag
+/** A mode's verdict: admitted, or its refusal's tag, a named refusal by its message (core/refusals.ts). */
+type Verdict = "admitted" | Exclude<CompileReasonTag, "Refused"> | `Refused:${Refused}`
 
 type FragmentFeature =
 	| "agreed: admitted"
@@ -378,9 +380,12 @@ const featuresOf = (
 	]
 }
 
-const verdictOf = (
-	r: Result.Result<unknown, { readonly reason: { readonly _tag: CompileReasonTag } }>
-): Verdict => (r.ok ? "admitted" : r.error.reason._tag)
+const verdictOf = (r: Result.Result<unknown, CompileError>): Verdict =>
+	r.ok
+		? "admitted"
+		: r.error.reason._tag === "Refused"
+			? `Refused:${r.error.reason.refusal}`
+			: r.error.reason._tag
 
 describe("contract predicate tables", () => {
 	it.effect(
@@ -430,8 +435,10 @@ describe("contract predicate tables", () => {
 							k.noteAll(featuresOf(c, check, query))
 							const round = holds(c.left, isRound)
 							if (c.read !== "value") {
-								const own: CompileReasonTag =
-									c.read === "parameter" ? "UnsupportedOperation" : "MalformedDescription"
+								const own: Verdict =
+									c.read === "parameter"
+										? "Refused:a schema predicate reads no parameter"
+										: "MalformedDescription"
 								if (query === "admitted") {
 									assert.ok(
 										check === own || (round && check === "UnsupportedOperation"),

@@ -1,5 +1,6 @@
 import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { hasProperties, isList, isPlainRecord } from "#compiler/core/record.ts"
+import type { Refused } from "#compiler/core/refusals.ts"
 import {
 	type ArmDesc,
 	builtNode,
@@ -567,14 +568,14 @@ const slotsOf = (value: unknown, label: string): SlotsDesc => {
 	return Object.freeze(fin.slots)
 }
 
-/** A family's or a tree's member side: a side of an ordinary relation, over every fact. */
-const memberSide = (value: unknown, label: string): SideDesc => {
+/**
+ * A family's or a tree's member side: a side of an ordinary relation, over every fact. A selection breaks `rule`: a
+ * family's member side, or a tree's own shape, on(T, parent, at) over T itself.
+ */
+const memberSide = (value: unknown, label: string, rule: Refused): SideDesc => {
 	const side = sideOf(value, `${label} member`)
 	if (side.selection.conjuncts.length > 0) {
-		throw builderRefusal(
-			label,
-			"a family's member side is a relation, never a selection: its members are every fact of the relation"
-		)
+		throw builderRefusal(label, rule)
 	}
 	return side
 }
@@ -584,7 +585,11 @@ const admitFamily = (
 	family: unknown,
 	slots: unknown
 ): StatementDesc => {
-	const member = memberSide(family, order)
+	const member = memberSide(
+		family,
+		order,
+		"a family's member side is a relation, never a selection: its members are every fact of the relation"
+	)
 	const slotsDesc = slotsOf(slots, `${order} slots`)
 	return admitted({
 		kind: "family",
@@ -609,7 +614,11 @@ export const treeBuilder = <F, Fi, const Root extends string>(
 	slots: Fi,
 	root: { readonly root: Root }
 ): Tree<F, Fi, Root> => {
-	const member = memberSide(family, "tree")
+	const member = memberSide(
+		family,
+		"tree",
+		"a tree is a family of T over itself, on(T, parent, at), with drawn start and end"
+	)
 	const slotsDesc = slotsOf(slots, "tree slots")
 	if (!isPlainRecord(root)) {
 		throw malformed("tree", "{ root }: the root field each tree's rows share")

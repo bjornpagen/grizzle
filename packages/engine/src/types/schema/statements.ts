@@ -326,14 +326,6 @@ export type CountedMember<C, T, OC, K> =
 		: Refusal<"a counted family's side is its owner's key">
 
 /**
- * A family's member side: a side of a relation, whose facts are its members, never of a selection. A union, not a
- * conditional over the side, so a side over a generic relation is read by its constraint where it is written.
- */
-export type WholeMember =
-	| Side<AnyRelation>
-	| Refusal<"a family's member side is a relation, never a selection: its members are every fact of the relation">
-
-/**
  * A family's slots, over an owner of kind Kind (FinShows): fin(O, n) over an ordinary relation, whose drawn count the
  * family draws. A closed relation's count numbers the slots of its key, and slots with no owner are no fin.
  */

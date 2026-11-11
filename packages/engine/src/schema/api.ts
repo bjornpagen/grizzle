@@ -109,7 +109,6 @@ import type {
 	RowScalars,
 	Selection,
 	SelfFamily,
-	WholeMember,
 	Showing,
 	ShowingKeyed,
 	ShowingKind,
@@ -469,7 +468,13 @@ export const ordered = <
 	OK extends ReadonlyArray<string>,
 	Kind
 >(
-	family: F & SideShows<N, C> & WholeMember & OverSlots<Kind, OrderedMember<C, F["terms"], OC, OK>>,
+	family: F &
+		SideShows<N, C> &
+		(
+			| Side<AnyRelation>
+			| Refusal<"a family's member side is a relation, never a selection: its members are every fact of the relation">
+		) &
+		OverSlots<Kind, OrderedMember<C, F["terms"], OC, OK>>,
 	slots: Fi & FinShows<ON, OC, OK, Kind> & FamilySlots<Kind>
 ): Ordered<F, Fi> => orderedBuilder<F, Fi>(family, slots)
 
@@ -484,7 +489,13 @@ export const counted = <
 	OK extends ReadonlyArray<string>,
 	Kind
 >(
-	family: F & SideShows<N, C> & WholeMember & OverSlots<Kind, CountedMember<C, F["terms"], OC, OK>>,
+	family: F &
+		SideShows<N, C> &
+		(
+			| Side<AnyRelation>
+			| Refusal<"a family's member side is a relation, never a selection: its members are every fact of the relation">
+		) &
+		OverSlots<Kind, CountedMember<C, F["terms"], OC, OK>>,
 	slots: Fi & FinShows<ON, OC, OK, Kind> & FamilySlots<Kind>
 ): Counted<F, Fi> => countedBuilder<F, Fi>(family, slots)
 
@@ -503,10 +514,8 @@ export const tree = <
 >(
 	family: F &
 		SideShowsKeyed<N, C, K> &
-		WholeMember &
 		(
 			| Side<Fi["owner"]>
-			| Side<Selection<unknown>>
 			| Refusal<"a tree is a family of T over itself, on(T, parent, at), with drawn start and end">
 		) &
 		SelfFamily<C, K, F["terms"], Fi["count"]>,

@@ -199,13 +199,13 @@ const groupOf = (
 		return { member: g, owner: key }
 	})
 
-/** A family's member side reads every fact: its members are every fact of its relation, or a tree's every row but its root. */
-const everyMember = (side: SideDesc, loc: SourceLoc): void => {
+/**
+ * A family's member side reads every fact: its members are every fact of its relation, or a tree's every row but its
+ * root. A selection breaks `rule`: a family's member side, or a tree's own shape.
+ */
+const everyMember = (side: SideDesc, loc: SourceLoc, rule: Refused): void => {
 	if (side.selection.conjuncts.length > 0) {
-		refuseNamed(
-			loc,
-			"a family's member side is a relation, never a selection: its members are every fact of the relation"
-		)
+		refuseNamed(loc, rule)
 	}
 }
 
@@ -225,7 +225,11 @@ export const familyShape = (
 	relations: ReadonlyMap<string, TheoryRelation>
 ): FamilyShape => {
 	const loc = s.loc
-	everyMember(s.member, loc)
+	everyMember(
+		s.member,
+		loc,
+		"a family's member side is a relation, never a selection: its members are every fact of the relation"
+	)
 	const id: FamilyId = { owner: s.slots.owner, count: s.slots.count }
 	const owner = ordinary(relations, s.slots.owner, "owner", loc)
 	const member = ordinary(relations, s.member.relation, "member", loc)
@@ -275,7 +279,7 @@ export const treeShape = (
 	relations: ReadonlyMap<string, TheoryRelation>
 ): TreeFamilyShape => {
 	const loc = s.loc
-	everyMember(s.member, loc)
+	everyMember(s.member, loc, familySides.tree)
 	const t = ordinary(relations, s.member.relation, "member", loc)
 	const [key, ...more] = t.primaryFields
 	const [parentTerm, atTerm, ...extra] = s.member.terms
