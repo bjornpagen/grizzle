@@ -19,6 +19,12 @@ import { Sp } from "#test/unit/workload/fixtures.ts"
  * Predicate atoms for access-path extraction (physical/access): every Allen mask's formula but the full mask's yields
  * the span atom on its span field that a GiST index serves; the full mask holds of every pair and lowers to no
  * predicate, so it yields none.
+ *
+ * Oracle: that specification, exhausted over every mask from 1 to the full one.
+ *
+ * Features: a partial mask, the full mask.
+ *
+ * Plants (~/.cache/grizzle-release/BR02/plants): atoms-allen-unspanned, an Allen comparison yielding no span atom.
  */
 
 /** The atoms of every Filter a query checks to. */
@@ -55,8 +61,11 @@ describe("Allen masks", () => {
 					ctx,
 					exhaust(
 						{
-							box: { kind: "unstated" },
-							oracle: { kind: "unstated" },
+							box: "every Allen mask from 1 to the full mask",
+							oracle: {
+								kind: "specification",
+								name: "every mask but the full one yields its span atom; the full mask lowers to no predicate"
+							},
 							suite: "unit/workload/atoms-allen",
 							generator: int(1, allenMaskMax),
 							literal: Formatter.format,

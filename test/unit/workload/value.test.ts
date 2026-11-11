@@ -5,9 +5,7 @@ import {
 	array,
 	constant,
 	element,
-	filter,
 	type Gen,
-	int,
 	map,
 	uniqueArray,
 	weighted
@@ -43,6 +41,7 @@ import {
 } from "#test/support/assert.ts"
 import { compileTestWorkload, testCompile } from "#test/support/compile.ts"
 import { queryFromDescription } from "#test/support/describe.ts"
+import { schemaNameGenOtherThan } from "#test/support/kernel/dict.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
 import {
@@ -66,7 +65,18 @@ import { regex } from "arkregex"
  * signature forbids; a query's page fingerprint is one per query and schema, whatever its name or its source
  * locations.
  *
- * The programs are the workload fixtures' (workload/fixtures.ts), drawn into workloads under drawn names.
+ * The programs are the workload fixtures' (workload/fixtures.ts), drawn into workloads under drawn names; a renamed
+ * schema takes a schema name of the dictionary other than Work's own, so no draw is discarded.
+ *
+ * Oracles: the workload value's own compile (its Description compiles to its value's plan), the plan over Work itself
+ * for a renamed Work, and the specification of workload()'s signature, its refusals and the page fingerprint.
+ *
+ * Features: a query and a ChangeSet program, an extension's workload, an empty workload; renamed; named; every
+ * signature situation (SignatureFeature); each unreadable site and wild kind; each form of a fingerprinted program, one
+ * program, one program written at two lines.
+ *
+ * Plants (~/.cache/grizzle-release/BR02/plants): workload-fingerprint-locations, a page fingerprint reading its query's
+ * source locations; workload-signature-list-admitted, a programs list admitted as a record.
  */
 
 type Kind = "query" | "changeSet"
@@ -164,7 +174,10 @@ describe("workload(schema, programs)", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "second-implementation",
+							name: "the workload value's own compile: its Description compiles to the plan the value does, and over another schema is refused"
+						},
 						suite: "unit/workload/value-desc",
 						/** Planted: Work's one ChangeSet program, which its drawn workloads hold a few times a run. */
 						draw: drawn(workloadGen),
@@ -242,11 +255,12 @@ describe("workload(schema, programs)", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "second-implementation",
+							name: "the plan of the same ChangeSet over Work itself"
+						},
 						suite: "unit/workload/value-renamed",
-						draw: drawn(
-							filter(matching(regex("^[A-Z][A-Za-z0-9]{0,8}$")), (name) => name !== "Work", 100)
-						),
+						draw: drawn(map(schemaNameGenOtherThan(new Set(["Work"])), (name) => name.declared)),
 						literal: Formatter.format,
 						coverage: required<"renamed">(["renamed"], { cases: 10, sense: notesOnly }),
 						kept: [],
@@ -302,7 +316,10 @@ describe("workload(schema, programs)", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "a program the checker refuses is refused by its typed refusal at the program's own path"
+						},
 						suite: "unit/workload/value-checker",
 						draw: drawn(nameGen),
 						literal: Formatter.format,
@@ -365,16 +382,7 @@ const ownPrograms = (name: SchemaName): Arr.NonEmptyReadonlyArray<Program> =>
 const belongs = (over: SchemaName, schema: SchemaName): boolean =>
 	over === schema || (over === "Work" && schema === "Reports")
 
-const schemaNameGen: Gen<SchemaName> = (source) => {
-	switch (source.draw(int(0, 2))) {
-		case 0:
-			return "Work"
-		case 1:
-			return "Reports"
-		default:
-			return "Board"
-	}
-}
+const schemaNameGen: Gen<SchemaName> = element(["Work", "Reports", "Board"] as const)
 
 /** The wild kinds whose values are data: a value no schema, record or program is, read without running code. */
 const dataKinds = nonEmpty(
@@ -605,7 +613,10 @@ describe("workload()'s signature", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "a reading that throws is MalformedDescription, never a defect"
+						},
 						suite: "unit/workload/value-unreadable",
 						draw: drawn((source) => ({
 							site: source.draw(element<UnreadableSite>(["programs record", "program"])),
@@ -718,7 +729,10 @@ describe("page query fingerprints", () => {
 					ctx,
 					explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "specification",
+								name: "one fingerprint exactly for one program over one schema, whatever its name or source locations"
+							},
 							suite: "unit/workload/value-fingerprint",
 							draw: drawn(sides),
 							literal: Formatter.format,

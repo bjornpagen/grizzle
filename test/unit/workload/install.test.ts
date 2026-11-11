@@ -48,6 +48,16 @@ import {
  * relation the schema does not store (MalformedDescription), or a prefix search over a drawn text field of the worked
  * example, refused (UnrepresentableKey) exactly where its pattern bounds no length, the wildcard; the healthy workload
  * installs.
+ *
+ * Oracles: the installations of the whole workload, of the laws alone and of each program alone (a second
+ * implementation of a sub-workload's objects); the specification of each defect's refusal.
+ *
+ * Features: an index only removed programs asked for, a key or law object a kept program asks for too, an index a kept
+ * program asks for alone, a law's own index where the whole workload's is wider for a dropped program, the empty
+ * workload; each defect and the healthy workload.
+ *
+ * Plants (~/.cache/grizzle-release/BR02/plants): install-request-order, index requests planned in the order the
+ * workload lists its programs, which the reversed workload's statements refuse.
  */
 
 const installWith = (
@@ -123,7 +133,10 @@ describe("the worked example's workload in the installation", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "second-implementation",
+							name: "the whole workload's installation, the laws' alone and each program's alone: a sub-workload's objects are exactly those"
+						},
 						suite: "unit/workload/install-sub",
 						/**
 						 * The empty workload most sub-workloads never are, weighted in and planted: one case in three, since the

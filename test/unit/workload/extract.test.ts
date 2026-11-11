@@ -1,7 +1,7 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { noCoverage, required } from "@grizzle/testing/features"
-import { array, element, filter, type Gen, subarray, uniqueArray } from "@grizzle/testing/gen"
+import { array, element, type Gen, subset, uniqueArray } from "@grizzle/testing/gen"
 import { matching } from "@grizzle/testing/pattern"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
@@ -27,6 +27,16 @@ import { regex } from "arkregex"
  * column set merge.
  *
  * The programs are the worked example's (workload/fixtures.ts workPrograms), drawn into workloads under drawn names.
+ *
+ * Oracles: the specification for the plan (each program's access by name, one program's alike under any name, and
+ * exactly the paths and statistics its programs request, a differential against the same programs under their own
+ * names in the fixture's order); a second implementation for mergeStatistics (the union of each column set's kinds and
+ * uses, in canonical order).
+ *
+ * Features: a program under two names, a path several programs request, statistics several programs request.
+ *
+ * Plants (~/.cache/grizzle-release/BR02/plants): extract-merge-first-kinds, a merged request keeping its first
+ * request's kinds alone.
  */
 
 const sortedUnique = <A extends string>(values: ReadonlyArray<A>): ReadonlyArray<A> =>
@@ -76,7 +86,10 @@ describe("the workload plan", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "the plan records each program's access by name and plans exactly what its programs request, whatever their names and order"
+						},
 						suite: "unit/workload/extract-planned",
 						draw: drawn(workloadGen),
 						literal: Formatter.format,
@@ -170,9 +183,9 @@ describe("the workload plan", () => {
 	)
 })
 
-/** A non-empty selection of `values`, in their order. */
+/** A non-empty selection of `values`, in their order, drawn as one: its size first, from one. */
 const someOf = <A>(values: ReadonlyArray<A>): Gen<ReadonlyArray<A>> =>
-	filter(subarray(values), (picked) => picked.length > 0, 100)
+	subset(values, { min: 1, max: values.length })
 
 const statisticsGen: Gen<StatisticsRequest> = (source) => ({
 	relation: source.draw(element(["Task", "Note"])),
@@ -206,7 +219,10 @@ describe("mergeStatistics", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "second-implementation",
+							name: "one request per column set, the union of its kinds and uses, in canonical order"
+						},
 						suite: "unit/workload/extract-merge",
 						draw: drawn(array(statisticsGen, { min: 0, max: 6 })),
 						literal: Formatter.format,
