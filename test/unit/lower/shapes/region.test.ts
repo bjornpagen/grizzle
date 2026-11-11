@@ -1,3 +1,19 @@
+/**
+ * The optimized MatchRegion past PostgreSQL's collapse limit (shapes/region): a region of more than eight
+ * occurrences is an explicit JOIN chain, so PostgreSQL plans it in subproblems of at most join_collapse_limit relations
+ * rather than one flat FROM list at geqo_threshold.
+ *
+ * Over generated paths of nine to fourteen edges, one of them restricted by a parameter, written in any order: the
+ * chain joins every occurrence with no CROSS JOIN, each link's ON reads both of its sides, and the chain starts at the
+ * restricted occurrence, whose restriction stays in WHERE. A chain that dropped a link's condition would plan a cross
+ * product; one that started elsewhere would put the selective occurrence in a late subproblem.
+ *
+ * Oracle: the region shape's statement (shapes/region/index.ts) as a checker over the statement's AST (a
+ * specification). Features: the restricted occurrence written first and later, the longest path. Kept: the restricted
+ * occurrence written first.
+ *
+ * Plant, failing the search: a chain taking its occurrences in written order (region-start-written).
+ */
 import { describe, it } from "@effect/vitest"
 import { explore, type Kept, sketched } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -27,17 +43,6 @@ import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { featureCount, shapeOf } from "#test/support/kernel/shape.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { pickGen } from "#test/support/pick.ts"
-
-/**
- * The optimized MatchRegion past PostgreSQL's collapse limit (shapes/region): a region of more than eight
- * occurrences is an explicit JOIN chain, so PostgreSQL plans it in subproblems of at most join_collapse_limit relations
- * rather than one flat FROM list at geqo_threshold.
- *
- * Over generated paths of nine to fourteen edges, one of them restricted by a parameter, written in any order: the
- * chain joins every occurrence with no CROSS JOIN, each link's ON reads both of its sides, and the chain starts at the
- * restricted occurrence, whose restriction stays in WHERE. A chain that dropped a link's condition would plan a cross
- * product; one that started elsewhere would put the selective occurrence in a late subproblem.
- */
 
 const Edge = relation("Edge", { src: pg.bigint, dst: pg.bigint, w: pg.integer }, ["src", "dst"])
 const Plan = schema("Plan", { Edge }, [])
@@ -209,7 +214,10 @@ describe("a region past the collapse limit is an explicit JOIN chain", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "one JOIN chain over every occurrence, each ON reading both sides, starting at the restricted one"
+						},
 						suite: "unit/lower/region-chain",
 						literal: Formatter.format,
 						kept: keptPaths,

@@ -1,3 +1,13 @@
+/**
+ * R25 sharing (shapes/share/index.ts): the share key is the sub-query's semantic digest. A sub-query's key is equal
+ * for two copies built at any allocation exactly when they read the same parameter, over a planted pair of twin
+ * projections whose parameters and the ids burned between them are exhausted.
+ *
+ * Oracle: the digest's statement (a specification): equal exactly for the same reads, whatever the labels.
+ * Features: shared and apart.
+ *
+ * Plant, failing the search: a share key that reads the node's label (share-key-labels).
+ */
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
@@ -9,13 +19,6 @@ import { shareKey } from "#compiler/lower/shapes/share/index.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { Q, T, Task } from "#test/unit/lower/conservative/fixtures.ts"
-
-/**
- * R25 sharing (shapes/share/index.ts): the share key is the sub-query's semantic digest.
- *
- * - A sub-query's key is equal for two copies built at any allocation exactly when they read the same parameter, over a
- *   planted pair of twin projections whose parameter and the ids burned between them are exhausted.
- */
 
 type Param = "account" | "other"
 
@@ -40,8 +43,11 @@ describe("the share key", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "two twin projections over the same or another parameter, zero to three ids burned between them",
+						oracle: {
+							kind: "specification",
+							name: "the semantic digest: equal exactly when the two copies read the same parameter"
+						},
 						suite: "unit/lower/shapes/share/key",
 						literal: Formatter.format,
 						generator: (source) =>

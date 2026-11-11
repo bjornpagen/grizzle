@@ -1,3 +1,23 @@
+/**
+ * Sub-queries shared by the statements of one program and repeated inside one statement (shapes/share/statements.ts):
+ * the carried sub-queries of a stratum's statements, the MATERIALIZED CTEs of one statement, and the attachment
+ * parts of a program's statement it feeds from an earlier one (R25). The first two rules are exhausted over the
+ * number of copies:
+ *
+ * - n statements each reading `pick` carry it once, its every copy read through the carrier, exactly when n is more
+ *   than one; the highest shared sub-query is chosen, so `first`, which pick reads, is never carried beside it;
+ * - a statement reading r copies of an unbounded union computes it once as a CTE exactly when r is more than one;
+ * - an attachment of a parent is fed the rows of the first earlier attachment part of that parent computing its
+ *   sub-query, and every other is a part of its own, the parts in the order the program holds them.
+ *
+ * Oracle: each rule's statement as a checker (a specification): the share keys and copies the statements read, and
+ * the part each attachment reads computed from the filters in program order.
+ *
+ * Features: carried and inline; shared and inline; fed and sent.
+ *
+ * Plants, each failing its search: a sub-query carried only past three statements (share-carried-three); a CTE only
+ * past three reads (share-cte-three); no attachment part fed from an earlier one (share-feed-none).
+ */
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
@@ -24,19 +44,6 @@ import { asc, Q, T, Task } from "#test/unit/lower/conservative/fixtures.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { present } from "#test/unit/lower/support.ts"
-
-/**
- * Sub-queries shared by the statements of one program and repeated inside one statement (shapes/share/statements.ts):
- * the carried sub-queries of a stratum's statements, the MATERIALIZED CTEs of one statement, and the attachment
- * parts of a program's statement it feeds from an earlier one (R25). The first two rules are exhausted over the
- * number of copies:
- *
- * - n statements each reading `pick` carry it once, its every copy read through the carrier, exactly when n is more
- *   than one; the highest shared sub-query is chosen, so `first`, which pick reads, is never carried beside it;
- * - a statement reading r copies of an unbounded union computes it once as a CTE exactly when r is more than one;
- * - an attachment of a parent is fed the rows of the first earlier attachment part of that parent computing its
- *   sub-query, and every other is a part of its own, the parts in the order the program holds them.
- */
 
 /**
  * The work queue's shape in miniature: `first` bounds a projection of one account's tasks to its first id, `pick` is a
@@ -129,8 +136,11 @@ describe("sub-queries carried across a stratum's statements", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "one to four statements each reading pick",
+						oracle: {
+							kind: "specification",
+							name: "pick carried once, every copy through the carrier, exactly when more than one statement reads it"
+						},
 						suite: "unit/lower/shapes/share-statements/carried",
 						literal: Formatter.format,
 						generator: int(1, 4),
@@ -165,8 +175,11 @@ describe("sub-queries repeated inside one statement", () => {
 			ctx,
 			exhaust(
 				{
-					box: { kind: "unstated" },
-					oracle: { kind: "unstated" },
+					box: "one statement reading one to four copies of an unbounded union",
+					oracle: {
+						kind: "specification",
+						name: "the union computed once as a CTE exactly when it is read more than once"
+					},
 					suite: "unit/lower/shapes/share-statements/ctes",
 					literal: Formatter.format,
 					generator: int(1, 4),
@@ -264,8 +277,11 @@ describe("attachment parts fed from an earlier one", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "one to three attachments of one parent, each of three filters",
+						oracle: {
+							kind: "specification",
+							name: "each attachment fed from the first earlier part of its filter, every other a part of its own"
+						},
 						suite: "unit/lower/shapes/share-statements/feeds",
 						literal: Formatter.format,
 						/** One to three attachments, each of one of the three filters. */

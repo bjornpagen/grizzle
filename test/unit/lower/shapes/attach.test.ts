@@ -1,3 +1,21 @@
+/**
+ * The attachment shape's converter, which reads a fused column back (runtime/lower/fused.ts fusedTexts, arrayElements): over
+ * drawn layouts and children, a fused column as PostgreSQL writes it (array_out over the element texts, or over
+ * jsonb_out objects keyed f1..fn, or one `true` per child of correlated columns only) reads back as each child's texts
+ * in the child heading's order, the correlated ones copied from the parent row; and arrayElements reads every
+ * array_out text as the kernel's strict reading does. The fused and pipelined statements' rows are the optimized
+ * differential's on PostgreSQL (test/pg/oracle/optimized), and their decoding through the public boundary the public
+ * differential's (test/pg/oracle/public).
+ *
+ * Oracle: a model of PostgreSQL's array_out and jsonb_out (a round trip: the texts the model writes read back as
+ * written), and the kernel's strict array reading (a second implementation). The texts PostgreSQL treats specially
+ * (empty, NULL in any case, delimiters, quotes, backslashes, control characters) are named cases beside drawn ones.
+ *
+ * Features: no, one and several element fields, a correlated column, no child; an empty array and a quoted element.
+ *
+ * Plants, each failing its search: the children read back in reverse order (fused-children-reversed); a quoted
+ * element keeping its escaping backslashes (fused-escape-kept).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -33,15 +51,6 @@ import { regex } from "arkregex"
 import { outputTextOf } from "#compiler/core/decoder.ts"
 import type { Cell } from "#compiler/core/wire.ts"
 import { outputRows, outputText } from "#test/support/wire.ts"
-/**
- * The attachment shape's converter, which reads a fused column back (runtime/lower/fused.ts fusedTexts, arrayElements): over
- * drawn layouts and children, a fused column as PostgreSQL writes it (array_out over the element texts, or over
- * jsonb_out objects keyed f1..fn, or one `true` per child of correlated columns only) reads back as each child's texts
- * in the child heading's order, the correlated ones copied from the parent row; and arrayElements reads every
- * array_out text as the kernel's strict reading does. The fused and pipelined statements' rows are the optimized
- * differential's on PostgreSQL (test/pg/oracle/optimized), and their decoding through the public boundary the public
- * differential's (test/pg/oracle/public).
- */
 
 /**
  * PostgreSQL's array_out of text elements: an element is double-quoted when it is empty, holds a delimiter, brace,
@@ -206,7 +215,10 @@ describe("the fused attachment codec", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "universal",
+							name: "a model of array_out and jsonb_out over the children's texts reads back as written"
+						},
 						suite: "unit/lower/shapes/attach/fused-texts",
 						literal: Formatter.format,
 						kept: [],
@@ -280,7 +292,10 @@ describe("the fused attachment codec", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "second-implementation",
+						name: "a model of array_out read back, and the kernel's strict array reading"
+					},
 					suite: "unit/lower/shapes/attach/array-text",
 					literal: Formatter.format,
 					kept: [],

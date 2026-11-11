@@ -1,3 +1,15 @@
+/**
+ * A ChangeSet's enumerated members travel as arrays, one placeholder per column, whatever their count
+ * (lower/shapes/relparam): an input drawn up to a quarter of a million facts binds every statement with no refusal,
+ * each member array carrying every fact. No bound smaller than PostgreSQL's longest message and V8's longest string
+ * (core/limits.ts) refuses an input, and those two are met by inputs far past what a unit test builds. Every label holds
+ * a quote, a backslash and braces, which an array literal escapes.
+ *
+ * Oracle: the bounds' statement (a specification): only messageMaxBytes and maxStringLength refuse an input, and each
+ * member array carries every fact. Features: a few facts, a hundred thousand or more.
+ *
+ * Plant, failing the search: a member slot past 65,535 facts refused by an invented bound (relparam-invented-bound).
+ */
 import { describe, it } from "@effect/vitest"
 import { explore, sketched } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -24,13 +36,6 @@ import { caseHang } from "#test/support/limits.ts"
 import { checking } from "#test/support/policy.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { descOf, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
-
-/**
- * A ChangeSet's enumerated members travel as arrays, one placeholder per column, whatever their count
- * (lower/shapes/relparam): an input drawn up to a quarter of a million facts binds every statement with no refusal,
- * each member array carrying every fact. No bound smaller than PostgreSQL's longest message and V8's longest string
- * (core/limits.ts) refuses an input, and those two are met by inputs far past what a unit test builds.
- */
 
 const Item = relation(
 	"Item",
