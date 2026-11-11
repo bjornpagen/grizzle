@@ -18,6 +18,7 @@
 		"#adapter/*": "./packages/grizzle/src/adapter/*",
 		"#cli/*": "./packages/grizzle/src/cli/*",
 		"#devtools/*": "./packages/devtools/src/*",
+		"#http/*": "./packages/grizzle/src/http/*",
 		"#index.ts": "./packages/grizzle/src/index.ts"
 	},
 	"scripts": {

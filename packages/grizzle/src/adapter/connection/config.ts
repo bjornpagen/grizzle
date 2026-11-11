@@ -118,7 +118,7 @@ export const timerMaxMs: Limit = published({
 	owner: "Node.js 26.13.0 timers",
 	unit: "milliseconds",
 	scope:
-		"a connection's connectTimeoutMs and a DbConfig's pool.idleTimeoutMs, each the delay of a Node timer",
+		"a connection's connectTimeoutMs, a DbConfig's pool.idleTimeoutMs and an HttpConfig's heartbeatMs, each the delay of a Node timer",
 	constraint: "protocol constant",
 	source: "https://nodejs.org/docs/v26.13.0/api/timers.html#settimeoutcallback-delay-args",
 	quote:
@@ -194,10 +194,10 @@ const integerIn = (v: number, least: number, most: number): boolean =>
 	Number.isSafeInteger(v) && v >= least && v <= most
 
 /** Whether `v` is a timer's delay: an integer number of milliseconds from 1 to the longest a timer keeps. */
-const timerDelay = (v: number): boolean => integerIn(v, 1, timerMaxMs.value)
+export const timerDelay = (v: number): boolean => integerIn(v, 1, timerMaxMs.value)
 
 /** The rule a timer's delay keeps. */
-const timerRule: SettingRule = {
+export const timerRule: SettingRule = {
 	kind: "integer",
 	least: 1,
 	most: timerMaxMs.value,

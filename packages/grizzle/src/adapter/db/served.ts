@@ -9,8 +9,12 @@ import { servedHandles } from "#adapter/db/handles.ts"
 import { parseToken, type Token } from "#adapter/db/token.ts"
 import { OpenError } from "#adapter/errors/execution.ts"
 import { TokenError } from "#adapter/errors/failures.ts"
-import { readServedRole, type ServedSessions, servedSessions } from "#adapter/pool/served.ts"
-import type { LoadedRole } from "#adapter/served/load.ts"
+import {
+	type HeldRole,
+	readServedRole,
+	type ServedSessions,
+	servedSessions
+} from "#adapter/pool/served.ts"
 import type { DbConstructor, DbOf, OpenOptions, WorkloadHandles } from "#adapter/types/db.ts"
 import type { DbLayerService, ServedRole, Verify } from "#adapter/types/layer.ts"
 import { prologueOf } from "#adapter/wire/batch.ts"
@@ -117,12 +121,30 @@ export const openToken = (options: unknown): Result.Result<Option.Option<Token>,
  * An opened served Db, the one context every operation of it reads (context.ts), and its login's layer and the role as
  * it loaded, which the open found at the address it read off the token once.
  */
-interface OpenedServed<R, P> {
+interface OpenedServed<R, P> extends HeldRole {
 	readonly db: DbOf<R, P>
 	readonly ctx: ServedDbContext
-	readonly sessions: ServedSessions
-	readonly role: LoadedRole
 }
+
+/**
+ * The context every operation of a Db of the held role reads, opened with `token` (step 3 of openServed): the claims the
+ * layer's verify and the role's contexts give the token (dbClaims), and the prologue each of its transactions begins
+ * with. Db.open and the HTTP handler both open through it, so a token means one thing to either.
+ */
+export const servedContext = (
+	held: HeldRole,
+	token: Option.Option<Token>
+): Effect.Effect<ServedDbContext, OpenError> =>
+	Effect.map(dbClaims(held.sessions, held.role.contexts, token), (claims) => {
+		const login = held.sessions.login
+		return {
+			prologue: prologueOf(login.prologue, held.role.installed, claims.text, login.fingerprint),
+			claims: claims.present,
+			expiry: claims.expiry,
+			pool: held.sessions.pool,
+			isolation: held.role.isolation
+		}
+	})
 
 /**
  * Db.open(Web.roles.member, { token? }), and the context the Db reads.
@@ -158,28 +180,20 @@ export const openServed = Effect.fn("openServed")(function* <R extends AnyRole, 
 	const reached: unknown = role
 	const address = yield* Effect.fromResult(readServedRole<R>(reached))
 	const token = yield* Effect.fromResult(openToken(options))
-	const { sessions, role: held } = yield* servedSessions(address)
-	const claims = yield* dbClaims(sessions, held.contexts, token)
-	const login = sessions.login
-	const ctx: ServedDbContext = {
-		prologue: prologueOf(login.prologue, held.installed, claims.text, login.fingerprint),
-		claims: claims.present,
-		expiry: claims.expiry,
-		pool: sessions.pool,
-		isolation: held.isolation
-	}
-	const handles: object = servedHandles(ctx, held.members, login.tables)
+	const held = yield* servedSessions(address)
+	const ctx = yield* servedContext(held, token)
+	const handles: object = servedHandles(ctx, held.role.members, held.sessions.login.tables)
 	if (
 		!isWorkloadOf<R, P>(
 			handles,
-			Arr.map(held.members, (m) => m.name)
+			Arr.map(held.role.members, (m) => m.name)
 		)
 	) {
 		return yield* Effect.die(
-			defect(`the workload handles of role ${held.name}: one per program of its layer`)
+			defect(`the workload handles of role ${held.role.name}: one per program of its layer`)
 		)
 	}
-	return { db: { workload: handles }, ctx, sessions, role: held }
+	return { db: { workload: handles }, ctx, ...held }
 })
 
 /** Db.open: the Db openServed opens. The role is reached through its served login, whose layer provides the Effect. */

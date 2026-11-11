@@ -946,6 +946,7 @@ const realized = (
 ): Result.Result<LoadedMember, CompileError> =>
 	Result.map(boundReads(entry, decoder), (reads) => ({
 		name: loaded.name,
+		wire: loaded.wire,
 		kind: "change",
 		variants: {
 			kind: "change",

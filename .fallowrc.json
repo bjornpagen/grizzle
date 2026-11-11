@@ -290,6 +290,14 @@
 				"patterns": ["packages/grizzle/src/runtime.ts"]
 			},
 			{
+				// @bjornpagen/grizzle/http: a served login's runtime over HTTP, which loads what a Db does and no more: the
+				// runtime shell (a layer's held roles, Db.open's context, a member's calls), the engine's runtime facade and
+				// what it re-exports of core, the live model and the wire's codecs; the served forms and the schema's types by
+				// type alone.
+				"name": "http",
+				"patterns": ["packages/grizzle/src/http/**"]
+			},
+			{
 				"name": "index",
 				"patterns": ["packages/grizzle/src/index.ts"]
 			}
@@ -699,6 +707,11 @@
 			{
 				"from": "runtime-entry",
 				"allow": ["adapter-runtime"]
+			},
+			{
+				"from": "http",
+				"allow": ["adapter-runtime", "core", "http", "live", "live-wire", "plan-runtime"],
+				"allowTypeOnly": ["adapter", "plan", "served", "types"]
 			},
 			{
 				"from": "adapter",

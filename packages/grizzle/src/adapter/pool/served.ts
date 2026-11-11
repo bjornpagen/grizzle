@@ -29,6 +29,7 @@ import type {
 	DbLayerOf,
 	DbLayerService,
 	PoolBounds,
+	ServedLogin,
 	Verify
 } from "#adapter/types/layer.ts"
 import { makePool, type SessionPool } from "#adapter/wire/session.ts"
@@ -97,10 +98,16 @@ export interface RoleAddress<R> {
 }
 
 /** The names of a role's address, as its token's read copy holds them. */
-interface RoleNames {
+export interface RoleNames {
 	readonly base: string
 	readonly login: string
 	readonly role: string
+}
+
+/** A role as its login's layer loaded it, beside the layer: what a Db of the role opens on. */
+export interface HeldRole {
+	readonly sessions: ServedSessions
+	readonly role: LoadedRole
 }
 
 /** The refusal of a value handed Db.open that is no served role's token, at stage schema. */
@@ -143,35 +150,39 @@ export const readServedRole = <R>(value: unknown): Result.Result<RoleAddress<R>,
 }
 
 /**
- * The layer of the role at `address`'s login, among the layers the context holds, and the role as it loaded (see the
- * header): a login whose layer is not provided, or whose layer holds no role of the address's name, is
- * RoleOutsideLayers.
+ * The role `names` names, among the layers `context` holds, as its login's layer loaded it (see the header): a login
+ * whose layer `context` does not hold, or whose layer holds no role of the name, is RoleOutsideLayers.
  */
+export const heldRole = <S>(
+	context: Context.Context<S>,
+	names: RoleNames
+): Result.Result<HeldRole, OpenError> =>
+	Result.fromOption(
+		Option.flatMap(
+			Context.getOption(context, sessionsKey<S>(names.base, names.login)),
+			(sessions) =>
+				Option.map(
+					Arr.findFirst(sessions.login.roles, (r) => r.name === names.role),
+					(loaded) => ({ sessions, role: loaded })
+				)
+		),
+		() => new OpenError({ reason: new RoleOutsideLayers({ role: names.role, login: names.login }) })
+	)
+
+/** The role at `address`, among the layers the context holds, as its login's layer loaded it (heldRole). */
 export const servedSessions = <R>(
 	address: RoleAddress<R>
-): Effect.Effect<
-	{ readonly sessions: ServedSessions; readonly role: LoadedRole },
-	OpenError,
-	DbLayerService<R>
-> =>
+): Effect.Effect<HeldRole, OpenError, DbLayerService<R>> =>
 	Effect.flatMap(Effect.context<DbLayerService<R>>(), (context) =>
-		Effect.mapError(
-			Effect.fromOption(
-				Option.flatMap(
-					Context.getOption(context, sessionsKey<DbLayerService<R>>(address.base, address.login)),
-					(sessions) =>
-						Option.map(
-							Arr.findFirst(sessions.login.roles, (r) => r.name === address.role),
-							(loaded) => ({ sessions, role: loaded })
-						)
-				)
-			),
-			() =>
-				new OpenError({
-					reason: new RoleOutsideLayers({ role: address.role, login: address.login })
-				})
-		)
+		Effect.fromResult(heldRole(context, address))
 	)
+
+/** A served login as a config's read names it: its declared name, its base's, and its file as served(...) read it. */
+export interface ReadLogin {
+	readonly name: string
+	readonly base: string
+	readonly file: ServedFile
+}
 
 /**
  * A DbConfig parsed: the served login it names, its file as served(...) read it and its name, its connection, its pool's bounds,
@@ -179,7 +190,7 @@ export const servedSessions = <R>(
  * check.
  */
 interface ParsedDbConfig extends ParsedConnection {
-	readonly login: { readonly name: string; readonly base: string; readonly file: ServedFile }
+	readonly login: ReadLogin
 	readonly pool: PoolBounds
 	readonly attachPool: (pool: ConnectionPool) => void
 	readonly token: TokenCheck
@@ -203,6 +214,35 @@ const loginUnread: ReadonlySet<string> = new Set(["file", "roles"])
 const loginRefused: SettingFault = faultAt(dbConfig, "login", { kind: "servedLogin" })
 
 /**
+ * A served login a block names, read once at the boundary (core/host.ts readCaller) as a JavaScript caller may pass any
+ * value: an object whose kind is a served login's and whose name and base are strings, read off its copy, holding a
+ * file, which is taken once off the typed value; anything else is `refused`. Its roles' tokens are left unread.
+ */
+export const readServedLogin = <L>(
+	login: ServedLogin<L>,
+	refused: SettingFault
+): Result.Result<ReadLogin, SettingFault> => {
+	const passed: unknown = login
+	if (typeof passed !== "object" || passed === null) {
+		return Result.fail(refused)
+	}
+	const read = readCaller(passed, loginUnread)
+	if (!read.ok) {
+		return Result.fail(refused)
+	}
+	const { kind, name, base } = read.value.data
+	if (
+		kind !== "servedLogin" ||
+		typeof name !== "string" ||
+		typeof base !== "string" ||
+		!read.value.keys.includes("file")
+	) {
+		return Result.fail(refused)
+	}
+	return Result.succeed({ name, base, file: login.file })
+}
+
+/**
  * The config's own settings, read once at the boundary as the connection's are (core/host.ts readCaller): the served
  * login, the pool hook and verify, each read once off the typed config and checked as a JavaScript caller may pass any
  * value, and the login's kind and names read once off its copy; nothing after reads the config or the login again. The
@@ -216,24 +256,11 @@ const ownSettings = <L extends AnyLogin>(
 		const hook = config.attachPool
 		const verify = config.verify
 		/** The same values as plain JavaScript passes them: a block written in JavaScript is checked all the same. */
-		const passedLogin: unknown = login
 		const passedHook: unknown = hook
 		const passedVerify: unknown = verify
-		if (typeof passedLogin !== "object" || passedLogin === null) {
-			return Result.fail(loginRefused)
-		}
-		const read = readCaller(passedLogin, loginUnread)
-		if (!read.ok) {
-			return Result.fail(loginRefused)
-		}
-		const { kind, name, base } = read.value.data
-		if (
-			kind !== "servedLogin" ||
-			typeof name !== "string" ||
-			typeof base !== "string" ||
-			!read.value.keys.includes("file")
-		) {
-			return Result.fail(loginRefused)
+		const read = readServedLogin(login, loginRefused)
+		if (Result.isFailure(read)) {
+			return Result.fail(read.failure)
 		}
 		if (hook !== undefined && typeof passedHook !== "function") {
 			return Result.fail(faultAt(dbConfig, "attachPool", { kind: "function" }))
@@ -242,7 +269,7 @@ const ownSettings = <L extends AnyLogin>(
 			return Result.fail(faultAt(dbConfig, "verify", { kind: "function" }))
 		}
 		return Result.succeed({
-			login: { name, base, file: login.file },
+			login: read.success,
 			attachPool: hook ?? attachNothing,
 			token: verify === undefined ? { kind: "none" } : { kind: "verify", verify }
 		})

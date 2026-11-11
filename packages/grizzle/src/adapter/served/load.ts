@@ -134,8 +134,12 @@ export type LoadedVariants =
 			readonly lacking: LoadedVariants
 	  }
 
-/** One member of a role's workload, loaded (served/forms.ts ServedMember). */
-export type LoadedMember = { readonly name: string } & (
+/**
+ * One member of a role's workload, loaded (served/forms.ts ServedMember): its name, its wire as generate committed it
+ * (live/member.ts ServedWire), the JSON forms of its input and its events and the digest a client names them by, which
+ * a call over HTTP is parsed and answered by, and what runs it, by its kind.
+ */
+export type LoadedMember = { readonly name: string; readonly wire: ServedMember["wire"] } & (
 	| { readonly kind: "read"; readonly read: LoadedRead }
 	| { readonly kind: "paged"; readonly read: LoadedRead; readonly page: LoadedPage }
 	| { readonly kind: "key"; readonly fields: ReadonlyArray<string>; readonly read: LoadedRead }
@@ -313,12 +317,14 @@ const loadMember = (
 		case "read":
 			return Result.map(loadRead(member.read, codes, bind, patterns), (read): LoadedMember => ({
 				name: member.name,
+				wire: member.wire,
 				kind: "read",
 				read
 			}))
 		case "key":
 			return Result.map(loadRead(member.read, codes, bind, patterns), (read): LoadedMember => ({
 				name: member.name,
+				wire: member.wire,
 				kind: "key",
 				fields: member.fields,
 				read
@@ -327,15 +333,25 @@ const loadMember = (
 			return Result.gen(function* () {
 				const read = yield* loadRead(member.read, codes, bind, patterns)
 				const page = yield* loadPage(member.page, member.read, codes, bind)
-				return { name: member.name, kind: "paged", read, page }
+				return { name: member.name, wire: member.wire, kind: "paged", read, page }
 			})
 		case "change":
 			return Result.map(
 				loadVariants(member.variants, witness, closed, codes, bind, patterns),
-				(variants): LoadedMember => ({ name: member.name, kind: "change", variants })
+				(variants): LoadedMember => ({
+					name: member.name,
+					wire: member.wire,
+					kind: "change",
+					variants
+				})
 			)
 		case "refresh":
-			return Result.succeed({ name: member.name, kind: "refresh", refresh: member.refresh })
+			return Result.succeed({
+				name: member.name,
+				wire: member.wire,
+				kind: "refresh",
+				refresh: member.refresh
+			})
 	}
 }
 
