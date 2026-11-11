@@ -367,7 +367,9 @@ const finiteDecimalOf = (json: unknown): Result.Result<Decimal, WireFaultKind> =
 /**
  * Whether a finite decimal is one of the decimals below 10^`integerDigits` whose digits past the `scale`th fraction
  * digit are zero: its least scale within `scale` (for a negative scale, a multiple of 10^-scale), and its coefficient
- * below 10^(integerDigits + its least scale).
+ * below 10^(integerDigits + its least scale). The integer digits are negative for a type below one, numeric(p, s) with s
+ * above p or a computed bound below one (ir/scalar.ts NumericBound), and the scale negative for numeric(p, s) with s
+ * below 0, both of which PostgreSQL 15 and later declare.
  */
 const decimalFits = (
 	value: Decimal,
@@ -385,10 +387,14 @@ const decimalFits = (
 	if (!exact) {
 		return Result.err("scale")
 	}
-	return parts.coefficient < 10n ** BigInt(integerDigits + parts.minScale)
+	return belowPowerOfTen(parts.coefficient, integerDigits + parts.minScale)
 		? Result.ok(value)
 		: Result.err("range")
 }
+
+/** Whether a coefficient, a natural, lies below 10^`exponent`: below a negative exponent's power, a fraction, only 0. */
+const belowPowerOfTen = (coefficient: bigint, exponent: number): boolean =>
+	exponent >= 0 ? coefficient < 10n ** BigInt(exponent) : coefficient === 0n
 
 /** The integer digits and scale of a decimal type's values (WireNumeric). */
 const numericBounds = (

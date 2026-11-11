@@ -16,11 +16,12 @@
  *   Oracle: a differential with parseValue.
  *
  * Features: every carrier, a numeric under a typmod and a computed numeric, a negative scale, a scale past the
- * precision, NaN and the infinities of a float, a fixed-width span, a set of handles, a negative zero, a JSON refused by
- * schema and parse alike, a JSON a schema admits and the parse refuses as a gap.
+ * precision, zero of a numeric below one, NaN and the infinities of a float, a fixed-width span, a set of handles, a
+ * negative zero, a JSON refused by schema and parse alike, a JSON a schema admits and the parse refuses as a gap.
  *
  * Kept: the live test phase's counterexamples at 729f76a6, a vector holding a -0 component, which the oracle compared
- * by Object.is to the 0 the wire spells it as.
+ * by Object.is to the 0 the wire spells it as; and at 9ef5c380, zero of a computed numeric below one and "0" read as a
+ * numeric(1, 2), whose parse raised 10 to a negative power.
  *
  * Plants (~/.cache/grizzle-release/LIVE-OPENAPI/plants): wire-bigint-number (int8's schema a JSON integer, its values
  * still strings), wire-vector-negative-zero (a vector's -0 component spelled as -0).
@@ -66,6 +67,7 @@ import {
 	schemaGaps,
 	type WireJson,
 	type WireScalar,
+	type WireSpec,
 	type WireWidth,
 	wireFaults
 } from "#compiler/live/wire.ts"
@@ -85,6 +87,7 @@ type Feature =
 	| "a computed numeric"
 	| "a negative scale"
 	| "a scale past the precision"
+	| "zero of a numeric below one"
 	| "a float's NaN or infinity"
 	| "a fixed-width span"
 	| "a set of handles"
@@ -158,6 +161,13 @@ const specOf =
 const decimalOf = (units: bigint, scale: number): Decimal =>
 	succeeded(Decimal.fromString(`${units}e${-scale}`), "a decimal's exponent spelling")
 
+/**
+ * The integer digits of a numeric spec's values, each below 10^digits in magnitude: p - s for numeric(p, s), negative
+ * for a type below one.
+ */
+const integerDigitsOf = (numeric: WireSpec<"numeric">["numeric"]): number =>
+	numeric.kind === "typmod" ? numeric.precision - numeric.scale : numeric.digits
+
 /** The decimals below 10^integerDigits whose digits past the scale are zero: units of 10^-scale, fewer than p + s digits. */
 const decimalsGen = (integerDigits: number, scale: number): Gen<Decimal> => {
 	const digits = integerDigits + scale
@@ -222,9 +232,7 @@ const valueOf =
 				if (numeric.kind === "typmod" && source.draw(int(0, 9)) === 0) {
 					return Decimal.nan
 				}
-				return numeric.kind === "typmod"
-					? source.draw(decimalsGen(numeric.precision - numeric.scale, numeric.scale))
-					: source.draw(decimalsGen(numeric.digits, numeric.scale))
+				return source.draw(decimalsGen(integerDigitsOf(numeric), numeric.scale))
 			}
 			case "float4":
 				return source.draw(realGen)
@@ -285,7 +293,7 @@ const valueOf =
 					})
 				)
 				const buffer = Float32Array.from(components)
-				if (buffer.every((x) => x === 0)) {
+				if (!Vector.inCosineDomain(buffer)) {
 					buffer[0] = 1
 				}
 				return Vector.branded(buffer)
@@ -316,6 +324,14 @@ const featuresOf = (c: Case): ReadonlyArray<Feature> => {
 		}
 		if (numeric.kind === "typmod" && numeric.scale > numeric.precision) {
 			own.push("a scale past the precision")
+		}
+		if (
+			integerDigitsOf(numeric) < 0 &&
+			c.value instanceof Decimal &&
+			c.value.parts.kind === "finite" &&
+			c.value.parts.coefficient === 0n
+		) {
+			own.push("zero of a numeric below one")
 		}
 	}
 	if (typeof c.value === "number" && !Number.isFinite(c.value)) {
@@ -527,6 +543,7 @@ describe("the wire's one table", () => {
 								"a computed numeric",
 								"a negative scale",
 								"a scale past the precision",
+								"zero of a numeric below one",
 								"a float's NaN or infinity",
 								"a fixed-width span",
 								"a set of handles",
@@ -543,6 +560,19 @@ describe("the wire's one table", () => {
 								},
 								draws: "",
 								reaches: ["the carrier vector", "a negative zero"]
+							},
+							{
+								note: "zero of a computed numeric below one, whose parse raised 10 to a negative power (wire-codec, live test phase 9ef5c380)",
+								sketch: {
+									spec: { carrier: "numeric", numeric: { kind: "bound", digits: -1, scale: 0 } },
+									value: Decimal.zero
+								},
+								draws: "",
+								reaches: [
+									"the carrier numeric",
+									"a computed numeric",
+									"zero of a numeric below one"
+								]
 							}
 						],
 						runs: 1500,
@@ -607,7 +637,21 @@ describe("the wire's one table", () => {
 							],
 							{ cases: 3000, sense: notesOnly }
 						),
-						kept: [],
+						kept: [
+							{
+								note: '"0" read as a numeric(1, 2), whose parse raised 10 to a negative power (wire-exact, live test phase 9ef5c380)',
+								sketch: {
+									spec: {
+										carrier: "numeric",
+										numeric: { kind: "typmod", precision: 1, scale: 2 }
+									},
+									value: Decimal.nan,
+									near: "0"
+								},
+								draws: "",
+								reaches: ["the carrier numeric"]
+							}
+						],
 						runs: 3000,
 						shrink: completeShrink,
 						concurrency: 1,
