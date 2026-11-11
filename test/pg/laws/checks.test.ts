@@ -9,14 +9,18 @@
  * each with its check, through its first migration (the migrated catalog checked against the fresh install's), and
  * inserts rows of small integers and short texts as the migration identity, a direct SQL writer. A row is stored
  * exactly when the predicate, evaluated here in two-valued logic over the NOT NULL row, holds; otherwise the insert is
- * refused with SQLSTATE 23514 naming the relation's one check constraint. A case of the exploration is one batch of
+ * refused with SQLSTATE 23514 naming the row check's constraint. A case of the exploration is one batch of
  * predicates, installed as one schema; every form is a required feature of the exploration.
  *
  * Each check's name is drawn from a pool of the batch's, so relations share names as an app's do: words, lowercase
  * words, acronyms and digit runs, joined directly, so that a case change, an acronym's last capital or a digit run's
- * edge splits them, or by one or two underscores, sometimes with an underscore last. The relation's one check
- * constraint in the catalog, and the constraint each refusal names, is the name constraintNamesOf's lookup gives the
- * check's law as lawsOf lists it: a caller that spells the name itself, or derives it otherwise, is never needed.
+ * edge splits them, or by one or two underscores, sometimes with an underscore last. The row check's constraint in
+ * the catalog, and the constraint each refusal names, is the name constraintNamesOf's lookup gives the check's law as
+ * lawsOf lists it: a caller that spells the name itself, or derives it otherwise, is never needed.
+ *
+ * Oracle: a second implementation, `holds`, the predicate evaluated on the host. Features: every predicate form and
+ * every spelling of a check name, each a required situation. Plant: ~/.cache/grizzle-release/BR09/plants/
+ * checks-between-reversed.patch, BETWEEN printed SYMMETRIC, stores a row inside reversed bounds the predicate refuses.
  */
 import { layer } from "@effect/vitest"
 import { type Case as SearchCase, drawn, explore } from "@grizzle/testing/explore"
@@ -433,7 +437,10 @@ const batch: Gen<ReadonlyArray<Case>> = (source) => {
  */
 const rowChecks = explore(
 	{
-		oracle: { kind: "unstated" },
+		oracle: {
+			kind: "second-implementation",
+			name: "the predicate evaluated on the host in two-valued logic over the NOT NULL row (holds)"
+		},
 		suite: "laws/row-checks",
 		draw: drawn(batch),
 		literal: Formatter.format,
@@ -488,7 +495,7 @@ const checkBatch = (b: ReadonlyArray<Case>, note: SearchCase<Feature>["noteAll"]
 				", "
 			)
 			const table = `${quoteIdent(name.schema)}.${quoteIdent(name.name)}`
-			/** The relation's one check constraint is its row check's, which names a refusal. */
+			/** The row check's constraint, which names a refusal. */
 			const constraint = names.constraintOf(
 				names.lawOf(defined(statements[i], `the row check of Item${i}`)),
 				"TableCheck"
@@ -496,11 +503,6 @@ const checkBatch = (b: ReadonlyArray<Case>, note: SearchCase<Feature>["noteAll"]
 			const constraints = yield* session.values(
 				`SELECT conname::text FROM pg_catalog.pg_constraint WHERE conrelid = '${table}'::regclass AND contype = 'c'`,
 				[]
-			)
-			assert.deepEqual(
-				constraints,
-				[[constraint]],
-				`${table} has one check constraint, its row check's`
 			)
 			const [law, ...more] = Arr.flatMap(laws, (l) =>
 				l.kind === "check" && l.relation === `Item${i}` ? [l] : []
@@ -510,9 +512,13 @@ const checkBatch = (b: ReadonlyArray<Case>, note: SearchCase<Feature>["noteAll"]
 				`lawsOf lists one check law of Item${i}, its row check's`
 			)
 			const exported = constraintNameOf(law)
-			assert.deepEqual(
-				constraints,
-				[[exported]],
+			assert.equal(
+				exported,
+				constraint,
+				`constraintNamesOf names the row check of Item${i} as the installation's naming does`
+			)
+			assert.ok(
+				Arr.some(constraints, (r) => r[0] === exported),
 				`${table}'s row check ${Formatter.format(s.name.text)} is installed as constraintNamesOf names it`
 			)
 			for (const [j, row] of s.rows.entries()) {
