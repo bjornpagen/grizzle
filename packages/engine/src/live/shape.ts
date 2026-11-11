@@ -619,7 +619,7 @@ export const slotSchemas = <L>(
 		text: { type: "string" },
 		refused: refusedSchema,
 		witness: witnessSchema(member.witness, leaf),
-		transientReason: { enum: [...transientTags] }
+		transientReason: { type: "string", enum: [...transientTags] }
 	}
 	if (member.shape === "write") {
 		const schemas: PayloadSchemas = {

@@ -10,7 +10,7 @@
  * Runtime-free and browser-safe, as live/wire.ts is.
  */
 import type { Path } from "#compiler/core/canonical.ts"
-import type { TransientTag } from "#compiler/core/errors.ts"
+import { type TransientTag, transientTags } from "#compiler/core/errors.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import { isList, isPlainRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -862,8 +862,8 @@ const encodeErrorMember = (
 		case "witness":
 			return encodeWitness(wire.witness, value, options)
 		case "transientReason":
-			if (typeof value !== "string") {
-				throw defect("a transient CallError's reason")
+			if (!isTransientTag(value)) {
+				throw defect("a transient CallError's reason, one of transientTags")
 			}
 			return value
 		case "fields":
@@ -875,6 +875,10 @@ const encodeErrorMember = (
 			throw defect("a CallError's payload holds texts, laws, a witness and a reason alone")
 	}
 }
+
+/** Whether a value is a transient refusal's tag (core/errors.ts transientTags). */
+const isTransientTag = (value: unknown): value is TransientTag =>
+	transientTags.some((tag) => tag === value)
 
 /** The JSON of a CallError: its kind, its retry and its payload's members by their slots. */
 const encodeError = (wire: MemberWire, error: CallError, options: WireOptions): WireJson => {

@@ -115,10 +115,11 @@ describe("a refined text's ECMA-262 pattern", () => {
 							for (const text of [...c.texts, ...Arr.filter(walked, (w) => w !== undefined)]) {
 								const accepted = matches(nfa, text)
 								notes.note(accepted ? "a text matched" : "a text refused")
+								const admitted = yield* schemaAdmits(schema, text, 0)
 								assert.equal(
-									yield* schemaAdmits(schema, text, 0),
+									admitted,
 									accepted,
-									`${label} printed ${schema.pattern}: ${JSON.stringify(text)}`
+									`${label} printed ${schema.pattern}: ${Formatter.format(text)}`
 								)
 							}
 						})

@@ -31,12 +31,12 @@ import { required } from "@grizzle/testing/features"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Result as Answered, Array as Arr, Effect, Formatter } from "effect"
+import { Result as Answered, Array as Arr, Effect, Formatter, Order, Record as Rec } from "effect"
 import { type Json, writeCanonicalJson } from "#compiler/core/canonical.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
 import { trusted, trustedJson } from "#compiler/core/trusted.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
-import { events } from "#compiler/live/events.ts"
+import { type EventDescriptor, events } from "#compiler/live/events.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { login, role, wholeEntriesOf, writableNamesOf } from "#compiler/public/schema.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
@@ -72,14 +72,13 @@ type Feature =
 const at = (value: unknown, ...path: ReadonlyArray<string>): unknown => {
 	let here: unknown = value
 	for (const step of path) {
-		here = isRecord(here) && Object.hasOwn(here, step) ? here[step] : undefined
+		here = isRecord(here) && Rec.has(here, step) ? here[step] : undefined
 	}
 	return here
 }
 
 /** A JSON value's own keys, none for any other value. */
-const keysOf = (value: unknown): ReadonlyArray<string> =>
-	isRecord(value) ? Object.keys(value) : []
+const keysOf = (value: unknown): ReadonlyArray<string> => (isRecord(value) ? Rec.keys(value) : [])
 
 /**
  * The document of a login's served file, written as generate writes it (`text`), held to every property of the header.
@@ -108,8 +107,11 @@ const holds = (
 		)
 		const paths = at(document, "paths")
 		assert.deepEqual(
-			[...keysOf(paths)].toSorted(),
-			Arr.map(expected, (e) => e.path).toSorted(),
+			Arr.sort(keysOf(paths), Order.String),
+			Arr.sort(
+				Arr.map(expected, (e) => e.path),
+				Order.String
+			),
 			`one path per program\n${printed()}`
 		)
 		for (const { role: r, member, path } of expected) {
@@ -150,15 +152,16 @@ const holds = (
 				`${path}: its body's members`
 			)
 			const stream = at(operation, "responses", "200", "content", "text/event-stream", "itemSchema")
-			const named = Object.keys(events[shape])
+			const shapeEvents: { readonly [name: string]: EventDescriptor } = events[shape]
+			const named = Rec.keys(shapeEvents)
 			const branches = at(stream, "oneOf")
 			assert.ok(
 				isList(branches) && branches.length === named.length,
 				`${path}: one branch per event`
 			)
 			assert.deepEqual(
-				[...keysOf(at(stream, "discriminator", "mapping"))].toSorted(),
-				[...named].toSorted(),
+				Arr.sort(keysOf(at(stream, "discriminator", "mapping")), Order.String),
+				Arr.sort(named, Order.String),
 				`${path}: the events of its shape, ${shape}`
 			)
 			for (const name of named) {

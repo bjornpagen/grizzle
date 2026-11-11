@@ -42,9 +42,10 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint, double, uuid } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter } from "effect"
+import { Array as Arr, Effect, Formatter, Record as Rec, String as Str } from "effect"
 import { parseDeclaredName } from "#compiler/core/identity.ts"
 import { int2Max, int2Min, int4Max, int4Min, int8Max, int8Min } from "#compiler/core/limits.ts"
+import { isList, isRecord } from "#compiler/core/record.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { binary32Max, moneyFractionDigits } from "#compiler/ir/carriers.ts"
 import { codecOf, firstCodebook } from "#compiler/ir/codes.ts"
@@ -319,20 +320,21 @@ const featuresOf = (c: Case): ReadonlyArray<Feature> => {
 }
 
 /** Whether a value is a gap schemaGaps enumerates. */
-const isSchemaGap = (value: unknown): value is SchemaGap => schemaGaps.some((gap) => gap === value)
+const isSchemaGap = (value: unknown): value is SchemaGap =>
+	Arr.some(schemaGaps, (gap) => gap === value)
 
 /** Every gap a schema lists at any depth (`x-grizzle-gaps`), each one of schemaGaps. */
 const gapsOf = (schema: unknown): ReadonlySet<SchemaGap> => {
 	const out = new Set<SchemaGap>()
 	const pending: Array<unknown> = [schema]
 	for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
-		if (Array.isArray(next)) {
+		if (Arr.isArray(next)) {
 			for (const item of next) {
 				pending.push(item)
 			}
-		} else if (typeof next === "object" && next !== null) {
-			for (const [key, member] of Object.entries(next)) {
-				if (key === gapsKeyword && Array.isArray(member)) {
+		} else if (isRecord(next)) {
+			for (const [key, member] of Rec.toEntries(next)) {
+				if (key === gapsKeyword && Arr.isArray(member)) {
 					for (const gap of member) {
 						assert.ok(isSchemaGap(gap), `the gap ${String(gap)} is one of schemaGaps`)
 						if (isSchemaGap(gap)) {
@@ -358,11 +360,11 @@ const editGen =
 		)
 		switch (source.draw(int(0, 2))) {
 			case 0:
-				return `${text.slice(0, at)}${c}${text.slice(at)}`
+				return `${Str.slice(0, at)(text)}${c}${Str.slice(at)(text)}`
 			case 1:
-				return `${text.slice(0, at)}${text.slice(at + 1)}`
+				return `${Str.slice(0, at)(text)}${Str.slice(at + 1)(text)}`
 			default:
-				return `${text.slice(0, at)}${c}${text.slice(at + 1)}`
+				return `${Str.slice(0, at)(text)}${c}${Str.slice(at + 1)(text)}`
 		}
 	}
 
@@ -396,7 +398,7 @@ const nearGen =
 		if (typeof json === "number") {
 			return json + source.draw(element([1, -1, 0.5, 2 ** 31, -(2 ** 31), 2 ** 15]))
 		}
-		if (Array.isArray(json)) {
+		if (isList(json)) {
 			const items: ReadonlyArray<WireJson> = json
 			const dropped = items.slice(1)
 			const doubled = [...items, ...items.slice(0, 1)]
@@ -469,7 +471,7 @@ const carrierSpecOf = (spec: WireScalar): CarrierSpec => {
 const hostForm = (value: unknown): unknown => (value instanceof AdmittedBytes ? value.bytes : value)
 
 /** The fault kinds a parse refusal names, each a WireFaultKind (wireFaults). */
-const isFault = (kind: string): boolean => wireFaults.some((f) => f === kind)
+const isFault = (kind: string): boolean => Arr.some(wireFaults, (f) => f === kind)
 
 describe("the wire's one table", () => {
 	it.effect(
@@ -514,11 +516,11 @@ describe("the wire's one table", () => {
 							const admitted = yield* schemaAdmits(schema, json, 0)
 							assert.ok(
 								admitted,
-								`the schema ${JSON.stringify(schema)} admits ${JSON.stringify(json)}`
+								`the schema ${Formatter.format(schema)} admits ${Formatter.format(json)}`
 							)
 							const parsed = succeeded(
 								parseScalar(c.spec, json),
-								`the parse reads ${JSON.stringify(json)}`
+								`the parse reads ${Formatter.format(json)}`
 							)
 							assert.ok(sameValue(parsed, c.value), "the parse reads back the value")
 							assert.ok(
@@ -571,7 +573,7 @@ describe("the wire's one table", () => {
 							if (parsed.ok) {
 								assert.ok(
 									admitted,
-									`the parse reads ${JSON.stringify(c.near)}, which ${JSON.stringify(schema)} refuses`
+									`the parse reads ${Formatter.format(c.near)}, which ${Formatter.format(schema)} refuses`
 								)
 								return
 							}
@@ -585,8 +587,8 @@ describe("the wire's one table", () => {
 							}
 							const gaps = gapsOf(schema)
 							assert.ok(
-								[...gaps].some((gap) => gap === parsed.error),
-								`the schema admits ${JSON.stringify(c.near)}, which the parse refuses as ${parsed.error}, no gap of ${[...gaps].join(", ")}`
+								Arr.some([...gaps], (gap) => gap === parsed.error),
+								`the schema admits ${Formatter.format(c.near)}, which the parse refuses as ${parsed.error}, no gap of ${Arr.join([...gaps], ", ")}`
 							)
 							notes.note("a JSON the schema admits and the parse refuses as a gap")
 						})
@@ -601,7 +603,7 @@ describe("the wire's one table", () => {
 				explore(
 					{
 						oracle: {
-							kind: "differential",
+							kind: "second-implementation",
 							name: "scalar/values/identity.ts parseValue, the one door for every caller's host value"
 						},
 						suite: "unit/live/wire-host-door",
@@ -647,7 +649,7 @@ describe("the wire's one table", () => {
 							}
 							const host = succeeded(
 								parseValue(door, parsed.value),
-								`the host door reads what the wire read of ${JSON.stringify(c.near)}`
+								`the host door reads what the wire read of ${Formatter.format(c.near)}`
 							)
 							assert.ok(sameValue(hostForm(host), parsed.value), "the host door reads it unchanged")
 						})
