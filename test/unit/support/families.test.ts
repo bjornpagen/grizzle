@@ -50,11 +50,11 @@ import {
 	type Judges,
 	machineOf,
 	type Outcome,
-	placeOf,
 	type Program,
 	type ProgramSpace,
 	programGen,
 	realOf,
+	sendPlace,
 	type MutationStatement,
 	run
 } from "#test/support/families/mutate.ts"
@@ -238,7 +238,7 @@ const statesOf = (
 const inPlace = (statements: ReadonlyArray<MutationStatement>): boolean =>
 	Arr.every(
 		statements,
-		(s, i) => i === 0 || placeOf[Arr.getUnsafe(statements, i - 1).kind] <= placeOf[s.kind]
+		(s, i) => i === 0 || sendPlace[Arr.getUnsafe(statements, i - 1).kind] <= sendPlace[s.kind]
 	)
 
 /** Whether an insert lists a row before the row one slot below it in its group. */

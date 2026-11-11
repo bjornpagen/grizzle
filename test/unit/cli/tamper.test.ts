@@ -257,7 +257,29 @@ const namedOf = (reason: CliError["reason"]): Named => {
 			return brokenAt(reason.fault)
 		case "TreeRefused":
 			return strayAt(reason.fault)
-		default:
+		case "ArgumentsRefused":
+		case "MigrationNameRefused":
+		case "DeclarationRefused":
+		case "SchemaChoiceRefused":
+		case "ConfigMissing":
+		case "ConfigUnloaded":
+		case "ExportRefused":
+		case "SettingRefused":
+		case "SchemaEntryRefused":
+		case "LoginEntryRefused":
+		case "ConnectionRefused":
+		case "ConnectionThrew":
+		case "ConnectionEnvironmentRefused":
+		case "TreeUnread":
+		case "FolderExists":
+		case "FolderUnwritten":
+		case "SnapshotUnwritten":
+		case "ServedUnwritten":
+		case "MigrationsUnread":
+		case "SnapshotUnreadable":
+		case "RosterReordered":
+		case "DraftRefused":
+		case "ServedRefused":
 			return { tag: "another reason", reason: reason._tag }
 	}
 }
@@ -271,7 +293,7 @@ interface Finding {
 /** The entry a finding's `where` names: its path, without a line. */
 const entryOf = (where: string): string => {
 	const [path] = Str.split(where, ":")
-	return path ?? where
+	return path
 }
 
 /**

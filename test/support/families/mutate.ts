@@ -90,7 +90,7 @@ export type MutationStatement =
  * owner's count (its creation, its update, or its deletion once its family is gone), then inserts. A lawful mutation's
  * statements are in ascending place.
  */
-export const placeOf: Readonly<Record<MutationStatement["kind"], number>> = {
+export const sendPlace: Readonly<Record<MutationStatement["kind"], number>> = {
 	delete: 0,
 	move: 1,
 	create: 2,

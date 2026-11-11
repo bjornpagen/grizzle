@@ -62,8 +62,14 @@ import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
 import { installationsOf } from "#compiler/schema/own.ts"
 import { fullRoleDesc, type Owned, ownLogin } from "#compiler/schema/own.ts"
-import type { Expr, FunctionName, ObjectName, SqlStatement } from "#compiler/sql/ast.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import type {
+	Expr,
+	FunctionName,
+	LiteralValue,
+	ObjectName,
+	SqlStatement
+} from "#compiler/sql/ast.ts"
+import { assert, deepEquals, defined, succeeded } from "#test/support/assert.ts"
 import { setText, textOfHex, wholeDigits } from "#test/support/closed/bit-text.ts"
 import {
 	codebookOfStates,
@@ -374,6 +380,24 @@ const constantValueOf = (c: InstalledConstant): HostValue => {
 	throw new Error(`a constant a domain CHECK reads: ${c.kind}`)
 }
 
+/** A literal's value on the host: an integer, a name, a bit string or a truth value, the literals these CHECKs hold. */
+const literalValue = (literal: LiteralValue): HostValue => {
+	switch (literal.kind) {
+		case "int":
+			return { kind: "int", value: Number(literal.value) }
+		case "text":
+			return { kind: "text", value: literal.value }
+		case "bits":
+			return { kind: "bits", value: textOfHex(literal.hex) }
+		case "bool":
+			return { kind: "bool", value: literal.value }
+		case "decimal":
+		case "float":
+		case "floatSpecial":
+			throw new Error(`a ${literal.kind} literal, which no roster or set domain's CHECK holds`)
+	}
+}
+
 /**
  * A domain CHECK's term evaluated on the host at VALUE = `value`, by PostgreSQL's rules for the terms it is made of:
  * a literal, VALUE, a constant's call, a cast (which changes no value here), a subscript counted from 1 (NULL past
@@ -384,18 +408,7 @@ const evaluate = (e: Expr, value: HostValue, constants: Constants, schema: strin
 	const recur = (x: Expr): HostValue => evaluate(x, value, constants, schema)
 	switch (e.kind) {
 		case "literal":
-			switch (e.value.kind) {
-				case "int":
-					return { kind: "int", value: Number(e.value.value) }
-				case "text":
-					return { kind: "text", value: e.value.value }
-				case "bits":
-					return { kind: "bits", value: textOfHex(e.value.hex) }
-				case "bool":
-					return { kind: "bool", value: e.value.value }
-				default:
-					throw new Error(`a literal a domain CHECK holds: ${e.value.kind}`)
-			}
+			return literalValue(e.value)
 		case "domainValue":
 			return value
 		case "call":
@@ -446,9 +459,38 @@ const evaluate = (e: Expr, value: HostValue, constants: Constants, schema: strin
 			}
 			throw new Error(`a ${l.kind} ${e.op} ${r.kind} a domain CHECK holds`)
 		}
-		default:
-			throw new Error(`a term a domain CHECK holds: ${e.kind}`)
+		case "column":
+		case "excluded":
+		case "returning":
+		case "param":
+		case "collate":
+		case "negate":
+		case "and":
+		case "or":
+		case "not":
+		case "isTrue":
+		case "between":
+		case "inList":
+		case "inQuery":
+		case "exists":
+		case "subquery":
+		case "array":
+		case "row":
+		case "case":
+		case "greatest":
+		case "least":
+		case "coalesce":
+		case "mergeAction":
+		case "plSpecial":
+		case "field":
+		case "complement":
+		case "nullif":
+		case "plVar":
+		case "regclass":
+		case "user":
+			break
 	}
+	throw new Error(`a ${e.kind} term, which no roster or set domain's CHECK holds`)
 }
 
 /** Whether a domain admits VALUE = `value`: every one of its CHECKs is TRUE there. */
@@ -786,10 +828,11 @@ describe("roster and closed constants", () => {
 								const before = defined(states(w)[0])
 								const was = rosterObjects(i, before).names
 								const now = rosterObjects(changed, before).names
-								assert.notDeepEqual(
-									[...now.values()],
-									[...was.values()],
-									"a hole changes the names"
+								assert.ok(
+									Arr.every([...now.values()], (names) =>
+										Arr.every([...was.values()], (before) => !deepEquals(names, before))
+									),
+									"a hole changes the names every names constant holds"
 								)
 								assert.ok(
 									Arr.every([...now.keys()], (fn) => !was.has(fn)),
