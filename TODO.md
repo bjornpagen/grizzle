@@ -221,6 +221,15 @@ Q1 to Q6 first. A new feature still needs its correctness need named in its comm
   pantry's 13 copies host-written (CHUNK).
 
 ### Next
+- **Reads forward PostgreSQL's bytes (WIREPASS, the owner, 2026-11-11):** the live wire decodes PostgreSQL's JSON
+  (attachments are aggregated as JSON in the served statement, lower/shapes/attach) into host values, then re-encodes
+  them in carrierWire's spellings (live/wire.ts): int8, numeric and money as strings, bytes as base64. That is a
+  decode/encode cycle per row on every read. Have the served statement build the wire's spellings itself (int8 cast to
+  text inside the JSON build, and so on per carrier), so the server forwards PostgreSQL's bytes into the SSE data line
+  untouched. The live diff compares rows, which works on bytes only if spelling is canonical both ways: carrierWire
+  already guarantees one value per spelling, and it must add one spelling per value (float specials, -0, numeric
+  trailing zeros, date and span forms). Think it through and fix it once live works; the oracle is byte equality with
+  today's encode over every carrier.
 - **PostgreSQL:** repin to 19rc2 when it is released on 2026-11-12 (pin.env, rebuild, re-init, delete the 19rc1
   build; RC2 includes the recursive-UNION hash_mem fix, so that patch goes; confirm DROP DATABASE … WITH (FORCE)
   beside parallel autovacuum and the RI fast path with a cast). Repin to 19 GA on 2026-11-19; the relcache patch is
