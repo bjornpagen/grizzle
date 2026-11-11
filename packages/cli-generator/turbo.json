@@ -1,0 +1,79 @@
+{
+	"$schema": "https://turbo.build/schema.json",
+	"agentGuidance": false,
+	"concurrency": "100%",
+	"globalDependencies": [
+		"pnpm-workspace.yaml",
+		"pnpm-lock.yaml",
+		"tsconfig.json",
+		"oxlint.config.ts"
+	],
+	"globalEnv": ["NODE_OPTIONS", "NODE_ENV"],
+	"globalPassThroughEnv": [
+		"COREPACK_HOME",
+		"TMPDIR",
+		"HTTP_PROXY",
+		"HTTPS_PROXY",
+		"NO_PROXY",
+		"ALL_PROXY",
+		"http_proxy",
+		"https_proxy",
+		"no_proxy",
+		"all_proxy"
+	],
+	"tasks": {
+		"source": {
+			"description": "Carries each package's source hash to its dependents, so a check reruns when a package it loads changes, without waiting for that package's checks.",
+			"dependsOn": ["^source"]
+		},
+		"typecheck": {
+			"description": "The dev tools' tsconfig bases, which the root tsconfig and every Effect-free package extend, are inputs too.",
+			"dependsOn": ["^source"],
+			"inputs": [
+				"$TURBO_DEFAULT$",
+				"$TURBO_ROOT$/packages/devtools/tsconfig.base.json",
+				"$TURBO_ROOT$/packages/devtools/tsconfig.effect-free.json"
+			]
+		},
+		"superlint": {
+			"description": "The dev tools' rules and the superlint options in the root package.json are inputs too.",
+			"dependsOn": ["^source"],
+			"inputs": [
+				"$TURBO_DEFAULT$",
+				"$TURBO_ROOT$/package.json",
+				"$TURBO_ROOT$/packages/devtools/src/**",
+				"$TURBO_ROOT$/packages/devtools/tsconfig.base.json",
+				"$TURBO_ROOT$/packages/devtools/tsconfig.effect-free.json"
+			]
+		},
+		"oxlint": {
+			"description": "The dev tools' preset and plugin are inputs too.",
+			"dependsOn": ["^source"],
+			"inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/packages/devtools/src/**"]
+		},
+		"fixtures:superlint": {},
+		"fixtures:style": {},
+		"fixtures:oxlint": {},
+		"fixtures:react-compiler": {},
+		"//#typecheck": {},
+		"//#superlint": {},
+		"//#oxlint": {},
+		"//#format": {},
+		"//#dead-code": {},
+		"//#architecture": {
+			"description": "fallow's cycles, boundaries and policy rules, which dead-code reports too until fallow's next major drops them from it."
+		},
+		"//#dedupe": {
+			"description": "The lockfile is already deduplicated: pnpm dedupe would change nothing."
+		},
+		"test": {
+			"description": "Every test. Each run draws fresh rotating seeds, so a test never replays from cache; the run's seed, a replay and a fuzz run come through the environment.",
+			"cache": false,
+			"passThroughEnv": ["TEST_SEED", "TEST_REPLAY", "TEST_FUZZ", "TEST_FUZZTIME"]
+		},
+		"corpus": {
+			"description": "Generates every pinned corpus specification and compares each verdict byte for byte: it reads the pinned specifications from the cache, so it never caches.",
+			"cache": false
+		}
+	}
+}

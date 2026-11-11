@@ -1,0 +1,31 @@
+@custom-variant dark (&:is(.dark *));
+
+@utility touch-callout-none {
+	-webkit-touch-callout: none;
+}
+
+@page print {
+	size: letter;
+	@top-left {
+		content: "";
+	}
+}
+
+:root {
+	--report-paper: oklch(0.99 0.01 100);
+}
+
+.dark {
+	--report-paper: oklch(0.2 0.01 100 / 50%);
+}
+
+@theme inline {
+	--spacing-report-gap: 1.5rem;
+	--color-report-paper: var(--report-paper);
+}
+
+@layer base {
+	* {
+		@apply border-border;
+	}
+}

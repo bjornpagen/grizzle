@@ -1,0 +1,156 @@
+import { Array as Arr, Effect, Option, Order, Predicate, Record, Schema } from "effect"
+import { DocumentUri, JsonPointer } from "#model/brands.ts"
+import { Origin, RowId } from "#model/entities.ts"
+
+const codePattern = /^(?<row>[A-Z][A-Z0-9]*-[0-9]+)\/[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/u
+
+const Code = Schema.String.pipe(Schema.check(Schema.isPattern(codePattern)))
+
+const Position = Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(1)))
+
+const rowOfCode = (code: string): Option.Option<string> =>
+	Option.fromUndefinedOr(codePattern.exec(code)?.groups?.row)
+
+/**
+ * The use site or target of a diagnostic: a document and an RFC 6901 pointer, the entity `Origin`.
+ */
+export const Site = Origin
+
+/**
+ * How much a diagnostic covers: the whole document, one operation, one element, or one `field`
+ * (design 8.5): a property of a request body alternative that stays generated.
+ */
+export const DiagnosticScope = Schema.Literals(["document", "operation", "element", "field"])
+
+/**
+ * The operation a diagnostic concerns.
+ */
+export const DiagnosticOperation = Schema.Struct({
+	method: Schema.String,
+	operationId: Schema.optionalKey(Schema.String),
+	path: Schema.String
+})
+
+/**
+ * One refusal or notice, shared by the report, the verdict file and `--describe` (design 8.1).
+ */
+export class Diagnostic extends Schema.Class<Diagnostic>("Diagnostic")(
+	Schema.Struct({
+		code: Code,
+		column: Schema.optionalKey(Position),
+		document: DocumentUri,
+		element: Schema.String,
+		hint: Schema.optionalKey(Schema.String),
+		line: Schema.optionalKey(Position),
+		message: Schema.String,
+		openapi: Schema.String,
+		operation: Schema.optionalKey(DiagnosticOperation),
+		pointer: JsonPointer,
+		related: Schema.optionalKey(Schema.Array(Site)),
+		row: RowId,
+		scope: DiagnosticScope,
+		severity: Schema.Literals(["refusal", "notice"]),
+		specSection: DocumentUri,
+		wire: Schema.optionalKey(Schema.String)
+	}).check(
+		Schema.makeFilter(
+			(fields) =>
+				Option.getOrUndefined(rowOfCode(fields.code)) === fields.row ||
+				"code must start with its row id"
+		)
+	)
+) {}
+
+type EncodedWithoutRow = Omit<typeof Diagnostic.Encoded, "row">
+
+/**
+ * The encoded `Diagnostic` fields except `row`, which the factory derives from the code. Every
+ * optional key also accepts `undefined`, so a caller can pass a maybe-absent value without a
+ * branch.
+ */
+export type DiagnosticInput = {
+	readonly [
+		Key in keyof EncodedWithoutRow as Record<never, never> extends Pick<EncodedWithoutRow, Key>
+			? never
+			: Key
+	]: EncodedWithoutRow[Key]
+} & {
+	readonly [
+		Key in keyof EncodedWithoutRow as Record<never, never> extends Pick<EncodedWithoutRow, Key>
+			? Key
+			: never
+	]?: EncodedWithoutRow[Key] | undefined
+}
+
+/**
+ * Builds a `Diagnostic` from its fields: drops `undefined` keys, sets `row` from the code's row
+ * prefix and decodes. Fails with `SchemaError` when the fields do not decode, such as a malformed
+ * code.
+ */
+export const diagnosticOf = (
+	input: DiagnosticInput
+): Effect.Effect<Diagnostic, Schema.SchemaError> =>
+	Schema.decodeUnknownEffect(Diagnostic)({
+		...Record.filter<string, unknown>(Predicate.isNotUndefined)(input),
+		row: Option.getOrUndefined(rowOfCode(input.code))
+	})
+
+/**
+ * `diagnosticOf` for sites whose fields are program constants: a decode failure is a defect.
+ */
+export const makeDiagnostic = (input: DiagnosticInput): Effect.Effect<Diagnostic> =>
+	diagnosticOf(input).pipe(Effect.orDie)
+
+const isIndex = (token: string): boolean => /^(?:0|[1-9][0-9]*)$/u.test(token)
+
+const tokenOrder = Order.make<string>((left, right) =>
+	isIndex(left) && isIndex(right)
+		? Order.Number(Number(left), Number(right))
+		: Order.String(left, right)
+)
+
+/**
+ * Whether a diagnostic is a refusal; the only other severity is `notice`.
+ */
+export const isRefusal = (diagnostic: Diagnostic): boolean => diagnostic.severity === "refusal"
+
+/**
+ * Whether a diagnostic is a refusal of the whole document.
+ */
+export const isDocumentRefusal: (diagnostic: Diagnostic) => boolean = Predicate.and(
+	isRefusal,
+	(diagnostic) => diagnostic.scope === "document"
+)
+
+/**
+ * Diagnostic pointer order (design 3.7): JSON Pointers compare token by token, array indices
+ * numerically and every other token as a string.
+ */
+export const pointerOrder: Order.Order<string> = Order.mapInput(
+	Order.Array(tokenOrder),
+	(pointer: string): readonly string[] => pointer.split("/").slice(1)
+)
+
+/**
+ * Orders diagnostics by document index in `documents`, then pointer, then code (design 3.7).
+ * Pointers compare token by token, array indices numerically. A document outside `documents` sorts
+ * last.
+ */
+export const sortDiagnostics = (
+	documents: readonly string[],
+	diagnostics: readonly Diagnostic[]
+): readonly Diagnostic[] => {
+	const documentIndex = (diagnostic: Diagnostic): number => {
+		const index = documents.indexOf(diagnostic.document)
+
+		return index === -1 ? documents.length : index
+	}
+
+	const order = Order.combineAll([
+		Order.mapInput(Order.Number, documentIndex),
+		Order.mapInput(pointerOrder, (diagnostic: Diagnostic) => diagnostic.pointer),
+		Order.mapInput(Order.String, (diagnostic: Diagnostic) => diagnostic.code)
+	])
+
+	return Arr.sort(diagnostics, order)
+}

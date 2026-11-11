@@ -1,0 +1,16 @@
+# The hooks run only the pinned lefthook: without this, the generated script searches a dozen
+# places for a lefthook binary and lets the commit through when it finds none.
+lefthook: pnpm exec lefthook
+# One check-only gate: the hooks never format or stage files, they only refuse. A merge or rebase
+# skips pre-commit, so the push runs the gate again over every commit it carries.
+pre-commit:
+  skip:
+    - merge
+    - rebase
+  jobs:
+    - name: check
+      run: pnpm check
+pre-push:
+  jobs:
+    - name: check
+      run: pnpm check

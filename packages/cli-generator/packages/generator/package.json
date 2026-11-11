@@ -1,0 +1,43 @@
+{
+	"name": "effect-openapi-cli-generator",
+	"private": true,
+	"description": "Generate Effect-native CLIs from OpenAPI specifications: one directory per pipeline stage under src/, the generated CLIs' runtime under src/runtime-src/, the pinned corpus under corpus/.",
+	"license": "MIT",
+	"type": "module",
+	"imports": {
+		"#package.json": "./package.json",
+		"#tsconfig.json": "./tsconfig.json",
+		"#test/*": "./test/*",
+		"#corpus/*": "./corpus/*",
+		"#scripts/*": "./scripts/*",
+		"#*": "./src/*"
+	},
+	"exports": {
+		".": "./src/index.ts"
+	},
+	"bin": {
+		"effect-openapi-cli-generator": "./src/bin.ts"
+	},
+	"scripts": {
+		"prepare:runtime": "node scripts/embed-runtime.ts",
+		"typecheck": "effect-tsgo tsrs",
+		"superlint": "superlint",
+		"oxlint": "oxlint",
+		"test": "vitest run",
+		"corpus": "scripts/memguard.sh 6144 -- node corpus/tools/run.ts --check"
+	},
+	"dependencies": {
+		"@effect/platform-node": "catalog:",
+		"@hyperjump/json-schema": "catalog:",
+		"effect": "catalog:",
+		"yaml": "catalog:"
+	},
+	"devDependencies": {
+		"@effect/vitest": "catalog:",
+		"@superstarter/devtools": "workspace:*",
+		"@superstarter/testing": "workspace:*",
+		"@types/node": "catalog:",
+		"typescript": "catalog:",
+		"vitest": "catalog:"
+	}
+}

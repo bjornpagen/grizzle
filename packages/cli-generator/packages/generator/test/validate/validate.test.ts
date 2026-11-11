@@ -1,0 +1,240 @@
+import { readFileSync } from "node:fs"
+import { NodeCrypto, NodeFileSystem, NodePath } from "@effect/platform-node"
+import { Effect, Layer, Option, PlatformError, Predicate, Schema } from "effect"
+import type { FileSystem, Path } from "effect"
+import type { Digest } from "effect/crypto"
+import { describe, expect, test } from "vitest"
+import { DocumentUri } from "#model/brands.ts"
+import type { Json } from "#model/pointer.ts"
+import invalid30 from "#test/fixtures/validate/invalid-3.0.json" with { type: "json" }
+import invalid31 from "#test/fixtures/validate/invalid-3.1.json" with { type: "json" }
+import invalid32 from "#test/fixtures/validate/invalid-3.2.json" with { type: "json" }
+import valid30 from "#test/fixtures/validate/valid-3.0.json" with { type: "json" }
+import valid31 from "#test/fixtures/validate/valid-3.1.json" with { type: "json" }
+import valid32 from "#test/fixtures/validate/valid-3.2.json" with { type: "json" }
+import { declaredOpenapi, UnsupportedOpenApiVersion, versionRefusal } from "#validate/dispatch.ts"
+import { checkManifest, validateDocument } from "#validate/index.ts"
+import type { ReadSchema } from "#validate/index.ts"
+import { manifest } from "#validate/schemas/manifest.ts"
+
+const fixtures = {
+	"3.0": { invalid: invalid30, valid: valid30 },
+	"3.1": { invalid: invalid31, valid: valid31 },
+	"3.2": { invalid: invalid32, valid: valid32 }
+}
+
+const deepFreeze = (value: Json): Json => {
+	if (Predicate.isObject(value)) {
+		for (const member of Object.values(value)) {
+			deepFreeze(member)
+		}
+
+		Object.freeze(value)
+	}
+
+	return value
+}
+
+const vendored: ReadSchema = (file) =>
+	manifest.some((entry) => entry.file === file)
+		? Effect.succeed(readFileSync(new URL(`../../src/validate/schemas/${file}`, import.meta.url)))
+		: Effect.fail(new PlatformError.BadArgument({ method: "read", module: "test" }))
+
+const tampered: ReadSchema = (file) =>
+	file === "schema-base-3.1-2026-08-03.json"
+		? vendored(file).pipe(
+				Effect.map((bytes) => new TextEncoder().encode(`${new TextDecoder().decode(bytes)} `))
+			)
+		: vendored(file)
+
+const missing: ReadSchema = (file) =>
+	file === "meta-3.2-2026-02-26.json"
+		? Effect.fail(new PlatformError.BadArgument({ method: "read", module: "test" }))
+		: vendored(file)
+
+const layer = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer, NodeCrypto.layerDigest)
+
+const failureTag = <A, E extends { readonly _tag: string }>(
+	effect: Effect.Effect<A, E, FileSystem.FileSystem | Path.Path | Digest.Digest>
+): Promise<string> =>
+	Effect.runPromise(
+		effect.pipe(
+			Effect.provide(layer),
+			Effect.flip,
+			Effect.map((error) => error._tag)
+		)
+	)
+
+describe("validateDocument", () => {
+	test.each(Object.entries(fixtures))(
+		"line %s: a deep-frozen document validates without being written",
+		async (_line, { invalid, valid }) => {
+			const frozenValid = deepFreeze(structuredClone(valid))
+			const frozenInvalid = deepFreeze(structuredClone(invalid))
+
+			const validResult = await Effect.runPromise(
+				validateDocument(frozenValid).pipe(Effect.provide(layer))
+			)
+			const invalidResult = await Effect.runPromise(
+				validateDocument(frozenInvalid).pipe(Effect.provide(layer))
+			)
+
+			expect(validResult.valid).toBe(true)
+			expect(invalidResult.valid).toBe(false)
+		}
+	)
+
+	test.each([
+		["3.0", "https://spec.openapis.org/oas/3.0/schema/2024-10-18", "/parameters/0/in"],
+		[
+			"3.1",
+			"https://spec.openapis.org/oas/3.1/schema-base/2026-08-03",
+			"#/components/schemas/Thing/type"
+		],
+		[
+			"3.2",
+			"https://spec.openapis.org/oas/3.2/schema-base/2026-08-30",
+			"#/components/schemas/Thing/type"
+		]
+	] as const)(
+		"line %s: valid document passes and negative control fails",
+		async (line, schema, pointer) => {
+			const valid = await Effect.runPromise(
+				validateDocument(fixtures[line].valid).pipe(Effect.provide(layer))
+			)
+			const invalid = await Effect.runPromise(
+				validateDocument(fixtures[line].invalid).pipe(Effect.provide(layer))
+			)
+
+			expect(valid).toEqual({ errors: [], line, schema, valid: true })
+			expect(invalid.line).toBe(line)
+			expect(invalid.schema).toBe(schema)
+			expect(invalid.valid).toBe(false)
+			expect(invalid.errors.some((unit) => unit.instanceLocation.endsWith(pointer))).toBe(true)
+		}
+	)
+
+	test("validation never touches the network", async () => {
+		const attempts: string[] = []
+		const original = globalThis.fetch
+
+		globalThis.fetch = Object.assign(
+			() => {
+				attempts.push("fetch")
+
+				return Promise.reject(new Error("network blocked"))
+			},
+			{ preconnect: original.preconnect }
+		)
+		await Effect.runPromise(validateDocument(valid31).pipe(Effect.provide(layer)))
+		globalThis.fetch = original
+
+		expect(attempts).toEqual([])
+	})
+
+	test("an unsupported or missing openapi version is a typed refusal", async () => {
+		expect(await failureTag(validateDocument({ openapi: "2.0.0" }))).toBe(
+			"UnsupportedOpenApiVersion"
+		)
+		expect(await failureTag(validateDocument({ openapi: "3.3.0" }))).toBe(
+			"UnsupportedOpenApiVersion"
+		)
+		expect(await failureTag(validateDocument({ swagger: "2.0" }))).toBe("UnsupportedOpenApiVersion")
+	})
+})
+
+describe("declaredOpenapi", () => {
+	test("a string openapi value is Some; a missing or non-string one is None", () => {
+		expect(declaredOpenapi({ openapi: "3.1.0" })).toEqual(Option.some("3.1.0"))
+		expect(declaredOpenapi({ openapi: "2.0" })).toEqual(Option.some("2.0"))
+		expect(declaredOpenapi({ swagger: "2.0" })).toEqual(Option.none())
+		expect(declaredOpenapi({ openapi: 3.1 })).toEqual(Option.none())
+		expect(declaredOpenapi({ openapi: null })).toEqual(Option.none())
+		expect(declaredOpenapi("3.1.0")).toEqual(Option.none())
+	})
+})
+
+describe("versionRefusal", () => {
+	const uri = Schema.decodeUnknownSync(DocumentUri)("file:///spec/openapi.json")
+	const refusalOf = (openapi?: string) =>
+		Effect.runPromise(versionRefusal(new UnsupportedOpenApiVersion({ openapi }), uri))
+
+	test("a missing openapi value is a DOC-02 document refusal at /openapi citing 3.2.1", async () => {
+		expect(await refusalOf()).toMatchObject({
+			code: "DOC-02/missing-version",
+			document: uri,
+			element: "openapi",
+			openapi: "3.2.1",
+			pointer: "/openapi",
+			row: "DOC-02",
+			scope: "document",
+			severity: "refusal",
+			specSection: "https://spec.openapis.org/oas/v3.2.1.html#oas-version"
+		})
+	})
+
+	test("an unsupported value is refused with the value; a known line cites its own release", async () => {
+		const found = await Promise.all(["2.0", "3.3.0", "3.1"].map((openapi) => refusalOf(openapi)))
+
+		expect(
+			found.map(({ code, message, openapi, pointer, specSection }) => ({
+				code,
+				message,
+				openapi,
+				pointer: String(pointer),
+				specSection: String(specSection)
+			}))
+		).toEqual([
+			{
+				code: "DOC-02/unsupported-version",
+				message:
+					'The openapi version "2.0" is not supported. Declare a 3.0.x, 3.1.x or 3.2.x version.',
+				openapi: "2.0",
+				pointer: "/openapi",
+				specSection: "https://spec.openapis.org/oas/v3.2.1.html#oas-version"
+			},
+			{
+				code: "DOC-02/unsupported-version",
+				message:
+					'The openapi version "3.3.0" is not supported. Declare a 3.0.x, 3.1.x or 3.2.x version.',
+				openapi: "3.3.0",
+				pointer: "/openapi",
+				specSection: "https://spec.openapis.org/oas/v3.2.1.html#oas-version"
+			},
+			{
+				code: "DOC-02/unsupported-version",
+				message:
+					'The openapi version "3.1" is not supported. Declare a 3.0.x, 3.1.x or 3.2.x version.',
+				openapi: "3.1",
+				pointer: "/openapi",
+				specSection: "https://spec.openapis.org/oas/v3.1.2.html#oas-version"
+			}
+		])
+	})
+})
+
+describe("checkManifest", () => {
+	test("accepts the vendored bytes", async () => {
+		const files = await Effect.runPromise(checkManifest(vendored).pipe(Effect.provide(layer)))
+
+		expect(files).toHaveLength(manifest.length)
+	})
+
+	test("a tampered vendored schema fails the sha256 check", async () => {
+		expect(await failureTag(checkManifest(tampered))).toBe("SchemaManifestError")
+	})
+
+	test("a missing vendored schema fails the check", async () => {
+		expect(await failureTag(checkManifest(missing))).toBe("SchemaManifestError")
+	})
+
+	test("an unreadable vendored file keeps its cause", async () => {
+		const error = await Effect.runPromise(
+			checkManifest(missing).pipe(Effect.provide(layer), Effect.flip)
+		)
+
+		expect(error.file).toBe("meta-3.2-2026-02-26.json")
+		expect(error.reason).toBe("unreadable")
+		expect(error.cause).toBeInstanceOf(PlatformError.BadArgument)
+	})
+})

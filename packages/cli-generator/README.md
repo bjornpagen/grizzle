@@ -18,14 +18,15 @@ Read [the project direction](docs/project.md) for the pipeline, the generated pa
 
 ## Development
 
-Use Bun 1.4.3 (the `packageManager` pin).
+Node 26 runs the TypeScript source directly; pnpm 12.16.1 (the `packageManager` pin) installs.
 
 ```sh
-bun install --frozen-lockfile
-bun run check
-bun run fix
+pnpm install
+pnpm check
+pnpm test
+pnpm format:write
 ```
 
-Vite+ provides Oxlint and Oxfmt with the Ultracite core and anti-slop presets. TypeScript is strict.
+The workspace holds the generator (`packages/generator`) and superstarter's dev tools, testing library and JSON door, vendored as `packages/devtools`, `packages/testing` and `packages/json`. `pnpm check` is the gate lefthook runs before every commit and push: `effect-tsgo tsrs` with every Effect diagnostic at error, superlint, oxlint with the dev tools' preset, oxfmt, fallow's dead-code and architecture checks, and `pnpm dedupe --check`.
 
 Read [AGENTS.md](AGENTS.md) before contributing.

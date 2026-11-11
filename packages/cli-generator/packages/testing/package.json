@@ -1,0 +1,58 @@
+{
+	"name": "@superstarter/testing",
+	"private": true,
+	"description": "A choice-stream testing library on Effect and Vitest: every case is a tape of bounded choices, so one generator is searched at random, enumerated exhaustively, replayed, mutated and shrunk.",
+	"type": "module",
+	"sideEffects": false,
+	"imports": {
+		"#*": "./src/*"
+	},
+	"exports": {
+		"./commands": "./src/commands.ts",
+		"./enumerate": "./src/enumerate.ts",
+		"./explore": "./src/explore.ts",
+		"./fuzz": "./src/fuzz.ts",
+		"./fact": "./src/fact.ts",
+		"./features": "./src/features.ts",
+		"./gen": "./src/gen.ts",
+		"./guard": "./src/guard.ts",
+		"./interleave": "./src/interleave.ts",
+		"./mutate": "./src/mutate.ts",
+		"./lsw": "./src/lsw.ts",
+		"./oracle": "./src/oracle.ts",
+		"./pattern": "./src/pattern.ts",
+		"./oxlint": "./src/oxlint/plugin.ts",
+		"./random": "./src/random.ts",
+		"./sense": "./src/sense.ts",
+		"./shrink": "./src/shrink.ts",
+		"./source": "./src/source.ts",
+		"./swarm": "./src/swarm.ts",
+		"./tape": "./src/tape.ts",
+		"./values": "./src/values.ts",
+		"./vitest": "./src/vitest/searched.ts",
+		"./vitest/config": "./src/vitest/config.ts",
+		"./vitest/global-setup": "./src/vitest/global-setup.ts",
+		"./vitest/run": "./src/vitest/run.ts"
+	},
+	"scripts": {
+		"typecheck": "effect-tsgo tsrs",
+		"superlint": "superlint",
+		"oxlint": "oxlint",
+		"test": "vitest run",
+		"bench": "vitest bench --run"
+	},
+	"dependencies": {
+		"@effect/platform-node": "catalog:",
+		"@effect/vitest": "catalog:",
+		"arkregex": "catalog:",
+		"effect": "catalog:",
+		"oxlint": "catalog:",
+		"vite": "catalog:",
+		"vitest": "catalog:"
+	},
+	"devDependencies": {
+		"@superstarter/devtools": "workspace:*",
+		"@types/node": "catalog:",
+		"typescript": "catalog:"
+	}
+}

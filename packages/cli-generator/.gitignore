@@ -1,14 +1,30 @@
+# Unanchored, so each also matches inside every workspace package.
 node_modules/
 dist/
-.env
-.env.*
-!.env.example
 *.tsbuildinfo
+.turbo/
+out/
+.env*
+!.env.example
+
+# misc
 .DS_Store
+.pnpm-debug.log*
+.idea
+.claude/worktrees/
 .worktrees/
 work/
 docs/goals/
 docs/campaigns/
 docs/research/
-.claude/worktrees/
-src/emit/runtime-files.generated.ts
+
+# Personal skills: local-<name> is discovered by every harness, local/ is nested so none discovers it.
+/.agents/skills/local/*
+/.agents/skills/local-*
+
+# generated before every run that reads it
+packages/generator/src/emit/runtime-files.generated.ts
+
+# tooling scratch
+.fallow/
+.vitest/

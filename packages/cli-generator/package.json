@@ -1,55 +1,101 @@
 {
-  "name": "effect-openapi-cli-generator",
-  "version": "0.0.0",
-  "private": true,
-  "description": "Generate Effect-native CLIs from OpenAPI specifications and Effect HttpApi definitions.",
-  "license": "MIT",
-  "bin": {
-    "effect-openapi-cli-generator": "dist/bin.js"
-  },
-  "files": [
-    "dist",
-    "tsconfig.json",
-    "README.md"
-  ],
-  "type": "module",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
-    }
-  },
-  "scripts": {
-    "prepare:runtime": "bun tools/embed-runtime.ts",
-    "build": "bun run prepare:runtime && tsc -p tsconfig.build.json && mkdir -p dist/validate/schemas && cp src/validate/schemas/*.json dist/validate/schemas/",
-    "test": "bun run prepare:runtime && bun test",
-    "format": "vp fmt --check",
-    "lint": "vp lint --type-aware",
-    "typecheck": "tsc --noEmit",
-    "corpus": "tools/memguard.sh 6144 -- bun corpus/tools/run.ts --check",
-    "check": "bun tools/check-bun.ts && bun run prepare:runtime && bun run format && bun run lint && bun run typecheck",
-    "fix": "vp fmt && vp lint --fix"
-  },
-  "dependencies": {
-    "@effect/platform-bun": "4.1.2",
-    "@hyperjump/json-schema": "1.18.0",
-    "effect": "4.1.2",
-    "yaml": "2.9.1"
-  },
-  "devDependencies": {
-    "@stylistic/eslint-plugin": "5.10.0",
-    "@types/bun": "1.4.2",
-    "@types/node": "26.6.4",
-    "typescript": "7.0.2",
-    "ultracite": "7.12.0",
-    "vite": "npm:@voidzero-dev/vite-plus-core@1.0.0",
-    "vite-plus": "1.0.0"
-  },
-  "overrides": {
-    "vite": "npm:@voidzero-dev/vite-plus-core@1.0.0"
-  },
-  "engines": {
-    "bun": ">=1.4.3"
-  },
-  "packageManager": "bun@1.4.3"
+	"name": "effect-openapi-cli-generator-workspace",
+	"private": true,
+	"type": "module",
+	"imports": {
+		"#package.json": "./package.json"
+	},
+	"packageManager": "pnpm@12.16.1",
+	"devEngines": {
+		"runtime": {
+			"name": "node",
+			"version": ">=26",
+			"onFail": "error"
+		}
+	},
+	"scripts": {
+		"prepare": "effect-tsgo patch",
+		"check": "turbo run typecheck superlint oxlint fixtures:superlint fixtures:style fixtures:oxlint fixtures:react-compiler format dedupe --filter=!effect-openapi-cli-generator",
+		"lint": "turbo run superlint oxlint dead-code architecture",
+		"test": "turbo run test",
+		"corpus": "turbo run corpus",
+		"fuzz": "node packages/testing/scripts/fuzz.ts",
+		"mutate": "node packages/testing/scripts/mutate.ts",
+		"format:write": "oxfmt . && turbo run oxlint -- --fix && oxfmt .",
+		"typecheck": "effect-tsgo tsrs",
+		"superlint": "superlint",
+		"oxlint": "oxlint oxlint.config.ts",
+		"format": "oxfmt --check .",
+		"dead-code": "fallow dead-code",
+		"architecture": "fallow architecture",
+		"dedupe": "pnpm dedupe --check"
+	},
+	"devDependencies": {
+		"@effect/tsgo": "catalog:",
+		"@superstarter/devtools": "workspace:*",
+		"@superstarter/testing": "workspace:*",
+		"@types/node": "catalog:",
+		"fallow": "catalog:",
+		"lefthook": "catalog:",
+		"oxfmt": "catalog:",
+		"oxlint": "catalog:",
+		"oxlint-tsgolint": "catalog:",
+		"turbo": "catalog:",
+		"typescript": "catalog:"
+	},
+	"superlint": {
+		"appDatabase": "none",
+		"effectFree": [],
+		"exceptions": [
+			{
+				"rule": "no-module-state",
+				"files": [
+					"packages/testing/src/vitest/coverage.ts"
+				]
+			}
+		],
+		"sqlLeafOwnersOnly": {
+			"owners": []
+		},
+		"sqlCastOwner": {
+			"owners": []
+		},
+		"sqlJsonOwner": {
+			"owners": []
+		},
+		"sqlDynamicSchema": {
+			"tableFactories": []
+		},
+		"sqlQueryDeadline": {
+			"files": [],
+			"properties": [],
+			"refusals": [],
+			"admitted": []
+		},
+		"sqlRawExecution": {
+			"statementOwners": [],
+			"copyStreamOwners": [],
+			"nativeClientOwners": [],
+			"declaredExecutions": []
+		},
+		"sqlRawStatement": {
+			"recursiveEnvelopeOwners": [],
+			"projectionEnvelopeOwners": [],
+			"declaredStatements": []
+		},
+		"uncheckedVocabularyLiteral": {
+			"support": [],
+			"vocabularies": [],
+			"titled": [
+				"describe",
+				"it",
+				"effect",
+				"live",
+				"each"
+			],
+			"explanations": [
+				"message"
+			]
+		}
+	}
 }

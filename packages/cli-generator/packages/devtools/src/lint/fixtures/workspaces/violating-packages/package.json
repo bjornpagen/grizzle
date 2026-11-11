@@ -1,0 +1,11 @@
+{
+	"superlint": {
+		"effectFree": [
+			"packages/absent",
+			"packages/based",
+			"packages/depends",
+			"packages/plugged",
+			"packages/scoped"
+		]
+	}
+}

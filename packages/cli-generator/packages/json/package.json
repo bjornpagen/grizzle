@@ -1,0 +1,21 @@
+{
+	"name": "@superstarter/json",
+	"private": true,
+	"description": "The one door for writing JSON text: the JSON value type, and the total function from a value of that type to its text. Browser-safe.",
+	"type": "module",
+	"sideEffects": false,
+	"exports": {
+		".": "./src/json.ts"
+	},
+	"scripts": {
+		"typecheck": "effect-tsgo tsrs",
+		"superlint": "superlint",
+		"oxlint": "oxlint"
+	},
+	"dependencies": {
+		"effect": "catalog:"
+	},
+	"devDependencies": {
+		"typescript": "catalog:"
+	}
+}

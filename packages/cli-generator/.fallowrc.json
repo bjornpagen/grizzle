@@ -1,0 +1,292 @@
+{
+	"$schema": "./node_modules/fallow/schema.json",
+	"entry": [
+		"packages/devtools/src/oxlint/fixtures.config.ts",
+		"packages/testing/src/vitest/coverage.ts",
+		"packages/testing/src/vitest/mutated-setup.ts",
+		"packages/testing/src/witness.fixtures.ts",
+		"packages/generator/src/bin.ts",
+		"packages/generator/src/runtime-src/**/*.ts",
+		"packages/generator/scripts/*.ts",
+		"packages/generator/corpus/tools/*.ts"
+	],
+	"ignorePatterns": [
+		"packages/devtools/src/*/fixtures/**",
+		"packages/generator/test/fixtures/golden/**"
+	],
+	"ignoreDependencies": ["tailwindcss"],
+	"rules": {
+		"require-suppression-reason": "error"
+	},
+	"boundaries": {
+		"zones": [
+			{
+				"name": "testing-suites",
+				"patterns": ["packages/testing/src/**/*.test.ts", "packages/testing/vitest.config.ts"]
+			},
+			{
+				"name": "generator-suites",
+				"patterns": ["packages/generator/test/**", "packages/generator/vitest.config.ts"]
+			},
+			{
+				"name": "corpus",
+				"patterns": ["packages/generator/corpus/**"]
+			},
+			{
+				"name": "generator-scripts",
+				"patterns": ["packages/generator/scripts/**"]
+			},
+			{
+				"name": "testing",
+				"patterns": ["packages/testing/**"]
+			},
+			{
+				"name": "json",
+				"patterns": ["packages/json/**"]
+			},
+			{
+				"name": "react-compiler-options",
+				"patterns": ["packages/devtools/src/react-compiler/options.ts"]
+			},
+			{
+				"name": "devtools",
+				"patterns": ["packages/devtools/**"]
+			},
+			{
+				"name": "runtime",
+				"patterns": ["packages/generator/src/runtime-src/**"]
+			},
+			{
+				"name": "model",
+				"patterns": ["packages/generator/src/model/**"]
+			},
+			{
+				"name": "load",
+				"patterns": ["packages/generator/src/load/**"]
+			},
+			{
+				"name": "validate",
+				"patterns": ["packages/generator/src/validate/**"]
+			},
+			{
+				"name": "resolve",
+				"patterns": ["packages/generator/src/resolve/**"]
+			},
+			{
+				"name": "check",
+				"patterns": ["packages/generator/src/check/**"]
+			},
+			{
+				"name": "normalize",
+				"patterns": ["packages/generator/src/normalize/**"]
+			},
+			{
+				"name": "names",
+				"patterns": ["packages/generator/src/names/**"]
+			},
+			{
+				"name": "emit",
+				"patterns": ["packages/generator/src/emit/**"]
+			},
+			{
+				"name": "write",
+				"patterns": ["packages/generator/src/write/**"]
+			},
+			{
+				"name": "report",
+				"patterns": ["packages/generator/src/report/**"]
+			},
+			{
+				"name": "generator",
+				"patterns": [
+					"packages/generator/src/*.ts",
+					"packages/generator/package.json",
+					"packages/generator/tsconfig.json"
+				]
+			},
+			{
+				"name": "lint-config",
+				"patterns": ["oxlint.config.ts"]
+			}
+		],
+		"rules": [
+			{
+				"from": "testing-suites",
+				"allow": ["json", "testing"]
+			},
+			{
+				"from": "generator-suites",
+				"allow": [
+					"corpus",
+					"generator",
+					"generator-scripts",
+					"json",
+					"model",
+					"runtime",
+					"testing",
+					"load",
+					"validate",
+					"resolve",
+					"check",
+					"normalize",
+					"names",
+					"emit",
+					"write",
+					"report"
+				]
+			},
+			{
+				"from": "corpus",
+				"allow": [
+					"generator",
+					"json",
+					"model",
+					"runtime",
+					"load",
+					"validate",
+					"resolve",
+					"check",
+					"normalize",
+					"names",
+					"emit",
+					"write",
+					"report"
+				]
+			},
+			{
+				"from": "generator-scripts",
+				"allow": [
+					"json",
+					"model",
+					"runtime",
+					"load",
+					"validate",
+					"resolve",
+					"check",
+					"normalize",
+					"names",
+					"emit",
+					"write",
+					"report"
+				]
+			},
+			{
+				"from": "testing",
+				"allow": ["json"]
+			},
+			{
+				"from": "json",
+				"allow": []
+			},
+			{
+				"from": "react-compiler-options",
+				"allow": ["json"]
+			},
+			{
+				"from": "devtools",
+				"allow": ["json", "react-compiler-options"]
+			},
+			{
+				"from": "runtime",
+				"allow": []
+			},
+			{
+				"from": "model",
+				"allow": ["json"]
+			},
+			{
+				"from": "load",
+				"allow": ["json", "model", "runtime"]
+			},
+			{
+				"from": "validate",
+				"allow": ["json", "model", "runtime", "load"]
+			},
+			{
+				"from": "resolve",
+				"allow": ["json", "model", "runtime", "load", "validate"]
+			},
+			{
+				"from": "check",
+				"allow": ["json", "model", "runtime", "load", "validate", "resolve"]
+			},
+			{
+				"from": "normalize",
+				"allow": ["json", "model", "runtime", "load", "validate", "resolve", "check"]
+			},
+			{
+				"from": "names",
+				"allow": ["json", "model", "runtime", "load", "validate", "resolve", "check", "normalize"]
+			},
+			{
+				"from": "emit",
+				"allow": [
+					"json",
+					"model",
+					"runtime",
+					"load",
+					"validate",
+					"resolve",
+					"check",
+					"normalize",
+					"names"
+				]
+			},
+			{
+				"from": "write",
+				"allow": [
+					"json",
+					"model",
+					"runtime",
+					"load",
+					"validate",
+					"resolve",
+					"check",
+					"normalize",
+					"names",
+					"emit"
+				]
+			},
+			{
+				"from": "report",
+				"allow": [
+					"json",
+					"model",
+					"runtime",
+					"load",
+					"validate",
+					"resolve",
+					"check",
+					"normalize",
+					"names",
+					"emit",
+					"write"
+				]
+			},
+			{
+				"from": "generator",
+				"allow": [
+					"json",
+					"model",
+					"runtime",
+					"load",
+					"validate",
+					"resolve",
+					"check",
+					"normalize",
+					"names",
+					"emit",
+					"write",
+					"report"
+				]
+			},
+			{
+				"from": "lint-config",
+				"allow": ["devtools", "json", "testing"]
+			}
+		],
+		"coverage": {
+			"requireAllFiles": true
+		}
+	}
+}

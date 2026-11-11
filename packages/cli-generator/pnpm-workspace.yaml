@@ -1,0 +1,52 @@
+packages:
+  - packages/*
+nodeLinker: hoisted
+verifyDepsBeforeRun: error
+# A dependency is written at the exact version installed, and an engine a package refuses fails the install.
+saveExact: true
+engineStrict: true
+# Node 26 is the one runtime, so its types are the only Node types, even for packages that ask for another.
+overrides:
+  "@types/node": "catalog:"
+allowBuilds:
+  lefthook: true
+  "@tailwindcss/oxide": true
+  esbuild: true
+# Approved dependencies' agent skills link into the one skills folder.
+skills:
+  dirs:
+    - .agents/skills
+# Admit a release once it is a day old.
+minimumReleaseAge: 1440
+# Every external dependency's one version: packages name it with catalog:, and strict mode refuses a version stated anywhere else.
+catalogMode: strict
+catalog:
+  "@babel/core": 7.29.7
+  "@effect/platform-node": 4.1.2
+  "@effect/tsgo": 0.67.1
+  "@effect/vitest": 4.1.2
+  "@hyperjump/json-schema": 1.18.0
+  "@tailwindcss/node": 4.3.4
+  "@types/babel__core": 7.20.5
+  "@types/node": 26.6.6
+  "@types/pg": 8.23.1
+  "@types/react": 19.3.0
+  arkregex: 0.0.14
+  babel-plugin-react-compiler: 1.0.0
+  drizzle-orm: 1.0.0-rc.5
+  effect: 4.1.2
+  fallow: 3.39.0
+  lefthook: 2.2.2
+  oxfmt: 0.76.0
+  oxlint: 1.91.0
+  oxlint-tsgolint: 7.0.2005
+  pg: 8.23.1
+  tailwindcss: 4.3.4
+  turbo: 2.11.10
+  typescript: 7.1.0-beta
+  vite: 8.3.5
+  vitest: 5.1.0
+  yaml: 2.9.1
+permissions:
+  fallow:
+    skills: true

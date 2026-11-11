@@ -1,0 +1,15 @@
+{
+	"compilerOptions": {
+		"target": "ESNext",
+		"module": "ESNext",
+		"moduleResolution": "Bundler",
+		"resolvePackageJsonImports": true,
+		"allowImportingTsExtensions": true,
+		"strict": true,
+		"noEmit": true,
+		"jsx": "preserve",
+		"lib": ["DOM", "DOM.Iterable", "ESNext"],
+		"types": []
+	},
+	"include": ["**/*.ts", "**/*.tsx"]
+}

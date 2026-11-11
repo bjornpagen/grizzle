@@ -1,0 +1,44 @@
+@import "tailwindcss";
+@import "tw-animate-css"; /* // violation */
+@custom-variant dark (&:is(.dark *));
+@custom-variant wide (@media (width > 1800px)); /* // violation */
+@media (width > 40rem) {} /* // violation */
+
+@utility glow { /* // violation */
+	box-shadow: 0 0 4px red; /* // violation */
+}
+
+.card { --card: oklch(1 0 0); } /* // violation */
+
+:root {
+	--paper: oklch(0.99 0.01 100);
+	--ink: #333; /* // violation */
+	--radius: 1rem; /* // violation */
+	--stray: oklch(0.5 0.1 100); /* // violation */
+	--report-ink: oklch(0.2 0 0); /* // violation */
+}
+
+.dark {
+	color-scheme: light; /* // violation */
+}
+
+@theme inline {
+	--color-paper: var(--paper);
+	--color-ink: var(--other); /* // violation */
+	--font-display: var(--font-sans); /* // violation */
+	--color-report-ink: var(--report-ink); /* // violation */
+	--spacing-report-gap: 1.5rem; /* // violation */
+}
+
+@layer base {
+	* {
+		@apply border-border;
+	}
+	body { /* // violation */
+		@apply bg-background; /* // violation */
+	}
+}
+
+@page print { /* // violation */
+	size: letter; /* // violation */
+}

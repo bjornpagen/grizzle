@@ -1,0 +1,48 @@
+{
+	"name": "@superstarter/devtools",
+	"private": true,
+	"description": "superstarter's dev tools: the lint preset, the tsconfig base and its Effect-free variant, the oxlint plugin, superlint (type-aware rules on TypeScript 7's native API), the Tailwind style linter and the React Compiler check (every source an app's program holds, compiled with the options its next.config builds with), each proven against fixtures.",
+	"type": "module",
+	"imports": {
+		"#*": "./src/*"
+	},
+	"exports": {
+		"./preset": "./src/preset.ts",
+		"./react-compiler": "./src/react-compiler/options.ts",
+		"./tsconfig.base.json": "./tsconfig.base.json",
+		"./tsconfig.effect-free.json": "./tsconfig.effect-free.json"
+	},
+	"bin": {
+		"superlint": "./src/lint.ts",
+		"superstyle": "./src/style.ts",
+		"react-compiler": "./src/react-compiler.ts"
+	},
+	"scripts": {
+		"typecheck": "effect-tsgo tsrs",
+		"superlint": "node src/lint.ts",
+		"oxlint": "oxlint",
+		"fixtures:superlint": "node src/lint.ts --fixtures",
+		"fixtures:style": "node src/style.ts --fixtures",
+		"fixtures:oxlint": "node src/oxlint/fixtures.ts",
+		"fixtures:react-compiler": "node src/react-compiler.ts --fixtures"
+	},
+	"dependencies": {
+		"@babel/core": "catalog:",
+		"@effect/platform-node": "catalog:",
+		"@superstarter/json": "workspace:*",
+		"@tailwindcss/node": "catalog:",
+		"babel-plugin-react-compiler": "catalog:",
+		"effect": "catalog:",
+		"oxlint": "catalog:",
+		"typescript": "catalog:"
+	},
+	"devDependencies": {
+		"@types/babel__core": "catalog:",
+		"@types/node": "catalog:",
+		"@types/pg": "catalog:",
+		"@types/react": "catalog:",
+		"drizzle-orm": "catalog:",
+		"pg": "catalog:",
+		"tailwindcss": "catalog:"
+	}
+}

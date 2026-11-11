@@ -1,0 +1,3 @@
+{
+	"extends": "@superstarter/devtools/tsconfig.base.json"
+}
