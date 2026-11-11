@@ -2,16 +2,16 @@ import { Effect, Schema } from "effect"
 import { describe, expect, test } from "vitest"
 import { DocumentUri } from "#model/brands.ts"
 import type { Json } from "#model/pointer.ts"
+import type { SpecLine } from "#model/spec-section.ts"
 import { normalizeParameter } from "#normalize/parameters.ts"
 import type { ParameterOutcome } from "#normalize/parameters.ts"
 import { resolve } from "#resolve/index.ts"
-import type { Line } from "#validate/index.ts"
 
 const entry = Schema.decodeUnknownSync(DocumentUri)("file:///spec/openapi.json")
 
-const openapi: Record<Line, string> = { "3.0": "3.0.3", "3.1": "3.1.1", "3.2": "3.2.0" }
+const openapi: Record<SpecLine, string> = { "3.0": "3.0.3", "3.1": "3.1.1", "3.2": "3.2.0" }
 
-const specVersion: Record<Line, string> = { "3.0": "3.0.4", "3.1": "3.1.2", "3.2": "3.2.1" }
+const specVersion: Record<SpecLine, string> = { "3.0": "3.0.4", "3.1": "3.1.2", "3.2": "3.2.1" }
 
 const site = "/paths/~1a/get/parameters/0"
 
@@ -19,7 +19,7 @@ interface Members {
 	readonly [key: string]: Json
 }
 
-const normalize = (line: Line, parameter: Json, components: Members = {}): ParameterOutcome => {
+const normalize = (line: SpecLine, parameter: Json, components: Members = {}): ParameterOutcome => {
 	const value: Json = {
 		components,
 		info: { title: "t", version: "1" },
@@ -33,7 +33,7 @@ const normalize = (line: Line, parameter: Json, components: Members = {}): Param
 	return Effect.runSync(normalizeParameter(resolution, { openapi: openapi[line], pointer: site }))
 }
 
-const implemented = (line: Line, parameter: Json, components: Members = {}) => {
+const implemented = (line: SpecLine, parameter: Json, components: Members = {}) => {
 	const outcome = normalize(line, parameter, components)
 	if (outcome._tag !== "Implemented") {
 		throw new Error(`expected Implemented, got ${outcome._tag}`)
@@ -42,7 +42,7 @@ const implemented = (line: Line, parameter: Json, components: Members = {}) => {
 	return outcome.parameter
 }
 
-const refused = (line: Line, parameter: Json, components: Members = {}) => {
+const refused = (line: SpecLine, parameter: Json, components: Members = {}) => {
 	const outcome = normalize(line, parameter, components)
 	if (outcome._tag !== "Refused") {
 		throw new Error(`expected Refused, got ${outcome._tag}`)
@@ -62,7 +62,7 @@ const cookie = (members: Members): Json => ({
 	...members
 })
 
-const styled = (line: Line, parameter: Json, components: Members = {}) => {
+const styled = (line: SpecLine, parameter: Json, components: Members = {}) => {
 	const found = implemented(line, parameter, components)
 	const { serialization } = found
 	if (serialization.kind !== "style") {
@@ -78,7 +78,7 @@ const styled = (line: Line, parameter: Json, components: Members = {}) => {
 	}
 }
 
-const contentOf = (line: Line, parameter: Json) => {
+const contentOf = (line: SpecLine, parameter: Json) => {
 	const found = implemented(line, parameter)
 	const { serialization } = found
 	if (serialization.kind !== "content") {
@@ -93,7 +93,7 @@ const contentOf = (line: Line, parameter: Json) => {
 	}
 }
 
-const refusalOf = (line: Line, parameter: Json, components: Members = {}) => {
+const refusalOf = (line: SpecLine, parameter: Json, components: Members = {}) => {
 	const outcome = refused(line, parameter, components)
 	const [diagnostic] = outcome.diagnostics
 
@@ -172,7 +172,7 @@ describe("cookie parameters generate", () => {
 })
 
 describe("cookie parameters refused", () => {
-	const multiple: readonly (readonly [string, Line, Json, Members])[] = [
+	const multiple: readonly (readonly [string, SpecLine, Json, Members])[] = [
 		["an array", "3.0", { items: string, type: "array" }, {}],
 		["an object", "3.1", { type: "object" }, {}],
 		["a 3.1 type list with array", "3.1", { type: ["array", "null"] }, {}],

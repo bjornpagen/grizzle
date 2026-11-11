@@ -5,12 +5,12 @@ import { checkSpecText } from "#check/index.ts"
 import { DocumentUri } from "#model/brands.ts"
 import type { Diagnostic } from "#model/diagnostic.ts"
 import type { Json } from "#model/pointer.ts"
+import type { SpecLine } from "#model/spec-section.ts"
 import { resolve } from "#resolve/index.ts"
-import type { Line } from "#validate/index.ts"
 
 const entry = Schema.decodeUnknownSync(DocumentUri)("file:///spec/openapi.json")
 
-const openapi: Record<Line, string> = { "3.0": "3.0.4", "3.1": "3.1.2", "3.2": "3.2.1" }
+const openapi: Record<SpecLine, string> = { "3.0": "3.0.4", "3.1": "3.1.2", "3.2": "3.2.1" }
 
 interface Members {
 	readonly [key: string]: Json
@@ -20,25 +20,25 @@ const responses: Json = { "200": { description: "ok" } }
 
 const op = (members: Members = {}): Json => ({ responses, ...members })
 
-const spec = (line: Line, members: Members): Json => ({
+const spec = (line: SpecLine, members: Members): Json => ({
 	info: { title: "t", version: "1" },
 	openapi: openapi[line],
 	paths: {},
 	...members
 })
 
-const resolved = (line: Line, members: Members) =>
+const resolved = (line: SpecLine, members: Members) =>
 	resolve({ document: entry, line, value: spec(line, members) })
 
-const check = (line: Line, members: Members) =>
+const check = (line: SpecLine, members: Members) =>
 	Effect.runSync(resolved(line, members).pipe(Effect.flatMap(checkGrammar)))
 
-const checkAll = (line: Line, members: Members) =>
+const checkAll = (line: SpecLine, members: Members) =>
 	Effect.runSync(resolved(line, members).pipe(Effect.flatMap(checkSpecText)))
 
 const paths = (value: Members): Members => ({ paths: value })
 
-const summary = (line: Line, members: Members) =>
+const summary = (line: SpecLine, members: Members) =>
 	check(line, members).map(
 		(diagnostic) => [diagnostic.code, diagnostic.severity, diagnostic.scope] as const
 	)

@@ -7,25 +7,25 @@ import { generate, GenerateRefused } from "#generate.ts"
 import { DocumentUri } from "#model/brands.ts"
 import type { Diagnostic } from "#model/diagnostic.ts"
 import type { Json } from "#model/pointer.ts"
+import type { SpecLine } from "#model/spec-section.ts"
 import { normalizeBody } from "#normalize/bodies.ts"
 import { normalizeResponses } from "#normalize/responses.ts"
 import { resolve } from "#resolve/index.ts"
-import type { Line } from "#validate/index.ts"
 
 // Media type fixes found by the body witness: MED-26 (array form-data body refused), MED-10
 // (response encoding noticed), MED-09 (3.2 Media Type description noticed), MED-24 (reported once).
 
 const entry = Schema.decodeUnknownSync(DocumentUri)("file:///spec/openapi.json")
 
-const openapi: Record<Line, string> = { "3.0": "3.0.3", "3.1": "3.1.1", "3.2": "3.2.0" }
+const openapi: Record<SpecLine, string> = { "3.0": "3.0.3", "3.1": "3.1.1", "3.2": "3.2.0" }
 
-const specLine: Record<Line, string> = { "3.0": "3.0.4", "3.1": "3.1.2", "3.2": "3.2.1" }
+const specLine: Record<SpecLine, string> = { "3.0": "3.0.4", "3.1": "3.1.2", "3.2": "3.2.1" }
 
 const body = "/paths/~1a/post/requestBody"
 
 const responsesPointer = "/paths/~1a/get/responses"
 
-const bodyOf = (line: Line, requestBody: Json) => {
+const bodyOf = (line: SpecLine, requestBody: Json) => {
 	const value: Json = {
 		info: { title: "t", version: "1" },
 		openapi: openapi[line],
@@ -36,7 +36,7 @@ const bodyOf = (line: Line, requestBody: Json) => {
 	return Effect.runSync(normalizeBody(resolution, { openapi: openapi[line], pointer: body }))
 }
 
-const responsesOf = (line: Line, responses: Json) => {
+const responsesOf = (line: SpecLine, responses: Json) => {
 	const value: Json = {
 		info: { title: "t", version: "1" },
 		openapi: openapi[line],

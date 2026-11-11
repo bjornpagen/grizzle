@@ -6,11 +6,11 @@ import type { Diagnostic, DiagnosticInput } from "#model/diagnostic.ts"
 import { makeDiagnostic, sortDiagnostics } from "#model/diagnostic.ts"
 import type { Operation } from "#model/entities.ts"
 import type { Json } from "#model/pointer.ts"
+import type { SpecLine } from "#model/spec-section.ts"
 import { normalize } from "#normalize/index.ts"
 import { distinctDiagnostics } from "#normalize/operations.ts"
 import { nonStandardEntries } from "#report/index.ts"
 import { resolve } from "#resolve/index.ts"
-import type { Line } from "#validate/index.ts"
 
 // The subjects are entities with branded fields; `expect`'s own parameter would reject the plain
 // literals they are compared with.
@@ -26,13 +26,13 @@ const config = Schema.decodeUnknownSync(AuthorConfig)({
 	package: { name: "example-cli", version: "1.0.0" }
 })
 
-const openapi: Record<Line, string> = { "3.0": "3.0.3", "3.1": "3.1.1", "3.2": "3.2.0" }
+const openapi: Record<SpecLine, string> = { "3.0": "3.0.3", "3.1": "3.1.1", "3.2": "3.2.0" }
 
 interface Members {
 	readonly [key: string]: Json
 }
 
-const run = (line: Line, paths: Json, rest: Members = {}) =>
+const run = (line: SpecLine, paths: Json, rest: Members = {}) =>
 	Effect.runSync(
 		resolve({
 			document: entry,
@@ -47,7 +47,12 @@ const run = (line: Line, paths: Json, rest: Members = {}) =>
 
 const ok: Json = { responses: { "200": { description: "ok" } } }
 
-const operation = (line: Line, paths: Json, method: string, path = "/a"): Operation | undefined =>
+const operation = (
+	line: SpecLine,
+	paths: Json,
+	method: string,
+	path = "/a"
+): Operation | undefined =>
 	run(line, paths).api.operations.find(
 		(found) => found.key.method === method && found.key.path === path
 	)

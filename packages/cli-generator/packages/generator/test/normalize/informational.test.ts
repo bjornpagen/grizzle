@@ -3,19 +3,19 @@ import { describe, expect, test } from "vitest"
 import { DocumentUri } from "#model/brands.ts"
 import { evaluatePointer } from "#model/pointer.ts"
 import type { Json } from "#model/pointer.ts"
+import type { SpecLine } from "#model/spec-section.ts"
 import { collectInformational } from "#normalize/informational.ts"
 import { resolve } from "#resolve/index.ts"
-import type { Line } from "#validate/index.ts"
 
 const entry = Schema.decodeUnknownSync(DocumentUri)("file:///spec/openapi.json")
 
-const openapi: Record<Line, string> = { "3.0": "3.0.3", "3.1": "3.1.1", "3.2": "3.2.0" }
+const openapi: Record<SpecLine, string> = { "3.0": "3.0.3", "3.1": "3.1.1", "3.2": "3.2.0" }
 
 interface Members {
 	readonly [key: string]: Json
 }
 
-const document = (line: Line, extra: Members = {}): Json => ({
+const document = (line: SpecLine, extra: Members = {}): Json => ({
 	info: { title: "t", version: "1" },
 	openapi: openapi[line],
 	paths: {},
@@ -24,13 +24,13 @@ const document = (line: Line, extra: Members = {}): Json => ({
 
 const text = (value: string): string => value
 
-const collect = (value: Json, line: Line = "3.1") => {
+const collect = (value: Json, line: SpecLine = "3.1") => {
 	const resolution = Effect.runSync(resolve({ document: entry, line, value }))
 
 	return Effect.runSync(collectInformational(resolution))
 }
 
-const pairs = (value: Json, line: Line = "3.1") =>
+const pairs = (value: Json, line: SpecLine = "3.1") =>
 	collect(value, line).map((record) => [text(record.row), text(record.origin.pointer)])
 
 const ok: Members = { description: "ok" }

@@ -3,14 +3,14 @@ import { describe, expect, test } from "vitest"
 import { DocumentUri } from "#model/brands.ts"
 import type { ResponseCase } from "#model/entities.ts"
 import type { Json } from "#model/pointer.ts"
+import type { SpecLine } from "#model/spec-section.ts"
 import { dispatchOrder, normalizeResponses, precedenceOrder } from "#normalize/responses.ts"
 import type { NormalizedResponses } from "#normalize/responses.ts"
 import { resolve } from "#resolve/index.ts"
-import type { Line } from "#validate/index.ts"
 
 const entry = Schema.decodeUnknownSync(DocumentUri)("file:///spec/openapi.json")
 
-const openapi: Record<Line, string> = { "3.0": "3.0.3", "3.1": "3.1.1", "3.2": "3.2.0" }
+const openapi: Record<SpecLine, string> = { "3.0": "3.0.3", "3.1": "3.1.1", "3.2": "3.2.0" }
 
 interface Members {
 	readonly [key: string]: Json
@@ -19,7 +19,7 @@ interface Members {
 const responsesPointer = "/paths/~1a/get/responses"
 
 const normalize = (
-	line: Line,
+	line: SpecLine,
 	responses: Members,
 	components: Members = {}
 ): NormalizedResponses => {

@@ -4,9 +4,9 @@ import { AuthorConfig } from "#model/author-config.ts"
 import { DocumentUri } from "#model/brands.ts"
 import type { Diagnostic } from "#model/diagnostic.ts"
 import type { Json } from "#model/pointer.ts"
+import type { SpecLine } from "#model/spec-section.ts"
 import { normalize } from "#normalize/index.ts"
 import { resolve } from "#resolve/index.ts"
-import type { Line } from "#validate/index.ts"
 
 // A `mutualTLS` scheme is a usable client certificate on 3.1 and 3.2 (design 6.5, D-SEC3): its
 // alternative is kept, never refused as staged.
@@ -25,7 +25,7 @@ const config = Schema.decodeUnknownSync(AuthorConfig)({
 	package: { name: "acme-cli", version: "1.0.0" }
 })
 
-const openapi: Record<Line, string> = { "3.0": "3.0.3", "3.1": "3.1.1", "3.2": "3.2.0" }
+const openapi: Record<SpecLine, string> = { "3.0": "3.0.3", "3.1": "3.1.1", "3.2": "3.2.0" }
 
 const ok: Json = { responses: { "200": { description: "ok" } } }
 
@@ -34,7 +34,7 @@ const schemes: Json = {
 	key: { in: "header", name: "X-Key", type: "apiKey" }
 }
 
-const run = (line: Line, security: Json) =>
+const run = (line: SpecLine, security: Json) =>
 	Effect.runSync(
 		resolve({
 			document: entry,

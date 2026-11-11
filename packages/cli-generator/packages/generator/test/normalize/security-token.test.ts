@@ -4,9 +4,9 @@ import { AuthorConfig } from "#model/author-config.ts"
 import { DocumentUri } from "#model/brands.ts"
 import type { Diagnostic } from "#model/diagnostic.ts"
 import type { Json } from "#model/pointer.ts"
+import type { SpecLine } from "#model/spec-section.ts"
 import { normalize } from "#normalize/index.ts"
 import { resolve } from "#resolve/index.ts"
-import type { Line } from "#validate/index.ts"
 
 // The subjects are entities with branded fields; `expect`'s own parameter would reject the plain
 // literals they are compared with.
@@ -22,11 +22,11 @@ const config = Schema.decodeUnknownSync(AuthorConfig)({
 	package: { name: "example-cli", version: "1.0.0" }
 })
 
-const openapi: Record<Line, string> = { "3.0": "3.0.3", "3.1": "3.1.1", "3.2": "3.2.0" }
+const openapi: Record<SpecLine, string> = { "3.0": "3.0.3", "3.1": "3.1.1", "3.2": "3.2.0" }
 
 const ok: Json = { responses: { "200": { description: "ok" } } }
 
-const run = (line: Line, securitySchemes: Json, security: Json) =>
+const run = (line: SpecLine, securitySchemes: Json, security: Json) =>
 	Effect.runSync(
 		resolve({
 			document: entry,

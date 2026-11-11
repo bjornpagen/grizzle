@@ -1,6 +1,6 @@
 {
 	"typecheck": {
-		"total": 9438,
+		"total": 9352,
 		"files": {
 			"packages/generator/corpus/tools/coverage.ts": 63,
 			"packages/generator/corpus/tools/fetch.ts": 6,
@@ -29,8 +29,6 @@
 			"packages/generator/src/normalize/responses.ts": 19,
 			"packages/generator/src/normalize/schemas.ts": 13,
 			"packages/generator/src/normalize/security.ts": 5,
-			"packages/generator/src/resolve/canonical.ts": 1,
-			"packages/generator/src/resolve/index.ts": 36,
 			"packages/generator/src/runtime-src/domain/errors.ts": 22,
 			"packages/generator/src/runtime-src/runtime/auth.ts": 56,
 			"packages/generator/src/runtime-src/runtime/base-url.ts": 31,
@@ -45,12 +43,6 @@
 			"packages/generator/src/runtime-src/runtime/response.ts": 8,
 			"packages/generator/src/runtime-src/runtime/sequential.ts": 26,
 			"packages/generator/src/runtime-src/runtime/serialize.ts": 167,
-			"packages/generator/src/validate/dialect.ts": 2,
-			"packages/generator/src/validate/disagreements.ts": 7,
-			"packages/generator/src/validate/dispatch.ts": 6,
-			"packages/generator/src/validate/index.ts": 14,
-			"packages/generator/src/validate/locations.ts": 14,
-			"packages/generator/src/validate/surrogates.ts": 6,
 			"packages/generator/src/write/index.ts": 25,
 			"packages/generator/src/write/lock.ts": 3,
 			"packages/generator/src/write/manifest.ts": 3,
@@ -305,7 +297,7 @@
 		}
 	},
 	"superlint": {
-		"total": 261,
+		"total": 253,
 		"files": {
 			"packages/generator/corpus/tools/run.ts": 3,
 			"packages/generator/corpus/tools/walk.ts": 11,
@@ -326,7 +318,6 @@
 			"packages/generator/src/normalize/parameters.ts": 3,
 			"packages/generator/src/normalize/schemas.ts": 19,
 			"packages/generator/src/normalize/security.ts": 2,
-			"packages/generator/src/resolve/index.ts": 5,
 			"packages/generator/src/runtime-src/runtime/auth.ts": 3,
 			"packages/generator/src/runtime-src/runtime/base-url.ts": 1,
 			"packages/generator/src/runtime-src/runtime/client.ts": 1,
@@ -338,9 +329,6 @@
 			"packages/generator/src/runtime-src/runtime/response.ts": 1,
 			"packages/generator/src/runtime-src/runtime/sequential.ts": 5,
 			"packages/generator/src/runtime-src/runtime/serialize.ts": 31,
-			"packages/generator/src/validate/disagreements.ts": 1,
-			"packages/generator/src/validate/dispatch.ts": 1,
-			"packages/generator/src/validate/surrogates.ts": 1,
 			"packages/generator/src/write/index.ts": 1,
 			"packages/generator/test/bracket-switch.test.ts": 1,
 			"packages/generator/test/check/grammar.test.ts": 1,
@@ -399,7 +387,7 @@
 		}
 	},
 	"oxlint": {
-		"total": 5024,
+		"total": 4897,
 		"files": {
 			"packages/generator/corpus/tools/coverage.ts": 63,
 			"packages/generator/corpus/tools/fetch.ts": 1,
@@ -428,7 +416,6 @@
 			"packages/generator/src/normalize/responses.ts": 19,
 			"packages/generator/src/normalize/schemas.ts": 12,
 			"packages/generator/src/normalize/security.ts": 1,
-			"packages/generator/src/resolve/index.ts": 77,
 			"packages/generator/src/runtime-src/domain/errors.ts": 3,
 			"packages/generator/src/runtime-src/runtime/auth.ts": 36,
 			"packages/generator/src/runtime-src/runtime/base-url.ts": 9,
@@ -443,11 +430,6 @@
 			"packages/generator/src/runtime-src/runtime/response.ts": 7,
 			"packages/generator/src/runtime-src/runtime/sequential.ts": 3,
 			"packages/generator/src/runtime-src/runtime/serialize.ts": 60,
-			"packages/generator/src/validate/dialect.ts": 1,
-			"packages/generator/src/validate/dispatch.ts": 5,
-			"packages/generator/src/validate/index.ts": 33,
-			"packages/generator/src/validate/locations.ts": 7,
-			"packages/generator/src/validate/surrogates.ts": 4,
 			"packages/generator/src/write/index.ts": 6,
 			"packages/generator/src/write/manifest.ts": 1,
 			"packages/generator/test/bracket-switch.test.ts": 8,
@@ -685,15 +667,13 @@
 		}
 	},
 	"dead-code": {
-		"total": 17,
+		"total": 14,
 		"files": {
 			"packages/generator/src/emit/api.ts": 2,
 			"packages/generator/src/emit/printer.ts": 1,
 			"packages/generator/src/model/author-config.ts": 1,
 			"packages/generator/src/model/brands.ts": 1,
-			"packages/generator/src/model/entities.ts": 7,
-			"packages/generator/src/validate/index.ts": 1,
-			"packages/generator/src/validate/locations.ts": 1,
+			"packages/generator/src/model/entities.ts": 6,
 			"packages/generator/src/write/index.ts": 1,
 			"packages/generator/test/support/generated-cli.ts": 1,
 			"packages/generator/test/tools/memguard.test.ts": 1

@@ -11,13 +11,13 @@ import type { DocumentPair } from "#load/document-set.ts"
 import { DocumentUri } from "#model/brands.ts"
 import type { Diagnostic } from "#model/diagnostic.ts"
 import type { Json } from "#model/pointer.ts"
-import { resolve, ResolveRefusal } from "#resolve/index.ts"
+import type { SpecLine as ResolveLine } from "#model/spec-section.ts"
+import { defaultLimits, resolve, resolveWithin, ResolveRefusal } from "#resolve/index.ts"
 import type { ResolveLimits, ResolveMember } from "#resolve/index.ts"
 import { startCaptureServer } from "#test/fixtures/capture-server.ts"
 import type { RecordedRequest } from "#test/fixtures/capture-server.ts"
 import { generateFixture, preparePackage, runBin } from "#test/support/generated-cli.ts"
 import type { GeneratedPackage } from "#test/support/generated-cli.ts"
-import type { Line as ResolveLine } from "#validate/index.ts"
 
 // The Milestone 2 witness for the Reference Object and $ref rows (REF-*): one generated package
 // per version line, built once, run against the capture server for the sibling rows; the
@@ -263,7 +263,7 @@ const resolveSet = (
 ): Resolved => {
 	const document = options.entry === undefined ? entryUri : decodeDocument(options.entry)
 	const exit = Effect.runSyncExit(
-		resolve(
+		resolveWithin(
 			{
 				document,
 				line: resolveLine[line],
@@ -273,7 +273,7 @@ const resolveSet = (
 				})),
 				value
 			},
-			options.limits
+			{ ...defaultLimits, ...options.limits }
 		)
 	)
 

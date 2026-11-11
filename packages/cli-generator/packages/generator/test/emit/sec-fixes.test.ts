@@ -8,15 +8,15 @@ import { DocumentUri } from "#model/brands.ts"
 import type { Diagnostic } from "#model/diagnostic.ts"
 import { Operation, SecurityScheme } from "#model/entities.ts"
 import type { Json } from "#model/pointer.ts"
+import type { SpecLine } from "#model/spec-section.ts"
 import { normalizeSecurityPolicy, normalizeSecuritySchemes } from "#normalize/security.ts"
 import { resolve } from "#resolve/index.ts"
-import type { Line } from "#validate/index.ts"
 
 const entry = Schema.decodeUnknownSync(DocumentUri)("file:///spec/openapi.json")
 
 const configUri = Schema.decodeUnknownSync(DocumentUri)("file:///spec/author.json")
 
-const openapi: Record<Line, string> = { "3.0": "3.0.3", "3.1": "3.1.1", "3.2": "3.2.0" }
+const openapi: Record<SpecLine, string> = { "3.0": "3.0.3", "3.1": "3.1.1", "3.2": "3.2.0" }
 
 const keyed: Json = { in: "header", name: "X-Key", type: "apiKey" }
 
@@ -26,7 +26,7 @@ const summary = (diagnostics: readonly Diagnostic[]) =>
 	diagnostics.map((diagnostic) => [diagnostic.code, diagnostic.pointer])
 
 // Check and normalize over one document; `operation` is the policy's operation pointer.
-const run = (line: Line, members: { readonly [key: string]: Json }, operation?: string) =>
+const run = (line: SpecLine, members: { readonly [key: string]: Json }, operation?: string) =>
 	Effect.runSync(
 		Effect.gen(function* both() {
 			const resolution = yield* resolve({

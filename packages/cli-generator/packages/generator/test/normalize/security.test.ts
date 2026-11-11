@@ -4,20 +4,25 @@ import { checkSpecText } from "#check/index.ts"
 import { DocumentUri } from "#model/brands.ts"
 import { Diagnostic } from "#model/diagnostic.ts"
 import type { Json } from "#model/pointer.ts"
+import type { SpecLine } from "#model/spec-section.ts"
 import { normalizeSecurityPolicy, normalizeSecuritySchemes } from "#normalize/security.ts"
 import { resolve } from "#resolve/index.ts"
-import type { Line } from "#validate/index.ts"
 
 const entry = Schema.decodeUnknownSync(DocumentUri)("file:///spec/openapi.json")
 
-const openapi: Record<Line, string> = { "3.0": "3.0.3", "3.1": "3.1.1", "3.2": "3.2.0" }
+const openapi: Record<SpecLine, string> = { "3.0": "3.0.3", "3.1": "3.1.1", "3.2": "3.2.0" }
 
 interface Members {
 	readonly [key: string]: Json
 }
 
 // `checked` replaces check's own findings for the run; omitted, check runs on the spec.
-const run = (line: Line, members: Members, operation?: string, checked?: readonly Diagnostic[]) =>
+const run = (
+	line: SpecLine,
+	members: Members,
+	operation?: string,
+	checked?: readonly Diagnostic[]
+) =>
 	Effect.runSync(
 		Effect.gen(function* normalize() {
 			const resolution = yield* resolve({
@@ -46,7 +51,7 @@ const withSchemes = (securitySchemes: Json, rest: Members = {}): Members => ({
 const codes = (diagnostics: readonly Diagnostic[]): readonly string[] =>
 	diagnostics.map((diagnostic) => diagnostic.code)
 
-const kinds = (schemes: Json, line: Line = "3.1"): readonly Json[] =>
+const kinds = (schemes: Json, line: SpecLine = "3.1"): readonly Json[] =>
 	run(line, withSchemes(schemes)).schemes.schemes.map((scheme): Json => scheme.kind)
 
 describe("cookie apiKey names", () => {

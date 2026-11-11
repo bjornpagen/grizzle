@@ -4,16 +4,16 @@ import { DocumentUri } from "#model/brands.ts"
 import type { Diagnostic } from "#model/diagnostic.ts"
 import type { EncodingRule, MediaAlternative } from "#model/entities.ts"
 import type { Json } from "#model/pointer.ts"
+import type { SpecLine } from "#model/spec-section.ts"
 import { normalizeBody } from "#normalize/bodies.ts"
 import type { BodyOutcome } from "#normalize/bodies.ts"
 import { resolve } from "#resolve/index.ts"
-import type { Line } from "#validate/index.ts"
 
 const entry = Schema.decodeUnknownSync(DocumentUri)("file:///spec/openapi.json")
 
-const openapi: Record<Line, string> = { "3.0": "3.0.3", "3.1": "3.1.1", "3.2": "3.2.0" }
+const openapi: Record<SpecLine, string> = { "3.0": "3.0.3", "3.1": "3.1.1", "3.2": "3.2.0" }
 
-const lines: readonly Line[] = ["3.0", "3.1", "3.2"]
+const lines: readonly SpecLine[] = ["3.0", "3.1", "3.2"]
 
 const formMedia = "application/x-www-form-urlencoded"
 
@@ -23,7 +23,7 @@ interface Members {
 	readonly [key: string]: Json
 }
 
-const normalize = (line: Line, requestBody: Json): BodyOutcome => {
+const normalize = (line: SpecLine, requestBody: Json): BodyOutcome => {
 	const value: Json = {
 		info: { title: "t", version: "1" },
 		openapi: openapi[line],
@@ -41,7 +41,7 @@ const form = (properties: Members, extra: Members = {}, schema: Members = {}): J
 	required: true
 })
 
-const implemented = (line: Line, requestBody: Json) => {
+const implemented = (line: SpecLine, requestBody: Json) => {
 	const outcome = normalize(line, requestBody)
 	if (outcome._tag !== "Implemented") {
 		throw new Error(`expected Implemented, got ${outcome._tag}`)
@@ -59,7 +59,7 @@ const only = <T>(values: readonly T[]): T => {
 	return first
 }
 
-const alternative = (line: Line, requestBody: Json): MediaAlternative =>
+const alternative = (line: SpecLine, requestBody: Json): MediaAlternative =>
 	only(implemented(line, requestBody).body.alternatives)
 
 const ruleOf = (found: MediaAlternative, name: string): EncodingRule => {

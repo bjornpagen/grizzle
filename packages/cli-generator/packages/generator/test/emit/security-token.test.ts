@@ -7,12 +7,12 @@ import { AuthorConfig } from "#model/author-config.ts"
 import { DocumentUri } from "#model/brands.ts"
 import type { Server } from "#model/entities.ts"
 import type { Json } from "#model/pointer.ts"
+import type { SpecLine } from "#model/spec-section.ts"
 import { planNames } from "#names/index.ts"
 import { normalize } from "#normalize/index.ts"
 import { boundOrigins } from "#normalize/servers.ts"
 import { resolve } from "#resolve/index.ts"
 import { runtimeFiles } from "#test/support/runtime-sources.ts"
-import type { Line } from "#validate/index.ts"
 
 // One `oauth2` and one `openIdConnect` scheme, each used by an operation, carried from the spec to
 // the emitted `api/security.ts` (design 6.5, D-SEC1): the runtime kinds, the planned names, and the
@@ -103,7 +103,7 @@ const deviceSpec: Json = {
 	servers: [{ url: "https://api.example" }]
 }
 
-const emitSecurity = (value: Json, line: Line) =>
+const emitSecurity = (value: Json, line: SpecLine) =>
 	Effect.gen(function* generate() {
 		const resolution = yield* resolve({ document, line, value })
 		const { api } = yield* normalize(resolution, { checkFindings: [], config, configDocument })

@@ -5,9 +5,9 @@ import { DocumentUri } from "#model/brands.ts"
 import type { Diagnostic } from "#model/diagnostic.ts"
 import type { Operation } from "#model/entities.ts"
 import type { Json } from "#model/pointer.ts"
+import type { SpecLine } from "#model/spec-section.ts"
 import { normalize } from "#normalize/index.ts"
 import { resolve } from "#resolve/index.ts"
-import type { Line } from "#validate/index.ts"
 
 // The subjects are entities with branded fields; `expect`'s own parameter would reject the plain
 // literals they are compared with.
@@ -44,7 +44,7 @@ const components: Json = {
 	}
 }
 
-const run = (line: Line, parameter: Json, setting: Switch) =>
+const run = (line: SpecLine, parameter: Json, setting: Switch) =>
 	Effect.runSync(
 		resolve({
 			document: entry,
@@ -91,7 +91,7 @@ const scalar: readonly (readonly [string, Json])[] = [
 	["$ref scalar members", { $ref: "#/components/schemas/Flat" }]
 ]
 
-const operationOf = (line: Line, parameter: Json, setting: Switch): Operation | undefined =>
+const operationOf = (line: SpecLine, parameter: Json, setting: Switch): Operation | undefined =>
 	run(line, parameter, setting).api.operations[0]
 
 const facts = (diagnostics: readonly Diagnostic[]) =>

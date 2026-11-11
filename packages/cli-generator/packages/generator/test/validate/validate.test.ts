@@ -6,13 +6,14 @@ import type { Digest } from "effect/crypto"
 import { describe, expect, test } from "vitest"
 import { DocumentUri } from "#model/brands.ts"
 import type { Json } from "#model/pointer.ts"
+import { declaredOpenapi } from "#model/spec-section.ts"
 import invalid30 from "#test/fixtures/validate/invalid-3.0.json" with { type: "json" }
 import invalid31 from "#test/fixtures/validate/invalid-3.1.json" with { type: "json" }
 import invalid32 from "#test/fixtures/validate/invalid-3.2.json" with { type: "json" }
 import valid30 from "#test/fixtures/validate/valid-3.0.json" with { type: "json" }
 import valid31 from "#test/fixtures/validate/valid-3.1.json" with { type: "json" }
 import valid32 from "#test/fixtures/validate/valid-3.2.json" with { type: "json" }
-import { declaredOpenapi, UnsupportedOpenApiVersion, versionRefusal } from "#validate/dispatch.ts"
+import { UnsupportedOpenApiVersion, versionRefusal } from "#validate/dispatch.ts"
 import { checkManifest, validateDocument } from "#validate/index.ts"
 import type { ReadSchema } from "#validate/index.ts"
 import { manifest } from "#validate/schemas/manifest.ts"

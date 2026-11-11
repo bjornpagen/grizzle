@@ -6,10 +6,10 @@ import { afterAll, describe, expect, test } from "vitest"
 import { DocumentUri } from "#model/brands.ts"
 import { nodeAt } from "#model/json-tree.ts"
 import type { Json } from "#model/pointer.ts"
+import type { SpecLine } from "#model/spec-section.ts"
 import { normalizeSchemas } from "#normalize/schemas.ts"
 import { GenerationReport } from "#report/index.ts"
 import { resolve } from "#resolve/index.ts"
-import type { Line } from "#validate/index.ts"
 
 const root = nodePath.resolve(import.meta.dirname, "../..")
 
@@ -27,7 +27,11 @@ afterAll(() => {
 	nodeFs.rmSync(scratch, { force: true, recursive: true })
 })
 
-const cases: readonly { readonly line: Line; readonly openapi: string; readonly code: string }[] = [
+const cases: readonly {
+	readonly line: SpecLine
+	readonly openapi: string
+	readonly code: string
+}[] = [
 	{ code: "REF-02/non-schema-target", line: "3.0", openapi: "3.0.3" },
 	{ code: "SCH-03/non-schema-target", line: "3.1", openapi: "3.1.1" }
 ]
@@ -51,7 +55,7 @@ const spec = (openapi: string, required: boolean): Json => ({
 const schemaPointer = "/paths/~1a/get/parameters/0/schema"
 
 // The resolver's diagnostics and the schema normalizer's, as the pipeline reports them together.
-const diagnosed = (line: Line, value: Json) =>
+const diagnosed = (line: SpecLine, value: Json) =>
 	Effect.runSync(
 		resolve({ document: entry, line, value }).pipe(
 			Effect.flatMap((resolution) =>

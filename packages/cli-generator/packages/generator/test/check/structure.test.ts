@@ -5,14 +5,14 @@ import { DocumentUri } from "#model/brands.ts"
 import type { Diagnostic } from "#model/diagnostic.ts"
 import { RowId } from "#model/entities.ts"
 import type { Json } from "#model/pointer.ts"
+import type { SpecLine } from "#model/spec-section.ts"
 import { resolve } from "#resolve/index.ts"
-import type { Line } from "#validate/index.ts"
 
 const entry = Schema.decodeUnknownSync(DocumentUri)("file:///spec/openapi.json")
 
 const rowId = Schema.decodeUnknownSync(RowId)
 
-const openapi: Record<Line, string> = { "3.0": "3.0.4", "3.1": "3.1.2", "3.2": "3.2.1" }
+const openapi: Record<SpecLine, string> = { "3.0": "3.0.4", "3.1": "3.1.2", "3.2": "3.2.1" }
 
 interface Members {
 	readonly [key: string]: Json
@@ -24,14 +24,14 @@ const op = (members: Members = {}): Json => ({ responses, ...members })
 
 const idParameter: Json = { in: "path", name: "id", required: true, schema: { type: "string" } }
 
-const spec = (line: Line, members: Members): Json => ({
+const spec = (line: SpecLine, members: Members): Json => ({
 	info: { title: "t", version: "1" },
 	openapi: openapi[line],
 	paths: {},
 	...members
 })
 
-const check = (line: Line, members: Members) =>
+const check = (line: SpecLine, members: Members) =>
 	Effect.runSync(
 		resolve({ document: entry, line, value: spec(line, members) }).pipe(
 			Effect.flatMap(checkStructure)
@@ -40,7 +40,7 @@ const check = (line: Line, members: Members) =>
 
 const paths = (value: Members): Members => ({ paths: value })
 
-const summary = (line: Line, members: Members) =>
+const summary = (line: SpecLine, members: Members) =>
 	check(line, members).map((diagnostic) => [diagnostic.code, diagnostic.scope] as const)
 
 const pointerOf = (diagnostic: Diagnostic | undefined): string => String(diagnostic?.pointer)
@@ -48,7 +48,7 @@ const pointerOf = (diagnostic: Diagnostic | undefined): string => String(diagnos
 const relatedOf = (diagnostic: Diagnostic | undefined): readonly string[] =>
 	(diagnostic?.related ?? []).map((related) => String(related.pointer))
 
-const rows = (line: Line, members: Members) =>
+const rows = (line: SpecLine, members: Members) =>
 	check(line, members).map((diagnostic) => diagnostic.row)
 
 describe("clean documents", () => {

@@ -3,20 +3,20 @@ import { describe, expect, test } from "vitest"
 import { DocumentUri } from "#model/brands.ts"
 import { RowId } from "#model/entities.ts"
 import type { Json } from "#model/pointer.ts"
+import type { SpecLine } from "#model/spec-section.ts"
 import { normalizeParameter } from "#normalize/parameters.ts"
 import type { ParameterOutcome } from "#normalize/parameters.ts"
 import { resolve } from "#resolve/index.ts"
-import type { Line } from "#validate/index.ts"
 
 const entry = Schema.decodeUnknownSync(DocumentUri)("file:///spec/openapi.json")
 
 const rowId = Schema.decodeUnknownSync(RowId)
 
-const openapi: Record<Line, string> = { "3.0": "3.0.3", "3.1": "3.1.1", "3.2": "3.2.0" }
+const openapi: Record<SpecLine, string> = { "3.0": "3.0.3", "3.1": "3.1.1", "3.2": "3.2.0" }
 
-const specVersion: Record<Line, string> = { "3.0": "3.0.4", "3.1": "3.1.2", "3.2": "3.2.1" }
+const specVersion: Record<SpecLine, string> = { "3.0": "3.0.4", "3.1": "3.1.2", "3.2": "3.2.1" }
 
-const lines: readonly Line[] = ["3.0", "3.1", "3.2"]
+const lines: readonly SpecLine[] = ["3.0", "3.1", "3.2"]
 
 const site = "/paths/~1a/get/parameters/0"
 
@@ -24,7 +24,7 @@ interface Members {
 	readonly [key: string]: Json
 }
 
-const normalize = (line: Line, parameter: Json, components: Members = {}): ParameterOutcome => {
+const normalize = (line: SpecLine, parameter: Json, components: Members = {}): ParameterOutcome => {
 	const value: Json = {
 		components,
 		info: { title: "t", version: "1" },
@@ -38,7 +38,7 @@ const normalize = (line: Line, parameter: Json, components: Members = {}): Param
 	return Effect.runSync(normalizeParameter(resolution, { openapi: openapi[line], pointer: site }))
 }
 
-const implemented = (line: Line, parameter: Json, components: Members = {}) => {
+const implemented = (line: SpecLine, parameter: Json, components: Members = {}) => {
 	const outcome = normalize(line, parameter, components)
 	if (outcome._tag !== "Implemented") {
 		throw new Error(`expected Implemented, got ${outcome._tag}`)
@@ -47,7 +47,7 @@ const implemented = (line: Line, parameter: Json, components: Members = {}) => {
 	return outcome
 }
 
-const refused = (line: Line, parameter: Json) => {
+const refused = (line: SpecLine, parameter: Json) => {
 	const outcome = normalize(line, parameter)
 	if (outcome._tag !== "Refused") {
 		throw new Error(`expected Refused, got ${outcome._tag}`)
@@ -63,7 +63,7 @@ const texts = (values: readonly string[]): string[] => values.map(String)
 const codes = (outcome: ParameterOutcome): readonly string[] =>
 	outcome.diagnostics.map((diagnostic) => diagnostic.code)
 
-const styled = (line: Line, parameter: Json) => {
+const styled = (line: SpecLine, parameter: Json) => {
 	const { serialization } = implemented(line, parameter).parameter
 	if (serialization.kind !== "style") {
 		throw new Error("expected a style serialization")
@@ -125,7 +125,7 @@ const querystring = (media: string): Json => ({
 	required: true
 })
 
-const reasonOf = (line: Line, parameter: Json): string => {
+const reasonOf = (line: SpecLine, parameter: Json): string => {
 	const value: Json = {
 		info: { title: "t", version: "1" },
 		openapi: openapi[line],
@@ -570,17 +570,23 @@ describe("diagnostic wire name", () => {
 })
 
 describe("STY-33 in: cookie generates a style serialization", () => {
-	const generated: readonly (readonly [string, Line, Json, "cookie" | "form", boolean, boolean])[] =
-		[
-			["STY-33", "3.0", cookie({}), "form", true, false],
-			["STY-33", "3.1", cookie({ explode: true }), "form", true, false],
-			["STY-33", "3.2", cookie({}), "form", true, false],
-			["STY-34", "3.0", cookie({ explode: false }), "form", false, false],
-			["STY-34", "3.1", cookie({ explode: false }), "form", false, false],
-			["STY-36", "3.2", cookie({ allowReserved: true }), "form", true, true],
-			["STY-38", "3.2", cookie({ style: "cookie" }), "cookie", true, false],
-			["STY-38", "3.2", cookie({ allowReserved: true, style: "cookie" }), "cookie", true, false]
-		]
+	const generated: readonly (readonly [
+		string,
+		SpecLine,
+		Json,
+		"cookie" | "form",
+		boolean,
+		boolean
+	])[] = [
+		["STY-33", "3.0", cookie({}), "form", true, false],
+		["STY-33", "3.1", cookie({ explode: true }), "form", true, false],
+		["STY-33", "3.2", cookie({}), "form", true, false],
+		["STY-34", "3.0", cookie({ explode: false }), "form", false, false],
+		["STY-34", "3.1", cookie({ explode: false }), "form", false, false],
+		["STY-36", "3.2", cookie({ allowReserved: true }), "form", true, true],
+		["STY-38", "3.2", cookie({ style: "cookie" }), "cookie", true, false],
+		["STY-38", "3.2", cookie({ allowReserved: true, style: "cookie" }), "cookie", true, false]
+	]
 
 	for (const [row, line, parameter, style, explode, allowReserved] of generated) {
 		test(`${row} ${line} is a ${style} Serialization entry`, () => {

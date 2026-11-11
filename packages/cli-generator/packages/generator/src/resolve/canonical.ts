@@ -1,4 +1,4 @@
-import { Schema } from "effect"
+import { Schema, String as Str } from "effect"
 import { ComponentName } from "#model/brands.ts"
 import type { DocumentUri } from "#model/brands.ts"
 
@@ -34,7 +34,7 @@ export const defsKey = (entry: Document, key: CanonicalKey): string => {
 		return keyOf(key)
 	}
 
-	const [empty, components, schemas, name, ...rest] = key.pointer.split("/")
+	const [empty, components, schemas, name, ...rest] = Str.split(key.pointer, "/")
 	const isComponent =
 		empty === "" &&
 		components === "components" &&

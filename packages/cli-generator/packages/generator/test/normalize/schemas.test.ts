@@ -2,6 +2,7 @@ import { Array as Arr, Effect, Order, Schema } from "effect"
 import { describe, expect, test } from "vitest"
 import { DocumentUri } from "#model/brands.ts"
 import type { Json } from "#model/pointer.ts"
+import type { SpecLine } from "#model/spec-section.ts"
 import {
 	appliesDynamicKeyword,
 	codeGenerationCopy,
@@ -12,29 +13,29 @@ import {
 } from "#normalize/schemas.ts"
 import type { SchemaEdit, SchemaLimits, SchemaNormalization } from "#normalize/schemas.ts"
 import { resolve } from "#resolve/index.ts"
-import type { Line } from "#validate/index.ts"
 
 const entry = Schema.decodeUnknownSync(DocumentUri)("file:///spec/openapi.json")
 
-const openapi: Record<Line, string> = { "3.0": "3.0.3", "3.1": "3.1.1", "3.2": "3.2.0" }
+const openapi: Record<SpecLine, string> = { "3.0": "3.0.3", "3.1": "3.1.1", "3.2": "3.2.0" }
 
 interface Members {
 	readonly [key: string]: Json
 }
 
-const spec = (line: Line, schemas: Members, paths: Members = {}): Json => ({
+const spec = (line: SpecLine, schemas: Members, paths: Members = {}): Json => ({
 	components: { schemas },
 	info: { title: "t", version: "1" },
 	openapi: openapi[line],
 	paths
 })
 
-const run = (line: Line, value: Json, limits: SchemaLimits = {}) =>
+const run = (line: SpecLine, value: Json, limits: SchemaLimits = {}) =>
 	resolve({ document: entry, line, value }).pipe(
 		Effect.flatMap((resolution) => normalizeSchemas(resolution, limits))
 	)
 
-const normalize = (line: Line, value: Json): SchemaNormalization => Effect.runSync(run(line, value))
+const normalize = (line: SpecLine, value: Json): SchemaNormalization =>
+	Effect.runSync(run(line, value))
 
 const found = (normalization: SchemaNormalization): string[] =>
 	normalization.diagnostics.map((diagnostic) => `${diagnostic.code} ${diagnostic.pointer}`)
@@ -50,7 +51,7 @@ const stored = (normalization: SchemaNormalization, key: string): Json | undefin
 const copied = (normalization: SchemaNormalization, key: string): Json | undefined =>
 	normalization.validation.definitions.get(key)
 
-const one = (schema: Json, line: Line = "3.1"): SchemaNormalization =>
+const one = (schema: Json, line: SpecLine = "3.1"): SchemaNormalization =>
 	normalize(line, spec(line, { S: schema }))
 
 const parameterPaths = (schema: Json): Members => ({
@@ -480,7 +481,7 @@ describe("validation copy", () => {
 	})
 
 	test("SCH-62 a 3.0 nullable in a 3.1 or 3.2 document is a notice with no effect", () => {
-		const lines: readonly Line[] = ["3.1", "3.2"]
+		const lines: readonly SpecLine[] = ["3.1", "3.2"]
 		for (const line of lines) {
 			const result = one({ nullable: true, type: "string" }, line)
 
@@ -745,7 +746,7 @@ describe("repair and cycle bounds", () => {
 	)
 })
 
-const resolved = (line: Line, value: Json) =>
+const resolved = (line: SpecLine, value: Json) =>
 	Effect.runSync(resolve({ document: entry, line, value }))
 
 const bodyPaths = (schema: Json): Members => ({
@@ -764,7 +765,7 @@ const bodySite = {
 
 const bodyKey = bodySite.pointer
 
-const keyOf = (line: Line, schema: Json): string =>
+const keyOf = (line: SpecLine, schema: Json): string =>
 	schemaKeyAt(
 		resolved(line, spec(line, { Count: { type: "integer" } }, bodyPaths(schema))),
 		bodySite
@@ -858,7 +859,7 @@ describe("m2-schfx", () => {
 			type: "object"
 		}
 		const id = { readOnly: true, type: "string" }
-		const lines: readonly Line[] = ["3.0", "3.1", "3.2"]
+		const lines: readonly SpecLine[] = ["3.0", "3.1", "3.2"]
 
 		for (const line of lines) {
 			test(`directly and through one $ref (${line})`, () => {

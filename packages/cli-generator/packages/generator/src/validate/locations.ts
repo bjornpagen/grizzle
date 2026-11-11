@@ -1,5 +1,4 @@
-/* oxlint-disable unicorn/throw-new-error -- Schema.TaggedError<Self>()(tag, fields) declares a class; nothing is thrown */
-import { Array as Arr, Effect, Order, Schema } from "effect"
+import { Array as Arr, Effect, Option, Order, Record, Schema, String as Str } from "effect"
 import { JsonPointer } from "#model/brands.ts"
 import { isPointerWithin } from "#model/pointer.ts"
 
@@ -26,34 +25,37 @@ export interface ErrorGroup {
 /**
  * An `instanceLocation` is not `#` followed by a percent-encoded JSON Pointer.
  */
-export class InvalidInstanceLocation extends Schema.TaggedError<InvalidInstanceLocation>()(
-	"InvalidInstanceLocation",
-	{ location: Schema.String }
-) {}
+export class InvalidInstanceLocation extends Schema.TaggedError<
+	InvalidInstanceLocation,
+	{ readonly brand: unique symbol }
+>()("InvalidInstanceLocation", { location: Schema.String }) {}
 
 const decodePointer = Schema.decodeUnknownEffect(JsonPointer)
 
-// The library marks the location of a property name, as `propertyNames` checks it, as `#*`.
+/**
+ * The fragment of an `instanceLocation`: after its `#`, or after the `#*` with which the library
+ * marks the location of a property name, as `propertyNames` checks it.
+ */
 const fragmentOf = (instanceLocation: string): string =>
-	instanceLocation.slice(instanceLocation.startsWith("#*") ? 2 : 1)
+	Str.slice(Str.startsWith("#*")(instanceLocation) ? 2 : 1)(instanceLocation)
 
 /**
  * Strips the `#` (or the `#*` of a property name) and percent-decodes an error's
  * `instanceLocation` into a JSON Pointer (design 3.2 Error locations). Custom code: the library
  * reports URI fragments, the model compares pointers.
  */
-export const decodeLocation = (
+const decodeLocation = (
 	instanceLocation: string
-): Effect.Effect<Pointer, InvalidInstanceLocation> =>
-	instanceLocation.startsWith("#")
+): Effect.Effect<Pointer, InvalidInstanceLocation> => {
+	const invalid = () => InvalidInstanceLocation.make({ location: instanceLocation })
+
+	return Str.startsWith("#")(instanceLocation)
 		? Effect.try({
-				catch: () => new InvalidInstanceLocation({ location: instanceLocation }),
+				catch: invalid,
 				try: () => decodeURIComponent(fragmentOf(instanceLocation))
-			}).pipe(
-				Effect.flatMap(decodePointer),
-				Effect.mapError(() => new InvalidInstanceLocation({ location: instanceLocation }))
-			)
-		: Effect.fail(new InvalidInstanceLocation({ location: instanceLocation }))
+			}).pipe(Effect.flatMap(decodePointer), Effect.mapError(invalid))
+		: Effect.fail(invalid())
+}
 
 interface Located {
 	readonly pointer: Pointer
@@ -64,30 +66,40 @@ const byPointer = Order.mapInput(Order.String, (located: Located) => located.poi
 
 const samePointer = (self: Located, that: Located): boolean => self.pointer === that.pointer
 
-// The first deepest location in pointer order that lies within a context error owns it.
+/**
+ * The errors under their deepest locations. The first deepest location in pointer order that lies
+ * within a context error owns it.
+ */
 const groupLocated = (located: readonly Located[]): readonly ErrorGroup[] => {
-	const deepestItems = new Set(
-		located.filter(
+	const deepestItems: ReadonlySet<Located> = new Set(
+		Arr.filter(
+			located,
 			(item) =>
-				!located.some(
+				!Arr.some(
+					located,
 					(other) => other.pointer !== item.pointer && isPointerWithin(item.pointer, other.pointer)
 				)
 		)
 	)
 	const leaves = Arr.sort(Arr.dedupeWith(deepestItems, samePointer), byPointer)
 	const unitsAt = Arr.groupBy(located, (item) => item.pointer)
+	const ownerOf = (item: Located): Option.Option<Located> =>
+		Arr.findFirst(leaves, (other) => isPointerWithin(item.pointer, other.pointer))
 	const contextOf = (leaf: Located): readonly ErrorUnit[] =>
-		located
-			.filter(
-				(item) =>
-					!deepestItems.has(item) &&
-					leaves.find((other) => isPointerWithin(item.pointer, other.pointer)) === leaf
-			)
-			.map((item) => item.unit)
+		Arr.map(
+			Arr.filter(
+				located,
+				(item) => !deepestItems.has(item) && Option.exists(ownerOf(item), (owner) => owner === leaf)
+			),
+			(item) => item.unit
+		)
 
-	return leaves.map((leaf): ErrorGroup => ({
+	return Arr.map(leaves, (leaf): ErrorGroup => ({
 		context: contextOf(leaf),
-		deepest: (unitsAt[leaf.pointer] ?? []).map((item) => item.unit),
+		deepest: Arr.map(
+			Option.getOrElse(Record.get(unitsAt, leaf.pointer), (): readonly Located[] => []),
+			(item) => item.unit
+		),
 		pointer: leaf.pointer
 	}))
 }
@@ -99,8 +111,6 @@ const groupLocated = (located: readonly Located[]): readonly ErrorGroup[] => {
 export const groupErrors = (
 	errors: readonly ErrorUnit[]
 ): Effect.Effect<readonly ErrorGroup[], InvalidInstanceLocation> =>
-	// Effect.forEach takes (items, f); it is not an array method with a thisArg.
-	// oxlint-disable-next-line unicorn/no-array-method-this-argument
 	Effect.forEach(errors, (unit) =>
 		decodeLocation(unit.instanceLocation).pipe(
 			Effect.map((pointer): Located => ({ pointer, unit }))

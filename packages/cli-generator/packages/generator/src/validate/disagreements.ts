@@ -1,11 +1,12 @@
-import { Effect, Result } from "effect"
+import { jsonTextOf } from "@superstarter/json"
+import { Array as Arr, Effect, Option, Result, String as Str } from "effect"
 import type { Schema } from "effect"
 import type { DocumentUri } from "#model/brands.ts"
 import { diagnosticOf } from "#model/diagnostic.ts"
 import type { Diagnostic } from "#model/diagnostic.ts"
 import { parsePointerResult } from "#model/pointer.ts"
 import { specSectionUrl } from "#model/spec-section.ts"
-import type { Line } from "#validate/dispatch.ts"
+import type { SpecLine } from "#model/spec-section.ts"
 import type { ErrorGroup, ErrorUnit } from "#validate/locations.ts"
 
 type Uri = typeof DocumentUri.Type
@@ -19,7 +20,7 @@ export interface Disagreement {
 	readonly anchor: string
 	readonly code: string
 	readonly element: string
-	readonly lines: readonly Line[]
+	readonly lines: readonly SpecLine[]
 	readonly match:
 		| {
 				readonly instance: (tokens: readonly string[]) => boolean
@@ -106,23 +107,31 @@ export const knownDisagreements: readonly Disagreement[] = [
 /**
  * Finds the entry that explains every deepest error of a group, or none.
  */
-export const matchDisagreement = (line: Line, group: ErrorGroup): Disagreement | undefined => {
-	const tokens = Result.getOrElse(parsePointerResult(group.pointer), () => [])
+export const matchDisagreement = (
+	line: SpecLine,
+	group: ErrorGroup
+): Option.Option<Disagreement> => {
+	const tokens = Result.getOrElse(parsePointerResult(group.pointer), (): readonly string[] => [])
 
-	return knownDisagreements.find(
+	return Arr.findFirst(
+		knownDisagreements,
 		({ lines, match }) =>
 			match !== undefined &&
-			lines.includes(line) &&
+			Arr.contains(lines, line) &&
 			match.instance(tokens) &&
-			group.deepest.every((unit) =>
-				unit.absoluteKeywordLocation.endsWith(match.keywordLocationSuffix)
+			Arr.every(group.deepest, (unit) =>
+				Str.endsWith(match.keywordLocationSuffix)(unit.absoluteKeywordLocation)
 			)
 	)
 }
 
-interface Where {
+/**
+ * The document a validation diagnostic is about: its URI, the line it is validated on, and the
+ * `openapi` value it declares.
+ */
+export interface Where {
 	readonly document: Uri
-	readonly line: Line
+	readonly line: SpecLine
 	readonly openapi: string
 }
 
@@ -139,7 +148,7 @@ export const noticeFor = (
 		code: entry.code,
 		document: where.document,
 		element: entry.element,
-		message: `The text says ${JSON.stringify(entry.text)}; ${schemaSide} (${entry.research.join(", ")}). Accepted per the text.`,
+		message: `The text says ${jsonTextOf(entry.text)}; ${schemaSide} (${Arr.join(entry.research, ", ")}). Accepted per the text.`,
 		openapi: where.openapi,
 		pointer,
 		scope: "element",
@@ -156,24 +165,27 @@ export interface Refusal {
 	readonly keywordLocation: string
 }
 
-const refusalRows: Record<Line, { readonly anchor: string; readonly row: string }> = {
+const refusalRows: Readonly<Record<SpecLine, { readonly anchor: string; readonly row: string }>> = {
 	"3.0": { anchor: "schema-0", row: "VAL-02" },
 	"3.1": { anchor: "schema-0", row: "VAL-03" },
 	"3.2": { anchor: "objects-and-fields", row: "VAL-04" }
 }
 
+/**
+ * The document refusal for a schema error group no table entry explains.
+ */
 export const refusalFor = (
 	where: Where,
 	group: ErrorGroup
 ): Effect.Effect<Refusal, Schema.SchemaError> => {
 	const { anchor, row } = refusalRows[where.line]
-	const locations = group.deepest.map((unit) => unit.absoluteKeywordLocation)
+	const locations = Arr.map(group.deepest, (unit) => unit.absoluteKeywordLocation)
 
 	return diagnosticOf({
 		code: `${row}/schema-invalid`,
 		document: where.document,
 		element: "OpenAPI document",
-		message: `The official schema rejects the value at this pointer: ${JSON.stringify(locations)}.`,
+		message: `The official schema rejects the value at this pointer: ${jsonTextOf(locations)}.`,
 		openapi: where.openapi,
 		pointer: group.pointer,
 		scope: "document",

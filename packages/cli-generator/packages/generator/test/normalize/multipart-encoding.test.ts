@@ -5,11 +5,11 @@ import { DocumentUri } from "#model/brands.ts"
 import { RowId } from "#model/entities.ts"
 import type { EncodingRule } from "#model/entities.ts"
 import type { Json } from "#model/pointer.ts"
+import type { SpecLine } from "#model/spec-section.ts"
 import { normalizeBody } from "#normalize/bodies.ts"
 import type { BodyOutcome } from "#normalize/bodies.ts"
 import { resolve } from "#resolve/index.ts"
 import { diagnoseDocument } from "#validate/index.ts"
-import type { Line } from "#validate/index.ts"
 
 const entry = Schema.decodeUnknownSync(DocumentUri)("file:///spec/openapi.json")
 
@@ -17,19 +17,19 @@ const rowId = Schema.decodeUnknownSync(RowId)
 
 const layer = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer, NodeCrypto.layerDigest)
 
-const openapi: Record<Line, string> = { "3.0": "3.0.3", "3.1": "3.1.1", "3.2": "3.2.0" }
+const openapi: Record<SpecLine, string> = { "3.0": "3.0.3", "3.1": "3.1.1", "3.2": "3.2.0" }
 
 const site = "/paths/~1a/post/requestBody"
 
 const media = `${site}/content/multipart~1form-data`
 
-const documentOf = (line: Line, requestBody: Json): Json => ({
+const documentOf = (line: SpecLine, requestBody: Json): Json => ({
 	info: { title: "t", version: "1" },
 	openapi: openapi[line],
 	paths: { "/a": { post: { requestBody, responses: { "200": { description: "ok" } } } } }
 })
 
-const normalize = (line: Line, requestBody: Json): BodyOutcome => {
+const normalize = (line: SpecLine, requestBody: Json): BodyOutcome => {
 	const value = documentOf(line, requestBody)
 	const resolution = Effect.runSync(resolve({ document: entry, line, value }))
 
@@ -43,7 +43,7 @@ const multipart = (
 	content: { "multipart/form-data": { encoding, schema: { properties, type: "object" } } }
 })
 
-const rulesOf = (line: Line, body: Json): ReadonlyMap<string, EncodingRule> => {
+const rulesOf = (line: SpecLine, body: Json): ReadonlyMap<string, EncodingRule> => {
 	const outcome = normalize(line, body)
 	if (outcome._tag !== "Implemented") {
 		throw new Error(`expected Implemented, got ${outcome._tag}`)
@@ -59,7 +59,7 @@ const rulesOf = (line: Line, body: Json): ReadonlyMap<string, EncodingRule> => {
 	)
 }
 
-const ruleOf = (line: Line, body: Json, name: string): EncodingRule => {
+const ruleOf = (line: SpecLine, body: Json, name: string): EncodingRule => {
 	const rule = rulesOf(line, body).get(name)
 	if (rule === undefined) {
 		throw new Error(`no rule for ${name}`)
@@ -68,7 +68,7 @@ const ruleOf = (line: Line, body: Json, name: string): EncodingRule => {
 	return rule
 }
 
-const refusalOf = (line: Line, body: Json) => {
+const refusalOf = (line: SpecLine, body: Json) => {
 	const outcome = normalize(line, body)
 	if (outcome._tag !== "Refused") {
 		throw new Error(`expected Refused, got ${outcome._tag}`)
@@ -264,7 +264,7 @@ const tagsBody = (required: readonly string[]): Json => ({
 	}
 })
 
-const implemented = (line: Line, body: Json) => {
+const implemented = (line: SpecLine, body: Json) => {
 	const outcome = normalize(line, body)
 	if (outcome._tag !== "Implemented") {
 		throw new Error(`expected Implemented, got ${outcome._tag}`)

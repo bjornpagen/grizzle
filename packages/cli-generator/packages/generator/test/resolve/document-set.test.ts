@@ -4,11 +4,11 @@ import { describe, expect, test } from "vitest"
 import { loadBytes } from "#load/index.ts"
 import { DocumentUri } from "#model/brands.ts"
 import type { Json } from "#model/pointer.ts"
+import type { SpecLine } from "#model/spec-section.ts"
 import { keyOf } from "#resolve/canonical.ts"
 import type { CanonicalKey } from "#resolve/canonical.ts"
-import { implicitComponent, referenceAt, resolve } from "#resolve/index.ts"
+import { defaultLimits, implicitComponent, referenceAt, resolveWithin } from "#resolve/index.ts"
 import type { Resolution, ResolvedReference, ResolveLimits, ResolveMember } from "#resolve/index.ts"
-import type { Line } from "#validate/index.ts"
 
 type Document = typeof DocumentUri.Type
 
@@ -30,7 +30,7 @@ const member = (name: string, document: string): ResolveMember => {
 	return { document: at, value: fixture(name, at) }
 }
 
-const input = (line: Line, value: Json, members: readonly ResolveMember[]) => ({
+const input = (line: SpecLine, value: Json, members: readonly ResolveMember[]) => ({
 	document: entry,
 	line,
 	members,
@@ -38,25 +38,29 @@ const input = (line: Line, value: Json, members: readonly ResolveMember[]) => ({
 })
 
 const resolved = (
-	line: Line,
+	line: SpecLine,
 	value: Json,
 	members: readonly ResolveMember[],
 	limits: Partial<ResolveLimits> = {}
-): Resolution => Effect.runSync(resolve(input(line, value, members), limits))
+): Resolution =>
+	Effect.runSync(resolveWithin(input(line, value, members), { ...defaultLimits, ...limits }))
 
 const refusal = (
-	line: Line,
+	line: SpecLine,
 	value: Json,
 	members: readonly ResolveMember[],
 	limits: Partial<ResolveLimits> = {}
-) => Effect.runSync(Effect.flip(resolve(input(line, value, members), limits))).diagnostic
+) =>
+	Effect.runSync(
+		Effect.flip(resolveWithin(input(line, value, members), { ...defaultLimits, ...limits }))
+	).diagnostic
 
 const at = (resolution: Resolution, site: CanonicalKey): ResolvedReference | undefined =>
 	resolution.references.get(keyOf(site))
 
-const openapi: Record<Line, string> = { "3.0": "3.0.3", "3.1": "3.1.1", "3.2": "3.2.0" }
+const openapi: Record<SpecLine, string> = { "3.0": "3.0.3", "3.1": "3.1.1", "3.2": "3.2.0" }
 
-const spec = (line: Line, members: Record<string, Json>): Json => ({
+const spec = (line: SpecLine, members: Record<string, Json>): Json => ({
 	info: { title: "t", version: "1" },
 	openapi: openapi[line],
 	paths: {},

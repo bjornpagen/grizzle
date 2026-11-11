@@ -4,28 +4,29 @@ import { afterEach, describe, expect, mock, spyOn, test } from "vitest"
 import { loadBytes } from "#load/index.ts"
 import { DocumentUri } from "#model/brands.ts"
 import type { Json } from "#model/pointer.ts"
+import type { SpecLine } from "#model/spec-section.ts"
 import { defsKey, keyOf } from "#resolve/canonical.ts"
 import {
 	allOfReferrers,
 	implicitComponent,
 	operationById,
+	defaultLimits,
 	referenceAt,
-	resolve
+	resolveWithin
 } from "#resolve/index.ts"
 import type { Resolution, ResolveLimits } from "#resolve/index.ts"
-import type { Line } from "#validate/index.ts"
 
 const entry = Schema.decodeUnknownSync(DocumentUri)("file:///spec/openapi.json")
 
-const openapi: Record<Line, string> = { "3.0": "3.0.3", "3.1": "3.1.1", "3.2": "3.2.0" }
+const openapi: Record<SpecLine, string> = { "3.0": "3.0.3", "3.1": "3.1.1", "3.2": "3.2.0" }
 
-const lines: readonly Line[] = ["3.0", "3.1", "3.2"]
+const lines: readonly SpecLine[] = ["3.0", "3.1", "3.2"]
 
 interface Members {
 	readonly [key: string]: Json
 }
 
-const spec = (line: Line, members: Members): Json => ({
+const spec = (line: SpecLine, members: Members): Json => ({
 	info: { title: "t", version: "1" },
 	openapi: openapi[line],
 	paths: {},
@@ -33,16 +34,19 @@ const spec = (line: Line, members: Members): Json => ({
 })
 
 const run = (
-	line: Line,
+	line: SpecLine,
 	value: Json,
 	limits: Partial<ResolveLimits> = {}
-): Effect.Effect<Resolution, unknown> => resolve({ document: entry, line, value }, limits)
+): Effect.Effect<Resolution, unknown> =>
+	resolveWithin({ document: entry, line, value }, { ...defaultLimits, ...limits })
 
-const resolved = (line: Line, value: Json, limits: Partial<ResolveLimits> = {}): Resolution =>
+const resolved = (line: SpecLine, value: Json, limits: Partial<ResolveLimits> = {}): Resolution =>
 	Effect.runSync(run(line, value, limits))
 
-const refusal = (line: Line, value: Json, limits: Partial<ResolveLimits> = {}) =>
-	Effect.runSync(Effect.flip(resolve({ document: entry, line, value }, limits))).diagnostic
+const refusal = (line: SpecLine, value: Json, limits: Partial<ResolveLimits> = {}) =>
+	Effect.runSync(
+		Effect.flip(resolveWithin({ document: entry, line, value }, { ...defaultLimits, ...limits }))
+	).diagnostic
 
 const fixture = (name: string): Json => {
 	const bytes = new Uint8Array(
@@ -141,7 +145,7 @@ const siblingSchemas = (inner: string): Json =>
 		}
 	})
 
-const uriLikeScheme = (line: Line): Json =>
+const uriLikeScheme = (line: SpecLine): Json =>
 	spec(line, {
 		components: {
 			securitySchemes: { "https://evil.example/s": { scheme: "bearer", type: "http" } }
@@ -754,7 +758,7 @@ const scoped = (diagnostic: { code: string; scope: string; severity: string }) =
 ]
 
 describe("rule scope and severity", () => {
-	const elements: readonly (readonly [Line, Json])[] = [
+	const elements: readonly (readonly [SpecLine, Json])[] = [
 		[
 			"3.0",
 			spec("3.0", {

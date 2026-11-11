@@ -1,24 +1,28 @@
-/* oxlint-disable unicorn/throw-new-error -- Schema.TaggedError<Self>()(tag, fields) declares a class; nothing is thrown */
+import { validate as validate04 } from "@hyperjump/json-schema/draft-04"
+import { registerSchema, setShouldValidateFormat } from "@hyperjump/json-schema/draft-2020-12"
+import type { SchemaObject } from "@hyperjump/json-schema/draft-2020-12"
+import { validate as validate31 } from "@hyperjump/json-schema/openapi-3-1"
+import { validate as validate32 } from "@hyperjump/json-schema/openapi-3-2"
 import {
-	validate as compile,
-	registerSchema,
-	setShouldValidateFormat
-} from "@hyperjump/json-schema/draft-2020-12"
-import type { Validator } from "@hyperjump/json-schema/draft-2020-12"
-import "@hyperjump/json-schema/draft-04"
-// The vendored 3.1 and 3.2 meta-schemas require the OAS base vocabulary; these modules define it
-// (design 3.2). They also register the library's own undated OAS ids, which are never validated
-// against.
-import "@hyperjump/json-schema/openapi-3-1"
-import "@hyperjump/json-schema/openapi-3-2"
-import { Array as Arr, Effect, FileSystem, Option, Path, Schema } from "effect"
+	Array as Arr,
+	Effect,
+	FileSystem,
+	Option,
+	Path,
+	Record,
+	Schema,
+	String as Str
+} from "effect"
 import type { PlatformError } from "effect"
 import type { Digest } from "effect/crypto"
 import type { DocumentUri } from "#model/brands.ts"
 import type { Diagnostic } from "#model/diagnostic.ts"
 import { sha256Hex } from "#model/digest.ts"
 import type { Json } from "#model/pointer.ts"
-import { rewriteDialect } from "#validate/dialect.ts"
+import { declaredOpenapi } from "#model/spec-section.ts"
+import type { SpecLine } from "#model/spec-section.ts"
+import { rewriteDialect, validatorCopy } from "#validate/dialect.ts"
+import type { ValidatorInput } from "#validate/dialect.ts"
 import {
 	matchDisagreement,
 	noticeFor,
@@ -26,37 +30,32 @@ import {
 	knownDisagreements
 } from "#validate/disagreements.ts"
 import type { Disagreement, Refusal } from "#validate/disagreements.ts"
-import { declaredOpenapi, lineOf, schemaUri } from "#validate/dispatch.ts"
-import type { Line, UnsupportedOpenApiVersion } from "#validate/dispatch.ts"
+import { lineOf, schemaUri } from "#validate/dispatch.ts"
+import type { UnsupportedOpenApiVersion } from "#validate/dispatch.ts"
 import { groupErrors } from "#validate/locations.ts"
 import type { ErrorGroup, InvalidInstanceLocation } from "#validate/locations.ts"
 import { manifest } from "#validate/schemas/manifest.ts"
 import { surrogateRefusal, surrogateSites } from "#validate/surrogates.ts"
 
-type ValidatorInput = Parameters<Validator>[0]
-
-type SchemaInput = Parameters<typeof registerSchema>[0]
-
-export { UnsupportedOpenApiVersion } from "#validate/dispatch.ts"
-
-export type { Line } from "#validate/dispatch.ts"
-
 /**
  * A vendored schema file cannot be read or differs from the manifest.
  */
-export class SchemaManifestError extends Schema.TaggedError<SchemaManifestError>()(
-	"SchemaManifestError",
-	{
-		cause: Schema.optionalKey(Schema.Defect()),
-		file: Schema.String,
-		reason: Schema.Literals(["unreadable", "sha256-mismatch"])
-	}
-) {}
+export class SchemaManifestError extends Schema.TaggedError<
+	SchemaManifestError,
+	{ readonly brand: unique symbol }
+>()("SchemaManifestError", {
+	cause: Schema.optionalKey(Schema.Defect()),
+	file: Schema.String,
+	reason: Schema.Literals(["unreadable", "sha256-mismatch"])
+}) {}
 
 /**
  * The validator library failed to register, compile or run a schema.
  */
-export class ValidatorError extends Schema.TaggedError<ValidatorError>()("ValidatorError", {
+export class ValidatorError extends Schema.TaggedError<
+	ValidatorError,
+	{ readonly brand: unique symbol }
+>()("ValidatorError", {
 	cause: Schema.Defect()
 }) {}
 
@@ -74,7 +73,7 @@ export interface ValidationUnit {
  */
 export interface ValidationResult {
 	readonly errors: readonly ValidationUnit[]
-	readonly line: Line
+	readonly line: SpecLine
 	readonly schema: string
 	readonly valid: boolean
 }
@@ -109,11 +108,10 @@ export const checkManifest = (
 	SchemaManifestError,
 	FileSystem.FileSystem | Path.Path | Digest.Digest
 > =>
-	// oxlint-disable-next-line unicorn/no-array-method-this-argument -- Effect.forEach(items, f), not an array method
 	Effect.forEach(manifest, (entry) =>
 		read(entry.file).pipe(
-			Effect.mapError(
-				(cause) => new SchemaManifestError({ cause, file: entry.file, reason: "unreadable" })
+			Effect.mapError((cause) =>
+				SchemaManifestError.make({ cause, file: entry.file, reason: "unreadable" })
 			),
 			Effect.flatMap((bytes) =>
 				sha256Hex(bytes).pipe(
@@ -121,7 +119,7 @@ export const checkManifest = (
 						hex === entry.sha256
 							? Effect.succeed(bytes)
 							: Effect.fail(
-									new SchemaManifestError({ file: entry.file, reason: "sha256-mismatch" })
+									SchemaManifestError.make({ file: entry.file, reason: "sha256-mismatch" })
 								)
 					)
 				)
@@ -129,67 +127,87 @@ export const checkManifest = (
 		)
 	)
 
-const decodeSchemaText = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Json))
+/**
+ * Decodes the text of a vendored schema: every one is a JSON object.
+ */
+const decodeSchemaText = Schema.decodeUnknownEffect(
+	Schema.fromJsonString(Schema.Record(Schema.String, Schema.Json))
+)
 
 const textDecoder = new TextDecoder()
 
+/**
+ * A decoded schema object as the validator library's own mutable schema type.
+ */
+const schemaObjectOf = (members: Readonly<Record<string, Json>>): SchemaObject =>
+	Record.map(members, validatorCopy)
+
+/**
+ * Registers every vendored schema with the validator library, format assertion off. Registration
+ * is the library's global state, so `registered` runs it once per process.
+ */
 const register = checkManifest(readVendored).pipe(
 	Effect.flatMap((files) =>
-		// Effect.forEach takes (items, f); it is not an array method with a thisArg.
-		// oxlint-disable-next-line unicorn/no-array-method-this-argument
 		Effect.forEach(files, (bytes) =>
 			decodeSchemaText(textDecoder.decode(bytes)).pipe(
-				Effect.mapError((cause) => new ValidatorError({ cause }))
+				Effect.mapBoth({
+					onFailure: (cause) => ValidatorError.make({ cause }),
+					onSuccess: schemaObjectOf
+				})
 			)
 		)
 	),
 	Effect.flatMap((schemas) =>
 		Effect.try({
-			catch: (cause) => new ValidatorError({ cause }),
+			catch: (cause) => ValidatorError.make({ cause }),
 			try: () => {
 				setShouldValidateFormat(false)
-
-				for (const schema of schemas) {
-					// SAFETY: the sha256-checked vendored file is the library's own schema document, an object.
-					// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- decoded Json to the library's schema input type
-					registerSchema(schema as SchemaInput)
-				}
+				Arr.forEach(schemas, (schema) => registerSchema(schema))
 			}
 		})
 	)
 )
 
-// Registration is global library state, so it runs once per process.
 const registered = Effect.runSync(Effect.cached(register))
 
 /**
- * Validates a document against the official schema of its `openapi` line (design 3.2): BASIC
- * output, format assertion off, no result cache. The only Promise boundary is `compile` (R7).
+ * Each line compiles through the module that registers its dialect: draft-04 for the 3.0 schema,
+ * and the OAS base vocabularies the vendored 3.1 and 3.2 meta-schemas require (design 3.2).
  */
-export const validateDocument = Effect.fn("validate.validateDocument")(function* validateDocument(
-	document: Json
+const compilerOf: Readonly<Record<SpecLine, typeof validate32>> = {
+	"3.0": validate04,
+	"3.1": validate31,
+	"3.2": validate32
+}
+
+/**
+ * Validates the validator's own copy of a document against the official schema of its `openapi`
+ * line: BASIC output, format assertion off, no result cache. The only Promise boundary is the
+ * compile (R7).
+ */
+const validateCopy = Effect.fn("validate.validateCopy")(function* validateCopy(
+	copy: ValidatorInput
 ): Effect.fn.Return<
 	ValidationResult,
 	SchemaManifestError | UnsupportedOpenApiVersion | ValidatorError,
 	FileSystem.FileSystem | Path.Path | Digest.Digest
 > {
-	const line = yield* lineOf(document)
+	const line = yield* lineOf(copy)
 
 	yield* registered
 
 	const schema = schemaUri[line]
 	const validator = yield* Effect.tryPromise({
-		catch: (cause) => new ValidatorError({ cause }),
-		try: () => compile(schema)
+		catch: (cause) => ValidatorError.make({ cause }),
+		try: () => compilerOf[line](schema)
 	})
-	// SAFETY: hyperjump's Instance.fromJs only reads its input; the readonly document is never written (a deep-frozen document is tested).
-	// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- readonly Json to the library's mutable input type, read-only use
-	const output = validator(document as ValidatorInput, "BASIC")
+	const output = validator(copy, "BASIC")
 
 	return {
 		errors: output.valid
 			? []
-			: (output.errors ?? []).map(
+			: Arr.map(
+					output.errors ?? [],
 					({ absoluteKeywordLocation, instanceLocation, keyword }): ValidationUnit => ({
 						absoluteKeywordLocation,
 						instanceLocation,
@@ -203,6 +221,18 @@ export const validateDocument = Effect.fn("validate.validateDocument")(function*
 })
 
 /**
+ * Validates a document against the official schema of its `openapi` line (design 3.2), through a
+ * copy, so the document is never handed to the library.
+ */
+export const validateDocument = (
+	document: Json
+): Effect.Effect<
+	ValidationResult,
+	SchemaManifestError | UnsupportedOpenApiVersion | ValidatorError,
+	FileSystem.FileSystem | Path.Path | Digest.Digest
+> => validateCopy(validatorCopy(document))
+
+/**
  * The diagnostics of one document: schema disagreements the text overrules as notices, every other
  * schema error as a document refusal.
  */
@@ -211,24 +241,35 @@ export interface Diagnosis {
 	readonly refusals: readonly Refusal[]
 }
 
-// The 3.2 schema bars the uppercase fixed method names as `additionalOperations` keys. The text
-// bars them in any capitalization (PTH-24), so the structure check refuses every spelling alike.
+/**
+ * The keyword with which the 3.2 schema bars the uppercase fixed method names as
+ * `additionalOperations` keys. The text bars them in any capitalization (PTH-24), so the structure
+ * check refuses every spelling alike.
+ */
 const fixedMethodKeyKeyword = "#/$defs/path-item/properties/additionalOperations/propertyNames/not"
 
 const isFixedMethodKey = (group: ErrorGroup): boolean =>
-	group.deepest.every((unit) => unit.absoluteKeywordLocation.endsWith(fixedMethodKeyKeyword))
+	Arr.every(group.deepest, (unit) =>
+		Str.endsWith(fixedMethodKeyKeyword)(unit.absoluteKeywordLocation)
+	)
 
+/**
+ * The known disagreement the dialect id rewrite stands for.
+ */
 const sch01 = Arr.findFirst(knownDisagreements, (entry) => entry.row === "SCH-01")
 
-const isMatched = (found: {
-	readonly entry: Disagreement | undefined
+/**
+ * An error group with the known disagreement that explains it, if any.
+ */
+interface Matched {
+	readonly entry: Option.Option<Disagreement>
 	readonly group: ErrorGroup
-}): found is { readonly entry: Disagreement; readonly group: ErrorGroup } =>
-	found.entry !== undefined
+}
 
 /**
  * Validates a document (design 3.2) and sorts the verdict into notices and refusals. The 3.1 line
  * is validated as a deep copy with the text's dialect id rewritten; the input is never changed.
+ * SCH-01 is looked up only when the rewrite found a dialect id, so a missing entry dies only then.
  */
 export const diagnoseDocument = Effect.fn("validate.diagnoseDocument")(function* diagnoseDocument(
 	document: Json,
@@ -247,41 +288,48 @@ export const diagnoseDocument = Effect.fn("validate.diagnoseDocument")(function*
 	const where = { document: uri, line, openapi }
 	const lone = surrogateSites(document)
 
-	if (lone.length > 0) {
-		// oxlint-disable-next-line unicorn/no-array-method-this-argument -- Effect.forEach(items, f), not an array method
+	if (Arr.isReadonlyArrayNonEmpty(lone)) {
 		const refusals = yield* Effect.forEach(lone, (pointer) => surrogateRefusal(where, pointer))
 
 		return { notices: [], refusals }
 	}
 
 	const rewritten = yield* rewriteDialect(document)
-	const result = yield* validateDocument(rewritten.copy)
-	const groups = (yield* groupErrors(result.errors)).filter((group) => !isFixedMethodKey(group))
-	// SCH-01 is looked up only when the rewrite found a dialect id, so a missing entry dies only then.
-	const rewriteNotices =
-		rewritten.occurrences.length === 0
-			? []
-			: yield* Option.match(sch01, {
-					onNone: () => Effect.die("SCH-01 is missing from the known-disagreement table"),
-					onSome: (entry) =>
-						// oxlint-disable-next-line unicorn/no-array-method-this-argument -- Effect.forEach(items, f), not an array method
-						Effect.forEach(rewritten.occurrences, (pointer) =>
-							noticeFor(entry, where, pointer, "the schema pins the dated dialect id instead")
-						)
-				})
-	const matched = groups.map((group) => ({ entry: matchDisagreement(line, group), group }))
-	// oxlint-disable-next-line unicorn/no-array-method-this-argument -- Effect.forEach(items, f), not an array method
-	const tableNotices = yield* Effect.forEach(matched.filter(isMatched), ({ entry, group }) =>
-		noticeFor(
-			entry,
-			where,
-			group.pointer,
-			`the schema rejects it at ${group.deepest[0]?.absoluteKeywordLocation ?? ""}`
-		)
+	const result = yield* validateCopy(rewritten.copy)
+	const errorGroups = yield* groupErrors(result.errors)
+	const groups = Arr.filter(errorGroups, (group) => !isFixedMethodKey(group))
+	const rewriteNotices = Arr.isReadonlyArrayNonEmpty(rewritten.occurrences)
+		? yield* Option.match(sch01, {
+				onNone: () => Effect.die("SCH-01 is missing from the known-disagreement table"),
+				onSome: (entry) =>
+					Effect.forEach(rewritten.occurrences, (pointer) =>
+						noticeFor(entry, where, pointer, "the schema pins the dated dialect id instead")
+					)
+			})
+		: []
+	const matched = Arr.map(groups, (group): Matched => ({
+		entry: matchDisagreement(line, group),
+		group
+	}))
+	const tableNotices = yield* Effect.forEach(
+		Arr.getSomes(
+			Arr.map(matched, ({ entry, group }) =>
+				Option.map(entry, (found) => ({ entry: found, group }))
+			)
+		),
+		({ entry, group }) =>
+			noticeFor(
+				entry,
+				where,
+				group.pointer,
+				`the schema rejects it at ${Option.getOrElse(
+					Option.map(Arr.head(group.deepest), (unit) => unit.absoluteKeywordLocation),
+					() => ""
+				)}`
+			)
 	)
-	// oxlint-disable-next-line unicorn/no-array-method-this-argument -- Effect.forEach(items, f), not an array method
 	const refusals = yield* Effect.forEach(
-		matched.filter(({ entry }) => entry === undefined),
+		Arr.filter(matched, ({ entry }) => Option.isNone(entry)),
 		({ group }) => refusalFor(where, group)
 	)
 

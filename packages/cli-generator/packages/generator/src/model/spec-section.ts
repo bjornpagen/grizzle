@@ -1,4 +1,5 @@
-import { Schema } from "effect"
+import { Option, Schema } from "effect"
+import type { Json } from "#model/pointer.ts"
 
 /**
  * An OpenAPI line: the major.minor of a supported specification release. Defined once here so
@@ -23,3 +24,12 @@ export const patchVersion = {
  */
 export const specSectionUrl = (line: SpecLine, anchor: string): string =>
 	`https://spec.openapis.org/oas/v${patchVersion[line]}.html#${anchor}`
+
+const decodeDeclared = Schema.decodeUnknownOption(Schema.Struct({ openapi: Schema.String }))
+
+/**
+ * The `openapi` string a document declares, or `None` when the document has no `openapi` member or
+ * its value is not a string. Each caller chooses its own fallback.
+ */
+export const declaredOpenapi = (document: Json): Option.Option<string> =>
+	decodeDeclared(document).pipe(Option.map((found) => found.openapi))

@@ -1,4 +1,4 @@
-/* oxlint-disable unicorn/throw-new-error -- Schema.TaggedError<Self>()(tag, fields) declares a class; nothing is thrown */
+import { regex } from "arkregex"
 import {
 	Array as Arr,
 	Effect,
@@ -8,7 +8,8 @@ import {
 	Predicate,
 	Record,
 	Result,
-	Schema
+	Schema,
+	String as Str
 } from "effect"
 import type { DocumentUri } from "#model/brands.ts"
 import { Diagnostic, makeDiagnostic } from "#model/diagnostic.ts"
@@ -22,13 +23,12 @@ import {
 	childPointer
 } from "#model/pointer.ts"
 import type { Json } from "#model/pointer.ts"
-import { specSectionUrl } from "#model/spec-section.ts"
+import { declaredOpenapi, specSectionUrl } from "#model/spec-section.ts"
+import type { SpecLine } from "#model/spec-section.ts"
 import { resolveUri, retrievalBase, splitFragment, stripFragment } from "#model/uri.ts"
 import { documentBase, schemaBase } from "#resolve/base-uri.ts"
 import { defsKey, keyOf } from "#resolve/canonical.ts"
 import type { CanonicalKey } from "#resolve/canonical.ts"
-import { declaredOpenapi } from "#validate/dispatch.ts"
-import type { Line } from "#validate/index.ts"
 
 export type { CanonicalKey } from "#resolve/canonical.ts"
 
@@ -41,7 +41,7 @@ type Document = typeof DocumentUri.Type
  */
 export interface ResolveMember {
 	readonly document: Document
-	readonly line?: Line
+	readonly line?: SpecLine
 	readonly value: Json
 }
 
@@ -51,7 +51,7 @@ export interface ResolveMember {
  */
 export interface ResolveInput {
 	readonly document: Document
-	readonly line: Line
+	readonly line: SpecLine
 	readonly members?: readonly ResolveMember[]
 	readonly value: Json
 }
@@ -86,7 +86,7 @@ export type ReferenceKind =
 /**
  * Use-site documentation overrides (3.1 and 3.2 `summary` and `description`).
  */
-export interface Docs {
+interface Docs {
 	readonly description?: string
 	readonly summary?: string
 }
@@ -119,7 +119,7 @@ export interface Resolution {
 	readonly diagnostics: readonly Diagnostic[]
 	readonly document: Document
 	readonly documents: ReadonlyMap<Document, Json>
-	readonly line: Line
+	readonly line: SpecLine
 	readonly operationIds: ReadonlyMap<string, CanonicalKey>
 	readonly references: ReadonlyMap<string, ResolvedReference>
 	readonly value: Json
@@ -128,7 +128,10 @@ export interface Resolution {
 /**
  * The document set cannot be resolved; the model is not built (design 2.4).
  */
-export class ResolveRefusal extends Schema.TaggedError<ResolveRefusal>()("ResolveRefusal", {
+export class ResolveRefusal extends Schema.TaggedError<
+	ResolveRefusal,
+	{ readonly brand: unique symbol }
+>()("ResolveRefusal", {
 	diagnostic: Diagnostic
 }) {}
 
@@ -289,13 +292,17 @@ const rules = {
 
 type Code = keyof typeof rules
 
-// 3.2 moved the DOC-19 rule to its own section; every other rule cites one anchor on each line.
-const anchorOn = (code: Code, line: Line): string =>
+/**
+ * 3.2 moved the DOC-19 rule to its own section; every other rule cites one anchor on each line.
+ */
+const anchorOn = (code: Code, line: SpecLine): string =>
 	code === "DOC-19/two-object-types" && line === "3.2"
 		? "conflicts-between-field-types-and-reference-contexts"
 		: rules[code].anchor
 
-// The codes whose rule has the fields of `R`.
+/**
+ * The codes whose rule has the fields of `R`.
+ */
 type CodeOf<R> = { [C in Code]: (typeof rules)[C] extends R ? C : never }[Code]
 
 type NoticeCode = CodeOf<{ readonly severity: "notice" }>
@@ -313,13 +320,20 @@ interface Failure {
 	readonly finding: Finding & { readonly code: DocumentCode }
 }
 
-const failure = (code: DocumentCode, at: CanonicalKey, related?: CanonicalKey): Failure => ({
-	finding: related === undefined ? { code, ...at } : { code, ...at, related }
+const failure = (code: DocumentCode, at: CanonicalKey): Failure => ({ finding: { code, ...at } })
+
+/**
+ * A failure at `at` that also names the other place it concerns.
+ */
+const relatedFailure = (code: DocumentCode, at: CanonicalKey, related: CanonicalKey): Failure => ({
+	finding: { code, ...at, related }
 })
 
 type Kind = ReferenceKind | "components" | "encoding" | "operation" | "paths" | "responses" | "root"
 
-// How a field holds its children: one value, an array of values, or a map of named values.
+/**
+ * How a field holds its children: one value, an array of values, or a map of named values.
+ */
 type Arity = "list" | "map" | "one"
 
 type Field = readonly [name: string, kind: Kind, arity: Arity]
@@ -334,7 +348,7 @@ const encodings: readonly Field[] = [
 	["prefixEncoding", "encoding", "list"]
 ]
 
-const methods = [...fixedMethods, queryMethod]
+const methods: readonly string[] = [...fixedMethods, queryMethod]
 
 const schema30: readonly Field[] = [
 	["additionalProperties", "schema", "one"],
@@ -346,7 +360,9 @@ const schema30: readonly Field[] = [
 	["properties", "schema", "map"]
 ]
 
-// JSON Schema 2020-12 applicators that hold subschemas (3.1 and 3.2).
+/**
+ * JSON Schema 2020-12 applicators that hold subschemas (3.1 and 3.2).
+ */
 const schema31: readonly Field[] = [
 	...schema30,
 	["$defs", "schema", "map"],
@@ -405,7 +421,7 @@ const objectFields: readonly (readonly [Exclude<Kind, "schema">, readonly Field[
 		[
 			["additionalOperations", "operation", "map"],
 			["parameters", "parameter", "list"],
-			...methods.map((method): Field => [method, "operation", "one"])
+			...Arr.map(methods, (method): Field => [method, "operation", "one"])
 		]
 	],
 	["paths", []],
@@ -424,27 +440,31 @@ const objectFields: readonly (readonly [Exclude<Kind, "schema">, readonly Field[
 ]
 
 const table = (fields: readonly Field[]): ReadonlyMap<string, Field> =>
-	new Map(fields.map((field) => [field[0], field]))
+	new Map(Arr.map(fields, (field) => [field[0], field]))
 
-const grammar = new Map(objectFields.map(([kind, fields]) => [kind, table(fields)]))
+const grammar: ReadonlyMap<Kind, ReadonlyMap<string, Field>> = new Map(
+	Arr.map(objectFields, ([kind, fields]) => [kind, table(fields)])
+)
 
-const schemaGrammar: Record.ReadonlyRecord<Line, ReadonlyMap<string, Field>> = {
+const schemaGrammar: Record.ReadonlyRecord<SpecLine, ReadonlyMap<string, Field>> = {
 	"3.0": table(schema30),
 	"3.1": table(schema31),
 	"3.2": table(schema31)
 }
 
-// Objects whose every non-extension member is one kind of child.
-const memberKinds = new Map<Kind, Kind>([
+/**
+ * Objects whose every non-extension member is one kind of child.
+ */
+const memberKinds: ReadonlyMap<Kind, Kind> = new Map<Kind, Kind>([
 	["callback", "pathItem"],
 	["paths", "pathItem"],
 	["responses", "response"]
 ])
 
-const fieldOf = (line: Line, kind: Kind, name: string): Field | undefined =>
+const fieldOf = (line: SpecLine, kind: Kind, name: string): Field | undefined =>
 	(kind === "schema" ? schemaGrammar[line] : grammar.get(kind))?.get(name)
 
-const referenceKinds = new Set<Kind>([
+const referenceKinds: ReadonlySet<Kind> = new Set<Kind>([
 	"callback",
 	"example",
 	"header",
@@ -460,10 +480,12 @@ const referenceKinds = new Set<Kind>([
 
 const isReferenceKind = (kind: Kind): kind is ReferenceKind => referenceKinds.has(kind)
 
-// A reference with a scheme or an authority names a remote URI (REF-16), else a relative file (REF-15).
-const remoteUri = /^(?:[A-Za-z][A-Za-z0-9+.-]*:|\/\/)/u
+/**
+ * A reference with a scheme or an authority names a remote URI (REF-16), else a relative file (REF-15).
+ */
+const remoteUri = regex("^(?:[A-Za-z][A-Za-z0-9+.-]*:|//)", "u")
 
-const uriSyntax = /[:/?#]/u
+const uriSyntax = regex("[:/?#]", "u")
 
 const tokensOf = (pointer: string): readonly string[] | undefined =>
 	Result.getOrUndefined(parsePointerResult(pointer))
@@ -474,22 +496,26 @@ const fragmentPointer = (fragment: string): string | undefined => {
 	return tokens === undefined ? undefined : formatPointer(tokens)
 }
 
-// The array branch keeps the index read: `Arr.get` floors its index (`Math.floor`, Array.ts:1921),
-// so a token "1.5" from a `$ref` pointer would reach element 1 instead of no member.
-const memberOf = (node: Json, token: string): Json | undefined => {
+/**
+ * The array branch keeps the index read: `Arr.get` floors its index (`Math.floor`, Array.ts:1921),
+ * so a token "1.5" from a `$ref` pointer would reach element 1 instead of no member.
+ */
+const memberOf = (node: Json, token: string): Option.Option<Json> => {
 	if (isArray(node)) {
-		return node[Number(token)]
+		return Option.fromUndefinedOr(node[Number(token)])
 	}
 
-	return isObject(node) ? Option.getOrUndefined(Record.get(node, token)) : undefined
+	return isObject(node) ? Record.get(node, token) : Option.none()
 }
 
 type Step = { readonly kind: Kind | undefined } | { readonly container: Kind }
 
-// The structural kind one pointer token leads to; a map or list field leads to a container first.
-const stepInto = (line: Line, kind: Kind, token: string): Step => {
+/**
+ * The structural kind one pointer token leads to; a map or list field leads to a container first.
+ */
+const stepInto = (line: SpecLine, kind: Kind, token: string): Step => {
 	const members = memberKinds.get(kind)
-	if (members !== undefined && !token.startsWith("x-")) {
+	if (members !== undefined && !Str.startsWith("x-")(token)) {
 		return { kind: members }
 	}
 
@@ -512,7 +538,9 @@ const docsFrom = (summary: string | undefined, description: string | undefined):
 const docsOf = (node: Json): Docs =>
 	docsFrom(stringMember(node, "summary"), stringMember(node, "description"))
 
-// Keeps the nearer override of each docs field.
+/**
+ * Keeps the nearer override of each docs field.
+ */
 const nearest = (near: Docs, far: Docs): Docs =>
 	docsFrom(near.summary ?? far.summary, near.description ?? far.description)
 
@@ -524,11 +552,22 @@ interface Edge {
 
 const rootKey = (document: Document): string => keyOf({ document, pointer: "" })
 
-// The nearest target in the same document that physically contains `key`, else that document's root.
+/**
+ * The pointer of the node that holds the node at `pointer`; the root holds itself.
+ */
+const parentPointer = (pointer: string): string =>
+	Str.slice(
+		0,
+		Option.getOrElse(Str.lastIndexOf("/")(pointer), () => 0)
+	)(pointer)
+
+/**
+ * The nearest target in the same document that physically contains `key`, else that document's root.
+ */
 const ownerOf = (key: CanonicalKey, targets: ReadonlySet<string>): string => {
 	let prefix = key.pointer
 	while (prefix !== "") {
-		prefix = prefix.slice(0, prefix.lastIndexOf("/"))
+		prefix = parentPointer(prefix)
 		const owner = keyOf({ document: key.document, pointer: prefix })
 		if (targets.has(owner)) {
 			return owner
@@ -545,18 +584,22 @@ const ownerOf = (key: CanonicalKey, targets: ReadonlySet<string>): string => {
 interface Member {
 	readonly base: string
 	readonly document: Document
-	readonly line: Line
+	readonly line: SpecLine
 	readonly openapi: boolean
 	readonly value: Json
 }
 
-// A node of the set: the member that holds it and its pointer there.
+/**
+ * A node of the set: the member that holds it and its pointer there.
+ */
 interface Place {
 	readonly member: Member
 	readonly pointer: string
 }
 
-// `via` is the reference site that reached the node, absent for a node reached by its position.
+/**
+ * `via` is the reference site that reached the node, absent for a node reached by its position.
+ */
 interface Visit extends Place {
 	readonly base: string
 	readonly kind: Kind
@@ -578,11 +621,15 @@ interface Located extends Place {
 const visitKey = (item: Visit): string =>
 	`${item.member.document}\u0000${item.kind}\u0000${item.pointer}`
 
-// A Reference Object's siblings are fields only for a Path Item and a 3.1 or 3.2 schema.
-const siblingsAreFields = (line: Line, kind: ReferenceKind): boolean =>
+/**
+ * A Reference Object's siblings are fields only for a Path Item and a 3.1 or 3.2 schema.
+ */
+const siblingsAreFields = (line: SpecLine, kind: ReferenceKind): boolean =>
 	kind === "pathItem" || (kind === "schema" && line !== "3.0")
 
-// Pushes `items` so that they pop in their given order.
+/**
+ * Pushes `items` so that they pop in their given order.
+ */
 const pushInOrder = (stack: Visit[], items: readonly Visit[]): void => {
 	for (let index = items.length - 1; index >= 0; index -= 1) {
 		const item = items[index]
@@ -600,7 +647,9 @@ const keyAt = (place: Place): CanonicalKey => ({
 const samePlace = (left: Place, right: Place): boolean =>
 	left.member === right.member && left.pointer === right.pointer
 
-// `waitOn` names the resource whose later $id or $anchor could still resolve the reference.
+/**
+ * `waitOn` names the resource whose later $id or $anchor could still resolve the reference.
+ */
 type Missing =
 	| { readonly missing: "outside"; readonly waitOn?: string }
 	| { readonly missing: "unresolvable"; readonly target?: CanonicalKey; readonly waitOn?: string }
@@ -612,7 +661,9 @@ interface Waiting {
 
 const byOrder = Order.mapInput(Order.Number, (entry: Waiting) => entry.order)
 
-// `crosses` is the innermost schema with its own $id that a pointer fragment enters (REF-14).
+/**
+ * `crosses` is the innermost schema with its own $id that a pointer fragment enters (REF-14).
+ */
 type Lookup = { readonly crosses?: CanonicalKey; readonly found: Located } | Missing
 
 const lookupFailure = (site: Site, outcome: Missing): Failure => {
@@ -623,29 +674,36 @@ const lookupFailure = (site: Site, outcome: Missing): Failure => {
 		)
 	}
 
-	return failure("REF-18/unresolvable", keyAt(site), outcome.target)
+	return outcome.target === undefined
+		? failure("REF-18/unresolvable", keyAt(site))
+		: relatedFailure("REF-18/unresolvable", keyAt(site), outcome.target)
 }
 
-// The root of an OpenAPI document is no object a reference may stand for (D-AD12).
+/**
+ * The root of an OpenAPI document is no object a reference may stand for (D-AD12).
+ */
 const isDocumentRoot = (found: Place): boolean => found.pointer === "" && found.member.openapi
 
-const rootCode = (line: Line): "REF-02/non-schema-target" | "SCH-03/non-schema-target" =>
+const rootCode = (line: SpecLine): "REF-02/non-schema-target" | "SCH-03/non-schema-target" =>
 	line === "3.0" ? "REF-02/non-schema-target" : "SCH-03/non-schema-target"
 
-// The base URI a schema target inherits from the schemas around it, found by walking down from
-// its document's root. A fragment document's root is taken as a schema.
+/**
+ * The base URI a schema target inherits from the schemas around it, found by walking down from
+ * its document's root. A fragment document's root is taken as a schema.
+ */
 const enclosingBase = (found: Place): string => {
 	const { line } = found.member
-	let node: Json | undefined = found.member.value
+	let node: Option.Option<Json> = Option.some(found.member.value)
 	let state: Step = { kind: found.member.openapi ? "root" : "schema" }
 	let { base } = found.member
 	for (const token of tokensOf(found.pointer) ?? []) {
-		if (node === undefined) {
+		if (Option.isNone(node)) {
 			break
 		}
 
 		if ("kind" in state && state.kind === "schema") {
-			base = Option.getOrUndefined(schemaBase(line, base, node)) ?? base
+			const enclosing = base
+			base = Option.getOrElse(schemaBase(line, enclosing, node.value), () => enclosing)
 		}
 
 		if ("container" in state) {
@@ -654,13 +712,15 @@ const enclosingBase = (found: Place): string => {
 			state = stepInto(line, state.kind, token)
 		}
 
-		node = memberOf(node, token)
+		node = memberOf(node.value, token)
 	}
 
 	return base
 }
 
-// The structural children of a node, in document order.
+/**
+ * The structural children of a node, in document order.
+ */
 const childrenOf = (place: Place, kind: Kind, node: JsonObject, base: string): Visit[] => {
 	const { member, pointer } = place
 	const members = memberKinds.get(kind)
@@ -670,10 +730,10 @@ const childrenOf = (place: Place, kind: Kind, node: JsonObject, base: string): V
 		queued.push({ base: childBase, kind: childKind, member, node: value, pointer: at })
 	}
 
-	for (const [name, value] of Object.entries(node)) {
+	for (const [name, value] of Record.toEntries(node)) {
 		const at = childPointer(pointer, name)
 		const field = fieldOf(member.line, kind, name)
-		if (members !== undefined && !name.startsWith("x-")) {
+		if (members !== undefined && !Str.startsWith("x-")(name)) {
 			enqueue(members, value, at)
 		} else if (field?.[2] === "one") {
 			enqueue(field[1], value, at)
@@ -682,7 +742,7 @@ const childrenOf = (place: Place, kind: Kind, node: JsonObject, base: string): V
 				enqueue(field[1], item, childPointer(at, `${index}`))
 			}
 		} else if (field?.[2] === "map" && isObject(value)) {
-			for (const [entry, item] of Object.entries(value)) {
+			for (const [entry, item] of Record.toEntries(value)) {
 				enqueue(field[1], item, childPointer(at, entry))
 			}
 		}
@@ -695,15 +755,21 @@ const childrenOf = (place: Place, kind: Kind, node: JsonObject, base: string): V
  * The resolver's working state for one run over the whole document set.
  */
 class Resolver {
-	// Resources that gained an $id or $anchor since the last round.
+	/**
+	 * Resources that gained an $id or $anchor since the last round.
+	 */
 	readonly added = new Set<string>()
 	readonly all: readonly Member[]
 	readonly anchors = new Map<string, Place>()
 	readonly byDocument: ReadonlyMap<Document, Member>
-	// Nodes already charged to the node budget, so a node indexed and then walked costs once.
+	/**
+	 * Nodes already charged to the node budget, so a node indexed and then walked costs once.
+	 */
 	readonly charged = new Set<string>()
 	readonly defs = new Map<string, string>()
-	// Every resource URI a member is known by (its retrieval URI and its base) to that member.
+	/**
+	 * Every resource URI a member is known by (its retrieval URI and its base) to that member.
+	 */
 	readonly documents = new Map<string, Member>()
 	readonly entry: Member
 	readonly findings: Finding[] = []
@@ -711,10 +777,14 @@ class Resolver {
 	readonly limits: ResolveLimits
 	readonly operationIds = new Map<string, CanonicalKey>()
 	readonly references = new Map<string, ResolvedReference>()
-	// Every schema that declares its own $id, by `keyOf` of its place.
+	/**
+	 * Every schema that declares its own $id, by `keyOf` of its place.
+	 */
 	readonly resources = new Set<string>()
 	readonly stack: Visit[] = []
-	// The first Object type each node is walked as, and the site that reached it (DOC-19).
+	/**
+	 * The first Object type each node is walked as, and the site that reached it (DOC-19).
+	 */
 	readonly typed = new Map<string, { readonly by: CanonicalKey; readonly kind: Kind }>()
 	readonly visited = new Set<string>()
 	nodes = 0
@@ -733,16 +803,23 @@ class Resolver {
 		this.limits = limits
 	}
 
-	// Charges one node, or one retry when `seen` is absent, to the node budget.
-	spend(seen?: string): Failure | undefined {
-		if (seen !== undefined) {
-			if (this.charged.has(seen)) {
-				return undefined
-			}
-
-			this.charged.add(seen)
+	/**
+	 * Charges the node `seen` names to the node budget, once however often it is reached.
+	 */
+	spendOnce(seen: string): Failure | undefined {
+		if (this.charged.has(seen)) {
+			return undefined
 		}
 
+		this.charged.add(seen)
+
+		return this.spend()
+	}
+
+	/**
+	 * Charges one step, a node or a reference attempt, to the node budget.
+	 */
+	spend(): Failure | undefined {
 		this.nodes += 1
 
 		return this.nodes > this.limits.maxNodes
@@ -750,7 +827,9 @@ class Resolver {
 			: undefined
 	}
 
-	// Walks every queued node, collecting reference sites in walk order.
+	/**
+	 * Walks every queued node, collecting reference sites in walk order.
+	 */
 	drain(sites: Site[]): Failure | undefined {
 		let next = this.stack.pop()
 		while (next !== undefined) {
@@ -774,7 +853,7 @@ class Resolver {
 
 		this.visited.add(seen)
 
-		const spent = this.spend(seen)
+		const spent = this.spendOnce(seen)
 		if (spent !== undefined) {
 			return spent
 		}
@@ -795,7 +874,9 @@ class Resolver {
 				)
 			}
 
-			// A node reached only by a reference into a non-schema position is indexed here.
+			/**
+			 * A node reached only by a reference into a non-schema position is indexed here.
+			 */
 			const indexed = this.declare(place, node, own, base)
 			if (indexed !== undefined) {
 				return indexed
@@ -822,7 +903,9 @@ class Resolver {
 		return undefined
 	}
 
-	// Indexes a schema's $id and $anchor; indexing one place twice is a no-op.
+	/**
+	 * Indexes a schema's $id and $anchor; indexing one place twice is a no-op.
+	 */
 	declare(place: Place, node: JsonObject, own: string, enclosing: string): Failure | undefined {
 		if (place.member.line === "3.0") {
 			return undefined
@@ -854,9 +937,11 @@ class Resolver {
 		return undefined
 	}
 
-	// Indexes every $id and $anchor at a schema position of every member before any reference is
-	// judged (design 3.3: resolution happens only after every supplied document is parsed). Each
-	// node is charged to the node budget once, here or in the walk.
+	/**
+	 * Indexes every $id and $anchor at a schema position of every member before any reference is
+	 * judged (design 3.3: resolution happens only after every supplied document is parsed). Each
+	 * node is charged to the node budget once, here or in the walk.
+	 */
 	index(): Failure | undefined {
 		for (const member of this.all) {
 			const stack: Visit[] = [
@@ -884,8 +969,10 @@ class Resolver {
 		return undefined
 	}
 
-	// Indexes one node and queues its structural children; Reference Object siblings that are not
-	// fields are skipped, as the walk skips them.
+	/**
+	 * Indexes one node and queues its structural children; Reference Object siblings that are not
+	 * fields are skipped, as the walk skips them.
+	 */
 	indexNode(item: Visit, stack: Visit[]): Failure | undefined {
 		const { kind, member, node } = item
 		const seen = visitKey(item)
@@ -893,7 +980,7 @@ class Resolver {
 			return undefined
 		}
 
-		const spent = this.spend(seen)
+		const spent = this.spendOnce(seen)
 		if (spent !== undefined) {
 			return spent
 		}
@@ -927,7 +1014,9 @@ class Resolver {
 		return undefined
 	}
 
-	// Refuses a node walked as a second Object type (DOC-19), naming the site of each use.
+	/**
+	 * Refuses a node walked as a second Object type (DOC-19), naming the site of each use.
+	 */
 	typeOnce(item: Visit): Failure | undefined {
 		const at = keyAt(item)
 		const by = item.via ?? at
@@ -938,10 +1027,14 @@ class Resolver {
 			return undefined
 		}
 
-		return known.kind === item.kind ? undefined : failure("DOC-19/two-object-types", by, known.by)
+		return known.kind === item.kind
+			? undefined
+			: relatedFailure("DOC-19/two-object-types", by, known.by)
 	}
 
-	// Records the sibling notice; true when the siblings are fields to walk.
+	/**
+	 * Records the sibling notice; true when the siblings are fields to walk.
+	 */
 	walksSiblings(place: Place, kind: ReferenceKind, node: JsonObject): boolean {
 		const { line } = place.member
 		if (siblingsAreFields(line, kind)) {
@@ -949,7 +1042,7 @@ class Resolver {
 		}
 
 		const allowed = line === "3.0" ? ["$ref"] : ["$ref", "description", "summary"]
-		if (Object.keys(node).some((member) => !allowed.includes(member))) {
+		if (Arr.some(Record.keys(node), (member) => !Arr.contains(allowed, member))) {
 			let code: NoticeCode = "REF-06/sibling-ignored"
 			if (line === "3.0") {
 				code = kind === "schema" ? "REF-07/sibling-ignored" : "REF-05/sibling-ignored"
@@ -961,7 +1054,9 @@ class Resolver {
 		return false
 	}
 
-	// Implicit connections resolve from the entry document only (design 3.3), so only it is recorded.
+	/**
+	 * Implicit connections resolve from the entry document only (design 3.3), so only it is recorded.
+	 */
 	record(place: Place, kind: Kind, node: JsonObject): void {
 		if (place.member !== this.entry) {
 			return
@@ -972,12 +1067,12 @@ class Resolver {
 			this.operationIds.set(operationId, keyAt(place))
 		}
 
-		const schemes = kind === "components" ? memberOf(node, "securitySchemes") : undefined
-		if (this.entry.line !== "3.2" || schemes === undefined || !isObject(schemes)) {
+		const schemes = kind === "components" ? memberOf(node, "securitySchemes") : Option.none()
+		if (this.entry.line !== "3.2" || Option.isNone(schemes) || !isObject(schemes.value)) {
 			return
 		}
 
-		for (const name of Object.keys(schemes)) {
+		for (const name of Record.keys(schemes.value)) {
 			if (uriSyntax.test(name)) {
 				this.findings.push({
 					code: "SEC-10/uri-like-name",
@@ -988,12 +1083,16 @@ class Resolver {
 		}
 	}
 
-	// Queues the structural children so that they pop in document order.
+	/**
+	 * Queues the structural children so that they pop in document order.
+	 */
 	push(place: Place, kind: Kind, node: JsonObject, base: string): void {
 		pushInOrder(this.stack, childrenOf(place, kind, node, base))
 	}
 
-	// The node a resource URI names: a document of the set, or for a schema an $id.
+	/**
+	 * The node a resource URI names: a document of the set, or for a schema an $id.
+	 */
 	resourceRoot(resource: string, isSchema: boolean): Place | undefined {
 		const member = this.documents.get(resource)
 		if (member !== undefined) {
@@ -1003,9 +1102,11 @@ class Resolver {
 		return isSchema ? this.ids.get(resource) : undefined
 	}
 
-	// Finds the node a reference names inside the document set, without fetching anything. `line` is
-	// the line of the document that holds the reference.
-	lookup(ref: string, base: string, isSchema: boolean, line: Line): Lookup {
+	/**
+	 * Finds the node a reference names inside the document set, without fetching anything. `line` is
+	 * the line of the document that holds the reference.
+	 */
+	lookup(ref: string, base: string, isSchema: boolean, line: SpecLine): Lookup {
 		const [uriPart, fragmentPart] = splitFragment(ref)
 		const fragment = Option.getOrElse(fragmentPart, () => "")
 		const resolved = uriPart === "" ? Option.some(base) : resolveUri(uriPart, base)
@@ -1020,7 +1121,7 @@ class Resolver {
 		}
 
 		const target = this.fragmentTarget(resource, root, fragment, isSchema, line)
-		const byAnchor = isSchema && line !== "3.0" && fragment !== "" && !fragment.startsWith("/")
+		const byAnchor = isSchema && line !== "3.0" && fragment !== "" && !Str.startsWith("/")(fragment)
 		if (target === undefined) {
 			return byAnchor ? { missing: "unresolvable", waitOn: resource } : { missing: "unresolvable" }
 		}
@@ -1028,25 +1129,27 @@ class Resolver {
 		const node = nodeAt(target.member.value, target.pointer)
 		const isBooleanSchema = isSchema && target.member.line !== "3.0" && Predicate.isBoolean(node)
 		if (node !== undefined && (isObject(node) || isBooleanSchema)) {
-			return this.foundAt(root, target, node, isSchema && fragment.startsWith("/"))
+			return this.foundAt(root, target, node, isSchema && Str.startsWith("/")(fragment))
 		}
 
 		return { missing: "unresolvable", target: keyAt(target) }
 	}
 
-	// An empty fragment names the resource, a pointer a node in it, a plain name a schema $anchor.
+	/**
+	 * An empty fragment names the resource, a pointer a node in it, a plain name a schema $anchor.
+	 */
 	fragmentTarget(
 		resource: string,
 		root: Place,
 		fragment: string,
 		isSchema: boolean,
-		line: Line
+		line: SpecLine
 	): Place | undefined {
 		if (fragment === "") {
 			return root
 		}
 
-		if (fragment.startsWith("/")) {
+		if (Str.startsWith("/")(fragment)) {
 			const pointer = fragmentPointer(fragment)
 
 			return pointer === undefined
@@ -1057,7 +1160,9 @@ class Resolver {
 		return isSchema && line !== "3.0" ? this.anchors.get(`${resource}#${fragment}`) : undefined
 	}
 
-	// The node a lookup found, with the $id its pointer fragment crosses to reach it, if any.
+	/**
+	 * The node a lookup found, with the $id its pointer fragment crosses to reach it, if any.
+	 */
 	foundAt(root: Place, target: Place, node: Json, byPointer: boolean): Lookup {
 		const found = { member: target.member, node, pointer: target.pointer }
 		const crosses = byPointer ? this.crossedId(root, target) : undefined
@@ -1065,11 +1170,13 @@ class Resolver {
 		return crosses === undefined ? { found } : { crosses, found }
 	}
 
-	// The innermost schema with its own $id strictly between a pointer's resource and its target.
+	/**
+	 * The innermost schema with its own $id strictly between a pointer's resource and its target.
+	 */
 	crossedId(root: Place, target: Place): CanonicalKey | undefined {
 		let { pointer } = target
 		while (pointer.length > root.pointer.length) {
-			pointer = pointer.slice(0, pointer.lastIndexOf("/"))
+			pointer = parentPointer(pointer)
 			const key = { document: target.member.document, pointer }
 			if (pointer.length > root.pointer.length && this.resources.has(keyOf(key))) {
 				return key
@@ -1079,8 +1186,12 @@ class Resolver {
 		return undefined
 	}
 
-	// Resolves one schema reference, or names the resource it waits on. Every attempt, retries
-	// included, is charged to the node budget.
+	/**
+	 * Resolves one schema reference, or names the resource it waits on. Every attempt, retries
+	 * included, is charged to the node budget. A reference to an OpenAPI document's root is no schema
+	 * (D-AD12): the use site keeps a reference with no `$defs` key, nothing is lifted and the root is
+	 * not walked as a schema; schema normalization refuses the site.
+	 */
 	schemaSite(site: Site): Failure | { readonly waitOn: string } | undefined {
 		const spent = this.spend()
 		if (spent !== undefined) {
@@ -1106,8 +1217,6 @@ class Resolver {
 		}
 
 		if (isDocumentRoot(found)) {
-			// The root is no schema (D-AD12): the use site keeps a reference with no `$defs` key, nothing
-			// is lifted and the root is not walked as a schema; schema normalization refuses the site.
 			this.references.set(keyOf(siteKey), { kind: "schema", site: siteKey, target, via: [] })
 
 			return undefined
@@ -1134,8 +1243,10 @@ class Resolver {
 		return undefined
 	}
 
-	// Follows a non-schema chain to its end, at most `maxHops` references, across documents. Each
-	// hop resolves against the base of the document that holds its Reference Object.
+	/**
+	 * Follows a non-schema chain to its end, at most `maxHops` references, across documents. Each
+	 * hop resolves against the base of the document that holds its Reference Object.
+	 */
 	chainSite(site: Site): Failure | undefined {
 		const siteKey = keyAt(site)
 		const onChain = new Set([keyOf(siteKey)])
@@ -1161,7 +1272,7 @@ class Resolver {
 
 			const hop = keyAt(found)
 			if (onChain.has(keyOf(hop))) {
-				return failure("DOC-23/non-schema-cycle", siteKey, hop)
+				return relatedFailure("DOC-23/non-schema-cycle", siteKey, hop)
 			}
 
 			if (overrides) {
@@ -1220,31 +1331,38 @@ class Resolver {
 		}
 	}
 
-	// Refuses a cycle that passes through the content of a non-schema target (design 3.3).
+	/**
+	 * Refuses a cycle that passes through the content of a non-schema target (design 3.3).
+	 */
 	containment(): Failure | undefined {
-		const references = [...this.references.values()].filter(
+		const references = Arr.filter(
+			Arr.fromIterable(this.references.values()),
 			(reference) => reference.kind !== "schema"
 		)
 		const targets = new Map(
-			references.map((reference): [string, CanonicalKey] => [
+			Arr.map(references, (reference): [string, CanonicalKey] => [
 				keyOf(reference.target),
 				reference.target
 			])
 		)
 		const names = new Set(targets.keys())
-		const referenceEdges = references.map((reference) => ({
+		const referenceEdges = Arr.map(references, (reference) => ({
 			edge: { site: reference.site, target: reference.target, to: keyOf(reference.target) },
 			owner: ownerOf(reference.site, names)
 		}))
-		// A target also reaches every target nested inside it, so a cycle through nested content shows.
-		const nestedEdges = [...targets].flatMap(([name, target]) => {
+		/**
+		 * A target also reaches every target nested inside it, so a cycle through nested content shows.
+		 */
+		const nestedEdges = Arr.flatMap(Arr.fromIterable(targets), ([name, target]) => {
 			const owner = ownerOf(target, names)
 
 			return target.pointer !== "" && owner !== rootKey(target.document)
 				? [{ edge: { site: target, target, to: name }, owner }]
 				: []
 		})
-		// Owner keys hold `#`, never an integer-like key, so the record keeps insertion order.
+		/**
+		 * Owner keys hold `#`, never an integer-like key, so the record keeps insertion order.
+		 */
 		const grouped = Arr.groupBy([...referenceEdges, ...nestedEdges], ({ owner }) => owner)
 
 		const graph = Graph.directed<string, Edge>((mutable) => {
@@ -1265,7 +1383,7 @@ class Resolver {
 				node(start)
 			}
 
-			for (const [owner, list] of Object.entries(grouped)) {
+			for (const [owner, list] of Record.toEntries(grouped)) {
 				for (const { edge } of list) {
 					Graph.addEdge(mutable, node(owner), node(edge.to), edge)
 				}
@@ -1279,11 +1397,13 @@ class Resolver {
 		)
 
 		return Option.isSome(closing)
-			? failure("DOC-23/non-schema-cycle", closing.value.site, closing.value.target)
+			? relatedFailure("DOC-23/non-schema-cycle", closing.value.site, closing.value.target)
 			: undefined
 	}
 
-	// Makes a member reachable by its retrieval URI and its base; two members may not share one.
+	/**
+	 * Makes a member reachable by its retrieval URI and its base; two members may not share one.
+	 */
 	register(member: Member): Failure | undefined {
 		const retrieval = retrievalBase(member.document)
 		for (const resource of [retrieval, member.base]) {
@@ -1301,10 +1421,13 @@ class Resolver {
 		return undefined
 	}
 
-	// Indexes every member, then walks to a fixed point from the entry root: members are walked
-	// where references reach them. A schema reference may still wait for an $id or $anchor that only
-	// a walked reference reveals (a schema under an extension, say); a waiting site is retried only
-	// when its resource gains one, and only while the walk progresses.
+	/**
+	 * Indexes every member, then walks to a fixed point from the entry root: members are walked
+	 * where references reach them. A schema reference may still wait for an $id or $anchor that only
+	 * a walked reference reveals (a schema under an extension, say); a waiting site is retried only
+	 * when its resource gains one, and only while the walk progresses. Once nothing new is left to
+	 * walk, every waiting reference is final.
+	 */
 	run(): Failure | undefined {
 		for (const member of this.all) {
 			const failed = this.register(member)
@@ -1326,9 +1449,11 @@ class Resolver {
 			pointer: ""
 		})
 
-		// Not `Arr.groupBy`: the keys come from side-effecting site outcomes evaluated in order with an
-		// early return, and the map persists across iterations, pruned by `waiting.delete`. groupBy
-		// takes a finished iterable, so it would run outcomes the failure path skips today.
+		/**
+		 * Not `Arr.groupBy`: the keys come from side-effecting site outcomes evaluated in order with an
+		 * early return, and the map persists across iterations, pruned by `waiting.delete`. groupBy
+		 * takes a finished iterable, so it would run outcomes the failure path skips today.
+		 */
 		const waiting = new Map<string, Waiting[]>()
 		let order = 0
 		for (;;) {
@@ -1338,7 +1463,10 @@ class Resolver {
 				return walked
 			}
 
-			const retried = [...this.added].flatMap((resource) => waiting.get(resource) ?? [])
+			const retried = Arr.flatMap(
+				Arr.fromIterable(this.added),
+				(resource) => waiting.get(resource) ?? []
+			)
 			for (const resource of this.added) {
 				waiting.delete(resource)
 			}
@@ -1349,7 +1477,7 @@ class Resolver {
 			order += found.length
 			const pending = [
 				...Arr.sort(retried, byOrder),
-				...found.map((site, index) => ({ order: offset + index, site }))
+				...Arr.map(found, (site, index) => ({ order: offset + index, site }))
 			]
 			for (const entry of pending) {
 				const outcome =
@@ -1366,14 +1494,15 @@ class Resolver {
 				}
 			}
 
-			// Nothing new to walk, so every waiting reference is final.
 			if (this.stack.length === 0 && this.added.size === 0) {
 				return this.finalWaiting(waiting) ?? this.containment()
 			}
 		}
 	}
 
-	// Refuses the earliest-found site still waiting, if any.
+	/**
+	 * Refuses the earliest-found site still waiting, if any.
+	 */
 	finalWaiting(waiting: ReadonlyMap<string, readonly Waiting[]>): Failure | undefined {
 		let first: Waiting | undefined
 		for (const entries of waiting.values()) {
@@ -1417,8 +1546,10 @@ interface Prepared {
 	readonly member: Member
 }
 
-// A document of the set with its base URI (design 3.3); a fragment has no `$self` to honour.
-const prepare = (input: ResolveMember, line: Line, openapi: boolean): Prepared => {
+/**
+ * A document of the set with its base URI (design 3.3); a fragment has no `$self` to honour.
+ */
+const prepare = (input: ResolveMember, line: SpecLine, openapi: boolean): Prepared => {
 	const base = openapi
 		? Option.getOrUndefined(documentBase(line, input.document, input.value))
 		: retrievalBase(input.document)
@@ -1433,9 +1564,11 @@ const prepare = (input: ResolveMember, line: Line, openapi: boolean): Prepared =
 	return { invalidBase: base === undefined, member }
 }
 
-const arrayIndex = /^[0-9]+$/u
+const arrayIndex = regex("^[0-9]+$", "u")
 
-// A use site that is an `allOf` member: its pointer ends in `allOf` and an array index.
+/**
+ * A use site that is an `allOf` member: its pointer ends in `allOf` and an array index.
+ */
 const isAllOfMember = (site: CanonicalKey): boolean => {
 	const tokens = Result.getOrElse(parsePointerResult(site.pointer), (): readonly string[] => [])
 
@@ -1445,53 +1578,56 @@ const isAllOfMember = (site: CanonicalKey): boolean => {
 const referrersOf = (
 	references: ReadonlyMap<string, ResolvedReference>
 ): ReadonlyMap<string, readonly CanonicalKey[]> => {
-	// Target keys hold `#`, never an integer-like key, so the record keeps insertion order.
+	/**
+	 * Target keys hold `#`, never an integer-like key, so the record keeps insertion order.
+	 */
 	const grouped = Arr.groupBy(
-		[...references.values()].filter((reference) => isAllOfMember(reference.site)),
+		Arr.filter(Arr.fromIterable(references.values()), (reference) => isAllOfMember(reference.site)),
 		(reference) => keyOf(reference.target)
 	)
 
 	return new Map(
-		Object.entries(grouped).map(([key, list]): [string, readonly CanonicalKey[]] => [
+		Arr.map(Record.toEntries(grouped), ([key, list]): [string, readonly CanonicalKey[]] => [
 			key,
-			list.map((reference) => reference.site)
+			Arr.map(list, (reference) => reference.site)
 		])
 	)
 }
 
 /**
  * Resolves every reference reachable from the entry document across the document set (design
- * 3.3): canonical keys, base URIs per document and line, sibling rules, hop and node budgets over
- * the whole set, cycles, and `$defs` keys for schema targets. A URI outside the set is refused,
- * never fetched.
+ * 3.3) within `limits`: canonical keys, base URIs per document and line, sibling rules, hop and
+ * node budgets over the whole set, cycles, and `$defs` keys for schema targets. A URI outside the
+ * set is refused, never fetched.
  */
-export const resolve = Effect.fn("resolve.resolve")(function* resolve(
+export const resolveWithin = Effect.fn("resolve.resolve")(function* resolveWithin(
 	input: ResolveInput,
-	limits: Partial<ResolveLimits> = {}
+	limits: ResolveLimits
 ): Effect.fn.Return<Resolution, ResolveRefusal> {
 	const head = prepare(input, input.line, true)
-	const rest = (input.members ?? []).map((member) =>
+	const rest = Arr.map(input.members ?? [], (member) =>
 		prepare(member, member.line ?? input.line, stringMember(member.value, "openapi") !== undefined)
 	)
 	const set = [head, ...rest]
 	const entry = head.member
-	const others = rest.map((prepared) => prepared.member)
-	const resolver = new Resolver(entry, others, { ...defaultLimits, ...limits })
-	const invalid = set.find((prepared) => prepared.invalidBase)?.member
-	const failed =
-		invalid === undefined
-			? resolver.run()
-			: failure("REF-12/invalid-base", { document: invalid.document, pointer: "/$self" })
+	const others = Arr.map(rest, (prepared) => prepared.member)
+	const resolver = new Resolver(entry, others, limits)
+	const invalid = Arr.findFirst(set, (prepared) => prepared.invalidBase)
+	const failed = Option.match(invalid, {
+		onNone: () => resolver.run(),
+		onSome: ({ member }) =>
+			failure("REF-12/invalid-base", { document: member.document, pointer: "/$self" })
+	})
 	const memberOfFinding = (finding: Finding): Member =>
 		resolver.byDocument.get(finding.document) ?? entry
 	if (failed !== undefined) {
 		const diagnostic = yield* toDiagnostic(memberOfFinding(failed.finding), failed.finding)
 
-		return yield* new ResolveRefusal({ diagnostic })
+		return yield* ResolveRefusal.make({ diagnostic })
 	}
 
-	const diagnostics = yield* Effect.all(
-		resolver.findings.map((finding) => toDiagnostic(memberOfFinding(finding), finding))
+	const diagnostics = yield* Effect.forEach(resolver.findings, (finding) =>
+		toDiagnostic(memberOfFinding(finding), finding)
 	)
 
 	return {
@@ -1500,13 +1636,19 @@ export const resolve = Effect.fn("resolve.resolve")(function* resolve(
 		defs: resolver.defs,
 		diagnostics,
 		document: input.document,
-		documents: new Map(resolver.all.map((member) => [member.document, member.value])),
+		documents: new Map(Arr.map(resolver.all, (member) => [member.document, member.value])),
 		line: input.line,
 		operationIds: resolver.operationIds,
 		references: resolver.references,
 		value: input.value
 	}
 })
+
+/**
+ * `resolveWithin` the resolver's own limits, `defaultLimits`.
+ */
+export const resolve = (input: ResolveInput): Effect.Effect<Resolution, ResolveRefusal> =>
+	resolveWithin(input, defaultLimits)
 
 /**
  * The resolved reference whose use site is `pointer` in the entry document.
@@ -1517,8 +1659,10 @@ export const referenceAt = (
 ): ResolvedReference | undefined =>
 	resolution.references.get(keyOf({ document: resolution.document, pointer }))
 
-// A name read as a URI, resolved inside the set only: a 3.2 Security Scheme URI (SEC-10) or a
-// discriminator mapping value that is not a component name (DSC-03, DSC-08).
+/**
+ * A name read as a URI, resolved inside the set only: a 3.2 Security Scheme URI (SEC-10) or a
+ * discriminator mapping value that is not a component name (DSC-03, DSC-08).
+ */
 const componentByUri = (resolution: Resolution, name: string): Option.Option<CanonicalKey> => {
 	const resolved = resolveUri(name, resolution.base).pipe(Option.map(splitFragment))
 	const resource = resolved.pipe(

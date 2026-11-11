@@ -4,6 +4,7 @@ import { checkSpecText } from "#check/index.ts"
 import { DocumentUri } from "#model/brands.ts"
 import type { EncodingRule, MediaAlternative } from "#model/entities.ts"
 import type { Json } from "#model/pointer.ts"
+import type { SpecLine } from "#model/spec-section.ts"
 import {
 	BodyNodeBudget,
 	BodyNotReadable,
@@ -13,15 +14,14 @@ import {
 import type { BodyOutcome } from "#normalize/bodies.ts"
 import { deepObjectExplodeText } from "#normalize/parameters.ts"
 import { resolve } from "#resolve/index.ts"
-import type { Line } from "#validate/index.ts"
 
 const entry = Schema.decodeUnknownSync(DocumentUri)("file:///spec/openapi.json")
 
-const openapi: Record<Line, string> = { "3.0": "3.0.3", "3.1": "3.1.1", "3.2": "3.2.0" }
+const openapi: Record<SpecLine, string> = { "3.0": "3.0.3", "3.1": "3.1.1", "3.2": "3.2.0" }
 
-const specVersion: Record<Line, string> = { "3.0": "3.0.4", "3.1": "3.1.2", "3.2": "3.2.1" }
+const specVersion: Record<SpecLine, string> = { "3.0": "3.0.4", "3.1": "3.1.2", "3.2": "3.2.1" }
 
-const lines: readonly Line[] = ["3.0", "3.1", "3.2"]
+const lines: readonly SpecLine[] = ["3.0", "3.1", "3.2"]
 
 const site = "/paths/~1a/post/requestBody"
 
@@ -29,7 +29,7 @@ interface Members {
 	readonly [key: string]: Json
 }
 
-const documentOf = (line: Line, requestBody: Json, components: Members = {}): Json => ({
+const documentOf = (line: SpecLine, requestBody: Json, components: Members = {}): Json => ({
 	components,
 	info: { title: "t", version: "1" },
 	openapi: openapi[line],
@@ -38,14 +38,14 @@ const documentOf = (line: Line, requestBody: Json, components: Members = {}): Js
 	}
 })
 
-const normalize = (line: Line, requestBody: Json, components: Members = {}): BodyOutcome => {
+const normalize = (line: SpecLine, requestBody: Json, components: Members = {}): BodyOutcome => {
 	const value = documentOf(line, requestBody, components)
 	const resolution = Effect.runSync(resolve({ document: entry, line, value }))
 
 	return Effect.runSync(normalizeBody(resolution, { openapi: openapi[line], pointer: site }))
 }
 
-const implemented = (line: Line, requestBody: Json, components: Members = {}) => {
+const implemented = (line: SpecLine, requestBody: Json, components: Members = {}) => {
 	const outcome = normalize(line, requestBody, components)
 	if (outcome._tag !== "Implemented") {
 		throw new Error(`expected Implemented, got ${outcome._tag}`)
@@ -54,7 +54,7 @@ const implemented = (line: Line, requestBody: Json, components: Members = {}) =>
 	return outcome
 }
 
-const refused = (line: Line, requestBody: Json) => {
+const refused = (line: SpecLine, requestBody: Json) => {
 	const outcome = normalize(line, requestBody)
 	if (outcome._tag !== "Refused") {
 		throw new Error(`expected Refused, got ${outcome._tag}`)
@@ -77,7 +77,7 @@ const only = <T>(values: readonly T[]): T => {
 	return first
 }
 
-const alternativeOf = (line: Line, mediaType: string, media: Json = {}): MediaAlternative =>
+const alternativeOf = (line: SpecLine, mediaType: string, media: Json = {}): MediaAlternative =>
 	only(implemented(line, { content: { [mediaType]: media } }).body.alternatives)
 
 const targetOf = (rule: Pick<EncodingRule, "target">): string =>
@@ -260,7 +260,7 @@ describe("ENC-17 to ENC-26 the default contentType table", () => {
 		untyped: {}
 	}
 
-	const typesFor = (line: Line) =>
+	const typesFor = (line: SpecLine) =>
 		typesOf(alternativeOf(line, "multipart/form-data", { schema: object(properties) }).encoding)
 
 	test("3.0.4 treats format binary and byte as octet-stream and an untyped value like 3.1", () => {
@@ -301,7 +301,7 @@ describe("ENC-17 to ENC-26 the default contentType table", () => {
 
 	test("an array of binary items is octet-stream in 3.0 by format and in 3.1 by type absent", () => {
 		const files: Json = { items: { format: "binary", type: "string" }, type: "array" }
-		const typesIn = (line: Line) =>
+		const typesIn = (line: SpecLine) =>
 			typesOf(alternativeOf(line, "multipart/form-data", { schema: object({ files }) }).encoding)
 
 		expect(typesIn("3.0")).toEqual({ files: ["application/octet-stream"] })
@@ -1042,7 +1042,7 @@ describe("SCH-13 S30-24 multipart-extra-fields: a schema-valued additionalProper
 
 describe("MED-25 an object schema on a multipart type other than form-data is refused", () => {
 	const media = "/paths/~1a/post/requestBody/content/multipart~1mixed"
-	const anchors: Record<Line, string> = {
+	const anchors: Record<SpecLine, string> = {
 		"3.0": "encoding-multipart-media-types",
 		"3.1": "encoding-multipart-media-types",
 		"3.2": "additional-encoding-approaches"
@@ -1185,7 +1185,7 @@ describe("DSC-01 DSC-07 DSC-09 DSC-11 the discriminator hint", () => {
 	const pets: Members = { Cat: pet("meow"), Dog: pet("bark") }
 
 	// The hint on the one alternative of a JSON body, after check's findings are read.
-	const hintOf = (line: Line, schema: Json, schemas: Members = pets) => {
+	const hintOf = (line: SpecLine, schema: Json, schemas: Members = pets) => {
 		const requestBody = { content: { "application/json": { schema } }, required: true }
 		const value = documentOf(line, requestBody, { schemas })
 		const resolution = Effect.runSync(resolve({ document: entry, line, value }))
