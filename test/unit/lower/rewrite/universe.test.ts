@@ -22,9 +22,10 @@
  * (eliminate-deferred).
  */
 import { describe, it } from "@effect/vitest"
+import { count } from "@grizzle/testing/enumerate"
 import { type Case, exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
-import { element } from "@grizzle/testing/gen"
+import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
@@ -138,15 +139,19 @@ const situations: Arr.NonEmptyReadonlyArray<UniverseFeature> = [
 
 /**
  * Every plan of `grammar` up to `operators` operators under every variant of `among`, each variant installed once and
- * looked up in the property, so the space holds the variant's data and the report prints it.
+ * looked up in the property, so the space holds the variant's data and the report prints it. Its limit is the space's
+ * own size, counted by enumerating the generator alone (enumerate.ts count) before any case runs: the box is the
+ * grammar's and the variants', so no change of either leaves a hand-set bound stale.
  */
 const exhaustUpTo = (
 	grammar: Grammar,
 	among: Arr.NonEmptyReadonlyArray<Variant>,
-	operators: number,
-	limit: number
+	operators: number
 ) => {
 	const installs = new Map(Arr.map(among, (variant) => [variant, installed(variant)] as const))
+	const generator: Gen<readonly [Variant, Plan]> = (source) =>
+		[source.draw(element(among)), source.draw(plansUpTo(grammar, operators))] as const
+	const counted = count(generator, Number.MAX_SAFE_INTEGER)
 	return exhaust(
 		{
 			box: `every plan of the ${grammar.name} grammar of up to ${operators} operators, under every key and containment variant, in every context it can be read in, on every database the context may see, under every binding of its parameters`,
@@ -155,10 +160,9 @@ const exhaustUpTo = (
 				name: "the reference evaluator's delivery of the checked query"
 			},
 			suite: `unit/lower/rewrite/universe-${grammar.name}-${operators}`,
-			generator: (source) =>
-				[source.draw(element(among)), source.draw(plansUpTo(grammar, operators))] as const,
+			generator,
 			literal: Formatter.format,
-			limit,
+			limit: counted.kind === "within" ? counted.cases : counted.limit,
 			coverage: requiredInSpace<UniverseFeature>(situations),
 			caseHang
 		},
@@ -172,11 +176,11 @@ const exhaustUpTo = (
 describe("the rewrite pipeline over a small closed universe", () => {
 	it.effect(
 		"every core query of up to three operators delivers what it delivered before the rewrites",
-		(ctx) => searched(ctx, exhaustUpTo(coreGrammar, variants, 3, 40_000))
+		(ctx) => searched(ctx, exhaustUpTo(coreGrammar, variants, 3))
 	)
 
 	it.effect(
 		"every extended query of up to two operators delivers what it delivered before the rewrites",
-		(ctx) => searched(ctx, exhaustUpTo(extendedGrammar, variants, 2, 4_500))
+		(ctx) => searched(ctx, exhaustUpTo(extendedGrammar, variants, 2))
 	)
 })
