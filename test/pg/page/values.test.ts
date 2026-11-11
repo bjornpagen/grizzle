@@ -13,7 +13,7 @@
  * - the windows walked from the start, each after the last one's last row, and from the end, each before the first one's
  *   first row, are D cut at the size, then one empty window: every boundary value round-trips as an anchor, the seek
  *   comparing it in PostgreSQL's own order (NaN greatest, -0 = 0, code points);
- * - every row's Key, its key fields' values, anchors a window by its values exactly: the boundary texts its anchor
+ * - every row's RowKey, its key fields' values, anchors a window by its values exactly: the boundary texts its anchor
  *   binds (adapter/page/window.ts windowCall), each its comparator's codec's, are read back by PostgreSQL, as its
  *   column's type, equal to the value stored in the row.
  *
@@ -229,7 +229,7 @@ const reached = (stored: ReadonlyArray<StoredFact>): ReadonlyArray<ValuesFeature
 
 layer(Substrate.layer)("boundary values through the page runtime", (it) => {
 	it.effect(
-		"cuts D of drawn edge values of every ordered type into windows exactly, each row's Key anchoring by its values as PostgreSQL reads them back",
+		"cuts D of drawn edge values of every ordered type into windows exactly, each row's RowKey anchoring by its values as PostgreSQL reads them back",
 		(ctx) =>
 			searched(
 				ctx,

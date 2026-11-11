@@ -13,7 +13,7 @@ import type {
 	SetEvent,
 	WriteEvent
 } from "#compiler/live/events.ts"
-import { type Key, sameValue } from "#compiler/live/key.ts"
+import { type RowKey, sameValue } from "#compiler/live/key.ts"
 import { type Entry, Keyed, type KeyedList, type KeyedSet } from "#compiler/live/keyed.ts"
 
 /** A read's events of shape S. */
@@ -156,8 +156,8 @@ export const foldWrite = <Outcome>(
 const removals = <S extends ReadShape, Row extends object>(
 	previous: Keyed<S, Row>,
 	next: Keyed<S, Row>
-): Array<{ readonly kind: "remove"; readonly key: Key }> => {
-	const changes: Array<{ readonly kind: "remove"; readonly key: Key }> = []
+): Array<{ readonly kind: "remove"; readonly key: RowKey }> => {
+	const changes: Array<{ readonly kind: "remove"; readonly key: RowKey }> = []
 	for (const entry of previous.entries()) {
 		if (next.at(entry.form) === undefined) {
 			changes.push({ kind: "remove", key: entry.key })
@@ -249,7 +249,7 @@ export const diffList = <Row extends object>(
 	for (const k of longestIncreasing(places)) {
 		stays.add(defined(kept[k], "a kept row"))
 	}
-	let after: Key | null = null
+	let after: RowKey | null = null
 	entries.forEach((entry, i) => {
 		if (!stays.has(i)) {
 			changes.push({ kind: "upsert", row: entry.row, after })

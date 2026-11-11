@@ -38,7 +38,7 @@ export {
 	type WriteState,
 	writeOpening
 } from "#compiler/live/fold.ts"
-export { type Form, formOf, Key, type KeyFields, keyOf, sameValue } from "#compiler/live/key.ts"
+export { type Form, formOf, type KeyFields, keyOf, RowKey, sameValue } from "#compiler/live/key.ts"
 export { type Entry, Keyed, type KeyedList, type KeyedSet } from "#compiler/live/keyed.ts"
 export type {
 	Anchor,

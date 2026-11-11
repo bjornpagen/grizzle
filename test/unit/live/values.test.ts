@@ -44,7 +44,6 @@ import {
 	fold,
 	foldWrite,
 	formOf,
-	Key,
 	type KeyFields,
 	Keyed,
 	keyOf,
@@ -53,6 +52,7 @@ import {
 	type ReadEvent,
 	type ReadShape,
 	type ReadState,
+	RowKey,
 	type SetChange,
 	sameValue,
 	type WriteEvent,
@@ -239,7 +239,7 @@ interface Kit<S extends ReadShape> {
 }
 
 /** The key of a key value's index under keys that hold no payload. */
-const keyAt = (fields: KeyFields, i: number): Key => keyOf(fields, rowOf({ i, p: 0 }))
+const keyAt = (fields: KeyFields, i: number): RowKey => keyOf(fields, rowOf({ i, p: 0 }))
 
 const setKit: Kit<"set"> = {
 	shape: "set",
@@ -784,8 +784,8 @@ describe("the live model's values", () => {
 						const [a, b] = [forms[left], forms[right]]
 						assert.ok(a !== undefined && b !== undefined, "two makers")
 						const index = new TupleMap<ReadonlyArray<unknown>, true>()
-						index.set(formOf(Key([a.make()])), true)
-						assert.equal(index.has(formOf(Key([b.make()]))), a.key === b.key)
+						index.set(formOf(RowKey([a.make()])), true)
+						assert.equal(index.has(formOf(RowKey([b.make()]))), a.key === b.key)
 						assert.equal(sameValue(a.make(), b.make()), a.delivery === b.delivery)
 						c.note(
 							a.delivery === b.delivery

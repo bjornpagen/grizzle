@@ -66,7 +66,7 @@ import { ReadFailure } from "#adapter/errors/execution.ts"
 import { CallInputRefused, type CallInputFault } from "#adapter/errors/failures.ts"
 import { callErrorOf } from "#adapter/live/call-error.ts"
 import { appendAll } from "#compiler/core/array.ts"
-import { type Anchor, type Key, keyOf } from "#compiler/live/index.ts"
+import { type Anchor, keyOf, type RowKey } from "#compiler/live/index.ts"
 import type { Uuid } from "#compiler/public/fields.ts"
 import { paged } from "#compiler/public/workload.ts"
 import {
@@ -370,7 +370,7 @@ interface ModelTask {
 
 /** A row some window delivered: its key, the row, the member that read it. */
 interface Delivered {
-	readonly key: Key
+	readonly key: RowKey
 	readonly row: unknown
 	readonly handle: Handle
 }
@@ -556,7 +556,7 @@ const inputSketchGen: Gen<InputSketch> = (source) => ({
 })
 
 /** The key an input's anchor carries, from `row`, the delivered row's key. */
-const keyInput = (sketch: InputSketch["key"], row: Key): unknown => {
+const keyInput = (sketch: InputSketch["key"], row: RowKey): unknown => {
 	switch (sketch.kind) {
 		case "the row's":
 			return row
@@ -575,7 +575,7 @@ const keyInput = (sketch: InputSketch["key"], row: Key): unknown => {
 }
 
 /** The input a sketch builds over `row`, the delivered row's key. */
-const inputOf = (c: InputSketch, row: Key): unknown => {
+const inputOf = (c: InputSketch, row: RowKey): unknown => {
 	const anchor =
 		c.anchor === "no record"
 			? c.kind

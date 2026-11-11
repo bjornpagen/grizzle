@@ -13,9 +13,9 @@ import type { PageVariant, ScalarCodec } from "#compiler/plan/read.ts"
  * - `size`: a safe integer of at least 1, with no upper bound, since the statement binds it as a bigint; any bound is
  *   the caller's.
  * - `anchor`: `{ kind: "start" }`, `{ kind: "after", key }`, `{ kind: "end" }` or `{ kind: "before", key }`. Its kind
- *   names the page template it runs (anchors). An anchored kind's Key holds one decoded value per comparator of the
+ *   names the page template it runs (anchors). An anchored kind's RowKey holds one decoded value per comparator of the
  *   page's completed order, in that order, each written by its comparator column's codec as the boundary text the
- *   template's seek binds, so a Key is read exactly as a row's own values are and no token stands between them.
+ *   template's seek binds, so a RowKey is read exactly as a row's own values are and no token stands between them.
  *
  * Each value is read once, through its own property's descriptor (db/input.ts exactRecord, keyValues), and nothing
  * else of it is read: a window that is no record of exactly an anchor and a size, an anchor that is no record of exactly
@@ -46,7 +46,7 @@ const refused = (fault: CallInputRefused["fault"]): Result.Result<never, CallInp
 	Result.fail(new CallInputRefused({ fault }))
 
 /**
- * The values of a Key, a list of exactly `length` values, each read through its index's own descriptor; or none, for
+ * The values of a RowKey, a list of exactly `length` values, each read through its index's own descriptor; or none, for
  * any other value, and for one holding an accessor or a hole among them.
  */
 const keyValues = (key: unknown, length: number): ReadonlyArray<unknown> | undefined => {
@@ -64,7 +64,7 @@ const keyValues = (key: unknown, length: number): ReadonlyArray<unknown> | undef
 	return values
 }
 
-/** A Key's boundary texts, one per comparator, each its codec's text of the Key's value at its position. */
+/** A RowKey's boundary texts, one per comparator, each its codec's text of the RowKey's value at its position. */
 const boundaryOf = (
 	key: unknown,
 	codecs: ReadonlyArray<ScalarCodec>
@@ -85,7 +85,7 @@ const boundaryOf = (
 }
 
 /**
- * The call an anchor is, with the window's `size`: its kind's template and, for an anchored kind, its Key's boundary
+ * The call an anchor is, with the window's `size`: its kind's template and, for an anchored kind, its RowKey's boundary
  * texts, or its refusal.
  */
 const anchorCall = (
@@ -118,7 +118,7 @@ const anchorCall = (
 }
 
 /**
- * The call a caller's window is (see the header), its anchor's Key written by `codecs`, one per comparator of the
+ * The call a caller's window is (see the header), its anchor's RowKey written by `codecs`, one per comparator of the
  * page's completed order, or its refusal: a window whose reading throws is refused at `window`, an anchor whose reading
  * throws at `anchor`.
  */

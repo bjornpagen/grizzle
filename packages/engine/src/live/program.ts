@@ -5,7 +5,7 @@
 import type { Delivering } from "#compiler/core/phantom.ts"
 import type { EventOfShape } from "#compiler/live/events.ts"
 import type { ReadState, WriteState } from "#compiler/live/fold.ts"
-import type { Key } from "#compiler/live/key.ts"
+import type { RowKey } from "#compiler/live/key.ts"
 import type { KeyedList, KeyedSet } from "#compiler/live/keyed.ts"
 import type { AnyChangeSet, ArraysOf } from "#compiler/types/changeset/changeset.ts"
 import type { ParamArg, ParamValue } from "#compiler/types/core/phantom.ts"
@@ -32,9 +32,9 @@ export interface Input<P, F> {
  */
 export type Anchor =
 	| { readonly kind: "start" }
-	| { readonly kind: "after"; readonly key: Key }
+	| { readonly kind: "after"; readonly key: RowKey }
 	| { readonly kind: "end" }
-	| { readonly kind: "before"; readonly key: Key }
+	| { readonly kind: "before"; readonly key: RowKey }
 
 /**
  * A paged program's window, beside its params: `size` rows from `anchor`. An empty window is the end of the rows;

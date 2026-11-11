@@ -14,21 +14,21 @@ declare const keyBrand: unique symbol
  * A row's key: the decoded values of its stream's key fields, in key order (keyOf). Two keys are one exactly when
  * their values are, element by element, each compared by its one form (formOf).
  */
-export type Key = ReadonlyArray<unknown> & { readonly [keyBrand]: true }
+export type RowKey = ReadonlyArray<unknown> & { readonly [keyBrand]: true }
 
 /**
  * A key from its values in key order, unchecked: what an event's decoder mints from the values of a key it reads, which
  * the stream's reset coordinates. Everything else derives a key from a row (keyOf).
  */
-export const Key = nominal<ReadonlyArray<unknown>, Key>()
+export const RowKey = nominal<ReadonlyArray<unknown>, RowKey>()
 
 /** A head field's value in a decoded row, which a decoder builds as an own data property. */
 const fieldOf = (row: object, field: string): unknown =>
 	Reflect.getOwnPropertyDescriptor(row, field)?.value
 
 /** The key of `row` under `fields`: each key field's value, in key order. */
-export const keyOf = (fields: KeyFields, row: object): Key =>
-	Key(fields.map((field) => fieldOf(row, field)))
+export const keyOf = (fields: KeyFields, row: object): RowKey =>
+	RowKey(fields.map((field) => fieldOf(row, field)))
 
 /** The tags a composite value's form opens with, which no primitive equals, so forms of two shapes never meet. */
 const formTags = {
@@ -83,7 +83,7 @@ const pushForm = (value: unknown, into: Array<unknown>): void => {
 export type Form = ReadonlyArray<unknown>
 
 /** The form of `key`: each of its values' forms in key order (pushForm). */
-export const formOf = (key: Key): Form => {
+export const formOf = (key: RowKey): Form => {
 	const into: Array<unknown> = []
 	for (const value of key) {
 		pushForm(value, into)

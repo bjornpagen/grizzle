@@ -44,7 +44,7 @@ import {
 	unionArms
 } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
-import { type Anchor, Key } from "#compiler/live/index.ts"
+import { type Anchor, RowKey } from "#compiler/live/index.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import {
 	conservativeInput,
@@ -834,8 +834,8 @@ interface Windowed {
 	readonly delivered: ReadonlyArray<Row>
 	/** Every attachment statement of the window's program, in statement order. */
 	readonly attached: ReadonlyArray<Attached>
-	readonly first: Option.Option<Key>
-	readonly last: Option.Option<Key>
+	readonly first: Option.Option<RowKey>
+	readonly last: Option.Option<RowKey>
 }
 
 /**
@@ -958,10 +958,10 @@ const windowReader = (
 			/** The record of the rows statement that delivered a row, by its heading group. */
 			const recordOf = (row: DeliveredRow) =>
 				defined(groups[row.group], "a delivered row's heading group").record
-			/** A delivered row's Key: its comparators' values, each converted from its cell. */
-			const keyOfRow = (row: DeliveredRow): Key => {
+			/** A delivered row's RowKey: its comparators' values, each converted from its cell. */
+			const keyOfRow = (row: DeliveredRow): RowKey => {
 				const heading = recordOf(row).part.heading
-				return Key(
+				return RowKey(
 					Arr.map(comparators, (c) =>
 						c.value.convert(rowCell(row.cells, columnPosition(heading, c.field)))
 					)
@@ -1258,10 +1258,10 @@ const negativeZeroRelation = (o: OrderedCase): boolean =>
  * page compiler's, and its runtime template (packages/grizzle/src/adapter/page/template.ts pageRuntimeOf) adds the
  * specs and one anchor codec per comparator. The case installs with the real installer in a transaction that is rolled
  * back, and every window reads that one snapshot. Every window goes through the runtime as a reader's does, minus the
- * transaction: its anchor is read by the window's parse (page/window.ts windowCall), its Key the delivered row's
+ * transaction: its anchor is read by the window's parse (page/window.ts windowCall), its RowKey the delivered row's
  * comparator values, its one statement runs (a LIMIT of its size, the heading-group merge and cut, the backward
  * reversal, the attachments over the delivered rows), and its rows are read by the runtime's window intake, so the
- * next window anchors at a real row's Key. Then:
+ * next window anchors at a real row's RowKey. Then:
  *
  * - windows walked from the start, each after the last one's last row, and from the end, each before the first one's
  *   first row, at one size per direction, drawn per case, every size 1 through 7 over the run, cut the complete sorted

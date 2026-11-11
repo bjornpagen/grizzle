@@ -58,7 +58,7 @@ import type { ServedChoice } from "#compiler/plan/serve.ts"
  * answers them, and answers none where none lie. A statement failure fails the window: there is no short window.
  *
  * One window as it runs: its template's variant and its size, and an anchored window's boundary texts, one per
- * comparator, its Key's values written by their comparators' codecs (window.ts windowCall).
+ * comparator, its RowKey's values written by their comparators' codecs (window.ts windowCall).
  */
 export type PageCall =
 	| { readonly variant: "first"; readonly size: number }
@@ -82,7 +82,7 @@ interface DeliveredEdge {
 /**
  * The binding of a window's page placeholder: a size fill's text, the window's size, which a limit and a cut of the
  * delivered rows both take, or a boundary value as the window's anchor wrote it. The engine allocates one boundary
- * placeholder per comparator, at its position, and the window's Key holds one value per comparator (window.ts), so a
+ * placeholder per comparator, at its position, and the window's RowKey holds one value per comparator (window.ts), so a
  * position the boundary holds no text at is a defect of the compiler.
  */
 const windowBinding =

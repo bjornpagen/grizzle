@@ -27,7 +27,7 @@ export {
 	type WriteState,
 	writeOpening
 } from "#compiler/live/fold.ts"
-export { Key } from "#compiler/live/key.ts"
+export { RowKey } from "#compiler/live/key.ts"
 export { Keyed, type KeyedList, type KeyedSet } from "#compiler/live/keyed.ts"
 export type {
 	Anchor,

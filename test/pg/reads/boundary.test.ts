@@ -18,7 +18,7 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Cause, Effect, Exit, Formatter, Option, Scope, Struct } from "effect"
 import { memberCalls, type ServedCalls } from "#adapter/db/handles.ts"
 import type { SessionPool } from "#adapter/wire/session.ts"
-import type { CallError, CallErrorKind, Key } from "#compiler/live/index.ts"
+import type { CallError, CallErrorKind, RowKey } from "#compiler/live/index.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { paged } from "#compiler/public/workload.ts"
 import { defaultPool, poolFor, rowsOn } from "#test/pg/adapter/support.ts"
@@ -90,7 +90,7 @@ interface Subject {
 	readonly pool: SessionPool
 	readonly dispose: Effect.Effect<void>
 	/** The key of a row of another paged member, whose completed order has another length. */
-	readonly foreignKey: Key
+	readonly foreignKey: RowKey
 	readonly note: Case<BoundaryFeature>["note"]
 }
 
@@ -332,7 +332,7 @@ const stepsOf = (real: Subject): Real<Model, BoundaryParameters, never, never, n
 })
 
 /** The key of the first row of the paged member `other`, read live. */
-const foreignKeyOf = (other: ServedCalls): Effect.Effect<Key, CallError> => {
+const foreignKeyOf = (other: ServedCalls): Effect.Effect<RowKey, CallError> => {
 	assertVariant(other, "shape", "list", "the other paged member reads a list")
 	return Effect.flatMap(other.once({ params: {}, facts: {}, window: first(1) }), (value) =>
 		Option.match(Arr.head(Arr.fromIterable(value.entries())), {

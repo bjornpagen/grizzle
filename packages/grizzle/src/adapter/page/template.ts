@@ -46,7 +46,7 @@ import type {
  * - each template's statement records (reader/execution.ts programRecords), so the query's decoder binds to the same
  *   layouts on every window of the template, and how its rows statements deliver: each one's comparison tuple read
  *   from its texts by the comparators' value codecs, and a heterogeneous union's groups merged on the fetch order;
- * - one codec per comparator, which writes a window's anchor Key, one decoded value per comparator, as the boundary
+ * - one codec per comparator, which writes a window's anchor RowKey, one decoded value per comparator, as the boundary
  *   texts its seek binds (window.ts).
  *
  * The statement of a page program as the runtime runs it: its page placeholders, each the page fill the runtime binds
@@ -124,7 +124,7 @@ interface RunArtifact {
 
 /**
  * A served page as it runs: its served form, its read's parameters, each template's program (RunArtifact), and each
- * comparator's codec, in comparator order, which writes an anchor's Key (window.ts windowCall).
+ * comparator's codec, in comparator order, which writes an anchor's RowKey (window.ts windowCall).
  */
 export interface PageRuntime {
 	readonly page: ServedPage
@@ -238,7 +238,7 @@ const runArtifact = (page: ServedPage, parts: ArtifactParts): RunArtifact => {
 
 /**
  * The runtime template of a served page: its templates' records and deliveries, its comparators' value codecs, which
- * read a delivered row's comparison tuple, and their parameter codecs, which write an anchor's Key.
+ * read a delivered row's comparison tuple, and their parameter codecs, which write an anchor's RowKey.
  */
 export const pageRuntimeOf = (parts: PageRuntimeParts): PageRuntime => {
 	const page = parts.page

@@ -27,7 +27,6 @@ export {
 	type CallError,
 	type CallErrorKind,
 	Decimal,
-	Key,
 	Keyed,
 	type KeyedList,
 	type KeyedSet,
@@ -35,6 +34,7 @@ export {
 	type Refreshed,
 	type RelationCounts,
 	type Retry,
+	RowKey,
 	Vector,
 	type Window,
 	type WriteOutcome

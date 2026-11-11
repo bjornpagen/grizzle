@@ -41,7 +41,7 @@ import type { ReadError } from "#adapter/errors/execution.ts"
 import { Db } from "#adapter/public/db.ts"
 import { DbLayer } from "#adapter/public/layer.ts"
 import type { ServedLogin } from "#adapter/types/layer.ts"
-import type { Anchor, CallError, Key, KeyedList, Window } from "#compiler/live/index.ts"
+import type { Anchor, CallError, KeyedList, RowKey, Window } from "#compiler/live/index.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
 import { arm, query, v } from "#compiler/public/query.ts"
@@ -143,14 +143,14 @@ const tappedLayer = <L extends AnyLogin>(
 	})
 
 /** A window's anchor in its direction: the start or the end, or after or before a key an earlier window delivered. */
-const anchorOf = (key: Option.Option<Key>, forward: boolean): Anchor =>
+const anchorOf = (key: Option.Option<RowKey>, forward: boolean): Anchor =>
 	Option.match(key, {
 		onNone: (): Anchor => (forward ? { kind: "start" } : { kind: "end" }),
 		onSome: (at): Anchor => (forward ? { kind: "after", key: at } : { kind: "before", key: at })
 	})
 
 /** The keys of a window's rows, in order: what a later window is anchored after or before. */
-const keysOf = <Row extends object>(window: KeyedList<Row>): ReadonlyArray<Key> =>
+const keysOf = <Row extends object>(window: KeyedList<Row>): ReadonlyArray<RowKey> =>
 	Arr.map([...window.entries()], (entry) => entry.key)
 
 const readCallKinds = ["read", "key", "explain", "page"] as const
@@ -452,7 +452,7 @@ layer(Substrate.layer, { excludeTestServices: true })("one round trip per public
 							(calls, notes) =>
 								Effect.gen(function* () {
 									/** The keys each ordered query's windows delivered: a key anchors only its own query's windows. */
-									const delivered: Readonly<Record<"budgets" | "noted", Array<Key>>> = {
+									const delivered: Readonly<Record<"budgets" | "noted", Array<RowKey>>> = {
 										budgets: [],
 										noted: []
 									}
@@ -461,10 +461,10 @@ layer(Substrate.layer, { excludeTestServices: true })("one round trip per public
 										const edges = delivered[call.page]
 										const anchor =
 											edges.length === 0
-												? Option.none<Key>()
+												? Option.none<RowKey>()
 												: Option.some(defined(edges[pickIndex(call.anchor, edges.length)]))
 										const effect: Effect.Effect<
-											ReadonlyArray<Key>,
+											ReadonlyArray<RowKey>,
 											CallError | ReadError
 										> = call.kind === "read"
 											? Effect.as(target.once, [])

@@ -6,10 +6,10 @@ import { callErrorOf } from "#adapter/live/call-error.ts"
 import { asReadFailure, type PreparedStatement, runFramed } from "#adapter/wire/batch.ts"
 import {
 	type CallError,
-	type Key,
 	type KeyFields,
 	keyOf,
 	type ListEvent,
+	type RowKey,
 	type SetEvent
 } from "#compiler/live/index.ts"
 import type { Row } from "#compiler/plan/common.ts"
@@ -77,7 +77,7 @@ export const setEvents: ShapeEvents<SetEvent<DecodedRow>> = {
 export const listEvents: ShapeEvents<ListEvent<DecodedRow>> = {
 	reset: (fields) => ({ kind: "reset", key: fields }),
 	upserts: (fields) => {
-		let after: Key | null = null
+		let after: RowKey | null = null
 		return (row) => {
 			const event: ListEvent<DecodedRow> = { kind: "upsert", row, after }
 			after = keyOf(fields, row)

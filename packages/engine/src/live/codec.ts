@@ -23,7 +23,7 @@ import {
 	type Slot,
 	type SlotValues
 } from "#compiler/live/events.ts"
-import { Key, type KeyFields } from "#compiler/live/key.ts"
+import { type KeyFields, RowKey } from "#compiler/live/key.ts"
 import type { Anchor, Empty, Input, Window, WindowInput } from "#compiler/live/program.ts"
 import type {
 	MemberWire,
@@ -214,7 +214,7 @@ export const decodeRecord = (
 }
 
 /** The JSON of a key: its columns' values in key order. */
-export const encodeKey = (key: ReadonlyArray<WireField<WireScalar>>, value: Key): WireJson => {
+export const encodeKey = (key: ReadonlyArray<WireField<WireScalar>>, value: RowKey): WireJson => {
 	if (value.length !== key.length) {
 		throw defect("a key of its stream's key columns")
 	}
@@ -227,8 +227,8 @@ export const encodeKey = (key: ReadonlyArray<WireField<WireScalar>>, value: Key)
 }
 
 /** A key from the server's own JSON: its columns' values in key order. */
-export const decodeKey = (key: ReadonlyArray<WireField<WireScalar>>, json: WireJson): Key =>
-	Key(
+export const decodeKey = (key: ReadonlyArray<WireField<WireScalar>>, json: WireJson): RowKey =>
+	RowKey(
 		trustedArray(json).map((item, at) => {
 			const field = key[at]
 			if (field === undefined || (field.kind !== "scalar" && field.kind !== "constant")) {
@@ -476,7 +476,7 @@ const parseKey = (
 	key: ReadonlyArray<WireField<WireScalar>>,
 	json: unknown,
 	at: Path
-): Parsed<Key> => {
+): Parsed<RowKey> => {
 	if (!isList(json)) {
 		return refused("json", at)
 	}
@@ -485,7 +485,7 @@ const parseKey = (
 	}
 	return Result.map(
 		parseEach(key, (field, index) => parseColumn(field, json[index], [...at, index])),
-		Key
+		RowKey
 	)
 }
 
@@ -635,7 +635,7 @@ export const encodeInput = (input: WireInput<WireScalar>, value: unknown): WireJ
 		const anchorJson: WireJson =
 			kind === "start" || kind === "end"
 				? { kind }
-				: { kind, key: encodeKey(input.key, Key(keyValues(ownMember(anchor, "key")))) }
+				: { kind, key: encodeKey(input.key, RowKey(keyValues(ownMember(anchor, "key")))) }
 		const size = ownMember(window, "size")
 		if (typeof size !== "number") {
 			throw defect("a window's size")

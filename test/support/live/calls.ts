@@ -13,10 +13,10 @@ import {
 	type CallErrorKind,
 	callErrors,
 	fold,
-	Key,
 	type Keyed,
 	opening,
-	type ReadEvent
+	type ReadEvent,
+	RowKey
 } from "#compiler/live/index.ts"
 import { openApiText } from "#compiler/live/openapi.ts"
 import type { AnyLogin } from "#compiler/public/schema.ts"
@@ -53,7 +53,7 @@ const anchorOf = (anchor: LiveAnchor) => {
 			return { kind: anchor.kind }
 		case "after":
 		case "before":
-			return { kind: anchor.kind, key: Key([anchor.o, anchor.id]) }
+			return { kind: anchor.kind, key: RowKey([anchor.o, anchor.id]) }
 	}
 }
 

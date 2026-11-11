@@ -10,9 +10,9 @@ import type { ScalarType } from "#compiler/ir/scalar.ts"
 import {
 	type Anchor,
 	type CallError,
-	type Key,
 	type KeyFields,
-	keyOf
+	keyOf,
+	type RowKey
 } from "#compiler/live/index.ts"
 import { assert } from "#test/support/assert.ts"
 import { readOnce } from "#test/support/calls.ts"
@@ -88,7 +88,7 @@ export const canon = (value: unknown): unknown => {
 
 /**
  * A paged member's page runtime with the installation's codes, which its rows' closed ids and sets order and decode by,
- * and its key fields, the completed order's columns, whose values in order are a row's Key and a window's anchor.
+ * and its key fields, the completed order's columns, whose values in order are a row's RowKey and a window's anchor.
  */
 export interface TestPage {
 	readonly runtime: PageRuntime
@@ -144,8 +144,8 @@ export const sortedResult = (
 	return Arr.map(sorted, canon)
 }
 
-/** A Key as the record of its fields' values, which the page order compares rows with. */
-const keyRecord = (fields: KeyFields, key: Key): Readonly<Record<string, unknown>> =>
+/** A RowKey as the record of its fields' values, which the page order compares rows with. */
+const keyRecord = (fields: KeyFields, key: RowKey): Readonly<Record<string, unknown>> =>
 	Rec.fromEntries(Arr.zip(fields, key))
 
 /**
@@ -155,7 +155,7 @@ const keyRecord = (fields: KeyFields, key: Key): Readonly<Record<string, unknown
 export const strictlyAfter = (
 	compiled: TestPage,
 	rows: ReadonlyArray<unknown>,
-	key: Key
+	key: RowKey
 ): ReadonlyArray<unknown> => {
 	const order = pageOrder(compiled)
 	const anchor = keyRecord(compiled.fields, key)
@@ -172,7 +172,7 @@ export const strictlyAfter = (
 export const strictlyBefore = (
 	compiled: TestPage,
 	rows: ReadonlyArray<unknown>,
-	key: Key
+	key: RowKey
 ): ReadonlyArray<unknown> => {
 	const order = pageOrder(compiled)
 	const anchor = keyRecord(compiled.fields, key)
@@ -183,7 +183,11 @@ export const strictlyBefore = (
 }
 
 /** Whether a row of `rows` holds the anchor's values `key`. */
-export const holdsKey = (compiled: TestPage, rows: ReadonlyArray<unknown>, key: Key): boolean => {
+export const holdsKey = (
+	compiled: TestPage,
+	rows: ReadonlyArray<unknown>,
+	key: RowKey
+): boolean => {
 	const order = pageOrder(compiled)
 	const anchor = keyRecord(compiled.fields, key)
 	return Arr.some(rows, (r) => order(r, anchor) === 0)

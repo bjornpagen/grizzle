@@ -1,11 +1,11 @@
 import { defect } from "#compiler/core/invariant.ts"
 import { TupleMap } from "#compiler/core/tuple-map.ts"
 import type { ListChange, ReadShape, SetChange } from "#compiler/live/events.ts"
-import { type Form, formOf, type Key, type KeyFields, keyOf } from "#compiler/live/key.ts"
+import { type Form, formOf, type KeyFields, keyOf, type RowKey } from "#compiler/live/key.ts"
 
 /** One row of a read's value: its key, the key's form, and the row. */
 export interface Entry<Row> {
-	readonly key: Key
+	readonly key: RowKey
 	readonly form: Form
 	readonly row: Row
 }
@@ -73,7 +73,7 @@ export class Keyed<S extends ReadShape, Row extends object> implements Iterable<
 	}
 
 	/** The row of `key`, none where no row has it. */
-	get(key: Key): Row | undefined {
+	get(key: RowKey): Row | undefined {
 		return this.#nodes.get(formOf(key))?.row
 	}
 
@@ -164,7 +164,7 @@ export class Keyed<S extends ReadShape, Row extends object> implements Iterable<
 		}
 	}
 
-	#place(row: Row, after: Key | null): void {
+	#place(row: Row, after: RowKey | null): void {
 		const key = keyOf(this.fields, row)
 		const form = formOf(key)
 		this.#remove(form)

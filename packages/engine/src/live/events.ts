@@ -10,7 +10,7 @@
  * is one `error`, and an answer ends with `end` after its error or outcome.
  */
 import type { TransientTag } from "#compiler/core/errors.ts"
-import type { Key, KeyFields } from "#compiler/live/key.ts"
+import type { KeyFields, RowKey } from "#compiler/live/key.ts"
 import type { Refused, Witness } from "#compiler/types/changeset/changeset.ts"
 
 /**
@@ -22,8 +22,8 @@ export interface SlotValues<Row, Outcome> {
 	readonly text: string
 	readonly fields: KeyFields
 	readonly row: Row
-	readonly key: Key
-	readonly after: Key | null
+	readonly key: RowKey
+	readonly after: RowKey | null
 	readonly outcome: Outcome
 	readonly error: CallError
 	readonly refused: Refused
