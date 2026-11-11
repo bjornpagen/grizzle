@@ -6,6 +6,7 @@ import {
 	Duration,
 	Effect,
 	Exit,
+	HashSet,
 	Inspectable,
 	Option,
 	Pipeable,
@@ -38,12 +39,6 @@ import { Servers } from "#runtime/base-url.ts"
 import { asCliError, printStderr } from "#runtime/input.ts"
 import { queryWireForm, redactedPlaceholder } from "#runtime/redact.ts"
 import { mapClientError } from "#runtime/response.ts"
-
-/**
- * The most redirects one request follows (design 6.5 Redirect loop). The response to the last
- * followed hop may not redirect again: an eleventh `Location` is refused with `hopLimit`.
- */
-export const maxRedirects = 10
 
 /**
  * The built-in `--timeout` in seconds (design D-AD7), used when no flag, environment value or
@@ -213,17 +208,34 @@ const asGet = (request: HttpClientRequest.HttpClientRequest): HttpClientRequest.
 	)
 
 /**
- * The next hop's request, or `None` when the response is final. `request` is the hop as it was
- * before the attach step, so the next hop starts from the caller's headers and never inherits an
- * attached credential. Every refusal is decided here, before the next hop is sent. An origin change
- * drops every `Auth.credentialHeaders` name; `Auth.attach` re-adds managed credentials for bound
- * origins only.
+ * A request the redirect loop has sent, as the chain named it before the attach step: its method
+ * and its URL without the fragment, which is never sent.
+ */
+type Sent = Readonly<{ method: string; url: string }>
+
+/**
+ * A followed redirect: the next hop's request, and every request the chain has sent before it.
+ */
+type Followed = Readonly<{
+	request: HttpClientRequest.HttpClientRequest
+	earlier: HashSet.HashSet<Sent>
+}>
+
+/**
+ * The next hop, or `None` when the response is final. `request` is the hop as it was before the
+ * attach step, so the next hop starts from the caller's headers and never inherits an attached
+ * credential; `earlier` is every request the chain sent before it. Every refusal is decided here,
+ * before the next hop is sent. An origin change drops every `Auth.credentialHeaders` name;
+ * `Auth.attach` re-adds managed credentials for bound origins only. A next hop with the method and
+ * URL of a request the chain already sent is a loop: the same request again, refused with `loop`.
+ * A revisit under another method or at another origin is a different request and is followed; a
+ * chain of ever-new URLs ends only at the attempt's `--timeout`.
  */
 const nextHop = (
 	request: HttpClientRequest.HttpClientRequest,
 	response: HttpClientResponse.HttpClientResponse,
-	followed: number
-): Effect.Effect<Option.Option<HttpClientRequest.HttpClientRequest>, RedirectRefused> => {
+	earlier: HashSet.HashSet<Sent>
+): Effect.Effect<Option.Option<Followed>, RedirectRefused> => {
 	const location = Headers.get(response.headers, "location")
 	const current = Url.make(request.url, request.urlParams, Option.getOrUndefined(request.hash))
 	if (
@@ -243,10 +255,6 @@ const nextHop = (
 	const target = resolved.success
 	const refuse = (reason: RedirectRefused["reason"]) =>
 		Effect.fail(new RedirectRefused({ from: from.origin, reason, to: target.origin }))
-	if (followed >= maxRedirects) {
-		return refuse("hopLimit")
-	}
-
 	if (target.protocol !== "http:" && target.protocol !== "https:") {
 		return refuse("scheme")
 	}
@@ -268,20 +276,27 @@ const nextHop = (
 		return refuse("unreplayableBody")
 	}
 
+	const url = Url.setHash(target, "").href
+	const sent = HashSet.add(earlier, { method: request.method, url: Url.setHash(from, "").href })
+	if (HashSet.has(sent, { method: next.method, url })) {
+		return refuse("loop")
+	}
+
 	const hash = target.hash === "" ? Option.none() : Option.some(target.hash.slice(1))
 
-	return Effect.succeedSome(
-		HttpClientRequest.makeWith(
+	return Effect.succeedSome({
+		request: HttpClientRequest.makeWith(
 			next.method,
-			Url.setHash(target, "").href,
+			url,
 			UrlParams.empty,
 			hash,
 			target.origin === from.origin
 				? next.headers
 				: Headers.removeMany(next.headers, credentialHeaders),
 			next.body
-		)
-	)
+		),
+		earlier: sent
+	})
 }
 
 /**
@@ -453,7 +468,7 @@ export const redirectLoop = <R>(
 	R | Scope.Scope
 > => {
 	const route = clientFor(transport, certificate)
-	const hop = (request: HttpClientRequest.HttpClientRequest, followed: number) =>
+	const hop = (request: HttpClientRequest.HttpClientRequest, earlier: HashSet.HashSet<Sent>) =>
 		Effect.uninterruptibleMask((restore) =>
 			Effect.gen(function* sendHop() {
 				const attached = foldUrlParams(yield* restore(attach(request)))
@@ -463,7 +478,7 @@ export const redirectLoop = <R>(
 					Scope.provide(scope),
 					Effect.onError((cause) => Scope.close(scope, Exit.failCause(cause)))
 				)
-				const next = yield* nextHop(request, response, followed).pipe(
+				const next = yield* nextHop(request, response, earlier).pipe(
 					Effect.onError(() => Scope.close(scope, Exit.void))
 				)
 				if (Option.isNone(next)) {
@@ -477,18 +492,18 @@ export const redirectLoop = <R>(
 		)
 	const loop = (
 		request: HttpClientRequest.HttpClientRequest,
-		followed: number
+		earlier: HashSet.HashSet<Sent>
 	): Effect.Effect<
 		HttpClientResponse.HttpClientResponse,
 		HttpClientError.HttpClientError | RedirectRefused | UsageError,
 		R | Scope.Scope
 	> =>
-		Effect.flatMap(hop(request, followed), ({ next, response }) =>
-			Option.isNone(next) ? Effect.succeed(response) : loop(next.value, followed + 1)
+		Effect.flatMap(hop(request, earlier), ({ next, response }) =>
+			Option.isNone(next) ? Effect.succeed(response) : loop(next.value.request, next.value.earlier)
 		)
 
 	const shell = transport.plain.environment
-	const attempt = HttpClient.transform(shell, (_unsent, request) => loop(request, 0))
+	const attempt = HttpClient.transform(shell, (_unsent, request) => loop(request, HashSet.empty()))
 
 	const timed = (seconds: number) =>
 		seconds === 0 ? attempt : HttpClient.timeout(attempt, Duration.seconds(seconds))

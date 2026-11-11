@@ -120,7 +120,7 @@ export class RedirectRefused extends Schema.TaggedError<RedirectRefused>()("Redi
 	reason: Schema.Literals([
 		"crossOriginBody",
 		"downgrade",
-		"hopLimit",
+		"loop",
 		"scheme",
 		"userinfo",
 		"unreplayableBody"

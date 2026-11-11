@@ -1,33 +1,30 @@
 /**
  * A generated CLI follows redirects as its contract says, and sends credentials only to its bound origin.
  *
- * - Chains: from the bound origin (the capture server's 127.0.0.1 listener), a chain of up to eleven redirects, each a
+ * - Chains: from the bound origin (the capture server's 127.0.0.1 listener), a chain of up to sixteen redirects, each a
  *   301, 302, 303, 307 or 308 to the bound origin or the unbound one (its localhost listener), absolute or relative,
- *   after a GET or a POST with or without a JSON body, run with a bearer token, a header key, a query key and a cookie
- *   key. Oracle: the redirect loop's specification as a model: each hop's origin, method, target and body (a 301 or
- *   302 POST and a 303 of anything but GET or HEAD continue as a body-less GET; a body never crosses origins, and an
- *   eleventh redirect is never followed, each refused with exit 4), every credential on each hop to the bound origin
- *   and none on a hop to the unbound one, no trace propagation header on any hop, and exit 0 once the chain lands.
+ *   to a fresh path or back to the path of an earlier request, after a GET or a POST with or without a JSON body, run
+ *   with a bearer token, a header key, a query key and a cookie key. Oracle: the redirect loop's specification as a
+ *   model: each hop's origin, method, target and body (a 301 or 302 POST and a 303 of anything but GET or HEAD continue
+ *   as a body-less GET; a body never crosses origins, and a hop that would send a request the chain already sent, the
+ *   same method to the same origin and path, is a loop, each refused with exit 4 and its reason; a revisit under
+ *   another method or at another origin is followed, and no count of hops ends a chain), every credential on each hop
+ *   to the bound origin and none on a hop to the unbound one, no trace propagation header on any hop, and exit 0 once
+ *   the chain lands.
  *
  * Plants (local only, reverted): auth.ts attachWith attaching the credentials on every origin; client.ts becomesGet
- * ignoring 303; client.ts nextHop's hop limit one too high.
+ * ignoring 303; client.ts nextHop refusing the eleventh redirect (the old hop cap); client.ts nextHop's loop identity
+ * without the method; client.ts nextHop's loop identity without the origin.
  */
 import { layer } from "@effect/vitest"
 import { deepStrictEqual } from "@effect/vitest/utils"
 import { jsonTextOf } from "@superstarter/json"
 import { drawn, explore } from "@superstarter/testing/explore"
 import { required } from "@superstarter/testing/features"
-import {
-	array,
-	boolean,
-	characterOf,
-	element,
-	type Gen,
-	option,
-	string
-} from "@superstarter/testing/gen"
+import { characterOf, element, type Gen, option, string } from "@superstarter/testing/gen"
 import { notesOnly } from "@superstarter/testing/sense"
 import { searched } from "@superstarter/testing/vitest"
+import { regex } from "arkregex"
 import {
 	Array as Arr,
 	Context,
@@ -55,9 +52,9 @@ import { valuesOf, type WireRequest } from "#test/support/http.ts"
 import {
 	chainScript,
 	followChain,
-	MAX_REDIRECTS,
-	pathAt,
+	type ModelRun,
 	type Redirect,
+	redirectsOf,
 	type RedirectStatus
 } from "#test/support/redirect-model.ts"
 import { latin1Bytes } from "#test/support/wire.ts"
@@ -131,18 +128,14 @@ type Chain = Readonly<{
 
 const safe: Gen<string> = string(characterOf(["a", "z", "0", "9", "-", "_"]), { min: 1, max: 8 })
 
-const redirect: Gen<Redirect<PlainOrigin>> = (source) => ({
-	status: element<RedirectStatus>([307, 308, 301, 302, 303])(source),
-	to: element<PlainOrigin>(["127.0.0.1", "localhost"])(source),
-	relative: boolean(source)
-})
-
 const chain: Gen<Chain> = (source) => {
 	const method = element<Chain["method"]>(["GET", "POST"])(source)
 	return {
 		method,
 		note: method === "POST" ? option(safe)(source) : Option.none(),
-		redirects: array(redirect, { min: 0, max: MAX_REDIRECTS + 1 })(source),
+		redirects: redirectsOf(element<PlainOrigin>(["127.0.0.1", "localhost"]), { min: 0, max: 16 })(
+			source
+		),
 		credentials: {
 			bearer: safe(source),
 			header: safe(source),
@@ -183,11 +176,11 @@ const hopOf = (request: WireRequest & Readonly<{ origin: PlainOrigin }>): Hop =>
 	body: request.body
 })
 
-/** The hop the model expects at `index`, on an origin, with a method and whether it carries the body. */
+/** The hop the model expects, on an origin and path, with a method and whether it carries the body. */
 const expectedHop = (
 	c: Chain,
-	index: number,
 	origin: PlainOrigin,
+	path: string,
 	method: string,
 	withBody: boolean
 ): Hop => {
@@ -195,7 +188,7 @@ const expectedHop = (
 	return {
 		origin,
 		method,
-		target: bound ? `${pathAt(index)}?api_key=${c.credentials.query}` : pathAt(index),
+		target: bound ? `${path}?api_key=${c.credentials.query}` : path,
 		authorization: bound ? [["Bearer", c.credentials.bearer]] : [],
 		apiKey: bound ? [c.credentials.header] : [],
 		cookie: bound ? [`session=${c.credentials.cookie}`] : [],
@@ -211,33 +204,49 @@ const bodyOf = (c: Chain): Uint8Array =>
 		onSome: (note) => latin1Bytes(jsonTextOf({ note }))
 	})
 
-/** The model's run: the hops in order, and the exit code: 0 once the chain lands, 4 for a refused hop. */
-type Expected = Readonly<{ hops: ReadonlyArray<Hop>; exitCode: number }>
+/** The model's run: the hops in order, the exit code (0 once the chain lands, 4 for a refused hop), and the refusal. */
+type Expected = Readonly<{
+	hops: ReadonlyArray<Hop>
+	exitCode: number
+	refused: Option.Option<string>
+}>
 
-/** The loop's specification run over a chain, each model hop dressed with what the bound origin's hops carry. */
-const expectedOf = (c: Chain): Expected => {
-	const run = followChain<PlainOrigin>(
+/** The loop's specification run over a chain. */
+const runOf = (c: Chain): ModelRun<PlainOrigin> =>
+	followChain<PlainOrigin>(
 		{ origin: "127.0.0.1", method: c.method, withBody: Option.isSome(c.note) },
 		c.redirects
 	)
-	return {
-		hops: Arr.map(run.hops, (hop, index) =>
-			expectedHop(c, index, hop.origin, hop.method, hop.withBody)
-		),
-		exitCode: run.end === "landed" ? 0 : 4
-	}
-}
+
+/** The model's run, each hop dressed with what the bound origin's hops carry. */
+const expectedOf = (c: Chain, run: ModelRun<PlainOrigin>): Expected => ({
+	hops: Arr.map(run.hops, (hop) => expectedHop(c, hop.origin, hop.path, hop.method, hop.withBody)),
+	exitCode: run.end === "landed" ? 0 : 4,
+	refused: run.end === "landed" ? Option.none() : Option.some(run.end)
+})
+
+/** The reason a refused redirect names on stderr, `redirect from <origin> to <origin> refused: <reason>`. */
+const REFUSED = regex("redirect from \\S+ to \\S+ refused: ([A-Za-z]+)", "u")
+
+/** The refusal reason the CLI's stderr bytes name, if any. */
+const refusedOf = (stderr: Uint8Array): Option.Option<string> =>
+	Option.map(
+		Option.fromNullishOr(REFUSED.exec(new TextDecoder().decode(stderr))),
+		([, reason]) => reason
+	)
 
 type ChainFeature =
 	| "no redirect"
-	| "a long chain"
+	| "a chain past ten redirects"
+	| "a revisit under another method"
+	| "a revisit at another origin"
+	| "a loop refused"
 	| "a hop to the unbound origin"
 	| "back to the bound origin"
 	| "a relative Location"
 	| "a POST turned GET"
 	| "a body kept across a 307 or 308"
 	| "a body refused across origins"
-	| "the hop limit"
 	| `status ${RedirectStatus}`
 
 /** A feature when it holds, none otherwise. */
@@ -245,12 +254,34 @@ const when = <F extends string>(holds: boolean, feature: F): ReadonlyArray<F> =>
 	holds ? [feature] : []
 
 /** The features a chain reaches, read off the chain and the model's run of it. */
-const chainFeatures = (c: Chain, expected: Expected): ReadonlyArray<ChainFeature> => {
+const chainFeatures = (
+	c: Chain,
+	run: ModelRun<PlainOrigin>,
+	expected: Expected
+): ReadonlyArray<ChainFeature> => {
 	const followed = Arr.take(c.redirects, expected.hops.length - 1)
 	const origins = Arr.map(expected.hops, (hop) => hop.origin)
+	const revisits = Arr.flatMap(Arr.drop(run.hops, 1), (hop, index) =>
+		Arr.map(
+			Arr.filter(Arr.take(run.hops, index + 1), (sent) => sent.path === hop.path),
+			(sent) => ({ sent, hop })
+		)
+	)
 	return Arr.flatten<ReadonlyArray<ReadonlyArray<ChainFeature>>>([
 		when(Arr.isReadonlyArrayEmpty(c.redirects), "no redirect"),
-		when(expected.hops.length > 5, "a long chain"),
+		when(followed.length > 10, "a chain past ten redirects"),
+		when(
+			Arr.some(
+				revisits,
+				({ sent, hop }) => sent.origin === hop.origin && sent.method !== hop.method
+			),
+			"a revisit under another method"
+		),
+		when(
+			Arr.some(revisits, ({ sent, hop }) => sent.origin !== hop.origin),
+			"a revisit at another origin"
+		),
+		when(run.end === "loop", "a loop refused"),
 		when(Arr.contains(origins, "localhost"), "a hop to the unbound origin"),
 		when(
 			Arr.some(
@@ -274,11 +305,7 @@ const chainFeatures = (c: Chain, expected: Expected): ReadonlyArray<ChainFeature
 			Arr.some(Arr.drop(expected.hops, 1), (hop) => hop.body.length > 0),
 			"a body kept across a 307 or 308"
 		),
-		when(
-			expected.exitCode === 4 && expected.hops.length <= MAX_REDIRECTS,
-			"a body refused across origins"
-		),
-		when(expected.exitCode === 4 && expected.hops.length > MAX_REDIRECTS, "the hop limit"),
+		when(run.end === "crossOriginBody", "a body refused across origins"),
 		Arr.map(followed, (next): ChainFeature => `status ${next.status}`)
 	])
 }
@@ -332,14 +359,16 @@ layer(fixture, { excludeTestServices: true })("a generated CLI's redirects", (it
 						coverage: required<ChainFeature>(
 							[
 								"no redirect",
-								"a long chain",
+								"a chain past ten redirects",
+								"a revisit under another method",
+								"a revisit at another origin",
+								"a loop refused",
 								"a hop to the unbound origin",
 								"back to the bound origin",
 								"a relative Location",
 								"a POST turned GET",
 								"a body kept across a 307 or 308",
 								"a body refused across origins",
-								"the hop limit",
 								"status 301",
 								"status 302",
 								"status 303",
@@ -357,8 +386,9 @@ layer(fixture, { excludeTestServices: true })("a generated CLI's redirects", (it
 					},
 					(c, k) =>
 						Effect.gen(function* () {
-							const expected = expectedOf(c)
-							k.noteAll(chainFeatures(c, expected))
+							const run = runOf(c)
+							const expected = expectedOf(c, run)
+							k.noteAll(chainFeatures(c, run, expected))
 							const observed = yield* server.observe(
 								chainScript(c.redirects, server.origins, landing),
 								runBin(built, {
@@ -381,7 +411,11 @@ layer(fixture, { excludeTestServices: true })("a generated CLI's redirects", (it
 								})
 							)
 							deepStrictEqual(
-								{ hops: Arr.map(observed.requests, hopOf), exitCode: observed.result.exitCode },
+								{
+									hops: Arr.map(observed.requests, hopOf),
+									exitCode: observed.result.exitCode,
+									refused: refusedOf(observed.result.stderr)
+								},
 								expected,
 								"each hop is the one the loop's contract sends, credentials only on the bound origin"
 							)

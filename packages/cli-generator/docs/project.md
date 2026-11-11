@@ -106,7 +106,7 @@ Labels: decided; the redirect mechanism is measured.
 - Base URL precedence is `--base-url`, then the environment, then `--server`, then the accepted default. The environment value counts as chosen by the operator, like `--base-url`. A `--server` URL whose origin is outside the bound set is a usage error.
 - Credentials come from a file flag, the environment (default name `<PREFIX>_<SCHEME>`, overridable per scheme in the author config) or a terminal prompt. They are never taken from the command line by default. They stay `Redacted`, are attached only to bound origins, and their values are removed from every rendered excerpt, URL and summary.
 - A `mutualTLS` client certificate is bound the same way: it is presented only to bound origins, never on a cross-origin redirect or to an unbound base URL.
-- The runtime follows redirects with its own loop for up to 10 hops and attaches credentials on each hop only to bound origins. A `Location` must be `http` or `https` without userinfo. A cross-origin body re-send, a 307 or 308 re-send of a body that can be read only once, and a move from `https` to `http` are refused.
+- The runtime follows redirects with its own loop and attaches credentials on each hop only to bound origins. A redirect to a request the chain already sent, the same method and URL, is a loop and is refused before it is sent; a chain of new URLs ends only at the attempt's `--timeout`. A `Location` must be `http` or `https` without userinfo. A cross-origin body re-send, a 307 or 308 re-send of a body that can be read only once, and a move from `https` to `http` are refused.
 - No flag value, `--base-url` included, is echoed in an error message.
 
 ## Security schemes

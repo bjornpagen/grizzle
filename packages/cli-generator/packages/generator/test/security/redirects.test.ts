@@ -517,7 +517,7 @@ describe("I3 host pinning: the other RedirectRefused reasons", () => {
 		}).toEqual({ exitCode: 4, paths: ["/hop/loc-scheme"], reason: "scheme" })
 	}, 60_000)
 
-	test("a redirect loop is refused after ten followed hops", async () => {
+	test("a redirect back to the request just sent is a loop, refused before it is sent", async () => {
 		capture.script("/hop/loop", { location: "/hop/loop", status: 302 })
 
 		const observed = await exchange(["--base-url", A, "hops", "get", "loop"])
@@ -527,6 +527,6 @@ describe("I3 host pinning: the other RedirectRefused reasons", () => {
 			exitCode: observed.cli.exitCode,
 			reason: refusal(observed.cli),
 			requests: observed.hops.length
-		}).toEqual({ credentials: [all.join(",")], exitCode: 4, reason: "hopLimit", requests: 11 })
+		}).toEqual({ credentials: [all.join(",")], exitCode: 4, reason: "loop", requests: 1 })
 	}, 60_000)
 })
