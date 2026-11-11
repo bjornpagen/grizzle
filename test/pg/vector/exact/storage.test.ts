@@ -1,3 +1,19 @@
+/**
+ * Vector storage on PostgreSQL 19 and the pinned pgvector.
+ *
+ * - Input: the column's norm CHECK, pgvector's input checks and the codec refuse the same vectors, components past
+ *   binary32, non-finite, of a norm outside the cosine domain, and admit the domain's bounds.
+ * - Key: a relation keyed by a vector holds one fact per value: two spellings of one vector collide on its key, and
+ *   distinct vectors do not.
+ *
+ * Oracle: PostgreSQL itself, pgvector's input and the column's CHECK against a model of both; and a vector's value is
+ * its binary32 components, -0 equal to 0.
+ *
+ * Plants: vector-cosine-domain-exclusive (the host's cosine domain excludes its bounds), vector-negative-zero-apart (a
+ * vector's identity text writes -0).
+ *
+ * Features: each refusal and each admitted bound, a collision and distinct vectors.
+ */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"

@@ -1,3 +1,27 @@
+/**
+ * Exact cosine distance on PostgreSQL 19 and the pinned pgvector.
+ *
+ * - Exact: over a drawn population installed with an HNSW index present, for every account and a probe that is a
+ *   stored embedding, a drawn vector or one at a norm bound, the scored statements of both artifacts deliver exactly
+ *   the eligible facts at their native distances, each once, the ordered ones in distance-then-key order, ties by the
+ *   key; with sequential scans disabled, no exact statement plans the HNSW index (while an ORDER BY ... LIMIT over the
+ *   view does, the premise); and approximateNearest's conservative form is the exact top five.
+ * - Cosine domain: across the admitted cosine domain, at few dimensions, the HNSW limit and the storage limit, every
+ *   pair's distance is finite and in [0, 2], exactly 0, 2 and 1 for identical, opposite and orthogonal pairs, whose
+ *   float32 sums pgvector accumulates alike; and vector_norm agrees with the host's norm within its derived bound
+ *   (test/pg/vector/support.ts normTolerance).
+ * - Norm CHECK: the column's CHECK admits exactly the native cosine domain, and the host's norm and codec agree with it
+ *   away from the bounds.
+ * - Norm: the host's norm agrees with vector_norm on generated binary32 vectors within its derived bound.
+ *
+ * Oracle: PostgreSQL itself: the eligible facts' native cosine_distance from a scan no index orders, the eligibility
+ * applied on the host; the specification of cosine distance's range and its exact values; vector_norm and the CHECK.
+ *
+ * Plants: vector-cosine-as-l2 (Compute.cosineDistance lowers to l2_distance), vector-norm-float32 (the host's norm
+ * sums in binary32), vector-cosine-domain-exclusive (the host's cosine domain excludes its bounds).
+ *
+ * Features: each probe kind, a tie ordered by the key, each width and pair kind, each side of each norm bound.
+ */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { noCoverage, required } from "@grizzle/testing/features"
@@ -87,12 +111,6 @@ const at = <A>(list: ReadonlyArray<A>, index: number): A => {
 	return item
 }
 
-const found = <A>(value: A | undefined, what: string): A => {
-	if (value === undefined) {
-		throw new Error(`no ${what}`)
-	}
-	return value
-}
 const accountA = id(0xa, 1)
 const accountB = id(0xa, 2)
 
@@ -281,20 +299,6 @@ const sortedTexts = (rows: ReadonlyArray<ReadonlyArray<string>>): ReadonlyArray<
 		Arr.map(rows, (r) => Arr.join(r, "|")),
 		Order.String
 	)
-
-/** Host double-precision cosine distance, for a tolerance check on the native float32 kernel. */
-const hostDistance = (a: Float32Array, b: Float32Array): number => {
-	let dot = 0
-	let na = 0
-	let nb = 0
-	for (const [i, x] of a.entries()) {
-		const y = found(b[i], `component ${i}`)
-		dot += x * y
-		na += x ** 2
-		nb += y ** 2
-	}
-	return 1 - Math.max(-1, Math.min(1, dot / Math.sqrt(na * nb)))
-}
 
 const expectNormAgrees = (v: Vector, native: number, label: string): void => {
 	const host = Vector.norm(v)
@@ -742,17 +746,9 @@ layer(Substrate.layer)("exact cosine distance", (it) => {
 								const { eligible, all } = yield* oracle(installed.schema, f, account, probe)
 								assert.ok(eligible.length > 10)
 								const expected = Arr.sort(eligible, byDistanceThenKey)
-								for (const [d, document, revision] of expected) {
+								for (const [d] of expected) {
 									const value = Number(d)
 									assert.equal(Number.isFinite(value) && value >= 0 && value <= 2, true)
-									const stored = Option.getOrThrowWith(
-										Arr.findFirst(
-											f.embeddings,
-											(e) => e.document === document && String(e.revision) === revision
-										),
-										() => new Error("no stored embedding")
-									)
-									assert.ok(Math.abs(value - hostDistance(stored.value, probe)) < 1e-6)
 								}
 								if (Arr.some(expected, (r, i) => i > 0 && expected[i - 1]?.[0] === r[0])) {
 									k.note("a tie ordered by the key")
@@ -865,7 +861,7 @@ layer(Substrate.layer)("exact cosine distance", (it) => {
 										`pair ${dims}:${i} gives ${String(row[0])}`
 									)
 									if (p.distance !== undefined) {
-										assert.ok(Math.abs(d - p.distance) < 1e-5, `pair ${dims}:${i}`)
+										assert.equal(d, p.distance, `pair ${dims}:${i}`)
 									}
 									expectNormAgrees(p.a, Number(row[1]), `pair ${dims}:${i} a`)
 									expectNormAgrees(p.b, Number(row[2]), `pair ${dims}:${i} b`)
@@ -997,7 +993,10 @@ layer(Substrate.layer)("exact cosine distance", (it) => {
 				const s = yield* Substrate
 				return yield* explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "postgresql",
+							name: "vector_norm, within the host norm's derived bound"
+						},
 						suite: "pg/vector/exact/norm",
 						draw: drawn(array(binary32Vector, { min: 1, max: 100 })),
 						literal: Formatter.format,

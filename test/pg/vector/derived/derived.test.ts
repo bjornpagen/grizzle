@@ -1,3 +1,21 @@
+/**
+ * A derived relation over vectors on PostgreSQL 19: the viewer of a view of embeddings reaches the vector type only
+ * through the view, runs under the search policy, reads its vectors exactly, and is refused a search over it.
+ *
+ * - Privileges: the viewer holds the view and not the tables or the type behind it.
+ * - Policy: the viewer's session shows the search policy before and after the vector library loads, and the snapshot
+ *   names it as the login's defaults.
+ * - Exact reads: for each account and a drawn probe, the viewer's typed scoring of the view delivers exactly the
+ *   owner's complete scan of it, scored with pgvector's own operator.
+ * - Refusal: an approximateNearest over the view is refused by the checker, and by a served workload's compile at the
+ *   program.
+ *
+ * Oracle: a second implementation, the owner's complete scan of the view scored with pgvector's <=>.
+ *
+ * Plants: vector-cosine-as-l2 (Compute.cosineDistance lowers to l2_distance).
+ *
+ * Features: each account scored, and a search over the view refused.
+ */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"

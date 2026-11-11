@@ -1,3 +1,15 @@
+/**
+ * ApproximateNearest rows against the reference evaluator on PostgreSQL 19: over generated cases of the ANN population
+ * (test/support/oracle/gen/case.ts annGenConfig), the conservative lowering of an approximateNearest, its exact
+ * top-k of the source, delivers exactly the reference evaluator's top-k, ties at the cutoff broken by the key, a source
+ * correlated under a boundary evaluated under the outer tuples in scope.
+ *
+ * Oracle: the brute-force reference evaluator's top-k over the same facts.
+ *
+ * Plants: vector-conservative-take-off-by-one (the conservative form takes one candidate fewer).
+ *
+ * Features: an ApproximateNearest node, a tie at the cutoff, a source correlated under a boundary, and a delivered row.
+ */
 import { layer } from "@effect/vitest"
 import { drawn } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"

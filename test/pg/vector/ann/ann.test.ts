@@ -1,15 +1,48 @@
+/**
+ * approximateNearest on PostgreSQL 19 over the approximate-retrieval fixture (support.ts): a population drawn anew in
+ * every run, installed with the HNSW index its workload requests and the fixed search policy stored as its login's
+ * defaults, searched with query vectors drawn by number.
+ *
+ * - Candidates: for every account and drawn probe, and for account A's two documents of one embedding probed with it,
+ *   the candidates are at most the request, distinct, each an eligible fact (its document's current revision, an
+ *   embedding not pending) with its exact native score; under the policy they fill the request up to the eligible
+ *   facts, so a small account underfills exactly to its own; and the two documents of one embedding are both found, at
+ *   one distance, in key order.
+ * - Shapes: every program of the fixture that is one approximate search over a stored source, certified
+ *   approximateNearest.indexed, reads its key with no DISTINCT, and one certified approximateNearest.deduplicated keeps
+ *   its DISTINCT before the bound.
+ * - Fanout: a search over every revision, its revision projected away, delivers each (document, distance) at most
+ *   once, each a pair one of the document's revisions has, filling its bound up to the distinct pairs; a document whose
+ *   superseded revision repeats its current one, probed with that embedding, is delivered once.
+ * - Negation: a negated tag restricts the eligible universe before the bound: no candidate is tagged, every one carries
+ *   its exact score, and the request fills up to the untagged eligible facts.
+ * - Superseded: within one transaction that removes the nearest candidates' embeddings and gives the next a new current
+ *   revision far from the probe, leaving both in the HNSW graph, no removed document and no superseded revision is a
+ *   candidate, and the request fills up to what the transaction sees.
+ * - Shared: a search two rules read is one MATERIALIZED CTE, and composes with ordinary matching: titles join the
+ *   candidates exactly, and the shared program's rules filter them as the host filters them.
+ *
+ * Oracle: a second implementation, the exact baseline: the eligible relation scored with cosine_distance in a scan no
+ * HNSW index orders, read under the transaction the search runs in; and the certificate's own statement of the SQL's
+ * shape.
+ *
+ * Plants: vector-policy-dropped (the installer stores no search policy, so HNSW's default scan underfills a filtered
+ * request), vector-indexed-distinct (a retained key keeps a DISTINCT), vector-ann-take-off-by-one (the bound takes one
+ * candidate fewer).
+ *
+ * Features: each account, an underfilled request, the duplicate embedding, a search the HNSW index serves, each kind of
+ * superseding, and a negated tag excluded. Whether PostgreSQL serves a search from the HNSW index is the planner's
+ * choice, never grizzle's contract, so it is a feature a search must reach, not an assertion.
+ */
 import { layer } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
 import { required, requiredInSpace } from "@grizzle/testing/features"
-import { boolean, element, type Gen, int } from "@grizzle/testing/gen"
+import { element, type Gen, int, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec } from "effect"
-import { groupingSteps, planIndexNames, planNodeTypes } from "#bench/harness/explain.ts"
-import { subtree } from "#compiler/check/approximate/trace.ts"
-import type { RelDag } from "#compiler/ir/rel.ts"
-import { searchPolicySettings } from "#compiler/physical/ddl/roles.ts"
+import { planIndexNames } from "#bench/harness/explain.ts"
 import {
 	accountA,
 	accountB,
@@ -22,7 +55,6 @@ import {
 	duplicatePair,
 	type Fixture,
 	installFixture,
-	installLabelled,
 	repeated,
 	shared,
 	sizes,
@@ -49,22 +81,18 @@ const readsHnsw = (fx: Fixture, indexes: ReadonlyArray<string>): boolean => {
 	return Arr.some(indexes, (i) => i === hnsw)
 }
 
-/** Whether a result is approximate: some root's rows are computed from an approximate search. */
-const isApproximate = (dag: RelDag): boolean =>
-	Arr.some(dag.roots, (root) =>
-		Arr.some(Arr.fromIterable(subtree(root)), (n) => n.kind === "ApproximateNearest")
-	)
-
 const run = (session: RawSession, c: Compiled, params: Readonly<Record<string, unknown>>) => {
 	const spec = defined(c.specs[0], "statement 0")
 	return Effect.map(session.values(spec.sql, paramTexts(spec, params, scalarsOnly)), textRows)
 }
 
-/**
- * EXPLAIN (FORMAT JSON) of the executable statement with its parameters, as the plan node types in preorder and
- * every index the plan reads (bench/harness/explain.ts).
- */
-const plan = (session: RawSession, c: Compiled, params: Readonly<Record<string, unknown>>) =>
+/** Whether PostgreSQL plans the executable statement with its parameters over the HNSW index. */
+const servedByHnsw = (
+	session: RawSession,
+	fx: Fixture,
+	c: Compiled,
+	params: Readonly<Record<string, unknown>>
+) =>
 	Effect.gen(function* () {
 		const spec = defined(c.specs[0], "statement 0")
 		const rows = yield* session.values(
@@ -72,7 +100,7 @@ const plan = (session: RawSession, c: Compiled, params: Readonly<Record<string, 
 			paramTexts(spec, params, scalarsOnly)
 		)
 		const [explained] = defined(rows[0], "the EXPLAIN row")
-		return { nodes: planNodeTypes(explained), indexes: planIndexNames(explained) }
+		return readsHnsw(fx, planIndexNames(explained))
 	})
 
 /**
@@ -99,8 +127,8 @@ const exactScores = (
 	)
 
 /**
- * The exact baseline of anyRevision: every distinct (document, distance) of an account's revisions, in the statement's
- * order (distance, then document), scored with cosine_distance, which no index orders.
+ * The exact baseline of anyRevision: every distinct (document, distance) of an account's revisions, scored with
+ * cosine_distance, which no index orders.
  */
 const exactDistinct = (
 	session: RawSession,
@@ -110,12 +138,10 @@ const exactDistinct = (
 ) =>
 	Effect.map(
 		session.values(
-			`SELECT q."document"::text, q."distance"::text FROM (
-				SELECT DISTINCT e."document", vector_ext.cosine_distance(e."value", $1::text::vector_ext.vector) AS "distance"
-				FROM ${fx.table("DocumentEmbedding")} AS e
-				JOIN ${fx.table("Document")} AS d ON d."id" = e."document"
-				WHERE d."account" = $2::text::uuid
-			 ) AS q ORDER BY q."distance", q."document"`,
+			`SELECT DISTINCT e."document"::text, vector_ext.cosine_distance(e."value", $1::text::vector_ext.vector)::text
+			 FROM ${fx.table("DocumentEmbedding")} AS e
+			 JOIN ${fx.table("Document")} AS d ON d."id" = e."document"
+			 WHERE d."account" = $2::text::uuid`,
 			[vectorText(vector), account]
 		),
 		textRows
@@ -151,60 +177,45 @@ const accounts: Arr.NonEmptyReadonlyArray<Account> = Arr.map(
 	(label): Account => [accountOf[label], label]
 )
 
-/** How many candidates a search requests. */
-const requested = 20
+/** The bound each program of the fixture states (support.ts): candidates' and untagged's, then the others'. */
+const candidatesTake = 20
+const anyRevisionTake = 10
 
-/** The accounts with more documents than a request: those whose probes the recall floor is measured over. */
-const recalled = nonEmpty(
-	Arr.filter(accounts, ([, label]) => sizes[label] > requested),
-	"the accounts larger than a request"
-)
+/** A probe a test numbers: any number names a query vector of the run's draw (support.ts probeOf). */
+const probeNumber: Gen<number> = int(0, 2 ** 31 - 1)
 
-/** An account searched, by its letter, or what a search came to. */
+/** A search of the candidates: an account probed with a drawn vector, or account A's shared embedding. */
+type CandidateProbe =
+	| { readonly kind: "drawn"; readonly account: Account; readonly n: number }
+	| { readonly kind: "duplicate" }
+
+const candidateProbeGen: Gen<CandidateProbe> = weighted<CandidateProbe>([
+	[
+		8,
+		(source) => ({
+			kind: "drawn",
+			account: source.draw(element(accounts)),
+			n: source.draw(probeNumber)
+		})
+	],
+	[1, () => ({ kind: "duplicate" })]
+])
+
+/** What a search came to. */
 type SearchFeature =
 	| `account ${AccountLabel}`
 	| "underfilled by a small account"
-	| "filled under the policy, underfilled by the default search"
+	| "the duplicate embedding"
+	| "served by the HNSW index"
 	| "a negated tag excluded"
-
-/** An account of `among` searched with a probe `probes` draws. */
-const probed =
-	(
-		among: Arr.NonEmptyReadonlyArray<Account>,
-		probes: Gen<number>
-	): Gen<readonly [Account, number]> =>
-	(source) =>
-		[source.draw(element(among)), source.draw(probes)] as const
-
-/** A case of the recall box: a probe of an account by its number, or account A's duplicate embedding. */
-type RecallProbe =
-	| { readonly kind: "duplicate" }
-	| {
-			readonly kind: "probe"
-			readonly account: Account
-			readonly seed: number
-	  }
-
-/** Each of `probes` probes, numbered from 10, of each recalled account, and the duplicate. */
-const recallProbeGen =
-	(probes: number): Gen<RecallProbe> =>
-	(source) =>
-		source.draw(boolean)
-			? { kind: "duplicate" }
-			: {
-					kind: "probe",
-					account: source.draw(element(recalled)),
-					seed: 10 + source.draw(int(0, probes - 1))
-				}
-
-type RecallFeature = `account ${AccountLabel}` | "duplicate"
+	| "a repeated document probed with its own embedding"
 
 /**
  * A transaction's changes to account B's nearest candidates: how many of the nearest lose their current embedding, and
- * how many after them get a new current revision, of the probe numbered `seed`.
+ * how many after them get a new current revision, of the probe numbered `n`.
  */
 interface Superseding {
-	readonly seed: number
+	readonly n: number
 	readonly removed: number
 	readonly superseded: number
 }
@@ -212,7 +223,7 @@ interface Superseding {
 const supersededGen: Gen<Superseding> = (source) => {
 	const kind = source.draw(element(["removed", "superseded", "both"] as const))
 	return {
-		seed: source.draw(int(30, 59)),
+		n: source.draw(probeNumber),
 		removed: kind === "superseded" ? 0 : source.draw(int(1, 12)),
 		superseded: kind === "removed" ? 0 : source.draw(int(1, 8))
 	}
@@ -222,6 +233,7 @@ type SupersededFeature =
 	| "nearest embeddings removed"
 	| "nearest revisions superseded"
 	| "both, in one transaction"
+	| "served by the HNSW index"
 
 const supersededFeatures = (c: Superseding): ReadonlyArray<SupersededFeature> => [
 	...(c.removed > 0 ? ["nearest embeddings removed" as const] : []),
@@ -234,414 +246,292 @@ const searcher = (fx: Fixture) =>
 		s.session({ ...worldSession(fx.installed.world(fx.app)), label: "searcher" })
 	)
 
+/** Each search's budget beside its suite, draw, oracle and coverage. */
+const spec = {
+	literal: Formatter.format,
+	kept: [],
+	runs: 12,
+	shrink: completeShrink,
+	concurrency: 1,
+	steerEvery: 4,
+	caseHang
+} as const
+
 layer(Substrate.layer)("approximateNearest on PostgreSQL 19", (it) => {
 	it.effect(
-		"candidates obey every filter, carry exact native scores, underfill when the eligible set is small, and are labelled approximate",
+		"candidates are eligible facts at their exact scores, fill the request up to the eligible facts, and keep facts of one embedding apart",
 		(ctx) =>
 			searched(
 				ctx,
 				Effect.gen(function* () {
 					const fx = yield* installFixture({ candidates })
 					const session = yield* searcher(fx)
-					for (const setting of searchPolicySettings) {
-						const shown = yield* session.values(`SELECT pg_catalog.current_setting($1::text)`, [
-							setting.parameter
-						])
-						assert.equal(shown[0]?.[0], setting.value, setting.parameter)
-					}
 					const c = compile(candidates, fx.installed, "query")
-					assert.equal(isApproximate(c.program.query.dag), true)
-					contains(
-						Arr.map(c.program.certificates, (x) => x.rule),
-						"approximateNearest.indexed"
+					const [d1, d2] = duplicatePair(fx.facts)
+					const sharedEmbedding = defined(
+						Option.getOrUndefined(
+							Option.flatMapNullishOr(
+								Arr.findFirst(fx.facts, (d) => d.id === d1),
+								(d) => d.embeddings[0]?.value
+							)
+						),
+						"the duplicate pair's embedding"
 					)
-					const missing = new Set(
-						Arr.map(
-							Arr.filter(fx.facts, (d) => !Arr.some(d.embeddings, (e) => e.revision === d.current)),
-							(d) => d.id
-						)
-					)
-					return yield* exhaust(
+					return yield* explore(
 						{
+							...spec,
 							suite: "vector/ann/candidates",
-							generator: probed(accounts, int(1, 3)),
-							literal: ([[, label], seed]: readonly [Account, number]) =>
-								`account ${label}, probe ${seed}`,
-							limit: accounts.length * 3,
-							box: "every account of the fixture, with each of its first three probes",
+							draw: drawn(candidateProbeGen),
 							oracle: {
 								kind: "second-implementation",
 								name: "the exact baseline: the eligible relation scored with cosine_distance"
 							},
-							coverage: requiredInSpace<SearchFeature>([
-								...Arr.map(accounts, ([, label]): SearchFeature => `account ${label}`),
-								"underfilled by a small account"
-							]),
-							caseHang
+							coverage: required<SearchFeature>(
+								[
+									...Arr.map(accounts, ([, label]): SearchFeature => `account ${label}`),
+									"underfilled by a small account",
+									"the duplicate embedding",
+									"served by the HNSW index"
+								],
+								{ cases: spec.runs, sense: notesOnly }
+							)
 						},
-						([[account, label], seed], k) =>
+						(probe, k) =>
 							Effect.gen(function* () {
-								const vector = fx.probe(seed)
-								const rows = yield* run(session, c, { account, vector: vectorParam(vector) })
+								const [account, label] =
+									probe.kind === "duplicate" ? ([accountA, "A"] as const) : probe.account
+								const vector = probe.kind === "duplicate" ? sharedEmbedding : fx.probe(probe.n)
+								const params = { account, vector: vectorParam(vector) }
+								const rows = yield* run(session, c, params)
 								const exact = yield* exactScores(session, fx, account, vector)
 								const scores = new Map(Arr.map(exact, (r) => [key(r), r[2]]))
-								assert.ok(rows.length <= requested, label)
 								assert.equal(
 									new Set(Arr.map(rows, (r) => Arr.join(r, "|"))).size,
 									rows.length,
-									label
+									`${label}: distinct candidates`
 								)
 								for (const row of rows) {
 									const [document, revision, distance] = asTriple(row)
 									assert.equal(
-										scores.has(`${document}/${revision}`),
-										true,
-										`${label} ${document}/${revision} eligible`
-									)
-									assert.equal(missing.has(document), false)
-									assert.equal(
+										scores.get(`${document}/${revision}`),
 										distance,
-										defined(scores.get(`${document}/${revision}`), `${label} score`),
-										`${label} score`
+										`${label} ${document}/${revision}: eligible, at its exact score`
 									)
 								}
-								assert.ok(rows.length <= exact.length, label)
-								if (exact.length < requested) {
+								assert.equal(
+									rows.length,
+									Math.min(candidatesTake, exact.length),
+									`${label}: the request filled up to the eligible facts`
+								)
+								if (exact.length < candidatesTake) {
 									k.note("underfilled by a small account")
 								}
-								k.note(`account ${label}`)
-							})
-					)
-				})
-			)
-	)
-
-	it.effect(
-		"the fixed search policy fills a filtered request that the default HNSW search underfills, over a label-fixed population",
-		(ctx) =>
-			searched(
-				ctx,
-				Effect.gen(function* () {
-					const fx = yield* installLabelled({ candidates }, "pg/vector/ann/policy")
-					const session = yield* searcher(fx)
-					const c = compile(candidates, fx.installed, "query")
-					const eligible = Arr.filter(
-						fx.facts,
-						(d) => d.account === accountB && Arr.some(d.embeddings, (e) => e.revision === d.current)
-					).length
-					assert.ok(eligible > 20)
-					return yield* exhaust(
-						{
-							suite: "vector/ann/policy",
-							generator: int(21, 23),
-							literal: (seed: number) => `probe ${seed}`,
-							limit: 3,
-							box: "the probes numbered 21 to 23 of the label-fixed population",
-							oracle: {
-								kind: "second-implementation",
-								name: "the exact baseline, and the same search under the default HNSW scan"
-							},
-							coverage: requiredInSpace<SearchFeature>([
-								"filled under the policy, underfilled by the default search"
-							]),
-							caseHang
-						},
-						(seed, k) =>
-							Effect.gen(function* () {
-								const params = { account: accountB, vector: vectorParam(fx.probe(seed)) }
-								/** The premise: the account filter is applied to rows the HNSW index scan produces. */
-								const p = yield* plan(session, c, params)
-								assert.equal(readsHnsw(fx, p.indexes), true, Formatter.format(p))
-								/** Under the policy, strict iterative scans keep exploring until the request is filled. */
-								const filled = yield* run(session, c, params)
-								assert.equal(filled.length, 20, `seed ${seed} under the policy`)
-								yield* session.values(`SET hnsw.iterative_scan = 'off'`, [])
-								const underfilled = yield* run(session, c, params)
-								yield* session.values(`RESET hnsw.iterative_scan`, [])
-								assert.ok(underfilled.length < 20, `seed ${seed} under the default search`)
-								const keys = new Set(Arr.map(filled, (r) => `${r[1]}/${r[2]}`))
-								const scored = yield* exactScores(session, fx, accountB, fx.probe(seed))
-								const exact = new Set(Arr.map(scored, key))
-								for (const r of underfilled) {
-									assert.equal(exact.has(`${r[1]}/${r[2]}`), true)
-								}
-								assert.equal(keys.size, 20)
-								k.note("filled under the policy, underfilled by the default search")
-							})
-					)
-				})
-			)
-	)
-
-	it.effect(
-		"a retained key needs no DISTINCT and the plan is driven by the HNSW index; fanout keeps its deduplication",
-		(ctx) =>
-			searched(
-				ctx,
-				Effect.gen(function* () {
-					const fx = yield* installFixture({ candidates, anyRevision, unfiltered })
-					const session = yield* searcher(fx)
-					const vector = vectorParam(fx.probe(7))
-					const hnsw = (indexes: ReadonlyArray<string>) => readsHnsw(fx, indexes)
-
-					/** The unfiltered search over the stored relation's key: ORDER BY <=> LIMIT straight off the index. */
-					const direct = compile(unfiltered, fx.installed, "query")
-					assert.equal(has(shapeOf(programAsts(direct.program)[0]), "distinct"), false)
-					const directPlan = yield* plan(session, direct, { vector })
-					assert.deepEqual(groupingSteps(directPlan.nodes), [], Formatter.format(directPlan))
-					assert.equal(hnsw(directPlan.indexes), true, Formatter.format(directPlan))
-
-					/**
-					 * The example's candidates: (document, revision) retained through the current-revision match, no DISTINCT.
-					 */
-					const keyed = compile(candidates, fx.installed, "query")
-					contains(
-						Arr.map(keyed.program.certificates, (x) => x.rule),
-						"approximateNearest.indexed"
-					)
-					assert.equal(has(shapeOf(programAsts(keyed.program)[0]), "distinct"), false)
-					const keyedPlan = yield* plan(session, keyed, { account: accountA, vector })
-					assert.deepEqual(groupingSteps(keyedPlan.nodes), [], Formatter.format(keyedPlan))
-					assert.equal(hnsw(keyedPlan.indexes), true, Formatter.format(keyedPlan))
-
-					/** Every revision, the revision projected away: multiplicity resolved before top-k. */
-					const fanout = compile(anyRevision, fx.installed, "query")
-					contains(
-						Arr.map(fanout.program.certificates, (x) => x.rule),
-						"approximateNearest.deduplicated"
-					)
-					assert.ok(has(shapeOf(programAsts(fanout.program)[0]), "distinct"))
-					const fanoutPlan = yield* plan(session, fanout, { account: accountA, vector })
-					assert.notDeepEqual(groupingSteps(fanoutPlan.nodes), [], Formatter.format(fanoutPlan))
-					assert.equal(hnsw(fanoutPlan.indexes), true, Formatter.format(fanoutPlan))
-
-					const repeating = nonEmpty(
-						Arr.filter(accounts, ([account]) => repeated(fx.facts, account).length > 0),
-						"the accounts with a repeated document"
-					)
-					return yield* exhaust(
-						{
-							suite: "vector/ann/fanout",
-							generator: element(repeating),
-							literal: ([, label]: Account) => `account ${label}`,
-							limit: repeating.length,
-							box: "every account of the fixture with a document whose superseded revision repeats its current one",
-							oracle: {
-								kind: "second-implementation",
-								name: "the exact baseline of every distinct (document, distance)"
-							},
-							coverage: requiredInSpace<SearchFeature>(
-								Arr.map(repeating, ([, label]): SearchFeature => `account ${label}`)
-							),
-							caseHang
-						},
-						([account, label], k) =>
-							Effect.gen(function* () {
-								const twice = defined(
-									repeated(fx.facts, account)[0],
-									`${label} has a repeated document`
-								)
-								const value = twice.embeddings[0]?.value
-								if (value === undefined) {
-									return assert.fail(`${label} has a repeated document`)
-								}
-								const rows = yield* run(session, fanout, { account, vector: vectorParam(value) })
-								const exact = yield* exactDistinct(session, fx, account, value)
-								assert.ok(exact.length >= 10, label)
-								const scores = new Map(Arr.map(exact, (r) => [r[0], new Set<string>()]))
-								for (const [document, distance] of exact) {
-									if (distance !== undefined) {
-										scores.get(document)?.add(distance)
-									}
-								}
-								assert.equal(rows.length, 10, label)
-								assert.equal(new Set(Arr.map(rows, (r) => Arr.join(r, "|"))).size, 10, label)
-								assert.equal(Arr.filter(rows, (r) => r[1] === twice.id).length, 1, label)
-								for (const [distance, document] of rows) {
-									assert.equal(
-										document !== undefined &&
-											distance !== undefined &&
-											scores.get(document)?.has(distance),
-										true,
-										`${label} ${document}`
-									)
-								}
-								if (sizes[label] < requested) {
-									assert.deepEqual(
-										Arr.sort(
-											Arr.map(rows, (r) => `${r[1]}|${r[0]}`),
-											Order.String
-										),
-										Arr.sort(
-											Arr.map(exact.slice(0, 10), (r) => `${r[0]}|${r[1]}`),
-											Order.String
-										)
-									)
-								}
-								k.note(`account ${label}`)
-							})
-					)
-				})
-			)
-	)
-
-	it.effect(
-		"recall against the exact baseline holds its floor over a label-fixed population, ties and duplicates under different keys are distinct facts",
-		(ctx) =>
-			searched(
-				ctx,
-				Effect.gen(function* () {
-					const fx = yield* installLabelled({ candidates }, "pg/vector/ann/recall")
-					const session = yield* searcher(fx)
-					const c = compile(candidates, fx.installed, "query")
-					const recalls: Array<string> = []
-					let hits = 0
-					let wanted = 0
-					const probes = 10
-					const exhausted = yield* exhaust(
-						{
-							suite: "vector/ann/recall",
-							generator: recallProbeGen(probes),
-							literal: Formatter.format,
-							limit: 1 + recalled.length * probes,
-							box: "the probes numbered 10 to 19 of every account larger than a request, and account A's duplicate embedding",
-							oracle: {
-								kind: "second-implementation",
-								name: "the exact baseline: the eligible relation scored with cosine_distance"
-							},
-							coverage: requiredInSpace<RecallFeature>([
-								...Arr.map(recalled, ([, label]): RecallFeature => `account ${label}`),
-								"duplicate"
-							]),
-							caseHang
-						},
-						(probe, k) =>
-							Effect.gen(function* () {
 								if (probe.kind === "duplicate") {
-									/** Two documents of account A share one embedding: probing with it finds both, two facts. */
-									const [d1, d2] = duplicatePair(fx.facts)
-									const duplicated = Option.flatMapNullishOr(
-										Arr.findFirst(fx.facts, (d) => d.id === d1),
-										(d) => d.embeddings[0]?.value
-									)
-									if (Option.isNone(duplicated)) {
-										return assert.fail("the duplicate pair has an embedding")
-									}
-									const rows = yield* run(session, c, {
-										account: accountA,
-										vector: vectorParam(duplicated.value)
-									})
 									const documents = Arr.map(rows, (r) => r[1])
 									contains(documents, d1)
 									contains(documents, d2)
 									const [first, second] = rows
 									assert.equal(first?.[0], second?.[0])
 									assert.deepEqual([first?.[1], second?.[1]], Arr.sort([d1, d2], Order.String))
-									k.note("duplicate")
-									return
+									k.note("the duplicate embedding")
 								}
-								const [account, label] = probe.account
-								const vector = fx.probe(probe.seed)
-								const rows = yield* run(session, c, { account, vector: vectorParam(vector) })
-								const scored = yield* exactScores(session, fx, account, vector)
-								const scores = new Map(Arr.map(scored, (r) => [key(r), r[2]]))
-								for (const row of rows) {
-									const [document, revision, distance] = asTriple(row)
-									assert.equal(
-										scores.get(`${document}/${revision}`),
-										distance,
-										`${label}${probe.seed} ${document}/${revision}`
-									)
+								if (yield* servedByHnsw(session, fx, c, params)) {
+									k.note("served by the HNSW index")
 								}
-								const exact = scored.slice(0, 20)
-								const got = new Set(Arr.map(rows, (r) => `${r[1]}/${r[2]}`))
-								const found = Arr.filter(exact, (r) => got.has(key(r))).length
-								hits += found
-								wanted += exact.length
-								recalls.push(`${label}${probe.seed}=${found}/${exact.length}`)
 								k.note(`account ${label}`)
 							})
 					)
-					/**
-					 * Whether the whole box ran: the floor holds over it, and a replay runs one case of it, whose one
-					 * probe's recall is no statement about the floor.
-					 */
-					const wholeBox = exhausted.cases === exhausted.limit
-					if (wholeBox) {
-						const recall = hits / wanted
-						const pinned = Arr.join(
-							Arr.map(searchPolicySettings, (setting) => `${setting.parameter} ${setting.value}`),
-							", "
-						)
-						const record = `recall@20 of approximateNearest against the exact baseline, HNSW at pgvector's build parameters and the cluster's search settings, ${pinned}, ${sizes.A + sizes.B + sizes.C} documents of 8 dimensions: ${recall.toFixed(4)} (${Arr.join(recalls, " ")})`
-						yield* Effect.promise(() => ctx.annotate(record))
-						yield* Effect.log(record)
-						assert.ok(recall > 0.8, record)
-					}
-					return exhausted
 				})
 			)
 	)
 
 	it.effect(
-		"a negation in the source restricts the eligible universe before the bound, on the HNSW plan",
+		"reads a retained key with no DISTINCT and keeps a fanout's DISTINCT, as each program's certificate states",
 		(ctx) =>
 			searched(
 				ctx,
 				Effect.gen(function* () {
-					const fx = yield* installFixture({ candidates, untagged })
-					const session = yield* searcher(fx)
-					const c = compile(untagged, fx.installed, "query")
-					const gamma = new Set(
-						Arr.map(
-							Arr.filter(fx.facts, (d) => d.tags.includes("gamma")),
-							(d) => d.id
-						)
-					)
+					const programs = { candidates, anyRevision, unfiltered }
+					const fx = yield* installFixture(programs)
+					const names = nonEmpty(Rec.keys(programs), "the fixture's single searches")
 					return yield* exhaust(
 						{
-							suite: "vector/ann/negation",
-							generator: int(51, 53),
-							literal: (seed: number) => `probe ${seed}`,
-							limit: 3,
-							box: "the probes numbered 51 to 53",
+							suite: "vector/ann/shapes",
+							generator: element(names),
+							literal: Formatter.format,
+							limit: names.length,
+							box: "every program of the fixture that is one approximate search over a stored source",
 							oracle: {
-								kind: "second-implementation",
-								name: "the exact baseline with the gamma-tagged documents removed on the host"
+								kind: "specification",
+								name: "approximateNearest.indexed reads its key with no DISTINCT, approximateNearest.deduplicated keeps one"
 							},
-							coverage: requiredInSpace<SearchFeature>(["a negated tag excluded"]),
+							coverage: requiredInSpace<"indexed" | "deduplicated">(["indexed", "deduplicated"]),
 							caseHang
 						},
-						(seed, k) =>
-							Effect.gen(function* () {
-								const vector = fx.probe(seed)
-								const params = { account: accountB, vector: vectorParam(vector) }
-								const p = yield* plan(session, c, params)
-								assert.equal(readsHnsw(fx, p.indexes), true, Formatter.format(p))
-								const rows = yield* run(session, c, params)
-								const scored = yield* exactScores(session, fx, accountB, vector)
-								const exact = new Map(
-									Arr.map(
-										Arr.filter(scored, (r) => r[0] === undefined || !gamma.has(r[0])),
-										(r) => [key(r), r[2]]
-									)
+						(name, k) =>
+							Effect.sync(() => {
+								const compiled = compile(programs[name], fx.installed, "query")
+								const rules = Arr.map(compiled.program.certificates, (x) => x.rule)
+								const distinct = Arr.some(programAsts(compiled.program), (ast) =>
+									has(shapeOf(ast), "distinct")
 								)
-								assert.ok(exact.size > 20)
-								assert.equal(rows.length, 20, `seed ${seed}`)
-								for (const row of rows) {
-									const [document, revision, distance] = asTriple(row)
-									assert.equal(gamma.has(document), false, `${document} is not tagged gamma`)
-									assert.equal(
-										exact.get(`${document}/${revision}`),
-										distance,
-										`${document}/${revision}`
-									)
+								if (rules.includes("approximateNearest.deduplicated")) {
+									assert.ok(distinct, `${name} keeps its DISTINCT before the bound`)
+									k.note("deduplicated")
+								} else if (rules.includes("approximateNearest.indexed")) {
+									assert.equal(distinct, false, `${name} reads its key with no DISTINCT`)
+									k.note("indexed")
 								}
-								k.note("a negated tag excluded")
 							})
 					)
 				})
 			)
+	)
+
+	it.effect(
+		"a search over every revision delivers each (document, distance) once, a pair of its revisions, filling its bound",
+		(ctx) =>
+			searched(
+				ctx,
+				Effect.gen(function* () {
+					const fx = yield* installFixture({ anyRevision })
+					const session = yield* searcher(fx)
+					const fanout = compile(anyRevision, fx.installed, "query")
+					const repeating = nonEmpty(
+						Arr.filter(accounts, ([account]) => repeated(fx.facts, account).length > 0),
+						"the accounts with a repeated document"
+					)
+					return yield* explore(
+						{
+							...spec,
+							suite: "vector/ann/fanout",
+							draw: drawn(
+								(source) =>
+									[
+										source.draw(element(repeating)),
+										source.draw(
+											weighted<number | "its own embedding">([
+												[1, () => "its own embedding" as const],
+												[2, probeNumber]
+											])
+										)
+									] as const
+							),
+							oracle: {
+								kind: "second-implementation",
+								name: "the exact baseline of every distinct (document, distance)"
+							},
+							coverage: required<SearchFeature>(
+								[
+									...Arr.map(repeating, ([, label]): SearchFeature => `account ${label}`),
+									"a repeated document probed with its own embedding"
+								],
+								{ cases: spec.runs, sense: notesOnly }
+							)
+						},
+						([[account, label], probe], k) =>
+							Effect.gen(function* () {
+								const twice = defined(
+									repeated(fx.facts, account)[0],
+									`${label}'s repeated document`
+								)
+								const vector =
+									probe === "its own embedding"
+										? defined(twice.embeddings[0], "its embedding").value
+										: fx.probe(probe)
+								const rows = yield* run(session, fanout, { account, vector: vectorParam(vector) })
+								const exact = yield* exactDistinct(session, fx, account, vector)
+								const pairs = new Set(Arr.map(exact, (r) => `${r[0]}|${r[1]}`))
+								const delivered = Arr.map(rows, ([distance, document]) => `${document}|${distance}`)
+								assert.equal(new Set(delivered).size, rows.length, `${label}: each pair once`)
+								for (const pair of delivered) {
+									assert.ok(pairs.has(pair), `${label} ${pair}: a pair of the document's revisions`)
+								}
+								assert.equal(
+									rows.length,
+									Math.min(anyRevisionTake, pairs.size),
+									`${label}: the bound filled up to the distinct pairs`
+								)
+								if (probe === "its own embedding") {
+									assert.equal(
+										Arr.filter(rows, (r) => r[1] === twice.id).length,
+										1,
+										`${label}: the repeated document once`
+									)
+									k.note("a repeated document probed with its own embedding")
+								}
+								k.note(`account ${label}`)
+							})
+					)
+				})
+			)
+	)
+
+	it.effect("a negation in the source restricts the eligible universe before the bound", (ctx) =>
+		searched(
+			ctx,
+			Effect.gen(function* () {
+				const fx = yield* installFixture({ candidates, untagged })
+				const session = yield* searcher(fx)
+				const c = compile(untagged, fx.installed, "query")
+				const gamma = new Set(
+					Arr.map(
+						Arr.filter(fx.facts, (d) => d.tags.includes("gamma")),
+						(d) => d.id
+					)
+				)
+				return yield* explore(
+					{
+						...spec,
+						suite: "vector/ann/negation",
+						draw: drawn(
+							(source) => [source.draw(element(accounts)), source.draw(probeNumber)] as const
+						),
+						oracle: {
+							kind: "second-implementation",
+							name: "the exact baseline with the gamma-tagged documents removed on the host"
+						},
+						coverage: required<SearchFeature>(
+							["a negated tag excluded", "served by the HNSW index"],
+							{ cases: spec.runs, sense: notesOnly }
+						)
+					},
+					([[account, label], n], k) =>
+						Effect.gen(function* () {
+							const vector = fx.probe(n)
+							const params = { account, vector: vectorParam(vector) }
+							const rows = yield* run(session, c, params)
+							const scored = yield* exactScores(session, fx, account, vector)
+							const exact = new Map(
+								Arr.map(
+									Arr.filter(scored, (r) => r[0] === undefined || !gamma.has(r[0])),
+									(r) => [key(r), r[2]]
+								)
+							)
+							for (const row of rows) {
+								const [document, revision, distance] = asTriple(row)
+								assert.equal(gamma.has(document), false, `${label} ${document} is not tagged gamma`)
+								assert.equal(
+									exact.get(`${document}/${revision}`),
+									distance,
+									`${label} ${document}/${revision}`
+								)
+							}
+							assert.equal(
+								rows.length,
+								Math.min(candidatesTake, exact.size),
+								`${label}: the request filled up to the untagged eligible facts`
+							)
+							if (exact.size < scored.length) {
+								k.note("a negated tag excluded")
+							}
+							if (yield* servedByHnsw(session, fx, c, params)) {
+								k.note("served by the HNSW index")
+							}
+						})
+				)
+			})
+		)
 	)
 
 	it.effect(
@@ -655,9 +545,9 @@ layer(Substrate.layer)("approximateNearest on PostgreSQL 19", (it) => {
 					const c = compile(candidates, fx.installed, "query")
 					return yield* explore(
 						{
+							...spec,
 							suite: "vector/ann/superseded",
 							draw: drawn(supersededGen),
-							literal: Formatter.format,
 							oracle: {
 								kind: "second-implementation",
 								name: "the exact baseline over the facts the transaction sees"
@@ -666,26 +556,20 @@ layer(Substrate.layer)("approximateNearest on PostgreSQL 19", (it) => {
 								[
 									"nearest embeddings removed",
 									"nearest revisions superseded",
-									"both, in one transaction"
+									"both, in one transaction",
+									"served by the HNSW index"
 								],
-								{ cases: 12, sense: notesOnly }
-							),
-							kept: [],
-							runs: 8,
-							shrink: completeShrink,
-							concurrency: 1,
-							steerEvery: 4,
-							caseHang
+								{ cases: spec.runs, sense: notesOnly }
+							)
 						},
 						(drawnCase, k) =>
 							Effect.ensuring(
 								Effect.gen(function* () {
-									const vector = fx.probe(drawnCase.seed)
+									const vector = fx.probe(drawnCase.n)
 									const params = { account: accountB, vector: vectorParam(vector) }
 									yield* session.begin
 									const nearest = yield* run(session, c, params)
 									const before = Arr.map(nearest, asTriple)
-									assert.equal(before.length, 20)
 									/**
 									 * In one transaction the searcher's own role writes: the nearest lose their current
 									 * embedding, pending and so not eligible, their tuples left in the graph, invisible to
@@ -718,8 +602,6 @@ layer(Substrate.layer)("approximateNearest on PostgreSQL 19", (it) => {
 											[]
 										)
 									}
-									const p = yield* plan(session, c, params)
-									assert.equal(readsHnsw(fx, p.indexes), true, Formatter.format(p))
 									const searchedAgain = yield* run(session, c, params)
 									const after = Arr.map(searchedAgain, asTriple)
 									const scored = yield* exactScores(session, fx, accountB, vector)
@@ -737,8 +619,11 @@ layer(Substrate.layer)("approximateNearest on PostgreSQL 19", (it) => {
 											assert.equal(revision, "3", `${document} only at its new revision`)
 										}
 									}
-									assert.equal(after.length, Math.min(20, exact.size))
+									assert.equal(after.length, Math.min(candidatesTake, exact.size))
 									k.noteAll(supersededFeatures(drawnCase))
+									if (yield* servedByHnsw(session, fx, c, params)) {
+										k.note("served by the HNSW index")
+									}
 								}),
 								Effect.orDie(session.rollback)
 							)
@@ -766,29 +651,23 @@ layer(Substrate.layer)("approximateNearest on PostgreSQL 19", (it) => {
 				)
 				return yield* explore(
 					{
+						...spec,
 						suite: "vector/ann/shared",
 						draw: drawn(
-							(source) => [source.draw(element(accounts)), source.draw(int(60, 99))] as const
+							(source) => [source.draw(element(accounts)), source.draw(probeNumber)] as const
 						),
-						literal: Formatter.format,
 						oracle: {
 							kind: "second-implementation",
 							name: "the search's own candidates, filtered on the host as each rule reads them"
 						},
 						coverage: required<SearchFeature>(
 							Arr.map(accounts, ([, label]): SearchFeature => `account ${label}`),
-							{ cases: 12, sense: notesOnly }
-						),
-						kept: [],
-						runs: 8,
-						shrink: completeShrink,
-						concurrency: 1,
-						steerEvery: 4,
-						caseHang
+							{ cases: spec.runs, sense: notesOnly }
+						)
 					},
-					([[account, label], seed], k) =>
+					([[account, label], n], k) =>
 						Effect.gen(function* () {
-							const vector = vectorParam(fx.probe(seed))
+							const vector = vectorParam(fx.probe(n))
 							const candidatesOf = yield* run(session, near, { account, vector })
 							const titled = yield* run(session, t, { account, vector })
 							assert.deepEqual(

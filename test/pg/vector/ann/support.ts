@@ -484,13 +484,6 @@ const installDrawn = <const P extends AnnPrograms>(programs: P, draw: number) =>
 export const installFixture = <const P extends AnnPrograms>(programs: P) =>
 	Effect.flatMap(runDraw, (draw) => installDrawn(programs, draw))
 
-/**
- * The fixture over the population `label` alone fixes, the way a witness phase's stream is fixed: the same vectors and
- * probes on every run seed, so a statistical verdict over it is the test source's, never the run's.
- */
-export const installLabelled = <const P extends AnnPrograms>(programs: P, label: string) =>
-	installDrawn(programs, drawOf(floorSeed(label)))
-
 export interface Compiled {
 	readonly logical: LogicalQuery
 	readonly program: OptimizedProgram

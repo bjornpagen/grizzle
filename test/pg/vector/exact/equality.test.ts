@@ -1,3 +1,22 @@
+/**
+ * Vector equality on PostgreSQL 19 and the pinned pgvector: a vector's value is its binary32 components, -0 equal to 0,
+ * everywhere grizzle compares one.
+ *
+ * - Queries: a vector binding, a vector variable two matches share, an r.not and attachments correlated on a vector,
+ *   over drawn facts of vectors that collide by value and differ by spelling, deliver in both artifacts exactly what
+ *   the host's evaluation of the query under vector equality delivers; every statement names the extension's operator
+ *   by its schema, since the writer's search_path never holds it.
+ * - Writes: ChangeSet inserts, repeats, conflicts, deletes and puts over vector fields run through the protocol, and
+ *   each outcome and the stored facts are a host model's of each relation under vector equality.
+ *
+ * Oracle: a second implementation, the host's evaluation of each query and a host model of each relation's facts, both
+ * under vector equality.
+ *
+ * Plants: vector-negative-zero-apart (a vector's identity text writes -0, so the host keeps apart what pgvector
+ * equates).
+ *
+ * Features: each query form and each write outcome the searches name.
+ */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
