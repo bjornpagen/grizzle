@@ -69,6 +69,7 @@
 					"packages/grizzle/src/adapter/errors/execution.ts",
 					"packages/grizzle/src/adapter/errors/failures.ts",
 					"packages/grizzle/src/adapter/explain/plan.ts",
+					"packages/grizzle/src/adapter/live/call-error.ts",
 					"packages/grizzle/src/adapter/outcomes/index.ts",
 					"packages/grizzle/src/adapter/page/edges.ts",
 					"packages/grizzle/src/adapter/page/request.ts",
@@ -556,6 +557,7 @@
 					"core",
 					"decode",
 					"ir",
+					"live",
 					"plan-runtime",
 					"runtime",
 					"scalar",
@@ -634,7 +636,7 @@
 			},
 			{
 				"from": "live",
-				"allow": ["core"]
+				"allow": ["core", "types"]
 			},
 			{
 				"from": "plan-runtime",
@@ -743,6 +745,7 @@
 			"exports": ["CompareOp", "Spelled", "compareOps", "everyFact"]
 		},
 		{ "file": "packages/engine/src/ir/family.ts", "exports": ["Family"] },
+		{ "file": "packages/engine/src/live/key.ts", "exports": ["Key"] },
 		{ "file": "packages/engine/src/ir/law.ts", "exports": ["DomainCheck"] },
 		{ "file": "packages/engine/src/ir/products.ts", "exports": ["StatementRole"] },
 		{

@@ -92,15 +92,13 @@ export const formOf = (key: Key): Form => {
 }
 
 /**
- * Whether two decoded values are one: equal forms, read without building them. A diff reads it of every row a run
- * keeps, so it allocates nothing.
+ * Whether two decoded values deliver as one: their forms' walk, read without building them, each primitive by
+ * Object.is, so a row whose -0 became 0 is sent again, where a key's form takes them as one key, as PostgreSQL's
+ * equality does. A diff reads it of every row a run keeps, so it allocates nothing.
  */
 export const sameValue = (a: unknown, b: unknown): boolean => {
 	if (typeof a !== "object" || a === null || typeof b !== "object" || b === null) {
-		return (
-			a === b ||
-			(typeof a === "number" && typeof b === "number" && Number.isNaN(a) && Number.isNaN(b))
-		)
+		return Object.is(a, b)
 	}
 	if (Array.isArray(a)) {
 		return Array.isArray(b) && a.length === b.length && a.every((x, i) => sameValue(x, b[i]))

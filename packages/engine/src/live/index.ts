@@ -31,9 +31,12 @@ export {
 	diffList,
 	diffSet,
 	fold,
+	foldWrite,
 	opening,
 	type ReadEvent,
-	type ReadState
+	type ReadState,
+	type WriteState,
+	writeOpening
 } from "#compiler/live/fold.ts"
 export { type Form, formOf, Key, type KeyFields, keyOf, sameValue } from "#compiler/live/key.ts"
 export { type Entry, Keyed, type KeyedList, type KeyedSet } from "#compiler/live/keyed.ts"
@@ -48,6 +51,7 @@ export type {
 	RelationCounts,
 	RowOf,
 	ShapeOf,
+	StateOf,
 	ValueOf,
 	Window,
 	WindowInput,

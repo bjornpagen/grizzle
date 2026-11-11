@@ -54,9 +54,11 @@ export type Retry = "safe" | "never"
  * - `outsideWorld`: a fact the write adds lies outside the written world relation.
  * - `transient`: SERIALIZABLE refused the attempt (40001, 40P01) or a concurrent writer's change met it, and it
  *   changed nothing (TransientFailure).
- * - `unavailable`: the pool or the handle refused a session before anything was sent.
+ * - `unavailable`: no session could be opened: the pool or the handle refused one before anything was sent.
+ * - `transport`: a connection broke before the terminal event, the client's exchange or the server's session, of a
+ *   read, which commits nothing, or of a write before its COMMIT was sent.
  * - `stale`: the database does not hold the snapshot the server was deployed with, so the call ran nothing.
- * - `commitUnknown`: COMMIT was sent and no answer came: the write may have committed.
+ * - `commitUnknown`: a write's COMMIT was sent and no answer came: it may have committed.
  * - `failed`: the server or the database failed the call otherwise: a statement it refused, a lost connection, an
  *   answer that does not read.
  */
@@ -72,6 +74,7 @@ export const callErrors = {
 	outsideWorld: { retry: "never", payload: { message: "text", relation: "text" } },
 	transient: { retry: "safe", payload: { message: "text" } },
 	unavailable: { retry: "safe", payload: { message: "text" } },
+	transport: { retry: "safe", payload: { message: "text" } },
 	stale: { retry: "never", payload: { message: "text" } },
 	commitUnknown: { retry: "never", payload: { message: "text" } },
 	failed: { retry: "never", payload: { message: "text" } }

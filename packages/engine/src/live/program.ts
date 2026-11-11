@@ -4,6 +4,7 @@
  */
 import type { Delivering } from "#compiler/core/phantom.ts"
 import type { EventOfShape } from "#compiler/live/events.ts"
+import type { ReadState, WriteState } from "#compiler/live/fold.ts"
 import type { Key } from "#compiler/live/key.ts"
 import type { KeyedList, KeyedSet } from "#compiler/live/keyed.ts"
 import type { AnyChangeSet, ArraysOf } from "#compiler/types/changeset/changeset.ts"
@@ -138,3 +139,10 @@ export type ValueOf<X> = {
 
 /** A served program's events, by its shape (live/events.ts events). */
 export type EventOf<X> = EventOfShape<ShapeOf<X>, RowOf<X>, OutcomeOf<X>>
+
+/** A served program's state as its events build it (live/fold.ts fold, foldWrite), by its shape. */
+export type StateOf<X> = {
+	readonly set: ReadState<"set", RowOf<X>>
+	readonly list: ReadState<"list", RowOf<X>>
+	readonly write: WriteState<OutcomeOf<X>>
+}[ShapeOf<X>]

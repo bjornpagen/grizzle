@@ -10,7 +10,8 @@ import type {
 	ListEvent,
 	ReadShape,
 	SetChange,
-	SetEvent
+	SetEvent,
+	WriteEvent
 } from "#compiler/live/events.ts"
 import { type Key, sameValue } from "#compiler/live/key.ts"
 import { type Entry, Keyed, type KeyedList, type KeyedSet } from "#compiler/live/keyed.ts"
@@ -107,6 +108,48 @@ export const fold = <S extends ReadShape, Row extends object>(
 		}
 	}
 	return settled(current, pending)
+}
+
+/**
+ * A write's state as its events have built it: `opening`, before its answer; `ready`, its outcome, final; `failed`, the
+ * error that ended it.
+ */
+export type WriteState<Outcome> =
+	| { readonly kind: "opening" }
+	| { readonly kind: "ready"; readonly value: Outcome }
+	| { readonly kind: "failed"; readonly error: CallError }
+
+/** The state of a write before its first event. */
+export const writeOpening = <Outcome>(): WriteState<Outcome> => ({ kind: "opening" })
+
+/**
+ * `state` after `events`, in order: `outcome` is the write's final value; `error` ends it; `end` changes nothing. A
+ * write answers once, so a second answer is a defect of the stream.
+ */
+export const foldWrite = <Outcome>(
+	state: WriteState<Outcome>,
+	events: Iterable<WriteEvent<Outcome>>
+): WriteState<Outcome> => {
+	let current = state
+	for (const event of events) {
+		switch (event.kind) {
+			case "outcome":
+				if (current.kind !== "opening") {
+					throw defect("a write answered twice")
+				}
+				current = { kind: "ready", value: event.outcome }
+				break
+			case "error":
+				if (current.kind === "ready") {
+					throw defect("a write answered twice")
+				}
+				current = current.kind === "failed" ? current : { kind: "failed", error: event.error }
+				break
+			case "end":
+				break
+		}
+	}
+	return current
 }
 
 /** The removes of every key `previous` holds and `next` does not, in `previous`'s order. */

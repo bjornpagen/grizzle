@@ -54,6 +54,7 @@ export { jsonText, trusted, trustedJson } from "#compiler/core/trusted.ts"
 export { TupleMap } from "#compiler/core/tuple-map.ts"
 export { codeNames, rosterCodebook } from "#compiler/ir/codes.ts"
 export { constraintLaw } from "#compiler/ir/products.ts"
+export { type CallError, callError } from "#compiler/live/events.ts"
 export {
 	liveChannel,
 	type NotificationRefused,
