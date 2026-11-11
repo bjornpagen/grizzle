@@ -12,6 +12,8 @@
  *
  * The box (doctrine rule 9): keys 0 and 1, points 0 to 3, so a span is one of the six non-empty intervals over them,
  * the empty one, or NULL; at most three target rows; one source row, since PostgreSQL checks each source row alone.
+ *
+ * Plants (main's test phase): substrate-temporal-key-without-overlaps-dropped.patch.
  */
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"

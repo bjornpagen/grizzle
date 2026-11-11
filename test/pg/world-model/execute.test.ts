@@ -44,6 +44,8 @@ import type {
  *   leave free, which grizzle answers invariant-rejected on the primary key alone, its witness the submitted id.
  * The table, the key value or the id is the planted value: a scan that stopped reading a field, or read it under
  * another name, would let a real leak pass every suite unseen.
+ *
+ * Plants (main's test phase): worlds-leak-scan-skips-detail.patch.
  */
 
 /** A statement a direct writer sends on a relation's table. */

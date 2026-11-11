@@ -20,6 +20,8 @@
  * family's closure immediate and a counted family's deferred, and the copy's foreign key immediate, since every write
  * updates the count before it inserts, which the families model (mutate.ts checkedAt) states. A lowering that defers
  * the copy as well is judged beside the RFC's.
+ *
+ * Plants (main's test phase): substrate-fin-bound-at-or-below-count.patch.
  */
 import { layer } from "@effect/vitest"
 import {

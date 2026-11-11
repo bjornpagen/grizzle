@@ -26,6 +26,8 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * group whose total leaves money's range delivering zero. Each case installs Fee with generated fees, the extremes of
  * money's range among them, refreshes the derived relation, and checks that the stored view, its definition evaluated
  * by the conservative lowering and the host's exact sums agree, every amount compared by value.
+ *
+ * Plants (main's test phase): derived-narrowed-within-upper-bound-lost.patch.
  */
 
 /** Money's range in minor units, a signed 64-bit integer. */

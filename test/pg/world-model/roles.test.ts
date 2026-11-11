@@ -56,6 +56,8 @@ import {
  * (every privilege, membership and attribute it holds, as PostgreSQL judges them), its login's, and row security on its
  * target are exactly the ones README "Security model" derives from the classification (worlds/privileges.ts
  * expectedPrivileges), and Db.open of its role, with a token whose claims it reads, opens as the worlds model says.
+ *
+ * Plants (main's test phase): worlds-roles-login-creates-in-schema.patch.
  */
 
 const integer = { kind: "integer", bits: 32 } as const

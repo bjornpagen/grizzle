@@ -32,6 +32,8 @@ import type { InstallSpec, WorldFeature } from "#test/support/worlds/model/types
  * ticket's code, the first key it states. Reads walk a world's span fields, and chain which rooms adjoin which by a
  * recursive query. Beside the model, a shown witness carries only what the writer submitted or holds whole
  * (drive/acting.ts witnessesShowTheirOwn).
+ *
+ * Plants (main's test phase): worlds-rules-span-key-overlaps.patch.
  */
 const focus: Focus = ["open-db", "apply", "read", "close", "direct-begin", "direct", "direct-end"]
 

@@ -38,6 +38,8 @@ const subject: FieldDomain = textDomain("^u_[a-z]{1,8}$", "u")
  * The small box's base: teams, and the members of a team by user, each member's team a team (a containment), and one
  * context, Session { sub }, read from the token's top level. Two relations, one law, one context: the least base on
  * which a query entry can filter by a claim and write through it, and a law can refuse a write from inside a world.
+ *
+ * Plants (main's test phase): worlds-laws-foreign-keys-dropped.patch.
  */
 const teamsBase: BaseSpec = {
 	name: "Teams",

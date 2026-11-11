@@ -39,7 +39,10 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
  * view. The index is a plain B-tree on the view, survives a plain refresh and a concurrent one, and serves the
  * program's own optimized statement: over drawn thresholds and accounts made busy inside a transaction, with sequential
  * scans off, PostgreSQL plans the statement through it rather than the key index, and returns the accounts whose
- * automatic tasks number at least the threshold. */
+ * automatic tasks number at least the threshold.
+ *
+ * Plants (main's test phase): derived-workload-index-unique.patch.
+ */
 const busyAccounts = query(W.Reports).rule((r) => {
 	const { account, tasks, budget } = v(W.AccountBudget, "accountBudget")
 	return r

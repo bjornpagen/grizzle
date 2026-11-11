@@ -37,6 +37,8 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * evaluated by definition.
  *
  * @cpu-bound
+ *
+ * Plants (main's test phase): recursion-conservative-feedback-union-all.patch.
  */
 
 const cases = 800

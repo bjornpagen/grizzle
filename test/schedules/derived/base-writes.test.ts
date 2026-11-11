@@ -16,6 +16,8 @@
  *
  * The kept race is the window the race was first planted for: the call parked between StudentWeekly and WeekBusy by
  * the holder, while a writer reads StudentWeekly and adds a sitting of a student the call read.
+ *
+ * Plants (main's test phase): derived-refresh-level-order.patch.
  */
 
 import { boolean, type Gen } from "@grizzle/testing/gen"

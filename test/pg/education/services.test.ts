@@ -8,6 +8,8 @@
  * what it recorded, never a name, and no direct writer reaches a role or view of another login, whatever claims it
  * sets: each import program first writes as a direct writer under hand-set claims and under malformed ones
  * (importerUnderClaims), after a write through its Db that changes its world (roleChangesItsWorld).
+ *
+ * Plants (main's test phase): worlds-deletion-keeps-facts.patch, worlds-isolation-view-barrier-off.patch.
  */
 import { layer } from "@effect/vitest"
 import {

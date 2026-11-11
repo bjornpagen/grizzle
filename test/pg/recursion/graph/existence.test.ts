@@ -51,6 +51,8 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  *
  * A case draws one of the three queries, the persons 1 to 6 that exist, every ordered pair of 1 to 6 a Follows edge
  * or not, so an edge dangles wherever an endpoint is missing, and the person the query starts from.
+ *
+ * Plants (main's test phase): recursion-existence-deferred-evidence.patch.
  */
 
 const Person = relation("Person", { id: pg.integer, name: str.regex("^.*$", "su") }, ["id"])

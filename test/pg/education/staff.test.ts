@@ -5,6 +5,8 @@
  * SERIALIZABLE. Every row a teacher's world shows is of a section their assignments name, and every grade, mark and
  * note they write is in such a section and recorded under their own account; every row a school administrator's world
  * shows, and every enrollment they write, is of the school their claims name and their account administers.
+ *
+ * Plants (main's test phase): worlds-isolation-row-security-off.patch.
  */
 import { layer } from "@effect/vitest"
 import {

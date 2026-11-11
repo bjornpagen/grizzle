@@ -84,6 +84,8 @@ import type {
  *
  * The setup's actions are driven and checked like any other, but they note nothing: what a case reached is its one
  * action. A tamper changes database settings, so the file runs in a database of its own.
+ *
+ * Plants (main's test phase): worlds-pool-claims-outlive-transaction.patch, worlds-isolation-row-security-off.patch.
  */
 const cases = 64
 

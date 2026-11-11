@@ -57,6 +57,8 @@ const caseGen: Gen<Case> = (source) => ({
  * is refused at its statement by the key (23505 naming its constraint for dan), and concurrently a writer may fail
  * with a typed transient failure; a carl reads his own shares, which no
  * other writer's claims ever reach. Every order of the moves is explored, with reduction.
+ *
+ * Plants (main's test phase): worlds-isolation-row-security-off.patch.
  */
 const race = (c: Case): WorldRace => {
 	const reads: ReadonlyArray<DirectStatement> =

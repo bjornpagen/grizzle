@@ -13,6 +13,8 @@
  * The widths are where a word or a byte begins or ends (doctrine rule 10): 0, 1, 7, 8, 9, 31, 32, 33, 63, 64 and 65, and
  * one drawn up to 200. Sets are drawn at a density the case draws, and B and K are drawn against A as a superset, a
  * disjoint set, one member of A, or independently, so every law is met both ways.
+ *
+ * Plants (main's test phase): substrate-bits-cell-word-boundary.patch, substrate-bits-popcount-nibble-mask.patch.
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"

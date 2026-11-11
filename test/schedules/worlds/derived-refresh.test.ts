@@ -42,6 +42,8 @@ interface Case extends Environment {
  * after, and the nightly job refreshes it; ann refreshes it too when the case says so, so two refreshes may meet. A
  * derived relation moves only at a refresh: every read shows it as of the last refresh in the serial order, and a
  * refresh meeting another is a typed transient failure. The moves are ordered by the case's PCT schedule.
+ *
+ * Plants (main's test phase): worlds-deletion-keeps-facts.patch.
  */
 const racedOf = (c: Environment): Arr.NonEmptyReadonlyArray<RaceSession> => {
 	const deleter: RaceSession =

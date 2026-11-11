@@ -35,6 +35,8 @@
  * - every single mutation of every tree, and of every forest of two trees, of at most six rows, each named;
  * - every write of every such tree and forest: every row order within one INSERT, and every split of its pre-order and
  *   of its reverse pre-order into consecutive INSERTs.
+ *
+ * Plants (main's test phase): substrate-tree-rfc-without-T2.patch.
  */
 import { layer } from "@effect/vitest"
 import { type Case, exhaust, type Oracle } from "@grizzle/testing/explore"

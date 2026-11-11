@@ -49,6 +49,9 @@ import { withLayer } from "#test/support/with-layer.ts"
  * as a seat's, and requires every table it drew to hold no row and no page after: a table left out of the group keeps
  * its rows or refuses the TRUNCATE of the table it references (0A000), a relation that is no table put in it refuses
  * the TRUNCATE (42809), and a DELETE leaves the pages of the versions it removed.
+ *
+ * Plants (main's test phase): substrate-leftovers-miss-routines.patch,
+ * substrate-clearing-occupied-skips-referencing.patch.
  */
 type Stray =
 	| "a table"

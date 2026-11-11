@@ -7,6 +7,8 @@
  * and without a read; the one with no Db reads nothing. The oracle is the leak rule: once its scopes are closed nothing
  * it opened is open, no socket, connection attempt or timer, which the child reports before the case awaits its exit,
  * and the child then exits by itself with status 0.
+ *
+ * Plants (main's test phase): substrate-exit-pool-never-ended.patch.
  */
 import { NodeChildProcessSpawner, NodeFileSystem, NodePath } from "@effect/platform-node"
 import { layer } from "@effect/vitest"

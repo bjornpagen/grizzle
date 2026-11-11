@@ -39,6 +39,8 @@ import type { WorldFeature } from "#test/support/worlds/model/types.ts"
  *
  * The suite is the unbiased explorer: it aims at nothing, so it requires only what its generator reaches by construction
  * (`required`), and the aimed suites of each area require that area's features of the worlds feature map.
+ *
+ * Plants (main's test phase): worlds-pool-claims-outlive-transaction.patch, worlds-laws-foreign-keys-dropped.patch.
  */
 const guide: Arr.NonEmptyReadonlyArray<string> = [
 	"packages/engine/src/schema/world.ts",

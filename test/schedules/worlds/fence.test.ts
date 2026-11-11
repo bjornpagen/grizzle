@@ -53,6 +53,8 @@ import type {
  * running migration leaves (`running`), and each must answer while the holder still holds its lock: a call that waited
  * would hold the case until its hang guard reports it. The migration, and the calls drawn after the holder commits, are
  * judged by the model with the real system's state checked after each.
+ *
+ * Plants (main's test phase): worlds-fence-db-waits-on-ledger.patch.
  */
 
 /** What the transaction in flight the migration waits behind holds. */

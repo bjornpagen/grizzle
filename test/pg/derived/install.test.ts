@@ -74,7 +74,11 @@ import { regex } from "#test/unit/schema/support.ts"
  *   lowering on the same snapshot, and the tasks whose account the transaction holds.
  *
  * That every refreshed view equals its definition, over drawn levels, take forms and aggregates, is the derived
- * oracle's; the installed catalog is the catalog spec checker's. */
+ * oracle's; the installed catalog is the catalog spec checker's.
+ *
+ * Plants (main's test phase): derived-descriptor-typmod-uncast.patch, derived-literal-pattern-uncast.patch,
+ * recursion-existence-deferred-evidence.patch, derived-definition-snapshot-evidence.patch.
+ */
 
 const id = (n: number): Uuid =>
 	`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`

@@ -63,6 +63,8 @@ const reader = (c: Case): ReadonlyArray<RaceSession> =>
  * refused by that law, or the deletion lands and the note is outside ann's world; a third member may read MyNote
  * meanwhile. ann's write reads MyNote back, as of the state it committed. Every order of the moves is explored, with
  * reduction.
+ *
+ * Plants (main's test phase): worlds-isolation-row-security-off.patch.
  */
 const race = (c: Case): WorldRace => {
 	const deletion: RaceSession =

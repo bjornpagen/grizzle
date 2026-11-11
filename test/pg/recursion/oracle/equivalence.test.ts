@@ -41,6 +41,8 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * and the conservative lowering on the right.
  *
  * @cpu-bound
+ *
+ * Plants (main's test phase): recursion-conservative-feedback-union-all.patch.
  */
 
 const cases = 1600

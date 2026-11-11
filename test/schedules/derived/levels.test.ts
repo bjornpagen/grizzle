@@ -11,6 +11,8 @@
  *
  * The kept race is the window the race was first planted for: a call naming the whole chain, parked by the holder at
  * WeekBusy after it refreshed the levels below, while the reader reads.
+ *
+ * Plants (main's test phase): derived-refresh-level-order.patch.
  */
 
 import { constant, type Gen } from "@grizzle/testing/gen"

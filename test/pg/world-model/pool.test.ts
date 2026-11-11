@@ -26,6 +26,8 @@ import type { WorldFeature } from "#test/support/worlds/model/types.ts"
  * (test/schedules/worlds/pooled-roles.test.ts). Its focus holds no direct writer, so a statement after a refused one
  * (invalid:session:after-refusal) is the inductive suite's, whose drawn states hold a direct transaction a refusal
  * aborted (pg/world-model/inductive).
+ *
+ * Plants (main's test phase): worlds-pool-claims-outlive-transaction.patch.
  */
 const pooled: Focus = [
 	"open-db",

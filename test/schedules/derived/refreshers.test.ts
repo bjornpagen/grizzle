@@ -17,6 +17,8 @@
  * The kept races are the windows the races were first planted for: diffs touching the same row, a key the holder
  * inserted, diffs touching different rows (the waiter the pivot), and two first populations in each order of their
  * snapshots, which meet each other at the rewrite check.
+ *
+ * Plants (main's test phase): derived-refreshers-rewrite-check-off.patch.
  */
 
 import { boolean, type Gen } from "@grizzle/testing/gen"

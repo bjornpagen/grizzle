@@ -51,6 +51,9 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  *
  * Every case draws its graph: up to six people, each ordered pair of them a follow or not, so diamonds, cycles,
  * self-loops and dead ends arrive by several routes, and the person a walk starts from, now and then one past them.
+ *
+ * Plants (main's test phase): recursion-walk-plans-distinct-consumer.patch,
+ * recursion-optimized-feedback-union-all.patch.
  */
 
 /** The graph fixture's Network. */

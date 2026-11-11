@@ -51,6 +51,8 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * walk is bounded; on every generated diamond rooted at its top the mutant repeats a state the optimized lowering
  * delivers once, with the same distinct rows, a bounded walk and an unbounded one alike. Each case's program shows its
  * recursion as a WITH RECURSIVE, observed over the whole statement AST.
+ *
+ * Plants (main's test phase): recursion-optimized-feedback-union-all.patch.
  */
 
 /**

@@ -72,6 +72,9 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  *   fails.
  *
  * @cpu-bound
+ *
+ * Plants (main's test phase): recursion-optimized-feedback-union-all.patch, recursion-r37-attachment-unseeded.patch,
+ * recursion-seed-pushdown-off.patch.
  */
 
 const general = 1200

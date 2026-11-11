@@ -45,7 +45,11 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  *   is populated, and exactly the named views are populated after it; a level-2 view whose input is unpopulated and
  *   not named is PostgreSQL's 55000, and nothing is refreshed.
  *
- * What a refresh writes and its races are the derived oracle's and the schedule suites'. */
+ * What a refresh writes and its races are the derived oracle's and the schedule suites'.
+ *
+ * Plants (main's test phase): derived-refresh-level-order.patch, derived-refresh-named-twice.patch,
+ * derived-refresh-report-concurrently.patch.
+ */
 const build = (name: string) => {
 	const Sitting = relation(
 		"Sitting",

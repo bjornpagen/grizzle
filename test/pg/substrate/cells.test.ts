@@ -22,6 +22,8 @@
  * The boxes are stated where each proof draws them (doctrine rules 9, 10): every relation over a key space of at most
  * four cells and a payload space of at most four codes; every digit of three rosters of two or three codes, one below
  * and two above each; every roster of at most three codes with every hole pattern, every removal and one appended code.
+ *
+ * Plants (main's test phase): substrate-cells-pack-no-absence-offset.patch, substrate-bits-cell-word-boundary.patch.
  */
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"

@@ -64,6 +64,8 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  *   to it holds nothing, so the rewritten recursion is empty (or, seeded on a successor, walks on past it).
  * - a final inequality applied at every state. A predicate on final results is not automatically safe at every
  *   intermediate vertex: on a chain, dropping a vertex inside the recursion drops everything past it.
+ *
+ * Plants (main's test phase): recursion-conservative-feedback-union-all.patch.
  */
 
 /**

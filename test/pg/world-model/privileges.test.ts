@@ -70,6 +70,9 @@ import {
  *   the model.
  *
  * A perturbation changes database settings and the attempts take on roles, so the file runs in a database of its own.
+ *
+ * Plants (main's test phase): worlds-privileges-probe-public-execute.patch,
+ * worlds-catalog-check-unexpected-objects-ignored.patch, worlds-direct-guard-sqlstate.patch.
  */
 type Feature =
 	| `held:${PrivilegedObjectKind}:${PrivilegeType}`

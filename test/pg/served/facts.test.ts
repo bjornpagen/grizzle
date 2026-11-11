@@ -34,6 +34,8 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  *
  * Essay ideas: an oracle (the facts a call supplies are the facts it writes, each by its op) over generated facts, with
  * plants the oracle must catch.
+ *
+ * Plants (main's test phase): served-facts-delete-member-dropped.patch.
  */
 const Tag = str.regex("^[a-z]{1,4}$")
 const Item = relation("Item", { id: pg.integer, score: pg.integer }, ["id"])

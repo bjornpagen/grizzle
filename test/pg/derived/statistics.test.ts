@@ -46,7 +46,10 @@ import { fixtureLogin, planOf } from "#test/unit/workload/fixtures.ts"
  * - `grizzle migrate apply` with nothing pending, its drift check, admits it, and so does Db.open;
  * - the view statistics object the case picks, dropped by hand, is drift the drift check refuses at stage drift,
  *   while Db.open, which compares no catalog, still opens; created again as it was, both admit it again.
- * The precondition is planted: kept workloads justify statistics on a view, one of them by two programs at once. */
+ * The precondition is planted: kept workloads justify statistics on a view, one of them by two programs at once.
+ *
+ * Plants (main's test phase): derived-statistics-two-kinds.patch.
+ */
 const Code = str.regex("^[a-z]{1,8}$")
 
 /** A catalog row's order: its fields' text, joined by spaces, in UTF-16 code-unit order. */

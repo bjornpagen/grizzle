@@ -56,6 +56,8 @@ const caseGen: Gen<Case> = (source) => ({
  * yet the primary key is global: serially the second insert is refused by Doc's primary-key law, its witness the key
  * the writer submitted and nothing of the hidden fact, and concurrently PostgreSQL may refuse one writer instead with
  * a typed transient failure. Every order of the moves is explored, with reduction.
+ *
+ * Plants (main's test phase): worlds-isolation-row-security-off.patch.
  */
 const race = (c: Case): WorldRace => {
 	const rival: RaceSession =

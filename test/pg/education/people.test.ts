@@ -4,6 +4,8 @@
  * schools' accounts, claims hand-set by direct writers, writes below SERIALIZABLE. Every row a student's world shows,
  * through a Db or a direct read of its views, is one of their own records, and every fact a student writes is their
  * own profile; every row a guardian's world shows is a record of a child they hold an unrestricted guardianship of.
+ *
+ * Plants (main's test phase): worlds-isolation-view-barrier-off.patch.
  */
 import { layer } from "@effect/vitest"
 import {

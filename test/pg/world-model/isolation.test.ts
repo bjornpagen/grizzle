@@ -51,6 +51,8 @@ import type { InvalidKind, WorldFeature } from "#test/support/worlds/model/types
  * README "Security model"'s promise: a role reads exactly its own view, whatever lies outside it. Beside the model, one rule is held directly: a
  * direct writer's statement that reaches past its login (another login's role or views, another identity, another
  * role's filter or key probe) is refused (drive/acting.ts reachingPastRefused).
+ *
+ * Plants (main's test phase): worlds-isolation-view-barrier-off.patch, worlds-isolation-row-security-off.patch.
  */
 const reads: Focus = [
 	"open-db",

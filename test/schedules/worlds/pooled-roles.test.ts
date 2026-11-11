@@ -60,6 +60,8 @@ const probe = (session: number): RaceOp => ({ kind: "probe", session })
  * roles never cross transactions on a pooled connection. The probe right after a call interrupted mid-flight is the one
  * place it is checked after an interruption: the worlds model's serial drivers never have a call in flight to interrupt
  * (pg/world-model/pool's connection situations). The moves are ordered by the case's PCT schedule.
+ *
+ * Plants (main's test phase): worlds-pool-claims-outlive-transaction.patch.
  */
 const race = (c: Case, nature: Nature): WorldRace => ({
 	name: "a reader and a member interleave on one pooled connection",

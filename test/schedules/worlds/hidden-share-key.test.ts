@@ -47,6 +47,8 @@ const caseGen: Gen<Case> = (source) => ({
  * by hand. Serially every share but the first is refused at its statement by the key, whose refusal quotes no value
  * of the hidden share; concurrently the key still holds, and a writer may fail with a typed transient failure instead.
  * Every order of the moves is explored, with reduction. The oracle is the worlds model, judging every order.
+ *
+ * Plants (main's test phase): worlds-isolation-row-security-off.patch.
  */
 const race = (c: Case): WorldRace => {
 	const bob: RaceSession =

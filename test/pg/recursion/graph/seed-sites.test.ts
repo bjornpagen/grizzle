@@ -46,6 +46,8 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * A case draws an integer graph over up to six vertices and a text graph over up to six words, each ordered pair of
  * vertices an edge or not, so chains, diamonds, cycles and self-loops arrive by several routes, and the origin a
  * parameter or literal names, now and then one past the graph's last vertex, and runs every query over them.
+ *
+ * Plants (main's test phase): recursion-seed-pushdown-off.patch.
  */
 
 const text = str.regex("^[a-z]{1,8}$")

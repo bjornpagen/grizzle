@@ -49,6 +49,8 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * That the seeded statement delivers exactly the pipelined closures is the graph suite's (equivalence.test.ts, the
  * attachment population against the conservative lowering) and the recursion oracle's (consumer:attach against the
  * reference evaluator).
+ *
+ * Plants (main's test phase): recursion-r37-attachment-unseeded.patch.
  */
 
 const V = relation("V", { id: pg.integer }, ["id"])

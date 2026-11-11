@@ -37,7 +37,10 @@ import { regex } from "arkregex"
  * - checks every view against its definition evaluated by the conservative lowering on one snapshot: numerics compared
  *   by value, every other column exactly (raw text cannot be compared);
  * - reloads the same facts in another physical order, refreshes again with no base change, and checks that the refresh
- *   wrote no row: every row keeps its tuple. */
+ *   wrote no row: every row keeps its tuple.
+ *
+ * Plants (main's test phase): derived-refresh-always-plain.patch.
+ */
 type Vars = ReturnType<typeof v>
 
 /** How a column is compared: exactly, or by numeric value. */
