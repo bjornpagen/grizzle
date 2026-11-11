@@ -176,7 +176,10 @@ type VersionPlanner = (
 /** The installation's script with every name minted under its schema's identity abstracted
  * (installationAbstraction): one key per installation shape. */
 const shapeKey = (installation: Installation): string =>
-	Arr.join(Arr.map(draftedSql(installation), installationAbstraction(installation)), "\n")
+	Arr.join(
+		Arr.map(draftedSql(installation).statements, installationAbstraction(installation)),
+		"\n"
+	)
 
 const normalized = (statement: string): string =>
 	pipe(Str.trim(statement), Str.replace(regex(";$"), ""))
@@ -237,7 +240,11 @@ export const runsInstallScript = (
 	const script = Arr.map(filledSql(draftedSql(installation), database), normalized)
 	const migration = Arr.map(
 		filledSql(
-			Arr.flatMap(folders, (folder) => Arr.flatMap(folder.files, (f) => splitStatements(f.text))),
+			{
+				statements: Arr.flatMap(folders, (folder) =>
+					Arr.flatMap(folder.files, (f) => splitStatements(f.text))
+				)
+			},
 			database
 		),
 		normalized
@@ -337,7 +344,7 @@ export const expectFreshCatalog = (
 			shapeKey(migrated),
 			"the fresh install compiles the same script"
 		)
-		yield* transaction(substrate.admin, filledSql(plan.sql, substrate.database))
+		yield* transaction(substrate.admin, filledSql(plan.drafted, substrate.database))
 		const schema = migrated.names.schema
 		yield* sameCatalog(
 			migrated,

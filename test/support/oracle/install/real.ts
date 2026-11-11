@@ -454,7 +454,7 @@ const build = (input: FixtureSchema, options: RealPlanOptions): RealInstallPlan 
 		domains,
 		loadOrder,
 		ddl: [],
-		sql: draftedSql(installation),
+		drafted: draftedSql(installation),
 		vectorSchema: installation.names.vectorSchema,
 		skipped: [],
 		fill: {
@@ -567,7 +567,7 @@ const installRealPlan = (
 	database: string,
 	plan: RealInstallPlan
 ): Effect.Effect<void, SqlError | TransactionRolledBack> =>
-	transaction(connection, filledSql(plan.sql, database))
+	transaction(connection, filledSql(plan.drafted, database))
 
 /**
  * The oracle on the real installer.

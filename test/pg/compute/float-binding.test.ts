@@ -483,7 +483,7 @@ const subplansOf = (c: LabelledCase, lowering: Lowering, schema: string) =>
 			const session = yield* substrate.admin.pin
 			yield* session.query("BEGIN", [])
 			return yield* Effect.gen(function* () {
-				for (const sql of [...filledSql(plan.sql, substrate.database), ...facts.value]) {
+				for (const sql of [...filledSql(plan.drafted, substrate.database), ...facts.value]) {
 					yield* session.query(sql, [])
 				}
 				const tables = Arr.map(Rec.values(plan.tables), (t) => printObjectName(t.name))

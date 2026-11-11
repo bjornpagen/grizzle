@@ -1,4 +1,9 @@
-import { roleInSpace, isConversion, type RoleSpace } from "#compiler/core/identity.ts"
+import {
+	roleInSpace,
+	roleNameForm,
+	type RoleNameForm,
+	type RoleSpace
+} from "#compiler/core/identity.ts"
 import * as Result from "#compiler/core/result.ts"
 import { type Lexeme, lexemesOf } from "#compiler/sql/lexer.ts"
 import { databaseVariable, quoteIdent } from "#compiler/sql/print.ts"
@@ -7,20 +12,21 @@ import { databaseVariable, quoteIdent } from "#compiler/sql/print.ts"
  * The variables of a drafted statement, and their filling.
  *
  * A statement names what an installation decides, never what it is called there, by psql's identifier variables,
- * `:"<name>"`: each role of the installation by its stem (sql/print.ts printRole), which `grizzle generate` commits, and
- * the current database by `:"DBNAME"` (printDatabase). `grizzle migrate` fills each with what its installation names it
- * (resolveVariables) before it sends the statement, so one drafted file installs into every database under every role
- * space, and a statement sent unfilled is a syntax error, never another role.
+ * `:"<name>"`: each role of the installation by the name the naming door mints it under (sql/print.ts printRole), its
+ * stem or the name a migration sets it aside under while it renames logins (core/identity.ts RoleNameForm), which
+ * `grizzle generate` commits, and the current database by `:"DBNAME"` (printDatabase). `grizzle migrate` fills each with
+ * what its installation names it (resolveVariables) before it sends the statement, so one drafted file installs into
+ * every database under every role space, and a statement sent unfilled is a syntax error, never another role.
  *
  * A variable is read as psql reads one, among the statement's lexemes (sql/lexer.ts lexemesOf): a `:` the next lexeme,
  * a quoted identifier, starts right after. `::` and `:=` are lexemes of their own, and a quote, a dollar-quoted body
  * and a comment are each one lexeme, so a variable is never read inside one.
  */
 
-/** What a variable stands for: the current database, or a role of the installation by its stem. */
+/** What a variable stands for: the current database, or a role of the installation by its name in one of its forms. */
 export type Variable =
 	| { readonly kind: "database" }
-	| { readonly kind: "role"; readonly stem: string }
+	| { readonly kind: "role"; readonly name: string; readonly form: RoleNameForm }
 
 /** What an installation fills a statement's variables with: its database, its connection's, and its role space. */
 export interface InstallationNames {
@@ -29,30 +35,29 @@ export interface InstallationNames {
 }
 
 /**
- * A variable no installation fills: one whose name is neither DBNAME nor a role stem, or a role its installation's
- * role space would name past PostgreSQL's longest identifier, which it would truncate into another role's name.
+ * A variable no installation fills: one whose name is neither DBNAME nor a role's name in a form of RoleNameForm, or a
+ * role its installation's role space would name past PostgreSQL's longest identifier, which it would truncate into
+ * another role's name.
  */
 export type VariableFault =
 	| { readonly kind: "unknownVariable"; readonly name: string }
 	| {
 			readonly kind: "roleTooLong"
-			readonly stem: string
+			readonly name: string
 			readonly role: string
 			readonly limit: number
 	  }
 
 /**
- * What a variable's name stands for: DBNAME the database; a role stem, `<schema>__<name>`, two conversions joined by
- * `__` (core/identity.ts identity.login and identity.role), a role; any other name nothing.
+ * What a variable's name stands for: DBNAME the database; a role's name in one of its forms (core/identity.ts
+ * roleNameForm), a role; any other name nothing.
  */
 export const variableOf = (name: string): Variable | undefined => {
 	if (name === databaseVariable) {
 		return { kind: "database" }
 	}
-	const at = name.indexOf("__")
-	return at > 0 && isConversion(name.slice(0, at)) && isConversion(name.slice(at + 2))
-		? { kind: "role", stem: name }
-		: undefined
+	const form = roleNameForm(name)
+	return form === undefined ? undefined : { kind: "role", name, form }
 }
 
 /** The identifier `variable` is filled with under `names`, quoted, or why none is. */
@@ -65,8 +70,8 @@ const filled = (name: string, names: InstallationNames): Result.Result<string, V
 		return Result.ok(quoteIdent(names.database))
 	}
 	return Result.mapError(
-		Result.map(roleInSpace(names.roles, variable.stem), quoteIdent),
-		(tooLong): VariableFault => ({ kind: "roleTooLong", stem: variable.stem, ...tooLong })
+		Result.map(roleInSpace(names.roles, variable.name), quoteIdent),
+		(tooLong): VariableFault => ({ kind: "roleTooLong", name: variable.name, ...tooLong })
 	)
 }
 

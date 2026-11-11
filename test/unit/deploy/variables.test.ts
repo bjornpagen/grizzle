@@ -15,11 +15,14 @@
  *   `"<p>__x"` and the database variable spelled as the database's quoted name, and no variable is left.
  * - Roles are variables: the roles the folder's CREATE ROLEs name are exactly the variables of roleNameOf's stems of
  *   the login and its roles, and no CREATE ROLE names a role any other way.
- * - Only stems and DBNAME are variables: a statement naming the variable `:"<name>"` is filled exactly when the name is
- *   DBNAME or two conversions joined by `__` (lowercase ASCII words, a letter first, joined by single underscores),
- *   and refused as unknownVariable otherwise.
+ * - The variables are DBNAME and a role's names: a statement naming the variable `:"<name>"` under the drawn role space
+ *   is filled exactly when the name is DBNAME, a stem (two conversions joined by `__`: lowercase ASCII words, a letter
+ *   first, joined by single underscores) or the name a migration sets a role aside under while it renames logins
+ *   (`__aside`, its stem's words, `_` and ten characters of lowercase base32, at most 63 bytes); a role's name is filled
+ *   as `"<p>__<name>"` under a prefix p, and refused as roleTooLong past 63 bytes; any other name is refused as
+ *   unknownVariable. A drawn aside name is the naming door's own for a drawn stem (identity.aside).
  *
- * Features: a prefix and none, a capitalized schema spelling, an unknown variable, a stem variable.
+ * Features: a prefix and none, a capitalized schema spelling, an unknown variable, a stem variable, an aside variable.
  *
  * Plants (~/.cache/grizzle-release/ROLESPACE/plants): create-role-printed-plain.patch (a CREATE ROLE prints its role by
  * its stem), prefix-applied-twice.patch (a role variable filled with the prefix twice), database-variable-misfilled.patch
@@ -44,7 +47,7 @@ import {
 	String as Str
 } from "effect"
 import { roleNameOf } from "#adapter/served/served.ts"
-import { conversionOf, parseRolePrefix, type RoleSpace } from "#compiler/core/identity.ts"
+import { conversionOf, identity, parseRolePrefix, type RoleSpace } from "#compiler/core/identity.ts"
 import { splitStatements } from "#compiler/deploy/render/markers.ts"
 import { resolveVariables } from "#compiler/deploy/render/variables.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
@@ -93,6 +96,10 @@ const variableGen =
 		switch (kind) {
 			case "stem":
 				return `${source.draw(wordGen)}__${source.draw(wordGen)}`
+			case "aside":
+				return identity.aside(
+					`${source.draw(wordGen)}__${Arr.join(source.draw(array(wordGen, { min: 1, max: 14 })), "_")}`
+				).identifier
 			case "database":
 				return "DBNAME"
 			case "drawn":
@@ -110,12 +117,12 @@ const draftingGen: Gen<Drafting> = (source) => ({
 	prefix: Option.map(source.draw(option(wordsGen)), Str.toLowerCase),
 	database: source.draw(string(codePoint(0x61, 0x7a), { min: 1, max: 12 })),
 	variable: source.draw(
-		variableGen(source.draw(element<VariableKind>(["stem", "database", "drawn"])))
+		variableGen(source.draw(element<VariableKind>(["stem", "aside", "database", "drawn"])))
 	)
 })
 
-/** How a case's variable is drawn: a stem's shape, DBNAME's letters, or any characters. */
-type VariableKind = "stem" | "database" | "drawn"
+/** How a case's variable is drawn: a stem's shape, a stem's aside name, DBNAME's letters, or any characters. */
+type VariableKind = "stem" | "aside" | "database" | "drawn"
 
 type DraftFeature =
 	| "a prefix"
@@ -123,9 +130,16 @@ type DraftFeature =
 	| "a capitalized schema spelling"
 	| "an unknown variable"
 	| "a stem variable"
+	| "an aside variable"
 
 /** One lowercase conversion: a letter, then letters and digits, in words joined by single underscores. */
 const conversion = regex("^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$")
+
+/** A name a migration sets a role aside under, by the specification: `__aside`, words, `_` and a ten-character digest. */
+const asideName = regex("^__aside(?:_[a-z0-9]+)*_[a-z2-7]{10}$")
+
+/** Whether a variable's name is an aside name by the specification, within PostgreSQL's 63 bytes. */
+const isAside = (name: string): boolean => asideName.test(name) && name.length <= 63
 
 /** Whether a variable's name is a stem by the specification: two conversions joined by `__`. */
 const isStem = (name: string): boolean =>
@@ -244,20 +258,30 @@ const draftCase = (d: Drafting, c: Case<DraftFeature>) =>
 			)
 			const probe = resolveVariables(`SELECT :${quoteIdent(d.variable)}`, {
 				database: d.database,
-				roles: { kind: "stems" }
+				roles: space
 			})
-			const named = d.variable === "DBNAME" || isStem(d.variable)
-			c.note(named ? "a stem variable" : "an unknown variable")
-			assert.equal(
-				probe.ok,
-				named,
-				`the variable ${d.variable} fills exactly when it is DBNAME or a stem`
-			)
-			if (!probe.ok) {
+			const role = space.kind === "prefixed" ? `${space.prefix}__${d.variable}` : d.variable
+			if (isStem(d.variable) || isAside(d.variable)) {
+				c.note(isStem(d.variable) ? "a stem variable" : "an aside variable")
 				assert.deepEqual(
-					probe.error,
-					{ kind: "unknownVariable", name: d.variable },
-					"refused as unknown"
+					probe,
+					role.length <= 63
+						? { ok: true, value: `SELECT ${quoteIdent(role)}` }
+						: { ok: false, error: { kind: "roleTooLong", name: d.variable, role, limit: 63 } },
+					`the role's name ${d.variable} fills as its role under the space`
+				)
+			} else if (d.variable === "DBNAME") {
+				assert.deepEqual(
+					probe,
+					{ ok: true, value: `SELECT ${quoteIdent(d.database)}` },
+					"DBNAME fills as the database"
+				)
+			} else {
+				c.note("an unknown variable")
+				assert.deepEqual(
+					probe,
+					{ ok: false, error: { kind: "unknownVariable", name: d.variable } },
+					`the variable ${d.variable} is neither DBNAME nor a role's name, refused as unknown`
 				)
 			}
 		})
@@ -265,7 +289,7 @@ const draftCase = (d: Drafting, c: Case<DraftFeature>) =>
 
 layer(NodeServices.layer)("the variables of a drafted migration", (it) => {
 	it.effect(
-		"fill every drafted statement under each drawn role space as psql interpolates it, byte for byte under none, name every created role by its variable, and refuse every variable that is neither DBNAME nor a stem",
+		"fill every drafted statement under each drawn role space as psql interpolates it, byte for byte under none, name every created role by its variable, and refuse every variable that is neither DBNAME nor a role's stem or aside name",
 		(ctx) =>
 			searched(
 				ctx,
@@ -284,7 +308,8 @@ layer(NodeServices.layer)("the variables of a drafted migration", (it) => {
 								"no prefix",
 								"a capitalized schema spelling",
 								"an unknown variable",
-								"a stem variable"
+								"a stem variable",
+								"an aside variable"
 							],
 							{ cases: 16, sense: notesOnly }
 						),

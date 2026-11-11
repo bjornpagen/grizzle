@@ -77,7 +77,7 @@ import {
 	ownRole,
 	rostersOf
 } from "#compiler/schema/own.ts"
-import type { Cte, OperandSelect, Select } from "#compiler/sql/ast.ts"
+import type { Cte, OperandSelect, Select, SqlStatement } from "#compiler/sql/ast.ts"
 import { col, cteRef, provedCore, select, target } from "#compiler/sql/build.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { inertVisitor, visitSelect } from "#compiler/sql/transform.ts"
@@ -591,28 +591,42 @@ export const paramTexts = (
 	)
 
 /**
- * An installation's script as `grizzle generate` drafts it, in install order: each statement printed, each role of the
- * installation named by its variable and the database by DBNAME (deploy/render/variables.ts), which filledSql fills.
+ * Statements as `grizzle generate` drafts them: each printed, each role of the installation named by its variable and
+ * the database by DBNAME (deploy/render/variables.ts). A drafted script is no list of texts, so no harness path sends
+ * it as it is: filledSql is the one way from it to PostgreSQL, and its statements are read only to compare texts.
  */
-export const draftedSql = (installation: Installation): ReadonlyArray<string> =>
-	Arr.map(installation.statements, (statement) => printStatement(statement))
+export interface DraftedScript {
+	readonly statements: ReadonlyArray<string>
+}
+
+/** `statements` printed as `grizzle generate` drafts them (DraftedScript). */
+export const drafted = (statements: ReadonlyArray<SqlStatement>): DraftedScript => ({
+	statements: Arr.map(statements, (statement) => printStatement(statement))
+})
+
+/** An installation's script as `grizzle generate` drafts it, in install order (drafted). */
+export const draftedSql = (installation: Installation): DraftedScript =>
+	drafted(installation.statements)
 
 /**
- * Drafted statements as `grizzle migrate` sends them into `database`: each one's variables filled through the product's
- * one door (deploy/render/variables.ts resolveVariables) under the stems role space, every harness installation's. A
- * drafted statement whose variables do not fill is a defect.
+ * A drafted script as `grizzle migrate` sends it into `database`: each statement's variables filled through the
+ * product's one door (deploy/render/variables.ts resolveVariables) under the stems role space, every harness
+ * installation's. A drafted statement whose variables do not fill is a defect.
  */
-export const filledSql = (
-	statements: ReadonlyArray<string>,
-	database: string
-): ReadonlyArray<string> =>
-	Arr.map(statements, (statement) => {
+export const filledSql = (script: DraftedScript, database: string): ReadonlyArray<string> =>
+	Arr.map(script.statements, (statement) => {
 		const filled = resolveVariables(statement, { database, roles: { kind: "stems" } })
 		if (!filled.ok) {
 			throw new Error(`a drafted statement's variable does not fill: ${filled.error.kind}`)
 		}
 		return filled.value
 	})
+
+/** `statements` printed as `grizzle generate` drafts them and filled as `grizzle migrate` sends them into `database`. */
+export const filledStatements = (
+	statements: ReadonlyArray<SqlStatement>,
+	database: string
+): ReadonlyArray<string> => filledSql(drafted(statements), database)
 
 /** An installation's script as `grizzle migrate` sends it into `database` (draftedSql, filledSql). */
 export const installationSql = (

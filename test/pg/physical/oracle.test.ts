@@ -83,7 +83,7 @@ import {
 } from "#test/support/catalog/expected.ts"
 import { type Catalog, readCatalog } from "#test/support/catalog/read.ts"
 import { verifyErasure } from "#test/support/catalog/verify.ts"
-import { installationSql } from "#test/support/compile.ts"
+import { filledSql, installationSql } from "#test/support/compile.ts"
 import type { SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { atName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -371,7 +371,12 @@ layer(Substrate.layer)("oracle and real installer", (it) => {
 								if (!real.ok) {
 									return yield* Effect.die(new Error(`real compile ${real.error.message}`))
 								}
-								const oracle = yield* installedCatalog(pinned, schema, plan.value.sql, Effect.void)
+								const oracle = yield* installedCatalog(
+									pinned,
+									schema,
+									filledSql(plan.value.drafted, substrate.database),
+									Effect.void
+								)
 								/**
 								 * The real installation's text refinement domains judged by what they admit
 								 * (checks.ts).
