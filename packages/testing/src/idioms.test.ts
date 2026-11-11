@@ -12,7 +12,7 @@
  * Plants (~/.cache/grizzle-release/BR07/plants), each turning the property of its generator red:
  * int-order-sign-swapped, bigint-order-sign-swapped, int-wide-past-hi, double-past-max, float-past-max,
  * double-whole-shrink-lost, specials-without-negative-zero, uuid-variant-wrong, shuffled-repeats,
- * unique-array-unrepaired, alphabet-kept-last, clone-shares-object, production-four-in-five, element-reversed,
+ * unique-array-repair-over-items (the repair walking each item, tail and all), alphabet-kept-last, clone-shares-object, production-four-in-five, element-reversed,
  * unicode-scalar-surrogates, proportional-zero-drawn, swarm-half-off, swarm-keep-at-weight-one-always,
  * ascending-repeats, parents-self, composition-past-total, lsw-proxy-touched (the lsw kinds and boundary data),
  * shrink-no-item-deletion (shrinking toward the simplest live value), corrupted-never-live, pattern-repeat-past-max.
@@ -61,6 +61,7 @@ import {
 	subset,
 	unicodeScalar,
 	uniqueArray,
+	uniqueKeys,
 	type Weight,
 	weighted
 } from "#gen.ts"
@@ -508,7 +509,7 @@ describe("collections", () => {
 	)
 
 	it.effect(
-		"construct a unique array: no key repeated, no case given up, its length drawn unless the keys run out first, and a length past the keys refused",
+		"construct a unique array: no key repeated, no case given up, its length drawn unless the keys run out first, a length past the keys refused, and a repair that walks keys alone however large each item's tail",
 		(ctx) =>
 			searched(
 				ctx,
@@ -517,7 +518,7 @@ describe("collections", () => {
 						"unique array",
 						{
 							kind: "specification",
-							name: "distinct keys by construction: the drawn length, or every key where fewer remain, never a discard"
+							name: "distinct keys by construction: the drawn length, or every key where fewer remain, never a discard, the repair over the key space alone"
 						},
 						(source) => {
 							const keys = source.draw(int(1, 6))
@@ -532,13 +533,13 @@ describe("collections", () => {
 						required<
 							| "a key repeated and moved"
 							| "every key used"
-							| "a key moved by a projection"
+							| "a key moved beside a huge tail"
 							| "a length past the keys refused"
 						>(
 							[
 								"a key repeated and moved",
 								"every key used",
-								"a key moved by a projection",
+								"a key moved beside a huge tail",
 								"a length past the keys refused"
 							],
 							{ cases: 200, sense: notesOnly }
@@ -550,13 +551,13 @@ describe("collections", () => {
 							const generator = projected
 								? map(
 										uniqueArray(
-											(source) => [source.draw(int(0, keys - 1)), source.draw(int(0, 2))] as const,
-											([first]) => first,
+											int(0, keys - 1),
+											(key) => (source) => [key, source.draw(int(0, 2 ** 32 - 1))] as const,
 											size
 										),
-										(pairs) => Arr.map(pairs, ([first]) => first)
+										(pairs) => Arr.map(pairs, ([key]) => key)
 									)
-								: uniqueArray(int(0, keys - 1), (value) => value, size)
+								: uniqueKeys(int(0, keys - 1), size)
 							const drawnCase = Result.try(() => fresh(generator, seed))
 							if (size.min > keys) {
 								c.note("a length past the keys refused")
@@ -575,7 +576,7 @@ describe("collections", () => {
 										)
 									: []
 							if (Arr.dedupe(candidates).length < candidates.length) {
-								c.note(projected ? "a key moved by a projection" : "a key repeated and moved")
+								c.note(projected ? "a key moved beside a huge tail" : "a key repeated and moved")
 							}
 							if (items.length === keys) {
 								c.note("every key used")

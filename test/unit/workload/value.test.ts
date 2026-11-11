@@ -1,15 +1,7 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import {
-	array,
-	constant,
-	element,
-	type Gen,
-	map,
-	uniqueArray,
-	weighted
-} from "@grizzle/testing/gen"
+import { array, constant, element, type Gen, map, uniqueKeys, weighted } from "@grizzle/testing/gen"
 import { type Drawn, lsw, passed, WILD_IS_DATA, WILD_KINDS, wild } from "@grizzle/testing/lsw"
 import { matching } from "@grizzle/testing/pattern"
 import { notesOnly } from "@grizzle/testing/sense"
@@ -146,7 +138,7 @@ type WorkloadSketch = readonly [
 
 const workloadGen: Gen<WorkloadSketch> = (source) => {
 	const c = source.draw(element(workloads))
-	const names = source.draw(uniqueArray(nameGen, (name) => name, { min: 0, max: 4 }))
+	const names = source.draw(uniqueKeys(nameGen, { min: 0, max: 4 }))
 	return [
 		c,
 		Arr.map(names, (name) => ({

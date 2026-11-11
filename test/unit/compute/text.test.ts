@@ -38,7 +38,7 @@ import {
 	type Gen,
 	int,
 	map,
-	uniqueArray,
+	uniqueKeys,
 	weighted
 } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
@@ -800,7 +800,7 @@ describe("Compute's text terms", () => {
 	const spellingGen: Gen<PatternSpelling> = (source) => {
 		const { alphabet } = source.draw(element(families))
 		const [first, ...rest] = source.draw(
-			uniqueArray(admittedPatternOver(alphabet), (p) => p, { min: 1, max: 2 })
+			uniqueKeys(admittedPatternOver(alphabet), { min: 1, max: 2 })
 		)
 		return source.draw(spellingOver([defined(first, "an admitted pattern"), ...rest], 2))
 	}

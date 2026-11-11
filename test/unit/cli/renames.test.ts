@@ -70,7 +70,12 @@ import { handleMaxBytes } from "#compiler/core/limits.ts"
 import type { Named, Rename } from "#compiler/deploy/diff/plan.ts"
 import { Roster } from "#compiler/ir/scalar.ts"
 import { assert, deepEquals, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
-import { aliasGroups, dictionaryNameGen, refusedNames } from "#test/support/kernel/dict.ts"
+import {
+	admittedNames,
+	aliasGroups,
+	dictionaryNameGen,
+	refusedNames
+} from "#test/support/kernel/dict.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { upTo } from "#test/support/up-to.ts"
 
@@ -102,6 +107,21 @@ const declaredGen: Gen<string> = weighted([
 	[3, map(dictionaryNameGen, (n) => n.declared)],
 	[1, (source) => source.draw(element(source.draw(element(groups))))]
 ])
+
+/** A conversion of a declared name, drawn as declaredGen draws its name. */
+const conversionGen: Gen<string> = map(declaredGen, conversionOf)
+
+/** A declared name of the dictionary whose conversion is `conversion`, each such name equally often. */
+const declaredOf = (conversion: string): Gen<string> =>
+	element(
+		nonEmpty(
+			Arr.filter(
+				Arr.map(admittedNames, (n) => n.declared),
+				(declared) => conversionOf(declared) === conversion
+			),
+			"a declared name of the conversion"
+		)
+	)
 
 /** A name token: a declared name, a name the naming door refuses, or the empty text. */
 const nameGen: Gen<string> = weighted([
@@ -351,10 +371,10 @@ const poolForms: Arr.NonEmptyReadonlyArray<PoolForm> = [
 const listingGen: Gen<Listing> = (source) => {
 	const form = source.draw(element(poolForms))
 	const pool = nonEmpty(
-		Arr.map(
-			source.draw(uniqueArray(declaredGen, (n) => conversionOf(n), { min: 3, max: 3 })),
-			(name) => ({ name, second: source.draw(lettersGen) })
-		),
+		Arr.map(source.draw(uniqueArray(conversionGen, declaredOf, { min: 3, max: 3 })), (name) => ({
+			name,
+			second: source.draw(lettersGen)
+		})),
 		"the pool"
 	)
 	const pooledAt = (at: number) => defined(pool[at], "a pooled side")
@@ -471,7 +491,7 @@ interface RosterCase {
  */
 const rosterCaseGen: Gen<RosterCase> = (source) => {
 	const rosters = nonEmpty(
-		source.draw(uniqueArray(declaredGen, (n) => conversionOf(n), { min: 1, max: 2 })),
+		source.draw(uniqueArray(conversionGen, declaredOf, { min: 1, max: 2 })),
 		"a roster"
 	)
 	const count = source.draw(int(1, 3))

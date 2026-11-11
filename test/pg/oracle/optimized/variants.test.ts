@@ -132,11 +132,12 @@ const rowsGen = (
 ): Gen<ReadonlyArray<ReadonlyArray<TypedLiteral>>> =>
 	map(
 		uniqueArray(
-			(source): readonly [number, ReadonlyArray<number>] => [
-				source.draw(intGen(key[0], key[1])),
-				Arr.map(others, ([min, hi]) => source.draw(intGen(min, hi)))
-			],
-			([k]) => k,
+			intGen(key[0], key[1]),
+			(k) =>
+				(source): readonly [number, ReadonlyArray<number>] => [
+					k,
+					Arr.map(others, ([min, hi]) => source.draw(intGen(min, hi)))
+				],
 			{ min: 0, max }
 		),
 		(rows) => Arr.map(rows, ([k, rest]) => [int(k), ...Arr.map(rest, int)])

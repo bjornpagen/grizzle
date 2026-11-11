@@ -24,7 +24,16 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { type Gen, int, map, oneOf, string, uniqueArray, unicodeScalar } from "@grizzle/testing/gen"
+import {
+	type Gen,
+	int,
+	map,
+	oneOf,
+	string,
+	uniqueArray,
+	uniqueKeys,
+	unicodeScalar
+} from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -84,7 +93,7 @@ const holesGen: Gen<ReadonlyArray<CodeSlot>> = map(int(0, 3), (count) => upTo(co
  * of holes after the last, so a hole lies anywhere: leading, trailing, between, in runs.
  */
 const codesGen: Gen<RosterCodes> = (source) => {
-	const handles = source.draw(uniqueArray(handleGen, (h) => h, { min: 1, max: 4 }))
+	const handles = source.draw(uniqueKeys(handleGen, { min: 1, max: 4 }))
 	return [
 		...Arr.flatMap(handles, (handle): ReadonlyArray<CodeSlot> => [
 			...source.draw(holesGen),
@@ -95,10 +104,11 @@ const codesGen: Gen<RosterCodes> = (source) => {
 }
 
 /** A file's rosters: one or more, under distinct declared names. */
-const rostersGen: Gen<ReadonlyArray<readonly [DeclaredName, RosterCodes]>> = (source) => {
-	const names = source.draw(uniqueArray(dictionaryNameGen, (n) => n.declared, { min: 1, max: 3 }))
-	return Arr.map(names, (n) => [parsedName(n.declared), source.draw(codesGen)] as const)
-}
+const rostersGen: Gen<ReadonlyArray<readonly [DeclaredName, RosterCodes]>> = uniqueArray(
+	map(dictionaryNameGen, (n) => n.declared),
+	(declared) => (source) => [parsedName(declared), source.draw(codesGen)] as const,
+	{ min: 1, max: 3 }
+)
 
 /** The features one roster's codes reach. */
 const featuresOf = (codes: RosterCodes): ReadonlyArray<Feature> => {

@@ -35,7 +35,7 @@ import {
 	shuffled,
 	string,
 	subarray,
-	uniqueArray,
+	uniqueKeys,
 	weighted
 } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
@@ -619,7 +619,7 @@ interface ContextCase {
 const contextCaseGen: Gen<ContextCase> = (source) => {
 	const rosters = nonEmpty(source.draw(array(int(1, 3), { min: 1, max: 2 })), "the rosters")
 	const names = source.draw(
-		uniqueArray(string(codePoint(0x61, 0x66), { min: 1, max: 2 }), (n) => n, { min: 1, max: 3 })
+		uniqueKeys(string(codePoint(0x61, 0x66), { min: 1, max: 2 }), { min: 1, max: 3 })
 	)
 	return {
 		rosters,

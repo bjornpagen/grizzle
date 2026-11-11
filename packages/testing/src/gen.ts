@@ -449,20 +449,16 @@ const sameDecisions = (a: Tape, b: Tape): boolean =>
 	a.length === b.length && a.values.every((value, at) => value === b.values[at])
 
 /**
- * The value nearest `drawn` whose key is new, or none when the generator's space holds no new key: first each decision
- * of `drawn` in order, stepped up from its value through as many of its other values as `taken` keys are held, wrapping
- * to its least (a decision the key reads one-to-one meets a new key among them), every other decision kept; then every
- * value of the generator in its enumeration order after `drawn`, wrapping once to the first, which visits every value
- * of a bounded generator.
+ * The key nearest `drawn` that `taken` does not hold, or none when the key generator holds no other: first each
+ * decision of `drawn` in order, stepped up from its value through as many of its other values as `taken` holds keys,
+ * wrapping to its least (a decision the key reads one-to-one meets a new key among them), every other decision kept;
+ * then every key of the generator in its enumeration order after `drawn`, wrapping once to the first. Both walk the key
+ * generator's own space and nothing beside it, so the walk ends within that space, however large an item built from a
+ * key may be.
  */
-const nearestNew = <A, K>(
-	generator: Gen<A>,
-	drawn: Tape,
-	key: (item: A) => K,
-	taken: ReadonlySet<K>
-): Option.Option<A> => {
-	const isNew = (generated: Generated<A>): boolean =>
-		generated.tape.status !== "discarded" && !taken.has(key(generated.value))
+const nearestNew = <K>(key: Gen<K>, drawn: Tape, taken: ReadonlySet<K>): Option.Option<K> => {
+	const isNew = (generated: Generated<K>): boolean =>
+		generated.tape.status !== "discarded" && !taken.has(generated.value)
 	for (let at = 0; at < drawn.length; at += 1) {
 		const lo = drawn.lo[at] ?? 0
 		const width = (drawn.hi[at] ?? 0) - lo + 1
@@ -470,7 +466,7 @@ const nearestNew = <A, K>(
 		for (let step = 1; step < width && step <= taken.size; step += 1) {
 			const edited = drawn.values.slice(0, drawn.length)
 			edited[at] = lo + ((from + step) % width)
-			const neighbour = generate(generator, forcedChooser(edited, edited.length))
+			const neighbour = generate(key, forcedChooser(edited, edited.length))
 			if (isNew(neighbour)) {
 				return Option.some(neighbour.value)
 			}
@@ -486,7 +482,7 @@ const nearestNew = <A, K>(
 			wrapped = true
 		}
 		const step = enumerated(
-			generator,
+			key,
 			Option.getOrElse(branch, () => firstBranch)
 		)
 		if (wrapped && sameDecisions(step.generated.tape, drawn)) {
@@ -500,20 +496,20 @@ const nearestNew = <A, K>(
 }
 
 /**
- * Between `size.min` and `size.max` items whose keys all differ, distinct by construction: the length is drawn first,
- * then each item from `item`, and an item whose key an earlier item holds is moved to the nearest value whose key is
- * new (nearestNew): one decision of it stepped, or, failing every one, the next value of `item` in its enumeration
- * order. No case is discarded and no item drawn twice. An item whose key is new is a plain draw of `item`; one that
- * repeats a key is a deterministic function of its draw and the keys before it, so a case replays and shrinks as its
- * tape says, shrinking deleting items and simplifying each in place. A space whose distinct keys run out stops the
- * array there, and one holding fewer than `size.min` of them is a defect of the caller's generator, never a case. A
- * key decided by an item's early decisions, beside a vast space of later ones, is met by the first pass. `key` names
- * what makes two items the same, compared as a `Set` compares, so it is a string or a number.
+ * Between `size.min` and `size.max` items of distinct keys, distinct by construction: the length is drawn first, then
+ * for each item a key from `key` and the item `itemOf` builds from it. A key an earlier item holds is moved to the
+ * nearest key that is new (nearestNew), which walks the key generator's space alone, never an item's, so the walk ends
+ * however large what `itemOf` draws beside the key. No case is discarded and no key drawn twice. A key that is new is a
+ * plain draw of `key`; one that repeats is a deterministic function of its draw and the keys before it, so a case
+ * replays and shrinks as its tape says, shrinking deleting items and simplifying each key and item in place. A key
+ * generator whose distinct keys run out stops the array there, and one holding fewer than `size.min` of them is a
+ * defect of the caller's generator, never a case. Keys are compared as a `Set` compares, so a key is a string or a
+ * number.
  */
 export const uniqueArray =
-	<A, K extends string | number>(
-		item: Gen<A>,
-		key: (item: A) => K,
+	<K extends string | number, A>(
+		key: Gen<K>,
+		itemOf: (key: K) => Gen<A>,
 		size: Size
 	): Gen<ReadonlyArray<A>> =>
 	(source) => {
@@ -523,30 +519,36 @@ export const uniqueArray =
 		const items: Array<A> = []
 		for (let index = 0; index < length; index += 1) {
 			source.open("element")
-			const drawn = drawnWithDecisions(item, source)
-			const unique = seen.has(key(drawn.value))
+			const drawn = drawnWithDecisions(key, source)
+			const unique = seen.has(drawn.value)
 				? nearestNew(
-						item,
-						generate(item, forcedChooser(drawn.decisions, drawn.decisions.length)).tape,
 						key,
+						generate(key, forcedChooser(drawn.decisions, drawn.decisions.length)).tape,
 						seen
 					)
 				: Option.some(drawn.value)
-			source.close()
 			if (Option.isNone(unique)) {
+				source.close()
 				if (items.length < size.min) {
 					throw new Error(
-						`uniqueArray: the item generator holds ${items.length} distinct keys, fewer than the ${size.min} the array needs`
+						`uniqueArray: the key generator holds ${items.length} distinct keys, fewer than the ${size.min} the array needs`
 					)
 				}
 				break
 			}
-			seen.add(key(unique.value))
-			items.push(unique.value)
+			seen.add(unique.value)
+			items.push(source.draw(itemOf(unique.value)))
+			source.close()
 		}
 		source.close()
 		return items
 	}
+
+/** Between `size.min` and `size.max` distinct values of `key`, each drawn as uniqueArray draws a key. */
+export const uniqueKeys = <K extends string | number>(
+	key: Gen<K>,
+	size: Size
+): Gen<ReadonlyArray<K>> => uniqueArray(key, constant, size)
 
 /** Between `size.min` and `size.max` bytes, shrinking toward fewer and toward zero. */
 export const bytes = (size: Size): Gen<Uint8Array> =>

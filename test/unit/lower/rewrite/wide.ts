@@ -105,13 +105,9 @@ const factsGen = (
 	third: number
 ): Gen<ReadonlyArray<readonly [number, number, number]>> =>
 	uniqueArray(
-		(source) =>
-			[
-				source.draw(intGen(0, 7)),
-				source.draw(intGen(0, second)),
-				source.draw(intGen(0, third))
-			] as const,
-		([id]) => id,
+		intGen(0, 7),
+		(id) => (source) =>
+			[id, source.draw(intGen(0, second)), source.draw(intGen(0, third))] as const,
 		{ min: 0, max: 6 }
 	)
 

@@ -515,8 +515,8 @@ layer(Substrate.layer)("exact scalar codecs against PostgreSQL", (it) => {
 					)}, CONSTRAINT "reading_key" PRIMARY KEY ("id"))`,
 					[]
 				)
-				const fact = (source: Source) => ({
-					id: source.draw(anyUuid),
+				const factOf = (id: string) => (source: Source) => ({
+					id,
 					amount: source.draw(bigint(0n, int8Max.value)),
 					rate: source.draw(map(int(-9999999, 9999999), (n) => Decimal.of(`${n}e-2`))),
 					raw: source.draw(realGen),
@@ -571,7 +571,7 @@ layer(Substrate.layer)("exact scalar codecs against PostgreSQL", (it) => {
 						},
 						/** Each batch of facts distinct by key goes into an empty table. */
 						suite: "pg/codec/scalar/stored-row",
-						draw: drawn(uniqueArray(fact, (f) => Str.toLowerCase(f.id), { min: 1, max: 100 })),
+						draw: drawn(uniqueArray(anyUuid, factOf, { min: 1, max: 100 })),
 						literal: Formatter.format,
 						coverage: noCoverage,
 						kept: [],

@@ -31,6 +31,7 @@ import {
 	map,
 	shuffled,
 	uniqueArray,
+	uniqueKeys,
 	weighted
 } from "@grizzle/testing/gen"
 import { matching } from "@grizzle/testing/pattern"
@@ -243,11 +244,11 @@ describe("relation", () => {
 							const name = source.draw(wordGen)
 							const fields = source.draw(
 								uniqueArray(
-									(again) => ({
-										name: again.draw(wordGen),
+									wordGen,
+									(fieldName) => (again) => ({
+										name: fieldName,
 										descriptor: again.draw(element(builtDescriptors))
 									}),
-									(f) => f.name,
 									{ min: 1, max: 4 }
 								)
 							)
@@ -457,7 +458,7 @@ describe("closed", () => {
 						draw: drawn((source) => {
 							const handles = rosterOf(
 								source.draw(
-									uniqueArray(matching(arkregex("^[A-Z][a-z]{0,6}$")), (item) => item, {
+									uniqueKeys(matching(arkregex("^[A-Z][a-z]{0,6}$")), {
 										min: 1,
 										max: 4
 									})
@@ -550,17 +551,20 @@ describe("closed", () => {
 	]
 	type ClosedFeature = ClosedDefect | "no payload" | "payload" | "no rows" | "a row written twice"
 
-	const payloadFieldGen: Gen<{
-		readonly name: string
-		readonly type: PayloadType
-		readonly values: ReadonlyArray<unknown>
-	}> = (source) => {
-		const name = source.draw(payloadNameGen)
-		const type = source.draw(
-			element<PayloadType>(["bigint", "cents", "rate", "money", "ratio", "flag"])
-		)
-		return { name, type, values: source.draw(array(payloadValueGen(type), { min: 4, max: 4 })) }
-	}
+	const payloadFieldOf =
+		(
+			name: string
+		): Gen<{
+			readonly name: string
+			readonly type: PayloadType
+			readonly values: ReadonlyArray<unknown>
+		}> =>
+		(source) => {
+			const type = source.draw(
+				element<PayloadType>(["bigint", "cents", "rate", "money", "ratio", "flag"])
+			)
+			return { name, type, values: source.draw(array(payloadValueGen(type), { min: 4, max: 4 })) }
+		}
 
 	it.effect(
 		"records a closed relation's rows, one per key of its roster, against its fields, and refuses every other declaration",
@@ -577,7 +581,7 @@ describe("closed", () => {
 						draw: drawn((source) => {
 							const handles = rosterOf(
 								source.draw(
-									uniqueArray(matching(arkregex("^[A-Z][a-z]{0,6}$")), (item) => item, {
+									uniqueKeys(matching(arkregex("^[A-Z][a-z]{0,6}$")), {
 										min: 1,
 										max: 4
 									})
@@ -589,7 +593,7 @@ describe("closed", () => {
 								/** The handles that have a row, in declared order: a closed relation need not cover its roster. */
 								held: source.draw(array(boolean, { min: 4, max: 4 })),
 								payload: source.draw(
-									uniqueArray(payloadFieldGen, (f) => f.name, { min: 0, max: 3 })
+									uniqueArray(payloadNameGen, payloadFieldOf, { min: 0, max: 3 })
 								),
 								defect: source.draw(element(Arr.append(closedDefects, "none" as const))),
 								target: source.draw(element(handles)),
@@ -1753,7 +1757,7 @@ describe("alternatives", () => {
 						suite: "unit/schema/alternatives-constructor",
 						draw: drawn((source) => ({
 							handles: source.draw(
-								uniqueArray(matching(arkregex("^[A-Z][a-z]{0,6}$")), (item) => item, {
+								uniqueKeys(matching(arkregex("^[A-Z][a-z]{0,6}$")), {
 									min: 1,
 									max: 4
 								})

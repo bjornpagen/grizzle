@@ -36,7 +36,7 @@ import {
 	map,
 	recursive,
 	string,
-	uniqueArray,
+	uniqueKeys,
 	weighted
 } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
@@ -273,7 +273,7 @@ const namingCaseGen: Gen<NamingCase> = (source) => ({
 				(s) => ({
 					kind: "contracts",
 					contracts: nonEmpty(
-						Arr.map(s.draw(uniqueArray(contractNameGen, (n) => n, { min: 1, max: 3 })), (name) => ({
+						Arr.map(s.draw(uniqueKeys(contractNameGen, { min: 1, max: 3 })), (name) => ({
 							name,
 							atLeastZero: s.draw(boolean)
 						})),

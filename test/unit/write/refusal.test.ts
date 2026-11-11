@@ -9,7 +9,7 @@ import {
 	int,
 	oneOf,
 	string,
-	uniqueArray
+	uniqueKeys
 } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
@@ -115,7 +115,7 @@ const foreignAfter = (tag: string): Gen<string> => {
 
 /** A key: distinct field names, each with its text. */
 const keyGen: Gen<ReadonlyArray<{ readonly field: string; readonly text: string }>> = (source) =>
-	Arr.map(source.draw(uniqueArray(storable, (field) => field, { min: 1, max: 4 })), (field) => ({
+	Arr.map(source.draw(uniqueKeys(storable, { min: 1, max: 4 })), (field) => ({
 		field,
 		text: source.draw(oneOf([storable, nasty]))
 	}))

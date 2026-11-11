@@ -122,11 +122,17 @@ const anyDouble = weighted([
 	[1, element([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])]
 ])
 
-const readingFact: Gen<Reading> = (source) => ({
-	id: source.draw(uuid(4)),
-	value: source.draw(map(int(-99999, 99999), (n) => Decimal.of(`${n}e-2`))),
-	raw: source.draw(anyDouble)
-})
+/** The reading of an id: its value and its raw double drawn. */
+const readingOf =
+	(id: string): Gen<Reading> =>
+	(source) => ({
+		id,
+		value: source.draw(map(int(-99999, 99999), (n) => Decimal.of(`${n}e-2`))),
+		raw: source.draw(anyDouble)
+	})
+
+/** A reading of a drawn id. */
+const readingFact: Gen<Reading> = (source) => source.draw(readingOf(source.draw(uuid(4))))
 
 /** Every character array_in reads as syntax, blanks, and NULL's letters among plain ones. */
 const arrayCell = string(
@@ -188,7 +194,7 @@ describe("relation normalization", () => {
 							},
 							suite: "unit/codec/recordset-refusals",
 							draw: drawn((source) => ({
-								facts: source.draw(uniqueArray(readingFact, (r) => r.id, { min: 0, max: 4 })),
+								facts: source.draw(uniqueArray(uuid(4), readingOf, { min: 0, max: 4 })),
 								at: source.draw(int(0, 2 ** 31 - 1)),
 								plant: source.draw(element(plants)),
 								field: source.draw(element(fieldsOfReading)),
@@ -337,7 +343,7 @@ describe("relation normalization", () => {
 						draw: drawn(
 							(source) =>
 								[
-									source.draw(uniqueArray(readingFact, (f) => f.id, { min: 0, max: 20 })),
+									source.draw(uniqueArray(uuid(4), readingOf, { min: 0, max: 20 })),
 									source.draw(int(0, 2 ** 31 - 1))
 								] as const
 						),
@@ -494,10 +500,12 @@ describe("relation normalization", () => {
 					"-0",
 					"0.000"
 				]
-				const fact: Gen<Scaled> = (source) => ({
-					k: source.draw(int(0, 3)),
-					n: Decimal.of(source.draw(element(spellings)))
-				})
+				const factOf =
+					(k: number): Gen<Scaled> =>
+					(source) => ({
+						k,
+						n: Decimal.of(source.draw(element(spellings)))
+					})
 				/**
 				 * One payload per k, spelled at random, so the distinct facts are exactly the drawn ones and most cases hold equal
 				 * facts spelled differently.
@@ -507,7 +515,7 @@ describe("relation normalization", () => {
 					readonly extra: ReadonlyArray<Scaled>
 				}> = (source) => {
 					const facts = nonEmpty(
-						source.draw(uniqueArray(fact, (f) => f.k, { min: 1, max: 4 })),
+						source.draw(uniqueArray(int(0, 3), factOf, { min: 1, max: 4 })),
 						"the distinct facts"
 					)
 					const extra = source.draw(

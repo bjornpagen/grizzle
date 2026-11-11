@@ -25,7 +25,7 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
 import { required, requiredInSpace } from "@grizzle/testing/features"
-import { array, constant, type Gen, int, option, uniqueArray, weighted } from "@grizzle/testing/gen"
+import { array, constant, type Gen, int, option, uniqueKeys, weighted } from "@grizzle/testing/gen"
 import {
 	type Broken,
 	corrupted,
@@ -683,9 +683,7 @@ describe("closedId", () => {
 		liveClosed(
 			source.draw(matching(regex("^[A-Z][a-z]{1,8}$"))),
 			nonEmpty(
-				source.draw(
-					uniqueArray(matching(regex("^[A-Za-z]{1,6}$")), (item) => item, { min: 1, max: 5 })
-				),
+				source.draw(uniqueKeys(matching(regex("^[A-Za-z]{1,6}$")), { min: 1, max: 5 })),
 				"a roster's handles"
 			)
 		)
@@ -713,7 +711,7 @@ describe("closedId", () => {
 								])
 							),
 							handles: source.draw(
-								uniqueArray(matching(regex("^[A-Za-z]{1,6}$")), (item) => item, { min: 1, max: 5 })
+								uniqueKeys(matching(regex("^[A-Za-z]{1,6}$")), { min: 1, max: 5 })
 							)
 						}
 					}),

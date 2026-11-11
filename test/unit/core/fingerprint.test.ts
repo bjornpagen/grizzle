@@ -207,12 +207,8 @@ describe("fingerprints", () => {
 									source.draw(
 										map(
 											uniqueArray(
-												(source) =>
-													[
-														source.draw(string(codePoint(0x20, 0x7e), { min: 0, max: 4 })),
-														source.draw(leaf)
-													] as const,
-												([k]) => k,
+												string(codePoint(0x20, 0x7e), { min: 0, max: 4 }),
+												(k) => (source) => [k, source.draw(leaf)] as const,
 												{ min: 0, max: 3 }
 											),
 											Record.fromEntries

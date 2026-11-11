@@ -434,15 +434,12 @@ describe("shapes", () => {
 			element(["constructor", "toString", "a"]),
 			string(codePoint(0x20, 0x7e), { min: 1, max: 4 })
 		])
-		/**
-		 * A record's entries: up to five distinct keys, drawn alone, so uniqueArray moves a repeated key among keys alone,
-		 * and then each key's integer. A key drawn beside its value would have uniqueArray step through the value's 2^32
-		 * integers, which the key never reads, before it reached another key.
-		 */
-		const entriesGen: Gen<ReadonlyArray<readonly [string, number]>> = (source) => {
-			const keys = source.draw(uniqueArray(keyGen, (key) => key, { min: 0, max: 5 }))
-			return Arr.map(keys, (key) => [key, source.draw(integer)] as const)
-		}
+		/** A record's entries: up to five distinct keys, each with its integer. */
+		const entriesGen: Gen<ReadonlyArray<readonly [string, number]>> = uniqueArray(
+			keyGen,
+			(key) => (source) => [key, source.draw(integer)] as const,
+			{ min: 0, max: 5 }
+		)
 		return searched(
 			ctx,
 			explore(

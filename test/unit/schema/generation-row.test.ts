@@ -18,7 +18,7 @@
 import { describe, it } from "@effect/vitest"
 import { drawn as drawnCase, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { codePoint, type Gen, int, shuffled, string, uniqueArray } from "@grizzle/testing/gen"
+import { codePoint, type Gen, int, shuffled, string, uniqueKeys } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -68,9 +68,7 @@ const generationCaseGen: Gen<GenerationCase> = (source) => {
 		...Arr.map(indices(sets), (): Writing => "accumulated"),
 		...Arr.map(indices(callers), (): Writing => "caller")
 	]
-	const names = source.draw(
-		uniqueArray(nameGen, (n) => n, { min: writings.length, max: writings.length })
-	)
+	const names = source.draw(uniqueKeys(nameGen, { min: writings.length, max: writings.length }))
 	const fields = nonEmpty(
 		Arr.map(Arr.zip(names, writings), ([name, writing]) => ({ name, writing })),
 		"R's fields"

@@ -1,7 +1,7 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { noCoverage, required } from "@grizzle/testing/features"
-import { array, element, type Gen, subset, uniqueArray } from "@grizzle/testing/gen"
+import { array, element, type Gen, subset, uniqueKeys } from "@grizzle/testing/gen"
 import { matching } from "@grizzle/testing/pattern"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
@@ -59,9 +59,7 @@ const named = nonEmpty(Rec.toEntries(workPrograms), "the worked example's progra
 /** A workload of drawn programs under drawn names, a program possibly under several. */
 const workloadGen = (source: Source) =>
 	Arr.map(
-		source.draw(
-			uniqueArray(matching(regex("^[a-z][a-zA-Z0-9]{0,5}$")), (name) => name, { min: 1, max: 6 })
-		),
+		source.draw(uniqueKeys(matching(regex("^[a-z][a-zA-Z0-9]{0,5}$")), { min: 1, max: 6 })),
 		(name) => {
 			const [programSource, program] = source.draw(element(named))
 			return { name, source: programSource, program }
