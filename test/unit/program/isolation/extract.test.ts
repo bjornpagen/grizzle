@@ -63,7 +63,12 @@
  * declared names dropped, an ON CONFLICT's parameters dropped, probes never opened, every counting core's probe judged
  * by its own rows, grouped or not, a UNION passing no rows, a UNION through one arm alone, an INTERSECT or an EXCEPT as
  * a UNION, an ungrouped aggregate's sources as its row sources, an expression's subquery as a row source of the core it
- * stands in, and a derived table's or a CTE's rows as no row source.
+ * stands in, a derived table's or a CTE's rows as no row source; and the row met sealed with no met rows in scope,
+ * through an INSERT into another relation, an INSERT reading anything but its proposed CTE alone, or met rows of another
+ * CTE than it proposes, under DO SELECT or DO UPDATE, or over conflict columns its key only meets; the row met or an ON
+ * CONFLICT with no target read as an arbitration at READ COMMITTED; the row met as a row source, a probe as none, met
+ * rows that skip their proposed CTE, an ON CONFLICT with no target arbitrating one object alone, and a probe's
+ * equalities dropped.
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -693,9 +698,13 @@ const cteGen: Gen<CteSpec> = weighted<CteSpec>([
 ])
 
 /**
- * A statement shaped as the SERIALIZABLE insert protocol classifies its met rows: a query CTE, an INSERT into a drawn
- * relation that proposes that CTE alone under DO NOTHING with no target or over columns among the row met's key, and a
- * core reading that INSERT's met rows beside the row met for them, so the drawn pieces a seal needs meet in one case.
+ * A statement shaped as the SERIALIZABLE insert protocol classifies its met rows, each condition of the row met's seal
+ * drawn to hold or to fail: two query CTEs, an INSERT into a drawn relation that proposes one of them alone or reads a
+ * drawn query, under DO NOTHING with no target or over a subset of the row met's key, DO SELECT or DO UPDATE over such
+ * a subset, DO NOTHING over it and a column outside the key, ON CONSTRAINT or none, and a core reading that INSERT's
+ * met rows, of either CTE, beside the row met for
+ * them in the INSERT's relation or another. It composes the spec pieces the other arms draw, so the generic oracle
+ * judges it, and the pieces a seal needs meet in one case.
  */
 const metStatementGen: Gen<StatementSpec> = (s) => {
 	const rel = s.draw(element(RELS))
@@ -703,34 +712,55 @@ const metStatementGen: Gen<StatementSpec> = (s) => {
 		Arr.dedupe(s.draw(array(element(COLUMNS), { min: 1, max: 2 }))),
 		"the row met's key"
 	)
+	const proposes = s.draw(int(0, 1))
+	const within: Gen<Arr.NonEmptyReadonlyArray<Column>> = (t) =>
+		nonEmpty(
+			t.draw(subset(columns, { min: 1, max: columns.length })),
+			"conflict columns of the key"
+		)
+	const outside = Arr.filter(COLUMNS, (c) => !columns.includes(c))
 	const conflict = s.draw(
 		weighted<Conflict>([
-			[1, () => ({ kind: "every" })],
+			[2, () => ({ kind: "every" })],
+			[2, (t) => ({ kind: "columns", columns: t.draw(within), action: "doNothing" })],
 			[
 				1,
 				(t) => ({
 					kind: "columns",
-					columns: nonEmpty(
-						t.draw(subset(columns, { min: 1, max: columns.length })),
-						"a key's conflict columns"
-					),
+					columns: t.draw(within),
+					action: t.draw(element(["doSelect", "doUpdate"] as const))
+				})
+			],
+			[
+				1,
+				(t) => ({
+					kind: "columns",
+					columns: Arr.appendAll(t.draw(within), Arr.take(outside, 1)),
 					action: "doNothing"
 				})
-			]
+			],
+			[1, (t) => t.draw(element([{ kind: "constraint" }, { kind: "none" }] as const))]
+		])
+	)
+	const alone = s.draw(
+		weighted<boolean>([
+			[4, () => true],
+			[1, () => false]
 		])
 	)
 	return {
 		kind: "select",
 		ctes: [
 			{ kind: "query", query: s.draw(queryGen(1)) },
+			{ kind: "query", query: s.draw(queryGen(1)) },
 			{
 				kind: "dml",
 				dml: {
 					kind: "insert",
 					target: { kind: "table", rel },
-					source: undefined,
+					source: alone ? undefined : s.draw(queryGen(1)),
 					params: false,
-					proposes: 0,
+					proposes: alone ? proposes : undefined,
 					conflict
 				}
 			}
@@ -739,8 +769,27 @@ const metStatementGen: Gen<StatementSpec> = (s) => {
 			cores: [
 				{
 					sources: [
-						{ kind: "metRows", insert: 0, proposed: 0 },
-						{ kind: "met", rel, rows: 0, columns }
+						{
+							kind: "metRows",
+							insert: 0,
+							proposed: s.draw(
+								weighted<number>([
+									[3, () => proposes],
+									[1, () => 1 - proposes]
+								])
+							)
+						},
+						{
+							kind: "met",
+							rel: s.draw(
+								weighted<Rel>([
+									[4, () => rel],
+									[1, (t) => t.draw(element(RELS))]
+								])
+							),
+							rows: 0,
+							columns
+						}
 					],
 					filters: [],
 					aggregate: { kind: "none" },
