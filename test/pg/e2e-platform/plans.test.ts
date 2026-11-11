@@ -1526,10 +1526,6 @@ const runLawWrite = (o: OpenedPlatform, w: LawWrite) =>
 			[o.installed.schema]
 		)
 		const tables = trusted<ReadonlyArray<XactRow>>(tableRows)
-		/**
-		 * PostgreSQL has no per-transaction view of index statistics: an index's scans in this transaction are
-		 * pg_stat_get_xact_numscans of the index, the counter pg_stat_xact_user_tables sums into idx_scan.
-		 */
 		yield* admin.query("ROLLBACK", [])
 		return {
 			accepted: Result.isSuccess(applied),
