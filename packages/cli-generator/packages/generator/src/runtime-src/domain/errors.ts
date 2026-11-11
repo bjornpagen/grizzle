@@ -77,6 +77,28 @@ export class ApiResponseError extends Schema.TaggedError<ApiResponseError>()("Ap
 }
 
 /**
+ * A 2xx event stream ended at an event its contract names a failure, after printing it: exit 1, the API-error exit.
+ * `dataExcerpt` is the event's data, bounded and scrubbed as an error body excerpt is; `retrySafe` is the event's own
+ * word that the request took no effect, so running the command again is safe.
+ */
+export class StreamEventError extends Schema.TaggedError<
+	StreamEventError,
+	{ readonly brand: unique symbol }
+>()("StreamEventError", {
+	dataExcerpt: BodyExcerpt,
+	event: Schema.String,
+	itemIndex: Schema.Int,
+	operation: Schema.String,
+	retrySafe: Schema.Boolean
+}) {
+	override readonly [Runtime.errorExitCode] = 1
+
+	override get [CliError.userMessage](): string {
+		return `${this.operation} sent the failure event ${this.event} at item ${this.itemIndex}`
+	}
+}
+
+/**
  * A connect, DNS, TLS, timeout or abort failure. The URL arrives already redacted.
  */
 export class TransportError extends Schema.TaggedError<TransportError>()("TransportError", {

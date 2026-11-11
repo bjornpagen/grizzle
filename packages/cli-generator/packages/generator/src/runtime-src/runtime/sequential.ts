@@ -11,7 +11,7 @@ export type SequentialCodec = "jsonseq" | "ndjson" | "sse"
  * The sequential codec each media type essence selects. With the `+json-seq` suffix rule in
  * `sequentialCodecOf`, the one owner of these facts: the generator assigns a response alternative
  * its codec through it (`src/normalize/responses.ts`) and the runtime frames a body by it
- * (`framerFor` in `output.ts`), so the two cannot disagree.
+ * (`responseBytes` in `output.ts`), so the two cannot disagree.
  */
 export const sequentialMediaTypes: ReadonlyMap<string, SequentialCodec> = new Map([
 	["application/json-seq", "jsonseq"],
@@ -437,6 +437,18 @@ const scanRecord = (state: SeqState, text: string): void => {
 const decodeJsonText = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Unknown))
 
 /**
+ * One JSON text with its insignificant whitespace removed (`compact`), so its strings, numbers and key order stay as
+ * received; `None` when the text is not one JSON text, which decoding decides.
+ */
+export const compactJsonText = (text: string): Option.Option<string> => {
+	const compacted = compact(text)
+
+	return compacted.status === "complete" && Option.isSome(decodeJsonText(compacted.text))
+		? Option.some(compacted.text)
+		: Option.none()
+}
+
+/**
  * Whether the open record's text, which ends at an LF, is a complete JSON text, so the record
  * closes at that LF (RFC 7464 ends each record with LF) instead of at the next separator. The
  * scan rules out text inside a string or a container without parsing; decoding decides the rest.
@@ -578,253 +590,6 @@ export const jsonSeqRecords =
 						return last === undefined ? [] : [last]
 					}
 				}
-			),
-			Stream.mapEffect(raise)
-		)
-
-// The SSE line handling is owned here rather than taken from `Sse.makeParser`, whose `Parser` is
-// `feed` and `reset` only (effect 4.1.2, `effect/src/encoding/Sse.ts`): it reports a `retry` field
-// through `parseInt`, which loses digits past 2^53, and does not expose whether an event block is
-// open, which `truncated` needs. `Sse.decode` fails the stream on a `retry` field. One reader keeps
-// the line splitting, the fields and the bound in step.
-
-/**
- * The longest prefix a `data` line carries before its value. The buffer bound, the line being
- * read plus the data of the open event block in UTF-16 code units, is the record bound plus this
- * prefix, the bound `Sse.makeParser` applies with `maxEventSize`.
- */
-const dataPrefix = "data: "
-
-/**
- * The byte order mark skipped at the start of the stream.
- */
-const byteOrderMark = "﻿"
-
-/**
- * The digits of a `retry` field value the stream acts on: digits only.
- */
-const retryDigits = /^\d+$/u
-
-/**
- * The fields of one dispatched SSE event: `event` is the type, `message` by default, and `id` the
- * last event ID the stream set.
- */
-interface SseEvent {
-	readonly data: string
-	readonly event: string
-	readonly id: string | undefined
-}
-
-/**
- * The SSE reader's state between body chunks (`text/event-stream`): the line being read
- * (`pending`), whether the previous chunk ended with CR so a leading LF completes that CRLF, the
- * event block being built (`data`, each line followed by LF, and `eventName`), the last event ID,
- * whether an event block is open (a field line has arrived since the last blank line), and the
- * digits of the last `retry` field since the previous dispatched event.
- */
-interface SseScan {
-	afterCarriageReturn: boolean
-	data: string
-	eventName: string | undefined
-	lastEventId: string | undefined
-	open: boolean
-	pending: string
-	retry: string | undefined
-	started: boolean
-}
-
-/**
- * Render one dispatched SSE event as a compact JSON line with alphabetical keys: `data` as a
- * string, `event` unless it is the default type `message`, `id` when the stream has set one, and
- * `retry` as the digits received when a `retry` field arrived since the previous event. The digits
- * are written as they are, not through a JS number, so a value past 2^53 keeps them.
- */
-const eventLine = (event: SseEvent, retry: string | undefined): string => {
-	const fields = JSON.stringify({
-		data: event.data,
-		event: event.event === "message" ? undefined : event.event,
-		id: event.id
-	})
-
-	return retry === undefined ? fields : `${fields.slice(0, -1)},"retry":${retry}}`
-}
-
-/**
- * The SSE framer for one response body: `step` reads a chunk of decoded text and returns the lines
- * of the events it dispatched, then the first failure, after which it takes no more input; `halt`
- * returns `truncated` when the body ends inside an event block.
- */
-interface SseFramer {
-	readonly halt: () => Framed[]
-	readonly step: (chunk: string) => Framed[]
-}
-
-/**
- * Build the SSE framer for one response body. The state is created per body, so a stream run
- * twice starts clean.
- */
-const sseFramer = (maxRecordBytes: number): SseFramer => {
-	const out: Framed[] = []
-	const scan: SseScan = {
-		afterCarriageReturn: false,
-		data: "",
-		eventName: undefined,
-		lastEventId: undefined,
-		open: false,
-		pending: "",
-		retry: undefined,
-		started: false
-	}
-	let failed = false
-	let itemIndex = 0
-
-	const fail = (reason: "recordTooLarge" | "truncated"): void => {
-		failed = true
-		out.push(new ResponseStreamError({ itemIndex, reason }))
-	}
-
-	// A blank line dispatches the event block when it holds data, without its last LF.
-	const dispatch = (): void => {
-		const { data, eventName } = scan
-
-		scan.data = ""
-		scan.eventName = undefined
-		if (data.length === 0) {
-			return
-		}
-
-		const event: SseEvent = {
-			data: data.slice(0, -1),
-			event: eventName === undefined || eventName === "" ? "message" : eventName,
-			id: scan.lastEventId
-		}
-		if (utf8Length(event.data) > maxRecordBytes) {
-			fail("recordTooLarge")
-
-			return
-		}
-
-		out.push(eventLine(event, scan.retry))
-		scan.retry = undefined
-		itemIndex += 1
-	}
-
-	// One line: the field before the first colon, the value after it less one leading space.
-	// Comments and unknown fields are ignored; any line but a comment opens an event block.
-	const readLine = (line: string): void => {
-		if (line.length === 0) {
-			scan.open = false
-			dispatch()
-
-			return
-		}
-
-		scan.open ||= !line.startsWith(":")
-
-		const colon = line.indexOf(":")
-		const field = colon === -1 ? line : line.slice(0, colon)
-		const value =
-			colon === -1 ? "" : line.slice(line.startsWith(" ", colon + 1) ? colon + 2 : colon + 1)
-
-		if (field === "data") {
-			scan.data += `${value}\n`
-		} else if (field === "event") {
-			scan.eventName = value
-		} else if (field === "id" && !value.includes("\u0000")) {
-			scan.lastEventId = value
-		} else if (field === "retry" && retryDigits.test(value)) {
-			// Without leading zeros, so the digits form a JSON number.
-			scan.retry = value.replace(/^0+(?=\d)/u, "")
-		}
-	}
-
-	return {
-		halt: () => {
-			const open = scan.open || (scan.pending.length > 0 && !scan.pending.startsWith(":"))
-
-			if (!failed && open) {
-				fail("truncated")
-			}
-
-			return out.splice(0)
-		},
-		step: (chunk) => {
-			if (failed || chunk.length === 0) {
-				return out.splice(0)
-			}
-
-			const text = !scan.started && chunk.startsWith(byteOrderMark) ? chunk.slice(1) : chunk
-			scan.started = true
-
-			// Lines end at LF, CR or CRLF; the LF of a CRLF may arrive in the next chunk.
-			let position = 0
-			while (position < text.length) {
-				if (scan.afterCarriageReturn) {
-					scan.afterCarriageReturn = false
-					if (text.charAt(position) === "\n") {
-						position += 1
-						continue
-					}
-				}
-
-				let end = position
-				while (end < text.length && text.charAt(end) !== "\r" && text.charAt(end) !== "\n") {
-					end += 1
-				}
-
-				if (end === text.length) {
-					scan.pending += text.slice(position)
-					break
-				}
-
-				scan.afterCarriageReturn = text.charAt(end) === "\r"
-				const line = scan.pending + text.slice(position, end)
-				scan.pending = ""
-				readLine(line)
-				if (failed) {
-					return out.splice(0)
-				}
-
-				position = end + 1
-			}
-
-			if (scan.pending.length + scan.data.length > maxRecordBytes + dataPrefix.length) {
-				fail("recordTooLarge")
-			}
-
-			return out.splice(0)
-		}
-	}
-}
-
-/**
- * Frame a Server-Sent Events response body (`text/event-stream`) as one compact JSON line per
- * dispatched event, `{"data":…,"event":…,"id":…,"retry":…}` with absent fields omitted, emitted as
- * each event is dispatched (design 4.6, the OAS generic event schema).
- *
- * The body is read per `text/event-stream`: comments and unknown fields are ignored, multi-line
- * `data` is joined by LF, and `id` is the last event ID the stream set. `Sse.decode` is not used
- * because it fails the stream on a `retry` field (design 5, SSE row); here `retry` is an integer
- * field of the next event dispatched, written with the digits received.
- * `data` stays a string: `contentMediaType` and `contentSchema` are not applied (MED-18).
- *
- * An event whose `data` is over `maxRecordBytes` UTF-8 bytes, or a line being read that, with the
- * open block's data, passes the bound plus a `data: ` prefix, fails with `recordTooLarge`. A body
- * that ends inside an event block, after a field line with no blank line to dispatch it, fails with
- * `truncated` and the block is not dispatched. Each failure carries the zero-based `itemIndex` of
- * the event, after every event before it has been emitted.
- */
-export const sseRecords =
-	(maxRecordBytes: number) =>
-	<E, R>(
-		body: Stream.Stream<Uint8Array, E, R>
-	): Stream.Stream<string, E | ResponseStreamError, R> =>
-		body.pipe(
-			Stream.decodeText(),
-			Stream.mapAccum(
-				() => sseFramer(maxRecordBytes),
-				(framer, chunk: string) => [framer, framer.step(chunk)] as const,
-				{ onHalt: (framer) => framer.halt() }
 			),
 			Stream.mapEffect(raise)
 		)

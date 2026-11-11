@@ -32,6 +32,7 @@ import {
 	OutputError,
 	RedirectRefused,
 	ResponseStreamError,
+	StreamEventError,
 	TransportError,
 	UsageError
 } from "../domain/errors.ts"
@@ -98,14 +99,9 @@ import {
 	matchResponse,
 	toApiResponseError
 } from "./response.ts"
-import {
-	jsonSeqRecords,
-	ndjsonRecords,
-	sequentialCodecOf,
-	sseRecords,
-	utf8Bytes
-} from "./sequential.ts"
-import type { SequentialCodec } from "./sequential.ts"
+import { jsonSeqRecords, ndjsonRecords, sequentialCodecOf, utf8Bytes } from "./sequential.ts"
+import type { EventContract, EventFailed, StopAt } from "./sse.ts"
+import { eventStream, hasLifecycle, openContract } from "./sse.ts"
 
 /**
  * `--output <path>` writes the response body to a file; `-` writes it to stdout.
@@ -361,7 +357,7 @@ const toFile = <E, R>(
 	})
 
 /**
- * A sequential framer: one record's text per element, without a line terminator.
+ * A record framer: one record's text per element, without a line terminator.
  */
 type Framer = (
 	maxRecordBytes: number
@@ -369,30 +365,22 @@ type Framer = (
 	body: Stream.Stream<Uint8Array, E, R>
 ) => Stream.Stream<string, E | ResponseStreamError, R>
 
-const framers: Readonly<Record<SequentialCodec, Framer>> = {
-	jsonseq: jsonSeqRecords,
-	ndjson: ndjsonRecords,
-	sse: sseRecords
-}
-
 /**
- * The framer the matched response media key selects (design 4.6, 5), or `undefined` for raw
- * bytes. The codec comes from `sequentialCodecOf`, the rule the generator assigns codecs by.
+ * The record framers of the sequential codecs that frame records (design 4.6, 5); `text/event-stream` is read by
+ * events (`eventStream`).
  */
-const framerFor = (mediaType: string | undefined): Framer | undefined => {
-	const codec = mediaType === undefined ? undefined : sequentialCodecOf(mediaType)
-
-	return codec === undefined ? undefined : framers[codec]
+const framers: Readonly<Record<"jsonseq" | "ndjson", Framer>> = {
+	jsonseq: jsonSeqRecords,
+	ndjson: ndjsonRecords
 }
 
 /**
- * Whether a body of this media type is printed as text: text-family (`isText`) or a sequential
- * type (`framerFor`). The binary terminal guard and the `--dry-run` body both decide by it.
+ * Whether a body of this media type is printed as text: text-family (`isText`) or a sequential type
+ * (`sequentialCodecOf`). The binary terminal guard and the `--dry-run` body both decide by it.
  */
 const printsAsText = (mediaType: string | undefined): boolean =>
-	isText(mediaType) || framerFor(mediaType) !== undefined
+	isText(mediaType) || (mediaType !== undefined && sequentialCodecOf(mediaType) !== undefined)
 
-// A root that registers no `--raw` or `--max-record-bytes` gets their defaults.
 const rawRequested = Effect.map(
 	Effect.serviceOption(Raw),
 	Option.getOrElse(() => false)
@@ -411,6 +399,51 @@ const asLines = <E, R>(records: Stream.Stream<string, E, R>): Stream.Stream<Uint
 		Stream.map((record) => `${record}\n`),
 		Stream.encodeText
 	)
+
+/**
+ * What a command reads of an SSE response: the event contract its matched media key names, and where it stops.
+ */
+interface EventPlan {
+	readonly contract: EventContract
+	readonly stopAt: StopAt
+}
+
+/**
+ * The plan of an SSE response whose media key names no contract: every event an item printed as text, read to the end
+ * of the body.
+ */
+const openPlan: EventPlan = { contract: openContract, stopAt: "ready" }
+
+/**
+ * The bytes a 2xx response writes, and whether they are binary, by its matched media key (design 4.6): an SSE body one
+ * JSON line per event under its event plan (`eventStream`), stopping at the plan's stop point, or under `--raw` the
+ * bytes received to that point; an NDJSON or JSON-seq body one compact JSON line per record; each event or record
+ * bounded by `--max-record-bytes`. Under `--raw`, an SSE body whose contract names no role, and any other type, are the
+ * bytes received; only a type that does not print as text (`printsAsText`) is binary.
+ */
+const responseBytes = <E, R>(response: ResponseBody<E, R>, plan: EventPlan) =>
+	Effect.gen(function* framedBytes() {
+		const raw = yield* rawRequested
+		const maxRecordBytes = yield* recordBound
+		const codec =
+			response.mediaType === undefined ? undefined : sequentialCodecOf(response.mediaType)
+		const asReceived = { binary: !printsAsText(response.mediaType), bytes: response.bytes }
+		if (codec === "sse" && !(raw && !hasLifecycle(plan.contract))) {
+			return {
+				binary: false,
+				bytes: eventStream({
+					contract: plan.contract,
+					maxRecordBytes,
+					output: raw ? "bytes" : "lines",
+					stopAt: plan.stopAt
+				})(response.bytes)
+			}
+		}
+
+		return codec === undefined || codec === "sse" || raw
+			? asReceived
+			: { binary: false, bytes: asLines(framers[codec](maxRecordBytes)(response.bytes)) }
+	})
 
 /**
  * The destination the output settings name: with `--output <path>` a temp sibling renamed into
@@ -466,19 +499,20 @@ export const writeBody = <E, R>(response: ResponseBody<E, R>) =>
 	writeStream(response.bytes, !printsAsText(response.mediaType))
 
 /**
- * Write a 2xx response body by its matched media key (design 4.6): a sequential type
- * (`framerFor`) one compact JSON line per record, each written as it arrives and bounded by
- * `--max-record-bytes`; with `--raw`, or for any other type, the bytes received (`writeBody`).
+ * Write a 2xx response body by its matched media key and, for SSE, the event plan (`responseBytes`).
  * Sequential lines are text, so the binary terminal guard does not apply to them.
  */
-export const writeResponse = <E, R>(response: ResponseBody<E, R>) =>
-	Effect.gen(function* dispatchOutput() {
-		const framer = (yield* rawRequested) ? undefined : framerFor(response.mediaType)
+export const writeResponseUnder =
+	(plan: EventPlan) =>
+	<E, R>(response: ResponseBody<E, R>) =>
+		Effect.flatMap(responseBytes(response, plan), (framed) =>
+			writeStream(framed.bytes, framed.binary)
+		)
 
-		return framer === undefined
-			? yield* writeBody(response)
-			: yield* writeStream(asLines(framer(yield* recordBound)(response.bytes)), false)
-	})
+/**
+ * Write a 2xx response body by its matched media key, an SSE body under `openPlan`.
+ */
+export const writeResponse = writeResponseUnder(openPlan)
 
 /**
  * C0 except LF and TAB, DEL, C1, format characters (bidi controls among them), U+2028, U+2029 and
@@ -585,6 +619,7 @@ export type KnownError =
 	| OutputError
 	| RedirectRefused
 	| ResponseStreamError
+	| StreamEventError
 	| TransportError
 	| UsageError
 
@@ -594,6 +629,7 @@ const isKnownError = (error: unknown): error is KnownError =>
 	error instanceof OutputError ||
 	error instanceof RedirectRefused ||
 	error instanceof ResponseStreamError ||
+	error instanceof StreamEventError ||
 	error instanceof TransportError ||
 	error instanceof UsageError
 
@@ -607,6 +643,13 @@ const singleLine = (text: string, credentials: readonly ScrubEntry[]): string =>
  * running it again is safe. After a request D-AD7 would not retry, no message carries it.
  */
 export const retryHint = "The request is idempotent, so running the command again is safe."
+
+/**
+ * The sentence a failure event's message carries when the event said retrying is safe: the server's own word that the
+ * request took no effect.
+ */
+export const eventRetryHint =
+	"The server reported that the request took no effect, so running the command again is safe."
 
 /**
  * The sentence the text form adds when retrying stopped because the server's `Retry-After`
@@ -625,40 +668,64 @@ const isExchangeFailure = (error: KnownError): boolean =>
 	error instanceof ResponseStreamError
 
 /**
+ * The sentence a known error carries after its message: for a failure event, `eventRetryHint` when the event said
+ * retrying is safe, whatever the method; for another exchange failure, `retryHint` when `methodRetried`, the method
+ * `send` recorded being one D-AD7 would retry.
+ */
+const hintOf = (error: KnownError, methodRetried: boolean): Option.Option<string> => {
+	if (error._tag === "StreamEventError") {
+		return error.retrySafe ? Option.some(eventRetryHint) : Option.none()
+	}
+
+	return methodRetried && isExchangeFailure(error) ? Option.some(retryHint) : Option.none()
+}
+
+/**
+ * The body excerpt a known error carries: an `ApiResponseError`'s body or a `StreamEventError`'s event data, bounded,
+ * scrubbed and sanitized; empty for every other error.
+ */
+const excerptOf = (error: KnownError, credentials: readonly ScrubEntry[]): string => {
+	if (error._tag === "ApiResponseError") {
+		return boundedExcerpt(error.bodyExcerpt, maxErrorBytesCeiling, credentials)
+	}
+
+	return error._tag === "StreamEventError"
+		? boundedExcerpt(error.dataExcerpt, maxErrorBytesCeiling, credentials)
+		: ""
+}
+
+/**
  * The text printed on stderr for a known error (design 7.4): `Error: <message>`; for an
  * `ApiResponseError` whose retrying stopped at the cap, the sentence naming the server's
- * `Retry-After`; `retryHint` when `hint` is set and the error is an exchange failure; for an
- * `ApiResponseError` then `Request ID: <id>` when set, then the excerpt (omitted when empty).
- * Every part is scrubbed and sanitized again here, because the error may come from anywhere.
+ * `Retry-After`; its hint (`hintOf`); for an `ApiResponseError` then `Request ID: <id>` when set;
+ * then the excerpt (`excerptOf`, omitted when empty). Every part is scrubbed and sanitized again
+ * here, because the error may come from anywhere.
  */
 export const renderError = (
 	error: KnownError,
 	credentials: readonly ScrubEntry[],
-	hint = false
+	methodRetried = false
 ): string => {
-	const lines = [`Error: ${singleLine(error[CliError.userMessage], credentials)}`]
+	const capped =
+		error._tag === "ApiResponseError" && error.retryAfterSeconds !== undefined
+			? [cappedSentence(error.retryAfterSeconds)]
+			: []
+	const requestId =
+		error._tag === "ApiResponseError" && error.requestId !== undefined
+			? [`Request ID: ${singleLine(error.requestId, credentials)}`]
+			: []
+	const excerpt = excerptOf(error, credentials)
 
-	if (error instanceof ApiResponseError && error.retryAfterSeconds !== undefined) {
-		lines.push(cappedSentence(error.retryAfterSeconds))
-	}
-
-	if (hint && isExchangeFailure(error)) {
-		lines.push(retryHint)
-	}
-
-	if (error instanceof ApiResponseError) {
-		if (error.requestId !== undefined) {
-			lines.push(`Request ID: ${singleLine(error.requestId, credentials)}`)
-		}
-
-		const excerpt = boundedExcerpt(error.bodyExcerpt, maxErrorBytesCeiling, credentials)
-
-		if (excerpt !== "") {
-			lines.push(excerpt)
-		}
-	}
-
-	return lines.join("\n")
+	return Arr.join(
+		[
+			`Error: ${singleLine(error[CliError.userMessage], credentials)}`,
+			...capped,
+			...Option.toArray(hintOf(error, methodRetried)),
+			...requestId,
+			...(excerpt === "" ? [] : [excerpt])
+		],
+		"\n"
+	)
 }
 
 const base = CliOutput.defaultFormatter({ colors: false })
@@ -899,33 +966,32 @@ const jsonLine = (fields: ErrorFields): string =>
 	})
 
 /**
- * The JSON `message`, then `retryHint` as a second sentence when `hint` is set: a period unless
- * the message already ends in terminal punctuation, a space, then the hint. The text form keeps
- * the hint on its own line after the `Error:` line.
+ * The JSON `message`, then the hint as a second sentence: a period unless the message already
+ * ends in terminal punctuation, a space, then the hint. The text form keeps the hint on its own
+ * line after the `Error:` line.
  */
-const withHint = (message: string, hint: boolean): string => {
-	if (!hint) {
-		return message
-	}
-
-	return `${/[.!?]$/u.test(message) ? message : `${message}.`} ${retryHint}`
-}
+const withHint = (message: string, hint: Option.Option<string>): string =>
+	Option.match(hint, {
+		onNone: () => message,
+		onSome: (sentence) => `${/[.!?]$/u.test(message) ? message : `${message}.`} ${sentence}`
+	})
 
 /**
- * The JSON object for a known error: `operation` only for the classes that carry one, and for an
- * `ApiResponseError` its status, matched key, excerpt (when not empty), request id and capped
- * `Retry-After` (design 7.4, m3 P14, P15).
+ * The JSON object for a known error: `operation` only for the classes that carry one, the excerpt
+ * (`excerptOf`, when not empty), and for an `ApiResponseError` its status, matched key, request id
+ * and capped `Retry-After` (design 7.4, m3 P14, P15).
  */
 const renderErrorJson = (
 	error: KnownError,
 	credentials: readonly ScrubEntry[],
-	hint: boolean
+	methodRetried: boolean
 ): string => {
-	const api = error instanceof ApiResponseError ? error : undefined
-	const excerpt =
-		api === undefined ? "" : boundedExcerpt(api.bodyExcerpt, maxErrorBytesCeiling, credentials)
+	const api = error._tag === "ApiResponseError" ? error : undefined
+	const excerpt = excerptOf(error, credentials)
 	const operation =
-		error instanceof ApiResponseError || error instanceof CredentialMissing
+		error._tag === "ApiResponseError" ||
+		error._tag === "CredentialMissing" ||
+		error._tag === "StreamEventError"
 			? singleLine(error.operation, credentials)
 			: undefined
 
@@ -935,7 +1001,7 @@ const renderErrorJson = (
 		matched: api?.matched,
 		message: withHint(
 			singleLine(error[CliError.userMessage], credentials),
-			hint && isExchangeFailure(error)
+			hintOf(error, methodRetried)
 		),
 		operation,
 		requestId: api?.requestId === undefined ? undefined : singleLine(api.requestId, credentials),
@@ -1321,10 +1387,13 @@ export const formatter = (root: Command.Command.Any): CliOutput.Formatter => ({
  * lists, by response key, the required headers a case declares; it is present only when some case
  * declares one. `sensitiveHeaders` lists the header parameters and multipart part headers the
  * document marks sensitive (a password schema or `x-sensitive: true`), which `--dry-run` and
- * `--verbose` redact (`sensitiveHeaderNames`); it is present only when there is one.
+ * `--verbose` redact (`sensitiveHeaderNames`); it is present only when there is one. `events`
+ * holds, by response key and then media key, the event contract of each `text/event-stream`
+ * alternative whose `itemSchema` names events; it is present only when one does.
  */
 export interface OperationMeta {
 	readonly deprecated?: boolean | undefined
+	readonly events?: Readonly<Record<string, Readonly<Record<string, EventContract>>>> | undefined
 	readonly media: MediaDeclaration
 	readonly method: string
 	readonly operationId?: string | undefined
@@ -1378,6 +1447,7 @@ export type SendError =
 	| OutputError
 	| RedirectRefused
 	| ResponseStreamError
+	| StreamEventError
 	| TransportError
 	| UsageError
 
@@ -1463,6 +1533,50 @@ const bodyOf = (
 					orElse: () => Stream.fail(new ResponseStreamError({ reason: "idleTimeout" }))
 				})
 			)
+
+/**
+ * The event plan of a 2xx response: the contract the operation's meta names for its response key
+ * and the media key it dispatched to, else `openContract`, read to `stopAt`.
+ */
+const eventPlanOf = (
+	meta: OperationMeta,
+	status: number,
+	mediaType: string | undefined,
+	stopAt: StopAt
+): EventPlan => ({
+	contract: Option.getOrElse(
+		Option.flatMap(
+			Option.all([Option.fromUndefinedOr(meta.events), Option.fromUndefinedOr(mediaType)]),
+			([events, key]) =>
+				Option.flatMap(Rec.get(events, matchResponse(meta.media.responses, status)), (byMedia) =>
+					Rec.get(byMedia, key)
+				)
+		),
+		() => openContract
+	),
+	stopAt
+})
+
+/**
+ * The `StreamEventError` of a stream that ended at a failure event: its data bounded by
+ * `--max-error-bytes` and scrubbed of the run's recorded values, as an error body excerpt is.
+ */
+const streamEventError = (
+	operation: string,
+	failed: EventFailed,
+	scrubbed: readonly ScrubEntry[]
+) =>
+	Effect.map(
+		MaxErrorBytes,
+		(maxBytes) =>
+			new StreamEventError({
+				dataExcerpt: boundedExcerpt(failed.data, maxBytes, scrubbed),
+				event: failed.event,
+				itemIndex: failed.itemIndex,
+				operation,
+				retrySafe: failed.retrySafe
+			})
+	)
 
 const declaredMedia = (meta: OperationMeta, status: number): readonly string[] => {
 	const key = matchResponse(meta.media.responses, status)
@@ -2042,7 +2156,9 @@ const printDryRun = (
  * `http:` base; the policy client; then response matching, after a stderr warning for each required
  * header the matched case declares and the response lacks. A 2xx streams to the output sink (a
  * bodiless one, `isBodiless`, writes nothing and reads nothing), after the `--verbose` notice for
- * an undeclared media type; any other status fails with `ApiResponseError` carrying the body
+ * an undeclared media type; an SSE body is read under the event contract the operation's meta
+ * names for its response and media keys (`eventPlanOf`), and a failure event it ends at fails
+ * with `StreamEventError` after the event is written; any other status fails with `ApiResponseError` carrying the body
  * excerpt, bounded and scrubbed of every value the run recorded (its credentials, added to the
  * record, and its secret-file values), and the server's `Retry-After` when retrying stopped at the
  * cap.
@@ -2216,7 +2332,14 @@ export const send =
 												yield* undeclaredMediaNotice(operation, ok, scrub)
 											}
 
-											yield* writeResponse({ bytes: bodyOf(ok, idleSeconds), mediaType })
+											yield* writeResponseUnder(eventPlanOf(meta, ok.status, mediaType, "ready"))({
+												bytes: bodyOf(ok, idleSeconds),
+												mediaType
+											}).pipe(
+												Effect.catchTag("EventFailed", (failed) =>
+													Effect.flatMap(streamEventError(operation, failed, scrubbed), Effect.fail)
+												)
+											)
 										})
 						})
 					)
