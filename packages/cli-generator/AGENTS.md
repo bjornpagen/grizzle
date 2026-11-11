@@ -1,6 +1,6 @@
 # Working in effect-openapi-cli-generator
 
-This repository is a hard fork of effect-openapi-cli-generator: an Effect-native generator that reads an OpenAPI 3.0, 3.1 or 3.2 document and writes the source of a standalone command-line application. Read README.md and docs/project.md first. Upstream compatibility is not kept: a change replaces the old way everywhere in one go.
+This repository is a hard fork of effect-openapi-cli-generator: an Effect-native generator that reads an OpenAPI 3.0, 3.1 or 3.2 document and writes the source of a standalone command-line application that runs on Node. Read README.md and docs/project.md first. Upstream compatibility is not kept: a change replaces the old way everywhere in one go.
 
 ## Code is the documentation
 
@@ -19,30 +19,38 @@ Lint (oxlint, superlint) and Effect's diagnostics record owner decisions: streng
 
 A Turborepo workspace on pnpm. Every package sits at `packages/<name>` and exports its raw TypeScript; Node 26 runs it by type stripping, with no build step and no loaders.
 
-- `packages/generator`: the generator, one directory per pipeline stage under `src/` in pipeline order: `load/`, `validate/`, `resolve/`, `check/`, `normalize/`, `names/`, `emit/`, `write/`, `report/`. `src/model/` holds the branded values, entities and codecs: the trust boundary, where specification values enter only through `Schema` decoding; stages after `normalize/` read the model, never the source document. `src/runtime-src/` is the generated CLIs' runtime source, emitted verbatim: it imports only `effect` subpaths and its sibling runtime modules. `src/index.ts` is the library entry; `src/main.ts` and `src/bin.ts` are the generator CLI. Tests live under `test/`, the pinned public specifications and their verdicts under `corpus/`, and the maintenance scripts under `scripts/`.
+- `packages/generator`: the generator, one directory per pipeline stage under `src/` in pipeline order: `load/`, `validate/`, `resolve/`, `check/`, `normalize/`, `names/`, `emit/`, `write/`, `report/`. `src/model/` holds the branded values, entities and codecs: the trust boundary, where specification values enter only through `Schema` decoding; stages after `normalize/` read the model, never the source document. `src/index.ts` is the library entry; `src/main.ts` and `src/bin.ts` are the generator CLI. Tests live under `test/`, the pinned public specifications, their author configs, verdicts and tools under `corpus/`, and the maintenance scripts under `scripts/`.
+- `src/runtime-src/` is the generated CLIs' runtime source. The scaffold reads it at generation and writes it verbatim under each generated package's `src/`, so every byte of it is product. It imports only `effect` subpaths, `arkregex`, and its siblings as `#runtime/<module>.ts` and `#domain/errors.ts`, which the generator package maps onto `src/runtime-src` and a generated package maps through its own `imports` (`"#*.ts"`: its sources for types, its built `dist/src/*.js` for Node). It never names Node: only the generated `bin.ts` does.
 - `packages/devtools`, `packages/testing`, `packages/json`: superstarter's dev tools, testing library and JSON door, vendored byte for byte. They are superstarter's; this repository changes them only to follow superstarter.
 
-Inside a package, import only through its `#` subpath imports with the real extension (`#load/json.ts`, `#test/support/env.ts`); across packages, by package export (`@superstarter/testing/explore`). No relative imports. Effect is imported from its barrel: `import { Effect, Schema } from "effect"`. File names are kebab-case.
+Inside a package, import only through its `#` subpath imports with the real extension (`#load/json.ts`, `#test/support/env.ts`); across packages, by package export (`@superstarter/testing/explore`). No relative imports. Effect is imported from its barrel: `import { Effect, Schema } from "effect"`. Regular expressions go through arkregex, JSON text through `@superstarter/json` (or `Formatter.formatJson` where a layout is part of a byte contract). File names are kebab-case.
 
-fallow holds the architecture in `.fallowrc.json`: every file is in a zone, and a stage imports only the model, the runtime's facts and the stages before it. A new import across zones is a decision: widen the rule on purpose or move the code.
+fallow holds the architecture in `.fallowrc.json`: every file is in a zone, and a stage imports only the model, the runtime and the stages before it. A new import across zones is a decision: widen the rule on purpose or move the code.
+
+## Generated CLIs
+
+- They run on Node 26 and later. A generated package pins `effect`, `@effect/platform-node` and `arkregex` exactly to the versions the generator runs on, and `typescript` and `@types/node` to the versions it checks with, each read from the installed manifest; it builds with `tsc` to `dist/`.
+- Requests go through Effect's undici client. The runtime's `Transport` holds one client per way a hop travels, each over its own undici pool that never follows a redirect: `environment` (an `EnvHttpProxyAgent`, routed by the proxy variables) and `direct` (every loopback hop), and the same pair presenting the `mutualTLS` client certificate when the package has such a scheme and the run configured its files. The runtime's own redirect loop picks a hop's client from the hop's URL, so credentials and the certificate reach only bound origins, and the certificate never reaches a proxy.
+- undici sends every RFC 9110 method token as spelled and a body on any method, so the generator refuses only `CONNECT` and a key that is not a token.
 
 ## Toolchain
 
 - Node 26 is the one runtime, for the generator and for the CLIs it generates. pnpm installs; every external dependency's version lives once, in the strict catalog in `pnpm-workspace.yaml`, and a package names it `catalog:`.
-- TypeScript 7 with Effect's language service, from `@effect/tsgo`: `pnpm typecheck` runs `effect-tsgo tsrs`. The dev tools' tsconfig base lists every diagnostic the installed `@effect/tsgo` ships, each at error except those in `REJECTED_DIAGNOSTICS`. `pnpm install` runs `effect-tsgo patch`.
+- TypeScript 7 with Effect's language service, from `@effect/tsgo`: typecheck runs `effect-tsgo tsrs`. The dev tools' tsconfig base lists every diagnostic the installed `@effect/tsgo` ships, each at error except those in `REJECTED_DIAGNOSTICS`. `pnpm install` runs `effect-tsgo patch`.
 - `pnpm check` is the gate, run by lefthook before every commit and push: through turbo, every package's typecheck, superlint and oxlint, the dev tools' fixture suites, oxfmt in check mode, fallow's dead-code and architecture checks, and `pnpm dedupe --check`. Nothing in the gate writes files; `pnpm format:write` does.
-- `pnpm test` runs Vitest through `@superstarter/testing`: properties over constructed generators checked against oracles, with required features and plants. No hand-picked examples with hand verdicts. The generator's golden fixtures and corpus verdicts are byte checks of a deterministic generator.
+- While the generator is being cleaned, its typecheck, superlint and oxlint and the root's dead-code and architecture run through `packages/generator/scripts/ratchet.ts`: each tool runs in full, and the gate fails when its finding count for the generator rises above `packages/generator/ratchet.json`, or when the tool fails to run or its own summary disagrees with what was read. `pnpm ratchet:lower` writes lower counts after a cleanup; measure on a tree that holds only committed work. A tool at zero leaves the ledger; the ratchet goes when the ledger is empty.
+- `pnpm test` runs Vitest through `@superstarter/testing` under the library's hardened Node flags. Suites are properties over constructed generators checked against oracles, with required features, and the plants each suite was checked against named in its header. No hand-picked examples with hand verdicts. The generator's golden fixtures and corpus verdicts are byte checks of a deterministic generator. `pnpm corpus` regenerates and checks the corpus verdicts (it fetches the pinned specifications and builds every package).
 
 ## Effect
 
 `effect` and `@effect/platform-node` are pinned exactly in the catalog. For Effect APIs, read the installed package's own `AGENTS.md`, `ai-docs/` and source (`node_modules/effect/`) before other material.
 
 - Use Effect's capabilities before custom code: `effect/cli`, `Schema`, `Config`, `effect/http`, `Stream`, `Sink`, `Context.Service`, `Layer`, `Scope`, `Schedule`, `FileSystem`, `ChildProcess`. When custom code remains necessary, name the verified gap at its owning boundary.
-- A function that returns an Effect is an `Effect.fn`. Decode untrusted input with `Schema` into useful types; errors are `Schema.TaggedError` classes.
+- A function that returns an Effect is an `Effect.fn`. Decode untrusted input with `Schema` into useful types; errors are branded `Schema.TaggedError` classes.
 - Preserve HTTP request semantics and wire schemas exactly; command names never imply HTTP verbs.
 - Preserve streaming, bounded memory, cancellation, cleanup and typed failures. Keep credentials, bodies and raw query values out of spans and logs. Generated CLIs keep stdout for the command result and send diagnostics to stderr.
 
 ## Working here
 
-- Commit messages are plain prose. Commit only your own files, by pathspec.
+- Work on `main`. Commit only your own files, by pathspec; commit messages are plain prose.
 - Push, publish or deploy only on the owner's go-ahead.
