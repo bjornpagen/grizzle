@@ -204,8 +204,17 @@ export interface GraphLimits {
 	/** Self-loops beyond the selfLoop shape's own. */
 	readonly loops: boolean
 	readonly edges: "any" | "set" | "keyed"
-	/** "always" makes E keyed and repeats at least one edge, so parallel edges are present in every case. */
-	readonly parallel: "any" | "always" | "never"
+	/**
+	 * "always" makes E keyed and repeats at least one edge, so parallel edges are present in every case; "at the root"
+	 * makes E keyed and repeats the shape's first edge first, the one leaving vertex 0 in a chain, a tree and a diamond,
+	 * so a parallel edge lies one hop from the root, within every walk's bound, before the drawn repeats.
+	 */
+	readonly parallel: "any" | "always" | "at the root" | "never"
+	/**
+	 * How far a tree reaches from its root: as drawn, or "two hops", vertex 2 hung below vertex 1, so the root reaches a
+	 * vertex two hops away in every shape of at least three vertices but a self-loop, a dense cycle and a random graph.
+	 */
+	readonly depth: "any" | "two hops"
 	readonly contained: "any" | boolean
 	readonly second: boolean
 	readonly blocked: boolean
@@ -219,6 +228,7 @@ export const defaultGraphLimits: GraphLimits = {
 	loops: true,
 	edges: "any",
 	parallel: "any",
+	depth: "any",
 	contained: "any",
 	second: true,
 	blocked: true
@@ -283,7 +293,12 @@ const uniquePairs = (pairs: ReadonlyArray<EdgePair>): Array<EdgePair> => {
 }
 
 /** The edge pairs of a shape over n vertices, before self-loops and parallel repeats. */
-const shapePairs = (shape: GraphShape, n: number, sketch: GraphSketch): Array<EdgePair> => {
+const shapePairs = (
+	shape: GraphShape,
+	n: number,
+	sketch: GraphSketch,
+	depth: GraphLimits["depth"]
+): Array<EdgePair> => {
 	const pairs: Array<EdgePair> = []
 	switch (shape) {
 		case "chain":
@@ -294,7 +309,7 @@ const shapePairs = (shape: GraphShape, n: number, sketch: GraphSketch): Array<Ed
 			break
 		case "tree":
 			for (let i = 1; i < n; i++) {
-				pairs.push([at(sketch.parents, i) % i, i])
+				pairs.push([depth === "two hops" && i === 2 ? 1 : at(sketch.parents, i) % i, i])
 			}
 			break
 		case "diamond": {
@@ -333,13 +348,13 @@ export const resolveGraph = (sketch: GraphSketch, limits: GraphLimits): GenGraph
 	const cap = Math.min(limits.maxVertices, domainSize(vertexType))
 	const n = Math.max(2, Math.min(cap, Math.max(limits.minVertices, 2 + sketch.size)))
 	const keyed =
-		limits.parallel === "always" || limits.edges === "keyed"
+		limits.parallel === "always" || limits.parallel === "at the root" || limits.edges === "keyed"
 			? true
 			: limits.edges === "set"
 				? false
 				: sketch.keyed
 	const contained = limits.contained === "any" ? sketch.contained : limits.contained
-	let pairs = shapePairs(shape, n, sketch)
+	let pairs = shapePairs(shape, n, sketch, limits.depth)
 	const loops = limits.loops ? Arr.map(sketch.loops, (l) => l % n) : []
 	if (shape === "selfLoop" && loops.length === 0) {
 		loops.push(n - 1)
@@ -351,7 +366,11 @@ export const resolveGraph = (sketch: GraphSketch, limits: GraphLimits): GenGraph
 	const edges: Array<GenEdge> = Arr.map(pairs, ([from, to], i) => ({ id: i + 1, from, to }))
 	if (keyed && limits.parallel !== "never") {
 		const repeats =
-			limits.parallel === "always" && sketch.parallel.length === 0 ? [0] : sketch.parallel
+			limits.parallel === "at the root"
+				? [0, ...sketch.parallel]
+				: limits.parallel === "always" && sketch.parallel.length === 0
+					? [0]
+					: sketch.parallel
 		for (const r of repeats) {
 			const e = at(pairs, r)
 			edges.push({ id: edges.length + 1, from: e[0], to: e[1] })
@@ -673,6 +692,23 @@ interface RecursionSketch {
 	readonly paramNames: ReadonlyArray<number>
 }
 
+/**
+ * The vertex a result predicate (endFilter, endNe, originFilter) names:
+ *
+ * - "drawn": any vertex, or now and then the one value past them, a value that is no vertex;
+ * - "reached": a vertex `root` reaches along forward edges, one hop or more from it, within a walk's bound, and, for a
+ *   pair closure, one its root's successors can still walk on to: two hops or more from the root, or one with an edge
+ *   of its own (a pair closure resolves its graph to reach two hops, so one always exists);
+ * - "before the chain's end": a vertex of a chain of three vertices or more before its last, and past its first for a
+ *   pair closure, which never reaches dst = 0.
+ *
+ * Each is constructed from the sketch's pick over the vertices it admits, never filtered.
+ */
+export type EndChoice =
+	| { readonly kind: "drawn" }
+	| { readonly kind: "reached"; readonly root: number }
+	| { readonly kind: "before the chain's end" }
+
 export interface RecursiveLimits {
 	readonly graph: GraphLimits
 	readonly forms: ReadonlyArray<RecursionForm>
@@ -690,7 +726,11 @@ export interface RecursiveLimits {
 	readonly rootPick:
 		| { readonly kind: "drawn" }
 		| { readonly kind: "forced"; readonly vertex: number }
+	/** A walk's bound lies in [minBound, maxBound]: a diamond's bottom is two hops from its top. */
+	readonly minBound: number
 	readonly maxBound: number
+	/** The vertex a result predicate names (EndChoice). */
+	readonly end: EndChoice
 	readonly spelling: SpellingMode
 	/** How the minted parameters are named (gen/query.ts QueryConfig.paramNames). */
 	readonly paramNames: "numbered" | "dictionary"
@@ -710,7 +750,9 @@ export const defaultRecursiveLimits: RecursiveLimits = {
 	origin: "any",
 	viaSecond: true,
 	rootPick: { kind: "drawn" },
+	minBound: 1,
 	maxBound: 4,
+	end: { kind: "drawn" },
 	spelling: "drawn",
 	paramNames: "numbered"
 }
@@ -1341,7 +1383,7 @@ const resolveParts = (s: RecursionSketch, limits: RecursiveLimits): RecursiveQue
 		blocking: at(limits.blockings, s.blocking),
 		stepFilter: at(limits.stepFilters, s.stepFilter),
 		hopKind: at(hopKinds, s.hopKind),
-		bound: 1 + (s.bound % limits.maxBound),
+		bound: limits.minBound + (s.bound % (limits.maxBound - limits.minBound + 1)),
 		lower: s.lower,
 		leftLinear: limits.leftLinear === "any" ? s.leftLinear : limits.leftLinear,
 		consumer: at(limits.consumers, s.consumer),
@@ -1676,7 +1718,7 @@ const buildConsumer = (
 	const main = () => recursion(parts.origin, parts.roots, builtRoots, nothingInside)
 	const end = endColumn(parts)
 	/** The vertex a result predicate names, as a literal or one scalar parameter however often it is read. */
-	const endVertex = q.vertex(parts.endPick % (q.graph.n + 1))
+	const endVertex = q.vertex(parts.endPick)
 	const endValue = (): ScalarExpr =>
 		parts.endParam ? q.namedScalarParam(t, endVertex, ParamId("pe")) : q.lit(endVertex, t)
 	switch (parts.consumer) {
@@ -1985,6 +2027,57 @@ const partsFeatures = (parts: RecursiveQueryParts): ReadonlyArray<RecursiveFeatu
 	return out
 }
 
+/** The hop distance from `root` of every vertex it reaches along forward edges, itself at zero. */
+const distancesFrom = (graph: GenGraph, root: number): ReadonlyMap<number, number> => {
+	const out = new Map<number, number>([[root, 0]])
+	const frontier: Array<readonly [vertex: number, distance: number]> = [[root, 0]]
+	for (const [v, d] of frontier) {
+		for (const [a, b] of edgePairs(graph)) {
+			if (a === v && !out.has(b)) {
+				out.set(b, d + 1)
+				frontier.push([b, d + 1])
+			}
+		}
+	}
+	return out
+}
+
+/**
+ * The vertices an end choice admits over a graph, in vertex order: every vertex and the value past them, the vertices
+ * the root reaches as EndChoice says, or a chain's vertices before its last.
+ */
+const admittedEnds = (
+	end: EndChoice,
+	graph: GenGraph,
+	parts: RecursiveQueryParts
+): ReadonlyArray<number> => {
+	switch (end.kind) {
+		case "drawn":
+			return [...indices(graph.n + 1)]
+		case "reached": {
+			const distance = distancesFrom(graph, end.root)
+			const walksOn = (v: number) => Arr.some(edgePairs(graph), ([a]) => a === v)
+			return Arr.filter([...indices(graph.n)], (v) => {
+				const d = distance.get(v)
+				return (
+					d !== undefined &&
+					d >= 1 &&
+					(parts.form !== "walks" || d <= parts.bound) &&
+					(parts.form !== "pairs" || d > 1 || walksOn(v))
+				)
+			})
+		}
+		case "before the chain's end":
+			return Arr.filter([...indices(graph.n - 1)], (v) => parts.form !== "pairs" || v >= 1)
+	}
+}
+
+/** The vertex index a case's result predicate names: the sketch's pick among those its end choice admits. */
+const endVertexOf = (end: EndChoice, graph: GenGraph, parts: RecursiveQueryParts): number => {
+	const admitted = admittedEnds(end, graph, parts)
+	return elementAt(admitted, parts.endPick % admitted.length, `an end vertex ${end.kind} admits`)
+}
+
 /**
  * The case a sketch names; with a mutation, the same case with that result predicate moved inside the recursion. A
  * mutant names the same parameters with the same values, so its query runs against the case's facts and bindings.
@@ -1998,8 +2091,17 @@ export const resolveRecursiveCase = (
 	mutation: RecursionMove
 ): RecursiveCase => {
 	const spelling: Spelling = { mode: limits.spelling, edge: false }
-	const graph = resolveGraph(sketch.graph, limits.graph)
-	const parts = resolveParts(sketch.recursion, limits)
+	const drawnParts = resolveParts(sketch.recursion, limits)
+	const graph = resolveGraph(
+		sketch.graph,
+		limits.end.kind === "reached" && drawnParts.form === "pairs"
+			? { ...limits.graph, depth: "two hops" }
+			: limits.graph
+	)
+	const parts: RecursiveQueryParts = {
+		...drawnParts,
+		endPick: endVertexOf(limits.end, graph, drawnParts)
+	}
 	const q = new GraphQueryBuilder(
 		graph,
 		new ParamNames(limits.paramNames, sketch.recursion.paramNames)
