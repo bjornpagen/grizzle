@@ -37,7 +37,7 @@
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { array, constant, element, type Gen, int, weighted } from "@grizzle/testing/gen"
+import { array, boolean, constant, element, type Gen, int, weighted } from "@grizzle/testing/gen"
 import { pctSchedule } from "@grizzle/testing/interleave"
 import { agree, type Equivalence, exact, ordered } from "@grizzle/testing/oracle"
 import { notesOnly } from "@grizzle/testing/sense"
@@ -227,6 +227,9 @@ const posted = (id: number): Gen<CallSketch> =>
 		])
 	)
 
+/** The Invoice the i-th call of a disjoint race posts, which no other call of the race names. */
+const disjointInvoice = (i: number): number => 20 + i
+
 /** A race of disjoint keys: two or three calls, the i-th at keys no other names, Docs only or any. */
 interface DisjointRace {
 	readonly docsOnly: boolean
@@ -239,10 +242,27 @@ const disjointRaces: Gen<DisjointRace> = (s) => {
 	const calls = upTo(count, (i): CallSketch =>
 		docsOnly || s.draw(element([true, false]))
 			? docCall(10 + i, 10 + i, s.draw(int(0, 1)))
-			: s.draw(posted(20 + i))
+			: s.draw(posted(disjointInvoice(i)))
 	)
 	return { docsOnly, calls: nonEmptyList(calls, "a race's calls") }
 }
+
+/**
+ * The race a witness runs: its drawn one, or, while a CHECK's refusal is pending, in half its cases by a draw of its
+ * own, the drawn one with its first call a post of an Invoice the CHECK refuses, at that call's own keys, so the race's
+ * keys stay disjoint; a drawn race posts one too rarely for the floor and the steered phase. None for a rotating or kept
+ * case, which runs as drawn.
+ */
+const aimedDisjoint = (drawnRace: DisjointRace, c: Case<DisjointFeature>): DisjointRace =>
+	Option.exists(c.steering, (pending) => pending.names("a CHECK refused")) && c.draw(boolean)
+		? {
+				docsOnly: false,
+				calls: [
+					c.draw(postedOff(disjointInvoice(0), constant(1))),
+					...Arr.tailNonEmpty(drawnRace.calls)
+				]
+			}
+		: drawnRace
 
 /** A race of shared keys: two or three calls over two Docs, two slugs and two Invoices, from a stored Doc or none. */
 interface SharedRace {
@@ -549,8 +569,9 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									steerEvery: runs,
 									caseHang
 								},
-								(race, c) =>
+								(drawnRace, c) =>
 									Effect.gen(function* () {
+										const race = aimedDisjoint(drawnRace, c)
 										c.note(race.docsOnly ? "docs only" : "an invoice posted")
 										if (race.calls.length === 3) {
 											c.note("three sessions")

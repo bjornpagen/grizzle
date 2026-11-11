@@ -25,13 +25,13 @@
  * Features: each map and white space situation the searches name.
  */
 import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
+import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { array, element, type Gen, int, proportional } from "@grizzle/testing/gen"
+import { array, boolean, element, type Gen, int, proportional } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import { identity } from "#compiler/core/identity.ts"
 import { codePoints, codePointsText, collapsed, translated } from "#compiler/core/text.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
@@ -128,6 +128,30 @@ const sqlCase: Gen<SqlCase> = (source) => {
 	}
 }
 
+/**
+ * A case whose raw pair maps `repeated` to `target` first, its drawn pairs after, and names `repeated` again after every
+ * one of them, with a text of `repeated` alone: translate reads a repeated character by its first, so that text becomes
+ * `target`, and a read by its last takes the target past every drawn one.
+ */
+const withRepeated = (c: SqlCase, repeated: number, target: number): SqlCase => ({
+	...c,
+	rawFrom: codePointsText([repeated, ...codePoints(c.rawFrom), repeated]),
+	rawTo: codePointsText([target, ...codePoints(c.rawTo)]),
+	texts: [...c.texts, codePointsText([repeated])]
+})
+
+/**
+ * The case a witness checks: its drawn one, or, while a repeated character read by its first is pending, in half its
+ * cases by a draw of its own, the drawn one with a drawn character repeated in its raw `from` and met in a text
+ * (withRepeated), which a drawn case reaches too rarely for the floor and the steered phase. None for a rotating or
+ * kept case, which runs as drawn.
+ */
+const aimedSql = (drawnCase: SqlCase, k: Case<SqlFeature>): SqlCase =>
+	Option.exists(k.steering, (pending) => pending.names("a repeated character read by its first")) &&
+	k.draw(boolean)
+		? withRepeated(drawnCase, k.draw(character), k.draw(character))
+		: drawnCase
+
 /** Whether a code point is one of XML's four white space characters. */
 const isXmlSpace = (c: number): boolean => c === 0x09 || c === 0x0a || c === 0x0d || c === 0x20
 
@@ -187,8 +211,9 @@ layer(Substrate.layer)("Compute's translate and lowerAscii on PostgreSQL", (it) 
 						steerEvery: 16,
 						caseHang
 					},
-					(c, k) =>
+					(drawnCase, k) =>
 						Effect.gen(function* () {
+							const c = aimedSql(drawnCase, k)
 							const lower = (desc: ExprDesc) => {
 								const lowered = lowerWith("check", desc, { v: textColumn }, false, baseParams)
 								if (!lowered.ok) {
