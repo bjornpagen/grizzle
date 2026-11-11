@@ -16,6 +16,13 @@
  * octetLength(value) <= n over it, which bounds the text's bytes exactly and reaches the item limit at the byte. A key's
  * entry is counted at exact offsets through its fixed-width prefix, so a key whose bounded text comes after fixed-width
  * fields alone is sized to the byte PostgreSQL lays out.
+ *
+ *
+ * Oracle: PostgreSQL itself, the B-tree item limit (54000) of the key's unique index.
+ *
+ * Plants: oracle-representability-utf8-three (the byte bound counts three bytes a code point).
+ *
+ * Features: a key the compiler accepts, and one sized within a word of the item limit.
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -255,7 +262,10 @@ layer(Substrate.layer)("key representability against PostgreSQL's B-tree item li
 					const session = yield* s.admin.pin
 					return yield* explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "postgresql",
+								name: "the B-tree item limit of the key's unique index, 54000"
+							},
 							suite: "oracle/representability",
 							draw: drawn(keyGen),
 							literal: Formatter.format,

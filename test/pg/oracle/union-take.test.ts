@@ -16,6 +16,13 @@
  *   LIMIT;
  * - a match of the bounded union that binds kind to Done and so may bind the memo text: the done group's rows joined
  *   back to the bounded union on every common field.
+ *
+ *
+ * Oracle: a model of the bounded union computed by definition, and the conservative artifact beside the optimized one.
+ *
+ * Plants: oracle-union-take-unordered (a heading group's statement of a union take drops its ORDER BY).
+ *
+ * Features: each delivery of the take, and each kind of the roster with and without a memo.
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -220,7 +227,10 @@ layer(Substrate.layer, { excludeTestServices: true })(
 						const code = (kind: KindHandle): number => names.code(Kind, kind)
 						return yield* explore(
 							{
-								oracle: { kind: "unstated" },
+								oracle: {
+									kind: "second-implementation",
+									name: "the bounded union computed by definition, and the conservative artifact"
+								},
 								suite: "oracle/union-take",
 								draw: drawn(caseGen),
 								literal: Formatter.format,

@@ -26,6 +26,14 @@
  * the VALUES transport of a small relation parameter, each compared with the conservative run as raw text sets
  * with no repeated row. The schema is installed once for the test (runner.ts installedPlacement), and each case loads
  * its facts in its own rolled-back transaction.
+ *
+ *
+ * Oracle: the conservative lowering's raw text sets, no repeated row on the optimized side.
+ *
+ * Plants: oracle-optimized-obligations-dropped (the dedup placement discharges no obligation, so a DISTINCT owed is
+ * never placed and the optimized artifact repeats rows).
+ *
+ * Features: the population's required features (suite.ts and the file's own).
  */
 import { layer } from "@effect/vitest"
 import { sketched } from "@grizzle/testing/explore"

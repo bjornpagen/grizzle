@@ -9,6 +9,15 @@
  *   exactly when they share a class (NaN = NaN, -0 = 0, 1.0 = 1.00).
  * - Generated facts satisfy the declared laws natively: an explored population of schemas installs with PRIMARY KEY,
  *   UNIQUE and immediate FOREIGN KEY constraints, and every fact loads, so no key collides under native equality.
+ *
+ *
+ * Oracle: PostgreSQL itself: pg_aggregate's overloads and pg_typeof, = over each type's class literals, and the
+ * declared constraints over every fact loaded.
+ *
+ * Plants: compute-aggregate-count-int4 (count(*) types as integer), oracle-gen-float-text-negative-zero (a float's
+ * text keeps -0 apart from 0, so the value classes and the facts' keys split what PostgreSQL equates).
+ *
+ * Features: an aggregate typed as PostgreSQL types it and one declined and defined, and facts loaded.
  */
 import { layer } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
@@ -322,8 +331,8 @@ layer(Substrate.layer)("the generators against PostgreSQL 19", (it) => {
 				yield* s.admin.query(rosterDomainSql(schema, "K0", 3), [])
 				return yield* exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "every type the generators draw, each with every literal of its value classes",
+						oracle: { kind: "postgresql", name: "= over every pair of each type's class literals" },
 						suite: "oracle-gen/value-classes",
 						generator: element(generatedTypes),
 						literal: Formatter.format,
@@ -365,7 +374,10 @@ layer(Substrate.layer)("the generators against PostgreSQL 19", (it) => {
 				const s = yield* Substrate
 				return yield* explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "postgresql",
+							name: "the declared PRIMARY KEY, UNIQUE and immediate FOREIGN KEY constraints over every fact loaded"
+						},
 						suite: "oracle-gen/facts",
 						draw: drawn(queryCaseGen(defaultGenConfig)),
 						literal: Formatter.format,

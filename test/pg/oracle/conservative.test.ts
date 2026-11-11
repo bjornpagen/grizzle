@@ -12,6 +12,12 @@
  * runner judges the case against itself (runner.ts runOracle, its second reading): its facts stored otherwise, another
  * storage order and one value in another spelling, under another plan, must deliver exactly the same rows, with no
  * reference in the judgment. A failing case shrinks and is reported in printable form.
+ *
+ * Oracle: the brute-force reference evaluator, and the case against itself under another storage and spelling.
+ *
+ * Plants: oracle-conservative-antijoin-as-semijoin (the conservative AntiJoin lowers as a semi-join).
+ *
+ * Features: the situations below, every operator kind among them, and each decline of the reference, rated.
  */
 import { layer } from "@effect/vitest"
 import { drawn } from "@grizzle/testing/explore"

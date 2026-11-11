@@ -10,6 +10,12 @@
  * boundary. Where every other field of the key comes before the text and lays out with the widest padding the budget
  * counts (each of alignment one, the text aligned past an odd offset), the budget is exactly the most the entry holds,
  * so a budget one byte too large fails the insert there.
+ *
+ * Oracle: PostgreSQL itself, its B-tree item limit (54000) and the contract domain's CHECK (23514).
+ *
+ * Plants: oracle-key-text-bytes-one-over (keyTextBytes allows one byte past the room the companions leave).
+ *
+ * Features: the text's place in the key, a closed id beside it, and the width of the bounding code point.
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -228,7 +234,10 @@ layer(Substrate.layer)(
 					ctx,
 					explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "postgresql",
+								name: "the B-tree item limit, 54000, and the contract domain's CHECK, 23514"
+							},
 							suite: "oracle/key-text-bytes",
 							draw: drawn(caseGen),
 							literal: Formatter.format,

@@ -1,4 +1,14 @@
-/** The optimized lowering never reproduces the counterexamples of I1-I5 (counterexamples.ts). */
+/**
+ * The optimized lowering never reproduces the counterexamples of I1-I5 (counterexamples.ts).
+ *
+ * Oracle: the conservative lowering's raw text sets, the invalid mutant beside the optimized artifact on the same
+ * installation and facts (counterexamples.ts).
+ *
+ * Plants: oracle-optimized-obligations-dropped (the dedup placement discharges no obligation, so the optimized
+ * artifact repeats rows as the duplicate mutants do).
+ *
+ * Features: a case the mutant rewrote, and one on which it was told apart.
+ */
 
 import { layer } from "@effect/vitest"
 import { searched } from "@grizzle/testing/vitest"

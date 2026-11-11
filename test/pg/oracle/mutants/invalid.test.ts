@@ -19,6 +19,12 @@
  * Any other difference, a changed value, a lost column or a missing statement, is not the mutant's bug and fails.
  *
  * The mutant is the right side: duplicates are rows only it has.
+ *
+ * Oracle: the specification of each mutant's counterexample, judged on the shrunk kill.
+ *
+ * Plants: oracle-compare-repeats-unseen (the comparison counts no repeated row, so no duplicate answer shows).
+ *
+ * Features: each invalid mutant killed.
  */
 
 import { layer } from "@effect/vitest"

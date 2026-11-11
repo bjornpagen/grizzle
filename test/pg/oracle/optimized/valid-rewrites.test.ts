@@ -14,6 +14,14 @@
  * | V3 | R02.existence                   | an EXISTS whose query has no DISTINCT core, which the conservative lowering never emits |
  * | V5 | R17.unionAll                    | a UNION ALL, which the conservative lowering never emits              |
  * | V6 | R17.recursiveTerms              | a WITH RECURSIVE whose seed and step cores, and the derived tables they read directly, carry no DISTINCT, which the conservative lowering never emits |
+ *
+ *
+ * Oracle: the conservative lowering's raw text sets, and each rule's certificate read from the statements' ASTs.
+ *
+ * Plants: oracle-optimized-obligations-dropped (the dedup placement discharges no obligation, so a DISTINCT owed is
+ * never placed and the optimized artifact repeats rows).
+ *
+ * Features: each valid rule's certificate recorded.
  */
 
 import { layer } from "@effect/vitest"

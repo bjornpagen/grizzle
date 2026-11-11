@@ -3,6 +3,14 @@
  * parameters named from the parameter-name dictionary (gen/case.ts paramNameGenConfig, kernel/dict.ts parameterNames): a
  * relation parameter named like a page's own input ("pageSize", "page:limit") or a reserved word meets every optimized
  * form, the VALUES transport included.
+ *
+ *
+ * Oracle: the conservative lowering's raw text sets, no repeated row on the optimized side.
+ *
+ * Plants: oracle-optimized-obligations-dropped (the dedup placement discharges no obligation, so a DISTINCT owed is
+ * never placed and the optimized artifact repeats rows).
+ *
+ * Features: the population's required features (suite.ts and the file's own).
  */
 import { layer } from "@effect/vitest"
 import { required } from "@grizzle/testing/features"

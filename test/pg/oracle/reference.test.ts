@@ -1,15 +1,3 @@
-import { layer } from "@effect/vitest"
-import { drawn, explore, Run } from "@grizzle/testing/explore"
-import { noCoverage, required } from "@grizzle/testing/features"
-import { element } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { completeShrink } from "@grizzle/testing/shrink"
-import { searched } from "@grizzle/testing/vitest"
-import { runOfTest } from "@grizzle/testing/vitest/run"
-import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
-import * as Result from "#compiler/core/result.ts"
-import type { HeadingColumn } from "#compiler/ir/rel.ts"
-import type { DeliveredPart } from "#compiler/lower/shapes/index.ts"
 /**
  * The reference side of the oracle discriminates, and failing cases shrink to printable form.
  *
@@ -32,7 +20,25 @@ import type { DeliveredPart } from "#compiler/lower/shapes/index.ts"
  *
  * The mutant, and every planted lowering, is the left side, the reference the right; the order of the two is no
  * contract.
+ *
+ *
+ * Plants: oracle-compare-types-ignored (a narrowed column type is no structural difference), and the I1 mutant the
+ * suite carries.
+ *
+ * Features: each fault planted where the program offers it, and the I1 mutant told apart.
  */
+import { layer } from "@effect/vitest"
+import { drawn, explore, Run } from "@grizzle/testing/explore"
+import { noCoverage, required } from "@grizzle/testing/features"
+import { element } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
+import { completeShrink } from "@grizzle/testing/shrink"
+import { searched } from "@grizzle/testing/vitest"
+import { runOfTest } from "@grizzle/testing/vitest/run"
+import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
+import * as Result from "#compiler/core/result.ts"
+import type { HeadingColumn } from "#compiler/ir/rel.ts"
+import type { DeliveredPart } from "#compiler/lower/shapes/index.ts"
 import { type AttachedTree, mapTree, type StatementTree } from "#compiler/runtime/lower/tree.ts"
 import { assert, containsText, defined, unorderedEqual } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"

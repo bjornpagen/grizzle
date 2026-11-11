@@ -5,6 +5,13 @@
  * attachment's part whose outermost core's first output column is planted another type is reported at that part, and
  * only there. The plant casts the column through text to PostgreSQL's `name`, which no heading claims and which spells
  * a short value as its text does, so the differential's text comparison would not tell the part from the one lowered.
+ *
+ *
+ * Oracle: the type oracle (test/support/oracle/verify/types.ts) over each part as lowered.
+ *
+ * Plants: oracle-compare-types-ignored (a column type that differs between two sides is no difference).
+ *
+ * Features: an attachment's part planted, and each part passed.
  */
 import { layer } from "@effect/vitest"
 import { required } from "@grizzle/testing/features"

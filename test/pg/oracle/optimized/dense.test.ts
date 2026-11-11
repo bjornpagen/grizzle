@@ -5,6 +5,14 @@
  * (test/support/oracle/perturb.ts). Each case runs under the optimized artifact compiled for the `snapshot` context
  * against the installation's own evidence catalog, in every per-execution form, against the conservative lowering
  * (support.ts).
+ *
+ *
+ * Oracle: the conservative lowering's raw text sets, no repeated row on the optimized side.
+ *
+ * Plants: oracle-optimized-obligations-dropped (the dedup placement discharges no obligation, so a DISTINCT owed is
+ * never placed and the optimized artifact repeats rows).
+ *
+ * Features: the population's required features (suite.ts and the file's own).
  */
 import { layer } from "@effect/vitest"
 import { required } from "@grizzle/testing/features"

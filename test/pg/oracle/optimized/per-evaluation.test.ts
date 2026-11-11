@@ -9,6 +9,14 @@
  * lowering (support.ts). Its escaped counterexamples are kept cases replayed before its streams (perEvaluationKept). No
  * generated term raises (every partial operation is guarded, gen/compute.ts), so an execution error of any form is a
  * defect.
+ *
+ *
+ * Oracle: the conservative lowering's raw text sets, no repeated row on the optimized side.
+ *
+ * Plants: oracle-optimized-obligations-dropped (the dedup placement discharges no obligation, so a DISTINCT owed is
+ * never placed and the optimized artifact repeats rows).
+ *
+ * Features: the population's required features (suite.ts and the file's own).
  */
 import { layer } from "@effect/vitest"
 import type { Kept } from "@grizzle/testing/explore"
