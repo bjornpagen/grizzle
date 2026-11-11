@@ -27,7 +27,16 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { characterOf, constant, element, type Gen, int, oneOf, string } from "@grizzle/testing/gen"
+import {
+	characterOf,
+	constant,
+	element,
+	type Gen,
+	int,
+	oneOf,
+	string,
+	weighted
+} from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -120,13 +129,10 @@ const nameGen: Gen<string> = string(
 	{ min: 1, max: 6 }
 )
 
-const mutationGen: Gen<Mutation> = (source) => {
-	const kind = source.draw(
-		element(["same", "query", "trailing", "renamed", "added", "dropped"] as const)
-	)
+/** A mutation of a target's path: a trailing slash, or a segment renamed, added or dropped. */
+const pathMutationGen: Gen<Mutation> = (source) => {
+	const kind = source.draw(element(["trailing", "renamed", "added", "dropped"] as const))
 	switch (kind) {
-		case "same":
-		case "query":
 		case "trailing":
 			return { kind }
 		case "renamed":
@@ -138,34 +144,52 @@ const mutationGen: Gen<Mutation> = (source) => {
 	}
 }
 
+/** Any mutation of a target: none, a query, or one of its path. */
+const mutationGen: Gen<Mutation> = oneOf<Mutation>([
+	constant({ kind: "same" }),
+	constant({ kind: "query" }),
+	pathMutationGen
+])
+
+/** The methods no route answers. */
+const otherMethodGen: Gen<string> = element(["GET", "PUT", "DELETE", "PATCH", "OPTIONS"] as const)
+
+/** A drawn request line: route `route`'s, under a method drawn by `method` and its target mutated as `target` draws. */
+const lineGen =
+	(route: number, method: Gen<string>, target: Gen<Mutation>): Gen<Probe> =>
+	(source) => ({
+		kind: "line",
+		route,
+		method: source.draw(method),
+		target: source.draw(target)
+	})
+
 /**
- * One probe of a login of `routes` routes: a call of a route; a drawn request line, a route's under a drawn method and
- * a drawn mutation of its target; or a route's own line, sent as a drawn line is, with no header naming its wire.
+ * One probe of a login of `routes` routes, its route drawn first: half of them a call of the route, and the rest a
+ * request line, each kind of line constructed: the route's under a method no route answers, any target; its own target
+ * with a query; its path mutated; and its own line, sent as a drawn line is, with no header naming its wire.
  */
 const probeGen =
 	(routes: number): Gen<Probe> =>
 	(source) => {
 		const route = source.draw(int(0, routes - 1))
-		switch (source.draw(element(["route", "line", "own line"] as const))) {
-			case "route":
-				return {
-					kind: "route",
-					route,
-					wire: source.draw(element(["named", "absent", "other"] as const)),
-					authorization: source.draw(element(["bearer", "none", "basic"] as const))
-				}
-			case "line":
-				return {
-					kind: "line",
-					route,
-					method: source.draw(
-						element(["POST", "GET", "PUT", "DELETE", "PATCH", "OPTIONS"] as const)
-					),
-					target: source.draw(mutationGen)
-				}
-			case "own line":
-				return { kind: "line", route, method: "POST", target: { kind: "same" } }
-		}
+		return source.draw(
+			weighted<Probe>([
+				[
+					4,
+					(s) => ({
+						kind: "route",
+						route,
+						wire: s.draw(element(["named", "absent", "other"] as const)),
+						authorization: s.draw(element(["bearer", "none", "basic"] as const))
+					})
+				],
+				[1, lineGen(route, otherMethodGen, mutationGen)],
+				[1, lineGen(route, constant("POST"), constant<Mutation>({ kind: "query" }))],
+				[1, lineGen(route, constant("POST"), pathMutationGen)],
+				[1, lineGen(route, constant("POST"), constant<Mutation>({ kind: "same" }))]
+			])
+		)
 	}
 
 /** Between one and eight probes of a login of `routes` routes. */
