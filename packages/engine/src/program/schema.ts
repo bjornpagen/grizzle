@@ -54,7 +54,7 @@ import { type Owned, type OwnedRole, own, ownedOf, ownRole } from "#compiler/sch
 import { ownedEntry } from "#compiler/schema/protocol.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
 import type { RoleLevel } from "#compiler/schema/world.ts"
-import type { Law } from "#compiler/types/changeset/changeset.ts"
+import type { OwnLaw } from "#compiler/types/changeset/changeset.ts"
 
 /**
  * What a schema contributes to compiling its queries: the owned schema and its fingerprint, the physical names of its
@@ -96,7 +96,7 @@ export interface SchemaArtifacts {
 	/** Every law of the theory with its description (physical/install InstallPlan). */
 	readonly theoryLaws: InstallPlan["theoryLaws"]
 	/** Every law a violation can report, by its LawId, as an outcome names it (physical/install InstallPlan). */
-	readonly described: ReadonlyMap<LawId, Law>
+	readonly described: ReadonlyMap<LawId, OwnLaw>
 }
 
 /** What a compilation reads as: reality, or a role over its base. */

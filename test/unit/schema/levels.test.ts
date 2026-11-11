@@ -3,7 +3,8 @@
  * level holds none of the code above it, so a level reaches a lower ordinary relation only as one side of a containment
  * between stored relations whose sides are fields with no span, into a side holding a key the target relation declares
  * and selected by constants alone (a deferred foreign key PostgreSQL judges at COMMIT; test/unit/laws/lowered-rules
- * draws the superkeys and constants), and never by a key, a check, `mutable` or a family.
+ * draws the superkeys and constants), or as a row check over it, the level's own CHECK on the lower table
+ * (test/pg/levels/level-checks), and never by a key, `mutable` or a family.
  *
  * The box is every statement of a drawn space stated at the upper level `Up` over `Lo`: a key, a check, `mutable` and
  * a counted family over a lower and an upper relation; and every containment from one of four sources (an upper field
@@ -12,8 +13,9 @@
  * relation it reaches and both levels, exactly where the oracle refuses it; every other statement owns.
  * An admitted statement's levels each install in the PostgreSQL schema their own declared name converts to.
  *
- * Plant (~/.cache/grizzle-release/BR06/plants): levels-single-reach-admitted (a statement reaching one lower relation
- * admitted).
+ * Plants: ~/.cache/grizzle-release/BR06/plants/levels-single-reach-admitted (a statement reaching one lower relation
+ * admitted); ~/.cache/grizzle-release/LEVELCHECK/plants/levelcheck-refused (a row check over a lower relation refused
+ * as LevelRefused).
  */
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
@@ -60,7 +62,12 @@ type TargetField = (typeof targetFields)[number]
 /** The statements a shape states, each a kind of law. */
 const kinds = ["key", "check", "mutable", "counted", "contained"] as const
 
-type Situation = "admitted" | "refused" | "a lower source admitted" | "a lower target admitted"
+type Situation =
+	| "admitted"
+	| "refused"
+	| "a lower source admitted"
+	| "a lower target admitted"
+	| "a lower check admitted"
 
 type Shape =
 	| { readonly kind: "key" | "check" | "mutable" | "counted"; readonly place: Place }
@@ -169,8 +176,9 @@ const statementOf = (s: Shape): Statement => {
 /** The oracle: the lower relation the statement reaches against the rule, none where it is admitted. */
 const refusedAt = (s: Shape): string | undefined => {
 	switch (s.kind) {
-		case "key":
 		case "check":
+			return undefined
+		case "key":
 		case "mutable":
 			return s.place === "lower" ? "A" : undefined
 		case "counted":
@@ -193,7 +201,7 @@ const ownedUp = (statement: Statement) => {
 
 describe("a level's laws over the levels below it", () => {
 	it.effect(
-		"reach a lower relation only by a containment of fields into a key, every other reach LevelRefused",
+		"reach a lower relation only by a containment of fields into a key or a row check, every other reach LevelRefused",
 		(ctx) =>
 			searched(
 				ctx,
@@ -212,7 +220,8 @@ describe("a level's laws over the levels below it", () => {
 							"admitted",
 							"refused",
 							"a lower source admitted",
-							"a lower target admitted"
+							"a lower target admitted",
+							"a lower check admitted"
 						]),
 						caseHang
 					},
@@ -235,6 +244,9 @@ describe("a level's laws over the levels below it", () => {
 								}
 								if (shape.kind === "contained" && shape.target.place === "lower") {
 									c.note("a lower target admitted")
+								}
+								if (shape.kind === "check" && shape.place === "lower") {
+									c.note("a lower check admitted")
 								}
 								return
 							}

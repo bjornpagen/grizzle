@@ -24,14 +24,14 @@ import {
 	type SpanField
 } from "#compiler/ir/law.ts"
 import type { KeyedRelation, NamedNative, NamedPrimaryKey } from "#compiler/laws/model/model.ts"
-import type { Law } from "#compiler/types/changeset/changeset.ts"
+import type { OwnLaw } from "#compiler/types/changeset/changeset.ts"
 
 /** The installed constraint or unique index name of a unique object, and the law its violation reports, with its
  * description. */
 interface Named {
 	readonly name: ConstraintName
 	readonly law: LawId
-	readonly described: Law
+	readonly described: OwnLaw
 }
 
 /**

@@ -92,7 +92,7 @@ import {
 	type StatedRows
 } from "#compiler/runtime/write/witness.ts"
 import type { EmittedText } from "#compiler/sql/ast.ts"
-import type { Law, Witness } from "#compiler/types/changeset/changeset.ts"
+import type { OwnLaw, Witness } from "#compiler/types/changeset/changeset.ts"
 import type { Unsendable } from "#compiler/write/family/order.ts"
 import type { RowState } from "#compiler/write/family/state.ts"
 import type { Proposal } from "#compiler/write/insert/statement.ts"
@@ -261,7 +261,7 @@ export type BindResult =
 			readonly kind: "invariant-rejected"
 			readonly relation: StoredRelationName
 			readonly law: LawId
-			readonly described: Law
+			readonly described: OwnLaw
 			readonly witness: Witness
 	  }
 	| { readonly kind: "generated-rejected"; readonly rejection: GeneratedRejection }

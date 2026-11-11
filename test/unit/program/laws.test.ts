@@ -104,7 +104,7 @@ import {
 } from "#compiler/schema/statements.ts"
 import { type ColumnDef, type ObjectName, tableConstraints } from "#compiler/sql/ast.ts"
 import { regexField } from "#compiler/text/field.ts"
-import type { IdentifiedLaw, Law } from "#compiler/types/changeset/changeset.ts"
+import type { IdentifiedLaw, Law, OwnLaw } from "#compiler/types/changeset/changeset.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { AnyClosed, Relation } from "#compiler/types/schema/relation.ts"
 import { buildSwarm, featuresGen, type SwarmSpec, swarmSpecGen } from "#test/pg/write/swarm/spec.ts"
@@ -664,6 +664,9 @@ const reportable = (installation: Installation): ReadonlyArray<IdentifiedLaw> =>
 				return Arr.map(found.laws, (l) => ({ law: l.described, id: l.law }))
 			case "domain":
 				return Arr.map(found.uses, (u) => ({ law: u.law.described, id: u.law.law }))
+			case "aboveCheck":
+			case "above":
+				return [{ law: found.law.described, id: found.law.law }]
 		}
 	}
 	const ofTable = (table: ObjectName, constraint: string): ReadonlyArray<IdentifiedLaw> =>
@@ -796,7 +799,7 @@ const ownedAs = (statement: Statement): Arr.NonEmptyReadonlyArray<StatementDesc>
  */
 const statedBy = (
 	installation: Installation
-): ((statement: Statement) => Option.Option<ReadonlyArray<Law>>) => {
+): ((statement: Statement) => Option.Option<ReadonlyArray<OwnLaw>>) => {
 	const { owned, theory } = installation.laws
 	const texts = Arr.map(owned.statements, identityText)
 	const indexOf = (desc: StatementDesc): Option.Option<number> => {
@@ -829,10 +832,10 @@ const lawKinds = {
 	contract: "a contract law",
 	pattern: "a pattern law",
 	generated: "a generated law"
-} as const satisfies { readonly [K in Exclude<Law["kind"], "above">]: `a ${K} law` }
+} as const satisfies { readonly [K in OwnLaw["kind"]]: `a ${K} law` }
 
 type LawsFeature =
-	| (typeof lawKinds)[Exclude<Law["kind"], "above">]
+	| (typeof lawKinds)[OwnLaw["kind"]]
 	| "a pattern grizzle erases"
 	| "one domain over two fields"
 	| "one domain spelled two ways"
@@ -964,13 +967,7 @@ describe("lawsOf", () => {
 									Arr.some(reported, (r) => sameLaw(law, r)),
 									`the installation can report lawsOf's ${law.kind} law at ${String(i)}: ${Formatter.format(law)}`
 								)
-								if (law.kind === "above") {
-									assert.fail(
-										`lawsOf lists no law of a level above its schema: ${Formatter.format(law)}`
-									)
-								} else {
-									k.note(lawKinds[law.kind])
-								}
+								k.note(lawKinds[law.kind])
 							}
 							for (const law of reported) {
 								assert.ok(
@@ -1002,7 +999,7 @@ describe("lawsOf", () => {
 								),
 								Order.mapInput(Order.String, (r: AnyRelation) => r.name)
 							)
-							const primaryKeys = Arr.map(relations, (r): Law => ({
+							const primaryKeys = Arr.map(relations, (r): OwnLaw => ({
 								kind: "primaryKey",
 								relation: r.name,
 								fields: r.primaryKey
@@ -1037,7 +1034,7 @@ describe("lawsOf", () => {
 										)
 								})
 							)
-							const generated = Arr.flatMap(relations, (r): ReadonlyArray<Law> => {
+							const generated = Arr.flatMap(relations, (r): ReadonlyArray<OwnLaw> => {
 								const core = Arr.findFirst(
 									c.core.fill.relations,
 									(_, i) => relationName(i) === r.name
@@ -1049,7 +1046,7 @@ describe("lawsOf", () => {
 									: Option.match(tableAt(r.name), {
 											onNone: () => [],
 											onSome: (t) =>
-												Arr.map(t.generated, ([field]): Law => ({
+												Arr.map(t.generated, ([field]): OwnLaw => ({
 													kind: "generated",
 													relation: r.name,
 													field
@@ -1070,7 +1067,7 @@ describe("lawsOf", () => {
 							)
 							assert.deepEqual(
 								Arr.drop(middle, middle.length - contracts.length),
-								Arr.map(Arr.sort(contracts, Order.String), (contract): Law => ({
+								Arr.map(Arr.sort(contracts, Order.String), (contract): OwnLaw => ({
 									kind: "contract",
 									contract
 								})),

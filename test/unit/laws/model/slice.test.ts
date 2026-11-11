@@ -99,7 +99,7 @@ import {
 	rostersOf
 } from "#compiler/schema/own.ts"
 import { everySlice, sliceOf, writesOf } from "#compiler/schema/reach.ts"
-import type { Law } from "#compiler/types/changeset/changeset.ts"
+import type { OwnLaw } from "#compiler/types/changeset/changeset.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
 import { assert, assertVariant, defined, succeeded } from "#test/support/assert.ts"
 import {
@@ -812,7 +812,7 @@ const plannedOver = (
 const dischargingOnly = (
 	n: NamedNative,
 	planned: ReadonlySet<LawId>,
-	described: (law: LawId) => Law
+	described: (law: LawId) => OwnLaw
 ): NamedNative => {
 	const [head, ...rest] = Arr.filter(n.object.lawIds, (l) => planned.has(l))
 	const first = defined(head, "a planned law of the native")
@@ -841,8 +841,10 @@ const heldOver = (
 	planned: ReadonlySet<LawId>,
 	writes: ReadonlySet<string>
 ): ReadonlyArray<{ readonly whole: NamedNative; readonly held: NamedNative }> => {
-	const laws = new Map<LawId, Law>(Arr.map(whole.theoryLaws, (l) => [l.law, l.described] as const))
-	const described = (law: LawId): Law => defined(laws.get(law), `${law} is described`)
+	const laws = new Map<LawId, OwnLaw>(
+		Arr.map(whole.theoryLaws, (l) => [l.law, l.described] as const)
+	)
+	const described = (law: LawId): OwnLaw => defined(laws.get(law), `${law} is described`)
 	const plannedNatives = Arr.flatMap(whole.laws.natives, (n) =>
 		Arr.some(n.object.lawIds, (l) => planned.has(l))
 			? [{ whole: n, held: dischargingOnly(n, planned, described) }]

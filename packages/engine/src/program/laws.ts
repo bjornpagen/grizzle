@@ -12,18 +12,18 @@ import { canonicalStatementText, ownBuilt } from "#compiler/schema/own.ts"
 import { malformed, orThrow } from "#compiler/schema/protocol.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
 import { expansionDescOf, statementDescOf } from "#compiler/schema/statements.ts"
-import type { IdentifiedLaw, Law } from "#compiler/types/changeset/changeset.ts"
+import type { IdentifiedLaw, OwnLaw } from "#compiler/types/changeset/changeset.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
 
 /** A law at its position in lawsOf's list. */
 interface PlacedLaw {
 	readonly position: number
-	readonly law: Law
+	readonly law: OwnLaw
 }
 
 /** A check law of a schema and a name it is installed under: a row check's CHECK, or a derived check's triggers'. */
 interface CheckName {
-	readonly law: Extract<Law, { readonly kind: "check" }>
+	readonly law: Extract<OwnLaw, { readonly kind: "check" }>
 	readonly name: string
 }
 
@@ -34,7 +34,7 @@ interface CheckName {
  * that discharges it. The one derivation lawsOf, lawIdsOf, lawsByStatement and constraintNamesOf read.
  */
 interface SchemaLaws {
-	readonly laws: ReadonlyArray<IdentifiedLaw>
+	readonly laws: ReadonlyArray<IdentifiedLaw<OwnLaw>>
 	readonly byStatement: ReadonlyMap<string, ReadonlyArray<PlacedLaw>>
 	readonly checks: ReadonlyArray<CheckName>
 }
@@ -74,8 +74,8 @@ const schemaLaws = (model: LawModel): SchemaLaws => {
 	)
 	return {
 		laws: Object.freeze([
-			...theory.map((t): IdentifiedLaw => Object.freeze({ law: t.placed.law, id: t.id })),
-			...fieldPatternLaws(model).map((p): IdentifiedLaw =>
+			...theory.map((t): IdentifiedLaw<OwnLaw> => Object.freeze({ law: t.placed.law, id: t.id })),
+			...fieldPatternLaws(model).map((p): IdentifiedLaw<OwnLaw> =>
 				Object.freeze({
 					law: p.law,
 					id: patternLawId(
@@ -88,7 +88,7 @@ const schemaLaws = (model: LawModel): SchemaLaws => {
 				})
 			),
 			...generatedFieldLaws([...model.relations.values()].map((r) => r.relation)).map(
-				(g): IdentifiedLaw => Object.freeze({ law: g.law, id: g.id })
+				(g): IdentifiedLaw<OwnLaw> => Object.freeze({ law: g.law, id: g.id })
 			)
 		]),
 		byStatement: new Map(
@@ -122,7 +122,7 @@ const schemaLaws = (model: LawModel): SchemaLaws => {
  * It throws CompileError for any other value, a role's included, and for a schema that does not compile. Each call
  * compiles the schema's laws.
  */
-export const lawsOf = (schema: AnySchema): ReadonlyArray<Law> =>
+export const lawsOf = (schema: AnySchema): ReadonlyArray<OwnLaw> =>
 	Object.freeze(schemaLaws(lawModelOf(schema, "lawsOf")).laws.map((l) => l.law))
 
 /**
@@ -179,7 +179,7 @@ const placedOf = (
  */
 export const lawsByStatement = <S extends AnySchema>(
 	schema: S
-): ((statement: S["statements"][number]) => ReadonlyArray<Law>) => {
+): ((statement: S["statements"][number]) => ReadonlyArray<OwnLaw>) => {
 	const { byStatement } = schemaLaws(lawModelOf(schema, "lawsByStatement"))
 	return (statement) =>
 		Object.freeze([
@@ -207,7 +207,7 @@ export const lawsByStatement = <S extends AnySchema>(
  */
 export const constraintNamesOf = (
 	schema: AnySchema
-): ((law: Extract<Law, { readonly kind: "check" }>) => string) => {
+): ((law: Extract<OwnLaw, { readonly kind: "check" }>) => string) => {
 	const { checks } = schemaLaws(lawModelOf(schema, "constraintNamesOf"))
 	return (law) => {
 		const [name, ...others] = new Set(

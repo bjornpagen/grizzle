@@ -1,7 +1,5 @@
 import * as Arr from "effect/Array"
-import * as Option from "effect/Option"
-import * as Rec from "effect/Record"
-import type { CheckAbove, Law, RefusedLaw } from "#compiler/plan/change.ts"
+import type { AboveLaw, OwnLaw, RefusedLaw } from "#compiler/plan/change.ts"
 import type {
 	Codebook,
 	ColumnIdent,
@@ -15,7 +13,7 @@ import type {
 	RosterCodec,
 	StoredRelationName
 } from "#compiler/plan/common.ts"
-import { admittedIdentifier, constraintLaw, defect } from "#compiler/plan/runtime.ts"
+import { constraintLaw, defect } from "#compiler/plan/runtime.ts"
 import type { DescribedLaw, ServedKeyLaws, ServedSnapshot } from "#compiler/plan/serve.ts"
 
 /** The names a violation reports, as the wire admitted them (wire/failure.ts serverFailure). */
@@ -64,7 +62,8 @@ export const reportedOwner = (
  * under its owner reports no law. A constraint name is never parsed, and never read without its owner.
  *
  * A write statement's refusal (write/refusal.ts) raises with the law identity itself as the constraint name and reports
- * no owner: `raised` holds every law of the theory under its identity.
+ * no owner: `raised` holds every law of the theory under its identity, the Db's own, since no statement it sends states a
+ * law of a level above.
  *
  * A roster's domains are no law's. Its code domain is the range proof of its codes, admitting a live handle's code
  * alone, and its bits domain, which a roster that types a set installs, admits a set of live handles' bits alone; and
@@ -79,8 +78,8 @@ export interface KeyLaws {
 	readonly lawsOf: (constraint: ConstraintName, owner: ConstraintOwner) => NativeLaws | undefined
 	/** The table a stored relation of the installation is, by its declared name: what a write statement writes. */
 	readonly tableOf: (relation: StoredRelationName) => RelationIdent
-	/** Every law of the theory by the constraint name a write statement's refusal raises it under (SQLSTATE 23000),
-	 * the law's identity itself. */
+	/** Every law of the Db's own theory by the constraint name a write statement's refusal raises it under (SQLSTATE
+	 * 23000), the law's identity itself. */
 	readonly raised: ReadonlyMap<ConstraintName, DescribedLaw>
 	/** The roster domain `domain` is, the installation's; undefined for any other domain. */
 	readonly rosterDomainOf: (domain: DomainName) => RosterDomain | undefined
@@ -92,12 +91,6 @@ export interface KeyLaws {
 	readonly generatedOf: (table: RelationIdent, column: ColumnIdent) => RefusedLaw | undefined
 	/** A refusal the host decides, named as PostgreSQL's refusal of the same write would name it (HostRefusal). */
 	readonly hostRefused: (refusal: HostRefusal) => RefusedLaw
-	/**
-	 * Every CHECK a level above the Db's own installs on the table `table` a write statement writes (CheckAbove): each
-	 * constraint above under the table whose law is a row check of the table's own relation, which a rule over a query,
-	 * whose relation is a derived one, never states. None on any other table.
-	 */
-	readonly checksAbove: (table: RelationIdent) => ReadonlyArray<CheckAbove>
 }
 
 /**
@@ -111,20 +104,28 @@ export type HostRefusal =
 			readonly kind: "key"
 			readonly relation: StoredRelationName
 			readonly law: LawId
-			readonly described: Law
+			readonly described: OwnLaw
 	  }
 	| { readonly kind: "generated"; readonly relation: StoredRelationName; readonly field: string }
 
 /**
- * Every law one native constraint's violation can report: an object's that types no stored column (a table constraint,
- * a domain no stored column types, a constraint of a level above), each described, in the order the installation lists
- * them; or a domain's that types stored columns, each column with its law (a text domain's one law per field), its
- * laws theirs, which decide among them by the table the violating statement wrote and, on the host, by the column of
- * the stated row that breaks it.
+ * Every law one native constraint's violation can report: of the Db's own levels, an object's that types no stored
+ * column (a table constraint, a domain no stored column types), each described, in the order the installation lists
+ * them, or a domain's that types stored columns, each column with its law (a text domain's one law per field), its laws
+ * theirs, which decide among them by the table the violating statement wrote and, on the host, by the column of the
+ * stated row that breaks it; or the one law of a level above its object states, as that level names it: a row check
+ * over the relation of `table`, the table it is installed on, whose refusal the host judges against its own CHECKs
+ * there (runtime/write/witness.ts aboveJudgement), or any other object, a foreign key or a rule over a query's trigger.
  */
 export type NativeLaws =
 	| { readonly kind: "object"; readonly laws: Arr.NonEmptyReadonlyArray<DescribedLaw> }
 	| { readonly kind: "domain"; readonly uses: Arr.NonEmptyReadonlyArray<DomainUse> }
+	| {
+			readonly kind: "aboveCheck"
+			readonly law: DescribedLaw<LawId, AboveLaw>
+			readonly table: RelationIdent
+	  }
+	| { readonly kind: "above"; readonly law: DescribedLaw<LawId, AboveLaw> }
 
 /**
  * A domain the installation types a roster's values by: its code domain, a closed id's, or its bits domain, a set's,
@@ -146,7 +147,7 @@ export interface RosterDomain {
 export interface LawsAbove {
 	readonly schemas: ReadonlyArray<string>
 	readonly constraints: ConstraintLaws
-	readonly laws: ReadonlyMap<LawId, Law>
+	readonly laws: ReadonlyMap<LawId, AboveLaw>
 }
 
 /**
@@ -168,7 +169,7 @@ export const lawsAbove = (
 	constraints: snapshot.constraintToLaw,
 	laws: new Map(
 		Arr.flatMap(snapshot.above, (level) =>
-			Arr.map(level.laws, ({ law, described }): readonly [LawId, Law] => [
+			Arr.map(level.laws, ({ law, described }): readonly [LawId, AboveLaw] => [
 				law,
 				{ kind: "above", level: level.name, law: described }
 			])
@@ -238,26 +239,26 @@ export const keyLawsOf = (data: ServedKeyLaws, above: LawsAbove, codes: Codebook
 		ownedBy(generated, table).set(column, refused)
 		ownedBy(generatedFields, law.relation).set(law.field, refused)
 	}
-	/** A law above the Db's level, as its constraint's violation reports it: the law alone, which types no column. */
-	const aboveLaw = (id: LawId): NativeLaws | undefined => {
-		const law = above.laws.get(id)
-		return law === undefined ? undefined : { kind: "object", laws: [{ law: id, described: law }] }
-	}
-	/** Each written table's CHECKs a level above installs on it, its row checks over the table's relation. */
-	const checksAbove = new Map<RelationIdent, ReadonlyArray<CheckAbove>>()
-	for (const [relation, table] of data.tables) {
-		const named = Rec.get(above.constraints.tables, table)
-		if (Option.isNone(named)) {
-			continue
+	/** Each written table's relation, by the table: what a row check above over that relation is installed on. */
+	const relationOf = new Map(
+		Arr.map([...data.tables], ([relation, table]) => [table, relation] as const)
+	)
+	/**
+	 * The law above the Db's level its object's violation reports under `owner`: the law alone, which types no column, a
+	 * row check over a written table's relation among them, judged against the table's own CHECKs.
+	 */
+	const aboveLaw = (owner: ConstraintOwner, id: LawId): NativeLaws | undefined => {
+		const described = above.laws.get(id)
+		if (described === undefined) {
+			return undefined
 		}
-		const checks: Array<CheckAbove> = []
-		for (const [name, id] of Rec.toEntries(named.value)) {
-			const law = above.laws.get(id)
-			if (law?.kind === "above" && law.law.kind === "check" && law.law.relation === relation) {
-				checks.push({ name: admittedIdentifier(name), laws: [{ law: id, described: law }] })
-			}
-		}
-		checksAbove.set(table, checks)
+		const law = { law: id, described }
+		const relation = owner.kind === "table" ? relationOf.get(owner.name) : undefined
+		return owner.kind === "table" &&
+			described.law.kind === "check" &&
+			described.law.relation === relation
+			? { kind: "aboveCheck", law, table: owner.name }
+			: { kind: "above", law }
 	}
 	const tableOf = (relation: StoredRelationName): RelationIdent => {
 		const table = data.tables.get(relation)
@@ -300,19 +301,14 @@ export const keyLawsOf = (data: ServedKeyLaws, above: LawsAbove, codes: Codebook
 				return own
 			}
 			const id = constraintLaw(above.constraints, owner, constraint)
-			return id === undefined ? undefined : aboveLaw(id)
+			return id === undefined ? undefined : aboveLaw(owner, id)
 		},
 		tableOf,
-		raised: new Map([
-			...Arr.map([...above.laws], ([id, described]): readonly [ConstraintName, DescribedLaw] => [
-				id,
-				{ law: id, described }
-			]),
-			...Arr.map(data.theoryLaws, (l): readonly [ConstraintName, DescribedLaw] => [l.law, l])
-		]),
+		raised: new Map(
+			Arr.map(data.theoryLaws, (l): readonly [ConstraintName, DescribedLaw] => [l.law, l])
+		),
 		rosterDomainOf: (domain) => rosters.get(domain),
 		generatedOf: (table, column) => generated.get(table)?.get(column),
-		hostRefused,
-		checksAbove: (table) => checksAbove.get(table) ?? []
+		hostRefused
 	}
 }

@@ -1159,7 +1159,8 @@ export type Witness =
 
 /**
  * Which laws an `invariant-rejected` outcome names, each with its identity and the object that refused it (RefusedLaw),
- * and how grizzle decided them:
+ * and how grizzle decided them. `every`, `first` and `some` name only laws of the Db's own levels, PostgreSQL having
+ * named one of them, and a table's CHECKs are its own levels' CHECKs, whatever a level above installs on it:
  *
  * - `every`: what grizzle decides refused the write, each rule judged broken. For a CHECK that refused a row the
  *   ChangeSet states, every rule of that row's table's CHECKs the row breaks as the write fills it, each once, in the
@@ -1176,6 +1177,13 @@ export type Witness =
  *   which of them the row broke: at least one, maybe more. A family's foreign key carries every containment merged into
  *   it, and a domain every rule of the columns it types in the tables the statement writes, where the host judges no
  *   stated row whole. Two rules at least: an object of one rule is `every`, so `some` never names a decided rule.
+ * - `above`: PostgreSQL named a law of a level above the Db's own, `laws[0]`, which the Db's host holds no predicate of:
+ *   the one law above a refusal names, since PostgreSQL names one object, and nothing is said of any other law above.
+ *   `own` is what the host finds of its own levels' CHECKs on the rows the refused statement states of that table:
+ *   `every`, the rest of `laws`, every rule of them the first stated row that breaks one breaks, each judged, as the
+ *   refusal would name them were no law above installed, that row the witness; `none`, every row the statement writes
+ *   is a stated one and holds every one of them; `unjudged`, nothing is said of them: a refusal at COMMIT, by a foreign
+ *   key or a rule over a query above, a row the ChangeSet does not state, or a CHECK the host cannot evaluate there.
  */
 export type Refused =
 	| { readonly kind: "every" | "first"; readonly laws: readonly [RefusedLaw, ...Array<RefusedLaw>] }
@@ -1183,21 +1191,37 @@ export type Refused =
 			readonly kind: "some"
 			readonly laws: readonly [RefusedLaw, RefusedLaw, ...Array<RefusedLaw>]
 	  }
+	| {
+			readonly kind: "above"
+			readonly own: "every"
+			readonly laws: readonly [AboveRefusedLaw, RefusedLaw, ...Array<RefusedLaw>]
+	  }
+	| {
+			readonly kind: "above"
+			readonly own: "none" | "unjudged"
+			readonly laws: readonly [AboveRefusedLaw]
+	  }
 
 /**
  * A law of a schema with its identity: the law as the schema states it (`law`) and its identity (`id`), a theory law's
  * or a text pattern's the key of the snapshot's theory.laws and a generated field's the one its derived facts hold.
  * lawIdsOf lists a schema's, and a refusal names each law it breaks as one (RefusedLaw).
  */
-export interface IdentifiedLaw {
-	readonly law: Law
+export interface IdentifiedLaw<L extends Law = Law> {
+	readonly law: L
 	readonly id: LawId | GeneratedLawId
 }
 
-/** One law a refusal names: the law with its identity (IdentifiedLaw), and the installed object that refused it (`by`). */
-export interface RefusedLaw extends IdentifiedLaw {
+/**
+ * One law a refusal names: the law with its identity (IdentifiedLaw), and the installed object that refused it (`by`).
+ * L is a law of the Db's own levels, or, for the one law of a level above PostgreSQL named, that law (AboveRefusedLaw).
+ */
+export interface RefusedLaw<L extends Law = OwnLaw> extends IdentifiedLaw<L> {
 	readonly by: RefusingObject
 }
+
+/** The law of a level above the Db's own that PostgreSQL named refusing a write (Refused `above`). */
+export type AboveRefusedLaw = RefusedLaw<AboveLaw>
 
 /**
  * The installed object that refused a law, as the snapshot's constraintToLaw names it. A refusal the host decides, a
@@ -1241,12 +1265,11 @@ export type RefusingObject =
  *   refuses as a whole: no refusal tells which pattern a value missed;
  * - `generated`: a generated field, by its relation and field: its term has a value at every row, which a closed read
  *   `C.at` at a key its closed relation holds no row at does not, so PostgreSQL refuses the row by the column's NOT NULL.
- * - `above`: a law of `level`, a level above the schema a Db is over, as that level states it (`law`): a Db over a lower
- *   level holds none of the code of the levels above it, so a refusal by one of their laws, a foreign key into its
- *   relations or a rule over a query reading them, names the level that states it. Every other law an outcome over a
- *   schema S names is one of `lawsOf(S)`.
+ *
+ * Every law of a schema S is one of `lawsOf(S)`. A Db over S names these as its own; a law of a level above S, it names
+ * as an AboveLaw.
  */
-export type Law =
+export type OwnLaw =
 	| {
 			readonly kind: "primaryKey"
 			readonly relation: string
@@ -1283,4 +1306,17 @@ export type Law =
 			readonly patterns: Patterns
 	  }
 	| { readonly kind: "generated"; readonly relation: string; readonly field: string }
-	| { readonly kind: "above"; readonly level: string; readonly law: Law }
+
+/**
+ * A law of `level`, a level above the schema a Db is over, as that level states it (`law`): a Db over a lower level holds
+ * none of the code of the levels above it, so a refusal by one of their laws, a row check over one of its relations, a
+ * foreign key into its relations or a rule over a query reading them, names the level that states it.
+ */
+export interface AboveLaw {
+	readonly kind: "above"
+	readonly level: string
+	readonly law: OwnLaw
+}
+
+/** A law an outcome names: one of the Db's own levels' (OwnLaw), or one of a level above them (AboveLaw). */
+export type Law = OwnLaw | AboveLaw

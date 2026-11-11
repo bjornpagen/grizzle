@@ -12,7 +12,7 @@ import {
 	type LawField,
 	type TableRelation
 } from "#compiler/ir/law.ts"
-import type { Law } from "#compiler/types/changeset/changeset.ts"
+import type { OwnLaw } from "#compiler/types/changeset/changeset.ts"
 
 /**
  * The public description of a law (types/changeset Law): what an `invariant-rejected` outcome names, built from the
@@ -22,7 +22,7 @@ import type { Law } from "#compiler/types/changeset/changeset.ts"
  *
  * A side names its terms and its selection's conjuncts, each as its Description states it.
  */
-export const lawDescription = (law: LawIdentity): Law => {
+export const lawDescription = (law: LawIdentity): OwnLaw => {
 	const side = sideOf
 	const d = law.detail
 	switch (d.kind) {
@@ -86,7 +86,7 @@ export const lawDescription = (law: LawIdentity): Law => {
  * A rule over a query as an outcome names it, as the same rule over stored relations is: a containment by its sides, a
  * key by its side, a check by its relation and name, a side's relation the derived relation it reads.
  */
-const ruleDescription = (rule: QueryRule): Law => {
+const ruleDescription = (rule: QueryRule): OwnLaw => {
 	switch (rule.kind) {
 		case "contained":
 			return Object.freeze({
@@ -105,7 +105,8 @@ const ruleDescription = (rule: QueryRule): Law => {
 const ruleSideOf = (side: RuleSide): SideDesc => sideDesc(side, [...side.selection.conjuncts])
 
 /** A contract's law, wherever its domain is installed (theory.ts contractLawIdentity): its name. */
-export const contractLaw = (contract: string): Law => Object.freeze({ kind: "contract", contract })
+export const contractLaw = (contract: string): OwnLaw =>
+	Object.freeze({ kind: "contract", contract })
 
 /**
  * A stored field PostgreSQL generates: its relation, the field, the field's law (generatedLaw) and the law's identifier

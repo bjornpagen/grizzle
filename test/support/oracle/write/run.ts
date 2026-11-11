@@ -66,6 +66,11 @@ export type OutcomeWitness =
 export type RefusedIds =
 	| { readonly kind: "every" | "first"; readonly laws: readonly [LawId, ...Array<LawId>] }
 	| { readonly kind: "some"; readonly laws: readonly [LawId, LawId, ...Array<LawId>] }
+	| {
+			readonly kind: "above"
+			readonly own: "every" | "none" | "unjudged"
+			readonly laws: readonly [LawId, ...Array<LawId>]
+	  }
 
 /** The apply outcome as plain values. */
 export type WriteOutcome =
@@ -532,7 +537,7 @@ const readsOf = (reads: unknown): Readonly<Record<string, ReadonlyArray<Fact>>> 
  * decided them kept.
  */
 const refusedIdsOf = (described: ReadonlyMap<LawId, Law>, refused: Refused): RefusedIds => {
-	const id = (r: RefusedLaw): LawId => reportedLawId(described, r)
+	const id = (r: RefusedLaw<Law>): LawId => reportedLawId(described, r)
 	switch (refused.kind) {
 		case "every":
 		case "first":
@@ -541,6 +546,8 @@ const refusedIdsOf = (described: ReadonlyMap<LawId, Law>, refused: Refused): Ref
 			const [first, second, ...rest] = refused.laws
 			return { kind: "some", laws: [id(first), id(second), ...Arr.map(rest, id)] }
 		}
+		case "above":
+			return { kind: "above", own: refused.own, laws: Arr.map(refused.laws, id) }
 	}
 }
 

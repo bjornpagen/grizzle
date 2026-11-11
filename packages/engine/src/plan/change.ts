@@ -7,12 +7,15 @@ export type { Family } from "#compiler/ir/family.ts"
 export { generatedLaw } from "#compiler/ir/law.ts"
 export type { FamilyId, TableRelation } from "#compiler/ir/law.ts"
 export type {
+	AboveLaw,
+	AboveRefusedLaw,
 	AnyChangeSet,
 	ArraysOf,
 	ChangeSet,
 	FactsCheck,
 	KeyHost,
 	Law,
+	OwnLaw,
 	PlannedStrata,
 	Refused,
 	RefusedLaw,
@@ -79,7 +82,8 @@ export {
 	witnessDecoder
 } from "#compiler/runtime/write/outcome.ts"
 export {
-	type CheckAbove,
+	type AboveJudgement,
+	aboveJudgement,
 	type HostJudgement,
 	hostJudgement,
 	type RefusedLaws,

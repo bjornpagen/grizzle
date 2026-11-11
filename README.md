@@ -2574,17 +2574,27 @@ export const AuthorApp = login(Qti, "author_app", [QtiAuthor])
 - **A level reaches the levels below it only where their writes need nothing of it.** A containment between stored
   relations may have one side below, both sides fields with no selection, no `pred` and no span, into a key the target
   relation declares: a deferred foreign key, judged at COMMIT, such as `ledger.sitting` into `qti.item`. A rule over a
-  query may read the levels below through its derived relation, as deferred triggers on their tables. Anything else
-  stated at `Ledger` over a `Qti` relation (a key, a check, `mutable`, a family, tree or fold, a selected side) is
-  `LevelRefused` when the schema is built: a process over `Qti` holds none of `Ledger`'s code, so no law of `Ledger`
-  may change how a `Qti` write is compiled or drawn.
+  query may read the levels below through its derived relation, as deferred triggers on their tables. A row check may
+  stand over a relation below (next). Anything else stated at `Ledger` over a `Qti` relation (a key, `mutable`, a
+  family, tree or fold, a selected side) is `LevelRefused` when the schema is built: a process over `Qti` holds none of
+  `Ledger`'s code, so no law of `Ledger` may change how a `Qti` write is compiled or drawn.
+- **A level checks the rows below it.** `Ledger`'s list may hold a row check over a `Qti` relation, written exactly as
+  that relation's own would be, `check("Titled", Item, (i) => Compute.matches(i.title, nonBlank))`, `nonBlank` a
+  `Compute.pattern`: it reads any field of the row, a text of no byte bound with `Compute.matches` among them, as a row
+  check does. It is `Ledger`'s law and its CHECK on `qti.item`, named as a row check is and sharing `Item`'s checks'
+  names, so a second `Titled` over `Item` at any level is `IdentifierCollision`. The migration that installs `Ledger`, or
+  adds the check to it, adds it and validates every stored row, refusing the migration over one that breaks it, and the
+  one that removes it drops it; an installation of `Qti` without `Ledger` holds no trace of it.
 - **Read-only is the worlds model.** `Learner` holds `Qti`'s tables whole and writes only its own sittings: it reads `Qti`
   through views in its own schema, owned by the migration role, and holds no privilege on a `Qti` table. Since it
   holds every `Qti` table whole, every query over `Qti` runs on it, through those views.
 - **Every level is served.** `DbLayer.make` takes the served file of a login over any level of the installation: a
   process of `Qti` alone, such as `AuthorApp`'s, loads only what its programs over `Qti` read, and nothing above it. When a write of it breaks a law a level above states, such as deleting an `Item` a
-  `Sitting` holds, the outcome is `invariant-rejected` with the law `{ kind: "above", level: "Ledger", law }`, which
-  names the level and the law as that level states it.
+  `Sitting` holds or inserting one `Titled` refuses, the outcome is `invariant-rejected` with `refused.kind` `above`
+  and the law `{ kind: "above", level: "Ledger", law }`, which names the level and the law as that level states it
+  ([Errors and outcomes](#errors-and-outcomes)). `Qti`'s own laws are named as they would be were `Ledger` not
+  installed: a process holds no predicate of a law above it, so it never claims to judge one, and judges each of its
+  own.
 
 ## Migrations
 
@@ -2774,7 +2784,9 @@ A broken rule is an outcome, not an error. Errors are tagged classes in the Effe
 builds the exact outcome. `committed` is `accepted` when some count is nonzero and `no-change` otherwise, as `db.apply`
 decides it.
 
-`refused.laws` is never empty. `refused.kind` says how grizzle decided them:
+`refused.laws` is never empty. `every`, `first` and `some` name only the laws of your Db's own level and the levels
+below it, and a table's checks are theirs, whatever check a level above installs on the table. `refused.kind` says how
+grizzle decided them:
 
 - **`every`**: each rule is decided broken. A row check refusing a row you stated names every rule of that table's
   checks the row breaks as the write fills it (counts, ends, indexes and copies at the values grizzle draws), once
@@ -2793,6 +2805,14 @@ decides it.
   cannot tell apart (see the witness below). It names the rules of the check PostgreSQL tried first, never more.
   PostgreSQL orders a table's checks by installed name, which no version of grizzle keeps, so the row may break others
   too, and another version may name another.
+- **`above`**: PostgreSQL refused the write by a law of a level above your Db's, `refused.laws[0]`, as that level
+  names it, `{ kind: "above", level, law }`, which your process holds no predicate of: the one law above a refusal can
+  name, since PostgreSQL names one, and nothing is said of any other. `refused.own` is what grizzle finds of your own
+  levels' checks on the rows of that table the refused statement states: `every`, the rest of `refused.laws`, every
+  rule of them the first stated row breaking one breaks, as `every` would name them were the level's check not
+  installed, that row the witness; `none`, every row the statement writes is one you stated and holds them all, the
+  witness `unreported`; `unjudged`, nothing is said of them, the witness `unreported`: a refusal at COMMIT, by a
+  foreign key or a rule over a query of the level above, or a row grizzle cannot judge.
 
 **Witness**: `{ kind: "key", relation, values }`, the key of one row that breaks the rule and never another column, or
 `{ kind: "unreported" }`. A key (over a table or a side of one) that grizzle's own write statement finds broken, by two
@@ -2835,6 +2855,7 @@ is `unreported` where only a refill writes the row, such as a stored owner whose
 | `contract`   | `contract`                                                                                                      |
 | `pattern`    | `relation`, `field`, `patterns`: each `{ source, flags }` as that field spells it, one rule per field           |
 | `generated`  | `relation`, `field`: a generated field whose term has no value at a row, a closed read at a key its relation lacks |
+| `above`      | `level`, `law`: a law of a level above the Db's, as that level states it, only ever `refused.laws[0]` of an `above` refusal |
 
 A side is `{ relation, terms, selection }`. `terms` are in the order the rule pairs them, each `{ kind: "field", field }`
 or `{ kind: "pred", field }`.

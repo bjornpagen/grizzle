@@ -279,17 +279,17 @@ type Case =
 
 const countGen: Gen<bigint> = oneOf([constant(0n), bigint(1n, 3n), bigint(1n << 62n, 1n << 63n)])
 
-const lawGen: Gen<Public.Law> = oneOf<Public.Law>([
+const lawGen: Gen<Public.OwnLaw> = oneOf<Public.OwnLaw>([
 	map(
 		(source) => ({ relation: source.draw(nameGen), name: source.draw(nameGen) }),
-		(l): Public.Law => ({ kind: "check", relation: l.relation, name: l.name })
+		(l): Public.OwnLaw => ({ kind: "check", relation: l.relation, name: l.name })
 	),
 	map(
 		(source) => ({
 			relation: source.draw(nameGen),
 			fields: source.draw(array(nameGen, { min: 1, max: 2 }))
 		}),
-		(l): Public.Law => ({ kind: "primaryKey", relation: l.relation, fields: l.fields })
+		(l): Public.OwnLaw => ({ kind: "primaryKey", relation: l.relation, fields: l.fields })
 	)
 ])
 
@@ -315,15 +315,25 @@ const refusedLawGen: Gen<Public.RefusedLaw> = (source) => ({
 	by: source.draw(refusingGen)
 })
 
+const aboveLawGen: Gen<Public.AboveRefusedLaw> = (source) => ({
+	law: { kind: "above", level: source.draw(nameGen), law: source.draw(lawGen) },
+	id: wild.lawId(source.draw(nameGen)),
+	by: source.draw(refusingGen)
+})
+
 const refusedGen: Gen<Public.Refused> = (source) => {
 	const first = source.draw(refusedLawGen)
 	const second = source.draw(refusedLawGen)
 	const rest = source.draw(array(refusedLawGen, { min: 0, max: 2 }))
+	const above = source.draw(aboveLawGen)
 	return source.draw(
 		element<Public.Refused>([
 			{ kind: "every", laws: [first, ...rest] },
 			{ kind: "first", laws: [first, ...rest] },
-			{ kind: "some", laws: [first, second, ...rest] }
+			{ kind: "some", laws: [first, second, ...rest] },
+			{ kind: "above", own: "every", laws: [above, first, ...rest] },
+			{ kind: "above", own: "none", laws: [above] },
+			{ kind: "above", own: "unjudged", laws: [above] }
 		])
 	)
 }

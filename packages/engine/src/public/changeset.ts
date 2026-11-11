@@ -26,6 +26,8 @@ export type ChangeSet<
 > = ChangeSetOf<S, Params, Writes, Reads>
 
 export type {
+	AboveLaw,
+	AboveRefusedLaw,
 	Addition,
 	AdditionIn,
 	AnyChangeSet,
@@ -38,6 +40,7 @@ export type {
 	Law,
 	LawSide,
 	Member,
+	OwnLaw,
 	Refused,
 	RefusedLaw,
 	RefusingObject,

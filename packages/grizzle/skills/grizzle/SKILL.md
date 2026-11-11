@@ -62,10 +62,12 @@ export default defineConfig({
   version of it), and two logins or roles of one installation whose names convert alike. A login missing from `logins`
   is not installed, nor are its roles: their PostgreSQL roles don't exist, so a Db's first call through them is refused
   at stage `acquire`.
-- A level reaches the levels below it only by a containment of plain fields into a key, or through a rule over a
-  query; any other law over a lower relation is `LevelRefused` when the schema is built. A process over a lower level
-  serves its login's file, which holds what its programs may meet of the levels above, and a refusal by a law above it
-  is `{ kind: "above", level, law }`.
+- A level reaches the levels below it only by a containment of plain fields into a key, a row check over a lower
+  relation (written as that relation's own, its CHECK on the lower table, installed and validated by the level's
+  migration), or through a rule over a query; any other law over a lower relation is `LevelRefused` when the schema is
+  built. A process over a lower level serves its login's file, which holds what its programs may meet of the levels
+  above, and a refusal by a law above it is `refused.kind` `above`, `refused.laws[0]` the law
+  `{ kind: "above", level, law }`, beside every law of its own the host finds the stated row breaking (`refused.own`).
 - A login owns its workloads: `login(Blog, "web", [AnonBlog, MemberBlog], { workload: [anonReads, memberReads] })`.
   A workload, `workload(schemaOrRole, { name: program })`, is over the login's base, a level of it, or one of its
   roles, and names queries, ordered queries, ChangeSets, relation keys and refreshes. An ordered query the application

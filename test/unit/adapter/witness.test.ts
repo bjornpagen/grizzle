@@ -1054,7 +1054,8 @@ describe("a server error at a write", () => {
 												? { kind: "unreported" }
 												: hostWitnessOf(at, refuserText(refuser)),
 										laws: { kind: "object" }
-									})
+									}),
+									above: () => ({ own: "unjudged" })
 								})
 							})
 							/**

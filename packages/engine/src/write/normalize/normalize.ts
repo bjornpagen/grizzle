@@ -6,7 +6,7 @@
 import type { LawId } from "#compiler/core/ids.ts"
 import type { LawField } from "#compiler/ir/law.ts"
 import type { HostChecks, HostKey, HostKeyField } from "#compiler/runtime/write/normalize.ts"
-import type { Law } from "#compiler/types/changeset/changeset.ts"
+import type { OwnLaw } from "#compiler/types/changeset/changeset.ts"
 import { isCarried } from "#compiler/write/insert/statement.ts"
 import { hostHeld, type RelationUniques } from "#compiler/write/insert/unique.ts"
 
@@ -19,7 +19,7 @@ export const hostChecks = (
 	keyLaws: ReadonlyArray<{
 		readonly fields: ReadonlyArray<LawField>
 		readonly law: LawId
-		readonly described: Law
+		readonly described: OwnLaw
 	}>,
 	uniques: RelationUniques
 ): HostChecks =>

@@ -113,7 +113,7 @@ import { ProgramPatterns, tablePatterns, typePatterns } from "#compiler/scalar/r
 import type { Owned } from "#compiler/schema/own.ts"
 import type { Slice } from "#compiler/schema/reach.ts"
 import { exprPatternReads } from "#compiler/schema/walk.ts"
-import type { Law } from "#compiler/types/changeset/changeset.ts"
+import type { OwnLaw } from "#compiler/types/changeset/changeset.ts"
 
 /** The native objects installed as a table constraint: keys, CHECKs and references. */
 export type ConstraintNativeKind =
@@ -141,7 +141,7 @@ export type NamedNative =
 			readonly namespace: "constraint"
 			readonly named: Identity<"primaryKey" | "key" | "check" | "generatedCheck" | "foreignKey">
 			readonly owner: RelationIdent
-			readonly described: Law
+			readonly described: OwnLaw
 	  }
 	| {
 			readonly object: NativeOf<"LawColumn">
@@ -169,7 +169,7 @@ export interface NamedPrimaryKey {
 	readonly namespace: "constraint"
 	readonly named: Identity<"primaryKey" | "key">
 	readonly owner: RelationIdent
-	readonly described: Law
+	readonly described: OwnLaw
 }
 
 /** An ordinary relation with its primary key as installed. */
@@ -221,7 +221,7 @@ const missing = (what: string): never => {
 }
 
 /** A primary key named by the identity ownership named it by. */
-const namedPrimaryKey = (object: PrimaryNative, described: Law): NamedPrimaryKey => ({
+const namedPrimaryKey = (object: PrimaryNative, described: OwnLaw): NamedPrimaryKey => ({
 	object,
 	named: object.named,
 	namespace: "constraint",
@@ -232,7 +232,7 @@ const namedPrimaryKey = (object: PrimaryNative, described: Law): NamedPrimaryKey
 /** A law a constraint discharges, with the description its violation reports. */
 export interface ConstraintLawOf {
 	readonly law: LawId
-	readonly described: Law
+	readonly described: OwnLaw
 }
 
 /**
@@ -1529,7 +1529,7 @@ class Specializer {
 	}
 
 	/** The installed identifier of a merged object (`#name`), a primary key's kept with its relation in `keyed`. */
-	#nameMerged(entry: Merged, described: Law, keyed: Array<KeyedRelation>): NamedNative {
+	#nameMerged(entry: Merged, described: OwnLaw, keyed: Array<KeyedRelation>): NamedNative {
 		if (entry.kind === "native") {
 			return this.#name(entry.object, entry.law.named, described)
 		}
@@ -1766,7 +1766,7 @@ class Specializer {
 
 	/** The installed identifier of one native object, minted at the naming door (see `compileLaws`). `reported` is the
 	 * identity of the law it reports, its first: the law of the plan that first built it, `described`. */
-	#name(object: NativeObject, reported: Identity<"law">, described: Law): NamedNative {
+	#name(object: NativeObject, reported: Identity<"law">, described: OwnLaw): NamedNative {
 		const constraint = (
 			on: NativeOf<ConstraintNativeKind>,
 			named: Identity<"primaryKey" | "key" | "check" | "generatedCheck" | "foreignKey">

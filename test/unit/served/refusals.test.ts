@@ -153,7 +153,8 @@ const statementAt = (relations: ReadonlyArray<StoredRelationName>): WrittenAt =>
 	judge: (refuser) => ({
 		witness: { kind: "key", relation: "host", values: { refuser: refuserText(refuser) } },
 		laws: { kind: "object" }
-	})
+	}),
+	above: () => ({ own: "unjudged" })
 })
 
 /** The relations a statement raising a refusal writes: one of `at` where it names some, and any of `written` beside. */

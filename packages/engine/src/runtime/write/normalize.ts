@@ -56,7 +56,7 @@ import {
 	type FactIdentity
 } from "#compiler/scalar/values/identity.ts"
 import type { Span } from "#compiler/scalar/values/span.ts"
-import type { KeyHost, Law } from "#compiler/types/changeset/changeset.ts"
+import type { KeyHost, OwnLaw } from "#compiler/types/changeset/changeset.ts"
 import type { SingleAct, SlotFacts } from "#compiler/write/frontend/compile.ts"
 
 type Fact = { readonly [field: string]: unknown }
@@ -132,7 +132,7 @@ interface KeyRefusal {
 	readonly kind: "keyConflict"
 	readonly relation: StoredRelationName
 	readonly law: LawId
-	readonly described: Law
+	readonly described: OwnLaw
 	readonly witness: KeyWitness
 }
 
@@ -399,7 +399,7 @@ export interface HostChecks {
 	readonly keys: ReadonlyArray<HostKey>
 	readonly spans: ReadonlyArray<{
 		readonly law: LawId
-		readonly described: Law
+		readonly described: OwnLaw
 		readonly equal: ReadonlyArray<HostKeyField>
 		readonly span: { readonly field: string; readonly type: SpanType }
 	}>
@@ -412,7 +412,7 @@ export interface HostChecks {
  */
 export interface HostKey {
 	readonly law: LawId
-	readonly described: Law
+	readonly described: OwnLaw
 	readonly fields: ReadonlyArray<HostKeyField>
 	readonly stated: boolean
 }
@@ -426,7 +426,7 @@ interface KeySpec {
 /** A declared key as the host compares facts at it (`HostKey`), each field by its spec. */
 interface CheckedKey {
 	readonly law: LawId
-	readonly described: Law
+	readonly described: OwnLaw
 	readonly fields: ReadonlyArray<KeySpec>
 	readonly stated: boolean
 }
@@ -437,7 +437,7 @@ interface CheckedKeys {
 	readonly keys: ReadonlyArray<CheckedKey>
 	readonly spans: ReadonlyArray<{
 		readonly law: LawId
-		readonly described: Law
+		readonly described: OwnLaw
 		readonly equal: ReadonlyArray<KeySpec>
 		readonly span: {
 			readonly field: string
@@ -638,7 +638,7 @@ const conflictOf = (
 	facts: CheckedFacts,
 	fact: Fact,
 	fields: ReadonlyArray<KeySpec>,
-	law: { readonly law: LawId; readonly described: Law }
+	law: { readonly law: LawId; readonly described: OwnLaw }
 ): KeyRefusal => ({
 	kind: "keyConflict",
 	relation: facts.relation,

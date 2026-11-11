@@ -62,7 +62,7 @@ import {
 } from "#compiler/scalar/values/identity.ts"
 import type {
 	KeyHost,
-	Law,
+	OwnLaw,
 	RefusedLaw,
 	RefusingObject,
 	Witness
@@ -229,19 +229,15 @@ const hostField = (row: JudgedRow, field: Pick<WitnessField, "name" | "writing">
 }
 
 /**
- * What refused a statement, as PostgreSQL reported it on an object of the installation: a table constraint by its
- * owner and name, with every CHECK of that table a level above the Db's own installs (CheckAbove); a domain's CHECK by
- * the domain and the constraint's name, and the columns it types in the tables the statement writes, each with the law
- * its field states of it (DomainUse), none where the statement writes none of them, since PostgreSQL names the domain
- * and never the column; or a generated column's NOT NULL.
+ * What refused a statement, as PostgreSQL reported it on an object of the installation's own levels: a table constraint
+ * by its owner and name; a domain's CHECK by the domain and the constraint's name, and the columns it types in the
+ * tables the statement writes, each with the law its field states of it (DomainUse), none where the statement writes
+ * none of them, since PostgreSQL names the domain and never the column; or a generated column's NOT NULL. A CHECK a level
+ * above installs on a table is none of these: the host judges the statement's rows against its own CHECKs there
+ * (aboveJudgement).
  */
 export type Refuser =
-	| {
-			readonly kind: "constraint"
-			readonly owner: RelationIdent
-			readonly name: ConstraintName
-			readonly above: ReadonlyArray<CheckAbove>
-	  }
+	| { readonly kind: "constraint"; readonly owner: RelationIdent; readonly name: ConstraintName }
 	| {
 			readonly kind: "domain"
 			readonly domain: DomainName
@@ -249,17 +245,6 @@ export type Refuser =
 			readonly uses: ReadonlyArray<DomainUse>
 	  }
 	| { readonly kind: "generated"; readonly table: RelationIdent; readonly column: ColumnIdent }
-
-/**
- * A row check a level above the Db's own states over a relation of its level, the CHECK that level installs on the
- * relation's table, by its installed name and the laws it states, each named by that level (types/changeset Law
- * `above`): the Db's compile holds no predicate of it, so the host judges no row against it, and a table carrying one
- * is a table whose every CHECK the host never judges.
- */
-export interface CheckAbove {
-	readonly name: ConstraintName
-	readonly laws: NonEmptyReadonlyArray<ConstraintLawOf>
-}
 
 /**
  * What a refused statement states, as the host reads it: the statement of a stratum's actions (ir.strata[stratum]
@@ -294,8 +279,8 @@ export type StatementAt =
  *   law with its identity and the object that refused it, the law-stating CHECK of the row's table that states it, or
  *   the refusing domain's CHECK;
  * - first: a table CHECK's refusal where no stated row breaks it, or where the row that breaks it has a law CHECK the
- *   host leaves unjudged, which the row may break too, a level's CHECK above the Db's own among them (CheckAbove): the
- *   laws of the CHECK PostgreSQL tried first, which it orders by the CHECKs' installed names, an order no version keeps;
+ *   host leaves unjudged, which the row may break too: the laws of the CHECK PostgreSQL tried first, which it orders
+ *   by the CHECKs' installed names, an order no version keeps;
  * - object: any other refusal, a domain's where no stated row breaks it or the row that breaks it has a column the
  *   host leaves unjudged: the laws its one object discharges that the statement can break, which the classifier names,
  *   decided where there is one and `some` where there are several.
@@ -960,13 +945,6 @@ const lawChecks = (
 		verdict: verdictOf(judge, relation, test, codes)
 	}))
 
-/** A CHECK a level above installs on a table, which the host holds no predicate of, so it judges no row (`CheckAbove`). */
-const aboveCheck = ({ name, laws }: CheckAbove): LawCheck => ({
-	name,
-	laws,
-	verdict: () => "unjudged"
-})
-
 /** How a law CHECK of `relation`'s table judges one of its stated rows (`CheckTest`). */
 const verdictOf = (
 	judge: Judge,
@@ -1081,7 +1059,7 @@ const brokenLaws = (
  * law, and the column's structural text level, which no contract wraps, its field's pattern law. No other law is a
  * type level's.
  */
-const levelStates = (level: ScalarType, law: Law): boolean => {
+const levelStates = (level: ScalarType, law: OwnLaw): boolean => {
 	switch (law.kind) {
 		case "contract":
 			return contractOf(level)?.name === law.contract
@@ -1096,7 +1074,6 @@ const levelStates = (level: ScalarType, law: Law): boolean => {
 		case "tree":
 		case "fold":
 		case "generated":
-		case "above":
 			return false
 	}
 }
@@ -1213,10 +1190,7 @@ const refuserJudge = (w: Witnessing, refuser: Refuser): RefuserJudge => {
 			}
 		case "constraint": {
 			const table = w.data.tables.find((r) => r.ident === refuser.owner)
-			const checks = [
-				...(table === undefined ? [] : lawChecks(judge, table, w.codes)),
-				...refuser.above.map(aboveCheck)
-			]
+			const checks = table === undefined ? [] : lawChecks(judge, table, w.codes)
 			const refusing = checks.find((c) => c.name === refuser.name)
 			if (refusing === undefined) {
 				return { row: () => unjudged, none: refusedByObject }
@@ -1307,4 +1281,66 @@ export const hostJudgement = (
 	return rows === "every" && only?.judged.kind === "breaks" && !isNonEmpty(others)
 		? { witness: only.fact.witness, laws: only.judged.laws }
 		: { witness: unreported, laws: judging.none }
+}
+
+/**
+ * What the host finds of its own levels' CHECKs on `owner`'s table when PostgreSQL refused a statement by a CHECK a
+ * level above installs there, which the host holds no predicate of (types/changeset Refused `above`): `every`, every law
+ * of the CHECKs the first stated row of the table that breaks one breaks, each once in the theory's order, with that
+ * row's witness, exactly the refusal one of them would name were the level's CHECK not installed; `none`, every row
+ * the statement writes is a stated one and holds each of them; `unjudged`, the host says nothing of them.
+ */
+export type AboveJudgement =
+	| {
+			readonly own: "every"
+			readonly laws: NonEmptyReadonlyArray<RefusedLaw>
+			readonly witness: Witness
+	  }
+	| { readonly own: "none" | "unjudged" }
+
+const ownNone: AboveJudgement = Object.freeze({ own: "none" })
+const ownUnjudged: AboveJudgement = Object.freeze({ own: "unjudged" })
+
+/**
+ * The host's judgement of the rows a statement PostgreSQL refused by a CHECK a level above installs on `owner`'s table
+ * states there (`AboveJudgement`), in the order the statement states them: a row that holds every own CHECK passes; the
+ * first that does not decides, `every` where it is a row the statement surely writes and the host judges every CHECK on
+ * it, and `unjudged` where a CHECK reads what the host does not hold there or the row may not be written; where every
+ * row passes, `none` exactly when the statement writes no row the ChangeSet does not state.
+ */
+export const aboveJudgement = (
+	w: Witnessing,
+	stated: StatedRows,
+	at: StatementAt,
+	owner: RelationIdent
+): AboveJudgement => {
+	const { rows, facts } = statedFacts(w, stated, at)
+	const table = w.data.tables.find((r) => r.ident === owner)
+	const checks = table === undefined ? [] : lawChecks(w.judge, table, w.codes)
+	for (const fact of facts) {
+		if (fact.relation.ident !== owner) {
+			continue
+		}
+		const verdicts = checks.map((check) => ({
+			check,
+			verdict: checkVerdict(w.judge, fact.relation, check, fact.row)
+		}))
+		if (verdicts.every((v) => v.verdict === "holds")) {
+			continue
+		}
+		const [first, ...rest] = verdicts.flatMap((v) => (v.verdict === "breaks" ? [v.check] : []))
+		if (
+			first === undefined ||
+			fact.row.kind !== "known" ||
+			verdicts.some((v) => v.verdict === "unjudged")
+		) {
+			return ownUnjudged
+		}
+		return {
+			own: "every",
+			laws: brokenLaws(w, fact.relation, first, rest),
+			witness: fact.witness
+		}
+	}
+	return rows === "every" ? ownNone : ownUnjudged
 }

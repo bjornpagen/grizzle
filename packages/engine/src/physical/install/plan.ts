@@ -73,7 +73,7 @@ import {
 import { constraintLawsOf } from "#compiler/runtime/write/laws.ts"
 import { installationsOf, type Owned } from "#compiler/schema/own.ts"
 import type { Slice } from "#compiler/schema/reach.ts"
-import type { Law } from "#compiler/types/changeset/changeset.ts"
+import type { Law, OwnLaw } from "#compiler/types/changeset/changeset.ts"
 
 /**
  * What an installation's plan is compiled over (planInstallation): the owned schema's law model (compileLaws) for a
@@ -168,10 +168,14 @@ export const planBasis = (
 		textDomains
 	}))
 
-/** A law of the installation with its description, as an outcome names it (types/changeset Law); L, the laws it may be. */
-export interface DescribedLaw<L extends LawId = LawId> {
+/**
+ * A law with its description, as an outcome names it (types/changeset Law); L, the laws it may be, and D, the
+ * description's: a law of the installation's own levels (OwnLaw), or, where a Db over a lower level names one, a law of
+ * a level above it (AboveLaw).
+ */
+export interface DescribedLaw<L extends LawId = LawId, D extends Law = OwnLaw> {
 	readonly law: L
-	readonly described: Law
+	readonly described: D
 }
 
 /** What an installation's plan reads of its settings (InstallSettings): each level's PostgreSQL schema, the vector
@@ -225,7 +229,7 @@ export interface InstallPlan {
 	readonly theoryLaws: ReadonlyArray<DescribedLaw<Identifier<"law">>>
 	/** Every law a violation of the installation can report, by its LawId, as an outcome names it (types/changeset
 	 * Law): the theory's laws, then each constraint's law, each described where it is built. */
-	readonly described: ReadonlyMap<LawId, Law>
+	readonly described: ReadonlyMap<LawId, OwnLaw>
 }
 
 /** Canonical use order, a domain's columns' order: table identifier, then column identifier. */
@@ -458,10 +462,10 @@ export const planInstallation = (
 			constraintLaws,
 			constraintToLaw: constraintLawMap(constraintLaws),
 			theoryLaws,
-			described: new Map<LawId, Law>([
-				...theoryLaws.map((l): readonly [LawId, Law] => [l.law, l.described]),
+			described: new Map<LawId, OwnLaw>([
+				...theoryLaws.map((l): readonly [LawId, OwnLaw] => [l.law, l.described]),
 				...constraintLaws.flatMap((c) =>
-					constraintLawsOf(c).map((l): readonly [LawId, Law] => [l.law, l.described])
+					constraintLawsOf(c).map((l): readonly [LawId, OwnLaw] => [l.law, l.described])
 				)
 			])
 		}

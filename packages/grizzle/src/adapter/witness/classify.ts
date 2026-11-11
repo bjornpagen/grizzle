@@ -7,6 +7,9 @@ import {
 	reportedOwner
 } from "#adapter/witness/keylaw.ts"
 import type {
+	AboveJudgement,
+	AboveLaw,
+	AboveRefusedLaw,
 	ConcurrentChange,
 	HostJudgement,
 	KeyDecoder,
@@ -23,6 +26,7 @@ import type {
 	ConstraintName,
 	ConstraintOwner,
 	EntryName,
+	LawId,
 	RelationIdent,
 	StoredRelationName
 } from "#compiler/plan/common.ts"
@@ -83,11 +87,15 @@ type ViolationFields = Pick<
  *   or `unreported` where it names none (hostJudgement). A table CHECK's refusal of a stated fact names `every` law
  *   of that table's CHECKs the fact, as its write fills it, breaks, in the schema's canonical order, whichever
  *   PostgreSQL tried first;
- *   where no stated fact breaks it, or the host leaves one of those CHECKs unjudged, a CHECK a level above the Db's own
- *   installs on the table among them (keylaw.ts KeyLaws checksAbove), the outcome names the CHECK PostgreSQL reported,
- *   `first`, since PostgreSQL tries a table's CHECKs in the order of their names. A domain's
+ *   where no stated fact breaks it, or the host leaves one of those CHECKs unjudged, the outcome names the CHECK
+ *   PostgreSQL reported, `first`, since PostgreSQL tries a table's CHECKs in the order of their names. A table's CHECKs
+ *   are the Db's own levels': a CHECK a level above installs there is neither judged nor counted. A domain's
  *   refusal of a stated fact names `every` law of the fact's columns it types whose values it refuses, a pattern's
- *   naming its relation and field, where the host judges each of those columns.
+ *   naming its relation and field, where the host judges each of those columns. A constraint of a level above the Db's
+ *   own, which the map reads only where the Db's own tables name none, is refused `above`: its one law, as that level
+ *   names it, and, where it is a row check over the relation of the table it stands on, what the host finds of its own
+ *   CHECKs on the rows the ChangeSet states for the statement there (runtime/write/witness.ts aboveJudgement), with that
+ *   finding's witness; of any other, a foreign key or a rule's trigger at COMMIT, nothing of its own laws.
  * - SQLSTATE 23502 on a generated column of the installation's: grizzle writes no NULL, so only the column's generation
  *   expression is NULL there, a closed read at a key its relation holds no row at, and the outcome names the generated
  *   field's law (types/changeset Law `generated`) with the host's witness of the stated fact whose term has no value.
@@ -145,6 +153,11 @@ export type Violation =
 export interface WrittenAt {
 	readonly relations: ReadonlyArray<StoredRelationName>
 	readonly judge: (refuser: Refuser) => HostJudgement
+	/**
+	 * The host's judgement of its own CHECKs on the table `owner` over the facts the ChangeSet states for the failing
+	 * statement, which a CHECK of a level above refused there (runtime/write/witness.ts aboveJudgement).
+	 */
+	readonly above: (owner: RelationIdent) => AboveJudgement
 }
 
 /** The hook: a violation's law outcome, or undefined when it is not one, raised by a statement that wrote `written`. */
@@ -242,7 +255,7 @@ const coercedUses = (native: NativeLaws, written: ReadonlySet<RelationIdent>) =>
  * each law once; every law any other object discharges.
  */
 const nativeLaws = (
-	native: NativeLaws,
+	native: Extract<NativeLaws, { readonly kind: "object" | "domain" }>,
 	written: ReadonlySet<RelationIdent>,
 	by: RefusingObject
 ): Arr.NonEmptyReadonlyArray<RefusedLaw> => {
@@ -286,6 +299,42 @@ const refusedBy = (laws: RefusedLaws, broken: Arr.NonEmptyReadonlyArray<RefusedL
 			return { kind: "first", laws: broken }
 		case "object":
 			return objectRefused(broken)
+	}
+}
+
+/** The law of a level above PostgreSQL named, refused by the object `by` that reported it. */
+const aboveRefused = (law: DescribedLaw<LawId, AboveLaw>, by: RefusingObject): AboveRefusedLaw => ({
+	law: law.described,
+	id: law.law,
+	by
+})
+
+/** Nothing said of the Db's own laws: a refusal by a level above's object other than a CHECK on a table it wrote. */
+const ownUnjudged: AboveJudgement = Object.freeze({ own: "unjudged" })
+
+const unreported: Witness = Object.freeze({ kind: "unreported" })
+
+/**
+ * A refusal by `law`, of a level above, PostgreSQL named, beside what the host finds of its own CHECKs there (`own`):
+ * every law of theirs the first stated row breaking one breaks, witnessed by that row, or none, or nothing said.
+ */
+const aboveRejection = (law: AboveRefusedLaw, own: AboveJudgement): Violation => {
+	switch (own.own) {
+		case "every": {
+			const [first, ...rest] = own.laws
+			return {
+				kind: "rejected",
+				refused: { kind: "above", own: "every", laws: [law, first, ...rest] },
+				witness: own.witness
+			}
+		}
+		case "none":
+		case "unjudged":
+			return {
+				kind: "rejected",
+				refused: { kind: "above", own: own.own, laws: [law] },
+				witness: unreported
+			}
 	}
 }
 
@@ -376,22 +425,31 @@ export const violationClassifier =
 		if (native === undefined) {
 			return undefined
 		}
-		const tables = new Set(Arr.map(written.relations, (relation) => laws.tableOf(relation)))
-		const broken = nativeLaws(native, tables, nativeObject(constraint, owner))
-		const judged = written.judge(
-			owner.kind === "table"
-				? {
-						kind: "constraint",
-						owner: owner.name,
-						name: constraint,
-						above: laws.checksAbove(owner.name)
-					}
-				: {
-						kind: "domain",
-						domain: owner.name,
-						name: constraint,
-						uses: coercedUses(native, tables)
-					}
-		)
-		return { kind: "rejected", refused: refusedBy(judged.laws, broken), witness: judged.witness }
+		const by = nativeObject(constraint, owner)
+		switch (native.kind) {
+			case "aboveCheck":
+				return aboveRejection(aboveRefused(native.law, by), written.above(native.table))
+			case "above":
+				return aboveRejection(aboveRefused(native.law, by), ownUnjudged)
+			case "object":
+			case "domain": {
+				const tables = new Set(Arr.map(written.relations, (relation) => laws.tableOf(relation)))
+				const broken = nativeLaws(native, tables, by)
+				const judged = written.judge(
+					owner.kind === "table"
+						? { kind: "constraint", owner: owner.name, name: constraint }
+						: {
+								kind: "domain",
+								domain: owner.name,
+								name: constraint,
+								uses: coercedUses(native, tables)
+							}
+				)
+				return {
+					kind: "rejected",
+					refused: refusedBy(judged.laws, broken),
+					witness: judged.witness
+				}
+			}
+		}
 	}

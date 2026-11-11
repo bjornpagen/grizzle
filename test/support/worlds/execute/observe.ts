@@ -228,7 +228,7 @@ export const refusalReader = (
  * by the relation the table is, which must be a constraint or rule trigger the installation holds on that table under
  * that name and whose violation reports the refused law, or the run has a defect; any other object as `other`.
  */
-const refusedByOf = (reader: RefusalReader, refused: RefusedLaw): Effect.Effect<RefusedBy> => {
+const refusedByOf = (reader: RefusalReader, refused: RefusedLaw<Law>): Effect.Effect<RefusedBy> => {
 	const by = refused.by
 	switch (by.kind) {
 		case "constraint": {

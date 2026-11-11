@@ -77,6 +77,7 @@ import type {
 	Row
 } from "#compiler/plan/common.ts"
 import {
+	aboveJudgement,
 	bindWrite,
 	defect,
 	defined,
@@ -95,7 +96,8 @@ const noRows: Raw = []
 /**
  * What a write's failure is classified with: the installation's violation classifier, the layer's, and what a refused
  * statement wrote: its relations and the host's judgement of a native refusal over the facts this application states
- * (runtime/write/witness.ts statementRelations, hostJudgement).
+ * (runtime/write/witness.ts statementRelations, hostJudgement), or of its own CHECKs where a level above's refused it
+ * (aboveJudgement).
  */
 interface WitnessContext {
 	readonly violation: WriteEntry["witness"]["classify"]
@@ -471,7 +473,8 @@ export const runWrite = <R>(
 			violation: entry.witness.classify,
 			statement: (at) => ({
 				relations: statementRelations(flight.prepared.witness, at),
-				judge: (refuser) => hostJudgement(flight.prepared.witness, stated, at, refuser)
+				judge: (refuser) => hostJudgement(flight.prepared.witness, stated, at, refuser),
+				above: (owner) => aboveJudgement(flight.prepared.witness, stated, at, owner)
 			})
 		}
 		/** The read-backs sent behind the writes; a riding one's statements are parts of the write statement it rides. */
