@@ -874,7 +874,7 @@ const directTxn = (
 		pid: Effect.suspend(() =>
 			Option.match(Option.fromNullishOr(recording.opened.get(session.name)), {
 				onNone: () => Effect.succeedNone,
-				onSome: (id) => Effect.asSome(world.backend(id))
+				onSome: (id) => world.backend(id)
 			})
 		)
 	}

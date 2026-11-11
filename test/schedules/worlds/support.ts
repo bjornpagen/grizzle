@@ -1,5 +1,5 @@
 import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
+import { drawn, explore, type Kept } from "@grizzle/testing/explore"
 import { required, type Situations } from "@grizzle/testing/features"
 import { constant, type Gen, weighted } from "@grizzle/testing/gen"
 import type { Nature, PctSchedule } from "@grizzle/testing/interleave"
@@ -151,6 +151,8 @@ export const worldRaceSuite = <C>(spec: {
 	readonly draw: Gen<C>
 	readonly race: (c: C, nature: Nature) => WorldRace
 	readonly required: Situations<WorldRaceFeature>
+	/** The cases a run of the suite once failed on, replayed before its streams (explore's Kept). */
+	readonly kept: ReadonlyArray<Kept<C, WorldRaceFeature>>
 }): void => {
 	layer(Substrate.layer, { excludeTestServices: true })(spec.file, (it) => {
 		it.effect(spec.test, (ctx) =>
@@ -166,7 +168,7 @@ export const worldRaceSuite = <C>(spec: {
 							cases: raceRuns,
 							sense: notesOnly
 						}),
-						kept: [],
+						kept: spec.kept,
 						runs: raceRuns,
 						shrink: { kind: "bounded", candidates: 30 },
 						concurrency: 1,

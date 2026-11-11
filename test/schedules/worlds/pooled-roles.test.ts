@@ -164,5 +164,6 @@ worldRaceSuite({
 		"probed after: interruption",
 		"pool of 1",
 		"blocked"
-	]
+	],
+	kept: []
 })

@@ -167,5 +167,6 @@ worldRaceSuite({
 	test: "a deletion racing reads and refreshes of a derived relation shows the relation as of a serial order's last refresh",
 	draw: caseGen,
 	race,
-	required: ["ended: commit", "observed: rows", "observed: ok"]
+	required: ["ended: commit", "observed: rows", "observed: ok"],
+	kept: []
 })

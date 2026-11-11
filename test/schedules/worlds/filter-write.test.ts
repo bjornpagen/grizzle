@@ -149,5 +149,6 @@ worldRaceSuite({
 	test: "a write through an entry racing a write to the relation its filter reads is one serial order's outcome",
 	draw: caseGen,
 	race,
-	required: ["ended: commit", "ended: refusal", "overlapping", "pool of 1", "pool of 2"]
+	required: ["ended: commit", "ended: refusal", "overlapping", "pool of 1", "pool of 2"],
+	kept: []
 })

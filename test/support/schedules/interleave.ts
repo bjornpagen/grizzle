@@ -79,14 +79,15 @@ export interface ActionStep {
  * The backend a world move runs on:
  *
  * - `watched`: a pooled connection, which the driver watches in pg_locks while the move runs, its pid read at every
- *   poll, since a pooled connection's serving backend is known only once a step leases it;
+ *   poll: the backend the move's own Db holds by its lease (worlds/execute/session.ts DbSession.backend), none before
+ *   the step leases one;
  * - `opens`: a direct session's BEGIN, which opens the session's connection and takes no snapshot, so it cannot wait on
  *   a lock another session holds; once it has run, `pid` reads the backend it opened, none when it opened no session;
  * - `opened`: a later move of a direct session, on the backend its BEGIN opened, which the driver knows from the BEGIN
  *   on, until the session's last move ends it, whether or not it ever saw one of the session's moves in flight.
  */
 export type Backend =
-	| { readonly kind: "watched"; readonly pid: Effect.Effect<number> }
+	| { readonly kind: "watched"; readonly pid: Effect.Effect<Option.Option<number>> }
 	| { readonly kind: "opens"; readonly pid: Effect.Effect<Option.Option<number>> }
 	| { readonly kind: "opened" }
 
@@ -678,8 +679,10 @@ const driverOf = <E>(
 				return Effect.succeedSome(move.backend.pid)
 			case "watched":
 				return Effect.map(move.backend.pid, (pid) => {
-					pids.set(session, pid)
-					return Option.some(pid)
+					if (Option.isSome(pid)) {
+						pids.set(session, pid.value)
+					}
+					return pid
 				})
 			case "opens":
 				return Effect.succeedNone

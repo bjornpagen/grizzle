@@ -52,6 +52,7 @@ import type { PsqlWriter } from "#test/support/substrate/psql.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import type { Credentials } from "#test/support/substrate/session.ts"
 import { rolePsql, Substrate } from "#test/support/substrate/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
 import {
 	type Built,
 	type BuiltLogin,
@@ -78,7 +79,7 @@ import { carrierOf, valueOfText } from "#test/support/worlds/execute/host.ts"
 import { leakOf } from "#test/support/worlds/execute/leak.ts"
 import { installedRoleName, namesOfBuiltAt } from "#test/support/worlds/execute/names.ts"
 import { openRefused, refusalReader, witnessTexts } from "#test/support/worlds/execute/observe.ts"
-import { isNativePool, leasedBackend, probePool } from "#test/support/worlds/execute/pool.ts"
+import { leaseRecording, probePool } from "#test/support/worlds/execute/pool.ts"
 import { RealizeRefused, Thrown } from "#test/support/worlds/execute/refused.ts"
 import {
 	applySession,
@@ -176,10 +177,10 @@ export interface Performed {
 
 export interface RacingWorld extends RealWorld {
 	/**
-	 * The backend serving an open session: a direct writer's, read once when its BEGIN opened it, or the connection its
-	 * login's pool most recently leased.
+	 * The backend serving an open session: a direct writer's, read once when its BEGIN opened it; or the connection a
+	 * Db's own lease holds (DbSession.backend), none while it holds no lease.
 	 */
-	readonly backend: (session: number) => Effect.Effect<number>
+	readonly backend: (session: number) => Effect.Effect<Option.Option<number>>
 }
 
 type Session =
@@ -243,13 +244,6 @@ const foldersOf = (directory: Directory): ReadonlyArray<FolderSource> => [
 	...directory.applied,
 	...Arr.map(directory.pending, (p) => p.folder)
 ]
-
-/**
- * What a login layer serves: a version's sessions, whose pool the executor probes; or one open's, its layer built with
- * another snapshot than the version's (SnapshotRef: an older version's, another schema's), whose calls the snapshot
- * guard refuses.
- */
-type LayerUse = "version" | "probe"
 
 /** The login an unheld role is reached through, which no layer serves: a JavaScript caller's role of no installed login. */
 const unheldLogin = "executorUnheld"
@@ -346,7 +340,6 @@ const realizeWith = (
 		const verifying: { handed: Option.Option<Handed> } = { handed: Option.none() }
 		/** The verify calls of every login layer since the realization began. */
 		const verified = { calls: 0 }
-		const acquired = new Map<string, number>()
 		const scope = yield* Effect.scope
 
 		/** The verify of every login layer that takes one: it reads the token, and counts its calls. */
@@ -358,18 +351,16 @@ const realizeWith = (
 		)
 
 		/**
-		 * A login's layer, its served file compiled under `snapshot` as generate compiles it (layerOver): attachPool records,
-		 * for a version's layer, the backend of each connection its pool's leases take, and verify is given exactly when a
-		 * role of the login reads a context, as README "Permissions" requires it, so a login whose roles read none turns no
-		 * token into claims.
+		 * A login's layer, its served file compiled under `snapshot` as generate compiles it (layerOver): verify is given
+		 * exactly when a role of the login reads a context, as README "Permissions" requires it, so a login whose roles read
+		 * none turns no token into claims.
 		 */
 		const layerOf = (
 			spec: InstallSpec,
 			built: Built,
 			login: string,
 			credentials: Credentials,
-			snapshot: unknown,
-			use: LayerUse
+			snapshot: unknown
 		): Effect.Effect<
 			{
 				readonly served: ServedLogin<BuiltLogin>
@@ -387,20 +378,7 @@ const realizeWith = (
 							onSome: (size) => ({ ...clusterPool, max: size })
 						}),
 						login: file,
-						...(loginVerifies(spec, login) ? { verify } : {}),
-						attachPool: (pool) => {
-							if (!isNativePool(pool)) {
-								throw new Error("a login's pool is not node-postgres's Pool")
-							}
-							if (use === "version") {
-								pool.on("acquire", (client) => {
-									const pid = leasedBackend(client)
-									if (pid !== undefined) {
-										acquired.set(login, pid)
-									}
-								})
-							}
-						}
+						...(loginVerifies(spec, login) ? { verify } : {})
 					})
 				}))
 			)
@@ -424,9 +402,7 @@ const realizeWith = (
 				const layers: Record<string, LoginLayer> = {}
 				for (const l of spec.logins) {
 					const loginCredentials = yield* get(credentials, l.name, "credentials of")
-					const made = yield* Effect.orDie(
-						layerOf(spec, built, l.name, loginCredentials, json, "version")
-					)
+					const made = yield* Effect.orDie(layerOf(spec, built, l.name, loginCredentials, json))
 					const context = yield* Effect.orDie(Scope.provide(Layer.build(made.layer), scope))
 					layers[l.name] = { served: made.served, snapshot: json, context }
 				}
@@ -699,8 +675,7 @@ const realizeWith = (
 							current.built,
 							login,
 							credentials,
-							probeSnapshot,
-							"probe"
+							probeSnapshot
 						)
 						const context = yield* Scope.provide(Layer.build(made.layer), scope)
 						return {
@@ -756,9 +731,11 @@ const realizeWith = (
 
 		/**
 		 * A Db opened: a session of its role in its login, minted; one for a role the installation does not hold is a
-		 * defect. Db.open contacts nothing, so the executor leases one session of the Db's pool at once and releases it,
-		 * sending nothing but a new connection's startup: the pool then holds a connection from the open on, as the model's
-		 * connections are (model/session/open.ts), whatever the Db's first call meets.
+		 * defect. Db.open contacts nothing, so the executor leases sessions of the Db's pool at once and releases them,
+		 * sending nothing but new connections' startups: one, or a racing world's every connection (`poolSize`), leased
+		 * together. The pool then holds its connections from the open on, as the model's connections are
+		 * (model/session/open.ts), whatever the Db's first call meets, and which ready connection serves a race's call is
+		 * the pool's choice, never how long a connection took to start.
 		 */
 		const openedDb = (
 			target: Pick<OpenTarget, "value" | "reached" | "held">,
@@ -771,8 +748,19 @@ const realizeWith = (
 					Effect.die(new Error("a Db opened for a role the installation does not hold")),
 				onSome: ({ role, login }) =>
 					Effect.gen(function* () {
-						yield* Effect.orDie(Effect.scoped(ctx.pool.lease))
+						yield* Effect.orDie(
+							Effect.scoped(
+								Effect.all(
+									upTo(
+										Option.getOrElse(poolSize, () => 1),
+										() => ctx.pool.lease
+									),
+									{ concurrency: "unbounded" }
+								)
+							)
+						)
 						const current = state.current
+						const backend = yield* Ref.make(Option.none<number>())
 						const session = yield* mint({
 							kind: "db",
 							login,
@@ -783,7 +771,8 @@ const realizeWith = (
 							reached: target.reached,
 							snapshot,
 							compile: compileOf(current),
-							ctx
+							ctx: { ...ctx, pool: leaseRecording(ctx.pool, backend) },
+							backend
 						})
 						return seen({ kind: "opened", session, verifyCalls })
 					})
@@ -1497,11 +1486,9 @@ const realizeWith = (
 						return yield* missing(`open session ${id}`)
 					}
 					const session = s.value
-					if (session.kind === "direct") {
-						return session.pid
-					}
-					const pid = acquired.get(session.login)
-					return pid ?? (yield* missing(`leased connection of ${session.login}`))
+					return session.kind === "direct"
+						? Option.some(session.pid)
+						: yield* Ref.get(session.backend)
 				})
 		}
 		return world

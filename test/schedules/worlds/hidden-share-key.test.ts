@@ -116,5 +116,6 @@ worldRaceSuite({
 	test: "writers meeting a key over facts outside their worlds never break it",
 	draw: caseGen,
 	race,
-	required: ["ended: commit", "ended: refusal", "overlapping"]
+	required: ["ended: commit", "ended: refusal", "overlapping"],
+	kept: []
 })

@@ -128,5 +128,21 @@ worldRaceSuite({
 	test: "concurrent writers through worlds keep every law and fail only with typed transient failures",
 	draw: caseGen,
 	race,
-	required: ["ended: commit", "ended: refusal", "observed: refused", "overlapping"]
+	required: ["ended: commit", "ended: refusal", "observed: refused", "overlapping"],
+	kept: [
+		{
+			note: "ann's apply waits on dan's uncommitted share at the key while carl's read leases the pool's other connection: the driver read ann's wait off carl's connection (a backend keyed by login) and waited for it forever (TEST_SEED=4164111326 on c0648dda, DeadlineReached)",
+			sketch: {
+				pool: 2,
+				end: "commit",
+				claimed: "own",
+				scope: "session",
+				reads: "writes blind",
+				stored: 0,
+				words: 7
+			},
+			draws: "",
+			reaches: ["blocked"]
+		}
+	]
 })

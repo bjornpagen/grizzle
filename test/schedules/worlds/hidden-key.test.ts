@@ -154,5 +154,6 @@ worldRaceSuite({
 	test: "a key collision with a fact another world inserts concurrently is refused by the key's law or fails transiently",
 	draw: caseGen,
 	race,
-	required: ["ended: commit", "ended: refusal", "observed: invariant-rejected", "overlapping"]
+	required: ["ended: commit", "ended: refusal", "observed: invariant-rejected", "overlapping"],
+	kept: []
 })

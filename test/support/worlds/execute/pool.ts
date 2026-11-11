@@ -1,4 +1,4 @@
-import { Effect, Result } from "effect"
+import { Effect, Option, Ref, Result } from "effect"
 import { Pool, type PoolClient } from "pg"
 import type { ConnectionPool } from "#adapter/types/layer.ts"
 import { oneShotStatement } from "#adapter/wire/batch.ts"
@@ -15,10 +15,49 @@ export const isNativePool = (pool: ConnectionPool): pool is ConnectionPool & Poo
 	pool instanceof Pool
 
 /** The backend of the connection a pool most recently leased. */
-export const leasedBackend = (client: unknown): number | undefined =>
+const leasedBackend = (client: unknown): number | undefined =>
 	client instanceof Object && "processID" in client && typeof client.processID === "number"
 		? client.processID
 		: undefined
+
+/**
+ * A Db's pool whose every lease records, while the lease holds its connection, that connection's backend in `held`, and
+ * none once the lease ends: pg's Pool names a lease's client in its `acquire` event just before it answers that lease,
+ * resuming it in that same call (makePool), so the last client named when a lease returns is its own, whatever other
+ * leases the pool serves meanwhile. Each Db records its own lease, so a Db's backend is never another Db's of the same
+ * login, whose pool serves both.
+ */
+export const leaseRecording = (
+	pool: SessionPool,
+	held: Ref.Ref<Option.Option<number>>
+): SessionPool => ({
+	...pool,
+	lease: Effect.gen(function* () {
+		const native = pool.native
+		if (!isNativePool(native)) {
+			return yield* Effect.die(new Error("a login's pool is not node-postgres's Pool"))
+		}
+		const handed: { pid: number | undefined } = { pid: undefined }
+		const onAcquire = (client: PoolClient): void => {
+			handed.pid = leasedBackend(client)
+		}
+		native.on("acquire", onAcquire)
+		const session = yield* Effect.ensuring(
+			pool.lease,
+			Effect.sync(() => {
+				native.off("acquire", onAcquire)
+			})
+		)
+		const pid = handed.pid
+		if (pid === undefined) {
+			return yield* Effect.die(new Error("a Db's lease named no backend"))
+		}
+		yield* Effect.acquireRelease(Ref.set(held, Option.some(pid)), () =>
+			Ref.set(held, Option.none())
+		)
+		return session
+	})
+})
 
 /** A pooled connection in an aborted transaction, which refuses every statement. */
 const aborted: Probe = { transaction: "aborted" }

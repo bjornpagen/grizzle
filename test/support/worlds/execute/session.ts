@@ -1,4 +1,4 @@
-import { Array as Arr, Effect, Option, Predicate, Record as Rec, Result } from "effect"
+import { Array as Arr, Effect, Option, Predicate, Record as Rec, type Ref, Result } from "effect"
 import type { ServedDbContext } from "#adapter/db/context.ts"
 import { memberOps } from "#adapter/db/handles.ts"
 import type { CompiledOps, ServedOps } from "#adapter/db/ops.ts"
@@ -93,7 +93,13 @@ export interface DbSession {
 	readonly reached: LoginRole<BuiltRole, unknown>
 	readonly snapshot: unknown
 	readonly compile: TestCompileOptions
+	/** The Db's context, its pool's every lease recording the connection it holds in `backend` (pool.ts leaseRecording). */
 	readonly ctx: ServedDbContext
+	/**
+	 * The backend of the connection this Db's lease holds, none between its leases: its own, never another Db's of the
+	 * same login, whose pool serves both.
+	 */
+	readonly backend: Ref.Ref<Option.Option<number>>
 }
 
 /**
