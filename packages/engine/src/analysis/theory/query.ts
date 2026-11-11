@@ -4,16 +4,17 @@ import { compareText } from "#compiler/core/canonical.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type {
-	BindingsDesc,
-	ExprDesc,
 	FieldDesc,
-	HeadTermDesc,
-	MatchDesc,
-	QueryDesc,
-	QueryStageDesc,
-	RuleDesc,
+	InferredBindings,
+	InferredExpr,
+	InferredFieldDesc,
+	InferredHead,
+	InferredMatch,
+	InferredQuery,
+	InferredRule,
+	InferredSource,
+	InferredStage,
 	SelectionDesc,
-	SourceDesc,
 	TermDesc,
 	VarDesc
 } from "#compiler/ir/desc.ts"
@@ -44,7 +45,7 @@ import { guardedTerm } from "#compiler/scalar/natural.ts"
 /** A match of a stored or closed relation in an arm, its bindings over the arm's variables. */
 export interface ArmMatch {
 	readonly relation: string
-	readonly bindings: BindingsDesc
+	readonly bindings: InferredBindings
 	readonly loc: SourceLoc
 }
 
@@ -55,8 +56,8 @@ export interface ArmMatch {
 export interface ConjunctiveArm {
 	readonly vars: ReadonlyArray<VarDesc>
 	readonly matches: NonEmptyReadonlyArray<ArmMatch>
-	readonly where: ReadonlyArray<ExprDesc>
-	readonly head: Readonly<Record<string, ExprDesc>>
+	readonly where: ReadonlyArray<InferredExpr>
+	readonly head: Readonly<Record<string, InferredExpr>>
 }
 
 /**
@@ -68,7 +69,7 @@ export interface ConjunctiveArm {
  */
 export interface NegatedArm {
 	readonly arm: ConjunctiveArm
-	readonly bindings: BindingsDesc
+	readonly bindings: InferredBindings
 }
 
 /** One arm of a definition: a conjunctive arm, and the negated arms each of which withdraws the facts it agrees with. */
@@ -78,7 +79,7 @@ export interface LiveArm extends ConjunctiveArm {
 
 /** One arm of a rule's side: a live arm with the side's selection among its conditions, and the side's terms. */
 export interface SideArm extends LiveArm {
-	readonly terms: NonEmptyReadonlyArray<ExprDesc>
+	readonly terms: NonEmptyReadonlyArray<InferredExpr>
 }
 
 /**
@@ -103,7 +104,7 @@ export type QueryRule =
 	| {
 			readonly kind: "check"
 			readonly name: string
-			readonly predicate: ExprDesc
+			readonly predicate: InferredExpr
 			/** The derived relation's facts: a side of every fact, its terms every heading field. */
 			readonly side: RuleSide
 	  }
@@ -113,28 +114,28 @@ export type QueryRule =
  * the descriptor each column of a definition, or of a query it imports, is delivered at.
  */
 export interface LiveEnv {
-	readonly definition: (relation: string) => QueryDesc | undefined
+	readonly definition: (relation: string) => InferredQuery | undefined
 	/**
 	 * The descriptor each column of `query`, read as a definition of `relation`, is delivered at, as the checker types
-	 * it: what a bare head literal of the column is typed by, so the literal stands wherever a term of the column does;
-	 * none for a column of no declared type, whose literal stays bare, as it is in the definition.
+	 * it: the inferred field's own (analysis/derived/fields.ts fieldDescOf), a computed numeric's among them, which a
+	 * bare head literal of the column is typed by, so the literal stands wherever a term of the column does.
 	 */
-	readonly columnType: (relation: string, query: QueryDesc, loc: SourceLoc) => ColumnTypes
+	readonly columnType: (relation: string, query: InferredQuery, loc: SourceLoc) => ColumnTypes
 	readonly loc: SourceLoc
 }
 
 /** The type of each column of a query's heading a bare head literal takes (LiveEnv.columnType). */
-type ColumnTypes = (column: string) => FieldDesc | undefined
+type ColumnTypes = (column: string) => InferredFieldDesc
 
 /** The leaves an arm's expressions are rewritten by: a variable or a field, each to its replacement. */
 interface Leaves {
-	readonly var: (id: string) => ExprDesc | undefined
-	readonly field: (field: string) => ExprDesc | undefined
+	readonly var: (id: string) => InferredExpr | undefined
+	readonly field: (field: string) => InferredExpr | undefined
 }
 
 /** `e` with every variable and field leaf `leaves` replaces, replaced; an imported query is closed and kept whole. */
-const mapLeaves = (e: ExprDesc, leaves: Leaves): ExprDesc => {
-	const m = (x: ExprDesc): ExprDesc => mapLeaves(x, leaves)
+const mapLeaves = (e: InferredExpr, leaves: Leaves): InferredExpr => {
+	const m = (x: InferredExpr): InferredExpr => mapLeaves(x, leaves)
 	switch (e.kind) {
 		case "var":
 			return leaves.var(e.var) ?? e
@@ -180,11 +181,11 @@ const mapLeaves = (e: ExprDesc, leaves: Leaves): ExprDesc => {
 	}
 }
 
-const mapBindings = (b: BindingsDesc, leaves: Leaves): BindingsDesc =>
+const mapBindings = (b: InferredBindings, leaves: Leaves): InferredBindings =>
 	Object.fromEntries(Object.entries(b).map(([f, e]) => [f, mapLeaves(e, leaves)] as const))
 
 /** The variables `e` reads, an imported query's own aside. */
-const varsOf = (e: ExprDesc, into: Set<string>): Set<string> => {
+const varsOf = (e: InferredExpr, into: Set<string>): Set<string> => {
 	mapLeaves(e, {
 		var: (id) => {
 			into.add(id)
@@ -199,9 +200,9 @@ const varsOf = (e: ExprDesc, into: Set<string>): Set<string> => {
  * What an expression reads beyond a definition's own row: a negation below a disjunction, a negation or a scalar
  * expression, where it is no filter of the rule (check/scan.ts splitWhere), a parameter, a parent's column or a VALUE.
  */
-const foreignLeaf = (e: ExprDesc): string | undefined => {
+const foreignLeaf = (e: InferredExpr): string | undefined => {
 	let found: string | undefined
-	const visit = (x: ExprDesc): void => {
+	const visit = (x: InferredExpr): void => {
 		if (found !== undefined) {
 			return
 		}
@@ -272,7 +273,7 @@ const foreignLeaf = (e: ExprDesc): string | undefined => {
 	return found
 }
 
-const eq = (left: ExprDesc, right: ExprDesc): ExprDesc => ({
+const eq = (left: InferredExpr, right: InferredExpr): InferredExpr => ({
 	kind: "compare",
 	op: "eq",
 	left,
@@ -280,26 +281,27 @@ const eq = (left: ExprDesc, right: ExprDesc): ExprDesc => ({
 })
 
 /** A literal of no type of its own, which takes the type of the term it meets. */
-type BareLiteral = Extract<ExprDesc, { readonly kind: "literal" }> & { readonly type?: undefined }
+type BareLiteral = Extract<InferredExpr, { readonly kind: "literal" }> & {
+	readonly type?: undefined
+}
 
 /** Whether `e` is a bare literal, which takes the type of the term it meets and so never stands first. */
-const isBare = (e: ExprDesc): e is BareLiteral => e.kind === "literal" && e.type === undefined
+const isBare = (e: InferredExpr): e is BareLiteral => e.kind === "literal" && e.type === undefined
 
-/** A bare literal under `type`, the type of the column it meets, or as it is where the column has none. */
-const typedAs = (e: BareLiteral, type: FieldDesc | undefined): ExprDesc =>
-	type === undefined ? e : { ...e, type }
+/** A bare literal under `type`, the type of the column it meets. */
+const typedAs = (e: BareLiteral, type: InferredFieldDesc): InferredExpr => ({ ...e, type })
 
 /**
  * `left` = `right` in the order the checker reads it: as written, but a bare literal second. A binding of a definition
  * may be a JavaScript literal, so every equality a rule's queries hold a binding by is built here.
  */
-const equal = (left: ExprDesc, right: ExprDesc): ExprDesc =>
+const equal = (left: InferredExpr, right: InferredExpr): InferredExpr =>
 	isBare(left) ? eq(right, left) : eq(left, right)
 
-const varRef = (id: string): ExprDesc => ({ kind: "var", var: id })
+const varRef = (id: string): InferredExpr => ({ kind: "var", var: id })
 
 /** Whether a filter holds a negation as a filter of its rule: it is one, or a conjunction one of whose conjuncts does. */
-const holdsNegation = (e: ExprDesc): boolean =>
+const holdsNegation = (e: InferredExpr): boolean =>
 	e.kind === "absent" || (e.kind === "and" && e.args.some(holdsNegation))
 
 /**
@@ -307,7 +309,7 @@ const holdsNegation = (e: ExprDesc): boolean =>
  * other filter itself, so a negation inside a conjunction is a filter of the rule as one standing alone is
  * (check/scan.ts splitWhere).
  */
-const filtersOf = (e: ExprDesc): ReadonlyArray<ExprDesc> =>
+const filtersOf = (e: InferredExpr): ReadonlyArray<InferredExpr> =>
 	e.kind === "and" && holdsNegation(e) ? e.args.flatMap(filtersOf) : [e]
 
 /** A conjunctive arm's own parts, read apart from what extends it. */
@@ -322,7 +324,7 @@ const conjunctive = (arm: ConjunctiveArm): ConjunctiveArm => ({
 interface Joined {
 	readonly vars: ReadonlyArray<VarDesc>
 	readonly matches: NonEmptyReadonlyArray<ArmMatch>
-	readonly where: ReadonlyArray<ExprDesc>
+	readonly where: ReadonlyArray<InferredExpr>
 	/** The leaves of the arm's variables the bindings replaced, which every expression over them reads through. */
 	readonly leaves: Leaves
 }
@@ -335,12 +337,12 @@ interface Joined {
  */
 const joined = (
 	arm: ConjunctiveArm,
-	bindings: BindingsDesc,
+	bindings: InferredBindings,
 	missing: (field: string) => never
 ): Joined => {
 	const local = new Set(arm.vars.map((v) => v.id))
-	const replaced = new Map<string, ExprDesc>()
-	const extra: Array<ExprDesc> = []
+	const replaced = new Map<string, InferredExpr>()
+	const extra: Array<InferredExpr> = []
 	const leaves: Leaves = { var: (id) => replaced.get(id), field: () => undefined }
 	for (const [field, e] of Object.entries(bindings)) {
 		const head = arm.head[field] ?? missing(field)
@@ -370,8 +372,8 @@ const negatedThrough = (
 interface PartialArm {
 	readonly vars: ReadonlyArray<VarDesc>
 	readonly matches: ReadonlyArray<ArmMatch>
-	readonly where: ReadonlyArray<ExprDesc>
-	readonly head: Readonly<Record<string, ExprDesc>>
+	readonly where: ReadonlyArray<InferredExpr>
+	readonly head: Readonly<Record<string, InferredExpr>>
 	readonly negated: ReadonlyArray<NegatedArm>
 }
 
@@ -381,14 +383,14 @@ interface PartialArm {
  */
 interface Definition {
 	readonly name: string
-	readonly term: ExprDesc
+	readonly term: InferredExpr
 	readonly at: number
 }
 
 /** The first definition among `p`'s conditions of a variable no match binds (Definition), or none. */
 const definitionIn = (p: PartialArm): Definition | undefined => {
 	const bound = boundVars(p.matches)
-	const defines = (v: ExprDesc, term: ExprDesc, at: number): Definition | undefined =>
+	const defines = (v: InferredExpr, term: InferredExpr, at: number): Definition | undefined =>
 		v.kind === "var" &&
 		!bound.has(v.var) &&
 		[...varsOf(term, new Set())].every((id) => bound.has(id))
@@ -450,7 +452,7 @@ class Flattener {
 	 * The arms of `query`, a definition of `relation`, flattened, each bare head literal typed at its column's descriptor
 	 * (LiveEnv.columnType), which the checker reads `query` for on the first such literal alone.
 	 */
-	arms(relation: string, query: QueryDesc): NonEmptyReadonlyArray<LiveArm> {
+	arms(relation: string, query: InferredQuery): NonEmptyReadonlyArray<LiveArm> {
 		let read: ColumnTypes | undefined
 		const columns: ColumnTypes = (column) => {
 			read ??= this.env.columnType(relation, query, this.env.loc)
@@ -463,7 +465,7 @@ class Flattener {
 		return arms
 	}
 
-	#stage(relation: string, stage: QueryStageDesc, columns: ColumnTypes): ReadonlyArray<LiveArm> {
+	#stage(relation: string, stage: InferredStage, columns: ColumnTypes): ReadonlyArray<LiveArm> {
 		switch (stage.kind) {
 			case "rules":
 				return stage.arms.flatMap((r) => this.#rule(relation, r, columns))
@@ -490,7 +492,7 @@ class Flattener {
 	 * One rule's arms: its own, every derived relation and imported query it matches inlined, each bare head literal typed
 	 * at its column (`columns`).
 	 */
-	#rule(relation: string, rule: RuleDesc, columns: ColumnTypes): ReadonlyArray<LiveArm> {
+	#rule(relation: string, rule: InferredRule, columns: ColumnTypes): ReadonlyArray<LiveArm> {
 		if (rule.interiors.length > 0) {
 			return this.#refuse(relation, "nests a stage")
 		}
@@ -500,12 +502,12 @@ class Flattener {
 		const prefix = `q${this.#next++}.`
 		const rename = (id: string): string => `${prefix}${id}`
 		const leaves: Leaves = { var: (id) => varRef(rename(id)), field: () => undefined }
-		const head: Record<string, ExprDesc> = {}
+		const head: Record<string, InferredExpr> = {}
 		for (const [name, term] of Object.entries(rule.head)) {
 			const t = this.#headTerm(relation, term)
 			head[name] = mapLeaves(isBare(t) ? typedAs(t, columns(name)) : t, leaves)
 		}
-		const where: Array<ExprDesc> = []
+		const where: Array<InferredExpr> = []
 		const negated: Array<NegatedArm> = []
 		for (const w of rule.where.flatMap(filtersOf)) {
 			if (w.kind === "absent") {
@@ -561,7 +563,7 @@ class Flattener {
 	 * it: each heading field the match binds to an expression of `p` equals that expression, an inlined variable bound
 	 * there replaced by it (`joined`), and the inlined arm's negations read through the same replacement.
 	 */
-	#merged(relation: string, p: PartialArm, arm: LiveArm, bindings: BindingsDesc): PartialArm {
+	#merged(relation: string, p: PartialArm, arm: LiveArm, bindings: InferredBindings): PartialArm {
 		const j = joined(arm, bindings, (field) =>
 			this.#refuse(relation, `binds ${field}, which the definition it matches derives none of`)
 		)
@@ -582,7 +584,7 @@ class Flattener {
 	 */
 	#negated(
 		relation: string,
-		w: Extract<ExprDesc, { readonly kind: "absent" }>,
+		w: Extract<InferredExpr, { readonly kind: "absent" }>,
 		leaves: Leaves,
 		loc: SourceLoc
 	): ReadonlyArray<NegatedArm> {
@@ -627,7 +629,7 @@ class Flattener {
 		}
 	}
 
-	#headTerm(relation: string, term: HeadTermDesc): ExprDesc {
+	#headTerm(relation: string, term: InferredHead): InferredExpr {
 		if (term.kind === "aggregate") {
 			return this.#refuse(relation, "aggregates")
 		}
@@ -643,7 +645,7 @@ class Flattener {
 	 * reads itself, or the arms it inlines, a derived relation's definition's or an imported query's that binds no
 	 * parameter.
 	 */
-	#source(relation: string, source: SourceDesc, verb: "matches" | "negates"): Matched {
+	#source(relation: string, source: InferredSource, verb: "matches" | "negates"): Matched {
 		switch (source.kind) {
 			case "relation": {
 				const definition = this.env.definition(source.name)
@@ -678,7 +680,7 @@ type Matched =
 /** The live arms of the derived relation `relation`, whose definition is `query`. */
 export const liveArms = (
 	relation: string,
-	query: QueryDesc,
+	query: InferredQuery,
 	env: LiveEnv
 ): NonEmptyReadonlyArray<LiveArm> => new Flattener(env).arms(relation, query)
 
@@ -717,7 +719,7 @@ export const derivedSideArms = (
 	})
 
 /** The fields a selection's conjunct reads. */
-const fieldsOf = (e: ExprDesc, into: Set<string>): Set<string> => {
+const fieldsOf = (e: InferredExpr, into: Set<string>): Set<string> => {
 	mapLeaves(e, {
 		var: () => undefined,
 		field: (f) => {
@@ -804,17 +806,17 @@ const otherId = (field: string): string => `other.${field}`
 const wildcardId = (i: number): string => `wild.${i}`
 
 /** An imported query of rules, binding no parameter. */
-const imported = (arms: NonEmptyReadonlyArray<RuleDesc>, loc: SourceLoc): SourceDesc => ({
+const imported = (arms: NonEmptyReadonlyArray<InferredRule>, loc: SourceLoc): InferredSource => ({
 	kind: "query",
 	query: queryOf(arms, loc),
 	bind: {}
 })
 
-const queryOf = (arms: NonEmptyReadonlyArray<RuleDesc>, loc: SourceLoc): QueryDesc => ({
+const queryOf = (arms: NonEmptyReadonlyArray<InferredRule>, loc: SourceLoc): InferredQuery => ({
 	stage: { kind: "rules", arms, loc }
 })
 
-const matchDesc = (m: ArmMatch): MatchDesc => ({
+const matchDesc = (m: ArmMatch): InferredMatch => ({
 	source: { kind: "relation", name: m.relation },
 	bindings: m.bindings,
 	loc: m.loc
@@ -822,13 +824,13 @@ const matchDesc = (m: ArmMatch): MatchDesc => ({
 
 const ruleDesc = (
 	vars: ReadonlyArray<VarDesc>,
-	matches: ReadonlyArray<MatchDesc>,
-	where: ReadonlyArray<ExprDesc>,
-	head: Readonly<Record<string, ExprDesc>>,
+	matches: ReadonlyArray<InferredMatch>,
+	where: ReadonlyArray<InferredExpr>,
+	head: Readonly<Record<string, InferredExpr>>,
 	loc: SourceLoc
-): RuleDesc => ({ vars, matches, where, head, interiors: [], attach: [], loc })
+): InferredRule => ({ vars, matches, where, head, interiors: [], attach: [], loc })
 
-const termHead = (terms: ReadonlyArray<ExprDesc>): Readonly<Record<string, ExprDesc>> =>
+const termHead = (terms: ReadonlyArray<InferredExpr>): Readonly<Record<string, InferredExpr>> =>
 	Object.fromEntries(terms.map((t, i) => [termName(i), t] as const))
 
 /**
@@ -840,7 +842,7 @@ const termHead = (terms: ReadonlyArray<ExprDesc>): Readonly<Record<string, ExprD
  */
 const relationAbsent = (
 	n: NegatedArm
-): Extract<ExprDesc, { readonly kind: "absent" }> | undefined => {
+): Extract<InferredExpr, { readonly kind: "absent" }> | undefined => {
 	const [match, ...more] = n.arm.matches
 	if (more.length > 0 || n.arm.where.length > 0) {
 		return undefined
@@ -860,7 +862,7 @@ const relationAbsent = (
 		}
 		renamed.set(field, column)
 	}
-	const bindings: Record<string, ExprDesc> = {}
+	const bindings: Record<string, InferredExpr> = {}
 	for (const [field, term] of Object.entries(n.bindings)) {
 		const column = renamed.get(field)
 		if (column === undefined || bindings[column] !== undefined) {
@@ -876,7 +878,7 @@ const relationAbsent = (
  * (`relationAbsent`), a negation of a stored or closed relation among them, as its definition states it; else an
  * anti-join of the arm, read as an imported query.
  */
-const absentOf = (n: NegatedArm, loc: SourceLoc): ExprDesc =>
+const absentOf = (n: NegatedArm, loc: SourceLoc): InferredExpr =>
 	relationAbsent(n) ?? {
 		kind: "absent",
 		source: imported(
@@ -887,13 +889,13 @@ const absentOf = (n: NegatedArm, loc: SourceLoc): ExprDesc =>
 	}
 
 /** An arm's conditions as a query states them: its own, then an anti-join of each of its negated arms. */
-const conditionsOf = (arm: LiveArm, loc: SourceLoc): ReadonlyArray<ExprDesc> => [
+const conditionsOf = (arm: LiveArm, loc: SourceLoc): ReadonlyArray<InferredExpr> => [
 	...arm.where,
 	...arm.negated.map((n) => absentOf(n, loc))
 ]
 
 /** The tuples of a side's arms, each term under its pair's name: what a containment's other side meets. */
-const tuples = (side: RuleSide, loc: SourceLoc): SourceDesc =>
+const tuples = (side: RuleSide, loc: SourceLoc): InferredSource =>
 	imported(
 		mapNonEmpty(side.arms, (a) =>
 			ruleDesc(a.vars, a.matches.map(matchDesc), conditionsOf(a, loc), termHead(a.terms), loc)
@@ -902,7 +904,7 @@ const tuples = (side: RuleSide, loc: SourceLoc): SourceDesc =>
 	)
 
 /** The facts of a key's side: each its terms under their pair names and its heading fields under their head names. */
-const facts = (side: RuleSide, heading: ReadonlyArray<string>, loc: SourceLoc): SourceDesc =>
+const facts = (side: RuleSide, heading: ReadonlyArray<string>, loc: SourceLoc): InferredSource =>
 	imported(
 		mapNonEmpty(side.arms, (a) =>
 			ruleDesc(
@@ -919,7 +921,7 @@ const facts = (side: RuleSide, heading: ReadonlyArray<string>, loc: SourceLoc): 
 		loc
 	)
 
-const headOf = (arm: ConjunctiveArm, field: string, loc: SourceLoc): ExprDesc =>
+const headOf = (arm: ConjunctiveArm, field: string, loc: SourceLoc): InferredExpr =>
 	arm.head[field] ??
 	refuse(
 		"MalformedDescription",
@@ -932,7 +934,7 @@ const headOf = (arm: ConjunctiveArm, field: string, loc: SourceLoc): ExprDesc =>
  * containment, its tuples the target lacks; for a key, its facts another fact of the side agrees with on the key and
  * differs from elsewhere in the heading; for a check, its facts the condition refuses.
  */
-const violating = (rule: QueryRule, arm: SideArm, loc: SourceLoc): RuleDesc => {
+const violating = (rule: QueryRule, arm: SideArm, loc: SourceLoc): InferredRule => {
 	switch (rule.kind) {
 		case "contained":
 			return ruleDesc(
@@ -947,7 +949,7 @@ const violating = (rule: QueryRule, arm: SideArm, loc: SourceLoc): RuleDesc => {
 			)
 		case "key": {
 			const heading = armHeading(rule.side.arms)
-			const other: Record<string, ExprDesc> = { ...termHead(arm.terms) }
+			const other: Record<string, InferredExpr> = { ...termHead(arm.terms) }
 			for (const f of heading) {
 				other[headName(f)] = varRef(otherId(f))
 			}
@@ -961,7 +963,7 @@ const violating = (rule: QueryRule, arm: SideArm, loc: SourceLoc): RuleDesc => {
 					...conditionsOf(arm, loc),
 					connectiveExpr(
 						"or",
-						heading.map((f): ExprDesc => ({
+						heading.map((f): InferredExpr => ({
 							kind: "compare",
 							op: "ne",
 							left: headOf(arm, f, loc),
@@ -987,7 +989,7 @@ const violating = (rule: QueryRule, arm: SideArm, loc: SourceLoc): RuleDesc => {
 }
 
 /** The violation query of a rule over a query, which must be empty: every fact of its breaking side that breaks it. */
-export const violationQuery = (rule: QueryRule, loc: SourceLoc): QueryDesc =>
+export const violationQuery = (rule: QueryRule, loc: SourceLoc): InferredQuery =>
 	queryOf(
 		mapNonEmpty(breakingArms(rule), (arm) => violating(rule, arm, loc)),
 		loc
@@ -1001,7 +1003,7 @@ export interface ProbeParam {
 
 /** A probe: a violation query over the rows a write touched, and what each of its parameters reads, by name. */
 export interface Probe {
-	readonly query: QueryDesc
+	readonly query: InferredQuery
 	readonly params: ReadonlyMap<string, ProbeParam>
 }
 
@@ -1014,7 +1016,7 @@ export interface TouchedField {
 const paramName = (record: "NEW" | "OLD", field: string): string =>
 	`${record === "NEW" ? "new" : "old"}_${field}`
 
-const paramOf = (record: "NEW" | "OLD", field: TouchedField): ExprDesc => ({
+const paramOf = (record: "NEW" | "OLD", field: TouchedField): InferredExpr => ({
 	kind: "param",
 	name: paramName(record, field.name),
 	type: field.desc
@@ -1044,9 +1046,9 @@ interface Held {
 	readonly leaves: Leaves
 	/** The variables only a dropped match binds, which nothing the probe reads holds. */
 	readonly free: ReadonlySet<string>
-	readonly unbound: (e: ExprDesc) => boolean
+	readonly unbound: (e: InferredExpr) => boolean
 	readonly kept: ReadonlyArray<ArmMatch>
-	readonly where: ReadonlyArray<ExprDesc>
+	readonly where: ReadonlyArray<InferredExpr>
 }
 
 /**
@@ -1062,13 +1064,13 @@ const held = (
 	bound: ReadonlySet<string>,
 	kept: ReadonlyArray<ArmMatch>,
 	relaxed: ReadonlyArray<ArmMatch>,
-	where: ReadonlyArray<ExprDesc>,
+	where: ReadonlyArray<InferredExpr>,
 	fieldOf: (name: string) => TouchedField,
 	params: Map<string, ProbeParam>
 ): Held => {
 	const byKept = new Set([...bound, ...boundVars(kept)])
-	const replaced = new Map<string, ExprDesc>()
-	const pinned: Array<ExprDesc> = []
+	const replaced = new Map<string, InferredExpr>()
+	const pinned: Array<InferredExpr> = []
 	for (const [field, e] of Object.entries(touched.bindings)) {
 		const value = paramOf(record, fieldOf(field))
 		params.set(paramName(record, field), { record, field })
@@ -1080,14 +1082,14 @@ const held = (
 	}
 	const free = new Set([...boundVars(relaxed)].filter((id) => !byKept.has(id) && !replaced.has(id)))
 	const leaves: Leaves = { var: (id) => replaced.get(id), field: () => undefined }
-	const unbound = (e: ExprDesc): boolean => [...varsOf(e, new Set())].some((id) => free.has(id))
+	const unbound = (e: InferredExpr): boolean => [...varsOf(e, new Set())].some((id) => free.has(id))
 	return {
 		replaced: new Set(replaced.keys()),
 		leaves,
 		free,
 		unbound,
 		kept: kept.map((k): ArmMatch => {
-			const bindings: Record<string, ExprDesc> = {}
+			const bindings: Record<string, InferredExpr> = {}
 			for (const [f, e] of Object.entries(k.bindings)) {
 				const mapped = mapLeaves(e, leaves)
 				if (!unbound(mapped)) {
@@ -1156,8 +1158,8 @@ export const newProbes = (
 			if (m.relation !== relation) {
 				return []
 			}
-			const bindings: Record<string, ExprDesc> = { ...m.bindings }
-			const pinned: Array<ExprDesc> = []
+			const bindings: Record<string, InferredExpr> = { ...m.bindings }
+			const pinned: Array<InferredExpr> = []
 			for (const f of key) {
 				const bound = bindings[f.name]
 				if (bound === undefined) {
@@ -1299,7 +1301,7 @@ const lostProbe = (
 		params
 	)
 	const mappedTerms = arm.terms.map((t) => mapLeaves(t, h.leaves))
-	const bound = mappedTerms.map((t, i): ExprDesc => (h.unbound(t) ? varRef(wildcardId(i)) : t))
+	const bound = mappedTerms.map((t, i): InferredExpr => (h.unbound(t) ? varRef(wildcardId(i)) : t))
 	const wilds = mappedTerms.flatMap((t, i) =>
 		h.unbound(t) ? [{ id: wildcardId(i), origin: undefined, loc }] : []
 	)

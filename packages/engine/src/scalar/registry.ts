@@ -7,7 +7,7 @@ import { captureLoc, childLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { type Built, built, builtMark } from "#compiler/core/phantom.ts"
 import { deepFreeze, hasProperties } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
-import type { ExprDesc, FieldDesc, LiteralDesc } from "#compiler/ir/desc.ts"
+import type { ExprDesc, FieldDesc, InferredFieldDesc, LiteralDesc } from "#compiler/ir/desc.ts"
 import type { ExprTable } from "#compiler/ir/expr.ts"
 import type { Fact } from "#compiler/ir/proof.ts"
 import {
@@ -765,6 +765,16 @@ export const scalarTypeOf = (
 	env: ScalarEnv,
 	loc: SourceLoc
 ): Result.Result<DeclaredType, CompileError> => scalarAt(desc, env, loc)
+
+/**
+ * The type an inferred field's descriptor states (ir/desc.ts InferredFieldDesc): a computed numeric of its own bound,
+ * which no declaration states, or the declared type `declared` gives a declaration's descriptor. A typed literal of a
+ * Description grizzle writes itself is typed here, at its column's own type.
+ */
+export const inferredType = (
+	desc: InferredFieldDesc,
+	declared: (desc: FieldDesc) => ScalarType
+): ScalarType => (desc.kind === "computedNumeric" ? numericValue(desc.bound) : declared(desc))
 
 /** The throwing form, for builders: a literal of the wrong host kind is MalformedDescription naming what was needed. */
 export const literalDescOrThrow = (t: ScalarType, value: unknown, label: string): LiteralDesc => {

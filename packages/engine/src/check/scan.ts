@@ -4,6 +4,7 @@ import type {
 	BindingsDesc,
 	ExprDesc,
 	HeadTermDesc,
+	InferredFieldDesc,
 	Located,
 	ParamsAs,
 	QueryDesc,
@@ -43,8 +44,8 @@ const emptyLeaves = <P extends object, T>(): Leaves<P, T> => ({
  * negation's bindings are read in the rule's scope too, and so is the bind map of the query it negates; the query
  * itself is its own scope.
  */
-const exprLeaves = <P extends object, T>(
-	e: ExprDesc<Located, ParamsAs<P, T>>,
+const exprLeaves = <P extends object, T, D extends InferredFieldDesc>(
+	e: ExprDesc<Located, ParamsAs<P, T, D>>,
 	into: Leaves<P, T>
 ): void => {
 	switch (e.kind) {
@@ -119,8 +120,8 @@ const exprLeaves = <P extends object, T>(
 	}
 }
 
-const bindingLeaves = <P extends object, T>(
-	bindings: BindingsDesc<Located, ParamsAs<P, T>>,
+const bindingLeaves = <P extends object, T, D extends InferredFieldDesc>(
+	bindings: BindingsDesc<Located, ParamsAs<P, T, D>>,
 	into: Leaves<P, T>
 ): void => {
 	for (const [, e] of entries(bindings)) {
@@ -129,8 +130,8 @@ const bindingLeaves = <P extends object, T>(
 }
 
 /** A source's bind map is evaluated in the importing rule's scope. */
-const sourceLeaves = <P extends object, T>(
-	s: SourceDesc<Located, ParamsAs<P, T>>,
+const sourceLeaves = <P extends object, T, D extends InferredFieldDesc>(
+	s: SourceDesc<Located, ParamsAs<P, T, D>>,
 	into: Leaves<P, T>
 ): void => {
 	if (s.kind === "query") {
@@ -144,8 +145,8 @@ const sourceLeaves = <P extends object, T>(
 	}
 }
 
-const headLeaves = <P extends object, T>(
-	h: HeadTermDesc<Located, ParamsAs<P, T>>,
+const headLeaves = <P extends object, T, D extends InferredFieldDesc>(
+	h: HeadTermDesc<Located, ParamsAs<P, T, D>>,
 	into: Leaves<P, T>
 ): void => {
 	if (h.kind === "aggregate") {
@@ -176,8 +177,8 @@ const headLeaves = <P extends object, T>(
  * `direct`, a parameter that a match binding is exactly is left out: it fixes its column as a constant and needs no
  * value of its own in the region.
  */
-export const ruleLeaves = <P extends object, T>(
-	rule: RuleDesc<Located, ParamsAs<P, T>>,
+export const ruleLeaves = <P extends object, T, D extends InferredFieldDesc>(
+	rule: RuleDesc<Located, ParamsAs<P, T, D>>,
 	direct: boolean
 ): Leaves<P, T> => {
 	const into = emptyLeaves<P, T>()
@@ -229,8 +230,8 @@ export const freshColumnName = (
 	return name
 }
 
-export const parentUse = <P extends object, T>(
-	child: QueryDesc<Located, ParamsAs<P, T>>
+export const parentUse = <P extends object, T, D extends InferredFieldDesc>(
+	child: QueryDesc<Located, ParamsAs<P, T, D>>
 ): ParentUse => {
 	const use: ParentUse = {
 		columns: new Set(),
@@ -239,7 +240,7 @@ export const parentUse = <P extends object, T>(
 		headKeys: new Set(),
 		attachments: new Set()
 	}
-	const rule = (r: RuleDesc<Located, ParamsAs<P, T>>): void => {
+	const rule = (r: RuleDesc<Located, ParamsAs<P, T, D>>): void => {
 		for (const a of r.attach) {
 			use.attachments.add(a.name)
 		}
@@ -263,7 +264,7 @@ export const parentUse = <P extends object, T>(
 	 * A nested attachment's child reads its own parent, this child's rows, not ours; its name is on this child's
 	 * rows.
 	 */
-	const stage = (s: QueryStageDesc<Located, ParamsAs<P, T>>): void => {
+	const stage = (s: QueryStageDesc<Located, ParamsAs<P, T, D>>): void => {
 		switch (s.kind) {
 			case "rules":
 				for (const r of s.arms) {

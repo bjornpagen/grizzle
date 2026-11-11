@@ -9,6 +9,8 @@ import {
 	type ExprDesc,
 	type FieldDesc,
 	type HeadTermDesc,
+	type InferredFieldDesc,
+	type Inferred,
 	type InteriorDesc,
 	type Located,
 	type MatchDesc,
@@ -173,8 +175,11 @@ export const boundParam = (name: string): ParamCell => new ParamCell(name, untyp
  */
 export type ParamTyping = FieldDesc | { readonly kind: "channel" }
 
-/** A description's references once the checker resolves them: each parameter reference carries its cell. */
-export type Resolved = ParamsAs<{ readonly cell: ParamCell }, ParamTyping>
+/**
+ * A description's references once the checker resolves them: each parameter reference carries its cell, and a typed
+ * literal states an inferred field's descriptor, as a Description grizzle writes itself may (ir/desc.ts Inferred).
+ */
+export type Resolved = ParamsAs<{ readonly cell: ParamCell }, ParamTyping, InferredFieldDesc>
 
 export type ResolvedQuery = QueryDesc<Located, Resolved>
 export type ResolvedStage = QueryStageDesc<Located, Resolved>
@@ -235,10 +240,10 @@ const importedNamespace = (): ParamSpelling<Resolved["param"]> => {
  * parameter reference carries its cell, and the table holds the query's own.
  */
 export const resolveQuery = (
-	q: QueryDesc
+	q: QueryDesc<Located, Inferred>
 ): { readonly query: ResolvedQuery; readonly params: ParamTable } => {
 	const own = new Map<string, ParamCell>()
-	const query = mapQueryParams(q, {
+	const query = mapQueryParams<{ readonly cell: ParamCell }, InferredFieldDesc>(q, {
 		param: (name) => ({ cell: cellIn(own, name, () => new ParamCell(name, untyped)) }),
 		imported: importedNamespace
 	})

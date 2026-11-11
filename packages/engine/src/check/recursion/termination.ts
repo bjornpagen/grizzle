@@ -17,6 +17,7 @@ import { integerRanges } from "#compiler/ir/carriers.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
 import type { RelNode, TerminationCert } from "#compiler/ir/rel.ts"
 import { baseOf, contractOf, type ScalarType, typeLabel } from "#compiler/ir/scalar.ts"
+import { inferredType } from "#compiler/scalar/registry.ts"
 
 /** The range of the integer carrier a counter may live in; undefined for every other carrier. */
 const rangeOf = (t: ScalarType): readonly [bigint, bigint] | undefined => {
@@ -365,7 +366,7 @@ class Analysis {
 			return undefined
 		}
 		if (e.type !== undefined) {
-			const t = this.cx.fieldType(e.type, loc)
+			const t = inferredType(e.type, (d) => this.cx.fieldType(d, loc))
 			if (rangeOf(t) === undefined) {
 				return undefined
 			}

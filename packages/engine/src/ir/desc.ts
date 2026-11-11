@@ -233,6 +233,12 @@ export interface Refs {
 	 */
 	readonly paramType: unknown
 	/**
+	 * What a typed literal states of its type beside its value: a declared field descriptor in a Description an author
+	 * writes, which states no computed numeric; in one grizzle writes itself (Inferred), an inferred field's
+	 * descriptor, a derived relation's computed numeric column among them (analysis/theory/query.ts).
+	 */
+	readonly literalType: InferredFieldDesc
+	/**
 	 * The references of the descriptions a clause holds whole: an interior stage's arms, an attachment's child and an
 	 * imported query. The builder's open clauses hold finished, spelled ones.
 	 */
@@ -248,11 +254,15 @@ export type LeafShape =
 	| { readonly kind: "parent"; readonly column: unknown }
 
 /**
- * A Description's references with each parameter reference carrying `P`: a variable's, a parent column's and an
- * interior stage's canonical spelling, and every leaf kind. A walk over a description's parameters (mapQueryParams)
- * changes only `P`.
+ * A Description's references with each parameter reference carrying `P`, a scalar parameter's type `T` and a typed
+ * literal's `D`: a variable's, a parent column's and an interior stage's canonical spelling, and every leaf kind. A
+ * walk over a description's parameters (mapQueryParams) changes only `P`.
  */
-export interface ParamsAs<P extends object, T = FieldDesc> extends Refs {
+export interface ParamsAs<
+	P extends object,
+	T = FieldDesc,
+	D extends InferredFieldDesc = FieldDesc
+> extends Refs {
 	readonly var: string
 	readonly parent: string
 	readonly interior: string
@@ -263,11 +273,28 @@ export interface ParamsAs<P extends object, T = FieldDesc> extends Refs {
 		| { readonly kind: "parent"; readonly column: string }
 	readonly param: P
 	readonly paramType: T
-	readonly nested: ParamsAs<P, T>
+	readonly literalType: D
+	readonly nested: ParamsAs<P, T, D>
 }
 
 /** A Description's references: every reference spelled canonically, a parameter by its name. */
 export type Spelled = ParamsAs<{ readonly name: string }>
+
+/**
+ * The references of a Description grizzle writes itself, a rule's query over a derived relation's definition
+ * (analysis/theory/query.ts): spelled as an author's are, but a typed literal may state any inferred field's descriptor,
+ * so a definition's head literal stands at its column's own type, a computed numeric's among them, which no author
+ * states. An authored Description is one of these.
+ */
+export type Inferred = ParamsAs<{ readonly name: string }, FieldDesc, InferredFieldDesc>
+export type InferredExpr = ExprDesc<Located, Inferred>
+export type InferredBindings = BindingsDesc<Located, Inferred>
+export type InferredHead = HeadTermDesc<Located, Inferred>
+export type InferredMatch = MatchDesc<Located, Inferred>
+export type InferredQuery = QueryDesc<Located, Inferred>
+export type InferredStage = QueryStageDesc<Located, Inferred>
+export type InferredRule = RuleDesc<Located, Inferred>
+export type InferredSource = SourceDesc<Located, Inferred>
 
 /**
  * What a Compute.when guard tests of its subject and so establishes inside its then branch: never zero, never below
@@ -292,7 +319,7 @@ export type GuardDesc =
 export type ExprDesc<L = Located, R extends Refs = Spelled> =
 	| R["leaf"]
 	| ({ readonly kind: "param"; readonly type: R["paramType"] } & R["param"])
-	| { readonly kind: "literal"; readonly value: LiteralDesc; readonly type?: FieldDesc }
+	| { readonly kind: "literal"; readonly value: LiteralDesc; readonly type?: R["literalType"] }
 	| {
 			readonly kind: "compute"
 			readonly fn: Exclude<ComputeFn, ScaledComputeFn>
@@ -1103,18 +1130,23 @@ export interface ParamSpelling<P extends object> {
 	readonly imported: () => ParamSpelling<P>
 }
 
-class ParamWalk<P extends object> {
+/** The references a walk over parameters reads: spelled, its typed literals stating `D`. */
+type SpelledAs<D extends InferredFieldDesc> = ParamsAs<Spelled["param"], FieldDesc, D>
+
+class ParamWalk<P extends object, D extends InferredFieldDesc> {
 	readonly #spelling: ParamSpelling<P>
 
 	constructor(spelling: ParamSpelling<P>) {
 		this.#spelling = spelling
 	}
 
-	query(q: QueryDesc): QueryDesc<Located, ParamsAs<P>> {
+	query(q: QueryDesc<Located, SpelledAs<D>>): QueryDesc<Located, ParamsAs<P, FieldDesc, D>> {
 		return { ...q, stage: this.stage(q.stage) }
 	}
 
-	stage(s: QueryStageDesc): QueryStageDesc<Located, ParamsAs<P>> {
+	stage(
+		s: QueryStageDesc<Located, SpelledAs<D>>
+	): QueryStageDesc<Located, ParamsAs<P, FieldDesc, D>> {
 		switch (s.kind) {
 			case "rules":
 				return { ...s, arms: mapNonEmpty(s.arms, (r) => this.rule(r)) }
@@ -1151,7 +1183,7 @@ class ParamWalk<P extends object> {
 		}
 	}
 
-	rule(r: RuleDesc): RuleDesc<Located, ParamsAs<P>> {
+	rule(r: RuleDesc<Located, SpelledAs<D>>): RuleDesc<Located, ParamsAs<P, FieldDesc, D>> {
 		return {
 			...r,
 			matches: r.matches.map((m) => ({
@@ -1166,23 +1198,25 @@ class ParamWalk<P extends object> {
 		}
 	}
 
-	bindings(b: BindingsDesc): BindingsDesc<Located, ParamsAs<P>> {
+	bindings(
+		b: BindingsDesc<Located, SpelledAs<D>>
+	): BindingsDesc<Located, ParamsAs<P, FieldDesc, D>> {
 		return Object.fromEntries(Object.entries(b).map(([k, e]) => [k, this.expr(e)]))
 	}
 
-	bound(b: BindTermDesc): BindTermDesc<Located, ParamsAs<P>> {
+	bound(b: BindTermDesc<Located, SpelledAs<D>>): BindTermDesc<Located, ParamsAs<P, FieldDesc, D>> {
 		return b.kind === "relationParam"
 			? { kind: "relationParam", ...this.#spelling.param(b.name) }
 			: this.expr(b)
 	}
 
 	/** An imported query is its own namespace; only its bind map is read in this one. */
-	source(s: SourceDesc): SourceDesc<Located, ParamsAs<P>> {
+	source(s: SourceDesc<Located, SpelledAs<D>>): SourceDesc<Located, ParamsAs<P, FieldDesc, D>> {
 		switch (s.kind) {
 			case "query":
 				return {
 					...s,
-					query: new ParamWalk(this.#spelling.imported()).query(s.query),
+					query: new ParamWalk<P, D>(this.#spelling.imported()).query(s.query),
 					bind: Object.fromEntries(Object.entries(s.bind).map(([k, b]) => [k, this.bound(b)]))
 				}
 			case "param":
@@ -1199,7 +1233,7 @@ class ParamWalk<P extends object> {
 		}
 	}
 
-	head(h: HeadTermDesc): HeadTermDesc<Located, ParamsAs<P>> {
+	head(h: HeadTermDesc<Located, SpelledAs<D>>): HeadTermDesc<Located, ParamsAs<P, FieldDesc, D>> {
 		if (h.kind === "aggregate") {
 			return h.fn === "count"
 				? { kind: "aggregate", fn: h.fn }
@@ -1208,7 +1242,7 @@ class ParamWalk<P extends object> {
 		return h.kind === "producer" ? mapProducer(h, (e) => this.expr(e)) : this.expr(h)
 	}
 
-	expr(e: ExprDesc): ExprDesc<Located, ParamsAs<P>> {
+	expr(e: ExprDesc<Located, SpelledAs<D>>): ExprDesc<Located, ParamsAs<P, FieldDesc, D>> {
 		switch (e.kind) {
 			case "param":
 				return { kind: "param", type: e.type, ...this.#spelling.param(e.name) }
@@ -1270,10 +1304,10 @@ class ParamWalk<P extends object> {
  * whose terms alone are the importer's. A take bound to a parameter and a relation parameter are parameters too; a
  * delta source is none, since it exists only inside the ChangeSet that defines it.
  */
-export const mapQueryParams = <P extends object>(
-	q: QueryDesc,
+export const mapQueryParams = <P extends object, D extends InferredFieldDesc = FieldDesc>(
+	q: QueryDesc<Located, SpelledAs<D>>,
 	spelling: ParamSpelling<P>
-): QueryDesc<Located, ParamsAs<P>> => new ParamWalk(spelling).query(q)
+): QueryDesc<Located, ParamsAs<P, FieldDesc, D>> => new ParamWalk<P, D>(spelling).query(q)
 
 /** A namespace spelled as it is: an imported query's, for a walk that reads only its importer's. */
 const spelledAsIs: ParamSpelling<Spelled["param"]> = {

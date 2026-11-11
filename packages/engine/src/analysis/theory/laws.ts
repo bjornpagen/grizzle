@@ -63,6 +63,8 @@ import {
 	everyFact,
 	expandAlternatives,
 	type FieldDesc,
+	type InferredExpr,
+	type InferredQuery,
 	type LiteralDesc,
 	type MonoidName,
 	type QueryDesc,
@@ -231,7 +233,7 @@ export type LawDetail =
 	| (WrittenRule & {
 			/** Its violation query as normalization wrote it (query.ts violationQuery), which the violation queries'
 			 * writer checks against the checked schema and reads (laws/model/violations.ts). */
-			readonly violation: QueryDesc
+			readonly violation: InferredQuery
 	  })
 	| {
 			readonly kind: "fold"
@@ -415,7 +417,7 @@ interface LawDraft {
  */
 type LawWriting =
 	| { readonly kind: "built"; readonly detail: () => LawDetail }
-	| { readonly kind: "query"; readonly violation: QueryDesc; readonly detail: WrittenRule }
+	| { readonly kind: "query"; readonly violation: InferredQuery; readonly detail: WrittenRule }
 
 /** A draft whose detail is as stated: every law but a family and a tree. */
 interface StatedDraft {
@@ -1405,7 +1407,8 @@ export class Normalizer {
 	 *
 	 * 1. one arm, negating nothing, every match of an ordinary stored relation;
 	 * 2. every term of the side a variable a match binds, no two terms one variable;
-	 * 3. every condition `variable = literal`, besides a field a match binds to a literal, fixing a field no term reads;
+	 * 3. every condition `variable = literal`, besides a field a match binds to a literal, each literal one a selection
+	 *    states (`selectable`), fixing a field no term reads;
 	 * 4. every variable no term reads bound once, by one match, so the matches meet at the side's terms alone;
 	 * 5. every match binding a variable a term reads;
 	 * 6. no match binding one term's variable at two fields;
@@ -1451,7 +1454,7 @@ export class Normalizer {
 			for (const e of Object.values(m.bindings)) {
 				if (e.kind === "var" && !headVars.includes(e.var) && !constants.has(e.var)) {
 					existentials.set(e.var, (existentials.get(e.var) ?? 0) + 1)
-				} else if (e.kind !== "var" && e.kind !== "literal") {
+				} else if (e.kind !== "var" && selectable(e) === undefined) {
 					return byTriggers
 				}
 			}
@@ -1473,7 +1476,7 @@ export class Normalizer {
 				)
 			)
 			const fixed = fields.flatMap(([field, e]) => {
-				const literal = e.kind === "var" ? constants.get(e.var) : e
+				const literal = e.kind === "var" ? constants.get(e.var) : selectable(e)
 				return literal === undefined ? [] : [{ field, literal }]
 			})
 			const [first, ...rest] = at
@@ -2101,21 +2104,41 @@ const ridingPins = (f: FamilyShape, ride: Ride): ReadonlyArray<Pin> => {
 /** A rule over a query its triggers discharge (`RuleLowering`). */
 const byTriggers: RuleLowering = { kind: "triggers" }
 
-/** The variable a condition of an arm fixes and the literal it fixes it to: a variable compared equal with a literal on
- * either side. */
+/**
+ * A literal as a side's selection states it: bare, or at a declared field's descriptor. A literal at a computed numeric,
+ * a derived relation's head literal read where its column stands, is none: a selector reads its value at the selected
+ * field's own type (`ResolvedSelector`), which rounds or refuses a value the definition compares exactly, so a rule that
+ * fixes a field to one keeps its triggers.
+ */
+const selectable = (e: InferredExpr): ExprDesc | undefined => {
+	if (e.kind !== "literal") {
+		return undefined
+	}
+	const { value, type } = e
+	if (type === undefined) {
+		return { kind: "literal", value }
+	}
+	return type.kind === "computedNumeric" ? undefined : { kind: "literal", value, type }
+}
+
+/**
+ * The variable a condition of an arm fixes and the literal it fixes it to: a variable compared equal with a literal a
+ * selection states (`selectable`), on either side.
+ */
 const variableFixing = (
-	e: ExprDesc
+	e: InferredExpr
 ): { readonly var: string; readonly literal: ExprDesc } | undefined => {
 	if (e.kind !== "compare" || e.op !== "eq") {
 		return undefined
 	}
-	if (e.left.kind === "var" && e.right.kind === "literal") {
-		return { var: e.left.var, literal: e.right }
+	const fixing = (
+		v: InferredExpr,
+		l: InferredExpr
+	): { readonly var: string; readonly literal: ExprDesc } | undefined => {
+		const literal = selectable(l)
+		return v.kind === "var" && literal !== undefined ? { var: v.var, literal } : undefined
 	}
-	if (e.left.kind === "literal" && e.right.kind === "var") {
-		return { var: e.right.var, literal: e.left }
-	}
-	return undefined
+	return fixing(e.left, e.right) ?? fixing(e.right, e.left)
 }
 
 /** `field = literal`, a conjunct of a side's selection a selector reads (`fieldEquality`). */

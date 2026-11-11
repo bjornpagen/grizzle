@@ -207,6 +207,7 @@ import {
 import { collapseSources } from "#compiler/scalar/regex/whitespace.ts"
 import {
 	capabilitiesOf,
+	inferredType,
 	numericValue,
 	storedOnly,
 	type TextLookup
@@ -2225,7 +2226,7 @@ class Lowering<R extends Refs> {
 				return this.param(desc, at)
 			case "literal": {
 				if (desc.type !== undefined) {
-					const t = unwrap(this.env.fieldType(desc.type, at))
+					const t = inferredType(desc.type, (d) => unwrap(this.env.fieldType(d, at)))
 					return this.literal(desc.value, t, at)
 				}
 				return this.bareLiteral(desc.value, at)

@@ -1,4 +1,4 @@
-import { declaredDescOf } from "#compiler/analysis/derived/fields.ts"
+import { fieldDescOf } from "#compiler/analysis/derived/fields.ts"
 import type { CheckedSchema } from "#compiler/analysis/schema.ts"
 import { refuse, ViolationBuilder } from "#compiler/analysis/theory/build.ts"
 import { type FieldClass, FieldClasses } from "#compiler/analysis/theory/classes.ts"
@@ -46,7 +46,14 @@ import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty
 import { compareStrings } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
 import { type LabelledDag, LabelSupply } from "#compiler/ir/dag.ts"
-import { type FieldDesc, fieldTermsOf, type QueryDesc, termText } from "#compiler/ir/desc.ts"
+import {
+	type FieldDesc,
+	fieldTermsOf,
+	type InferredFieldDesc,
+	type InferredQuery,
+	type QueryDesc,
+	termText
+} from "#compiler/ir/desc.ts"
 import type { EvidenceContext } from "#compiler/ir/evidence.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { Family } from "#compiler/ir/family.ts"
@@ -64,11 +71,6 @@ import {
 	baseOf,
 	type ContractInfo,
 	contractOf,
-	isNumericValue,
-	type NumericBound,
-	numericMaxPrecision,
-	numericMaxScale,
-	numericMinScale,
 	Roster,
 	type ScalarType,
 	spanOf
@@ -341,21 +343,6 @@ const ruleStatement = (
 	}
 }
 
-/**
- * numeric(p, s) of a computed numeric's bound, its integer digits and scale (ir/scalar.ts NumericBound): p = digits +
- * scale, s = scale, so numeric(p, s) holds exactly the values the bound does. None where no typmod states the bound: no
- * digits at all, a non-finite literal's, or more than numeric's largest precision.
- */
-const numericOfBound = (bound: NumericBound): FieldDesc | undefined => {
-	const precision = bound.digits + bound.scale
-	return precision >= 1 &&
-		precision <= numericMaxPrecision.value &&
-		bound.scale >= numericMinScale.value &&
-		bound.scale <= numericMaxScale.value
-		? { kind: "numeric", precision, scale: bound.scale }
-		: undefined
-}
-
 /** A law's identity at the naming door: its LawId is the identity's identifier. */
 export const lawIdentityOf = (law: LawIdentity): Identity<"law"> =>
 	identity.law(lawStatement(law, ownSpelling))
@@ -472,16 +459,14 @@ class Builder {
 	/**
 	 * The descriptor each column of `query`, read as a definition of `relation`, is delivered at: its heading as the
 	 * checker types it against the checked schema, a bare head literal's column by its value or by its position in a
-	 * union, each column the descriptor a declaration of its type writes. A computed numeric, a Decimal head literal's
-	 * column that no other arm types, is no declaration's type: it is numeric(p, s) of the bound its analysis proves
-	 * (numericOfBound), whose values are exactly the bound's, and a bound no typmod states, a non-finite literal's or one
-	 * of more than numeric's largest precision, leaves the literal bare, as it is in the definition.
+	 * union, each column the inferred field's own descriptor (analysis/derived/fields.ts fieldDescOf), a computed
+	 * numeric's its bound, whatever its value, NaN, an infinity or one past numeric(p, s)'s limits included.
 	 */
 	#columnType(
 		relation: string,
-		query: QueryDesc,
+		query: InferredQuery,
 		loc: SourceLoc
-	): (column: string) => FieldDesc | undefined {
+	): (column: string) => InferredFieldDesc {
 		const admitted = checkDefinition(this.checked, `derived ${relation}`, query)
 		if (!admitted.ok) {
 			throw new Refusal(admitted.error)
@@ -494,10 +479,7 @@ class Builder {
 			if (type === undefined) {
 				return refuse("MalformedDescription", loc, `a column ${column} of ${relation}'s definition`)
 			}
-			if (isNumericValue(type)) {
-				return numericOfBound(type.bound)
-			}
-			const desc = declaredDescOf(type, this.owned.contracts)
+			const desc = fieldDescOf(type, this.owned.contracts)
 			return desc.ok
 				? desc.value
 				: refuse("MalformedDescription", loc, `a declared type of ${relation}.${column}`)
@@ -750,7 +732,7 @@ export const buildTheory = (checked: CheckedSchema): Result.Result<Theory, Compi
 export const ruleViolation = (
 	checked: CheckedSchema,
 	law: Pick<TheoryLaw, "named">,
-	violation: QueryDesc
+	violation: InferredQuery
 ): Result.Result<{ readonly dag: ValidDag; readonly root: RelNode }, CompileError> =>
 	Result.map(
 		checkQuery(checked, violation, { read: "rows", label: `rule ${law.named.display}` }),

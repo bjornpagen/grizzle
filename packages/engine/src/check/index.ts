@@ -10,7 +10,7 @@ import { catchRefusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
-import type { MemberDesc, QueryDesc, ReadBackDesc } from "#compiler/ir/desc.ts"
+import type { InferredQuery, MemberDesc, QueryDesc, ReadBackDesc } from "#compiler/ir/desc.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import { admittedReads } from "#compiler/scalar/compute/lower.ts"
 import { queryPatternReads } from "#compiler/schema/walk.ts"
@@ -58,7 +58,7 @@ export const admitQuery = (
  */
 const run = (
 	schema: SchemaReading,
-	desc: QueryDesc,
+	desc: InferredQuery,
 	options: CheckOptions,
 	loc: SourceLoc,
 	role: RootRole
@@ -85,11 +85,12 @@ const run = (
  * (context.ts). Every entry point returns a Result and never throws.
  *
  * A query description against a schema, as the checker reads it: a QueryDesc, decoded where it entered (ir/desc.ts
- * decodeDesc), so only its structure is validated here (check/description.ts), never its shape again.
+ * decodeDesc), or one grizzle writes itself, whose typed literals may state an inferred field's descriptor (ir/desc.ts
+ * Inferred), so only its structure is validated here (check/description.ts), never its shape again.
  */
 export const checkQuery = (
 	checked: SchemaReading,
-	desc: QueryDesc,
+	desc: InferredQuery,
 	options: CheckOptions
 ): Result.Result<AdmittedQuery, CompileError> =>
 	Result.flatMap(validateQueryStructure(desc, { read: options.read }), (q) =>
@@ -105,7 +106,7 @@ export const checkQuery = (
 export const checkDefinition = (
 	base: SchemaReading,
 	label: string,
-	query: QueryDesc
+	query: InferredQuery
 ): Result.Result<AdmittedQuery, CompileError> => {
 	const options: CheckOptions = { read: "rows", label }
 	return Result.flatMap(validateQueryStructure(query, { read: "rows" }), (q) =>

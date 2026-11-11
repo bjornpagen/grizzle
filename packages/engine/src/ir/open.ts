@@ -72,6 +72,7 @@ interface Open extends Refs {
 		| { readonly kind: "parent"; readonly column: ParentRef }
 	readonly param: Spelled["param"]
 	readonly paramType: Spelled["paramType"]
+	readonly literalType: Spelled["literalType"]
 	readonly nested: Spelled
 }
 

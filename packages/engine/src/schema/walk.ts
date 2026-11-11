@@ -1,7 +1,12 @@
 import type {
 	ContextDesc,
 	ExprDesc,
-	HeadTermDesc,
+	InferredExpr,
+	InferredHead,
+	InferredQuery,
+	InferredRule,
+	InferredSource,
+	InferredStage,
 	QueryDesc,
 	QueryStageDesc,
 	RuleDesc,
@@ -28,7 +33,7 @@ class Collector {
 	readonly patterns = new Map<string, Set<string>>()
 
 	/** Each payload field the pattern of a Compute.matches reads, its other parts no field. */
-	#pattern(pattern: ExprDesc): void {
+	#pattern(pattern: InferredExpr): void {
 		for (const part of patternParts(pattern)) {
 			if (part.kind === "closedAt") {
 				this.#read(part.desc.relation, part.desc.field)
@@ -46,11 +51,11 @@ class Collector {
 		}
 	}
 
-	query(q: QueryDesc): void {
+	query(q: InferredQuery): void {
 		this.stage(q.stage)
 	}
 
-	stage(s: QueryStageDesc): void {
+	stage(s: InferredStage): void {
 		switch (s.kind) {
 			case "rules":
 				for (const arm of s.arms) {
@@ -89,7 +94,7 @@ class Collector {
 		}
 	}
 
-	rule(r: RuleDesc): void {
+	rule(r: InferredRule): void {
 		for (const m of r.matches) {
 			this.source(m.source)
 			for (const e of Object.values(m.bindings)) {
@@ -112,7 +117,7 @@ class Collector {
 		}
 	}
 
-	source(s: SourceDesc): void {
+	source(s: InferredSource): void {
 		switch (s.kind) {
 			case "relation":
 				this.relations.add(s.name)
@@ -186,7 +191,7 @@ class Collector {
 		}
 	}
 
-	head(h: HeadTermDesc): void {
+	head(h: InferredHead): void {
 		switch (h.kind) {
 			case "aggregate":
 				if (h.fn !== "count") {
@@ -225,7 +230,7 @@ class Collector {
 		}
 	}
 
-	expr(e: ExprDesc): void {
+	expr(e: InferredExpr): void {
 		switch (e.kind) {
 			case "param":
 				this.inputs.add(`parameter ${e.name}`)
@@ -390,7 +395,7 @@ export const exprPatternReads = (exprs: Iterable<ExprDesc>): PayloadReads => {
  * The payload fields the Compute.matches patterns of `queries` read, through every rule, import, negation and
  * attachment of each (scalar/compute/lower.ts PayloadReads): a checked program's batch.
  */
-export const queryPatternReads = (queries: Iterable<QueryDesc>): PayloadReads => {
+export const queryPatternReads = (queries: Iterable<InferredQuery>): PayloadReads => {
 	const c = new Collector()
 	for (const q of queries) {
 		c.query(q)

@@ -135,7 +135,7 @@ import {
 } from "#compiler/scalar/compute/types.ts"
 import { type PlainCarrier, plainType } from "#compiler/scalar/native.ts"
 import { CompilePatterns, type PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
-import { hasCapability, spanType } from "#compiler/scalar/registry.ts"
+import { hasCapability, inferredType, spanType } from "#compiler/scalar/registry.ts"
 import { textLookup } from "#compiler/text/refinement.ts"
 
 /**
@@ -2761,7 +2761,10 @@ class RuleCheck {
 			return {
 				kind: "literal",
 				value: term.value,
-				stated: term.type === undefined ? untyped : typed(this.cx.fieldType(term.type, loc)),
+				stated:
+					term.type === undefined
+						? untyped
+						: typed(inferredType(term.type, (d) => this.cx.fieldType(d, loc))),
 				loc
 			}
 		}
@@ -3339,7 +3342,7 @@ class RuleCheck {
 				literalSpec(this.cx.schema.literal(e.value, col.type, at, this.cx.patterns), col.type)
 			)
 		}
-		const t = this.cx.fieldType(e.type, at)
+		const t = inferredType(e.type, (d) => this.cx.fieldType(d, at))
 		if (!compatible(t, col.type)) {
 			fail(
 				"MalformedDescription",
@@ -3466,7 +3469,7 @@ class RuleCheck {
 		loc: SourceLoc
 	): LiteralTyping {
 		if (h.type !== undefined) {
-			return { kind: "fixed", type: this.cx.fieldType(h.type, loc) }
+			return { kind: "fixed", type: inferredType(h.type, (d) => this.cx.fieldType(d, loc)) }
 		}
 		return targetType === undefined ? { kind: "bare" } : { kind: "fixed", type: targetType }
 	}

@@ -6,12 +6,12 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import type * as Result from "#compiler/core/result.ts"
 import type {
-	ExprDesc,
-	HeadTermDesc,
-	QueryDesc,
-	QueryStageDesc,
-	RuleDesc,
-	SourceDesc
+	InferredExpr,
+	InferredHead,
+	InferredQuery,
+	InferredRule,
+	InferredSource,
+	InferredStage
 } from "#compiler/ir/desc.ts"
 
 export interface StructureOptions {
@@ -34,11 +34,11 @@ class Structure {
 		this.options = options
 	}
 
-	query(q: QueryDesc, cx: Context): void {
+	query(q: InferredQuery, cx: Context): void {
 		this.stage(q.stage, cx)
 	}
 
-	stage(s: QueryStageDesc, cx: Context): void {
+	stage(s: InferredStage, cx: Context): void {
 		switch (s.kind) {
 			case "rules":
 				for (const r of s.arms) {
@@ -72,10 +72,10 @@ class Structure {
 		}
 	}
 
-	rule(r: RuleDesc, cx: Context): void {
+	rule(r: InferredRule, cx: Context): void {
 		const vars = new Set(r.vars.map((v) => v.id))
 		const interiors = new Set(r.interiors.map((i) => i.id))
-		const expr = (e: ExprDesc, at: SourceLoc): void => {
+		const expr = (e: InferredExpr, at: SourceLoc): void => {
 			this.expr(e, vars, interiors, cx, at)
 		}
 		for (const m of r.matches) {
@@ -101,7 +101,7 @@ class Structure {
 	}
 
 	head(
-		h: HeadTermDesc,
+		h: InferredHead,
 		vars: ReadonlySet<string>,
 		interiors: ReadonlySet<string>,
 		cx: Context,
@@ -126,7 +126,7 @@ class Structure {
 	 * An imported query is its own scope; only its bind map reads the importing rule.
 	 */
 	source(
-		s: SourceDesc,
+		s: InferredSource,
 		vars: ReadonlySet<string>,
 		interiors: ReadonlySet<string>,
 		cx: Context,
@@ -182,13 +182,13 @@ class Structure {
 	}
 
 	expr(
-		e: ExprDesc,
+		e: InferredExpr,
 		vars: ReadonlySet<string>,
 		interiors: ReadonlySet<string>,
 		cx: Context,
 		loc: SourceLoc
 	): void {
-		const sub = (x: ExprDesc, segment: string | number): void => {
+		const sub = (x: InferredExpr, segment: string | number): void => {
 			this.expr(x, vars, interiors, cx, childLoc(loc, segment))
 		}
 		switch (e.kind) {
@@ -303,10 +303,10 @@ class Structure {
  *
  * The structural scope check of a decoded query description.
  */
-export const validateQueryStructure = (
-	desc: QueryDesc,
+export const validateQueryStructure = <Q extends InferredQuery>(
+	desc: Q,
 	options: StructureOptions
-): Result.Result<QueryDesc, CompileError> =>
+): Result.Result<Q, CompileError> =>
 	catchRefusal(() => {
 		new Structure(options).query(desc, { recursiveStep: false, attachment: false })
 		return desc

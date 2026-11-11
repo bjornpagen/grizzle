@@ -20,9 +20,13 @@
  * A third box reads a head literal: a derived relation of Item whose two arms deliver a text or a Decimal as a
  * JavaScript literal, one in both or one each, the union's discriminant, read directly and through Item's semijoin with
  * it binding it by a variable a stored match binds, by a literal, or by a variable minted from the relation itself,
- * which only the head literal defines, under a check, a key and a selection that read it, and a containment into it. A
- * bare head literal takes its column's type, a Decimal's computed numeric as numeric(p, s) of the bound its analysis
- * proves, so it stands wherever a term of the column does; a variable only a head literal defines is that literal.
+ * which only the head literal defines, under a check, a key and a selection that read it, and a containment into it,
+ * on its pair or on its id alone, the semijoin's definition then fixing the stored column it reads to the literal. The
+ * Decimal is finite, NaN, an infinity, or one past every numeric(p, s), of one integer digit more than its greatest
+ * precision or one fraction digit more than its greatest scale. A
+ * bare head literal takes its column's type, a Decimal's the computed numeric of the bound its analysis proves, which
+ * no numeric(p, s) states for any but the finite one, so it stands wherever a term of the column does; a variable only
+ * a head literal defines is that literal.
  *
  * A fourth box negates: a derived relation of Item whose definition negates Mark, a join of Mark and Note (a query),
  * their union (a query of two rules), the join derived on a level below, a query that aggregates or one that negates in
@@ -48,6 +52,7 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import * as Result from "#compiler/core/result.ts"
+import { numericMaxPrecision, numericMaxScale } from "#compiler/ir/scalar.ts"
 import type { ConstraintLaw } from "#compiler/laws/model/model.ts"
 import { theoryViolations } from "#compiler/laws/model/violations.ts"
 import type { SchemaArtifacts } from "#compiler/program/schema.ts"
@@ -280,15 +285,46 @@ const reportedOf = (constraint: ConstraintLaw): Law => constraint.laws[0].descri
  */
 type Tagging = "same" | "distinct"
 
-/** What the rules over the tagged relation and over its semijoin do with the literal's column. */
-type TagRule = "check" | "key" | "selection" | "into"
+/**
+ * What the rules over the tagged relation and over its semijoin do with the literal's column: check it, key it, select
+ * by it, contain a stored relation's pair in its pair, or contain a stored relation's item in its id alone, over the
+ * relation of one arm and its semijoin, whose definition fixes the stored column its variable reads to the head literal.
+ */
+type TagRule = "check" | "key" | "selection" | "into" | "into id"
 
 /** How a semijoin binds the tagged relation's column (TagCase.read). */
 type TagRead = Bound | "own"
 const tagReads = [...bounds, "own"] as const
 
-/** The literal a derived relation's head delivers: a text, or a Decimal, whose column is a computed numeric. */
-type Literal = "text" | "decimal"
+/**
+ * The Decimal a derived relation's head delivers, whose column is a computed numeric: a finite one, NaN, an infinity,
+ * or one past every numeric(p, s), of one integer digit more than its greatest precision or of one fraction digit more
+ * than its greatest scale.
+ */
+type DecimalLiteral = "finite" | "NaN" | "Infinity" | "-Infinity" | "past precision" | "past scale"
+const decimalLiterals = [
+	"finite",
+	"NaN",
+	"Infinity",
+	"-Infinity",
+	"past precision",
+	"past scale"
+] as const
+
+const decimalOf: { readonly [D in DecimalLiteral]: Decimal } = {
+	finite: Decimal.fromOutput("1.5"),
+	NaN: Decimal.fromOutput("NaN"),
+	Infinity: Decimal.fromOutput("Infinity"),
+	"-Infinity": Decimal.fromOutput("-Infinity"),
+	"past precision": Decimal.fromOutput(`1${Str.repeat(numericMaxPrecision.value)("0")}`),
+	"past scale": Decimal.fromOutput(`0.${Str.repeat(numericMaxScale.value)("0")}1`)
+}
+
+/** The literal a derived relation's head delivers: a text, or a Decimal (DecimalLiteral). */
+type Literal = "text" | DecimalLiteral
+const tagLiterals = ["text", ...decimalLiterals] as const
+const taggings = ["same", "distinct"] as const
+const tagRules = ["check", "key", "selection", "into", "into id"] as const
 
 interface TagCase {
 	readonly literal: Literal
@@ -302,10 +338,10 @@ interface TagCase {
 }
 
 const tagCase: Gen<TagCase> = (s) => ({
-	literal: s.draw(element(["text", "decimal"] as const)),
-	tagging: s.draw(element(["same", "distinct"] as const)),
+	literal: s.draw(element(tagLiterals)),
+	tagging: s.draw(element(taggings)),
 	read: s.draw(element(tagReads)),
-	rule: s.draw(element(["check", "key", "selection", "into"] as const))
+	rule: s.draw(element(tagRules))
 })
 
 const tags = str.bytes(20, str.regex("^[a-z]+$"))
@@ -313,9 +349,10 @@ const Tag = relation("Tag", { item: pg.integer, tag: tags }, ["item"])
 const Tags = schema("RuleQueryTags", { Item, Tag }, [])
 
 /**
- * The case's schema, its head literals texts: Item's facts tagged "a" in both arms, or "a" and "b", on a level of
- * their own, then Read, Item's semijoin with them binding the tag by a variable or a literal, and the case's rule over
- * each.
+ * The case's schema, its head literals texts: Item's facts tagged "a" in both arms, or "a" and "b", and in the one arm
+ * of Once, on a level of their own, then Read and ReadOnce, Item's semijoins with them binding the tag by a variable or
+ * a literal, and the case's rule over each: over Once and ReadOnce for a containment into the id alone, whose target a
+ * foreign key holds where its one arm fixes a stored column.
  */
 const tagSchemaOf = (c: TagCase) => {
 	const Tagged = derived(
@@ -330,7 +367,27 @@ const tagSchemaOf = (c: TagCase) => {
 				return r.match(Item, { id }).find({ id, tag: c.tagging === "same" ? "a" : "b" })
 			})
 	)
-	const Middle = schema.extend(Tags, "RuleQueryTagsMiddle", { Tagged }, [])
+	const Once = derived(
+		"Once",
+		query(Tags).rule((r) => {
+			const { id } = v(Item, "item")
+			return r.match(Item, { id }).find({ id, tag: "a" })
+		})
+	)
+	const Middle = schema.extend(Tags, "RuleQueryTagsMiddle", { Tagged, Once }, [])
+	const ReadOnce = derived(
+		"ReadOnce",
+		query(Middle).rule((r) => {
+			const { id } = v(Item, "item")
+			const { tag } = v(Tag, "tag")
+			const { tag: own } = v(Once, "once")
+			return r
+				.match(Item, { id })
+				.match(Tag, { item: id, tag })
+				.match(Once, { id, tag: c.read === "literal" ? "a" : c.read === "own" ? own : tag })
+				.find({ id, tag })
+		})
+	)
 	const Read = derived(
 		"Read",
 		query(Middle).rule((r) => {
@@ -375,37 +432,66 @@ const tagSchemaOf = (c: TagCase) => {
 					contained(on(Tag, "item", "tag"), on(Tagged, "id", "tag")),
 					contained(on(Tag, "item", "tag"), on(Read, "id", "tag"))
 				]
+			case "into id":
+				return [
+					contained(on(Tag, "item"), on(Once, "id")),
+					contained(on(Tag, "item"), on(ReadOnce, "id"))
+				]
 		}
 	})()
-	return schema.extend(Middle, "RuleQueryTagsTop", { Read }, rules)
+	return schema.extend(Middle, "RuleQueryTagsTop", { Read, ReadOnce }, rules)
 }
 
 const Amount = relation("Amount", { item: pg.integer, amount: pg.numeric(4, 2) }, ["item"])
 const Amounts = schema("RuleQueryAmounts", { Item, Amount }, [])
-const half = Decimal.fromOutput("1.5")
 const three = Decimal.fromOutput("3")
 
 /**
- * The case's schema, its head literals Decimals: Item's facts priced 1.5 in both arms, or 1.5 and 2.25, on a level of
- * their own, then Read, Item's semijoin with them binding the amount by a variable or a literal, and the case's rule
- * over each.
+ * The case's schema, its head literals Decimals: Item's facts priced at `price` in both arms, or at `price` and 2.25,
+ * and in the one arm of Once, on a level of their own, then Read and ReadOnce, Item's semijoins with them binding the
+ * amount by a variable or a literal, and the case's rule over each, over Once and ReadOnce for a containment into the id
+ * alone: ReadOnce's one arm, reading Amount's amount by a variable, fixes it to the head literal, a computed numeric,
+ * which no selection states, so the rule keeps its triggers (laws.ts selectable).
  */
-const amountSchemaOf = (c: TagCase) => {
+const amountSchemaOf = (c: TagCase, price: Decimal) => {
 	const Priced = derived(
 		"Priced",
 		query(Amounts)
 			.rule((r) => {
 				const { id } = v(Item, "item")
-				return r.match(Item, { id }).find({ id, amount: half })
+				return r.match(Item, { id }).find({ id, amount: price })
 			})
 			.rule((r) => {
 				const { id } = v(Item, "item")
 				return r
 					.match(Item, { id })
-					.find({ id, amount: c.tagging === "same" ? half : Decimal.fromOutput("2.25") })
+					.find({ id, amount: c.tagging === "same" ? price : Decimal.fromOutput("2.25") })
 			})
 	)
-	const Middle = schema.extend(Amounts, "RuleQueryAmountsMiddle", { Priced }, [])
+	const Once = derived(
+		"Once",
+		query(Amounts).rule((r) => {
+			const { id } = v(Item, "item")
+			return r.match(Item, { id }).find({ id, amount: price })
+		})
+	)
+	const Middle = schema.extend(Amounts, "RuleQueryAmountsMiddle", { Priced, Once }, [])
+	const ReadOnce = derived(
+		"ReadOnce",
+		query(Middle).rule((r) => {
+			const { id } = v(Item, "item")
+			const { amount } = v(Amount, "amount")
+			const { amount: own } = v(Once, "once")
+			return r
+				.match(Item, { id })
+				.match(Amount, { item: id, amount })
+				.match(Once, {
+					id,
+					amount: c.read === "literal" ? price : c.read === "own" ? own : amount
+				})
+				.find({ id, amount })
+		})
+	)
 	const Read = derived(
 		"Read",
 		query(Middle).rule((r) => {
@@ -417,7 +503,7 @@ const amountSchemaOf = (c: TagCase) => {
 				.match(Amount, { item: id, amount })
 				.match(Priced, {
 					id,
-					amount: c.read === "literal" ? half : c.read === "own" ? own : amount
+					amount: c.read === "literal" ? price : c.read === "own" ? own : amount
 				})
 				.find({ id, amount })
 		})
@@ -435,14 +521,14 @@ const amountSchemaOf = (c: TagCase) => {
 				return [
 					contained(
 						on(
-							select(Priced, (x) => x.eq(x.amount, half)),
+							select(Priced, (x) => x.eq(x.amount, price)),
 							"id"
 						),
 						on(Amount, "item")
 					),
 					contained(
 						on(
-							select(Read, (x) => x.eq(x.amount, half)),
+							select(Read, (x) => x.eq(x.amount, price)),
 							"id"
 						),
 						on(Amount, "item")
@@ -453,9 +539,14 @@ const amountSchemaOf = (c: TagCase) => {
 					contained(on(Amount, "item", "amount"), on(Priced, "id", "amount")),
 					contained(on(Amount, "item", "amount"), on(Read, "id", "amount"))
 				]
+			case "into id":
+				return [
+					contained(on(Amount, "item"), on(Once, "id")),
+					contained(on(Amount, "item"), on(ReadOnce, "id"))
+				]
 		}
 	})()
-	return schema.extend(Middle, "RuleQueryAmountsTop", { Read }, rules)
+	return schema.extend(Middle, "RuleQueryAmountsTop", { Read, ReadOnce }, rules)
 }
 
 /**
@@ -711,15 +802,20 @@ describe("a rule over a query", () => {
 						suite: "unit/analysis/theory/rule-query/head",
 						generator: tagCase,
 						literal: Formatter.format,
-						limit: 100,
-						box: "every check, key and selection over, and containment into, a derived relation of Item whose two arms deliver a text or Decimal head literal, one in both or a discriminant, and over its semijoin binding it by a variable a stored match binds, a literal, or a variable only its head literal defines",
+						limit: tagLiterals.length * taggings.length * tagReads.length * tagRules.length,
+						box: "every check, key and selection over, and containment into, on its pair or its id alone, a derived relation of Item whose two arms deliver a text or Decimal head literal, the Decimal finite, NaN, an infinity, or one past numeric(p, s)'s greatest precision or scale, one in both or a discriminant, and over its semijoin binding it by a variable a stored match binds, a literal, or a variable only its head literal defines",
 						oracle: {
 							kind: "specification",
 							name: "the builders' admission: a schema schema.extend builds compiles to its artifacts"
 						},
 						coverage: requiredInSpace<TagReached>([
 							"text literal",
-							"decimal literal",
+							"finite literal",
+							"NaN literal",
+							"Infinity literal",
+							"-Infinity literal",
+							"past precision literal",
+							"past scale literal",
 							"same tagging",
 							"distinct tagging",
 							"read by variable",
@@ -728,7 +824,8 @@ describe("a rule over a query", () => {
 							"check",
 							"key",
 							"selection",
-							"into"
+							"into",
+							"into id"
 						]),
 						caseHang
 					},
@@ -738,7 +835,9 @@ describe("a rule over a query", () => {
 							k.note(`${c.tagging} tagging`)
 							k.note(`read by ${c.read}`)
 							k.note(c.rule)
-							const compiled = compiledOf(c.literal === "text" ? tagSchemaOf(c) : amountSchemaOf(c))
+							const compiled = compiledOf(
+								c.literal === "text" ? tagSchemaOf(c) : amountSchemaOf(c, decimalOf[c.literal])
+							)
 							assert.deepEqual(
 								compiled.ok ? undefined : compiled.error.reason,
 								undefined,
