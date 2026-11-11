@@ -51,7 +51,7 @@ import { contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { SchemaArtifacts } from "#compiler/program/schema.ts"
 import type { ConcurrentChangeTag } from "#compiler/runtime/write/refusal.ts"
 import type { Refuser } from "#compiler/runtime/write/witness.ts"
-import { assert, defined } from "#test/support/assert.ts"
+import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { caseSketchGen, resolveCase } from "#test/support/oracle/public/generate.ts"
 import {
@@ -123,11 +123,24 @@ const codecNamed = (codes: Codebook, roster: DeclaredName): RosterCodec =>
 	defined(codes.rosters.get(roster), `the installation's codes of roster ${roster}`)
 
 /**
- * A refused key's text for a field of `type`, as a write statement's DETAIL carries it: a closed id's code among its
- * roster's, holes included, and for any other carrier a digit, which every key carrier's conversion reads.
+ * A refused key's text for a field of `type`, as a write statement's DETAIL carries it: a closed id's code, one of its
+ * roster's live codes, since a stored code is a live one and a hole names no handle; and for any other carrier a digit,
+ * which every key carrier's conversion reads.
  */
 const keyTextGen = (codes: Codebook, type: ScalarType): Gen<string> =>
-	map(int(0, type.carrier === "code" ? codecNamed(codes, type.roster.closed).size - 1 : 9), String)
+	type.carrier === "code"
+		? map(
+				element(
+					nonEmpty(
+						Arr.flatMap(codecNamed(codes, type.roster.closed).names, (name, code) =>
+							name === "" ? [] : [code]
+						),
+						"a roster's live codes"
+					)
+				),
+				String
+			)
+		: map(int(0, 9), String)
 
 /** What refused a statement, as the host is asked about it: its kind and every object it names. */
 const refuserText = (refuser: Refuser): string => {

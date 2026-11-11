@@ -44,7 +44,8 @@ import type { ProgramCase, Root } from "#test/support/oracle/public/program.ts"
  *
  * A login holds one or more roles over the extended schema, each holding every relation whole. A role draws:
  *
- * - the relations it may write, some of the schema's, the level's among them;
+ * - the relations it may write, some of the schema's, the level's among them, but never the one its query entry writes,
+ *   since a role writes each relation through one entry;
  * - perhaps a query entry, `Mine`, over one relation, which it writes too, reading a context of two claims: `key`,
  *   typed as a field of the entry's relation, which selects the relation's facts the entry holds, and `held`, typed as a
  *   field of any relation of the schema, its very descriptor, so its domain is that field's domain: a pattern's, or a
@@ -129,7 +130,8 @@ export const roleName = (place: number): string => `role${place}`
 const descriptorOf = (drawn: DrawnSchema, at: FieldAt): unknown =>
 	defined(
 		Arr.findFirst(drawn.relations, (r) => r.name === at.relation).pipe(
-			Option.flatMap((r) => Option.fromNullishOr(r.fields[at.field]))
+			Option.flatMap((r) => Option.fromNullishOr(r.fields[at.field])),
+			Option.getOrUndefined
 		),
 		`relation ${at.relation} declares field ${at.field}`
 	)
@@ -171,8 +173,15 @@ const entryGen =
 const roleGen =
 	(drawn: DrawnSchema): Gen<RoleShape> =>
 	(source) => {
-		const writes = source.draw(subarray(Arr.map(drawn.relations, (r) => r.name)))
 		const entry = source.draw(entryGen(drawn))
+		const writes = source.draw(
+			subarray(
+				Arr.filter(
+					Arr.map(drawn.relations, (r) => r.name),
+					(name) => !Option.exists(entry, (e) => e.target === name)
+				)
+			)
+		)
 		const targets: ReadonlyArray<ChangeTarget> = [
 			...Arr.map(writes, (relation): ChangeTarget => ({ kind: "whole", relation })),
 			...(Option.isSome(entry) ? [{ kind: "entry" } as const] : [])
@@ -260,14 +269,14 @@ const roleOf = (drawn: DrawnSchema, shape: RoleShape, place: number) => {
 				: defined(made.relations[entryName], `role ${roleName(place)}'s entry ${entryName}`)
 		const empty = changeSetOver.empty(made)
 		return [
-			`change${i}`,
+			`${roleName(place)}change${i}`,
 			change.op === "insert" ? empty.insert(target, []) : empty.delete(target, [])
 		] as const
 	})
 	const reads = Arr.map(shape.reads, (read) => {
 		const query = buildRoot(drawn.built, drawn.built.schema, read.query)
 		return [
-			`read${read.place}`,
+			`${roleName(place)}read${read.place}`,
 			read.paged ? Reflect.apply(paged, undefined, [query]) : query
 		] as const
 	})
