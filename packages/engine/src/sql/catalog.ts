@@ -95,6 +95,7 @@ export const catalogFunctions = [
 	"pg_get_triggerdef",
 	"pg_get_userbyid",
 	"pg_get_viewdef",
+	"pg_has_role",
 	"pg_input_is_valid",
 	"pg_logical_emit_message",
 	"pg_logical_slot_peek_binary_changes",
@@ -746,6 +747,42 @@ export const databaseDefaultBlock = (statement: AlterDatabaseDefault): DoBlock =
  * database shares, and two that write it at once fail with XX000 (tuple concurrently updated): a second installation
  * waits for the first to commit, then writes it again.
  */
+/**
+ * How the migration identity gives the installation's decoder login its replication right: the REPLICATION attribute,
+ * which a superuser or a role holding it may give; or, on Amazon RDS, where no customer role holds it, a membership in
+ * rds_replication, inherited and never SET, which a role holding ADMIN on rds_replication may give.
+ */
+export type ReplicationGrant = "attribute" | "rdsReplication"
+
+/** The statement `grant` gives the decoder login by, its role quoted by format (`%I`). */
+const replicationStatement: { readonly [G in ReplicationGrant]: string } = {
+	attribute: "ALTER ROLE %I REPLICATION",
+	rdsReplication: "GRANT rds_replication TO %I WITH INHERIT TRUE, SET FALSE"
+}
+
+/**
+ * The DO block that gives the decoder login `role`, named as its installation's role space names it, its replication
+ * right by `grant` (ReplicationGrant): one EXECUTE of the statement, the role quoted as an identifier by format.
+ */
+export const replicationRightBlock = (role: string, grant: ReplicationGrant): DoBlock => ({
+	kind: "do",
+	declare: [],
+	body: [
+		{
+			kind: "execute",
+			command: {
+				kind: "formatted",
+				text: valueCall("format", [
+					lit.text(replicationStatement[grant], types.text),
+					lit.text(role, types.text)
+				])
+			},
+			into: undefined,
+			using: []
+		}
+	]
+})
+
 export const databasePrivilegeLock: Select = provedSelect(
 	"oneRow",
 	[

@@ -259,6 +259,8 @@ const reasonLines = (e: MigrateError): ReadonlyArray<string> => {
 		case "InputRefused":
 		case "LockUnread":
 		case "ApplyBusy":
+		case "WalLevelNotLogical":
+		case "DecoderUnreplicated":
 		case "LedgerUncompiled":
 		case "LedgerUnread":
 		case "LedgerDamaged":

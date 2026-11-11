@@ -315,7 +315,7 @@ export class RoleUnread extends Data.TaggedError("RoleUnread")<{ readonly failur
 
 /** The installation's namespace could not be read: the cluster's roles, or the schemas of its database. */
 export class NamespaceUnread extends Data.TaggedError("NamespaceUnread")<{
-	readonly what: "roles" | "schemas"
+	readonly what: "roles" | "schemas" | "publications"
 	readonly failure: RowFailure | FlightFailure
 }> {
 	override get message(): string {
@@ -466,6 +466,33 @@ export class LockUnread extends Data.TaggedError("LockUnread")<{
 }> {
 	override get message(): string {
 		return `the apply lock of ${this.schema} could not be taken: ${failureText(this.failure)}`
+	}
+}
+
+/**
+ * The server's wal_level is not logical: the live source of `schema` reads its changes by logical decoding of the WAL,
+ * which needs it, so the apply is refused before any statement runs.
+ */
+export class WalLevelNotLogical extends Data.TaggedError("WalLevelNotLogical")<{
+	readonly schema: string
+	readonly level: string
+}> {
+	override get message(): string {
+		return `the server's wal_level is ${this.level}, and the live source of ${this.schema} decodes the WAL, which needs wal_level = logical: run ALTER SYSTEM SET wal_level = logical, restart the server, and migrate again`
+	}
+}
+
+/**
+ * The decoder login `role` of `schema` holds no replication right once the files committed, and the migration identity
+ * can grant it neither the REPLICATION attribute, which takes a superuser or a role holding it, nor a membership in
+ * Amazon RDS's rds_replication, which takes ADMIN on that role.
+ */
+export class DecoderUnreplicated extends Data.TaggedError("DecoderUnreplicated")<{
+	readonly schema: string
+	readonly role: string
+}> {
+	override get message(): string {
+		return `the decoder login ${this.role} of ${this.schema} holds no replication right, and the migration identity can grant none: as a superuser, run ALTER ROLE "${this.role}" REPLICATION; on Amazon RDS, as a member of rds_superuser, run GRANT rds_replication TO "${this.role}" WITH INHERIT TRUE, SET FALSE; then migrate again`
 	}
 }
 
@@ -782,6 +809,8 @@ export type MigrateReason =
 	| InputRefused
 	| LockUnread
 	| ApplyBusy
+	| WalLevelNotLogical
+	| DecoderUnreplicated
 	| LedgerUncompiled
 	| LedgerUnread
 	| LedgerDamaged
@@ -812,6 +841,8 @@ const stageOf: { readonly [Tag in MigrateReason["_tag"]]: MigrateStage } = {
 	InputRefused: "input",
 	LockUnread: "busy",
 	ApplyBusy: "busy",
+	WalLevelNotLogical: "server",
+	DecoderUnreplicated: "drift",
 	LedgerUncompiled: "ledger",
 	LedgerUnread: "ledger",
 	LedgerDamaged: "ledger",
@@ -860,6 +891,8 @@ export class MigrateError extends Data.TaggedError("MigrateError")<{
 			case "InputRefused":
 			case "LockUnread":
 			case "ApplyBusy":
+			case "WalLevelNotLogical":
+			case "DecoderUnreplicated":
 			case "LedgerUncompiled":
 			case "LedgerUnread":
 			case "LedgerDamaged":
@@ -918,6 +951,8 @@ export class MigrateError extends Data.TaggedError("MigrateError")<{
 			case "OwnedByAnother":
 			case "LockUnread":
 			case "ApplyBusy":
+			case "WalLevelNotLogical":
+			case "DecoderUnreplicated":
 			case "LedgerUncompiled":
 			case "LedgerUnread":
 			case "LedgerDamaged":
@@ -955,6 +990,8 @@ export class MigrateError extends Data.TaggedError("MigrateError")<{
 			case "InputRefused":
 			case "LockUnread":
 			case "ApplyBusy":
+			case "WalLevelNotLogical":
+			case "DecoderUnreplicated":
 			case "LedgerUncompiled":
 			case "LedgerUnread":
 			case "LedgerDamaged":

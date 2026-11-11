@@ -23,7 +23,15 @@ import {
 	type UninstallStatement
 } from "#compiler/plan/catalog.ts"
 import { defect, emit, emitCatalog } from "#compiler/plan/common.ts"
-import { filledText, namespaceStem, resolveVariables } from "#compiler/plan/migration.ts"
+import {
+	dropLiveSlot,
+	filledText,
+	identifierOf,
+	identity,
+	namespaceStem,
+	resolveVariables,
+	roleInSpace
+} from "#compiler/plan/migration.ts"
 
 /**
  * `grizzle roles` and `grizzle uninstall`: an installation's roles in the cluster, and its removal from its database
@@ -47,9 +55,14 @@ import { filledText, namespaceStem, resolveVariables } from "#compiler/plan/migr
  * space as migrate fills a drafted file's (deploy/render/variables.ts), so the role dropped is the role listed.
  */
 
-/** An installation's namespace: its levels' PostgreSQL schemas, every configured schema's, and its connection. */
+/**
+ * An installation's namespace: its levels' PostgreSQL schemas, every configured schema's; the stem of each configured
+ * schema's live source (core/identity.ts identity.liveSource of its root), its publication's name in the database and
+ * its slot's and decoder login's under the role space; and its connection.
+ */
 interface Namespace {
 	readonly levels: ReadonlySet<string>
+	readonly sources: ReadonlyArray<string>
 	readonly session: MigrationSession
 }
 
@@ -105,19 +118,44 @@ const readAlone = <Row>(
 		(failure) => stopped(new NamespaceUnread({ what, failure }))
 	)
 
-/** The installation's roles in the cluster: every role in its namespace (namespaceStem), in code point order. */
+/**
+ * The installation's roles in the cluster: every role in its namespace (namespaceStem), and each decoder login of its
+ * live sources the cluster holds, in code point order.
+ */
 const namespaceRoles = (
 	namespace: Namespace
 ): Effect.Effect<ReadonlyArray<NamespaceRole>, MigrateError> =>
-	Effect.map(readAlone(namespace.session, roleNames, [], "roles"), (names) =>
-		Arr.sort(
+	Effect.map(readAlone(namespace.session, roleNames, [], "roles"), (names) => {
+		const space = namespace.session.installation.roles
+		const decoders = new Map(
+			Arr.flatMap(namespace.sources, (stem) => {
+				const role = roleInSpace(space, stem)
+				return role.ok ? [[role.value, stem] as const] : []
+			})
+		)
+		return Arr.sort(
 			Arr.flatMap(names, (role) => {
-				const stem = namespaceStem(namespace.session.installation.roles, namespace.levels, role)
+				const stem = namespaceStem(space, namespace.levels, role) ?? decoders.get(role)
 				return stem === undefined ? [] : [{ role, stem }]
 			}),
 			(a: NamespaceRole, b: NamespaceRole) => (a.role < b.role ? -1 : a.role > b.role ? 1 : 0)
 		)
-	)
+	})
+
+const publications = C.from("pg_publication", "p")
+
+/** The publications of the database among the names $1. */
+const publicationsNamed: CatalogQuery<string> = {
+	sql: emitCatalog(
+		C.query(
+			[C.asText(publications.col("pubname"))],
+			[publications.item],
+			C.any(C.asText(publications.col("pubname")), C.arrayParam(1, "text"))
+		)
+	),
+	what: "a publication name",
+	row: ([name]) => name
+}
 
 /** The namespace of the session's installation over `targets`' snapshots' levels. */
 const namespaceOf = (
@@ -125,6 +163,7 @@ const namespaceOf = (
 	targets: ReadonlyArray<MigrationTarget>
 ): Namespace => ({
 	levels: new Set(Arr.flatMap(targets, (t) => Arr.map(t.snapshot.levels, (l) => l.schema))),
+	sources: Arr.map(targets, (t) => identifierOf(identity.liveSource(t.snapshot.schema))),
 	session
 })
 
@@ -150,18 +189,36 @@ const privilegeLock = (): BatchStatement => {
 	return oneShotStatement(lock.value.text, [])
 }
 
+/** A statement of the SQL AST as uninstall sends it, printed. */
+const emitted = (statement: Parameters<typeof emit>[0]): BatchStatement => {
+	const printed = emit(statement, emptyNameMap)
+	if (!printed.ok) {
+		throw defect(`uninstall's ${statement.kind} prints`)
+	}
+	return oneShotStatement(printed.value.text, [])
+}
+
 /**
- * The statements of the transaction that drops `schemas` and `roles`, in order (sql/catalog.ts UninstallStatement); none
- * for an installation that holds neither.
+ * The statements of the transaction that drops `sources`' slots, wherever their leaders created one, which PostgreSQL
+ * refuses while a leader streams from it, `publications`, `schemas` and `roles`, in order (sql/catalog.ts
+ * UninstallStatement); none for an installation that holds none.
  */
 const uninstallStatements = (
 	session: MigrationSession,
+	sources: ReadonlyArray<string>,
+	publications: ReadonlyArray<string>,
 	schemas: ReadonlyArray<string>,
 	roles: ReadonlyArray<NamespaceRole>
 ): ReadonlyArray<BatchStatement> => {
-	const dropped = Arr.isReadonlyArrayNonEmpty(schemas)
-		? [sent(session, { kind: "dropSchemas", schemas })]
-		: []
+	const dropped = [
+		...Arr.map(publications, (name) => emitted({ kind: "dropPublication", name })),
+		...(Arr.isReadonlyArrayNonEmpty(publications)
+			? Arr.map(sources, (stem) => emitted(dropLiveSlot(stem)))
+			: []),
+		...(Arr.isReadonlyArrayNonEmpty(schemas)
+			? [sent(session, { kind: "dropSchemas", schemas })]
+			: [])
+	]
 	const stems = Arr.map(roles, (r) => r.stem)
 	return Arr.isReadonlyArrayNonEmpty(stems)
 		? [
@@ -197,7 +254,13 @@ export const uninstall = Effect.fn("uninstall")(function* (input: {
 	const roles = yield* namespaceRoles(namespace)
 	const candidates = [...namespace.levels, ...Arr.map(roles, (r) => r.stem)]
 	const schemas = yield* readAlone(session, schemasNamed, [textArray(candidates)], "schemas")
-	const statements = uninstallStatements(session, schemas, roles)
+	const published = yield* readAlone(
+		session,
+		publicationsNamed,
+		[textArray(namespace.sources)],
+		"publications"
+	)
+	const statements = uninstallStatements(session, namespace.sources, published, schemas, roles)
 	if (Arr.isReadonlyArrayNonEmpty(statements)) {
 		yield* Effect.mapError(session.transaction(statements), (failure) =>
 			stopped(

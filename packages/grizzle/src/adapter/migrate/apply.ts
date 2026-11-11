@@ -34,7 +34,8 @@ import {
 	StatementFailed,
 	type StatementFailure,
 	stopped,
-	TransactionFailed
+	TransactionFailed,
+	WalLevelNotLogical
 } from "#adapter/migrate/errors.ts"
 
 import {
@@ -53,6 +54,16 @@ import {
 	ledgerReads,
 	statementsFor
 } from "#adapter/migrate/ledger.ts"
+import {
+	attributeGrantColumn,
+	decoderRole,
+	grantReplicationRight,
+	holdsLiveSource,
+	membershipGrantColumn,
+	type ReplicationGrants,
+	replicationHeldQuery,
+	walLevelColumn
+} from "#adapter/migrate/live.ts"
 import { type ApplyPlan, planApply, runFiles } from "#adapter/migrate/plan.ts"
 import {
 	apartRow,
@@ -81,7 +92,7 @@ import {
 	sqlstateClass,
 	sqlstates
 } from "#compiler/plan/common.ts"
-import type { FolderLaws, InstallationNames } from "#compiler/plan/migration.ts"
+import type { FolderLaws, InstallationNames, RoleSpace } from "#compiler/plan/migration.ts"
 import { textParam } from "#compiler/plan/read.ts"
 import type { DeploySnapshot, LedgerStatements } from "#compiler/plan/serve.ts"
 
@@ -189,17 +200,45 @@ const applyLock = (schema: string): ApplyLock => {
 }
 const roleName = ([name]: ReadonlyArray<string>): string | undefined => name
 
-/** The session's role and the server's max_stack_depth in kilobytes (admission/expectation.ts stackDepthColumn). */
+/**
+ * The session's role, the server's max_stack_depth in kilobytes (admission/expectation.ts stackDepthColumn) and its
+ * wal_level, and what the session's role may give a decoder login (live.ts ReplicationGrants).
+ */
 interface SessionRow {
 	readonly user: string
 	readonly stackDepth: string
+	readonly walLevel: string
+	readonly grants: ReplicationGrants
 }
 
 const sessionRead: CatalogQuery<SessionRow> = {
-	sql: emitCatalog(C.query([C.asText(C.currentUser), stackDepthColumn], [], undefined)),
-	what: "a role name and a setting",
-	row: ([user, stackDepth]) =>
-		user === undefined || stackDepth === undefined ? undefined : { user, stackDepth }
+	sql: emitCatalog(
+		C.query(
+			[
+				C.asText(C.currentUser),
+				stackDepthColumn,
+				walLevelColumn,
+				attributeGrantColumn,
+				membershipGrantColumn
+			],
+			[],
+			undefined
+		)
+	),
+	what: "a role name, two settings and two privileges",
+	row: ([user, stackDepth, walLevel, attribute, membership]) =>
+		user === undefined ||
+		stackDepth === undefined ||
+		walLevel === undefined ||
+		(attribute !== "true" && attribute !== "false") ||
+		(membership !== "true" && membership !== "false")
+			? undefined
+			: {
+					user,
+					stackDepth,
+					walLevel,
+					grants: { attribute: attribute === "true", membership: membership === "true" }
+				}
 }
 
 const serverSettings = C.from("pg_settings", "s")
@@ -287,6 +326,8 @@ interface Planned {
 	readonly plan: ApplyPlan
 	/** Whether the ledger existed when the apply read it, under its apply lock. */
 	readonly ledger: LedgerTable
+	/** The decoder login of the schema's live source under the session's role space, and whether it held its right. */
+	readonly decoder: { readonly role: string; readonly held: boolean }
 }
 
 /** A schema's input, checked before anything is read: its parsed target, its ledger statements and its apply lock. */
@@ -313,18 +354,21 @@ const checkTarget = (
  * lock, and its ledger's two reads (ledger.ts ledgerReads). Each read's answer is at its position in this list,
  * counted from the schema's first answer.
  */
-const schemaReadOrder = ["owner", "lock", "ledgerExists", "ledgerRows"] as const
+const schemaReadOrder = ["owner", "lock", "ledgerExists", "ledgerRows", "decoder"] as const
 type SchemaRead = (typeof schemaReadOrder)[number]
 
 /** The statements of a schema's survey reads, in schemaReadOrder. */
-const schemaReads = (checked: Checked): ReadonlyArray<BatchStatement> => {
+const schemaReads = (checked: Checked, roles: RoleSpace): ReadonlyArray<BatchStatement> => {
 	const schema = checked.parsed.schema
 	const [ledgerExists, ledgerRows] = ledgerReads(schema, checked.statements)
 	const reads: { readonly [R in SchemaRead]: BatchStatement } = {
 		owner: oneShotStatement(schemaOwner.sql, [textParam(schema)]),
 		lock: oneShotStatement(checked.lock.take.sql, []),
 		ledgerExists,
-		ledgerRows
+		ledgerRows,
+		decoder: oneShotStatement(replicationHeldQuery.sql, [
+			textParam(decoderRole(checked.parsed.snapshot, roles))
+		])
 	}
 	return Arr.map(schemaReadOrder, (read) => reads[read])
 }
@@ -364,7 +408,8 @@ const planSchema = (
 	checked: Checked,
 	answers: ReadonlyArray<ApartAnswer>,
 	at: number,
-	user: string
+	user: string,
+	roles: RoleSpace
 ): Result.Result<Planned, MigrateError> =>
 	Result.gen(function* () {
 		const { parsed, statements, lock } = checked
@@ -392,7 +437,17 @@ const planSchema = (
 			stopped
 		)
 		const plan = yield* planApply(parsed, read.state)
-		return { snapshot: parsed.snapshot, statements, plan, ledger: read.table }
+		const held = yield* Result.mapError(
+			apartRow(replicationHeldQuery, readAnswer(answers, at, "decoder")),
+			(failure) => stopped(new RoleUnread({ failure }))
+		)
+		return {
+			snapshot: parsed.snapshot,
+			statements,
+			plan,
+			ledger: read.table,
+			decoder: { role: decoderRole(parsed.snapshot, roles), held }
+		}
 	})
 
 /**
@@ -404,14 +459,18 @@ const planSchema = (
 const surveyAll = Effect.fn("surveyAll")(function* (
 	session: MigrationSession,
 	checked: ReadonlyArray<Checked>
-): Effect.fn.Return<ReadonlyArray<Planned>, MigrateError, Scope.Scope> {
+): Effect.fn.Return<
+	{ readonly planned: ReadonlyArray<Planned>; readonly grants: ReplicationGrants },
+	MigrateError,
+	Scope.Scope
+> {
 	const answers = yield* Effect.mapError(
 		Effect.uninterruptibleMask((restore) =>
 			Effect.tap(
 				restore(
 					session.apart([
 						oneShotStatement(sessionRead.sql, []),
-						...Arr.flatMap(checked, (c) => schemaReads(c))
+						...Arr.flatMap(checked, (c) => schemaReads(c, session.installation.roles))
 					])
 				),
 				(read) => {
@@ -425,7 +484,7 @@ const surveyAll = Effect.fn("surveyAll")(function* (
 		(failure) => stopped(new SurveyFailed({ failure }))
 	)
 	/** The session's role and the server's setting concern no schema. */
-	const { user, stackDepth } = yield* Effect.fromResult(
+	const { user, stackDepth, walLevel, grants } = yield* Effect.fromResult(
 		Result.mapError(apartRow(sessionRead, sentAnswer(answers, 0)), (failure) =>
 			stopped(new RoleUnread({ failure }))
 		)
@@ -435,12 +494,20 @@ const surveyAll = Effect.fn("surveyAll")(function* (
 			new StackTooShallow({ observed: stackDepth, required: stackDepthRequired })
 		)
 	}
+	const [sourced] = Arr.filter(checked, (c) => holdsLiveSource(c.parsed.snapshot))
+	if (sourced !== undefined && walLevel !== "logical") {
+		return yield* stopped(
+			new WalLevelNotLogical({ schema: sourced.parsed.schema, level: walLevel })
+		)
+	}
 	const planned: Array<Planned> = []
 	for (const [i, c] of checked.entries()) {
-		const schemaPlan = yield* Effect.fromResult(planSchema(c, answers, answersFrom(i), user))
+		const schemaPlan = yield* Effect.fromResult(
+			planSchema(c, answers, answersFrom(i), user, session.installation.roles)
+		)
 		planned.push(schemaPlan)
 	}
-	return planned
+	return { planned, grants }
 })
 
 /**
@@ -765,11 +832,14 @@ export const applyOnSession = Effect.fn("applyOnSession")(function* (
 		const checkedTarget = yield* Effect.fromResult(checkTarget(t, session.installation))
 		checked.push(checkedTarget)
 	}
-	const planned = yield* surveyAll(session, checked)
+	const { planned, grants } = yield* surveyAll(session, checked)
 	const reports: Array<SchemaApplyReport> = []
 	for (const p of planned) {
 		const report = yield* runPlan(session, p)
 		reports.push(report)
+	}
+	for (const p of planned) {
+		yield* grantReplicationRight(session, p.snapshot, p.decoder.role, p.decoder.held, grants)
 	}
 	for (const p of planned) {
 		yield* checkDrift(session, p.snapshot, p.statements)

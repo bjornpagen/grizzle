@@ -1,7 +1,8 @@
 import { identifierOf, identity } from "#compiler/core/identity.ts"
+import { defect } from "#compiler/core/invariant.ts"
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { LivePlan, LiveTable } from "#compiler/live/notify.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
-import { primaryKeyColumns } from "#compiler/physical/ddl/tables.ts"
 import { enforcement, type Node } from "#compiler/physical/obligations/graph.ts"
 import type { Grant, ObjectName, PublishedTable, Select } from "#compiler/sql/ast.ts"
 import {
@@ -88,24 +89,36 @@ export const secretGrants = (secret: LiveSecretTable, role: string): ReadonlyArr
 			]
 
 /**
+ * The columns of a footprint table's primary key, in key order, as its CREATE TABLE declares it: what its REPLICA
+ * IDENTITY DEFAULT holds, which a column list of the publication must cover, a span key's law column among them.
+ */
+const keyColumns = (b: InstallBuilder, relation: string): NonEmptyReadonlyArray<string> => {
+	const created = b.evaluatedOn(relation).find((s) => s.kind === "createTable")
+	if (created?.kind !== "createTable") {
+		throw defect(`the CREATE TABLE of the footprint table of ${relation}`)
+	}
+	return mapNonEmpty(created.primaryKey.columns, (c) => c.column)
+}
+
+/**
  * The REPLICA IDENTITY a footprint table takes: `key`, its primary key's, where every field it routes by is a column
  * of the key; `full` otherwise, so the old value of each routed column survives in an update's or a delete's record.
  */
-export const identityOf = (b: InstallBuilder, table: LiveTable): "key" | "full" => {
-	const key = new Set(primaryKeyColumns(b, table.relation))
+const identityOf = (b: InstallBuilder, table: LiveTable): "key" | "full" => {
+	const key = new Set(keyColumns(b, table.relation))
 	return table.routes.every((field) => key.has(b.names.column(table.relation, field)))
 		? "key"
 		: "full"
 }
 
 /** The publication's tables: each footprint table, a FULL one whole, a key-identity one by its key's columns. */
-export const publishedTables = (b: InstallBuilder, plan: LivePlan): ReadonlyArray<PublishedTable> =>
+const publishedTables = (b: InstallBuilder, plan: LivePlan): ReadonlyArray<PublishedTable> =>
 	plan.tables.map((table) => ({
 		table: b.names.relation(table.relation),
 		columns:
 			identityOf(b, table) === "full"
 				? { kind: "whole" }
-				: { kind: "listed", columns: primaryKeyColumns(b, table.relation) }
+				: { kind: "listed", columns: keyColumns(b, table.relation) }
 	}))
 
 /**

@@ -30,3 +30,14 @@ tls_psql() {
 pg_running() {
 	"$(pg_bin pg_ctl)" -D "$GRIZZLE_PG_DATA" status >/dev/null 2>&1
 }
+
+# The most live sources the cluster serves at once, which max_replication_slots and max_wal_senders must each hold:
+# test/support/substrate/shared.ts liveSlotBound, the one formula, over the running cluster's max_connections,
+# superuser_reserved_connections and reserved_connections.
+live_slot_bound() {
+	local settings
+	settings="$(admin_psql -d postgres -At -F ' ' -c "SELECT current_setting('max_connections'), current_setting('superuser_reserved_connections'), current_setting('reserved_connections')")"
+	(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && node --conditions=grizzle-source --input-type=module -e \
+		"const { liveSlotBound } = await import('#test/support/substrate/shared.ts'); const [m, s, r] = process.argv.slice(1).map(Number); console.log(liveSlotBound(m, s, r))" \
+		-- $settings)
+}

@@ -323,11 +323,14 @@ export const noLive: LivePlan = { tables: [], views: [] }
  * An installation's live change source in installed terms, which generate derives from its plan and its names: none
  * where its plan is empty, so no publication, decoder login or secret is installed for it; otherwise each published
  * table, a footprint table of a stored relation, by its installed identifier, with the identifiers of the columns it
- * routes by in code point order, which the reader of its changes keys each changed row by.
+ * routes by in code point order, which the reader of its changes keys each changed row by; and each materialized view
+ * of the plan, by its installed identifier in code point order, the only relation whose table's key a transactional
+ * message may announce, since no change of a row reaches one.
  */
 export type LiveSource =
 	| { readonly kind: "none" }
 	| {
 			readonly kind: "source"
 			readonly tables: Readonly<Record<string, ReadonlyArray<string>>>
+			readonly views: ReadonlyArray<string>
 	  }

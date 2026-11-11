@@ -805,7 +805,8 @@ const liveSourceOf = (installation: Installation): LiveSource => {
 								t.routes.map((field) => names.column(t.relation, field)).toSorted(compareStrings)
 							] as const
 					)
-				)
+				),
+				views: live.views.map((view) => names.relation(view).name).toSorted(compareStrings)
 			}
 }
 

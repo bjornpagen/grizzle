@@ -37,6 +37,22 @@ check "jit is off by default" "off" \
 check "max_pred_locks_per_transaction is 2048" "2048" \
 	"$(dev "$PG_DEV_ROLE" -At -c "SHOW max_pred_locks_per_transaction")"
 
+check "wal_level is logical" "logical" \
+	"$(dev "$PG_DEV_ROLE" -At -c "SHOW wal_level")"
+bound="$(live_slot_bound)"
+for setting in max_replication_slots max_wal_senders; do
+	held="$(dev "$PG_DEV_ROLE" -At -c "SHOW $setting")"
+	if ((held >= bound)); then
+		pass "$setting holds the live source bound $bound"
+	else
+		fail "$setting holds the live source bound $bound" "it is $held: scripts/pg/init.sh's ALTER SYSTEM, then a restart"
+	fi
+done
+check "$PG_DEV_ROLE holds REPLICATION, to give each decoder login its right" "t" \
+	"$(dev "$PG_DEV_ROLE" -At -c "SELECT rolreplication FROM pg_catalog.pg_roles WHERE rolname = current_user")"
+check "a hostssl scram line admits every role to every database, the decoder logins' logical replication too" "t" \
+	"$(admin_psql -d postgres -At -c "SELECT bool_or(type = 'hostssl' AND 'all' = ANY(database) AND 'all' = ANY(user_name) AND auth_method = 'scram-sha-256') FROM pg_catalog.pg_hba_file_rules")"
+
 check "$PG_DEV_ROLE holds SET on deadlock_timeout" "t" \
 	"$(dev "$PG_DEV_ROLE" -At -c "SELECT has_parameter_privilege('deadlock_timeout', 'SET')")"
 

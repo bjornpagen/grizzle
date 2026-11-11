@@ -55,6 +55,8 @@ ssl_key_file = '$GRIZZLE_PG_TLS/server.key'
 ssl_min_protocol_version = 'TLSv1.3'
 password_encryption = 'scram-sha-256'
 track_io_timing = on
+# Every installation with live reads decodes the WAL (logical decoding): migrate refuses one below logical.
+wal_level = logical
 # Every transaction is SERIALIZABLE, and the network tier's workers hold many open at once; the default 64 runs out (53200).
 max_pred_locks_per_transaction = 2048
 logging_collector = on
@@ -76,7 +78,9 @@ EOF
 
 dev_password="$(cat "$GRIZZLE_PG_DEV_PASSWORD_FILE")"
 admin_psql -d postgres <<SQL
-CREATE ROLE $PG_DEV_ROLE LOGIN CREATEDB CREATEROLE PASSWORD '$dev_password';
+-- REPLICATION, so the migration identity gives each installation's decoder login its replication right, which only a
+-- role holding it may give.
+CREATE ROLE $PG_DEV_ROLE LOGIN CREATEDB CREATEROLE REPLICATION PASSWORD '$dev_password';
 -- deadlock_timeout is superuser-only; every test database stores it low as its own default, so the concurrency
 -- driver's wait for each blocked step's deadlock check is short.
 GRANT SET ON PARAMETER deadlock_timeout TO $PG_DEV_ROLE;
@@ -97,6 +101,20 @@ SQL
 admin_psql -d postgres -c "CREATE DATABASE $PG_DEV_ROLE OWNER $PG_DEV_ROLE TEMPLATE $PG_TEMPLATE_DB"
 # A session inside the template would make every clone fail.
 admin_psql -d postgres -c "ALTER DATABASE $PG_TEMPLATE_DB ALLOW_CONNECTIONS false"
+
+# Each live source's leader holds one slot and one walsender: raise both to the bound where the defaults fall short,
+# which takes a restart.
+bound="$(live_slot_bound)"
+raised=0
+for setting in max_replication_slots max_wal_senders; do
+	if (($(admin_psql -d postgres -At -c "SHOW $setting") < bound)); then
+		admin_psql -d postgres -c "ALTER SYSTEM SET $setting = $bound"
+		raised=1
+	fi
+done
+if ((raised)); then
+	"$(pg_bin pg_ctl)" -D "$GRIZZLE_PG_DATA" -l "$GRIZZLE_PG_LOG/startup.log" -w restart >/dev/null
+fi
 
 echo "Cluster ready: PostgreSQL $PG_PIN_VERSION on localhost:$PG_PORT (verify-full TLS, CA $GRIZZLE_PG_TLS/ca.crt)"
 echo "Owner role $PG_DEV_ROLE; password in $GRIZZLE_PG_DEV_PASSWORD_FILE; template database $PG_TEMPLATE_DB"

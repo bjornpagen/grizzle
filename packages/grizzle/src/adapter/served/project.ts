@@ -376,7 +376,10 @@ export const servedFileOf = (
 			schema,
 			prologue: { fence: prepared(ledger.fence.text), enter: prepared(ledger.enter.text) },
 			session: servedSession,
-			live: servedLiveOf(root, snapshot.derived.live),
+			live:
+				compiled.footprints.size === 0
+					? { kind: "none" }
+					: servedLiveOf(root, snapshot.derived.live),
 			rosters: new Map(
 				Arr.map(
 					Arr.filter([...snapshot.codes.rosters], ([name]) => used.has(name)),

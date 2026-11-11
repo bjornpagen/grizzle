@@ -128,6 +128,31 @@ export const connectionsPerLease = testPoolMax + substrateSessions.length
 /** Connections no lease covers: the global setup, the doctor, the sweep, and an operator's psql. */
 const unleasedConnections = 5
 
+/**
+ * The installations on the local cluster outside the substrate's databases that serve live reads, each its own live
+ * source, slot and walsender: qti-pie's and the dev database's.
+ */
+const standingInstallations = ["gr8des_qti", "the dev database"] as const
+
+/**
+ * The most live sources the local cluster serves at once, which its max_replication_slots and max_wal_senders hold:
+ * one leader's slot and walsender per substrate's watched installation, which each substrate holds one of at a time,
+ * so one per lease slot a cluster of `maxConnections`, `superuserReserved` and `reserved` connections admits (as
+ * takeLease reads them), and one per standing installation. scripts/pg/init.sh sets both settings to it where they fall
+ * short, and scripts/pg/doctor.sh checks them against it.
+ */
+export const liveSlotBound = (
+	maxConnections: number,
+	superuserReserved: number,
+	reserved: number
+): number =>
+	Math.max(
+		1,
+		Math.floor(
+			(maxConnections - superuserReserved - reserved - unleasedConnections) / connectionsPerLease
+		)
+	) + standingInstallations.length
+
 const leaseSlotsQuery = `SELECT GREATEST(1, (pg_catalog.current_setting('max_connections')::int4
 	- pg_catalog.current_setting('superuser_reserved_connections')::int4
 	- pg_catalog.current_setting('reserved_connections')::int4 - $1::int4) / $2::int4)`
@@ -311,13 +336,24 @@ const running = (pid: number): boolean => {
 }
 
 /**
- * Drops `name` on `admin`, terminating its sessions. The sweep's alone: DROP DATABASE holds its transaction id while it
+ * Drops `name` on `admin`, terminating its sessions, after the logical replication slots of its installations' live
+ * sources, which PostgreSQL refuses to drop a database under (55006), each leader streaming from one terminated first. The sweep's alone: DROP DATABASE holds its transaction id while it
  * waits for the checkpoint it forces, which pins every SERIALIZABLE snapshot's xmin meanwhile and makes PostgreSQL
  * summarize the other files' committed transactions (test/support/pg.ts freshDatabase), so nothing drops a database
  * while a test file runs.
  */
 const dropDatabase = (admin: PgConnection, name: string): Effect.Effect<void, SqlError> =>
-	Effect.asVoid(admin.query(`DROP DATABASE IF EXISTS ${quoteIdent(name)} WITH (FORCE)`, []))
+	Effect.gen(function* () {
+		yield* admin.query(
+			"SELECT pg_catalog.pg_terminate_backend(active_pid) FROM pg_catalog.pg_replication_slots WHERE database = $1::name AND active_pid IS NOT NULL",
+			[name]
+		)
+		yield* admin.query(
+			"SELECT pg_catalog.pg_drop_replication_slot(slot_name) FROM pg_catalog.pg_replication_slots WHERE database = $1::name",
+			[name]
+		)
+		yield* admin.query(`DROP DATABASE IF EXISTS ${quoteIdent(name)} WITH (FORCE)`, [])
+	})
 
 /**
  * Whether every test file process `pid` ran has ended: it is this process, which calls the sweep only when no test file

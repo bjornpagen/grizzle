@@ -63,7 +63,14 @@ export { openApiDirectory, openApiPath, openApiText } from "#compiler/live/opena
 export { type UnservedMember, type UnservedReason } from "#compiler/served/unserved.ts"
 export { filledText } from "#compiler/sql/emit.ts"
 export { lex, type Token } from "#compiler/sql/lexer.ts"
-export { type InstalledRoleTooLong, namespaceStem } from "#compiler/core/identity.ts"
+export {
+	identifierOf,
+	identity,
+	type InstalledRoleTooLong,
+	namespaceStem,
+	roleInSpace,
+	type RoleSpace
+} from "#compiler/core/identity.ts"
 export {
 	type InstallationNames,
 	resolveVariables,
@@ -73,3 +80,4 @@ export {
 } from "#compiler/deploy/render/variables.ts"
 export { servedMembers } from "#compiler/write/program/served-members.ts"
 export { servedMatchers } from "#compiler/served/matchers.ts"
+export { dropLiveSlot } from "#compiler/physical/ddl/live.ts"

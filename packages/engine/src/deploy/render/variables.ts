@@ -1,4 +1,9 @@
-import { roleInSpace, isConversion, type RoleSpace } from "#compiler/core/identity.ts"
+import {
+	isConversion,
+	isHashedIdentifier,
+	roleInSpace,
+	type RoleSpace
+} from "#compiler/core/identity.ts"
 import * as Result from "#compiler/core/result.ts"
 import { type Lexeme, lexemesOf } from "#compiler/sql/lexer.ts"
 import { databaseVariable, quoteIdent } from "#compiler/sql/print.ts"
@@ -43,11 +48,15 @@ export type VariableFault =
 
 /**
  * What a variable's name stands for: DBNAME the database; a role stem, `<schema>__<name>`, two conversions joined by
- * `__` (core/identity.ts identity.login and identity.role), a role; any other name nothing.
+ * `__` (core/identity.ts identity.login and identity.role), or a hashed identifier, the decoder login's stem
+ * (identity.liveSource), a role; any other name nothing.
  */
 export const variableOf = (name: string): Variable | undefined => {
 	if (name === databaseVariable) {
 		return { kind: "database" }
+	}
+	if (isHashedIdentifier(name)) {
+		return { kind: "role", stem: name }
 	}
 	const at = name.indexOf("__")
 	return at > 0 && isConversion(name.slice(0, at)) && isConversion(name.slice(at + 2))

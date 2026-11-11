@@ -153,13 +153,16 @@ export interface ServedSession {
  * - `stem`: the replication slot's and the decoder login's stem, each named in the cluster under the installation's
  *   role space (core/identity.ts roleInSpace), which every slot parameter (`$1::name`) is filled with;
  * - `tables`: each published table by its installed identifier, with the columns it routes by;
+ * - `views`: each materialized view of the plan by its installed identifier, the only relation whose table's key an
+ *   announced message may name; any other message's content is no installation's sender's;
  * - `secret`: the live secret's one cell, as hex (live/notify.ts parseLiveSecret);
  * - `lock`: the session-level advisory lock of the leadership, a simple query;
  * - `check`: whether the slot stands in the current database, not invalidated;
  * - `visible`: for each transaction id of `$1::text[]`, whether the statement's snapshot holds its commit;
  * - `fanout`: a notification on the channel for each payload of `$1::text[]`;
- * - `announce`: the sealed payload `$1::text` emitted as a transactional message under the publication's prefix, which
- *   the leader decodes and sends on with the transaction that announced it.
+ * - `announce`: the text of a materialized view's table key, `$1::text` (live/notify.ts notificationText), emitted as
+ *   a transactional message under the publication's prefix, which the leader decodes and sends on with the transaction
+ *   that announced it, since PUBLIC may emit one.
  */
 export type ServedLive =
 	| { readonly kind: "none" }
@@ -168,6 +171,7 @@ export type ServedLive =
 			readonly publication: string
 			readonly stem: string
 			readonly tables: Readonly<Record<string, ReadonlyArray<string>>>
+			readonly views: ReadonlyArray<string>
 			readonly listen: EmittedText
 			readonly lock: EmittedText
 			readonly secret: Prepared<EmittedText>

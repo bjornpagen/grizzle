@@ -79,11 +79,22 @@ export const uniqueSchemaNameOfLength = (
 
 /**
  * The process that allocated a uniqueSchemaName schema, read off any name the door minted under
- * it or a role roleName names under it; none for any other name. The global setup drops what a dead process left
+ * it, its decoder login's among them, or a role roleName names under it; none for any other name. The global setup drops what a dead process left
  * behind (shared.ts).
  */
 export const allocatingPid = (name: string): Option.Option<number> =>
-	Option.map(Option.fromNullishOr(allocation.exec(name)?.[1]), (pid) => Number(pid))
+	Option.map(
+		Option.fromNullishOr(
+			allocation.exec(Str.startsWith(liveLead)(name) ? Str.slice(liveLead.length)(name) : name)?.[1]
+		),
+		(pid) => Number(pid)
+	)
+
+/**
+ * The lead of a decoder login's stem (core/identity.ts identity.liveSource): `__live_`, then its root schema's segments,
+ * an allocation's, so the sweep reads its process off the rest.
+ */
+const liveLead = "__live_"
 
 /** A role a test creates under an allocated `schema`: `<schema>__<name>`, which starts with rolePrefix(schema). */
 export const roleName = (schema: string, name: string): string => {

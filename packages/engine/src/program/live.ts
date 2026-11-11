@@ -68,6 +68,7 @@ export const servedLiveOf = (root: string, source: LiveSource): ServedLive => {
 		publication,
 		stem: publication,
 		tables: source.tables,
+		views: source.views,
 		listen: emitCatalog({ kind: "listen", channel: publication }),
 		secret: preparedRead(
 			query([call("encode", [secret.col("secret"), text("hex")])], [secret.item], undefined)

@@ -2,6 +2,7 @@ import { NodeChildProcessSpawner, NodeFileSystem, NodePath } from "@effect/platf
 import { Array as Arr, Context, Effect, Layer, Option, Redacted, Ref, type Scope } from "effect"
 import { ChildProcessSpawner } from "effect/process"
 import { Client } from "pg"
+import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { advisoryKey } from "#compiler/sql/catalog.ts"
 import { quoteIdent, quoteString } from "#compiler/sql/print.ts"
@@ -421,14 +422,32 @@ const build = Effect.fnUntraced(function* (
 			}
 		})
 
-	/** A schema name the run holds: its finalizer drops every role named `<schema>__*` and each role's schema, then the
-	 * schema; created as the owner when `create` says so. */
+	/** A schema name the run holds: its finalizer drops its installation's live source, the slot a leader created, its
+	 * publication and its decoder login, then every role named `<schema>__*` and each role's schema, then the schema;
+	 * created as the owner when `create` says so. */
 	const allocated = (name: string, create: boolean) =>
 		Effect.gen(function* () {
 			yield* Effect.addFinalizer(() =>
 				Effect.orDie(
 					Effect.gen(function* () {
 						yield* dropRoleSchemas(rolePrefix(name))
+						const source = identifierOf(identity.liveSource(name))
+						yield* admin.query(
+							"SELECT pg_catalog.pg_terminate_backend(active_pid) FROM pg_catalog.pg_replication_slots WHERE slot_name = $1::name AND active_pid IS NOT NULL",
+							[source]
+						)
+						yield* admin.query(
+							"SELECT pg_catalog.pg_drop_replication_slot(slot_name) FROM pg_catalog.pg_replication_slots WHERE slot_name = $1::name",
+							[source]
+						)
+						yield* admin.query(`DROP PUBLICATION IF EXISTS ${quoteIdent(source)}`, [])
+						const decoders = yield* admin.queryValues(
+							"SELECT rolname::text FROM pg_catalog.pg_roles WHERE rolname = $1::name",
+							[source]
+						)
+						for (const [decoder] of decoders) {
+							yield* releaseRole(admin, String(decoder))
+						}
 						const roles = yield* admin.queryValues(
 							"SELECT rolname::text FROM pg_catalog.pg_roles WHERE starts_with(rolname::text, $1::text) ORDER BY rolname",
 							[rolePrefix(name)]

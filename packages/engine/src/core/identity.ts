@@ -351,6 +351,35 @@ export const roleInSpace = (
 		: Result.ok(role)
 }
 
+/**
+ * Whether `text` is a hashed identifier as the naming door spells one (`mint`): `__`, a stem of lowercase ASCII letters,
+ * digits and underscores, `_` and digestChars characters of its base32, within maxIdentifierBytes: what a hashed
+ * role's stem is, the installation's decoder login's (identity.liveSource).
+ */
+export const isHashedIdentifier = (text: string): boolean => {
+	const separator = text.length - digestChars - digestSeparator.length
+	if (
+		!text.startsWith(hashedLead) ||
+		text.length > maxIdentifierBytes.value ||
+		separator <= hashedLead.length ||
+		text.charAt(separator) !== digestSeparator
+	) {
+		return false
+	}
+	for (let at = hashedLead.length; at < separator; at += 1) {
+		const ch = text.charAt(at)
+		if (!(isLower(ch) || isDigit(ch) || ch === "_")) {
+			return false
+		}
+	}
+	for (let at = separator + 1; at < text.length; at += 1) {
+		if (!base32.includes(text.charAt(at))) {
+			return false
+		}
+	}
+	return true
+}
+
 /** Whether `text` is a declared name's conversion, as the naming door spells one: what a stem's two parts each are. */
 export const isConversion = (text: string): boolean =>
 	parsedName(text).ok && conversionOf(text) === text
