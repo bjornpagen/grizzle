@@ -10,8 +10,9 @@
  *   program reads, a whole entry its relation, a world entry the relation its query reads, and a derived relation
  *   itself and what its definition reads, down every level;
  * - the planned laws: every law a compile over the slice reads, one reading a written relation, one reading only named
- *   relations, and a containment into a named relation's selected side, and every contract's law, each with the whole
- *   model's plan, deferral (the whole model's cycles, which may run through relations outside the names) and immediacy;
+ *   relations, and one whose foreign key references a named relation's selected side, a containment's or a rule's
+ *   lowered to foreign keys, and every contract's law, each with the whole model's plan, deferral (the whole model's
+ *   cycles, which may run through relations outside the names) and immediacy;
  * - what a read relies on: the key, row-check and containment evidence of the planned laws, each containment under the
  *   whole model's validity context, the existence evidence of the containments that read a written relation or only
  *   named ones, and each named relation's selection keys;
@@ -46,8 +47,10 @@
  * reads its definition).
  *
  * Plants (~/.cache/grizzle-release/BR03/plants): slice-coupling-one-step (a slice's writes closed under family coupling
- * one step only, so a chain's far end is left out) for the slice; live-derived-by-name-admitted (a definition matching a
- * live derived relation by name admitted) for the second.
+ * one step only, so a chain's far end is left out) and slice-lowered-rule-unplanned (a rule over a query lowered to
+ * foreign keys into a named relation's selected side left unplanned, so the slice lacks that relation's selection key)
+ * for the slice; live-derived-by-name-admitted (a definition matching a live derived relation by name admitted) for
+ * the second.
  *
  * Features: SliceFeature, the shapes and laws each case reached; a direct and a nested match for the second.
  */
@@ -797,9 +800,14 @@ const plannedOver = (
 			law.shape === "contract" ||
 			Arr.some(law.reads, (r) => writes.has(r)) ||
 			Arr.every(law.reads, (r) => names.has(r)) ||
-			(law.detail.kind === "containment" &&
-				names.has(law.detail.to.relation) &&
-				Arr.isReadonlyArrayNonEmpty(law.detail.to.selection.conjuncts))
+			Arr.some(
+				law.detail.kind === "containment"
+					? [law.detail.to]
+					: law.detail.kind === "rule" && law.detail.lowering.kind === "foreignKeys"
+						? Arr.map(law.detail.lowering.parts, (part) => part.to)
+						: [],
+				(to) => names.has(to.relation) && Arr.isReadonlyArrayNonEmpty(to.selection.conjuncts)
+			)
 				? [law.id]
 				: []
 		)
