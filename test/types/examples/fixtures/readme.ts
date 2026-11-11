@@ -946,6 +946,23 @@ export default defineConfig({
 	})
 })
 
+/** README: "READ COMMITTED writes", publishing the keys a learner's answers reference. */
+export const Question = relation("Question", { id: uuid, prompt: Prose }, ["id"])
+export const Bank = schema("Bank", { Question }, [])
+export const Author = role(Bank, "author", wholeEntriesOf(Bank), { insert: ["Question"] })
+
+export const Published = relation("Published", { question: uuid }, ["question"])
+export const Answer = relation("Answer", { sitting: uuid, step: pg.bigint, question: uuid }, [
+	"sitting",
+	"step"
+])
+export const Exam = schema.extend(Bank, "Exam", { Published, Answer }, [
+	contained(on(Published, "question"), on(Question, "id")),
+	contained(on(Answer, "question"), on(Published, "question"))
+])
+export const Publisher = role(Exam, "publisher", wholeEntriesOf(Exam), { insert: ["Published"] })
+export const ExamLearner = role(Exam, "learner", wholeEntriesOf(Exam), { insert: ["Answer"] })
+
 /** README: "Deploying". */
 /** The RDS IAM password: an Effect signing a token for each connection attempt, for the login's PostgreSQL role
  * (roleNameOf), failing as a CredentialError. */

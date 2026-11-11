@@ -3092,9 +3092,9 @@ committed workload has no certificate behind it, so every role in it runs SERIAL
 writes as: it can only insert and read, and every law of the table is a constraint PostgreSQL checks at every level.
 
 **Referencing content another role writes: publish it.** A ChangeSet that inserts rows referencing content another role
-maintains (an author edits items, a learner's answer names an item) reads that content in its foreign key checks. If
-the content's writer reads other calls' rows of its own, as an import does, the referencing role stays SERIALIZABLE
-(`writers`). Publish the keys it references instead:
+maintains (an author edits questions, a learner's answer names a question) reads that content in its foreign key
+checks. If the content's writer reads other calls' rows of its own, as an import does, the referencing role stays
+SERIALIZABLE (`writers`). Publish the keys it references instead:
 
 1. Have every role that writes the referenced content relations state `insert` on them, so a content row, once there,
    never changes.
@@ -3105,22 +3105,25 @@ the content's writer reads other calls' rows of its own, as an import does, the 
 4. Point the referencing role's foreign keys at the published relation, not at the content.
 
 ```ts
-export const Item = relation("Item", { id: uuid, prompt: Prose }, ["id"])
-export const Content = schema("Content", { Item }, [])
-export const Author = role(Content, "author", wholeEntriesOf(Content), { insert: ["Item"] })
+export const Question = relation("Question", { id: uuid, prompt: Prose }, ["id"])
+export const Bank = schema("Bank", { Question }, [])
+export const Author = role(Bank, "author", wholeEntriesOf(Bank), { insert: ["Question"] })
 
-export const Published = relation("Published", { item: uuid }, ["item"])
-export const Answer = relation("Answer", { sitting: uuid, step: pg.bigint, item: uuid }, ["sitting", "step"])
-export const Ledger = schema.extend(Content, "Ledger", { Published, Answer }, [
-	contained(on(Published, "item"), on(Item, "id")),
-	contained(on(Answer, "item"), on(Published, "item"))
+export const Published = relation("Published", { question: uuid }, ["question"])
+export const Answer = relation("Answer", { sitting: uuid, step: pg.bigint, question: uuid }, [
+	"sitting",
+	"step"
 ])
-export const Publisher = role(Ledger, "publisher", wholeEntriesOf(Ledger), { insert: ["Published"] })
-export const Learner = role(Ledger, "learner", wholeEntriesOf(Ledger), { insert: ["Answer"] })
+export const Exam = schema.extend(Bank, "Exam", { Published, Answer }, [
+	contained(on(Published, "question"), on(Question, "id")),
+	contained(on(Answer, "question"), on(Published, "question"))
+])
+export const Publisher = role(Exam, "publisher", wholeEntriesOf(Exam), { insert: ["Published"] })
+export const ExamLearner = role(Exam, "learner", wholeEntriesOf(Exam), { insert: ["Answer"] })
 ```
 
 The learner's check now reads `Published`, which only ever gains rows, and its one writer reads nothing another call
-can write, so the check finds an immutable row or refuses the call. Publish an item before a learner may answer it.
+can write, so the check finds an immutable row or refuses the call. Publish a question before a learner may answer it.
 
 ## Deploying
 
