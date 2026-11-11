@@ -1,4 +1,5 @@
 import { NodeCrypto, NodeServices } from "@effect/platform-node"
+import { HARDENED_FLAGS } from "@superstarter/testing/vitest/config"
 import {
 	Array as Arr,
 	Effect,
@@ -150,15 +151,17 @@ export const buildPackage = Effect.fn("cliPackage.build")(function* (generated: 
 })
 
 /**
- * Runs a built bin with Node to its exit, in the package's directory, under exactly the invocation's environment. The
- * bin runs as a child process, so a server in the test process keeps answering it. Interrupting the run kills it.
+ * Runs a built bin with Node to its exit, under the testing library's hardened flags (no `__proto__` accessor, no
+ * inspector on SIGUSR1, deprecations thrown, strict unhandled rejections and the rest), since a generated CLI must work
+ * under them; in the package's directory, under exactly the invocation's environment. The bin runs as a child process,
+ * so a server in the test process keeps answering it. Interrupting the run kills it.
  */
 export const runBin = (
 	built: BuiltPackage,
 	invocation: BinInvocation
 ): Effect.Effect<Finished, PlatformError.PlatformError, ChildProcessSpawner.ChildProcessSpawner> =>
 	finished(
-		ChildProcess.make(process.execPath, [built.bin, ...invocation.args], {
+		ChildProcess.make(process.execPath, [...HARDENED_FLAGS, built.bin, ...invocation.args], {
 			cwd: built.dir,
 			env: invocation.env,
 			extendEnv: false,

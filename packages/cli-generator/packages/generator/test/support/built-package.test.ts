@@ -1,7 +1,8 @@
 /**
- * A built generated CLI never fails as a defect: whatever argv it is given, it exits with a code its contract documents
- * (0 success, 1 a non-2xx answer, 2 a usage error, 3 a credential refusal, 4 a transport or redirect failure, 5 a body
- * failure) and never with 70, an internal error, nor by a signal; and it exits the same way twice.
+ * A built generated CLI never fails as a defect: whatever argv it is given, under the hardened Node flags, it exits with
+ * a code its contract documents for the exchange the server saw (0 success, 1 a non-2xx answer, 2 a usage error, 3 a
+ * credential refusal, 4 a transport or redirect failure, 5 a body failure), never with 70, an internal error, nor by a
+ * signal; and it exits the same way twice.
  *
  * - Invocations: mostly the update operation's command with an id and well-formed fields, body, timeout, error format
  *   and switches, so most runs send a request; otherwise any of the package's command paths, from the generation
@@ -11,10 +12,11 @@
  *   builds its own. Oracles: never-crashes, and determinism: a second run of the same invocation exits with the same
  *   code and prints the same bytes.
  *
- * Plants (local only, reverted): errors.ts UsageError's exit code set to 70.
+ * Plants (local only, reverted): errors.ts UsageError's exit code set to 70; output.ts reading `({}).__proto__` at
+ * start-up, which only the hardened flags break.
  */
 import { layer } from "@effect/vitest"
-import { deepStrictEqual, notDeepStrictEqual } from "@effect/vitest/utils"
+import { deepStrictEqual } from "@effect/vitest/utils"
 import { drawn, explore } from "@superstarter/testing/explore"
 import { required } from "@superstarter/testing/features"
 import {
@@ -222,6 +224,22 @@ const meaningOf = (code: number): Meaning => {
 	}
 }
 
+/**
+ * The meanings an exchange leaves the exit code: with no request answered, anything but an answer's verdict; with an
+ * answer, success (or a body the CLI cannot read) for a 2xx, a credential refusal for 401 and 403, and a non-2xx exit
+ * for any other status. A defect is never admitted, and neither is an exit 1 that no answer explains, which a CLI that
+ * crashes at start-up gives.
+ */
+const admittedOf = (requests: number, status: number): ReadonlyArray<Meaning> => {
+	if (requests === 0) {
+		return ["success", "usage", "credential", "transport"]
+	}
+	if (status >= 200 && status < 300) {
+		return ["success", "body"]
+	}
+	return status === 401 || status === 403 ? ["credential"] : ["non-2xx"]
+}
+
 type ExitFeature = Exclude<Meaning, "defect"> | "a request sent"
 
 layer(fixture, { excludeTestServices: true })("a built generated CLI", (it) => {
@@ -269,7 +287,11 @@ layer(fixture, { excludeTestServices: true })("a built generated CLI", (it) => {
 							if (first.requests.length > 0) {
 								k.note("a request sent")
 							}
-							notDeepStrictEqual(meaning, "defect", "the exit code is one the contract documents")
+							deepStrictEqual(
+								Arr.intersection([meaning], admittedOf(first.requests.length, c.status)),
+								[meaning],
+								"the exit code is one the contract documents for the exchange the server saw"
+							)
 							deepStrictEqual(
 								second.result,
 								first.result,

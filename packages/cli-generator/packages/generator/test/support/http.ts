@@ -68,7 +68,7 @@ const headerOf = (line: string): Option.Option<Header> =>
 	])
 
 /** The values of every header line named `name` (in lower case), compared case-insensitively. */
-const valuesOf = (headers: HeaderList, name: string): ReadonlyArray<string> =>
+export const valuesOf = (headers: HeaderList, name: string): ReadonlyArray<string> =>
 	Arr.flatMap(headers, ([candidate, value]) => (Str.toLowerCase(candidate) === name ? [value] : []))
 
 /** Whether a message asks to close its connection after it. */

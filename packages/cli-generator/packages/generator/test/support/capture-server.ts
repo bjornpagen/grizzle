@@ -57,7 +57,10 @@ export type ScriptedResponse = Readonly<{
  * How the server answers during an observation: a function of the request and of how many earlier requests in the
  * observation named the same path (the target before any `?`), so a path can answer a sequence.
  */
-type Script<O extends string> = (request: RecordedRequest<O>, attempt: number) => ScriptedResponse
+export type Script<O extends string> = (
+	request: RecordedRequest<O>,
+	attempt: number
+) => ScriptedResponse
 
 /** One connection the server accepted: the origin it reached. */
 type PlainConnection<O extends string> = Readonly<{ origin: O }>
