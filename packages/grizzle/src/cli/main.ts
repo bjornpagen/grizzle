@@ -74,7 +74,7 @@ const argumentsStart = 2
 
 /**
  * The grizzle CLI: `grizzle generate`, `grizzle check`, `grizzle migrate`, `grizzle drift`, `grizzle names`, `grizzle
- * roles`, `grizzle uninstall` and `grizzle openapi`, each over
+ * roles` and `grizzle uninstall`, each over
  * the configuration file its command line names.
  *
  * The bin runs the command line in the current directory, against which a relative configuration file resolves, on the

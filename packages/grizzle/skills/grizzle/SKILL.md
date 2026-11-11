@@ -145,7 +145,7 @@ Commands: `grizzle generate <config> [--name <name>] [--schema <schema>] [--rena
 `grizzle generate <config> --custom --name <name> [--schema <schema>]`, `grizzle check <config>`, `grizzle migrate
 <config>`, `grizzle drift <config>`, `grizzle names <config>`, `grizzle roles <config>` (the installation's roles in
 the cluster), `grizzle uninstall <config>` (drops the installation's schemas, every row they hold, and its roles, in
-one transaction), `grizzle openapi <config>` (each login's OpenAPI document from its committed served file). Flags come anywhere after the command, as `--flag value`
+one transaction). Flags come anywhere after the command, as `--flag value`
 or `--flag=value`. A name is lowercase words joined by `_` or `-`, at most 240 characters, so that the folder
 `<timestamp>_<name>` fits one file name (NAME_MAX, 255 bytes). Without `--name`, a drafted folder is named after its
 change (`init`, `add_task_note`, `<first change>_and_more`); a custom one needs `--name`. `--schema` is accepted only
@@ -316,8 +316,7 @@ as PostgreSQL's scanner reads it: whitespace, comments and the case of unquoted 
   (a paged program's `{ params, facts, window }`), its answer a `text/event-stream` of the program's events, and the
   `grizzle-wire` header naming the wire's digest. `check` holds it to the one its served file gives, byte for byte: the
   login's OpenAPI document differs from the one its served file gives (an ungenerated change); run grizzle generate,
-  which writes the OpenAPI document again. `grizzle openapi grizzle.config.ts` writes the documents of the committed
-  served files alone, compiling nothing.
+  which writes the OpenAPI document again.
 - `meta.json`: it records the folder's place in the chain, the renames and drops it was drafted under, every
   drafted statement of every file in its place, its confirmed groups and data losses among them, which `check` reads
   every reviewed file against, and the law of each constraint the folder installs, by which `migrate` names the law a

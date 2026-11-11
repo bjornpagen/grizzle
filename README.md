@@ -2675,8 +2675,6 @@ grizzle roles <config>
     the installation's PostgreSQL roles in the cluster
 grizzle uninstall <config>
     drop the installation's schemas, with every row they hold, and its roles
-grizzle openapi <config>
-    each login's OpenAPI document, from its committed served file (offline)
 ```
 
 `--name` is lowercase ASCII letters and digits in words joined by `_` or `-`, at most 240 characters, so that the folder `<timestamp>_<name>` fits

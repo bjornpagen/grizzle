@@ -32,7 +32,6 @@ import {
  *     grizzle names <config>
  *     grizzle roles <config>
  *     grizzle uninstall <config>
- *     grizzle openapi <config>
  *
  * `<config>` is the configuration file, absolute or relative to the directory grizzle runs in; no command reads one it
  * does not name. `--name` names the migration folder, parsed here into a MigrationName, so a name of no folder name's
@@ -71,7 +70,6 @@ type Command =
 	| { readonly kind: "names" }
 	| { readonly kind: "roles" }
 	| { readonly kind: "uninstall" }
-	| { readonly kind: "openapi" }
 
 /** A command line: the usage, or a command over the configuration file it names, as given. */
 export type CommandLine =
@@ -95,8 +93,6 @@ export const usageText = `Usage:
       the installation's PostgreSQL roles in the cluster
   grizzle uninstall <config>
       drop the installation's schemas, with every row they hold, and its roles
-  grizzle openapi <config>
-      each login's OpenAPI document, from its committed served file (offline)
 
 <config> is the configuration file, whose default export is defineConfig({ ... }): an absolute path, or
 one relative to the directory grizzle runs in. migrate, drift, roles and uninstall connect with the
@@ -298,7 +294,6 @@ export const parseArgs = (argv: ReadonlyArray<string>): Result.Result<CommandLin
 		case "names":
 		case "roles":
 		case "uninstall":
-		case "openapi":
 			return parsePlain(command, rest)
 		case "generate":
 			return parseGenerate(rest)

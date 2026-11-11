@@ -165,7 +165,6 @@ export type CommandName =
 	| "names"
 	| "roles"
 	| "uninstall"
-	| "openapi"
 
 /**
  * The flags of `grizzle generate`: its switches, the flags that take a value once, and the flags that take one each

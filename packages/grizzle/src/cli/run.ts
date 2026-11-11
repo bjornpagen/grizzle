@@ -27,7 +27,6 @@ import type { CliError } from "#cli/errors.ts"
 import { generateMigrations, type SchemaGenerateReport } from "#cli/generate.ts"
 import { drift, migrate, roles, uninstallAll } from "#cli/migrate.ts"
 import { names } from "#cli/names.ts"
-import { openApiDocuments } from "#cli/openapi.ts"
 import { cliStageFix, migrateStageFix, refusalText } from "#cli/refusals.ts"
 import { metaFileName } from "#compiler/plan/migration.ts"
 
@@ -371,18 +370,6 @@ const program = Effect.fn("program")(function* (
 	if (command.kind === "names") {
 		const listed = yield* names(config)
 		return ran(exitCodes.ok, listed, [])
-	}
-	if (command.kind === "openapi") {
-		const documents = yield* openApiDocuments(config)
-		return ran(
-			exitCodes.ok,
-			[
-				...Arr.map(documents.written, (p) => path.relative(cwd, p)),
-				...Arr.map(documents.removed, (p) => `removed ${path.relative(cwd, p)}`),
-				...(documents.written.length + documents.removed.length === 0 ? ["no changes"] : [])
-			],
-			[]
-		)
 	}
 	if (command.kind === "check") {
 		const checks = yield* check(config, cwd)
