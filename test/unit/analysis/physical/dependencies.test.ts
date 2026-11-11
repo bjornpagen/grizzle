@@ -40,7 +40,7 @@ import {
 	DependencyDraft,
 	hiddenIn,
 	justify,
-	rowAttribute as row
+	rowAttribute
 } from "#compiler/analysis/physical/fds.ts"
 import type { PhysicalProps } from "#compiler/analysis/physical/props.ts"
 import { appendAll } from "#compiler/core/array.ts"
@@ -168,7 +168,7 @@ const oracleDeps = (s: Spec): ReadonlyArray<OracleDep> => {
 			...normal(
 				Arr.map(alternative, (_, r) => requirementAttr(a, r)),
 				[],
-				[row],
+				[rowAttribute],
 				"queryLocal"
 			)
 		])
@@ -184,7 +184,7 @@ const oracleClosure = (
 ): ReadonlySet<string> => {
 	const deps = withIdentity
 		? oracleDeps(s)
-		: Arr.filter(oracleDeps({ ...s, identity: [] }), (d) => !d.to.includes(row))
+		: Arr.filter(oracleDeps({ ...s, identity: [] }), (d) => !d.to.includes(rowAttribute))
 	const columns = new Set(start)
 	const points = new Set<string>()
 	for (let changed = true; changed;) {
@@ -332,7 +332,7 @@ describe("a fragment's dependency table", () => {
 					(s, c) =>
 						Effect.sync(() => {
 							const table = tableOf(s)
-							const visible = [...s.heading, row]
+							const visible = [...s.heading, rowAttribute]
 							const plainDeps = oracleDeps({ ...s, identity: [] })
 							const oldKey = (cs: ReadonlyArray<string>): boolean =>
 								satisfies(s.identity, oracleClosure(s, cs, 1, false))
@@ -349,7 +349,7 @@ describe("a fragment's dependency table", () => {
 								const identified = table.identification(start)
 								assert.equal(
 									identified !== undefined,
-									expected.has(row),
+									expected.has(rowAttribute),
 									`the row from (${listed(start)})`
 								)
 								assert.equal(
@@ -362,7 +362,7 @@ describe("a fragment's dependency table", () => {
 									continue
 								}
 								c.note("identified")
-								const least = oracleClosure(s, start, 0, true).has(row) ? 0 : 1
+								const least = oracleClosure(s, start, 0, true).has(rowAttribute) ? 0 : 1
 								assert.equal(
 									rank(identified.just.context),
 									least,
@@ -530,7 +530,7 @@ describe("a rule region's dependency table", () => {
 							for (const start of subsetsOf(scan.bound)) {
 								const closure = stated.dependencies.closure(start)
 								const expected = filtered.dependencies.closure(start)
-								for (const v of [...scan.bound, row]) {
+								for (const v of [...scan.bound, rowAttribute]) {
 									assert.equal(
 										closure.columns.has(v),
 										expected.columns.has(v),
@@ -554,7 +554,7 @@ describe("a rule region's dependency table", () => {
 								if (column !== "city") {
 									c.note("a key's constant fixes the row")
 									assert.ok(
-										fixed.columns.has(row),
+										fixed.columns.has(rowAttribute),
 										`the constant on the key ${column} fixes the row`
 									)
 								}
