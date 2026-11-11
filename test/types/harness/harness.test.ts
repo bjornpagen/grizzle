@@ -14,7 +14,7 @@
  * cases, so neither program is vacuous on any seed.
  *
  * Plants (~/.cache/grizzle-release/BR14/plants): harness-open-situations.patch widens a required situation to any
- * string; harness-door-widened.patch widens assert.deepEqual's expected value to any string beside the actual's type.
+ * string; harness-door-text-number.patch admits a number as assert.deepEqual's expected value where the actual is text.
  */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
