@@ -4,7 +4,8 @@
  * apart; a finite language within the scan infers exactly its members, a long source string, and a cross product its
  * union, or past the union limit string, never by expanding it. Oracle: the engine's admission (text/refinement.ts),
  * and ECMAScript's acceptance of each member. The floor's witnesses reach every form, verdict, declared class and host
- * claim.
+ * claim. The scan's budget is type-level only, RegexScan's codeUnits (types/fields/source.ts): nothing scans a source
+ * at run time, so the program's value of it is a constant of that type, which stops typechecking once the budget moves.
  *
  * Plant (~/.cache/grizzle-release/BR14/plants): regex-infer-string.patch widens every inferred host type to string.
  */

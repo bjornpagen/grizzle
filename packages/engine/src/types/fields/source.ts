@@ -525,6 +525,15 @@ type ReadMember<K extends ClassFlag, Lit extends string, R extends string> = Lit
 			: Exclude<K, "prevDigit"> | "other" | "started"
 		: Exclude<K, "prevDigit"> | "other" | "started"
 
+/**
+ * What the scan of a str.regex source reads: `codeUnits`, how many code units of it, since a source longer than
+ * ArkRegex parses at a call site is too long to infer, and its host type widens to string. Type-level only: nothing
+ * scans a source at run time, where the compiler's grammar check decides admission whatever its length.
+ */
+export interface RegexScan {
+	readonly codeUnits: 40
+}
+
 /** The scan: [rewritten source, widen], "too long", or Rejected. Out is the rewritten source so far. */
 type Scan<
 	S extends string,
@@ -533,7 +542,7 @@ type Scan<
 	Depth extends ReadonlyArray<GroupFlag>,
 	F extends Fact,
 	Spent extends ReadonlyArray<0>
-> = Spent["length"] extends 40
+> = Spent["length"] extends RegexScan["codeUnits"]
 	? S extends ""
 		? [Out, Widened<"lastEnd" extends F ? F : F | "openEdge">]
 		: "too long"

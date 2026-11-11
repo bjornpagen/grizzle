@@ -8,6 +8,7 @@ import { regexMaxDepth, typeUnionLimit } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
+import type { RegexScan } from "#compiler/types/fields/source.ts"
 import { type PreludeAt, preludeAt, preludeFrom, preludeProgram } from "#test/support/prelude.ts"
 import { families, type Flags, jsMatcher, patternOver } from "#test/unit/text/generators.ts"
 
@@ -18,7 +19,7 @@ import { families, type Flags, jsMatcher, patternOver } from "#test/unit/text/ge
  *
  * The engine is the oracle: a flags word other than u and su is MalformedDescription, and an admitted one's source is
  * analyzed as a field's (text/refinement.ts analyzeText), the admission a schema's compilation reaches. A literal call
- * the engine refuses is refused by the types with TS2345, under a directive naming why; one it admits typechecks. The
+ * the engine refuses is refused by the types, under a `refused` directive naming why; one it admits typechecks. The
  * declared classes are calls the types and the engine judge apart, each for the one reason it states, from what typed
  * authoring does not read: a construct outside PostgreSQL's regex fragment that ArkRegex parses (outsideFragment,
  * UnsupportedOperation), a source past the typed-authoring scan (beyondScan: MalformedDescription of a malformed one,
@@ -31,8 +32,12 @@ import { families, type Flags, jsMatcher, patternOver } from "#test/unit/text/ge
  * its host type is test/types/text/contained.ts's.
  */
 
-/** The typed-authoring scan's budget in source code units (types/fields/source.ts Scan): a longer source widens. */
-const scanBudget = 40
+/**
+ * The typed-authoring scan's budget in source code units: a longer source widens. The budget is type-level only
+ * (types/fields/source.ts RegexScan), so its value here is a constant of that type, which fails to typecheck the
+ * moment the engine's budget moves.
+ */
+const scanBudget: RegexScan["codeUnits"] = 40
 
 /** The characters a literal word is written in, each with its hex escape. */
 const hexOf = { a: "\\x61", b: "\\x62", c: "\\x63", x: "\\x78" } as const
@@ -540,7 +545,7 @@ const linesOf = (c: RegexCase, v: string): ReadonlyArray<string> => {
 		`export type ${v}host = Expect<Equals<Infer<typeof ${v}regex>, ${expected}>>`
 	return [
 		...c.declarations(v),
-		...(c.stated.kind === "refused" ? [`// @ts-expect-error -- TS2345: ${c.stated.why}`] : []),
+		...(c.stated.kind === "refused" ? [`// @ts-expect-error -- refused: ${c.stated.why}`] : []),
 		`export const ${v}regex = str.regex(${c.args(v)})`,
 		...hostLines(c.host, v, host)
 	]
