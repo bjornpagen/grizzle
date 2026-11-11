@@ -376,19 +376,25 @@ type KeyIndexOf<S> = {
 
 /**
  * The candidate keys declared for every relation of S named in N: a generic relation's, whose name is the union of its
- * relations' names, are the keys each of them holds; a relation's, its own.
+ * relations' names, are the keys each of them holds; a relation's, its own. Each name's keys are one property read of
+ * the index, which holds a value under every name (ByName), so no read asks whether a name is among its keys.
  */
 export type DeclaredKeysOfAll<S, N extends string> = HeldByAll<N, KeyIndexOf<S>[N], KeyIndexOf<S>>
-type HeldByAll<N extends string, T, I> = T extends unknown
+type HeldByAll<N extends string, T, I extends ByName> = T extends unknown
 	? [N] extends [HoldersOf<N, T, I>]
 		? T
 		: never
 	: never
-type HoldersOf<N extends string, T, I> = N extends keyof I
+type HoldersOf<N extends string, T, I extends ByName> = N extends unknown
 	? [T] extends [I[N]]
 		? N
 		: never
 	: never
+
+/** An index by name that holds a value under every name, as KeyIndexOf holds none, `never`, under a name it keys none of. */
+interface ByName {
+	readonly [name: string]: unknown
+}
 
 type SourceOf<X> = X extends Side<infer R> ? R : never
 type TermsOf<X> = X extends Side<unknown, infer T> ? T : never
