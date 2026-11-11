@@ -58,6 +58,13 @@
  * a negation read whole, which refuses Quiet. Beside them, for the schema agreement (test/types/schema/agreement.test.ts):
  * the engine refusing a negation of a query again, as it did before negated arms, which the agreement's derivedNegated
  * form must fail on, its types admitting what the engine refuses.
+ *
+ * Their patches under ~/.cache/grizzle-release/BR09/plants/, in the order above: rule-query-no-trigger-on-a-table,
+ * rule-query-new-probe-first-occurrence-only, rule-query-key-every-field-differs,
+ * rule-query-target-probe-joins-later-occurrences, rule-query-no-negated-probes, rule-query-target-probe-keeps-anti-joins;
+ * then rule-query-negated-arm-first-match-only, rule-query-negated-probes-other-polarity,
+ * rule-query-unblocked-probe-reads-later-matches, rule-query-blocked-probe-keeps-target-negations and
+ * rule-query-conjunction-negation-read-whole, each a .patch.
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"

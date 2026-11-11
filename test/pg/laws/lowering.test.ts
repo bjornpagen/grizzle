@@ -43,9 +43,9 @@
  * (featuresOf), read off the catalog, never off a table of what each shape should lower to. Plants:
  * ~/.cache/grizzle-release/BR09/plants/lowering-condition-4-ignored.patch, a lowering that lets a variable of its own
  * be bound twice, lowers the existential shape to foreign keys that miss its join and admits a row the triggers
- * refuse; and, written for the pin-time run, the lowering dropping the constant column, so the foreign key references
- * the target's key alone and admits a target row outside D's constants, and the lowering omitting the UNIQUE its
- * foreign key references, which no installation then accepts.
+ * refuse; lowering-no-constant-column.patch, the lowering dropping the constant column, so the foreign key references
+ * the target's key alone and admits a target row outside D's constants; and lowering-no-target-unique.patch, the
+ * lowering omitting the UNIQUE its foreign key references, which no installation then accepts.
  */
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"

@@ -28,8 +28,9 @@
  * refused at compile, ContractLiteral; any other schema must install. Each row written by grizzle's writer is accepted where
  * lawful and refused by its relation's one law otherwise, and every stored generated value is the model's.
  *
- * The planted bug, the lowering's constant folding turned off, fails the installation of the first case whose
- * generation expression compares constant texts, with 42P22.
+ * The planted bug, the lowering's constant folding turned off (~/.cache/grizzle-release/BR09/plants/
+ * constant-texts-folding-off.patch), fails the installation of the first case whose generation expression compares
+ * constant texts, with 42P22.
  */
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"

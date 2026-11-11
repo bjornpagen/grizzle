@@ -60,6 +60,12 @@
  * guard's row the contract holds and skips a fold's member its negation makes true; and a C.has of a NULL key value read
  * as false holds a negated presence the contract leaves unknown.
  *
+ * Their patches under ~/.cache/grizzle-release/BR09/plants/, each a .patch: absent-domain-check-refuses-null (the
+ * printer's domain CHECK without its VALUE IS NULL arm), absent-host-row-nowhere-null (the host's C.row of a prefix
+ * completed nowhere read as NULL), absent-host-at-absent-key-unsupported, absent-fold-steps-where-not-fails,
+ * absent-singleton-bit-plus-one, absent-null-singleton-empty (PostgreSQL's singleton of a NULL id the empty set),
+ * absent-has-null-at-absent-key (PostgreSQL's C.has) and absent-has-of-null-key-false.
+ *
  * The world's Flag has one to five handles, so a set over it is a whole number of hex digits (four flags) or padded,
  * and a singleton meets the first and the last code; the downstream shape a diagonal closed relation once spelled, a
  * row's own flag in FlagRel.row of the flag its kind picks, is a kept case, at a kind Pick holds and at one it lacks;
