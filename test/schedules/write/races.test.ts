@@ -1404,6 +1404,8 @@ const runRace = (
 				).pipe(
 					Effect.catchTags({
 						InterleavingFailed: (e) => Effect.fail(new RaceFailed({ message: e.message })),
+						RunRefused: (e) => Effect.fail(new RaceFailed({ message: e.message })),
+						NoSerialOrder: (e) => Effect.fail(new RaceFailed({ message: e.message })),
 						AfterCycle: (e) => Effect.fail(new RaceFailed({ message: e.message }))
 					})
 				)
@@ -1921,6 +1923,8 @@ const runInserters = (
 		).pipe(
 			Effect.catchTags({
 				InterleavingFailed: (e) => Effect.fail(new RaceFailed({ message: e.message })),
+				RunRefused: (e) => Effect.fail(new RaceFailed({ message: e.message })),
+				NoSerialOrder: (e) => Effect.fail(new RaceFailed({ message: e.message })),
 				AfterCycle: (e) => Effect.fail(new RaceFailed({ message: e.message }))
 			})
 		)

@@ -1236,8 +1236,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 													(result) => {
 														if (
 															result._tag === "Failure" &&
-															result.failure._tag === "InterleavingFailed" &&
-															Str.includes("no serial order")(result.failure.message)
+															result.failure._tag === "NoSerialOrder"
 														) {
 															c.note(`${shape} caught`)
 															return Effect.void
@@ -1335,9 +1334,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 														),
 														(result) => {
 															const caught =
-																result._tag === "Failure" &&
-																result.failure._tag === "InterleavingFailed" &&
-																Str.includes("no serial order")(result.failure.message)
+																result._tag === "Failure" && result.failure._tag === "NoSerialOrder"
 															if (race.expect === "caught") {
 																return caught
 																	? Effect.void
@@ -1449,9 +1446,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 														),
 														(result) => {
 															const caught =
-																result._tag === "Failure" &&
-																result.failure._tag === "InterleavingFailed" &&
-																Str.includes("no serial order")(result.failure.message)
+																result._tag === "Failure" && result.failure._tag === "NoSerialOrder"
 															if (race.expect === "caught") {
 																return caught
 																	? Effect.void

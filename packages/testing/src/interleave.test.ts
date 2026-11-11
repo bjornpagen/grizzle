@@ -514,7 +514,7 @@ describe("releasing sessions", () => {
 										: { kind: "every", limit: 20_000, reduction: "sleep-sets" }
 							const report = yield* interleave(driver, spec, strategy, judge).pipe(
 								Effect.asSome,
-								Effect.catchTag("InterleavingFailed", () => Effect.succeedNone)
+								Effect.catch(() => Effect.succeedNone)
 							)
 							if (Option.exists(report, (ran) => ran.pruned > 0)) {
 								c.note("a run pruned")

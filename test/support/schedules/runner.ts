@@ -313,6 +313,9 @@ export const runSchedule = <D extends string>(
 			Effect.catchTags({
 				InterleavingFailed: (error) =>
 					Effect.fail(failed(0, `the driver failed: ${error.message}`, [])),
+				RunRefused: (error) => Effect.fail(failed(0, `the run was refused: ${error.message}`, [])),
+				NoSerialOrder: (error) =>
+					Effect.fail(failed(0, `the run was refused: ${error.message}`, [])),
 				AfterCycle: (error) => Effect.fail(failed(0, `malformed schedule: ${error.message}`, []))
 			})
 		)

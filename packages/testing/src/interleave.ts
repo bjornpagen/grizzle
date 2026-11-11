@@ -1,16 +1,4 @@
-import {
-	Array as Arr,
-	Cause,
-	Effect,
-	Exit,
-	Fiber,
-	Formatter,
-	Option,
-	Order,
-	Schema,
-	Struct
-} from "effect"
-import { failureText } from "#failure.ts"
+import { Array as Arr, Effect, Exit, Fiber, Formatter, Option, Order, Schema, Struct } from "effect"
 import { array, type Gen, int, shuffled } from "#gen.ts"
 import type { Observed } from "#source.ts"
 
@@ -215,8 +203,8 @@ export class AfterCycle extends Schema.TaggedError<AfterCycle, { readonly brand:
 	{ interleaving: Schema.String, cycle: Schema.Array(Schema.String), message: Schema.String }
 ) {}
 
-/** A run its judgment refused, one that stalled with every session waiting on no cycle, or a search past its limit;
- * the message describes the run and the script that replays it. */
+/** A run that stalled with every session waiting on no cycle, or a search past its limit: the engine's own failures. A
+ * run the judgment refuses fails with the judge's refusal instead (interleave). */
 export class InterleavingFailed extends Schema.TaggedError<
 	InterleavingFailed,
 	{ readonly brand: unique symbol }
@@ -384,7 +372,9 @@ type Live<S extends string, M, O, W> = Readonly<{
 
 /**
  * Explores the interleavings of a set of sessions on the system a driver runs, judging every run, and fails with the
- * first run its judgment refuses.
+ * first refusal of its judgment, the judge's own typed failure as it gave it: the judge reads the run, so its refusal
+ * carries what a report needs of it (describeRun), and a caller tells one refusal from another by its type, never by
+ * its prose.
  *
  * Every run resets the system, then loops: it settles every move in flight (each ends, or is seen waiting), lets the
  * system decide every wait it will decide, breaks any deadlock the waits form, and makes the next decision among the
@@ -400,7 +390,7 @@ export const interleave = <S extends string, M, O, Q, A, W, E, R, F, RJ>(
 	spec: Interleave<S, M, Q>,
 	strategy: Strategy<S, Q>,
 	judge: (run: Interleaving<S, M, O, Q, A, W>) => Effect.Effect<void, F, RJ>
-): Effect.Effect<InterleavingReport, E | AfterCycle | InterleavingFailed, R | RJ> =>
+): Effect.Effect<InterleavingReport, E | F | AfterCycle | InterleavingFailed, R | RJ> =>
 	Effect.gen(function* () {
 		const names = Struct.keys(spec.sessions)
 		const cyclic = afterCycleOf(spec.sessions)
@@ -884,11 +874,6 @@ export const interleave = <S extends string, M, O, Q, A, W, E, R, F, RJ>(
 				)
 			)
 
-		const judged = (run: Interleaving<S, M, O, Q, A, W>) =>
-			Effect.mapError(judge(run), (refusal) =>
-				failed(`${describeRun(run)}\nrefused: ${failureText(Cause.fail(refusal))}`)
-			)
-
 		const report = {
 			interleavings: 0,
 			pruned: 0,
@@ -914,7 +899,7 @@ export const interleave = <S extends string, M, O, Q, A, W, E, R, F, RJ>(
 					report.pruned += 1
 				} else {
 					tally(run)
-					yield* judged(run)
+					yield* judge(run)
 				}
 				return path
 			}).pipe(Effect.ensuring(endOf(live)))

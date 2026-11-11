@@ -22,6 +22,7 @@ import {
 	type Interleaving,
 	type Judgment,
 	type MoveRecord,
+	noSerialOrderJudgment,
 	refusedJudgment,
 	relationsFootprint,
 	runawayInterleavings,
@@ -675,7 +676,7 @@ const judgeWorldRun = (
 	})
 	const serial = serialOrder(host, initial, kept, committed)
 	if (!serial.ok) {
-		return refusedJudgment(
+		return noSerialOrderJudgment(
 			`no serial order of the committed transactions explains them\n${serial.problem}`
 		)
 	}
@@ -685,7 +686,7 @@ const judgeWorldRun = (
 		}
 		const own = serialOrder(host, initial, [...kept, r], committed)
 		if (!own.ok) {
-			return refusedJudgment(
+			return noSerialOrderJudgment(
 				`no serial order of the committed transactions and the refusal ${r.label} explains them\n${own.problem}`
 			)
 		}

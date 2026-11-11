@@ -25,6 +25,9 @@ import {
 	type Interleaving,
 	interleaveStep,
 	type Judgment,
+	type NoSerialOrder,
+	noSerialOrderJudgment,
+	type RunRefused,
 	refusedJudgment,
 	runawayInterleavings,
 	type Strategy,
@@ -98,10 +101,15 @@ export interface SerialRace<A, E> {
 }
 
 /**
- * A race the serial reference refused, with the run, why and the script that replays it, or one the driver could not
- * run.
+ * A race the serial reference refused, with the run, why and the script that replays it: NoSerialOrder, a run no serial
+ * order of its transactions explains, or RunRefused, any other refusal (a transaction refused or aborted beside no other
+ * session); or one the driver could not run.
  */
-export type SerialRaceFailed = Interleave.InterleavingFailed | Interleave.AfterCycle
+export type SerialRaceFailed =
+	| NoSerialOrder
+	| RunRefused
+	| Interleave.InterleavingFailed
+	| Interleave.AfterCycle
 
 /** What a transaction placed in a serial order showed: a direct one's outcomes, or a grizzle call's answer. */
 type Shown<A> =
@@ -466,7 +474,7 @@ export const runSerialRace = <A, E>(
 						})}`
 					)
 				}
-				return refusedJudgment(
+				return noSerialOrderJudgment(
 					`no serial order of the placed transactions [${Arr.join(placed, ", ")}] explains the run:\n${Arr.join(tried, "\n")}`
 				)
 			})

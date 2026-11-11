@@ -292,14 +292,22 @@ export interface Interleaving {
 	readonly ending: Ending
 }
 
-/** A model's judgment of one run: allowed, or refused with why. */
+/**
+ * A model's judgment of one run: allowed; refused, with why; or a serial reference's refusal of a run no serial order of
+ * its transactions explains, with the orders it tried. The last is its own member, so a suite that requires a run to be
+ * caught as unserializable reads the tag, never the prose.
+ */
 export type Judgment =
 	| { readonly _tag: "Allowed" }
 	| { readonly _tag: "Refused"; readonly why: string }
+	| { readonly _tag: "NoSerialOrder"; readonly why: string }
 
 export const allowed: Judgment = { _tag: "Allowed" }
 
 export const refusedJudgment = (why: string): Judgment => ({ _tag: "Refused", why })
+
+/** The judgment of a run no serial order of its transactions explains: `why` names the orders tried. */
+export const noSerialOrderJudgment = (why: string): Judgment => ({ _tag: "NoSerialOrder", why })
 
 export interface Exploration<E> {
 	readonly name: string
@@ -352,9 +360,20 @@ interface ExplorationReport {
 	readonly branched: number
 }
 
-/** A run the exploration's model refused, with the run's description: the library reports it with its own record of the
- * run and the script that replays it. */
-class RunRefused extends Data.TaggedError("RunRefused")<{
+/** A run the exploration's model refused (Judgment `Refused`), with the run as the model read it and as the library
+ * ran it, the script that replays it among it. */
+export class RunRefused extends Data.TaggedError("RunRefused")<{
+	readonly exploration: string
+	readonly reason: string
+	readonly report: string
+}> {
+	override get message(): string {
+		return this.report
+	}
+}
+
+/** A run no serial order of its transactions explains (Judgment `NoSerialOrder`), reported as RunRefused is. */
+export class NoSerialOrder extends Data.TaggedError("NoSerialOrder")<{
 	readonly exploration: string
 	readonly reason: string
 	readonly report: string
@@ -949,8 +968,9 @@ const interleavingOf = (
  * the outcomes it allows. The scheduling is the library's interleave (every with sound sleep sets, PCT, drawn
  * decisions, scripts); everything PostgreSQL is here: how a move runs on its actor, how a wait is seen in pg_locks and
  * on whom, the deadlock check every wait passes before the next decision, what a failure does to a session, and which
- * moves commute. Each run is reset, scheduled, read back on the observer and judged; a refusal fails with the run's
- * description and the script that replays it. Sessions on one pooled connection share a lane. However a run ends, the
+ * moves commute. Each run is reset, scheduled, read back on the observer and judged; a refusal fails typed, RunRefused
+ * or NoSerialOrder as the model judged, with the run's description and the script that replays it. Sessions on one
+ * pooled connection share a lane. However a run ends, the
  * library releases every session it started (releaseOf), so no run leaves a transaction open.
  */
 export const exploreInterleavings = <E>(
@@ -960,7 +980,7 @@ export const exploreInterleavings = <E>(
 	strategy: Strategy
 ): Effect.Effect<
 	ExplorationReport,
-	E | SqlError | Interleave.AfterCycle | Interleave.InterleavingFailed
+	E | SqlError | Interleave.AfterCycle | Interleave.InterleavingFailed | RunRefused | NoSerialOrder
 > =>
 	Effect.gen(function* () {
 		const owned = ownBackends(actors, spec.txns)
@@ -999,12 +1019,23 @@ export const exploreInterleavings = <E>(
 					const state = yield* readState(env, spec.state)
 					const i = interleavingOf(spec.txns, run, state)
 					const judged = yield* spec.model(i)
-					if (judged._tag === "Refused") {
-						return yield* new RunRefused({
-							exploration: spec.name,
-							reason: judged.why,
-							report: `exploration "${spec.name}": ${judged.why}\n${describeRun(spec.txns, i)}`
-						})
+					const report = (why: string) =>
+						`exploration "${spec.name}": ${why}\n${describeRun(spec.txns, i)}\n${Interleave.describeRun(run)}`
+					switch (judged._tag) {
+						case "Refused":
+							return yield* new RunRefused({
+								exploration: spec.name,
+								reason: judged.why,
+								report: report(judged.why)
+							})
+						case "NoSerialOrder":
+							return yield* new NoSerialOrder({
+								exploration: spec.name,
+								reason: judged.why,
+								report: report(judged.why)
+							})
+						case "Allowed":
+							break
 					}
 					const committed = Arr.filter(spec.txns, (x) => i.results[x.session]?._tag === "Committed")
 					const key =
