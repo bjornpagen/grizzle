@@ -4,6 +4,7 @@ import type { SchemaFingerprint } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { AccessIndexRequest, AccessPath } from "#compiler/ir/products.ts"
+import { type LivePlan, noLive } from "#compiler/live/notify.ts"
 import { pathRequest } from "#compiler/physical/access/paths.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import { noTextDomainUses } from "#compiler/physical/ddl/domains.ts"
@@ -77,7 +78,8 @@ export const workloadExtension = (workload: WorkloadPhysical): InstallExtension 
 	},
 	textDomainUses: noTextDomainUses,
 	certifies: noCertificates,
-	carriers: noCarriers
+	carriers: noCarriers,
+	live: noLive
 })
 
 /**
@@ -89,11 +91,13 @@ export const servedWorkloadExtension = (
 	workload: WorkloadPhysical & {
 		readonly certification: ReadonlyArray<RoleIsolation>
 		readonly carriers: ReadonlyArray<RoleOfLogin>
+		readonly live: LivePlan
 	}
 ): InstallExtension => ({
 	...workloadExtension(workload),
 	certifies: workload.certification,
-	carriers: workload.carriers
+	carriers: workload.carriers,
+	live: workload.live
 })
 
 /** Installer options with the workload extension after the caller's extensions. */

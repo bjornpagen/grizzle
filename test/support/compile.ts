@@ -60,6 +60,7 @@ import {
 	schemaArtifacts
 } from "#compiler/program/schema.ts"
 
+import { noLive } from "#compiler/live/notify.ts"
 import {
 	compileWorkload,
 	type LoginWorkloads,
@@ -404,7 +405,8 @@ const workloadExtensionOver = (
 		),
 	textDomainUses: noTextDomainUses,
 	certifies: noCertificates,
-	carriers: noCarriers
+	carriers: noCarriers,
+	live: noLive
 })
 
 /** The workload of `logins` alone (compileTestWorkload), compiled against the schema the installation installs. */

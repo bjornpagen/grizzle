@@ -1,6 +1,7 @@
 import * as Result from "#compiler/core/result.ts"
 import type { ExprDesc, FieldDecl, FieldDesc, LiteralDesc } from "#compiler/ir/desc.ts"
 import type { IndexRequest } from "#compiler/ir/products.ts"
+import { noLive } from "#compiler/live/notify.ts"
 import { noTextDomainUses } from "#compiler/physical/ddl/domains.ts"
 import {
 	type InstallExtension,
@@ -21,7 +22,8 @@ export const requesting = (requests: ReadonlyArray<IndexRequest>): InstallExtens
 	contribute: () => Result.ok({ ...noContribution, indexRequests: requests }),
 	textDomainUses: noTextDomainUses,
 	certifies: noCertificates,
-	carriers: noCarriers
+	carriers: noCarriers,
+	live: noLive
 })
 
 const value: ExprDesc = { kind: "value" }

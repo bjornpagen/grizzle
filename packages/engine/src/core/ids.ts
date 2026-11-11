@@ -87,6 +87,8 @@ export type IdentityKind =
 	| "aside"
 	| "swap"
 	| "carrier"
+	| "liveSource"
+	| "liveSecret"
 
 declare const identifierBrand: unique symbol
 /**

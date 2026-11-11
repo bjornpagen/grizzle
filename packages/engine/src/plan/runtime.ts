@@ -56,14 +56,21 @@ export { codeNames, rosterCodebook } from "#compiler/ir/codes.ts"
 export { constraintLaw } from "#compiler/ir/products.ts"
 export { type CallError, callError } from "#compiler/live/events.ts"
 export {
-	liveChannel,
-	type NotificationRefused,
+	batchesOf,
+	type LiveBatch,
+	type LiveSecret,
+	type LiveTextRefused,
+	type Notification,
+	notificationText,
+	openPayload,
+	parseLiveSecret,
 	parseNotification,
-	payloadOf,
 	type RouteColumn,
 	type RouteKey,
 	type RouteTable,
-	subscriptionKey
+	sealBatch,
+	sealNonce,
+	type SealNonce
 } from "#compiler/live/notify.ts"
 export { explainAnalyzeOf, explainOf, type ExplainText } from "#compiler/runtime/explain.ts"
 export { columnPosition, columnType } from "#compiler/runtime/lower/columns.ts"

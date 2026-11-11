@@ -11,6 +11,7 @@ import * as EngineResult from "#compiler/core/result.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { defaultOpclass, type LawField } from "#compiler/ir/law.ts"
 import type { AccessIndexRequest, AccessUse, IndexRequest } from "#compiler/ir/products.ts"
+import { noLive } from "#compiler/live/notify.ts"
 import type { IndexColumn } from "#compiler/physical/ddl/context.ts"
 import { noTextDomainUses } from "#compiler/physical/ddl/domains.ts"
 import type { PlannedIndex } from "#compiler/physical/indexes/engine.ts"
@@ -301,7 +302,8 @@ export const drawnRequests = (specs: ReadonlyArray<RequestSpec>): InstallExtensi
 	},
 	textDomainUses: noTextDomainUses,
 	certifies: noCertificates,
-	carriers: noCarriers
+	carriers: noCarriers,
+	live: noLive
 })
 
 /**

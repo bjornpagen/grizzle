@@ -11,7 +11,7 @@ import type {
 } from "#compiler/ir/products.ts"
 import type { FkCycles } from "#compiler/laws/model/model.ts"
 import type { ReferenceChoice } from "#compiler/laws/model/plan.ts"
-import type { LivePlan } from "#compiler/live/notify.ts"
+import type { LivePlan, LiveSource } from "#compiler/live/notify.ts"
 import type { ClosedNames } from "#compiler/physical/ddl/constants.ts"
 import type { TextDomainNames } from "#compiler/physical/ddl/domains.ts"
 import type { DescribedLaw } from "#compiler/physical/install/plan.ts"
@@ -293,6 +293,11 @@ export type SnapshotTables = Readonly<Record<string, Readonly<Record<string, Sna
  */
 export interface SnapshotDerived extends CompileFacts {
 	readonly tables: SnapshotTables
+	/**
+	 * The installation's live source in installed terms (live/notify.ts LiveSource), which a login's served file holds
+	 * with the texts its leader and listeners send (program/live.ts servedLiveOf).
+	 */
+	readonly live: LiveSource
 }
 
 /** A snapshot without its fingerprint: what the fingerprint is computed over. */

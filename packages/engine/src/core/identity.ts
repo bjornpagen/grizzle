@@ -1232,6 +1232,18 @@ export const identity = Object.freeze({
 			"the SERIALIZABLE write guard trigger",
 			readable("__isolation")
 		),
+	/**
+	 * The live change source of the installation whose root level's PostgreSQL schema is `root`: one name for its
+	 * publication, which PostgreSQL scopes to the database, and for its replication slot and decoder login, each cluster
+	 * wide under the installation's role space (roleInSpace); the publication's name is also the fan-out channel and the
+	 * prefix of the logical messages the installation announces. Hashed by the root's identifier, since `__live_` and a
+	 * schema's longest conversion pass maxIdentifierBytes.
+	 */
+	liveSource: (root: string): Identity<"liveSource"> =>
+		mint("liveSource", [root], ["live", ...nameSegments(root)], `live source of ${root}`, hashed),
+	/** The table of a schema's live secret, which only the installation's logins read. */
+	liveSecret: (): Identity<"liveSecret"> =>
+		mint("liveSecret", [], ["live", "secret"], "the live secret", readable("__live_secret")),
 	refusal: (): Identity<"refusal"> =>
 		mint("refusal", [], ["refuse"], "the refusal function", readable("__refuse")),
 	snapshotGuard: (): Identity<"snapshotGuard"> =>

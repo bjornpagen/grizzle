@@ -90,6 +90,7 @@ import {
 	type ValueFacts
 } from "#test/support/oracle/gen/facts.ts"
 
+import { noLive } from "#compiler/live/notify.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {
 	allKeys,
@@ -995,7 +996,8 @@ export const extensionsOf = (v: Version): ReadonlyArray<InstallExtension> => {
 						workloadExtension({ schema: b.owned.fingerprint, paths: [], statistics }).contribute(b),
 					textDomainUses: noTextDomainUses,
 					certifies: noCertificates,
-					carriers: noCarriers
+					carriers: noCarriers,
+					live: noLive
 				}
 			]
 }

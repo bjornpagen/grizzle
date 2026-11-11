@@ -10,6 +10,7 @@ import * as Result from "#compiler/core/result.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import type { LogicalQuery, StatementSpec } from "#compiler/ir/products.ts"
+import { noLive } from "#compiler/live/notify.ts"
 import type { OptimizedProgram } from "#compiler/lower/optimize/pipeline.ts"
 import { specifiedProgram } from "#compiler/lower/template.ts"
 import { workloadRequests as accessRequests } from "#compiler/physical/access/extension.ts"
@@ -381,7 +382,8 @@ const workloadRequests = (programs: Readonly<Record<string, unknown>>): InstallE
 		),
 	textDomainUses: noTextDomainUses,
 	certifies: noCertificates,
-	carriers: noCarriers
+	carriers: noCarriers,
+	live: noLive
 })
 
 const checked = (q: unknown) =>

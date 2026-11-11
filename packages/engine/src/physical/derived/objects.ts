@@ -40,6 +40,7 @@ import {
 	noContribution
 } from "#compiler/physical/install/extension.ts"
 
+import { noLive } from "#compiler/live/notify.ts"
 import { enforcement, type Node } from "#compiler/physical/obligations/graph.ts"
 import type {
 	CreateIndex,
@@ -278,7 +279,8 @@ const derivedRelationExtension = (): InstallExtension => {
 		contribute: extension,
 		textDomainUses: (checked: CheckedSchema) => Result.ok(textColumnUses(derivedAnalysis(checked))),
 		certifies: noCertificates,
-		carriers: noCarriers
+		carriers: noCarriers,
+		live: noLive
 	}
 }
 

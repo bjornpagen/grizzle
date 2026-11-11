@@ -69,7 +69,7 @@ import { Roster, rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { type Filler, type FillSpelling, fillersOf, ownFill } from "#compiler/laws/model/fillers.ts"
 import { type LawModel, statedTheory } from "#compiler/laws/model/model.ts"
 import type { LawColumnPlan } from "#compiler/laws/model/plan.ts"
-import { type LivePlan, noLive } from "#compiler/live/notify.ts"
+import { type LivePlan, type LiveSource, noLive } from "#compiler/live/notify.ts"
 import type { ClosedNames, NamedClosed } from "#compiler/physical/ddl/constants.ts"
 import { storedTextDomains } from "#compiler/physical/ddl/domains.ts"
 import { isolationFunctionIdent } from "#compiler/physical/ddl/isolation.ts"
@@ -777,8 +777,33 @@ const snapshotTablesOf = (installation: Installation): SnapshotTables => {
  * its indexes (snapshotTablesOf). */
 export const derivedOf = (installation: Installation): SnapshotDerived => ({
 	...derivedFacts(installation.owned, installation.closed, installation.laws),
-	tables: snapshotTablesOf(installation)
+	tables: snapshotTablesOf(installation),
+	live: liveSourceOf(installation)
 })
+
+/**
+ * The installation's live source in installed terms (live/notify.ts LiveSource): none where its live plan reads no
+ * relation; otherwise each footprint table by its table's identifier, with the identifiers of the columns of the
+ * fields it routes by, in code point order. A materialized view of the plan publishes nothing: its refresh announces
+ * itself.
+ */
+const liveSourceOf = (installation: Installation): LiveSource => {
+	const { live, names } = installation
+	return live.tables.length + live.views.length === 0
+		? { kind: "none" }
+		: {
+				kind: "source",
+				tables: Object.fromEntries(
+					live.tables.map(
+						(t) =>
+							[
+								names.relation(t.relation).name,
+								t.routes.map((field) => names.column(t.relation, field)).toSorted(compareStrings)
+							] as const
+					)
+				)
+			}
+}
 
 /**
  * The compile facts of an installation of `owned` whose closed relations' constants are named as `closed` names
@@ -1088,6 +1113,7 @@ const closedForm = (c: NamedClosed): SnapshotForm => ({
 
 /** The JSON form of the installation's derived runtime facts (SnapshotDerived): each member's form by its owner. */
 const derivedForm = (d: SnapshotDerived): SnapshotForm => ({
+	live: d.live,
 	closed: Object.fromEntries([...d.closed].map(([name, c]) => [name, closedForm(c)] as const)),
 	fkCycles: d.fkCycles,
 	references: d.references.map((r) => ({ law: r.law, part: r.part })),

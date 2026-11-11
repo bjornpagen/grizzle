@@ -23,6 +23,7 @@ import {
 	prepared,
 	raisableOf,
 	type SchemaArtifacts,
+	servedLiveOf,
 	servedSession,
 	writesOf
 } from "#compiler/plan/common.ts"
@@ -347,6 +348,10 @@ export const servedFileOf = (
 			throw defect("a compiled login holds a role")
 		}
 		const schema = first.artifacts.names.schema
+		const [root] = snapshot.schemas
+		if (root === undefined) {
+			throw defect("a served snapshot records its root level")
+		}
 		const ledger = yield* toResult(ledgerStatements(schema))
 		const role = yield* toResult(loginStem(login))
 		const roles = yield* Result.all(
@@ -362,6 +367,7 @@ export const servedFileOf = (
 			schema,
 			prologue: { fence: prepared(ledger.fence.text), enter: prepared(ledger.enter.text) },
 			session: servedSession,
+			live: servedLiveOf(root, snapshot.derived.live),
 			rosters: new Map(
 				Arr.map(
 					Arr.filter([...snapshot.codes.rosters], ([name]) => used.has(name)),

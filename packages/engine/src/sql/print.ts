@@ -2137,6 +2137,8 @@ const writeCatalogStatement = (out: Lines, statement: CatalogStatement): void =>
 			return out.line(`DROP OWNED BY ${statement.roles.map(printRole).join(", ")}`)
 		case "dropRoles":
 			return out.line(`DROP ROLE ${statement.roles.map(printRole).join(", ")}`)
+		case "listen":
+			return out.line(`LISTEN ${quoteIdent(statement.channel)}`)
 	}
 }
 

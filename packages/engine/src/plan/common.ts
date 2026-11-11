@@ -140,6 +140,7 @@ export {
 	namedLogin,
 	namedRole
 } from "#compiler/physical/ddl/names.ts"
+export { servedLiveOf } from "#compiler/program/live.ts"
 export { servedSession } from "#compiler/program/served.ts"
 export { loginStem } from "#compiler/schema/stem.ts"
 export {

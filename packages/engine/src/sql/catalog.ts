@@ -49,6 +49,7 @@ export const catalogRelations = [
 	"pg_namespace",
 	"pg_policy",
 	"pg_proc",
+	"pg_replication_slots",
 	"pg_rewrite",
 	"pg_roles",
 	"pg_sequence",
@@ -68,6 +69,7 @@ export const catalogFunctions = [
 	"concat_ws",
 	"current_database",
 	"current_setting",
+	"encode",
 	"format",
 	"format_type",
 	"has_column_privilege",
@@ -76,7 +78,10 @@ export const catalogFunctions = [
 	"has_sequence_privilege",
 	"has_table_privilege",
 	"has_type_privilege",
+	"pg_advisory_lock",
 	"pg_advisory_unlock",
+	"pg_create_logical_replication_slot",
+	"pg_current_snapshot",
 	"pg_encoding_to_char",
 	"pg_get_constraintdef",
 	"pg_get_expr",
@@ -89,14 +94,20 @@ export const catalogFunctions = [
 	"pg_get_userbyid",
 	"pg_get_viewdef",
 	"pg_input_is_valid",
+	"pg_logical_emit_message",
+	"pg_logical_slot_peek_binary_changes",
+	"pg_notify",
 	"pg_relation_filenode",
+	"pg_replication_slot_advance",
+	"pg_snapshot_xip",
 	"pg_try_advisory_lock",
 	"quote_ident",
 	"string_agg",
 	"to_regnamespace",
 	"to_regprocedure",
 	"to_regtype",
-	"unnest"
+	"unnest",
+	"xid"
 ] as const
 export type CatalogFunction = (typeof catalogFunctions)[number]
 
@@ -305,8 +316,22 @@ export type UninstallStatement =
 	| { readonly kind: "dropOwned"; readonly roles: NonEmptyReadonlyArray<string> }
 	| { readonly kind: "dropRoles"; readonly roles: NonEmptyReadonlyArray<string> }
 
+/**
+ * LISTEN <channel>: a session's subscription to a notification channel, the installation's live fan-out channel
+ * (live/notify.ts), named by its live source's publication.
+ */
+export interface Listen {
+	readonly kind: "listen"
+	readonly channel: string
+}
+
 /** Every statement of the catalog language: what sql/emit.ts emitCatalog emits. */
-export type CatalogStatement = CatalogSelect | SetClosedSearchPath | DoBlock | UninstallStatement
+export type CatalogStatement =
+	| CatalogSelect
+	| SetClosedSearchPath
+	| DoBlock
+	| UninstallStatement
+	| Listen
 
 /** A pg_catalog type, not an array. */
 export const catalogType = (name: CatalogTypeName): CatalogCast => ({ name, array: false })
@@ -606,8 +631,10 @@ export const setClosedSearchPath: SetClosedSearchPath = { kind: "setClosedSearch
  * An advisory lock grizzle takes, by what it serializes: the database default an installation sets, so concurrent
  * installations into one database set it one at a time (databaseDefaultBlock); the database's privileges an
  * installation grants or revokes, which every installation in the database writes on the database's one pg_database row,
- * one at a time alike (databasePrivilegeLock); or the apply of one schema's
- * migrations, so two applies of the schema never interleave their files (adapter/migrate/apply.ts). Each lives in the
+ * one at a time alike (databasePrivilegeLock); the apply of one schema's
+ * migrations, so two applies of the schema never interleave their files (adapter/migrate/apply.ts); or the leadership
+ * of an installation's live source, by its name (core/identity.ts identity.liveSource), session-level on the decoder's
+ * connection, so one process at a time reads its slot (program/live.ts). Each lives in the
  * database's one bigint key space, which the application's own locks share, so its key is grizzle's by derivation from
  * its name (advisoryKey), never a chosen number, and is known on the host before any statement is sent: every statement
  * that takes or releases one prints its key as a literal.
@@ -621,6 +648,7 @@ export type AdvisoryLock =
 	| { readonly kind: "databaseDefault" }
 	| { readonly kind: "databasePrivilege" }
 	| { readonly kind: "apply"; readonly schema: string }
+	| { readonly kind: "live"; readonly source: string }
 
 /**
  * The name of an advisory lock in grizzle's own namespace, whose digest is its key: one name per lock, since an apply
@@ -634,6 +662,8 @@ const advisoryLockName = (lock: AdvisoryLock): string => {
 			return "grizzle advisory lock: database privilege"
 		case "apply":
 			return `grizzle advisory lock: apply ${lock.schema}`
+		case "live":
+			return `grizzle advisory lock: live ${lock.source}`
 	}
 }
 

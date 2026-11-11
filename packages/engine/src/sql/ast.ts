@@ -68,6 +68,8 @@ export type CatalogReadType =
 	| "regnamespace"
 	| "regtype"
 	| "regprocedure"
+	| "pg_lsn"
+	| "xid"
 
 /** Every pg_catalog type grizzle's SQL names. */
 export type CatalogTypeName =
@@ -115,7 +117,9 @@ export const catalogSpelling: { readonly [T in CatalogTypeName]: CatalogSpelling
 	regclass: "qualified",
 	regnamespace: "qualified",
 	regtype: "qualified",
-	regprocedure: "qualified"
+	regprocedure: "qualified",
+	pg_lsn: "qualified",
+	xid: "qualified"
 }
 
 /**

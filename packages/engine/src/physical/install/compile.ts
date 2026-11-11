@@ -16,6 +16,7 @@ import { compareStrings } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
 import { type Codebook, firstCodebook } from "#compiler/ir/codes.ts"
 import type { IndexRequest, InstallationManifest } from "#compiler/ir/products.ts"
+import type { LivePlan } from "#compiler/live/notify.ts"
 import { addAdvanceFunctions } from "#compiler/physical/ddl/advance.ts"
 import { addClosedRelations, addRosters } from "#compiler/physical/ddl/constants.ts"
 import { InstallBuilder, type InstallSettings } from "#compiler/physical/ddl/context.ts"
@@ -102,6 +103,8 @@ export interface Installation extends InstallPlan {
 	/** Each role of each login with its certificate, in login then role order: the level its writes begin at, and what
 	 * each table's guard trigger is installed by (physical/ddl/isolation.ts readCommittedRelations). */
 	readonly certification: ReadonlyArray<CertifiedRole>
+	/** The live plan its extensions state, one (liveOf), whose footprint tables its live source publishes. */
+	readonly live: LivePlan
 }
 
 /** A role's certificate as an installation holds it: its login, its name, and its level, the one fact of a certificate
@@ -162,6 +165,28 @@ const certificationOf = (
 				"serializable"
 		}
 	}))
+}
+
+/**
+ * The one live plan of `extensions`: each footprint table any of them states, once, by relation in code point order,
+ * with every field any of them routes it by, once, in code point order, and each materialized view any of them reads,
+ * once, in code point order.
+ */
+const liveOf = (extensions: ReadonlyArray<InstallExtension>): LivePlan => {
+	const routes = new Map<string, Set<string>>()
+	for (const table of extensions.flatMap((e) => e.live.tables)) {
+		const held = routes.get(table.relation) ?? new Set<string>()
+		for (const field of table.routes) {
+			held.add(field)
+		}
+		routes.set(table.relation, held)
+	}
+	return {
+		tables: [...routes]
+			.toSorted(([a], [b]) => compareStrings(a, b))
+			.map(([relation, fields]) => ({ relation, routes: [...fields].toSorted(compareStrings) })),
+		views: [...new Set(extensions.flatMap((e) => e.live.views))].toSorted(compareStrings)
+	}
 }
 
 /**
@@ -420,7 +445,8 @@ export const installationOver = (
 					deferred: {
 						derivedRelations: derived.filter((d) => !claimedDerived.has(d)).toSorted(compareStrings)
 					},
-					certification
+					certification,
+					live: liveOf(options.extensions)
 				}
 			})
 		)
