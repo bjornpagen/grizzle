@@ -11,14 +11,14 @@ import { builtLogin, type LayerRole, ownLoginOver } from "#adapter/served/login.
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
-import { contextFieldAdmits } from "#compiler/ir/desc.ts"
+import { contextFieldAdmits, type SchemaDesc } from "#compiler/ir/desc.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { context, login, role, wholeEntriesOf } from "#compiler/public/schema.ts"
 import { paged } from "#compiler/public/workload.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { type Owned, ownBuilt } from "#compiler/schema/own.ts"
-import { fieldDescOf } from "#compiler/schema/protocol.ts"
+import { schemaDescOf } from "#compiler/schema/schema.ts"
 import { contextDescOf } from "#compiler/schema/world.ts"
 import type { ServedFile, ServedRoleForm } from "#compiler/served/forms.ts"
 import { servedFile } from "#compiler/served/json.ts"
@@ -134,21 +134,32 @@ const descriptorOf = (drawn: DrawnSchema, at: FieldAt): unknown =>
 		`relation ${at.relation} declares field ${at.field}`
 	)
 
-/** Whether a stored field's descriptor may type a context's claim (ir/desc.ts contextFieldAdmits). */
-const claimable = (drawn: DrawnSchema, at: FieldAt): boolean =>
-	contextFieldAdmits(fieldDescOf(descriptorOf(drawn, at), `${at.relation}.${at.field}`))
+/** A schema's description and every level below it, top first. */
+const levelsOf = (desc: SchemaDesc | undefined): ReadonlyArray<SchemaDesc> =>
+	desc === undefined ? [] : [desc, ...levelsOf(desc.extends)]
+
+/**
+ * Every field of the drawn schema's relations a context's claim may carry, read off the description its builders made,
+ * every level's: a field its caller writes whose type a claim admits (ir/desc.ts contextFieldAdmits).
+ */
+const claimFields = (drawn: DrawnSchema): ReadonlyArray<FieldAt> =>
+	Arr.flatMap(levelsOf(schemaDescOf(drawn.laws.schema)), (level) =>
+		Arr.flatMap(level.relations, (r) =>
+			r.kind === "relation"
+				? Arr.flatMap(Rec.toEntries(r.fields), ([field, decl]): ReadonlyArray<FieldAt> =>
+						decl.writing.kind === "caller" && contextFieldAdmits(decl.type)
+							? [{ relation: r.name, field }]
+							: []
+					)
+				: []
+		)
+	)
 
 /** A query entry over a relation of the schema with a field a claim may carry, or none where no relation has one. */
 const entryGen =
 	(drawn: DrawnSchema): Gen<Option.Option<EntryShape>> =>
 	(source) => {
-		const claims = Arr.filter(
-			Arr.flatMap(drawn.relations, (r) =>
-				Arr.map(Rec.keys(r.fields), (field): FieldAt => ({ relation: r.name, field }))
-			),
-			(at) => claimable(drawn, at)
-		)
-		const [first, ...rest] = claims
+		const [first, ...rest] = claimFields(drawn)
 		if (first === undefined || !source.draw(boolean)) {
 			return Option.none()
 		}
