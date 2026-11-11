@@ -22,10 +22,16 @@
  * - the migrated catalog is a fresh install's of the version (sameCatalog), the guard triggers included;
  * - a READ COMMITTED write of each table, an INSERT of no row, which fires its statement trigger, is refused with 25000
  *   exactly where the rule guards its relation, and otherwise admitted.
+ *
+ * Features: a guard dropped and one created on a migration, each on a table it renames, a guard flipped within two
+ * pending folders, and a READ COMMITTED write admitted and one refused by its guard, each pending one constructed.
+ *
+ * Plants (~/.cache/grizzle-release/BR11/plants): isolation-guard-kept (a migration never drops a table's isolation guard
+ * while the table stands).
  */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
-import { type Case, drawn, explore } from "@grizzle/testing/explore"
+import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import { element, type Gen, subarray } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
@@ -46,7 +52,14 @@ import { login, relation, role, schema, wholeEntriesOf } from "#compiler/public/
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { defineConfig } from "#index.ts"
 import { offlineOwner } from "#test/pg/cli/support.ts"
-import { apply, checkedAdmission, openMigrator, sameCatalog } from "#test/pg/migrate/support.ts"
+import {
+	type Aim,
+	aimedAt,
+	apply,
+	checkedAdmission,
+	openMigrator,
+	sameCatalog
+} from "#test/pg/migrate/support.ts"
 import { ambientOwner, ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { installationSql } from "#test/support/compile.ts"
@@ -388,7 +401,7 @@ const serialOn = (table: Table): Version => ({
 	other: []
 })
 
-const aims: ReadonlyArray<readonly [Feature, Gen<GuardCase>]> = [
+const aims: ReadonlyArray<Aim<GuardCase, Feature>> = [
 	[
 		"a guard dropped on a migration, every writer of its table certified READ COMMITTED",
 		(s) => ({
@@ -432,11 +445,7 @@ const aims: ReadonlyArray<readonly [Feature, Gen<GuardCase>]> = [
 ]
 
 /** The case a search runs: its drawn one, or, while a situation `aims` reaches is pending, the one aimed at it. */
-const aimed = (drawnCase: GuardCase, c: Case<Feature>): GuardCase => {
-	const pending = Option.getOrUndefined(c.steering)
-	const aim = Arr.findFirst(aims, ([feature]) => pending?.has(feature) === true)
-	return Option.isNone(aim) ? drawnCase : c.draw(aim.value[1])
-}
+const aimed = aimedAt(aims)
 
 layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 	"a table's isolation guard, migrated as its writers' certified levels change",

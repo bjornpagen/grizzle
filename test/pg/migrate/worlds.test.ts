@@ -1,40 +1,4 @@
-import { layer } from "@effect/vitest"
-import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { array, boolean, constant, element, type Gen, map, subset } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
-import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Option } from "effect"
-import { identifierOf, identity } from "#compiler/core/identity.ts"
-import { mapNonEmpty } from "#compiler/core/nonempty.ts"
-import { closedId, contract, pg, uuid } from "#compiler/public/fields.ts"
-import { query, v } from "#compiler/public/query.ts"
-import {
-	closed,
-	context,
-	derived,
-	login,
-	mutable,
-	relation,
-	role,
-	roleNameOf,
-	schema
-} from "#compiler/public/schema.ts"
-import { str } from "#compiler/public/text.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
-import { assert, defined, nonEmpty } from "#test/support/assert.ts"
-import { checkInstalled, installedScope } from "#test/support/catalog/installed.ts"
-import { readCatalog } from "#test/support/catalog/read.ts"
-import { migrated, type Version } from "#test/support/installed.ts"
-import { parsedName } from "#test/support/kernel/naming.ts"
-import { caseHang } from "#test/support/limits.ts"
-import { noDeclarations } from "#test/support/migrate/kit.ts"
-import { withServedDb } from "#test/support/served-db.ts"
-import type { RawSession } from "#test/support/substrate/session.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
-
-/** What a version holds, each a knob a history turns.
- *
+/**
  * Worlds across migrations on PostgreSQL 19: each case draws a starting version of a schema with worlds and a history
  * of one or two later versions, each turning a drawn set of the knobs a world rests on, and migrates through its
  * generated, reviewed folders (`migrated`: each drafted under the renames its version declares, applied by the real
@@ -67,7 +31,51 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * - Db.open admits every role at the last snapshot;
  * - the installed-catalog checker finds nothing;
  * - no migration recreates a login or a role: each keeps its OID across the versions, so a password and what other
- *   roles were granted survive, a renamed login included. */
+ *   roles were granted survive, a renamed login included.
+ *
+ * Features: each knob's turn, the login renamed back, several knobs at once and a history of two migrations, each a
+ * steered case constructs while it is pending: a start where the knob turns, and the turn.
+ *
+ * Plants (~/.cache/grizzle-release/BR11/plants): worlds-login-recreated (a draft ignores every declared login rename,
+ * so the renamed login is a new PostgreSQL role).
+ */
+import { layer } from "@effect/vitest"
+import { drawn, explore } from "@grizzle/testing/explore"
+import { required } from "@grizzle/testing/features"
+import { boolean, constant, element, type Gen, map, subset } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
+import { searched } from "@grizzle/testing/vitest"
+import { Array as Arr, Effect, Formatter, Option } from "effect"
+import { identifierOf, identity } from "#compiler/core/identity.ts"
+import { mapNonEmpty } from "#compiler/core/nonempty.ts"
+import { closedId, contract, pg, uuid } from "#compiler/public/fields.ts"
+import { query, v } from "#compiler/public/query.ts"
+import {
+	closed,
+	context,
+	derived,
+	login,
+	mutable,
+	relation,
+	role,
+	roleNameOf,
+	schema
+} from "#compiler/public/schema.ts"
+import { str } from "#compiler/public/text.ts"
+import { quoteIdent } from "#compiler/sql/print.ts"
+import { type Aim, aimedAt } from "#test/pg/migrate/support.ts"
+import { assert, defined, nonEmpty } from "#test/support/assert.ts"
+import { checkInstalled, installedScope } from "#test/support/catalog/installed.ts"
+import { readCatalog } from "#test/support/catalog/read.ts"
+import { migrated, type Version } from "#test/support/installed.ts"
+import { parsedName } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
+import { noDeclarations } from "#test/support/migrate/kit.ts"
+import { withServedDb } from "#test/support/served-db.ts"
+import type { RawSession } from "#test/support/substrate/session.ts"
+import { Substrate } from "#test/support/substrate/substrate.ts"
+
+/** What a version holds, each a knob a history turns. */
 interface Knobs {
 	readonly tiers: readonly ["Free", "Pro"] | readonly ["Free", "Pro", "Team"]
 	readonly words: "integer" | "bigint"
@@ -178,13 +186,13 @@ type WorldsFeature =
 	| "several knobs turn at once"
 	| "a history of two migrations"
 
-/** One knob's turn: the version after it turns, from the version before. */
-type Turn = (at: Knobs) => Gen<Knobs>
+/** A knob a history turns. */
+type Knob = "capped" | "mine" | "capLeast" | "login" | "tiers" | "words"
 
-/** Every knob's turn that applies to `k`: a roster that can grow, a word count that can widen, and every other. */
-const turnsOf = (k: Knobs): Arr.NonEmptyReadonlyArray<Turn> => [
-	(at) => constant<Knobs>({ ...at, capped: at.capped === "id" ? "id and cap" : "id" }),
-	(at) =>
+/** Each knob's turn of a version: the version after it turns. */
+const turnOf: { readonly [K in Knob]: (at: Knobs) => Gen<Knobs> } = {
+	capped: (at) => constant<Knobs>({ ...at, capped: at.capped === "id" ? "id and cap" : "id" }),
+	mine: (at) =>
 		map(
 			element(
 				nonEmpty(
@@ -194,21 +202,29 @@ const turnsOf = (k: Knobs): Arr.NonEmptyReadonlyArray<Turn> => [
 			),
 			(mine): Knobs => ({ ...at, mine })
 		),
-	(at) => constant<Knobs>({ ...at, capLeast: at.capLeast === 0 ? 1 : 0 }),
-	(at) => constant<Knobs>({ ...at, login: at.login === "desk" ? "counter" : "desk" }),
-	...(k.tiers.length === 2
-		? [(at: Knobs) => constant<Knobs>({ ...at, tiers: ["Free", "Pro", "Team"] })]
-		: []),
-	...(k.words === "integer" ? [(at: Knobs) => constant<Knobs>({ ...at, words: "bigint" })] : [])
+	capLeast: (at) => constant<Knobs>({ ...at, capLeast: at.capLeast === 0 ? 1 : 0 }),
+	login: (at) => constant<Knobs>({ ...at, login: at.login === "desk" ? "counter" : "desk" }),
+	tiers: (at) => constant<Knobs>({ ...at, tiers: ["Free", "Pro", "Team"] }),
+	words: (at) => constant<Knobs>({ ...at, words: "bigint" })
+}
+
+/** The knobs that turn at `k`: a roster grows only from two handles, and the word count widens only from integer. */
+const knobsAt = (k: Knobs): Arr.NonEmptyReadonlyArray<Knob> => [
+	"capped",
+	"mine",
+	"capLeast",
+	"login",
+	...(k.tiers.length === 2 ? (["tiers"] as const) : []),
+	...(k.words === "integer" ? (["words"] as const) : [])
 ]
 
-/** The version after turning a drawn nonempty set of `k`'s knobs, each once. */
+/** The version after turning a drawn set of `k`'s knobs, at least `fewest` of them, each once. */
 const nextGen =
-	(k: Knobs): Gen<Knobs> =>
+	(k: Knobs, fewest: number): Gen<Knobs> =>
 	(source) => {
-		const turns = turnsOf(k)
-		const chosen = source.draw(subset(turns, { min: 1, max: turns.length }))
-		return Arr.reduce(chosen, k, (at, turn) => source.draw(turn(at)))
+		const knobs = knobsAt(k)
+		const chosen = source.draw(subset(knobs, { min: fewest, max: knobs.length }))
+		return Arr.reduce(chosen, k, (at, knob) => source.draw(turnOf[knob](at)))
 	}
 
 /** A history: a starting version, and one or two later versions, each turning knobs of the one before. */
@@ -217,21 +233,100 @@ interface History {
 	readonly later: Arr.NonEmptyReadonlyArray<Knobs>
 }
 
+/** How each knob of a starting version is drawn, the simplest value first. */
+type KnobGens = { readonly [K in keyof Knobs]: Gen<Knobs[K]> }
+
+/** Every value of every knob. */
+const anyKnobs: KnobGens = {
+	tiers: element<Knobs["tiers"]>([
+		["Free", "Pro"],
+		["Free", "Pro", "Team"]
+	]),
+	words: element<Knobs["words"]>(["integer", "bigint"]),
+	capLeast: element<Knobs["capLeast"]>([0, 1]),
+	mine: element(mines),
+	capped: element<Knobs["capped"]>(["id", "id and cap"]),
+	login: element<Knobs["login"]>(["desk", "counter"])
+}
+
+/** A starting version, each knob drawn by `gens`. */
+const startOf =
+	(gens: KnobGens): Gen<Knobs> =>
+	(source) => ({
+		tiers: source.draw(gens.tiers),
+		words: source.draw(gens.words),
+		capLeast: source.draw(gens.capLeast),
+		mine: source.draw(gens.mine),
+		capped: source.draw(gens.capped),
+		login: source.draw(gens.login)
+	})
+
 const historyGen: Gen<History> = (source) => {
-	const start: Knobs = {
-		tiers: source.draw(boolean) ? ["Free", "Pro", "Team"] : ["Free", "Pro"],
-		words: source.draw(boolean) ? "bigint" : "integer",
-		capLeast: source.draw(boolean) ? 1 : 0,
-		mine: source.draw(element(mines)),
-		capped: source.draw(boolean) ? "id and cap" : "id",
-		login: source.draw(boolean) ? "counter" : "desk"
-	}
-	const first = source.draw(nextGen(start))
+	const start = source.draw(startOf(anyKnobs))
+	const first = source.draw(nextGen(start, 1))
 	return {
 		start,
-		later: source.draw(boolean) ? [first, source.draw(nextGen(first))] : [first]
+		later: source.draw(boolean) ? [first, source.draw(nextGen(first, 1))] : [first]
 	}
 }
+
+/** A history of one migration from a start `start` draws, its one version what `turn` draws of the start. */
+const once =
+	(start: Gen<Knobs>, turn: (at: Knobs) => Gen<Knobs>): Gen<History> =>
+	(source) => {
+		const at = source.draw(start)
+		return { start: at, later: [source.draw(turn(at))] }
+	}
+
+/** A history of two migrations from a start `start` draws, each version what `turn` draws of the one before. */
+const twice =
+	(start: Gen<Knobs>, turn: (at: Knobs) => Gen<Knobs>): Gen<History> =>
+	(source) => {
+		const at = source.draw(start)
+		const first = source.draw(turn(at))
+		return { start: at, later: [first, source.draw(turn(first))] }
+	}
+
+/** The filters that read another relation: a filter turned to one of them reads it. */
+const reading = ["owned", "shared"] as const satisfies ReadonlyArray<Knobs["mine"]>
+
+/** The history each required situation is aimed at while it is pending (Case.steering), constructed to reach it. */
+const aims: ReadonlyArray<Aim<History, WorldsFeature>> = [
+	["a read query entry's head changes", once(startOf(anyKnobs), turnOf.capped)],
+	[
+		"a written entry's policy filter stops reading another relation",
+		once(startOf({ ...anyKnobs, mine: element(reading) }), (at) =>
+			constant<Knobs>({ ...at, mine: "authored" })
+		)
+	],
+	[
+		"a filter function reads another relation",
+		once(startOf(anyKnobs), (at) =>
+			map(
+				element(
+					nonEmpty(
+						Arr.filter(reading, (m) => m !== at.mine),
+						"a filter reading another relation"
+					)
+				),
+				(mine): Knobs => ({ ...at, mine })
+			)
+		)
+	],
+	["a context's contract changes", once(startOf(anyKnobs), turnOf.capLeast)],
+	["the login is renamed", once(startOf(anyKnobs), turnOf.login)],
+	["the login is renamed back", twice(startOf(anyKnobs), turnOf.login)],
+	[
+		"a roster under a world view grows",
+		once(startOf({ ...anyKnobs, tiers: constant<Knobs["tiers"]>(["Free", "Pro"]) }), turnOf.tiers)
+	],
+	[
+		"a column under a derived relation and a world view is retyped",
+		once(startOf({ ...anyKnobs, words: constant<Knobs["words"]>("integer") }), turnOf.words)
+	],
+	["several knobs turn at once", once(startOf(anyKnobs), (at) => nextGen(at, 2))],
+	["a history of two migrations", twice(startOf(anyKnobs), (at) => nextGen(at, 1))]
+]
 
 /** What turning `from` into `to` changes, by feature. */
 const turnedOf = (from: Knobs, to: Knobs): ReadonlyArray<WorldsFeature> => [
@@ -268,29 +363,8 @@ const historyFeatures = (h: History): ReadonlyArray<WorldsFeature> => {
 	]
 }
 
-/** How many candidates a steered case draws for a history that reaches a pending situation. */
-const aimCandidates = 32
-
-/**
- * The history a case runs: the drawn one, or, where steering names situations no case has reached, the first of up
- * to `aimCandidates` further draws that reaches one, else the drawn one.
- */
-const aimedHistory = (drawnHistory: History, c: Case<WorldsFeature>): History =>
-	Option.match(c.steering, {
-		onNone: () => drawnHistory,
-		onSome: (pending) => {
-			const reaches = (h: History) => Arr.some(historyFeatures(h), (f) => pending.has(f))
-			return reaches(drawnHistory)
-				? drawnHistory
-				: Option.getOrElse(
-						Arr.findFirst(
-							c.draw(array(historyGen, { min: aimCandidates, max: aimCandidates })),
-							reaches
-						),
-						() => drawnHistory
-					)
-		}
-	})
+/** The history a case runs: its drawn one, or, while a situation `aims` reaches is pending, the one aimed at it. */
+const aimedHistory = aimedAt(aims)
 
 /** A role's OID, as the owner reads it. */
 const oidQuery = "SELECT r.oid::text FROM pg_catalog.pg_roles AS r WHERE r.rolname = $1::text"

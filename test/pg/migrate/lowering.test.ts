@@ -26,9 +26,16 @@
  * - the migrated catalog is a fresh install's of the version (install-migrate.ts expectFreshCatalog);
  * - a Use row naming a doc no Doc row holds is refused at COMMIT with 23503 by a constraint the target's
  *   constraint-to-law map reads as the law, a foreign key's or a trigger's, whichever holds it.
+ *
+ * Features: each flip both ways under one law, applied and refused, a lowered rule's constant changed, each form added
+ * over rows that break it, an intermediate folder refused, and a refused write naming its law by a foreign key and by a
+ * trigger, each pending one constructed.
+ *
+ * Plants (~/.cache/grizzle-release/BR11/plants): lowering-triggers-kept (a migration keeps a rule's law triggers when the
+ * rule leaves them for foreign keys).
  */
 import { layer } from "@effect/vitest"
-import { type Case, drawn, explore } from "@grizzle/testing/explore"
+import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import { array, boolean, element, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
@@ -43,7 +50,13 @@ import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, derived, on, relation, schema } from "#compiler/public/schema.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
-import { apply, checkedAdmission, openMigrator } from "#test/pg/migrate/support.ts"
+import {
+	type Aim,
+	aimedAt,
+	apply,
+	checkedAdmission,
+	openMigrator
+} from "#test/pg/migrate/support.ts"
 import { ambientOwner, ordinarySession } from "#test/support/ambient.ts"
 import { assert } from "#test/support/assert.ts"
 import {
@@ -554,7 +567,7 @@ const pathOver =
 	}
 
 /** The cases each required situation is aimed at while it is pending (Case.steering). */
-const aims: ReadonlyArray<readonly [Feature, Gen<WalkCase>]> = [
+const aims: ReadonlyArray<Aim<WalkCase, Feature>> = [
 	[
 		"a stored containment added over stored rows that break it, refused naming its law",
 		addedOver("doc")
@@ -634,12 +647,7 @@ const aims: ReadonlyArray<readonly [Feature, Gen<WalkCase>]> = [
 ]
 
 /** The case a search runs: its drawn one, or, while a situation `aims` reaches is pending, the one aimed at it. */
-
-const aimed = (drawnCase: WalkCase, c: Case<Feature>): WalkCase => {
-	const pending = Option.getOrUndefined(c.steering)
-	const aim = Arr.findFirst(aims, ([feature]) => pending?.has(feature) === true)
-	return Option.isNone(aim) ? drawnCase : c.draw(aim.value[1])
-}
+const aimed = aimedAt(aims)
 
 layer(Substrate.layer)(
 	"rules held by foreign keys or by triggers, migrated with stored rows",

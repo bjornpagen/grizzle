@@ -1,5 +1,5 @@
 /**
- * A table's attribute numbers on PostgreSQL 19rc1, around the bound (W6.AT): PostgreSQL never reuses a dropped
+ * A table's attribute numbers on PostgreSQL 19rc1, around the bound: PostgreSQL never reuses a dropped
  * column's attribute number, and refuses a table past 1600 of them, live and dropped together, with 54011 (heap.c,
  * MaxHeapAttributeNumber). grizzle's snapshot records each table's attribute numbers ever used, so its draft refuses an
  * ADD COLUMN past that limit, naming the relation and saying to recreate it, exactly where PostgreSQL would refuse the
@@ -10,6 +10,11 @@
  *   added) holds them all; then every addition of one to four columns is drafted by grizzle and sent raw by the owner
  *   in a transaction rolled back: grizzle's draft refuses it as an unsupported operation at the relation, before any
  *   statement is sent, exactly when PostgreSQL refuses it with 54011.
+ *
+ * Features: an addition ending below the bound, on it, one past it and further past it.
+ *
+ * Plants (~/.cache/grizzle-release/BR11/plants): attnums-one-past (a draft admits an addition one attribute number past
+ * PostgreSQL's bound).
  */
 import { layer } from "@effect/vitest"
 import { type Case, exhaust } from "@grizzle/testing/explore"

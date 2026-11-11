@@ -1,3 +1,44 @@
+/**
+ * The worked examples, migrated version by version through the real apply runner, on PostgreSQL 19.
+ *
+ * The fixtures are a dictionary of realistic schemas, each a family of levels: Work and its Reports extension, Payroll
+ * and its Reporting, and every other example (Plans, the queue, the ledger, the graph, vector search, spans and
+ * calendars) a family of one level. A history is drawn as a walk over one family's levels, two to four versions, each
+ * at any level, so it adds an extension's derived relation and its worlds, drops them, and drafts a version again after
+ * itself, which changes nothing. Each history is drafted from the empty
+ * snapshot on, as `grizzle generate` drafts it, and applied as `grizzle migrate` applies it: the real runner on the
+ * migration identity's own connection path (verify-full TLS), every folder up to the step with that step's snapshot.
+ * Every fixture is installed under the allocated name, every level of it renamed, so the declared name is the
+ * installed one. Properties, for every history:
+ *
+ * - every apply is admitted by the runner's post-apply drift check and by the installed-catalog checker against the
+ *   version's installation (`checkedAdmission`);
+ * - a version drafted again after itself changes nothing;
+ * - three installations of the last version agree, the ledger aside: the history the runner migrated, the
+ *   fresh-install script, and the test installer every other pg suite installs through,
+ *   their catalogs, function bodies, trigger events and view queries included; the installer's statement certificate
+ *   (runsInstallScript) holds, so its later installations of a process may skip the full comparison;
+ * - the ledger records every folder complete with each of its files once, its latest target the last snapshot and no
+ *   folder partial, and applying the directory again runs nothing;
+ * - Db.open of every role of the last version's logins, over the schema rebuilt under the installed name, admits the
+ *   database.
+ *
+ * A version carries the logins its fixture's worlds declare, so the histories add, drop
+ * and keep logins and roles as they move between levels, each login a step drops declared (`--drop @<login>`), and every
+ * apply's checker judges the worlds' posture: the
+ * grants, the memberships, and each login's defaults, the search policy's among them (Search reads vectors). The
+ * fixtures' roles hold their relations whole, so no table has row security; the worlds suite migrates worlds whose
+ * written query entries have policies.
+ *
+ * Oracle: the fresh-install script and the test installer, against the history the runner migrated, each judged by
+ * PostgreSQL's catalog; the runner's drift check and the installed-catalog checker; and Db.open.
+ *
+ * Features: every fixture family, an extension added, an extension dropped, and a version drafted again, each pending
+ * one aimed at by drawing from the families that reach it.
+ *
+ * Plants (~/.cache/grizzle-release/BR11/plants): fixtures-redraft-changes (a version drafted again after itself
+ * reports a schema change).
+ */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -67,37 +108,7 @@ import { upTo } from "#test/support/up-to.ts"
 import { testVerify, tokenOf } from "#test/support/worlds.ts"
 
 /** One version of a history: a schema or an extension, every level renamed with it, and the logins of its worlds over
- * the version declared under a name (none for a fixture that declares no worlds).
- *
- * The worked examples, migrated version by version through the real apply runner, on PostgreSQL 19.
- *
- * The fixtures are a dictionary of realistic schemas, each a family of levels: Work and its Reports extension, Payroll
- * and its Reporting, and every other example (Plans, the queue, the ledger, the graph, vector search, spans and
- * calendars) a family of one level. A history is drawn as a walk over one family's levels, two to four versions, each
- * at any level, so it adds an extension's derived relation and its worlds, drops them, and drafts a version again after
- * itself, which changes nothing. Each history is drafted from the empty
- * snapshot on, as `grizzle generate` drafts it, and applied as `grizzle migrate` applies it: the real runner on the
- * migration identity's own connection path (verify-full TLS), every folder up to the step with that step's snapshot.
- * Every fixture is installed under the allocated name, every level of it renamed, so the declared name is the
- * installed one. Properties, for every history:
- *
- * - every apply is admitted by the runner's post-apply drift check and by the installed-catalog checker against the
- *   version's installation (`checkedAdmission`);
- * - a version drafted again after itself changes nothing;
- * - three installations of the last version agree, the ledger aside: the history the runner migrated, the
- *   fresh-install script, and the test installer every other pg suite installs through,
- *   their catalogs, function bodies, trigger events and view queries included; the installer's statement certificate
- *   (runsInstallScript) holds, so its later installations of a process may skip the full comparison;
- * - the ledger records every folder complete with each of its files once, its latest target the last snapshot and no
- *   folder partial, and applying the directory again runs nothing;
- * - Db.open of every role of the last version's logins, over the schema rebuilt under the installed name, admits the
- *   database.
- *
- * A version carries the logins its fixture's worlds declare, so the histories add, drop
- * and keep logins and roles as they move between levels, each login a step drops declared (`--drop @<login>`), and every
- * apply's checker judges the worlds' posture: the
- * grants, the memberships, and each login's defaults, the search policy's among them (Search reads vectors). The
- * fixtures' roles hold their relations whole, so no table has row security; the worlds suite migrates worlds whose written query entries have policies. */
+ * the version declared under a name (none for a fixture that declares no worlds). */
 interface Version {
 	readonly desc: SchemaDesc
 	readonly logins: (name: string) => ReadonlyArray<AnyLogin>

@@ -9,8 +9,8 @@
  * scratch schema, reads both and rolls back.
  *
  * - **Property:** each apply's round trips are exactly the steps its report says it ran, and each drift check run
- *   alone after it is one round trip, its simple queries the session's controls for the BEGIN of a read-write
- *   SERIALIZABLE transaction and its ROLLBACK, the session idle after it.
+ *   alone after it is one round trip, framed as a read-write SERIALIZABLE transaction that rolls back (frameOf, the
+ *   frame's structure read off its simple queries), the session idle after it.
  * - **Oracle:** the flight model (stepsOf), the runner's documented steps restated over its own report.
  * - **Box, exhausted:** the shop's histories of one to three versions, each applied first up to a split folder (none at
  *   all: the empty snapshot, with no ledger yet), then whole, then again with nothing pending.
@@ -33,7 +33,6 @@ import { type MigrationSession, migrationSession } from "#adapter/migrate/sessio
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
-import { servedSession } from "#compiler/program/served.ts"
 import { kept, reviewedSource } from "#test/pg/migrate/support.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { firstCodes } from "#test/support/compile.ts"
@@ -42,7 +41,7 @@ import { caseHang } from "#test/support/limits.ts"
 import { draftChain, fromEmpty, noDeclarations, ownedBy } from "#test/support/migrate/kit.ts"
 import { readLedger } from "#test/support/migrate/ledger.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-import { queryTexts, type Tapped, tappedSession } from "#test/support/wire-tap.ts"
+import { frameOf, type Tapped, tappedSession } from "#test/support/wire-tap.ts"
 import { shopV1, shopV2, shopV3, shopV3Declared } from "#test/unit/deploy/schemas.ts"
 
 const versions = [
@@ -65,15 +64,6 @@ const historyGen: Gen<History> = (source) => {
 
 /** The histories the box holds: a history of n versions splits at each of its n + 1 folders, none included. */
 const historyCount = Arr.reduce(Arr.range(1, versions.length), 0, (sum, count) => sum + count + 1)
-
-/**
- * The simple queries that frame the drift check, as a migration session's controls send them: the BEGIN of a
- * read-write SERIALIZABLE transaction, and its ROLLBACK.
- */
-const driftFraming: ReadonlyArray<string> = [
-	servedSession.begin.serializable.readWrite,
-	servedSession.rollback
-]
 
 type FlightFeature =
 	| "an absent ledger admitted"
@@ -147,7 +137,11 @@ const admittedAlone = (tapped: Tapped, m: MigrationSession, target: MigrationTar
 		yield* checkDrift(m, snapshot, statements)
 		const window = tapped.since(mark)
 		assert.equal(window.roundTrips, 1, "the drift check is one round trip")
-		assert.deepEqual(queryTexts(window), driftFraming, "the drift check's framing")
+		assert.deepEqual(
+			frameOf(window),
+			{ kind: "framed", isolation: "SERIALIZABLE", access: "read write", end: "rollback" },
+			"the drift check's framing"
+		)
 		assert.deepEqual(window.backend.at(-1), { type: "Z", status: "I" }, "the drift check ends idle")
 	})
 

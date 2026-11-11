@@ -1,3 +1,5 @@
+import type { Case } from "@grizzle/testing/explore"
+import type { Gen } from "@grizzle/testing/gen"
 import {
 	Array as Arr,
 	Cause,
@@ -740,3 +742,24 @@ export const rowsOf = (
 		}
 		return out
 	})
+
+/**
+ * A required situation and the generator that constructs a case reaching it: what a steered case draws while the
+ * situation is pending.
+ */
+export type Aim<A, F extends string> = readonly [situation: F, reaching: Gen<A>]
+
+/**
+ * The case a search runs: its drawn one, or, while a situation an aim names is pending (Case.steering), the case the
+ * first such aim's generator constructs, drawn from the case's own tape. Rotating and kept cases are never steered, so
+ * they run as drawn.
+ */
+export const aimedAt =
+	<A, F extends string>(aims: ReadonlyArray<Aim<A, F>>) =>
+	(drawnCase: A, c: Case<F>): A =>
+		Option.match(
+			Option.flatMap(c.steering, (pending) =>
+				Arr.findFirst(aims, ([situation]) => pending.has(situation))
+			),
+			{ onNone: () => drawnCase, onSome: ([, reaching]) => c.draw(reaching) }
+		)

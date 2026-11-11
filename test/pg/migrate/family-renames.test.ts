@@ -26,6 +26,14 @@
  *   a fold over a tree is drawn in the tree's stored sibling order.
  * - Either way, migrate's drift check and the installed-catalog checker match the catalog against the snapshot after
  *   every step, and no constraint is left NOT VALID: every law holds.
+ *
+ * Features: each family kind and fold, a copy, the owner, member and count renamed, relations, fields and handles
+ * swapped and chained, the roster renamed, a selected fold's handle renamed, and stored members; for a changed filler,
+ * each change on each kind, trees among them.
+ *
+ * Plants (~/.cache/grizzle-release/BR11/plants): family-renames-law-columns-rebuilt (a declared rename restates no law
+ * column, so the family's law columns are dropped and drawn again) and family-changes-stale-filler (a field whose filler
+ * changes keeps its stale values).
  */
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"

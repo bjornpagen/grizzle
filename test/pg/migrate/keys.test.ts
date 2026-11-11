@@ -18,9 +18,15 @@
  * the first version whose key the rows break, and that version's key law (migrate's StatementFailed or
  * FileCommitRefused `law`). After every apply the migrated catalog is a fresh install's of the version
  * (install-migrate.ts expectFreshCatalog).
+ *
+ * Features: a key moved over rows that keep it, over rows that repeat it, and over rows that repeat it in the first of
+ * two pending folders, each a steered case constructs while it is pending.
+ *
+ * Plants (~/.cache/grizzle-release/BR11/plants): keys-swap-unrecorded (a key's index built under its swap name is no
+ * Swap of the plan, so a refused build names no law).
  */
 import { layer } from "@effect/vitest"
-import { type Case, drawn, explore } from "@grizzle/testing/explore"
+import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import { array, boolean, element, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
@@ -32,7 +38,13 @@ import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
-import { apply, checkedAdmission, openMigrator } from "#test/pg/migrate/support.ts"
+import {
+	type Aim,
+	aimedAt,
+	apply,
+	checkedAdmission,
+	openMigrator
+} from "#test/pg/migrate/support.ts"
 import { ambientOwner, ordinarySession } from "#test/support/ambient.ts"
 import { assert } from "#test/support/assert.ts"
 import {
@@ -234,7 +246,7 @@ const twoRows =
 	}
 
 /** The cases each required situation is aimed at while it is pending (Case.steering). */
-const aims: ReadonlyArray<readonly [Feature, Gen<KeyCase>]> = [
+const aims: ReadonlyArray<Aim<KeyCase, Feature>> = [
 	["a primary key moved over rows that keep it", movedOver(twoRows("distinct"), "each alone")],
 	[
 		"a primary key moved over rows that repeat it, refused naming its law",
@@ -247,11 +259,7 @@ const aims: ReadonlyArray<readonly [Feature, Gen<KeyCase>]> = [
 ]
 
 /** The case a search runs: its drawn one, or, while a situation `aims` reaches is pending, the one aimed at it. */
-const aimed = (drawnCase: KeyCase, c: Case<Feature>): KeyCase => {
-	const pending = Option.getOrUndefined(c.steering)
-	const aim = Arr.findFirst(aims, ([feature]) => pending?.has(feature) === true)
-	return Option.isNone(aim) ? drawnCase : c.draw(aim.value[1])
-}
+const aimed = aimedAt(aims)
 
 layer(Substrate.layer)("a primary key moved over stored rows", (it) => {
 	it.effect(

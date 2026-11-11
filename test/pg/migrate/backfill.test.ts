@@ -19,17 +19,28 @@
  * apart and written out of their order. And members stored by a vector key that the migration which keys them by their
  * group and a new drawn index keeps as a field, renames or drops, declared: its backfill orders and joins the stored
  * members by that key at the extension's operators, the dropped one's column standing until the migration's removals.
+ *
+ * Features: an empty family, a family of one and of several, members written out of their key order, tags copied or
+ * not; two trees, a root alone, a node of several children, a grandchild, siblings written out of their key order; and
+ * each fate of a vector key. Each pending situation is aimed at by a case constructed to reach it (a leading owner of a
+ * drawn size, keys written from the highest down, a fixed tree shape, a fixed fate), never by filtering draws.
+ *
+ * Plants (~/.cache/grizzle-release/BR11/plants): backfill-family-index-from-one (a family's backfilled index counts
+ * from 1), backfill-tree-siblings-unordered (a tree's siblings are numbered in no stated order) and
+ * backfill-vector-stored-key-ignored (members keyed anew are ordered by their new key, not the one their rows were
+ * distinct by).
  */
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import {
-	array,
 	boolean,
 	composition,
+	constant,
 	element,
 	type Gen,
 	int,
+	map,
 	parents,
 	shuffled
 } from "@grizzle/testing/gen"
@@ -56,6 +67,7 @@ import {
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { byMember, FOLD_SPECS, foldRead, foldSeatOf } from "#test/pg/fin/folds.ts"
 import { seatOfInstalled } from "#test/pg/fin/installed.ts"
+import { type Aim, aimedAt } from "#test/pg/migrate/support.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { foldStoredOf } from "#test/support/families/fold.ts"
 import { type Node, numbered, type Rooted } from "#test/support/families/tree.ts"
@@ -194,38 +206,74 @@ interface Family {
 	readonly members: ReadonlyArray<WrittenMember>
 }
 
-/**
- * One to three owners, ids 0 up, each with a tag; up to six members falling among them in drawn counts, each keyed
- * apart, the keys drawn in any order, so each family's members are written out of their key order; each member's value;
- * and whether the tags are copied onto the members.
- */
-const familyGen: Gen<Family> = (source) => {
+/** How many members each owner of a drawn family holds: one to three owners, up to six members among them. */
+const countsGen: Gen<ReadonlyArray<number>> = (source) => {
 	const owners = source.draw(int(1, 3))
-	const total = source.draw(int(0, 6))
-	const counts = source.draw(composition(total, owners))
-	const keys = source.draw(shuffled(keyRange, { min: total, max: total }))
-	const tags = nonEmptyList(
-		upTo(owners, () => source.draw(int(-valueBound, valueBound))),
-		"the owners' tags"
-	)
-	let at = 0
-	const members: Array<WrittenMember> = []
-	for (const [g, count] of counts.entries()) {
-		for (let k = 0; k < count; k += 1) {
-			members.push({
-				member: defined(keys[at], "a member's key"),
-				g,
-				x: source.draw(int(-valueBound, valueBound))
-			})
-			at += 1
-		}
-	}
-	return {
-		copied: source.draw(boolean),
-		tags,
-		members
-	}
+	return source.draw(composition(source.draw(int(0, 6)), owners))
 }
+
+/** `total` keys apart, drawn in any order, so each family's members may be written out of their key order. */
+const anyOrder = (total: number): Gen<ReadonlyArray<number>> =>
+	shuffled(keyRange, { min: total, max: total })
+
+/** `total` keys apart, written from the highest down, so every family of two or more is out of its key order. */
+const descending = (total: number): Gen<ReadonlyArray<number>> =>
+	map(anyOrder(total), (keys) => Arr.sort(keys, Order.flip(Order.Number)))
+
+/**
+ * A family: owners, ids 0 up, each holding as many members as `counts` draws and a tag; the members keyed apart, their
+ * keys as `keys` draws them, written owner by owner; each member's value; and whether `copied` copies the tags onto the
+ * members.
+ */
+const familyOf =
+	(
+		counts: Gen<ReadonlyArray<number>>,
+		keys: (total: number) => Gen<ReadonlyArray<number>>,
+		copied: Gen<boolean>
+	): Gen<Family> =>
+	(source) => {
+		const drawnCounts = source.draw(counts)
+		const total = Arr.reduce(drawnCounts, 0, (sum, n) => sum + n)
+		const drawnKeys = source.draw(keys(total))
+		const tags = nonEmptyList(
+			Arr.map(drawnCounts, () => source.draw(int(-valueBound, valueBound))),
+			"the owners' tags"
+		)
+		let at = 0
+		const members: Array<WrittenMember> = []
+		for (const [g, count] of drawnCounts.entries()) {
+			for (let k = 0; k < count; k += 1) {
+				members.push({
+					member: defined(drawnKeys[at], "a member's key"),
+					g,
+					x: source.draw(int(-valueBound, valueBound))
+				})
+				at += 1
+			}
+		}
+		return { copied: source.draw(copied), tags, members }
+	}
+
+/** A drawn family's counts with a first owner holding `count` members before the rest. */
+const leading =
+	(count: Gen<number>): Gen<ReadonlyArray<number>> =>
+	(source) => [source.draw(count), ...source.draw(countsGen)]
+
+/**
+ * One to three owners, up to six members falling among them in drawn counts, keyed apart and written in any order, each
+ * member's value, and whether the tags are copied onto the members.
+ */
+const familyGen: Gen<Family> = familyOf(countsGen, anyOrder, boolean)
+
+/** The family each required situation of a family is aimed at while it is pending (Case.steering). */
+const familyAims: ReadonlyArray<Aim<Family, FamilyFeature>> = [
+	["an empty family", familyOf(leading(constant(0)), anyOrder, boolean)],
+	["a family of one", familyOf(leading(constant(1)), anyOrder, boolean)],
+	["a family of several", familyOf(leading(int(2, 4)), anyOrder, boolean)],
+	["members written out of their key order", familyOf(leading(int(2, 4)), descending, boolean)],
+	["tags copied", familyOf(countsGen, anyOrder, constant(true))],
+	["a fold without a copy", familyOf(countsGen, anyOrder, constant(false))]
+]
 
 /** One node as written: its key, its parent's (its own at a root), its tree's root value and its kind. */
 interface WrittenNode {
@@ -241,33 +289,61 @@ interface Forest {
 }
 
 /**
+ * A forest: as many trees as `trees` draws, each tree's shape what `shape` draws (its nodes' parents), each tree's root
+ * value apart from the others', every node keyed apart, the keys as `keys` draws them, written tree by tree, and each
+ * node's kind.
+ */
+const forestOf =
+	(
+		trees: Gen<number>,
+		shape: Gen<ReadonlyArray<number>>,
+		keys: (total: number) => Gen<ReadonlyArray<number>>
+	): Gen<Forest> =>
+	(source) => {
+		const shapes = upTo(source.draw(trees), () => source.draw(shape))
+		const total = Arr.reduce(shapes, 0, (sum, nodes) => sum + nodes.length + 1)
+		const drawnKeys = source.draw(keys(total))
+		const docs = source.draw(
+			shuffled(Arr.range(1, valueBound), { min: shapes.length, max: shapes.length })
+		)
+		let offset = 0
+		const forest = Arr.map(shapes, (nodes, t) => {
+			const idOf = (node: number) => defined(drawnKeys[offset + node], "a node's key")
+			const doc = defined(docs[t], "a tree's root value")
+			const written = upTo(nodes.length + 1, (node) => ({
+				id: idOf(node),
+				parent: idOf(node === 0 ? 0 : defined(nodes[node - 1], "a node's parent")),
+				doc,
+				kind: source.draw(int(0, valueBound))
+			}))
+			offset += nodes.length + 1
+			return written
+		})
+		return { trees: forest }
+	}
+
+/** A tree of one to five nodes, its shape drawn by its parents. */
+const treeShape: Gen<ReadonlyArray<number>> = parents({ min: 1, max: 5 })
+
+/**
  * One or two trees of one to five nodes, each tree's shape drawn by its parents, its root value apart from the other's,
  * every node keyed apart, the keys drawn in any order, so siblings are written out of their key order, and each node's
  * kind.
  */
-const forestGen: Gen<Forest> = (source) => {
-	const shapes = upTo(source.draw(int(1, 2)), () => source.draw(parents({ min: 1, max: 5 })))
-	const sizes = Arr.map(shapes, (shape) => shape.length + 1)
-	const total = Arr.reduce(sizes, 0, (sum, size) => sum + size)
-	const keys = source.draw(shuffled(keyRange, { min: total, max: total }))
-	const docs = source.draw(
-		shuffled(Arr.range(1, valueBound), { min: shapes.length, max: shapes.length })
-	)
-	let offset = 0
-	const trees = Arr.map(shapes, (shape, t) => {
-		const idOf = (node: number) => defined(keys[offset + node], "a node's key")
-		const doc = defined(docs[t], "a tree's root value")
-		const nodes = upTo(shape.length + 1, (node) => ({
-			id: idOf(node),
-			parent: idOf(node === 0 ? 0 : defined(shape[node - 1], "a node's parent")),
-			doc,
-			kind: source.draw(int(0, valueBound))
-		}))
-		offset += shape.length + 1
-		return nodes
-	})
-	return { trees }
-}
+const forestGen: Gen<Forest> = forestOf(int(1, 2), treeShape, anyOrder)
+
+/** A root and its two children; a root, its child and its grandchild: by their parents. */
+const twoChildren: Gen<ReadonlyArray<number>> = constant([0, 0])
+const chain: Gen<ReadonlyArray<number>> = constant([0, 1])
+
+/** The forest each required situation of a tree is aimed at while it is pending (Case.steering). */
+const treeAims: ReadonlyArray<Aim<Forest, TreeFeature>> = [
+	["two trees", forestOf(constant(2), treeShape, anyOrder)],
+	["a root alone", forestOf(int(1, 2), parents({ min: 1, max: 1 }), anyOrder)],
+	["a node of several children", forestOf(int(1, 2), twoChildren, anyOrder)],
+	["a grandchild", forestOf(int(1, 2), chain, anyOrder)],
+	["siblings written out of their key order", forestOf(int(1, 2), twoChildren, descending)]
+]
 
 /** A relation's stored rows, each a value per field, a number or the text of a vector's literal. */
 interface Stored {
@@ -558,14 +634,19 @@ interface VectorKeyedFamily {
 	readonly members: ReadonlyArray<WrittenMember>
 }
 
-const vectorKeyedGen: Gen<VectorKeyedFamily> = (source) => {
-	const family = source.draw(familyGen)
-	return {
-		fate: source.draw(element(vectorKeyFates)),
-		owners: family.tags.length,
-		members: family.members
+/** Members stored by a vector key: the family `family` draws, and the key's fate `fate` draws. */
+const vectorKeyedOf =
+	(family: Gen<Family>, fate: Gen<VectorKeyFate>): Gen<VectorKeyedFamily> =>
+	(source) => {
+		const drawnFamily = source.draw(family)
+		return {
+			fate: source.draw(fate),
+			owners: drawnFamily.tags.length,
+			members: drawnFamily.members
+		}
 	}
-}
+
+const vectorKeyedGen: Gen<VectorKeyedFamily> = vectorKeyedOf(familyGen, element(vectorKeyFates))
 
 type VectorKeyFeature =
 	| `the key ${VectorKeyFate}`
@@ -590,34 +671,21 @@ const vectorKeyFeatures = (f: VectorKeyedFamily): ReadonlyArray<VectorKeyFeature
 	)
 ]
 
-/** How many candidates a steered case draws for a value that reaches a pending situation. */
-const aimCandidates = 32
-
-/**
- * The value a case runs: the drawn one, or, where steering names situations no case has reached, the first of up to
- * `aimCandidates` further draws of `generator` that reaches one, else the drawn one.
- */
-const aimed = <A, F extends string>(
-	drawnValue: A,
-	generator: Gen<A>,
-	features: (value: A) => ReadonlyArray<F>,
-	c: Case<F>
-): A =>
-	Option.match(c.steering, {
-		onNone: () => drawnValue,
-		onSome: (pending) => {
-			const reaches = (value: A) => Arr.some(features(value), (f) => pending.has(f))
-			return reaches(drawnValue)
-				? drawnValue
-				: Option.getOrElse(
-						Arr.findFirst(
-							c.draw(array(generator, { min: aimCandidates, max: aimCandidates })),
-							reaches
-						),
-						() => drawnValue
-					)
-		}
-	})
+/** The vector-keyed family each required situation is aimed at while it is pending (Case.steering). */
+const vectorKeyAims: ReadonlyArray<Aim<VectorKeyedFamily, VectorKeyFeature>> = [
+	...Arr.map(vectorKeyFates, (fate): Aim<VectorKeyedFamily, VectorKeyFeature> => [
+		`the key ${fate}`,
+		vectorKeyedOf(familyGen, constant(fate))
+	]),
+	[
+		"a family of several",
+		vectorKeyedOf(familyOf(leading(int(2, 4)), anyOrder, boolean), element(vectorKeyFates))
+	],
+	[
+		"members written out of their key order",
+		vectorKeyedOf(familyOf(leading(int(2, 4)), descending, boolean), element(vectorKeyFates))
+	]
+]
 
 layer(Substrate.layer)("backfilling a counted family with a fold on PostgreSQL 19rc1", (it) => {
 	it.effect(
@@ -654,7 +722,7 @@ layer(Substrate.layer)("backfilling a counted family with a fold on PostgreSQL 1
 					},
 					(drawnFamily: Family, c: Case<FamilyFeature>) =>
 						Effect.gen(function* () {
-							const family = aimed(drawnFamily, familyGen, familyFeatures, c)
+							const family = aimedAt(familyAims)(drawnFamily, c)
 							c.noteAll(familyFeatures(family))
 							const families = ownersOf(family)
 							const m = yield* migratedOver(
@@ -751,7 +819,7 @@ layer(Substrate.layer)("backfilling a counted family with a fold on PostgreSQL 1
 					},
 					(drawnForest: Forest, c: Case<TreeFeature>) =>
 						Effect.gen(function* () {
-							const forest = aimed(drawnForest, forestGen, forestFeatures, c)
+							const forest = aimedAt(treeAims)(drawnForest, c)
 							c.noteAll(forestFeatures(forest))
 							const nodes = Arr.flatten(forest.trees)
 							const byId = (id: number): WrittenNode => nodeIn(nodes, id)
@@ -858,7 +926,7 @@ layer(Substrate.layer)("backfilling a counted family with a fold on PostgreSQL 1
 					},
 					(drawnFamily: VectorKeyedFamily, c: Case<VectorKeyFeature>) =>
 						Effect.gen(function* () {
-							const f = aimed(drawnFamily, vectorKeyedGen, vectorKeyFeatures, c)
+							const f = aimedAt(vectorKeyAims)(drawnFamily, c)
 							c.noteAll(vectorKeyFeatures(f))
 							const fate = vectorFates[f.fate]
 							const owners = upTo(f.owners, (owner) => owner)
