@@ -1,6 +1,6 @@
 {
 	"typecheck": {
-		"total": 9352,
+		"total": 9325,
 		"files": {
 			"packages/generator/corpus/tools/coverage.ts": 63,
 			"packages/generator/corpus/tools/fetch.ts": 6,
@@ -139,7 +139,7 @@
 			"packages/generator/test/inventory/trace-tool.test.ts": 18,
 			"packages/generator/test/load/budget.test.ts": 15,
 			"packages/generator/test/load/document-set.test.ts": 20,
-			"packages/generator/test/load/json.test.ts": 44,
+			"packages/generator/test/load/json.test.ts": 17,
 			"packages/generator/test/load/ref-root.test.ts": 35,
 			"packages/generator/test/load/yaml.test.ts": 31,
 			"packages/generator/test/model/author-config-aliases.test.ts": 7,
@@ -387,7 +387,7 @@
 		}
 	},
 	"oxlint": {
-		"total": 4897,
+		"total": 4896,
 		"files": {
 			"packages/generator/corpus/tools/coverage.ts": 63,
 			"packages/generator/corpus/tools/fetch.ts": 1,
@@ -514,7 +514,7 @@
 			"packages/generator/test/inventory/trace-tool.test.ts": 61,
 			"packages/generator/test/load/budget.test.ts": 4,
 			"packages/generator/test/load/document-set.test.ts": 5,
-			"packages/generator/test/load/json.test.ts": 3,
+			"packages/generator/test/load/json.test.ts": 2,
 			"packages/generator/test/load/ref-root.test.ts": 6,
 			"packages/generator/test/load/yaml.test.ts": 5,
 			"packages/generator/test/model/author-config-runtime.test.ts": 1,
