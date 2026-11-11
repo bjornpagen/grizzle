@@ -88,8 +88,12 @@ const isProjection = (context: Context, node: AnyNode): boolean => {
 	return false
 }
 
-/** A compared value that is, or holds in an object or array literal, a projection of an unordered collection. */
-const holdsProjection = (context: Context, node: AnyNode): boolean => {
+/**
+ * A compared value that is, or holds in an object or array literal, a projection of an unordered collection, each
+ * looked through the `const` that names it.
+ */
+const holdsProjection = (context: Context, compared: AnyNode): boolean => {
+	const node = valueOf(context, compared)
 	if (isProjection(context, node)) {
 		return true
 	}

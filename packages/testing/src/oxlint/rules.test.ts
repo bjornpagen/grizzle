@@ -11,7 +11,8 @@
  * here. Features, required for every rule: a site reported, a site left alone, and a program of several sites.
  *
  * Plants (~/.cache/grizzle-release/BR07/plants), each in a rule's logic, never in a list the grammar reads, one a
- * rule in this order: rule-ordered-unordered-wrapped-blind, rule-error-prose-suffix-blind,
+ * rule in this order: rule-ordered-unordered-wrapped-blind (and rule-ordered-unordered-const-blind, a projection held by
+ * a `const` and compared read as no projection), rule-error-prose-suffix-blind,
  * rule-serialized-to-string-blind, rule-example-table-tag-blind, rule-boolean-assert-expect-message-blind,
  * rule-clamped-count-zero-admitted, rule-fixed-seed-negation-blind, rule-sleep-bare-blind, rule-wall-clock-new-blind,
  * rule-retry-false-refused.
@@ -702,7 +703,7 @@ const comparedGen: Gen<Compared> = (source) => {
 					rendered: false
 				})
 			],
-			[1, constant({ written: "`${" + plain + "}-${other}`", serialized: false, rendered: true })],
+			[1, constant({ written: `\`\${${plain}}-\${other}\``, serialized: false, rendered: true })],
 			[1, constant({ written: "`plain`", serialized: false, rendered: false })],
 			[1, constant({ written: `"42"`, serialized: false, rendered: false })],
 			[1, constant({ written: plain, serialized: false, rendered: false })]
@@ -787,6 +788,22 @@ const projectedGen: Gen<Projected> = weighted<Projected>([
 			declared: "",
 			written: `${spelled(s.draw(oneOf(PROJECTIONS)))}(record)`,
 			projection: true
+		})
+	],
+	[
+		2,
+		(s) => ({
+			declared: `const keys${OWN} = ${spelled(s.draw(oneOf(PROJECTIONS)))}(record)\n`,
+			written: `keys${OWN}`,
+			projection: true
+		})
+	],
+	[
+		1,
+		(s) => ({
+			declared: `const keys${OWN} = Arr.sort(${spelled(s.draw(oneOf(PROJECTIONS)))}(record), Order.String)\n`,
+			written: `keys${OWN}`,
+			projection: false
 		})
 	],
 	[2, (s) => ({ declared: "", written: `index.${s.draw(oneOf(ITERATIONS))}()`, projection: true })],
