@@ -376,25 +376,23 @@ const property = (sketch: Sketch, c: Case<AllowanceFeature>) =>
 layer(Substrate.layer, { excludeTestServices: true })(
 	"a refresh with no base change writes nothing, whatever its facts' spellings and order",
 	(it) => {
-		it.effect(
-			`${cases} generated cases: a reordered reload's refresh keeps every row's tuple`,
-			(ctx) =>
-				searched(
-					ctx,
-					oracleCheck(
-						drawn(sketchGen),
-						{
-							suite: "derived/allowance",
-							literal: Formatter.format,
-							coverage: required<AllowanceFeature>(situations, { cases: cases, sense: notesOnly }),
-							kept: [],
-							runs: cases,
-							shrink: { kind: "complete" },
-							perturb: "planner"
-						},
-						property
-					)
+		it.effect("a reordered reload's refresh keeps every row's tuple", (ctx) =>
+			searched(
+				ctx,
+				oracleCheck(
+					drawn(sketchGen),
+					{
+						suite: "derived/allowance",
+						literal: Formatter.format,
+						coverage: required<AllowanceFeature>(situations, { cases: cases, sense: notesOnly }),
+						kept: [],
+						runs: cases,
+						shrink: { kind: "complete" },
+						perturb: "planner"
+					},
+					property
 				)
+			)
 		)
 	}
 )

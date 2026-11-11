@@ -1351,8 +1351,7 @@ const realizedUnder = (pc: ProgramCase, c: Case<Feature>) =>
 /**
  * Registers an education suite's test. Each case stages a drawn reality on the installation, then runs its program,
  * every action drawn from the model's state, performed on the real system and the model side by side, and held to the
- * suite's properties; a failure shrinks through at most 200 candidates. The steered phase climbs toward the required
- * features for as many cases as the suite runs.
+ * suite's properties. The steered phase climbs toward the required features.
  */
 const register = (it: Vitest.MethodsNonLive<Substrate>, spec: EducationSuite): void => {
 	it.effect(spec.name, (ctx) =>

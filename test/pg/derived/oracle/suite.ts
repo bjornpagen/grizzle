@@ -9,9 +9,7 @@ import { type DerivedFeature, derivedCase } from "#test/pg/derived/oracle/proper
 import { oracleCheck } from "#test/support/oracle/runner.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
-/** Cases per seed and stream: each installs a schema, opens a Db and makes three to six refresh calls.
- *
- * The generated refresh oracle's suites. Each seed is a top-level suite of its own, so a file's
+/** The generated refresh oracle's suites' search budget per seed. Each seed is a top-level suite of its own, so a file's
  * suites overlap their database waits (Writing tests); every case is installed under its own schema. */
 const casesPerSeed = 200
 
@@ -71,7 +69,7 @@ export const suite = (name: string, seeds: ReadonlyArray<number>): void => {
 			`${name} (seed ${seed.toString(16)})`,
 			(it) => {
 				it.effect(
-					`${casesPerSeed} generated cases: every refreshed view equals its definition, in one commit, writing nothing it need not`,
+					"every refreshed view equals its definition, in one commit, writing nothing it need not",
 					(ctx) => searched(ctx, explored(label))
 				)
 			}

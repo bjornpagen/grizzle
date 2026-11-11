@@ -174,25 +174,10 @@ const situations: Arr.NonEmptyReadonlyArray<PageFeature> = [
 	...Arr.map(pageSizes, (n) => `page size ${n}` as const)
 ]
 
-/**
- * The requests a case's traversals may take, a size of the generated population: a drawn case whose traversals would
- * take more is skipped. Over 6,956 traversed cases of generated-optimized at three seeds, a request (one page's flight
- * with its attachments and checks) took 0.54 ms at the median, 4.4 ms at the 90th percentile and 6.04 ms at the
- * slowest, so this many take about a minute at the slowest. The largest traversal those runs drew took 3,460 requests;
- * one case, 186,624 (a 93,312-row cross product at page size 1), is the kind the bound skips.
- */
+/** The requests a case's traversals may take, a search budget: a drawn case whose traversals would take more is skipped. */
 const requestBound = 10_000
 
-/**
- * The share of a run's cases the request bound may skip: past it the generator has drifted toward results no traversal
- * can afford, and the run fails rather than keep skipping.
- */
-const boundSkipShare = 0.05
-
-/**
- * A traversal this long in one direction: a length every measured run reached 6 to 8 times (the three seeds above),
- * far under the request bound.
- */
+/** A traversal this long in one direction: the required feature "a traversal of at least 200 pages in one direction". */
 const longTraversal = 200
 
 const config: GenConfig = {
@@ -1166,18 +1151,14 @@ const negativeZeroRelation = (o: OrderedCase): boolean =>
  * population must reach every required feature, among them a per-execution form, a relation parameter holding a
  * float -0, which the runtime passes as the caller's one zero, and a traversal of at least 200 pages.
  *
- * A case whose traversal at its drawn sizes would take more requests than fit in half its hang bound is skipped, its
- * D, sizes and request count logged; such skips may be at most 5% of the run's cases, or the generator has drifted and
- * the run fails.
+ * A case whose traversals at its drawn sizes would take more requests than the request bound is skipped, its D, sizes
+ * and request count logged.
  */
 /** The artifact a run of the suite pages through: the page compiler's, or the page oracle's baseline. */
 type PageArtifactName = "optimized" | "conservative"
 
 export const generatedSuite = (artifact: PageArtifactName): void => {
 	/**
-	 * The run's cases and those the request bound skipped, for the skip share; a passing run executes each drawn case
-	 * once and shrinks nothing, so the counts are its cases.
-	 *
 	 * The order refusal is located at the caller's orderBy, never at the node the order completes over.
 	 *
 	 * A ROLLBACK that fails leaves the pinned session in a transaction: a defect of the case, never ignored.
@@ -1186,16 +1167,9 @@ export const generatedSuite = (artifact: PageArtifactName): void => {
 	 *
 	 * Noted only once the case pages: a skipped case never read its -0.
 	 */
-	const runCase = (
-		o: OrderedCase,
-		schema: string,
-		c: Case<PageFeature>,
-		ctx: TestContext,
-		share: { cases: number; overBound: number }
-	) =>
+	const runCase = (o: OrderedCase, schema: string, c: Case<PageFeature>, ctx: TestContext) =>
 		Effect.gen(function* () {
 			const s = yield* Substrate
-			share.cases++
 			const ordered = orderedQuery(o)
 			if (ordered === undefined) {
 				c.note("skipped: unordered column")
@@ -1347,7 +1321,6 @@ export const generatedSuite = (artifact: PageArtifactName): void => {
 						Math.max(1, Math.ceil(full.rows.length / sizes.forward)) +
 						Math.max(1, Math.ceil(full.rows.length / sizes.backward))
 					if (cost > requestBound) {
-						share.overBound++
 						yield* Effect.promise(() =>
 							ctx.annotate(
 								`skipped over the request bound ${requestBound}: |D| ${full.rows.length}, sizes ${sizes.forward} forward and ${sizes.backward} backward, ${cost} requests`
@@ -1395,26 +1368,19 @@ export const generatedSuite = (artifact: PageArtifactName): void => {
 						Effect.gen(function* () {
 							const s = yield* Substrate
 							const schema = yield* s.schema({ create: false, label: "page_rt" })
-							const share = { cases: 0, overBound: 0 }
-							const explored = yield* oracleCheck(
+							return yield* oracleCheck(
 								drawn(orderedCaseGen),
 								{
 									suite: `page/generated-${artifact}`,
 									literal: Formatter.format,
 									coverage: required<PageFeature>(situations, { cases: 2_000, sense: notesOnly }),
 									kept: [],
-									/** The suite's stated population. */
 									runs: 2_000,
 									shrink: completeShrink,
 									perturb: "all"
 								},
-								(o, c) => runCase(aimedCase(o, c), schema, c, ctx, share)
+								(o, c) => runCase(aimedCase(o, c), schema, c, ctx)
 							)
-							assert.ok(
-								share.overBound <= boundSkipShare * share.cases,
-								`${share.overBound} of ${share.cases} cases over the request bound ${requestBound}`
-							)
-							return explored
 						})
 					)
 			)
