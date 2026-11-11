@@ -1,162 +1,481 @@
 /**
- * A served file's refusals read back as the compile's, so a layer classifies a violation exactly as its compile does:
- * a role's refusals drawn from its artifacts (adapter/served/refusals.ts installationRefusals), written by servedText
- * and read by servedFile from the JSON value an import of the file yields, rebuild a classifier (witness/index.ts
- * servedWitness) whose every key-law table answers as the one built from the refusals before they were written.
+ * A login's served classifier classifies every refusal its writes can raise exactly as its installation's full
+ * classifier does. A served file holds each role's refusals cut to what its writes can raise (adapter/served/project.ts),
+ * so the cut must lose nothing a statement of the role can meet: a refusal misread by the cut is an ExecutionFailure
+ * where the installation names a law, or a law where it names another.
  *
- * Over generated public schemas (test/support/oracle/public), each one's artifacts compiled as the runtime's compile
- * compiles them:
+ * Over generated public schemas (test/support/oracle/public) and logins drawn over them (test/support/served-login.ts),
+ * each login compiled as `grizzle generate` compiles it, for every role that writes:
  *
- * - Round trip: the refusals read back are the refusals written (runtimeDifference finds no member that differs).
- * - Classifier: for every installed constraint, under its owner, the laws the loaded classifier reads are the compile's;
- *   so is each stored relation's table, each roster domain, each generated field's law, and every law a write statement
- *   raises.
+ * - cut: the role's refusals as its served file holds them, the file read back from the JSON value its text parses to,
+ *   rebuilt as a layer rebuilds them (adapter/witness/index.ts servedWitness), under the codes the file holds;
+ * - full: every refusal of the role's installation (adapter/served/refusals.ts installationWitness);
+ * - Differential (R1): every refusal the role's writes can raise, as test/support/served-reach.ts computes it from the
+ *   compiled program and the installation, never through program/schema.ts raisableOf, reported as PostgreSQL reports
+ *   it at a statement writing some of the role's written relations: a table constraint's or rule trigger's violation;
+ *   a domain's CHECK, at a statement writing a column it types; an unstored contract domain's CHECK; a write statement's
+ *   refusal of a law, its DETAIL's key decoded through the refused relation's heading; a roster domain's CHECK, which is
+ *   grizzle's defect; a generated column's NOT NULL; a concurrent change at a written relation; a fact outside a query
+ *   entry the role writes through. Each is a law outcome of the full classifier, and the cut's outcome is the same
+ *   value as the runtime reads it (test/support/served.ts runtimeDifference), the host asked the same of the same
+ *   columns.
+ * - Narrowing (R2): a domain shared with a relation the role does not write is classified alike at a statement writing
+ *   some of its columns, its uses narrowed to the written tables as the full classifier narrows them by the statement.
  *
- * Essay ideas: an oracle (the compile's own classifier) over generated installations, compared as the runtime reads it.
+ * Plant (~/.cache/grizzle-release/TSERVED/plants): served-domain-narrowed-wrong.patch narrows a domain constraint's
+ * uses to the tables the role does not write: a shared domain's refusal names the other relations' laws, and a domain
+ * typing written columns alone is dropped, so the cut reads its refusal as no law.
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
+import { element, type Gen, int, map, subarray } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, String as Str } from "effect"
-import { installationRefusals } from "#adapter/served/refusals.ts"
+import { Result as Answered, Array as Arr, Effect, Formatter, Option } from "effect"
+import { installationWitness } from "#adapter/served/refusals.ts"
+import type { WrittenAt } from "#adapter/witness/classify.ts"
 import { servedWitness } from "#adapter/witness/index.ts"
-import { noLevelAbove } from "#adapter/witness/keylaw.ts"
-import { SchemaFingerprint } from "#compiler/core/ids.ts"
-import type * as Result from "#compiler/core/result.ts"
-import { trusted, trustedJson } from "#compiler/core/trusted.ts"
-import type { ConstraintOwner } from "#compiler/ir/products.ts"
-import { servedSession } from "#compiler/program/served.ts"
-import type { ServedFile, ServedRefusals } from "#compiler/served/forms.ts"
-import { servedFile, servedText } from "#compiler/served/json.ts"
-import { assert } from "#test/support/assert.ts"
-import { testArtifacts, testCompile } from "#test/support/compile.ts"
+import { type DeclaredName, identifierOf, identity } from "#compiler/core/identity.ts"
+import type { StoredRelationName } from "#compiler/core/ids.ts"
+import { sqlstates } from "#compiler/core/sqlstate.ts"
+import { type Codebook, type RosterCodec, rosterCodebook } from "#compiler/ir/codes.ts"
+import type { ScalarType } from "#compiler/ir/scalar.ts"
+import type { SchemaArtifacts } from "#compiler/program/schema.ts"
+import type { ConcurrentChangeTag } from "#compiler/runtime/write/refusal.ts"
+import type { Refuser } from "#compiler/runtime/write/witness.ts"
+import type { ServedRoleForm } from "#compiler/served/forms.ts"
+import { assert, defined } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { buildSchema } from "#test/support/oracle/public/build.ts"
+import { type BuiltSchema, buildSchema } from "#test/support/oracle/public/build.ts"
 import { caseSketchGen, resolveCase } from "#test/support/oracle/public/generate.ts"
 import { printCase } from "#test/support/oracle/public/print.ts"
 import type { ProgramCase } from "#test/support/oracle/public/program.ts"
+import { encodeRefusalDetail } from "#test/support/oracle/write/detail.ts"
+import {
+	compiledLogin,
+	drawnLogin,
+	loginGen,
+	type RoleShape,
+	roleName,
+	rolesOf
+} from "#test/support/served-login.ts"
+import {
+	castBy,
+	type Raised,
+	raisedBy,
+	typeRosters,
+	writtenBy
+} from "#test/support/served-reach.ts"
 import { runtimeDifference } from "#test/support/served.ts"
+import { nothingReported, type Reported, serverError } from "#test/support/server-error.ts"
 
-type Feature = "a constraint law" | "a law a write statement raises"
+type Feature =
+	| "a table constraint classified alike"
+	| "a domain shared with a relation the role does not write, narrowed alike"
+	| "a law refusal decoded alike"
+	| "a roster domain's refusal classified alike"
+	| "a concurrent change classified alike"
+	| "a fact outside a written query entry classified alike"
+	| "a statement writing some of the role's written relations"
+	| "a write reading a context field whose contract domain types only unwritten stored columns"
 
-/** The served file of one login of one role whose refusals are `refusals`, under the codes `rosters`. */
-const fileOf = (refusals: ServedRefusals, rosters: ServedFile["rosters"]): ServedFile => ({
-	login: "app",
-	fingerprint: SchemaFingerprint(Str.repeat(64)("0")),
-	base: "base",
-	level: 0,
-	role: "app_login",
-	schema: "base",
-	prologue: { fence: trusted("SELECT 1"), enter: trusted("SELECT 2") },
-	session: servedSession,
-	rosters,
-	matchers: { sets: [], matchers: [] },
-	closed: new Map(),
-	above: { schemas: [], constraints: { tables: {}, domains: {} }, laws: new Map() },
-	roles: [
-		{
-			name: "writer",
-			installed: "base__writer",
-			isolation: "serializable",
-			contexts: [],
-			refusals,
-			members: []
-		}
-	]
+/**
+ * One refusal a role's writes can raise, as PostgreSQL reports it, beside the relations a statement that raises it
+ * writes one of (none: any statement, or the COMMIT), and the feature it reaches.
+ */
+interface Refusal {
+	readonly reported: Reported
+	readonly at: ReadonlyArray<StoredRelationName>
+	readonly feature: Feature | undefined
+}
+
+/** The class 23 SQLSTATEs a native constraint's violation reports besides a domain's CHECK and a NOT NULL. */
+const nativeStates: Arr.NonEmptyReadonlyArray<string> = [
+	sqlstates.uniqueViolation,
+	sqlstates.foreignKeyViolation,
+	sqlstates.checkViolation,
+	sqlstates.exclusionViolation
+]
+
+/** The reasons a write statement raises a concurrent change for. */
+const changeReasons: Arr.NonEmptyReadonlyArray<ConcurrentChangeTag> = [
+	"PutTargetConflict",
+	"SpanKeyChange"
+]
+
+/** The codes the installation holds for `roster`, every roster a column or a cast value of it holds among them. */
+const codecNamed = (codes: Codebook, roster: DeclaredName): RosterCodec =>
+	defined(codes.rosters.get(roster), `the installation's codes of roster ${roster}`)
+
+/**
+ * A refused key's text for a field of `type`, as a write statement's DETAIL carries it: a closed id's code among its
+ * roster's, holes included, and for any other carrier a digit, which every key carrier's conversion reads.
+ */
+const keyTextGen = (codes: Codebook, type: ScalarType): Gen<string> =>
+	map(int(0, type.carrier === "code" ? codecNamed(codes, type.roster.closed).size - 1 : 9), String)
+
+/** What refused a statement, as the host is asked about it: its kind and every object it names. */
+const refuserText = (refuser: Refuser): string => {
+	switch (refuser.kind) {
+		case "constraint":
+			return `constraint ${refuser.owner} ${refuser.name}`
+		case "domain":
+			return `domain ${refuser.domain} ${refuser.name} ${Arr.join(
+				Arr.map(refuser.uses, (u) => `${u.table}.${u.column}=${u.law.law}`),
+				","
+			)}`
+		case "generated":
+			return `generated ${refuser.table}.${refuser.column}`
+	}
+}
+
+/**
+ * A statement writing `relations`, whose host judges every refuser by a witness naming it whole: each classifier's
+ * question of the host shows in its outcome.
+ */
+const statementAt = (relations: ReadonlyArray<StoredRelationName>): WrittenAt => ({
+	relations,
+	judge: (refuser) => ({
+		witness: { kind: "key", relation: "host", values: { refuser: refuserText(refuser) } },
+		laws: { kind: "object" }
+	})
 })
 
-const ok = <A, E extends { readonly message: string }>(
-	r: Result.Result<A, E>,
-	what: string,
-	c: ProgramCase
-): A => {
-	if (!r.ok) {
-		throw new Error(`${what}: ${r.error.message}\n${printCase(c)}`)
+/** The relations a statement raising a refusal writes: one of `at` where it names some, and any of `written` beside. */
+const statementGen =
+	(
+		at: ReadonlyArray<StoredRelationName>,
+		written: ReadonlySet<StoredRelationName>
+	): Gen<ReadonlyArray<StoredRelationName>> =>
+	(source) => {
+		const beside = source.draw(subarray([...written]))
+		const [first, ...rest] = at
+		return first === undefined
+			? beside
+			: Arr.dedupe([source.draw(element([first, ...rest])), ...beside])
 	}
-	return r.value
-}
 
-/** That two answers of the classifiers' tables are one, as the runtime reads them, for `what`. */
-const same = (a: unknown, b: unknown, what: string, c: ProgramCase): void => {
-	const differs = runtimeDifference(a, b)
-	assert.equal(differs, undefined, `${what} reads otherwise at ${differs}\n${printCase(c)}`)
-}
+/** The stored relations of `written` whose table is one of `tables`. */
+const writingTables = (
+	artifacts: SchemaArtifacts,
+	written: ReadonlySet<StoredRelationName>,
+	tables: ReadonlySet<string>
+): ReadonlyArray<StoredRelationName> =>
+	Arr.filter([...written], (r) => tables.has(artifacts.names.relation(r).name))
 
-const roundTrip = (c: ProgramCase, note: (feature: Feature) => void): void => {
-	const value = buildSchema(c.schema).schema
-	const artifacts = ok(testArtifacts(value, testCompile), "the schema's artifacts", c)
-	const codes = artifacts.names.codes
-	const refusals = installationRefusals(artifacts)
-	const file = fileOf(
-		refusals,
-		new Map(Arr.map([...codes.rosters], ([name, codec]) => [name, codec.codes] as const))
+/**
+ * Every refusal the writes of `written` can raise (Raised), as PostgreSQL reports each (see the header), its free values
+ * drawn: a native state, a refused key's texts, a concurrent change's reason.
+ */
+const refusalsOf = (
+	artifacts: SchemaArtifacts,
+	role: ServedRoleForm,
+	shape: RoleShape,
+	raised: Raised,
+	draw: <A>(generator: Gen<A>) => A
+): ReadonlyArray<Refusal> => {
+	const names = artifacts.names
+	const schema = names.schema
+	const written = raised.relations
+	const writtenTables = new Set<string>(Arr.map([...written], (r) => names.relation(r).name))
+	const constraints = Arr.flatMap(raised.constraints, (c): ReadonlyArray<Refusal> => {
+		switch (c.kind) {
+			case "constraint":
+			case "trigger":
+				return [
+					{
+						reported: {
+							...nothingReported,
+							sqlstate: draw(element(nativeStates)),
+							constraint: c.name,
+							schema,
+							table: c.owner
+						},
+						at: [],
+						feature: "a table constraint classified alike"
+					}
+				]
+			case "domainConstraint": {
+				const full = Arr.findFirst(
+					artifacts.constraintLaws,
+					(f) => f.kind === "domainConstraint" && f.owner === c.owner && f.name === c.name
+				).pipe(Option.getOrUndefined)
+				const shared =
+					full?.kind === "domainConstraint" &&
+					Arr.some(full.uses, (u) => writtenTables.has(u.table)) &&
+					Arr.some(full.uses, (u) => !writtenTables.has(u.table))
+				return [
+					{
+						reported: {
+							...nothingReported,
+							sqlstate: sqlstates.checkViolation,
+							constraint: c.name,
+							schema,
+							dataType: c.owner
+						},
+						at: writingTables(artifacts, written, new Set(Arr.map(c.uses, (u) => u.table))),
+						feature: shared
+							? "a domain shared with a relation the role does not write, narrowed alike"
+							: undefined
+					}
+				]
+			}
+			case "unstoredDomainConstraint":
+				return [
+					{
+						reported: {
+							...nothingReported,
+							sqlstate: sqlstates.checkViolation,
+							constraint: c.name,
+							schema,
+							dataType: c.owner
+						},
+						at: [...written],
+						feature: undefined
+					}
+				]
+		}
+	})
+	const relations = Arr.filter([...artifacts.derived.schema.relations.values()], (r) =>
+		written.has(r.name)
 	)
-	const back = servedFile(trustedJson<unknown>(ok(servedText(file), "the served file's text", c)))
-	const [role] = back.roles
-	if (role === undefined) {
-		throw new Error(`the file reads back no role\n${printCase(c)}`)
-	}
-	same(refusals, role.refusals, "the refusals", c)
-	const compiled = servedWitness(refusals, noLevelAbove, codes).laws
-	const loaded = servedWitness(role.refusals, back.above, codes).laws
-	same([...compiled.schemas], [...loaded.schemas], "the schemas", c)
-	for (const law of refusals.laws.constraintLaws) {
-		const owner: ConstraintOwner =
-			law.kind === "domainConstraint"
-				? { kind: "domain", name: law.owner }
-				: { kind: "table", name: law.owner }
-		same(
-			compiled.lawsOf(law.name, owner),
-			loaded.lawsOf(law.name, owner),
-			`the laws of ${law.name}`,
-			c
+	const laws = Arr.flatMap(raised.theoryLaws, (l): ReadonlyArray<Refusal> => {
+		const reads = Arr.findFirst(artifacts.laws.theory.laws, (t) => t.id === l.law).pipe(
+			Option.match({ onNone: () => [], onSome: (t) => t.reads })
 		)
-		note("a constraint law")
-	}
-	for (const relation of refusals.relations.keys()) {
-		same(compiled.tableOf(relation), loaded.tableOf(relation), `the table of ${relation}`, c)
-	}
-	for (const { code, bits } of refusals.laws.rosterDomains) {
-		same(compiled.rosterDomainOf(code), loaded.rosterDomainOf(code), `roster domain ${code}`, c)
-		same(compiled.rosterDomainOf(bits), loaded.rosterDomainOf(bits), `roster domain ${bits}`, c)
-	}
-	for (const { table, column } of refusals.laws.generated) {
-		same(
-			compiled.generatedOf(table, column),
-			loaded.generatedOf(table, column),
-			`the generated law of ${table}.${column}`,
-			c
+		const refused = Arr.filter(relations, (r) => Arr.contains(reads, r.name))
+		const [first, ...rest] = refused
+		if (first === undefined) {
+			return []
+		}
+		const relation = draw(element([first, ...rest]))
+		const key = Arr.map(relation.primaryFields, (field) => ({
+			field: field.name,
+			text: draw(keyTextGen(names.codes, field.type))
+		}))
+		return [
+			{
+				reported: {
+					...nothingReported,
+					sqlstate: sqlstates.integrityConstraintViolation,
+					constraint: l.law,
+					schema: draw(element([schema, undefined])),
+					detail: encodeRefusalDetail({ kind: "law", relation: relation.name }, key)
+				},
+				at: [relation.name],
+				feature: "a law refusal decoded alike"
+			}
+		]
+	})
+	const rosters = Arr.flatMap([...raised.rosters], (roster): ReadonlyArray<Refusal> => {
+		const holding = Arr.flatMap(relations, (r) =>
+			Arr.some(r.fields, (f) => Arr.contains(typeRosters(f.type), roster)) ? [r.name] : []
 		)
-	}
-	same([...compiled.raised], [...loaded.raised], "the raised laws", c)
-	if (compiled.raised.size > 0) {
-		note("a law a write statement raises")
-	}
+		const codec = codecNamed(names.codes, roster)
+		return Arr.map(
+			[
+				{ domain: names.rosterDomain(roster), check: identity.rosterDomain(roster) },
+				{ domain: names.bitsDomain(roster), check: identity.bitsDomain(roster, codec.width) }
+			],
+			({ domain, check }): Refusal => ({
+				reported: {
+					...nothingReported,
+					sqlstate: sqlstates.checkViolation,
+					constraint: identifierOf(identity.domainCheck(check)),
+					schema: domain.schema,
+					dataType: domain.name
+				},
+				at: holding,
+				feature: "a roster domain's refusal classified alike"
+			})
+		)
+	})
+	const generated = Arr.flatMap(raised.generated, (g): ReadonlyArray<Refusal> => [
+		{
+			reported: {
+				...nothingReported,
+				sqlstate: sqlstates.notNullViolation,
+				schema,
+				table: g.table,
+				column: g.column
+			},
+			at: writingTables(artifacts, written, new Set([g.table])),
+			feature: undefined
+		}
+	])
+	const changes = Arr.map([...written], (relation): Refusal => ({
+		reported: {
+			...nothingReported,
+			sqlstate: sqlstates.grizzleConcurrentChange,
+			detail: encodeRefusalDetail(
+				{ kind: "change", reason: draw(element(changeReasons)), relation },
+				[]
+			)
+		},
+		at: [relation],
+		feature: "a concurrent change classified alike"
+	}))
+	const outside = Arr.map([...role.refusals.entries.values()], (entry): Refusal => ({
+		reported: {
+			...nothingReported,
+			sqlstate: sqlstates.grizzleOutsideWorld,
+			constraint: entry.entry,
+			schema
+		},
+		at: [],
+		feature: "a fact outside a written query entry classified alike"
+	}))
+	return [
+		...constraints,
+		...laws,
+		...rosters,
+		...generated,
+		...changes,
+		...outside,
+		...claimsOf(artifacts, shape, writtenTables, schema)
+	]
 }
 
-describe("a served file's refusals", () => {
-	it.effect("read back as the compile's, and classify as the compile's classifier does", (ctx) =>
-		searched(
-			ctx,
-			explore(
-				{
-					oracle: { kind: "specification", name: "the compile's own classifier" },
-					suite: "unit/served/refusals",
-					draw: drawn((source) => source.draw(caseSketchGen)),
-					literal: Formatter.format,
-					coverage: required<Feature>(["a constraint law"], { cases: 60, sense: notesOnly }),
-					kept: [],
-					runs: 60,
-					shrink: completeShrink,
-					concurrency: 1,
-					steerEvery: 16,
-					caseHang
-				},
-				(sketch, notes) => Effect.sync(() => roundTrip(notes.draw(resolveCase(sketch)), notes.note))
+/**
+ * The CHECK of the domain a written query entry's `held` claim is cast to (served-login.ts EntryShape), where it is a
+ * contract's domain that types only stored columns of relations the role does not write: a statement writing through
+ * the entry reads its context and casts each claim to its domain.
+ */
+const claimsOf = (
+	artifacts: SchemaArtifacts,
+	shape: RoleShape,
+	writtenTables: ReadonlySet<string>,
+	schema: string
+): ReadonlyArray<Refusal> => {
+	if (
+		Option.isNone(shape.entry) ||
+		!Arr.some(shape.changes, (change) => change.target.kind === "entry")
+	) {
+		return []
+	}
+	const { target, held } = shape.entry.value
+	const writes = artifacts.derived.schema.relations.get(target.name)
+	if (held.field.kind !== "tick" || writes === undefined) {
+		return []
+	}
+	const table = artifacts.names.relation(held.relation.name).name
+	const column = artifacts.names.column(held.relation.name, held.field.name)
+	return Arr.flatMap(artifacts.constraintLaws, (c): ReadonlyArray<Refusal> =>
+		c.kind === "domainConstraint" &&
+		Arr.some(c.uses, (u) => u.table === table && u.column === column) &&
+		!Arr.some(c.uses, (u) => writtenTables.has(u.table))
+			? [
+					{
+						reported: {
+							...nothingReported,
+							sqlstate: sqlstates.checkViolation,
+							constraint: c.name,
+							schema,
+							dataType: c.owner
+						},
+						at: [writes.name],
+						feature:
+							"a write reading a context field whose contract domain types only unwritten stored columns"
+					}
+				]
+			: []
+	)
+}
+
+const differential = (
+	c: ProgramCase,
+	built: BuiltSchema,
+	shapes: Arr.NonEmptyReadonlyArray<RoleShape>,
+	draw: <A>(generator: Gen<A>) => A,
+	note: (feature: Feature) => void
+) =>
+	Effect.gen(function* () {
+		const printed = () => `${printCase(c)}\n${Formatter.format(shapes)}`
+		const compiled = yield* Effect.result(compiledLogin(drawnLogin(built, shapes)))
+		if (Answered.isFailure(compiled)) {
+			return
+		}
+		const { back } = compiled.success
+		const codes = rosterCodebook(back.rosters)
+		for (const [place, shape] of shapes.entries()) {
+			const role = Arr.findFirst(
+				rolesOf(compiled.success),
+				(r) => r.served.name === roleName(place)
+			).pipe(Option.getOrUndefined)
+			const written = role === undefined ? new Set<StoredRelationName>() : writtenBy(role.served)
+			if (role === undefined || written.size === 0) {
+				continue
+			}
+			const { artifacts } = role.compiled
+			const cut = servedWitness(role.served.refusals, back.above, codes).classify
+			const full = installationWitness(artifacts, back.above).classify
+			const raised = raisedBy(artifacts, written, castBy(role.served))
+			for (const refusal of refusalsOf(artifacts, role.served, shape, raised, draw)) {
+				const relations = draw(statementGen(refusal.at, written))
+				const failure = serverError(refusal.reported)
+				const at = statementAt(relations)
+				const expected = full(failure, at)
+				const what = `${Formatter.format(refusal.reported)} at a statement writing ${Formatter.format(relations)} of role ${role.served.name}`
+				const differs = runtimeDifference(cut(failure, at), expected)
+				assert.equal(
+					differs,
+					undefined,
+					`the served classifier reads ${what} otherwise, at ${differs}\n${printed()}`
+				)
+				if (refusal.feature !== undefined && expected !== undefined) {
+					note(refusal.feature)
+				}
+				if (relations.length > 0 && relations.length < written.size) {
+					note("a statement writing some of the role's written relations")
+				}
+			}
+		}
+	})
+
+describe("a served login's classifier", () => {
+	it.effect(
+		"classifies every refusal a role's writes can raise exactly as its installation's full classifier does",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						oracle: {
+							kind: "second-implementation",
+							name: "the installation's full classifier (adapter/served/refusals.ts installationWitness), over the refusals test/support/served-reach.ts computes"
+						},
+						suite: "unit/served/refusals",
+						draw: drawn((source) => source.draw(caseSketchGen)),
+						literal: Formatter.format,
+						coverage: required<Feature>(
+							[
+								"a table constraint classified alike",
+								"a domain shared with a relation the role does not write, narrowed alike",
+								"a law refusal decoded alike",
+								"a roster domain's refusal classified alike",
+								"a concurrent change classified alike",
+								"a fact outside a written query entry classified alike",
+								"a statement writing some of the role's written relations",
+								"a write reading a context field whose contract domain types only unwritten stored columns"
+							],
+							{ cases: 60, sense: notesOnly }
+						),
+						kept: [],
+						runs: 60,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang
+					},
+					(sketch, notes) =>
+						Effect.suspend(() => {
+							const c = notes.draw(resolveCase(sketch))
+							const built = buildSchema(c.schema)
+							return differential(c, built, notes.draw(loginGen(c, built)), notes.draw, notes.note)
+						})
+				)
 			)
-		)
 	)
 })

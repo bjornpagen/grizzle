@@ -58,7 +58,7 @@ describe("a range overload in a served file", () => {
 							const tag = `~op:${code}:${carrier}`
 							const read = servedFile({
 								types: [],
-								rosters: { "~map": [] },
+								rosters: {},
 								probe: tag,
 								"~": ["probe"]
 							})

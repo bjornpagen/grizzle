@@ -42,6 +42,7 @@ import { codeOf, draftCodebook, firstCodebook, keptRosters, noRenames } from "#c
 import type { LawField } from "#compiler/ir/law.ts"
 import { Roster } from "#compiler/ir/scalar.ts"
 import { strataAt } from "#compiler/ir/stratum.ts"
+import type { ConstraintLaw, ConstraintLawOf, DomainUse } from "#compiler/laws/model/model.ts"
 import {
 	parseSchemaInput,
 	type SchemaArtifacts,
@@ -775,6 +776,19 @@ const hostWitnessOf = (at: StatementAt, refuser: string): Witness => ({
 	values: { at: atText(at), refuser }
 })
 
+/** Whether an installed constraint is a table's, a constraint or a rule's trigger, rather than a domain's CHECK. */
+const isTableConstraint = (
+	c: ConstraintLaw
+): c is Extract<ConstraintLaw, { readonly kind: "constraint" | "trigger" }> =>
+	c.kind === "constraint" || c.kind === "trigger"
+
+/** The laws of a domain's uses, each once, in the order of the first use stating it. */
+const usesLaws = (uses: ReadonlyArray<DomainUse>): ReadonlyArray<ConstraintLawOf> =>
+	Arr.dedupeWith(
+		Arr.map(uses, (u) => u.law),
+		(a, b) => a.law === b.law
+	)
+
 describe("a server error at a write", () => {
 	it.effect(
 		"means what the classification rules say of the fields grizzle controls, at every origin of a write's flights",
@@ -892,7 +906,7 @@ describe("a server error at a write", () => {
 							const tables = Arr.map(relationNames, (r) => names.relation(r).name)
 							const otherDomain = Arr.flatMap(
 								installations[sketch.installation === "Work" ? "Clubs" : "Work"].constraintLaws,
-								(c) => (c.kind === "domainConstraint" ? [c.owner] : [])
+								(c) => (isTableConstraint(c) ? [] : [c.owner])
 							)
 							/** The reported constraint, and the owner it is installed under, when it has one. */
 							const chosen = ((): {
@@ -910,10 +924,9 @@ describe("a server error at a write", () => {
 										return {
 											name: at.name,
 											entry: at,
-											owner:
-												at.kind === "constraint"
-													? { kind: "table", name: at.owner }
-													: { kind: "domain", name: at.owner }
+											owner: isTableConstraint(at)
+												? { kind: "table", name: at.owner }
+												: { kind: "domain", name: at.owner }
 										}
 									}
 									case "a law's identity":
@@ -1265,7 +1278,7 @@ describe("a server error at a write", () => {
 									constraints,
 									(c) =>
 										c.name === reported.constraint &&
-										(c.kind === "constraint" ? owner.kind === "table" : owner.kind === "domain") &&
+										(isTableConstraint(c) ? owner.kind === "table" : owner.kind === "domain") &&
 										c.owner === owner.name
 								)
 								if (Option.isNone(native)) {
@@ -1276,13 +1289,16 @@ describe("a server error at a write", () => {
 								const coercing = Arr.filter(n.kind === "domainConstraint" ? n.uses : [], (u) =>
 									writtenTables.has(u.table)
 								)
-								const coerced = new Set(Arr.map(coercing, (u) => u.law.law))
-								const narrowed = Arr.filter(n.laws, (l) => coerced.has(l.law))
 								return {
 									kind: "rejected",
-									laws: Arr.map(narrowed.length > 0 ? narrowed : n.laws, (l) => l.described),
+									laws: Arr.map(
+										n.kind === "domainConstraint"
+											? usesLaws(coercing.length > 0 ? coercing : n.uses)
+											: n.laws,
+										(l) => l.described
+									),
 									witness: hostWitness(
-										n.kind === "constraint"
+										isTableConstraint(n)
 											? `constraint ${n.owner} ${n.name}`
 											: `domain ${Arr.join(
 													Arr.map(coercing, (u) => `${u.table}.${u.column}`),
@@ -1344,13 +1360,15 @@ describe("a server error at a write", () => {
 									} else {
 										const entry = defined(chosen.entry, "the installed constraint")
 										k.note(
-											entry.kind === "domainConstraint"
-												? "rejected under a domain constraint"
-												: "rejected under a table constraint"
+											isTableConstraint(entry)
+												? "rejected under a table constraint"
+												: "rejected under a domain constraint"
 										)
-										if (entry.laws.length > 1) {
+										const every =
+											entry.kind === "domainConstraint" ? usesLaws(entry.uses) : entry.laws
+										if (entry.kind === "domainConstraint" && every.length > 1) {
 											k.note(
-												meaning.laws.length < entry.laws.length
+												meaning.laws.length < every.length
 													? "a shared domain narrowed by the relations written"
 													: "a shared domain's every law"
 											)
