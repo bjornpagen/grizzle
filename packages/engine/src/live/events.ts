@@ -9,12 +9,14 @@
  * key of the row it follows too, null for the first. A write's answer is its `outcome`, after its COMMIT. Every failure
  * is one `error`, and an answer ends with `end` after its error or outcome.
  */
+import type { TransientTag } from "#compiler/core/errors.ts"
 import type { Key, KeyFields } from "#compiler/live/key.ts"
 import type { Refused, Witness } from "#compiler/types/changeset/changeset.ts"
 
 /**
  * What one payload member holds, by the slot that types it: a text; reset's key fields; a row; a key; the key an
- * ordered row follows, null for the first; a write's outcome; a CallError; and a refusal's laws and witness.
+ * ordered row follows, null for the first; a write's outcome; a CallError; a refusal's laws and witness; and which
+ * concurrent refusal a transient error met (core/errors.ts TransientTag).
  */
 export interface SlotValues<Row, Outcome> {
 	readonly text: string
@@ -26,6 +28,7 @@ export interface SlotValues<Row, Outcome> {
 	readonly error: CallError
 	readonly refused: Refused
 	readonly witness: Witness
+	readonly transientReason: TransientTag
 }
 
 /** The slots a payload member is typed by. */
@@ -53,7 +56,7 @@ export type Retry = "safe" | "never"
  * - `refused`: the schema's laws refused the write: which laws and how grizzle decided them, and the witness.
  * - `outsideWorld`: a fact the write adds lies outside the written world relation.
  * - `transient`: SERIALIZABLE refused the attempt (40001, 40P01) or a concurrent writer's change met it, and it
- *   changed nothing (TransientFailure).
+ *   changed nothing (TransientFailure); `reason` names which.
  * - `unavailable`: no session could be opened: the pool or the handle refused one before anything was sent.
  * - `transport`: a connection broke before the terminal event, the client's exchange or the server's session, of a
  *   read, which commits nothing, or of a write before its COMMIT was sent.
@@ -72,7 +75,7 @@ export const callErrors = {
 		payload: { message: "text", refused: "refused", witness: "witness" }
 	},
 	outsideWorld: { retry: "never", payload: { message: "text", relation: "text" } },
-	transient: { retry: "safe", payload: { message: "text" } },
+	transient: { retry: "safe", payload: { message: "text", reason: "transientReason" } },
 	unavailable: { retry: "safe", payload: { message: "text" } },
 	transport: { retry: "safe", payload: { message: "text" } },
 	stale: { retry: "never", payload: { message: "text" } },

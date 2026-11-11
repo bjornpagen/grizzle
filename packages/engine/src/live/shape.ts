@@ -12,6 +12,7 @@
 import type { Option } from "effect"
 import type { Json, Path } from "#compiler/core/canonical.ts"
 import type { Delivery } from "#compiler/core/decoder.ts"
+import { transientTags } from "#compiler/core/errors.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import { int8Max } from "#compiler/core/limits.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
@@ -617,7 +618,8 @@ export const slotSchemas = <L>(
 	const common = {
 		text: { type: "string" },
 		refused: refusedSchema,
-		witness: witnessSchema(member.witness, leaf)
+		witness: witnessSchema(member.witness, leaf),
+		transientReason: { enum: [...transientTags] }
 	}
 	if (member.shape === "write") {
 		const schemas: PayloadSchemas = {

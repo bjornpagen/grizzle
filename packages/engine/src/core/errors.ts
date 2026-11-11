@@ -943,6 +943,20 @@ export type TransientReason =
 	| { readonly _tag: "ConcurrentRefresh"; readonly relation: string }
 export type TransientTag = TransientReason["_tag"]
 
+/** Each transient refusal's tag, under itself: the roster is complete by its type. */
+const transientTagRoster: { readonly [T in TransientTag]: T } = {
+	SerializationFailure: "SerializationFailure",
+	Deadlock: "Deadlock",
+	PutTargetConflict: "PutTargetConflict",
+	GeneratedSerialUnique: "GeneratedSerialUnique",
+	SpanKeyChange: "SpanKeyChange",
+	UnseenOccupant: "UnseenOccupant",
+	ConcurrentRefresh: "ConcurrentRefresh"
+}
+
+/** Every transient refusal's tag: the closed vocabulary a transient CallError names (live/events.ts). */
+export const transientTags: ReadonlyArray<TransientTag> = Object.values(transientTagRoster)
+
 /**
  * A codec's refusal as a reason: its fault word as its tag, which is all it states (never the value), so
  * Effect.catchReason reaches each word.

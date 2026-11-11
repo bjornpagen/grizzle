@@ -10,6 +10,7 @@
  * Runtime-free and browser-safe, as live/wire.ts is.
  */
 import type { Path } from "#compiler/core/canonical.ts"
+import type { TransientTag } from "#compiler/core/errors.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import { isList, isPlainRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -860,13 +861,18 @@ const encodeErrorMember = (
 			return plainJson(value)
 		case "witness":
 			return encodeWitness(wire.witness, value, options)
+		case "transientReason":
+			if (typeof value !== "string") {
+				throw defect("a transient CallError's reason")
+			}
+			return value
 		case "fields":
 		case "row":
 		case "key":
 		case "after":
 		case "outcome":
 		case "error":
-			throw defect("a CallError's payload holds texts, laws and a witness alone")
+			throw defect("a CallError's payload holds texts, laws, a witness and a reason alone")
 	}
 }
 
@@ -892,7 +898,8 @@ export const slotEncoders = (wire: MemberWire, options: WireOptions): SlotEncode
 	outcome: (value) => encodeOutcome(wire, value, options),
 	error: (value) => encodeError(wire, value, options),
 	refused: (value) => plainJson(value),
-	witness: (value) => encodeWitness(wire.witness, value, options)
+	witness: (value) => encodeWitness(wire.witness, value, options),
+	transientReason: (value) => value
 })
 
 /** A CallError's message from the server's own JSON. */
@@ -921,7 +928,11 @@ const errorDecoders = (
 			message: messageOf(r),
 			relation: trustedString(trustedMember(r, "relation"))
 		}),
-	transient: (r) => callError("transient", { message: messageOf(r) }),
+	transient: (r) =>
+		callError("transient", {
+			message: messageOf(r),
+			reason: trusted<TransientTag>(trustedString(trustedMember(r, "reason")))
+		}),
 	transport: (r) => callError("transport", { message: messageOf(r) }),
 	unavailable: (r) => callError("unavailable", { message: messageOf(r) }),
 	stale: (r) => callError("stale", { message: messageOf(r) }),
@@ -955,5 +966,6 @@ export const slotDecoders = (wire: MemberWire, options: WireOptions): SlotDecode
 	outcome: (json) => decodeOutcome(wire, json, options),
 	error: (json) => decodeError(wire, json, options),
 	refused: (json) => trusted<Refused>(json),
-	witness: (json) => decodeWitness(wire.witness, json, options)
+	witness: (json) => decodeWitness(wire.witness, json, options),
+	transientReason: (json) => trusted<TransientTag>(trustedString(json))
 })

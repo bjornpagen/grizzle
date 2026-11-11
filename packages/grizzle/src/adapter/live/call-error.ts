@@ -21,7 +21,6 @@ const failed = (message: string): CallError => callError("failed", { message })
 const input = (message: string): CallError => callError("input", { message })
 const route = (message: string): CallError => callError("route", { message })
 const tokenRefused = (message: string): CallError => callError("tokenRefused", { message })
-const transient = (message: string): CallError => callError("transient", { message })
 const transport = (message: string): CallError => callError("transport", { message })
 const unavailable = (message: string): CallError => callError("unavailable", { message })
 const stale = (message: string): CallError => callError("stale", { message })
@@ -117,7 +116,7 @@ export const callErrorOf = (error: OpenError | ReadError | ApplyError): CallErro
 		case "ExecutionFailure":
 			return executionReading[error.reason._tag](error.message)
 		case "TransientFailure":
-			return transient(error.message)
+			return callError("transient", { message: error.message, reason: error.reason._tag })
 		case "StaleSnapshot":
 			return stale(error.message)
 		case "CommitUnknown":
