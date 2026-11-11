@@ -33,6 +33,10 @@ layer(Substrate.layer)(
 					ctx,
 					differential(resolved(denseQueryCaseGen(defaultGenConfig)), namedPlacement("dense"), {
 						suite: "optimized/dense",
+						oracle: {
+							kind: "second-implementation",
+							name: "the conservative lowering's raw text sets, no repeated row on the optimized side"
+						},
 						literal: Formatter.format,
 						coverage: required<OptimizedFeature>(["nonempty"], {
 							cases: casesPerPopulation,

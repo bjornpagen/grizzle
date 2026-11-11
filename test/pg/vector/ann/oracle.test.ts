@@ -103,6 +103,10 @@ const agree = Effect.gen(function* () {
 		drawn(queryCaseGen(annGenConfig)),
 		{
 			suite: "vector/ann-oracle",
+			oracle: {
+				kind: "second-implementation",
+				name: "the reference evaluator over the same facts"
+			},
 			literal: Formatter.format,
 			coverage: required<AnnOracleFeature>(
 				[

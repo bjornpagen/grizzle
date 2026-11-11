@@ -225,6 +225,10 @@ const performed = (ctx: TestContext, id: ValidId, gen: Gen<QueryCase>, rule: Val
 				sketched(gen, constant),
 				{
 					suite: `optimized/valid-${Str.toLowerCase(id)}`,
+					oracle: {
+						kind: "second-implementation",
+						name: "the conservative lowering's raw text sets, and each rule's certificate read from the statements' ASTs"
+					},
 					literal: Formatter.format,
 					coverage: required<ValidRule>([rule], { cases: cases, sense: notesOnly }),
 					kept: [],

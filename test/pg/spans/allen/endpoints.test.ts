@@ -738,6 +738,10 @@ layer(Substrate.layer)("endpoint spellings of span relations on PostgreSQL 19", 
 						drawn(caseGen),
 						{
 							suite: "spans/endpoint-normal-form-trees",
+							oracle: {
+								kind: "postgresql",
+								name: "the predicate as spelled, evaluated by PostgreSQL over the same facts"
+							},
 							literal: Formatter.format,
 							coverage: required<GeneratedFeature>(
 								[

@@ -52,6 +52,10 @@ export const runMutant = (mutant: Mutant, gen: Gen<QueryCase>, suite: string) =>
 			drawn(gen),
 			{
 				suite,
+				oracle: {
+					kind: "second-implementation",
+					name: "the conservative lowering, whose raw text sets the mutant must break"
+				},
 				literal: Formatter.format,
 				coverage: required<MutantFeature>(["mutation applied", "nonempty"], {
 					cases: within,

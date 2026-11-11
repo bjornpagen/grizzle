@@ -240,6 +240,10 @@ layer(Substrate.layer)("the reference side of the oracle discriminates", (it) =>
 					drawn(rootedCaseGen(projectRoot, defaultGenConfig)),
 					{
 						suite: "oracle/reference-i1",
+						oracle: {
+							kind: "second-implementation",
+							name: "the brute-force reference evaluator, which the I1 mutant must break"
+						},
 						literal: Formatter.format,
 						coverage: noCoverage,
 						kept: [],

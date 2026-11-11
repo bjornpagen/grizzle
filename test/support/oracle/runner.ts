@@ -7,6 +7,7 @@ import {
 	isCaseDiscarded,
 	isWitness,
 	type Kept,
+	type Oracle,
 	type PropertyFalsified,
 	type Run as SearchRun,
 	type SearchFailure,
@@ -1130,6 +1131,8 @@ export const comparisonFailed = (outcome: OracleOutcome): ComparisonFailed =>
  */
 export interface CheckOptions<S, F extends string> {
 	readonly suite: string
+	/** What the property is checked against, which the search's report prints. */
+	readonly oracle: Oracle
 	readonly literal: (sketch: S) => string
 	readonly coverage: Coverage<F>
 	readonly kept: ReadonlyArray<Kept<S, F>>
@@ -1200,7 +1203,7 @@ const checked = <S, T, F extends string, E, R>(
 ): Effect.Effect<Explored, SearchFailure, SearchRun | Exclude<R, Scope.Scope>> =>
 	explore(
 		{
-			oracle: { kind: "unstated" },
+			oracle: options.oracle,
 			suite: options.suite,
 			draw: sketched(
 				(source): readonly [S, Conditions] => [

@@ -79,6 +79,10 @@ layer(Substrate.layer)("generated span queries against the reference", (it) => {
 					drawn(spanCaseGen({ maxRows: 6, kinds, endpoints: spanEndpointKinds })),
 					{
 						suite: "spans/allen-oracle",
+						oracle: {
+							kind: "second-implementation",
+							name: "the span reference evaluator, in both artifacts"
+						},
 						literal: Formatter.format,
 						coverage: required<AllenOracleFeature>(
 							Arr.flatMap(kinds, (k) =>

@@ -82,6 +82,10 @@ layer(Substrate.layer)("the type oracle over a statement's tagged parts", (it) =
 						resolved(queryCaseGen(optimizerGenConfig)),
 						{
 							suite: "optimized/type-plant",
+							oracle: {
+								kind: "specification",
+								name: "the type oracle (test/support/oracle/verify/types.ts) over each part as lowered"
+							},
 							literal: Formatter.format,
 							coverage: required<PlantFeature>(["a part planted"], { cases, sense: notesOnly }),
 							kept: [],

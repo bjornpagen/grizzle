@@ -393,6 +393,10 @@ layer(Substrate.layer)("the span reference against PostgreSQL 19", (it) => {
 					drawn(spanCaseGen(defaultSpanCaseLimits)),
 					{
 						suite: "spans/reference",
+						oracle: {
+							kind: "second-implementation",
+							name: "handwritten SQL of each generated span case"
+						},
 						literal: Formatter.format,
 						coverage: required<SpanCaseFeature>(situations, { cases: cases, sense: notesOnly }),
 						kept: [],

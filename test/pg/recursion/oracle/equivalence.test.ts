@@ -108,6 +108,10 @@ const explored = recursiveEquivalence(
 	reference,
 	{
 		suite: "recursion/reference",
+		oracle: {
+			kind: "second-implementation",
+			name: "the reference evaluator, computing each recursion by definition"
+		},
 		literal: Formatter.format,
 		coverage: required<RecursionOracleFeature>([...situations, "nonempty"], {
 			cases: 2 * cases,

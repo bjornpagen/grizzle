@@ -186,6 +186,10 @@ layer(Substrate.layer)("the UNION ALL feedback mutant of the optimized lowering"
 						drawn(generator),
 						{
 							suite: "recursion/optimized-diamond-kills",
+							oracle: {
+								kind: "second-implementation",
+								name: "the optimized lowering, which the UNION ALL feedback mutant must break on the diamond"
+							},
 							literal: Formatter.format,
 							coverage: required<DiamondFeature>(situations, { cases: 300, sense: notesOnly }),
 							kept: [],

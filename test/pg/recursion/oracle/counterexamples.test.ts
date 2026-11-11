@@ -208,6 +208,10 @@ const killsEvery = (generator: Gen<RecursiveCase>, kills: Kills) =>
 		drawn(generator),
 		{
 			suite: kills.suite,
+			oracle: {
+				kind: "second-implementation",
+				name: "the conservative lowering's raw text sets, beside each invalid rewrite"
+			},
 			literal: Formatter.format,
 			coverage: kills.coverage,
 			kept: [],
@@ -394,6 +398,10 @@ layer(Substrate.layer)("recursive deduplication counterexamples", (it) => {
 						conservative,
 						{
 							suite: "recursion/parallel-edges-control",
+							oracle: {
+								kind: "second-implementation",
+								name: "the conservative lowering's raw text sets, beside each invalid rewrite"
+							},
 							literal: Formatter.format,
 							coverage: noCoverage,
 							kept: [],

@@ -386,6 +386,10 @@ layer(Substrate.layer, { excludeTestServices: true })(
 					drawn(sketchGen),
 					{
 						suite: "derived/allowance",
+						oracle: {
+							kind: "second-implementation",
+							name: "the conservative lowering of each derived definition over the same facts, and the host's exact arithmetic"
+						},
 						literal: Formatter.format,
 						coverage: required<AllowanceFeature>(situations, { cases: cases, sense: notesOnly }),
 						kept: [],

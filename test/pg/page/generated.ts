@@ -1624,6 +1624,10 @@ export const generatedSuite = (artifact: PageArtifactName): void => {
 								drawn(orderedCaseGen),
 								{
 									suite: `page/generated-${artifact}`,
+									oracle: {
+										kind: "second-implementation",
+										name: "the baseline lowering's ordered answer, paged by the cursor contract"
+									},
 									literal: Formatter.format,
 									coverage: required<PageFeature>(situations, { cases: 2_000, sense: notesOnly }),
 									kept: pageKept,

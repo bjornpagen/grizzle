@@ -64,6 +64,10 @@ const run = Effect.gen(function* () {
 		sketched(caseGen, (k) => ({ facts: resolvePayroll(k.facts), params: k.params })),
 		{
 			suite: "payroll/differential",
+			oracle: {
+				kind: "second-implementation",
+				name: "the conservative lowering of every payroll program"
+			},
 			literal: Formatter.format,
 			coverage: required<PayrollFeature>(
 				Arr.map(

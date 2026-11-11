@@ -44,6 +44,10 @@ const explored = (suite: string) =>
 		drawn(caseSketchGen),
 		{
 			suite,
+			oracle: {
+				kind: "second-implementation",
+				name: "each derived definition evaluated by the conservative lowering over the same facts"
+			},
 			literal: Formatter.format,
 			coverage: required<DerivedFeature>(situations, { cases: casesPerSeed, sense: notesOnly }),
 			kept: [

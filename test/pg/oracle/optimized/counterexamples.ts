@@ -80,6 +80,10 @@ export const nonReproduction = (
 			sketched(population.gen, constant),
 			{
 				suite: `optimized/non-reproduction-${Str.toLowerCase(population.id)}`,
+				oracle: {
+					kind: "second-implementation",
+					name: "the conservative lowering's raw text sets, the invalid mutant beside the optimized artifact"
+				},
 				literal: Formatter.format,
 				coverage: required<NonReproductionFeature>(["mutant rewrote", "mutant killed"], {
 					cases: within,

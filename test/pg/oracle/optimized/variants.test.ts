@@ -431,6 +431,10 @@ layer(Substrate.layer)(
 					installedPlacement("variants"),
 					{
 						suite: "optimized/variants",
+						oracle: {
+							kind: "second-implementation",
+							name: "the conservative lowering's output in every form the runtime may execute"
+						},
 						literal: Formatter.format,
 						coverage: required<OptimizedFeature>(situations, { cases: cases, sense: notesOnly }),
 						kept: [],

@@ -72,6 +72,10 @@ layer(Substrate.layer)("fixed-length connected matches: joins against recursive 
 						drawn(fixedLengthCaseGen(defaultGraphLimits)),
 						{
 							suite: "recursion/fixed-length",
+							oracle: {
+								kind: "universal",
+								name: "a fixed-length match through joins and through a hop-counting recursive CTE are one set"
+							},
 							literal: Formatter.format,
 							coverage: required<RecursionOracleFeature>([...situations, "nonempty"], {
 								cases: cases,

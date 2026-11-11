@@ -156,6 +156,10 @@ const agreeOn = (population: Population) =>
 			drawn(recursiveCaseGen(population.limits)),
 			{
 				suite: population.suite,
+				oracle: {
+					kind: "second-implementation",
+					name: "the conservative lowering's raw text sets, no repeated row on the optimized side"
+				},
 				literal: Formatter.format,
 				coverage: population.coverage,
 				kept: [],
@@ -317,6 +321,10 @@ layer(Substrate.layer)("graph recognition and R37 against the conservative lower
 						drawn(fixedLengthCaseGen(defaultGraphLimits)),
 						{
 							suite: "recursion/graph-fixed-length",
+							oracle: {
+								kind: "second-implementation",
+								name: "the conservative lowering's raw text sets, no repeated row on the optimized side"
+							},
 							literal: Formatter.format,
 							coverage: required<GraphFeature>(["recursive CTE"], {
 								cases: fixedLength,

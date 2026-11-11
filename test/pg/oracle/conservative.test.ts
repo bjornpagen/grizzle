@@ -89,6 +89,7 @@ const agreeOn = (ctx: TestContext, gen: Gen<QueryCase>, suite: string) =>
 				drawn(gen),
 				{
 					suite,
+					oracle: { kind: "second-implementation", name: "the brute-force reference evaluator" },
 					literal: Formatter.format,
 					coverage: rating(
 						required<ConservativeFeature>(situations, { cases: cases, sense: notesOnly }),

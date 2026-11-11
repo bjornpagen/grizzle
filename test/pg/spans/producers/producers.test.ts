@@ -241,6 +241,10 @@ layer(Substrate.layer)("span producers on PostgreSQL 19", (it) => {
 						drawn(spanCaseGen({ maxRows: 6, kinds: ["difference"], endpoints: ["bigint"] })),
 						{
 							suite: "spans/producers/correlated",
+							oracle: {
+								kind: "second-implementation",
+								name: "the brute-force pieces of each Left span minus its group's Right spans"
+							},
 							literal: Formatter.format,
 							coverage: required<ProducerFeature>(correlatedRequired, {
 								cases: correlatedCases,
@@ -369,6 +373,10 @@ layer(Substrate.layer)("span producers on PostgreSQL 19", (it) => {
 					drawn(spanCaseGen({ maxRows: 6, kinds, endpoints: spanEndpointKinds })),
 					{
 						suite: "spans/producers",
+						oracle: {
+							kind: "second-implementation",
+							name: "the span reference evaluator, and each producer's artifacts against each other"
+						},
 						literal: Formatter.format,
 						coverage: required<ProducerFeature>(situations, { cases: cases, sense: notesOnly }),
 						kept: [],

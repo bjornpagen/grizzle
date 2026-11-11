@@ -56,6 +56,10 @@ layer(Substrate.layer)(
 				ctx,
 				differential(resolved(queryCaseGen(optimizerGenConfig)), namedPlacement("opt"), {
 					suite: "optimized/optimizer",
+					oracle: {
+						kind: "second-implementation",
+						name: "the conservative lowering's raw text sets, no repeated row on the optimized side"
+					},
 					literal: Formatter.format,
 					coverage: required<OptimizedFeature>(situations, {
 						cases: casesPerPopulation,

@@ -172,6 +172,10 @@ layer(Substrate.layer, { excludeTestServices: true })(
 						drawn(sketchGen),
 						{
 							suite: "derived/narrowed",
+							oracle: {
+								kind: "second-implementation",
+								name: "the conservative lowering of the definition and the host's exact sums, every amount by value"
+							},
 							literal: Formatter.format,
 							coverage: required<NarrowedFeature>(situations, { cases, sense: notesOnly }),
 							kept: [],
