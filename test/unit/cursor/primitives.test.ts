@@ -1,3 +1,21 @@
+/**
+ * The cursor token's byte-level primitives (codec/cursor/base64url.ts and bytes.ts), each against an outside
+ * implementation or its textbook definition:
+ *
+ * - base64url (RFC 4648 section 5) agrees with Node's unpadded base64url and round-trips every byte string, and decodes
+ *   only canonical tokens: every string it decodes re-encodes to itself.
+ * - Varints, unsigned LEB128 in minimal form, round-trip every admitted value in its minimal length; a reader reads
+ *   exactly the minimal encodings of at most four bytes, exhausted over every string of up to two bytes and searched
+ *   over longer ones; a writer writes the minimal encoding; a length-prefixed field is a view of exactly its bytes, a
+ *   skip leaves the reader past it, and a longer claim is refused unread.
+ * - Strict UTF-8 encodes as Node does and decodes its own output, and agrees with a fatal TextDecoder on arbitrary bytes,
+ *   overlong forms, surrogates, values past U+10FFFF and truncations planted beside the drawn bytes.
+ *
+ * Features: none required; each suite's input space is its own, the bytes and values drawn whole.
+ *
+ * Plants (~/.cache/grizzle-release/BR02/plants): cursor-varint-overlong, a reader admitting an overlong varint;
+ * cursor-utf8-surrogate, a decoder admitting an encoded surrogate.
+ */
 import { Buffer } from "node:buffer"
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
@@ -34,25 +52,6 @@ import {
 } from "#compiler/codec/cursor/bytes.ts"
 import { assert } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
-
-/**
- * The cursor token's byte-level primitives (codec/cursor/base64url.ts and bytes.ts), each against an outside
- * implementation or its textbook definition:
- *
- * - base64url (RFC 4648 section 5) agrees with Node's unpadded base64url and round-trips every byte string, and decodes
- *   only canonical tokens: every string it decodes re-encodes to itself.
- * - Varints, unsigned LEB128 in minimal form, round-trip every admitted value in its minimal length; a reader reads
- *   exactly the minimal encodings of at most four bytes, exhausted over every string of up to two bytes and searched
- *   over longer ones; a writer writes the minimal encoding; a length-prefixed field is a view of exactly its bytes, a
- *   skip leaves the reader past it, and a longer claim is refused unread.
- * - Strict UTF-8 encodes as Node does and decodes its own output, and agrees with a fatal TextDecoder on arbitrary bytes,
- *   overlong forms, surrogates, values past U+10FFFF and truncations planted beside the drawn bytes.
- *
- * Features: none required; each suite's input space is its own, the bytes and values drawn whole.
- *
- * Plants (~/.cache/grizzle-release/BR02/plants): cursor-varint-overlong, a reader admitting an overlong varint;
- * cursor-utf8-surrogate, a decoder admitting an encoded surrogate.
- */
 
 describe("base64url (RFC 4648 section 5)", () => {
 	it.effect("agrees with Node's unpadded base64url and round-trips every byte string", (ctx) =>

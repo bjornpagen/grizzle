@@ -15,10 +15,13 @@
  *   encoder's calls grow at most linearly in k (test/support/growth.ts incrementsDoNotGrow, at 2h, 4h and 6h keys),
  *   where comparing every two guards by encoding both adds more at every step. No encoding changes shape above some
  *   number of keys: every key is the same selected side, its kind its own number.
- * - The installation's objects are ordered by a binary heap of the ready ones (obligations/graph.ts order), each push
- *   comparing once per level of the heap and each pop at most twice: over the order's pushes p, its comparisons
- *   (readyFirst) are at most 3·p·⌊log2 p⌋, the heap's own bound, where comparing every ready object at each step grows
- *   with their number squared. Over r relations with no law between them every table is ready at once.
+ * - The installation's objects are ordered by a binary heap of the ready ones (obligations/graph.ts ReadyHeap), whose
+ *   code bounds its comparisons (readyFirst): Kahn's order pushes each object once, when it becomes ready, and pops it
+ *   once; a push sifts its object up one level a comparison, from a place at depth ⌊log2 h⌋ of a heap of h ≤ p objects,
+ *   so at most ⌊log2 p⌋ comparisons; a pop sinks the last object from the root, comparing it with each of a node's two
+ *   children (left, then right) at every level it descends, so at most 2·⌊log2 p⌋; p pushes and their p pops make at
+ *   most (1 + 2)·p·⌊log2 p⌋, the 3 of the bound, where comparing every ready object at each step grows with their
+ *   number squared. Over r relations with no law between them every table is ready at once.
  *
  * The boxes are exhausted: h of 1 and 2, so k of 2, 4, 6 and of 4, 8, 12; and r from 20 to 40 by tens.
  *
@@ -214,9 +217,16 @@ const orderSites = {
 	readyFirst: { file: "packages/engine/src/physical/obligations/graph.ts", name: "readyFirst" }
 } satisfies Readonly<Record<string, CallSite>>
 
-/** A binary heap's bound on its comparisons over `pushes` pushes and as many pops: ⌊log2 p⌋ a push, twice that a pop. */
-const heapBound = (pushes: number): number =>
-	pushes === 0 ? 0 : 3 * pushes * Math.floor(Math.log2(pushes))
+/**
+ * ReadyHeap's bound on its comparisons over `pushes` pushes and as many pops: one comparison a level of a push's sift-up,
+ * two a level of a pop's sink (each child of the node it descends to), ⌊log2 p⌋ levels in a heap of at most p objects.
+ */
+const heapBound = (pushes: number): number => {
+	const levels = pushes === 0 ? 0 : Math.floor(Math.log2(pushes))
+	const siftUp = levels
+	const sink = 2 * levels
+	return pushes * siftUp + pushes * sink
+}
 
 /** The heap's pushes and comparisons ordering the installation of r relations, each keyed by its id, no law between. */
 const orderedAt = (r: number) =>
@@ -246,7 +256,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("the install order", (i
 					box: "r relations with no law between them, for r from 20 to 40 by tens",
 					oracle: {
 						kind: "specification",
-						name: "a binary heap's bound: at most 3·p·⌊log2 p⌋ comparisons over p pushes and their pops"
+						name: "ReadyHeap's own bound: ⌊log2 p⌋ comparisons a push's sift-up and 2·⌊log2 p⌋ a pop's sink, (1 + 2)·p·⌊log2 p⌋ over p pushes and their pops"
 					},
 					suite: "unit/startup/install-order",
 					generator: relationsGen,

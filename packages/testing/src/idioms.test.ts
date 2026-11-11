@@ -560,7 +560,7 @@ describe("collections", () => {
 							const drawnCase = Result.try(() => fresh(generator, seed))
 							if (size.min > keys) {
 								c.note("a length past the keys refused")
-								strictEqual(Result.isFailure(drawnCase), true)
+								strictEqual(drawnCase._tag, "Failure")
 								return
 							}
 							const { value: items, tape } = Result.getOrThrow(drawnCase)
