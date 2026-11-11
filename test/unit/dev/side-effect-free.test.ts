@@ -23,7 +23,7 @@ import { array, boolean, element, type Gen, weighted } from "@grizzle/testing/ge
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, Result, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Result, String as Str } from "effect"
 import { RuleTester } from "oxlint/plugins-dev"
 import {
 	BUILTIN_CALLS,
@@ -33,6 +33,7 @@ import {
 	sideEffectFree
 } from "#devtools/oxlint/rules/side-effect-free.ts"
 import { assert } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 
 /** The placeholder of a site's own suffix, so the locals of two sites of one function never share a name. */
 const OWN = "§"
@@ -297,7 +298,7 @@ describe("side-effect-free", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(1)
+						caseHang
 					},
 					(program, c) =>
 						Effect.sync(() => {
@@ -345,7 +346,7 @@ describe("side-effect-free", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(1)
+					caseHang
 				},
 				(home, c) =>
 					Effect.sync(() => {

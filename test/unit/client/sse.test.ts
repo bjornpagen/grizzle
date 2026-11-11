@@ -28,7 +28,6 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
-	Duration,
 	Effect,
 	Formatter,
 	Option,
@@ -39,6 +38,7 @@ import {
 } from "effect"
 import { type SseEvent, sseEvents } from "#client/sse.ts"
 import { assert } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 
 /** The characters a value is drawn from: ASCII, a colon, a space, the byte order mark, and two-, three- and four-byte UTF-8. */
 const VALUE_CHARACTERS = ["a", "Z", "0", ":", " ", "\uFEFF", "é", "€", "😀", "\u0000"] as const
@@ -300,7 +300,7 @@ describe("the client's event-stream reader", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(1)
+					caseHang
 				},
 				(drawnStream, c) =>
 					Effect.gen(function* () {
