@@ -7,9 +7,13 @@
  * linearly, exactly (test/support/growth.ts incrementsDoNotGrow): the second step adds no more than the first, so no
  * unit costs more for the units before it. Oracle: the compiler's own counts, compared step against step.
  *
- * Plant (~/.cache/grizzle-release/BR14/plants): schema-scale-quadratic.patch finds a statement's relations among the
+ * Plants (~/.cache/grizzle-release/BR14/plants): schema-scale-quadratic.patch finds a statement's relations among the
  * schema's by relating each to every relation of the schema, a union against a union, a cost per statement that grows
- * with the relations.
+ * with the relations. (~/.cache/grizzle-release/TYPECOST/plants): key-index-keyof.patch asks whether a relation's name
+ * is among the key index's keys, which the checker computes over every key side of the schema at each read of a
+ * relation's keys; closure-per-candidate.patch closes each candidate key of a rule's head from its own fields over
+ * every dependency of the rule's matches, a closure of its own for each key of the matched relation, each over every
+ * key, a cost per key that grows with the relation's laws.
  */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"

@@ -30,18 +30,13 @@ import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { constraintOf, Disagreed, familySeat, judgedFamily } from "#test/pg/fin/family.ts"
-import {
-	endedBy,
-	type EndFeature,
-	endGen,
-	ends,
-	refusedAtCommitBy
-} from "#test/pg/fin/installed.ts"
+import { endedBy, type EndFeature, endGen, refusedAtCommitBy } from "#test/pg/fin/installed.ts"
 import { deepEquals, nonEmpty } from "#test/support/assert.ts"
 import { run, settledOf, type MutationStatement } from "#test/support/families/mutate.ts"
 import { type Families, rowsOf, storedOf } from "#test/support/families/theorem.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /** A rewrite of owner 0's family: what it does, and the slot its suffix starts at with the suffix it writes there. */
 type Form = "remove" | "insert-at" | "swap" | "append"
@@ -71,14 +66,14 @@ const before = (members: ReadonlyArray<number>): Families => [
 /** Every rewrite of every family of zero to four members. */
 const REWRITES: Arr.NonEmptyReadonlyArray<Omit<Rewrite, "sending">> = nonEmpty(
 	Arr.flatMap(Arr.range(0, 4), (n) => {
-		const members = Arr.range(0, n).slice(0, n)
+		const members = upTo(n, (i) => i)
 		const removes = Arr.map(members, (_, a) => ({
 			form: "remove" as const,
 			members,
 			at: a,
 			suffix: members.slice(a + 1)
 		}))
-		const inserts = Arr.map(Arr.range(0, n), (a) => ({
+		const inserts = upTo(n + 1, (a) => ({
 			form: "insert-at" as const,
 			members,
 			at: a,
@@ -159,7 +154,6 @@ layer(Substrate.layer)(
 								suite: "fin/rewrites",
 								generator: rewriteGen,
 								literal: Formatter.format,
-								limit: REWRITES.length * SENDINGS.length * ends.length,
 								box: "owner 0 with every ordered family of zero to four members, owner 1 with one: every removal, insertion of a new member at each slot, swap of two slots and append, each sent deletes-count-inserts, count first, and inserts before deletes, each case ended by a real COMMIT and by the checked end",
 								oracle: {
 									kind: "second-implementation",

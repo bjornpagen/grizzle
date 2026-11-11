@@ -1,5 +1,6 @@
 import { array, element, type Gen, weighted } from "@grizzle/testing/gen"
 import { Array as Arr, String as Str } from "effect"
+import { upTo } from "#test/support/up-to.ts"
 import type { RuntimeImport } from "#test/unit/deps/audit.ts"
 
 /**
@@ -688,7 +689,10 @@ const pieceOf = (n: number): Gen<Piece> =>
 /** A planted module: one to eight pieces. */
 export const plantedModule: Gen<ReadonlyArray<Piece>> = (source) => {
 	const count = source.draw(element([1, 2, 3, 4, 5, 6, 7, 8] as const))
-	return Arr.map(Arr.range(1, count), (n) => source.draw(pieceOf(n)))
+	return Arr.map(
+		upTo(count, (i) => i + 1),
+		(n) => source.draw(pieceOf(n))
+	)
 }
 
 /** The lines a piece takes. */

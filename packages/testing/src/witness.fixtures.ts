@@ -44,7 +44,6 @@ const exhaustion = (coverage: Exhaustion<number, "a">["coverage"]): Exhaustion<n
 	box: "every value of 0..9",
 	generator: int(0, 9),
 	literal: Formatter.format,
-	limit: 10,
 	coverage,
 	caseHang: Duration.seconds(1)
 })

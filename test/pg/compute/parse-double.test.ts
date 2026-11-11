@@ -205,6 +205,7 @@ const installationOf = Effect.gen(function* () {
 /** Installs the relation on the pinned session in a transaction, stores `texts`, reads each value's bits, rolls back. */
 const storedBits = (
 	pinned: PgConnection,
+	database: string,
 	installation: Installation,
 	texts: ReadonlyArray<string>
 ): Effect.Effect<ReadonlyArray<bigint>, SqlError> =>
@@ -212,7 +213,7 @@ const storedBits = (
 		Effect.gen(function* () {
 			const names = installationNamesOf(installation)
 			yield* pinned.query("BEGIN", [])
-			for (const statement of installationSql(installation)) {
+			for (const statement of installationSql(installation, database)) {
 				yield* pinned.query(statement, [])
 			}
 			yield* pinned.query(
@@ -278,7 +279,7 @@ layer(Substrate.layer)("Compute.parseDouble on PostgreSQL 19", (it) => {
 								Effect.gen(function* () {
 									const installation = yield* installationOf
 									const pinned = yield* substrate.admin.pin
-									const stored = yield* storedBits(pinned, installation, texts)
+									const stored = yield* storedBits(pinned, substrate.database, installation, texts)
 									assert.equal(stored.length, texts.length, "a row per text")
 									for (const [i, text] of texts.entries()) {
 										const reference = defined(referenceConversion(text), "a member of the form")

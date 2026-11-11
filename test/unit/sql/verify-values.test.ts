@@ -235,8 +235,6 @@ describe("the audit's checks of values, generated", () => {
 					suite: "unit/sql/audit-integers",
 					generator: integerGen,
 					literal: Formatter.format,
-					/** The space holds 30 cases (3 types, 2 ends, 5 steps); the limit caps a space grown by mistake. */
-					limit: 40,
 					coverage: requiredInSpace<IntegerFeature>([
 						"smallint within",
 						"smallint past",
@@ -275,8 +273,6 @@ describe("the audit's checks of values, generated", () => {
 					suite: "unit/sql/audit-numeric-typmods",
 					generator: typmodGen,
 					literal: Formatter.format,
-					/** The space holds 110 cases (10 precisions, 11 scales); the limit caps a space grown by mistake. */
-					limit: 120,
 					coverage: requiredInSpace<TypmodFeature>([
 						"valid",
 						"precision past",

@@ -22,8 +22,9 @@ import type { ServedTable, ServedTables } from "#compiler/plan/serve.ts"
  * What a node reads is named by the login's served file (served/forms.ts ServedFile tables), never parsed from
  * PostgreSQL's names: its table by schema and name, an index by name among its table's index names, a Bitmap Index
  * Scan's, which names no relation, among the table of its nearest ancestor that names one, its Bitmap Heap Scan. A table in the
- * session's temporary schema is the explained ChangeSet's own carrier. A table or index the file does not name is a
- * plan the explain cannot read, refused like an answer that is no plan.
+ * session's temporary schema is the explained ChangeSet's own carrier, read whole or through its key, the one index a
+ * carrier holds (write/carriers/carriers.ts WriteCarrier), which PostgreSQL names and the file does not. A table or
+ * index the file does not name is a plan the explain cannot read, refused like an answer that is no plan.
  */
 
 /** A node as PostgreSQL prints it, read for the members a Plan keeps; a relation, a schema or an index it does not name
@@ -71,17 +72,20 @@ type ExecutedAnswer = readonly [
 const own = <V>(record: Readonly<Record<string, V>>, key: string): V | undefined =>
 	Option.getOrUndefined(Rec.get(record, key))
 
-/**
- * What a node reads, and the table its descendants' Bitmap Index Scans read from: the one it names, a carrier none, or,
- * for a node that names no table, its parent's.
- */
+/** A node's table, by the served file: the explained ChangeSet's own carrier, or a table the file names. */
+type Named = { readonly kind: "carrier" } | { readonly kind: "table"; readonly table: ServedTable }
+
+/** The table a node's descendants' Bitmap Index Scans read from: its nearest ancestor's that names one, or none. */
+type Heap = { readonly kind: "none" } | Named
+
+/** What a node reads, and the table its descendants' Bitmap Index Scans read from. */
 interface Reading {
 	readonly on: PlanTarget
-	readonly heap: ServedTable | undefined
+	readonly heap: Heap
 }
 
-const nothing: PlanTarget = { kind: "none" }
-const carrier: PlanTarget = { kind: "carrier" }
+const nothing: { readonly kind: "none" } = { kind: "none" }
+const carrier: { readonly kind: "carrier" } = { kind: "carrier" }
 
 /** The index `name` of `table`, as a target, or why none is. */
 const indexOn = (table: ServedTable, name: string): Result.Result<PlanTarget, string> =>
@@ -89,43 +93,65 @@ const indexOn = (table: ServedTable, name: string): Result.Result<PlanTarget, st
 		? Result.succeed({ kind: "index", relation: table.relation, index: { name } })
 		: Result.fail(`the index ${name}, which the served file names on no table of ${table.relation}`)
 
+/** What a node reads through the index `name` of `heap`'s table: a carrier through its key, or a table's index. */
+const indexUnder = (heap: Heap, name: string): Result.Result<PlanTarget, string> => {
+	switch (heap.kind) {
+		case "none":
+			return Result.fail(`the index ${name}, under no table the served file names`)
+		case "carrier":
+			return Result.succeed(carrier)
+		case "table":
+			return indexOn(heap.table, name)
+	}
+}
+
+/** What a node reads of `named`'s table whole: a carrier, or the relation the table stores. */
+const wholeOf = (named: Named): PlanTarget =>
+	named.kind === "carrier" ? carrier : { kind: "relation", relation: named.table.relation }
+
+/** The table `relation` of `schema` by `installed`: a carrier in the temporary schema, else the file's, or why none is. */
+const namedOf = (
+	relation: string,
+	schema: string | undefined,
+	installed: ServedTables
+): Result.Result<Named, string> => {
+	if (schema === temporarySchema) {
+		return Result.succeed(carrier)
+	}
+	const tables = schema === undefined ? undefined : own(installed, schema)
+	const table = tables === undefined ? undefined : own(tables, relation)
+	return table === undefined
+		? Result.fail(`the table ${relation}, which the served file does not name`)
+		: Result.succeed({ kind: "table", table })
+}
+
 /** What `node` reads, under the table `heap` its nearest ancestor naming one reads, by `installed` (see the header). */
 const readingOf = (
 	node: PrintedNode,
-	heap: ServedTable | undefined,
+	heap: Heap,
 	installed: ServedTables
 ): Result.Result<Reading, string> => {
 	const relation = node["Relation Name"]
 	const index = node["Index Name"]
 	if (relation === undefined) {
-		if (index === undefined) {
-			return Result.succeed({ on: nothing, heap })
-		}
-		return heap === undefined
-			? Result.fail(`the index ${index}, under no table the served file names`)
-			: Result.map(indexOn(heap, index), (on) => ({ on, heap }))
+		return Result.map(
+			index === undefined ? Result.succeed(nothing) : indexUnder(heap, index),
+			(on) => ({ on, heap })
+		)
 	}
-	const schema = node.Schema
-	if (schema === temporarySchema) {
-		return index === undefined
-			? Result.succeed({ on: carrier, heap: undefined })
-			: Result.fail(`the index ${index} of a temporary table`)
-	}
-	const tables = schema === undefined ? undefined : own(installed, schema)
-	const table = tables === undefined ? undefined : own(tables, relation)
-	if (table === undefined) {
-		return Result.fail(`the table ${relation}, which the served file does not name`)
-	}
-	return index === undefined
-		? Result.succeed({ on: { kind: "relation", relation: table.relation }, heap: table })
-		: Result.map(indexOn(table, index), (on) => ({ on, heap: table }))
+	return Result.flatMap(namedOf(relation, node.Schema, installed), (named) =>
+		Result.map(
+			index === undefined ? Result.succeed(wholeOf(named)) : indexUnder(named, index),
+			(on) => ({ on, heap: named })
+		)
+	)
 }
 
 /** Each of `nodes` read by `read` under `heap`, in order, or the first refusal. */
 const childrenOf = <N, P>(
 	nodes: ReadonlyArray<N> | undefined,
-	heap: ServedTable | undefined,
-	read: (node: N, heap: ServedTable | undefined) => Result.Result<P, string>
+	heap: Heap,
+	read: (node: N, heap: Heap) => Result.Result<P, string>
 ): Result.Result<ReadonlyArray<P>, string> => {
 	const out: Array<P> = []
 	for (const node of nodes ?? []) {
@@ -141,7 +167,7 @@ const childrenOf = <N, P>(
 /** An estimated node and its descendants as a Plan, under `heap`. */
 const toPlan = (
 	node: EstimatedNode,
-	heap: ServedTable | undefined,
+	heap: Heap,
 	installed: ServedTables
 ): Result.Result<Plan, string> =>
 	Result.flatMap(readingOf(node, heap, installed), (reading) =>
@@ -163,7 +189,7 @@ const toPlan = (
 /** An executed node and its descendants as an ExecutedPlan, under `heap`. */
 const toExecuted = (
 	node: ExecutedNode,
-	heap: ServedTable | undefined,
+	heap: Heap,
 	installed: ServedTables
 ): Result.Result<ExecutedPlan, string> =>
 	Result.flatMap(readingOf(node, heap, installed), (reading) =>
@@ -204,7 +230,7 @@ export const decodePlan = (
 ): Result.Result<Plan, string> =>
 	cell === undefined
 		? Result.fail("an EXPLAIN that answered no row")
-		: toPlan(trustedJson<EstimatedAnswer>(cell)[0].Plan, undefined, installed)
+		: toPlan(trustedJson<EstimatedAnswer>(cell)[0].Plan, nothing, installed)
 
 /**
  * The executed plan and the times of one EXPLAIN (ANALYZE, FORMAT JSON, VERBOSE) answer's first cell, read as
@@ -218,7 +244,7 @@ export const decodeExecuted = (
 		return Result.fail("an EXPLAIN ANALYZE that answered no row")
 	}
 	const [answer] = trustedJson<ExecutedAnswer>(cell)
-	return Result.map(toExecuted(answer.Plan, undefined, installed), (plan) => ({
+	return Result.map(toExecuted(answer.Plan, nothing, installed), (plan) => ({
 		planningMs: answer["Planning Time"],
 		executionMs: answer["Execution Time"],
 		plan

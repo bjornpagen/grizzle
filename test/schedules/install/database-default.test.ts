@@ -47,8 +47,10 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 const installations = ["first", "second"] as const
 
 /** The blocks each installation runs, every one a write of the database's settings row. */
-const blocks = Arr.map(databaseDefaults, (d) =>
-	interleaveStep(printStatement(d), relationsFootprint(["pg_db_role_setting"]))
+const blocks = Object.freeze(
+	Arr.map(databaseDefaults, (d) =>
+		interleaveStep(printStatement(d), relationsFootprint(["pg_db_role_setting"]))
+	)
 )
 
 const txns: ReadonlyArray<Txn> = Arr.map(installations, (session): Txn => ({

@@ -55,6 +55,7 @@ import {
 	schemaDesc,
 	schemaSketchGen
 } from "#test/support/oracle/gen/schema.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /**
  * The schema a compilation is given, parsed once (program/schema.ts parseSchemaInput), and the schema a query compiles
@@ -162,7 +163,6 @@ describe("the schema a query compiles against", () => {
 						/** The query's schema, then the schema the caller names: every ordered pair of the four. */
 						generator: (source) => [source.draw(subjects), source.draw(subjects)] as const,
 						literal: Formatter.format,
-						limit: 16,
 						coverage: requiredInSpace<LevelFeature>(["the schema itself", "a level", "no level"]),
 						caseHang
 					},
@@ -239,7 +239,6 @@ describe("the artifacts of a schema", () => {
 							source.draw((source) => [source.draw(arms), source.draw(arms)] as const)
 						] as const,
 					literal: Formatter.format,
-					limit: 36,
 					coverage: requiredInSpace<ArtifactsFeature>([
 						"the built value and the Owned",
 						"the built value and its description",
@@ -450,10 +449,12 @@ const changedCases: Arr.NonEmptyReadonlyArray<ContentCase> = nonEmpty(
 )
 
 /** Each root with the schema names other than its own, which a rename draws from: no draw renames it to itself. */
-const renamings = Arr.map(roots, (built) => ({
-	built,
-	names: schemaNameGenOtherThan(new Set([built.subject.label]))
-}))
+const renamings = Object.freeze(
+	Arr.map(roots, (built) => ({
+		built,
+		names: schemaNameGenOtherThan(new Set([built.subject.label]))
+	}))
+)
 
 /** A root renamed to a schema name other than its own, which no change of content touches. */
 const renamedCase: Gen<ContentCase> = (source) => {
@@ -628,8 +629,9 @@ type Path = ReadonlyArray<string | number>
 
 /** Whether `path` holds `site`'s segments in a row: the site is where the decode refused, under whatever it nests in. */
 const holdsPath = (path: Path, site: Path): boolean =>
-	Arr.some(Arr.range(0, path.length - site.length), (from) =>
-		Arr.every(site, (segment, i) => path[from + i] === segment)
+	Arr.some(
+		upTo(path.length - site.length + 1, (i) => i),
+		(from) => Arr.every(site, (segment, i) => path[from + i] === segment)
 	)
 
 /**

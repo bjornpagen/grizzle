@@ -1,6 +1,6 @@
 import type { CatalogKey } from "#compiler/analysis/physical/evidence.ts"
 import type { CheckedEntry, CheckedSchema, DerivedAnalysis } from "#compiler/analysis/schema.ts"
-import { readsOf } from "#compiler/analysis/theory/fill.ts"
+import { readsOf, withGenerationInputs } from "#compiler/analysis/theory/fill.ts"
 import { immediateEvidence } from "#compiler/analysis/theory/theory.ts"
 import { checkFill, checkMember, checkReadBack } from "#compiler/check/index.ts"
 import type { MemberColumn, MemberRelation } from "#compiler/check/schema.ts"
@@ -51,6 +51,7 @@ import { everyParentTakes } from "#compiler/lower/shapes/take/decorrelate.ts"
 import {
 	closedLeaf,
 	type ClosedRows,
+	type ColumnKey,
 	columnKey,
 	fieldKey,
 	type HostEvaluator,
@@ -701,6 +702,18 @@ interface OutsideDraft {
 	readonly carried: Heading
 	readonly reads: DraftReads
 }
+
+/**
+ * The columns a row of `relation` holds `column` by, by key: a law column by itself, and a field by itself or, generated,
+ * by the written fields its generation reads, transitively, over which a statement evaluates it (write/family/scan.ts
+ * scannedValue).
+ */
+const heldBy = (relation: RelationInfo, column: NativeColumn): ReadonlyArray<ColumnKey> =>
+	column.kind === "law"
+		? [columnKey(column)]
+		: withGenerationInputs(relation, [column.field]).flatMap((f) =>
+				f.writing.kind === "generated" ? [] : [fieldKey(f.name)]
+			)
 
 /**
  * The columns a family draws on its member, by key (write/family/edit.ts fillGroup): its index, its folds' accumulators,
@@ -1515,12 +1528,19 @@ const compile = (
 				/** An owner of counted families' counts and ends, which its enumerated slot carries at their starts when the
 				 * slot is the owner's own rows: a query entry's slot fills its fill, a member of the owner whose head holds only
 				 * the fields its facts state (check/member.ts memberHeading), so the owner's insert writes them at their starts
-				 * and the stratum's appends to it take its count statement. */
+				 * and the stratum's appends to it take its count statement. Only these: the copies, indexes and accumulators it
+				 * holds as a member are drawn by the families it is a member of, which a fresh owner's fill reads from its facts
+				 * (write/program/bind.ts freshOwners), where a start would stand in for them. */
+				const ownedNames = new Set(
+					families.flatMap((f) =>
+						f.owner.name === relation.name
+							? [f.count.name, ...endColumns(f).map((e) => e.name)]
+							: []
+					)
+				)
 				const owned =
-					target.kind === "whole" && families.some((f) => f.owner.name === relation.name)
-						? written.heading
-								.filter((c) => c.writing.kind === "drawn" || c.writing.kind === "accumulated")
-								.map(carriedColumn)
+					target.kind === "whole"
+						? written.heading.filter((c) => ownedNames.has(c.name)).map(carriedColumn)
 						: []
 				if (
 					managed(relation.name) &&
@@ -2139,13 +2159,14 @@ const compile = (
 					)
 			)
 		})
-		/** Where an owner copy of `f` reads the owner column `to` (schedule.ts CopySource). */
+		/** Where an owner copy of `f` reads the owner column `to` (schedule.ts CopySource): held where every row the stratum
+		 * inserts of its owner holds the group's fields and the columns that hold `to` (`heldBy`). */
 		const copySource = (f: Family, to: NativeColumn): CopySource => {
 			const rows = insertedRows(f.owner.name)
 			if (!isNonEmpty(rows.carried) && !rows.described) {
 				return "stored"
 			}
-			const need = [...f.group.map((g) => fieldKey(g.owner.name)), columnKey(to)]
+			const need = [...f.group.map((g) => fieldKey(g.owner.name)), ...heldBy(f.owner, to)]
 			return !rows.described && rows.carried.every((keys) => need.every((k) => keys.includes(k)))
 				? "held"
 				: "drawn"

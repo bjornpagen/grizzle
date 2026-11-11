@@ -58,7 +58,7 @@ const grapheme: Gen<string> = weighted([
 ])
 
 const scalar = oneOf([
-	element(["a", "A", "z", "é", "é", "ß", "퟿", "", "￿", "\u{10000}", "\u{10ffff}"]),
+	element(["a", "A", "z", "\u00e9", "e\u0301", "ß", "퟿", "", "￿", "\u{10000}", "\u{10ffff}"]),
 	grapheme,
 	codePoint(0x01, 0x7f),
 	codePoint(0xe0_00, 0xff_ff),

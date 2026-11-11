@@ -53,7 +53,7 @@ type AcquireFeature = `${Call}: ${Unhad}`
  * The full world's workload, one member per call that needs a session: a read of an account's automatic tasks, the
  * Task key's read, a page of every task by id, and a note written with the facts each call gives.
  */
-const programs = {
+const programs = Object.freeze({
 	automaticTasksFor: W.workReads(W.Work).automaticTasksFor,
 	task: W.Task,
 	tasks: paged(
@@ -65,7 +65,7 @@ const programs = {
 			.orderBy(["id", "asc"])
 	),
 	note: ChangeSet.empty(W.Work).insert(W.TaskNote, [])
-}
+})
 
 /** What a call failed with: its error, or the call's success, which no case here expects. */
 const failureOf = <A, E>(
@@ -94,7 +94,6 @@ layer(Substrate.layer)("a connection that can't be had", (it) => {
 							suite: "serverless/acquire",
 							generator: point,
 							literal: Formatter.format,
-							limit: 8,
 							coverage: requiredInSpace<AcquireFeature>([
 								"read: the password fails",
 								"read: the layer released",

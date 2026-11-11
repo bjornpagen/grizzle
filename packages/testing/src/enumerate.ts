@@ -1,4 +1,4 @@
-import { Option } from "effect"
+import { Effect, Option, Scheduler } from "effect"
 import type { Gen } from "#gen.ts"
 import {
 	type Generated,
@@ -55,28 +55,24 @@ export const enumerated = <A>(
 }
 
 /**
- * How many cases a generator has, counted by generating alone, before any property runs: within the limit, or
- * beyond it. Discarded cases do not count, because they never run. A space larger than its limit is refused up front,
- * never silently sampled, so an exhaustive check is a proof inside its box or nothing.
+ * How many cases a generator's space holds, counted by generating alone before any property runs, every case on one
+ * recorder's buffers. The count yields to the event loop as often as the runtime yields a fiber, once every
+ * MaxOpsBeforeYield of its cases, so the deadline of the test it runs in can end the count of a space too large to
+ * finish, which fails the test: an exhaustive check is a proof over its whole space or nothing, and no cap ends it
+ * early.
  */
-export type Counted =
-	| Readonly<{ kind: "within"; cases: number }>
-	| Readonly<{ kind: "beyond"; limit: number }>
-
-/** Counts a generator's cases up to `limit`, every case on one recorder's buffers. */
-export const count = (generator: Gen<unknown>, limit: number): Counted => {
-	const recorded = recorder()
-	let cases = 0
-	let branch: Option.Option<Branch> = Option.some(firstBranch)
-	while (Option.isSome(branch)) {
-		const step = enumerated(recorded, generator, branch.value)
-		if (step.generated.tape.status !== "discarded") {
+export const sizeOf = (generator: Gen<unknown>): Effect.Effect<number> =>
+	Effect.gen(function* () {
+		const yieldEvery = yield* Scheduler.MaxOpsBeforeYield
+		const recorded = recorder()
+		let cases = 0
+		let branch: Option.Option<Branch> = Option.some(firstBranch)
+		while (Option.isSome(branch)) {
+			branch = enumerated(recorded, generator, branch.value).next
 			cases += 1
-			if (cases > limit) {
-				return { kind: "beyond", limit }
+			if (cases % yieldEvery === 0) {
+				yield* Effect.yieldNow
 			}
 		}
-		branch = step.next
-	}
-	return { kind: "within", cases }
-}
+		return cases
+	})

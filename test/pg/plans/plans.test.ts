@@ -378,7 +378,7 @@ layer(Substrate.layer)("plan properties of the optimized lowering", (it) => {
 		const names = installation.value.names
 		const table = (relation: string) => printObjectName(names.relation(relation))
 		yield* transaction(s.admin, [
-			...installationSql(installation.value),
+			...installationSql(installation.value, s.database),
 			...factSql({
 				table,
 				kinds: defined(names.codes.rosters.get(parsedName("Kind")), "the codes of Kind")
@@ -402,7 +402,6 @@ layer(Substrate.layer)("plan properties of the optimized lowering", (it) => {
 							suite: "pg/plans/retained-take",
 							generator: takeCaseGen,
 							literal: Formatter.format,
-							limit: 300,
 							box: "every take of 1 to 50 of Posting, Item and Account, ordered by its key either way",
 							oracle: {
 								kind: "specification",
@@ -652,7 +651,6 @@ layer(Substrate.layer)("plan properties of the optimized lowering", (it) => {
 								fold: source.draw(element<Fold>(["sum", "count"]))
 							}),
 							literal: Formatter.format,
-							limit: 4,
 							box: "a sum and a count per account, of a match binding Posting's key and of its distinct values",
 							oracle: {
 								kind: "specification",

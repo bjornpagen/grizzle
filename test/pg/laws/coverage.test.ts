@@ -45,6 +45,7 @@ import {
 	sameMoment
 } from "#test/support/substrate.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 const Target = relation("Target", { id: pg.int4, k: pg.int4, during: span(pg.int4), on: pg.bool }, [
 	"id"
@@ -90,7 +91,10 @@ const ROWS: Arr.NonEmptyReadonlyArray<Row> = nonEmpty(
 const sketchGen: Gen<Sketch> = (source) => {
 	const n = source.draw(element([0, 1, 2] as const))
 	return {
-		targets: Arr.map(Arr.range(1, n).slice(0, n), () => source.draw(element(ROWS))),
+		targets: Arr.map(
+			upTo(n, (i) => i + 1),
+			() => source.draw(element(ROWS))
+		),
 		source: source.draw(element(ROWS))
 	}
 }
@@ -177,7 +181,6 @@ layer(Substrate.layer)("coverage through grizzle's lowering on PostgreSQL 19rc1"
 							suite: "fin/coverage",
 							generator: sketchGen,
 							literal: Formatter.format,
-							limit: Arr.reduce([0, 1, 2], 0, (sum, n) => sum + ROWS.length ** n) * ROWS.length,
 							box: "keys 0 and 1, points 0 to 3, each span a non-empty interval, the empty one, or outside its selection: at most two target rows in one INSERT, then one source row",
 							oracle: {
 								kind: "specification",

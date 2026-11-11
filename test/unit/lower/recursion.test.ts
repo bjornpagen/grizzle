@@ -193,7 +193,6 @@ describe("the form a recursion lowers to (packages/engine/src/lower/shapes/recur
 						/** Walks bounded at every depth from none to several hops. */
 						generator: int(0, 6),
 						literal: Formatter.format,
-						limit: 7,
 						coverage: requiredInSpace<"bounded walk">(["bounded walk"]),
 						caseHang
 					},

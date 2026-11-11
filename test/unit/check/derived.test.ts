@@ -646,7 +646,6 @@ describe("a generated field's rule and where a closed read stands", () => {
 						suite: "unit/check/derived-graphs",
 						generator: graphGen,
 						literal: Formatter.format,
-						limit: 5000,
 						coverage: requiredInSpace<GraphFeature>([
 							"a self-read",
 							"a 2-cycle",
@@ -681,7 +680,6 @@ describe("a generated field's rule and where a closed read stands", () => {
 						suite: "unit/check/derived-inputs",
 						generator: inputsGen,
 						literal: Formatter.format,
-						limit: 5476,
 						coverage: requiredInSpace<InputFeature>([
 							"beyond the row: var",
 							"beyond the row: param",
@@ -720,7 +718,6 @@ describe("a generated field's rule and where a closed read stands", () => {
 						suite: "unit/check/derived-levels",
 						generator: levelGen,
 						literal: Formatter.format,
-						limit: 16,
 						coverage: requiredInSpace<"above" | "at or below">(["above", "at or below"]),
 						caseHang,
 						box: "the reading relation and the closed relations each at the root level or its extension, read by C.at or C.row, bare or under an operation",
@@ -745,7 +742,6 @@ describe("a generated field's rule and where a closed read stands", () => {
 						suite: "unit/check/derived-positions",
 						generator: positionGen,
 						literal: Formatter.format,
-						limit: 10,
 						coverage: requiredInSpace<Position>(positions),
 						caseHang,
 						box: "C.at and C.row at each of the five places a query states a term",

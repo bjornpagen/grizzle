@@ -1,0 +1,34 @@
+EVIDENCE: tsrs-nonblocking-stdout-drop
+
+Environment: macOS arm64 (Darwin 27.0.0), Node 26.13.0, python3 3.15, rustc 1.99.1 (the repository's
+rust-toolchain.toml), tsrs main at 7148fb4 built with `cargo build -p tsrs_cli` (dev profile).
+
+1. `sh repro.sh <tsrs> 4000`, the check reports exactly 4,000 errors; "non-blocking pipe" sets O_NONBLOCK on stdout and
+   execs tsrs into a reader that starts a second late.
+
+   tsrs main (7148fb4), unpatched:
+     plain pipe: 4000 of 4000
+     non-blocking pipe, run 1: 3204 of 4000
+     non-blocking pipe, run 2: 2804 of 4000
+     non-blocking pipe, run 3: 3227 of 4000
+
+   tsrs main with the patch:
+     plain pipe: 4000 of 4000
+     non-blocking pipe, run 1: 4000 of 4000
+     non-blocking pipe, run 2: 4000 of 4000
+     non-blocking pipe, run 3: 4000 of 4000
+
+   Exit status under the non-blocking pipe (bash PIPESTATUS[0]): 2 unpatched, 2 patched.
+
+2. The same drop through @effect/tsgo 0.67.1's launcher, on effect-openapi-cli-generator's own typecheck (10,432
+   findings; tsrs 0.21.0-ts7.1.0-beta): `effect-tsgo tsrs | (sleep 1; grep -c 'error TS')` printed 6,632 and 5,831 on
+   two runs, exit status 2 both times; the bundled tsrs run directly into the same slow pipe printed 10,432.
+
+3. Where the non-blocking flag comes from: a Node process execve's a shell that reports fd 1's O_NONBLOCK.
+     node untouched stdout, execve:            O_NONBLOCK on fd1: False
+     node reading process.stdout, execve:      O_NONBLOCK on fd1: True
+     node then _handle.setBlocking(true):      O_NONBLOCK on fd1: False
+   @effect/tsgo 0.67.1's proxy builds NodeServices.layer (NodeTerminal reads process.stdout); 0.67.3's builds only
+   NodeFileSystem and NodePath.
+
+4. cargo fmt -p tsrs_execute --check: clean. cargo clippy -p tsrs_execute --all-targets -- -D warnings: clean.

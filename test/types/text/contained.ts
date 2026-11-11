@@ -1,5 +1,6 @@
 import { type Situations, type Tally, tallyOf } from "@grizzle/testing/features"
 import type { Gen } from "@grizzle/testing/gen"
+import { element } from "@grizzle/testing/gen"
 import { floorSeed, rotatingSeed } from "@grizzle/testing/random"
 import { sample } from "@grizzle/testing/source"
 import { Array as Arr } from "effect"
@@ -97,7 +98,7 @@ export const containedProgram = (seed: number): Contained => {
 	for (const [fi, family] of families.entries()) {
 		let witnessed = false
 		const stringsLabel = `text/contained ${family.name} strings`
-		const strings = stringsOver(family.alphabet, 8)
+		const strings = stringsOver(element(family.alphabet), 8)
 		const floorStrings = floorDraws(stringsLabel, strings, 100)
 		const rotatingStrings = rotatingDraws(seed, stringsLabel, strings, 300)
 		const patternsLabel = `text/contained ${family.name} patterns`

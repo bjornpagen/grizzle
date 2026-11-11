@@ -38,7 +38,6 @@ import {
 	codePoint,
 	constant,
 	element,
-	filter,
 	type Gen,
 	int,
 	map,
@@ -332,17 +331,22 @@ const continuedString: Gen<Rendered> = (source) => {
 	}
 }
 
-/** A dollar-quoted string whose body neither holds its delimiter nor ends in a dollar, drawn again until it does not. */
+/**
+ * A dollar-quoted string whose body neither holds its delimiter nor ends in a dollar, by construction: a body that ends
+ * in a dollar takes a letter after it, and the tag is drawn among those whose delimiter the body does not hold.
+ */
 const dollar: Gen<Rendered> = map(
-	filter(
-		(source) =>
-			[
-				source.draw(element(["", "gz", "gz1", "x_"] as const)),
-				source.draw(oneOf([content, element([" a $ b ", "$$", "'", "-- x", "$gz$"] as const)]))
-			] as const,
-		([tag, body]) => !Str.includes(`$${tag}$`)(body) && !Str.endsWith("$")(body),
-		10
-	),
+	(source) => {
+		const drawnBody = source.draw(
+			oneOf([content, element([" a $ b ", "$$", "'", "-- x", "$gz$"] as const)])
+		)
+		const body = Str.endsWith("$")(drawnBody) ? `${drawnBody}x` : drawnBody
+		const tags = Arr.filter(
+			["", "gz", "gz1", "x_"] as const,
+			(tag) => !Str.includes(`$${tag}$`)(body)
+		)
+		return [source.draw(element(nonEmpty(tags, "a tag the body does not hold"))), body] as const
+	},
 	([tag, body]): Rendered => ({
 		text: `$${tag}$${body}$${tag}$`,
 		expected: [`d$${tag}$:${body}`],
@@ -415,15 +419,29 @@ const nonDecimal: Gen<Rendered> = (source) => {
 const operatorChars: Arr.NonEmptyReadonlyArray<string> = Str.split("~!@#^&|`?+-*/%<>=", "")
 
 /**
- * A run of operator characters that starts no comment, which the scanner cuts into the operators of its trailing + and
- * - rule: the oracle's cut is the expected one.
+ * A run of operator characters that starts no comment, by construction: no dash follows a dash and no star a slash.
+ * The scanner cuts it into the operators of its trailing + and - rule: the oracle's cut is the expected one.
  */
 const operator: Gen<Rendered> = map(
-	filter(
-		string(characterOf(operatorChars), { min: 1, max: 4 }),
-		(run) => !Str.includes("--")(run) && !Str.includes("/*")(run),
-		10
-	),
+	(source) => {
+		const length = source.draw(int(1, 4))
+		let run = ""
+		for (let at = 0; at < length; at += 1) {
+			const previous = Str.slice(-1)(run)
+			run += source.draw(
+				characterOf(
+					nonEmpty(
+						Arr.filter(
+							operatorChars,
+							(ch) => !(previous === "-" && ch === "-") && !(previous === "/" && ch === "*")
+						),
+						"an operator character that opens no comment"
+					)
+				)
+			)
+		}
+		return run
+	},
 	(text): Rendered => ({
 		text,
 		expected: Arr.map(scan(text).lexemes, shape),
@@ -701,7 +719,13 @@ interface Drawn {
 const drawnText = (text: string): Drawn => ({ text, reaches: [] })
 
 /** What separates two parts: whitespace, a comment, or nothing, so a part may run into the next. */
-const partSeparator = element([" ", " ", "\n", "", "/**/", "--c\n"])
+const partSeparator = weighted([
+	[2, constant(" ")],
+	[1, constant("\n")],
+	[1, constant("")],
+	[1, constant("/**/")],
+	[1, constant("--c\n")]
+])
 
 /** Parts, each after its separator. */
 const partsText = (parts: ReadonlyArray<readonly [string, Drawn]>): Drawn => ({
@@ -896,8 +920,6 @@ describe("lex", () => {
 						suite: "unit/sql/lex-characters",
 						generator: joined(boundaryCharacters, 3),
 						literal: Formatter.format,
-						/** 31 characters, up to three of them: 30,784 texts; the limit guards only against their growth. */
-						limit: 31_000,
 						box: "every text of up to three characters over the 31 that scan.l's and psqlscan.l's rules branch on",
 						oracle: {
 							kind: "second-implementation",
@@ -933,8 +955,6 @@ describe("lex", () => {
 						suite: "unit/sql/lex-boundaries",
 						generator: joined(boundaryAtoms, 3),
 						literal: Formatter.format,
-						/** 29 atoms, up to three of them: 25,260 runs; the limit guards only against their growth. */
-						limit: 30_000,
 						box: "every run of up to three of 29 tokens and separators, written edge to edge",
 						oracle: {
 							kind: "second-implementation",

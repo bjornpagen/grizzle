@@ -195,7 +195,12 @@ import {
 } from "#compiler/scalar/lexical.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 import { admitMatch, type MatchAdmission, matchSourceAt } from "#compiler/scalar/regex/admit.ts"
-import { formIncludes, type Inclusion, patternIncludes } from "#compiler/scalar/regex/inclusion.ts"
+import {
+	bytesWithin,
+	formIncludes,
+	type Inclusion,
+	patternIncludes
+} from "#compiler/scalar/regex/inclusion.ts"
 import { matchFlags } from "#compiler/scalar/regex/matcher.ts"
 import type { PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 import {
@@ -987,17 +992,49 @@ const signBoundsOver = (
 type LanguagePremise = Extract<OperandPremise, { readonly kind: "language" }>
 
 /**
- * The premise that every value of `a` is a member of a language, the one `includes` compares a pattern's with: a's
- * refinement, its type's, a Compute.matches guard's or a translation's image (the nominal type), whose language is
- * included in it (scalar/regex/inclusion.ts), with the most UTF-8 bytes the refinement proves of a value. Undefined
- * where a has no refinement or its language holds a value the other does not. Where comparing the two automata passes
- * the text analysis's bounds nothing is decided, which is ResourceBound naming them, since no guard is missing: a
- * smaller pattern or a match guard decides it.
+ * The premise that every value of a refinement's language lies within `octets` UTF-8 bytes, a target's byte bound, with
+ * the most bytes such a value takes: its own bound where the target has none or the bound lies within it, else the
+ * longest member of its language within its bound (scalar/regex/inclusion.ts bytesWithin), which a language whose
+ * characters fill the bound no closer holds below it. Undefined where a value takes more, the refinement bounds no
+ * bytes, or the walk would pass the analysis's bounds, which a guard of the operand's bytes decides.
+ */
+const premiseWithin = (
+	regex: RegexRef,
+	octets: number | undefined,
+	patterns: PatternAutomata
+): LanguagePremise | undefined => {
+	const premise = (bytes: number | undefined): LanguagePremise => ({
+		kind: "language",
+		operand: 0,
+		patterns: regex.patterns,
+		bytes
+	})
+	const bound = regex.check.bounds?.bytes
+	if (octets === undefined || (bound !== undefined && bound <= octets)) {
+		return premise(bound)
+	}
+	if (bound === undefined) {
+		return undefined
+	}
+	const longest = bytesWithin(regex.patterns, bound, patterns)
+	return longest.kind === "within" && longest.bytes <= octets ? premise(longest.bytes) : undefined
+}
+
+/**
+ * The premise that every value of `a` is a member of a language, the one `includes` compares a pattern's with, within
+ * `octets` UTF-8 bytes where the target bounds them: a's refinement, its type's, a Compute.matches guard's or a
+ * translation's image (the nominal type), whose language is included in it (scalar/regex/inclusion.ts), with the most
+ * bytes a value of it takes (premiseWithin). Undefined where a has no refinement, its language holds a value the other
+ * does not, or a value of more bytes. Where comparing the two automata passes the text analysis's bounds nothing is
+ * decided, which is ResourceBound naming them, since no guard is missing: a smaller pattern or a match guard decides
+ * it.
  */
 const languagePremise = (
 	a: Lowered,
 	outer: string,
 	includes: (inner: RegexRef) => Inclusion,
+	octets: number | undefined,
+	patterns: PatternAutomata,
 	at: SourceLoc
 ): LanguagePremise | undefined => {
 	const regex = textOf(a.nominal)?.regex
@@ -1007,12 +1044,7 @@ const languagePremise = (
 	const verdict = includes(regex)
 	switch (verdict.kind) {
 		case "included":
-			return {
-				kind: "language",
-				operand: 0,
-				patterns: regex.patterns,
-				bytes: regex.check.bounds?.bytes
-			}
+			return premiseWithin(regex, octets, patterns)
 		case "refuted":
 			return undefined
 		case "bounded":
@@ -1053,17 +1085,14 @@ const lexicalPremise = (
 			? { kind: "checked", operand: 0, by: "literal" }
 			: undefined
 	}
-	const premise = languagePremise(
+	return languagePremise(
 		a,
 		`/${formSource(form)}/u`,
 		(regex) => formIncludes(regex.patterns, form, patterns),
+		formOctets(form),
+		patterns,
 		at
 	)
-	const octets = formOctets(form)
-	return premise === undefined ||
-		(octets !== undefined && (premise.bytes === undefined || premise.bytes > octets))
-		? undefined
-		: premise
 }
 
 /**
@@ -1786,13 +1815,11 @@ class Lowering<R extends Refs> {
 								a,
 								patternsText(refinement.patterns),
 								(regex) => patternIncludes(regex.patterns, refinement.patterns, this.env.patterns),
+								octetsOf(refinement.check),
+								this.env.patterns,
 								at
 							)
-				const octets = refinement === undefined ? undefined : octetsOf(refinement.check)
-				return premise === undefined ||
-					(octets !== undefined && (premise.bytes === undefined || premise.bytes > octets))
-					? refuse(0)
-					: { precondition, premises: [premise] }
+				return premise === undefined ? refuse(0) : { precondition, premises: [premise] }
 			}
 			case "contract": {
 				const a = args[0]

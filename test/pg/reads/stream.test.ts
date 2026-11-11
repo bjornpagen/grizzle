@@ -40,6 +40,7 @@ import { caseHang } from "#test/support/limits.ts"
 import { member, withServedDb } from "#test/support/served-db.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 const Note = relation("Note", { id: pg.integer, body: str.regex("^[a-z]*$") }, ["id"])
 const Notes = schema("Notes", { Note }, [])
@@ -122,7 +123,7 @@ layer(Substrate.layer, { excludeTestServices: true })("a read's rows", (it) => {
 						},
 						({ n, width }, c) =>
 							Effect.gen(function* () {
-								const rows = Arr.map(Arr.range(1, n), (id) => rowOf(id, width))
+								const rows = upTo(n, (i) => rowOf(i + 1, width))
 								yield* replaceRows(
 									s.admin,
 									installationGroup(names),

@@ -51,7 +51,7 @@ const servedGen: Gen<Served> = (source) => {
 	})
 	return {
 		patterns: source.draw(array(patternGen, { min: 1, max: 4 })),
-		texts: source.draw(array(stringsOver(family.alphabet, 8), { min: 1, max: 16 }))
+		texts: source.draw(array(stringsOver(element(family.alphabet), 8), { min: 1, max: 16 }))
 	}
 }
 

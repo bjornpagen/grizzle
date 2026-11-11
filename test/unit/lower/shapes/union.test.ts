@@ -217,7 +217,6 @@ describe("attachments on heading groups", () => {
 								source.draw(element<"lone" | "shared">(["lone", "shared"])),
 								source.draw(element<"optimized" | "conservative">(["optimized", "conservative"]))
 							] as const,
-						limit: 4,
 						coverage: requiredInSpace<"delivered" | "refused">(["delivered", "refused"]),
 						caseHang
 					},
@@ -256,7 +255,6 @@ describe("the bounded union consumed inside a statement", () => {
 						literal: Formatter.format,
 						generator: (source) =>
 							[source.draw(int(1, 3)), source.draw(boolean), source.draw(boolean)] as const,
-						limit: 12,
 						coverage: requiredInSpace<"keyed" | "deduplicated">(["keyed", "deduplicated"]),
 						caseHang
 					},

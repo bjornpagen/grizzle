@@ -220,8 +220,6 @@ describe("alternatives lowers to its containments' natives", () => {
 					suite: "unit/laws/model/alternatives",
 					generator: assignmentGen,
 					literal: Formatter.format,
-					/** The space: 2, 8 and 26 armed assignments of rosters of 1, 2 and 3 handles. */
-					limit: 36,
 					coverage: requiredInSpace<Feature>(features),
 					caseHang,
 					box: "every roster of 1 to 3 handles, each unarmed or armed by one of two arm relations",

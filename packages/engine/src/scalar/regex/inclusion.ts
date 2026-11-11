@@ -9,6 +9,7 @@ import {
 	type DfaLimits,
 	type IntersectionOutcome,
 	intersectionDfa,
+	longestWithin,
 	minimalDfa
 } from "#compiler/scalar/regex/dfa.ts"
 import type { Nfa } from "#compiler/scalar/regex/match.ts"
@@ -166,6 +167,31 @@ export const inclusion = (
 		verdicts.find((v) => v.kind === "refuted") ??
 		verdicts.find((v) => v.kind === "bounded") ?? { kind: "included" }
 	)
+}
+
+/** The most UTF-8 bytes a conjunction's value within a byte bound takes, or unknown past the analysis's bounds. */
+export type Within =
+	| { readonly kind: "within"; readonly bytes: number }
+	| { readonly kind: "bounded" }
+
+/**
+ * The most UTF-8 bytes a value of the conjunction `inner`'s language of at most `octets` bytes takes (dfa.ts
+ * longestWithin), by its intersection's canonical DFA, every automaton read from `patterns`: what a value of a text
+ * type of those patterns within that byte bound takes, which a cast or a parse compares with its target's bound.
+ * Unknown where a construction would pass the analysis's bounds.
+ */
+export const bytesWithin = (inner: Patterns, octets: number, patterns: PatternAutomata): Within => {
+	const dfas = mapNonEmpty(inner, (p) => dfaOf(patterns.parse(p).nfa))
+	const known = dfas.filter((dfa) => dfa !== undefined)
+	const product: IntersectionOutcome =
+		known.length === dfas.length && isNonEmpty(known)
+			? intersectionDfa(known, limits)
+			: { kind: "bounded" }
+	if (product.kind === "bounded") {
+		return { kind: "bounded" }
+	}
+	const walked = longestWithin(product.dfa, octets, limits)
+	return walked.kind === "within" ? walked : { kind: "bounded" }
 }
 
 /**

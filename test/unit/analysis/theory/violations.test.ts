@@ -153,7 +153,6 @@ describe("a family's law", () => {
 						suite: "unit/analysis/theory/violations/ordered",
 						generator: orderedState,
 						literal: Formatter.format,
-						limit: 8_000,
 						box: "two owners of count 0 to 2 and up to three members, each of owner a, b or none at slot 0 to 2",
 						oracle: {
 							kind: "second-implementation",
@@ -200,7 +199,6 @@ describe("a family's law", () => {
 						suite: "unit/analysis/theory/violations/counted",
 						generator: countedState,
 						literal: Formatter.format,
-						limit: 500,
 						box: "two owners of count 0 to 2 and up to three members, each of owner a, b or none",
 						oracle: {
 							kind: "second-implementation",
@@ -283,7 +281,6 @@ describe("an accumulated copy's law", () => {
 							max: 3
 						}),
 						literal: Formatter.format,
-						limit: 200,
 						box: "one owner's family of 0 to 3 members, each state and was 0 or 1",
 						oracle: {
 							kind: "second-implementation",

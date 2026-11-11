@@ -489,8 +489,6 @@ const exhaustiveCases: Gen<EndpointCase> = (source) => ({
 	window: 0,
 	at: 0
 })
-/** 52 leaves, 52 negations and 2 x 1,326 pairs, for each carrier. */
-const exhaustiveLimit = 2 * (52 + 52 + 2 * 1326)
 
 type Selection = "every fact" | "no fact" | "some facts"
 type ExhaustiveFeature = `${RangeType} rewritten` | `${RangeType} ${Selection}`
@@ -723,7 +721,6 @@ layer(Substrate.layer)("endpoint spellings of span relations on PostgreSQL 19", 
 							suite: "spans/endpoint-normal-form",
 							generator: exhaustiveCases,
 							literal: Formatter.format,
-							limit: exhaustiveLimit,
 							coverage: requiredInSpace<ExhaustiveFeature>(
 								Arr.flatMap(rangeTypes, (carrier): Arr.NonEmptyReadonlyArray<ExhaustiveFeature> => [
 									`${carrier} rewritten`,

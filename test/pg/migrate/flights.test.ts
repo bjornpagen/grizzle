@@ -62,9 +62,6 @@ const historyGen: Gen<History> = (source) => {
 	return { versions: count, split: source.draw(int(0, count)) }
 }
 
-/** The histories the box holds: a history of n versions splits at each of its n + 1 folders, none included. */
-const historyCount = Arr.reduce(Arr.range(1, versions.length), 0, (sum, count) => sum + count + 1)
-
 type FlightFeature =
 	| "an absent ledger admitted"
 	| "every folder in one apply"
@@ -162,7 +159,6 @@ layer(Substrate.layer)("every step of grizzle migrate is one flight", (it) => {
 						suite: "migrate/flights",
 						generator: historyGen,
 						literal: Formatter.format,
-						limit: historyCount,
 						coverage: requiredInSpace<FlightFeature>([
 							"an absent ledger admitted",
 							"every folder in one apply",

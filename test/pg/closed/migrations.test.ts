@@ -217,17 +217,19 @@ type Feature =
 	| "closed rows refused by their law"
 	| "closed rows changed"
 
-const commandNames = Struct.keys<Record<keyof Params, unknown>>({
-	grow: 0,
-	remove: 0,
-	readd: 0,
-	reorder: 0,
-	write: 0,
-	"add sets": 0,
-	"write set": 0,
-	regenerate: 0,
-	"closed rows": 0
-})
+const commandNames = Object.freeze(
+	Struct.keys<Record<keyof Params, unknown>>({
+		grow: 0,
+		remove: 0,
+		readd: 0,
+		reorder: 0,
+		write: 0,
+		"add sets": 0,
+		"write set": 0,
+		regenerate: 0,
+		"closed rows": 0
+	})
+)
 
 /** The roster machine's commands, over the model's roster. */
 const rosterCommands = (state: RosterState) => rosterMachine(state).commands

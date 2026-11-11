@@ -2,7 +2,7 @@ import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { filter, type Gen, subarray } from "@grizzle/testing/gen"
+import { type Gen, subarray, subset } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -110,7 +110,7 @@ interface Case {
 }
 
 const caseGen: Gen<Case> = (source) => ({
-	below: source.draw(filter(subarray(menu), Arr.isReadonlyArrayNonEmpty, 8)),
+	below: source.draw(subset(menu, { min: 1, max: menu.length })),
 	above: source.draw(subarray(menu))
 })
 

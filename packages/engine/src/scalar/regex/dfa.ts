@@ -7,8 +7,11 @@ import {
 	type CharSet,
 	charSet,
 	domain,
+	intersection,
+	isEmpty,
 	maxUtf8Width,
 	size,
+	utf8Classes,
 	utf8Width
 } from "#compiler/scalar/regex/charset.ts"
 import { closure, type Nfa } from "#compiler/scalar/regex/match.ts"
@@ -828,4 +831,88 @@ export const longest = (dfa: CanonicalDfa): TextBounds | undefined => {
 		bytes[s] = b
 	}
 	return textBounds(entry(length, 0), entry(bytes, 0))
+}
+
+/**
+ * The places a byte walk of a DFA is at, four for each state: the state itself, and the state one, two or three bytes
+ * away, where the walk is inside a code point that leads to it.
+ */
+const byteSlots = maxUtf8Width(domain)
+
+/** The UTF-8 widths of a set's code points, each once, in width order. */
+const widthsOf = (set: CharSet): ReadonlyArray<number> =>
+	utf8Classes.flatMap(({ width, set: of }) => (isEmpty(intersection(set, of)) ? [] : [width]))
+
+/** The places one byte past `place` (byteSlots): the next place toward its state, or past each code point out of it. */
+const pastByte = (
+	place: number,
+	out: ReadonlyArray<ReadonlyArray<number>>
+): ReadonlyArray<number> => (place % byteSlots === 0 ? entry(out, place / byteSlots) : [place - 1])
+
+/**
+ * The most bytes at most `octets` that a count of bytes a member takes reaches, 0 where none does, from whether each
+ * count below `member.length` is a member's: each count from `cycle` on recurs every `member.length - cycle` bytes,
+ * and none recurs where `cycle` is `member.length`.
+ */
+const mostWithin = (member: ReadonlyArray<boolean>, cycle: number, octets: number): number => {
+	const period = member.length - cycle
+	return member.reduce(
+		(most, is, k) =>
+			!is ? most : Math.max(most, k < cycle ? k : k + period * Math.floor((octets - k) / period)),
+		0
+	)
+}
+
+/** What the walk of a language's byte counts came to: the most bytes a member within the bound takes, or a limit. */
+export type WithinOutcome = { readonly kind: "within"; readonly bytes: number } | DfaBounded
+
+/**
+ * The most UTF-8 bytes a member of at most `octets` bytes takes, 0 where none is that short: the longest text of a
+ * language within a byte bound, which is the bound, or less where the language's characters fill it no closer, as a
+ * language of one 4-byte character within one byte holds the empty text alone. The walk reads the DFA one byte at a
+ * time, a code point of w bytes taking w steps, so it is the subset construction of the automaton of the members' byte
+ * counts over one letter: its k-th subset holds the places k bytes reach (byteSlots), and a member takes k bytes where
+ * that subset holds an accepting state. Each subset is the one before it moved one byte, so from the first subset that
+ * recurs every later one recurs in order, and the walk stops there or at `octets`, whichever it reaches first, within
+ * `limits` as the subset construction is.
+ */
+export const longestWithin = (
+	dfa: CanonicalDfa,
+	octets: number,
+	limits: DfaLimits
+): WithinOutcome => {
+	const out = dfa.states.map((state) =>
+		[
+			...new Set(state.edges.flatMap((e) => widthsOf(e.set).map((w) => e.to * byteSlots + w - 1)))
+		].toSorted((a, b) => a - b)
+	)
+	const reached = new TupleMap<ReadonlyArray<number>, number>()
+	const member: Array<boolean> = []
+	let places: ReadonlyArray<number> = dfa.states.length === 0 ? [] : [0]
+	let work = places.length
+	const bounded = (limit: keyof DfaLimits): DfaBounded => ({
+		kind: "bounded",
+		limit,
+		spent: { states: reached.size, work }
+	})
+	for (let k = 0; ; k++) {
+		const first = reached.get(places)
+		if (first !== undefined) {
+			return { kind: "within", bytes: mostWithin(member, first, octets) }
+		}
+		if (reached.size >= limits.maxStates) {
+			return bounded("maxStates")
+		}
+		reached.set(places, k)
+		member.push(places.some((p) => p % byteSlots === 0 && entry(dfa.states, p / byteSlots).accept))
+		if (k === octets) {
+			return { kind: "within", bytes: mostWithin(member, member.length, octets) }
+		}
+		const next = [...new Set(places.flatMap((p) => pastByte(p, out)))].toSorted((a, b) => a - b)
+		work += places.length + next.length
+		if (work > limits.maxWork) {
+			return bounded("maxWork")
+		}
+		places = next
+	}
 }

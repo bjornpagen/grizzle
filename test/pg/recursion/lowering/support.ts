@@ -11,7 +11,7 @@ import { setQueryOf } from "#compiler/sql/build.ts"
 import { emit } from "#compiler/sql/emit.ts"
 import { printObjectName, printStatement } from "#compiler/sql/print.ts"
 import { defined } from "#test/support/assert.ts"
-import { lowerAligned, partStatement } from "#test/support/compile.ts"
+import { lowerAligned, partStatement, filledSql } from "#test/support/compile.ts"
 import { genCatalog } from "#test/support/evidence.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import type { QueryCase } from "#test/support/oracle/gen/case.ts"
@@ -141,7 +141,7 @@ export const explainMain = (c: QueryCase, lowering: Lowering) =>
 			const session = yield* substrate.admin.pin
 			yield* session.query("BEGIN", [])
 			return yield* Effect.gen(function* () {
-				for (const sql of [...plan.sql, ...facts.value]) {
+				for (const sql of [...filledSql(plan.sql, substrate.database), ...facts.value]) {
 					yield* session.query(sql, [])
 				}
 				const tables = Arr.map(Rec.values(plan.tables), (t) => printObjectName(t.name))

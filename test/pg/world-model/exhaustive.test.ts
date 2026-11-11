@@ -194,7 +194,6 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 							suite: "pg/world-model/exhaustive",
 							generator: element(knownNonEmpty(box, "the small box's transitions")),
 							literal: Formatter.format,
-							limit,
 							coverage: noCoverage,
 							caseHang
 						},

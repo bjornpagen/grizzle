@@ -300,7 +300,7 @@ layer(Substrate.layer)("the deleted host validators against PostgreSQL 19", (it)
 						throw new Error(`install: ${Formatter.format(installed.error)}`)
 					}
 					const installation: Installation = installed.value
-					yield* transaction(s.admin, installationSql(installation))
+					yield* transaction(s.admin, installationSql(installation, s.database))
 					const artifacts = testArtifacts(Shop, {
 						installation: installationName,
 						codes: testCompile.codes

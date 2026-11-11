@@ -48,7 +48,7 @@ import {
 	bothRenames,
 	chosenRenames,
 	codedFacts,
-	declaredOf,
+	declarationsAlong,
 	extensionsOf,
 	noRenames,
 	type Origins,
@@ -624,7 +624,7 @@ export const identitiesPast = (
 
 /**
  * The steps of `versions` into `schema`, each drafted from the snapshot before under the renames and drops it declares
- * (`--rename`, `--drop`: migrate-gen declaredOf), the path's renames declared when `choose` and every removal declared
+ * (`--rename`, `--drop`: declarationsAlong), the path's renames declared when `choose` and every removal declared
  * a drop otherwise, and reviewed with every loss written. Nothing is guessed, so every review is expressible; a draft
  * refused is a failure of the property.
  */
@@ -638,7 +638,7 @@ export const drafted = (
 	let previous: Previous = fromEmpty
 	for (const [i, step] of versions.entries()) {
 		const prior = versions[i - 1] ?? step
-		const declared = declaredOf(prior, step, choose && i > 0)
+		const declared = declarationsAlong(prior, step, choose && i > 0)
 		const installation = installationOf(step.version, schema, owner, previous, declared)
 		const g = generate({
 			previous,

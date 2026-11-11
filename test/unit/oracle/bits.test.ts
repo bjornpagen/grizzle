@@ -192,7 +192,6 @@ describe("the reference evaluator's set algebra", () => {
 					suite: "unit/oracle/bits",
 					generator: pairs,
 					literal: Formatter.format,
-					limit: 1024,
 					coverage: requiredInSpace<Situation>([
 						"an empty set",
 						"a strict subset",

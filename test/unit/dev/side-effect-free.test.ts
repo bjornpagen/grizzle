@@ -54,7 +54,7 @@ const PROVEN_FILE = "proven/module.ts"
  * The options every case runs under: one module of other files, which proves a function, a factory, a function that
  * calls its argument's `compute`, and a constant.
  */
-const OPTIONS = {
+const OPTIONS = Object.freeze({
 	modules: [
 		{
 			file: PROVEN_FILE,
@@ -71,7 +71,7 @@ const OPTIONS = {
 			constants: ["provenConstant"]
 		}
 	]
-}
+})
 
 /**
  * What every program starts from: the proven module's functions, constant and one it does not list; a module variable;
@@ -130,8 +130,10 @@ const FORBIDDEN_SITES: ReadonlyArray<readonly [string, string]> = [
 ]
 
 /** The sites of the node types FORBIDDEN names that a statement of a module function can hold. */
-const forbiddenCodes = Arr.filterMap(FORBIDDEN_SITES, ([type, code]) =>
-	FORBIDDEN.has(type) ? Result.succeed(code) : Result.failVoid
+const forbiddenCodes = Object.freeze(
+	Arr.filterMap(FORBIDDEN_SITES, ([type, code]) =>
+		FORBIDDEN.has(type) ? Result.succeed(code) : Result.failVoid
+	)
 )
 
 /** A statement holding one forbidden node, as FORBIDDEN names them: one report. */
@@ -304,9 +306,8 @@ const homes: Gen<Home> = (source) => {
 	}
 }
 
-const tester = new RuleTester({
-	languageOptions: { sourceType: "module", parserOptions: { lang: "ts" } }
-})
+/** How RuleTester parses each program: a TypeScript module. */
+const LANGUAGE = { sourceType: "module", parserOptions: { lang: "ts" } } as const
 
 RuleTester.describe = (_text, fn) => fn()
 RuleTester.it = (_text, fn) => fn()
@@ -314,7 +315,7 @@ RuleTester.it = (_text, fn) => fn()
 /** What RuleTester makes of a text at a file: none when the rule reports it exactly `reports` times, else its failure. */
 const judged = (code: string, filename: string, reports: number): Option.Option<string> => {
 	const ran = Result.try(() =>
-		tester.run(
+		new RuleTester({ languageOptions: LANGUAGE }).run(
 			"side-effect-free",
 			sideEffectFree,
 			reports === 0

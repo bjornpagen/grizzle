@@ -249,7 +249,6 @@ layer(Substrate.layer)("tiny platforms, exhausted", (it) => {
 								suite: "pg/e2e-platform/box",
 								generator: box,
 								literal: Formatter.format,
-								limit: 1024,
 								caseHang,
 								coverage: requiredInSpace<BoxFeature>([
 									"an event exactly at the rate change",

@@ -53,12 +53,12 @@ export interface OwnerChanges {
  * Where an appended member reads the owner's column an owner copy of its family carries (write/family/additions.ts),
  * by the rows of the owner relation its stratum inserts:
  * - `stored`: none, so the table holds every owner a member names;
- * - `held`: every row the stratum inserts holds the copied column and the group's fields in the parameters the
- *   statement can read, as its row is written, a slot's stated facts or its nested rows, which it reads before the
- *   table;
+ * - `held`: every row the stratum inserts holds the group's fields and the copied column, or for a generated field the
+ *   written fields its generation reads, in the parameters the statement can read, as its row is written, a slot's
+ *   stated facts or its nested rows, which it reads before the table;
  * - `drawn`: the database draws the copied column of some, a described member's rows or a column no slot states and no
- *   nested row carries (an identity, a generated field, a count, end or index a family draws in SQL), so it reads the
- *   table once the owner's own statement has run.
+ *   nested row carries (an identity, a count, end or index a family draws in SQL, a generated field reading one), so it
+ *   reads the table once the owner's own statement has run.
  */
 export type CopySource = "stored" | "held" | "drawn"
 

@@ -165,7 +165,6 @@ const interruptedStatement = Effect.gen(function* () {
 			suite: "pg/adapter/pool/interrupted",
 			generator: interruptedCases,
 			literal: Formatter.format,
-			limit: 12,
 			coverage: requiredInSpace<InterruptedFeature>([
 				"sleep alone",
 				"sleep transaction",
@@ -274,7 +273,6 @@ const stalledRelease = Effect.gen(function* () {
 			suite: "pg/adapter/pool/stalled release",
 			generator: standings,
 			literal: Formatter.format,
-			limit: 32,
 			coverage: requiredInSpace<StalledFeature>([
 				"released idle",
 				"released leased",

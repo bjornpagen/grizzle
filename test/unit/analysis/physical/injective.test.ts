@@ -313,8 +313,6 @@ describe("castInjective", () => {
 						generator: (source) =>
 							[source.draw(element(types)), source.draw(element(types))] as const,
 						literal: Formatter.format,
-						/** Every ordered pair of the types, each once. */
-						limit: types.length * types.length,
 						coverage: situations,
 						caseHang
 					},

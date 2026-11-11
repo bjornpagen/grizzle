@@ -39,7 +39,6 @@ layer(NodeServices.layer, { excludeTestServices: true })("the grizzle skill", (i
 						suite: "unit/cli/skill",
 						generator: element(texts),
 						literal: Formatter.format,
-						limit: texts.length,
 						coverage: noCoverage,
 						caseHang,
 						box: "every text of the refusal table: each refusal's problem and fix, each applied-edit phrase and each stage's fix",

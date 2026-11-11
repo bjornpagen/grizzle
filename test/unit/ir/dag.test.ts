@@ -24,7 +24,7 @@
  * free variables its first alone), ir-predicate-spelling-unchecked (a predicate not in normal form decoded).
  */
 import { describe, it } from "@effect/vitest"
-import { type CaseDiscarded, drawn, exhaust, explore } from "@grizzle/testing/explore"
+import { drawn, exhaust, explore } from "@grizzle/testing/explore"
 import { required, requiredInSpace } from "@grizzle/testing/features"
 import {
 	array,
@@ -103,7 +103,6 @@ import { contractType } from "#compiler/scalar/registry.ts"
 import {
 	assert,
 	defined,
-	nonEmpty,
 	refusalLoc,
 	refused,
 	succeeded,
@@ -423,8 +422,11 @@ const labelled = weighted([
 	[4, generatedDags]
 ])
 
-/** Which labels a clash repeats: two distinct nodes', or two distinct expressions'. */
-type Clash = "two nodes" | "two expressions"
+/**
+ * Which labels a clash repeats: two distinct nodes', or two distinct expressions'; a DAG holding no two of either kind
+ * has no clash to plant, and is noted as such.
+ */
+type Clash = "two nodes" | "two expressions" | "a DAG holding no two of a kind"
 
 describe("validateDag over a DAG of direct references", () => {
 	it.effect(
@@ -458,19 +460,20 @@ describe("validateDag over a DAG of direct references", () => {
 						oracle: { kind: "specification", name: "one node and one expression per label" }
 					},
 					([d, overExprs, first, second], c) =>
-						Effect.gen(function* () {
-							const twoOf = <A>(
-								pool: ReadonlyArray<A>
-							): Effect.Effect<readonly [A, A], CaseDiscarded> =>
-								Effect.gen(function* () {
-									yield* c.assume(Arr.isReadonlyArrayNonEmpty(pool))
-									const kept = pickFrom(nonEmpty(pool, "a label's holder"), first)
-									const rest = Arr.filter(pool, (x) => x !== kept)
-									yield* c.assume(Arr.isReadonlyArrayNonEmpty(rest))
-									return [kept, pickFrom(nonEmpty(rest, "another holder"), second)] as const
-								})
-							if (overExprs) {
-								const [kept, relabelled] = yield* twoOf(exprsIn(d))
+						Effect.sync(() => {
+							const twoOf = <A>(pool: ReadonlyArray<A>): Option.Option<readonly [A, A]> => {
+								if (!Arr.isReadonlyArrayNonEmpty(pool)) {
+									return Option.none()
+								}
+								const kept = pickFrom(pool, first)
+								const rest = Arr.filter(pool, (x) => x !== kept)
+								return Arr.isReadonlyArrayNonEmpty(rest)
+									? Option.some([kept, pickFrom(rest, second)] as const)
+									: Option.none()
+							}
+							const exprPair = twoOf(exprsIn(d))
+							const nodePair = twoOf(topoOrder(d))
+							const clashExprs = ([kept, relabelled]: Option.Option.Value<typeof exprPair>) => {
 								c.note("two expressions")
 								const clashed = replacedExpr(d, relabelled, builtExpr(relabelled, kept.id))
 								assert.deepEqual(
@@ -478,16 +481,29 @@ describe("validateDag over a DAG of direct references", () => {
 									["exprs", kept.id]
 								)
 								throwsDefect(() => validateDag(clashed))
+							}
+							const clashNodes = ([kept, relabelled]: Option.Option.Value<typeof nodePair>) => {
+								c.note("two nodes")
+								const clashed = replacedNode(d, relabelled, relNode(kept.id, relabelled))
+								assert.deepEqual(
+									refusalLoc(refused(toTable(clashed), "MalformedDescription")).path,
+									["nodes", kept.id]
+								)
+								throwsDefect(() => validateDag(clashed))
+							}
+							if (overExprs && Option.isSome(exprPair)) {
+								clashExprs(exprPair.value)
 								return
 							}
-							const [kept, relabelled] = yield* twoOf(topoOrder(d))
-							c.note("two nodes")
-							const clashed = replacedNode(d, relabelled, relNode(kept.id, relabelled))
-							assert.deepEqual(refusalLoc(refused(toTable(clashed), "MalformedDescription")).path, [
-								"nodes",
-								kept.id
-							])
-							throwsDefect(() => validateDag(clashed))
+							if (Option.isSome(nodePair)) {
+								clashNodes(nodePair.value)
+								return
+							}
+							if (Option.isSome(exprPair)) {
+								clashExprs(exprPair.value)
+								return
+							}
+							c.note("a DAG holding no two of a kind")
 						})
 				)
 			)
@@ -872,7 +888,6 @@ describe("normalizeDag", () => {
 						suite: "unit/ir/dag-free-vars",
 						literal: Formatter.format,
 						generator: boolean,
-						limit: 2,
 						coverage: requiredInSpace<"y allocated first">(["y allocated first"]),
 						caseHang
 					},
@@ -951,7 +966,6 @@ describe("normalizeDag", () => {
 								),
 								source.draw(int(0, 3))
 							] as const,
-						limit: pool.length * (pool.length - 1) * (pool.length - 2) * 4,
 						coverage: requiredInSpace<"an advanced supply" | "a spelling not in normal form">([
 							"an advanced supply",
 							"a spelling not in normal form"

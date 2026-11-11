@@ -119,7 +119,7 @@ type DomainFeature = "admitted" | "refused"
  */
 const domainRuns = 2
 
-const int8Edges = [
+const int8Edges = Object.freeze([
 	-(2n ** 63n),
 	2n ** 63n - 1n,
 	-1n,
@@ -133,7 +133,7 @@ const int8Edges = [
 	51n,
 	52n,
 	48n
-]
+])
 
 const bigints: Gen<bigint> = oneOf([bigint(-20000n, 20000n), bigint(-(2n ** 63n), 2n ** 63n - 1n)])
 

@@ -865,7 +865,6 @@ describe("contract predicates", () => {
 								table
 							}))
 						]),
-						limit: 300,
 						coverage: requiredInSpace<PredicateFeature>([
 							"an allocation normalized",
 							...Arr.map(broken, ([rule]): PredicateFeature => `broken: ${rule}`)

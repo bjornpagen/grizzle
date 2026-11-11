@@ -205,7 +205,6 @@ describe("the rows audit (oracle/verify/rows.ts)", () => {
 							source: s.draw(element(sources))
 						}),
 						literal: Formatter.format,
-						limit: readers.length * sources.length,
 						coverage: noCoverage,
 						caseHang
 					},
@@ -238,7 +237,6 @@ describe("the rows audit (oracle/verify/rows.ts)", () => {
 						},
 						generator: (s) => ({ body: s.draw(element(bodies)), bound: s.draw(element(bounds)) }),
 						literal: Formatter.format,
-						limit: bodies.length * bounds.length,
 						coverage: noCoverage,
 						caseHang
 					},
@@ -275,7 +273,6 @@ describe("the rows audit (oracle/verify/rows.ts)", () => {
 						limited: s.draw(element([false, true]))
 					}),
 					literal: Formatter.format,
-					limit: oneRowCores.length * 2,
 					coverage: noCoverage,
 					caseHang
 				},
@@ -317,7 +314,6 @@ describe("the rows audit (oracle/verify/rows.ts)", () => {
 						groupBy: s.draw(int(1, 2 ** groupColumns.length - 1))
 					}),
 					literal: Formatter.format,
-					limit: (2 ** groupTargets.length - 1) * (2 ** groupColumns.length - 1),
 					coverage: requiredInSpace<GroupsFeature>([
 						"every GROUP BY expression a target",
 						"a GROUP BY expression no target"

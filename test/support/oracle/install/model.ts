@@ -164,7 +164,10 @@ export interface InstallPlan {
 	 */
 	readonly loadOrder: ReadonlyArray<string>
 	readonly ddl: ReadonlyArray<Ddl>
-	/** The emitted text of each DDL statement, in order. */
+	/**
+	 * The emitted text of each DDL statement, in order, as drafted: a role of the installation is its variable, which
+	 * filledSql (test/support/compile.ts) fills as migrate does before a statement is sent.
+	 */
 	readonly sql: ReadonlyArray<string>
 	/** The schema the vector extension lives in, which names a vector column's type. */
 	readonly vectorSchema: string

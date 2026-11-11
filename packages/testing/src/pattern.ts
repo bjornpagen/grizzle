@@ -140,7 +140,13 @@ const parse = (source: string): Node => {
 	}
 	/** The code point `count` hexadecimal digits name, as `\xHH` and `\uHHHH` write it. */
 	const hexOf = (count: number): number =>
-		Number.parseInt(Arr.join(Arr.makeBy(count, hexDigit), ""), 16)
+		Number.parseInt(
+			Arr.join(
+				Array.from({ length: count }, () => hexDigit()),
+				""
+			),
+			16
+		)
 	/** The code point `\u{H…}` names, between its braces. */
 	const bracedHex = (): number => {
 		at += 1

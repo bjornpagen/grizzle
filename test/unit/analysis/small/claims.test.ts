@@ -49,13 +49,10 @@
  * rows: the column sets of its heading no two of its rows agree on on any database, neither a sound superset nor the
  * attachment's relative evidence.
  *
- * Each exhaustion's limit is its space's own size, counted by enumerating its generator (casesOf).
- *
  * Features: every claim checked, every precision situation each grammar must reach, and each elision reason
  * (ClaimFeature).
  */
 import { describe, it } from "@effect/vitest"
-import { count } from "@grizzle/testing/enumerate"
 import { type Case, exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace, type Situations } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
@@ -677,15 +674,6 @@ const space = (
 	return (source) => [source.draw(element(installations)), source.draw(plans)] as const
 }
 
-/**
- * How many cases a generator has, counted by enumerating it alone (enumerate.ts count) under no bound but the largest
- * safe count: an exhaustion's limit is its space's own size, so no change of the grammar or the variants leaves it stale.
- */
-const casesOf = (generator: Gen<unknown>): number => {
-	const counted = count(generator, Number.MAX_SAFE_INTEGER)
-	return counted.kind === "within" ? counted.cases : counted.limit
-}
-
 const exhaustUpTo = (
 	ctx: TestContext,
 	grammar: Grammar,
@@ -707,7 +695,6 @@ const exhaustUpTo = (
 				generator,
 				literal: ([inst, plan]) =>
 					Formatter.format({ variant: inst.variant.name, scan: plan.scan, steps: plan.steps }),
-				limit: casesOf(generator),
 				coverage: requiredInSpace<ClaimFeature>(situations),
 				caseHang
 			},

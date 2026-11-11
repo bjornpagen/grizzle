@@ -113,8 +113,18 @@ const menu: ReadonlyArray<MenuItem> = [
 	}
 ]
 
-const spellings = ["1", "1.0", "1.00", "2.5", "2.50", "0", "0.000", "-3.25", "-3.250"]
-const ratios = [0.1, 0.2, 0.3, 0.7, 1.1, 2.675]
+const spellings = Object.freeze([
+	"1",
+	"1.0",
+	"1.00",
+	"2.5",
+	"2.50",
+	"0",
+	"0.000",
+	"-3.25",
+	"-3.250"
+])
+const ratios = Object.freeze([0.1, 0.2, 0.3, 0.7, 1.1, 2.675])
 
 interface Sketch {
 	readonly facts: ReadonlyArray<{

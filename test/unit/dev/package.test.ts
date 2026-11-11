@@ -178,7 +178,6 @@ layer(Published.layer, { excludeTestServices: true })("the published package", (
 							suite: "unit/dev/published entry points",
 							generator: element(nonEmpty(entries, "the published entry points")),
 							literal: Formatter.format,
-							limit: entries.length,
 							coverage: requiredInSpace<Entry["kind"]>(["export", "bin"]),
 							box: "every export and bin the published packages' package.json files name",
 							oracle: {

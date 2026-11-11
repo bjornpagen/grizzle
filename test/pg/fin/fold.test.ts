@@ -63,7 +63,6 @@ import {
 	endedBy,
 	type EndFeature,
 	endGen,
-	ends,
 	mutated,
 	refusedAtCommitBy,
 	type Seat,
@@ -86,6 +85,7 @@ import {
 import { caseHang } from "#test/support/limits.ts"
 import { attempt } from "#test/support/substrate.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /** A single junk accumulator of a family (the header's kinds), at a slot and a plane where it names one. */
 type Junk =
@@ -141,34 +141,33 @@ const box = { lawful: 4, junked: 3 } as const
 
 const junksOf = (n: number, planes: number): ReadonlyArray<Junk> => [
 	{ kind: "a junk seed" },
-	...Arr.flatMap(Arr.range(0, n - 1).slice(0, n), (slot) =>
-		Arr.flatMap(Arr.range(0, planes - 1), (plane): ReadonlyArray<Junk> => [
-			{ kind: "a junk before", slot, plane },
-			{ kind: "a junk after", slot, plane }
-		])
+	...Arr.flatMap(
+		upTo(n, (i) => i),
+		(slot) =>
+			Arr.flatMap(
+				upTo(planes, (i) => i),
+				(plane): ReadonlyArray<Junk> => [
+					{ kind: "a junk before", slot, plane },
+					{ kind: "a junk after", slot, plane }
+				]
+			)
 	),
-	...Arr.map(Arr.range(0, planes - 1), (plane): Junk => ({ kind: "a junk end", plane })),
-	...Arr.map(Arr.range(0, n - 1).slice(0, n), (slot): Junk => ({ kind: "a junk step", slot }))
+	...upTo(planes, (plane): Junk => ({ kind: "a junk end", plane })),
+	...upTo(n, (slot): Junk => ({ kind: "a junk step", slot }))
 ]
 
 const sketchGen =
 	(planes: number): Gen<Sketch> =>
 	(source) => {
-		const n = source.draw(element(nonEmpty(Arr.range(0, box.lawful))))
-		const values = Arr.map(Arr.range(0, n - 1).slice(0, n), () =>
-			source.draw(element([0, 1, 2, 3, 4] as const))
+		const n = source.draw(element(nonEmpty(upTo(box.lawful + 1, (i) => i))))
+		const values = Arr.map(
+			upTo(n, (i) => i),
+			() => source.draw(element([0, 1, 2, 3, 4] as const))
 		)
 		const junks: Arr.NonEmptyReadonlyArray<Junk> =
 			n <= box.junked ? [{ kind: "none" }, ...junksOf(n, planes)] : [{ kind: "none" }]
 		return { values, junk: source.draw(element(junks)) }
 	}
-
-const sketchCases = (planes: number): number =>
-	Arr.reduce(
-		Arr.range(0, box.lawful),
-		0,
-		(sum, n) => sum + 5 ** n * (1 + (n <= box.junked ? junksOf(n, planes).length : 0))
-	)
 
 /** A plane list with one plane replaced. */
 const replacedPlane = (planes: Planes, plane: number, value: bigint): Planes =>
@@ -390,7 +389,6 @@ layer(Substrate.layer)("folds through grizzle's lowering on PostgreSQL 19rc1", (
 								suite: `fin/fold ${spec.label}`,
 								generator: sketchGen(planes),
 								literal: Formatter.format,
-								limit: sketchCases(planes) * ends.length,
 								box: "owner 0 with every family of zero to four members over the seat's five step values, each written lawful, and every family of zero to three members with every single junk accumulator: a junk seed, one before, one after, one end, each case ended by a real COMMIT and by the checked end",
 								oracle: ORACLE,
 								coverage: requiredInSpace<FoldFeature>(
@@ -484,7 +482,6 @@ layer(Substrate.layer)("folds through grizzle's lowering on PostgreSQL 19rc1", (
 							suite: "fin/fold-tree-root",
 							generator: element(forests),
 							literal: Formatter.format,
-							limit: forests.length,
 							box: "every tree and forest of two trees of at most four rows, each root's before over 0 to 1 and after over 0 to 2, every other accumulator the count fold's",
 							oracle: {
 								kind: "specification",

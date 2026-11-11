@@ -292,7 +292,7 @@ const stored = (installed: Installed, table: string, columns: string) =>
 const changeSet = (): ChangeSetValue => ChangeSet.empty(Pairs)
 
 /** The full world a direct SQL writer takes on. */
-const pairsWorld = fullWorld(Pairs, {})
+const pairsWorld = Object.freeze(fullWorld(Pairs, {}))
 
 const idOf = (c: unknown): string =>
 	hasProperties(c) && typeof c["id"] === "string"

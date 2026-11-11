@@ -379,7 +379,7 @@ layer(Substrate.layer)("oracle and real installer", (it) => {
 								const actual = yield* installedCatalog(
 									pinned,
 									schema,
-									installationSql(real.value),
+									installationSql(real.value, substrate.database),
 									probeTextDomains(pinned, real.value, desc)
 								)
 								assert.deepEqual(actual.probed.problems, [])

@@ -232,7 +232,6 @@ describe("the closed-id and set codecs", () => {
 						suite: "unit/codec/codes",
 						generator: patterns,
 						literal: Formatter.format,
-						limit: 1178,
 						coverage: requiredInSpace<Variant | "a hole">([
 							"valid",
 							"a removed handle",

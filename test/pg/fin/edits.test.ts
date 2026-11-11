@@ -64,6 +64,7 @@ import { type SpanKeyedOwner, spanOwnersGen } from "#test/support/families/gener
 import { caseHang } from "#test/support/limits.ts"
 import { tableState } from "#test/support/substrate/state.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 const Owner = relation("Owner", { id: pg.int4, n: drawn(natural), end: accumulated(pg.int4, 0) }, [
 	"id"
@@ -80,7 +81,7 @@ const Edited = schema("fin_edits", { Owner, Member }, [
 ])
 
 /** The seat's specification: the counted int4 sum's, over this schema. */
-const SPEC = {
+const SPEC = Object.freeze({
 	...defined(
 		Arr.findFirst(FOLD_SPECS, (s) => s.label === "sum of int4 over a counted family").pipe(
 			Option.getOrUndefined
@@ -88,7 +89,7 @@ const SPEC = {
 	),
 	label: "a counted int4 sum, mutable",
 	schema: Edited
-}
+})
 
 /** An edit of owner 0's family: one member's delete, or its put to another of the five values. */
 type Edit =
@@ -103,7 +104,10 @@ interface Sketch {
 const sketchGen: Gen<Sketch> = (source) => {
 	const n = source.draw(int(1, 4))
 	const values = nonEmpty(
-		Arr.map(Arr.range(1, n), () => source.draw(element([0, 1, 2, 3, 4] as const)))
+		Arr.map(
+			upTo(n, (i) => i + 1),
+			() => source.draw(element([0, 1, 2, 3, 4] as const))
+		)
 	)
 	const at = source.draw(int(0, n - 1))
 	const from = Arr.getUnsafe(values, at)
@@ -117,8 +121,6 @@ const sketchGen: Gen<Sketch> = (source) => {
 				}
 	return { values, edit }
 }
-
-const sketchCases = Arr.reduce(Arr.range(1, 4), 0, (sum, n) => sum + 5 ** n * n * (1 + 4))
 
 const SpanOwner = relation(
 	"SpanOwner",
@@ -152,16 +154,16 @@ const SpanEdited = schema("fin_span_edits", { SpanOwner, SpanMember }, [
 ])
 
 /** The counted family's workload: a member's delete and a member's put, each from its call's facts. */
-const editPrograms = {
+const editPrograms = Object.freeze({
 	deleteMember: ChangeSet.empty(Edited).delete(Member, []),
 	putMember: ChangeSet.empty(Edited).put(Member, [])
-}
+})
 
 /** The span-keyed owners' workload: their insert with their members, and an owner's put, each from its call's facts. */
-const spanPrograms = {
+const spanPrograms = Object.freeze({
 	insertOwners: ChangeSet.empty(SpanEdited).insert(SpanOwner, []).insert(SpanMember, []),
 	putOwner: ChangeSet.empty(SpanEdited).put(SpanOwner, [])
-}
+})
 
 /** Span-keyed owners with their families, each owner's label, each member's step value, and the put: one owner's
  * new label, another than its own. */
@@ -218,7 +220,6 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									suite: "fin/edits",
 									generator: sketchGen,
 									literal: Formatter.format,
-									limit: sketchCases,
 									box: "owner 0 with every counted family of one to four members over five int4 values, each member deleted and each put to every other value",
 									oracle: {
 										kind: "second-implementation",

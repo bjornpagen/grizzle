@@ -1,6 +1,6 @@
 import { Array as Arr, Duration, Effect, Formatter, Option } from "effect"
 import { describe, it } from "vitest"
-import { count } from "#enumerate.ts"
+import { type Branch, enumerated, firstBranch } from "#enumerate.ts"
 import { drawn, explore, noDeadline, Run } from "#explore.ts"
 import { noCoverage } from "#features.ts"
 import { array, boolean, type Gen, int, weighted } from "#gen.ts"
@@ -73,7 +73,11 @@ describe("the engine", () => {
 				generate(recorded, composite, forcedChooser(sampled.tape.values, sampled.tape.length))
 			}),
 			bench("enumerate 1111 cases", () => {
-				count(array(int(0, 9), { min: 0, max: 3 }), 2000)
+				const generator = array(int(0, 9), { min: 0, max: 3 })
+				let branch: Option.Option<Branch> = Option.some(firstBranch)
+				while (Option.isSome(branch)) {
+					branch = enumerated(recorded, generator, branch.value).next
+				}
 			}),
 			bench("shrink a failing collection to its threshold", () => {
 				const items = array(int(0, 1000), { min: 0, max: 10 })

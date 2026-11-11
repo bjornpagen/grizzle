@@ -313,7 +313,6 @@ describe("a partial operation's refusal", () => {
 						generator: (source) =>
 							[source.draw(element(kinds)), source.draw(int(0, widest - 1))] as const,
 						literal: Formatter.format,
-						limit: kinds.length * widest,
 						coverage: requiredInSpace<Feature>([
 							...Arr.map(kinds, (k): Feature => `refused for ${k}`),
 							"a text operand's guard",

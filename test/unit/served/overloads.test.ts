@@ -43,7 +43,6 @@ describe("a range overload in a served file", () => {
 						suite: "unit/served/overloads",
 						generator: overloadGen,
 						literal: Formatter.format,
-						limit: rangeOpCodes.length * spanCarriers.length,
 						box: "every range overload, each code over each span carrier",
 						oracle: {
 							kind: "specification",

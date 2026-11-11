@@ -165,7 +165,6 @@ describe("compiled size", () => {
 						suite: "unit/program/size",
 						generator: (source) => [source.draw(extent), source.draw(extent)] as const,
 						literal: Formatter.format,
-						limit: 9,
 						coverage: noCoverage,
 						caseHang
 					},

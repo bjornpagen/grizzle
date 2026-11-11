@@ -32,7 +32,6 @@ import {
 	boolean,
 	constant,
 	element,
-	filter,
 	type Gen,
 	int,
 	map,
@@ -199,31 +198,37 @@ interface Tag {
 	readonly reaches: ReadonlyArray<SplitFeature>
 }
 
-const tagGen: Gen<Tag> = weighted([
-	[4, map(element(["", "x", "tag", "_b1"]), (text): Tag => ({ text, reaches: [] }))],
-	[
-		2,
-		map(element(["función", "ß"]), (text): Tag => ({
-			text,
-			reaches: ["a dollar-quote tag outside ASCII"]
-		}))
-	]
-])
+/** The dollar-quote tags a part draws among, the ASCII ones and those outside it, each equally often. */
+const tags: ReadonlyArray<Tag> = [
+	...Arr.map(["", "x", "tag", "_b1"], (text): Tag => ({ text, reaches: [] })),
+	...Arr.map(["función", "ß"], (text): Tag => ({
+		text,
+		reaches: ["a dollar-quote tag outside ASCII"]
+	}))
+]
 
+/**
+ * A dollar-quoted part whose body never spells its own closing tag, by construction: the body is drawn first, and the tag
+ * among those whose close first meets the body's end.
+ */
 const dollarGen: Gen<Part> = map(
-	filter(
-		(source) => {
-			const tag = source.draw(tagGen)
-			return {
-				close: `$${tag.text}$`,
-				reaches: tag.reaches,
-				body: source.draw(joined(element(Arr.appendAll(tricky, ["$", "$y$"])), 4))
-			}
-		},
-		({ close, body }) =>
-			Option.exists(Str.indexOf(close)(`${body}${close}`), (at) => at === body.length),
-		10
-	),
+	(source) => {
+		const body = source.draw(joined(element(Arr.appendAll(tricky, ["$", "$y$"])), 4))
+		const tag = source.draw(
+			element(
+				nonEmpty(
+					Arr.filter(tags, (t) =>
+						Option.exists(
+							Str.indexOf(`$${t.text}$`)(`${body}$${t.text}$`),
+							(at) => at === body.length
+						)
+					),
+					"a tag the body does not spell"
+				)
+			)
+		)
+		return { close: `$${tag.text}$`, reaches: tag.reaches, body }
+	},
 	({ close, body, reaches }): Part => ({
 		text: `${close}${body}${close}`,
 		substantive: true,

@@ -169,7 +169,6 @@ describe("a set over a roster", () => {
 							)
 						}),
 						literal: Formatter.format,
-						limit: 7 * 7 * 3 * 8 * 2 * 4,
 						coverage: requiredInSpace<Feature>([
 							"a Compute literal admitted",
 							"a Compute literal refused",

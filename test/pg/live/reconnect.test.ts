@@ -96,7 +96,7 @@ const dropGen: Gen<Drop> = (source) => ({
 })
 
 /** A pool of one session: the tap gates its first session, which every call then runs on. */
-const oneSession = { ...clusterPool, min: 1, max: 1 }
+const oneSession = Object.freeze({ ...clusterPool, min: 1, max: 1 })
 
 layer(Substrate.layer)("a subscription dropped and called again", (it) => {
 	it.effect(

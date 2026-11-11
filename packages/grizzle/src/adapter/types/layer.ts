@@ -82,8 +82,9 @@ export interface DbConnection {
 	readonly database: string
 	/**
 	 * The installation's role prefix: every login's and role's PostgreSQL role is `<rolePrefix>__<role>` (roleNameOf),
-	 * so two installations of one schema share a cluster, each in its own database under its own prefix. A declared
-	 * name, installed as its conversion; without it, each role is the name `grizzle generate` committed.
+	 * so two installations of one schema share a cluster, each in its own database under its own prefix. Used verbatim,
+	 * never converted: a lowercase PostgreSQL identifier segment, `[a-z_][a-z0-9_]*`, holding no `__` and not starting
+	 * with `pg_`; without it, each role is the name `grizzle generate` committed.
 	 */
 	readonly rolePrefix?: string
 	/** Evaluated for each connection attempt when it is an Effect, so a rotating credential needs no restart. */

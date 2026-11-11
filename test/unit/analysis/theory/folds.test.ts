@@ -144,7 +144,6 @@ describe("a fold's law", () => {
 						suite: "unit/analysis/theory/violations/fold-visible",
 						generator: visibleFoldState,
 						literal: Formatter.format,
-						limit: 5_000,
 						box: "one owner's family of 0 to 2 members, each x and skip 0 or 1, accumulators and total 0 to 2",
 						oracle: { kind: "second-implementation", name: "a naive left fold over the slots" },
 						coverage: requiredInSpace<FoldFault>([
@@ -252,7 +251,6 @@ describe("a fold's law", () => {
 						suite: "unit/analysis/theory/violations/fold-hidden",
 						generator: hiddenFoldState,
 						literal: Formatter.format,
-						limit: 6_000,
 						box: "count, sum and max over a counted family of 0 to 2 members, each value 0 to 2, every end in range",
 						oracle: { kind: "second-implementation", name: "a naive fold of the members' values" },
 						coverage: requiredInSpace<

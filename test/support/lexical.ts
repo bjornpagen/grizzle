@@ -44,7 +44,11 @@ const significantTrailing = (digitsText: string): number => {
 
 const digit = characterOf(["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"])
 const digits = (min: number, max: number): Gen<string> => string(digit, { min, max })
-const sign = element(["", "", "+", "-"])
+const sign = weighted([
+	[2, constant("")],
+	[1, constant("+")],
+	[1, constant("-")]
+])
 
 /**
  * The lexical targets, one generator per kind of LexicalTarget, so a kind the type gains is a missing key here: an
@@ -248,7 +252,17 @@ const dateGen: Gen<Candidate> = (source) => {
 	const year = source.draw(
 		element([0, 1, 4, 100, 400, 1900, 2000, 2023, 2024, 9999, 10000, source.draw(int(0, 9999))])
 	)
-	const month = source.draw(element([2, 2, 1, 4, 12, 13, 0, source.draw(int(1, 12))]))
+	const month = source.draw(
+		weighted([
+			[2, constant(2)],
+			[1, constant(1)],
+			[1, constant(4)],
+			[1, constant(12)],
+			[1, constant(13)],
+			[1, constant(0)],
+			[1, int(1, 12)]
+		])
+	)
 	const day = source.draw(element([28, 29, 30, 31, 1, 0, 32, source.draw(int(1, 31))]))
 	const text = `${Str.padStart(4, "0")(String(year))}-${Str.padStart(2, "0")(String(month))}-${Str.padStart(2, "0")(String(day))}`
 	const member = calendarDate(year, month, day)
@@ -388,7 +402,15 @@ const doubleDecimalGen: Gen<ExactDecimal> = weighted([
 const exponentText =
 	(exponent: bigint): Gen<string> =>
 	(source) => {
-		const sign = exponent < 0n ? "-" : source.draw(element(["", "", "+"]))
+		const sign =
+			exponent < 0n
+				? "-"
+				: source.draw(
+						weighted([
+							[2, constant("")],
+							[1, constant("+")]
+						])
+					)
 		const zeros = Str.repeat(source.draw(int(0, 2)))("0")
 		return `${source.draw(element(["e", "E"]))}${sign}${zeros}${exponent < 0n ? -exponent : exponent}`
 	}
@@ -421,10 +443,23 @@ const spelledGen =
 		const point =
 			fraction.length > 0
 				? `.${fraction}${Str.repeat(source.draw(int(0, 2)))("0")}`
-				: source.draw(element(["", "", ".", ".0"]))
+				: source.draw(
+						weighted([
+							[2, constant("")],
+							[1, constant(".")],
+							[1, constant(".0")]
+						])
+					)
 		const whole = integer.length > 0 ? `${lead}${integer}` : source.draw(element(["", "0", lead]))
 		const mantissa = whole.length === 0 && point.length < 2 ? `0${point}` : `${whole}${point}`
-		const sign = negative ? "-" : source.draw(element(["", "", "+"]))
+		const sign = negative
+			? "-"
+			: source.draw(
+					weighted([
+						[2, constant("")],
+						[1, constant("+")]
+					])
+				)
 		const omitted = exponent === 0n && source.draw(boolean)
 		return `${sign}${mantissa}${omitted ? "" : source.draw(exponentText(exponent))}`
 	}
@@ -592,7 +627,12 @@ const candidatesOf = (target: LexicalTarget): Gen<Candidate> => {
 
 export const candidateGen: Gen<Candidate> = (source) => {
 	const base = source.draw(candidatesOf(source.draw(targetGen(candidateMaxPrecision))))
-	const corruption = source.draw(element([undefined, undefined, undefined, ...corruptions]))
+	const corruption = source.draw(
+		weighted<(typeof corruptions)[number] | undefined>([
+			[3, constant(undefined)],
+			[1, element(corruptions)]
+		])
+	)
 	if (corruption === undefined || !base.member) {
 		return base
 	}

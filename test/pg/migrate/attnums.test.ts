@@ -127,7 +127,6 @@ layer(Substrate.layer)(
 								suite: "pg/migrate/attnums",
 								generator: int(1, slack + past),
 								literal: Formatter.format,
-								limit: slack + past,
 								coverage: requiredInSpace<Place>([
 									"below the bound",
 									"on the bound",

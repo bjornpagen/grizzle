@@ -37,7 +37,6 @@ import {
 	codePoint,
 	constant,
 	element,
-	filter,
 	type Gen,
 	int,
 	map,
@@ -85,6 +84,7 @@ import { caseHang } from "#test/support/limits.ts"
 import { headingRecord } from "#test/support/statement-rows.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
 import { codecOf, type TestCodec } from "#test/unit/codec/support.ts"
 import { decimalGen } from "#test/unit/values/support.ts"
 
@@ -96,11 +96,11 @@ const kindHandles = ["Manual", "Automatic", "Ünïcode"] as const
  * hex digits, its padding 0, so the widths that fill their last digit and those that pad it are told apart, and a
  * digit holding only its last code is the digit 1.
  */
-const setWidths = Arr.range(1, 9)
+const setWidths: Arr.NonEmptyReadonlyArray<number> = Arr.range(1, 9)
 
 /** The handles of the roster of a set of `width` codes. */
 const setHandles = (width: number): Arr.NonEmptyReadonlyArray<string> =>
-	nonEmpty(Arr.map(Arr.range(0, width - 1), (c) => `s${c}`))
+	nonEmpty(upTo(width, (c) => `s${c}`))
 
 const setRoster = (width: number) => parsedName(`Set${width}`)
 
@@ -129,7 +129,7 @@ const kindCodes: Codebook = {
 		)
 	])
 }
-const scalars = {
+const scalars = Object.freeze({
 	uuid: scalarOf({ kind: "uuid" }, {}),
 	numeric52: scalarOf({ kind: "numeric", precision: 5, scale: 2 }, {}),
 	numeric72: scalarOf({ kind: "numeric", precision: 7, scale: 2 }, {}),
@@ -155,7 +155,7 @@ const scalars = {
 		},
 		{}
 	)
-}
+})
 
 /** NaN and the infinities, one draw in ten beside a generator of finite values. */
 const withNonFinite = (finite: Gen<number>): Gen<number> =>
@@ -177,16 +177,29 @@ const int4Gen: Gen<number> = oneOf([
 	element([int4Min.value, int4Max.value, 0, -0])
 ])
 
-/** Two distinct endpoints, the lower first: a draw that repeats an endpoint draws again. */
-const span = <E extends number | bigint>(endpoint: Gen<E>) =>
-	map(
-		filter(
-			(source) => [source.draw(endpoint), source.draw(endpoint)] as const,
-			([a, b]) => a !== b,
-			10
-		),
-		([a, b]) => (a < b ? { start: a, end: b } : { start: b, end: a })
-	)
+/**
+ * Two distinct endpoints, the lower first: the second endpoint, where it repeats the first, is moved to its `neighbour`,
+ * so every draw is a span by construction.
+ */
+const span =
+	<E extends number | bigint>(
+		endpoint: Gen<E>,
+		neighbour: (endpoint: E) => E
+	): Gen<Readonly<{ start: E; end: E }>> =>
+	(source) => {
+		const a = source.draw(endpoint)
+		const drawn = source.draw(endpoint)
+		const b = drawn === a ? neighbour(a) : drawn
+		return a < b ? { start: a, end: b } : { start: b, end: a }
+	}
+
+/** An int4 endpoint's neighbour: the next one up, or down from the greatest. */
+const int4Neighbour = (endpoint: number): number =>
+	endpoint === int4Max.value ? endpoint - 1 : endpoint + 1
+
+/** An int8 endpoint's neighbour: the next one up, or down from the greatest. */
+const int8Neighbour = (endpoint: bigint): bigint =>
+	endpoint === int8Max.value ? endpoint - 1n : endpoint + 1n
 
 /**
  * A binary32 value of any exponent: a sign, a significand in [1, 2) of any binary64 bits and an exponent from the least
@@ -243,7 +256,7 @@ const caseShuffled: Gen<string> = (source) => {
 }
 
 /** The spellings a text comparison trips on: empty, composed and decomposed, beyond the BMP, U+FFFD and U+10FFFF. */
-const textEdges = ["", "é", "é", "𝔘", "�", "\u{10ffff}"] as const
+const textEdges = ["", "\u00e9", "e\u0301", "𝔘", "�", "\u{10ffff}"] as const
 
 /**
  * Texts of up to twelve code points, each well-formed and never NUL: ASCII, the rest of the BMP outside the surrogates,
@@ -315,8 +328,8 @@ const cases: Arr.NonEmptyReadonlyArray<Case> = [
 		type: scalarOf({ kind: "bits", roster: `Set${w}` }, { [`Set${w}`]: setHandles(w) }),
 		values: map(subset(setHandles(w), { min: 0, max: w }), (hs) => new Set(hs))
 	})),
-	{ label: "int4range", type: scalars.range4, values: span(int4Gen) },
-	{ label: "int8range", type: scalars.range8, values: span(int8Gen) },
+	{ label: "int4range", type: scalars.range4, values: span(int4Gen, int4Neighbour) },
+	{ label: "int8range", type: scalars.range8, values: span(int8Gen, int8Neighbour) },
 	{ label: "vector(3)", type: scalars.vector3, values: vectorGen(3) },
 	{ label: "vector(16)", type: scalars.vector16, values: vectorGen(16) },
 	{ label: "contract Cents", type: scalars.cents, values: int8Gen }
@@ -529,7 +542,7 @@ layer(Substrate.layer)("exact scalar codecs against PostgreSQL", (it) => {
 					kind: source.draw(element(kindHandles)),
 					kinds: new Set(source.draw(subset(kindHandles, { min: 0, max: kindHandles.length }))),
 					label: source.draw(textGen),
-					during: source.draw(span(int8Gen)),
+					during: source.draw(span(int8Gen, int8Neighbour)),
 					value: source.draw(vectorGen(16))
 				})
 				const encode = arraysEncoder({

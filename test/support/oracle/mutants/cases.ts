@@ -41,6 +41,7 @@ import {
 	undrawn
 } from "#test/support/oracle/gen/query.ts"
 
+import { nonEmpty } from "#test/support/assert.ts"
 import {
 	type GenRelation,
 	type GenSchema,
@@ -49,6 +50,7 @@ import {
 	valueSketchGen
 } from "#test/support/oracle/gen/schema.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /** Facts for every relation slot: three to six sketched rows, so few relations are empty. */
 const denseFactsGen = (config: GenConfig): Gen<FactsSketch> =>
@@ -309,9 +311,12 @@ const relationHeadingOf = (r: GenRelation): Heading =>
 
 /** The whole numbers of `lo..hi`, nearest zero first and the positive before the negative: the order a key shrinks in. */
 const keysNearZero = (lo: number, hi: number): Arr.NonEmptyReadonlyArray<number> =>
-	Arr.sort(
-		Arr.range(lo, hi),
-		Order.mapInput(Order.Number, (k: number) => 2 * Math.abs(k) - (k > 0 ? 1 : 0))
+	nonEmpty(
+		Arr.sort(
+			upTo(hi - lo + 1, (i) => lo + i),
+			Order.mapInput(Order.Number, (k: number) => 2 * Math.abs(k) - (k > 0 ? 1 : 0))
+		),
+		"lo..hi holds a key"
 	)
 
 /**

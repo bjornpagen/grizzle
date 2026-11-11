@@ -296,8 +296,6 @@ describe("the oracle's classes of evaluation", () => {
 					oracle: { kind: "specification", name: "IEEE 754's correctly rounded operations" },
 					generator: element(nonEmpty(nativeOps, "the registry's nodes")),
 					literal: Formatter.format,
-					/** The space is the registry's nodes, each once. */
-					limit: nativeOps.length,
 					coverage: requiredInSpace<"an exact float node">(["an exact float node"]),
 					caseHang
 				},

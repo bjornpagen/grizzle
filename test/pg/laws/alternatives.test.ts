@@ -97,7 +97,6 @@ layer(Substrate.layer)("alternatives through grizzle's lowering on PostgreSQL 19
 							suite: "fin/alternatives",
 							generator: sketchGen,
 							literal: Formatter.format,
-							limit: 4 ** 2 * SUBSETS.length ** 2,
 							box: "roster {a, b, c} with a armed by A, b by B and c unarmed: parents 0 and 1 each absent or of a kind, and every subset of A rows and of B rows over them, parents written first",
 							oracle: {
 								kind: "specification",

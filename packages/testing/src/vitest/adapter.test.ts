@@ -111,7 +111,6 @@ describe("the Vitest adapter", () => {
 						generator: (source) =>
 							Arr.getUnsafe(HARDENED_FLAGS, source.draw(int(0, HARDENED_FLAGS.length - 1))),
 						literal: Formatter.format,
-						limit: 32,
 						coverage: noCoverage,
 						caseHang: Duration.minutes(1)
 					},

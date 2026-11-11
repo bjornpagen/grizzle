@@ -26,7 +26,8 @@ import type {
 	Refusal,
 	Simplify,
 	SqlOfCarrier,
-	Source
+	Source,
+	UnionToIntersection
 } from "#compiler/types/core/phantom.ts"
 import type { UnwrittenField } from "#compiler/types/fields/field.ts"
 import type {
@@ -50,6 +51,8 @@ import type {
 	IsLevelOf,
 	IsRelationOf,
 	LevelsOf,
+	NameIn,
+	RelationIn,
 	RelationOf,
 	RelationsOf,
 	StatementsOf,
@@ -440,24 +443,14 @@ type InsertedEdits<Last extends Stratum, S, Rows> = boolean extends Last["edits"
 			: false
 
 /**
- * insertAll's array members by relation, one for each key whose members are an array: that key's relation, with the
- * additions insert takes for it, in the stratum after the strata Done.
+ * insertAll's array members (ArrayAdded), inserts all, one for each key whose members are an array: that key's
+ * relation's, in the stratum after the strata Done, over S; none where no key's members are an array.
  */
-type InsertedFacts<S, Rows, Done extends Strata> = {
-	readonly [
-		K in keyof Rows as [Rows[K]] extends [ReadonlyArray<unknown>]
-			? NameOf<InsertedRelation<S, K>>
-			: never
-	]-?: ArrayFacts<InsertedRelation<S, K>, AdditionIn<S, InsertedRelation<S, K>>, PositionOf<Done>>
-}
-
-/** insertAll's array members (ArraysAdded), inserts all: none where no key's members are an array. */
-type InsertedArrays<S, Rows, Done extends Strata> =
-	InsertedFacts<S, Rows, Done> extends infer I
-		? [keyof I] extends [never]
-			? unknown
-			: { readonly insert: I }
+type InsertedArrays<S, Rows, Done extends Strata> = {
+	[K in keyof Rows]-?: [Rows[K]] extends [ReadonlyArray<unknown>]
+		? MemberOf<"insert", InsertedRelation<S, K>, PositionOf<Done>, S>
 		: never
+}[keyof Rows]
 
 /**
  * The parameters insertAll's members need together: each member's map (ParamsOf), joined as successive inserts join
@@ -589,9 +582,10 @@ export type ChangeSetAt<L> = L extends unknown ? ChangeSetOver<L> : never
  * Writes is the union of the relation names its members write; db.apply checks it against the role's write list. Over
  * a role a ChangeSet writes the world relations the role's write list names, besides ordinary relations. Cx is the union
  * of the contexts its members and read-backs match, which db.apply checks against the role's (WithinRoleContexts).
- * Done is its strata before the last and Last the stratum insert, delete and put write to (Stratum). Arrays is its array
- * members by op, then relation name (ArrayFacts), the facts a served workload's member takes with each call
- * (FactsCheck).
+ * Done is its strata before the last and Last the stratum insert, delete and put write to (Stratum). Arrays is the
+ * union of its array members, each held by name (ArrayMember), which ArraysOf reads as the record by op, then relation
+ * name (ArrayFacts) of the facts a served workload's member takes with each call (FactsCheck). It is carried
+ * contravariantly, so a ChangeSet of more array members is the narrower type, and none, never, is every ChangeSet's.
  *
  * What an applied ChangeSet's outcome reads back is a real member: `reads`, the decoder of the record of its
  * read-backs, each under its name the rows its query's immediate decoder delivers (schema/record.ts record of named
@@ -606,7 +600,7 @@ export interface ChangeSet<
 	Cx = never,
 	Done extends Strata = Strata,
 	Last extends Stratum = Stratum,
-	Arrays = unknown
+	Arrays = never
 >
 	extends
 		Delivering<Reads>,
@@ -617,7 +611,7 @@ export interface ChangeSet<
 			readonly contexts: Cx
 			readonly schema: Invariant<S>
 			readonly strata: readonly [...Done, Last]
-			readonly arrays: Arrays
+			readonly arrays: (members: Arrays) => void
 		}> {
 	/** The decoder of the outcome's read-backs, by name. */
 	readonly reads: RowDecoder<Reads>
@@ -644,7 +638,7 @@ export interface ChangeSet<
 			Last["needs"] | FixedOwnerOf<S, R>,
 			EditsWith<Last, S, R>
 		>,
-		Arrays & ArraysAdded<"insert", R, M, AdditionIn<S, R>, Done>
+		Arrays | ArrayAdded<"insert", R, M, S, Done>
 	>
 	/**
 	 * Adds the members of each relation the record names by its key, as one insert of each would: the members at each
@@ -665,7 +659,7 @@ export interface ChangeSet<
 			Last["needs"] | InsertedNeeds<S, Rows>,
 			InsertedEdits<Last, S, Rows>
 		>,
-		Arrays & InsertedArrays<S, Rows, Done>
+		Arrays | InsertedArrays<S, Rows, Done>
 	>
 	/**
 	 * Removes each member fact, stated as its caller writes it (Written<R>): the fields PostgreSQL and grizzle write are
@@ -687,7 +681,7 @@ export interface ChangeSet<
 		Cx | ContextsOf<M>,
 		Done,
 		Stratum<Last["inserts"], Last["needs"], EditsWith<Last, S, R>>,
-		Arrays & ArraysAdded<"delete", R, M, Written<R>, Done>
+		Arrays | ArrayAdded<"delete", R, M, S, Done>
 	>
 	/**
 	 * After the change, R's fact at each member's key is that member, with the fields its caller does not write as
@@ -710,7 +704,7 @@ export interface ChangeSet<
 		Cx | ContextsOf<M>,
 		Done,
 		Stratum<Last["inserts"], Last["needs"], EditsWith<Last, S, R>>,
-		Arrays & ArraysAdded<"put", R, M, Written<R>, Done>
+		Arrays | ArrayAdded<"put", R, M, S, Done>
 	>
 	/**
 	 * A query over the post-change state and the change's own delta, delivered in the outcome under `name`. It runs
@@ -761,33 +755,101 @@ interface ArrayFacts<R, Row, At extends ReadonlyArray<unknown>> {
 type PositionOf<Before extends ReadonlyArray<unknown>> = { readonly [K in keyof Before]: unknown }
 
 /**
- * The array members member M of R adds by Op, under Op and then R's name, in the stratum after the strata Done: one
- * where M is an array, none for a Stream or a query member, whose facts no call supplies. A ChangeSet's Arrays is the
- * intersection of every member's, and the array members of one op and one relation in one stratum are one member, their
- * facts one array, as the value holds them (write/changeset/value.ts); two in two strata meet with no position
- * (RepeatedArrays), which a workload refuses (types/db/workload.ts), as the engine refuses them in a served workload
- * (UnservedMember).
+ * An array member of a ChangeSet held by name, as a schema holds its statements: the op that adds it, the relations it
+ * writes, each spelled by its name where its level's record holds it under its literal name and as itself otherwise
+ * (NameIn), its stratum's position At, and the level whose relations and additions it reads by its depth, the number of
+ * levels below it (DepthOf). No row and no relation the record holds rides in it, so a ChangeSet's members are names the
+ * checker never instantiates again, and a builder's call adds one in constant cost; ArraysOf reads each back as the
+ * relation and the row its op takes. A ChangeSet carries its members contravariantly, and each member its parts, so a
+ * ChangeSet of more members, and of members known more exactly, is the narrower type, as one of known strata is
+ * narrower than one whose strata are not known.
  */
-type ArraysAdded<Op extends ArrayOp, R, M, Row, Done extends Strata> = [M] extends [
+interface ArrayMember<in Op, in Spelled, in At, in Depth> {
+	readonly member: (op: Op, spelled: Spelled, at: At, depth: Depth) => void
+}
+
+/**
+ * The levels below S, one element each: none below a root schema, and below an extension or a role the level it is
+ * defined over and every level below that one. Every level of a schema lies at a depth of its own, so a member names
+ * its level by its depth, whatever the levels' names.
+ */
+type DepthOf<S> =
+	S extends Phantom<{ readonly extends: infer Below }>
+		? [Below] extends [never]
+			? readonly []
+			: readonly [unknown, ...DepthOf<Below>]
+		: readonly []
+
+/** The level of S at the depth Depth: S itself, or the level below it at that depth. */
+type LevelAt<S, Depth> = DepthOf<S>["length"] extends Depth
+	? S
+	: S extends Phantom<{ readonly extends: infer Below }>
+		? LevelAt<Below, Depth>
+		: never
+
+/**
+ * The array member of the relations R over S, each spelled as S's record names it, none where R is no relation. Its
+ * parts are bound by `infer` first, so the member is no type reference the checker defers, which it would instantiate
+ * again at every call that adds a member after it.
+ */
+type MemberOf<Op extends ArrayOp, R, At extends ReadonlyArray<unknown>, S> = [R] extends [never]
+	? never
+	: [NameIn<R, RelationsOf<S>>, DepthOf<S>["length"]] extends [infer Spelled, infer Depth]
+		? ArrayMember<Op, Spelled, At, Depth>
+		: never
+
+/**
+ * The array member member M of R adds by Op over S, in the stratum after the strata Done: one where M is an array, none
+ * for a Stream or a query member, whose facts no call supplies. A ChangeSet's Arrays is the union of every member's, and
+ * the array members of one op and one relation in one stratum are one member, their facts one array, as the value holds
+ * them (write/changeset/value.ts); two in two strata meet with no position (RepeatedArrays), which a workload refuses
+ * (types/db/workload.ts), as the engine refuses them in a served workload (UnservedMember).
+ */
+type ArrayAdded<Op extends ArrayOp, R, M, S, Done extends Strata> = [M] extends [
 	ReadonlyArray<unknown>
 ]
-	? { readonly [O in Op]: { readonly [N in NameOf<R>]: ArrayFacts<R, Row, PositionOf<Done>> } }
-	: unknown
+	? MemberOf<Op, R, PositionOf<Done>, S>
+	: never
 
-/** sequence's array members of b: each a stratum later by every stratum of a, `Before`. */
-type Shifted<A, Before extends ReadonlyArray<unknown>> = [keyof A] extends [never]
-	? unknown
-	: {
-			readonly [Op in keyof A]: {
-				readonly [N in keyof A[Op]]: A[Op][N] extends ArrayFacts<
-					infer R,
-					infer Row,
-					infer At extends ReadonlyArray<unknown>
-				>
-					? ArrayFacts<R, Row, readonly [...PositionOf<Before>, ...At]>
+/** sequence's array members of b: each a stratum later by every stratum of a, `Before`, bound as MemberOf binds. */
+type Shifted<A, Before extends ReadonlyArray<unknown>> =
+	A extends ArrayMember<
+		infer Op,
+		infer Spelled,
+		infer At extends ReadonlyArray<unknown>,
+		infer Depth
+	>
+		? readonly [...PositionOf<Before>, ...At] extends infer Later
+			? ArrayMember<Op, Spelled, Later, Depth>
+			: never
+		: never
+
+/**
+ * The array member A of a ChangeSet over S as the record of its facts by op, then relation name (ArrayFacts), one
+ * record for each member, as each call that adds one adds it: its relation is the one its spelling names in its level,
+ * and its row the facts its op takes for that relation over that level. Each part is bound by `infer`, so the record
+ * holds ArrayFacts itself, as the call wrote it, and no alias of it.
+ */
+type RecordOf<S, A> =
+	A extends ArrayMember<
+		infer Op extends ArrayOp,
+		infer Spelled,
+		infer At extends ReadonlyArray<unknown>,
+		infer Depth
+	>
+		? LevelAt<S, Depth> extends infer L
+			? RelationIn<Spelled, RelationsOf<L>> extends infer R
+				? (Op extends "insert" ? AdditionIn<L, R> : Written<R>) extends infer Row
+					? {
+							readonly [O in Op]: { readonly [N in NameOfSpelled<Spelled>]: ArrayFacts<R, Row, At> }
+						}
 					: never
-			}
-		}
+				: never
+			: never
+		: never
+
+/** The name of a spelled relation: the name it is spelled by, or the name of the relation spelled as itself. */
+type NameOfSpelled<Spelled> = Spelled extends string ? Spelled : NameOf<Spelled>
 
 /** The length of an array member's position: never where two strata's members of one op and relation met. */
 type PositionLength<F> = F extends { readonly at: infer P extends ReadonlyArray<unknown> }
@@ -806,8 +868,17 @@ export type RepeatedArrays<A> = {
 	}[keyof A[Op]]
 }[keyof A]
 
-/** A ChangeSet's array members by op, then relation name (ArrayFacts), unknown for a program that holds none. */
-export type ArraysOf<X> = X extends Phantom<{ readonly arrays: infer A }> ? A : unknown
+/**
+ * A ChangeSet's array members by op, then relation name (ArrayFacts), read back from the members it holds by name: the
+ * records of its members (RecordOf), met, and unknown for a program that holds none.
+ */
+export type ArraysOf<X> =
+	X extends Phantom<{
+		readonly schema: Invariant<infer S>
+		readonly arrays: (members: infer A) => void
+	}>
+		? UnionToIntersection<RecordOf<S, A>>
+		: unknown
 
 /**
  * One op's facts in F checked against the array members A of that op: each relation's checked as the member A holds
@@ -1085,7 +1156,7 @@ export interface ChangeSetConstructor {
 		C1 | C2,
 		Leading<Aligned<readonly [...D1, L1], readonly [...D2, L2]>>,
 		Final<Aligned<readonly [...D1, L1], readonly [...D2, L2]>>,
-		A1 & A2
+		A1 | A2
 	>
 	/**
 	 * Strata: b is evaluated against the state a produced. The result is over the higher of the two schemas, each of
@@ -1122,7 +1193,7 @@ export interface ChangeSetConstructor {
 		C1 | C2,
 		readonly [...D1, L1, ...D2],
 		L2,
-		A1 & Shifted<A2, readonly [...D1, L1]>
+		A1 | Shifted<A2, readonly [...D1, L1]>
 	>
 }
 

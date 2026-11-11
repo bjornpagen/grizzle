@@ -57,12 +57,9 @@ post-beta swarm's fixes for the next release.
   the int8 accumulator wraps past 2^63: more than 2^32 rows of the largest integer wrap silently. A false proof; reach
   unverified.
 - **A foreign key's selector re-types an authored typed literal at the column's typmod (SCALAR, 2026-11-10):**
-  analysis/theory/laws.ts #selector, through irLiteral. Reach unverified.
-- **A bound float8 parameter of NaN or an infinity cannot be served (VECTOR, 2026-11-10):** core/canonical.ts
-  canonicalOf reads a non-finite number as Outside, so generate refuses the ChangeSet as UnservedMember opaqueBinding.
-  test/pg/oracle/public/public.test.ts, whole, on 15336454 with VECTOR-01 met it at p1_20 and p1_23, both NaN (replay:
-  ~/.cache/grizzle-release/VECTOR/replay-nan.txt); not confirmed on main alone. The class VECTOR-01 fixed for a bound
-  vector. Downstream reach unverified.
+  analysis/theory/laws.ts #selector, through irLiteral. Reach none (2026-11-11): it needs a selection conjunct `field =
+  literal` whose literal carries its own type, which only Compute.literal gives; qti-pie's literals are all inside
+  generated-field expressions and edullm's statements select nothing.
 - **physical/serving's needed check can call a needed B-tree unneeded (GIST, 2026-11-10):** a generated span predicate
   binding a boolean whose name sorts first, with a range after it planned beside the GiST index it creates and nothing
   reordering that index, under a boolean loaded half and half: btree_gist splits the boolean cleanly, so the needed
@@ -224,6 +221,15 @@ Q1 to Q6 first. A new feature still needs its correctness need named in its comm
   pantry's 13 copies host-written (CHUNK).
 
 ### Next
+- **Reads forward PostgreSQL's bytes (WIREPASS, the owner, 2026-11-11):** the live wire decodes PostgreSQL's JSON
+  (attachments are aggregated as JSON in the served statement, lower/shapes/attach) into host values, then re-encodes
+  them in carrierWire's spellings (live/wire.ts): int8, numeric and money as strings, bytes as base64. That is a
+  decode/encode cycle per row on every read. Have the served statement build the wire's spellings itself (int8 cast to
+  text inside the JSON build, and so on per carrier), so the server forwards PostgreSQL's bytes into the SSE data line
+  untouched. The live diff compares rows, which works on bytes only if spelling is canonical both ways: carrierWire
+  already guarantees one value per spelling, and it must add one spelling per value (float specials, -0, numeric
+  trailing zeros, date and span forms). Think it through and fix it once live works; the oracle is byte equality with
+  today's encode over every carrier.
 - **PostgreSQL:** repin to 19rc2 when it is released on 2026-11-12 (pin.env, rebuild, re-init, delete the 19rc1
   build; RC2 includes the recursive-UNION hash_mem fix, so that patch goes; confirm DROP DATABASE … WITH (FORCE)
   beside parallel autovacuum and the RI fast path with a cast). Repin to 19 GA on 2026-11-19; the relcache patch is
@@ -377,6 +383,28 @@ Q1 to Q6 first. A new feature still needs its correctness need named in its comm
   ~/.cache/grizzle-release/REDTESTS/parked/REDTESTS-04.patch (with its .msg), applying over 4dfbdba9 with REDTESTS-01 to 03, typechecked only. It owes the lint gate, payroll,
   queue, derived/refreshers, races-alternatives and its plant (a recorder recording the first session twice fails
   payroll at its actor).
+- **DERIVEDWRITE, a write whose rows derive in its own statement (edullm, 2026-11-11):** a ChangeSet insert's source is
+  given rows (`r.relation` inputs) or a rule over stored relations, with no aggregate, arithmetic or ranking term, so a
+  write that computes its rows from state reads them first. edullm's Start reads `latestAttempt` (the child's greatest
+  attempt at the test) and `testPools` (pools in start order with their variants), computes attempt = greatest + 1 (0
+  with none) and each pool's variant at `attempt mod count(variants)` on the host, then inserts Sitting and Served:
+  three round trips, about 120 ms server-side (one statement estimated at 40–50 ms, unmeasured). The design:
+  - **Source terms:** an aggregate over a correlated match with an empty-match default (`coalesce(max(attempt) + 1,
+    0)`; the same term gives edullm item 7's count that is 0 on no match), integer `+` and `mod`, and an ordinal within
+    a group under an order (`row_number() OVER (PARTITION BY pool ORDER BY start)`), compiled into one `INSERT …
+    SELECT` per stratum.
+  - **The certificate:** the derived key (attempt) reads the relation the write inserts into (Sitting by child and
+    test), so two concurrent calls derive the same key and the key arbiter absorbs the second as an exact repeat
+    (today's no-change semantics). The certificate states that read as an aggregated read of the written relation and
+    either proves READ COMMITTED safe through the arbiter or names it as a reason that lowers the role.
+  - **The read-back:** the write returns the row it met (delta.met, the 1,000-children goal's entry), so a double
+    Start's loser lands on the winner's sitting with no read member.
+  - **Depends on** delta.met. Distinct from the refills refused 2026-11-09, which refill derived values inside a flight;
+    this derives a write's own source rows.
+  - **When it lands,** edullm deletes Start's two reads (app.ts) and its host rotation `planOf` (sittings.ts), and Start
+    becomes one apply. Without it, edullm can cache a published test's pools per instance (published content is
+    write-once until a wipe, which mints new ids), removing one of the three round trips.
+  - **Parked** until the owner's go and a measurement of Start after that cache.
 
 ## Upstream, for the owner to file
 - upstream/node: TextEncoder.encodeInto underfills an exactly sized destination for text holding U+0400 to U+07FF

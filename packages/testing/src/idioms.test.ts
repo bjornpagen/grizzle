@@ -83,9 +83,10 @@ import { floorSeed, rotatingSeed, wordsOf } from "#random.ts"
 import { notesOnly } from "#sense.ts"
 import { completeShrink, shrink } from "#shrink.ts"
 import {
+	type Chooser,
 	forcedChooser,
-	type Generated,
 	generate,
+	type Generated,
 	prefixChooser,
 	randomChooser,
 	recorder,
@@ -103,6 +104,12 @@ import {
 } from "#swarm.ts"
 import { bigint, double, doubleOrSpecial, float, uuid } from "#values.ts"
 import { searched } from "#vitest/searched.ts"
+
+/**
+ * A chooser that takes every decision's greatest value: a draw at the far end of its range, which a double drawn whole
+ * starts its shrink from where its seed's draw does not fail.
+ */
+const greatestChooser: Chooser = { exhausted: () => false, draw: (_lo, hi) => hi }
 
 /** A case drawn fresh from one seed. */
 const fresh = <A>(generator: Gen<A>, seed: number): Generated<A> =>
@@ -176,7 +183,6 @@ describe("whole numbers", () => {
 					box: "every range of whole numbers within -5..5",
 					generator: smallBounds,
 					literal: Formatter.format,
-					limit: 100,
 					coverage: noCoverage,
 					caseHang: Duration.minutes(1)
 				},
@@ -184,7 +190,10 @@ describe("whole numbers", () => {
 					Effect.sync(() =>
 						deepStrictEqual(
 							everyValue(int(lo, hi)),
-							Arr.sort(Arr.range(lo, hi), byDistanceFromZero)
+							Arr.sort(
+								Array.from({ length: hi - lo + 1 }, (_, i) => lo + i),
+								byDistanceFromZero
+							)
 						)
 					)
 			)
@@ -206,7 +215,6 @@ describe("bigints", () => {
 					box: "every range of bigints within -5..5",
 					generator: smallBounds,
 					literal: Formatter.format,
-					limit: 100,
 					coverage: noCoverage,
 					caseHang: Duration.minutes(1)
 				},
@@ -214,7 +222,13 @@ describe("bigints", () => {
 					Effect.sync(() =>
 						deepStrictEqual(
 							everyValue(bigint(BigInt(lo), BigInt(hi))),
-							Arr.map(Arr.sort(Arr.range(lo, hi), byDistanceFromZero), BigInt)
+							Arr.map(
+								Arr.sort(
+									Array.from({ length: hi - lo + 1 }, (_, i) => lo + i),
+									byDistanceFromZero
+								),
+								BigInt
+							)
 						)
 					)
 			)
@@ -303,17 +317,23 @@ describe("floating-point numbers", () => {
 						noCoverage,
 						40
 					),
-					(seed, c) =>
+					(seed) =>
 						Effect.gen(function* () {
 							const generator = double(-1e9, 1e9)
 							const fails = (value: number) => Math.abs(value) > 10.25
 							const wholeArm = Float64Array.of(0)
-							const failing = generate(
+							const drawnStart = generate(
 								recorder(),
 								generator,
 								prefixChooser(wholeArm, wholeArm.length, randomChooser(wordsOf(seed)))
 							)
-							yield* c.assume(fails(failing.value))
+							const failing = fails(drawnStart.value)
+								? drawnStart
+								: generate(
+										recorder(),
+										generator,
+										prefixChooser(wholeArm, wholeArm.length, greatestChooser)
+									)
 							const shrunk = yield* shrink(
 								generator,
 								failing,
@@ -495,7 +515,6 @@ describe("collections", () => {
 						box: "every arrangement of 0 to 4 of 0, 1, 2 and 3",
 						generator: shuffled(values, { min: 0, max: 4 }),
 						literal: Formatter.format,
-						limit: 100,
 						coverage: noCoverage,
 						caseHang: Duration.minutes(1)
 					},
@@ -585,11 +604,11 @@ describe("collections", () => {
 							}
 							deepStrictEqual(
 								{
-									status: tape.status === "discarded" ? "discarded" : "kept",
+									status: tape.status,
 									distinct: Arr.dedupe(items).length === items.length,
 									length: items.length
 								},
-								{ status: "kept", distinct: true, length: Math.min(length, keys) }
+								{ status: "complete", distinct: true, length: Math.min(length, keys) }
 							)
 						})
 				)
@@ -611,7 +630,6 @@ describe("collections", () => {
 						box: "every alphabet of a, b and c",
 						generator: alphabet(letters),
 						literal: Formatter.format,
-						limit: 100,
 						coverage: noCoverage,
 						caseHang: Duration.minutes(1)
 					},
@@ -660,6 +678,9 @@ describe("collections", () => {
 							twin: ReadonlyArray<Readonly<{ values: ReadonlyArray<number> }>>
 						) => [twin, ...Arr.flatMap(twin, (item) => [item, item.values])]
 						const owned = Arr.map(twins, (twin) => new Set<object>(objectsOf(twin)))
+						const copies: typeof twins = Array.from({ length: count }, () =>
+							Arr.getUnsafe(twins, 0)
+						)
 						deepStrictEqual(
 							{
 								twins,
@@ -669,7 +690,7 @@ describe("collections", () => {
 									)
 								)
 							},
-							{ twins: Arr.makeBy(count, () => Arr.getUnsafe(twins, 0)), shared: false }
+							{ twins: copies, shared: false }
 						)
 					})
 			)
@@ -896,7 +917,6 @@ describe("swarms", () => {
 						box: "every swarm of every alphabet of a, b and c",
 						generator: alphabet<Letter>(["a", "b", "c"]),
 						literal: Formatter.format,
-						limit: 20,
 						coverage: noCoverage,
 						caseHang: Duration.minutes(1)
 					},
@@ -955,7 +975,6 @@ describe("swarms", () => {
 							options: source.draw(alphabet<Letter>(["a", "b", "c"]))
 						}),
 						literal: Formatter.format,
-						limit: 2000,
 						coverage: noCoverage,
 						caseHang: Duration.minutes(1)
 					},
@@ -1019,11 +1038,14 @@ const ascendingModel = (
 /** Every array whose entry `i` is a number from 0 to `i`: the parent of node `i + 1` among the nodes before it. */
 const treesModel = (nodes: number): ReadonlyArray<ReadonlyArray<number>> =>
 	Arr.reduce(
-		Arr.filter(Arr.range(1, Math.max(1, nodes - 1)), (node) => node < nodes),
+		Array.from({ length: nodes - 1 }, (_, i) => i + 1),
 		[[]],
 		(trees: ReadonlyArray<ReadonlyArray<number>>, node) =>
 			Arr.flatMap(trees, (tree) =>
-				Arr.map(Arr.range(0, node - 1), (parent) => Arr.append(tree, parent))
+				Arr.map(
+					Array.from({ length: node }, (_, i) => i),
+					(parent) => Arr.append(tree, parent)
+				)
 			)
 	)
 
@@ -1035,8 +1057,10 @@ const compositionsModel = (total: number, parts: number): ReadonlyArray<Readonly
 			: []
 		: parts === 1
 			? [[total]]
-			: Arr.flatMap(Arr.range(0, total), (first) =>
-					Arr.map(compositionsModel(total - first, parts - 1), (rest) => [first, ...rest])
+			: Arr.flatMap(
+					Array.from({ length: total + 1 }, (_, i) => i),
+					(first) =>
+						Arr.map(compositionsModel(total - first, parts - 1), (rest) => [first, ...rest])
 				)
 
 /** Whether a parent array is a tree: every node reaches the root by its parents in fewer steps than there are nodes. */
@@ -1075,7 +1099,6 @@ describe("constructive collections", () => {
 						oracle: { kind: "second-implementation", name: "each space built by naive recursion" },
 						generator: rangeBox,
 						literal: Formatter.format,
-						limit: 200,
 						coverage: noCoverage,
 						caseHang: Duration.minutes(1)
 					},
@@ -1100,10 +1123,7 @@ describe("constructive collections", () => {
 								],
 								set(structuralHash, exact)
 							)
-							const values = Arr.map(Arr.range(lo, Math.max(lo, hi)), (value) => `v${value}`).slice(
-								0,
-								width
-							)
+							const values = Array.from({ length: width }, (_, i) => `v${lo + i}`)
 							yield* agree(
 								[
 									["subset", everyValue(subset(values, strict))],
@@ -1134,7 +1154,6 @@ describe("constructive collections", () => {
 					},
 					generator: int(1, 5),
 					literal: Formatter.format,
-					limit: 10,
 					coverage: noCoverage,
 					caseHang: Duration.minutes(1)
 				},
@@ -1172,7 +1191,6 @@ describe("constructive collections", () => {
 							parts: source.draw(int(1, 3))
 						}),
 						literal: Formatter.format,
-						limit: 20,
 						coverage: noCoverage,
 						caseHang: Duration.minutes(1)
 					},
@@ -1265,7 +1283,6 @@ describe("live, stale and wild values", () => {
 						box: "the simplest wild value of every kind",
 						generator: map(element(WILD_KINDS), wildOf),
 						literal: Formatter.format,
-						limit: 32,
 						coverage: noCoverage,
 						caseHang: Duration.minutes(1)
 					},
@@ -1513,7 +1530,11 @@ const classSource = (written: WrittenClass): string => `^${classBody(written)}$`
 /** The class written out: each member at the place it is first written, or, negated, the printable characters it
  * leaves, in order. */
 const writtenOut = (written: WrittenClass): ReadonlyArray<string> => {
-	const members = Arr.dedupe(Arr.flatMap(written.items, ([low, high]) => Arr.range(low, high)))
+	const members = Arr.dedupe(
+		Arr.flatMap(written.items, ([low, high]) =>
+			Array.from({ length: high - low + 1 }, (_, i) => low + i)
+		)
+	)
 	const points = written.negated
 		? Arr.filter(Arr.range(0x20, 0x7e), (point) => !Arr.contains(members, point))
 		: members
@@ -1621,7 +1642,7 @@ describe("a pattern", () => {
 							const expected = writtenOut(written)
 							const recorded = recorder()
 							const byIndex = Arr.map(
-								Arr.range(0, expected.length - 1),
+								Array.from({ length: expected.length }, (_, i) => i),
 								(index) =>
 									generate(recorded, matching(pattern), forcedChooser(Float64Array.of(index), 1))
 										.value

@@ -40,7 +40,10 @@ const states: Arr.NonEmptyReadonlyArray<Sqlstate> = [
 ]
 
 /** The SQLSTATEs with which PostgreSQL rolls a transaction back for a concurrent transaction's work. */
-const rolledBack = new Set<string>([sqlstates.serializationFailure, sqlstates.deadlockDetected])
+const rolledBack: ReadonlySet<string> = new Set([
+	sqlstates.serializationFailure,
+	sqlstates.deadlockDetected
+])
 
 describe("callErrorOf", () => {
 	it.effect(
@@ -56,7 +59,6 @@ describe("callErrorOf", () => {
 							program: element(["read", "write"] as const)(source)
 						}),
 						literal: Formatter.format,
-						limit: states.length * 2,
 						box: "every SQLSTATE the runtime branches on, on a read and on a write",
 						oracle: {
 							kind: "specification",

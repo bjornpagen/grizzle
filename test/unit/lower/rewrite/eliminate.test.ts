@@ -220,7 +220,6 @@ describe("the complete proof", () => {
 							),
 							keyed: source.draw(boolean)
 						}),
-						limit: 36,
 						coverage: requiredInSpace<EliminateFeature>([
 							"eliminated in snapshot",
 							"eliminated in transaction",

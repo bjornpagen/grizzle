@@ -77,7 +77,7 @@ export const installSpans = (
 		const s = yield* Substrate
 		const schema = yield* s.schema({ create: false, label: options.label })
 		const installation = compileSpans(desc, schema, s.owner.role, options)
-		yield* transaction(s.admin, installationSql(installation))
+		yield* transaction(s.admin, installationSql(installation, s.database))
 		const out: InstalledSpans = { schema, installation, world: yield* oracleWorld(installation) }
 		return out
 	})

@@ -349,7 +349,6 @@ layer(Substrate.layer)("adapter connections", (it) => {
 							suite: "adapter/tls",
 							generator: tlsConfigs,
 							literal: Formatter.format,
-							limit: 64,
 							coverage: requiredInSpace<TlsFeature>([
 								"connected",
 								"refused wrong ca",

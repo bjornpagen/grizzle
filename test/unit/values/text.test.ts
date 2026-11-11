@@ -44,6 +44,7 @@ import {
 import { jsonText } from "#compiler/core/trusted.ts"
 import { assert, faulted, succeeded } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { upTo } from "#test/support/up-to.ts"
 import {
 	type PlantedFeature,
 	plantedFault,
@@ -151,7 +152,7 @@ const isSurrogate = (unit: number): boolean => unit >= 0xd800 && unit <= 0xdfff
 /** The situation two texts are in where they first differ. */
 const codePointFeatures = (a: string, b: string): ReadonlyArray<CodePointFeature> => {
 	const differs = Arr.findFirst(
-		Arr.range(0, Math.min(a.length, b.length) - 1),
+		upTo(Math.min(a.length, b.length), (i) => i),
 		(i) => a[i] !== b[i]
 	)
 	if (Option.isNone(differs) || Math.min(a.length, b.length) === 0) {

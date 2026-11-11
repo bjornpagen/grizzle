@@ -218,7 +218,7 @@ const labelBound = (label: Parameters<typeof lit>[0]): QueryDesc =>
 		})
 	)
 
-const int4 = { min: -(2 ** 31), max: 2 ** 31 - 1 }
+const int4 = Object.freeze({ min: -(2 ** 31), max: 2 ** 31 - 1 })
 
 /**
  * A literal at a typed slot: AutomaticTask.budget, Cents over bigint, at least 0 (Work); Item.qty, Qty over integer, at

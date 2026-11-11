@@ -152,7 +152,6 @@ describe("shared nodes", () => {
 						generator: (source) =>
 							[source.draw(element(placements)), source.draw(int(3, 4))] as const,
 						literal: Formatter.format,
-						limit: placements.length * 2,
 						coverage: requiredInSpace<Placement>(placements),
 						caseHang
 					},

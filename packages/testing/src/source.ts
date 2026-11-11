@@ -11,8 +11,7 @@ export type Observed = "as-recorded" | "diverged"
  * random search draws uniformly however wide, so a choice's stated distribution is its distribution; `draw` runs
  * another generator on the same decisions, so a struct, a tuple or a dependent value is a plain function body; `span`
  * labels the decisions a generator makes while it runs, so a tape keeps its structure (`open` and `close` do the same
- * without allocating, for a combinator's loop, and must pair); `discard` gives the case up, for a filter that found
- * nothing it keeps; `observe` records a value the system under test decided, not the test, as a decision with one
+ * without allocating, for a combinator's loop, and must pair); `observe` records a value the system under test decided, not the test, as a decision with one
  * possible value, and says whether a replay recorded the same one there; an observation a replay lacks is new, never
  * an overrun. A generator never sees where the values come from: a random stream, a replay, an enumeration or a shrink
  * candidate are all the same to it.
@@ -24,7 +23,6 @@ export type Source = Readonly<{
 	span: <A>(label: string, generate: () => A) => A
 	open: (label: string) => void
 	close: () => void
-	discard: () => void
 	observe: (value: number) => Observed
 }>
 
@@ -179,9 +177,6 @@ export const recorder = (): Recorder => {
 			const value = run()
 			source.close()
 			return value
-		},
-		discard: () => {
-			status = "discarded"
 		},
 		observe: (value) => {
 			const offered = chooser.exhausted(length)

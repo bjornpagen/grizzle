@@ -49,6 +49,7 @@ import { lawLevelGen } from "#test/support/oracle/public/laws.ts"
 import { printCase } from "#test/support/oracle/public/print.ts"
 import { clusterPool } from "#test/support/pg.ts"
 import { compiledLogin, drawnLogin, drawnSchema, loginGen } from "#test/support/served-login.ts"
+import { upTo } from "#test/support/up-to.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 import { testVerify } from "#test/support/worlds.ts"
 
@@ -142,7 +143,7 @@ const mutationGen: Gen<Mutation> = (source) => {
 const probesGen =
 	(routes: number): Gen<ReadonlyArray<Probe>> =>
 	(source) =>
-		Arr.map(Arr.range(1, source.draw(int(1, 8))), (): Probe =>
+		upTo(source.draw(int(1, 8)), (): Probe =>
 			source.draw(element(["route", "line"] as const)) === "route"
 				? {
 						kind: "route",

@@ -14,6 +14,7 @@ import {
 	roleInSpace,
 	malformedDescription,
 	type RoleInstallation,
+	rolePrefixFaultText,
 	roleSpaceOf,
 	SourceLoc,
 	servedFile
@@ -118,7 +119,7 @@ export const roleNameOf = <L>(
 	if (!space.ok) {
 		throw malformedDescription(
 			SourceLoc("roleNameOf", []),
-			`the role prefix ${Formatter.format(installation.rolePrefix)} as ${space.error}`
+			`the role prefix ${Formatter.format(installation.rolePrefix)}, used verbatim, as ${rolePrefixFaultText(space.error)}`
 		)
 	}
 	const role = roleInSpace(space.value, stem)

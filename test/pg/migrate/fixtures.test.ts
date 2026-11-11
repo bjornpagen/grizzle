@@ -342,7 +342,7 @@ const migrates = (h: History) =>
 			Effect.gen(function* () {
 				const schema = yield* substrate.schema({ create: false, label: `${history.label}_fresh` })
 				const fresh = compiledAt(last, schema, owner, codebookOf(snapshot))
-				yield* transaction(substrate.admin, installationSql(fresh))
+				yield* transaction(substrate.admin, installationSql(fresh, substrate.database))
 				yield* sameCatalog(
 					compiledAt(last, name, owner, codebookOf(snapshot)),
 					fresh,
@@ -355,7 +355,7 @@ const migrates = (h: History) =>
 					extensions: []
 				})
 				assert.ok(
-					runsInstallScript(installed.folders, installed.installation),
+					runsInstallScript(installed.folders, installed.installation, substrate.database),
 					`${history.label}: the installer's migration runs the fresh-install script`
 				)
 				yield* sameCatalog(

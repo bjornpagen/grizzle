@@ -15,6 +15,7 @@ import { sqlstates } from "#compiler/core/sqlstate.ts"
 import type { ObjectName, TypeRef } from "#compiler/sql/ast.ts"
 import { namedType, types } from "#compiler/sql/build.ts"
 import { printObjectName, quoteIdent } from "#compiler/sql/print.ts"
+import { nonEmpty } from "#test/support/assert.ts"
 import { setText } from "#test/support/closed/bit-text.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import {
@@ -47,6 +48,7 @@ import {
 } from "#test/support/sql.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /**
  * law-cost: what each placement of a law over a closed relation costs a one-row INSERT, by the size of the constant it
@@ -622,7 +624,7 @@ export default defineGate({
 			}
 
 			/** The roster's names and live-code constants, and a roster domain over each. */
-			const rosterCodes = Arr.makeBy(roster.members, (code) => code)
+			const rosterCodes = upTo(roster.members, (code) => code)
 			yield* exec(
 				namesConstantSql(
 					at.rosterConstant("names"),
@@ -711,7 +713,7 @@ export default defineGate({
 			})
 			yield* round()
 			const rounds = yield* Effect.forEach(
-				Arr.makeBy(options.rounds, (i) => i),
+				upTo(options.rounds, (i) => i),
 				() => round()
 			)
 			const perStatement = (ms: number): number => round3((ms * 1000) / options.statements)
@@ -805,7 +807,7 @@ export default defineGate({
 			const firstUse = (table: Table) =>
 				Effect.map(
 					Effect.forEach(
-						Arr.makeBy(options.backends, (i) => i),
+						upTo(options.backends, (i) => i),
 						() => Effect.scoped(firstUseSample(table))
 					),
 					(samples) => {
@@ -878,7 +880,10 @@ export default defineGate({
 				const reread = yield* timed(exec(rederive(to)))
 				return { swap: swapped.ms, validate: validated.ms, reread: reread.ms }
 			})
-			const swaps = Arr.makeBy(options.changes, (k) => (k % 2 === 0 ? grown : triples))
+			const swaps = nonEmpty(
+				upTo(options.changes, (k) => (k % 2 === 0 ? grown : triples)),
+				"a run makes one change at least"
+			)
 			const [firstSwap, ...laterSwaps] = swaps
 			const firstChange = yield* change(firstSwap)
 			const laterChanges = yield* Effect.forEach(laterSwaps, change)

@@ -1,0 +1,13 @@
+CHECKLIST: oxc-project/tsrs's contribution process, applied to the non-blocking stdout drop
+
+Outcome: an issue (pull requests are closed for now), with the patch offered. Nothing has been sent.
+
+  [x] Read CONTRIBUTING.md and the README: pull requests closed for lack of review bandwidth; issues open.
+  [x] Reproduced on main (7148fb4) with a script that needs only a tsrs binary and python3 (repro.sh).
+  [x] The patch is one file, follows the file's own port comments (it names Go's behaviour it matches), and passes
+      cargo fmt and clippy with the workspace lints (EVIDENCE.txt 4).
+  [x] The exit status was checked before and after: unchanged (EVIDENCE.txt 1).
+  [ ] Search issues for "WouldBlock", "EAGAIN", "truncated output", "missing diagnostics", "non-blocking".
+  [ ] Build and run on Linux (the same O_NONBLOCK path; Linux Node keeps pipes blocking, so use repro.sh's python).
+  [ ] Run the conformance suite before offering the patch, though no checker code changes.
+  [ ] Author: the noreply identity only (11238136+bjornpagen@users.noreply.github.com), as the patch carries.

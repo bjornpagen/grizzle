@@ -496,7 +496,6 @@ describe("rebuilding from a Description", () => {
 								)
 							] as const,
 						literal: Formatter.format,
-						limit: 6,
 						coverage: noCoverage,
 						caseHang
 					},

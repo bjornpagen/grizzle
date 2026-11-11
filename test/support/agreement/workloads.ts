@@ -1,5 +1,5 @@
 import { floorPopulation, type Situations } from "@grizzle/testing/features"
-import { element, type Gen, int } from "@grizzle/testing/gen"
+import { constant, element, type Gen, int, weighted } from "@grizzle/testing/gen"
 import { floorSeed, rotatingSeed } from "@grizzle/testing/random"
 import { sample } from "@grizzle/testing/source"
 import { Array as Arr, Effect, Record as Rec } from "effect"
@@ -48,6 +48,7 @@ import {
 	type PreludeAt,
 	preludeFrom
 } from "#test/support/prelude.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /**
  * The workload agreement: workloads drawn over the values of ./workload-schema.ts, each with the engine's verdict on
@@ -216,15 +217,17 @@ const specGen: Gen<WorkloadSpec> = (source) => {
 	const first = source.draw(element(programNames))
 	const extra = source.draw(int(0, 2))
 	const rest =
-		extra === 0 ? [] : Arr.map(Arr.range(1, extra), () => source.draw(element(programNames)))
+		extra === 0
+			? []
+			: Arr.map(
+					upTo(extra, (i) => i + 1),
+					() => source.draw(element(programNames))
+				)
 	const planted = source.draw(
-		element<Planted | undefined>([
-			undefined,
-			undefined,
-			undefined,
-			undefined,
-			"a list of programs",
-			"a program under the empty name"
+		weighted<Planted | undefined>([
+			[4, constant(undefined)],
+			[1, constant("a list of programs")],
+			[1, constant("a program under the empty name")]
 		])
 	)
 	return {

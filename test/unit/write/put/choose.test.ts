@@ -199,7 +199,6 @@ describe("a put's statement", () => {
 						suite: "unit/write/put/choose",
 						generator: caseGen,
 						literal: Formatter.format,
-						limit: 24,
 						box: "a mutable R(b, c, d) keyed by (b, c), beside no other unique object, key(c), a key over a selected (b, c) or key(d), put from a relation parameter beside the scoped deletion of what it lacks, alone or beside an insert, from its own facts, alone or beside a deletion, or enumerated, alone or after an insert in an earlier stratum",
 						oracle: {
 							kind: "specification",

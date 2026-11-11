@@ -648,7 +648,6 @@ layer(Substrate.layer)("catalog drift", (it) => {
 							suite: "physical/verify/not valid",
 							generator: element<ForeignKey>(foreignKeys),
 							literal: ({ table, key }) => `${table}.${key.name}`,
-							limit: foreignKeys.length,
 							coverage: requiredInSpace<"a foreign key re-added NOT VALID">([
 								"a foreign key re-added NOT VALID"
 							]),

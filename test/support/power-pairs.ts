@@ -2,12 +2,13 @@ import {
 	array,
 	boolean,
 	codePoint,
-	element,
+	constant,
 	type Gen,
 	int,
 	map,
 	oneOf,
-	string
+	string,
+	weighted
 } from "@grizzle/testing/gen"
 import { keep, swarm } from "@grizzle/testing/swarm"
 import { bigint } from "@grizzle/testing/values"
@@ -27,7 +28,12 @@ export const digitString = (min: number, max: number): Gen<string> =>
 const signed =
 	(body: Gen<string>): Gen<string> =>
 	(source) =>
-		`${source.draw(element(["", "", "-"] as const))}${source.draw(body)}`
+		`${source.draw(
+			weighted([
+				[2, constant("")],
+				[1, constant("-")]
+			])
+		)}${source.draw(body)}`
 
 const fraction =
 	(max: number): Gen<string> =>

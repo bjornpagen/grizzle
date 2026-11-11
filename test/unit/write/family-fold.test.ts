@@ -280,9 +280,11 @@ interface Compiled {
 	readonly fill: Filler
 }
 
-const compiledFills = new Map<string, Compiled | undefined>()
-
-const fillOf = (s: Shape): Compiled | undefined => {
+/** A shape's compiled fill, built once in a search: `compiledFills` is the search's own cache of them, by shape. */
+const fillOf = (
+	compiledFills: Map<string, Compiled | undefined>,
+	s: Shape
+): Compiled | undefined => {
 	const key = `${s.monoid} ${s.carrier} ${s.order} ${s.accumulators} ${String(s.selected)}`
 	if (compiledFills.has(key)) {
 		return compiledFills.get(key)
@@ -366,15 +368,15 @@ const expectedAt = (carrier: Carrier, planes: Planes): ReadonlyArray<string> =>
 describe("the host fold, exhaustively", () => {
 	it.effect(
 		"fills every fold's accumulators and ends as the reference fold does, and starts every base at its monoid's identity",
-		(ctx) =>
-			searched(
+		(ctx) => {
+			const compiledFills = new Map<string, Compiled | undefined>()
+			return searched(
 				ctx,
 				exhaust(
 					{
 						suite: "unit/write/family-fold/box",
 						generator: caseGen,
 						literal: Formatter.format,
-						limit: 60_000,
 						coverage: requiredInSpace<FoldFeature>([
 							"monoid count",
 							"monoid sum",
@@ -395,7 +397,7 @@ describe("the host fold, exhaustively", () => {
 					},
 					(c, note) =>
 						Effect.sync(() => {
-							const fills = fillOf(c.shape)
+							const fills = fillOf(compiledFills, c.shape)
 							if (fills === undefined) {
 								return
 							}
@@ -478,5 +480,6 @@ describe("the host fold, exhaustively", () => {
 						})
 				)
 			)
+		}
 	)
 })

@@ -56,7 +56,7 @@ import {
 	lexicalValue
 } from "#compiler/scalar/lexical.ts"
 import { inclusion } from "#compiler/scalar/regex/inclusion.ts"
-import { matches, type Nfa } from "#compiler/scalar/regex/match.ts"
+import { closure, matches, type Nfa } from "#compiler/scalar/regex/match.ts"
 import { buildNfa } from "#compiler/scalar/regex/nfa.ts"
 import { parsePattern } from "#compiler/scalar/regex/parse.ts"
 import { generatedField } from "#compiler/schema/relation.ts"
@@ -73,7 +73,7 @@ import {
 } from "#test/support/lexical.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { checkedIn } from "#test/support/policy.ts"
-import { patternOver, walkGen } from "#test/unit/text/generators.ts"
+import { admittedPatternOver, walkGen } from "#test/unit/text/generators.ts"
 
 const nfaOf = (source: string): Nfa => buildNfa(succeeded(parsePattern(source, "u")))
 
@@ -148,7 +148,6 @@ describe("lexical forms", () => {
 						suite: "unit/scalar/lexical-admitted",
 						generator: targetGen(admittedMaxPrecision),
 						literal: Formatter.format,
-						limit: 200,
 						coverage: requiredInSpace<LexicalTarget["kind"]>([
 							"integer",
 							"decimal",
@@ -196,14 +195,14 @@ const pairGen: Gen<{ readonly inner: string; readonly outer: string }> = weighte
 	[
 		1,
 		(source) => ({
-			inner: source.draw(patternOver(alphabet)),
-			outer: source.draw(patternOver(alphabet))
+			inner: source.draw(admittedPatternOver(alphabet)),
+			outer: source.draw(admittedPatternOver(alphabet))
 		})
 	],
 	[
 		1,
 		(source) => ({
-			inner: source.draw(patternOver(alphabet)),
+			inner: source.draw(admittedPatternOver(alphabet)),
 			outer: formSource(source.draw(targetGen(admittedMaxPrecision)))
 		})
 	]
@@ -245,11 +244,11 @@ describe("language inclusion", () => {
 						}
 					},
 					({ inner, outer, walks }, run) =>
-						Effect.gen(function* () {
+						Effect.sync(() => {
 							const a = parsePattern(inner, "u")
 							const b = parsePattern(outer, "u")
 							if (!a.ok || !b.ok) {
-								return yield* run.assume(false)
+								return assert.fail(`${inner} and ${outer}: admitted patterns parse`)
 							}
 							const innerNfa = buildNfa(a.value)
 							const outerNfa = buildNfa(b.value)
@@ -379,7 +378,7 @@ describe("a parse's lexical precondition", () => {
 					{
 						suite: "unit/scalar/lexical-proved",
 						draw: drawn((source) => ({
-							pattern: `^(?:${source.draw(patternOver(alphabet))})$`,
+							pattern: `^(?:${source.draw(admittedPatternOver(alphabet))})$`,
 							target: source.draw(element(checkTargets)),
 							route: source.draw(element<Route>(["type", "guard"]))
 						})),
@@ -400,10 +399,11 @@ describe("a parse's lexical precondition", () => {
 						}
 					},
 					({ pattern, target: [target, build], route }, run) =>
-						Effect.gen(function* () {
-							if (!analyzeText([{ source: pattern, flags: "u" }], SourceLoc("str.regex", [])).ok) {
-								return yield* run.assume(false)
-							}
+						Effect.sync(() => {
+							assert.ok(
+								analyzeText([{ source: pattern, flags: "u" }], SourceLoc("str.regex", [])).ok,
+								`${pattern}: an admitted pattern's text analyzes`
+							)
 							const verdict = inclusion([nfaOf(pattern)], [nfaOf(formSource(target))]).kind
 							const checked = checkedIn(schema("Lexical", { R: build(pattern, route) }, []))
 							run.note(`${route} ${checked.ok ? "admitted" : "refused"}`)
@@ -480,6 +480,39 @@ const decimalRelation = (pattern: string, route: Route, bound: DecimalBound): An
 	}))
 }
 
+/**
+ * The most characters a member of `nfa`'s language of at most `chars` characters takes, 0 where none is that short, by
+ * the host matcher's walk (match.ts closure) over every text at once: the states some text of n characters reaches, a
+ * text of n characters a member where a walk of it reached the accepting state before its end, or reaches it at its
+ * end. A language inside decimalText is ASCII, a character a byte, so for one it is the most bytes a value of its text
+ * within `chars` bytes takes, which the parse compares with the form's bound.
+ */
+const longestMember = (nfa: Nfa, chars: number): number => {
+	const mark = new Int32Array(nfa.edges.length).fill(-1)
+	let stamp = 0
+	let seeds: ReadonlyArray<number> = [nfa.start]
+	let early = false
+	let longest = 0
+	for (let n = 0; n <= chars; n += 1) {
+		const atStart = n === 0
+		if (
+			early ||
+			closure(nfa, seeds, { atStart, atEnd: true }, mark, stamp++).includes(nfa.accept)
+		) {
+			longest = n
+		}
+		const walked = closure(nfa, seeds, { atStart, atEnd: false }, mark, stamp++)
+		early ||= walked.includes(nfa.accept)
+		seeds = [
+			...Arr.flatMap(walked, (state) =>
+				Arr.flatMap(defined(nfa.edges[state]), (e) => (e.kind === "set" ? [e.to] : []))
+			),
+			nfa.start
+		]
+	}
+	return longest
+}
+
 describe("a decimal's parse", () => {
 	it.effect(
 		"is proved exactly when the operand's language is inside decimalText and its bytes within the form's, by its type or by guards",
@@ -490,7 +523,7 @@ describe("a decimal's parse", () => {
 					{
 						suite: "unit/scalar/lexical-decimal-proved",
 						draw: drawn((source) => ({
-							pattern: `^(?:${source.draw(patternOver(alphabet))})$`,
+							pattern: `^(?:${source.draw(admittedPatternOver(alphabet))})$`,
 							route: source.draw(element<Route>(["type", "guard"])),
 							bound: source.draw(decimalBoundGen)
 						})),
@@ -514,17 +547,17 @@ describe("a decimal's parse", () => {
 						caseHang,
 						oracle: {
 							kind: "second-implementation",
-							name: "language inclusion of the pattern in decimalText (scalar/regex/inclusion.ts) and the bytes the text analysis and the bound prove"
+							name: "language inclusion of the pattern in decimalText (scalar/regex/inclusion.ts) and the bytes of its longest member within the bound the text analysis and the str.bytes prove, by the host matcher's walk"
 						}
 					},
 					({ pattern, route, bound }, run) =>
-						Effect.gen(function* () {
+						Effect.sync(() => {
 							const analyzed = analyzeText(
 								[{ source: pattern, flags: "u" }],
 								SourceLoc("str.regex", [])
 							)
 							if (!analyzed.ok) {
-								return yield* run.assume(false)
+								return assert.fail(`${pattern}: an admitted pattern's text analyzes`)
 							}
 							const verdict = inclusion([nfaOf(pattern)], [nfaOf(decimalText.source)]).kind
 							const check = analyzed.value.check
@@ -536,7 +569,11 @@ describe("a decimal's parse", () => {
 								patternBytes,
 								bound.kind === "bytes" ? bound.bytes : Number.POSITIVE_INFINITY
 							)
-							const withinBytes = bytes <= decimalTextMaxBytes.value
+							const withinBytes =
+								bytes <= decimalTextMaxBytes.value ||
+								(verdict === "included" &&
+									bytes < patternBytes &&
+									longestMember(nfaOf(pattern), bytes) <= decimalTextMaxBytes.value)
 							const checked = checkedIn(
 								schema("DecimalLexical", { R: decimalRelation(pattern, route, bound) }, [])
 							)

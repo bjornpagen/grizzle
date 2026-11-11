@@ -97,6 +97,7 @@ type KeySetFeature =
 	| "a key of one parent, deduplicated across parents"
 	| "a correlated child under a nested attachment"
 	| "a page request's key set"
+	| "a query the optimized lowering refuses"
 
 /** The per-evaluation population with every root attached: a plain or heterogeneous root holds no key set. */
 const keySetConfig: GenConfig = {
@@ -230,17 +231,18 @@ const orderedQuery = (c: QueryCase): LogicalQuery | undefined => {
 }
 
 /**
- * A generated case's programs judged: its query's, and, where its root is ordered, its page's four requests'. A case
- * the optimized lowering or the page compiler refuses is no case of this property: the lowering's totality is the
- * page and lowering suites'.
+ * A generated case's programs judged: its query's, and, where its root is ordered, its page's four requests'. A query
+ * the optimized lowering refuses holds no key set, and is noted as such: the lowering's totality is the page and
+ * lowering suites'; a page the page compiler refuses has no requests to judge.
  */
-const judgeCase = (c: QueryCase, note: (feature: KeySetFeature) => void): boolean => {
+const judgeCase = (c: QueryCase, note: (feature: KeySetFeature) => void): void => {
 	const names = standInNames(c.schema.name, schemaCodes(c.schema))
 	const catalog = genCatalog(c.schema)
 	const query = { dag: c.query.dag, params: genParamDecls(c.query) }
 	const optimized = optimizedOf(query, names, catalog)
 	if (!optimized.ok) {
-		return false
+		note("a query the optimized lowering refuses")
+		return
 	}
 	const where = printQueryCase(c)
 	judge({ where, program: optimized.value, optimized: optimized.value, names }, note)
@@ -250,7 +252,7 @@ const judgeCase = (c: QueryCase, note: (feature: KeySetFeature) => void): boolea
 	const ordered = orderedQuery(c)
 	const orderedProgram = ordered === undefined ? undefined : optimizedOf(ordered, names, catalog)
 	if (ordered === undefined || orderedProgram === undefined || !orderedProgram.ok) {
-		return true
+		return
 	}
 	const page = compilePage({
 		checked: ordered,
@@ -259,7 +261,7 @@ const judgeCase = (c: QueryCase, note: (feature: KeySetFeature) => void): boolea
 		stated: { keys: [], at: SourceLoc("generated orderBy", []) }
 	})
 	if (!page.ok) {
-		return true
+		return
 	}
 	for (const variant of pageVariants) {
 		const judged = judge(
@@ -275,7 +277,6 @@ const judgeCase = (c: QueryCase, note: (feature: KeySetFeature) => void): boolea
 			note("a page request's key set")
 		}
 	}
-	return true
 }
 
 const keptCases: ReadonlyArray<Kept<QueryCase, KeySetFeature>> = [
@@ -294,9 +295,11 @@ const keptCases: ReadonlyArray<Kept<QueryCase, KeySetFeature>> = [
 ]
 
 /** The platform's reads, by name: every program of its workload that is a query. */
-const billingReads = Arr.filter(
-	Rec.toEntries(P.platformWorkload.programs),
-	([, value]) => isQueryValue(value) || isOrderedValue(value)
+const billingReads = Object.freeze(
+	Arr.filter(
+		Rec.toEntries(P.platformWorkload.programs),
+		([, value]) => isQueryValue(value) || isOrderedValue(value)
+	)
 )
 
 describe("an attachment's parent key set deduplicates exactly where it is unproved", () => {
@@ -328,11 +331,7 @@ describe("an attachment's parent key set deduplicates exactly where it is unprov
 					steerEvery: 16,
 					caseHang
 				},
-				(c, k) =>
-					Effect.gen(function* () {
-						const judged = judgeCase(c, k.note)
-						yield* k.assume(judged)
-					})
+				(c, k) => Effect.sync(() => judgeCase(c, k.note))
 			)
 		)
 	)
@@ -358,7 +357,6 @@ describe("an attachment's parent key set deduplicates exactly where it is unprov
 							)
 						),
 						literal: Formatter.format,
-						limit: billingReads.length,
 						coverage: requiredInSpace<KeySetFeature>(["a proved key set"]),
 						caseHang
 					},

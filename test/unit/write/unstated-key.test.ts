@@ -17,6 +17,7 @@ import { assert, assertVariant, nonEmpty, refused, succeeded } from "#test/suppo
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { checking } from "#test/support/policy.ts"
+import { upTo } from "#test/support/up-to.ts"
 import { descOf, parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /**
@@ -111,9 +112,6 @@ const boxGen: Gen<Box> = (source) => {
 	}
 }
 
-/** The box's tapes: two writes, four primary keys, sixteen subsets of the other four, and three counts of facts. */
-const boxCases = 2 * 4 * 16 * 3
-
 /** Whether two keys hold the same fields in the same order. */
 const sameFields = (a: ReadonlyArray<string>, b: ReadonlyArray<string>): boolean =>
 	a.length === b.length && Arr.every(a, (field, i) => b[i] === field)
@@ -158,7 +156,6 @@ describe("a write that names rows by a primary key", () => {
 						suite: "unit/write/unstated-key",
 						generator: boxGen,
 						literal: Formatter.format,
-						limit: boxCases,
 						box: "a sequence's member under each of four primary keys, beside every subset of the other three and a key over a generated field declared, put or deleted as one to three facts",
 						oracle: {
 							kind: "specification",
@@ -184,11 +181,14 @@ describe("a write that names rows by a primary key", () => {
 								mutable(Owner),
 								mutable(Member)
 							])
-							const facts = Arr.map(Arr.range(1, box.facts), (n) => ({
-								id: uuidOf(n + 1),
-								owner: uuidOf(1),
-								x: BigInt(n)
-							}))
+							const facts = Arr.map(
+								upTo(box.facts, (i) => i + 1),
+								(n) => ({
+									id: uuidOf(n + 1),
+									owner: uuidOf(1),
+									x: BigInt(n)
+								})
+							)
 							const value =
 								box.op === "put"
 									? ChangeSet.empty(Sequence).put(Member, facts)

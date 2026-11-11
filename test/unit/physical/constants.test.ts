@@ -90,6 +90,7 @@ import {
 } from "#test/support/fixtures/ir/desc.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { owning } from "#test/support/policy.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /** A generated world: its rosters' histories, the rosters a set field of Item is typed over, and its closed relation. */
 interface World {
@@ -525,7 +526,7 @@ const rosterObjects = (i: Installation, s: RosterState) => {
 		domain.base.kind === "builtin" && domain.base.name === "smallint",
 		"a roster domain over smallint"
 	)
-	const admitted = Arr.filter([...Arr.range(-1, s.slots.length), 400], (code) =>
+	const admitted = Arr.filter([...upTo(s.slots.length + 2, (i) => i - 1), 400], (code) =>
 		admits(domain, { kind: "int", value: code }, constants, schema)
 	)
 	return { names: namesRead(domain, constants, schema), admitted }
@@ -728,12 +729,7 @@ describe("roster and closed constants", () => {
 										d.base.kind === "builtin" && d.base.name === "bit" && d.base.length === width,
 										"bit(n), n every code minted rounded up to whole hex digits"
 									)
-									const probes = [
-										[],
-										...Arr.map(Arr.range(0, width - 1), (code) => [code]),
-										live,
-										Arr.range(0, width - 1)
-									]
+									const probes = [[], ...upTo(width, (code) => [code]), live, upTo(width, (i) => i)]
 									for (const members of probes) {
 										assert.equal(
 											admits(

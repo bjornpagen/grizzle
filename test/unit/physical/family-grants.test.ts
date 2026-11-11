@@ -103,7 +103,7 @@ const Ticket = relation("Ticket", { no: pg.bigserial, note: word }, ["no"])
 const items = counted(on(Item, "store"), fin(Store, "items"))
 const slots = ordered(on(Slot, "shelf", "at"), fin(Shelf, "slots"))
 
-const relations = { Store, Item, Open, Shelf, Slot, Ticket }
+const relations = Object.freeze({ Store, Item, Open, Shelf, Slot, Ticket })
 
 /** The world's schema: the counted family of Items with a sum into Store's stock and Store's region copied into each
  * Item, the ordered family of Slots, and each owner mutable when `mutability` says so. */

@@ -772,7 +772,6 @@ describe("declared renames and drops", () => {
 							declared: source.draw(boolean)
 						}),
 						literal: Formatter.format,
-						limit: 4,
 						box: "a caller's field and a generated one dropped, each declared or not",
 						oracle: {
 							kind: "specification",
@@ -907,7 +906,6 @@ describe("declared renames and drops", () => {
 						suite: "unit/deploy/renames",
 						generator: boxGen,
 						literal: Formatter.format,
-						limit: 4_000,
 						box: "every one or two operations (a rename, a drop, an addition, each rename and drop declared or not) over the names a, b, c, from a and b, on relations, on one relation's fields, on a roster's handles and on logins, and every one operation on relations beside one or two on logins",
 						oracle: {
 							kind: "second-implementation",

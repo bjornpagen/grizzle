@@ -45,7 +45,9 @@
  * whose table holds the index, the reads' and the ChangeSets'; ~/.cache/grizzle-release/EXPLAIN/plants/unprepared-statement.patch,
  * each plan reported under its unnamed EXPLAIN's own name rather than the served statement's, the reads' and the
  * ChangeSets'; ~/.cache/grizzle-release/EXPLAIN/plants/change-analyzed.patch, a ChangeSet's statements run under EXPLAIN
- * ANALYZE, the ChangeSets' (its serial field's sequence advanced). ~/.cache/grizzle-release/EXPLAIN/plants/rollback-dropped.patch,
+ * ANALYZE, the ChangeSets' (its serial field's sequence advanced); ~/.cache/grizzle-release/EXPLAINRB/plants/carrier-index-refused.patch,
+ * a carrier's key index refused as one the served file does not name, the ChangeSets' (a put read back joined, whose
+ * statement probes a delta carrier through its key). ~/.cache/grizzle-release/EXPLAIN/plants/rollback-dropped.patch,
  * explain's transactions committed, leaves the database's state as a ROLLBACK does, since an estimate-only explain runs
  * nothing but a carrier's CREATE TEMPORARY TABLE ... ON COMMIT DROP and its ANALYZE and an analyzed read runs READ ONLY,
  * so no state here witnesses it: test/pg/adapter/round-trips.test.ts, which reads each explain's transaction off the
@@ -710,7 +712,17 @@ layer(Substrate.layer)("workload explain", (it) => {
 										/** Nothing executed: no fact written, the sequence not advanced. */
 										suite: "reads/explain changesets",
 										draw: drawn(changeCaseGen),
-										kept: [],
+										kept: [
+											{
+												note: "a put read back joined: the put's statement probes a delta carrier through the carrier's key, an index explain refused as one the served file does not name",
+												sketch: {
+													strata: [[{ kind: "put stock", id: 1, label: 0, qty: 0 }]],
+													readBack: "stock joined"
+												},
+												draws: "",
+												reaches: ["a put", "a read-back", "a read-back joining a stored relation"]
+											}
+										],
 										runs: 40,
 										coverage: required<ChangeFeature>(
 											[

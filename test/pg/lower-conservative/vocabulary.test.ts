@@ -90,7 +90,6 @@ layer(Substrate.layer)("the conservative vocabulary on PostgreSQL 19", (it) => {
 						suite: "pg/lower-conservative/operator-forms",
 						generator: int(0, forms.length - 1),
 						literal: (i: number) => `${i}: ${defined(forms[i], "a form")[0]}`,
-						limit: forms.length,
 						box: "every entry of the default operator table",
 						oracle: {
 							kind: "postgresql",
@@ -131,7 +130,6 @@ layer(Substrate.layer)("the conservative vocabulary on PostgreSQL 19", (it) => {
 							suite: "pg/lower-conservative/functions",
 							generator: int(0, nativeOps.length - 1),
 							literal: (i: number) => `${i}: ${describeOp(defined(nativeOps[i], "an entry").id)}`,
-							limit: nativeOps.length,
 							box: "every entry of the Compute registry",
 							oracle: {
 								kind: "postgresql",

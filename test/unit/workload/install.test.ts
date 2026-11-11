@@ -96,7 +96,7 @@ const accessIdents = (i: Installation): ReadonlySet<string> =>
 		)
 	)
 
-const named = Rec.toEntries(workPrograms)
+const named = Object.freeze(Rec.toEntries(workPrograms))
 const whole = planOf(W.Work, workPrograms)
 const all = succeeded(
 	installWith(W.Work, whole),
@@ -106,8 +106,15 @@ const lawsAlone = succeeded(
 	installWith(W.Work, planOf(W.Work, {})),
 	"the worked example installs with the empty workload"
 )
-const lawsAloneIdents = new Set(Arr.map(lawsAlone.manifest.objects, (o) => o.ident))
-const wholeIdents = new Set(Arr.map(all.manifest.objects, (o) => o.ident))
+/** The identifier of an object an installation's manifest lists. */
+type ManifestIdent = (typeof all.manifest.objects)[number]["ident"]
+
+const lawsAloneIdents: ReadonlySet<ManifestIdent> = new Set(
+	Arr.map(lawsAlone.manifest.objects, (o) => o.ident)
+)
+const wholeIdents: ReadonlySet<ManifestIdent> = new Set(
+	Arr.map(all.manifest.objects, (o) => o.ident)
+)
 
 /** The objects each program alone asks for, by its name. */
 const alone: ReadonlyMap<string, ReadonlySet<string>> = new Map(

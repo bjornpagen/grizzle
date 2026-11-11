@@ -65,6 +65,7 @@ import {
 } from "#test/support/flight/scripted.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { nothingReported, serverError } from "#test/support/server-error.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 const Sitting = relation("Sitting", { id: pg.integer, student: pg.integer, week: pg.integer }, [
 	"id"
@@ -219,7 +220,7 @@ const sessionOf = (c: Case, ctx: Pick<ServedDbContext, "prologue">) => {
 			case "no session":
 				return c.member === "rebuild"
 					? rows([])
-					: rows(Arr.map(Arr.range(1, c.rows), (k) => [`${k}`, `${k}`]))
+					: rows(upTo(c.rows, (k) => [`${k + 1}`, `${k + 1}`]))
 		}
 	}
 	return scriptedSession(
@@ -364,12 +365,7 @@ describe("a live answer over the protocol's results", () => {
 									notes.note(c.rows > 0 ? "a read of rows" : "a read of none")
 									assert.deepEqual(
 										kinds,
-										[
-											"reset",
-											...Arr.map(Arr.range(1, c.rows), () => "upsert" as const),
-											"ready",
-											"end"
-										],
+										["reset", ...upTo(c.rows, () => "upsert" as const), "ready", "end"],
 										"a read's answer is reset, its rows, ready, then end"
 									)
 								}

@@ -618,7 +618,6 @@ describe("production names from src", () => {
 						suite: "unit/kernel/naming-owned-form",
 						generator: shapeGen,
 						literal: Formatter.format,
-						limit: 422,
 						box: "every predicate over the two leaves of at most two levels of connectives, each of one or two operands",
 						oracle: {
 							kind: "specification",

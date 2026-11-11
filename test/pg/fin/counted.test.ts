@@ -44,13 +44,7 @@ import {
 	type Judging,
 	judgedFold
 } from "#test/pg/fin/folds.ts"
-import {
-	endedBy,
-	type EndFeature,
-	endGen,
-	ends,
-	refusedAtCommitBy
-} from "#test/pg/fin/installed.ts"
+import { endedBy, type EndFeature, endGen, refusedAtCommitBy } from "#test/pg/fin/installed.ts"
 import { assert, deepEquals, nonEmpty } from "#test/support/assert.ts"
 import { swapWithLast } from "#test/support/families/counted.ts"
 import {
@@ -61,6 +55,7 @@ import {
 } from "#test/support/families/fold.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /** How a swap-with-last's statements are sent. */
 type Sending = "prescribed" | "move first" | "count first" | "closure immediate"
@@ -81,12 +76,13 @@ interface Sketch {
 const sketchGen: Gen<Sketch> = (source) => {
 	const n = source.draw(int(1, 4))
 	const values = nonEmpty(
-		Arr.map(Arr.range(1, n), () => source.draw(element([0, 1, 2, 3, 4] as const)))
+		Arr.map(
+			upTo(n, (i) => i + 1),
+			() => source.draw(element([0, 1, 2, 3, 4] as const))
+		)
 	)
 	return { values, at: source.draw(int(0, n - 1)), sending: source.draw(element(SENDINGS)) }
 }
-
-const sketchCases = Arr.reduce(Arr.range(1, 4), 0, (sum, n) => sum + 5 ** n * n * SENDINGS.length)
 
 /** A plan's statements in a sending: the prescribed order, or with its first update or its count moved first. */
 const sent = (
@@ -115,7 +111,7 @@ type Position = "the last slot" | "a slot before the last"
 
 type CountedFeature = `${string} ${Position} ${Sending} ${FoldVerdict}` | EndFeature
 
-const COUNTED = Arr.filter(FOLD_SPECS, (s) => s.shape === "counted")
+const COUNTED = Object.freeze(Arr.filter(FOLD_SPECS, (s) => s.shape === "counted"))
 
 layer(Substrate.layer)(
 	"counted swap-with-last through grizzle's lowering on PostgreSQL 19rc1",
@@ -155,7 +151,6 @@ layer(Substrate.layer)(
 									suite: `fin/swap-with-last ${spec.label}`,
 									generator: sketchGen,
 									literal: Formatter.format,
-									limit: sketchCases * ends.length,
 									box: "owner 0 with every counted family of one to four members over the seat's five step values, each member removed by swap-with-last, sent prescribed, move first, count first, and prescribed with the predecessor axis immediate, each case ended by a real COMMIT and by the checked end",
 									oracle: {
 										kind: "second-implementation",

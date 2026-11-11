@@ -40,7 +40,7 @@ import {
 } from "#compiler/schema/own.ts"
 import { loginDescOf } from "#compiler/schema/world.ts"
 import type { AnyLogin } from "#compiler/types/schema/world.ts"
-import { allocatedDesc, type FixtureSchema, installationSql } from "#test/support/compile.ts"
+import { allocatedDesc, draftedSql, type FixtureSchema, filledSql } from "#test/support/compile.ts"
 import type { SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { foreignKeyColumns, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {
@@ -454,7 +454,7 @@ const build = (input: FixtureSchema, options: RealPlanOptions): RealInstallPlan 
 		domains,
 		loadOrder,
 		ddl: [],
-		sql: installationSql(installation),
+		sql: draftedSql(installation),
 		vectorSchema: installation.names.vectorSchema,
 		skipped: [],
 		fill: {
@@ -561,11 +561,13 @@ export interface RealInstallOptions {
 	readonly label: string
 }
 
-/** Runs a plan's DDL on `connection`, which must be the owner. */
+/** Runs a plan's DDL on `connection`, which must be the owner, in `database`, its variables filled (filledSql). */
 const installRealPlan = (
 	connection: PgConnection,
+	database: string,
 	plan: RealInstallPlan
-): Effect.Effect<void, SqlError | TransactionRolledBack> => transaction(connection, plan.sql)
+): Effect.Effect<void, SqlError | TransactionRolledBack> =>
+	transaction(connection, filledSql(plan.sql, database))
 
 /**
  * The oracle on the real installer.
@@ -621,7 +623,7 @@ export const installRealSchema = (
 				compile: compileInstallation
 			})
 		)
-		yield* installRealPlan(substrate.admin, plan)
+		yield* installRealPlan(substrate.admin, substrate.database, plan)
 		const credentials: Record<string, Credentials> = {}
 		for (const login of Rec.values(plan.logins)) {
 			credentials[login.name] = yield* substrate.login(login.role)

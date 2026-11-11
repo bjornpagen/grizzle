@@ -115,11 +115,11 @@ const titleOf = (n: number): string => defined(titleChoices[n % titleChoices.len
  * by title), so every paged query's D holds a row whose key an input anchors at. A refusal reads no fact, so no other is
  * stated.
  */
-const inputFacts = {
+const inputFacts = Object.freeze({
 	Task: [{ id: t(0), account: A, priority: 0, title: titleOf(0) }],
 	Note: [{ task: t(0), note: "note" }],
 	Flag: [{ task: t(0), level: "High" }]
-}
+})
 
 /**
  * The ordered queries of the fixture a walk or an input is drawn over: one native row comparison either way, mixed
@@ -169,7 +169,7 @@ const pagedMembers: Readonly<Record<string, unknown>> = Rec.fromEntries(
 )
 
 /** The paged account's parameters, which every window and D's read take. */
-const params = { account: A }
+const params = Object.freeze({ account: A })
 
 /** A task the facts or a write draw: its account (0 is the one paged, 1 another), priority and title. */
 interface TaskSketch {
@@ -253,7 +253,14 @@ const windowSizeGen: Gen<number> = weighted([
 ])
 
 const windowSketchGen: Gen<WindowSketch> = (source) => ({
-	kind: source.draw(element<Kind>(["start", "end", "after", "before", "after", "before"])),
+	kind: source.draw(
+		weighted<Kind>([
+			[1, constant("start")],
+			[1, constant("end")],
+			[2, constant("after")],
+			[2, constant("before")]
+		])
+	),
 	size: source.draw(windowSizeGen),
 	anchor: source.draw(
 		oneOf<AnchorPick>([

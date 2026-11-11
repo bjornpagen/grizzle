@@ -1,7 +1,7 @@
 import { layer } from "@effect/vitest"
 import { type Kept, drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { constant, type Gen, int, weighted } from "@grizzle/testing/gen"
+import { boolean, constant, type Gen, int, subarray, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { boundedShrink } from "@grizzle/testing/shrink"
 import { type Swarm, swarm, swarmChoice } from "@grizzle/testing/swarm"
@@ -10,6 +10,26 @@ import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import type { WrittenOutcome } from "#adapter/db/handles.ts"
 import type { MonoidName } from "#compiler/ir/desc.ts"
 import type { Law } from "#compiler/public/changeset.ts"
+import { Compute } from "#compiler/public/compute.ts"
+import {
+	accumulated,
+	Bits,
+	bits,
+	drawn as drawnField,
+	natural,
+	pg
+} from "#compiler/public/fields.ts"
+import {
+	check,
+	closed,
+	counted,
+	fin,
+	fold,
+	Monoid,
+	on,
+	relation,
+	schema
+} from "#compiler/public/schema.ts"
 import type { AnyRelation } from "#compiler/types/schema/relation.ts"
 import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
 import { cleared, seatOfInstalled } from "#test/pg/fin/installed.ts"
@@ -88,6 +108,20 @@ import { fullWorld } from "#test/support/worlds.ts"
  *
  * Plant: ~/.cache/grizzle-release/BR08/plants/fin-fold-check-after-equals-before.patch, a fold's CHECK holding each
  * after to its before, refuses a lawful write and must turn the property red.
+ *
+ * A second search holds an owner's row CHECKs over the ends of its counted family, the downstream report's shape: over
+ * a roster of three codes, the family's Monoid.or end checked equal to the owner's declared set, and, the control, its
+ * Monoid.sum end checked equal to the owner's declared total. A case inserts one to three owners, each with its members
+ * in one ChangeSet, so the host fills each end by the recount and PostgreSQL judges the CHECKs over the filled row. The
+ * oracle is the README's fold: an owner whose ends are its declared values is accepted and stored with them, and one
+ * whose end misses is refused naming the CHECKs it breaks, its key the witness, and leaves nothing stored. Coverage
+ * requires an owner with members and one with none, each with each end at its declared value and off it.
+ *
+ * Plant: ~/.cache/grizzle-release/MOVED/plants/or-end-reread-scalar.patch, each owner's end as the host fills it read
+ * back from its parameter text by the converter of PostgreSQL's output text (runtime/write/fill.ts's last-axis rule
+ * through scalar/values/convert.ts convertByCarrier, the read edit.ts once made by scalarCodec(…).convert): an or-end of
+ * members reads as another set, so a lawful owner is refused under its or-end's CHECK, and must turn the second search
+ * red.
  */
 
 type CountedForm =
@@ -588,6 +622,9 @@ const slotsOf = (s: FoldSchema, w: Write): ReadonlyArray<ServedSlot> => {
 	}
 }
 
+/** A call's facts: under each op of the ChangeSet's array members, the rows of each, under its relation's name. */
+type CallFacts = Readonly<Record<string, Readonly<Record<string, ReadonlyArray<unknown>>>>>
+
 /**
  * A write as the served ChangeSet over the schema value `value` a call applies: one array member per op and relation,
  * at its first slot, whose facts are every such slot's in order, as its stratum's union holds them; and the call's
@@ -596,10 +633,7 @@ const slotsOf = (s: FoldSchema, w: Write): ReadonlyArray<ServedSlot> => {
 const servedOf = (
 	value: unknown,
 	slots: ReadonlyArray<ServedSlot>
-): {
-	readonly changes: ChangeSetValue
-	readonly facts: Readonly<Record<string, Readonly<Record<string, ReadonlyArray<unknown>>>>>
-} => {
+): { readonly changes: ChangeSetValue; readonly facts: CallFacts } => {
 	const held = Arr.dedupeWith(slots, (a, b) => a.op === b.op && a.relation.name === b.relation.name)
 	const changes = Arr.reduce(held, ChangeSet.empty(value), (cs, slot) => {
 		switch (slot.op) {
@@ -878,6 +912,211 @@ const downstream: Kept<Sketch, Situation> = {
 	reaches: ["or over bits3 in a counted family, owner and members in one ChangeSet"]
 }
 
+/** The handles of the roster a judged owner's declared set and its members' sets are over, in code order. */
+const flagHandles = ["a", "b", "c"] as const
+
+const Flag = closed("Flag", flagHandles)
+
+/** The roster's codes, in order. */
+const flagCodes: ReadonlyArray<number> = Arr.map(flagHandles, (_, code) => code)
+
+/**
+ * The downstream's owner: its declared set beside the Monoid.or end of its counted members' sets, and the sum control,
+ * its declared total beside the Monoid.sum end of its members' integers, each end judged by a row CHECK of the owner.
+ */
+const JudgedOwner = relation(
+	"Owner",
+	{
+		id: pg.integer,
+		n: drawnField(natural),
+		declared: bits(Flag),
+		seen: accumulated(bits(Flag), Bits.of(Flag, [])),
+		budget: pg.integer,
+		total: accumulated(pg.integer, 0)
+	},
+	["id"]
+)
+
+const JudgedMember = relation(
+	"Member",
+	{ id: pg.integer, o: pg.integer, x: bits(Flag), n: pg.integer },
+	["id"]
+)
+
+const judgedFamily = counted(on(JudgedMember, "o"), fin(JudgedOwner, "n"))
+
+const seenIsDeclared = check("seenIsDeclared", JudgedOwner, (o) => Compute.eq(o.seen, o.declared))
+
+const totalIsBudget = check("totalIsBudget", JudgedOwner, (o) => o.eq(o.total, o.budget))
+
+/** The judged schema under a declared name: the counted family, its two folds, and the owner's two row CHECKs. */
+const judgedSchema = (name: string) =>
+	schema(name, { Flag, Owner: JudgedOwner, Member: JudgedMember }, [
+		judgedFamily,
+		fold(judgedFamily, Monoid.or, on(JudgedMember, "o", "x"), on(JudgedOwner, "id", "seen")),
+		fold(judgedFamily, Monoid.sum, on(JudgedMember, "o", "n"), on(JudgedOwner, "id", "total")),
+		seenIsDeclared,
+		totalIsBudget
+	])
+
+/** The relations a judged case writes, which each case clears first. */
+const judgedRelations: Arr.NonEmptyReadonlyArray<string> = [JudgedOwner.name, JudgedMember.name]
+
+/** A judged member: its key, its set's codes in order, and its integer. */
+interface JudgedMemberState {
+	readonly id: number
+	readonly x: ReadonlyArray<number>
+	readonly n: number
+}
+
+/** A judged owner with the members its ChangeSet inserts beside it: its key, and its declared set's codes and total. */
+interface JudgedOwnerState {
+	readonly id: number
+	readonly declared: ReadonlyArray<number>
+	readonly budget: number
+	readonly members: ReadonlyArray<JudgedMemberState>
+}
+
+/** A judged case: one to three ChangeSets in order, each inserting one owner and its members. */
+type JudgedSketch = Arr.NonEmptyReadonlyArray<JudgedOwnerState>
+
+/** The Monoid.or end of members, as the README folds it: the union of their sets, its codes in order. */
+const orEnd = (members: ReadonlyArray<JudgedMemberState>): ReadonlyArray<number> =>
+	Arr.filter(flagCodes, (code) => Arr.some(members, (m) => m.x.includes(code)))
+
+/** The Monoid.sum end of members: the sum of their integers. */
+const sumEnd = (members: ReadonlyArray<JudgedMemberState>): number =>
+	Arr.reduce(members, 0, (total, m) => total + m.n)
+
+/**
+ * A judged owner: none to three members, each a drawn subset of the roster and a small integer; its declared set the
+ * members' union or a drawn set, and its declared total their sum or a drawn integer, so its ends meet its declared
+ * values and miss them by construction.
+ */
+const judgedOwnerGen =
+	(keys: Keys): Gen<JudgedOwnerState> =>
+	(source) => {
+		keys.owner += 1
+		const id = keys.owner
+		const members = times(source.draw(int(0, 3)), (): JudgedMemberState => {
+			keys.member += 1
+			return { id: keys.member, x: source.draw(subarray(flagCodes)), n: source.draw(int(-3, 6)) }
+		})
+		return {
+			id,
+			declared: source.draw(boolean) ? orEnd(members) : source.draw(subarray(flagCodes)),
+			budget: source.draw(boolean) ? sumEnd(members) : source.draw(int(-3, 9)),
+			members
+		}
+	}
+
+const judgedCaseGen: Gen<JudgedSketch> = (source) => {
+	const keys: Keys = { owner: 0, member: 0 }
+	return nonEmpty(times(source.draw(int(1, 3)), () => source.draw(judgedOwnerGen(keys))))
+}
+
+/** A set's codes as the host value its field holds and a stored row reads back: its handles. */
+const flagSet = (codes: ReadonlyArray<number>): ReadonlySet<string> =>
+	new Set(Arr.map(codes, (code) => defined(flagHandles[code], "a flag's handle")))
+
+/** An owner's insert and its members', as its ChangeSet's call states them: the caller's fields alone. */
+const judgedFacts = (o: JudgedOwnerState): CallFacts => ({
+	insert: {
+		[JudgedOwner.name]: [{ id: o.id, declared: flagSet(o.declared), budget: o.budget }],
+		[JudgedMember.name]: Arr.map(o.members, (m) => ({ id: m.id, o: o.id, x: flagSet(m.x), n: m.n }))
+	}
+})
+
+/** An accepted owner's stored row as the model folds it: its count, its or-end and its sum-end beside its fields. */
+const judgedOwnerRow = (o: JudgedOwnerState): ModelRow => ({
+	id: o.id,
+	n: BigInt(o.members.length),
+	declared: flagSet(o.declared),
+	seen: flagSet(orEnd(o.members)),
+	budget: o.budget,
+	total: sumEnd(o.members)
+})
+
+/** An accepted owner's members' stored rows. */
+const judgedMemberRows = (o: JudgedOwnerState): ReadonlyArray<ModelRow> =>
+	Arr.map(o.members, (m) => ({ id: m.id, o: o.id, x: flagSet(m.x), n: m.n }))
+
+/** A row CHECK of the judged owner as a law: the owner's relation and the check's declared name. */
+const checkLaw = (statement: { readonly name: string }): Law => ({
+	kind: "check",
+	relation: JudgedOwner.name,
+	name: statement.name
+})
+
+/** The laws an owner breaks as the model folds its ends: each CHECK whose end is not its declared value. */
+const brokenBy = (o: JudgedOwnerState): ReadonlyArray<Law> => [
+	...(deepEquals(orEnd(o.members), o.declared) ? [] : [checkLaw(seenIsDeclared)]),
+	...(sumEnd(o.members) === o.budget ? [] : [checkLaw(totalIsBudget)])
+]
+
+/**
+ * A judged write's answer held to the model: accepted where its owner breaks no law; otherwise `refused`,
+ * its witness the owner's key, naming exactly the laws the owner breaks where the host decides them (`every`), and only
+ * laws it breaks where it names the CHECK PostgreSQL tried first (`first`). Each law is a CHECK of its own, so no
+ * refusal is `some`, and the schema is one level, so none is `above`.
+ */
+const judgeOwner = (o: JudgedOwnerState, outcome: WriteAnswer<WrittenOutcome>): void => {
+	const broken = brokenBy(o)
+	if (!Arr.isReadonlyArrayNonEmpty(broken)) {
+		return assert.equal(outcome.kind, "accepted", `the lawful owner ${Formatter.format(o)}`)
+	}
+	if (outcome.kind !== "refused") {
+		return assert.fail(
+			`the owner ${Formatter.format(o)} breaks ${Formatter.format(broken)}, so it is refused, not ${outcome.kind}`
+		)
+	}
+	const named = refusedLaws(outcome.refused)
+	switch (outcome.refused.kind) {
+		case "every":
+			unorderedEqual<Law>(named, broken, `the laws the owner ${Formatter.format(o)} breaks`)
+			break
+		case "first":
+			assert.ok(
+				Arr.every(named, (law) => Arr.some(broken, (b) => deepEquals(b, law))),
+				`the refusal of ${Formatter.format(o)} names only laws it breaks, not ${Formatter.format(named)}`
+			)
+			break
+		case "some":
+		case "above":
+			return assert.fail(
+				`each of the owner's laws is a CHECK of its own schema, not ${Formatter.format(outcome.refused)}`
+			)
+	}
+	assert.deepEqual(
+		outcome.witness,
+		{ kind: "key", relation: JudgedOwner.name, values: { id: o.id } },
+		`the refusal of ${Formatter.format(o)} names its key`
+	)
+}
+
+const memberCounts = ["with members", "with no members"] as const
+const orMeets = ["its declared set", "not its declared set"] as const
+const sumMeets = ["its declared total", "not its declared total"] as const
+
+/** What a judged owner reached: whether it has members, and whether each end is its declared value. */
+type JudgedSituation =
+	`an owner ${(typeof memberCounts)[number]}, its or-end ${(typeof orMeets)[number]}, its sum-end ${(typeof sumMeets)[number]}`
+
+const judgedSituationOf = (o: JudgedOwnerState): JudgedSituation =>
+	`an owner ${o.members.length === 0 ? "with no members" : "with members"}, its or-end ${deepEquals(orEnd(o.members), o.declared) ? "its declared set" : "not its declared set"}, its sum-end ${sumEnd(o.members) === o.budget ? "its declared total" : "not its declared total"}`
+
+/** Every judged situation: each member count, with each end at and off its declared value. */
+const judgedSituations: Arr.NonEmptyReadonlyArray<JudgedSituation> = nonEmpty(
+	Arr.flatMap(memberCounts, (count) =>
+		Arr.flatMap(orMeets, (or) =>
+			Arr.map(
+				sumMeets,
+				(sum): JudgedSituation => `an owner ${count}, its or-end ${or}, its sum-end ${sum}`
+			)
+		)
+	)
+)
+
 layer(Substrate.layer, { excludeTestServices: true })(
 	"every fold's end through grizzle's apply on PostgreSQL 19rc1",
 	(it) => {
@@ -994,6 +1233,77 @@ layer(Substrate.layer, { excludeTestServices: true })(
 												c.note(`${cellLabel(cell)} in a ${sketch.kind} family, ${form}`)
 											}
 										}
+									}
+								})
+						)
+					}).pipe(Effect.scoped)
+				)
+		)
+		it.effect(
+			"judges an owner's row CHECKs over the Monoid.or and Monoid.sum ends the host fills from the counted members one ChangeSet inserts it with",
+			(ctx) =>
+				searched(
+					ctx,
+					Effect.gen(function* () {
+						const declared = judgedSchema("FoldEnds_judged")
+						const done = yield* installMigrated(declared, {
+							ambient: ordinarySession,
+							label: "ends_judged",
+							logins: [fullWorld(declared, {}).server],
+							extensions: []
+						})
+						const value = judgedSchema(done.schema)
+						const seat = yield* seatOfInstalled(done, judgedRelations, "ends_judged")
+						const db = yield* openServedDb(done, fullWorld(value, {}).server.roles.app, {})
+						const served = yield* db.serve({
+							write: ChangeSet.empty(value).insert(JudgedOwner, []).insert(JudgedMember, [])
+						})
+						const write = member(served, "write")
+						return yield* explore(
+							{
+								suite: "pg/fin/fold-ends/judged",
+								draw: drawn(judgedCaseGen),
+								literal: Formatter.format,
+								coverage: required<JudgedSituation>(judgedSituations, {
+									cases: 64,
+									sense: notesOnly
+								}),
+								kept: [],
+								runs: 16,
+								shrink: boundedShrink(40),
+								concurrency: 1,
+								steerEvery: 8,
+								caseHang,
+								oracle: {
+									kind: "specification",
+									name: "the README's fold of a counted family's members into its owner's or-end and sum-end, each held to its declared value by the owner's row CHECK"
+								}
+							},
+							(sketch, c) =>
+								Effect.gen(function* () {
+									yield* cleared(seat, judgedRelations)
+									const stored: Array<JudgedOwnerState> = []
+									for (const o of sketch) {
+										const outcome = yield* answered(
+											writeOnce(write)({ params: {}, facts: judgedFacts(o) })
+										)
+										judgeOwner(o, outcome)
+										if (!Arr.isReadonlyArrayNonEmpty(brokenBy(o))) {
+											stored.push(o)
+										}
+										const owners = yield* tableState(done, JudgedOwner)
+										unorderedEqual<ModelRow>(
+											owners,
+											Arr.map(stored, judgedOwnerRow),
+											`the owners after ${Formatter.format(o)}`
+										)
+										const members = yield* tableState(done, JudgedMember)
+										unorderedEqual<ModelRow>(
+											members,
+											Arr.flatMap(stored, judgedMemberRows),
+											`the members after ${Formatter.format(o)}`
+										)
+										c.note(judgedSituationOf(o))
 									}
 								})
 						)

@@ -558,7 +558,6 @@ describe("shapes", () => {
 								])
 							)
 						] as const,
-					limit: 15,
 					coverage: requiredInSpace<DefectSite>([
 						"the root",
 						"an array item",

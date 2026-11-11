@@ -25,7 +25,9 @@
  * Features: each form over each kind of task, by its outcome.
  *
  * Plants (~/.cache/grizzle-release/BR13/plants): arm-switch-put-counted-added.patch (an accepted write's puts counted
- * as additions).
+ * as additions). (~/.cache/grizzle-release/ARMSWITCH/plants): arm-switch-role-view-selection-key.patch (a role's reads
+ * probing the Automatic arm's selection key, a law column of the table its view does not hold, so the described put of
+ * an automatic task names a column its scan lacks).
  */
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
@@ -253,7 +255,6 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									suite: "e2e/arm-switch",
 									generator: switches,
 									literal: Formatter.format,
-									limit: 30,
 									caseHang,
 									coverage: requiredInSpace<SwitchFeature>([
 										"enumerated automatic accepted",

@@ -38,7 +38,17 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { array, element, type Gen, int, map, oneOf, shuffled, subarray } from "@grizzle/testing/gen"
+import {
+	array,
+	constant,
+	element,
+	type Gen,
+	int,
+	map,
+	shuffled,
+	subarray,
+	weighted
+} from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -134,7 +144,7 @@ const discardReasons: ReadonlyArray<TransientTag> & Readonly<{ 0: TransientTag }
 type WitnessShape = "written" | "outside" | "none"
 
 /** A key no fact of the box holds. */
-const outsideKey = [{ relation: "Worker", values: { id: 3 } }]
+const outsideKey = Object.freeze([{ relation: "Worker", values: { id: 3 } }])
 
 /** The witness its writer gives a refusal: grizzle names the written fact by its key, a direct writer nothing. */
 const witnessOf = (kind: WriterKind, written: ReadonlyArray<HostOp>) =>
@@ -146,7 +156,7 @@ const witnessOf = (kind: WriterKind, written: ReadonlyArray<HostOp>) =>
 		: []
 
 const witnessGen =
-	(ops: ReadonlyArray<HostOp>): Gen<ReturnType<typeof witnessOf>> =>
+	(ops: ReadonlyArray<HostOp>): Gen<ReadonlyArray<ReturnType<typeof witnessOf>[number]>> =>
 	(source) => {
 		const shape = source.draw(element<WitnessShape>(["written", "outside", "none"]))
 		switch (shape) {
@@ -220,7 +230,12 @@ const recordGen =
 	(source) => {
 		const head = { id: p.id, writer: `w${p.id}`, ops: p.ops, start: p.start, end: p.end }
 		const e = expectFor(p.kind, host, state, p.ops)
-		const faithful = source.draw(element([true, true, false] as const))
+		const faithful = source.draw(
+			weighted([
+				[2, constant(true)],
+				[1, constant(false)]
+			])
+		)
 		const after = faithful && (e.kind === "accepted" || e.kind === "no-change") ? e.state : state
 		if (p.kind === "grizzle") {
 			const modelled: GrizzleSettled =
@@ -264,7 +279,10 @@ const historyGen: Gen<History> = (source) => {
 		reached = after
 	}
 	const committed = source.draw(
-		oneOf<HostState>([() => reached, () => reached, map(subarray(boxFacts), workers)])
+		weighted<HostState>([
+			[2, () => reached],
+			[1, map(subarray(boxFacts), workers)]
+		])
 	)
 	return {
 		host,

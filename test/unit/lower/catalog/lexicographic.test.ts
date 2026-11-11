@@ -37,6 +37,7 @@ import { wildcardText } from "#compiler/scalar/compute/types.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 type Cmp = "eq" | "ne" | "lt" | "le" | "gt" | "ge"
 const cmps: readonly [Cmp, ...ReadonlyArray<Cmp>] = ["eq", "ne", "lt", "le", "gt", "ge"]
@@ -384,7 +385,10 @@ const treeGen =
 const spellingGen =
 	(pairs: number): Gen<Tree> =>
 	(source) => {
-		const order = Arr.filter(Arr.range(0, pairs - 1), () => source.draw(boolean))
+		const order = Arr.filter(
+			upTo(pairs, (i) => i),
+			() => source.draw(boolean)
+		)
 		return nested(
 			Arr.map(order, (pair) => ({ pair, dir: source.draw(element(directions)) })),
 			source.draw(boolean)
@@ -561,7 +565,7 @@ describe("the lexicographic recognizer", () => {
 						draw: drawn((source) => {
 							const pairs = source.draw(int(7, 10))
 							return {
-								order: Arr.map(Arr.range(0, pairs - 1), (pair) => ({
+								order: upTo(pairs, (pair) => ({
 									pair,
 									dir: source.draw(element(directions))
 								})),

@@ -497,7 +497,7 @@ const closedRows = (model: ReturnType<typeof modelOf>) =>
 		)
 	)
 
-const closed = closedOf(world)
+const closed = Object.freeze(closedOf(world))
 const Probe = itemRelation(closed, "Probe")
 
 const modelOf = (pred: Pred) => {
@@ -802,7 +802,6 @@ layer(Substrate.layer, { excludeTestServices: true })("each operation over NULL"
 							suite: "pg/null/operators",
 							generator: caseGen,
 							literal: Formatter.format,
-							limit: 1200,
 							coverage: requiredInSpace<Feature>([
 								"compare",
 								"between",

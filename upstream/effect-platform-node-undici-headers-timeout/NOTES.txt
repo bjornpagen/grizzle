@@ -1,0 +1,34 @@
+NOTES: effect-platform-node-undici-headers-timeout
+
+Status: patch written and checked, NOT filed. Nothing has been sent anywhere. The owner files it by hand.
+
+1. What this is.
+   - @effect/platform-node's NodeHttpClient.makeUndici sends every request with headersTimeout: 60 * 60 * 1000 and
+     bodyTimeout: 0, under the comment "leave timeouts to Effect.timeout etc".
+   - bodyTimeout 0 disables undici's body timer, as the comment intends. The one-hour headersTimeout does not: a
+     response whose headers arrive after an hour fails with UND_ERR_HEADERS_TIMEOUT, a limit the caller never set.
+   - The caller cannot lift it: UndiciOptions is spread before the fixed values, and the module docs say timeouts
+     given to the dispatcher are overridden.
+   - Present in 4.1.2 (the published release) and on Effect-TS/effect main at ddd142f (2026-11-11).
+
+2. Who meets it.
+   - effect-openapi-cli-generator's generated CLIs send through makeUndici. Their `--timeout 0` means "wait for
+     response headers forever"; under makeUndici it means "for one hour". The fork does not cap or work around it in
+     its own code: the generated packages pin the @effect/platform-node the generator runs on, so they pick the fix up
+     with the release that carries it.
+
+3. The fix (0001-*.patch, against Effect-TS/effect main at ddd142f).
+   - headersTimeout: 0 beside bodyTimeout: 0, so how long a request waits for its headers is the caller's
+     Effect.timeout alone, as the comment and the module docs already say.
+   - A regression test in packages/platform/node/test/NodeHttpClient.test.ts: an undici Agent composed with an
+     interceptor records the headersTimeout each dispatch carries, and a request through makeUndici must carry 0.
+   - A changeset (patch) for @effect/platform-node.
+
+4. Checked (EVIDENCE.txt).
+   - The recording dispatcher sees 3600000 from @effect/platform-node 4.1.2 today (repro.sh, part 1).
+   - undici itself: headersTimeout 0 waits for late headers; 1000 fails with UND_ERR_HEADERS_TIMEOUT
+     (repro.sh, part 2).
+   - The test's layer composition runs against 4.1.2 and records [3600000], so it fails before the fix and passes
+     with it (seen [0]).
+   - Not run: the Effect repository's own vitest suite (a full monorepo install); run `pnpm vitest run
+     packages/platform/node/test/NodeHttpClient.test.ts` there before filing.

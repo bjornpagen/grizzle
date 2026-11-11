@@ -50,6 +50,7 @@ import {
 import { caseHang } from "#test/support/limits.ts"
 import { nothingReported, serverError } from "#test/support/server-error.ts"
 import { testSql } from "#test/support/sql.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /** The failure a case's making of its writes fails with. */
 class WritesUnmade extends Data.TaggedError("WritesUnmade")<{ readonly writes: number }> {}
@@ -117,7 +118,7 @@ const expected = (c: TwoFlights): Verdict => {
 	}
 }
 
-const serialization = serverError({ ...nothingReported, sqlstate: "40001" })
+const serialization = Object.freeze(serverError({ ...nothingReported, sqlstate: "40001" }))
 
 /** The statement a case's server refuses, none for a fault no statement's. */
 const refusedSql = (fault: Fault): string | undefined => {
@@ -142,7 +143,6 @@ describe("a write that reads before it writes", () => {
 					suite: "unit/adapter/two-flights",
 					generator: twoFlights,
 					literal: Formatter.format,
-					limit: 33,
 					coverage: requiredInSpace<Situation>([
 						"none",
 						"read",
@@ -180,7 +180,7 @@ describe("a write that reads before it writes", () => {
 							},
 							immediateDelivery
 						)
-						const reads = Arr.map(Arr.range(0, c.reads - 1), (at) => read(readSql(at)))
+						const reads = upTo(c.reads, (at) => read(readSql(at)))
 						const writes = Array.from({ length: c.writes }, (_, at) => write(writeSql(at)))
 						let made = false
 						const ran = yield* Effect.result(

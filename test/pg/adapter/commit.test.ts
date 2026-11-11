@@ -123,7 +123,6 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									suite: "adapter/commit",
 									generator: concurrents,
 									literal: Formatter.format,
-									limit: 8,
 									coverage: requiredInSpace<CommitFeature>([
 										...Arr.flatMap(concurrentKinds, (c) =>
 											Arr.map(ends, (e): CommitFeature => `${c} ${e}`)

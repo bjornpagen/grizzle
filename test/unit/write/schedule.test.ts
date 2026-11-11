@@ -90,7 +90,7 @@ interface Shape {
 type Fact = readonly [id: number, p: number]
 
 /** The ids of the box. */
-const ids = Arr.range(1, 2)
+const ids: Arr.NonEmptyReadonlyArray<number> = Arr.range(1, 2)
 
 /** A write of an instance: an action's fact, or P's generated insertion, which is given none and draws its id. */
 type Written =
@@ -250,7 +250,7 @@ const keeps = (
 const instancesOf = (shape: Shape): ReadonlyArray<Instance> => {
 	const facts = (ref: number): Fact => [1, ref]
 	const passed = (p: ReadonlyArray<number>): ReadonlyArray<number> =>
-		shape.onP.includes("generated") ? Arr.range(maxOf(p, 0), 2) : [maxOf(p, 0)]
+		shape.onP.includes("generated") ? upTo(3 - maxOf(p, 0), (i) => maxOf(p, 0) + i) : [maxOf(p, 0)]
 	const states = Arr.flatMap(subsets(ids), (p) =>
 		Arr.flatMap(subsets(Arr.map(ids, facts)), (c) => Arr.map(passed(p), (seq) => ({ p, c, seq })))
 	)
@@ -856,7 +856,10 @@ const hasCycle = (stratum: Stratum, edges: ReadonlySet<string>): boolean => {
 		state.set(at, "done")
 		return false
 	}
-	return Arr.some(Arr.range(0, writes - 1), (w) => state.get(w) === undefined && visit(w))
+	return Arr.some(
+		upTo(writes, (i) => i),
+		(w) => state.get(w) === undefined && visit(w)
+	)
 }
 
 /**
@@ -998,7 +1001,7 @@ const familyCycle: Stratum = {
 }
 
 /** R1's and R2's edits beside a pure set: a deletion of R1, an ordered member, and an insertion of R2, a counted one. */
-const setEdits = {
+const setEdits = Object.freeze({
 	R1: {
 		ops: ["delete"],
 		own: ["field:a", "field:b"],
@@ -1013,7 +1016,7 @@ const setEdits = {
 		refreshed: [],
 		generated: generatedOn([1])
 	}
-} satisfies Record<string, MemberEdit>
+} satisfies Record<string, MemberEdit>)
 
 /**
  * The schedule once refused a lawful stratum beside a pure set (UnorderableStratum [P0 insert, R1 update, P0 delete]):
@@ -1200,7 +1203,6 @@ describe("a stratum's schedule", () => {
 						suite: "unit/write/schedule",
 						generator: shapeGen,
 						literal: Formatter.format,
-						limit: 2 * 2 * (8 + 16) * 4,
 						box: "C named first or second; C and P each with a payload or a pure set; any set of P's deletion, put and insertion, and of a pure set's generated insertion; one action of C or none; every lawful state over two ids, at every position of P's sequence",
 						oracle: {
 							kind: "second-implementation",

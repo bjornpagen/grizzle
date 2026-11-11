@@ -309,7 +309,6 @@ describe("the codebook", () => {
 						suite: "unit/ir/codes-histories",
 						generator: histories,
 						literal: Formatter.format,
-						limit: 15_655,
 						coverage: requiredInSpace<Situation>([
 							"a growth",
 							"a removal",

@@ -58,7 +58,7 @@ import {
 	openMigrator,
 	reviewedSource
 } from "#test/pg/migrate/support.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
 import {
 	type AuthoredStatementDesc,
 	closed,
@@ -383,7 +383,7 @@ interface Stored {
 }
 
 /** The keys a drawn row takes, apart from one another. */
-const keyRange = Arr.range(1, 40)
+const keyRange: Arr.NonEmptyReadonlyArray<number> = Arr.range(1, 40)
 
 const valueGen = int(-9, 9)
 
@@ -393,7 +393,10 @@ const codeGen = int(0, handles.length - 1)
 /** One to three owners, each with two tags, and up to six members, each keyed apart, falling among them under both
  * groups, each with two values; the keys drawn in any order. */
 const familyRows: Gen<ReadonlyArray<Stored>> = (source) => {
-	const owners = Arr.range(1, source.draw(int(1, 3)))
+	const owners = nonEmpty(
+		upTo(source.draw(int(1, 3)), (i) => i + 1),
+		"one to three owners"
+	)
 	const total = source.draw(int(0, 6))
 	const keys = source.draw(shuffled(keyRange, { min: total, max: total }))
 	const ownerOf = element(owners)
@@ -446,7 +449,10 @@ const treeRows: Gen<ReadonlyArray<Stored>> = (source) => {
 /** Up to two spare rows. */
 const spareRows: Gen<Stored> = (source) => ({
 	relation: "Spare",
-	rows: Arr.map(Arr.range(1, source.draw(int(0, 2))), (id) => ({ id }))
+	rows: Arr.map(
+		upTo(source.draw(int(0, 2)), (i) => i + 1),
+		(id) => ({ id })
+	)
 })
 
 const rowsOf =

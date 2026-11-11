@@ -311,13 +311,15 @@ export const worldNames = (named: NamedRole, names: InstallNames): WorldNames =>
 
 /** What a role reads its relations through: every relation of it is its view in the role's schema (`world`, the role's
  * names, worldNames), a whole entry's columns its table's (or its materialized view's) and a query entry's its
- * definition's head fields, each a field's column; domains, constants and the vector extension stay the base's. */
+ * definition's head fields, each a field's column; domains, constants and the vector extension stay the base's. A view
+ * holds its heading's columns and no law column (physical/ddl/roles.ts wholeView, worldView), so it holds no selection
+ * key a read could probe. Each member is stated here, none carried from the installation's names, so none of what a
+ * table holds is read off a view. */
 export const roleReadNames = (
 	names: InstallNames,
 	world: WorldNames,
 	role: OwnedRole
 ): PhysicalNames => ({
-	...names,
 	relation: world.view,
 	column: (relation, field) => {
 		const e = role.relations[relation]
@@ -327,7 +329,17 @@ export const roleReadNames = (
 		return e.kind === "whole"
 			? names.column(e.relation.name, field)
 			: identifierOf(viewColumn(field))
-	}
+	},
+	selectionKeys: () => [],
+	rosterDomain: names.rosterDomain,
+	bitsDomain: names.bitsDomain,
+	contractDomain: names.contractDomain,
+	textDomain: names.textDomain,
+	paramDomain: names.paramDomain,
+	vectorSchema: names.vectorSchema,
+	codes: names.codes,
+	closed: names.closed,
+	refusal: names.refusal
 })
 
 const relationOf = (owned: Owned, relation: string) => {

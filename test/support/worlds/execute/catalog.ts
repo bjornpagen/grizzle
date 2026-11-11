@@ -369,7 +369,7 @@ const ensureExtraRole = (
 			[role]
 		)
 		if (found.length === 0) {
-			yield* admin.query(printStatement({ kind: "createRole", name: role, login: false }), [])
+			yield* admin.query(`CREATE ROLE ${quoteIdent(role)} NOLOGIN`, [])
 		}
 	})
 

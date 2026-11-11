@@ -10,7 +10,6 @@ import { assert, defined } from "#test/support/assert.ts"
 import {
 	type EntryOwnerCase,
 	entryName,
-	entryOwnerCases,
 	entryOwnerDeclared,
 	entryOwnerRefused,
 	entryRole,
@@ -37,7 +36,7 @@ import { offlineBind, offlineCompile, parsedChange } from "#test/support/worlds/
  * Plants (~/.cache/grizzle-release/BR02/plants): entry-owner-family-filter-admitted, an entry whose filter reads a
  * family field declared.
  */
-const built = shopOf("Shop")
+const built = Object.freeze(shopOf("Shop"))
 
 const id = "00000000-0000-4000-8000-000000000001"
 
@@ -83,7 +82,6 @@ describe("a family's owner written through a query entry", () => {
 						suite: "unit/write/entry-owner",
 						generator: caseGen,
 						literal: Formatter.format,
-						limit: entryOwnerCases.length,
 						box: "every entry head of the family's count and end, filter, op and fact of the entry-owner box",
 						oracle: {
 							kind: "specification",

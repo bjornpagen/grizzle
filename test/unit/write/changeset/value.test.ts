@@ -1691,10 +1691,12 @@ type LevelPairFeature =
 	| `role renamed: ${IdentifierFeature}`
 
 /** Each root with the dictionary's names other than its own, which a rename draws from: no draw renames it to itself. */
-const renamings = Arr.map(levelRoots, (root) => ({
-	root,
-	names: dictionaryNameGenOtherThan(new Set([root.label]))
-}))
+const renamings = Object.freeze(
+	Arr.map(levelRoots, (root) => ({
+		root,
+		names: dictionaryNameGenOtherThan(new Set([root.label]))
+	}))
+)
 
 const namedGen: Gen<Named> = oneOf([
 	map(element(levelSubjects), (subject): Named => ({ kind: "fixture", subject })),

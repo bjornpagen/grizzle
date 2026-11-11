@@ -1,0 +1,13 @@
+CHECKLIST: Effect's contribution process, applied to FileSystem.remove of an empty directory
+
+Outcome: a pull request to github.com/Effect-TS/effect. Nothing has been sent.
+
+  [x] The fix is against main (ddd142f), in the implementation every Node-based platform shares.
+  [x] One behaviour per change: remove's directory rule, its doc line, its shared test, its changeset.
+  [x] A changeset: .changeset/remove-empty-directory.md, patch for effect and @effect/platform-node-shared.
+  [x] The existing shared remove test was reread against the new behaviour: it still holds.
+  [ ] Run both platform suites in a full checkout (pnpm install; pnpm vitest run for node-shared and bun), then
+      pnpm check and pnpm lint.
+  [ ] Check Windows: rmdir of a held directory fails (ENOTEMPTY), lstat of a junction is not a directory.
+  [ ] Search open issues and pull requests for "rmdir", "remove empty directory", "FileSystem.remove recursive".
+  [ ] Author: the noreply identity only (11238136+bjornpagen@users.noreply.github.com), as the patch carries.

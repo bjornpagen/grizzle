@@ -547,7 +547,6 @@ describe("completing an order over a union of different headings", () => {
 								source.draw(element(users))
 							] as const,
 						literal: Formatter.format,
-						limit: 200,
 						coverage: requiredInSpace<UnionFeature>(
 							Arr.flatMap(wrappers, (w): Arr.NonEmptyReadonlyArray<UnionFeature> => [
 								`${w} completed`,
