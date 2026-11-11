@@ -25,22 +25,27 @@
  *   history that creates the key after the lowering's UNIQUE over a superkey of it has that UNIQUE refuse it first. A
  *   served write a declared key refuses is witnessed at that key's fields of a row it inserts, never a superkey's.
  * - **A broken containment names the rule, by itself:** every 23503 on the lowered installation maps to the rule's law.
- * - **The decision:** the rule of every shape that meets the seven conditions is discharged by a foreign key carrying
- *   its law, with a constant column per constant and a UNIQUE wherever the match's fields are no declared key exactly,
- *   and no foreign key carries the rule of a shape that fails one; the oracle discharges every rule by triggers. The
- *   installed catalog of every lowered installation, in each order, holds the foreign key exactly where the shape
- *   lowers.
+ * - **One decision in every order:** every installation of a shape, fresh and through each history, carries the rule
+ *   by a foreign key exactly when the fresh one does, and the oracle by none. Which definitions the theory lowers is
+ *   test/unit/laws/lowered-rules.test.ts's, the seven conditions restated over generated definitions; here a shape that
+ *   lowers is held to the triggers' verdicts, whatever natives it lowers to.
  *
- * The box (lowering-support.ts): eight shapes of D that meet every condition and eleven that fail exactly one, each
- * condition failed by at least one; A, B and S over small domains, so a draw reaches a source row with no target, the
- * delete of a target row a source row references, a target outside D's constants, a duplicate of a primary key and of
- * a candidate key beside a superkey of it; histories of up to six transactions of up to three statements, by SQL on
- * both installations or served by grizzle on the lowered one.
+ * The box (lowering-support.ts): nineteen shapes of D, eight meant to meet every condition and eleven to fail exactly
+ * one, each condition by at least one; A, B and S over small domains, so a draw reaches a source row with no target,
+ * the delete of a target row a source row references, a target outside D's constants, a duplicate of a primary key and
+ * of a candidate key beside a superkey of it; histories of up to six transactions of up to three statements, by SQL on
+ * both installations or served by grizzle on the lowered one. A shape whose rule the fresh installation carries by a
+ * foreign key is also installed through each history.
  *
- * Planted in a scratch copy, each of these fails the search: the lowering dropping the constant column, so the foreign
- * key references the target's key alone and admits a target row outside D's constants; the lowering omitting the
- * UNIQUE its foreign key references; and a lowering that ignores one condition, which lowers a target that fails it
- * and admits a row the triggers refuse.
+ * Features: a committed source row, the rule refusing a source row's write and a target row's, a served write
+ * accepted and refused by the rule; for a shape whose matches fix a constant, a target outside it refused; and, where
+ * the fresh catalog holds a UNIQUE the lowering added over a superkey of a declared key, each duplicate beside it
+ * (featuresOf), read off the catalog, never off a table of what each shape should lower to. Plants:
+ * ~/.cache/grizzle-release/BR09/plants/lowering-condition-4-ignored.patch, a lowering that lets a variable of its own
+ * be bound twice, lowers the existential shape to foreign keys that miss its join and admits a row the triggers
+ * refuse; and, written for the pin-time run, the lowering dropping the constant column, so the foreign key references
+ * the target's key alone and admits a target row outside D's constants, and the lowering omitting the UNIQUE its
+ * foreign key references, which no installation then accepts.
  */
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
@@ -69,7 +74,6 @@ import {
 import {
 	A,
 	B,
-	decisions,
 	firstVersion,
 	fixedKinds,
 	heads,
@@ -77,7 +81,6 @@ import {
 	type LoweringSchema,
 	loweringSchema,
 	type Order,
-	orders,
 	RELATIONS,
 	S,
 	type Shape,
@@ -403,9 +406,6 @@ const servedTx: Gen<Tx> = (s) => ({
 		])
 	)
 })
-
-/** Whether a shape meets every condition. */
-const isLowered = (shape: Shape): boolean => decisions[shape] === "lowered"
 
 const txGen: Gen<Tx> = weighted<Tx>([
 	[3, sqlTx],
@@ -757,99 +757,80 @@ const ruleLaw = (installed: Installed): LawId =>
 		"the containment of S in D, a rule over a query"
 	)
 
-/** The natives of an installation that carry `law`, by kind. */
-const nativesOf = (installed: Installed, law: LawId) =>
-	Arr.filter(installed.installation.laws.natives, (n) => n.object.lawIds.includes(law))
-
-/** The shapes whose matches hold a constant, each lowered with a constant column on S. */
-const constantShapes: ReadonlySet<Shape> = new Set([
-	"fixed",
-	"fixedTwo",
-	"whereFixed",
-	"candidate",
-	"candidatePair",
-	"pair",
-	"join"
-])
-
-/** The lowered shapes whose match of A holds A's primary key and more, so the lowering adds a UNIQUE over them. */
-const primarySuperkeyShapes: ReadonlySet<Shape> = new Set([
-	"fixed",
-	"fixedTwo",
-	"whereFixed",
-	"pair",
-	"join"
-])
+/** The relation of the box a catalogued constraint lives on, none for any other. */
+const relationOf = (c: Catalogued): Option.Option<"A" | "B" | "S"> =>
+	Arr.findFirst(RELATIONS, (r) => r === c.relation)
 
 /**
- * The lowered shapes with a match whose fields hold a candidate key and more but no primary key, so the lowering adds a
- * UNIQUE over them that a row can duplicate beside the candidate key alone: candidatePair's of A, join's of B.
+ * The UNIQUEs an installation's lowering added beside its declared keys: each unique constraint of A, B or S over no
+ * declared key's fields, with the declared keys of its relation it holds whole, as the catalog states them.
  */
-const candidateSuperkeyShapes: ReadonlySet<Shape> = new Set(["candidatePair", "join"])
-
-/** The lowered shapes whose match's fields are no declared key exactly, so the lowering adds a UNIQUE over them. */
-const superkeyShapes: ReadonlySet<Shape> = new Set([
-	...primarySuperkeyShapes,
-	...candidateSuperkeyShapes
-])
+const superkeysOf = (
+	seat: Seat
+): ReadonlyArray<{ readonly unique: Catalogued; readonly holds: ReadonlyArray<DeclaredKey> }> =>
+	Arr.flatMap(seat.constraints, (c) =>
+		Option.match(relationOf(c), {
+			onNone: () => [],
+			onSome: (relation) => {
+				const declared = declaredKeysOf(seat.installed, relation)
+				return (c.kind === "unique" || c.kind === "primary") &&
+					!Arr.some(declared, (k) => sameRoles(c.columns, k.fields))
+					? [
+							{
+								unique: c,
+								holds: Arr.filter(declared, (k) =>
+									Arr.every(k.fields, (f) => c.columns.includes(f))
+								)
+							}
+						]
+					: []
+			}
+		})
+	)
 
 /**
  * What a search of a shape must reach: a committed source row, the rule refusing a source row's write and a target
- * row's, a served write accepted and refused by the rule; a lowered shape with
- * constants refusing a target outside them; a duplicate of A's primary key beside the lowering's UNIQUE over it; and,
- * in every order, a direct and a served duplicate of a candidate key beside such a UNIQUE with no primary key in it,
- * and one PostgreSQL refuses on that UNIQUE's index, which keyChanged's history creates before the key's.
+ * row's, a served write accepted and refused by the rule; a shape whose matches fix a constant refusing a target outside
+ * it; where the lowering added a UNIQUE over a superkey of a primary key, a duplicate of that key beside it; and where it
+ * added one over a superkey of a candidate key and no primary key, in every order the shape is installed in, a direct
+ * and a served duplicate of the candidate key beside it, and one PostgreSQL refuses on that UNIQUE's index, which
+ * keyChanged's history creates before the key's. Each UNIQUE is read off the fresh installation's catalog.
  */
-const featuresOf = (shape: Shape): Arr.NonEmptyReadonlyArray<Feature> => [
-	"committed a source row",
-	"refused by the rule, a source row's write",
-	"refused by the rule, a target row's write",
-	"a served write accepted",
-	"a served write refused by the rule",
-	...(isLowered(shape) && constantShapes.has(shape)
-		? ["refused by the rule on a target outside its constants" as const]
-		: []),
-	...(primarySuperkeyShapes.has(shape)
-		? ["a primary key's duplicate refused beside its superkey" as const]
-		: []),
-	...(candidateSuperkeyShapes.has(shape)
-		? [
-				...Arr.map(
-					orders,
-					(o) => `a candidate key's duplicate refused beside its superkey, installed ${o}` as const
-				),
-				...Arr.map(
-					orders,
-					(o) =>
-						`a served candidate key's duplicate beside its superkey, witnessed at the key's fields, installed ${o}` as const
-				),
-				"a candidate key's duplicate refused on its superkey's index, under the key's law" as const
-			]
-		: [])
-]
-
-/**
- * The decision as each installation states it: on the lowered one, a lowered shape's rule carried by a foreign key, a
- * constant column where its matches hold a constant and a UNIQUE where their fields are no declared key exactly, and a
- * failing shape's by no foreign key; on the oracle, no rule carried by a foreign key.
- */
-const decided = (shape: Shape, low: Installed, oracle: Installed): string | undefined => {
-	const law = ruleLaw(low)
-	const natives = nativesOf(low, law)
-	const has = (kind: string): boolean => Arr.some(natives, (n) => n.object.kind === kind)
-	if (Arr.some(nativesOf(oracle, ruleLaw(oracle)), (n) => n.object.kind === "ForeignKey")) {
-		return `the oracle's rule of ${shape} carried by a foreign key`
-	}
-	if (has("ForeignKey") !== isLowered(shape)) {
-		return `the rule of ${shape} ${isLowered(shape) ? "carried by no" : "carried by a"} foreign key`
-	}
-	if (isLowered(shape) && has("LawColumn") !== constantShapes.has(shape)) {
-		return `the lowered rule of ${shape} ${constantShapes.has(shape) ? "with no" : "with a"} constant column`
-	}
-	if (isLowered(shape) && has("Unique") !== superkeyShapes.has(shape)) {
-		return `the lowered rule of ${shape} ${superkeyShapes.has(shape) ? "with no" : "with a"} UNIQUE of its own`
-	}
-	return undefined
+const featuresOf = (pair: Pair): Arr.NonEmptyReadonlyArray<Feature> => {
+	const superkeys = superkeysOf(pair.fresh)
+	const holding = (primary: boolean) =>
+		Arr.some(superkeys, (u) =>
+			primary
+				? Arr.some(u.holds, (k) => k.primary)
+				: Arr.some(u.holds, (k) => !k.primary) && !Arr.some(u.holds, (k) => k.primary)
+		)
+	const installed = [...pair.lows.keys()]
+	return [
+		"committed a source row",
+		"refused by the rule, a source row's write",
+		"refused by the rule, a target row's write",
+		"a served write accepted",
+		"a served write refused by the rule",
+		...(Option.isSome(fixedKinds[pair.shape])
+			? ["refused by the rule on a target outside its constants" as const]
+			: []),
+		...(holding(true) ? ["a primary key's duplicate refused beside its superkey" as const] : []),
+		...(holding(false)
+			? [
+					...Arr.map(
+						installed,
+						(o) =>
+							`a candidate key's duplicate refused beside its superkey, installed ${o}` as const
+					),
+					...Arr.map(
+						installed,
+						(o) =>
+							`a served candidate key's duplicate beside its superkey, witnessed at the key's fields, installed ${o}` as const
+					),
+					"a candidate key's duplicate refused on its superkey's index, under the key's law" as const
+				]
+			: [])
+	]
 }
 
 /** Whether an installed catalog holds a foreign key carrying its installation's rule. */
@@ -1106,9 +1087,10 @@ interface LoweredInstall {
 	readonly write: (facts: ServedFacts) => Effect.Effect<ServedOutcome, ApplyError>
 }
 
-/** A shape's installations: the lowered one in each order it is installed in, and the oracle's seat. */
+/** A shape's installations: the lowered one fresh and in each order it is installed in, and the oracle's seat. */
 interface Pair {
 	readonly shape: Shape
+	readonly fresh: Seat
 	readonly lows: ReadonlyMap<Order, LoweredInstall>
 	readonly oracle: Seat
 }
@@ -1234,7 +1216,8 @@ const pairOf = (shape: Shape) =>
 		}
 		const fresh = yield* loweredInstall(shape, "fresh", [lastOf("Lowering")])
 		const lows = new Map<Order, LoweredInstall>([["fresh", fresh]])
-		for (const history of isLowered(shape) ? histories : []) {
+		const lowered = carriedByForeignKey(fresh.seat)
+		for (const history of lowered ? histories : []) {
 			const reached = yield* loweredInstall(shape, history, [
 				{
 					schema: firstVersion(history, shape, "Lowering"),
@@ -1260,14 +1243,10 @@ const pairOf = (shape: Shape) =>
 				compile: conservativeInstallation
 			}
 		)
-		const wrong = decided(shape, fresh.seat.installed, oracle)
-		if (wrong !== undefined) {
-			return yield* new Disagreed({ message: wrong })
-		}
 		for (const [order, low] of lows) {
-			if (carriedByForeignKey(low.seat) !== isLowered(shape)) {
+			if (carriedByForeignKey(low.seat) !== lowered) {
 				return yield* new Disagreed({
-					message: `${shape}, installed ${order}: the installed rule ${isLowered(shape) ? "carried by no" : "carried by a"} foreign key`
+					message: `${shape}, installed ${order}: the installed rule ${lowered ? "carried by no" : "carried by a"} foreign key, where the fresh installation's is ${lowered ? "" : "not "}carried by one`
 				})
 			}
 		}
@@ -1277,7 +1256,7 @@ const pairOf = (shape: Shape) =>
 				message: `${shape}: the oracle's installed rule carried by a foreign key`
 			})
 		}
-		const pair: Pair = { shape, lows, oracle: oracleSeat }
+		const pair: Pair = { shape, fresh: fresh.seat, lows, oracle: oracleSeat }
 		return pair
 	})
 
@@ -1437,20 +1416,12 @@ const property = (pair: Pair) => (lc: LoweringCase, c: Case<Feature>) =>
  */
 const steeredCases = 240
 
-/** A shape as its search's name states it: whether it lowers, or the condition it fails. */
-const shapeText = (shape: Shape): string => {
-	const decision = decisions[shape]
-	return decision === "lowered"
-		? `${shape}, lowered`
-		: `${shape}, kept on triggers, failing condition ${String(decision)}`
-}
-
 layer(Substrate.layer, { excludeTestServices: true })(
 	"a containment into a derived relation, lowered to foreign keys, on PostgreSQL 19rc1",
 	(it) => {
 		for (const shape of shapes) {
 			it.effect(
-				`${shapeText(shape)}: commits and refuses every history exactly as the containment's triggers do, naming the same law, and refuses a duplicate by its key before any superkey of it in every install order`,
+				`${shape}: commits and refuses every history exactly as the containment's triggers do, naming the same law, and refuses a duplicate by its key before any superkey of it in every install order`,
 				(ctx) =>
 					searched(
 						ctx,
@@ -1465,7 +1436,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										kind: "second-implementation",
 										name: "the same schema installed through conservativeInstallation, every rule over a query discharged by its triggers"
 									},
-									coverage: required<Feature>(featuresOf(shape), {
+									coverage: required<Feature>(featuresOf(pair), {
 										cases: steeredCases,
 										sense: notesOnly
 									}),

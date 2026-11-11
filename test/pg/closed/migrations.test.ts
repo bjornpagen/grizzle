@@ -824,19 +824,11 @@ const migrateTo = (sys: System, after: Model, reviewer: Reviewer) =>
 	})
 
 /** Whether a drafted step VALIDATEs a constraint: ALTER DOMAIN's VALIDATE CONSTRAINT, or an ALTER TABLE action of it. */
-const validates = (d: Draft): boolean => {
-	if (d.kind !== "statement") {
-		return false
-	}
-	switch (d.statement.kind) {
-		case "alterDomain":
-			return d.statement.action.kind === "validateConstraint"
-		case "alterTable":
-			return Arr.some(d.statement.actions, (a) => a.kind === "validateConstraint")
-		default:
-			return false
-	}
-}
+const validates = (d: Draft): boolean =>
+	d.kind === "statement" &&
+	((d.statement.kind === "alterDomain" && d.statement.action.kind === "validateConstraint") ||
+		(d.statement.kind === "alterTable" &&
+			Arr.some(d.statement.actions, (a) => a.kind === "validateConstraint")))
 
 /**
  * A reviewer of `g` that drafts `statements` at the top of the file the plan puts its VALIDATE in, as a reviewer reads

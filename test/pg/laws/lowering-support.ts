@@ -1,8 +1,9 @@
 /**
  * The schemas the lowering differential draws (lowering.test.ts): a containment of a stored source S into a derived
  * target D whose definition reads the stored A, and B where it joins, each D one shape of the definition the theory
- * judges (analysis/theory/laws.ts RuleLowering). Eight shapes meet every condition a containment into a derived
- * relation lowers to foreign keys under; eleven fail exactly one of the seven, each named by the condition it fails.
+ * judges (analysis/theory/laws.ts RuleLowering). Eight shapes are meant to meet every condition a containment into a
+ * derived relation lowers to foreign keys under, and eleven to fail exactly one of the seven, each condition by one at
+ * least; which of them lowers is the theory's to decide, judged in test/unit/laws/lowered-rules.test.ts.
  *
  * A holds a primary key `id` and a candidate key (grp, kind), B a primary key `id` and a candidate key `grp`, and S a
  * primary key `sid`, its `x` and `y` the source terms. A and B are the root level's, D and S the level above's, so S's
@@ -56,19 +57,7 @@ const overRootStatements = (desc: SchemaDesc, statements: SchemaDesc["statements
 		? { ...desc, statements }
 		: { ...desc, extends: overRootStatements(desc.extends, statements) }
 
-/**
- * A condition of the seven a lowered containment's derived target meets (analysis/theory/laws.ts):
- * 1. one arm, no negation, every match over an ordinary stored relation;
- * 2. every target term a variable a match binds, the terms pairwise distinct;
- * 3. every where-conjunct a variable equal to a literal, which fixes no head variable;
- * 4. every variable outside the head bound once across the matches;
- * 5. every match binding a head variable;
- * 6. no match binding one head variable at two fields;
- * 7. each match's head and constant fields holding a key of its relation, their UNIQUE a provable B-tree entry.
- */
-export type Condition = 1 | 2 | 3 | 4 | 5 | 6 | 7
-
-/** Every shape of D, the lowered ones first. */
+/** Every shape of D, those meant to lower first. */
 export const shapes = [
 	"key",
 	"fixed",
@@ -92,32 +81,6 @@ export const shapes = [
 ] as const
 
 export type Shape = (typeof shapes)[number]
-
-/**
- * What the theory decides for each shape: lowered to foreign keys where it meets every condition, else kept on its
- * triggers by the one condition it fails.
- */
-export const decisions: Readonly<Record<Shape, "lowered" | Condition>> = {
-	key: "lowered",
-	fixed: "lowered",
-	fixedTwo: "lowered",
-	whereFixed: "lowered",
-	candidate: "lowered",
-	candidatePair: "lowered",
-	pair: "lowered",
-	join: "lowered",
-	union: 1,
-	negated: 1,
-	computed: 2,
-	repeated: 2,
-	compared: 3,
-	headFixed: 3,
-	existential: 4,
-	headless: 5,
-	doubled: 6,
-	unkeyed: 7,
-	unbounded: 7
-}
 
 /** The fields of A a source row copies into S's `x` and `y`. */
 export interface Head {
@@ -400,9 +363,7 @@ export const histories = ["aboveLater", "keysLater", "keyChanged"] as const
 export type History = (typeof histories)[number]
 
 /** How an installation reached its schema: in one first migration (fresh), or through a history. */
-export const orders = ["fresh", ...histories] as const
-
-export type Order = (typeof orders)[number]
+export type Order = "fresh" | History
 
 /** The version a history migrates from to the schema of `shape` under `name`. */
 export const firstVersion = (history: History, shape: Shape, name: string): unknown => {
