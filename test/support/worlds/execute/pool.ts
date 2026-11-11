@@ -28,10 +28,11 @@ const aborted: Probe = { transaction: "aborted" }
  * among them: its statements run on the extended protocol, where Parse, or the Bind of a parsed statement, starts the
  * implicit transaction at its own statement timestamp and Execute sets another (PostgreSQL 19 postgres.c PostgresMain,
  * xact.c StartTransaction), so statement_timestamp() and transaction_timestamp() differ inside an explicit transaction
- * and outside one alike.
+ * and outside one alike. Every cell answers as the server's output text, so the probe names no type for a session's
+ * search_path to resolve.
  */
 const pooledSql =
-	"SELECT current_user::text, coalesce(pg_catalog.current_setting('grizzle.claims', true), ''), pg_catalog.pg_backend_pid()::text"
+	"SELECT current_user, coalesce(pg_catalog.current_setting('grizzle.claims', true), ''), pg_catalog.pg_backend_pid()"
 
 /**
  * What an idle pooled connection carries between transactions, read on a session leased as a Db's transactions lease

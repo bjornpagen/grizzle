@@ -202,7 +202,9 @@ const backendEnded = (admin: PgConnection, pid: number): Effect.Effect<void, Sql
  * sends, its drift check after it, ended as `end` says. Nothing pending runs the drift check alone, as `grizzle drift`
  * does. A killed deploy's run ends once the server has ended its backend, as a process's death ends its connection:
  * until then the backend still holds the deploy's apply lock, and the next migrate of the schema would be refused as
- * busy, an apply the dead deploy no longer runs.
+ * busy, an apply the dead deploy no longer runs. The session's backend is read by a statement that names no type: the
+ * ambient session's grizzle-first path puts the installation's schemas, whose tables are types (a relation named Text
+ * is one), ahead of pg_catalog, and the answer's cells arrive as text whatever their type.
  */
 export const runFolders = (
 	substrate: SubstrateShape,
@@ -221,10 +223,7 @@ export const runFolders = (
 				})
 			)
 			const pid = yield* Effect.orDie(
-				runAlone(
-					connection,
-					oneShotStatement(testSql("SELECT pg_catalog.pg_backend_pid()::text"), [])
-				)
+				runAlone(connection, oneShotStatement(testSql("SELECT pg_catalog.pg_backend_pid()"), []))
 			)
 			const session =
 				end.kind === "runner" ? migrationSession(connection) : killedAt(connection, end.at)

@@ -340,10 +340,11 @@ export const endDirect = (
  * current_user, the claims setting and whether the statement runs inside an explicit transaction: the probe of a direct
  * writer's connection, whose psql sends it as a simple Query, which sets its statement timestamp once and starts an
  * implicit transaction at it. A pooled connection's statements run on the extended protocol, where the two timestamps
- * always differ, so its probe reads ReadyForQuery's status instead (pool.ts probePool).
+ * always differ, so its probe reads ReadyForQuery's status instead (pool.ts probePool). psql prints every cell as the
+ * server's output text, so the probe names no type for a session's search_path to resolve.
  */
 const probeSql =
-	"SELECT current_user::text, coalesce(pg_catalog.current_setting('grizzle.claims', true), ''), pg_catalog.statement_timestamp() <> pg_catalog.transaction_timestamp()"
+	"SELECT current_user, coalesce(pg_catalog.current_setting('grizzle.claims', true), ''), pg_catalog.statement_timestamp() <> pg_catalog.transaction_timestamp()"
 
 /**
  * What a direct writer's connection carries: an aborted transaction refuses the read (25P02); otherwise the read runs
