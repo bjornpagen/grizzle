@@ -1,3 +1,32 @@
+/**
+ * Every rewrite pass, alone and composed, preserves what the query delivers over generated cases: the rewritten DAG
+ * validates, lowers conservatively with every statement passing the structural audit, and the reference evaluator
+ * computes the same statements, headings and row sets for it as for the original. A delivered term the reference
+ * declines, such as a vector's distance, is compared as its term (reference/values.ts Declined), which the rewritten
+ * query must deliver over the same values.
+ *
+ * The cases are the optimizer's population for the rewrite passes (gen/case.ts rewriteGenConfig), its wide payload
+ * text alone, every carrier still in its palette, and with filters drawn directly over groups, unions and set
+ * comparisons, whose schemas declare containments as native foreign keys that their facts satisfy (gen/schema.ts) and
+ * whose queries read through them, so R03 runs against the immediate foreign keys a generated installation has; its
+ * wide payload under takes with stated orders lets R06 late fetch fire on generated cases, and the hand-built
+ * wide-payload cases (wide.ts) hold it to the transaction context too. No pass and no lowering refuses a generated
+ * case: a refusal fails it.
+ *
+ * The population is steered: while a required feature is unreached, a case that reached a feature or pair no earlier
+ * case reached is kept, and later cases mutate kept ones. The features are semantic: each rule fired, each rule paired
+ * with the kind of node it rewrote, and each kind of node the query holds. The rule families the population must reach
+ * are the composed pipeline's required features; those it reaches only a few times a run are planted, as kept cases of
+ * the same population.
+ *
+ * Oracle: the reference evaluator's delivery of the query before the passes (a second implementation), and the strict
+ * DAG re-reader beside the conservative lowering's audit.
+ *
+ * Plants, each failing the searches whose passes it touches: a filter moved below a take (pushdown-below-take: the
+ * pass-alone, pipeline, wide-transaction and mutant-root searches); an identity projection's input left without the
+ * projection's evidence (simplify-identity-evidence); a wide column the order reads fetched late
+ * (late-fetch-ordered-payload: the wide late-fetch search).
+ */
 import { describe, it } from "@effect/vitest"
 import { type Case, drawn, explore, type Kept } from "@grizzle/testing/explore"
 import { type Coverage, noCoverage, required } from "@grizzle/testing/features"
@@ -62,28 +91,6 @@ import {
 	runPasses
 } from "#test/unit/lower/rewrite/support.ts"
 import { wideCaseGen } from "#test/unit/lower/rewrite/wide.ts"
-
-/**
- * Every rewrite pass, alone and composed, preserves what the query delivers over generated cases: the rewritten DAG
- * validates, lowers conservatively with every statement passing the structural audit, and the reference evaluator
- * computes the same statements, headings and row sets for it as for the original. A delivered term the reference
- * declines, such as a vector's distance, is compared as its term (reference/values.ts Declined), which the rewritten
- * query must deliver over the same values.
- *
- * The cases are the optimizer's population for the rewrite passes (gen/case.ts rewriteGenConfig), its wide payload
- * text alone, every carrier still in its palette, and with filters drawn directly over groups, unions and set
- * comparisons, whose schemas declare containments as native foreign keys that their facts satisfy (gen/schema.ts) and
- * whose queries read through them, so R03 runs against the immediate foreign keys a generated installation has; its
- * wide payload under takes with stated orders lets R06 late fetch fire on generated cases, and the hand-built
- * wide-payload cases (wide.ts) hold it to the transaction context too. No pass and no lowering refuses a generated
- * case: a refusal fails it.
- *
- * The population is steered: while a required feature is unreached, a case that reached a feature or pair no earlier
- * case reached is kept, and later cases mutate kept ones. The features are semantic: each rule fired, each rule paired
- * with the kind of node it rewrote, and each kind of node the query holds. The rule families the population must reach
- * are the composed pipeline's required features; those it reaches only a few times a run are planted, as kept cases of
- * the same population.
- */
 
 /**
  * The optimizer's population for the rewrite passes: wide payload of unbounded text alone (the reference evaluator
@@ -189,7 +196,10 @@ const exploreSteered = (
 ) =>
 	explore(
 		{
-			oracle: { kind: "unstated" },
+			oracle: {
+				kind: "second-implementation",
+				name: "the reference evaluator's delivery of the query before the passes"
+			},
 			suite,
 			draw: drawn(sketchGen),
 			literal: Formatter.format,
@@ -217,7 +227,10 @@ const exploreCases = (
 ) =>
 	explore(
 		{
-			oracle: { kind: "unstated" },
+			oracle: {
+				kind: "second-implementation",
+				name: "the reference evaluator's delivery of the query before the passes"
+			},
 			suite,
 			draw: drawn(cases),
 			literal: Formatter.format,
@@ -433,7 +446,10 @@ describe("each rewrite pass preserves the delivered result on generated cases", 
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "second-implementation",
+						name: "the reference evaluator's delivery of the query before the passes"
+					},
 					suite: "unit/lower/rewrite/pass-alone",
 					draw: drawn((source) => ({
 						pass: source.draw(element(passNames)),
