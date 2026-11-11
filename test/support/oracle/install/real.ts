@@ -275,7 +275,7 @@ const build = (input: unknown, options: RealPlanOptions): RealInstallPlan => {
 	const tables: Record<string, OracleTable> = {}
 	for (const r of Rec.values(owned.relations)) {
 		if (r.kind === "closed") {
-			rosters[r.name] = installedRoster(codecOf(options.codes, new Roster(r.name, r.desc.handles)))
+			rosters[r.name] = installedRoster(codecOf(options.codes, Roster.of(r.name, r.desc.handles)))
 			continue
 		}
 		if (r.kind !== "relation") {

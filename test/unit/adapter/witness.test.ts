@@ -128,7 +128,7 @@ const rostersArtifacts = succeeded(
 			draftCodebook(
 				keptRosters(
 					firstCodebook([
-						new Roster(defined(rostersOf(rostersOwned)[0], "Rosters declares Kind").closed, [
+						Roster.of(defined(rostersOf(rostersOwned)[0], "Rosters declares Kind").closed, [
 							"leaf",
 							"gone",
 							"branch"

@@ -201,7 +201,7 @@ export const scalarOfSpec = (spec: TypeSpec): ScalarType => {
 		{
 			kind: "builder",
 			roster: (name) =>
-				roster?.closed === name ? new Roster(name, roster.handles) : noRosters(name)
+				roster?.closed === name ? Roster.of(name, roster.handles) : noRosters(name)
 		},
 		SourceLoc("a generated field", [])
 	)

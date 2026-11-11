@@ -170,7 +170,7 @@ export const codesOf = (state: RosterState): RosterCodes =>
 	)
 
 /** The roster as a closed id's type holds it: its name and its live handles in code order. */
-export const rosterOf = (state: RosterState): Roster => new Roster(state.closed, liveOf(state))
+export const rosterOf = (state: RosterState): Roster => Roster.of(state.closed, liveOf(state))
 
 /** The codec of the model's codes, built by the engine's constructor, which only packages them. */
 export const codecFor = (state: RosterState): RosterCodec =>

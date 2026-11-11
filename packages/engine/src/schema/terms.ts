@@ -86,7 +86,7 @@ const typingOf = (
 	}
 	const scalar = scalarTypeOf(
 		desc,
-		{ kind: "builder", roster: (name) => new Roster(name, roster) },
+		{ kind: "builder", roster: (name) => Roster.of(name, roster) },
 		SourceLoc("check field", [])
 	)
 	return scalar.ok

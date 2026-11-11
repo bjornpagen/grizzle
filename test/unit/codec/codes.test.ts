@@ -93,7 +93,7 @@ const installed = (live: number) => {
 	const codes = Array.from({ length: size }, (_, code): CodeSlot =>
 		isSet(live, code) ? { kind: "live", handle: handleOf(code) } : { kind: "hole" }
 	)
-	const roster = new Roster(
+	const roster = Roster.of(
 		closed,
 		nonEmpty(
 			Arr.map(

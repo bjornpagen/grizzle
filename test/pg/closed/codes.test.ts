@@ -711,7 +711,7 @@ layer(Substrate.layer)("closed ids as codes on PostgreSQL 19rc1", (it) => {
 						)
 						yield* applyNext(m, [next])
 						assert.deepEqual(
-							Arr.map(patterns, (s) => codecOf(next.codes, new Roster(s.closed, liveOf(s))).names),
+							Arr.map(patterns, (s) => codecOf(next.codes, Roster.of(s.closed, liveOf(s))).names),
 							Arr.map(patterns, modelNames),
 							"the drafted codebook holds the model's codes"
 						)

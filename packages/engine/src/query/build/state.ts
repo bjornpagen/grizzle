@@ -296,7 +296,7 @@ export const relationHeading = (value: unknown, env: ScalarEnv, label: string): 
 		const handles = named.roster
 		const rosterEnv: ScalarEnv = {
 			...env,
-			roster: (name) => (name === named.name ? new Roster(name, handles) : env.roster(name))
+			roster: (name) => (name === named.name ? Roster.of(name, handles) : env.roster(name))
 		}
 		return heading(
 			Object.entries(named.fields).map(

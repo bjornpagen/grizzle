@@ -117,7 +117,7 @@ export const closedIdParts = (closed: unknown): ClosedIdParts => {
 	}
 	const roster = read.value
 	return partsOf(roster, (name) =>
-		name === roster.closed ? new Roster(name, roster.handles) : undefined
+		name === roster.closed ? Roster.of(name, roster.handles) : undefined
 	)
 }
 

@@ -47,7 +47,7 @@ export const scalarOf = (
 		kind: "builder",
 		roster: (closed) => {
 			const handles = rosters[closed]
-			return handles === undefined ? undefined : new Roster(closed, handles)
+			return handles === undefined ? undefined : Roster.of(closed, handles)
 		}
 	}
 	const t = scalarTypeOf(desc, env, SourceLoc("a test fixture's scalar type", []))

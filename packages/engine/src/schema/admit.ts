@@ -115,7 +115,7 @@ export const admitSchemaDesc = (value: unknown): Result.Result<SchemaDesc, Compi
 			kind: "builder",
 			roster: (name) => {
 				const handles = rosters.get(name)
-				return handles === undefined ? undefined : new Roster(name, handles)
+				return handles === undefined ? undefined : Roster.of(name, handles)
 			}
 		}
 		return catchRefusal(() => admittedLevels(unadmitted, env))

@@ -104,7 +104,7 @@ export const schemaInfo = (over: Level): SchemaInfo => {
 			kind: "builder",
 			roster: (name: DeclaredName) => {
 				const handles = rosters.get(name)
-				return handles === undefined ? undefined : new Roster(name, handles)
+				return handles === undefined ? undefined : Roster.of(name, handles)
 			}
 		})
 	})

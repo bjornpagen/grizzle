@@ -170,7 +170,7 @@ const agrees = ({ live, a, b }: Pattern, c: Case<Situation>) =>
 		const codes = Array.from({ length: size }, (_, code): CodeSlot =>
 			isSet(live, code) ? { kind: "live", handle: handleOf(code) } : { kind: "hole" }
 		)
-		const roster = new Roster(kind, nonEmpty(Arr.map([...codesOf(live)], handleOf)))
+		const roster = Roster.of(kind, nonEmpty(Arr.map([...codesOf(live)], handleOf)))
 		const book: Codebook = { rosters: new Map([[kind, rosterCodec(kind, codes)]]) }
 		const set: ScalarType = { carrier: "bits", caps: capabilitiesOf("bits"), roster }
 		const literal = (mask: number, label: string): ScalarExpr =>

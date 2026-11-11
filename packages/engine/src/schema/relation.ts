@@ -655,7 +655,7 @@ export const closed = <
 		id: Object.freeze({ column: codeColumn<Handles[number]>(name, handles), sql: carrierSql.code })
 	})
 	const declared = parseDeclaredName(desc.name)
-	const typed = declared.ok ? new IrRoster(declared.value, desc.handles) : undefined
+	const typed = declared.ok ? IrRoster.of(declared.value, desc.handles) : undefined
 	const parts = builtRosterParts(desc.name, desc.handles, typed)
 	const value: Roster<Name, readonly [...Handles]> = ownValue(
 		{

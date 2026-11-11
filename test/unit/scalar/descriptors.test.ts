@@ -690,7 +690,7 @@ describe("closedId", () => {
 							descOf(field),
 							succeeded(describeField(admittedClosedId(roster), SourceLoc("again", []))).desc
 						)
-						assert.deepEqual(rosterOf(scalarOf(field)), new Roster(parsedName(name), listed))
+						assert.deepEqual(rosterOf(scalarOf(field)), Roster.of(parsedName(name), listed))
 						assert.equal(identityOf(admittedClosedId(roster)), identityOf(field))
 						if (other !== name) {
 							assert.equal(
@@ -810,7 +810,7 @@ describe("closedId", () => {
 						assert.equal(field.roster, forged.value)
 						assert.deepEqual(
 							rosterOf(scalarOf(field)),
-							new Roster(parsedName(forged.value.name), forged.value.handles)
+							Roster.of(parsedName(forged.value.name), forged.value.handles)
 						)
 					})
 			)

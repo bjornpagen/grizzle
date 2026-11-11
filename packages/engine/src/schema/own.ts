@@ -1995,7 +1995,7 @@ class Owner {
 					...owning,
 					kind: r.kind,
 					desc: r,
-					roster: new Roster(name, r.handles),
+					roster: Roster.of(name, r.handles),
 					named,
 					ident: identifierOf(named),
 					fields: this.#closedFields(owning, entry, rosterHeading(r)),

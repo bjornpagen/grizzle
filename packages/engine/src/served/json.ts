@@ -12,7 +12,8 @@ import {
 	writeCanonicalJson
 } from "#compiler/core/canonical.ts"
 import { type CompileError, unsupported } from "#compiler/core/errors.ts"
-import { parseDeclaredName } from "#compiler/core/identity.ts"
+import type { RosterDigest } from "#compiler/core/fingerprint.ts"
+import type { DeclaredName } from "#compiler/core/identity.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
@@ -41,8 +42,9 @@ import type { ServedFile } from "#compiler/served/forms.ts"
  * - every ScalarType once, in the file's `types` table, in the order the walk first meets it (a contract's base and a
  *   span's endpoint before the type over them), each occurrence `~t:` and its index, so a refined type is one object
  *   whatever the slots that read it;
- * - a Roster `~roster:` and its declared name, rebuilt at load from the live handles of the codes the file holds for
- *   it (ServedFile rosters);
+ * - a Roster `~roster:` and its canonical payload, its declared name and its handles' digest, rebuilt at load from
+ *   the live handles of the codes the file holds for it (ServedFile rosters) with the digest generate took, so a load
+ *   hashes no handle;
  * - a range overload `~op:` and its code and carrier, read back as its one instance (ir/expr.ts rangeOp), which the
  *   registry and the host evaluator know an overload by;
  * - a host Decimal `~decimal:`, a host Money `~money:`, a host vector `~vector:`, and the IR's DecimalText, MoneyText
@@ -145,12 +147,12 @@ const servedVector = (components: Float32Array): ServedObject => {
 
 /**
  * A value implementing the protocol as the file holds it, by its class, since a load revives each class as itself: a
- * Roster by its declared name, a host Decimal and Money and the IR's DecimalText, MoneyText and VectorText by their
- * canonical payloads; a value of any other class is no served value.
+ * Roster, a host Decimal and Money and the IR's DecimalText, MoneyText and VectorText by their canonical payloads; a
+ * value of any other class is no served value.
  */
 const servedClass = (value: object, tagged: TaggedValue): ServedObject => {
 	if (value instanceof Roster) {
-		return servedTagged(tags.roster, value.closed)
+		return servedTagged(tags.roster, tagged.payload)
 	}
 	if (value instanceof Decimal) {
 		return servedTagged(tags.decimal, tagged.payload)
@@ -414,18 +416,19 @@ export const servedText = (file: ServedFile): Result.Result<string, CompileError
 		(json) => Result.map(writeCanonicalJson(json), (text) => `${text}\n`)
 	)
 
-/** A roster by its declared name, its live handles in code order: its codes', holes left out. */
-const rosterOf = (rosters: ReadonlyMap<string, RosterCodes>, name: string): Roster => {
-	const codes = rosters.get(name)
-	const parsed = parseDeclaredName(name)
-	if (codes === undefined || !parsed.ok) {
-		throw defect(`the served file holds the codes of its roster ${name}`)
-	}
+/**
+ * A roster by its canonical payload, its declared name and its handles' digest, each trusted as the compile wrote it:
+ * its live handles in code order, its codes', holes left out.
+ */
+const rosterOf = (rosters: ReadonlyMap<string, RosterCodes>, payload: string): Roster => {
+	const at = payload.lastIndexOf(":")
+	const name = trusted<DeclaredName>(payload.slice(0, at))
+	const codes = defined(rosters.get(name), `the served file holds the codes of its roster ${name}`)
 	const [first, ...rest] = codes.flatMap((slot) => (slot.kind === "live" ? [slot.handle] : []))
 	if (first === undefined) {
 		throw defect(`roster ${name} holds a live handle`)
 	}
-	return new Roster(parsed.value, [first, ...rest])
+	return new Roster(name, [first, ...rest], trusted<RosterDigest>(payload.slice(at + 1)))
 }
 
 /**

@@ -354,7 +354,7 @@ describe("scalarTypeOf: a FieldDesc to its ScalarType", () => {
 							kind: "builder",
 							roster: (name) => {
 								const handles = rosters.get(name)
-								return handles === undefined ? undefined : new Roster(name, handles)
+								return handles === undefined ? undefined : Roster.of(name, handles)
 							}
 						}
 						assert.deepEqual(succeeded(scalarTypeOf(desc, env, SourceLoc("field", []))), scalar)
@@ -396,10 +396,10 @@ describe("scalarTypeOf: a FieldDesc to its ScalarType", () => {
 					({ name, other, handles }) =>
 						Effect.sync(() => {
 							const listed = nonEmpty(handles, "a drawn roster of at least one handle")
-							const held = new Roster(parsedName(name), listed)
+							const held = Roster.of(parsedName(name), listed)
 							const env = {
 								kind: "builder",
-								roster: (n: string) => (n === name ? new Roster(parsedName(n), listed) : undefined)
+								roster: (n: string) => (n === name ? Roster.of(parsedName(n), listed) : undefined)
 							} as const
 							assert.deepEqual(
 								rosterOf(
@@ -585,7 +585,7 @@ const readingEnvGen: Gen<ScalarEnv> = map(
 		handles: source.draw(element<Arr.NonEmptyReadonlyArray<string>>([["a"], ["a", "b"]]))
 	}),
 	({ schema, handles }): ScalarEnv => {
-		const roster = (name: string) => new Roster(parsedName(name), handles)
+		const roster = (name: string) => Roster.of(parsedName(name), handles)
 		return schema
 			? { kind: "schema", roster, contractPredicate: predicateTable }
 			: { kind: "builder", roster }

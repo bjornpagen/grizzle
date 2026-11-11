@@ -510,18 +510,27 @@ export type TextInfo =
  * Its identity is its name and its handles in order, as type identity compares them (sameScalarType): one name holds
  * other handles in another schema, which a cursor, a snapshot or a migration compares this one's against. Its canonical
  * form (core/canonical.ts Canonicalizable) is its name and its handles' digest (core/fingerprint.ts rosterDigest), taken
- * once as it is made, so a type, a literal or a predicate over the roster encodes the same characters whatever the
- * roster's size, and every encoding of it changes with its handles.
+ * once, where the roster is first made (Roster.of), so a type, a literal or a predicate over the roster encodes the same
+ * characters whatever the roster's size, and every encoding of it changes with its handles.
  */
 export class Roster implements Canonicalizable {
 	readonly closed: DeclaredName
 	readonly handles: NonEmptyReadonlyArray<string>
 	readonly digest: RosterDigest
 
-	constructor(closed: DeclaredName, handles: NonEmptyReadonlyArray<string>) {
+	/** The roster of `closed` over `handles`, its digest taken here (core/fingerprint.ts rosterDigest). */
+	static of(closed: DeclaredName, handles: NonEmptyReadonlyArray<string>): Roster {
+		return new Roster(closed, handles, rosterDigest(handles))
+	}
+
+	/**
+	 * The roster of `closed` over `handles`, whose digest is `digest`: the one Roster.of takes, or the one a served file
+	 * carries beside the roster's name, which generate took (served/json.ts), so a load hashes no handle.
+	 */
+	constructor(closed: DeclaredName, handles: NonEmptyReadonlyArray<string>, digest: RosterDigest) {
 		this.closed = closed
 		this.handles = Object.isFrozen(handles) ? handles : Object.freeze(handles)
-		this.digest = rosterDigest(this.handles)
+		this.digest = digest
 		Object.freeze(this)
 	}
 

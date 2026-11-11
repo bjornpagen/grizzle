@@ -206,7 +206,7 @@ export class SchemaModel {
 		const owned = Rec.values(fixture.owned.relations)
 		for (const r of owned) {
 			if (r.kind === "closed") {
-				this.#rosters.set(r.name, new Roster(r.name, r.desc.handles))
+				this.#rosters.set(r.name, Roster.of(r.name, r.desc.handles))
 			}
 		}
 		const relations = new Map<string, SchemaRelation>()

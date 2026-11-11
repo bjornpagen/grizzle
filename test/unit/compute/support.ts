@@ -81,7 +81,7 @@ const rosters: ReadonlyMap<string, NonEmptyReadonlyArray<string>> = new Map<
 
 /** The codes a fresh installation gives the declared rosters, which a handle literal renders as. */
 const testCodes: Codebook = firstCodebook(
-	Arr.map([...rosters], ([closed, handles]) => new Roster(parsedName(closed), handles))
+	Arr.map([...rosters], ([closed, handles]) => Roster.of(parsedName(closed), handles))
 )
 
 /**
@@ -92,7 +92,7 @@ const testEnv: ScalarEnv = {
 	kind: "schema",
 	roster: (name) => {
 		const handles = rosters.get(name)
-		return handles === undefined ? undefined : new Roster(name, handles)
+		return handles === undefined ? undefined : Roster.of(name, handles)
 	},
 	contractPredicate: (predicate, base, name, facts) =>
 		contractPredicateTable(predicate, base, name, facts, {
