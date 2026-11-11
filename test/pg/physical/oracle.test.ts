@@ -1,3 +1,51 @@
+/**
+ * The oracle installer and the real installer produce equivalent catalogs.
+ *
+ * The oracle's minimal installer (test/support/oracle/install) and the real one both install each generated schema (1-4
+ * relations, candidate keys, closed rosters with payloads, containments into earlier relations' keys, mutable
+ * relations, every scalar family the generators draw, the extended types included: contracts, spans and vectors) under
+ * the one schema name the case allocates, each inside its own transaction on one pinned session, which reads the
+ * catalog and rolls back, so nothing outlives the case and the two catalogs carry the same schema name.
+ *
+ * The oracle installs no role (plan.ts); the real installer installs the schema with the fixture's worlds
+ * (test/pg/physical/support.ts fixtureWorlds: a full writer and a full reader in one login). They agree on every table,
+ * column order and base type, NOT NULL, collation, identity and sequence; on every primary key, candidate key and
+ * foreign key, by name, columns and referenced columns; and on enum labels in order. The real installer's grants are
+ * judged against the worlds' grants derived from the declaration and the installed types alone (support.ts
+ * worldsGrants), independent of the installer. The differences are exactly what the oracle records it leaves out or
+ * what the real installer adds by rule, each checked here:
+ *
+ * - a column the oracle types as plain text is typed by the structural `__text_` domain of its pattern, whose base is
+ *   that same text. Each domain's CHECK is judged by what it admits: every probe text (checks.ts) cast into the domain
+ *   inside the real installation's transaction must be admitted exactly when the declared pattern, read by the
+ *   JavaScript engine, matches it, and refused with 23514 naming the domain's CHECK;
+ * - a contract domain is the real installer's without its CHECKs, which the minimal installer leaves out (plan.ts),
+ *   named alike, by the digest of its definition, CHECK and all;
+ * - a closed relation, which a roster's patterned payload declares, is the real installer's alone: the minimal installer
+ *   skips it (plan.ts), and its constants are no part compared here;
+ * - a table's storage CHECKs (a span's shape and width, a vector's norm) are the oracle's own statement of the
+ *   documented rule, compared with the real installer's by name and by PostgreSQL's deparsed definition; a row check
+ *   and a finite check are the real installer's alone, held by name to the ones its DDL states here, and by what they
+ *   admit, with a contract's predicate and a span endpoint's, in checks.test.ts;
+ * - a foreign key the law model defers (the referenced relation has fields outside the referenced key) is DEFERRABLE
+ *   INITIALLY DEFERRED where the oracle's is immediate;
+ * - the real installer adds the law-maintenance indexes its index engine created, each a non-unique index justified by
+ *   a law, and nothing else;
+ * - the real installer adds the refusal function its write statements raise through (packages/engine/src/write/refusal.ts),
+ *   which the oracle's installer predates, and an advance function per serial field (physical/ddl/advance.ts), each
+ *   executable by the writer alone.
+ *
+ * Beside the comparison, the real installation's catalog holds what its own manifest promises (installedAsPromised):
+ * its projection equals the manifest's, the erasure shape holds for its worlds, and the column, domain, constraint,
+ * index, roster, grant and default-privilege rules hold.
+ *
+ * What a case reached of the differences the comparison allows, and of the extended types it compares.
+ *
+ * Features: the installer's situations, each a feature of the generated schema.
+ *
+ * Plants (~/.cache/grizzle-release/BR11/plants): oracle-installer-fk-immediate (a foreign key the law model defers is
+ * installed immediate).
+ */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -52,49 +100,6 @@ import type { PgConnection, SqlError } from "#test/support/pg.ts"
 import { owning } from "#test/support/policy.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
-/**
- * The oracle installer and the real installer produce equivalent catalogs.
- *
- * The oracle's minimal installer (test/support/oracle/install) and the real one both install each generated schema (1-4
- * relations, candidate keys, closed rosters with payloads, containments into earlier relations' keys, mutable
- * relations, every scalar family the generators draw, the extended types included: contracts, spans and vectors) under
- * the one schema name the case allocates, each inside its own transaction on one pinned session, which reads the
- * catalog and rolls back, so nothing outlives the case and the two catalogs carry the same schema name.
- *
- * The oracle installs no role (plan.ts); the real installer installs the schema with the fixture's worlds
- * (test/pg/physical/support.ts fixtureWorlds: a full writer and a full reader in one login). They agree on every table,
- * column order and base type, NOT NULL, collation, identity and sequence; on every primary key, candidate key and
- * foreign key, by name, columns and referenced columns; and on enum labels in order. The real installer's grants are
- * judged against the worlds' grants derived from the declaration and the installed types alone (support.ts
- * worldsGrants), independent of the installer. The differences are exactly what the oracle records it leaves out or
- * what the real installer adds by rule, each checked here:
- *
- * - a column the oracle types as plain text is typed by the structural `__text_` domain of its pattern, whose base is
- *   that same text. Each domain's CHECK is judged by what it admits: every probe text (checks.ts) cast into the domain
- *   inside the real installation's transaction must be admitted exactly when the declared pattern, read by the
- *   JavaScript engine, matches it, and refused with 23514 naming the domain's CHECK;
- * - a contract domain is the real installer's without its CHECKs, which the minimal installer leaves out (plan.ts),
- *   named alike, by the digest of its definition, CHECK and all;
- * - a closed relation, which a roster's patterned payload declares, is the real installer's alone: the minimal installer
- *   skips it (plan.ts), and its constants are no part compared here;
- * - a table's storage CHECKs (a span's shape and width, a vector's norm) are the oracle's own statement of the
- *   documented rule, compared with the real installer's by name and by PostgreSQL's deparsed definition; a row check
- *   and a finite check are the real installer's alone, held by name to the ones its DDL states here, and by what they
- *   admit, with a contract's predicate and a span endpoint's, in checks.test.ts;
- * - a foreign key the law model defers (the referenced relation has fields outside the referenced key) is DEFERRABLE
- *   INITIALLY DEFERRED where the oracle's is immediate;
- * - the real installer adds the law-maintenance indexes its index engine created, each a non-unique index justified by
- *   a law, and nothing else;
- * - the real installer adds the refusal function its write statements raise through (packages/engine/src/write/refusal.ts),
- *   which the oracle's installer predates, and an advance function per serial field (physical/ddl/advance.ts), each
- *   executable by the writer alone.
- *
- * Beside the comparison, the real installation's catalog holds what its own manifest promises (installedAsPromised):
- * its projection equals the manifest's, the erasure shape holds for its worlds, and the column, domain, constraint,
- * index, roster, grant and default-privilege rules hold.
- *
- * What a case reached of the differences the comparison allows, and of the extended types it compares.
- */
 type PhysicalFeature =
 	| "text domain"
 	| "deferred foreign key"
@@ -304,7 +309,10 @@ layer(Substrate.layer)("oracle and real installer", (it) => {
 				const substrate = yield* Substrate
 				return yield* explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "second-implementation",
+							name: "the oracle's minimal installer, its catalog against the real installer's, the differences each named by rule"
+						},
 						suite: "physical/oracle",
 						draw: drawn(
 							schemaSketchGen({ ...defaultSchemaLimits, extended: true, keys: "spanKeys" })

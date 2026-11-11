@@ -1,3 +1,67 @@
+/**
+ * Index serving judged by PostgreSQL, over generated schemas and workloads and over drawn index requests, at volume.
+ *
+ * The index engine (physical/indexes/engine.ts) claims, for every request it plans, an index that serves it, and it
+ * creates an index only for a request nothing installed serves. PostgreSQL is the judge of both claims (serving.ts):
+ * every request's probe must run through an index the installation planned, with an index condition, one descent, no
+ * sort and a bounded count of touched buffers, and through its own index alone searching every condition it states, so
+ * no filtered row; and every created index must be needed, some request it holds going unserved once it is dropped. The
+ * serving rule is never restated here.
+ *
+ * Three populations, each installed by the fresh-install compiler and loaded at volume (serving.ts volumeRows):
+ *
+ * - Generated workloads. A program of the public-boundary generator (test/support/oracle/public) is a schema and its
+ *   reads; its reads are the workload, compiled by the workload compiler and installed with the access paths its extraction
+ *   draws (physical/access/extract.ts). Every field of a relation's keys holds the series itself, so keys stay
+ *   distinct, and every other field the series spread over 141 values, so one field alone selects about 140 rows and
+ *   two select about one: an index on a column the probe does not fix first is told from one that serves it. A relation
+ *   whose key admits fewer rows (its key fields closed handles, say) holds as many as its key admits, too few for any
+ *   index to tell from a scan, and is not judged (serving.ts). A workload whose access path PostgreSQL could not index
+ *   (an unbounded text or numeric key) is refused as UnrepresentableKey, a named outcome. Its kept cases: an equality
+ *   lookup on a boolean key column, whose answer is half its relation, beside a span predicate that a GiST index led by
+ *   a closed id, then a numeric of many values the predicate leaves unbound, does not serve; a join key on a key column
+ *   and a column of many values, beside span predicates whose GiST index holds both after its lead, which PostgreSQL
+ *   sweeps for the join key, a residue no plan the engine makes avoids (serving.ts), and which drawn workloads reach
+ *   about once in 200 cases; a span predicate on a field of a two-field key and a span, beside a take seek whose
+ *   B-tree holds both after that field, which the load makes unique on its own, so that without the predicate's GiST
+ *   index PostgreSQL finds its one row through the B-tree, whose filter on the span removes none: the GiST index is
+ *   needed still, since the B-tree does not search the span by overlap (serving.ts); a span predicate on a text
+ *   field of a key, which the load fills with two ideographs, and a span, whose GiST index, led by that text, PostgreSQL
+ *   19's btree_gist prices by its leading bytes, so its probe reads past its bound, a residue PostgreSQL 20 removes
+ *   (serving.ts); a join key planned on the B-tree a range creates, led by a column the join key fixes and holding a
+ *   boolean it leaves unbound before its other column, which PostgreSQL reads by a skip scan over the boolean in two
+ *   descents (serving.ts); and a range on a closed handle by equality and a numeric of many values by a range, beside
+ *   span predicates whose GiST index holds both, which places its entries by the numeric, so that its scan would read
+ *   the range across every handle, three times the range's share: a B-tree serves it (physical/indexes/engine.ts).
+ * - Drawn requests. A fixed schema holds a plain table, a span key's GiST index (Booking, on room and during), two span
+ *   keys' GiST indexes led by a column of few values, a boolean (Shift, on standby, worker and during, standby true on
+ *   one row in ten) and a closed id of a drawn roster of four to eight handles (Rota, on shade, worker and during, shade
+ *   its first handle on nine rows in ten), a selected side's unique (at most one remainder deposit per line) beside a foreign key on its column, and the engine is
+ *   handed drawn requests on it: workload B-tree requests of every use, law probes, and GiST span predicates on during
+ *   with any of Booking's scalars. Its kept cases plant the requests a planner is tempted to serve wrongly: an equality
+ *   pair beside a range over the same two columns in the other order, which one index serves; law probes on Event's
+ *   (tenant, account) and (tenant, account, id), the second planned on the primary key, which PostgreSQL reads through
+ *   the index on (tenant, account) at the same cost, rechecking id on the rows of its sampled pair, its choice and not
+ *   the engine's claim (serving.ts); and, on Shift and on Rota of five and of eight shades, whose GiST indexes place
+ *   their entries by worker, their first column of many values: a range on worker after the column of few values, and
+ *   a law probe and a range on that column alone, which the index holds in order but whose scan reads the range across
+ *   every value of that column, or every entry; and a lookup and a range on worker alone, which the index holds after
+ *   that column, unbound, so that its scan descends once per value of it: a B-tree serves each.
+ * - Shared columns. Two to four equality lookups and seeks over the same three columns of Event, each column drawn in
+ *   any position and direction, are planned in every order they can arrive in, and the plan must be one list of
+ *   indexes: the engine plans in its canonical order, and chooses each created index's key order to serve every later
+ *   request over its columns that one order can serve with it. The first order is then installed and judged as above.
+ *   Beside drawn sets it draws two seeks over the same columns in reverse orders, and an equality lookup beside a seek
+ *   over some or all of its columns, each among up to two other requests.
+ *
+ * A field's value on row g (see the header): `value` the series or its spread, `key` whether the field lies in a key.
+ *
+ * At most two code points, as the generated text field admits: two CJK ideographs name a million keys.
+ *
+ * Plants (~/.cache/grizzle-release/BR11/plants): serving-any-index-serves and serving-requests-any-index (the index
+ * engine takes any index of a request's relation to serve it) and serving-shared-duplicated (a request a created index
+ * serves gets an index of its own).
+ */
 import { layer } from "@effect/vitest"
 import { drawn, explore, type Kept } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -61,66 +125,6 @@ import { spread } from "#test/support/plans.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
 
-/**
- * Index serving judged by PostgreSQL, over generated schemas and workloads and over drawn index requests, at volume.
- *
- * The index engine (physical/indexes/engine.ts) claims, for every request it plans, an index that serves it, and it
- * creates an index only for a request nothing installed serves. PostgreSQL is the judge of both claims (serving.ts):
- * every request's probe must run through an index the installation planned, with an index condition, one descent, no
- * sort and a bounded count of touched buffers, and through its own index alone searching every condition it states, so
- * no filtered row; and every created index must be needed, some request it holds going unserved once it is dropped. The
- * serving rule is never restated here.
- *
- * Three populations, each installed by the fresh-install compiler and loaded at volume (serving.ts volumeRows):
- *
- * - Generated workloads. A program of the public-boundary generator (test/support/oracle/public) is a schema and its
- *   reads; its reads are the workload, compiled by the workload compiler and installed with the access paths its extraction
- *   draws (physical/access/extract.ts). Every field of a relation's keys holds the series itself, so keys stay
- *   distinct, and every other field the series spread over 141 values, so one field alone selects about 140 rows and
- *   two select about one: an index on a column the probe does not fix first is told from one that serves it. A relation
- *   whose key admits fewer rows (its key fields closed handles, say) holds as many as its key admits, too few for any
- *   index to tell from a scan, and is not judged (serving.ts). A workload whose access path PostgreSQL could not index
- *   (an unbounded text or numeric key) is refused as UnrepresentableKey, a named outcome. Its kept cases: an equality
- *   lookup on a boolean key column, whose answer is half its relation, beside a span predicate that a GiST index led by
- *   a closed id, then a numeric of many values the predicate leaves unbound, does not serve; a join key on a key column
- *   and a column of many values, beside span predicates whose GiST index holds both after its lead, which PostgreSQL
- *   sweeps for the join key, a residue no plan the engine makes avoids (serving.ts), and which drawn workloads reach
- *   about once in 200 cases; a span predicate on a field of a two-field key and a span, beside a take seek whose
- *   B-tree holds both after that field, which the load makes unique on its own, so that without the predicate's GiST
- *   index PostgreSQL finds its one row through the B-tree, whose filter on the span removes none: the GiST index is
- *   needed still, since the B-tree does not search the span by overlap (serving.ts); a span predicate on a text
- *   field of a key, which the load fills with two ideographs, and a span, whose GiST index, led by that text, PostgreSQL
- *   19's btree_gist prices by its leading bytes, so its probe reads past its bound, a residue PostgreSQL 20 removes
- *   (serving.ts); a join key planned on the B-tree a range creates, led by a column the join key fixes and holding a
- *   boolean it leaves unbound before its other column, which PostgreSQL reads by a skip scan over the boolean in two
- *   descents (serving.ts); and a range on a closed handle by equality and a numeric of many values by a range, beside
- *   span predicates whose GiST index holds both, which places its entries by the numeric, so that its scan would read
- *   the range across every handle, three times the range's share: a B-tree serves it (physical/indexes/engine.ts).
- * - Drawn requests. A fixed schema holds a plain table, a span key's GiST index (Booking, on room and during), two span
- *   keys' GiST indexes led by a column of few values, a boolean (Shift, on standby, worker and during, standby true on
- *   one row in ten) and a closed id of a drawn roster of four to eight handles (Rota, on shade, worker and during, shade
- *   its first handle on nine rows in ten), a selected side's unique (at most one remainder deposit per line) beside a foreign key on its column, and the engine is
- *   handed drawn requests on it: workload B-tree requests of every use, law probes, and GiST span predicates on during
- *   with any of Booking's scalars. Its kept cases plant the requests a planner is tempted to serve wrongly: an equality
- *   pair beside a range over the same two columns in the other order, which one index serves; law probes on Event's
- *   (tenant, account) and (tenant, account, id), the second planned on the primary key, which PostgreSQL reads through
- *   the index on (tenant, account) at the same cost, rechecking id on the rows of its sampled pair, its choice and not
- *   the engine's claim (serving.ts); and, on Shift and on Rota of five and of eight shades, whose GiST indexes place
- *   their entries by worker, their first column of many values: a range on worker after the column of few values, and
- *   a law probe and a range on that column alone, which the index holds in order but whose scan reads the range across
- *   every value of that column, or every entry; and a lookup and a range on worker alone, which the index holds after
- *   that column, unbound, so that its scan descends once per value of it: a B-tree serves each.
- * - Shared columns. Two to four equality lookups and seeks over the same three columns of Event, each column drawn in
- *   any position and direction, are planned in every order they can arrive in, and the plan must be one list of
- *   indexes: the engine plans in its canonical order, and chooses each created index's key order to serve every later
- *   request over its columns that one order can serve with it. The first order is then installed and judged as above.
- *   Beside drawn sets it draws two seeks over the same columns in reverse orders, and an equality lookup beside a seek
- *   over some or all of its columns, each among up to two other requests.
- *
- * A field's value on row g (see the header): `value` the series or its spread, `key` whether the field lies in a key.
- *
- * At most two code points, as the generated text field admits: two CJK ideographs name a million keys.
- */
 const fieldSql = (
 	kind: FieldKind,
 	value: string,
@@ -3278,7 +3282,10 @@ const workloadSuite = (runs: number) => (ctx: TestContext) =>
 		ctx,
 		explore(
 			{
-				oracle: { kind: "unstated" },
+				oracle: {
+					kind: "postgresql",
+					name: "PostgreSQL's serving judge: every planned request's probe runs through an index the installation planned, and every created index is needed"
+				},
 				suite: "pg/physical/serving-workload",
 				draw: drawn(caseSketchGen),
 				literal: Formatter.format,
@@ -3306,7 +3313,10 @@ const requestSuite = (runs: number) => (ctx: TestContext) =>
 		ctx,
 		explore(
 			{
-				oracle: { kind: "unstated" },
+				oracle: {
+					kind: "postgresql",
+					name: "PostgreSQL's serving judge over drawn requests: each served, every created index needed"
+				},
 				suite: "pg/physical/serving-requests",
 				draw: drawn(requestSketchGen),
 				literal: Formatter.format,
@@ -3340,7 +3350,10 @@ const sharedSuite = (runs: number) => (ctx: TestContext) =>
 		ctx,
 		explore(
 			{
-				oracle: { kind: "unstated" },
+				oracle: {
+					kind: "postgresql",
+					name: "PostgreSQL's serving judge over shared requests in every arrival order: each served, every created index needed"
+				},
 				suite: "pg/physical/serving-shared",
 				draw: drawn(sharedSetGen),
 				literal: Formatter.format,

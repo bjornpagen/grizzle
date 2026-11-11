@@ -16,8 +16,12 @@
  *
  * The required situation is a constant that only a written table's casts reach: the live-codes constant a set's bits
  * domain's CHECK calls, reached from a source writer's generated column of a containment selected by that set (see
- * test/support/executes.ts). Planted bug: the installer's reachability stops following a statement's types, and every
- * seed fails.
+ * test/support/executes.ts).
+ *
+ * Features: that constant, a role that writes nothing, and an insert that holds.
+ *
+ * Plants (~/.cache/grizzle-release/BR11/plants): executes-written-unfollowed (a role's EXECUTE grants follow its views
+ * alone, never the statements on the tables it writes).
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -145,7 +149,10 @@ layer(Substrate.layer)("a role's EXECUTE grants on PostgreSQL 19", (it) => {
 					const owner = yield* substrate.session({ ...ownerSession(), label: "executes owner" })
 					return yield* explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "postgresql",
+								name: "the catalog's own record of what each role's objects evaluate, through pg_depend, against has_function_privilege and a first insert"
+							},
 							suite: "pg/physical/executes",
 							draw: drawn(executesWorldGen),
 							literal: Formatter.format,

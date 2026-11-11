@@ -23,6 +23,11 @@
  *   put in place, `no-change` when it holds it already, a south store's put is `invariant-rejected` on Store's key, the
  *   store outside manager's entry. After
  *   each write every Store's count and stock are the family's: the number of its Items and the sum of their quantities.
+ *
+ * Features: each role's probes of each statement kind on the owners, admitted and refused, and each apply outcome.
+ *
+ * Plants (~/.cache/grizzle-release/BR11/plants): family-grants-owner-whole (a member writer holds column SELECT on every
+ * field of its family's owner) and family-grants-no-recount (a member writer holds no column UPDATE on its owner).
  */
 import { layer } from "@effect/vitest"
 import { drawn as drawnCase, explore } from "@grizzle/testing/explore"

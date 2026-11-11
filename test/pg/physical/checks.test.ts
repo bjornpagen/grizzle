@@ -1,3 +1,34 @@
+/**
+ * The predicate CHECKs of the real installer admit exactly what their declarations mean (checks.ts).
+ *
+ * Each case declares one CHECK of every predicate class over a small schema, its thresholds and the closed facts drawn:
+ * - a row check, `check("AtLeast", Gauge, level >= k)` (a law model TableCheck);
+ * - a closed check, the containment of Mark's (grade, score) in GradeScore's (grade, score) rows, a closed relation
+ *   over the roster Grade (a ClosedCheck);
+ * - a contract's predicate, `Level` between lo and hi, as the domain's CHECK on a plain column, and as the endpoint
+ *   CHECK of a span over Level, the predicate over the lower and then the upper endpoint (physical/span/storage.ts);
+ * - a text refinement, `^[ab]{1,2}$`, as its text domain's CHECK on a plain column, probed with checks.ts textProbes
+ *   and judged by the declared pattern as the JavaScript engine reads it;
+ * - money constants: a contract `Fee` over money, at least a drawn amount, as its domain's CHECK, and a key over the
+ *   charges selected at a drawn tip, `key(on(select(Charge, tip = t), account))`, whose law column's expression holds
+ *   the constant. The installation runs under the session's own lc_monetary, and its charges are probed under a drawn
+ *   one: a C locale's, whose money has two fraction digits, or Japan's, which has none and where numeric::money and
+ *   bigint::money count whole units, so a constant cast per row, or folded under the writer's locale, moves. A STABLE
+ *   cast in the law column's expression is refused by the installation itself.
+ *
+ * The real installation runs in a transaction on a pinned session, and every probe row is inserted under a savepoint:
+ * the server must admit a row exactly when the host meaning holds and refuse every other with 23514 naming that
+ * declaration's CHECK, or 23505 naming the key's UNIQUE for a second charge of an account at the selected tip. Beside
+ * the drawn probes, each case adds rows on both sides of every predicate, the span's upper endpoint failing alone among
+ * them, so a run judges each class both ways. Each case then installs again without one drawn class's CHECK, that CHECK
+ * alone under its own table or domain, and requires the same judge to find the defect: the property discriminates every
+ * class.
+ *
+ * Features: each predicate class judged both ways and each class's CHECK dropped, under both lc_monetary values.
+ *
+ * Plants (~/.cache/grizzle-release/BR11/plants): checks-span-upper-unchecked (a span's endpoint CHECK holds its
+ * contract's predicate of the lower endpoint alone).
+ */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -43,32 +74,6 @@ import { owning } from "#test/support/policy.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 import { regex } from "arkregex"
-/**
- * The predicate CHECKs of the real installer admit exactly what their declarations mean (checks.ts).
- *
- * Each case declares one CHECK of every predicate class over a small schema, its thresholds and the closed facts drawn:
- * - a row check, `check("AtLeast", Gauge, level >= k)` (a law model TableCheck);
- * - a closed check, the containment of Mark's (grade, score) in GradeScore's (grade, score) rows, a closed relation
- *   over the roster Grade (a ClosedCheck);
- * - a contract's predicate, `Level` between lo and hi, as the domain's CHECK on a plain column, and as the endpoint
- *   CHECK of a span over Level, the predicate over the lower and then the upper endpoint (physical/span/storage.ts);
- * - a text refinement, `^[ab]{1,2}$`, as its text domain's CHECK on a plain column, probed with checks.ts textProbes
- *   and judged by the declared pattern as the JavaScript engine reads it;
- * - money constants: a contract `Fee` over money, at least a drawn amount, as its domain's CHECK, and a key over the
- *   charges selected at a drawn tip, `key(on(select(Charge, tip = t), account))`, whose law column's expression holds
- *   the constant. The installation runs under the session's own lc_monetary, and its charges are probed under a drawn
- *   one: a C locale's, whose money has two fraction digits, or Japan's, which has none and where numeric::money and
- *   bigint::money count whole units, so a constant cast per row, or folded under the writer's locale, moves. A STABLE
- *   cast in the law column's expression is refused by the installation itself.
- *
- * The real installation runs in a transaction on a pinned session, and every probe row is inserted under a savepoint:
- * the server must admit a row exactly when the host meaning holds and refuse every other with 23514 naming that
- * declaration's CHECK, or 23505 naming the key's UNIQUE for a second charge of an account at the selected tip. Beside
- * the drawn probes, each case adds rows on both sides of every predicate, the span's upper endpoint failing alone among
- * them, so a run judges each class both ways. Each case then installs again without one drawn class's CHECK, that CHECK
- * alone under its own table or domain, and requires the same judge to find the defect: the property discriminates every
- * class.
- */
 interface Planted {
 	readonly k: number
 	readonly scores: readonly [number, number, number]

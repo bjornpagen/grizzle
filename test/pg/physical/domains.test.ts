@@ -1,5 +1,5 @@
 /**
- * Shared domains on PostgreSQL 19rc1 (W6.Q10): a contract's domain is named by the digest of its physical definition,
+ * Shared domains on PostgreSQL 19rc1: a contract's domain is named by the digest of its physical definition,
  * so two contracts of one definition share one domain and two of different definitions never do, and each column the
  * shared domain types still enforces its contract, its violation refused with 23514 on that domain.
  *
@@ -8,6 +8,12 @@
  *   the two are of one type exactly when the pair's definitions are equal; each column admits a drawn value its
  *   predicate holds of and refuses, with 23514 on its column's domain reporting a contract law of the installation, a
  *   drawn value its predicate refuses.
+ *
+ * Features: one definition sharing one domain, two definitions taking two, and a shared domain refusing each
+ * contract's violation.
+ *
+ * Plants (~/.cache/grizzle-release/BR11/plants): domains-named-by-contract (a contract's domain is named by its
+ * definition and its contract's name, so two contracts of one definition never share one).
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"

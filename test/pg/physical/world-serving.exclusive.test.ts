@@ -15,7 +15,7 @@
  * chooses what its link reads: an ordinary relation, the derived relation, or an ordinary relation a declared key
  * reads, such as Share under the base's one-share variant, `key(on(Share, "doc"))`, whose probe is that key's key probe: UniqueObjects.keys holds
  * every declared key beside the primary key (laws/model/uniques.ts uniqueOf, "A UNIQUE over a declared candidate key's
- * fields in its order is that key's", so since 65203c4), and a unique probe is only an object's beyond the keys, which
+ * fields in its order is that key's"), and a unique probe is only an object's beyond the keys, which
  * no documents base holds: pg/write/entry-occupants covers it, at its key over a selected side,
  * `key(on(select(Seat, lead), "grp"))`. Its link may bind a second field of the source,
  * to another field of T or to a context's claim, as the documents base's notes bind their document's
@@ -38,6 +38,11 @@
  * index on doc, rechecking no, where Note's primary key alone serves it (world-serving.ts resolveClaims); and an entry
  * over Share whose rule fixes user by the session's subject, its head doc alone, whose view a read by key names by doc
  * alone (world-serving.ts ViewKeyField).
+ *
+ * Features: every situation the witnesses reach by construction (see above).
+ *
+ * Plants (~/.cache/grizzle-release/BR11/plants): world-serving-access-dropped (the installation plans no index for its
+ * workload's and its roles' write filters' access paths).
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore, type Kept } from "@grizzle/testing/explore"
@@ -328,7 +333,10 @@ const populationSuite = (runs: number) => (ctx: TestContext) =>
 		ctx,
 		explore(
 			{
-				oracle: { kind: "unstated" },
+				oracle: {
+					kind: "postgresql",
+					name: "PostgreSQL's serving judge: each world function call reads by its indexes at volume"
+				},
 				suite: "pg/physical/world-serving",
 				draw: drawn(caseGen),
 				literal: Formatter.format,

@@ -1,3 +1,24 @@
+/**
+ * The catalog verifiers against drift on PostgreSQL 19: the erasure verifier (test/support/catalog/verify.ts), the
+ * installed checker (test/support/catalog/installed.ts) and the manifest projection (test/support/catalog/expected.ts),
+ * which every other physical suite expects to find nothing, so a verifier that accepted everything would pass them all.
+ * Each drift is made in a transaction rolled back, so drifts never accumulate (the drift worlds' JSDoc below states
+ * them).
+ *
+ * - Erasure drifts and world drifts: each drawn drift is named exactly as its rule states, and one that confers nothing
+ *   is named by nothing.
+ * - Not valid: every foreign key re-added NOT VALID is caught by the manifest comparison alone, exhausted over the
+ *   installation's foreign keys.
+ *
+ * Oracle: each rule as its specification states it, over targets drawn from the installation's own catalog and
+ * expectation.
+ *
+ * Features: each drift kind, named and conferring nothing, and each foreign key.
+ *
+ * Plants (~/.cache/grizzle-release/BR11/plants): verify-public-unjudged (the erasure verifier names no privilege PUBLIC
+ * holds), verify-not-valid-unread (the projection reads every constraint as validated) and verify-barrier-unjudged (no
+ * view's security barrier is judged).
+ */
 import { layer } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
 import { required, requiredInSpace } from "@grizzle/testing/features"

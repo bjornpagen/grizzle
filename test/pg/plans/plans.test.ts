@@ -1,7 +1,45 @@
+/**
+ * Plan properties of the optimized lowering on PostgreSQL 19 (the R04, R17, R20 and R22 mechanisms).
+ *
+ * The fixture (fixture.ts) is installed by the fresh-install compiler, filled to pinned sizes and VACUUM ANALYZEd once
+ * per test. Each query is compiled by compileQuery (packages/engine/src/program) for the `snapshot` context, and the
+ * statements the runtime sends are planned with EXPLAIN (FORMAT JSON), under ANALYZE where a property counts rows, and
+ * read by the tree's one EXPLAIN decoder (bench/harness/explain.ts). The properties are the contract; the plan's node
+ * order, index names and costs are the planner's:
+ *
+ * - every take of 1 to 50 over a retained primary key (Posting's, Item's or Account's), ordered by it either way,
+ *   deduplicates nothing and sorts nothing and never scans its relation sequentially, while the same statement with
+ *   the redundant DISTINCT the elision removed, and the conservative artifact, which deduplicates at every boundary,
+ *   each deduplicate, by a Unique node over ordered rows or by a hashed Aggregate, whichever the planner costs lower
+ *   (R17: removing it is the observable effect);
+ * - a take bound to the rows of a small relation parameter, over drawn parent sets, reads entries in proportion to the
+ *   parents times k (at most k + 1 per parent) and never scans entry sequentially (R20);
+ * - a pipelined attachment's take of a drawn bound and direction over parent rows the facts do not bound reads entry in
+ *   one scan, once (R20);
+ * - a relation parameter joined to a keyed relation, over drawn id sets with repeats and absent ids, reads Item only
+ *   by index probes, never sequentially, as the arrays the template carries, whose estimate is the input's length
+ *   (R22);
+ * - a sum or a count over (id, account, amount) folds the scan in one grouping step with no deduplication, while one
+ *   over the distinct (account, amount) values deduplicates its contributions first;
+ * - a query whose discriminator stays a literal never scans its relation sequentially, under a generic and a custom
+ *   prepared plan alike, over drawn parameters (R04: generic and custom plans are tested separately).
+ *
+ * Oracle: each mechanism's specification, judged on PostgreSQL's own plan of the statement the runtime sends: the
+ * grouping steps, scans, loops and rows read it reports.
+ *
+ * Features: each keyed relation in each direction, each direction of a pipelined take, each fold of each binding, and
+ * each query under each plan cache mode. The lateral take and the relation parameter's probe hold for every drawn
+ * input; a drawn input's shape is no situation of theirs.
+ *
+ * Plants (~/.cache/grizzle-release/BR11/plants): plans-take-deduplicated (every take starts DISTINCT),
+ * plans-lateral-unbounded (a LATERAL take reads with no LIMIT), plans-pipelined-lateral (a take over every group goes
+ * LATERAL, one scan per parent), plans-relparam-text-arrays (a relation input's arrays are sent as text),
+ * plans-fold-deduplicated (every fold starts DISTINCT) and plans-probe-keys-off (no selection key is probed).
+ */
 import { layer } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
 import { noCoverage, required, requiredInSpace } from "@grizzle/testing/features"
-import { array, element, type Gen, int, uniqueArray } from "@grizzle/testing/gen"
+import { array, element, type Gen, increasing, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -57,33 +95,6 @@ import { elementAt } from "#test/support/oracle/pick.ts"
 import { owning } from "#test/support/policy.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
-/**
- * Plan properties of the optimized lowering on PostgreSQL 19 (the R04, R17, R20 and R22 mechanisms).
- *
- * The fixture (fixture.ts) is installed by the fresh-install compiler, filled to pinned sizes and VACUUM ANALYZEd once
- * per test. Each query is compiled by compileQuery (packages/engine/src/program) for the `snapshot` context, and the
- * statements the runtime sends are planned with EXPLAIN (FORMAT JSON), under ANALYZE where a property counts rows, and
- * read by the tree's one EXPLAIN decoder (bench/harness/explain.ts). The properties are the contract; the plan's node
- * order, index names and costs are the planner's:
- *
- * - every take of 1 to 50 over a retained primary key (Posting's, Item's or Account's), ordered by it either way,
- *   deduplicates nothing and sorts nothing and never scans its relation sequentially, while the same statement with
- *   the redundant DISTINCT the elision removed, and the conservative artifact, which deduplicates at every boundary,
- *   each deduplicate, by a Unique node over ordered rows or by a hashed Aggregate, whichever the planner costs lower
- *   (R17: removing it is the observable effect);
- * - a take bound to the rows of a small relation parameter, over drawn parent sets, reads entries in proportion to the
- *   parents times k (at most k + 1 per parent) and never scans entry sequentially (R20);
- * - a pipelined attachment's take of a drawn bound and direction over parent rows the facts do not bound reads entry in
- *   one scan, once (R20);
- * - a relation parameter joined to a keyed relation, over drawn id sets with repeats and absent ids, reads Item only
- *   by index probes, never sequentially, as the arrays the template carries, whose estimate is the input's length
- *   (R22);
- * - a sum or a count over (id, account, amount) folds the scan in one grouping step with no deduplication, while one
- *   over the distinct (account, amount) values deduplicates its contributions first;
- * - a query whose discriminator stays a literal never scans its relation sequentially, under a generic and a custom
- *   prepared plan alike, over drawn parameters (R04: generic and custom plans are tested separately).
- */
-
 /** The relations keyed by one id the plan fixture fills past a page: a take over their key reads it in key order. */
 type Keyed = "Posting" | "Item" | "Account"
 
@@ -130,7 +141,10 @@ const takeCaseGen: Gen<TakeCase> = (source) => ({
 	k: source.draw(int(1, 50))
 })
 
-/** An account's first two entries by seq, bound to each account of a relation parameter. */
+/** How many entries per account the lateral take takes. */
+const firstCount = 2
+
+/** An account's first `firstCount` entries by seq, bound to each account of a relation parameter. */
 const firstEntries = query(Plans)
 	.rule((r) => {
 		const { seq, amount } = v(Entry, "entry")
@@ -139,7 +153,7 @@ const firstEntries = query(Plans)
 			.find({ seq, amount })
 	})
 	.orderBy(["seq", "asc"])
-	.take(2)
+	.take(firstCount)
 
 const entriesPerAccount = query(Plans).rule((r) => {
 	const wanted = r.relation("accounts", { id: Account.fields.id })
@@ -458,13 +472,13 @@ layer(Substrate.layer)("plan properties of the optimized lowering", (it) => {
 					const entry = relation("Entry")
 					return yield* explore(
 						{
-							oracle: { kind: "unstated" },
-							/** R20: rows read proportional to parents times k, take(2) and at most one more row per parent. */
+							oracle: {
+								kind: "specification",
+								name: "R20: a take bound to a small parent set reads at most k + 1 entries per parent, never sequentially"
+							},
 							suite: "pg/plans/lateral-take",
-							/** One to eight distinct accounts of the fixture. */
-							draw: drawn(
-								uniqueArray(int(0, sizes.accounts - 1), (n) => n, { min: 1, max: 8 }, 20)
-							),
+							/** One to eight distinct accounts of the fixture, a set, drawn by its ascending members. */
+							draw: drawn(increasing(0, sizes.accounts - 1, { min: 1, max: 8 })),
 							literal: Formatter.format,
 							coverage: noCoverage,
 							kept: [],
@@ -489,7 +503,7 @@ layer(Substrate.layer)("plan properties of the optimized lowering", (it) => {
 									[]
 								)
 								assert.ok(
-									rowsReadOf(plan, entry) <= 3 * parents.length,
+									rowsReadOf(plan, entry) <= (firstCount + 1) * parents.length,
 									`${rowsReadOf(plan, entry)} entries read for ${parents.length} parents`
 								)
 							})
@@ -593,7 +607,10 @@ layer(Substrate.layer)("plan properties of the optimized lowering", (it) => {
 					}
 					return yield* explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "specification",
+								name: "R22: a relation parameter joined to a keyed relation reads it by index probes alone"
+							},
 							suite: "pg/plans/relparam-probe",
 							/** Ids of the fixture's items, repeats included, and ids past it that name no item. */
 							draw: drawn(array(int(0, sizes.items + 999), { min: 1, max: 12 })),
@@ -717,7 +734,10 @@ layer(Substrate.layer)("plan properties of the optimized lowering", (it) => {
 					})
 					return yield* explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "specification",
+								name: "R04: a read whose discriminator is a literal never scans its relation sequentially, under either plan cache mode"
+							},
 							suite: "pg/plans/partial-index",
 							draw: drawn(partialCase),
 							literal: Formatter.format,

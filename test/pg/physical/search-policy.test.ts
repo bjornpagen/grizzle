@@ -1,3 +1,32 @@
+/**
+ * The vector library's search policy as login defaults, over drawn worlds on one schema: Doc (a text domain of its
+ * own, and a contract over it, whose domain rests on the text's), Embedding (a vector column), Tag (another text domain)
+ * and Vectors, a derived relation over Embedding.
+ *
+ * A case draws three roles, each holding a nonempty set of the four relations whole, writing some of the stored ones it
+ * holds and refreshing Vectors when it holds it, and puts each in the login `alpha` or `beta`. A role reaches the
+ * vector type when it holds Embedding or Vectors, so it may reach it through the derived relation alone. Every install
+ * runs the installed-catalog checker (test/support/catalog/installed.ts), which judges what the catalog stores: each
+ * login's defaults are the fixed ones plus, exactly when one of its roles reaches the vector type, the search policy's
+ * session parameters; a role holds USAGE on the vector schema exactly when it reaches the type, and on a domain of the
+ * schema at least when its views or its writes bind the type and at most when its privileges need it, down a
+ * contract's base chain (Doc's handle names both its contract's domain and the text domain under it); MAINTAIN on the
+ * materialized view goes to exactly its refreshers. Here:
+ *
+ * - a session of a login whose roles reach the vector type reads the policy's values, PostgreSQL applying them at
+ *   login;
+ * - over drawn histories of two or three versions, each login's one role holding a drawn set of the relations, a
+ *   migration stores the policy for a login that gains it and resets it for one that loses it, and leaves alone a login
+ *   whose reach does not change.
+ *
+ * Features: a role reading and one writing a contract over a refined text, one reaching the vector type through the
+ * derived relation alone, logins with and without the policy, a refresher and a reader of the derived relation, and
+ * each reach change across a migration.
+ *
+ * Plants (~/.cache/grizzle-release/BR11/plants): search-policy-inverted (a login takes the policy exactly when none of
+ * its roles reaches the vector type) and search-policy-never-reset (a migration never resets a setting a kept login no
+ * longer sets).
+ */
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -24,27 +53,6 @@ import { whereIndex } from "#test/support/oracle/pick.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { roleSession, Substrate } from "#test/support/substrate/substrate.ts"
 
-/**
- * The vector library's search policy as login defaults, over drawn worlds on one schema: Doc (a text domain of its
- * own, and a contract over it, whose domain rests on the text's), Embedding (a vector column), Tag (another text domain)
- * and Vectors, a derived relation over Embedding.
- *
- * A case draws three roles, each holding a nonempty set of the four relations whole, writing some of the stored ones it
- * holds and refreshing Vectors when it holds it, and puts each in the login `alpha` or `beta`. A role reaches the
- * vector type when it holds Embedding or Vectors, so it may reach it through the derived relation alone. Every install
- * runs the installed-catalog checker (test/support/catalog/installed.ts), which judges what the catalog stores: each
- * login's defaults are the fixed ones plus, exactly when one of its roles reaches the vector type, the search policy's
- * session parameters; a role holds USAGE on the vector schema exactly when it reaches the type, and on a domain of the
- * schema at least when its views or its writes bind the type and at most when its privileges need it, down a
- * contract's base chain (Doc's handle names both its contract's domain and the text domain under it); MAINTAIN on the
- * materialized view goes to exactly its refreshers. Here:
- *
- * - a session of a login whose roles reach the vector type reads the policy's values, PostgreSQL applying them at
- *   login;
- * - over drawn histories of two or three versions, each login's one role holding a drawn set of the relations, a
- *   migration stores the policy for a login that gains it and resets it for one that loses it, and leaves alone a login
- *   whose reach does not change.
- */
 const Slug = str.regex("^[a-z]{1,8}$")
 const State = str.regex("^(on|off)$")
 /** A contract over a refined text: its domain rests on the text's, a base chain of two domains of the schema. */
@@ -274,7 +282,10 @@ layer(Substrate.layer)("the search policy as login defaults", (it) => {
 					const s = yield* Substrate
 					return yield* explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "specification",
+								name: "the policy's values exactly in the sessions of a login one of whose roles reaches the vector type"
+							},
 							suite: "pg/physical/search-policy",
 							draw: drawn(caseGen),
 							literal: Formatter.format,

@@ -1,3 +1,23 @@
+/**
+ * Row security across migrations on PostgreSQL 19, over Note and Card, each an id and a shelf, and two roles, clerk and
+ * keeper, in one login. A case draws two or three versions; in each, each role holds each relation whole or through a
+ * query entry whose filter fixes the shelf at a drawn value, and writes it or not. Each version's folder is generated,
+ * reviewed and applied by the real runner, which drift-checks the catalog it reaches (`migrated`).
+ *
+ * The model, read from the catalog after each migration: a table has row security exactly when some writer of it writes
+ * it through a narrowed entry, and then holds exactly one policy per writer of it, the narrowed writer's its entry's
+ * membership and a whole writer's TRUE, since under row security a role with no policy writes nothing; a table no writer
+ * narrows has neither row security nor a policy, the migration dropping both where an earlier version had them. At the
+ * last version both roles open, and the installed-catalog checker finds nothing. Then a drawn change by hand, row
+ * security disabled or forced on every table under it: both roles still open, since Db.open checks nothing of the
+ * database, and the drift check grizzle migrate runs refuses exactly a catalog with a changed table, naming each.
+ *
+ * Features: a narrowed writer beside a whole one, a narrowed reader that writes nothing, row security added and dropped,
+ * a narrowed writer's filter changed, and each hand change drifted or none.
+ *
+ * Plants (~/.cache/grizzle-release/BR11/plants): row-security-whole-unpoliced (a table under row security holds no
+ * policy for a writer that writes it whole).
+ */
 import { layer } from "@effect/vitest"
 import { assertInstanceOf } from "@effect/vitest/utils"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -25,21 +45,6 @@ import { noDeclarations } from "#test/support/migrate/kit.ts"
 import { withServedDb } from "#test/support/served-db.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-
-/**
- * Row security across migrations on PostgreSQL 19, over Note and Card, each an id and a shelf, and two roles, clerk and
- * keeper, in one login. A case draws two or three versions; in each, each role holds each relation whole or through a
- * query entry whose filter fixes the shelf at a drawn value, and writes it or not. Each version's folder is generated,
- * reviewed and applied by the real runner, which drift-checks the catalog it reaches (`migrated`).
- *
- * The model, read from the catalog after each migration: a table has row security exactly when some writer of it writes
- * it through a narrowed entry, and then holds exactly one policy per writer of it, the narrowed writer's its entry's
- * membership and a whole writer's TRUE, since under row security a role with no policy writes nothing; a table no writer
- * narrows has neither row security nor a policy, the migration dropping both where an earlier version had them. At the
- * last version both roles open, and the installed-catalog checker finds nothing. Then a drawn change by hand, row
- * security disabled or forced on every table under it: both roles still open, since Db.open checks nothing of the
- * database, and the drift check grizzle migrate runs refuses exactly a catalog with a changed table, naming each.
- */
 
 /** How a role holds a relation: whole, or through a query entry fixing the shelf at 1 or at 2. */
 type Holding = "whole" | "shelf 1" | "shelf 2"

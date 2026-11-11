@@ -1,3 +1,18 @@
+/**
+ * The published package against the dev cluster: a consumer's program, run by Node from a project whose node_modules
+ * holds the built packages (test/unit/dev/published.ts), serves its login's committed served file with the runtime
+ * entry's served(file, name), builds the login's DbLayer of it and the cluster's connection, opens a Db of the role with
+ * Db.open, and reads every note once through its workload's member. The schema is installed through its first
+ * migration under an allocated name (test/support/install-migrate.ts); the login's served file is compiled over that
+ * installation's snapshot by the one compile generate commits (test/support/served-db.ts servedJson) and written as
+ * generate writes it. The test writes each case's notes through a Db of its own, and the consumer must read exactly
+ * every note written so far: a model of the table, the notes the cases wrote, compared as a set.
+ *
+ * Features: a case of one note and one of several, and a read after an earlier case's write.
+ *
+ * Plants (~/.cache/grizzle-release/BR11/plants): package-role-misnamed (the runtime entry's served(file, name) serves
+ * each role under a name the file does not hold).
+ */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -34,16 +49,6 @@ import { withLayer } from "#test/support/with-layer.ts"
 import { fullWorld, loginLayer } from "#test/support/worlds.ts"
 import { exitedCleanly, publishedProject, runChild } from "#test/unit/dev/published.ts"
 
-/**
- * The published package against the dev cluster: a consumer's program, run by Node from a project whose node_modules
- * holds the built packages (test/unit/dev/published.ts), serves its login's committed served file with the runtime
- * entry's served(file, name), builds the login's DbLayer of it and the cluster's connection, opens a Db of the role with
- * Db.open, and reads every note once through its workload's member. The schema is installed through its first
- * migration under an allocated name (test/support/install-migrate.ts); the login's served file is compiled over that
- * installation's snapshot by the one compile generate commits (test/support/served-db.ts servedJson) and written as
- * generate writes it. The test writes each case's notes through a Db of its own, and the consumer must read exactly
- * every note written so far: a model of the table, the notes the cases wrote.
- */
 const Note = relation("Note", { id: uuid, n: pg.integer }, ["id"])
 
 const declared = (name: string) => schema(name, { Note }, [])

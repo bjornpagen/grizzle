@@ -15,6 +15,11 @@
  * whose member it writes; inserts into what it writes; and, by its write list alone, deletes from what it writes and
  * updates a mutable table it writes whole, or a mutable owner's count whose member it writes. A statement the rule
  * refuses is refused with 42501, and every other returns no row.
+ *
+ * Features: each role's probes of each statement kind, admitted and refused.
+ *
+ * Plants (~/.cache/grizzle-release/BR11/plants): insert-grants-delete (a role that writes by its insert list holds
+ * DELETE on what it writes).
  */
 import { layer } from "@effect/vitest"
 import { drawn as drawnCase, explore } from "@grizzle/testing/explore"
