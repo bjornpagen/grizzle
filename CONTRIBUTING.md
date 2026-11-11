@@ -123,9 +123,10 @@ every test process and every child a file spawns run under the hardened flags, w
 `NODE_OPTIONS` (`test/support/process.ts` `hardenedNode`, `packages/testing/src/vitest/config.ts` `HARDENED_FLAGS`):
 `--disable-proto=delete`, `--disable-sigusr1`, `--throw-deprecation`, `--pending-deprecation`, `--force-context-aware`,
 `--no-global-search-paths` and `--unhandled-rejections=strict`. V8's JIT and code generation from strings stay on: never `--jitless`,
-`--disallow-code-generation-from-strings`, `--frozen-intrinsics` or `--no-addons`. A file named
-`<name>.exclusive.test.ts` needs the cluster to itself: it runs after every other file, one at a time, because its long
-SERIALIZABLE transactions would summarize everyone else's. Each pg or schedules file uses its worker's long-lived
+`--disallow-code-generation-from-strings`, `--frozen-intrinsics` or `--no-addons`. Every file runs beside every other:
+none needs the cluster to itself, so none holds a SERIALIZABLE transaction long enough to summarize everyone else's,
+and a file that changes its database itself builds a database of its own (Substrate.isolatedLayer). Each pg or
+schedules file uses its worker's long-lived
 database, `gz_shared_<VITEST_POOL_ID>`, and unique schema names, because roles are cluster-wide. The network run's
 global setup (`test/support/pg-global-setup.ts`) runs the doctor's quick checks, sweeps what ended runs left behind, and
 clones the worker databases. Once every file has ended, its teardown sweeps again. Nothing drops a database while files

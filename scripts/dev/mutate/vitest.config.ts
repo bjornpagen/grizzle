@@ -37,7 +37,6 @@ export default mergeConfig(
 			"test/schedules/**/*.test.ts",
 			"scripts/dev/mutate/oracle/*.test.ts"
 		],
-		exclusive: ["**/*.exclusive.test.ts"],
 		guided: ["test/pg/world-model/random.test.ts"],
 		setup: [],
 		conditions: ["grizzle-source"],

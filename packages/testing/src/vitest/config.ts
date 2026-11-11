@@ -40,21 +40,18 @@ const SMALL_STACK = "--stack-size=160"
 const millisOf = (timeout: Timeout) => (timeout.kind === "unbounded" ? 0 : timeout.millis)
 
 /**
- * What a package states about its tests: which files they are; which of them run alone, one at a time and after every
- * other file, because they hold something the others share (a cluster-wide setting, a lock every test takes); which
- * steer by V8's block coverage, so their processes count blocks from the start, before the code under test loads; its own
+ * What a package states about its tests: which files they are; which steer by V8's block coverage, so their processes count blocks from the start, before the code under test loads; its own
  * global setup files, which run after the library's, beside the run seed; the export conditions its code resolves with;
  * how long a test and a hook may take; and how many files may run at once, when something the files share (a pool of
  * database connections, a set of worker databases) holds fewer than Vitest's default of one per core; and `smallStack`,
  * the files whose suites run a second time under SMALL_STACK, about a sixth of Node's default stack, so a
  * per-element use of the stack (a spread argument, a recursion over a list) fails at the widths ordinary generators
- * reach. A package with none of a list states it empty, and one with no such limit states none. The exclusive, guided
- * and small-stack lists are projects of their own, so each names its files outright: a glob there reaches every file it
+ * reach. A package with none of a list states it empty, and one with no such limit states none. The guided and
+ * small-stack lists are projects of their own, so each names its files outright: a glob there reaches every file it
  * matches, inside `include` or not.
  */
 export type TestConfig = Readonly<{
 	include: ReadonlyArray<string>
-	exclusive: ReadonlyArray<string>
 	guided: ReadonlyArray<string>
 	setup: ReadonlyArray<string>
 	conditions: ReadonlyArray<string>
@@ -89,8 +86,7 @@ export const defineTestConfig = (config: TestConfig) => {
 					test: {
 						name: "parallel",
 						include: Arr.copy(config.include),
-						exclude: [...config.exclusive, ...config.guided],
-						sequence: { groupOrder: 0 }
+						exclude: Arr.copy(config.guided)
 					}
 				},
 				...(Arr.isReadonlyArrayNonEmpty(config.guided)
@@ -100,8 +96,7 @@ export const defineTestConfig = (config: TestConfig) => {
 								test: {
 									name: "guided",
 									include: Arr.copy(config.guided),
-									setupFiles: [`${import.meta.dirname}/coverage.ts`],
-									sequence: { groupOrder: 0 }
+									setupFiles: [`${import.meta.dirname}/coverage.ts`]
 								}
 							}
 						]
@@ -113,22 +108,7 @@ export const defineTestConfig = (config: TestConfig) => {
 								test: {
 									name: "small-stack",
 									include: Arr.copy(config.smallStack),
-									execArgv: Arr.append(execArgv, SMALL_STACK),
-									sequence: { groupOrder: 0 }
-								}
-							}
-						]
-					: []),
-				...(Arr.isReadonlyArrayNonEmpty(config.exclusive)
-					? [
-							{
-								extends: true,
-								test: {
-									name: "exclusive",
-									include: Arr.copy(config.exclusive),
-									fileParallelism: false,
-									maxWorkers: 1,
-									sequence: { groupOrder: 1 }
+									execArgv: Arr.append(execArgv, SMALL_STACK)
 								}
 							}
 						]

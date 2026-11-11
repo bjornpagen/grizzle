@@ -32,7 +32,6 @@ const timeout: Gen<Timeout> = (source) =>
 /** A package's test config, every field drawn. */
 const testConfig: Gen<TestConfig> = (source) => ({
 	include: files(source),
-	exclusive: files(source),
 	guided: files(source),
 	setup: files(source),
 	conditions: source.draw(
@@ -63,7 +62,6 @@ type ConfigFacts = Readonly<{
 type ConfigFeature =
 	| "a guided project"
 	| "a small-stack project"
-	| "an exclusive project"
 	| "a worker limit"
 	| "an unbounded timeout"
 	| "an export condition"
@@ -154,7 +152,6 @@ describe("the Vitest adapter", () => {
 							[
 								"a guided project",
 								"a small-stack project",
-								"an exclusive project",
 								"a worker limit",
 								"an unbounded timeout",
 								"an export condition"
@@ -185,9 +182,6 @@ describe("the Vitest adapter", () => {
 							}
 							if (Arr.isReadonlyArrayNonEmpty(config.smallStack)) {
 								c.note("a small-stack project")
-							}
-							if (Arr.isReadonlyArrayNonEmpty(config.exclusive)) {
-								c.note("an exclusive project")
 							}
 							if (Option.isSome(config.maxWorkers)) {
 								c.note("a worker limit")
@@ -229,8 +223,7 @@ describe("the Vitest adapter", () => {
 									[
 										"parallel",
 										...(Arr.isReadonlyArrayNonEmpty(config.guided) ? ["guided"] : []),
-										...(Arr.isReadonlyArrayNonEmpty(config.smallStack) ? ["small-stack"] : []),
-										...(Arr.isReadonlyArrayNonEmpty(config.exclusive) ? ["exclusive"] : [])
+										...(Arr.isReadonlyArrayNonEmpty(config.smallStack) ? ["small-stack"] : [])
 									],
 									Option.some
 								)
