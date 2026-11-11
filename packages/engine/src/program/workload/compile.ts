@@ -27,7 +27,7 @@ import { allenNormalDag } from "#compiler/lower/optimize/simplify/allen.ts"
 import { type WorkloadPhysical, workloadRequests } from "#compiler/physical/access/extension.ts"
 import { extractAccess } from "#compiler/physical/access/extract.ts"
 import { uniquePaths } from "#compiler/physical/access/paths.ts"
-import { type WorldNames, worldNames } from "#compiler/physical/ddl/names.ts"
+import { namedRole, type WorldNames, worldNames } from "#compiler/physical/ddl/names.ts"
 import {
 	mergeStatistics,
 	type StatisticsRequest,
@@ -136,11 +136,11 @@ const workloadReads = (
 ): Result.Result<WorkloadReads, CompileError> =>
 	schema.kind === "role"
 		? Result.flatMap(ownBuiltRole(schema.desc, artifacts.owned), (role) =>
-				Result.flatMap(checkedRoleOver(role, artifacts.derived.schema), (checked) =>
-					Result.map(
-						catchCompileError(() => worldNames(role, artifacts.names)),
-						(names): WorkloadReads => ({ world: { kind: "role", role, checked, names }, artifacts })
-					)
+				Result.flatMap(namedRole(role, artifacts.names.levels), (named) =>
+					Result.map(checkedRoleOver(role, artifacts.derived.schema), (checked): WorkloadReads => ({
+						world: { kind: "role", role, checked, names: worldNames(named, artifacts.names) },
+						artifacts
+					}))
 				)
 			)
 		: Result.ok<WorkloadReads>({ world: { kind: "reality" }, artifacts })

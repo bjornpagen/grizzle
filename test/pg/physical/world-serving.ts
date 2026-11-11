@@ -59,7 +59,7 @@ import { appendAll } from "#compiler/core/array.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { jsonText, trusted } from "#compiler/core/trusted.ts"
 import type { Param } from "#compiler/core/wire.ts"
-import { worldNames } from "#compiler/physical/ddl/names.ts"
+import { namedRole, worldNames } from "#compiler/physical/ddl/names.ts"
 import type { PlannedIndex } from "#compiler/physical/indexes/engine.ts"
 import { bindWrite } from "#compiler/runtime/write/bind.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
@@ -550,7 +550,10 @@ const worldEntries = (
 	const entries = Arr.flatMap(spec.roles, (r): ReadonlyArray<WorldEntry> => {
 		const value = defined(built.roles[r.name], `the built role ${r.name}`)
 		const owned = succeeded(ownRole(defined(roleDescOf(value), `role ${r.name}`)))
-		const names = worldNames(owned, installation.names)
+		const names = worldNames(
+			succeeded(namedRole(owned, installation.names.levels), `role ${r.name} named`),
+			installation.names
+		)
 		return Arr.flatMap([...owned.writes.values()], (w): ReadonlyArray<WorldEntry> => {
 			if (w.kind !== "rows") {
 				return []

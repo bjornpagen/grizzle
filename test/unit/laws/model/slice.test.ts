@@ -68,7 +68,7 @@ import {
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
 import type { ProgramArtifacts } from "#compiler/ir/products.ts"
 import type { LawModel, NamedNative } from "#compiler/laws/model/model.ts"
-import { selectionKeysOf } from "#compiler/physical/ddl/names.ts"
+import { namedRole, selectionKeysOf } from "#compiler/physical/ddl/names.ts"
 import { installBasis, planBasis } from "#compiler/physical/install/plan.ts"
 import { compileQuery, type QueryTemplate, querySchema } from "#compiler/program/compile.ts"
 import {
@@ -913,22 +913,25 @@ const compiledChange = (
 	role: OwnedRole,
 	changeSet: ChangeSetDesc
 ): Result.Result<CompiledWrite, CompileError> =>
-	Result.flatMap(roleArtifacts(role, base), (artifacts) => {
-		const world = artifacts.world
-		return compileWrite(
-			world.kind === "role" ? world.checked : artifacts.derived.schema,
-			changeSet,
-			{
-				names: artifacts.names,
-				reads: artifacts.reads,
-				claims: { kind: "facts", present: new Set() },
-				world: world.kind === "role" ? { kind: "role", names: world.names } : { kind: "reality" },
-				laws: artifacts.laws,
-				derived: artifacts.derived,
-				level: "serializable"
-			}
-		)
-	})
+	Result.flatMap(
+		Result.flatMap(namedRole(role, base.names.levels), (named) => roleArtifacts(named, base)),
+		(artifacts) => {
+			const world = artifacts.world
+			return compileWrite(
+				world.kind === "role" ? world.checked : artifacts.derived.schema,
+				changeSet,
+				{
+					names: artifacts.names,
+					reads: artifacts.reads,
+					claims: { kind: "facts", present: new Set() },
+					world: world.kind === "role" ? { kind: "role", names: world.names } : { kind: "reality" },
+					laws: artifacts.laws,
+					derived: artifacts.derived,
+					level: "serializable"
+				}
+			)
+		}
+	)
 
 /**
  * A query compiled as a role's db.read compiles it (program/template.ts templateFor): against `base`'s artifacts read
@@ -941,10 +944,12 @@ const compiledQuery = (
 	query: QueryDesc,
 	context: TemplateContext
 ): Result.Result<QueryTemplate, CompileError> =>
-	Result.flatMap(roleArtifacts(role, base), (artifacts) =>
-		Result.flatMap(querySchema({ kind: "described", desc: query }, schema), (source) =>
-			compileQuery(source, { context, artifacts, read: "rows" })
-		)
+	Result.flatMap(
+		Result.flatMap(namedRole(role, base.names.levels), (named) => roleArtifacts(named, base)),
+		(artifacts) =>
+			Result.flatMap(querySchema({ kind: "described", desc: query }, schema), (source) =>
+				compileQuery(source, { context, artifacts, read: "rows" })
+			)
 	)
 
 /** What an application runs of a template or a program and what it rests on: its statements and its certificates. */

@@ -36,6 +36,8 @@ import {
 	type Isolation,
 	type LoginDesc,
 	malformedDescription,
+	type NamedLogin,
+	namedRole,
 	ownBuiltLogin,
 	type Owned,
 	ownedEntry,
@@ -368,7 +370,8 @@ const layerRole = (
 ): Effect.Effect<LayerRole, WorkloadRefused> =>
 	Effect.gen(function* () {
 		const refused = roleRefused(name)
-		const { input, owned: ownedRole, artifacts } = changes
+		const { input, named, artifacts } = changes
+		const ownedRole = named.owned
 		if (typeof value !== "object" || value === null) {
 			return yield* refused(malformedDescription(loc, "a login's role built by role(...)"))
 		}
@@ -384,7 +387,7 @@ const layerRole = (
 			return within(slice, layer.slice)
 				? Engine.ok(own)
 				: Engine.map(
-						Engine.flatMap(layer.over(slice), (base) => roleArtifacts(ownedRole, base)),
+						Engine.flatMap(layer.over(slice), (base) => roleArtifacts(named, base)),
 						(sliced): SliceArtifacts => ({
 							artifacts: sliced,
 							witness: installationWitness(sliced, above)
@@ -417,9 +420,24 @@ const layerRole = (
 const changeRefused = (refused: ChangeRefused): WorkloadRefused => new WorkloadRefused(refused)
 
 /**
- * Every role of a login, each with its change members compiled over the login's artifacts `artifacts` at `level`
- * (program/workload/change.ts loginChanges), by its name in the login: what the login's compile reads of each role
- * (plannedLoginRoles).
+ * `owned`'s roles named under the installation of `artifacts` (physical/ddl/names.ts namedRole), each in the login's
+ * order: a role whose PostgreSQL role does not fit is refused as that role's, before any of the login compiles.
+ */
+const namedOver = (
+	owned: OwnedLogin,
+	artifacts: SchemaArtifacts
+): Effect.Effect<NamedLogin, WorkloadRefused> =>
+	Effect.map(
+		Effect.forEach(owned.roles, (role) =>
+			Effect.mapError(fromEngine(namedRole(role, artifacts.names.levels)), roleRefused(role.name))
+		),
+		(roles): NamedLogin => ({ owned, roles })
+	)
+
+/**
+ * Every role of a login, each named under the login's artifacts `artifacts` (namedOver) and then with its change members
+ * compiled over them at `level` (program/workload/change.ts loginChanges), by its name in the login: what the login's
+ * compile reads of each role (plannedLoginRoles).
  */
 export const loginChangesOver = <L extends Isolation>(
 	login: BuiltLogin,
@@ -427,11 +445,13 @@ export const loginChangesOver = <L extends Isolation>(
 	artifacts: SchemaArtifacts,
 	level: L
 ): Effect.Effect<ReadonlyMap<string, RoleChanges<L>>, WorkloadRefused> =>
-	Effect.mapError(
-		fromEngine(
-			loginChanges({ roles: login.roles, workload: login.workload, owned, artifacts }, level)
-		),
-		changeRefused
+	Effect.flatMap(namedOver(owned, artifacts), (named) =>
+		Effect.mapError(
+			fromEngine(
+				loginChanges({ roles: login.roles, workload: login.workload, named, artifacts }, level)
+			),
+			changeRefused
+		)
 	)
 
 /**

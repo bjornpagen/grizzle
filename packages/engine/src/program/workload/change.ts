@@ -1,9 +1,11 @@
 import type { RowDecoder } from "#compiler/core/decoder.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import type { SchemaFingerprint } from "#compiler/core/ids.ts"
+import { defined } from "#compiler/core/invariant.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
+import type { NamedLogin, NamedRole } from "#compiler/physical/ddl/names.ts"
 import {
 	levelSchema,
 	type ParsedRole,
@@ -12,7 +14,6 @@ import {
 	type SchemaArtifacts
 } from "#compiler/program/schema.ts"
 import { loginRole, programsOn } from "#compiler/program/workload/roles.ts"
-import type { OwnedLogin, OwnedRole } from "#compiler/schema/own.ts"
 import {
 	type ChangeSetValue,
 	parseChangeSet,
@@ -138,24 +139,25 @@ const changeVariants = (
 
 /**
  * A login as its change members compile: its roles' values by their names in the login, in its order, its workloads,
- * the login owned over its base's Owned, and the artifacts its served file compiles over, its base's over every
- * relation.
+ * the login owned over its base's Owned with every role named under the installation (physical/ddl/names.ts
+ * namedLogin), and the artifacts its served file compiles over, its base's over every relation. Every role was named
+ * before the login compiles, so no change compile meets a role name the installation cannot create.
  */
 export interface ChangeLogin {
 	readonly roles: ReadonlyArray<{ readonly name: string; readonly value: unknown }>
 	readonly workload: ReadonlyArray<unknown>
-	readonly owned: OwnedLogin
+	readonly named: NamedLogin
 	readonly artifacts: SchemaArtifacts
 }
 
 /**
- * One role of a login with its change members compiled: its value parsed, its owned role, its artifacts over its
- * login's, and each ChangeSet of the login's workloads that runs on it, by the program's name, its variants compiled
- * once.
+ * One role of a login with its change members compiled: its value parsed, its owned role as the installation named it,
+ * its artifacts over its login's, and each ChangeSet of the login's workloads that runs on it, by the program's name,
+ * its variants compiled once.
  */
 export interface RoleChanges<L extends Isolation = Isolation> {
 	readonly input: ParsedRole
-	readonly owned: OwnedRole
+	readonly named: NamedRole
 	readonly artifacts: SchemaArtifacts
 	/** The level every member was compiled for (write/program/compile.ts CompiledWrite `level`), the one the role's
 	 * writes run at once served: one per role. */
@@ -185,12 +187,16 @@ const roleChanges = <L extends Isolation>(
 		program: undefined,
 		error
 	})
-	const parsed = loginRole(value, login.owned)
+	const parsed = loginRole(value, login.named.owned)
 	if (!parsed.ok) {
 		return Result.err(refused(parsed.error))
 	}
 	const { input, owned } = parsed.value
-	const artifacts = roleArtifacts(owned, login.artifacts)
+	const named = defined(
+		login.named.roles.find((r) => r.owned === owned),
+		`role ${owned.name} of login ${login.named.owned.name}, which namedLogin named`
+	)
+	const artifacts = roleArtifacts(named, login.artifacts)
 	if (!artifacts.ok) {
 		return Result.err(refused(artifacts.error))
 	}
@@ -210,7 +216,7 @@ const roleChanges = <L extends Isolation>(
 		}
 		members.set(program.name, variants.value)
 	}
-	return Result.ok({ input, owned, artifacts: artifacts.value, level, members })
+	return Result.ok({ input, named, artifacts: artifacts.value, level, members })
 }
 
 /**

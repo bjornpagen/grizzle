@@ -53,6 +53,7 @@ import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { type TextDomain, textDomainIdentity } from "#compiler/physical/ddl/domains.ts"
 import {
 	installationTypes,
+	namedRole,
 	roleReadNames,
 	vectorTypes,
 	worldNames
@@ -1101,7 +1102,11 @@ export const roleNamesOf = (installed: Installed, role: AnyRole): RoleNames => {
 		throw refused(ownedRole.error)
 	}
 	const owned = ownedRole.value
-	const world = worldNames(owned, installed.installation.names)
+	const named = namedRole(owned, installed.installation.names.levels)
+	if (!named.ok) {
+		throw refused(named.error)
+	}
+	const world = worldNames(named.value, installed.installation.names)
 	const read = roleReadNames(installed.installation.names, world, owned)
 	return {
 		view: (relation) => qualified(read.relation(relation)),

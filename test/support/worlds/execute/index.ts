@@ -26,7 +26,7 @@ import type { DbLayerOf, DbLayerService, ServedLogin, ServedRole } from "#adapte
 import { identity } from "#compiler/core/identity.ts"
 import { codebookOf, noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
-import { roleReadNames, worldNames } from "#compiler/physical/ddl/names.ts"
+import { namedRole, roleReadNames, worldNames } from "#compiler/physical/ddl/names.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { login as loginBuilder } from "#compiler/program/workload/login.ts"
 import { type OwnedRole, ownRole } from "#compiler/schema/own.ts"
@@ -34,7 +34,7 @@ import { roleDescOf, role as roleBuilder } from "#compiler/schema/world.ts"
 import { printObjectName, quoteIdent, quoteString } from "#compiler/sql/print.ts"
 import type { LoginRole } from "#compiler/types/schema/world.ts"
 import type { AmbientSession } from "#test/support/ambient.ts"
-import { defined } from "#test/support/assert.ts"
+import { defined, succeeded } from "#test/support/assert.ts"
 import { installedCodes, type TestCompileOptions, testCompile } from "#test/support/compile.ts"
 import { installMigrated as install } from "#test/support/install-migrate.ts"
 import {
@@ -887,7 +887,10 @@ const realizeWith = (
 						}
 						const read = roleReadNames(
 							v.installation.names,
-							worldNames(ownedRole, v.installation.names),
+							worldNames(
+								succeeded(namedRole(ownedRole, v.installation.names.levels), `role ${role} named`),
+								v.installation.names
+							),
 							ownedRole
 						)
 						const view = read.relation(relation)
@@ -1545,7 +1548,10 @@ const functionOf = (v: Version, fn: WorldFunction): Effect.Effect<string> =>
 		switch (fn.kind) {
 			case "filter": {
 				const owned = yield* ownedOf(v, fn.role)
-				const world = worldNames(owned, v.installation.names)
+				const world = worldNames(
+					succeeded(namedRole(owned, v.installation.names.levels), `role ${fn.role} named`),
+					v.installation.names
+				)
 				const name = world.filterFunction(fn.entry, [])
 				return `${quoteIdent(name.schema)}.${quoteIdent(name.name)}`
 			}
@@ -1556,7 +1562,10 @@ const functionOf = (v: Version, fn: WorldFunction): Effect.Effect<string> =>
 				}
 				const probe = probeOf(v.spec.base, role, fn)
 				const owned = yield* ownedOf(v, fn.role)
-				const world = worldNames(owned, v.installation.names)
+				const world = worldNames(
+					succeeded(namedRole(owned, v.installation.names.levels), `role ${fn.role} named`),
+					v.installation.names
+				)
 				/**
 				 * A probe the installation defines, by its key (the model's notion, writes.ts probeOf); one it defines none
 				 * of (an entry it writes through no query entry, a key its target lacks) as a probe over no key, which no

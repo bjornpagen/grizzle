@@ -13,7 +13,7 @@ import { refuse } from "#compiler/analysis/theory/build.ts"
 import { hnswPolicy } from "#compiler/check/approximate/policy.ts"
 import type { AdmittedQuery } from "#compiler/check/index.ts"
 import { appendAll } from "#compiler/core/array.ts"
-import { catchCompileError, catchRefusal, compareText, Refusal } from "#compiler/core/canonical.ts"
+import { catchRefusal, compareText, Refusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import {
 	compareIdentities,
@@ -68,7 +68,7 @@ import {
 	levelIn,
 	loginIdentity,
 	missing,
-	roleIdentity,
+	type NamedRole,
 	roleView
 } from "#compiler/physical/ddl/names.ts"
 import {
@@ -312,17 +312,13 @@ export interface CheckedLogin {
 	readonly roles: ReadonlyArray<CheckedRole>
 }
 
-/** `role` read against the installed schema `base`: its identity, refused when its name does not convert, then its
- * checked schema over the base. */
+/** `role`, named under the installation (names.ts namedRole), read against the installed schema `base`: its identity,
+ * then its checked schema over the base. */
 export const checkedRole = (
 	base: CheckedSchema,
-	levels: NonEmptyReadonlyArray<Identity<"schema">>,
-	role: OwnedRole
+	role: NamedRole
 ): Result.Result<CheckedRole, CompileError> =>
-	Result.flatMap(
-		catchCompileError(() => roleIdentity(levelIn(levels, role.base), role.name, role.loc)),
-		(theory) => Result.map(checkedRoleOver(role, base), (checked) => ({ theory, checked }))
-	)
+	Result.map(checkedRoleOver(role.owned, base), (checked) => ({ theory: role.theory, checked }))
 
 /** Every view column of a query entry a regex refinement types, as a use of its structural text domain: the definition
  * lowering casts such a column to its pattern's domain, so the domain must exist, and

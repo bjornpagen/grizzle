@@ -55,6 +55,7 @@ import {
 	type ContractSource,
 	type InstallNames,
 	installNames,
+	namedRole,
 	selectionKeysOf
 } from "#compiler/physical/ddl/names.ts"
 import {
@@ -400,7 +401,9 @@ export const planInstallation = (
 		const logins = settings.logins.map((login): CheckedLogin => ({
 			login,
 			roles: login.roles.map((role) => {
-				const read = checkedRole(checked, settings.levels, role)
+				const read = Result.flatMap(namedRole(role, settings.levels), (named) =>
+					checkedRole(checked, named)
+				)
 				if (!read.ok) {
 					throw new Refusal(read.error)
 				}

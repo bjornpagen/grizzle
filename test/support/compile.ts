@@ -28,6 +28,7 @@ import {
 import { catalogLowerers } from "#compiler/lower/shapes/catalog/native.ts"
 import { workloadExtension } from "#compiler/physical/access/extension.ts"
 import { noTextDomainUses } from "#compiler/physical/ddl/domains.ts"
+import { namedRole } from "#compiler/physical/ddl/names.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { type InstallExtension, noCertificates } from "#compiler/physical/install/extension.ts"
 import { installBasis } from "#compiler/physical/install/plan.ts"
@@ -166,7 +167,12 @@ const allocatedArtifacts = (
 	return input.kind === "role"
 		? Result.flatMap(
 				ownRole({ ...input.desc, base: allocatedDesc(input.desc.base, allocated) }),
-				(role) => Result.flatMap(over(role.base), (base) => roleArtifacts(role, base))
+				(role) =>
+					Result.flatMap(over(role.base), (base) =>
+						Result.flatMap(namedRole(role, base.names.levels), (named) =>
+							roleArtifacts(named, base)
+						)
+					)
 			)
 		: Result.flatMap(own(allocatedDesc(input.desc, allocated)), over)
 }

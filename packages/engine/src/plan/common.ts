@@ -132,6 +132,12 @@ export {
 	type Roster,
 	type ScalarType
 } from "#compiler/ir/scalar.ts"
+export {
+	type NamedLogin,
+	type NamedRole,
+	namedLogin,
+	namedRole
+} from "#compiler/physical/ddl/names.ts"
 export { loginRoleName } from "#compiler/program/names.ts"
 export { servedSession } from "#compiler/program/served.ts"
 export {

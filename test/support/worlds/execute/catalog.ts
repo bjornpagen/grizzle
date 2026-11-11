@@ -14,7 +14,7 @@ import { emptySnapshot, noWorkload, rosterFates } from "#compiler/deploy/snapsho
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { draftCodebook, noRenames, reorderRefusal } from "#compiler/ir/codes.ts"
 import { isolationGuardName } from "#compiler/physical/ddl/isolation.ts"
-import { roleIdentity, worldNames } from "#compiler/physical/ddl/names.ts"
+import { namedRole, roleIdentity, worldNames } from "#compiler/physical/ddl/names.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
 import type { AnySchema } from "#compiler/public/schema.ts"
 import { type Owned, type OwnedRole, own, rostersOf } from "#compiler/schema/own.ts"
@@ -23,6 +23,7 @@ import type { CreatePolicy, CreateView, ObjectName, RoleSetting } from "#compile
 import { and, col, derived, lit, provedSelect, target } from "#compiler/sql/build.ts"
 import { printStatement, quoteIdent, quoteString, storedSettingValue } from "#compiler/sql/print.ts"
 import type { AmbientOwner } from "#test/support/ambient.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { draftedAt, fromSnapshot, generate, noDeclarations } from "#test/support/migrate/kit.ts"
 import { review } from "#test/support/migrate/review.ts"
@@ -493,7 +494,11 @@ const policyOf = (
 ): Effect.Effect<Option.Option<CreatePolicy>> =>
 	Effect.gen(function* () {
 		const owned = yield* catalog.owned(role)
-		const theory = worldNames(owned, catalog.installation.names).role
+		const names = catalog.installation.names
+		const theory = worldNames(
+			succeeded(namedRole(owned, names.levels), `role ${role} named`),
+			names
+		).role
 		const target = Option.map(Option.fromNullishOr(owned.writes.get(entry)), (e) =>
 			e.kind === "whole" ? e.relation.name : e.writable.target
 		)
@@ -518,7 +523,10 @@ const viewOf = (
 ): Effect.Effect<Option.Option<CreateView>> =>
 	Effect.gen(function* () {
 		const owned = yield* catalog.owned(role)
-		const view = yield* Effect.sync(() => worldNames(owned, catalog.installation.names).view(entry))
+		const names = catalog.installation.names
+		const view = yield* Effect.sync(() =>
+			worldNames(succeeded(namedRole(owned, names.levels), `role ${role} named`), names).view(entry)
+		)
 		return Arr.findFirst(
 			catalog.installation.statements,
 			(s): s is CreateView =>

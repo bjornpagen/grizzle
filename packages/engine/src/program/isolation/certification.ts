@@ -82,7 +82,8 @@ const variantWrites = (variants: CompiledVariants): ReadonlyArray<CompiledWrite>
  * Every name the extractor meets that these do not name is a reason the certifier refuses, never a pass.
  */
 const extractNames = (role: RoleChanges): ExtractNames => {
-	const { artifacts, owned } = role
+	const { artifacts } = role
+	const owned = role.named.owned
 	const names = artifacts.names
 	const stored = Object.entries(artifacts.owned.relations)
 	const policed = new Set(
@@ -185,16 +186,13 @@ const roleSource = (
 	RoleSource<CheckedSchema<RoleWorld>, ExtractNames, CompiledVariants>,
 	CompileError
 > =>
-	Result.map(
-		checkedRole(artifacts.derived.schema, artifacts.names.levels, role.owned),
-		(checked) => ({
-			login,
-			role: role.owned.name,
-			checked: checked.checked,
-			names: extractNames(role),
-			members: [...role.members].map(([name, compiled]) => ({ name, compiled }))
-		})
-	)
+	Result.map(checkedRole(artifacts.derived.schema, role.named), (checked) => ({
+		login,
+		role: role.named.owned.name,
+		checked: checked.checked,
+		names: extractNames(role),
+		members: [...role.members].map(([name, compiled]) => ({ name, compiled }))
+	}))
 
 /**
  * The facts of one change member's variants compiled for `level` (extract.ts memberFacts): one set per variant whose

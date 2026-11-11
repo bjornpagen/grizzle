@@ -25,6 +25,8 @@ import {
 	type InstallNames,
 	roleReadNames,
 	type WorldNames,
+	type NamedRole,
+	namedRole,
 	worldNames
 } from "#compiler/physical/ddl/names.ts"
 import {
@@ -299,7 +301,9 @@ export const schemaArtifacts = (
 		Result.flatMap(installBasis(owned, options.codes, everySlice(owned)), baseArtifacts)
 	return schema.kind === "role"
 		? Result.flatMap(ownRole(schema.desc), (role) =>
-				Result.flatMap(over(role.base), (base) => roleArtifacts(role, base))
+				Result.flatMap(over(role.base), (base) =>
+					Result.flatMap(namedRole(role, base.names.levels), (named) => roleArtifacts(named, base))
+				)
 			)
 		: Result.flatMap(own(schema.desc), over)
 }
@@ -363,26 +367,24 @@ const worldTextNames = (
 	)
 
 /**
- * A role's artifacts: its base's (baseArtifacts), which compile nothing again, read through the role's views, its world
- * relations keyed by their definitions.
+ * A role's artifacts, the role named under its base's installation (names.ts namedRole): its base's (baseArtifacts),
+ * which compile nothing again, read through the role's views, its world relations keyed by their definitions.
  */
 export const roleArtifacts = (
-	role: OwnedRole,
+	named: NamedRole,
 	base: SchemaArtifacts
 ): Result.Result<SchemaArtifacts, CompileError> => {
-	const read = checkedRole(base.derived.schema, base.names.levels, role)
+	const role = named.owned
+	const read = checkedRole(base.derived.schema, named)
 	if (!read.ok) {
 		return read
 	}
-	const names = catchCompileError(() => worldNames(role, base.names))
-	if (!names.ok) {
-		return names
-	}
+	const names = worldNames(named, base.names)
 	const installed = worldTextNames(base.names, read.value)
 	if (!installed.ok) {
 		return installed
 	}
-	const reads = catchCompileError(() => roleReadNames(installed.value, names.value, role))
+	const reads = catchCompileError(() => roleReadNames(installed.value, names, role))
 	if (!reads.ok) {
 		return reads
 	}
@@ -390,7 +392,7 @@ export const roleArtifacts = (
 		...base,
 		names: installed.value,
 		reads: reads.value,
-		world: { kind: "role", role, checked: read.value.checked, names: names.value }
+		world: { kind: "role", role, checked: read.value.checked, names }
 	}
 	return Result.ok(artifacts)
 }

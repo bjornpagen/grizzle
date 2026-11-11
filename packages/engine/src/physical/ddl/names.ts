@@ -1,5 +1,5 @@
 import { nominal } from "#compiler/core/brand.ts"
-import { Refusal } from "#compiler/core/canonical.ts"
+import { catchCompileError, Refusal } from "#compiler/core/canonical.ts"
 import { CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import type { DomainDigest } from "#compiler/core/fingerprint.ts"
 import {
@@ -13,6 +13,7 @@ import {
 import type { ConstraintName, RelationIdent } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import type * as Result from "#compiler/core/result.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { DomainCheck } from "#compiler/ir/law.ts"
@@ -30,7 +31,7 @@ import {
 	type ScalarType
 } from "#compiler/ir/scalar.ts"
 import type { NamedNative } from "#compiler/laws/model/model.ts"
-import type { Owned, OwnedEntry, OwnedRole } from "#compiler/schema/own.ts"
+import type { Owned, OwnedEntry, OwnedLogin, OwnedRole } from "#compiler/schema/own.ts"
 import type { Collation, FunctionName, ObjectName, TypeRef, TypeSchema } from "#compiler/sql/ast.ts"
 import { cUtf8Collation } from "#compiler/sql/build.ts"
 import type { ClosedConstant } from "#compiler/sql/constants.ts"
@@ -170,9 +171,19 @@ interface NamesInput {
 	readonly selectionKeys: ReadonlyMap<string, ReadonlyArray<SelectionKey>>
 }
 
+declare const fittedBrand: unique symbol
+
+/** A login's or role's PostgreSQL role that fits PostgreSQL's maxIdentifierBytes with its schema's name: minted only by
+ * `fitted`, which refuses one that does not. */
+export type Fitted<K extends "login" | "role"> = Identity<K> & { readonly [fittedBrand]: true }
+
+/** `named` as the Fitted role it is, once its length is checked. */
+const fittedOf = <K extends "login" | "role">(named: Identity<K>): Fitted<K> =>
+	nominal<Identity<K>, Fitted<K>>()(named)
+
 /** A login's or role's PostgreSQL role, `<schema>__<name>`, refused at `loc` as RoleNameTooLong when it does not fit
  * PostgreSQL's maxIdentifierBytes with its schema's name. */
-const fitted = <K extends "login" | "role">(named: Identity<K>, loc: SourceLoc): Identity<K> => {
+const fitted = <K extends "login" | "role">(named: Identity<K>, loc: SourceLoc): Fitted<K> => {
 	if (utf8Length(named.identifier) > maxIdentifierBytes.value) {
 		throw new Refusal(
 			CompileError.make({
@@ -184,7 +195,7 @@ const fitted = <K extends "login" | "role">(named: Identity<K>, loc: SourceLoc):
 			})
 		)
 	}
-	return named
+	return fittedOf(named)
 }
 
 /** A login's PostgreSQL role, under the installation (roles are cluster-wide), by the name its ownership declared
@@ -193,7 +204,7 @@ export const loginIdentity = (
 	installation: Identity<"schema">,
 	name: DeclaredName,
 	loc: SourceLoc
-): Identity<"login"> => fitted(identity.login(installation, name), loc)
+): Fitted<"login"> => fitted(identity.login(installation, name), loc)
 
 /** A role's PostgreSQL role, its theory role, under the installation, by the name its ownership declared
  * (schema/own.ts ownRole). */
@@ -201,7 +212,48 @@ export const roleIdentity = (
 	installation: Identity<"schema">,
 	name: DeclaredName,
 	loc: SourceLoc
-): Identity<"role"> => fitted(identity.role(installation, name), loc)
+): Fitted<"role"> => fitted(identity.role(installation, name), loc)
+
+/** A role of an installation named under its levels: the owned role and its PostgreSQL role, fitted once, here, before
+ * anything is compiled for it, so every world name read from it (worldNames) is a name the installation can create. */
+export interface NamedRole {
+	readonly owned: OwnedRole
+	readonly theory: Fitted<"role">
+}
+
+/** A login of an installation named under its levels: the owned login and each of its roles named (NamedRole), in the
+ * login's order. */
+export interface NamedLogin {
+	readonly owned: OwnedLogin
+	readonly roles: ReadonlyArray<NamedRole>
+}
+
+/** `role` named under the installation's `levels`, its refusal thrown (namedRole). */
+const nameRole = (
+	role: OwnedRole,
+	levels: NonEmptyReadonlyArray<Identity<"schema">>
+): NamedRole => ({
+	owned: role,
+	theory: roleIdentity(levelIn(levels, role.base), role.name, role.loc)
+})
+
+/** `role` named under the installation's `levels`: its PostgreSQL role embeds its base's level, refused as
+ * RoleNameTooLong when it does not fit with that level's name (fitted). */
+export const namedRole = (
+	role: OwnedRole,
+	levels: NonEmptyReadonlyArray<Identity<"schema">>
+): Result.Result<NamedRole, CompileError> => catchCompileError(() => nameRole(role, levels))
+
+/** `login`'s roles named under the installation's `levels` (namedRole), the first refusal among them, in the login's
+ * order. */
+export const namedLogin = (
+	login: OwnedLogin,
+	levels: NonEmptyReadonlyArray<Identity<"schema">>
+): Result.Result<NamedLogin, CompileError> =>
+	catchCompileError((): NamedLogin => ({
+		owned: login,
+		roles: login.roles.map((role) => nameRole(role, levels))
+	}))
 
 /** A role relation's view in its role's schema, by the name role ownership declared (schema/own.ts ownRole). */
 export const roleView = (role: Identity<"role">, e: OwnedEntry): Identity<"roleView"> =>
@@ -256,13 +308,11 @@ export const levelIn = (
 	levels[base.levels.length - 1] ??
 	missing(`physical: schema ${base.name} is no level of the installation`)
 
-/** The names of a role, installed in the installation `names` names: its theory role embeds its level's schema, each of
- * its relations' views is named once, here, and its filter functions and probes live in the root's, as every function of
- * the installation does. A theory role that does
- * not fit 63 bytes with its level's name is refused as MalformedDescription, thrown as a Refusal; an installation, which
- * names every one first, has refused it already. */
-export const worldNames = (role: OwnedRole, names: InstallNames): WorldNames => {
-	const theory = roleIdentity(levelIn(names.levels, role.base), role.name, role.loc)
+/** The names of a role, installed in the installation `names` names: its theory role, fitted when the role was named
+ * (namedRole), embeds its level's schema, each of its relations' views is named once, here, and its filter functions and
+ * probes live in the root's, as every function of the installation does. */
+export const worldNames = (named: NamedRole, names: InstallNames): WorldNames => {
+	const { owned: role, theory } = named
 	const schema = names.schema
 	const roleSchema = identifierOf(identity.roleSchema(theory))
 	const views = new Map(

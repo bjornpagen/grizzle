@@ -44,6 +44,7 @@ import {
 	type CompileError,
 	defect,
 	draftCodebook,
+	namedLogin,
 	rostersOf,
 	sameLevel,
 	type SchemaArtifacts,
@@ -279,7 +280,9 @@ export type ServedBasis =
  * configured schema's for a login over its level, and for a login over a level below, that level's, compiled from the
  * basis's derived facts as a snapshot records them (deploy/snapshot/build.ts derivedFacts, adapter/served/login.ts
  * artifactsUnder), under the draft's codes `codes`. The plan, with what each login's served file compiles over
- * (ServedBasis); a program the checker refuses is DraftRefused, and a login's ChangeSet that does not compile
+ * (ServedBasis). Every login's roles are named under its artifacts' installation before any login compiles
+ * (physical/ddl/names.ts namedLogin), so a role whose PostgreSQL role does not fit is DraftRefused with
+ * RoleNameTooLong; a program the checker refuses is DraftRefused, and a login's ChangeSet that does not compile
  * ServedRefused.
  */
 const plannedLogins = Effect.fn("plannedLogins")(function* (
@@ -295,24 +298,28 @@ const plannedLogins = Effect.fn("plannedLogins")(function* (
 	)
 	const derived = derivedFacts(basis.owned, basis.closed, basis.model)
 	const served = yield* Effect.forEach(logins, (l) =>
-		sameLevel(l.login.base.content, configured.built.content)
-			? Effect.succeed({ login: l, artifacts: configuredArtifacts })
-			: Effect.mapBoth(
-					fromEngine(artifactsUnder(l.owned.base, codes, derived, everySlice(l.owned.base))),
-					{
-						onFailure: refusedAt("workload"),
-						onSuccess: (layer) => ({ login: l, artifacts: layer.artifacts })
-					}
-				)
+		Effect.flatMap(
+			sameLevel(l.login.base.content, configured.built.content)
+				? Effect.succeed(configuredArtifacts)
+				: Effect.mapBoth(
+						fromEngine(artifactsUnder(l.owned.base, codes, derived, everySlice(l.owned.base))),
+						{ onFailure: refusedAt("workload"), onSuccess: (layer) => layer.artifacts }
+					),
+			(artifacts) =>
+				Effect.mapBoth(fromEngine(namedLogin(l.owned, artifacts.names.levels)), {
+					onFailure: refusedAt("workload"),
+					onSuccess: (named) => ({ login: l, named, artifacts })
+				})
+		)
 	)
 	const plan = yield* Effect.mapError(
 		fromEngine(
 			servedWorkload(
-				Arr.map(served, ({ login: l, artifacts }) => ({
+				Arr.map(served, ({ login: l, named, artifacts }) => ({
 					name: l.owned.name,
 					roles: l.login.roles,
 					workload: l.login.workload,
-					owned: l.owned,
+					named,
 					artifacts
 				})),
 				configured.built,
