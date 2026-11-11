@@ -923,6 +923,7 @@ const ownedField = (field: unknown, read: CanonicalObject | Outside): unknown =>
 	switch (read.kind) {
 		case "vector":
 			return Vector.branded(read.components)
+		case "floatSpecial":
 		case "tagged":
 		case "array":
 		case "record":
@@ -944,6 +945,7 @@ const ownedFact = (fact: unknown, read: CanonicalObject | Outside): unknown => {
 				)
 			)
 		case "vector":
+		case "floatSpecial":
 		case "tagged":
 		case "array":
 		case "outside":
@@ -963,6 +965,7 @@ const ownedBound = (value: ParamValue, read: CanonicalObject | Outside): ParamVa
 			return Vector.branded(read.components)
 		case "array":
 			return Object.freeze(read.items.map((fact) => owned(fact, ownedFact)))
+		case "floatSpecial":
 		case "tagged":
 		case "record":
 		case "outside":

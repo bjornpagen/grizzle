@@ -1,3 +1,4 @@
+import { floatSpecialNames } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { type DeclaredName, parseDeclaredName } from "#compiler/core/identity.ts"
 import { ExprId, NodeId, ParamId } from "#compiler/core/ids.ts"
@@ -16,7 +17,6 @@ import {
 	definedOp,
 	type ExprDeps,
 	type ExprTable,
-	floatSpecialNames,
 	type TypedLiteral,
 	OpId,
 	partialOp,

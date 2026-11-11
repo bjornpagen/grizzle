@@ -1,6 +1,11 @@
 import { appendAll } from "#compiler/core/array.ts"
 import { nominal } from "#compiler/core/brand.ts"
-import { canonicalTextOf, catchRefusal, Refusal } from "#compiler/core/canonical.ts"
+import {
+	canonicalTextOf,
+	catchRefusal,
+	type FloatSpecialName,
+	Refusal
+} from "#compiler/core/canonical.ts"
 import type { DecimalParts } from "#compiler/core/decimal.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { IdentityValue } from "#compiler/core/identity.ts"
@@ -237,17 +242,6 @@ export type Volatility = "immutable" | "stable"
 export interface ColumnRef {
 	readonly node: NodeId
 	readonly name: string
-}
-
-/** The floats a literal names by a word, NaN and the infinities, in one order. */
-export const floatSpecialNames = ["NaN", "Infinity", "-Infinity"] as const
-export type FloatSpecialName = (typeof floatSpecialNames)[number]
-
-/** Each float a literal names by a word, as the number it is. */
-export const floatSpecials: Readonly<Record<FloatSpecialName, number>> = {
-	NaN: Number.NaN,
-	Infinity: Number.POSITIVE_INFINITY,
-	"-Infinity": Number.NEGATIVE_INFINITY
 }
 
 /**

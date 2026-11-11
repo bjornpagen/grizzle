@@ -78,11 +78,12 @@ import { caseHang } from "#test/support/limits.ts"
  * The canonical serializer (core/canonical.ts): one text per value, the JSON Canonicalization Scheme (RFC 8785) over
  * the value's JSON form, and a refusal, at the offending value's path, of everything outside the value model.
  *
- * The values are drawn: JSON without null plus bigints and vectors, their keys and strings from a dictionary of the
- * spellings where JavaScript's own key order, a code-point order, a naive tagging scheme or the prototype accessor goes
- * wrong. The oracle is the format's specification, written here apart from the serializer (the module header): the JSON
- * form holds a bigint as "~n:<integer>", a Float32Array as "~v:[c1,...,cn]", each component as JSON.stringify writes it
- * (-0 as 0), and a plain string beginning with "~" with that "~" doubled, and the text is RFC 8785 over it, keys
+ * The values are drawn: JSON without null plus bigints, NaN and the infinities, and vectors, their keys and strings
+ * from a dictionary of the spellings where JavaScript's own key order, a code-point order, a naive tagging scheme or
+ * the prototype accessor goes wrong. The oracle is the format's specification, written here apart from the serializer
+ * (the module header): the JSON form holds a bigint as "~n:<integer>", a number that is not finite as "~f:" and the
+ * text String writes of it, a Float32Array as "~v:[c1,...,cn]", each component as JSON.stringify writes it (-0 as 0),
+ * and a plain string beginning with "~" with that "~" doubled, and the text is RFC 8785 over it, keys
  * ordered by UTF-16 code units and every number and string written as JSON.stringify writes it (ECMAScript's shortest
  * round trip, -0 as 0; well-formed escaping).
  *
@@ -154,6 +155,7 @@ const leaf = oneOf<unknown>([
 	int(-(2 ** 31), 2 ** 31 - 1),
 	double(-Number.MAX_VALUE, Number.MAX_VALUE),
 	element([-0, 1e21, 1e-7, 2 ** 53]),
+	element([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]),
 	bigint(-(2n ** 64n), 2n ** 64n)
 ])
 
@@ -229,7 +231,8 @@ const vectorPayload = (v: Float32Array): string =>
 
 /**
  * The JSON form the module header specifies: a Canonicalizable value as "~<tag>:<payload>", a vector as "~v:<payload>",
- * -0 as 0, and an undefined object member left out (undefined is refused only in an array or at the root).
+ * a number that is not finite as "~f:" and its text, -0 as 0, and an undefined object member left out (undefined is
+ * refused only in an array or at the root).
  */
 const jsonForm = (v: unknown): Json => {
 	if (v instanceof Exact) {
@@ -245,7 +248,7 @@ const jsonForm = (v: unknown): Json => {
 		return Str.startsWith("~")(v) ? `~${v}` : v
 	}
 	if (typeof v === "number") {
-		return Object.is(v, -0) ? 0 : v
+		return !Number.isFinite(v) ? `~f:${String(v)}` : Object.is(v, -0) ? 0 : v
 	}
 	if (typeof v === "boolean") {
 		return v
@@ -307,6 +310,7 @@ type SpellingFeature =
 	| "keys code points order otherwise"
 	| "negative zero"
 	| "an exponent-form number"
+	| "a number that is not finite"
 
 /** A string's code points, read through its iterator. */
 const codePointsOf = (s: string): ReadonlyArray<number> =>
@@ -332,6 +336,9 @@ const spellingsOf = (v: unknown, note: (f: SpellingFeature) => void): void => {
 	} else if (typeof v === "number") {
 		if (Object.is(v, -0)) {
 			note("negative zero")
+		}
+		if (!Number.isFinite(v)) {
+			note("a number that is not finite")
 		}
 		if (Str.includes("e")(jsonText(v))) {
 			note("an exponent-form number")
@@ -386,7 +393,8 @@ describe("the canonical text", () => {
 							"a __proto__ key",
 							"keys code points order otherwise",
 							"negative zero",
-							"an exponent-form number"
+							"an exponent-form number",
+							"a number that is not finite"
 						],
 						{ cases: 1000, sense: notesOnly }
 					),
@@ -484,8 +492,6 @@ describe("the canonical text", () => {
 type Outside =
 	| "null"
 	| "undefined in an array"
-	| "NaN"
-	| "an infinity"
 	| "a lone surrogate"
 	| "a lone surrogate key"
 	| "a function"
@@ -497,12 +503,14 @@ type Outside =
 	| "a cycle"
 	| "a hole"
 	| "the reserved tag n"
+	| "the reserved tag f"
 	| "a tag of no letter"
 	| "a payload of a lone surrogate"
 	| "decoded null"
 	| "a decoded lone surrogate"
 	| "a decoded lone surrogate key"
 	| "a non-canonical bigint"
+	| "a float named by no word"
 	| "a tag only the prototype holds"
 	| "a tag no reviver holds"
 	| "a vector component that is not finite"
@@ -533,8 +541,6 @@ interface Planted {
 const planted: { readonly [K in Outside]: Planted } = {
 	null: { direction: "encode", at: () => null, extra: [] },
 	"undefined in an array": { direction: "encode", at: () => [undefined], extra: [0] },
-	NaN: { direction: "encode", at: () => Number.NaN, extra: [] },
-	"an infinity": { direction: "encode", at: () => Number.NEGATIVE_INFINITY, extra: [] },
 	"a lone surrogate": { direction: "encode", at: () => "x\ud800", extra: [] },
 	"a lone surrogate key": {
 		direction: "encode",
@@ -559,6 +565,7 @@ const planted: { readonly [K in Outside]: Planted } = {
 	},
 	"a hole": { direction: "encode", at: () => holey(), extra: [1] },
 	"the reserved tag n": { direction: "encode", at: () => tagged("n", "1"), extra: [] },
+	"the reserved tag f": { direction: "encode", at: () => tagged("f", "NaN"), extra: [] },
 	"a tag of no letter": { direction: "encode", at: () => tagged("D!", "1"), extra: [] },
 	"a payload of a lone surrogate": {
 		direction: "encode",
@@ -573,6 +580,7 @@ const planted: { readonly [K in Outside]: Planted } = {
 		extra: ["\udc00"]
 	},
 	"a non-canonical bigint": { direction: "decode", at: () => "~n:01", extra: [] },
+	"a float named by no word": { direction: "decode", at: () => "~f:nan", extra: [] },
 	"a tag only the prototype holds": { direction: "decode", at: () => "~constructor:x", extra: [] },
 	"a tag no reviver holds": { direction: "decode", at: () => "~q:1", extra: [] },
 	"a vector component that is not finite": {
@@ -1077,6 +1085,12 @@ describe("canonical comparison", () => {
 								sketch: [[Float32Array.of(1), new Exact(vectorTag, "[1]")], [], 0],
 								draws: "",
 								reaches: ["a repeated member"]
+							},
+							{
+								note: "NaN beside NaN, one text though no number equals NaN",
+								sketch: [[Number.NaN, Number.NaN], [], 0],
+								draws: "",
+								reaches: ["a repeated member"]
 							}
 						],
 						runs: 300,
@@ -1270,8 +1284,9 @@ describe("canonical tokens", () => {
 })
 
 /**
- * The value `v`'s canonical text decodes to under `revivers`: -0 as 0, and a vector as the Exact value its tag and
- * payload revive to, since a vector's text and a protocol value's of its tag are one.
+ * The value `v`'s canonical text decodes to under `revivers`: -0 as 0, NaN and the infinities as themselves, and a
+ * vector as the Exact value its tag and payload revive to, since a vector's text and a protocol value's of its tag are
+ * one.
  */
 function decodedForm(v: unknown): unknown {
 	if (Object.is(v, -0)) {

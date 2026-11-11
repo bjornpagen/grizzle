@@ -1,5 +1,5 @@
 import type { CheckedSchema } from "#compiler/analysis/schema.ts"
-import { Refusal } from "#compiler/core/canonical.ts"
+import { floatSpecials, Refusal } from "#compiler/core/canonical.ts"
 import { CompileError, type ProseTag, prose } from "#compiler/core/errors.ts"
 import { bitInputText } from "#compiler/core/hex.ts"
 import { ExprId } from "#compiler/core/ids.ts"
@@ -12,7 +12,6 @@ import {
 	builtExpr,
 	type ColumnRef,
 	describeOp,
-	floatSpecials,
 	predicateTable,
 	type ScalarExpr,
 	spanLiteralText,

@@ -6,6 +6,8 @@ import {
 	encode,
 	encodeOver,
 	everyProperty,
+	type FloatSpecialName,
+	floatSpecialNames,
 	type Json,
 	omitSourceLocs,
 	toJson
@@ -35,7 +37,6 @@ import {
 } from "#compiler/ir/carriers.ts"
 import type { CalendarDate } from "#compiler/ir/date.ts"
 import { decimalTag, isDecimalPayload } from "#compiler/ir/decimal.ts"
-import { type FloatSpecialName, floatSpecialNames } from "#compiler/ir/expr.ts"
 import { type Fact, factNames, factsSorted } from "#compiler/ir/proof.ts"
 import { calendarDateShape, patternsShape, textLanguageShape } from "#compiler/ir/scalar-shape.ts"
 import {

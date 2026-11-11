@@ -1,4 +1,4 @@
-import { taggedValueOf } from "#compiler/core/canonical.ts"
+import { floatSpecials, isFloatSpecialName, taggedValueOf } from "#compiler/core/canonical.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -6,7 +6,7 @@ import { VectorText, vectorTag } from "#compiler/ir/carriers.ts"
 import { dayNumber, toCalendarDate } from "#compiler/ir/date.ts"
 import { decimalPayload, isDecimalLike } from "#compiler/ir/decimal.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
-import { floatSpecials, type TypedLiteral, literalProblem } from "#compiler/ir/expr.ts"
+import { type TypedLiteral, literalProblem } from "#compiler/ir/expr.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { BytesDigest } from "#compiler/scalar/values/bytes.ts"
 import { Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
@@ -222,7 +222,7 @@ const carriedOf = (value: LiteralDesc, t: ScalarType): Result.Result<CarriedLite
 				isRecord(value) && Object.hasOwn(value, "float") && "float" in value
 					? value.float
 					: undefined
-			if (special === "NaN" || special === "Infinity" || special === "-Infinity") {
+			if (isFloatSpecialName(special)) {
 				return finish({ kind: "floatSpecial", value: special }, floatSpecials[special])
 			}
 			if (typeof value !== "number" || !Number.isFinite(value)) {

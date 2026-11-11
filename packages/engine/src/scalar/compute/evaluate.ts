@@ -1,3 +1,4 @@
+import { floatSpecialNameOf } from "#compiler/core/canonical.ts"
 import type { ExprId } from "#compiler/core/ids.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -160,6 +161,14 @@ export const literalValue = (literal: TypedLiteral): CarrierValue => {
 	}
 }
 
+/** A float's typed literal: a finite one with its one zero, and NaN or an infinity by the word naming it. */
+const floatLiteral = (x: number): TypedLiteral => {
+	const name = floatSpecialNameOf(x)
+	return name === undefined
+		? { kind: "float", value: canonicalZero(x) }
+		: { kind: "floatSpecial", value: name }
+}
+
 /**
  * The typed literal of a value of `type`, the inverse of literalValue: what a constant subterm the host evaluated is
  * printed as (physical/ddl/expr.ts). A set's handles come in its roster's declared order. The evaluator's value of an
@@ -180,15 +189,7 @@ export const hostLiteralOf = (value: CarrierValue, type: ScalarType): TypedLiter
 			return isDecimal(value) ? { kind: "numeric", value } : wrong()
 		case "float4":
 		case "float8":
-			return !isNumber(value)
-				? wrong()
-				: Number.isNaN(value)
-					? { kind: "floatSpecial", value: "NaN" }
-					: value === Number.POSITIVE_INFINITY
-						? { kind: "floatSpecial", value: "Infinity" }
-						: value === Number.NEGATIVE_INFINITY
-							? { kind: "floatSpecial", value: "-Infinity" }
-							: { kind: "float", value: canonicalZero(value) }
+			return isNumber(value) ? floatLiteral(value) : wrong()
 		case "money":
 		case "exactMoney":
 			return isMoney(value) ? { kind: "money", value } : wrong()

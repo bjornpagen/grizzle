@@ -29,10 +29,48 @@ export const canonicalTag: unique symbol = Symbol.for("grizzle/canonical")
  */
 export const vectorTag = "v"
 
+/** The tag of a bigint's canonical text, "~n:<integer>", which the kernel reads itself. */
+const bigintTag = "n"
+
+/**
+ * The tag of the canonical text of a number that is not finite, "~f:<name>" (floatSpecialNames), which the kernel reads
+ * itself: a float4 or float8 value PostgreSQL holds and JSON has no number for.
+ */
+const floatTag = "f"
+
+/** The floats named by a word, NaN and the infinities, in one order: a literal's names and their canonical texts'. */
+export const floatSpecialNames = ["NaN", "Infinity", "-Infinity"] as const
+export type FloatSpecialName = (typeof floatSpecialNames)[number]
+
+/** Each float named by a word, as the number it is. */
+export const floatSpecials: Readonly<Record<FloatSpecialName, number>> = {
+	NaN: Number.NaN,
+	Infinity: Number.POSITIVE_INFINITY,
+	"-Infinity": Number.NEGATIVE_INFINITY
+}
+
+/** Whether a value is the word naming a float (floatSpecialNames). */
+export const isFloatSpecialName = (value: unknown): value is FloatSpecialName =>
+	typeof value === "string" && Object.hasOwn(floatSpecials, value)
+
+/** The float a word names (floatSpecialNames); undefined for any other text. */
+export const floatSpecialOf = (text: string): number | undefined =>
+	isFloatSpecialName(text) ? floatSpecials[text] : undefined
+
+/** The word naming a number that is not finite; undefined for a finite number, which JSON writes as a number. */
+export const floatSpecialNameOf = (x: number): FloatSpecialName | undefined =>
+	Number.isNaN(x)
+		? "NaN"
+		: x === Number.POSITIVE_INFINITY
+			? "Infinity"
+			: x === Number.NEGATIVE_INFINITY
+				? "-Infinity"
+				: undefined
+
 export interface TaggedValue {
 	/**
-	 * Lowercase ASCII letters and digits, starting with a letter. "n" is reserved for bigint; "v" is a vector's, which a
-	 * value implementing the protocol may carry with a vector's payload.
+	 * Lowercase ASCII letters and digits, starting with a letter. "n" is reserved for bigint and "f" for NaN and the
+	 * infinities; "v" is a vector's, which a value implementing the protocol may carry with a vector's payload.
 	 */
 	readonly tag: string
 	readonly payload: string
@@ -241,8 +279,9 @@ const stop: (path: Path, capability: string) => never = refuseValue
  * A canonical value that is an object, as canonicalOf reads it: a vector, a Float32Array's components copied out of it
  * through its internal slots, so no method a subclass overrides runs, each finite and -0 held as 0, beside the tagged
  * value its text is (vectorTag, "[c1,...,cn]", each component the text of the number it is, which reads back as exactly
- * that binary32 value); a value implementing the protocol, beside the tag and payload its method returned; an array;
- * or a plain record, whose prototype is Object's or none and which holds no symbol key.
+ * that binary32 value); a number that is not finite, by the word naming it, beside the tagged value its text is
+ * (floatTag and that word); a value implementing the protocol, beside the tag and payload its method returned; an
+ * array; or a plain record, whose prototype is Object's or none and which holds no symbol key.
  */
 export type CanonicalObject =
 	| {
@@ -250,6 +289,7 @@ export type CanonicalObject =
 			readonly components: Float32Array
 			readonly tagged: TaggedValue
 	  }
+	| { readonly kind: "floatSpecial"; readonly name: FloatSpecialName; readonly tagged: TaggedValue }
 	| { readonly kind: "tagged"; readonly value: object; readonly tagged: TaggedValue }
 	| { readonly kind: "array"; readonly items: ReadonlyArray<unknown> }
 	| { readonly kind: "record"; readonly record: Readonly<Record<string, unknown>> }
@@ -263,7 +303,7 @@ export interface Outside {
 
 /**
  * A value of the canonical model, by its kind: well-formed text, a finite number, a boolean and a bigint are each its
- * own variant, and every other value of the model is a CanonicalObject.
+ * own variant, and every other value of the model, a number that is not finite among them, is a CanonicalObject.
  */
 export type CanonicalValue = string | number | boolean | bigint | CanonicalObject
 
@@ -285,10 +325,10 @@ const vectorOf = (buffer: Float32Array): CanonicalObject | Outside => {
 
 /**
  * A value implementing the protocol read with the tag and payload its method returned, or outside the model where the
- * tag is no tag name, is the reserved "n", or the payload is no well-formed text.
+ * tag is no tag name, is a tag the kernel reads itself ("n", "f"), or the payload is no well-formed text.
  */
 const protocolOf = (value: object, tagged: TaggedValue): CanonicalObject | Outside =>
-	!isTagName(tagged.tag) || tagged.tag === "n"
+	!isTagName(tagged.tag) || tagged.tag === bigintTag || tagged.tag === floatTag
 		? outside(value, `a valid canonical tag, not "${tagged.tag}"`)
 		: tagged.payload.isWellFormed()
 			? { kind: "tagged", value, tagged }
@@ -327,11 +367,19 @@ const objectOf = (value: Readonly<Record<string, unknown>>): CanonicalObject | O
 	return isList(value) ? { kind: "array", items: value } : recordOf(value)
 }
 
+/** A number read by the canonical model: a finite one as itself, and NaN or an infinity by the word naming it. */
+const numberOf = (x: number): number | CanonicalObject => {
+	const name = floatSpecialNameOf(x)
+	return name === undefined
+		? x
+		: { kind: "floatSpecial", name, tagged: { tag: floatTag, payload: name } }
+}
+
 /**
  * The one reading of a value by the canonical model (CanonicalValue), or outside it, with what the model holds in its
- * place: text that is not well-formed (a lone UTF-16 surrogate), a number that is not finite, null, undefined, a
- * function, a symbol, a vector with a component that is not finite, a forged or misnamed protocol value, and an object
- * that is no plain record. Every traversal of the model, and every reader of a value by it, dispatches on this reading,
+ * place: text that is not well-formed (a lone UTF-16 surrogate), null, undefined, a function, a symbol, a vector with a
+ * component that is not finite, which pgvector refuses (scalar/values/vector.ts), a forged or misnamed protocol value,
+ * and an object that is no plain record. Every number is in the model, as float8 holds every one. Every traversal of the model, and every reader of a value by it, dispatches on this reading,
  * so no kind of the model is read anywhere but here.
  */
 export const canonicalOf = (value: unknown): CanonicalValue | Outside => {
@@ -339,7 +387,7 @@ export const canonicalOf = (value: unknown): CanonicalValue | Outside => {
 		case "string":
 			return value.isWellFormed() ? value : outside(value, wellFormedText)
 		case "number":
-			return Number.isFinite(value) ? value : outside(value, "a finite number")
+			return numberOf(value)
 		case "boolean":
 		case "bigint":
 			return value
@@ -355,10 +403,14 @@ export const canonicalOf = (value: unknown): CanonicalValue | Outside => {
 /** The pairs of members two canonical objects hold one text exactly when they hold, or undefined where they cannot. */
 type MemberPairs = ReadonlyArray<readonly [unknown, unknown]> | undefined
 
-/** The tagged value a canonical object is written as: a vector's or a protocol value's; undefined for any other. */
+/**
+ * The tagged value a canonical object is written as: a vector's, a non-finite number's or a protocol value's; undefined
+ * for any other.
+ */
 const writtenTag = (read: CanonicalObject | Outside): TaggedValue | undefined => {
 	switch (read.kind) {
 		case "vector":
+		case "floatSpecial":
 		case "tagged":
 			return read.tagged
 		case "array":
@@ -390,12 +442,14 @@ const recordPairs = (
 }
 
 /**
- * What two canonical objects hold one text exactly when: a vector or a protocol value beside either of one tag and
- * payload, nothing more; two arrays, their items; two records, their members; and never a value outside the model.
+ * What two canonical objects hold one text exactly when: a vector, a non-finite number or a protocol value beside any
+ * of one tag and payload, nothing more; two arrays, their items; two records, their members; and never a value outside
+ * the model.
  */
 const memberPairs = (x: CanonicalObject | Outside, y: CanonicalObject | Outside): MemberPairs => {
 	switch (x.kind) {
 		case "vector":
+		case "floatSpecial":
 		case "tagged": {
 			const other = writtenTag(y)
 			return other !== undefined && other.tag === x.tagged.tag && other.payload === x.tagged.payload
@@ -414,9 +468,10 @@ const memberPairs = (x: CanonicalObject | Outside, y: CanonicalObject | Outside)
 /**
  * Whether two values a builder made have one semantic identity: whether the texts withoutSourceLocs writes of them are
  * one text, read by walking both at once and writing neither, each value read by the canonical model (canonicalOf). A
- * scalar is itself, a number its value, -0 being 0; a vector or a value implementing the protocol its tag and payload;
- * a list its items in order; a record its members by key in any order, a member the text leaves out left out here; and
- * a value outside the model, which no text holds, the same as nothing but itself. One value met twice is one value at
+ * scalar is itself, a finite number its value, -0 being 0; NaN, an infinity, a vector or a value implementing the
+ * protocol its tag and payload, so NaN is the same as NaN; a list its items in order; a record its members by key in
+ * any order, a member the text leaves out left out here; and a value outside the model, which no text holds, the same
+ * as nothing but itself. One value met twice is one value at
  * once, so a value is read only where it differs from the other. The pairs still to compare wait on a stack on the
  * heap, so no depth of value deepens the call stack.
  */
@@ -613,7 +668,7 @@ class Walk {
 				this.#sink.scalar(read)
 				return false
 			case "bigint":
-				this.#sink.scalar(`~n:${read.toString()}`)
+				this.#sink.scalar(`~${bigintTag}:${read.toString()}`)
 				return false
 			case "object":
 				return this.#object(read)
@@ -625,12 +680,13 @@ class Walk {
 	}
 
 	/**
-	 * Reads one canonical object: a vector's or a protocol value's tagged text is written, and an array or a record is
-	 * opened onto the frames, which is true, refused as a cycle where it is one of its own ancestors.
+	 * Reads one canonical object: a vector's, a non-finite number's or a protocol value's tagged text is written, and an
+	 * array or a record is opened onto the frames, which is true, refused as a cycle where it is one of its own ancestors.
 	 */
 	#object(read: CanonicalObject | Outside): boolean {
 		switch (read.kind) {
 			case "vector":
+			case "floatSpecial":
 			case "tagged":
 				this.#sink.scalar(`~${read.tagged.tag}:${read.tagged.payload}`)
 				return false
@@ -883,9 +939,11 @@ const encodeWalk = (value: unknown, options: EncodeOptions): Result.Result<strin
  *
  * One canonical text per value, so identity, fingerprints, cache keys and the snapshot are byte-stable: equal content
  * built in any key order, by any process, serializes to the same bytes. The value model (canonicalOf) is JSON without
- * null (no NULL exists at any layer) plus three extensions that JSON cannot carry:
+ * null (no NULL exists at any layer) plus four extensions that JSON cannot carry:
  *
  * - bigint, carried as the tagged string "~n:<integer>";
+ * - a number that is not finite, carried as "~f:NaN", "~f:Infinity" or "~f:-Infinity" (floatSpecialNames), the words
+ *   a float literal names it by, so every value float8 holds has a text;
  * - a vector, a Float32Array of finite components, carried as "~v:[c1,...,cn]" (vectorTag), each component the text of
  *   the number it is, -0 as 0: the shortest text that reads back as exactly that binary32 value;
  * - any value implementing the Canonicalizable protocol below, carried as "~<tag>:<payload>". Decimal (scalar/values)
@@ -899,8 +957,8 @@ const encodeWalk = (value: unknown, options: EncodeOptions): Result.Result<strin
  *
  * Rejected as MalformedDescription, with the path of the offending value: null, undefined in an array or at the root,
  * strings and object keys that are not well-formed Unicode text (a lone UTF-16 surrogate; RFC 8785 sections 3.1 and
- * 3.2.2.2 require I-JSON input and an error on such strings, and no UTF8 database could store them), non-finite
- * numbers, a Float32Array with a component that is not finite, functions, symbols, cycles, Maps, Sets, Dates, and any
+ * 3.2.2.2 require I-JSON input and an error on such strings, and no UTF8 database could store them), a Float32Array
+ * with a component that is not finite (pgvector refuses one), functions, symbols, cycles, Maps, Sets, Dates, and any
  * other non-plain object that does not implement the protocol. A value may nest to any depth, in both directions: every
  * traversal keeps the containers it is inside on a stack on the heap, so no nesting deepens the call stack, and a
  * container that holds itself is refused as a cycle.
@@ -1093,9 +1151,9 @@ export const compareCanonicalTokens = (
 }
 
 /**
- * Decoders for extension tags, for example `{ d: Decimal.fromCanonical }`. "n" (bigint) is built in. "v" is the
- * caller's: a host vector's text and the IR's VectorText's are one, so the reader names the form it restores,
- * scalar/values' Vector.fromCanonical a Float32Array.
+ * Decoders for extension tags, for example `{ d: Decimal.fromCanonical }`. "n" (bigint) and "f" (NaN and the
+ * infinities) are built in. "v" is the caller's: a host vector's text and the IR's VectorText's are one, so the reader
+ * names the form it restores, scalar/values' Vector.fromCanonical a Float32Array.
  */
 export type Revivers = {
 	readonly [tag: string]: (payload: string) => Result.Result<unknown, CompileError>
@@ -1263,10 +1321,16 @@ class Revive {
 				"a tagged string, ~<tag>:<payload> with a tag of lowercase letters and digits that begins with a letter"
 			)
 		}
-		if (tag === "n") {
+		if (tag === bigintTag) {
 			return isCanonicalInteger(payload)
 				? BigInt(payload)
 				: refuseText(this.#path, "a canonical bigint")
+		}
+		if (tag === floatTag) {
+			return (
+				floatSpecialOf(payload) ??
+				refuseText(this.#path, "a float named by a word: NaN, Infinity or -Infinity")
+			)
 		}
 		/** Own properties only: an inherited one ("constructor", "toString", ...) is no reviver. */
 		const revive = Object.hasOwn(this.#revivers, tag) ? this.#revivers[tag] : undefined

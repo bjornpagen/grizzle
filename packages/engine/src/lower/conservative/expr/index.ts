@@ -1,3 +1,4 @@
+import { floatSpecials } from "#compiler/core/canonical.ts"
 import { exactParts } from "#compiler/core/decimal.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import { moneyFractionDigits, moneyMinorUnits, vectorPayload } from "#compiler/ir/carriers.ts"
@@ -5,7 +6,6 @@ import { codecOf, codeOf, handlesHex, type RosterCodec } from "#compiler/ir/code
 import { datePartSlices } from "#compiler/ir/date.ts"
 import {
 	describeOp,
-	floatSpecials,
 	type ScalarExpr,
 	spanLiteralText,
 	type TypedLiteral

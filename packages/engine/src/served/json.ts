@@ -3,6 +3,7 @@ import {
 	canonicalOf,
 	catchRefusal,
 	compareText,
+	floatSpecialOf,
 	type Json,
 	type Outside,
 	type Path,
@@ -36,7 +37,7 @@ import type { ServedFile } from "#compiler/served/forms.ts"
  * form, which a load reads in place with no second walk. Every other value is written as a revived one:
  *
  * - a string beginning with `~`, escaped by a second;
- * - a bigint `~n:` and its digits;
+ * - a bigint `~n:` and its digits, and NaN and the infinities `~f:` and the word naming each (floatSpecialNames);
  * - every ScalarType once, in the file's `types` table, in the order the walk first meets it (a contract's base and a
  *   span's endpoint before the type over them), each occurrence `~t:` and its index, so a refined type is one object
  *   whatever the slots that read it;
@@ -68,6 +69,7 @@ const revivedKey = "~"
 /** The tags of the canonical values a served form holds, by what the file spells them under. */
 const tags = {
 	bigint: "n",
+	float: "f",
 	type: "t",
 	roster: "roster",
 	rangeOp: "op",
@@ -190,6 +192,8 @@ const servedObject = (read: CanonicalObject | Outside): ServedObject => {
 	switch (read.kind) {
 		case "vector":
 			return servedVector(read.components)
+		case "floatSpecial":
+			return servedTagged(tags.float, read.name)
 		case "tagged":
 			return servedClass(read.value, read.tagged)
 		case "array":
@@ -203,8 +207,8 @@ const servedObject = (read: CanonicalObject | Outside): ServedObject => {
 
 /**
  * The one reading of a value by the served file (ServedValue), over its reading by the canonical model (canonicalOf):
- * well-formed text as it is, or escaped where it begins with `~`; a finite number, -0 as 0; a boolean; a bigint, a
- * vector and a canonical value of a served class under their tags; a range overload, a ScalarType, an array and a plain
+ * well-formed text as it is, or escaped where it begins with `~`; a finite number, -0 as 0; a boolean; a bigint, NaN,
+ * an infinity, a vector and a canonical value of a served class under their tags; a range overload, a ScalarType, an array and a plain
  * record; a Map and a Set; and nothing else. No reading is undefined, a function or a symbol, so those cases hold none
  * (never).
  */
@@ -500,6 +504,8 @@ class ServedReader {
 		switch (tag) {
 			case tags.bigint:
 				return BigInt(payload)
+			case tags.float:
+				return defined(floatSpecialOf(payload), `a served float named by a word: ${payload}`)
 			case tags.type:
 				return defined(this.#types[Number(payload)], `the served types table holds type ${payload}`)
 			case tags.roster:
