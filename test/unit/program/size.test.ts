@@ -12,8 +12,9 @@ import { type QueryValue, queryOver, varsOver } from "#compiler/query/build/quer
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import type { Select } from "#compiler/sql/ast.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { defined, succeeded } from "#test/support/assert.ts"
 import { compileTemplate, programAsts, testCompile } from "#test/support/compile.ts"
+import { affine } from "#test/support/growth.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { upTo } from "#test/support/up-to.ts"
 
@@ -30,8 +31,11 @@ import { upTo } from "#test/support/up-to.ts"
  * three, widen every attachment alike. Exact linearity at one n fails wherever any term grows faster than linearly, so
  * the families are small.
  *
- * Plant: every part of a statement padded by one column per part (lower/parts.ts taggedParts), a part that grows with
- * its siblings, fails it at every n.
+ * Oracle: the universal relation of an affine size (test/support/growth.ts affine), exhausted over every width and size
+ * of one to three.
+ *
+ * Plants (~/.cache/grizzle-release/BR02/plants): size-parts-padded-per-sibling, every part of a statement padded by one
+ * column per part (lower/parts.ts taggedParts), a part that grows with its siblings, which fails it at every n.
  */
 
 /** A family's width, its children's own fields, and its size n: each one to three. */
@@ -162,15 +166,14 @@ describe("compiled size", () => {
 					},
 					([width, n]) =>
 						Effect.sync(() => {
-							const once = sizesOf(n, width)
-							const twice = sizesOf(2 * n, width)
-							const thrice = sizesOf(3 * n, width)
-							const at = `children of ${width} fields at ${n}, ${2 * n} and ${3 * n} attachments`
+							const measured = new Map(
+								Arr.map([n, 2 * n, 3 * n], (k) => [k, sizesOf(k, width)] as const)
+							)
 							for (const artifact of ["conservative", "optimized"] as const) {
-								assert.equal(
-									thrice[artifact] - twice[artifact],
-									twice[artifact] - once[artifact],
-									`${at}: the ${artifact} artifact holds ${once[artifact]}, ${twice[artifact]} and ${thrice[artifact]} nodes`
+								affine(
+									(k) => defined(measured.get(k), `the sizes at ${k} attachments`)[artifact],
+									n,
+									`the ${artifact} artifact's nodes over children of ${width} fields`
 								)
 							}
 						})
