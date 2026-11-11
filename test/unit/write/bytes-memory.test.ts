@@ -12,7 +12,13 @@
  * allocates under one value's length; any other binds, and allocates its arrays' bytes once, within a 64 MiB slack,
  * each of its admitted values the caller's array itself. The memory read bounds what a bind holds from above, so a
  * collection of an earlier case's garbage meanwhile can hide a copy, never invent one; the admitted values' identity
- * holds whatever the collector does.
+ * holds whatever the collector does. The slack is no number of its own: it is one value's length, the least a second
+ * copy of any one value allocates, so a bind under it copied no value twice.
+ *
+ * Features: a member refused from its lengths, a member bound, two bytes columns.
+ *
+ * Plants (~/.cache/grizzle-release/BR02/plants): bytes-admission-copies, an admission that copies the caller's array,
+ * which the identity check and the allocation bound both refuse.
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -72,8 +78,11 @@ const carried = (d: Drawn): number => {
 /** The binary arrays' bytes a bound member holds: one copy of every value. */
 const copied = (d: Drawn): number => d.columns * d.facts * valueLength
 
-/** Slack for what the bind allocates beside the values: texts, maps, and the process's own churn. */
-const slack = 64 * 1024 * 1024
+/**
+ * What the bind may allocate beside its one copy of every value (texts, maps, the process's own churn): less than one
+ * value's length, the least a second copy of any value allocates.
+ */
+const slack = valueLength
 
 const notes = (d: Drawn): ReadonlyArray<Feature> => [
 	carried(d) > messageMaxBytes.value ? "a member refused from its lengths" : "a member bound",
@@ -145,7 +154,7 @@ describe("a write of large bytes values", () => {
 								assert.ok(bound.ok, "a member within the message binds")
 								assert.ok(
 									grown < copied(d) + slack,
-									`a bound member's ${copied(d)} bytes allocated ${grown}, more than one copy`
+									`a bound member's ${copied(d)} bytes allocated ${grown}: a second copy of some value`
 								)
 								const normalized = normalizeChangeSet(
 									write.flight.prepared.groups,

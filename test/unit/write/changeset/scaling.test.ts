@@ -27,6 +27,12 @@ import { descOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
  * would copy every one. Its member states are carried by reference too, so the step computes the identity text of its
  * new member alone. Both counts are taken at four sizes. The assembled Description is the one the whole decode gives,
  * the old path, kept here as the oracle.
+ *
+ * Oracles: the specification for the step's reads (every step of a growth builds as many containers as its first, and
+ * one member state), and the whole decode for the assembled Description (a second implementation).
+ *
+ * Plants (~/.cache/grizzle-release/BR02/plants): changeset-step-copies-strata, a step that copies every earlier
+ * member's state.
  */
 
 /** The arrays and plain objects reachable from `value`, added to `into`. */
@@ -284,8 +290,11 @@ describe("a ChangeSet builder step reads only what it adds", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "each growth (a query member; an array member into its group then a query member; a query member after a bind) at 50, 100, 200 and 400 steps",
+						oracle: {
+							kind: "specification",
+							name: "a step builds a fixed number of containers and one member state, whatever the ChangeSet's size"
+						},
 						suite: "unit/write/changeset/step-reads",
 						generator: (source) =>
 							[
@@ -315,7 +324,10 @@ describe("a ChangeSet builder step reads only what it adds", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "second-implementation",
+						name: "the whole decode of the Description, the old path, with its keys' order"
+					},
 					suite: "unit/write/changeset/assembled",
 					draw: drawn((source) =>
 						Arr.map(source.draw(array(int(0, 10), { min: 1, max: 12 })), (kind) =>

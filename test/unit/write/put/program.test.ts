@@ -1,7 +1,7 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { array, element, type Gen, int, subarray } from "@grizzle/testing/gen"
+import { array, constant, type Gen, int, subset, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint } from "@grizzle/testing/values"
@@ -27,8 +27,15 @@ import {
 /**
  * A described member's relation parameter is bound from the caller's values, and a value the program needs and the
  * caller leaves out, or gives as no list of facts, is refused at bind with an EncodingFailure at that parameter's slot,
- * before any SQL. The programs put Item and Stock facts read from relation parameters, one each; the caller gives every
- * parameter a list of facts, or leaves one out, or gives one a number.
+ * before any SQL. The programs put Item and Stock facts read from relation parameters, one each or both, a non-empty
+ * subset drawn as one; the caller gives every parameter a list of facts, or leaves one out, or gives one a number, a
+ * list twice as often as either fault, each weight written out.
+ *
+ * Oracle: the specification, every relation parameter a list of facts.
+ *
+ * Features: every parameter given, a parameter left out, a parameter given a number.
+ *
+ * Plants (~/.cache/grizzle-release/BR02/plants): put-param-missing-empty, a parameter left out bound as no facts.
  */
 const parameterMembers = [
 	{ relation: Item, param: "items" },
@@ -41,12 +48,11 @@ type Given =
 	| { readonly kind: "left out" }
 	| { readonly kind: "a number" }
 
-const givenGen: Gen<Given> = (source) => {
-	const kind = source.draw(element(["facts", "facts", "left out", "a number"] as const))
-	return kind === "facts"
-		? { kind, facts: source.draw(array(int(1, 3), { min: 0, max: 3 })) }
-		: { kind }
-}
+const givenGen: Gen<Given> = weighted<Given>([
+	[2, (source) => ({ kind: "facts", facts: source.draw(array(int(1, 3), { min: 0, max: 3 })) })],
+	[1, constant({ kind: "left out" })],
+	[1, constant({ kind: "a number" })]
+])
 
 const fact = (n: number, qty: bigint) => ({ id: uuidOf(n), label: "a", qty })
 
@@ -61,15 +67,14 @@ describe("the write program's relation parameters", () => {
 				explore(
 					{
 						suite: "unit/write/put/relation-parameters",
-						draw: drawn((source) => {
-							const chosen = source.draw(subarray(parameterMembers))
-							return Arr.map(chosen.length === 0 ? parameterMembers.slice(0, 1) : chosen, (m) => ({
+						draw: drawn((source) =>
+							Arr.map(source.draw(subset(parameterMembers, { min: 1, max: 2 })), (m) => ({
 								relation: m.relation,
 								param: m.param,
 								given: source.draw(givenGen),
 								qty: source.draw(bigint(0n, 9n))
 							}))
-						}),
+						),
 						literal: Formatter.format,
 						coverage: required<ParamFeature>(
 							["every parameter given", "a parameter left out", "a parameter given a number"],

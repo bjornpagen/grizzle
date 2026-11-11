@@ -1,7 +1,7 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { array, boolean, filter, type Gen, int, map } from "@grizzle/testing/gen"
+import { array, boolean, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -26,7 +26,7 @@ import { runnableWrite } from "#compiler/write/program/bind.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
 import { assert, assertVariant, refused, succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
-import { dictionaryNameGen } from "#test/support/kernel/dict.ts"
+import { dictionaryNameGenOtherThan } from "#test/support/kernel/dict.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { checking } from "#test/support/policy.ts"
 import { withinMessage } from "#test/support/worlds/execute/offline.ts"
@@ -42,8 +42,15 @@ import { descOf, parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts
  * The schema: an owner of an ordered family with a sum fold, so the owner has an accumulated end and each member a
  * drawn index. A case draws one or two owners, each with one to three members nested, and each fact states, beside the
  * fields its caller writes, its drawn or accumulated field or not, and a field its relation lacks (a dictionary name
- * outside both headings) or not, each with a drawn value. The oracle is the type's contract: the insertion binds
- * exactly when no fact at any depth states a field beyond its caller's, and is refused as factShape otherwise.
+ * outside both headings, drawn from the dictionary with the headings cut out) or not, each with a drawn value. The
+ * oracle is the type's contract, a specification: the insertion binds exactly when no fact at any depth states a field
+ * beyond its caller's, and is refused as factShape otherwise.
+ *
+ * Features: the owner states its accumulated end, a member its drawn index; the owner, or a member, states a field its
+ * relation lacks; only a later member states beyond its caller's fields; every fact states its caller's fields alone.
+ *
+ * Plants (~/.cache/grizzle-release/BR02/plants): nested-facts-member-extras-dropped, the split keeping a nested
+ * member's first field alone, so a drawn index or a foreign field is dropped unsaid.
  */
 const Owner = relation(
 	"Owner",
@@ -86,14 +93,11 @@ interface OwnerFact {
 	readonly members: Arr.NonEmptyReadonlyArray<Readonly<{ x: bigint; beyond: Beyond }>>
 }
 
+/** A dictionary name neither relation declares, drawn from the dictionary with the headings cut out. */
+const foreignName = dictionaryNameGenOtherThan(headings)
+
 const foreignGen: Gen<Foreign> = (source) => ({
-	name: source.draw(
-		filter(
-			map(dictionaryNameGen, (n) => n.declared),
-			(name) => !headings.has(name),
-			8
-		)
-	),
+	name: source.draw(foreignName).declared,
 	value: source.draw(int(-2, 2))
 })
 

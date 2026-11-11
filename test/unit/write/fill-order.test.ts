@@ -1,7 +1,7 @@
 import { describe, it } from "@effect/vitest"
 import { type Case, drawn, exhaust, explore } from "@grizzle/testing/explore"
 import { required, requiredInSpace } from "@grizzle/testing/features"
-import { element, filter, type Gen } from "@grizzle/testing/gen"
+import { element, type Gen } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { boundedShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -869,20 +869,15 @@ interface FillCase {
 }
 
 /**
- * A case over a planted specification (fill.ts `plantedGen`) beside an admitted drawn one (`besides`), with an instance
- * and a follow-up drawn as any case's.
+ * A case over a planted specification (fill.ts `plantedGen`), beside a drawn one (`besides`) where the reference admits
+ * that one and alone otherwise, with an instance and a follow-up drawn as any case's: every draw is a case.
  */
 const plantedCaseGen =
 	(planted: Planted): Gen<FillCase> =>
 	(source) => {
-		const base = source.draw(
-			filter(
-				mutableOrDrawn(fillSpecGen({ relations: 3, families: 3, copies: 2 })),
-				(s) => verdictOf(s).kind === "admitted",
-				16
-			)
-		)
-		const spec = besides(base, source.draw(plantedGen(planted)))
+		const base = source.draw(mutableOrDrawn(fillSpecGen({ relations: 3, families: 3, copies: 2 })))
+		const plant = source.draw(plantedGen(planted))
+		const spec = verdictOf(base).kind === "admitted" ? besides(base, plant) : plant
 		const rows = source.draw(instanceGen(spec))
 		return { spec, rows, followUp: source.draw(followUpGen(spec, rows)) }
 	}

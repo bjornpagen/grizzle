@@ -24,10 +24,17 @@ import { descOf, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
  * (maxStringLength) is keyed as any other, where its text was once refused and the value left unkeyed, so two equal
  * ones stayed two parameters.
  *
- * The box: a relation input of seven notes, each a body of a's, the last ending in a or b, at a length of 4 and of
- * 80,000,000, whose seven bodies sum past the longest string; bound in two ChangeSets to equal values or to the a- and
- * the b-ending ones, combined by union in either order. The oracle is the specification: equal values are one binding,
- * and two are `notes` and `notes#1`, the a-ending value first, its canonical text the lesser.
+ * The box: a relation input of seven notes, each a body of a's, the last ending in a or b, at a length of 4 and at
+ * the least length whose seven bodies sum past the longest string (maxStringLength); bound in two ChangeSets to equal
+ * values or to the a- and the b-ending ones, combined by union in either order. The oracle is the specification: equal
+ * values are one binding; different ones are two, and the Description's bindings, read in their order, hold the
+ * a-ending value first, its canonical text the lesser. The private names themselves are the ChangeSet's own, never
+ * spelled here.
+ *
+ * Features: past the longest string, equal values, different values, either order.
+ *
+ * Plants (~/.cache/grizzle-release/BR02/plants): bound-order-reversed, private parameters named against their canonical
+ * texts' order; bound-key-unkeyed-long, a value past the longest string left opaque.
  */
 const Note = relation("Note", { id: pg.int4, body: str.regex("^[ab]*$") }, ["id"])
 const Notes = schema("BoundNotes", { Note }, [])
@@ -42,9 +49,10 @@ const inserted = (): ChangeSetValue =>
 		})
 	)
 
-/** The notes' count, each body's length, and the box's lengths: one small, one whose seven bodies pass the limit. */
+/** The notes' count, each body's length, and the box's lengths: one small, and the least whose seven bodies pass the
+ * longest string. */
 const count = 7
-const lengths = [4, 80_000_000] as const
+const lengths = [4, Math.floor(maxStringLength.value / count) + 1] as const
 
 interface BoundCase {
 	readonly length: (typeof lengths)[number]
@@ -97,7 +105,7 @@ describe("a ChangeSet's bound values", () => {
 							"either order"
 						]),
 						caseHang,
-						box: "seven notes at a body length of 4 and of 80,000,000, bound to equal or different values, combined in either order",
+						box: "seven notes at a body length of 4 and at the least whose seven bodies pass the longest string, bound to equal or different values, combined in either order",
 						oracle: {
 							kind: "specification",
 							name: "bound values are one parameter when equal, and otherwise named in their canonical texts' order"
@@ -120,26 +128,21 @@ describe("a ChangeSet's bound values", () => {
 								inserted().bind({ notes: first }),
 								inserted().bind({ notes: second })
 							)
-							const bindings = descOf(combined).bindings
 							const values = parsedOf(combined).values
+							const bound = Arr.map(descOf(combined).bindings, (name) =>
+								lastLetter(values.get(name))
+							)
 							if (box.values === "equal") {
 								c.note("equal values")
-								assert.deepEqual([...bindings], ["notes"], "equal values are one parameter")
+								assert.deepEqual(bound, ["a"], "equal values are one parameter")
 								return
 							}
 							c.note("different values")
 							assert.deepEqual(
-								[...bindings],
-								["notes", "notes#1"],
-								"different values are two parameters"
+								bound,
+								["a", "b"],
+								"different values are two parameters, the lesser text's first"
 							)
-							const named = (name: string): string => lastLetter(values.get(name))
-							assert.equal(
-								named("notes"),
-								"a",
-								"the a-ending value, the lesser text, is named first"
-							)
-							assert.equal(named("notes#1"), "b", "the b-ending value is named second")
 						})
 				)
 			)

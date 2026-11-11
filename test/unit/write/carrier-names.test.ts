@@ -29,9 +29,15 @@ import { checking, owning } from "#test/support/policy.ts"
  *
  * The programs: a put of R with a read-back of both sides of its delta, in both realizations, the optimized and the
  * conservative, under one schema name for every layout of R, whose fields are named alike and whose v is a pattern's
- * text, of a domain over text naming pg_catalog.pg_c_utf8, or a bigint, a boolean or a uuid. The oracle: over every carrier of every program
- * of the layouts drawn together, one name stands for one CREATE TEMPORARY TABLE, its text with the name set aside.
- * Exhausted over every set of layouts.
+ * text, of a domain over text naming pg_catalog.pg_c_utf8, or a bigint, a boolean or a uuid. The oracle, a
+ * specification: over every carrier of every program of the layouts drawn together, one name stands for one CREATE
+ * TEMPORARY TABLE, its text with the name set aside. Exhausted over every set of layouts.
+ *
+ * Features: one layout; two layouts whose programs create, at one position of one realization, carriers declared
+ * otherwise, the situation a name drawn from a carrier's place alone collides at. The feature reads the programs'
+ * order, never a carrier name's spelling.
+ *
+ * Plants (~/.cache/grizzle-release/BR02/plants): carrier-name-ordinal-only, a carrier named by its ordinal alone.
  */
 const layouts = ["text", "bigint", "boolean", "uuid"] as const
 type Layout = (typeof layouts)[number]
@@ -115,8 +121,14 @@ const createdCarriers = (
 			: []
 	)
 
+/** The carriers a layout's programs create, each realization's in the order its program creates them. */
+interface Created {
+	readonly optimized: ReadonlyArray<readonly [name: string, declaration: string]>
+	readonly conservative: ReadonlyArray<readonly [name: string, declaration: string]>
+}
+
 /** Every carrier a layout's programs create, in both realizations. */
-const carriersOf = (layout: Layout): ReadonlyArray<readonly [string, string]> => {
+const carriersOf = (layout: Layout): Created => {
 	const { S, changes } = layoutOf(layout)
 	const owned = owning(S)
 	const names = succeeded(
@@ -142,18 +154,40 @@ const carriersOf = (layout: Layout): ReadonlyArray<readonly [string, string]> =>
 		conservativeWrite(program, { names, reads: names }),
 		`the ${layout} put's conservative realization`
 	)
-	return [...createdCarriers(program.artifact), ...createdCarriers(conservative.artifact)]
+	return {
+		optimized: createdCarriers(program.artifact),
+		conservative: createdCarriers(conservative.artifact)
+	}
 }
 
 /** Each layout's carriers, compiled once. */
-const carriers: { readonly [L in Layout]: ReadonlyArray<readonly [string, string]> } = {
+const carriers: { readonly [L in Layout]: Created } = {
 	text: carriersOf("text"),
 	bigint: carriersOf("bigint"),
 	boolean: carriersOf("boolean"),
 	uuid: carriersOf("uuid")
 }
 
-type Situation = "one layout" | "layouts of one carrier ordinal and two declarations"
+type Situation = "one layout" | "layouts of one carrier position and two declarations"
+
+/** The realizations a layout's carriers are created in. */
+const realizations = ["optimized", "conservative"] as const
+
+/**
+ * Whether two of the layouts create, at one position of one realization's program, carriers declared otherwise: where a
+ * name drawn from a carrier's place alone would name two declarations.
+ */
+const placedApart = (drawnLayouts: ReadonlyArray<Layout>): boolean =>
+	Arr.some(drawnLayouts, (a) =>
+		Arr.some(drawnLayouts, (b) =>
+			Arr.some(realizations, (r) =>
+				Arr.some(carriers[a][r], ([, x], i) => {
+					const other = carriers[b][r][i]
+					return a !== b && other !== undefined && other[1] !== x
+				})
+			)
+		)
+	)
 
 const layoutsGen: Gen<ReadonlyArray<Layout>> = subarray(layouts)
 
@@ -174,13 +208,16 @@ describe("a write program's carriers", () => {
 					},
 					coverage: requiredInSpace<Situation>([
 						"one layout",
-						"layouts of one carrier ordinal and two declarations"
+						"layouts of one carrier position and two declarations"
 					]),
 					caseHang
 				},
 				(drawnLayouts, c) =>
 					Effect.sync(() => {
-						const all = Arr.flatMap(drawnLayouts, (layout) => carriers[layout])
+						const all = Arr.flatMap(drawnLayouts, (layout) => [
+							...carriers[layout].optimized,
+							...carriers[layout].conservative
+						])
 						if (drawnLayouts.length === 1) {
 							c.note("one layout")
 						}
@@ -193,14 +230,8 @@ describe("a write program's carriers", () => {
 							)
 							declared.set(name, declaration)
 						}
-						const ordinalOf = (name: string): string =>
-							defined(Str.split(name, "_")[3], `the ordinal of ${name}`)
-						if (
-							Arr.some(all, ([a, x]) =>
-								Arr.some(all, ([b, y]) => ordinalOf(a) === ordinalOf(b) && x !== y)
-							)
-						) {
-							c.note("layouts of one carrier ordinal and two declarations")
+						if (placedApart(drawnLayouts)) {
+							c.note("layouts of one carrier position and two declarations")
 						}
 					})
 			)

@@ -52,6 +52,11 @@ import type {
  * model admits fails here, whatever its kind; and an input is refused at its encoder exactly where the model's opFault
  * is an encoding fault. Inside the box these are theorems: an entry whose every carried field is serial, with its
  * generated facts of no field, is a point of it, written whole or through an entry.
+ *
+ * Features: refused at build; compiled whole and through an entry; every carried field serial, whole and through an
+ * entry; a serial field the filter reads; facts refused at their shape; generated facts bound.
+ *
+ * Plants (~/.cache/grizzle-release/BR02/plants): entry-box-generated-refused, a generated fact refused at its encoder.
  */
 type Use = "carried" | "read" | "fixed" | "unnamed"
 
@@ -252,8 +257,11 @@ describe("the write front end over its small box", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "a relation of one to three fields, each serial or not and keyed or not, written whole or through a query entry of one rule carrying, reading, fixing or leaving out each field, each insert bound with every list of up to two of its fact kinds",
+						oracle: {
+							kind: "second-implementation",
+							name: "the worlds model's refusedAtBuild, compileRefused and opFault"
+						},
 						suite: "unit/write/entry-box",
 						generator: pointGen,
 						literal: Formatter.format,

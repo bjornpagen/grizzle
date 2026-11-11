@@ -2,10 +2,11 @@ import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import {
+	boolean,
 	codePoint,
 	element,
-	filter,
 	type Gen,
+	int,
 	oneOf,
 	string,
 	uniqueArray
@@ -32,7 +33,17 @@ import { outputText } from "#test/support/wire.ts"
  *   case, a supplementary-plane character as an escaped surrogate pair, the solidus as `\/`; PostgreSQL's escape_json
  *   writes one of these spellings, JSON.stringify another.
  * - The reader trusts its text, grizzle's own: a DETAIL under any other tag, a concurrent change's or a law function's
- *   DetailCodec text among them, is foreign, its text kept. */
+ *   DetailCodec text among them, is foreign, its text kept.
+ *
+ * Oracles: a round trip (read ∘ spell = id, every spelling JSON allows drawn) and the specification (a law's DETAIL is
+ * the one under its tag). A foreign DETAIL is constructed so its tag never opens a law's: under a tag that begins the
+ * law's own, the text stops inside the rest of it or turns away from it at a drawn character, so no draw is discarded.
+ *
+ * Features: each spelling of a character, an escaped surrogate pair; each foreign tag, a concurrent change's DETAIL.
+ *
+ * Plants (~/.cache/grizzle-release/BR02/plants): refusal-detail-short-escape, a short escape read as its letter;
+ * refusal-detail-any-k, a DETAIL read as a law's under a bare `k`.
+ */
 const reasons: Arr.NonEmptyReadonlyArray<ConcurrentChangeTag> = [
 	"PutTargetConflict",
 	"SpanKeyChange"
@@ -63,6 +74,45 @@ const nasty = element([
 	"$$",
 	""
 ])
+/** A storable character other than `excluded`, a printable ASCII one: storable's ranges with it cut out. */
+const storableOtherThan = (excluded: string): Gen<string> => {
+	const point = defined(
+		Option.getOrUndefined(Str.codePointAt(0)(excluded)),
+		"an excluded character"
+	)
+	return oneOf([
+		codePoint(0x20, point - 1),
+		codePoint(point + 1, 0x7e),
+		codePoint(0x01, point - 1),
+		codePoint(point + 1, 0xd7_ff),
+		codePoint(0xe0_00, 0x10_ffff)
+	])
+}
+
+/** The opening a law's DETAIL starts with: its tag and its bracket. */
+const lawOpening = "k["
+
+/**
+ * A text after `tag` that leaves the whole no law's DETAIL: any text under a tag that does not begin the law's opening;
+ * under one that does, a proper prefix of the opening's rest, or that prefix turned away from the rest at a drawn
+ * character, then any text.
+ */
+const foreignAfter = (tag: string): Gen<string> => {
+	const any = oneOf([storable, nasty])
+	if (!Str.startsWith(tag)(lawOpening)) {
+		return any
+	}
+	const rest = Str.slice(tag.length)(lawOpening)
+	return (source) => {
+		const at = source.draw(int(0, rest.length - 1))
+		const shared = Str.slice(0, at)(rest)
+		const next = defined(rest[at], "the opening's next character")
+		return source.draw(boolean)
+			? shared
+			: `${shared}${source.draw(storableOtherThan(next))}${source.draw(any)}`
+	}
+}
+
 /** A key: distinct field names, each with its text. */
 const keyGen: Gen<ReadonlyArray<{ readonly field: string; readonly text: string }>> = (source) =>
 	Arr.map(
@@ -239,14 +289,7 @@ describe("the write refusal channel", () => {
 							oneOf<readonly [ForeignFeature, string]>([
 								(source) => {
 									const tag = source.draw(element(foreignTags))
-									const text = source.draw(
-										filter(
-											oneOf([storable, nasty]),
-											(rest) => !Str.startsWith("k[")(`${tag}${rest}`),
-											100
-										)
-									)
-									return [`under ${tag}`, `${tag}${text}`] as const
+									return [`under ${tag}`, `${tag}${source.draw(foreignAfter(tag))}`] as const
 								},
 								(source) =>
 									[

@@ -19,7 +19,6 @@ import {
 	codePoint,
 	constant,
 	element,
-	filter,
 	type Gen,
 	int,
 	map,
@@ -76,7 +75,7 @@ import {
 	TaskNote,
 	Work
 } from "#test/support/fixtures/api/work.ts"
-import { dictionaryNameGen, type IdentifierFeature } from "#test/support/kernel/dict.ts"
+import { dictionaryNameGenOtherThan, type IdentifierFeature } from "#test/support/kernel/dict.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { upTo } from "#test/support/up-to.ts"
 import {
@@ -110,6 +109,17 @@ import {
  * the Description must be canonical, the same text as the normal form that builds the model's ChangeSet member by
  * member, unions each stratum's members in model order and sequences the strata. A malformed call from a JavaScript
  * caller is a planted fault on a valid value, refused as MalformedDescription, every kind of it reached.
+ *
+ * The level check is held to the query compiler's own (querySchema against the ChangeSet's schema, a differential) over
+ * the fixtures, each root renamed to a dictionary name other than its own, with a relation added or a statement
+ * removed, and the role rebuilt or renamed. Bind reads the caller's map once, held to its specification over live maps
+ * and hostile ones (a throwing getter, a proxy) as the map or as a fact.
+ *
+ * Features: each step kind of the algebra and each planted fault kind (StepFeature); the schema itself, a level, no
+ * level, each kind of rename, a relation added, a statement removed, a role rebuilt; a live map, each hostile value as
+ * the map and as a fact.
+ *
+ * Plants (~/.cache/grizzle-release/BR02/plants): changeset-union-drops-stratum, changeset-bind-live-map.
  */
 
 /** The relation an extension of Work adds, so Work is a level of the extension and not the other way round. */
@@ -1672,20 +1682,19 @@ type LevelPairFeature =
 	| "a role rebuilt"
 	| `role renamed: ${IdentifierFeature}`
 
+/** Each root with the dictionary's names other than its own, which a rename draws from: no draw renames it to itself. */
+const renamings = Arr.map(levelRoots, (root) => ({
+	root,
+	names: dictionaryNameGenOtherThan(new Set([root.label]))
+}))
+
 const namedGen: Gen<Named> = oneOf([
 	map(element(levelSubjects), (subject): Named => ({ kind: "fixture", subject })),
-	map(
-		filter(
-			(source) => [source.draw(element(levelRoots)), source.draw(dictionaryNameGen)] as const,
-			([root, name]) => root.label !== name.declared,
-			100
-		),
-		([root, name]): Named => ({
-			kind: "renamed",
-			feature: name.feature,
-			schema: root.renamed(name.declared)
-		})
-	),
+	(source): Named => {
+		const { root, names } = source.draw(element(renamings))
+		const name = source.draw(names)
+		return { kind: "renamed", feature: name.feature, schema: root.renamed(name.declared) }
+	},
 	map(element(levelRoots), (root): Named => ({
 		kind: "relation added",
 		schema: root.relationAdded
@@ -1695,14 +1704,11 @@ const namedGen: Gen<Named> = oneOf([
 		schema: root.statementRemoved
 	})),
 	(): Named => ({ kind: "role rebuilt", schema: writerRole("Writer") }),
-	map(
-		filter(dictionaryNameGen, (name) => name.declared !== "Writer", 100),
-		(name): Named => ({
-			kind: "role renamed",
-			feature: name.feature,
-			schema: writerRole(name.declared)
-		})
-	)
+	map(dictionaryNameGenOtherThan(new Set(["Writer"])), (name): Named => ({
+		kind: "role renamed",
+		feature: name.feature,
+		schema: writerRole(name.declared)
+	}))
 ])
 
 describe("the level check", () => {
@@ -1713,7 +1719,10 @@ describe("the level check", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "second-implementation",
+							name: "the query compiler's own level check, querySchema against the ChangeSet's schema"
+						},
 						suite: "unit/write/changeset/level-pairs",
 						draw: drawn(
 							(source) => [source.draw(element(levelSubjects)), source.draw(namedGen)] as const
@@ -1813,7 +1822,10 @@ describe("bind", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "bind reads the caller's map once: a reading that throws is MalformedDescription, a live map bound as the copy it read"
+						},
 						suite: "unit/write/changeset/bind-host-read",
 						draw: drawn(
 							lsw({

@@ -1,7 +1,7 @@
 import { describe, it } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { array, element, type Gen, int, map, oneOf, uniqueArray } from "@grizzle/testing/gen"
+import { array, element, type Gen, int, oneOf, shuffled } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import type { Source } from "@grizzle/testing/source"
@@ -62,7 +62,17 @@ import { codesOf, compiled, cs, parsedOf } from "#test/unit/write/changeset/fixt
  * stratum's own facts violate whatever the state, or a stratum that deletes two facts at one value of a key, which
  * (S minus D) union A never shows, by that key's law; and a normalized ChangeSet means exactly what the one it came from
  * means. A fact no relation admits (a NULL, a field its relation lacks, a deletion without its serial field, an
- * addition with some serial fields and not all) is a planted fault, refused by its own fault before anything else. */
+ * addition with some serial fields and not all) is a planted fault, refused by its own fault before anything else.
+ *
+ * Oracles: the brute-force add-wins calculator (oracle/addwins.ts, a second implementation) and the fact shape each
+ * relation admits (a specification). The initial state is lawful by construction, its k and c each drawn once.
+ *
+ * Features: two and three strata, a Stream member, a refusal by a key, by a key two deletions share and by a key two
+ * generated additions share, a later stratum restating an earlier one's key; each planted fault.
+ *
+ * Plants (~/.cache/grizzle-release/BR02/plants): normalize-deletions-unnetted, normalize-deletions-unkeyed,
+ * normalize-extra-field-admitted.
+ */
 const Pair = relation("Pair", { k: pg.integer, v: pg.integer, c: pg.integer }, ["k"])
 const Gen = relation("Gen", { id: pg.bigserial, k: pg.integer, w: pg.integer }, ["id"])
 const pairC = key(on(Pair, "c"))
@@ -239,11 +249,15 @@ const membersGen = array(memberGen, { min: 0, max: 4 })
 /** One to three strata of members. */
 const strataGen = array(membersGen, { min: 1, max: 3 })
 
-/** A lawful initial state: distinct k and distinct c. */
-const initial = map(
-	uniqueArray(pairFact, (f) => f.k, { min: 0, max: 3 }, 20),
-	(fs) => Arr.dedupeWith(fs, (f, g) => f.c === g.c)
-)
+/** Pair's values of k and of c. */
+const pairValues = [1, 2, 3] as const
+
+/** A lawful initial state, distinct k and distinct c by construction: as many of each, each drawn once. */
+const initial: Gen<ReadonlyArray<PairFact>> = (source) => {
+	const ks = source.draw(shuffled(pairValues, { min: 0, max: pairValues.length }))
+	const cs = source.draw(shuffled(pairValues, { min: ks.length, max: ks.length }))
+	return Arr.map(Arr.zip(ks, cs), ([k, c]) => ({ k, v: source.draw(int(1, 2)), c }))
+}
 
 const relationValues = { Pair, Gen, Unit, Two } as const
 

@@ -54,10 +54,20 @@ import {
 import { upTo } from "#test/support/up-to.ts"
 import { codesOf, compiled, cs, LedgerSchema } from "#test/unit/write/changeset/fixtures.ts"
 
-/** Deltas and counts netted across strata, checked against the test oracle's definitions over every sequence of
- * per-stratum changes of up to three relations, each fact's change returned by every member that requested it, in any
- * order; over the outcome's counts, one entry per written relation in code point order; and over the rows a bigserial
- * relation's statements return when its identity sequence lags the stored values. */
+/**
+ * Deltas and counts netted across strata, checked against the test oracle's definitions (oracle/delta.ts, a second
+ * implementation) over every sequence of per-stratum changes of up to three relations, each fact's change returned by
+ * every member that requested it, in any order; over the outcome's counts, one entry per written relation in code point
+ * order; and over the rows a bigserial relation's statements return when its identity sequence lags the stored values,
+ * against S' = (S \ D) ∪ A. A converted fact's identity is the boundary's fact identity of the same values.
+ *
+ * Features: a fact two members of a stratum made present, or absent; a written relation no stratum changed; a repeated
+ * written relation; names out of code unit order; a fact removed and added back identical; a generated fact differing
+ * in its key, or in its note.
+ *
+ * Plants (~/.cache/grizzle-release/BR02/plants): delta-identical-readd-kept, delta-net-readd-removed,
+ * delta-identity-case-folded.
+ */
 const fact = (id: string): Fact => ({ id })
 
 /** The facts each relation's states are drawn over. */
@@ -382,7 +392,10 @@ describe("a stratum's change is a set difference", () => {
 					ctx,
 					explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "specification",
+								name: "S' = (S \\ D) ∪ A, each stratum's change its set difference with S, netted and counted as the delta oracle does (oracle/delta.ts)"
+							},
 							suite: "unit/write/changeset/lagging-sequence",
 							draw: drawn(laggingGen),
 							literal: Formatter.format,
@@ -559,7 +572,10 @@ describe("relation identity", () => {
 					ctx,
 					explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "second-implementation",
+								name: "the boundary's fact identity of the same values (scalar/values/identity.ts factIdentity)"
+							},
 							suite: "unit/write/relation-identity",
 							draw: drawn(
 								(source) =>

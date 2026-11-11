@@ -267,6 +267,19 @@ export const dictionaryNameGen: Gen<Admitted> = weightedNameGen(
 )
 
 /**
+ * An admitted declared name of the dictionary that `excluded` does not hold, drawn as dictionaryNameGen draws one: the
+ * finite pool is cut once, so no draw is retried or discarded.
+ */
+export const dictionaryNameGenOtherThan = (excluded: ReadonlySet<string>): Gen<Admitted> =>
+	weightedNameGen(
+		evenWeights,
+		nonEmpty(
+			Arr.filter(admittedNames, (n) => !excluded.has(n.declared)),
+			"an admitted name outside the excluded ones"
+		)
+	)
+
+/**
  * The admitted names a schema may take: every admitted name but those whose conversion starts with pg_, which
  * PostgreSQL reserves for its own schemas and roles (core/identity.ts parseSchemaName).
  */
