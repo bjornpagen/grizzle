@@ -230,12 +230,18 @@ const hostField = (row: JudgedRow, field: Pick<WitnessField, "name" | "writing">
 
 /**
  * What refused a statement, as PostgreSQL reported it on an object of the installation: a table constraint by its
- * owner and name; a domain's CHECK by the domain and the constraint's name, and the columns it types in the tables the
- * statement writes, each with the law its field states of it (DomainUse), none where the statement writes none of them,
- * since PostgreSQL names the domain and never the column; or a generated column's NOT NULL.
+ * owner and name, with every CHECK of that table a level above the Db's own installs (CheckAbove); a domain's CHECK by
+ * the domain and the constraint's name, and the columns it types in the tables the statement writes, each with the law
+ * its field states of it (DomainUse), none where the statement writes none of them, since PostgreSQL names the domain
+ * and never the column; or a generated column's NOT NULL.
  */
 export type Refuser =
-	| { readonly kind: "constraint"; readonly owner: RelationIdent; readonly name: ConstraintName }
+	| {
+			readonly kind: "constraint"
+			readonly owner: RelationIdent
+			readonly name: ConstraintName
+			readonly above: ReadonlyArray<CheckAbove>
+	  }
 	| {
 			readonly kind: "domain"
 			readonly domain: DomainName
@@ -243,6 +249,17 @@ export type Refuser =
 			readonly uses: ReadonlyArray<DomainUse>
 	  }
 	| { readonly kind: "generated"; readonly table: RelationIdent; readonly column: ColumnIdent }
+
+/**
+ * A row check a level above the Db's own states over a relation of its level, the CHECK that level installs on the
+ * relation's table, by its installed name and the laws it states, each named by that level (types/changeset Law
+ * `above`): the Db's compile holds no predicate of it, so the host judges no row against it, and a table carrying one
+ * is a table whose every CHECK the host never judges.
+ */
+export interface CheckAbove {
+	readonly name: ConstraintName
+	readonly laws: NonEmptyReadonlyArray<ConstraintLawOf>
+}
 
 /**
  * What a refused statement states, as the host reads it: the statement of a stratum's actions (ir.strata[stratum]
@@ -277,8 +294,8 @@ export type StatementAt =
  *   law with its identity and the object that refused it, the law-stating CHECK of the row's table that states it, or
  *   the refusing domain's CHECK;
  * - first: a table CHECK's refusal where no stated row breaks it, or where the row that breaks it has a law CHECK the
- *   host leaves unjudged, which the row may break too: the laws of the CHECK PostgreSQL tried first, which it orders
- *   by the CHECKs' installed names, an order no version keeps;
+ *   host leaves unjudged, which the row may break too, a level's CHECK above the Db's own among them (CheckAbove): the
+ *   laws of the CHECK PostgreSQL tried first, which it orders by the CHECKs' installed names, an order no version keeps;
  * - object: any other refusal, a domain's where no stated row breaks it or the row that breaks it has a column the
  *   host leaves unjudged: the laws its one object discharges that the statement can break, which the classifier names,
  *   decided where there is one and `some` where there are several.
@@ -943,6 +960,13 @@ const lawChecks = (
 		verdict: verdictOf(judge, relation, test, codes)
 	}))
 
+/** A CHECK a level above installs on a table, which the host holds no predicate of, so it judges no row (`CheckAbove`). */
+const aboveCheck = ({ name, laws }: CheckAbove): LawCheck => ({
+	name,
+	laws,
+	verdict: () => "unjudged"
+})
+
 /** How a law CHECK of `relation`'s table judges one of its stated rows (`CheckTest`). */
 const verdictOf = (
 	judge: Judge,
@@ -1189,7 +1213,10 @@ const refuserJudge = (w: Witnessing, refuser: Refuser): RefuserJudge => {
 			}
 		case "constraint": {
 			const table = w.data.tables.find((r) => r.ident === refuser.owner)
-			const checks = table === undefined ? [] : lawChecks(judge, table, w.codes)
+			const checks = [
+				...(table === undefined ? [] : lawChecks(judge, table, w.codes)),
+				...refuser.above.map(aboveCheck)
+			]
 			const refusing = checks.find((c) => c.name === refuser.name)
 			if (refusing === undefined) {
 				return { row: () => unjudged, none: refusedByObject }

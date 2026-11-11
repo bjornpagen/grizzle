@@ -1,5 +1,7 @@
 import * as Arr from "effect/Array"
-import type { Law, RefusedLaw } from "#compiler/plan/change.ts"
+import * as Option from "effect/Option"
+import * as Rec from "effect/Record"
+import type { CheckAbove, Law, RefusedLaw } from "#compiler/plan/change.ts"
 import type {
 	Codebook,
 	ColumnIdent,
@@ -13,7 +15,7 @@ import type {
 	RosterCodec,
 	StoredRelationName
 } from "#compiler/plan/common.ts"
-import { constraintLaw, defect } from "#compiler/plan/runtime.ts"
+import { admittedIdentifier, constraintLaw, defect } from "#compiler/plan/runtime.ts"
 import type { DescribedLaw, ServedKeyLaws, ServedSnapshot } from "#compiler/plan/serve.ts"
 
 /** The names a violation reports, as the wire admitted them (wire/failure.ts serverFailure). */
@@ -90,6 +92,12 @@ export interface KeyLaws {
 	readonly generatedOf: (table: RelationIdent, column: ColumnIdent) => RefusedLaw | undefined
 	/** A refusal the host decides, named as PostgreSQL's refusal of the same write would name it (HostRefusal). */
 	readonly hostRefused: (refusal: HostRefusal) => RefusedLaw
+	/**
+	 * Every CHECK a level above the Db's own installs on the table `table` a write statement writes (CheckAbove): each
+	 * constraint above under the table whose law is a row check of the table's own relation, which a rule over a query,
+	 * whose relation is a derived one, never states. None on any other table.
+	 */
+	readonly checksAbove: (table: RelationIdent) => ReadonlyArray<CheckAbove>
 }
 
 /**
@@ -235,6 +243,22 @@ export const keyLawsOf = (data: ServedKeyLaws, above: LawsAbove, codes: Codebook
 		const law = above.laws.get(id)
 		return law === undefined ? undefined : { kind: "object", laws: [{ law: id, described: law }] }
 	}
+	/** Each written table's CHECKs a level above installs on it, its row checks over the table's relation. */
+	const checksAbove = new Map<RelationIdent, ReadonlyArray<CheckAbove>>()
+	for (const [relation, table] of data.tables) {
+		const named = Rec.get(above.constraints.tables, table)
+		if (Option.isNone(named)) {
+			continue
+		}
+		const checks: Array<CheckAbove> = []
+		for (const [name, id] of Rec.toEntries(named.value)) {
+			const law = above.laws.get(id)
+			if (law?.kind === "above" && law.law.kind === "check" && law.law.relation === relation) {
+				checks.push({ name: admittedIdentifier(name), laws: [{ law: id, described: law }] })
+			}
+		}
+		checksAbove.set(table, checks)
+	}
 	const tableOf = (relation: StoredRelationName): RelationIdent => {
 		const table = data.tables.get(relation)
 		if (table === undefined) {
@@ -288,6 +312,7 @@ export const keyLawsOf = (data: ServedKeyLaws, above: LawsAbove, codes: Codebook
 		]),
 		rosterDomainOf: (domain) => rosters.get(domain),
 		generatedOf: (table, column) => generated.get(table)?.get(column),
-		hostRefused
+		hostRefused,
+		checksAbove: (table) => checksAbove.get(table) ?? []
 	}
 }

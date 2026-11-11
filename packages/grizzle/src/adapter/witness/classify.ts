@@ -83,8 +83,9 @@ type ViolationFields = Pick<
  *   or `unreported` where it names none (hostJudgement). A table CHECK's refusal of a stated fact names `every` law
  *   of that table's CHECKs the fact, as its write fills it, breaks, in the schema's canonical order, whichever
  *   PostgreSQL tried first;
- *   where no stated fact breaks it, or the host leaves one of those CHECKs unjudged, the outcome names the CHECK
- *   PostgreSQL reported, `first`, since PostgreSQL tries a table's CHECKs in the order of their names. A domain's
+ *   where no stated fact breaks it, or the host leaves one of those CHECKs unjudged, a CHECK a level above the Db's own
+ *   installs on the table among them (keylaw.ts KeyLaws checksAbove), the outcome names the CHECK PostgreSQL reported,
+ *   `first`, since PostgreSQL tries a table's CHECKs in the order of their names. A domain's
  *   refusal of a stated fact names `every` law of the fact's columns it types whose values it refuses, a pattern's
  *   naming its relation and field, where the host judges each of those columns.
  * - SQLSTATE 23502 on a generated column of the installation's: grizzle writes no NULL, so only the column's generation
@@ -379,7 +380,12 @@ export const violationClassifier =
 		const broken = nativeLaws(native, tables, nativeObject(constraint, owner))
 		const judged = written.judge(
 			owner.kind === "table"
-				? { kind: "constraint", owner: owner.name, name: constraint }
+				? {
+						kind: "constraint",
+						owner: owner.name,
+						name: constraint,
+						above: laws.checksAbove(owner.name)
+					}
 				: {
 						kind: "domain",
 						domain: owner.name,

@@ -79,6 +79,7 @@ export {
 	witnessDecoder
 } from "#compiler/runtime/write/outcome.ts"
 export {
+	type CheckAbove,
 	type HostJudgement,
 	hostJudgement,
 	type RefusedLaws,

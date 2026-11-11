@@ -1629,13 +1629,16 @@ class Owner {
 	 * constants on other fields, together holding the target relation's primary key or a key declared at that relation's
 	 * level or below, which PostgreSQL holds as a deferred foreign key judged at COMMIT into a UNIQUE over exactly them,
 	 * the key's own or a superkey of it the upper level installs, which refuses nothing the key admits, so no write of
-	 * the lower level meets it; or in a rule over a query, a containment one of whose sides is a derived relation, or a
-	 * key or a check over one, whose deferred triggers or, lowered, deferred foreign keys PostgreSQL runs at COMMIT. A
-	 * process over the lower level holds none of the levels above it and compiles its writes alone, so every other reach
-	 * is LevelRefused: a key, a check, mutable, a family, tree, fold or alternatives over a lower relation, and a
-	 * containment with both sides on lower relations, or reaching one by a pred or span side, by a selected source, by a
-	 * target selected beyond constants, from a lower source into a selected target, whose constants would be columns of
-	 * the lower relation, or into no key. A roster's, a closed relation's and a derived relation's rows no write changes.
+	 * the lower level meets it; in a rule over a query, a containment one of whose sides is a derived relation, or a
+	 * key or a check over one, whose deferred triggers or, lowered, deferred foreign keys PostgreSQL runs at COMMIT; or as
+	 * a row check over the lower relation, the level's own CHECK on its table, which the level's migration installs and
+	 * PostgreSQL judges on every row, so a write of the lower level meets it as a law above, naming it by its level
+	 * (types/changeset Law `above`), and changes nothing of how that write is compiled or drawn. A process over the lower
+	 * level holds none of the levels above it and compiles its writes alone, so every other reach is LevelRefused: a key,
+	 * mutable, a family, tree, fold or alternatives over a lower relation, and a containment with both sides on lower
+	 * relations, or reaching one by a pred or span side, by a selected source, by a target selected beyond constants, from
+	 * a lower source into a selected target, whose constants would be columns of the lower relation, or into no key. A
+	 * roster's, a closed relation's and a derived relation's rows no write changes.
 	 */
 	#checkLevels(s: StatementEntry): void {
 		const lower = (relation: string): RelationEntry | undefined => {
@@ -1689,8 +1692,9 @@ class Owner {
 			case "key":
 				return reach([d.side.relation])
 			case "mutable":
-			case "check":
 				return reach([d.relation])
+			case "check":
+				return
 			case "family":
 			case "tree":
 				return reach([d.member.relation, d.slots.owner])
