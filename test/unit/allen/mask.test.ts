@@ -92,8 +92,6 @@ describe("the named Allen masks", () => {
 					generator: (source) =>
 						[source.draw(element(spans)), source.draw(element(spans))] as const,
 					literal: Formatter.format,
-					/** The window's 66 spans, paired: 4,356 pairs; the limit guards only against their growth. */
-					limit: 5_000,
 					box: "every ordered pair of spans [a, b) with -3 <= a < b <= 8",
 					oracle: {
 						kind: "specification",
@@ -207,8 +205,6 @@ describe("every entry point a mask reaches", () => {
 						suite: "unit/allen/entry-points",
 						generator: given,
 						literal: Formatter.format,
-						/** The space holds 8,208 values; the limit guards only against its growth. */
-						limit: 10_000,
 						coverage: requiredInSpace<EntryFeature>([
 							"a mask",
 							"the empty mask",

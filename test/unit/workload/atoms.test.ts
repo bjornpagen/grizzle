@@ -73,7 +73,6 @@ describe("Allen masks", () => {
 							suite: "unit/workload/atoms-allen",
 							generator: int(1, allenMaskMax),
 							literal: Formatter.format,
-							limit: allenMaskMax,
 							coverage: requiredInSpace<Mask>(["a partial mask", "the full mask"]),
 							caseHang
 						},

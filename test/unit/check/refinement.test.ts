@@ -418,7 +418,6 @@ describe("languages and guarantees", () => {
 						generator: (source) =>
 							[source.draw(element(judged)), source.draw(element(judged))] as const,
 						literal: Formatter.format,
-						limit: judged.length * judged.length,
 						coverage: requiredInSpace<LatticeFeature>([
 							"one language",
 							"two languages",
@@ -512,7 +511,6 @@ describe("union propagation", () => {
 						generator: (source) =>
 							[source.draw(element(deliverers)), source.draw(element(deliverers))] as const,
 						literal: Formatter.format,
-						limit: deliverers.length * deliverers.length,
 						coverage: requiredInSpace<UnionFeature>([
 							"one type",
 							"one language spelled twice",

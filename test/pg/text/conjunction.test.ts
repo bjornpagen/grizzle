@@ -102,7 +102,10 @@ const caseGen: Gen<ConjunctionCase> = (source) => {
 	return {
 		family: family.name,
 		patterns,
-		texts: [...source.draw(array(stringsOver(family.alphabet, 8), { min: 1, max: 120 })), ...walks]
+		texts: [
+			...source.draw(array(stringsOver(element(family.alphabet), 8), { min: 1, max: 120 })),
+			...walks
+		]
 	}
 }
 

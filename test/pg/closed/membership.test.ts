@@ -358,7 +358,7 @@ layer(Substrate.layer, { excludeTestServices: true })("R07 over closed constants
 								})
 							)
 							yield* transaction(s.admin, [
-								...installationSql(compiled),
+								...installationSql(compiled, s.database),
 								itemsInsert(compiled.names, c, codes)
 							])
 							const template = succeeded(

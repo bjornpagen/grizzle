@@ -1,0 +1,110 @@
+From ebfd1c9b134bb722f2e311be39531fad7d10fc86 Mon Sep 17 00:00:00 2001
+From: Bjorn Pagen <11238136+bjornpagen@users.noreply.github.com>
+Date: Wed, 11 Nov 2026 13:57:18 -0600
+Subject: [PATCH] fix(execute): wait on a non-blocking stdout instead of
+ dropping diagnostics
+
+tsc's sys.Writer() is os.Stdout, which Go registers with the runtime
+poller when the descriptor is non-blocking, so a write to a full pipe waits
+until the reader drains it. std::io::Stdout returns ErrorKind::WouldBlock
+instead, and OsSys::write ignores every error but a broken pipe, so tsrs
+dropped whatever a full non-blocking pipe refused: a check that reports
+4,000 errors printed between 2,800 and 3,300 of them, a different count each
+run, with the exit status still 2.
+
+A parent hands its child a non-blocking stdout whenever it set O_NONBLOCK on
+the descriptor before exec, since the flag lives on the open file
+description: a Node launcher that read process.stdout before
+process.execve does on macOS, where Node keeps pipes non-blocking.
+
+OsSys now writes through WaitingStdout, which retries a WouldBlock write or
+flush after poll() reports the descriptor writable, so the BufWriter above
+never sees WouldBlock and every diagnostic reaches the reader, as with tsc.
+---
+ crates/tsrs_execute/src/sys.rs | 56 ++++++++++++++++++++++++++++++++--
+ 1 file changed, 54 insertions(+), 2 deletions(-)
+
+diff --git a/crates/tsrs_execute/src/sys.rs b/crates/tsrs_execute/src/sys.rs
+index b7b1cd1..481c6a0 100644
+--- a/crates/tsrs_execute/src/sys.rs
++++ b/crates/tsrs_execute/src/sys.rs
+@@ -10,7 +10,7 @@ use tsrs_vfs::{FS, bundled, osvfs};
+ use crate::tsc::System;
+ 
+ pub struct OsSys {
+-    writer: Mutex<std::io::BufWriter<std::io::Stdout>>,
++    writer: Mutex<std::io::BufWriter<WaitingStdout>>,
+     fs: Arc<dyn FS>,
+     default_library_path: String,
+     cwd: String,
+@@ -65,6 +65,58 @@ impl System for OsSys {
+     }
+ }
+ 
++// Standard output that waits for room instead of failing when the descriptor is non-blocking. A parent may hand this
++// process a descriptor it set O_NONBLOCK on (a Node launcher that read process.stdout before execve does on macOS),
++// and the flag lives on the open file description, so exec keeps it. Go's os.Stdout registers such a descriptor with
++// the runtime poller and blocks the writing goroutine until the descriptor is writable, so tsc never drops output;
++// std::io::Stdout returns ErrorKind::WouldBlock as soon as the pipe is full, which `write` below would then ignore
++// and lose the rest of the output. Waiting here keeps BufWriter from ever seeing WouldBlock.
++struct WaitingStdout(std::io::Stdout);
++
++impl Write for WaitingStdout {
++    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
++        loop {
++            match self.0.write(buf) {
++                Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => wait_until_writable()?,
++                result => return result,
++            }
++        }
++    }
++
++    fn flush(&mut self) -> std::io::Result<()> {
++        loop {
++            match self.0.flush() {
++                Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => wait_until_writable()?,
++                result => return result,
++            }
++        }
++    }
++}
++
++// Blocks until file descriptor 1 can take more bytes, as Go's poller does for os.Stdout.
++#[cfg(unix)]
++fn wait_until_writable() -> std::io::Result<()> {
++    let mut descriptor =
++        libc::pollfd { fd: libc::STDOUT_FILENO, events: libc::POLLOUT, revents: 0 };
++    loop {
++        // SAFETY: one initialized pollfd and a count of one; a negative timeout waits until the descriptor is ready.
++        if unsafe { libc::poll(&raw mut descriptor, 1, -1) } >= 0 {
++            return Ok(());
++        }
++        let err = std::io::Error::last_os_error();
++        if err.kind() != std::io::ErrorKind::Interrupted {
++            return Err(err);
++        }
++    }
++}
++
++// Windows has no non-blocking console or pipe handle that returns WouldBlock to a synchronous write.
++#[cfg(not(unix))]
++fn wait_until_writable() -> std::io::Result<()> {
++    std::thread::yield_now();
++    Ok(())
++}
++
+ // Go's sys.Writer() is os.Stdout, and the Go runtime ends a program whose write to file descriptor 1 or 2 fails
+ // with EPIPE by SIGPIPE (os/signal: "If the program is not calling signal.Notify ... a write to a broken pipe on file
+ // descriptors 1 or 2 will cause the program to exit with a SIGPIPE signal"), so `tsc | head` stops tsc with status
+@@ -96,7 +148,7 @@ pub fn new_system() -> OsSys {
+         cwd: tspath::normalize_path(&cwd.to_string_lossy()),
+         fs: Arc::new(bundled::wrap_fs(osvfs::fs())),
+         default_library_path: bundled::default_lib_path(),
+-        writer: Mutex::new(std::io::BufWriter::new(std::io::stdout())),
++        writer: Mutex::new(std::io::BufWriter::new(WaitingStdout(std::io::stdout()))),
+         start: Instant::now(),
+     }
+ }
+-- 
+2.54.0 (Apple Git-157)
+

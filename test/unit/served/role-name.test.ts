@@ -4,15 +4,16 @@
  *
  * A case draws a schema's declared name (its letter segments lowercase, capitalized or in capitals), a login and one or
  * two roles over one relation (names of lowercase words or camel case, every conversion apart), and two role spaces:
- * each none or a role prefix (a declared name, its segments spelled as the schema's are), the two apart. The login is
+ * each none or a role prefix (lowercase words and digit runs joined by single underscores, as `gr8des_qti_pin` is
+ * written), the two apart. The login is
  * compiled as `grizzle generate` compiles it (test/support/served-login.ts compiledLogin) and its file served as an
  * application serves it (adapter/served/served.ts served).
  *
  * Properties, each against its oracle:
  * - Default oracle: under no prefix, roleNameOf of the login and of each role is the naming door's identity of it
  *   (core/identity.ts identity.login, identity.role, under identity.schema of the parsed schema name), and under a
- *   prefix p, `<conversion of p>__<that identity>`: the specification of a role space, spelled here apart from the
- *   function under test.
+ *   prefix p, `<p>__<that identity>`, the prefix verbatim: the specification of a role space, spelled here apart from
+ *   the function under test.
  * - One function: connectionOf, a connection builder that takes an authoring login or a served login, names both by
  *   the one roleNameOf, and both name the same role; each served role's stem under the space is roleNameOf of its
  *   authoring role, the role a served layer takes on.
@@ -24,7 +25,8 @@
  * byte past.
  *
  * Plants (~/.cache/grizzle-release/ROLESPACE/plants): stem-not-the-door.patch (login(...) computes its stem from the
- * declared names as written, not their conversions), runtime-ignores-prefix.patch.
+ * declared names as written, not their conversions), runtime-ignores-prefix.patch, role-prefix-converted.patch (the
+ * prefix converted as a declared name, `gr8des` installing as `gr_8_des`).
  */
 import { describe, it } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
@@ -85,6 +87,24 @@ const wordsGen: Gen<string> = (source) => {
 	)
 }
 
+/**
+ * A role prefix as a connection gives one, used verbatim: lowercase words and digit runs joined by single underscores,
+ * a letter first and never the reserved `pg` segment, so `gr8des_qti_pin` is drawn as it is written.
+ */
+const prefixGen: Gen<string> = (source) =>
+	Arr.join(
+		[
+			`${source.draw(string(codePoint(0x61, 0x7a), { min: 1, max: 4 }))}x${source.draw(string(codePoint(0x30, 0x39), { min: 0, max: 2 }))}`,
+			...source.draw(
+				array(string(element(["a", "q", "z", "0", "8", "9"]), { min: 1, max: 4 }), {
+					min: 0,
+					max: 2
+				})
+			)
+		],
+		"_"
+	)
+
 /** A login's or a role's name: lowercase letters, then maybe a capitalized word, which the naming door converts with `_`. */
 const nameGen: Gen<string> = (source) => {
 	const head = source.draw(string(codePoint(0x61, 0x7a), { min: 1, max: 8 }))
@@ -113,12 +133,12 @@ const namesGen: Gen<Names> = (source) => {
 			? kept
 			: [...kept, name]
 	)
-	const firstSpace = source.draw(option(wordsGen))
-	const secondSpace = source.draw(option(wordsGen))
+	const firstSpace = source.draw(option(prefixGen))
+	const secondSpace = source.draw(option(prefixGen))
 	const apart =
 		Option.isSome(firstSpace) &&
 		Option.isSome(secondSpace) &&
-		conversionOf(firstSpace.value) === conversionOf(secondSpace.value)
+		firstSpace.value === secondSpace.value
 			? Option.none<string>()
 			: secondSpace
 	return {
@@ -147,7 +167,7 @@ const installationOf = (space: Drawn): RoleInstallation =>
 
 /** The specification of a role space: the naming door's stem, under `<conversion of the prefix>__` when there is one. */
 const specified = (space: Drawn, stem: string): string =>
-	Option.match(space, { onNone: () => stem, onSome: (p) => `${conversionOf(p)}__${stem}` })
+	Option.match(space, { onNone: () => stem, onSome: (p) => `${p}__${stem}` })
 
 /** A connection builder over an authoring login or a served login, naming its role by the one roleNameOf. */
 const connectionOf = <L>(

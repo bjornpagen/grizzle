@@ -1,0 +1,45 @@
+NOTES: tsrs-nonblocking-stdout-drop
+
+Status: patch written, built and checked, NOT filed. Nothing has been sent anywhere. tsrs's README says pull requests
+are closed for now; the owner files an issue (issue.txt) by hand when that changes.
+
+1. What this is.
+   - tsrs prints a check's diagnostics through OsSys::write, a BufWriter over std::io::Stdout
+     (crates/tsrs_execute/src/sys.rs). Its error handling exits on EPIPE, as Go's runtime does, and ignores every other
+     write error "as Go's fmt.Fprint callers do".
+   - When standard output is a pipe whose open file description is O_NONBLOCK, a write into a full pipe fails with
+     EAGAIN, which std surfaces as ErrorKind::WouldBlock. tsrs ignores it, and the bytes are gone: a check that reports
+     4,000 errors prints 2,800 to 3,300 of them, a different count each run (EVIDENCE.txt 1).
+   - The exit status is unaffected: 2 in every run, dropped or not, because it is computed from the diagnostics, not
+     from what was written.
+   - tsc does not have the bug: Go's os.Stdout registers a non-blocking descriptor with the runtime poller, and the
+     write waits until the pipe drains.
+
+2. How a non-blocking stdout reaches tsrs.
+   - O_NONBLOCK lives on the open file description, so a child inherits it from its parent through fork and exec.
+   - Node sets it on a piped stdout the first time process.stdout is read (macOS keeps pipes asynchronous). A Node
+     launcher that reads process.stdout and then process.execve's the native tool hands it a non-blocking stdout.
+   - @effect/tsgo's launcher did exactly that through 0.67.1: its proxy provided NodeServices.layer, whose NodeTerminal
+     reads process.stdin and process.stdout, before execve'ing tsrs. @effect/tsgo 0.67.3 (2026-11-05) fixed its side:
+     the proxy provides only NodeFileSystem and NodePath (_packages/tsgo/src/cli/proxy/index.ts, proxyLayer). So no
+     patch for effect-tsgo: consumers bump to 0.67.3 or later (EVIDENCE.txt 3).
+   - tsrs still drops output under any other launcher that does the same, and under a shell whose pipe a previous
+     Node process in the pipeline made non-blocking. That is this patch.
+
+3. The fix (0001-*.patch, against oxc-project/tsrs main at 7148fb4).
+   - OsSys writes through WaitingStdout, a Write over std::io::Stdout that, on WouldBlock, waits for the descriptor to
+     become writable with poll(POLLOUT, no timeout) and retries; EINTR retries the poll. The BufWriter above it never
+     sees WouldBlock, so nothing is dropped, as with Go's poller.
+   - Windows: no non-blocking console or pipe handle returns WouldBlock to a synchronous write, so wait_until_writable
+     only yields there.
+
+4. Checked (EVIDENCE.txt).
+   - repro.sh against a tsrs built from main (7148fb4), against the same build with the patch, and against the binary
+     @effect/tsgo 0.67.1 ships (tsrs 0.21.0-ts7.1.0-beta).
+   - cargo fmt --check and cargo clippy -p tsrs_execute --all-targets -D warnings pass with the patch.
+   - Not run: tsrs's conformance suite (the patch changes no checker code) and a Linux build.
+
+5. Who meets it.
+   - grizzle's gate redirects each step to a file and reads the step's own status: unaffected.
+   - effect-openapi-cli-generator's finding ratchet counted typecheck findings through a pipe and read thousands short;
+     it captures through files until the fork's @effect/tsgo is 0.67.3 or later, then reads pipes again.

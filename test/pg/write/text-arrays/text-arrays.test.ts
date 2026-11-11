@@ -67,7 +67,7 @@ const Texts = schema("TextArrays", { Note, Response }, [mutable(Note), mutable(R
  * The full world's workload: Note's insert, put and delete, each from its call's facts; Response's insert from the
  * relation parameter `responses`; and the reads of every Note, of the relation parameter `rows`, and of every Response.
  */
-const programs = {
+const programs = Object.freeze({
 	insertNote: ChangeSet.empty(Texts).insert(Note, []),
 	putNote: ChangeSet.empty(Texts).put(Note, []),
 	deleteNote: ChangeSet.empty(Texts).delete(Note, []),
@@ -92,7 +92,7 @@ const programs = {
 		const { id, value } = v(Response, "response")
 		return r.match(Response, { id, value }).find({ id, value })
 	})
-}
+})
 
 /** One scalar of a text: a character a literal array quotes or escapes, or a scalar of any plane but NUL. */
 const scalar: Gen<string> = weighted([

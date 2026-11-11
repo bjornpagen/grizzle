@@ -72,7 +72,6 @@ layer(Substrate.layer)("the Allen table on PostgreSQL 19", (it) => {
 					suite: "pg/allen/canonicalization",
 					generator: element(rangeTypes),
 					literal: Formatter.format,
-					limit: rangeTypes.length,
 					coverage: requiredInSpace<CanonicalFeature>(
 						Arr.flatMap(rangeTypes, (type) =>
 							Arr.map(outcomes, (outcome): CanonicalFeature => `${type}: ${outcome}`)
@@ -131,7 +130,6 @@ $f$`,
 						suite: "pg/allen/masks",
 						generator: element(rangeTypes),
 						literal: Formatter.format,
-						limit: rangeTypes.length,
 						coverage: requiredInSpace<RangeType>(rangeTypes),
 						box: "every range type, by every Allen mask and every atom literal, over every ordered pair of the stored universe",
 						oracle: {

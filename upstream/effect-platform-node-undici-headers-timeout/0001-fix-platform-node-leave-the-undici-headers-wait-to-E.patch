@@ -1,0 +1,83 @@
+From 2b2181e41bbf368f78fb7b30300be78bae5b3e49 Mon Sep 17 00:00:00 2001
+From: Bjorn Pagen <11238136+bjornpagen@users.noreply.github.com>
+Date: Wed, 11 Nov 2026 13:39:52 -0600
+Subject: [PATCH] fix(platform-node): leave the undici headers wait to Effect,
+ as the body wait already is
+
+makeUndici gave every request a one-hour headersTimeout beside bodyTimeout 0,
+under a comment that leaves timeouts to Effect.timeout. The hour still ended
+a request whose response headers came later, so a caller that bounds its
+request by Effect, or deliberately not at all, was cut off by a limit it
+never set and cannot lift: UndiciOptions is spread before the fixed values.
+headersTimeout 0 disables undici's headers timer, as bodyTimeout 0 already
+disables its body timer, so the wait is the caller's Effect's alone.
+---
+ .changeset/undici-headers-timeout.md          |  5 ++++
+ packages/platform/node/src/NodeHttpClient.ts  |  2 +-
+ .../platform/node/test/NodeHttpClient.test.ts | 25 +++++++++++++++++++
+ 3 files changed, 31 insertions(+), 1 deletion(-)
+ create mode 100644 .changeset/undici-headers-timeout.md
+
+diff --git a/.changeset/undici-headers-timeout.md b/.changeset/undici-headers-timeout.md
+new file mode 100644
+index 0000000..97cc12d
+--- /dev/null
++++ b/.changeset/undici-headers-timeout.md
+@@ -0,0 +1,5 @@
++---
++"@effect/platform-node": patch
++---
++
++`NodeHttpClient.makeUndici` no longer gives every request a one-hour `headersTimeout`: like `bodyTimeout`, it is 0, so how long a request waits for its response headers is decided by the caller's `Effect.timeout` alone.
+diff --git a/packages/platform/node/src/NodeHttpClient.ts b/packages/platform/node/src/NodeHttpClient.ts
+index ffa563d..970b320 100644
+--- a/packages/platform/node/src/NodeHttpClient.ts
++++ b/packages/platform/node/src/NodeHttpClient.ts
+@@ -218,7 +218,7 @@ export const makeUndici = Effect.gen(function*() {
+           path: url.pathname + url.search,
+           body,
+           // leave timeouts to Effect.timeout etc
+-          headersTimeout: 60 * 60 * 1000,
++          headersTimeout: 0,
+           bodyTimeout: 0
+         }
+         if (request.headers.upgrade !== undefined) {
+diff --git a/packages/platform/node/test/NodeHttpClient.test.ts b/packages/platform/node/test/NodeHttpClient.test.ts
+index 8eee356..2c42173 100644
+--- a/packages/platform/node/test/NodeHttpClient.test.ts
++++ b/packages/platform/node/test/NodeHttpClient.test.ts
+@@ -666,6 +666,31 @@ it.live("redacts a transport error URL with the redacted names of the request",
+     socketPath: join(tmpdir(), `effect-missing-${process.pid}.sock`)
+   }))))
+ 
++it.live("undici requests leave the response-headers wait to Effect: the dispatcher receives no headers timeout", () =>
++  Effect.gen(function*() {
++    const seen: Array<number | null | undefined> = []
++    const agent = yield* Effect.acquireRelease(
++      Effect.sync(() => new Undici.Agent()),
++      (agent) => Effect.promise(() => agent.destroy())
++    )
++    const recording = agent.compose((dispatch) => (options, handler) => {
++      seen.push(options.headersTimeout)
++      return dispatch(options, handler)
++    })
++    const response = yield* HttpClient.get("/todos/1").pipe(
++      Effect.provide(HttpServer.layerTestClient.pipe(
++        Layer.provide(Layer.provide(NodeClient.layerUndiciNoDispatcher, Layer.succeed(NodeClient.Dispatcher, recording)))
++      ))
++    )
++    yield* response.text
++    assert.deepStrictEqual(seen, [0])
++  }).pipe(
++    Effect.scoped,
++    Effect.provide(LocalServerRoutes.pipe(
++      Layer.provideMerge(NodeHttpServer.layer(Http.createServer, { port: 0 }))
++    ))
++  ))
++
+ it.live.each([
+   { name: "node:http", layer: NodeClient.layerNodeHttp },
+   { name: "undici", layer: NodeClient.layerUndici }
+-- 
+2.54.0 (Apple Git-157)
+

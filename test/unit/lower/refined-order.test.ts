@@ -114,10 +114,10 @@ const passedTags = (shape: Shape, direction: Direction) => {
 }
 
 /** The query each source of the tag reads. */
-const tagged = {
+const tagged = Object.freeze({
 	"a derived relation's column": listedTags,
 	"a declared parameter": passedTags
-} satisfies Record<Source, (shape: Shape, direction: Direction) => unknown>
+} satisfies Record<Source, (shape: Shape, direction: Direction) => unknown>)
 
 /** A query over a core: its ORDER BY, the core's targets, and whether the core is SELECT DISTINCT. */
 interface OrderedCore {
@@ -168,7 +168,6 @@ describe("a refined output the delivery casts", () => {
 						direction: source.draw(element(directions))
 					}),
 					literal: Formatter.format,
-					limit: 12,
 					coverage: requiredInSpace<Feature>([
 						"ordered by a cast output",
 						"ordered by two outputs",

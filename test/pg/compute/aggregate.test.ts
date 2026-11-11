@@ -274,7 +274,6 @@ layer(Substrate.layer)("aggregate typing against PostgreSQL 19", (it) => {
 							generator: callGen,
 							literal: (call) =>
 								call.kind === "count" ? "count(*)" : `${call.name}/${call.sample.label}`,
-							limit: 1 + samples.length * aggregates.length,
 							box: "count(*), and every aggregate over every sample",
 							oracle: {
 								kind: "postgresql",

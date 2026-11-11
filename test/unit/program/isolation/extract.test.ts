@@ -165,7 +165,7 @@ const relationOf = (rel: Rel): string => (rel === "X" ? "?app.x" : rel)
 const COLUMNS = ["c_id", "c_a", "c_b", "c_hidden"] as const
 type Column = (typeof COLUMNS)[number]
 /** Every column of a table as a driven read delivers it (sql/ast.ts DrivenColumn), each under its own name. */
-const DRIVEN = Arr.map(COLUMNS, (column) => ({ read: column, as: column }))
+const DRIVEN = Object.freeze(Arr.map(COLUMNS, (column) => ({ read: column, as: column })))
 const FIELDS: ReadonlyMap<string, string> = new Map([
 	["c_id", "id"],
 	["c_a", "a"],

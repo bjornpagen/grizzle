@@ -55,7 +55,6 @@ describe("the text bound", () => {
 					suite: "unit/core/lines-v8-longest",
 					generator: int(maxStringLength.value - 8, maxStringLength.value + 8),
 					literal: Formatter.format,
-					limit: 17,
 					box: "every string length within eight code units of maxStringLength",
 					oracle: {
 						kind: "second-implementation",

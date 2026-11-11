@@ -150,8 +150,8 @@ const domains = (tightened: boolean) => {
 	)
 	return { Worker, Assignment, Desk, Badge, Floor, FloorCode }
 }
-const relations = domains(false)
-const { Worker, Assignment, Desk, Badge } = relations
+const relations = Object.freeze(domains(false))
+const { Worker, Assignment, Desk, Badge } = Object.freeze(relations)
 
 /**
  * Every version's world is its full world (fullWorld): the role `app`, writing every relation, in
@@ -169,7 +169,7 @@ const issuedDesk = contained(
 	),
 	on(Desk, "id")
 )
-const tightenedRelations = domains(true)
+const tightenedRelations = Object.freeze(domains(true))
 const tightened = (name: string) => {
 	const r = tightenedRelations
 	return schema(name, r, [
@@ -402,16 +402,6 @@ const racingGen: Gen<Racing> = (source) => ({
 	w1: source.draw(element(writerKinds)),
 	w2: source.draw(element(writerKinds))
 })
-
-/** n! */
-const factorial = (n: number): number => Arr.reduce(Arr.range(1, n), 1, (product, k) => product * k)
-
-/**
- * The race's cases: each point of the box (each writer lawful or violating) under every order of its five moves, each
- * writer's insert before its COMMIT, so 5! orders over 2! for each writer's pair.
- */
-const racingCases =
-	writerKinds.length * writerKinds.length * (factorial(5) / (factorial(2) * factorial(2)))
 
 /** The stored worker's id, the id no worker holds, and each writer's assignment's id. */
 const storedWorker = 1
@@ -868,7 +858,6 @@ layer(Substrate.layer, { excludeTestServices: true })("a migration's Validate ph
 						suite: "schedules/migrate/validate racing writers",
 						generator: racingGen,
 						literal: Formatter.format,
-						limit: racingCases,
 						coverage: requiredInSpace<RacingFeature>([
 							"the migration succeeded",
 							"the migration refused by the law",

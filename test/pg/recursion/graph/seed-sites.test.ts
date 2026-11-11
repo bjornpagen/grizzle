@@ -27,6 +27,7 @@ import {
 	runLabelledOracle
 } from "#test/support/oracle/runner.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /**
  * Every site of the proved root pushdown agrees on PostgreSQL 19 (lower/optimize/graph/seed.ts).
@@ -84,7 +85,7 @@ interface Graph {
 
 const graphGen: Gen<Graph> = (source) => {
 	const vertices = source.draw(int(1, 6))
-	const each = Arr.range(0, vertices - 1)
+	const each = upTo(vertices, (i) => i)
 	return {
 		vertices,
 		edges: source.draw(subarray(Arr.flatMap(each, (a) => Arr.map(each, (b) => [a, b] as const))))
@@ -93,9 +94,9 @@ const graphGen: Gen<Graph> = (source) => {
 
 /** The facts of the integer graph E over V and the text graph T over W, its vertices the words of their indices. */
 const factsOf = (ints: Graph, words: Graph): ValueFacts => ({
-	V: Arr.map(Arr.range(0, ints.vertices - 1), (i) => [intLit(i)]),
+	V: upTo(ints.vertices, (i) => [intLit(i)]),
 	E: Arr.map(ints.edges, ([a, b]) => [intLit(a), intLit(b)]),
-	W: Arr.map(Arr.range(0, words.vertices - 1), (i) => [word(wordOf(i))]),
+	W: upTo(words.vertices, (i) => [word(wordOf(i))]),
 	T: Arr.map(words.edges, ([a, b]) => [word(wordOf(a)), word(wordOf(b))])
 })
 

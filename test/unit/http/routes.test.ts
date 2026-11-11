@@ -58,6 +58,7 @@ import { lawLevelGen } from "#test/support/oracle/public/laws.ts"
 import { printCase } from "#test/support/oracle/public/print.ts"
 import { clusterPool } from "#test/support/pg.ts"
 import { compiledLogin, drawnLogin, drawnSchema, loginGen } from "#test/support/served-login.ts"
+import { upTo } from "#test/support/up-to.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 import { testVerify } from "#test/support/worlds.ts"
 
@@ -196,7 +197,7 @@ const probeGen =
 const probesGen =
 	(routes: number): Gen<ReadonlyArray<Probe>> =>
 	(source) =>
-		Arr.map(Arr.range(1, source.draw(int(1, 8))), () => source.draw(probeGen(routes)))
+		upTo(source.draw(int(1, 8)), () => source.draw(probeGen(routes)))
 
 /** What every route's request line starts with: its method and the space after it. */
 const routeMethod = "POST "

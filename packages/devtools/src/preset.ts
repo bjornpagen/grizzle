@@ -358,10 +358,12 @@ export type Project = Readonly<{
 	ceremony: ReadonlyArray<string>
 	/** The plugin's per-project names, one options object per rule that takes them. */
 	plugin: { readonly [Rule in ConfiguredRule]: OptionsOf<(typeof plugin.rules)[Rule]> }
-	/** The testing library's oxlint plugin, by the specifier oxlint loads it with, and the rules it holds test files to. */
+	/** The testing library's oxlint plugin, by the specifier oxlint loads it with, the rules it holds test files to, and
+	 * the rules it holds every file to. */
 	tests: Readonly<{
 		jsPlugin: string
 		rules: DummyRuleMap
+		everyFile: DummyRuleMap
 		/** Clock-free code beyond the test files, and the plugin's clock rules it is held to: the testing library and the
 		 * tests' support, so no verdict rests on a hidden clock. A module whose job is the clock is an override's
 		 * exception. */
@@ -416,7 +418,6 @@ const clockBlock = (tests: Project["tests"]): ReadonlyArray<OxlintOverride> =>
 		? [
 				{
 					files: [...tests.clock.files],
-					jsPlugins: [tests.jsPlugin],
 					rules: { ...tests.clock.rules, ...OFF }
 				}
 			]
@@ -425,7 +426,7 @@ const clockBlock = (tests: Project["tests"]): ReadonlyArray<OxlintOverride> =>
 /** The repository's oxlint configuration: the shared standard with the project's lists. */
 export const lintConfig = (project: Project): OxlintConfig => ({
 	plugins: [...PLUGINS],
-	jsPlugins: [`${import.meta.dirname}/oxlint-plugin.ts`],
+	jsPlugins: [`${import.meta.dirname}/oxlint-plugin.ts`, project.tests.jsPlugin],
 	categories: { correctness: "error" },
 	env: { browser: true, node: true, es2024: true },
 	options: {
@@ -446,6 +447,7 @@ export const lintConfig = (project: Project): OxlintConfig => ({
 		],
 		"import/no-unassigned-import": ["error", { allow: [...project.unassignedImports] }],
 		...pluginRules(project, EVERYWHERE_RULES),
+		...project.tests.everyFile,
 		...OFF
 	},
 	overrides: [
@@ -465,7 +467,6 @@ export const lintConfig = (project: Project): OxlintConfig => ({
 		{
 			files: [...TEST_FILES],
 			plugins: [...PLUGINS, "vitest"],
-			jsPlugins: [project.tests.jsPlugin],
 			rules: { ...pluginRules(project, TEST_RULES), ...project.tests.rules, ...OFF }
 		},
 		...clockBlock(project.tests),

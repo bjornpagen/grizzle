@@ -12,18 +12,21 @@
  * by three bits down to none; Pick, keyed by a kind, whose payload is a flag, an integer, a numeric(3, 1), a text, a
  * contract over an integer and a refined text, holding a drawn subset of the kinds; FlagRel, a set of (from, to) flags,
  * whose row of a flag is its completions, empty for a flag it completes nowhere; FlagW, a flag's integer weight,
- * holding a drawn subset of the flags; and Allowed, a set of (kind, flag) pairs. A read is Pick.at of a payload field
- * at the row's kind, or FlagRel.row, FlagW.at or `Compute.singleton` at the row's own flag or, nested, at
- * Pick.at("flag", kind), or the union of FlagRel.row at the own flag with such a singleton, or a `Compute.cond` over
- * `C.has` of Pick.at at the row's kind or of FlagW.at at a flag, its literal where the key is absent or NULL. A
- * presence is `C.has` of Pick at the row's kind, of FlagW at a flag, of Allowed at the kind and a flag, or of FlagRel
- * at two flags, each flag the own or the picked one, so a key value is NULL in every key position. Its positions:
+ * holding a drawn subset of the flags; Allowed, a set of (kind, flag) pairs; and Slot, keyed by a kind and a flag,
+ * whose payload is a flag, holding a drawn subset of the pairs. A read is Pick.at of a payload field at the row's kind,
+ * or FlagRel.row, FlagW.at or `Compute.singleton` at the row's own flag or, nested, at Pick.at("flag", kind) or at
+ * Slot.at("slot", kind, flag), so FlagRel.row of the slotted flag is the double lookup, a set read whose key is a
+ * closed read keyed by two fields, read at a NULL prefix where Slot lacks the pair; or the union of FlagRel.row at the
+ * own flag with such a singleton, or a `Compute.cond` over `C.has` of Pick.at at the row's kind or of FlagW.at at a
+ * flag, its literal where the key is absent or NULL. A presence is `C.has` of Pick at the row's kind, of FlagW at a
+ * flag, of Allowed at the kind and a flag, or of FlagRel at two flags, each flag the own, the picked or the slotted
+ * one, so a key value is NULL in every key position. Its positions:
  *
  * - two row checks, each a drawn predicate: a read equal to the row's field of its type or to a literal, the
- *   downstream `Compute.subset(FlagRel.row(…), flags)` equal to true, a flag's membership in a set,
- *   `Compute.subset(Compute.singleton(flag), set)` of the own or picked flag in the row's flags or a FlagRel.row, a
- *   presence, the kind equal or unequal to a handle, and AND, OR and NOT of them, the guard
- *   `or(not(C.has(k…)), φ(C.at(…, k…)))` among them;
+ *   downstream `Compute.subset(FlagRel.row(…), flags)` equal to true and its converse, the flags within the read, a
+ *   flag's membership in a set, `Compute.subset(Compute.singleton(flag), set)` of the own, picked or slotted flag in
+ *   the row's flags or a FlagRel.row, a presence, the kind equal or unequal to a handle, and AND, OR and NOT of them,
+ *   the guard `or(not(C.has(k…)), φ(C.at(…, k…)))` among them;
  * - a containment of a selection's (kind, flag) into Allowed, under a drawn predicate: a table CHECK whose guard is
  *   the selection;
  * - a key over a selection's integer, under a drawn predicate: a law column `CASE WHEN φ THEN n END`, which grizzle's
@@ -65,6 +68,18 @@
  * completed nowhere read as NULL), absent-host-at-absent-key-unsupported, absent-fold-steps-where-not-fails,
  * absent-singleton-bit-plus-one, absent-null-singleton-empty (PostgreSQL's singleton of a NULL id the empty set),
  * absent-has-null-at-absent-key (PostgreSQL's C.has) and absent-has-of-null-key-false.
+ *
+ * A second search holds the downstream's guarded read alone: a row check `or(not(kind = K), ψ)` at a drawn handle K, ψ
+ * the double lookup's set, FlagRel.row(Slot.at("slot", kind, flag)), within the row's flags or the flags within it.
+ * Each case draws the lookups, K, ψ's direction and one to four rows, each written into Guarded by grizzle's writer and
+ * judged by the guarded read restated over the drawn rows in Kleene's logic: accepted where it is true, and otherwise
+ * refused naming Guarded's one law. Coverage requires the guard true and false, the inner key held and absent, and the
+ * flags empty and not. So a row whose inner key is absent is refused by its check, never accepted, where the guard
+ * fails, though its flags be empty: the documented contract reads NULL where a key value is NULL, and the subset of a
+ * NULL is unknown. Its plants, under ~/.cache/grizzle-release/MOVED/plants/: absent-row-casts-null (a set's bits
+ * domain CHECK without its VALUE IS NULL arm, so FlagRel.row at the NULL of an absent inner key is refused by its cast
+ * before the guard holds) and absent-row-reads-empty-as-full (PostgreSQL's C.row read as every handle where its prefix
+ * is NULL or completed nowhere, so a row whose flags that read leaves unknown or refuses is accepted).
  *
  * The world's Flag has one to five handles, so a set over it is a whole number of hex digits (four flags) or padded,
  * and a singleton meets the first and the last code; the downstream shape a diagonal closed relation once spelled, a
@@ -147,14 +162,22 @@ interface Payload {
 }
 
 /**
- * The closed relations' rows: Pick's payload at each kind, undefined where it holds none; FlagRel's completions of each
- * flag, in code order; FlagW's weight at each flag, undefined where it holds none; and Allowed's flags of each kind.
+ * What the double lookup reads: the sizes of the rosters Kind and Flag; FlagRel's completions of each flag, in code
+ * order; and Slot's flag at each kind and flag, undefined where it holds none.
  */
-interface World {
+interface Lookups {
 	readonly kinds: number
 	readonly flags: number
-	readonly pick: ReadonlyArray<Payload | undefined>
 	readonly next: ReadonlyArray<ReadonlyArray<number>>
+	readonly slot: ReadonlyArray<ReadonlyArray<number | undefined>>
+}
+
+/**
+ * The closed relations' rows: the lookups'; Pick's payload at each kind, undefined where it holds none; FlagW's weight
+ * at each flag, undefined where it holds none; and Allowed's flags of each kind.
+ */
+interface World extends Lookups {
+	readonly pick: ReadonlyArray<Payload | undefined>
 	readonly weight: ReadonlyArray<number | undefined>
 	readonly allowed: ReadonlyArray<ReadonlyArray<number>>
 }
@@ -178,8 +201,12 @@ interface Item extends Keys {
 const pickFields = ["flag", "n", "d", "t", "u", "p"] as const
 type PickField = (typeof pickFields)[number]
 
-/** Where a FlagRel or FlagW read takes its flag: the row's own, or Pick.at("flag", kind), NULL at an absent kind. */
-const flagSources = ["own", "picked"] as const
+/**
+ * Where a FlagRel or FlagW read takes its flag: the row's own; Pick.at("flag", kind), NULL at an absent kind; or
+ * Slot.at("slot", kind, flag), a read keyed by two fields, NULL at a pair Slot lacks, so FlagRel.row of it is the double
+ * lookup.
+ */
+const flagSources = ["own", "picked", "slotted"] as const
 type FlagSource = (typeof flagSources)[number]
 
 /** The Pick fields a conditional over `C.has` reads, each with the literal it takes where Pick holds no row. */
@@ -219,11 +246,21 @@ type Against = { readonly kind: "field" } | { readonly kind: "literal"; readonly
 type Pred =
 	| { readonly kind: "eq"; readonly read: Read; readonly against: Against }
 	| { readonly kind: "subset"; readonly of: FlagSource }
+	| { readonly kind: "admits"; readonly of: FlagSource }
 	| { readonly kind: "member"; readonly of: FlagSource; readonly within: Within }
 	| { readonly kind: "has"; readonly key: HasKey }
 	| { readonly kind: "kind"; readonly ne: boolean; readonly handle: number }
 	| { readonly kind: "and" | "or"; readonly args: readonly [Pred, Pred] }
 	| { readonly kind: "not"; readonly arg: Pred }
+
+/**
+ * The downstream's guarded read, `or(not(kind = K), ψ)` at the handle K: ψ the double lookup's set within the row's
+ * flags (`subset`), or the row's flags within it (`admits`).
+ */
+interface Guarded {
+	readonly handle: number
+	readonly leaf: "subset" | "admits"
+}
 
 interface AbsentCase {
 	readonly world: World
@@ -233,6 +270,32 @@ interface AbsentCase {
 	readonly folded: Pred
 	readonly items: NonEmptyReadonlyArray<Item>
 }
+
+/** A row the guarded read is written against: its kind and flag codes, and its set of flags. */
+interface GuardedRow extends Keys {
+	readonly flags: ReadonlyArray<number>
+}
+
+/** A case of the guarded read: its lookups, the guard's handle and ψ's direction, and the rows written. */
+interface GuardedCase extends Lookups {
+	readonly guarded: Guarded
+	readonly rows: NonEmptyReadonlyArray<GuardedRow>
+}
+
+const guardTruths = ["holds", "fails"] as const
+const innerKeys = ["held", "absent"] as const
+const flagFills = ["empty", "not empty"] as const
+
+/** A situation of the guarded read: its guard's truth, its inner key's presence, and whether the row's flags are empty. */
+type GuardedFeature =
+	`the guarded read: the guard ${(typeof guardTruths)[number]}, the double lookup's inner key ${(typeof innerKeys)[number]}, the flags ${(typeof flagFills)[number]}`
+
+const guardedFeature = (
+	guard: (typeof guardTruths)[number],
+	inner: (typeof innerKeys)[number],
+	fill: (typeof flagFills)[number]
+): GuardedFeature =>
+	`the guarded read: the guard ${guard}, the double lookup's inner key ${inner}, the flags ${fill}`
 
 /** The text at index i over {a, b} in bijective base 2: "", "a", "b", "aa", "ab", "ba", "bb", … */
 const textAt = (i: number): string =>
@@ -261,19 +324,52 @@ const payloadGen =
 		p: s.draw(shortGen)
 	})
 
-const worldGen: Gen<World> = (s) => {
+/** Rosters of one to three kinds and one to five flags, each flag's completions, and Slot holding a drawn subset of the pairs. */
+const lookupsGen: Gen<Lookups> = (s) => {
 	const kinds = s.draw(int(1, 3))
 	const flags = s.draw(int(1, 5))
 	const codes = codesBelow(flags)
 	return {
 		kinds,
 		flags,
-		pick: Arr.map(codesBelow(kinds), () =>
-			s.draw(boolean) ? s.draw(payloadGen(flags)) : undefined
-		),
 		next: Arr.map(codes, () => s.draw(subarray(codes))),
+		slot: Arr.map(codesBelow(kinds), () =>
+			Arr.map(codes, () => (s.draw(boolean) ? s.draw(int(0, flags - 1)) : undefined))
+		)
+	}
+}
+
+const worldGen: Gen<World> = (s) => {
+	const lookups = s.draw(lookupsGen)
+	const codes = codesBelow(lookups.flags)
+	return {
+		...lookups,
+		pick: Arr.map(codesBelow(lookups.kinds), () =>
+			s.draw(boolean) ? s.draw(payloadGen(lookups.flags)) : undefined
+		),
 		weight: Arr.map(codes, () => (s.draw(boolean) ? s.draw(smallInt) : undefined)),
-		allowed: Arr.map(codesBelow(kinds), () => s.draw(subarray(codes)))
+		allowed: Arr.map(codesBelow(lookups.kinds), () => s.draw(subarray(codes)))
+	}
+}
+
+/**
+ * A guarded case: its lookups, a handle K of its kinds, ψ's direction, and one to four rows, each of a drawn kind, flag
+ * and set of flags.
+ */
+const guardedCaseGen: Gen<GuardedCase> = (s) => {
+	const lookups = s.draw(lookupsGen)
+	const row: Gen<GuardedRow> = (t) => ({
+		kind: t.draw(int(0, lookups.kinds - 1)),
+		flag: t.draw(int(0, lookups.flags - 1)),
+		flags: t.draw(subarray(codesBelow(lookups.flags)))
+	})
+	return {
+		...lookups,
+		guarded: {
+			handle: s.draw(int(0, lookups.kinds - 1)),
+			leaf: s.draw(element(["subset", "admits"] as const))
+		},
+		rows: [s.draw(row), ...s.draw(array(row, { min: 0, max: 3 }))]
 	}
 }
 
@@ -338,9 +434,10 @@ const literalGen = (w: World, read: Read): Gen<Value> => {
 }
 
 /**
- * A leaf: a read compared, a FlagRel.row within the flags, a membership, the downstream membership of the own flag in
- * FlagRel.row of the flag its kind picks, NULL at a kind Pick lacks, a presence or its negation, the guard that
- * compares Pick's payload only where Pick holds the row's kind, or the kind compared with a handle.
+ * A leaf: a read compared, a FlagRel.row within the flags or the flags within it, a membership, the downstream
+ * membership of the own flag in FlagRel.row of the flag its kind picks, NULL at a kind Pick lacks, a presence or its
+ * negation, the guard that compares Pick's payload only where Pick holds the row's kind, or the kind compared with a
+ * handle.
  */
 const leafGen = (w: World): Gen<Pred> =>
 	oneOf<Pred>([
@@ -374,6 +471,7 @@ const leafGen = (w: World): Gen<Pred> =>
 			}
 		},
 		(s) => ({ kind: "subset", of: s.draw(element(flagSources)) }),
+		(s) => ({ kind: "admits", of: s.draw(element(flagSources)) }),
 		(s) => ({ kind: "member", of: s.draw(element(flagSources)), within: s.draw(withinGen) }),
 		() => ({ kind: "member", of: "own", within: { kind: "row", of: "picked" } }),
 		(s) => ({ kind: "kind", ne: s.draw(boolean), handle: s.draw(int(0, w.kinds - 1)) })
@@ -434,9 +532,20 @@ const both = (a: Truth, b: Truth): Truth =>
 
 const either = (a: Truth, b: Truth): Truth => not(both(not(a), not(b)))
 
-/** The flag a FlagRel or FlagW read keys on: undefined, NULL, where it is Pick's at a kind Pick holds no row at. */
-const flagFrom = (w: World, keys: Keys, of: FlagSource): number | undefined =>
-	of === "own" ? keys.flag : w.pick[keys.kind]?.flag
+/**
+ * The flag a FlagRel or FlagW read keys on: undefined, NULL, where it is Pick's at a kind Pick holds no row at, or
+ * Slot's at a kind and flag Slot holds no row at.
+ */
+const flagFrom = (w: World, keys: Keys, of: FlagSource): number | undefined => {
+	switch (of) {
+		case "own":
+			return keys.flag
+		case "picked":
+			return w.pick[keys.kind]?.flag
+		case "slotted":
+			return w.slot[keys.kind]?.[keys.flag]
+	}
+}
 
 /**
  * Whether a presence's relation holds its key at a row: undefined, NULL, where a key value is NULL, a flag picked at a
@@ -548,6 +657,12 @@ const truth = (w: World, item: Item, p: Pred): Truth => {
 				? "unknown"
 				: truthOf(Arr.every(set, (code) => item.flags.includes(code)))
 		}
+		case "admits": {
+			const set = readOf(w, item, { kind: "row", of: p.of })
+			return set === undefined || typeof set !== "object"
+				? "unknown"
+				: truthOf(Arr.every(item.flags, (code) => set.includes(code)))
+		}
 		case "member": {
 			const { flag, set } = membershipOf(w, item, p)
 			return flag === undefined || set === undefined ? "unknown" : truthOf(set.includes(flag))
@@ -574,6 +689,7 @@ const membershipsOf = (p: Pred): ReadonlyArray<Extract<Pred, { readonly kind: "m
 			return [p]
 		case "eq":
 		case "subset":
+		case "admits":
 		case "has":
 		case "kind":
 			return []
@@ -591,6 +707,7 @@ const readsOf = (p: Pred): ReadonlyArray<Read> => {
 		case "eq":
 			return [p.read]
 		case "subset":
+		case "admits":
 			return [{ kind: "row", of: p.of }]
 		case "member":
 			return [
@@ -615,6 +732,7 @@ const negatedPresencesOf = (p: Pred): ReadonlyArray<HasKey> => {
 			return p.arg.kind === "has" ? [p.arg.key] : negatedPresencesOf(p.arg)
 		case "eq":
 		case "subset":
+		case "admits":
 		case "member":
 		case "has":
 		case "kind":
@@ -632,6 +750,7 @@ const presencesOf = (p: Pred): ReadonlyArray<HasKey> => {
 			return [p.key]
 		case "eq":
 		case "subset":
+		case "admits":
 		case "member":
 		case "kind":
 			return []
@@ -641,6 +760,32 @@ const presencesOf = (p: Pred): ReadonlyArray<HasKey> => {
 		case "not":
 			return presencesOf(p.arg)
 	}
+}
+
+/**
+ * The double lookup's set at a row, FlagRel.row(Slot.at("slot", kind, flag)): the completions of Slot's flag at the
+ * row's kind and flag, empty for a flag completed nowhere, and undefined, NULL, where Slot holds no row at the pair.
+ */
+const lookedUp = (c: GuardedCase, row: GuardedRow): ReadonlyArray<number> | undefined => {
+	const slot = c.slot[row.kind]?.[row.flag]
+	return slot === undefined ? undefined : c.next[slot]
+}
+
+/**
+ * The guarded read's truth at a row, in Kleene's logic: `not(kind = K)` or ψ, ψ unknown where the double lookup is NULL,
+ * else the lookup's set within the row's flags (`subset`) or the flags within it (`admits`).
+ */
+const guardedTruth = (c: GuardedCase, row: GuardedRow): Truth => {
+	const set = lookedUp(c, row)
+	const within: Truth =
+		set === undefined
+			? "unknown"
+			: truthOf(
+					c.guarded.leaf === "subset"
+						? Arr.every(set, (code) => row.flags.includes(code))
+						: Arr.every(row.flags, (code) => set.includes(code))
+				)
+	return either(truthOf(row.kind !== c.guarded.handle), within)
 }
 
 const kindOf = (code: number): string => `k${code}`
@@ -688,6 +833,31 @@ type NeverNull = (typeof neverNull)[number]
 const nullable = (name: Generated): name is Exclude<Generated, NeverNull> =>
 	!Arr.some(neverNull, (n) => n === name)
 
+/** The lookups' rosters Kind and Flag and closed relations FlagRel and Slot. */
+const lookupsOf = (sizes: Lookups) => {
+	const Kind = closed("Kind", handlesOf(sizes.kinds, kindOf))
+	const Flag = closed("Flag", handlesOf(sizes.flags, flagOf))
+	const FlagRel = closed.relation(
+		"FlagRel",
+		{ from: closedId(Flag), to: closedId(Flag) },
+		["from", "to"],
+		Arr.flatMap(sizes.next, (tos, from) =>
+			Arr.map(tos, (to) => ({ from: flagOf(from), to: flagOf(to) }))
+		)
+	)
+	const Slot = closed.relation(
+		"Slot",
+		{ kind: closedId(Kind), flag: closedId(Flag), slot: closedId(Flag) },
+		["kind", "flag"],
+		Arr.flatMap(sizes.slot, (slots, kind) =>
+			Arr.flatMap(slots, (slot, flag) =>
+				slot === undefined ? [] : [{ kind: kindOf(kind), flag: flagOf(flag), slot: flagOf(slot) }]
+			)
+		)
+	)
+	return { Kind, Flag, FlagRel, Slot }
+}
+
 /**
  * The case's schema: its rosters, closed relations, the relations its rules hold, and the generated relations; and its
  * full world's workload, an insert into each relation its rules hold, one insert of every generated relation, an
@@ -695,8 +865,7 @@ const nullable = (name: Generated): name is Exclude<Generated, NeverNull> =>
  */
 const schemaOf = (c: AbsentCase) => {
 	const w = c.world
-	const Kind = closed("Kind", handlesOf(w.kinds, kindOf))
-	const Flag = closed("Flag", handlesOf(w.flags, flagOf))
+	const { Kind, Flag, FlagRel, Slot } = lookupsOf(w)
 	const Pick = closed.relation(
 		"Pick",
 		{
@@ -723,14 +892,6 @@ const schemaOf = (c: AbsentCase) => {
 							p: payload.p
 						}
 					]
-		)
-	)
-	const FlagRel = closed.relation(
-		"FlagRel",
-		{ from: closedId(Flag), to: closedId(Flag) },
-		["from", "to"],
-		Arr.flatMap(w.next, (tos, from) =>
-			Arr.map(tos, (to) => ({ from: flagOf(from), to: flagOf(to) }))
 		)
 	)
 	const FlagW = closed.relation(
@@ -762,7 +923,16 @@ const schemaOf = (c: AbsentCase) => {
 	}
 	const itemOf = (name: string) => relation(name, itemFields, ["id"])
 	type ItemRow = RowScalars<ReturnType<typeof itemOf>>
-	const flagTerm = (r: ItemRow, of: FlagSource) => (of === "own" ? r.flag : Pick.at("flag", r.kind))
+	const flagTerm = (r: ItemRow, of: FlagSource) => {
+		switch (of) {
+			case "own":
+				return r.flag
+			case "picked":
+				return Pick.at("flag", r.kind)
+			case "slotted":
+				return Slot.at("slot", r.kind, r.flag)
+		}
+	}
 	const joinedTerm = (r: ItemRow, of: FlagSource) =>
 		Compute.union(FlagRel.row(r.flag), Compute.singleton(flagTerm(r, of)))
 	const presence = (r: ItemRow, key: HasKey): Predicate => {
@@ -840,6 +1010,8 @@ const schemaOf = (c: AbsentCase) => {
 				return eqRead(r, p.read, p.against)
 			case "subset":
 				return r.eq(Compute.subset(FlagRel.row(flagTerm(r, p.of)), r.flags), true)
+			case "admits":
+				return r.eq(Compute.subset(r.flags, FlagRel.row(flagTerm(r, p.of))), true)
 			case "member":
 				return r.eq(
 					Compute.subset(
@@ -983,6 +1155,7 @@ const schemaOf = (c: AbsentCase) => {
 		FlagRel,
 		FlagW,
 		Allowed,
+		Slot,
 		Checked0,
 		Checked1,
 		Contained,
@@ -1028,6 +1201,41 @@ const schemaOf = (c: AbsentCase) => {
 		}
 	}
 }
+
+/**
+ * The guarded case's schema: its lookups, and Guarded, whose row check is the downstream's guarded read; and its full
+ * world's workload, an insert into Guarded.
+ */
+const guardedSchemaOf = (c: GuardedCase) => {
+	const { Kind, Flag, FlagRel, Slot } = lookupsOf(c)
+	const Guarded = relation(
+		"Guarded",
+		{ id: pg.integer, kind: closedId(Kind), flag: closedId(Flag), flags: bits(Flag) },
+		["id"]
+	)
+	const guards = check("Guards", Guarded, (r) =>
+		r.or(
+			r.not(r.eq(r.kind, kindOf(c.guarded.handle))),
+			c.guarded.leaf === "subset"
+				? r.eq(Compute.subset(FlagRel.row(Slot.at("slot", r.kind, r.flag)), r.flags), true)
+				: r.eq(Compute.subset(r.flags, FlagRel.row(Slot.at("slot", r.kind, r.flag))), true)
+		)
+	)
+	const Lookup = schema("Lookup", { Kind, Flag, FlagRel, Slot, Guarded }, [guards])
+	return {
+		Flag,
+		Guarded,
+		Lookup,
+		programs: { insertGuarded: ChangeSet.empty(Lookup).insert(Guarded, []) }
+	}
+}
+
+/** Every situation of the guarded read: the guard true and false, the inner key held and absent, the flags empty and not. */
+const guardedSituations: NonEmptyReadonlyArray<GuardedFeature> = Arr.flatMap(guardTruths, (guard) =>
+	Arr.flatMap(innerKeys, (inner) =>
+		Arr.map(flagFills, (fill) => guardedFeature(guard, inner, fill))
+	)
+)
 
 type Feature =
 	| "a check holds of a row with a NULL read"
@@ -1555,6 +1763,54 @@ const absentCase = (c: AbsentCase, notes: Case<Feature>) =>
 		}
 	}).pipe(Effect.scoped)
 
+/** One guarded case: its schema installed, and each row written into Guarded alone, judged by the guarded read's truth. */
+const guardedCase = (c: GuardedCase, notes: Case<GuardedFeature>) =>
+	Effect.gen(function* () {
+		const built = guardedSchemaOf(c)
+		const o = yield* installed(
+			built.Lookup,
+			{},
+			{ label: "lookup", extensions: [], programs: built.programs }
+		)
+		yield* Effect.gen(function* () {
+			const db = yield* Db.open(o.served.login.roles.app, {})
+			for (const [id, row] of c.rows.entries()) {
+				const applied = yield* Effect.result(
+					answered(
+						db.workload.insertGuarded.once({
+							params: {},
+							facts: {
+								insert: {
+									Guarded: [
+										{
+											id,
+											kind: kindOf(row.kind),
+											flag: flagOf(row.flag),
+											flags: Bits.of(built.Flag, Arr.map(row.flags, flagOf))
+										}
+									]
+								}
+							}
+						})
+					)
+				)
+				verdict(
+					applied,
+					built.Guarded.name,
+					guardedTruth(c, row) === "true",
+					`Guarded row ${id} of ${Formatter.format(c)}`
+				)
+				notes.note(
+					guardedFeature(
+						row.kind === c.guarded.handle ? "fails" : "holds",
+						lookedUp(c, row) === undefined ? "absent" : "held",
+						row.flags.length === 0 ? "empty" : "not empty"
+					)
+				)
+			}
+		}).pipe(Effect.scoped, withLayer(o.served.layer))
+	}).pipe(Effect.scoped)
+
 layer(Substrate.layer, { excludeTestServices: true })("a closed read at an absent key", (it) => {
 	it.effect("is judged by the rule that reads it, never refused by a domain's cast", (ctx) =>
 		searched(
@@ -1579,7 +1835,11 @@ layer(Substrate.layer, { excludeTestServices: true })("a closed read at an absen
 									pick: [{ flag: 0, n: 0, d: 0, t: "", u: 0, p: "a" }, undefined],
 									next: [[0], [1]],
 									weight: [undefined, undefined],
-									allowed: [[], []]
+									allowed: [[], []],
+									slot: [
+										[undefined, undefined],
+										[undefined, undefined]
+									]
 								},
 								checks: [
 									{
@@ -1621,7 +1881,11 @@ layer(Substrate.layer, { excludeTestServices: true })("a closed read at an absen
 									pick: [{ flag: 0, n: 1, d: 0, t: "", u: 0, p: "a" }, undefined],
 									next: [[0], [0, 1]],
 									weight: [undefined, undefined],
-									allowed: [[0], [0, 1]]
+									allowed: [[0], [0, 1]],
+									slot: [
+										[undefined, undefined],
+										[undefined, undefined]
+									]
 								},
 								checks: [
 									{
@@ -1666,7 +1930,11 @@ layer(Substrate.layer, { excludeTestServices: true })("a closed read at an absen
 									pick: [{ flag: 0, n: 1, d: 0, t: "", u: 0, p: "a" }, undefined],
 									next: [[0], [1]],
 									weight: [2, undefined],
-									allowed: [[0], [0, 1]]
+									allowed: [[0], [0, 1]],
+									slot: [
+										[undefined, undefined],
+										[undefined, undefined]
+									]
 								},
 								checks: [
 									{
@@ -1733,5 +2001,31 @@ layer(Substrate.layer, { excludeTestServices: true })("a closed read at an absen
 				absentCase
 			)
 		)
+	)
+	it.effect(
+		"under the downstream's guard, read through a second closed read keyed by two fields, is judged by its row check",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "pg/closed/absent/guarded",
+						draw: drawn(guardedCaseGen),
+						literal: Formatter.format,
+						oracle: {
+							kind: "specification",
+							name: "the guarded read restated over the drawn rows: Slot.at NULL at a pair Slot lacks, FlagRel.row NULL at a NULL prefix and empty where nothing completes it, the subset in Kleene's logic, and the row check holding where `not(kind = K)` or the subset is true"
+						},
+						coverage: required<GuardedFeature>(guardedSituations, { cases: 64, sense: notesOnly }),
+						kept: [],
+						runs: 24,
+						shrink: boundedShrink(40),
+						concurrency: 1,
+						steerEvery: 8,
+						caseHang
+					},
+					guardedCase
+				)
+			)
 	)
 })

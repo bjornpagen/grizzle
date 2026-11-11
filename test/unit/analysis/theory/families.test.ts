@@ -349,7 +349,6 @@ describe("riding a family axis (§2.1)", () => {
 						suite: "unit/analysis/theory/riding",
 						generator: rideCase,
 						literal: Formatter.format,
-						limit: 40_000,
 						box: "every containment over O and F of at most three typed pairs, each side selected or not",
 						oracle: { kind: "specification", name: "§2.1's riding rule over SideDescs" },
 						coverage: requiredInSpace<RideFeature>([
@@ -1349,7 +1348,6 @@ describe("resolution and refusals (§3.4, §3.7, rows-first §4)", () => {
 						suite: "unit/analysis/theory/resolution",
 						generator: (source) => source.draw(corrupted(source.draw(familyCaseGen), refusals)),
 						literal: Formatter.format,
-						limit: 5000,
 						box: "ordered and counted families of group width 1 to 3 over uuid and bigint keys, with no fold, a hidden or a named sum, and a tree, each lawful or under each refusal it offers",
 						oracle: {
 							kind: "specification",

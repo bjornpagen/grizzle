@@ -64,7 +64,7 @@ import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { storedValue } from "#compiler/scalar/values/identity.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import { assert, refusalLoc } from "#test/support/assert.ts"
-import { admitGenerated, programAsts } from "#test/support/compile.ts"
+import { admitGenerated, filledSql, programAsts } from "#test/support/compile.ts"
 import { conservativePage } from "#test/support/conservative.ts"
 import { genCatalog } from "#test/support/evidence.ts"
 import { sentSql } from "#test/support/flight/scripted.ts"
@@ -1442,7 +1442,7 @@ export const generatedSuite = (artifact: PageArtifactName): void => {
 					const session = yield* s.admin.pin
 					yield* session.query("BEGIN", [])
 					yield* Effect.addFinalizer(() => Effect.orDie(session.query("ROLLBACK", [])))
-					for (const sql of plan.sql) {
+					for (const sql of filledSql(plan.drafted, s.database)) {
 						yield* session.query(sql, [])
 					}
 					for (const sql of facts.value) {

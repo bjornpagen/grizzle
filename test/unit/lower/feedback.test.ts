@@ -360,7 +360,6 @@ describe("every lowering admits exactly positive linear feedback over a hashable
 					generator: (source) =>
 						[source.draw(stepGen), source.draw(element<State>(["hashable", "money"]))] as const,
 					literal: Formatter.format,
-					limit: 2 * (33 + 41),
 					coverage: requiredInSpace<Verdict>([
 						"lowered",
 						"refused for a block",

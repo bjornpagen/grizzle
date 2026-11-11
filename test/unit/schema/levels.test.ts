@@ -110,9 +110,6 @@ const shapeGen: Gen<Shape> = (source) => {
 	}
 }
 
-/** The size of the shapes' space: a law of four kinds over two levels, and four sources into seven targets. */
-const spaceSize = 4 * places.length + 2 * places.length * (1 + 2 * targetFields.length)
-
 const shapeText = (s: Shape): string => {
 	switch (s.kind) {
 		case "key":
@@ -210,7 +207,6 @@ describe("a level's laws over the levels below it", () => {
 						suite: "unit/schema/levels/reach",
 						generator: shapeGen,
 						literal: shapeText,
-						limit: spaceSize,
 						box: "a key, a check, mutable and a counted family over each level; every containment of four sources into seven targets",
 						oracle: {
 							kind: "second-implementation",

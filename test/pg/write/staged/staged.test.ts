@@ -252,13 +252,13 @@ const nestedFacts = (sketch: Sketch, limit: number) => ({
 })
 
 /** The shelves every case's write meets stored, each of no entry. */
-const shelfFacts = { insert: { Shelf: [{ id: shelfId(0) }, { id: shelfId(1) }] } }
+const shelfFacts = Object.freeze({ insert: { Shelf: [{ id: shelfId(0) }, { id: shelfId(1) }] } })
 
 /**
  * The role's workload: the stored shelves' insert; and the case's write, both bins and its packages with their entries
  * nested, alone or with a put of a Tag beside it, read back by its delta. Each takes its call's facts.
  */
-const programs = {
+const programs = Object.freeze({
 	shelves: ChangeSet.empty(Staged).insert(Shelf, []),
 	nested: ChangeSet.empty(Staged).insert(Bin, []).insert(Package, []),
 	tagged: ChangeSet.empty(Staged)
@@ -274,7 +274,7 @@ const programs = {
 					.find({ id, v: value })
 			})
 		)
-}
+})
 
 /** A change member's one variant: a member of another kind, or of variants by its fill contexts, is a defect of the test. */
 const changeOf = (loaded: LoadedMember): LoadedChange => {

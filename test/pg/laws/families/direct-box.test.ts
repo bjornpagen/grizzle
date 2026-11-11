@@ -20,17 +20,19 @@ import { casesPerTest } from "#test/support/laws/suites/family.ts"
 import { plantedInsert } from "#test/support/laws/support.ts"
 
 const variants = variantsOf(directLawBox, "mutable")
-const [p, variant] = Option.getOrThrowWith(
-	Arr.findFirstWithIndex(variants, (box) =>
-		Arr.every(["family containment", "key int2", "selector boolean"], (t) =>
-			box.point.traits.includes(t)
-		)
-	),
-	() => new Error("no mutable box point whose child a boolean selects")
+const [p, variant] = Object.freeze(
+	Option.getOrThrowWith(
+		Arr.findFirstWithIndex(variants, (box) =>
+			Arr.every(["family containment", "key int2", "selector boolean"], (t) =>
+				box.point.traits.includes(t)
+			)
+		),
+		() => new Error("no mutable box point whose child a boolean selects")
+	)
 )
 const host = directLawBox.host(p)
 const domains = directLawBox.domains
-const fields = { level: 1, lang: "en", stage: "draft" }
+const fields = Object.freeze({ level: 1, lang: "en", stage: "draft" })
 const child = plantedInsert(host, domains, "Child", { id: 1, flag: false, parent: 1, ...fields })
 const parent = plantedInsert(host, domains, "Parent", { id: 1, flag: false, note: 1, ...fields })
 const selected = plantedUpdate(host, domains, "Child", { flag: true })

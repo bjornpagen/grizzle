@@ -1,4 +1,6 @@
-import { element, filter, map } from "@grizzle/testing/gen"
+import { enumerated, firstBranch, type Branch } from "@grizzle/testing/enumerate"
+import { element, type Gen, map } from "@grizzle/testing/gen"
+import { recorder } from "@grizzle/testing/source"
 import { Array as Arr, Option, Predicate, Record } from "effect"
 import { maxOf } from "#compiler/core/array.ts"
 import { conversionOf } from "#compiler/core/identity.ts"
@@ -442,10 +444,28 @@ export interface Migration {
 }
 
 /**
- * How many installations a half-applied run draws before it gives the case up: a drawn installation is the state's own
- * so rarely that a case almost never draws one twice.
+ * An installation of `lawful` other than `drafted`, by construction: a draw that is `drafted` is replaced by the first
+ * installation of the generator's enumeration that is not, so no case is discarded and the case is a function of its
+ * tape. A base whose installations are all `drafted` is a defect of the base, never a case.
  */
-const differentInstallAttempts = 16
+const otherInstallThan =
+	(lawful: Gen<InstallSpec>, drafted: InstallSpec): Gen<InstallSpec> =>
+	(source) => {
+		const drawn = source.draw(lawful)
+		if (!samePlain(drawn, drafted)) {
+			return drawn
+		}
+		const recorded = recorder()
+		let branch: Option.Option<Branch> = Option.some(firstBranch)
+		while (Option.isSome(branch)) {
+			const step = enumerated(recorded, lawful, branch.value)
+			if (!samePlain(step.generated.value, drafted)) {
+				return step.generated.value
+			}
+			branch = step.next
+		}
+		throw new Error("a base whose every installation is the drafted one has no half-applied run")
+	}
 
 /**
  * The migrations from a state, stratified: live, another installation of the same base applied whole, or the installation
@@ -515,10 +535,7 @@ export const migrationStrata = (state: ModelState): Strata<Migration> => {
 		wild: [
 			{
 				invalid: "migration:half-applied",
-				gen: map(
-					filter(lawful, (to) => !samePlain(to, draftedFrom(state)), differentInstallAttempts),
-					landed("half-applied")
-				)
+				gen: map(otherInstallThan(lawful, draftedFrom(state)), landed("half-applied"))
 			},
 			{ invalid: "migration:hand-edited", gen: map(lawful, landed("hand-edited")) },
 			{

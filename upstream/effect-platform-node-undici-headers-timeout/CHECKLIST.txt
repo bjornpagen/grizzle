@@ -1,0 +1,12 @@
+CHECKLIST: Effect's contribution process, applied to the makeUndici headers timeout
+
+Outcome: a pull request to github.com/Effect-TS/effect. Nothing has been sent.
+
+  [x] The fix is against main (ddd142f), in the package that owns the code (packages/platform/node).
+  [x] One behavior per change: the headersTimeout value, its regression test, its changeset.
+  [x] A changeset: .changeset/undici-headers-timeout.md, "@effect/platform-node": patch.
+  [x] The test fails before the fix and passes after it (EVIDENCE.txt 3, run against the published release).
+  [ ] Run the package's suite in a full checkout: pnpm install, then pnpm vitest run
+      packages/platform/node/test/NodeHttpClient.test.ts, then pnpm check and pnpm lint for the package.
+  [ ] Search open issues and pull requests for "headersTimeout" and "makeUndici" first.
+  [ ] Author: the noreply identity only (11238136+bjornpagen@users.noreply.github.com), as the patch carries.

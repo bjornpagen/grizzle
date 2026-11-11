@@ -209,31 +209,35 @@ const caseGen: Gen<InsertAllCase> = (source) => {
 }
 
 /** What a ChangeSet over Work compiles against: Work's reality. */
-const reality = (() => {
-	const artifacts = succeeded(testArtifacts(Work, testCompile))
-	return { checked: checking(Work), options: realityWrite(artifacts) }
-})()
+const reality = Object.freeze(
+	(() => {
+		const artifacts = succeeded(testArtifacts(Work, testCompile))
+		return { checked: checking(Work), options: realityWrite(artifacts) }
+	})()
+)
 
 /** What a ChangeSet over the role compiles against: the role's world. */
-const roleWorld = (() => {
-	const artifacts = succeeded(testArtifacts(Insall, testCompile))
-	const world = artifacts.world
-	if (world.kind !== "role") {
-		return assert.fail("the role's artifacts hold its world")
-	}
-	return {
-		checked: world.checked,
-		options: {
-			names: artifacts.names,
-			reads: artifacts.reads,
-			claims: { kind: "every" } as const,
-			world: { kind: "role", names: world.names } as const,
-			laws: artifacts.laws,
-			derived: artifacts.derived,
-			level: "serializable" as const
+const roleWorld = Object.freeze(
+	(() => {
+		const artifacts = succeeded(testArtifacts(Insall, testCompile))
+		const world = artifacts.world
+		if (world.kind !== "role") {
+			return assert.fail("the role's artifacts hold its world")
 		}
-	}
-})()
+		return {
+			checked: world.checked,
+			options: {
+				names: artifacts.names,
+				reads: artifacts.reads,
+				claims: { kind: "every" } as const,
+				world: { kind: "role", names: world.names } as const,
+				laws: artifacts.laws,
+				derived: artifacts.derived,
+				level: "serializable" as const
+			}
+		}
+	})()
+)
 
 /** A compiled ChangeSet's plan, each artifact's statements' SQL and its parameters, or its refusal's reason. */
 const planOf = (base: Base, change: ChangeSetValue) => {

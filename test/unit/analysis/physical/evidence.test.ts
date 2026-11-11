@@ -54,7 +54,7 @@ const Crm: SchemaDesc = {
 const crm = ownedFixture(Crm)
 const theory = succeeded(buildTheory(succeeded(checkedSchema(crm.owned, everySlice(crm.owned)))))
 const evidence = theoryEvidence(theory.laws, new Set())
-const personKeys = Arr.filter(evidence.keys, (k) => k.relation === "Person")
+const personKeys = Object.freeze(Arr.filter(evidence.keys, (k) => k.relation === "Person"))
 
 type CatalogFeature = "no key proves the scan" | "a key proves the scan" | "a key not read"
 
@@ -78,8 +78,6 @@ describe("catalogs", () => {
 								source.draw(subset(["id", "email", "city"], { min: 1, max: 3 }))
 							] as const,
 						literal: Formatter.format,
-						/** The space: 2 execution contexts, 7 nonempty sets of columns. */
-						limit: 14,
 						coverage: requiredInSpace<CatalogFeature>([
 							"no key proves the scan",
 							"a key proves the scan",

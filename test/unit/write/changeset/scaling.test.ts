@@ -302,7 +302,6 @@ describe("a ChangeSet builder step reads only what it adds", () => {
 								source.draw(map(int(0, 3), (doublings) => 50 * 2 ** doublings))
 							] as const,
 						literal: Formatter.format,
-						limit: 12,
 						coverage: noCoverage,
 						caseHang
 					},

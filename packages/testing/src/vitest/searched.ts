@@ -76,9 +76,9 @@ const riskOrderOf = (residual: Residual): number =>
 const residualLine = (explored: Explored) =>
 	`${explored.suite}: ${explored.residual.cases} independent cases, ${explored.residual.observed} situations, ${explored.residual.singletons} seen once, ${riskText(explored.residual)}, ${explored.steered} steered${ratesText(explored)}; ${oracleText(explored.oracle)}`
 
-/** The line a passing exhaustion leaves on its test: a proof inside its box, its cases and the limit, and its oracle. */
+/** The line a passing exhaustion leaves on its test: a proof inside its box, its cases, and its oracle. */
 const exhaustedLine = (exhausted: Exhausted) =>
-	`${exhausted.suite}: a proof inside ${boxText(exhausted.box)}, ${exhausted.cases} cases within a limit of ${exhausted.limit}; ${oracleText(exhausted.oracle)}`
+	`${exhausted.suite}: a proof inside ${boxText(exhausted.box)}, ${exhausted.cases} cases; ${oracleText(exhausted.oracle)}`
 
 /** The annotation a passing search leaves on its test: an exploration's residual, or an exhaustion's proof. */
 const annotationOf = (

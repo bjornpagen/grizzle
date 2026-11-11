@@ -598,7 +598,6 @@ describe("plain or CONCURRENTLY", () => {
 						suite: "unit/adapter/refresh-position",
 						generator: detailGen,
 						literal: Formatter.format,
-						limit: 200,
 						coverage: requiredInSpace<Detail["kind"]>([
 							"a position",
 							"no detail",

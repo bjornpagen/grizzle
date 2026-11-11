@@ -231,8 +231,6 @@ describe("a coverage law lowers to a PERIOD reference into a WITHOUT OVERLAPS ke
 						suite: "unit/laws/model/coverage",
 						generator: shapeGen,
 						literal: Formatter.format,
-						/** The space: 2 sources × 5 targets. */
-						limit: 10,
 						coverage: requiredInSpace<Feature>(features),
 						caseHang,
 						box: "a source selected or not into a target selected or not, keyed or not, with a payload field or none",

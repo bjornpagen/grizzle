@@ -463,7 +463,7 @@ describe("the enforcement of a finite language", () => {
 							return {
 								language: source.draw(finiteLanguageOver(alphabet, mostFiniteMembers)),
 								flags: source.draw(flagsGen),
-								strings: source.draw(array(stringsOver(alphabet, 6), { min: 1, max: 24 }))
+								strings: source.draw(array(stringsOver(element(alphabet), 6), { min: 1, max: 24 }))
 							}
 						}),
 						literal: Formatter.format,

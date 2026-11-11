@@ -21,7 +21,7 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { array, type Gen, int, weighted } from "@grizzle/testing/gen"
+import { array, element, type Gen, int, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -97,7 +97,7 @@ const caseGen: Gen<Case> = (source) => ({
 	source: source.draw(sourceGen),
 	guard: source.draw(guardGen),
 	target: source.draw(int(0, 40)),
-	texts: source.draw(array(stringsOver(alphabet, 14), { min: 1, max: 12 }))
+	texts: source.draw(array(stringsOver(element(alphabet), 14), { min: 1, max: 12 }))
 })
 
 /** The bytes the text's own type bounds it to: four a code point for a pattern's, none for any text. */
@@ -262,7 +262,7 @@ layer(Substrate.layer)("a guard of a text's bytes on PostgreSQL 19", (it) => {
 									const pinned = yield* substrate.admin.pin
 									const problems = yield* inInstallation(
 										pinned,
-										installationSql(installation),
+										installationSql(installation, substrate.database),
 										Effect.gen(function* () {
 											const refused: Array<string> = []
 											for (const [i, text] of texts.entries()) {

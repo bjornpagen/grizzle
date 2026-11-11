@@ -52,7 +52,7 @@ const keysOf = (dirs: ReadonlyArray<Direction>): ReadonlyArray<SeekKey> =>
 
 /** The installation's names a key's operators resolve through: the vector extension's schema; no key here is a
  * vector. */
-const names = { vectorSchema: testTypeSchema("vector_ext") }
+const names = Object.freeze({ vectorSchema: testTypeSchema("vector_ext") })
 
 /**
  * A direct evaluation of the predicate subset the seek emits: columns and placeholders over integers, the comparison
@@ -226,8 +226,6 @@ describe("the seek predicate", () => {
 							}
 						},
 						literal: Formatter.format,
-						/** The 1, 2, 4 and 8 direction sets of zero to three keys, each with every seek. */
-						limit: 15 * seeks.length,
 						coverage: requiredInSpace<`${0 | 1 | 2 | 3} keys`>([
 							"0 keys",
 							"1 keys",
@@ -269,7 +267,6 @@ describe("window variants", () => {
 						suite: "unit/page/reverse",
 						generator: array(element(directions), { min: 1, max: 4 }),
 						literal: Formatter.format,
-						limit: 30,
 						coverage: noCoverage,
 						caseHang
 					},

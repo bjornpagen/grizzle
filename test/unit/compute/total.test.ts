@@ -56,12 +56,12 @@ import {
  * is the same predicate lowered in the query mode over a column of the base.
  */
 
-const options = {
+const options = Object.freeze({
 	loc: SourceLoc("test", []),
 	fieldType: (d: Parameters<typeof scalarOfDesc>[0]) => Result.ok(scalarOfDesc(d)),
 	patterns: referencePatterns(),
 	patternLanguage: textLookup
-}
+})
 
 /** The bases a contract's VALUE is drawn of: the integers, numeric at a typmod and at the widest, a float and money. */
 type Base = "bigint" | "integer" | "numeric" | "wide" | "double" | "money"

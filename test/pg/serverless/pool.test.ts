@@ -585,7 +585,6 @@ layer(Substrate.layer)("a lease's wait for a pooled session", (it) => {
 							suite: "serverless/pool waiter",
 							generator: waiters,
 							literal: Formatter.format,
-							limit: 24,
 							coverage: requiredInSpace<WaiterFeature>(situations),
 							caseHang
 						},

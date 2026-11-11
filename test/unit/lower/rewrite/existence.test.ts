@@ -213,7 +213,6 @@ describe("an existence-only match becomes a semi-join", () => {
 						suite: "unit/lower/rewrite/existence-semi-join",
 						literal: Formatter.format,
 						generator: shapes,
-						limit: 16,
 						coverage: requiredInSpace<
 							`${Account} under a ${Reader}` | `postings from ${PostingSource}`
 						>([
@@ -281,7 +280,6 @@ describe("set comparisons need a physically unique left input", () => {
 							left: source.draw(element<Left>(["account ids", "posting accounts"])),
 							evidence: source.draw(element<Evidence>(["snapshot", "transaction"]))
 						}),
-						limit: 8,
 						coverage: requiredInSpace<`${"Intersect" | "Difference"} ${"rewritten" | "kept"}`>([
 							"Intersect rewritten",
 							"Intersect kept",

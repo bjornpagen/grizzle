@@ -97,7 +97,7 @@ const caseGen: Gen<{
 			])
 		),
 		flags: source.draw(flagsGen),
-		strings: source.draw(array(stringsOver(family.alphabet, 8), { min: 1, max: 24 }))
+		strings: source.draw(array(stringsOver(element(family.alphabet), 8), { min: 1, max: 24 }))
 	}
 }
 
@@ -140,7 +140,7 @@ const patternSketchGen: Gen<PatternSketch> = (source) => {
 	return {
 		source: source.draw(patternOver(family.alphabet)),
 		flags: source.draw(flagsGen),
-		strings: source.draw(array(stringsOver(family.alphabet, 8), { min: 1, max: 24 })),
+		strings: source.draw(array(stringsOver(element(family.alphabet), 8), { min: 1, max: 24 })),
 		walks: source.draw(array(array(pickGen, { min: 0, max: walkTape }), { min: 0, max: 8 }))
 	}
 }
@@ -220,7 +220,7 @@ describe("host NFA membership equals ECMAScript", () => {
 			const familyCaseGen: Gen<FamilyCase> = oneOf(
 				Arr.map(admitted, (p): Gen<FamilyCase> => {
 					const drawnString = oneOf<FamilyCase[1]>([
-						map(stringsOver(p.family.alphabet, 8), (s) => ({ witness: false, s })),
+						map(stringsOver(element(p.family.alphabet), 8), (s) => ({ witness: false, s })),
 						map(walkGen(buildNfa(p.r.members[0].ir)), (s) => ({ witness: true, s }))
 					])
 					return (source) => [p, source.draw(drawnString)]
@@ -483,7 +483,9 @@ describe("every claimed fact holds on the samples", () => {
 								])
 							),
 							flags: source.draw(flagsGen),
-							strings: source.draw(array(stringsOver(family.alphabet, 8), { min: 1, max: 24 }))
+							strings: source.draw(
+								array(stringsOver(element(family.alphabet), 8), { min: 1, max: 24 })
+							)
 						}
 					}),
 					literal: Formatter.format,

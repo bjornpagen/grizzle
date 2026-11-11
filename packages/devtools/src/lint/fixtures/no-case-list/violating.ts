@@ -6,7 +6,6 @@ import {
 	element,
 	exhaust,
 	explore,
-	filter,
 	map,
 	oneOf,
 	sketched,
@@ -74,14 +73,6 @@ export const mapped = exhaust(
 	{
 		suite: "mapped",
 		generator: map(span("rows", element(rows)), (row) => row.input) // violation
-	},
-	() => Effect.void
-)
-
-export const filtered = exhaust(
-	{
-		suite: "filtered",
-		generator: filter(element(rows), (row) => row.input > 0, 3) // violation
 	},
 	() => Effect.void
 )

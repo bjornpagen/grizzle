@@ -98,7 +98,7 @@ const caseGen: Gen<KeyCase> = (s) => ({
 const keeps = (rows: ReadonlyArray<Row>, field: Field): boolean =>
 	new Set(Arr.map(rows, (r) => r[field])).size === rows.length
 
-const fields = { id: pg.integer, a: pg.integer, b: pg.integer }
+const fields = Object.freeze({ id: pg.integer, a: pg.integer, b: pg.integer })
 const ItemById = relation("Item", fields, ["id"])
 const ItemByA = relation("Item", fields, ["a"])
 const ItemByB = relation("Item", fields, ["b"])

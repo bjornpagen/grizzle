@@ -142,12 +142,7 @@ const completed = (command: string): Answer => result(command, [])
  * whose rows its intake takes has each row taken as it is delivered, and its answer holds none.
  */
 const taking = (query: WireQuery | undefined, answer: Answer): Answer => {
-	if (
-		query === undefined ||
-		query._tag !== "prepared" ||
-		query.intake.kind !== "taken" ||
-		answer._tag !== "result"
-	) {
+	if (query?._tag !== "prepared" || query.intake.kind !== "taken" || answer._tag !== "result") {
 		return answer
 	}
 	for (const row of answer.outcome.rows) {

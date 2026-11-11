@@ -74,8 +74,8 @@ const Booking = relation(
 )
 const bookingSpan = key(on(Booking, "room", "during"))
 const bookingRef = key(on(Booking, "ref"))
-const relations = { Booking }
-const statements = [bookingSpan, bookingRef]
+const relations = Object.freeze({ Booking })
+const statements = Object.freeze([bookingSpan, bookingRef])
 
 /**
  * The schema under its installed name with its worlds: the full role `app` the grizzle writer opens, in the login

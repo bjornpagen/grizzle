@@ -1,0 +1,15 @@
+EVIDENCE: effect-platform-node-undici-headers-timeout
+
+Environment: macOS arm64, Node 26.13.0, effect 4.1.2, @effect/platform-node 4.1.2, undici 8.12.4.
+
+1. makeUndici's headers timeout, read by a recording dispatcher (sh repro.sh <dir with those deps>, part 1):
+   {"body":"ok","headersTimeoutSeen":[3600000]}
+
+2. undici's own semantics for the value, a server that answers after 1.5 s (sh repro.sh <dir>, part 2):
+   {"headersTimeout":1000,"outcome":"UND_ERR_HEADERS_TIMEOUT","ms":1511}
+   {"headersTimeout":0,"outcome":"late","ms":1512}
+
+3. The regression test's composition (HttpServer.layerTestClient over layerUndiciNoDispatcher with the composed
+   recording dispatcher, LocalServerRoutes on NodeHttpServer port 0), run against 4.1.2:
+   {"text":"one","seen":[3600000]}
+   The test asserts seen equals [0]: it fails on 4.1.2 and on main, and passes with the patch.

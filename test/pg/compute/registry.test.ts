@@ -232,7 +232,6 @@ layer(Substrate.layer)("the Compute registry against pg_operator, pg_proc and pg
 							suite: "pg/compute/registry",
 							generator: int(0, nativeOps.length - 1),
 							literal: (i: number) => `${i}: ${describeOp(defined(nativeOps[i], "an entry").id)}`,
-							limit: nativeOps.length,
 							box: "every entry of the Compute registry",
 							oracle: {
 								kind: "postgresql",

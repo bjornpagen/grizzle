@@ -83,6 +83,7 @@ import {
 	schemaDesc,
 	schemaSketchGen
 } from "#test/support/oracle/gen/schema.ts"
+import { upTo } from "#test/support/up-to.ts"
 import {
 	noImmediate,
 	type EvidencedTestTheory,
@@ -147,7 +148,6 @@ describe("span laws", () => {
 							return [spans, source.draw(int(spans === 0 ? 1 : 0, 2))] as const
 						},
 						literal: Formatter.format,
-						limit: 12,
 						box: "a containment of zero to three span fields beside zero to two uuid fields",
 						oracle: { kind: "specification", name: "a coverage law pairs one span field" },
 						coverage: requiredInSpace<SpanFeature>([
@@ -160,8 +160,14 @@ describe("span laws", () => {
 					([spans, uuids], c) =>
 						Effect.sync(() => {
 							const span = f.span(f.bigint, undefined)
-							const spanFields = Arr.map(Arr.range(1, spans), (i) => `s${i}`)
-							const uuidFields = Arr.map(Arr.range(1, uuids), (i) => `u${i}`)
+							const spanFields = Arr.map(
+								upTo(spans, (i) => i + 1),
+								(i) => `s${i}`
+							)
+							const uuidFields = Arr.map(
+								upTo(uuids, (i) => i + 1),
+								(i) => `u${i}`
+							)
 							const fields = [...spanFields, ...uuidFields]
 							const declared = Rec.fromEntries([
 								...Arr.map(spanFields, (name) => [name, span] as const),
@@ -633,7 +639,6 @@ describe("violation queries mean what their laws say", () => {
 						generator: (source) =>
 							[source.draw(manager), source.draw(manager), source.draw(manager)] as const,
 						literal: Formatter.format,
-						limit: 64,
 						coverage: requiredInSpace<"a self-managed employee" | "lawful">([
 							"a self-managed employee",
 							"lawful"
@@ -698,7 +703,6 @@ describe("violation queries mean what their laws say", () => {
 								source.draw(subarray(["x", "y"]))
 							] as const,
 						literal: Formatter.format,
-						limit: 200,
 						coverage: requiredInSpace<"a shared name" | "lawful" | "labels">([
 							"a shared name",
 							"lawful",
@@ -1063,7 +1067,6 @@ describe("law identities", () => {
 						suite: "unit/analysis/logical/law-ids-equivalent",
 						generator: array(declaration, { min: 1, max: 3 }),
 						literal: Formatter.format,
-						limit: 2000,
 						box: "one to three declarations, each a containment either way or mirrors in either spelling",
 						oracle: {
 							kind: "specification",

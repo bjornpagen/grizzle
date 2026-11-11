@@ -52,7 +52,6 @@ describe("the share key", () => {
 						literal: Formatter.format,
 						generator: (source) =>
 							[source.draw(params), source.draw(params), source.draw(int(0, 3))] as const,
-						limit: 16,
 						coverage: requiredInSpace<"shared" | "apart">(["shared", "apart"]),
 						caseHang
 					},

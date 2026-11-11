@@ -53,7 +53,6 @@ import {
 	endedBy,
 	type EndFeature,
 	endGen,
-	ends,
 	mutated,
 	refusedAtCommitBy
 } from "#test/pg/fin/installed.ts"
@@ -89,6 +88,7 @@ import { caseHang } from "#test/support/limits.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /** A direction's drop: the constraints its mutant keeps. */
 type Mutant = "within dropped" | "covers dropped"
@@ -168,7 +168,9 @@ interface StateSketch {
 	readonly cells: ReadonlyArray<readonly [owner: number, at: number]>
 }
 
-const CELLS = Arr.flatMap(box.owners, (o) => Arr.map(box.ats, (at) => [o, at] as const))
+const CELLS = Object.freeze(
+	Arr.flatMap(box.owners, (o) => Arr.map(box.ats, (at) => [o, at] as const))
+)
 
 /** Every multiset of at most `k` cells from index `from` on, in cell order. */
 const multisetGen =
@@ -177,22 +179,9 @@ const multisetGen =
 		if (k === 0 || source.draw(element([false, true]))) {
 			return []
 		}
-		const first = source.draw(element(nonEmpty(Arr.range(from, CELLS.length - 1))))
+		const first = source.draw(element(nonEmpty(upTo(CELLS.length - 1 - from + 1, (i) => from + i))))
 		return [first, ...source.draw(multisetGen(k - 1, first))]
 	}
-
-const multisets = (n: number, k: number): number => {
-	/** Multisets of size exactly j over n kinds, C(n + j − 1, j), summed over j ≤ k. */
-	let total = 0
-	for (let j = 0; j <= k; j += 1) {
-		let c = 1
-		for (let i = 0; i < j; i += 1) {
-			c = (c * (n + i)) / (i + 1)
-		}
-		total += c
-	}
-	return total
-}
 
 const stateGen: Gen<StateSketch> = (source) => ({
 	counts: Arr.map(box.owners, () =>
@@ -287,10 +276,6 @@ layer(Substrate.layer)("the fin lemmas through grizzle's lowering on PostgreSQL 
 							suite: "fin/lemma-states",
 							generator: stateGen,
 							literal: Formatter.format,
-							limit:
-								(box.counts.length + 1) ** box.owners.length *
-								multisets(CELLS.length, box.rows) *
-								ends.length,
 							box: "every state of owners 0 and 1, each absent or of count 0 to 3, with at most three rows over slots 0 to 4 of either owner, every copy its owner's count, written from no state in one transaction, each case ended by a real COMMIT and by the checked end",
 							oracle: ORACLE,
 							coverage: requiredInSpace<StateFeature>([

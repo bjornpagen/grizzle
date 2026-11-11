@@ -48,9 +48,9 @@
  * levelcheck-refused (a row check over a lower relation refused as LevelRefused).
  */
 import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
+import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { array, element, filter, type Gen, int, map, weighted } from "@grizzle/testing/gen"
+import { array, boolean, element, type Gen, int, map, weighted } from "@grizzle/testing/gen"
 import { exact } from "@grizzle/testing/oracle"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
@@ -59,7 +59,6 @@ import { applyOnSession } from "#adapter/migrate/apply.ts"
 import type { MigrateError, MigrationPlace } from "#adapter/migrate/errors.ts"
 import type { MigrationTarget } from "#adapter/migrate/input.ts"
 import { Db } from "#adapter/public/db.ts"
-import { SourceLoc } from "#compiler/core/loc.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
@@ -87,7 +86,6 @@ import {
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { workload } from "#compiler/public/workload.ts"
-import { matchPattern } from "#compiler/scalar/regex/admit.ts"
 import type { Predicate } from "#compiler/types/core/phantom.ts"
 import type { RowScalars } from "#compiler/types/schema/statements.ts"
 import { folderSource, openMigrator } from "#test/pg/migrate/support.ts"
@@ -109,7 +107,12 @@ import {
 import { servedFixture } from "#test/support/served-db.ts"
 import { pgErrorFields } from "#test/support/substrate/errors.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-import { families, jsMatcher, patternOver, stringsOver } from "#test/unit/text/generators.ts"
+import {
+	admittedPatternOver,
+	families,
+	jsMatcher,
+	stringsOver
+} from "#test/unit/text/generators.ts"
 
 /** Text of no byte bound: a query matches no pattern over it, and a row check matches any. */
 const Wild = str.regex("^.*$", "su")
@@ -136,9 +139,9 @@ interface Row {
 	readonly n: number
 }
 
-/** The patterns a case's matches draw from: admitted ones over its family's alphabet. */
+/** The patterns a case's matches draw from: admitted ones over its family's alphabet, by construction. */
 const patternGen = (alphabet: Arr.NonEmptyReadonlyArray<number>): Gen<string> =>
-	filter(patternOver(alphabet), (p) => matchPattern(p, SourceLoc("pattern", [])).ok, 16)
+	admittedPatternOver(alphabet)
 
 const small = int(-3, 3)
 
@@ -184,7 +187,7 @@ const familyGen = int(0, families.length - 1)
 
 const rowGen =
 	(alphabet: Arr.NonEmptyReadonlyArray<number>): Gen<Row> =>
-	(source) => ({ value: source.draw(stringsOver(alphabet, 6)), n: source.draw(small) })
+	(source) => ({ value: source.draw(stringsOver(element(alphabet), 6)), n: source.draw(small) })
 
 /** The predicate as a row check's callback writes it. */
 const build = (p: Pred, a: AttributeRow): Predicate => {
@@ -319,18 +322,19 @@ interface LoginsCase {
 	readonly family: number
 	readonly own: ReadonlyArray<Drawn>
 	readonly level: Arr.NonEmptyReadonlyArray<Drawn>
-	readonly rows: ReadonlyArray<Row>
+	readonly rows: Arr.NonEmptyReadonlyArray<Row>
 }
 
 const loginsCase: Gen<LoginsCase> = (source) => {
 	const family = source.draw(familyGen)
 	const alphabet = alphabetOf(family)
 	const pred = drawnGen(predGen(alphabet, predDepth))
+	const row = rowGen(alphabet)
 	return {
 		family,
 		own: source.draw(array(pred, { min: 0, max: 2 })),
 		level: [source.draw(pred), ...source.draw(array(pred, { min: 0, max: 2 }))],
-		rows: source.draw(array(rowGen(alphabet), { min: 1, max: 8 }))
+		rows: [source.draw(row), ...source.draw(array(row, { min: 0, max: 7 }))]
 	}
 }
 
@@ -343,6 +347,44 @@ type LoginsFeature =
 	| "the author refused by its own check, a level's broken too"
 	| "the author refused by a level's check, its own broken too"
 	| "the author refused by a level's check alone"
+
+/**
+ * A case whose first row breaks an own check PostgreSQL tries before every check of Media's: the drawn case with one more
+ * own check, named by the first initial, that the row breaks, and Media's checks, the drawn ones and one more the row
+ * breaks, each named by the last initial.
+ */
+const ownFirst = (k: LoginsCase): LoginsCase => {
+	const { n } = Arr.headNonEmpty(k.rows)
+	const ownBroken: Drawn = {
+		initial: Arr.headNonEmpty(initials),
+		pred: { kind: "compare", op: "ge", n: n + 1 }
+	}
+	const levelBroken: Drawn = {
+		initial: Arr.lastNonEmpty(initials),
+		pred: { kind: "compare", op: "le", n: n - 1 }
+	}
+	return {
+		...k,
+		own: [...k.own, ownBroken],
+		level: Arr.append(
+			Arr.map(k.level, (d) => ({ ...d, initial: Arr.lastNonEmpty(initials) })),
+			levelBroken
+		)
+	}
+}
+
+/**
+ * The case a witness checks: its drawn one, or, while the author's refusal by its own check with a level's broken too is
+ * pending, in half its cases by a draw of its own, the drawn one with its first row breaking an own check named first
+ * (ownFirst), which a drawn case meets too rarely for the floor and the steered phase. None for a rotating or kept case,
+ * which runs as drawn.
+ */
+const aimedLogins = (drawnCase: LoginsCase, c: Case<LoginsFeature>): LoginsCase =>
+	Option.exists(c.steering, (pending) =>
+		pending.names("the author refused by its own check, a level's broken too")
+	) && c.draw(boolean)
+		? ownFirst(drawnCase)
+		: drawnCase
 
 /** Media's checks over every row a migration case stores and probes. */
 interface MigrationCase {
@@ -426,9 +468,10 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							steerEvery: 4,
 							caseHang
 						},
-						(k, c) =>
+						(drawnCase, c) =>
 							Effect.scoped(
 								Effect.gen(function* () {
+									const k = aimedLogins(drawnCase, c)
 									const own = named("Own", k.own)
 									const level = named("Level", k.level)
 									const declared = levelsAt("LevelChecks", own, level)
@@ -446,7 +489,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 											}
 										],
 										{
-											label: "level-checks",
+											label: "level_checks",
 											extensions: [],
 											ambient: ordinarySession,
 											compile: compileInstallation
@@ -665,7 +708,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									const level = named("Level", k.level)
 									const done = yield* installMigrated(levelsAt("LevelChecks", [], []).base, {
 										ambient: ordinarySession,
-										label: "level-checks-migrate",
+										label: "level_checks_migrate",
 										logins: [],
 										extensions: []
 									})

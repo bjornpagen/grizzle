@@ -165,7 +165,6 @@ describe("contract domains by definition (W6.Q10)", () => {
 					suite: "unit/physical/domain-dedup",
 					generator: pairGen,
 					literal: Formatter.format,
-					limit: 36,
 					coverage: requiredInSpace<DedupFeature>([
 						"a shared domain",
 						"two domains",

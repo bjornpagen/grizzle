@@ -230,8 +230,14 @@ const balances = (p: Platform) => {
 	return { left, spent }
 }
 
-let serial = 0
-const nextEvent = () => uid(0x7e57, ++serial)
+/** A source of event ids no generated platform holds, each new: a family of their own, counted within one plant. */
+const eventIds = (): (() => Uuid) => {
+	let serial = 0
+	return () => {
+		serial += 1
+		return uid(0x7e57, serial)
+	}
+}
 
 /**
  * A usage request on `key` at `t` for `tokens` input tokens, priced and settled by the model against the platform with
@@ -242,7 +248,8 @@ const recordAt = (
 	p: Platform,
 	key: Uuid,
 	t: bigint,
-	tokens: ReadonlyArray<{ readonly kind: TokenKind; readonly tokens: bigint }>
+	tokens: ReadonlyArray<{ readonly kind: TokenKind; readonly tokens: bigint }>,
+	next: () => Uuid
 ): Option.Option<P.UsageRecord> => {
 	const view = viewOf(p.facts)
 	const lifted = { ...view, caps: new Map(Arr.map([...view.caps], ([k]) => [k, 10n ** 15n])) }
@@ -252,7 +259,7 @@ const recordAt = (
 				lifted,
 				[
 					{
-						id: nextEvent(),
+						id: next(),
 						key,
 						model: route.model,
 						provider: route.provider,
@@ -344,14 +351,18 @@ const firstSome = <A, B>(xs: ReadonlyArray<A>, f: (a: A) => Option.Option<B>): O
 }
 
 /** Plants spendWithinCap: a month whose cap its workspace spent exactly, and a key of that workspace active in it. */
-const plantSpendWithinCap = (p: Platform, margin: bigint): Option.Option<Planted> =>
+const plantSpendWithinCap = (
+	p: Platform,
+	margin: bigint,
+	next: () => Uuid
+): Option.Option<Planted> =>
 	firstSome(
 		Arr.filter(slotsOf(p), (slot) => slot.cap > 0n && slot.spent === slot.cap),
 		(slot) =>
 			Option.flatMap(
 				Option.all({
-					over: recordAt(p, slot.key, slot.t, [{ kind: "input", tokens: margin }]),
-					none: recordAt(p, slot.key, slot.t, [])
+					over: recordAt(p, slot.key, slot.t, [{ kind: "input", tokens: margin }], next),
+					none: recordAt(p, slot.key, slot.t, [], next)
 				}),
 				(at) =>
 					at.over.total.amount === 0n
@@ -361,7 +372,11 @@ const plantSpendWithinCap = (p: Platform, margin: bigint): Option.Option<Planted
 	)
 
 /** Plants refundWithinInvoice: a refund of a paid invoice `margin` past what it has left. */
-const plantRefundWithinInvoice = (p: Platform, margin: bigint): Option.Option<Planted> =>
+const plantRefundWithinInvoice = (
+	p: Platform,
+	margin: bigint,
+	next: () => Uuid
+): Option.Option<Planted> =>
 	Option.map(
 		Arr.findFirst(p.facts.Invoice, (i) => i.state === "paid"),
 		(invoice) => {
@@ -372,7 +387,7 @@ const plantRefundWithinInvoice = (p: Platform, margin: bigint): Option.Option<Pl
 			)
 			const rest = invoice.amount - refunded
 			const refund = (amount: bigint): Fact<typeof P.Refund> => ({
-				id: nextEvent(),
+				id: next(),
 				invoice: invoice.id,
 				amount: P.Micros(amount),
 				reason: "requested",
@@ -386,18 +401,19 @@ const plantRefundWithinInvoice = (p: Platform, margin: bigint): Option.Option<Pl
 const recordWithinCap = (
 	p: Platform,
 	slot: Slot,
-	tokens: ReadonlyArray<{ readonly kind: TokenKind; readonly tokens: bigint }>
+	tokens: ReadonlyArray<{ readonly kind: TokenKind; readonly tokens: bigint }>,
+	next: () => Uuid
 ): Option.Option<P.UsageRecord> =>
 	Option.filter(
-		recordAt(p, slot.key, slot.t, tokens),
+		recordAt(p, slot.key, slot.t, tokens, next),
 		(record) => slot.spent + record.total.amount <= slot.cap
 	)
 
 /** Plants chargeExact: a usage record whose first charge is `margin` more than its pieces. */
-const plantChargeExact = (p: Platform, margin: bigint): Option.Option<Planted> =>
+const plantChargeExact = (p: Platform, margin: bigint, next: () => Uuid): Option.Option<Planted> =>
 	firstSome(slotsOf(p), (slot) =>
 		Option.flatMap(
-			recordWithinCap(p, slot, [{ kind: "input", tokens: 1000n + margin }]),
+			recordWithinCap(p, slot, [{ kind: "input", tokens: 1000n + margin }], next),
 			(record) =>
 				Arr.matchLeft(record.charges, {
 					onEmpty: () => Option.none(),
@@ -424,7 +440,8 @@ const debitOf = (
 	margin: bigint,
 	slot: Slot,
 	g: Addition<typeof P.CreditGrant>,
-	rest: bigint
+	rest: bigint,
+	next: () => Uuid
 ): Option.Option<Planted> => {
 	const expired = g.valid.end <= slot.t
 	const valid = g.valid.start <= slot.t && slot.t + 1n <= g.valid.end
@@ -434,7 +451,7 @@ const debitOf = (
 	const debit = fault === "debitWhileValid" ? 1n : rest + margin
 	const sound = fault === "debitWhileValid" ? 0n : rest
 	return Option.flatMap(
-		recordWithinCap(p, slot, [{ kind: "input", tokens: 10_000n + debit * 10n }]),
+		recordWithinCap(p, slot, [{ kind: "input", tokens: 10_000n + debit * 10n }], next),
 		(record) => {
 			const covers = Arr.some(record.charges, (c) => c.kind === "input" && c.amount >= debit)
 			if (!covers) {
@@ -472,13 +489,14 @@ const debitOf = (
 const plantDebit = (
 	fault: "debitWhileValid" | "grantWithinAmount",
 	p: Platform,
-	margin: bigint
+	margin: bigint,
+	next: () => Uuid
 ): Option.Option<Planted> => {
 	const { left } = balances(p)
 	return firstSome(slotsOf(p), (slot) =>
 		firstSome(
 			Arr.filter(p.facts.CreditGrant, (x) => x.org === slot.org),
-			(g) => debitOf(fault, p, margin, slot, g, left.get(g.id) ?? 0n)
+			(g) => debitOf(fault, p, margin, slot, g, left.get(g.id) ?? 0n, next)
 		)
 	)
 }
@@ -488,7 +506,11 @@ const plantDebit = (
  * refuses usage after the revocation, and the application's record is the same event moved past it, priced at its new
  * start, in the same month, whose cap has room for it.
  */
-const plantUsageWhileActive = (p: Platform, margin: bigint): Option.Option<Planted> => {
+const plantUsageWhileActive = (
+	p: Platform,
+	margin: bigint,
+	next: () => Uuid
+): Option.Option<Planted> => {
 	const months = viewOf(p.facts).months
 	return firstSome(
 		Arr.filter(p.facts.Revocation, (r) => Option.isSome(monthAt(months, r.at + margin))),
@@ -496,40 +518,43 @@ const plantUsageWhileActive = (p: Platform, margin: bigint): Option.Option<Plant
 			firstSome(
 				Arr.filter(slotsOf(p), (slot) => slot.key === revoked.key),
 				(slot) =>
-					Option.flatMap(recordWithinCap(p, slot, [{ kind: "output", tokens: 10n }]), (settled) => {
-						const lifted: P.UsageRecord = {
-							...settled,
-							charges: Arr.map(settled.charges, (c) => ({ ...c, credited: P.Micros(0n) })),
-							debits: []
+					Option.flatMap(
+						recordWithinCap(p, slot, [{ kind: "output", tokens: 10n }], next),
+						(settled) => {
+							const lifted: P.UsageRecord = {
+								...settled,
+								charges: Arr.map(settled.charges, (c) => ({ ...c, credited: P.Micros(0n) })),
+								debits: []
+							}
+							const window = {
+								start: P.Instant(revoked.at + margin - 1n),
+								end: P.Instant(revoked.at + margin)
+							}
+							const moved: P.UsageRecord = {
+								...lifted,
+								event: { ...lifted.event, during: window },
+								charges: Arr.map(lifted.charges, (c) => ({ ...c, priced: window }))
+							}
+							const sameMonth = Option.exists(
+								monthAt(months, revoked.at + margin - 1n),
+								(m) => m.month === moved.total.month
+							)
+							return sameMonth
+								? Option.some({ faulty: usage(moved), sound: usage(lifted) })
+								: Option.none()
 						}
-						const window = {
-							start: P.Instant(revoked.at + margin - 1n),
-							end: P.Instant(revoked.at + margin)
-						}
-						const moved: P.UsageRecord = {
-							...lifted,
-							event: { ...lifted.event, during: window },
-							charges: Arr.map(lifted.charges, (c) => ({ ...c, priced: window }))
-						}
-						const sameMonth = Option.exists(
-							monthAt(months, revoked.at + margin - 1n),
-							(m) => m.month === moved.total.month
-						)
-						return sameMonth
-							? Option.some({ faulty: usage(moved), sound: usage(lifted) })
-							: Option.none()
-					})
+					)
 			)
 	)
 }
 
 /** Plants rateInForce: a card of the first card's model and kind overlapping it by `margin`. */
-const plantRateInForce = (p: Platform, margin: bigint): Option.Option<Planted> =>
+const plantRateInForce = (p: Platform, margin: bigint, next: () => Uuid): Option.Option<Planted> =>
 	Option.map(Arr.head(p.facts.RateCard), (card) => {
 		const at = card.during.start
 		const insert = (start: bigint, end: bigint): Attempt => {
 			const added: Fact<typeof P.RateCard> = {
-				id: nextEvent(),
+				id: next(),
 				model: card.model,
 				kind: card.kind,
 				during: { start: P.Instant(start), end: P.Instant(end) }
@@ -552,7 +577,11 @@ const plantRateInForce = (p: Platform, margin: bigint): Option.Option<Planted> =
 	})
 
 /** Plants refundOnlyPaid: a refund of an open invoice, and the same of a paid one. */
-const plantRefundOnlyPaid = (p: Platform, margin: bigint): Option.Option<Planted> =>
+const plantRefundOnlyPaid = (
+	p: Platform,
+	margin: bigint,
+	next: () => Uuid
+): Option.Option<Planted> =>
 	Option.map(
 		Option.all({
 			open: Arr.findFirst(p.facts.Invoice, (i) => i.state === "open"),
@@ -560,7 +589,7 @@ const plantRefundOnlyPaid = (p: Platform, margin: bigint): Option.Option<Planted
 		}),
 		(at) => {
 			const refund = (invoice: Uuid): Fact<typeof P.Refund> => ({
-				id: nextEvent(),
+				id: next(),
 				invoice,
 				amount: P.Micros(0n),
 				reason: "duplicate",
@@ -618,12 +647,12 @@ const plantAllocationCovered = (p: Platform, margin: bigint): Option.Option<Plan
 	)
 
 /** Plants paidWithoutPayment: an open invoice put paid without its payment, and paid with it. */
-const plantPaidWithoutPayment = (p: Platform): Option.Option<Planted> =>
+const plantPaidWithoutPayment = (p: Platform, next: () => Uuid): Option.Option<Planted> =>
 	Option.map(
 		Arr.findFirst(p.facts.Invoice, (i) => i.state === "open"),
 		(open) => {
 			const paid: Addition<typeof P.Invoice> = { ...open, state: "paid" }
-			const charge = nextEvent()
+			const charge = next()
 			return {
 				faulty: {
 					apply: (db) =>
@@ -650,9 +679,13 @@ const plantPaidWithoutPayment = (p: Platform): Option.Option<Planted> =>
 	)
 
 /** Plants pricedOutsideCards: a usage record whose first charge is priced `margin` seconds before every card of its model and kind. */
-const plantPricedOutsideCards = (p: Platform, margin: bigint): Option.Option<Planted> =>
+const plantPricedOutsideCards = (
+	p: Platform,
+	margin: bigint,
+	next: () => Uuid
+): Option.Option<Planted> =>
 	firstSome(slotsOf(p), (slot) =>
-		Option.flatMap(recordWithinCap(p, slot, [{ kind: "input", tokens: 100n }]), (record) =>
+		Option.flatMap(recordWithinCap(p, slot, [{ kind: "input", tokens: 100n }], next), (record) =>
 			Arr.matchLeft(record.charges, {
 				onEmpty: () => Option.none(),
 				onNonEmpty: (first, rest) => {
@@ -684,7 +717,11 @@ const plantPricedOutsideCards = (p: Platform, margin: bigint): Option.Option<Pla
  * Plants cardRetiredUnderCharges: the card that priced a stored charge cut `margin` seconds before the charge's instant;
  * the sound change splits the card `margin` seconds after the instant instead.
  */
-const plantCardRetiredUnderCharges = (p: Platform, margin: bigint): Option.Option<Planted> =>
+const plantCardRetiredUnderCharges = (
+	p: Platform,
+	margin: bigint,
+	next: () => Uuid
+): Option.Option<Planted> =>
 	firstSome(p.facts.UsageCharge, (charge) =>
 		Option.flatMap(
 			Arr.findFirst(
@@ -702,7 +739,7 @@ const plantCardRetiredUnderCharges = (p: Platform, margin: bigint): Option.Optio
 					return Option.none()
 				}
 				const tiers = Arr.filter(p.facts.RateTier, (x) => x.card === card.id)
-				const successor = nextEvent()
+				const successor = next()
 				const retired = { card, tiers }
 				const part = (start: bigint, end: bigint): Fact<typeof P.RateCard> => ({
 					...card,
@@ -739,30 +776,31 @@ const plantCardRetiredUnderCharges = (p: Platform, margin: bigint): Option.Optio
  * its sound change splits the segment there.
  */
 const plant = (fault: Fault, p: Platform, margin: bigint): Option.Option<Planted> => {
+	const next = eventIds()
 	switch (fault) {
 		case "spendWithinCap":
-			return plantSpendWithinCap(p, margin)
+			return plantSpendWithinCap(p, margin, next)
 		case "refundWithinInvoice":
-			return plantRefundWithinInvoice(p, margin)
+			return plantRefundWithinInvoice(p, margin, next)
 		case "chargeExact":
-			return plantChargeExact(p, margin)
+			return plantChargeExact(p, margin, next)
 		case "debitWhileValid":
 		case "grantWithinAmount":
-			return plantDebit(fault, p, margin)
+			return plantDebit(fault, p, margin, next)
 		case "usageWhileActive":
-			return plantUsageWhileActive(p, margin)
+			return plantUsageWhileActive(p, margin, next)
 		case "rateInForce":
-			return plantRateInForce(p, margin)
+			return plantRateInForce(p, margin, next)
 		case "refundOnlyPaid":
-			return plantRefundOnlyPaid(p, margin)
+			return plantRefundOnlyPaid(p, margin, next)
 		case "allocationCovered":
 			return plantAllocationCovered(p, margin)
 		case "paidWithoutPayment":
-			return plantPaidWithoutPayment(p)
+			return plantPaidWithoutPayment(p, next)
 		case "pricedOutsideCards":
-			return plantPricedOutsideCards(p, margin)
+			return plantPricedOutsideCards(p, margin, next)
 		case "cardRetiredUnderCharges":
-			return plantCardRetiredUnderCharges(p, margin)
+			return plantCardRetiredUnderCharges(p, margin, next)
 	}
 }
 

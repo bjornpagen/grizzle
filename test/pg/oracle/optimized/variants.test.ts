@@ -105,7 +105,7 @@ const P = relation(
 /**
  * The wide child's further columns, which only the wide child delivers.
  */
-const wideColumns = ["w0", "w1", "w2", "w3"]
+const wideColumns = Object.freeze(["w0", "w1", "w2", "w3"])
 const C = relation(
 	"C",
 	Arr.map(["k", "p", "v", ...wideColumns], (column) => [column, int4] as const),

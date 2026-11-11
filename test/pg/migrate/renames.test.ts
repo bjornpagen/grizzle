@@ -58,7 +58,7 @@ import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
-import { assert, defined, nonEmpty } from "#test/support/assert.ts"
+import { assert, bareRecord, defined, nonEmpty } from "#test/support/assert.ts"
 import { readOnce } from "#test/support/calls.ts"
 import { migrated } from "#test/support/installed.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
@@ -224,25 +224,28 @@ const readOf = (next: Next, r: RelationPlan, i: number) => {
 }
 
 /**
- * The rows the next version holds of `r`, in key order, as a served read decodes them: the key, then every field it
- * keeps under its next name, an integer as itself and a code as the handle the next version names it by.
+ * The rows the next version holds of `r`, in key order, as a served read decodes them: each a record with no prototype
+ * (assert.ts bareRecord), the key, then every field it keeps under its next name, an integer as itself and a code as
+ * the handle the next version names it by.
  */
 const rowsAfter = (p: Plan, r: RelationPlan): ReadonlyArray<Readonly<Record<string, unknown>>> =>
 	Arr.map(r.rows, (row, k) =>
-		Rec.fromEntries([
-			["id", k + 1] as const,
-			...Arr.flatMap(r.fields, (f, j): ReadonlyArray<readonly [string, unknown]> => {
-				const value = defined(row[j], `field ${j} of a row`)
-				return f.fate === "dropped"
-					? []
-					: [
-							[
-								fieldName(j, true, f),
-								f.kind === "code" ? Option.getOrUndefined(handleAt(p, true, value)) : value
+		bareRecord(
+			Rec.fromEntries([
+				["id", k + 1] as const,
+				...Arr.flatMap(r.fields, (f, j): ReadonlyArray<readonly [string, unknown]> => {
+					const value = defined(row[j], `field ${j} of a row`)
+					return f.fate === "dropped"
+						? []
+						: [
+								[
+									fieldName(j, true, f),
+									f.kind === "code" ? Option.getOrUndefined(handleAt(p, true, value)) : value
+								]
 							]
-						]
-			})
-		])
+				})
+			])
+		)
 	)
 
 /** A decoded row's key: what orders a relation's rows read back. */

@@ -54,6 +54,7 @@ import { caseHang } from "#test/support/limits.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
 import { attempt } from "#test/support/substrate.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /** The EXPLAIN options of a plan reading: no WAL, no SERIALIZE. */
 const planned: ExplainOptions = { wal: false, serialize: { kind: "off" } }
@@ -99,7 +100,10 @@ interface ProbeSketch {
 
 /** Every depth below the root alike, to `deepest`, and every owner of the family load. */
 const probeGen = (deepest: number): Gen<ProbeSketch> => {
-	const depths = nonEmpty(Arr.range(1, deepest), "a depth below the root")
+	const depths = nonEmpty(
+		upTo(deepest, (i) => i + 1),
+		"a depth below the root"
+	)
 	const descendants: Gen<Read> = (source) => ({
 		kind: "descendants",
 		depth: source.draw(element(depths)),
@@ -291,7 +295,7 @@ layer(Substrate.layer)(
 											assert.deepEqual(
 												got,
 												Arr.map(
-													Arr.range(0, load.members - 1),
+													upTo(load.members, (i) => i),
 													(a) => read.owner * load.members + a
 												),
 												`${name} come in slot order`

@@ -39,6 +39,7 @@ import { installMigrated as install, loadMigrated as load } from "#test/support/
 import { sourceCondition } from "#test/support/process.ts"
 import { snapshotValue } from "#test/support/snapshot-json.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /**
  * The cold-start benchmark of an application serving its login's served file: the runtime entry's import, the served
@@ -267,7 +268,7 @@ const benchRun = Effect.fn("benchRun")(function* (options: ColdOptions) {
 	)
 	const served = jsonText(trusted<Json>(compiled))
 	const loadRaw = yield* Effect.forEach(
-		Arr.makeBy(options.samples, (i) => i),
+		upTo(options.samples, (i) => i),
 		() => sample({ mode: "load", warmRepeats: options.warmRepeats, served })
 	)
 	/** The credentials of the cold bench's login, whose reader role the probe opens. */
@@ -283,7 +284,7 @@ const benchRun = Effect.fn("benchRun")(function* (options: ColdOptions) {
 		idleTimeoutMs: benchIdleTimeout.value
 	}
 	const databaseRaw = yield* Effect.forEach(
-		Arr.makeBy(options.databaseSamples, (i) => i),
+		upTo(options.databaseSamples, (i) => i),
 		() => sample({ mode: "database", warmRepeats: options.warmRepeats, served, database: target })
 	)
 	return {

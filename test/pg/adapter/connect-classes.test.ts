@@ -329,7 +329,6 @@ layer(Substrate.layer)("a connection failure states its class", (it) => {
 							suite: "adapter/connect-classes",
 							generator: plantPaths,
 							literal: ([plant, path]) => `${plant} through ${path}`,
-							limit: plants.length * 2,
 							coverage: requiredInSpace<ConnectClassFeature>(
 								Arr.flatMap(plants, (p): Arr.NonEmptyReadonlyArray<ConnectClassFeature> => [
 									`${p} through grizzle migrate`,

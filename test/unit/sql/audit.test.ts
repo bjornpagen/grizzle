@@ -737,7 +737,6 @@ describe("a write program's ANALYZE", () => {
 						suite: "unit/sql/carrier-program",
 						generator: array(programStepGen, { min: 0, max: 3 }),
 						literal: Formatter.format,
-						limit: 1000,
 						coverage: requiredInSpace<ProgramFeature>(["admitted", "refused"]),
 						caseHang
 					},

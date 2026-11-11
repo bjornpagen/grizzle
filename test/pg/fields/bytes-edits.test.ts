@@ -263,7 +263,7 @@ const everyRowOf = (target: typeof Blob | typeof Held) =>
  * through a query; the edits, one write that puts and deletes Blob facts, each op's facts each call gives; and Blob's
  * and Held's rows read back.
  */
-const programs = {
+const programs = Object.freeze({
 	store: ChangeSet.empty(Edits).insert(Blob, []).insert(Held, []).insert(Stage, []),
 	stage: ChangeSet.empty(Edits).put(
 		Held,
@@ -275,7 +275,7 @@ const programs = {
 	edit: ChangeSet.empty(Edits).put(Blob, []).delete(Blob, []),
 	blobRows: everyRowOf(Blob),
 	heldRows: everyRowOf(Held)
-}
+})
 
 const byId = Order.mapInput(Order.Number, (row: { readonly id: number }) => row.id)
 

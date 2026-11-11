@@ -316,9 +316,6 @@ const notesOf = (p: Point): ReadonlyArray<RowSecurityFeature> =>
 		]
 	})
 
-/** The box: five writes for each of two roles on each of two tables, in one login or two. */
-const boxSize = writes.length ** (roleNames.length * tables.length) * 2
-
 describe("row security", () => {
 	it.effect(
 		"is enabled on exactly the tables some writer narrows, after one policy per writer there",
@@ -335,7 +332,6 @@ describe("row security", () => {
 						suite: "unit/physical/row-security",
 						generator: pointGen,
 						literal: Formatter.format,
-						limit: boxSize,
 						coverage: requiredInSpace<RowSecurityFeature>(features),
 						caseHang
 					},

@@ -31,6 +31,7 @@ import {
 	type RuleKind,
 	type State
 } from "#test/support/native/schemas.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /**
  * The states and schemas the native-model suite draws. A box enumerates every state of a rule's small space; an
@@ -769,7 +770,7 @@ const FIN_SLOTS = 4
 
 const FIN_OWNERS: NonEmptyReadonlyArray<FinOwner> = [
 	{ kind: "absent" },
-	...Arr.map(Arr.range(0, FIN_SLOTS - 1), (count): FinOwner => ({ kind: "counted", count }))
+	...upTo(FIN_SLOTS, (count): FinOwner => ({ kind: "counted", count }))
 ]
 
 /** How many rows a fin box's slot holds: none, one or two. */
@@ -782,7 +783,10 @@ const FIN_HELD = [0, 1, 2] as const
  */
 export const finBoxGen: Gen<Stored> = (source) => {
 	const owner = source.draw(element(FIN_OWNERS))
-	const held = Arr.map(Arr.range(0, FIN_SLOTS - 1), () => source.draw(element(FIN_HELD)))
+	const held = Arr.map(
+		upTo(FIN_SLOTS, (i) => i),
+		() => source.draw(element(FIN_HELD))
+	)
 	const copy = owner.kind === "absent" ? FIN_SLOTS : owner.count
 	const rows: Array<FamilyRow> = []
 	for (const [at, n] of held.entries()) {

@@ -280,7 +280,6 @@ describe("a flight", () => {
 						suite: "unit/adapter/flight-small",
 						generator: smallCases,
 						literal: Formatter.format,
-						limit: 2_000,
 						coverage: requiredInSpace<FlightFeature>(smallRequired),
 						caseHang
 					},

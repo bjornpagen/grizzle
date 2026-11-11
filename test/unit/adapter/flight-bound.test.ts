@@ -107,7 +107,7 @@ const int32 = (n: number): Buffer => {
 	return out
 }
 
-const nothing = new Uint8Array(0)
+const nothing = Object.freeze(new Uint8Array(0))
 const authenticationOk = frame("R", int32(0))
 const backendKeyData = frame("K", Buffer.concat([int32(1), int32(7)]))
 const parseComplete = frame("1", nothing)

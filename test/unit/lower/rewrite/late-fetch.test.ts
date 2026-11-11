@@ -252,7 +252,6 @@ describe("late payload fetch", () => {
 						suite: "unit/lower/rewrite/late-fetch-proof",
 						literal: Formatter.format,
 						generator: shapes,
-						limit: 64,
 						coverage: requiredInSpace<LateFetchFeature>([
 							"fetched on snapshot evidence",
 							"fetched on transaction evidence",

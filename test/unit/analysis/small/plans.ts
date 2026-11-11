@@ -1,4 +1,4 @@
-import { element, type Gen, map, oneOf } from "@grizzle/testing/gen"
+import { element, type Gen } from "@grizzle/testing/gen"
 import { Array as Arr, Formatter, Option, Record as Rec } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import type { FieldDesc, QueryDesc } from "#compiler/ir/desc.ts"
@@ -13,8 +13,6 @@ import {
 	type SourceDesc,
 	type VarDesc
 } from "#test/support/fixtures/ir/desc.ts"
-import { nonEmptyList } from "#test/support/oracle/pick.ts"
-import { upTo } from "#test/support/up-to.ts"
 import {
 	closedName,
 	type FieldName,
@@ -883,24 +881,9 @@ const stepsAfter = (plan: Plan, grammar: Grammar): ReadonlyArray<Step> => {
 }
 
 /**
- * Every plan of exactly `operators` operators, the scan counted as one: a plan of one operator fewer, then one step
- * valid after it. A plan no step may follow has no extension, and its case is discarded, so it never runs.
- */
-const plansOf = (grammar: Grammar, operators: number): Gen<Plan> =>
-	operators <= 1
-		? map(element(grammar.scans), scan)
-		: (source) => {
-				const plan = source.draw(plansOf(grammar, operators - 1))
-				const steps = stepsAfter(plan, grammar)
-				if (!Arr.isReadonlyArrayNonEmpty(steps)) {
-					source.discard()
-					return plan
-				}
-				return extend(plan, source.draw(element(steps)))
-			}
-
-/**
- * Every plan of at most `operators` operators of a grammar, the fewest first.
+ * Every plan of at most `operators` operators of a grammar, the fewest first: a scan, then at each step either the plan
+ * as it stands or one more step valid after it, each plan by one path of decisions, and a plan no step may follow
+ * ending there, so no case is discarded.
  *
  * The queries of the small-scope suite: every query of up to k operators of a grammar over the small universe, as data.
  *
@@ -941,13 +924,23 @@ const plansOf = (grammar: Grammar, operators: number): Gen<Plan> =>
  * where it stands, so every plan the space yields is one the checker admits. Every column carries its type, and a step
  * comparing or correlating columns offers only integer ones.
  */
-export const plansUpTo = (grammar: Grammar, operators: number): Gen<Plan> =>
-	oneOf(
-		nonEmptyList(
-			upTo(operators, (i) => plansOf(grammar, i + 1)),
-			"the plans of one to the most operators"
-		)
-	)
+export const plansUpTo =
+	(grammar: Grammar, operators: number): Gen<Plan> =>
+	(source) => {
+		let plan = scan(source.draw(element(grammar.scans)))
+		for (let more = 1; more < operators; more += 1) {
+			const steps = stepsAfter(plan, grammar)
+			if (!Arr.isReadonlyArrayNonEmpty(steps)) {
+				return plan
+			}
+			const next = source.draw(element<Step | "stop">(["stop", ...steps]))
+			if (next === "stop") {
+				return plan
+			}
+			plan = extend(plan, next)
+		}
+		return plan
+	}
 
 /** The plan in the builder's words, for a failure report. */
 export const printPlan = (plan: Plan): string =>

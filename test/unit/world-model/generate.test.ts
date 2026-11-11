@@ -593,7 +593,6 @@ describe("the worlds generators", () => {
 						suite: "unit/world-model/invalid-kinds",
 						generator: element(everyInvalidKind),
 						literal: Formatter.format,
-						limit: everyInvalidKind.length,
 						coverage: requiredInSpace<Feature>(
 							Arr.map(everyInvalidKind, (k): Feature => `invalid:${k}`)
 						),

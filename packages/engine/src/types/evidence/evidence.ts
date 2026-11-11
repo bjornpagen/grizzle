@@ -847,14 +847,7 @@ type KeysUnder<
 	H,
 	FixedFields extends string,
 	Stated
-> = MinimalOf<
-	Passing<
-		Candidates<S, Os, H, FixedFields>,
-		H,
-		DepsOf<S, Os[number], FixedFields> | Stated,
-		FixedFields
-	>
->
+> = MinimalOf<Passing<Candidates<S, Os, H, FixedFields>, H, Stated, FixedFields>>
 
 /** A dependency among a rule's variables, by origin key: the origins From determine the origins To. */
 interface Dep<out From extends string, out To extends string> {
@@ -938,11 +931,13 @@ type HeadFieldsOf<H, Key> = {
 }[keyof H]
 
 /**
- * One match's candidate parts: nothing, or the head fields holding one of its keys' variables, with those holding what
- * a bound import's bindings read.
+ * One match's candidate parts, each `readonly [Fields, Fired, Unfired]`: nothing, its dependencies left to the closure
+ * (Unfired); or the head fields holding one of its keys' variables, with those holding what a bound import's bindings
+ * read, whose dependency the fields' own origins fire, so every variable the match binds is known from the start
+ * (Fired) and none of its dependencies, all of which conclude those variables, is read again.
  */
 type Choices<S, M, H, FixedFields extends string> =
-	| readonly [never]
+	| readonly [never, never, DepsOf<S, M, FixedFields>]
 	| (M extends SoleMatch<infer R, infer B>
 			? R extends AnyRelation | AnyClosed | AnyDerived | AnyWorld | AnyContext
 				? KeyChoices<KeysOf<S, R>, B, H, FixedFields, never>
@@ -954,7 +949,8 @@ type KeyChoices<Keys, B, H, FixedFields extends string, Extra> = 0 extends 1 & K
 	: Keys extends ReadonlyArray<infer F extends string>
 		? HeadSet<
 				| { [K in F]-?: K extends keyof B ? HeadFieldsAt<Needs<B[K], FixedFields>, H> : Lost }[F]
-				| HeadFieldsAt<Extra, H>
+				| HeadFieldsAt<Extra, H>,
+				BoundOrigins<B> & string
 			>
 		: never
 /** The head fields holding each variable a key field needs, Lost when one is held by none or the field is Lost. */
@@ -964,33 +960,40 @@ type HeadFieldsEach<Need, H> = Need extends string
 		? Lost
 		: HeadFieldsOf<H, Need>
 	: never
-type HeadSet<Fields> = Lost extends Fields ? never : readonly [Fields]
-type Cross<A, B> = A extends readonly [infer X]
-	? B extends readonly [infer Y]
-		? readonly [X | Y]
+type HeadSet<Fields, Fired> = Lost extends Fields ? never : readonly [Fields, Fired, never]
+type Cross<A, B> = A extends readonly [infer X, infer XFired, infer XUnfired]
+	? B extends readonly [infer Y, infer YFired, infer YUnfired]
+		? readonly [X | Y, XFired | YFired, XUnfired | YUnfired]
 		: never
 	: never
 
-/** Every combination of one choice per match. */
+/** Every combination of one choice per match, each with what its keys fire and the dependencies its closure reads. */
 type Candidates<S, Os, H, FixedFields extends string> = Os extends readonly [infer M, ...infer Rest]
 	? Cross<Choices<S, M, H, FixedFields>, Candidates<S, Rest, H, FixedFields>>
-	: readonly [never]
+	: readonly [never, never, never]
 /** The head fields that need determining: every field but an aggregate. */
 type TargetFields<H> = Exclude<keyof H, AggregateFields<H>>
 /** The origin keys of the head fields C holds. */
 type OriginsOfFields<H, C> = { [N in keyof H & C]-?: OriginKey<H[N]> }[keyof H & C]
 /**
- * The candidates whose closure holds every head field: a field in the candidate, or a term whose needs are reached (an
- * input, a variable reached, a computation over variables reached).
+ * The candidates whose closure holds every head field, each as `readonly [Fields]`: a field in the candidate, or a term
+ * whose needs are reached (an input, a variable reached, a computation over variables reached). A candidate's closure
+ * starts from its fields' origins, the fixed ones and what its keys fire, and reads the statements' dependencies and
+ * those of the matches it keys none of: the closure of its fields' origins under every dependency, read once per
+ * dependency of each match it keys nothing of, never once per key of every match for each candidate.
  */
-type Passing<Cs, H, Deps, FixedFields extends string> = Cs extends readonly [infer C]
+type Passing<Cs, H, Stated, FixedFields extends string> = Cs extends readonly [
+	infer C,
+	infer Fired extends string,
+	infer Unfired
+]
 	? Covers<
 			H,
 			C,
-			Closure<Deps, (OriginsOfFields<H, C> & string) | FixedFields>,
+			Closure<Unfired | Stated, (OriginsOfFields<H, C> & string) | Fired | FixedFields>,
 			FixedFields
 		> extends true
-		? Cs
+		? readonly [C]
 		: never
 	: never
 

@@ -190,7 +190,7 @@ const treeAfter = (name: string) => {
 const valueBound = 9
 
 /** The keys a drawn member or node takes, apart from one another. */
-const keyRange = Arr.range(1, 40)
+const keyRange: Arr.NonEmptyReadonlyArray<number> = Arr.range(1, 40)
 
 /** One member as written: its key, its owner and its value. */
 interface WrittenMember {

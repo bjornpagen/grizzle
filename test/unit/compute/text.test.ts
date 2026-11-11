@@ -213,7 +213,7 @@ const matchCase: Gen<MatchCase> = (source) => {
 	return {
 		family: fi,
 		sources: [first, ...second],
-		strings: source.draw(array(stringsOver(family.alphabet, 8), { min: 1, max: 24 })),
+		strings: source.draw(array(stringsOver(element(family.alphabet), 8), { min: 1, max: 24 })),
 		pick: source.draw(boolean)
 	}
 }
@@ -329,7 +329,7 @@ describe("Compute's text terms", () => {
 
 	/** Code points that split a surrogate pair's halves from the BMP's highest, where UTF-16 order and code points part. */
 	const alphabet = [0x61, 0x62, 0xffff, 0x1f600, 0x1f601, 0x10ffff] as const
-	const affixText = stringsOver(alphabet, 4)
+	const affixText = stringsOver(element(alphabet), 4)
 	const affix: Gen<Affix> = (source) => {
 		const kind = source.draw(element(["prefix", "suffix", "drawn"] as const))
 		const part = source.draw(affixText)

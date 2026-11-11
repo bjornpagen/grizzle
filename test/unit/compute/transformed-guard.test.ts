@@ -10,7 +10,7 @@
  *
  * Features: each route admitted and refused, for the guard and for the byte cast.
  *
- * Plants: compute-collapse-after-settle, compute-collapse-no-byte-bound.
+ * Plants: compute-collapse-after-settle, compute-collapse-no-byte-bound, compute-cast-bound-not-longest.
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -455,8 +455,9 @@ const boundedTargets: Arr.NonEmptyReadonlyArray<{
  * - the installation: the chain stored uncast in T installs with a workload reading it, as generate drafts it
  *   (installsStored), whatever refinement its type states.
  *
- * Plant compute-collapse-no-byte-bound: a collapse that carries no byte bound, refused where the bound fits. Bugs the
- * search refuted beside it: a translation that carries no byte bound, the type before this search; a translation that keeps its operand's bound under a map to wider characters,
+ * Plant compute-collapse-no-byte-bound: a collapse that carries no byte bound, refused where the bound fits. Plant
+ * compute-cast-bound-not-longest: a cast that compares its operand's bound, not the longest text of its language within
+ * it, refused where a collapse drops what the bound leaves room for. Bugs the search refuted beside them: a translation that carries no byte bound, the type before this search; a translation that keeps its operand's bound under a map to wider characters,
  * admitted where a value outgrows it; a translation's bound read without the operand's character bound, refused where
  * few characters fit; a generated field cast into its term's computed type, which names no domain, refused at its
  * installation.
@@ -542,8 +543,8 @@ const byteCaseGen: Gen<ByteCase> = (source) => ({
 	)
 })
 
-const capitals = Arr.makeBy(26, (i) => 0x41 + i)
-const smalls = Arr.makeBy(26, (i) => 0x61 + i)
+const capitals: Arr.NonEmptyReadonlyArray<number> = Arr.makeBy(26, (i) => 0x41 + i)
+const smalls: Arr.NonEmptyReadonlyArray<number> = Arr.makeBy(26, (i) => 0x61 + i)
 
 /** The map a translating step applies, character by character, lowerAscii's and replaceWhitespace's as README states them. */
 const mapOf = (step: Translating): ReadonlyMap<number, number> => {
@@ -813,9 +814,10 @@ const widthsOf = (p: Points): ReadonlyArray<number> =>
 /**
  * The bytes of the longest text of a language within `bytes`: a text of a type is a text of its language of at most
  * its bytes, so the longest such is what the type's texts take, at most its bound and less where the language's
- * characters fit it no closer (only the empty text, of a collapse that drops every space a text of one byte holds). A
- * dynamic program over each language's states as its pattern reads them, the fewest characters that reach each count of
- * bytes, held to the language's character count.
+ * characters fit it no closer (the empty text alone, of a collapse that drops every space a text of one byte holds; one
+ * euro sign, of three bytes, of a text of euro signs within four). A dynamic program over each language's states as its
+ * pattern reads them, the fewest characters that reach each count of bytes, none where no text reaches it, held to the
+ * language's character count.
  */
 const longestWithin = (l: Language, bytes: number): number => {
 	const moves: ReadonlyArray<{
@@ -863,7 +865,12 @@ const longestWithin = (l: Language, bytes: number): number => {
 	}
 	let longest = 0
 	for (let b = 0; b <= bytes; b += 1) {
-		if (Arr.some(accepting, (state) => defined(defined(fewest[state])[b]) <= limit)) {
+		if (
+			Arr.some(accepting, (state) => {
+				const chars = defined(defined(fewest[state])[b])
+				return Number.isFinite(chars) && chars <= limit
+			})
+		) {
 			longest = b
 		}
 	}
@@ -1086,6 +1093,36 @@ describe("a transformed text's byte bound", () => {
 								},
 								draws: "",
 								reaches: ["lowerAscii admitted", "a chain of two"]
+							},
+							{
+								note: "a full run's draw: collapse(x) over x of at most 1 byte of spaces and U+1F600, whose every value collapses to the empty text, cast into text of no byte",
+								sketch: {
+									operand: {
+										bytes: 1,
+										over: { kind: "listed", points: [0x20, 0x1f600] },
+										count: { kind: "any" }
+									},
+									steps: [{ kind: "collapse" }],
+									target: { pattern: 0, slack: -1 },
+									values: []
+								},
+								draws: "",
+								reaches: ["collapse admitted"]
+							},
+							{
+								note: "collapse(x) over x of at most 4 bytes of euro signs, each of 3 bytes, so no value takes 4, cast into text of 3 bytes",
+								sketch: {
+									operand: {
+										bytes: 4,
+										over: { kind: "listed", points: [0x20ac] },
+										count: { kind: "any" }
+									},
+									steps: [{ kind: "collapse" }],
+									target: { pattern: 0, slack: -1 },
+									values: []
+								},
+								draws: "",
+								reaches: ["collapse admitted"]
 							}
 						],
 						runs: 400,

@@ -57,7 +57,7 @@ const Items = schema("Items", { Item }, [mutable(Item)])
 type ItemFact = Readonly<{ id: number; score: number }>
 
 /** The login's members: a set read by a floor, an ordered read by its windows, a key, and a put. */
-const programs = {
+const programs = Object.freeze({
 	atLeast: query(Items).rule((r) => {
 		const { id, score } = v(Item, "item")
 		return r
@@ -75,7 +75,7 @@ const programs = {
 	),
 	item: Item,
 	put: ChangeSet.empty(Items).put(Item, [])
-}
+})
 
 /** One call: a member's input as JSON, which is its host input too, every value an int4's JSON integer. */
 type Call =
@@ -113,7 +113,7 @@ type Feature =
 	| "a live change reaching both answers"
 	| "a disconnect while live"
 
-const ids = Arr.range(1, 12)
+const ids = Object.freeze(Arr.range(1, 12))
 
 /** Items of distinct ids among `ids`, each with a score. */
 const itemsGen =

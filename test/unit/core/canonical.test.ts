@@ -846,7 +846,6 @@ describe("a value outside the model", () => {
 									source.draw(element<Direction>(directions))
 								] as const,
 							literal: Formatter.format,
-							limit: 24,
 							coverage: noCoverage,
 							caseHang
 						},
@@ -886,7 +885,6 @@ describe("a value outside the model", () => {
 							] as const
 						},
 						literal: Formatter.format,
-						limit: 36,
 						coverage: noCoverage,
 						caseHang
 					},

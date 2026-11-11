@@ -196,7 +196,6 @@ describe("an attachment's delivery", () => {
 						suite: "unit/adapter/answers-deliveries",
 						generator: deliveryCases,
 						literal: Formatter.format,
-						limit: 60,
 						coverage: requiredInSpace<DeliveryFeature>([
 							"delivered",
 							"a defect",

@@ -193,7 +193,6 @@ describe("independent families (rows-first §5)", () => {
 						suite: "unit/analysis/theory/independent",
 						generator: shape,
 						literal: Formatter.format,
-						limit: 16,
 						box: "two counted families on G under one owner or two, by one group field or two, with a sum fold each or none, and an ordered family of L beside them or none",
 						oracle: {
 							kind: "specification",
@@ -317,7 +316,6 @@ describe("independent families (rows-first §5)", () => {
 						suite: "unit/analysis/theory/independent-laws",
 						generator: state,
 						literal: Formatter.format,
-						limit: 500,
 						box: "two counted families of G (under one owner or two) beside a lawful sequence, counts 0 to 2, up to two members each naming each owner or none",
 						oracle: {
 							kind: "second-implementation",

@@ -171,7 +171,6 @@ describe("PostgreSQL's limits", () => {
 						generator: (source) =>
 							[source.draw(element(boundedKinds)), source.draw(int(-1, 1))] as const,
 						literal: Formatter.format,
-						limit: 9,
 						box: "each of tableMaxColumns, selectMaxEntries and statementMaxParams, met by one less, by it, and by one more",
 						oracle: {
 							kind: "specification",

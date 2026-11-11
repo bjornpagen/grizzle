@@ -379,7 +379,6 @@ describe("interleaving", () => {
 						box: "three sessions, each writing its own resource once, at either value, or twice",
 						generator: disjointSessions,
 						literal: Formatter.format,
-						limit: 4 ** 3,
 						coverage: noCoverage,
 						caseHang: Duration.minutes(1)
 					},
@@ -434,7 +433,6 @@ describe("interleaving", () => {
 							c: source.draw(afterGen)
 						}),
 						literal: Formatter.format,
-						limit: 4 ** 3,
 						coverage: requiredInSpace<"a cycle" | "a self-loop" | "no cycle" | "a chain">([
 							"a cycle",
 							"a self-loop",

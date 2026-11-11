@@ -26,7 +26,8 @@ import {
 	lowerAligned,
 	partQueries,
 	partRecursive,
-	programAsts
+	programAsts,
+	filledSql
 } from "#test/support/compile.ts"
 import { genCatalog } from "#test/support/evidence.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
@@ -296,7 +297,7 @@ export const inInstalledCase = <A, E>(
 					.pipe(Effect.mapError((e) => new HarnessFailure({ message: `${String(e)}\n${sql}` })))
 			yield* exec("BEGIN")
 			return yield* Effect.gen(function* () {
-				for (const sql of plan.sql) {
+				for (const sql of filledSql(plan.drafted, substrate.database)) {
 					yield* exec(sql)
 				}
 				for (const sql of facts.value) {

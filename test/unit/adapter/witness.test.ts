@@ -6,7 +6,6 @@ import {
 	boolean,
 	constant,
 	element,
-	filter,
 	type Gen,
 	int,
 	map,
@@ -394,16 +393,16 @@ const changeGen: Gen<DetailSketch> = (inner) => ({
 	)
 })
 
+/** A DETAIL: none, prose, which a leading space keeps from opening as grizzle's encoding, or a refusal's or a change's. */
 const detailGen: Gen<DetailSketch> = oneOf<DetailSketch>([
 	constant({ kind: "none" }),
-	map(
-		filter(
-			detailText,
-			(text) => !Str.startsWith(`${keyTag}[`)(text) && !Str.startsWith(`${changeTag}[`)(text),
-			8
-		),
-		(text): DetailSketch => ({ kind: "prose", text })
-	),
+	map(detailText, (text): DetailSketch => ({
+		kind: "prose",
+		text:
+			Str.startsWith(`${keyTag}[`)(text) || Str.startsWith(`${changeTag}[`)(text)
+				? ` ${text}`
+				: text
+	})),
 	refusalGen,
 	changeGen
 ])

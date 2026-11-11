@@ -49,6 +49,7 @@ import { canonicalZero } from "#compiler/scalar/values/float.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import { optimizedLowering } from "#test/pg/recursion/lowering/support.ts"
 import { assert, defined } from "#test/support/assert.ts"
+import { filledSql } from "#test/support/compile.ts"
 import type {
 	AuthoredExprDesc as ExprDesc,
 	HeadTermDesc,
@@ -482,7 +483,7 @@ const subplansOf = (c: LabelledCase, lowering: Lowering, schema: string) =>
 			const session = yield* substrate.admin.pin
 			yield* session.query("BEGIN", [])
 			return yield* Effect.gen(function* () {
-				for (const sql of [...plan.sql, ...facts.value]) {
+				for (const sql of [...filledSql(plan.drafted, substrate.database), ...facts.value]) {
 					yield* session.query(sql, [])
 				}
 				const tables = Arr.map(Rec.values(plan.tables), (t) => printObjectName(t.name))

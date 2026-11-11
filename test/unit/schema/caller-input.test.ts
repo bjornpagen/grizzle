@@ -29,6 +29,7 @@ import { carrierUnion } from "#compiler/schema/record.ts"
 import type { Carrier } from "#compiler/types/core/phantom.ts"
 import { throwsRefused } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { upTo } from "#test/support/up-to.ts"
 import {
 	type SketchedField,
 	fieldOf,
@@ -201,7 +202,10 @@ describe("caller input", () => {
 							closed(
 								rosterName(r),
 								Arr.prepend(
-									Arr.map(Arr.range(1, r.handles - 1), (h) => `h${h}`),
+									Arr.map(
+										upTo(r.handles - 1, (i) => i + 1),
+										(h) => `h${h}`
+									),
 									"h0"
 								)
 							)

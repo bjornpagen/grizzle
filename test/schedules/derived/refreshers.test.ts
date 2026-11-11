@@ -55,7 +55,7 @@ const raceGen: Gen<DerivedRace> = (source) => {
 	}
 }
 
-const labels = { student: 0, sitting: 0, week: 0 }
+const labels = Object.freeze({ student: 0, sitting: 0, week: 0 })
 
 derivedRaceSuite({
 	file: "two concurrent refreshers of one relation",

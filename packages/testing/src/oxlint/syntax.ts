@@ -33,26 +33,32 @@ const definitionOf = (
 
 const EFFECT_MODULE = "effect/"
 
+/** The Effect module an import declaration names by its path, `effect/<Module>`; none for the barrel or another package. */
+const effectModuleOf = (specifier: AnyNode): Option.Option<string> =>
+	specifier.parent?.type === "ImportDeclaration" &&
+	Str.startsWith(EFFECT_MODULE)(specifier.parent.source.value)
+		? Option.some(Arr.lastNonEmpty(Str.split(specifier.parent.source.value, "/")))
+		: Option.none()
+
 const importedName = (specifier: AnyNode, local: string): string => {
 	if (specifier.type === "ImportSpecifier") {
-		return specifier.imported.type === "Literal"
-			? specifier.imported.value
-			: specifier.imported.name
+		const imported =
+			specifier.imported.type === "Literal" ? specifier.imported.value : specifier.imported.name
+		return Option.match(effectModuleOf(specifier), {
+			onNone: () => imported,
+			onSome: (module) => `${module}.${imported}`
+		})
 	}
-	if (
-		specifier.type === "ImportNamespaceSpecifier" &&
-		specifier.parent.type === "ImportDeclaration" &&
-		Str.startsWith(EFFECT_MODULE)(specifier.parent.source.value)
-	) {
-		return Arr.lastNonEmpty(Str.split(specifier.parent.source.value, "/"))
-	}
-	return local
+	return specifier.type === "ImportNamespaceSpecifier"
+		? Option.getOrElse(effectModuleOf(specifier), () => local)
+		: local
 }
 
 /**
  * The name an identifier is known by: a named import's imported name (`Arr` under `import { Array as Arr } from
- * "effect"` is `Array`), an Effect module's name for a namespace import of `effect/<Module>`, and its own name for any
- * other binding or a global.
+ * "effect"` is `Array`), qualified by its Effect module for a named import of `effect/<Module>` (`makeBy` under
+ * `import { makeBy } from "effect/Array"` is `Array.makeBy`), an Effect module's name for a namespace import of
+ * `effect/<Module>`, and its own name for any other binding or a global.
  */
 const knownName = (context: Context, identifier: NodeOf<"Identifier">): string =>
 	Option.match(definitionOf(context, identifier), {

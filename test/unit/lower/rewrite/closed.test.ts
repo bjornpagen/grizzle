@@ -257,7 +257,6 @@ describe("R07 over closed constants", () => {
 						suite: "unit/lower/rewrite/closed-membership",
 						literal: Formatter.format,
 						generator: occurrenceGen,
-						limit: KEY_READS.length * KEY_READS.length * PAYLOAD_READS.length + KEY_READS.length,
 						coverage: requiredInSpace<ClosedFeature>([
 							"rewritten",
 							"a roster rewritten",
@@ -313,7 +312,6 @@ describe("R07 over closed constants", () => {
 						suite: "unit/lower/rewrite/closed-narrowed",
 						literal: Formatter.format,
 						generator: predGen,
-						limit: 40,
 						coverage: requiredInSpace<NarrowedFeature>([
 							"the whole roster kept",
 							"a narrowed roster",
@@ -405,7 +403,6 @@ describe("R07 beside a lateral read", () => {
 							),
 							bound: source.draw(boolean)
 						}),
-						limit: 6,
 						coverage: requiredInSpace<"rewritten" | "kept">(["rewritten", "kept"]),
 						caseHang,
 						box: "a region of the roster Kind, a task binding its kind to the roster's id or not, and a task whose kind is fixed to nothing, the first task's kind or the roster's id",

@@ -23,7 +23,7 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { array, boolean, element, type Gen, int } from "@grizzle/testing/gen"
+import { array, boolean, constant, element, type Gen, int, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -95,7 +95,11 @@ type Change =
 			readonly old: { readonly image: "whole" | "key"; readonly value: Value }
 	  }
 
-const relationGen: Gen<number> = element([routedId, routedId, wholeId, unreadId])
+const relationGen: Gen<number> = weighted([
+	[2, constant(routedId)],
+	[1, constant(wholeId)],
+	[1, constant(unreadId)]
+])
 
 const changeGen: Gen<Change> = (source) => {
 	const relation = source.draw(relationGen)
@@ -140,7 +144,12 @@ const announcedGen: Gen<string> = element([
 ])
 
 const announcementGen: Gen<Announcement> = (source) => ({
-	prefix: source.draw(element([prefix, prefix, "other"])),
+	prefix: source.draw(
+		weighted([
+			[2, constant(prefix)],
+			[1, constant("other")]
+		])
+	),
 	text: Arr.join(source.draw(array(announcedGen, { min: 1, max: 3 })), "\u0000")
 })
 

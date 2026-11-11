@@ -67,7 +67,6 @@ describe("a mutant's verdict", () => {
 							slowStop: source.draw(boolean)
 						}),
 						literal: Formatter.format,
-						limit: 6,
 						coverage: noCoverage,
 						caseHang: Duration.minutes(1)
 					},

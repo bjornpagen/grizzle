@@ -83,7 +83,7 @@ const carrierTypes = (vectorSchema: string): Readonly<Record<Carrier, string>> =
 })
 
 /** The polymorphic input type PostgreSQL resolves an operator class or aggregate over, for the generic carriers. */
-const polymorphic: Partial<Record<Carrier, string>> = {
+const polymorphic: Readonly<Partial<Record<Carrier, string>>> = {
 	range4: "anyrange",
 	range8: "anyrange",
 	rangeDate: "anyrange"
@@ -106,7 +106,9 @@ const catalogCapabilities = [
 const catalogNames: ReadonlyArray<string> = catalogCapabilities
 
 /** Native capabilities the language does not admit, each with its reason. Nothing else may differ from the catalog. */
-const exclusions: Partial<Record<Carrier, ReadonlyArray<(typeof catalogCapabilities)[number]>>> = {
+const exclusions: Readonly<
+	Partial<Record<Carrier, ReadonlyArray<(typeof catalogCapabilities)[number]>>>
+> = {
 	/**
 	 * pgvector's sum(vector) and avg(vector) are not aggregates of the language (its aggregate vocabulary is count, sum,
 	 * mean, min and max over the scalar carriers that admit them).
@@ -137,7 +139,7 @@ const claimedBy = (carrier: Carrier): ReadonlyArray<Capability> => nativeCapabil
  * The carriers PostgreSQL has a discrete range over that grizzle declares no span over, each with the README's named
  * limit (Limits, "A span is over integer or bigint"). Nothing else may differ from the catalog.
  */
-const unspanned: Partial<Record<Carrier, string>> = {
+const unspanned: Readonly<Partial<Record<Carrier, string>>> = {
 	date: "daterange: grizzle declares no span carrier over a date yet"
 }
 
@@ -288,7 +290,6 @@ layer(Substrate.layer)("descriptors against the PostgreSQL 19 catalog", (it) => 
 						suite: "pg/scalar/registry/spellings",
 						generator: element(spellings),
 						literal: Formatter.format,
-						limit: spellings.length,
 						box: "every spelling of the pg namespace that is a descriptor, the serials among them",
 						oracle: {
 							kind: "postgresql",
@@ -321,7 +322,6 @@ layer(Substrate.layer)("descriptors against the PostgreSQL 19 catalog", (it) => 
 							suite: "pg/scalar/registry/float-precisions",
 							generator: int(-4, 59),
 							literal: (p: number) => `float(${p})`,
-							limit: 64,
 							box: "every precision from -4 to 59, past both of float(p)'s edges",
 							oracle: { kind: "postgresql", name: "the type PostgreSQL stores float(p) as" },
 							coverage: requiredInSpace<FloatFeature>([
@@ -416,7 +416,6 @@ layer(Substrate.layer)("descriptors against the PostgreSQL 19 catalog", (it) => 
 							int(vectorMaxDimensions.value - 2, vectorMaxDimensions.value + 2)
 						]),
 						literal: Formatter.format,
-						limit: 11,
 						box: "every dimension count within two of 1 and of vectorMaxDimensions, and down to -2",
 						oracle: {
 							kind: "postgresql",
@@ -463,7 +462,6 @@ layer(Substrate.layer)("descriptors against the PostgreSQL 19 catalog", (it) => 
 							suite: "pg/scalar/registry/carriers",
 							generator: element(carriers),
 							literal: Formatter.format,
-							limit: carriers.length,
 							box: "every carrier of the registry",
 							oracle: {
 								kind: "postgresql",

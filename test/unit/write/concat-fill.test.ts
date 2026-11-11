@@ -96,21 +96,23 @@ const schemaOf = (selected: boolean): SchemaDesc => {
 }
 
 /** Each fold's filler, the selecting one and the other, compiled once. */
-const fills = Arr.map([false, true] as const, (selected) => {
-	const desc = schemaOf(selected)
-	const model = succeeded(compiledModel(desc), "a concat fold compiles")
-	const codes = firstCodebook(rostersOf(succeeded(own(decodedSchema(desc)))))
-	return {
-		family: defined(model.families[0], "the fold's family"),
-		fill: filler(
-			hostFillOf(model.theory.fill, [
-				{ relation: StoredRelationName("Owner"), position: { kind: "top" } }
-			]),
-			codes,
-			hostEvaluator(codes, closedLeaf(new Map()), model.patterns)
-		)
-	}
-})
+const fills = Object.freeze(
+	Arr.map([false, true] as const, (selected) => {
+		const desc = schemaOf(selected)
+		const model = succeeded(compiledModel(desc), "a concat fold compiles")
+		const codes = firstCodebook(rostersOf(succeeded(own(decodedSchema(desc)))))
+		return {
+			family: defined(model.families[0], "the fold's family"),
+			fill: filler(
+				hostFillOf(model.theory.fill, [
+					{ relation: StoredRelationName("Owner"), position: { kind: "top" } }
+				]),
+				codes,
+				hostEvaluator(codes, closedLeaf(new Map()), model.patterns)
+			)
+		}
+	})
+)
 
 interface ConcatCase {
 	readonly selected: boolean
@@ -138,7 +140,6 @@ describe("the host fill of a concat fold", () => {
 					suite: "unit/write/concat-fill",
 					generator: caseGen,
 					literal: Formatter.format,
-					limit: 3_000,
 					box: "families of up to three members, pieces '', 'a' and U+1F600, each selected or not, under a selecting fold and one that does not select",
 					oracle: { kind: "second-implementation", name: "a naive left fold of the slots' texts" },
 					coverage: requiredInSpace<FillFeature>([

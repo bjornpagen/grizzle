@@ -25,17 +25,7 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { noCoverage, required } from "@grizzle/testing/features"
-import {
-	array,
-	boolean,
-	constant,
-	element,
-	filter,
-	type Gen,
-	int,
-	map,
-	oneOf
-} from "@grizzle/testing/gen"
+import { array, boolean, constant, element, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
 import { floorSeed, rotatingSeed } from "@grizzle/testing/random"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
@@ -358,7 +348,7 @@ const probeFeatureOf: { readonly [K in ProbeSketch["kind"]]: ProbeFeature } = {
 	bound: "a probe at a norm bound"
 }
 
-const probeKinds = Rec.keys(probeFeatureOf)
+const probeKinds = Object.freeze(Rec.keys(probeFeatureOf))
 
 /** Where a dimension count lies: few, at the HNSW index's limit, or at the storage limit. */
 type WidthFeature = "few dimensions" | "the HNSW limit" | "the storage limit"
@@ -377,7 +367,7 @@ const dimsOf: { readonly [W in WidthFeature]: Gen<number> } = {
 	"the storage limit": constant(vectorMaxDimensions.value)
 }
 
-const widthFeatures = Rec.keys(dimsOf)
+const widthFeatures = Object.freeze(Rec.keys(dimsOf))
 
 const dimsGen: Gen<number> = oneOf(nonEmpty(Rec.values(dimsOf), "a generator per width"))
 
@@ -570,18 +560,19 @@ const maxFloat32 = (2 - 2 ** -23) * 2 ** 127
 
 /**
  * Any finite binary32 components, signed zero and subnormals included, at up to 2000 dimensions, with at least one
- * nonzero component; magnitudes spread over the whole range, which stresses summation order.
+ * nonzero component, by construction: one drawn place holds a nonzero magnitude, from the least subnormal up, with a
+ * drawn sign; magnitudes spread over the whole range, which stresses summation order.
  */
 const binary32Vector: Gen<Vector> = (source) => {
 	const dims = source.draw(int(1, 2000))
-	const components = source.draw(
-		filter(
-			array(float(-maxFloat32, maxFloat32), { min: dims, max: dims }),
-			(xs) => Arr.some(xs, (x) => x !== 0),
-			10
-		)
+	const components = source.draw(array(float(-maxFloat32, maxFloat32), { min: dims, max: dims }))
+	const at = source.draw(int(0, dims - 1))
+	const magnitude = source.draw(float(2 ** -149, maxFloat32))
+	const nonzero = source.draw(boolean) ? -magnitude : magnitude
+	return Vector.make(
+		Float32Array.from(components, (x, place) => (place === at ? nonzero : x)),
+		dims
 	)
-	return Vector.make(Float32Array.from(components), dims)
 }
 
 layer(Substrate.layer)("exact cosine distance", (it) => {

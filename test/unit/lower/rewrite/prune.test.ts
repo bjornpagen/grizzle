@@ -126,7 +126,6 @@ describe("demand pruning", () => {
 						 * (FoldInput); a fold over the projection (account, amount) is no plan (FoldOverProjection).
 						 */
 						generator: subarray(aggregateNames),
-						limit: 8,
 						coverage: requiredInSpace<"an aggregate dropped" | "every aggregate delivered">([
 							"an aggregate dropped",
 							"every aggregate delivered"
@@ -340,7 +339,6 @@ describe("a pinned node keeps its form, and its inputs every column that form re
 									])
 								)
 							] as const,
-						limit: 12,
 						coverage: requiredInSpace<`${Reader} over a ${Stage}`>([
 							"recursive step over a projection",
 							"recursive step over a filter",

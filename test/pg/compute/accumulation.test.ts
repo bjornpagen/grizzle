@@ -329,7 +329,7 @@ const roundedTotal = (xs: Arr.NonEmptyReadonlyArray<number>): number => {
 	return Number(total.text)
 }
 
-const int64 = { lo: -(2n ** 63n), hi: 2n ** 63n - 1n }
+const int64 = Object.freeze({ lo: -(2n ** 63n), hi: 2n ** 63n - 1n })
 
 /** Whether a sequential int64 sum of `cents` in this order leaves int64 at some step. */
 const leavesInt64 = (cents: ReadonlyArray<bigint>): boolean => {

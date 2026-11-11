@@ -194,8 +194,6 @@ describe("a family axis's key", () => {
 						box: "a concat fold's text of no bound, or of a byte or code point bound whose entry is within a MAXALIGN step of BTMaxItemSize",
 						generator: textGen,
 						literal: Formatter.format,
-						/** The space: the unbounded text, 17 byte bounds and 5 code point bounds. */
-						limit: 23,
 						coverage: requiredInSpace<Feature>([
 							"unbounded",
 							["octets", "an entry within the bound"],
@@ -339,7 +337,6 @@ describe("a carried set's key", () => {
 					box: "Tag's two live handles and every count of holes within eight codes of the most that fit",
 					generator: int(fittingCodes - live - 8, fittingCodes - live + 8),
 					literal: Formatter.format,
-					limit: 17,
 					coverage: requiredInSpace<SetFeature>(["an entry at the bound", "an entry past it"]),
 					caseHang
 				},

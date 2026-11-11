@@ -6,6 +6,7 @@ import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { mutable, relation, schema } from "#compiler/public/schema.ts"
 import { paged } from "#compiler/public/workload.ts"
+import { upTo } from "#test/support/up-to.ts"
 import { fullWorld } from "#test/support/worlds.ts"
 
 /**
@@ -225,7 +226,10 @@ const freeKeyGen =
 	(bounds: LiveBounds, rows: ReadonlyArray<LiveFact>, taken: ReadonlyArray<number>): Gen<number> =>
 	(source) => {
 		const used = new Set([...Arr.map(rows, (row) => row.id), ...taken])
-		const free = Arr.filter(Arr.range(0, bounds.keys), (id) => !used.has(id))
+		const free = Arr.filter(
+			upTo(bounds.keys + 1, (id) => id),
+			(id) => !used.has(id)
+		)
 		const fresh = maxOf(used, bounds.keys) + 1
 		const options: Arr.NonEmptyReadonlyArray<number> = [fresh, ...free]
 		return options[source.draw(int(0, options.length - 1))] ?? fresh

@@ -1,0 +1,15 @@
+DRAFT: pull request description for github.com/Effect-TS/effect. Not filed.
+
+Title: fix(platform-node-shared): remove an empty directory without recursive
+
+`FileSystem.remove` is documented as "Remove a file or directory", but the Node implementation (shared by Bun) calls
+`fs.rm`, which refuses any directory unless `recursive` is set. An empty directory can therefore be removed only
+recursively, and a recursive removal deletes whatever another writer placed inside it in the meantime. There is no
+way to remove a directory only while it is empty.
+
+This makes `remove` without `recursive` take a directory with `rmdir`, which succeeds only while it is empty and fails
+otherwise, as `rmdir(2)` and `remove(3)` do. Files are removed with `rm` as before, `force` still ignores a missing
+path, and `recursive: true` is unchanged.
+
+Test: a case in the shared FileSystem test utilities, run by every platform: an empty directory is removed without
+options, and one holding a file fails and keeps the file.

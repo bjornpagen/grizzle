@@ -54,14 +54,16 @@ type ArmedFeature =
 	| "a handle of a payload relation shared"
 	| "a handle of a payload relation of its own"
 
-const armedHandles = Arr.flatMap(alternativesBox.variants, (schema) =>
-	Arr.flatMap(schema.arms, (arm, pay) =>
-		Arr.map(arm.handles, (handle): ArmedHandle => ({
-			schema,
-			pay,
-			handle,
-			shared: arm.handles.length > 1
-		}))
+const armedHandles = Object.freeze(
+	Arr.flatMap(alternativesBox.variants, (schema) =>
+		Arr.flatMap(schema.arms, (arm, pay) =>
+			Arr.map(arm.handles, (handle): ArmedHandle => ({
+				schema,
+				pay,
+				handle,
+				shared: arm.handles.length > 1
+			}))
+		)
 	)
 )
 
@@ -83,7 +85,6 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							suite: "laws/alternatives/armed-handles",
 							literal: Formatter.format,
 							generator: element(armedHandles),
-							limit: armedHandles.length,
 							coverage: requiredInSpace<ArmedFeature>([
 								"a handle of a payload relation shared",
 								"a handle of a payload relation of its own"

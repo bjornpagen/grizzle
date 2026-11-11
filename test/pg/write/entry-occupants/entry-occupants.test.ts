@@ -1,5 +1,5 @@
 import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
+import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import { boolean, constant, element, type Gen, int, map, oneOf, option } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
@@ -104,14 +104,18 @@ interface Values {
 	readonly team: number
 }
 
-/** Small domains, so every object meets. */
-const valuesGen: Gen<Values> = (source) => ({
-	id: source.draw(int(1, 3)),
-	code: source.draw(int(1, 3)),
-	grp: source.draw(int(1, 2)),
-	lead: source.draw(boolean),
-	team: source.draw(int(1, 3))
-})
+/** A seat over small domains, so every object meets, its lead drawn by `lead`. */
+const valuesOf =
+	(lead: Gen<boolean>): Gen<Values> =>
+	(source) => ({
+		id: source.draw(int(1, 3)),
+		code: source.draw(int(1, 3)),
+		grp: source.draw(int(1, 2)),
+		lead: source.draw(lead),
+		team: source.draw(int(1, 3))
+	})
+
+const valuesGen = valuesOf(boolean)
 
 type ObjectName = "primary key" | "candidate key" | "at most one lead" | "at most one seat"
 
@@ -218,10 +222,41 @@ const caseGen: Gen<OccupantCase> = (source) => {
 	return { hidden, inside, submitted: source.draw(oneOf([valuesGen, ...near])) }
 }
 
+/**
+ * Ann's own seat a lead, stored alone, and her insert of another seat leading its group, at another id, code and team:
+ * a seat her own occupant meets at the at most one lead and at no other object.
+ */
+const insideLeadGen: Gen<OccupantCase> = (source) => {
+	const inside = source.draw(valuesOf(constant(true)))
+	return {
+		hidden: Option.none(),
+		inside: Option.some(inside),
+		submitted: {
+			id: source.draw(apartFrom(inside.id, 1, 3)),
+			code: source.draw(apartFrom(inside.code, 1, 3)),
+			grp: inside.grp,
+			lead: true,
+			team: source.draw(apartFrom(inside.team, 1, 3))
+		}
+	}
+}
+
 type OccupantFeature =
 	| `${"hidden" | "inside"} occupant at the ${ObjectName}`
 	| "an exact repeat"
 	| "accepted"
+
+/**
+ * The case a witness checks: its drawn one, or, while an occupant inside the entry at the at most one lead is pending,
+ * in half its cases by a draw of its own, one built to meet it (insideLeadGen), which a drawn case meets too rarely for
+ * the floor and the steered phase. None for a rotating or kept case, which runs as drawn.
+ */
+const aimedOccupants = (drawnCase: OccupantCase, cx: Case<OccupantFeature>): OccupantCase =>
+	Option.exists(cx.steering, (pending) =>
+		pending.names("inside occupant at the at most one lead")
+	) && cx.draw(boolean)
+		? cx.draw(insideLeadGen)
+		: drawnCase
 
 /** The objects where the stored seat of `world` conflicts with the submitted one: ann's own, unless it is the same
  * seat, an exact repeat; carl's, whatever its values, since a seat of his is never hers. */
@@ -306,8 +341,9 @@ layer(Substrate.layer)("a query entry's write meets every unique object of its t
 									steerEvery: 16,
 									caseHang
 								},
-								(c, cx) =>
+								(drawnCase, cx) =>
 									Effect.gen(function* () {
+										const c = aimedOccupants(drawnCase, cx)
 										const stored = [
 											...Option.match(c.hidden, {
 												onNone: () => [],

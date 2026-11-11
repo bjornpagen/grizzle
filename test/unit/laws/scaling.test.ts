@@ -503,7 +503,6 @@ describe("installation size", () => {
 						suite: "unit/laws/scaling",
 						generator: pointGen,
 						literal: Formatter.format,
-						limit: dimensions.length * 3,
 						box: "every dimension of a schema and of its worlds, installed at 2h, 4h and 6h for every h from 2 to 4",
 						oracle: {
 							kind: "universal",

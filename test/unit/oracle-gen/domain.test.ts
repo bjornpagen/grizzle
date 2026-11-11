@@ -134,7 +134,6 @@ describe("generated scalar types", () => {
 									source.draw(element<"span" | "scalar">(["span", "scalar"]))
 								] as const,
 							literal: Formatter.format,
-							limit: types.length * 4,
 							coverage: requiredInSpace<TypeFeature>([
 								"text",
 								"numeric",

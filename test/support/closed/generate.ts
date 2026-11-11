@@ -42,6 +42,7 @@ import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { CodeSlot, RosterCodes } from "#compiler/ir/cells.ts"
 import { type Codebook, rosterCodec, type RosterCodec } from "#compiler/ir/codes.ts"
 import { Roster } from "#compiler/ir/scalar.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /** How a handle is spelled: a plain word, or a spelling an array literal, an identifier or a byte bound must keep. */
 const SPELLINGS = ["plain", "awkward"] as const
@@ -534,10 +535,13 @@ export const ALIAS_CODE = 400
 export const everyCode = (
 	state: RosterState
 ): ReadonlyArray<{ readonly code: number; readonly live: string | undefined }> => [
-	...Arr.map(Arr.range(-1, sizeOf(state)), (code) => {
-		const slot = state.slots[code]
-		return { code, live: slot?.kind === "live" ? slot.handle : undefined }
-	}),
+	...Arr.map(
+		upTo(sizeOf(state) + 2, (i) => i - 1),
+		(code) => {
+			const slot = state.slots[code]
+			return { code, live: slot?.kind === "live" ? slot.handle : undefined }
+		}
+	),
 	...(sizeOf(state) <= ALIAS_CODE ? [{ code: ALIAS_CODE, live: undefined }] : [])
 ]
 

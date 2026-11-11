@@ -121,10 +121,10 @@ const queryOf = (c: Case) => {
 }
 
 /** Each relation's selection key's law column, as its schema's installation names it. */
-const installations = {
+const installations = Object.freeze({
 	Plans: installationOf(Plans, { kind: "declared" }),
 	Badges: installationOf(Badges, { kind: "declared" })
-}
+})
 const lawColumnOf = (relation: Relation): string => {
 	const installation = relation === "Badge" ? installations.Badges : installations.Plans
 	const [selection, ...more] = installation.names.selectionKeys(relation)
@@ -186,7 +186,6 @@ describe("a selection key's probe", () => {
 						suite: "unit/lower/selection-key",
 						generator: caseGen,
 						literal: Formatter.format,
-						limit: 18,
 						box: "Note's, Task's and Badge's selection keys, the guard held, absent or contradicted, the term fixed or not",
 						oracle: {
 							kind: "specification",

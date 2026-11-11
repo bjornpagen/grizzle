@@ -79,8 +79,11 @@ import {
 /** What refuses a pattern past the limits: the limit of PostgreSQL's regex compiler it crosses, or another refusal. */
 type EdgeRefusal = RegexSpaceMeasure["kind"] | "another refusal"
 
-/** What an edge search reached: the refusal past its largest admitted count, or the shape's greatest count itself. */
-type EdgeFeature = EdgeRefusal | "the shape's top"
+/**
+ * What an edge search reached: the refusal past its largest admitted count, the shape's greatest count itself, or a
+ * shape the limits refuse at its first count, which has no edge to compile.
+ */
+type EdgeFeature = EdgeRefusal | "the shape's top" | "a shape refused at its first count"
 
 /**
  * A shape a pattern grows along, from count 1 to `top`, each count's pattern its source: the limits of PostgreSQL's
@@ -480,7 +483,7 @@ layer(Substrate.layer)(
 					})
 					const familySketch: Gen<FamilySketch> = (source) => ({
 						strings: source.draw(
-							array(stringsOver(family.alphabet, 8), { min: 1, max: stringsPerCase })
+							array(stringsOver(element(family.alphabet), 8), { min: 1, max: stringsPerCase })
 						),
 						handwritten: Arr.map(written, (w) => source.draw(walksFor(w.r))),
 						generated: source.draw(
@@ -595,7 +598,10 @@ layer(Substrate.layer)(
 										),
 										() => drawnGrowth
 									)
-									yield* k.assume(measureAt(growth, 1) === "admitted")
+									if (measureAt(growth, 1) !== "admitted") {
+										k.note("a shape refused at its first count")
+										return
+									}
 									const { greatest, past } = edgeAt(growth)
 									k.note(past)
 									const source = growth.at(greatest)

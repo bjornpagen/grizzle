@@ -258,11 +258,15 @@ const isBase64Digit = (unit: number): boolean =>
  * last ending in at most two `=`; undefined where it spells none, which Uint8Array.fromBase64 is never asked.
  */
 const fromBase64 = (text: string): Uint8Array | undefined => {
-	const padding = text.endsWith("==") ? 2 : text.endsWith("=") ? 1 : 0
 	if (text.length % 4 !== 0) {
 		return undefined
 	}
-	for (let at = 0; at < text.length - padding; at += 1) {
+	const digits = text.endsWith("==")
+		? text.length - "==".length
+		: text.endsWith("=")
+			? text.length - "=".length
+			: text.length
+	for (let at = 0; at < digits; at += 1) {
 		if (!isBase64Digit(text.charCodeAt(at))) {
 			return undefined
 		}

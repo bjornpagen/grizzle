@@ -42,6 +42,7 @@ import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { callCounts } from "#test/support/kernel/calls.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { ownedInput } from "#test/support/policy.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /** A pattern a field may declare, with a value of its language that a closed row may hold. */
 interface Pattern {
@@ -71,7 +72,10 @@ interface CountCase {
 
 const caseGen: Gen<CountCase> = (source) => {
 	const [firstPattern, ...otherPatterns] = source.draw(
-		shuffled(Arr.range(0, patterns.length - 1), { min: 1, max: 4 })
+		shuffled(
+			upTo(patterns.length, (i) => i),
+			{ min: 1, max: 4 }
+		)
 	)
 	const chosen: Arr.NonEmptyReadonlyArray<number> = [
 		defined(firstPattern, "a drawn pattern"),
