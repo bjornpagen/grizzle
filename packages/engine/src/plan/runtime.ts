@@ -72,6 +72,11 @@ export {
 	sealNonce,
 	type SealNonce
 } from "#compiler/live/notify.ts"
+export {
+	createSlotCommand,
+	type ReplicationCommand,
+	startCommand
+} from "#compiler/live/replication.ts"
 export { explainAnalyzeOf, explainOf, type ExplainText } from "#compiler/runtime/explain.ts"
 export { columnPosition, columnType } from "#compiler/runtime/lower/columns.ts"
 export { fusedTexts } from "#compiler/runtime/lower/fused.ts"

@@ -143,24 +143,20 @@ export interface ServedSession {
 /**
  * An installation's live change source as a served file holds it (live/notify.ts LiveSource), emitted at generate
  * (program/live.ts servedLiveOf): none where the installation's live plan is empty; otherwise its names and the texts
- * its leader and its listeners send, each prepared but `listen`, a session command. The leader is the one process at
- * a time holding `lock` on the decoder login's connection; it creates the slot where it is absent, peeks the slot's
- * decoded changes, waits until each decoded transaction is `visible`, sends the round's sealed batches by `fanout`, and
- * advances the slot past what it sent. A listener reads `secret`, LISTENs, and `check`s that the slot stands.
+ * its leader and its listeners send. The leader is the one process at a time holding `lock`, sent first on the
+ * decoder login's replication connection, which takes simple queries alone; it creates the slot where `check` finds
+ * none and streams its decoded changes (live/replication.ts), waits until each decoded transaction is `visible`, and
+ * sends the round's sealed batches by `fanout`. A listener reads `secret`, LISTENs, and `check`s that the slot stands.
  *
  * - `publication`: the publication's name, the fan-out channel and the prefix of every announced message;
  * - `stem`: the replication slot's and the decoder login's stem, each named in the cluster under the installation's
  *   role space (core/identity.ts roleInSpace), which every slot parameter (`$1::name`) is filled with;
  * - `tables`: each published table by its installed identifier, with the columns it routes by;
  * - `secret`: the live secret's one cell, as hex (live/notify.ts parseLiveSecret);
- * - `lock`: the session-level advisory lock of the leadership;
- * - `create`: the slot, permanent, of pgoutput, created where none of its name stands; no row where one does;
+ * - `lock`: the session-level advisory lock of the leadership, a simple query;
  * - `check`: whether the slot stands in the current database, not invalidated;
- * - `peek`: every change the slot holds, as hex of pgoutput's protocol version 1 over the publication with its
- *   messages, without consuming them;
  * - `visible`: for each transaction id of `$1::text[]`, whether the statement's snapshot holds its commit;
  * - `fanout`: a notification on the channel for each payload of `$1::text[]`;
- * - `advance`: the slot advanced to `$2::pg_lsn`, its new position as text;
  * - `announce`: the sealed payload `$1::text` emitted as a transactional message under the publication's prefix, which
  *   the leader decodes and sends on with the transaction that announced it.
  */
@@ -172,14 +168,11 @@ export type ServedLive =
 			readonly stem: string
 			readonly tables: Readonly<Record<string, ReadonlyArray<string>>>
 			readonly listen: EmittedText
+			readonly lock: EmittedText
 			readonly secret: Prepared<EmittedText>
-			readonly lock: Prepared<EmittedText>
-			readonly create: Prepared<EmittedText>
 			readonly check: Prepared<EmittedText>
-			readonly peek: Prepared<EmittedText>
 			readonly visible: Prepared<EmittedText>
 			readonly fanout: Prepared<EmittedText>
-			readonly advance: Prepared<EmittedText>
 			readonly announce: Prepared<EmittedText>
 	  }
 
