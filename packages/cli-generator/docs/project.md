@@ -18,7 +18,7 @@ Each section carries one or more labels:
 - **Model**: the normalized description of an API that sits between input adapters and the emitter.
 - **Trust boundary**: the line the model draws. A value taken from the input specification enters the model only after a `Schema` codec has decoded it into a branded value or a `Schema.Class` entity. Naming, emission and writing read the model only, never the source document, so a reviewer can check by import graph that no emitter reads untrusted input.
 - **Document set**: the files the operator names for one generation run. `$ref` resolution reaches only these files.
-- **Author config**: a JSON file the API author passes to the generator. It holds overrides, accepted servers and origins, defaults, extra security schemes and custom commands.
+- **Author config**: a JSON file the API author passes to the generator. It holds overrides, accepted servers and origins, extra security schemes and custom commands.
 - **Refusal**: a diagnostic for input the generator will not implement. Its scope says what is omitted: `document` (nothing is generated), `operation` (that operation is omitted) or `element` (that element, such as one parameter or one security scheme, is omitted and the rest is generated). A **notice** records a choice or a loss that does not omit anything.
 - **Corpus**: the pinned public API specifications the project generates against on every change.
 
@@ -131,14 +131,14 @@ Label: decided.
 
 ## Retries and timeouts
 
-Labels: decided; the operator confirms the header timeout default.
+Labels: decided.
 
 - A generated CLI never retries on its own initiative. `--retries <n>`, any whole number, is the one door: no environment variable, author default or built-in count stands in for it, and without it nothing is retried. One run's retries share that budget, whatever failed.
 - Within the budget, idempotent methods and `QUERY` retry transient failures with jittered backoff and `Retry-After`. Transient failures are connection, DNS and timeout failures (never TLS failures or interrupts) and the statuses 408, 429, 500, 502, 503 and 504. `Retry-After` is not waited beyond the timeout: retrying stops and the error reports the server's value.
 - Unsafe methods retry only with `--retry-unsafe` or an operator-supplied declared `Idempotency-Key`.
 - A streamed response whose event contract names an error event with a `retryWhen` rule is retried, whatever the method, when the event's data holds the rule's value: the server reports that nothing took effect. The stream's SSE reconnection time, when it set one, is the wait, capped by the timeout as `Retry-After` is. Every other error event fails at once.
 - Bodies read from standard input never retry and are never re-sent on a redirect. File bodies are read again.
-- A timeout per attempt applies to response headers. The author config sets its default, and `--timeout` beats `<PREFIX>_TIMEOUT`, which beats the author default.
+- A timeout per attempt bounds the wait for response headers, the attempt's redirects included, only when the operator sets one, with `--timeout <seconds>` or `<PREFIX>_TIMEOUT`, the flag first: it is a fact of the operator's network path, so no author default or built-in number stands in for it. Without one, or with `0`, an attempt waits as long as its server takes.
 - An idle timeout bounds the wait for a body's next chunk only when the operator sets one, with `--idle-timeout <seconds>` or `<PREFIX>_IDLE_TIMEOUT`: it is a fact of the operator's network path, so no author default or built-in number stands in for it. Without one, a body waits as long as its server takes, and a followed stream lives on the server's heartbeats.
 
 ## Schemas

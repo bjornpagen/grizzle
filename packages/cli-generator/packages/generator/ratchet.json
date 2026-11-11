@@ -1,11 +1,11 @@
 {
 	"typecheck": {
-		"total": 8045,
+		"total": 8029,
 		"files": {
 			"packages/generator/src/emit/api.ts": 125,
 			"packages/generator/src/emit/cli.ts": 123,
-			"packages/generator/src/emit/entry.ts": 9,
-			"packages/generator/src/emit/readme.ts": 58,
+			"packages/generator/src/emit/entry.ts": 7,
+			"packages/generator/src/emit/readme.ts": 57,
 			"packages/generator/src/model/author-config.ts": 11,
 			"packages/generator/src/model/entities.ts": 14,
 			"packages/generator/src/names/reserved.ts": 1,
@@ -66,7 +66,6 @@
 			"packages/generator/test/emit/readme.test.ts": 46,
 			"packages/generator/test/emit/request-id.test.ts": 36,
 			"packages/generator/test/emit/run-scoped-program.test.ts": 23,
-			"packages/generator/test/emit/runtime-defaults.test.ts": 8,
 			"packages/generator/test/emit/s30-fixes.test.ts": 15,
 			"packages/generator/test/emit/schema-fixes.test.ts": 30,
 			"packages/generator/test/emit/sec-fixes.test.ts": 12,
@@ -111,7 +110,6 @@
 			"packages/generator/test/load/yaml.test.ts": 31,
 			"packages/generator/test/model/author-config-aliases.test.ts": 7,
 			"packages/generator/test/model/author-config-non-standard.test.ts": 8,
-			"packages/generator/test/model/author-config-runtime.test.ts": 5,
 			"packages/generator/test/model/author-config.test.ts": 17,
 			"packages/generator/test/model/brands.test.ts": 16,
 			"packages/generator/test/model/diagnostic.test.ts": 44,
@@ -317,13 +315,13 @@
 		}
 	},
 	"oxlint": {
-		"total": 4234,
+		"total": 4222,
 		"files": {
 			"packages/generator/src/emit/api.ts": 110,
 			"packages/generator/src/emit/cli.ts": 149,
 			"packages/generator/src/emit/entry.ts": 4,
-			"packages/generator/src/emit/readme.ts": 17,
-			"packages/generator/src/model/author-config.ts": 32,
+			"packages/generator/src/emit/readme.ts": 16,
+			"packages/generator/src/model/author-config.ts": 28,
 			"packages/generator/src/model/entities.ts": 19,
 			"packages/generator/src/names/reserved.ts": 2,
 			"packages/generator/src/normalize/responses.ts": 19,
@@ -381,7 +379,6 @@
 			"packages/generator/test/emit/readme.test.ts": 10,
 			"packages/generator/test/emit/request-id.test.ts": 9,
 			"packages/generator/test/emit/run-scoped-program.test.ts": 25,
-			"packages/generator/test/emit/runtime-defaults.test.ts": 6,
 			"packages/generator/test/emit/s30-fixes.test.ts": 13,
 			"packages/generator/test/emit/schema-fixes.test.ts": 13,
 			"packages/generator/test/emit/sec-fixes.test.ts": 3,
@@ -415,7 +412,6 @@
 			"packages/generator/test/load/json.test.ts": 2,
 			"packages/generator/test/load/ref-root.test.ts": 6,
 			"packages/generator/test/load/yaml.test.ts": 5,
-			"packages/generator/test/model/author-config-runtime.test.ts": 1,
 			"packages/generator/test/model/author-config.test.ts": 15,
 			"packages/generator/test/model/brands.test.ts": 25,
 			"packages/generator/test/model/diagnostic.test.ts": 12,

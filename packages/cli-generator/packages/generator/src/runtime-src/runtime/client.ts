@@ -41,12 +41,6 @@ import { queryWireForm, redactedPlaceholder } from "#runtime/redact.ts"
 import { mapClientError } from "#runtime/response.ts"
 
 /**
- * The built-in `--timeout` in seconds (design D-AD7), used when no flag, environment value or
- * author default sets one.
- */
-export const defaultTimeoutSeconds = 30
-
-/**
  * A whole number the operator typed: ASCII digits only, decoded to a safe integer. Each caller
  * adds its own bounds and maps a failure to its own `UsageError`, which never carries the text.
  */
@@ -68,8 +62,8 @@ const parseTimeout = (raw: string): Effect.Effect<number, UsageError> =>
 
 /**
  * `--timeout <seconds>` bounds each attempt's wait for response headers; 0 disables it (design
- * D-AD7). The flag holds only the operator's value; `effectiveTimeoutSeconds` applies the
- * fallbacks, because the env name needs the prefix the root supplies.
+ * D-AD7). The flag holds only the operator's value; `effectiveTimeoutSeconds` reads the
+ * environment after it, because the env name needs the prefix the root supplies.
  */
 export const timeoutSetting = GlobalFlag.Setting("timeout")({
 	flag: Flag.String("timeout").pipe(
@@ -85,9 +79,10 @@ const flagTimeout = Effect.map(Effect.serviceOption(timeoutSetting), Option.flat
 
 /**
  * The effective `--timeout` in seconds: the flag, then `<envPrefix>_TIMEOUT` read by that explicit
- * name (as `base-url.ts` reads `<PREFIX>_BASE_URL`), then `defaultTimeoutSeconds`. The author
- * default reaches the env read through the `ConfigProvider` `main.ts` provides (design D-AD7). An
- * unprefixed `TIMEOUT` is never read. A root that registers no `timeoutSetting` has no flag value.
+ * name (as `base-url.ts` reads `<PREFIX>_BASE_URL`). The timeout is the operator's, a fact of their
+ * network path: with neither, no author default or built-in number stands in, and the attempt is
+ * untimed (0). An unprefixed `TIMEOUT` is never read. A root that registers no `timeoutSetting` has
+ * no flag value.
  */
 export const effectiveTimeoutSeconds = (envPrefix: string): Effect.Effect<number, UsageError> =>
 	Effect.gen(function* resolveTimeout() {
@@ -100,18 +95,18 @@ export const effectiveTimeoutSeconds = (envPrefix: string): Effect.Effect<number
 			Effect.mapError(invalidTimeout)
 		)
 
-		return Option.isSome(env) ? yield* parseTimeout(env.value) : defaultTimeoutSeconds
+		return Option.isSome(env) ? yield* parseTimeout(env.value) : 0
 	})
 
 /**
  * The effective `--timeout` for a request. The prefix is the one the root supplies with the servers
- * table; without that layer there is no env name to read, so only the flag and the built-in value
- * apply.
+ * table; without that layer there is no env name to read, so only the flag applies, and without it
+ * the attempt is untimed.
  */
 const requestTimeoutSeconds: Effect.Effect<number, UsageError> = Effect.serviceOption(Servers).pipe(
 	Effect.flatMap(
 		Option.match({
-			onNone: () => flagTimeout.pipe(Effect.map(Option.getOrElse(() => defaultTimeoutSeconds))),
+			onNone: () => flagTimeout.pipe(Effect.map(Option.getOrElse(() => 0))),
 			onSome: ({ envPrefix }) => effectiveTimeoutSeconds(envPrefix)
 		})
 	)

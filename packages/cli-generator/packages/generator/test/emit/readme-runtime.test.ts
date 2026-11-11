@@ -195,9 +195,7 @@ describe("emitReadme, Milestone 3 runtime sections", () => {
 	})
 
 	test("is in the layout vp fmt accepts with every section present", async () => {
-		const readme = emitReadme(
-			await input(runtimeSpec, { ...baseConfig, runtime: { timeoutSeconds: 4 } })
-		)
+		const readme = emitReadme(await input(runtimeSpec, baseConfig))
 
 		expect(formatted(readme.content)).toBe(readme.content)
 	})
@@ -311,8 +309,7 @@ describe("emitReadme, Milestone 3 runtime sections", () => {
 	})
 
 	test("tabulates the five settings with the package prefix and the author defaults (X7)", async () => {
-		const config = { ...baseConfig, runtime: { timeoutSeconds: 60 } }
-		const base = await input(runtimeSpec, config)
+		const base = await input(runtimeSpec, baseConfig)
 		const prefix = envPrefixOf(base.config)
 		const rows = tableRows(section(emitReadme(base).content, "## Settings"))
 
@@ -323,9 +320,8 @@ describe("emitReadme, Milestone 3 runtime sections", () => {
 			["`--idle-timeout`", `\`${prefix}_IDLE_TIMEOUT\``],
 			["`--error-format`", `\`${prefix}_ERROR_FORMAT\``]
 		])
-		expect(rows.map((row) => row[3])).toEqual(["none", "30", "`0`", "none", "`text`"])
-		expect(rows[1]?.[2]).toContain("`runtime.timeoutSeconds`")
-		expect(rows[1]?.[2]).toContain("60")
+		expect(rows.map((row) => row[3])).toEqual(["none", "none", "`0`", "none", "`text`"])
+		expect(rows[1]?.[2]).toBe("none")
 		expect(rows[2]?.[2]).toBe("none")
 		expect(rows[3]?.[2]).toBe("none")
 		expect(rows[4]?.[2]).toBe("none")

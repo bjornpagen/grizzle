@@ -1,7 +1,7 @@
 import { Array as Arr, JsonPointer, Order } from "effect"
 import { stringLiteral } from "#emit/escape.ts"
 import type { EmittedFile } from "#emit/package.ts"
-import { AuthorConfig, runtimeSettings } from "#model/author-config.ts"
+import type { AuthorConfig } from "#model/author-config.ts"
 import { isRefusal } from "#model/diagnostic.ts"
 import type { Diagnostic } from "#model/diagnostic.ts"
 import type { Api } from "#model/entities.ts"
@@ -159,30 +159,12 @@ const howACommandRuns = (): string =>
 		"A command's flags are parsed by its module in `cli/<group>.ts`, which hands the input to the request builder in `api/<group>.ts`. The built request goes to `runtime/output.ts`, whose `Output.send` sends it through the client policy of `runtime/client.ts` (credentials, redirects, retries and timeouts) to the HTTP client `bin.ts` provides, then writes the response."
 	].join("\n\n")
 
-const seconds = (value: number): string => `${value} s`
-
 // Ruling X7 (b): one row per runtime setting, precedence flag > env > author default > built-in.
 const settings = (config: AuthorConfig): string => {
 	const prefix = envPrefixOf(config)
-	// A config without `runtime` resolves to the built-in defaults, which live in `runtimeSettings`.
-	const builtIn = runtimeSettings(
-		new AuthorConfig({ binName: config.binName, package: config.package })
-	)
-	const authored = (key: "timeoutSeconds"): string => {
-		const value = config.runtime?.[key]
-
-		return value === undefined
-			? `\`runtime.${key}\`, not set`
-			: `\`runtime.${key}\`: ${seconds(value)}`
-	}
 	const rows = [
 		["`--base-url`", `\`${prefix}_BASE_URL\``, "`servers.accepted`", "none"],
-		[
-			"`--timeout`",
-			`\`${prefix}_TIMEOUT\``,
-			authored("timeoutSeconds"),
-			`${builtIn.timeoutSeconds}`
-		],
+		["`--timeout`", `\`${prefix}_TIMEOUT\``, "none", "none"],
 		["`--retries`", "none", "none", "`0`"],
 		["`--idle-timeout`", `\`${prefix}_IDLE_TIMEOUT\``, "none", "none"],
 		["`--error-format`", `\`${prefix}_ERROR_FORMAT\``, "none", "`text`"]
@@ -216,7 +198,7 @@ const retries = (): string =>
 		"A request is retried when the connection, the DNS lookup or the wait for headers fails, or when the server answers 408, 429, 500, 502, 503 or 504. A TLS failure is not retried. Without `--retry-unsafe`, only `GET`, `HEAD`, `OPTIONS`, `TRACE`, `PUT`, `DELETE` and `QUERY` are retried, and other methods only when the request carries an `Idempotency-Key` header. A body read from stdin is never retried, because it cannot be sent twice.",
 		"Nothing is retried unless the command line asks: `--retries <n>` lets a run retry up to `n` times in all, and no environment variable or default stands in for it. Waits grow exponentially with jitter, and each retry writes a note to stderr.",
 		"A streamed response whose error event says retrying is safe is retried the same way, whatever the method, because the server reports that the request took no effect; it counts against the same `--retries`.",
-		"A `Retry-After` header is honored up to the effective `--timeout`. When the server asks for a longer wait, the CLI does not wait: it stops retrying, and the error reports the server's value. `--timeout 0` removes this cap along with the timeout."
+		"A `Retry-After` header is honored up to the effective `--timeout`. When the server asks for a longer wait, the CLI does not wait: it stops retrying, and the error reports the server's value. Without a timeout, or with `--timeout 0`, nothing caps the wait."
 	].join("\n\n")
 
 const timeouts = (config: AuthorConfig): string => {
@@ -224,8 +206,8 @@ const timeouts = (config: AuthorConfig): string => {
 
 	return [
 		"## Timeouts",
-		`\`--timeout <seconds>\` (\`${prefix}_TIMEOUT\`) bounds each attempt's wait for the response headers; \`0\` waits forever. A timeout exits with code 4.`,
-		`\`--idle-timeout <seconds>\` (\`${prefix}_IDLE_TIMEOUT\`) bounds the wait for each next chunk of a response body, streamed or not, and a body that stalls longer exits with code 5. Without either, a body waits as long as its server takes: a followed stream lives on the server's heartbeats. Settings lists the defaults, including those this package was generated with.`
+		`\`--timeout <seconds>\` (\`${prefix}_TIMEOUT\`) bounds each attempt's wait for the response headers, its redirects included, and a timeout exits with code 4. Without either, or with \`0\`, an attempt waits as long as its server takes.`,
+		`\`--idle-timeout <seconds>\` (\`${prefix}_IDLE_TIMEOUT\`) bounds the wait for each next chunk of a response body, streamed or not, and a body that stalls longer exits with code 5. Without either, a body waits as long as its server takes: a followed stream lives on the server's heartbeats.`
 	].join("\n\n")
 }
 
@@ -341,7 +323,7 @@ const webhooks = (api: Api): string | undefined => {
  * planned, the secret-file fields when any, the retry policy, timeouts and output modes (design
  * D-AD7, 4.6, 7.4), the proxy routing with its loopback rule (design 6.5), the exit codes (design
  * 4.6), a refusal summary of every stage's refusals, and the webhooks, listed as informational.
- * The prefix comes from the config, defaults from `runtimeSettings`. The bin, environment, flag
+ * The prefix comes from the config. The bin, environment, flag
  * and config names are ASCII by their grammars; every spec string is an escaped literal in a
  * `text` fence.
  */

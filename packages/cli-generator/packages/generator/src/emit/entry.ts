@@ -12,7 +12,6 @@ import {
 	ident,
 	member,
 	newExpr,
-	num,
 	obj,
 	printModule,
 	str,
@@ -23,7 +22,6 @@ import {
 	typeUnion
 } from "#emit/printer.ts"
 import type { Expr, Import, Module, Param, PrinterError, Statement } from "#emit/printer.ts"
-import { runtimeSettings } from "#model/author-config.ts"
 import type { AuthorConfig } from "#model/author-config.ts"
 import type { SecurityScheme } from "#model/entities.ts"
 import { envPrefixOf } from "#names/plan.ts"
@@ -74,30 +72,14 @@ const constant = (name: string, value: Expr, exported = false): Statement => ({
 })
 
 /**
- * The fallback object of the `ConfigProvider` `main.ts` composes (design D-AD7): each runtime
- * setting `runtimeSettings` resolves, keyed by the explicit prefixed env name its runtime resolver
- * reads (`<PREFIX>_TIMEOUT`; memo 6f21e261), in key
- * order. Nothing is nested, so an environment value of the same name wins.
- */
-export const runtimeFallback = (config: AuthorConfig) => {
-	const prefix = envPrefixOf(config)
-	const settings = runtimeSettings(config)
-
-	return {
-		[`${prefix}_TIMEOUT`]: settings.timeoutSeconds
-	}
-}
-
-/**
  * `main.ts` (design 4.1 Lazy root, 14 D5): reads the arguments from `Stdio`, builds the root with
  * `cli/root.ts` `root` (which loads only the groups the arguments select), then `Command.run` over
  * that root with `renderErrors: false` (the final catch is the only renderer), provided with the
  * root's `services` and `CliOutput.layer(Output.formatter(root))`, then `Output.exitForHelp` (help
  * with parse errors exits 2) inside `Output.finalCatch`, which reads `<PREFIX>_ERROR_FORMAT` for a
  * parse-time error. The credentials the handler evaluated reach the catch through
- * `RunCredentials`, so its own list is empty. The whole run reads config through
- * `ConfigProvider.orElse(<env>, ConfigProvider.fromUnknown(runtimeFallback(config)))`, so an author
- * default applies when its env name is unset (design D-AD7).
+ * `RunCredentials`, so its own list is empty. Configuration is read from the environment alone:
+ * no author default stands in for a runtime setting.
  */
 const mainModule = (config: AuthorConfig): Module => {
 	const runRoot = fn(
@@ -114,24 +96,14 @@ const mainModule = (config: AuthorConfig): Module => {
 		fn("CliOutput.layer", fn("Output.formatter", path("command")))
 	)
 	const args = fn("Stdio.Stdio.use", arrow([{ name: I("stdio") }], path("stdio.args")))
-	const fallback = Object.entries(runtimeFallback(config)).map(
-		([name, value]): readonly [string, Expr] => [name, num(value)]
-	)
-	const provider = fn(
-		"ConfigProvider.orElse",
-		fn("ConfigProvider.fromEnv"),
-		fn("ConfigProvider.fromUnknown", obj(fallback))
-	)
-
 	return {
 		imports: [
-			named("effect", ["ConfigProvider", "Effect", "Layer", "Stdio"]),
+			named("effect", ["Effect", "Layer", "Stdio"]),
 			named("effect/cli", ["CliOutput", "Command"]),
 			named("./cli/root.ts", ["root", "services"]),
 			namespace("./runtime/output.ts", "Output")
 		],
 		statements: [
-			constant("provider", provider),
 			constant(
 				"run",
 				call(member(args, M("pipe")), [
@@ -144,8 +116,7 @@ const mainModule = (config: AuthorConfig): Module => {
 						)
 					),
 					path("Output.exitForHelp"),
-					fn("Output.finalCatch", arr([]), obj([["envPrefix", str(envPrefixOf(config))]])),
-					fn("Effect.provideService", path("ConfigProvider.ConfigProvider"), path("provider"))
+					fn("Output.finalCatch", arr([]), obj([["envPrefix", str(envPrefixOf(config))]]))
 				]),
 				true
 			)
