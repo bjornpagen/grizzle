@@ -2,7 +2,7 @@ import { refusal } from "#oxlint/rule.ts"
 import { isCallTo } from "#oxlint/syntax.ts"
 
 /** The calls that wait for time to pass, and the schedules that space their repetitions in time. */
-const SLEEPS: ReadonlyArray<string> = [
+export const SLEEPS: ReadonlyArray<string> = [
 	"Effect.delay",
 	"Effect.sleep",
 	"Schedule.exponential",

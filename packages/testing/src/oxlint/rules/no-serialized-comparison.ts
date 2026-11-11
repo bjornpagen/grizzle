@@ -4,7 +4,7 @@ import { isErrorText } from "#oxlint/rules/no-error-prose.ts"
 import { EQUALITIES, isCallTo, sidesOf, valueOf } from "#oxlint/syntax.ts"
 
 /** The calls that serialize a value to text. */
-const SERIALIZATIONS: ReadonlyArray<string> = [
+export const SERIALIZATIONS: ReadonlyArray<string> = [
 	"Formatter.format",
 	"Formatter.formatJson",
 	"Inspectable.toStringUnknown",
@@ -34,7 +34,7 @@ const isRendered = (context: Context, node: AnyNode): boolean => {
 }
 
 /** The operators that compare two values for equality. */
-const EQUALITY_OPERATORS: ReadonlyArray<string> = ["===", "!==", "==", "!="]
+export const EQUALITY_OPERATORS: ReadonlyArray<string> = ["===", "!==", "==", "!="]
 
 /**
  * A comparison of values through their text: an equality assertion with a serialization on either side, or the value

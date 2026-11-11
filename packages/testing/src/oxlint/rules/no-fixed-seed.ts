@@ -16,14 +16,17 @@ const isFixed = (context: Context, node: AnyNode): boolean => {
  * either of its forms (data first or piped). A stream (`sample`'s, `caseSeed`'s) is branded by what fixes it, so a
  * literal there is a type error, and needs no rule.
  */
-const SEEDED: ReadonlyArray<readonly [callee: string, at: number | "any"]> = [
+export const SEEDED: ReadonlyArray<readonly [callee: string, at: number | "any"]> = [
 	["Random.withSeed", "any"],
 	["wordsOf", 0],
 	["rotatingSeed", 0]
 ]
 
 /** The calls that take a run, whose `seed` field seeds every case. */
-const RUNS: ReadonlyArray<string> = ["Run.of"]
+export const RUNS: ReadonlyArray<string> = ["Run.of"]
+
+/** The field of a run that seeds every case. */
+export const SEED_FIELD = "seed"
 
 const isSeedArgument = (context: Context, call: AnyNode, argument: AnyNode): boolean =>
 	call.type === "CallExpression" &&
@@ -50,7 +53,7 @@ export const noFixedSeed = refusal(
 				object.type === "ObjectExpression" &&
 				object.parent.type === "CallExpression" &&
 				isCallTo(context, object.parent, RUNS) &&
-				Option.contains(keyOf(node), "seed") &&
+				Option.contains(keyOf(node), SEED_FIELD) &&
 				isFixed(context, node.value)
 			) {
 				refuse(node)

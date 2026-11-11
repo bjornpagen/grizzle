@@ -3,7 +3,7 @@ import { refusal } from "#oxlint/rule.ts"
 import { isNamed } from "#oxlint/syntax.ts"
 
 /** The reads of the current time. */
-const CLOCK_READS: ReadonlyArray<string> = [
+export const CLOCK_READS: ReadonlyArray<string> = [
 	"Clock.currentTimeMillis",
 	"Clock.currentTimeNanos",
 	"Date.now",
@@ -14,6 +14,9 @@ const CLOCK_READS: ReadonlyArray<string> = [
 	"performance.now",
 	"process.hrtime"
 ]
+
+/** The constructor whose call with no argument, or call as a function, reads the current time. */
+export const DATE_READS: ReadonlyArray<string> = ["Date"]
 
 /**
  * A read of the current time in a test: `Date.now()`, `new Date()`, `performance.now()`, Effect's `Clock` and
@@ -29,12 +32,12 @@ export const noWallClockVerdict = refusal(
 			}
 		},
 		NewExpression: (node) => {
-			if (isNamed(context, node.callee, ["Date"]) && Arr.isReadonlyArrayEmpty(node.arguments)) {
+			if (isNamed(context, node.callee, DATE_READS) && Arr.isReadonlyArrayEmpty(node.arguments)) {
 				refuse(node)
 			}
 		},
 		CallExpression: (node) => {
-			if (isNamed(context, node.callee, ["Date"])) {
+			if (isNamed(context, node.callee, DATE_READS)) {
 				refuse(node)
 			}
 		}

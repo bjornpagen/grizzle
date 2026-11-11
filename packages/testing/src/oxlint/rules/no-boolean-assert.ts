@@ -11,7 +11,7 @@ import {
 } from "#oxlint/syntax.ts"
 
 /** The assertions that check a value is true or false and say nothing else when it is not. */
-const TRUTHS: ReadonlyArray<string> = [
+export const TRUTHS: ReadonlyArray<string> = [
 	"assert",
 	"assertFalse",
 	"assertTrue",
@@ -23,7 +23,7 @@ const TRUTHS: ReadonlyArray<string> = [
 ]
 
 /** The predicates a narrower assertion states with its own failure message. */
-const PREDICATES: ReadonlyArray<string> = [
+export const PREDICATES: ReadonlyArray<string> = [
 	"Equal.equals",
 	"Exit.isFailure",
 	"Exit.isSuccess",
@@ -34,7 +34,8 @@ const PREDICATES: ReadonlyArray<string> = [
 	"Result.isSuccess"
 ]
 
-const COMPARISONS: ReadonlyArray<string> = ["===", "!==", "==", "!="]
+/** The operators whose comparison a narrower equality assertion states. */
+export const COMPARISONS: ReadonlyArray<string> = ["===", "!==", "==", "!="]
 
 /** A predicate or a comparison, negated or not, called data-first or data-last, or named by a `const`. */
 const isNarrowable = (context: Context, node: AnyNode): boolean => {

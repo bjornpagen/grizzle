@@ -139,7 +139,7 @@ export const isLiteralOf = (node: AnyNode, kinds: ReadonlyArray<string>): boolea
 	node.type === "Literal" && Arr.contains(kinds, typeof node.value)
 
 /** The suites and tests a file declares: Vitest's and @effect/vitest's `describe`, `it` and `test`, with any modifier. */
-const TEST_ROOTS: ReadonlyArray<string> = ["describe", "it", "test"]
+export const TEST_ROOTS: ReadonlyArray<string> = ["describe", "it", "test"]
 
 /** The path a node spells when it names a suite or test function (`it.effect`, `describe.concurrent`), else none. */
 export const testPathOf = (context: Context, node: AnyNode): Option.Option<ReadonlyArray<string>> =>

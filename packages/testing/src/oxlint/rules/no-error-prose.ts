@@ -11,7 +11,7 @@ import {
 } from "#oxlint/syntax.ts"
 
 /** The names an error goes by, whole or as a suffix. */
-const ERROR_NAMES: ReadonlyArray<string> = [
+export const ERROR_NAMES: ReadonlyArray<string> = [
 	"cause",
 	"defect",
 	"e",
@@ -20,7 +20,14 @@ const ERROR_NAMES: ReadonlyArray<string> = [
 	"exception",
 	"failure"
 ]
-const ERROR_SUFFIXES: ReadonlyArray<string> = ["Cause", "Defect", "Error", "Exception", "Failure"]
+/** The endings a name of an error goes by. */
+export const ERROR_SUFFIXES: ReadonlyArray<string> = [
+	"Cause",
+	"Defect",
+	"Error",
+	"Exception",
+	"Failure"
+]
 
 const isErrorName = (name: string): boolean =>
 	Arr.contains(ERROR_NAMES, name) ||
@@ -35,11 +42,33 @@ const isErrorLike = (node: AnyNode): boolean => {
 }
 
 /** The calls that render any value as text. */
-const RENDERINGS: ReadonlyArray<string> = [
+export const RENDERINGS: ReadonlyArray<string> = [
 	"Formatter.format",
 	"Inspectable.toStringUnknown",
 	"String"
 ]
+
+/** The calls that pretty-print a Cause. */
+export const PRETTY_PRINTS: ReadonlyArray<string> = ["Cause.pretty", "Cause.prettyErrors"]
+
+/** The assertions that match a text against a pattern or a part. */
+export const MATCHES: ReadonlyArray<string> = [
+	"assertInclude",
+	"assertMatch",
+	"doesNotMatch",
+	"match",
+	"toContain",
+	"toMatch"
+]
+
+/** The matchers of a thrown error that take written text or an object with a `message`. */
+export const THROW_MATCHERS: ReadonlyArray<string> = ["toThrow", "toThrowError"]
+
+/** The assertions of a throw or a rejection whose matcher is a pattern or an object with a `message`. */
+export const REJECTIONS: ReadonlyArray<string> = ["rejects", "throws", "throwsAsync"]
+
+/** The matchers of a property by its name. */
+export const PROPERTY_MATCHERS: ReadonlyArray<string> = ["toHaveProperty"]
 
 /**
  * Text written for a person about a failure: an error's `.message`, a pretty-printed Cause, or an error rendered by
@@ -53,7 +82,7 @@ export const isErrorText = (context: Context, node: AnyNode): boolean => {
 	if (value.type !== "CallExpression") {
 		return false
 	}
-	if (isNamed(context, value.callee, ["Cause.pretty", "Cause.prettyErrors"])) {
+	if (isNamed(context, value.callee, PRETTY_PRINTS)) {
 		return true
 	}
 	const callee = valueOf(context, value.callee)
@@ -90,26 +119,23 @@ const CHECKS: ReadonlyArray<readonly [ReadonlyArray<string>, Check]> = [
 		EQUALITIES,
 		(context, actual, expected) => isErrorText(context, actual) !== isErrorText(context, expected)
 	],
+	[MATCHES, (context, actual) => isErrorText(context, actual)],
 	[
-		["assertInclude", "assertMatch", "doesNotMatch", "match", "toContain", "toMatch"],
-		(context, actual) => isErrorText(context, actual)
-	],
-	[
-		["toThrow", "toThrowError"],
+		THROW_MATCHERS,
 		(context, _actual, expected) => {
 			const matcher = valueOf(context, expected)
 			return isWrittenText(matcher) || holdsMessage(matcher)
 		}
 	],
 	[
-		["rejects", "throws", "throwsAsync"],
+		REJECTIONS,
 		(context, _actual, expected) => {
 			const matcher = valueOf(context, expected)
 			return isRegex(matcher) || holdsMessage(matcher)
 		}
 	],
 	[
-		["toHaveProperty"],
+		PROPERTY_MATCHERS,
 		(context, _actual, expected) => {
 			const property = valueOf(context, expected)
 			return property.type === "Literal" && property.value === "message"

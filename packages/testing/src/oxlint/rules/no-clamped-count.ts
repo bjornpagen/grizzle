@@ -12,6 +12,9 @@ const isPositiveCount = (context: Context, node: AnyNode): boolean => {
 	)
 }
 
+/** The names Effect's `Array.makeBy` goes by: its module path, and its own name imported alone. */
+export const MAKE_BY: ReadonlyArray<string> = ["Array.makeBy", "makeBy"]
+
 /**
  * Effect's `Array.makeBy(n, f)` over a count no positive literal states. makeBy normalizes its count to at least 1, so a
  * count that is 0 makes one element: a generator that draws 0 never draws its empty case, and a size of 0 is built as
@@ -22,7 +25,7 @@ export const noClampedCount = refusal(
 	"Array.makeBy makes at least one element: a count of 0 makes one, so a search never reaches its empty case. Make 0 … n − 1 with a helper that makes none for 0 (the repository's upTo), or write a positive literal count.",
 	(context, refuse) => ({
 		CallExpression: (node) => {
-			if (!isCallTo(context, node, ["Array.makeBy", "makeBy"])) {
+			if (!isCallTo(context, node, MAKE_BY)) {
 				return
 			}
 			const [count, make] = node.arguments

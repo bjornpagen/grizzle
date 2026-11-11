@@ -3,7 +3,7 @@ import { type AnyNode, type Context, refusal } from "#oxlint/rule.ts"
 import { isCallTo, isNamed, ORDERED_EQUALITIES, pathOf, sidesOf, valueOf } from "#oxlint/syntax.ts"
 
 /** The calls that list the keys, values or entries of an unordered collection as an array or an iterator. */
-const PROJECTIONS: ReadonlyArray<string> = [
+export const PROJECTIONS: ReadonlyArray<string> = [
 	"HashMap.entries",
 	"HashMap.keys",
 	"HashMap.toEntries",
@@ -21,10 +21,10 @@ const PROJECTIONS: ReadonlyArray<string> = [
 ]
 
 /** The methods that iterate a Map's or a Set's keys, values or entries. */
-const ITERATIONS: ReadonlyArray<string> = ["entries", "keys", "values"]
+export const ITERATIONS: ReadonlyArray<string> = ["entries", "keys", "values"]
 
 /** The modules whose calls build hash collections. */
-const HASH_COLLECTIONS: ReadonlyArray<string> = [
+export const HASH_COLLECTIONS: ReadonlyArray<string> = [
 	"HashMap",
 	"HashSet",
 	"MutableHashMap",
@@ -38,11 +38,20 @@ const isIteration = (node: AnyNode): boolean =>
 	!node.callee.computed &&
 	Arr.contains(ITERATIONS, node.callee.property.name)
 
+/** The constructors of a Map and a Set. */
+export const COLLECTION_CONSTRUCTORS: ReadonlyArray<string> = ["Map", "Set"]
+
+/**
+ * The calls that list any iterable as an array, in its own order: `Array.from` and Effect's `Array.fromIterable`. A
+ * listing is a projection exactly when what it lists is unordered; an array, a typed array or a string keeps its order.
+ */
+export const LISTINGS: ReadonlyArray<string> = ["Array.from", "Array.fromIterable"]
+
 /** A Set or a Map: built by its constructor or by a hash collection module, or named by a `const` that holds one. */
 const isUnorderedCollection = (context: Context, node: AnyNode): boolean => {
 	const value = valueOf(context, node)
 	if (value.type === "NewExpression") {
-		return isNamed(context, value.callee, ["Map", "Set"])
+		return isNamed(context, value.callee, COLLECTION_CONSTRUCTORS)
 	}
 	return (
 		value.type === "CallExpression" &&
@@ -58,17 +67,14 @@ const isUnorderedIterable = (context: Context, node: AnyNode): boolean =>
 
 /**
  * An array or iterator whose order is the collection's iteration order, not a promise: a projection call, a Map's or
- * a Set's iteration methods, `Array.from` of anything but an array-like object literal, and a spread or
- * `Arr.fromIterable` of an unordered collection or of a projection.
+ * a Set's iteration methods, and a spread, an `Array.from` or an `Arr.fromIterable` of an unordered collection or of a
+ * projection. A listing of an array, a typed array or a string keeps an order its source promises.
  */
 const isProjection = (context: Context, node: AnyNode): boolean => {
 	if (isCallTo(context, node, PROJECTIONS) || isIteration(node)) {
 		return true
 	}
-	if (node.type === "CallExpression" && isCallTo(context, node, ["Array.from"])) {
-		return Option.exists(Arr.head(node.arguments), (source) => source.type !== "ObjectExpression")
-	}
-	if (node.type === "CallExpression" && isCallTo(context, node, ["Array.fromIterable"])) {
+	if (node.type === "CallExpression" && isCallTo(context, node, LISTINGS)) {
 		return Option.exists(Arr.head(node.arguments), (source) => isUnorderedIterable(context, source))
 	}
 	if (node.type === "ArrayExpression") {

@@ -3,7 +3,7 @@ import { type AnyNode, type Context, refusal } from "#oxlint/rule.ts"
 import { enclosingFunctionOf, isNamed, testPathOf, valueOf } from "#oxlint/syntax.ts"
 
 /** The modifiers that run one test or suite per row of a table. */
-const TABLES: ReadonlyArray<string> = ["each", "for"]
+export const TABLES: ReadonlyArray<string> = ["each", "for"]
 
 const isTablePath = (path: ReadonlyArray<string>): boolean =>
 	Option.exists(Arr.last(path), (last) => Arr.contains(TABLES, last))
