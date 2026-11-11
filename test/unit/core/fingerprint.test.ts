@@ -1,3 +1,23 @@
+/**
+ * Fingerprints (core/fingerprint.ts): SHA-256 over the domain-separated canonical text, blind to source locations,
+ * covering every part the contract names.
+ *
+ * - Parts: a schema level's fingerprint changes with its content and with a "loc" member that holds no SourceLoc, and
+ *   not with its SourceLocs moved; stripping every SourceLoc leaves it as it was; and a level over the level below it
+ *   fingerprints as the level alone, the level below's text standing for its content.
+ * - Domains: two different one-line domains digest one value apart, and an empty domain or one of two lines is refused.
+ *
+ * Oracle: the fingerprint's contract as a specification: which change of the parts it names must move the digest, and
+ * which must not; the level alone as the differential for the level over the one below.
+ *
+ * Features: each change of the parts (content, a non-SourceLoc loc, SourceLocs moved); two domains, an empty domain, a
+ * domain of two lines.
+ *
+ * Plants (~/.cache/grizzle-release/BR06/plants): fingerprint-every-loc-omitted (a "loc" omitted whatever it holds),
+ * fingerprint-locs-kept (SourceLocs kept in the text), fingerprint-domain-dropped (the domain left out of the hashed
+ * text), fingerprint-domain-multiline (a domain of two lines admitted) and fingerprint-level-below-ignored (a level over
+ * another hashed without the level below's text).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -25,10 +45,6 @@ import { assert, defined, refused, succeeded } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { isList } from "#test/support/list.ts"
 
-/**
- * Fingerprints (core/fingerprint.ts): SHA-256 over the domain-separated canonical text, blind to source locations,
- * covering every part the contract names.
- */
 const leaf = oneOf<string | number | boolean>([
 	string(codePoint(0x20, 0x7e), { min: 0, max: 4 }),
 	int(-(2 ** 31), 2 ** 31 - 1),
@@ -130,7 +146,7 @@ describe("fingerprints", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: { kind: "specification", name: "the parts the fingerprint's contract names" },
 					suite: "unit/core/fingerprint-parts",
 					draw: drawn(
 						(source) => [source.draw(contentGen), source.draw(element(changes))] as const
@@ -183,7 +199,7 @@ describe("fingerprints", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: { kind: "specification", name: "a one-line domain, separated" },
 						suite: "unit/core/fingerprint-domain",
 						draw: drawn(
 							(source) =>

@@ -11,6 +11,15 @@
  *
  * NAMEDATALEN, MaxAttrSize and BITS_PER_BYTE have no counterpart in Node: handleMaxBytes, bitColumnMaxBits and
  * maxIdentifierBytes are their sources' arithmetic alone, and a test of them could only restate it, so none is written.
+ *
+ * Each space is small and exhausted. Features: each integer carrier; a code below, among, at the last of and past a
+ * roster's codes; a length below, at and past constantMaxBits; a size already aligned, rounded up, and at byte
+ * alignment; a tuple below, at and past heapTupleMaxBytes.
+ *
+ * Plants (~/.cache/grizzle-release/BR06/plants): limits-int2-greatest-past (smallint's greatest value one past Int16's),
+ * limits-roster-past-smallint (one code past smallint), limits-constant-past-int32 (one bit past the int32 rounding),
+ * limits-align-overshoot (a misaligned size rounded one past its alignment) and limits-heap-tuple-past (the heap tuple
+ * bound an alignment past the page).
  */
 import { describe, it } from "@effect/vitest"
 import { type Case, exhaust } from "@grizzle/testing/explore"
@@ -180,8 +189,8 @@ describe("a constant's length", () => {
 			ctx,
 			exhaust(
 				{
-					box: { kind: "unstated" },
-					oracle: { kind: "unstated" },
+					box: "every bit length within a byte of constantMaxBits",
+					oracle: { kind: "second-implementation", name: "Node's Int32Array" },
 					suite: "unit/core/limits-constant",
 					generator: int(constantMaxBits.value - 8, constantMaxBits.value + 8),
 					literal: Formatter.format,
@@ -224,8 +233,8 @@ describe("a heap page", () => {
 			ctx,
 			exhaust(
 				{
-					box: { kind: "unstated" },
-					oracle: { kind: "unstated" },
+					box: "every size up to four times the greatest alignment, at every power-of-two alignment up to it",
+					oracle: { kind: "specification", name: "TYPEALIGN's bit arithmetic" },
 					suite: "unit/core/limits-align",
 					generator: roundings,
 					literal: Formatter.format,

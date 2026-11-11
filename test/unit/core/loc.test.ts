@@ -1,3 +1,30 @@
+/**
+ * Source locations (core/loc.ts): a SourceLoc names a logical path, a label and the JavaScript call site that built it,
+ * parsed by hand from a stack's frame lines, V8's ("    at fn (file:line:col)") and SpiderMonkey's or
+ * JavaScriptCore's ("fn@file:line:col"), the library's and the runtime's frames skipped.
+ *
+ * The frames are drawn from their parts (a function name or none, a file spelled as a URL, a POSIX or Windows path or a
+ * runtime module, a line and a column), written in each engine's form, so the oracle is the parts themselves.
+ *
+ * - Frames: every engine's frame line reads as its file, line and column, every other line reads as no site, a stack
+ *   reads as its frames' sites in order, a frame is the library's exactly when its file is the library's, the published
+ *   engine's or the runtime's, and a stack's site is its first user frame's. Oracle: the frame's own parts.
+ * - Capture: a declaration made through a chain of compiled frames is located at its innermost caller outside the
+ *   library. Oracle: the drawn chain, whose call lines are placed by construction.
+ * - Structure: a SourceLoc is recognized by its exact structure, and nothing else is. Oracle: the constructors
+ *   (SourceLoc, sitedLoc) against the parser, and each named malformation.
+ * - Relocation: a refusal moved inside a value has its path prefixed, and keeps its label, site and reason. Oracle: the
+ *   location built with the prefixed path.
+ *
+ * Features: each engine's form and each kind of file, a line of no site; the caller's own call, through the library, a
+ * user frame the library calls; each spelling of a SourceLoc and each malformation; a site and no site.
+ *
+ * Plants (~/.cache/grizzle-release/BR06/plants): loc-frame-column-dropped (a V8 frame read without its column),
+ * loc-runtime-frames-kept (a runtime frame taken as the user's), loc-extra-key-admitted (a record with a key beyond a
+ * location's read as one) and loc-within-appended (a relocation's prefix appended after the path).
+ *
+ * A file as a stack names it: a user's, or the library's or the runtime's, which a user-facing location skips.
+ */
 import { compileFunction } from "node:vm"
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -6,18 +33,18 @@ import {
 	array,
 	codePoint,
 	element,
-	filter,
 	type Gen,
 	int,
 	map,
-	oneOf,
 	option,
-	string
+	string,
+	weighted
 } from "@grizzle/testing/gen"
 import { matching } from "@grizzle/testing/pattern"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
+import { regex } from "arkregex"
 import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import { malformedDescription, within } from "#compiler/core/errors.ts"
 import {
@@ -35,17 +62,6 @@ import {
 import { assert, defined } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 
-import { regex } from "arkregex"
-/**
- * Source locations (core/loc.ts): a SourceLoc names a logical path, a label and the JavaScript call site that built it,
- * parsed by hand from a stack's frame lines, V8's ("    at fn (file:line:col)") and SpiderMonkey's or
- * JavaScriptCore's ("fn@file:line:col"), the library's and the runtime's frames skipped.
- *
- * The frames are drawn from their parts (a function name or none, a file spelled as a URL, a POSIX or Windows path or a
- * runtime module, a line and a column), written in each engine's form, so the oracle is the parts themselves.
- *
- * A file as a stack names it: a user's, or the library's or the runtime's, which a user-facing location skips.
- */
 type FileKind =
 	| "a file URL"
 	| "a POSIX path"
@@ -67,20 +83,25 @@ const spelled: { readonly [K in FileKind]: (name: string) => string } = {
 	"the runtime": (name) => `node:internal/${name}`
 }
 
-const fileGen: Gen<{ readonly kind: FileKind; readonly file: string }> = (source) => {
-	const kind = source.draw(
-		element<FileKind>([
-			"a file URL",
-			"a POSIX path",
-			"a Windows path",
-			"an HTTP URL",
-			"the library",
-			"the published engine",
-			"the runtime"
-		])
-	)
-	return { kind, file: spelled[kind](source.draw(matching(regex("^[a-z][a-z0-9_]{0,7}$")))) }
-}
+/** The kinds of a user's file, which a user-facing location names. */
+const userKinds = [
+	"a file URL",
+	"a POSIX path",
+	"a Windows path",
+	"an HTTP URL"
+] as const satisfies ReadonlyArray<FileKind>
+
+/** A file of one of `kinds`, its name drawn. */
+const fileOf =
+	(
+		kinds: ReadonlyArray<FileKind> & Readonly<{ 0: FileKind }>
+	): Gen<{ readonly kind: FileKind; readonly file: string }> =>
+	(source) => {
+		const kind = source.draw(element(kinds))
+		return { kind, file: spelled[kind](source.draw(matching(regex("^[a-z][a-z0-9_]{0,7}$")))) }
+	}
+
+const fileGen = fileOf([...userKinds, "the library", "the published engine", "the runtime"])
 
 /** Whether a frame in a file of this kind is the user's, which a user-facing location names. */
 const userKind = (kind: FileKind): boolean =>
@@ -146,9 +167,17 @@ describe("stack frame parsing", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: { kind: "specification", name: "the parts each frame was written from" },
 						suite: "unit/core/loc-frames",
-						draw: drawn(array(oneOf<Frame | string>([frameGen, noSiteGen]), { min: 1, max: 8 })),
+						draw: drawn(
+							array(
+								weighted<Frame | string>([
+									[3, frameGen],
+									[1, noSiteGen]
+								]),
+								{ min: 1, max: 8 }
+							)
+						),
 						literal: Formatter.format,
 						coverage: required<Form | FileKind | "a line of no site">(
 							[
@@ -229,12 +258,16 @@ interface Placed {
 	readonly indent: number
 }
 
-const placedGen: Gen<Placed> = (source) => ({
-	at: source.draw(fileGen),
-	lineOffset: source.draw(int(0, 9_999)),
-	blank: source.draw(int(0, 4)),
-	indent: source.draw(int(0, 12))
-})
+const placedIn =
+	(file: Gen<{ readonly kind: FileKind; readonly file: string }>): Gen<Placed> =>
+	(source) => ({
+		at: source.draw(file),
+		lineOffset: source.draw(int(0, 9_999)),
+		blank: source.draw(int(0, 4)),
+		indent: source.draw(int(0, 12))
+	})
+
+const placedGen = placedIn(fileGen)
 
 /** The line a stack names for the placed frame's call. */
 const callLine = (p: Placed): number => p.lineOffset + p.blank + 1
@@ -250,6 +283,12 @@ const compiled = (p: Placed) =>
 		{ filename: p.at.file, lineOffset: p.lineOffset }
 	)
 
+/** A path segment: a member's name or an index. */
+const pathSegment: Gen<string | number> = weighted<string | number>([
+	[1, string(codePoint(0x20, 0x7e), { min: 0, max: 4 })],
+	[1, int(0, 2 ** 31 - 1)]
+])
+
 type Reach = "the caller's own call" | "through the library" | "a user frame the library calls"
 
 describe("call-site capture", () => {
@@ -260,20 +299,12 @@ describe("call-site capture", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: { kind: "specification", name: "the drawn chain's placed call lines" },
 						suite: "unit/core/loc-capture",
 						draw: drawn((source) => ({
 							label: source.draw(string(codePoint(0x20, 0x7e), { min: 0, max: 8 })),
-							path: source.draw(
-								array(
-									oneOf<string | number>([
-										string(codePoint(0x20, 0x7e), { min: 0, max: 4 }),
-										int(0, 2 ** 31 - 1)
-									]),
-									{ min: 0, max: 3 }
-								)
-							),
-							caller: source.draw(filter(placedGen, (p) => userKind(p.at.kind), 100)),
+							path: source.draw(array(pathSegment, { min: 0, max: 3 })),
+							caller: source.draw(placedIn(fileOf(userKinds))),
 							inner: source.draw(array(placedGen, { min: 0, max: 3 }))
 						})),
 						literal: Formatter.format,
@@ -335,16 +366,10 @@ describe("SourceLoc", () => {
 			}> = (source) => ({
 				label: source.draw(string(codePoint(0x20, 0x7e), { min: 0, max: 6 })),
 				path: source.draw(
-					array(
-						oneOf<string | number>([
-							string(codePoint(0x20, 0x7e), { min: 0, max: 4 }),
-							int(0, 2 ** 31 - 1)
-						]),
-						{
-							min: 0,
-							max: 3
-						}
-					)
+					array(pathSegment, {
+						min: 0,
+						max: 3
+					})
 				),
 				site: {
 					file: source.draw(string(codePoint(0x20, 0x7e), { min: 0, max: 6 })),
@@ -356,7 +381,10 @@ describe("SourceLoc", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "the constructors, and each named malformation"
+						},
 						suite: "unit/core/loc-structure",
 						draw: drawn(
 							(source) =>
@@ -429,57 +457,51 @@ describe("SourceLoc", () => {
 	it.effect(
 		"relocates a refusal inside a value by prefixing its path, keeping its label, site, reason and capability",
 		(ctx) =>
-			Effect.gen(function* () {
-				const segmentGen = oneOf<string | number>([
-					string(codePoint(0x20, 0x7e), { min: 0, max: 4 }),
-					int(0, 2 ** 31 - 1)
-				])
-				yield* searched(
-					ctx,
-					explore(
-						{
-							oracle: { kind: "unstated" },
-							suite: "unit/core/loc-within",
-							draw: drawn((source) => ({
-								label: source.draw(string(codePoint(0x20, 0x7e), { min: 0, max: 6 })),
-								path: source.draw(array(segmentGen, { min: 0, max: 3 })),
-								prefix: source.draw(array(segmentGen, { min: 0, max: 3 })),
-								site: source.draw(
-									map(
-										option((source) => ({
-											file: source.draw(string(codePoint(0x20, 0x7e), { min: 0, max: 6 })),
-											line: source.draw(int(0, 2 ** 31 - 1)),
-											column: source.draw(int(0, 2 ** 31 - 1))
-										})),
-										Option.getOrUndefined
-									)
+			searched(
+				ctx,
+				explore(
+					{
+						oracle: { kind: "specification", name: "the location built at the prefixed path" },
+						suite: "unit/core/loc-within",
+						draw: drawn((source) => ({
+							label: source.draw(string(codePoint(0x20, 0x7e), { min: 0, max: 6 })),
+							path: source.draw(array(pathSegment, { min: 0, max: 3 })),
+							prefix: source.draw(array(pathSegment, { min: 0, max: 3 })),
+							site: source.draw(
+								map(
+									option((source) => ({
+										file: source.draw(string(codePoint(0x20, 0x7e), { min: 0, max: 6 })),
+										line: source.draw(int(0, 2 ** 31 - 1)),
+										column: source.draw(int(0, 2 ** 31 - 1))
+									})),
+									Option.getOrUndefined
 								)
-							})),
-							literal: Formatter.format,
-							coverage: required<"a site" | "no site">(["a site", "no site"], {
-								cases: 200,
-								sense: notesOnly
-							}),
-							kept: [],
-							runs: 200,
-							shrink: completeShrink,
-							concurrency: 1,
-							steerEvery: 16,
-							caseHang
-						},
-						({ label, path, prefix, site }, c) =>
-							Effect.sync(() => {
-								c.note(site === undefined ? "no site" : "a site")
-								const refusal = malformedDescription(sitedLoc(label, path, site), "a planted rule")
-								const moved = within(refusal, prefix)
-								assert.deepEqual(moved.reason, {
-									_tag: "MalformedDescription",
-									at: sitedLoc(label, [...prefix, ...path], site),
-									what: "a planted rule"
-								})
+							)
+						})),
+						literal: Formatter.format,
+						coverage: required<"a site" | "no site">(["a site", "no site"], {
+							cases: 200,
+							sense: notesOnly
+						}),
+						kept: [],
+						runs: 200,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang
+					},
+					({ label, path, prefix, site }, c) =>
+						Effect.sync(() => {
+							c.note(site === undefined ? "no site" : "a site")
+							const refusal = malformedDescription(sitedLoc(label, path, site), "a planted rule")
+							const moved = within(refusal, prefix)
+							assert.deepEqual(moved.reason, {
+								_tag: "MalformedDescription",
+								at: sitedLoc(label, [...prefix, ...path], site),
+								what: "a planted rule"
 							})
-					)
+						})
 				)
-			})
+			)
 	)
 })

@@ -1,3 +1,49 @@
+/**
+ * The canonical serializer (core/canonical.ts): one text per value, the JSON Canonicalization Scheme (RFC 8785) over
+ * the value's JSON form, and a refusal, at the offending value's path, of everything outside the value model.
+ *
+ * The values are drawn: JSON without null plus bigints, NaN and the infinities, and vectors, their keys and strings
+ * from a dictionary of the spellings where JavaScript's own key order, a code-point order, a naive tagging scheme or
+ * the prototype accessor goes wrong. The oracle is the format's specification, written here apart from the serializer
+ * (the module header): the JSON form holds a bigint as "~n:<integer>", a number that is not finite as "~f:" and the
+ * text String writes of it, a Float32Array as "~v:[c1,...,cn]", each component as JSON.stringify writes it (-0 as 0),
+ * and a plain string beginning with "~" with that "~" doubled, and the text is RFC 8785 over it, keys
+ * ordered by UTF-16 code units and every number and string written as JSON.stringify writes it (ECMAScript's shortest
+ * round trip, -0 as 0; well-formed escaping).
+ *
+ * Keys: drawn text, and the spellings where an order goes wrong: integer-like keys, which JavaScript lists first;
+ * "__proto__", which assignment would take for the prototype; a key above ASCII; and a BMP key beyond the surrogates
+ * beside a supplementary one, which UTF-16 code units order the other way round from code points.
+ *
+ * - Text: encode, toJson, writeCanonicalJson, arrayText and encodeOver are RFC 8785 over the specified JSON form,
+ *   whatever the key insertion order.
+ * - Round trip: the JSON form and the text read back (fromJson, decode) as the value, -0 as 0 and a vector as the
+ *   protocol value of its text.
+ * - Outside the model: each named kind of value outside it, planted at a drawn path, is refused at that path in the
+ *   direction it arises, MalformedDescription for the caller's value and MalformedArtifact for text read back.
+ * - Nesting and cycles: any depth is read and written without the call stack, and a container that holds itself is
+ *   refused as a cycle where it meets itself.
+ * - Omission: an undefined member is left out, and omitSourceLocs leaves out exactly a SourceLoc under "loc".
+ * - Now: a value is read as it is when it is written, frozen or not, so nothing is remembered.
+ * - Comparison: canonicalEquals and sameContent are equality of specified text, and canonicalSortKeyed sorts by it,
+ *   refusing a member outside the model at its place.
+ * - Tokens: canonicalTokens spell the text, are one list exactly when the texts are one, and order as the texts do.
+ *
+ * Oracle: the format's specification above, written here apart from the serializer (jsonForm, rfc8785), a
+ * specification turned into a checker; a round trip for the readers.
+ *
+ * Features: the spellings the format must get right (SpellingFeature), each kind outside the model (Outside), each
+ * container and direction of a nesting and a cycle, each omitted member, each freezing, a repeated member, and what
+ * stands where two token lists first differ (TokenFeature).
+ *
+ * Plants (~/.cache/grizzle-release/BR06/plants): canonical-keys-locale (keys in locale order),
+ * canonical-tilde-kept-doubled (a doubled tilde read back doubled), canonical-bigint-leading-zero (a bigint text with a
+ * leading zero admitted), canonical-cycle-at-root (a cycle refused at the root), canonical-depth-refused (a nesting
+ * refused as a depth), fingerprint-every-loc-omitted (any "loc" omitted), canonical-frozen-memo (a frozen value's text
+ * remembered), canonical-equals-identity (a value outside the model equal to itself), canonical-sort-by-length (a set
+ * sorted by text length) and canonical-tokens-prefix-first (a number whose text begins another's ordered first,
+ * whatever follows it).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
 import { noCoverage, required } from "@grizzle/testing/features"
@@ -7,15 +53,14 @@ import {
 	codePoint,
 	constant,
 	element,
-	filter,
 	type Gen,
 	int,
 	map,
-	oneOf,
 	option,
 	string,
 	unicodeScalar,
-	uniqueArray
+	uniqueArray,
+	weighted
 } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
@@ -74,41 +119,42 @@ import { isList } from "#test/support/list.ts"
 import { regex } from "arkregex"
 import { jsonText, trusted, trustedJson } from "#compiler/core/trusted.ts"
 import { caseHang } from "#test/support/limits.ts"
-/**
- * The canonical serializer (core/canonical.ts): one text per value, the JSON Canonicalization Scheme (RFC 8785) over
- * the value's JSON form, and a refusal, at the offending value's path, of everything outside the value model.
- *
- * The values are drawn: JSON without null plus bigints, NaN and the infinities, and vectors, their keys and strings
- * from a dictionary of the spellings where JavaScript's own key order, a code-point order, a naive tagging scheme or
- * the prototype accessor goes wrong. The oracle is the format's specification, written here apart from the serializer
- * (the module header): the JSON form holds a bigint as "~n:<integer>", a number that is not finite as "~f:" and the
- * text String writes of it, a Float32Array as "~v:[c1,...,cn]", each component as JSON.stringify writes it (-0 as 0),
- * and a plain string beginning with "~" with that "~" doubled, and the text is RFC 8785 over it, keys
- * ordered by UTF-16 code units and every number and string written as JSON.stringify writes it (ECMAScript's shortest
- * round trip, -0 as 0; well-formed escaping).
- *
- * Keys: drawn text, and the spellings where an order goes wrong: integer-like keys, which JavaScript lists first;
- * "__proto__", which assignment would take for the prototype; a key above ASCII; and a BMP key beyond the surrogates
- * beside a supplementary one, which UTF-16 code units order the other way round from code points.
- */
-const key = oneOf([
-	string(codePoint(0x20, 0x7e), { min: 0, max: 6 }),
-	element([
-		"0",
-		"1",
-		"2",
-		"10",
-		"__proto__",
-		"~",
-		"~n:1",
-		"a",
-		"b",
-		"Z",
-		"é",
-		"loc",
-		"～",
-		"\u{1f600}"
-	])
+/** The spellings where a key order, a tagging scheme or the prototype accessor goes wrong. */
+const keyDictionary = [
+	"0",
+	"1",
+	"2",
+	"10",
+	"__proto__",
+	"~",
+	"~n:1",
+	"a",
+	"b",
+	"Z",
+	"é",
+	"loc",
+	"～",
+	"\u{1f600}"
+] as const
+
+/** A key: drawn printable text, or a spelling of the dictionary. */
+const key: Gen<string> = weighted([
+	[1, string(codePoint(0x20, 0x7e), { min: 0, max: 6 })],
+	[1, element(keyDictionary)]
+])
+
+/** A key that is not "loc": the dictionary without it, and drawn text, which spells "loc" as "loc~". */
+const keyBesideLoc: Gen<string> = weighted([
+	[1, map(string(codePoint(0x20, 0x7e), { min: 0, max: 6 }), (k) => (k === "loc" ? "loc~" : k))],
+	[
+		1,
+		element(
+			nonEmpty(
+				Arr.filter(keyDictionary, (k) => k !== "loc"),
+				"the keys beside loc"
+			)
+		)
+	]
 ])
 
 /** A value carried by the Canonicalizable protocol, under one of a few extension tags the revivers below restore. */
@@ -138,25 +184,34 @@ const float32Max = 3.4028234663852886e38
  * as often as any other.
  */
 const vector: Gen<Float32Array> = map(
-	array(oneOf<number>([float(-float32Max, float32Max), constant(-0)]), { min: 0, max: 8 }),
+	array(
+		weighted<number>([
+			[1, float(-float32Max, float32Max)],
+			[1, constant(-0)]
+		]),
+		{ min: 0, max: 8 }
+	),
 	(xs) => Float32Array.from(xs)
 )
 
-const leaf = oneOf<unknown>([
-	vector,
-	string(unicodeScalar, { min: 0, max: 8 }),
-	(source) =>
-		new Exact(
-			source.draw(element(exactTags)),
-			source.draw(string(unicodeScalar, { min: 0, max: 6 }))
-		),
-	element(["~", "~~", "~n:5", "~d:1.50", "n1"]),
-	boolean,
-	int(-(2 ** 31), 2 ** 31 - 1),
-	double(-Number.MAX_VALUE, Number.MAX_VALUE),
-	element([-0, 1e21, 1e-7, 2 ** 53]),
-	element([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]),
-	bigint(-(2n ** 64n), 2n ** 64n)
+const leaf = weighted<unknown>([
+	[1, vector],
+	[1, string(unicodeScalar, { min: 0, max: 8 })],
+	[
+		1,
+		(source) =>
+			new Exact(
+				source.draw(element(exactTags)),
+				source.draw(string(unicodeScalar, { min: 0, max: 6 }))
+			)
+	],
+	[1, element(["~", "~~", "~n:5", "~d:1.50", "n1"])],
+	[1, boolean],
+	[1, int(-(2 ** 31), 2 ** 31 - 1)],
+	[1, double(-Number.MAX_VALUE, Number.MAX_VALUE)],
+	[1, element([-0, 1e21, 1e-7, 2 ** 53])],
+	[1, element([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])],
+	[1, bigint(-(2n ** 64n), 2n ** 64n)]
 ])
 
 /**
@@ -168,18 +223,21 @@ const valueAt = (depth: number): Gen<unknown> => {
 		return leaf
 	}
 	const inner = valueAt(depth - 1)
-	return oneOf<unknown>([
-		leaf,
-		array(inner, { min: 0, max: 5 }),
-		map(
-			uniqueArray(
-				(source): readonly [string, unknown] => [source.draw(key), source.draw(inner)],
-				([k]) => k,
-				{ min: 0, max: 6 },
-				20
-			),
-			build
-		)
+	return weighted<unknown>([
+		[1, leaf],
+		[1, array(inner, { min: 0, max: 5 })],
+		[
+			1,
+			map(
+				uniqueArray(
+					(source): readonly [string, unknown] => [source.draw(key), source.draw(inner)],
+					([k]) => k,
+					{ min: 0, max: 6 },
+					20
+				),
+				build
+			)
+		]
 	])
 }
 
@@ -372,7 +430,7 @@ describe("the canonical text", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: { kind: "specification", name: "RFC 8785 over the specified JSON form" },
 					suite: "unit/core/canonical-text",
 					draw: drawn(
 						(source) =>
@@ -457,11 +515,26 @@ describe("the canonical text", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "universal",
+							name: "decode ∘ encode and fromJson ∘ toJson, against the specified text"
+						},
 						suite: "unit/core/canonical-2",
 						draw: drawn(value),
 						literal: Formatter.format,
-						coverage: noCoverage,
+						coverage: required<SpellingFeature>(
+							[
+								"a bigint",
+								"a vector",
+								"a vector component of -0",
+								"a Canonicalizable value",
+								"a string beginning with ~",
+								"a __proto__ key",
+								"negative zero",
+								"a number that is not finite"
+							],
+							{ cases: 500, sense: notesOnly }
+						),
 						kept: [],
 						runs: 500,
 						shrink: completeShrink,
@@ -469,8 +542,9 @@ describe("the canonical text", () => {
 						steerEvery: 16,
 						caseHang
 					},
-					(v) =>
+					(v, c) =>
 						Effect.sync(() => {
+							spellingsOf(v, c.note)
 							const json = succeeded(toJson(v, everyProperty))
 							const parsed = trustedJson<unknown>(jsonText(json))
 							const viaJson = succeeded(fromJson(parsed, revivers))
@@ -595,8 +669,15 @@ const outsides = nonEmpty(
 	"the kinds outside the model"
 )
 
+/** A path segment: a member's key or an array's index, equally often. */
+const pathSegmentOf = (member: Gen<string>, index: Gen<number>): Gen<string | number> =>
+	weighted<string | number>([
+		[1, member],
+		[1, index]
+	])
+
 /** A path into a value: object keys and array indices. */
-const pathGen = array(oneOf<string | number>([element(["a", "b", "k"]), int(0, 2)]), {
+const pathGen = array(pathSegmentOf(element(["a", "b", "k"]), int(0, 2)), {
 	min: 0,
 	max: 4
 })
@@ -663,7 +744,10 @@ describe("a value outside the model", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "the value model, each kind outside it located where it was planted"
+						},
 						suite: "unit/core/canonical-outside",
 						draw: drawn(
 							(source) =>
@@ -751,8 +835,8 @@ describe("a value outside the model", () => {
 					ctx,
 					exhaust(
 						{
-							box: { kind: "unstated" },
-							oracle: { kind: "unstated" },
+							box: "no container, one, and 100,000 nested, of each container, in each direction",
+							oracle: { kind: "specification", name: "the nested text written out directly" },
 							suite: "unit/core/canonical-nesting",
 							/** No container, one, and a nesting a recursion would overflow the small stack at, each container and direction. */
 							generator: (source) =>
@@ -785,8 +869,11 @@ describe("a value outside the model", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "cycles through one, two and 100,000 containers, back to the first or the last, each container, each direction",
+						oracle: {
+							kind: "specification",
+							name: "the path from the root to where the cycle meets itself"
+						},
 						suite: "unit/core/canonical-cycle",
 						/** A cycle through one container, two, and one a recursion would overflow the small stack on, back to its first or last. */
 						generator: (source) => {
@@ -845,16 +932,10 @@ type DrawnLoc = Readonly<{
 
 const sourceLocGen: Gen<DrawnLoc> = (source) => ({
 	path: source.draw(
-		array(
-			oneOf<string | number>([
-				string(codePoint(0x20, 0x7e), { min: 0, max: 4 }),
-				int(0, 2 ** 31 - 1)
-			]),
-			{
-				min: 0,
-				max: 3
-			}
-		)
+		array(pathSegmentOf(string(codePoint(0x20, 0x7e), { min: 0, max: 4 }), int(0, 2 ** 31 - 1)), {
+			min: 0,
+			max: 3
+		})
 	),
 	label: source.draw(string(codePoint(0x20, 0x7e), { min: 0, max: 6 })),
 	site: source.draw(
@@ -883,7 +964,10 @@ describe("the omitted members", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "the specified text of the value without the member"
+						},
 						suite: "unit/core/canonical-omitted",
 						draw: drawn(
 							(source) =>
@@ -891,7 +975,7 @@ describe("the omitted members", () => {
 									source.draw(
 										uniqueArray(
 											(source): readonly [string, unknown] => [
-												source.draw(filter(key, (k) => k !== "loc", 100)),
+												source.draw(keyBesideLoc),
 												source.draw(value)
 											],
 											([k]) => k,
@@ -900,10 +984,10 @@ describe("the omitted members", () => {
 										)
 									),
 									source.draw(
-										oneOf<Member>([
-											constant({ kind: "undefined" }),
-											map(sourceLocGen, (loc) => ({ kind: "loc", loc })),
-											map(leaf, (other) => ({ kind: "other", other }))
+										weighted<Member>([
+											[1, constant({ kind: "undefined" })],
+											[1, map(sourceLocGen, (loc) => ({ kind: "loc", loc }))],
+											[1, map(leaf, (other) => ({ kind: "other", other }))]
 										])
 									)
 								] as const
@@ -972,7 +1056,10 @@ describe("the omitted members", () => {
 					ctx,
 					explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "specification",
+								name: "the specified text of the value as it is now"
+							},
 							suite: "unit/core/canonical-memo",
 							draw: drawn(
 								(source) =>
@@ -1055,7 +1142,10 @@ describe("canonical comparison", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "equality and code unit order of the specified text"
+						},
 						suite: "unit/core/canonical-compare",
 						/**
 						 * Planted: two equal arrays that are distinct objects, which the drawn members repeat a few times a run.
@@ -1136,26 +1226,29 @@ describe("canonical comparison", () => {
  * A leaf two drawn values often share: strings that JSON escapes or that a tag reads, strings one of which begins
  * another, numbers whose texts begin one another, booleans and bigints.
  */
-const nearLeaf = oneOf<unknown>([
-	element([
-		"",
-		"a",
-		"ab",
-		'"',
-		"\\",
-		"\n",
-		"\u0001",
-		"~",
-		"~n:1",
-		"1",
-		" ",
-		"!",
-		"\u{e000}",
-		"\u{1f600}"
-	]),
-	element([0, 1, 12, 10, -1, 1.5, 1e21, 2 ** 53]),
-	boolean,
-	element([0n, 1n, -12n])
+const nearLeaf = weighted<unknown>([
+	[
+		1,
+		element([
+			"",
+			"a",
+			"ab",
+			'"',
+			"\\",
+			"\n",
+			"\u0001",
+			"~",
+			"~n:1",
+			"1",
+			" ",
+			"!",
+			"\u{e000}",
+			"\u{1f600}"
+		])
+	],
+	[1, element([0, 1, 12, 10, -1, 1.5, 1e21, 2 ** 53])],
+	[1, boolean],
+	[1, element([0n, 1n, -12n])]
 ])
 
 /** A value of few small parts nested at most `depth` deep, so two drawn values often share a prefix or are equal. */
@@ -1164,21 +1257,24 @@ const nearValueAt = (depth: number): Gen<unknown> => {
 		return nearLeaf
 	}
 	const inner = nearValueAt(depth - 1)
-	return oneOf<unknown>([
-		nearLeaf,
-		array(inner, { min: 0, max: 3 }),
-		map(
-			uniqueArray(
-				(source): readonly [string, unknown] => [
-					source.draw(element(["", "a", "b", "~", "1"])),
-					source.draw(inner)
-				],
-				([k]) => k,
-				{ min: 0, max: 3 },
-				20
-			),
-			build
-		)
+	return weighted<unknown>([
+		[1, nearLeaf],
+		[1, array(inner, { min: 0, max: 3 })],
+		[
+			1,
+			map(
+				uniqueArray(
+					(source): readonly [string, unknown] => [
+						source.draw(element(["", "a", "b", "~", "1"])),
+						source.draw(inner)
+					],
+					([k]) => k,
+					{ min: 0, max: 3 },
+					20
+				),
+				build
+			)
+		]
 	])
 }
 

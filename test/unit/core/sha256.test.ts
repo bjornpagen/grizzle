@@ -1,7 +1,28 @@
+/**
+ * The bytes a fingerprint hashes for a text (core/sha256.ts utf8, utf8Length) and the digest of a text (sha256Hex).
+ *
+ * - Well-formed text: utf8 writes the platform encoder's UTF-8, and utf8Length counts its bytes. Oracle: the platform's
+ *   TextEncoder, a second implementation.
+ * - Any UTF-16 string: utf8 writes generalized UTF-8 (WTF-8), each code point as the platform iterates the string, a
+ *   lone surrogate as its own three bytes 0xE0 | cp >> 12, 0x80 | (cp >> 6) & 0x3F, 0x80 | cp & 0x3F, never U+FFFD, and
+ *   utf8Length counts them. Oracle: that definition, code point by code point, a specification turned into a checker.
+ * - sha256Hex of a text is sha256Hex of its generalized UTF-8 bytes. Oracle: the differential between the text path and
+ *   the bytes path, the bytes written by the definition above.
+ *
+ * Inputs: a string of code units drawn by class (ASCII, any BMP unit, a surrogate unit, a supplementary character's
+ * pair), so lone surrogates appear and adjacent ones also pair up; well-formed text is drawn as scalar values alone.
+ *
+ * Features: each code point's UTF-8 width (one to four bytes), a lone surrogate, and an empty text.
+ *
+ * Plants (~/.cache/grizzle-release/BR06/plants): sha256-replacement-char (a lone surrogate written as the platform
+ * writes it, U+FFFD), sha256-length-pair (a surrogate pair counted as two three-byte units) and sha256-text-platform (a
+ * text hashed as the platform's UTF-8).
+ */
 import { describe, it } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { noCoverage } from "@grizzle/testing/features"
-import { array, codePoint, int, map, oneOf, string } from "@grizzle/testing/gen"
+import { type Case, drawn, explore } from "@grizzle/testing/explore"
+import { required } from "@grizzle/testing/features"
+import { array, codePoint, type Gen, int, map, string, weighted } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
@@ -11,37 +32,84 @@ import { caseHang } from "#test/support/limits.ts"
 
 const platform = new TextEncoder()
 
-/**
- * The bytes of `text` by the definition of the encoding fingerprints hash (core/sha256.ts utf8), one code point at a
- * time as the platform iterates a string: a surrogate code point is 0xE0 | cp >> 12, 0x80 | (cp >> 6) & 0x3F,
- * 0x80 | cp & 0x3F; every other code point is the platform encoder's. That is the platform's UTF-8 on well-formed text
- * and generalized UTF-8 (WTF-8) on any UTF-16 string, a lone surrogate written as its own three-byte sequence rather
- * than replaced by U+FFFD, so two different strings never hash as the same bytes.
- */
-const generalized = (text: string): ReadonlyArray<number> =>
-	Arr.flatMap(Arr.fromIterable(text), (point) => {
-		const cp = Option.getOrThrowWith(Str.codePointAt(point, 0), () => new Error("a code point"))
-		return cp >= 0xd800 && cp <= 0xdfff
-			? [0xe0 | (cp >> 12), 0x80 | ((cp >> 6) & 0x3f), 0x80 | (cp & 0x3f)]
-			: [...platform.encode(point)]
-	})
+type Feature =
+	| "a one-byte point"
+	| "a two-byte point"
+	| "a three-byte point"
+	| "a four-byte point"
+	| "a lone surrogate"
+	| "an empty text"
+
+const isSurrogate = (cp: number): boolean => cp >= 0xd800 && cp <= 0xdfff
+
+/** Each code point of `text` as the platform iterates it, a lone surrogate as a code point of its own. */
+const pointsOf = (text: string): ReadonlyArray<number> =>
+	Arr.map(Arr.fromIterable(text), (point) =>
+		Option.getOrThrowWith(Str.codePointAt(point, 0), () => new Error("a code point"))
+	)
 
 /**
- * Arbitrary UTF-16: any code unit (lone surrogates included, so adjacent ones may also pair up), weighted toward
- * ASCII, surrogates, and well-formed supplementary pairs, so it reaches strings a string of code points never does.
+ * The bytes of `text` by the definition of the encoding fingerprints hash, one code point at a time: a surrogate code
+ * point is 0xE0 | cp >> 12, 0x80 | (cp >> 6) & 0x3F, 0x80 | cp & 0x3F; every other code point is the platform
+ * encoder's.
  */
-const utf16 = map(
+const generalized = (text: string): ReadonlyArray<number> =>
+	Arr.flatMap(pointsOf(text), (cp) =>
+		isSurrogate(cp)
+			? [0xe0 | (cp >> 12), 0x80 | ((cp >> 6) & 0x3f), 0x80 | (cp & 0x3f)]
+			: [...platform.encode(String.fromCodePoint(cp))]
+	)
+
+/** The situation each code point of a text is, by its UTF-8 width or as a lone surrogate. */
+const noteText = (text: string, c: Case<Feature>): void => {
+	if (text.length === 0) {
+		c.note("an empty text")
+	}
+	for (const cp of pointsOf(text)) {
+		c.note(
+			isSurrogate(cp)
+				? "a lone surrogate"
+				: cp < 0x80
+					? "a one-byte point"
+					: cp < 0x800
+						? "a two-byte point"
+						: cp < 0x1_0000
+							? "a three-byte point"
+							: "a four-byte point"
+		)
+	}
+}
+
+/**
+ * Arbitrary UTF-16: any code unit by class (ASCII, any BMP unit, a surrogate unit, a supplementary character's pair),
+ * so lone surrogates appear and adjacent surrogate units also pair up.
+ */
+const utf16: Gen<string> = map(
 	array(
-		oneOf([
-			map(int(0, 0x7f), (c) => String.fromCharCode(c)),
-			map(int(0, 0xffff), (c) => String.fromCharCode(c)),
-			map(int(0xd800, 0xdfff), (c) => String.fromCharCode(c)),
-			map(int(0x10000, 0x10ffff), (c) => String.fromCodePoint(c))
+		weighted([
+			[1, map(int(0, 0x7f), (c) => String.fromCharCode(c))],
+			[1, map(int(0, 0xffff), (c) => String.fromCharCode(c))],
+			[1, map(int(0xd800, 0xdfff), (c) => String.fromCharCode(c))],
+			[1, map(int(0x1_0000, 0x10_ffff), (c) => String.fromCodePoint(c))]
 		]),
 		{ min: 0, max: 10 }
 	),
 	(units) => Arr.join(units, "")
 )
+
+/** Well-formed text by the UTF-8 width of its scalar values. */
+const wellFormed: Gen<string> = string(
+	weighted([
+		[1, codePoint(0x20, 0x7e)],
+		[1, codePoint(0x80, 0x7ff)],
+		[1, codePoint(0x800, 0xd7ff)],
+		[1, codePoint(0xe000, 0xffff)],
+		[1, codePoint(0x1_0000, 0x10_ffff)]
+	]),
+	{ min: 0, max: 10 }
+)
+
+const steered = { cases: 200, sense: notesOnly }
 
 describe("utf8", () => {
 	it.effect(
@@ -51,20 +119,20 @@ describe("utf8", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: { kind: "second-implementation", name: "the platform's TextEncoder" },
 						suite: "unit/core/utf8-well-formed",
-						draw: drawn(
-							string(
-								oneOf([
-									codePoint(0x20, 0x7e),
-									codePoint(0xa0, 0xd7_ff),
-									codePoint(0xe0_00, 0x10_ffff)
-								]),
-								{ min: 0, max: 10 }
-							)
-						),
+						draw: drawn(wellFormed),
 						literal: Formatter.format,
-						coverage: noCoverage,
+						coverage: required<Feature>(
+							[
+								"a one-byte point",
+								"a two-byte point",
+								"a three-byte point",
+								"a four-byte point",
+								"an empty text"
+							],
+							steered
+						),
 						kept: [],
 						runs: 500,
 						shrink: completeShrink,
@@ -72,11 +140,12 @@ describe("utf8", () => {
 						steerEvery: 16,
 						caseHang
 					},
-					(text) =>
+					(text, c) =>
 						Effect.sync(() => {
 							const expected = [...platform.encode(text)]
 							assert.deepEqual([...utf8(text)], expected)
 							assert.equal(utf8Length(text), expected.length)
+							noteText(text, c)
 						})
 				)
 			)
@@ -89,11 +158,24 @@ describe("utf8", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "generalized UTF-8, code point by code point, a lone surrogate as three bytes"
+						},
 						suite: "unit/core/utf8-generalized",
 						draw: drawn(utf16),
 						literal: Formatter.format,
-						coverage: noCoverage,
+						coverage: required<Feature>(
+							[
+								"a one-byte point",
+								"a two-byte point",
+								"a three-byte point",
+								"a four-byte point",
+								"a lone surrogate",
+								"an empty text"
+							],
+							steered
+						),
 						kept: [],
 						runs: 500,
 						shrink: completeShrink,
@@ -101,12 +183,13 @@ describe("utf8", () => {
 						steerEvery: 16,
 						caseHang
 					},
-					(text) =>
+					(text, c) =>
 						Effect.sync(() => {
 							const expected = generalized(text)
 							const written: ReadonlyArray<number> = [...utf8(text)]
 							assert.deepEqual(written, expected)
 							assert.equal(utf8Length(text), expected.length)
+							noteText(text, c)
 						})
 				)
 			)
@@ -119,11 +202,14 @@ describe("sha256Hex", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "universal",
+						name: "the text path against the bytes path over generalized UTF-8"
+					},
 					suite: "unit/core/sha256-text",
 					draw: drawn(utf16),
 					literal: Formatter.format,
-					coverage: noCoverage,
+					coverage: required<Feature>(["a lone surrogate", "a four-byte point"], steered),
 					kept: [],
 					runs: 300,
 					shrink: completeShrink,
@@ -131,9 +217,10 @@ describe("sha256Hex", () => {
 					steerEvery: 16,
 					caseHang
 				},
-				(text) =>
+				(text, c) =>
 					Effect.sync(() => {
 						assert.equal(sha256Hex(text), sha256Hex(Uint8Array.from(generalized(text))))
+						noteText(text, c)
 					})
 			)
 		)

@@ -1,3 +1,32 @@
+/**
+ * The naming door's rendering (core/identity.ts), over whole installations and the declared-name rules:
+ *
+ * - one schema installed under two schema names installs alike: every name that depends on the installation is
+ *   `<schema>__<name>` or hashed, so the two install scripts are one script once the installation is abstracted
+ *   (test/pg/migrate/support.ts installationAbstraction), whatever the two names, one a prefix of the other included;
+ * - a COMMENT names a hashed object only, and says what its identity is: a readable name spells its identity itself;
+ * - two declared names of one namespace that convert alike are one name, refused as IdentifierCollision, and a name the
+ *   rule refuses (a leading `_`, a conversion past maxIdentifierBytes) is refused as MalformedDescription;
+ * - the census admits distinct hashed identities of distinct identifiers, and refuses two distinct identities of one
+ *   identifier, a digest collision, as DigestCollision naming both, before anything is installed;
+ * - a migration's census of its temporaries (TemporaryCensus), over the hashed names an installed snapshot leaves
+ *   standing, admits every distinct temporary under its identifier and one minted again under the same, and refuses
+ *   one whose identifier a standing name or another temporary has as DigestCollision naming both, where it is minted.
+ *
+ * Oracles: the installation abstraction as the differential between two schema names; the comment's contract (a hashed
+ * object's comment is its identity's display); the declared-name rule itself (parseDeclaredName, conversionOf), whose
+ * classification of the dictionary (test/support/kernel/dict.ts) the schema's namespaces must agree with; and the
+ * census's contract over forged twins, which share an identifier and differ in identity.
+ *
+ * Features: two plain schema names and one a prefix of the other, a hashed object commented; relations alike, fields
+ * alike, a refused relation name, a refused field name; an admission and a digest collision; a temporary admitted,
+ * minted again, meeting a standing name, meeting another temporary.
+ *
+ * Plants (~/.cache/grizzle-release/BR06/plants): identity-comment-canonical (a comment holding the canonical text, not
+ * the display), identity-declared-by-spelling (a namespace keyed by the spelling, not the conversion),
+ * identity-census-blind (the census never looks for a collision), identity-temporary-standing-blind (a temporary never
+ * meets a standing name) and identity-temporary-again-refused (a temporary minted again refused as its own twin).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
 import { required, requiredInSpace } from "@grizzle/testing/features"
@@ -31,22 +60,6 @@ import { aliasGroups, refusedNames } from "#test/support/kernel/dict.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { ownedInput, owning } from "#test/support/policy.ts"
-
-/**
- * The naming door's rendering (core/identity.ts), over whole installations and the declared-name rules:
- *
- * - one schema installed under two schema names installs alike: every name that depends on the installation is
- *   `<schema>__<name>` or hashed, so the two install scripts are one script once the installation is abstracted
- *   (test/pg/migrate/support.ts installationAbstraction), whatever the two names, one a prefix of the other included;
- * - a COMMENT names a hashed object only, and says what its identity is: a readable name spells its identity itself;
- * - two declared names of one namespace that convert alike are one name, refused as IdentifierCollision, and a name the
- *   rule refuses (a leading `_`, a conversion past maxIdentifierBytes) is refused as MalformedDescription;
- * - the census admits distinct hashed identities of distinct identifiers, and refuses two distinct identities of one
- *   identifier, a digest collision, as DigestCollision naming both, before anything is installed;
- * - a migration's census of its temporaries (TemporaryCensus), over the hashed names an installed snapshot leaves
- *   standing, admits every distinct temporary under its identifier and one minted again under the same, and refuses
- *   one whose identifier a standing name or another temporary has as DigestCollision naming both, where it is minted.
- */
 
 /** A fixture with its login: the shop, and the ledger, whose residual law and derived relation install as extensions. */
 type Fixture = "shop" | "ledger"
@@ -152,8 +165,11 @@ describe("the naming door", () => {
 					ctx,
 					exhaust(
 						{
-							box: { kind: "unstated" },
-							oracle: { kind: "unstated" },
+							box: "the shop and the ledger, each under every pair of four schema names",
+							oracle: {
+								kind: "universal",
+								name: "one script under two schema names, once the installation is abstracted"
+							},
 							suite: "unit/core/identity-installations",
 							generator: (source) =>
 								[
@@ -239,8 +255,11 @@ describe("the naming door", () => {
 					ctx,
 					exhaust(
 						{
-							box: { kind: "unstated" },
-							oracle: { kind: "unstated" },
+							box: "every alias pair and every refused name of the identifier dictionary, as relations and as fields",
+							oracle: {
+								kind: "specification",
+								name: "the declared-name rule's own classification"
+							},
 							suite: "unit/core/identity-declared-names",
 							generator: element<Drawn>(
 								nonEmpty(
@@ -299,16 +318,18 @@ describe("the naming door", () => {
 										)
 										return
 									case "a refused relation name":
-										assert.ok(
-											!ownedInput(schemaOf([relation(drawn.p, { id: f.uuid }, ["id"])])).ok,
+										refused(
+											ownedInput(schemaOf([relation(drawn.p, { id: f.uuid }, ["id"])])),
+											"MalformedDescription",
 											drawn.p
 										)
 										return
 									case "a refused field name":
-										assert.ok(
-											!ownedInput(
+										refused(
+											ownedInput(
 												schemaOf([relation("Item", { id: f.uuid, [drawn.p]: f.bigint }, ["id"])])
-											).ok,
+											),
+											"MalformedDescription",
 											drawn.p
 										)
 								}
@@ -325,7 +346,10 @@ describe("the naming door", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "a forged twin: one identifier, another identity"
+						},
 						suite: "unit/core/identity-census",
 						draw: drawn((source) => ({
 							fields: source.draw(array(element(["a", "b", "c", "d", "e"]), { min: 1, max: 5 })),
@@ -402,7 +426,10 @@ describe("the naming door", () => {
 					ctx,
 					explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "specification",
+								name: "a forged twin or a standing name at one identifier"
+							},
 							suite: "unit/core/identity-temporaries",
 							draw: drawn((source) => ({
 								snapshot: source.draw(element<Fixture>(["shop", "ledger"])),

@@ -3,6 +3,20 @@
  * ResourceBound (stringLength) past the limit. The limit is V8's longest string, which a Node upgrade can move, so it is
  * checked against the running V8, which builds a string of every length within eight of it up to it and refuses one
  * past it; the measure is checked against the text itself, at limits drawn around its length.
+ *
+ * - V8's longest string: every length within eight of maxStringLength is built exactly when it is at most it, and
+ *   refused with a RangeError otherwise. Oracle: the running V8.
+ * - A written text (textOf) and an enclosure (enclosedWithin) are exactly the text joined by hand when it fits, and are
+ *   otherwise refused as ResourceBound (stringLength) with that text's length as `needed`. Oracle: the text joined by
+ *   hand, a second implementation.
+ * - A text past JavaScript's longest string is refused with its length, measured, never built.
+ *
+ * Features: the limit far within, at, one past and far past the text's length; the fewest lines past V8's longest
+ * string, and more.
+ *
+ * Plants (~/.cache/grizzle-release/BR06/plants): lines-v8-longest-past (maxStringLength one past V8's),
+ * lines-refuses-at-limit (a text exactly at the limit refused), lines-separator-counted-once (every separator measured
+ * as one code unit) and lines-nesting-flat (a nested view indented one unit whatever its depth).
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
@@ -15,7 +29,6 @@ import {
 	element,
 	type Gen,
 	int,
-	oneOf,
 	string,
 	weighted
 } from "@grizzle/testing/gen"
@@ -136,6 +149,15 @@ describe("the text bound", () => {
 		})
 	}
 
+	/** A frame's text: none, one of two literals, or a drawn piece. */
+	const frame = (one: string, other: string): Gen<string> =>
+		weighted([
+			[1, constant("")],
+			[1, constant(one)],
+			[1, constant(other)],
+			[1, piece]
+		])
+
 	const situations = required<Bound>(["far within", "at the limit", "one past", "far past"], {
 		cases: 300,
 		sense: notesOnly
@@ -148,10 +170,16 @@ describe("the text bound", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: { kind: "second-implementation", name: "the lines joined by hand" },
 						suite: "unit/core/lines-text",
 						draw: drawn((s) => ({
-							unit: s.draw(oneOf([constant("  "), constant("\t"), constant("")])),
+							unit: s.draw(
+								weighted([
+									[1, constant("  ")],
+									[1, constant("\t")],
+									[1, constant("")]
+								])
+							),
 							lines: s.draw(
 								array((t): Written => ({ depth: t.draw(int(0, 3)), text: t.draw(piece) }), {
 									min: 0,
@@ -202,7 +230,10 @@ describe("the text bound", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "the text's length, counted, past maxStringLength"
+						},
 						suite: "unit/core/lines-longest",
 						draw: drawn((s) => ({
 							width: s.draw(element([2 ** 20, 2 ** 22, 2 ** 24] as const)),
@@ -257,12 +288,12 @@ describe("the text bound", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: { kind: "second-implementation", name: "the enclosure joined by hand" },
 						suite: "unit/core/lines-enclosed",
 						draw: drawn((s) => ({
-							open: s.draw(oneOf([constant(""), constant("["), constant("{"), piece])),
-							close: s.draw(oneOf([constant(""), constant("]"), constant("}"), piece])),
-							separator: s.draw(oneOf([constant(""), constant(","), constant(", "), piece])),
+							open: s.draw(frame("[", "{")),
+							close: s.draw(frame("]", "}")),
+							separator: s.draw(frame(",", ", ")),
 							parts: s.draw(array(piece, { min: 0, max: 8 })),
 							by: s.draw(offset)
 						})),
