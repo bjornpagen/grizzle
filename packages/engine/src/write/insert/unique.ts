@@ -470,7 +470,6 @@ export const buildProbe = (
 			)
 		}
 		if (spec.occupants === "probed") {
-			/** A visible occupant of the object, for a requested fact whose arbiter key is free (`Requested`). */
 			branches.push(
 				provedCore(
 					"keyed",

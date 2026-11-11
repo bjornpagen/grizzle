@@ -153,8 +153,6 @@ export const probeGroup = (
 	}
 }
 
-const one = [target(lit.int(1, types.integer))]
-
 /** Whether stored `relation` holds a row where `access` reaches it from the evaluating row: EXISTS over its probe. */
 export const storedAt = (
 	w: WriteContext,
@@ -164,7 +162,7 @@ export const storedAt = (
 ): Expr =>
 	exists(
 		simpleSelect(
-			one,
+			[target(lit.int(1, types.integer))],
 			[
 				probeKey(
 					w,
@@ -233,7 +231,7 @@ export const metFound = (
 	const alias = supply.relation(internal(`met ${relation} row`))
 	return exists(
 		simpleSelect(
-			one,
+			[target(lit.int(1, types.integer))],
 			[
 				{
 					kind: "met",

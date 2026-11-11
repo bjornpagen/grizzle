@@ -3,6 +3,7 @@ import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import { array, element, type Gen, int } from "@grizzle/testing/gen"
 import { pctSchedule } from "@grizzle/testing/interleave"
+import { agree, type Equivalence, exact, ordered } from "@grizzle/testing/oracle"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec, String as Str } from "effect"
@@ -29,6 +30,7 @@ import {
 	type CallInput,
 	callStatements,
 	type Certifier,
+	hostRefused,
 	type InstalledShape,
 	installShape,
 	type IsolationRace,
@@ -46,6 +48,7 @@ import { every, exploreEnv, type Strategy } from "#test/support/schedules/interl
 import type { RaceTxn } from "#test/support/schedules/serial.ts"
 import type { ScheduleOutcome } from "#test/support/schedules/types.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /**
  * The insert protocol's two arbitrations against PostgreSQL 19 (write/insert/protocol.ts Arbitration): a role served at
@@ -60,8 +63,9 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  *   of an index of a relation a foreign key references, PostgreSQL's own foreign key check (ri_triggers.c
  *   ri_FastPathCheck under the transaction snapshot), never one of grizzle's statements, and a race of Docs alone, which
  *   no foreign key reads, meets no 40001. A 40001 a race of Invoices meets is that check's, noted.
- * - Writers of shared keys: every race of calls over a few keys, at either level, is one some serial order of the same
- *   calls explains (support/race.ts runIsolationRace).
+ * - Writers of shared keys: every race of calls over a few keys, at the level generate certifies the importer at and at
+ *   SERIALIZABLE, is one some serial order of the same calls explains (support/race.ts runIsolationRace): READ
+ *   COMMITTED promises that only where generate certifies it.
  * - One history, two forms: the same calls run one after another give the same rows, the same refusals and the same
  *   state at either level.
  */
@@ -199,7 +203,7 @@ interface DisjointRace {
 const disjointRaces: Gen<DisjointRace> = (s) => {
 	const docsOnly = s.draw(element([true, false]))
 	const count = s.draw(int(2, 3))
-	const calls = Arr.makeBy(count, (i): CallSketch =>
+	const calls = upTo(count, (i): CallSketch =>
 		docsOnly || s.draw(element([true, false]))
 			? docCall(10 + i, 10 + i, s.draw(int(0, 1)))
 			: s.draw(posted(20 + i))
@@ -291,7 +295,7 @@ const sireadLocksSql = `SELECT l.locktype, c.relname, EXISTS (
 	WHERE i.indexrelid = l.relation
 )::text
 FROM pg_catalog.pg_locks AS l JOIN pg_catalog.pg_class AS c ON c.oid = l.relation
-WHERE l.mode = 'SIReadLock' AND l.database = (SELECT oid FROM pg_catalog.pg_database WHERE datname = pg_catalog.current_database())
+WHERE l.mode = 'SIReadLock' AND l.pid = ANY ($1::int4[])
 ORDER BY 2, 1`
 
 const levelSql = (level: Isolation): string =>
@@ -342,7 +346,7 @@ const runDisjoint = (s: InstalledShape, race: DisjointRace, level: Isolation) =>
 				const leveled = yield* actorOf(i).perform({ _tag: "Sql", sql: levelSql(level) })
 				defined(outcomes[i], "a session's outcomes").push(begun, leveled)
 			}
-			const longest = Math.max(...Arr.map(sent, (statements) => statements.length))
+			const longest = Arr.reduce(sent, 0, (most, statements) => Math.max(most, statements.length))
 			for (let step = 0; step < longest; step++) {
 				for (const [i, statements] of sent.entries()) {
 					const sql = statements[step]
@@ -352,7 +356,8 @@ const runDisjoint = (s: InstalledShape, race: DisjointRace, level: Isolation) =>
 					}
 				}
 			}
-			const rows = yield* env.observer.queryValues(sireadLocksSql, [])
+			const pids = Arr.map(sessions, (_, i) => actorOf(i).pid)
+			const rows = yield* env.observer.queryValues(sireadLocksSql, [pids])
 			const locks = Arr.map(rows, (row): SireadLock => ({
 				kind: textOfValue(row[0]) ?? "",
 				relation: textOfValue(row[1]) ?? "",
@@ -407,23 +412,26 @@ const runSerial = (
 					}
 				}
 				const failed = Arr.findFirst(outcomes, (o) => o._tag !== "Ok")
+				const refusedByHost = Arr.headNonEmpty(statements) === hostRefused
 				const ended = yield* serial.perform(
 					Option.isNone(failed) ? { _tag: "Commit" } : { _tag: "Rollback" }
 				)
 				outcomes.push(ended)
 				shown.push(
-					Option.match(
-						Arr.findFirst(outcomes, (o) => o._tag !== "Ok"),
-						{
-							onNone: () => "committed",
-							onSome: (o) =>
-								o._tag === "PgError"
-									? Str.startsWith("23")(o.fields.code)
-										? `refused ${o.fields.code === "23514" ? "by a CHECK" : "by a key or an axis"}`
-										: o.fields.code
-									: o._tag
-						}
-					)
+					refusedByHost
+						? "refused by the host"
+						: Option.match(
+								Arr.findFirst(outcomes, (o) => o._tag !== "Ok"),
+								{
+									onNone: () => "committed",
+									onSome: (o) =>
+										o._tag === "PgError"
+											? Str.startsWith("23")(o.fields.code)
+												? `refused ${o.fields.code === "23514" ? "by a CHECK" : "by a key or an axis"}`
+												: o.fields.code
+											: o._tag
+								}
+							)
 				)
 			}
 			const rows = yield* env.observer.queryValues(stateSql(s.names), [])
@@ -439,6 +447,15 @@ const runSerial = (
 		})
 	)
 
+/** Two runs of one history agree: the same outcome for each call, in order, and the same state, sorted. */
+const sameHistory: Equivalence<{
+	readonly shown: ReadonlyArray<string>
+	readonly state: ReadonlyArray<string>
+}> = (left, right) =>
+	Option.orElse(ordered(exact)(left.shown, right.shown), () =>
+		ordered(exact)(left.state, right.state)
+	)
+
 type DisjointFeature =
 	| "docs only"
 	| "an invoice posted"
@@ -451,7 +468,7 @@ type SharedFeature = "a stored Doc" | "two calls at one key" | "three sessions"
 type SerialFeature =
 	| "an exact repeat"
 	| "a key or axis refusal"
-	| "a CHECK refused"
+	| "an unsettled invoice refused"
 	| "lines sent alone"
 
 const runs = 8
@@ -534,62 +551,64 @@ layer(Substrate.layer, { excludeTestServices: true })(
 			)
 		)
 
-		it.effect("every race over shared keys is serial at either level", (ctx) =>
-			searched(
-				ctx,
-				Effect.scoped(
-					Effect.gen(function* () {
-						const shapes = [
-							yield* installShape(importShape, atLevel("readCommitted")),
-							yield* installShape(importShape, atLevel("serializable"))
-						]
-						return yield* explore(
-							{
-								oracle: { kind: "specification", name: "a serial order of the same calls" },
-								suite: "pg/isolation/arbiter-shared",
-								draw: drawn(sharedRaces),
-								literal: Formatter.format,
-								coverage: required<SharedFeature>(["a stored Doc", "two calls at one key"], {
-									cases: runs,
-									sense: notesOnly
-								}),
-								kept: [],
-								runs,
-								shrink: { kind: "bounded", candidates: 40 },
-								concurrency: 1,
-								steerEvery: runs,
-								caseHang
-							},
-							(race, c) => {
-								if (race.initial === "doc") {
-									c.note("a stored Doc")
-								}
-								if (race.calls.length === 3) {
-									c.note("three sessions")
-								}
-								if (
-									Arr.some(race.calls, (a, i) =>
-										Arr.some(
-											race.calls,
-											(b, j) => i < j && Arr.some(a.keys, (k) => b.keys.includes(k))
+		it.effect(
+			"every race over shared keys is serial at generate's level and at SERIALIZABLE",
+			(ctx) =>
+				searched(
+					ctx,
+					Effect.scoped(
+						Effect.gen(function* () {
+							const shapes = [
+								yield* installShape(importShape, { kind: "generate" }),
+								yield* installShape(importShape, atLevel("serializable"))
+							]
+							return yield* explore(
+								{
+									oracle: { kind: "specification", name: "a serial order of the same calls" },
+									suite: "pg/isolation/arbiter-shared",
+									draw: drawn(sharedRaces),
+									literal: Formatter.format,
+									coverage: required<SharedFeature>(["a stored Doc", "two calls at one key"], {
+										cases: runs,
+										sense: notesOnly
+									}),
+									kept: [],
+									runs,
+									shrink: { kind: "bounded", candidates: 40 },
+									concurrency: 1,
+									steerEvery: runs,
+									caseHang
+								},
+								(race, c) => {
+									if (race.initial === "doc") {
+										c.note("a stored Doc")
+									}
+									if (race.calls.length === 3) {
+										c.note("three sessions")
+									}
+									if (
+										Arr.some(race.calls, (a, i) =>
+											Arr.some(
+												race.calls,
+												(b, j) => i < j && Arr.some(a.keys, (k) => b.keys.includes(k))
+											)
 										)
+									) {
+										c.note("two calls at one key")
+									}
+									return Effect.forEach(
+										shapes,
+										(s) =>
+											Effect.scoped(
+												runIsolationRace(s, raceOf(race), strategyOf(c), () => undefined)
+											),
+										{ discard: true }
 									)
-								) {
-									c.note("two calls at one key")
 								}
-								return Effect.forEach(
-									shapes,
-									(s) =>
-										Effect.scoped(
-											runIsolationRace(s, raceOf(race), strategyOf(c), () => undefined)
-										),
-									{ discard: true }
-								)
-							}
-						)
-					})
+							)
+						})
+					)
 				)
-			)
 		)
 
 		it.effect("one history gives the same rows, refusals and state at either level", (ctx) =>
@@ -617,7 +636,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									[
 										"an exact repeat",
 										"a key or axis refusal",
-										"a CHECK refused",
+										"an unsettled invoice refused",
 										"lines sent alone"
 									],
 									{ cases: runs, sense: notesOnly }
@@ -645,8 +664,8 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										"serializable"
 									)
 									for (const shown of rc.shown) {
-										if (shown === "refused by a CHECK") {
-											c.note("a CHECK refused")
+										if (shown === "refused by a CHECK" || shown === "refused by the host") {
+											c.note("an unsettled invoice refused")
 										}
 										if (shown === "refused by a key or an axis") {
 											c.note("a key or axis refusal")
@@ -659,19 +678,19 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										Arr.some(history.calls, (a, i) =>
 											Arr.some(
 												history.calls,
-												(b, j) => i < j && Formatter.format(a.input) === Formatter.format(b.input)
+												(b, j) => i < j && Option.isNone(exact(a.input, b.input))
 											)
 										)
 									) {
 										c.note("an exact repeat")
 									}
-									const rcShown = Formatter.format({ shown: rc.shown, state: rc.state })
-									const serShown = Formatter.format({ shown: ser.shown, state: ser.state })
-									if (rcShown !== serShown) {
-										return yield* Effect.die(
-											new Error(`READ COMMITTED:\n${rcShown}\nSERIALIZABLE:\n${serShown}`)
-										)
-									}
+									yield* agree(
+										[
+											["READ COMMITTED", rc],
+											["SERIALIZABLE", ser]
+										],
+										sameHistory
+									)
 								})
 						)
 					})

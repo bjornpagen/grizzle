@@ -689,7 +689,7 @@ const appendScan = (
 		const g1 = supply.relation(internal("seeded group"))
 		const g1Keys = groups.group.map((c) => col(g1, c))
 		const reads = [...seedReads.values()].map((column) => installed(w, name, column))
-		const member = probeKey(
+		const seedMember = probeKey(
 			w,
 			supply,
 			name,
@@ -715,10 +715,10 @@ const appendScan = (
 								targetAs(col(g1, defined(groups.group[i], "a group column")), c)
 							),
 							...[...seedReads].map(([k, column]) =>
-								targetAs(member.at(installed(w, name, column)), columnAt(seed, k))
+								targetAs(seedMember.at(installed(w, name, column)), columnAt(seed, k))
 							)
 						],
-						[cteRefAs(groups.name, g1), member.source],
+						[cteRefAs(groups.name, g1), seedMember.source],
 						undefined
 					)
 				)
@@ -1112,7 +1112,7 @@ const metRefusal = (
 	const relation = d.member.relation
 	const name = relation.name
 	const pk = relation.primaryFields
-	const columnAt = (f: LawField): string =>
+	const proposedColumn = (f: LawField): string =>
 		defined(made.columnOf(fieldKey(f.name)), `the proposed column of ${name}.${f.name}`)
 	const stated = relation.fields.filter((f) => d.appended.columns.has(fieldKey(f.name)))
 	const met = metRowsOf(w, supply, {
@@ -1123,11 +1123,11 @@ const metRefusal = (
 				pk,
 				stated.filter((f) => !pk.includes(f))
 			),
-			columnAt
+			proposedColumn
 		),
 		key: mapNonEmpty(pk, (f) => ({
 			field: f,
-			column: columnAt(f),
+			column: proposedColumn(f),
 			returned: defined(
 				returned.find((r) => r.field === f),
 				"a returned key column"
@@ -1139,7 +1139,7 @@ const metRefusal = (
 			rows: met.alias,
 			key: mapNonEmpty(pk, (f) => ({
 				column: w.names.column(name, f.name),
-				from: columnAt(f),
+				from: proposedColumn(f),
 				schema: isVectorType(rowType(f)) ? w.names.vectorSchema : undefined
 			})),
 			filter: () => []
@@ -1149,7 +1149,7 @@ const metRefusal = (
 				typedEq(
 					rowType(f),
 					col(inner, w.names.column(name, f.name)),
-					col(met.alias, columnAt(f)),
+					col(met.alias, proposedColumn(f)),
 					w.names.vectorSchema
 				)
 			)
@@ -1164,7 +1164,7 @@ const metRefusal = (
 				provedCore(
 					"keyed",
 					mapNonEmpty(pk, (f, i) =>
-						targetAs(col(met.alias, columnAt(f)), defined(refusedKeys[i], "a met key column"))
+						targetAs(col(met.alias, proposedColumn(f)), defined(refusedKeys[i], "a met key column"))
 					),
 					[met.source],
 					not(metFound(w, supply, name, repeat))

@@ -799,7 +799,7 @@ export const buildInsert = (
 			from: { readonly name: string; readonly columns: FieldColumns<string> },
 			metClass: string
 		): string => {
-			const arbiter = objects.arbiter
+			const primary = objects.arbiter
 			const met = metRowsOf(w, supply, {
 				insert: r2,
 				proposed: from.name,
@@ -808,20 +808,20 @@ export const buildInsert = (
 			})
 			const metValue = (f: LawField): Expr => col(met.alias, from.columns.of(f))
 			const found = (access: MetAccess): Expr => metFound(w, supply, relation.name, access)
-			const atArbiter = metAtObject(w, relation.name, arbiter, met.alias, from.columns.of)
-			const storedAt = (inner: string) => (f: LawField) => col(inner, column(f))
-			const stated = inputStated(input)
+			const atArbiter = metAtObject(w, relation.name, primary, met.alias, from.columns.of)
+			const storedField = (inner: string) => (f: LawField) => col(inner, column(f))
+			const statedFields = inputStated(input)
 			const compared = all.filter(
-				(f) => !arbiter.equal.includes(f) && stated.some((c) => c.name === f.name)
+				(f) => !primary.equal.includes(f) && statedFields.some((c) => c.name === f.name)
 			)
 			const integer = (n: number) => lit.int(n, types.integer)
 			const keyed: NonEmptyReadonlyArray<{ readonly when: Expr; readonly result: Expr }> =
-				spec.of === "put" && arbiter.kind === "span"
+				spec.of === "put" && primary.kind === "span"
 					? [
 							{
 								when: found(
 									metNarrowed(atArbiter, (inner) => [
-										ne(storedAt(inner)(arbiter.span), metValue(arbiter.span))
+										ne(storedField(inner)(primary.span), metValue(primary.span))
 									])
 								),
 								result: integer(1)
@@ -833,7 +833,7 @@ export const buildInsert = (
 				{
 					when: found(
 						metNarrowed(atArbiter, (inner) =>
-							compared.map((f) => same(f, storedAt(inner)(f), metValue(f)))
+							compared.map((f) => same(f, storedField(inner)(f), metValue(f)))
 						)
 					),
 					result: integer(0)
@@ -875,7 +875,7 @@ export const buildInsert = (
 		 * exact repeat with its met class, read from the stored rows the arbitration met (`classified`).
 		 */
 		const metBody = (met: string, metClass: string): Select["body"] => {
-			const at = (alias: string) => (f: LawField) => col(alias, retCol(f))
+			const returnedAt = (alias: string) => (f: LawField) => col(alias, retCol(f))
 			const left: SetCore = provedCore(
 				"keyed",
 				[
@@ -890,7 +890,7 @@ export const buildInsert = (
 			const classified: SetCore = provedCore(
 				"keyed",
 				[
-					...outFields.map((f) => targetAs(at(met)(f), retCol(f))),
+					...outFields.map((f) => targetAs(returnedAt(met)(f), retCol(f))),
 					targetAs(col(met, metClass), metClass),
 					...(c9 === undefined ? [] : [targetAs(lit.bool(false), c9)]),
 					...zero
@@ -903,8 +903,10 @@ export const buildInsert = (
 			 * `unstored`), so its INSERT never meets one: each one stored there at another stated field is the key law's
 			 * conflict witness, read by the probe at its key, as at READ COMMITTED.
 			 */
-			const stated = inputStated(input)
-			const payload = all.filter((f) => !pk.includes(f) && stated.some((c) => c.name === f.name))
+			const statedFields = inputStated(input)
+			const payload = all.filter(
+				(f) => !pk.includes(f) && statedFields.some((c) => c.name === f.name)
+			)
 			const withheldConflicts = (compared: NonEmptyReadonlyArray<LawField>): SetCore => {
 				const owner = probeKey(
 					w,

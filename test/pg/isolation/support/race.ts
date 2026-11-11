@@ -360,6 +360,9 @@ const inlined = (sql: string, params: ReadonlyArray<Param>): Effect.Effect<strin
  * not skip, each execution its own, every placeholder inlined. A write the host refuses before any SQL sends one
  * constant SELECT naming the refusal, which a serial run of it shows alike.
  */
+/** The one statement a call the host refuses before any SQL sends: a constant SELECT naming the refusal. */
+export const hostRefused = `SELECT 'host refused'::text AS refused`
+
 export const callStatements = (
 	s: InstalledShape,
 	call: RaceCall
@@ -381,7 +384,7 @@ export const callStatements = (
 						)
 		const inputs = yield* hostInputs(change.entry, host)
 		if (inputs.kind !== "bound") {
-			return [`SELECT 'host refused'::text AS refused`] as const
+			return [hostRefused] as const
 		}
 		const flights = inputs.bound.flights
 		if (flights.kind !== "write") {
