@@ -16,16 +16,28 @@
  * owner's tag copied onto its members along the owner axis, or without. And one or two trees of one to five nodes,
  * each under its own root value, folded by count over each node's children, as NP's fold suite folds it
  * (test/pg/fin/fold.test.ts), each node's parent's kind copied down the parent axis, the root its own, node keys drawn
- * apart and written out of their order.
+ * apart and written out of their order. And members stored by a vector key that the migration which keys them by their
+ * group and a new drawn index keeps as a field, renames or drops, declared: its backfill orders and joins the stored
+ * members by that key at the extension's operators, the dropped one's column standing until the migration's removals.
  */
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { array, boolean, composition, type Gen, int, parents, shuffled } from "@grizzle/testing/gen"
+import {
+	array,
+	boolean,
+	composition,
+	element,
+	type Gen,
+	int,
+	parents,
+	shuffled
+} from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
+import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import { accumulated, drawn as drawnField, natural, pg } from "#compiler/public/fields.ts"
 import {
 	type AnySchema,
@@ -35,6 +47,7 @@ import {
 	fold,
 	Monoid,
 	on,
+	ordered,
 	relation,
 	schema,
 	select,
@@ -256,10 +269,10 @@ const forestGen: Gen<Forest> = (source) => {
 	return { trees }
 }
 
-/** A relation's stored rows, each a value per field. */
+/** A relation's stored rows, each a value per field, a number or the text of a vector's literal. */
 interface Stored {
 	readonly relation: string
-	readonly rows: ReadonlyArray<Readonly<Record<string, number>>>
+	readonly rows: ReadonlyArray<Readonly<Record<string, number | string>>>
 }
 
 /** The installed identifiers of a schema's relations and fields. */
@@ -314,6 +327,15 @@ const migratedOver = (
 	before: (name: string) => AnySchema,
 	after: (name: string) => AnySchema,
 	stored: ReadonlyArray<Stored>
+) => declaredMigratedOver(label, before, after, noDeclarations, stored)
+
+/** migratedOver, its migration declaring `declarations`. */
+const declaredMigratedOver = (
+	label: string,
+	before: (name: string) => AnySchema,
+	after: (name: string) => AnySchema,
+	declarations: Declarations,
+	stored: ReadonlyArray<Stored>
 ) =>
 	Effect.gen(function* () {
 		const s = yield* Substrate
@@ -327,7 +349,7 @@ const migratedOver = (
 			},
 			later: [(name) => ({ schema: after(name), logins: [] })],
 			apply: { kind: "noPlaceholders" },
-			declared: () => noDeclarations,
+			declared: (version) => (version === 0 ? noDeclarations : declarations),
 			observe: Option.some((v: number, owner: RawSession) =>
 				v !== 0 ? Effect.void : inserted(owner, schemaName, stored)
 			)
@@ -432,6 +454,141 @@ const forestFeatures = (forest: Forest): ReadonlyArray<TreeFeature> => {
 		})
 	]
 }
+
+/**
+ * What the migration that keys the members by their group and a new drawn index declares of the vector key they were
+ * stored by: kept as a field, renamed to item, or dropped. Its backfill orders and joins the stored members by that
+ * key (deploy/diff/backfill.ts memberKey), at pgvector's operators, which no search_path holds.
+ */
+const vectorKeyFates = ["kept", "renamed", "dropped"] as const
+type VectorKeyFate = (typeof vectorKeyFates)[number]
+
+/** The members before the migration, keyed by a vector of two dimensions. */
+const vectorKeyed = (name: string) =>
+	schema(
+		name,
+		{
+			Owner: relation("Owner", { id: pg.int4 }, ["id"]),
+			Member: relation("Member", { member: pg.vector(2), g: pg.int4, x: pg.int4 }, ["member"])
+		},
+		[]
+	)
+
+/** The owners after the migration: each counts its members and sums their x. */
+const countingOwner = relation(
+	"Owner",
+	{ id: pg.int4, n: drawnField(natural), end: accumulated(pg.int4, 0) },
+	["id"]
+)
+
+/** The members after the migration, keyed by their group and a new drawn index, the vector key kept as `member`. */
+const vectorKept = (name: string) => {
+	const Member = relation(
+		"Member",
+		{ member: pg.vector(2), g: pg.int4, at: drawnField(natural), x: pg.int4 },
+		["g", "at"]
+	)
+	const family = ordered(on(Member, "g", "at"), fin(countingOwner, "n"))
+	return schema(name, { Owner: countingOwner, Member }, [
+		family,
+		fold(family, Monoid.sum, on(Member, "g", "x"), on(countingOwner, "id", "end"))
+	])
+}
+
+/** vectorKept with the vector key renamed to item. */
+const vectorRenamed = (name: string) => {
+	const Member = relation(
+		"Member",
+		{ item: pg.vector(2), g: pg.int4, at: drawnField(natural), x: pg.int4 },
+		["g", "at"]
+	)
+	const family = ordered(on(Member, "g", "at"), fin(countingOwner, "n"))
+	return schema(name, { Owner: countingOwner, Member }, [
+		family,
+		fold(family, Monoid.sum, on(Member, "g", "x"), on(countingOwner, "id", "end"))
+	])
+}
+
+/** vectorKept with the vector key dropped. */
+const vectorDropped = (name: string) => {
+	const Member = relation("Member", { g: pg.int4, at: drawnField(natural), x: pg.int4 }, [
+		"g",
+		"at"
+	])
+	const family = ordered(on(Member, "g", "at"), fin(countingOwner, "n"))
+	return schema(name, { Owner: countingOwner, Member }, [
+		family,
+		fold(family, Monoid.sum, on(Member, "g", "x"), on(countingOwner, "id", "end"))
+	])
+}
+
+/** Each fate's target and declarations. */
+const vectorFates: {
+	readonly [F in VectorKeyFate]: {
+		readonly after: (name: string) => AnySchema
+		readonly declared: Declarations
+	}
+} = {
+	kept: { after: vectorKept, declared: noDeclarations },
+	renamed: {
+		after: vectorRenamed,
+		declared: {
+			renames: [
+				{
+					from: { kind: "field", relation: parsedName("Member"), field: parsedName("member") },
+					to: { kind: "field", relation: parsedName("Member"), field: parsedName("item") }
+				}
+			],
+			drops: []
+		}
+	},
+	dropped: {
+		after: vectorDropped,
+		declared: {
+			renames: [],
+			drops: [{ kind: "field", relation: parsedName("Member"), field: parsedName("member") }]
+		}
+	}
+}
+
+/** Members stored by a vector key, and its fate: the family as drawn, each member's key [k, 0], whose order is k's. */
+interface VectorKeyedFamily {
+	readonly fate: VectorKeyFate
+	readonly owners: number
+	readonly members: ReadonlyArray<WrittenMember>
+}
+
+const vectorKeyedGen: Gen<VectorKeyedFamily> = (source) => {
+	const family = source.draw(familyGen)
+	return {
+		fate: source.draw(element(vectorKeyFates)),
+		owners: family.tags.length,
+		members: family.members
+	}
+}
+
+type VectorKeyFeature =
+	| `the key ${VectorKeyFate}`
+	| "a family of several"
+	| "members written out of their key order"
+
+/** What a vector-keyed family reaches: its key's fate, a family of several, members written out of key order. */
+const vectorKeyFeatures = (f: VectorKeyedFamily): ReadonlyArray<VectorKeyFeature> => [
+	`the key ${f.fate}`,
+	...Arr.flatMap(
+		upTo(f.owners, (owner) => owner),
+		(owner): ReadonlyArray<VectorKeyFeature> => {
+			const keys = Arr.map(
+				Arr.filter(f.members, (mb) => mb.g === owner),
+				(mb) => mb.member
+			)
+			return [
+				...(keys.length > 1 ? ["a family of several" as const] : []),
+				...(outOfOrder(keys) ? ["members written out of their key order" as const] : [])
+			]
+		}
+	)
+]
 
 /** How many candidates a steered case draws for a value that reaches a pending situation. */
 const aimCandidates = 32
@@ -663,6 +820,92 @@ layer(Substrate.layer)("backfilling a counted family with a fold on PostgreSQL 1
 									Order.String
 								),
 								"NP's numbering, NP's lawful count fold, each parent's kind"
+							)
+						})
+				)
+			)
+	)
+	it.effect(
+		"order and join members stored by a vector key the migration keeps, renames or drops at the extension's operators, and draw every index, count and end in that key's order",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "pg/migrate/backfill-vector-key",
+						draw: drawn(vectorKeyedGen),
+						literal: Formatter.format,
+						coverage: required<VectorKeyFeature>(
+							[
+								"the key kept",
+								"the key renamed",
+								"the key dropped",
+								"a family of several",
+								"members written out of their key order"
+							],
+							{ cases: 12, sense: notesOnly }
+						),
+						kept: [],
+						runs: 3,
+						shrink: { kind: "bounded", candidates: 24 },
+						concurrency: 1,
+						steerEvery: 4,
+						caseHang,
+						oracle: {
+							kind: "second-implementation",
+							name: "each owner's members in the order of their vector key [k, 0], k's, numbered from 0 and summed"
+						}
+					},
+					(drawnFamily: VectorKeyedFamily, c: Case<VectorKeyFeature>) =>
+						Effect.gen(function* () {
+							const f = aimed(drawnFamily, vectorKeyedGen, vectorKeyFeatures, c)
+							c.noteAll(vectorKeyFeatures(f))
+							const fate = vectorFates[f.fate]
+							const owners = upTo(f.owners, (owner) => owner)
+							const m = yield* declaredMigratedOver(
+								"backfillvector",
+								vectorKeyed,
+								fate.after,
+								fate.declared,
+								[
+									{ relation: "Owner", rows: Arr.map(owners, (id) => ({ id })) },
+									{
+										relation: "Member",
+										rows: Arr.map(f.members, (mb) => ({
+											member: `'[${mb.member},0]'`,
+											g: mb.g,
+											x: mb.x
+										}))
+									}
+								]
+							)
+							const ownedInKeyOrder = (owner: number) =>
+								Arr.sort(
+									Arr.filter(f.members, (mb) => mb.g === owner),
+									Order.mapInput(Order.Number, (mb: WrittenMember) => mb.member)
+								)
+							const members = yield* rowsOf(m.declared, "Member", ["g", "at", "x"])
+							const owning = yield* rowsOf(m.declared, "Owner", ["id", "n", "end"])
+							assert.deepEqual(
+								members,
+								Arr.sort(
+									Arr.flatMap(owners, (owner) =>
+										Arr.map(ownedInKeyOrder(owner), (mb, at) => `${owner} ${at} ${mb.x}`)
+									),
+									Order.String
+								),
+								"each member's index is its place in its owner's vector key order"
+							)
+							assert.deepEqual(
+								owning,
+								Arr.sort(
+									Arr.map(owners, (owner) => {
+										const mine = ownedInKeyOrder(owner)
+										return `${owner} ${mine.length} ${Arr.reduce(mine, 0, (sum, mb) => sum + mb.x)}`
+									}),
+									Order.String
+								),
+								"each owner counts its members and sums their x"
 							)
 						})
 				)

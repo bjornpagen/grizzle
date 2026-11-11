@@ -1025,8 +1025,9 @@ const pairedParts = (
 
 /** The declared field renames carried out on each relation under its target name, through each column's aside name so
  * no order of them meets a name another holds, and the previous snapshot with each renamed column under its target
- * name, as the database holds it once the renames ran: in its relation's record, and wherever the snapshot's
- * definitions name it as PostgreSQL carries a column's rename (withColumns), its table's definition among them. */
+ * name, as the database holds it once the renames ran: in its relation's record, its primary key's field names among
+ * them, and wherever the snapshot's definitions name it as PostgreSQL carries a column's rename (withColumns), its
+ * table's definition among them. */
 const columnRenames = (
 	previous: DeploySnapshot,
 	after: Readonly<Record<string, SnapshotRelation>>,
@@ -1089,7 +1090,8 @@ const columnRenames = (
 				}
 				const m = fieldInto.get(f.name)
 				return [m === undefined ? f : { ...f, name: m.to, column: m.into }]
-			})
+			}),
+			primaryKey: was.primaryKey.map((name) => renames.get(name) ?? name)
 		})
 	}
 	const renamedOn = (table: ObjectName): ReadonlyMap<string, string> | undefined =>

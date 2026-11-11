@@ -26,6 +26,10 @@
  *   with the values drawn; or whose fold over named accumulators it moves into a new owner field, the old end dropped or
  *   left to its caller. Every value the family holds after it is the reference's over the stored rows in key order, as
  *   it was drawn.
+ * - **A stored key's fate:** an ordered family keyed by its order and a new drawn index, added by a migration that
+ *   declares the key the lines were stored by, which the backfill orders and joins them by, renamed to a fresh name,
+ *   swapped with another field, renamed along a chain or dropped, its column standing until the migration's removals:
+ *   every fate migrates and draws every value the reference states over the stored lines in that key's order.
  *
  * - **The judge:** the catalog model of PostgreSQL (test/support/migrate/interpret.ts) runs the drafted migration
  *   statement by statement over the stored rows, and its catalog afterwards must be the target's installed from
@@ -113,7 +117,15 @@ interface Migration {
 	readonly secondDraft: GenerateResult
 }
 
-const migrationOf = (before: DeploySubject, after: DeploySubject): Migration => {
+const migrationOf = (before: DeploySubject, after: DeploySubject): Migration =>
+	declaredMigrationOf(before, after, noDeclarations)
+
+/** The migration from `before` to `after` whose second draft declares `declared`. */
+const declaredMigrationOf = (
+	before: DeploySubject,
+	after: DeploySubject,
+	declared: Declarations
+): Migration => {
 	const first = compile(before, asDrafted)
 	const firstDraft = succeeded(
 		generate({
@@ -132,7 +144,7 @@ const migrationOf = (before: DeploySubject, after: DeploySubject): Migration => 
 			timestamp: draftedAt(2),
 			previous: fromSnapshot(firstDraft.snapshot),
 			workload: noWorkload,
-			declared: noDeclarations,
+			declared,
 			name: "second"
 		})
 	)
@@ -344,7 +356,15 @@ const copiesObserved = (c: FoldCase, state: State): ReadonlyArray<string> => {
 }
 
 /** What the reference fold says a fold family leaves: each owner's members in key order, folded from the identity. */
-const foldExpected = (owners: ReadonlyArray<number>, stored: ReadonlyArray<Stored>) => {
+const foldExpected = (owners: ReadonlyArray<number>, stored: ReadonlyArray<Stored>) =>
+	foldExpectedBy(owners, stored, (m) => m.key)
+
+/** foldExpected, each member read by what `readBy` says the field it is read by holds of it. */
+const foldExpectedBy = (
+	owners: ReadonlyArray<number>,
+	stored: ReadonlyArray<Stored>,
+	readBy: (m: Stored) => number
+) => {
 	const reference = foldStoredOf(
 		SUM,
 		Arr.map(owners, (owner) => ({
@@ -358,10 +378,17 @@ const foldExpected = (owners: ReadonlyArray<number>, stored: ReadonlyArray<Store
 			)
 		}))
 	)
+	const byKey = new Map(Arr.map(stored, (m) => [m.key, m] as const))
 	return {
 		members: Arr.sort(
 			Arr.map(reference.rows, (r) =>
-				memberText(r.member, r.at, r.copy, Arr.headNonEmpty(r.before), Arr.headNonEmpty(r.after))
+				memberText(
+					readBy(defined(byKey.get(r.member), "a stored member")),
+					r.at,
+					r.copy,
+					Arr.headNonEmpty(r.before),
+					Arr.headNonEmpty(r.after)
+				)
 			),
 			Order.String
 		),
@@ -845,6 +872,180 @@ const assertBackfillOrder = (m: Migration, columns: ReadonlyArray<string>): void
 /** The ordered families, by how their lines are keyed after the migration. */
 const orderedByLine = orderedCase("line")
 const orderedByIndex = orderedCase("order and index")
+
+/**
+ * What a migration that keys the lines by their order and a new drawn index does to the key the lines were stored by,
+ * which its backfill orders and joins the stored lines by (deploy/diff/backfill.ts memberKey): declares it renamed to a
+ * fresh name, swapped with qty, renamed along a chain qty moves down too, or dropped.
+ */
+const storedKeyFates = [
+	"renamed to a fresh name",
+	"swapped with qty",
+	"renamed along a chain",
+	"dropped"
+] as const
+type StoredKeyFate = (typeof storedKeyFates)[number]
+
+/** Line's field `from` renamed to `to`, declared. */
+const lineFieldRenamed = (from: string, to: string): Rename => ({
+	from: { kind: "field", relation: parsedName("Line"), field: parsedName(from) },
+	to: { kind: "field", relation: parsedName("Line"), field: parsedName(to) }
+})
+
+/** The lines before the migration, keyed by line, and their orders. */
+const storedLines = schema(
+	"StoredKey",
+	{
+		Order: relation("Order", { id: pg.int4, tag: pg.int4 }, ["id"]),
+		Line: relation("Line", { line: pg.int4, order: pg.int4, qty: pg.int4 }, ["line"])
+	},
+	[]
+)
+
+/** The orders after the migration: each counts its lines and sums their qty. */
+const countedOrder = relation(
+	"Order",
+	{ id: pg.int4, tag: pg.int4, n: drawn(natural), total: accumulated(pg.int4, 0) },
+	["id"]
+)
+
+/**
+ * A stored key's fate as the migration that adds the family states it: the stored lines' fold case under the names
+ * they were stored by, its case under the names the migration leaves, and what the field a migrated line is read by
+ * holds of its stored member: the stored key where the key stays, renamed or not, and its order where it is dropped.
+ */
+interface StoredKeyCase {
+	readonly stored: FoldCase
+	readonly after: FoldCase
+	readonly readBy: (m: Stored) => number
+}
+
+/** The fold case of the stored lines under the names they were stored by. */
+const storedNames = (migration: Migration): FoldCase => ({
+	migration,
+	owner: "Order",
+	member: "Line",
+	key: "line",
+	group: "order",
+	step: "qty",
+	copies: []
+})
+
+/** A renamed stored key's case: the migration to `after` under `renames`, its stored key and qty named `key` and
+ * `step` after it. */
+const renamedKeyCase = (
+	after: DeploySubject,
+	renames: ReadonlyArray<Rename>,
+	key: string,
+	step: string
+): StoredKeyCase => {
+	const stored = storedNames(declaredMigrationOf(storedLines, after, { renames, drops: [] }))
+	return { stored, after: { ...stored, key, step }, readBy: (m) => m.key }
+}
+
+/** A dropped stored key's case: the migration to `after` dropping line, declared, a migrated line read by its order. */
+const droppedKeyCase = (after: DeploySubject): StoredKeyCase => {
+	const stored = storedNames(
+		declaredMigrationOf(storedLines, after, droppedFields([["Line", "line"]]))
+	)
+	return { stored, after: { ...stored, key: "order" }, readBy: (m) => m.owner }
+}
+
+/** The lines after a migration that renames their stored key to a fresh name: lineNo, keyed by order and index. */
+const freshKeyed = (() => {
+	const Line = relation(
+		"Line",
+		{ lineNo: pg.int4, order: pg.int4, at: drawn(natural), qty: pg.int4 },
+		["order", "at"]
+	)
+	const family = ordered(on(Line, "order", "at"), fin(countedOrder, "n"))
+	return schema("StoredKey", { Order: countedOrder, Line }, [
+		family,
+		fold(family, Monoid.sum, on(Line, "order", "qty"), on(countedOrder, "id", "total"))
+	])
+})()
+
+/** The lines after a migration that swaps their stored key with qty: qty holds the stored key, line the qty. */
+const swappedKeyed = (() => {
+	const Line = relation(
+		"Line",
+		{ qty: pg.int4, order: pg.int4, at: drawn(natural), line: pg.int4 },
+		["order", "at"]
+	)
+	const family = ordered(on(Line, "order", "at"), fin(countedOrder, "n"))
+	return schema("StoredKey", { Order: countedOrder, Line }, [
+		family,
+		fold(family, Monoid.sum, on(Line, "order", "line"), on(countedOrder, "id", "total"))
+	])
+})()
+
+/** The lines after a migration that renames their stored key along a chain: line to qty, qty to amount. */
+const chainedKeyed = (() => {
+	const Line = relation(
+		"Line",
+		{ qty: pg.int4, order: pg.int4, at: drawn(natural), amount: pg.int4 },
+		["order", "at"]
+	)
+	const family = ordered(on(Line, "order", "at"), fin(countedOrder, "n"))
+	return schema("StoredKey", { Order: countedOrder, Line }, [
+		family,
+		fold(family, Monoid.sum, on(Line, "order", "amount"), on(countedOrder, "id", "total"))
+	])
+})()
+
+/** The lines after a migration that drops their stored key. */
+const droppedKeyed = (() => {
+	const Line = relation("Line", { order: pg.int4, at: drawn(natural), qty: pg.int4 }, [
+		"order",
+		"at"
+	])
+	const family = ordered(on(Line, "order", "at"), fin(countedOrder, "n"))
+	return schema("StoredKey", { Order: countedOrder, Line }, [
+		family,
+		fold(family, Monoid.sum, on(Line, "order", "qty"), on(countedOrder, "id", "total"))
+	])
+})()
+
+const storedKeyCases: { readonly [F in StoredKeyFate]: StoredKeyCase } = {
+	"renamed to a fresh name": renamedKeyCase(
+		freshKeyed,
+		[lineFieldRenamed("line", "lineNo")],
+		"lineNo",
+		"qty"
+	),
+	"swapped with qty": renamedKeyCase(
+		swappedKeyed,
+		[lineFieldRenamed("line", "qty"), lineFieldRenamed("qty", "line")],
+		"qty",
+		"line"
+	),
+	"renamed along a chain": renamedKeyCase(
+		chainedKeyed,
+		[lineFieldRenamed("line", "qty"), lineFieldRenamed("qty", "amount")],
+		"qty",
+		"amount"
+	),
+	dropped: droppedKeyCase(droppedKeyed)
+}
+
+/**
+ * What a stored key's fate must leave: whether the migration renames the key the lines were stored by, swapped or
+ * chained included, or drops it, which stands until the migration's removals, its backfill draws every value the
+ * reference fold states over the stored lines in that key's order, ending at the catalog its target installs from
+ * nothing, with every drawn column added and its default dropped around the backfill.
+ */
+const judgeStoredKey = (
+	fate: StoredKeyFate,
+	owners: number,
+	stored: ReadonlyArray<Stored>
+): void => {
+	const k = storedKeyCases[fate]
+	const ids = ownersOf(owners)
+	const state = migrated(k.stored.migration, foldRows(k.stored, ids, stored))
+	assert.deepEqual(foldObserved(k.after, state), foldExpectedBy(ids, stored, k.readBy))
+	assertFresh(k.after.migration, state)
+	assertBackfillOrder(k.after.migration, foldColumns(k.after))
+}
 
 /** The tree's drawn columns: its index, count, copy, interval, parent's start, and every accumulated or copied field. */
 const treeColumns = (): ReadonlyArray<string> => {
@@ -1389,6 +1590,12 @@ type Backfill =
 			readonly owners: number
 			readonly stored: ReadonlyArray<Stored>
 	  }
+	| {
+			readonly kind: "stored key"
+			readonly fate: StoredKeyFate
+			readonly owners: number
+			readonly stored: ReadonlyArray<Stored>
+	  }
 
 /** The owners' ids: 0 to `count - 1`, at least one. */
 const ownersOf = (count: number): ReadonlyArray<number> => upTo(count, (i) => i)
@@ -1501,6 +1708,15 @@ const backfillGen: Gen<Backfill> = oneOf<Backfill>([
 			owners,
 			stored: source.draw(membersGen(owners))
 		}
+	},
+	(source) => {
+		const owners = source.draw(between(1, 3))
+		return {
+			kind: "stored key",
+			fate: source.draw(element(storedKeyFates)),
+			owners,
+			stored: source.draw(membersGen(owners))
+		}
 	}
 ])
 
@@ -1524,6 +1740,7 @@ type BackfillFeature =
 	| `renamed: ${Renaming}`
 	| KindChange
 	| `end moved: ${EndMove}`
+	| `stored key ${StoredKeyFate}`
 
 const notesOf = (b: Backfill): ReadonlyArray<BackfillFeature> => {
 	const unsorted = (keys: ReadonlyArray<number>) =>
@@ -1597,6 +1814,8 @@ const notesOf = (b: Backfill): ReadonlyArray<BackfillFeature> => {
 			return [b.change, ...members(b.owners, b.stored)]
 		case "end moved":
 			return [`end moved: ${b.move}`, ...members(b.owners, b.stored)]
+		case "stored key":
+			return [`stored key ${b.fate}`, ...members(b.owners, b.stored)]
 	}
 }
 
@@ -1682,6 +1901,8 @@ const judgeBackfill = (b: Backfill): void => {
 			return judgeReshapedFold(renamedCases[b.family][b.renaming], b.owners, b.stored)
 		case "end moved":
 			return judgeReshapedFold(endMoved[b.move], b.owners, b.stored)
+		case "stored key":
+			return judgeStoredKey(b.fate, b.owners, b.stored)
 		case "kind changed": {
 			const k = kindChanged[b.change]
 			const owners = ownersOf(b.owners)
@@ -1914,7 +2135,8 @@ describe("backfilling a family added to stored rows, generated", () => {
 								...Arr.map(renamedFamilies, (f) => `renamed: ${f}` as const),
 								...Arr.map(renamings, (r) => `renamed: ${r}` as const),
 								...kindChanges,
-								...Arr.map(endMoves, (m) => `end moved: ${m}` as const)
+								...Arr.map(endMoves, (m) => `end moved: ${m}` as const),
+								...Arr.map(storedKeyFates, (f) => `stored key ${f}` as const)
 							],
 							{ cases: 300, sense: notesOnly }
 						),
