@@ -1,6 +1,30 @@
+/**
+ * The admitted grammar and its diagnostics.
+ *
+ * Each refusal carries its reason, pinned against ECMAScript itself: a MalformedDescription refusal is a pattern
+ * `new RegExp(source, "u")` also throws on, and an UnsupportedOperation refusal is valid ECMAScript outside the admitted
+ * fragment.
+ *
+ * - Unsupported: valid ECMAScript outside the fragment, each construct of the scanner's dictionary planted between
+ *   drawn letters, is refused as UnsupportedOperation where the construct begins. Oracle: ECMAScript's RegExp reads it.
+ * - Malformed: a random source is MalformedDescription exactly where ECMAScript's Unicode mode throws. Oracle: a
+ *   differential against ECMAScript's RegExp.
+ * - Text: a literal NUL or lone surrogate planted in a source is refused at its offset. Oracle: the specification.
+ * - Flags: the builder refuses exactly the flags other than u and su, and a non-string source, as malformed. Oracle:
+ *   the specification as a checker.
+ * - Nesting: a pattern nested 1, 1,000 or 100,000 levels deep parses, its groups leaving no node, and its chains of
+ *   repetitions and of optional groups as deep as written. Oracle: the specification, the nesting's own depth.
+ *
+ * Features: every planted construct; malformed, admitted and unsupported sources; a NUL and a lone surrogate; admitted
+ * and other flags, a non-string source, no flags and every wild kind; each nesting.
+ *
+ * Plants: text-parse-lookahead-offset (a lookahead refused one code point late), text-parse-stray-paren (an
+ * unmatched ')' passed over), text-parse-nul-admitted (a literal NUL admitted), text-flags-any-string (any flags
+ * string admitted), text-expanded-size-empty-arm (an optional's empty arm counted as a written-out position).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { noCoverage, required, requiredInSpace } from "@grizzle/testing/features"
+import { required, requiredInSpace } from "@grizzle/testing/features"
 import { array, codePoint, element, map, oneOf, option, string } from "@grizzle/testing/gen"
 import { drawnFeature, lsw, passed, WILD_KINDS, type WildKind } from "@grizzle/testing/lsw"
 import { notesOnly } from "@grizzle/testing/sense"
@@ -16,13 +40,6 @@ import { caseHang } from "#test/support/limits.ts"
 import { nonStringWildKinds } from "#test/unit/values/support.ts"
 
 import { regex } from "arkregex"
-/**
- * The admitted grammar and its diagnostics.
- *
- * Each refusal carries its reason, pinned against ECMAScript itself: a MalformedDescription refusal is a pattern
- * `new RegExp(source, "u")` also throws on, and an UnsupportedOperation refusal is valid ECMAScript outside the admitted
- * fragment.
- */
 const parse = (source: string, flags: RegexFlags) => parsePattern(source, flags)
 const failure = (source: string, flags: RegexFlags) => {
 	const result = parse(source, flags)
@@ -171,11 +188,14 @@ describe("refusals with location and reason", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: { kind: "second-implementation", name: "ECMAScript's RegExp in Unicode mode" },
 						suite: "unit/text/parse-7168364",
 						draw: drawn(array(unit, { min: 0, max: 9 })),
 						literal: Formatter.format,
-						coverage: noCoverage,
+						coverage: required<"malformed" | "admitted" | "unsupported">(
+							["malformed", "admitted", "unsupported"],
+							{ cases: 1000, sense: notesOnly }
+						),
 						kept: [],
 						runs: 30000,
 						shrink: completeShrink,
@@ -183,11 +203,12 @@ describe("refusals with location and reason", () => {
 						steerEvery: 16,
 						caseHang
 					},
-					(units) =>
+					(units, c) =>
 						Effect.sync(() => {
 							const source = Arr.join(units, "")
 							const result = parse(source, "u")
 							const malformed = !result.ok && result.error.reason === "MalformedDescription"
+							c.note(result.ok ? "admitted" : malformed ? "malformed" : "unsupported")
 							assert.equal(malformed, !jsValid(source), source)
 						})
 				)
@@ -200,7 +221,10 @@ describe("refusals with location and reason", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "specification",
+						name: "NUL and a lone surrogate are no admitted text, refused where they stand"
+					},
 					suite: "unit/text/parse-text",
 					draw: drawn((source) => ({
 						before: source.draw(lowercase(8)),
@@ -264,7 +288,10 @@ describe("refusals with location and reason", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "a Description's flags are u or su, and its source a string"
+						},
 						suite: "unit/text/regex-flags",
 						draw: drawn(
 							(source) =>
@@ -377,8 +404,11 @@ describe("nesting", () => {
 			ctx,
 			exhaust(
 				{
-					box: { kind: "unstated" },
-					oracle: { kind: "unstated" },
+					box: "every nesting, 1, 1,000 and 100,000 levels deep",
+					oracle: {
+						kind: "specification",
+						name: "groups leave no node, and a chain of repetitions or of optional groups is as deep as written"
+					},
 					suite: "unit/text/parse-depth",
 					literal: Formatter.format,
 					generator: (source) => ({

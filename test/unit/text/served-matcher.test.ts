@@ -5,6 +5,16 @@
  * read back, are exactly the automata buildNfa makes of the patterns' parses, their char sets each held once in the
  * file's table and every one of them stepped on, and the served table (ServedPatterns) judges every drawn text as the
  * compiled table does.
+ *
+ * - The file's sets are a set: each set an edge of its automata steps on, each once, in any order.
+ * - Each served automaton is buildNfa's of the pattern's parse, and the served table judges every text as the compiled
+ *   one does.
+ *
+ * Oracle: the specification, nfa.ts buildNfa over the pattern's parse and the compiled table's own membership.
+ *
+ * Features: a pattern under u, one under su, a text matched, a text refused.
+ *
+ * Plants: text-served-sets-repeated (a set written once for each edge that steps on it).
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -22,7 +32,7 @@ import { matchFlags, type ServedMatchers, ServedPatterns } from "#compiler/scala
 import { buildNfa } from "#compiler/scalar/regex/nfa.ts"
 import { parsePattern } from "#compiler/scalar/regex/parse.ts"
 import { ProgramPatterns } from "#compiler/scalar/regex/patterns.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { assert, succeeded, unorderedEqual } from "#test/support/assert.ts"
 import { exactValue } from "#test/support/equivalence.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { families, flagsGen, patternOver, stringsOver } from "#test/unit/text/generators.ts"
@@ -91,10 +101,10 @@ describe("served matchers", () => {
 									Arr.flatMap(out, (e: NfaEdge) => (e.kind === "set" ? [e.set] : []))
 								)
 							)
-							assert.deepEqual(
+							unorderedEqual(
 								read.sets,
 								Arr.dedupeWith(stepped, (a, b) => Option.isNone(exactValue(a, b))),
-								"the file's sets: each set an edge steps on, once, in the order the edges first meet them"
+								"the file's sets: each set an edge steps on, once"
 							)
 							for (const pattern of patterns) {
 								const label = `/${pattern.source}/${pattern.flags}`

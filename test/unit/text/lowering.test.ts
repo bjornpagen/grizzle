@@ -1,3 +1,24 @@
+/**
+ * Lowering a refinement to PostgreSQL: the constraint loops the IR rewrites away, the printed ARE read back for its
+ * language and for the budgets' verdict, and the form a finite language is enforced by. The empty-language refusal is
+ * emptiness.test.ts's.
+ *
+ * - Constraint loops: no admitted pattern's IR keeps an unbounded repetition whose body can match zero-width through an
+ *   assertion. Oracle: a second implementation, a walk of the IR for such a repetition.
+ * - Read back: the ARE a pattern prints, read back, recognizes the pattern's language, its own key or one past the
+ *   canonical automaton. Oracle: universal, the printed ARE parsed again.
+ * - Budgets: a pattern is admitted, or refused for one reason, exactly as the ARE it prints, read back. Oracle:
+ *   universal, the verdict on a pattern is the verdict on its ARE.
+ * - Finite form: a finite language is enforced by its shorter printed form, the IN list on a tie, and both forms
+ *   recognize it. Oracle: the specification, the emitted DDL's UTF-8 bytes, and ECMAScript's RegExp test.
+ *
+ * Features: a source that loops through an assertion; compared and read back to its own key; admitted, refused at a
+ * budget, spelled otherwise than its ARE; the IN list chosen, the regex chosen, a tie.
+ *
+ * Plants: text-loop-unrefused (a loop through an assertion the rewrite leaves is not refused), text-are-quantifier-max
+ * (a counted quantifier printed one short), text-are-as-written (a pattern's ARE its source as written),
+ * text-finite-tie-regex (a tie enforced by the regex).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -32,11 +53,6 @@ import {
 	stringsOver
 } from "#test/unit/text/generators.ts"
 
-/**
- * Lowering a refinement to PostgreSQL: the constraint loops the IR rewrites away, the printed ARE read back for its
- * language and for the budgets' verdict, and the form a finite language is enforced by. The empty-language refusal is
- * emptiness.test.ts's.
- */
 const loc = SourceLoc("str.regex", ["Content", "relations", "Article", "fields", "f"])
 
 const hex = (c: number): string => Str.toUpperCase(c.toString(16))
@@ -174,7 +190,10 @@ describe("constraint loops (scalar/regex/ir.ts repeat)", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "second-implementation",
+						name: "a walk of the IR for an unbounded repetition whose zero-width part asserts"
+					},
 					suite: "unit/text/assertion-loops",
 					draw: drawn(
 						(source) =>
@@ -232,7 +251,10 @@ describe("reading a printed ARE back", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "universal",
+							name: "the printed ARE parsed again recognizes the pattern's language"
+						},
 						suite: "unit/text/lowering-18081",
 						draw: drawn((source) => [source.draw(familyPattern), source.draw(flagsGen)] as const),
 						literal: Formatter.format,
@@ -302,7 +324,10 @@ describe("reading a printed ARE back", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "universal",
+						name: "the budgets' verdict on a pattern is the verdict on its ARE"
+					},
 					suite: "unit/text/are-verdict",
 					draw: drawn(nestedPattern),
 					literal: Formatter.format,
@@ -426,7 +451,10 @@ describe("the enforcement of a finite language", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "the shorter emitted DDL by UTF-8 bytes, the IN list on a tie, and ECMAScript's RegExp test"
+						},
 						suite: "unit/text/finite-form",
 						draw: drawn((source) => {
 							const family = source.draw(element(families))

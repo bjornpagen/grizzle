@@ -1,11 +1,36 @@
+/**
+ * Host membership and the bounded language proofs, against ECMAScript as the development oracle.
+ *
+ * - Membership: the host NFA agrees with `new RegExp(source, flags).test` on every admitted pattern and admitted string,
+ *   the handwritten family patterns over their families' strings and walks of their own NFA, each pattern accepting
+ *   and refusing, and generated patterns, an empty language matching none of its strings.
+ * - Admitted text: no pattern accepts a string that is not admitted text (a NUL or a lone surrogate), and the tautology
+ *   accepts every admitted one.
+ * - Claimed facts: a tautology accepts every string, a finite language is exactly its members, each once, and a bound
+ *   bounds every member.
+ * - Keys: two patterns with one canonical key, the second drawn apart or as the first with one code point changed,
+ *   have one digest and agree on every string; a finite language's pattern and the alternation of its members in any
+ *   order have one key.
+ *
+ * Oracle: ECMAScript's RegExp test (generators.ts jsMatcher), which appears only here, never under src/; for the
+ * spellings, the finite language's members its construction gives.
+ *
+ * Features: each family pattern accepting and refusing; admitted, empty and a witness; live text and each plant in the
+ * middle; a tautology, a finite language and a bound; equal and distinct keys; one member, several, the empty text.
+ *
+ * Plants: text-nfa-no-restart (a match tried only from the text's start), text-nfa-end-early (`$` read one code point
+ * early), text-nfa-unadmitted-text (a NUL or lone surrogate matched), text-finite-member-twice (a finite language
+ * listing a member twice), text-dfa-key-sets-dropped (a DFA's key without its edges' sets).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { noCoverage, required } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import {
 	array,
 	element,
 	filter,
 	type Gen,
+	int,
 	map,
 	oneOf,
 	shuffled,
@@ -46,14 +71,6 @@ import {
 	plantedValue
 } from "#test/unit/values/support.ts"
 
-/**
- * Host membership and the bounded language proofs, against ECMAScript as the development oracle.
- *
- * The host NFA must agree with `new RegExp(source, flags).test` on every admitted pattern and admitted string. Every
- * fact the analysis claims must hold on the same samples: a tautology accepts every string, a finite language is
- * exactly its members, a bound bounds every member, and equal canonical keys never disagree. RegExp appears only here,
- * never under src/.
- */
 const loc = SourceLoc("str.regex", ["test"])
 
 const refine = (source: string, flags: Flags): TextRefinement => {
@@ -218,7 +235,7 @@ describe("host NFA membership equals ECMAScript", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: { kind: "second-implementation", name: "ECMAScript's RegExp test (jsMatcher)" },
 						suite: "unit/text/membership-families",
 						draw: drawn(familyCaseGen),
 						literal: Formatter.format,
@@ -273,7 +290,7 @@ describe("host NFA membership equals ECMAScript", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: { kind: "second-implementation", name: "ECMAScript's RegExp test (jsMatcher)" },
 					suite: "unit/text/membership-5129793",
 					draw: drawn(patternSketchGen),
 					literal: Formatter.format,
@@ -335,7 +352,10 @@ describe("host NFA membership equals ECMAScript", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "admitted text: no NUL and no lone surrogate (values/support.ts plantedFault)"
+						},
 						suite: "unit/text/membership-admitted",
 						draw: drawn(
 							(source) =>
@@ -373,13 +393,29 @@ describe("host NFA membership equals ECMAScript", () => {
 	)
 })
 
+type KeyFeature = "equal keys" | "distinct keys"
+
+/**
+ * A pattern with one of its code points, drawn by position, changed to a drawn code point of the alphabet: a pattern
+ * near the first, whose language is the first's or differs at that code point, where a key that drops a set collides.
+ * A change inside the pattern's syntax may spell no admitted pattern, which the property passes over.
+ */
+const oneCodePointChanged =
+	(pattern: string, alphabet: Arr.NonEmptyReadonlyArray<number>): Gen<string> =>
+	(source) => {
+		const points = codePoints(pattern)
+		const at = source.draw(int(0, Math.max(points.length - 1, 0)))
+		const replacement = source.draw(element(alphabet))
+		return String.fromCodePoint(...Arr.map(points, (point, i) => (i === at ? replacement : point)))
+	}
+
 describe("every claimed fact holds on the samples", () => {
 	it.effect("tautologies accept, finite languages are exactly their members, bounds bound", (ctx) =>
 		searched(
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: { kind: "second-implementation", name: "ECMAScript's RegExp test (jsMatcher)" },
 					suite: "unit/text/membership-4604227",
 					draw: drawn(caseGen),
 					literal: Formatter.format,
@@ -438,19 +474,28 @@ describe("every claimed fact holds on the samples", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: { kind: "second-implementation", name: "ECMAScript's RegExp test (jsMatcher)" },
 					suite: "unit/text/membership-4932953",
 					draw: drawn((source) => {
 						const family = source.draw(element(families))
+						const a = source.draw(patternOver(family.alphabet))
 						return {
-							a: source.draw(patternOver(family.alphabet)),
-							b: source.draw(patternOver(family.alphabet)),
+							a,
+							b: source.draw(
+								weighted<string>([
+									[1, patternOver(family.alphabet)],
+									[3, oneCodePointChanged(a, family.alphabet)]
+								])
+							),
 							flags: source.draw(flagsGen),
 							strings: source.draw(array(stringsOver(family.alphabet, 8), { min: 1, max: 24 }))
 						}
 					}),
 					literal: Formatter.format,
-					coverage: noCoverage,
+					coverage: required<KeyFeature>(["equal keys", "distinct keys"], {
+						cases: 2000,
+						sense: notesOnly
+					}),
 					kept: [],
 					runs: 2000,
 					shrink: completeShrink,
@@ -458,19 +503,19 @@ describe("every claimed fact holds on the samples", () => {
 					steerEvery: 16,
 					caseHang
 				},
-				({ a, b, flags, strings }) =>
+				({ a, b, flags, strings }, c) =>
 					Effect.sync(() => {
 						const x = refineOrEmpty(a, flags)
-						const y = refineOrEmpty(b, flags)
-						if (
-							x === "empty" ||
-							y === "empty" ||
-							x === "bound" ||
-							y === "bound" ||
-							x.key !== y.key
-						) {
+						const changed = analyzeText([{ source: b, flags }], loc)
+						if (x === "empty" || x === "bound" || !changed.ok) {
 							return
 						}
+						const y = changed.value
+						if (x.key !== y.key) {
+							c.note("distinct keys")
+							return
+						}
+						c.note("equal keys")
 						assert.equal(x.digest, y.digest)
 						const ofA = jsMatcher(a, flags)
 						const ofB = jsMatcher(b, flags)

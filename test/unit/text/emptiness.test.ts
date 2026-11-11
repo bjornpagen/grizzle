@@ -1,3 +1,19 @@
+/**
+ * A pattern no text matches, decided by the IR (scalar/regex/ir.ts): its constructors make a node the empty language
+ * exactly when none of its paths can match, an empty class's or an order of anchors no match passes (`^$a`). The oracle
+ * is a search of the pattern's own NFA, written here and blind to the IR's profiles: the pattern is spelled again with
+ * each `^` and `$` a pair of marks, private-use code points no family holds, so its parse keeps every path an anchor
+ * would make impossible; each mark's edge is then read back as its anchor's, and a reachability over (state, consumed a
+ * code point, passed a `$`) follows walk's rules (generators.ts walk): a `^` only before the first code point, no code
+ * point after a `$`. The IR is never, and matchPattern and analyzeText refuse the pattern as UnsupportedOperation at the
+ * pattern, exactly when the search reaches no accepting state; a path it finds spells a member, which ECMAScript's own
+ * test accepts, and a path that breaks the rules spells a text the pattern rejects when it is empty.
+ *
+ * Features: empty through an anchor, through a class, and past the DFA bounds; non-empty with an inner anchor and past
+ * the DFA bounds.
+ *
+ * Plants: text-ir-never-skipped (a sequence passes over an item no text matches, as if it matched the empty text).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -29,17 +45,6 @@ import {
 	patternOver
 } from "#test/unit/text/generators.ts"
 
-/**
- * A pattern no text matches, decided by the IR (scalar/regex/ir.ts): its constructors make a node the empty language
- * exactly when none of its paths can match, an empty class's or an order of anchors no match passes (`^$a`). The oracle
- * is a search of the pattern's own NFA, written here and blind to the IR's profiles: the pattern is spelled again with
- * each `^` and `$` a pair of marks, private-use code points no family holds, so its parse keeps every path an anchor
- * would make impossible; each mark's edge is then read back as its anchor's, and a reachability over (state, consumed a
- * code point, passed a `$`) follows walk's rules (generators.ts walk): a `^` only before the first code point, no code
- * point after a `$`. The IR is never, and matchPattern and analyzeText refuse the pattern as UnsupportedOperation at the
- * pattern, exactly when the search reaches no accepting state; a path it finds spells a member, which ECMAScript's own
- * test accepts, and a path that breaks the rules spells a text the pattern rejects when it is empty.
- */
 const loc = SourceLoc("str.regex", ["Content", "relations", "Article", "fields", "f"])
 
 /** The private-use code points the marked spelling writes for `^` and for `$`: no family's alphabet holds either. */

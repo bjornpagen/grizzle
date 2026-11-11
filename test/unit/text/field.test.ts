@@ -1,3 +1,16 @@
+/**
+ * str.regex's runtime core (text/field.ts regexField) over drawn sources and flags.
+ *
+ * - Descriptor: it is frozen, keeps its source and flags, and where the text analysis admits the pattern its desc is a
+ *   valid Description field carrying the analysis's language, and a schema holds it; where the analysis refuses the
+ *   pattern, a schema over it is refused for the analysis's reason.
+ *
+ * Oracle: the specification, the text analysis's own verdict (text/refinement.ts textLookup) deciding each side.
+ *
+ * Features: an admitted pattern and a refused one.
+ *
+ * Plants: text-field-flags-dropped (a descriptor's flags always "u").
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -26,7 +39,10 @@ describe("str.regex", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "the text analysis's verdict on the pattern (textLookup) decides the descriptor and the schema"
+						},
 						suite: "unit/text/field",
 						draw: drawn((source) => ({
 							source: source.draw(patternOver(source.draw(element(families)).alphabet)),

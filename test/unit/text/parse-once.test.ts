@@ -11,6 +11,11 @@
  * with every reader multiplied, each relation copied and every closed row held, and the two compiles' parses agree.
  * Then each relation's generated field is evaluated over every text and each refined field's bind check judges every
  * text, with no parse at all, each answer the reference's (oracle/reference/evaluate.ts patternMember).
+ *
+ * Features: one pattern and several, a relation of several texts, several closed rows, a dotall pattern, a match that
+ * holds and one that fails.
+ *
+ * Plants: text-parse-per-row (a compiled table's match parses its pattern on every call).
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"

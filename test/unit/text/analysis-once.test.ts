@@ -9,11 +9,18 @@
  * (kernel/calls.ts callCounts), so the guard does not depend on the machine. Each case draws the distinct patterns, the
  * relations over them, two keys a relation, a containment between relations of one pattern, and a closed relation
  * whose rows carry a pattern's value.
+ *
+ * Oracle: the specification, one analysis and one subset construction a distinct pattern, counted by V8's coverage.
+ *
+ * Features: one pattern and several, a pattern several relations read, a containment, closed rows, an unbounded
+ * pattern.
+ *
+ * Plants: text-analysis-twice (str.regex analyzes its pattern a second time).
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { array, boolean, type Gen, int } from "@grizzle/testing/gen"
+import { array, boolean, type Gen, int, shuffled } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -63,12 +70,12 @@ interface CountCase {
 }
 
 const caseGen: Gen<CountCase> = (source) => {
-	const drawnPatterns = Arr.dedupe(
-		source.draw(array(int(0, patterns.length - 1), { min: 1, max: 4 }))
+	const [firstPattern, ...otherPatterns] = source.draw(
+		shuffled(Arr.range(0, patterns.length - 1), { min: 1, max: 4 })
 	)
 	const chosen: Arr.NonEmptyReadonlyArray<number> = [
-		defined(drawnPatterns[0], "a drawn pattern"),
-		...Arr.drop(drawnPatterns, 1)
+		defined(firstPattern, "a drawn pattern"),
+		...otherPatterns
 	]
 	const fieldsOf: Gen<Arr.NonEmptyReadonlyArray<number>> = (inner) => [
 		inner.draw(int(0, chosen.length - 1)),
@@ -101,7 +108,7 @@ const containmentOf = (c: CountCase, bounded: (t: number) => boolean): boolean =
 type CountFeature =
 	| "one pattern"
 	| "several patterns"
-	| "a pattern in many keys"
+	| "a pattern several relations read"
 	| "a containment"
 	| "closed rows"
 	| "an unbounded pattern"
@@ -114,7 +121,10 @@ describe("the text analysis", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "one analysis and one subset construction a distinct pattern, counted by V8's precise coverage"
+						},
 						suite: "unit/text/analysis-once",
 						draw: drawn(caseGen),
 						literal: Formatter.format,
@@ -122,7 +132,7 @@ describe("the text analysis", () => {
 							[
 								"one pattern",
 								"several patterns",
-								"a pattern in many keys",
+								"a pattern several relations read",
 								"a containment",
 								"closed rows",
 								"an unbounded pattern"
@@ -228,11 +238,13 @@ describe("the text analysis", () => {
 							)
 							succeeded(compiled, "the schema compiles")
 							k.note(c.chosen.length === 1 ? "one pattern" : "several patterns")
-							const keyed = Arr.reduce(c.relations, 0, (n, texts) =>
-								Arr.reduce(texts, n, (m, t) => (patternAt(t).bounded ? m + 2 : m))
-							)
-							if (keyed >= 8) {
-								k.note("a pattern in many keys")
+							if (
+								Arr.some(
+									indices(c.chosen.length),
+									(t) => Arr.filter(c.relations, (texts) => texts.includes(t)).length > 1
+								)
+							) {
+								k.note("a pattern several relations read")
 							}
 							if (containmentOf(c, (t) => patternAt(t).bounded)) {
 								k.note("a containment")

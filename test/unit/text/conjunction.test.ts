@@ -1,3 +1,33 @@
+/**
+ * A conjunction of patterns (str.and), whose language is the intersection of its members', as the text analysis keys,
+ * bounds, matches, compares and enforces it. Each search draws its patterns from the generated grammar and finite
+ * languages over a small alphabet, ECMAScript's own membership of every member (generators.ts jsMatcher) the oracle of
+ * the intersection:
+ *
+ * - **its language:** the host's membership of a drawn text (scalar/regex/patterns.ts) and the intersection's canonical
+ *   DFA, where the analysis builds one, are ECMAScript's conjunction of its members' verdicts; every text of it lies
+ *   within the bounds it proves, which a bounded member gives an unbounded one; and the key is the language's, so the
+ *   members in either order, a member twice, or a member beside every text's pattern key alike;
+ * - **inclusion:** a conjunction's inclusion in another (scalar/regex/inclusion.ts) holds exactly when brute force over
+ *   every text of up to four code points of the alphabet, and walks of the inner members, finds no text of every inner
+ *   member outside some outer one, and a refutation's witness is such a text;
+ * - **a match guard:** Compute.matches over a refined subject types its branch by both languages, so a parse in the
+ *   branch compiles exactly when the conjunction lies inside the parse's form, a case neither pattern alone proves among
+ *   them;
+ * - **its size:** its CHECK prints in no more bytes than its members' own tests joined by AND, so a conjunction's
+ *   installation is linear in its members, the NCName conjunction of XML Schema's two name classes among them.
+ *
+ * Oracles: ECMAScript's membership of every member; brute force over every short text and walks of the inner members;
+ * the inclusion of the two patterns' conjunction in the form; the sum of the members' own tests and their joins.
+ *
+ * Features: a pair and a triple, keyed by the intersection's automaton or by its members, a text of the conjunction and
+ * one the first member alone holds, refused as matching no text, bounded where a member alone is not; included and
+ * refuted inclusions; admitted and refused guards; a regex check of several patterns and an IN list.
+ *
+ * Plants: text-conjunction-some (the host takes a text any member matches), text-inclusion-some-outer (an inclusion in
+ * one outer member taken as inclusion in their conjunction), text-guard-drops-subject (a match guard's branch typed by
+ * the guard's pattern alone), text-check-doubled (a conjunction's CHECK writes each test twice).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -38,25 +68,6 @@ import {
 import { assert, defined } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { checkedIn } from "#test/support/policy.ts"
-/**
- * A conjunction of patterns (str.and), whose language is the intersection of its members', as the text analysis keys,
- * bounds, matches, compares and enforces it. Each search draws its patterns from the generated grammar and finite
- * languages over a small alphabet, ECMAScript's own membership of every member (generators.ts jsMatcher) the oracle of
- * the intersection:
- *
- * - **its language:** the host's membership of a drawn text (scalar/regex/patterns.ts) and the intersection's canonical
- *   DFA, where the analysis builds one, are ECMAScript's conjunction of its members' verdicts; every text of it lies
- *   within the bounds it proves, which a bounded member gives an unbounded one; and the key is the language's, so the
- *   members in either order, a member twice, or a member beside every text's pattern key alike;
- * - **inclusion:** a conjunction's inclusion in another (scalar/regex/inclusion.ts) holds exactly when brute force over
- *   every text of up to four code points of the alphabet, and walks of the inner members, finds no text of every inner
- *   member outside some outer one, and a refutation's witness is such a text;
- * - **a match guard:** Compute.matches over a refined subject types its branch by both languages, so a parse in the
- *   branch compiles exactly when the conjunction lies inside the parse's form, a case neither pattern alone proves among
- *   them;
- * - **its size:** its CHECK prints in no more bytes than its members' own tests joined by AND, so a conjunction's
- *   installation is linear in its members, the NCName conjunction of XML Schema's two name classes among them.
- */
 import { textInfo } from "#test/support/text.ts"
 import { refinementBounds } from "#test/support/text.ts"
 import {

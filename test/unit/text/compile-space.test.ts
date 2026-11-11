@@ -1,16 +1,27 @@
+/**
+ * PostgreSQL's regex compile limits, as grizzle measures a pattern against them (scalar/regex/space.ts): its colors,
+ * the raw NFA PostgreSQL's parser builds from its ARE, the states and arcs held at once, its longest path, and the
+ * anchors PostgreSQL must move. That PostgreSQL compiles what the limits admit is test/pg/text/differential.test.ts's.
+ *
+ * - The raw NFA: the built NFA holds the states and arcs its fold counts, no depth-first walk of it is deeper than its
+ *   fold's depth, and its colors are its printed sets' classes. Oracle: a second implementation, the built raw NFA, its
+ *   walks either way, and a sweep of every code point's set memberships.
+ * - The limits: a shape built to cross one limit along its parameter, drawn on both sides of it, is refused as
+ *   ResourceBound naming that limit and what it needed, and admitted inside every limit. Oracle: each shape's measure
+ *   by its built raw NFA, its walks, or its code points' set memberships.
+ * - RFC 3986: the URI-reference grammar as one pattern is admitted and accepts exactly what ECMAScript's RegExp
+ *   accepts, on strings over its alphabet and walks of its own NFA. Oracle: ECMAScript's RegExp.
+ *
+ * Features: a pattern, sets that cut one another, a loop, a walk longer than its spelling; each limit crossed and a
+ * shape admitted; a member, no member, and a walked member.
+ *
+ * Plants: text-raw-nfa-frame-arcs (the frame's arcs miscounted), text-limit-anchors-at (a pattern at the anchors
+ * limit refused), text-charset-upper-bound (a set's last code point left out of it).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import {
-	array,
-	element,
-	type Gen,
-	int,
-	map,
-	oneOf,
-	string,
-	uniqueArray
-} from "@grizzle/testing/gen"
+import { array, element, type Gen, int, map, oneOf, string, subset } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -52,22 +63,17 @@ import {
 	walkGen
 } from "#test/unit/text/generators.ts"
 
-/**
- * PostgreSQL's regex compile limits, as grizzle measures a pattern against them (scalar/regex/space.ts): its colors,
- * the raw NFA PostgreSQL's parser builds from its ARE, the states and arcs held at once, its longest path, and the
- * anchors PostgreSQL must move. That PostgreSQL compiles what the limits admit is test/pg/text/differential.test.ts's.
- */
 const loc = SourceLoc("str.regex", ["Web", "relations", "Link", "fields", "href"])
 
 /** A code point as its braced escape, which means itself inside a class and out. */
 const escaped = (c: number): string => `\\u{${c.toString(16)}}`
 
 /** Admitted code points of three widths, which a drawn alphabet takes from, so a pattern's sets cut many colors. */
-const widePoint: Gen<number> = oneOf<number>([
-	int(0x21, 0x7e),
-	int(0x4e00, 0x4fff),
-	int(0x1f600, 0x1f6ff)
-])
+const widePoints: ReadonlyArray<number> = [
+	...Arr.range(0x21, 0x7e),
+	...Arr.range(0x4e00, 0x4fff),
+	...Arr.range(0x1f600, 0x1f6ff)
+]
 
 /** A pattern over a drawn alphabet of up to 48 code points, a family's, or one of nested quantifiers. */
 const patternGen: Gen<{ readonly source: string; readonly flags: "u" | "su" }> = (source) => ({
@@ -76,7 +82,7 @@ const patternGen: Gen<{ readonly source: string; readonly flags: "u" | "su" }> =
 			nestedPattern,
 			(s) => s.draw(patternOver(s.draw(element(families)).alphabet)),
 			(s) => {
-				const alphabet = s.draw(uniqueArray(widePoint, (c) => c, { min: 1, max: 48 }, 8))
+				const alphabet = s.draw(subset(widePoints, { min: 1, max: 48 }))
 				return s.draw(
 					patternOver([defined(alphabet[0], "a drawn code point"), ...alphabet.slice(1)])
 				)
@@ -206,7 +212,11 @@ const sweptColors = (
 }
 
 describe("the raw NFA PostgreSQL's parser builds", () => {
-	type Reached = "a pattern" | "many colors" | "a loop" | "a deep walk"
+	type Reached =
+		| "a pattern"
+		| "sets that cut one another"
+		| "a loop"
+		| "a walk longer than its spelling"
 	it.effect(
 		"holds the states and arcs its fold counts, no walk of it is deeper than its fold's depth, and its colors are its printed sets' classes",
 		(ctx) =>
@@ -221,10 +231,15 @@ describe("the raw NFA PostgreSQL's parser builds", () => {
 							kind: "second-implementation",
 							name: "the built raw NFA, depth-first walks of it, and every code point's set memberships"
 						},
-						coverage: required<Reached>(["a pattern", "many colors", "a loop", "a deep walk"], {
-							cases: 400,
-							sense: notesOnly
-						}),
+						coverage: required<Reached>(
+							[
+								"a pattern",
+								"sets that cut one another",
+								"a loop",
+								"a walk longer than its spelling"
+							],
+							{ cases: 400, sense: notesOnly }
+						),
 						kept: [],
 						runs: 400,
 						shrink: completeShrink,
@@ -253,8 +268,8 @@ describe("the raw NFA PostgreSQL's parser builds", () => {
 									`${label}: the colors of set ${i}`
 								)
 							}
-							if (colors.count > 8) {
-								c.note("many colors")
+							if (colors.count > printedSets(ir).length + 1) {
+								c.note("sets that cut one another")
 							}
 							const nfa = rawNfa(ir, colors)
 							assert.equal(nfa.arcs.length, size.states, `${label}: its states`)
@@ -268,8 +283,8 @@ describe("the raw NFA PostgreSQL's parser builds", () => {
 									walked <= size.depth,
 									`${label}: a walk ${walked} deep past ${size.depth}`
 								)
-								if (walked > 32) {
-									c.note("a deep walk")
+								if (walked > Arr.fromIterable(source).length) {
+									c.note("a walk longer than its spelling")
 								}
 							}
 						})

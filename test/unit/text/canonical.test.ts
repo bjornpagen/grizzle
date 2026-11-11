@@ -1,3 +1,18 @@
+/**
+ * The IR's canonical text and order (scalar/regex/ir.ts canonicalText, compareCanonical). The canonical text is
+ * JSON.stringify's text of the node's shape, its profiles left out, which a pattern's "ir:" key is and a snapshot's
+ * domain digest is taken over, so it is written byte for byte as JSON.stringify writes the shape; the builder orders an
+ * alternation's arms by that text while comparing it piece by piece, never writing it.
+ *
+ * - Text: each parsed pattern's canonical text is JSON.stringify's text of its shape.
+ * - Order: every alternation's arms are in strictly ascending order of their canonical texts, none repeated.
+ *
+ * Oracle: a second implementation, JSON.stringify of the shape, and its texts sorted and deduplicated.
+ *
+ * Features: an alternation, and nested alternations.
+ *
+ * Plants: text-canonical-order-reversed (the arms compared in descending order).
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -15,12 +30,6 @@ import { assert } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { families, flagsGen, nestedPattern, patternOver } from "#test/unit/text/generators.ts"
 
-/**
- * The IR's canonical text and order (scalar/regex/ir.ts canonicalText, compareCanonical). The canonical text is
- * JSON.stringify's text of the node's shape, its profiles left out, which a pattern's "ir:" key is and a snapshot's
- * domain digest is taken over, so it is written byte for byte as JSON.stringify writes the shape; the builder orders an
- * alternation's arms by that text while comparing it piece by piece, never writing it.
- */
 type Alt = Extract<RegexNode, { readonly kind: "alt" }>
 
 /** A node's shape: every field of it and of its children but the profiles, which no key reads. */
@@ -85,7 +94,10 @@ describe("the canonical text and order", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "second-implementation",
+							name: "JSON.stringify of the node's shape, its arms' texts sorted"
+						},
 						suite: "unit/text/canonical",
 						draw: drawn((source) => [source.draw(anyPattern), source.draw(flagsGen)] as const),
 						literal: Formatter.format,

@@ -6,6 +6,10 @@
  * each side a pattern bounded or not by str.bytes. The oracle: the schema compiles, the containment installed as a
  * foreign key and its target key's UNIQUE; each side's type is text, as its pattern's is, and bounds its bytes at the
  * lesser of its pattern's bound and its byte bound.
+ *
+ * Features: the meet situations test/support/text/bytes.ts names (meetFeatures).
+ *
+ * Plants: text-bytes-pattern-bound-kept (a byte bound looser than its pattern's kept, so the tighter one is lost).
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -54,7 +58,10 @@ describe("str.bytes meets", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "the lesser of a side's pattern bound and its byte bound, and the containment installed"
+						},
 						suite: "unit/text/bytes",
 						draw: drawn(meetCaseGen),
 						literal: Formatter.format,
