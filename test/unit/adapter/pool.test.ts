@@ -59,6 +59,16 @@ import { pickFrom, pickGen } from "#test/support/pick.ts"
  * session left.
  *
  * How the server answers a startup: ready, with a cancellation key, or refused, at startup or with no key.
+ *
+ * Oracle: a model of the leases held after each step, against the server's own open connections and pg's Pool's
+ * counts, both read apart from the pool's bookkeeping; at the end, the pool's maximum leased at once with the clock
+ * standing still.
+ *
+ * Plants (~/.cache/grizzle-release/BR04/plants): pool-abandoned-permit-lost.patch (a lease abandoned while pg connects
+ * it never gives its permit back).
+ *
+ * Features: each step's situation, a flood of waiters among them; the kept case reaches every abandonment, loss,
+ * starvation and refusal on a pool of two.
  */
 type Refusal = "refused" | "no key"
 type Startup = "ready" | Refusal
@@ -459,7 +469,10 @@ describe("the session pool", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "second-implementation",
+							name: "a model of the leases held, against the server's open connections and pg's Pool's counts"
+						},
 						suite: "unit/adapter/pool",
 						draw: drawn(sequenceGen),
 						literal: Formatter.format,

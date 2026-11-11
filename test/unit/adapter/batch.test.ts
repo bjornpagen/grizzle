@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { type Case, drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { noCoverage, type Reached, required, requiredInSpace } from "@grizzle/testing/features"
+import { type Reached, required, requiredInSpace } from "@grizzle/testing/features"
 import { array, int } from "@grizzle/testing/gen"
 import { exact } from "@grizzle/testing/oracle"
 import { notesOnly } from "@grizzle/testing/sense"
@@ -62,6 +62,16 @@ import { testSql } from "#test/support/sql.ts"
  * way the case's swarm allows.
  *
  * Also here: joined flights hand each part its own outcomes.
+ *
+ * Oracles: the flight model, a second implementation of the ending, the commit, the retirement and the CancelRequest
+ * from the answers the server made and the client was given; for joined flights, each part's own statements and
+ * outcomes.
+ *
+ * Plants (~/.cache/grizzle-release/BR04/plants): batch-cancel-after-drain.patch (an interrupted flight that drained
+ * still sends a CancelRequest), batch-joined-part-overreads.patch (a joined part reads the next part's first outcome).
+ *
+ * Features: each ending, commit and retirement the model names; for joined flights, no part, a part of no statement,
+ * and several parts.
  */
 /** A call's statement, a served one as a Db call sends it: its label's text, named. */
 const statement = (sql: string): BatchStatement => preparedStatement(prepared(testSql(sql)), [])
@@ -262,8 +272,11 @@ describe("a flight", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "every flight of one statement per part, interrupted after every number of delivered answers",
+						oracle: {
+							kind: "second-implementation",
+							name: "the flight model (test/support/flight/model.ts) over the answers made and given"
+						},
 						suite: "unit/adapter/flight-small",
 						generator: smallCases,
 						literal: Formatter.format,
@@ -284,7 +297,10 @@ describe("a flight", () => {
 			ctx,
 			explore(
 				{
-					oracle: { kind: "unstated" },
+					oracle: {
+						kind: "second-implementation",
+						name: "the flight model (test/support/flight/model.ts) over the answers made and given"
+					},
 					suite: "unit/adapter/flight",
 					draw: drawn(caseGen(space)),
 					literal: Formatter.format,
@@ -311,6 +327,15 @@ const part = (name: string, width: number): Flight<ReadonlyArray<unknown>, never
 	read: (outcomes) => Effect.succeed(firstCells(outcomes))
 })
 
+/** What a joined flight's parts are: none, one of no statement among them, or more than one. */
+type JoinedFeature = "no part" | "a part of no statement" | "several parts"
+
+const joinedFeatures = (widths: ReadonlyArray<number>): ReadonlyArray<JoinedFeature> => [
+	...(widths.length === 0 ? (["no part"] as const) : []),
+	...(Arr.contains(widths, 0) ? (["a part of no statement"] as const) : []),
+	...(widths.length > 1 ? (["several parts"] as const) : [])
+]
+
 describe("joined flights", () => {
 	it.live(
 		"send every part's statements in part order and hand each part exactly its own outcomes",
@@ -319,11 +344,20 @@ describe("joined flights", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "each part's statements in part order, and each part's own outcomes back"
+						},
 						suite: "unit/adapter/batch-2",
 						draw: drawn(array(int(0, 3), { min: 0, max: 5 })),
 						literal: Formatter.format,
-						coverage: noCoverage,
+						coverage: required<JoinedFeature>(
+							["no part", "a part of no statement", "several parts"],
+							{
+								cases: 50,
+								sense: notesOnly
+							}
+						),
 						kept: [],
 						runs: 200,
 						shrink: completeShrink,
@@ -331,8 +365,9 @@ describe("joined flights", () => {
 						steerEvery: 16,
 						caseHang
 					},
-					(widths) =>
+					(widths, c) =>
 						Effect.gen(function* () {
+							c.noteAll(joinedFeatures(widths))
 							const session = scriptedSession(answeringScript, immediateDelivery)
 							const joined = joinFlights(Arr.map(widths, (width, p) => part(`p${p}`, width)))
 							const expected = Arr.map(widths, (width, p) =>

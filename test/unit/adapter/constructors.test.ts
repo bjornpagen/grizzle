@@ -56,6 +56,14 @@ import { caseHang } from "#test/support/limits.ts"
  * input (pg's DatabaseError, a SQLSTATE SERIALIZABLE or the fence refuses with, a unique violation a statement lists
  * as an abort, an engine reason or bound), its value is deeply equal to the public construction, prototypes included,
  * and an instance of the public constructor for its tag.
+ *
+ * Oracle: the specification, each constructor's value carrying the facts as given, and the adapter's own
+ * classification of the same facts, deeply equal to it.
+ *
+ * Plants (~/.cache/grizzle-release/BR04/plants): failures-empty-field-kept.patch (an empty report field kept as one
+ * that says something), failures-deadlock-as-serialization.patch (40P01 read as 40001).
+ *
+ * Features: each constructor, each SQLSTATE grizzle branches on and any other, each report field empty or present.
  */
 
 /** The errors the public channels name: Db.open's and DbLayer.make's, a read's, a write's, a page's, db.compile's. */

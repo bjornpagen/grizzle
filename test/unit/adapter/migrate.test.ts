@@ -1,3 +1,26 @@
+/**
+ * The apply runner's pure parts (adapter/migrate): the input check before any connection, transaction-control refusal,
+ * and the plan with its resume and refusals. The drift check after an apply is test/pg/admission's.
+ *
+ * - **Transaction control:** a statement is refused exactly when PostgreSQL's grammar reads it as controlling a
+ *   transaction, past comments of both kinds, its keywords in any case.
+ * - **The input check:** a target of a prefix of the shop's chain parses into its folders in name order, each file at
+ *   its ordinal with its transaction mode; one fault planted at a drawn folder is refused at stage input with exactly
+ *   that fault, at that folder.
+ * - **The plan:** against a ledger of applied folders, the plan resumes the partial folder at its first file without a
+ *   row, applies the rest, and refuses an applied file edited, renamed or deleted, or a file added to a completed
+ *   folder, naming every such file.
+ *
+ * A folder's files as the reviewer leaves them: unedited, or each file's text through `edit`.
+ *
+ * Oracles: PostgreSQL's grammar of transaction control, per statement form; the documented input faults and the plan's
+ * documented resume and refusals, restated over the drawn target and ledger.
+ *
+ * Plants (~/.cache/grizzle-release/BR04/plants): migrate-rollback-work-to.patch (ROLLBACK WORK TO read as a
+ * transaction's rollback), migrate-applied-edit-unseen.patch (an applied file edited afterwards goes unnoticed).
+ *
+ * Features: each statement form and comment placement; each input fault; each plan's resume and refusal.
+ */
 import { inspect } from "node:util"
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -47,12 +70,6 @@ import { draftFiles } from "#test/support/migrate/review.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { shopV1, shopV2, shopV3, shopV3Declared } from "#test/unit/deploy/schemas.ts"
 
-/**
- * The apply runner's pure parts: the input check before any connection, transaction-control refusal, and the plan with
- * its resume and refusals. The drift check after an apply is test/pg/admission's.
- *
- * A folder's files as the reviewer leaves them: unedited, or each file's text through `edit`.
- */
 /** The schema every version of the shop is installed under, and its PostgreSQL schema. */
 const shopSchema = atName("shop")
 const shop = identifierOf(identity.schema(parsedSchemaName("shop")))
@@ -403,7 +420,10 @@ describe("transaction control in a migration file", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "PostgreSQL's grammar of transaction control (gram.y TransactionStmt), per statement form"
+						},
 						suite: "unit/adapter/transaction-control",
 						draw: drawn(statementGen),
 						literal: Formatter.format,

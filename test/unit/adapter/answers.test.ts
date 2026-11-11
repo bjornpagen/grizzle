@@ -45,6 +45,13 @@ import { contained, on, relation, schema } from "#compiler/public/schema.ts"
  *   so the lookahead counts distinct rows; an equal tuple, a step back, or a row past the statement's LIMIT, the size
  *   and its one lookahead row, is UnreadableAnswer at the rows statement. Oracle: the request's contract, edges the
  *   first min(size, n) of n increasing rows and the lookahead n > size.
+ *
+ * Plants (~/.cache/grizzle-release/BR04/plants): answers-second-child-taken.patch (a second child under an Option or
+ * one is taken silently), answers-repeat-delivered.patch (a statement's answer holding a row twice is delivered),
+ * answers-page-lookahead-at-size.patch (a page of exactly its size counts a lookahead).
+ *
+ * Features: each delivery, a defect, a proof that does not license the reader; each statement kind with a repeat
+ * planted or none; each way a page's candidates fail.
  */
 import { statementOutput } from "#compiler/runtime/lower/tree.ts"
 import { bindGroups, named, record } from "#compiler/schema/record.ts"
@@ -176,8 +183,11 @@ describe("an attachment's delivery", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "every reader under every proof that licenses it, over zero to three children",
+						oracle: {
+							kind: "specification",
+							name: "the deliveries each proof licenses, enumerated with every count of children"
+						},
 						suite: "unit/adapter/answers-deliveries",
 						generator: deliveryCases,
 						literal: Formatter.format,
@@ -362,7 +372,10 @@ describe("a statement's rows", () => {
 					ctx,
 					explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "specification",
+								name: "the delivered set: the generated rows, distinct until the case plants a repeat"
+							},
 							suite: "unit/adapter/answers-rows",
 							draw: drawn(stitchCases),
 							literal: Formatter.format,
@@ -526,7 +539,10 @@ describe("a page's candidates", () => {
 					ctx,
 					explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "specification",
+								name: "edges the first min(size, n) of n increasing rows, and the lookahead n > size"
+							},
 							suite: "unit/adapter/answers-page",
 							draw: drawn(pageCases),
 							literal: Formatter.format,

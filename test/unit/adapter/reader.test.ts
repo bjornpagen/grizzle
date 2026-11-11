@@ -59,6 +59,14 @@ import { textOfParam } from "#test/support/wire.ts"
  *
  * A read's refusal as the contract states it: a codec's refusal at encode with the slot its EncodingFailure names, the
  * parameter or `parameter.field` (README "Errors and outcomes": as a write's names it), or any other refusal by its stage.
+ *
+ * Oracles: the read boundary's contract, every declared parameter admitted whether or not a statement binds it; the
+ * relation input's arrays restated from the caller's value; and each refusal's documented stage and slot.
+ *
+ * Plants (~/.cache/grizzle-release/BR04/plants): reader-scalar-refusal-dropped.patch (a scalar parameter its codec
+ * refuses is left out rather than refused).
+ *
+ * Features: a parameter only an eliminated rule reads, one a statement binds; each relation input's shape and refusal.
  */
 type Refusal =
 	| { readonly kind: "codec"; readonly slot: string | undefined }
@@ -139,7 +147,10 @@ describe("every declared parameter admitted at the read boundary", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "every declared parameter is admitted at the read boundary, whatever the optimizer eliminated"
+						},
 						suite: "unit/adapter/reader-eliminated-parameter",
 						draw: drawn(pinnedReadGen),
 						literal: Formatter.format,

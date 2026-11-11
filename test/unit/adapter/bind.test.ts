@@ -31,6 +31,11 @@ import { paramText, textsOfParams } from "#test/support/wire.ts"
  * bindLength must say. Against a limit drawn about those lengths, the flight is refused exactly when some message is
  * longer than the limit, with InputTooLarge naming the first such statement by its position, its length and the limit;
  * a message exactly as long as the limit passes.
+ *
+ * Plants (~/.cache/grizzle-release/BR04/plants): bind-limit-exclusive.patch (a message exactly as long as the limit is
+ * refused).
+ *
+ * Features: refused at the first statement or a later one; admitted at exactly the limit or below it.
  */
 
 /** The Bind message pg writes for one execution of `statement`, as the bytes it sends. */

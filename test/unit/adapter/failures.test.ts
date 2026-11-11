@@ -42,6 +42,12 @@ import { regex } from "arkregex"
  * severity, a lowercase spelling and none; and where the failure met the flight (a statement, COMMIT, a stale name).
  *
  * PostgreSQL's spelling of a SQLSTATE (errcodes.txt).
+ *
+ * Plants (~/.cache/grizzle-release/BR04/plants): failures-deadlock-as-serialization.patch (40P01 read as 40001),
+ * failures-empty-field-kept.patch (an empty DETAIL or HINT kept as one that says something).
+ *
+ * Features: each named intention of a code, a message, a DETAIL and a HINT, each named object, each severity, and
+ * where the failure met the flight.
  */
 const isSqlstateSpec = (code: string): boolean => regex("^[0-9A-Z]{5}$").test(code)
 
@@ -298,7 +304,10 @@ describe("the failure vocabulary", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "PostgreSQL's SQLSTATE contract and the README's promise of a failure's fields, stated here"
+						},
 						suite: "unit/adapter/failure-vocabulary",
 						draw: drawn(reportGen),
 						literal: Formatter.format,

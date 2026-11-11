@@ -81,6 +81,16 @@ import { paramText } from "#test/support/wire.ts"
  * db.refresh without PostgreSQL: which views a call refreshes and in which order, its refusals before any SQL, the
  * catalog statements and the block that decide plain or CONCURRENTLY in the server, its one flight on a scripted
  * session (test/support/flight/scripted.ts), and how each way the flight can fail ends the refresh.
+ *
+ * Oracles: the refresh order and refusals restated over the drawn targets; PostgreSQL's array literal read back by a
+ * reader written here; a DETAIL names a position exactly when the block spelled one; and run.ts's contract of how each
+ * fault ends the refresh, restated.
+ *
+ * Plants (~/.cache/grizzle-release/BR04/plants): refresh-leading-zero-position.patch (a position with a leading zero is
+ * read as a position), refresh-empty-view-dropped.patch (an empty element is left out of a text[] literal).
+ *
+ * Features: each target set and refusal; each awkward element of the views' literal and a repeated view; each DETAIL a
+ * block may raise; each fault of the flight.
  */
 const Sitting = relation(
 	"Sitting",
@@ -433,26 +443,57 @@ const readTextArray = (literal: string): ReadonlyArray<string> | "unread" => {
 	}
 }
 
-/** A block's DETAIL: one naming a target's position, or one naming none. */
+/**
+ * A block's DETAIL: one naming a target's position, or a near miss naming none, each its own case: no DETAIL, the
+ * empty one, the tag alone, a position with a leading zero, a negative position, and a position after another word.
+ */
 type Detail =
 	| { readonly kind: "a position"; readonly position: number }
-	| { readonly kind: "no position"; readonly detail: string | undefined }
+	| { readonly kind: "no detail" }
+	| { readonly kind: "the empty detail" }
+	| { readonly kind: "the tag alone" }
+	| { readonly kind: "a position with a leading zero"; readonly digit: number }
+	| { readonly kind: "a negative position"; readonly magnitude: number }
+	| {
+			readonly kind: "a position after another word"
+			readonly word: string
+			readonly position: number
+	  }
 
-/** Every position below a hundred, and the near misses of a DETAIL that names one. */
+/** Every position below a hundred, and every near miss of a DETAIL that names one, over small digits and words. */
 const detailGen: Gen<Detail> = oneOf<Detail>([
 	map(int(0, 99), (position) => ({ kind: "a position", position })),
-	map(
-		element([
-			undefined,
-			"",
-			"ConcurrentRefresh ",
-			"ConcurrentRefresh 01",
-			"ConcurrentRefresh -1",
-			"x 1"
-		]),
-		(detail) => ({ kind: "no position", detail })
-	)
+	constant({ kind: "no detail" }),
+	constant({ kind: "the empty detail" }),
+	constant({ kind: "the tag alone" }),
+	map(int(0, 9), (digit) => ({ kind: "a position with a leading zero", digit })),
+	map(int(1, 9), (magnitude) => ({ kind: "a negative position", magnitude })),
+	(source) => ({
+		kind: "a position after another word",
+		word: source.draw(string(characterOf(["x", "y"]), { min: 1, max: 2 })),
+		position: source.draw(int(0, 9))
+	})
 ])
+
+/** The DETAIL text of a case, built from the block's own spelling of a position (concurrentRefreshDetail). */
+const detailText = (d: Detail): string | undefined => {
+	switch (d.kind) {
+		case "a position":
+			return concurrentRefreshDetail(d.position)
+		case "no detail":
+			return undefined
+		case "the empty detail":
+			return ""
+		case "the tag alone":
+			return Str.slice(0, -1)(concurrentRefreshDetail(0))
+		case "a position with a leading zero":
+			return `${concurrentRefreshDetail(0)}${d.digit}`
+		case "a negative position":
+			return concurrentRefreshDetail(-d.magnitude)
+		case "a position after another word":
+			return `${d.word} ${d.position}`
+	}
+}
 
 type TextArrayFeature =
 	| "no element"
@@ -470,7 +511,10 @@ describe("plain or CONCURRENTLY", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "universal",
+							name: "PostgreSQL's array literal read back is the views, each once, whatever their order"
+						},
 						suite: "unit/adapter/text-array",
 						draw: drawn(
 							array(
@@ -546,24 +590,31 @@ describe("plain or CONCURRENTLY", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "every position below a hundred, and every near miss over a digit below ten and words of x and y",
+						oracle: {
+							kind: "specification",
+							name: "a DETAIL names a position exactly when the block spelled one"
+						},
 						suite: "unit/adapter/refresh-position",
 						generator: detailGen,
 						literal: Formatter.format,
 						limit: 200,
-						coverage: requiredInSpace<Detail["kind"]>(["a position", "no position"]),
+						coverage: requiredInSpace<Detail["kind"]>([
+							"a position",
+							"no detail",
+							"the empty detail",
+							"the tag alone",
+							"a position with a leading zero",
+							"a negative position",
+							"a position after another word"
+						]),
 						caseHang
 					},
 					(detail, c) =>
 						Effect.sync(() => {
 							c.note(detail.kind)
 							assert.equal(
-								concurrentRefreshPosition(
-									detail.kind === "a position"
-										? concurrentRefreshDetail(detail.position)
-										: detail.detail
-								),
+								concurrentRefreshPosition(detailText(detail)),
 								detail.kind === "a position" ? detail.position : undefined
 							)
 						})

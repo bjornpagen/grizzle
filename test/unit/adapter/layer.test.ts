@@ -83,6 +83,14 @@ import { withLayer } from "#test/support/with-layer.ts"
  * value, and is built otherwise: a login's sessions set their own options, so `PGOPTIONS` reaches none of them.
  *
  * Characters a text setting may hold that a parser could read specially, and characters outside ASCII.
+ *
+ * Oracles: DbConfig's documented settings and ranges, restated over the drawn config and the fault injected; the
+ * startup variables a login's sessions cannot override; the README's order of Db.open's stages and their reasons.
+ *
+ * Plants (~/.cache/grizzle-release/BR04/plants): layer-zero-timer-admitted.patch (a timer's delay of 0 is admitted),
+ * layer-login-refuses-options.patch (a login's layer is refused under PGOPTIONS too).
+ *
+ * Features: each config shape and each fault's setting; each environment's verdict; each token outcome.
  */
 const tricky: Arr.NonEmptyReadonlyArray<string> = [
 	"@",
@@ -601,7 +609,10 @@ describe("DbLayer.make", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "DbConfig's documented settings: a valid config builds, each injected fault is DbConfigRefused naming its setting"
+						},
 						suite: "unit/adapter/layer-config",
 						draw: drawn((source) => [source.draw(drawnGen), source.draw(faultGen)] as const),
 						literal: Formatter.format,
@@ -695,7 +706,10 @@ describe("DbLayer.make", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "a login's layer is refused exactly when PGREPLICATION holds a text"
+						},
 						suite: "unit/adapter/layer-environment",
 						draw: drawn((source) => [source.draw(drawnGen), source.draw(environmentGen)] as const),
 						literal: Formatter.format,

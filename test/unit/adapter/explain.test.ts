@@ -23,6 +23,10 @@ import { caseHang } from "#test/support/limits.ts"
  * the tree's projection onto the Plan's fields. The oracle is that projection, written from the documented mapping
  * ("Node Type" to node, "Startup Cost", "Total Cost", "Plan Rows" and "Plan Width" to the estimates, "Plans" to the
  * children).
+ *
+ * Plants (~/.cache/grizzle-release/BR04/plants): explain-children-reversed.patch (a node's children in reverse order).
+ *
+ * Features: a leaf, a node with several children, a tree nested three deep, and members the Plan drops.
  */
 interface Node {
 	readonly type: string

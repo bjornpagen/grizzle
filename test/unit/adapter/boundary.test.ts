@@ -59,6 +59,10 @@ const requestFault = (failure: ReadFailure): RequestFault | undefined =>
  * integer; a wild one is any value JavaScript can pass, in place of the whole request or of one of its fields. A page
  * request has no earlier state, so none is stale. A valid request whose size or anchor is an accessor returning its
  * valid value is refused for its shape, its getter never called: a reader that called it would admit the request.
+ *
+ * Plants (~/.cache/grizzle-release/BR04/plants): boundary-page-size-zero.patch (a page of size 0 is admitted).
+ *
+ * Features: each live request shape, each wild kind at each site, and each schema door's live and wild values.
  */
 type Direction = "first" | "last"
 
@@ -252,7 +256,10 @@ describe("the public boundary", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "README Reading's page request: its four shapes, a size of at least 1, a string anchor"
+						},
 						suite: "unit/adapter/boundary-page",
 						draw: drawn(pageCaseGen),
 						literal: Formatter.format,
@@ -322,7 +329,10 @@ describe("the public boundary", () => {
 					type DoorFeature = DrawnFeature<never>
 					return yield* explore(
 						{
-							oracle: { kind: "unstated" },
+							oracle: {
+								kind: "specification",
+								name: "a schema door takes a value schema(...) built and refuses anything else"
+							},
 							suite: "unit/adapter/boundary-schema",
 							draw: drawn(
 								lsw<typeof Shop>({

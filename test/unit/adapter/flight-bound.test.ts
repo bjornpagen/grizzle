@@ -84,6 +84,13 @@ import { paramBinary, paramText } from "#test/support/wire.ts"
  * Every server is a TCP server on the loopback behind the SSLRequest and verify-full TLS every connection makes, whose
  * certificate authority is the test's own (test/support/memory-tls.ts tlsMaterial), and answers every query as
  * PostgreSQL answers one that returns no rows.
+ *
+ * Plants (~/.cache/grizzle-release/BR04/plants): flight-bound-one-byte-over.patch (a flight one byte past its bound is
+ * written), flight-reset-write-failure-unseen.patch (a write that fails before its last byte is not seen as the cut
+ * it is, so the call reads as CommitLost).
+ *
+ * Features: a bound short of, at and past a flight; a call of one flight and of two, refused at either; each way the
+ * connection breaks; and each message the parse reads.
  */
 
 const frame = (type: string, body: Uint8Array): Buffer => {
