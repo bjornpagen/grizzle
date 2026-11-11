@@ -88,6 +88,7 @@ import {
 	generate,
 	prefixChooser,
 	randomChooser,
+	recorder,
 	sample,
 	simplestChooser
 } from "#source.ts"
@@ -105,7 +106,7 @@ import { searched } from "#vitest/searched.ts"
 
 /** A case drawn fresh from one seed. */
 const fresh = <A>(generator: Gen<A>, seed: number): Generated<A> =>
-	generate(generator, randomChooser(wordsOf(seed)))
+	generate(recorder(), generator, randomChooser(wordsOf(seed)))
 
 /** A list known to be non-empty, as its type says; a generator of at least one value draws it. */
 const nonEmpty = <A>(values: ReadonlyArray<A>): Arr.NonEmptyReadonlyArray<A> =>
@@ -308,6 +309,7 @@ describe("floating-point numbers", () => {
 							const fails = (value: number) => Math.abs(value) > 10.25
 							const wholeArm = Float64Array.of(0)
 							const failing = generate(
+								recorder(),
 								generator,
 								prefixChooser(wholeArm, wholeArm.length, randomChooser(wordsOf(seed)))
 							)
@@ -464,7 +466,7 @@ describe("uuids", () => {
 						deepStrictEqual(
 							{
 								version: pipe(value, Str.slice(14, 15)),
-								simplest: generate(uuid(version), simplestChooser).value
+								simplest: generate(recorder(), uuid(version), simplestChooser).value
 							},
 							{
 								version: `${version}`,
@@ -804,7 +806,7 @@ describe("unicode scalars", () => {
 										: "beyond the basic plane"
 							)
 							deepStrictEqual(
-								generate(unicodeScalar, forcedChooser(Float64Array.of(index), 1)).value,
+								generate(recorder(), unicodeScalar, forcedChooser(Float64Array.of(index), 1)).value,
 								String.fromCodePoint(scalar)
 							)
 						})
@@ -1617,10 +1619,12 @@ describe("a pattern", () => {
 						Effect.sync(() => {
 							const pattern = regex.as(classSource(written), "u")
 							const expected = writtenOut(written)
+							const recorded = recorder()
 							const byIndex = Arr.map(
 								Arr.range(0, expected.length - 1),
 								(index) =>
-									generate(matching(pattern), forcedChooser(Float64Array.of(index), 1)).value
+									generate(recorded, matching(pattern), forcedChooser(Float64Array.of(index), 1))
+										.value
 							)
 							deepStrictEqual(byIndex, expected)
 							assertTrue(
@@ -1663,7 +1667,9 @@ describe("a pattern", () => {
 								c.note("an option")
 							}
 							const pattern = regex.as(source, "u")
-							const generated = Result.try(() => generate(matching(pattern), simplestChooser).value)
+							const generated = Result.try(
+								() => generate(recorder(), matching(pattern), simplestChooser).value
+							)
 							deepStrictEqual(
 								{
 									refused:

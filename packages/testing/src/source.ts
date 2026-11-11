@@ -245,9 +245,17 @@ export const recording = (chooser: Chooser): Recording => {
 	return started
 }
 
-/** Runs a generator against a chooser: its value, and the tape that determines it. */
-export const generate = <A>(generator: (source: Source) => A, chooser: Chooser): Generated<A> => {
-	const recorded = recording(chooser)
+/**
+ * Runs a generator against a chooser on a recorder's buffers, which it starts over first: the value, and the tape that
+ * determines it, copied out of the buffers. A loop that generates case after case (an enumeration, a shrink, a sample)
+ * holds one recorder for all of them, so it allocates its buffers once, as an exploration's pool does.
+ */
+export const generate = <A>(
+	recorded: Recorder,
+	generator: (source: Source) => A,
+	chooser: Chooser
+): Generated<A> => {
+	recorded.reset(chooser)
 	const value = generator(recorded.source)
 	return { value, tape: recorded.tape() }
 }
@@ -262,9 +270,10 @@ export const sample = <A>(
 	stream: Stream,
 	count: number
 ): ReadonlyArray<A> => {
+	const recorded = recorder()
 	const cases: Array<A> = []
 	for (let index = 0; index < count; index += 1) {
-		cases.push(generate(generator, randomChooser(wordsOf(caseSeed(stream, index)))).value)
+		cases.push(generate(recorded, generator, randomChooser(wordsOf(caseSeed(stream, index)))).value)
 	}
 	return cases
 }

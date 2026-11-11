@@ -3,6 +3,7 @@ import { type Branch, enumerated, firstBranch } from "@grizzle/testing/enumerate
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen, oneOf } from "@grizzle/testing/gen"
+import { recorder } from "@grizzle/testing/source"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import { ordinarySession } from "#test/support/ambient.ts"
@@ -343,12 +344,13 @@ const twoArms: Gen<Shape> = oneOf([
 /** Every shape whose head holds a field: each one an entry. */
 const shapes: Gen<Shape> = oneOf([oneArm, twoArms])
 
-/** Every case of a bounded generator, in the order an exhaustion meets them. */
+/** Every case of a bounded generator, in the order an exhaustion meets them, every case on one recorder's buffers. */
 const boxOf = <A>(generator: Gen<A>): ReadonlyArray<A> => {
+	const recorded = recorder()
 	const box: Array<A> = []
 	let branch: Option.Option<Branch> = Option.some(firstBranch)
 	while (Option.isSome(branch)) {
-		const step = enumerated(generator, branch.value)
+		const step = enumerated(recorded, generator, branch.value)
 		box.push(step.generated.value)
 		branch = step.next
 	}

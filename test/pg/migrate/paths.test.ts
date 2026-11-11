@@ -56,7 +56,7 @@ import { required } from "@grizzle/testing/features"
 import { weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import type { ShrinkBudget } from "@grizzle/testing/shrink"
-import { generate, simplestChooser } from "@grizzle/testing/source"
+import { generate, recorder, simplestChooser } from "@grizzle/testing/source"
 import { tokenOf } from "@grizzle/testing/tape"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Record } from "effect"
@@ -307,7 +307,7 @@ const pathDrawGen = weighted<RenamedDraw>([
  * The property's draws of a case kept from before its property drew an ambient session: the simplest ambient session,
  * the ordinary one, every setting unset, under which the case was found.
  */
-const ordinaryTape = generate(ambientSessionGen, simplestChooser).tape
+const ordinaryTape = generate(recorder(), ambientSessionGen, simplestChooser).tape
 const ordinaryDraws = tokenOf(ordinaryTape.values, ordinaryTape.length)
 
 /**

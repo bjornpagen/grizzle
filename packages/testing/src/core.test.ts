@@ -44,6 +44,7 @@ import {
 	generate,
 	prefixChooser,
 	randomChooser,
+	recorder,
 	sample,
 	simplestChooser
 } from "#source.ts"
@@ -59,7 +60,7 @@ const nonEmpty = <A>(values: ReadonlyArray<A>): Arr.NonEmptyReadonlyArray<A> =>
 
 /** A case drawn fresh from one seed. */
 const fresh = <A>(generator: Gen<A>, seed: number): Generated<A> =>
-	generate(generator, randomChooser(wordsOf(seed)))
+	generate(recorder(), generator, randomChooser(wordsOf(seed)))
 
 /** A generator with every structure the engine records: a dependent bound, a collection and weighted branches. */
 const composite = (source: Parameters<Gen<unknown>>[0]) => {
@@ -172,6 +173,7 @@ describe("a tape", () => {
 					Effect.sync(() => {
 						const original = fresh(composite, seed)
 						const replay = generate(
+							recorder(),
 							composite,
 							forcedChooser(original.tape.values, original.tape.length)
 						)
@@ -310,8 +312,13 @@ describe("a tape", () => {
 							const original = fresh(composite, seed)
 							const whole = kept === original.tape.length
 							c.note(kept === 0 ? "an empty prefix" : whole ? "the whole tape" : "a cut tape")
-							const replay = generate(composite, forcedChooser(original.tape.values, kept))
+							const replay = generate(
+								recorder(),
+								composite,
+								forcedChooser(original.tape.values, kept)
+							)
 							const continued = generate(
+								recorder(),
 								composite,
 								prefixChooser(original.tape.values, kept, simplestChooser)
 							)

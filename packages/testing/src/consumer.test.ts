@@ -29,7 +29,7 @@ import { boolean, constant, element, type Gen, int, map, oneOf, subarray } from 
 import { replayOf } from "#replay.ts"
 import { notesOnly } from "#sense.ts"
 import { boundedShrink } from "#shrink.ts"
-import { forcedChooser, generate } from "#source.ts"
+import { forcedChooser, generate, recorder } from "#source.ts"
 import { searched } from "#vitest/searched.ts"
 
 /** This library's checkout: the files a consumer's node_modules holds a copy of, and its installed dependencies. */
@@ -463,6 +463,7 @@ layer(Layer.provideMerge(consumerLayer, NodeServices.layer))(
 												suite: token.suite,
 												loops:
 													generate(
+														recorder(),
 														int(0, 9),
 														forcedChooser(
 															Float64Array.from(token.replayed.values),

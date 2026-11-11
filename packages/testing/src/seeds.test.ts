@@ -16,7 +16,7 @@ import { seedsOf } from "#seeds.ts"
 import { TRACE_CLASSES } from "#sense.ts"
 import { notesOnly } from "#sense.ts"
 import { completeShrink } from "#shrink.ts"
-import { generate, randomChooser } from "#source.ts"
+import { generate, randomChooser, recorder } from "#source.ts"
 import type { Tape } from "#tape.ts"
 import { searched } from "#vitest/searched.ts"
 
@@ -31,7 +31,8 @@ const perceived: Gen<Perceived> = (source) => ({
 })
 
 /** A tape for the corpus to hold: what it holds does not matter to what it is kept for. */
-const tapeOf = (index: number): Tape => generate(int(0, 9), randomChooser(wordsOf(index))).tape
+const tapeOf = (index: number): Tape =>
+	generate(recorder(), int(0, 9), randomChooser(wordsOf(index))).tape
 
 describe("the seed corpus", () => {
 	it.effect(

@@ -29,7 +29,7 @@ import { floorSeed, rotatingSeed } from "#random.ts"
 import { type ReplayCase, replayTokenOf } from "#replay.ts"
 import { notesOnly } from "#sense.ts"
 import { completeShrink } from "#shrink.ts"
-import { forcedChooser, generate, sample } from "#source.ts"
+import { forcedChooser, generate, recorder, sample } from "#source.ts"
 import { runOfProcess } from "#vitest/run.ts"
 import { searched } from "#vitest/searched.ts"
 
@@ -79,7 +79,11 @@ const countOfRun = (suite: string) =>
 
 /** The value a replay token's case draws. */
 const valueOf = (replayed: ReplayCase): number =>
-	generate(values, forcedChooser(Float64Array.from(replayed.values), replayed.values.length)).value
+	generate(
+		recorder(),
+		values,
+		forcedChooser(Float64Array.from(replayed.values), replayed.values.length)
+	).value
 
 const falsifiedOf = (failure: SearchFailure): Option.Option<PropertyFalsified> =>
 	failure._tag === "PropertyFalsified" ? Option.some(failure) : Option.none()
@@ -139,8 +143,11 @@ const shrunkOf = (falsified: PropertyFalsified): Shrunk => ({
 	items: Option.map(
 		falsified.replay,
 		(replayed) =>
-			generate(items, forcedChooser(Float64Array.from(replayed.values), replayed.values.length))
-				.value
+			generate(
+				recorder(),
+				items,
+				forcedChooser(Float64Array.from(replayed.values), replayed.values.length)
+			).value
 	)
 })
 

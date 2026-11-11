@@ -44,7 +44,7 @@ import { noCoverage, required } from "#features.ts"
 import { constant, element, type Gen, int, subarray, type Weight } from "#gen.ts"
 import { notesOnly } from "#sense.ts"
 import { completeShrink } from "#shrink.ts"
-import { forcedChooser, generate } from "#source.ts"
+import { forcedChooser, generate, recorder } from "#source.ts"
 import { fullSwarm, type Presence, type Swarm, swarm } from "#swarm.ts"
 import { runOfTest } from "#vitest/run.ts"
 import { searched } from "#vitest/searched.ts"
@@ -522,8 +522,11 @@ describe("a state machine", () => {
 							`${failed._tag} is a falsified property`
 						)
 						const values = Option.getOrThrow(failed.replay).values
-						return generate(generator, forcedChooser(Float64Array.from(values), values.length))
-							.value.steps
+						return generate(
+							recorder(),
+							generator,
+							forcedChooser(Float64Array.from(values), values.length)
+						).value.steps
 					}).pipe(Effect.provideServiceEffect(Run, runOfTest(ctx)))
 				const overwriting = yield* shrunkOf("overwrites when full")
 				const wrapping = yield* shrunkOf("short read wrap")

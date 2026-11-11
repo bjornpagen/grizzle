@@ -11,7 +11,7 @@ import { failureText } from "@grizzle/testing/failure"
 import type { Coverage } from "@grizzle/testing/features"
 import { array, element, type Gen } from "@grizzle/testing/gen"
 import { boundedShrink } from "@grizzle/testing/shrink"
-import { forcedChooser, generate } from "@grizzle/testing/source"
+import { forcedChooser, generate, recorder } from "@grizzle/testing/source"
 import { tokenOf, valuesFromToken } from "@grizzle/testing/tape"
 import { Array as Arr, Cause, Effect, Formatter, Option, type Scope } from "effect"
 import { appendAll } from "#compiler/core/array.ts"
@@ -312,7 +312,7 @@ const keptRun = (
 	reaches: Arr.NonEmptyReadonlyArray<WriteOracleFeature>
 ): Kept<readonly [WriteRun, Perturbation, Restorage], WriteOracleFeature> => {
 	const values = valuesFromToken(tape)
-	const run = generate(perturbedRunGen, forcedChooser(values, values.length))
+	const run = generate(recorder(), perturbedRunGen, forcedChooser(values, values.length))
 	return {
 		note,
 		sketch: run.value,

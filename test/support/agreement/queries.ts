@@ -1,7 +1,7 @@
 import { floorPopulation, type Reached } from "@grizzle/testing/features"
 import { array, element, type Gen, int, shuffled } from "@grizzle/testing/gen"
 import { floorSeed, rotatingSeed } from "@grizzle/testing/random"
-import { forcedChooser, generate, sample, type Source } from "@grizzle/testing/source"
+import { forcedChooser, generate, recorder, sample, type Source } from "@grizzle/testing/source"
 import { keep, type Swarm, swarm, swarmChoice } from "@grizzle/testing/swarm"
 import { valuesFromToken } from "@grizzle/testing/tape"
 import {
@@ -4196,17 +4196,20 @@ const keptCases: ReadonlyArray<KeptCase> = [
 export const agreementKept = (): ReadonlyArray<{
 	readonly kept: KeptCase
 	readonly drawn: AgreementCase
-}> =>
-	Arr.map(keptCases, (kept) => {
+}> => {
+	const recorded = recorder()
+	return Arr.map(keptCases, (kept) => {
 		const values = valuesFromToken(kept.tape)
 		return {
 			kept,
 			drawn: generate(
+				recorded,
 				kept.population === "clean" ? caseGen : faultGen,
 				forcedChooser(values, values.length)
 			).value
 		}
 	})
+}
 
 /** The kept cases of one population. */
 const keptOf = (population: KeptCase["population"]): ReadonlyArray<AgreementCase> =>

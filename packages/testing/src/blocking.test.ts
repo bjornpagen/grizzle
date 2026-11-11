@@ -21,7 +21,7 @@ import { liveMillis, WATCHDOG_GRACE_MILLIS } from "#live.ts"
 import { replayOf } from "#replay.ts"
 import { notesOnly } from "#sense.ts"
 import { boundedShrink } from "#shrink.ts"
-import { forcedChooser, generate } from "#source.ts"
+import { forcedChooser, generate, recorder } from "#source.ts"
 import { HARDENED_FLAGS } from "#vitest/config.ts"
 import { runOfProcess } from "#vitest/run.ts"
 import { searched } from "#vitest/searched.ts"
@@ -248,6 +248,7 @@ layer(NodeServices.layer, { excludeTestServices: true })(
 										exitCode: ran.exitCode,
 										suite: token.suite,
 										replayed: generate(
+											recorder(),
 											values,
 											forcedChooser(
 												Float64Array.from(token.replayed.values),

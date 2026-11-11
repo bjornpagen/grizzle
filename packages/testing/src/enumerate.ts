@@ -1,6 +1,13 @@
 import { Option } from "effect"
 import type { Gen } from "#gen.ts"
-import { type Generated, generate, prefixChooser, simplestChooser } from "#source.ts"
+import {
+	type Generated,
+	generate,
+	prefixChooser,
+	type Recorder,
+	recorder,
+	simplestChooser
+} from "#source.ts"
 import type { Tape } from "#tape.ts"
 
 /** A point in enumeration order: the first `length` decisions fixed to `values`, every later one at its simplest. */
@@ -30,9 +37,17 @@ export const nextBranch = (tape: Tape): Option.Option<Branch> => {
 /** One step of an enumeration: the case at a branch, and the branch after it, if there is one. */
 export type Enumerated<A> = Readonly<{ generated: Generated<A>; next: Option.Option<Branch> }>
 
-/** The case at `branch`, every decision past it at its simplest, and the branch that follows. */
-export const enumerated = <A>(generator: Gen<A>, branch: Branch): Enumerated<A> => {
+/**
+ * The case at `branch`, every decision past it at its simplest, and the branch that follows, recorded on `recorded`'s
+ * buffers.
+ */
+export const enumerated = <A>(
+	recorded: Recorder,
+	generator: Gen<A>,
+	branch: Branch
+): Enumerated<A> => {
 	const generated = generate(
+		recorded,
 		generator,
 		prefixChooser(branch.values, branch.length, simplestChooser)
 	)
@@ -48,12 +63,13 @@ export type Counted =
 	| Readonly<{ kind: "within"; cases: number }>
 	| Readonly<{ kind: "beyond"; limit: number }>
 
-/** Counts a generator's cases up to `limit`. */
+/** Counts a generator's cases up to `limit`, every case on one recorder's buffers. */
 export const count = (generator: Gen<unknown>, limit: number): Counted => {
+	const recorded = recorder()
 	let cases = 0
 	let branch: Option.Option<Branch> = Option.some(firstBranch)
 	while (Option.isSome(branch)) {
-		const step = enumerated(generator, branch.value)
+		const step = enumerated(recorded, generator, branch.value)
 		if (step.generated.tape.status !== "discarded") {
 			cases += 1
 			if (cases > limit) {

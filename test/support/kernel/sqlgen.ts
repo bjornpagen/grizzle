@@ -1,5 +1,5 @@
 import { array, boolean, element, type Gen, int, map, span } from "@grizzle/testing/gen"
-import { forcedChooser, generate, type Source } from "@grizzle/testing/source"
+import { forcedChooser, generate, recorder, type Source } from "@grizzle/testing/source"
 import {
 	keep,
 	type Presence,
@@ -2128,6 +2128,7 @@ export interface StatementSketch {
  */
 export const resolveStatement = (catalog: SqlCatalog, sketch: StatementSketch): SqlStatement =>
 	generate(
+		recorder(),
 		statementUnder(catalog, sketch.swarm),
 		forcedChooser(Float64Array.from(sketch.tape), sketch.tape.length)
 	).value

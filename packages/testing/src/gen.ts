@@ -1,6 +1,6 @@
 import { Array as Arr, Option, type Predicate } from "effect"
 import { enumerated, firstBranch, nextBranch } from "#enumerate.ts"
-import { forcedChooser, type Generated, generate, type Source } from "#source.ts"
+import { forcedChooser, type Generated, generate, recorder, type Source } from "#source.ts"
 import type { Tape } from "#tape.ts"
 
 /**
@@ -449,14 +449,20 @@ const sameDecisions = (a: Tape, b: Tape): boolean =>
 	a.length === b.length && a.values.every((value, at) => value === b.values[at])
 
 /**
- * The key nearest `drawn` that `taken` does not hold, or none when the key generator holds no other: first each
- * decision of `drawn` in order, stepped up from its value through as many of its other values as `taken` holds keys,
+ * The key nearest the one `decisions` draw that `taken` does not hold, or none when the key generator holds no other:
+ * first each decision of the drawn key in order, stepped up from its value through as many of its other values as `taken` holds keys,
  * wrapping to its least (a decision the key reads one-to-one meets a new key among them), every other decision kept;
  * then every key of the generator in its enumeration order after `drawn`, wrapping once to the first. Both walk the key
  * generator's own space and nothing beside it, so the walk ends within that space, however large an item built from a
- * key may be.
+ * key may be. Every candidate is generated on one recorder's buffers.
  */
-const nearestNew = <K>(key: Gen<K>, drawn: Tape, taken: ReadonlySet<K>): Option.Option<K> => {
+const nearestNew = <K>(
+	key: Gen<K>,
+	decisions: Float64Array,
+	taken: ReadonlySet<K>
+): Option.Option<K> => {
+	const recorded = recorder()
+	const drawn = generate(recorded, key, forcedChooser(decisions, decisions.length)).tape
 	const isNew = (generated: Generated<K>): boolean =>
 		generated.tape.status !== "discarded" && !taken.has(generated.value)
 	for (let at = 0; at < drawn.length; at += 1) {
@@ -466,7 +472,7 @@ const nearestNew = <K>(key: Gen<K>, drawn: Tape, taken: ReadonlySet<K>): Option.
 		for (let step = 1; step < width && step <= taken.size; step += 1) {
 			const edited = drawn.values.slice(0, drawn.length)
 			edited[at] = lo + ((from + step) % width)
-			const neighbour = generate(key, forcedChooser(edited, edited.length))
+			const neighbour = generate(recorded, key, forcedChooser(edited, edited.length))
 			if (isNew(neighbour)) {
 				return Option.some(neighbour.value)
 			}
@@ -482,6 +488,7 @@ const nearestNew = <K>(key: Gen<K>, drawn: Tape, taken: ReadonlySet<K>): Option.
 			wrapped = true
 		}
 		const step = enumerated(
+			recorded,
 			key,
 			Option.getOrElse(branch, () => firstBranch)
 		)
@@ -521,11 +528,7 @@ export const uniqueArray =
 			source.open("element")
 			const drawn = drawnWithDecisions(key, source)
 			const unique = seen.has(drawn.value)
-				? nearestNew(
-						key,
-						generate(key, forcedChooser(drawn.decisions, drawn.decisions.length)).tape,
-						seen
-					)
+				? nearestNew(key, drawn.decisions, seen)
 				: Option.some(drawn.value)
 			if (Option.isNone(unique)) {
 				source.close()

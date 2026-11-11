@@ -1,6 +1,6 @@
 import { Array as Arr, Effect, Option } from "effect"
 import type { Gen } from "#gen.ts"
-import { type Generated, forcedChooser, generate } from "#source.ts"
+import { type Generated, forcedChooser, generate, recorder } from "#source.ts"
 import { digestOf, shortlex, type Tape } from "#tape.ts"
 
 /**
@@ -355,24 +355,30 @@ export const shrinkAttempt = <X, R>(
 		return { best: { tape: best.tape, failure: best.failure }, candidates, ended: endOf() }
 	})
 
-/** Shrinks a failing case of a plain generator against a predicate that says whether a value still fails. */
+/**
+ * Shrinks a failing case of a plain generator against a predicate that says whether a value still fails, every
+ * candidate generated on one recorder's buffers.
+ */
 export const shrink = <A, R>(
 	generator: Gen<A>,
 	failing: Generated<A>,
 	stillFails: (value: A) => Effect.Effect<boolean, never, R>,
 	budget: ShrinkBudget
 ): Effect.Effect<Shrunk<A>, never, R> =>
-	shrinkAttempt(
-		{ tape: failing.tape, failure: failing.value },
-		(values): Effect.Effect<Attempt<A>, never, R> => {
-			const candidate = generate(generator, forcedChooser(values, values.length))
-			return candidate.tape.status === "discarded"
-				? Effect.succeed({ kind: "holds", tape: candidate.tape })
-				: Effect.map(stillFails(candidate.value), (fails): Attempt<A> =>
-						fails
-							? { kind: "fails", tape: candidate.tape, failure: candidate.value }
-							: { kind: "holds", tape: candidate.tape }
-					)
-		},
-		budget
-	)
+	Effect.suspend(() => {
+		const recorded = recorder()
+		return shrinkAttempt(
+			{ tape: failing.tape, failure: failing.value },
+			(values): Effect.Effect<Attempt<A>, never, R> => {
+				const candidate = generate(recorded, generator, forcedChooser(values, values.length))
+				return candidate.tape.status === "discarded"
+					? Effect.succeed({ kind: "holds", tape: candidate.tape })
+					: Effect.map(stillFails(candidate.value), (fails): Attempt<A> =>
+							fails
+								? { kind: "fails", tape: candidate.tape, failure: candidate.value }
+								: { kind: "holds", tape: candidate.tape }
+						)
+			},
+			budget
+		)
+	})

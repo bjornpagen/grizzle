@@ -1,16 +1,20 @@
 import { Array as Arr, Option } from "effect"
 import { type Enumerated, enumerated, firstBranch } from "#enumerate.ts"
 import type { Gen } from "#gen.ts"
-import type { Generated } from "#source.ts"
+import { type Generated, recorder } from "#source.ts"
 import type { Tape } from "#tape.ts"
 
-/** Every case of a bounded generator, in enumeration order, each with the tape that determines it. */
+/**
+ * Every case of a bounded generator, in enumeration order, each with the tape that determines it, every case on one
+ * recorder's buffers.
+ */
 export const everyCase = <A>(generator: Gen<A>): ReadonlyArray<Generated<A>> => {
+	const recorded = recorder()
 	const cases: Array<Generated<A>> = []
-	let step: Enumerated<A> = enumerated(generator, firstBranch)
+	let step: Enumerated<A> = enumerated(recorded, generator, firstBranch)
 	cases.push(step.generated)
 	while (Option.isSome(step.next)) {
-		step = enumerated(generator, step.next.value)
+		step = enumerated(recorded, generator, step.next.value)
 		cases.push(step.generated)
 	}
 	return cases

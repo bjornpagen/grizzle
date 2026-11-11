@@ -14,7 +14,7 @@ import { array, boolean, element, type Gen, int, map, weighted } from "#gen.ts"
 import { mutate } from "#mutate.ts"
 import { wordsOf } from "#random.ts"
 import { completeShrink } from "#shrink.ts"
-import { generate, prefixChooser, randomChooser } from "#source.ts"
+import { generate, prefixChooser, randomChooser, recorder } from "#source.ts"
 import type { Tape } from "#tape.ts"
 import { searched } from "#vitest/searched.ts"
 
@@ -36,7 +36,8 @@ const structured: Gen<unknown> = (source) => {
 }
 
 /** A tape drawn fresh from a seed of `structured`. */
-const tapeOf = (seed: number): Tape => generate(structured, randomChooser(wordsOf(seed))).tape
+const tapeOf = (seed: number): Tape =>
+	generate(recorder(), structured, randomChooser(wordsOf(seed))).tape
 
 /** The lengths of a tape's spans of `label`. */
 const spanLengths = (tape: Tape, label: string): ReadonlyArray<number> =>
@@ -103,6 +104,7 @@ describe("the tape mutator", () => {
 							`a mutant of ${mutant.length} decisions, of a seed of ${seedTape.length}`
 						)
 						const replayed = generate(
+							recorder(),
 							structured,
 							prefixChooser(mutant.values, mutant.length, randomChooser(wordsOf(words)))
 						).tape

@@ -1,7 +1,7 @@
 import { floorPopulation, type Reached } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { floorSeed, rotatingSeed } from "@grizzle/testing/random"
-import { forcedChooser, generate, sample, type Source } from "@grizzle/testing/source"
+import { forcedChooser, generate, recorder, sample, type Source } from "@grizzle/testing/source"
 import { keep, type Swarm, swarm, swarmChoice } from "@grizzle/testing/swarm"
 import { valuesFromToken } from "@grizzle/testing/tape"
 import { Array as Arr, Effect, Option, Record as Rec, Result, Stream, String as Str } from "effect"
@@ -3171,11 +3171,16 @@ const keptCases: ReadonlyArray<KeptCase> = [
 export const changeSetKept = (): ReadonlyArray<{
 	readonly kept: KeptCase
 	readonly drawn: ChangeSetCase
-}> =>
-	Arr.map(keptCases, (kept) => {
+}> => {
+	const recorded = recorder()
+	return Arr.map(keptCases, (kept) => {
 		const values = valuesFromToken(kept.tape)
-		return { kept, drawn: generate(caseGen(new Set()), forcedChooser(values, values.length)).value }
+		return {
+			kept,
+			drawn: generate(recorded, caseGen(new Set()), forcedChooser(values, values.length)).value
+		}
 	})
+}
 
 const changeSetCases = (seed: number): ReadonlyArray<ChangeSetCase> => [
 	...Arr.flatMap(changeSetWitnesses(), (w) => w.values),

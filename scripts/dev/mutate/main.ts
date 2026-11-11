@@ -6,7 +6,7 @@ import { runDevtool } from "@grizzle/devtools/run"
 import { shuffled } from "@grizzle/testing/gen"
 import { applied, type Mutant as LibraryMutant, mutantsOf } from "@grizzle/testing/mutants"
 import { wordsOf } from "@grizzle/testing/random"
-import { generate, randomChooser } from "@grizzle/testing/source"
+import { generate, randomChooser, recorder } from "@grizzle/testing/source"
 import { regex } from "arkregex"
 import {
 	Array as Arr,
@@ -488,6 +488,7 @@ const interleaved = <T>(queues: Arr.NonEmptyReadonlyArray<ReadonlyArray<T>>): Re
  */
 const sampleOf = (all: ReadonlyArray<Planned>, n: number, seed: number): ReadonlyArray<Planned> => {
 	const chooser = randomChooser(wordsOf(seed))
+	const recorded = recorder()
 	const weights = Arr.map(Rec.values(Arr.groupBy(all, (m): string => m.area)), (ms) => ({
 		ms,
 		w: Math.sqrt(ms.length)
@@ -497,7 +498,7 @@ const sampleOf = (all: ReadonlyArray<Planned>, n: number, seed: number): Readonl
 		const quota = Math.min(ms.length, Math.max(10, Math.round((n * w) / total)))
 		const byOperator = Arr.map(
 			Rec.values(Arr.groupBy(ms, (m): string => m.operator)),
-			(q) => generate(shuffled(q, { min: q.length, max: q.length }), chooser).value
+			(q) => generate(recorded, shuffled(q, { min: q.length, max: q.length }), chooser).value
 		)
 		return Arr.isReadonlyArrayNonEmpty(byOperator) ? Arr.take(interleaved(byOperator), quota) : []
 	})
