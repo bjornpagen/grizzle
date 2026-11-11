@@ -1127,7 +1127,7 @@ export type WorldFeature =
 	| AdditionFeature
 	| `migration:${MigrationKind}:${ActionOutcome["kind"]}`
 	| "addition:generated:entry:supplied-serial"
-	| `connection:${"shared-by-roles" | "after-commit" | "after-no-change" | "after-invariant-rejected" | "after-outside-world" | "after-compile-refused" | "after-transient" | "after-interrupted" | "after-stale-snapshot"}`
+	| `connection:${"shared-by-roles" | "after-commit" | "after-no-change" | "after-invariant-rejected" | "after-outside-world" | "after-compile-refused" | "after-stale-snapshot"}`
 
 /**
  * The key grizzle completes a page's order with, by the relation paged: a key it proves of a role's entry short of its

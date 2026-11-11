@@ -7,6 +7,7 @@ import {
 	Effect,
 	Exit,
 	Fiber,
+	Formatter,
 	Layer,
 	Option,
 	Record as Rec,
@@ -116,6 +117,7 @@ import type {
 	HostState,
 	InstalledNames,
 	InstallSpec,
+	Isolation,
 	Observation,
 	Probe,
 	RoleRef,
@@ -153,6 +155,19 @@ export interface RealWorld {
 	/** An action performed as `perform` does, with the texts of the error behind its observation, for a report. */
 	readonly performed: (action: Action, hidden: ReadonlySet<string>) => Effect.Effect<Performed>
 	readonly probe: (session: number) => Effect.Effect<Probe>
+	/**
+	 * Direct session `session`'s transaction begun again, as its writer runs a transaction again after PostgreSQL refused
+	 * it with 40001 (drive/index.ts answered): whatever the session holds is ended with its psql child and backend, and a
+	 * child of `login` begins a transaction at `isolation` and sends `sent` in order, the session's every statement, so the
+	 * session stands where it stood before the refused statement or COMMIT. Each statement answers as it answered, ok or
+	 * rows; one refused with 40001 begins the transaction again, and any other answer is a defect of the run.
+	 */
+	readonly rebegin: (
+		session: number,
+		login: string,
+		isolation: Isolation,
+		sent: ReadonlyArray<DirectStatement>
+	) => Effect.Effect<void>
 	/**
 	 * A psql child logged in as a login of the current installation, as a direct writer's is, with no transaction
 	 * begun: the caller begins and ends its transactions, and its scope ends the child. A schedule holds a lock with it
@@ -925,30 +940,64 @@ const realizeWith = (
 			}
 		}
 
+		/** A psql child of `login` that has begun a transaction at `isolation`, its scope forked from the world's. */
+		const begun = (login: string, isolation: Isolation): Effect.Effect<DirectSession> =>
+			Effect.gen(function* () {
+				const credentials = yield* get(state.current.credentials, login, "credentials of")
+				const sessionScope = yield* Scope.fork(scope)
+				const writer = yield* Effect.orDie(
+					Scope.provide(
+						substrate.psql({ ...rolePsql(credentials), label: `direct ${login}` }),
+						sessionScope
+					)
+				)
+				yield* Effect.orDie(writer.run(beginSql(isolation)))
+				return {
+					kind: "direct",
+					login,
+					writer,
+					pid: writer.backend.pid,
+					scope: sessionScope,
+					prepared: new Map()
+				}
+			})
+
 		const directBegin = (
 			action: Extract<Action, { readonly kind: "direct-begin" }>
 		): Effect.Effect<Seen> =>
 			Effect.gen(function* () {
-				const credentials = yield* get(state.current.credentials, action.login, "credentials of")
-				const sessionScope = yield* Scope.fork(scope)
-				const writer = yield* Effect.orDie(
-					Scope.provide(
-						substrate.psql({ ...rolePsql(credentials), label: `direct ${action.login}` }),
-						sessionScope
-					)
-				)
-				const pid = writer.backend.pid
-				yield* Effect.orDie(writer.run(beginSql(action.isolation)))
-				const session: DirectSession = {
-					kind: "direct",
-					login: action.login,
-					writer,
-					pid,
-					scope: sessionScope,
-					prepared: new Map()
-				}
+				const session = yield* begun(action.login, action.isolation)
 				const id = yield* mint(session)
 				return yield* started(id, session, startStatements(action.start))
+			})
+
+		const rebegin = (
+			id: number,
+			login: string,
+			isolation: Isolation,
+			sent: ReadonlyArray<DirectStatement>
+		): Effect.Effect<void> =>
+			Effect.gen(function* () {
+				const held = yield* sessionAt(id)
+				if (Option.isSome(held) && held.value.kind === "direct") {
+					yield* Scope.close(held.value.scope, Exit.void)
+				}
+				const session = yield* begun(login, isolation)
+				yield* setSession(id, session)
+				for (const statement of sent) {
+					const answered = (yield* runDirect(reading(), directNames(), session, statement))
+						.observation
+					if (answered.kind === "refused" && answered.sqlstate === "40001") {
+						return yield* rebegin(id, login, isolation, sent)
+					}
+					if (answered.kind !== "ok" && answered.kind !== "rows") {
+						return yield* Effect.die(
+							new Error(
+								`session ${id}'s transaction begun again answered ${Formatter.format(answered)} to ${Formatter.format(statement)}, which it once answered ok`
+							)
+						)
+					}
+				}
 			})
 
 		/**
@@ -1472,6 +1521,7 @@ const realizeWith = (
 			perform,
 			performed: performedWith,
 			probe,
+			rebegin,
 			psql: (login) =>
 				Effect.gen(function* () {
 					const credentials = yield* get(state.current.credentials, login, "credentials of")

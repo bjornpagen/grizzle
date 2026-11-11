@@ -1780,7 +1780,11 @@ const writableTarget = (base: BaseSpec, entry: EntrySpec): Option.Option<string>
 	return classified.kind === "writable" ? Option.some(classified.target) : Option.none()
 }
 
-/** The transaction outcome an observation ends a Db's transaction with, as the next probe of its connection follows it. */
+/**
+ * The transaction outcome an observation ends a Db's transaction with, as the next probe of its connection follows it.
+ * A serial program never ends one transient, which its driver runs again (drive/index.ts answered), nor interrupted,
+ * since it interrupts no call in flight: those are the race suites' (test/schedules/worlds/pooled-roles.test.ts).
+ */
 const endedWith = (observation: Observation): Option.Option<WorldFeature> => {
 	switch (observation.kind) {
 		case "rows":
@@ -1798,12 +1802,10 @@ const endedWith = (observation: Observation): Option.Option<WorldFeature> => {
 			return Option.some("connection:after-outside-world")
 		case "compile-refused":
 			return Option.some("connection:after-compile-refused")
-		case "transient":
-			return Option.some("connection:after-transient")
-		case "interrupted":
-			return Option.some("connection:after-interrupted")
 		case "stale-snapshot":
 			return Option.some("connection:after-stale-snapshot")
+		case "transient":
+		case "interrupted":
 		case "opened":
 		case "open-refused":
 		case "law-refused":

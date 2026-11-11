@@ -36,6 +36,7 @@ import type {
 	EntryOp,
 	HostFact,
 	InvariantViolation,
+	Isolation,
 	ModelState,
 	Observation,
 	ActionOutcome,
@@ -571,16 +572,87 @@ export const judged = (
 	})
 
 /**
+ * What a serial program does after PostgreSQL's SSI refused one of its actions: nothing, for every other answer; the
+ * call again, for a Db call's TransientFailure, which changed nothing; or its transaction again, for a direct writer's
+ * 40001 at a statement or its COMMIT, with what that transaction had sent. While a direct writer's transaction is open a
+ * serial program commits no other write (`serial`), so none of its sessions is the other half of a conflict, and a
+ * refusal is the cluster's load deciding: SSI refuses a lone transaction once it has summarized old ones (README
+ * "Transactions and concurrency").
+ */
+type Rerun =
+	| { readonly kind: "answered" }
+	| { readonly kind: "call" }
+	| {
+			readonly kind: "transaction"
+			readonly session: number
+			readonly login: string
+			readonly isolation: Isolation
+			readonly sent: ReadonlyArray<DirectStatement>
+	  }
+
+const rerunOf = (state: ModelState, action: Action, observation: Observation): Rerun => {
+	if (observation.kind === "transient") {
+		return { kind: "call" }
+	}
+	if (
+		(action.kind !== "direct" && action.kind !== "direct-end") ||
+		observation.kind !== "refused" ||
+		observation.sqlstate !== "40001"
+	) {
+		return { kind: "answered" }
+	}
+	const held = sessionAt(state, action.session)
+	return held?.kind === "direct" && held.transaction === "open"
+		? {
+				kind: "transaction",
+				session: action.session,
+				login: held.login,
+				isolation: held.isolation,
+				sent: held.sent
+			}
+		: { kind: "answered" }
+}
+
+/**
+ * An action performed as a serial program's caller performs it, and judged (judged): an answer SSI decided by the
+ * cluster's load (Rerun) is first held to the model as one of its branches, then the action runs again from the state
+ * it ran in, a Db call once the real system is checked to stand where it stood, a direct writer's statement or COMMIT
+ * once its transaction is begun again (RealWorld.rebegin), as test/support/transient.ts untilAnswered runs a call: no
+ * count bounds it, and a refusal the load never stops hangs its case. A case's notes, the actions it draws after and the
+ * seeds its steered phase mutates are then the answer's alone, the same on a quiet cluster and a loaded one.
+ */
+const answered = (
+	world: RealWorld,
+	state: ModelState,
+	action: Action,
+	index: number
+): Effect.Effect<Stepped, ModelMismatch> =>
+	Effect.gen(function* () {
+		const taken = yield* judged(world, state, action, index)
+		const rerun = rerunOf(state, action, taken.observation)
+		switch (rerun.kind) {
+			case "answered":
+				return taken
+			case "call":
+				yield* checkState(world, state, { _tag: "step", index, action: Formatter.format(action) })
+				return yield* answered(world, state, action, index)
+			case "transaction":
+				yield* world.rebegin(rerun.session, rerun.login, rerun.isolation, rerun.sent)
+				return yield* answered(world, state, action, index)
+		}
+	})
+
+/**
  * What the driver notes of a case: the features of each action it performs. A property's Case is one; setup the
  * driver checks without noting (drive/suite.ts unnoted) is another.
  */
 export type Noting = Pick<Case<WorldFeature>, "noteAll">
 
 /**
- * Performs one action on the real world and the model side by side (judged) and returns the state the model enters. A
- * migration's new installation is read back from the real world, whose compiler-derived names the model cannot mint.
- * The real system must then be in the branch's state (checkState). The case notes the action's invalid kinds and its
- * features in the state it ran in.
+ * Performs one action on the real world and the model side by side, as a serial program's caller does (answered), and
+ * returns the state the model enters. A migration's new installation is read back from the real world, whose
+ * compiler-derived names the model cannot mint. The real system must then be in the branch's state (checkState). The
+ * case notes the action's invalid kinds and its features in the state it ran in.
  *
  * The action must be drivable in the state (`drivable`): a serial driver performing an action that waits on a direct
  * session's transaction would hang, and an action after a tamper outside the contract has no meaning the model gives,
@@ -602,7 +674,7 @@ export const runStep = (
 				)
 			)
 		}
-		const taken = yield* judged(world, state, action, index)
+		const taken = yield* answered(world, state, action, index)
 		const next = yield* checkState(world, taken.next, where)
 		c.noteAll(notedOf(state, action, taken.observation))
 		return { ...taken, next }
