@@ -1,13 +1,16 @@
 /**
- * Db.open on PostgreSQL 19, over drawn opens: the schema (Work, or Search, whose embeddings need pgvector), the
- * database (the one both were installed in, with pgvector; a libc one holding neither; a builtin C.UTF-8 one without
- * pgvector where Work is installed too), and each role default the installation stores on the opened login kept,
- * removed or stored wrong.
+ * Db.open on PostgreSQL 19, over drawn opens: the schema (Work; Search, whose embeddings need pgvector; or Stamps, with
+ * a drawn stamp), the database (the one all three were installed in, with pgvector; a libc one holding none; a builtin
+ * C.UTF-8 one without pgvector where Work is installed too), and each role default the installation stores on the
+ * opened login kept, removed or stored wrong.
  *
  * The oracle is README "Deploying": Db.open contacts nothing and checks nothing of the database, so every open yields a
  * Db, whatever the database or the login's stored defaults. A read through it on a database that holds the schema's
  * installation answers as the facts loaded there say, under every stored default, since every session of the login's
- * pool sends the defaults again as its startup options; on a database that holds none, the read's fence refuses it, the
+ * pool sends the defaults again as its startup options. A stamp's read sees them: its day, which DateStyle spells, its
+ * float8 ratio, most of whose values need more than the 15 digits extra_float_digits 0 prints, and its bytes, which
+ * bytea_output spells, each read back exactly as stored under each of those defaults stored wrong (a required pair).
+ * On a database that holds none, the read's fence refuses it, the
  * ledger's lock finding no schema of the installation (3F000). A query whose relation parameter carries a vector names
  * pgvector's type in the vector schema, which grizzle checks nothing of: a Search Db, whose role holds USAGE on it,
  * answers one where its schema is installed; Work's served file holds one too, compiled as any program, and PostgreSQL
@@ -18,28 +21,30 @@
  * The opens a role, token or claims refuse are the worlds model's (test/pg/world-model); a password Effect's failure is
  * the connection suite's.
  *
- * - Features: each role default reset and stored wrong, each schema read, a read refused at the fence, and a vector
- *   probe answered and refused.
- * - Plant: ~/.cache/grizzle-release/BR08/plants/open-vector-schema-granted-to-every-role.patch, every role granted
- *   USAGE on the vector schema, answers Work's vector probe and must turn the property red.
+ * - Features: each role default reset and stored wrong, each schema read, a stamp read under each of its output
+ *   styles stored wrong, a read refused at the fence, and a vector probe answered and refused.
+ * - Plants: ~/.cache/grizzle-release/BR08/plants/open-startup-options-dropped.patch, a pool whose sessions send no
+ *   startup options, reads a stamp under a wrong stored style; and
+ *   ~/.cache/grizzle-release/BR08/plants/open-vector-schema-granted-to-every-role.patch, every role granted USAGE on
+ *   the vector schema, answers Work's vector probe; each must turn the property red.
  */
 import { layer } from "@effect/vitest"
 import { assertInstanceOf } from "@effect/vitest/utils"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { constant, element, type Gen, weighted } from "@grizzle/testing/gen"
+import { type Reached, required } from "@grizzle/testing/features"
+import { bytes as bytesGen, constant, type Gen, int, oneOf, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Layer, Option, Result } from "effect"
+import { Array as Arr, Effect, Formatter, Layer, Option, Result, String as Str } from "effect"
 import { ReadFailure } from "#adapter/errors/execution.ts"
 import { ServerError } from "#adapter/errors/failures.ts"
 import { Db } from "#adapter/public/db.ts"
 import { DbLayer } from "#adapter/public/layer.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
-import { pg, uuid, Vector } from "#compiler/public/fields.ts"
+import { bytes, date, pg, uuid, Vector } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import type { AnyLogin } from "#compiler/public/schema.ts"
+import { type AnyLogin, relation, schema } from "#compiler/public/schema.ts"
 import { printRoleSetting, quoteIdent, quoteString } from "#compiler/sql/print.ts"
 import {
 	type RoleDefaultParameter,
@@ -52,10 +57,12 @@ import * as search from "#test/support/fixtures/api/search.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { t1, workFacts } from "#test/support/fixtures/golden/work.ts"
 import { type Installed, installMigratedIn as installIn } from "#test/support/install-migrate.ts"
+import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { clusterConnection, clusterPool } from "#test/support/pg.ts"
 import type { ServedFixture } from "#test/support/served-db.ts"
 import { testTypeSchema } from "#test/support/sql.ts"
+import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 import { testVerify } from "#test/support/worlds.ts"
@@ -85,6 +92,50 @@ const searchProbe = query(search.Search).rule((r) => {
 })
 
 /**
+ * A schema whose every read depends on the session's output styles: a date, which DateStyle spells; a float8, which
+ * extra_float_digits rounds; and bytes, which bytea_output spells. Its key is the stamp's id.
+ */
+const Stamp = relation("Stamp", { id: uuid, day: date, ratio: pg.float8, blob: bytes }, ["id"])
+const Stamps = schema("Stamps", { Stamp }, [])
+
+/** The one stamp a case stores. */
+const stampId = "00000000-0000-4000-8000-0000000000aa"
+
+/** A stamp's values: a day as its ISO 8601 text, a ratio and its bytes. */
+interface StampRow {
+	readonly day: `${string}-${string}-${string}`
+	readonly ratio: number
+	readonly blob: Uint8Array
+}
+
+/** Two digits of a month or a day, four of a year. */
+const padded = (n: number, width: number): string => Str.padStart(width, "0")(String(n))
+
+/**
+ * A stamp drawn whole: any day of the years 1 to 9999 (the 28 days every month has), a ratio of two whole numbers, most
+ * of which need more than 15 significant digits, and up to eight bytes of any value.
+ */
+const stampGen: Gen<StampRow> = (source) => ({
+	day: `${padded(source.draw(int(1, 9999)), 4)}-${padded(source.draw(int(1, 12)), 2)}-${padded(source.draw(int(1, 28)), 2)}`,
+	ratio: source.draw(int(-999, 999)) / source.draw(int(1, 999)),
+	blob: source.draw(bytesGen({ min: 0, max: 8 }))
+})
+
+/** The bytes' text as a bytea input reads it: hex. */
+const byteaText = (blob: Uint8Array): string =>
+	`\\x${Arr.join(
+		Arr.map(Array.from(blob), (b) => Str.padStart(2, "0")(b.toString(16))),
+		""
+	)}`
+
+/** The role defaults a stamp's read depends on. */
+const stampDefaults = [
+	"DateStyle",
+	"extra_float_digits",
+	"bytea_output"
+] as const satisfies ReadonlyArray<RoleDefaultParameter>
+
+/**
  * A value other than the installation's for each role default it stores, as ALTER ROLE ... SET spells it: PostgreSQL's
  * own search path, no extra float digits, PostgreSQL's own date style, bytea's escape format, the C locale.
  */
@@ -107,12 +158,18 @@ type OpenDatabase = "installed" | "libc" | "builtin without pgvector"
 /** What a role default of the opened login is when the open runs: as installed, removed, or set to a wrong value. */
 type DefaultChange = "kept" | "reset" | "wrong"
 
+/** What an open reads: Work, Search (whose Document embeddings need pgvector), or Stamps with the stamp it stores. */
+type OpenTarget =
+	| Readonly<{ schema: "Work" }>
+	| Readonly<{ schema: "Search" }>
+	| Readonly<{ schema: "Stamps"; stamp: StampRow }>
+
 /**
- * One open: the schema, Work or Search (whose Document embeddings need pgvector), the database, and each of the
- * login's role defaults in the installation's own order (roleDefaults).
+ * One open: what it reads, the database, and each of the login's role defaults in the installation's own order
+ * (roleDefaults).
  */
 interface OpenCase {
-	readonly schema: "Work" | "Search"
+	readonly target: OpenTarget
 	readonly database: OpenDatabase
 	readonly defaults: ReadonlyArray<{
 		readonly setting: RoleDefaultSetting
@@ -120,9 +177,15 @@ interface OpenCase {
 	}>
 }
 
-/** Any open: either schema, any database, the one it was installed in most often, and each role default changed or not. */
+/** Any open: any schema, any database, the one it was installed in most often, and each role default changed or not. */
 const anyOpenGen: Gen<OpenCase> = (source) => ({
-	schema: source.draw(element(["Work", "Search"] as const)),
+	target: source.draw(
+		oneOf<OpenTarget>([
+			constant({ schema: "Work" }),
+			constant({ schema: "Search" }),
+			(stamps) => ({ schema: "Stamps", stamp: stamps.draw(stampGen) })
+		])
+	),
 	database: source.draw(
 		weighted<OpenDatabase>([
 			[2, constant("installed")],
@@ -146,15 +209,21 @@ type OpenFeature =
 	| `role default ${Exclude<DefaultChange, "kept">} ${RoleDefaultParameter}`
 	| "Work read"
 	| "Search read"
+	| "Stamps read"
 	| "a read refused at the fence, the database without the schema's ledger"
 	| "a vector probe answered"
 	| "a vector probe refused by PostgreSQL"
 
-const openFeatures: Arr.NonEmptyReadonlyArray<OpenFeature> = [
+const openFeatures: Arr.NonEmptyReadonlyArray<Reached<OpenFeature>> = [
 	...Arr.flatMap(["reset", "wrong"] as const, (change) =>
 		Arr.map(roleDefaults, (setting): OpenFeature => `role default ${change} ${setting.parameter}`)
 	),
+	...Arr.map(stampDefaults, (parameter): Reached<OpenFeature> => [
+		`role default wrong ${parameter}`,
+		"Stamps read"
+	]),
 	"Work read",
+	"Stamps read",
 	"Search read",
 	"a read refused at the fence, the database without the schema's ledger",
 	"a vector probe answered",
@@ -163,7 +232,8 @@ const openFeatures: Arr.NonEmptyReadonlyArray<OpenFeature> = [
 
 /** Whether a case's database holds its schema's installation. */
 const holdsSchema = (c: OpenCase): boolean =>
-	c.database === "installed" || (c.database === "builtin without pgvector" && c.schema === "Work")
+	c.database === "installed" ||
+	(c.database === "builtin without pgvector" && c.target.schema === "Work")
 
 layer(Substrate.layer)("Db.open", (it) => {
 	it.effect(
@@ -177,6 +247,13 @@ layer(Substrate.layer)("Db.open", (it) => {
 						extensions: [],
 						programs: { task: W.Task, vectorProbe }
 					})
+					const stamping = yield* installed(
+						Stamps,
+						{},
+						{ label: "real", extensions: [], programs: { stamp: Stamp } }
+					)
+					const s = yield* Substrate
+					const stampNames = namesOf(stamping.installed)
 					const searching = yield* installed(
 						search.Search,
 						{},
@@ -251,9 +328,11 @@ layer(Substrate.layer)("Db.open", (it) => {
 							Effect.gen(function* () {
 								const database = databaseOf(c.database)
 								const loginRole =
-									c.schema === "Work"
+									c.target.schema === "Work"
 										? work.installed.as(work.server).role
-										: searching.installed.as(searching.server).role
+										: c.target.schema === "Search"
+											? searching.installed.as(searching.server).role
+											: stamping.installed.as(stamping.server).role
 								yield* Effect.forEach(
 									c.defaults,
 									(d) => changedDefault(loginRole, d.setting, d.change),
@@ -264,7 +343,55 @@ layer(Substrate.layer)("Db.open", (it) => {
 										k.note(`role default ${d.change} ${d.setting.parameter}`)
 									}
 								}
-								if (c.schema === "Work") {
+								if (c.target.schema === "Stamps") {
+									const stamp = c.target.stamp
+									yield* Effect.orDie(
+										replaceRows(s.admin, installationGroup(stampNames), [
+											{
+												sql: `INSERT INTO ${stampNames.table(Stamp)} (${stampNames.column(Stamp, "id")}, ${stampNames.column(Stamp, "day")}, ${stampNames.column(Stamp, "ratio")}, ${stampNames.column(Stamp, "blob")}) VALUES ($1::uuid, $2::date, $3::float8, $4::bytea)`,
+												params: [stampId, stamp.day, String(stamp.ratio), byteaText(stamp.blob)]
+											}
+										])
+									)
+									yield* Effect.flatMap(Db.open(stamping.served.login.roles.app, {}), (db) =>
+										Effect.gen(function* () {
+											const found = yield* Effect.result(db.workload.stamp.get({ id: stampId }))
+											if (!holdsSchema(c)) {
+												assert.ok(Result.isFailure(found), `a read of ${c.database}`)
+												noLedger(found.failure)
+												k.note(
+													"a read refused at the fence, the database without the schema's ledger"
+												)
+												return
+											}
+											assert.ok(Result.isSuccess(found), `a read of ${c.database}`)
+											const read = found.success
+											if (Option.isNone(read)) {
+												return assert.fail("the stored stamp reads back")
+											}
+											assert.deepEqual(
+												{
+													day: read.value.day,
+													ratio: read.value.ratio,
+													blob: Array.from(read.value.blob)
+												},
+												{ day: stamp.day, ratio: stamp.ratio, blob: Array.from(stamp.blob) },
+												"the stamp reads back as stored, whatever the login's stored output styles"
+											)
+											k.note("Stamps read")
+											for (const d of c.defaults) {
+												if (
+													d.change === "wrong" &&
+													Arr.some(stampDefaults, (p) => p === d.setting.parameter)
+												) {
+													k.pair(`role default wrong ${d.setting.parameter}`, "Stamps read")
+												}
+											}
+										})
+									).pipe(Effect.orDie, withLayer(Layer.fresh(layerIn(database, stamping))))
+									return
+								}
+								if (c.target.schema === "Work") {
 									yield* Effect.flatMap(Db.open(work.served.login.roles.app, {}), (db) =>
 										Effect.gen(function* () {
 											const found = yield* Effect.result(db.workload.task.get({ id: t1 }))
