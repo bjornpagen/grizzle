@@ -1,7 +1,7 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { element, type Gen, int } from "@grizzle/testing/gen"
+import { array, element, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -10,17 +10,19 @@ import { memberOpsOn } from "#adapter/db/handles.ts"
 import { poolExecutor } from "#adapter/reader/executor.ts"
 import { explainStatementWith, parsePlan, rowsRead } from "#bench/harness/explain.ts"
 import { planNodeTypes } from "#bench/harness/explain.ts"
+import type { Param } from "#compiler/core/wire.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import type { Uuid } from "#compiler/public/fields.ts"
-import { paged } from "#compiler/public/workload.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
+import { paged as pagedMember } from "#compiler/public/workload.ts"
 import { countingExecutor, pageOf } from "#test/pg/page/support.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { workloadOver } from "#test/support/compile.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { pickGen, pickIndex } from "#test/support/pick.ts"
 import { member, withServedDb } from "#test/support/served-db.ts"
+import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import {
 	ascendingTasks,
@@ -32,46 +34,39 @@ import {
 import { fixtureLogin } from "#test/unit/workload/fixtures.ts"
 
 /**
- * The plans of the statements the page runtime sends, as performance properties over drawn requests.
+ * The plans of the statements the page runtime sends: what the installation's access paths serve, over drawn tasks and
+ * drawn requests, with PostgreSQL's alternatives to an access path disabled.
  *
- * The paging example's Task holds 40,000 facts over 40 accounts, 1,000 each. It installs with one workload holding every
- * order a page reads (program/workload, physical/access workloadExtension): priority ascending, priority descending with
- * the id ascending (mixed), and every key descending. An access index is identified by its columns and a direction
- * vector canonical under reversal, so the descending order is the ascending one's index read backward and the mixed
- * order has its own; the three orders install together, which is the case a workload naming an order and its exact
- * reverse must reach. A drawn request (an order, first, after or before an anchor drawn among the account's rows, a page
- * size of 1 to 20) is sent through the order's paged member of the login's served workload with a counting executor
- * (adapter/db/handles.ts memberOpsOn), and the rows statement it sent is run under EXPLAIN (ANALYZE), read by the tree's
- * one EXPLAIN decoder:
+ * The paging example's Task installs with one workload holding every order a page reads (program/workload,
+ * physical/access workloadExtension): priority ascending, priority descending with the id ascending (mixed), and every
+ * key descending. An access index is identified by its columns and a direction vector canonical under reversal, so the
+ * descending order is the ascending one's index read backward and the mixed order has its own; the three orders
+ * install together, which is the case a workload naming an order and its exact reverse must reach. Each case replaces
+ * the task table's facts with drawn tasks of the paged account and of another (substrate/replace.ts), and sends a drawn
+ * request (an order, first, after or before an anchor drawn among the paged account's rows, a page size of one to seven)
+ * through the order's paged member of the login's served workload with a counting executor (adapter/db/handles.ts
+ * memberOpsOn). The rows statement it sent runs under EXPLAIN (ANALYZE) with sequential scans and sorts disabled, so a
+ * plan that still scans the table sequentially or sorts has no access path that does otherwise, read by the tree's one
+ * EXPLAIN decoder:
  *
  * - every request reads the task table through an index, never by a sequential scan, and none has a Unique node: the
  *   delivered heading keeps the primary key, so no page deduplicates (R17);
- * - past a long remainder (every first page among them) nothing is sorted: each order has an access path in its own
- *   order or its exact reverse, read forward or backward; a short remainder the planner may read and sort, a few rows;
- * - a seek in one direction is a native row comparison the index bounds (R05): it never reads a row on the far side of
- *   the anchor, and past a long remainder it reads at most the page and its lookahead;
- * - a first page in mixed directions reads at most the page and its lookahead; a seek in mixed directions (the OR
- *   expansion) reads either the index up to the page or the rows past the anchor, never the whole account. Which, for
- *   a short remainder, is the planner's measured choice.
+ * - nothing is sorted: each order has an access path in its own order or its exact reverse, read forward or backward;
+ * - a first page, and a seek in one direction, a native row comparison the index bounds (R05), read at most the page
+ *   and its lookahead, and a seek no row on the far side of its anchor;
+ * - a seek in mixed directions (the OR expansion) reads at most the account's rows up to its anchor and the page and its
+ *   lookahead past it, never the rest of the account.
  *
- * The plan's node order, index names and costs are the planner's; the properties above are the contract. Anchors with
- * a long remainder past them, where a seek the index does not bound reads far more than a page, are planted by drawing
- * the anchor across the whole account.
+ * The plan's node order, index names and costs are the planner's; the properties above are what the access paths serve,
+ * at any volume, so no volume stands in for the planner's choice.
  */
 
 const id = (n: number): Uuid =>
 	`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
-const accounts = 40
-/** Ten times any page, so the cost of a page's seek and of reading an account apart are never close. */
-const perAccount = 1000
 
-/** The facts are written in SQL over generate_series once the schema is installed: 40,000 tasks, priorities 0 to 996. */
-const factsSql = (table: string, column: (field: string) => string): string =>
-	`INSERT INTO ${table} (${Arr.join(Arr.map(["id", "account", "priority", "title"], column), ", ")})
-	SELECT ('00000000-0000-4000-8000-' || lpad(to_hex(1048576 + i), 12, '0'))::uuid,
-		('00000000-0000-4000-8000-' || lpad(to_hex(i % ${accounts}), 12, '0'))::uuid,
-		(i * 7919) % 997, 'title ' || (i % 13)
-	FROM generate_series(0, ${accounts * perAccount - 1}) AS i`
+/** The paged account, and another whose tasks share the table and its indexes. */
+const paged = id(0xa)
+const other = id(0xb)
 
 /**
  * The orders: every key descending, every key ascending (one native row comparison each), and priority descending
@@ -89,35 +84,39 @@ interface PlanCase {
 	readonly order: Order
 	readonly variant: Variant
 	readonly size: number
-	readonly account: number
-	/** The anchor's position in the account's order, 1-based: the last row of the first `anchor` rows. */
+	/** The priorities of the paged account's tasks, at least one, and of the other account's. */
+	readonly tasks: { readonly paged: ReadonlyArray<number>; readonly other: ReadonlyArray<number> }
+	/** Which of the paged account's rows, in the order, is the anchor: the last of the first page up to it. */
 	readonly anchor: number
 }
+
+/** A task's priority: few, so tasks tie on it and the id completes the order. */
+const priorityGen = int(0, 4)
 
 const planCaseGen: Gen<PlanCase> = (source) => ({
 	order: source.draw(element<Order>(["descending", "ascending", "mixed"])),
 	variant: source.draw(element<Variant>(["first", "after", "before"])),
-	size: source.draw(int(1, 20)),
-	account: source.draw(int(0, accounts - 1)),
-	anchor: source.draw(int(1, perAccount))
+	size: source.draw(int(1, 7)),
+	tasks: {
+		paged: source.draw(array(priorityGen, { min: 1, max: 16 })),
+		other: source.draw(array(priorityGen, { min: 0, max: 16 }))
+	},
+	anchor: source.draw(pickGen)
 })
 
 type PlanFeature =
 	| `${Order} ${Variant}`
-	| "a one-direction seek past a long remainder"
-	| "a mixed seek past a long remainder"
-
-/** A remainder ten times the largest page: a seek bounded by the page is the only sensible plan past it. */
-const longRemainder = 200
+	| "a one-direction seek past more rows than its page reads"
+	| "a mixed seek past more rows than its page reads"
 
 /**
- * The rows past the anchor on the seek's side: after it for an after page, before it for a before page, every row of
- * the account for a first page.
+ * The paged account's rows past the anchor on the seek's side, of `total`, the anchor the `at`th: after it for an after
+ * page, before it for a before page, every row of the account for a first page.
  */
-const remainder = (c: PlanCase): number =>
-	c.variant === "after" ? perAccount - c.anchor : c.variant === "before" ? c.anchor - 1 : perAccount
+const remainder = (c: PlanCase, total: number, at: number): number =>
+	c.variant === "after" ? total - at : c.variant === "before" ? at - 1 : total
 
-/** Explores drawn requests over every order on one installation of the combined workload. */
+/** Explores drawn requests over drawn tasks on one installation of the combined workload. */
 const explorePlans = Effect.gen(function* () {
 	const s = yield* Substrate
 	const opened = yield* installed(
@@ -142,20 +141,19 @@ const explorePlans = Effect.gen(function* () {
 			programs: {}
 		}
 	)
-	const task = namesOf(opened.installed).table(Task)
-	yield* s.admin.query(
-		factsSql(task, (field) => quoteIdent(opened.installed.names.column(Task.name, field))),
-		[]
-	)
-	yield* s.admin.query(`VACUUM ANALYZE ${task}`, [])
+	const names = namesOf(opened.installed)
+	const task = names.table(Task)
+	const column = (field: "id" | "account" | "priority" | "title"): string =>
+		names.column(Task, field)
 	return yield* withServedDb(opened.installed, opened.server.roles.app, {}, ({ ctx, load }) =>
 		Effect.gen(function* () {
-			const loaded = yield* load(Rec.map(orders, (q) => paged(q)))
+			const loaded = yield* load(Rec.map(orders, (q) => pagedMember(q)))
 			const { executor, counts } = countingExecutor(poolExecutor(ctx))
 			/** The paged member of an order, its reads through the counting executor. */
 			const pager = (order: Order) => memberOpsOn(executor, ctx, member(loaded, order)).ops
+			const params = { account: paged }
 			/** The rows statement the runtime sends for a request: the first statement of that request. */
-			const sentFor = (order: Order, params: { readonly account: Uuid }, request: object) =>
+			const sentFor = (order: Order, request: object) =>
 				Effect.gen(function* () {
 					const before = counts.sent.length
 					yield* pageOf(pager(order), params, request)
@@ -165,22 +163,31 @@ const explorePlans = Effect.gen(function* () {
 					}
 					return sent
 				})
+			/**
+			 * The plan of a sent statement, run under EXPLAIN (ANALYZE) in a transaction of its own with sequential scans and
+			 * sorts disabled, rolled back.
+			 */
+			const planOf = (sent: { readonly sql: string; readonly params: ReadonlyArray<Param> }) =>
+				Effect.scoped(
+					Effect.gen(function* () {
+						const session = yield* s.admin.pin
+						yield* session.query("BEGIN", [])
+						yield* Effect.addFinalizer(() => Effect.orDie(session.query("ROLLBACK", [])))
+						yield* session.query("SET LOCAL enable_seqscan = off", [])
+						yield* session.query("SET LOCAL enable_sort = off", [])
+						const rows = yield* session.queryValues(
+							explainStatementWith(sent.sql, { serialize: { kind: "off" }, wal: false }),
+							sent.params
+						)
+						return rows[0]?.[0]
+					})
+				)
 			return yield* explore(
 				{
-					oracle: { kind: "unstated" },
-					/**
-					 * The task table is read through an index, never sequentially, and nothing is deduplicated.
-					 *
-					 * Past a long remainder every order is read by an index in its own order or its exact reverse, so
-					 * nothing is sorted; a short one the planner may read and sort, a few rows either way.
-					 *
-					 * Sargable: no row on the far side of the anchor is read.
-					 *
-					 * Past a long remainder the seek is bounded by the page and its lookahead.
-					 *
-					 * The OR expansion reads the index in its own order up to the page, or the rows past the anchor
-					 * alone: never the whole account.
-					 */
+					oracle: {
+						kind: "postgresql",
+						name: "EXPLAIN (ANALYZE) with sequential scans and sorts disabled"
+					},
 					suite: "pg/page/plans",
 					draw: drawn(planCaseGen),
 					literal: Formatter.format,
@@ -198,16 +205,30 @@ const explorePlans = Effect.gen(function* () {
 									(variant): PlanFeature => `${order} ${variant}`
 								)
 							),
-							"a one-direction seek past a long remainder",
-							"a mixed seek past a long remainder"
+							"a one-direction seek past more rows than its page reads",
+							"a mixed seek past more rows than its page reads"
 						],
 						{ cases: 60, sense: notesOnly }
 					)
 				},
 				(c, cx) =>
 					Effect.gen(function* () {
-						const params = { account: id(c.account) }
-						const upToAnchor = yield* pageOf(pager(c.order), params, { first: c.anchor })
+						const tasks = [
+							...Arr.map(c.tasks.paged, (priority) => ({ account: paged, priority })),
+							...Arr.map(c.tasks.other, (priority) => ({ account: other, priority }))
+						]
+						yield* replaceRows(
+							s.admin,
+							installationGroup(names),
+							Arr.map(tasks, (t, n) => ({
+								sql: `INSERT INTO ${task} (${column("id")}, ${column("account")}, ${column("priority")}, ${column("title")}) VALUES ($1::uuid, $2::uuid, $3::integer, $4::text)`,
+								params: [id(0x1000 + n), t.account, String(t.priority), `title ${n}`]
+							}))
+						)
+						yield* s.admin.query(`ANALYZE ${task}`, [])
+						const total = c.tasks.paged.length
+						const at = pickIndex(c.anchor, total) + 1
+						const upToAnchor = yield* pageOf(pager(c.order), params, { first: at })
 						const anchor = Option.getOrThrow(upToAnchor.pageInfo.endCursor)
 						const request =
 							c.variant === "first"
@@ -215,12 +236,8 @@ const explorePlans = Effect.gen(function* () {
 								: c.variant === "after"
 									? { first: c.size, after: anchor }
 									: { last: c.size, before: anchor }
-						const sent = yield* sentFor(c.order, params, request)
-						const rows = yield* s.admin.queryValues(
-							explainStatementWith(sent.sql, { serialize: { kind: "off" }, wal: false }),
-							sent.params
-						)
-						const cell = rows[0]?.[0]
+						const sent = yield* sentFor(c.order, request)
+						const cell = yield* planOf(sent)
 						const types = planNodeTypes(cell)
 						const shown = Arr.join(types, ", ")
 						assert.ok(
@@ -229,38 +246,28 @@ const explorePlans = Effect.gen(function* () {
 							),
 							`an index access: ${shown}`
 						)
-						for (const absent of ["Seq Scan", "Unique"]) {
+						for (const absent of ["Seq Scan", "Unique", "Sort", "Incremental Sort"]) {
 							assert.equal(types.includes(absent), false, `no ${absent}: ${shown}`)
 						}
 						const read = rowsRead(succeeded(parsePlan(cell), "one EXPLAIN ANALYZE plan").plan)
-						const past = remainder(c)
-						if (past >= longRemainder) {
-							for (const absent of ["Sort", "Incremental Sort"]) {
-								assert.equal(
-									types.includes(absent),
-									false,
-									`no ${absent} past a long remainder: ${shown}`
-								)
-							}
-							if (c.variant !== "first") {
-								cx.note(
-									c.order === "mixed"
-										? "a mixed seek past a long remainder"
-										: "a one-direction seek past a long remainder"
-								)
-							}
-						}
-						if (c.order !== "mixed") {
-							assert.ok(read <= past, `${read} rows read, ${past} past the anchor`)
-							if (past >= longRemainder) {
-								assert.ok(read <= c.size + 1, `${read} rows read for a page of ${c.size}`)
-							}
-						} else if (c.variant === "first") {
-							assert.ok(read <= c.size + 1, `${read} rows read for a first page of ${c.size}`)
+						const past = remainder(c, total, at)
+						const page = c.size + 1
+						if (c.order !== "mixed" || c.variant === "first") {
+							assert.ok(
+								read <= Math.min(past, page),
+								`${read} rows read, ${past} past the anchor, a page of ${c.size}`
+							)
 						} else {
 							assert.ok(
-								read <= Math.max(perAccount - past + c.size + 1, past),
-								`${read} rows read, ${past} past the anchor, a page of ${c.size}`
+								read <= total - past + page,
+								`${read} rows read, ${total - past} of the account up to the anchor, a page of ${c.size}`
+							)
+						}
+						if (c.variant !== "first" && past > page) {
+							cx.note(
+								c.order === "mixed"
+									? "a mixed seek past more rows than its page reads"
+									: "a one-direction seek past more rows than its page reads"
 							)
 						}
 						cx.note(`${c.order} ${c.variant}`)
@@ -272,7 +279,7 @@ const explorePlans = Effect.gen(function* () {
 
 layer(Substrate.layer)("the plans of the page runtime's statements", (it) => {
 	it.effect(
-		"with an order, its exact reverse and a mixed order in one workload, every page reads the task table by an index, deduplicates nothing, sorts nothing past a long remainder, and a seek reads only its page and lookahead",
+		"with an order, its exact reverse and a mixed order in one workload, every page reads the task table by an index, deduplicates nothing, sorts nothing, and a seek reads only its page and lookahead past the anchor",
 		(ctx) => searched(ctx, explorePlans)
 	)
 })
