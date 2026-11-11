@@ -436,8 +436,10 @@ const armAnchor = (anchor: "^" | "$"): Gen<string> =>
  * nesting of groups, built so that each pattern matches some text and fits every compile limit, so the text analysis
  * and matchPattern admit it. Every atom matches a code point (a class as admittedClass builds one), so every sequence,
  * group and alternation does; `^` stands only at the head of a top-level arm and `$` only at its end, where no consumed
- * code point stands before one or after the other; and the depth, the counts up to five and the arms keep a pattern's
- * automaton and its anchors within every limit. A refused pattern is patternOver's to draw.
+ * code point stands before one or after the other. So every anchor stands at an end of every path through it, which
+ * constraint elimination never moves and regexMaxAnchors never counts (core/limits.ts), whatever the arms; and the
+ * bounded depth and the quantifier's small counts keep its automaton within the other limits. A refused pattern is
+ * patternOver's to draw.
  */
 export const admittedPatternOver = (alphabet: Arr.NonEmptyReadonlyArray<number>): Gen<string> => {
 	const simple = weighted<string>([

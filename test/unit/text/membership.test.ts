@@ -10,7 +10,8 @@
  *   bounds every member.
  * - Keys: two patterns with one canonical key, the second drawn apart or as the first with one code point changed,
  *   have one digest and agree on every string; a finite language's pattern and the alternation of its members in any
- *   order have one key.
+ *   order have one key where both are keyed by their automaton, a spelling past the analysis bounds keyed by its IR
+ *   or refused; its languages are drawn within spelledMembers, a search budget.
  *
  * Oracle: ECMAScript's RegExp test (generators.ts jsMatcher), which appears only here, never under src/; for the
  * spellings, the finite language's members its construction gives.
@@ -536,8 +537,16 @@ describe("language-equivalent spellings share one canonical key", () => {
 		)})$`
 
 	/**
-	 * A finite language of at most 48 members over a family's alphabet, its pattern's flags, and its members in a drawn
-	 * order under flags of their own: two spellings of one language, which share no syntax but its anchors.
+	 * The most members a drawn language holds: a search budget, no claim. Every case analyzes the alternation of every
+	 * member, whose subset construction grows with them, and a language past the analysis bounds is keyed by its IR or
+	 * refused, which the property passes over, so a larger language costs a case and finds nothing a smaller one does
+	 * not.
+	 */
+	const spelledMembers = 48
+
+	/**
+	 * A finite language of at most spelledMembers members over a family's alphabet, its pattern's flags, and its members
+	 * in a drawn order under flags of their own: two spellings of one language, which share no syntax but its anchors.
 	 */
 	const twoSpellings: Gen<{
 		readonly language: { readonly source: string; readonly flags: Flags }
@@ -546,7 +555,7 @@ describe("language-equivalent spellings share one canonical key", () => {
 		readonly withEmpty: boolean
 	}> = (source) => {
 		const { alphabet } = source.draw(element(families))
-		const language = source.draw(finiteLanguageOver(alphabet, 48))
+		const language = source.draw(finiteLanguageOver(alphabet, spelledMembers))
 		const order = source.draw(
 			shuffled(language.members, { min: language.members.length, max: language.members.length })
 		)
@@ -558,10 +567,17 @@ describe("language-equivalent spellings share one canonical key", () => {
 		}
 	}
 
-	type SpellingFeature = "one member" | "several members" | "the empty text a member"
+	type SpellingFeature =
+		| "one member"
+		| "several members"
+		| "the empty text a member"
+		| "a spelling past the analysis bounds"
+
+	/** Whether a key is a language's IR, which keys a pattern past the subset construction's bounds (refinement.ts keyOf). */
+	const keyedByIr = (key: string): boolean => Str.startsWith("ir:")(key)
 
 	it.effect(
-		"gives a finite language's pattern and the alternation of its members in any order one key",
+		"gives a finite language's pattern and the alternation of its members in any order one key, where both are keyed by their automaton",
 		(ctx) =>
 			searched(
 				ctx,
@@ -591,11 +607,23 @@ describe("language-equivalent spellings share one canonical key", () => {
 							if (withEmpty) {
 								c.note("the empty text a member")
 							}
-							assert.equal(
-								refine(language.source, language.flags).key,
-								refine(members.source, members.flags).key,
-								`/${language.source}/${language.flags} and /${members.source}/${members.flags}`
-							)
+							const label = `/${language.source}/${language.flags} and /${members.source}/${members.flags}`
+							const spellings = [analyzeText([language], loc), analyzeText([members], loc)] as const
+							const [byLanguage, byMembers] = spellings
+							if (!byLanguage.ok || !byMembers.ok) {
+								for (const spelling of spellings) {
+									if (!spelling.ok) {
+										assert.equal(spelling.error.reason._tag, "ResourceBound", label)
+									}
+								}
+								c.note("a spelling past the analysis bounds")
+								return
+							}
+							if (keyedByIr(byLanguage.value.key) || keyedByIr(byMembers.value.key)) {
+								c.note("a spelling past the analysis bounds")
+								return
+							}
+							assert.equal(byLanguage.value.key, byMembers.value.key, label)
 						})
 				)
 			)

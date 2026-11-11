@@ -17,7 +17,8 @@
  *   type compiles exactly when ECMAScript's test of the target holds of every image member; a contract's predicate,
  *   which no language proves, refuses the cast; a collapse is cast into the collapsed texts; any text is no refined
  *   text's; and a language whose own automaton passes the analysis bounds is refused naming them, as text and as a
- *   numeric's lexical form.
+ *   numeric's lexical form, as is a translated language whose inclusion passes them. Its languages are drawn within
+ *   castMembers, a search budget.
  * - collapse and replaceWhitespace: over texts dense in XML's four white space characters beside ones XML does not
  *   count (no-break space, line separator), both evaluators agree with XML Schema's definition, pieces cut at every run
  *   and joined by one space; the term's type holds every collapse of a value of the operand's, exactly the image where
@@ -827,8 +828,15 @@ describe("Compute's translate and lowerAscii", () => {
 	const longestOf = (members: ReadonlyArray<string>): number =>
 		Arr.reduce(members, 0, (most, m) => Math.max(most, codePoints(m).length))
 
+	/**
+	 * The most members a cast's finite language holds: a search budget, no claim. A target is spelled from the image's
+	 * members, so a larger language mostly passes the analysis bounds, where the property sees only the refusal that
+	 * names them, and a case past it costs much and judges little.
+	 */
+	const castMembers = 64
+
 	const castGen: Gen<readonly [Operand, Target]> = (source) => {
-		const language = source.draw(finiteLanguageOver(translationAlphabet, 64))
+		const language = source.draw(finiteLanguageOver(translationAlphabet, castMembers))
 		const operand = source.draw(
 			weighted<Operand>([
 				[
@@ -1030,6 +1038,18 @@ describe("Compute's translate and lowerAscii", () => {
 							}
 							const image = imageMembers(operand)
 							if (image === undefined) {
+								return
+							}
+							if (!cast.ok && cast.error.reason._tag === "ResourceBound") {
+								const { reason } = refused(cast, "ResourceBound", label)
+								assertVariant(reason, "_tag", "ResourceBound", label)
+								assertVariant(reason.bound, "kind", "regexInclusion", label)
+								assert.deepEqual(
+									[reason.bound.states, reason.bound.work],
+									[regexDfaMaxStates.value, regexDfaMaxWork.value],
+									label
+								)
+								k.note("a refinement past the analysis bounds")
 								return
 							}
 							const inside = Arr.every(image, jsMatcher(target.source, "u"))
