@@ -1,3 +1,24 @@
+/**
+ * What a check answers, a refusal for its reason at the place the input determines, or the checked result:
+ *
+ * - **A literal at a typed slot:** a literal of another host kind or outside its base's range is no literal of the
+ *   base (MalformedDescription), one outside the slot's contract or language is ContractLiteral, and one within is
+ *   admitted; a literal an import's bind map binds is refused at that bind entry.
+ * - **A query's contracts:** one descriptor per name across the query and its schema; a name declared with two is
+ *   refused as DuplicateIdentity naming one of the clashing names (test/unit/check/contracts.ts).
+ * - **A fault planted in a generated query:** each fault is refused for its reason at the place it determines, and a
+ *   delta planted at a stored relation's match is admitted as a ChangeSet's read-back (test/unit/check/faults.ts).
+ *
+ * Oracles: each slot's type restated over the literal (its host kind, its base's range, its contract and its language,
+ * judged here by a regular expression where the checker runs its own automaton); one name, one descriptor, restated
+ * over the declarations; and the reason and place each planted fault determines.
+ *
+ * Plants (~/.cache/grizzle-release/BR04/plants): reasons-contract-literal-admitted.patch (a literal outside its
+ * contract is admitted), reasons-binding-at-match.patch (a binding's refusal is placed at its match's bindings, not at
+ * its entry).
+ *
+ * Features: each slot, each verdict, each contract clash, and each fault, live, stale or wild.
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -10,7 +31,7 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
 import type { CompileError, CompileReasonTag } from "#compiler/core/errors.ts"
-import { childLoc, formatLoc, type SourceLoc } from "#compiler/core/loc.ts"
+import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import type * as Result from "#compiler/core/result.ts"
 import type { QueryDesc as LocatedQuery } from "#compiler/ir/desc.ts"
 import { queryInput } from "#compiler/program/compile.ts"
@@ -52,6 +73,7 @@ import {
 	liveOf,
 	type Planted
 } from "#test/unit/check/faults.ts"
+import { placeOf } from "#test/unit/check/place.ts"
 import { Lab, Qty } from "#test/unit/check/schemas.ts"
 
 import { regex } from "arkregex"
@@ -81,15 +103,13 @@ const answers = (
 		case "admitted":
 			succeeded(result, why)
 			return
-		case "refused": {
-			const e = refused(result, expected.reason, why)
-			assert.ok(formatLoc(refusalLoc(e)).length > 0, `${why}: located`)
+		case "refused":
+			refusalLoc(refused(result, expected.reason, why), `${why}: located`)
 			return
-		}
 		case "refused at":
-			assert.equal(
-				formatLoc(refusalLoc(refused(result, expected.reason, why))),
-				formatLoc(expected.at),
+			assert.deepEqual(
+				placeOf(refusalLoc(refused(result, expected.reason, why))),
+				placeOf(expected.at),
 				why
 			)
 			return
@@ -318,7 +338,10 @@ describe("a literal at a typed slot", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "each slot's host kind, base range, contract and language, restated over the literal"
+						},
 						suite: "unit/check/reasons-literal",
 						draw: drawn(slotGen),
 						literal: Formatter.format,
@@ -505,7 +528,7 @@ describe("a fault planted in a generated query", () => {
 									planted.reason,
 									label
 								)
-								assert.equal(formatLoc(refusalLoc(e)), formatLoc(planted.at), `${label}: located`)
+								assert.deepEqual(placeOf(refusalLoc(e)), placeOf(planted.at), `${label}: located`)
 								if (planted.admittedAs !== "none") {
 									succeeded(
 										readAt(built.schema, planted.desc, planted.admittedAs),

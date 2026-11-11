@@ -32,6 +32,12 @@
  * The fields are declared in the order b, Z, a, whose code-unit order is Z, a, b and whose locale order is a, b, Z,
  * and a field's reads are stated in declaration order, so declaration order, locale order and "the first read stated"
  * each answer another field than the rule does.
+ *
+ * Plants (~/.cache/grizzle-release/BR04/plants): derived-locale-order.patch (a generated field's reads ordered by
+ * locale), derived-least-read-skipped.patch (the least generated field a field reads is passed over).
+ *
+ * Features: self-reads, 2-cycles, 3-cycles and acyclic chains; each input beyond a row, pre-order against
+ * breadth-first; each level of a closed read; each place a query states a term.
  */
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"

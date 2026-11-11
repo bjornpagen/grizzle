@@ -1,3 +1,21 @@
+/**
+ * Generated queries round-trip through their descriptions (ir/desc.ts toQueryDescription, fromQueryDescription), and
+ * a broken description is refused for the rule it breaks:
+ *
+ * - **Round trip:** a generated query's live description, carried as JSON, reads back as the same Description (by its
+ *   canonical identity text, descText), the builder rebuilds it as the same, and checking it again reads every site the
+ *   first check read; and every faithful rewrite of it at every site is admitted by its boundary.
+ * - **Corruption:** a description broken at one site of one rule, stale or wild (the testing library's corrupted), is
+ *   refused for that rule's reason by the boundary that reads it, at a place.
+ *
+ * Oracles: decode after encode is the identity (universal); the reason each corruption's rule names (specification).
+ * A planted span case keeps the rare span, Allen, comparison and ordered-root sites reached.
+ *
+ * Plants (~/.cache/grizzle-release/BR04/plants): roundtrip-order-direction-dropped.patch (a description's JSON drops
+ * every order's direction), roundtrip-empty-mask-admitted.patch (an empty Allen mask is admitted).
+ *
+ * Features: the live case, each faithful rewrite, and each corruption, stale or wild.
+ */
 import { describe, it } from "@effect/vitest"
 import { type Case, drawn, explore, type Kept } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -20,7 +38,7 @@ import type { CheckOptions } from "#compiler/check/checker.ts"
 import { checkQuery } from "#compiler/check/index.ts"
 import { catchRefusal, type Json } from "#compiler/core/canonical.ts"
 import type { CompileError, CompileReasonTag } from "#compiler/core/errors.ts"
-import { formatLoc, SourceLoc } from "#compiler/core/loc.ts"
+import { SourceLoc } from "#compiler/core/loc.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
 import * as Result from "#compiler/core/result.ts"
 import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
@@ -1371,7 +1389,7 @@ const roundTrip = (
 		corrupted.refusal.reason,
 		`${label}: ${refused.error.message}`
 	)
-	assert.ok(formatLoc(refusalLoc(refused.error)).length > 0, `${label} has no location`)
+	refusalLoc(refused.error, `${label} has no location`)
 }
 
 /** A case of the draw: one the public generator resolves from its sketch, or one written by hand. */
@@ -1553,7 +1571,10 @@ describe("generated queries round-trip through their descriptions", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "universal",
+							name: "decode ∘ encode = id over a description, and each corruption's own reason"
+						},
 						suite: "unit/check/roundtrip",
 						draw: drawn(drawnCase),
 						literal: Formatter.format,

@@ -1,3 +1,21 @@
+/**
+ * approximateNearest (check/approximate): which searches are eligible, and which results they make approximate.
+ *
+ * - **Eligibility:** a search is admitted exactly when its one rule, read once per execution, ranks by a query
+ *   vector's cosine distance to a stored vector HNSW can index, its `by` naming a column and its `take` a positive
+ *   integer; every other search is refused for one of the reasons its broken rules name (test/unit/check/approximate.ts),
+ *   and an admitted one seals one search node.
+ * - **Provenance:** a page over a result, and a derived definition of it, are misuses exactly when a search lies among
+ *   what the result is computed from, whatever lies between.
+ *
+ * Oracles: the eligibility rule restated over the drawn search; a result is approximate exactly when it is computed
+ * from a search.
+ *
+ * Plants (~/.cache/grizzle-release/BR04/plants): approximate-hnsw-bound-refused.patch (a vector at HNSW's bound is
+ * refused), approximate-provenance-shallow.patch (only a search itself is approximate, not what is computed from it).
+ *
+ * Features: each broken rule, each reading refused or admitted, a vector at HNSW's bound, and each composition.
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"

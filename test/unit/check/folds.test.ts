@@ -59,6 +59,11 @@ import {
  * - a second implementation, the host's fold: every admitted fold's answer from the reference evaluator over the
  *   checked IR equals the host's fold over the matched facts, each matched fact tuple once, so equal values on distinct
  *   facts both contribute.
+ *
+ * Plants (~/.cache/grizzle-release/BR04/plants): folds-partial-key-admitted.patch (a match binding part of a key is
+ * read as keyed).
+ *
+ * Features: each shape and aggregate, refused and admitted; equal values summed twice; a constant beside the fold.
  */
 
 const Blog: SchemaDesc = {

@@ -1,3 +1,17 @@
+/**
+ * Unions (check/checker.ts): a union of one to three arms over a drawn schema, delivered, ordered, taken or matched, is
+ * admitted exactly where the union rules admit it, with the heading, the discriminant and the widening they give, and
+ * refused otherwise for the rule it breaks: an attachment on a shared heading, incompatible column types, an attached
+ * arm widened, no discriminant, a keyless order, constants no arm delivers, or a column the selected arms lack.
+ *
+ * Oracle: the union rules restated over the drawn arms (test/unit/check/unions.ts verdictOf).
+ *
+ * Plants (~/.cache/grizzle-release/BR04/plants): unions-clashing-discriminant-admitted.patch (discriminant literals
+ * that do not tell the heading groups apart are admitted).
+ *
+ * Features: each rule refused, and each admitted shape: one heading, headings told apart by Kind or by every literal
+ * column, a widened column, an attached arm, a keyed order, a narrowed match, a set beside a discriminant of Kind.
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"

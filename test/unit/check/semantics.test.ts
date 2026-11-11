@@ -1,14 +1,47 @@
+/**
+ * The checker's parameter, member and bound rules (check/), each against its rule restated over drawn inputs:
+ *
+ * - **Declared parameters:** every generated read's checked query holds exactly the read's own parameters, scalar or
+ *   relation, each of the type it is declared at or of its relation's heading.
+ * - **Parameter typing:** each query's own parameters take the type the declarations their uses share, never an
+ *   import's own, a variable's fields join within one family, and what those rules refuse is refused for one of their
+ *   reasons (test/unit/check/params.ts).
+ * - **Members:** a member's head is held to its relation's heading for its op, every column entering its field at the
+ *   field's own type, one heading and no attachment, refused for its rule at the member or the attachment's place
+ *   (test/unit/check/members.ts).
+ * - **A take's bound:** an import that binds a take's parameter to a literal is admitted, and lowers, exactly when the
+ *   literal is an integer in int4's positive range, and refused as a MalformedDescription otherwise.
+ * - **A negated match's parameter:** an import binding it to a literal answers the items no Tag holds at that label.
+ *
+ * Oracles: the generated program's own parameters and declarations; the parameter and member rules restated as
+ * checkers; int4's positive range; and the reference evaluator against the items no Tag holds at the label.
+ *
+ * Plants (~/.cache/grizzle-release/BR04/plants): semantics-take-zero.patch (a take of zero is admitted),
+ * semantics-member-extra-column.patch (a member's head may hold a column its relation lacks).
+ *
+ * Features: each declaration kind, each parameter situation admitted, each member rule and op, each kind of take
+ * bound, and an item tagged at the label or at another.
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { codePoint, element, type Gen, int, oneOf, string, subarray } from "@grizzle/testing/gen"
+import {
+	codePoint,
+	constant,
+	type Gen,
+	int,
+	map,
+	string,
+	subarray,
+	weighted
+} from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { double } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
-import { formatLoc, type SourceLoc } from "#compiler/core/loc.ts"
+import type { SourceLoc } from "#compiler/core/loc.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import { exprClosure } from "#compiler/ir/expr.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
@@ -69,6 +102,7 @@ import {
 	paramFeatures,
 	paramVerdict
 } from "#test/unit/check/params.ts"
+import { placeOf } from "#test/unit/check/place.ts"
 import { Lab } from "#test/unit/check/schemas.ts"
 
 /** Items and the labels they are tagged with, by small integers. */
@@ -250,6 +284,69 @@ const checkedNames = {
 	...productionNames("lab", { kind: "declared" }, localVectorSchema, labNames.codes),
 	contractDomain: labNames.contractDomain
 }
+
+/** The greatest int4, the greatest bound a take admits. */
+const int4Max = 2 ** 31 - 1
+
+/** Whether a literal is a take's bound: an integer of int4's positive range. */
+const withinInt4 = (value: number | string): boolean =>
+	typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= int4Max
+
+/**
+ * A literal a take's bound is bound to, by what it is: the range's ends and the integers between, and each way a
+ * literal leaves the range or is no integer, every one a case of its own.
+ */
+type TakeBound = Readonly<{
+	kind:
+		| "the least bound"
+		| "the greatest bound"
+		| "a bound between"
+		| "zero"
+		| "a negative integer"
+		| "one past the greatest"
+		| "an integer past int4"
+		| "a fraction"
+		| "a double"
+		| "a bound's digits as text"
+		| "other text"
+	value: number | string
+}>
+
+type TakeBoundFeature = TakeBound["kind"] | "within" | "outside"
+
+const takeBoundFeatures: Arr.NonEmptyReadonlyArray<TakeBoundFeature> = [
+	"the least bound",
+	"the greatest bound",
+	"a bound between",
+	"zero",
+	"a negative integer",
+	"one past the greatest",
+	"an integer past int4",
+	"a fraction",
+	"a double",
+	"a bound's digits as text",
+	"other text",
+	"within",
+	"outside"
+]
+
+const boundOf =
+	(kind: TakeBound["kind"]) =>
+	(value: number | string): TakeBound => ({ kind, value })
+
+const takeBoundGen: Gen<TakeBound> = weighted<TakeBound>([
+	[2, constant(boundOf("the least bound")(1))],
+	[2, constant(boundOf("the greatest bound")(int4Max))],
+	[4, map(int(2, int4Max - 1), boundOf("a bound between"))],
+	[2, constant(boundOf("zero")(0))],
+	[2, map(int(-(2 ** 40), -1), boundOf("a negative integer"))],
+	[2, constant(boundOf("one past the greatest")(int4Max + 1))],
+	[2, map(int(int4Max + 2, 2 ** 40), boundOf("an integer past int4"))],
+	[2, map(int(-(2 ** 20), 2 ** 20), (n) => boundOf("a fraction")(n + 0.5))],
+	[2, map(double(-Number.MAX_VALUE, Number.MAX_VALUE), boundOf("a double"))],
+	[2, map(int(1, int4Max), (n) => boundOf("a bound's digits as text")(String(n)))],
+	[2, map(string(codePoint(0x20, 0x7e), { min: 0, max: 3 }), boundOf("other text"))]
+])
 
 describe("the checker's parameter, member and bound rules", () => {
 	it.effect(
@@ -481,9 +578,9 @@ describe("the checker's parameter, member and bound rules", () => {
 							if (v.kind === "refused") {
 								const e = refused(result, v.reason, v.rule)
 								if (v.at !== "the union") {
-									assert.equal(
-										formatLoc(refusalLoc(e)),
-										formatLoc(memberLocOf(c, v.at)),
+									assert.deepEqual(
+										placeOf(refusalLoc(e)),
+										placeOf(memberLocOf(c, v.at)),
 										`${v.rule}, located at ${v.at}`
 									)
 								}
@@ -536,25 +633,21 @@ describe("the checker's parameter, member and bound rules", () => {
 				),
 				"k"
 			)
-			type Bound = "within" | "outside"
 			return searched(
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "a take's bound is an integer of int4's positive range, 1 to 2^31 - 1"
+						},
 						suite: "unit/check/semantics-take-bound",
-						draw: drawn(
-							oneOf<number | string>([
-								element([0, 1, 2 ** 31 - 1, 2 ** 31, -1, 1.5, "3"]),
-								int(1, 2 ** 31 - 1),
-								int(-(2 ** 40), 0),
-								int(2 ** 31, 2 ** 40),
-								double(-Number.MAX_VALUE, Number.MAX_VALUE),
-								string(codePoint(0x20, 0x7e), { min: 0, max: 3 })
-							])
-						),
+						draw: drawn(takeBoundGen),
 						literal: Formatter.format,
-						coverage: required<Bound>(["within", "outside"], { cases: 60, sense: notesOnly }),
+						coverage: required<TakeBoundFeature>(takeBoundFeatures, {
+							cases: 60,
+							sense: notesOnly
+						}),
 						kept: [],
 						runs: 60,
 						shrink: completeShrink,
@@ -564,10 +657,11 @@ describe("the checker's parameter, member and bound rules", () => {
 					},
 					(bound, c) =>
 						Effect.sync(() => {
+							c.note(bound.kind)
 							const importer = queryDesc(
 								rule({
 									vars: [plainVar("i")],
-									matches: [match(imported(top, { k: lit(bound) }), { id: varRef("i") })],
+									matches: [match(imported(top, { k: lit(bound.value) }), { id: varRef("i") })],
 									where: [],
 									head: { id: varRef("i") },
 									interiors: [],
@@ -575,13 +669,8 @@ describe("the checker's parameter, member and bound rules", () => {
 								})
 							)
 							const r = checkAuthored(checking(Lab), importer, checkOptions("query"))
-							const within =
-								typeof bound === "number" &&
-								Number.isInteger(bound) &&
-								bound >= 1 &&
-								bound <= 2 ** 31 - 1
-							if (within) {
-								const q = defined(succeeded(r, String(bound)), "a checked query")
+							if (withinInt4(bound.value)) {
+								const q = succeeded(r, Formatter.format(bound))
 								succeeded(
 									lowerConservative(conservativeInput(q), {
 										names: checkedNames,
@@ -590,10 +679,11 @@ describe("the checker's parameter, member and bound rules", () => {
 									}),
 									"the admitted query lowers"
 								)
+								c.note("within")
 							} else {
-								refused(r, "MalformedDescription", String(bound))
+								refused(r, "MalformedDescription", Formatter.format(bound))
+								c.note("outside")
 							}
-							c.note(within ? "within" : "outside")
 						})
 				)
 			)

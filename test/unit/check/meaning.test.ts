@@ -1,3 +1,18 @@
+/**
+ * The builder and the checker give every generated query read the meaning its program states
+ * (test/support/oracle/public): each read built, checked, and evaluated by the reference over the checked IR answers
+ * as the program's own meaning does, compared by the answer's contract (a set, or ordered where the read delivers in
+ * order), and each heading group of a heterogeneous union's root likewise.
+ *
+ * Oracle: a second implementation, the program's meaning evaluated straight from the generated program against the
+ * reference evaluator over the checked IR. Where the reference declines a value, its reason is rated, so a class of
+ * cases it stops judging shows on the report.
+ *
+ * Plants (~/.cache/grizzle-release/BR04/plants): meaning-negation-first-key-dropped.patch (a negation's join drops its
+ * first equated column).
+ *
+ * Features: the language's own terms the program reaches, each mixed form, and each node kind the checked IR holds.
+ */
 import { describe, it } from "@effect/vitest"
 import { type Case, drawn, explore, type Kept } from "@grizzle/testing/explore"
 import { rating, required } from "@grizzle/testing/features"
@@ -277,7 +292,10 @@ describe("the builder and the checker", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "second-implementation",
+							name: "the generated program's own meaning against the reference over the checked IR"
+						},
 						suite: "unit/check/meaning",
 						draw: drawn(caseSketchGen),
 						literal: Formatter.format,

@@ -1,4 +1,4 @@
-import { element, filter, type Gen, int, oneOf, weighted } from "@grizzle/testing/gen"
+import { element, type Gen, int, oneOf, weighted } from "@grizzle/testing/gen"
 import { matching } from "@grizzle/testing/pattern"
 import { Array as Arr } from "effect"
 import { hnswPolicy } from "#compiler/check/approximate/policy.ts"
@@ -286,12 +286,8 @@ export const searchCaseDesc = (c: SearchCase): QueryDesc => {
 	}
 }
 
-/** A name of no column of the source: an identifier its heading lacks. */
-const strayGen: Gen<string> = filter(
-	matching(regex("^[a-z][a-zA-Z]{0,7}$")),
-	(name) => name !== "id" && name !== "owner" && name !== "distance",
-	8
-)
+/** A name of no column of the source: an identifier led by a z, which no column of E, F or P, nor distance, is. */
+const strayGen: Gen<string> = matching(regex("^z[a-zA-Z]{0,7}$"))
 
 export const searchCaseGen: Gen<SearchCase> = (source) => {
 	const score = source.draw(

@@ -1,3 +1,25 @@
+/**
+ * Refinements (check/refinement): which types guarantee which, what a union's column takes from its arms, and which
+ * closed constants PostgreSQL must validate.
+ *
+ * - **Guarantees:** over every ordered pair of fifteen named types, `guarantees(a, b)` holds exactly when the two are
+ *   one carrier and one identity: a contract guarantees only itself, a numeric only its own typmod, and text the
+ *   wildcard or its own language, two spellings of one language being one.
+ * - **Union propagation:** over every ordered pair of deliverers, a union's column is the meet of its arms' types: one
+ *   type, the type itself; two languages, the wildcard; two typmods, numeric of no typmod whose bound holds both;
+ *   anything else refused as MalformedDescription; and each arm guarantees the common type.
+ * - **Refined constants:** over drawn closed relations, refinedConstants lists exactly the payload cells of a type
+ *   whose domain carries a CHECK, each at its field's type, in row then heading order, as it documents.
+ *
+ * Oracles: each type's token (its carrier, identity, typmod and language), from which the guarantees rule and the meet
+ * are restated; which payload kinds carry a CHECK.
+ *
+ * Plants (~/.cache/grizzle-release/BR04/plants): refinement-wildcard-guarantees-language.patch (the wildcard guarantees
+ * every language), refinement-unchecked-contract-constant.patch (a brand-only contract's cells are listed).
+ *
+ * Features: one language, two languages, the wildcard, a contract, one or two typmods and another carrier; each union
+ * shape; a refined cell, an unrefined one and no row.
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
 import { required, requiredInSpace } from "@grizzle/testing/features"
@@ -26,7 +48,7 @@ import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { sameRegex, wildcardText } from "#compiler/scalar/compute/types.ts"
 import { plainType } from "#compiler/scalar/native.ts"
-import { assert, defined, refused, succeeded, unorderedEqual } from "#test/support/assert.ts"
+import { assert, defined, refused, succeeded } from "#test/support/assert.ts"
 import {
 	charLength,
 	closed as closedDesc,
@@ -133,85 +155,6 @@ const fieldType = <F extends object>(
 /** A closed relation's payload field type, as the checker reads it. */
 const payloadType = (name: string, field: string): ScalarType =>
 	columnType(defined(schemaChecked.closed.get(name), name).heading, field, `${name}.${field}`)
-
-/**
- * The types the lattice is judged over, each named: refined text in three languages (one spelled twice), the wildcard,
- * numeric at two typmods, two contracts over one base, and a plain bigint.
- */
-const pool: Arr.NonEmptyReadonlyArray<readonly [string, ScalarType]> = [
-	["Article.slug", fieldType(Article, "slug")],
-	["Draft.slug, the slug language spelled again", fieldType(Draft, "slug")],
-	["Article.state", fieldType(Article, "state")],
-	["Article.title, the declared wildcard", fieldType(Article, "title")],
-	["the canonical wildcard", wildcardText],
-	["Draft.amount, numeric(10,2)", fieldType(Draft, "amount")],
-	["Sheet.amount, numeric(12,2)", fieldType(Sheet, "amount")],
-	["Article.amount, the Cents contract", fieldType(Article, "amount")],
-	["TierPlan.rank, the Brand contract over the same base", payloadType("TierPlan", "rank")],
-	["plain bigint", plainType("int8")]
-]
-
-const isWildcard = (t: ScalarType): boolean => textOf(t)?.regex === "wildcard"
-const isContract = (t: ScalarType): boolean => contractOf(t) !== undefined
-
-type LatticeFeature =
-	| "one language"
-	| "two languages"
-	| "the wildcard"
-	| "a contract"
-	| "another carrier"
-
-describe("languages and guarantees", () => {
-	it.effect(
-		"prove one language by its canonical pattern, and guarantee only the wildcard, one language or a contract itself",
-		(ctx) =>
-			searched(
-				ctx,
-				exhaust(
-					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
-						suite: "unit/check/refinement-lattice",
-						generator: (source) =>
-							[source.draw(element(pool)), source.draw(element(pool))] as const,
-						literal: Formatter.format,
-						limit: pool.length * pool.length,
-						coverage: requiredInSpace<LatticeFeature>([
-							"one language",
-							"two languages",
-							"the wildcard",
-							"a contract",
-							"another carrier"
-						]),
-						caseHang
-					},
-					([[an, a], [bn, b]], c) =>
-						Effect.sync(() => {
-							const why = `${an} and ${bn}`
-							assert.equal(guarantees(a, a), true, `${why}: reflexive`)
-							const guaranteed = guarantees(a, b)
-							if (a.carrier !== b.carrier) {
-								assert.equal(guaranteed, false, why)
-								c.note("another carrier")
-							} else if (isContract(a) || isContract(b)) {
-								assert.equal(guaranteed, a === b, `${why}: a contract guarantees only itself`)
-								c.note("a contract")
-							} else if (a.carrier === "text" && b.carrier === "text") {
-								const same = sameRegex(a.text.regex, b.text.regex)
-								assert.equal(same, sameRegex(b.text.regex, a.text.regex), `${why}: symmetric`)
-								assert.equal(
-									sameRegex(a.text.regex, a.text.regex),
-									true,
-									`${an}: one language with itself`
-								)
-								assert.equal(guaranteed, isWildcard(b) || same, why)
-								c.note(isWildcard(b) ? "the wildcard" : same ? "one language" : "two languages")
-							}
-						})
-				)
-			)
-	)
-})
 
 /**
  * A field a union's arm delivers as its `value`, and the type the model reads it at: a language (two spellings of
@@ -372,6 +315,128 @@ const meet = (a: Token, b: Token): Token | undefined => {
 	}
 }
 
+const isWildcard = (t: ScalarType): boolean => textOf(t)?.regex === "wildcard"
+
+/** A type the lattice is judged over: a deliverer's, the canonical wildcard, or a plain bigint, with its token. */
+interface Judged {
+	readonly name: string
+	readonly token: Token
+	readonly type: ScalarType
+}
+
+const judged: Arr.NonEmptyReadonlyArray<Judged> = [
+	...Arr.map(deliverers, ({ name, token, type }) => ({ name, token, type })),
+	{ name: "the canonical wildcard", token: { kind: "wildcard" }, type: wildcardText },
+	{ name: "a plain bigint", token: { kind: "bigint" }, type: plainType("int8") }
+]
+
+/** The carrier a token's values are stored in. */
+const carrierOf = (t: Token): "text" | "numeric" | "bigint" => {
+	switch (t.kind) {
+		case "language":
+		case "wildcard":
+			return "text"
+		case "numeric":
+			return "numeric"
+		case "contract":
+		case "bigint":
+			return "bigint"
+	}
+}
+
+/**
+ * Whether every value of `a` is a value of `b`, by the documented rule (check/refinement guarantees): one carrier and
+ * one nominal identity, so a contract guarantees only itself and nothing else guarantees it; one numeric typmod; and
+ * for text, `b` the wildcard or one language with `a`, never a containment between two languages.
+ */
+const guaranteed = (a: Token, b: Token): boolean => {
+	if (carrierOf(a) !== carrierOf(b)) {
+		return false
+	}
+	if (a.kind === "contract" || b.kind === "contract") {
+		return a.kind === "contract" && b.kind === "contract" && a.name === b.name
+	}
+	if (a.kind === "numeric" && b.kind === "numeric") {
+		return a.digits === b.digits && a.scale === b.scale
+	}
+	if (b.kind === "wildcard") {
+		return true
+	}
+	return a.kind === "language" && b.kind === "language"
+		? a.language === b.language
+		: a.kind === b.kind
+}
+
+type LatticeFeature =
+	| "one language"
+	| "two languages"
+	| "the wildcard"
+	| "a contract"
+	| "one typmod"
+	| "two typmods"
+	| "another carrier"
+
+const latticeFeature = (a: Token, b: Token): LatticeFeature => {
+	if (carrierOf(a) !== carrierOf(b)) {
+		return "another carrier"
+	}
+	if (a.kind === "contract" || b.kind === "contract") {
+		return "a contract"
+	}
+	if (a.kind === "numeric" && b.kind === "numeric") {
+		return a.digits === b.digits && a.scale === b.scale ? "one typmod" : "two typmods"
+	}
+	if (b.kind === "wildcard") {
+		return "the wildcard"
+	}
+	return a.kind === "language" && b.kind === "language" && a.language === b.language
+		? "one language"
+		: "two languages"
+}
+
+describe("languages and guarantees", () => {
+	it.effect(
+		"guarantee exactly one carrier's one identity: a contract itself, one typmod, the wildcard or one language",
+		(ctx) =>
+			searched(
+				ctx,
+				exhaust(
+					{
+						box: "every ordered pair of the deliverers' types, the canonical wildcard and a plain bigint",
+						oracle: {
+							kind: "specification",
+							name: "the guarantees rule restated over each type's token: carrier, identity, typmod and language"
+						},
+						suite: "unit/check/refinement-lattice",
+						generator: (source) =>
+							[source.draw(element(judged)), source.draw(element(judged))] as const,
+						literal: Formatter.format,
+						limit: judged.length * judged.length,
+						coverage: requiredInSpace<LatticeFeature>([
+							"one language",
+							"two languages",
+							"the wildcard",
+							"a contract",
+							"one typmod",
+							"two typmods",
+							"another carrier"
+						]),
+						caseHang
+					},
+					([a, b], c) =>
+						Effect.sync(() => {
+							c.note(latticeFeature(a.token, b.token))
+							assert.equal(
+								guarantees(a.type, b.type),
+								guaranteed(a.token, b.token),
+								`${a.name} and ${b.name}`
+							)
+						})
+				)
+			)
+	)
+})
+
 /** One arm delivering a field as `value` beside an id: an ordinary relation's own, or a closed payload's at Free. */
 const armOf = (d: Deliverer) =>
 	d.closed
@@ -431,8 +496,11 @@ describe("union propagation", () => {
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "every ordered pair of the deliverers: the slug and state languages, each spelled twice, the wildcard, three numeric typmods, three contracts and a plain bigint",
+						oracle: {
+							kind: "specification",
+							name: "the documented meet of two arms' types, and each arm guaranteeing the common type"
+						},
 						suite: "unit/check/refinement-union",
 						generator: (source) =>
 							[source.draw(element(deliverers)), source.draw(element(deliverers))] as const,
@@ -649,27 +717,17 @@ describe("refined constants", () => {
 						Effect.sync(() => {
 							const checked = checking(closedSchema(c))
 							const heading = defined(checked.closed.get("Payloads"), "Payloads").heading
-							/** Each cell by its field and its row's key, the site naming it: two rows may hold one value. */
+							/** Each refined cell in row order, then heading order, as refinedConstants documents its order. */
 							const expected = Arr.flatMap(c.rows, (row) =>
 								Arr.flatMap(c.fields, (x, i) => {
 									const cell = defined(row.values[i], "a row's value")
 									return x.payload.checked
-										? [
-												{
-													literal: cell.literal,
-													type: columnType(heading, x.name, x.name),
-													site: `closed Payloads.${x.name} at (${row.key})`
-												}
-											]
+										? [{ literal: cell.literal, type: columnType(heading, x.name, x.name) }]
 										: []
 								})
 							)
-							unorderedEqual(
-								Arr.map(refinedConstants(checked), (x) => ({
-									literal: x.literal,
-									type: x.type,
-									site: x.site
-								})),
+							assert.deepEqual(
+								Arr.map(refinedConstants(checked), (x) => ({ literal: x.literal, type: x.type })),
 								expected
 							)
 							if (c.rows.length === 0) {

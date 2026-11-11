@@ -35,6 +35,11 @@ import { checking, checkOptions } from "#test/support/policy.ts"
  * when they are text of different refinements, or are refused. The handle a match fixes never types a literal, however
  * the fix is spelled: a plain "A" whose rule fixes Kind to "A" or to Kind.handle("A") is text, which the value-aware
  * handle default this replaced made Kind.
+ *
+ * Plants (~/.cache/grizzle-release/BR04/plants): head-literals-integer-as-bigint.patch (a plain safe integer defaults to
+ * bigint).
+ *
+ * Features: each arm kind, each way a match fixes the handle, each type c takes, and each refusal.
  */
 const Kind = closed("Kind", ["A", "B"])
 const Short = str.regex("^.{0,4}$", "su")
@@ -380,7 +385,10 @@ describe("head literal typing", () => {
 				ctx,
 				explore(
 					{
-						oracle: { kind: "unstated" },
+						oracle: {
+							kind: "specification",
+							name: "the head literal rule over a universe of types this file states"
+						},
 						suite: "unit/check/head-literals",
 						draw: drawn(array(armGen, { min: 1, max: 4 })),
 						literal: Formatter.format,

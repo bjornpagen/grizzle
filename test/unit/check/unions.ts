@@ -1,15 +1,15 @@
 import {
 	array,
 	element,
-	filter,
 	type Gen,
 	int,
+	map,
 	oneOf,
 	shuffled,
 	subarray,
 	weighted
 } from "@grizzle/testing/gen"
-import { Array as Arr, Option, Order } from "effect"
+import { Array as Arr, Equivalence, Option, Order } from "effect"
 import type { CompileReasonTag } from "#compiler/core/errors.ts"
 import { type Direction, directions } from "#compiler/core/order.ts"
 import type {
@@ -589,15 +589,6 @@ const sharedOf = (s: DrawnSchema, arms: Arr.NonEmptyReadonlyArray<Arm>): Readonl
 	return Arr.filter(first, (name) => Arr.every(rest, (h) => Arr.contains(h, name)))
 }
 
-/**
- * Whether every arm's heading is its own, or all are one: the unions whose order the model's key rule decides, since
- * the key of several arms of one heading among others rests on what tells those arms apart.
- */
-const orderable = (s: DrawnSchema, arms: Arr.NonEmptyReadonlyArray<Arm>): boolean => {
-	const keys = new Set(Arr.map(arms, (a) => Arr.join(namesOf(headingOf(s, a)), "\u0000")))
-	return keys.size === arms.length || keys.size === 1
-}
-
 /** A nonempty order over some of `columns`, each once, in a drawn direction. */
 const orderGen =
 	(columns: Arr.NonEmptyReadonlyArray<string>): Gen<Arr.NonEmptyReadonlyArray<OrderColumn>> =>
@@ -667,15 +658,33 @@ const twinsGen =
 	}
 
 /** One to three arms drawn freely, or two twins. */
+const freeArmsGen =
+	(s: DrawnSchema, marks: boolean): Gen<Arr.NonEmptyReadonlyArray<Arm>> =>
+	(source) => [
+		source.draw(armGen(s, marks)),
+		...source.draw(array(armGen(s, marks), { min: 0, max: 2 }))
+	]
+
 const armsGen = (s: DrawnSchema, marks: boolean): Gen<Arr.NonEmptyReadonlyArray<Arm>> =>
 	weighted([
-		[
-			3,
-			(source) => [
-				source.draw(armGen(s, marks)),
-				...source.draw(array(armGen(s, marks), { min: 0, max: 2 }))
-			]
-		],
+		[3, freeArmsGen(s, marks)],
+		[2, twinsGen(s)]
+	])
+
+/** Whether two arms deliver one heading, column for column. */
+const sameHeading =
+	(s: DrawnSchema) =>
+	(a: Arm, b: Arm): boolean =>
+		Arr.makeEquivalence(Equivalence.String)(namesOf(headingOf(s, a)), namesOf(headingOf(s, b)))
+
+/**
+ * Arms whose headings are all their own or all one, the unions whose order the model's key rule decides, since the
+ * key of several arms of one heading among others rests on what tells those arms apart: free arms, each after the
+ * first of its heading left out, so every heading is its own; or two twins, whose two headings are one or two.
+ */
+const orderableArmsGen = (s: DrawnSchema): Gen<Arr.NonEmptyReadonlyArray<Arm>> =>
+	weighted([
+		[3, map(freeArmsGen(s, false), (arms) => Arr.dedupeWith(arms, sameHeading(s)))],
 		[2, twinsGen(s)]
 	])
 
@@ -688,7 +697,7 @@ export const unionCaseGen: Gen<UnionCase> = (source) => {
 	const reader = source.draw(element(["delivered", "ordered", "taken", "matched"] as const))
 	const ordering = reader === "ordered" || reader === "taken"
 	const arms = ordering
-		? source.draw(filter(armsGen(schema, false), (a) => orderable(schema, a), 8))
+		? source.draw(orderableArmsGen(schema))
 		: source.draw(
 				armsGen(
 					schema,
