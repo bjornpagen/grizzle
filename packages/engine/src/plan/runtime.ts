@@ -90,4 +90,19 @@ export { ServedPatterns } from "#compiler/scalar/regex/matcher.ts"
 export { sameBytes } from "#compiler/scalar/values/bytes.ts"
 export { compareValues } from "#compiler/scalar/values/identity.ts"
 export { servedFile } from "#compiler/served/json.ts"
-export { servedTree } from "#compiler/served/read.ts"
+export { carried, servedTree } from "#compiler/served/read.ts"
+export {
+	decodeKey,
+	decodeRecord,
+	encodeInput,
+	encodeKey,
+	encodeRecord,
+	type ParsedInput,
+	parseInput,
+	slotDecoders,
+	slotEncoders,
+	wireText
+} from "#compiler/live/codec.ts"
+export { memberWire, type ServedWire, type WireDigest } from "#compiler/live/member.ts"
+export type { MemberShape, MemberWire, WireFault, WireOptions } from "#compiler/live/shape.ts"
+export type { WireFaultKind, WireJson, WireScalar } from "#compiler/live/wire.ts"

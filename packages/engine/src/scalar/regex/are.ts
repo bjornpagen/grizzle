@@ -141,7 +141,8 @@ export const piecesOf = (node: LiveNode): ReadonlyArray<ArePiece> => {
 	}
 }
 
-const quantifier = (min: number, max: number | "unbounded"): string => {
+/** A piece's quantifier, as both ARE and ECMA-262 spell one: none for once, `?`, `*`, `+`, or its counts in braces. */
+export const quantifier = (min: number, max: number | "unbounded"): string => {
 	if (max === "unbounded") {
 		return min === 0 ? "*" : min === 1 ? "+" : `{${min},}`
 	}

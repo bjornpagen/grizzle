@@ -77,7 +77,6 @@
 					"packages/grizzle/src/adapter/public/db.ts",
 					"packages/grizzle/src/adapter/public/errors.ts",
 					"packages/grizzle/src/adapter/public/layer.ts",
-					"packages/grizzle/src/adapter/reader/analysis.ts",
 					"packages/grizzle/src/adapter/reader/params.ts",
 					"packages/grizzle/src/adapter/reader/relations.ts",
 					"packages/grizzle/src/adapter/reader/stream.ts",
@@ -239,6 +238,24 @@
 				// A login's served workload as data and its file's JSON form, which generate writes and a layer reads.
 				"name": "served",
 				"patterns": ["packages/engine/src/served/**"]
+			},
+			{
+				// The wire's spelling of every served value (live/wire.ts), its regular languages (live/pattern.ts), a served
+				// program's wire shape (live/shape.ts) and its codecs (live/codec.ts): runtime-free and browser-safe, the one
+				// table the server, the client and the OpenAPI document read.
+				"name": "live-wire",
+				"patterns": [
+					"packages/engine/src/live/wire.ts",
+					"packages/engine/src/live/pattern.ts",
+					"packages/engine/src/live/shape.ts",
+					"packages/engine/src/live/codec.ts"
+				]
+			},
+			{
+				// A served member's wire shape read off its served form (live/member.ts), which generate writes into the
+				// served file, and the OpenAPI document of a login (live/openapi.ts).
+				"name": "live-served",
+				"patterns": ["packages/engine/src/live/member.ts", "packages/engine/src/live/openapi.ts"]
 			},
 			{
 				// Liveness's one grammar and plan (live/notify.ts): a write's route keys, their payload text and its parser,
@@ -534,6 +551,8 @@
 					"deploy",
 					"ir",
 					"live",
+					"live-served",
+					"live-wire",
 					"lower",
 					"physical",
 					"program",
@@ -639,8 +658,30 @@
 				"allow": ["core", "types"]
 			},
 			{
+				"from": "live-wire",
+				"allow": ["core", "ir", "live", "scalar"],
+				"allowTypeOnly": ["types"]
+			},
+			{
+				"from": "live-served",
+				"allow": ["core", "ir", "live", "live-wire", "scalar", "served"],
+				"allowTypeOnly": ["runtime", "types"]
+			},
+			{
 				"from": "plan-runtime",
-				"allow": ["codec", "core", "decode", "ir", "live", "reader", "runtime", "scalar", "served"]
+				"allow": [
+					"codec",
+					"core",
+					"decode",
+					"ir",
+					"live",
+					"live-served",
+					"live-wire",
+					"reader",
+					"runtime",
+					"scalar",
+					"served"
+				]
 			},
 			{
 				"from": "runtime-entry",

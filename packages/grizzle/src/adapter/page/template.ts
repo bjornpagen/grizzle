@@ -140,7 +140,7 @@ interface PageRuntimeParts {
 	/** The installation's codes, which every value codec, cursor boundary and placeholder encoder of a closed id or a set
 	 * reads. */
 	readonly codes: Codebook
-	/** The delivered spine, whose attachments' children carry the columns their head keys name (reader/analysis.ts). */
+	/** The delivered spine, whose attachments' children carry the columns their head keys name (engine served/read.ts carried). */
 	readonly spine: ServedSpine
 }
 

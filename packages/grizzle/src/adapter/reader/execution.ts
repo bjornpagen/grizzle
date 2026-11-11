@@ -3,7 +3,6 @@ import * as Effect from "effect/Effect"
 import * as Order from "effect/Order"
 import * as Result from "effect/Result"
 import { type InputTooLarge, UnreadableAnswer } from "#adapter/errors/failures.ts"
-import { carried } from "#adapter/reader/analysis.ts"
 import type { RelationInputs } from "#adapter/reader/relations.ts"
 import { type PreparedStatement, type RowIntake, sentAnswer } from "#adapter/wire/batch.ts"
 import type {
@@ -30,6 +29,7 @@ import type {
 import {
 	TupleMap,
 	assembled,
+	carried,
 	cellKindOf,
 	columnPosition,
 	defect,

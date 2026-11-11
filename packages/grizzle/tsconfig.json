@@ -207,7 +207,6 @@
 							"src/adapter/page/template.ts",
 							"src/adapter/pool/served.ts",
 							"src/adapter/public/layer.ts",
-							"src/adapter/reader/analysis.ts",
 							"src/adapter/reader/execution.ts",
 							"src/adapter/reader/executor.ts",
 							"src/adapter/reader/params.ts",

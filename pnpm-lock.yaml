@@ -179,6 +179,9 @@ catalogs:
     '@effect/vitest':
       specifier: 4.1.2
       version: 4.1.2
+    '@hyperjump/json-schema':
+      specifier: 1.18.0
+      version: 1.18.0
     '@types/pg':
       specifier: 8.23.1
       version: 8.23.1
@@ -260,6 +263,9 @@ importers:
       '@grizzle/testing':
         specifier: workspace:*
         version: link:packages/testing
+      '@hyperjump/json-schema':
+        specifier: 'catalog:'
+        version: 1.18.0(@hyperjump/browser@1.6.0)
       '@types/node':
         specifier: 26.6.6
         version: 26.6.6
@@ -562,6 +568,27 @@ packages:
     resolution: {integrity: sha512-27HnShKI58XPYMLUIwMstf2DDhOGQAorSIJk1kZy0HRrB3RBhTfee3Mh9nHKi7GCFjPp4XjQ2YtdTyifX0jHfg==}
     cpu: [x64]
     os: [win32]
+
+  '@hyperjump/browser@1.6.0':
+    resolution: {integrity: sha512-FcD0B9cOTIj8bJCrX7RtsLSnA2CrX43KCdaFOpS2cH9VnNMuKX4EJ3mgSdQFWF6vz/fbXUNYU1LpIYXYn3TTXA==}
+    engines: {node: '>=18.0.0'}
+
+  '@hyperjump/json-pointer@1.1.4':
+    resolution: {integrity: sha512-c6slpSqSiNL10JA78HdQOx50xaXHy1dKsPZOiEVjr/RqcVg5MgnWcP7vbvpxa42CD7pMkU6TtTCS+redjpjc2w==}
+
+  '@hyperjump/json-schema-formats@1.1.0':
+    resolution: {integrity: sha512-vLMIOwMThlgWgPJBV39Ds7kaTaygK0+UxjvQShTmKB8rRy8HXq472jnHP8/uaik+77HDx2M+W5Bvzhq6zFc2zQ==}
+
+  '@hyperjump/json-schema@1.18.0':
+    resolution: {integrity: sha512-YPLJsCosW6pHhulKrFogUsl1WxQVRy+fY0pROt66FDFygjIWZkMxXyiy8HLRR1JKeAd5OE6NSZs0NVjSBNwb2Q==}
+    peerDependencies:
+      '@hyperjump/browser': ^1.1.0
+
+  '@hyperjump/pact@1.5.1':
+    resolution: {integrity: sha512-AmMAUpM5FzqMo5Ip4r9XQ7P8eAEuRlyeeMaOPqcv9ItS0Gogl+Sbod19CZZlzSO5n16SNPFijFwEwrid1eCY9Q==}
+
+  '@hyperjump/uri@1.4.0':
+    resolution: {integrity: sha512-A6eBnSLNb6GdJHnYnA0sDutV950mWNmmlWgASwIoZvXqtXcYKBeEhbGrXpHeyHHInC/LHVt8zNanILp2S2oRXg==}
 
   '@jridgewell/resolve-uri@3.1.2':
     resolution: {integrity: sha512-bRISgCIjP20/tbWSPWMEi54QVPRZExkuD9lJL+UIxUKtwVJA8wW1Trb1jMs1RFXo1CBTNZ/5hpC9QvmKWdopKw==}
@@ -1360,6 +1387,10 @@ packages:
     resolution: {integrity: sha512-XWAtwJ6OHO+tj0EKCs0Y2UamnyOxseZWltU4x2U2wh8g4AigdjwvtUjvLP2tqkA/avxHEtzxNaqGq/YGNwckKg==}
     engines: {node: '>=18'}
 
+  content-type@1.0.5:
+    resolution: {integrity: sha512-nTjqfcBFEipKdXCv4YDQWCfmcLZKm81ldF0pAopTvyrFGVbcR6P/VAAd5G7N+0tTr8QqiU0tFadD6FK4NtJwOA==}
+    engines: {node: '>= 0.6'}
+
   cross-spawn@7.0.6:
     resolution: {integrity: sha512-uV2QOWP2nWzsy2aMp8aRibhi9dlzF5Hgh5SHaB9OiTGEyDTiJJyx0uy51QXdyWbtAHNua4XJzUKca3OzKUd3vA==}
     engines: {node: '>= 8'}
@@ -1432,6 +1463,10 @@ packages:
     resolution: {integrity: sha512-B4FFZ6q/T2jhhksgkbEW3HBvWIfDW85snkQgawt07S7J5QXTk6BkNV+0yAeZrM5QpMAdYlocGoljn0sJ/WQkFw==}
     engines: {node: '>=10.17.0'}
 
+  idn-hostname@15.1.19:
+    resolution: {integrity: sha512-pRGRbFpQWCptOBWw9Gn5DXtPdern5/XtdkcXdoEavjd+sh72jNm2eVI1eeysp64UisXPfaqoQrnLUKpSN4hJWw==}
+    engines: {node: '>=20.12.0 <21 || >=22.0.0'}
+
   is-stream@2.0.1:
     resolution: {integrity: sha512-hFoiJiTl63nn+kstHGBtewWSKnQLpyb155KHheA1l39uvtO9nWIop1p3udqPcUd/xbF1VLMO4n7OI6p7RbngDg==}
     engines: {node: '>=8'}
@@ -1448,6 +1483,9 @@ packages:
 
   js-cookie@3.0.8:
     resolution: {integrity: sha512-yeJd4aNAdYZQjaon2bpD/Gb0B/omw7HQOsynXXcOiWVCacbBcPlgn8S/d1X6blFSaHao7ozqtW7NZW19xpCtIw==}
+
+  just-curry-it@5.3.0:
+    resolution: {integrity: sha512-silMIRiFjUWlfaDhkgSzpuAyQ6EX/o09Eu8ZBfmFwQMbax7+LQzeIU2CBrICT6Ne4l86ITCGvUCBpCubWYy0Yw==}
 
   lightningcss-android-arm64@1.33.0:
     resolution: {integrity: sha512-gEpRTalKdosp4Bb8qWtc2iOgE5SeIHlpS1up9bFq2wAyYhl1UdTObYiHe98zEM9SQvSoqQZ1IQD0JNpg3Ml5pg==}
@@ -1652,6 +1690,10 @@ packages:
     resolution: {integrity: sha512-9ZhXKM/rw350N1ovuWHbGxnGh/SNJ4cnxHiM0rxE4VN41wsg8P8zWn9hv/buK00RP4WvlOyr/RBDiptyxVbkZQ==}
     engines: {node: '>=0.10.0'}
 
+  punycode@2.3.1:
+    resolution: {integrity: sha512-vYt7UD1U9Wg6138shLtLOvdAu+8DsC/ilFtEVHcH+wydcSpNE20AfSOduf6MkRFahL5FY7X1oU7nKVZFtfq8Fg==}
+    engines: {node: '>=6'}
+
   redis@6.3.0:
     resolution: {integrity: sha512-XFQbPie1lGpKeUZ8ySYY43yLnQy/iIQtHNvIr/1XdaABpb96rUSdm3Mfl+98FEVbv9ZJIzINMno5s0Nh8E5LEw==}
     engines: {node: '>= 20.0.0'}
@@ -1729,6 +1771,10 @@ packages:
   undici@8.12.3:
     resolution: {integrity: sha512-+fdndUTwBP86cVjihTp21hZHo7d6oj1c/47XPA3lL8mM0XHs+C4EkcjmgRsFnFk2f/UONGDy9ItBItmXsLOQHw==}
     engines: {node: '>=22.19.0'}
+
+  uuid@14.0.3:
+    resolution: {integrity: sha512-Sc5u1VVln93y1Xnz4R+CunOZc7R9LUcTmhj7Rc7Eg3HVcf7rVn2FOoa812fe0W8p3jD7xeoGSYbfqCGGH2B6xw==}
+    hasBin: true
 
   vite@8.3.5:
     resolution: {integrity: sha512-z1YpjieJ9g0ebTmQpLBv/oq9E3F9EIlOe+7LahW8SrE3LTiG3udBRUXQOlYXP9b+IC2q2phHeVxj9xGlw34OEQ==}
@@ -2118,6 +2164,34 @@ snapshots:
 
   '@fallow-cli/win32-x64-msvc@3.38.1':
     optional: true
+
+  '@hyperjump/browser@1.6.0':
+    dependencies:
+      '@hyperjump/json-pointer': 1.1.4
+      '@hyperjump/uri': 1.4.0
+      content-type: 1.0.5
+
+  '@hyperjump/json-pointer@1.1.4': {}
+
+  '@hyperjump/json-schema-formats@1.1.0':
+    dependencies:
+      '@hyperjump/uri': 1.4.0
+      idn-hostname: 15.1.19
+
+  '@hyperjump/json-schema@1.18.0(@hyperjump/browser@1.6.0)':
+    dependencies:
+      '@hyperjump/browser': 1.6.0
+      '@hyperjump/json-pointer': 1.1.4
+      '@hyperjump/json-schema-formats': 1.1.0
+      '@hyperjump/pact': 1.5.1
+      '@hyperjump/uri': 1.4.0
+      content-type: 1.0.5
+      just-curry-it: 5.3.0
+      uuid: 14.0.3
+
+  '@hyperjump/pact@1.5.1': {}
+
+  '@hyperjump/uri@1.4.0': {}
 
   '@jridgewell/resolve-uri@3.1.2': {}
 
@@ -2571,6 +2645,8 @@ snapshots:
 
   chai@6.3.0: {}
 
+  content-type@1.0.5: {}
+
   cross-spawn@7.0.6:
     dependencies:
       path-key: 3.1.1
@@ -2639,6 +2715,10 @@ snapshots:
 
   human-signals@2.1.0: {}
 
+  idn-hostname@15.1.19:
+    dependencies:
+      punycode: 2.3.1
+
   is-stream@2.0.1: {}
 
   isexe@2.0.0: {}
@@ -2649,6 +2729,8 @@ snapshots:
   jose@5.10.0: {}
 
   js-cookie@3.0.8: {}
+
+  just-curry-it@5.3.0: {}
 
   lightningcss-android-arm64@1.33.0:
     optional: true
@@ -2834,6 +2916,8 @@ snapshots:
     dependencies:
       xtend: 4.0.2
 
+  punycode@2.3.1: {}
+
   redis@6.3.0:
     dependencies:
       '@redis/bloom': 6.3.0(@redis/client@6.3.0)
@@ -2960,6 +3044,8 @@ snapshots:
   undici-types@8.9.0: {}
 
   undici@8.12.3: {}
+
+  uuid@14.0.3: {}
 
   vite@8.3.5(@types/node@26.6.6)(jiti@2.7.0):
     dependencies:

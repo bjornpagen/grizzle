@@ -160,7 +160,7 @@ export interface ServedRiddenSource {
 
 /**
  * The delivered spine of a read, from its root: each delivered attachment by name, its child's head keys, and the
- * delivered attachments under it, which say which correlation columns a child carries (adapter reader/analysis.ts).
+ * delivered attachments under it, which say which correlation columns a child carries (carried).
  */
 export interface ServedSpine {
 	readonly under: ReadonlyMap<string, ServedSpineAttachment>
@@ -170,6 +170,23 @@ export interface ServedSpine {
 export interface ServedSpineAttachment extends ServedSpine {
 	readonly heads: ReadonlySet<string>
 }
+
+/**
+ * Whether an attachment's delivered child carries the child column `column`: every child column but the correlation
+ * columns no head key delivers. `scope` is where the attachment is on the delivered spine, none off it.
+ *
+ * An attachment delivers its child query's head: the checker adds a correlation column to the child for each parent
+ * variable the child reads, delivered under a head key when one delivers that variable and under a fresh name clear of
+ * every head key otherwise (check/checker.ts attach). A correlation column no head key delivers equals the parent's
+ * value and is not part of the delivered child.
+ */
+export const carried = (
+	attach: ServedAttach,
+	scope: ServedSpine | undefined,
+	column: string
+): boolean =>
+	!attach.correlation.some((c) => c.child === column) ||
+	scope?.under.get(attach.name)?.heads.has(column) === true
 
 /** A heading as the runtime reads it: each column's name and type. */
 export const servedHeading = (heading: Heading): Heading =>
