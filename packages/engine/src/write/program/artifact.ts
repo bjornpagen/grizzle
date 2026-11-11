@@ -218,6 +218,17 @@ export interface WriteArtifact {
  * SentStatement), every placeholder a declared parameter's. */
 export type PlacedRun = FormedStatement<RelationChoice>
 
+/**
+ * Whether a flight of `artifact` may create a carrier, a temporary table, which a role creates under the TEMPORARY
+ * privilege on the database: a statement that creates one of the program's own carriers (write/carriers), or one
+ * whose staged form carries its nested rows through carriers (write/program/staged.ts), which an execution sends
+ * where its rows are past one Bind message.
+ */
+export const createsCarrier = (artifact: WriteArtifact): boolean =>
+	artifact.statements.some(
+		(s) => (s.step.kind === "carrier" && s.step.step === "create") || s.staged.kind === "carriers"
+	)
+
 /** A statement placed in an artifact being built: the write program's own, with its step, its forms and the read-backs
  * riding it; or a read-back's, with its read-back and the statement its program lowered there, which determine its step
  * and its forms. Each holds its spec, its AST, and the generated names its text holds. */

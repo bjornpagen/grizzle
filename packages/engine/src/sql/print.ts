@@ -38,13 +38,13 @@ import {
 	type FunctionParam,
 	type FunctionRef,
 	type Grantee,
-	type GrantObjects,
 	type IndexKey,
 	type Insert,
 	type KeyColumn,
 	type LiteralValue,
 	type Merge,
 	type MergeWhen,
+	type NamedGrantObjects,
 	type ObjectName,
 	type OnConflict,
 	type OrderItem,
@@ -84,7 +84,8 @@ import {
 	type CatalogStatement,
 	type DoBlock,
 	type DoStatement,
-	databaseDefaultBlock
+	databaseDefaultBlock,
+	databasePrivilegeBlock
 } from "#compiler/sql/catalog.ts"
 import { statementParams } from "#compiler/sql/transform.ts"
 
@@ -1272,7 +1273,7 @@ export const printFunctionSignature = (fn: FunctionName): string =>
 const printGrantee = (grantee: Grantee): string =>
 	grantee.kind === "PUBLIC" ? "PUBLIC" : quoteIdent(grantee.name)
 
-const printGrantObjects = (on: GrantObjects): string => {
+const printGrantObjects = (on: NamedGrantObjects): string => {
 	switch (on.kind) {
 		case "SCHEMA":
 			return `SCHEMA ${printIdentList(on.names)}`
@@ -1598,7 +1599,9 @@ export const printCommentTarget = (on: CommentTarget): string => {
  * databaseDefaultBlock); `%I` quotes it as an identifier. Every
  * installation in the database sets the same default on the same pg_db_role_setting row, and two that update it at
  * once fail with XX000 (tuple concurrently updated), so the block first takes the database default's
- * transaction-scoped advisory lock: a second installation waits for the first to commit, then sets it again.
+ * transaction-scoped advisory lock: a second installation waits for the first to commit, then sets it again. A GRANT or
+ * REVOKE on the current database is a DO block alike (sql/catalog.ts databasePrivilegeBlock), under the database
+ * privilege's lock.
  *
  * A carrier is printed under pg_temp, the session's own temporary schema: never a stored relation of the same name.
  */
@@ -1759,14 +1762,22 @@ export const writeStatement = (out: Lines, statement: SqlStatement): void => {
 			return out.line(
 				`ALTER ROLE ${quoteIdent(statement.name)} ${printAlterRoleAction(statement.action)}`
 			)
-		case "grant":
-			return out.line(
-				`GRANT ${statement.privileges.join(", ")} ON ${printGrantObjects(statement.on)} TO ${statement.to.map(printGrantee).join(", ")}`
-			)
-		case "revoke":
-			return out.line(
-				`REVOKE ${statement.privileges.join(", ")} ON ${printGrantObjects(statement.on)} FROM ${statement.from.map(printGrantee).join(", ")}`
-			)
+		case "grant": {
+			const on = statement.on
+			return on.kind === "DATABASE"
+				? writeDo(out, databasePrivilegeBlock(statement))
+				: out.line(
+						`GRANT ${statement.privileges.join(", ")} ON ${printGrantObjects(on)} TO ${statement.to.map(printGrantee).join(", ")}`
+					)
+		}
+		case "revoke": {
+			const on = statement.on
+			return on.kind === "DATABASE"
+				? writeDo(out, databasePrivilegeBlock(statement))
+				: out.line(
+						`REVOKE ${statement.privileges.join(", ")} ON ${printGrantObjects(on)} FROM ${statement.from.map(printGrantee).join(", ")}`
+					)
+		}
 		case "grantColumns":
 			return out.line(
 				`GRANT ${statement.privilege} (${printIdentList(statement.columns)}) ON TABLE ${printObjectName(statement.table)} TO ${quoteIdent(statement.to)}`

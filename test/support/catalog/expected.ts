@@ -444,6 +444,8 @@ export const expectedCatalog = (installation: Installation): ProjectedCatalog =>
 				return Arr.map(g.on.names, (n) => ["type", n.name] as const)
 			case "FUNCTION":
 				return Arr.map(g.on.names, (n) => ["function", n.name] as const)
+			case "DATABASE":
+				return []
 		}
 	}
 	for (const s of statements) {

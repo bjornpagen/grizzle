@@ -17,6 +17,7 @@ import type { PlannedIndex } from "#compiler/physical/indexes/engine.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import {
 	type InstallExtension,
+	noCarriers,
 	noCertificates,
 	noContribution
 } from "#compiler/physical/install/extension.ts"
@@ -299,7 +300,8 @@ export const drawnRequests = (specs: ReadonlyArray<RequestSpec>): InstallExtensi
 		})
 	},
 	textDomainUses: noTextDomainUses,
-	certifies: noCertificates
+	certifies: noCertificates,
+	carriers: noCarriers
 })
 
 /**

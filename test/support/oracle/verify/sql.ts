@@ -2695,7 +2695,7 @@ class StatementAuditor {
 					for (const [i, name] of on.names.entries()) {
 						this.ident(name, "schema", i)
 					}
-				} else {
+				} else if (on.kind !== "DATABASE") {
 					for (const [i, name] of on.names.entries()) {
 						this.objectName(name, Str.toLowerCase(on.kind), i)
 					}

@@ -4,6 +4,7 @@ import { constantValidationObjects } from "#compiler/lower/shapes/refined/index.
 import { noTextDomainUses } from "#compiler/physical/ddl/domains.ts"
 import {
 	type InstallExtension,
+	noCarriers,
 	noCertificates,
 	noContribution
 } from "#compiler/physical/install/extension.ts"
@@ -31,5 +32,6 @@ export const refinedConstantsExtension: InstallExtension = {
 			return noContribution
 		}),
 	textDomainUses: noTextDomainUses,
-	certifies: noCertificates
+	certifies: noCertificates,
+	carriers: noCarriers
 }

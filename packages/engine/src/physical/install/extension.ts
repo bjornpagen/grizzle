@@ -45,7 +45,23 @@ export interface InstallExtension {
 	 * extension's, none (`noCertificates`).
 	 */
 	readonly certifies: ReadonlyArray<RoleIsolation>
+	/**
+	 * The roles whose served ChangeSets create a carrier, a temporary table (write/carriers/carriers.ts,
+	 * write/program/staged.ts), which the installation grants TEMPORARY on the database (physical/ddl/roles.ts
+	 * addWorlds): the served workload's, derived from the ChangeSets it serves (program/workload/compile.ts
+	 * servedWorkload); every other extension's, none (`noCarriers`).
+	 */
+	readonly carriers: ReadonlyArray<LoginRole>
+}
+
+/** A role of a login, by their declared names. */
+export interface LoginRole {
+	readonly login: string
+	readonly role: string
 }
 
 /** No certificate: what an extension that compiles no served workload certifies. */
 export const noCertificates: ReadonlyArray<RoleIsolation> = []
+
+/** No role that creates a carrier: what an extension that compiles no served workload states. */
+export const noCarriers: ReadonlyArray<LoginRole> = []

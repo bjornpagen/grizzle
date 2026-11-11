@@ -4,6 +4,7 @@ import type { IndexRequest } from "#compiler/ir/products.ts"
 import { noTextDomainUses } from "#compiler/physical/ddl/domains.ts"
 import {
 	type InstallExtension,
+	noCarriers,
 	noCertificates,
 	noContribution
 } from "#compiler/physical/install/extension.ts"
@@ -19,7 +20,8 @@ export const owner = "grizzle_dev"
 export const requesting = (requests: ReadonlyArray<IndexRequest>): InstallExtension => ({
 	contribute: () => Result.ok({ ...noContribution, indexRequests: requests }),
 	textDomainUses: noTextDomainUses,
-	certifies: noCertificates
+	certifies: noCertificates,
+	carriers: noCarriers
 })
 
 const value: ExprDesc = { kind: "value" }

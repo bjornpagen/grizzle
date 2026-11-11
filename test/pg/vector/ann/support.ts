@@ -16,6 +16,7 @@ import { workloadRequests as accessRequests } from "#compiler/physical/access/ex
 import { noTextDomainUses } from "#compiler/physical/ddl/domains.ts"
 import {
 	type InstallExtension,
+	noCarriers,
 	noCertificates,
 	noContribution
 } from "#compiler/physical/install/extension.ts"
@@ -379,7 +380,8 @@ const workloadRequests = (programs: Readonly<Record<string, unknown>>): InstallE
 			})
 		),
 	textDomainUses: noTextDomainUses,
-	certifies: noCertificates
+	certifies: noCertificates,
+	carriers: noCarriers
 })
 
 const checked = (q: unknown) =>

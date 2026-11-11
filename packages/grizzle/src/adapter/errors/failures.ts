@@ -637,15 +637,17 @@ export class InputTooLarge extends Data.TaggedError("InputTooLarge")<{
 /**
  * A write creates a temporary table, and the role holds no `privilege` on the database: PostgreSQL refused the CREATE
  * TEMPORARY TABLE (42501) of a carrier of the write's own (write/carriers) or of one its nested rows past one Bind
- * message travel through (write/program/staged.ts), and nothing committed. `error` is the server's report. Grant the
- * privilege on the database to the role or to PUBLIC, which PostgreSQL grants it to unless revoked.
+ * message travel through (write/program/staged.ts), and nothing committed. `error` is the server's report. `grizzle
+ * migrate` grants the privilege on the database to every role whose served workload creates a carrier
+ * (physical/ddl/roles.ts addWorlds), and `grizzle drift` reports it missing, so the grant was revoked after the
+ * migration.
  */
 export class TemporaryRefused extends Data.TaggedError("TemporaryRefused")<{
 	readonly privilege: "TEMPORARY"
 	readonly error: ServerError
 }> {
 	override get message(): string {
-		return `the write creates a temporary table, and the role holds no ${this.privilege} privilege on the database; grant it to the role or to PUBLIC`
+		return `the write creates a temporary table, and the role holds no ${this.privilege} privilege on the database, which grizzle migrate grants it and grizzle drift reports missing`
 	}
 }
 

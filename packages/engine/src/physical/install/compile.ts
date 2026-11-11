@@ -35,7 +35,7 @@ import {
 	reverseRequests
 } from "#compiler/physical/indexes/engine.ts"
 import { commentsOf } from "#compiler/physical/install/comments.ts"
-import type { InstallExtension } from "#compiler/physical/install/extension.ts"
+import type { InstallExtension, LoginRole } from "#compiler/physical/install/extension.ts"
 import {
 	freshPlanSettings,
 	type InstallBasis,
@@ -112,28 +112,48 @@ export interface CertifiedRole {
 	readonly certificate: { readonly level: Isolation }
 }
 
+/** Each role of the plan's logins, in login then role order. */
+const installedRoles = (plan: InstallPlan): ReadonlyArray<LoginRole> =>
+	plan.logins.flatMap(({ login, roles }) =>
+		roles.map(({ checked }) => ({ login: login.name, role: checked.world.role.name }))
+	)
+
+/**
+ * `stated`, what the extensions state of roles, `what` each, once each of a role `installed` holds: one stated twice,
+ * or of a role the plan does not install, is a defect of the caller that compiled the workload over other logins than
+ * the installation's.
+ */
+const statedOnce = <R extends LoginRole>(
+	installed: ReadonlyArray<LoginRole>,
+	stated: ReadonlyArray<R>,
+	what: string
+): ReadonlyArray<R> => {
+	for (const c of stated) {
+		const same = stated.filter((d) => d.login === c.login && d.role === c.role)
+		if (same.length > 1 || !installed.some((r) => r.login === c.login && r.role === c.role)) {
+			throw defect(`one ${what} of role ${c.role} of login ${c.login}, a role it installs`)
+		}
+	}
+	return stated
+}
+
 /**
  * Each role of the plan's logins at the level its certificate states, in login then role order: the certificate the
  * served workload's extension states for it (physical/access/extension.ts servedWorkloadExtension), which certified it
  * over every login's change members (program/isolation/certification.ts), or SERIALIZABLE where no extension states
- * one, as an installation with no served workload holds its roles, so their tables keep their guards. A certificate
- * stated twice, or of a role the plan does not install, is a defect of the caller that compiled the workload over
- * other logins than the installation's.
+ * one, as an installation with no served workload holds its roles, so their tables keep their guards. Each is stated
+ * once, of a role the plan installs (statedOnce).
  */
 const certificationOf = (
 	plan: InstallPlan,
 	extensions: ReadonlyArray<InstallExtension>
 ): ReadonlyArray<CertifiedRole> => {
-	const stated = extensions.flatMap((e) => e.certifies)
-	const installed = plan.logins.flatMap(({ login, roles }) =>
-		roles.map(({ checked }) => ({ login: login.name, role: checked.world.role.name }))
+	const installed = installedRoles(plan)
+	const stated = statedOnce(
+		installed,
+		extensions.flatMap((e) => e.certifies),
+		"certificate"
 	)
-	for (const c of stated) {
-		const same = stated.filter((d) => d.login === c.login && d.role === c.role)
-		if (same.length > 1 || !installed.some((r) => r.login === c.login && r.role === c.role)) {
-			throw defect(`one certificate of role ${c.role} of login ${c.login}, a role it installs`)
-		}
-	}
 	return installed.map((r): CertifiedRole => ({
 		...r,
 		certificate: {
@@ -356,7 +376,17 @@ export const installationOver = (
 				}
 				planStatistics(b, statisticsRequests)
 
-				const worlds = addWorlds(b, advance, { tables, sequences, domains }, plan.logins)
+				const worlds = addWorlds(
+					b,
+					advance,
+					{ tables, sequences, domains },
+					plan.logins,
+					statedOnce(
+						installedRoles(plan),
+						options.extensions.flatMap((e) => e.carriers),
+						"carrier statement"
+					)
+				)
 				const identities = [...ownedIdentities(owned), ...model.identities, ...b.named()]
 				const census = censusOf(identities)
 				if (!census.ok) {

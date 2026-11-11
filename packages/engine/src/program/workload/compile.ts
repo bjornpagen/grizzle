@@ -28,6 +28,7 @@ import { type WorkloadPhysical, workloadRequests } from "#compiler/physical/acce
 import { extractAccess } from "#compiler/physical/access/extract.ts"
 import { uniquePaths } from "#compiler/physical/access/paths.ts"
 import { namedRole, type WorldNames, worldNames } from "#compiler/physical/ddl/names.ts"
+import type { LoginRole } from "#compiler/physical/install/extension.ts"
 import {
 	mergeStatistics,
 	type StatisticsRequest,
@@ -39,6 +40,7 @@ import type { SchemaArtifacts, SchemaInput } from "#compiler/program/schema.ts"
 import {
 	type ChangeLogin,
 	type ChangeRefused,
+	type CompiledVariants,
 	loginChanges,
 	type RoleChanges
 } from "#compiler/program/workload/change.ts"
@@ -49,6 +51,7 @@ import { ownBuiltRole, type OwnedRole } from "#compiler/schema/own.ts"
 import type { WriteWorld } from "#compiler/write/entry/precheck.ts"
 import { compileChangeSet } from "#compiler/write/frontend/compile.ts"
 import { primaryKeyShape } from "#compiler/write/frontend/targets.ts"
+import { createsCarrier } from "#compiler/write/program/artifact.ts"
 
 interface WorkloadOptions {
 	/**
@@ -433,12 +436,36 @@ export interface ServedLogin extends ChangeLogin {
  * login's served file compiles over (change.ts loginChanges), in the form its certificate's level serves, by the
  * login's name, then the role's name in it: what each login's served file projects; and the certificate of each of
  * those roles (program/isolation/certification.ts), the level its writes begin at, which the installation's guards
- * follow (physical/install/compile.ts installationOver).
+ * follow (physical/install/compile.ts installationOver); and the roles whose served ChangeSets create a carrier.
  */
 export interface ServedWorkloadPlan extends WorkloadPlan {
 	readonly changes: ReadonlyMap<string, ReadonlyMap<string, RoleChanges>>
 	readonly certification: ReadonlyArray<RoleIsolation>
+	/** The roles whose served ChangeSets create a carrier (servedCarriers), which the installation grants TEMPORARY on the
+	 * database. */
+	readonly carriers: ReadonlyArray<LoginRole>
 }
+
+/** Whether a ChangeSet's variants may create a carrier: any variant's flight (write/program/artifact.ts
+ * createsCarrier). */
+const variantsCreateCarrier = (variants: CompiledVariants): boolean =>
+	variants.kind === "form"
+		? createsCarrier(variants.entry.compiled.artifact)
+		: variantsCreateCarrier(variants.holding) || variantsCreateCarrier(variants.lacking)
+
+/**
+ * The roles of `served`, each login's ChangeSets in the forms their certificates serve them by role, any of whose served
+ * ChangeSets may create a carrier, in login then role order: the roles a write may refuse for want of TEMPORARY on the
+ * database (adapter TemporaryRefused).
+ */
+const servedCarriers = (
+	served: ReadonlyMap<string, ReadonlyMap<string, RoleChanges>>
+): ReadonlyArray<LoginRole> =>
+	[...served].flatMap(([login, roles]) =>
+		[...roles].flatMap(([role, changes]): ReadonlyArray<LoginRole> =>
+			[...changes.members.values()].some(variantsCreateCarrier) ? [{ login, role }] : []
+		)
+	)
 
 /** The plan of the logins refused: a program of a workload the checker refuses, or a login's change compile. */
 export type ServedWorkloadRefused =
@@ -478,7 +505,8 @@ export const servedWorkload = (
 		(certified): ServedWorkloadPlan => ({
 			...planned.value,
 			changes: certified.served,
-			certification: certified.certificates
+			certification: certified.certificates,
+			carriers: servedCarriers(certified.served)
 		})
 	)
 }

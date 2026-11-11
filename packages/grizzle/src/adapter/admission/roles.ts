@@ -26,6 +26,9 @@ import { textArrayParam, textParam } from "#compiler/plan/read.ts"
  * object of the judged schemas through has_*_privilege (its own grants, PUBLIC's and every role it inherits from), a
  * column's privilege beside its table's as has_column_privilege where the table's has_table_privilege does not already
  * hold, and the two sets meet by OID. An expected object that does not resolve is a privilege the role does not hold.
+ * On the current database it reads the role's own grants alone, from the database's ACL (aclexplode), each of the types
+ * a database's family judges: PUBLIC's TEMPORARY, which PostgreSQL gives every database, is the database owner's, so
+ * has_database_privilege would find it held by every role.
  *
  * A PostgreSQL text[] parameter of `values`, each element the text carrier's parameter text, double-quoted with its
  * backslashes and quotes escaped, so any text, an identifier among them, is one element (codec/recordset.ts
@@ -235,9 +238,17 @@ const typesOf = (family: PrivilegeFamily): C.CatalogSource =>
 
 /**
  * Every privilege the role holds on the judged schemas $2, the other schemas $3, and each object of the judged schemas
- * of a family, as `(family, oid, column, type)`, the column empty but for a column's privilege.
+ * of a family, as `(family, oid, column, type)`, the column empty but for a column's privilege; and each of a database's
+ * family the role holds on the current database by a grant of its own (the module's header).
  */
 const heldArms = (): readonly [C.CatalogCore, ...Array<C.CatalogCore>] => {
+	const d = C.from("pg_database", "d")
+	const x = C.fromFunction(
+		C.call("aclexplode", [d.col("datacl")]),
+		"x",
+		["grantor", "grantee", "privilege_type", "is_grantable"],
+		true
+	)
 	const n = C.from("pg_namespace", "n")
 	const c = C.from("pg_class", "c")
 	const a = C.from("pg_attribute", "a")
@@ -332,6 +343,15 @@ const heldArms = (): readonly [C.CatalogCore, ...Array<C.CatalogCore>] => {
 				inJudged(f.col("pronamespace")),
 				C.call("has_function_privilege", [granteeOid(), f.col("oid"), fn.col("t")])
 			])
+		),
+		C.core(
+			[C.text("database"), d.col("oid"), none, C.asText(x.col("privilege_type"))],
+			[C.crossJoin(d.item, x.item)],
+			C.and([
+				C.eq(d.col("oid"), C.currentDatabaseOid()),
+				C.eq(x.col("grantee"), granteeOid()),
+				C.any(C.asText(x.col("privilege_type")), typesArray("database"))
+			])
 		)
 	]
 }
@@ -371,10 +391,16 @@ const resolvedOid = (e: C.CatalogSource): C.CatalogExpr =>
 			{
 				when: C.text("function"),
 				result: C.cast(C.call("to_regprocedure", [e.col("object")]), "oid")
-			}
+			},
+			{ when: C.text("database"), result: C.currentDatabaseOid() }
 		],
 		undefined
 	)
+
+/** The current database's name, quoted as an identifier where it needs it, as a privilege difference names it. */
+const databaseName: C.CatalogExpr = C.call("quote_ident", [
+	C.asText(C.call("current_database", []))
+])
 
 /** A held object `h` as PostgreSQL names it, a column's after its relation's and a dot. */
 const heldName = (h: C.CatalogSource): C.CatalogExpr => {
@@ -383,6 +409,7 @@ const heldName = (h: C.CatalogSource): C.CatalogExpr => {
 	return C.caseOf(
 		h.col("family"),
 		[
+			{ when: C.text("database"), result: databaseName },
 			{ when: C.text("schema"), result: named("regnamespace") },
 			{ when: C.text("type"), result: named("regtype") },
 			{ when: C.text("function"), result: named("regprocedure") },
@@ -471,7 +498,8 @@ const privilegesSelect = (): C.CatalogSelect => {
 									C.text("."),
 									C.call("quote_ident", [x.col("attname")])
 								])
-							}
+							},
+							{ when: C.text("database"), result: databaseName }
 						],
 						x.col("object")
 					),

@@ -1608,17 +1608,26 @@ const privileges = [
 	"MAINTAIN",
 	"USAGE",
 	"EXECUTE",
+	"TEMPORARY",
 	"ALL"
 ] as const
 export type Privilege = (typeof privileges)[number]
 
-/** What a GRANT or REVOKE names, at least one object: PostgreSQL has no grant on no object. */
+/**
+ * What a GRANT or REVOKE names, at least one object: PostgreSQL has no grant on no object. `DATABASE` is the current
+ * database, whatever it is named: an installation's statements name no database, so its GRANT and REVOKE are printed as
+ * a DO block that reads the name (sql/catalog.ts databasePrivilegeBlock).
+ */
 export type GrantObjects =
 	| { readonly kind: "TABLE"; readonly names: NonEmptyReadonlyArray<ObjectName> }
 	| { readonly kind: "SEQUENCE"; readonly names: NonEmptyReadonlyArray<ObjectName> }
 	| { readonly kind: "SCHEMA"; readonly names: NonEmptyReadonlyArray<string> }
 	| { readonly kind: "DOMAIN"; readonly names: NonEmptyReadonlyArray<ObjectName> }
 	| { readonly kind: "FUNCTION"; readonly names: NonEmptyReadonlyArray<FunctionName> }
+	| { readonly kind: "DATABASE" }
+
+/** The objects of a GRANT or REVOKE that names them, every kind but the current database. */
+export type NamedGrantObjects = Exclude<GrantObjects, { readonly kind: "DATABASE" }>
 
 export type Grantee = { readonly kind: "role"; readonly name: string } | { readonly kind: "PUBLIC" }
 

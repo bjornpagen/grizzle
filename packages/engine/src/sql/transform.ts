@@ -1040,6 +1040,7 @@ export class Transform {
 	grantObjects(o: GrantObjects): GrantObjects {
 		switch (o.kind) {
 			case "SCHEMA":
+			case "DATABASE":
 				return o
 			case "TABLE":
 			case "SEQUENCE":

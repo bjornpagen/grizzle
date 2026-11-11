@@ -4,10 +4,12 @@ import type {
 	AlterDatabaseDefault,
 	CatalogTypeName,
 	Expr,
+	Grant,
 	ObjectName,
 	PlDeclaration,
 	PlStatement,
-	Refresh
+	Refresh,
+	Revoke
 } from "#compiler/sql/ast.ts"
 import { call as valueCall, core as valueCore, lit, target, types } from "#compiler/sql/build.ts"
 
@@ -582,7 +584,9 @@ export const setClosedSearchPath: SetClosedSearchPath = { kind: "setClosedSearch
 
 /**
  * An advisory lock grizzle takes, by what it serializes: the database default an installation sets, so concurrent
- * installations into one database set it one at a time (databaseDefaultBlock), or the apply of one schema's
+ * installations into one database set it one at a time (databaseDefaultBlock); the database's privileges an
+ * installation grants or revokes, which every installation in the database writes on the database's one pg_database row,
+ * one at a time alike (databasePrivilegeBlock); or the apply of one schema's
  * migrations, so two applies of the schema never interleave their files (adapter/migrate/apply.ts). Each lives in the
  * database's one bigint key space, which the application's own locks share, so its key is grizzle's by derivation from
  * its name (advisoryKey), never a chosen number, and is known on the host before any statement is sent: every statement
@@ -595,16 +599,19 @@ export const setClosedSearchPath: SetClosedSearchPath = { kind: "setClosedSearch
  */
 export type AdvisoryLock =
 	| { readonly kind: "databaseDefault" }
+	| { readonly kind: "databasePrivilege" }
 	| { readonly kind: "apply"; readonly schema: string }
 
 /**
  * The name of an advisory lock in grizzle's own namespace, whose digest is its key: one name per lock, since an apply
- * lock's name ends in `apply ` and its schema's name, and the database default's does not.
+ * lock's name ends in `apply ` and its schema's name, and the database default's and the database privilege's do not.
  */
 const advisoryLockName = (lock: AdvisoryLock): string => {
 	switch (lock.kind) {
 		case "databaseDefault":
 			return "grizzle advisory lock: database default"
+		case "databasePrivilege":
+			return "grizzle advisory lock: database privilege"
 		case "apply":
 			return `grizzle advisory lock: apply ${lock.schema}`
 	}
@@ -629,6 +636,21 @@ export const advisoryKey = (lock: AdvisoryLock): bigint =>
 		BigInt(`0x${sha256Hex(advisoryLockName(lock)).slice(0, 2 * advisoryKeyBytes)}`)
 	)
 
+/** PERFORM pg_advisory_xact_lock(<key>): `lock`, held to the end of the transaction. */
+const advisoryXactLock = (lock: AdvisoryLock): DoStatement => ({
+	kind: "perform",
+	query: {
+		body: valueCore(
+			[target(valueCall("pg_advisory_xact_lock", [lit.int(advisoryKey(lock), types.bigint)]))],
+			[],
+			undefined
+		),
+		orderBy: [],
+		limit: undefined,
+		offset: undefined
+	}
+})
+
 /**
  * The DO block that sets the current database's default (sql/ast.ts AlterDatabaseDefault): the database default's
  * advisory lock, then ALTER DATABASE of the database's own name, which format quotes as an identifier (`%I`).
@@ -637,25 +659,7 @@ export const databaseDefaultBlock = (statement: AlterDatabaseDefault): DoBlock =
 	kind: "do",
 	declare: [],
 	body: [
-		{
-			kind: "perform",
-			query: {
-				body: valueCore(
-					[
-						target(
-							valueCall("pg_advisory_xact_lock", [
-								lit.int(advisoryKey({ kind: "databaseDefault" }), types.bigint)
-							])
-						)
-					],
-					[],
-					undefined
-				),
-				orderBy: [],
-				limit: undefined,
-				offset: undefined
-			}
-		},
+		advisoryXactLock({ kind: "databaseDefault" }),
 		{
 			kind: "execute",
 			command: {
@@ -671,3 +675,51 @@ export const databaseDefaultBlock = (statement: AlterDatabaseDefault): DoBlock =
 		}
 	]
 })
+
+/**
+ * The DO block of a GRANT or REVOKE on the current database (sql/ast.ts GrantObjects `DATABASE`): the database
+ * privilege's advisory lock, then the statement on the database's own name, which format quotes as an identifier
+ * (`%I`), as it quotes each role it names:
+ *
+ *   DO $$
+ *   BEGIN
+ *     PERFORM "pg_catalog"."pg_advisory_xact_lock"(<key>::bigint);
+ *     EXECUTE "pg_catalog"."format"('GRANT TEMPORARY ON DATABASE %I TO %I'::"pg_catalog"."text",
+ *       "pg_catalog"."current_database"(), '<role>'::"pg_catalog"."text");
+ *   END
+ *   $$
+ *
+ * A GRANT or REVOKE on a database writes its pg_database row, which every installation in the database shares, and two
+ * that write it at once fail with XX000 (tuple concurrently updated), so the block first takes the lock: a second
+ * installation waits for the first to commit, then writes it again.
+ */
+export const databasePrivilegeBlock = (statement: Grant | Revoke): DoBlock => {
+	const [verb, preposition, grantees] =
+		statement.kind === "grant"
+			? (["GRANT", "TO", statement.to] as const)
+			: (["REVOKE", "FROM", statement.from] as const)
+	const named = grantees.map((g) => (g.kind === "PUBLIC" ? "PUBLIC" : "%I"))
+	return {
+		kind: "do",
+		declare: [],
+		body: [
+			advisoryXactLock({ kind: "databasePrivilege" }),
+			{
+				kind: "execute",
+				command: {
+					kind: "formatted",
+					text: valueCall("format", [
+						lit.text(
+							`${verb} ${statement.privileges.join(", ")} ON DATABASE %I ${preposition} ${named.join(", ")}`,
+							types.text
+						),
+						valueCall("current_database", []),
+						...grantees.flatMap((g) => (g.kind === "role" ? [lit.text(g.name, types.text)] : []))
+					])
+				},
+				into: undefined,
+				using: []
+			}
+		]
+	}
+}

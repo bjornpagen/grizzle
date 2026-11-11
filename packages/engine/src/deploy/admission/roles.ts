@@ -15,31 +15,40 @@ import {
 	storedSettingValue
 } from "#compiler/sql/print.ts"
 
-/** The object families a privilege is held on: a column's is a privilege held on it beyond its table's. */
+/** The object families a privilege is held on: a column's is a privilege held on it beyond its table's; a database's is
+ * the current database's. */
 export const privilegeFamilyNames = [
 	"schema",
 	"table",
 	"column",
 	"sequence",
 	"type",
-	"function"
+	"function",
+	"database"
 ] as const
 export type PrivilegeFamily = (typeof privilegeFamilyNames)[number]
 
-/** Each family's privilege types, as PostgreSQL defines them on it. */
+/**
+ * Each family's privilege types, as PostgreSQL defines them on it, but a database's: TEMPORARY alone, the one privilege
+ * on the database an installation grants (physical/ddl/roles.ts addWorlds), to each role whose served workload creates a
+ * carrier. CONNECT and CREATE, and PUBLIC's TEMPORARY, are the database owner's, which no check judges.
+ */
 export const privilegeFamilies: Readonly<Record<PrivilegeFamily, ReadonlyArray<string>>> = {
 	schema: ["USAGE", "CREATE"],
 	table: ["SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER", "MAINTAIN"],
 	column: ["SELECT", "INSERT", "UPDATE", "REFERENCES"],
 	sequence: ["USAGE", "SELECT", "UPDATE"],
 	type: ["USAGE"],
-	function: ["EXECUTE"]
+	function: ["EXECUTE"],
+	database: ["TEMPORARY"]
 }
 
 /** A privilege the role must hold: its family, its object as SQL text PostgreSQL resolves, where the catalog holds the
  * object (its schema and its name; a schema's own name twice), the column of a column privilege (empty for every other
  * family), and its type. Admission reads a role's privileges as its login, which holds no USAGE on the role's schema,
- * where PostgreSQL refuses a lookup by qualified name, so a relation is found through the catalog by schema and name. */
+ * where PostgreSQL refuses a lookup by qualified name, so a relation is found through the catalog by schema and name.
+ * The current database, which no manifest names, has its object, schema and name empty, and is found as the
+ * database the check reads. */
 export interface ExpectedPrivilege {
 	readonly family: PrivilegeFamily
 	readonly object: string
@@ -75,7 +84,10 @@ export interface ExpectedPolicy {
  *   role it inherits from (has_*_privilege), is exactly what the manifest grants it, a column-level privilege
  *   (GRANT ... (<columns>)) judged on each column beyond what the role holds on the whole table. An expected privilege
  *   names its object in the SQL the GRANT names it with, which PostgreSQL resolves to the object's OID (to_regclass and
- *   its kin), so the comparison is by catalog identity, never by a spelling of a name.
+ *   its kin), so the comparison is by catalog identity, never by a spelling of a name. On the current database, the
+ *   role's own TEMPORARY grant exactly: the manifest grants it to each role whose served workload creates a carrier
+ *   and to no other login or role, and PUBLIC's, which PostgreSQL gives every database, is the database owner's, so a
+ *   role holding it through PUBLIC alone lacks it.
  * - Attributes: a login logs in and inherits nothing; a theory role does not log in; neither is a superuser, creates
  *   databases or roles, replicates or bypasses row security.
  * - Memberships, judged over every grant of a pair (one per grantor): the roles a login is granted, each WITH INHERIT
@@ -129,13 +141,17 @@ const familyOf = (on: GrantObjects): PrivilegeFamily => {
 			return "type"
 		case "FUNCTION":
 			return "function"
+		case "DATABASE":
+			return "database"
 	}
 }
 
 /** Each object a grant names, as SQL text PostgreSQL resolves (a schema by its quoted name, a relation or a type by
- * its qualified name, a function by its signature) and by its schema and name. */
+ * its qualified name, a function by its signature) and by its schema and name; the current database by none. */
 const objectsOf = (on: GrantObjects): ReadonlyArray<GrantedObject> => {
 	switch (on.kind) {
+		case "DATABASE":
+			return [{ object: "", schema: "", name: "" }]
 		case "SCHEMA":
 			return on.names.map((n) => ({ object: quoteIdent(n), schema: n, name: n }))
 		case "TABLE":

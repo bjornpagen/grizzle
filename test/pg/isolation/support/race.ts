@@ -23,7 +23,11 @@ import { trustedJson } from "#compiler/core/trusted.ts"
 import type { Param } from "#compiler/core/wire.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { noTextDomainUses } from "#compiler/physical/ddl/domains.ts"
-import { type InstallExtension, noContribution } from "#compiler/physical/install/extension.ts"
+import {
+	type InstallExtension,
+	noCarriers,
+	noContribution
+} from "#compiler/physical/install/extension.ts"
 import { changesAt } from "#compiler/program/workload/change.ts"
 import type { AnyLogin, AnyRole, AnySchema } from "#compiler/public/schema.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
@@ -155,12 +159,14 @@ const draftOf = (shape: Shape) =>
 /**
  * The installer extension that states `roles`' certificates and contributes nothing else, which the installation reads
  * as it reads the served workload's (physical/access/extension.ts servedWorkloadExtension): each table's guard follows
- * them. The workload's access paths, the rest of that extension, are indexes, which decide no outcome a race compares.
+ * them. The workload's access paths, the rest of that extension, are indexes, which decide no outcome a race compares;
+ * its carrier roles are TEMPORARY grants, which the test cluster's PUBLIC already holds.
  */
 const certifying = (roles: ReadonlyArray<RoleIsolation>): InstallExtension => ({
 	contribute: () => Result.ok(noContribution),
 	textDomainUses: noTextDomainUses,
-	certifies: roles
+	certifies: roles,
+	carriers: noCarriers
 })
 
 /** Each role's level among `roles`, by its name. */

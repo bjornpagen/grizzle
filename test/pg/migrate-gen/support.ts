@@ -45,7 +45,11 @@ import {
 import { workloadExtension } from "#compiler/physical/access/extension.ts"
 import { noTextDomainUses } from "#compiler/physical/ddl/domains.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
-import { type InstallExtension, noCertificates } from "#compiler/physical/install/extension.ts"
+import {
+	type InstallExtension,
+	noCarriers,
+	noCertificates
+} from "#compiler/physical/install/extension.ts"
 import {
 	type StatisticsRequest,
 	statisticsKinds
@@ -990,7 +994,8 @@ export const extensionsOf = (v: Version): ReadonlyArray<InstallExtension> => {
 					contribute: (b) =>
 						workloadExtension({ schema: b.owned.fingerprint, paths: [], statistics }).contribute(b),
 					textDomainUses: noTextDomainUses,
-					certifies: noCertificates
+					certifies: noCertificates,
+					carriers: noCarriers
 				}
 			]
 }

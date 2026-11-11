@@ -77,6 +77,7 @@ import {
 	type LoweredDefinition,
 	lowerDefinition
 } from "#compiler/physical/derived/definition.ts"
+import type { LoginRole } from "#compiler/physical/install/extension.ts"
 import {
 	enforcement,
 	type Node,
@@ -1187,13 +1188,15 @@ const roleExecutes = (
 /** One role's theory role, schema, views, filter functions, key and unique probes and grants, and its writable entries,
  * whose policies `addRowSecurity` adds. A roster whole entry has no view: its handles are read as codes, typed by its
  * domain, which the role uses. The filter function a policy calls, then the probes, each come
- * after every relation, type and function their statements read. */
+ * after every relation, type and function their statements read. TEMPORARY on the database is among its grants where
+ * `carriers`, its served workload creating a carrier. */
 const addRole = (
 	b: InstallBuilder,
 	cx: WorldsContext,
 	{ theory: named, checked }: CheckedRole,
 	login: { readonly role: string; readonly object: Node<"publish"> },
-	advance: AdvanceFunctions
+	advance: AdvanceFunctions,
+	carriers: boolean
 ): RoleOutcome => {
 	const role = checked.world.role
 	const theory = b.name(named)
@@ -1405,6 +1408,9 @@ const addRole = (
 			grant(["EXECUTE"], { kind: "FUNCTION", names: mapNonEmpty(executes, (e) => e.name) })
 		)
 	}
+	if (carriers) {
+		privileges.push(grant(["TEMPORARY"], { kind: "DATABASE" }))
+	}
 	b.add(
 		{
 			kind: "privileges",
@@ -1427,7 +1433,8 @@ const addLogin = (
 	b: InstallBuilder,
 	cx: WorldsContext,
 	{ login, roles }: CheckedLogin,
-	advance: AdvanceFunctions
+	advance: AdvanceFunctions,
+	carriers: ReadonlyArray<LoginRole>
 ): {
 	readonly installed: InstalledLogin
 	readonly vector: boolean
@@ -1472,7 +1479,18 @@ const addLogin = (
 	)
 	const outcomes = [...roles]
 		.toSorted((x, y) => compareText(x.checked.world.role.name, y.checked.world.role.name))
-		.map((r) => addRole(b, cx, r, { role, object: roleObject }, advance))
+		.map((r) =>
+			addRole(
+				b,
+				cx,
+				r,
+				{ role, object: roleObject },
+				advance,
+				carriers.some(
+					(c) => c.login === login.name && c.role === r.checked.world.role.name
+				)
+			)
+		)
 	return {
 		installed: { name: login.name, role, roles: outcomes.map((o) => o.installed) },
 		vector: outcomes.some((o) => o.vector),
@@ -1630,7 +1648,12 @@ const addRowSecurity = (b: InstallBuilder, writers: ReadonlyArray<Writer>): void
  *   constant. USAGE is checked only where a statement creates an object of the type, which a role does only for its
  *   carriers, typed as its written fields are, so a domain a CHECK or a generated column alone casts into needs EXECUTE
  *   on what its CHECKs call and no USAGE. TRUNCATE is granted to no one, and no role holds a privilege on a base table
- *   it does not write or own a member of.
+ *   it does not write or own a member of. TEMPORARY on the current database to a role whose served workload creates a
+ *   carrier (`carriers`, stated by the served workload's extension): a ChangeSet's own carrier (write/carriers) or a
+ *   staged statement's (write/program/staged.ts), each a CREATE TEMPORARY TABLE, which PostgreSQL judges against the
+ *   role a transaction's SET ROLE takes on, never its login. No other login or role is granted it, and PUBLIC's, which
+ *   PostgreSQL gives every database, is the database owner's: grizzle neither relies on it nor revokes it. A later
+ *   migration revokes it from a role whose workload no longer creates one, as it replaces any role's changed grants.
  *
  * Row security is enabled on exactly the tables some role writes through a query entry with a filter, once their
  * policies stand, `ALTER TABLE ... ENABLE ROW LEVEL SECURITY`; its owner, the migration identity, bypasses it, and FORCE
@@ -1651,7 +1674,8 @@ export const addWorlds = (
 	b: InstallBuilder,
 	advance: AdvanceFunctions,
 	revocable: Revocable,
-	checkedLogins: ReadonlyArray<CheckedLogin>
+	checkedLogins: ReadonlyArray<CheckedLogin>,
+	carriers: ReadonlyArray<LoginRole>
 ): WorldsPlan => {
 	const logins = [...checkedLogins].toSorted((x, y) => compareText(x.login.name, y.login.name))
 	const cx = worldsContext(b)
@@ -1661,7 +1685,7 @@ export const addWorlds = (
 	const views: Array<ObjectName> = []
 	const writers: Array<Writer> = []
 	for (const login of logins) {
-		const added = addLogin(b, cx, login, advance)
+		const added = addLogin(b, cx, login, advance, carriers)
 		worlds.push(added.installed)
 		appendAll(views, added.views)
 		appendAll(writers, added.writers)

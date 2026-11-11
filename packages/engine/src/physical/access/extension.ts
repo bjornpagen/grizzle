@@ -11,6 +11,8 @@ import type { InstallOptions } from "#compiler/physical/install/compile.ts"
 import {
 	type InstallContribution,
 	type InstallExtension,
+	type LoginRole,
+	noCarriers,
 	noCertificates,
 	noContribution
 } from "#compiler/physical/install/extension.ts"
@@ -74,16 +76,25 @@ export const workloadExtension = (workload: WorkloadPhysical): InstallExtension 
 		return Result.ok(contribution)
 	},
 	textDomainUses: noTextDomainUses,
-	certifies: noCertificates
+	certifies: noCertificates,
+	carriers: noCarriers
 })
 
 /**
- * The served workload's extension: the workload's (workloadExtension), and the certificate of every role of every
- * login its plan certified (program/workload/compile.ts servedWorkload), which the installation's guards follow.
+ * The served workload's extension: the workload's (workloadExtension), the certificate of every role of every login
+ * its plan certified (program/workload/compile.ts servedWorkload), which the installation's guards follow, and the
+ * roles whose served ChangeSets create a carrier, which it grants TEMPORARY on the database.
  */
 export const servedWorkloadExtension = (
-	workload: WorkloadPhysical & { readonly certification: ReadonlyArray<RoleIsolation> }
-): InstallExtension => ({ ...workloadExtension(workload), certifies: workload.certification })
+	workload: WorkloadPhysical & {
+		readonly certification: ReadonlyArray<RoleIsolation>
+		readonly carriers: ReadonlyArray<LoginRole>
+	}
+): InstallExtension => ({
+	...workloadExtension(workload),
+	certifies: workload.certification,
+	carriers: workload.carriers
+})
 
 /** Installer options with the workload extension after the caller's extensions. */
 export const withWorkload = (

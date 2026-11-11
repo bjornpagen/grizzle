@@ -2929,7 +2929,8 @@ throws `CompileError` for a rule that is no check of the schema.
 
 **`TemporaryRefused`**: the write creates a temporary table, a carrier of its own or one its nested rows past one Bind
 message travel through, and the role holds no `TEMPORARY` privilege on the database, which `privilege` names; `error`
-is the server's 42501. Nothing committed. Grant the privilege to the role or to `PUBLIC`.
+is the server's 42501. Nothing committed. `grizzle migrate` grants the privilege to every role whose served workload
+creates one, and `grizzle drift` reports a grant revoked since.
 
 **`InputTooLarge`** is found on the host before the call's flight is sent. Its `bound`, which never counts rows:
 
@@ -3165,8 +3166,11 @@ checks (below). `grizzle migrate`, which runs the drift check after every apply,
   code first.
 - **Privileges:** the login's and the role's privileges exactly as the snapshot installs them, and the policies naming
   the role the snapshot's, by table and name. A write that creates a temporary table, a carrier of its own or one its
-  nested rows past one Bind message travel through, needs the `TEMPORARY` privilege on the database, which PostgreSQL
-  grants to `PUBLIC` and grizzle never revokes; without it the write is `TemporaryRefused`. The login is LOGIN NOINHERIT and the role NOLOGIN, neither with
+  nested rows past one Bind message travel through, needs the `TEMPORARY` privilege on the database, so `grizzle
+  migrate` grants it to every role whose served workload creates one, and to no other role or login. The drift check
+  judges each role's and login's own `TEMPORARY` grant exactly; `PUBLIC`'s, which PostgreSQL gives every database, is
+  the database owner's, which grizzle neither relies on nor revokes. A grant revoked after the migration makes the
+  write `TemporaryRefused`. The login is LOGIN NOINHERIT and the role NOLOGIN, neither with
   SUPERUSER, CREATEDB, CREATEROLE, REPLICATION or BYPASSRLS. A role's members are its login and the migration role; any
   other membership of the login that confers something is drift. Row-level security is enabled, not forced, on every
   table the role writes through a query entry that leaves rows out.
@@ -3338,6 +3342,8 @@ it is, read offline from the committed snapshot. PostgreSQL answers:
     index of a table it writes, a cast into a domain inside them included, and from its policies and its views; and
     the closed constants its queries read.
 - MAINTAIN on the materialized view of each derived table its `refresh` names.
+- TEMPORARY on the database, when a ChangeSet its login serves it creates a temporary table: a carrier of its own, or
+  one its nested rows past one Bind message travel through. No login holds it.
 - Nothing else: no TRUNCATE, no sequence, and no other role's view or function.
 
 </details>

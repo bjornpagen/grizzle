@@ -2329,6 +2329,7 @@ class Differ {
 				return
 			}
 			case "SCHEMA":
+			case "DATABASE":
 				this.sql("publish.grants", [r])
 				return
 		}

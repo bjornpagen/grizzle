@@ -35,7 +35,11 @@ import { workloadExtension } from "#compiler/physical/access/extension.ts"
 import { noTextDomainUses } from "#compiler/physical/ddl/domains.ts"
 import { namedRole } from "#compiler/physical/ddl/names.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
-import { type InstallExtension, noCertificates } from "#compiler/physical/install/extension.ts"
+import {
+	type InstallExtension,
+	noCarriers,
+	noCertificates
+} from "#compiler/physical/install/extension.ts"
 import { installBasis } from "#compiler/physical/install/plan.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
 import { textOfParam } from "#test/support/wire.ts"
@@ -364,7 +368,8 @@ const workloadExtensionOver = (
 			)
 		),
 	textDomainUses: noTextDomainUses,
-	certifies: noCertificates
+	certifies: noCertificates,
+	carriers: noCarriers
 })
 
 /** The workload of `logins` alone (compileTestWorkload), compiled against the schema the installation installs. */
