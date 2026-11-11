@@ -43,13 +43,7 @@ import type {
 } from "#names/plan.ts"
 import { reservedCliNames, reservedEnvSuffixes } from "#names/reserved.ts"
 
-export { domainIdentifiers } from "#names/domain.ts"
-
 export type {
-	CommandNameSource,
-	FlagSource,
-	GroupNameSource,
-	NameSources,
 	PlannedCertificate,
 	PlannedCommand,
 	PlannedCredential,

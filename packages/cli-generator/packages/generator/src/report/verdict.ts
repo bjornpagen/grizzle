@@ -1,10 +1,10 @@
-import { Effect, Schema } from "effect"
+import { Array as Arr, Effect, Schema } from "effect"
 import { printJson } from "#emit/printer.ts"
 import { JsonLiteral } from "#model/brands.ts"
 import { isRefusal } from "#model/diagnostic.ts"
 import type { Diagnostic } from "#model/diagnostic.ts"
 import { Verdict } from "#model/verdict.ts"
-import type { CommandNameSource as CommandNameSourceSchema } from "#report/index.ts"
+import type { CommandNameSource } from "#names/plan.ts"
 
 export type VerdictValue = typeof Verdict.Type
 
@@ -16,28 +16,23 @@ export type VerdictClass = VerdictValue["verdict"]
  * the three operation counts cannot disagree.
  */
 export interface VerdictInput {
-	// The report's `commandNames`, by the source of each command name.
+	/** The report's `commandNames`, by the source of each command name. */
 	readonly commandNames: readonly { readonly command: CommandNameSource }[]
 	readonly corpusVersion: number
 	readonly coverage: VerdictValue["coverage"]
 	readonly diagnostics: readonly Diagnostic[]
 	readonly generator: VerdictValue["generator"]
 	readonly informational: number
-	// The report's `nonStandard` entries; only their choice, pointer and row reach the verdict.
+	/** The report's `nonStandard` entries; only their choice, pointer and row reach the verdict. */
 	readonly nonStandard: VerdictValue["nonStandard"]
 	readonly operations: { readonly generated: number; readonly total: number }
 	readonly spec: VerdictValue["spec"]
 	readonly twinEquality: VerdictValue["twinEquality"]
 }
 
-/**
- * The sources a command name can come from: the report's `CommandNameSource`.
- */
-export type CommandNameSource = typeof CommandNameSourceSchema.Type
-
 type CommandSources = VerdictValue["commandSources"]
 
-const sourceBucket: Record<CommandNameSource, keyof CommandSources> = {
+const sourceBucket: Readonly<Record<CommandNameSource, keyof CommandSources>> = {
 	config: "config",
 	operationId: "fold",
 	route: "fold",
@@ -55,7 +50,8 @@ const countSources = (names: VerdictInput["commandNames"]): CommandSources => {
 }
 
 const refusalsOfScope = (diagnostics: readonly Diagnostic[], scope: Diagnostic["scope"]): number =>
-	diagnostics.filter((diagnostic) => isRefusal(diagnostic) && diagnostic.scope === scope).length
+	Arr.filter(diagnostics, (diagnostic) => isRefusal(diagnostic) && diagnostic.scope === scope)
+		.length
 
 /**
  * Design 8.2: `refused` when any document refusal exists, `partly-refused` when any other refusal
@@ -67,7 +63,7 @@ export const classifyVerdict = (diagnostics: readonly Diagnostic[]): VerdictClas
 		return "refused"
 	}
 
-	return diagnostics.some(isRefusal) ? "partly-refused" : "accepted"
+	return Arr.some(diagnostics, isRefusal) ? "partly-refused" : "accepted"
 }
 
 /**
@@ -77,7 +73,7 @@ export const classifyVerdict = (diagnostics: readonly Diagnostic[]): VerdictClas
  */
 export const makeVerdict = (input: VerdictInput): VerdictValue => {
 	const { diagnostics } = input
-	const notices = diagnostics.filter((diagnostic) => !isRefusal(diagnostic))
+	const notices = Arr.filter(diagnostics, (diagnostic) => !isRefusal(diagnostic))
 
 	return {
 		commandSources: countSources(input.commandNames),
@@ -100,9 +96,13 @@ export const makeVerdict = (input: VerdictInput): VerdictValue => {
 		},
 		coverage: input.coverage,
 		generator: input.generator,
-		nonStandard: input.nonStandard.map(({ choice, pointer, row }) => ({ choice, pointer, row })),
-		notices: notices.map(({ code, pointer, row }) => ({ code, pointer, row })),
-		refusals: diagnostics.filter(isRefusal).map(({ code, pointer, row, scope }) => ({
+		nonStandard: Arr.map(input.nonStandard, ({ choice, pointer, row }) => ({
+			choice,
+			pointer,
+			row
+		})),
+		notices: Arr.map(notices, ({ code, pointer, row }) => ({ code, pointer, row })),
+		refusals: Arr.map(Arr.filter(diagnostics, isRefusal), ({ code, pointer, row, scope }) => ({
 			code,
 			pointer,
 			row,

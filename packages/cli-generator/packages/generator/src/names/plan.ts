@@ -93,15 +93,26 @@ export interface PlannedFlag {
 }
 
 /**
- * Where a command name came from (design 8.1 `commandNames`, D-NAME4).
+ * Where a command name came from (design 8.1 `commandNames`, D-NAME4). `tag` and `none` name groups
+ * only, so a command never carries them.
  */
-export type CommandNameSource = "config" | "operationId" | "route" | "x-fern" | "x-forge"
+export const CommandNameSource = Schema.Literals([
+	"config",
+	"operationId",
+	"route",
+	"x-fern",
+	"x-forge"
+])
+
+export type CommandNameSource = typeof CommandNameSource.Type
 
 /**
  * Where a command's group name came from (design 8.1 `commandNames`): the first tag, or `none` for
- * a root command.
+ * a root command. `operationId` and `route` name commands only, so a group never carries them.
  */
-export type GroupNameSource = "config" | "none" | "tag" | "x-fern" | "x-forge"
+export const GroupNameSource = Schema.Literals(["config", "none", "tag", "x-fern", "x-forge"])
+
+export type GroupNameSource = typeof GroupNameSource.Type
 
 /**
  * The sources of one command's group and command name.

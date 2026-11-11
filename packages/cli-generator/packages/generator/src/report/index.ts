@@ -1,3 +1,4 @@
+import { regex } from "arkregex"
 import { Array as Arr, Effect, Order, Schema } from "effect"
 import type { Types } from "effect"
 import { printJson } from "#emit/printer.ts"
@@ -6,26 +7,9 @@ import { Diagnostic, isRefusal, pointerOrder } from "#model/diagnostic.ts"
 import type { Api, Operation, SecurityScheme } from "#model/entities.ts"
 import type { NonStandardUse } from "#model/non-standard.ts"
 import { markedUses, nonStandardUses } from "#model/non-standard.ts"
+import { CommandNameSource, GroupNameSource } from "#names/plan.ts"
 
-const Sha256 = Schema.String.pipe(Schema.check(Schema.isPattern(/^[0-9a-f]{64}$/u)))
-
-/**
- * Where a command name came from (design 8.1, D-NAME4). `tag` and `none` name groups only, so a
- * command never carries them.
- */
-export const CommandNameSource = Schema.Literals([
-	"config",
-	"operationId",
-	"route",
-	"x-fern",
-	"x-forge"
-])
-
-/**
- * Where a command's group name came from (design 8.1, D-NAME4): the first tag, or `none` for a root
- * command. `operationId` and `route` name commands only, so a group never carries them.
- */
-export const GroupNameSource = Schema.Literals(["config", "none", "tag", "x-fern", "x-forge"])
+const Sha256 = Schema.String.pipe(Schema.check(Schema.isPattern(regex("^[0-9a-f]{64}$", "u"))))
 
 /**
  * One emitted command (design 8.1 `commandNames`): its visible path (group names, then the
@@ -53,7 +37,7 @@ export const NonStandardEntry = Schema.Struct({
 	row: Schema.Literal("PRM-27")
 })
 
-export type NonStandardEntryValue = typeof NonStandardEntry.Type
+type NonStandardEntryValue = typeof NonStandardEntry.Type
 
 /**
  * One operation the author config skipped (`naming.operations[<id>].skip`, or `naming.byPointer`
@@ -68,7 +52,7 @@ export const SkippedOperation = Schema.Struct({
 	reason: Schema.Literal("config-skip")
 })
 
-export type SkippedOperationValue = typeof SkippedOperation.Type
+type SkippedOperationValue = typeof SkippedOperation.Type
 
 /**
  * `generation-report.json` (design 8.1, 3.7): what one run refused, noticed, renamed and accepted,
@@ -77,22 +61,21 @@ export type SkippedOperationValue = typeof SkippedOperation.Type
  */
 export const GenerationReport = Schema.Struct({
 	acceptedServers: Schema.Array(Schema.String),
-	// Present only when the author config added a scheme (D-OQ3 (b)): the scheme and the key that
-	// added it.
+	/** Present only when the author config added a scheme (D-OQ3 (b)): the scheme and the key that added it. */
 	authorSuppliedSchemes: Schema.optionalKey(
 		Schema.Array(Schema.Struct({ key: Schema.String, name: Schema.String }))
 	),
 	commandNames: Schema.Array(CommandName),
 	generator: Schema.Struct({ version: Schema.String }),
 	inputs: Schema.Array(Schema.Struct({ document: DocumentUri, sha256: Sha256 })),
-	// Always present, empty unless the author config switched a non-standard choice on.
+	/** Always present, empty unless the author config switched a non-standard choice on. */
 	nonStandard: Schema.Array(NonStandardEntry),
 	notices: Schema.Array(Diagnostic),
 	refusals: Schema.Array(Diagnostic),
 	renames: Schema.Array(
 		Schema.Struct({ from: Schema.String, pointer: JsonPointer, to: Schema.String })
 	),
-	// Always present, empty unless the author config skipped an operation.
+	/** Always present, empty unless the author config skipped an operation. */
 	skipped: Schema.Array(SkippedOperation)
 })
 
@@ -104,15 +87,15 @@ export type GenerationReportValue = typeof GenerationReport.Type
  */
 export interface GenerationReportInput {
 	readonly acceptedServers: GenerationReportValue["acceptedServers"]
-	// The emitted commands in command order; absent, the run emitted none.
+	/** The emitted commands in command order; absent, the run emitted none. */
 	readonly commandNames?: GenerationReportValue["commandNames"]
 	readonly diagnostics: readonly Diagnostic[]
 	readonly inputs: GenerationReportValue["inputs"]
-	// The non-standard elements in diagnostic order; absent, none.
+	/** The non-standard elements in diagnostic order; absent, none. */
 	readonly nonStandard?: GenerationReportValue["nonStandard"]
 	readonly renames: GenerationReportValue["renames"]
 	readonly schemes?: readonly SecurityScheme[]
-	// The author-skipped operations in diagnostic order; absent, none.
+	/** The author-skipped operations in diagnostic order; absent, none. */
 	readonly skipped?: GenerationReportValue["skipped"]
 	readonly version: string
 }
@@ -129,7 +112,7 @@ export type GeneratorOutcome =
 	  }
 	| { readonly _tag: "LockHeld" }
 
-// Diagnostic order (design 3.7) over use sites: document index, then pointer.
+/** Diagnostic order (design 3.7) over use sites: document index, then pointer. */
 interface UseSite {
 	readonly document: string
 	readonly pointer: string
@@ -145,14 +128,13 @@ const useSiteOrder = (documents: readonly string[]): Order.Order<UseSite> =>
 		Order.mapInput(pointerOrder, (entry: UseSite) => entry.pointer)
 	)
 
-const entryAt = ({ choice, origin }: NonStandardUse) =>
-	Schema.decodeUnknownSync(NonStandardEntry)({
-		choice,
-		configKey: `nonStandard.${choice}`,
-		document: origin.document,
-		pointer: origin.pointer,
-		row: "PRM-27"
-	})
+const entryAt = ({ choice, origin }: NonStandardUse): NonStandardEntryValue => ({
+	choice,
+	configKey: `nonStandard.${choice}`,
+	document: origin.document,
+	pointer: origin.pointer,
+	row: "PRM-27"
+})
 
 /**
  * The elements of the normalized model that carry the non-standard marker (design 6.1): query
@@ -166,15 +148,15 @@ export const nonStandardEntries = (
 	api: Api,
 	documents: readonly string[]
 ): GenerationReportValue["nonStandard"] => {
-	const marked = api.operations.flatMap((operation) => [
-		...operation.parameters.flatMap(({ serialization }) => nonStandardUses(serialization)),
-		...(operation.body?.alternatives ?? []).flatMap((alternative) =>
-			alternative.encoding.flatMap(markedUses)
+	const marked = Arr.flatMap(api.operations, (operation) => [
+		...Arr.flatMap(operation.parameters, ({ serialization }) => nonStandardUses(serialization)),
+		...Arr.flatMap(operation.body?.alternatives ?? [], (alternative) =>
+			Arr.flatMap(alternative.encoding, markedUses)
 		)
 	])
 
 	return Arr.sort(
-		marked.map(entryAt),
+		Arr.map(marked, entryAt),
 		Order.combine(
 			useSiteOrder(documents),
 			Order.mapInput(Order.String, (entry: NonStandardEntryValue) => entry.choice)
@@ -191,7 +173,7 @@ export const skippedEntries = (
 	documents: readonly string[]
 ): GenerationReportValue["skipped"] =>
 	Arr.sort(
-		operations.map(({ operationId, origin }) => {
+		Arr.map(operations, ({ operationId, origin }) => {
 			const entry: Types.Mutable<SkippedOperationValue> = {
 				document: origin.document,
 				pointer: origin.pointer,
@@ -210,9 +192,10 @@ export const skippedEntries = (
  * Splits the diagnostics by severity into the report value, keeping their order.
  */
 export const makeGenerationReport = (input: GenerationReportInput): GenerationReportValue => {
-	const added = (input.schemes ?? [])
-		.filter((scheme) => scheme.source === "author-supplied")
-		.map((scheme) => ({ key: `security.add.schemes.${scheme.name}`, name: scheme.name }))
+	const added = Arr.map(
+		Arr.filter(input.schemes ?? [], (scheme) => scheme.source === "author-supplied"),
+		(scheme) => ({ key: `security.add.schemes.${scheme.name}`, name: scheme.name })
+	)
 
 	const report: GenerationReportValue = {
 		acceptedServers: input.acceptedServers,
@@ -220,8 +203,8 @@ export const makeGenerationReport = (input: GenerationReportInput): GenerationRe
 		generator: { version: input.version },
 		inputs: input.inputs,
 		nonStandard: input.nonStandard ?? [],
-		notices: input.diagnostics.filter((diagnostic) => !isRefusal(diagnostic)),
-		refusals: input.diagnostics.filter(isRefusal),
+		notices: Arr.filter(input.diagnostics, (diagnostic) => !isRefusal(diagnostic)),
+		refusals: Arr.filter(input.diagnostics, isRefusal),
 		renames: input.renames,
 		skipped: input.skipped ?? []
 	}
@@ -250,9 +233,9 @@ export const generatorExitStatus = (outcome: GeneratorOutcome): 0 | 1 => {
 		return 1
 	}
 
-	const refusals = outcome.diagnostics.filter(isRefusal)
+	const refusals = Arr.filter(outcome.diagnostics, isRefusal)
 
-	if (refusals.some((diagnostic) => diagnostic.scope === "document")) {
+	if (Arr.some(refusals, (diagnostic) => diagnostic.scope === "document")) {
 		return 1
 	}
 

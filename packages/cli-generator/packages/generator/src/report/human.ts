@@ -1,11 +1,19 @@
-import { JsonPointer } from "effect"
+import { jsonTextOf } from "@superstarter/json"
+import { regex } from "arkregex"
+import { Array as Arr, JsonPointer, Option, String as Str } from "effect"
 import { isRefusal } from "#model/diagnostic.ts"
 import type { Diagnostic } from "#model/diagnostic.ts"
 
-const unsafeCharacter = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}]/gu
+const unsafeCharacter = regex("^[\\p{Cc}\\p{Cf}\\p{Zl}\\p{Zp}\\p{Cs}]$", "u")
 
-const escapeCharacter = (character: string): string =>
-	`\\u{${(character.codePointAt(0) ?? 0).toString(16)}}`
+/** One code point of a field: a control, format, separator or lone surrogate character as its visible escape. */
+const sanitizeCharacter = (character: string): string =>
+	unsafeCharacter.test(character)
+		? Option.match(Str.codePointAt(0)(character), {
+				onNone: () => character,
+				onSome: (point) => `\\u{${point.toString(16)}}`
+			})
+		: character
 
 /**
  * Neutralizes control, format, separator and lone surrogate characters in one field of a human
@@ -13,7 +21,7 @@ const escapeCharacter = (character: string): string =>
  * inert text (design 8.1, C8).
  */
 export const sanitizeField = (text: string): string =>
-	text.replaceAll(unsafeCharacter, escapeCharacter)
+	Arr.join(Arr.map(Arr.fromIterable(text), sanitizeCharacter), "")
 
 const operationLabel = (operation: NonNullable<Diagnostic["operation"]>): string => {
 	const route = `${operation.method} ${operation.path}`
@@ -22,12 +30,14 @@ const operationLabel = (operation: NonNullable<Diagnostic["operation"]>): string
 	return ` (${sanitizeField(label)})`
 }
 
-// A field refusal sits at its Encoding entry, `<media>/encoding/<name>` (design 8.5 rule 4), so the
-// pointer names the field and its media type; any other pointer falls back to `element`.
+/**
+ * A field refusal sits at its Encoding entry, `<media>/encoding/<name>` (design 8.5 rule 4), so the
+ * pointer names the field and its media type; any other pointer names the `element`.
+ */
 const fieldLabel = (diagnostic: Diagnostic): string => {
-	const [media, keyword, name] = diagnostic.pointer.split("/").slice(-3)
+	const [media, keyword, name] = Arr.takeRight(Str.split("/")(diagnostic.pointer), 3)
 	const entry = keyword === "encoding" && media !== undefined && name !== undefined
-	const field = JSON.stringify(entry ? JsonPointer.unescapeToken(name) : diagnostic.element)
+	const field = jsonTextOf(entry ? JsonPointer.unescapeToken(name) : diagnostic.element)
 	const label = entry ? `${field} in ${JsonPointer.unescapeToken(media)}` : field
 
 	return ` field ${sanitizeField(label)}`

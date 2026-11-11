@@ -1,5 +1,13 @@
-import { Array as Arr, Data, Option, Order, Predicate, Result } from "effect"
-import type { Schema } from "effect"
+import {
+	Array as Arr,
+	Option,
+	Order,
+	Predicate,
+	Record,
+	Result,
+	Schema,
+	String as Str
+} from "effect"
 import { defsKeyOf, defsRefPrefix, maxDefsRefHops } from "#model/defs-ref.ts"
 import type { MediaAlternative } from "#model/entities.ts"
 import { formatPointer } from "#model/pointer.ts"
@@ -69,17 +77,20 @@ export interface FlattenedBody {
 	readonly skipped: readonly SkippedProperty[]
 }
 
-export class UnresolvedBodyRef extends Data.TaggedError("UnresolvedBodyRef")<{
-	readonly ref: string
-}> {}
+/** A `$ref` the body's `$defs` does not hold, or one that loops back into a definition being classified. */
+class UnresolvedBodyRef extends Schema.TaggedError<
+	UnresolvedBodyRef,
+	{ readonly brand: unique symbol }
+>()("UnresolvedBodyRef", { ref: Schema.String }) {}
 
 /**
  * The shared node-visit budget for one `flattenBody` call ran out: the schema graph is larger
  * or more entangled than generation will follow.
  */
-export class BodyBudgetExceeded extends Data.TaggedError("BodyBudgetExceeded")<{
-	readonly budget: number
-}> {}
+class BodyBudgetExceeded extends Schema.TaggedError<
+	BodyBudgetExceeded,
+	{ readonly brand: unique symbol }
+>()("BodyBudgetExceeded", { budget: Schema.Int }) {}
 
 type FlattenError = BodyBudgetExceeded | UnresolvedBodyRef
 
@@ -91,12 +102,12 @@ interface JsonObject {
 	readonly [key: string]: Schema.Json
 }
 
-const isObject = (json: Schema.Json | undefined): json is JsonObject =>
+const isObject = (json: Schema.Json): json is JsonObject =>
 	Predicate.isObject(json) && !Arr.isArray(json)
 
 const isJsonArray = (json: Schema.Json): json is readonly Schema.Json[] => Arr.isArray(json)
 
-interface SchemaNode {
+interface SchemaNode extends JsonObject {
 	readonly $ref?: string
 	readonly additionalProperties?: Schema.Json
 	readonly allOf?: readonly Schema.Json[]
@@ -111,8 +122,8 @@ interface SchemaNode {
 	readonly type?: string | readonly string[]
 }
 
-const isTypeKeyword = (value: Schema.Json | undefined): value is string | readonly string[] =>
-	Predicate.isString(value) || (Arr.isArray(value) && value.every(Predicate.isString))
+const isTypeKeyword = (value: Schema.Json): value is string | readonly string[] =>
+	Predicate.isString(value) || (Arr.isArray(value) && Arr.every(value, Predicate.isString))
 
 /**
  * Read only the keyword shapes this module uses, one level deep: children are never walked, so
@@ -225,43 +236,43 @@ interface Ctx {
 	visits: number
 }
 
-// The property parts of a multipart alternative whose rule declares a transfer encoding.
+/** The property parts of a multipart alternative whose rule declares a transfer encoding. */
 const base64PartsOf = (encoding: MediaAlternative["encoding"]): ReadonlySet<string> =>
 	new Set(
-		encoding.flatMap((rule) =>
+		Arr.flatMap(encoding, (rule) =>
 			rule.contentEncoding !== undefined && rule.target.kind === "property"
 				? [rule.target.name]
 				: []
 		)
 	)
 
-// The property parts of a multipart alternative whose rule nests by name (ENC-07).
+/** The property parts of a multipart alternative whose rule nests by name (ENC-07). */
 const nestedPartsOf = (encoding: MediaAlternative["encoding"]): ReadonlySet<string> =>
 	new Set(
-		encoding.flatMap((rule) =>
+		Arr.flatMap(encoding, (rule) =>
 			rule.target.kind === "property" &&
-			(rule.nested ?? []).some((nested) => nested.target.kind === "property")
+			Arr.some(rule.nested ?? [], (nested) => nested.target.kind === "property")
 				? [rule.target.name]
 				: []
 		)
 	)
 
-// The property parts of a multipart alternative whose rule nests by position (ENC-08, ENC-09).
+/** The property parts of a multipart alternative whose rule nests by position (ENC-08, ENC-09). */
 const positionalPartsOf = (encoding: MediaAlternative["encoding"]): ReadonlySet<string> =>
 	new Set(
-		encoding.flatMap((rule) =>
+		Arr.flatMap(encoding, (rule) =>
 			rule.target.kind === "property" &&
 			(rule.nestedItem !== undefined ||
-				(rule.nested ?? []).some((nested) => nested.target.kind === "position"))
+				Arr.some(rule.nested ?? [], (nested) => nested.target.kind === "position"))
 				? [rule.target.name]
 				: []
 		)
 	)
 
-// The form properties whose Encoding rule the scalar switch marks (design 6.1 Scalar switch).
+/** The form properties whose Encoding rule the scalar switch marks (design 6.1 Scalar switch). */
 const scalarFieldsOf = (encoding: MediaAlternative["encoding"]): ReadonlySet<string> =>
 	new Set(
-		encoding.flatMap((rule) =>
+		Arr.flatMap(encoding, (rule) =>
 			rule.nonStandardScalars !== undefined && rule.target.kind === "property"
 				? [rule.target.name]
 				: []
@@ -294,16 +305,16 @@ const below = (site: Site, ...tokens: readonly string[]): Site => ({
 	tokens: [...site.tokens, ...tokens]
 })
 
-// The names a schema's own `required` array lists; a keyword of another shape lists none.
+/** The names a schema's own `required` array lists; a keyword of another shape lists none. */
 const requiredOf = (schema: SchemaNode): ReadonlySet<string> =>
-	new Set(Arr.isArray(schema.required) ? schema.required.filter(Predicate.isString) : [])
+	new Set(Arr.isArray(schema.required) ? Arr.filter(schema.required, Predicate.isString) : [])
 
 const propertiesAt = (
 	properties: Readonly<Record<string, Schema.Json>>,
 	site: Site
 ): ReadonlyMap<string, Property> =>
 	new Map(
-		Object.entries(properties).map(([key, schema]) => [
+		Arr.map(Record.toEntries(properties), ([key, schema]) => [
 			key,
 			{ schema, site: below(site, "properties", key) }
 		])
@@ -316,19 +327,18 @@ const propertiesAt = (
  */
 const sourcePointer = ({ key, tokens }: Site): string => {
 	const rest = formatPointer(tokens)
-	if (key.startsWith("/")) {
+	if (Str.startsWith("/")(key)) {
 		return `${key}${rest}`
 	}
 
-	const hash = key.indexOf("#")
-
-	return hash === -1
-		? `${formatPointer(["components", "schemas", key])}${rest}`
-		: `${key.slice(hash + 1)}${rest}`
+	return Option.match(Str.indexOf("#")(key), {
+		onNone: () => `${formatPointer(["components", "schemas", key])}${rest}`,
+		onSome: (hash) => `${Str.slice(hash + 1)(key)}${rest}`
+	})
 }
 
 const exceeded = (): Result.Result<never, BodyBudgetExceeded> =>
-	Result.fail(new BodyBudgetExceeded({ budget: maxVisits }))
+	Result.fail(BodyBudgetExceeded.make({ budget: maxVisits }))
 
 /**
  * Deep JSON equality that spends one visit per node pair and one per child it queues, from the
@@ -368,8 +378,11 @@ const equalWithin = (
 			return Result.succeed(false)
 		}
 
-		const keys = Object.keys(one)
-		if (keys.length !== Object.keys(two).length || !keys.every((key) => Object.hasOwn(two, key))) {
+		const keys = Record.keys<string, Schema.Json>(one)
+		if (
+			keys.length !== Record.keys<string, Schema.Json>(two).length ||
+			!Arr.every(keys, (key) => Record.has<string, Schema.Json>(two, key))
+		) {
 			return Result.succeed(false)
 		}
 
@@ -390,13 +403,13 @@ const scalarKinds: ReadonlySet<string> = new Set(["boolean", "integer", "number"
 
 const isScalar = (value: string): value is Scalar => scalarKinds.has(value)
 
-const isBareSchema = (schema: SchemaNode): boolean => Object.keys(schema).length === 0
+const isBareSchema = (schema: SchemaNode): boolean => Record.isEmptyReadonlyRecord(schema)
 
 const identityEncodings: ReadonlySet<string> = new Set(["7bit", "8bit", "binary"])
 
-// A `contentEncoding` that sends the bytes as they are: `binary`, `7bit` or `8bit`, any case.
-const isIdentityEncoding = (value: Schema.Json | undefined): boolean =>
-	Predicate.isString(value) && identityEncodings.has(value.toLowerCase())
+/** A `contentEncoding` that sends the bytes as they are: `binary`, `7bit` or `8bit`, any case. */
+const hasIdentityEncoding = ({ contentEncoding }: SchemaNode): boolean =>
+	Predicate.isString(contentEncoding) && identityEncodings.has(Str.toLowerCase(contentEncoding))
 
 /**
  * A binary part (design 6.3 Binary): 3.0 `format: binary` on a string, a string whose
@@ -405,10 +418,7 @@ const isIdentityEncoding = (value: Schema.Json | undefined): boolean =>
  * `format: byte`, any other `contentEncoding` and any other type are text.
  */
 const isBinary = (schema: SchemaNode, type: SchemaNode["type"]): boolean => {
-	if (
-		type === "string" &&
-		(schema.format === "binary" || isIdentityEncoding(schema.contentEncoding))
-	) {
+	if (type === "string" && (schema.format === "binary" || hasIdentityEncoding(schema))) {
 		return true
 	}
 
@@ -487,7 +497,7 @@ const lookupRef = (
 	const target = name === undefined ? undefined : ctx.defs[name]
 	const seen = name === undefined ? undefined : ctx.memo.get(name)
 	if (name === undefined || target === undefined || hops >= maxDefsRefHops || seen === inProgress) {
-		return Result.fail(new UnresolvedBodyRef({ ref }))
+		return Result.fail(UnresolvedBodyRef.make({ ref }))
 	}
 
 	return Result.succeed(
@@ -495,8 +505,10 @@ const lookupRef = (
 	)
 }
 
-// A `format: password` string (design 4.5): as a multipart part it is read from a file, so the
-// secret never enters argv.
+/**
+ * A `format: password` string (design 4.5): as a multipart part it is read from a file, so the
+ * secret never enters argv.
+ */
 const isPassword = (schema: SchemaNode, type: SchemaNode["type"]): boolean =>
 	type === "string" && schema.format === "password"
 
@@ -514,6 +526,10 @@ const leaf = (ctx: Ctx, schema: SchemaNode, type: SchemaNode["type"]): Classifie
 		: opaque
 }
 
+/** An array of base64 strings repeats a text flag; only a lone property is a file. */
+const repeatedKind = (ctx: Ctx, kind: Scalar): Scalar =>
+	kind === "file" && !ctx.fileParts ? "string" : kind
+
 const classify = (
 	ctx: Ctx,
 	json: Schema.Json,
@@ -522,7 +538,7 @@ const classify = (
 ): Result.Result<Classified, FlattenError> => {
 	ctx.visits += 1
 	if (ctx.visits > maxVisits) {
-		return Result.fail(new BodyBudgetExceeded({ budget: maxVisits }))
+		return exceeded()
 	}
 
 	const node = decodeNode(json)
@@ -567,7 +583,7 @@ const classify = (
 					]
 
 		return Result.all(
-			schema.allOf.map((member, index) =>
+			Arr.map(schema.allOf, (member, index) =>
 				classify(ctx, member, below(site, "allOf", String(index)), hops + 1)
 			)
 		).pipe(Result.flatMap((members) => mergeObjects(ctx, [...own, ...members])))
@@ -595,23 +611,20 @@ const classify = (
 				return opaque
 			}
 
-			// An array of base64 strings repeats a text flag; only a lone property is a file.
-			const kind = item.kind === "file" && !ctx.fileParts ? "string" : item.kind
-
-			return { ...item, kind, repeated: true }
+			return { ...item, kind: repeatedKind(ctx, item.kind), repeated: true }
 		})
 	}
 
 	return Result.succeed(leaf(ctx, schema, type))
 }
 
-// Whether a property schema is `readOnly: true` itself or at the end of one `$ref` (S30-31).
+/** Whether a property schema is `readOnly: true` itself or at the end of one `$ref` (S30-31). */
 const isReadOnly = (ctx: Ctx, schema: Schema.Json): boolean => {
 	if (!isObject(schema)) {
 		return false
 	}
 
-	if (schema.readOnly === true) {
+	if (schema["readOnly"] === true) {
 		return true
 	}
 
@@ -621,12 +634,13 @@ const isReadOnly = (ctx: Ctx, schema: Schema.Json): boolean => {
 		return false
 	}
 
-	const target = ctx.defs[key]
-
-	return isObject(target) && target.readOnly === true
+	return Option.exists(
+		Record.get(ctx.defs, key),
+		(target) => isObject(target) && target["readOnly"] === true
+	)
 }
 
-// A property the line does not offer as a flag: it gets no flag and no skip notice.
+/** A property the line does not offer as a flag: it gets no flag and no skip notice. */
 const omitted = (ctx: Ctx, schema: Schema.Json): boolean =>
 	ctx.readOnlyOmitted && isReadOnly(ctx, schema)
 
@@ -649,7 +663,7 @@ const walkProperties = (
 	for (const [key, { schema: child, site }] of properties) {
 		ctx.visits += 1
 		if (ctx.visits > maxVisits) {
-			return Result.fail(new BodyBudgetExceeded({ budget: maxVisits }))
+			return exceeded()
 		}
 
 		if ((at.depth === 1 && ctx.refusedFields.has(key)) || omitted(ctx, child)) {
@@ -668,7 +682,7 @@ const walkProperties = (
 		if (at.depth === 1 && ctx.scalarFields.has(key)) {
 			flags.push({
 				kind: "json",
-				name: names.join("."),
+				name: Arr.join(names, "."),
 				notes: folded.success.notes,
 				pointer,
 				repeated: false,
@@ -689,19 +703,20 @@ const walkProperties = (
 				return Result.fail(inner.failure)
 			}
 
-			flags.push(
-				...inner.success.flags.map((flag) => ({
-					...flag,
-					notes: [...folded.success.notes, ...flag.notes]
-				}))
-			)
-			skipped.push(...inner.success.skipped)
+			for (const flag of inner.success.flags) {
+				flags.push({ ...flag, notes: [...folded.success.notes, ...flag.notes] })
+			}
+
+			for (const property of inner.success.skipped) {
+				skipped.push(property)
+			}
+
 			continue
 		}
 
 		flags.push({
 			kind: nested._tag === "Scalar" ? nested.kind : "json",
-			name: names.join("."),
+			name: Arr.join(names, "."),
 			notes: folded.success.notes,
 			pointer,
 			repeated: nested._tag === "Scalar" && nested.repeated,
@@ -714,8 +729,10 @@ const walkProperties = (
 
 type PartBase = Pick<BodyFlag, "name" | "notes" | "pointer">
 
-// One part's flag by the top-level part kinds: a scalar typed (a scalar array repeated), a binary
-// or password string a file, an object one JSON flag; any other shape has none.
+/**
+ * One part's flag by the top-level part kinds: a scalar typed (a scalar array repeated), a binary
+ * or password string a file, an object one JSON flag; any other shape has none.
+ */
 const partFlag = (
 	part: Classified,
 	base: PartBase
@@ -729,8 +746,10 @@ const partFlag = (
 		: { ...base, kind: part.kind, repeated: part.repeated }
 }
 
-// A nested part's flag kind: as a top-level part's, except that a scalar array is one JSON part and
-// an array of files has none.
+/**
+ * A nested part's flag kind: as a top-level part's, except that a scalar array is one JSON part and
+ * an array of files has none.
+ */
 const nestedKind = (part: Classified): BodyFlagKind | undefined => {
 	if (part._tag === "Opaque" || (part._tag === "Scalar" && part.repeated && part.kind === "file")) {
 		return undefined
@@ -762,7 +781,7 @@ const nestedFlags = (
 	for (const [member, { schema: child, site }] of part.properties) {
 		ctx.visits += 1
 		if (ctx.visits > maxVisits) {
-			return Result.fail(new BodyBudgetExceeded({ budget: maxVisits }))
+			return exceeded()
 		}
 
 		if (omitted(ctx, child)) {
@@ -827,7 +846,7 @@ const walkParts = (
 	for (const [key, { schema: child, site }] of properties) {
 		ctx.visits += 1
 		if (ctx.visits > maxVisits) {
-			return Result.fail(new BodyBudgetExceeded({ budget: maxVisits }))
+			return exceeded()
 		}
 
 		if (ctx.refusedFields.has(key) || omitted(ctx, child)) {
@@ -841,8 +860,6 @@ const walkParts = (
 			continue
 		}
 
-		// A part nested by position is raw files in order, one repeated file flag (HT:B16), so every
-		// position has a flag and the schema is not classified.
 		if (ctx.positionalParts.has(key)) {
 			flags.push({
 				kind: "file",
@@ -867,14 +884,19 @@ const walkParts = (
 				return Result.fail(inner.failure)
 			}
 
-			// A part with a required nested property no flag carries gets no flag at all.
 			if (Option.isNone(inner.success)) {
 				skipped.push({ pointer, reason: "UnsupportedPart" })
 				continue
 			}
 
-			flags.push(...inner.success.value.flags)
-			skipped.push(...inner.success.value.skipped)
+			for (const flag of inner.success.value.flags) {
+				flags.push(flag)
+			}
+
+			for (const property of inner.success.value.skipped) {
+				skipped.push(property)
+			}
+
 			continue
 		}
 
@@ -916,7 +938,8 @@ type Positional = Pick<MediaAlternative, "codec" | "mediaType"> &
  */
 export const isPositionalBody = (alternative: Positional): boolean =>
 	alternative.codec === "multipart" &&
-	(alternative.mediaType.split(";")[0] ?? "").trim().toLowerCase() === "multipart/mixed" &&
+	Str.toLowerCase(Str.trim(Arr.headNonEmpty(Str.split(";")(alternative.mediaType)))) ===
+		"multipart/mixed" &&
 	(alternative.itemEncoding !== undefined || (alternative.prefixEncoding ?? []).length > 0)
 
 const flagOrder = Order.combine(
@@ -994,7 +1017,7 @@ export const flattenBody = (
 	const ctx = newCtx(defs, codec, alternative.encoding ?? [], alternative.refusedFields ?? [], line)
 	const root = defs[key]
 	if (root === undefined) {
-		return Result.fail(new UnresolvedBodyRef({ ref: `${defsRefPrefix}${key}` }))
+		return Result.fail(UnresolvedBodyRef.make({ ref: `${defsRefPrefix}${key}` }))
 	}
 
 	const classified = classify(ctx, root, { key, tokens: [] }, 0)
@@ -1015,7 +1038,7 @@ export const flattenBody = (
 	return walked.pipe(
 		Result.map(({ flags, skipped }) => ({
 			flags: Arr.sort([...whole, ...flags], flagOrder),
-			reserved: Arr.sort(flags.flatMap(clashesOf), clashOrder),
+			reserved: Arr.sort(Arr.flatMap(flags, clashesOf), clashOrder),
 			skipped: Arr.sort(
 				skipped,
 				Order.mapInput(Order.String, (item: SkippedProperty) => item.pointer)

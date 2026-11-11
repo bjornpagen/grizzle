@@ -1,4 +1,4 @@
-import { Array as Arr, Order, Result, Schema } from "effect"
+import { Array as Arr, Order, Result } from "effect"
 import { SafeIdentifier, foldIdentifier } from "#names/fold.ts"
 import type { SafeIdentifierValue } from "#names/fold.ts"
 import { suffixed } from "#names/plan.ts"
@@ -49,8 +49,8 @@ export const rootNamespaceImports: readonly (readonly [string, string])[] = [
  * package import and every runtime namespace. No planned module-level name takes one.
  */
 export const fixedNamespaces: ReadonlySet<string> = new Set([
-	...packageImports.map(([name]) => name),
-	...runtimeNamespaces.map(([name]) => name)
+	...Arr.map(packageImports, ([name]) => name),
+	...Arr.map(runtimeNamespaces, ([name]) => name)
 ])
 
 /**
@@ -60,7 +60,7 @@ export const fixedNamespaces: ReadonlySet<string> = new Set([
  * function and its `args` and `groups` parameters.
  */
 export const rootModuleNames: ReadonlySet<string> = new Set([
-	...rootNamespaceImports.map(([name]) => name),
+	...Arr.map(rootNamespaceImports, ([name]) => name),
 	"args",
 	"groups",
 	"root",
@@ -70,15 +70,17 @@ export const rootModuleNames: ReadonlySet<string> = new Set([
 	"table"
 ])
 
-// `domain/schemas.ts` imports `Schema`; a cli module imports the fixed namespaces beside the
-// domain names it reads, and `cli/root.ts` also its own names. Keywords, predefined types and
-// globals never get here: the fold suffixes them with `_`.
+/**
+ * `domain/schemas.ts` imports `Schema`; a cli module imports the fixed namespaces beside the
+ * domain names it reads, and `cli/root.ts` also its own names. Keywords, predefined types and
+ * globals never get here: the fold suffixes them with `_`.
+ */
 const reserved: ReadonlySet<string> = new Set([...fixedNamespaces, ...rootModuleNames])
 
-// The base of a key with no letters or digits to fold.
+/** The base of a key with no letters or digits to fold. */
 const unnamed = "Definition"
 
-const toIdentifier = Schema.decodeSync(SafeIdentifier)
+const toIdentifier = (name: string): SafeIdentifierValue => SafeIdentifier.make(name)
 
 /**
  * The export name of every schema key in `domain/schemas.ts`, the one owner of those names: the

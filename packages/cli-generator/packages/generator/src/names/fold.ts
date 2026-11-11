@@ -1,7 +1,8 @@
-import { Data, Result, Schema } from "effect"
+import { regex } from "arkregex"
+import { Array as Arr, Option, Result, Schema, String as Str, pipe } from "effect"
 import { reservedIdentifiers, windowsDeviceNames } from "#names/reserved.ts"
 
-export type Casing = "kebab" | "camel" | "pascal"
+type Casing = "kebab" | "camel" | "pascal"
 
 /**
  * A fix the fold applied; every note is reported (design 4.4).
@@ -10,22 +11,39 @@ export type FoldNote =
 	| { readonly _tag: "DigitPrefix"; readonly prefix: string }
 	| { readonly _tag: "ReservedSuffix"; readonly suffix: string }
 
-export class EmptyFold extends Data.TaggedError("EmptyFold")<{ readonly input: string }> {}
+/** An input with no letter or digit to fold. */
+export class EmptyFold extends Schema.TaggedError<EmptyFold, { readonly brand: unique symbol }>()(
+	"EmptyFold",
+	{ input: Schema.String }
+) {}
 
-export class UnsafeFileSegment extends Data.TaggedError("UnsafeFileSegment")<{
-	readonly segment: string
-	readonly reason: "pattern" | "device"
-}> {}
+/** A file segment the fold refuses: off the segment pattern, or a Windows device name. */
+class UnsafeFileSegment extends Schema.TaggedError<
+	UnsafeFileSegment,
+	{ readonly brand: unique symbol }
+>()("UnsafeFileSegment", {
+	segment: Schema.String,
+	reason: Schema.Literals(["pattern", "device"])
+}) {}
 
 const digitPrefix = "n"
 
 const reservedSuffix = "_"
 
-const identifierPattern = /^[A-Za-z_$][A-Za-z0-9_$]*$/u
+const identifierPattern = regex("^[A-Za-z_$][A-Za-z0-9_$]*$", "u")
 
-const segmentPattern = /^[a-z0-9][a-z0-9-]{0,63}$/u
+const segmentPattern = regex("^[a-z0-9][a-z0-9-]{0,63}$", "u")
 
-const deviceStem = (segment: string): string => segment.split(".")[0]?.toUpperCase() ?? ""
+const leadingDigit = regex("^[0-9]", "u")
+
+const combiningMarks = regex("\\p{M}+", "gu")
+
+const nonAlphanumeric = regex("[^A-Za-z0-9]+", "gu")
+
+const lowerBeforeUpper = regex("(?<lower>[a-z])(?=[A-Z])", "gu")
+
+const deviceStem = (segment: string): string =>
+	Str.toUpperCase(Arr.headNonEmpty(Str.split(".")(segment)))
 
 const isDeviceName = (segment: string): boolean => windowsDeviceNames.has(deviceStem(segment))
 
@@ -61,37 +79,45 @@ export interface Folded<Name extends string> {
 }
 
 const capitalize = (word: string): string =>
-	`${word.slice(0, 1).toUpperCase()}${word.slice(1).toLowerCase()}`
+	`${Str.toUpperCase(Str.slice(0, 1)(word))}${Str.toLowerCase(Str.slice(1)(word))}`
 
 /**
  * The fold's word split: NFKD, drop combining marks, keep `[A-Za-z0-9]`, break on everything
  * else and between a lowercase and an uppercase letter. Case is kept.
  */
 export const words = (input: string): readonly string[] =>
-	input
-		.normalize("NFKD")
-		.replaceAll(/\p{M}+/gu, "")
-		.replaceAll(/[^A-Za-z0-9]+/gu, " ")
-		.replaceAll(/(?<lower>[a-z])(?=[A-Z])/gu, "$<lower> ")
-		.split(" ")
-		.filter((word) => word !== "")
+	Arr.filter(
+		Str.split(" ")(
+			pipe(
+				input,
+				Str.normalize("NFKD"),
+				Str.replaceAll(combiningMarks, ""),
+				Str.replaceAll(nonAlphanumeric, " "),
+				Str.replaceAll(lowerBeforeUpper, "$<lower> ")
+			)
+		),
+		Str.isNonEmpty
+	)
 
 const joinWords = (parts: readonly string[], casing: Casing): string => {
 	if (casing === "kebab") {
-		return parts.map((word) => word.toLowerCase()).join("-")
+		return Arr.join(Arr.map(parts, Str.toLowerCase), "-")
 	}
 
 	if (casing === "pascal") {
-		return parts.map(capitalize).join("")
+		return Arr.join(Arr.map(parts, capitalize), "")
 	}
 
-	return parts.map((word, index) => (index === 0 ? word.toLowerCase() : capitalize(word))).join("")
+	return Arr.join(
+		Arr.map(parts, (word, index) => (index === 0 ? Str.toLowerCase(word) : capitalize(word))),
+		""
+	)
 }
 
 const withDigitPrefix = (
 	parts: readonly string[]
 ): { readonly parts: readonly string[]; readonly notes: readonly FoldNote[] } =>
-	/^[0-9]/u.test(parts[0] ?? "")
+	Option.exists(Arr.head(parts), (first) => leadingDigit.test(first))
 		? { notes: [{ _tag: "DigitPrefix", prefix: digitPrefix }], parts: [digitPrefix, ...parts] }
 		: { notes: [], parts }
 
@@ -101,7 +127,7 @@ const withDigitPrefix = (
 export const foldKebab = (input: string): Result.Result<Folded<string>, EmptyFold> => {
 	const parts = words(input)
 	if (parts.length === 0) {
-		return Result.fail(new EmptyFold({ input }))
+		return Result.fail(EmptyFold.make({ input }))
 	}
 
 	const prefixed = withDigitPrefix(parts)
@@ -119,20 +145,20 @@ export const foldIdentifier = (
 ): Result.Result<Folded<SafeIdentifierValue>, EmptyFold> => {
 	const parts = words(input)
 	if (parts.length === 0) {
-		return Result.fail(new EmptyFold({ input }))
+		return Result.fail(EmptyFold.make({ input }))
 	}
 
 	const prefixed = withDigitPrefix(parts)
 	const joined = joinWords(prefixed.parts, casing)
 	if (!reservedIdentifiers.has(joined)) {
 		return Result.succeed({
-			name: Schema.decodeSync(SafeIdentifier)(joined),
+			name: SafeIdentifier.make(joined),
 			notes: prefixed.notes
 		})
 	}
 
 	return Result.succeed({
-		name: Schema.decodeSync(SafeIdentifier)(`${joined}${reservedSuffix}`),
+		name: SafeIdentifier.make(`${joined}${reservedSuffix}`),
 		notes: [...prefixed.notes, { _tag: "ReservedSuffix", suffix: reservedSuffix }]
 	})
 }
@@ -146,16 +172,16 @@ export const foldFileSegment = (
 ): Result.Result<SafeFileSegmentValue, EmptyFold | UnsafeFileSegment> => {
 	const parts = words(input)
 	if (parts.length === 0) {
-		return Result.fail(new EmptyFold({ input }))
+		return Result.fail(EmptyFold.make({ input }))
 	}
 
 	const segment = joinWords(parts, "kebab")
 	if (isDeviceName(segment)) {
-		return Result.fail(new UnsafeFileSegment({ reason: "device", segment }))
+		return Result.fail(UnsafeFileSegment.make({ reason: "device", segment }))
 	}
 
 	if (!Schema.is(SafeFileSegment)(segment)) {
-		return Result.fail(new UnsafeFileSegment({ reason: "pattern", segment }))
+		return Result.fail(UnsafeFileSegment.make({ reason: "pattern", segment }))
 	}
 
 	return Result.succeed(segment)

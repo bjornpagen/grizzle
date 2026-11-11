@@ -1,5 +1,6 @@
+import { jsonTextOf } from "@superstarter/json"
 import {
-	Data,
+	Array as Arr,
 	Effect,
 	FileSystem,
 	Match,
@@ -36,13 +37,16 @@ type Document = typeof DocumentUri.Type
 /**
  * A run that has already printed everything it has to say on stderr and exits 1 (design 8.1).
  */
-export class GeneratorExit extends Data.TaggedError("GeneratorExit") {
-	readonly [Runtime.errorExitCode] = 1
+class GeneratorExit extends Schema.TaggedError<GeneratorExit, { readonly brand: unique symbol }>()(
+	"GeneratorExit",
+	{}
+) {
+	override readonly [Runtime.errorExitCode] = 1
 
-	readonly [Runtime.errorReported] = false
+	override readonly [Runtime.errorReported] = false
 }
 
-// The retrieval URI of a specification read from stdin; a file's is its `file:` URL (design 3.3).
+/** The retrieval URI of a specification read from stdin; a file's is its `file:` URL (design 3.3). */
 const stdinDocument = "stdin:"
 
 const FailureReason = Schema.Struct({ reason: Schema.String })
@@ -59,23 +63,33 @@ const write = (sink: "stderr" | "stdout", text: string): Effect.Effect<void, nev
 	}).pipe(Effect.ignore)
 
 const printLines = (lines: readonly string[]): Effect.Effect<void, never, Stdio.Stdio> =>
-	lines.length === 0 ? Effect.void : write("stderr", lines.map((line) => `${line}\n`).join(""))
+	lines.length === 0
+		? Effect.void
+		: write(
+				"stderr",
+				Arr.join(
+					Arr.map(lines, (line) => `${line}\n`),
+					""
+				)
+			)
 
 const printDiagnostics = (
 	diagnostics: readonly Diagnostic[]
-): Effect.Effect<void, never, Stdio.Stdio> => printLines(diagnostics.map(humanLine))
+): Effect.Effect<void, never, Stdio.Stdio> => printLines(Arr.map(diagnostics, humanLine))
 
 const exit = (lines: readonly string[]): Effect.Effect<never, GeneratorExit, Stdio.Stdio> =>
-	printLines(lines).pipe(Effect.andThen(Effect.fail(new GeneratorExit())))
+	printLines(lines).pipe(Effect.andThen(Effect.fail(GeneratorExit.make())))
 
 interface Spec {
 	readonly document: Document
 	readonly source: SpecSource
 }
 
-// `-` is stdin; anything else is a path whose retrieval URI is the `file:` URL of its real path,
-// so the entry and a `--ref-root` copy of the same file are one document (design 3.3). A path
-// that has no real path keeps its absolute path; the loader then refuses it as unreadable.
+/**
+ * `-` is stdin; anything else is a path whose retrieval URI is the `file:` URL of its real path,
+ * so the entry and a `--ref-root` copy of the same file are one document (design 3.3). A path
+ * that has no real path keeps its absolute path; the loader then refuses it as unreadable.
+ */
 const specOf = (argument: string) =>
 	Effect.gen(function* spec() {
 		const stdio = yield* Stdio.Stdio
@@ -124,25 +138,27 @@ export const failureLine = (error: Exclude<GenerateError, { _tag: "GenerateRefus
 			})
 			const subject = Option.match(Schema.decodeUnknownOption(FailureSubject)(failure), {
 				onNone: () => "",
-				onSome: (found) => ` subject ${sanitizeField(JSON.stringify(found.subject))}`
+				onSome: (found) => ` subject ${sanitizeField(jsonTextOf(found.subject))}`
 			})
 
 			return `error: generation failed (${failure._tag})${reason}${subject}`
 		})
 	)
 
-// Every failure prints and exits 1: a refusal as its diagnostic lines, anything else as one line.
-// A `GeneratorExit` has printed already.
+/**
+ * Every failure prints and exits 1: a refusal as its diagnostic lines, anything else as one line.
+ * A `GeneratorExit` has printed already.
+ */
 const reportFailure = (
 	error: GenerateError | GeneratorExit
 ): Effect.Effect<never, GeneratorExit, Stdio.Stdio> =>
 	Match.value(error).pipe(
 		Match.tag("GeneratorExit", (done) => Effect.fail(done)),
-		Match.tag("GenerateRefused", (refused) => exit(refused.diagnostics.map(humanLine))),
+		Match.tag("GenerateRefused", (refused) => exit(Arr.map(refused.diagnostics, humanLine))),
 		Match.orElse((failure) => exit([failureLine(failure)]))
 	)
 
-// A document refusal is a verdict (`refused`); any other failure leaves none.
+/** A document refusal is a verdict (`refused`); any other failure leaves none. */
 const verdictDiagnostics = (
 	error: GenerateError | GeneratorExit
 ): Effect.Effect<readonly Diagnostic[], GeneratorExit, Stdio.Stdio> =>
@@ -179,15 +195,17 @@ const refRootFlag = Flag.String("ref-root").pipe(
 
 const loadRefused = (refusal: LoadRefusal) => exit([humanLine(refusal.diagnostic)])
 
-// The document set the flags name (design 3.3). The entry holds one slot of the budget, and a
-// member spelling its retrieval URI differently is refused at load.
+/**
+ * The document set the flags name (design 3.3). The entry holds one slot of the budget, and a
+ * member spelling its retrieval URI differently is refused at load.
+ */
 const documentSetOf = (
 	entry: Document,
 	documents: readonly string[],
 	refRoot: Option.Option<string>
 ) =>
 	makeDocumentSet(
-		documents.map(parseDocumentPair),
+		Arr.map(documents, parseDocumentPair),
 		Option.match(refRoot, {
 			onNone: () => ({ entry }),
 			onSome: (dir) => ({ entry, refRoot: dir })
@@ -203,7 +221,7 @@ const runGenerate = (
  * `generate <spec|->`: writes the package (design 3, 8.1). stderr gets one line per diagnostic;
  * `--report json` prints the generation report on stdout.
  */
-export const generateCommand = Command.make(
+const generateCommand = Command.make(
 	"generate",
 	{
 		config: configFlag,
@@ -250,19 +268,20 @@ export const generateCommand = Command.make(
 				strict: flags.strict
 			})
 
-			return status === 0 ? undefined : yield* Effect.fail(new GeneratorExit())
+			if (status !== 0) {
+				return yield* GeneratorExit.make()
+			}
 		})
 ).pipe(Command.withDescription("Generate a CLI package from an OpenAPI document."))
 
-// The load, validate, resolve and check stages (design 3) over the document set; nothing is
-// written.
+/** The load, validate, resolve and check stages (design 3) over the document set; nothing is written. */
 const check = (spec: Spec, documents: DocumentSet) =>
 	Effect.gen(function* checkGen() {
 		const { document } = spec
 		const members = yield* setMembers(spec, documents).pipe(Effect.catch(loadRefused))
 		const order = (diagnostics: readonly Diagnostic[]) =>
 			sortDiagnostics(
-				[document, ...members.map((member) => member.document)],
+				[document, ...Arr.map(members, (member) => member.document)],
 				distinctDiagnostics(diagnostics)
 			)
 		const bytes = yield* (
@@ -275,7 +294,10 @@ const check = (spec: Spec, documents: DocumentSet) =>
 			diagnosis: diagnoseDocument(loaded.value, document),
 			line: lineOf(loaded.value)
 		}).pipe(Effect.catchTag("UnsupportedOpenApiVersion", versionRefused(document)))
-		const validated = [...diagnosis.notices, ...diagnosis.refusals.map((entry) => entry.diagnostic)]
+		const validated = [
+			...diagnosis.notices,
+			...Arr.map(diagnosis.refusals, (entry) => entry.diagnostic)
+		]
 		if (diagnosis.refusals.length > 0) {
 			return order(validated)
 		}
@@ -295,7 +317,7 @@ const check = (spec: Spec, documents: DocumentSet) =>
  * `validate <spec|->`: load, validate, resolve and check over the document set, and write nothing.
  * stderr gets one line per diagnostic; a document refusal exits 1.
  */
-export const validateCommand = Command.make(
+const validateCommand = Command.make(
 	"validate",
 	{ document: documentFlag, refRoot: refRootFlag, spec: specArgument },
 	(flags) =>
@@ -310,9 +332,9 @@ export const validateCommand = Command.make(
 
 			yield* printDiagnostics(diagnostics)
 
-			return diagnostics.some(isDocumentRefusal)
-				? yield* Effect.fail(new GeneratorExit())
-				: undefined
+			if (Arr.some(diagnostics, isDocumentRefusal)) {
+				return yield* GeneratorExit.make()
+			}
 		})
 ).pipe(Command.withDescription("Check an OpenAPI document without writing anything."))
 
@@ -321,7 +343,7 @@ export const validateCommand = Command.make(
  * afterwards and prints the verdict class (design 8.2): `accepted`, `partly-refused` or `refused`.
  * stderr gets one line per diagnostic. It exits 1 only when no verdict could be reached.
  */
-export const verdictCommand = Command.make(
+const verdictCommand = Command.make(
 	"verdict",
 	{ config: configFlag, spec: specArgument },
 	(flags) =>
@@ -353,7 +375,7 @@ export const verdictCommand = Command.make(
 /**
  * Root command of the generator CLI.
  */
-export const root = Command.make("effect-openapi-cli-generator").pipe(
+const root = Command.make("effect-openapi-cli-generator").pipe(
 	Command.withSubcommands([generateCommand, validateCommand, verdictCommand])
 )
 
@@ -365,11 +387,9 @@ const isShowHelp = (error: unknown): error is CliError.ShowHelp =>
  * generator's `package.json` names. Help and parse errors are presented by `effect/cli`; a parse
  * error then exits 1 without being reported again.
  */
-export const main = Effect.gen(function* mainGen() {
-	return yield* Command.run(root, { version: generatorManifest.version }).pipe(
-		Effect.catchIf(isShowHelp, (help) =>
-			help.errors.length === 0 ? Effect.void : Effect.fail(new GeneratorExit())
-		),
-		Effect.catchIf(CliError.isCliError, () => Effect.fail(new GeneratorExit()))
-	)
-})
+export const main = Command.run(root, { version: generatorManifest.version }).pipe(
+	Effect.catchIf(isShowHelp, (help) =>
+		help.errors.length === 0 ? Effect.void : Effect.fail(GeneratorExit.make())
+	),
+	Effect.catchIf(CliError.isCliError, () => Effect.fail(GeneratorExit.make()))
+)
