@@ -305,7 +305,8 @@ const adds = (s: Scheduled): boolean => s.action.op === "insert" || s.action.op 
  * Whether `b` runs after `a`, two actions of one relation: in a later phase, but for a deletion before a put or an
  * insert of given facts where the relation's facts meet nowhere (`Meeting`): every fact the addition gives is its own
  * key, so it meets no fact the deletion frees, and either order leaves the stratum's one state. A generated addition
- * still follows it, its draws meeting a value the deletion frees.
+ * still follows it: the deletion excepts only the complete additions of its stratum (ir/write.ts completeAddition), so
+ * after a generated one it would delete a drawn fact at a value it names.
  */
 const followsOnRelation = (a: Scheduled, b: Scheduled): boolean =>
 	phaseOf(a.action) < phaseOf(b.action) &&
