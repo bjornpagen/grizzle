@@ -8,12 +8,17 @@
  * Unpaired contained in T, the facts of J2 whose k no S row shares whose b is a T row's a: a negated join of S and T),
  * the second version renaming Fact to Moved or not. The rows are stored under the first version, where its rule
  * admits them. The oracle is the rule restated over the rows: the second migration fails, its violation check raising
- * 23000, exactly when the stored rows break its rule; and once it applies, a transaction writing a fact of J2 the rule
- * needs a T row for is refused at COMMIT with 23503, and commits beside that T row.
+ * 23000, exactly when the stored rows break its rule; and once it applies, one transaction writing drawn rows of Fact
+ * (or Moved), S and T commits exactly when the rows then keep the installed rule, and is otherwise refused at COMMIT
+ * with 23503.
  *
- * The plant of the negated join, written for the pin-time run, which must fail the search: a violation query that reads
- * each negated arm as an anti-join of its first match alone, under which Unpaired derives nothing, so a migration adding
- * its rule applies over stored rows that break it.
+ * Features: an added and a changed rule, each refused over rows that break it and applied over rows that keep it; the
+ * same over a negated join; a write the installed rule admits committed and one it breaks refused at COMMIT; and a
+ * rule over a renamed table refusing such a write. Plants: ~/.cache/grizzle-release/BR09/plants/
+ * rule-query-migrate-changed-rule-unchecked.patch, a changed rule's violation check skipped, applies the migration
+ * over stored rows that break it; and the plant of the negated join, written for the pin-time run, a violation query
+ * that reads each negated arm as an anti-join of its first match alone, under which Unpaired derives nothing, so a
+ * migration adding its rule applies over stored rows that break it.
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -42,24 +47,58 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 type Rule = "none" | "selected" | "every" | "negated"
 
-interface MigrationCase {
-	readonly first: Rule
-	readonly second: Exclude<Rule, "none">
-	readonly renamed: boolean
+/** Rows of Fact as (k, a), of S as (k, b) and of T as (a, b). */
+interface Rows {
 	readonly facts: ReadonlyArray<readonly [number, number]>
 	readonly s: ReadonlyArray<readonly [number, number]>
 	readonly t: ReadonlyArray<readonly [number, number]>
 }
 
+/** A case: the two versions' rules, whether the second renames Fact, the rows stored under the first, and the rows a
+ * transaction writes once the second applies. */
+interface MigrationCase {
+	readonly first: Rule
+	readonly second: Exclude<Rule, "none">
+	readonly renamed: boolean
+	readonly stored: Rows
+	readonly written: Rows
+}
+
 const pairGen: Gen<readonly [number, number]> = (s) => [s.draw(int(0, 1)), s.draw(int(0, 1))]
+
+const rowsGen: Gen<Rows> = (s) => ({
+	facts: s.draw(array(pairGen, { min: 0, max: 3 })),
+	s: s.draw(array(pairGen, { min: 0, max: 3 })),
+	t: s.draw(array(pairGen, { min: 0, max: 3 }))
+})
 
 const caseGen: Gen<MigrationCase> = (s) => ({
 	first: s.draw(element(["none", "selected"] as const)),
 	second: s.draw(element(["selected", "every", "negated"] as const)),
 	renamed: s.draw(boolean),
-	facts: s.draw(array(pairGen, { min: 0, max: 3 })),
-	s: s.draw(array(pairGen, { min: 0, max: 3 })),
-	t: s.draw(array(pairGen, { min: 0, max: 3 }))
+	stored: s.draw(rowsGen),
+	written: s.draw(rowsGen)
+})
+
+/** No rows. */
+const noRows: Rows = { facts: [], s: [], t: [] }
+
+/** Whether two pairs are one. */
+const samePair = (x: readonly [number, number], y: readonly [number, number]): boolean =>
+	x[0] === y[0] && x[1] === y[1]
+
+/** T's rows of `rows` a write adds beside `held`: each pair once, none `held` already holds, as T's key requires. */
+const newT = (
+	rows: Rows,
+	held: ReadonlyArray<readonly [number, number]>
+): ReadonlyArray<readonly [number, number]> =>
+	Arr.filter(Arr.dedupeWith(rows.t, samePair), (p) => !Arr.some(held, (h) => samePair(h, p)))
+
+/** The rows `stored` and `written` hold together. */
+const union = (stored: Rows, written: Rows): Rows => ({
+	facts: [...stored.facts, ...written.facts],
+	s: [...stored.s, ...written.s],
+	t: [...stored.t, ...written.t]
 })
 
 /** The relation Fact's declared name at a version. */
@@ -183,11 +222,11 @@ const versionOf = (name: string, c: MigrationCase, after: boolean) =>
 	after && c.renamed ? movedVersion(name, c.second) : factVersion(name, after ? c.second : c.first)
 
 /** Whether some S row of k has a b that is a T row's a: whether the k is paired, which Unpaired negates. */
-const paired = (c: MigrationCase, k: number): boolean =>
+const paired = (c: Rows, k: number): boolean =>
 	Arr.some(c.s, ([sk, b]) => sk === k && Arr.some(c.t, ([ta]) => ta === b))
 
 /** Whether the rows keep `rule`: every fact of J2 or Unpaired it reads has its (a, b) in T. */
-const keeps = (c: MigrationCase, rule: Rule): boolean =>
+const keeps = (c: Rows, rule: Rule): boolean =>
 	rule === "none" ||
 	Arr.every(c.facts, ([k, a]) =>
 		Arr.every(
@@ -204,6 +243,8 @@ const tableOf = (schemaIdent: string, relationName: string): string =>
 	`${quoteIdent(schemaIdent)}.${quoteIdent(identifierOf(identity.table(parsedName(relationName))))}`
 
 type Feature =
+	| "a write the installed rule admits committed"
+	| "a write the installed rule breaks refused at COMMIT"
 	| "an added rule the stored rows break refused"
 	| "an added rule the stored rows keep applied"
 	| "a changed rule the stored rows break refused"
@@ -227,7 +268,7 @@ layer(Substrate.layer)("rules over queries through migrations on PostgreSQL 19rc
 						literal: Formatter.format,
 						oracle: {
 							kind: "specification",
-							name: "the rule restated over the rows: a migration installing it applies exactly when the stored rows keep it"
+							name: "the rule restated over the rows: a migration installing it applies exactly when the stored rows keep it, and a write after it commits exactly when the rows then keep it"
 						},
 						coverage: required<Feature>(
 							[
@@ -236,6 +277,8 @@ layer(Substrate.layer)("rules over queries through migrations on PostgreSQL 19rc
 								"a changed rule the stored rows break refused",
 								"a changed rule the stored rows keep applied",
 								"a rule over a renamed table holds after the rename",
+								"a write the installed rule admits committed",
+								"a write the installed rule breaks refused at COMMIT",
 								"a rule over a negated join the stored rows break refused",
 								"a rule over a negated join the stored rows keep applied"
 							],
@@ -250,8 +293,7 @@ layer(Substrate.layer)("rules over queries through migrations on PostgreSQL 19rc
 					},
 					(c, n) =>
 						Effect.gen(function* () {
-							const stored = keeps(c, c.first)
-							const rows = stored ? c : { ...c, facts: [], s: [], t: [] }
+							const rows = keeps(c.stored, c.first) ? c.stored : noRows
 							const breaks = !keeps(rows, c.second)
 							let schemaIdent = ""
 							const declared = (version: number): Declarations =>
@@ -280,7 +322,7 @@ layer(Substrate.layer)("rules over queries through migrations on PostgreSQL 19rc
 												`INSERT INTO ${tableOf(schemaIdent, "S")} (id, k, b) VALUES (${i + 1}, ${k}, ${b})`
 										),
 										...Arr.map(
-											Arr.dedupeWith(rows.t, (x, y) => x[0] === y[0] && x[1] === y[1]),
+											newT(rows, []),
 											([a, b]) =>
 												`INSERT INTO ${tableOf(schemaIdent, "T")} (a, b) VALUES (${a}, ${b})`
 										)
@@ -339,30 +381,39 @@ layer(Substrate.layer)("rules over queries through migrations on PostgreSQL 19rc
 								n.note("a rule over a negated join the stored rows keep applied")
 							}
 							const m = outcome.success
-							const fact = tableOf(schemaIdent, factName(c, true))
-							const needing = [
-								`INSERT INTO ${fact} (id, k, a) VALUES (100, 9, 9)`,
-								`INSERT INTO ${tableOf(schemaIdent, "S")} (id, k, b) VALUES (100, 9, 9)`
+							const written = [
+								...Arr.map(
+									c.written.facts,
+									([k, a], i) =>
+										`INSERT INTO ${tableOf(schemaIdent, factName(c, true))} (id, k, a) VALUES (${100 + i}, ${k}, ${a})`
+								),
+								...Arr.map(
+									c.written.s,
+									([k, b], i) =>
+										`INSERT INTO ${tableOf(schemaIdent, "S")} (id, k, b) VALUES (${100 + i}, ${k}, ${b})`
+								),
+								...Arr.map(
+									newT(c.written, rows.t),
+									([a, b]) => `INSERT INTO ${tableOf(schemaIdent, "T")} (a, b) VALUES (${a}, ${b})`
+								)
 							]
-							const refused = yield* attempt(m.owner, needing)
+							const lawful = keeps(union(rows, c.written), c.second)
+							const verdict = yield* attempt(m.owner, written)
+							if (verdict.kind === "committed" && lawful) {
+								n.note("a write the installed rule admits committed")
+								return
+							}
 							if (
-								refused.kind !== "refused" ||
-								refused.moment.kind !== "commit" ||
-								refused.fields.code !== "23503"
+								verdict.kind === "committed" ||
+								lawful ||
+								verdict.moment.kind !== "commit" ||
+								verdict.fields.code !== "23503"
 							) {
 								return yield* new Disagreed({
-									message: `a fact the rule needs a T row for was not refused at COMMIT with 23503: ${Formatter.format(c)}`
+									message: `a write ${lawful ? "keeping" : "breaking"} the installed rule ${verdict.kind === "committed" ? "committed" : `was refused by ${refusalText(verdict.fields)}`}, where the rule refuses exactly a breaking write at COMMIT with 23503: ${Formatter.format(c)}`
 								})
 							}
-							const kept = yield* attempt(m.owner, [
-								...needing,
-								`INSERT INTO ${tableOf(schemaIdent, "T")} (a, b) VALUES (9, 9)`
-							])
-							if (kept.kind !== "committed") {
-								return yield* new Disagreed({
-									message: `a fact beside the T row it needs was refused: ${refusalText(kept.fields)}`
-								})
-							}
+							n.note("a write the installed rule breaks refused at COMMIT")
 							if (c.renamed) {
 								n.note("a rule over a renamed table holds after the rename")
 							}
