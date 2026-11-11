@@ -6,9 +6,10 @@
  * the upper one's role holding the lower level whole, read only, and writing only sittings.
  *
  * The oracle is the installed catalog and the rule restated over the facts:
- * - each level's table lives in its own level's PostgreSQL schema and in no other; the foreign key runs from the upper
- *   table to the lower one; both columns are of the one contract domain; the upper role holds no privilege on the lower
- *   table, nor the lower role on the upper one;
+ * - the catalog, exhausted over its box: each declared relation's table lives in the schema of the level that declares
+ *   it and in no other; each role holds a privilege on a table, or on a column of it, exactly when it writes its
+ *   relation, reading every other through its views; a deferred foreign key runs from the upper table to the lower one; both columns are of the one contract
+ *   domain;
  * - each drawn transaction commits exactly when the state it leaves keeps the containment; a sitting of an item that is
  *   not there is refused by the containment as the upper level states it, and a deletion of an item a sitting holds,
  *   through the lower login, by that law named `above` the lower level, `{ kind: "above", level, law }`, the law as
@@ -19,20 +20,31 @@
  * The catalog's facts are read by the names the compiler derives (core/identity.ts) for each level's schema, each
  * relation's table and each role, never spelled.
  *
- * Features: an item added and deleted, a held item's deletion refused from above, a sitting added and deleted, a
- * dangling sitting refused, and a fused read of a sitting.
+ * Features: of the catalog, a table in its level's schema and none in another's, privileges on a written table and
+ * none on another, the containment and its domain; of the transactions, an item added and deleted, a held item's
+ * deletion refused from above, a sitting added and deleted, a dangling sitting refused, and a fused read of a sitting.
  *
- * Plants (~/.cache/grizzle-release/BR11/plants): levels-above-unnamed (a law of a level above the one a layer serves is
- * named as that level's own law, not as a law above).
+ * Plants (~/.cache/grizzle-release/BR11/plants): levels-catalog-writer-ungranted (a writer is granted nothing on the
+ * table it writes) and levels-above-unnamed (a law of a level above the one a layer serves is named as that
+ * level's own law, not as a law above).
  */
 import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
+import { drawn, exhaust, explore } from "@grizzle/testing/explore"
+import { required, requiredInSpace } from "@grizzle/testing/features"
 import { array, element, type Gen, int, weighted } from "@grizzle/testing/gen"
 import { exact, set, structuralHash } from "@grizzle/testing/oracle"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Data, Effect, Formatter, Layer, Option, String as Str } from "effect"
+import {
+	Array as Arr,
+	Data,
+	Effect,
+	Formatter,
+	Layer,
+	Option,
+	Record as Rec,
+	String as Str
+} from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { ChangeSet, type Law } from "#compiler/public/changeset.ts"
@@ -71,18 +83,38 @@ const Kind = closed("Kind", ["Practice", "Test"])
 const Item = relation("Item", { id: Code, n: pg.integer }, ["id"])
 const Sitting = relation("Sitting", { id: uuid, item: Code, kind: closedId(Kind) }, ["id"])
 
+/** A level of the installation. */
+type Level = "lower" | "upper"
+
+/** A role of the installation, by the level whose login holds it. */
+type LevelRole = "author" | "learner"
+
 /**
  * The two levels and their worlds under `name`, the upper level under its allocated name (levelNameAt), each login's
  * workload holding its role's writes of the facts each call gives: the author adds and deletes items, and the learner
  * adds and deletes sittings and reads the fused query, sittings joined to their items, and the lower level's items.
  */
 const levelsAt = (name: string) => {
-	const lower = schema(name, { Kind, Item }, [])
-	const upper = schema.extend(lower, levelNameAt(name, 1), { Sitting }, [
+	const lowerOwn = { Kind, Item }
+	const upperOwn = { Sitting }
+	const lower = schema(name, lowerOwn, [])
+	const upper = schema.extend(lower, levelNameAt(name, 1), upperOwn, [
 		contained(on(Sitting, "item"), on(Item, "id"))
 	])
-	const author = role(lower, "author", wholeEntriesOf(lower), { write: writableNamesOf(lower) })
-	const learner = role(upper, "learner", wholeEntriesOf(upper), { write: ["Sitting"] })
+	const authorWrites = writableNamesOf(lower)
+	const learnerWrites = ["Sitting"] as const
+	const author = role(lower, "author", wholeEntriesOf(lower), { write: authorWrites })
+	const learner = role(upper, "learner", wholeEntriesOf(upper), { write: learnerWrites })
+	/** The relations each level declares itself, as its schema(...) or schema.extend(...) was given them. */
+	const declares: { readonly [L in Level]: ReadonlyArray<string> } = {
+		lower: Rec.keys(lowerOwn),
+		upper: Rec.keys(upperOwn)
+	}
+	/** The relations each role writes, as its role(...) was given them. */
+	const writes: { readonly [R in LevelRole]: ReadonlyArray<string> } = {
+		author: authorWrites,
+		learner: learnerWrites
+	}
 	const fused = query(upper).rule((r) => {
 		const { id, item, kind } = v(Sitting, "sitting")
 		const { n } = v(Item, "item")
@@ -95,6 +127,8 @@ const levelsAt = (name: string) => {
 	return {
 		lower,
 		upper,
+		declares,
+		writes,
 		author,
 		learner,
 		authorApp: login(lower, "author_app", [author], {
@@ -192,80 +226,187 @@ const plain = (rows: ReadonlyArray<{ readonly id: string; readonly n: number }>)
 /** Two reads of rows of an id and an n agree as sets: each row once, in any order. */
 const sameRows = set(structuralHash, exact)
 
+/**
+ * A fact of the installed catalog the levels' declarations decide: a declared relation's table in a level's schema; a
+ * role's privileges on a declared relation's table; the upper level's containment held by a deferred foreign key from
+ * its table into the lower one; and its two columns of the root's one contract domain.
+ */
+type CatalogFact =
+	| Readonly<{ kind: "placed"; relation: string; level: Level }>
+	| Readonly<{ kind: "privileged"; role: LevelRole; relation: string }>
+	| Readonly<{ kind: "containment" }>
+	| Readonly<{ kind: "domain" }>
+
+const levels = ["lower", "upper"] as const satisfies ReadonlyArray<Level>
+const levelRoles = ["author", "learner"] as const satisfies ReadonlyArray<LevelRole>
+const levelRelations: Arr.NonEmptyReadonlyArray<string> = [Item.name, Sitting.name]
+const factKinds = ["placed", "privileged", "containment", "domain"] as const
+
+/** Every fact of the box: each relation at each level, each role on each relation, and the two of the containment. */
+const catalogFactGen: Gen<CatalogFact> = (source) => {
+	const kind = source.draw(element(factKinds))
+	switch (kind) {
+		case "placed":
+			return {
+				kind,
+				relation: source.draw(element(levelRelations)),
+				level: source.draw(element(levels))
+			}
+		case "privileged":
+			return {
+				kind,
+				role: source.draw(element(levelRoles)),
+				relation: source.draw(element(levelRelations))
+			}
+		case "containment":
+		case "domain":
+			return { kind }
+	}
+}
+
+/** How many facts the box holds. */
+const catalogFacts =
+	levelRelations.length * levels.length + levelRoles.length * levelRelations.length + 2
+
+type CatalogFeature =
+	| "a table in its level's schema"
+	| "no table in another level's schema"
+	| "privileges on a table the role writes"
+	| "no privilege on a table the role does not write"
+	| "the containment across the levels"
+	| "one contract domain across the levels"
+
+/**
+ * What the declarations say of a fact, and the situation it is: a relation's table is in a level's schema exactly when
+ * that level declares the relation; a role holds a privilege on a table exactly when it writes the relation, reading
+ * every other through its views; the containment and the domain hold.
+ */
+const expectedOf = (
+	declared: ReturnType<typeof levelsAt>,
+	fact: CatalogFact
+): readonly [holds: boolean, situation: CatalogFeature] => {
+	switch (fact.kind) {
+		case "placed": {
+			const holds = Arr.contains(declared.declares[fact.level], fact.relation)
+			return [holds, holds ? "a table in its level's schema" : "no table in another level's schema"]
+		}
+		case "privileged": {
+			const holds = Arr.contains(declared.writes[fact.role], fact.relation)
+			return [
+				holds,
+				holds
+					? "privileges on a table the role writes"
+					: "no privilege on a table the role does not write"
+			]
+		}
+		case "containment":
+			return [true, "the containment across the levels"]
+		case "domain":
+			return [true, "one contract domain across the levels"]
+	}
+}
+
+/** The installation of the two levels and their logins under an allocated name, and the levels under that name. */
+const installedLevels = Effect.gen(function* () {
+	const declared = levelsAt("Levels")
+	const done = yield* installMigrated(declared.upper, {
+		ambient: ordinarySession,
+		label: "levels",
+		logins: [declared.authorApp, declared.app],
+		extensions: []
+	})
+	return { done, at: levelsAt(done.schema) }
+})
+
 layer(Substrate.layer, { excludeTestServices: true })(
 	"levels of one installation on PostgreSQL 19rc1",
 	(it) => {
 		it.effect(
-			"install each level in its own schema with a foreign key across them, serve a login over each level, and refuse a lower write a higher law forbids by that law named above",
+			"install each level's tables in its own schema, the containment across them over one domain, and grant each role exactly the tables it writes",
 			(ctx) =>
 				searched(
 					ctx,
 					Effect.gen(function* () {
-						const declared = levelsAt("Levels")
-						const done = yield* installMigrated(declared.upper, {
-							ambient: ordinarySession,
-							label: "levels",
-							logins: [declared.authorApp, declared.app],
-							extensions: []
-						})
-						const at = levelsAt(done.schema)
-						const lowerSchema = schemaNameOf(at.lower)
-						const upperSchema = schemaNameOf(at.upper)
+						const { done, at } = yield* installedLevels
 						const seat = yield* seatOfInstalled(done, ["Item", "Sitting"], "levels")
-						const session = seat.session
 						const quote = (text: string) => `'${Str.replaceAll("'", "''")(text)}'`
-						/** A relation's table in a level's schema, both as the compiler names them, as a regclass literal. */
-						const tableIn = (schemaName: string, relation: string) =>
-							quote(
-								`${quoteIdent(identifierOf(identity.schema(parsedSchemaName(schemaName))))}.${quoteIdent(identifierOf(identity.table(parsedName(relation))))}`
-							)
-						/** Whether a boolean the owner's session reads holds. */
-						const holds = (sql: string) =>
-							Effect.map(
-								session.values(`SELECT (${sql})::text`, []),
-								(rows) => rows[0]?.[0] === "true"
-							)
-						const lowerItem = tableIn(lowerSchema, "Item")
-						const upperSitting = tableIn(upperSchema, "Sitting")
-						const placed: ReadonlyArray<readonly [string, string]> = [
-							[
-								`to_regclass(${lowerItem}) IS NOT NULL`,
-								"Item's table is in the lower level's schema"
-							],
-							[
-								`to_regclass(${upperSitting}) IS NOT NULL`,
-								"Sitting's table is in the upper level's schema"
-							],
-							[
-								`to_regclass(${tableIn(lowerSchema, "Sitting")}) IS NULL`,
-								"no Sitting in the lower level's schema"
-							],
-							[
-								`to_regclass(${tableIn(upperSchema, "Item")}) IS NULL`,
-								"no Item in the upper level's schema"
-							],
-							[
-								`EXISTS (SELECT FROM pg_catalog.pg_constraint WHERE contype = 'f' AND conrelid = ${upperSitting}::regclass AND confrelid = ${lowerItem}::regclass AND condeferred)`,
-								"a deferred foreign key runs from the upper table into the lower one"
-							],
-							[
-								`(SELECT atttypid FROM pg_catalog.pg_attribute WHERE attrelid = ${lowerItem}::regclass AND attname = ${quote(identifierOf(identity.column(parsedName("id"))))}) = (SELECT atttypid FROM pg_catalog.pg_attribute WHERE attrelid = ${upperSitting}::regclass AND attname = ${quote(identifierOf(identity.column(parsedName("item"))))})`,
-								"both columns are of the root's one contract domain"
-							],
-							[
-								`NOT has_table_privilege(${quote(roleNameOf(at.learner))}, ${lowerItem}, 'SELECT,INSERT,UPDATE,DELETE')`,
-								"the upper role holds no privilege on the lower table"
-							],
-							[
-								`NOT has_table_privilege(${quote(roleNameOf(at.author))}, ${upperSitting}, 'SELECT,INSERT,UPDATE,DELETE')`,
-								"the lower role holds no privilege on the upper table"
-							]
-						]
-						for (const [fact, what] of placed) {
-							const held = yield* holds(fact)
-							assert.ok(held, what)
+						const schemaOf: { readonly [L in Level]: string } = {
+							lower: schemaNameOf(at.lower),
+							upper: schemaNameOf(at.upper)
 						}
+						const roleOf: { readonly [R in LevelRole]: string } = {
+							author: roleNameOf(at.author),
+							learner: roleNameOf(at.learner)
+						}
+						/** A relation's table in a level's schema, both as the compiler names them, as a regclass literal. */
+						const tableIn = (level: Level, relation: string) =>
+							quote(
+								`${quoteIdent(identifierOf(identity.schema(parsedSchemaName(schemaOf[level]))))}.${quoteIdent(identifierOf(identity.table(parsedName(relation))))}`
+							)
+						const columnOf = (field: string) =>
+							quote(identifierOf(identity.column(parsedName(field))))
+						const lowerItem = tableIn("lower", Item.name)
+						const upperSitting = tableIn("upper", Sitting.name)
+						/** The boolean the catalog answers for a fact. */
+						const sqlOf = (fact: CatalogFact): string => {
+							switch (fact.kind) {
+								case "placed":
+									return `to_regclass(${tableIn(fact.level, fact.relation)}) IS NOT NULL`
+								case "privileged": {
+									const role = quote(roleOf[fact.role])
+									const table = tableIn(
+										Arr.contains(at.declares.lower, fact.relation) ? "lower" : "upper",
+										fact.relation
+									)
+									return `has_table_privilege(${role}, ${table}, 'SELECT,INSERT,UPDATE,DELETE') OR has_any_column_privilege(${role}, ${table}, 'SELECT,INSERT,UPDATE')`
+								}
+								case "containment":
+									return `EXISTS (SELECT FROM pg_catalog.pg_constraint WHERE contype = 'f' AND conrelid = ${upperSitting}::regclass AND confrelid = ${lowerItem}::regclass AND condeferred)`
+								case "domain":
+									return `(SELECT atttypid FROM pg_catalog.pg_attribute WHERE attrelid = ${lowerItem}::regclass AND attname = ${columnOf("id")}) = (SELECT atttypid FROM pg_catalog.pg_attribute WHERE attrelid = ${upperSitting}::regclass AND attname = ${columnOf("item")})`
+							}
+						}
+						return yield* exhaust(
+							{
+								suite: "pg/levels/catalog",
+								generator: catalogFactGen,
+								literal: Formatter.format,
+								limit: catalogFacts,
+								box: "each declared relation at each level, each role on each declared relation, the containment and its domain",
+								oracle: {
+									kind: "postgresql",
+									name: "the catalog read by the compiler's names, against what the levels' declarations and the roles' write lists state"
+								},
+								coverage: requiredInSpace<CatalogFeature>([
+									"a table in its level's schema",
+									"no table in another level's schema",
+									"privileges on a table the role writes",
+									"no privilege on a table the role does not write",
+									"the containment across the levels",
+									"one contract domain across the levels"
+								]),
+								caseHang
+							},
+							(fact, c) =>
+								Effect.gen(function* () {
+									const [expected, situation] = expectedOf(at, fact)
+									const rows = yield* seat.session.values(`SELECT (${sqlOf(fact)})::text`, [])
+									c.note(situation)
+									assert.equal(rows[0]?.[0] === "true", expected, Formatter.format(fact))
+								})
+						)
+					})
+				)
+		)
 
+		it.effect(
+			"serve a login over each level, commit each transaction exactly when it keeps the containment, and refuse a lower write a higher law forbids by that law named above",
+			(ctx) =>
+				searched(
+					ctx,
+					Effect.gen(function* () {
+						const { done, at } = yield* installedLevels
+						const seat = yield* seatOfInstalled(done, ["Item", "Sitting"], "levels")
 						const lowerServed = yield* servedFixture(done, at.authorApp)
 						const upperServed = yield* servedFixture(done, at.app)
 						const lowerContext = yield* Layer.build(lowerServed.layer)
