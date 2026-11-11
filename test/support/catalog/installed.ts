@@ -1,7 +1,8 @@
-import { Array as Arr, Effect, Option, Order, Record as Rec } from "effect"
+import { Array as Arr, Effect, Option, Order, Record as Rec, String as Str } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
+import { TupleMap } from "#compiler/core/tuple-map.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { serialDraw } from "#compiler/ir/desc.ts"
 import type { PhysicalKind } from "#compiler/ir/products.ts"
@@ -391,8 +392,84 @@ export type ReachProblem =
 	| { readonly kind: "loginDefaultMissing"; readonly login: string; readonly setting: string }
 	| { readonly kind: "invalidIndex"; readonly index: string }
 
+/**
+ * Indexes of one table a sound installation never holds together, by their names: two unique indexes of one access
+ * method over one column set and predicate (`duplicateKey`), which hold apart the same rows whatever order each lists
+ * the columns in (ir/law.ts KeyColumnSet), so one serves every foreign key into the set; or two indexes of one
+ * definition (`duplicateIndex`), their columns in one order, each with one direction and class, of one method and
+ * predicate, which serve the same probes, the unique one every probe the other does.
+ *
+ * Any other index beside a unique one over its column set is neither: it is not unique, and its columns stand in
+ * another order, so the probes it serves lead with other columns.
+ */
+export type IndexProblem =
+	| {
+			readonly kind: "duplicateKey"
+			readonly table: string
+			readonly indexes: ReadonlyArray<string>
+	  }
+	| {
+			readonly kind: "duplicateIndex"
+			readonly table: string
+			readonly indexes: ReadonlyArray<string>
+	  }
+
 /** Every way an installed catalog departs from the scope its installation declares. */
-export type InstalledProblem = ErasureProblem | ReachProblem
+export type InstalledProblem = ErasureProblem | ReachProblem | IndexProblem
+
+/** An index's definition past its name and uniqueness: its method, its columns in order with their directions and
+ * classes, and its predicate, as pg_get_indexdef spells them. */
+const definitionOf = (i: Catalog["indexes"][number]): string =>
+	Option.match(Str.indexOf(" USING ")(i.definition), {
+		onNone: () => assert.fail(`pg_get_indexdef spells the access method of ${i.name}`),
+		onSome: (at) => Str.slice(at)(i.definition)
+	})
+
+/** The indexes no sound installation holds together (IndexProblem), each group by its table, method, predicate and
+ * column set. */
+const indexProblems = (catalog: Catalog): ReadonlyArray<IndexProblem> => {
+	const groups = new TupleMap<
+		ReadonlyArray<string>,
+		{ readonly table: string; readonly indexes: Array<Catalog["indexes"][number]> }
+	>()
+	for (const i of catalog.indexes) {
+		const key = [
+			i.table,
+			i.method,
+			Option.getOrElse(i.predicate, () => ""),
+			...Arr.sort(i.columns, Order.String)
+		]
+		const held = groups.get(key)
+		if (held === undefined) {
+			groups.set(key, { table: i.table, indexes: [i] })
+		} else {
+			held.indexes.push(i)
+		}
+	}
+	return Arr.flatMap(
+		[...groups.values()],
+		({ table, indexes: group }): ReadonlyArray<IndexProblem> => {
+			const keys = Arr.filter(group, (i) => i.unique)
+			const definitions = new TupleMap<readonly [string], Array<string>>()
+			for (const i of group) {
+				const held = definitions.get([definitionOf(i)])
+				if (held === undefined) {
+					definitions.set([definitionOf(i)], [i.name])
+				} else {
+					held.push(i.name)
+				}
+			}
+			return [
+				...(keys.length > 1
+					? [{ kind: "duplicateKey" as const, table, indexes: Arr.map(keys, (i) => i.name) }]
+					: []),
+				...Arr.flatMap([...definitions.values()], (names) =>
+					names.length > 1 ? [{ kind: "duplicateIndex" as const, table, indexes: names }] : []
+				)
+			]
+		}
+	)
+}
 
 /** The problem, unless the rule holds. */
 const unless = (holds: boolean, problem: ReachProblem): ReadonlyArray<ReachProblem> =>
@@ -622,7 +699,8 @@ const vectorProblems = (catalog: Catalog, scope: InstalledScope): ReadonlyArray<
  *   security and policies exactly where a world writes through a query entry; no UPDATE on an immutable relation, no
  *   TRUNCATE, no privilege on a sequence, MAINTAIN only to a refresher, no PUBLIC grant, nothing granted to a login
  *   beyond what admission and a Db transaction take as it, nothing inherited beyond a role's own privileges, no elevated
- *   or undeclared role; and no index is invalid;
+ *   or undeclared role; no index is invalid; and no table holds two unique indexes of one method over one column set
+ *   and predicate, or two indexes of one definition (IndexProblem);
  * - least privilege on types, by a derivation of its own: a world's role may hold USAGE on an enum or a domain of the
  *   schema only when its own privileges or its whole closed relations need the type. The types it needs are the types
  *   of every column of every table or materialized view it holds a privilege on, of a column of one, and of every view
@@ -655,7 +733,8 @@ export const checkInstalled = (
 	...verifyErasure(catalog, scope.erasure),
 	...usageProblems(catalog, scope.roles),
 	...vectorProblems(catalog, scope),
-	...Arr.flatMap(catalog.indexes, (i) => unless(i.valid, { kind: "invalidIndex", index: i.name }))
+	...Arr.flatMap(catalog.indexes, (i) => unless(i.valid, { kind: "invalidIndex", index: i.name })),
+	...indexProblems(catalog)
 ]
 
 /**

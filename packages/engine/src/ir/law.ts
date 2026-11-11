@@ -3,6 +3,12 @@ import type { ColumnIdent, LawId, RelationIdent, StoredRelationName } from "#com
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { Direction } from "#compiler/core/order.ts"
+import {
+	type CanonicalSet,
+	nameSet,
+	type NonEmptyCanonicalSet,
+	nonEmptyNameSet
+} from "#compiler/core/set.ts"
 import type { CellSide } from "#compiler/ir/cells.ts"
 import type { FieldDesc, TermDesc } from "#compiler/ir/desc.ts"
 import type { ExprTable, ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
@@ -254,6 +260,93 @@ export interface RowGuard {
 export type NativeColumn =
 	| { readonly kind: "field"; readonly field: LawField }
 	| { readonly kind: "law"; readonly column: ColumnIdent }
+
+/** A native column's text: a field's name, or a law column's identifier, which starts with `__` as no declared name
+ * does, so the texts of a relation's columns are distinct. */
+export const nativeColumnText = (c: NativeColumn): string =>
+	c.kind === "field" ? c.field.name : c.column
+
+/**
+ * A key's columns in index order: the order its B-tree or GiST index lists them, which a probe's leading columns read
+ * and its readable name spells. What the key holds apart reads none of it (KeyColumnSet).
+ */
+export type KeyOrder = NonEmptyReadonlyArray<NativeColumn>
+
+/**
+ * What a key holds apart: its relation and its columns as a set, each by its text (`nativeColumnText`). A scalar key
+ * holds apart two rows equal at every column of it; a span key two rows equal at its scalars whose spans overlap, its
+ * span apart from them. Uniqueness reads no order, and PostgreSQL matches a foreign key's referenced columns to a
+ * unique index in any order, a PERIOD one's span last (tablecmds.c transformFkeyCheckAttrs), so two keys of one
+ * KeyColumnSet are one key: the law model holds one key per KeyColumnSet (laws/model/model.ts nativeIdentity), and the
+ * installation one index (physical/ddl/tables.ts keyObjectOf).
+ */
+export type KeyColumnSet =
+	| {
+			readonly kind: "scalar"
+			readonly relation: string
+			readonly columns: NonEmptyCanonicalSet<string>
+	  }
+	| {
+			readonly kind: "span"
+			readonly relation: string
+			readonly span: string
+			readonly scalars: CanonicalSet<string>
+	  }
+
+/** The KeyColumnSet of a scalar key of `relation` over the columns `order` lists. */
+export const scalarKeySet = (relation: string, order: KeyOrder): KeyColumnSet => ({
+	kind: "scalar",
+	relation,
+	columns: nonEmptyNameSet(mapNonEmpty(order, nativeColumnText))
+})
+
+/** The KeyColumnSet of a span key of `relation` over its scalar columns and its span. */
+export const spanKeySet = (
+	relation: string,
+	scalars: ReadonlyArray<NativeColumn>,
+	span: NativeColumn
+): KeyColumnSet => ({
+	kind: "span",
+	relation,
+	span: nativeColumnText(span),
+	scalars: nameSet(scalars.map(nativeColumnText))
+})
+
+/** The KeyColumnSet of a key ownership declared on `relation`: a span key's over its other fields and its span. */
+const declaredKeySet = (relation: string, key: KeyName): KeyColumnSet => {
+	const span = key.span
+	const columns = mapNonEmpty(key.fields, (field): NativeColumn => ({ kind: "field", field }))
+	return span === undefined
+		? scalarKeySet(relation, columns)
+		: spanKeySet(
+				relation,
+				columns.filter((c) => c.kind === "field" && c.field !== span),
+				{ kind: "field", field: span }
+			)
+}
+
+/** A KeyColumnSet as a TupleMap key: its kind and relation, a span key's span, then its columns in canonical order.
+ * Two KeyColumnSets are one key exactly when their tuples hold equal elements in order. */
+export type KeyTuple = readonly [string, string, ...Array<string>]
+
+export const keyTuple = (k: KeyColumnSet): KeyTuple =>
+	k.kind === "scalar"
+		? [k.kind, k.relation, ...k.columns]
+		: [k.kind, k.relation, k.span, ...k.scalars]
+
+/** Whether two KeyColumnSets are one key. */
+const sameKey = (a: KeyColumnSet, b: KeyColumnSet): boolean => {
+	const x = keyTuple(a)
+	const y = keyTuple(b)
+	return x.length === y.length && x.every((element, i) => element === y[i])
+}
+
+/**
+ * The key ownership declared on `relation` whose KeyColumnSet is `key`: one at most, as ownership refuses a second key
+ * over one set of fields (schema/own.ts distinctKeys).
+ */
+export const declaredKeyOf = (relation: LawRelation, key: KeyColumnSet): KeyName | undefined =>
+	relation.keyNames.find((k) => sameKey(declaredKeySet(relation.name, k), key))
 
 /**
  * The operator class of an index key: its column type's default, or the one class beyond it the compiler asks for,

@@ -11,7 +11,6 @@ import {
 	theoryEvidence,
 	typingEnv
 } from "#compiler/analysis/theory/theory.ts"
-import { sameMembers, sameOrder } from "#compiler/core/array.ts"
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import { CompileError, malformedDescription, prose } from "#compiler/core/errors.ts"
 import {
@@ -37,6 +36,7 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
+import { TupleMap } from "#compiler/core/tuple-map.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
 import type { CellSide } from "#compiler/ir/cells.ts"
 import { mergeDags } from "#compiler/ir/dag.ts"
@@ -51,21 +51,24 @@ import {
 } from "#compiler/ir/expr.ts"
 import type { Family } from "#compiler/ir/family.ts"
 import {
+	declaredKeyOf,
 	type DomainCheck,
 	type DomainCheckTerm,
 	type DomainNative,
 	familyKey,
-	fieldNames,
+	keyTuple,
 	type LawColumnValue,
 	type LawField,
 	type LawRelation,
 	type NativeColumn,
+	nativeColumnText,
 	type NativeObject,
 	type NativeOf,
-	plainFields,
 	type RelationInfo,
 	type RowGuard,
+	scalarKeySet,
 	type SpanKeyScalars,
+	spanKeySet,
 	type TheoryRelation
 } from "#compiler/ir/law.ts"
 import type { ConstraintLaws } from "#compiler/ir/products.ts"
@@ -415,28 +418,55 @@ const unwrap = <A>(r: Result.Result<A, CompileError>): A => {
 	return r.value
 }
 
+/** A native object's identity (`nativeIdentity`) as a TupleMap key: a key's KeyColumnSet tuple, or any other object's
+ * one key of its parts, which no KeyColumnSet tuple of two elements or more equals. */
+type NativeIdentity = readonly [string, ...Array<string>]
+
 /**
- * A native object's identity as the model's merge reads it, every law it discharges left out, so two plans of one object
- * are one object: its kind and what of it the database states, each handle by its name, each column by its name (a
+ * A native object's identity as the model's merge reads it, every law it discharges left out, so two plans of one
+ * object are one object. A key, a primary key, a UNIQUE or a span key, is its KeyColumnSet (ir/law.ts keyTuple), what
+ * it holds apart, whatever order a plan lists its columns in: the merge holds one key per KeyColumnSet, a primary key
+ * and a UNIQUE over one set among them, and each later plan of it adds its law. Any other object is the key of its
+ * parts (`keyOf`): its kind and what of it the database states, each handle by its name, each column by its name (a
  * field's, or a law column's identifier), an identity by its canonical text, a lowered predicate by its expression's
  * label, which names exactly one expression, a closed side by its number among the sides the recognizer built, one per
  * content (`sideOrdinal`, plan.ts closedSidesOf), and a contract's domain by its contract's name, whose base and check
  * it is.
  */
-const nativeKey = (
+const nativeIdentity = (
 	object: NativeObject,
+	sideOrdinal: (side: CellSide<TypedLiteral>) => number
+): NativeIdentity => {
+	switch (object.kind) {
+		case "PrimaryKey":
+			return keyTuple(
+				scalarKeySet(
+					object.relation.name,
+					mapNonEmpty(object.columns, (field): NativeColumn => ({ kind: "field", field }))
+				)
+			)
+		case "Unique":
+			return keyTuple(scalarKeySet(object.relation.name, object.columns))
+		case "WithoutOverlaps":
+			return keyTuple(spanKeySet(object.relation.name, object.key.scalars, object.span))
+		case "ReverseIndex":
+		case "LawColumn":
+		case "PeriodForeignKey":
+		case "TableCheck":
+		case "ClosedCheck":
+		case "ForeignKey":
+		case "Domain":
+		case "RosterDomain":
+			return [partsKey(object, sideOrdinal)]
+	}
+}
+
+/** A native object's identity as one key of its parts (see `nativeIdentity`): every object but a key. */
+const partsKey = (
+	object: Exclude<NativeObject, { readonly kind: "PrimaryKey" | "Unique" | "WithoutOverlaps" }>,
 	sideOrdinal: (side: CellSide<TypedLiteral>) => number
 ): string => {
 	switch (object.kind) {
-		case "PrimaryKey":
-			return keyOf(
-				object.kind,
-				object.relation.name,
-				fieldNames(object.columns),
-				object.named.canonical
-			)
-		case "Unique":
-			return keyOf(object.kind, object.relation.name, columnNames(object.columns))
 		case "ReverseIndex":
 			return keyOf(object.kind, object.relation.name, object.method, columnNames(object.columns))
 		case "LawColumn":
@@ -451,14 +481,6 @@ const nativeKey = (
 				columnNames(object.targetColumns),
 				columnNames([object.targetSpan]),
 				String(object.deferrable)
-			)
-		case "WithoutOverlaps":
-			return keyOf(
-				object.kind,
-				object.relation.name,
-				columnNames([object.span]),
-				object.key.kind,
-				columnNames(object.key.scalars)
 			)
 		case "TableCheck":
 			return object.check.kind === "declared"
@@ -504,7 +526,7 @@ const nativeKey = (
 
 /** The names of a native's columns: a field's name, a law column's identifier. */
 const columnNames = (columns: ReadonlyArray<NativeColumn>): ReadonlyArray<string> =>
-	columns.map((c) => (c.kind === "field" ? c.field.name : c.column))
+	columns.map(nativeColumnText)
 
 /** A contract's domain CHECK (`DomainCheck`): its base's refined text pattern, when the base is no contract, and
  * its predicate. */
@@ -1159,10 +1181,12 @@ class Specializer {
 				? { dag: this.theory.dag, expr: (e: ScalarExpr) => e }
 				: mergeDags(this.theory.dag, ext.b.build(roots))
 
-		/** Native objects, merged: each first seen with its law list, which every later plan of the same object extends,
-		 * so the object holds every law it discharges once all plans are read. Each ordinary relation's primary key is
-		 * seen first, with its own law: a primary key merges only with a plan of the same key. */
-		const byKey = new Map<string, Merged>()
+		/** Native objects, merged by identity (`nativeIdentity`): each first seen with its law list, which every later plan
+		 * of the same object extends, so the object holds every law it discharges once all plans are read. Each ordinary
+		 * relation's primary key is seen first, with its own law, so a plan of a UNIQUE over its set extends it, and key
+		 * laws are read before every other law, so a declared key's plan precedes every reference's plan of its
+		 * KeyColumnSet: a key keeps the order its first plan gives it, a declared key its declared order. */
+		const byKey = new TupleMap<NativeIdentity, Merged>()
 		for (const pk of this.theory.primaryKeys) {
 			if (this.writes.has(pk.relation.name)) {
 				this.#seed(byKey, pk)
@@ -1177,7 +1201,7 @@ class Specializer {
 		for (const { plan, natives: placedNatives } of keysFirst) {
 			for (const n of placedNatives) {
 				const object = this.#materialize(n, plan, deferred, (e) => merged.expr(e))
-				const key = nativeKey(object, (side) => this.recognizer.closedSideOrdinal(side))
+				const key = nativeIdentity(object, (side) => this.recognizer.closedSideOrdinal(side))
 				const known = byKey.get(key)
 				if (known === undefined) {
 					const laws = this.#firstLaws(n, plan, implyingKey)
@@ -1462,14 +1486,14 @@ class Specializer {
 	}
 
 	/** Seeds `byKey` with the primary key of `pk`'s relation, planned from its key and discharging its law. */
-	#seed(byKey: Map<string, Merged>, pk: PrimaryKeyLaw): void {
+	#seed(byKey: TupleMap<NativeIdentity, Merged>, pk: PrimaryKeyLaw): void {
 		const laws: [LawId, ...Array<LawId>] = [pk.law.id]
 		const object = primaryNative(
 			primaryKeyPlan(pk.relation, pk.relation.keyNames[0], pk.law.loc),
 			laws
 		)
 		byKey.set(
-			nativeKey(object, (side) => this.recognizer.closedSideOrdinal(side)),
+			nativeIdentity(object, (side) => this.recognizer.closedSideOrdinal(side)),
 			{
 				kind: "primary",
 				relation: pk.relation,
@@ -1625,43 +1649,13 @@ class Specializer {
 							columns: mapNonEmpty(n.columns, (c) => this.#column(c)),
 							lawIds
 						}
-			case "Unique": {
-				/** A generated unique over the column set of a declared scalar key is that key; a span key is WITHOUT
-				 * OVERLAPS, not a B-tree uniqueness, so its exact-repeat arbiter stays its own object. */
-				const target = n.relation
-				const fields = n.columns.every((c) => c.kind === "field")
-					? plainFields(n.columns.map((c) => this.#column(c)))
-					: undefined
-				const declared =
-					fields === undefined
-						? undefined
-						: target.keyNames.find(
-								(k) => k.span === undefined && sameMembers<LawField>(k.fields, fields)
-							)
-				if (declared === undefined) {
-					return {
-						kind: "Unique",
-						relation: target,
-						columns: mapNonEmpty(n.columns, (c) => this.#column(c)),
-						lawIds
-					}
+			case "Unique":
+				return {
+					kind: "Unique",
+					relation: n.relation,
+					columns: mapNonEmpty(n.columns, (c) => this.#column(c)),
+					lawIds
 				}
-				const columns = declared.fields
-				return declared.primary
-					? {
-							kind: "PrimaryKey",
-							relation: target,
-							columns,
-							named: declared.named,
-							lawIds
-						}
-					: {
-							kind: "Unique",
-							relation: target,
-							columns: mapNonEmpty(columns, (field): NativeColumn => ({ kind: "field", field })),
-							lawIds
-						}
-			}
 			case "Domain": {
 				const info = unwrap(this.#typing.contractInfo(n.contract.desc, n.contract.loc))
 				return {
@@ -1749,8 +1743,6 @@ class Specializer {
 	/** The installed identifier of one native object, minted at the naming door (see `compileLaws`). `reported` is the
 	 * identity of the law it reports, its first: the law of the plan that first built it, `described`. */
 	#name(object: NativeObject, reported: Identity<"law">, described: Law): NamedNative {
-		const ownedKey = (relation: LawRelation, columns: ReadonlyArray<LawField>) =>
-			relation.keyNames.find((k) => !k.primary && sameOrder<LawField>(k.fields, columns))
 		const constraint = (
 			on: NativeOf<ConstraintNativeKind>,
 			named: Identity<"primaryKey" | "key" | "check" | "generatedCheck" | "foreignKey">
@@ -1775,11 +1767,10 @@ class Specializer {
 			case "PrimaryKey":
 				return constraint(object, object.named)
 			case "Unique": {
-				const fields = plainFields(object.columns)
-				const k = fields === undefined ? undefined : ownedKey(object.relation, fields)
+				const k = declaredKeyOf(object.relation, scalarKeySet(object.relation.name, object.columns))
 				return constraint(
 					object,
-					k === undefined
+					k === undefined || k.primary
 						? this.#named(
 								identity.key(object.relation.name, this.#keyNames(object.relation, object.columns))
 							)

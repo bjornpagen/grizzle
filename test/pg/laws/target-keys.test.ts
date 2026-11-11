@@ -7,7 +7,9 @@
  * - **The specification turned into a checker:** a target is admitted exactly when it holds a key, a key of Tgt whose
  *   selection's conditions are all the target's, with its terms among the target's terms, or among its terms and the
  *   fields the target fixes outside the key's selection, each by one condition equating it to a value or to one of the
- *   target's terms. A target that holds no key is refused UnsupportedLawFamily when the schema compiles.
+ *   target's terms. A target that holds no key is refused UnsupportedLawFamily when the schema compiles, and a drawn key
+ *   over the whole relation at id alone, which restates the primary key, MalformedDescription (schema/own.ts
+ *   distinctKeys).
  * - **The rules' meaning turned into a checker:** over an admitted schema, drawn states of Tgt and Src rows, each
  *   written in one transaction, Tgt first, and checked as its COMMIT would check it: a state commits exactly when its
  *   Tgt rows keep the drawn key and every Src row's tuple is a Tgt row's at the target's terms, a row the target's
@@ -17,7 +19,8 @@
  *
  * Kept beside the search, the downstream shapes: a target fixed to three values beyond its term, held by a key over a
  * wider selection whose condition is one of the three; and targets fixed to a natural and to a boolean, each held by a
- * key over the whole relation.
+ * key over the whole relation. And a drawn key over the whole relation at id alone, refused as a second key over the
+ * primary key's set.
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore, type Kept } from "@grizzle/testing/explore"
@@ -283,6 +286,10 @@ const keysOf = (s: Sketch): ReadonlyArray<KeySketch> => [
 	...(s.key === undefined ? [] : [s.key])
 ]
 
+/** Whether the drawn key is over the whole relation at Tgt's primary key's set, id alone: a second key of one set. */
+const restatesPrimary = (s: Sketch): boolean =>
+	s.key !== undefined && s.key.selection.length === 0 && Arr.every(s.key.terms, (t) => t === "id")
+
 /** How a target holds a key: with the fields it fixes, by the key it is first held by; by its terms alone; or none. */
 type Held =
 	| { readonly kind: "fixed"; readonly key: KeySketch; readonly fixed: ReadonlyArray<Fixed> }
@@ -493,6 +500,7 @@ type TargetKeyFeature =
 	| "fixed to a term"
 	| "held by a key over a selection"
 	| "refused, holding no key"
+	| "refused, restating the primary key"
 	| "committed"
 	| "committed a source row"
 	| "committed two target rows equal at its terms"
@@ -555,6 +563,12 @@ const row = (a: 0 | 1, b: 0 | 1, c: 0 | 1, flag: boolean, depth: 0 | 1): TgtRow 
  * breaking its key, and the natural's two rows equal at the term, apart by the fixed field.
  */
 const KEPT: ReadonlyArray<Kept<Sketch, TargetKeyFeature>> = [
+	{
+		note: "a drawn key over the whole relation at id alone, a second key over the primary key's set",
+		sketch: { terms: ["a"], target: [], key: { selection: [], terms: ["id"] }, states: [] },
+		draws: "",
+		reaches: ["refused, restating the primary key"]
+	},
 	{
 		note: "a target fixed to three values, held by a key over a wider selection",
 		sketch: {
@@ -675,6 +689,15 @@ layer(Substrate.layer)("which containment targets hold a key on PostgreSQL 19rc1
 								const desc = schemaOf(s)
 								const held = heldOf(s)
 								const compiled = testArtifacts(desc, testCompile)
+								if (restatesPrimary(s)) {
+									if (compiled.ok || compiled.error.reason._tag !== "MalformedDescription") {
+										return yield* new Disagreed({
+											message: `${compiled.ok ? "admitted" : `refused ${compiled.error.message}`} a key restating the primary key, not MalformedDescription: ${Formatter.format(s)}`
+										})
+									}
+									c.note("refused, restating the primary key")
+									return
+								}
 								if (!compiled.ok) {
 									if (
 										held.kind !== "none" ||

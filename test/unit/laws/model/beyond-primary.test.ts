@@ -5,12 +5,15 @@
  * settle. Both are representation changes the decisions must survive unchanged.
  *
  * Each case draws a relation T's keys, each over its fields a and b, plain or over a selection of T by a conjunction of
- * `kind = j` and `flag = v` atoms, so keys share fields and guards in every arrangement: one subsuming another, two
- * subsuming each other, none; and relations S whose `t` is contained, from every row or the live ones, in K's key (K
- * holds its key alone, so the reference is immediate), in T's or in an S's (each with a field it does not reference,
- * so deferred). The oracles: every relation's objects beyond its primary key are those the decision restated here
- * keeps, comparing two guards by encoding both, as it did before a guard carried its canonical text; and a
- * containment's law is immediate, in the specialized model and in its evidence, exactly when it is into K.
+ * `kind = j` and `flag = v` atoms, so keys share fields and guards in every arrangement: one subsuming another, two over
+ * one selection and set of fields in two orders, none; and relations S whose `t` is contained, from every row or the
+ * live ones, in K's key (K holds its key alone, so the reference is immediate), in T's or in an S's (each with a field
+ * it does not reference, so deferred). A key over every fact is a candidate key, and no two of those share a set of
+ * fields, which the schema refuses (schema/own.ts distinctKeys). The oracles: every relation's objects beyond its
+ * primary key are those the decision restated here keeps, comparing two guards by encoding both, as it did before a
+ * guard carried its canonical text; no two of a relation's unique objects hold each other, since two that would are
+ * one key (ir/law.ts KeyColumnSet); and a containment's law is immediate, in the specialized model and in its
+ * evidence, exactly when it is into K.
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -19,7 +22,7 @@ import { array, boolean, element, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
+import { Array as Arr, Effect, Formatter, Order, Record as Rec } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { canonicalEquals, everyProperty } from "#compiler/core/canonical.ts"
 import { compileLaws } from "#compiler/laws/model/model.ts"
@@ -80,12 +83,24 @@ const keyGen: Gen<KeyDraw> = (source) => ({
 	guard: source.draw(array(atomGen, { min: 0, max: 2 }))
 })
 
-/** A key's text: its fields and its conjuncts, which tell two keys of one statement apart. */
-const keyText = (k: KeyDraw): string =>
-	`${Arr.join(k.fields, ",")}|${Arr.join(
+/** A key's conjuncts' text. */
+const guardText = (k: KeyDraw): string =>
+	Arr.join(
 		Arr.map(k.guard, (a) => `${a.kind}=${String(a.value)}`),
 		"&"
-	)}`
+	)
+
+/** A key's text: its fields and its conjuncts, which tell two keys of one statement apart, a key over every fact by its
+ * set of fields, since a second candidate key over one set is refused. */
+const keyText = (k: KeyDraw): string =>
+	`${Arr.join(k.guard.length === 0 ? Arr.sort(k.fields, Order.String) : k.fields, ",")}|${guardText(k)}`
+
+/** Whether two drawn keys are over one selection and one set of fields in two orders: one key. */
+const sameKeyInTwoOrders = (x: KeyDraw, y: KeyDraw): boolean =>
+	guardText(x) === guardText(y) &&
+	Arr.join(x.fields, ",") !== Arr.join(y.fields, ",") &&
+	Arr.join(Arr.sort(x.fields, Order.String), ",") ===
+		Arr.join(Arr.sort(y.fields, Order.String), ",")
 
 /** Whether two containments reference one key: K's, T's, or one S's. */
 const sameTarget = (x: ContainmentDraw["to"], y: ContainmentDraw["to"]): boolean =>
@@ -191,7 +206,7 @@ const schemaOf = (c: BeyondCase) => {
 
 type BeyondFeature =
 	| "a guarded key subsumed"
-	| "two keys holding each other"
+	| "two keys over one set in two orders, one object"
 	| "a key beyond the primary"
 	| "an immediate containment"
 	| "a deferred containment"
@@ -211,7 +226,7 @@ describe("the objects beyond a primary key and the immediate laws", () => {
 						coverage: required<BeyondFeature>(
 							[
 								"a guarded key subsumed",
-								"two keys holding each other",
+								"two keys over one set in two orders, one object",
 								"a key beyond the primary",
 								"an immediate containment",
 								"a deferred containment"
@@ -246,13 +261,19 @@ describe("the objects beyond a primary key and the immediate laws", () => {
 								if (Arr.some(others, (u) => u.kind === "guarded" && !expected.includes(u))) {
 									k.note("a guarded key subsumed")
 								}
-								if (
-									Arr.some(others, (u, i) =>
+								assert.ok(
+									!Arr.some(others, (u, i) =>
 										Arr.some(others, (w, j) => i < j && subsumes(w, u) && subsumes(u, w))
-									)
-								) {
-									k.note("two keys holding each other")
-								}
+									),
+									`no two of ${name}'s unique objects hold each other`
+								)
+							}
+							if (
+								Arr.some(c.keys, (x, i) =>
+									Arr.some(c.keys, (y, j) => i < j && sameKeyInTwoOrders(x, y))
+								)
+							) {
+								k.note("two keys over one set in two orders, one object")
 							}
 							for (const e of model.theory.evidence.containments) {
 								/** K holds its key alone and references nothing, so no reference into it is replaceable or on a cycle. */

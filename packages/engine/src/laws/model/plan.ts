@@ -29,6 +29,7 @@ import type { ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
 import type { AxisKind, AxisPair, Family, FamilyFold } from "#compiler/ir/family.ts"
 import {
 	type ClosedTheoryRelation,
+	declaredKeyOf,
 	type Drawn,
 	type FamilyId,
 	familyKey,
@@ -38,7 +39,9 @@ import {
 	type LawField,
 	type NativeColumn,
 	type RelationInfo,
+	scalarKeySet,
 	type SpanField,
+	spanKeySet,
 	type TheoryRelation
 } from "#compiler/ir/law.ts"
 import { type CombineFn, monoidSpecs } from "#compiler/ir/monoid.ts"
@@ -590,9 +593,6 @@ export interface LawPlan {
 
 /** A law that reads closed relations alone, discharged by the migration: no native. */
 const migrationPlan = (law: TheoryLaw): LawPlan => ({ law, natives: [], discharge: "migration" })
-
-const sameSet = <T>(a: ReadonlyArray<T>, b: ReadonlyArray<T>): boolean =>
-	a.length === b.length && new Set(a).size === a.length && a.every((x) => b.includes(x))
 
 /** The handles of each declared key's fields, the primary key's first. */
 const declaredFields = (r: TheoryRelation): ReadonlyArray<NonEmptyReadonlyArray<LawField>> => [
@@ -1477,9 +1477,10 @@ export class Recognizer {
 	}
 
 	/**
-	 * The UNIQUE a reference into `columns` of `r` needs, `containment` the law that references it: none where they are
-	 * exactly a declared scalar key's fields, which its own key law installs, else a generated one, whose entry is
-	 * bounded as a key's is.
+	 * The UNIQUE a reference into `columns` of `r` needs, `containment` the law that references it: none where their
+	 * KeyColumnSet is a declared scalar key's, whose own key law installs it, else a generated one, whose entry is
+	 * bounded as a key's is. A generated one over a KeyColumnSet another plan states is that one key (model.ts
+	 * nativeIdentity).
 	 */
 	#targetUnique(
 		r: RelationInfo,
@@ -1487,9 +1488,13 @@ export class Recognizer {
 		containment: string,
 		loc: SourceLoc
 	): ReadonlyArray<NativePlan> {
-		const fields = columns.flatMap((c) => (c.kind === "field" ? [c.field] : []))
+		const fields = columns.flatMap((c): ReadonlyArray<NativeColumn> =>
+			c.kind === "field" ? [c] : []
+		)
 		const declared =
-			fields.length === columns.length && scalarKeys(r).some((k) => sameSet<LawField>(k, fields))
+			isNonEmpty(fields) &&
+			fields.length === columns.length &&
+			declaredKeyOf(r, scalarKeySet(r.name, fields)) !== undefined
 		return declared
 			? []
 			: [
@@ -1639,11 +1644,16 @@ export class Recognizer {
 				`coverage grouped by at least one scalar field; ${from.relation} into ${to.relation} pairs only spans, an ungrouped span law`
 			)
 		}
-		const toFields = to.terms.map((t) => t.column)
+		const fieldNative = (field: LawField): NativeColumn => ({ kind: "field", field })
+		const toKey = spanKeySet(
+			toRel.name,
+			to.terms.flatMap((t) => (t.column === pairing.to ? [] : [fieldNative(t.column)])),
+			fieldNative(pairing.to)
+		)
 		const declared =
 			to.selection.conjuncts.length === 0 &&
 			to.terms.every((t) => t.kind === "field") &&
-			toRel.keyNames.some((k) => k.span === pairing.to && sameSet<LawField>(k.fields, toFields))
+			declaredKeyOf(toRel, toKey) !== undefined
 		const projected = (this.#projectedKeys.get(to.relation) ?? []).some((k) => sameSide(k, to))
 		if (!declared && !projected) {
 			return refuse("UnsupportedLawFamily", loc, coverageKeySentence)

@@ -1,4 +1,4 @@
-import { appendAll, sameOrder } from "#compiler/core/array.ts"
+import { appendAll } from "#compiler/core/array.ts"
 import { identifierOf } from "#compiler/core/identity.ts"
 import type { ColumnIdent, ConstraintName, LawId, NodeId } from "#compiler/core/ids.ts"
 import { defect } from "#compiler/core/invariant.ts"
@@ -9,6 +9,7 @@ import {
 } from "#compiler/core/nonempty.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import {
+	declaredKeyOf,
 	isSpanField,
 	type LawField,
 	type LawRelation,
@@ -17,6 +18,7 @@ import {
 	plainFields,
 	type RelationInfo,
 	type RowGuard,
+	scalarKeySet,
 	type SpanField
 } from "#compiler/ir/law.ts"
 import type { KeyedRelation, NamedNative, NamedPrimaryKey } from "#compiler/laws/model/model.ts"
@@ -250,11 +252,10 @@ const uniqueOf = (n: NamedNative, lawColumns: LawColumns): ReadonlyArray<Placed>
 				const object = projected(o.relation, o.columns, lawColumns, named)
 				return object === undefined ? [] : [{ relation: o.relation, role: "other", object }]
 			}
-			/** A UNIQUE over a declared candidate key's fields in its order is that key's; any other is generated. */
-			const declared = o.relation.keyNames.find(
-				(k) => !k.primary && sameOrder<LawField>(k.fields, fields)
-			)
-			return declared === undefined
+			/** A UNIQUE over a declared candidate key's set is that key's (model.ts nativeIdentity); any other is
+			 * generated. */
+			const declared = declaredKeyOf(o.relation, scalarKeySet(o.relation.name, o.columns))
+			return declared === undefined || declared.primary
 				? [
 						{
 							relation: o.relation,

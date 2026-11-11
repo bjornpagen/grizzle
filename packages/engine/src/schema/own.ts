@@ -39,7 +39,9 @@ import {
 } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
+import { type NonEmptyCanonicalSet, nonEmptyNameSet } from "#compiler/core/set.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
+import { TupleMap } from "#compiler/core/tuple-map.ts"
 import {
 	type AdmittedClosedRelation,
 	candidateKeyFields,
@@ -361,6 +363,31 @@ export const rostersOf = (owned: Owned): ReadonlyArray<Roster> =>
  */
 function fail(tag: ProseTag, loc: SourceLoc, text: string): never {
 	throw new Refusal(CompileError.make(prose(tag, loc, text)))
+}
+
+/**
+ * A stored relation's keys, its primary key first, each over a set of fields no earlier key of it holds. Two keys over
+ * one set hold apart the same rows, whatever order each lists the fields in: they are one law, which one index
+ * enforces (ir/law.ts KeyColumnSet), so a second is refused, MalformedDescription at its statement.
+ */
+const distinctKeys = (
+	relation: string,
+	keys: NonEmptyReadonlyArray<OwnedKey>
+): NonEmptyReadonlyArray<OwnedKey> => {
+	const bySet = new TupleMap<NonEmptyCanonicalSet<string>, OwnedKey>()
+	for (const key of keys) {
+		const set = nonEmptyNameSet(key.fields)
+		const held = bySet.get(set)
+		if (held !== undefined) {
+			fail(
+				"MalformedDescription",
+				key.loc,
+				`each key of ${relation} over a set of fields no other key of it holds; key (${key.fields.join(", ")}) holds the fields of ${held.primary ? "its primary key" : "its key"} (${held.fields.join(", ")}), which holds apart the same rows: state it once`
+			)
+		}
+		bySet.set(set, key)
+	}
+	return keys
 }
 
 /** A refusal for `reason`, a reason with facts beyond a sentence. A function declaration, as fail is. */
@@ -2029,7 +2056,7 @@ class Owner {
 			named,
 			ident: identifierOf(named),
 			fields,
-			keys: [primary, ...laws.keys],
+			keys: distinctKeys(name, [primary, ...laws.keys]),
 			checks: laws.checks,
 			mutable: this.#mutable.has(name)
 		}

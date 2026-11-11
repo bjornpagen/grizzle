@@ -12,10 +12,22 @@ import {
 	type NonEmptyReadonlyArray
 } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
+import { TupleMap } from "#compiler/core/tuple-map.ts"
 import { codecOf } from "#compiler/ir/codes.ts"
 import { serialDraw } from "#compiler/ir/desc.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
-import type { LawField, NativeColumn, NativeOf, TableRelation } from "#compiler/ir/law.ts"
+import {
+	type KeyOrder,
+	type KeyColumnSet,
+	type KeyTuple,
+	keyTuple,
+	type LawField,
+	type NativeColumn,
+	type NativeOf,
+	scalarKeySet,
+	spanKeySet,
+	type TableRelation
+} from "#compiler/ir/law.ts"
 import { baseOf, type ScalarType, spanOf } from "#compiler/ir/scalar.ts"
 import type { NamedPrimaryKey } from "#compiler/laws/model/model.ts"
 import { addDateRanges, dateRanges } from "#compiler/physical/date/storage.ts"
@@ -255,12 +267,6 @@ const setUniqueBound = (
 	}
 }
 
-/** Whether two native columns are one column: one field, or one law column. */
-const sameNativeColumn = (a: NativeColumn, b: NativeColumn): boolean =>
-	a.kind === "field"
-		? b.kind === "field" && a.field.name === b.field.name
-		: b.kind === "law" && a.column === b.column
-
 /** A field as a native column. */
 const fieldColumn = (field: LawField): NativeColumn => ({ kind: "field", field })
 
@@ -343,8 +349,9 @@ type NativePlan =
 			readonly gist: boolean
 	  }
 
-/** A key index before its object is added. */
-type KeyShape = Omit<KeyIndex, "object">
+/** A key index before its object is added, with what it holds apart, by which a reference finds it (`keyObjectOf`):
+ * a scalar key's B-tree or a span key's GiST index, one per KeyColumnSet of its relation. */
+type KeyShape = Omit<KeyIndex, "object"> & { readonly key: KeyColumnSet }
 
 /** A native reference object: its own ALTER TABLE ... ADD CONSTRAINT, after its table and the objects in `after`. */
 const addReference = (
@@ -408,7 +415,7 @@ export interface KeyIndex {
 	readonly relation: string
 	readonly method: "btree" | "gist"
 	/** Its columns, each a field's or a law column's, in index column order. */
-	readonly columns: NonEmptyReadonlyArray<NativeColumn>
+	readonly columns: KeyOrder
 	readonly unique: true
 }
 
@@ -562,13 +569,11 @@ const planNatives = (b: InstallBuilder, inline: Inline): ReadonlyArray<NativePla
 		const o = n.object
 		const named = n.named
 		const name = identifierOf(n.named)
-		const keyShape = (
-			method: "btree" | "gist",
-			columns: NonEmptyReadonlyArray<NativeColumn>
-		): KeyShape => ({
+		const keyShape = (key: KeyColumnSet, columns: KeyOrder): KeyShape => ({
 			name,
-			relation: o.relation.name,
-			method,
+			relation: key.relation,
+			method: key.kind === "scalar" ? "btree" : "gist",
+			key,
 			columns,
 			unique: true
 		})
@@ -588,21 +593,23 @@ const planNatives = (b: InstallBuilder, inline: Inline): ReadonlyArray<NativePla
 					columns: mapNonEmpty(columns, (column) => ({ column, withoutOverlaps: false }))
 				},
 				laws: o.lawIds,
-				key: keyShape("btree", natives),
+				key: keyShape(scalarKeySet(o.relation.name, natives), natives),
 				lawColumns,
 				gist: false
 			})
 		}
 		switch (o.kind) {
-			case "PrimaryKey":
+			case "PrimaryKey": {
+				const columns = mapNonEmpty(o.columns, fieldColumn)
 				declarePrimary(
 					o.relation.name,
 					named,
 					o.lawIds,
-					keyShape("btree", mapNonEmpty(o.columns, fieldColumn)),
+					keyShape(scalarKeySet(o.relation.name, columns), columns),
 					false
 				)
 				continue
+			}
 			case "Unique": {
 				setUniqueBound(b, o.relation.name, o.columns)
 				const columns = mapNonEmpty(o.columns, (c) => nativeColumn(b, o.relation.name, c))
@@ -620,7 +627,7 @@ const planNatives = (b: InstallBuilder, inline: Inline): ReadonlyArray<NativePla
 						columns: mapNonEmpty(columns, (column) => ({ column, withoutOverlaps: false }))
 					},
 					o.lawIds,
-					keyShape("btree", o.columns),
+					keyShape(scalarKeySet(o.relation.name, o.columns), o.columns),
 					false
 				)
 				continue
@@ -650,7 +657,10 @@ const planNatives = (b: InstallBuilder, inline: Inline): ReadonlyArray<NativePla
 									elements: [{ column: nativeColumn(b, o.relation.name, span), operator: "&&" }]
 								},
 						laws: o.lawIds,
-						key: keyShape("gist", appendNonEmpty(scalars, span)),
+						key: keyShape(
+							spanKeySet(o.relation.name, scalars, span),
+							appendNonEmpty(scalars, span)
+						),
 						lawColumns,
 						gist: scalars.some((c) => c.kind === "law" || spanOf(c.field.type) === undefined)
 					})
@@ -667,12 +677,15 @@ const planNatives = (b: InstallBuilder, inline: Inline): ReadonlyArray<NativePla
 							elements: [{ column: nativeColumn(b, o.relation.name, span), operator: "&&" }]
 						},
 						o.lawIds,
-						keyShape("gist", [span]),
+						keyShape(spanKeySet(o.relation.name, [], span), [span]),
 						false
 					)
 					continue
 				}
-				const key = keyShape("gist", appendNonEmpty(scalars, span))
+				const key = keyShape(
+					spanKeySet(o.relation.name, scalars, span),
+					appendNonEmpty(scalars, span)
+				)
 				/** A scalar component, a field of no span type or a law column, which a GiST key holds through btree_gist. */
 				const gist = scalars.some((c) => c.kind === "law" || spanOf(c.field.type) === undefined)
 				if (o.key.kind === "primary") {
@@ -892,8 +905,9 @@ const addNatives = (
 			return added === undefined ? [] : [added]
 		})
 	const keyIndexes: Array<KeyIndex> = []
-	/** The key constraints a reference can name, each with its object. */
-	const keys: Array<{ readonly shape: KeyShape; readonly object: Node<"structure"> }> = []
+	/** The key constraints a reference can name, each object by what its key holds apart: one per KeyColumnSet, as the
+	 * law model holds one key per KeyColumnSet (laws/model/model.ts nativeIdentity). */
+	const keys = new TupleMap<KeyTuple, Node<"structure">>()
 	for (const p of plans) {
 		switch (p.kind) {
 			case "inline": {
@@ -909,7 +923,7 @@ const addNatives = (
 				)
 				if (p.key !== undefined) {
 					keyIndexes.push({ ...p.key, object })
-					keys.push({ shape: p.key, object })
+					keys.set(keyTuple(p.key.key), object)
 				}
 				continue
 			}
@@ -955,36 +969,16 @@ const addNatives = (
 					]
 				)
 				keyIndexes.push({ ...p.key, object })
-				keys.push({ shape: p.key, object })
+				keys.set(keyTuple(p.key.key), object)
 				continue
 			}
 		}
 	}
-	/** Each relation's keys, in the order they were added: a reference reads its target's alone. */
-	const keysOf = new Map<string, Array<(typeof keys)[number]>>()
-	for (const k of keys) {
-		const held = keysOf.get(k.shape.relation)
-		if (held === undefined) {
-			keysOf.set(k.shape.relation, [k])
-		} else {
-			held.push(k)
-		}
+	/** The key a reference into the KeyColumnSet `key` names: the one over exactly its columns, in any order. */
+	const keyObjectOf = (key: KeyColumnSet): ReadonlyArray<Node<"structure">> => {
+		const object = keys.get(keyTuple(key))
+		return object === undefined ? [] : [object]
 	}
-	/** The key a reference into `columns` of `relation` names: one over exactly those columns, in any order. */
-	const keyObjectOf = (
-		relation: string,
-		columns: ReadonlyArray<NativeColumn>,
-		method: "btree" | "gist"
-	): ReadonlyArray<Node<"structure">> =>
-		(keysOf.get(relation) ?? [])
-			.filter(
-				({ shape: k }) =>
-					k.method === method &&
-					k.columns.length === columns.length &&
-					k.columns.every((c) => columns.some((d) => sameNativeColumn(c, d)))
-			)
-			.slice(0, 1)
-			.map((k) => k.object)
 	for (const n of b.natives) {
 		if (n.namespace !== "constraint") {
 			continue
@@ -1009,7 +1003,7 @@ const addNatives = (
 					o.lawIds,
 					[
 						b.table(o.target.name),
-						...keyObjectOf(o.target.name, o.targetColumns, "btree"),
+						...keyObjectOf(scalarKeySet(o.target.name, o.targetColumns)),
 						...lawColumnsOf(o.relation.name, lawColumnsAmong(o.columns)),
 						...lawColumnsOf(o.target.name, lawColumnsAmong(o.targetColumns))
 					]
@@ -1032,7 +1026,7 @@ const addNatives = (
 					o.lawIds,
 					[
 						b.table(o.target.name),
-						...keyObjectOf(o.target.name, appendNonEmpty(o.targetColumns, o.targetSpan), "gist"),
+						...keyObjectOf(spanKeySet(o.target.name, o.targetColumns, o.targetSpan)),
 						...lawColumnsOf(o.relation.name, lawColumnsAmong(o.columns)),
 						...lawColumnsOf(o.target.name, lawColumnsAmong(o.targetColumns))
 					]
