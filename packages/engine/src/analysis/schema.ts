@@ -321,8 +321,8 @@ const leafText = (leaf: LeafDesc): string => {
  *   from its text lists its fields in code-unit order whatever order the builder recorded. An ordinary relation's
  *   heading is therefore its fields in that canonical order, so one schema gives one heading however it arrived. A
  *   closed relation's heading is its key fields in key order, then its payload in canonical order, and its rows are its
- *   declared rows as typed literals, held in its key's text order (schema/own.ts). A roster is the closed relation
- *   whose one field `id` is a closed id of itself, with one row per handle in roster order.
+ *   declared rows as typed literals, held as the set of them by key (ir/desc.ts AdmittedClosedRelation). A roster is
+ *   the closed relation whose one field `id` is a closed id of itself, with one row per handle in roster order.
  * - Writings. Each field of an ordinary relation says how it is written (ir/law.ts FieldWriting): by its caller, by
  *   its sequence, drawn by grizzle (a natural), accumulated on the host from a start literal of its type, or generated
  *   by PostgreSQL from its row (check/generated.ts). A generated field's expression is refused, as GeneratedRefused,
@@ -770,8 +770,8 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 	/**
 	 * A roster's or a closed relation's reading. A roster is the closed relation whose one field `id` is a closed id of
 	 * itself, keyed by it, one row per handle in roster order. A closed relation's key is its declared key in key order,
-	 * its rows its declared rows in its key's text order, each value a literal of its field's type, its base proved where
-	 * the relation was admitted and its refinements judged here (#cells).
+	 * its rows its declared rows in the order of their set (ir/desc.ts AdmittedClosedRelation), each value a literal of
+	 * its field's type, its base proved where the relation was admitted and its refinements judged here (#cells).
 	 * Its heading is its key fields, then its payload in canonical order; its theory rows list the same literals in
 	 * declared field order.
 	 */

@@ -1,5 +1,5 @@
 import { nominal } from "#compiler/core/brand.ts"
-import { canonicalTextOf } from "#compiler/core/canonical.ts"
+import { canonicalTextOf, sameContent } from "#compiler/core/canonical.ts"
 import { bitsColumn, codeColumn } from "#compiler/core/decoder.ts"
 import { parseDeclaredName } from "#compiler/core/identity.ts"
 import { defined } from "#compiler/core/invariant.ts"
@@ -10,9 +10,12 @@ import { compareStrings } from "#compiler/core/order.ts"
 import { builtMark } from "#compiler/core/phantom.ts"
 import { hasProperties, isList, isPlainRecord } from "#compiler/core/record.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
+import { TupleMap } from "#compiler/core/tuple-map.ts"
 import {
 	builtNode,
+	type ClosedRow,
 	closedRelationOver,
+	closedRowKey,
 	decodeDesc,
 	type DerivedStorage,
 	type ExprDesc,
@@ -667,20 +670,21 @@ export const closedIdOf = (value: unknown): ClosedIdParts => {
 export const admittedClosedId = (value: unknown) => closedIdField(value, closedIdOf(value))
 
 /**
- * A closed relation's rows as a JavaScript caller wrote them, checked and described, as the set of facts they state: a
- * row written twice is one row, its first, and two rows of one key but other payloads break the key law, refused naming
- * the key and both payloads. `kept` is the index of each row of the set among those written, in their order. Rows are
- * keyed by their key fields' handles (closed ids, which literalResult reads as their handles), and a pair's payloads are
- * compared only where their keys meet, so the set costs a text per row.
+ * A closed relation's rows as a JavaScript caller wrote them, checked and described, as the facts they state, over its
+ * key, which its description proved a list of its own closed-id fields (ir/desc.ts closedRelationOver): a row written
+ * twice is one fact, its first, and two rows of one key but other payloads break the key law, refused naming the key
+ * and both payloads. A fact is told apart by its key's handles in a TupleMap, so no key is joined into a text, and two
+ * facts are compared only where their keys meet. `written` is the index of each fact's row among those written, which
+ * the relation's value holds its rows by, in the order of their set (ir/desc.ts recordAdmitted).
  */
 const closedRows = (
 	rows: unknown,
 	described: Readonly<Record<string, Described>>,
-	key: unknown,
+	key: NonEmptyReadonlyArray<string>,
 	label: string
 ): {
-	readonly rows: ReadonlyArray<Readonly<Record<string, LiteralDesc>>>
-	readonly kept: ReadonlyArray<number>
+	readonly rows: ReadonlyArray<ClosedRow>
+	readonly written: ReadonlyMap<ClosedRow, number>
 } => {
 	if (!isList(rows)) {
 		throw malformed(label, "rows: a list of the relation's facts")
@@ -695,19 +699,14 @@ const closedRows = (
 		desc,
 		handles: scalar.carrier === "code" ? new Set<LiteralDesc>(scalar.roster.handles) : undefined
 	}))
-	const keyFields =
-		isList(key) && key.every((k): k is string => typeof k === "string" && names.includes(k))
-			? key
-			: names
 	const shown = (value: LiteralDesc | undefined): string =>
 		typeof value === "string" ? value : canonicalTextOf(value)
-	const payloadOf = (row: Readonly<Record<string, LiteralDesc>>): string =>
+	const payloadOf = (row: ClosedRow): string =>
 		canonicalTextOf(
-			Object.fromEntries(names.filter((f) => !keyFields.includes(f)).map((f) => [f, row[f]]))
+			Object.fromEntries(names.filter((f) => !key.includes(f)).map((f) => [f, row[f]]))
 		)
-	const byKey = new Map<string, number>()
-	const out: Array<Readonly<Record<string, LiteralDesc>>> = []
-	const kept: Array<number> = []
+	const facts = new TupleMap<ReadonlyArray<string>, ClosedRow>()
+	const written = new Map<ClosedRow, number>()
 	for (const [i, row] of rows.entries()) {
 		if (!isPlainRecord(row)) {
 			throw malformed(label, `row ${i}: a fact, a record of a value per field`)
@@ -727,26 +726,21 @@ const closedRows = (
 			}
 			literals[field] = literal.value
 		}
-		const handles = keyFields.map((f) => literals[f])
-		const keyText = handles.every((h): h is string => typeof h === "string")
-			? handles.join("\u0000")
-			: canonicalTextOf(handles)
-		const earlier = byKey.get(keyText)
+		const handles = closedRowKey(key, literals)
+		const earlier = facts.get(handles)
 		if (earlier === undefined) {
-			byKey.set(keyText, out.length)
-			out.push(literals)
-			kept.push(i)
+			facts.set(handles, literals)
+			written.set(literals, i)
 			continue
 		}
-		const first = defined(out[earlier], "a row of a key seen")
-		if (payloadOf(first) !== payloadOf(literals)) {
+		if (!sameContent(earlier, literals)) {
 			throw malformed(
 				label,
-				`one fact per key; rows ${defined(kept[earlier], "the row's index")} and ${i} hold the key (${keyFields.map((f) => `${f} = ${shown(literals[f])}`).join(", ")}) with the payloads ${payloadOf(first)} and ${payloadOf(literals)}`
+				`one fact per key; rows ${defined(written.get(earlier), "the row's index")} and ${i} hold the key (${key.map((f) => `${f} = ${shown(literals[f])}`).join(", ")}) with the payloads ${payloadOf(earlier)} and ${payloadOf(literals)}`
 			)
 		}
 	}
-	return { rows: out, kept }
+	return { rows: [...facts.values()], written }
 }
 
 /** The admission core of closed.relation(...): a JavaScript caller's arguments checked and described. */
@@ -759,8 +753,8 @@ export const admitClosedRelation = (
 ): {
 	readonly desc: AdmittedClosedRelation
 	readonly described: Readonly<Record<string, Described>>
-	/** The index of each row of the set among those written (closedRows). */
-	readonly kept: ReadonlyArray<number>
+	/** The index of each fact's row among those written (closedRows). */
+	readonly written: ReadonlyMap<ClosedRow, number>
 } => {
 	const label = `closed.relation ${typeof name === "string" ? name : "?"}`
 	const relationName = requireName(name, label, "a closed relation name")
@@ -777,24 +771,26 @@ export const admitClosedRelation = (
 		}
 	}
 	const described = describedFields(descriptors, label)
-	const fieldDescs = fieldMap(described)
-	const facts = closedRows(rows, described, key, label)
 	/**
 	 * The description over the fields' decoded types, its caller's key and slots decoded as a decode of the whole
-	 * relation decodes them, without its rows, which closedRows proved, each a value of exactly the relation's fields as
-	 * literalFor reads it, one per key.
+	 * relation decodes them, before its rows, which closedRows proves over the key it holds, each a value of exactly the
+	 * relation's fields as literalFor reads it, one per key.
 	 */
 	const desc = orThrow(
 		closedRelationOver(
 			relationName,
-			fieldDescs,
+			fieldMap(described),
 			key,
 			keySlots(descriptors, key, label),
 			builderLoc(label, [relationName])
 		)
 	)
-	const admitted = recordAdmitted({ ...desc, rows: facts.rows })
-	return { desc: admitted, described, kept: facts.kept }
+	const facts = closedRows(rows, described, desc.key, label)
+	return {
+		desc: recordAdmitted({ ...desc, rows: facts.rows }),
+		described,
+		written: facts.written
+	}
 }
 
 /**
@@ -861,7 +857,13 @@ export const closedRelation = <
 			name,
 			fields: copied,
 			key: frozenTuple<Key>(key),
-			rows: Object.freeze(admitted.kept.map((i) => frozenCopy(defined(rows[i], "a kept row")))),
+			rows: Object.freeze(
+				admitted.desc.rows.map((fact) =>
+					frozenCopy(
+						defined(rows[defined(admitted.written.get(fact), "a fact's row")], "a fact's row")
+					)
+				)
+			),
 			fact: record<[Fields]>(copied),
 			heading: copied,
 			at: <const P extends PayloadFieldOf<Fields, readonly [...Key]>>(

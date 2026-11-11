@@ -20,7 +20,16 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint, double } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Order, pipe, Record as Rec, String as Str } from "effect"
+import {
+	Array as Arr,
+	Effect,
+	Formatter,
+	Option,
+	Order,
+	pipe,
+	Record as Rec,
+	String as Str
+} from "effect"
 import { appendAll, maxOf } from "#compiler/core/array.ts"
 import {
 	conjunctsOf,
@@ -674,19 +683,20 @@ describe("closed", () => {
 							const desc = admitted.desc
 							assert.deepEqual(desc.key, ["id"])
 							assert.deepEqual(desc.fields["id"], descOf(rawClosedId(Key)))
-							assert.equal(
-								desc.rows.length,
-								rowHandles.length,
-								"one fact per row, a repeat one fact"
+							const inSet = Arr.sort(rowHandles, Order.String)
+							assert.deepEqual(
+								Arr.map(desc.rows, (row) => row["id"]),
+								inSet,
+								"one fact per key, a repeat one fact, in the order of their keys"
 							)
 							assert.deepEqual(
-								admitted.kept,
-								Arr.map(rowHandles, (_, r) => r),
-								"each written row of the set kept once, in order"
+								Arr.map(desc.rows, (row) => admitted.written.get(row)),
+								Arr.map(inSet, (h) => rowHandles.indexOf(h)),
+								"each fact's row, the first written of its key"
 							)
-							for (const [r, h] of rowHandles.entries()) {
+							for (const h of rowHandles) {
 								const i = handles.indexOf(h)
-								const row = defined(desc.rows[r])
+								const row = Option.getOrThrow(Arr.findFirst(desc.rows, (r) => r["id"] === h))
 								assert.equal(row["id"], h)
 								for (const f of drawnPayload) {
 									const fieldDesc = descOf(payloadDescriptor(f.type))

@@ -228,10 +228,11 @@ export interface OwnedContract {
  * Semantic identity excludes allocation order, callback identity, aliases and source locations.
  * Equivalent declarations agree: a relation, closed relation or statement declared twice identically is one
  * declaration, and the canonical description sorts each level's relations by name and its statements by canonical
- * text. A statement is canonicalized first: a check's and a selection's conjunctions and disjunctions have their
- * operands in canonical order, each comparison its canonical orientation and each IN list its values in canonical
- * order, so that reordered but equal declarations share one text. Roster order is kept, because it is comparison
- * order. The fingerprint hashes that canonical description (core/fingerprint.ts schemaLevel).
+ * text, and a closed relation holds its rows as a set by key (ir/desc.ts AdmittedClosedRelation). A statement is
+ * canonicalized first: a check's and a selection's conjunctions and disjunctions have their operands in canonical
+ * order, each comparison its canonical orientation and each IN list its values in canonical order, so that reordered
+ * but equal declarations share one text. Roster order is kept, because it is comparison order. The fingerprint hashes
+ * that canonical description (core/fingerprint.ts schemaLevel).
  * PostgreSQL identifiers are part of the installation artifact, not of the fingerprint.
  *
  * The owned schema: the frozen schema product (desc and fingerprint, ir/products.ts) with what ownership resolved
@@ -484,25 +485,6 @@ type RosterDesc = Extract<RelationDesc, { readonly kind: "closed" }>
 
 /** An ordinary relation's Description. */
 type OrdinaryRelationOf = Extract<RelationDesc, { readonly kind: "relation" }>
-
-/** The text a closed relation's row is ordered by: its key fields' handles, in key order (ir/desc.ts holds them so). */
-const rowKeyText = (
-	r: AdmittedClosedRelation,
-	row: Readonly<Record<string, LiteralDesc>>
-): string =>
-	r.key
-		.map((f) => row[f])
-		.filter((v): v is string => typeof v === "string")
-		.join("\u0000")
-
-/** A closed relation with its rows in their key's text order, the one order a set of rows is held in. */
-const canonicalRows = (r: AdmittedClosedRelation): AdmittedClosedRelation => ({
-	...r,
-	rows: r.rows
-		.map((row) => ({ row, text: rowKeyText(r, row) }))
-		.toSorted((a, b) => compareText(a.text, b.text))
-		.map((e) => e.row)
-})
 
 /** The closedId a descriptor is, through any depth of contracts. */
 const closedIdBase = (desc: FieldDesc): (FieldDesc & { readonly kind: "closedId" }) | undefined =>
@@ -1064,13 +1046,12 @@ class Owner {
 
 	/**
 	 * Each relation a level declares: a derived one only above the base, and one declaration per name. A closed
-	 * relation's rows are a set, so they are held in one order, their key's text order, and two declarations of one set
-	 * of rows are one declaration.
+	 * relation's rows are a set (ir/desc.ts AdmittedClosedRelation), so two declarations of one set of rows are one
+	 * declaration.
 	 */
 	#collectRelations(): void {
 		for (const [level, schema] of this.#levels.entries()) {
-			for (const declared of schema.relations) {
-				const r = declared.kind === "closedRelation" ? canonicalRows(declared) : declared
+			for (const r of schema.relations) {
 				if (r.kind === "derived" && level === 0) {
 					fail(
 						"MalformedDescription",

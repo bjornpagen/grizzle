@@ -32,7 +32,8 @@ export interface MemberRelation {
  * A closed relation (closed.relation, or a roster, the closed relation whose one field `id` is a closed id of itself)
  * as a query and a closed read read it: its theory handle (`relation`), whose primary fields are its key in key order;
  * its heading, the key fields in key order, then the payload in canonical order; and its rows as typed literals in that
- * heading order, a roster's one per handle in roster order, any other's in its key's text order.
+ * heading order, a roster's one per handle in roster order, any other's in the order of its set of rows (ir/desc.ts
+ * AdmittedClosedRelation).
  */
 export interface ClosedRelation {
 	readonly kind: "closed"

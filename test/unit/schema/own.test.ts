@@ -72,6 +72,10 @@ import {
 } from "#test/unit/schema/support.ts"
 
 import { regex as arkregex } from "arkregex"
+
+/** The handles of Kind, a roster. */
+const kindHandles = ["Automatic", "Manual"] as const
+
 /**
  * Ownership: canonical FieldIds, conflict
  * detection, statements over a derived relation, scope rules, and a fingerprint that ignores allocation order and
@@ -81,7 +85,7 @@ import { regex as arkregex } from "arkregex"
  * breaks it, or one rewrite that keeps its meaning, over drawn names and shapes, and asserts the documented reason or
  * the documented invariance.
  */
-const Kind = closed("Kind", ["Automatic", "Manual"], [])
+const Kind = closed("Kind", kindHandles, [])
 const Account = relation("Account", { id: uuid, name: regex("^[a-z]{1,40}$", "u") }, ["id"], [])
 const Task = relation("Task", { id: uuid, account: uuid, kind: rawClosedId(Kind) }, ["id"], [])
 const AutomaticTask = relation("AutomaticTask", { task: uuid, budget: rawPg.bigint }, ["task"], [])
@@ -214,7 +218,30 @@ const limitsPredicate = (r: LimitsRow, p: LimitsPredicate, rewrite: boolean): un
 const hasOrder = (p: LimitsPredicate): boolean =>
 	(p.kind === "and" || p.kind === "or") && (p.args.length > 1 || Arr.some(p.args, hasOrder))
 
-type MeaningChange = "none" | "roster order" | "check predicate"
+type MeaningChange = "none" | "roster order" | "check predicate" | "closed row"
+
+/** The handles of Level, a roster, which keys Grade beside Kind. */
+const levelHandles = ["Low", "Mid", "High"] as const
+
+/** The keys of Grade, a closed relation keyed by Kind and Level: every pair of their handles. */
+const gradeKeys = Arr.flatMap(levelHandles, (level) =>
+	Arr.map(kindHandles, (kind) => ({ kind, level }))
+)
+
+/**
+ * The fact of Grade's key number `i`: its weight `i`, or, where `heavier` holds, a weight no key's fact holds, which
+ * changes the fact.
+ */
+const gradeFact = (i: number, heavier: boolean) => ({
+	...defined(gradeKeys[i], "a key of Grade"),
+	weight: heavier ? gradeKeys.length + i : i
+})
+
+/** Grade's key numbers, in the order its written form writes its rows. */
+const gradeOrder = Arr.map(gradeKeys, (_, i) => i)
+
+/** The places of the fingerprint search's relations in its written form: Kind, Level, Grade, Account, Task, Limits. */
+const relationPlaces = [0, 1, 2, 3, 4, 5]
 
 describe("the owned product", () => {
 	const Limits = relation(
@@ -231,9 +258,11 @@ describe("the owned product", () => {
 	type FingerprintFeature =
 		| Exclude<MeaningChange, "none">
 		| "reordered check operands"
+		| "reordered closed rows"
 		| "repeated statements"
 		| "an extension"
 
+	const Level = closed("Level", [...levelHandles], [])
 	it.effect(
 		"fingerprints canonical content: order, repeats and locations drop out, meaning does not, and the canonical description owns to it",
 		(ctx) =>
@@ -245,15 +274,18 @@ describe("the owned product", () => {
 						suite: "unit/schema/fingerprint",
 						draw: drawn((source) => ({
 							relationOrder: source.draw(
-								shuffled([0, 1, 2, 3], { min: 4, max: [0, 1, 2, 3].length })
+								shuffled(relationPlaces, { min: relationPlaces.length, max: relationPlaces.length })
 							),
 							statements: source.draw(shuffled([0, 1, 2], { min: 0, max: [0, 1, 2].length })),
+							rows: source.draw(
+								shuffled(gradeOrder, { min: gradeOrder.length, max: gradeOrder.length })
+							),
 							rewriteOrder: source.draw(int(0, 4)),
 							repeats: source.draw(boolean),
 							predicate: source.draw(limitsPredicateGen(2)),
 							extended: source.draw(boolean),
 							change: source.draw(
-								element<MeaningChange>(["none", "roster order", "check predicate"])
+								element<MeaningChange>(["none", "roster order", "check predicate", "closed row"])
 							)
 						})),
 						literal: Formatter.format,
@@ -261,7 +293,9 @@ describe("the owned product", () => {
 							[
 								"roster order",
 								"check predicate",
+								"closed row",
 								"reordered check operands",
+								"reordered closed rows",
 								"repeated statements",
 								"an extension"
 							],
@@ -277,9 +311,25 @@ describe("the owned product", () => {
 					(s, c) =>
 						Effect.sync(() => {
 							const relations = (
-								roster: AnyClosed
+								roster: AnyClosed,
+								rewrite: boolean,
+								changed: boolean
 							): ReadonlyArray<readonly [string, AnyRelation | AnyClosed]> => [
 								["Kind", roster],
+								["Level", Level],
+								[
+									"Grade",
+									closedRelation(
+										"Grade",
+										{ kind: rawClosedId(roster), level: rawClosedId(Level), weight: rawPg.integer },
+										["kind", "level"],
+										Arr.map(
+											rewrite ? (s.repeats ? [...s.rows, ...s.rows] : s.rows) : gradeOrder,
+											(i) => gradeFact(i, changed && i === 0)
+										),
+										[]
+									)
+								],
 								["Account", Account],
 								["Task", Task],
 								["Limits", Limits]
@@ -297,10 +347,9 @@ describe("the owned product", () => {
 									changed && s.change === "roster order"
 										? closed("Kind", ["Manual", "Automatic"], [])
 										: Kind
+								const declared = relations(roster, rewrite, changed && s.change === "closed row")
 								const record = Record.fromEntries(
-									rewrite
-										? Arr.map(s.relationOrder, (i) => defined(relations(roster)[i]))
-										: relations(roster)
+									rewrite ? Arr.map(s.relationOrder, (i) => defined(declared[i])) : declared
 								)
 								const chosen = Arr.map(s.statements, (i) => defined(optional[i]))
 								const statements = [
@@ -334,16 +383,27 @@ describe("the owned product", () => {
 							if (hasOrder(s.predicate)) {
 								c.note("reordered check operands")
 							}
+							if (Arr.some(s.rows, (row, i) => row !== gradeOrder[i])) {
+								c.note("reordered closed rows")
+							}
 							/** The rewritten form owned from its description, relations and statements of every level reversed. */
 							const reversed = (d: SchemaDesc): SchemaDesc => ({
 								...d,
-								relations: Arr.reverse([...d.relations]),
+								relations: Arr.reverse(
+									Arr.map(d.relations, (r) =>
+										r.kind === "closedRelation" ? { ...r, rows: Arr.reverse([...r.rows]) } : r
+									)
+								),
 								statements: Arr.reverse([...d.statements]),
 								extends: d.extends === undefined ? undefined : reversed(d.extends)
 							})
 							const written = succeeded(ownValue(declare("written")))
 							const rewritten = succeeded(ownValue(reversed(descOf(declare("rewritten")))))
 							assert.equal(rewritten.fingerprint, written.fingerprint)
+							assert.equal(
+								succeeded(ownValue(declare("rewritten"))).fingerprint,
+								written.fingerprint
+							)
 							assert.equal(rewritten.statements.length, written.statements.length)
 							assert.equal(Object.isFrozen(written.desc), true)
 							assert.equal(succeeded(own(written.desc)).fingerprint, written.fingerprint)

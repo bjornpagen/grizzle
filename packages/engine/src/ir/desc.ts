@@ -23,6 +23,7 @@ import {
 import { compareStrings, type Direction, directions } from "#compiler/core/order.ts"
 import { deepFreeze } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
+import { type CanonicalSet, tupleKeyedSet } from "#compiler/core/set.ts"
 import { isValidText } from "#compiler/core/text.ts"
 import { TupleMap } from "#compiler/core/tuple-map.ts"
 import {
@@ -944,8 +945,8 @@ export type RelationDesc<L = Located> = L &
 				 * product of closed ids.
 				 */
 				readonly slots: ReadonlyArray<KeySlotDesc>
-				/** Each row a value of every field, its key fields' values handles of their rosters. */
-				readonly rows: ReadonlyArray<Readonly<Record<string, LiteralDesc>>>
+				/** Each row a value of every field, its key fields' values handles of their rosters, as written. */
+				readonly rows: ReadonlyArray<ClosedRow>
 		  }
 		| {
 				readonly kind: "derived"
@@ -966,6 +967,9 @@ export type RelationDesc<L = Located> = L &
  */
 const derivedStorages = ["live", "materialized"] as const
 export type DerivedStorage = (typeof derivedStorages)[number]
+
+/** A closed relation's row: a value of each of its fields. */
+export type ClosedRow = Readonly<Record<string, LiteralDesc>>
 
 /**
  * Whether a role holds a relation: whether PostgreSQL holds its rows, so neither a closed relation, whose rows are its
@@ -1952,35 +1956,49 @@ const rowKeyValues = (
 
 declare const admittedBrand: unique symbol
 
+/** A closed relation's description as written, its rows a list. */
+type WrittenClosedRelation = Extract<RelationDesc, { readonly kind: "closedRelation" }>
+
 /**
  * A closed relation's description as its admission made it, the brand's doors being closed.relation()'s
  * (schema/relation.ts admitClosedRelation) and a decoded schema's (schema/admit.ts): its rows proved there, one per
  * key, each a value of exactly the relation's fields and of each field's base type, a closed id one of its roster's
- * handles, and the rest decoded. A refinement a field's type carries (a contract's predicate, a pattern) is judged
- * where the schema is checked, which alone reads a contract's predicate.
+ * handles, and the rest decoded. Its rows are a set told apart by their keys' handles (core/set.ts tupleKeyedSet), so
+ * their order is never the order they were written in. A refinement a field's type carries (a contract's predicate, a
+ * pattern) is judged where the schema is checked, which alone reads a contract's predicate.
  */
-export type AdmittedClosedRelation = Extract<RelationDesc, { readonly kind: "closedRelation" }> & {
+export type AdmittedClosedRelation = Omit<WrittenClosedRelation, "rows"> & {
+	readonly rows: CanonicalSet<ClosedRow>
 	readonly [admittedBrand]: true
 }
 
 const mintAdmitted = nominal<
-	Extract<RelationDesc, { readonly kind: "closedRelation" }>,
+	Omit<WrittenClosedRelation, "rows"> & { readonly rows: CanonicalSet<ClosedRow> },
 	AdmittedClosedRelation
 >()
 
 /**
- * The brand's one mint: a closed relation's description its caller admitted (closed.relation()'s admission, or its
- * schema's), frozen with its rows. The brand is the type alone: a description that crosses a decode is a caller's,
- * and its decode admits it again.
+ * A closed row's key: its key fields' handles, in key order, its identity among its relation's rows. Each admission
+ * door proves every key cell a handle before it reads a row's key, so a cell that is none is a defect.
  */
-export const recordAdmitted = (
-	desc: Extract<RelationDesc, { readonly kind: "closedRelation" }>
-): AdmittedClosedRelation => {
+export const closedRowKey = (
+	key: NonEmptyReadonlyArray<string>,
+	row: ClosedRow
+): ReadonlyArray<string> =>
+	defined(rowKeyValues(key, row), "an admitted closed relation's key cells are handles")
+
+/**
+ * The brand's one mint: a closed relation's description its caller admitted (closed.relation()'s admission, or its
+ * schema's), frozen, its rows the set of the rows written, one per key, in the order of their keys' canonical texts.
+ * The brand is the type alone: a description that crosses a decode is a caller's, and its decode admits it again.
+ */
+export const recordAdmitted = (desc: WrittenClosedRelation): AdmittedClosedRelation => {
 	for (const row of desc.rows) {
 		Object.freeze(row)
 	}
-	Object.freeze(desc.rows)
-	return mintAdmitted(Object.freeze(desc))
+	return mintAdmitted(
+		Object.freeze({ ...desc, rows: tupleKeyedSet(desc.rows, (row) => closedRowKey(desc.key, row)) })
+	)
 }
 
 /** What a closed relation's fields must be: at least one, each one a closed relation admits (closedFieldAdmits). */
