@@ -1,7 +1,9 @@
 /**
  * The client over HTTP answers what the in-process calls answer (packages/grizzle/src/client): over a schema of items
  * whose fields are an int4 key, an int8, a numeric(12, 2), a money and a boolean, its stored items and every call drawn,
- * served as an application serves it (its committed file, its DbLayer, the HTTP handler over the layer), each case
+ * installed and served as an application deploys it (test/support/install-migrate.ts installGenerated: drafted with
+ * its login's served workload, so its installation's live source routes the reads; its served file, its DbLayer given
+ * that source, the HTTP handler over the layer), each case
  * calls one member of the login's role both ways: through the typed client, clientOf<typeof Login> over the login's
  * OpenAPI document and handlerClient(handler), and through the same layer's in-process calls (adapter/db/handles.ts
  * memberCalls), the oracle:
@@ -41,11 +43,14 @@ import { query, v } from "#compiler/public/query.ts"
 import { mutable, relation, schema } from "#compiler/public/schema.ts"
 import { paged } from "#compiler/public/workload.ts"
 import { httpHandler } from "#http/index.ts"
-import { installed } from "#test/pg/reads/support.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, unorderedEqual } from "#test/support/assert.ts"
+import { installGenerated, loadMigrated } from "#test/support/install-migrate.ts"
 import { caseHang, testTimeout } from "#test/support/limits.ts"
+import { servedFixtureOf } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
+import { fullWorld } from "#test/support/worlds.ts"
 
 const Item = relation(
 	"Item",
@@ -59,6 +64,9 @@ const Item = relation(
 	["id"]
 )
 const Items = schema("Items", { Item }, [mutable(Item)])
+
+/** The items' schema under the name `name` an installation is allocated, over the same relation. */
+const itemsNamed = (name: string) => schema(name, { Item }, [mutable(Item)])
 
 /** An item as stored and as a call states it. */
 type ItemFact = Readonly<{ id: number; big: bigint; amount: Decimal; cash: Money; flag: boolean }>
@@ -270,16 +278,26 @@ layer(Substrate.layer, { excludeTestServices: true })("the client over HTTP", (i
 				},
 				({ stored, call, write }, notes) =>
 					Effect.gen(function* () {
-						const o = yield* installed(
-							Items,
-							{ Item: stored },
-							{ label: "client", extensions: [], programs }
+						const generated = yield* installGenerated(
+							(name) => ({
+								schema: itemsNamed(name),
+								logins: [fullWorld(itemsNamed(name), programs).server]
+							}),
+							{ label: "client", ambient: ordinarySession }
+						)
+						const installed = generated.installed
+						yield* loadMigrated(installed, { Item: stored })
+						const world = fullWorld(itemsNamed(installed.declared), programs)
+						const served = servedFixtureOf(
+							installed,
+							world.server,
+							defined(generated.served.get(world.server.name), "the login's served file")
 						)
 						const printed = () => Formatter.format({ stored, call, write })
 						if (Arr.some(stored, (item) => item.big > 2n ** 53n || item.big < -(2n ** 53n))) {
 							notes.note("an int8 past 2^53")
 						}
-						const login = o.served.login
+						const login = served.login
 						yield* Effect.gen(function* () {
 							const handler = yield* httpHandler({
 								logins: [login],
@@ -289,9 +307,9 @@ layer(Substrate.layer, { excludeTestServices: true })("the client over HTTP", (i
 							if (!text.ok) {
 								return assert.fail(`the login's document is written\n${printed()}`)
 							}
-							const client = clientOf<typeof o.server>(
+							const client = clientOf<typeof world.server>(
 								trustedJson<unknown>(text.value),
-								o.server.name,
+								world.server.name,
 								{
 									url: new URL(origin)
 								}
@@ -426,7 +444,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the client over HTTP", (i
 									}
 								})
 							)
-						}).pipe(withLayer(o.served.layer))
+						}).pipe(withLayer(served.layer))
 					}).pipe(Effect.scoped, Effect.orDie)
 			)
 		)

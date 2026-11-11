@@ -3129,6 +3129,7 @@ type StatementShape =
 	| "function"
 	| "do"
 	| "comment"
+	| "publication"
 	| "other"
 
 const statementShape = (tokens: ReadonlyArray<Token>): StatementShape => {
@@ -3162,6 +3163,9 @@ const statementShape = (tokens: ReadonlyArray<Token>): StatementShape => {
 	}
 	if (w(0) === "COMMENT" && w(1) === "ON") {
 		return "comment"
+	}
+	if ((w(0) === "CREATE" || w(0) === "ALTER") && w(1) === "PUBLICATION") {
+		return "publication"
 	}
 	return "other"
 }
@@ -3334,6 +3338,10 @@ class TextAuditor {
 	 *
 	 * RAISE [level] '<format>'.
 	 *
+	 * CREATE PUBLICATION ... WITH (<parameter> = '<value>') and ALTER PUBLICATION ... SET (<parameter> = '<value>'): a
+	 * publication parameter's value is a string constant of the publication's own option grammar, which takes no
+	 * expression there (`publish = 'insert'::text` is a syntax error).
+	 *
 	 * The body of CREATE FUNCTION ... AS $tag$ ... $tag$, or of DO $tag$ ... $tag$, is PL/pgSQL, audited the
 	 * same way.
 	 *
@@ -3385,6 +3393,9 @@ class TextAuditor {
 					break
 				}
 				if (shape === "comment" && isWord(prev, "IS")) {
+					break
+				}
+				if (shape === "publication" && prev?.kind === "operator" && prev.text === "=") {
 					break
 				}
 				/**
