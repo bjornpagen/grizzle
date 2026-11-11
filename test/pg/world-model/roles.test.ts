@@ -2,7 +2,7 @@ import { layer } from "@effect/vitest"
 import { type Branch, enumerated, firstBranch } from "@grizzle/testing/enumerate"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
-import { element, filter, type Gen, oneOf } from "@grizzle/testing/gen"
+import { element, type Gen, oneOf } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import { ordinarySession } from "#test/support/ambient.ts"
@@ -260,7 +260,21 @@ const firstUses: Arr.NonEmptyReadonlyArray<FieldUse> = [
 	"free"
 ]
 const allUses: Arr.NonEmptyReadonlyArray<FieldUse> = [...firstUses, "head-again"]
+/** The first uses that bind no head variable. */
+const unheadedFirsts: Arr.NonEmptyReadonlyArray<FieldUse> = [
+	"literal",
+	"claim-term",
+	"claim-var",
+	"unnamed",
+	"free"
+]
+/** The second uses that make the second field a head variable after a first use that bound none. */
+const headedSeconds: Arr.NonEmptyReadonlyArray<FieldUse> = ["head", "head-again"]
+/** The second uses that bind no head variable. */
+const unheadedSeconds: Arr.NonEmptyReadonlyArray<FieldUse> = unheadedFirsts
 const extras: Arr.NonEmptyReadonlyArray<HeadExtra> = ["none", "literal", "claim", "duplicate"]
+/** The extras that add a field of their own, which a head with no head variable holds. */
+const fieldExtras: Arr.NonEmptyReadonlyArray<HeadExtra> = ["literal", "claim"]
 const members: Arr.NonEmptyReadonlyArray<Member> = [
 	"none",
 	"join",
@@ -272,30 +286,60 @@ const members: Arr.NonEmptyReadonlyArray<Member> = [
 ]
 const targetNames: Arr.NonEmptyReadonlyArray<Target> = ["P", "Q"]
 
-/** One arm's shapes, every combination of target, field uses, head extra and further member. */
+/**
+ * The field uses and head extra of a shape whose head holds a field, every such pair once: T's first field written by a
+ * head variable, with any second use; its second field the first head variable (a head or a head-again use after a
+ * first that is none); or no head variable, with an extra that is a field of its own (a literal or a context term). A
+ * duplicate extra repeats the first head variable, so it stands only beside one; a shape whose head holds no field is
+ * no entry, and none is drawn.
+ */
+const headed = (
+	extrasDrawn: Gen<HeadExtra>,
+	bare: Gen<HeadExtra>
+): Gen<Pick<Shape, "uses" | "extra">> =>
+	oneOf([
+		(source) => ({
+			uses: ["head", source.draw(element(allUses))],
+			extra: source.draw(extrasDrawn)
+		}),
+		(source) => ({
+			uses: [source.draw(element(unheadedFirsts)), source.draw(element(headedSeconds))],
+			extra: source.draw(extrasDrawn)
+		}),
+		(source) => ({
+			uses: [source.draw(element(unheadedFirsts)), source.draw(element(unheadedSeconds))],
+			extra: source.draw(bare)
+		})
+	])
+
+/** One arm's shapes, every combination of target, headed field uses and extra, and further member. */
 const oneArm: Gen<Shape> = (source) => ({
 	target: source.draw(element(targetNames)),
-	uses: [source.draw(element(firstUses)), source.draw(element(allUses))],
-	extra: source.draw(element(extras)),
+	...source.draw(headed(element(extras), element(fieldExtras))),
 	member: source.draw(element(members)),
 	arms: 1
 })
 
-/** Two arms' shapes, of each target's field uses. */
-const twoArms: Gen<Shape> = (source) => ({
-	target: source.draw(element(targetNames)),
-	uses: [source.draw(element(firstUses)), source.draw(element(allUses))],
-	extra: "none",
-	member: "none",
-	arms: 2
-})
+/** Two arms' shapes, of each target's headed field uses, their head adding nothing. */
+const twoArms: Gen<Shape> = oneOf([
+	(source): Shape => ({
+		target: source.draw(element(targetNames)),
+		uses: ["head", source.draw(element(allUses))],
+		extra: "none",
+		member: "none",
+		arms: 2
+	}),
+	(source): Shape => ({
+		target: source.draw(element(targetNames)),
+		uses: [source.draw(element(unheadedFirsts)), source.draw(element(headedSeconds))],
+		extra: "none",
+		member: "none",
+		arms: 2
+	})
+])
 
-/** Every shape whose head holds a field; a shape whose head holds none is no entry, never a case. */
-const shapes: Gen<Shape> = filter(
-	oneOf([oneArm, twoArms]),
-	(s) => Rec.keys(ruleOfShape(s).head).length > 0,
-	1
-)
+/** Every shape whose head holds a field: each one an entry. */
+const shapes: Gen<Shape> = oneOf([oneArm, twoArms])
 
 /** Every case of a bounded generator, in the order an exhaustion meets them. */
 const boxOf = <A>(generator: Gen<A>): ReadonlyArray<A> => {
@@ -303,9 +347,7 @@ const boxOf = <A>(generator: Gen<A>): ReadonlyArray<A> => {
 	let branch: Option.Option<Branch> = Option.some(firstBranch)
 	while (Option.isSome(branch)) {
 		const step = enumerated(generator, branch.value)
-		if (step.generated.tape.status !== "discarded") {
-			box.push(step.generated.value)
-		}
+		box.push(step.generated.value)
 		branch = step.next
 	}
 	return box
@@ -481,7 +523,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the worlds model: roles",
 						const opened = new Set<string>()
 						return yield* exhaust(
 							{
-								box: { kind: "unstated" },
+								box: "every entry over P and Q, of one arm or two, whose head holds a field: each target, each use of its two fields, each head extra and each further member of one arm, the two arms' heads adding nothing",
 								suite: "pg/world-model/roles",
 								generator: shapes,
 								literal: Formatter.format,

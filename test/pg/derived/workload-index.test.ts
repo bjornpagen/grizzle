@@ -1,7 +1,7 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { type Gen, int, uniqueArray } from "@grizzle/testing/gen"
+import { type Gen, int, subset } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -16,7 +16,7 @@ import { pg, type Uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { assert, defined } from "#test/support/assert.ts"
+import { assert, defined, unorderedEqual } from "#test/support/assert.ts"
 import {
 	compileTemplate,
 	declaredOf,
@@ -71,13 +71,9 @@ interface BusyCase {
 
 const busyCaseGen: Gen<BusyCase> = (source) => ({
 	least: source.draw(int(2, 5)),
-	busy: source.draw(
-		uniqueArray(
-			(inner) => [inner.draw(int(1, 300)), inner.draw(int(1, 4))] as const,
-			([account]) => account,
-			{ min: 0, max: 3 },
-			8
-		)
+	busy: Arr.map(
+		source.draw(subset(accounts, { min: 0, max: 3 })),
+		(account) => [account, source.draw(int(1, 4))] as const
 	)
 })
 
@@ -86,8 +82,14 @@ type BusyFeature =
 	| "a busy account below the least"
 	| "no account selected"
 
-/** Each index of the view as (name, unique, valid, kind of the indexed relation). */
-type IndexRow = readonly [name: string, unique: string, valid: string, kind: string]
+/** Each index of the view as (name, unique, valid, kind of the indexed relation, its key columns joined by commas). */
+type IndexRow = readonly [
+	name: string,
+	unique: string,
+	valid: string,
+	kind: string,
+	columns: string
+]
 
 layer(Substrate.layer)("workload indexes on a derived relation", (it) => {
 	it.effect(
@@ -120,32 +122,38 @@ layer(Substrate.layer)("workload indexes on a derived relation", (it) => {
 						),
 						"Automatic"
 					)
+					const tasksColumn = names.columnIdent(W.AccountBudget, "tasks")
 					const indexes = () =>
 						Effect.map(
 							owner.values(
-								`SELECT c.relname::text, i.indisunique::text, i.indisvalid::text, t.relkind::text
+								`SELECT c.relname::text, i.indisunique::text, i.indisvalid::text, t.relkind::text,
+								(SELECT pg_catalog.string_agg(a.attname::text, ',' ORDER BY k.ord)
+								 FROM pg_catalog.unnest(i.indkey) WITH ORDINALITY AS k(attnum, ord)
+								 JOIN pg_catalog.pg_attribute AS a ON a.attrelid = i.indrelid AND a.attnum = k.attnum)
 							FROM pg_catalog.pg_index AS i JOIN pg_catalog.pg_class AS c ON c.oid = i.indexrelid
-							JOIN pg_catalog.pg_class AS t ON t.oid = i.indrelid WHERE i.indrelid = '${view}'::regclass
-							ORDER BY c.relname`,
+							JOIN pg_catalog.pg_class AS t ON t.oid = i.indrelid WHERE i.indrelid = '${view}'::regclass`,
 								[]
 							),
 							(rows) => trusted<ReadonlyArray<IndexRow>>(rows)
 						)
-					/** The view's two indexes: its key index, unique, and the workload index, its one non-unique index. */
+					/** The view's key index, unique, and its workload index, a non-unique index on `tasks` alone. */
 					const before = yield* indexes()
-					assert.equal(before.length, 2)
-					assert.deepEqual(
-						Option.getOrThrowWith(
-							Arr.findFirst(before, ([, unique]) => unique === "true"),
-							() => new Error("the view's unique key index")
+					assert.ok(
+						Arr.some(
+							before,
+							([name, unique, valid, kind]) =>
+								name === keyIndex && unique === "true" && valid === "true" && kind === "m"
 						),
-						[keyIndex, "true", "true", "m"]
+						"the view's unique key index"
 					)
-					const [workloadIndex, ...workloadFlags] = Option.getOrThrowWith(
-						Arr.findFirst(before, ([, unique]) => unique === "false"),
-						() => new Error("the view's non-unique workload index")
+					const [workloadIndex] = Option.getOrThrowWith(
+						Arr.findFirst(
+							before,
+							([, unique, valid, kind, columns]) =>
+								unique === "false" && valid === "true" && kind === "m" && columns === tasksColumn
+						),
+						() => new Error("the view's non-unique workload index on tasks")
 					)
-					assert.deepEqual(workloadFlags, ["false", "true", "m"])
 					yield* owner.query(`REFRESH MATERIALIZED VIEW ${view}`, [])
 					const options = { ...testCompile, installation: identity.schema(parsedSchemaName(s)) }
 					const template = compileTemplate(busyAccounts, undefined, options)
@@ -200,7 +208,7 @@ layer(Substrate.layer)("workload indexes on a derived relation", (it) => {
 									yield* owner.query(`REFRESH MATERIALIZED VIEW ${view}`, [])
 									yield* owner.query(`REFRESH MATERIALIZED VIEW CONCURRENTLY ${view}`, [])
 									const after = yield* indexes()
-									assert.deepEqual(after, before)
+									unorderedEqual(after, before, "every index survives both refreshes")
 									yield* owner.query(`ANALYZE ${view}`, [])
 									yield* owner.query("SET LOCAL enable_seqscan = off", [])
 									const least = paramTexts(

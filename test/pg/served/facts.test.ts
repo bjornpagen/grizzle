@@ -1,7 +1,7 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { element, type Gen, int, uniqueArray } from "@grizzle/testing/gen"
+import { element, type Gen, int, shuffled } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -78,31 +78,32 @@ type Feature =
 	| "a member's facts omitted"
 	| "the put's and delete's facts swapped"
 
-const itemsGen = (ids: Gen<number>): Gen<ReadonlyArray<ItemFact>> =>
-	uniqueArray(
-		(drawing) => ({ id: drawing.draw(ids), score: drawing.draw(int(-5, 5)) }),
-		(i) => i.id,
-		{ min: 1, max: 5 },
-		50
-	)
+/** Between one and five items of distinct ids among `ids`, in the order drawn, each with a score. */
+const itemsGen =
+	(ids: ReadonlyArray<number>): Gen<ReadonlyArray<ItemFact>> =>
+	(source) =>
+		Arr.map(source.draw(shuffled(ids, { min: 1, max: 5 })), (id) => ({
+			id,
+			score: source.draw(int(-5, 5))
+		}))
+
+/** The ids stored items take, and the ids a call's puts take, which no stored item shares. */
+const storedIds = Arr.range(1, 40)
+const putIds = Arr.range(41, 80)
+
+/** Every label a call may insert: each item 1 to 6 under each tag. */
+const labelFacts: ReadonlyArray<LabelFact> = Arr.flatMap(Arr.range(1, 6), (item) =>
+	Arr.map(tags, (tag) => ({ item, tag }))
+)
 
 const caseGen: Gen<FactsCase> = (source) => {
-	const stored = source.draw(itemsGen(int(1, 40)))
+	const stored = source.draw(itemsGen(storedIds))
 	const deleted = source.draw(int(1, stored.length))
 	return {
 		stored,
 		facts: {
-			insert: {
-				Label: source.draw(
-					uniqueArray(
-						(drawing) => ({ item: drawing.draw(int(1, 6)), tag: drawing.draw(element(tags)) }),
-						(l) => `${l.item} ${l.tag}`,
-						{ min: 1, max: 5 },
-						50
-					)
-				)
-			},
-			put: { Item: source.draw(itemsGen(int(41, 80))) },
+			insert: { Label: source.draw(shuffled(labelFacts, { min: 1, max: 5 })) },
+			put: { Item: source.draw(itemsGen(putIds)) },
 			delete: { Item: Arr.take(stored, deleted) }
 		}
 	}

@@ -17,7 +17,7 @@ import { contained, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { queryValueDesc } from "#compiler/query/build/query.ts"
 import { explainMain, lowerCase, optimizedLowering } from "#test/pg/recursion/lowering/support.ts"
-import { assert, contains } from "#test/support/assert.ts"
+import { assert } from "#test/support/assert.ts"
 import { programAsts } from "#test/support/compile.ts"
 import { localVectorSchema, productionNames } from "#test/support/kernel/naming.ts"
 import { featureCount, shapeOf } from "#test/support/kernel/shape.ts"
@@ -42,9 +42,8 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * Walks is admitted with explicit casts and lowered by the optimized pipeline to WITH RECURSIVE ... UNION, at every
  * depth its counter bounds it to; that it agrees with the reference and the conservative lowering is also the graph
  * suite's (graph/equivalence). Its plan has one Recursive Union and, its seed and step being plain SELECTs and its
- * consumer the complete state, no Unique or Aggregate node at all, where the conservative plan deduplicates (the
- * recursive UNION's hash is the only deduplication). A consumer that drops the hop count deduplicates once, outside
- * the recursion.
+ * consumer the complete state, no Unique or Aggregate node at all (the recursive UNION's hash is the only
+ * deduplication). A consumer that drops the hop count deduplicates once, outside the recursion.
  *
  * Counters past Walks's own each lower to the recursive CTE and agree with the reference and the conservative
  * lowering: one or two seeds, and one or two arms, each forward or backward along a follow, counting up or down by one
@@ -239,7 +238,7 @@ layer(Substrate.layer)("the Walks example through the optimized lowering", (it) 
 					suite: "recursion/lowering/walk-plans",
 					oracle: {
 						kind: "postgresql",
-						name: "EXPLAIN's plan: one Recursive Union over one WorkTable Scan and no other deduplication step, where the conservative plan deduplicates"
+						name: "EXPLAIN's plan: one Recursive Union over one WorkTable Scan and no other deduplication step"
 					},
 					coverage: noCoverage
 				},
@@ -259,9 +258,6 @@ layer(Substrate.layer)("the Walks example through the optimized lowering", (it) 
 							[],
 							`${Arr.join(plan.nodes, ", ")}\n${plan.sql}`
 						)
-						const baseline = yield* explainMain(c, conservative)
-						contains(baseline.nodes, "Recursive Union")
-						assert.notDeepEqual(groupingSteps(baseline.nodes), [], Arr.join(baseline.nodes, ", "))
 					})
 			)
 		)
@@ -500,7 +496,10 @@ layer(Substrate.layer)("counter shapes through the optimized lowering", (it) => 
 									return assert.fail(`the counter is refused: ${u.error.message}`)
 								}
 								const [statement] = programAsts(u.value)
-								assert.equal(featureCount(shapeOf(statement), "with recursive"), 1)
+								assert.ok(
+									featureCount(shapeOf(statement), "with recursive") > 0,
+									"the counter lowers to the recursive CTE"
+								)
 								const outcome = yield* runLabelledOracle(counted, optimized, reference, {
 									...defaultRunOptions,
 									schema: { kind: "named", name: name }

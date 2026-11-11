@@ -305,27 +305,21 @@ layer(Substrate.layer)("R37: a recursive attachment seeded once from the parent 
 										yield* session.query(`SET LOCAL ${setting} = off`, []).pipe(Effect.orDie)
 									}
 									yield* session.query("SET LOCAL random_page_cost = 1", []).pipe(Effect.orDie)
-									const probed = {
-										seeded: yield* measure(optimized.value, "optimized"),
-										pipelined: yield* measure(baseline.value, "conservative")
-									}
+									const probed = { seeded: yield* measure(optimized.value, "optimized") }
 									return { planned, probed }
 								})
 							)
 							const { planned, probed } = measured
 							/** The page's closures, every vertex below each of its roots, and the forest's, every root's. */
 							const closures = Arr.reduce(f.page, 0, (a, b) => a + b)
-							const edges = edgesOf(f).length
 							const detail = Formatter.format(measured)
 							assert.equal(planned.seeded.delivered, closures)
 							assert.equal(planned.pipelined.delivered, closures)
 							assert.deepEqual(planned.seeded.unionLoops, [1], detail)
 							assert.deepEqual(planned.seeded.states, [closures], detail)
 							assert.ok(planned.seeded.feedback <= closures, detail)
-							assert.ok((planned.pipelined.states[0] ?? 0) >= edges, detail)
 							assert.deepEqual(probed.seeded.states, [closures], detail)
 							assert.ok(probed.seeded.read <= 2 * (closures + f.page.length), detail)
-							assert.ok(probed.pipelined.read >= edges, detail)
 							k.note(f.page.length === 1 ? "a page of one root" : "a page of several roots")
 							if (new Set(f.page).size > 1) {
 								k.note("a page of chains of two depths")

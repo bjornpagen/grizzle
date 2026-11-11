@@ -26,17 +26,23 @@ import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { materializedDerived as runtimeDerived } from "#compiler/schema/relation.ts"
-import { printObjectName, printType, quoteIdent } from "#compiler/sql/print.ts"
+import { printObjectName, printType } from "#compiler/sql/print.ts"
 import { textLookup } from "#compiler/text/refinement.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { assert, nonEmpty, defined as present, succeeded } from "#test/support/assert.ts"
+import {
+	assert,
+	nonEmpty,
+	defined as present,
+	succeeded,
+	unorderedEqual
+} from "#test/support/assert.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import {
 	type Installed,
 	installMigrated as install,
 	loadMigrated as load
 } from "#test/support/install-migrate.ts"
-import { namesOf, parsedName } from "#test/support/kernel/naming.ts"
+import { namesOf, parsedName, roleNamesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { checkedIn } from "#test/support/policy.ts"
 import { compiledPattern } from "#test/support/regex.ts"
@@ -624,13 +630,14 @@ layer(Substrate.layer)("derived relations on PostgreSQL 19", (it) => {
 									return `${domain.schema}.${domain.name}`
 								}
 								const rows = yield* owner.values(
-									`SELECT a.attname::text, a.atttypid::regtype::text, a.attcollation::regcollation::text FROM pg_catalog.pg_attribute AS a WHERE a.attrelid = '${view}'::regclass AND a.attnum > 0 ORDER BY a.attnum`,
+									`SELECT a.attname::text, a.atttypid::regtype::text, a.attcollation::regcollation::text FROM pg_catalog.pg_attribute AS a WHERE a.attrelid = '${view}'::regclass AND a.attnum > 0`,
 									[]
 								)
-								assert.deepEqual(rows, [
-									["first", typeOf(c.first), "pg_c_utf8"],
-									["id", "uuid", "-"],
-									["second", typeOf(c.second), "pg_c_utf8"]
+								const column = (field: string) => installed.names.column("Literals", field)
+								unorderedEqual(rows, [
+									[column("first"), typeOf(c.first), "pg_c_utf8"],
+									[column("id"), "uuid", "-"],
+									[column("second"), typeOf(c.second), "pg_c_utf8"]
 								])
 								yield* load(installed, {
 									Coded: Arr.map(c.codes, (code, i) => ({ id: id(i + 1), code }))
@@ -648,12 +655,13 @@ layer(Substrate.layer)("derived relations on PostgreSQL 19", (it) => {
 									...worldSession(installed.world(viewer)),
 									label: "viewer"
 								})
-								const seen = `${quoteIdent(installed.role(viewer))}.${quoteIdent(installed.names.relation("Literals").name)}`
+								const seen = roleNamesOf(installed, viewer)
+								const read = (field: string) => `${seen.column("Literals", field)}::text`
 								const viewingRows = yield* viewing.values(
-									`SELECT "id"::text, "first"::text, "second"::text FROM ${seen} ORDER BY 1`,
+									`SELECT ${read("id")}, ${read("first")}, ${read("second")} FROM ${seen.view("Literals")}`,
 									[]
 								)
-								assert.deepEqual(
+								unorderedEqual(
 									viewingRows,
 									Arr.map(c.codes, (_, i) => [id(i + 1), c.first.member, c.second.member])
 								)
@@ -691,7 +699,7 @@ layer(Substrate.layer)("derived relations on PostgreSQL 19", (it) => {
 					const { view, columns } = viewOf(installed, "OwnedTasks")
 					const owner = yield* substrate.session({ ...ownerSession(), label: "owner" })
 					const constraint = yield* owner.values(
-						`SELECT condeferrable::text FROM pg_catalog.pg_constraint WHERE conrelid = '${names.table(W.Task)}'::regclass AND contype = 'f'`,
+						`SELECT condeferrable::text FROM pg_catalog.pg_constraint WHERE conrelid = '${names.table(W.Task)}'::regclass AND confrelid = '${names.table(W.Account)}'::regclass AND contype = 'f'`,
 						[]
 					)
 					const [[deferrable]] = trusted<Arr.NonEmptyReadonlyArray<readonly [string]>>(constraint)
