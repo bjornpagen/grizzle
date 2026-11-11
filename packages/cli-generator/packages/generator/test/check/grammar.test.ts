@@ -6,7 +6,7 @@ import { DocumentUri } from "#model/brands.ts"
 import type { Diagnostic } from "#model/diagnostic.ts"
 import type { Json } from "#model/pointer.ts"
 import type { SpecLine } from "#model/spec-section.ts"
-import { resolve } from "#resolve/index.ts"
+import { defaultLimits, resolve } from "#resolve/index.ts"
 
 const entry = Schema.decodeUnknownSync(DocumentUri)("file:///spec/openapi.json")
 
@@ -31,7 +31,11 @@ const resolved = (line: SpecLine, members: Members) =>
 	resolve({ document: entry, line, value: spec(line, members) })
 
 const check = (line: SpecLine, members: Members) =>
-	Effect.runSync(resolved(line, members).pipe(Effect.flatMap(checkGrammar)))
+	Effect.runSync(
+		resolved(line, members).pipe(
+			Effect.flatMap((resolution) => checkGrammar(resolution, defaultLimits))
+		)
+	)
 
 const checkAll = (line: SpecLine, members: Members) =>
 	Effect.runSync(resolved(line, members).pipe(Effect.flatMap(checkSpecText)))

@@ -1,5 +1,6 @@
-import { Array as Arr } from "effect"
-import { isObject, nodeAt } from "#model/json-tree.ts"
+import { regex } from "arkregex"
+import { Array as Arr, Option, Record, String as Str } from "effect"
+import { isArray, isObject, nodeAt } from "#model/json-tree.ts"
 import type { JsonObject } from "#model/json-tree.ts"
 import { childPointer } from "#model/pointer.ts"
 import type { Json } from "#model/pointer.ts"
@@ -41,15 +42,43 @@ export interface Operation {
 }
 
 /**
- * A path or server template expression, `{name}`, with the name as the `name` group.
+ * A path or server template expression, `{name}`, the name its one capture.
  */
-export const expression = /\{(?<name>[^{}]+)\}/gu
+export const expression = regex("\\{([^{}]+)\\}", "gu")
 
 /**
  * Return the expression names of a template in order, repeats kept.
  */
 export const expressionsOf = (template: string): readonly string[] =>
-	Arr.map(Arr.fromIterable(template.matchAll(expression)), (match) => match.groups?.name ?? "")
+	Arr.getSomes(
+		Arr.map(Arr.fromIterable(Str.matchAll(expression)(template)), (match) =>
+			Option.fromUndefinedOr(match[1])
+		)
+	)
+
+/**
+ * The member `name` of the entry document's root object, `None` when it has none.
+ */
+export const rootMember = (resolution: Resolution, name: string): Option.Option<Json> =>
+	isObject(resolution.value) ? Record.get(resolution.value, name) : Option.none()
+
+/**
+ * The entries of a value that is an object, none for anything else or nothing.
+ */
+export const entriesOf = (value: Option.Option<Json>): readonly (readonly [string, Json])[] =>
+	Option.match(Option.filter(value, isObject), { onNone: () => [], onSome: Record.toEntries })
+
+/**
+ * The items of a value that is an array, none for anything else or nothing.
+ */
+export const listOf = (value: Option.Option<Json>): readonly Json[] =>
+	Option.getOrElse(Option.filter(value, isArray), (): readonly Json[] => [])
+
+/**
+ * The member `name` of a value that is an object, `None` for anything else or nothing.
+ */
+export const memberOf = (value: Option.Option<Json>, name: string): Option.Option<Json> =>
+	Option.flatMap(Option.filter(value, isObject), (object) => Record.get(object, name))
 
 /**
  * Construct the canonical key of `pointer` in the entry document.
@@ -62,42 +91,48 @@ export const site = (resolution: Resolution, pointer: string): CanonicalKey => (
 /**
  * Follow the object at a use site through its Reference Object to the end of the chain, read from
  * the document of the set that holds it. A site with no reference is `node` itself; a target that
- * is not an object yields `undefined`.
+ * is not an object is `None`.
  */
 export const locate = (
 	resolution: Resolution,
 	at: CanonicalKey,
-	node: Json | undefined
-): Place | undefined => {
+	node: Json
+): Option.Option<Place> => {
 	const target = resolution.references.get(keyOf(at))?.target ?? at
-	const document = resolution.documents.get(target.document)
-	const read = document === undefined ? undefined : nodeAt(document, target.pointer)
-	const value = target === at ? node : read
+	const value =
+		target === at
+			? Option.some(node)
+			: Option.flatMap(
+					Option.fromUndefinedOr(resolution.documents.get(target.document)),
+					(document) => Option.fromUndefinedOr(nodeAt(document, target.pointer))
+				)
 
-	return isObject(value)
-		? { document: target.document, node: value, pointer: target.pointer }
-		: undefined
+	return Option.map(Option.filter(value, isObject), (object) => ({
+		document: target.document,
+		node: object,
+		pointer: target.pointer
+	}))
 }
 
 /**
  * Return the entry document's path items in `paths` order. A path item whose reference chain ends
  * in another document of the set is not walked: the checks read entry sites.
  */
-export const pathItems = (resolution: Resolution): readonly PathItem[] => {
-	const paths = isObject(resolution.value) ? resolution.value.paths : undefined
-	if (!isObject(paths)) {
-		return []
-	}
-
-	return Object.entries(paths).flatMap(([key, value]) => {
+export const pathItems = (resolution: Resolution): readonly PathItem[] =>
+	Arr.flatMap(entriesOf(rootMember(resolution, "paths")), ([key, value]) => {
 		const use = childPointer("/paths", key)
-		const located = locate(resolution, site(resolution, use), value)
 
-		return located === undefined || located.document !== resolution.document
-			? []
-			: [{ key, node: located.node, pointer: located.pointer, use }]
+		return Option.match(
+			Option.filter(
+				locate(resolution, site(resolution, use), value),
+				(located) => located.document === resolution.document
+			),
+			{
+				onNone: () => [],
+				onSome: (located) => [{ key, node: located.node, pointer: located.pointer, use }]
+			}
+		)
 	})
-}
 
 /**
  * Convert an operation to a diagnostic's operation identity: method, path key and, when declared,

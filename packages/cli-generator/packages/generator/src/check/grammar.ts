@@ -1,5 +1,24 @@
-import { Array as Arr, Effect, Option, Predicate, Result, Schema } from "effect"
-import { expressionsOf, locate, operationOf, pathItems, site } from "#check/path-items.ts"
+import { regex } from "arkregex"
+import {
+	Array as Arr,
+	Effect,
+	Option,
+	Predicate,
+	Record,
+	Result,
+	Schema,
+	String as Str
+} from "effect"
+import {
+	entriesOf,
+	expressionsOf,
+	listOf,
+	locate,
+	operationOf,
+	pathItems,
+	rootMember,
+	site
+} from "#check/path-items.ts"
 import type { Operation, PathItem, Place } from "#check/path-items.ts"
 import { HeaderName, MediaRange } from "#model/brands.ts"
 import { makeDiagnostic } from "#model/diagnostic.ts"
@@ -11,7 +30,7 @@ import { childPointer, isPointerWithin } from "#model/pointer.ts"
 import type { Json } from "#model/pointer.ts"
 import { specSectionUrl, patchVersion } from "#model/spec-section.ts"
 import { keyOf } from "#resolve/canonical.ts"
-import { allOfReferrers, defaultLimits, implicitComponent } from "#resolve/index.ts"
+import { allOfReferrers, implicitComponent } from "#resolve/index.ts"
 import type { Resolution, ResolveLimits } from "#resolve/index.ts"
 
 interface Rule {
@@ -221,7 +240,7 @@ const rules = {
 		scope: "operation",
 		severity: "refusal"
 	}
-} as const satisfies Record<string, Rule>
+} as const satisfies Record.ReadonlyRecord<string, Rule>
 
 type Code = keyof typeof rules
 
@@ -233,9 +252,11 @@ interface Finding {
 	readonly severity?: Rule["severity"]
 }
 
-const statusKey = /^(?:[1-5][0-9]{2}|[1-5]XX|default)$/u
+const statusKey = regex("^(?:[1-5][0-9]{2}|[1-5]XX|default)$", "u")
 
-const schemaMembers = [
+const queryOrFragment = regex("[?#]", "u")
+
+const schemaMembers: readonly string[] = [
 	"additionalProperties",
 	"contains",
 	"contentSchema",
@@ -247,47 +268,69 @@ const schemaMembers = [
 	"then",
 	"unevaluatedItems",
 	"unevaluatedProperties"
-] as const
+]
 
-const schemaLists = ["allOf", "anyOf", "oneOf", "prefixItems"] as const
+const schemaLists: readonly string[] = ["allOf", "anyOf", "oneOf", "prefixItems"]
 
-const schemaMaps = [
+const schemaMaps: readonly string[] = [
 	"$defs",
 	"definitions",
 	"dependentSchemas",
 	"patternProperties",
 	"properties"
-] as const
+]
 
-const entriesOf = (value: Json | undefined): readonly (readonly [string, Json])[] =>
-	isObject(value) ? Object.entries(value) : []
+const compositions: readonly string[] = ["allOf", "anyOf", "oneOf"]
 
-const listOf = (value: Json | undefined): readonly Json[] => (isArray(value) ? value : [])
+const parameterOnlyFields: readonly string[] = ["allowEmptyValue", "allowReserved"]
 
-const isReference = (node: JsonObject): boolean => Predicate.isString(node.$ref)
+const isReference = (node: JsonObject): boolean =>
+	Option.exists(Record.get(node, "$ref"), Predicate.isString)
+
+/**
+ * The value when it is an object other than a Reference Object.
+ */
+const ownObject = (value: Option.Option<Json>): Option.Option<JsonObject> =>
+	Option.filter(Option.filter(value, isObject), (object) => !isReference(object))
+
+/**
+ * The findings `walk` reports for a value that is there, none for nothing.
+ */
+const whenSome = <A>(
+	value: Option.Option<A>,
+	walk: (present: A) => readonly Finding[]
+): readonly Finding[] => Option.match(value, { onNone: () => [], onSome: walk })
+
+/**
+ * Whether the member `name` of an object is `true`.
+ */
+const isTrue = (node: JsonObject, name: string): boolean =>
+	Option.exists(Record.get(node, name), (value) => value === true)
 
 const isToken = Schema.is(HeaderName)
 
 const isMediaRange = Schema.is(MediaRange)
 
 const compilesWithU = (source: string): boolean =>
-	Result.isSuccess(Result.try(() => new RegExp(source, "u")))
+	Result.isSuccess(Result.try(() => regex.as(source, "u")))
 
-const at =
-	(code: Code, pointer: string) =>
-	(extra: Partial<Finding> = {}): Finding => ({ code, pointer, ...extra })
+const at = (code: Code, pointer: string): Finding => ({ code, pointer })
 
-// A discriminator mapping value: a component schema name first, else a reference into the set
-// (`implicitComponent`); either way the target must be a Schema Object.
+/**
+ * A discriminator mapping value: a component schema name first, else a reference into the set
+ * (`implicitComponent`); either way the target must be a Schema Object.
+ */
 const mappingResolves = (resolution: Resolution, value: string): boolean =>
 	Option.match(implicitComponent(resolution, "schemas", value), {
 		onNone: () => false,
 		onSome: (key) => isObject(nodeAt(resolution.value, key.pointer))
 	})
 
-// One checkGrammar call's walk through allOf, oneOf and anyOf: answers already settled, the
-// schemas being walked (by depth) and the steps left. Reuse across members is a DAG, so each
-// (schema, name) pair is settled once; the budget bounds a hostile graph that stays large anyway.
+/**
+ * One checkGrammar call's walk through allOf, oneOf and anyOf: answers already settled, the
+ * schemas being walked (by depth) and the steps left. Reuse across members is a DAG, so each
+ * (schema, name) pair is settled once; the budget bounds a hostile graph that stays large anyway.
+ */
 interface Search {
 	readonly active: Map<string, number>
 	readonly budget: number
@@ -306,15 +349,19 @@ const startSearch = (budget: number): Search => ({
 
 interface Answer {
 	readonly found: boolean
-	// The shallowest schema still being walked that this answer assumed to be no; unsettled below it.
+	/**
+	 * The shallowest schema still being walked that this answer assumed to be no; unsettled below it.
+	 */
 	readonly low: number
 }
 
-const settled = (found: boolean): Answer => ({ found, low: Infinity })
+const settled = (found: boolean): Answer => ({ found, low: Number.POSITIVE_INFINITY })
 
-// Whether the schema at `place` requires `name`: directly, through allOf, or in every
-// oneOf/anyOf branch. References are followed; a schema already on the path counts as no.
-// A no that leaned on such a schema is kept only once that schema is settled.
+/**
+ * Whether the schema at `place` requires `name`: directly, through allOf, or in every
+ * oneOf/anyOf branch. References are followed; a schema already on the path counts as no.
+ * A no that leaned on such a schema is kept only once that schema is settled.
+ */
 const requiresAt = (
 	resolution: Resolution,
 	search: Search,
@@ -344,25 +391,25 @@ const requiresAt = (
 	search.active.set(key, depth)
 
 	const members = (keyword: string): readonly Place[] =>
-		listOf(place.node[keyword]).flatMap((member, index) => {
-			const located = locate(
-				resolution,
-				{
-					document: place.document,
-					pointer: childPointer(childPointer(place.pointer, keyword), String(index))
-				},
-				member
+		Arr.flatMap(listOf(Record.get(place.node, keyword)), (member, index) =>
+			Option.toArray(
+				locate(
+					resolution,
+					{
+						document: place.document,
+						pointer: childPointer(childPointer(place.pointer, keyword), `${index}`)
+					},
+					member
+				)
 			)
-
-			return located === undefined ? [] : [located]
-		})
+		)
 	const within = (member: Place): Answer => requiresAt(resolution, search, member, name, depth + 1)
 	const answer = ((): Answer => {
-		if (listOf(place.node.required).includes(name)) {
+		if (Arr.contains(listOf(Record.get(place.node, "required")), name)) {
 			return settled(true)
 		}
 
-		let low = Infinity
+		let low = Number.POSITIVE_INFINITY
 
 		for (const member of members("allOf")) {
 			const inner = within(member)
@@ -376,7 +423,7 @@ const requiresAt = (
 
 		const alternatives = [...members("oneOf"), ...members("anyOf")]
 
-		if (alternatives.length === 0) {
+		if (Arr.isReadonlyArrayEmpty(alternatives)) {
 			return { found: false, low }
 		}
 
@@ -406,8 +453,14 @@ const requires = (resolution: Resolution, search: Search, place: Place, name: st
 	requiresAt(resolution, search, place, name, 0).found
 
 const composes = (node: JsonObject): boolean =>
-	["allOf", "anyOf", "oneOf"].some((keyword) => listOf(node[keyword]).length > 0)
+	Arr.some(compositions, (keyword) =>
+		Arr.isReadonlyArrayNonEmpty(listOf(Record.get(node, keyword)))
+	)
 
+/**
+ * The discriminator findings of the schema at `place`. An allOf base is legal too: the
+ * discriminator sits on the base and the children reference it (DSC-11).
+ */
 const discriminatorFindings = (
 	resolution: Resolution,
 	search: Search,
@@ -416,9 +469,8 @@ const discriminatorFindings = (
 ): readonly Finding[] => {
 	const base = childPointer(place.pointer, "discriminator")
 	const self = keyOf({ document: place.document, pointer: place.pointer })
-	// An allOf base: the discriminator sits on the base and the children reference it (DSC-11).
 	if (!composes(place.node) && !allOfReferrers(resolution).has(self)) {
-		return [at("DSC-05/no-composition", base)()]
+		return [at("DSC-05/no-composition", base)]
 	}
 
 	const name = stringMember(discriminator, "propertyName")
@@ -427,21 +479,21 @@ const discriminatorFindings = (
 	const property =
 		name === undefined || required || resolution.line === "3.2"
 			? []
-			: [at("DSC-09/property-not-required", childPointer(base, "propertyName"))()]
+			: [at("DSC-09/property-not-required", childPointer(base, "propertyName"))]
 	const optional =
 		name === undefined || required || resolution.line !== "3.2" || defaultMapping !== undefined
 			? []
-			: [at("DSC-10/missing-default-mapping", base)()]
-	const mapped = entriesOf(discriminator.mapping).flatMap(([key, value]) =>
+			: [at("DSC-10/missing-default-mapping", base)]
+	const mapped = Arr.flatMap(entriesOf(Record.get(discriminator, "mapping")), ([key, value]) =>
 		Predicate.isString(value) && !mappingResolves(resolution, value)
-			? [at("DSC-03/unresolved-target", childPointer(childPointer(base, "mapping"), key))()]
+			? [at("DSC-03/unresolved-target", childPointer(childPointer(base, "mapping"), key))]
 			: []
 	)
 	const fallback =
 		resolution.line === "3.2" &&
 		defaultMapping !== undefined &&
 		!mappingResolves(resolution, defaultMapping)
-			? [at("DSC-04/unresolved-target", childPointer(base, "defaultMapping"))()]
+			? [at("DSC-04/unresolved-target", childPointer(base, "defaultMapping"))]
 			: []
 
 	return [...property, ...optional, ...mapped, ...fallback]
@@ -453,251 +505,290 @@ const ownSchemaFindings = (
 	place: Place
 ): readonly Finding[] => {
 	const { node, pointer } = place
-	const pattern = Predicate.isString(node.pattern) ? node.pattern : undefined
+	const pattern = stringMember(node, "pattern")
 	const legacy = resolution.line === "3.0"
 	const patternCode = legacy ? "S30-09/not-unicode-compilable" : "SCH-37/not-unicode-compilable"
 
 	return [
 		...(pattern === undefined || compilesWithU(pattern)
 			? []
-			: [at(patternCode, childPointer(pointer, "pattern"))()]),
-		...(legacy && node.type === "array" && node.items === undefined
-			? [at("S30-22/array-without-items", childPointer(pointer, "items"))()]
+			: [at(patternCode, childPointer(pointer, "pattern"))]),
+		...(legacy && stringMember(node, "type") === "array" && !Record.has(node, "items")
+			? [at("S30-22/array-without-items", childPointer(pointer, "items"))]
 			: []),
-		...(legacy && node.readOnly === true && node.writeOnly === true
-			? [at("S30-30/read-and-write-only", pointer)()]
+		...(legacy && isTrue(node, "readOnly") && isTrue(node, "writeOnly")
+			? [at("S30-30/read-and-write-only", pointer)]
 			: []),
-		...(isObject(node.discriminator)
-			? discriminatorFindings(resolution, search, place, node.discriminator)
-			: [])
-	]
-}
-
-// A 3.0 Reference Object ignores its siblings (design 3.3); later lines keep them as keywords.
-const schemaFindings = (
-	resolution: Resolution,
-	search: Search,
-	node: Json | undefined,
-	pointer: string
-): readonly Finding[] => {
-	if (!isObject(node) || (resolution.line === "3.0" && isReference(node))) {
-		return []
-	}
-
-	const below = (token: string, value: Json | undefined): readonly Finding[] =>
-		schemaFindings(resolution, search, value, childPointer(pointer, token))
-
-	return [
-		...ownSchemaFindings(resolution, search, { document: resolution.document, node, pointer }),
-		...schemaMembers.flatMap((keyword) => below(keyword, node[keyword])),
-		...schemaLists.flatMap((keyword) =>
-			listOf(node[keyword]).flatMap((member, index) =>
-				schemaFindings(
-					resolution,
-					search,
-					member,
-					childPointer(childPointer(pointer, keyword), String(index))
-				)
-			)
-		),
-		...schemaMaps.flatMap((keyword) =>
-			entriesOf(node[keyword]).flatMap(([name, member]) =>
-				schemaFindings(
-					resolution,
-					search,
-					member,
-					childPointer(childPointer(pointer, keyword), name)
-				)
-			)
+		...whenSome(Option.filter(Record.get(node, "discriminator"), isObject), (discriminator) =>
+			discriminatorFindings(resolution, search, place, discriminator)
 		)
 	]
 }
 
-type HeaderCode = "HDR-01/invalid-header-name" | "RSP-09/invalid-header-name"
-
-// The 3.1 and 3.2 schemas reject both fields on a Header Object; the 3.0 schema permits them.
-const headerFieldFindings = (
+/**
+ * The findings of a Schema Object and the schemas inside it. A 3.0 Reference Object ignores its
+ * siblings (design 3.3); later lines keep them as keywords.
+ */
+const schemaFindings = (
 	resolution: Resolution,
-	node: Json | undefined,
+	search: Search,
+	node: Option.Option<Json>,
 	pointer: string
 ): readonly Finding[] =>
-	resolution.line === "3.0" && isObject(node) && !isReference(node)
-		? (["allowEmptyValue", "allowReserved"] as const)
-				.filter((field) => node[field] !== undefined)
-				.map((field) => at("HDR-13/parameter-only-field", childPointer(pointer, field))())
+	whenSome(Option.filter(node, isObject), (schema) =>
+		resolution.line === "3.0" && isReference(schema)
+			? []
+			: [
+					...ownSchemaFindings(resolution, search, {
+						document: resolution.document,
+						node: schema,
+						pointer
+					}),
+					...Arr.flatMap(schemaMembers, (keyword) =>
+						schemaFindings(
+							resolution,
+							search,
+							Record.get(schema, keyword),
+							childPointer(pointer, keyword)
+						)
+					),
+					...Arr.flatMap(schemaLists, (keyword) =>
+						Arr.flatMap(listOf(Record.get(schema, keyword)), (member, index) =>
+							schemaFindings(
+								resolution,
+								search,
+								Option.some(member),
+								childPointer(childPointer(pointer, keyword), `${index}`)
+							)
+						)
+					),
+					...Arr.flatMap(schemaMaps, (keyword) =>
+						Arr.flatMap(entriesOf(Record.get(schema, keyword)), ([name, member]) =>
+							schemaFindings(
+								resolution,
+								search,
+								Option.some(member),
+								childPointer(childPointer(pointer, keyword), name)
+							)
+						)
+					)
+				]
+	)
+
+type HeaderCode = "HDR-01/invalid-header-name" | "RSP-09/invalid-header-name"
+
+/**
+ * The 3.1 and 3.2 schemas reject both fields on a Header Object; the 3.0 schema permits them.
+ */
+const headerFieldFindings = (
+	resolution: Resolution,
+	node: Option.Option<Json>,
+	pointer: string
+): readonly Finding[] =>
+	resolution.line === "3.0"
+		? whenSome(ownObject(node), (header) =>
+				Arr.map(
+					Arr.filter(parameterOnlyFields, (field) => Record.has(header, field)),
+					(field) => at("HDR-13/parameter-only-field", childPointer(pointer, field))
+				)
+			)
 		: []
 
-// Header, Content, Media Type and Encoding objects refer to each other, so they share one record.
+/**
+ * Header, Content, Media Type and Encoding objects refer to each other, so they share one record.
+ */
 interface Media {
 	readonly encoding: (
 		resolution: Resolution,
 		search: Search,
-		node: Json | undefined,
+		node: Option.Option<Json>,
 		pointer: string
 	) => readonly Finding[]
 	readonly content: (
 		resolution: Resolution,
 		search: Search,
-		content: Json | undefined,
+		content: Option.Option<Json>,
 		pointer: string
 	) => readonly Finding[]
 	readonly header: (
 		resolution: Resolution,
 		search: Search,
-		node: Json | undefined,
+		node: Option.Option<Json>,
 		pointer: string
 	) => readonly Finding[]
 	readonly headers: (
 		resolution: Resolution,
 		search: Search,
-		headers: Json | undefined,
+		headers: Option.Option<Json>,
 		pointer: string,
 		code: HeaderCode
 	) => readonly Finding[]
 	readonly mediaType: (
 		resolution: Resolution,
 		search: Search,
-		node: Json | undefined,
+		node: Option.Option<Json>,
 		pointer: string
 	) => readonly Finding[]
 }
 
 const media: Media = {
 	content: (resolution, search, content, pointer) =>
-		entriesOf(content).flatMap(([name, mediaType]) => [
-			...(isMediaRange(name)
-				? []
-				: [at("MED-24/invalid-media-type", childPointer(pointer, name))()]),
-			...media.mediaType(resolution, search, mediaType, childPointer(pointer, name))
+		Arr.flatMap(entriesOf(content), ([name, mediaType]) => [
+			...(isMediaRange(name) ? [] : [at("MED-24/invalid-media-type", childPointer(pointer, name))]),
+			...media.mediaType(resolution, search, Option.some(mediaType), childPointer(pointer, name))
 		]),
 	encoding: (resolution, search, node, pointer) =>
-		isObject(node) && !isReference(node)
-			? media.headers(
-					resolution,
-					search,
-					node.headers,
-					childPointer(pointer, "headers"),
-					"HDR-01/invalid-header-name"
-				)
-			: [],
+		whenSome(ownObject(node), (encoding) =>
+			media.headers(
+				resolution,
+				search,
+				Record.get(encoding, "headers"),
+				childPointer(pointer, "headers"),
+				"HDR-01/invalid-header-name"
+			)
+		),
 	header: (resolution, search, node, pointer) =>
-		isObject(node) && !isReference(node)
-			? [
-					...schemaFindings(resolution, search, node.schema, childPointer(pointer, "schema")),
-					...media.content(resolution, search, node.content, childPointer(pointer, "content"))
-				]
-			: [],
-	headers: (resolution, search, headers, pointer, code) =>
-		entriesOf(headers).flatMap(([name, header]) => [
-			...(isToken(name) ? [] : [at(code, childPointer(pointer, name))()]),
-			...headerFieldFindings(resolution, header, childPointer(pointer, name)),
-			...media.header(resolution, search, header, childPointer(pointer, name))
+		whenSome(ownObject(node), (header) => [
+			...schemaFindings(
+				resolution,
+				search,
+				Record.get(header, "schema"),
+				childPointer(pointer, "schema")
+			),
+			...media.content(
+				resolution,
+				search,
+				Record.get(header, "content"),
+				childPointer(pointer, "content")
+			)
 		]),
-	mediaType: (resolution, search, node, pointer) => {
-		if (!isObject(node) || isReference(node)) {
-			return []
-		}
-
-		return [
-			...schemaFindings(resolution, search, node.schema, childPointer(pointer, "schema")),
-			...schemaFindings(resolution, search, node.itemSchema, childPointer(pointer, "itemSchema")),
-			...entriesOf(node.encoding).flatMap(([name, encoding]) =>
+	headers: (resolution, search, headers, pointer, code) =>
+		Arr.flatMap(entriesOf(headers), ([name, header]) => [
+			...(isToken(name) ? [] : [at(code, childPointer(pointer, name))]),
+			...headerFieldFindings(resolution, Option.some(header), childPointer(pointer, name)),
+			...media.header(resolution, search, Option.some(header), childPointer(pointer, name))
+		]),
+	mediaType: (resolution, search, node, pointer) =>
+		whenSome(ownObject(node), (mediaType) => [
+			...schemaFindings(
+				resolution,
+				search,
+				Record.get(mediaType, "schema"),
+				childPointer(pointer, "schema")
+			),
+			...schemaFindings(
+				resolution,
+				search,
+				Record.get(mediaType, "itemSchema"),
+				childPointer(pointer, "itemSchema")
+			),
+			...Arr.flatMap(entriesOf(Record.get(mediaType, "encoding")), ([name, encoding]) =>
 				media.encoding(
 					resolution,
 					search,
-					encoding,
+					Option.some(encoding),
 					childPointer(childPointer(pointer, "encoding"), name)
 				)
 			),
 			...media.encoding(
 				resolution,
 				search,
-				node.itemEncoding,
+				Record.get(mediaType, "itemEncoding"),
 				childPointer(pointer, "itemEncoding")
 			),
-			...listOf(node.prefixEncoding).flatMap((encoding, index) =>
+			...Arr.flatMap(listOf(Record.get(mediaType, "prefixEncoding")), (encoding, index) =>
 				media.encoding(
 					resolution,
 					search,
-					encoding,
-					childPointer(childPointer(pointer, "prefixEncoding"), String(index))
+					Option.some(encoding),
+					childPointer(childPointer(pointer, "prefixEncoding"), `${index}`)
 				)
 			)
-		]
-	}
+		])
 }
 
 const parameterFindings = (
 	resolution: Resolution,
 	search: Search,
-	node: Json | undefined,
+	node: Option.Option<Json>,
 	pointer: string
-): readonly Finding[] => {
-	if (!isObject(node) || isReference(node)) {
-		return []
-	}
+): readonly Finding[] =>
+	whenSome(ownObject(node), (parameter) => {
+		const name = stringMember(parameter, "name")
+		const badName =
+			stringMember(parameter, "in") === "header" && name !== undefined && !isToken(name)
+				? [at("PRM-20/invalid-header-name", childPointer(pointer, "name"))]
+				: []
 
-	const name = stringMember(node, "name")
-	const badName =
-		node.in === "header" && name !== undefined && !isToken(name)
-			? [at("PRM-20/invalid-header-name", childPointer(pointer, "name"))()]
-			: []
-
-	return [...badName, ...media.header(resolution, search, node, pointer)]
-}
+		return [...badName, ...media.header(resolution, search, Option.some(parameter), pointer)]
+	})
 
 const parameterListFindings = (
 	resolution: Resolution,
 	search: Search,
-	list: Json | undefined,
+	list: Option.Option<Json>,
 	pointer: string
 ): readonly Finding[] =>
-	listOf(list).flatMap((parameter, index) =>
-		parameterFindings(resolution, search, parameter, childPointer(pointer, String(index)))
+	Arr.flatMap(listOf(list), (parameter, index) =>
+		parameterFindings(resolution, search, Option.some(parameter), childPointer(pointer, `${index}`))
 	)
 
 const responseFindings = (
 	resolution: Resolution,
 	search: Search,
-	node: Json | undefined,
+	node: Option.Option<Json>,
 	pointer: string
 ): readonly Finding[] =>
-	isObject(node) && !isReference(node)
-		? [
-				...media.headers(
-					resolution,
-					search,
-					node.headers,
-					childPointer(pointer, "headers"),
-					"RSP-09/invalid-header-name"
-				),
-				...media.content(resolution, search, node.content, childPointer(pointer, "content"))
-			]
-		: []
+	whenSome(ownObject(node), (response) => [
+		...media.headers(
+			resolution,
+			search,
+			Record.get(response, "headers"),
+			childPointer(pointer, "headers"),
+			"RSP-09/invalid-header-name"
+		),
+		...media.content(
+			resolution,
+			search,
+			Record.get(response, "content"),
+			childPointer(pointer, "content")
+		)
+	])
 
-// The 3.1 and 3.2 schemas refuse a Responses Object of `x-` keys alone; the 3.0 schema counts an
-// `x-` key toward its one required member (D-OC3).
-const extensionsOnly = (resolution: Resolution, responses: Json | undefined): boolean => {
-	const keys = entriesOf(responses).map(([code]) => code)
+/**
+ * The 3.1 and 3.2 schemas refuse a Responses Object of `x-` keys alone; the 3.0 schema counts an
+ * `x-` key toward its one required member (D-OC3).
+ */
+const extensionsOnly = (resolution: Resolution, responses: Option.Option<Json>): boolean => {
+	const keys = Arr.map(entriesOf(responses), ([code]) => code)
 
-	return resolution.line === "3.0" && keys.length > 0 && keys.every((code) => code.startsWith("x-"))
+	return (
+		resolution.line === "3.0" &&
+		Arr.isReadonlyArrayNonEmpty(keys) &&
+		Arr.every(keys, (code) => Str.startsWith("x-")(code))
+	)
 }
 
 const responsesFindings = (
 	resolution: Resolution,
 	search: Search,
-	responses: Json | undefined,
+	responses: Option.Option<Json>,
 	pointer: string
 ): readonly Finding[] => [
-	...(extensionsOnly(resolution, responses) ? [at("RSS-04/no-response-code", pointer)()] : []),
-	...entriesOf(responses).flatMap(([code, response]) =>
-		code.startsWith("x-")
+	...(extensionsOnly(resolution, responses) ? [at("RSS-04/no-response-code", pointer)] : []),
+	...Arr.flatMap(entriesOf(responses), ([code, response]) =>
+		Str.startsWith("x-")(code)
 			? []
 			: [
 					...(statusKey.test(code)
 						? []
-						: [at("RSS-10/invalid-status", childPointer(pointer, code))()]),
-					...responseFindings(resolution, search, response, childPointer(pointer, code))
+						: [at("RSS-10/invalid-status", childPointer(pointer, code))]),
+					...responseFindings(
+						resolution,
+						search,
+						Option.some(response),
+						childPointer(pointer, code)
+					)
 				]
 	)
 ]
@@ -705,144 +796,152 @@ const responsesFindings = (
 const requestBodyFindings = (
 	resolution: Resolution,
 	search: Search,
-	node: Json | undefined,
+	node: Option.Option<Json>,
 	pointer: string
 ): readonly Finding[] =>
-	isObject(node) && !isReference(node)
-		? media.content(resolution, search, node.content, childPointer(pointer, "content"))
-		: []
+	whenSome(ownObject(node), (body) =>
+		media.content(resolution, search, Record.get(body, "content"), childPointer(pointer, "content"))
+	)
 
-// Path Item, Operation and Callback objects refer to each other through callbacks.
+/**
+ * Path Item, Operation and Callback objects refer to each other through callbacks.
+ */
 interface Items {
 	readonly callback: (
 		resolution: Resolution,
 		search: Search,
-		node: Json | undefined,
+		node: Option.Option<Json>,
 		pointer: string
 	) => readonly Finding[]
 	readonly operation: (
 		resolution: Resolution,
 		search: Search,
-		node: Json | undefined,
+		node: Option.Option<Json>,
 		pointer: string
 	) => readonly Finding[]
 	readonly pathItem: (
 		resolution: Resolution,
 		search: Search,
-		node: Json | undefined,
+		node: Option.Option<Json>,
 		pointer: string
 	) => readonly Finding[]
 }
 
+/**
+ * An operation member of a path item: its pointer and its value, if any.
+ */
+interface OperationMember {
+	readonly node: Option.Option<Json>
+	readonly pointer: string
+}
+
 const items: Items = {
 	callback: (resolution, search, node, pointer) =>
-		isObject(node) && !isReference(node)
-			? entriesOf(node).flatMap(([key, item]) =>
-					key.startsWith("x-")
-						? []
-						: items.pathItem(resolution, search, item, childPointer(pointer, key))
-				)
-			: [],
+		whenSome(ownObject(node), (callback) =>
+			Arr.flatMap(Record.toEntries(callback), ([key, item]) =>
+				Str.startsWith("x-")(key)
+					? []
+					: items.pathItem(resolution, search, Option.some(item), childPointer(pointer, key))
+			)
+		),
 	operation: (resolution, search, node, pointer) =>
-		isObject(node)
-			? [
-					...parameterListFindings(
-						resolution,
-						search,
-						node.parameters,
-						childPointer(pointer, "parameters")
-					),
-					...requestBodyFindings(
-						resolution,
-						search,
-						node.requestBody,
-						childPointer(pointer, "requestBody")
-					),
-					...responsesFindings(
-						resolution,
-						search,
-						node.responses,
-						childPointer(pointer, "responses")
-					),
-					...entriesOf(node.callbacks).flatMap(([name, callback]) =>
-						items.callback(
-							resolution,
-							search,
-							callback,
-							childPointer(childPointer(pointer, "callbacks"), name)
-						)
-					)
-				]
-			: [],
-	pathItem: (resolution, search, node, pointer) => {
-		if (!isObject(node) || isReference(node)) {
-			return []
-		}
-
-		const fixed = methodMembers(resolution.line).map(
-			(method) => [childPointer(pointer, method), node[method]] as const
-		)
-		const extra =
-			resolution.line === "3.2"
-				? entriesOf(node.additionalOperations).map(
-						([name, operation]) =>
-							[
-								childPointer(childPointer(pointer, "additionalOperations"), name),
-								operation
-							] as const
-					)
-				: []
-
-		return [
+		whenSome(Option.filter(node, isObject), (operation) => [
 			...parameterListFindings(
 				resolution,
 				search,
-				node.parameters,
+				Record.get(operation, "parameters"),
 				childPointer(pointer, "parameters")
 			),
-			...[...fixed, ...extra].flatMap(([place, operation]) =>
-				items.operation(resolution, search, operation, place)
+			...requestBodyFindings(
+				resolution,
+				search,
+				Record.get(operation, "requestBody"),
+				childPointer(pointer, "requestBody")
+			),
+			...responsesFindings(
+				resolution,
+				search,
+				Record.get(operation, "responses"),
+				childPointer(pointer, "responses")
+			),
+			...Arr.flatMap(entriesOf(Record.get(operation, "callbacks")), ([name, callback]) =>
+				items.callback(
+					resolution,
+					search,
+					Option.some(callback),
+					childPointer(childPointer(pointer, "callbacks"), name)
+				)
 			)
-		]
-	}
-}
-
-const componentFindings = (resolution: Resolution, search: Search): readonly Finding[] => {
-	const components = isObject(resolution.value) ? resolution.value.components : undefined
-	if (!isObject(components)) {
-		return []
-	}
-
-	const each = (
-		section: string,
-		visit: (node: Json | undefined, pointer: string) => readonly Finding[]
-	): readonly Finding[] =>
-		entriesOf(components[section]).flatMap(([name, node]) =>
-			visit(node, childPointer(childPointer("/components", section), name))
-		)
-
-	return [
-		...each("schemas", (node, pointer) => schemaFindings(resolution, search, node, pointer)),
-		...each("responses", (node, pointer) => responseFindings(resolution, search, node, pointer)),
-		...each("parameters", (node, pointer) => parameterFindings(resolution, search, node, pointer)),
-		...each("requestBodies", (node, pointer) =>
-			requestBodyFindings(resolution, search, node, pointer)
-		),
-		...each("headers", (node, pointer) => [
-			...headerFieldFindings(resolution, node, pointer),
-			...media.header(resolution, search, node, pointer)
 		]),
-		...each("pathItems", (node, pointer) => items.pathItem(resolution, search, node, pointer)),
-		...each("callbacks", (node, pointer) => items.callback(resolution, search, node, pointer)),
-		...each("mediaTypes", (node, pointer) => media.mediaType(resolution, search, node, pointer))
-	]
+	pathItem: (resolution, search, node, pointer) =>
+		whenSome(ownObject(node), (item) => {
+			const fixed = Arr.map(methodMembers(resolution.line), (method): OperationMember => ({
+				node: Record.get(item, method),
+				pointer: childPointer(pointer, method)
+			}))
+			const extra =
+				resolution.line === "3.2"
+					? Arr.map(
+							entriesOf(Record.get(item, "additionalOperations")),
+							([name, operation]): OperationMember => ({
+								node: Option.some(operation),
+								pointer: childPointer(childPointer(pointer, "additionalOperations"), name)
+							})
+						)
+					: []
+
+			return [
+				...parameterListFindings(
+					resolution,
+					search,
+					Record.get(item, "parameters"),
+					childPointer(pointer, "parameters")
+				),
+				...Arr.flatMap([...fixed, ...extra], (member) =>
+					items.operation(resolution, search, member.node, member.pointer)
+				)
+			]
+		})
 }
+
+const componentFindings = (resolution: Resolution, search: Search): readonly Finding[] =>
+	whenSome(Option.filter(rootMember(resolution, "components"), isObject), (components) => {
+		const each = (
+			section: string,
+			visit: (node: Option.Option<Json>, pointer: string) => readonly Finding[]
+		): readonly Finding[] =>
+			Arr.flatMap(entriesOf(Record.get(components, section)), ([name, node]) =>
+				visit(Option.some(node), childPointer(childPointer("/components", section), name))
+			)
+
+		return [
+			...each("schemas", (node, pointer) => schemaFindings(resolution, search, node, pointer)),
+			...each("responses", (node, pointer) => responseFindings(resolution, search, node, pointer)),
+			...each("parameters", (node, pointer) =>
+				parameterFindings(resolution, search, node, pointer)
+			),
+			...each("requestBodies", (node, pointer) =>
+				requestBodyFindings(resolution, search, node, pointer)
+			),
+			...each("headers", (node, pointer) => [
+				...headerFieldFindings(resolution, node, pointer),
+				...media.header(resolution, search, node, pointer)
+			]),
+			...each("pathItems", (node, pointer) => items.pathItem(resolution, search, node, pointer)),
+			...each("callbacks", (node, pointer) => items.callback(resolution, search, node, pointer)),
+			...each("mediaTypes", (node, pointer) => media.mediaType(resolution, search, node, pointer))
+		]
+	})
 
 const elementFindings = (resolution: Resolution, search: Search): readonly Finding[] => {
-	const root = isObject(resolution.value) ? resolution.value : {}
 	const under = (member: string): readonly Finding[] =>
-		entriesOf(root[member]).flatMap(([key, item]) =>
-			items.pathItem(resolution, search, item, childPointer(childPointer("", member), key))
+		Arr.flatMap(entriesOf(rootMember(resolution, member)), ([key, item]) =>
+			items.pathItem(
+				resolution,
+				search,
+				Option.some(item),
+				childPointer(childPointer("", member), key)
+			)
 		)
 
 	return [
@@ -852,29 +951,50 @@ const elementFindings = (resolution: Resolution, search: Search): readonly Findi
 	]
 }
 
+/**
+ * An operation of a path item as the server and security checks find it: its method as sent, its
+ * pointer, and whether it is a 3.2 `additionalOperations` entry.
+ */
+interface OperationSite {
+	readonly additional: boolean
+	readonly method: string
+	readonly pointer: string
+}
+
 const operationsOf = (resolution: Resolution, item: PathItem): readonly Operation[] => {
-	const fixed = methodMembers(resolution.line).filter((name) => isObject(item.node[name]))
+	const fixed = Arr.map(
+		Arr.filter(methodMembers(resolution.line), (name) =>
+			Option.exists(Record.get(item.node, name), isObject)
+		),
+		(name): OperationSite => ({
+			additional: false,
+			method: Str.toUpperCase(name),
+			pointer: childPointer(item.pointer, name)
+		})
+	)
 	const extra =
-		resolution.line === "3.2" ? entriesOf(item.node.additionalOperations).map(([name]) => name) : []
-	const entries = [
-		...fixed.map((name) => [name.toUpperCase(), childPointer(item.pointer, name), false] as const),
-		...extra.map(
-			(name) =>
-				[
-					name,
-					childPointer(childPointer(item.pointer, "additionalOperations"), name),
-					true
-				] as const
-		)
-	]
-
-	return entries.flatMap(([method, pointer, additional]) => {
-		const node = nodeAt(resolution.value, pointer)
-
-		return isObject(node)
-			? [{ additional, id: stringMember(node, "operationId"), item, method, node, pointer }]
+		resolution.line === "3.2"
+			? Arr.map(
+					entriesOf(Record.get(item.node, "additionalOperations")),
+					([name]): OperationSite => ({
+						additional: true,
+						method: name,
+						pointer: childPointer(childPointer(item.pointer, "additionalOperations"), name)
+					})
+				)
 			: []
-	})
+
+	return Arr.flatMap([...fixed, ...extra], ({ additional, method, pointer }) =>
+		Option.match(
+			Option.filter(Option.fromUndefinedOr(nodeAt(resolution.value, pointer)), isObject),
+			{
+				onNone: (): readonly Operation[] => [],
+				onSome: (node) => [
+					{ additional, id: stringMember(node, "operationId"), item, method, node, pointer }
+				]
+			}
+		)
+	)
 }
 
 const serverFindings = (
@@ -889,67 +1009,85 @@ const serverFindings = (
 	const url = stringMember(server, "url")
 	const names = url === undefined ? [] : expressionsOf(url)
 	const repeated = Arr.dedupe(names).length !== names.length
-	const defaultSeverity = resolution.line === "3.0" ? "notice" : "refusal"
-	const variables = entriesOf(server.variables).flatMap(([name, variable]) => {
+	const defaultSeverity: Rule["severity"] = resolution.line === "3.0" ? "notice" : "refusal"
+	const variables = Arr.flatMap(entriesOf(Record.get(server, "variables")), ([name, variable]) => {
 		const fallback = isObject(variable) ? stringMember(variable, "default") : undefined
-		const members = isObject(variable) ? variable.enum : undefined
+		const members = listOf(
+			Option.flatMap(Option.filter(Option.some(variable), isObject), (object) =>
+				Record.get(object, "enum")
+			)
+		)
 
 		return fallback !== undefined &&
-			isArray(members) &&
-			members.length > 0 &&
-			!members.includes(fallback)
+			Arr.isReadonlyArrayNonEmpty(members) &&
+			!Arr.contains(members, fallback)
 			? [
-					at(
-						"SRV-12/default-not-in-enum",
-						childPointer(childPointer(pointer, "variables"), name)
-					)({
+					{
+						...at(
+							"SRV-12/default-not-in-enum",
+							childPointer(childPointer(pointer, "variables"), name)
+						),
 						severity: defaultSeverity
-					})
+					}
 				]
 			: []
 	})
 
 	return [
-		...(url !== undefined && /[?#]/u.test(url)
-			? [at("SRV-18/query-or-fragment", childPointer(pointer, "url"))()]
+		...(url !== undefined && queryOrFragment.test(url)
+			? [at("SRV-18/query-or-fragment", childPointer(pointer, "url"))]
 			: []),
-		...(repeated ? [at("SRV-19/repeated-variable", childPointer(pointer, "url"))()] : []),
+		...(repeated ? [at("SRV-19/repeated-variable", childPointer(pointer, "url"))] : []),
 		...variables
 	]
 }
 
-// Operation servers replace the path item's, which replace the root's (SRV-15).
-const serversOf = (
-	resolution: Resolution,
-	operation: Operation
-): readonly [readonly Json[], string] => {
-	if (isArray(operation.node.servers)) {
-		return [operation.node.servers, operation.pointer]
-	}
-
-	if (isArray(operation.item.node.servers)) {
-		return [operation.item.node.servers, operation.item.pointer]
-	}
-
-	return [listOf(isObject(resolution.value) ? resolution.value.servers : undefined), ""]
+/**
+ * A `servers` list and the pointer of the object that holds it.
+ */
+interface ServerList {
+	readonly owner: string
+	readonly servers: readonly Json[]
 }
 
-const effectiveServers = (
-	resolution: Resolution,
-	operation: Operation
-): readonly (readonly [Json, string])[] => {
-	const [servers, owner] = serversOf(resolution, operation)
+const ownServers = (node: JsonObject, owner: string): Option.Option<ServerList> =>
+	Option.map(Option.filter(Record.get(node, "servers"), isArray), (servers) => ({
+		owner,
+		servers
+	}))
 
-	return servers.map(
-		(server, index) =>
-			[server, childPointer(childPointer(owner, "servers"), String(index))] as const
+/**
+ * Operation servers replace the path item's, which replace the root's (SRV-15).
+ */
+const serversOf = (resolution: Resolution, operation: Operation): ServerList =>
+	ownServers(operation.node, operation.pointer).pipe(
+		Option.orElse(() => ownServers(operation.item.node, operation.item.pointer)),
+		Option.getOrElse(() => ({ owner: "", servers: listOf(rootMember(resolution, "servers")) }))
 	)
+
+/**
+ * One server of an effective list, with its pointer.
+ */
+interface ServerAt {
+	readonly pointer: string
+	readonly server: Json
 }
 
-// A 3.2 server name is unique within its list (D-OC3); no schema enforces it.
+const effectiveServers = (resolution: Resolution, operation: Operation): readonly ServerAt[] => {
+	const { owner, servers } = serversOf(resolution, operation)
+
+	return Arr.map(servers, (server, index): ServerAt => ({
+		pointer: childPointer(childPointer(owner, "servers"), `${index}`),
+		server
+	}))
+}
+
+/**
+ * A 3.2 server name is unique within its list (D-OC3); no schema enforces it.
+ */
 const duplicateNameFindings = (
 	resolution: Resolution,
-	servers: readonly (readonly [Json, string])[]
+	servers: readonly ServerAt[]
 ): readonly Finding[] => {
 	if (resolution.line !== "3.2") {
 		return []
@@ -957,14 +1095,14 @@ const duplicateNameFindings = (
 
 	const seen = new Set<string>()
 
-	return servers.flatMap(([server, pointer]) => {
+	return Arr.flatMap(servers, ({ pointer, server }) => {
 		const name = isObject(server) ? stringMember(server, "name") : undefined
 		if (name === undefined) {
 			return []
 		}
 
 		if (seen.has(name)) {
-			return [at("SRV-04/duplicate-name", childPointer(pointer, "name"))()]
+			return [at("SRV-04/duplicate-name", childPointer(pointer, "name"))]
 		}
 
 		seen.add(name)
@@ -979,30 +1117,33 @@ const operationServerFindings = (
 ): readonly Finding[] => {
 	const servers = effectiveServers(resolution, operation)
 
-	return [
-		...servers.flatMap(([server, pointer]) => serverFindings(resolution, server, pointer)),
-		...duplicateNameFindings(resolution, servers)
-	].map((finding) => ({ ...finding, operation }))
+	return Arr.map(
+		[
+			...Arr.flatMap(servers, ({ pointer, server }) => serverFindings(resolution, server, pointer)),
+			...duplicateNameFindings(resolution, servers)
+		],
+		(finding) => ({ ...finding, operation })
+	)
 }
 
-const schemeNode = (resolution: Resolution, name: string): JsonObject | undefined => {
-	const key = implicitComponent(resolution, "securitySchemes", name)
-	if (Option.isNone(key)) {
-		return undefined
-	}
-
-	const document = resolution.documents.get(key.value.document)
-	const node = document === undefined ? undefined : nodeAt(document, key.value.pointer)
-
-	return locate(resolution, key.value, node)?.node
-}
+const schemeNode = (resolution: Resolution, name: string): Option.Option<JsonObject> =>
+	Option.flatMap(implicitComponent(resolution, "securitySchemes", name), (key) =>
+		Option.flatMap(
+			Option.flatMap(Option.fromUndefinedOr(resolution.documents.get(key.document)), (document) =>
+				Option.fromUndefinedOr(nodeAt(document, key.pointer))
+			),
+			(node) => Option.map(locate(resolution, key, node), (place) => place.node)
+		)
+	)
 
 interface Requirement {
 	readonly scopes: readonly Finding[]
 	readonly unresolved: readonly Finding[]
 }
 
-// SEC-12 holds in 3.0 only: a scheme that takes no scopes must list none.
+/**
+ * SEC-12 holds in 3.0 only: a scheme that takes no scopes must list none.
+ */
 const scopesFinding = (
 	resolution: Resolution,
 	scheme: JsonObject,
@@ -1012,8 +1153,10 @@ const scopesFinding = (
 	const kind = stringMember(scheme, "type")
 	const takesScopes = kind === "oauth2" || kind === "openIdConnect"
 
-	return resolution.line === "3.0" && !takesScopes && listOf(scopes).length > 0
-		? [at("SEC-12/non-empty-scopes", pointer)()]
+	return resolution.line === "3.0" &&
+		!takesScopes &&
+		Arr.isReadonlyArrayNonEmpty(listOf(Option.some(scopes)))
+		? [at("SEC-12/non-empty-scopes", pointer)]
 		: []
 }
 
@@ -1023,96 +1166,101 @@ const requirementFindings = (
 	pointer: string
 ): Requirement => {
 	const code = resolution.line === "3.2" ? "SEC-10/unresolved-scheme" : "SEC-09/unresolved-scheme"
-	const names = entriesOf(alternative).map(([name, scopes]) => {
-		const scheme = schemeNode(resolution, name)
+	const names = Arr.map(entriesOf(Option.some(alternative)), ([name, scopes]): Requirement => {
 		const place = childPointer(pointer, name)
 
-		return scheme === undefined
-			? { scopes: [], unresolved: [at(code, place)()] }
-			: { scopes: scopesFinding(resolution, scheme, scopes, place), unresolved: [] }
+		return Option.match(schemeNode(resolution, name), {
+			onNone: () => ({ scopes: [], unresolved: [at(code, place)] }),
+			onSome: (scheme) => ({
+				scopes: scopesFinding(resolution, scheme, scopes, place),
+				unresolved: []
+			})
+		})
 	})
 
 	return {
-		scopes: names.flatMap((entry) => entry.scopes),
-		unresolved: names.flatMap((entry) => entry.unresolved)
+		scopes: Arr.flatMap(names, (entry) => entry.scopes),
+		unresolved: Arr.flatMap(names, (entry) => entry.unresolved)
 	}
 }
 
+/**
+ * The findings of one security requirement list. `exhausted`: every alternative names a scheme
+ * that does not resolve, so none remains usable.
+ */
 interface SecurityList {
 	readonly exhausted: boolean
 	readonly scopes: readonly Finding[]
 	readonly unresolved: readonly Finding[]
 }
 
-// `exhausted`: every alternative names a scheme that does not resolve, so none remains usable.
 const securityList = (
 	resolution: Resolution,
 	list: readonly Json[],
 	pointer: string
 ): SecurityList => {
-	const requirements = list.map((alternative, index) =>
-		requirementFindings(resolution, alternative, childPointer(pointer, String(index)))
+	const requirements = Arr.map(list, (alternative, index) =>
+		requirementFindings(resolution, alternative, childPointer(pointer, `${index}`))
 	)
 
 	return {
 		exhausted:
-			requirements.length > 0 &&
-			requirements.every((requirement) => requirement.unresolved.length > 0),
-		scopes: requirements.flatMap((requirement) => requirement.scopes),
-		unresolved: requirements.flatMap((requirement) => requirement.unresolved)
+			Arr.isReadonlyArrayNonEmpty(requirements) &&
+			Arr.every(requirements, (requirement) => Arr.isReadonlyArrayNonEmpty(requirement.unresolved)),
+		scopes: Arr.flatMap(requirements, (requirement) => requirement.scopes),
+		unresolved: Arr.flatMap(requirements, (requirement) => requirement.unresolved)
 	}
 }
 
 const operationScoped = (findings: readonly Finding[], operation: Operation): readonly Finding[] =>
-	findings.map((finding) => ({ ...finding, operation, scope: "operation" }))
+	Arr.map(findings, (finding) => ({ ...finding, operation, scope: "operation" }))
 
-const ownSecurity = (resolution: Resolution, operation: Operation): readonly Finding[] => {
-	const list = operation.node.security
-	if (!isArray(list)) {
-		return []
-	}
+const securityOf = (node: JsonObject): Option.Option<readonly Json[]> =>
+	Option.filter(Record.get(node, "security"), isArray)
 
-	const found = securityList(resolution, list, childPointer(operation.pointer, "security"))
+const ownSecurity = (resolution: Resolution, operation: Operation): readonly Finding[] =>
+	whenSome(securityOf(operation.node), (list) => {
+		const found = securityList(resolution, list, childPointer(operation.pointer, "security"))
 
-	return [
-		...(found.exhausted ? operationScoped(found.unresolved, operation) : found.unresolved),
-		...found.scopes
-	]
-}
+		return [
+			...(found.exhausted ? operationScoped(found.unresolved, operation) : found.unresolved),
+			...found.scopes
+		]
+	})
 
-// A root list that leaves an operation no alternative is that operation's refusal.
+/**
+ * A root list that leaves an operation no alternative is that operation's refusal.
+ */
 const rootSecurity = (
 	resolution: Resolution,
 	operations: readonly Operation[]
-): readonly Finding[] => {
-	const list = isObject(resolution.value) ? resolution.value.security : undefined
-	if (!isArray(list)) {
-		return []
-	}
+): readonly Finding[] =>
+	whenSome(Option.filter(rootMember(resolution, "security"), isArray), (list) => {
+		const found = securityList(resolution, list, "/security")
+		const inheriting = Arr.filter(operations, (operation) =>
+			Option.isNone(securityOf(operation.node))
+		)
+		const unresolved =
+			found.exhausted && Arr.isReadonlyArrayNonEmpty(inheriting)
+				? Arr.flatMap(inheriting, (operation) => operationScoped(found.unresolved, operation))
+				: found.unresolved
 
-	const found = securityList(resolution, list, "/security")
-	const inheriting = operations.filter((operation) => !isArray(operation.node.security))
-	const unresolved =
-		found.exhausted && inheriting.length > 0
-			? inheriting.flatMap((operation) => operationScoped(found.unresolved, operation))
-			: found.unresolved
-
-	return [...unresolved, ...found.scopes]
-}
+		return [...unresolved, ...found.scopes]
+	})
 
 const securityFindings = (
 	resolution: Resolution,
 	operations: readonly Operation[]
 ): readonly Finding[] => [
 	...rootSecurity(resolution, operations),
-	...operations.flatMap((operation) => ownSecurity(resolution, operation))
+	...Arr.flatMap(operations, (operation) => ownSecurity(resolution, operation))
 ]
 
 const operationFindingsOf = (resolution: Resolution): readonly Finding[] => {
-	const operations = pathItems(resolution).flatMap((item) => operationsOf(resolution, item))
+	const operations = Arr.flatMap(pathItems(resolution), (item) => operationsOf(resolution, item))
 
 	return [
-		...operations.flatMap((operation) => operationServerFindings(resolution, operation)),
+		...Arr.flatMap(operations, (operation) => operationServerFindings(resolution, operation)),
 		...securityFindings(resolution, operations)
 	]
 }
@@ -1120,12 +1268,14 @@ const operationFindingsOf = (resolution: Resolution): readonly Finding[] => {
 const underItem = (operation: Operation, pointer: string): boolean =>
 	operation.item.use !== operation.item.pointer && isPointerWithin(operation.item.pointer, pointer)
 
+/**
+ * The diagnostic of one finding. Under a Reference Object the use site is the pointer and the
+ * target is related (design 3.3).
+ */
 const toDiagnostic = (resolution: Resolution, finding: Finding) => {
 	const rule: Rule = rules[finding.code]
 	const { operation } = finding
-	// Under a Reference Object the use site is the pointer and the target is related (design 3.3).
 	const viaReference = operation !== undefined && underItem(operation, finding.pointer)
-	const declared = isObject(resolution.value) ? resolution.value.openapi : undefined
 
 	return makeDiagnostic({
 		code: finding.code,
@@ -1133,7 +1283,10 @@ const toDiagnostic = (resolution: Resolution, finding: Finding) => {
 		element: rule.element,
 		hint: rule.hint,
 		message: rule.message,
-		openapi: Predicate.isString(declared) ? declared : patchVersion[resolution.line],
+		openapi: Option.getOrElse(
+			Option.filter(rootMember(resolution, "openapi"), Predicate.isString),
+			() => patchVersion[resolution.line]
+		),
 		operation: operation === undefined ? undefined : operationOf(operation),
 		pointer: viaReference ? operation.item.use : finding.pointer,
 		related: viaReference ? [site(resolution, finding.pointer)] : undefined,
@@ -1155,13 +1308,11 @@ const toDiagnostic = (resolution: Resolution, finding: Finding) => {
  */
 export const checkGrammar = Effect.fnUntraced(function* checkGrammar(
 	resolution: Resolution,
-	limits: Pick<ResolveLimits, "maxNodes"> = defaultLimits
+	limits: Pick<ResolveLimits, "maxNodes">
 ): Effect.fn.Return<readonly Diagnostic[]> {
 	const search = startSearch(limits.maxNodes)
 	const findings = [...elementFindings(resolution, search), ...operationFindingsOf(resolution)]
-	const reported = search.exhausted ? [at("REF-18/node-budget", "")()] : findings
+	const reported = search.exhausted ? [at("REF-18/node-budget", "")] : findings
 
-	// Effect.forEach takes (items, f); it is not an array method with a thisArg.
-	// oxlint-disable-next-line unicorn/no-array-method-this-argument
 	return yield* Effect.forEach(reported, (finding) => toDiagnostic(resolution, finding))
 })

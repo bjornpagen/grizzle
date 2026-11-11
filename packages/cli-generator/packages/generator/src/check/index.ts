@@ -3,6 +3,7 @@ import { checkGrammar } from "#check/grammar.ts"
 import { checkStructure } from "#check/structure.ts"
 import type { Diagnostic } from "#model/diagnostic.ts"
 import { sortDiagnostics } from "#model/diagnostic.ts"
+import { defaultLimits } from "#resolve/index.ts"
 import type { Resolution } from "#resolve/index.ts"
 
 /**
@@ -14,7 +15,7 @@ export const checkSpecText = Effect.fn("check.checkSpecText")(function* checkSpe
 ): Effect.fn.Return<readonly Diagnostic[]> {
 	const [structure, grammar] = yield* Effect.all([
 		checkStructure(resolution),
-		checkGrammar(resolution)
+		checkGrammar(resolution, defaultLimits)
 	])
 
 	return sortDiagnostics([resolution.document], [...structure, ...grammar])

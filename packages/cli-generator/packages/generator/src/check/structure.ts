@@ -1,17 +1,21 @@
-import { Array as Arr, Effect, Option, Predicate, Record, Schema } from "effect"
+import { Array as Arr, Effect, Option, Predicate, Record, Schema, String as Str } from "effect"
 import {
+	entriesOf,
 	expression,
 	expressionsOf,
+	listOf,
 	locate,
+	memberOf,
 	operationOf,
 	pathItems,
+	rootMember,
 	site
 } from "#check/path-items.ts"
 import type { Operation, PathItem } from "#check/path-items.ts"
 import { ComponentName, componentNamePattern, MethodToken, PathTemplate } from "#model/brands.ts"
 import { makeDiagnostic } from "#model/diagnostic.ts"
 import type { Diagnostic } from "#model/diagnostic.ts"
-import { isObject, isArray, nodeAt, stringMember } from "#model/json-tree.ts"
+import { isObject, nodeAt, stringMember } from "#model/json-tree.ts"
 import type { JsonObject } from "#model/json-tree.ts"
 import { methodMembers } from "#model/path-item.ts"
 import { childPointer } from "#model/pointer.ts"
@@ -150,78 +154,97 @@ const componentSections = {
 	"3.2": [...sections30, "pathItems", "mediaTypes"]
 } as const
 
+/**
+ * Where an operation sits under its path item: its member name, its pointer, and whether it is a
+ * 3.2 `additionalOperations` entry.
+ */
+interface OperationSite {
+	readonly additional: boolean
+	readonly name: string
+	readonly pointer: string
+}
+
 const operationsOf = (resolution: Resolution, item: PathItem): readonly Operation[] => {
 	const members = methodMembers(resolution.line)
-	const fixed = Object.keys(item.node).filter((name) => members.includes(name))
-	const extra = item.node.additionalOperations
+	const fixed = Arr.map(
+		Arr.filter(Record.keys(item.node), (name) => Arr.contains(members, name)),
+		(name): OperationSite => ({
+			additional: false,
+			name,
+			pointer: childPointer(item.pointer, name)
+		})
+	)
 	const additional =
-		resolution.line === "3.2" && isObject(extra)
-			? Object.keys(extra).map(
-					(name) =>
-						[name, childPointer(childPointer(item.pointer, "additionalOperations"), name)] as const
+		resolution.line === "3.2"
+			? Arr.map(
+					entriesOf(Record.get(item.node, "additionalOperations")),
+					([name]): OperationSite => ({
+						additional: true,
+						name,
+						pointer: childPointer(childPointer(item.pointer, "additionalOperations"), name)
+					})
 				)
 			: []
-	const entries = [
-		...fixed.map((name) => [name, childPointer(item.pointer, name), false] as const),
-		...additional.map(([name, pointer]) => [name, pointer, true] as const)
-	]
 
-	return entries.flatMap(([name, pointer, additionalKey]) => {
-		const node = nodeAt(resolution.value, pointer)
-
-		return isObject(node)
-			? [
+	return Arr.flatMap([...fixed, ...additional], (entry) =>
+		Option.match(
+			Option.filter(Option.fromUndefinedOr(nodeAt(resolution.value, entry.pointer)), isObject),
+			{
+				onNone: (): readonly Operation[] => [],
+				onSome: (node) => [
 					{
-						additional: additionalKey,
+						additional: entry.additional,
 						id: stringMember(node, "operationId"),
 						item,
-						method: additionalKey ? name : name.toUpperCase(),
+						method: entry.additional ? entry.name : Str.toUpperCase(entry.name),
 						node,
-						pointer
+						pointer: entry.pointer
 					}
 				]
-			: []
-	})
+			}
+		)
+	)
 }
 
 const parametersOf = (
 	resolution: Resolution,
 	owner: JsonObject,
 	ownerPointer: string
-): readonly Parameter[] => {
-	const list = owner.parameters
-	if (!isArray(list)) {
-		return []
-	}
+): readonly Parameter[] =>
+	Arr.flatMap(listOf(Record.get(owner, "parameters")), (entry, index) => {
+		const pointer = childPointer(childPointer(ownerPointer, "parameters"), `${index}`)
 
-	return list.flatMap((entry, index) => {
-		const pointer = childPointer(childPointer(ownerPointer, "parameters"), String(index))
-		const located = locate(resolution, site(resolution, pointer), entry)
-		const name = located === undefined ? undefined : stringMember(located.node, "name")
-		const location = located === undefined ? undefined : stringMember(located.node, "in")
+		return Option.match(locate(resolution, site(resolution, pointer), entry), {
+			onNone: (): readonly Parameter[] => [],
+			onSome: (located) => {
+				const name = stringMember(located.node, "name")
+				const location = stringMember(located.node, "in")
 
-		return name === undefined || location === undefined ? [] : [{ in: location, name, pointer }]
+				return name === undefined || location === undefined ? [] : [{ in: location, name, pointer }]
+			}
+		})
 	})
-}
 
 const keyOfParameter = (parameter: Parameter): string =>
-	`${parameter.in}\u0000${parameter.in === "header" ? parameter.name.toLowerCase() : parameter.name}`
+	`${parameter.in}\u0000${parameter.in === "header" ? Str.toLowerCase(parameter.name) : parameter.name}`
 
-// Path-item parameters first, an operation's parameter replacing the one it overrides.
+/**
+ * Path-item parameters first, an operation's parameter replacing the one it overrides.
+ */
 const effectiveParameters = (
 	resolution: Resolution,
 	operation: Operation
 ): readonly Parameter[] => {
 	const merged = new Map<string, Parameter>()
 	const lists = [
-		parametersOf(resolution, operation.item.node, operation.item.pointer),
-		parametersOf(resolution, operation.node, operation.pointer)
+		...parametersOf(resolution, operation.item.node, operation.item.pointer),
+		...parametersOf(resolution, operation.node, operation.pointer)
 	]
-	for (const parameter of lists.flat()) {
+	for (const parameter of lists) {
 		merged.set(keyOfParameter(parameter), parameter)
 	}
 
-	return [...merged.values()]
+	return Arr.fromIterable(merged.values())
 }
 
 const duplicates = (
@@ -241,73 +264,70 @@ const duplicates = (
 	return pairs
 }
 
-const normalizedTemplate = (key: string): string => key.replaceAll(expression, "{}")
+const normalizedTemplate = (key: string): string => Str.replaceAll(expression, "{}")(key)
 
-// A sibling of a Path Item `$ref` that the target also defines leaves the result undefined (D-OC6,
-// DOC-16). The target may sit in any document of the set.
-const refSiblingFindings = (resolution: Resolution): readonly Finding[] => {
-	const paths = isObject(resolution.value) ? resolution.value.paths : undefined
-
-	return Object.entries(isObject(paths) ? paths : {}).flatMap(([key, value]) => {
+/**
+ * A sibling of a Path Item `$ref` that the target also defines leaves the result undefined (D-OC6,
+ * DOC-16). The target may sit in any document of the set.
+ */
+const refSiblingFindings = (resolution: Resolution): readonly Finding[] =>
+	Arr.flatMap(entriesOf(rootMember(resolution, "paths")), ([key, value]) => {
 		const use = childPointer("/paths", key)
-		const referenced = resolution.references.has(
-			keyOf({ document: resolution.document, pointer: use })
-		)
-		const target = referenced ? locate(resolution, site(resolution, use), value) : undefined
-		if (!isObject(value) || target === undefined) {
+		const target = resolution.references.has(keyOf(site(resolution, use)))
+			? locate(resolution, site(resolution, use), value)
+			: Option.none()
+		if (!isObject(value) || Option.isNone(target)) {
 			return []
 		}
 
-		const shared = Object.keys(value).filter(
-			(member) => member !== "$ref" && Object.hasOwn(target.node, member)
+		const shared = Arr.filter(
+			Record.keys(value),
+			(member) => member !== "$ref" && Record.has(target.value.node, member)
 		)
 
-		return shared.length === 0
-			? []
-			: [
+		return Arr.isReadonlyArrayNonEmpty(shared)
+			? [
 					{
 						code: "PTH-11/ref-sibling-conflict",
 						pointer: use,
-						related: shared.map((member) => childPointer(use, member))
+						related: Arr.map(shared, (member) => childPointer(use, member))
 					}
 				]
-	})
-}
-
-const componentFindings = (resolution: Resolution): readonly Finding[] => {
-	const components = isObject(resolution.value) ? resolution.value.components : undefined
-	if (!isObject(components)) {
-		return []
-	}
-
-	return componentSections[resolution.line].flatMap((section) => {
-		const map = components[section]
-
-		return isObject(map)
-			? Object.keys(map)
-					.filter((name) => !isComponentName(name))
-					.map((name): Finding => ({
-						code: "CMP-13/invalid-key",
-						pointer: childPointer(childPointer("/components", section), name)
-					}))
 			: []
 	})
+
+const componentFindings = (resolution: Resolution): readonly Finding[] => {
+	const components = rootMember(resolution, "components")
+
+	return Arr.flatMap(componentSections[resolution.line], (section) =>
+		Arr.map(
+			Arr.filter(entriesOf(memberOf(components, section)), ([name]) => !isComponentName(name)),
+			([name]): Finding => ({
+				code: "CMP-13/invalid-key",
+				pointer: childPointer(childPointer("/components", section), name)
+			})
+		)
+	)
 }
 
-// Not `Arr.groupBy`: a set-once first-seen map. A grouped form emits per id group (ids x, y, y, x
-// give [4th, 3rd] for today's [3rd, 4th]); only checkStructure's unsorted output could see it.
+/**
+ * Not `Arr.groupBy`: a set-once first-seen map. A grouped form emits per id group (ids x, y, y, x
+ * give [4th, 3rd] for today's [3rd, 4th]); only checkStructure's unsorted output could see it.
+ */
 const duplicateIdFindings = (operations: readonly Operation[]): readonly Finding[] => {
 	const first = new Map<string, string>()
 	const found: Finding[] = []
 	for (const operation of operations) {
-		if (operation.id !== undefined) {
-			const pointer = childPointer(operation.pointer, "operationId")
-			const earlier = first.get(operation.id)
-			if (earlier === undefined) {
-				first.set(operation.id, pointer)
-			} else {
-				found.push({ code: "OPR-07/duplicate-id", pointer, related: [earlier] })
-			}
+		if (operation.id === undefined) {
+			continue
+		}
+
+		const pointer = childPointer(operation.pointer, "operationId")
+		const earlier = first.get(operation.id)
+		if (earlier === undefined) {
+			first.set(operation.id, pointer)
+		} else {
+			found.push({ code: "OPR-07/duplicate-id", pointer, related: [earlier] })
 		}
 	}
 
@@ -323,7 +343,7 @@ const additionalKeyFindings = (operation: Operation): readonly Finding[] => {
 		return []
 	}
 
-	if (methodMembers("3.2").includes(operation.method.toLowerCase())) {
+	if (Arr.contains(methodMembers("3.2"), Str.toLowerCase(operation.method))) {
 		return [{ code: "PTH-24/fixed-method-key", operation, pointer: operation.pointer }]
 	}
 
@@ -338,36 +358,39 @@ const templateFindings = (
 	twins: readonly string[]
 ): readonly Finding[] => {
 	const { key } = operation.item
-	const at = (code: Code, pointer: string, related: readonly string[] = []): Finding => ({
+	const at = (code: Code, pointer: string, related: readonly string[]): Finding => ({
 		code,
 		operation,
 		pointer,
 		related
 	})
-	const found = twins.map((twin) => at("PTH-04/template-identical", operation.pointer, [twin]))
+	const found = Arr.map(twins, (twin) => at("PTH-04/template-identical", operation.pointer, [twin]))
 	const names = expressionsOf(key)
 	if (!isPathTemplate(key)) {
-		return [...found, at("PTH-07/invalid-path-key", operation.pointer)]
+		return [...found, at("PTH-07/invalid-path-key", operation.pointer, [])]
 	}
 
 	const distinct = Arr.dedupe(names)
 	const declared = new Map(
-		parameters
-			.filter((parameter) => parameter.in === "path")
-			.map((parameter) => [parameter.name, parameter])
+		Arr.map(
+			Arr.filter(parameters, (parameter) => parameter.in === "path"),
+			(parameter) => [parameter.name, parameter]
+		)
 	)
 
 	return [
 		...found,
 		...(distinct.length === names.length
 			? []
-			: [at("PTH-07/repeated-expression", operation.pointer)]),
-		...distinct
-			.filter((name) => !declared.has(name))
-			.map(() => at("PTH-03/missing-parameter", operation.pointer)),
-		...[...declared.entries()]
-			.filter(([name]) => !distinct.includes(name))
-			.map(([, parameter]) => at("PTH-08/missing-expression", parameter.pointer))
+			: [at("PTH-07/repeated-expression", operation.pointer, [])]),
+		...Arr.map(
+			Arr.filter(distinct, (name) => !declared.has(name)),
+			() => at("PTH-03/missing-parameter", operation.pointer, [])
+		),
+		...Arr.map(
+			Arr.filter(Arr.fromIterable(declared.entries()), ([name]) => !Arr.contains(distinct, name)),
+			([, parameter]) => at("PTH-08/missing-expression", parameter.pointer, [])
+		)
 	]
 }
 
@@ -377,8 +400,8 @@ const listFindings = (resolution: Resolution, operation: Operation): readonly Fi
 		parametersOf(resolution, operation.node, operation.pointer)
 	]
 
-	return lists.flatMap((list) =>
-		duplicates(list).map(([first, second]): Finding => ({
+	return Arr.flatMap(lists, (list) =>
+		Arr.map(duplicates(list), ([first, second]): Finding => ({
 			code: "PTH-28/duplicate-parameter",
 			operation,
 			pointer: second.pointer,
@@ -391,8 +414,8 @@ const querystringFindings = (
 	operation: Operation,
 	parameters: readonly Parameter[]
 ): readonly Finding[] => {
-	const strings = parameters.filter((parameter) => parameter.in === "querystring")
-	const queries = parameters.filter((parameter) => parameter.in === "query")
+	const strings = Arr.filter(parameters, (parameter) => parameter.in === "querystring")
+	const queries = Arr.filter(parameters, (parameter) => parameter.in === "query")
 	const conflict = strings.length > 1 || (strings.length > 0 && queries.length > 0)
 
 	return conflict
@@ -401,7 +424,7 @@ const querystringFindings = (
 					code: "STY-44/querystring-conflict",
 					operation,
 					pointer: operation.pointer,
-					related: [...strings, ...queries].map((parameter) => parameter.pointer)
+					related: Arr.map([...strings, ...queries], (parameter) => parameter.pointer)
 				}
 			]
 		: []
@@ -426,32 +449,38 @@ const findingsOf = (resolution: Resolution): readonly Finding[] => {
 	const items = pathItems(resolution)
 	const byTemplate = Arr.groupBy(items, (item) => normalizedTemplate(item.key))
 
-	const operations = items.flatMap((item) => operationsOf(resolution, item))
+	const operations = Arr.flatMap(items, (item) => operationsOf(resolution, item))
 	const twinsOf = (item: PathItem): readonly string[] =>
-		Option.getOrElse(
-			Record.get(byTemplate, normalizedTemplate(item.key)),
-			(): readonly PathItem[] => []
+		Arr.map(
+			Arr.filter(
+				Option.getOrElse(
+					Record.get(byTemplate, normalizedTemplate(item.key)),
+					(): readonly PathItem[] => []
+				),
+				(other) => other.use !== item.use
+			),
+			(other) => other.use
 		)
-			.filter((other) => other.use !== item.use)
-			.map((other) => other.use)
 
 	return [
 		...componentFindings(resolution),
 		...refSiblingFindings(resolution),
-		...operations.flatMap((operation) =>
+		...Arr.flatMap(operations, (operation) =>
 			operationFindings(resolution, operation, twinsOf(operation.item))
 		),
 		...duplicateIdFindings(operations)
 	]
 }
 
+/**
+ * The diagnostic of one finding. Under a Reference Object the use site is the pointer and the
+ * target is related (design 3.3).
+ */
 const toDiagnostic = (resolution: Resolution, finding: Finding) => {
 	const rule: Rule = rules[finding.code]
 	const { operation } = finding
-	// Under a Reference Object the use site is the pointer and the target is related (design 3.3).
 	const viaReference = operation !== undefined && operation.item.use !== operation.item.pointer
 	const related = [...(viaReference ? [finding.pointer] : []), ...(finding.related ?? [])]
-	const declared = isObject(resolution.value) ? resolution.value.openapi : undefined
 
 	return makeDiagnostic({
 		code: finding.code,
@@ -459,10 +488,15 @@ const toDiagnostic = (resolution: Resolution, finding: Finding) => {
 		element: rule.element,
 		hint: rule.hint,
 		message: rule.message,
-		openapi: Predicate.isString(declared) ? declared : patchVersion[resolution.line],
+		openapi: Option.getOrElse(
+			Option.filter(rootMember(resolution, "openapi"), Predicate.isString),
+			() => patchVersion[resolution.line]
+		),
 		operation: operation === undefined ? undefined : operationOf(operation),
 		pointer: viaReference ? operation.item.use : finding.pointer,
-		related: related.length === 0 ? undefined : related.map((pointer) => site(resolution, pointer)),
+		related: Arr.isReadonlyArrayNonEmpty(related)
+			? Arr.map(related, (pointer) => site(resolution, pointer))
+			: undefined,
 		scope: rule.scope,
 		severity: "refusal",
 		specSection: specSectionUrl(resolution.line, rule.anchor)

@@ -1,6 +1,6 @@
 {
 	"typecheck": {
-		"total": 9115,
+		"total": 8971,
 		"files": {
 			"packages/generator/corpus/tools/coverage.ts": 63,
 			"packages/generator/corpus/tools/fetch.ts": 6,
@@ -9,9 +9,6 @@
 			"packages/generator/corpus/tools/walk.ts": 11,
 			"packages/generator/scripts/inventory-export.ts": 42,
 			"packages/generator/scripts/inventory-trace.ts": 56,
-			"packages/generator/src/check/grammar.ts": 95,
-			"packages/generator/src/check/path-items.ts": 5,
-			"packages/generator/src/check/structure.ts": 44,
 			"packages/generator/src/emit/api.ts": 126,
 			"packages/generator/src/emit/cli.ts": 125,
 			"packages/generator/src/emit/domain.ts": 93,
@@ -285,14 +282,12 @@
 		}
 	},
 	"superlint": {
-		"total": 241,
+		"total": 219,
 		"files": {
 			"packages/generator/corpus/tools/run.ts": 3,
 			"packages/generator/corpus/tools/walk.ts": 11,
 			"packages/generator/scripts/inventory-export.ts": 4,
 			"packages/generator/scripts/inventory-trace.ts": 4,
-			"packages/generator/src/check/grammar.ts": 20,
-			"packages/generator/src/check/path-items.ts": 2,
 			"packages/generator/src/emit/api.ts": 8,
 			"packages/generator/src/emit/cli.ts": 16,
 			"packages/generator/src/emit/domain.ts": 5,
@@ -369,7 +364,7 @@
 		}
 	},
 	"oxlint": {
-		"total": 4782,
+		"total": 4741,
 		"files": {
 			"packages/generator/corpus/tools/coverage.ts": 63,
 			"packages/generator/corpus/tools/fetch.ts": 1,
@@ -378,9 +373,6 @@
 			"packages/generator/corpus/tools/walk.ts": 6,
 			"packages/generator/scripts/inventory-export.ts": 7,
 			"packages/generator/scripts/inventory-trace.ts": 14,
-			"packages/generator/src/check/grammar.ts": 32,
-			"packages/generator/src/check/path-items.ts": 1,
-			"packages/generator/src/check/structure.ts": 8,
 			"packages/generator/src/emit/api.ts": 110,
 			"packages/generator/src/emit/cli.ts": 149,
 			"packages/generator/src/emit/domain.ts": 85,
@@ -638,12 +630,11 @@
 		}
 	},
 	"dead-code": {
-		"total": 13,
+		"total": 12,
 		"files": {
 			"packages/generator/src/emit/api.ts": 2,
 			"packages/generator/src/emit/printer.ts": 1,
 			"packages/generator/src/model/author-config.ts": 1,
-			"packages/generator/src/model/brands.ts": 1,
 			"packages/generator/src/model/entities.ts": 6,
 			"packages/generator/test/support/generated-cli.ts": 1,
 			"packages/generator/test/tools/memguard.test.ts": 1

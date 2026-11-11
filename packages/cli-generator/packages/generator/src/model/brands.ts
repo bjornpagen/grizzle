@@ -58,7 +58,7 @@ const wireNamePattern = regex("^[^\\p{Cc}\\p{Cs}]+$", "u")
  * Controls, format characters, line and paragraph separators and lone surrogates; LF and TAB are
  * re-admitted by each pattern built from it.
  */
-export const safeTextCategories = "\\p{Cc}\\p{Cf}\\p{Zl}\\p{Zp}\\p{Cs}"
+const safeTextCategories = "\\p{Cc}\\p{Cf}\\p{Zl}\\p{Zp}\\p{Cs}"
 
 const safeTextPattern = regex(`^(?:[^${safeTextCategories}]|[\\n\\t])*$`, "u")
 
