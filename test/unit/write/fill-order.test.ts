@@ -24,6 +24,7 @@ import { compileWrite } from "#compiler/write/program/compile.ts"
 import { assert, deepEquals, defined, succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import {
+	admittedFillSpecGen,
 	type Axis,
 	besides,
 	buildFill,
@@ -871,15 +872,16 @@ interface FillCase {
 }
 
 /**
- * A case over a planted specification (fill.ts `plantedGen`), beside a drawn one (`besides`) where the reference admits
- * that one and alone otherwise, with an instance and a follow-up drawn as any case's: every draw is a case.
+ * A case over a planted specification (fill.ts `plantedGen`) beside an admitted one (`besides`, `admittedFillSpecGen`,
+ * admitted by construction), with an instance and a follow-up drawn as any case's.
  */
 const plantedCaseGen =
 	(planted: Planted): Gen<FillCase> =>
 	(source) => {
-		const base = source.draw(mutableOrDrawn(fillSpecGen({ relations: 3, families: 3, copies: 2 })))
-		const plant = source.draw(plantedGen(planted))
-		const spec = verdictOf(base).kind === "admitted" ? besides(base, plant) : plant
+		const base = source.draw(
+			mutableOrDrawn(admittedFillSpecGen({ relations: 3, families: 3, copies: 2 }))
+		)
+		const spec = besides(base, source.draw(plantedGen(planted)))
 		const rows = source.draw(instanceGen(spec))
 		return { spec, rows, followUp: source.draw(followUpGen(spec, rows)) }
 	}

@@ -4,9 +4,9 @@
  * function that owns it, and the keys and counted groups the law model holds.
  *
  * Over drawn schemas of families the reference admits (test/support/families/fill.ts: relations keyed by `id`, ordered
- * and counted families and trees between them, each relation mutable or not, constructed admitted: with no copy, the
- * ordered families that would nest sequences in a cycle left out), compiled to their law model, and drawn roles of
- * drawn change members, each function of the sources a recorder:
+ * and counted families and trees between them, each relation mutable or not, admitted by construction:
+ * admittedFillSpecGen, with no copy), compiled to their law model, and drawn roles of drawn change members, each function
+ * of the sources a recorder:
  *
  * - Relations: exactly one fact for each relation the owned schema states, by its declared name, and triggerLawsOver
  *   asked once for each, its answer the fact's triggerLaws.
@@ -48,7 +48,12 @@ import type { LawModel } from "#compiler/laws/model/model.ts"
 import { isolationInput } from "#compiler/program/isolation/input.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
-import { buildFill, type FillSpec, fillSpecGen, relationName } from "#test/support/families/fill.ts"
+import {
+	admittedFillSpecGen,
+	buildFill,
+	type FillSpec,
+	relationName
+} from "#test/support/families/fill.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { upTo } from "#test/support/up-to.ts"
 
@@ -62,43 +67,8 @@ interface Case {
 	readonly roles: ReadonlyArray<RoleSketch>
 }
 
-/** A family of a specification. */
-type Family = FillSpec["families"][number]
-
-/** Whether ordered family `f`, beside the ordered families `kept`, nests sequences in a cycle: its member reaches its
- * owner through them, or is it. */
-const closesNesting = (kept: ReadonlyArray<Family>, f: Family): boolean => {
-	const nests = Arr.filter(kept, (k) => k.kind === "ordered")
-	const reached = new Set([f.member])
-	const pending = [f.member]
-	for (let at = pending.pop(); at !== undefined; at = pending.pop()) {
-		for (const k of nests) {
-			if (k.owner === at && !reached.has(k.member)) {
-				reached.add(k.member)
-				pending.push(k.member)
-			}
-		}
-	}
-	return reached.has(f.owner)
-}
-
-/**
- * A drawn specification with no copy, its ordered families kept in order where they nest no sequences in a cycle: what
- * the reference admits of a specification with no copy, constructed rather than drawn until admitted. A family's index
- * names nothing here, since no copy or step reads one.
- */
-const admittedGen: Gen<FillSpec> = (source) => {
-	const spec = source.draw(fillSpecGen({ relations: 4, families: 4, copies: 0 }))
-	return {
-		...spec,
-		families: Arr.reduce(spec.families, Arr.empty<Family>(), (kept, f) =>
-			f.kind === "ordered" && closesNesting(kept, f) ? kept : [...kept, f]
-		)
-	}
-}
-
 const caseGen: Gen<Case> = (source) => ({
-	spec: source.draw(admittedGen),
+	spec: source.draw(admittedFillSpecGen({ relations: 4, families: 4, copies: 0 })),
 	roles: source.draw(
 		array((role): RoleSketch => ({ members: role.draw(array(int(1, 3), { min: 0, max: 3 })) }), {
 			min: 0,
