@@ -113,13 +113,12 @@ describe("a set comparison", () => {
 
 /**
  * The item comparisons and key computations a set comparison makes over answers of `size` items, the second the first
- * rotated by `rotate` thousandths of its length and changed by `change` at `at` thousandths of it.
+ * rotated by `turn` places and changed by `change` at place `place`.
  */
-const spentAt = (size: number, change: Change, at: number, rotate: number): number => {
+const spentAt = (size: number, change: Change, place: number, turn: number): number => {
 	const items = Arr.range(0, size - 1)
-	const turn = Math.floor((rotate * size) / 1000)
 	const turned = [...Arr.drop(items, turn), ...Arr.take(items, turn)]
-	const [first, second] = answersOfNumbers(items, turned, change, Math.floor((at * size) / 1000))
+	const [first, second] = answersOfNumbers(items, turned, change, place)
 	let spent = 0
 	const counted: Equivalence<number> = (left, right) => {
 		spent += 1
@@ -144,14 +143,17 @@ describe("a set comparison's cost", () => {
 						suite: "set comparison cost",
 						oracle: {
 							kind: "specification",
-							name: "items compared only within their key's group: over sizes 2h, 4h and 6h, the second step costs no more than the first"
+							name: "items compared only within their key's group: over sizes 2h, 4h and 6h, every place and turn scaled with the size, the second step costs no more than the first"
 						},
-						draw: drawn((source) => ({
-							half: source.draw(int(1, 600)),
-							change: source.draw(element(CHANGES)),
-							at: source.draw(int(0, 999)),
-							rotate: source.draw(int(0, 999))
-						})),
+						draw: drawn((source) => {
+							const half = source.draw(int(1, 600))
+							return {
+								half,
+								change: source.draw(element(CHANGES)),
+								at: source.draw(int(0, 2 * half - 1)),
+								rotate: source.draw(int(0, 2 * half - 1))
+							}
+						}),
 						literal: Formatter.format,
 						coverage: required<Change>(CHANGES, { cases: 40, sense: notesOnly }),
 						kept: [],
@@ -164,8 +166,8 @@ describe("a set comparison's cost", () => {
 					({ half, change, at, rotate }, c) =>
 						Effect.sync(() => {
 							c.note(change)
-							const [first, second, third] = Arr.map([2, 4, 6], (k) =>
-								spentAt(k * half, change, at, rotate)
+							const [first, second, third] = Arr.map([1, 2, 3], (k) =>
+								spentAt(2 * k * half, change, k * at, k * rotate)
 							)
 							assertTrue(
 								(third ?? 0) - (second ?? 0) <= (second ?? 0) - (first ?? 0),

@@ -569,9 +569,9 @@ describe("collections", () => {
 							const perItem = projected ? 2 : 1
 							const candidates =
 								keys > 1
-									? Arr.makeBy(
-											Math.min(length, items.length),
-											(at) => tape.values[lengthAt + perItem * at] ?? 0
+									? Array.from(
+											{ length: Math.min(length, items.length) },
+											(_, at) => tape.values[lengthAt + perItem * at] ?? 0
 										)
 									: []
 							if (Arr.dedupe(candidates).length < candidates.length) {

@@ -138,6 +138,10 @@ const outerOf = <A, F extends string>(
 const underFullRun = <A, E, R>(search: Effect.Effect<A, E, R>) =>
 	search.pipe(Effect.provideService(Run, fullRun))
 
+/** `count` copies of `value`, none for a count of zero, where Effect's replicate makes at least one. */
+const copiesOf = <A>(value: A, count: number): ReadonlyArray<A> =>
+	Array.from({ length: count }, () => value)
+
 /** A drawn inner search: its rotating cases, how many run at once, and how many pass between steering snapshots. */
 type InnerShape = Readonly<{ runs: number; concurrency: number; steerEvery: number }>
 
@@ -957,8 +961,8 @@ describe("steering", () => {
 							const floor = floorCasesOf(shape.runs)
 							deepStrictEqual(offered, [
 								false,
-								...Arr.replicate(true, floor),
-								...Arr.replicate(false, shape.runs)
+								...copiesOf(true, floor),
+								...copiesOf(false, shape.runs)
 							])
 						})
 				)

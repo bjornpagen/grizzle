@@ -262,12 +262,16 @@ const crossing: Sessions<"a" | "b", Move> = {
 	}
 }
 
-/** Sessions that each commit, after one write of their own resource or none: every move of one commutes with every other's. */
+/**
+ * Sessions that each write their own resource, once or twice: every move of one commutes with every other's, as the
+ * lock manager's commute says of two writes of different resources. A commit commutes with nothing there, so none is
+ * drawn; the engine releases each session's locks when its run ends.
+ */
 const disjointSessions: Gen<Sessions<Named, Move>> = (source) => {
-	const own = (resource: Resource): Arr.NonEmptyReadonlyArray<Move> =>
-		source.draw(int(0, 1)) === 1
-			? [{ kind: "write", resource, value: source.draw(int(1, 2)) }, { kind: "commit" }]
-			: [{ kind: "commit" }]
+	const own = (resource: Resource): Arr.NonEmptyReadonlyArray<Move> => {
+		const first: Move = { kind: "write", resource, value: source.draw(int(1, 2)) }
+		return source.draw(int(0, 1)) === 1 ? [first, { kind: "write", resource, value: 2 }] : [first]
+	}
 	return {
 		a: { moves: own("x"), after: Option.none() },
 		b: { moves: own("y"), after: Option.none() },
@@ -372,10 +376,10 @@ describe("interleaving", () => {
 							kind: "specification",
 							name: "sleep sets run one order of moves that all commute; without them every order, the multinomial of the sessions' moves"
 						},
-						box: "three sessions, each committing after one write of its own resource, at either value, or none",
+						box: "three sessions, each writing its own resource once, at either value, or twice",
 						generator: disjointSessions,
 						literal: Formatter.format,
-						limit: 3 ** 3,
+						limit: 4 ** 3,
 						coverage: noCoverage,
 						caseHang: Duration.minutes(1)
 					},
