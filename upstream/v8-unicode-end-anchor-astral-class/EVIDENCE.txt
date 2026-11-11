@@ -1,0 +1,68 @@
+EVIDENCE: v8-unicode-end-anchor-astral-class
+
+Environment: macOS 27.0.1 on arm64; Node v26.13.0, V8 14.6.202.34-node.40. Measured 2026-11-11.
+
+1. The reproduction: `node repro.js`, exit status 1.
+
+   BUG  /[\u{10000}-\u{10FFFF}]$/u.test(U+1F600) expected true, got false  (the report: an astral class, then $)
+   BUG  /[\u{10000}-\u{10FFFF}]$/u.test(U+10FFFF) expected true, got false  (the same at U+10FFFF)
+   BUG  /[\u{1F600}]$/u.test(U+1F600) expected true, got false  (one astral code point in the class)
+   BUG  /[a\u{1F600}]$/u.test(U+1F600) expected true, got false  (a BMP member beside it)
+   BUG  /[^a]$/u.test(U+1F600) expected true, got false  (a negated class)
+   BUG  /[\u{10000}-\u{10FFFF}]$/u.test(U+78 U+1F600) expected true, got false  (one code unit before it)
+   BUG  /a[\u{10000}-\u{10FFFF}]$/u.test(U+61 U+1F600) expected true, got false  (a literal before the class)
+   BUG  /[\u{10000}-\u{10FFFF}]{2}$/u.test(U+1F600 U+1F600) expected true, got false  (the class twice)
+   ok   /^[\u{10000}-\u{10FFFF}]$/u.test(U+1F600) expected true, got true  (control: anchored at the start)
+   ok   /[\u{10000}-\u{10FFFF}]$/v.test(U+1F600) expected true, got true  (control: the v flag)
+   ok   /[\u{10000}-\u{10FFFF}]/u.test(U+1F600) expected true, got true  (control: no $)
+   ok   /[\u{10000}-\u{10FFFF}]$/uy.test(U+1F600) expected true, got true  (control: sticky)
+   ok   /\u{1F600}$/u.test(U+1F600) expected true, got true  (control: an atom, not a class)
+   ok   /.$/u.test(U+1F600) expected true, got true  (control: dot)
+   ok   /[\u{10000}-\u{10FFFF}]a{0,1022}$/u.test(U+1F600) expected true, got true  (control: a longest match longer than the subject)
+   ok   /[𐀀-􏿿]$/u.test(U+1F600) expected true, got true  (control: the class's code points in the source itself, a two-byte pattern)
+   ok   /[\u{100}-\u{FFFF}]$/u.test(U+1234) expected true, got true  (control: a BMP class)
+   ok   /[\u{10000}-\u{10FFFF}]$/u.test(U+61 U+62) expected false, got false  (control: no match where none exists)
+   node v26.13.0, V8 14.6.202.34-node.40: 8 case(s) disagree
+   exit 1
+
+   Every failing case is a bracketed class in unicode mode, from a one-byte source, before `$`, unanchored at the
+   start. Each control passes: `^`, the v flag, no `$`, the y flag (which skips the end-anchor optimization), an atom
+   instead of a class, dot, a longest match longer than the subject, and the same class written with the code points
+   themselves in the source, a two-byte pattern.
+
+2. The cause, in V8 14.6.202.34's source (src/regexp/).
+   - regexp-parser.cc, RegExpParserImpl<CharT>::ParseCharacterClass, non-v branch: a class's flags get
+     IS_CERTAINLY_ONE_CODE_POINT under `if (sizeof(CharT) == 1) { // No surrogate pairs.`, the width of the pattern's
+     source, not of the code points the class names. Under u a one-byte source names supplementary code points by
+     `\u{...}` escapes (and by a pair of `\u` escapes, `\p{...}`, and /iu case closure).
+   - regexp-ast.h, RegExpClassRanges::max_match(): 1 when is_certainly_one_code_point(), else 2. Such a class reports 1.
+   - regexp.cc, RegExpImpl::Compile: for a pattern anchored at its end, not at its start, not sticky, whose max_match()
+     is below kMaxBacksearchLimit (1024), `macro_assembler->SetCurrentPositionFromEnd(max_length)` starts the search
+     max_length code units before the end. With max_length 1, the search starts inside the surrogate pair, and the
+     class, which needs both code units, finds no match.
+   - The observations agree: dot, `\p{...}`/`\P{...}` and the two-byte source build their classes without the flag and
+     pass; the y flag and `^` skip the optimization and pass; `a?[...]$` and `[...]b?$` raise max_match to 2 and pass;
+     `[...]{2}$` reports 2 where it needs 4 and fails on two supplementary code points.
+
+3. The fix, on V8 main.
+   - 7d259d7c2090bb38af1fd9f6ca67c6dc8b6f88d8, "Reland "[regexp] Fix IS_CERTAINLY_ONE_CODE_POINT for unicode-mode
+     classes"", by Jakob Linke, reviewed by Patrick Thier, Cr-Commit-Position refs/heads/main@{#110562}, 2026-10-12;
+     https://chromium-review.googlesource.com/c/v8/v8/+/8556177. It relands 2f7f93cf5c1035086dcdf9758b2e604adab44ca6
+     (reverted the same day), Fixed: 571871980.
+   - regexp-parser.cc (+5/-2): the flag is keyed on `!IsUnicodeMode()` in place of the source's width. Outside unicode
+     mode a class always matches one code unit. Its message's example: "/x[\u{1F600}]$/u.test('x\u{1F600}') returned
+     false". It adds test/mjsunit/regress/regress-571871980.js, end-anchored classes over supplementary code points
+     from one-byte and two-byte sources, negated, /iu and \p{}, with the controls.
+
+4. The backport, 0001-deps-V8-backport-7d259d7c2090.patch.
+   - The V8 commit itself, `git apply --directory=deps/v8`, fails on those files: "patch failed:
+     deps/v8/src/regexp/regexp-parser.cc:3364" and "patch failed: deps/v8/test/mjsunit/mjsunit.status:1401".
+   - Base: nodejs/node v26.x-staging at a5bbc7b880da, whose regexp-parser.cc, mjsunit.status and common.gypi are the
+     same blobs as v26.13.0's (2792cd0f, eeebe851, 2967d1e6). `git apply --check` on those files is clean.
+   - regexp-parser.cc: `if (sizeof(CharT) == 1) { // No surrogate pairs.` becomes main's `if (!IsUnicodeMode())` with
+     main's comment, byte for byte. 14.6's ParseCharacterClass already calls IsUnicodeMode(), at line 3071.
+   - test/mjsunit/regress/regress-571871980.js is the V8 commit's, unchanged; mjsunit.status skips it under
+     'not i18n', after 'regexp-unicode-sets', as the reland does. common.gypi: v8_embedder_string -node.40 to -node.41.
+   - The regress test on Node v26.13.0, with shims for mjsunit's assertEquals, assertNull and assertNotNull: its 9
+     unicode-mode cases fail (18 assertions), and its 8 controls and non-unicode cases pass.
+   - Not compiled: no V8 build was run.

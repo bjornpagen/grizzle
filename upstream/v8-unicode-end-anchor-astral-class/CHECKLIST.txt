@@ -1,0 +1,32 @@
+CHECKLIST: Node's reporting process, applied to V8's end-anchored unicode class miss
+
+Outcome: a bug report for github.com/nodejs/node asking for a V8 backport. Nothing has been sent.
+
+Sources:
+  F  https://github.com/nodejs/node/blob/main/.github/ISSUE_TEMPLATE/1-bug-report.yml
+  V  https://github.com/nodejs/node/blob/main/doc/contributing/maintaining/maintaining-V8.md
+  T  https://v8.dev/docs/triage-issues
+
+A. GATES BEFORE REPORTING
+  [x] Reproduce on the release in use: Node v26.13.0, V8 14.6.202.34-node.40 (EVIDENCE.txt 1).
+  [x] Find the cause and whether V8 fixed it: V8 issue 571871980, fixed on main by 7d259d7c (EVIDENCE.txt 2 and 3).
+      V8 needs no report, so T's tracker gets none.
+  [x] Search nodejs/node's issues and pull requests for 571871980 and 7d259d7c: none on 2026-11-11. Search again
+      before posting, since a backport may open meanwhile.
+  [ ] Run `node repro.js` on the newest v26.x and on main's nightly before posting, and name in the issue every line
+      it still fails on.
+
+B. REPORT CONTENT (F)
+  [x] Version, Platform, Subsystem: issue.txt.
+  [x] Steps to reproduce: issue.txt's js block, and repro.js.
+  [x] How often, and the required condition: issue.txt.
+  [x] Expected and actual behavior, with why: issue.txt.
+  [x] Additional information: the V8 commit and issue, and the cause in V8's source.
+  [x] The backport the issue asks for, as a patch that applies to v26.x-staging (EVIDENCE.txt 4), in V's commit form:
+      "deps: V8: backport <sha>", the original message indented, a Refs line, the embedder string bumped.
+  [ ] V asks for V8-CI on a backport. The patch is not compiled here; the PR's CI builds and tests it.
+
+C. ETIQUETTE
+  [ ] F says nothing about issues an agent helped write. The owner reads issue.txt and runs repro.js before posting.
+  [ ] The author is the owner's GitHub account. The reproduction is self-contained and quotes nothing of grizzle.
+  [x] One cause per issue, and one ask: the backport of one V8 commit (V describes how Node takes V8 commits).

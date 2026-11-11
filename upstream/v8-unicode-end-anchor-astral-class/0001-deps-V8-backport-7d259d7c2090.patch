@@ -1,0 +1,159 @@
+From cdcec0e9f9f9e2584890ce8f8e2f935202ff95e9 Mon Sep 17 00:00:00 2001
+From: Bjorn Pagen <11238136+bjornpagen@users.noreply.github.com>
+Date: Wed, 11 Nov 2026 17:07:39 -0600
+Subject: [PATCH] deps: V8: backport 7d259d7c2090
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Original commit message:
+
+    Reland "[regexp] Fix IS_CERTAINLY_ONE_CODE_POINT for unicode-mode classes"
+
+    This is a reland of commit 2f7f93cf5c1035086dcdf9758b2e604adab44ca6
+
+    Reland: Test skipped in 'not i18n'.
+
+    Original change's description:
+    > [regexp] Fix IS_CERTAINLY_ONE_CODE_POINT for unicode-mode classes
+    >
+    > ParseCharacterClass marked every non-negated class in a one-byte pattern
+    > source as IS_CERTAINLY_ONE_CODE_POINT. But under /u (and /iu) a one-byte
+    > source can still describe supplementary code points, e.g. \u{1F600},
+    > \uD83D\uDE00, \p{...}, or the /iu case closure of [ß] once Unicode 18
+    > adds U+1DF95. Such a class consumes a surrogate pair, i.e. two code
+    > units, so max_match() returned 1 instead of 2.
+    >
+    > The end-anchor optimization in regexp.cc uses max_match() to position
+    > the start of the search from the end of the subject. With the
+    > underestimate, matching started too close to the end and valid matches
+    > were silently missed, e.g. /x[\u{1F600}]$/u.test('x\u{1F600}') returned
+    > false.
+    >
+    > Gate the flag on !IsUnicodeMode() instead of pattern width. Outside of
+    > unicode mode a class always matches exactly one code unit, regardless of
+    > source width or negation, so the flag can now also be set for negated
+    > classes and two-byte patterns there.
+    >
+    > Fixed: 571871980
+    > Change-Id: I48d555c4496eb7ffae35988ea789bd05bdc36907
+    > Reviewed-on: https://chromium-review.googlesource.com/c/v8/v8/+/8545878
+    > Commit-Queue: Patrick Thier <pthier@chromium.org>
+    > Auto-Submit: Jakob Linke <jgruber@chromium.org>
+    > Commit-Queue: Jakob Linke <jgruber@chromium.org>
+    > Reviewed-by: Patrick Thier <pthier@chromium.org>
+    > Cr-Commit-Position: refs/heads/main@{#110539}
+
+    Change-Id: Id3c60c96a1ddf48c422a28b872172d2d71838466
+    Reviewed-on: https://chromium-review.googlesource.com/c/v8/v8/+/8556177
+    Commit-Queue: Patrick Thier <pthier@chromium.org>
+    Auto-Submit: Jakob Linke <jgruber@chromium.org>
+    Reviewed-by: Patrick Thier <pthier@chromium.org>
+    Cr-Commit-Position: refs/heads/main@{#110562}
+
+Refs: https://github.com/v8/v8/commit/7d259d7c2090bb38af1fd9f6ca67c6dc8b6f88d8
+---
+ common.gypi                                   |  2 +-
+ deps/v8/src/regexp/regexp-parser.cc           |  7 ++-
+ deps/v8/test/mjsunit/mjsunit.status           |  1 +
+ .../test/mjsunit/regress/regress-571871980.js | 45 +++++++++++++++++++
+ 4 files changed, 52 insertions(+), 3 deletions(-)
+ create mode 100644 deps/v8/test/mjsunit/regress/regress-571871980.js
+
+diff --git a/common.gypi b/common.gypi
+index 2967d1e..d488848 100644
+--- a/common.gypi
++++ b/common.gypi
+@@ -44,7 +44,7 @@
+ 
+     # Reset this number to 0 on major V8 upgrades.
+     # Increment by one for each non-official patch applied to deps/v8.
+-    'v8_embedder_string': '-node.40',
++    'v8_embedder_string': '-node.41',
+ 
+     ##### V8 defaults for Node.js #####
+ 
+diff --git a/deps/v8/src/regexp/regexp-parser.cc b/deps/v8/src/regexp/regexp-parser.cc
+index 2792cd0..26a51a3 100644
+--- a/deps/v8/src/regexp/regexp-parser.cc
++++ b/deps/v8/src/regexp/regexp-parser.cc
+@@ -3080,8 +3080,11 @@ RegExpTree* RegExpParserImpl<CharT>::ParseCharacterClass(
+     if (!ignore_case()) {
+       character_class_flags |= RegExpClassRanges::NO_CASE_FOLDING_NEEDED;
+     }
+-    if (sizeof(CharT) == 1) {
+-      // No surrogate pairs.
++    if (!IsUnicodeMode()) {
++      // Outside of unicode mode, a character class always matches exactly
++      // one code unit. In unicode mode, even a one-byte pattern source can
++      // describe supplementary code points (e.g. \u{1F600}, \uD83D\uDE00,
++      // \p{...}, or /iu case closure), which match a surrogate pair.
+       character_class_flags |= RegExpClassRanges::IS_CERTAINLY_ONE_CODE_POINT;
+     }
+     return zone()->template New<RegExpClassRanges>(zone(), ranges,
+diff --git a/deps/v8/test/mjsunit/mjsunit.status b/deps/v8/test/mjsunit/mjsunit.status
+index eeebe85..2b3f8a5 100644
+--- a/deps/v8/test/mjsunit/mjsunit.status
++++ b/deps/v8/test/mjsunit/mjsunit.status
+@@ -1012,6 +1012,7 @@
+   # RegExp unicode tests relies on ICU for property classes and
+   # case-insensitive unicode patterns.
+   'regexp-unicode-sets': [PASS,FAIL],
++  'regress/regress-571871980': [SKIP],
+ 
+   # The noi18n build cannot parse characters in supplementary plane.
+   'harmony/regexp-named-captures': [FAIL],
+diff --git a/deps/v8/test/mjsunit/regress/regress-571871980.js b/deps/v8/test/mjsunit/regress/regress-571871980.js
+new file mode 100644
+index 0000000..226b9aa
+--- /dev/null
++++ b/deps/v8/test/mjsunit/regress/regress-571871980.js
+@@ -0,0 +1,45 @@
++// Copyright 2026 the V8 project authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++// Character classes in one-byte pattern sources were marked as certainly
++// matching one code point, even in unicode mode where \u{...}, \uXXXX\uXXXX
++// and \p{...} can describe supplementary code points that match a surrogate
++// pair. The resulting too-small max_match broke the end-anchor optimization.
++
++const tests = [
++  // One-byte pattern, end-anchored, class containing a surrogate pair.
++  { re: /x[\u{1F600}]$/u, str: 'x\u{1F600}', expected: true },
++  { re: /x[\uD83D\uDE00]$/u, str: 'x\u{1F600}', expected: true },
++  { re: /x[\p{Emoji_Presentation}]$/u, str: 'x\u{1F600}', expected: true },
++  { re: /[\u{1F600}][\u{1F600}]$/u, str: '\u{1F600}\u{1F600}', expected: true },
++  { re: /x[\u{1F600}]$/iu, str: 'x\u{1F600}', expected: true },
++  // Negated classes match surrogate pairs in unicode mode as well.
++  { re: /x[^a]$/u, str: 'x\u{1F600}', expected: true },
++  { re: /x[^a]$/iu, str: 'x\u{1F600}', expected: true },
++  // Two-byte pattern sources.
++  { re: /\u{10000}[\u{1F600}]$/u, str: '\u{10000}\u{1F600}', expected: true },
++  { re: /\u{10000}[^a]$/u, str: '\u{10000}\u{1F600}', expected: true },
++
++  // Controls: no end anchor, start anchor, /v.
++  { re: /x[\u{1F600}]/u, str: 'x\u{1F600}', expected: true },
++  { re: /^x[\u{1F600}]$/u, str: 'x\u{1F600}', expected: true },
++  { re: /x[\u{1F600}]$/v, str: 'x\u{1F600}', expected: true },
++
++  // Non-unicode mode: classes match a single code unit.
++  { re: /x[\uD83D\uDE00]$/, str: 'x\u{1F600}', expected: false },
++  { re: /x[\uD83D\uDE00][\uD83D\uDE00]$/, str: 'x\u{1F600}', expected: true },
++  { re: /x[\uD83D]$/, str: 'x\u{1F600}', expected: false },
++  { re: /x[^a]$/, str: 'x\u{1F600}', expected: false },
++  { re: /x[^a][^a]$/, str: 'x\u{1F600}', expected: true },
++];
++
++for (const { re, str, expected } of tests) {
++  assertEquals(expected, re.test(str), re.toString());
++  const match = re.exec(str);
++  if (expected) {
++    assertNotNull(match, re.toString());
++  } else {
++    assertNull(match, re.toString());
++  }
++}
+-- 
+2.54.0 (Apple Git-157)
+
