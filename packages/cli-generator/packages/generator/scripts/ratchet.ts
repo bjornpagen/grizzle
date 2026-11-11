@@ -11,6 +11,7 @@ import {
 	Path,
 	Record,
 	Schema,
+	Stream,
 	String as Str
 } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/process"
@@ -213,33 +214,28 @@ const RUNS: Readonly<Record<Tool, Run>> = {
 	}
 }
 
-/**
- * Runs a tool and answers its output and exit code. The tool writes into files through the shell, never into pipes:
- * effect-tsgo execs the native tsrs on the descriptors Node set non-blocking, and tsrs drops what a full pipe refuses,
- * so a pipe would read a count short of the findings.
- */
+/** Runs a tool and answers its output and exit code. */
 const runTool = Effect.fn("ratchet.runTool")(function* (tool: Tool) {
-	const fs = yield* FileSystem.FileSystem
 	const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
 	const run = RUNS[tool]
-	const stdoutFile = yield* fs.makeTempFileScoped()
-	const stderrFile = yield* fs.makeTempFileScoped()
-	const command = ChildProcess.make(
-		"sh",
-		[
-			"-c",
-			'err="$1"; shift; exec "$@" > "$0" 2> "$err"',
-			stdoutFile,
-			stderrFile,
-			run.command,
-			...run.arguments
-		],
-		{ cwd: run.directory, extendEnv: true }
+	const command = ChildProcess.make(run.command, [...run.arguments], {
+		cwd: run.directory,
+		extendEnv: true
+	})
+	const [stdout, stderr, exitCode] = yield* Effect.scoped(
+		Effect.flatMap(spawner.spawn(command), (handle) =>
+			Effect.all(
+				[
+					Stream.mkString(Stream.decodeText(handle.stdout)),
+					Stream.mkString(Stream.decodeText(handle.stderr)),
+					handle.exitCode
+				],
+				{ concurrency: "unbounded" }
+			)
+		)
+	).pipe(
+		Effect.mapError(() => RatchetFailure.make({ detail: `${tool} (${run.command}) could not run` }))
 	)
-	const unreadable = () => RatchetFailure.make({ detail: `${tool} (${run.command}) could not run` })
-	const exitCode = yield* spawner.exitCode(command).pipe(Effect.mapError(unreadable))
-	const stdout = yield* fs.readFileString(stdoutFile).pipe(Effect.mapError(unreadable))
-	const stderr = yield* fs.readFileString(stderrFile).pipe(Effect.mapError(unreadable))
 	if (exitCode !== 0 && exitCode !== run.foundExit) {
 		return yield* RatchetFailure.make({
 			detail: `${tool} exited with ${String(exitCode)}:\n${stdout}${stderr}`
@@ -252,7 +248,7 @@ const runTool = Effect.fn("ratchet.runTool")(function* (tool: Tool) {
 		})
 	}
 	return { output: `${stdout}${stderr}`, count: countOf(files) }
-}, Effect.scoped)
+})
 
 /** The count of a list of finding files. */
 const countOf = (files: ReadonlyArray<string>): Count => ({
