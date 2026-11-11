@@ -18,6 +18,9 @@
  *   named ones, and each named relation's selection keys;
  * - the natives the planned laws plan that a write or a read relies on, each discharging the planned laws alone, the
  *   rules that read a written relation, and the written relations with their keys and unique objects;
+ * - the installation's natives: every native of the slice's model is one the whole model holds, by its name and its
+ *   definition apart from the laws it discharges, so a login's served compile names no constraint, column or index the
+ *   installation lacks, whatever choice a whole-schema decision (a fixed target's reference) made;
  * - what the slice compiles: the natives a write of it can raise, of its written relations and the foreign keys into
  *   them, in the whole model's order, names, laws and descriptions; every constraint a write of the slice can raise
  *   naming the whole model's laws in the witness, and every law over a written relation, which a write statement's
@@ -782,6 +785,15 @@ const nativeName = (n: NamedNative): string =>
 	`${n.object.kind} ${relationOf(n) ?? "-"} ${n.namespace === "constraint" || n.namespace === "column" ? identifierOf(n.named) : "-"}`
 
 /**
+ * A native as the installation holds it, by its name and its definition apart from the laws it discharges, which a
+ * slice's model narrows to the ones it plans: a slice's model holds no other.
+ */
+const installedForm = (n: NamedNative): unknown => ({
+	name: nativeName(n),
+	object: { ...n.object, lawIds: [] }
+})
+
+/**
  * The laws a model over the slice plans, read off the whole model: each law a compile over the slice reads, and every
  * contract's law, whose domain types context fields and parameters beyond any relation. A law reading a written
  * relation, whose natives a write can break, is ordered by or refuses by; a law reading only named relations, whose
@@ -1209,6 +1221,14 @@ describe("a compile's law model", () => {
 							)
 						}
 
+						const installedForms = Arr.map(whole.natives, installedForm)
+						for (const n of model.natives) {
+							const form = installedForm(n)
+							assert.ok(
+								Arr.some(installedForms, (m) => canonicalEquals(form, m, labelFree)),
+								`${nativeName(n)}, a native of the slice's model, is one the installation holds, by its name and definition`
+							)
+						}
 						const held = heldOver(wholeArtifacts, planned, writes)
 						sameNatives(
 							model.natives,
