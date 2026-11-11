@@ -20,11 +20,11 @@ import type { TestContext } from "vitest"
  * thousand workspaces with ten thousand keys, ten models on four providers repriced monthly, six months of calendar, and
  * 100,000 usage events (about half a million usage facts). Each case draws, per read, which of the platform's entities
  * and windows it reads (the busiest workspace, key, organization and grant, or another), runs every workload read as a
- * served member through a counting executor twice (test/support/plans.ts recordingMembers), as billing, whose whole
- * entries are plain views, and as the
- * tenant, its Db opened with a token naming the drawn organization, so the read goes through the tenant's
- * security-barrier views of its own organization over relations under row-level security, and EXPLAINs each statement
- * the runtime sent with its parameters:
+ * served member through a counting executor twice (test/support/plans.ts recordingMembers): as billing, whose whole
+ * entries are plain views, and as the tenant, its Db opened with a token naming the drawn organization, the read written
+ * over the tenant's own entries (tenantOf), so it goes through the tenant's security-barrier views of its own
+ * organization over relations under row-level security; and EXPLAINs each statement the runtime sent with its
+ * parameters:
  *
  * - a read is one statement for its rows and one for each attachment it declares, at every depth: over exact parents
  *   every attachment is a statement of its own in the read's flight (R36, lower/shapes/index.ts rowsStatement);
@@ -57,7 +57,9 @@ import { trusted } from "#compiler/core/trusted.ts"
 import type { QueryDesc, QueryStageDesc, RuleDesc } from "#compiler/ir/desc.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import { queryInput } from "#compiler/program/compile.ts"
-import { type Uuid, uuid } from "#compiler/public/fields.ts"
+import { ALLEN } from "#compiler/public/allen.ts"
+import { Compute } from "#compiler/public/compute.ts"
+import { pg, type Uuid, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { type AnyLoginRole, context, login, role } from "#compiler/public/schema.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
@@ -116,7 +118,7 @@ const volume = (events: number): VolumeSizes => ({
  * each line's usage and plan detail, by the detail's primary key on `line`, the line's id the parent column correlates.
  * - repricedInMonth: the card that starts inside the month is existential, one (event, kind) per such card.
  */
-const deduplicating: ReadonlyArray<string> = ["repricedInMonth"]
+const deduplicating: ReadonlyArray<ReadName> = ["repricedInMonth"]
 
 /**
  * The attachments a query declares, at every depth: each attach stage's and each arm's own, with every attachment
@@ -164,6 +166,47 @@ const statementsOf = (read: unknown): number => {
 
 const unit = (t: bigint) => ({ start: P.Instant(t), end: P.Instant(t + 1n) })
 
+/** The platform's workload reads, by name, as billing runs them: the fixture's own, over the platform. */
+const billingReads = {
+	eventCost: P.eventCost,
+	quote: P.quote,
+	ratesAt: P.ratesAt,
+	rateHistory: P.rateHistory,
+	repricedInMonth: P.repricedInMonth,
+	spendByDay: P.spendByDay,
+	spendByMonth: P.spendByMonth,
+	workspaceMonth: P.workspaceMonth,
+	nearCap: P.nearCap,
+	topModels: P.topModels,
+	topProviders: P.topProviders,
+	marginByProvider: P.marginByProvider,
+	consolidatedSpend: P.consolidatedSpend,
+	balanceAt: P.balanceAt,
+	expiringGrants: P.expiringGrants,
+	burnDown: P.burnDown,
+	keyCard: P.keyCard,
+	usageLog: P.usageLog,
+	idleKeys: P.idleKeys,
+	rollupVersusLive: P.rollupVersusLive,
+	invoices: P.invoices,
+	invoiceAt: P.invoiceAt,
+	overdueInvoices: P.overdueInvoices,
+	invoicePreview: P.invoicePreview,
+	refundable: P.refundable,
+	refundsByReason: P.refundsByReason,
+	mostRefunded: P.mostRefunded,
+	segmentsAt: P.segmentsAt,
+	prorationFor: P.prorationFor,
+	mrrAt: P.mrrAt,
+	recognizedIn: P.recognizedIn,
+	allocationBreakdown: P.allocationBreakdown
+} as const
+
+type ReadName = keyof typeof billingReads
+
+/** The platform's workload reads as one role runs them, by name: billing's, or the tenant's. */
+type Reads = { readonly [K in ReadName]: unknown }
+
 /**
  * The platform's org tenant over `world`, the platform built under a name (P.platformAt): a token's Tenant claim names one
  * organization, and the tenant reads every relation of it through a query entry its claim filters, each keeping the
@@ -171,8 +214,14 @@ const unit = (t: bigint) => ({ start: P.Instant(t), end: P.Instant(t + 1n) })
  * the keys' usage, charges, costs, debits and limits, its grants, invoices with their lines, payments and refunds, and
  * its subscriptions with their segments, beside the catalogue every organization reads whole (rosters, providers,
  * models, routes, prices, rate cards, days and months). It writes its workspaces, keys and revocations through those
- * entries, so each of those relations is under row-level security. A read of the platform's workload, its Description
- * compiled against the tenant's world (program/compile.ts querySchema), reads the tenant's views by the relations' names.
+ * entries, so each of those relations is under row-level security.
+ *
+ * Its reads are the platform's workload reads written over the tenant by one rule: each is the fixture's read with
+ * query(tenant) for query(Platform) and query(Billing), and every relation it matches, binds or negates the tenant's
+ * relation of that name (`own`), its parameters typed by the base's fields, which the entries keep. An arm delivery is
+ * the Option of the same child: a role keeps the base's laws only among its whole entries (types/schema/world.ts), so
+ * the tenant's query entries keep no alternatives law to prove an arm, and the child, keyed by its parent's key, is at
+ * most one per parent. A delivery is the decoder's, so the child's statement is the one it was.
  */
 const tenantOf = (world: ReturnType<typeof P.platformAt>) => {
 	const billing = world.Billing
@@ -458,7 +507,661 @@ const tenantOf = (world: ReturnType<typeof P.platformAt>) => {
 		},
 		{ write: ["Workspace", "ApiKey", "Revocation"] }
 	)
-	return { tenants: login(billing, "tenants", [tenant]) }
+	const own = tenant.relations
+	const eventCost = query(tenant).rule((r) => {
+		const { model, during } = v(own.UsageEvent, "usageEvent")
+		const { kind, tokens } = v(own.UsageCharge, "usageCharge")
+		const { id: card, during: inForce } = v(own.RateCard, "rateCard")
+		const { tier, rate } = v(own.RateTier, "rateTier")
+		const priced = Compute.sub(
+			Compute.least(Compute.base(Compute.upper(tier, P.Tokens)), Compute.base(tokens)),
+			Compute.base(Compute.lower(tier, P.Tokens))
+		)
+		return r
+			.match(own.UsageEvent, { id: r.param("event", uuid), model, during })
+			.match(own.UsageCharge, { event: r.param("event", uuid), kind, tokens })
+			.match(own.RateCard, { id: card, model, kind, during: inForce })
+			.match(own.RateTier, { card, tier, rate })
+			.where(
+				r.pointIn(Compute.lower(during, P.Instant), inForce),
+				r.lt(Compute.lower(tier, P.Tokens), tokens)
+			)
+			.find({
+				kind,
+				tier,
+				tokens: priced,
+				amount: Compute.div(
+					Compute.add(Compute.mul(priced, Compute.base(rate)), 500_000n),
+					1_000_000n
+				)
+			})
+	})
+
+	const quote = query(tenant).rule((r) => {
+		const usage = r.relation("usage", {
+			kind: P.UsageCharge.fields.kind,
+			tokens: P.UsageCharge.fields.tokens
+		})
+		const { kind, tokens } = v(usage, "usage")
+		const { id: card, during } = v(own.RateCard, "rateCard")
+		const { tier, rate } = v(own.RateTier, "rateTier")
+		const priced = Compute.sub(
+			Compute.least(Compute.base(Compute.upper(tier, P.Tokens)), Compute.base(tokens)),
+			Compute.base(Compute.lower(tier, P.Tokens))
+		)
+		return r
+			.match(usage, { kind, tokens })
+			.match(own.RateCard, { id: card, model: r.param("model", uuid), kind, during })
+			.match(own.RateTier, { card, tier, rate })
+			.where(
+				r.allen(during, P.holdsPoint, r.param("now", P.RateCard.fields.during)),
+				r.lt(Compute.lower(tier, P.Tokens), tokens)
+			)
+			.find({
+				kind,
+				tokens,
+				amount: r.sum(
+					Compute.div(Compute.add(Compute.mul(priced, Compute.base(rate)), 500_000n), 1_000_000n)
+				)
+			})
+	})
+
+	const ratesAt = query(tenant)
+		.rule((r) => {
+			const { id, kind, during } = v(own.RateCard, "rateCard")
+			return r
+				.match(own.RateCard, { id, model: r.param("model", uuid), kind, during })
+				.where(r.allen(during, P.holdsPoint, r.param("now", P.RateCard.fields.during)))
+				.find({ id, kind, during })
+		})
+		.attach(
+			"tiers",
+			(c) =>
+				query(tenant).rule((r) => {
+					const { tier, rate } = v(own.RateTier, "rateTier")
+					return r.match(own.RateTier, { card: c.id, tier, rate }).find({ tier, rate })
+				}),
+			"array"
+		)
+
+	const rateHistory = query(tenant).rule((r) => {
+		const { id: before, during: was } = v(own.RateCard, "before")
+		const { id: after, during: is } = v(own.RateCard, "after")
+		return r
+			.match(own.RateCard, {
+				id: before,
+				model: r.param("model", uuid),
+				kind: r.param("kind", P.RateCard.fields.kind),
+				during: was
+			})
+			.match(own.RateCard, {
+				id: after,
+				model: r.param("model", uuid),
+				kind: r.param("kind", P.RateCard.fields.kind),
+				during: is
+			})
+			.where(r.allen(was, ALLEN.meets, is))
+			.find({ before, after, at: Compute.upper(was, P.Instant) })
+	})
+
+	const repricedInMonth = query(tenant).rule((r) => {
+		const { event } = v(own.EventCharge, "eventCharge")
+		const { model, during } = v(own.UsageEvent, "usageEvent")
+		const { kind } = v(own.UsageCharge, "usageCharge")
+		const { during: month } = v(own.Month, "month")
+		const { during: card } = v(own.RateCard, "rateCard")
+		return r
+			.match(own.EventCharge, {
+				event,
+				workspace: r.param("workspace", uuid),
+				month: r.param("month", P.MonthNo)
+			})
+			.match(own.Month, { month: r.param("month", P.MonthNo), during: month })
+			.match(own.UsageEvent, { id: event, model, during })
+			.match(own.UsageCharge, { event, kind })
+			.match(own.RateCard, { model, kind, during: card })
+			.where(
+				r.pointIn(Compute.lower(card, P.Instant), month),
+				r.gt(Compute.lower(card, P.Instant), Compute.lower(month, P.Instant))
+			)
+			.find({ event, kind })
+	})
+
+	const spendByDay = query(tenant).rule((r) => {
+		const { event, amount } = v(own.EventCharge, "eventCharge")
+		const { during } = v(own.UsageEvent, "usageEvent")
+		const { day, during: span } = v(own.Day, "day")
+		return r
+			.match(own.EventCharge, { event, workspace: r.param("workspace", uuid), amount })
+			.match(own.UsageEvent, { id: event, during })
+			.match(own.Day, { day, during: span })
+			.where(
+				r.pointIn(Compute.lower(during, P.Instant), span),
+				r.allen(span, P.insideOf, r.param("window", P.Day.fields.during))
+			)
+			.find({ day, spend: r.sum(amount) })
+	})
+
+	const spendByMonth = query(tenant).rule((r) => {
+		const { event, month, amount } = v(own.EventCharge, "eventCharge")
+		return r
+			.match(own.EventCharge, { event, workspace: r.param("workspace", uuid), month, amount })
+			.find({ month, spend: r.sum(amount) })
+	})
+
+	const workspaceMonth = query(tenant).rule((r) => {
+		const { event, amount } = v(own.EventCharge, "eventCharge")
+		return r
+			.match(own.EventCharge, {
+				event,
+				workspace: r.param("workspace", uuid),
+				month: r.param("month", P.MonthNo),
+				amount
+			})
+			.find({ events: r.count(), spend: r.sum(amount) })
+	})
+
+	const monthSpend = query(tenant).rule((r) => {
+		const { event, workspace, month, amount } = v(own.EventCharge, "eventCharge")
+		return r
+			.match(own.EventCharge, { event, workspace, month, amount })
+			.find({ workspace, month, spend: r.sum(amount) })
+	})
+
+	const nearCap = query(tenant).rule((r) => {
+		const { id: workspace } = v(own.Workspace, "workspace")
+		const { spend } = v(monthSpend, "monthSpend")
+		const { cap } = v(own.WorkspaceLimit, "workspaceLimit")
+		return r
+			.match(own.Workspace, { id: workspace, org: r.param("org", uuid) })
+			.match(monthSpend, { workspace, month: r.param("month", P.MonthNo), spend })
+			.match(own.WorkspaceLimit, { workspace, month: r.param("month", P.MonthNo), cap })
+			.where(r.ge(Compute.mul(spend, 10n), Compute.mul(Compute.numeric(Compute.base(cap)), 9n)))
+			.find({ workspace, spend, cap })
+	})
+
+	const topModels = query(tenant)
+		.rule((r) => {
+			const { event, amount } = v(own.EventCharge, "eventCharge")
+			const { model } = v(own.UsageEvent, "usageEvent")
+			return r
+				.match(own.EventCharge, {
+					event,
+					workspace: r.param("workspace", uuid),
+					month: r.param("month", P.MonthNo),
+					amount
+				})
+				.match(own.UsageEvent, { id: event, model })
+				.find({ model, spend: r.sum(amount) })
+		})
+		.orderBy(["spend", "desc"], ["model", "asc"])
+		.take("k")
+
+	const topProviders = query(tenant)
+		.rule((r) => {
+			const { id: workspace } = v(own.Workspace, "workspace")
+			const { event, amount } = v(own.EventCharge, "eventCharge")
+			const { provider } = v(own.UsageEvent, "usageEvent")
+			return r
+				.match(own.Workspace, { id: workspace, org: r.param("org", uuid) })
+				.match(own.EventCharge, { event, workspace, month: r.param("month", P.MonthNo), amount })
+				.match(own.UsageEvent, { id: event, provider })
+				.find({ provider, spend: r.sum(amount) })
+		})
+		.orderBy(["spend", "desc"], ["provider", "asc"])
+		.take("k")
+
+	const marginByProvider = query(tenant).rule((r) => {
+		const { id: workspace } = v(own.Workspace, "workspace")
+		const { event, amount } = v(own.EventCharge, "eventCharge")
+		const { provider } = v(own.UsageEvent, "usageEvent")
+		const { amount: cost } = v(own.ProviderCost, "providerCost")
+		return r
+			.match(own.Workspace, { id: workspace, org: r.param("org", uuid) })
+			.match(own.EventCharge, { event, workspace, month: r.param("month", P.MonthNo), amount })
+			.match(own.UsageEvent, { id: event, provider })
+			.match(own.ProviderCost, { event, amount: cost })
+			.find({ provider, billed: r.sum(amount), cost: r.sum(cost) })
+	})
+
+	const Descendants = query(tenant).recursive("Descendants", {
+		row: { org: uuid },
+		base: [
+			(r) => {
+				const { id } = v(own.Org, "org")
+				return r
+					.match(own.Org, { id })
+					.where(r.eq(id, r.param("root", uuid)))
+					.find({ org: id })
+			}
+		],
+		rec: [
+			(r, self) => {
+				const { org } = v(self, "self")
+				const { child } = v(own.ParentOrg, "parentOrg")
+				return r
+					.match(self, { org })
+					.match(own.ParentOrg, { child, parent: org })
+					.find({ org: child })
+			}
+		]
+	})
+
+	const consolidatedSpend = query(tenant).rule((r) => {
+		const tree = Descendants.bind({ root: r.param("root", uuid) })
+		const { org } = v(tree, "tree")
+		const { id: workspace } = v(own.Workspace, "workspace")
+		const { event, amount } = v(own.EventCharge, "eventCharge")
+		return r
+			.match(tree, { org })
+			.match(own.Workspace, { id: workspace, org })
+			.match(own.EventCharge, { event, workspace, month: r.param("month", P.MonthNo), amount })
+			.find({ org, spend: r.sum(amount) })
+	})
+
+	const balanceAt = query(tenant)
+		.rule((r) => {
+			const { id, amount, valid } = v(own.CreditGrant, "creditGrant")
+			return r
+				.match(own.CreditGrant, { id, org: r.param("org", uuid), amount, valid })
+				.where(r.allen(valid, P.holdsPoint, r.param("now", P.CreditGrant.fields.valid)))
+				.find({ id, amount, valid })
+		})
+		.attach(
+			"debited",
+			(g) =>
+				query(tenant).rule((r) => {
+					const { event, kind, amount } = v(own.CreditDebit, "creditDebit")
+					return r
+						.match(own.CreditDebit, { grant: g.id, event, kind, amount })
+						.find({ total: r.sum(amount) })
+				}),
+			"option"
+		)
+
+	const expiringGrants = query(tenant).rule((r) => {
+		const { id, amount, valid } = v(own.CreditGrant, "creditGrant")
+		return r
+			.match(own.CreditGrant, { id, org: r.param("org", uuid), amount, valid })
+			.where(
+				r.pointIn(Compute.upper(valid, P.Instant), r.param("window", P.CreditGrant.fields.valid))
+			)
+			.find({ id, amount, valid })
+	})
+
+	const burnDown = query(tenant).rule((r) => {
+		const { event, kind, amount, during } = v(own.CreditDebit, "creditDebit")
+		const { day, during: span } = v(own.Day, "day")
+		return r
+			.match(own.CreditDebit, { grant: r.param("grant", uuid), event, kind, amount, during })
+			.match(own.Day, { day, during: span })
+			.where(r.pointIn(Compute.lower(during, P.Instant), span))
+			.find({ day, debited: r.sum(amount) })
+	})
+
+	const keyCard = query(tenant)
+		.rule((r) => {
+			const { id, workspace, state } = v(own.ApiKey, "apiKey")
+			return r
+				.match(own.ApiKey, { id, workspace, state })
+				.where(r.eq(id, r.param("key", uuid)))
+				.find({ id, workspace, state })
+		})
+		.attach(
+			"active",
+			(k) =>
+				query(tenant).rule((r) => {
+					const { during } = v(own.ApiKeyActive, "apiKeyActive")
+					return r.match(own.ApiKeyActive, { key: k.id, during }).find({ during })
+				}),
+			"array"
+		)
+		.attach(
+			"revocation",
+			(k) =>
+				query(tenant).rule((r) => {
+					const { at } = v(own.Revocation, "revocation")
+					return r.match(own.Revocation, { key: k.id, at }).find({ at })
+				}),
+			"option"
+		)
+
+	const usageLog = query(tenant)
+		.rule((r) => {
+			const { id, model, provider, during } = v(own.UsageEvent, "usageEvent")
+			return r
+				.match(own.UsageEvent, { id, key: r.param("key", uuid), model, provider, during })
+				.find({ id, model, provider, during, start: Compute.lower(during, P.Instant) })
+		})
+		.orderBy(["start", "desc"], ["id", "asc"])
+
+	const keysUsedIn = query(tenant).rule((r) => {
+		const { key, during } = v(own.UsageEvent, "usageEvent")
+		return r
+			.match(own.UsageEvent, { key, during })
+			.where(r.allen(during, ALLEN.intersects, r.param("window", P.UsageEvent.fields.during)))
+			.find({ key })
+	})
+
+	const idleKeys = query(tenant).rule((r) => {
+		const { id } = v(own.ApiKey, "apiKey")
+		return r
+			.match(own.ApiKey, { id, workspace: r.param("workspace", uuid), state: "active" })
+			.where(
+				r.not(keysUsedIn.bind({ window: r.param("window", P.UsageEvent.fields.during) }), {
+					key: id
+				})
+			)
+			.find({ key: id })
+	})
+
+	const rollupVersusLive = query(tenant)
+		.rule((r) => {
+			const { workspace, day, amount } = v(own.DailySpend, "dailySpend")
+			const { during } = v(own.Day, "day")
+			return r
+				.match(own.DailySpend, { workspace, day, amount })
+				.match(own.Day, { day, during })
+				.where(
+					r.eq(workspace, r.param("workspace", uuid)),
+					r.allen(during, P.insideOf, r.param("window", P.Day.fields.during))
+				)
+				.find({ workspace, day, rolled: amount })
+		})
+		.attach(
+			"live",
+			(d) =>
+				query(tenant).rule((r) => {
+					const { event, amount } = v(own.EventCharge, "eventCharge")
+					const { during } = v(own.UsageEvent, "usageEvent")
+					const { during: span } = v(own.Day, "day")
+					return r
+						.match(own.EventCharge, { event, workspace: d.workspace, amount })
+						.match(own.UsageEvent, { id: event, during })
+						.match(own.Day, { day: d.day, during: span })
+						.where(r.pointIn(Compute.lower(during, P.Instant), span))
+						.find({ total: r.sum(amount) })
+				}),
+			"option"
+		)
+
+	const invoices = query(tenant)
+		.rule((r) => {
+			const { id, period, amount, state } = v(own.Invoice, "invoice")
+			return r
+				.match(own.Invoice, { id, org: r.param("org", uuid), period, amount, state })
+				.find({ id, period, amount, state, start: Compute.lower(period, P.Instant) })
+		})
+		.orderBy(["start", "desc"], ["id", "asc"])
+
+	const invoiceAt = query(tenant).rule((r) => {
+		const { id, period, amount, state } = v(own.Invoice, "invoice")
+		return r
+			.match(own.Invoice, { id, org: r.param("org", uuid), period, amount, state })
+			.where(r.allen(period, P.holdsPoint, r.param("now", P.Invoice.fields.period)))
+			.find({ id, period, amount, state })
+	})
+
+	const overdueInvoices = query(tenant).rule((r) => {
+		const { id, period, amount } = v(own.Invoice, "invoice")
+		return r
+			.match(own.Invoice, { id, org: r.param("org", uuid), period, amount, state: "open" })
+			.where(r.le(Compute.upper(period, P.Instant), r.param("cutoff", P.Instant)))
+			.find({ id, period, amount })
+	})
+
+	const invoicePreview = query(tenant)
+		.rule((r) => {
+			const { id, org, period, amount, state } = v(own.Invoice, "invoice")
+			return r
+				.match(own.Invoice, { id, org, period, amount, state })
+				.where(r.eq(id, r.param("invoice", uuid)))
+				.find({ id, org, period, amount, state })
+		})
+		.attach(
+			"lines",
+			(i) =>
+				query(tenant)
+					.rule((r) => {
+						const { id, source, amount } = v(own.InvoiceLine, "invoiceLine")
+						return r
+							.match(own.InvoiceLine, { id, invoice: i.id, source, amount })
+							.find({ id, source, amount })
+					})
+					.attach(
+						"usage",
+						(l) =>
+							query(tenant).rule((r) => {
+								const { model, kind, tokens } = v(own.UsageLine, "usageLine")
+								return r
+									.match(own.UsageLine, { line: l.id, model, kind, tokens })
+									.find({ model, kind, tokens })
+							}),
+						"option"
+					)
+					.attach(
+						"plan",
+						(l) =>
+							query(tenant).rule((r) => {
+								const { subscription } = v(own.PlanLine, "planLine")
+								return r.match(own.PlanLine, { line: l.id, subscription }).find({ subscription })
+							}),
+						"option"
+					),
+			"array"
+		)
+		.attach(
+			"refunds",
+			(i) =>
+				query(tenant).rule((r) => {
+					const { id, amount, reason, at } = v(own.Refund, "refund")
+					return r
+						.match(own.Refund, { id, invoice: i.id, amount, reason, at })
+						.find({ id, amount, reason, at })
+				}),
+			"array"
+		)
+		.attach(
+			"payment",
+			(i) =>
+				query(tenant).rule((r) => {
+					const { charge } = v(own.Payment, "payment")
+					return r.match(own.Payment, { invoice: i.id, charge }).find({ charge })
+				}),
+			"option"
+		)
+		.attach(
+			"dispute",
+			(i) =>
+				query(tenant).rule((r) => {
+					const { at } = v(own.Dispute, "dispute")
+					return r.match(own.Dispute, { invoice: i.id, at }).find({ at })
+				}),
+			"option"
+		)
+
+	const refundable = query(tenant)
+		.rule((r) => {
+			const { id, amount } = v(own.Invoice, "invoice")
+			const { id: refund, amount: refunded } = v(own.Refund, "refund")
+			return r
+				.match(own.Invoice, { id, org: r.param("org", uuid), amount, state: "paid" })
+				.match(own.Refund, { id: refund, invoice: id, amount: refunded })
+				.find({ invoice: id, amount, refunded: r.sum(refunded) })
+		})
+		.rule((r) => {
+			const { id, amount } = v(own.Invoice, "invoice")
+			return r
+				.match(own.Invoice, { id, org: r.param("org", uuid), amount, state: "paid" })
+				.where(r.not(own.Refund, { invoice: id }))
+				.find({ invoice: id, amount, refunded: Compute.literal(pg.numeric(1, 0), 0n) })
+		})
+
+	const refundsByReason = query(tenant).rule((r) => {
+		const { id, invoice, amount, reason, at } = v(own.Refund, "refund")
+		return r
+			.match(own.Invoice, { id: invoice, org: r.param("org", uuid) })
+			.match(own.Refund, { id, invoice, amount, reason, at })
+			.where(r.pointIn(at, r.param("window", P.Invoice.fields.period)))
+			.find({ reason, refunds: r.count(), refunded: r.sum(amount) })
+	})
+
+	const mostRefunded = query(tenant)
+		.rule((r) => {
+			const { id, invoice, amount } = v(own.Refund, "refund")
+			const { org } = v(own.Invoice, "invoice")
+			return r
+				.match(own.Refund, { id, invoice, amount })
+				.match(own.Invoice, { id: invoice, org })
+				.find({ org, refunded: r.sum(amount) })
+		})
+		.orderBy(["refunded", "desc"], ["org", "asc"])
+		.take("k")
+
+	const segmentsAt = query(tenant).rule((r) => {
+		const { during, monthlyPrice } = v(own.Segment, "segment")
+		return r
+			.match(own.Segment, { subscription: r.param("subscription", uuid), during, monthlyPrice })
+			.where(r.allen(during, P.holdsPoint, r.param("now", P.Segment.fields.during)))
+			.find({ during, monthlyPrice })
+	})
+
+	const prorationFor = query(tenant).rule((r) => {
+		const { org, period } = v(own.Invoice, "invoice")
+		const { id: subscription } = v(own.Subscription, "subscription")
+		const { during, monthlyPrice } = v(own.Segment, "segment")
+		const overlap = Compute.sub(
+			Compute.least(
+				Compute.base(Compute.upper(during, P.Instant)),
+				Compute.base(Compute.upper(period, P.Instant))
+			),
+			Compute.greatest(
+				Compute.base(Compute.lower(during, P.Instant)),
+				Compute.base(Compute.lower(period, P.Instant))
+			)
+		)
+		return r
+			.match(own.Invoice, { id: r.param("invoice", uuid), org, period })
+			.match(own.Subscription, { id: subscription, org })
+			.match(own.Segment, { subscription, during, monthlyPrice })
+			.where(r.allen(during, ALLEN.intersects, period))
+			.find({
+				subscription,
+				during,
+				overlap,
+				prorated: Compute.round(
+					Compute.when(
+						Compute.nonzero(Compute.numeric(Compute.base(Compute.width(period, P.Instant)))),
+						(width) =>
+							Compute.div(
+								Compute.mul(Compute.numeric(Compute.base(monthlyPrice)), Compute.numeric(overlap)),
+								width
+							),
+						0n
+					)
+				)
+			})
+	})
+
+	const mrrAt = query(tenant).rule((r) => {
+		const { id } = v(own.Subscription, "subscription")
+		const { during, monthlyPrice } = v(own.Segment, "segment")
+		return r
+			.match(own.Subscription, { id, org: r.param("org", uuid) })
+			.match(own.Segment, { subscription: id, during, monthlyPrice })
+			.where(r.allen(during, P.holdsPoint, r.param("now", P.Segment.fields.during)))
+			.find({ mrr: r.sum(monthlyPrice) })
+	})
+
+	const recognizedIn = query(tenant).rule((r) => {
+		const { id: subscription } = v(own.Subscription, "subscription")
+		const { line, during, amount } = v(own.Allocation, "allocation")
+		const { during: month } = v(own.Month, "month")
+		const overlap = Compute.sub(
+			Compute.least(
+				Compute.base(Compute.upper(during, P.Instant)),
+				Compute.base(Compute.upper(month, P.Instant))
+			),
+			Compute.greatest(
+				Compute.base(Compute.lower(during, P.Instant)),
+				Compute.base(Compute.lower(month, P.Instant))
+			)
+		)
+		return r
+			.match(own.Subscription, { id: subscription, org: r.param("org", uuid) })
+			.match(own.Month, { month: r.param("month", P.MonthNo), during: month })
+			.match(own.Allocation, { line, subscription, during, amount })
+			.where(r.allen(during, ALLEN.intersects, month))
+			.find({
+				line,
+				during,
+				recognized: Compute.round(
+					Compute.when(
+						Compute.nonzero(Compute.numeric(Compute.base(Compute.width(during, P.Instant)))),
+						(width) =>
+							Compute.div(
+								Compute.mul(Compute.numeric(Compute.base(amount)), Compute.numeric(overlap)),
+								width
+							),
+						0n
+					)
+				)
+			})
+	})
+
+	const allocationBreakdown = query(tenant)
+		.rule((r) => {
+			const { id, amount } = v(own.InvoiceLine, "invoiceLine")
+			const { subscription } = v(own.PlanLine, "planLine")
+			return r
+				.match(own.InvoiceLine, { id, invoice: r.param("invoice", uuid), source: "plan", amount })
+				.match(own.PlanLine, { line: id, subscription })
+				.find({ id, subscription, amount })
+		})
+		.attach(
+			"allocations",
+			(l) =>
+				query(tenant).rule((r) => {
+					const { during, amount } = v(own.Allocation, "allocation")
+					return r.match(own.Allocation, { line: l.id, during, amount }).find({ during, amount })
+				}),
+			"array"
+		)
+	const reads: Reads = {
+		eventCost,
+		quote,
+		ratesAt,
+		rateHistory,
+		repricedInMonth,
+		spendByDay,
+		spendByMonth,
+		workspaceMonth,
+		nearCap,
+		topModels,
+		topProviders,
+		marginByProvider,
+		consolidatedSpend,
+		balanceAt,
+		expiringGrants,
+		burnDown,
+		keyCard,
+		usageLog,
+		idleKeys,
+		rollupVersusLive,
+		invoices,
+		invoiceAt,
+		overdueInvoices,
+		invoicePreview,
+		refundable,
+		refundsByReason,
+		mostRefunded,
+		segmentsAt,
+		prorationFor,
+		mrrAt,
+		recognizedIn,
+		allocationBreakdown
+	}
+	return { tenants: login(billing, "tenants", [tenant]), reads }
 }
 
 /** The entities a read is asked about, busiest first: what each pick chooses among. */
@@ -518,9 +1221,9 @@ const entitiesOf = (p: Platform): Entities => ({
 const pickOf = <A>(values: ReadonlyArray<A>, pick: number, absent: A): A =>
 	values[pickIndex(pick, 3) === 0 ? 0 : pickIndex(pick, Math.max(1, values.length))] ?? absent
 
+/** A workload read asked about by name, with its parameters, which each role runs as its own read of that name. */
 interface Probe {
-	readonly name: string
-	readonly query: unknown
+	readonly name: ReadName
 	readonly params: ParamMap
 }
 
@@ -541,10 +1244,9 @@ const probes = (e: Entities, pick: number): ReadonlyArray<Probe> => {
 	const now = unit(m.start + 5n * DAY)
 	const invoice = pickOf(e.invoices, pick, none)
 	return [
-		{ name: "eventCost", query: P.eventCost, params: { event: pickOf(e.events, pick, none) } },
+		{ name: "eventCost", params: { event: pickOf(e.events, pick, none) } },
 		{
 			name: "quote",
-			query: P.quote,
 			params: {
 				model,
 				now,
@@ -554,52 +1256,48 @@ const probes = (e: Entities, pick: number): ReadonlyArray<Probe> => {
 				]
 			}
 		},
-		{ name: "ratesAt", query: P.ratesAt, params: { model, now } },
-		{ name: "rateHistory", query: P.rateHistory, params: { model, kind: "input" } },
-		{ name: "repricedInMonth", query: P.repricedInMonth, params: { workspace, month } },
-		{ name: "spendByDay", query: P.spendByDay, params: { workspace, window } },
-		{ name: "spendByMonth", query: P.spendByMonth, params: { workspace } },
-		{ name: "workspaceMonth", query: P.workspaceMonth, params: { workspace, month } },
-		{ name: "nearCap", query: P.nearCap, params: { org, month } },
-		{ name: "topModels", query: P.topModels, params: { workspace, month, k: 3 } },
-		{ name: "topProviders", query: P.topProviders, params: { org, month, k: 3 } },
-		{ name: "marginByProvider", query: P.marginByProvider, params: { org, month } },
+		{ name: "ratesAt", params: { model, now } },
+		{ name: "rateHistory", params: { model, kind: "input" } },
+		{ name: "repricedInMonth", params: { workspace, month } },
+		{ name: "spendByDay", params: { workspace, window } },
+		{ name: "spendByMonth", params: { workspace } },
+		{ name: "workspaceMonth", params: { workspace, month } },
+		{ name: "nearCap", params: { org, month } },
+		{ name: "topModels", params: { workspace, month, k: 3 } },
+		{ name: "topProviders", params: { org, month, k: 3 } },
+		{ name: "marginByProvider", params: { org, month } },
 		{
 			name: "consolidatedSpend",
-			query: P.consolidatedSpend,
 			params: { root: pickOf(e.orgs, pick, none), month }
 		},
-		{ name: "balanceAt", query: P.balanceAt, params: { org, now } },
-		{ name: "expiringGrants", query: P.expiringGrants, params: { org, window } },
-		{ name: "burnDown", query: P.burnDown, params: { grant: pickOf(e.grants, pick, none) } },
-		{ name: "keyCard", query: P.keyCard, params: { key } },
-		{ name: "usageLog", query: P.usageLog, params: { key } },
-		{ name: "idleKeys", query: P.idleKeys, params: { workspace, window } },
-		{ name: "rollupVersusLive", query: P.rollupVersusLive, params: { workspace, window } },
-		{ name: "invoices", query: P.invoices, params: { org } },
-		{ name: "invoiceAt", query: P.invoiceAt, params: { org, now } },
+		{ name: "balanceAt", params: { org, now } },
+		{ name: "expiringGrants", params: { org, window } },
+		{ name: "burnDown", params: { grant: pickOf(e.grants, pick, none) } },
+		{ name: "keyCard", params: { key } },
+		{ name: "usageLog", params: { key } },
+		{ name: "idleKeys", params: { workspace, window } },
+		{ name: "rollupVersusLive", params: { workspace, window } },
+		{ name: "invoices", params: { org } },
+		{ name: "invoiceAt", params: { org, now } },
 		{
 			name: "overdueInvoices",
-			query: P.overdueInvoices,
 			params: { org, cutoff: P.Instant(m.end) }
 		},
-		{ name: "invoicePreview", query: P.invoicePreview, params: { invoice } },
-		{ name: "refundable", query: P.refundable, params: { org } },
+		{ name: "invoicePreview", params: { invoice } },
+		{ name: "refundable", params: { org } },
 		{
 			name: "refundsByReason",
-			query: P.refundsByReason,
 			params: { org, window: { start: P.Instant(m.start), end: P.Instant(m.end + 40n * DAY) } }
 		},
-		{ name: "mostRefunded", query: P.mostRefunded, params: { k: 5 } },
+		{ name: "mostRefunded", params: { k: 5 } },
 		{
 			name: "segmentsAt",
-			query: P.segmentsAt,
 			params: { subscription: pickOf(e.subscriptions, pick, none), now }
 		},
-		{ name: "prorationFor", query: P.prorationFor, params: { invoice } },
-		{ name: "mrrAt", query: P.mrrAt, params: { org, now } },
-		{ name: "recognizedIn", query: P.recognizedIn, params: { org, month } },
-		{ name: "allocationBreakdown", query: P.allocationBreakdown, params: { invoice } }
+		{ name: "prorationFor", params: { invoice } },
+		{ name: "mrrAt", params: { org, now } },
+		{ name: "recognizedIn", params: { org, month } },
+		{ name: "allocationBreakdown", params: { invoice } }
 	]
 }
 
@@ -1037,7 +1735,7 @@ const planSuite = (events: number, runs: number) => (ctx: TestContext) =>
 		Effect.gen(function* () {
 			const s = yield* Substrate
 			const o = yield* openPlatformWith("platform_plans", (world) => [tenantOf(world).tenants])
-			const { tenants } = tenantOf(o.schema)
+			const { tenants, reads: tenantReads } = tenantOf(o.schema)
 			const p = buildPlatform(volumePlatform(volume(events)))
 			yield* o.withDb((db) =>
 				Effect.andThen(loadPlatform(db, p.facts, 100_000), db.workload.refreshDailySpend.refresh)
@@ -1053,7 +1751,7 @@ const planSuite = (events: number, runs: number) => (ctx: TestContext) =>
 			const used = new Set<string>()
 			/** Exactly the named reads deduplicate: the compiler's own statements, by their structure. */
 			const distinct = Arr.flatMap(probes(e, 0), (pr) => {
-				const template = compileTemplate(pr.query, P.Billing, testCompile)
+				const template = compileTemplate(billingReads[pr.name], P.Billing, testCompile)
 				if (!template.ok) {
 					return assert.fail(`${pr.name} does not compile`)
 				}
@@ -1094,10 +1792,18 @@ const planSuite = (events: number, runs: number) => (ctx: TestContext) =>
 						)
 						cx.note(pickIndex(pick, 2) === 0 ? "a week's window" : "a whole month's window")
 						const problems: Array<string> = []
-						/** One read's statements as it sent them as `who`, judged, the indexes their free plans read used. */
-						const review = (who: string, pr: Probe, sent: Parameters<typeof sentProblems>[2]) =>
+						/**
+						 * One read's statements as `who` sent them, its read being `read`, judged, the indexes their free plans
+						 * read used.
+						 */
+						const review = (
+							who: string,
+							pr: Probe,
+							read: unknown,
+							sent: Parameters<typeof sentProblems>[2]
+						) =>
 							Effect.gen(function* () {
-								const expected = statementsOf(pr.query)
+								const expected = statementsOf(read)
 								if (sent.length !== expected) {
 									problems.push(`${pr.name} as ${who}: ${sent.length} statements, not ${expected}`)
 								}
@@ -1107,31 +1813,32 @@ const planSuite = (events: number, runs: number) => (ctx: TestContext) =>
 									used.add(index)
 								}
 							})
-						const reads = probes(e, pick)
+						const asked = probes(e, pick)
 						/**
-						 * Every probe read as `who`, through a Db of `role` opened with a token of `payload`: the probes
-						 * loaded as members of the role's workload, each run through the counting executor.
+						 * Every probe read as `who`, through a Db of `role` opened with a token of `payload`: the role's
+						 * reads loaded as members of its workload, each probe's run through the counting executor.
 						 */
-						const reviewAs = (who: string, role: AnyLoginRole, payload: Json) =>
+						const reviewAs = (who: string, role: AnyLoginRole, payload: Json, reads: Reads) =>
 							Effect.scoped(
 								withServedDb(o.installed, role, payload, ({ ctx, load }) =>
 									Effect.gen(function* () {
-										const loaded = yield* load(
-											Rec.fromEntries(Arr.map(reads, (pr) => [pr.name, pr.query]))
-										)
+										const loaded = yield* load(reads)
 										const { ops, counts } = recordingMembers(ctx)
-										for (const pr of reads) {
+										for (const pr of asked) {
 											const before = counts.sent.length
 											yield* (yield* ops(member(loaded, pr.name)).execute(pr.params)).collect
-											yield* review(who, pr, counts.sent.slice(before))
+											yield* review(who, pr, reads[pr.name], counts.sent.slice(before))
 										}
 									})
 								)
 							)
-						yield* reviewAs("billing", o.schema.server.roles.billing, {})
-						yield* reviewAs("the tenant", tenants.roles.tenant, {
-							org: pickOf(e.orgs, pick, uid(0xdead, 2))
-						})
+						yield* reviewAs("billing", o.schema.server.roles.billing, {}, billingReads)
+						yield* reviewAs(
+							"the tenant",
+							tenants.roles.tenant,
+							{ org: pickOf(e.orgs, pick, uid(0xdead, 2)) },
+							tenantReads
+						)
 						assert.deepEqual(
 							problems,
 							[],

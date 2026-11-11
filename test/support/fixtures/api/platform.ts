@@ -644,8 +644,8 @@ export const platformAt = (name: string) => {
  * the four ways a span holds a point's second (contains, startedBy, finishedBy, equals), holds t. A window is a span
  * parameter; a span lies inside it in one of the four ways a span lies inside another.
  */
-const holdsPoint = ALLEN.contains | ALLEN.startedBy | ALLEN.finishedBy | ALLEN.equals
-const insideOf = ALLEN.during | ALLEN.starts | ALLEN.finishes | ALLEN.equals
+export const holdsPoint = ALLEN.contains | ALLEN.startedBy | ALLEN.finishedBy | ALLEN.equals
+export const insideOf = ALLEN.during | ALLEN.starts | ALLEN.finishes | ALLEN.equals
 
 /**
  * The pieces of an event's charge: for each kind, each tier of the card in force at the window's start that its
