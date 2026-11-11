@@ -85,16 +85,16 @@ describe("the live router", () => {
 							const subscriptions = s.draw(
 								array((t) => t.draw(array(keyGen, { min: 1, max: 3 })), { min: 0, max: 6 })
 							)
-							const drawn: ReadonlyArray<Drawn> = Arr.map(subscriptions, (keys, name) => ({
+							const all: ReadonlyArray<Drawn> = Arr.map(subscriptions, (keys, name) => ({
 								name,
 								keys
 							}))
 							return {
-								drawn,
+								all,
 								removed: s.draw(
 									subset(
-										Arr.map(drawn, (d) => d.name),
-										{ min: 0, max: drawn.length }
+										Arr.map(all, (d) => d.name),
+										{ min: 0, max: all.length }
 									)
 								),
 								routed: s.draw(keyGen)
@@ -119,19 +119,19 @@ describe("the live router", () => {
 							{ cases: 600, sense: notesOnly }
 						)
 					},
-					({ drawn, removed, routed }, c) =>
+					({ all, removed, routed }, c) =>
 						Effect.sync(() => {
 							const index: RouteIndex<Drawn> = new Map()
-							for (const subscription of drawn) {
+							for (const subscription of all) {
 								addRoutes(index, subscription, subscription.keys)
 							}
 							const gone = new Set(removed)
-							for (const subscription of drawn) {
+							for (const subscription of all) {
 								if (gone.has(subscription.name)) {
 									removeRoutes(index, subscription, subscription.keys)
 								}
 							}
-							const registered = Arr.filter(drawn, (d) => !gone.has(d.name))
+							const registered = Arr.filter(all, (d) => !gone.has(d.name))
 							const reached = new Set<number>()
 							route(index, routed, (subscription) => {
 								reached.add(subscription.name)
@@ -175,7 +175,7 @@ describe("the live router", () => {
 							}
 							if (
 								Arr.some(
-									drawn,
+									all,
 									(d) => gone.has(d.name) && Arr.some(d.keys, (key) => matches(key, routed))
 								)
 							) {

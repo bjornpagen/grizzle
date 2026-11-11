@@ -37,7 +37,6 @@ import { admittedIdentifier, identifierOf, identity } from "#compiler/core/ident
 import {
 	type Notification,
 	notificationText,
-	parseLiveSecret,
 	type RouteColumn,
 	type RouteTable
 } from "#compiler/plan/runtime.ts"
@@ -147,6 +146,12 @@ const expectedKeys = (live: LiveInstallation, commit: LiveCommit): ReadonlySet<s
 	)
 }
 
+/** The installed views of the plan, the only table keys the leader takes from an announcement. */
+const liveViews = (live: LiveInstallation): ReadonlySet<string> => {
+	const { installation, names } = live.installed
+	return new Set(Arr.map(installation.live.views, (view) => names.relation(view).name))
+}
+
 /** The installed tables of the plan with their routed columns, as the leader keys a decoded row by them. */
 const liveTables = (live: LiveInstallation): ReadonlyMap<string, ReadonlyArray<string>> => {
 	const { installation, names } = live.installed
@@ -212,14 +217,6 @@ layer(Substrate.layer)("the live source", (it) => {
 								"SELECT pg_catalog.pg_create_logical_replication_slot($1::name, 'pgoutput', true)",
 								[slot]
 							)
-							const [[secretCell] = []] = yield* decoder.values(
-								`SELECT pg_catalog.encode(s.secret, 'hex') FROM "${installed.schema}"."__live_secret" AS s`,
-								[]
-							)
-							const secret = parseLiveSecret(String(secretCell))
-							if (!secret.ok) {
-								return yield* new Undecoded({ report: `the secret reads ${secret.error.text}` })
-							}
 							yield* Effect.gen(function* () {
 								const surfaces = yield* worldSurfaces(live)
 								for (const commit of c.history) {
@@ -264,7 +261,7 @@ layer(Substrate.layer)("the live source", (it) => {
 								"SELECT pg_catalog.encode(data, 'hex') FROM pg_catalog.pg_logical_slot_get_binary_changes($1::name, NULL, NULL, 'proto_version', '1', 'publication_names', $2::text, 'messages', 'true')",
 								[slot, `"${publication}"`]
 							)
-							const reader = transactionReader(liveTables(live), publication, secret.value)
+							const reader = transactionReader(liveTables(live), liveViews(live), publication)
 							const decoded: Array<ReadonlySet<string>> = []
 							for (const [hex] of rows) {
 								const message = decodeMessage(bytesOfHex(String(hex)))

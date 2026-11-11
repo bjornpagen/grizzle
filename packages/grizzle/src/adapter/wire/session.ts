@@ -198,14 +198,12 @@ export const controlText = (controls: ControlTexts, control: TxControl): Emitted
 
 /**
  * One query of a pipeline: a statement, on the extended protocol with its own Sync, served under its name or one-shot
- * as the unnamed statement (batch.ts BatchStatement), or a transaction control, a simple Query message; or, on a
- * replication connection, which reads no other, one simple Query of an emitted text (ReplicationSession).
+ * as the unnamed statement (batch.ts BatchStatement), or a transaction control, a simple Query message.
  */
 export type WireQuery =
 	| PreparedStatement
 	| OneShotStatement
 	| { readonly _tag: "control"; readonly control: TxControl }
-	| { readonly _tag: "simple"; readonly text: EmittedText | ReplicationCommand }
 
 /**
  * What the server answered one query: its result; a result whose rows grizzle's SQL cannot deliver (a NULL cell, or a
@@ -643,8 +641,6 @@ const queryConfig = (query: WireQuery, controls: ControlTexts): PgQueryConfig =>
 	switch (query._tag) {
 		case "control":
 			return controlQuery(controlText(controls, query.control))
-		case "simple":
-			return controlQuery(query.text)
 		case "prepared":
 			return preparedQuery(query)
 		case "oneShot":
@@ -665,9 +661,28 @@ const submit = (
 	query: WireQuery,
 	answer: (answer: Answer) => void
 ): void => {
-	const pg = new spec.driver.Query(queryConfig(query, spec.controls))
-	const taken =
-		query._tag === "prepared" && query.intake.kind === "taken" ? query.intake.take : undefined
+	submitConfig(
+		client,
+		spec,
+		queryConfig(query, spec.controls),
+		query._tag === "prepared" && query.intake.kind === "taken" ? query.intake.take : undefined,
+		answer
+	)
+}
+
+/**
+ * Submits one query of its configuration (submit), a served statement's rows going to `taken` as they arrive, every
+ * other query's kept for its answer: a pipeline's query, or a replication connection's simple Query
+ * (ReplicationSession).
+ */
+const submitConfig = (
+	client: PgClient,
+	spec: SessionSpec,
+	config: PgQueryConfig,
+	taken: ((row: OutputRow) => void) | undefined,
+	answer: (answer: Answer) => void
+): void => {
+	const pg = new spec.driver.Query(config)
 	const kept: Array<OutputRow> = []
 	let readable = true
 	pg.on("row", (row) => {
@@ -980,29 +995,19 @@ const replicationFailure = (
 
 /**
  * The live leader's replication connection (adapter/live/leader.ts): a walsender of the database, which reads only
- * simple Queries, SQL or a replication command, each sent alone (`simple`); then the one stream START_REPLICATION
- * opens (`stream`), each CopyData of which is handed to `data` the moment it arrives, as the bytes it carries, and which
- * ends only in failure, the server's refusal, the session's end, or the server ending the stream; and the replies the
+ * simple Queries, SQL or a replication command, each sent alone and waited for (`run`), whose rows none of the leader's
+ * reads, a slot's creation answering a NULL snapshot name among them; then the one stream START_REPLICATION opens
+ * (`stream`), each CopyData of which is handed to `data` the moment it arrives, as the bytes it carries, and which ends
+ * only in failure, the server's refusal, the session's end, or the server ending the stream; and the replies the
  * stream takes, each one CopyData (`reply`), written by pg's own writer of one (copyWriterOf).
  */
 export interface ReplicationSession {
-	readonly simple: (
-		text: EmittedText | ReplicationCommand
-	) => Effect.Effect<OutputRows, ReplicationFailure | UnreadableRows>
+	readonly run: (text: EmittedText | ReplicationCommand) => Effect.Effect<void, ReplicationFailure>
 	readonly stream: (
 		start: ReplicationCommand,
 		data: (chunk: Uint8Array) => void
 	) => Effect.Effect<never, ReplicationFailure | ReplicationEnded>
 	readonly reply: (chunk: Uint8Array) => void
-}
-
-/** A simple Query's answer whose rows grizzle cannot read: a NULL cell, or a cell that is no text. */
-export class UnreadableRows extends Data.TaggedError("UnreadableRows")<{
-	readonly command: string
-}> {
-	override get message(): string {
-		return `the answer of ${this.command} on the replication connection holds a cell that is no text`
-	}
 }
 
 /**
@@ -1039,15 +1044,13 @@ const replicationOf = (
 	spec: SessionSpec,
 	write: (chunk: Uint8Array) => void
 ): ReplicationSession => ({
-	simple: (text) =>
-		Effect.callback<OutputRows, ReplicationFailure | UnreadableRows>((resume) => {
-			submit(client, spec, { _tag: "simple", text }, (answer) => {
+	run: (text) =>
+		Effect.callback<void, ReplicationFailure>((resume) => {
+			submitConfig(client, spec, controlQuery(text), undefined, (answer) => {
 				switch (answer._tag) {
 					case "result":
-						resume(Effect.succeed(answer.outcome.rows))
-						return
 					case "unreadable":
-						resume(Effect.fail(new UnreadableRows({ command: answer.command })))
+						resume(Effect.void)
 						return
 					case "refused":
 					case "terminated":

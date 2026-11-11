@@ -1,6 +1,7 @@
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as Result from "effect/Result"
+import type * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
 import { type HostCall, hostInputs, inputApplyError, runWrite } from "#adapter/apply/run.ts"
 import { dbChangeFrame, type ServedDbContext } from "#adapter/db/context.ts"
@@ -14,7 +15,7 @@ import {
 import type { CallInputRefused } from "#adapter/errors/failures.ts"
 import { callErrorOf } from "#adapter/live/call-error.ts"
 import { routeKeys } from "#adapter/live/router.ts"
-import type { LiveAnswer } from "#adapter/live/subscriptions.ts"
+import type { Live, LiveAnswer } from "#adapter/live/subscriptions.ts"
 import { applyOutcome } from "#adapter/outcomes/index.ts"
 import { windowIntake, windowStatement } from "#adapter/page/execute.ts"
 import { windowCall } from "#adapter/page/window.ts"
@@ -242,6 +243,72 @@ const listAnswer: ShapeAnswer<"list", ListEvent<DecodedRow>> = {
 }
 
 /**
+ * A read call registered live on its Db's layer's registry (live/subscriptions.ts), what its watch runs: its run is the
+ * call's own statement through the Db's read frame (reader/stream.ts readStream), its routing keys its served
+ * footprint's bound with the call's inputs (live/router.ts routeKeys), and its expiry its Db's.
+ */
+const registered = <S extends ReadShape, E>(
+	ctx: ServedDbContext,
+	read: LoadedRead,
+	answer: ShapeAnswer<S, E>,
+	parsed: ParsedRead
+): Effect.Effect<Live<E>, never, Scope.Scope> =>
+	ctx.subscriptions.register({
+		read: readStream(ctx, parsed.call, answer),
+		answer,
+		keys: routeKeys(read.footprint, read.codecs, parsed.inputs),
+		expiry: ctx.expiry
+	})
+
+/**
+ * A read member's live registration for one input, exactly what its watch registers (readCalls), by its answer's
+ * shape, for as long as the scope it is made in: a suite keeps its `state` while it pulls its `initial` and `changes`
+ * itself. An input that does not parse is the call's error; a write member is none.
+ */
+export type LiveRead =
+	| { readonly shape: "set"; readonly live: Live<SetEvent<DecodedRow>> }
+	| { readonly shape: "list"; readonly live: Live<ListEvent<DecodedRow>> }
+
+export const liveRead = (
+	ctx: ServedDbContext,
+	member: LoadedMember,
+	input: unknown
+): Option.Option<Effect.Effect<LiveRead, CallError, Scope.Scope>> => {
+	const live = (
+		read: LoadedRead,
+		parse: (input: unknown) => Effect.Effect<ParsedRead, ReadError>
+	): Effect.Effect<LiveRead, CallError, Scope.Scope> =>
+		Effect.flatMap(
+			Effect.mapError(parse(input), callErrorOf),
+			(parsed): Effect.Effect<LiveRead, never, Scope.Scope> => {
+				switch (read.key.kind) {
+					case "set":
+						return Effect.map(registered(ctx, read, setAnswer, parsed), (registration) => ({
+							shape: "set",
+							live: registration
+						}))
+					case "list":
+						return Effect.map(registered(ctx, read, listAnswer, parsed), (registration) => ({
+							shape: "list",
+							live: registration
+						}))
+				}
+			}
+		)
+	switch (member.kind) {
+		case "read":
+			return Option.some(live(member.read, parseRead(member.read)))
+		case "key":
+			return Option.some(live(member.read, parseKey(member.read, member.fields)))
+		case "paged":
+			return Option.some(live(member.read, parseWindow(member.read, member.page)))
+		case "change":
+		case "refresh":
+			return Option.none()
+	}
+}
+
+/**
  * A read's calls of shape S (see the header): its input parsed by `parse`, a refusal of which is its one error event
  * then `end`; once its events settled to ready, the read's value, or the error that ended them. Its watch is live
  * (live/subscriptions.ts): registered on the layer's registry under the routing keys its served footprint binds with
@@ -268,14 +335,8 @@ const readCalls = <S extends ReadShape, E>(
 		)
 	const live = (parsed: ParsedRead): Stream.Stream<E> =>
 		Stream.unwrap(
-			Effect.map(
-				ctx.subscriptions.register({
-					read: readStream(ctx, parsed.call, answer),
-					answer,
-					keys: routeKeys(read.footprint, read.codecs, parsed.inputs),
-					expiry: ctx.expiry
-				}),
-				(registered) => Stream.concat(registered.initial, registered.changes)
+			Effect.map(registered(ctx, read, answer, parsed), (registration) =>
+				Stream.concat(registration.initial, registration.changes)
 			)
 		)
 	return {

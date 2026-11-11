@@ -58,6 +58,7 @@ export { constraintLaw } from "#compiler/ir/products.ts"
 export { type CallError, callError } from "#compiler/live/events.ts"
 export {
 	batchesOf,
+	batchNotifications,
 	type LiveBatch,
 	type LiveSecret,
 	type LiveTextRefused,

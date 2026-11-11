@@ -124,6 +124,7 @@ const constructors: {
 	InputTooLarge: Public.InputTooLarge,
 	LawRejected: Public.LawRejected,
 	LayerReleased: Public.LayerReleased,
+	LiveSourceMissing: Public.LiveSourceMissing,
 	Migrated: Public.Migrated,
 	Migrating: Public.Migrating,
 	NoCancelKey: Public.NoCancelKey,

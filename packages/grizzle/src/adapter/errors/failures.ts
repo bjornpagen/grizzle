@@ -285,7 +285,6 @@ export type SettingRule =
 	| { readonly kind: "readableCertificates" }
 	| { readonly kind: "password" }
 	| { readonly kind: "servedLogin" }
-	| { readonly kind: "liveLogin" }
 	| { readonly kind: "builtLogin" }
 	| { readonly kind: "snapshot" }
 	| { readonly kind: "function" }
@@ -332,8 +331,6 @@ const ruleText = (rule: SettingRule): string => {
 			return "must be a Redacted or an Effect yielding one, evaluated for each connection attempt"
 		case "servedLogin":
 			return "must be a served login built by served(...)"
-		case "liveLogin":
-			return "must be a served login built by served(...) of a login that serves a read"
 		case "builtLogin":
 			return "must be a login built by login(...)"
 		case "snapshot":

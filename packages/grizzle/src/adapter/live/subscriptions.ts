@@ -202,11 +202,15 @@ export interface LiveRequest<S extends ReadShape, Row extends object, E> {
  * A registered read's answer: `initial`, its first run's events as they come, or the error its source's refusal ends it
  * with; then `changes`, after its `ready`: each run's change followed by `ready`, so a client's value is whole at a
  * run's snapshot exactly at each `ready`, then the error that ends it and `end`; or `end` alone after an initial error.
- * `state` reads where its subscription stands now: `clean`, `marked` or `ended`.
+ * `changes` continues from the value its client holds each time it runs, so a consumer may stop and run it again, and
+ * a run it interrupts marks the subscription again. `turn` is one turn now, never waiting: none where the subscription
+ * is clean or its run read the same value, else that run's events. `state` reads where its subscription stands now:
+ * `clean`, `marked` or `ended`.
  */
 export interface Live<E> {
 	readonly initial: Stream.Stream<E>
 	readonly changes: Stream.Stream<E>
+	readonly turn: Effect.Effect<Option.Option<ReadonlyArray<E>>>
 	readonly state: Effect.Effect<SubscriptionState["kind"]>
 }
 
@@ -215,6 +219,27 @@ export interface Subscriptions {
 	readonly register: <S extends ReadShape, Row extends object, E>(
 		request: LiveRequest<S, Row, E>
 	) => Effect.Effect<Live<E>, never, Scope.Scope>
+}
+
+/**
+ * The registry of a live source built over a login that serves no read (pool/live.ts): it holds no installation's live
+ * source, so a read registered on it, which only a layer of another login of the installation provided with it can
+ * register, ends at once with `failed`, and nothing connects.
+ */
+export const unsourced: Subscriptions = {
+	register: (request) =>
+		Effect.sync(() => {
+			const error = callError("failed", {
+				message:
+					"the live source was built over a login that serves no read: build it over one that does"
+			})
+			return {
+				initial: Stream.make(request.answer.error(error)),
+				changes: Stream.make(request.answer.end),
+				turn: Effect.succeedSome([request.answer.end]),
+				state: Effect.succeed<SubscriptionState["kind"]>("ended")
+			}
+		})
 }
 
 /** What one turn of a live read came to: a change, with the value it leaves, or the error that ends the read. */
@@ -227,26 +252,34 @@ type Turn<S extends ReadShape, Row extends object, E> =
 	| { readonly kind: "ended"; readonly error: CallError }
 
 /**
- * A turn bounded by `expiry`: it ends with tokenExpired at the expiry's instant, interrupting a run in flight, and at
+ * What one run of a live read came to: a turn (Turn), or the same value read again, `unchanged`, with what it read, or a
+ * run SERIALIZABLE refused, `refused`.
+ */
+type Ran<S extends ReadShape, Row extends object, E> =
+	| Turn<S, Row, E>
+	| { readonly kind: "unchanged"; readonly value: Keyed<S, Row> }
+	| { readonly kind: "refused" }
+
+/** What a read's token's expiry ends it with. */
+const expired = { kind: "ended", error: tokenExpired() } as const
+
+/**
+ * `effect` bounded by `expiry`: at the expiry's instant it is interrupted and `expiredAs` answers in its place, and at
  * once when the instant has passed.
  */
-const expiring = <S extends ReadShape, Row extends object, E>(
-	expiry: Expiry,
-	turn: Effect.Effect<Turn<S, Row, E>>
-): Effect.Effect<Turn<S, Row, E>> => {
+const expiring = <A>(expiry: Expiry, effect: Effect.Effect<A>, expiredAs: A): Effect.Effect<A> => {
 	switch (expiry.kind) {
 		case "never":
-			return turn
+			return effect
 		case "at":
-			return Effect.flatMap(Clock.currentTimeMillis, (now) => {
-				const expired: Turn<S, Row, E> = { kind: "ended", error: tokenExpired() }
-				return now >= expiry.epochMillis
-					? Effect.succeed(expired)
+			return Effect.flatMap(Clock.currentTimeMillis, (now) =>
+				now >= expiry.epochMillis
+					? Effect.succeed(expiredAs)
 					: Effect.raceFirst(
-							turn,
-							Effect.as(Effect.sleep(Duration.millis(expiry.epochMillis - now)), expired)
+							effect,
+							Effect.as(Effect.sleep(Duration.millis(expiry.epochMillis - now)), expiredAs)
 						)
-			})
+			)
 	}
 }
 
@@ -336,6 +369,7 @@ export const makeSubscriptions = (
 					return {
 						initial: Stream.make(answer.error(error)),
 						changes: Stream.make(answer.end),
+						turn: Effect.succeedSome([answer.end]),
 						state
 					}
 				}
@@ -356,65 +390,172 @@ export const makeSubscriptions = (
 					}),
 					Stream.onEnd(
 						Effect.sync(() => {
-							Deferred.doneUnsafe(first, Effect.succeed(answer.settle(seen)))
+							const folded = answer.settle(seen)
+							if (folded.kind === "ready") {
+								holding.value = folded.value
+							}
+							Deferred.doneUnsafe(first, Effect.succeed(folded))
 						})
 					)
 				)
 
+				/** The value the subscription's client holds: the one its initial run or its last batch left. */
+				const holding: { value: Keyed<S, Row> | undefined } = { value: undefined }
+
 				/**
-				 * The subscription's next change from `value`, the value its client holds: it waits until it is marked, clears
-				 * the mark, runs the read again, and answers the change from `value` to what it read; a run that changes
-				 * nothing waits again from what it read. A run SERIALIZABLE refused changed nothing, so its value has not
-				 * advanced and the subscription is marked again, and runs again at once on a fresh snapshot: its progress is
-				 * bound to commits, never to a time; any other error ends it, as does its own end.
+				 * One run of the read from the held value, the subscription marked: it clears the mark, unless it ended
+				 * meanwhile, runs the read, and answers the change from the held value to what it read, or `unchanged` with
+				 * what it read where that is the same value. A run SERIALIZABLE refused changed nothing, so its value has not
+				 * advanced and the subscription is marked again, `refused`; any other error ends it. A run interrupted marks
+				 * the subscription again, so a later pull runs it. The value is held only where its caller sends the change
+				 * (hold), so a change a consumer never received is diffed again.
 				 */
-				const next = (value: Keyed<S, Row>): Effect.Effect<Turn<S, Row, E>> =>
-					Effect.flatMap(settled(subscription), (mark): Effect.Effect<Turn<S, Row, E>> => {
-						if (mark.kind === "ended") {
-							return Effect.succeed({ kind: "ended", error: mark.error })
+				const rerun = (value: Keyed<S, Row>): Effect.Effect<Ran<S, Row, E>> =>
+					Effect.suspend(() => {
+						if (subscription.state.kind === "marked") {
+							subscription.state = cleanState
 						}
-						subscription.state = cleanState
-						return Effect.flatMap(Stream.runCollect(request.read), (events) => {
-							const after = answer.settle(events)
-							switch (after.kind) {
-								case "ready": {
-									const changes = answer.diff(value, after.value)
-									return changes.length > 0
-										? Effect.succeed({ kind: "changed", changes, value: after.value })
-										: next(after.value)
-								}
-								case "failed":
-									if (after.error.kind === "transient") {
-										markSubscription(subscription)
-										return next(value)
+						return Effect.onInterrupt(
+							Effect.flatMap(
+								Stream.runCollect(request.read),
+								(events): Effect.Effect<Ran<S, Row, E>> => {
+									const after = answer.settle(events)
+									switch (after.kind) {
+										case "ready": {
+											const changes = answer.diff(value, after.value)
+											return Effect.succeed(
+												changes.length > 0
+													? { kind: "changed", changes, value: after.value }
+													: { kind: "unchanged", value: after.value }
+											)
+										}
+										case "failed":
+											if (after.error.kind === "transient") {
+												markSubscription(subscription)
+												return Effect.succeed({ kind: "refused" })
+											}
+											return Effect.succeed({ kind: "ended", error: after.error })
+										case "opening":
+										case "provisional":
+											return Effect.die(
+												defect("a live read's run ended before its ready or its error")
+											)
 									}
-									return Effect.succeed({ kind: "ended", error: after.error })
-								case "opening":
-								case "provisional":
-									return Effect.die(defect("a live read's run ended before its ready or its error"))
-							}
-						})
+								}
+							),
+							() =>
+								Effect.sync(() => {
+									markSubscription(subscription)
+								})
+						)
 					})
 
-				const live = (value: Keyed<S, Row>): Stream.Stream<E> =>
-					Stream.paginate(value, (current) =>
-						Effect.map(
-							expiring(request.expiry, next(current)),
-							(turn): readonly [ReadonlyArray<E>, Option.Option<Keyed<S, Row>>] =>
-								turn.kind === "changed"
-									? [[...turn.changes, answer.ready], Option.some(turn.value)]
-									: [[answer.error(turn.error), answer.end], Option.none()]
-						)
+				/** `value` held: what a turn's run read, once its change is sent or found none. */
+				const hold = (value: Keyed<S, Row>): void => {
+					holding.value = value
+				}
+
+				/** The value held, once the initial run reached it: what every turn runs from. */
+				const held = (value: Keyed<S, Row> | undefined): Effect.Effect<Keyed<S, Row>> =>
+					value === undefined
+						? Effect.die(defect("a live read's turn ran before its initial value"))
+						: Effect.succeed(value)
+
+				/**
+				 * The subscription's next change from the value its client holds: it waits until it is marked, then runs
+				 * the read, again at once while a run changes nothing or SERIALIZABLE refuses it, since its progress is bound
+				 * to commits, never to a time; its own end ends it.
+				 */
+				const next: Effect.Effect<Turn<S, Row, E>> = Effect.flatMap(
+					settled(subscription),
+					(mark): Effect.Effect<Turn<S, Row, E>> =>
+						mark.kind === "ended"
+							? Effect.succeed({ kind: "ended", error: mark.error })
+							: Effect.flatMap(
+									Effect.flatMap(
+										Effect.suspend(() => held(holding.value)),
+										rerun
+									),
+									(turn): Effect.Effect<Turn<S, Row, E>> => {
+										switch (turn.kind) {
+											case "unchanged":
+												hold(turn.value)
+												return next
+											case "refused":
+												return next
+											case "changed":
+											case "ended":
+												return Effect.succeed(turn)
+										}
+									}
+								)
+				)
+
+				/** A turn's events: its change then `ready`, or its error then `end`. */
+				const eventsOf = (turn: Turn<S, Row, E>): ReadonlyArray<E> =>
+					turn.kind === "changed"
+						? [...turn.changes, answer.ready]
+						: [answer.error(turn.error), answer.end]
+
+				const live: Stream.Stream<E> = Stream.paginate(true, () =>
+					Effect.map(
+						expiring(request.expiry, next, expired),
+						(turn): readonly [ReadonlyArray<E>, Option.Option<boolean>] => {
+							if (turn.kind === "changed") {
+								hold(turn.value)
+								return [eventsOf(turn), Option.some(true)]
+							}
+							return [eventsOf(turn), Option.none()]
+						}
 					)
+				)
 
 				const changes = first.pipe(
 					Deferred.await,
-					Effect.map((folded) =>
-						folded.kind === "ready" ? live(folded.value) : Stream.make(answer.end)
-					),
+					Effect.map((folded) => (folded.kind === "ready" ? live : Stream.make(answer.end))),
 					Stream.unwrap
 				)
-				return { initial, changes, state }
+
+				/**
+				 * One turn now, never waiting: none where the subscription is clean; its error then `end` where it ended;
+				 * else its read run (rerun) under its expiry, again while SERIALIZABLE refuses it, its change then `ready`
+				 * where it changed the held value, its error then `end` where it ended, none where it read the same value.
+				 */
+				const once: Effect.Effect<Option.Option<ReadonlyArray<E>>> = Effect.suspend(() => {
+					const mark = subscription.state
+					switch (mark.kind) {
+						case "clean":
+							return Effect.succeedNone
+						case "ended":
+							return Effect.succeedSome(eventsOf({ kind: "ended", error: mark.error }))
+						case "marked":
+							return Effect.flatMap(
+								Effect.flatMap(held(holding.value), (value) =>
+									expiring(request.expiry, rerun(value), expired)
+								),
+								(ran): Effect.Effect<Option.Option<ReadonlyArray<E>>> => {
+									switch (ran.kind) {
+										case "refused":
+											return once
+										case "unchanged":
+											hold(ran.value)
+											return Effect.succeedNone
+										case "changed":
+											hold(ran.value)
+											return Effect.succeedSome(eventsOf(ran))
+										case "ended":
+											return Effect.succeedSome(eventsOf(ran))
+									}
+								}
+							)
+					}
+				})
+
+				const turn: Effect.Effect<Option.Option<ReadonlyArray<E>>> = Effect.flatMap(
+					Deferred.await(first),
+					(folded) => (folded.kind === "ready" ? once : Effect.succeedSome([answer.end]))
+				)
+				return { initial, changes, turn, state }
 			})
 
 		return { register }

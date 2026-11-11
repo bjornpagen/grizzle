@@ -12,7 +12,7 @@ import { OpenError } from "#adapter/errors/execution.ts"
 import { DbConfigRefused, type SettingFault } from "#adapter/errors/failures.ts"
 import { liveSourceKey, type LiveSourceSessions } from "#adapter/live/layer.ts"
 import { fanoutSource } from "#adapter/live/listen.ts"
-import { makeSubscriptions } from "#adapter/live/subscriptions.ts"
+import { makeSubscriptions, unsourced } from "#adapter/live/subscriptions.ts"
 import { loginEnvironment, readServedLogin } from "#adapter/pool/served.ts"
 import type { LoginBase, LiveSourceConfigShape, LiveSourceService } from "#adapter/types/layer.ts"
 import type { LoginConnection } from "#adapter/wire/session.ts"
@@ -22,9 +22,10 @@ import type { ServedLive, ServedSession } from "#compiler/plan/serve.ts"
 /**
  * LiveSource.layer: an installation's live source for the process, one per installation, which every DbLayer of a
  * login of it that serves a read requires (types/layer.ts LiveOf). Its config is the connection of the installation's
- * decoder login, its `password` that login's credential, and a served login of the installation that serves a read,
- * whose file carries the installation's live source. It is parsed once, where it is given; one no connection can use,
- * or a login that serves no read, fails the layer at stage config.
+ * decoder login, its `password` that login's credential, and a served login of the installation, whose file carries the
+ * installation's live source where the login serves a read. It is parsed once, where it is given; one no connection can
+ * use fails the layer at stage config. Over a login that serves no read it holds no source: no layer that needs one
+ * needs it, so a program may provide it wherever it provides a layer, and a read registered on it ends `failed`.
  *
  * Building the layer connects nothing: it builds the registry (live/subscriptions.ts) over the installation's fan-out
  * (live/listen.ts), whose listening session and candidacy for the installation's leader, both the decoder login's,
@@ -34,7 +35,7 @@ import type { ServedLive, ServedSession } from "#compiler/plan/serve.ts"
  */
 interface ParsedLive extends ParsedConnection {
 	readonly base: string
-	readonly source: Extract<ServedLive, { readonly kind: "source" }>
+	readonly source: ServedLive
 	readonly session: ServedSession
 }
 
@@ -44,22 +45,21 @@ const liveConfig: SettingPath = ["LiveSource"]
 const refusedConfig = (fault: SettingFault): OpenError =>
 	new OpenError({ reason: new DbConfigRefused(fault) })
 
-const loginRefused: SettingFault = faultAt(liveConfig, "login", { kind: "liveLogin" })
+const loginRefused: SettingFault = faultAt(liveConfig, "login", { kind: "servedLogin" })
 
 /**
- * The config's served login, read once at the boundary as DbLayer.make's is (pool/served.ts readServedLogin): a
- * served login whose file carries a live source, its base and its texts read off its file.
+ * The config's served login, read once at the boundary as DbLayer.make's is (pool/served.ts readServedLogin): its
+ * base, its file's live source and its sessions' texts.
  */
 const liveLogin = <L extends AnyLogin>(
 	config: LiveSourceConfigShape<L>
 ): Result.Result<Pick<ParsedLive, "base" | "source" | "session">, SettingFault> =>
 	readHost(loginRefused, () =>
-		Result.flatMap(readServedLogin(config.login, loginRefused), (read) => {
-			const source = read.file.live
-			return source.kind === "source"
-				? Result.succeed({ base: read.base, source, session: read.file.session })
-				: Result.fail(loginRefused)
-		})
+		Result.map(readServedLogin(config.login, loginRefused), (read) => ({
+			base: read.base,
+			source: read.file.live,
+			session: read.file.session
+		}))
 	)
 
 /** A LiveSource config, parsed once (connection/config.ts); a refusal is OpenError{stage: "config"}. */
@@ -74,40 +74,50 @@ const parseLiveConfig = <L extends AnyLogin>(
 	)
 
 /**
- * The live source in the layer's scope: the decoder login's connection, its role and its slot the live source's stem
- * under the config's role space; the fan-out's source over it, with the candidacy each process runs; and the registry
- * over the source.
+ * The live source in the layer's scope: over a login that serves a read, the decoder login's connection, its role and
+ * its slot the live source's stem under the config's role space, the fan-out's source over it with the candidacy each
+ * process runs, and the registry over the source; over a login that serves none, the registry that holds no source
+ * (live/subscriptions.ts unsourced), which connects nothing and never reads the credential, so a generic program may
+ * provide it where no layer needs it.
  */
 const makeLiveSource = (
 	parsed: ParsedLive
-): Effect.Effect<LiveSourceSessions, OpenError, Scope.Scope> =>
-	Effect.gen(function* () {
-		const decoder = yield* Effect.fromResult(
-			Result.mapError(connectionRole(parsed, liveConfig, parsed.source.stem), refusedConfig)
-		)
-		const connection: LoginConnection = {
-			driver: parsed.driver,
-			transport: parsed.transport,
-			database: parsed.database,
-			role: decoder,
-			password: parsed.password,
-			connectTimeoutMs: parsed.connectTimeoutMs
-		}
-		const source = yield* fanoutSource({
-			connection,
-			session: parsed.session,
-			source: parsed.source,
-			candidacy: {
-				decoder: connection,
-				session: parsed.session,
-				source: parsed.source,
-				slot: decoder,
-				tables: new Map(Rec.toEntries(parsed.source.tables))
-			}
-		})
-		const subscriptions = yield* makeSubscriptions(source)
-		return { subscriptions }
-	})
+): Effect.Effect<LiveSourceSessions, OpenError, Scope.Scope> => {
+	const source = parsed.source
+	switch (source.kind) {
+		case "none":
+			return Effect.succeed({ subscriptions: unsourced })
+		case "source":
+			return Effect.gen(function* () {
+				const decoder = yield* Effect.fromResult(
+					Result.mapError(connectionRole(parsed, liveConfig, source.stem), refusedConfig)
+				)
+				const connection: LoginConnection = {
+					driver: parsed.driver,
+					transport: parsed.transport,
+					database: parsed.database,
+					role: decoder,
+					password: parsed.password,
+					connectTimeoutMs: parsed.connectTimeoutMs
+				}
+				const fanout = yield* fanoutSource({
+					connection,
+					session: parsed.session,
+					source,
+					candidacy: {
+						decoder: connection,
+						session: parsed.session,
+						source,
+						slot: decoder,
+						tables: new Map(Rec.toEntries(source.tables)),
+						views: new Set(source.views)
+					}
+				})
+				const subscriptions = yield* makeSubscriptions(fanout)
+				return { subscriptions }
+			})
+	}
+}
 
 /**
  * The LiveSource layer of a config (see the header): the config parsed once, where LiveSource.layer is given it; then,

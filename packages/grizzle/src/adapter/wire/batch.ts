@@ -1219,10 +1219,6 @@ const accountFlight = (
 			bytes += textMessageBytes(controlText(controls, query.control))
 			continue
 		}
-		if (query._tag === "simple") {
-			bytes += textMessageBytes(query.text)
-			continue
-		}
 		bytes += executionBytes(query)
 		if (query._tag === "prepared") {
 			if (named.has(query.text.name)) {

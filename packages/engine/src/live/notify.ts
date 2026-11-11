@@ -271,6 +271,24 @@ const fromBase64 = (text: string): Uint8Array | undefined => {
 }
 
 /**
+ * The notifications a batch's text holds (batchesOf), its texts joined by NUL, each parsed (parseNotification), or the
+ * first text that parts from the grammar: a sealed payload's opened text, or an announcement's plaintext.
+ */
+export const batchNotifications = (
+	text: string
+): Result.Result<ReadonlyArray<Notification>, LiveTextRefused> => {
+	const notifications: Array<Notification> = []
+	for (const part of text.split(separator)) {
+		const parsed = parseNotification(part)
+		if (!parsed.ok) {
+			return parsed
+		}
+		notifications.push(parsed.value)
+	}
+	return Result.ok(notifications)
+}
+
+/**
  * The notifications a payload of the channel holds, or what it parts from a sealed batch at: base64, of a nonce, a
  * ciphertext and a tag that authenticates it under the secret, whose text is notifications joined by NUL. A payload
  * that fails is no sender's of the installation.
@@ -284,15 +302,7 @@ export const openPayload = (
 	if (opened === undefined) {
 		return refused(payload, "a batch sealed under the installation's live secret, in base64")
 	}
-	const notifications: Array<Notification> = []
-	for (const text of decoder.decode(opened).split(separator)) {
-		const parsed = parseNotification(text)
-		if (!parsed.ok) {
-			return parsed
-		}
-		notifications.push(parsed.value)
-	}
-	return Result.ok(notifications)
+	return batchNotifications(decoder.decode(opened))
 }
 
 /**

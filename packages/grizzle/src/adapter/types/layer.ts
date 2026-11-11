@@ -223,16 +223,17 @@ export type LiveOf<L> = [ServesRead<L>] extends [false] ? never : LiveSourceServ
 
 /**
  * LiveSource.layer's config: the connection of the installation's decoder login, whose `password` is that login's
- * credential, the one login that reads the installation's replication slot, and a served login of the installation that
- * serves a read, whose file carries the installation's live source (texts, names and tables).
+ * credential, the one login that reads the installation's replication slot, and a served login of the installation,
+ * whose file carries the installation's live source (texts, names and tables) where the login serves a read.
  */
 export type LiveSourceConfigShape<L> = DbConnection & { readonly login: ServedLogin<L> }
 
 /**
  * LiveSource.layer; packages/grizzle/src/adapter/live/layer.ts implements it. Its config is parsed where it is given,
- * as DbLayer.make's is: one no connection can use, or a login whose file serves no read, fails the layer with
- * OpenError{stage: "config"}. Building the layer connects nothing: the installation's fan-out and this process's
- * candidacy for its leader start at the first watch of any layer it serves, and end with its scope.
+ * as DbLayer.make's is: one no connection can use fails the layer with OpenError{stage: "config"}. Building the layer
+ * connects nothing: the installation's fan-out and this process's candidacy for its leader start at the first watch of
+ * any layer it serves, and end with its scope. Over a login that serves no read it holds no source and reads no
+ * credential, so generic code may provide it to every layer it builds.
  */
 export interface LiveSourceConstructor {
 	layer<const L extends AnyLogin>(

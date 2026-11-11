@@ -33,8 +33,7 @@ import {
 	type LoginConnection,
 	type ReplicationFailure,
 	type ReplicationSession,
-	type Session,
-	type UnreadableRows
+	type Session
 } from "#adapter/wire/session.ts"
 import type { EmittedText, Param, Prepared } from "#compiler/plan/common.ts"
 import {
@@ -89,7 +88,6 @@ export type LeaderReason =
 	| InputTooLarge
 	| ReplicationFailure
 	| ReplicationEnded
-	| UnreadableRows
 	| MessageUnreadable
 	| ChangesUnroutable
 	| SecretUnreadable
@@ -112,7 +110,8 @@ export class SecretUnreadable extends Data.TaggedError("SecretUnreadable") {
 
 /**
  * What a candidacy runs with: the decoder login's connection, its sessions' control texts, the installation's live
- * source, its slot under the installation's role space, and its live tables.
+ * source, its slot under the installation's role space, its live tables, and its materialized views, the only table
+ * keys an announcement may name (live/changes.ts).
  */
 export interface Candidacy {
 	readonly decoder: LoginConnection
@@ -120,6 +119,7 @@ export interface Candidacy {
 	readonly source: Extract<ServedLive, { readonly kind: "source" }>
 	readonly slot: string
 	readonly tables: LiveTables
+	readonly views: ReadonlySet<string>
 }
 
 /** A served statement of the source's over `params`, its rows kept. */
@@ -366,7 +366,7 @@ const streamed = (
 	delivered: Delivered
 ): Effect.Effect<never, LeaderReason> => {
 	const { candidacy } = leading
-	const reader = transactionReader(candidacy.tables, candidacy.source.publication, leading.secret)
+	const reader = transactionReader(candidacy.tables, candidacy.views, candidacy.source.publication)
 	return Effect.catchTag(
 		replication.stream(
 			startCommand(candidacy.slot, candidacy.source.publication, 0n),
@@ -395,7 +395,7 @@ export const candidacy = (running: Candidacy): Effect.Effect<never, LeaderReason
 			const connection = { ...running.decoder, controls: running.session }
 			const replication = yield* connectReplication(connection)
 			const session = yield* connectSession(connection)
-			yield* replication.simple(running.source.lock)
+			yield* replication.run(running.source.lock)
 			const slot = textParam(running.slot)
 			const checked = yield* alone(session, statement(running.source.check, [slot]))
 			const standing = onlyCell(checked)
@@ -406,7 +406,7 @@ export const candidacy = (running: Candidacy): Effect.Effect<never, LeaderReason
 			const leading: Leading = { session, candidacy: running, secret }
 			if (standing !== trueText) {
 				yield* fanout(leading, [{ kind: "invalidated" }])
-				yield* replication.simple(createSlotCommand(running.slot))
+				yield* replication.run(createSlotCommand(running.slot))
 			}
 			const delivered: Delivered = {
 				transactions: [],

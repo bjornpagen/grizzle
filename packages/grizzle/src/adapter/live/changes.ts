@@ -2,10 +2,9 @@ import { Array as Arr, Data, Option, Result } from "effect"
 import type { Column, Message, OldImage, Tuple } from "#adapter/live/pgoutput.ts"
 import {
 	admittedIdentifier,
-	type LiveSecret,
+	batchNotifications,
 	type Notification,
 	notificationText,
-	openPayload,
 	type RouteColumn,
 	type RouteTable
 } from "#compiler/plan/runtime.ts"
@@ -20,10 +19,16 @@ import {
  * carries (the row it left, for an insert and an update; the row it replaced, for an update and a delete), the side's
  * value of the column is its keyed key, so a subscription at either value hears it, and a side that does not say the
  * value makes the change its table's key, which every program of the table hears: a missing image costs re-runs, never
- * a missed change. Each side is first read into one representation, each column's text or absent (imagesOf), so the
- * predicate reads no image's kind. A TRUNCATE is each read table's key. A logical message under the installation's
- * prefix is a refresh's announcement, a batch sealed under the installation's secret, whose notifications it holds;
- * one that does not open under the secret is no announcement of the installation's, and is dropped.
+ * a missed change. Each side is first read into one representation, each column's text or absent (sidesOf), so the
+ * predicate reads no image's kind. A TRUNCATE is each read table's key.
+ *
+ * A logical message under the installation's prefix is a refresh's announcement, its text a batch's plaintext
+ * (engine live/notify.ts batchNotifications), and untrusted input: pg_logical_emit_message is PUBLIC, so any role of the
+ * database can emit one under the prefix. Of a message the reader takes only the table keys of the installation's
+ * materialized views, a refresh's whole vocabulary, and drops every other notification, a table's key or a keyed key of
+ * a stored relation, `invalidated`, a view the installation does not hold, and a text that parts from the grammar. So a
+ * forged announcement causes no more than a refresh's own does, a re-run of that view's reads that diffs empty: it
+ * never changes a value, never routes a stored relation's change, and never ends a read.
  *
  * The routed columns of each installed table its live programs read, by its installed name (served/forms.ts ServedLive
  * tables): the publication holds these tables alone, so a Relation message's table is named by its name.
@@ -172,7 +177,8 @@ const changeKeys = (
 /**
  * Reads a replication stream's pgoutput messages, one at a time, in order, into its committed transactions (see the
  * header): each Relation message names a relation under `tables` until another names it again, a logical message under
- * `prefix` is an announcement opened under `secret`, and each Commit answers the transaction it ends.
+ * `prefix` is an announcement, of which only the table keys of `views` are taken, and each Commit answers the
+ * transaction it ends.
  */
 export interface TransactionReader {
 	readonly read: (
@@ -183,8 +189,8 @@ export interface TransactionReader {
 /** A reader of one stream's messages (TransactionReader), from the stream's first message. */
 export const transactionReader = (
 	tables: LiveTables,
-	prefix: string,
-	secret: LiveSecret
+	views: ReadonlySet<string>,
+	prefix: string
 ): TransactionReader => {
 	const relations = new Map<number, RelationRoutes>()
 	const stream: { open: { readonly xid: number; readonly keys: Keys } | undefined } = {
@@ -244,10 +250,12 @@ export const transactionReader = (
 					if (message.prefix !== prefix) {
 						return Result.succeed(undefined)
 					}
-					const announced = openPayload(secret, message.content)
+					const announced = batchNotifications(message.content)
 					if (announced.ok) {
 						for (const notification of announced.value) {
-							add(open.keys, notification)
+							if (notification.kind === "table" && views.has(notification.table)) {
+								add(open.keys, notification)
+							}
 						}
 					}
 					return Result.succeed(undefined)

@@ -13,12 +13,17 @@
  *   rows of its group then, ends with `ready`, removes only keys it held and upserts only rows that differ; no batch
  *   comes where the model's rows equal the value it holds. Oracle: the model, a second implementation.
  * - What a subscription holds is bounded by its value: after any number of commits, one pull answers one batch and
- *   leaves it clean, and every refused run is run again at once, so the runs queued in front of a pull are all taken.
- *   Oracle: the count of the model's commits and refused runs.
+ *   leaves it clean, and every refused run is run again at once, so the runs queued in front of a pull are all taken;
+ *   a turn of a subscription whose value the commits left as it was sends nothing and leaves it clean. Oracle: the
+ *   count of the model's commits and refused runs.
+ *
+ * - A read ends at its token's expiry: under a test clock, a stream pulled before its Db's `exp` sends each change
+ *   first, then, once the clock reaches the instant, the error `tokenExpired` and `end`, a run in flight then
+ *   interrupted; one pulled at or past it ends at once. Oracle: the expiry instant.
  *
  * Features: a keyed subscription reached, a table-wide one reached, a commit reaching no subscription, a fail-closed
  * table key, a pull after several commits, a refused run run again, a batch removing a row, and a marked subscription
- * whose value the commits left as it was.
+ * whose value the commits left as it was; for expiry, a change sent before it and none.
  *
  * Plants (~/.cache/grizzle-release/LIVE-SUBSCRIBE/plants): routing-key-ignored.patch (unit/live/router), and
  * coalesce-dropped.patch, a notification queued per commit in place of the mark bit, so a slow consumer's pending runs
@@ -31,7 +36,18 @@ import { array, boolean, element, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Order, Stream } from "effect"
+import {
+	Array as Arr,
+	Clock,
+	Duration,
+	Effect,
+	Fiber,
+	Formatter,
+	Option,
+	Order,
+	Stream
+} from "effect"
+import { TestClock } from "effect/testing"
 import type { ChangeSink, ChangeSource } from "#adapter/live/source.ts"
 import { type LiveAnswer, makeSubscriptions } from "#adapter/live/subscriptions.ts"
 import {
@@ -322,10 +338,22 @@ describe("the live registry", () => {
 													row.v === other.v
 												)
 											})
-										if (subscription.holding.marked && stays) {
-											c.note("a marked subscription whose value stayed")
+										if (plan === undefined || !plan.pull) {
+											continue
 										}
-										if (plan === undefined || !plan.pull || stays) {
+										if (stays) {
+											const turned = yield* subscription.live.turn
+											assert.ok(
+												Option.isNone(turned),
+												"a turn whose run reads the same value sends nothing"
+											)
+											const after = yield* subscription.live.state
+											assert.equal(after, "clean", "a turn leaves the subscription clean")
+											if (subscription.holding.marked) {
+												c.note("a marked subscription whose value stayed")
+											}
+											subscription.holding.marked = false
+											subscription.holding.commits = 0
 											continue
 										}
 										if (subscription.holding.commits > 1) {
@@ -365,6 +393,104 @@ describe("the live registry", () => {
 										c.note("a commit reaching no subscription")
 									}
 								}
+							})
+						)
+				)
+			)
+	)
+
+	/** The features an expiry case shows. */
+	type Expiring = "a change sent before the expiry" | "no change before the expiry"
+
+	it.effect(
+		"a live read ends with tokenExpired at its token's expiry, each change before it sent first",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						oracle: { kind: "specification", name: "the Db's expiry instant" },
+						suite: "unit/live/expiry",
+						draw: drawn((s) => ({
+							expiresIn: s.draw(int(1, 1000)),
+							changed: s.draw(boolean),
+							reach: s.draw(reachGen)
+						})),
+						literal: Formatter.format,
+						kept: [],
+						runs: 100,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang,
+						coverage: required<Expiring>(
+							["a change sent before the expiry", "no change before the expiry"],
+							{ cases: 100, sense: notesOnly }
+						)
+					},
+					({ expiresIn, changed, reach }, c) =>
+						Effect.scoped(
+							Effect.gen(function* () {
+								const clock = yield* TestClock.make()
+								return yield* Effect.provideService(
+									Effect.gen(function* () {
+										const model = new Map<number, Row>([[0, { id: 0, g: 0, v: 0 }]])
+										const opened: { sink: ChangeSink | undefined } = { sink: undefined }
+										const source: ChangeSource = {
+											open: (sink) =>
+												Effect.sync(() => {
+													opened.sink = sink
+												})
+										}
+										const registry = yield* makeSubscriptions(source)
+										yield* clock.setTime(0)
+										const live = yield* registry.register({
+											read: Stream.suspend(() =>
+												Stream.fromIterable<SetEvent<Row>>([
+													{ kind: "reset", key: ["id"] },
+													...Arr.map(readOf(model, reach), (row): SetEvent<Row> => ({
+														kind: "upsert",
+														row
+													})),
+													{ kind: "ready" }
+												])
+											),
+											answer,
+											keys: keysOf(reach),
+											expiry: { kind: "at", epochMillis: expiresIn }
+										})
+										yield* Stream.runCollect(live.initial)
+										const pull = yield* Stream.toPull(live.changes)
+										const sink = opened.sink
+										assert.ok(sink !== undefined, "registering opened the source")
+										if (changed) {
+											c.note("a change sent before the expiry")
+											const row: Row = { id: 1, g: reach.kind === "group" ? reach.g : 0, v: 1 }
+											model.set(row.id, row)
+											sink.touched({ kind: "keyed", table, column, value: String(row.g) })
+											const batch = yield* pull
+											assert.equal(
+												Arr.lastNonEmpty(batch).kind,
+												"ready",
+												"the change comes before the expiry"
+											)
+										} else {
+											c.note("no change before the expiry")
+										}
+										const waiting = yield* Effect.forkChild(pull)
+										yield* clock.adjust(Duration.millis(expiresIn))
+										const ending = yield* Fiber.join(waiting)
+										assert.deepEqual(
+											Arr.map(ending, (event) =>
+												event.kind === "error" ? `error ${event.error.kind}` : event.kind
+											),
+											["error tokenExpired", "end"],
+											"the stream ends with tokenExpired, then end, at the expiry"
+										)
+									}),
+									Clock.Clock,
+									clock
+								)
 							})
 						)
 				)
