@@ -218,7 +218,7 @@ export interface SubstrateShape {
 /**
  * `statement`, which writes the current database's ACL (a GRANT or REVOKE on it, or a DROP OWNED BY of a role holding a
  * privilege on it), run as one DO block under the database privilege's advisory lock, as an installation's GRANT and
- * REVOKE on the database run (sql/catalog.ts databasePrivilegeBlock): two transactions that write the database's
+ * REVOKE on the database run (sql/catalog.ts databasePrivilegeLock): two transactions that write the database's
  * pg_database row at once fail with XX000 (tuple concurrently updated), and every installation in a shared database
  * writes it.
  */
