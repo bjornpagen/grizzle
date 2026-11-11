@@ -20,9 +20,10 @@
  * - a write's answer is its outcome exactly when no fault came, and else its one error, then end;
  * - once's error is the answer's error;
  * - the error's class and retry are the fault's meaning: SERIALIZABLE's refusal (40001, 40P01) at a statement or at
- *   COMMIT is transient, safe; a read's lost connection, or a write's lost before COMMIT was sent, is transport, safe;
- *   no session to be had is unavailable, safe; a migration at the fence is stale, never; COMMIT sent and unanswered is
- *   commitUnknown, never, since the write may have committed; any other refusal is failed, never;
+ *   COMMIT is transient, safe; a read's lost connection, or a session the server ended at a write's statement, before
+ *   its COMMIT ran, is transport, safe; no session to be had is unavailable, safe; a migration at the fence is stale,
+ *   never; a write's connection lost at its statement or at COMMIT is commitUnknown, never, since its one flight sent
+ *   COMMIT with its statement and the write may have committed; any other refusal is failed, never;
  * - and the classification's own retry for that class is that retry (live/events.ts callErrors).
  *
  * The oracle is the specification of each fault's meaning, read off the drawn fault alone.
@@ -147,7 +148,8 @@ const caseGen = drawn<Case>((source) => ({
 
 /**
  * The class a fault's meaning gives a failed call (see the header): a read commits nothing, so its lost connection is
- * transport wherever it came; a write's lost COMMIT may have committed.
+ * transport wherever it came; a write's one flight sends COMMIT with its statement, so a connection lost at either may
+ * have committed it, while a FATAL at its statement ended the session before COMMIT ran.
  */
 const meaningOf = (
 	member: Member,
@@ -157,10 +159,10 @@ const meaningOf = (
 		case "statement refused":
 			return fault.sqlstate === "23505" ? "failed" : "transient"
 		case "statement fatal":
-		case "statement lost":
 			return "transport"
 		case "COMMIT refused":
 			return "transient"
+		case "statement lost":
 		case "COMMIT lost":
 			return member === "rebuild" ? "commitUnknown" : "transport"
 		case "fence refused by a migration":
@@ -190,7 +192,11 @@ const retryOf = (kind: CallErrorKind): "safe" | "never" => {
 	}
 }
 
-/** The scripted session of a case: its member's statement answers its rows or its fault; the prologue answers. */
+/**
+ * A scripted session of a case, one a lease opens: its member's statement answers its rows or its fault; the prologue
+ * answers. Each lease opens its own, as a pool's next session is another after a lost one is retired, so once meets the
+ * fault its watch met.
+ */
 const sessionOf = (c: Case, ctx: Pick<ServedDbContext, "prologue">) => {
 	const fault = c.fault
 	const prologue = new Set<string>([ctx.prologue.fence.text.sql, ctx.prologue.enter.text.sql])
@@ -338,7 +344,6 @@ describe("a live answer over the protocol's results", () => {
 									"",
 									loaded.fingerprint
 								)
-								const session = sessionOf(c, { prologue })
 								const subscriptions = yield* makeSubscriptions(silent)
 								const context: ServedDbContext = {
 									prologue,
@@ -351,7 +356,7 @@ describe("a live answer over the protocol's results", () => {
 										lease:
 											c.fault.kind === "no session"
 												? Effect.fail(new LayerReleased())
-												: Effect.succeed(session)
+												: Effect.sync(() => sessionOf(c, { prologue }))
 									})
 								}
 								const member = defined(
