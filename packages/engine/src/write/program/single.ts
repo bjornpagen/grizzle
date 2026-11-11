@@ -2,6 +2,7 @@ import { appendAll, maxOf } from "#compiler/core/array.ts"
 import {
 	appendNonEmpty,
 	concatNonEmpty,
+	extendNonEmpty,
 	flatMapNonEmpty,
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
@@ -55,6 +56,31 @@ export interface WritePart {
 		| PutStatement
 	readonly width: number
 }
+
+/**
+ * A sent statement of a read-back riding a single statement, a part of it: its executable query, whose WITH, recursive
+ * or not, stays its own inside the part, its placeholders, every one a declared parameter's, the generated names it
+ * defines, all past every name the statement's writes and deltas define, and the width of its rows, a numbered part's
+ * row number among them (write/program/artifact.ts RidingPart).
+ */
+export interface ReadBackPart {
+	readonly query: Select
+	readonly params: ReadonlyArray<WriteParamSlot>
+	readonly nameMap: NameMap
+	readonly width: number
+}
+
+/** What rides a single statement: the CTEs holding the deltas its riding read-backs read, over its writes' RETURNING
+ * (write/readback/deltas.ts deltaCte), with the names they define, and each riding read-back's sent statements, in
+ * order. */
+export interface Riding {
+	readonly deltas: ReadonlyArray<Cte>
+	readonly nameMap: NameMap
+	readonly parts: ReadonlyArray<ReadBackPart>
+}
+
+/** A single statement no read-back rides. */
+export const noRiding: Riding = Object.freeze({ deltas: [], nameMap: [], parts: [] })
 
 export interface SingleStatement {
 	readonly ast: Select
@@ -143,10 +169,18 @@ const shifted = (
  *
  * The outcome reads each part's rows as its write step's (`writeRows`). Every data-modifying CTE runs to completion
  * whether or not the outer SELECT reads it, and PostgreSQL checks the immediate foreign keys at the end of the
- * statement, after every part, which the schedule's order between the parts only ever had to keep at its own end. */
+ * statement, after every part, which the schedule's order between the parts only ever had to keep at its own end.
+ *
+ * A read-back rides the statement (`riding`) where the statement writes every delta it reads and nothing at or after
+ * it changes what it reads (write/schedule/plan.ts placeReadBacks). Its deltas are CTEs over the writes' RETURNING,
+ * after the writes' parts, and each of its sent statements is a part after them, its own query whole as one CTE, its
+ * rows behind its tag after the writes' tags, padded as theirs are; the runtime reads them as that read-back's
+ * statements' rows. No arm orders its rows: an ordered part's rows carry their row number in the part's order, which
+ * the runtime reads them back in (write/program/artifact.ts RidingPart). */
 export const singleStatement = (
 	shares: ReadonlyArray<SharedPart>,
 	writes: NonEmptyReadonlyArray<WritePart>,
+	riding: Riding,
 	start: NameSupplyStart
 ): SingleStatement => {
 	const shareCtes: Array<Cte> = []
@@ -189,15 +223,40 @@ export const singleStatement = (
 			ctes: appendNonEmpty(body.with === undefined ? [] : body.with.ctes, own)
 		}
 	})
+	appendAll(nameMap, riding.nameMap)
+	const ridden = riding.parts.map((part) => {
+		const shift = shifted(part.query, part.params, params.length)
+		appendAll(params, shift.params)
+		appendAll(nameMap, part.nameMap)
+		return { query: shift.query, width: part.width }
+	})
+	next = namesPast(nameMap, next)
+	const rides = ridden.map((part) => {
+		const out = freshNames(next, part.width)
+		next = out.next
+		appendAll(nameMap, out.nameMap)
+		const own: Cte = {
+			name: out.relation,
+			columns: out.columns,
+			materialized: undefined,
+			query: part.query
+		}
+		const ctes: NonEmptyReadonlyArray<Cte> = [own]
+		return { name: out.relation, columns: out.columns, ctes }
+	})
 	const ctes = concatNonEmpty(
 		shareCtes,
-		flatMapNonEmpty(outs, (o) => o.ctes)
+		extendNonEmpty(
+			flatMapNonEmpty(outs, (o) => o.ctes),
+			[...riding.deltas, ...rides.flatMap((r) => r.ctes)]
+		)
 	)
+	const parts = extendNonEmpty(outs, rides)
 	const width = maxOf(
-		outs.map((o) => o.columns.length),
+		parts.map((o) => o.columns.length),
 		0
 	)
-	const arms = mapNonEmpty(outs, (o, tag): SetCore => {
+	const arms = mapNonEmpty(parts, (o, tag): SetCore => {
 		const padding: ReadonlyArray<Expr> = Array.from({ length: width - o.columns.length }, () =>
 			lit.text("", types.text)
 		)

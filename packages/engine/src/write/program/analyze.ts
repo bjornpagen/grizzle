@@ -157,7 +157,8 @@ export const withCarrierAnalysis = (
 				),
 				ast: statement.ast,
 				forms: oneForm,
-				names: emptyNameMap
+				names: emptyNameMap,
+				riders: []
 			})
 			analyses.push({ position, carriers: batch })
 		}

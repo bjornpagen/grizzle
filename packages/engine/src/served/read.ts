@@ -8,6 +8,7 @@ import type { StatementForms } from "#compiler/runtime/lower/forms.ts"
 import type { FusedLayout } from "#compiler/runtime/lower/fused.ts"
 import type { StatementRole } from "#compiler/runtime/lower/tree.ts"
 import type { EmittedText } from "#compiler/sql/ast.ts"
+import type { RidingPart } from "#compiler/write/program/artifact.ts"
 
 /**
  * A compiled read as the runtime runs it: its statements in their tree, each with the text it sends, and its delivered
@@ -113,13 +114,45 @@ export interface ServedSource<Spec = ServedSpec> {
 }
 
 /**
- * One read-back of a compiled ChangeSet as the runtime runs it after the writes: its name in the ChangeSet's reads, and
- * its program, a read's served source and delivered spine.
+ * One read-back of a compiled ChangeSet as the runtime runs it: its name in the ChangeSet's reads, its query's delivered
+ * spine, and its statements as they reach the server (`carried`).
  */
 export interface ServedReadBack {
 	readonly name: string
-	readonly source: ServedSource
 	readonly spine: ServedSpine
+	readonly carried: ServedCarried
+}
+
+/**
+ * How a read-back's statements reach the server (write/program/artifact.ts ReadBackCarried): `sent`, each its own
+ * statement behind the writes, its program a read's served source; or `riding`, as parts of the write statement at
+ * artifact position `statement`, whose rows behind each part's tag, from `tag` on, are its sent statements' rows, in
+ * flight order (RidingPart), its program the statements as their rows are read, with no text (ServedRiddenSource).
+ */
+export type ServedCarried =
+	| { readonly kind: "sent"; readonly source: ServedSource }
+	| {
+			readonly kind: "riding"
+			readonly source: ServedRiddenSource
+			readonly statement: number
+			readonly tag: number
+			readonly parts: NonEmptyReadonlyArray<RidingPart>
+	  }
+
+/** A riding read-back's statement as the runtime reads its rows: its role, its heading, its fused attachments and how
+ * the runtime has its rows. The statement it rides sends it, so it has no text, placeholder or form of its own. */
+export interface ServedRiddenStatement {
+	readonly role: StatementRole
+	readonly heading: Heading
+	readonly fused: ReadonlyArray<ServedFused>
+	readonly arrival: Arrival
+}
+
+/** A riding read-back's program as the runtime reads its rows: its statements in their tree, and how their rows are
+ * delivered. */
+export interface ServedRiddenSource {
+	readonly delivery: ProgramDelivery
+	readonly roots: ServedRoots<ServedRiddenStatement>
 }
 
 /**
@@ -229,4 +262,18 @@ export const servedTree = <A, B>(
 export const servedSource = (run: ServedSource<EmittedSpec>): ServedSource => ({
 	delivery: run.delivery,
 	roots: mapNonEmpty(run.roots, (tree) => servedTree(tree, servedSpecified))
+})
+
+/** A riding read-back's program as the runtime reads its rows (ServedRiddenSource): each statement's role, heading,
+ * fused attachments and arrival, as the runtime reads them. */
+export const servedRiddenSource = (run: ServedRiddenSource): ServedRiddenSource => ({
+	delivery: run.delivery,
+	roots: mapNonEmpty(run.roots, (tree) =>
+		servedTree(tree, (statement) => ({
+			role: servedRole(statement.role),
+			heading: servedHeading(statement.heading),
+			fused: statement.fused.map(servedFused),
+			arrival: statement.arrival
+		}))
+	)
 })

@@ -4,7 +4,7 @@ import { canonicalEquals, catchRefusal, everyProperty, Refusal } from "#compiler
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { ParamId } from "#compiler/core/ids.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
-import { isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
+import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type * as Result from "#compiler/core/result.ts"
 import type { Certificate } from "#compiler/ir/certificate.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
@@ -23,10 +23,13 @@ import { WriteParams } from "#compiler/lower/conservative/context.ts"
 import {
 	type DeclaredParamSlot,
 	flight,
+	type ReadBackNaming,
 	type WriteParamSlot
 } from "#compiler/lower/conservative/types.ts"
+import type { PlainQuery } from "#compiler/lower/delivery.ts"
 import { emptyCtePlan } from "#compiler/lower/optimize/cte-policy/index.ts"
 import { placeDeduplication } from "#compiler/lower/optimize/dedup/place.ts"
+import type { OptimizedProgram } from "#compiler/lower/optimize/pipeline.ts"
 import {
 	type FusedStatement,
 	type OptimizedDeliveryProgram,
@@ -42,13 +45,14 @@ import {
 	StatementSharing
 } from "#compiler/lower/shapes/share/statements.ts"
 import type { RelationInput } from "#compiler/lower/shapes/take/index.ts"
-import { statementSpec } from "#compiler/lower/template.ts"
+import { executableQueryFrom, statementSpec } from "#compiler/lower/template.ts"
 import { oneForm } from "#compiler/runtime/lower/forms.ts"
 import { mapTree } from "#compiler/runtime/lower/tree.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 import { queryUses } from "#compiler/schema/walk.ts"
 import type { EmittedText, SqlStatement } from "#compiler/sql/ast.ts"
-import { NameSupply, namesPast } from "#compiler/sql/naming.ts"
+import { call, cast, targetAs, types, windowOf } from "#compiler/sql/build.ts"
+import { type NameMap, NameSupply, type NameSupplyStart, namesPast } from "#compiler/sql/naming.ts"
 import {
 	buildCreateCarrier,
 	buildFillCarrier,
@@ -139,6 +143,8 @@ import {
 	type PlacedLarge,
 	type PlacedStatement,
 	type ReadBackOf,
+	type RidingPart,
+	type RidingReadBack,
 	readBackSpecs,
 	resultHeading,
 	singleStatementSpec,
@@ -149,7 +155,15 @@ import {
 } from "#compiler/write/program/artifact.ts"
 import { decideBinding } from "#compiler/write/program/decide.ts"
 import { insertOnly } from "#compiler/write/program/insert-only.ts"
-import { freshNames, type SharedPart, singleStatement } from "#compiler/write/program/single.ts"
+import {
+	freshNames,
+	noRiding,
+	type ReadBackPart,
+	type Riding,
+	type SharedPart,
+	type SingleStatement,
+	singleStatement
+} from "#compiler/write/program/single.ts"
 import { choosePutTargets, chosenIn, type PutChoice } from "#compiler/write/put/choose.ts"
 import {
 	buildMerge,
@@ -157,8 +171,17 @@ import {
 	buildUpsert,
 	type PutStatement
 } from "#compiler/write/put/statement.ts"
-import { carriersOf, withDeltaFills } from "#compiler/write/readback/deltas.ts"
-import { lowerReadBack } from "#compiler/write/readback/lower.ts"
+import {
+	carriersOf,
+	type DeltaCteName,
+	type DeltaHeld,
+	deltaCte,
+	deltaCteName,
+	deltaIn,
+	plannedDelta,
+	withDeltaFills
+} from "#compiler/write/readback/deltas.ts"
+import { type DeltasOf, deltaSourceIn, lowerReadBack } from "#compiler/write/readback/lower.ts"
 import {
 	type PlanAction,
 	type PlannedWrite,
@@ -710,7 +733,8 @@ export const placeFamily = (
 				}),
 				sql.ast,
 				sql.sql.nameMap,
-				oneForm
+				oneForm,
+				[]
 			)
 			return
 		}
@@ -735,13 +759,15 @@ export const placeFamily = (
 				}),
 				sql.ast,
 				sql.sql.nameMap,
-				oneForm
+				oneForm,
+				[]
 			)
 		}
 	}
 }
 
-/** A statement placed at the next position: its step, its spec, its audited AST and its forms. */
+/** A statement placed at the next position: its step, its spec, its audited AST, its forms and the read-backs riding
+ * it. */
 const placeSpec = (
 	b: ArtifactBuilder,
 	step: Extract<
@@ -753,7 +779,8 @@ const placeSpec = (
 	spec: StatementSpec<WriteParamSlot>,
 	ast: SqlStatement,
 	nameMap: WriteStatement["sql"]["nameMap"],
-	forms: ArtifactForms
+	forms: ArtifactForms,
+	riders: ReadonlyArray<RidingReadBack>
 ): number => {
 	const position = b.statements.length
 	b.statements.push({
@@ -762,6 +789,7 @@ const placeSpec = (
 		spec,
 		ast,
 		forms,
+		riders,
 		names: nameMap
 	})
 	return position
@@ -780,7 +808,8 @@ export const place = (
 		writeStatementSpec(statement, dependsOn),
 		statement.ast,
 		statement.sql.nameMap,
-		oneForm
+		oneForm,
+		[]
 	)
 
 /** The form of a built statement as an execution sends it: its text, its placeholders and its AST. */
@@ -921,6 +950,26 @@ const optimizedPlacement = (
 		const large = sent(build())
 		return { statement, forms: Object.freeze({ kind: "chosen", choices, large }) }
 	}
+	/** A single statement's parts built by `build` in the small per-execution mode, and, when that build made choices,
+	 * built again in the large mode with those choices (`formed`). */
+	const formedParts = (build: () => BuiltParts): FormedParts => {
+		state.begin("small")
+		const small = build()
+		const choices = state.drain().choices
+		if (!isNonEmpty(choices)) {
+			return { small, large: undefined }
+		}
+		state.begin("large")
+		return { small, large: { built: build(), choices } }
+	}
+	/** How the read-backs lower: over the installed names, each Delta node read where its program says. */
+	const readBackOptions = {
+		names: options.names,
+		reads: options.reads,
+		entries: frontend.deltaEntries,
+		params: frontend.params,
+		schema: frontend
+	}
 	/** The statement `build` builds in its forms, placed after `dependsOn` with the step `step` gives of it. */
 	const placed = <S extends WriteStatement | PutStatement>(
 		build: () => S,
@@ -936,7 +985,8 @@ const optimizedPlacement = (
 			writeStatementSpec(statement, dependsOn),
 			statement.ast,
 			statement.sql.nameMap,
-			forms
+			forms,
+			[]
 		)
 	}
 	const tracker = new DependencyTracker()
@@ -1091,8 +1141,9 @@ const optimizedPlacement = (
 					planned,
 					earlier: writtenBefore(planned.relation.name)
 				}))
-				/** The parts, each a statement of its own whose names start past the parts before it. */
-				const buildSingle = () => {
+				/** The shared sub-queries and the writes, each a statement of its own whose names start past the parts
+				 * before it, and where the names after them start. */
+				const buildParts = (): BuiltParts => {
 					let start = ownStatement
 					const shares: Array<SharedPart> = []
 					for (const share of step.shares) {
@@ -1128,26 +1179,37 @@ const optimizedPlacement = (
 						start = namesPast(statement.sql.nameMap, ownStatement)
 						return { step: writeStep(part.planned, statement), statement }
 					})
-					const single = singleStatement(
-						shares,
-						mapNonEmpty(writes, (x) => ({
-							statement: x.statement,
-							width: resultHeading(x.step.result).length
-						})),
-						start
-					)
-					return { single, writes }
+					return { shares, writes, start }
 				}
-				const { statement, forms } = formed(buildSingle, (large) => sentOf(large.single))
-				const { single, writes } = statement
-				/** What the parts read, past the shared sub-queries the statement now carries. */
+				const position = b.statements.length
+				const { single, writes, forms, riders } = isNonEmpty(step.readBacks)
+					? ridingSingle(step.readBacks, formedParts(buildParts), {
+							frontend,
+							deltas: plan.deltas,
+							lower: (read, deltas, naming) => lowerReadBack(read, deltas, naming, readBackOptions)
+						})
+					: (() => {
+							const plain = formed(
+								() => {
+									const built = buildParts()
+									return { single: singleOf(built, noRiding), writes: built.writes }
+								},
+								(large) => sentOf(large.single)
+							)
+							return { ...plain.statement, forms: plain.forms, riders: [] }
+						})()
+				/** What the parts read, past the shared sub-queries the statement now carries, and what its riding
+				 * read-backs read. */
 				const accesses = mapNonEmpty(step.writes, (planned) => writeAccess(planned))
 				const deps = tracker.addAfter(
-					accesses.flatMap((x) => x[0]),
+					[
+						...accesses.flatMap((x) => x[0]),
+						...step.readBacks.flatMap((read) => read.node.meta.reads.map((r) => `relation:${r}`))
+					],
 					accesses.flatMap((x) => x[1]),
 					step.writes.flatMap((x) => actionDeps(x.action))
 				)
-				const position = placeSpec(
+				placeSpec(
 					b,
 					{
 						kind: "single",
@@ -1161,7 +1223,8 @@ const optimizedPlacement = (
 					singleStatementSpec(single, deps),
 					single.ast,
 					single.sql.nameMap,
-					forms
+					forms,
+					riders
 				)
 				for (const x of step.writes) {
 					record(x.action, position)
@@ -1252,13 +1315,11 @@ const optimizedPlacement = (
 				break
 			}
 			case "readBack": {
-				const program = lowerReadBack(step.read, plan.deltas, {
-					names: options.names,
-					reads: options.reads,
-					entries: frontend.deltaEntries,
-					params: frontend.params,
-					schema: frontend
-				})
+				const deltas: DeltasOf = (relation, side) =>
+					deltaSourceIn(relation, frontend.deltaEntries, (target) =>
+						plannedDelta(plan.deltas, target, side)
+					)
+				const program = lowerReadBack(step.read, deltas, ownNaming, readBackOptions)
 				const reads = [
 					...step.read.node.meta.reads.map((r) => `relation:${r}`),
 					...step.read.deltas.flatMap((d) =>
@@ -1277,6 +1338,256 @@ const optimizedPlacement = (
 		}
 	}
 	return b
+}
+
+/** A read-back's own statements: each names from r1 and c1. */
+const ownNaming: ReadBackNaming = Object.freeze({ kind: "own" })
+
+/** A single statement's parts as one build in one per-execution mode makes them: its shared sub-queries, its writes,
+ * each with its step, and where the names after them start (singleStatement `start`). */
+interface BuiltParts {
+	readonly shares: ReadonlyArray<SharedPart>
+	readonly writes: NonEmptyReadonlyArray<{
+		readonly step: Extract<WriteStep, { readonly kind: "write" }>
+		readonly statement:
+			| ModifyingStatement<InsertResult>
+			| ModifyingStatement<DeleteResult>
+			| PutStatement
+	}>
+	readonly start: NameSupplyStart
+}
+
+/** A single statement's parts in their forms: built in the small mode, and in the large mode with the choices the small
+ * build made, where it made any. */
+interface FormedParts {
+	readonly small: BuiltParts
+	readonly large:
+		| { readonly built: BuiltParts; readonly choices: NonEmptyReadonlyArray<RelationChoice> }
+		| undefined
+}
+
+/** The single statement of `built`'s parts, `riding` riding it. */
+const singleOf = (built: BuiltParts, riding: Riding): SingleStatement =>
+	singleStatement(
+		built.shares,
+		mapNonEmpty(built.writes, (x) => ({
+			statement: x.statement,
+			width: resultHeading(x.step.result).length
+		})),
+		riding,
+		built.start
+	)
+
+/** Where the names of the single statement of `built`'s parts end: past its parts' names and each write part's own CTE
+ * (single.ts singleStatement). */
+const builtEnd = (built: BuiltParts): NameSupplyStart =>
+	built.writes.reduce(
+		(at, x) => freshNames(at, resultHeading(x.step.result).length).next,
+		built.start
+	)
+
+/** The numbering past every name `a` and `b` are each past. */
+const laterStart = (a: NameSupplyStart, b: NameSupplyStart): NameSupplyStart => ({
+	relationStart: Math.max(a.relationStart, b.relationStart),
+	columnStart: Math.max(a.columnStart, b.columnStart)
+})
+
+/**
+ * A sent read-back statement as a part of the statement it rides, its executable query's names drawn from `supply`
+ * (template.ts executableQueryFrom), and the part as the runtime reads it (RidingPart): its query as it is; or, for one
+ * that orders its rows, with each row's number in that order after its cells, which keeps its own ORDER BY and LIMIT,
+ * since no arm of the statement it rides orders its rows.
+ */
+const ridingPartOf = (
+	statement: FusedStatement,
+	supply: NameSupply
+): { readonly part: ReadBackPart; readonly shape: RidingPart } => {
+	const query = executableQueryFrom(statement, supply)
+	const width = query.body.targets.length
+	if (!isNonEmpty(query.orderBy)) {
+		return {
+			part: {
+				query,
+				params: statement.params,
+				nameMap: [...statement.sql.nameMap, ...supply.map()],
+				width
+			},
+			shape: { kind: "rows", width }
+		}
+	}
+	const number = targetAs(
+		cast({ ...call("row_number", []), over: windowOf([], query.orderBy) }, types.text),
+		supply.column({ kind: "internal", purpose: "riding row number" })
+	)
+	const numbered: PlainQuery = {
+		...query,
+		body: { ...query.body, targets: [...query.body.targets, number] }
+	}
+	return {
+		part: {
+			query: numbered,
+			params: statement.params,
+			nameMap: [...statement.sql.nameMap, ...supply.map()],
+			width: width + 1
+		},
+		shape: { kind: "numbered", width }
+	}
+}
+
+/** What riding a single statement reads beside its parts: the write's front end, its delta plan, and how a read-back
+ * lowers over the deltas and naming it is given. */
+interface RidingContext {
+	readonly frontend: WriteFrontend
+	readonly deltas: WritePlan["deltas"]
+	readonly lower: (read: ReadBack, deltas: DeltasOf, naming: ReadBackNaming) => OptimizedProgram
+}
+
+/**
+ * The single statement of `formed`'s parts with the read-backs `readBacks` riding it (write/schedule/plan.ts
+ * placeReadBacks), in its forms, its writes as the small build made them, and each riding read-back with where its rows
+ * stand among the statement's.
+ *
+ * Every delta a riding read-back names of a relation the statement writes is one CTE of the statement over that
+ * write's RETURNING (write/readback/deltas.ts deltaCte), named once past every name either form's parts define, so it
+ * has one name in both forms; a delta of a relation no statement writes is the empty relation. Each read-back is
+ * lowered over those deltas, its statements named past them and past every earlier read-back's
+ * (lower/conservative/types.ts ReadBackNaming), and each of its sent statements, in flight order, is one part of the
+ * statement after the writes' parts, its executable query's names past all of those (`ridingPartOf`). The statement's
+ * large form, where its writes or a read-back's statement made a per-execution choice, holds each part's large form,
+ * a part of one form its own, and its choices are all of theirs.
+ */
+const ridingSingle = (
+	readBacks: NonEmptyReadonlyArray<ReadBack>,
+	formed: FormedParts,
+	context: RidingContext
+): {
+	readonly single: SingleStatement
+	readonly writes: BuiltParts["writes"]
+	readonly forms: ArtifactForms
+	readonly riders: ReadonlyArray<RidingReadBack>
+} => {
+	const { small, large } = formed
+	const { frontend } = context
+	const start =
+		large === undefined ? builtEnd(small) : laterStart(builtEnd(small), builtEnd(large.built))
+	const named = new Map(
+		frontend.deltas.flatMap((d) => (d.kind === "relation" ? [[d.relation.name, d] as const] : []))
+	)
+	const targetOf = (relation: string): string =>
+		frontend.deltaEntries.get(relation)?.target.name ?? relation
+	const supply = new NameSupply(start)
+	/** Each delta a riding read-back names of a relation the statement writes, by relation and side, in the order of
+	 * the statement's writes. */
+	const names = new Map<string, Map<"added" | "removed", DeltaCteName>>()
+	for (const x of small.writes) {
+		const relation = x.step.relation
+		const delta = named.get(relation)
+		const sides = new Set(
+			readBacks.flatMap((read) =>
+				read.deltas.flatMap((d) => (targetOf(d.relation) === relation ? [d.side] : []))
+			)
+		)
+		if (delta === undefined || sides.size === 0) {
+			continue
+		}
+		const own = new Map<"added" | "removed", DeltaCteName>()
+		for (const side of (["added", "removed"] as const).filter((s) => sides.has(s))) {
+			own.set(side, deltaCteName(delta.relation, side, supply))
+		}
+		names.set(relation, own)
+	}
+	const deltaNames: NameMap = supply.map()
+	const statementOf = (built: BuiltParts, relation: string) =>
+		defined(
+			built.writes.find((x) => x.step.relation === relation),
+			`the write of ${relation} in the statement a read-back rides`
+		).statement
+	const held = (target: string, side: "added" | "removed"): DeltaHeld | undefined => {
+		const cte = names.get(target)?.get(side)
+		return cte === undefined
+			? plannedDelta(context.deltas, target, side)
+			: deltaIn(statementOf(small, target), cte)
+	}
+	const deltas: DeltasOf = (relation, side) =>
+		deltaSourceIn(relation, frontend.deltaEntries, (target) => held(target, side))
+	let cursor = namesPast(deltaNames, start)
+	const lowered = readBacks.map((read) => {
+		const program = context.lower(read, deltas, { kind: "riding", start: cursor })
+		for (const statement of flight(program.roots)) {
+			cursor = namesPast(statement.sql.nameMap, cursor)
+			if (statement.forms.kind === "chosen") {
+				cursor = namesPast(statement.forms.large.sql.nameMap, cursor)
+			}
+		}
+		const [first, ...rest] = flight(program.roots)
+		const sent: NonEmptyReadonlyArray<typeof first> = [
+			first,
+			...rest.filter((s) => s.arrival.kind === "sent")
+		]
+		return { read, program, sent }
+	})
+	let tag = small.writes.length
+	const placed = lowered.map(({ read, program, sent }) => {
+		const each = mapNonEmpty(
+			sent,
+			(
+				statement
+			): {
+				readonly small: ReadBackPart
+				readonly large: ReadBackPart
+				readonly shape: RidingPart
+				readonly choices: ReadonlyArray<RelationChoice>
+			} => {
+				const own = ridingPartOf(statement, new NameSupply(cursor))
+				cursor = namesPast(own.part.nameMap, cursor)
+				if (statement.forms.kind === "one") {
+					return { small: own.part, large: own.part, shape: own.shape, choices: [] }
+				}
+				const big = ridingPartOf(statement.forms.large, new NameSupply(cursor))
+				cursor = namesPast(big.part.nameMap, cursor)
+				return {
+					small: own.part,
+					large: big.part,
+					shape: own.shape,
+					choices: statement.forms.choices
+				}
+			}
+		)
+		const rider: RidingReadBack = Object.freeze({
+			name: read.name,
+			query: read.query,
+			run: Object.freeze({ delivery: program.delivery, roots: program.roots }),
+			tag,
+			parts: Object.freeze(mapNonEmpty(each, (p) => p.shape))
+		})
+		tag += each.length
+		return { rider, each }
+	})
+	const parts = placed.flatMap((p) => p.each)
+	const ridingIn = (built: BuiltParts, form: "small" | "large"): Riding => ({
+		deltas: [...names].flatMap(([relation, sides]) =>
+			[...sides.values()].flatMap((cte) => {
+				const one = deltaCte(statementOf(built, relation), cte)
+				return one === undefined ? [] : [one]
+			})
+		),
+		nameMap: deltaNames,
+		parts: parts.map((p) => p[form])
+	})
+	const single = singleOf(small, ridingIn(small, "small"))
+	const choices = [...(large?.choices ?? []), ...parts.flatMap((p) => p.choices)]
+	const riders = placed.map((p) => p.rider)
+	if (!isNonEmpty(choices)) {
+		return { single, writes: small.writes, forms: oneForm, riders }
+	}
+	const built = large?.built ?? small
+	const largeSingle = singleOf(built, ridingIn(built, "large"))
+	return {
+		single,
+		writes: small.writes,
+		forms: Object.freeze({ kind: "chosen", choices, large: sentOf(largeSingle) }),
+		riders
+	}
 }
 
 /** The statement of one planned write op. */
@@ -1496,8 +1807,9 @@ const compile = (
  *    (frontend/).
  * 2. The put targets: each put's statement, chosen with the proofs the whole ChangeSet and its DAG
  *    give.
- * 3. The schedule: the statements in order, each described member a leading CTE or a carrier, the
- *    delta carriers and read-backs around the strata, and each stratum where one snapshot suffices one single statement.
+ * 3. The schedule: the statements in order, each described member a leading CTE or a carrier, each read-back riding
+ *    the one statement that writes its deltas or after the strata with the delta carriers its rows cross statements
+ *    in, and each stratum where one snapshot suffices one single statement.
  * 4. The optimized artifact: each planned statement built by its package (insert/, delete/, serial/, carriers/, put/),
  *    each write statement extended with the CTEs that fill its delta carriers from its RETURNING,
  *    a single statement's writes its parts,

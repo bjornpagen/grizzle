@@ -1,21 +1,18 @@
 import type { CheckedEntry } from "#compiler/analysis/schema.ts"
 import { admitQuery } from "#compiler/check/index.ts"
 import { Refusal } from "#compiler/core/canonical.ts"
+import { defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { rooted } from "#compiler/ir/dag.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { ParamDecl } from "#compiler/ir/products.ts"
 import type { ReadBack } from "#compiler/ir/write.ts"
 import { type CatalogSchema, evidenceCatalog } from "#compiler/laws/model/catalog.ts"
-import type { DeltaCarrier } from "#compiler/lower/conservative/types.ts"
+import type { DeltaRelation, ReadBackNaming } from "#compiler/lower/conservative/types.ts"
 import { lowerOptimized, type OptimizedProgram } from "#compiler/lower/optimize/pipeline.ts"
-import {
-	type WriteCarrier,
-	carrierColumns,
-	carrierField
-} from "#compiler/write/carriers/carriers.ts"
+import { carrierColumns, carrierField } from "#compiler/write/carriers/carriers.ts"
 import type { WriteNames } from "#compiler/write/insert/statement.ts"
-import { type DeltaPlan, sideCarrier } from "#compiler/write/readback/deltas.ts"
+import type { DeltaHeld } from "#compiler/write/readback/deltas.ts"
 import { breachGuard } from "#compiler/write/refusal.ts"
 
 interface ReadBackOptions {
@@ -30,37 +27,44 @@ interface ReadBackOptions {
 	readonly entries: ReadonlyMap<string, CheckedEntry>
 }
 
-/** The delta relation a Delta node reads: the plan's carrier for that relation and side; for a query entry its target's,
- * each column of the entry's heading read from the target field its head field writes (deltaSourceIn). */
-const deltaSourceOf =
-	(plan: DeltaPlan, entries: ReadonlyMap<string, CheckedEntry>) =>
-	(relation: string, side: "added" | "removed"): DeltaCarrier | undefined =>
-		deltaSourceIn(relation, entries, (target) => {
-			const carriers = plan.carriers.get(target)
-			return carriers === undefined ? undefined : sideCarrier(carriers, side)
-		})
+/** Where a read-back's Delta nodes read each delta it names, by the relation the Delta names and its side. */
+export type DeltasOf = (relation: string, side: "added" | "removed") => DeltaRelation | undefined
 
-/** The delta source of `relation` from the carrier `carrierOf` names for a relation the ChangeSet writes: the carrier
- * whole, or, for a query entry, the carrier of its target with the entry's head columns, position by position in the
- * entry's heading, which is its head fields in compareText order, as the checker sorts a world relation's Delta heading
- * and `WritableEntry.head` is sorted. */
+/** The column of `held` that holds the relation field `field`. */
+const heldColumn = (held: Exclude<DeltaHeld, { readonly kind: "empty" }>, field: string): string =>
+	held.kind === "carrier"
+		? carrierField(held.carrier, field).column
+		: defined(
+				held.heading.find((c) => c.name === field),
+				`the field ${field} in the delta CTE ${held.cte}`
+			).column
+
+/** The delta source of `relation` from what `heldOf` holds of the relation the ChangeSet writes: the relation it holds
+ * whole, or, for a query entry, its target's with the entry's head columns, position by position in the entry's
+ * heading, which is its head fields in compareText order, as the checker sorts a world relation's Delta heading and
+ * `WritableEntry.head` is sorted; the empty relation for an empty delta. */
 export const deltaSourceIn = (
 	relation: string,
 	entries: ReadonlyMap<string, CheckedEntry>,
-	carrierOf: (relation: string) => WriteCarrier | undefined
-): DeltaCarrier | undefined => {
+	heldOf: (relation: string) => DeltaHeld | undefined
+): DeltaRelation | undefined => {
 	const entry = entries.get(relation)
-	const carrier = carrierOf(entry === undefined ? relation : entry.target.name)
-	if (carrier === undefined) {
+	const held = heldOf(entry === undefined ? relation : entry.target.name)
+	if (held === undefined) {
 		return undefined
 	}
-	if (entry === undefined) {
-		return { carrier: carrier.name, columns: carrierColumns(carrier) }
+	if (held.kind === "empty") {
+		return held
 	}
-	return {
-		carrier: carrier.name,
-		columns: [...entry.head].map(([, { field }]) => carrierField(carrier, field.name).column)
-	}
+	const columns =
+		entry === undefined
+			? held.kind === "carrier"
+				? carrierColumns(held.carrier)
+				: held.heading.map((c) => c.column)
+			: [...entry.head].map(([, { field }]) => heldColumn(held, field.name))
+	return held.kind === "carrier"
+		? { kind: "carrier", carrier: held.carrier.name, columns }
+		: { kind: "cte", cte: held.cte, columns }
 }
 
 /** The statements of one read-back: the optimized lowering of its query, its root a node of the WriteIR's DAG, in the transaction
@@ -91,7 +95,8 @@ export const deltaSourceIn = (
  * raises a breach through the installation's refusal function (`breachGuard`), which aborts the write. */
 export const lowerReadBack = (
 	read: ReadBack,
-	plan: DeltaPlan,
+	deltas: DeltasOf,
+	naming: ReadBackNaming,
 	options: ReadBackOptions
 ): OptimizedProgram => {
 	const admitted = admitQuery(
@@ -106,8 +111,9 @@ export const lowerReadBack = (
 		/** Its conservative artifact is realized with its write, which the write oracle compares. */
 		subject: {
 			kind: "readBack",
-			deltas: deltaSourceOf(plan, options.entries),
-			breach: breachGuard(options.names.schema)
+			deltas,
+			breach: breachGuard(options.names.schema),
+			naming
 		},
 		/** A read-back runs in its write's transaction and records no constraint premise. */
 		catalog: evidenceCatalog(options.schema),

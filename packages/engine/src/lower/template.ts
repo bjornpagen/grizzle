@@ -86,11 +86,21 @@ const outerCore = (body: SelectBody) => (body.kind === "core" ? body : undefined
  * text, or, where one is bytes, every row in chunks. The lowering built the statement: its outermost body is a SELECT
  * core whose targets are named, and a deduplicating statement orders by its output columns.
  */
-export const executableQuery = (statement: FusedStatement<ConservativeParamSlot>): Select => {
+export const executableQuery = (statement: FusedStatement<ConservativeParamSlot>): Select =>
+	executableQueryFrom(statement, new NameSupply(namesPast(statement.sql.nameMap, freshNames)))
+
+/**
+ * The statement's executable query (`executableQuery`), the names it adds drawn from `supply`: a read-back riding a write
+ * statement draws them past every name of that statement, its own statements' included, so no part of the write
+ * statement defines a name another defines.
+ */
+export const executableQueryFrom = (
+	statement: FusedStatement<ConservativeParamSlot>,
+	supply: NameSupply
+): PlainQuery => {
 	const ast = statement.ast
 	const columns = outputColumns(statementOutput(statement.role, statement.heading, statement.fused))
 	const delivered = columns.map((c) => c.delivered)
-	const supply = new NameSupply(namesPast(statement.sql.nameMap, freshNames))
 	const plain = outerCore(ast.body)
 	if (plain?.distinct === false && plain.groupBy.length === 0) {
 		return deliveredRows({ ...ast, body: plain }, delivered, [], supply, bytesChunkLength.value)

@@ -1,10 +1,17 @@
 import * as Arr from "effect/Array"
 import * as Effect from "effect/Effect"
+import * as Option from "effect/Option"
 import * as Rec from "effect/Record"
 import * as Result from "effect/Result"
 import * as Stream from "effect/Stream"
 import type { WriteEntry } from "#adapter/apply/compile.ts"
-import { type ReadBackRuns, readBackFlight, readsRow } from "#adapter/apply/readback.ts"
+import {
+	type ReadBackRun,
+	type ReadBackRuns,
+	readBackFlight,
+	readsRow,
+	riddenRows
+} from "#adapter/apply/readback.ts"
 import {
 	type ApplyError,
 	CommitUnknown,
@@ -71,6 +78,8 @@ import type {
 } from "#compiler/plan/common.ts"
 import {
 	bindWrite,
+	defect,
+	defined,
 	encodeFailure,
 	factPlace,
 	hostJudgement,
@@ -465,8 +474,10 @@ export const runWrite = <R>(
 				judge: (refuser) => hostJudgement(flight.prepared.witness, stated, at, refuser)
 			})
 		}
+		/** The read-backs sent behind the writes; a riding one's statements are parts of the write statement it rides. */
+		const sentBacks = Arr.flatMap(reads.runs.runs, (run) => (run.kind === "sent" ? [run] : []))
 		const readBackFlights = yield* Effect.mapError(
-			Effect.forEach(reads.runs.runs, (run) => readBackFlight(run, inputs)),
+			Effect.forEach(sentBacks, (run) => readBackFlight(run, inputs)),
 			inputApplyError
 		)
 		const backs = joinFlights(readBackFlights)
@@ -568,15 +579,40 @@ export const runWrite = <R>(
 			raws.set(s.index, before === undefined ? outcome.rows : [...before, ...outcome.rows])
 		}
 		/**
-		 * The read-backs' Rows, read from the statements after the written ones: a read-back whose answer repeats a row is
-		 * UnreadableAnswer at its index in the write's flight, after the transaction committed.
+		 * The read-backs' Rows: a sent one's read from the statements after the written ones, a riding one's from the rows
+		 * of the write statement it rides. A read-back whose answer repeats a row is UnreadableAnswer at its index in the
+		 * write's flight, after the transaction committed.
 		 */
-		const delivered = yield* Effect.mapError(
+		const sentRows = yield* Effect.mapError(
 			backs.read(outcomes.slice(written)),
 			(unreadable) =>
 				new ExecutionFailure({
 					reason: new UnreadableAnswer({ index: written + unreadable.index, fate: unreadable.fate })
 				})
+		)
+		const bySent = new Map(Arr.zip(sentBacks, sentRows))
+		const deliveredOf = (run: ReadBackRun): Result.Result<ReadonlyArray<Row>, UnreadableAnswer> => {
+			if (run.kind === "sent") {
+				return Result.succeed(defined(bySent.get(run), `the sent read-back ${run.name}'s Rows`))
+			}
+			const ridden = run.riding.statement
+			const at = Option.getOrThrowWith(
+				Arr.findLastIndex(
+					sent,
+					(one) => one.kind === "statement" && one.statement.index === ridden
+				),
+				() => defect(`the write statement ${ridden} the read-back ${run.name} rides`)
+			)
+			return riddenRows(
+				run,
+				defined(raws.get(ridden), `the rows of the statement ${run.name} rides`),
+				inputs.params,
+				at
+			)
+		}
+		const delivered = yield* Effect.mapError(
+			Effect.fromResult(Result.all(Arr.map(reads.runs.runs, deliveredOf))),
+			(reason) => new ExecutionFailure({ reason })
 		)
 		const changes = interpretRows(flight.outcome, flight.statements, (i) => raws.get(i) ?? noRows)
 		return applyOutcome.committed(changes.counts, reads.read(readsRow(delivered)))

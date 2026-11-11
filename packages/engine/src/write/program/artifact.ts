@@ -6,7 +6,11 @@ import type { Codebook } from "#compiler/ir/codes.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
 import type { StatementRole, StatementSpec } from "#compiler/ir/products.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
-import type { DeclaredParamSlot, WriteParamSlot } from "#compiler/lower/conservative/types.ts"
+import type {
+	DeclaredParamSlot,
+	ProgramDelivery,
+	WriteParamSlot
+} from "#compiler/lower/conservative/types.ts"
 import type {
 	FusedStatement,
 	OptimizedStatement,
@@ -97,14 +101,67 @@ export interface ReadBackOf {
 	readonly run: SpecifiedArtifact
 }
 
-/** One read-back as the artifact delivers it: its query, its statements in the artifact in order, its main statement or
- * first heading group's first leading, and the same statements as the runtime runs them, each with its spec as placed
- * and its large form's (`run`). */
+/** One read-back as the artifact delivers it: its name, its query, and its statements as they reach the server
+ * (`carried`). */
 export interface ReadBackDelivery {
 	readonly name: string
 	readonly query: QueryDesc
-	readonly statements: NonEmptyReadonlyArray<ArtifactStatement>
-	readonly run: SpecifiedArtifact
+	readonly carried: ReadBackCarried
+}
+
+/**
+ * How a read-back's statements reach the server: `sent`, each a statement of the artifact after the writes, in order,
+ * its main statement or first heading group's first leading, as the runtime runs them, each with its spec as placed and
+ * its large form's (`run`); or `riding`, as parts of the write statement at `statement`, which writes every delta it
+ * reads (write/schedule/plan.ts placeReadBacks): its sent statements in flight order, each a part of that statement
+ * whose rows are its rows behind the part's tag, from `tag` on (write/program/single.ts), and none a text of its own
+ * (`RiddenArtifact`).
+ */
+export type ReadBackCarried =
+	| {
+			readonly kind: "sent"
+			readonly run: SpecifiedArtifact
+			readonly statements: NonEmptyReadonlyArray<ArtifactStatement>
+	  }
+	| ({
+			readonly kind: "riding"
+			readonly statement: number
+			readonly run: RiddenArtifact
+	  } & RidingParts)
+
+/**
+ * A riding read-back's statements as the runtime reads their rows: each lowered statement in its tree, with how its
+ * rows arrive, and how the rows combine. The statement it rides sends them, so none carries a text of its own.
+ */
+export interface RiddenArtifact {
+	readonly delivery: ProgramDelivery
+	readonly roots: StatementRoots<OptimizedStatement<RelationChoice, FusedStatement>>
+}
+
+/**
+ * One sent statement of a riding read-back as a part of the statement it rides: each row its tag, then the `width`
+ * cells the sent statement would answer alone. A `rows` part's rows are that statement's in the order it would send
+ * them; a `numbered` part is an ordered statement's, each row's next cell its row number in the statement's order, by
+ * which the runtime puts its rows back in that order, since no arm of the statement it rides orders its rows.
+ */
+export interface RidingPart {
+	readonly kind: "rows" | "numbered"
+	readonly width: number
+}
+
+/** Where a riding read-back's sent statements' rows stand among the rows of the statement it rides: the first one's tag,
+ * and each one's part, in flight order (ReadBackCarried `riding`). */
+export interface RidingParts {
+	readonly tag: number
+	readonly parts: NonEmptyReadonlyArray<RidingPart>
+}
+
+/** A read-back riding the statement it is placed with: its name, its query, its statements as the runtime reads their
+ * rows, and where its rows stand among that statement's rows. */
+export interface RidingReadBack extends RidingParts {
+	readonly name: string
+	readonly query: QueryDesc
+	readonly run: RiddenArtifact
 }
 
 /** A form of a statement as one execution sends it: its text, what fills each placeholder ($n is params[n - 1]), and
@@ -183,9 +240,9 @@ export interface PlacedLarge {
 	readonly sent: SentForm & { readonly params: ReadonlyArray<DeclaredParamSlot> }
 }
 
-/** A statement placed in an artifact being built: the write program's own, with its step and its forms; or a
- * read-back's, with its read-back and the statement its program lowered there, which determine its step and its forms.
- * Each holds its spec, its AST, and the generated names its text holds. */
+/** A statement placed in an artifact being built: the write program's own, with its step, its forms and the read-backs
+ * riding it; or a read-back's, with its read-back and the statement its program lowered there, which determine its step
+ * and its forms. Each holds its spec, its AST, and the generated names its text holds. */
 export type PlacedStatement = {
 	readonly ast: SqlStatement
 	readonly names: NameMap
@@ -195,6 +252,7 @@ export type PlacedStatement = {
 			readonly step: OwnStep
 			readonly spec: StatementSpec<WriteParamSlot>
 			readonly forms: ArtifactForms
+			readonly riders: ReadonlyArray<RidingReadBack>
 	  }
 	| {
 			readonly kind: "readBack"
@@ -278,19 +336,46 @@ export const settledArtifact = (
 		return { placed: p, statement }
 	})
 	const statements = settled.map((s) => s.statement)
-	const readBacks = groupBy(
+	const sent = groupBy(
 		settled.flatMap(({ placed: p, statement }) =>
 			p.kind === "readBack" ? [{ of: p.of, statement }] : []
 		),
 		(r) => r.of
-	).map(([of, group]): ReadBackDelivery =>
-		Object.freeze({
+	).map(([of, group]) => ({
+		at: group[0].statement.index,
+		delivery: Object.freeze({
 			name: of.name,
 			query: of.query,
-			statements: Object.freeze(mapNonEmpty(group, (r) => r.statement)),
-			run: of.run
+			carried: Object.freeze({
+				kind: "sent" as const,
+				run: of.run,
+				statements: Object.freeze(mapNonEmpty(group, (r) => r.statement))
+			})
 		})
+	}))
+	const riding = settled.flatMap(({ placed: p, statement }) =>
+		p.kind === "own"
+			? p.riders.map((rider) => ({
+					at: statement.index,
+					delivery: Object.freeze({
+						name: rider.name,
+						query: rider.query,
+						carried: Object.freeze({
+							kind: "riding" as const,
+							statement: statement.index,
+							run: rider.run,
+							tag: rider.tag,
+							parts: rider.parts
+						})
+					})
+				}))
+			: []
 	)
+	/** Every read-back by the position its statements reach the server at: a riding one with its statement, before the
+	 * read-backs sent after every write. */
+	const readBacks = [...riding, ...sent]
+		.toSorted((x, y) => x.at - y.at)
+		.map((r): ReadBackDelivery => r.delivery)
 	const writes = statements.flatMap(({ step, index }) =>
 		writesOf(step).map((write) => ({
 			relation: write.relation,

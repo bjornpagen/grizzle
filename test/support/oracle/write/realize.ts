@@ -14,7 +14,7 @@ import {
 import { evidenceCatalog } from "#compiler/laws/model/catalog.ts"
 import { dispatchNode } from "#compiler/lower/conservative/dispatch.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
-import type { ConservativeProgram, DeltaCarrier } from "#compiler/lower/conservative/types.ts"
+import type { ConservativeProgram, DeltaRelation } from "#compiler/lower/conservative/types.ts"
 
 import type { CarrierCasts } from "#compiler/runtime/write/steps.ts"
 import {
@@ -343,10 +343,12 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 	}
 
 	/** 4. The read-backs over the post-change state. */
-	const deltaSource = (relation: string, side: "added" | "removed"): DeltaCarrier | undefined =>
+	const deltaSource = (relation: string, side: "added" | "removed"): DeltaRelation | undefined =>
 		deltaSourceIn(relation, frontend.deltaEntries, (target) => {
 			const d = deltas[target]
-			return d === undefined ? undefined : side === "added" ? d.added : d.removed
+			return d === undefined
+				? undefined
+				: { kind: "carrier", carrier: side === "added" ? d.added : d.removed }
 		})
 	for (const read of ir.reads) {
 		const program = lowerConservative(
@@ -357,7 +359,8 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 				subject: {
 					kind: "readBack",
 					deltas: deltaSource,
-					breach: breachGuard(options.names.schema)
+					breach: breachGuard(options.names.schema),
+					naming: { kind: "own" }
 				}
 			}
 		)

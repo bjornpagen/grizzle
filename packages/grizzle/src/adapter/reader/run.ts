@@ -4,12 +4,14 @@ import * as Option from "effect/Option"
 import * as Result from "effect/Result"
 import { type InputTooLarge, UnreadableAnswer } from "#adapter/errors/failures.ts"
 import {
+	type Arrived,
 	answerOf,
 	type ExecutionInputs,
 	encodeForm,
 	type HostParams,
 	formFor,
 	inputCount,
+	outputOf,
 	programRecords,
 	type ReadChoice,
 	type RunStatement,
@@ -46,6 +48,7 @@ import {
 import type {
 	ServedChoice,
 	ServedReadStatement,
+	ServedRiddenSource,
 	ServedRoots,
 	ServedSource,
 	ServedSpine
@@ -116,7 +119,7 @@ export interface GroupOrder<G> {
  * (core/decoder.ts Row.group).
  */
 interface HeadingGroup {
-	readonly record: ReadRecord
+	readonly record: StatementRecord<Arrived>
 	readonly group: number
 }
 
@@ -247,7 +250,7 @@ const boundPlan = (bound: TakeBound): BoundPlan =>
 		: { kind: "param", param: bound.param }
 
 /** A heading group's heading: its statement's spec's. */
-const headingOf = (group: HeadingGroup): Heading => group.record.run.spec.heading
+const headingOf = (group: HeadingGroup): Heading => outputOf(group.record.run.statement).heading
 
 /** How a heterogeneous union of the union heading `heading` merges its heading groups, under the codes `codes`. */
 const mergePlan = (
@@ -285,7 +288,7 @@ const mergePlan = (
  */
 const deliveryPlan = (
 	delivery: ProgramDelivery,
-	delivered: Arr.NonEmptyReadonlyArray<ReadRecord>,
+	delivered: Arr.NonEmptyReadonlyArray<StatementRecord<Arrived>>,
 	codes: Codebook
 ): DeliveryPlan => {
 	const groups = Arr.map(delivered, (record, group): HeadingGroup => ({ record, group }))
@@ -315,6 +318,32 @@ export const readProgram = (
 	const { records, delivered } = programRecords(readStatements(source), spine, codes)
 	const delivery = deliveryPlan(source.delivery, delivered, codes)
 	return { records, delivery, layouts: deliveredLayouts(delivery) }
+}
+
+/**
+ * A riding read-back's program, which reads its statements' rows from the write statement it rides and sends nothing:
+ * what it delivers, and the layouts of its delivered Rows (ReadProgram).
+ */
+export type RiddenProgram = Pick<ReadProgram, "delivery" | "layouts">
+
+/**
+ * The program of a riding read-back's source on its delivered spine `spine`, under the installation's codes `codes`:
+ * its statements' records read as a read's are (programRecords), with no form to send.
+ */
+export const riddenProgram = (
+	source: ServedRiddenSource,
+	spine: ServedSpine,
+	codes: Codebook
+): RiddenProgram => {
+	const { delivered } = programRecords(
+		Arr.map(source.roots, (tree) =>
+			servedTree(tree, (statement): Arrived => ({ statement, arrival: statement.arrival }))
+		),
+		spine,
+		codes
+	)
+	const delivery = deliveryPlan(source.delivery, delivered, codes)
+	return { delivery, layouts: deliveredLayouts(delivery) }
 }
 
 /** A read statement's choice: a relation parameter's distinct fact count above its threshold. */
@@ -442,7 +471,7 @@ const asRow: Emit<Row> = (row) => row
  * UnreadableAnswer at a statement whose answer repeats a row.
  */
 export const deliveredRows = (
-	program: ReadProgram,
+	program: Pick<ReadProgram, "delivery">,
 	sent: SentRuns,
 	params: HostParams
 ): Result.Result<ReadonlyArray<Row>, UnreadableAnswer> =>

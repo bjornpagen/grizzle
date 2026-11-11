@@ -311,7 +311,7 @@ export interface ProgramRecords<Run> {
 }
 
 /** A statement's output columns (conservative/types.ts statementOutput). */
-const outputOf = (statement: LoweredStatement): StatementOutput<ServedFused> =>
+export const outputOf = (statement: LoweredStatement): StatementOutput<ServedFused> =>
 	statementOutput(statement.role, statement.heading, statement.fused)
 
 /**

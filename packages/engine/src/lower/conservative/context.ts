@@ -63,7 +63,13 @@ import {
 	types,
 	unitTargets
 } from "#compiler/sql/build.ts"
-import { freshNames, type NameOrigin, NameSupply } from "#compiler/sql/naming.ts"
+import {
+	freshNames,
+	type NameOrigin,
+	NameSupply,
+	type NameSupplyStart,
+	namesPast
+} from "#compiler/sql/naming.ts"
 
 /** The SQL expressions of one node's columns, by heading name. */
 export type ColumnMap = ReadonlyMap<string, Expr>
@@ -432,6 +438,12 @@ interface Scope {
 	readonly sharing: ShareFrame | undefined
 }
 
+/** Where a lowering's first statement starts naming: a riding read-back's start, every other statement's r1 and c1. */
+const firstStart = (options: ConservativeOptions): NameSupplyStart =>
+	options.subject.kind === "readBack" && options.subject.naming.kind === "riding"
+		? options.subject.naming.start
+		: freshNames
+
 /**
  * The state one conservative lowering threads through its per-kind plug-ins.
  *
@@ -463,7 +475,7 @@ export class LowerContext {
 		this.options = options
 		this.names = options.names
 		this.#shared = {
-			supply: new NameSupply(freshNames),
+			supply: new NameSupply(firstStart(options)),
 			statement: { kind: "query", params: new StatementParams<never>() },
 			free: new Map(),
 			scopes: undefined
@@ -532,10 +544,16 @@ export class LowerContext {
 
 	/**
 	 * The next statement of a query or a page, its placeholders `params`, naming afresh; names and placeholders never
-	 * cross statements.
+	 * cross statements. A riding read-back's statements are parts of the one write statement it rides, so each names
+	 * past the last one's names instead (ReadBackNaming).
 	 */
 	beginStatement(params: Placeholders): void {
-		this.beginStatementWith(new NameSupply(freshNames), params)
+		const subject = this.options.subject
+		const start =
+			subject.kind === "readBack" && subject.naming.kind === "riding"
+				? namesPast(this.#shared.supply.map(), subject.naming.start)
+				: freshNames
+		this.beginStatementWith(new NameSupply(start), params)
 	}
 
 	/** The next statement of a query or a page, naming from `supply`, its placeholders `params`. */

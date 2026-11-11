@@ -1,8 +1,9 @@
 import { exactParts } from "#compiler/core/decimal.ts"
+import type { NodeId } from "#compiler/core/ids.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { canonicalZero } from "#compiler/ir/carriers.ts"
 import { firstCalendarDate } from "#compiler/ir/date.ts"
-import { closedRows } from "#compiler/ir/rel.ts"
+import { closedRows, type Heading } from "#compiler/ir/rel.ts"
 import { contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import {
 	distinctSelect,
@@ -13,7 +14,7 @@ import {
 	outputNames
 } from "#compiler/lower/conservative/context.ts"
 import { lowerLiteral } from "#compiler/lower/conservative/expr/index.ts"
-import type { Expr, FromItem } from "#compiler/sql/ast.ts"
+import type { Expr, FromItem, Select } from "#compiler/sql/ast.ts"
 import { lit } from "#compiler/sql/build.ts"
 
 /** A value of every admitted type, for the one row an empty VALUES source stands on; WHERE false discards it. */
@@ -90,16 +91,24 @@ const lowerClosed: NodeLowerer<"Closed"> = (node, cx) => {
 			: closedRows(node).map((row) =>
 					row.map(({ column, literal }) => lowerLiteral(cx.names, literal, column.type))
 				)
-	const empty = rows.length === 0
+	return valuesRelation(cx, node.heading, rows, node.id)
+}
+
+/** The relation of `heading` whose rows are `rows`, a typed VALUES source, or, of no row, the empty relation over two
+ * placeholder rows (see lowerClosed). */
+const valuesRelation = (
+	cx: LowerContext,
+	heading: Heading,
+	rows: ReadonlyArray<ReadonlyArray<Expr>>,
+	node: NodeId
+): Select => {
 	const placeholder =
-		node.heading.length === 0
-			? [lit.bool(true)]
-			: node.heading.map((c) => placeholderValue(cx, c.type))
+		heading.length === 0 ? [lit.bool(true)] : heading.map((c) => placeholderValue(cx, c.type))
 	const values: NonEmptyReadonlyArray<ReadonlyArray<Expr>> = isNonEmpty(rows)
 		? rows
 		: [placeholder, placeholder]
-	const origin = { kind: "node", node: node.id } as const
-	const named = mapNonEmpty(outputNames(node.heading), (name) => ({
+	const origin = { kind: "node", node } as const
+	const named = mapNonEmpty(outputNames(heading), (name) => ({
 		name,
 		column: cx.supply.column(origin)
 	}))
@@ -110,8 +119,17 @@ const lowerClosed: NodeLowerer<"Closed"> = (node, cx) => {
 	for (const { name, column } of named) {
 		map.set(name, { kind: "column", table: alias, column })
 	}
-	return distinctSelect(headingTargets(node.heading, map), [item], empty ? [lit.bool(false)] : [])
+	return distinctSelect(
+		headingTargets(heading, map),
+		[item],
+		isNonEmpty(rows) ? [] : [lit.bool(false)]
+	)
 }
+
+/** The empty relation of the node `node`'s heading, as an empty closed relation lowers: `SELECT ... WHERE false` over
+ * two placeholder rows of its column types. */
+export const emptyRelation = (cx: LowerContext, heading: Heading, node: NodeId): Select =>
+	valuesRelation(cx, heading, [], node)
 
 /** This kind's entry of the conservative kind table (dispatch.ts). */
 export const closedLowering: Lowerers<"Closed"> = { Closed: lowerClosed }

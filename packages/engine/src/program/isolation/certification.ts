@@ -35,13 +35,16 @@ interface SentStatement {
 /**
  * Every statement a compiled write's flight may send, in the order it sends them (adapter/apply/run.ts): its write
  * statements, each in every form an execution may send (write/program/served.ts projectWrite), then its read-backs',
- * which run in the change's own transaction at its level. A staged statement reads its nested rows from carriers in
+ * which run in the change's own transaction at its level: a read-back riding a write statement is parts of that
+ * statement's own forms (write/program/artifact.ts ReadBackCarried), and sends nothing of its own. A staged statement reads its nested rows from carriers in
  * place of its arrays and reads the stored relations its inline form reads (write/program/staged.ts), so its inline
  * form stands for it.
  */
 const flightStatements = (compiled: CompiledWrite): ReadonlyArray<SentStatement> => [
 	...compiled.artifact.statements.filter((s) => s.step.kind !== "readBack").flatMap(sentForms),
-	...compiled.artifact.readBacks.flatMap((r) => r.statements.flatMap(sentForms))
+	...compiled.artifact.readBacks.flatMap((r) =>
+		r.carried.kind === "sent" ? r.carried.statements.flatMap(sentForms) : []
+	)
 ]
 
 /** The declared parameter a placeholder's slot carries when it is a scalar's, none for any other slot or no slot. */

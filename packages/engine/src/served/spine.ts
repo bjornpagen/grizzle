@@ -1,12 +1,15 @@
 import { parentUse } from "#compiler/check/scan.ts"
+import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import type { AttachDesc, QueryDesc, QueryStageDesc } from "#compiler/ir/desc.ts"
 import {
+	type ServedCarried,
 	type ServedReadBack,
 	type ServedSpine,
 	type ServedSpineAttachment,
+	servedRiddenSource,
 	servedSource
 } from "#compiler/served/read.ts"
-import type { ReadBackDelivery } from "#compiler/write/program/artifact.ts"
+import type { ReadBackCarried, ReadBackDelivery } from "#compiler/write/program/artifact.ts"
 
 /** A delivered spine as the walk builds it, its attachments merged by name. */
 interface Gathering {
@@ -80,15 +83,29 @@ export const servedSpine = (desc: QueryDesc): ServedSpine => {
 	return gatheredSpine(root)
 }
 
+/** How a delivered read-back's statements reach the server, as the runtime reads it: sent, its statements served
+ * (servedSource); or riding the write statement at its position, its parts from its tag on, its statements read only
+ * (servedRiddenSource). */
+const servedCarried = (carried: ReadBackCarried): ServedCarried =>
+	carried.kind === "sent"
+		? { kind: "sent", source: servedSource(carried.run) }
+		: {
+				kind: "riding",
+				source: servedRiddenSource(carried.run),
+				statement: carried.statement,
+				tag: carried.tag,
+				parts: mapNonEmpty(carried.parts, (p) => ({ kind: p.kind, width: p.width }))
+			}
+
 /**
- * A compiled ChangeSet's read-backs as the runtime runs them, in its artifact's order: each its name, its statements
- * served (servedSource) and its query's delivered spine.
+ * A compiled ChangeSet's read-backs as the runtime runs them, in its artifact's order: each its name, its query's
+ * delivered spine and its statements as they reach the server.
  */
 export const servedReadBacks = (
 	readBacks: ReadonlyArray<ReadBackDelivery>
 ): ReadonlyArray<ServedReadBack> =>
 	readBacks.map((delivery) => ({
 		name: delivery.name,
-		source: servedSource(delivery.run),
-		spine: servedSpine(delivery.query)
+		spine: servedSpine(delivery.query),
+		carried: servedCarried(delivery.carried)
 	}))

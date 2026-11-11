@@ -112,8 +112,13 @@ const optionsFor = (params: ReadonlyArray<ParamDecl>, subject: Subject): Conserv
 			? { kind: "query" }
 			: {
 					kind: "readBack",
-					deltas: () => ({ carrier: carrierName(1), columns: ["c1", "c2", "c3", "c4"] }),
-					breach: breachGuard("Ledger")
+					deltas: () => ({
+						kind: "carrier",
+						carrier: carrierName(1),
+						columns: ["c1", "c2", "c3", "c4"]
+					}),
+					breach: breachGuard("Ledger"),
+					naming: { kind: "own" }
 				}
 })
 

@@ -198,7 +198,8 @@ const hostCallOf = (
 /**
  * A change member's program for `call`, each statement planned against empty carriers, rolled back: its write
  * statements, then its read-backs' (change.reads), each read-back's statements as apply's flight sends them behind the
- * writes (apply/readback.ts readBackFlight), over the same inputs, in the artifact's order.
+ * writes (apply/readback.ts readBackFlight), over the same inputs, in the artifact's order; a riding read-back's are
+ * parts of the write statement it rides, planned with it.
  */
 const explainChange = Effect.fn("explainChange")(function* (
 	ctx: ServedDbContext,
@@ -217,7 +218,10 @@ const explainChange = Effect.fn("explainChange")(function* (
 		return yield* new ReadFailure({ reason: new LawRejected({ law: inputs.refused.law }) })
 	}
 	const readBacks = yield* Effect.mapError(
-		Effect.forEach(change.reads.runs.runs, (run) => programStatements(run.program, inputs)),
+		Effect.forEach(
+			Arr.flatMap(change.reads.runs.runs, (run) => (run.kind === "sent" ? [run] : [])),
+			(run) => programStatements(run.program, inputs)
+		),
 		(reason) => new ReadFailure({ reason })
 	)
 	const backs = Arr.map(Arr.flatten(readBacks), (s) => planned(s.text.sql, s.params))

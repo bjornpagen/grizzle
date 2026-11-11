@@ -16,16 +16,30 @@ import type {
 	TypeRef,
 	ValuePlaceholder
 } from "#compiler/sql/ast.ts"
-import type { CarrierName, NameSupply } from "#compiler/sql/naming.ts"
+import type { CarrierName, NameSupply, NameSupplyStart } from "#compiler/sql/naming.ts"
 
 /**
- * The SQL a Delta node reads in a read-back: the carrier the write program built, whose columns are the delta's
- * heading, position by position.
+ * The relation a Delta node reads in a read-back, each column of the delta's heading position by position: a CTE of
+ * the statement the read-back rides, over the rows that statement's RETURNING returns, where one statement writes the
+ * delta's relation (write/readback/deltas.ts deltaCte); a carrier the write's statements filled, where the delta's rows
+ * cross statements; or the empty relation, the delta of a relation no statement writes.
  */
-export interface DeltaCarrier {
-	readonly carrier: CarrierName
-	readonly columns: ReadonlyArray<string>
-}
+export type DeltaRelation =
+	| { readonly kind: "cte"; readonly cte: string; readonly columns: ReadonlyArray<string> }
+	| {
+			readonly kind: "carrier"
+			readonly carrier: CarrierName
+			readonly columns: ReadonlyArray<string>
+	  }
+	| { readonly kind: "empty" }
+
+/**
+ * How a read-back's statements are named: each a statement of its own, from r1 and c1; or, riding a write statement as
+ * its parts, one after another from `start`, past every name that statement defines, so no name is defined twice in it.
+ */
+export type ReadBackNaming =
+	| { readonly kind: "own" }
+	| { readonly kind: "riding"; readonly start: NameSupplyStart }
 
 /**
  * One breach of an attachment's delivered type a statement detects: each row of `from` that `when` holds of is a parent
@@ -52,15 +66,17 @@ export type BreachGuard = (
 ) => { readonly cte: Cte; readonly guard: Expr }
 
 /**
- * What lowering a read-back adds to lowering a query: the relations its Delta nodes read, and the guard each statement
- * delivering an attachment as a bare child or an option checks that type through, inside the statement. A read-back
- * runs in its write's one flight, whose COMMIT goes before the host decodes a row, so a breach the host found would
- * surface only after the write committed; raised by the statement, it aborts the write instead.
+ * What lowering a read-back adds to lowering a query: the relations its Delta nodes read, the guard each statement
+ * delivering an attachment as a bare child or an option checks that type through, inside the statement, and how its
+ * statements are named. A read-back runs in its write's one flight, whose COMMIT goes before the host decodes a row, so
+ * a breach the host found would surface only after the write committed; raised by the statement, it aborts the write
+ * instead.
  */
 export interface ReadBackLowering {
 	readonly kind: "readBack"
-	readonly deltas: (relation: string, side: "added" | "removed") => DeltaCarrier | undefined
+	readonly deltas: (relation: string, side: "added" | "removed") => DeltaRelation | undefined
 	readonly breach: BreachGuard
+	readonly naming: ReadBackNaming
 }
 
 /**

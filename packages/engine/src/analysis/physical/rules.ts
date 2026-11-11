@@ -933,11 +933,14 @@ const closedProps = (node: NodeOf<"Closed">, cx: RuleContext): PhysicalProps => 
 }
 
 /**
- * A Delta: one side of a relation's change, read in its write's transaction from the carrier the write filled. Each of
- * the relation's keys is a key of it, since delta.added(R) lies in R after the change and delta.removed(R) in R before
- * it. The carrier holds the primary key as its own constraint (write/carriers relationCarrier), checked at each
- * statement's end, so a carrier that came to hold one fact twice, or two facts at one key, refuses the write with
- * 23505 before anything reads it.
+ * A Delta: one side of a relation's change, read in its write's transaction: inside the one statement that writes the
+ * relation, from the rows its RETURNING returns, where the read-back rides that statement (write/readback/deltas.ts
+ * deltaCte); from the carrier the write's statements filled, where its rows cross statements; and empty, for a relation
+ * no statement writes. Each of the relation's keys is a key of it, since delta.added(R) lies in R after the change and
+ * delta.removed(R) in R before it, and every key of a stored relation is non-deferrable (physical/ddl/tables.ts), so
+ * PostgreSQL checks it as each row is written, before RETURNING returns the row; a carrier also holds the primary key as
+ * its own constraint (write/carriers relationCarrier), checked at each statement's end. A delta that came to hold one
+ * fact twice, or two facts at one key, refuses the write with 23505 before any read-back reads it.
  */
 const deltaProps = (node: NodeOf<"Delta">, cx: RuleContext): PhysicalProps => {
 	const columns = node.heading.map((c) => c.name)
