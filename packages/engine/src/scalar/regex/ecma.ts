@@ -64,10 +64,13 @@ const printed = (node: LiveNode, of: (child: LiveNode) => string): string => {
  * - Quantifiers are greedy and keep their bounds.
  * - Characters: ASCII letters and digits print as themselves; every other code point as `\u{...}`.
  *
- * - A pattern whose matches do not all start at the value's start is printed from it, `^[^]*?(?:...)`: some match exists
- *   anywhere exactly when one exists after some prefix, and V8 (Node 26.13.0's, as Chrome's) answers `test` wrongly for
- *   a pattern that ends in `$` and starts unanchored over an astral class, `/[\u{10000}-\u{10FFFF}]$/u.test("\u{1F600}")`
- *   false, which a start anchor keeps it from reaching.
+ * - A pattern whose matches do not all start at the value's start is printed from it, `^[^]*?(?:...)`: the same
+ *   language, for some match exists anywhere exactly when one exists after some prefix, so the document stays exact.
+ *   The spelling is a workaround: V8 14.6 (Node 26.13.0's) answers `test` wrongly for a pattern that ends in `$` and
+ *   starts unanchored over a class naming an astral code point, `/[\u{10000}-\u{10FFFF}]$/u.test("\u{1F600}")` false,
+ *   and a start anchor keeps it from that path. V8 fixed it on main in 7d259d7c (issue 571871980); grizzle's
+ *   upstream/v8-unicode-end-anchor-astral-class holds the reproduction and Node's backport. Once Node carries the fix,
+ *   `node repro.js` there exits 0, and the body is printed as it is, without startsAtStart.
  *
  * The translation is total over the IR, so every pattern grizzle admits has its ECMA-262 spelling by construction; the
  * empty language has none, and no admitted text type holds it (text/refinement.ts languageOf). The printer folds the IR
