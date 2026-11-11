@@ -49,10 +49,10 @@ import {
 	Pair,
 	writer
 } from "#test/pg/direct-writers/schema.ts"
-import { bareFixture, type Fixture, failure, openFixture } from "#test/pg/e2e-laws/support.ts"
 import { assert, defined, nonEmpty, unorderedEqual } from "#test/support/assert.ts"
 import { lawIdOf, lawNamesOf, namesOf, parsedName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { bareFixture, type Fixture, failure, openFixture } from "#test/support/open-fixture.ts"
 import { elementAt } from "#test/support/oracle/pick.ts"
 import {
 	type PgErrorFields,
