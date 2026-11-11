@@ -256,7 +256,13 @@ const factTarget = (columns: ReadonlyArray<string>, values: ReadonlyArray<Expr>)
 		? { columns, source: { kind: "values", rows: [values] } }
 		: { columns: [], source: { kind: "query", query: provedSelect("oneRow", [], [], undefined) } }
 
-/** An INSERT that meets a conflicting primary key, resolved by ON CONFLICT: nothing, the existing row, or an update. */
+/**
+ * An INSERT that meets a conflicting primary key, resolved by ON CONFLICT: nothing, the existing row, or an update. Its
+ * target is the key as PostgreSQL arbitrates it: a key of scalar fields by its columns; a span key, WITHOUT OVERLAPS,
+ * only as its constraint and only to do nothing (ON CONSTRAINT, by overlap), since PostgreSQL infers no arbiter for it
+ * from a column list (42P10). Its DO SELECT and DO UPDATE are spelled by the key's columns, as a writer would try them,
+ * and PostgreSQL refuses them at planning (42P10; through the constraint, 42809), before any privilege is checked.
+ */
 const onConflictSql = (
 	names: DirectNames,
 	relation: string,
@@ -307,7 +313,10 @@ const onConflictSql = (
 			alias: undefined,
 			...factTarget(columns, values),
 			overriding: (yield* namesSerial(names, relation, fields)) ? "SYSTEM VALUE" : undefined,
-			onConflict: { kind: "columns", columns: key, action },
+			onConflict:
+				t.primaryKey.span.kind === "span" && action.kind === "doNothing"
+					? { kind: "constraint", constraint: t.primaryKey.name, action }
+					: { kind: "columns", columns: key, action },
 			returning: resolution === "select" ? Arr.map(read, (f) => target(tableCol(f.column))) : []
 		})
 		return { sql, reads: resolution === "select" ? { kind: "rows", fields: read } : none }

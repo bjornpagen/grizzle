@@ -5,6 +5,7 @@ import { nextDraw, withSerial } from "#test/support/worlds/model/draws.ts"
 import {
 	entryRows,
 	evaluateRules,
+	fieldDomain,
 	isMember,
 	writableSupplier
 } from "#test/support/worlds/model/host.ts"
@@ -1158,14 +1159,26 @@ export const directBranches = (
 			const at = write(statement.relation)
 			const keyed = new Set(keysOf(base, statement.relation).flat())
 			const payload = Arr.filter(Record.keys(statement.fact), (f) => !keyed.has(f))
+			const key = relationSpecOf(base, statement.relation)?.key ?? []
 			/**
 			 * A fact with no field outside every key sets its primary key's fields to the proposed row's, an identity's
 			 * drawn value where the fact leaves a serial key field to it.
 			 */
-			const sets =
-				payload.length > 0 ? payload : (relationSpecOf(base, statement.relation)?.key ?? [])
+			const sets = payload.length > 0 ? payload : key
 			if (statement.onConflict === "update" && namesSerial(statement.relation, sets)) {
 				return [refused("428C9")]
+			}
+			/**
+			 * The primary key's span fields: a span key, WITHOUT OVERLAPS, which PostgreSQL arbitrates only as its constraint
+			 * and only to do nothing, by overlap (execute/direct.ts onConflictSql). Its DO SELECT and DO UPDATE it refuses
+			 * at planning, before any privilege is checked.
+			 */
+			const spans = Arr.filter(
+				key,
+				(k) => fieldDomain(base, { kind: "ordinary", name: statement.relation }, k)?.kind === "span"
+			)
+			if (Arr.isReadonlyArrayNonEmpty(spans) && statement.onConflict !== "nothing") {
+				return [refused("other")]
 			}
 			if (at === undefined) {
 				return [refused("42501")]
@@ -1196,10 +1209,13 @@ export const directBranches = (
 				if (check !== undefined) {
 					return [lawRefused(session.view)(check), ...Arr.map(moreChecks, lawRefused(session.view))]
 				}
-				const key = relationSpecOf(base, statement.relation)?.key ?? []
 				const stored = factsIn(session.view, statement.relation)
 				const conflict = Option.getOrUndefined(
-					Arr.findFirst(stored, (f) => Arr.every(key, (k) => sameValue(f[k], fact[k])))
+					Arr.findFirst(stored, (f) =>
+						Arr.every(key, (k) =>
+							spans.includes(k) ? overlaps(f[k], fact[k]) : sameValue(f[k], fact[k])
+						)
+					)
 				)
 				const inserted = (): Arr.NonEmptyReadonlyArray<Branch> => {
 					const after = new Map(session.view)
