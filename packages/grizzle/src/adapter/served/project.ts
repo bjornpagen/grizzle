@@ -148,20 +148,6 @@ const contextsOf = (role: LayerRole): ReadonlyArray<ServedContext> =>
 		fields: Arr.map(c.fields, (f) => ({ name: f.name, type: f.type }))
 	}))
 
-/** No refusal: what a role that writes nothing classifies, which no statement of it can raise. */
-const noRefusals: ServedRefusals = {
-	laws: {
-		schemas: [],
-		constraintLaws: [],
-		theoryLaws: [],
-		tables: new Map(),
-		rosterDomains: [],
-		generated: []
-	},
-	relations: new Map(),
-	entries: new Map()
-}
-
 /** Each compiled write of a ChangeSet's variants. */
 const variantsWrites = (variants: ChangeVariants): ReadonlyArray<CompiledWrite> =>
 	variants.kind === "form"
@@ -195,30 +181,30 @@ const closedOfLogin = (roles: ReadonlyArray<LayerRole>): ClosedTable => {
 }
 
 /**
- * The classifier of a role that writes, as data (served/refusals.ts refusalsOf), cut to what its members' writes can
- * raise (program/schema.ts raisableOf) by what they judge (Judged): every relation its compiled writes write and every
- * relation those writes change besides them, a family's owner and members (schema/reach.ts writesOf); and the type of
- * each claim of a context the role reads and of each scalar parameter its writes declare, which a statement casts to it.
- * A role whose members write nothing classifies nothing (noRefusals).
+ * The classifier of a role, as data (served/refusals.ts refusalsOf), cut to what its members' writes can raise
+ * (program/schema.ts raisableOf) by what they judge (Judged): every relation its compiled writes write and every
+ * relation those writes change besides them, a family's owner and members (schema/reach.ts writesOf); and, for each
+ * compiled write, the type of each claim of a context the role reads and of each scalar parameter it declares, which
+ * its statements cast to it. A role whose members write nothing judges nothing, so it classifies nothing.
  */
 const refusalsOf = (role: LayerRole): ServedRefusals => {
 	const writes = Arr.flatMap(role.workload, (member) =>
 		member.kind === "change" ? variantsWrites(member.variants) : []
 	)
-	const written = Arr.flatMap(writes, (write) => Arr.map(write.frontend.written, (r) => r.name))
-	if (!Arr.isReadonlyArrayNonEmpty(written)) {
-		return noRefusals
-	}
+	const claims = Arr.flatMap(role.contexts, (context) =>
+		Arr.map(context.fields, (field) => field.type)
+	)
 	return servedRefusals(
 		role.artifacts,
 		raisableOf(role.artifacts, {
-			written: writesOf(role.artifacts.owned, written),
-			cast: [
-				...Arr.flatMap(role.contexts, (context) => Arr.map(context.fields, (field) => field.type)),
-				...Arr.flatMap(writes, (write) =>
-					Arr.flatMap(write.params, (param) => (param.kind === "scalar" ? [param.type] : []))
-				)
-			]
+			written: writesOf(
+				role.artifacts.owned,
+				Arr.flatMap(writes, (write) => Arr.map(write.frontend.written, (r) => r.name))
+			),
+			cast: Arr.flatMap(writes, (write) => [
+				...claims,
+				...Arr.flatMap(write.params, (param) => (param.kind === "scalar" ? [param.type] : []))
+			])
 		})
 	)
 }

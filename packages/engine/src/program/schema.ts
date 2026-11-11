@@ -14,12 +14,10 @@ import { isNonEmpty } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { RoleDesc, SchemaDesc } from "#compiler/ir/desc.ts"
-import type { EvidenceCatalog } from "#compiler/ir/evidence.ts"
 import type { RelationInfo } from "#compiler/ir/law.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
-import type { ConstraintLaws } from "#compiler/ir/products.ts"
 import { type RegexRef, rosterOf, type ScalarType, textOf } from "#compiler/ir/scalar.ts"
-import { derivedKeyConstraints, evidenceCatalog } from "#compiler/laws/model/catalog.ts"
+import { derivedKeyConstraints } from "#compiler/laws/model/catalog.ts"
 import type { ConstraintLaw, LawModel } from "#compiler/laws/model/model.ts"
 import { textDomainIdentity } from "#compiler/physical/ddl/domains.ts"
 import {
@@ -95,8 +93,6 @@ export interface SchemaArtifacts {
 	/** Every installed constraint with its owner and the law a violation reports, described (physical/install
 	 * InstallPlan). */
 	readonly constraintLaws: ReadonlyArray<ConstraintLaw>
-	/** Each owner's installed constraint names to the law a violation reports. */
-	readonly constraintToLaw: ConstraintLaws
 	/** Every law of the theory with its description (physical/install InstallPlan). */
 	readonly theoryLaws: InstallPlan["theoryLaws"]
 	/** Every law a violation can report, by its LawId, as an outcome names it (physical/install InstallPlan). */
@@ -149,49 +145,51 @@ export type SchemaInput =
 			readonly level: RoleLevel
 	  }
 
-/** Every SchemaInput parseSchemaInput produced, so parsing one again is the input itself. */
-const parsedInputs = new WeakSet<object>()
-
-const parsed = (input: SchemaInput): SchemaInput => {
-	parsedInputs.add(input)
-	return Object.freeze(input)
-}
-
-const isParsed = (value: unknown): value is SchemaInput =>
-	typeof value === "object" && value !== null && parsedInputs.has(value)
-
 /**
- * A schema input, or the decoder's own refusal of it, its path included. Idempotent: a SchemaInput this produced
- * parses to itself. A value no builder made is the caller's, read once at the builder's boundary (query/build/host.ts
- * hostArguments) before it is decoded, so one whose reading throws is refused as MalformedDescription, never a defect.
+ * A schema input, or the decoder's own refusal of it, its path included: the one door a schema value passes, once, so
+ * every reader past it takes the SchemaInput it parsed to. A value no builder made is the caller's, read once at the
+ * builder's boundary (query/build/host.ts hostArguments) before it is decoded, so one whose reading throws is refused
+ * as MalformedDescription, never a defect.
  */
 export const parseSchemaInput = (value: unknown): Result.Result<SchemaInput, CompileError> => {
-	if (isParsed(value)) {
-		return Result.ok(value)
-	}
 	const owned = ownedOf(value)
 	if (owned !== undefined) {
 		return Result.ok(
-			parsed({ kind: "owned", owned, desc: owned.desc, content: contentOfDesc(owned.desc) })
+			Object.freeze<SchemaInput>({
+				kind: "owned",
+				owned,
+				desc: owned.desc,
+				content: contentOfDesc(owned.desc)
+			})
 		)
 	}
 	const role = ownedEntry(value, "role")
 	if (role !== undefined) {
 		return Result.ok(
-			parsed({ kind: "role", value: role.value, desc: role.desc, level: role.content })
+			Object.freeze<SchemaInput>({
+				kind: "role",
+				value: role.value,
+				desc: role.desc,
+				level: role.content
+			})
 		)
 	}
 	const built = ownedEntry(value, "schema")
 	if (built !== undefined) {
 		return Result.ok(
-			parsed({ kind: "built", value: built.value, desc: built.desc, content: built.content })
+			Object.freeze<SchemaInput>({
+				kind: "built",
+				value: built.value,
+				desc: built.desc,
+				content: built.content
+			})
 		)
 	}
 	return Result.flatMap(
 		catchCompileError(() => hostArguments("schema", [value])),
 		() =>
 			Result.map(admitSchemaDesc(value), (desc) =>
-				parsed({ kind: "desc", desc, content: contentOfDesc(desc) })
+				Object.freeze<SchemaInput>({ kind: "desc", desc, content: contentOfDesc(desc) })
 			)
 	)
 }
@@ -204,7 +202,7 @@ export type ParsedRole = Extract<SchemaInput, { readonly kind: "role" }>
 
 /**
  * The built schema a value is, or the refusal of any other value at `loc`: a value no schema builder made, an
- * Owned or a bare SchemaDesc among them. Parsing its result again with parseSchemaInput is the result itself.
+ * Owned or a bare SchemaDesc among them.
  */
 export const parseBuiltSchema = (
 	value: unknown,
@@ -216,14 +214,14 @@ export const parseBuiltSchema = (
 			malformedDescription(loc, "a schema built by schema(...) or schema.extend(...)")
 		)
 	}
-	const built: BuiltSchema = {
-		kind: "built",
-		value: entry.value,
-		desc: entry.desc,
-		content: entry.content
-	}
-	parsedInputs.add(built)
-	return Result.ok(Object.freeze(built))
+	return Result.ok(
+		Object.freeze<BuiltSchema>({
+			kind: "built",
+			value: entry.value,
+			desc: entry.desc,
+			content: entry.content
+		})
+	)
 }
 
 /**
@@ -333,7 +331,6 @@ export const baseArtifacts = (basis: PlanBasis): Result.Result<SchemaArtifacts, 
 				derived,
 				views: derivedKeyConstraints(derived),
 				constraintLaws: plan.constraintLaws,
-				constraintToLaw: plan.constraintToLaw,
 				theoryLaws: plan.theoryLaws,
 				described: plan.described
 			}
@@ -505,7 +502,3 @@ export const raisableOf = (
 		rosters: new Set(typed.flatMap((t) => rosterOf(t)?.closed ?? []))
 	}
 }
-
-/** The evidence catalog of a schema: its laws' constraints and its views' unique indexes. */
-export const schemaCatalog = (artifacts: SchemaArtifacts): EvidenceCatalog =>
-	evidenceCatalog(artifacts)

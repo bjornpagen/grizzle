@@ -59,8 +59,8 @@ import { outcomeKind, sqlstates } from "#compiler/plan/runtime.ts"
  *   and a 23502 on a generated column the generated field's law; a native violation reports its key only in its
  *   message, so its witness is the host's, the key of a fact the ChangeSet states for the failing statement that breaks
  *   it (runtime/write/witness.ts hostJudgement), or `unreported` where it states none.
- *   The law model's map (laws/model constraintToLaw) is part of the installation's, which adds the constraints
- *   installer extensions name, such as span storage.
+ *   The installation's map holds the law model's constraints and those installer extensions name, such as span
+ *   storage.
  * - A 23514 on one of the installation's roster domains, a code domain or a bits domain, is grizzle's own defect:
  *   grizzle's codec writes only live handles, which those domains admit, so no statement of grizzle's raises it, and
  *   the classifier claims it as no law. The write dies with the defect, which names where in the flight it was raised,

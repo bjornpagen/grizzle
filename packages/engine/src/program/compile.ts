@@ -7,6 +7,7 @@ import { decodeDesc, isOrderedQuery, type QueryDesc } from "#compiler/ir/desc.ts
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
 import type { ProgramArtifacts, LogicalQuery, ParamDecl } from "#compiler/ir/products.ts"
 import type { Heading, RootedDag } from "#compiler/ir/rel.ts"
+import { evidenceCatalog } from "#compiler/laws/model/catalog.ts"
 import { analyzeLogical, queryEvidence } from "#compiler/logical/annotate.ts"
 import type { ProgramDelivery } from "#compiler/lower/conservative/types.ts"
 
@@ -21,8 +22,7 @@ import {
 	levelSchema,
 	parseSchemaInput,
 	type SchemaArtifacts,
-	type SchemaInput,
-	schemaCatalog
+	type SchemaInput
 } from "#compiler/program/schema.ts"
 import { hostArguments } from "#compiler/query/build/host.ts"
 import { publicDesc, queryState } from "#compiler/query/build/state.ts"
@@ -164,7 +164,7 @@ export const querySchema = (
  * kernel's oracle baseline (test/support/oracle/verify), built from the template's checked query there and never here.
  *
  * The template records what it rests on: its certificates, each naming the constraint premises its proof uses and the
- * evidence context it needs, from the schema's catalog (program/schema.ts schemaCatalog). No parameter value enters a
+ * evidence context it needs, from the schema's catalog (laws/model/catalog.ts evidenceCatalog). No parameter value enters a
  * template.
  *
  * The template of a query's source (querySchema), whose artifacts `options` carries.
@@ -205,7 +205,7 @@ export const compileQuery = (
 	const lowered = lowerOptimized(rewritten.value, {
 		names: artifacts.reads,
 		subject: { kind: "query" },
-		catalog: schemaCatalog(artifacts),
+		catalog: evidenceCatalog(artifacts),
 		context
 	})
 	if (!lowered.ok) {

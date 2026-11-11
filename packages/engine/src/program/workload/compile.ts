@@ -35,11 +35,7 @@ import {
 } from "#compiler/physical/statistics/statistics.ts"
 
 import { certification } from "#compiler/program/isolation/certification.ts"
-import {
-	parseSchemaInput,
-	type SchemaArtifacts,
-	type SchemaInput
-} from "#compiler/program/schema.ts"
+import type { SchemaArtifacts, SchemaInput } from "#compiler/program/schema.ts"
 import {
 	type ChangeLogin,
 	type ChangeRefused,
@@ -380,21 +376,17 @@ const filterAccess = (
  * planned as a program of their own over the base, `write filter <role>.<entry>`. A schema without a workload plans
  * its roles' filters alone.
  *
- * The plan of `logins` over `schema` under the options' artifacts.
+ * The plan of `logins` over `schema`, parsed (program/schema.ts parseSchemaInput), under the options' artifacts.
  */
 export const compileWorkload = (
 	logins: ReadonlyArray<LoginWorkloads>,
-	schema: unknown,
+	schema: SchemaInput,
 	options: WorkloadOptions
 ): Result.Result<WorkloadPlan, CompileError> => {
-	const parsed = parseSchemaInput(schema)
-	if (!parsed.ok) {
-		return parsed
-	}
 	const { artifacts } = options
 	const access: Record<string, Readonly<Record<string, ProgramAccess>>> = {}
 	for (const login of [...logins].toSorted((a, b) => compareText(a.login, b.login))) {
-		const programs = loginAccess(login.workloads, parsed.value, artifacts)
+		const programs = loginAccess(login.workloads, schema, artifacts)
 		if (!programs.ok) {
 			return programs
 		}
@@ -424,7 +416,7 @@ export const compileWorkload = (
 	const physical: WorkloadPhysical = { schema: artifacts.fingerprint, paths, statistics }
 	return Result.ok({
 		...physical,
-		schemaName: baseName(parsed.value),
+		schemaName: baseName(schema),
 		access,
 		requests: workloadRequests(physical, artifacts.names.vectorSchema)
 	})
@@ -459,7 +451,7 @@ export type ServedWorkloadRefused =
  */
 export const servedWorkload = (
 	logins: ReadonlyArray<ServedLogin>,
-	schema: unknown,
+	schema: SchemaInput,
 	options: WorkloadOptions
 ): Result.Result<ServedWorkloadPlan, ServedWorkloadRefused> => {
 	const planned = compileWorkload(

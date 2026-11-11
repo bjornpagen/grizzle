@@ -15,8 +15,8 @@ import type { ServedEntryKey, ServedKeyLaws, ServedRefusals } from "#compiler/pl
 
 /**
  * The refusals of a role's installation as data, what a served file holds of them, drawn from the role's artifacts at
- * compile time: the classifier a layer rebuilds from them (witness/index.ts servedWitness) is the one the compile runs.
- * Compile time only.
+ * compile time: a layer rebuilds its classifier from them through the one constructor the compile's runs through
+ * (witness/index.ts servedWitness), over the cut its role's writes can raise. Compile time only.
  *
  * What the key-law tables are drawn from: the installation's names (its schemas, each relation's table, each roster's
  * two domains, with the codes the installation holds), the installed constraints with their owners and laws, the laws
@@ -66,9 +66,11 @@ export const keyLawsData = (input: KeyLawInput): ServedKeyLaws => ({
 	)
 })
 
-/** The query entries a role's artifacts write through, by their targets: none for reality. */
+/** The query entries a role's artifacts write through whose targets are among `written`, by their targets: none for
+ * reality. */
 const writtenEntries = (
-	artifacts: Pick<SchemaArtifacts, "world">
+	artifacts: Pick<SchemaArtifacts, "world">,
+	written: ReadonlySet<string>
 ): ReadonlyMap<StoredRelationName, CheckedEntry> => {
 	const world = artifacts.world
 	if (world.kind !== "role") {
@@ -76,7 +78,9 @@ const writtenEntries = (
 	}
 	return new Map(
 		Arr.flatMap([...world.checked.world.writes.values()], (e) =>
-			e.kind === "rows" ? [[e.writable.target.name, e.writable] as const] : []
+			e.kind === "rows" && written.has(e.writable.target.name)
+				? [[e.writable.target.name, e.writable] as const]
+				: []
 		)
 	)
 }
@@ -90,7 +94,8 @@ const entryKeyOf = (entry: CheckedEntry): ServedEntryKey => ({
 /**
  * The refusals of a role's artifacts as data (served ServedRefusals), cut to `raisable`, what its writes can raise
  * (program/schema.ts raisableOf): the key-law tables of those constraints, laws and rosters, each of those stored
- * relations' heading, which a refusal's key text decodes through, and the query entries the role writes through.
+ * relations' heading, which a refusal's key text decodes through, and the query entries the role writes through into
+ * them.
  */
 export const refusalsOf = (
 	artifacts: Pick<SchemaArtifacts, "names" | "world">,
@@ -108,7 +113,7 @@ export const refusalsOf = (
 		relations: new Map(Arr.map(relations, (r) => [r.name, r.heading] as const)),
 		entries: new Map(
 			Arr.map(
-				[...writtenEntries(artifacts)],
+				[...writtenEntries(artifacts, new Set(Arr.map(relations, (r) => r.name)))],
 				([target, entry]) => [target, entryKeyOf(entry)] as const
 			)
 		)

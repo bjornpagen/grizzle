@@ -48,18 +48,18 @@ export const reportedOwner = (
  *
  * Every table constraint, unique index and domain constraint maps, under the table or domain that owns it, to every
  * law its violation can report (NativeLaws): one native object can discharge several, as a family's axis foreign key
- * does every containment merged into it, and a domain several columns share states each one's law: a text domain each
- * field's pattern law, a contract's domain each contract of its definition's. A native
+ * does every containment merged into it, and a domain that types stored columns states each column's law, its laws
+ * its uses': a text domain each field's pattern law, a contract's domain the law of the contract each column's chain
+ * names it by; a contract's domain that types no stored column states each contract of its definition's law. A native
  * violation names its constraint beside the table or data type it is on, so a name is read only under that owner:
- * every domain's CHECK is `check`, and two tables may each hold a row check of one name. A violation is read only when the owner it reports
- * lies in the installation's schema. The installation lists those constraints, each with its law described where it is
- * built (physical/install Installation.constraintLaws), and the snapshot records their laws (Snapshot.constraintToLaw).
- * An opened Db's artifacts are compiled from the schema whose snapshot the ledger's latest complete folder installed
- * (adapter/db/open.ts), so their table names the installed constraints.
+ * two tables may each hold a row check of one name. A violation is read only when the owner it reports lies in the
+ * installation's schema. The installation lists those constraints, each with its laws described where it is built
+ * (physical/install Installation.constraintLaws), and the snapshot records their laws (Snapshot.constraintToLaw).
  *
- * Every installed constraint but a roster domain's and a text domain's no stored field types is in the table, a
- * contract's and a stored field's text refinement domain's included, so a constraint the table does not name under its
- * owner reports no law. A constraint name is never parsed, and never read without its owner.
+ * A served file's tables hold what its role's writes can raise (program/schema.ts raisableOf), each domain with its
+ * uses on the tables those writes write, or whole where a value they cast meets it; the compile's hold every installed
+ * constraint but a roster domain's and a text domain's no stored field types. A constraint the table does not name
+ * under its owner reports no law. A constraint name is never parsed, and never read without its owner.
  *
  * A write statement's refusal (write/refusal.ts) raises with the law identity itself as the constraint name and reports
  * no owner: `raised` holds every law of the theory under its identity.
@@ -181,8 +181,9 @@ const ownedBy = <O, K, V>(byOwner: Map<O, Map<K, V>>, owner: O): Map<K, V> => {
 
 /**
  * The key laws of an installation (KeyLaws) from its tables `data`, the laws of the levels above `above`, and the codes
- * the installation holds `codes`, which each roster domain carries: the one constructor of KeyLaws, which a layer runs
- * over a served file's tables and the compile over the tables it draws from a role's artifacts.
+ * the installation holds `codes`, each roster's carried by the domains the tables name for it, a roster they name none
+ * of read by no violation: the one constructor of KeyLaws, which a layer runs over a served file's tables and the
+ * compile over the tables it draws from a role's artifacts.
  */
 export const keyLawsOf = (data: ServedKeyLaws, above: LawsAbove, codes: Codebook): KeyLaws => {
 	const tables = new Map<RelationIdent, Map<ConstraintName, NativeLaws>>()
@@ -212,14 +213,15 @@ export const keyLawsOf = (data: ServedKeyLaws, above: LawsAbove, codes: Codebook
 				break
 		}
 	}
+	const domainsOf = new Map(Arr.map(data.rosterDomains, (d) => [d.roster, d] as const))
 	const rosters = new Map<DomainName, RosterDomain>()
-	for (const { roster, code, bits } of data.rosterDomains) {
-		const codec = codes.rosters.get(roster)
-		if (codec === undefined) {
-			throw defect(`the installation's codebook holds roster ${roster}, whose domains it names`)
+	for (const codec of codes.rosters.values()) {
+		const named = domainsOf.get(codec.roster)
+		if (named === undefined) {
+			continue
 		}
-		rosters.set(code, { carrier: "code", codec })
-		rosters.set(bits, { carrier: "bits", codec })
+		rosters.set(named.code, { carrier: "code", codec })
+		rosters.set(named.bits, { carrier: "bits", codec })
 	}
 	const generated = new Map<RelationIdent, Map<ColumnIdent, RefusedLaw>>()
 	const generatedFields = new Map<string, Map<string, RefusedLaw>>()

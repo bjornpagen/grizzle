@@ -360,7 +360,6 @@ export interface LawModel {
 	readonly families: ReadonlyArray<Family>
 	/** Each table constraint's and rule trigger's identifier with every law it discharges. */
 	readonly constraints: ReadonlyArray<TableConstraintLaw>
-	readonly constraintToLaw: ConstraintLaws
 	/** Every identity the law model mints beyond ownership's: its laws', its natives' and its law columns'. */
 	readonly identities: ReadonlyArray<Identity<IdentityKind>>
 	/** The laws whose containment evidence holds at every statement (an immediate foreign key or a CHECK). */
@@ -1287,7 +1286,6 @@ class Specializer {
 			natives,
 			families: this.#plannedFamilies(),
 			constraints,
-			constraintToLaw: constraintLawMap(constraints),
 			identities: [...this.theory.laws.map((law) => law.named), ...this.#minted],
 			immediate,
 			fkCycles,
