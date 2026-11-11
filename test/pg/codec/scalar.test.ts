@@ -11,6 +11,10 @@
  * - Stored rows: facts encoded through their relation input's arrays, inserted into a table of every column type with
  *   the lowering's casts, and read back are decoded by the positional row decoder (statement-rows.ts headingRecord) to
  *   exactly the facts written, one row each.
+ * - Routable carriers: for every carrier a change routes by (ir/scalar.ts routable), a batch of values, each encoded,
+ *   is printed by PostgreSQL's ::text exactly as the codec writes it, under any DateStyle, IntervalStyle,
+ *   extra_float_digits and bytea_output a writer's session holds: the change source prints a routed column's text
+ *   under the writer's settings, and a subscription matches it against its parameter's codec text.
  *
  * Oracle: a universal one, convert ∘ PostgreSQL ∘ encode = id, PostgreSQL's input and output functions between them.
  * The encoder parses exactly, so every value drawn here is one its type holds as it is: a real a binary32 value, a
@@ -19,9 +23,10 @@
  * test/pg/values/carriers.test.ts.
  *
  * Plants: codec-set-bit-order (setBit puts a set's position 0 at its digit's least significant bit), and
- * values-money-text-padding (money's text pads its digits one short).
+ * values-money-text-padding (money's text pads its digits one short); ~/.cache/grizzle-release/LIVE-ROUTES/plants
+ * routable-float8.patch (a double precision routes, and extra_float_digits prints it otherwise).
  *
- * Features: "round-trips <carrier>", every carrier's.
+ * Features: "round-trips <carrier>", every carrier's; "routes <carrier>", every routable carrier's.
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -54,7 +59,7 @@ import { int4Max, int4Min, int8Max, int8Min } from "#compiler/core/limits.ts"
 import * as Result from "#compiler/core/result.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { type Codebook, rosterCodec } from "#compiler/ir/codes.ts"
-import { type Carrier, contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
+import { type Carrier, contractOf, routable, type ScalarType } from "#compiler/ir/scalar.ts"
 import { anyNumeric, wildcardText } from "#compiler/scalar/compute/types.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
@@ -623,4 +628,97 @@ layer(Substrate.layer)("exact scalar codecs against PostgreSQL", (it) => {
 			})
 		)
 	)
+
+	it.effect(
+		"writes a routable carrier's value as PostgreSQL's ::text of it, whatever the writer's session settings",
+		(ctx) =>
+			searched(
+				ctx,
+				Effect.gen(function* () {
+					const { db, names } = yield* setup
+					return yield* explore(
+						{
+							suite: "pg/codec/scalar/routable",
+							draw: drawn(routableGen),
+							literal: Formatter.format,
+							coverage: required<RoutableFeature>(
+								Arr.map(routableCases, (c): RoutableFeature => `routes ${c.label}`),
+								{ cases: roundTripRuns * routableCases.length, sense: notesOnly }
+							),
+							kept: [],
+							runs: roundTripRuns * routableCases.length,
+							shrink: completeShrink,
+							concurrency: 1,
+							steerEvery: 16,
+							caseHang,
+							oracle: {
+								kind: "postgresql",
+								name: "PostgreSQL's ::text of each value, under the writer's DateStyle, IntervalStyle, extra_float_digits and bytea_output"
+							}
+						},
+						(trip, c) =>
+							Effect.gen(function* () {
+								const routed = caseOf(trip.label)
+								const codec = codecOf(routed.type, kindCodes)
+								const texts = Arr.map(trip.batch, (v) => succeeded(codec.encode(v)))
+								for (const [name, value] of trip.settings) {
+									yield* db.values(`SELECT pg_catalog.set_config($1, $2, false)`, [name, value])
+								}
+								const rows = yield* recordset(db, "(r.v)::text", wireSql(routed.type, names), texts)
+								for (const [name] of trip.settings) {
+									yield* db.values(`RESET ${name}`, [])
+								}
+								const differing = Arr.flatMap(texts, (text, i) => {
+									const printed = textRows(rows)[i]?.[0]
+									return printed === text ? [] : [{ codec: text, postgresql: printed }]
+								})
+								assert.deepEqual(
+									differing,
+									[],
+									`${trip.label} under ${Formatter.format(trip.settings)}`
+								)
+								c.note(`routes ${trip.label}`)
+							})
+					)
+				})
+			)
+	)
 })
+
+/** The round trip's cases of the carriers a change routes by (ir/scalar.ts routable). */
+const routableCases: Arr.NonEmptyReadonlyArray<Case> = nonEmpty(
+	Arr.filter(cases, (c) => routable[c.type.carrier])
+)
+
+/**
+ * A writer's session settings a printed text may follow, each with the values a writer may hold: what the change
+ * source's text of a stored value is printed under, which no grizzle session pins for a direct SQL writer.
+ */
+const writerSettings = {
+	DateStyle: ["ISO, MDY", "SQL, DMY", "Postgres, YMD", "German, DMY"],
+	IntervalStyle: ["postgres", "sql_standard", "iso_8601"],
+	extra_float_digits: ["-15", "0", "1", "3"],
+	bytea_output: ["hex", "escape"]
+} as const
+
+/** The names of the writer's settings (writerSettings). */
+const settingNames = ["DateStyle", "IntervalStyle", "extra_float_digits", "bytea_output"] as const
+
+/** A routable carrier, by its round trip's label, a batch of its values, and the writer's settings it is printed under. */
+interface RoutableCase {
+	readonly label: string
+	readonly batch: ReadonlyArray<unknown>
+	readonly settings: ReadonlyArray<readonly [(typeof settingNames)[number], string]>
+}
+
+const routableGen: Gen<RoutableCase> = (source) => {
+	const c = source.draw(element(routableCases))
+	const settings = Arr.map(
+		source.draw(subset(settingNames, { min: 0, max: settingNames.length })),
+		(name) => [name, source.draw(element(writerSettings[name]))] as const
+	)
+	return { label: c.label, batch: source.draw(batchOf(c.values)), settings }
+}
+
+/** A routable carrier a case reached, by its round trip's label. */
+type RoutableFeature = `routes ${string}`

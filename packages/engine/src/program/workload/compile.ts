@@ -144,6 +144,17 @@ const programPlan = (
 }
 
 /**
+ * A query of a workload over `schema`, read as its plan reads it (queryRead), under the base's artifacts `artifacts`:
+ * what a test reads a program's footprint and its access beside.
+ */
+export const workloadQueryRead = (
+	query: QueryDesc,
+	schema: SchemaInput,
+	artifacts: SchemaArtifacts
+): Result.Result<AnalyzedQuery, CompileError> =>
+	Result.flatMap(workloadReads(schema, artifacts), (reads) => queryRead(query, reads))
+
+/**
  * A query program's checked IR, as its access and its footprint are read: over the base, a query over a role reading
  * each world relation's definition (world.ts inlineWorlds), as rows (analyzedQuery).
  */
@@ -221,7 +232,7 @@ const rowsIr = (analyzed: AnalyzedQuery, ordered: boolean): ProgramIr => {
 }
 
 /** A query's checked DAG in the normal forms its access is extracted from, with its logical analysis and parameters. */
-interface AnalyzedQuery {
+export interface AnalyzedQuery {
 	readonly dag: RootedDag
 	readonly analysis: LogicalAnalysis<Rooted>
 	readonly params: ReadonlyArray<ParamDecl>
