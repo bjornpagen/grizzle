@@ -15,7 +15,9 @@ import {
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 
-export const DocumentVector = pg.vector(4)
+/** The dimension count of the Search schema's vectors. */
+export const documentDimensions = 4
+export const DocumentVector = pg.vector(documentDimensions)
 const Title = str.regex("^.+$", "su")
 export const Document = relation("Document", { id: uuid, account: uuid, title: Title }, ["id"])
 export const DocumentCurrent = relation(

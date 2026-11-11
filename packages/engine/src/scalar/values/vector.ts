@@ -31,12 +31,13 @@ type VectorBuffer<N extends number = number> = Float32Array & { readonly [phanto
  * A Vector<N> is a Float32Array: an Effect brand (by nominal, unchecked) plus the dimension tag N, with no wrapper
  * class. `Vector.make(buffer, n)` checks the buffer's length against the dimension count and returns the same
  * buffer, branded; mutating the buffer afterwards is the caller's business. Every boundary that admits a vector, the
- * codec's and a literal's, copies its components once into a plain Float32Array grizzle alone holds, through the typed
- * array's internal slots, so a subclass's methods and a later write to the caller's buffer reach no admitted value:
- * the identity, the checks and every row text read that copy. A Float32Array's components are binary32 values by
- * construction, so there is no rounding here: a JavaScript number becomes a component through the typed array's own
- * conversion, which the caller performs. The tag N is an equality-only phantom: a Vector<1536> is not a Vector<768>,
- * and the runtime checks the length. There is no number[] anywhere in the vector API.
+ * codec's, a literal's and ChangeSet.bind's (core/canonical.ts canonicalOf), copies its components once into a plain
+ * Float32Array grizzle alone holds, through the typed array's internal slots, so a subclass's methods and a later
+ * write to the caller's buffer reach no admitted value: the identity, the checks and every row text read that copy. A
+ * Float32Array's components are binary32 values by construction, so there is no rounding here: a JavaScript number
+ * becomes a component through the typed array's own conversion, which the caller performs. The tag N is an
+ * equality-only phantom: a Vector<1536> is not a Vector<768>, and the runtime checks the length. There is no number[]
+ * anywhere in the vector API.
  *
  * Dimensions are 1..vectorMaxDimensions, pgvector's storage limit (VECTOR_MAX_DIM); the 2000-dimension HNSW limit is a
  * retrieval capability, not a value limit.

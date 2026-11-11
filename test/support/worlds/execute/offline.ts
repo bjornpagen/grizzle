@@ -56,7 +56,7 @@ export const offlineServed = (
 	claims: ReadonlySet<string>
 ): Engine.Result<CompiledWrite, CompileError | UnservedMember> =>
 	Engine.flatMap(offlineCompile(role, change, claims), (compiled) =>
-		Engine.map(servedMembers(compiled.binding.members, change.values), () => compiled)
+		Engine.map(servedMembers(compiled.binding.members, change.opaque), () => compiled)
 	)
 
 /**
@@ -87,7 +87,7 @@ export const offlineServedBind = (
 	change: ParsedChangeSet,
 	facts: unknown
 ): Engine.Result<BindResult, EncodingFailure | CompileError | UnservedMember> =>
-	Engine.flatMap(servedMembers(program.binding.members, change.values), (members) =>
+	Engine.flatMap(servedMembers(program.binding.members, change.opaque), (members) =>
 		Engine.flatMap(memberFactsOf(facts, members), (read) =>
 			withinMessage(
 				bindWrite(runnableWrite(program, program.frontend.codes), {

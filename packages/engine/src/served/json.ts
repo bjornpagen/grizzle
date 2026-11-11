@@ -1,26 +1,30 @@
 import {
+	type CanonicalObject,
+	canonicalOf,
 	catchRefusal,
 	compareText,
 	type Json,
+	type Outside,
 	type Path,
 	Refusal,
-	taggedValueOf,
+	type TaggedValue,
 	writeCanonicalJson
 } from "#compiler/core/canonical.ts"
 import { type CompileError, unsupported } from "#compiler/core/errors.ts"
 import { parseDeclaredName } from "#compiler/core/identity.ts"
-import { defect } from "#compiler/core/invariant.ts"
+import { defect, defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import { trusted } from "#compiler/core/trusted.ts"
-import { MoneyText, VectorText } from "#compiler/ir/carriers.ts"
+import { MoneyText, VectorText, vectorMaxDimensions } from "#compiler/ir/carriers.ts"
 import type { RosterCodes } from "#compiler/ir/cells.ts"
 import { DecimalText } from "#compiler/ir/decimal.ts"
 import { internedRangeOp, rangeOpNamed } from "#compiler/ir/expr.ts"
 import { carriers, Roster, type ScalarType } from "#compiler/ir/scalar.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
+import { Vector } from "#compiler/scalar/values/vector.ts"
 import type { ServedFile } from "#compiler/served/forms.ts"
 
 /**
@@ -40,8 +44,8 @@ import type { ServedFile } from "#compiler/served/forms.ts"
  *   it (ServedFile rosters);
  * - a range overload `~op:` and its code and carrier, read back as its one instance (ir/expr.ts rangeOp), which the
  *   registry and the host evaluator know an overload by;
- * - a host Decimal `~decimal:`, a host Money `~money:`, and the IR's DecimalText, MoneyText and VectorText `~d:`, `~m:`
- *   and `~v:`, each with its canonical payload;
+ * - a host Decimal `~decimal:`, a host Money `~money:`, a host vector `~vector:`, and the IR's DecimalText, MoneyText
+ *   and VectorText `~d:`, `~m:` and `~v:`, each with its canonical payload;
  * - a Map `{"~map": [[key, value], ...]}`, each key a primitive, and a Set `{"~set": [value, ...]}`, in insertion
  *   order, which the compile that made them fixes.
  *
@@ -50,7 +54,9 @@ import type { ServedFile } from "#compiler/served/forms.ts"
  * exactly the paths to revived values, and every member beside them is the file's own value, read as it is.
  *
  * Nothing else is a served value: a function, a symbol, a class instance of any other kind, a record whose key begins
- * with `~` or holds a symbol is refused, so no member of a form is ever dropped or guessed.
+ * with `~` or holds a symbol is refused, so no member of a form is ever dropped or guessed. A value is read once by the
+ * canonical model (core/canonical.ts canonicalOf) and then by the file's own (servedOf), and the writer and the reader
+ * each dispatch on that one reading, the reader's tags the writer's (ServedTag).
  */
 
 /** The marker keys of a Map's, a Set's and a revived array's JSON forms, and of a revived member's keys or indices. */
@@ -67,10 +73,19 @@ const tags = {
 	rangeOp: "op",
 	decimal: "decimal",
 	money: "money",
+	vector: "vector",
 	decimalText: "d",
 	moneyText: "m",
 	vectorText: "v"
 } as const
+
+/** A tag the file spells a revived scalar under: one of `tags`, which the writer writes and the reader reads. */
+type ServedTag = (typeof tags)[keyof typeof tags]
+
+const servedTags: ReadonlySet<string> = new Set<string>(Object.values(tags))
+
+/** Whether text read after a `~` names a served tag. */
+const isServedTag = (tag: string): tag is ServedTag => servedTags.has(tag)
 
 const carrierNames: ReadonlySet<string> = new Set(carriers)
 
@@ -88,12 +103,130 @@ const unserved = (path: Path, what: string): never => {
 	throw new Refusal(unsupported(SourceLoc("served workload", path), `a served value, ${what}`))
 }
 
-/** `~tag:payload`, a canonical value's text. */
-const tagged = (tag: string, payload: string): string => `~${tag}:${payload}`
+/**
+ * A value as a served file holds it (servedOf), beside its JSON scalars, which are their own: a scalar a load revives,
+ * spelled `~<tag>:<payload>` under its ServedTag; a string beginning with `~`, escaped by a second; a ScalarType,
+ * interned in the file's types table; an array; a plain record; a Map; a Set; or a value no served form holds, beside
+ * what the file holds in its place.
+ */
+type ServedObject =
+	| { readonly kind: "tagged"; readonly tag: ServedTag; readonly payload: string }
+	| { readonly kind: "escaped"; readonly text: string }
+	| { readonly kind: "type"; readonly type: ScalarType }
+	| { readonly kind: "array"; readonly items: ReadonlyArray<unknown> }
+	| { readonly kind: "record"; readonly record: Readonly<Record<string, unknown>> }
+	| { readonly kind: "map"; readonly map: ReadonlyMap<unknown, unknown> }
+	| { readonly kind: "set"; readonly set: ReadonlySet<unknown> }
+	| { readonly kind: "unserved"; readonly what: string }
 
-/** The canonical payload of a canonical value. */
-const payloadOf = (value: object, path: Path): string =>
-	taggedValueOf(value)?.payload ?? unserved(path, "a canonical value with a tag and payload")
+/** A value as a served file holds it, by its kind: a JSON scalar written as it is, or a ServedObject. */
+type ServedValue = string | number | boolean | ServedObject
+
+const servedTagged = (tag: ServedTag, payload: string): ServedObject => ({
+	kind: "tagged",
+	tag,
+	payload
+})
+
+const notServed = (what: string): ServedObject => ({ kind: "unserved", what })
+
+/**
+ * A vector as the file holds it: its components under `~vector:`, in the payload grammar Vector.fromCanonical reads
+ * (VectorText, 1..vectorMaxDimensions components), any other count none a load revives.
+ */
+const servedVector = (components: Float32Array): ServedObject => {
+	const text = VectorText.of(components)
+	return text.ok
+		? servedTagged(tags.vector, text.value.toString())
+		: notServed(`a vector of 1 to ${vectorMaxDimensions.value} finite components`)
+}
+
+/**
+ * A value implementing the protocol as the file holds it, by its class, since a load revives each class as itself: a
+ * Roster by its declared name, a host Decimal and Money and the IR's DecimalText, MoneyText and VectorText by their
+ * canonical payloads; a value of any other class is no served value.
+ */
+const servedClass = (value: object, tagged: TaggedValue): ServedObject => {
+	if (value instanceof Roster) {
+		return servedTagged(tags.roster, value.closed)
+	}
+	if (value instanceof Decimal) {
+		return servedTagged(tags.decimal, tagged.payload)
+	}
+	if (value instanceof Money) {
+		return servedTagged(tags.money, tagged.payload)
+	}
+	if (value instanceof DecimalText) {
+		return servedTagged(tags.decimalText, tagged.payload)
+	}
+	if (value instanceof MoneyText) {
+		return servedTagged(tags.moneyText, tagged.payload)
+	}
+	return value instanceof VectorText
+		? servedTagged(tags.vectorText, tagged.payload)
+		: notServed("a plain record, a Map, a Set or a canonical value")
+}
+
+/** A plain record as the file holds it: a range overload by its code and carrier, a ScalarType, or a record. */
+const servedRecord = (record: Readonly<Record<string, unknown>>): ServedObject => {
+	const op = internedRangeOp(record)
+	if (op !== undefined) {
+		return servedTagged(tags.rangeOp, `${op.code}:${op.carrier}`)
+	}
+	return isScalarType(record) ? { kind: "type", type: record } : { kind: "record", record }
+}
+
+/** A value outside the canonical model as the file holds it: a Map, a Set, or none. */
+const servedOutside = (read: Outside): ServedObject => {
+	const { value } = read
+	if (value instanceof Map) {
+		return { kind: "map", map: value }
+	}
+	return value instanceof Set ? { kind: "set", set: value } : notServed(read.what)
+}
+
+/** A canonical object as the file holds it (servedOf). */
+const servedObject = (read: CanonicalObject | Outside): ServedObject => {
+	switch (read.kind) {
+		case "vector":
+			return servedVector(read.components)
+		case "tagged":
+			return servedClass(read.value, read.tagged)
+		case "array":
+			return { kind: "array", items: read.items }
+		case "record":
+			return servedRecord(read.record)
+		case "outside":
+			return servedOutside(read)
+	}
+}
+
+/**
+ * The one reading of a value by the served file (ServedValue), over its reading by the canonical model (canonicalOf):
+ * well-formed text as it is, or escaped where it begins with `~`; a finite number, -0 as 0; a boolean; a bigint, a
+ * vector and a canonical value of a served class under their tags; a range overload, a ScalarType, an array and a plain
+ * record; a Map and a Set; and nothing else. No reading is undefined, a function or a symbol, so those cases hold none
+ * (never).
+ */
+const servedOf = (value: unknown): ServedValue => {
+	const read = canonicalOf(value)
+	switch (typeof read) {
+		case "string":
+			return read.startsWith("~") ? { kind: "escaped", text: `~${read}` } : read
+		case "number":
+			return read === 0 ? 0 : read
+		case "boolean":
+			return read
+		case "bigint":
+			return servedTagged(tags.bigint, read.toString())
+		case "object":
+			return servedObject(read)
+		case "undefined":
+		case "function":
+		case "symbol":
+			return read
+	}
+}
 
 /** A value's JSON form, and whether a load revives it: whether it or a value it holds is no JSON value as it is. */
 interface Written {
@@ -117,24 +250,24 @@ class ServedWriter {
 	readonly #byText = new Map<string, number>()
 	readonly #path: Array<string | number> = []
 
+	/**
+	 * A value's JSON form, by its served reading (servedOf): a JSON scalar as it is, and an object as #object writes it.
+	 * No served reading is a bigint, undefined, a function or a symbol, so those cases hold none (never).
+	 */
 	value(value: unknown): Written {
-		switch (typeof value) {
+		const served = servedOf(value)
+		switch (typeof served) {
 			case "string":
-				return value.startsWith("~") ? revived(`~${value}`) : plain(value)
-			case "boolean":
-				return plain(value)
 			case "number":
-				return Number.isFinite(value)
-					? plain(value === 0 ? 0 : value)
-					: unserved(this.#path, "a finite number")
-			case "bigint":
-				return revived(tagged(tags.bigint, value.toString()))
+			case "boolean":
+				return plain(served)
 			case "object":
-				return value === null ? unserved(this.#path, "not null") : this.#object(value)
+				return this.#object(served)
+			case "bigint":
 			case "undefined":
 			case "function":
 			case "symbol":
-				return unserved(this.#path, `not ${typeof value}`)
+				return served
 		}
 	}
 
@@ -145,48 +278,25 @@ class ServedWriter {
 		return out
 	}
 
-	#object(value: object): Written {
-		if (isList(value)) {
-			return this.#array(value)
+	#object(served: ServedObject): Written {
+		switch (served.kind) {
+			case "tagged":
+				return revived(`~${served.tag}:${served.payload}`)
+			case "escaped":
+				return revived(served.text)
+			case "type":
+				return revived(`~${tags.type}:${this.#typeIndex(served.type)}`)
+			case "array":
+				return this.#array(served.items)
+			case "record":
+				return this.#record(served.record)
+			case "map":
+				return this.#map(served.map)
+			case "set":
+				return this.#set(served.set)
+			case "unserved":
+				return unserved(this.#path, served.what)
 		}
-		if (value instanceof Map) {
-			return this.#map(value)
-		}
-		if (value instanceof Set) {
-			return this.#set(value)
-		}
-		if (value instanceof Roster) {
-			return revived(tagged(tags.roster, value.closed))
-		}
-		if (value instanceof Decimal) {
-			return revived(tagged(tags.decimal, payloadOf(value, this.#path)))
-		}
-		if (value instanceof Money) {
-			return revived(tagged(tags.money, payloadOf(value, this.#path)))
-		}
-		if (value instanceof DecimalText) {
-			return revived(tagged(tags.decimalText, payloadOf(value, this.#path)))
-		}
-		if (value instanceof MoneyText) {
-			return revived(tagged(tags.moneyText, payloadOf(value, this.#path)))
-		}
-		if (value instanceof VectorText) {
-			return revived(tagged(tags.vectorText, payloadOf(value, this.#path)))
-		}
-		const proto: unknown = Object.getPrototypeOf(value)
-		if (!isRecord(value) || (proto !== Object.prototype && proto !== null)) {
-			return unserved(this.#path, "a plain record, a Map, a Set or a canonical value")
-		}
-		if (Object.getOwnPropertySymbols(value).length > 0) {
-			return unserved(this.#path, "a record without symbol keys")
-		}
-		const op = internedRangeOp(value)
-		if (op !== undefined) {
-			return revived(tagged(tags.rangeOp, `${op.code}:${op.carrier}`))
-		}
-		return isScalarType(value)
-			? revived(tagged(tags.type, String(this.#typeIndex(value))))
-			: this.#record(value)
 	}
 
 	/** An array's items, and, where some are revived, the array's revived form listing their indices. */
@@ -379,45 +489,50 @@ class ServedReader {
 		}
 		const colon = text.indexOf(":")
 		const tag = text.slice(1, colon)
-		const payload = text.slice(colon + 1)
+		if (!isServedTag(tag)) {
+			throw defect(`a served tag grizzle writes, not ${tag}`)
+		}
+		return this.#revive(tag, text.slice(colon + 1))
+	}
+
+	/** The value a served scalar of `tag` and `payload` revives to, the one form the writer wrote under that tag. */
+	#revive(tag: ServedTag, payload: string): unknown {
 		switch (tag) {
 			case tags.bigint:
 				return BigInt(payload)
-			case tags.type: {
-				const type = this.#types[Number(payload)]
-				if (type === undefined) {
-					throw defect(`the served types table holds type ${payload}`)
-				}
-				return type
-			}
+			case tags.type:
+				return defined(this.#types[Number(payload)], `the served types table holds type ${payload}`)
 			case tags.roster:
 				return rosterOf(this.#rosters, payload)
 			case tags.rangeOp: {
 				const at = payload.lastIndexOf(":")
-				return (
-					rangeOpNamed(payload.slice(0, at), payload.slice(at + 1)) ??
-					defect(`a served range overload's code and carrier name one: ${payload}`)
+				return defined(
+					rangeOpNamed(payload.slice(0, at), payload.slice(at + 1)),
+					`a served range overload's code and carrier name one: ${payload}`
 				)
 			}
-			case tags.decimal: {
-				const decimal = Decimal.fromCanonical(payload)
-				if (!decimal.ok) {
-					throw defect(`a served decimal's payload is a decimal's one text: ${payload}`)
-				}
-				return decimal.value
-			}
+			case tags.decimal:
+				return revivedOf(Decimal.fromCanonical(payload), `a served decimal: ${payload}`)
 			case tags.money:
 				return Money.of(BigInt(payload))
+			case tags.vector:
+				return revivedOf(Vector.fromCanonical(payload), `a served vector: ${payload}`)
 			case tags.decimalText:
-				return DecimalText.parse(payload) ?? defect(`a served decimal text: ${payload}`)
+				return defined(DecimalText.parse(payload), `a served decimal text: ${payload}`)
 			case tags.moneyText:
-				return MoneyText.parse(payload) ?? defect(`a served money text: ${payload}`)
+				return defined(MoneyText.parse(payload), `a served money text: ${payload}`)
 			case tags.vectorText:
-				return VectorText.parse(payload) ?? defect(`a served vector text: ${payload}`)
-			default:
-				throw defect(`a served tag grizzle writes, not ${tag}`)
+				return defined(VectorText.parse(payload), `a served vector text: ${payload}`)
 		}
 	}
+}
+
+/** The value a served payload's reviver restores, which revives every payload the writer wrote. */
+const revivedOf = <A>(result: Result.Result<A, CompileError>, what: string): A => {
+	if (!result.ok) {
+		throw defect(`${what} is the one text of its value: ${result.error.message}`)
+	}
+	return result.value
 }
 
 /** The JSON form of a served file, as an import of it or JSON.parse yields it: its members, its rosters and its types. */

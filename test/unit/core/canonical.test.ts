@@ -19,7 +19,7 @@ import {
 } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
-import { bigint, double } from "@grizzle/testing/values"
+import { bigint, double, float } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
@@ -50,7 +50,10 @@ import {
 	noRevivers,
 	omitSourceLocs,
 	type Revivers,
+	sameContent,
 	toJson,
+	vectorTag,
+	withoutSourceLocs,
 	writeCanonicalJson
 } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
@@ -75,12 +78,13 @@ import { caseHang } from "#test/support/limits.ts"
  * The canonical serializer (core/canonical.ts): one text per value, the JSON Canonicalization Scheme (RFC 8785) over
  * the value's JSON form, and a refusal, at the offending value's path, of everything outside the value model.
  *
- * The values are drawn: JSON without null plus bigints, their keys and strings from a dictionary of the spellings where
- * JavaScript's own key order, a code-point order, a naive tagging scheme or the prototype accessor goes wrong. The
- * oracle is the format's specification, written here apart from the serializer (the module header): the JSON form holds
- * a bigint as "~n:<integer>" and a plain string beginning with "~" with that "~" doubled, and the text is RFC 8785 over
- * it, keys ordered by UTF-16 code units and every number and string written as JSON.stringify writes it (ECMAScript's
- * shortest round trip, -0 as 0; well-formed escaping).
+ * The values are drawn: JSON without null plus bigints and vectors, their keys and strings from a dictionary of the
+ * spellings where JavaScript's own key order, a code-point order, a naive tagging scheme or the prototype accessor goes
+ * wrong. The oracle is the format's specification, written here apart from the serializer (the module header): the JSON
+ * form holds a bigint as "~n:<integer>", a Float32Array as "~v:[c1,...,cn]", each component as JSON.stringify writes it
+ * (-0 as 0), and a plain string beginning with "~" with that "~" doubled, and the text is RFC 8785 over it, keys
+ * ordered by UTF-16 code units and every number and string written as JSON.stringify writes it (ECMAScript's shortest
+ * round trip, -0 as 0; well-formed escaping).
  *
  * Keys: drawn text, and the spellings where an order goes wrong: integer-like keys, which JavaScript lists first;
  * "__proto__", which assignment would take for the prototype; a key above ASCII; and a BMP key beyond the surrogates
@@ -125,7 +129,20 @@ const revivers: Revivers = Rec.fromEntries(
 	Arr.map(exactTags, (tag) => [tag, (payload: string) => Result.ok(new Exact(tag, payload))])
 )
 
+/** The largest finite 32-bit float. */
+const float32Max = 3.4028234663852886e38
+
+/**
+ * A vector: as many 32-bit floats as a string leaf holds characters, of every scale, the subnormals among them, and -0
+ * as often as any other.
+ */
+const vector: Gen<Float32Array> = map(
+	array(oneOf<number>([float(-float32Max, float32Max), constant(-0)]), { min: 0, max: 8 }),
+	(xs) => Float32Array.from(xs)
+)
+
 const leaf = oneOf<unknown>([
+	vector,
 	string(unicodeScalar, { min: 0, max: 8 }),
 	(source) =>
 		new Exact(
@@ -188,7 +205,7 @@ const permute = (v: unknown, draws: ReadonlyArray<number>): unknown => {
 		if (isList(x)) {
 			return Arr.map(x, walk)
 		}
-		if (x instanceof Exact || !isRecord(x)) {
+		if (x instanceof Exact || x instanceof Float32Array || !isRecord(x)) {
 			return x
 		}
 		const entries: Array<readonly [string, unknown]> = Arr.map(Rec.toEntries(x), ([k, child]) => [
@@ -206,13 +223,20 @@ const permute = (v: unknown, draws: ReadonlyArray<number>): unknown => {
 	return walk(v)
 }
 
+/** A vector's payload as the module header specifies it: its components bracketed, each as JSON.stringify writes it. */
+const vectorPayload = (v: Float32Array): string =>
+	`[${Arr.join(Arr.map(Array.from(v), jsonText), ",")}]`
+
 /**
- * The JSON form the module header specifies: a Canonicalizable value as "~<tag>:<payload>", -0 as 0, and an undefined
- * object member left out (undefined is refused only in an array or at the root).
+ * The JSON form the module header specifies: a Canonicalizable value as "~<tag>:<payload>", a vector as "~v:<payload>",
+ * -0 as 0, and an undefined object member left out (undefined is refused only in an array or at the root).
  */
 const jsonForm = (v: unknown): Json => {
 	if (v instanceof Exact) {
 		return `~${v.tag}:${v.payload}`
+	}
+	if (v instanceof Float32Array) {
+		return `~${vectorTag}:${vectorPayload(v)}`
 	}
 	if (typeof v === "bigint") {
 		return `~n:${v}`
@@ -274,6 +298,8 @@ const specified = (v: unknown): string => rfc8785(jsonForm(v))
 /** What a drawn value holds of the spellings the format must get right. */
 type SpellingFeature =
 	| "a bigint"
+	| "a vector"
+	| "a vector component of -0"
 	| "a Canonicalizable value"
 	| "a string beginning with ~"
 	| "an integer-like key"
@@ -294,6 +320,11 @@ const codePoints: Order.Order<string> = Order.mapInput(Arr.makeOrder(Order.Numbe
 const spellingsOf = (v: unknown, note: (f: SpellingFeature) => void): void => {
 	if (v instanceof Exact) {
 		note("a Canonicalizable value")
+	} else if (v instanceof Float32Array) {
+		note("a vector")
+		if (Arr.some(Array.from(v), (x) => Object.is(x, -0))) {
+			note("a vector component of -0")
+		}
 	} else if (typeof v === "bigint") {
 		note("a bigint")
 	} else if (typeof v === "string" && Str.startsWith("~")(v)) {
@@ -347,6 +378,8 @@ describe("the canonical text", () => {
 					coverage: required<SpellingFeature>(
 						[
 							"a bigint",
+							"a vector",
+							"a vector component of -0",
 							"a Canonicalizable value",
 							"a string beginning with ~",
 							"an integer-like key",
@@ -379,7 +412,12 @@ describe("the canonical text", () => {
 								"the text of the list written from its items' own"
 							)
 						}
-						if (isRecord(permuted) && !(permuted instanceof Exact) && !isList(permuted)) {
+						if (
+							isRecord(permuted) &&
+							!(permuted instanceof Exact) &&
+							!(permuted instanceof Float32Array) &&
+							!isList(permuted)
+						) {
 							const texts = new Map(
 								Arr.map(
 									Rec.toEntries(permuted),
@@ -431,7 +469,7 @@ describe("the canonical text", () => {
 							const viaText = succeeded(decode(succeeded(encode(v, everyProperty)), revivers))
 							assert.equal(succeeded(encode(viaJson, everyProperty)), specified(v))
 							assert.equal(succeeded(encode(viaText, everyProperty)), specified(v))
-							assert.deepEqual(viaText, normalizeZero(v))
+							assert.deepEqual(viaText, decodedForm(v))
 						})
 				)
 			)
@@ -467,6 +505,7 @@ type Outside =
 	| "a non-canonical bigint"
 	| "a tag only the prototype holds"
 	| "a tag no reviver holds"
+	| "a vector component that is not finite"
 
 class Instance {
 	readonly n = 1
@@ -535,7 +574,12 @@ const planted: { readonly [K in Outside]: Planted } = {
 	},
 	"a non-canonical bigint": { direction: "decode", at: () => "~n:01", extra: [] },
 	"a tag only the prototype holds": { direction: "decode", at: () => "~constructor:x", extra: [] },
-	"a tag no reviver holds": { direction: "decode", at: () => "~q:1", extra: [] }
+	"a tag no reviver holds": { direction: "decode", at: () => "~q:1", extra: [] },
+	"a vector component that is not finite": {
+		direction: "encode",
+		at: () => Float32Array.of(1, Number.NaN),
+		extra: []
+	}
 }
 
 const outsides = nonEmpty(
@@ -621,7 +665,7 @@ describe("a value outside the model", () => {
 						coverage: required<Outside>(outsides, { cases: 600, sense: notesOnly }),
 						kept: [],
 						/**
-						 * Twenty-three kinds of value at paths of up to four steps: six hundred cases place each kind tens of times.
+						 * Twenty-four kinds of value at paths of up to four steps: six hundred cases place each kind tens of times.
 						 */
 						runs: 600,
 						shrink: completeShrink,
@@ -906,8 +950,9 @@ describe("the omitted members", () => {
 					| "frozen at the top"
 					| "frozen with a mutable loc"
 					| "deeply frozen"
+				/** `v` frozen throughout but at its vectors, a typed array's elements being no property a freeze holds. */
 				const deepFreeze = (v: unknown): unknown => {
-					if (isList(v) || isRecord(v)) {
+					if (!(v instanceof Float32Array) && (isList(v) || isRecord(v))) {
 						for (const child of isList(v) ? v : Rec.values(v)) {
 							deepFreeze(child)
 						}
@@ -996,7 +1041,7 @@ describe("the omitted members", () => {
 
 describe("canonical comparison", () => {
 	it.effect(
-		"is equality of specified text, and sorts a set by it, refusing a member outside the model at its place",
+		"is equality of specified text, sameContent's too, and sorts a set by it, refusing a member outside the model at its place",
 		(ctx) =>
 			searched(
 				ctx,
@@ -1026,6 +1071,12 @@ describe("canonical comparison", () => {
 								sketch: [[[1], [1]], [], 0],
 								draws: "",
 								reaches: ["a repeated member"]
+							},
+							{
+								note: "a vector beside the protocol value of its text",
+								sketch: [[Float32Array.of(1), new Exact(vectorTag, "[1]")], [], 0],
+								draws: "",
+								reaches: ["a repeated member"]
 							}
 						],
 						runs: 300,
@@ -1044,6 +1095,7 @@ describe("canonical comparison", () => {
 								for (const b of items) {
 									const same = specified(a) === specified(b)
 									assert.equal(canonicalEquals(a, b, everyProperty), same)
+									assert.equal(sameContent(a, b), canonicalEquals(a, b, withoutSourceLocs))
 									c.note(same && a !== b ? "a repeated member" : "two distinct members")
 								}
 							}
@@ -1217,15 +1269,22 @@ describe("canonical tokens", () => {
 	)
 })
 
-function normalizeZero(v: unknown): unknown {
+/**
+ * The value `v`'s canonical text decodes to under `revivers`: -0 as 0, and a vector as the Exact value its tag and
+ * payload revive to, since a vector's text and a protocol value's of its tag are one.
+ */
+function decodedForm(v: unknown): unknown {
 	if (Object.is(v, -0)) {
 		return 0
 	}
+	if (v instanceof Float32Array) {
+		return new Exact(vectorTag, vectorPayload(v))
+	}
 	if (isList(v)) {
-		return Arr.map(v, normalizeZero)
+		return Arr.map(v, decodedForm)
 	}
 	if (v instanceof Exact || !isRecord(v)) {
 		return v
 	}
-	return build(Arr.map(Rec.toEntries(v), ([k, child]) => [k, normalizeZero(child)]))
+	return build(Arr.map(Rec.toEntries(v), ([k, child]) => [k, decodedForm(child)]))
 }

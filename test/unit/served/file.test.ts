@@ -2,10 +2,11 @@ import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { int } from "@grizzle/testing/gen"
+import { array, constant, element, int, oneOf } from "@grizzle/testing/gen"
 import { agree, exact, set, structuralHash } from "@grizzle/testing/oracle"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
+import { float } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
 import {
 	Result as Answered,
@@ -52,6 +53,13 @@ import { SchemaFingerprint } from "#compiler/core/ids.ts"
  * role, where it serves: the same round trip, plant, host's read and stale file, its write, binding, statements,
  * read-backs and members read back as they were written and loaded as a layer loads them.
  *
+ * Over drawn vectors bound to the Search fixture's scoring read-back (test/support/fixtures/api/search.ts), its query's
+ * vector parameter closed by ChangeSet.bind over the caller's buffer, which the caller writes again after the bind: the
+ * ChangeSet served, one change member of one role, and read back whole as above, its bound vector reading back as the
+ * vector bound, bit for bit, -0 as 0, the one zero the codec writes (core/canonical.ts canonicalOf). A vector with a
+ * component that is not finite has no canonical text, and no served file holds it: the served compile refuses it by
+ * its name (served-members.ts opaqueBinding), as its bind read it, whatever the caller writes to it after.
+ *
  * Essay ideas: an oracle (the forms served, compared as the runtime reads them) over generated programs, and a plant
  * that keeps it honest.
  */
@@ -72,6 +80,8 @@ import type {
 import { servedFile, servedText } from "#compiler/served/json.ts"
 import { servedMatchers } from "#compiler/served/matchers.ts"
 import { servedReadBacks } from "#compiler/served/spine.ts"
+import type { UnservedMember } from "#compiler/served/unserved.ts"
+import { changeSetOver } from "#compiler/write/changeset/value.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
 import { closedTableOf } from "#compiler/write/program/decide.ts"
 import { servedMembers } from "#compiler/write/program/served-members.ts"
@@ -87,6 +97,7 @@ import {
 	testArtifacts,
 	testCompile
 } from "#test/support/compile.ts"
+import { documentDimensions, Search, scoredDocuments } from "#test/support/fixtures/api/search.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { buildRoot, buildSchema } from "#test/support/oracle/public/build.ts"
 import { caseSketchGen, resolveCase } from "#test/support/oracle/public/generate.ts"
@@ -125,6 +136,15 @@ type ChangeFeature =
 	| "a dropped member that does not read back"
 	| "a file a host reads that loads"
 	| "a stale program named"
+
+type BoundFeature =
+	| "a vector served bit for bit"
+	| "a vector component of -0"
+	| "a vector written after it was bound"
+	| "a vector that is not finite refused"
+	| "a vector not finite when bound and finite after"
+	| "a dropped member that does not read back"
+	| "a file a host reads that loads"
 
 type Feature =
 	| "a read"
@@ -442,7 +462,7 @@ const changeTrip = (
 		const program = compiled.value
 		const parsed = parsedOf(changes)
 		const write = servedWrite(program, "serializable")
-		const members = servedMembers(program.binding.members, parsed.values)
+		const members = servedMembers(program.binding.members, parsed.opaque)
 		if (!write.ok || !members.ok) {
 			return
 		}
@@ -489,6 +509,119 @@ const changeTrip = (
 		if (reached.stale) {
 			note("a stale program named")
 		}
+	})
+
+/** The largest finite 32-bit float. */
+const float32Max = 3.4028234663852886e38
+
+/** A vector's component: a 32-bit float of any scale, -0, or one that is not finite. */
+const component = oneOf<number>([
+	float(-float32Max, float32Max),
+	constant(-0),
+	element([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])
+])
+
+/** The account the scoring read-back's other parameter binds. */
+const account = "00000000-0000-4000-8000-000000000000"
+
+/** Search's artifacts, which every bound vector's ChangeSet compiles under. */
+const searchArtifacts = ok(testArtifacts(Search, testCompile), "Search's artifacts", () => "Search")
+
+/** The value the first change member of `file`'s first role binds under `name`, as the file holds it. */
+const boundOf = (file: ServedFile, name: string): unknown => {
+	const member = file.roles[0]?.members[0]
+	return member?.kind === "change" && member.variants.kind === "change"
+		? member.variants.change.bound.get(name)
+		: undefined
+}
+
+/**
+ * The scoring read-back bound to `components`, the caller's buffer written at `at` with `later` after the bind, compiled
+ * for reality and served, one change member of one role, and read back whole (readsBackWhole): its bound vector is the
+ * vector bound, bit for bit, -0 as 0; or, where a component is not finite, refused by name.
+ */
+const boundTrip = (
+	components: ReadonlyArray<number>,
+	at: number,
+	later: number,
+	pick: number,
+	note: (feature: BoundFeature) => void
+) =>
+	Effect.gen(function* () {
+		const printed = () => Formatter.format({ components, at, later })
+		const buffer = Float32Array.from(components)
+		const bound = Float32Array.from(components, (x) => (x === 0 ? 0 : x))
+		const changes = changeSetOver
+			.empty(Search)
+			.read("scored", () => scoredDocuments)
+			.bind({ account, vector: buffer })
+		buffer[at % buffer.length] = later
+		if (Arr.some(components, (x) => Object.is(x, -0))) {
+			note("a vector component of -0")
+		}
+		if (!Arr.every(Arr.fromIterable(buffer), (x, i) => Object.is(x, bound[i]))) {
+			note("a vector written after it was bound")
+		}
+		const program = ok(
+			compileWrite(checking(Search), descOf(changes), realityWrite(searchArtifacts)),
+			"the scoring read-back compiles",
+			printed
+		)
+		const parsed = parsedOf(changes)
+		const members = servedMembers(program.binding.members, parsed.opaque)
+		if (!Arr.every(components, Number.isFinite)) {
+			if (Arr.every(Arr.fromIterable(buffer), Number.isFinite)) {
+				note("a vector not finite when bound and finite after")
+			}
+			const refusal: UnservedMember = {
+				_tag: "UnservedMember",
+				reasons: [{ kind: "opaqueBinding", name: "vector" }]
+			}
+			assert.deepEqual(
+				members,
+				Result.err(refusal),
+				`a vector that is not finite is refused by name\n${printed()}`
+			)
+			note("a vector that is not finite refused")
+			return
+		}
+		const write = servedWrite(program, "serializable")
+		if (!members.ok || !write.ok) {
+			return assert.fail(`the bound vector's read-back serves\n${printed()}`)
+		}
+		const change: ServedChange = {
+			program: write.value,
+			readBacks: servedReadBacks(program.artifact.readBacks),
+			decoder: changes.reads.form,
+			bound: parsed.values,
+			members: members.value
+		}
+		const read = Arr.dedupe([
+			...program.binding.evaluation.closed,
+			...program.binding.witness.evaluation.closed
+		])
+		const file = fileOf(
+			[{ name: "scored", kind: "change", variants: { kind: "change", change } }],
+			new Map(
+				Arr.map(
+					[...program.frontend.codes.rosters],
+					([name, codec]) => [name, codec.codes] as const
+				)
+			),
+			closedNamed(read, closedTableOf(program.frontend)),
+			isolationAt(pick)
+		)
+		const reached = yield* readsBackWhole(file, pick, printed)
+		assert.deepEqual<unknown>(
+			boundOf(reached.back, "vector"),
+			bound,
+			`the bound vector reads back as bound, bit for bit\n${printed()}`
+		)
+		note("a vector served bit for bit")
+		if (reached.dropped) {
+			note("a dropped member that does not read back")
+		}
+		note("a file a host reads that loads")
 	})
 
 layer(NodeServices.layer, { excludeTestServices: true })("a served file", (it) => {
@@ -592,6 +725,65 @@ layer(NodeServices.layer, { excludeTestServices: true })("a served file", (it) =
 							)
 							yield* changeTrip(group, schema, servedShape(c), pick, notes.note)
 						}).pipe(Effect.scoped, Effect.orDie)
+				)
+			)
+	)
+
+	it.effect(
+		"reads back every vector a served ChangeSet binds bit for bit as it was bound, and refuses one that is not finite by name",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						oracle: {
+							kind: "specification",
+							name: "the vector bound, bit for bit with -0 as 0, or its refusal by name where it is not finite"
+						},
+						suite: "unit/served/bound-vector",
+						draw: drawn(
+							(source) =>
+								[
+									source.draw(
+										array(component, { min: documentDimensions, max: documentDimensions })
+									),
+									source.draw(int(0, documentDimensions - 1)),
+									source.draw(float(-float32Max, float32Max)),
+									source.draw(int(0, 1_000_000))
+								] as const
+						),
+						literal: Formatter.format,
+						coverage: required<BoundFeature>(
+							[
+								"a vector served bit for bit",
+								"a vector component of -0",
+								"a vector written after it was bound",
+								"a vector that is not finite refused",
+								"a vector not finite when bound and finite after",
+								"a dropped member that does not read back",
+								"a file a host reads that loads"
+							],
+							{ cases: 60, sense: notesOnly }
+						),
+						kept: [
+							{
+								note: "a vector bound with NaN and written finite after: its bind read it with no text",
+								sketch: [[Number.NaN, 0, 0, 0], 0, 0, 0],
+								draws: "",
+								reaches: [
+									"a vector that is not finite refused",
+									"a vector not finite when bound and finite after"
+								]
+							}
+						],
+						runs: 60,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang
+					},
+					([components, at, later, pick], notes) =>
+						boundTrip(components, at, later, pick, notes.note).pipe(Effect.scoped, Effect.orDie)
 				)
 			)
 	)

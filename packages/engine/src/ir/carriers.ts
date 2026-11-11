@@ -1,5 +1,10 @@
 import { nominal } from "#compiler/core/brand.ts"
-import { type Canonicalizable, canonicalTag, type TaggedValue } from "#compiler/core/canonical.ts"
+import {
+	type Canonicalizable,
+	canonicalTag,
+	type TaggedValue,
+	vectorTag
+} from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import {
 	derived,
@@ -33,7 +38,8 @@ export const canonicalZero = (x: number): CanonicalFloat => mintCanonical(x === 
  * Money and Vector values at the Description boundary and in the IR.
  *
  * A Money literal travels as "~m:<minor units>" and a Vector literal as "~v:[c1,...,cn]", the
- * same extension tags the owned Money and scalar/values' Vector.canonical write. A Description holds either as any
+ * same extension tags the owned Money and scalar/values' Vector.canonical write, the vector's the one the canonical
+ * model writes a host vector's components under (core/canonical.ts vectorTag). A Description holds either as any
  * object implementing the canonical protocol with that tag; the IR holds it parsed, as decimal.ts does for decimals: a
  * money amount as its minor units (MoneyValue), so the owned Money travels through unchanged, and a vector as its
  * components (VectorText), since a Vector is a caller's mutable Float32Array. This module owns only what the boundary
@@ -47,7 +53,7 @@ export const canonicalZero = (x: number): CanonicalFloat => mintCanonical(x === 
  *   as a double (String(x), so never "-0": -0 is stored as +0).
  */
 export const moneyTag = "m"
-export const vectorTag = "v"
+export { vectorTag }
 
 /** The decimal digits of the greatest magnitude in [min, max]: the least d with |x| < 10^d for every x of the range. */
 const rangeDigits = (min: bigint, max: bigint): number =>

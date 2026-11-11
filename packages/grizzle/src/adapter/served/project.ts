@@ -90,7 +90,7 @@ const variantsOf = (
 			return Result.gen(function* () {
 				const program = yield* toResult(servedWrite(compiled, isolation))
 				const members = yield* toResult(
-					servedMembers(compiled.binding.members, entry.change.values)
+					servedMembers(compiled.binding.members, entry.change.opaque)
 				)
 				const change: ServedChange = {
 					program,

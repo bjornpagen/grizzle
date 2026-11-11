@@ -7,6 +7,13 @@ import { internedRangeOp } from "#compiler/ir/expr.ts"
 const pathText = (path: ReadonlyArray<string | number>): string =>
 	path.length === 0 ? "(the root)" : Arr.join(Arr.map(path, String), ".")
 
+/** Whether two vectors hold one count of components, each the same 32 bits. */
+const sameBits = (a: Float32Array, b: Float32Array): boolean => {
+	const bitsA = new Uint32Array(a.buffer, a.byteOffset, a.length)
+	const bitsB = new Uint32Array(b.buffer, b.byteOffset, b.length)
+	return bitsA.length === bitsB.length && bitsA.every((bits, i) => bits === bitsB[i])
+}
+
 /** The first member at which two served values under `path` differ (runtimeDifference), its path dotted, or none. */
 const differenceAt = (
 	a: unknown,
@@ -15,6 +22,11 @@ const differenceAt = (
 ): string | undefined => {
 	if (typeof a !== "object" || a === null || typeof b !== "object" || b === null) {
 		return Object.is(a, b) ? undefined : pathText(path)
+	}
+	if (a instanceof Float32Array || b instanceof Float32Array) {
+		return a instanceof Float32Array && b instanceof Float32Array && sameBits(a, b)
+			? undefined
+			: pathText(path)
 	}
 	if (isRecord(a) && internedRangeOp(a) !== undefined) {
 		return a === b ? undefined : pathText(path)
@@ -74,10 +86,12 @@ const differenceAt = (
 
 /**
  * The first member at which two served values differ as the runtime reads them, its path dotted, or none: the same
- * primitive; a range overload, the one instance the registry knows it by (ir/expr.ts rangeOp), as that very instance; arrays of equal length, element by element; Maps of the same entries in the same order and Sets of the same
- * members in the same order; canonical values (a Roster, a Decimal, a Money, an IR literal's text) of one class with one
- * canonical payload; records with the same members that are not undefined, whatever their prototypes, which the runtime
- * reads none of, a member left undefined being one left out.
+ * primitive; a vector, a Float32Array of the same components bit for bit; a range overload, the one instance the
+ * registry knows it by (ir/expr.ts rangeOp), as that very instance; arrays of equal length, element by element; Maps of
+ * the same entries in the same order and Sets of the same members in the same order; canonical values (a Roster, a
+ * Decimal, a Money, an IR literal's text) of one class with one canonical payload; records with the same members that
+ * are not undefined, whatever their prototypes, which the runtime reads none of, a member left undefined being one left
+ * out.
  */
 export const runtimeDifference = (a: unknown, b: unknown): string | undefined =>
 	differenceAt(a, b, [])

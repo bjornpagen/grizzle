@@ -1,10 +1,13 @@
 import type { Stream } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import {
+	type CanonicalObject,
 	type CanonicalToken,
+	canonicalOf,
 	canonicalTokens,
 	compareCanonicalTokens,
-	everyProperty
+	everyProperty,
+	type Outside
 } from "#compiler/core/canonical.ts"
 import { attachment, merge, type RecordField, type RowDecoder } from "#compiler/core/decoder.ts"
 import { hostRead } from "#compiler/core/host.ts"
@@ -12,7 +15,7 @@ import { defined } from "#compiler/core/invariant.ts"
 import { captureLoc, labeledChildLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import * as Order from "#compiler/core/order.ts"
 import { type Built, builtMark } from "#compiler/core/phantom.ts"
-import { hasProperties, isList, isPlainRecord } from "#compiler/core/record.ts"
+import { hasProperties, isPlainRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import { TupleMap } from "#compiler/core/tuple-map.ts"
 import {
@@ -30,6 +33,7 @@ import { inReservedSpace, slotSpelling } from "#compiler/ir/slots.ts"
 import { schemaInfo } from "#compiler/query/build/heading.ts"
 import { isCallback } from "#compiler/query/build/scope.ts"
 import { isOrdered, publicDesc, queryState } from "#compiler/query/build/state.ts"
+import { Vector } from "#compiler/scalar/values/vector.ts"
 import { isLevelOver, type Level } from "#compiler/schema/level.ts"
 import { malformed, orThrow, requireName } from "#compiler/schema/protocol.ts"
 import { named, record } from "#compiler/schema/record.ts"
@@ -100,8 +104,8 @@ interface ReadBackState {
 /**
  * What tells two values bound under one name apart: the value's canonical tokens (core/canonical.ts canonicalTokens),
  * read once when bind takes it, its canonical text's tokens and never that text, so a value whose texts sum past the
- * longest string is keyed as any other; or opaque for a value that has none, a Stream, which is equal to no other value
- * and has no canonical order.
+ * longest string is keyed as any other; or opaque for a value that has none, a Stream or a vector with a component
+ * that is not finite, which is equal to no other value and has no canonical order.
  */
 type BoundKey =
 	| { readonly kind: "tokens"; readonly tokens: ReadonlyArray<CanonicalToken> }
@@ -139,6 +143,11 @@ interface ChangeSetState {
 	readonly bound: ReadonlyMap<string, BoundParam>
 	/** Their values, by private name. */
 	readonly values: ReadonlyMap<string, ParamValue>
+	/**
+	 * The private names of the values bind read with no canonical text (`BoundKey` opaque), in their order: read once,
+	 * when bind took them, so what a caller does to such a value later never gives it one.
+	 */
+	readonly opaque: ReadonlyArray<string>
 	readonly desc: ChangeSetDesc
 	/** The array and Stream inputs, by the slot their member's Description names. */
 	readonly inputs: ReadonlyMap<string, ChangeSetInput>
@@ -258,6 +267,8 @@ export interface ParsedChangeSet {
 	readonly desc: ChangeSetDesc
 	readonly inputs: ReadonlyMap<string, ChangeSetInput>
 	readonly values: ReadonlyMap<string, ParamValue>
+	/** The private names of its bound values with no canonical text, read at bind (ChangeSetState). */
+	readonly opaque: ReadonlyArray<string>
 }
 
 /** The parsed ChangeSet of a value, none when the value is not one. */
@@ -674,6 +685,9 @@ const make = <S, P, W extends string, Rd, Done extends Strata, Last extends Stra
 		reads: Object.freeze([...scope.reads]),
 		bound,
 		values: new Map([...bound].map(([name, param]) => [name, param.value])),
+		opaque: [...bound]
+			.flatMap(([name, param]) => (param.key.kind === "opaque" ? [name] : []))
+			.toSorted(Order.compareStrings),
 		desc,
 		inputs
 	})
@@ -898,13 +912,71 @@ const addRead = <
 	)
 }
 
+/** A value as the ChangeSet owns it: a scalar as it is, and an object as `object` owns it by its canonical reading. */
+const owned = <V>(value: V, object: (value: V, read: CanonicalObject | Outside) => V): V => {
+	const read = canonicalOf(value)
+	return typeof read === "object" ? object(value, read) : value
+}
+
+/** A field of a bound fact as the ChangeSet owns it, by its canonical reading: a vector the components it copied. */
+const ownedField = (field: unknown, read: CanonicalObject | Outside): unknown => {
+	switch (read.kind) {
+		case "vector":
+			return Vector.branded(read.components)
+		case "tagged":
+		case "array":
+		case "record":
+		case "outside":
+			return field
+	}
+}
+
+/**
+ * A fact of a bound relation's array as the ChangeSet owns it, by its canonical reading: a plain record copied and
+ * frozen, each field owned (ownedField); any other value as it is, which no served call holds.
+ */
+const ownedFact = (fact: unknown, read: CanonicalObject | Outside): unknown => {
+	switch (read.kind) {
+		case "record":
+			return Object.freeze(
+				Object.fromEntries(
+					Object.entries(read.record).map(([name, field]) => [name, owned(field, ownedField)])
+				)
+			)
+		case "vector":
+		case "tagged":
+		case "array":
+		case "outside":
+			return fact
+	}
+}
+
+/**
+ * A bound value as the ChangeSet owns it, by its canonical reading (core/canonical.ts canonicalOf): a vector the
+ * components its reading copied, -0 held as 0, so a later write to the caller's buffer reaches neither the value's key
+ * nor the value a served file holds; an array of facts frozen, each fact owned (ownedFact); and any other value as it
+ * is, each immutable or, a Stream and a vector that is not finite, opaque.
+ */
+const ownedBound = (value: ParamValue, read: CanonicalObject | Outside): ParamValue => {
+	switch (read.kind) {
+		case "vector":
+			return Vector.branded(read.components)
+		case "array":
+			return Object.freeze(read.items.map((fact) => owned(fact, ownedFact)))
+		case "tagged":
+		case "record":
+		case "outside":
+			return value
+	}
+}
+
 /** A JavaScript caller's value, read as unknown: grizzle has no NULL. */
 const absent = (value: unknown): boolean => value === undefined || value === null
 
 /** The values come from the typed bind, ParamArg<Params>, each a ParamValue by construction, whose type
  * alone states a bound Stream's channels; a JavaScript caller's argument that is no record, or a NULL value, is refused.
- * The caller's map, and each array of facts in it, is read once through hostRead: a getter or proxy trap that throws
- * refuses it, and nothing after the read runs the caller's code.
+ * The caller's map, and each value in it, is read once through hostRead into the value the ChangeSet owns (owned): a
+ * getter or proxy trap that throws refuses it, and nothing after the read runs the caller's code.
  *
  * A free name is no private one, so the bound parameter keeps its name until make() makes it canonical. */
 const bindParams = <S, W extends string, Rd, Done extends Strata, Last extends Stratum, A>(
@@ -920,7 +992,7 @@ const bindParams = <S, W extends string, Rd, Done extends Strata, Last extends S
 				? Result.ok(
 						Object.entries(params).map(([name, value]): readonly [string, ParamValue] => [
 							name,
-							isList(value) ? Object.freeze(value.map(frozenFact)) : value
+							owned(value, ownedBound)
 						])
 					)
 				: Result.err(malformed(label, "a record of parameter values"))

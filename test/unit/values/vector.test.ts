@@ -307,51 +307,73 @@ describe("Vector in the canonical serializer", () => {
 		)
 	)
 
-	it.effect("round-trips every float32 vector", (ctx) =>
-		searched(
-			ctx,
-			explore(
-				{
-					oracle: { kind: "unstated" },
-					suite: "unit/values/vector-1",
-					draw: drawn(array(finiteFloat, { min: 1, max: 8 })),
-					literal: Formatter.format,
-					coverage: noCoverage,
-					kept: [],
-					runs: 2000,
-					shrink: completeShrink,
-					concurrency: 1,
-					steerEvery: 16,
-					caseHang
-				},
-				(xs) =>
-					Effect.sync(() => {
-						const v = Vector.make(Float32Array.from(xs), xs.length)
-						const encoded = succeeded(encode(succeeded(Vector.canonical(v)), everyProperty))
-						const back = vectorOf(succeeded(decode(encoded, { v: Vector.fromCanonical })))
-						assert.equal(Vector.equals(back, v), true)
-						assert.equal(Vector.componentText(back), Vector.componentText(v))
-						for (const component of Str.split(
-							pipe(Vector.componentText(v), Str.slice(1, -1)),
-							","
-						)) {
-							assert.notEqual(component, "-0")
-						}
-						/**
-						 * The canonical form is a frozen snapshot: writing the buffer later leaves it, and its text, as it was.
-						 */
-						const buffer = Float32Array.from(xs)
-						const snapshot = succeeded(Vector.canonical(Vector.make(buffer, xs.length)))
-						const text = succeeded(encode(snapshot, everyProperty))
-						buffer[0] = 7
-						assert.equal(succeeded(encode(snapshot, everyProperty)), text)
-						refused(encode(buffer, everyProperty), "MalformedDescription")
-						faulted(
-							Vector.canonical(Vector.make(Float32Array.from([...xs, Number.NaN]), xs.length + 1)),
-							"vectorNonFinite"
-						)
-					})
+	it.effect(
+		"round-trips every float32 vector bit for bit, a host vector one text with its canonical form",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						oracle: { kind: "unstated" },
+						suite: "unit/values/vector-1",
+						draw: drawn(array(finiteFloat, { min: 1, max: 8 })),
+						literal: Formatter.format,
+						coverage: noCoverage,
+						kept: [],
+						runs: 2000,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang
+					},
+					(xs) =>
+						Effect.sync(() => {
+							const v = Vector.make(Float32Array.from(xs), xs.length)
+							const encoded = succeeded(encode(succeeded(Vector.canonical(v)), everyProperty))
+							assert.equal(
+								succeeded(encode(v, everyProperty)),
+								encoded,
+								"a host vector's text is its canonical form's"
+							)
+							const back = vectorOf(succeeded(decode(encoded, { v: Vector.fromCanonical })))
+							assert.deepEqual<Float32Array>(
+								back,
+								Float32Array.from(xs, (x) => (x === 0 ? 0 : x)),
+								"the vector read back is its components bit for bit, -0 as 0"
+							)
+							assert.equal(Vector.equals(back, v), true)
+							assert.equal(Vector.componentText(back), Vector.componentText(v))
+							for (const component of Str.split(
+								pipe(Vector.componentText(v), Str.slice(1, -1)),
+								","
+							)) {
+								assert.notEqual(component, "-0")
+							}
+							/**
+							 * The canonical form is a frozen snapshot: writing the buffer later leaves it, and its text, as it was.
+							 */
+							const buffer = Float32Array.from(xs)
+							const snapshot = succeeded(Vector.canonical(Vector.make(buffer, xs.length)))
+							const text = succeeded(encode(snapshot, everyProperty))
+							buffer[0] = 7
+							assert.equal(succeeded(encode(snapshot, everyProperty)), text)
+							assert.equal(
+								succeeded(encode(buffer, everyProperty)),
+								succeeded(encode(succeeded(Vector.canonical(buffer)), everyProperty)),
+								"a buffer's text is its components' as they are when it is read"
+							)
+							refused(
+								encode(Float32Array.from([...xs, Number.NaN]), everyProperty),
+								"MalformedDescription"
+							)
+							faulted(
+								Vector.canonical(
+									Vector.make(Float32Array.from([...xs, Number.NaN]), xs.length + 1)
+								),
+								"vectorNonFinite"
+							)
+						})
+				)
 			)
-		)
 	)
 })

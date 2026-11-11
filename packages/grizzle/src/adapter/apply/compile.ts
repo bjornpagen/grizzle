@@ -35,9 +35,9 @@ export interface WriteEntry {
 /**
  * A ChangeSet compiled for a role: its program entry, the program as it compiled, which a served file holds
  * (served/project.ts), and what applying it reads of its value besides its program, its array members' facts and its
- * bound values.
+ * bound values, and what serving it reads, the bound values its bind read with no canonical text.
  */
 export interface CompiledChange extends WriteEntry {
 	readonly compiled: CompiledWrite
-	readonly change: Pick<ParsedChangeSet, "inputs" | "values">
+	readonly change: Pick<ParsedChangeSet, "inputs" | "values" | "opaque">
 }

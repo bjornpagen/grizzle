@@ -1,3 +1,4 @@
+import { appendAll } from "#compiler/core/array.ts"
 import {
 	type CompileError,
 	isCompileError,
@@ -21,8 +22,18 @@ export const compareText = (a: string, b: string): number => compareStrings(a, b
 
 export const canonicalTag: unique symbol = Symbol.for("grizzle/canonical")
 
+/**
+ * The tag of a vector's canonical text, "~v:[c1,...,cn]": a Float32Array's (canonicalOf), and the IR's VectorText's,
+ * which implements the protocol under it (ir/carriers.ts), so a host vector and the IR's vector of its components are
+ * one text.
+ */
+export const vectorTag = "v"
+
 export interface TaggedValue {
-	/** Lowercase ASCII letters and digits, starting with a letter. "n" is reserved for bigint. */
+	/**
+	 * Lowercase ASCII letters and digits, starting with a letter. "n" is reserved for bigint; "v" is a vector's, which a
+	 * value implementing the protocol may carry with a vector's payload.
+	 */
 	readonly tag: string
 	readonly payload: string
 }
@@ -83,61 +94,6 @@ const identityMembers = (record: Readonly<Record<string, unknown>>): Map<string,
 		}
 	}
 	return members
-}
-
-/**
- * Whether two values a builder made have one semantic identity: whether the texts withoutSourceLocs writes of them are
- * one text, read by walking both at once and writing neither. A value implementing the protocol is its tag and payload;
- * a list its items in order; a record its members by key in any order, a member the text leaves out left out here; a
- * number its value, -0 being 0; any other scalar itself. One value met twice is one value at once, so a value is read
- * only where it differs from the other. The pairs still to compare wait on a stack on the heap, so no depth of value
- * deepens the call stack.
- */
-export const sameContent = (a: unknown, b: unknown): boolean => {
-	const pending: Array<readonly [unknown, unknown]> = [[a, b]]
-	for (let pair = pending.pop(); pair !== undefined; pair = pending.pop()) {
-		const [x, y] = pair
-		if (x === y) {
-			continue
-		}
-		if (!isRecord(x) || !isRecord(y)) {
-			return false
-		}
-		const taggedX = taggedValueOf(x)
-		const taggedY = taggedValueOf(y)
-		if (taggedX !== undefined || taggedY !== undefined) {
-			if (
-				taggedX === undefined ||
-				taggedY === undefined ||
-				taggedX.tag !== taggedY.tag ||
-				taggedX.payload !== taggedY.payload
-			) {
-				return false
-			}
-			continue
-		}
-		if (isList(x) || isList(y)) {
-			if (!isList(x) || !isList(y) || x.length !== y.length) {
-				return false
-			}
-			for (const [i, item] of x.entries()) {
-				pending.push([item, y[i]])
-			}
-			continue
-		}
-		const membersX = identityMembers(x)
-		const membersY = identityMembers(y)
-		if (membersX.size !== membersY.size) {
-			return false
-		}
-		for (const [key, member] of membersX) {
-			if (!membersY.has(key)) {
-				return false
-			}
-			pending.push([member, membersY.get(key)])
-		}
-	}
-	return true
 }
 
 /** JSON text, admitted as an unknown value for the structural decode that follows; undefined for text that is not JSON. */
@@ -281,6 +237,208 @@ const checkText = (
 /** refuse, typed so that control flow analysis knows a call to it does not return. */
 const stop: (path: Path, capability: string) => never = refuseValue
 
+/**
+ * A canonical value that is an object, as canonicalOf reads it: a vector, a Float32Array's components copied out of it
+ * through its internal slots, so no method a subclass overrides runs, each finite and -0 held as 0, beside the tagged
+ * value its text is (vectorTag, "[c1,...,cn]", each component the text of the number it is, which reads back as exactly
+ * that binary32 value); a value implementing the protocol, beside the tag and payload its method returned; an array;
+ * or a plain record, whose prototype is Object's or none and which holds no symbol key.
+ */
+export type CanonicalObject =
+	| {
+			readonly kind: "vector"
+			readonly components: Float32Array
+			readonly tagged: TaggedValue
+	  }
+	| { readonly kind: "tagged"; readonly value: object; readonly tagged: TaggedValue }
+	| { readonly kind: "array"; readonly items: ReadonlyArray<unknown> }
+	| { readonly kind: "record"; readonly record: Readonly<Record<string, unknown>> }
+
+/** A value outside the canonical model, beside what the model holds in its place. */
+export interface Outside {
+	readonly kind: "outside"
+	readonly value: unknown
+	readonly what: string
+}
+
+/**
+ * A value of the canonical model, by its kind: well-formed text, a finite number, a boolean and a bigint are each its
+ * own variant, and every other value of the model is a CanonicalObject.
+ */
+export type CanonicalValue = string | number | boolean | bigint | CanonicalObject
+
+const outside = (value: unknown, what: string): Outside => ({ kind: "outside", value, what })
+
+/** A Float32Array read as a vector (CanonicalObject), or outside the model where a component is not finite. */
+const vectorOf = (buffer: Float32Array): CanonicalObject | Outside => {
+	const components = new Float32Array(buffer)
+	const texts: Array<string> = []
+	for (const [i, x] of components.entries()) {
+		if (!Number.isFinite(x)) {
+			return outside(buffer, "a Float32Array of finite components")
+		}
+		components[i] = x === 0 ? 0 : x
+		texts.push(String(x))
+	}
+	return { kind: "vector", components, tagged: { tag: vectorTag, payload: `[${texts.join(",")}]` } }
+}
+
+/**
+ * A value implementing the protocol read with the tag and payload its method returned, or outside the model where the
+ * tag is no tag name, is the reserved "n", or the payload is no well-formed text.
+ */
+const protocolOf = (value: object, tagged: TaggedValue): CanonicalObject | Outside =>
+	!isTagName(tagged.tag) || tagged.tag === "n"
+		? outside(value, `a valid canonical tag, not "${tagged.tag}"`)
+		: tagged.payload.isWellFormed()
+			? { kind: "tagged", value, tagged }
+			: outside(value, wellFormedText)
+
+/**
+ * A plain record read as one, or outside the model where its prototype is neither Object's nor none, or it holds a
+ * symbol key.
+ */
+const recordOf = (value: Readonly<Record<string, unknown>>): CanonicalObject | Outside => {
+	const proto: unknown = Object.getPrototypeOf(value)
+	if (proto !== Object.prototype && proto !== null) {
+		return outside(value, "a plain object")
+	}
+	return Object.getOwnPropertySymbols(value).length > 0
+		? outside(value, "an object without symbol keys")
+		: { kind: "record", record: value }
+}
+
+/**
+ * An object read by its kind: a Float32Array as a vector, whatever else it holds; a value whose method returns a tag
+ * and a payload as one implementing the protocol, and one whose method returns anything else as a forgery outside the
+ * model; an array; and any other object as a plain record, or outside the model.
+ */
+const objectOf = (value: Readonly<Record<string, unknown>>): CanonicalObject | Outside => {
+	if (value instanceof Float32Array) {
+		return vectorOf(value)
+	}
+	const tagged = taggedValueOf(value)
+	if (tagged !== undefined) {
+		return protocolOf(value, tagged)
+	}
+	if (canonicalTag in value && typeof value[canonicalTag] === "function") {
+		return outside(value, "a canonical tag and payload")
+	}
+	return isList(value) ? { kind: "array", items: value } : recordOf(value)
+}
+
+/**
+ * The one reading of a value by the canonical model (CanonicalValue), or outside it, with what the model holds in its
+ * place: text that is not well-formed (a lone UTF-16 surrogate), a number that is not finite, null, undefined, a
+ * function, a symbol, a vector with a component that is not finite, a forged or misnamed protocol value, and an object
+ * that is no plain record. Every traversal of the model, and every reader of a value by it, dispatches on this reading,
+ * so no kind of the model is read anywhere but here.
+ */
+export const canonicalOf = (value: unknown): CanonicalValue | Outside => {
+	switch (typeof value) {
+		case "string":
+			return value.isWellFormed() ? value : outside(value, wellFormedText)
+		case "number":
+			return Number.isFinite(value) ? value : outside(value, "a finite number")
+		case "boolean":
+		case "bigint":
+			return value
+		case "object":
+			return isRecord(value) ? objectOf(value) : outside(value, "a value, not null")
+		case "undefined":
+		case "function":
+		case "symbol":
+			return outside(value, `a canonical value, not ${typeof value}`)
+	}
+}
+
+/** The pairs of members two canonical objects hold one text exactly when they hold, or undefined where they cannot. */
+type MemberPairs = ReadonlyArray<readonly [unknown, unknown]> | undefined
+
+/** The tagged value a canonical object is written as: a vector's or a protocol value's; undefined for any other. */
+const writtenTag = (read: CanonicalObject | Outside): TaggedValue | undefined => {
+	switch (read.kind) {
+		case "vector":
+		case "tagged":
+			return read.tagged
+		case "array":
+		case "record":
+		case "outside":
+			return undefined
+	}
+}
+
+/** The items of two arrays of one length, pair by pair; undefined for arrays of two lengths. */
+const itemPairs = (x: ReadonlyArray<unknown>, y: ReadonlyArray<unknown>): MemberPairs =>
+	x.length === y.length ? x.map((item, i) => [item, y[i]] as const) : undefined
+
+/** The members of two records under one set of keys, key by key; undefined for records under two. */
+const recordPairs = (
+	x: Readonly<Record<string, unknown>>,
+	y: Readonly<Record<string, unknown>>
+): MemberPairs => {
+	const membersX = identityMembers(x)
+	const membersY = identityMembers(y)
+	const pairs: Array<readonly [unknown, unknown]> = []
+	for (const [key, member] of membersX) {
+		if (!membersY.has(key)) {
+			return undefined
+		}
+		pairs.push([member, membersY.get(key)])
+	}
+	return membersX.size === membersY.size ? pairs : undefined
+}
+
+/**
+ * What two canonical objects hold one text exactly when: a vector or a protocol value beside either of one tag and
+ * payload, nothing more; two arrays, their items; two records, their members; and never a value outside the model.
+ */
+const memberPairs = (x: CanonicalObject | Outside, y: CanonicalObject | Outside): MemberPairs => {
+	switch (x.kind) {
+		case "vector":
+		case "tagged": {
+			const other = writtenTag(y)
+			return other !== undefined && other.tag === x.tagged.tag && other.payload === x.tagged.payload
+				? []
+				: undefined
+		}
+		case "array":
+			return y.kind === "array" ? itemPairs(x.items, y.items) : undefined
+		case "record":
+			return y.kind === "record" ? recordPairs(x.record, y.record) : undefined
+		case "outside":
+			return undefined
+	}
+}
+
+/**
+ * Whether two values a builder made have one semantic identity: whether the texts withoutSourceLocs writes of them are
+ * one text, read by walking both at once and writing neither, each value read by the canonical model (canonicalOf). A
+ * scalar is itself, a number its value, -0 being 0; a vector or a value implementing the protocol its tag and payload;
+ * a list its items in order; a record its members by key in any order, a member the text leaves out left out here; and
+ * a value outside the model, which no text holds, the same as nothing but itself. One value met twice is one value at
+ * once, so a value is read only where it differs from the other. The pairs still to compare wait on a stack on the
+ * heap, so no depth of value deepens the call stack.
+ */
+export const sameContent = (a: unknown, b: unknown): boolean => {
+	const pending: Array<readonly [unknown, unknown]> = [[a, b]]
+	for (let pair = pending.pop(); pair !== undefined; pair = pending.pop()) {
+		const [x, y] = pair
+		if (x === y) {
+			continue
+		}
+		const readX = canonicalOf(x)
+		const readY = canonicalOf(y)
+		const pairs =
+			typeof readX === "object" && typeof readY === "object" ? memberPairs(readX, readY) : undefined
+		if (pairs === undefined) {
+			return false
+		}
+		appendAll(pending, pairs)
+	}
+	return true
+}
+
 /** A container of a canonical value: an array, or a plain record. */
 type ContainerKind = "array" | "object"
 
@@ -351,13 +509,20 @@ class Walk {
 	 * would read it, beside which the record's other members are read.
 	 */
 	over(root: unknown, written: ReadonlyMap<string, string>, write: (text: string) => void): void {
-		if (!isRecord(root)) {
-			stop(this.#path, "a value, not null")
+		const read = canonicalOf(root)
+		if (typeof read !== "object" || read.kind !== "record") {
+			return stop(this.#path, "a plain record")
 		}
-		this.#ancestors.add(root)
-		const keys = this.#keysOf(root)
+		this.#ancestors.add(read.record)
 		this.#sink.open("object")
-		this.#frames.push({ kind: "over", value: root, keys, next: 0, written, write })
+		this.#frames.push({
+			kind: "over",
+			value: read.record,
+			keys: keysOf(read.record),
+			next: 0,
+			written,
+			write
+		})
 		this.#run()
 	}
 
@@ -431,82 +596,78 @@ class Walk {
 		}
 	}
 
-	/** Reads one value: a scalar's form is written; a container is opened onto the frames, which is true. */
+	/**
+	 * Reads one value by the canonical model (canonicalOf): a scalar's form is written, and a container is opened onto
+	 * the frames, which is true. No reading is undefined, a function or a symbol, so those cases hold none (never).
+	 */
 	#read(value: unknown): boolean {
-		switch (typeof value) {
+		const read = canonicalOf(value)
+		switch (typeof read) {
 			case "string":
-				checkText(value, this.#path, refuseValue)
-				this.#sink.scalar(escapeString(value))
-				return false
-			case "boolean":
-				this.#sink.scalar(value)
+				this.#sink.scalar(escapeString(read))
 				return false
 			case "number":
-				if (!Number.isFinite(value)) {
-					stop(this.#path, "a finite number")
-				}
-				this.#sink.scalar(value === 0 ? 0 : value)
+				this.#sink.scalar(read === 0 ? 0 : read)
+				return false
+			case "boolean":
+				this.#sink.scalar(read)
 				return false
 			case "bigint":
-				this.#sink.scalar(`~n:${value.toString()}`)
+				this.#sink.scalar(`~n:${read.toString()}`)
 				return false
 			case "object":
-				return this.#object(value)
+				return this.#object(read)
 			case "undefined":
 			case "function":
 			case "symbol":
-				return stop(this.#path, `a canonical value, not ${typeof value}`)
+				return read
 		}
 	}
 
-	#object(value: object | null): boolean {
-		if (!isRecord(value)) {
-			stop(this.#path, "a value, not null")
+	/**
+	 * Reads one canonical object: a vector's or a protocol value's tagged text is written, and an array or a record is
+	 * opened onto the frames, which is true, refused as a cycle where it is one of its own ancestors.
+	 */
+	#object(read: CanonicalObject | Outside): boolean {
+		switch (read.kind) {
+			case "vector":
+			case "tagged":
+				this.#sink.scalar(`~${read.tagged.tag}:${read.tagged.payload}`)
+				return false
+			case "array":
+				this.#enter(read.items)
+				this.#sink.open("array")
+				this.#frames.push({ kind: "array", value: read.items, next: 0 })
+				return true
+			case "record":
+				this.#enter(read.record)
+				this.#sink.open("object")
+				this.#frames.push({
+					kind: "object",
+					value: read.record,
+					keys: keysOf(read.record),
+					next: 0
+				})
+				return true
+			case "outside":
+				return stop(this.#path, read.what)
 		}
-		const tagged = taggedValueOf(value)
-		if (
-			tagged === undefined &&
-			canonicalTag in value &&
-			typeof value[canonicalTag] === "function"
-		) {
-			stop(this.#path, "a canonical tag and payload")
-		}
-		if (tagged !== undefined) {
-			if (!isTagName(tagged.tag) || tagged.tag === "n") {
-				stop(this.#path, `a valid canonical tag, not "${tagged.tag}"`)
-			}
-			checkText(tagged.payload, this.#path, refuseValue)
-			this.#sink.scalar(`~${tagged.tag}:${tagged.payload}`)
-			return false
-		}
-		if (this.#ancestors.has(value)) {
+	}
+
+	/** A container entered as an ancestor of what it holds, refused where it is one already: a cycle. */
+	#enter(container: object): void {
+		if (this.#ancestors.has(container)) {
 			stop(this.#path, "an acyclic value")
 		}
-		this.#ancestors.add(value)
-		if (Array.isArray(value)) {
-			this.#sink.open("array")
-			this.#frames.push({ kind: "array", value, next: 0 })
-			return true
-		}
-		const keys = this.#keysOf(value)
-		this.#sink.open("object")
-		this.#frames.push({ kind: "object", value, keys, next: 0 })
-		return true
+		this.#ancestors.add(container)
 	}
+}
 
-	/** A plain record's keys in canonical order; a value that is no plain record is refused. */
-	#keysOf(value: Readonly<Record<string, unknown>>): ReadonlyArray<string> {
-		const proto: unknown = Object.getPrototypeOf(value)
-		if (proto !== Object.prototype && proto !== null) {
-			stop(this.#path, "a plain object")
-		}
-		if (Object.getOwnPropertySymbols(value).length > 0) {
-			stop(this.#path, "an object without symbol keys")
-		}
-		const keys = Object.keys(value)
-		keys.sort()
-		return keys
-	}
+/** A plain record's keys in canonical order. */
+const keysOf = (record: Readonly<Record<string, unknown>>): ReadonlyArray<string> => {
+	const keys = Object.keys(record)
+	keys.sort()
+	return keys
 }
 
 /**
@@ -721,10 +882,12 @@ const encodeWalk = (value: unknown, options: EncodeOptions): Result.Result<strin
  * The versioned canonical serializer.
  *
  * One canonical text per value, so identity, fingerprints, cache keys and the snapshot are byte-stable: equal content
- * built in any key order, by any process, serializes to the same bytes. The value model is JSON without null (no NULL
- * exists at any layer) plus two extensions that JSON cannot carry:
+ * built in any key order, by any process, serializes to the same bytes. The value model (canonicalOf) is JSON without
+ * null (no NULL exists at any layer) plus three extensions that JSON cannot carry:
  *
  * - bigint, carried as the tagged string "~n:<integer>";
+ * - a vector, a Float32Array of finite components, carried as "~v:[c1,...,cn]" (vectorTag), each component the text of
+ *   the number it is, -0 as 0: the shortest text that reads back as exactly that binary32 value;
  * - any value implementing the Canonicalizable protocol below, carried as "~<tag>:<payload>". Decimal (scalar/values)
  *   uses it, so Decimal travels as a tagged string without the kernel importing it.
  *
@@ -737,9 +900,10 @@ const encodeWalk = (value: unknown, options: EncodeOptions): Result.Result<strin
  * Rejected as MalformedDescription, with the path of the offending value: null, undefined in an array or at the root,
  * strings and object keys that are not well-formed Unicode text (a lone UTF-16 surrogate; RFC 8785 sections 3.1 and
  * 3.2.2.2 require I-JSON input and an error on such strings, and no UTF8 database could store them), non-finite
- * numbers, functions, symbols, cycles, Maps, Sets, Dates, and any other non-plain object that does not implement the
- * protocol. A value may nest to any depth, in both directions: every traversal keeps the containers it is inside on a
- * stack on the heap, so no nesting deepens the call stack, and a container that holds itself is refused as a cycle.
+ * numbers, a Float32Array with a component that is not finite, functions, symbols, cycles, Maps, Sets, Dates, and any
+ * other non-plain object that does not implement the protocol. A value may nest to any depth, in both directions: every
+ * traversal keeps the containers it is inside on a stack on the heap, so no nesting deepens the call stack, and a
+ * container that holds itself is refused as a cycle.
  *
  * The canonical text: one string per value, whatever the key insertion order. It equals writeCanonicalJson over the
  * value's JSON form (toJson), written in one pass.
@@ -928,7 +1092,11 @@ export const compareCanonicalTokens = (
 	}
 }
 
-/** Decoders for extension tags, for example `{ d: Decimal.fromCanonical }`. "n" (bigint) is built in. */
+/**
+ * Decoders for extension tags, for example `{ d: Decimal.fromCanonical }`. "n" (bigint) is built in. "v" is the
+ * caller's: a host vector's text and the IR's VectorText's are one, so the reader names the form it restores,
+ * scalar/values' Vector.fromCanonical a Float32Array.
+ */
 export type Revivers = {
 	readonly [tag: string]: (payload: string) => Result.Result<unknown, CompileError>
 }
