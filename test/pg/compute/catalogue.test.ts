@@ -551,8 +551,6 @@ type Built =
 	| { readonly kind: "case"; readonly evalCase: EvalCase }
 	| { readonly kind: "refused"; readonly label: string; readonly precondition: PreconditionKind }
 
-let ord = 0
-
 /** The precondition a compilation refusal names, or a defect: a case refuses only for a partial operation. */
 const refusalOf = (label: string, error: CompileError): PreconditionKind => {
 	if (error.reason._tag !== "PartialOperation") {
@@ -561,7 +559,9 @@ const refusalOf = (label: string, error: CompileError): PreconditionKind => {
 	return error.reason.precondition
 }
 
+/** The case `label` names, numbered `ord` among the cases of its build. */
 const makeCase = (
+	ord: number,
 	label: string,
 	expr: OpenExpr,
 	bindings: Readonly<Record<string, LeafBinding>>,
@@ -577,7 +577,7 @@ const makeCase = (
 	return {
 		kind: "case",
 		evalCase: {
-			ord: ord++,
+			ord,
 			label,
 			sql,
 			valueSql: money ? `(${sql})::numeric` : sql,
@@ -773,7 +773,7 @@ const buildCases = (
 			read: ReadonlyArray<Operand>
 		) => {
 			cases.push({
-				built: makeCase(label, expr, bindings, predicate),
+				built: makeCase(cases.length, label, expr, bindings, predicate),
 				spelling: spellingOf(read),
 				read
 			})

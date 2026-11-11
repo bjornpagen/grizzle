@@ -126,7 +126,7 @@ type Situation =
 	| "a member dropped"
 	| "another layout"
 
-const shop = shopV1("ServedShop", "full")
+const shop = Object.freeze(shopV1("ServedShop", "full"))
 const ident = identifierOf(identity.schema(parsedSchemaName("ServedShop")))
 const schemaDir = `migrations/${ident}`
 const login = "server"

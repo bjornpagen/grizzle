@@ -217,11 +217,13 @@ const shapeOf = (
 }
 
 /** Each selection's paths, without the weight fold and with it. */
-const everyPaths = Arr.map(selections, (selection) => ({
-	selection,
-	plain: pathsOf(selection, false),
-	weighed: pathsOf(selection, true)
-}))
+const everyPaths = Object.freeze(
+	Arr.map(selections, (selection) => ({
+		selection,
+		plain: pathsOf(selection, false),
+		weighed: pathsOf(selection, true)
+	}))
+)
 
 const pathsAt = (selection: Selection, weighed: boolean): Paths => {
 	const paths = defined(

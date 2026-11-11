@@ -91,7 +91,7 @@ const kindHandles = ["Manual", "Automatic", "Ünïcode"] as const
  * hex digits, its padding 0, so the widths that fill their last digit and those that pad it are told apart, and a
  * digit holding only its last code is the digit 1.
  */
-const setWidths = Arr.range(1, 9)
+const setWidths: Arr.NonEmptyReadonlyArray<number> = Arr.range(1, 9)
 
 /** The handles of the roster of a set of `width` codes. */
 const setHandles = (width: number): Arr.NonEmptyReadonlyArray<string> =>
@@ -124,7 +124,7 @@ const kindCodes: Codebook = {
 		)
 	])
 }
-const scalars = {
+const scalars = Object.freeze({
 	uuid: scalarOf({ kind: "uuid" }, {}),
 	numeric52: scalarOf({ kind: "numeric", precision: 5, scale: 2 }, {}),
 	numeric72: scalarOf({ kind: "numeric", precision: 7, scale: 2 }, {}),
@@ -150,7 +150,7 @@ const scalars = {
 		},
 		{}
 	)
-}
+})
 
 /** NaN and the infinities, one draw in ten beside a generator of finite values. */
 const withNonFinite = (finite: Gen<number>): Gen<number> =>

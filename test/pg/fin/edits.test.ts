@@ -80,7 +80,7 @@ const Edited = schema("fin_edits", { Owner, Member }, [
 ])
 
 /** The seat's specification: the counted int4 sum's, over this schema. */
-const SPEC = {
+const SPEC = Object.freeze({
 	...defined(
 		Arr.findFirst(FOLD_SPECS, (s) => s.label === "sum of int4 over a counted family").pipe(
 			Option.getOrUndefined
@@ -88,7 +88,7 @@ const SPEC = {
 	),
 	label: "a counted int4 sum, mutable",
 	schema: Edited
-}
+})
 
 /** An edit of owner 0's family: one member's delete, or its put to another of the five values. */
 type Edit =
@@ -155,16 +155,16 @@ const SpanEdited = schema("fin_span_edits", { SpanOwner, SpanMember }, [
 ])
 
 /** The counted family's workload: a member's delete and a member's put, each from its call's facts. */
-const editPrograms = {
+const editPrograms = Object.freeze({
 	deleteMember: ChangeSet.empty(Edited).delete(Member, []),
 	putMember: ChangeSet.empty(Edited).put(Member, [])
-}
+})
 
 /** The span-keyed owners' workload: their insert with their members, and an owner's put, each from its call's facts. */
-const spanPrograms = {
+const spanPrograms = Object.freeze({
 	insertOwners: ChangeSet.empty(SpanEdited).insert(SpanOwner, []).insert(SpanMember, []),
 	putOwner: ChangeSet.empty(SpanEdited).put(SpanOwner, [])
-}
+})
 
 /** Span-keyed owners with their families, each owner's label, each member's step value, and the put: one owner's
  * new label, another than its own. */

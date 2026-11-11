@@ -144,7 +144,7 @@ const discardReasons: ReadonlyArray<TransientTag> & Readonly<{ 0: TransientTag }
 type WitnessShape = "written" | "outside" | "none"
 
 /** A key no fact of the box holds. */
-const outsideKey = [{ relation: "Worker", values: { id: 3 } }]
+const outsideKey = Object.freeze([{ relation: "Worker", values: { id: 3 } }])
 
 /** The witness its writer gives a refusal: grizzle names the written fact by its key, a direct writer nothing. */
 const witnessOf = (kind: WriterKind, written: ReadonlyArray<HostOp>) =>
@@ -156,7 +156,7 @@ const witnessOf = (kind: WriterKind, written: ReadonlyArray<HostOp>) =>
 		: []
 
 const witnessGen =
-	(ops: ReadonlyArray<HostOp>): Gen<ReturnType<typeof witnessOf>> =>
+	(ops: ReadonlyArray<HostOp>): Gen<ReadonlyArray<ReturnType<typeof witnessOf>[number]>> =>
 	(source) => {
 		const shape = source.draw(element<WitnessShape>(["written", "outside", "none"]))
 		switch (shape) {

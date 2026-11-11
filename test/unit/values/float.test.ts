@@ -69,7 +69,7 @@ const doubleGen: Gen<number> = weighted([
 ])
 
 /** The bit pattern of a binary32 value, read through one scratch buffer. */
-const binary32 = (() => {
+const binary32 = Object.freeze((() => {
 	const scratch = new Float32Array(1)
 	const bits = new Int32Array(scratch.buffer)
 	const of = (pattern: number): number => {
@@ -91,7 +91,7 @@ const binary32 = (() => {
 			return value > 0 ? [of(pattern - 1), of(pattern + 1)] : [of(pattern + 1), of(pattern - 1)]
 		}
 	}
-})()
+})())
 
 type RealFeature =
 	| "rounded"

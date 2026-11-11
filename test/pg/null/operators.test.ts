@@ -497,7 +497,7 @@ const closedRows = (model: ReturnType<typeof modelOf>) =>
 		)
 	)
 
-const closed = closedOf(world)
+const closed = Object.freeze(closedOf(world))
 const Probe = itemRelation(closed, "Probe")
 
 const modelOf = (pred: Pred) => {

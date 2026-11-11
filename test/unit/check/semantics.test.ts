@@ -280,10 +280,10 @@ const memberLocOf = (
 
 /** The names a checked query of Lab lowers under: production's stand-ins for its relations and its codes. */
 const labNames = installationOf(Lab, { kind: "declared" }).names
-const checkedNames = {
+const checkedNames = Object.freeze({
 	...productionNames("lab", { kind: "declared" }, localVectorSchema, labNames.codes),
 	contractDomain: labNames.contractDomain
-}
+})
 
 /** The greatest int4, the greatest bound a take admits. */
 const int4Max = 2 ** 31 - 1

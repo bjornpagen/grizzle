@@ -227,7 +227,7 @@ const cases: Arr.NonEmptyReadonlyArray<Case> = [
 	}
 ]
 
-const generation = { schema: "cursor-codec-pg", extensions: {} }
+const generation = Object.freeze({ schema: "cursor-codec-pg", extensions: {} })
 
 const setup = Effect.gen(function* () {
 	const { session, schema } = yield* Substrate

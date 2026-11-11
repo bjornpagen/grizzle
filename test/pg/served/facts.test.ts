@@ -90,8 +90,8 @@ const itemsGen =
 		}))
 
 /** The ids stored items take, and the ids a call's puts take, which no stored item shares. */
-const storedIds = Arr.range(1, 40)
-const putIds = Arr.range(41, 80)
+const storedIds: Arr.NonEmptyReadonlyArray<number> = Arr.range(1, 40)
+const putIds: Arr.NonEmptyReadonlyArray<number> = Arr.range(41, 80)
 
 /** Every label a call may insert: each item 1 to 6 under each tag. */
 const labelFacts: ReadonlyArray<LabelFact> = Arr.flatMap(Arr.range(1, 6), (item) =>

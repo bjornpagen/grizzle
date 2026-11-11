@@ -36,10 +36,10 @@ import { caseHang } from "#test/support/limits.ts"
 const int4 = plainType("int4")
 
 /** The functions the gate counts: every closure the analysis computes, and every minimal-key search. */
-const sites = {
+const sites = Object.freeze({
 	closure: { file: "packages/engine/src/logical/closure.ts", name: "closure" },
 	minimalKeys: { file: "packages/engine/src/logical/closure.ts", name: "minimalKeys" }
-} satisfies Readonly<Record<string, CallSite>>
+} satisfies Readonly<Record<string, CallSite>>)
 
 /** k relations R0.. of columns a and b, each its own key, matched in one region delivering every variable. */
 const productOf = (k: number): ValidDag => {

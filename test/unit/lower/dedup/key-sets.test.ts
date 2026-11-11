@@ -294,9 +294,11 @@ const keptCases: ReadonlyArray<Kept<QueryCase, KeySetFeature>> = [
 ]
 
 /** The platform's reads, by name: every program of its workload that is a query. */
-const billingReads = Arr.filter(
-	Rec.toEntries(P.platformWorkload.programs),
-	([, value]) => isQueryValue(value) || isOrderedValue(value)
+const billingReads = Object.freeze(
+	Arr.filter(
+		Rec.toEntries(P.platformWorkload.programs),
+		([, value]) => isQueryValue(value) || isOrderedValue(value)
+	)
 )
 
 describe("an attachment's parent key set deduplicates exactly where it is unproved", () => {

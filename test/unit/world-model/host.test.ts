@@ -792,13 +792,15 @@ const stateOf = (
 })
 
 /** Each writable query entry of the documents worlds: its role, its name, and its target's name. */
-const writableEntries = Arr.flatMap(docsInstall.roles, (role) =>
-	Arr.flatMap(Rec.toEntries(role.entries), ([name, entry]) => {
-		const c = classifyEntry(docsBase, entry)
-		return entry.kind === "query" && c.kind === "writable"
-			? [{ role: role.name, name, target: c.target, head: c.head }]
-			: []
-	})
+const writableEntries = Object.freeze(
+	Arr.flatMap(docsInstall.roles, (role) =>
+		Arr.flatMap(Rec.toEntries(role.entries), ([name, entry]) => {
+			const c = classifyEntry(docsBase, entry)
+			return entry.kind === "query" && c.kind === "writable"
+				? [{ role: role.name, name, target: c.target, head: c.head }]
+				: []
+		})
+	)
 )
 
 /** One scan of every Doc field, each a variable of its own name. */

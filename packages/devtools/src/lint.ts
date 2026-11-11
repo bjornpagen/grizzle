@@ -19,7 +19,7 @@ import { isAtAny } from "#lint/paths.ts"
 import { RULES, type Rule } from "#lint/rules/index.ts"
 import { surfaceOf } from "#lint/surface.ts"
 import type { Visit } from "#lint/types.ts"
-import { isTestFile, REJECTED_DIAGNOSTICS } from "#preset.ts"
+import { REJECTED_DIAGNOSTICS } from "#preset.ts"
 import { invocationOf } from "#shared/arguments.ts"
 import { DevtoolFailure } from "#shared/devtool.ts"
 import { type Finding, findingAt, renderFindings, statusOf } from "#shared/finding.ts"
@@ -482,12 +482,8 @@ const findingsOf = (
 			? Result.succeed(exception.rule)
 			: Result.failVoid
 	)
-	const test = isTestFile(source.sourceFile.fileName)
 	const visitors = Arr.map(
-		Arr.filter(
-			input.rules,
-			({ rule }) => !Arr.contains(excepted, rule.id) && !(test && rule.scope === "outside tests")
-		),
+		Arr.filter(input.rules, ({ rule }) => !Arr.contains(excepted, rule.id)),
 		({ rule, visit }) => ({ rule: rule.id, visit: visit(context) })
 	)
 	const findings: Array<Finding> = []

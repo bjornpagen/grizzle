@@ -90,7 +90,7 @@ interface Shape {
 type Fact = readonly [id: number, p: number]
 
 /** The ids of the box. */
-const ids = Arr.range(1, 2)
+const ids: Arr.NonEmptyReadonlyArray<number> = Arr.range(1, 2)
 
 /** A write of an instance: an action's fact, or P's generated insertion, which is given none and draws its id. */
 type Written =
@@ -1001,7 +1001,7 @@ const familyCycle: Stratum = {
 }
 
 /** R1's and R2's edits beside a pure set: a deletion of R1, an ordered member, and an insertion of R2, a counted one. */
-const setEdits = {
+const setEdits = Object.freeze({
 	R1: {
 		ops: ["delete"],
 		own: ["field:a", "field:b"],
@@ -1016,7 +1016,7 @@ const setEdits = {
 		refreshed: [],
 		generated: generatedOn([1])
 	}
-} satisfies Record<string, MemberEdit>
+} satisfies Record<string, MemberEdit>)
 
 /**
  * The schedule once refused a lawful stratum beside a pure set (UnorderableStratum [P0 insert, R1 update, P0 delete]):

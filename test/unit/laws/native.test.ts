@@ -645,17 +645,11 @@ interface FamilyInstalled {
 	readonly copy: string
 }
 
-const familyInstallations = new Map<Shape, FamilyInstalled>()
-
 /**
  * grizzle's own family, ordered or counted: Owner(id, n) counts its members Member(id, g), ordered(on(Member, g, at),
  * fin(Owner, n)) or counted(on(Member, g), fin(Owner, n)), n and an ordered member's at drawn naturals.
  */
 const familyInstalled = (shape: Shape): FamilyInstalled => {
-	const known = familyInstallations.get(shape)
-	if (known !== undefined) {
-		return known
-	}
 	const desc: SchemaDesc = {
 		name: "Natives",
 		relations: [
@@ -686,14 +680,20 @@ const familyInstalled = (shape: Shape): FamilyInstalled => {
 	if (family === undefined || more.length > 0) {
 		throw new Error(`the ${shape} family's schema holds one family, not ${model.families.length}`)
 	}
-	const made = {
+	return {
 		installation: installation.success,
 		index: family.index.kind === "field" ? family.index.field.name : family.index.column,
 		copy: family.copy
 	}
-	familyInstallations.set(shape, made)
-	return made
 }
+
+/** Each family shape's installation, which a search compiles once before its cases run. */
+type FamiliesInstalled = { readonly [S in Shape]: FamilyInstalled }
+
+const familiesInstalled = (): FamiliesInstalled => ({
+	ordered: familyInstalled("ordered"),
+	counted: familyInstalled("counted")
+})
 
 const int = (n: number): bigint => BigInt(n)
 
@@ -896,12 +896,12 @@ const judgeBroken = (
  * commit, to one state, or both refuse at one statement or at COMMIT, with one set of constraints broken there.
  */
 const judgeFamilyTransaction = (
+	fam: FamilyInstalled,
 	shape: Shape,
 	before: Families,
 	statements: ReadonlyArray<FamilyStatement>,
 	c: Case<FamilyFeature>
 ): void => {
-	const fam = familyInstalled(shape)
 	const expected = run(shape, before, statements)
 	const verdict = transact(
 		fam.installation,
@@ -961,8 +961,12 @@ const judgeFamilyTransaction = (
  * A family state judged on grizzle's installation: the constraints it breaks are exactly the family model's, and,
  * where every copy is its owner's count, it is accepted exactly when the theorem holds.
  */
-const judgeFamilyState = (shape: Shape, stored: Stored, c: Case<FamilyFeature>): void => {
-	const fam = familyInstalled(shape)
+const judgeFamilyState = (
+	fam: FamilyInstalled,
+	shape: Shape,
+	stored: Stored,
+	c: Case<FamilyFeature>
+): void => {
 	const broken = stateViolations(fam.installation, familyNative(fam, stored))
 	judgeBroken(
 		fam,
@@ -1342,8 +1346,9 @@ describe("the native constraints grizzle installs", () => {
 	)
 	it.effect(
 		"hold grizzle's own families, ordered and counted, as the family theorem's constraints, over every state of one owner's first four slots",
-		(ctx) =>
-			searched(
+		(ctx) => {
+			const installed = familiesInstalled()
+			return searched(
 				ctx,
 				exhaust(
 					{
@@ -1365,15 +1370,18 @@ describe("the native constraints grizzle installs", () => {
 						]),
 						caseHang
 					},
-					([shape, stored], c) => Effect.sync(() => judgeFamilyState(shape, stored, c))
+					([shape, stored], c) =>
+						Effect.sync(() => judgeFamilyState(installed[shape], shape, stored, c))
 				)
 			)
+		}
 	)
 
 	it.effect(
 		"run every family program's transactions on grizzle's own families as the family model runs them: drawn copies, the count's cascade and each axis's deferral",
-		(ctx) =>
-			searched(
+		(ctx) => {
+			const installed = familiesInstalled()
+			return searched(
 				ctx,
 				explore(
 					{
@@ -1412,9 +1420,9 @@ describe("the native constraints grizzle installs", () => {
 					(p, c) => {
 						const every = (before: Families, statements: ReadonlyArray<FamilyStatement>) =>
 							Effect.sync(() => {
-								judgeFamilyTransaction(p.shape, before, statements, c)
+								judgeFamilyTransaction(installed[p.shape], p.shape, before, statements, c)
 								for (const stored of Arr.scan(statements, storedOf(before), applied)) {
-									judgeFamilyState(p.shape, stored, c)
+									judgeFamilyState(installed[p.shape], p.shape, stored, c)
 								}
 							})
 						return runProgram(
@@ -1429,6 +1437,7 @@ describe("the native constraints grizzle installs", () => {
 					}
 				)
 			)
+		}
 	)
 	it.effect(
 		"accept every state of a span rule's box exactly when its laws hold: keys WITHOUT OVERLAPS over fields and law columns, and PERIOD foreign keys from and into selected sides",

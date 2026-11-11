@@ -151,8 +151,8 @@ const domains = (tightened: boolean) => {
 	)
 	return { Worker, Assignment, Desk, Badge, Floor, FloorCode }
 }
-const relations = domains(false)
-const { Worker, Assignment, Desk, Badge } = relations
+const relations = Object.freeze(domains(false))
+const { Worker, Assignment, Desk, Badge } = Object.freeze(relations)
 
 /**
  * Every version's world is its full world (fullWorld): the role `app`, writing every relation, in
@@ -170,7 +170,7 @@ const issuedDesk = contained(
 	),
 	on(Desk, "id")
 )
-const tightenedRelations = domains(true)
+const tightenedRelations = Object.freeze(domains(true))
 const tightened = (name: string) => {
 	const r = tightenedRelations
 	return schema(name, r, [

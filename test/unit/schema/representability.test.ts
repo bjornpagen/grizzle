@@ -732,7 +732,7 @@ const boundsAbove = (c: LengthForm): boolean =>
 			: c.op === "le" || c.op === "lt" || c.op === "eq"))
 
 /** Lengths past every drawn literal, and below zero, where an upper bound's arithmetic may land. */
-const lengthsScanned = Arr.map(indices(141), (i) => 100 - i)
+const lengthsScanned = Object.freeze(Arr.map(indices(141), (i) => 100 - i))
 
 /**
  * The bound the model reads on `measure` from the conjuncts: each documented upper-bounding conjunct of that measure

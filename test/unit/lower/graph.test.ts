@@ -456,21 +456,23 @@ const overFloat8: Gen<RecursiveCaseSketch> = (source) => {
 }
 
 /** The origin filter's cases: one drawn case in four over float8 vertices, and a closure over them planted. */
-const originFilterCases = cases<GraphFeature>(
-	["originFilter"],
-	weighted([
-		[3, recursiveCaseSketchGen],
-		[1, overFloat8]
-	]),
-	[
-		{
-			note: "an origin filter over float8",
-			vertexKind: vertexKinds.indexOf("float8"),
-			form: 0,
-			consumer: 0,
-			reaches: ["the seed applies an origin filter over double precision"]
-		}
-	]
+const originFilterCases = Object.freeze(
+	cases<GraphFeature>(
+		["originFilter"],
+		weighted([
+			[3, recursiveCaseSketchGen],
+			[1, overFloat8]
+		]),
+		[
+			{
+				note: "an origin filter over float8",
+				vertexKind: vertexKinds.indexOf("float8"),
+				form: 0,
+				consumer: 0,
+				reaches: ["the seed applies an origin filter over double precision"]
+			}
+		]
+	)
 )
 
 /** The consumers besides the origin filter: the pass fires no rule over any of them. */

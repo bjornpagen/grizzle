@@ -96,21 +96,23 @@ const schemaOf = (selected: boolean): SchemaDesc => {
 }
 
 /** Each fold's filler, the selecting one and the other, compiled once. */
-const fills = Arr.map([false, true] as const, (selected) => {
-	const desc = schemaOf(selected)
-	const model = succeeded(compiledModel(desc), "a concat fold compiles")
-	const codes = firstCodebook(rostersOf(succeeded(own(decodedSchema(desc)))))
-	return {
-		family: defined(model.families[0], "the fold's family"),
-		fill: filler(
-			hostFillOf(model.theory.fill, [
-				{ relation: StoredRelationName("Owner"), position: { kind: "top" } }
-			]),
-			codes,
-			hostEvaluator(codes, closedLeaf(new Map()), model.patterns)
-		)
-	}
-})
+const fills = Object.freeze(
+	Arr.map([false, true] as const, (selected) => {
+		const desc = schemaOf(selected)
+		const model = succeeded(compiledModel(desc), "a concat fold compiles")
+		const codes = firstCodebook(rostersOf(succeeded(own(decodedSchema(desc)))))
+		return {
+			family: defined(model.families[0], "the fold's family"),
+			fill: filler(
+				hostFillOf(model.theory.fill, [
+					{ relation: StoredRelationName("Owner"), position: { kind: "top" } }
+				]),
+				codes,
+				hostEvaluator(codes, closedLeaf(new Map()), model.patterns)
+			)
+		}
+	})
+)
 
 interface ConcatCase {
 	readonly selected: boolean

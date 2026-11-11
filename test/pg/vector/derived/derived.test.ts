@@ -124,7 +124,9 @@ const documentsOf = (probe: Probe) =>
 		value: i === 15 || i === 23 ? undefined : probe(100 + i)
 	}))
 
-const policySettings = Arr.map(searchPolicySettings, (s) => `${s.parameter}=${s.value}`)
+const policySettings = Object.freeze(
+	Arr.map(searchPolicySettings, (s) => `${s.parameter}=${s.value}`)
+)
 
 interface Opened {
 	readonly installed: Installed

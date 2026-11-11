@@ -229,7 +229,7 @@ const step = (
 		interiors: [],
 		attach: []
 	})
-const nothingMore = { vars: [], matches: [] }
+const nothingMore = Object.freeze({ vars: [], matches: [] })
 
 type Head = "exact" | "missing" | "extra"
 

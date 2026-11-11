@@ -28,9 +28,14 @@ familySuite(
 	noKeptCases
 )
 
-const [p, variant] = Option.getOrThrowWith(
-	Arr.findFirstWithIndex(variantsOf(mirrorShapes, "mutable"), (shape) => shape.kind === "signals"),
-	() => new Error("no mutable schema of the ticket's mirrors")
+const [p, variant] = Object.freeze(
+	Option.getOrThrowWith(
+		Arr.findFirstWithIndex(
+			variantsOf(mirrorShapes, "mutable"),
+			(shape) => shape.kind === "signals"
+		),
+		() => new Error("no mutable schema of the ticket's mirrors")
+	)
 )
 const host = mirrorShapes.host(p)
 const domains = mirrorShapes.domains

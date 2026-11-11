@@ -55,7 +55,7 @@ import { caseHang } from "#test/support/limits.ts"
 import { physical, propsOf, snapshotOver } from "#test/unit/analysis/physical/support.ts"
 
 const columnsPool = ["a", "b", "c", "d", "e", "f"] as const
-const hiddenPool = [hiddenIn("t", "h1"), hiddenIn("t", "h2")]
+const hiddenPool = Object.freeze([hiddenIn("t", "h1"), hiddenIn("t", "h2")])
 
 type Context = Extract<EvidenceContext, "queryLocal" | "immediate">
 const contexts: readonly [Context, Context] = ["queryLocal", "immediate"]

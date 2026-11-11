@@ -140,13 +140,13 @@ const cellOf = (kind: Kind, character: string, length: number): MemberCell => {
 const entryRelation = StoredRelationName("Entry")
 
 /** The texts of the statement the cases stage, each named as a served write's are. */
-const stagedTexts = {
+const stagedTexts = Object.freeze({
 	inline: prepared(testSql("inline")),
 	create: prepared(testSql("create")),
 	fill: prepared(testSql("fill")),
 	analyze: prepared(testSql("analyze")),
 	staged: prepared(testSql("staged"))
-}
+})
 
 /** The case's nested rows, its statement, its kept value and its transport. */
 const resolved = (sketch: Sketch) => {

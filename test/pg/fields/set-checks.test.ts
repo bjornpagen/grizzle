@@ -65,7 +65,7 @@ const Sets = schema("SetChecks", { Flag, R }, [apart, within, split])
  * The full world's workload: a row of R written with the flags each call gives, and R's rows read back, whether the
  * flags miss b and their union with {c}, each against a set value.
  */
-const programs = {
+const programs = Object.freeze({
 	write: ChangeSet.empty(Sets).insert(R, []),
 	readBack: query(Sets).rule((r) => {
 		const { id, flags } = v(R, "r")
@@ -75,7 +75,7 @@ const programs = {
 			joined: Compute.union(flags, Bits.of(Flag, ["c"]))
 		})
 	})
-}
+})
 
 /** Every set over Flag's handles. */
 const allSets = nonEmpty(

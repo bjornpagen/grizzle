@@ -71,12 +71,12 @@ const ordinary = 2
  * The functions whose calls the gate reads: the decision of a relation's objects beyond its primary key, the law
  * model's specialization and its one entry, and the canonical encoder, which every encoding of a predicate calls once.
  */
-const sites = {
+const sites = Object.freeze({
 	beyondPrimary: { file: "packages/engine/src/laws/model/uniques.ts", name: "beyondPrimary" },
 	specialize: { file: "packages/engine/src/laws/model/model.ts", name: "run" },
 	compileLaws: { file: "packages/engine/src/laws/model/model.ts", name: "compileLaws" },
 	encode: { file: "packages/engine/src/core/canonical.ts", name: "encode" }
-} satisfies Readonly<Record<string, CallSite>>
+} satisfies Readonly<Record<string, CallSite>>)
 
 type Counts = Readonly<Record<keyof typeof sites, number>>
 
@@ -212,10 +212,10 @@ layer(NodeServices.layer, { excludeTestServices: true })("guarded keys at startu
 })
 
 /** The install order's heap: its pushes, and its comparisons of two ready objects. */
-const orderSites = {
+const orderSites = Object.freeze({
 	push: { file: "packages/engine/src/physical/obligations/graph.ts", name: "push" },
 	readyFirst: { file: "packages/engine/src/physical/obligations/graph.ts", name: "readyFirst" }
-} satisfies Readonly<Record<string, CallSite>>
+} satisfies Readonly<Record<string, CallSite>>)
 
 /**
  * ReadyHeap's bound on its comparisons over `pushes` pushes and as many pops: one comparison a level of a push's sift-up,

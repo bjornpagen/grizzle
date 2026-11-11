@@ -278,15 +278,17 @@ const singletonFeatures: Readonly<Record<SingletonExpr, Feature>> = {
 		"a row written under Pair.row(tier) ∩ {tier} at a tier that pairs with itself and whose code is no position"
 }
 
-const commandNames = Struct.keys<Record<keyof Params, unknown>>({
-	write: 0,
-	supply: 0,
-	add: 0,
-	change: 0,
-	drop: 0,
-	"closed rows": 0,
-	regenerate: 0
-})
+const commandNames = Object.freeze(
+	Struct.keys<Record<keyof Params, unknown>>({
+		write: 0,
+		supply: 0,
+		add: 0,
+		change: 0,
+		drop: 0,
+		"closed rows": 0,
+		regenerate: 0
+	})
+)
 
 /** `xs`, which the command drawing from it keeps nonempty. */
 const nonEmptyOf = <A>(xs: ReadonlyArray<A>, what: string): readonly [A, ...Array<A>] => {

@@ -260,8 +260,8 @@ type MeaningChange = "none" | "roster order" | "check predicate" | "closed row"
 const levelHandles = ["Low", "Mid", "High"] as const
 
 /** The keys of Grade, a closed relation keyed by Kind and Level: every pair of their handles. */
-const gradeKeys = Arr.flatMap(levelHandles, (level) =>
-	Arr.map(kindHandles, (kind) => ({ kind, level }))
+const gradeKeys = Object.freeze(
+	Arr.flatMap(levelHandles, (level) => Arr.map(kindHandles, (kind) => ({ kind, level })))
 )
 
 /**
@@ -274,10 +274,10 @@ const gradeFact = (i: number, heavier: boolean) => ({
 })
 
 /** Grade's key numbers, in the order its written form writes its rows. */
-const gradeOrder = Arr.map(gradeKeys, (_, i) => i)
+const gradeOrder = Object.freeze(Arr.map(gradeKeys, (_, i) => i))
 
 /** The places of the fingerprint search's relations in its written form: Kind, Level, Grade, Account, Task, Limits. */
-const relationPlaces = [0, 1, 2, 3, 4, 5]
+const relationPlaces = Object.freeze([0, 1, 2, 3, 4, 5])
 
 describe("the owned product", () => {
 	const Limits = relation(

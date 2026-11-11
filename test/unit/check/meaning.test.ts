@@ -87,14 +87,14 @@ const situations: Arr.NonEmptyReadonlyArray<Feature> = [
 ]
 
 /** The picks a shrunk sketch leaves at their floor: a value, a match's bindings, a stage's head, an order. */
-const value0 = { cls: 0, sp: 0 }
-const binds0 = Array.from({ length: 7 }, () => ({ how: 0, pick: 0, value: value0 }))
-const head0 = {
+const value0 = Object.freeze({ cls: 0, sp: 0 })
+const binds0 = Object.freeze(Array.from({ length: 7 }, () => ({ how: 0, pick: 0, value: value0 })))
+const head0 = Object.freeze({
 	vars: [],
 	names: [0, 0, 0, 0, 0, 0],
 	folds: [{ fn: 0, arg: 0, padded: 0, scale: 0 }]
-}
-const order0 = { rotate: 0, dirs: [0, 0, 0], size: 0 }
+})
+const order0 = Object.freeze({ rotate: 0, dirs: [0, 0, 0], size: 0 })
 const match0 = (derived: number) => ({ source: 0, derived, attached: 0, binds: binds0 })
 const read0 = (matches: ReadonlyArray<number>, pair: number): CaseSketch["reads"][number] => ({
 	rule: {

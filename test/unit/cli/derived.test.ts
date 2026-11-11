@@ -119,7 +119,7 @@ const situationsOf = (
 	return [...left, ...foreign]
 }
 
-const shop = shopV1("DerivedShop", "none")
+const shop = Object.freeze(shopV1("DerivedShop", "none"))
 const ident = identifierOf(identity.schema(parsedSchemaName("DerivedShop")))
 const schemaDir = `migrations/${ident}`
 

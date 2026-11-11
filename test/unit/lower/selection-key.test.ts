@@ -121,10 +121,10 @@ const queryOf = (c: Case) => {
 }
 
 /** Each relation's selection key's law column, as its schema's installation names it. */
-const installations = {
+const installations = Object.freeze({
 	Plans: installationOf(Plans, { kind: "declared" }),
 	Badges: installationOf(Badges, { kind: "declared" })
-}
+})
 const lawColumnOf = (relation: Relation): string => {
 	const installation = relation === "Badge" ? installations.Badges : installations.Plans
 	const [selection, ...more] = installation.names.selectionKeys(relation)

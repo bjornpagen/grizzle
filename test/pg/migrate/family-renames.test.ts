@@ -383,7 +383,7 @@ interface Stored {
 }
 
 /** The keys a drawn row takes, apart from one another. */
-const keyRange = Arr.range(1, 40)
+const keyRange: Arr.NonEmptyReadonlyArray<number> = Arr.range(1, 40)
 
 const valueGen = int(-9, 9)
 

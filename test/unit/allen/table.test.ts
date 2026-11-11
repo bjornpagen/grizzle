@@ -65,7 +65,7 @@ import {
 	windowSpans
 } from "#test/support/oracle/allen.ts"
 
-const pairsOf = new Map(
+const pairsOf: ReadonlyMap<RangeType, ReturnType<typeof universePairs>> = new Map(
 	Arr.map(rangeTypes, (type) => [type, universePairs(universe(type))] as const)
 )
 /** The element at an index the test knows is in range, failing the test where it is not. */

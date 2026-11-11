@@ -155,7 +155,7 @@ interface Carried {
 const fixed4 = scalarOf(f.span(f.integer, 15n), {})
 const fixed8 = scalarOf(f.span(f.bigint, int8Max.value), {})
 const refined = scalarOf(f.regex("^[a-z]+$", "u"), {})
-const integerSyntax = ["", "+1", "01", "-0", "1.0", " 1", "1e3", "١"]
+const integerSyntax = Object.freeze(["", "+1", "01", "-0", "1.0", " 1", "1e3", "١"])
 
 const carried = {
 	int2: {

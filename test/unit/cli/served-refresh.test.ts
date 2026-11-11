@@ -159,7 +159,7 @@ const positionsOf = (bits: number): ReadonlyArray<number> =>
 	)
 
 /** Every nonempty set of the relations. */
-const everySet = upTo((1 << materialized.length) - 1, (i) => i + 1)
+const everySet = Object.freeze(upTo((1 << materialized.length) - 1, (i) => i + 1))
 
 const at = (second: number) =>
 	DateTime.makeUnsafe({

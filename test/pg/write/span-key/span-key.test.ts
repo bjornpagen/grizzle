@@ -67,7 +67,7 @@ const Spans = schema("SpanKeys", { Room, Hold }, [mutable(Hold)])
  * The full world's workload: an insert and a put of each relation, enumerated from each call's facts, and described
  * over the relation parameter `items`, which nobody normalized on the host.
  */
-const programs = {
+const programs = Object.freeze({
 	insertRoom: ChangeSet.empty(Spans).insert(Room, []),
 	putRoom: ChangeSet.empty(Spans).put(Room, []),
 	insertRoomItems: ChangeSet.empty(Spans).insert(
@@ -104,7 +104,7 @@ const programs = {
 			return r.match(r.relation("items", Hold), all).find(all)
 		})
 	)
-}
+})
 
 type SpansInstalled = Schema<
 	string,

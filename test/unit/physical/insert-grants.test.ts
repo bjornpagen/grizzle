@@ -102,7 +102,7 @@ const Ticket = relation("Ticket", { no: pg.bigserial, note: word }, ["no"])
 const items = counted(on(Item, "store"), fin(Store, "items"))
 const slots = ordered(on(Slot, "shelf", "at"), fin(Shelf, "slots"))
 
-const relations = { Store, Item, Open, Shelf, Slot, Ticket }
+const relations = Object.freeze({ Store, Item, Open, Shelf, Slot, Ticket })
 
 type Owner = "Store" | "Shelf"
 type Member = "Item" | "Slot"

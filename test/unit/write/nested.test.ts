@@ -104,14 +104,6 @@ const compiled = (value: unknown): CompiledWrite =>
 		})
 	)
 
-/** The program of the box's one ChangeSet shape, an insert of owners and one of tree roots, compiled once: its
- * Description names its members' slots, never their facts, so every case binds its own facts to it. */
-let shaped: CompiledWrite | undefined
-const programOf = (value: unknown): CompiledWrite => {
-	shaped ??= compiled(value)
-	return shaped
-}
-
 interface NestedCase {
 	readonly docs: ReadonlyArray<ReadonlyArray<number>>
 	readonly trees: ReadonlyArray<ReadonlyArray<number>>
@@ -199,7 +191,7 @@ describe("a nested write through the program", () => {
 								root: uuidOf(900 + t)
 							}))
 							const value = ChangeSet.empty(Nested).insert(Doc, docs).insert(Node, roots)
-							const program = programOf(value)
+							const program = compiled(value)
 							const members = yield* collectInputs(program.binding.groups, parsedOf(value).inputs)
 							const bound = succeeded(
 								bindWrite(runnableWrite(program, program.frontend.codes), {
@@ -324,14 +316,8 @@ const docFact = (f: StatedFact) => ({
 const statedIdentity = (f: StatedFact): string =>
 	`${f.doc}:${Arr.join(Arr.map(f.lines, String), ",")}`
 
-/** The program of the depth box's one ChangeSet shape, one insert of a tree's roots. */
-let treeShaped: CompiledWrite | undefined
-
 /** The schema's law names, which the set box's refusals name: compiled once, since compiling the laws is costly. */
 const lawNames = lawNamesOf(Nested)
-
-/** The program of the set box's one ChangeSet shape, an array member and a Stream member of one insert of Doc. */
-let setShaped: CompiledWrite | undefined
 
 type SetFeature =
 	| "an identical repeat in one member"
@@ -374,7 +360,7 @@ describe("a nested write's facts are a set by identity (rule 0, ruling 1)", () =
 							const value = ChangeSet.empty(Nested)
 								.insert(Doc, Arr.take(stated, box.inArray))
 								.insert(Doc, Stream.fromIterable(Arr.drop(stated, box.inArray)))
-							setShaped ??= compiled(value)
+							const setShaped = compiled(value)
 							const members = yield* collectInputs(setShaped.binding.groups, parsedOf(value).inputs)
 							const bound = succeeded(
 								bindWrite(runnableWrite(setShaped, setShaped.frontend.codes), {
@@ -501,7 +487,7 @@ describe("a nested tree at depth and width", () => {
 						Effect.gen(function* () {
 							const root = box.shape === "chain" ? chainOf(box.n, 1000) : starOf(box.n, 1000)
 							const value = ChangeSet.empty(Nested).insert(Node, [{ ...root, root: uuidOf(999) }])
-							treeShaped ??= compiled(value)
+							const treeShaped = compiled(value)
 							const members = yield* collectInputs(
 								treeShaped.binding.groups,
 								parsedOf(value).inputs

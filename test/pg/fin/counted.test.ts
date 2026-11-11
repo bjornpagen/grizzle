@@ -119,7 +119,7 @@ type Position = "the last slot" | "a slot before the last"
 
 type CountedFeature = `${string} ${Position} ${Sending} ${FoldVerdict}` | EndFeature
 
-const COUNTED = Arr.filter(FOLD_SPECS, (s) => s.shape === "counted")
+const COUNTED = Object.freeze(Arr.filter(FOLD_SPECS, (s) => s.shape === "counted"))
 
 layer(Substrate.layer)(
 	"counted swap-with-last through grizzle's lowering on PostgreSQL 19rc1",

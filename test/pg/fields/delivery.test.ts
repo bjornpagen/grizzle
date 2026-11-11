@@ -138,7 +138,7 @@ const Blob = relation("Blob", { id: pg.integer, a: bytes, b: bytes, t: str.regex
 const Blobs = schema("Delivery", { Blob }, [])
 
 /** The full world's workload: Blob's rows written with the facts each call gives. */
-const programs = { write: ChangeSet.empty(Blobs).insert(Blob, []) }
+const programs = Object.freeze({ write: ChangeSet.empty(Blobs).insert(Blob, []) })
 
 /** The delivered columns of the read, in its order: id and t as texts, a and b as bytes. */
 const columns: ReadonlyArray<DeliveredColumn> = [

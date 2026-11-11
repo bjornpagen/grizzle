@@ -169,7 +169,9 @@ interface StateSketch {
 	readonly cells: ReadonlyArray<readonly [owner: number, at: number]>
 }
 
-const CELLS = Arr.flatMap(box.owners, (o) => Arr.map(box.ats, (at) => [o, at] as const))
+const CELLS = Object.freeze(
+	Arr.flatMap(box.owners, (o) => Arr.map(box.ats, (at) => [o, at] as const))
+)
 
 /** Every multiset of at most `k` cells from index `from` on, in cell order. */
 const multisetGen =

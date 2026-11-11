@@ -49,8 +49,10 @@ const comparisons: Arr.NonEmptyReadonlyArray<EndpointComparison> = [
 	"ge"
 ]
 /** Every endpoint predicate: an endpoint of A, a comparison, an endpoint of B. */
-const predicates = Arr.flatMap(ends, (x) =>
-	Arr.flatMap(comparisons, (cmp) => Arr.map(ends, (y) => [x, cmp, y] as const))
+const predicates = Object.freeze(
+	Arr.flatMap(ends, (x) =>
+		Arr.flatMap(comparisons, (cmp) => Arr.map(ends, (y) => [x, cmp, y] as const))
+	)
 )
 
 /** Every ordered pair of both universes, with its type. */

@@ -100,7 +100,14 @@ const labelState = stateOf("Label", liveRun("x", 2))
 const payloadState = stateOf("Payload", liveRun("w", 16))
 const idState = stateOf("Id", liveRun("i", 36))
 
-const states = [versionState, kindState, positionState, labelState, payloadState, idState]
+const states = Object.freeze([
+	versionState,
+	kindState,
+	positionState,
+	labelState,
+	payloadState,
+	idState
+])
 const codes: Codebook = codebookOfStates(states)
 
 const Version = closed("Version", ["v0", "v1"])

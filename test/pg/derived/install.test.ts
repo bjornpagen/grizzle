@@ -144,7 +144,7 @@ const viewAndDefinition = (installed: Installed, relation: string) =>
 		return { stored: sorted(stored), defined: sorted(defined) }
 	})
 
-const workFacts = {
+const workFacts = Object.freeze({
 	Account: [
 		{ id: id(1), name: "alpha" },
 		{ id: id(2), name: "beta" },
@@ -162,7 +162,7 @@ const workFacts = {
 		{ task: id(14), budget: 250n }
 	],
 	ManualTask: [{ task: id(13), operator: "ops" }]
-}
+})
 
 /**
  * The atttypmod of an inferred descriptor's column, as PostgreSQL encodes it: numeric(p, s)'s, its scale in eleven bits

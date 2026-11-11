@@ -53,7 +53,7 @@ const common = {
 	volatility: "immutable",
 	deps: { params: [], nodes: [] }
 } as const
-const [e0, e1, e2] = [ExprId("e#0"), ExprId("e#1"), ExprId("e#2")]
+const [e0, e1, e2] = Object.freeze([ExprId("e#0"), ExprId("e#1"), ExprId("e#2")])
 const nonNegative: ExprTable = {
 	root: e0,
 	exprs: {

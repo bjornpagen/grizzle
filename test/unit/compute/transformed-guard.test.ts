@@ -542,8 +542,8 @@ const byteCaseGen: Gen<ByteCase> = (source) => ({
 	)
 })
 
-const capitals = Arr.makeBy(26, (i) => 0x41 + i)
-const smalls = Arr.makeBy(26, (i) => 0x61 + i)
+const capitals: Arr.NonEmptyReadonlyArray<number> = Arr.makeBy(26, (i) => 0x41 + i)
+const smalls: Arr.NonEmptyReadonlyArray<number> = Arr.makeBy(26, (i) => 0x61 + i)
 
 /** The map a translating step applies, character by character, lowerAscii's and replaceWhitespace's as README states them. */
 const mapOf = (step: Translating): ReadonlyMap<number, number> => {

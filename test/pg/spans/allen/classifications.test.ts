@@ -139,7 +139,7 @@ const contractWindowQuery = query(Universe).rule((r) => {
 })
 
 /** Every mask ALLEN names: the basic relations and the named unions. */
-const named = Arr.filter(Rec.values({ ...ALLEN }), Predicate.isNumber)
+const named = Object.freeze(Arr.filter(Rec.values({ ...ALLEN }), Predicate.isNumber))
 /** The masks every run checks: every mask ALLEN names, each one's complement and converse, and the full mask. */
 const fixedMasks: Arr.NonEmptyReadonlyArray<number> = nonEmpty(
 	Arr.dedupe([

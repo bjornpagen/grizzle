@@ -90,7 +90,7 @@ import { upTo } from "#test/support/up-to.ts"
  * description's identity text is descText's, which no builder over a built schema reads, and a literal held to its
  * type's base is literalProblem's, which no closed cell meets at compile.
  */
-const sites = {
+const sites = Object.freeze({
 	descText: { file: "packages/engine/src/ir/desc.ts", name: "descText" },
 	literalProblem: { file: "packages/engine/src/ir/expr.ts", name: "literalProblem" },
 	levelContent: { file: "packages/engine/src/schema/levels.ts", name: "levelContent" },
@@ -114,7 +114,7 @@ const sites = {
 		file: "packages/grizzle/src/adapter/migrate/session.ts",
 		name: "openMigrationSession"
 	}
-} satisfies Readonly<Record<string, CallSite>>
+} satisfies Readonly<Record<string, CallSite>>)
 
 type Site = keyof typeof sites
 type Counts = Readonly<Record<Site, number>>

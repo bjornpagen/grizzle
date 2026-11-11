@@ -358,7 +358,7 @@ const probeFeatureOf: { readonly [K in ProbeSketch["kind"]]: ProbeFeature } = {
 	bound: "a probe at a norm bound"
 }
 
-const probeKinds = Rec.keys(probeFeatureOf)
+const probeKinds = Object.freeze(Rec.keys(probeFeatureOf))
 
 /** Where a dimension count lies: few, at the HNSW index's limit, or at the storage limit. */
 type WidthFeature = "few dimensions" | "the HNSW limit" | "the storage limit"
@@ -377,7 +377,7 @@ const dimsOf: { readonly [W in WidthFeature]: Gen<number> } = {
 	"the storage limit": constant(vectorMaxDimensions.value)
 }
 
-const widthFeatures = Rec.keys(dimsOf)
+const widthFeatures = Object.freeze(Rec.keys(dimsOf))
 
 const dimsGen: Gen<number> = oneOf(nonEmpty(Rec.values(dimsOf), "a generator per width"))
 

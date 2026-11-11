@@ -244,7 +244,7 @@ const Media = schema("Media", { Entry, Page }, [
  * The full world's workload: entries written with their pages nested, the entries' digests read back, a query's head
  * computing each entry's digest from its bytes, and the pages' copies read back.
  */
-const programs = {
+const programs = Object.freeze({
 	insertEntries: ChangeSet.empty(Media).insert(Entry, []),
 	entries: query(Media).rule((r) => {
 		const { id, digest, proved } = v(Entry, "e")
@@ -260,7 +260,7 @@ const programs = {
 		const { id, entry, entryDigest } = v(Page, "p")
 		return r.match(Page, { id, entry, entryDigest }).find({ id, entry, entryDigest })
 	})
-}
+})
 
 /** A drawn installed case: each entry's value and its count of pages. */
 interface Stored {

@@ -205,7 +205,10 @@ const searchOf = (
 }
 
 /** The host's bounds on a subset construction, as analyzeText's. */
-const dfaLimits = { maxStates: regexDfaMaxStates.value, maxWork: regexDfaMaxWork.value }
+const dfaLimits = Object.freeze({
+	maxStates: regexDfaMaxStates.value,
+	maxWork: regexDfaMaxWork.value
+})
 
 /** A code point spelled as its braced escape, which means itself inside a class and out. */
 const escaped = (c: number): string => `\\u{${c.toString(16)}}`

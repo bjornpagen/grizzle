@@ -42,7 +42,9 @@ import { caseHang } from "#test/support/limits.ts"
 import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 
-const policySettings = Arr.map(searchPolicySettings, (s) => `${s.parameter}=${s.value}`)
+const policySettings = Object.freeze(
+	Arr.map(searchPolicySettings, (s) => `${s.parameter}=${s.value}`)
+)
 
 /** The candidates the typed read requests (ann/support.ts candidates). */
 const candidatesTake = 20

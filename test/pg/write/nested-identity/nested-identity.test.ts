@@ -53,7 +53,7 @@ const Bodies = schema("NestedBodies", { Owner, Member }, [
  * The full world's workload: an owner inserted with its members nested, each call's facts; and the members and the
  * owners read back.
  */
-const programs = {
+const programs = Object.freeze({
 	insertOwner: ChangeSet.empty(Bodies).insert(Owner, []),
 	members: query(Bodies).rule((r) => {
 		const { owner, at, body } = v(Member, "member")
@@ -63,7 +63,7 @@ const programs = {
 		const { id, members: count } = v(Owner, "owner")
 		return r.match(Owner, { id, members: count }).find({ id, members: count })
 	})
-}
+})
 
 /** `n` a's: the empty text, or an a and the rest, as the body's pattern types its texts. */
 const aOf = (n: number): "" | `a${string}` => (n === 0 ? "" : `a${Str.repeat(n - 1)("a")}`)

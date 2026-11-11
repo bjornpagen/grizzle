@@ -85,7 +85,7 @@ const carrierTypes = (vectorSchema: string): Readonly<Record<Carrier, string>> =
 })
 
 /** The polymorphic input type PostgreSQL resolves an operator class or aggregate over, for the generic carriers. */
-const polymorphic: Partial<Record<Carrier, string>> = {
+const polymorphic: Readonly<Partial<Record<Carrier, string>>> = {
 	range4: "anyrange",
 	range8: "anyrange",
 	rangeDate: "anyrange"
@@ -108,7 +108,9 @@ const catalogCapabilities = [
 const catalogNames: ReadonlyArray<string> = catalogCapabilities
 
 /** Native capabilities the language does not admit, each with its reason. Nothing else may differ from the catalog. */
-const exclusions: Partial<Record<Carrier, ReadonlyArray<(typeof catalogCapabilities)[number]>>> = {
+const exclusions: Readonly<
+	Partial<Record<Carrier, ReadonlyArray<(typeof catalogCapabilities)[number]>>>
+> = {
 	/**
 	 * pgvector's sum(vector) and avg(vector) are not aggregates of the language (its aggregate vocabulary is count, sum,
 	 * mean, min and max over the scalar carriers that admit them).
@@ -139,7 +141,7 @@ const claimedBy = (carrier: Carrier): ReadonlyArray<Capability> => nativeCapabil
  * The carriers PostgreSQL has a discrete range over that grizzle declares no span over, each with the README's named
  * limit (Limits, "A span is over integer or bigint"). Nothing else may differ from the catalog.
  */
-const unspanned: Partial<Record<Carrier, string>> = {
+const unspanned: Readonly<Partial<Record<Carrier, string>>> = {
 	date: "daterange: grizzle declares no span carrier over a date yet"
 }
 

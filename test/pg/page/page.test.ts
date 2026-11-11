@@ -113,11 +113,11 @@ const titleOf = (n: number): string => defined(titleChoices[n % titleChoices.len
  * The token suite's facts: what every paged query needs to issue an edge, one task of the paged account A, noted (for
  * notes) and flagged High (for flagged and flagged by title). A refusal reads no fact, so no other is stated.
  */
-const tokenFacts = {
+const tokenFacts = Object.freeze({
 	Task: [{ id: t(0), account: A, priority: 0, title: titleOf(0) }],
 	Note: [{ task: t(0), note: "note" }],
 	Flag: [{ task: t(0), level: "High" }]
-}
+})
 
 /**
  * The same heading, parameters and order as orderedTasks, so the same TypeScript shape, with a different filter: a

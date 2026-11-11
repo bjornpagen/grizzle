@@ -133,12 +133,14 @@ const secondShift = (mode: Mode): Kept<DirectCase, DirectFeature> => {
 	}
 }
 
-const [p, variant] = Option.getOrThrowWith(
-	Arr.findFirstWithIndex(
-		variantsOf(sourceShapes, "mutable"),
-		(shape) => shape.kind === "tree" && shape.live
-	),
-	() => new Error("no mutable schema whose node is selected when live")
+const [p, variant] = Object.freeze(
+	Option.getOrThrowWith(
+		Arr.findFirstWithIndex(
+			variantsOf(sourceShapes, "mutable"),
+			(shape) => shape.kind === "tree" && shape.live
+		),
+		() => new Error("no mutable schema whose node is selected when live")
+	)
 )
 const host = sourceShapes.host(p)
 const node = (parent: number, live: boolean) =>

@@ -147,9 +147,8 @@ const asserted = (
 	}
 }
 
-const tester = new RuleTester({
-	languageOptions: { sourceType: "module", parserOptions: { lang: "ts" } }
-})
+/** How RuleTester parses each program: a TypeScript module. */
+const LANGUAGE = { sourceType: "module", parserOptions: { lang: "ts" } } as const
 
 RuleTester.describe = (_text, fn) => fn()
 RuleTester.it = (_text, fn) => fn()
@@ -167,7 +166,7 @@ const messageIdOf = (name: RuleName): string =>
 const judged = (name: RuleName, program: Program): Option.Option<string> => {
 	const code = `${HEADER}${program.code}\n`
 	const ran = Result.try(() =>
-		tester.run(
+		new RuleTester({ languageOptions: LANGUAGE }).run(
 			name,
 			plugin.rules[name],
 			program.reports === 0

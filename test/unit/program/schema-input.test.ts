@@ -451,10 +451,12 @@ const changedCases: Arr.NonEmptyReadonlyArray<ContentCase> = nonEmpty(
 )
 
 /** Each root with the schema names other than its own, which a rename draws from: no draw renames it to itself. */
-const renamings = Arr.map(roots, (built) => ({
-	built,
-	names: schemaNameGenOtherThan(new Set([built.subject.label]))
-}))
+const renamings = Object.freeze(
+	Arr.map(roots, (built) => ({
+		built,
+		names: schemaNameGenOtherThan(new Set([built.subject.label]))
+	}))
+)
 
 /** A root renamed to a schema name other than its own, which no change of content touches. */
 const renamedCase: Gen<ContentCase> = (source) => {

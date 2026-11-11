@@ -63,7 +63,7 @@ const keysOf = (dirs: ReadonlyArray<Direction>): ReadonlyArray<SeekKey> =>
 
 /** The installation's names a key's operators resolve through: the vector extension's schema; no key here is a
  * vector. */
-const names = { vectorSchema: testTypeSchema("vector_ext") }
+const names = Object.freeze({ vectorSchema: testTypeSchema("vector_ext") })
 
 /**
  * A direct evaluation of the predicate subset the seek emits: columns and placeholders over integers, the comparison

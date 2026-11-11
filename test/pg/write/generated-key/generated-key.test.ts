@@ -174,7 +174,7 @@ const Keys = schema("Keys", { MapKey, Use, Tag, Mapping, Entry }, [
  * The full world's workload: the stored state's insert, MapKey, Use, Tag and new mappings from each call's facts; and
  * each relation's rows as grizzle reads them, generated and drawn fields included.
  */
-const programs = {
+const programs = Object.freeze({
 	seed: ChangeSet.empty(Keys)
 		.insert(MapKey, [])
 		.insert(Use, [])
@@ -204,7 +204,7 @@ const programs = {
 			.match(Entry, { mapping, at, text, value, negative })
 			.find({ mapping, at, text, value, negative })
 	})
-}
+})
 
 /** The texts a case draws: three values, both signs and two paddings, so two texts often spell one typed key. */
 type KeyTextValue = `${"" | "-"}${"" | "0"}${"0" | "1" | "2"}`

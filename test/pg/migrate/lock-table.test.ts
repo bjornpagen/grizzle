@@ -90,17 +90,19 @@ const indexAmong = (x: Case, n: number): number =>
 	x.at === "the file's end" ? n - 1 - (x.k % n) : x.k % n
 
 /** The server's report of a lock table exhausted, as PostgreSQL words it. */
-const outOfLocks = new ServerError({
-	sqlstate: sqlstates.outOfMemory,
-	message: "out of shared memory",
-	constraint: undefined,
-	schema: undefined,
-	table: undefined,
-	column: undefined,
-	dataType: undefined,
-	detail: undefined,
-	hint: 'You might need to increase "max_locks_per_transaction".'
-})
+const outOfLocks = Object.freeze(
+	new ServerError({
+		sqlstate: sqlstates.outOfMemory,
+		message: "out of shared memory",
+		constraint: undefined,
+		schema: undefined,
+		table: undefined,
+		column: undefined,
+		dataType: undefined,
+		detail: undefined,
+		hint: 'You might need to increase "max_locks_per_transaction".'
+	})
+)
 
 /** A statement the server refuses: a read of a relation no schema holds. */
 const refused: BatchStatement = oneShotStatement(

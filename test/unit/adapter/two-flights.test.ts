@@ -118,7 +118,7 @@ const expected = (c: TwoFlights): Verdict => {
 	}
 }
 
-const serialization = serverError({ ...nothingReported, sqlstate: "40001" })
+const serialization = Object.freeze(serverError({ ...nothingReported, sqlstate: "40001" }))
 
 /** The statement a case's server refuses, none for a fault no statement's. */
 const refusedSql = (fault: Fault): string | undefined => {

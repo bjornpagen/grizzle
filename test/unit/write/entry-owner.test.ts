@@ -37,7 +37,7 @@ import { offlineBind, offlineCompile, parsedChange } from "#test/support/worlds/
  * Plants (~/.cache/grizzle-release/BR02/plants): entry-owner-family-filter-admitted, an entry whose filter reads a
  * family field declared.
  */
-const built = shopOf("Shop")
+const built = Object.freeze(shopOf("Shop"))
 
 const id = "00000000-0000-4000-8000-000000000001"
 
