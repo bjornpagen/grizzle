@@ -139,7 +139,8 @@ const identicalParts = (a: DecimalParts, b: DecimalParts): boolean =>
 		? a.negative === b.negative && a.coefficient === b.coefficient && a.minScale === b.minScale
 		: a.kind === b.kind
 
-const identicalLiteral = (a: TypedLiteral, b: TypedLiteral): boolean => {
+/** Whether two typed literals are one value: numeric's in its one form, so 1.30 and 1.3 are one. */
+export const identicalLiteral = (a: TypedLiteral, b: TypedLiteral): boolean => {
 	switch (a.kind) {
 		case "int":
 			return b.kind === "int" && a.value === b.value

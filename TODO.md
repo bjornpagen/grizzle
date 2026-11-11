@@ -56,10 +56,6 @@ post-beta swarm's fixes for the next release.
   smallint and integer as plain bigint, with rowDigits' proof that the sum stays below 10^(digits + 19), is false once
   the int8 accumulator wraps past 2^63: more than 2^32 rows of the largest integer wrap silently. A false proof; reach
   unverified.
-- **A foreign key's selector re-types an authored typed literal at the column's typmod (SCALAR, 2026-11-10):**
-  analysis/theory/laws.ts #selector, through irLiteral. Reach none (2026-11-11): it needs a selection conjunct `field =
-  literal` whose literal carries its own type, which only Compute.literal gives; qti-pie's literals are all inside
-  generated-field expressions and edullm's statements select nothing.
 - **physical/serving's needed check can call a needed B-tree unneeded (GIST, 2026-11-10):** a generated span predicate
   binding a boolean whose name sorts first, with a range after it planned beside the GiST index it creates and nothing
   reordering that index, under a boolean loaded half and half: btree_gist splits the boolean cleanly, so the needed

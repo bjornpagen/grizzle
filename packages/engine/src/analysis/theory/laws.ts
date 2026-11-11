@@ -68,7 +68,6 @@ import {
 	type FieldDesc,
 	type InferredExpr,
 	type InferredQuery,
-	type LiteralDesc,
 	type MonoidName,
 	type QueryDesc,
 	type SelectionDesc,
@@ -77,6 +76,7 @@ import {
 } from "#compiler/ir/desc.ts"
 import { type ExprSpec, OpId, type ScalarExpr, type TypedLiteral } from "#compiler/ir/expr.ts"
 import { type AxisKind, type Family, type FamilyFold, orderOf } from "#compiler/ir/family.ts"
+import { identicalLiteral } from "#compiler/ir/identical.ts"
 import {
 	type DeclaredSide,
 	type FamilyId,
@@ -272,8 +272,8 @@ export interface ResolvedSelector extends Selector {
 /**
  * One conjunct of a declared side's selection, resolved: its predicate and canonical text, which a law's identity
  * reads, and the fields of its relation it reads, in declared field order. It is `fixed` when it fixes a field to a
- * literal, `field = literal` with the literal typed at its field and no other conjunct fixing that field, the form a
- * constant selection and evidence read; any other is `general`.
+ * literal, `field = literal` with the literal a value of its field's type exactly (`LawSides.selector`) and no other
+ * conjunct fixing that field, the form a constant selection and evidence read; any other is `general`.
  */
 export type ResolvedConjunct =
 	| (ConjunctOf<"fixed"> & { readonly selector: ResolvedSelector })
@@ -770,8 +770,36 @@ export class LawSides {
 	}
 
 	/**
+	 * The selector `field = literal` states over `r` (`ResolvedSelector`): the literal at the field's type, where it is a
+	 * value of it exactly. A literal with no type of its own adopts the field's, rounded as PostgreSQL's coercion stores
+	 * it, and is refused where it is no value of it. A literal typed at a type of its own compares at that type, so it
+	 * fixes the field only where the field's type holds its value exactly: 1.30 at numeric(10, 2) over a numeric(5, 1)
+	 * field is its 1.3, while 1.25 there, or a text the field's refinement does not admit, equals no value of the field
+	 * and fixes nothing, its conjunct a general one.
+	 */
+	selector(
+		r: TheoryRelation,
+		field: string,
+		literal: LiteralOperand,
+		loc: SourceLoc
+	): ResolvedSelector | undefined {
+		const col = this.#column(r, field, loc)
+		const at = irLiteral(literal.value, col.type)
+		if (literal.type === undefined) {
+			if (!at.ok) {
+				return refuse("MalformedDescription", loc, `a selection on ${r.name}.${field}: ${at.error}`)
+			}
+			return { column: field, value: at.value.literal, col }
+		}
+		const own = irLiteral(literal.value, this.type(literal.type, loc))
+		return at.ok && own.ok && identicalLiteral(own.value.literal, at.value.literal)
+			? { column: field, value: at.value.literal, col }
+			: undefined
+	}
+
+	/**
 	 * A side's selection resolved over `r` (`ResolvedSelection`): each conjunct with its canonical text and the fields it
-	 * reads, fixed where it fixes a field no other conjunct fixes, its literal typed at that field.
+	 * reads, fixed where it fixes a field no other conjunct fixes, at a literal its type holds (`selector`).
 	 */
 	#selection(r: TheoryRelation, selection: SelectionDesc, loc: SourceLoc): ResolvedSelection {
 		const read = selection.conjuncts.map((predicate) => {
@@ -783,7 +811,7 @@ export class LawSides {
 				selector:
 					equality === undefined
 						? undefined
-						: this.#selector(r, equality.field, equality.value, loc)
+						: this.selector(r, equality.field, equality.literal, loc)
 			}
 		})
 		const fixings = (field: string): number =>
@@ -795,24 +823,6 @@ export class LawSides {
 					: { kind: "fixed", ...c, selector }
 			)
 		}
-	}
-
-	#selector(
-		r: TheoryRelation,
-		column: string,
-		value: LiteralDesc,
-		loc: SourceLoc
-	): ResolvedSelector {
-		const col = this.#column(r, column, loc)
-		const typed = irLiteral(value, col.type)
-		if (!typed.ok) {
-			return refuse(
-				"MalformedDescription",
-				loc,
-				`a selection on ${r.name}.${column}: ${typed.error}`
-			)
-		}
-		return { column, value: typed.value.literal, col }
 	}
 
 	/** The sides a family's lemmas read (FamilySides), over its members' selection. */
@@ -1407,7 +1417,8 @@ export class Normalizer {
 	 * 1. one arm, negating nothing, every match of an ordinary stored relation;
 	 * 2. every term of the side a variable a match binds, no two terms one variable;
 	 * 3. every condition `variable = literal`, besides a field a match binds to a literal, each literal one a selection
-	 *    states (`selectable`), fixing a field no term reads;
+	 *    states (`selectable`) and the type of the field it fixes holds (`LawSides.selector`), fixing a field no term
+	 *    reads;
 	 * 4. every variable no term reads bound once, by one match, so the matches meet at the side's terms alone;
 	 * 5. every match binding a variable a term reads;
 	 * 6. no match binding one term's variable at two fields;
@@ -1440,7 +1451,7 @@ export class Normalizer {
 		if (headVars.length !== arm.terms.length || new Set(headVars).size !== headVars.length) {
 			return byTriggers
 		}
-		const constants = new Map<string, ExprDesc>()
+		const constants = new Map<string, LiteralOperand>()
 		for (const w of arm.where) {
 			const fixed = variableFixing(w)
 			if (fixed === undefined || constants.has(fixed.var) || headVars.includes(fixed.var)) {
@@ -1478,6 +1489,9 @@ export class Normalizer {
 				const literal = e.kind === "var" ? constants.get(e.var) : selectable(e)
 				return literal === undefined ? [] : [{ field, literal }]
 			})
+			if (fixed.some((f) => this.#sides.selector(target, f.field, f.literal, loc) === undefined)) {
+				return byTriggers
+			}
 			const [first, ...rest] = at
 			if (
 				first === undefined ||
@@ -2120,9 +2134,10 @@ const byTriggers: RuleLowering = { kind: "triggers" }
  * A literal as a side's selection states it: bare, or at a declared field's descriptor. A literal at a computed numeric,
  * a derived relation's head literal read where its column stands, is none: a selector reads its value at the selected
  * field's own type (`ResolvedSelector`), which rounds or refuses a value the definition compares exactly, so a rule that
- * fixes a field to one keeps its triggers.
+ * fixes a field to one keeps its triggers, as it does for a declared one the field's type does not hold
+ * (`LawSides.selector`).
  */
-const selectable = (e: InferredExpr): ExprDesc | undefined => {
+const selectable = (e: InferredExpr): LiteralOperand | undefined => {
 	if (e.kind !== "literal") {
 		return undefined
 	}
@@ -2139,14 +2154,14 @@ const selectable = (e: InferredExpr): ExprDesc | undefined => {
  */
 const variableFixing = (
 	e: InferredExpr
-): { readonly var: string; readonly literal: ExprDesc } | undefined => {
+): { readonly var: string; readonly literal: LiteralOperand } | undefined => {
 	if (e.kind !== "compare" || e.op !== "eq") {
 		return undefined
 	}
 	const fixing = (
 		v: InferredExpr,
 		l: InferredExpr
-	): { readonly var: string; readonly literal: ExprDesc } | undefined => {
+	): { readonly var: string; readonly literal: LiteralOperand } | undefined => {
 		const literal = selectable(l)
 		return v.kind === "var" && literal !== undefined ? { var: v.var, literal } : undefined
 	}
@@ -2224,18 +2239,24 @@ const keyedWithin = (
 	)
 }
 
-/** The field a predicate fixes and the literal it fixes it to: a field compared equal with a literal on either side. */
+/** A literal operand of a side's selection, its value and the type it states, if any. */
+type LiteralOperand = Extract<ExprDesc, { readonly kind: "literal" }>
+
+/**
+ * The field a predicate compares equal with a literal on either side, and that literal as written, with the type it
+ * states: whether it fixes the field is the field's type's to say (`LawSides.selector`).
+ */
 const fieldEquality = (
 	e: ExprDesc
-): { readonly field: string; readonly value: LiteralDesc } | undefined => {
+): { readonly field: string; readonly literal: LiteralOperand } | undefined => {
 	if (e.kind !== "compare" || e.op !== "eq") {
 		return undefined
 	}
 	if (e.left.kind === "field" && e.right.kind === "literal") {
-		return { field: e.left.field, value: e.right.value }
+		return { field: e.left.field, literal: e.right }
 	}
 	if (e.left.kind === "literal" && e.right.kind === "field") {
-		return { field: e.right.field, value: e.left.value }
+		return { field: e.right.field, literal: e.left }
 	}
 	return undefined
 }
