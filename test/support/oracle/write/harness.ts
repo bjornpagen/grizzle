@@ -984,7 +984,10 @@ const noteShapes = (group: WGroup, c: WChangeSet, note: Case<WriteOracleFeature>
 			note("put on an immutable relation")
 		}
 	}
-	/** Each field a projecting member's head reads from a column: the member's op and both columns' kinds. */
+	/**
+	 * Each field a projecting member's head reads from a column, as it is or by a cast: the member's op and both
+	 * columns' kinds.
+	 */
 	const described = Arr.flatMap(members, (m) => {
 		if (m.source.kind !== "project") {
 			return []
@@ -992,7 +995,7 @@ const noteShapes = (group: WGroup, c: WChangeSet, note: Case<WriteOracleFeature>
 		const target = relationIn(group, m.relation)
 		const from = relationIn(group, m.source.from)
 		return Arr.flatMap(Rec.toEntries(m.source.head), ([field, term]) =>
-			term.kind === "var"
+			term.kind !== "param"
 				? Option.toArray(
 						Option.map(
 							Option.all({

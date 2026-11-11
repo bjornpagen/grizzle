@@ -7,9 +7,9 @@ import { query, v } from "#compiler/public/query.ts"
 import type { Fact as RelationFact } from "#compiler/public/schema.ts"
 import { type QueryValue, queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { FinishedValue, RuleValue } from "#compiler/query/build/rule.ts"
+import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import type { ParamMap, ParamValue, Source } from "#compiler/types/core/phantom.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
-import type { HeadShape } from "#compiler/types/query/terms.ts"
 import {
 	changeSetOver as ChangeSet,
 	type ChangeSetValue,
@@ -27,9 +27,12 @@ import {
 import { elementAt, recordEntryOf } from "#test/support/oracle/pick.ts"
 import {
 	coercedSpelling,
+	isNumericKind,
+	type NumericKind,
 	printValue,
 	sameBase,
 	typeInfo,
+	typmodRange,
 	valueIdentity
 } from "#test/support/oracle/write/domain.ts"
 
@@ -59,8 +62,16 @@ import { pickFrom, pickGen, pickIndex } from "#test/support/pick.ts"
 
 export type MemberOp = "insert" | "delete" | "put"
 
+/**
+ * A described member's head term for one field: the source's field `column` read as it is, a field of the member
+ * field's own type up to its text domain; the source's numeric field `column` of another typmod, read into the member
+ * field's numeric kind `into` by Compute.cast under Compute.within of that kind's range (domain.ts typmodRange), and as
+ * the kind's first value (domain.ts typeInfo) outside it, since a member writes each field at its own type
+ * (check/member.ts) and the cast rounds to the field's scale; or the parameter `param`.
+ */
 type HeadTerm =
 	| { readonly kind: "var"; readonly column: string }
+	| { readonly kind: "cast"; readonly column: string; readonly into: NumericKind }
 	| { readonly kind: "param"; readonly param: string }
 
 type WSource =
@@ -311,7 +322,7 @@ interface ReadSketch {
  *   own statement, so the change is refused, as with any fresh value; no draw re-creates the referenced fact first;
  * - "relation parameters": an insert and a deletion of the keyed relation, each a relation parameter's facts;
  * - "typmod cast": an insert into the rounded relation of a precise fact, its numeric(12, 4) read into numeric(5, 2)
- *   and rounded by the cast;
+ *   by Compute.cast under Compute.within of numeric(5, 2)'s range (HeadTerm cast) and rounded by the cast;
  * - "coerced repeat": an insert of a stored rounded fact spelled as a decimal that rounds to its value at its typmod,
  *   which changes nothing;
  * - "anchored deletion": a deletion of the keyed facts whose b a parameter names, described over the keyed relation
@@ -657,6 +668,18 @@ const described = (
 /** A head term reading the source's field `column`. */
 const own = (column: string): HeadTerm => ({ kind: "var", column })
 
+/**
+ * A head term reading the source's numeric field `column` into the field `field` of `relation`, a numeric of another
+ * typmod (HeadTerm cast).
+ */
+const castInto = (relation: WRelation, field: string, column: string): HeadTerm => {
+	const into = columnOf(relation, field).kind
+	if (!isNumericKind(into)) {
+		throw new Error(`${relation.name}.${field} is ${into}, no numeric a cast reads a typmod into`)
+	}
+	return { kind: "cast", column, into }
+}
+
 const fromParam = (op: MemberOp, relation: WRelation, param: string): WMember => ({
 	op,
 	relation: relation.name,
@@ -668,6 +691,40 @@ const enumerated = (op: MemberOp, relation: WRelation, facts: ReadonlyArray<Fact
 	relation: relation.name,
 	source: { kind: "array", facts, stream: false }
 })
+
+/** The value a cast head term takes outside its kind's range: the kind's first value (HeadTerm cast). */
+const castOtherwise = (into: NumericKind): unknown =>
+	elementAt(typeInfo[into].values, 0, `the ${into} values`)
+
+/** The value a head term gives its field from the source's fact `fact`, as the member's query computes it. */
+const headValue = (t: HeadTerm, fact: Fact, params: ParamMap): unknown => {
+	switch (t.kind) {
+		case "var":
+			return fact[t.column]
+		case "cast": {
+			const value = fact[t.column]
+			const [low, high] = typmodRange(t.into)
+			if (!(value instanceof Decimal)) {
+				throw new TypeError(`a numeric value that is no Decimal: ${String(value)}`)
+			}
+			return value.compare(low) >= 0 && value.compare(high) <= 0 ? value : castOtherwise(t.into)
+		}
+		case "param":
+			return params[t.param]
+	}
+}
+
+/** A head term as a printed case spells it. */
+const printHead = (t: HeadTerm): string => {
+	switch (t.kind) {
+		case "var":
+			return t.column
+		case "cast":
+			return `cast(${t.column}, ${t.into})`
+		case "param":
+			return `$${t.param}`
+	}
+}
 
 /**
  * The ChangeSet a planted arm realizes on the planted group (PlantedArm), over `stored`, the facts the case writes from
@@ -878,7 +935,7 @@ export const plantedChangeSet = (group: WGroup, arm: PlantedArm, stored: WFacts)
 						p.rounded,
 						p.precise,
 						{ column: "a", param: "p0" },
-						{ a: own("a"), b: own("b") }
+						{ a: own("a"), b: castInto(p.rounded, "b", "b") }
 					)
 				],
 				[],
@@ -1180,7 +1237,11 @@ export const resolveChangeSet =
 				} else if (h.term < 3 && Option.isSome(same)) {
 					head[c.name] = { kind: "var", column: same.value.name }
 				} else if (h.term < 4 && candidates.length > 0) {
-					head[c.name] = { kind: "var", column: at(candidates, h.value).name }
+					const read = at(candidates, h.value)
+					head[c.name] =
+						isNumericKind(c.kind) && read.kind !== c.kind
+							? { kind: "cast", column: read.name, into: c.kind }
+							: { kind: "var", column: read.name }
 				} else {
 					head[c.name] = {
 						kind: "param",
@@ -1415,8 +1476,8 @@ export const buildChangeSet = (
 			case "project": {
 				const from = relationIn(group, source.from)
 				const filter = source.filter
-				return query(schema).rule((r) => {
-					const vars = v(rel(from.name), "from")
+				return queryOver(schema).rule((r: RuleValue): FinishedValue => {
+					const vars = varsOver(rel(from.name), "from")
 					const matched = r.match(rel(from.name), bindAll(from, vars))
 					const q =
 						filter === undefined
@@ -1427,14 +1488,28 @@ export const buildChangeSet = (
 										r.param(filter.param, descriptorOf(from.name, filter.column))
 									)
 								)
-					const head: HeadShape = {}
+					const head: Record<string, unknown> = {}
 					for (const col of target.columns) {
 						const t = source.head[col.name]
-						if (t !== undefined) {
-							head[col.name] =
-								t.kind === "var"
-									? field(vars, t.column)
-									: r.param(t.param, descriptorOf(target.name, col.name))
+						if (t === undefined) {
+							continue
+						}
+						switch (t.kind) {
+							case "var":
+								head[col.name] = field(vars, t.column)
+								break
+							case "cast": {
+								const [low, high] = typmodRange(t.into)
+								const into = descriptorOf(target.name, col.name)
+								head[col.name] = computeCore.when(
+									computeCore.within(field(vars, t.column), low, high),
+									(x: unknown) => computeCore.cast(x, into),
+									computeCore.literal(into, castOtherwise(t.into))
+								)
+								break
+							}
+							case "param":
+								head[col.name] = r.param(t.param, descriptorOf(target.name, col.name))
 						}
 					}
 					return q.find(head)
@@ -1657,9 +1732,7 @@ export const evaluateSource = (
 				Rec.fromEntries(
 					Arr.flatMap(target.columns, (c) => {
 						const t = source.head[c.name]
-						return t === undefined
-							? []
-							: [[c.name, t.kind === "var" ? fact[t.column] : params[t.param]] as const]
+						return t === undefined ? [] : [[c.name, headValue(t, fact, params)] as const]
 					})
 				)
 			)
@@ -1748,10 +1821,7 @@ const printSource = (s: WSource): string => {
 			return `${s.stream ? "Stream " : ""}[${Arr.join(Arr.map(s.facts, printFact), ", ")}]`
 		case "project":
 			return `project ${s.from}${s.filter === undefined ? "" : ` where ${s.filter.column} = $${s.filter.param}`} find { ${Arr.join(
-				Arr.map(
-					Rec.toEntries(s.head),
-					([k, t]) => `${k}: ${t.kind === "var" ? t.column : `$${t.param}`}`
-				),
+				Arr.map(Rec.toEntries(s.head), ([k, t]) => `${k}: ${printHead(t)}`),
 				", "
 			)} }`
 		case "param":

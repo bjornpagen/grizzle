@@ -95,6 +95,19 @@ const numericKinds: ReadonlySet<TypeKind> = new Set(Rec.keys(numericTypmods))
 
 export const isNumericKind = (kind: TypeKind): kind is NumericKind => numericKinds.has(kind)
 
+/**
+ * The least and greatest values a numeric kind's numeric(p, s) holds: every one of its p - s integer and s fraction
+ * digits a nine, negated and not. A Compute.within over them proves a cast into the kind fits (changeset.ts HeadTerm
+ * cast).
+ */
+export const typmodRange = (kind: NumericKind): readonly [Decimal, Decimal] => {
+	const { precision, scale } = numericTypmods[kind]
+	const integer = Str.repeat(precision - scale)("9")
+	const fraction = Str.repeat(scale)("9")
+	const greatest = fraction === "" ? integer : `${integer}.${fraction}`
+	return [decimal(`-${greatest}`), decimal(greatest)]
+}
+
 export const isSerialKind = (kind: TypeKind): kind is SerialKind =>
 	kind === "bigserial" || kind === "serial"
 
@@ -445,8 +458,8 @@ const baseOf = (kind: TypeKind): string =>
 
 /**
  * Two types whose columns a described member may connect: the same base carrier. A bigserial column holds bigint
- * values, a numeric of one typmod is cast into another's, rounding, and a wide text is cast into the narrow text's
- * domain, which refuses a value outside it.
+ * values, a numeric of one typmod is read into another's by Compute.cast, rounding (changeset.ts HeadTerm cast), and a
+ * wide text is cast into the narrow text's domain, which refuses a value outside it.
  */
 export const sameBase = (a: TypeKind, b: TypeKind): boolean => baseOf(a) === baseOf(b)
 
