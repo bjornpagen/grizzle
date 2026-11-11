@@ -692,10 +692,12 @@ export class LowerContext {
 		const named = this.freshColumns(outputNames(heading), origin)
 		const columns = named.map((n) => n.column)
 		const alias = this.supply.relation(origin)
-		const item: FromSource = lateral
-			? derived(query, alias, columns, true)
-			: derived(query, alias, columns, false)
-		return { item, alias, columns, map: namedMap(alias, named) }
+		return {
+			item: derived(query, alias, columns, lateral),
+			alias,
+			columns,
+			map: namedMap(alias, named)
+		}
 	}
 
 	/** A node lowered and read as a derived table. */
