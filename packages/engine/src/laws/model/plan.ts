@@ -985,11 +985,12 @@ const distinct = <A>(items: ReadonlyArray<A>, same: (a: A, b: A) => boolean): Re
 	items.filter((a, i) => !items.slice(0, i).some((b) => same(a, b)))
 
 /**
- * A containment into a fixed target as the choice of its reference reads it (`sharedTargets`): the target's relation,
+ * A containment into a fixed target as the choice of its reference reads it (`referenceChoice`): the target's relation,
  * its own columns, the columns of the UNIQUE its shared reference lands on, and the constants that reference adds to
  * the containment's source.
  */
 interface FixedUse {
+	readonly part: PartRef
 	readonly relation: string
 	readonly own: NonEmptyReadonlyArray<SideColumn>
 	readonly shared: NonEmptyReadonlyArray<SideColumn>
@@ -1094,25 +1095,199 @@ const takingShared = (
 }
 
 /**
- * The fixed targets whose containments take the shared reference, by relation, each by its own columns: each
- * relation's choice over every containment into its fixed targets (`takingShared`).
+ * A part a law lowers by `#scalarContainment` (`scalarParts`): the law, and the part's place among its parts, 0 for a
+ * stated containment and each part of a rule over a query at its place.
  */
-const sharedTargets = (
-	uses: ReadonlyArray<FixedUse>,
-	planned: (relation: string) => Planned
-): ReadonlyMap<string, ReadonlyArray<NonEmptyReadonlyArray<SideColumn>>> =>
-	new Map(
-		distinct(
-			uses.map((u) => u.relation),
-			(a, b) => a === b
-		).map((relation) => [
-			relation,
-			takingShared(
-				uses.filter((u) => u.relation === relation),
-				planned(relation)
+export interface PartRef {
+	readonly law: LawId
+	readonly part: number
+}
+
+/**
+ * The parts whose fixed targets take the shared reference, each by its law and place (`PartRef`): the reference choice
+ * over the whole schema (`referenceChoice`), which the installation's law model makes once and every law model of the
+ * schema reads, a slice's among them, through the recognizer that takes it (`Recognizer`). A slice holds only the laws
+ * its closure reads, whose uses of a target are not the schema's, so no slice chooses again: it reads the choice the
+ * whole schema made, as generate records it beside the foreign key cycles.
+ */
+export type ReferenceChoice = ReadonlyArray<PartRef>
+
+/** Whether a choice takes the shared reference for `part`. */
+const takesShared = (choice: ReferenceChoice, part: PartRef): boolean =>
+	choice.some((c) => c.law === part.law && c.part === part.part)
+
+/**
+ * The keys a target over `to`'s relation may hold (`TargetKey`), its relation's keys over projected sides `projected`
+ * by relation name: each declared scalar key, over every fact, then each key over a projected side with no span term,
+ * whose WITHOUT OVERLAPS holds apart no two equal empty spans.
+ */
+const keysOf = (
+	projected: ReadonlyMap<string, ReadonlyArray<ResolvedSide>>,
+	to: ResolvedSide
+): ReadonlyArray<TargetKey> => [
+	...scalarKeys(to.rel).map((k): TargetKey => ({
+		selection: everyRow,
+		terms: mapNonEmpty(k, (f): ResolvedTerm => ({ kind: "field", field: f.name, column: f }))
+	})),
+	...(projected.get(to.relation) ?? []).filter((k) => !k.terms.some((t) => isSpanField(t.column)))
+]
+
+/**
+ * A fixed target (see the recognition table): a target of field terms whose selection fixes fields beyond them, by
+ * the first key, in `keysOf` order, that selects within it and whose terms are among its terms and the fields it fixes
+ * outside the key's selection (`fixingsOf`). Its columns are its terms under its other conjuncts, then each fixed
+ * field, the key's own column where the field is a term of the key and else the field, so a target that is a
+ * projected key's side widened by its fixed fields references that key's own UNIQUE; the source's are its own, then
+ * for each fixed field a constant law column of its literal or its column paired with the term the field equals. The
+ * key holds apart the facts the other conjuncts keep at them, its selection among those conjuncts, so the UNIQUE over
+ * them refuses nothing the key admits. Undefined for any other target.
+ */
+const fixedTargetOf = (
+	projected: ReadonlyMap<string, ReadonlyArray<ResolvedSide>>,
+	to: ResolvedSide,
+	source: NonEmptyReadonlyArray<PlannedColumn>,
+	fromRel: RelationInfo,
+	toRel: RelationInfo
+): Reference | undefined => {
+	const fields = fieldTermsOf(to.terms)
+	if (fields === undefined) {
+		return undefined
+	}
+	const terms = fields.map((t) => t.column)
+	const [held] = keysOf(projected, to).flatMap((key) => {
+		const fixed = fixingsOf(to, terms, key)
+		const covered = [...terms, ...fixed.map((f) => f.field)]
+		return selectsWithin(key, to) &&
+			isNonEmpty(fixed) &&
+			key.terms.every((k) => k.kind === "field" && covered.includes(k.column))
+			? [{ key, fixings: fixed }]
+			: []
+	})
+	if (held === undefined) {
+		return undefined
+	}
+	const { key, fixings } = held
+	const rest: ResolvedSide = {
+		...to,
+		selection: {
+			conjuncts: to.selection.conjuncts.filter((c) => !fixings.some((f) => f.conjunct === c))
+		}
+	}
+	return {
+		columns: extendNonEmpty(
+			source,
+			fixings.map((f) => fixingSource(f, source, fromRel, toRel))
+		),
+		targetColumns: extendNonEmpty(
+			sideColumns(rest),
+			fixings.map((f) =>
+				termColumn(
+					toRel,
+					{ kind: "field", field: f.field.name, column: f.field },
+					key.terms.some((k) => k.column === f.field) ? key.selection : everyRow
+				)
 			)
-		])
-	)
+		)
+	}
+}
+
+/** Each relation's keys over projected sides, by relation name, as `laws` state them. */
+const projectedKeysOf = (
+	laws: ReadonlyArray<TheoryLaw>
+): ReadonlyMap<string, ReadonlyArray<ResolvedSide>> => {
+	const keys = new Map<string, Array<ResolvedSide>>()
+	for (const law of laws) {
+		if (law.detail.kind === "projectedKey") {
+			const side = law.detail.side
+			keys.set(side.relation, [...(keys.get(side.relation) ?? []), side])
+		}
+	}
+	return keys
+}
+
+/**
+ * The reference choice of a whole schema's `laws` (`ReferenceChoice`): what each relation holds whatever the choices
+ * (`Planned`), read off its keys and every part a law lowers by `#scalarContainment`, then each relation's choice over
+ * the parts into its fixed targets (`takingShared`), each part whose target takes its superkey listed by its law and
+ * place. Made once, by the installation's law model, over every law of the schema.
+ */
+export const referenceChoice = (
+	laws: ReadonlyArray<TheoryLaw>,
+	relations: Readonly<Record<string, TheoryRelation>>,
+	discharge: RuleDischarge
+): ReferenceChoice => {
+	const projected = projectedKeysOf(laws)
+	const planned = new Map<
+		string,
+		{
+			uniques: Array<NonEmptyReadonlyArray<SideColumn>>
+			probes: Array<NonEmptyReadonlyArray<SideColumn>>
+			columns: Array<SideColumn>
+		}
+	>()
+	const at = (relation: string) => {
+		const known = planned.get(relation)
+		const held = known ?? { uniques: [], probes: [], columns: [] }
+		if (known === undefined) {
+			planned.set(relation, held)
+		}
+		return held
+	}
+	for (const [name, r] of Object.entries(relations)) {
+		for (const k of scalarKeys(r)) {
+			at(name).uniques.push(mapNonEmpty(k, fieldColumn))
+		}
+	}
+	for (const [name, sides] of projected) {
+		for (const side of sides) {
+			if (side.rel.kind === "closed" || side.terms.some((t) => isSpanField(t.column))) {
+				continue
+			}
+			const columns = sideColumns(side)
+			at(name).uniques.push(columns)
+			appendAll(at(name).columns, columns)
+		}
+	}
+	const fixed: Array<FixedUse> = []
+	for (const law of laws) {
+		for (const [i, part] of scalarParts(law, relations, discharge).entries()) {
+			const source = sideColumns(part.from)
+			appendAll(at(part.from.relation).columns, source)
+			const run = btreeRun(source)
+			if (run !== undefined) {
+				at(part.from.relation).probes.push(run.columns)
+			}
+			const own = sideColumns(part.to)
+			const shared = fixedTargetOf(
+				projected,
+				part.to,
+				source,
+				tableOf(part.from.rel),
+				tableOf(part.to.rel)
+			)
+			if (shared === undefined) {
+				at(part.to.relation).uniques.push(own)
+				appendAll(at(part.to.relation).columns, own)
+			} else {
+				fixed.push({
+					part: { law: law.id, part: i },
+					relation: part.to.relation,
+					own,
+					shared: shared.targetColumns,
+					constants: constantsOf(shared)
+				})
+			}
+		}
+	}
+	return distinct(
+		fixed.map((u) => u.relation),
+		(a, b) => a === b
+	).flatMap((relation) => {
+		const uses = fixed.filter((u) => u.relation === relation)
+		const taking = takingShared(uses, planned.get(relation) ?? plansNothing)
+		return uses.flatMap((u) => (taking.some((own) => sameColumns(own, u.own)) ? [u.part] : []))
+	})
+}
 
 /** Whether `key` is exactly `side`: the same conjuncts and the same terms, each of one kind over one field. */
 const sameSide = (key: ResolvedSide, side: ResolvedSide): boolean =>
@@ -1296,7 +1471,7 @@ interface FamilyPlan {
  *   must contain a key (`TargetKey`): a declared scalar key of its relation, or a projected key with no span term, whose
  *   conjuncts are among the target's and whose terms are among its terms. Its UNIQUE is that key's when the columns are
  *   exactly a declared key's, and otherwise a generated superkey, exact because a superkey of a key is unique.
- * - A fixed target (`#fixedTarget`): a target of field terms whose selection fixes fields beyond them, each by one
+ * - A fixed target (`fixedTargetOf`): a target of field terms whose selection fixes fields beyond them, each by one
  *   conjunct outside a key's selection (`Fixing`), `f = literal` or `f = t` with t one of its terms, where the key's
  *   conjuncts are among the target's and its terms among the target's terms and fixed fields. The target's columns are
  *   its terms under its other conjuncts, then its fixed fields in field order, each the key's own column where it is a
@@ -1305,7 +1480,7 @@ interface FamilyPlan {
  *   shares it. Tried before a target keyed by its terms alone. An alternatives arm of one handle is one: its parent
  *   selected by the handle. The key implies a UNIQUE over the target's own columns too, which its selection keeps the
  *   key's fields at, with no constant on the source; a containment references whichever adds fewer indexes and columns
- *   to the whole schema, the superkey where both cost the same (`sharedTargets`, `#reference`), so a target a reverse
+ *   to the whole schema, the superkey where both cost the same (`referenceChoice`, `#reference`), so a target a reverse
  *   probe out of its selection reads at its own columns, whose UNIQUE serves that probe, and a target whose superkey
  *   costs a column or a constant more, take their own columns.
  * - A coverage, a containment pairing a span field of each side, is a PERIOD foreign key from the source's columns into
@@ -1462,25 +1637,22 @@ export class Recognizer {
 	readonly #closedSides: ClosedSides
 	/** How a rule over a query that lowers to foreign keys is discharged (model.ts RuleDischarge). */
 	readonly #discharge: RuleDischarge
-	/** The fixed targets whose containments take the shared reference, by relation, each by its own columns
-	 * (`sharedTargets`). */
-	readonly #shared: ReadonlyMap<string, ReadonlyArray<NonEmptyReadonlyArray<SideColumn>>>
+	/** The whole schema's reference choice (`referenceChoice`), which the recognizer reads and never makes: what a law
+	 * model records for every model of its schema, a slice's among them. */
+	readonly references: ReferenceChoice
 
 	constructor(
 		laws: ReadonlyArray<TheoryLaw>,
 		families: ReadonlyArray<Family>,
 		relations: Readonly<Record<string, TheoryRelation>>,
-		discharge: RuleDischarge
+		discharge: RuleDischarge,
+		references: ReferenceChoice
 	) {
-		const keys = new Map<string, Array<ResolvedSide>>()
 		const familyLaws = new Map<string, TheoryLaw>()
 		const foldLaws = new Map<string, Map<number, FoldLaw>>()
 		for (const law of laws) {
 			const d = law.detail
 			switch (d.kind) {
-				case "projectedKey":
-					keys.set(d.side.relation, [...(keys.get(d.side.relation) ?? []), d.side])
-					break
 				case "family":
 				case "tree":
 					familyLaws.set(familyKey(d.family.id), law)
@@ -1492,6 +1664,7 @@ export class Recognizer {
 					break
 				}
 				case "key":
+				case "projectedKey":
 				case "check":
 				case "contract":
 				case "containment":
@@ -1499,7 +1672,7 @@ export class Recognizer {
 					break
 			}
 		}
-		this.#projectedKeys = keys
+		this.#projectedKeys = projectedKeysOf(laws)
 		this.#relations = relations
 		this.#families = new Map(families.map((f) => [familyKey(f.id), f] as const))
 		this.#familyLaws = familyLaws
@@ -1516,65 +1689,7 @@ export class Recognizer {
 		this.#refill = refillDeferral(families)
 		this.#closedSides = closedSidesOf(laws)
 		this.#discharge = discharge
-		const planned = new Map<
-			string,
-			{
-				uniques: Array<NonEmptyReadonlyArray<SideColumn>>
-				probes: Array<NonEmptyReadonlyArray<SideColumn>>
-				columns: Array<SideColumn>
-			}
-		>()
-		const at = (relation: string) => {
-			const known = planned.get(relation)
-			const held = known ?? { uniques: [], probes: [], columns: [] }
-			if (known === undefined) {
-				planned.set(relation, held)
-			}
-			return held
-		}
-		for (const [name, r] of Object.entries(relations)) {
-			for (const k of scalarKeys(r)) {
-				at(name).uniques.push(mapNonEmpty(k, fieldColumn))
-			}
-		}
-		for (const [name, sides] of keys) {
-			for (const side of sides) {
-				if (side.rel.kind === "closed" || side.terms.some((t) => isSpanField(t.column))) {
-					continue
-				}
-				const columns = sideColumns(side)
-				at(name).uniques.push(columns)
-				appendAll(at(name).columns, columns)
-			}
-		}
-		const fixed: Array<FixedUse> = []
-		for (const part of laws.flatMap((law) => scalarParts(law, relations, discharge))) {
-			const source = sideColumns(part.from)
-			appendAll(at(part.from.relation).columns, source)
-			const run = btreeRun(source)
-			if (run !== undefined) {
-				at(part.from.relation).probes.push(run.columns)
-			}
-			const own = sideColumns(part.to)
-			const shared = this.#fixedTarget(
-				part.to,
-				source,
-				tableOf(part.from.rel),
-				tableOf(part.to.rel)
-			)
-			if (shared === undefined) {
-				at(part.to.relation).uniques.push(own)
-				appendAll(at(part.to.relation).columns, own)
-			} else {
-				fixed.push({
-					relation: part.to.relation,
-					own,
-					shared: shared.targetColumns,
-					constants: constantsOf(shared)
-				})
-			}
-		}
-		this.#shared = sharedTargets(fixed, (relation) => planned.get(relation) ?? plansNothing)
+		this.references = references
 	}
 
 	/**
@@ -1657,7 +1772,9 @@ export class Recognizer {
 				return migrationPlan(law)
 			case "write":
 				return done(
-					route.parts.flatMap((p) => this.#scalarContainment(p.from, p.to, "deferred", loc))
+					route.parts.flatMap((p, i) =>
+						this.#scalarContainment(p.from, p.to, "deferred", loc, { law: law.id, part: i })
+					)
 				)
 			case "trigger":
 				return { law, natives: [], discharge: "trigger" }
@@ -1780,7 +1897,7 @@ export class Recognizer {
 			case "span":
 				return done(this.#coverage(d, d.pairing, loc))
 			case "scalar":
-				return done(this.#scalarContainment(d.from, d.to, "rule", loc))
+				return done(this.#scalarContainment(d.from, d.to, "rule", loc, { law: law.id, part: 0 }))
 		}
 	}
 
@@ -1867,12 +1984,13 @@ export class Recognizer {
 		from: ResolvedSide,
 		to: ResolvedSide,
 		deferral: "rule" | "deferred",
-		loc: SourceLoc
+		loc: SourceLoc,
+		part: PartRef
 	): ReadonlyArray<NativePlan> {
 		const fromRel = tableOf(from.rel)
 		const toRel = tableOf(to.rel)
 		const sourceColumns = sideColumns(from)
-		const reference = this.#reference(to, sourceColumns, fromRel, toRel, loc)
+		const reference = this.#reference(to, sourceColumns, fromRel, toRel, loc, part)
 		const containment = `the containment of ${sideText(from)} in ${sideText(to)}`
 		return [
 			...lawColumns(reference.columns),
@@ -1932,102 +2050,27 @@ export class Recognizer {
 	}
 
 	/**
-	 * The keys a target over `to`'s relation may hold (`TargetKey`): each declared scalar key, over every fact, then each
-	 * key over a projected side with no span term, whose WITHOUT OVERLAPS holds apart no two equal empty spans.
-	 */
-	#keysOf(to: ResolvedSide): ReadonlyArray<TargetKey> {
-		return [
-			...scalarKeys(to.rel).map((k): TargetKey => ({
-				selection: everyRow,
-				terms: mapNonEmpty(k, (f): ResolvedTerm => ({ kind: "field", field: f.name, column: f }))
-			})),
-			...(this.#projectedKeys.get(to.relation) ?? []).filter(
-				(k) => !k.terms.some((t) => isSpanField(t.column))
-			)
-		]
-	}
-
-	/**
-	 * A fixed target (see the recognition table): a target of field terms whose selection fixes fields beyond them, by
-	 * the first key, in `#keysOf` order, that selects within it and whose terms are among its terms and the fields it
-	 * fixes outside the key's selection (`fixingsOf`). Its columns are its terms under its other conjuncts, then each
-	 * fixed field, the key's own column where the field is a term of the key and else the field, so a target that is a
-	 * projected key's side widened by its fixed fields references that key's own UNIQUE; the source's are its own, then
-	 * for each fixed field a constant law column of its literal or its column paired with the term the field equals. The
-	 * key holds apart the facts the other conjuncts keep at them, its selection among those conjuncts, so the UNIQUE over
-	 * them refuses nothing the key admits. Undefined for any other target.
-	 */
-	#fixedTarget(
-		to: ResolvedSide,
-		source: NonEmptyReadonlyArray<PlannedColumn>,
-		fromRel: RelationInfo,
-		toRel: RelationInfo
-	): Reference | undefined {
-		const fields = fieldTermsOf(to.terms)
-		if (fields === undefined) {
-			return undefined
-		}
-		const terms = fields.map((t) => t.column)
-		const [held] = this.#keysOf(to).flatMap((key) => {
-			const fixed = fixingsOf(to, terms, key)
-			const covered = [...terms, ...fixed.map((f) => f.field)]
-			return selectsWithin(key, to) &&
-				isNonEmpty(fixed) &&
-				key.terms.every((k) => k.kind === "field" && covered.includes(k.column))
-				? [{ key, fixings: fixed }]
-				: []
-		})
-		if (held === undefined) {
-			return undefined
-		}
-		const { key, fixings } = held
-		const rest: ResolvedSide = {
-			...to,
-			selection: {
-				conjuncts: to.selection.conjuncts.filter((c) => !fixings.some((f) => f.conjunct === c))
-			}
-		}
-		return {
-			columns: extendNonEmpty(
-				source,
-				fixings.map((f) => fixingSource(f, source, fromRel, toRel))
-			),
-			targetColumns: extendNonEmpty(
-				sideColumns(rest),
-				fixings.map((f) =>
-					termColumn(
-						toRel,
-						{ kind: "field", field: f.field.name, column: f.field },
-						key.terms.some((k) => k.column === f.field) ? key.selection : everyRow
-					)
-				)
-			)
-		}
-	}
-
-	/**
-	 * How a containment references its target, each reference into a UNIQUE a key of its relation implies: a fixed target
-	 * (`#fixedTarget`) at its terms and fixed fields where the choice over the whole schema takes that shared UNIQUE
-	 * (`sharedTargets`), else at its own columns, which the key holding it implies too, since its selection holds the
-	 * key's and fixes each of the key's fields beyond its terms; a target keyed by its terms, by a key (`#keysOf`) that
-	 * selects within it and whose terms are among its terms, at its own columns. A target no key holds is refused: no
-	 * UNIQUE the law model may add holds it apart.
+	 * How the part `part` references its target, each reference into a UNIQUE a key of its relation implies: a fixed
+	 * target (`fixedTargetOf`) at its terms and fixed fields where the whole schema's choice takes that shared UNIQUE for
+	 * the part (`references`), else at its own columns, which the key holding it implies too, since its selection holds
+	 * the key's and fixes each of the key's fields beyond its terms; a target keyed by its terms, by a key (`keysOf`)
+	 * that selects within it and whose terms are among its terms, at its own columns. A target no key holds is refused:
+	 * no UNIQUE the law model may add holds it apart.
 	 */
 	#reference(
 		to: ResolvedSide,
 		source: NonEmptyReadonlyArray<PlannedColumn>,
 		fromRel: RelationInfo,
 		toRel: RelationInfo,
-		loc: SourceLoc
+		loc: SourceLoc,
+		part: PartRef
 	): Reference {
 		const own: Reference = { columns: source, targetColumns: sideColumns(to) }
-		const fixed = this.#fixedTarget(to, source, fromRel, toRel)
+		const fixed = fixedTargetOf(this.#projectedKeys, to, source, fromRel, toRel)
 		if (fixed !== undefined) {
-			return (this.#shared.get(to.relation) ?? []).some((s) => sameColumns(s, own.targetColumns))
-				? fixed
-				: own
+			return takesShared(this.references, part) ? fixed : own
 		}
-		if (this.#keysOf(to).some((k) => keyedBy(k, to))) {
+		if (keysOf(this.#projectedKeys, to).some((k) => keyedBy(k, to))) {
 			return own
 		}
 		return refuse(

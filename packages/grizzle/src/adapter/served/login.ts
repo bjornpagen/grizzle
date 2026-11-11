@@ -166,7 +166,8 @@ export const artifactsUnder = (
 		Engine.flatMap(
 			planBasis(base, codes, sliced, derived.closed, derived.textDomains, {
 				kind: "recorded",
-				cycles: derived.fkCycles
+				cycles: derived.fkCycles,
+				references: derived.references
 			}),
 			artifactsOver
 		)

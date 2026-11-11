@@ -1173,7 +1173,8 @@ describe("a compile's law model", () => {
 							Result.flatMap(
 								planBasis(owned, codes, slice, installed.closed, installed.textDomains, {
 									kind: "recorded",
-									cycles: whole.fkCycles
+									cycles: whole.fkCycles,
+									references: whole.references
 								}),
 								baseArtifacts
 							),

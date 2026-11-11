@@ -15,6 +15,7 @@ import type { RosterCodes } from "#compiler/ir/cells.ts"
 import { rosterCodebook } from "#compiler/ir/codes.ts"
 import type { ConstraintLaws } from "#compiler/ir/products.ts"
 import type { FkCycles } from "#compiler/laws/model/model.ts"
+import type { ReferenceChoice } from "#compiler/laws/model/plan.ts"
 import type { NamedClosed } from "#compiler/physical/ddl/constants.ts"
 import type { TextDomainNames } from "#compiler/physical/ddl/domains.ts"
 import type { DescribedLaw } from "#compiler/physical/install/plan.ts"
@@ -59,6 +60,7 @@ const servedDerived = (derived: unknown): Result.Result<SnapshotDerived, Compile
 	}
 	const closed = derived["closed"]
 	const fkCycles = derived["fkCycles"]
+	const references = derived["references"]
 	const textDomains = derived["textDomains"]
 	const tables = derived["tables"]
 	if (!isRecord(closed)) {
@@ -66,6 +68,9 @@ const servedDerived = (derived: unknown): Result.Result<SnapshotDerived, Compile
 	}
 	if (!isList(fkCycles)) {
 		return Result.err(underived(["derived", "fkCycles"]))
+	}
+	if (!isList(references)) {
+		return Result.err(underived(["derived", "references"]))
 	}
 	if (!isRecord(textDomains)) {
 		return Result.err(underived(["derived", "textDomains"]))
@@ -76,6 +81,7 @@ const servedDerived = (derived: unknown): Result.Result<SnapshotDerived, Compile
 	return Result.ok({
 		closed: new Map(Object.entries(trusted<Readonly<Record<string, NamedClosed>>>(closed))),
 		fkCycles: trusted<FkCycles>(fkCycles),
+		references: trusted<ReferenceChoice>(references),
 		textDomains: trusted<TextDomainNames>(new Map(Object.entries(textDomains))),
 		tables: trusted<SnapshotTables>(tables)
 	})

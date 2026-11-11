@@ -10,6 +10,7 @@ import type {
 	WorkloadAccess
 } from "#compiler/ir/products.ts"
 import type { FkCycles } from "#compiler/laws/model/model.ts"
+import type { ReferenceChoice } from "#compiler/laws/model/plan.ts"
 import type { ClosedNames } from "#compiler/physical/ddl/constants.ts"
 import type { TextDomainNames } from "#compiler/physical/ddl/domains.ts"
 import type { DescribedLaw } from "#compiler/physical/install/plan.ts"
@@ -208,6 +209,12 @@ export interface CompileFacts {
 	 * law; DbLayer.make reads them here and plans no law its slice does not name.
 	 */
 	readonly fkCycles: FkCycles
+	/**
+	 * The parts whose fixed targets take the shared reference (laws/model/plan.ts ReferenceChoice), which a layer planning
+	 * only a slice reads for each reference it plans. generate chooses them over every law; DbLayer.make reads them here
+	 * and chooses none.
+	 */
+	readonly references: ReferenceChoice
 	/**
 	 * Each structural text domain the installation's stored fields declare, by its pattern language's key, with the digest
 	 * that names it (physical/ddl/domains.ts TextDomainNames), which every compile names a refined text's domain by

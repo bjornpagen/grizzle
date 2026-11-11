@@ -188,7 +188,11 @@ const servedRoleOf = (
 					slice,
 					snapshot.derived.closed,
 					snapshot.derived.textDomains,
-					{ kind: "recorded", cycles: snapshot.derived.fkCycles }
+					{
+						kind: "recorded",
+						cycles: snapshot.derived.fkCycles,
+						references: snapshot.derived.references
+					}
 				),
 				artifactsOver
 			)

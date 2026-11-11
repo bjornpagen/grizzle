@@ -101,6 +101,8 @@ import {
 	type PrimaryKeyPlan,
 	primaryKeyPlan,
 	Recognizer,
+	type ReferenceChoice,
+	referenceChoice,
 	type RuleDischarge,
 	type TargetKey
 } from "#compiler/laws/model/plan.ts"
@@ -376,6 +378,9 @@ export interface LawModel {
 	/** The cycles of the foreign key graph its deferral reads (FkCycles), names only: what generate records for a layer
 	 * that plans only a slice. */
 	readonly fkCycles: FkCycles
+	/** The reference choice its recognizer read (plan.ts ReferenceChoice): what generate records for a layer that plans
+	 * only a slice, which chooses none of its own. */
+	readonly references: ReferenceChoice
 	/** Each containment's existence evidence a query may rely on, with the native object that enforces it (catalog.ts
 	 * existenceConstraints): what every evidence catalog over the model reads. */
 	readonly existence: ReadonlyArray<ExistenceConstraint>
@@ -681,13 +686,19 @@ const onCycleOf = (cycles: FkCycles): ((from: string, to: string) => boolean) =>
 }
 
 /**
- * Where a law model's foreign key cycles (FkCycles) come from: planned from every law of the schema, which the model
- * then plans whatever its slice names, or recorded by generate in the snapshot (snapshot.json derived.fkCycles), which
- * a login's compile reads so that its model plans only the laws a compile over its slice reads (`plannedLaws`).
+ * Where a law model's whole-schema facts come from, its foreign key cycles (FkCycles) and its reference choice
+ * (plan.ts ReferenceChoice): planned from every law of the schema, which the model then plans whatever its slice names,
+ * or recorded by generate in the snapshot (snapshot.json derived.fkCycles and derived.references), which a login's
+ * compile reads so that its model plans only the laws a compile over its slice reads (`plannedLaws`) and chooses no
+ * reference over a slice's laws, whose uses of a target are not the schema's.
  */
 export type CycleSource =
 	| { readonly kind: "planned" }
-	| { readonly kind: "recorded"; readonly cycles: FkCycles }
+	| {
+			readonly kind: "recorded"
+			readonly cycles: FkCycles
+			readonly references: ReferenceChoice
+	  }
 
 /**
  * The laws a model plans: every law of the theory when it plans its cycles, which every law's plan settles; under
@@ -1096,7 +1107,15 @@ class Specializer {
 		this.writes = slice.writes
 		this.planned = plannedLaws(theory.laws, slice, cycles)
 		this.cycles = cycles
-		this.recognizer = new Recognizer(theory.laws, theory.families, theory.relations, discharge)
+		this.recognizer = new Recognizer(
+			theory.laws,
+			theory.families,
+			theory.relations,
+			discharge,
+			cycles.kind === "planned"
+				? referenceChoice(theory.laws, theory.relations, discharge)
+				: cycles.references
+		)
 		this.#typing = typingEnv(checked.owned)
 		this.#laws = new Map([
 			...theory.laws.map((l) => [l.id, l] as const),
@@ -1308,6 +1327,7 @@ class Specializer {
 			identities: [...this.theory.laws.map((law) => law.named), ...this.#minted],
 			immediate,
 			fkCycles,
+			references: this.recognizer.references,
 			existence: existenceConstraints(evidence.containments, natives),
 			migrationLaws: plans.flatMap((plan) => (plan.discharge === "migration" ? [plan.law.id] : [])),
 			rules,

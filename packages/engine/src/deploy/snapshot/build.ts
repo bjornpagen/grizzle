@@ -783,6 +783,7 @@ export const derivedOf = (installation: Installation): SnapshotDerived => ({
 export const derivedFacts = (owned: Owned, closed: ClosedNames, model: LawModel): CompileFacts => ({
 	closed,
 	fkCycles: model.fkCycles,
+	references: model.references,
 	textDomains: storedTextDomains(owned, model.theory)
 })
 
@@ -1082,6 +1083,7 @@ const closedForm = (c: NamedClosed): SnapshotForm => ({
 const derivedForm = (d: SnapshotDerived): SnapshotForm => ({
 	closed: Object.fromEntries([...d.closed].map(([name, c]) => [name, closedForm(c)] as const)),
 	fkCycles: d.fkCycles,
+	references: d.references.map((r) => ({ law: r.law, part: r.part })),
 	textDomains: Object.fromEntries([...d.textDomains].toSorted(([a], [b]) => compareStrings(a, b))),
 	tables: Object.fromEntries(
 		Object.entries(d.tables).map(([schema, tables]) => [
