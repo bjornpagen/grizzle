@@ -11,7 +11,11 @@
  *   exactly the referenced columns, and an index leads with its referencing columns;
  * - a target selection that fixes a field to a constant is a constant law column on the source, NOT NULL and reading no
  *   field, which the reference carries after its terms into the target's superkey over its terms and that field: one
- *   such UNIQUE however many constants reference it, so the target needs no index per constant;
+ *   such UNIQUE however many constants reference it, so the target needs no index per constant; but where the target's
+ *   own columns, its terms under its selection, cost the schema fewer indexes and columns, the reference meets those,
+ *   under a UNIQUE the target's key implies too, with no constant (laws/model/plan.ts takingShared): two containments
+ *   into one constant selection share its one law column and UNIQUE, where the superkey would cost a constant on each
+ *   source;
  * - a foreign key is DEFERRABLE INITIALLY DEFERRED exactly when it lies on a cycle of the references or its target
  *   holds a field beside the referenced ones, which a write can replace at the key; otherwise it is NOT DEFERRABLE;
  * - mirrors(a, b) is sugar: it installs exactly what contained(a, b) and contained(b, a) install.
@@ -30,7 +34,8 @@
  * decides is never deferred, though its target holds a field beside the referenced ones).
  *
  * Features: a key over fields, a selected side, a pred term or a selected pred term; a containment, into a superkey,
- * from or into a selected side, into a constant selection; two constant selections of one target; a reference on a
+ * from or into a selected side, into a constant selection; two constant selections of one target, and two
+ * containments into one constant selection at its own column; a reference on a
  * cycle, into a replaceable target, or off every cycle into a key no write replaces; mirrors over whole relations or a
  * selected side; and each Item selection.
  */
@@ -653,6 +658,7 @@ type Feature =
 	| "a containment into a selected side"
 	| "a containment into a constant selection"
 	| "two constant selections of one target"
+	| "two containments into one constant selection, at its own column"
 	| "a reference on a cycle"
 	| "a reference into a replaceable target"
 	| "a reference off every cycle into a key no write replaces"
@@ -723,7 +729,10 @@ const checkKey = (
 /**
  * A containment of Item's owner, and its code, into Owner's id, and its rank: a law column per term of a selected side,
  * a constant column on the source for a target of one live, carried into Owner's superkey over the referenced columns
- * and live, and a deferred reference, since Owner holds slots beside every key a reference names.
+ * and live, and a deferred reference, since Owner holds slots beside every key a reference names. A target of one live
+ * that Note's owner meets too, at that live and at Owner's id alone, is referenced by both at Owner's id under that
+ * live, one law column of Owner under one UNIQUE, which costs the schema one column where the superkey costs a constant
+ * on each source.
  */
 const checkContainment = (
 	law: Extract<Law, { readonly kind: "containment" }>,
@@ -744,13 +753,22 @@ const checkContainment = (
 			]
 		: [["id", types.uuid]]
 	const sources = Arr.map(sourceTerms, (term) => itemColumn(at, selection, term))
+	const shared =
+		target.kind === "constant" &&
+		target.second.kind === "from Note" &&
+		target.second.live === target.live &&
+		!law.superkey
 	const targets = Arr.map(targetTerms, ([field, type]) =>
 		target.kind === "selected"
 			? at.partial("Owner", { kind: "field", field }, ["rank"], type)
-			: at.column("Owner", field)
+			: shared
+				? at.partial("Owner", { kind: "field", field }, ["live"], type)
+				: at.column("Owner", field)
 	)
-	const constants = target.kind === "constant" ? [at.constant("Item", types.boolean)] : []
-	const referenced = target.kind === "constant" ? [...targets, at.column("Owner", "live")] : targets
+	const constants =
+		target.kind === "constant" && !shared ? [at.constant("Item", types.boolean)] : []
+	const referenced =
+		target.kind === "constant" && !shared ? [...targets, at.column("Owner", "live")] : targets
 	assert.equal(
 		at.lawColumns("Item").length,
 		(selection.kind === "every" ? 0 : sources.length) + constants.length,
@@ -758,8 +776,8 @@ const checkContainment = (
 	)
 	assert.equal(
 		at.lawColumns("Owner").length,
-		target.kind === "selected" ? targets.length : 0,
-		"the target's law columns: one per term of a selection fixing no field"
+		target.kind === "selected" || shared ? targets.length : 0,
+		"the target's law columns: one per term of a selection fixing no field, or of one live two containments meet"
 	)
 	at.keys("Owner", referenced, 1)
 	const fk = at.reference("Item", [...sources, ...constants], "Owner", referenced)
@@ -794,14 +812,19 @@ const checkContainment = (
 		c.note(`target selection: ${target.phi.kind}`)
 	}
 	if (target.kind === "constant" && target.second.kind === "from Note") {
-		const superkey = [at.column("Owner", "id"), at.column("Owner", "live")]
-		at.keys("Owner", superkey, 1)
-		at.reference(
-			"Note",
-			[at.column("Note", "owner"), at.constant("Note", types.boolean)],
-			"Owner",
-			superkey
-		)
+		if (shared) {
+			at.reference("Note", [at.column("Note", "owner")], "Owner", referenced)
+			c.note("two containments into one constant selection, at its own column")
+		} else {
+			const superkey = [at.column("Owner", "id"), at.column("Owner", "live")]
+			at.keys("Owner", superkey, 1)
+			at.reference(
+				"Note",
+				[at.column("Note", "owner"), at.constant("Note", types.boolean)],
+				"Owner",
+				superkey
+			)
+		}
 		c.note("two constant selections of one target")
 	}
 }
@@ -857,6 +880,7 @@ const situations: Arr.NonEmptyReadonlyArray<Feature | readonly [Feature, Feature
 	"a containment into a selected side",
 	"a containment into a constant selection",
 	"two constant selections of one target",
+	"two containments into one constant selection, at its own column",
 	"a reference on a cycle",
 	"a reference into a replaceable target",
 	"a reference off every cycle into a key no write replaces",
