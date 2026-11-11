@@ -1,7 +1,7 @@
 import { type CheckedSchema, checkedSchema } from "#compiler/analysis/schema.ts"
 import { ViolationBuilder } from "#compiler/analysis/theory/build.ts"
 import { lawDescription } from "#compiler/analysis/theory/description.ts"
-import type { ResolvedConjunct, TheoryLaw } from "#compiler/analysis/theory/laws.ts"
+import type { ResolvedConjunct, ResolvedTerm, TheoryLaw } from "#compiler/analysis/theory/laws.ts"
 import { type QueryRule, type Touches, touches } from "#compiler/analysis/theory/query.ts"
 import {
 	buildTheory,
@@ -59,6 +59,7 @@ import {
 	keyTuple,
 	type LawColumnValue,
 	type LawField,
+	isSpanField,
 	type LawRelation,
 	type NativeColumn,
 	nativeColumnText,
@@ -84,6 +85,7 @@ import {
 import { existenceConstraints } from "#compiler/laws/model/catalog.ts"
 import { keyOf } from "#compiler/laws/model/names.ts"
 import {
+	breaksKey,
 	type CheckPredicate,
 	type LawColumnPlan,
 	type LawPlan,
@@ -93,7 +95,8 @@ import {
 	type PrimaryKeyPlan,
 	primaryKeyPlan,
 	Recognizer,
-	type RuleDischarge
+	type RuleDischarge,
+	type TargetKey
 } from "#compiler/laws/model/plan.ts"
 import { rowColumn, wideRow } from "#compiler/laws/model/rows.ts"
 import { type RelationLaws, relationLaws } from "#compiler/laws/model/uniques.ts"
@@ -1442,8 +1445,8 @@ class Specializer {
 
 	/**
 	 * The laws a native object first seen in `plan` discharges, the reported one first: a family axis's every law its
-	 * plan names, its former's first; a generated UNIQUE whose fields hold a declared key, that key's law and then its
-	 * own; any other, its plan's law.
+	 * plan names, its former's first; a generated UNIQUE a key implies (`#implyingKey`), that key's law and then its own;
+	 * any other, its plan's law.
 	 */
 	#firstLaws(
 		n: PlacedNative,
@@ -1467,43 +1470,43 @@ class Specializer {
 	}
 
 	/**
-	 * The declared key a generated UNIQUE's conflicts imply, by its relation's keys in key order, the primary key first:
-	 * one whose fields its compared fields contain, a law column comparing the field whose values it holds. Every two
-	 * rows the UNIQUE holds apart agree at that key's fields, so a state it refuses breaks the key too, whatever index
-	 * PostgreSQL checks first: the UNIQUE discharges the key's law beside its own and reports the key's, the law the
-	 * state breaks (a superkey a reference's target needs, or a selected target's law columns over a key). Undefined
-	 * when its fields contain no declared key.
+	 * The key a generated UNIQUE's conflicts imply, by its relation's keys, the primary key first, then each declared key
+	 * and each key over a projected side with no span term, in law order: the first every two rows the UNIQUE holds apart
+	 * break (plan.ts breaksKey), its selection's conjuncts among the UNIQUE's columns' and its fields among those the rows
+	 * agree at. A state the UNIQUE refuses breaks that key too, whatever index PostgreSQL checks first: the UNIQUE
+	 * discharges the key's law beside its own and reports the key's, the law the state breaks (a superkey a reference's
+	 * target needs, a fixed target's own columns, or a selected target's law columns over a key). Undefined when no key
+	 * is implied.
 	 */
 	#implyingKey(): (
 		unique: Extract<PlacedNative, { readonly kind: "Unique" }>
 	) => TheoryLaw | undefined {
-		const keys = new Map<
-			string,
-			Array<{ readonly fields: ReadonlyArray<LawField>; readonly law: TheoryLaw }>
-		>()
-		const add = (relation: string, fields: ReadonlyArray<LawField>, law: TheoryLaw): void => {
-			keys.set(relation, [...(keys.get(relation) ?? []), { fields, law }])
+		const keys = new Map<string, Array<{ readonly key: TargetKey; readonly law: TheoryLaw }>>()
+		const add = (relation: string, key: TargetKey, law: TheoryLaw): void => {
+			keys.set(relation, [...(keys.get(relation) ?? []), { key, law }])
 		}
+		const declared = (fields: NonEmptyReadonlyArray<LawField>): TargetKey => ({
+			selection: { conjuncts: [] },
+			terms: mapNonEmpty(fields, (f): ResolvedTerm => ({ kind: "field", field: f.name, column: f }))
+		})
 		for (const pk of this.theory.primaryKeys) {
-			add(pk.relation.name, pk.relation.primaryFields, pk.law)
+			add(pk.relation.name, declared(pk.relation.primaryFields), pk.law)
 		}
 		for (const law of this.theory.laws) {
 			if (law.detail.kind === "key" && !law.detail.key.primary) {
-				add(law.detail.relation, law.detail.key.fields, law)
+				add(law.detail.relation, declared(law.detail.key.fields), law)
 			}
 		}
-		return (unique) => {
-			const compared = unique.columns.flatMap((c): ReadonlyArray<LawField> => {
-				if (c.kind === "field") {
-					return [c.field]
-				}
-				const column = c.column
-				return column.kind === "term" ? [column.term.column] : []
-			})
-			return keys
-				.get(unique.relation.name)
-				?.find((k) => k.fields.every((f) => compared.includes(f)))?.law
+		for (const law of this.theory.laws) {
+			if (
+				law.detail.kind === "projectedKey" &&
+				!law.detail.side.terms.some((t) => isSpanField(t.column))
+			) {
+				add(law.detail.side.relation, law.detail.side, law)
+			}
 		}
+		return (unique) =>
+			keys.get(unique.relation.name)?.find((k) => breaksKey(unique.columns, k.key))?.law
 	}
 
 	/** Seeds `byKey` with the primary key of `pk`'s relation, planned from its key and discharging its law. */

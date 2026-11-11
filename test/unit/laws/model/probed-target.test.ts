@@ -24,7 +24,14 @@
  * - every unique index holds the column set of a key a key law states, or of a foreign key's referenced columns;
  * - an implied key is free where a probe out of a target's selection reads its own columns: the schema with K beside,
  *   for each such target, the key over its selection and terms that K implies (the restated keys a downstream schema
- *   states instead of K) plans T's index set exactly, each index's method, uniqueness and column set.
+ *   states instead of K) plans T's index set exactly, each index's method, uniqueness and column set;
+ * - every unique index of T reports a key that every pair of rows it refuses together breaks. Over every pair of a box
+ *   of T's rows, id, a, b and c each 0 or 1 and kind 0, 1 or 2, where each column of the index, a field's value or a law
+ *   column's generated value by the reference evaluator, is NULL on neither row and equal, the law its constraint
+ *   reports (laws/model/model.ts reportedLaw, its first) is a key's whose statement holds the two rows apart: equal at a
+ *   declared key's fields, or both in a projected key's selection and equal at its terms. Every index is judged, so the
+ *   order PostgreSQL checks them in is no input: a duplicate that breaks K is named a key whichever index refuses it
+ *   first, as after a migration that creates K's index after a UNIQUE K implies.
  *
  * Enforcement is the law suites': test/pg/laws/alternatives.test.ts and the families in test/pg/laws/families draw every
  * arm of one handle, a target its parent's discriminator fixes whose own columns the reverse containment out of the
@@ -35,12 +42,14 @@
  * and fixed field, its UNIQUE never the probe's: caught by the implied key's index set), probed-target-probe-beside
  * (each reverse probe a B-tree of its own beside a unique index that serves it: caught by the redundant pair), and
  * probed-target-unique-dropped (no UNIQUE beside a reference at a target's own columns: caught by the foreign key that
- * references no unique index).
+ * references no unique index), and probed-target-projected-unimplied (laws/model/model.ts #implyingKey back to declared
+ * keys only, so a UNIQUE only K over a selection implies reports its containment: caught by the reported key).
  *
  * Features: a target referenced at its own columns, leading the probe or within it; a target referenced at its terms and
  * fixed field, with no probe out of its selection or a probe missing one of its terms; a probe out of another
  * selection; K over a selection or over every row, its terms holding the fixed field; two targets sharing the UNIQUE
- * over their terms and fixed field; and a target of each reference beside one another.
+ * over their terms and fixed field; a target of each reference beside one another; a generated UNIQUE refusing a pair,
+ * reported as K over a selection; and a target's own UNIQUE, K implying it through the field its selection fixes.
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -49,18 +58,26 @@ import { array, boolean, element, type Gen, shuffled, weighted } from "@grizzle/
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Order, Record as Rec } from "effect"
-import type { LawId } from "#compiler/core/ids.ts"
+import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec } from "effect"
+import type { TheoryLaw } from "#compiler/analysis/theory/laws.ts"
+import type { ColumnIdent, LawId } from "#compiler/core/ids.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import type { ExprDesc, SideDesc, TermDesc } from "#compiler/ir/desc.ts"
-import { nativeColumnText, type NativeObject } from "#compiler/ir/law.ts"
+import type { TypedLiteral } from "#compiler/ir/expr.ts"
+import {
+	type NativeColumn,
+	nativeColumnText,
+	type NativeObject,
+	type NativeOf
+} from "#compiler/ir/law.ts"
 import { sameIndexOpclass } from "#compiler/ir/products.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import type { IndexColumn } from "#compiler/physical/ddl/context.ts"
 import type { IndexKey, PlannedIndex } from "#compiler/physical/indexes/engine.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
+import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
 import { installationsOf, rostersOf } from "#compiler/schema/own.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { assert, defined, succeeded } from "#test/support/assert.ts"
 import {
 	contained,
 	eq,
@@ -74,6 +91,7 @@ import {
 } from "#test/support/fixtures/ir/desc.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { ownedInput } from "#test/support/policy.ts"
+import { generatedOn, lawColumnsOf } from "#test/unit/laws/model/natives.ts"
 
 /** A term of a fixed target, a field of T beside the fixed `kind`. */
 type Term = "a" | "b"
@@ -384,6 +402,163 @@ const shapesOfT = (installation: Installation): ReadonlyArray<string> =>
 		Order.String
 	)
 
+/** A row of T in the box: each field by its name, at its carrier's value. */
+type Row = ReadonlyMap<string, CarrierValue>
+
+const BITS = [0n, 1n] as const
+
+/** Every row of the box: id, a, b and c each 0 or 1, and kind 0, 1 or 2, each value a selection or a key reads. */
+const ROWS: ReadonlyArray<Row> = Arr.flatMap(BITS, (id) =>
+	Arr.flatMap(BITS, (a) =>
+		Arr.flatMap(BITS, (b) =>
+			Arr.flatMap(BITS, (c) =>
+				Arr.map(
+					[0n, 1n, 2n],
+					(kind): Row =>
+						new Map<string, CarrierValue>([
+							["id", id],
+							["a", a],
+							["b", b],
+							["c", c],
+							["kind", kind]
+						])
+				)
+			)
+		)
+	)
+)
+
+/** A literal of the box's selections: an integer's. */
+const boxValue = (l: TypedLiteral): CarrierValue =>
+	l.kind === "int" ? l.value : assert.fail(`an integer literal of the box, not ${l.kind}`)
+
+/**
+ * The pairs of T's rows a law's statement holds apart, where it is a key: a declared key's, equal at its fields; a
+ * projected key's, both in its selection, each conjunct of which fixes a field of the box to a literal, and equal at
+ * its terms. None for a law of any other kind.
+ */
+const heldApartBy = (law: TheoryLaw): ((x: Row, y: Row) => boolean) | undefined => {
+	const d = law.detail
+	switch (d.kind) {
+		case "key": {
+			const fields = Arr.map(d.key.fields, (f) => f.name)
+			return (x, y) => Arr.every(fields, (f) => x.get(f) === y.get(f))
+		}
+		case "projectedKey": {
+			const side = d.side
+			const selects = (row: Row): boolean =>
+				Arr.every(side.selection.conjuncts, (c) =>
+					c.kind === "fixed"
+						? row.get(c.selector.col.name) === boxValue(c.selector.value)
+						: assert.fail(`a conjunct of the box fixes a field to a literal; ${c.text} does not`)
+				)
+			return (x, y) =>
+				selects(x) &&
+				selects(y) &&
+				Arr.every(side.terms, (t) =>
+					t.kind === "field"
+						? x.get(t.column.name) === y.get(t.column.name)
+						: assert.fail("a field term of the box")
+				)
+		}
+		case "check":
+		case "contract":
+		case "containment":
+		case "rule":
+		case "family":
+		case "tree":
+		case "fold":
+			return undefined
+	}
+}
+
+/** Whether a law is a key's: a declared one, the primary key among them, or one over a projected side. */
+const isKey = (law: TheoryLaw): boolean =>
+	law.detail.kind === "key" || law.detail.kind === "projectedKey"
+
+/** A unique native of T: its columns and the laws it discharges, the one its constraint reports first. */
+interface UniqueOfT {
+	readonly columns: Arr.NonEmptyReadonlyArray<NativeColumn>
+	readonly laws: Arr.NonEmptyReadonlyArray<LawId>
+}
+
+const uniquesOfT = (installation: Installation): ReadonlyArray<UniqueOfT> =>
+	Arr.flatMap(installation.laws.natives, ({ object: o }): ReadonlyArray<UniqueOfT> => {
+		if (o.kind === "PrimaryKey" && o.relation.name === "T") {
+			return [
+				{
+					columns: Arr.map(o.columns, (field): NativeColumn => ({ kind: "field", field })),
+					laws: o.lawIds
+				}
+			]
+		}
+		return o.kind === "Unique" && o.relation.name === "T"
+			? [{ columns: o.columns, laws: o.lawIds }]
+			: []
+	})
+
+/** A column's value on a row: a field's own, or a law column's generated value, NULL as undefined. */
+const valueAt = (
+	lawColumns: ReadonlyMap<ColumnIdent, NativeOf<"LawColumn">>,
+	row: Row,
+	c: NativeColumn
+): CarrierValue | undefined =>
+	c.kind === "field"
+		? row.get(c.field.name)
+		: generatedOn(defined(lawColumns.get(c.column), `the law column ${c.column} of T`), row)
+
+/** Whether a unique index holds two rows apart: each of its columns NULL on neither and equal. */
+const refusesTogether = (
+	x: ReadonlyArray<CarrierValue | undefined>,
+	y: ReadonlyArray<CarrierValue | undefined>
+): boolean => Arr.every(x, (v, i) => v !== undefined && v === y[i])
+
+/**
+ * The header's fifth rule: each unique index of T reports a key every pair of the box it refuses breaks. Notes each
+ * generated UNIQUE, one that discharges a law besides keys, reported as a key over a projected side for a pair it
+ * refuses.
+ */
+const checkReports = (
+	installation: Installation,
+	what: string,
+	note: (feature: Feature) => void
+): void => {
+	const laws = [
+		...installation.laws.theory.laws,
+		...Arr.map(installation.laws.theory.primaryKeys, (pk) => pk.law)
+	]
+	const lawOf = (id: LawId): TheoryLaw =>
+		Option.getOrThrowWith(
+			Arr.findFirst(laws, (l) => l.id === id),
+			() => new Error(`${what}: the law ${id} a native discharges is one of the theory's`)
+		)
+	const lawColumns = lawColumnsOf(installation.laws, "T")
+	for (const u of uniquesOfT(installation)) {
+		const reported = lawOf(u.laws[0])
+		const meaning = heldApartBy(reported)
+		const generated = Arr.some(u.laws, (l) => !isKey(lawOf(l)))
+		const keyed = Arr.map(ROWS, (row) => ({
+			row,
+			key: Arr.map(u.columns, (c) => valueAt(lawColumns, row, c))
+		}))
+		const index = setText(Arr.map(u.columns, nativeColumnText))
+		for (const [i, x] of keyed.entries()) {
+			for (const y of keyed.slice(i + 1)) {
+				if (!refusesTogether(x.key, y.key)) {
+					continue
+				}
+				assert.ok(
+					meaning !== undefined && meaning(x.row, y.row),
+					`${what}: the unique index of T over (${index}) refuses ${Formatter.format([x.row, y.row])} together and reports ${reported.detail.kind} ${reported.id}, which they do not break`
+				)
+				if (generated && reported.detail.kind === "projectedKey") {
+					note("a generated UNIQUE refusing a pair, reported as K over a selection")
+				}
+			}
+		}
+	}
+}
+
 type Feature =
 	| "a target referenced at its own columns, leading a probe"
 	| "a target referenced at its own columns, within a probe"
@@ -395,6 +570,8 @@ type Feature =
 	| "K's terms holding the fixed field"
 	| "two targets sharing the UNIQUE over their terms and fixed field"
 	| "a target at its own columns beside one at its terms and fixed field"
+	| "a generated UNIQUE refusing a pair, reported as K over a selection"
+	| "a target's own UNIQUE, K implying it through the field its selection fixes"
 
 const FEATURES: Arr.NonEmptyReadonlyArray<Feature> = [
 	"a target referenced at its own columns, leading a probe",
@@ -406,7 +583,9 @@ const FEATURES: Arr.NonEmptyReadonlyArray<Feature> = [
 	"K over every row",
 	"K's terms holding the fixed field",
 	"two targets sharing the UNIQUE over their terms and fixed field",
-	"a target at its own columns beside one at its terms and fixed field"
+	"a target at its own columns beside one at its terms and fixed field",
+	"a generated UNIQUE refusing a pair, reported as K over a selection",
+	"a target's own UNIQUE, K implying it through the field its selection fixes"
 ]
 
 /** What a case holds, from the sketch alone. */
@@ -445,13 +624,16 @@ const featuresOf = (s: Sketch): ReadonlyArray<Feature> => {
 			: []),
 		...(own.length > 0 && shared.length > 0
 			? ["a target at its own columns beside one at its terms and fixed field" as const]
+			: []),
+		...(own.length > 0 && s.key.includes("kind")
+			? ["a target's own UNIQUE, K implying it through the field its selection fixes" as const]
 			: [])
 	]
 }
 
 describe("a fixed target's UNIQUE beside the reverse probes out of its selection", () => {
 	it.effect(
-		"plans no redundant pair, a unique index per referenced set and none beyond the keys and references, and leaves T's indexes as the implied keys restated would",
+		"plans no redundant pair, a unique index per referenced set and none beyond the keys and references, leaves T's indexes as the implied keys restated would, and reports a key every duplicate breaks",
 		(ctx) =>
 			searched(
 				ctx,
@@ -459,7 +641,7 @@ describe("a fixed target's UNIQUE beside the reverse probes out of its selection
 					{
 						oracle: {
 							kind: "specification",
-							name: "the planned index set: no redundant pair, one unique index per referenced set, none a law needs no more, and an implied key restated free where a probe reads a target's own columns"
+							name: "the planned index set: no redundant pair, one unique index per referenced set, none a law needs no more, an implied key restated free where a probe reads a target's own columns, and each unique index reporting a key the pairs of a box of rows it refuses break"
 						},
 						suite: "unit/laws/model/probed-target",
 						draw: drawn(sketchGen),
@@ -477,12 +659,14 @@ describe("a fixed target's UNIQUE beside the reverse probes out of its selection
 							c.noteAll(featuresOf(s))
 							const plain = installationOf(schemaOf(s, []))
 							checkIndexes(plain, "the schema with K alone")
+							checkReports(plain, "the schema with K alone", c.note)
 							const keys = restated(s)
 							if (keys.length === 0) {
 								return
 							}
 							const restating = installationOf(schemaOf(s, keys))
 							checkIndexes(restating, "the schema with the implied keys restated")
+							checkReports(restating, "the schema with the implied keys restated", c.note)
 							assert.deepEqual(
 								shapesOfT(restating),
 								shapesOfT(plain),

@@ -684,10 +684,10 @@ const literalsOf = (
 	)
 
 /**
- * A key of a relation as a containment's target reads it: the selection its side reads, none for a declared key, and
- * its terms.
+ * A key of a relation as a containment's target reads it, and as a generated UNIQUE's conflicts are judged against it
+ * (`breaksKey`): the selection its side reads, none for a declared key, and its terms.
  */
-type TargetKey = Pick<ResolvedSide, "selection" | "terms">
+export type TargetKey = Pick<ResolvedSide, "selection" | "terms">
 
 /** The selection of every row, a declared key's: no conjunct. */
 const everyRow: ResolvedSelection = { conjuncts: [] }
@@ -876,6 +876,45 @@ const scalarParts = (
 		case "fold":
 			return []
 	}
+}
+
+/**
+ * Whether every two rows a UNIQUE over `columns` holds apart break `key` (laws/model/model.ts #implyingKey). Both rows hold
+ * every column NULL on neither and equal: so each satisfies every conjunct of each of its law columns' selections, and
+ * they agree at each field a column reads, a pred term's field among them, at each field one of those conjuncts fixes
+ * to a literal, and at each field one equates to a field they agree at. They break the key where its selection's
+ * conjuncts are all among those, so the key holds both apart, and they agree at each of its terms: a field term at its
+ * field, a pred term where the UNIQUE reads that same pred, which is then NULL on neither.
+ */
+export const breaksKey = (columns: ReadonlyArray<PlannedColumn>, key: TargetKey): boolean => {
+	const read = columns.flatMap((c): ReadonlyArray<ResolvedTerm> => {
+		if (c.kind === "field") {
+			return [{ kind: "field", field: c.field.name, column: c.field }]
+		}
+		return c.column.kind === "term" ? [c.column.term] : []
+	})
+	const conjuncts = columns.flatMap((c) =>
+		c.kind === "law" && c.column.kind === "term" ? c.column.selection.conjuncts : []
+	)
+	const equated = conjuncts.flatMap(equatedFields)
+	const closed = (known: ReadonlySet<LawField>): ReadonlySet<LawField> => {
+		const more = equated.filter(([field, other]) => known.has(other) && !known.has(field))
+		return more.length === 0 ? known : closed(new Set([...known, ...more.map(([field]) => field)]))
+	}
+	const agreed = closed(
+		new Set([
+			...read.map((t) => t.column),
+			...conjuncts.flatMap((c) => (c.kind === "fixed" ? [c.selector.col] : []))
+		])
+	)
+	return (
+		key.selection.conjuncts.every((k) => conjuncts.some((c) => c.text === k.text)) &&
+		key.terms.every((t) =>
+			t.kind === "field"
+				? agreed.has(t.column)
+				: read.some((u) => u.kind === "pred" && u.column === t.column)
+		)
+	)
 }
 
 /** Whether `key` is exactly `side`: the same conjuncts and the same terms, each of one kind over one field. */
