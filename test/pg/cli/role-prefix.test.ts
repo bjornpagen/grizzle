@@ -50,7 +50,6 @@ import {
 	String as Str
 } from "effect"
 import { Db } from "#adapter/public/db.ts"
-import { DbLayer } from "#adapter/public/layer.ts"
 import { roleNameOf } from "#adapter/served/served.ts"
 import { maxIdentifierBytes } from "#compiler/core/identity.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
@@ -68,6 +67,7 @@ import {
 import { assert } from "#test/support/assert.ts"
 import { answered, oneOf } from "#test/support/calls.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { decodersIn, servedSourcedLayer } from "#test/support/live-layer.ts"
 import { clusterConnection, clusterPool, freshDatabase } from "#test/support/pg.ts"
 import { uniqueSchemaName } from "#test/support/substrate/names.ts"
 import {
@@ -199,9 +199,11 @@ const spaceCase = (s: Spaces, c: Case<SpaceFeature>) =>
 				"the two installations share no role"
 			)
 			const served = yield* servedAt(`${dir}/migrations/${schema}`, shop.server)
+			const scope = yield* Effect.scope
+			const decoderOf = yield* decodersIn(substrate, scope)
 			const layerOver = (i: Installation, over: string) =>
 				Effect.map(substrate.login(roleNameOf(served, named(i))), (credentials) =>
-					DbLayer.make({
+					servedSourcedLayer(decoderOf, {
 						...clusterConnection(substrate.cluster, over, credentials.password),
 						...Option.match(i.rolePrefix, {
 							onNone: () => ({}),

@@ -43,7 +43,7 @@ import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, FileSystem, Formatter, Layer, Record as Rec } from "effect"
-import { DbLayer, served } from "#adapter/public/layer.ts"
+import { served } from "#adapter/public/layer.ts"
 import type { MigrationConnectionConfig } from "#adapter/types/config.ts"
 import { resolveConfig } from "#cli/config.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
@@ -79,6 +79,7 @@ import { assert, defined } from "#test/support/assert.ts"
 import { incrementsDoNotGrow } from "#test/support/growth.ts"
 import { type CallSite, callCounts } from "#test/support/kernel/calls.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { offlineDecoders, servedSourcedLayer } from "#test/support/live-layer.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import { clusterPool } from "#test/support/pg.ts"
 import { upTo } from "#test/support/up-to.ts"
@@ -287,7 +288,7 @@ const stepsAt = (size: Size) =>
 			const [, layer] = yield* callCounts(
 				Effect.scoped(
 					Layer.build(
-						DbLayer.make({
+						servedSourcedLayer(offlineDecoders, {
 							...offlineConnection,
 							pool: clusterPool,
 							login: file

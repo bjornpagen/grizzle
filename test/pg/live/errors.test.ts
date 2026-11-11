@@ -35,7 +35,7 @@ import { boolean, type Gen, int, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Data, Effect, Fiber, Formatter } from "effect"
-import { DbLayer, served } from "#adapter/public/layer.ts"
+import { served } from "#adapter/public/layer.ts"
 import { type CallError, type CallErrorKind, callErrors } from "#compiler/live/index.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
@@ -54,6 +54,7 @@ import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { installGenerated } from "#test/support/install-migrate.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { sourcedDbLayer } from "#test/support/live-layer.ts"
 import { errorOf, liveSurfaces, wireOf } from "#test/support/live/calls.ts"
 import { commitDirectly, insertRow, updateRow } from "#test/support/live/direct.ts"
 import type { RawEvent } from "#test/support/live/system.ts"
@@ -253,7 +254,7 @@ layer(Substrate.layer)("a failing live call", (it) => {
 							const installed = generated.installed
 							const built = notebook(installed.declared)
 							const file = served(defined(generated.served.get("app"), "app's served file"), "app")
-							const layerOf = DbLayer.make({
+							const layerOf = sourcedDbLayer(installed, {
 								...clusterConnection(
 									installed.cluster,
 									installed.database,

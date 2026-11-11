@@ -86,7 +86,6 @@ import { OpenError } from "#adapter/errors/execution.ts"
 import type { MigrateError } from "#adapter/migrate/errors.ts"
 import { statementsFor } from "#adapter/migrate/ledger.ts"
 import { Db } from "#adapter/public/db.ts"
-import { DbLayer } from "#adapter/public/layer.ts"
 import { roleNameOf } from "#adapter/served/served.ts"
 import { SchemaFingerprint } from "#compiler/core/ids.ts"
 import { writeMeta } from "#compiler/deploy/render/folder.ts"
@@ -114,6 +113,7 @@ import { assert, defined, lacksText, succeeded } from "#test/support/assert.ts"
 import { oneOf } from "#test/support/calls.ts"
 import type { InitializedClusterShape } from "#test/support/cluster.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { type DecoderOf, decodersIn, servedSourcedLayer } from "#test/support/live-layer.ts"
 import { readLedger } from "#test/support/migrate/ledger.ts"
 import { clusterConnection, clusterPool, type SqlError } from "#test/support/pg.ts"
 import type { Credentials } from "#test/support/substrate/session.ts"
@@ -742,7 +742,8 @@ const runOpen = (r: Workspace, model: Model) =>
 		const servedV2 = yield* servedAt(schemaDir(r), v2.server)
 		const servedV1 = yield* servedAt(schemaDir(r), v1.server)
 		/** Opened as the reader of that schema value, through its login's served file generate wrote, and read. */
-		const read: Effect.Effect<unknown, OpenError | CallError> =
+		/** The read, its layer given the installation's live source, whose decoder is issued in the read's own scope. */
+		const readIn = (decoderOf: DecoderOf): Effect.Effect<unknown, OpenError | CallError> =>
 			generated.version === 2
 				? withLayer(
 						Effect.scoped(
@@ -750,7 +751,7 @@ const runOpen = (r: Workspace, model: Model) =>
 								oneOf(db.workload.customer.once({ params: { id: id(1) }, facts: {} }))
 							)
 						),
-						DbLayer.make({ ...connection, login: servedV2 })
+						servedSourcedLayer(decoderOf, { ...connection, login: servedV2 })
 					)
 				: withLayer(
 						Effect.scoped(
@@ -758,8 +759,14 @@ const runOpen = (r: Workspace, model: Model) =>
 								oneOf(db.workload.customer.once({ params: { id: id(1) }, facts: {} }))
 							)
 						),
-						DbLayer.make({ ...connection, login: servedV1 })
+						servedSourcedLayer(decoderOf, { ...connection, login: servedV1 })
 					)
+		const read: Effect.Effect<unknown, OpenError | CallError> = Effect.scoped(
+			Effect.flatMap(
+				Effect.flatMap(Effect.scope, (scope) => decodersIn(substrate, scope)),
+				readIn
+			)
+		)
 		const answered = yield* Effect.result(read)
 		if (answers) {
 			assert.ok(Result.isSuccess(answered), "the first read answers once every folder is applied")

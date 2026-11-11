@@ -50,7 +50,7 @@ import type { FolderSource } from "#adapter/migrate/input.ts"
 import { statementsFor } from "#adapter/migrate/ledger.ts"
 import { compileServed } from "#adapter/public/compile.ts"
 import { Db } from "#adapter/public/db.ts"
-import { DbLayer, served } from "#adapter/public/layer.ts"
+import { served } from "#adapter/public/layer.ts"
 import { indices } from "#compiler/core/array.ts"
 import type { Declarations, Named } from "#compiler/deploy/diff/plan.ts"
 import { completedFiles } from "#compiler/deploy/ledger/ledger.ts"
@@ -90,6 +90,7 @@ import { installMigrated, runsInstallScript } from "#test/support/install-migrat
 import { rebuild } from "#test/support/installed.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { decodersIn, servedSourcedLayer } from "#test/support/live-layer.ts"
 import {
 	draftCodes,
 	draftedAt,
@@ -381,6 +382,8 @@ const migrates = (h: History) =>
 		 * snapshot.
 		 */
 		const installation = compiledAt(last, name, owner, codebookOf(snapshot))
+		const scope = yield* Effect.scope
+		const decoderOf = yield* decodersIn(substrate, scope)
 		for (const login of last.logins(name)) {
 			const installedLogin = Option.getOrThrowWith(
 				Arr.findFirst(installation.worlds, (l) => l.name === login.name),
@@ -393,7 +396,7 @@ const migrates = (h: History) =>
 				login.workload
 			)
 			const file = served<AnyLogin>(json, login.name)
-			const loginLayer = DbLayer.make({
+			const loginLayer = servedSourcedLayer(decoderOf, {
 				...clusterConnection(substrate.cluster, substrate.database, credentials.password),
 				pool: clusterPool,
 				login: file,

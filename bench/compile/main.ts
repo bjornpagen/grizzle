@@ -19,7 +19,7 @@ import {
 } from "effect"
 import pgDriver from "pg"
 import { defineConfig } from "#adapter/config/define.ts"
-import { DbLayer, served } from "#adapter/public/layer.ts"
+import { served } from "#adapter/public/layer.ts"
 import type { MigrationConnectionConfig } from "#adapter/types/config.ts"
 import type { DbConnection, PoolBounds } from "#adapter/types/layer.ts"
 import {
@@ -57,6 +57,7 @@ import { regexField } from "#compiler/text/field.ts"
 import type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
 import type { EntryValue } from "#compiler/types/schema/world.ts"
 import { everyCallCount } from "#test/support/kernel/calls.ts"
+import { offlineDecoders, servedSourcedLayer } from "#test/support/live-layer.ts"
 
 /**
  * The compile benchmark, `pnpm bench compile`: what a large schema costs to build and to compile, with no database, and
@@ -430,7 +431,7 @@ const measure = Effect.fn("measure")(function* (scale: Scale) {
 	const [, layer] = yield* timedEffect(
 		Effect.scoped(
 			Layer.build(
-				DbLayer.make({
+				servedSourcedLayer(offlineDecoders, {
 					...offline,
 					login: served<typeof made.web>(trustedJson<unknown>(text), made.web.name),
 					pool

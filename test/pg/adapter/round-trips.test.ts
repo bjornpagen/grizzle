@@ -39,7 +39,6 @@ import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { memberCalls } from "#adapter/db/handles.ts"
 import type { ReadError } from "#adapter/errors/execution.ts"
 import { Db } from "#adapter/public/db.ts"
-import { DbLayer } from "#adapter/public/layer.ts"
 import type { ServedLogin } from "#adapter/types/layer.ts"
 import type { Anchor, CallError, KeyedList, RowKey, Window } from "#compiler/live/index.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
@@ -65,6 +64,7 @@ import * as W from "#test/support/fixtures/api/work.ts"
 import { a1, t1, t4, t5, tMissing, workFacts } from "#test/support/fixtures/golden/work.ts"
 import { type Installed, installMigrated as install } from "#test/support/install-migrate.ts"
 import { caseHang, testIdleTimeout } from "#test/support/limits.ts"
+import { sourcedDbLayer } from "#test/support/live-layer.ts"
 import { clusterConnection, clusterPool } from "#test/support/pg.ts"
 import { pickGen, pickIndex } from "#test/support/pick.ts"
 import { member, servedFixture, withServedDb } from "#test/support/served-db.ts"
@@ -134,7 +134,7 @@ const tappedLayer = <L extends AnyLogin>(
 	login: ServedLogin<L>,
 	tap: Tap
 ) =>
-	DbLayer.make({
+	sourcedDbLayer(installed, {
 		...clusterConnection(installed.cluster, installed.database, credentials.password),
 		transport: tap.transport,
 		pool: { ...clusterPool, min: 1, max: 1 },
@@ -661,7 +661,7 @@ layer(Substrate.layer, { excludeTestServices: true })("one round trip per public
 					const substrate = yield* Substrate
 					const tap = makeTap(substrate.cluster)
 					/** The login's own served layer, every byte of its pool's one session through the tap. */
-					const tappedLayer = DbLayer.make({
+					const tappedLayer = sourcedDbLayer(o.installed, {
 						...clusterConnection(
 							o.installed.cluster,
 							o.installed.database,

@@ -6,7 +6,7 @@ import { type Gen, int, map } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Effect, Exit, Formatter, Layer, Record as Rec, Result } from "effect"
 import { fromEngine } from "#adapter/engine.ts"
-import { DbLayer, served } from "#adapter/public/layer.ts"
+import { served } from "#adapter/public/layer.ts"
 import { artifactsOver, layerOver, loginRoles, workloadSlice } from "#adapter/served/login.ts"
 import { noLevelAbove } from "#adapter/witness/keylaw.ts"
 import { compileSchema, resolveConfig } from "#cli/config.ts"
@@ -27,6 +27,7 @@ import { offlineConnection, offlineOwner } from "#test/pg/cli/support.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { repoRoot } from "#test/support/files.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { offlineDecoders, servedSourcedLayer } from "#test/support/live-layer.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import { clusterPool } from "#test/support/pg.ts"
 import { upTo } from "#test/support/up-to.ts"
@@ -202,7 +203,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("generate and DbLayer.m
 								const opened = yield* Effect.exit(
 									Effect.scoped(
 										Layer.build(
-											DbLayer.make({
+											servedSourcedLayer(offlineDecoders, {
 												...offlineConnection,
 												pool: clusterPool,
 												login: served<typeof pairs.login>(

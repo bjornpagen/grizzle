@@ -22,7 +22,7 @@ import { fromEngine } from "#adapter/engine.ts"
 import { OpenError } from "#adapter/errors/execution.ts"
 import type { FolderSource } from "#adapter/migrate/input.ts"
 import { compileServed, type ServedRefusal } from "#adapter/public/compile.ts"
-import { DbLayer, served } from "#adapter/public/layer.ts"
+import { served } from "#adapter/public/layer.ts"
 import type { DbLayerOf, DbLayerService, ServedLogin, ServedRole } from "#adapter/types/layer.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { codebookOf, noWorkload } from "#compiler/deploy/snapshot/build.ts"
@@ -44,6 +44,7 @@ import {
 	installationOf,
 	parsedSchemaName
 } from "#test/support/kernel/naming.ts"
+import { decodersIn, type SourcedLayer, servedSourcedLayer } from "#test/support/live-layer.ts"
 import { fromEmpty, generate, noDeclarations } from "#test/support/migrate/kit.ts"
 import { factStatements } from "#test/support/oracle/install/load.ts"
 import type { RealInstallPlan } from "#test/support/oracle/install/real.ts"
@@ -358,6 +359,8 @@ const realizeWith = (
 		/** The verify calls of every login layer since the realization began. */
 		const verified = { calls: 0 }
 		const scope = yield* Effect.scope
+		/** The installation's decoder login's credential, issued once, the first time a layer's file holds a live source. */
+		const decoderOf = yield* decodersIn(substrate, scope)
 
 		/** The verify of every login layer that takes one: it reads the token, and counts its calls. */
 		const verify = worldVerify(
@@ -381,14 +384,14 @@ const realizeWith = (
 		): Effect.Effect<
 			{
 				readonly served: ServedLogin<BuiltLogin>
-				readonly layer: Layer.Layer<DbLayerOf<BuiltLogin>, OpenError>
+				readonly layer: SourcedLayer<BuiltLogin>
 			},
 			ServedRefusal
 		> =>
 			Effect.flatMap(get(built.logins, login, "login"), (value) =>
 				Effect.map(servedOver(value, snapshot), (file) => ({
 					served: file,
-					layer: DbLayer.make({
+					layer: servedSourcedLayer(decoderOf, {
 						...clusterConnection(substrate.cluster, substrate.database, credentials.password),
 						pool: Option.match(poolSize, {
 							onNone: () => clusterPool,
@@ -506,7 +509,7 @@ const realizeWith = (
 		const stranger = yield* Effect.orDie(
 			Scope.provide(
 				Layer.build(
-					DbLayer.make({
+					servedSourcedLayer(decoderOf, {
 						...clusterConnection(substrate.cluster, substrate.database, Redacted.make("")),
 						pool: clusterPool,
 						login: strangerServed

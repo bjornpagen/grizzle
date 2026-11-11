@@ -22,7 +22,6 @@ import { searched } from "@grizzle/testing/vitest"
 import { Effect, Exit, Formatter, Option } from "effect"
 import { CredentialError } from "#adapter/errors/failures.ts"
 import { Db } from "#adapter/public/db.ts"
-import { DbLayer } from "#adapter/public/layer.ts"
 import type { CallError } from "#compiler/live/index.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -33,6 +32,7 @@ import { assert } from "#test/support/assert.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { a1, t1, t3, workFacts } from "#test/support/fixtures/golden/work.ts"
 import { caseHang, nodeTimerMin } from "#test/support/limits.ts"
+import { sourcedDbLayer } from "#test/support/live-layer.ts"
 import { clusterConnection } from "#test/support/pg.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
@@ -122,7 +122,7 @@ layer(Substrate.layer)("a connection that can't be had", (it) => {
 									 * once the case turns it.
 									 */
 									const opening = Db.open(o.served.login.roles.app, {})
-									const dbLayer = DbLayer.make({
+									const dbLayer = sourcedDbLayer(o.installed, {
 										...clusterConnection(
 											s.cluster,
 											s.database,

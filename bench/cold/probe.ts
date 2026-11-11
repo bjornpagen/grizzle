@@ -132,7 +132,7 @@ const main = Effect.gen(function* () {
 		const pg = yield* Effect.promise(() => import("pg"))
 		const login = runtime.served<ColdLogin>(file, "server")
 		const password: Redacted.Redacted = Redacted.make(target.password)
-		const layer = runtime.DbLayer.make({
+		const connection = {
 			driver: pg.default,
 			transport: {
 				kind: "sslRequest",
@@ -143,11 +143,28 @@ const main = Effect.gen(function* () {
 				servername: target.host
 			},
 			database: target.database,
-			password,
-			connectTimeoutMs: target.connectTimeoutMs,
-			pool: { max: 1, min: 1, idleTimeoutMs: target.idleTimeoutMs },
-			login
-		})
+			connectTimeoutMs: target.connectTimeoutMs
+		} as const
+		/**
+		 * The login's layer, given its installation's live source as an application gives it: the probe reads by once
+		 * alone, so the source never connects and never asks its decoder's credential, which the bench's installation,
+		 * migrated with no live source, holds none of.
+		 */
+		const layer = Layer.provide(
+			runtime.DbLayer.make({
+				...connection,
+				password,
+				pool: { max: 1, min: 1, idleTimeoutMs: target.idleTimeoutMs },
+				login
+			}),
+			runtime.LiveSource.layer({
+				...connection,
+				password: Effect.die(
+					new Error("the cold probe reads by once, so its live source asks no decoder")
+				),
+				login
+			})
+		)
 		const params = { account: target.account }
 		let opened = 0
 		let finished = 0

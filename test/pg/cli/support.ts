@@ -8,7 +8,6 @@ import {
 	Path,
 	type PlatformError,
 	Redacted,
-	type Layer,
 	type Result,
 	type Scope,
 	Stream
@@ -16,11 +15,10 @@ import {
 import { ChildProcess, type ChildProcessSpawner } from "effect/process"
 import pgDriver from "pg"
 import { defineConfig } from "#adapter/config/define.ts"
-import type { OpenError } from "#adapter/errors/execution.ts"
-import { DbLayer, served } from "#adapter/public/layer.ts"
+import { served } from "#adapter/public/layer.ts"
 import { roleNameOf } from "#adapter/served/served.ts"
 import type { GrizzleConfig, MigrationConnectionConfig } from "#adapter/types/config.ts"
-import type { DbConnection, DbLayerOf, ServedLogin } from "#adapter/types/layer.ts"
+import type { DbConnection, ServedLogin } from "#adapter/types/layer.ts"
 import { type ConfigFile, type ResolvedConfig, resolveConfig } from "#cli/config.ts"
 import { type CliError, ConfigMissing, cliError } from "#cli/errors.ts"
 import { type CliReport, type ConfigLoader, runCli } from "#cli/run.ts"
@@ -32,6 +30,7 @@ import { type InitializedClusterShape, readCluster } from "#test/support/cluster
 import { pgPin } from "#test/support/env.ts"
 import { repoRoot } from "#test/support/files.ts"
 import { testConnectTimeout } from "#test/support/limits.ts"
+import { decodersIn, type SourcedLayer, servedSourcedLayer } from "#test/support/live-layer.ts"
 import { clusterConnection, clusterPool, type SqlError } from "#test/support/pg.ts"
 import { sourceCondition } from "#test/support/process.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -455,7 +454,7 @@ export const bin = (
 /** A login served from the file generate wrote, as an application serves it: its served login, typed by L, and its layer. */
 export interface ServedFromFile<L> {
 	readonly login: ServedLogin<L>
-	readonly layer: Layer.Layer<DbLayerOf<L>, OpenError>
+	readonly layer: SourcedLayer<L>
 }
 
 /**
@@ -490,9 +489,11 @@ export const servedFromFile = <L extends AnyLogin>(
 		const substrate = yield* Substrate
 		const file = yield* servedAt(`${dir}/migrations/${schema}`, login)
 		const credentials = yield* substrate.login(roleNameOf(file, {}))
+		const scope = yield* Effect.scope
+		const decoderOf = yield* decodersIn(substrate, scope)
 		return {
 			login: file,
-			layer: DbLayer.make({
+			layer: servedSourcedLayer(decoderOf, {
 				...clusterConnection(substrate.cluster, substrate.database, credentials.password),
 				pool: clusterPool,
 				login: file,

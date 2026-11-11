@@ -4,10 +4,11 @@
  * evaluator's answer over the same data.
  *
  * Each case is the public-boundary differential's (test/support/oracle/public): a schema, its facts and its reads,
- * generated as calls to grizzle's public builders. It is installed through its first migration, its facts stored by a
- * direct SQL writer of its full role at SERIALIZABLE, each value in its drawn spelling, and every query read is a member
- * of the role's served workload (an ordered root as an ordered read, delivered as a list), compiled into the login's
- * served file by the one compile generate runs (test/support/served-db.ts servedJson) and served over its DbLayer.
+ * generated as calls to grizzle's public builders. Every query read is a member of its full role's workload (an ordered
+ * root as an ordered read, delivered as a list), installed and served as `grizzle generate` drafts it, its parameters'
+ * domains and its live source among its objects (test/support/install-migrate.ts installGenerated); its facts are
+ * stored by a direct SQL writer of the role at SERIALIZABLE, each value in its drawn spelling, and the login is served
+ * from the file generate wrote, over its DbLayer and its live source.
  *
  * Properties, for every query read with its drawn parameters:
  *
@@ -31,13 +32,21 @@ import { agree } from "@grizzle/testing/oracle"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Data, Effect, Formatter, Option, Record as Rec, Result } from "effect"
-import { DbLayer, served } from "#adapter/public/layer.ts"
+import { served } from "#adapter/public/layer.ts"
 import type { ServedLogin } from "#adapter/types/layer.ts"
 import { workload } from "#compiler/program/workload/value.ts"
-import type { AnyLogin } from "#compiler/public/schema.ts"
+import {
+	type AnyLogin,
+	login,
+	role,
+	wholeEntriesOf,
+	writableNamesOf
+} from "#compiler/public/schema.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { installMigrated } from "#test/support/install-migrate.ts"
+import { defined } from "#test/support/assert.ts"
+import { installGenerated } from "#test/support/install-migrate.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { sourcedDbLayer } from "#test/support/live-layer.ts"
 import { liveSurfaces } from "#test/support/live/calls.ts"
 import type { LiveValue } from "#test/support/live/system.ts"
 import { printKeyed, sameKeyed } from "#test/support/live/values.ts"
@@ -60,7 +69,6 @@ import {
 import { unobserved } from "#test/support/oracle/reference/evaluate.ts"
 import { storedInput } from "#test/support/oracle/runner.ts"
 import { clusterConnection, clusterPool } from "#test/support/pg.ts"
-import { servedJson } from "#test/support/served-db.ts"
 import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 import { testVerify, tokenOf } from "#test/support/worlds.ts"
@@ -159,14 +167,36 @@ layer(Substrate.layer)("a generated program", (it) => {
 								return
 							}
 							const built = buildSchema(c.schema)
-							const done = yield* installMigrated(built.schema, {
-								ambient: ordinarySession,
-								label: "live differential",
-								logins: [built.world.server],
-								extensions: []
-							})
-							const value = built.installedAs(done.schema)
-							const world = built.worldAs(done.schema)
+							/**
+							 * The case's world under the installed name `name`: a full role, which serves every query read of
+							 * the case as a member of its workload, in the login `server`, as generate drafts and serves it.
+							 */
+							const servedWorld = (name: string) => {
+								const value = built.installedAs(name)
+								const app = role(value, "app", wholeEntriesOf(value), {
+									write: writableNamesOf(value)
+								})
+								const programs = Rec.fromEntries(
+									Arr.map(reads, ({ read, place }) => [
+										readMember(place),
+										buildRoot(built, value, read.query)
+									])
+								)
+								return {
+									value,
+									app,
+									server: login(value, "server", [app], { workload: [workload(app, programs)] })
+								}
+							}
+							const generated = yield* installGenerated(
+								(name) => {
+									const world = servedWorld(name)
+									return { schema: world.value, logins: [world.server] }
+								},
+								{ label: "live differential", ambient: ordinarySession }
+							)
+							const done = generated.installed
+							const world = servedWorld(done.declared)
 							const statements = factStatements(done.plan, directFacts(c))
 							if (!statements.ok) {
 								return yield* new Differs({
@@ -180,15 +210,11 @@ layer(Substrate.layer)("a generated program", (it) => {
 								yield* writer.query(sql, [])
 							}
 							yield* writer.commit
-							const programs = Rec.fromEntries(
-								Arr.map(reads, ({ read, place }) => [
-									readMember(place),
-									buildRoot(built, value, read.query)
-								])
+							const file: ServedLogin<AnyLogin> = served(
+								defined(generated.served.get("server"), "the served file of login server"),
+								"server"
 							)
-							const json = yield* servedJson(done, world.server, [workload(world.app, programs)])
-							const file: ServedLogin<AnyLogin> = served(json, world.server.name)
-							const fixtureLayer = DbLayer.make({
+							const fixtureLayer = sourcedDbLayer(done, {
 								...clusterConnection(done.cluster, done.database, done.as(world.server).password),
 								pool: clusterPool,
 								login: file,

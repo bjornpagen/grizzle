@@ -18,7 +18,7 @@ import {
 	Layer,
 	Record as Rec
 } from "effect"
-import { DbLayer, served } from "#adapter/public/layer.ts"
+import { served } from "#adapter/public/layer.ts"
 import { roleNameOf } from "#adapter/served/served.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
@@ -37,6 +37,7 @@ import { offlineConnection } from "#test/pg/cli/support.ts"
 import { assert } from "#test/support/assert.ts"
 import { documentDimensions, Search, scoredDocuments } from "#test/support/fixtures/api/search.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { offlineDecoders, servedSourcedLayer } from "#test/support/live-layer.ts"
 import { caseSketchGen, resolveCase } from "#test/support/oracle/public/generate.ts"
 import { type LawLevel, lawLevelGen } from "#test/support/oracle/public/laws.ts"
 import { printCase } from "#test/support/oracle/public/print.ts"
@@ -191,7 +192,12 @@ const hostReads = (file: ServedFile, text: string, printed: () => string) =>
 		const built = yield* Effect.exit(
 			Effect.scoped(
 				Layer.build(
-					DbLayer.make({ ...offlineConnection, pool: clusterPool, login, verify: testVerify })
+					servedSourcedLayer(offlineDecoders, {
+						...offlineConnection,
+						pool: clusterPool,
+						login,
+						verify: testVerify
+					})
 				)
 			)
 		)

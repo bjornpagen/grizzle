@@ -1,12 +1,13 @@
 import { Array as Arr, Effect, type Layer, type Scope } from "effect"
 import type { OpenError } from "#adapter/errors/execution.ts"
-import { DbLayer, served } from "#adapter/public/layer.ts"
+import { served } from "#adapter/public/layer.ts"
 import type { DbLayerOf, PoolBounds, ServedLogin } from "#adapter/types/layer.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { AnyLogin } from "#compiler/public/schema.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { defined } from "#test/support/assert.ts"
 import { type Installed, installGenerated } from "#test/support/install-migrate.ts"
+import { sourcedDbLayer } from "#test/support/live-layer.ts"
 import { commitDirectly, commitStatements } from "#test/support/live/direct.ts"
 import {
 	type LiveCase,
@@ -26,8 +27,8 @@ import { testVerify } from "#test/support/worlds.ts"
  * A live case installed as an application deploys it: its schema drafted and served as `grizzle generate` drafts it
  * (test/support/install-migrate.ts installGenerated), which plans the live source of its served programs' footprint
  * (the publication and replica identity migrate installs) and certifies its role; migrated by the real runner; its facts stored by its direct
- * writer; and its login served from the file generate wrote, over a DbLayer whose every session, pooled and listening,
- * goes through one wire tap.
+ * writer; and its login served from the file generate wrote, over a DbLayer given the installation's live source
+ * (test/support/live-layer.ts), whose every session, pooled, listening and leading, goes through one wire tap.
  */
 export interface LiveInstallation {
 	readonly c: LiveCase
@@ -86,7 +87,7 @@ export const installLive = (
 		}
 		const tap = makeTap(installed.cluster)
 		const file = served(json, liveLogin)
-		const layer = DbLayer.make({
+		const layer = sourcedDbLayer(installed, {
 			...clusterConnection(
 				installed.cluster,
 				installed.database,

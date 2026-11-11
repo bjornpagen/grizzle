@@ -5,12 +5,12 @@ import { openServed } from "#adapter/db/served.ts"
 import { fromEngine, toResult } from "#adapter/engine.ts"
 import type { ApplyError, OpenError } from "#adapter/errors/execution.ts"
 import { compileServed, type ServedRefusal } from "#adapter/public/compile.ts"
-import { DbLayer, served } from "#adapter/public/layer.ts"
+import { served } from "#adapter/public/layer.ts"
 import { compiledWrite } from "#adapter/served/forms.ts"
 import { type LoadedMember, loadServed } from "#adapter/served/load.ts"
 import type { RoleContext } from "#adapter/served/role.ts"
 import type { ApplyOutcome } from "#adapter/types/db.ts"
-import type { DbLayerOf, ServedLogin, ServedRole } from "#adapter/types/layer.ts"
+import type { ServedLogin, ServedRole } from "#adapter/types/layer.ts"
 import type { Json } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
@@ -28,6 +28,7 @@ import type { AnyWorkload } from "#compiler/types/db/workload.ts"
 import { defined } from "#test/support/assert.ts"
 import { conservativeChange } from "#test/support/conservative.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
+import { type SourcedLayer, sourcedDbLayer } from "#test/support/live-layer.ts"
 import { clusterConnection, clusterPool } from "#test/support/pg.ts"
 import { type RoleSetupError, servedRoleContext } from "#test/support/served-role.ts"
 import { snapshotValue } from "#test/support/snapshot-json.ts"
@@ -165,13 +166,13 @@ const conservativeVariants = (
 /** A login served as an application serves it: its served login, typed by L, and its DbLayer over the installation. */
 export interface ServedFixture<L> {
 	readonly login: ServedLogin<L>
-	readonly layer: Layer.Layer<DbLayerOf<L>, OpenError>
+	readonly layer: SourcedLayer<L>
 }
 
 /**
  * `login` serving the served file `json` over `installed`: the file served under L's type, and the DbLayer of it on the
  * cluster's connection with the login's password, the test pool and testVerify, in the database the installation was
- * migrated in.
+ * migrated in, given the installation's live source (test/support/live-layer.ts).
  */
 export const servedFixtureOf = <L extends AnyLogin>(
 	installed: Installed,
@@ -181,7 +182,7 @@ export const servedFixtureOf = <L extends AnyLogin>(
 	const file = served<L>(json, login.name)
 	return {
 		login: file,
-		layer: DbLayer.make({
+		layer: sourcedDbLayer(installed, {
 			...clusterConnection(installed.cluster, installed.database, installed.as(login).password),
 			pool: clusterPool,
 			login: file,

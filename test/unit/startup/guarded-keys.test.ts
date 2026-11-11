@@ -36,7 +36,7 @@ import { noCoverage } from "@grizzle/testing/features"
 import { int, map } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, FileSystem, Formatter, Layer, Record as Rec } from "effect"
-import { DbLayer, served } from "#adapter/public/layer.ts"
+import { served } from "#adapter/public/layer.ts"
 import { resolveConfig } from "#cli/config.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
@@ -60,6 +60,7 @@ import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { incrementsDoNotGrow } from "#test/support/growth.ts"
 import { type CallSite, callCounts } from "#test/support/kernel/calls.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { offlineDecoders, servedSourcedLayer } from "#test/support/live-layer.ts"
 import { clusterPool } from "#test/support/pg.ts"
 import { ownedInput } from "#test/support/policy.ts"
 import { upTo } from "#test/support/up-to.ts"
@@ -134,7 +135,7 @@ const stepsAt = (k: number) =>
 			const [, built] = yield* callCounts(
 				Effect.scoped(
 					Layer.build(
-						DbLayer.make({
+						servedSourcedLayer(offlineDecoders, {
 							...offlineConnection,
 							pool: clusterPool,
 							login: file

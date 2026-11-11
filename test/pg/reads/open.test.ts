@@ -37,7 +37,6 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, Option, Result, String as Str } from "effect"
 import { Db } from "#adapter/public/db.ts"
-import { DbLayer } from "#adapter/public/layer.ts"
 import type { CallError } from "#compiler/live/index.ts"
 import { bytes, date, pg, uuid, Vector } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -57,6 +56,7 @@ import { t1, workFacts } from "#test/support/fixtures/golden/work.ts"
 import { type Installed, installMigratedIn as installIn } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { sourcedDbLayer } from "#test/support/live-layer.ts"
 import { clusterConnection, clusterPool } from "#test/support/pg.ts"
 import type { ServedFixture } from "#test/support/served-db.ts"
 import { testTypeSchema } from "#test/support/sql.ts"
@@ -270,7 +270,7 @@ layer(Substrate.layer)("Db.open", (it) => {
 							readonly served: ServedFixture<L>
 						}
 					) =>
-						DbLayer.make({
+						sourcedDbLayer(o.installed, {
 							...clusterConnection(
 								o.installed.cluster,
 								database,

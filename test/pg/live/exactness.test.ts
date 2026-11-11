@@ -19,9 +19,9 @@
  * the next commit, so it reads exactly that prefix.
  *
  * Plants (~/.cache/grizzle-release/LIVE-TESTS/plants): dropped-remove.patch (a diff sends no remove, so a row its value
- * lost stays folded in); source-missing.patch (a footprint table left out of the publication, or its replica identity
- * too narrow for its routing column: a subscription waits on that table's writes forever, which the hang guard
- * reports; the routing suite fails it at once).
+ * lost stays folded in); source-missing-publication.patch and source-identity-too-narrow.patch (a footprint table left
+ * out of the publication, or its replica identity too narrow for its routing column: a subscription waits on that
+ * table's writes forever, which the hang guard reports; the routing suite fails it at once).
  *
  * Features: each commit situation of world.ts (a write outside its routing values and inside them, a delete of a row it
  * holds, a row removed from its value, a move in an ordered read, a write in a window's neighbourhood, a commit of no

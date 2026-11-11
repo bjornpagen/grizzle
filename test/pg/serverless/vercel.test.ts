@@ -33,7 +33,7 @@ import { attachDatabasePool } from "@vercel/functions/db-connections"
 import { Array as Arr, Effect, Formatter, Layer, ManagedRuntime, Option, Redacted } from "effect"
 import { openServed } from "#adapter/db/served.ts"
 import { compileServed } from "#adapter/public/compile.ts"
-import { DbLayer, served } from "#adapter/public/layer.ts"
+import { served } from "#adapter/public/layer.ts"
 import type { ConnectionPool } from "#adapter/types/layer.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import { uuid } from "#compiler/public/fields.ts"
@@ -56,6 +56,7 @@ import { backendPid, onVercel, roleBackends, vercelRuntime } from "#test/pg/serv
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { atDeclaredName, installationOf } from "#test/support/kernel/naming.ts"
 import { caseHang, nodeTimerMin } from "#test/support/limits.ts"
+import { decodersIn, servedSourcedLayer } from "#test/support/live-layer.ts"
 import { fromEmpty, generate, noDeclarations } from "#test/support/migrate/kit.ts"
 import { clusterConnection, clusterPool } from "#test/support/pg.ts"
 import { snapshotJson } from "#test/support/snapshot-json.ts"
@@ -363,9 +364,11 @@ layer(Substrate.layer, { excludeTestServices: true })("the session pool on Verce
 							 * The module of a serverless function: the layer is built once per instance, here into a
 							 * ManagedRuntime, and every invocation runs on it.
 							 */
+							const scope = yield* Effect.scope
+							const decoderOf = yield* decodersIn(s, scope)
 							const instance = ManagedRuntime.make(
 								Layer.fresh(
-									DbLayer.make({
+									servedSourcedLayer(decoderOf, {
 										...clusterConnection(
 											s.cluster,
 											s.database,
